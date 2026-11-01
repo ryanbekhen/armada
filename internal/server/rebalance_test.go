@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"strconv"
 	"testing"
 	"time"
@@ -27,7 +28,7 @@ func TestRebalanceVictim(t *testing.T) {
 	}
 
 	rs := on("a", "a", "b")
-	v, to, ok := rebalanceVictim(ready("a", "b", "c"), rs, rs, "web", 0, mem)
+	v, to, ok := rebalanceVictim(ready("a", "b", "c"), rs, rs, 0, mem)
 	if !ok || v.NodeID != "a" || to != "c" {
 		t.Errorf("2/1/0: moved %+v to %q (%v), want one from a to c", v, to, ok)
 	}
@@ -42,18 +43,18 @@ func TestRebalanceVictim(t *testing.T) {
 		"empty node cordon": {append(ready("a", "b"), store.Node{ID: "c", State: store.NodeReady, Cordoned: true}), on("a", "a", "b")},
 		"empty node down":   {append(ready("a", "b"), store.Node{ID: "c", State: store.NodeUnknown}), on("a", "a", "b")},
 	} {
-		if v, to, ok := rebalanceVictim(tc.nodes, tc.rs, tc.rs, "web", 0, mem); ok {
+		if v, to, ok := rebalanceVictim(tc.nodes, tc.rs, tc.rs, 0, mem); ok {
 			t.Errorf("%s: moved %s to %s", name, v.ID, to)
 		}
 	}
 	// The empty node cannot fit the replica: nothing to gain.
 	small := []store.Node{{ID: "a", State: store.NodeReady}, {ID: "b", State: store.NodeReady, MemoryBytes: 256 << 20}}
-	if v, to, ok := rebalanceVictim(small, on("a", "a"), on("a", "a"), "web", 512<<20, mem); ok {
+	if v, to, ok := rebalanceVictim(small, on("a", "a"), on("a", "a"), 512<<20, mem); ok {
 		t.Errorf("full node: moved %s to %s", v.ID, to)
 	}
 	// Other apps on the empty node do not matter: only this app's spread.
 	busy := append(on("a", "a"), store.Replica{ID: "db-0", App: "db", NodeID: "b"})
-	if _, to, ok := rebalanceVictim(ready("a", "b"), busy, on("a", "a"), "web", 0, mem); !ok || to != "b" {
+	if _, to, ok := rebalanceVictim(ready("a", "b"), busy, on("a", "a"), 0, mem); !ok || to != "b" {
 		t.Errorf("app spread ignored: to %q, %v", to, ok)
 	}
 }
@@ -170,5 +171,45 @@ func TestRebalanceGivesUpOnReplacementThatNeverServes(t *testing.T) {
 	c.advance(rebalanceBackoff)
 	if _, moving = c.split(); len(moving) != 1 {
 		t.Error("move not retried after the backoff")
+	}
+}
+
+// A rollout spreads the new revision by its own replicas: replicas of the
+// old revision, or still draining, do not count, so no move is needed
+// afterwards.
+func TestRolloutSpreadsNewRevisionEvenly(t *testing.T) {
+	t.Parallel()
+	c := newClockServer(t)
+	for i, id := range []string{"n2", "n3", "n4"} {
+		if err := c.st.UpsertNode(c.ctx, store.Node{ID: id, PrivateIP: fmt.Sprintf("10.0.0.%d", i+3), State: store.NodeReady}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	spec := "name: web\nimage: nginx:%d\ningress:\n  type: external\n  port: 80\nscale:\n  min: 4\n"
+	for v := 1; v <= 3; v++ {
+		c.deploy(fmt.Sprintf(spec, v))
+		// Replicas become ready one at a time, as on real nodes, while
+		// older ones are still draining.
+		for i := 0; i < 200 && c.app().Rolling(); i++ {
+			for _, r := range c.replicas() {
+				if !r.Draining() && !r.Ready {
+					c.readyOn(r)
+					break
+				}
+			}
+			c.advance(2 * time.Second)
+		}
+		if c.app().Rolling() {
+			t.Fatalf("v%d: rollout did not finish", v)
+		}
+		byNode, moving := c.split()
+		if len(moving) != 0 {
+			t.Fatalf("v%d: replica moved after the rollout: %v", v, moving[0].ID)
+		}
+		for _, id := range []string{"n1", "n2", "n3", "n4"} {
+			if len(byNode[id]) != 1 {
+				t.Fatalf("v%d: replicas by node = %v, want one each", v, byNode)
+			}
+		}
 	}
 }

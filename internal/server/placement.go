@@ -40,7 +40,7 @@ func placementMessage(ctx context.Context, revs *revisionCache, nodes []store.No
 	case len(fit) == 0:
 		why = "no ready node accepts the app (every ready node is cordoned or restricted)"
 	default:
-		if _, ok := pickNode(fit, all, app.Name, target.Spec.MemoryBytes(), revs.memory(ctx)); ok {
+		if _, ok := pickNode(fit, all, nil, target.Spec.MemoryBytes(), revs.memory(ctx)); ok {
 			return ""
 		}
 		why = fmt.Sprintf("%d node(s) may run the app, none has %s of memory free", len(fit), humanMemory(target.Spec.MemoryBytes()))
