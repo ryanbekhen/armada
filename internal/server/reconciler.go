@@ -670,11 +670,6 @@ func pickVictim(rs []store.Replica) store.Replica {
 	})
 }
 
-// pickNode chooses a ready node for a new replica of app: fewest replicas of
-// the same app first (spread), then fewest replicas overall, then most free
-// memory. Nodes that report capacity and cannot fit memNeeded are skipped;
-// capacity 0 means unknown. Capacity is self-reported, so it only breaks
-// ties: a node advertising inflated memory does not attract every replica.
 // eligible returns the nodes that may take new replicas of sp: ready, not
 // cordoned, and allowed by its placement.
 func eligible(nodes []store.Node, sp *spec.App) []store.Node {
@@ -696,6 +691,11 @@ func placementAllows(n store.Node, sp *spec.App) bool {
 	return !n.Restricted || sp.Placement.Selects(n.Labels)
 }
 
+// pickNode chooses a ready node for a new replica of app: fewest replicas of
+// the same app first (spread), then fewest replicas overall, then most free
+// memory. Nodes that report capacity and cannot fit memNeeded are skipped;
+// capacity 0 means unknown. Capacity is self-reported, so it only breaks
+// ties: a node advertising inflated memory does not attract every replica.
 func pickNode(nodes []store.Node, replicas []store.Replica, app string, memNeeded int64, memOf func(store.Replica) int64) (store.Node, bool) {
 	type cand struct {
 		node    store.Node
