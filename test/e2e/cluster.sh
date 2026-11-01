@@ -322,6 +322,13 @@ while [ "$i" -le "$N" ]; do
 done
 ok "the secret value is in no journal"
 
+log "steady load"
+# Nothing changes in the cluster: a failure here is the path between this
+# machine and the nodes, not Armada.
+load_start
+sleep 60
+load_stop "steady load"
+
 log "rolling update under load"
 load_start
 deploy "$V2" >/dev/null
