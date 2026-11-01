@@ -1,0 +1,66 @@
+# GoReleaser configuration for signed Armada releases (see docs/releasing.md).
+version: 2
+
+project_name: armada
+
+before:
+  hooks:
+    - go mod verify
+    - make runtime-bundle
+
+builds:
+  - id: armada
+    main: ./cmd/armada
+    binary: armada
+    env:
+      - CGO_ENABLED=0
+    goos: [linux]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    tags: [bundle]
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    ldflags:
+      - -s -w
+      - -X github.com/ryanbekhen/armada/internal/version.version={{ .Tag }}
+      - -X github.com/ryanbekhen/armada/internal/version.commit={{ .FullCommit }}
+      - -X github.com/ryanbekhen/armada/internal/version.date={{ .CommitDate }}
+
+archives:
+  - id: armada
+    formats: [tar.gz]
+    name_template: "armada_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - README.md
+      - SECURITY.md
+      - deploy/systemd/*
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+sboms:
+  - artifacts: archive
+
+# Keyless signature of the checksum file. install.sh verifies it with
+# `cosign verify-blob` against this repository's release workflow identity.
+signs:
+  - cmd: cosign
+    artifacts: checksum
+    signature: "${artifact}.sigstore.json"
+    args:
+      - sign-blob
+      - --bundle=${signature}
+      - ${artifact}
+      - --yes
+
+release:
+  github:
+    owner: ryanbekhen
+    name: armada
+  prerelease: auto
+  draft: true
+
+changelog:
+  use: github
+  sort: asc

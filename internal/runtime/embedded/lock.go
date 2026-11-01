@@ -1,0 +1,82 @@
+// Package embedded runs containers on Armada's own containerd instance
+// (ADR 0011). Release builds carry containerd, runc, the CNI plugins, and
+// tini in the binary; this file pins exactly which upstream artifacts.
+package embedded
+
+// Artifact is one upstream download that contributes files to the bundle.
+//
+// When bumping a version: verify the upstream signature first (runc and
+// tini publish GPG signatures; containerd and the CNI plugins publish
+// checksums with the release), then record the SHA-256 here. The hash, not
+// the URL, is what the bundle trusts.
+type Artifact struct {
+	Name    string
+	Version string
+	// URL has {arch} replaced by amd64 or arm64.
+	URL    string
+	SHA256 map[string]string // by arch
+	// Files maps a path inside the downloaded archive to its name in the
+	// bundle. An empty map means the download is the file itself, named
+	// Name.
+	Files map[string]string
+}
+
+// Lock lists every artifact in the bundle.
+var Lock = []Artifact{
+	{
+		Name:    "containerd",
+		Version: "2.4.2",
+		URL:     "https://github.com/containerd/containerd/releases/download/v2.4.2/containerd-static-2.4.2-linux-{arch}.tar.gz",
+		SHA256: map[string]string{
+			"amd64": "da656542e754c699a0f438eab925e6ffdbd6346a4428e659f83dc058f04dcffe",
+			"arm64": "37b84b9534533672528141b9d815f58621a2fe5deee2daa84317800255756689",
+		},
+		Files: map[string]string{
+			"bin/containerd":              "containerd",
+			"bin/containerd-shim-runc-v2": "containerd-shim-runc-v2",
+		},
+	},
+	{
+		Name:    "runc",
+		Version: "1.5.2",
+		URL:     "https://github.com/opencontainers/runc/releases/download/v1.5.2/runc.{arch}",
+		SHA256: map[string]string{
+			"amd64": "599f6f94ff8c5057241eff0d54c3c74f95c34935b6457b33fe545defc61e9488",
+			"arm64": "d10ecae898361832a059be2089bab92d158aec54661b18ed7346ed79628b46b0",
+		},
+	},
+	{
+		Name:    "cni-plugins",
+		Version: "1.9.1",
+		URL:     "https://github.com/containernetworking/plugins/releases/download/v1.9.1/cni-plugins-linux-{arch}-v1.9.1.tgz",
+		SHA256: map[string]string{
+			"amd64": "b98f74a0f8522f0a83867178729c1aa70f2158f90c45a2ca8fa791db1c76b303",
+			"arm64": "56171987d3947707c3563db2f4001bccaf50fd63468611b9f3cbecb1375ee7ec",
+		},
+		Files: map[string]string{
+			"./bridge":     "cni/bridge",
+			"./host-local": "cni/host-local",
+			"./loopback":   "cni/loopback",
+			"./portmap":    "cni/portmap",
+			"./firewall":   "cni/firewall",
+		},
+	},
+	{
+		Name:    "tini",
+		Version: "0.19.0",
+		URL:     "https://github.com/krallin/tini/releases/download/v0.19.0/tini-static-{arch}",
+		SHA256: map[string]string{
+			"amd64": "c5b0666b4cb676901f90dfcb37106783c5fe2077b04590973b885950611b30ee",
+			"arm64": "eae1d3aa50c48fb23b8cbdf4e369d0910dfc538566bfd09df89a774aa84a48b9",
+		},
+	},
+}
+
+// Names of the bundled files the runtime uses.
+const (
+	BinContainerd = "containerd"
+	BinShim       = "containerd-shim-runc-v2"
+	BinRunc       = "runc"
+	BinTini       = "tini"
+	DirCNI        = "cni"
+)

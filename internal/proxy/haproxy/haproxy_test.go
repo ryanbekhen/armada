@@ -1,0 +1,713 @@
+package haproxy
+
+import (
+	"context"
+	"errors"
+	"flag"
+	"fmt"
+	"io"
+	"net"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/ryanbekhen/armada/internal/fsutil"
+	"github.com/ryanbekhen/armada/internal/proxy"
+	"github.com/ryanbekhen/armada/internal/runtime"
+	"github.com/ryanbekhen/armada/internal/runtime/fake"
+)
+
+var update = flag.Bool("update", false, "rewrite golden files")
+
+func cert(t *testing.T) []byte {
+	t.Helper()
+	b, err := selfSignedPEM()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
+func sampleConfig(t *testing.T) proxy.Config {
+	return proxy.Config{
+		ACMEAddress: "10.0.0.1:7480",
+		Backends: []proxy.Backend{
+			{Name: "frontend", Servers: []proxy.Server{{Name: "frontend-r1-a", Address: "10.0.0.2:32768"}}},
+			{Name: "api-bengkel", HealthPath: "/healthz", Servers: []proxy.Server{
+				{Name: "api-bengkel-r3-b", Address: "10.0.0.3:32770"},
+				{Name: "api-bengkel-r3-a", Address: "10.0.0.2:32769"},
+			}},
+			{Name: "admin-panel", Servers: nil},
+		},
+		Rules: []proxy.Rule{
+			{Host: "contoh.id", PathPrefix: "/", Backend: "frontend"},
+			{Host: "contoh.id", PathPrefix: "/api", StripPrefix: true, Backend: "api-bengkel"},
+			{Host: "contoh.id", PathPrefix: "/admin", Backend: "admin-panel"},
+			{Host: "contoh.id", PathPrefix: "/api/v1.2", StripPrefix: true, Backend: "api-bengkel"},
+			{Host: "api-bengkel.apps.contoh.id", PathPrefix: "/", Backend: "api-bengkel"},
+			{Host: "api-bengkel.internal", PathPrefix: "/", Backend: "api-bengkel", Internal: true},
+			{Host: "api-bengkel.internal", PathPrefix: "/v1", StripPrefix: true, Backend: "api-bengkel", Internal: true},
+		},
+		Certificates: []proxy.Certificate{{Name: "contoh.id", PEM: cert(t)}},
+	}
+}
+
+func golden(t *testing.T, name string, got []byte) {
+	t.Helper()
+	path := filepath.Join("testdata", name)
+	if *update {
+		if err := os.WriteFile(path, got, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("%v (run with -update to create)", err)
+	}
+	if string(want) != string(got) {
+		t.Errorf("%s mismatch (run go test -update to accept):\n--- got ---\n%s", name, got)
+	}
+}
+
+func TestRenderGolden(t *testing.T) {
+	t.Parallel()
+
+	cfg := sampleConfig(t)
+	layout := assignLayout(nil, cfg)
+	golden(t, "full.cfg", render(cfg, layout, renderOptions{PrivateIP: "10.0.0.2", InternalIP: "172.17.0.1"}))
+
+	empty := proxy.Config{}
+	golden(t, "empty.cfg", render(empty, assignLayout(nil, empty), renderOptions{}))
+}
+
+func TestRenderRouteOrder(t *testing.T) {
+	t.Parallel()
+
+	out := string(render(sampleConfig(t), assignLayout(nil, sampleConfig(t)), renderOptions{}))
+	// The longest prefix must be considered first, and "/" last.
+	iV12 := strings.Index(out, "-m str /api/v1.2 }")
+	iAPI := strings.Index(out, "-m str /api }")
+	iRoot := strings.Index(out, "str(r4)")
+	if iV12 < 0 || iAPI < 0 || iRoot < 0 || iV12 > iAPI || iAPI > iRoot {
+		t.Errorf("route order wrong: v1.2=%d api=%d root=%d", iV12, iAPI, iRoot)
+	}
+	if !strings.Contains(out, "set-path /%[path,field(4,/,0)] if { var(txn.route) -m str r0 }") ||
+		!strings.Contains(out, "set-path /%[path,field(3,/,0)] if { var(txn.route) -m str r2 }") {
+		t.Errorf("strip prefix must skip the prefix's segments:\n%s", out)
+	}
+	if strings.Contains(out, "regsub") || strings.Contains(out, "replace-path") {
+		t.Error("user paths must never become regular expressions")
+	}
+	if strings.Contains(out, "set-path /%[path,field(4,/,0)] if { var(txn.route) -m str r1 }") || strings.Count(out, "http-request set-path") != 2 {
+		t.Error("route without stripPrefix must not rewrite the path")
+	}
+}
+
+func TestRenderInternalFrontend(t *testing.T) {
+	t.Parallel()
+
+	cfg := sampleConfig(t)
+	out := string(render(cfg, assignLayout(nil, cfg), renderOptions{InternalIP: "172.17.0.1"}))
+	i := strings.Index(out, "frontend internal")
+	if i < 0 || !strings.Contains(out, "    bind 172.17.0.1:80\n") {
+		t.Fatalf("internal frontend missing:\n%s", out)
+	}
+	pub, internal := out[:i], out[i:strings.Index(out[i:], "\nbackend ")+i]
+	// Internal names are routed only on the internal frontend, public names
+	// only on the public ones.
+	if strings.Contains(pub, ".internal") {
+		t.Error("an internal name is routed on a public frontend")
+	}
+	if strings.Contains(internal, "contoh.id") {
+		t.Error("a public name is routed on the internal frontend")
+	}
+	if !strings.Contains(internal, "set-path /%[path,field(3,/,0)] if { var(txn.route) -m str i0 }") {
+		t.Errorf("internal strip prefix:\n%s", internal)
+	}
+	// Without a bridge address there is no internal frontend at all.
+	if strings.Contains(string(render(cfg, assignLayout(nil, cfg), renderOptions{})), "frontend internal") {
+		t.Error("internal frontend rendered without an internal IP")
+	}
+}
+
+func TestRenderNoPublicMetrics(t *testing.T) {
+	t.Parallel()
+
+	out := string(render(proxy.Config{}, Layout{}, renderOptions{PrivateIP: "fd00::2"}))
+	if !strings.Contains(out, "bind [fd00::2]:8404") {
+		t.Errorf("metrics bind missing:\n%s", out)
+	}
+	if strings.Contains(out, "bind :8404") || strings.Contains(out, "bind *:8404") {
+		t.Error("metrics bound on all interfaces")
+	}
+	if strings.Contains(string(render(proxy.Config{}, Layout{}, renderOptions{})), "frontend metrics") {
+		t.Error("metrics frontend rendered without a private IP")
+	}
+}
+
+// directive matches the start of every line HAProxy could interpret as a
+// section or keyword. Every rendered line must be one we expect.
+var allowedLine = regexp.MustCompile(`^(#.*|global|defaults|frontend [a-z]+|backend be_[a-z0-9_-]+|    [a-z].*|)$`)
+
+// FuzzRender feeds arbitrary hostnames, paths, and names through validation
+// and checks that anything accepted renders without injecting new lines or
+// sections.
+func FuzzRender(f *testing.F) {
+	f.Add("contoh.id", "/api", "web", "/healthz", "10.0.0.2:80")
+	f.Add("a.b", "/", "x", "", "127.0.0.1:1")
+	f.Add("a.b\nbind :1", "/x }", "w\n", "/h h", "10.0.0.1:80 backup")
+	f.Fuzz(func(t *testing.T, host, path, name, health, addr string) {
+		cfg := proxy.Config{
+			Backends: []proxy.Backend{{Name: name, HealthPath: health, Servers: []proxy.Server{{Name: "r", Address: addr}}}},
+			Rules:    []proxy.Rule{{Host: host, PathPrefix: path, Backend: name}},
+		}
+		if cfg.Validate() != nil {
+			return
+		}
+		out := render(cfg, assignLayout(nil, cfg), renderOptions{})
+		for _, line := range strings.Split(string(out), "\n") {
+			if !allowedLine.MatchString(line) {
+				t.Fatalf("unexpected line %q", line)
+			}
+			if strings.Count(line, "{") != strings.Count(line, "}") {
+				t.Fatalf("unbalanced ACL braces in %q", line)
+			}
+		}
+		if n := strings.Count(string(out), "\nbackend "); n != 2 {
+			t.Fatalf("expected 2 backends, rendered %d", n)
+		}
+	})
+}
+
+func TestSlotCount(t *testing.T) {
+	t.Parallel()
+	for n, want := range map[int]int{0: 10, 1: 10, 10: 10, 11: 20, 20: 20, 95: 100} {
+		if got := slotCount(n); got != want {
+			t.Errorf("slotCount(%d) = %d, want %d", n, got, want)
+		}
+	}
+}
+
+func TestAssignLayoutIsStable(t *testing.T) {
+	t.Parallel()
+
+	cfg := proxy.Config{Backends: []proxy.Backend{{Name: "web", Servers: []proxy.Server{{Name: "b"}, {Name: "a"}}}}}
+	l1 := assignLayout(nil, cfg)
+	if l1["web"][0] != "a" || l1["web"][1] != "b" || len(l1["web"]) != 10 {
+		t.Fatalf("layout = %v", l1["web"])
+	}
+	// Removing "a" frees slot 0 without moving "b"; a new replica fills the gap.
+	cfg.Backends[0].Servers = []proxy.Server{{Name: "b"}, {Name: "c"}}
+	l2 := assignLayout(l1, cfg)
+	if l2["web"][0] != "c" || l2["web"][1] != "b" {
+		t.Errorf("layout = %v, want b to keep slot 1", l2["web"])
+	}
+	// Growing past 10 replicas adds a slot band.
+	for i := range 11 {
+		cfg.Backends[0].Servers = append(cfg.Backends[0].Servers, proxy.Server{Name: fmt.Sprintf("n%02d", i)})
+	}
+	if l3 := assignLayout(l2, cfg); len(l3["web"]) != 20 || l3["web"][1] != "b" {
+		t.Errorf("layout after growth = %v", l3["web"])
+	}
+}
+
+func TestSignatureIgnoresServerAddresses(t *testing.T) {
+	t.Parallel()
+
+	cfg := sampleConfig(t)
+	l := assignLayout(nil, cfg)
+	s1 := signature(cfg, l, renderOptions{PrivateIP: "10.0.0.2"})
+	cfg.Backends[0].Servers[0].Address = "10.0.0.9:40000"
+	cfg.Certificates[0].PEM = cert(t)
+	if signature(cfg, l, renderOptions{PrivateIP: "10.0.0.2"}) != s1 {
+		t.Error("address or certificate content change altered the signature")
+	}
+	cfg.Rules = cfg.Rules[1:]
+	if signature(cfg, l, renderOptions{PrivateIP: "10.0.0.2"}) == s1 {
+		t.Error("rule change did not alter the signature")
+	}
+	if signature(sampleConfig(t), l, renderOptions{PrivateIP: "10.0.0.3"}) == s1 {
+		t.Error("private IP change did not alter the signature")
+	}
+	if signature(sampleConfig(t), l, renderOptions{PrivateIP: "10.0.0.2", InternalIP: "172.17.0.1"}) == s1 {
+		t.Error("internal IP change did not alter the signature")
+	}
+}
+
+// fakeEngine and fakeAPI record calls made by the driver.
+type fakeEngine struct {
+	mu          sync.Mutex
+	running     bool
+	starts      int
+	reloads     int
+	validations []string
+	validateErr error
+	startErr    error
+}
+
+func (e *fakeEngine) Running(context.Context) (bool, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.running, nil
+}
+func (e *fakeEngine) Start(context.Context) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.startErr != nil {
+		return e.startErr
+	}
+	e.starts++
+	e.running = true
+	return nil
+}
+func (e *fakeEngine) Validate(_ context.Context, f string) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.validations = append(e.validations, f)
+	return e.validateErr
+}
+func (e *fakeEngine) Reload(context.Context) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.reloads++
+	return nil
+}
+
+type fakeAPI struct {
+	mu   sync.Mutex
+	cmds []string
+	err  error
+}
+
+func (a *fakeAPI) Command(_ context.Context, cmd string) (string, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.cmds = append(a.cmds, cmd)
+	return "", a.err
+}
+func (a *fakeAPI) Payload(_ context.Context, cmd, payload string) (string, error) {
+	return a.Command(context.Background(), cmd+" <<payload:"+fmt.Sprint(len(payload)))
+}
+
+func newDriver(t *testing.T) (*Driver, *fakeEngine, *fakeAPI, string) {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), "haproxy")
+	e, a := &fakeEngine{}, &fakeAPI{}
+	d, err := New(Config{Dir: dir, PrivateIP: "10.0.0.2", Engine: e, API: a})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return d, e, a, dir
+}
+
+func TestNewPreparesDirectories(t *testing.T) {
+	t.Parallel()
+
+	_, _, _, dir := newDriver(t)
+	for _, p := range []string{dir, etcDir(dir), filepath.Join(etcDir(dir), certDir), runDir(dir), filepath.Join(etcDir(dir), defaultCertFile)} {
+		if err := fsutil.CheckPrivate(p); err != nil {
+			t.Error(err)
+		}
+	}
+	if _, err := New(Config{Dir: t.TempDir()}); err == nil {
+		t.Error("New accepted nil engine")
+	}
+	if _, err := New(Config{Dir: t.TempDir(), Engine: &fakeEngine{}, PrivateIP: "nope"}); err == nil {
+		t.Error("New accepted invalid private IP")
+	}
+}
+
+func TestApplyLifecycle(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	d, e, a, dir := newDriver(t)
+	cfg := sampleConfig(t)
+
+	// First apply starts HAProxy with the rendered config.
+	if err := d.Apply(ctx, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if e.starts != 1 || e.reloads != 0 {
+		t.Errorf("starts=%d reloads=%d", e.starts, e.reloads)
+	}
+	live, _ := os.ReadFile(filepath.Join(etcDir(dir), configFile))
+	if !strings.Contains(string(live), "server s1 10.0.0.2:32769") {
+		t.Errorf("live config missing server:\n%s", live)
+	}
+	if err := fsutil.CheckPrivate(filepath.Join(etcDir(dir), certDir, "contoh.id.pem")); err != nil {
+		t.Error(err)
+	}
+
+	// Identical config: nothing to do.
+	if err := d.Apply(ctx, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if e.reloads != 0 || len(a.cmds) != 0 || len(e.validations) != 0 {
+		t.Errorf("no-op apply did work: reloads=%d cmds=%v validations=%v", e.reloads, a.cmds, e.validations)
+	}
+
+	// Replica moved and one added: Runtime API only, no reload.
+	cfg.Backends[1].Servers = []proxy.Server{
+		{Name: "api-bengkel-r3-a", Address: "10.0.0.2:32769"},
+		{Name: "api-bengkel-r3-c", Address: "10.0.0.4:32771"},
+	}
+	if err := d.Apply(ctx, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if e.reloads != 0 {
+		t.Error("server change caused a reload")
+	}
+	want := []string{
+		"set server be_api-bengkel/s2 addr 10.0.0.4 port 32771",
+		"set server be_api-bengkel/s2 state ready",
+	}
+	if strings.Join(a.cmds, "|") != strings.Join(want, "|") {
+		t.Errorf("runtime commands = %q, want %q", a.cmds, want)
+	}
+	if len(e.validations) != 1 || !strings.HasSuffix(e.validations[0], "haproxy.cfg.new") {
+		t.Errorf("validations = %v", e.validations)
+	}
+
+	// Removing a replica puts its slot in maintenance.
+	a.cmds = nil
+	cfg.Backends[1].Servers = cfg.Backends[1].Servers[1:]
+	if err := d.Apply(ctx, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(a.cmds, "|") != "set server be_api-bengkel/s1 state maint" {
+		t.Errorf("runtime commands = %q", a.cmds)
+	}
+
+	// Replacing the only replica: the new server is enabled before the old
+	// slot goes into maintenance. (Slot keys sort as strings, so without
+	// the two passes "s10" would be disabled before "s2" is enabled.)
+	a.cmds = nil
+	cfg.Backends[1].Servers = []proxy.Server{{Name: "api-bengkel-r4-a", Address: "10.0.0.5:32772"}}
+	if err := d.Apply(ctx, cfg); err != nil {
+		t.Fatal(err)
+	}
+	want = []string{
+		"set server be_api-bengkel/s1 addr 10.0.0.5 port 32772",
+		"set server be_api-bengkel/s1 state ready",
+		"set server be_api-bengkel/s2 state maint",
+	}
+	if strings.Join(a.cmds, "|") != strings.Join(want, "|") {
+		t.Errorf("replacement commands = %q, want %q", a.cmds, want)
+	}
+
+	// Certificate renewal: live update through the Runtime API.
+	a.cmds = nil
+	cfg.Certificates[0].PEM = cert(t)
+	if err := d.Apply(ctx, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if len(a.cmds) != 2 || !strings.HasPrefix(a.cmds[0], "set ssl cert /usr/local/etc/haproxy/certs/contoh.id.pem <<") ||
+		a.cmds[1] != "commit ssl cert /usr/local/etc/haproxy/certs/contoh.id.pem" || e.reloads != 0 {
+		t.Errorf("cert update cmds = %q reloads=%d", a.cmds, e.reloads)
+	}
+
+	// New route: structural change, validated then reloaded.
+	cfg.Rules = append(cfg.Rules, proxy.Rule{Host: "www.contoh.id", PathPrefix: "/", Backend: "frontend"})
+	cfg.Certificates = append(cfg.Certificates, proxy.Certificate{Name: "www.contoh.id", PEM: cert(t)})
+	if err := d.Apply(ctx, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if e.reloads != 1 {
+		t.Errorf("reloads = %d, want 1", e.reloads)
+	}
+
+	// Removed certificate files are deleted.
+	cfg.Certificates = cfg.Certificates[:1]
+	if err := d.Apply(ctx, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(etcDir(dir), certDir, "www.contoh.id.pem")); !errors.Is(err, os.ErrNotExist) {
+		t.Error("stale certificate not removed")
+	}
+	if err := d.Health(ctx); err != nil {
+		t.Error(err)
+	}
+}
+
+func TestApplyKeepsOldConfigWhenInvalid(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	d, e, _, dir := newDriver(t)
+	cfg := sampleConfig(t)
+	if err := d.Apply(ctx, cfg); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := os.ReadFile(filepath.Join(etcDir(dir), configFile))
+
+	e.validateErr = errors.New("[ALERT] parsing error")
+	cfg.Rules = cfg.Rules[:1]
+	err := d.Apply(ctx, cfg)
+	if err == nil || !strings.Contains(err.Error(), "keeping the current one") {
+		t.Fatalf("err = %v", err)
+	}
+	after, _ := os.ReadFile(filepath.Join(etcDir(dir), configFile))
+	if string(before) != string(after) || e.reloads != 0 {
+		t.Error("invalid config replaced the live one or triggered a reload")
+	}
+	if _, err := os.Stat(filepath.Join(etcDir(dir), configFile+".new")); !errors.Is(err, os.ErrNotExist) {
+		t.Error("rejected config left behind")
+	}
+
+	// Once validation passes again, the change goes through.
+	e.validateErr = nil
+	if err := d.Apply(ctx, cfg); err != nil || e.reloads != 1 {
+		t.Errorf("retry: err=%v reloads=%d", err, e.reloads)
+	}
+}
+
+func TestApplyRejectsInvalidConfig(t *testing.T) {
+	t.Parallel()
+	d, e, _, _ := newDriver(t)
+	cfg := sampleConfig(t)
+	cfg.Rules[0].Host = "evil.com }\n    use_backend be_x"
+	if err := d.Apply(context.Background(), cfg); err == nil || !strings.Contains(err.Error(), "refusing invalid") {
+		t.Errorf("err = %v", err)
+	}
+	if e.starts != 0 {
+		t.Error("HAProxy started with invalid config")
+	}
+}
+
+func TestApplyStartFailure(t *testing.T) {
+	t.Parallel()
+	d, e, _, _ := newDriver(t)
+	e.startErr = errors.New("port 80 in use")
+	if err := d.Apply(context.Background(), sampleConfig(t)); err == nil || !strings.Contains(err.Error(), "port 80 in use") {
+		t.Errorf("err = %v", err)
+	}
+	if err := d.Health(context.Background()); err == nil {
+		t.Error("Health ok while not running")
+	}
+}
+
+func TestRuntimeAPIErrorPropagates(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	d, _, a, _ := newDriver(t)
+	cfg := sampleConfig(t)
+	if err := d.Apply(ctx, cfg); err != nil {
+		t.Fatal(err)
+	}
+	a.err = errors.New("No such server")
+	cfg.Backends[0].Servers[0].Address = "10.0.0.2:40000"
+	if err := d.Apply(ctx, cfg); err == nil {
+		t.Error("runtime API failure not reported")
+	}
+	// The failed change is retried on the next apply.
+	a.err = nil
+	a.cmds = nil
+	if err := d.Apply(ctx, cfg); err != nil || len(a.cmds) != 2 {
+		t.Errorf("retry: err=%v cmds=%v", err, a.cmds)
+	}
+}
+
+// fakeSocket serves canned Runtime API answers on a Unix socket.
+func fakeSocket(t *testing.T, answer func(req string) string) (string, *[]string) {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "hap") // short path for the socket limit
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	path := filepath.Join(dir, "s.sock")
+	ln, err := net.Listen("unix", path)
+	if err != nil {
+		t.Skipf("unix sockets unavailable: %v", err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	var mu sync.Mutex
+	var reqs []string
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				defer c.Close()
+				_ = c.SetDeadline(time.Now().Add(2 * time.Second))
+				buf := make([]byte, 64<<10)
+				var req strings.Builder
+				for {
+					n, err := c.Read(buf)
+					req.Write(buf[:n])
+					s := req.String()
+					if err != nil || (strings.HasSuffix(s, "\n") && (!strings.Contains(s, "<<\n") || strings.HasSuffix(s, "\n\n"))) {
+						break
+					}
+				}
+				mu.Lock()
+				reqs = append(reqs, req.String())
+				mu.Unlock()
+				_, _ = io.WriteString(c, answer(req.String()))
+			}()
+		}
+	}()
+	return path, &reqs
+}
+
+func TestSocket(t *testing.T) {
+	t.Parallel()
+
+	path, reqs := fakeSocket(t, func(req string) string {
+		switch {
+		case strings.HasPrefix(req, "show info"):
+			return "Name: HAProxy\nVersion: 3.2\n"
+		case strings.HasPrefix(req, "set server be_x/s1 addr"):
+			return "No such server.\n"
+		case strings.HasPrefix(req, "set ssl cert"):
+			return "Transaction created for certificate /c.pem!\n"
+		}
+		return "\n"
+	})
+	s := Socket{Path: path}
+	ctx := context.Background()
+
+	out, err := s.Command(ctx, "show info")
+	if err != nil || !strings.Contains(out, "HAProxy") {
+		t.Errorf("show info = %q, %v", out, err)
+	}
+	if _, err := s.Command(ctx, "set server be_x/s1 addr 10.0.0.1 port 80"); err == nil {
+		t.Error("error response not detected")
+	}
+	if _, err := s.Command(ctx, "set server be_x/s2 state ready"); err != nil {
+		t.Errorf("empty response treated as error: %v", err)
+	}
+	if _, err := s.Payload(ctx, "set ssl cert /c.pem", "-----BEGIN CERTIFICATE-----\nAAA\n-----END CERTIFICATE-----\n"); err != nil {
+		t.Errorf("payload: %v", err)
+	}
+	for _, bad := range []string{"show info\nshutdown sessions", "show info; disable frontend https"} {
+		if _, err := s.Command(ctx, bad); err == nil {
+			t.Errorf("multi-statement command %q accepted", bad)
+		}
+	}
+	if _, err := s.Payload(ctx, "set ssl cert /c.pem", "a\n\nshutdown frontend https"); err == nil {
+		t.Error("payload with empty line accepted (would end the payload early)")
+	}
+	if _, err := s.Payload(ctx, "x\ny", "a"); err == nil {
+		t.Error("multi-line payload command accepted")
+	}
+
+	got := strings.Join(*reqs, "")
+	if !strings.Contains(got, "set ssl cert /c.pem <<\n-----BEGIN CERTIFICATE-----\nAAA\n-----END CERTIFICATE-----\n\n") {
+		t.Errorf("payload framing wrong: %q", got)
+	}
+	if _, err := (Socket{Path: filepath.Join(t.TempDir(), "none")}).Command(ctx, "show info"); err == nil {
+		t.Error("missing socket not reported")
+	}
+}
+
+func TestContainerEngine(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	rt := fake.New()
+	dir := t.TempDir()
+	e := &ContainerEngine{Runtime: rt, System: rt, Dir: dir, StartWait: time.Millisecond}
+
+	if ok, _ := e.Running(ctx); ok {
+		t.Error("running before start")
+	}
+	if err := e.Validate(ctx, "/x"); err == nil {
+		t.Error("Validate without container succeeded")
+	}
+	if err := e.Reload(ctx); err == nil {
+		t.Error("Reload without container succeeded")
+	}
+
+	// A stale HAProxy from an older image is replaced.
+	rt.Add(runtime.Container{ID: "old", State: runtime.StateRunning, Labels: map[string]string{runtime.LabelSystem: systemLabel, imageLabel: "haproxy:2.8"}})
+	if ok, _ := e.Running(ctx); ok {
+		t.Error("container with a different image counted as running")
+	}
+	// So is one serving another data directory.
+	rt.Add(runtime.Container{ID: "elsewhere", State: runtime.StateRunning, Labels: map[string]string{runtime.LabelSystem: systemLabel, imageLabel: Image, dirLabel: "/var/lib/other"}})
+	if ok, _ := e.Running(ctx); ok {
+		t.Error("container mounting another directory counted as running")
+	}
+	if err := e.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"old", "elsewhere"} {
+		if _, err := rt.Inspect(ctx, id); !errors.Is(err, runtime.ErrNotFound) {
+			t.Errorf("stale HAProxy container %s not removed", id)
+		}
+	}
+	if ok, _ := e.Running(ctx); !ok {
+		t.Error("not running after start")
+	}
+	if len(rt.Pulls) != 1 || rt.Pulls[0] != Image {
+		t.Errorf("pulls = %v", rt.Pulls)
+	}
+	s := rt.Systems[0]
+	if s.User != "0:0" || len(s.CapAdd) != 1 || s.CapAdd[0] != "NET_BIND_SERVICE" {
+		t.Errorf("system spec = %+v", s)
+	}
+	if !s.Mounts[0].ReadOnly || s.Mounts[0].Source != etcDir(dir) || s.Mounts[1].ReadOnly {
+		t.Errorf("mounts = %+v", s.Mounts)
+	}
+	if s.Labels[runtime.LabelManaged] != "" {
+		t.Error("system container must not carry the app-managed label (the agent would remove it)")
+	}
+	if !strings.Contains(Image, "@sha256:") {
+		t.Error("HAProxy image must be pinned by digest")
+	}
+
+	rt.ExecFunc = func(_ string, cmd []string) (string, int, error) {
+		if strings.Join(cmd, " ") != "haproxy -c -f /usr/local/etc/haproxy/haproxy.cfg.new" {
+			t.Errorf("exec = %v", cmd)
+		}
+		return "[ALERT] config : parsing [haproxy.cfg.new:3]", 1, nil
+	}
+	if err := e.Validate(ctx, "/usr/local/etc/haproxy/haproxy.cfg.new"); err == nil || !strings.Contains(err.Error(), "ALERT") {
+		t.Errorf("Validate = %v", err)
+	}
+	rt.ExecFunc = nil
+	if err := e.Validate(ctx, "/usr/local/etc/haproxy/haproxy.cfg.new"); err != nil {
+		t.Error(err)
+	}
+	if err := e.Reload(ctx); err != nil || rt.Signals[0] != "SIGUSR2" {
+		t.Errorf("Reload = %v, signals = %v", err, rt.Signals)
+	}
+}
+
+func TestContainerEngineStartFailure(t *testing.T) {
+	t.Parallel()
+	rt := fake.New()
+	rt.SystemExits = 1
+	rt.LogLines = []runtime.LogFrame{{Stream: runtime.Stderr, Data: []byte("[ALERT] cannot bind socket :80")}}
+	e := &ContainerEngine{Runtime: rt, System: rt, Dir: t.TempDir(), StartWait: time.Millisecond}
+	err := e.Start(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "cannot bind socket") {
+		t.Errorf("err = %v, want HAProxy's own error", err)
+	}
+}
+
+// render must refuse smuggled directives even when validation is bypassed.
+func TestRenderRefusesUnsafeTokens(t *testing.T) {
+	t.Parallel()
+	for name, mut := range map[string]func(*proxy.Config){
+		"server address": func(c *proxy.Config) { c.Backends[0].Servers[0].Address = "[fd00::1%x\n    global x]:80" },
+		"backend name":   func(c *proxy.Config) { c.Backends[0].Name = "web\nbind :1" },
+		"rule host":      func(c *proxy.Config) { c.Rules[0].Host = "a.test }  or { always_true" },
+		"health path":    func(c *proxy.Config) { c.Backends[0].HealthPath = "/h\r\nx" },
+		"acme":           func(c *proxy.Config) { c.ACMEAddress = "10.0.0.2:80\tbackup" },
+	} {
+		cfg := sampleConfig(t)
+		mut(&cfg)
+		if out := render(cfg, assignLayout(nil, cfg), renderOptions{}); out != nil {
+			t.Errorf("%s: rendered an unsafe config", name)
+		}
+	}
+	if render(sampleConfig(t), assignLayout(nil, sampleConfig(t)), renderOptions{}) == nil {
+		t.Error("valid config refused")
+	}
+}

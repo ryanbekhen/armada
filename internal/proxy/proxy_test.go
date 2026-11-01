@@ -1,0 +1,136 @@
+package proxy
+
+import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
+	"math/big"
+	"strings"
+	"testing"
+	"time"
+
+	"google.golang.org/protobuf/proto"
+)
+
+func testPEM(t *testing.T) []byte {
+	t.Helper()
+	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	tmpl := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "t"}, NotBefore: time.Now(), NotAfter: time.Now().Add(time.Hour)}
+	der, _ := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	kder, _ := x509.MarshalPKCS8PrivateKey(key)
+	return append(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: kder})...)
+}
+
+func validConfig(t *testing.T) Config {
+	return Config{
+		ACMEAddress: "10.0.0.1:7480",
+		Backends: []Backend{
+			{Name: "web", HealthPath: "/healthz", Servers: []Server{{Name: "web-r1-a", Address: "10.0.0.2:32768"}}},
+			{Name: "api", Servers: []Server{{Name: "api-r1-a", Address: "10.0.0.3:32769"}}},
+		},
+		Rules: []Rule{
+			{Host: "contoh.id", PathPrefix: "/", Backend: "web"},
+			{Host: "contoh.id", PathPrefix: "/api", StripPrefix: true, Backend: "api"},
+			{Host: "api.internal", PathPrefix: "/", Backend: "api", Internal: true},
+		},
+		Certificates: []Certificate{{Name: "contoh.id", PEM: testPEM(t)}, {Name: "*.apps.contoh.id", PEM: testPEM(t)}},
+	}
+}
+
+func TestValidateAccepts(t *testing.T) {
+	t.Parallel()
+	if err := validConfig(t).Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if err := (Config{}).Validate(); err != nil {
+		t.Errorf("empty config: %v", err)
+	}
+}
+
+func TestValidateRejects(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]func(*Config){
+		"public acme address":          func(c *Config) { c.ACMEAddress = "8.8.8.8:80" },
+		"bad acme address":             func(c *Config) { c.ACMEAddress = "nope" },
+		"backend name injection":       func(c *Config) { c.Backends[0].Name = "web\n  bind :9999" },
+		"backend name uppercase":       func(c *Config) { c.Backends[0].Name = "Web" },
+		"duplicate backend":            func(c *Config) { c.Backends[1].Name = "web" },
+		"health path injection":        func(c *Config) { c.Backends[0].HealthPath = "/h\nhttp-request deny" },
+		"health path space":            func(c *Config) { c.Backends[0].HealthPath = "/h HTTP/1.1" },
+		"server public address":        func(c *Config) { c.Backends[0].Servers[0].Address = "1.2.3.4:80" },
+		"server address garbage":       func(c *Config) { c.Backends[0].Servers[0].Address = "10.0.0.2:80 backup" },
+		"server port zero":             func(c *Config) { c.Backends[0].Servers[0].Address = "10.0.0.2:0" },
+		"server duplicate name":        func(c *Config) { c.Backends[0].Servers = append(c.Backends[0].Servers, c.Backends[0].Servers[0]) },
+		"rule host injection":          func(c *Config) { c.Rules[0].Host = "contoh.id }\n  use_backend x" },
+		"server address with zone":     func(c *Config) { c.Backends[0].Servers[0].Address = "[fd00::1%x\n    global x]:80" },
+		"server address non-canonical": func(c *Config) { c.Backends[0].Servers[0].Address = "[fd00:0::1]:80" },
+		"rule host uppercase":          func(c *Config) { c.Rules[0].Host = "Contoh.id" },
+		"public rule for .internal":    func(c *Config) { c.Rules[0].Host = "web.internal" },
+		"internal rule, public host":   func(c *Config) { c.Rules[2].Host = "contoh.id" },
+		"internal rule, nested host":   func(c *Config) { c.Rules[2].Host = "a.api.internal" },
+		"internal rule injection":      func(c *Config) { c.Rules[2].Host = "api }\n  use_backend x.internal" },
+		"certificate for .internal":    func(c *Config) { c.Certificates[0].Name = "api.internal" },
+		"rule path injection":          func(c *Config) { c.Rules[1].PathPrefix = "/api } || { always_true" },
+		"rule path regex":              func(c *Config) { c.Rules[1].PathPrefix = "/a(b)" },
+		"rule unknown backend":         func(c *Config) { c.Rules[0].Backend = "ghost" },
+		"rule strip root":              func(c *Config) { c.Rules[0].StripPrefix = true },
+		"rule duplicate":               func(c *Config) { c.Rules[1].PathPrefix = "/" },
+		"cert name traversal":          func(c *Config) { c.Certificates[0].Name = "../../etc/passwd" },
+		"cert name slash":              func(c *Config) { c.Certificates[0].Name = "a/b.com" },
+		"cert duplicate":               func(c *Config) { c.Certificates[1].Name = c.Certificates[0].Name },
+		"cert without key": func(c *Config) {
+			c.Certificates[0].PEM = c.Certificates[0].PEM[:strings.Index(string(c.Certificates[0].PEM), "-----BEGIN PRIVATE")]
+		},
+		"cert with two keys": func(c *Config) {
+			c.Certificates[0].PEM = append(c.Certificates[0].PEM, c.Certificates[0].PEM[strings.Index(string(c.Certificates[0].PEM), "-----BEGIN PRIVATE"):]...)
+		},
+		"cert trailing garbage": func(c *Config) { c.Certificates[0].PEM = append(c.Certificates[0].PEM, "\nglobal\n"...) },
+		"cert unexpected block": func(c *Config) {
+			c.Certificates[0].PEM = append(c.Certificates[0].PEM, pem.EncodeToMemory(&pem.Block{Type: "X", Bytes: []byte{1}})...)
+		},
+		"too many servers":        func(c *Config) { c.Backends[0].Servers = make([]Server, MaxServers+1) },
+		"too many backends":       func(c *Config) { c.Backends = make([]Backend, MaxBackends+1) },
+		"cert bundle too large":   func(c *Config) { c.Certificates[0].PEM = make([]byte, maxCertificatePEM+1) },
+		"wildcard in rule host":   func(c *Config) { c.Rules[0].Host = "*.contoh.id" },
+		"double wildcard on cert": func(c *Config) { c.Certificates[1].Name = "*.*.contoh.id" },
+	}
+	for name, mutate := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			c := validConfig(t)
+			mutate(&c)
+			if err := c.Validate(); err == nil {
+				t.Error("Validate() accepted invalid config")
+			}
+		})
+	}
+}
+
+func TestProtoRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	c := validConfig(t)
+	p := c.ToProto()
+	back := FromProto(p)
+	if !proto.Equal(p, back.ToProto()) {
+		t.Error("proto round trip changed config")
+	}
+	if got := FromProto(nil); len(got.Backends) != 0 {
+		t.Error("FromProto(nil) not empty")
+	}
+}
+
+func TestCertificateFileName(t *testing.T) {
+	t.Parallel()
+
+	if got := (Certificate{Name: "*.apps.contoh.id"}).FileName(); got != "_wildcard.apps.contoh.id.pem" {
+		t.Errorf("FileName = %q", got)
+	}
+	if got := (Certificate{Name: "contoh.id"}).FileName(); got != "contoh.id.pem" {
+		t.Errorf("FileName = %q", got)
+	}
+}

@@ -1,0 +1,163 @@
+package cli
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"text/tabwriter"
+	"time"
+
+	"github.com/spf13/cobra"
+
+	armadav1 "github.com/ryanbekhen/armada/api/armada/v1"
+)
+
+// Rollout states as reported by the server.
+const (
+	rolloutProgressing = "progressing"
+	rolloutFailed      = "failed"
+)
+
+// waitPoll is how often --wait checks the rollout.
+var waitPoll = time.Second
+
+// waitFlags adds --wait and --timeout to a command that starts a rollout.
+type waitFlags struct {
+	wait    bool
+	timeout time.Duration
+}
+
+func (w *waitFlags) register(cmd *cobra.Command) {
+	cmd.Flags().BoolVar(&w.wait, "wait", false, "wait until the rollout completes; fail if it is aborted")
+	cmd.Flags().DurationVar(&w.timeout, "timeout", 15*time.Minute, "how long --wait waits")
+}
+
+// serving counts replicas that receive traffic.
+func serving(a *armadav1.AppStatus) int {
+	n := 0
+	for _, r := range a.Replicas {
+		if r.Ready && !r.Draining {
+			n++
+		}
+	}
+	return n
+}
+
+// waitRollout polls until revision of app is live, or returns an error when
+// its rollout fails or another rollout replaces it.
+func waitRollout(ctx context.Context, client armadav1.AdminServiceClient, app, revision string, timeout time.Duration, out io.Writer) error {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	last := ""
+	for {
+		resp, err := client.Status(ctx, &armadav1.StatusRequest{App: app})
+		if err != nil {
+			if ctx.Err() != nil {
+				return fmt.Errorf("timed out after %s waiting for %s; the rollout continues on the server", timeout, revision)
+			}
+			return rpcErr(err)
+		}
+		a := resp.Apps[0]
+		ready, desired := 0, int(a.DesiredReplicas)
+		for _, r := range a.Replicas {
+			if r.Revision == revision && r.Ready && !r.Draining {
+				ready++
+			}
+		}
+		switch {
+		case a.ActiveRevision == revision && a.RolloutState == "" && ready >= desired:
+			_, err := fmt.Fprintf(out, "%s is live (%d/%d ready)\n", revision, ready, desired)
+			return err
+		case a.TargetRevision != revision:
+			if a.RolloutState == rolloutFailed {
+				return fmt.Errorf("rollout of %s failed, %s keeps serving: %s", revision, a.ActiveRevision, a.RolloutMessage)
+			}
+			return fmt.Errorf("rollout of %s was replaced by %s", revision, a.TargetRevision)
+		}
+		if line := fmt.Sprintf("%s: %d/%d ready", revision, ready, desired); line != last {
+			_, _ = fmt.Fprintln(out, line)
+			last = line
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("timed out after %s waiting for %s; the rollout continues on the server", timeout, revision)
+		case <-time.After(waitPoll):
+		}
+	}
+}
+
+func newRollbackCommand(g *globals) *cobra.Command {
+	var w waitFlags
+	cmd := &cobra.Command{
+		Use:   "rollback APP [REVISION]",
+		Short: "Roll an app back to an earlier revision",
+		Long: "Roll an app back to an earlier revision with a rolling update.\n\n" +
+			"Without REVISION, a rollout in progress is cancelled; otherwise the app\n" +
+			"returns to the revision before the active one. Revisions keep their\n" +
+			"pinned image digest, so a rollback runs exactly the image that ran before.",
+		Args: cobra.RangeArgs(1, 2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			req := &armadav1.RollbackRequest{App: args[0]}
+			if len(args) == 2 {
+				req.Revision = args[1]
+			}
+			client, conn, err := dialAdmin(g)
+			if err != nil {
+				return err
+			}
+			defer conn.Close()
+			resp, err := client.Rollback(cmd.Context(), req)
+			if err != nil {
+				return rpcErr(err)
+			}
+			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Rolling %s back to %s\n", args[0], resp.Revision); err != nil {
+				return err
+			}
+			if !w.wait {
+				return nil
+			}
+			return waitRollout(cmd.Context(), client, args[0], resp.Revision, w.timeout, cmd.OutOrStdout())
+		},
+	}
+	w.register(cmd)
+	return cmd
+}
+
+func newRevisionsCommand(g *globals) *cobra.Command {
+	return &cobra.Command{
+		Use:   "revisions APP",
+		Short: "List an app's revisions",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			client, conn, err := dialAdmin(g)
+			if err != nil {
+				return err
+			}
+			defer conn.Close()
+			resp, err := client.ListRevisions(cmd.Context(), &armadav1.ListRevisionsRequest{App: args[0]})
+			if err != nil {
+				return rpcErr(err)
+			}
+			if len(resp.Revisions) == 0 {
+				return errors.New("no revisions")
+			}
+			tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 4, 2, ' ', 0)
+			_, _ = fmt.Fprintln(tw, "REVISION\tSTATUS\tCREATED\tIMAGE\tDIGEST")
+			for _, r := range resp.Revisions {
+				st := "-"
+				switch {
+				case r.Active && r.Target:
+					st = "active"
+				case r.Active:
+					st = "active (rolling out)"
+				case r.Target:
+					st = "rolling out"
+				}
+				_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", r.Name, st,
+					r.CreatedAt.AsTime().Local().Format(time.DateTime), r.Image, dash(r.ImageDigest))
+			}
+			return tw.Flush()
+		},
+	}
+}

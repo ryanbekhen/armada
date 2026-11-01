@@ -1,0 +1,23 @@
+[Unit]
+Description=Armada control plane (and this node's agent)
+Documentation=https://github.com/ryanbekhen/armada
+After=network-online.target armada-runtime.service
+Wants=network-online.target armada-runtime.service
+
+[Service]
+Type=simple
+# Extra flags, e.g. ARMADA_SERVER_FLAGS="--acme-email ops@example.com".
+EnvironmentFile=-/etc/armada/server.env
+ExecStart=/usr/local/bin/armada server --data-dir /var/lib/armada $ARMADA_SERVER_FLAGS
+# Secret files live on tmpfs under /run/armada; keep them across restarts so
+# running replicas keep their mounts.
+RuntimeDirectory=armada
+RuntimeDirectoryMode=0700
+RuntimeDirectoryPreserve=yes
+UMask=0077
+Restart=always
+RestartSec=2
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

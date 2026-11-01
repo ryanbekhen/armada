@@ -1,0 +1,528 @@
+syntax = "proto3";
+
+package armada.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/ryanbekhen/armada/api/armada/v1;armadav1";
+
+// AdminService is called by the CLI. Callers must present an admin client
+// certificate (CN "admin:<name>").
+service AdminService {
+  rpc Deploy(DeployRequest) returns (DeployResponse);
+  rpc Status(StatusRequest) returns (StatusResponse);
+  rpc Scale(ScaleRequest) returns (ScaleResponse);
+  rpc Logs(LogsRequest) returns (stream LogEntry);
+  rpc GetClusterConfig(GetClusterConfigRequest) returns (ClusterConfig);
+  rpc SetClusterConfig(SetClusterConfigRequest) returns (ClusterConfig);
+  rpc ListDomains(ListDomainsRequest) returns (ListDomainsResponse);
+  rpc VerifyDomain(VerifyDomainRequest) returns (Domain);
+  rpc ListRevisions(ListRevisionsRequest) returns (ListRevisionsResponse);
+  rpc Rollback(RollbackRequest) returns (RollbackResponse);
+  rpc SetSecret(SetSecretRequest) returns (SetSecretResponse);
+  rpc ListSecrets(ListSecretsRequest) returns (ListSecretsResponse);
+  rpc DeleteSecret(DeleteSecretRequest) returns (DeleteSecretResponse);
+  rpc CreateJoinToken(CreateJoinTokenRequest) returns (CreateJoinTokenResponse);
+  rpc CordonNode(CordonNodeRequest) returns (CordonNodeResponse);
+  rpc RemoveNode(RemoveNodeRequest) returns (RemoveNodeResponse);
+  rpc ListServers(ListServersRequest) returns (ListServersResponse);
+  rpc RemoveServer(RemoveServerRequest) returns (RemoveServerResponse);
+}
+
+message ListServersRequest {}
+
+message ListServersResponse {
+  repeated ServerInfo servers = 1;
+}
+
+// ServerInfo describes a control plane node.
+message ServerInfo {
+  string name = 1;
+  string private_ip = 2;
+  string api_addr = 3;
+  // The leader runs the reconcilers and serves the API.
+  bool leader = 4;
+  // False while a joining server catches up (an etcd learner).
+  bool voting = 5;
+  // False if the server has no etcd member (it was removed, or its join
+  // never completed).
+  bool member = 6;
+  // Whether its etcd member answers.
+  bool reachable = 7;
+}
+
+message RemoveServerRequest {
+  string name = 1;
+}
+
+message RemoveServerResponse {}
+
+message CreateJoinTokenRequest {
+  // Lifetime in seconds; 0 means the default (1 hour).
+  int64 ttl_seconds = 1;
+  // A server token adds a control plane node (JoinServer) instead of a
+  // node (Join).
+  bool server = 2;
+}
+
+message CreateJoinTokenResponse {
+  // "<id>.<secret>"; returned once and never stored in plaintext.
+  string token = 1 [debug_redact = true];
+  // Pin of the cluster CA, "sha256:<hex>".
+  string ca_hash = 2;
+  // Address of the join listener.
+  string join_addr = 3;
+  google.protobuf.Timestamp expires_at = 4;
+}
+
+message CordonNodeRequest {
+  string node = 1;
+  bool cordoned = 2;
+}
+
+message CordonNodeResponse {}
+
+message RemoveNodeRequest {
+  string node = 1;
+  // Delete the node's replicas instead of requiring it to be evacuated.
+  bool force = 2;
+}
+
+message RemoveNodeResponse {}
+
+// JoinService is served on a separate listener that does not require a
+// client certificate; Join is authorized by a join token.
+service JoinService {
+  rpc Join(JoinRequest) returns (JoinResponse);
+  // JoinServer adds a control plane node. It requires a server token and
+  // returns the cluster's keys, so the token must be handled like them.
+  rpc JoinServer(JoinServerRequest) returns (JoinServerResponse);
+}
+
+message JoinServerRequest {
+  string token_id = 1;
+  string token_secret = 2 [debug_redact = true];
+  string name = 3;
+  string private_ip = 4;
+  // PKCS#10 request for the key of the server's own node (its agent).
+  bytes node_csr = 5;
+  string version = 6;
+  // Ports on private_ip for the API, the join listener (0: disabled), and
+  // the etcd member.
+  int32 api_port = 7;
+  int32 join_port = 8;
+  int32 etcd_peer_port = 9;
+}
+
+// JoinServerResponse carries every key a control plane node holds. Never
+// log it.
+message JoinServerResponse {
+  bytes ca_cert = 1;
+  bytes ca_key = 2 [debug_redact = true];
+  bytes master_key = 3 [debug_redact = true];
+  bytes server_cert = 4;
+  bytes server_key = 5 [debug_redact = true];
+  bytes node_cert = 6;
+  // etcd's initial cluster for the new member ("name=peerURL,...").
+  string initial_cluster = 7;
+  // API addresses of every control plane node, the new one included.
+  repeated string servers = 8;
+}
+
+message JoinRequest {
+  string token_id = 1;
+  string token_secret = 2 [debug_redact = true];
+  string node_name = 3;
+  string private_ip = 4;
+  // PKCS#10 request for the node's key, generated on the node.
+  bytes csr = 5;
+  string version = 6;
+}
+
+message JoinResponse {
+  bytes node_cert = 1;
+  bytes ca_cert = 2;
+  reserved 3;
+  // API addresses of every control plane node.
+  repeated string servers = 4;
+}
+
+// Secret values are write-only: no RPC returns them to admins. Fields that
+// carry plaintext are marked debug_redact for tools that honor it;
+// protobuf-go's String() does not, so never log messages holding secrets.
+message SetSecretRequest {
+  string app = 1;
+  string name = 2;
+  bytes value = 3 [debug_redact = true];
+  // Roll the app out with the new value if its current revision uses the
+  // secret.
+  bool rollout = 4;
+}
+
+message SetSecretResponse {
+  int32 version = 1;
+  // New revision being rolled out, if any.
+  string revision = 2;
+}
+
+message ListSecretsRequest {
+  string app = 1;
+}
+
+message ListSecretsResponse {
+  repeated SecretInfo secrets = 1;
+}
+
+message SecretInfo {
+  string name = 1;
+  int32 version = 2;
+  google.protobuf.Timestamp updated_at = 3;
+  string updated_by = 4;
+  // Revisions of the app that pin some version of this secret.
+  repeated string used_by = 5;
+}
+
+message DeleteSecretRequest {
+  string app = 1;
+  string name = 2;
+}
+
+message DeleteSecretResponse {}
+
+message ListRevisionsRequest {
+  string app = 1;
+}
+
+message ListRevisionsResponse {
+  repeated RevisionInfo revisions = 1;
+}
+
+message RevisionInfo {
+  string name = 1;
+  string image = 2;
+  // Image pinned by digest once a node pulled it; rollbacks use it.
+  string image_digest = 3;
+  google.protobuf.Timestamp created_at = 4;
+  bool active = 5;
+  bool target = 6;
+}
+
+message RollbackRequest {
+  string app = 1;
+  // Optional; defaults to the revision before the active one.
+  string revision = 2;
+}
+
+message RollbackResponse {
+  string revision = 1;
+}
+
+message ClusterConfig {
+  // Apps get <app>.<root_domain> automatically when set.
+  string root_domain = 1;
+  string acme_email = 2;
+}
+
+message GetClusterConfigRequest {}
+
+message SetClusterConfigRequest {
+  ClusterConfig config = 1;
+}
+
+message ListDomainsRequest {
+  // Optional; empty means all domains.
+  string app = 1;
+}
+
+message ListDomainsResponse {
+  repeated Domain domains = 1;
+}
+
+message Domain {
+  string name = 1;
+  repeated string apps = 2;
+  bool verified = 3;
+  // DNS record the owner must create: TXT <txt_name> = <txt_value>.
+  string txt_name = 4;
+  string txt_value = 5;
+  string message = 6;
+  // True when a certificate is available for the domain.
+  bool tls_ready = 7;
+}
+
+message VerifyDomainRequest {
+  string name = 1;
+}
+
+message DeployRequest {
+  // App spec as YAML, validated by the server.
+  bytes spec = 1;
+}
+
+message DeployResponse {
+  string app = 1;
+  string revision = 2;
+}
+
+message StatusRequest {
+  // Optional; empty means all apps.
+  string app = 1;
+}
+
+message StatusResponse {
+  repeated AppStatus apps = 1;
+  repeated NodeStatus nodes = 2;
+}
+
+message AppStatus {
+  string name = 1;
+  string image = 2;
+  string active_revision = 3;
+  int32 desired_replicas = 4;
+  repeated ReplicaStatus replicas = 5;
+  string ingress = 6;
+  repeated string urls = 7;
+  // Revision being rolled out; equals active_revision when idle.
+  string target_revision = 8;
+  // "progressing", "failed", or empty.
+  string rollout_state = 9;
+  string rollout_message = 10;
+}
+
+message ReplicaStatus {
+  string id = 1;
+  string revision = 2;
+  string node_id = 3;
+  string state = 4;
+  string message = 5;
+  // host:port on the node's private IP; empty if the app has no port.
+  string address = 6;
+  google.protobuf.Timestamp updated_at = 7;
+  bool ready = 8;
+  // True while the replica is taken out of the proxy before removal.
+  bool draining = 9;
+}
+
+message NodeStatus {
+  string id = 1;
+  string private_ip = 2;
+  string state = 3;
+  google.protobuf.Timestamp last_seen = 4;
+  int64 cpu_millis = 5;
+  int64 memory_bytes = 6;
+  bool cordoned = 7;
+  google.protobuf.Timestamp cert_expires_at = 8;
+}
+
+message ScaleRequest {
+  string app = 1;
+  int32 replicas = 2;
+}
+
+message ScaleResponse {}
+
+message LogsRequest {
+  string app = 1;
+  bool follow = 2;
+  // Lines per replica; 0 means the server default.
+  int32 tail = 3;
+  // Optional; restrict to one replica.
+  string replica = 4;
+}
+
+enum Stream {
+  STREAM_UNSPECIFIED = 0;
+  STREAM_STDOUT = 1;
+  STREAM_STDERR = 2;
+}
+
+message LogEntry {
+  string replica = 1;
+  Stream stream = 2;
+  bytes data = 3;
+}
+
+// AgentService is called by node agents. Callers must present a node client
+// certificate (CN "node:<id>"). The agent always initiates the connection.
+service AgentService {
+  // Connect is the long-lived control stream: the server pushes assignments
+  // and log requests, the agent pushes status.
+  rpc Connect(stream AgentMessage) returns (stream ServerMessage);
+  // PushLogs carries the log stream for one LogRequest. The first message
+  // must set request_id.
+  rpc PushLogs(stream LogPush) returns (PushLogsResponse);
+  // RenewCertificate issues a new certificate for the calling node's
+  // identity from a CSR for a new key.
+  rpc RenewCertificate(RenewCertificateRequest) returns (RenewCertificateResponse);
+}
+
+message RenewCertificateRequest {
+  bytes csr = 1;
+}
+
+message RenewCertificateResponse {
+  bytes cert = 1;
+}
+
+message AgentMessage {
+  oneof msg {
+    Hello hello = 1;
+    ReplicaReport report = 2;
+  }
+}
+
+message Hello {
+  int64 cpu_millis = 1;
+  int64 memory_bytes = 2;
+  string version = 3;
+  string private_ip = 4;
+}
+
+message ReplicaReport {
+  repeated ReplicaState replicas = 1;
+}
+
+message ReplicaState {
+  string id = 1;
+  string state = 2;
+  string container_id = 3;
+  string address = 4;
+  string message = 5;
+  // Image reference pinned by digest after a successful pull.
+  string image_digest = 6;
+  // True when the replica passes its readiness checks and may get traffic.
+  bool ready = 7;
+}
+
+message ServerMessage {
+  oneof msg {
+    Assignment assignment = 1;
+    LogRequest log_request = 2;
+    LogCancel log_cancel = 3;
+  }
+}
+
+// Assignment is the complete desired set of replicas for the node. Replicas
+// not listed must be removed.
+message Assignment {
+  repeated ReplicaSpec replicas = 1;
+  // Ingress configuration, identical for every node.
+  ProxyConfig proxy = 2;
+  // API addresses of every control plane node; the agent fails over to the
+  // next one when its server goes away.
+  repeated string servers = 3;
+}
+
+message ProxyConfig {
+  repeated ProxyBackend backends = 1;
+  repeated ProxyRule rules = 2;
+  repeated ProxyCertificate certificates = 3;
+  // Private address of the control plane's ACME HTTP-01 responder.
+  string acme_challenge_address = 4;
+}
+
+message ProxyBackend {
+  // App name.
+  string name = 1;
+  repeated ProxyServer servers = 2;
+  // HTTP health check path; empty means a TCP check.
+  string health_path = 3;
+}
+
+message ProxyServer {
+  // Replica ID.
+  string name = 1;
+  // ip:port on a node's private IP.
+  string address = 2;
+}
+
+message ProxyRule {
+  string host = 1;
+  string path_prefix = 2;
+  bool strip_prefix = 3;
+  string backend = 4;
+  // Internal rules route <app>.internal on the node-local internal
+  // frontend, which only containers on that node can reach.
+  bool internal = 5;
+}
+
+message ProxyCertificate {
+  // Hostname the certificate is for (may start with "*.").
+  string name = 1;
+  // Certificate chain followed by the private key, PEM encoded.
+  bytes pem = 2;
+}
+
+message ReplicaSpec {
+  string id = 1;
+  string app = 2;
+  string revision = 3;
+  string image = 4;
+  repeated string command = 5;
+  repeated string args = 6;
+  repeated EnvVar env = 7;
+  int32 port = 8;
+  int64 memory_bytes = 9;
+  int64 nano_cpus = 10;
+  int64 pids_limit = 11;
+  Probe startup = 12;
+  Probe readiness = 13;
+  Probe liveness = 14;
+  repeated SecretFile secret_files = 15;
+  RegistryAuth registry = 16;
+}
+
+// SecretFile is a secret the agent writes to tmpfs on the node and
+// bind-mounts read-only into the container.
+message SecretFile {
+  string path = 1;
+  bytes data = 2 [debug_redact = true];
+  // Identifies the pinned secret version ("name@vN") so the agent can
+  // fingerprint the spec without hashing plaintext.
+  string ref = 3;
+}
+
+message RegistryAuth {
+  string server = 1;
+  string username = 2;
+  string password = 3 [debug_redact = true];
+  string ref = 4;
+}
+
+// Probe is an HTTP GET health check run by the agent against the container.
+message Probe {
+  string path = 1;
+  int32 port = 2;
+  int64 initial_delay_ms = 3;
+  int64 period_ms = 4;
+  int64 timeout_ms = 5;
+  int32 failure_threshold = 6;
+}
+
+message EnvVar {
+  string name = 1;
+  string value = 2 [debug_redact = true];
+  // Set for values from a secret: the pinned version ("name@vN").
+  string ref = 3;
+}
+
+message LogRequest {
+  string request_id = 1;
+  string replica_id = 2;
+  bool follow = 3;
+  int32 tail = 4;
+}
+
+message LogCancel {
+  string request_id = 1;
+}
+
+message LogPush {
+  string request_id = 1;
+  Stream stream = 2;
+  bytes data = 3;
+  // Set on the last message if the agent failed to read logs.
+  string error = 4;
+}
+
+message PushLogsResponse {}

@@ -1,0 +1,765 @@
+package server
+
+import (
+	"cmp"
+	"context"
+	"fmt"
+	"slices"
+	"strconv"
+	"time"
+
+	"google.golang.org/protobuf/proto"
+
+	armadav1 "github.com/ryanbekhen/armada/api/armada/v1"
+	"github.com/ryanbekhen/armada/internal/secrets"
+	"github.com/ryanbekhen/armada/internal/spec"
+	"github.com/ryanbekhen/armada/internal/store"
+)
+
+// Rollout parameters. maxSurge = 1 and maxUnavailable = 0: at most one
+// replica above the desired count, and never fewer serving replicas than
+// desired while the old revision can still serve.
+const (
+	maxSurge                = 1
+	defaultDrainTimeout     = 10 * time.Second
+	defaultWarmup           = 3 * time.Second
+	defaultProgressDeadline = 3 * time.Minute
+)
+
+// DefaultNodeLostTimeout is how long a node may be disconnected before its
+// replicas are rescheduled elsewhere.
+const DefaultNodeLostTimeout = 5 * time.Minute
+
+// Reconcile brings scheduled replicas in line with each app's desired state
+// and pushes per-node assignments to connected agents.
+func (s *Server) Reconcile(ctx context.Context) error {
+	apps, err := s.store.ListApps(ctx)
+	if err != nil {
+		return err
+	}
+	nodes, err := s.store.ListNodes(ctx)
+	if err != nil {
+		return err
+	}
+	replicas, err := s.store.ListReplicas(ctx, store.ReplicaFilter{})
+	if err != nil {
+		return err
+	}
+	revs := revisionCache{store: s.store, keys: s.keys, m: map[string]store.Revision{}}
+
+	rc := reconcileRun{now: s.now()}
+	rc.lost = s.lostNodes(&rc, nodes)
+	for i, app := range apps {
+		replicas, err = s.reconcileApp(ctx, &rc, &apps[i], nodes, replicas, &revs)
+		if err != nil {
+			return fmt.Errorf("app %s: %w", app.Name, err)
+		}
+	}
+	if rc.wake > 0 {
+		s.wakeAfter(rc.wake)
+	}
+	px, err := s.buildProxy(ctx, apps, replicas)
+	if err != nil {
+		return err
+	}
+	eps, err := s.endpoints(ctx)
+	if err != nil {
+		return err
+	}
+	return s.pushAssignments(ctx, replicas, &revs, px.ToProto(), eps)
+}
+
+// reconcileRun is the state of one Reconcile pass.
+type reconcileRun struct {
+	now time.Time
+	// wake is the earliest time something becomes due (a drain ends, a
+	// replica finishes warming up), relative to now.
+	wake time.Duration
+	// lost holds the nodes whose replicas are being rescheduled.
+	lost map[string]bool
+}
+
+// lostNodes returns the nodes that have been disconnected for longer than
+// the lost timeout. If more nodes are lost than ready, the control plane is
+// more likely cut off from the cluster than the nodes dead, so nothing is
+// rescheduled: emptying healthy nodes would cause the outage it guards
+// against.
+func (s *Server) lostNodes(rc *reconcileRun, nodes []store.Node) map[string]bool {
+	lost := map[string]bool{}
+	ready := 0
+	for _, n := range nodes {
+		switch {
+		case n.State == store.NodeReady:
+			ready++
+		case nodeLost(n, rc.now, s.nodeLostTimeout):
+			lost[n.ID] = true
+		case !n.LastSeen.IsZero():
+			rc.wakeAt(n.LastSeen.Add(s.nodeLostTimeout))
+		}
+	}
+	if len(lost) > ready {
+		s.log.Warn("most nodes are unreachable; not rescheduling their replicas (is the control plane cut off?)", "lost", len(lost), "ready", ready)
+		return map[string]bool{}
+	}
+	return lost
+}
+
+// nodeStateLost is shown for nodes whose replicas are being rescheduled.
+const nodeStateLost = "lost"
+
+// nodeLost reports whether n has been disconnected for at least timeout.
+// A node that never connected is not lost: it has no replicas yet.
+func nodeLost(n store.Node, now time.Time, timeout time.Duration) bool {
+	return n.State != store.NodeReady && !n.LastSeen.IsZero() && now.Sub(n.LastSeen) >= timeout
+}
+
+func (rc *reconcileRun) wakeAt(t time.Time) {
+	d := t.Sub(rc.now)
+	if d <= 0 {
+		d = time.Millisecond
+	}
+	if rc.wake == 0 || d < rc.wake {
+		rc.wake = d
+	}
+}
+
+// wakeAfter schedules a reconcile after d unless one is already due sooner.
+func (s *Server) wakeAfter(d time.Duration) {
+	s.wakeMu.Lock()
+	defer s.wakeMu.Unlock()
+	at := time.Now().Add(d)
+	if s.wakeTimer != nil && !s.wakeAt.IsZero() && s.wakeAt.Before(at) && s.wakeAt.After(time.Now()) {
+		return
+	}
+	if s.wakeTimer != nil {
+		s.wakeTimer.Stop()
+	}
+	s.wakeAt = at
+	s.wakeTimer = time.AfterFunc(d, s.Trigger)
+}
+
+// serving reports whether r takes traffic and has done so long enough for
+// every proxy to have picked it up and health-checked it.
+// A replica of an app that publishes a port also needs an address to serve.
+func (s *Server) serving(rc *reconcileRun, r store.Replica, publishes bool) bool {
+	if r.State != store.ReplicaRunning || !r.Ready || r.Draining() || (publishes && r.Address == "") {
+		return false
+	}
+	if due := r.ReadySince.Add(s.warmup); due.After(rc.now) {
+		rc.wakeAt(due)
+		return false
+	}
+	return true
+}
+
+// inProxy reports whether r should receive traffic.
+func inProxy(app store.App, r store.Replica) bool {
+	return r.App == app.Name && (r.Revision == app.ActiveRevision || r.Revision == app.TargetRevision) &&
+		r.State == store.ReplicaRunning && r.Ready && !r.Draining() && r.Address != ""
+}
+
+// publishesPort reports whether replicas of sp publish a port.
+func publishesPort(sp *spec.App) bool {
+	return sp.Ingress != nil && sp.Ingress.Type != spec.IngressNone
+}
+
+func (s *Server) reconcileApp(ctx context.Context, rc *reconcileRun, app *store.App, nodes []store.Node, all []store.Replica, revs *revisionCache) ([]store.Replica, error) {
+	publishes := map[string]bool{}
+	serving := func(r store.Replica) bool {
+		p, ok := publishes[r.Revision]
+		if !ok {
+			rev, err := revs.get(ctx, r.Revision)
+			p = err != nil || publishesPort(rev.Spec) // unknown: require an address
+			publishes[r.Revision] = p
+		}
+		return s.serving(rc, r, p)
+	}
+	var err error
+	var current, old []store.Replica
+	for _, r := range all {
+		if r.App != app.Name {
+			continue
+		}
+		switch {
+		case r.Draining():
+			if all, err = s.finishDrain(ctx, rc, all, r); err != nil {
+				return nil, err
+			}
+		case r.Revision == app.TargetRevision:
+			current = append(current, r)
+		case r.Revision == app.ActiveRevision && app.Rolling():
+			old = append(old, r)
+		default:
+			// Leftovers of an aborted or superseded rollout.
+			if all, err = s.retire(ctx, rc, all, r); err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	// Replicas on cordoned nodes are replaced elsewhere, then retired.
+	cordoned := map[string]bool{}
+	for _, n := range nodes {
+		if n.Cordoned {
+			cordoned[n.ID] = true
+		}
+	}
+	// Replicas on lost nodes are replaced right away (they count toward
+	// neither the desired count nor the surge) and retired once the
+	// replacements serve; until then they stay, in case the node is only
+	// cut off from the control plane and still serves.
+	var moving, lost []store.Replica
+	current = slices.DeleteFunc(current, func(r store.Replica) bool {
+		switch {
+		case rc.lost[r.NodeID]:
+			lost = append(lost, r)
+			return true
+		case cordoned[r.NodeID]:
+			moving = append(moving, r)
+			return true
+		}
+		return false
+	})
+
+	if app.Rolling() {
+		target, err := revs.get(ctx, app.TargetRevision)
+		if err != nil {
+			return nil, err
+		}
+		aborted, err := s.checkRollout(ctx, rc, app, target, current, serving)
+		if err != nil || aborted {
+			if err == nil {
+				// Aborted: everything of the target goes, the old replicas
+				// stay and become current again.
+				for _, r := range current {
+					if all, err = s.retire(ctx, rc, all, r); err != nil {
+						return nil, err
+					}
+				}
+			}
+			return all, err
+		}
+	}
+
+	// Scale down: drop unhealthy replicas first, then from the most loaded node.
+	for len(current) > app.Replicas {
+		victim := pickVictim(current)
+		if all, err = s.retire(ctx, rc, all, victim); err != nil {
+			return nil, err
+		}
+		current = without(current, victim.ID)
+	}
+
+	// Scale up, with one replica of surge while old replicas still run.
+	if len(current) < app.Replicas {
+		target, err := revs.get(ctx, app.TargetRevision)
+		if err != nil {
+			return nil, err
+		}
+		for len(current) < app.Replicas && len(current)+len(old)+len(moving) < app.Replicas+maxSurge {
+			node, ok := pickNode(nodes, all, app.Name, target.Spec.MemoryBytes(), revs.memory(ctx))
+			if !ok {
+				s.log.Warn("no node can fit replica", "app", app.Name, "want", app.Replicas, "have", len(current))
+				break
+			}
+			r := store.Replica{
+				ID:       fmt.Sprintf("%s-r%d-%s", app.Name, target.Seq, randomID(5)),
+				App:      app.Name,
+				Revision: target.Name,
+				NodeID:   node.ID,
+				State:    store.ReplicaPending,
+			}
+			if err := s.store.CreateReplica(ctx, r); err != nil {
+				return nil, err
+			}
+			s.log.Info("scheduled replica", "replica", r.ID, "revision", r.Revision, "node", node.ID)
+			current = append(current, r)
+			all = append(all, r)
+		}
+	}
+	if all, err = s.evacuate(ctx, rc, app, all, current, old, append(lost, moving...), serving); err != nil {
+		return nil, err
+	}
+	if !app.Rolling() {
+		return all, nil
+	}
+
+	// Retire old replicas while enough others serve. Unhealthy ones go
+	// first because they serve nothing anyway.
+	newServing := 0
+	for _, r := range current {
+		if serving(r) {
+			newServing++
+		}
+	}
+	oldServing := 0
+	for _, r := range old {
+		if serving(r) {
+			oldServing++
+		}
+	}
+	slices.SortStableFunc(old, func(a, b store.Replica) int {
+		if sa, sb := serving(a), serving(b); sa != sb {
+			if sa {
+				return 1
+			}
+			return -1
+		}
+		return cmp.Compare(a.ID, b.ID)
+	})
+	for _, r := range old {
+		lose := 0
+		if serving(r) {
+			lose = 1
+		}
+		if oldServing-lose+newServing < app.Replicas {
+			break
+		}
+		if all, err = s.retire(ctx, rc, all, r); err != nil {
+			return nil, err
+		}
+		old = without(old, r.ID)
+		oldServing -= lose
+	}
+
+	if len(old) == 0 && newServing >= app.Replicas && len(current) == app.Replicas {
+		if err := s.store.CompleteRollout(ctx, app.Name, app.TargetRevision); err != nil {
+			return nil, err
+		}
+		s.log.Info("rollout complete", "app", app.Name, "revision", app.TargetRevision)
+		app.ActiveRevision = app.TargetRevision
+		app.RolloutState = store.RolloutNone
+		app.Spec = mustRevision(ctx, revs, app.TargetRevision, app.Spec)
+		s.forgetProgress(app.Name)
+	}
+	return all, nil
+}
+
+// evacuate retires replicas on cordoned or lost nodes while enough other
+// replicas serve, unhealthy ones first.
+func (s *Server) evacuate(ctx context.Context, rc *reconcileRun, app *store.App, all, current, old, moving []store.Replica, serving func(store.Replica) bool) ([]store.Replica, error) {
+	if len(moving) == 0 {
+		return all, nil
+	}
+	count := func(rs []store.Replica) int {
+		n := 0
+		for _, r := range rs {
+			if serving(r) {
+				n++
+			}
+		}
+		return n
+	}
+	others := count(current) + count(old)
+	left := count(moving)
+	slices.SortStableFunc(moving, func(a, b store.Replica) int {
+		if sa, sb := serving(a), serving(b); sa != sb {
+			if sa {
+				return 1
+			}
+			return -1
+		}
+		return cmp.Compare(a.ID, b.ID)
+	})
+	var err error
+	for _, r := range moving {
+		lose := 0
+		if serving(r) {
+			lose = 1
+		}
+		if others+left-lose < app.Replicas {
+			break
+		}
+		reason := "cordoned"
+		if rc.lost[r.NodeID] {
+			reason = "lost"
+		}
+		s.log.Info("evacuating replica", "replica", r.ID, "node", r.NodeID, "node_state", reason)
+		if all, err = s.retire(ctx, rc, all, r); err != nil {
+			return nil, err
+		}
+		left -= lose
+	}
+	return all, nil
+}
+
+// checkRollout records progress of a rollout and aborts it once no new
+// replica has become serving within the progress deadline. It reports
+// whether the rollout was aborted.
+func (s *Server) checkRollout(ctx context.Context, rc *reconcileRun, app *store.App, target store.Revision, current []store.Replica, isServing func(store.Replica) bool) (bool, error) {
+	serving := 0
+	for _, r := range current {
+		if isServing(r) {
+			serving++
+		}
+	}
+	s.progressMu.Lock()
+	prev, seen := s.progress[app.Name]
+	if !seen || prev.revision != target.Name || serving > prev.serving {
+		s.progress[app.Name] = rolloutProgress{revision: target.Name, serving: serving}
+	}
+	s.progressMu.Unlock()
+	if seen && prev.revision == target.Name && serving > prev.serving {
+		if err := s.store.MarkRolloutProgress(ctx, app.Name); err != nil {
+			return false, err
+		}
+		app.RolloutProgressAt = rc.now
+	}
+
+	deadline := s.progressDeadline + probeBudget(target.Spec)
+	due := app.RolloutProgressAt.Add(deadline)
+	if rc.now.Before(due) {
+		rc.wakeAt(due)
+		return false, nil
+	}
+	msg := fmt.Sprintf("no progress within %s", deadline)
+	for _, r := range current {
+		if r.Message != "" && !isServing(r) {
+			msg += fmt.Sprintf("; %s: %s", r.ID, r.Message)
+			break
+		}
+	}
+	if err := s.store.FailRollout(ctx, app.Name, target.Name, msg); err != nil {
+		return false, err
+	}
+	s.log.Warn("rollout failed, keeping the active revision", "app", app.Name, "revision", target.Name, "active", app.ActiveRevision, "reason", msg)
+	app.TargetRevision = app.ActiveRevision
+	app.RolloutState = store.RolloutFailed
+	app.RolloutMessage = msg
+	s.forgetProgress(app.Name)
+	return true, nil
+}
+
+// probeBudget is how long a healthy replica may need to pass its startup
+// and readiness probes, added to the progress deadline.
+func probeBudget(sp *spec.App) time.Duration {
+	if sp.Probes == nil {
+		return 0
+	}
+	var d time.Duration
+	for _, p := range []*spec.Probe{sp.Probes.Startup, sp.Probes.Readiness} {
+		if p != nil {
+			d += p.InitialDelay.D() + time.Duration(p.FailureThreshold)*p.Period.D()
+		}
+	}
+	return d
+}
+
+type rolloutProgress struct {
+	revision string
+	serving  int
+}
+
+func (s *Server) forgetProgress(app string) {
+	s.progressMu.Lock()
+	delete(s.progress, app)
+	s.progressMu.Unlock()
+}
+
+func mustRevision(ctx context.Context, revs *revisionCache, name string, fallback *spec.App) *spec.App {
+	r, err := revs.get(ctx, name)
+	if err != nil {
+		return fallback
+	}
+	return r.Spec
+}
+
+// retire takes r out of service. A replica that may be receiving traffic is
+// drained first: it leaves every proxy now and is stopped after the drain
+// timeout, so in-flight requests can finish. Others are removed at once.
+func (s *Server) retire(ctx context.Context, rc *reconcileRun, all []store.Replica, r store.Replica) ([]store.Replica, error) {
+	if !r.Ready || r.Address == "" || r.State != store.ReplicaRunning {
+		return without(all, r.ID), s.deleteReplica(ctx, r)
+	}
+	if err := s.store.DrainReplica(ctx, r.ID); err != nil {
+		return nil, err
+	}
+	s.log.Info("draining replica", "replica", r.ID, "node", r.NodeID)
+	r.DrainingSince = rc.now
+	rc.wakeAt(rc.now.Add(s.drainTimeout))
+	return replace(all, r), nil
+}
+
+// finishDrain removes a draining replica once its drain timeout has passed.
+func (s *Server) finishDrain(ctx context.Context, rc *reconcileRun, all []store.Replica, r store.Replica) ([]store.Replica, error) {
+	due := r.DrainingSince.Add(s.drainTimeout)
+	if rc.now.Before(due) {
+		rc.wakeAt(due)
+		return all, nil
+	}
+	return without(all, r.ID), s.deleteReplica(ctx, r)
+}
+
+func (s *Server) deleteReplica(ctx context.Context, r store.Replica) error {
+	s.log.Info("removing replica", "replica", r.ID, "node", r.NodeID)
+	return s.store.DeleteReplica(ctx, r.ID)
+}
+
+func replace(rs []store.Replica, r store.Replica) []store.Replica {
+	out := slices.Clone(rs)
+	for i := range out {
+		if out[i].ID == r.ID {
+			out[i] = r
+		}
+	}
+	return out
+}
+
+func without(rs []store.Replica, id string) []store.Replica {
+	return slices.DeleteFunc(slices.Clone(rs), func(r store.Replica) bool { return r.ID == id })
+}
+
+func pickVictim(rs []store.Replica) store.Replica {
+	perNode := map[string]int{}
+	for _, r := range rs {
+		perNode[r.NodeID]++
+	}
+	return slices.MinFunc(rs, func(a, b store.Replica) int {
+		ha, hb := a.State == store.ReplicaRunning, b.State == store.ReplicaRunning
+		if ha != hb {
+			if ha {
+				return 1
+			}
+			return -1
+		}
+		if c := cmp.Compare(perNode[b.NodeID], perNode[a.NodeID]); c != 0 {
+			return c
+		}
+		return cmp.Compare(b.ID, a.ID)
+	})
+}
+
+// pickNode chooses a ready node for a new replica of app: fewest replicas of
+// the same app first (spread), then fewest replicas overall, then most free
+// memory. Nodes that report capacity and cannot fit memNeeded are skipped;
+// capacity 0 means unknown. Capacity is self-reported, so it only breaks
+// ties: a node advertising inflated memory does not attract every replica.
+func pickNode(nodes []store.Node, replicas []store.Replica, app string, memNeeded int64, memOf func(store.Replica) int64) (store.Node, bool) {
+	type cand struct {
+		node    store.Node
+		sameApp int
+		total   int
+		free    int64
+	}
+	var cands []cand
+	for _, n := range nodes {
+		if n.State != store.NodeReady || n.Cordoned {
+			continue
+		}
+		c := cand{node: n, free: n.MemoryBytes}
+		for _, r := range replicas {
+			if r.NodeID != n.ID {
+				continue
+			}
+			c.total++
+			if r.App == app {
+				c.sameApp++
+			}
+			c.free -= memOf(r)
+		}
+		if n.MemoryBytes > 0 && c.free < memNeeded {
+			continue
+		}
+		cands = append(cands, c)
+	}
+	if len(cands) == 0 {
+		return store.Node{}, false
+	}
+	best := slices.MinFunc(cands, func(a, b cand) int {
+		if c := cmp.Compare(a.sameApp, b.sameApp); c != 0 {
+			return c
+		}
+		if c := cmp.Compare(a.total, b.total); c != 0 {
+			return c
+		}
+		if c := cmp.Compare(b.free, a.free); c != 0 {
+			return c
+		}
+		return cmp.Compare(a.node.ID, b.node.ID)
+	})
+	return best.node, true
+}
+
+func (s *Server) pushAssignments(ctx context.Context, replicas []store.Replica, revs *revisionCache, px *armadav1.ProxyConfig, servers []string) error {
+	byNode := map[string][]store.Replica{}
+	for _, r := range replicas {
+		byNode[r.NodeID] = append(byNode[r.NodeID], r)
+	}
+
+	s.mu.Lock()
+	sessions := make([]*session, 0, len(s.sessions))
+	for _, sess := range s.sessions {
+		sessions = append(sessions, sess)
+	}
+	s.mu.Unlock()
+
+	for _, sess := range sessions {
+		a := &armadav1.Assignment{Proxy: px, Servers: servers}
+		for _, r := range byNode[sess.nodeID] {
+			rev, err := revs.get(ctx, r.Revision)
+			if err != nil {
+				return err
+			}
+			vals, err := revs.secrets(ctx, rev)
+			if err != nil {
+				// Withhold the whole assignment: a partial one would make
+				// the agent stop replicas that are serving.
+				return err
+			}
+			rs, err := replicaSpec(r, rev, vals)
+			if err != nil {
+				return err
+			}
+			a.Replicas = append(a.Replicas, rs)
+		}
+		slices.SortFunc(a.Replicas, func(x, y *armadav1.ReplicaSpec) int { return cmp.Compare(x.Id, y.Id) })
+		sess.offerAssignment(a)
+	}
+	return nil
+}
+
+// replicaSpec builds what an agent needs to run one replica. vals holds the
+// plaintext of the secret versions rev pins.
+func replicaSpec(r store.Replica, rev store.Revision, vals map[string]secrets.Value) (*armadav1.ReplicaSpec, error) {
+	sp := rev.Spec
+	secret := func(name string) (secrets.Value, string, error) {
+		v, ok := vals[name]
+		if !ok {
+			return secrets.Value{}, "", fmt.Errorf("revision %s: secret %s is not resolved", rev.Name, name)
+		}
+		return v, name + "@v" + strconv.Itoa(rev.Secrets[name]), nil
+	}
+	env := make([]*armadav1.EnvVar, 0, len(sp.Env)+4)
+	for _, e := range sp.Env {
+		if e.SecretRef == "" {
+			env = append(env, &armadav1.EnvVar{Name: e.Name, Value: e.Value})
+			continue
+		}
+		v, ref, err := secret(e.SecretRef)
+		if err != nil {
+			return nil, err
+		}
+		env = append(env, &armadav1.EnvVar{Name: e.Name, Value: string(v.Bytes()), Ref: ref})
+	}
+	env = append(env,
+		&armadav1.EnvVar{Name: "ARMADA_APP", Value: r.App},
+		&armadav1.EnvVar{Name: "ARMADA_REVISION", Value: r.Revision},
+		&armadav1.EnvVar{Name: "ARMADA_REPLICA", Value: r.ID},
+	)
+	var port int32
+	if sp.Ingress != nil && sp.Ingress.Type != spec.IngressNone {
+		port = int32(sp.Ingress.Port) //nolint:gosec // validated to 1..65535
+		env = append(env, &armadav1.EnvVar{Name: "PORT", Value: strconv.Itoa(sp.Ingress.Port)})
+	}
+	rs := &armadav1.ReplicaSpec{
+		Id:          r.ID,
+		App:         r.App,
+		Revision:    r.Revision,
+		Image:       rev.Image(),
+		Command:     sp.Command,
+		Args:        sp.Args,
+		Env:         env,
+		Port:        port,
+		MemoryBytes: sp.MemoryBytes(),
+		NanoCpus:    sp.NanoCPUs(),
+		PidsLimit:   spec.DefaultPids,
+	}
+	if sp.Probes != nil {
+		rs.Startup = probeProto(sp.Probes.Startup)
+		rs.Readiness = probeProto(sp.Probes.Readiness)
+		rs.Liveness = probeProto(sp.Probes.Liveness)
+	}
+	for _, f := range sp.SecretFiles {
+		v, ref, err := secret(f.SecretRef)
+		if err != nil {
+			return nil, err
+		}
+		rs.SecretFiles = append(rs.SecretFiles, &armadav1.SecretFile{Path: f.Path, Data: v.Bytes(), Ref: ref})
+	}
+	if reg := sp.Registry; reg != nil {
+		v, ref, err := secret(reg.PasswordSecretRef)
+		if err != nil {
+			return nil, err
+		}
+		rs.Registry = &armadav1.RegistryAuth{Server: reg.Server, Username: reg.Username, Password: string(v.Bytes()), Ref: ref}
+	}
+	return rs, nil
+}
+
+func probeProto(p *spec.Probe) *armadav1.Probe {
+	if p == nil {
+		return nil
+	}
+	return &armadav1.Probe{
+		Path:             p.Path,
+		Port:             int32(p.Port), //nolint:gosec // validated to 1..65535
+		InitialDelayMs:   p.InitialDelay.D().Milliseconds(),
+		PeriodMs:         p.Period.D().Milliseconds(),
+		TimeoutMs:        p.Timeout.D().Milliseconds(),
+		FailureThreshold: int32(p.FailureThreshold), //nolint:gosec // validated to 1..100
+	}
+}
+
+type revisionCache struct {
+	store store.Store
+	keys  *secrets.Keyring
+	m     map[string]store.Revision
+	vals  map[string]map[string]secrets.Value
+}
+
+// secrets decrypts the secret versions rev pins.
+func (c *revisionCache) secrets(ctx context.Context, rev store.Revision) (map[string]secrets.Value, error) {
+	if len(rev.Secrets) == 0 {
+		return nil, nil
+	}
+	if v, ok := c.vals[rev.Name]; ok {
+		return v, nil
+	}
+	if c.keys == nil {
+		return nil, fmt.Errorf("revision %s uses secrets, but no master key is loaded", rev.Name)
+	}
+	vals := make(map[string]secrets.Value, len(rev.Secrets))
+	for name, version := range rev.Secrets {
+		sealed, err := c.store.GetSecret(ctx, rev.App, name, version)
+		if err != nil {
+			return nil, err
+		}
+		v, err := c.keys.Open(sealed, rev.App, name, version)
+		if err != nil {
+			return nil, err
+		}
+		vals[name] = v
+	}
+	if c.vals == nil {
+		c.vals = map[string]map[string]secrets.Value{}
+	}
+	c.vals[rev.Name] = vals
+	return vals, nil
+}
+
+func (c *revisionCache) get(ctx context.Context, name string) (store.Revision, error) {
+	if r, ok := c.m[name]; ok {
+		return r, nil
+	}
+	r, err := c.store.GetRevision(ctx, name)
+	if err != nil {
+		return r, err
+	}
+	c.m[name] = r
+	return r, nil
+}
+
+func (c *revisionCache) memory(ctx context.Context) func(store.Replica) int64 {
+	return func(r store.Replica) int64 {
+		rev, err := c.get(ctx, r.Revision)
+		if err != nil {
+			return 0
+		}
+		return rev.Spec.MemoryBytes()
+	}
+}
+
+// assignmentsEqual reports whether two assignments are identical.
+func assignmentsEqual(a, b *armadav1.Assignment) bool {
+	return a != nil && b != nil && proto.Equal(a, b)
+}

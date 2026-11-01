@@ -1,0 +1,21 @@
+[Unit]
+Description=Armada node agent
+Documentation=https://github.com/ryanbekhen/armada
+After=network-online.target armada-runtime.service
+Wants=network-online.target armada-runtime.service
+
+[Service]
+Type=simple
+# Extra flags, e.g. ARMADA_AGENT_FLAGS="--log-format json".
+EnvironmentFile=-/etc/armada/agent.env
+ExecStart=/usr/local/bin/armada agent --data-dir /var/lib/armada $ARMADA_AGENT_FLAGS
+RuntimeDirectory=armada
+RuntimeDirectoryMode=0700
+RuntimeDirectoryPreserve=yes
+UMask=0077
+Restart=always
+RestartSec=2
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
