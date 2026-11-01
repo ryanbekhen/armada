@@ -227,12 +227,13 @@ func newClusterCommand(g *globals) *cobra.Command {
 }
 
 func newDomainCommand(g *globals) *cobra.Command {
-	cmd := &cobra.Command{Use: "domain", Short: "Manage custom domains"}
+	cmd := &cobra.Command{Use: "domain", Aliases: []string{"domains"}, Short: "Manage custom domains"}
 	var app string
 	list := &cobra.Command{
-		Use:   "list",
-		Short: "List custom domains and the DNS records that prove ownership",
-		Args:  cobra.NoArgs,
+		Use:     "list",
+		Aliases: []string{"ls"},
+		Short:   "List custom domains and the DNS records that prove ownership",
+		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			client, conn, err := dialAdmin(g)
 			if err != nil {

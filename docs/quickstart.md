@@ -230,5 +230,9 @@ control plane. See [operations](operations.md#control-plane-one-server-or-three)
 | Control plane servers | `armada server list`, `armada server remove NAME` |
 | Back up / upgrade | `armada backup -o -`, then see [operations](operations.md) |
 
+Short forms work everywhere: `ls` for `list`, `rm` or `delete` for
+`remove`, and plural group names (`armada nodes ls`, `armada servers ls`,
+`armada secrets ls hello`). `armada <command> --help` lists them.
+
 Read the [threat model](threat-model.md), in particular the accepted
 limitations, before running anything you care about.

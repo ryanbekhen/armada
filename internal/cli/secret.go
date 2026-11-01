@@ -35,8 +35,9 @@ var errNotTerminal = errors.New("not a terminal")
 
 func newSecretCommand(g *globals) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "secret",
-		Short: "Manage app secrets (values are write-only)",
+		Use:     "secret",
+		Aliases: []string{"secrets"},
+		Short:   "Manage app secrets (values are write-only)",
 		Long: "Secrets are encrypted at rest and only decrypted for the nodes that run the app.\n" +
 			"Values are never shown again after they are set and are never accepted as\n" +
 			"command-line arguments, which would leak into shell history.",
