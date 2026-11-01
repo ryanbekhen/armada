@@ -33,7 +33,7 @@ func TestWildcardNeedsDNSProvider(t *testing.T) {
 	if a.SupportsWildcard() {
 		t.Error("wildcard support without DNS provider")
 	}
-	if err := a.Manage(context.Background(), []string{"*.apps.contoh.id"}); err == nil || !strings.Contains(err.Error(), "DNS provider") {
+	if err := a.Manage(context.Background(), []string{"*.apps.example.org"}); err == nil || !strings.Contains(err.Error(), "DNS provider") {
 		t.Errorf("err = %v", err)
 	}
 
@@ -63,29 +63,29 @@ func TestCertificateFromStorage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := a.Certificate(ctx, "contoh.id"); ok {
+	if _, ok := a.Certificate(ctx, "example.org"); ok {
 		t.Error("certificate reported before issuance")
 	}
 
 	s := &certmagic.FileStorage{Path: dir}
-	if err := s.Store(ctx, certmagic.StorageKeys.SiteCert(a.issuerKey, "contoh.id"), []byte("-----BEGIN CERTIFICATE-----\nA\n-----END CERTIFICATE-----")); err != nil {
+	if err := s.Store(ctx, certmagic.StorageKeys.SiteCert(a.issuerKey, "example.org"), []byte("-----BEGIN CERTIFICATE-----\nA\n-----END CERTIFICATE-----")); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := a.Certificate(ctx, "contoh.id"); ok {
+	if _, ok := a.Certificate(ctx, "example.org"); ok {
 		t.Error("certificate reported without its key")
 	}
-	if err := s.Store(ctx, certmagic.StorageKeys.SitePrivateKey(a.issuerKey, "contoh.id"), []byte("-----BEGIN PRIVATE KEY-----\nB\n-----END PRIVATE KEY-----\n")); err != nil {
+	if err := s.Store(ctx, certmagic.StorageKeys.SitePrivateKey(a.issuerKey, "example.org"), []byte("-----BEGIN PRIVATE KEY-----\nB\n-----END PRIVATE KEY-----\n")); err != nil {
 		t.Fatal(err)
 	}
-	got, ok := a.Certificate(ctx, "contoh.id")
+	got, ok := a.Certificate(ctx, "example.org")
 	if !ok || string(got) != "-----BEGIN CERTIFICATE-----\nA\n-----END CERTIFICATE-----\n-----BEGIN PRIVATE KEY-----\nB\n-----END PRIVATE KEY-----\n" {
 		t.Errorf("bundle = %q", got)
 	}
 
 	// Wildcards are stored under a safe name.
-	_ = s.Store(ctx, certmagic.StorageKeys.SiteCert(a.issuerKey, "*.apps.contoh.id"), []byte("C\n"))
-	_ = s.Store(ctx, certmagic.StorageKeys.SitePrivateKey(a.issuerKey, "*.apps.contoh.id"), []byte("K\n"))
-	if got, ok := a.Certificate(ctx, "*.apps.contoh.id"); !ok || string(got) != "C\nK\n" {
+	_ = s.Store(ctx, certmagic.StorageKeys.SiteCert(a.issuerKey, "*.apps.example.org"), []byte("C\n"))
+	_ = s.Store(ctx, certmagic.StorageKeys.SitePrivateKey(a.issuerKey, "*.apps.example.org"), []byte("K\n"))
+	if got, ok := a.Certificate(ctx, "*.apps.example.org"); !ok || string(got) != "C\nK\n" {
 		t.Errorf("wildcard bundle = %q, %v", got, ok)
 	}
 }
@@ -98,7 +98,7 @@ func TestHTTPHandlerOnlyServesChallenges(t *testing.T) {
 	}
 	for _, p := range []string{"/", "/.well-known/acme-challenge/unknown-token", "/admin"} {
 		rec := httptest.NewRecorder()
-		a.HTTPHandler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "http://contoh.id"+p, nil))
+		a.HTTPHandler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "http://example.org"+p, nil))
 		if rec.Code != http.StatusNotFound {
 			t.Errorf("GET %s = %d, want 404", p, rec.Code)
 		}

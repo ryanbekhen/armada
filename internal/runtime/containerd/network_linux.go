@@ -130,9 +130,12 @@ func (n *cniNetwork) Setup(ctx context.Context, id string, pm *portMapping) (str
 		return "", "", err
 	}
 	r, err := types100.NewResultFromResult(res)
-	if err != nil || len(r.IPs) == 0 {
+	if err == nil && len(r.IPs) == 0 {
+		err = errors.New("no IP address assigned")
+	}
+	if err != nil {
 		_ = n.Teardown(context.WithoutCancel(ctx), id, ns.GetPath(), pm)
-		return "", "", fmt.Errorf("network result has no address: %v", err)
+		return "", "", fmt.Errorf("network result: %w", err)
 	}
 	return ns.GetPath(), r.IPs[0].Address.IP.String(), nil
 }

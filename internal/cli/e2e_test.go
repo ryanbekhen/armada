@@ -245,35 +245,35 @@ func TestEndToEnd(t *testing.T) {
 
 	// Ingress: HAProxy is started by the embedded agent and routes
 	// <app>.<root> once a root domain is set.
-	if code, out, stderr := cli("cluster", "set", "--root-domain", "apps.contoh.id"); code != 0 || !strings.Contains(out, "apps.contoh.id") {
+	if code, out, stderr := cli("cluster", "set", "--root-domain", "apps.example.org"); code != 0 || !strings.Contains(out, "apps.example.org") {
 		t.Fatalf("cluster set: %q %q", out, stderr)
 	}
-	if code, out, _ := cli("cluster", "show"); code != 0 || !strings.Contains(out, "root domain: apps.contoh.id") {
+	if code, out, _ := cli("cluster", "show"); code != 0 || !strings.Contains(out, "root domain: apps.example.org") {
 		t.Errorf("cluster show = %q", out)
 	}
 	hapCfg := filepath.Join(dataDir, dirHAProxy, "etc", "haproxy.cfg")
 	waitFor("haproxy routes web", func() bool {
 		b, err := os.ReadFile(hapCfg)
-		return err == nil && strings.Contains(string(b), "-m str web.apps.contoh.id }")
+		return err == nil && strings.Contains(string(b), "-m str web.apps.example.org }")
 	})
 	if sys := d.SystemSpecs(); len(sys) == 0 || sys[0].Name != "armada-haproxy" {
 		t.Errorf("HAProxy system container not started: %+v", sys)
 	}
 	waitFor("status shows URL", func() bool {
 		_, out, _ := cli("status", "web")
-		return strings.Contains(out, "https://web.apps.contoh.id/")
+		return strings.Contains(out, "https://web.apps.example.org/")
 	})
 	if code, out, _ := cli("domain", "list"); code != 0 || !strings.Contains(out, "No custom domains") {
 		t.Errorf("domain list = %q", out)
 	}
-	if err := os.WriteFile(spec, []byte("name: web\nimage: nginx:1.27\ningress:\n  type: external\n  port: 80\n  domains: [contoh.id]\nscale:\n  min: 3\n"), 0o600); err != nil {
+	if err := os.WriteFile(spec, []byte("name: web\nimage: nginx:1.27\ningress:\n  type: external\n  port: 80\n  domains: [example.org]\nscale:\n  min: 3\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if code, _, stderr := cli("deploy", "-f", spec); code != 0 {
 		t.Fatalf("deploy with domain: %s", stderr)
 	}
 	code, out, _ = cli("domain", "list", "--app", "web")
-	if code != 0 || !strings.Contains(out, "contoh.id") || !strings.Contains(out, "TXT  _armada-verify.contoh.id") {
+	if code != 0 || !strings.Contains(out, "example.org") || !strings.Contains(out, "TXT  _armada-verify.example.org") {
 		t.Errorf("domain list = %q", out)
 	}
 	if code, _, stderr := cli("domain", "verify", "ghost.id"); code == 0 || !strings.Contains(stderr, "not found") {

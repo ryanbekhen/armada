@@ -126,7 +126,7 @@ image: nginx:1
 ingress:
   type: external
   port: 80
-  domains: [contoh.id]
+  domains: [example.org]
 probes:
   readiness:
     path: /healthz
@@ -158,17 +158,17 @@ func TestIngressRoutingAndDomainVerification(t *testing.T) {
 		cfg.Resolver = txt
 		cfg.Certs = certs
 		cfg.ACMEAddr = acme
-		cfg.ACMEEmail = "ops@contoh.id"
+		cfg.ACMEEmail = "ops@example.org"
 		cfg.VerifyInterval = 50 * time.Millisecond
 	})
 	c.addNode("n1", "10.0.0.2")
 	c.addNode("n2", "10.0.0.3")
 
-	if _, err := c.admin.SetClusterConfig(c.ctx, &armadav1.SetClusterConfigRequest{Config: &armadav1.ClusterConfig{RootDomain: "Apps.Contoh.ID"}}); err != nil {
+	if _, err := c.admin.SetClusterConfig(c.ctx, &armadav1.SetClusterConfigRequest{Config: &armadav1.ClusterConfig{RootDomain: "Apps.Example.ORG"}}); err != nil {
 		t.Fatal(err)
 	}
 	cc, _ := c.admin.GetClusterConfig(c.ctx, &armadav1.GetClusterConfigRequest{})
-	if cc.RootDomain != "apps.contoh.id" || cc.AcmeEmail != "ops@contoh.id" {
+	if cc.RootDomain != "apps.example.org" || cc.AcmeEmail != "ops@example.org" {
 		t.Errorf("cluster config = %v", cc)
 	}
 
@@ -184,7 +184,7 @@ func TestIngressRoutingAndDomainVerification(t *testing.T) {
 			return len(cfg.Backends) == 1 && len(cfg.Backends[0].Servers) == 1
 		})
 		cfg := c.proxyOn(n)
-		if got := hosts(cfg); !slices.Equal(got, []string{"web.apps.contoh.id"}) {
+		if got := hosts(cfg); !slices.Equal(got, []string{"web.apps.example.org"}) {
 			t.Errorf("%s hosts = %v", n, got)
 		}
 		if cfg.Backends[0].Servers[0].Address != addr || cfg.Backends[0].HealthPath != "/healthz" || cfg.ACMEAddress != acme {
@@ -197,40 +197,40 @@ func TestIngressRoutingAndDomainVerification(t *testing.T) {
 		t.Fatalf("ListDomains = %v, %v", ds, err)
 	}
 	d := ds.Domains[0]
-	if d.Verified || d.TxtName != "_armada-verify.contoh.id" || len(d.TxtValue) != 32 || !slices.Equal(d.Apps, []string{"web"}) {
+	if d.Verified || d.TxtName != "_armada-verify.example.org" || len(d.TxtValue) != 32 || !slices.Equal(d.Apps, []string{"web"}) {
 		t.Errorf("domain = %v", d)
 	}
 
 	// A wrong token does not verify.
-	txt.set("_armada-verify.contoh.id", "someone-else")
-	got, err := c.admin.VerifyDomain(c.ctx, &armadav1.VerifyDomainRequest{Name: "contoh.id"})
+	txt.set("_armada-verify.example.org", "someone-else")
+	got, err := c.admin.VerifyDomain(c.ctx, &armadav1.VerifyDomainRequest{Name: "example.org"})
 	if err != nil || got.Verified || !strings.Contains(got.Message, "expected token") {
 		t.Errorf("VerifyDomain(wrong) = %v, %v", got, err)
 	}
 
 	// The right token is picked up by the background loop.
-	txt.set("_armada-verify.contoh.id", "unrelated", d.TxtValue)
+	txt.set("_armada-verify.example.org", "unrelated", d.TxtValue)
 	c.eventually("custom domain routed", func() bool {
-		return slices.Equal(hosts(c.proxyOn("n1")), []string{"contoh.id", "web.apps.contoh.id"})
+		return slices.Equal(hosts(c.proxyOn("n1")), []string{"example.org", "web.apps.example.org"})
 	})
 
 	// Certificates are requested for every routed host and shipped once issued.
-	if m := certs.Managed(); !slices.Equal(m, []string{"contoh.id", "web.apps.contoh.id"}) {
+	if m := certs.Managed(); !slices.Equal(m, []string{"example.org", "web.apps.example.org"}) {
 		t.Errorf("managed = %v", m)
 	}
-	certs.issue(t, "contoh.id")
+	certs.issue(t, "example.org")
 	c.srv.Trigger()
 	c.eventually("certificate on n2", func() bool {
 		cfg := c.proxyOn("n2")
-		return len(cfg.Certificates) == 1 && cfg.Certificates[0].Name == "contoh.id"
+		return len(cfg.Certificates) == 1 && cfg.Certificates[0].Name == "example.org"
 	})
-	got, _ = c.admin.VerifyDomain(c.ctx, &armadav1.VerifyDomainRequest{Name: "contoh.id"})
+	got, _ = c.admin.VerifyDomain(c.ctx, &armadav1.VerifyDomainRequest{Name: "example.org"})
 	if !got.Verified || !got.TlsReady {
 		t.Errorf("domain after issuance = %v", got)
 	}
 
 	st, _ := c.admin.Status(c.ctx, &armadav1.StatusRequest{App: "web"})
-	if urls := st.Apps[0].Urls; !slices.Equal(urls, []string{"https://web.apps.contoh.id/", "https://contoh.id/"}) {
+	if urls := st.Apps[0].Urls; !slices.Equal(urls, []string{"https://web.apps.example.org/", "https://example.org/"}) {
 		t.Errorf("urls = %v", urls)
 	}
 
@@ -255,14 +255,14 @@ func TestWildcardCertificateCoversAppHosts(t *testing.T) {
 	certs := &fakeCerts{issued: map[string][]byte{}, wildcard: true}
 	c := newCluster(t, func(cfg *Config) { cfg.Certs = certs; cfg.ACMEAddr = freeAddr(t) })
 	c.addNode("n1", "10.0.0.2")
-	if _, err := c.admin.SetClusterConfig(c.ctx, &armadav1.SetClusterConfigRequest{Config: &armadav1.ClusterConfig{RootDomain: "apps.contoh.id"}}); err != nil {
+	if _, err := c.admin.SetClusterConfig(c.ctx, &armadav1.SetClusterConfigRequest{Config: &armadav1.ClusterConfig{RootDomain: "apps.example.org"}}); err != nil {
 		t.Fatal(err)
 	}
 	c.deploy(ingressApp)
 	c.eventually("certificates managed", func() bool { return len(certs.Managed()) > 0 })
 	// <app>.<root> is covered by the wildcard; the unverified custom domain
 	// gets nothing.
-	if m := certs.Managed(); !slices.Equal(m, []string{"*.apps.contoh.id"}) {
+	if m := certs.Managed(); !slices.Equal(m, []string{"*.apps.example.org"}) {
 		t.Errorf("managed = %v", m)
 	}
 }
@@ -271,7 +271,7 @@ func TestClusterConfigAndConflicts(t *testing.T) {
 	t.Parallel()
 	c := newCluster(t)
 
-	for _, bad := range []string{"-bad.id", "contoh..id", "contoh.id\n  bind :22", "*.contoh.id", "localhost"} {
+	for _, bad := range []string{"-bad.id", "example..org", "example.org\n  bind :22", "*.example.org", "localhost"} {
 		_, err := c.admin.SetClusterConfig(c.ctx, &armadav1.SetClusterConfigRequest{Config: &armadav1.ClusterConfig{RootDomain: bad}})
 		if status.Code(err) != codes.InvalidArgument {
 			t.Errorf("root domain %q: err = %v", bad, err)
@@ -288,7 +288,7 @@ func TestClusterConfigAndConflicts(t *testing.T) {
 
 	c.deploy(ingressApp)
 	_, err := c.admin.Deploy(c.ctx, &armadav1.DeployRequest{Spec: []byte(strings.Replace(ingressApp, "name: web", "name: other", 1))})
-	if status.Code(err) != codes.AlreadyExists || !strings.Contains(err.Error(), "contoh.id/") {
+	if status.Code(err) != codes.AlreadyExists || !strings.Contains(err.Error(), "example.org/") {
 		t.Errorf("conflicting deploy err = %v", err)
 	}
 	ds, _ := c.admin.ListDomains(c.ctx, &armadav1.ListDomainsRequest{App: "nope"})
@@ -324,10 +324,10 @@ func TestInternalIngress(t *testing.T) {
 	c := newCluster(t, func(cfg *Config) {
 		cfg.Certs = certs
 		cfg.ACMEAddr = acme
-		cfg.ACMEEmail = "ops@contoh.id"
+		cfg.ACMEEmail = "ops@example.org"
 	})
 	c.addNode("n1", "10.0.0.2")
-	if _, err := c.admin.SetClusterConfig(c.ctx, &armadav1.SetClusterConfigRequest{Config: &armadav1.ClusterConfig{RootDomain: "apps.contoh.id"}}); err != nil {
+	if _, err := c.admin.SetClusterConfig(c.ctx, &armadav1.SetClusterConfigRequest{Config: &armadav1.ClusterConfig{RootDomain: "apps.example.org"}}); err != nil {
 		t.Fatal(err)
 	}
 	c.deploy("name: shop-api\nimage: nginx:1\ningress:\n  type: internal\n  port: 8080\n  routes:\n    - path: /v1\n      stripPrefix: true\n")
@@ -352,7 +352,7 @@ func TestInternalIngress(t *testing.T) {
 		t.Errorf("internal rules = %+v", internal)
 	}
 	// The internal app gets no public name and no certificate.
-	if got := hosts(cfg); !slices.Equal(got, []string{"web.apps.contoh.id"}) {
+	if got := hosts(cfg); !slices.Equal(got, []string{"web.apps.example.org"}) {
 		t.Errorf("public hosts = %v", got)
 	}
 	if m := certs.Managed(); slices.ContainsFunc(m, func(n string) bool { return strings.Contains(n, "shop-api") || strings.HasSuffix(n, ".internal") }) {

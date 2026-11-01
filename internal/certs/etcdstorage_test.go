@@ -118,9 +118,9 @@ func TestCertificateFromEtcdStorage(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer a.Close()
-	_ = s.Store(ctx, "certificates/"+a.issuerKey+"/web.contoh.id/web.contoh.id.crt", []byte("C\n"))
-	_ = s.Store(ctx, "certificates/"+a.issuerKey+"/web.contoh.id/web.contoh.id.key", []byte("K\n"))
-	if got, ok := a.Certificate(ctx, "web.contoh.id"); !ok || string(got) != "C\nK\n" {
+	_ = s.Store(ctx, "certificates/"+a.issuerKey+"/web.example.org/web.example.org.crt", []byte("C\n"))
+	_ = s.Store(ctx, "certificates/"+a.issuerKey+"/web.example.org/web.example.org.key", []byte("K\n"))
+	if got, ok := a.Certificate(ctx, "web.example.org"); !ok || string(got) != "C\nK\n" {
 		t.Errorf("bundle = %q, %v", got, ok)
 	}
 }

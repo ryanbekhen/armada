@@ -26,7 +26,7 @@ Keep this section up to date.
 make check          # vet + lint + test + govulncheck (same as CI)
 make build          # build the binary into ./bin/armada
 make test           # go test ./... -race
-make lint           # golangci-lint run (v2.15.0+)
+make lint           # golangci-lint run, also with GOOS=linux (v2.15.0+)
 make fmt            # golangci-lint fmt (gofmt + goimports)
 make proto          # protoc + plugins pinned in go.mod (api/armada/v1)
 make vuln           # govulncheck ./...
