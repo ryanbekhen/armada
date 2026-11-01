@@ -118,6 +118,7 @@ replicas_on() { # replicas_on NODE: live replicas of the app on NODE
 		'[.apps[] | select(.name == $app) | .replicas[]? | select(.nodeId == $node and ((.draining // false) | not))] | length'
 }
 none_on() { [ "$(replicas_on "$1")" = 0 ]; }
+even_settled() { serving "" && even; }
 replica_ids() { # live (not draining) replicas of the app
 	status | jq -r --arg app "$APP" '[.apps[] | select(.name == $app) | .replicas[]? | select((.draining // false) | not) | .id] | sort | join(" ")'
 }
@@ -342,6 +343,9 @@ wait_for 300 "rolled back to $V1" serving "$V1"
 load_stop "rollback"
 
 log "agent restart adopts running containers"
+# A rollout can leave the app unevenly spread for a moment; let rebalancing
+# finish so that only the restart could change the replica set.
+wait_for 300 "$APP spread evenly before the restart" even_settled
 _before=$(replica_ids)
 _unit=armada-agent
 [ "$N" -gt "$SERVERS" ] || _unit=armada-server
