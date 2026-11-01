@@ -221,9 +221,10 @@ func checkJoinedServer(resp *armadav1.JoinServerResponse, pinned *x509.Certifica
 
 func newServerListCommand(g *globals) *cobra.Command {
 	return &cobra.Command{
-		Use:   "list",
-		Short: "List control plane nodes and update the client config with them",
-		Args:  cobra.NoArgs,
+		Use:     "list",
+		Aliases: []string{"ls"},
+		Short:   "List control plane nodes and update the client config with them",
+		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			client, conn, err := dialAdmin(g)
 			if err != nil {
@@ -298,8 +299,9 @@ func syncClientServers(cmd *cobra.Command, path string, addrs []string) error {
 
 func newServerRemoveCommand(g *globals) *cobra.Command {
 	return &cobra.Command{
-		Use:   "remove NAME",
-		Short: "Remove a control plane node",
+		Use:     "remove NAME",
+		Aliases: []string{"rm", "delete"},
+		Short:   "Remove a control plane node",
 		Long: "Remove a control plane node from the cluster. Stop `armada server` on it first.\n" +
 			"Its agent stays a node; remove that with `armada node remove`. The leader cannot\n" +
 			"remove itself: stop it, and run this once another server leads.\n\n" +

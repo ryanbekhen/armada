@@ -70,8 +70,9 @@ func newServerCommand(g *globals) *cobra.Command {
 		tls         tlsFlags
 	)
 	cmd := &cobra.Command{
-		Use:   "server",
-		Short: "Run the control plane (and, by default, this node's agent)",
+		Use:     "server",
+		Aliases: []string{"servers"},
+		Short:   "Run the control plane (and, by default, this node's agent)",
 		Long: "Run the control plane (and, by default, this node's agent).\n\n" +
 			"Every control plane node runs `armada server`. They elect a leader, which serves\n" +
 			"the API and runs the reconcilers; the others stand by and take over within\n" +

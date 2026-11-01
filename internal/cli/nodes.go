@@ -27,7 +27,7 @@ import (
 var pollInterval = 2 * time.Second
 
 func newTokenCommand(g *globals) *cobra.Command {
-	cmd := &cobra.Command{Use: "token", Short: "Manage join tokens for new nodes and servers"}
+	cmd := &cobra.Command{Use: "token", Aliases: []string{"tokens"}, Short: "Manage join tokens for new nodes and servers"}
 	var (
 		ttl       time.Duration
 		forServer bool
@@ -215,11 +215,12 @@ func checkServers(addrs []string) ([]string, error) {
 }
 
 func newNodeCommand(g *globals) *cobra.Command {
-	cmd := &cobra.Command{Use: "node", Short: "List, cordon, and remove nodes"}
+	cmd := &cobra.Command{Use: "node", Aliases: []string{"nodes"}, Short: "List, cordon, and remove nodes"}
 	list := &cobra.Command{
-		Use:   "list",
-		Short: "List nodes",
-		Args:  cobra.NoArgs,
+		Use:     "list",
+		Aliases: []string{"ls"},
+		Short:   "List nodes",
+		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			client, conn, err := dialAdmin(g)
 			if err != nil {
@@ -274,8 +275,9 @@ func newNodeCommand(g *globals) *cobra.Command {
 	var force bool
 	var wait time.Duration
 	remove := &cobra.Command{
-		Use:   "remove NODE",
-		Short: "Move a node's replicas away, then remove it and revoke its certificate",
+		Use:     "remove NODE",
+		Aliases: []string{"rm", "delete"},
+		Short:   "Move a node's replicas away, then remove it and revoke its certificate",
 		Long: "Cordon the node, wait until its replicas run elsewhere (drained like a rolling\n" +
 			"update), then remove it from the cluster and revoke its certificate.\n\n" +
 			"--force removes the node at once and deletes its replicas without draining;\n" +
