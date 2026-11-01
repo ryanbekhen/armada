@@ -6,14 +6,16 @@ on a maintainer's machine.
 ## Cutting a release
 
 1. Make sure `main` is green (`make check` locally matches CI).
-2. Tag and push:
+2. Run the end-to-end test on real machines from the commit you are about to
+   tag ([test/e2e](../test/e2e/README.md)); it must pass.
+3. Tag and push:
 
    ```bash
    git tag -s v0.1.0 -m "v0.1.0"
    git push origin v0.1.0
    ```
 
-3. The `release` workflow (`.github/workflows/release.yml`) runs vet, the
+4. The `release` workflow (`.github/workflows/release.yml`) runs vet, the
    race tests, and govulncheck again, then GoReleaser
    (`.goreleaser.yaml`) builds `linux/amd64` and `linux/arm64` with
    `CGO_ENABLED=0` and `-trimpath` (after `make runtime-bundle`, with the
@@ -26,7 +28,7 @@ on a maintainer's machine.
    - `checksums.txt.sigstore.json`, a keyless cosign signature bundle of
      the checksum file, tied to the workflow identity and the tag,
    - GitHub build provenance attestations for the archives and checksums.
-4. Review the draft and publish it.
+5. Review the draft and publish it.
 
 Tags with a pre-release suffix (`v0.1.0-rc.1`) are marked as pre-releases.
 

@@ -73,7 +73,7 @@ its state store (etcd).
 | Cloudflare DNS-01 with Let's Encrypt staging | Tested: wildcard certificate for the root domain |
 | Local lab: Linux VMs (arm64), Pebble ACME, 1–2 nodes | Tested end to end: deploys, rolling update, secret files, internal ingress and DNS, crash recovery, containerd restart with containers kept running, reboot recovery, rolling upgrade with a state migration, rebalancing after uncordon under HTTPS load without errors, replicas across nodes |
 | Oracle Cloud (arm64, Oracle Linux 9, SELinux enforcing), one server, Let's Encrypt staging | Tested end to end: install.sh with systemd, doctor, wildcard certificate over Cloudflare DNS-01, rolling update under load without errors, crash recovery, containerd restart, reboot recovery, SELinux-confined apps and HAProxy, HAProxy restarted after a crash |
-| depa.id (amd64, Ubuntu 24.04), three control plane servers, Let's Encrypt staging | Tested end to end: install.sh, server joins, replicas on all three nodes, HTTPS through any node, leader stop and SIGKILL under load without errors, scale and rolling update through the new leader, backup, all three machines rebooted at once |
+| depa.id (amd64, Ubuntu 24.04), three control plane servers and one node, Let's Encrypt staging | Tested end to end with [test/e2e](test/e2e/README.md): server and node joins, only HAProxy public, certificates on every node, secrets, rolling update, rollback, and agent restart under load without errors, leader stop and SIGKILL under load, node loss and rebalancing under load, backup, all machines rebooted at once |
 
 Reports from other providers are welcome.
 
@@ -86,6 +86,9 @@ make build    # ./bin/armada
 make test     # unit tests with the race detector
 make check    # vet + lint + test + govulncheck (what CI runs)
 ```
+
+[test/e2e](test/e2e/README.md) builds a cluster on real machines and tests
+it end to end: rolling updates and failover under load, node loss, reboots.
 
 ## License
 
