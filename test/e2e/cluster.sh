@@ -225,8 +225,15 @@ trap 'exit 130' INT TERM
 log "install on $N machines"
 i=1
 while [ "$i" -le "$N" ]; do
+	# A copy can stall on a poor link: retry a few times.
+	_try=1
 	# shellcheck disable=SC2086
-	scp -q $E2E_SSH_OPTS -o BatchMode=yes "$ARMADA_BIN" "$(host "$i" 2):/tmp/armada.e2e"
+	until scp -q $E2E_SSH_OPTS -o BatchMode=yes -o ServerAliveInterval=10 -o ServerAliveCountMax=3 \
+		"$ARMADA_BIN" "$(host "$i" 2):/tmp/armada.e2e"; do
+		[ "$_try" -lt 3 ] || fail "copying $ARMADA_BIN to $(host "$i" 1)"
+		_try=$((_try + 1))
+		sleep 5
+	done
 	for unit in armada-server armada-agent armada-runtime; do
 		on "$i" "cat > /etc/systemd/system/$unit.service" <"$UNITS/$unit.service"
 	done
