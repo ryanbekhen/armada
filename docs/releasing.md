@@ -59,6 +59,25 @@ the notes. Every
 release also ends with install and verification instructions (the
 `release.footer` in `.goreleaser.yaml`).
 
+## Labels, issues, and branch protection
+
+- Labels are defined in `.github/labels.json`; the `labels` workflow
+  creates or updates them when the file changes on `main` (or run
+  `sh scripts/sync-labels.sh` with an authenticated `gh`). Labels that are
+  not listed are left alone.
+- Pull requests are labelled automatically: an `area/...` label per changed
+  path (`.github/labeler.yml`) and a type label from the title's
+  Conventional Commits prefix (`feat:` → `enhancement`, `fix:` → `bug`,
+  `!` → `breaking`). Dependabot pull requests get `dependencies`.
+- Issues are opened through forms (bug report, feature request, question)
+  that apply a type label and `needs-triage`; blank issues are off, and
+  security reports are routed to private vulnerability reporting.
+- `main` is protected by a repository ruleset: no force pushes or deletion,
+  linear history, changes only through pull requests (rebase or squash),
+  and every CI job must pass (`lint`, `test`, `vuln`, both `build` jobs,
+  `haproxy`, `installer`, `release-config`, `commits`). A new required CI
+  job must be added to the ruleset as well.
+
 ## Verifying a release by hand
 
 ```bash

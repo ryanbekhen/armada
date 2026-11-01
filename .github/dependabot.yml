@@ -6,6 +6,7 @@ updates:
       interval: weekly
     commit-message:
       prefix: deps # "Dependencies" in the release notes
+    labels: [dependencies]
     groups:
       go-deps:
         patterns: ["*"]
@@ -16,6 +17,7 @@ updates:
     commit-message:
       prefix: ci # CI only; left out of the release notes
       include: scope
+    labels: [dependencies, ci]
     groups:
       actions:
         patterns: ["*"]

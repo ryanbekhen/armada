@@ -1,0 +1,21 @@
+name: Feature request
+description: Something Armada should do.
+labels: [enhancement, needs-triage]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What you are trying to do and why Armada makes it hard today.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: How it could work, from the user's side (CLI, spec fields).
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Workarounds
+      description: What you do today instead, if anything.
