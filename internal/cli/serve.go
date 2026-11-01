@@ -16,6 +16,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/ryanbekhen/armada/internal/version"
+
 	"google.golang.org/grpc"
 
 	"github.com/spf13/cobra"
@@ -140,14 +142,19 @@ func newServerCommand(g *globals) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := st.UpsertServer(ctx, store.Server{Name: id.Name, PrivateIP: ip.String(), APIAddr: listen, JoinAddr: joinAddr, MemberID: member.ID()}); err != nil {
+			if err := st.UpsertServer(ctx, store.Server{Name: id.Name, PrivateIP: ip.String(), APIAddr: listen, JoinAddr: joinAddr, MemberID: member.ID(),
+				Schema: store.SchemaVersion(), Version: version.Get().Version}); err != nil {
 				return err
 			}
 
 			// One term: a server for as long as this node leads.
 			term := func(ctx context.Context, lead *etcd.Leadership) error {
+				fenced := st.Fenced(lead.Fence())
+				if err := upgradeState(ctx, fenced, log); err != nil {
+					return err
+				}
 				cfg := server.Config{
-					Store: st.Fenced(lead.Fence()), TLS: tlsCfg, Logger: log,
+					Store: fenced, TLS: tlsCfg, Logger: log,
 					Secrets: keys,
 					CA:      ca, JoinAddr: joinAddr, JoinTLS: joinTLS, APIAddr: listen,
 					NodeLostTimeout: lostTimeout,
@@ -175,7 +182,9 @@ func newServerCommand(g *globals) *cobra.Command {
 			}
 
 			g, ctx := errgroup.WithContext(ctx)
-			g.Go(func() error { return lead(ctx, member, id.Name, log, term) })
+			g.Go(func() error {
+				return lead(ctx, member, id.Name, log, func(ctx context.Context) error { return waitLeadReady(ctx, st, log) }, term)
+			})
 			if withAgent {
 				g.Go(func() error {
 					return runAgent(ctx, dataDir, nil, proxyKind, secretsDir, internalDNS, log)
@@ -203,9 +212,15 @@ func newServerCommand(g *globals) *cobra.Command {
 // ctx ends. A term that ends because leadership was lost (the node was cut
 // off, or paused past its lease) is followed by a new campaign; a term that
 // fails is fatal, so a misconfigured node does not keep winning elections.
-func lead(ctx context.Context, member *etcd.Member, name string, log *slog.Logger, term func(context.Context, *etcd.Leadership) error) error {
+func lead(ctx context.Context, member *etcd.Member, name string, log *slog.Logger, ready func(context.Context) error, term func(context.Context, *etcd.Leadership) error) error {
 	log = log.With("component", "control-plane")
 	for {
+		if err := ready(ctx); err != nil {
+			if ctx.Err() != nil {
+				return nil
+			}
+			return err
+		}
 		if leader, err := etcd.Leader(ctx, member.Client()); err == nil && leader != "" && leader != name {
 			log.Info("standing by", "leader", leader)
 		}
@@ -240,6 +255,8 @@ func lead(ctx context.Context, member *etcd.Member, name string, log *slog.Logge
 		switch {
 		case ctx.Err() != nil:
 			return nil
+		case errors.Is(err, errStandBy):
+			log.Info("standing by until every server is upgraded")
 		case lost:
 			log.Warn("lost leadership; standing by")
 		case err != nil:
@@ -530,4 +547,82 @@ func loadMasterKey(ctx context.Context, st store.Store, dataDir string, log *slo
 		return nil, fmt.Errorf("master key %s (id %s) is not the key this cluster's secrets use (id %s); restore the right key", path, keys.ID(), recorded)
 	}
 	return keys, nil
+}
+
+// errStandBy ends a term without failing: the server may not lead yet.
+var errStandBy = errors.New("not ready to lead")
+
+// leadReady reports whether this server may lead (ADR 0012). A binary that
+// knows a newer state schema than the cluster uses waits until every
+// server knows it, so servers still on the old version keep leading during
+// a rolling upgrade and the migration runs only once none of them is left.
+// State written by a newer binary is an error: downgrades are refused.
+func leadReady(ctx context.Context, st *store.Etcd, mine int) (bool, []string, error) {
+	stored, err := st.StoredSchema(ctx)
+	if err != nil {
+		return false, nil, err
+	}
+	switch {
+	case stored > mine:
+		return false, nil, fmt.Errorf("the state was written by a newer Armada (schema %d, this binary knows %d); run the newer version (downgrades are not supported)", stored, mine)
+	case stored == mine:
+		return true, nil, nil
+	}
+	servers, err := st.ListServers(ctx)
+	if err != nil {
+		return false, nil, err
+	}
+	var old []string
+	for _, s := range servers {
+		if s.Schema < mine {
+			old = append(old, s.Name)
+		}
+	}
+	return len(old) == 0, old, nil
+}
+
+// leadReadyPoll is how often a server waiting to lead checks again.
+var leadReadyPoll = 5 * time.Second
+
+// waitLeadReady blocks until leadReady allows this server to lead.
+func waitLeadReady(ctx context.Context, st *store.Etcd, log *slog.Logger) error {
+	var waiting string
+	for {
+		ok, old, err := leadReady(ctx, st, store.SchemaVersion())
+		if err != nil {
+			return err
+		}
+		if ok {
+			return nil
+		}
+		if w := strings.Join(old, ","); w != waiting {
+			waiting = w
+			log.Warn("standing by: the state migrates to this version's schema once these servers are upgraded", "servers", old)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(leadReadyPoll):
+		}
+	}
+}
+
+// upgradeState runs at the start of a term, on the store fenced to it:
+// it checks again that this server may lead and migrates the state.
+func upgradeState(ctx context.Context, st *store.Etcd, log *slog.Logger) error {
+	ok, _, err := leadReady(ctx, st, store.SchemaVersion())
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return errStandBy
+	}
+	from, err := st.Migrate(ctx)
+	if err != nil {
+		return err
+	}
+	if to := store.SchemaVersion(); from != to {
+		log.Info("state migrated", "from_schema", from, "to_schema", to)
+	}
+	return nil
 }

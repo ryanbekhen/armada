@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ryanbekhen/armada/internal/store"
+
 	"github.com/ryanbekhen/armada/internal/clientconfig"
 	"github.com/ryanbekhen/armada/internal/etcd"
 	"github.com/ryanbekhen/armada/internal/fsutil"
@@ -182,7 +184,7 @@ func TestLeadFailover(t *testing.T) {
 	log := slog.New(slog.DiscardHandler)
 	ctx1, stop1 := context.WithCancel(ctx)
 	done1 := make(chan error, 1)
-	go func() { done1 <- lead(ctx1, m1, "cp-1", log, term("cp-1")) }()
+	go func() { done1 <- lead(ctx1, m1, "cp-1", log, noWait, term("cp-1")) }()
 	// waitTerms waits until n terms have started.
 	waitTerms := func(n int) {
 		t.Helper()
@@ -200,7 +202,7 @@ func TestLeadFailover(t *testing.T) {
 	}
 	waitTerms(1)
 	done2 := make(chan error, 1)
-	go func() { done2 <- lead(ctx, m2, "cp-2", log, term("cp-2")) }()
+	go func() { done2 <- lead(ctx, m2, "cp-2", log, noWait, term("cp-2")) }()
 	time.Sleep(500 * time.Millisecond)
 
 	stop1()
@@ -217,4 +219,56 @@ func TestLeadFailover(t *testing.T) {
 	if strings.Join(order, ",") != "cp-1,cp-2" {
 		t.Errorf("terms = %v", order)
 	}
+}
+
+func noWait(context.Context) error { return nil }
+
+// A server whose binary knows a newer schema leads only once every server
+// knows it; state from a newer binary is refused.
+func TestLeadReadyDuringUpgrade(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	ca, _ := pki.NewCA("test")
+	c := memberConfig(filepath.Join(t.TempDir(), "cp-1"))
+	c.Name, c.CA, c.Addr = "cp-1", ca, netip.MustParseAddr("127.0.0.1")
+	m, err := etcd.Start(ctx, c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Close()
+	st, err := store.NewEtcd(ctx, m.Client(), "/armada/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cur := store.SchemaVersion()
+	for _, s := range []store.Server{
+		{Name: "cp-1", PrivateIP: "10.0.0.1", APIAddr: "10.0.0.1:7443", Schema: cur + 1},
+		{Name: "cp-2", PrivateIP: "10.0.0.2", APIAddr: "10.0.0.2:7443"}, // older binary, no schema recorded
+	} {
+		if err := st.UpsertServer(ctx, s); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if ok, err := leadReadyNow(ctx, st, cur); !ok || err != nil {
+		t.Errorf("same schema: ready %v, %v", ok, err)
+	}
+	ok, old, err := leadReady(ctx, st, cur+1)
+	if ok || err != nil || len(old) != 1 || old[0] != "cp-2" {
+		t.Errorf("newer binary with an old server left: ready %v, waiting for %v, %v", ok, old, err)
+	}
+	if err := st.UpsertServer(ctx, store.Server{Name: "cp-2", PrivateIP: "10.0.0.2", APIAddr: "10.0.0.2:7443", Schema: cur + 1}); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := leadReadyNow(ctx, st, cur+1); !ok || err != nil {
+		t.Errorf("every server upgraded: ready %v, %v", ok, err)
+	}
+	if _, _, err := leadReady(ctx, st, cur-1); err == nil {
+		t.Error("an older binary accepted newer state")
+	}
+}
+
+func leadReadyNow(ctx context.Context, st *store.Etcd, mine int) (bool, error) {
+	ok, _, err := leadReady(ctx, st, mine)
+	return ok, err
 }

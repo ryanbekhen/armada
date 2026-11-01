@@ -237,13 +237,13 @@ func newNodeCommand(g *globals) *cobra.Command {
 				}
 			}
 			tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 4, 2, ' ', 0)
-			_, _ = fmt.Fprintln(tw, "NODE\tPRIVATE IP\tSTATE\tREPLICAS\tCERT EXPIRES")
+			_, _ = fmt.Fprintln(tw, "NODE\tPRIVATE IP\tSTATE\tREPLICAS\tVERSION\tCERT EXPIRES")
 			for _, n := range resp.Nodes {
 				exp := "-"
 				if n.CertExpiresAt != nil {
 					exp = n.CertExpiresAt.AsTime().Local().Format(time.DateOnly)
 				}
-				_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%d\t%s\n", n.Id, n.PrivateIp, nodeState(n), replicas[n.Id], exp)
+				_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%d\t%s\t%s\n", n.Id, n.PrivateIp, nodeState(n), replicas[n.Id], orDash(n.Version), exp)
 			}
 			return tw.Flush()
 		},

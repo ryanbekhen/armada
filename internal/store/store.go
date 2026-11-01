@@ -58,6 +58,8 @@ type Node struct {
 	CreatedAt   time.Time
 	// Cordoned nodes receive no new replicas and are evacuated.
 	Cordoned bool
+	// Version is the Armada version its agent last reported.
+	Version string
 	// CertNotAfter is when the node's newest certificate expires (zero if
 	// none is recorded).
 	CertNotAfter time.Time
@@ -84,7 +86,11 @@ type Server struct {
 	APIAddr  string
 	JoinAddr string
 	// MemberID is its etcd member ID.
-	MemberID  uint64
+	MemberID uint64
+	// Schema is the newest state schema its binary understands (1 for
+	// records written before it was recorded), Version its Armada version.
+	Schema    int
+	Version   string
 	CreatedAt time.Time
 }
 
@@ -192,6 +198,8 @@ type NodeStatus struct {
 	LastSeen    time.Time
 	CPUMillis   int64
 	MemoryBytes int64
+	// Version is the agent's Armada version; empty keeps the recorded one.
+	Version string
 }
 
 // Domain is a custom domain referenced by at least one app. Apps may only
@@ -264,6 +272,8 @@ type Store interface {
 	// existing node.
 	NodeCertAllowed(ctx context.Context, node, serial string) (bool, error)
 
+	// StoredSchema returns the schema the state is written in.
+	StoredSchema(ctx context.Context) (int, error)
 	// UpsertServer records a control plane node.
 	UpsertServer(ctx context.Context, srv Server) error
 	// ListServers lists the control plane nodes, sorted by name.

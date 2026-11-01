@@ -204,7 +204,13 @@ servers first, one at a time, then the other nodes one at a time.
    armada version && armada node list && armada status
    ```
 
-   The release notes say when a release changes the layout of the state.
+   `armada server list` shows each server's version. When a release
+   changes the layout of the state (the release notes say so), upgraded
+   servers stand by and the servers still on the old version keep leading
+   until the last one is upgraded; then an upgraded server leads and
+   migrates the state (ADR 0012). Until then `armada server list` names
+   the servers it waits for. A server that is gone for good but still
+   listed blocks the migration: remove it with `armada server remove`.
    An older binary refuses state written by a newer one instead of
    misreading it, so the backup from step 1 is your way back.
 
@@ -220,7 +226,8 @@ servers first, one at a time, then the other nodes one at a time.
    sudo systemctl restart armada-agent
    ```
 
-   Containers keep running; the restarted agent adopts them. The embedded
+   Containers keep running; the restarted agent adopts them, and
+   `armada node list` shows the node's new version. The embedded
    runtime (`armada-runtime.service`) picks up a new containerd from the
    upgraded binary at its next restart (`sudo systemctl restart
    armada-runtime`); restarting it also leaves containers running. Internal

@@ -112,8 +112,12 @@ func (s *Server) Connect(stream armadav1.AgentService_ConnectServer) error {
 	// Self-reported and untrusted: bounded to plausible values.
 	hello.CpuMillis = max(0, min(hello.GetCpuMillis(), maxNodeCPUMillis))
 	hello.MemoryBytes = max(0, min(hello.GetMemoryBytes(), maxNodeMemory))
+	if !validVersion(hello.GetVersion()) {
+		hello.Version = ""
+	}
 	if err := s.store.SetNodeStatus(ctx, node.ID, store.NodeStatus{
 		State: store.NodeReady, LastSeen: time.Now(), CPUMillis: hello.GetCpuMillis(), MemoryBytes: hello.GetMemoryBytes(),
+		Version: hello.GetVersion(),
 	}); err != nil {
 		return status.Error(codes.Internal, "update node")
 	}
@@ -365,3 +369,9 @@ func validReplicaAddress(addr, nodeIP string) bool {
 	ap, err := netip.ParseAddrPort(addr)
 	return err == nil && ap.Port() != 0 && ap.Addr().Zone() == "" && ap.String() == addr && ap.Addr().String() == nodeIP
 }
+
+// versionRe bounds the self-reported agent version, which ends up in the
+// state and in CLI output.
+var versionRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9.+_-]{0,63}$`)
+
+func validVersion(v string) bool { return versionRe.MatchString(v) }

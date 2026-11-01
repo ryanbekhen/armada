@@ -108,8 +108,10 @@ func (*ListServersRequest) Descriptor() ([]byte, []int) {
 }
 
 type ListServersResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Servers       []*ServerInfo          `protobuf:"bytes,1,rep,name=servers,proto3" json:"servers,omitempty"`
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Servers []*ServerInfo          `protobuf:"bytes,1,rep,name=servers,proto3" json:"servers,omitempty"`
+	// Schema the cluster state is written in.
+	StateSchema   int32 `protobuf:"varint,2,opt,name=state_schema,json=stateSchema,proto3" json:"state_schema,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -151,6 +153,13 @@ func (x *ListServersResponse) GetServers() []*ServerInfo {
 	return nil
 }
 
+func (x *ListServersResponse) GetStateSchema() int32 {
+	if x != nil {
+		return x.StateSchema
+	}
+	return 0
+}
+
 // ServerInfo describes a control plane node.
 type ServerInfo struct {
 	state     protoimpl.MessageState `protogen:"open.v1"`
@@ -165,7 +174,10 @@ type ServerInfo struct {
 	// never completed).
 	Member bool `protobuf:"varint,6,opt,name=member,proto3" json:"member,omitempty"`
 	// Whether its etcd member answers.
-	Reachable     bool `protobuf:"varint,7,opt,name=reachable,proto3" json:"reachable,omitempty"`
+	Reachable bool `protobuf:"varint,7,opt,name=reachable,proto3" json:"reachable,omitempty"`
+	// Newest state schema its binary understands, and its Armada version.
+	Schema        int32  `protobuf:"varint,8,opt,name=schema,proto3" json:"schema,omitempty"`
+	Version       string `protobuf:"bytes,9,opt,name=version,proto3" json:"version,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -247,6 +259,20 @@ func (x *ServerInfo) GetReachable() bool {
 		return x.Reachable
 	}
 	return false
+}
+
+func (x *ServerInfo) GetSchema() int32 {
+	if x != nil {
+		return x.Schema
+	}
+	return 0
+}
+
+func (x *ServerInfo) GetVersion() string {
+	if x != nil {
+		return x.Version
+	}
+	return ""
 }
 
 type RemoveServerRequest struct {
@@ -2434,6 +2460,8 @@ type NodeStatus struct {
 	MemoryBytes   int64                  `protobuf:"varint,6,opt,name=memory_bytes,json=memoryBytes,proto3" json:"memory_bytes,omitempty"`
 	Cordoned      bool                   `protobuf:"varint,7,opt,name=cordoned,proto3" json:"cordoned,omitempty"`
 	CertExpiresAt *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=cert_expires_at,json=certExpiresAt,proto3" json:"cert_expires_at,omitempty"`
+	// Armada version its agent last reported.
+	Version       string `protobuf:"bytes,9,opt,name=version,proto3" json:"version,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2522,6 +2550,13 @@ func (x *NodeStatus) GetCertExpiresAt() *timestamppb.Timestamp {
 		return x.CertExpiresAt
 	}
 	return nil
+}
+
+func (x *NodeStatus) GetVersion() string {
+	if x != nil {
+		return x.Version
+	}
+	return ""
 }
 
 type ScaleRequest struct {
@@ -4262,9 +4297,10 @@ var File_armada_v1_armada_proto protoreflect.FileDescriptor
 const file_armada_v1_armada_proto_rawDesc = "" +
 	"\n" +
 	"\x16armada/v1/armada.proto\x12\tarmada.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\x14\n" +
-	"\x12ListServersRequest\"F\n" +
+	"\x12ListServersRequest\"i\n" +
 	"\x13ListServersResponse\x12/\n" +
-	"\aservers\x18\x01 \x03(\v2\x15.armada.v1.ServerInfoR\aservers\"\xc0\x01\n" +
+	"\aservers\x18\x01 \x03(\v2\x15.armada.v1.ServerInfoR\aservers\x12!\n" +
+	"\fstate_schema\x18\x02 \x01(\x05R\vstateSchema\"\xf2\x01\n" +
 	"\n" +
 	"ServerInfo\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1d\n" +
@@ -4274,7 +4310,9 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\x06leader\x18\x04 \x01(\bR\x06leader\x12\x16\n" +
 	"\x06voting\x18\x05 \x01(\bR\x06voting\x12\x16\n" +
 	"\x06member\x18\x06 \x01(\bR\x06member\x12\x1c\n" +
-	"\treachable\x18\a \x01(\bR\treachable\")\n" +
+	"\treachable\x18\a \x01(\bR\treachable\x12\x16\n" +
+	"\x06schema\x18\b \x01(\x05R\x06schema\x12\x18\n" +
+	"\aversion\x18\t \x01(\tR\aversion\")\n" +
 	"\x13RemoveServerRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\"\x16\n" +
 	"\x14RemoveServerResponse\"Q\n" +
@@ -4427,7 +4465,7 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\n" +
 	"updated_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x12\x14\n" +
 	"\x05ready\x18\b \x01(\bR\x05ready\x12\x1a\n" +
-	"\bdraining\x18\t \x01(\bR\bdraining\"\xac\x02\n" +
+	"\bdraining\x18\t \x01(\bR\bdraining\"\xc6\x02\n" +
 	"\n" +
 	"NodeStatus\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1d\n" +
@@ -4439,7 +4477,8 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"cpu_millis\x18\x05 \x01(\x03R\tcpuMillis\x12!\n" +
 	"\fmemory_bytes\x18\x06 \x01(\x03R\vmemoryBytes\x12\x1a\n" +
 	"\bcordoned\x18\a \x01(\bR\bcordoned\x12B\n" +
-	"\x0fcert_expires_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\rcertExpiresAt\"<\n" +
+	"\x0fcert_expires_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\rcertExpiresAt\x12\x18\n" +
+	"\aversion\x18\t \x01(\tR\aversion\"<\n" +
 	"\fScaleRequest\x12\x10\n" +
 	"\x03app\x18\x01 \x01(\tR\x03app\x12\x1a\n" +
 	"\breplicas\x18\x02 \x01(\x05R\breplicas\"\x0f\n" +

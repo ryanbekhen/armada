@@ -236,7 +236,7 @@ func newServerListCommand(g *globals) *cobra.Command {
 			}
 			out := cmd.OutOrStdout()
 			tw := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
-			_, _ = fmt.Fprintln(tw, "NAME\tADDRESS\tROLE\tSTATUS")
+			_, _ = fmt.Fprintln(tw, "NAME\tADDRESS\tROLE\tSTATUS\tVERSION")
 			var addrs []string
 			for _, s := range resp.Servers {
 				role := "standby"
@@ -259,10 +259,13 @@ func newServerListCommand(g *globals) *cobra.Command {
 				case s.Member:
 					addrs = append(addrs, s.ApiAddr)
 				}
-				_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", s.Name, s.ApiAddr, role, st)
+				_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", s.Name, s.ApiAddr, role, st, orDash(s.Version))
 			}
 			if err := tw.Flush(); err != nil {
 				return err
+			}
+			if msg := schemaNote(resp); msg != "" {
+				_, _ = fmt.Fprintln(out, "\n"+msg)
 			}
 			return syncClientServers(cmd, g.configPath, addrs)
 		},
@@ -316,4 +319,31 @@ func newServerRemoveCommand(g *globals) *cobra.Command {
 			return err
 		},
 	}
+}
+
+// schemaNote explains a pending state migration (ADR 0012): it runs once
+// every server's binary knows the new schema.
+func schemaNote(resp *armadav1.ListServersResponse) string {
+	newest := resp.GetStateSchema()
+	var old []string
+	for _, s := range resp.GetServers() {
+		newest = max(newest, s.GetSchema())
+	}
+	for _, s := range resp.GetServers() {
+		if s.GetSchema() < newest {
+			old = append(old, s.GetName())
+		}
+	}
+	if newest == resp.GetStateSchema() {
+		return ""
+	}
+	return fmt.Sprintf("The state uses schema %d; upgraded servers know %d. The migration runs, and upgraded\n"+
+		"servers can lead, once these servers are upgraded too: %s.", resp.GetStateSchema(), newest, strings.Join(old, ", "))
+}
+
+func orDash(s string) string {
+	if s == "" {
+		return "-"
+	}
+	return s
 }

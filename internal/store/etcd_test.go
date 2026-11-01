@@ -119,3 +119,90 @@ func TestParseRevisionName(t *testing.T) {
 		}
 	}
 }
+
+func TestMigrateSteps(t *testing.T) {
+	t.Parallel()
+	s, ctx := open(t), context.Background()
+	var ran []int
+	step := func(n int) migration {
+		return func(tx *etx) error {
+			ran = append(ran, n)
+			return tx.put("migrated", n)
+		}
+	}
+	from, err := s.migrate(ctx, 3, []migration{step(1), step(2)})
+	if err != nil || from != 1 {
+		t.Fatalf("migrate: from %d, %v", from, err)
+	}
+	if v, _ := s.StoredSchema(ctx); v != 3 || len(ran) != 2 {
+		t.Fatalf("schema %d after steps %v", v, ran)
+	}
+	// Already current: nothing runs.
+	ran = nil
+	if from, err := s.migrate(ctx, 3, []migration{step(1), step(2)}); err != nil || from != 3 || len(ran) != 0 {
+		t.Errorf("second migrate: from %d, %v, ran %v", from, err, ran)
+	}
+	// A newer keyspace is refused, never rewritten.
+	if _, err := s.migrate(ctx, 2, []migration{step(1)}); err == nil {
+		t.Error("migrated a newer keyspace down")
+	}
+	if _, err := s.migrate(ctx, 4, []migration{step(1)}); err == nil {
+		t.Error("accepted a step list that does not match the schema")
+	}
+}
+
+func TestMigrateFailedStepKeepsSchema(t *testing.T) {
+	t.Parallel()
+	s, ctx := open(t), context.Background()
+	boom := errors.New("boom")
+	_, err := s.migrate(ctx, 2, []migration{func(tx *etx) error {
+		_ = tx.put("half", 1)
+		return boom
+	}})
+	if !errors.Is(err, boom) {
+		t.Fatalf("err = %v", err)
+	}
+	if v, _ := s.StoredSchema(ctx); v != 1 {
+		t.Errorf("schema = %d after a failed step", v)
+	}
+	if resp, _ := s.c.Get(ctx, s.prefix+"half"); len(resp.Kvs) != 0 {
+		t.Error("a failed step left writes behind")
+	}
+}
+
+func TestMigrationsMatchSchema(t *testing.T) {
+	if len(migrations) != etcdSchema-1 {
+		t.Fatalf("%d migrations for schema %d", len(migrations), etcdSchema)
+	}
+}
+
+func TestServerAndNodeVersions(t *testing.T) {
+	t.Parallel()
+	s, ctx := open(t), context.Background()
+	if err := s.UpsertServer(ctx, Server{Name: "s1", PrivateIP: "10.0.0.1", APIAddr: "10.0.0.1:7443"}); err != nil {
+		t.Fatal(err)
+	}
+	srvs, _ := s.ListServers(ctx)
+	if len(srvs) != 1 || srvs[0].Schema != 1 {
+		t.Fatalf("a record without a schema must read as schema 1: %+v", srvs)
+	}
+	if err := s.UpsertServer(ctx, Server{Name: "s1", PrivateIP: "10.0.0.1", APIAddr: "10.0.0.1:7443", Schema: 2, Version: "v0.2.0"}); err != nil {
+		t.Fatal(err)
+	}
+	if srvs, _ = s.ListServers(ctx); srvs[0].Schema != 2 || srvs[0].Version != "v0.2.0" {
+		t.Errorf("upgrade not recorded: %+v", srvs[0])
+	}
+
+	if err := s.UpsertNode(ctx, Node{ID: "n1", PrivateIP: "10.0.0.2"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetNodeStatus(ctx, "n1", NodeStatus{State: NodeReady, Version: "v0.2.0"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetNodeStatus(ctx, "n1", NodeStatus{State: NodeUnknown}); err != nil {
+		t.Fatal(err)
+	}
+	if n, _ := s.GetNode(ctx, "n1"); n.Version != "v0.2.0" {
+		t.Errorf("node version = %q", n.Version)
+	}
+}
