@@ -32,26 +32,26 @@ func TestPickNode(t *testing.T) {
 	}
 	mem := func(store.Replica) int64 { return 512 << 20 }
 
-	n, ok := pickNode(nodes, nil, "web", 512<<20, mem)
+	n, ok := pickNode(nodes, nil, nil, 512<<20, mem)
 	if !ok || n.ID != "b" {
 		t.Errorf("empty cluster picked %v, want b (most free memory)", n.ID)
 	}
-	n, _ = pickNode(nodes, []store.Replica{{App: "web", NodeID: "b"}}, "web", 512<<20, mem)
+	n, _ = pickNode(nodes, []store.Replica{{App: "web", NodeID: "b"}}, []store.Replica{{App: "web", NodeID: "b"}}, 512<<20, mem)
 	if n.ID != "a" {
 		t.Errorf("picked %v, want a (spread replicas)", n.ID)
 	}
 	full := []store.Replica{{App: "x", NodeID: "a"}, {App: "x", NodeID: "a"}, {App: "web", NodeID: "b"}}
-	n, _ = pickNode(nodes, full, "web", 512<<20, mem)
+	n, _ = pickNode(nodes, full, full[2:], 512<<20, mem)
 	if n.ID != "b" {
 		t.Errorf("picked %v, want b (a is full)", n.ID)
 	}
-	if _, ok := pickNode(nodes, nil, "web", 4<<30, mem); ok {
+	if _, ok := pickNode(nodes, nil, nil, 4<<30, mem); ok {
 		t.Error("scheduled replica that fits nowhere")
 	}
-	if _, ok := pickNode([]store.Node{{ID: "z", State: store.NodeUnknown}}, nil, "web", 1, mem); ok {
+	if _, ok := pickNode([]store.Node{{ID: "z", State: store.NodeUnknown}}, nil, nil, 1, mem); ok {
 		t.Error("scheduled on a node that is not ready")
 	}
-	n, ok = pickNode([]store.Node{{ID: "u", State: store.NodeReady}}, nil, "web", 1<<40, mem)
+	n, ok = pickNode([]store.Node{{ID: "u", State: store.NodeReady}}, nil, nil, 1<<40, mem)
 	if !ok || n.ID != "u" {
 		t.Error("unknown capacity (0) should not block scheduling")
 	}
@@ -61,9 +61,17 @@ func TestPickNode(t *testing.T) {
 		{ID: "honest", State: store.NodeReady, MemoryBytes: 2 << 30},
 		{ID: "liar", State: store.NodeReady, MemoryBytes: 16 << 40},
 	}
-	n, _ = pickNode(greedy, []store.Replica{{App: "x", NodeID: "liar"}}, "db", 512<<20, mem)
+	n, _ = pickNode(greedy, []store.Replica{{App: "x", NodeID: "liar"}}, nil, 512<<20, mem)
 	if n.ID != "honest" {
 		t.Errorf("picked %v, want honest (fewest replicas beats reported memory)", n.ID)
+	}
+	// Replicas on their way out (an old revision, draining) count toward
+	// load and memory but not toward the spread.
+	leaving := []store.Replica{{App: "web", NodeID: "a"}, {App: "web", NodeID: "a"}}
+	stay := []store.Replica{{App: "web", NodeID: "b"}}
+	n, _ = pickNode(nodes, append(leaving, stay...), stay, 256<<20, func(store.Replica) int64 { return 256 << 20 })
+	if n.ID != "a" {
+		t.Errorf("picked %v, want a (no replica of the app stays there)", n.ID)
 	}
 }
 

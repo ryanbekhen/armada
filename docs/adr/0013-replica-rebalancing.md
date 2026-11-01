@@ -22,8 +22,11 @@ once.
 - An app is **unevenly spread** when the node holding the most of its
   replicas has at least two more than the node the scheduler would pick
   for a new replica (the same choice as for scaling up: ready, not
-  cordoned, fits the memory, fewest replicas of the app). A difference of
-  one is as even as the count allows.
+  cordoned, fits the memory, fewest replicas of the app). Only replicas
+  that stay count: those of a revision being replaced, draining, or being
+  moved do not, so a rollout already spreads the new revision evenly and
+  needs no move afterwards. A difference of one is as even as the count
+  allows.
 - Only stable apps are rebalanced: no rollout in progress, exactly the
   desired number of replicas, all of them serving, no replica on a lost
   or cordoned node, and no lost node in the cluster.
