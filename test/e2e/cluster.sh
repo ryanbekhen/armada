@@ -153,7 +153,7 @@ load_start() {
 				res=$(curl -sk -o /dev/null -w '%{http_code} curl=%{exitcode} %{errormsg}' --max-time 5 \
 					--resolve "$URL_HOST:443:$ip" "https://$URL_HOST/" || true)
 				code=${res%% *}
-				echo "$code $ip ${res#* }" >>"$WORK/load"
+				echo "$code $ip ${res#* } at $(date -u +%H:%M:%S)" >>"$WORK/load"
 			done
 		done
 	) &
@@ -218,6 +218,14 @@ cleanup() {
 		printf '\n==> diagnostics (CLI on %s)\n' "$(host "$CLI" 1)" >&2
 		cli server list >&2 || true
 		cli status >&2 || true
+		# HAProxy reloads and restarts explain dropped requests.
+		_since=$(date -u -r "$STARTED" '+%Y-%m-%d %H:%M:%S' 2>/dev/null || date -u -d "@$STARTED" '+%Y-%m-%d %H:%M:%S')
+		_i=1
+		while [ "$_i" -le "$N" ]; do
+			printf '\n    haproxy events on %s (UTC):\n' "$(host "$_i" 1)" >&2
+			on "$_i" "journalctl -u armada-agent -u armada-server --utc --since '$_since' -o short-iso --no-pager | grep -i haproxy | tail -n 20" >&2 || true
+			_i=$((_i + 1))
+		done
 	fi
 	rm -rf "$WORK"
 	exit "$_rc"
