@@ -226,6 +226,7 @@ control plane. See [operations](operations.md#control-plane-one-server-or-three)
 | Custom domain | add it under `ingress.domains`, publish the TXT record from `armada domain list`, run `armada domain verify www.example.com` |
 | Internal service | `ingress.type: internal`; other containers call `http://<app>.internal` |
 | Maintenance | `armada node cordon NODE` moves replicas away; `armada node uncordon NODE` (replicas spread back to it on their own) |
+| Choose nodes | `armada node label NODE region=sulawesi`, then `placement.require` in the spec; `armada node restrict NODE` keeps a node for apps that ask for it |
 | Remove a node | `armada node remove NODE` (revokes its certificate) |
 | Control plane servers | `armada server list`, `armada server remove NAME` |
 | Back up / upgrade | `armada backup -o -`, then see [operations](operations.md) |

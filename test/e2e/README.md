@@ -72,5 +72,10 @@ once the binary has been copied to them.
    sets `--node-lost-timeout 30s`), its replicas move to other nodes, and
    once it returns the app is rebalanced onto it; traffic stays at 200.
 7. `armada backup` writes a `0600` archive.
-8. After rebooting every machine at once, the control plane, the nodes, and
+8. Placement: every node reports `armada.arch`; restricting a labelled node
+   moves the app off it under load with every request at 200; an app that
+   requires the label runs only there; once the label is gone, `armada
+   status` explains why that app has nowhere to go; reopening the node
+   spreads the app back.
+9. After rebooting every machine at once, the control plane, the nodes, and
    the app come back on their own.

@@ -171,6 +171,9 @@ func printStatus(out io.Writer, resp *armadav1.StatusResponse) error {
 			case rolloutFailed:
 				notes = append(notes, fmt.Sprintf("%s: last rollout failed, %s kept serving: %s", a.Name, a.ActiveRevision, a.RolloutMessage))
 			}
+			if a.PlacementMessage != "" {
+				notes = append(notes, fmt.Sprintf("%s: %s", a.Name, a.PlacementMessage))
+			}
 		}
 		if len(notes) > 0 {
 			_, _ = fmt.Fprintln(tw)

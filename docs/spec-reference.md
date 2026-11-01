@@ -39,6 +39,9 @@ scale:
 resources:
   memory: 512Mi
   cpu: "0.5"
+placement:                        # optional: only nodes with these labels
+  require:
+    region: sulawesi
 ```
 
 ## Fields
@@ -122,7 +125,7 @@ ready; see [ADR 0005](adr/0005-rolling-updates.md).
 
 `min` is the number of replicas to run, 1–100 (default 1). `max` defaults to
 `min` and must not be lower. Replicas are spread across ready, uncordoned
-nodes, and spread out again, one at a time, when a node joins, returns, or
+nodes that the app's `placement` allows, and spread out again, one at a time, when a node joins, returns, or
 is uncordoned. `armada scale <app> <n>` changes the count without a new revision.
 
 ### `resources`
@@ -136,6 +139,35 @@ Every container also gets a PID limit of 1024, `no-new-privileges`, and a
 reduced capability set, and never runs privileged, on the host network, or
 with access to the container runtime's socket.
 
+### `placement`
+
+Keeps the app on nodes with given labels (set with `armada node label`, or
+by the join token; see [operations](operations.md#node-labels-and-placement)).
+
+```yaml
+placement:
+  require:
+    region: sulawesi          # the node must have region=sulawesi
+    kind: [raspi, small]      # and kind=raspi or kind=small
+    armada.arch: arm64        # labels Armada sets: armada.os, armada.arch
+```
+
+A node runs the app only if it has every key with one of the listed values.
+If no node qualifies, or the qualifying nodes are full, the replicas are not
+placed anywhere else: `armada status` says why, a rollout fails and leaves
+the old revision serving. Placement belongs to the revision, so changing it
+rolls the app out onto the new set of nodes. A **restricted** node runs only
+apps whose `require` names one of its own labels (`armada.*` labels do not
+count).
+
+Keys are lowercase letters, digits, `.`, `-`, `_`, and `/` (up to 63
+characters); values the same without `/`. Up to 16 keys, each with up to 16
+values.
+
+Until the scheduler checks image architectures, a cluster that mixes
+architectures needs multi-architecture images, or `armada.arch` in
+`require`.
+
 ## Not available in v0.1
 
 These fields are part of the format and are rejected with an explicit error
@@ -147,3 +179,4 @@ until they are implemented:
 | `revisions.mode: multiple`, `revisions.traffic` (traffic splitting) | v0.2 |
 | `scale.rules` (autoscaling) | v0.2 |
 | `scale.min: 0` (scale to zero) | v0.3 |
+| `placement.spreadBy` (spread over label values) | later |

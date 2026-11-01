@@ -59,6 +59,7 @@ type App struct {
 	Probes    *Probes    `yaml:"probes,omitempty" json:"probes,omitempty"`
 	Scale     *Scale     `yaml:"scale,omitempty" json:"scale,omitempty"`
 	Resources *Resources `yaml:"resources,omitempty" json:"resources,omitempty"`
+	Placement *Placement `yaml:"placement,omitempty" json:"placement,omitempty"`
 }
 
 // EnvVar is an environment variable, either literal or from a secret.

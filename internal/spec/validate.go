@@ -172,6 +172,7 @@ func (a *App) Validate() error {
 	v.probes(a.Probes)
 	v.scale(a.Scale)
 	v.resources(a.Resources)
+	v.placement(a.Placement)
 
 	return errors.Join(v.errs...)
 }

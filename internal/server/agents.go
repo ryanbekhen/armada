@@ -17,6 +17,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	armadav1 "github.com/ryanbekhen/armada/api/armada/v1"
+	"github.com/ryanbekhen/armada/internal/spec"
 	"github.com/ryanbekhen/armada/internal/store"
 )
 
@@ -118,9 +119,16 @@ func (s *Server) Connect(stream armadav1.AgentService_ConnectServer) error {
 	if !validVersion(hello.GetVersion()) {
 		hello.Version = ""
 	}
+	// Shown as the armada.os and armada.arch labels: label values only.
+	if spec.CheckLabelValue(hello.GetOs()) != nil {
+		hello.Os = ""
+	}
+	if spec.CheckLabelValue(hello.GetArch()) != nil {
+		hello.Arch = ""
+	}
 	if err := s.store.SetNodeStatus(ctx, node.ID, store.NodeStatus{
 		State: store.NodeReady, LastSeen: time.Now(), CPUMillis: hello.GetCpuMillis(), MemoryBytes: hello.GetMemoryBytes(),
-		Version: hello.GetVersion(),
+		Version: hello.GetVersion(), OS: hello.GetOs(), Arch: hello.GetArch(),
 	}); err != nil {
 		return status.Error(codes.Internal, "update node")
 	}

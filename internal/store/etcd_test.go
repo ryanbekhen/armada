@@ -120,9 +120,18 @@ func TestParseRevisionName(t *testing.T) {
 	}
 }
 
+// atSchema rewinds a fresh store to schema v, as an old keyspace would be.
+func atSchema(t *testing.T, s *Etcd, v int) {
+	t.Helper()
+	if err := s.tx(context.Background(), func(tx *etx) error { return tx.put(keySchema, v) }); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestMigrateSteps(t *testing.T) {
 	t.Parallel()
 	s, ctx := open(t), context.Background()
+	atSchema(t, s, 1)
 	var ran []int
 	step := func(n int) migration {
 		return func(tx *etx) error {
@@ -154,6 +163,7 @@ func TestMigrateSteps(t *testing.T) {
 func TestMigrateFailedStepKeepsSchema(t *testing.T) {
 	t.Parallel()
 	s, ctx := open(t), context.Background()
+	atSchema(t, s, 1)
 	boom := errors.New("boom")
 	_, err := s.migrate(ctx, 2, []migration{func(tx *etx) error {
 		_ = tx.put("half", 1)
@@ -167,6 +177,18 @@ func TestMigrateFailedStepKeepsSchema(t *testing.T) {
 	}
 	if resp, _ := s.c.Get(ctx, s.prefix+"half"); len(resp.Kvs) != 0 {
 		t.Error("a failed step left writes behind")
+	}
+}
+
+func TestMigrateToNodeLabels(t *testing.T) {
+	t.Parallel()
+	s, ctx := open(t), context.Background()
+	atSchema(t, s, 1)
+	if from, err := s.Migrate(ctx); err != nil || from != 1 {
+		t.Fatalf("migrate: from %d, %v", from, err)
+	}
+	if v, _ := s.StoredSchema(ctx); v != 2 {
+		t.Errorf("schema = %d, want 2", v)
 	}
 }
 

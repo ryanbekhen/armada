@@ -201,10 +201,16 @@ func (s *Server) reconcileApp(ctx context.Context, rc *reconcileRun, app *store.
 		}
 	}
 
-	// Replicas on cordoned nodes are replaced elsewhere, then retired.
+	// Replicas on cordoned nodes, and on nodes the app's placement no
+	// longer allows (ADR 0014), are replaced elsewhere, then retired.
+	target, err := revs.get(ctx, app.TargetRevision)
+	if err != nil {
+		return nil, err
+	}
+	fit := eligible(nodes, target.Spec)
 	cordoned := map[string]bool{}
 	for _, n := range nodes {
-		if n.Cordoned {
+		if n.Cordoned || (n.State == store.NodeReady && !placementAllows(n, target.Spec)) {
 			cordoned[n.ID] = true
 		}
 	}
@@ -260,12 +266,8 @@ func (s *Server) reconcileApp(ctx context.Context, rc *reconcileRun, app *store.
 
 	// Scale up, with one replica of surge while old replicas still run.
 	if len(current) < app.Replicas {
-		target, err := revs.get(ctx, app.TargetRevision)
-		if err != nil {
-			return nil, err
-		}
 		for len(current) < app.Replicas && len(current)+len(old)+len(moving) < app.Replicas+maxSurge {
-			node, ok := pickNode(nodes, all, app.Name, target.Spec.MemoryBytes(), revs.memory(ctx))
+			node, ok := pickNode(fit, all, app.Name, target.Spec.MemoryBytes(), revs.memory(ctx))
 			if !ok {
 				s.log.Warn("no node can fit replica", "app", app.Name, "want", app.Replicas, "have", len(current))
 				break
@@ -290,7 +292,7 @@ func (s *Server) reconcileApp(ctx context.Context, rc *reconcileRun, app *store.
 	}
 	if !app.Rolling() {
 		if len(lost) == 0 && len(moving) == 0 {
-			return s.rebalance(ctx, rc, app, nodes, all, current, serving, revs)
+			return s.rebalance(ctx, rc, app, fit, all, current, serving, revs)
 		}
 		return all, nil
 	}
@@ -673,6 +675,27 @@ func pickVictim(rs []store.Replica) store.Replica {
 // memory. Nodes that report capacity and cannot fit memNeeded are skipped;
 // capacity 0 means unknown. Capacity is self-reported, so it only breaks
 // ties: a node advertising inflated memory does not attract every replica.
+// eligible returns the nodes that may take new replicas of sp: ready, not
+// cordoned, and allowed by its placement.
+func eligible(nodes []store.Node, sp *spec.App) []store.Node {
+	var out []store.Node
+	for _, n := range nodes {
+		if n.State == store.NodeReady && !n.Cordoned && placementAllows(n, sp) {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+// placementAllows reports whether replicas of sp may run on n: n matches
+// the placement and, if restricted, is selected by it (ADR 0014).
+func placementAllows(n store.Node, sp *spec.App) bool {
+	if !sp.Placement.Matches(n.AllLabels()) {
+		return false
+	}
+	return !n.Restricted || sp.Placement.Selects(n.Labels)
+}
+
 func pickNode(nodes []store.Node, replicas []store.Replica, app string, memNeeded int64, memOf func(store.Replica) int64) (store.Node, bool) {
 	type cand struct {
 		node    store.Node

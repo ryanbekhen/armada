@@ -245,12 +245,20 @@ func (s *Server) CreateJoinToken(ctx context.Context, req *armadav1.CreateJoinTo
 			return nil, status.Errorf(codes.InvalidArgument, "server token lifetime must be at most %s", maxServerTokenTTL)
 		}
 	}
+	for k, v := range req.GetLabels() {
+		if err := spec.CheckAdminLabel(k, v); err != nil {
+			return nil, status.Error(codes.InvalidArgument, err.Error())
+		}
+	}
+	if len(req.GetLabels()) > spec.MaxNodeLabels {
+		return nil, status.Errorf(codes.InvalidArgument, "at most %d labels", spec.MaxNodeLabels)
+	}
 	tok, err := pki.NewJoinToken()
 	if err != nil {
 		return nil, status.Error(codes.Internal, "generate token")
 	}
 	expires := s.now().Add(ttl)
-	if err := s.store.CreateJoinToken(ctx, store.JoinToken{ID: tok.ID, SecretHash: tok.SecretHash(), ExpiresAt: expires, CreatedBy: actor(ctx), Server: req.GetServer()}); err != nil {
+	if err := s.store.CreateJoinToken(ctx, store.JoinToken{ID: tok.ID, SecretHash: tok.SecretHash(), ExpiresAt: expires, CreatedBy: actor(ctx), Server: req.GetServer(), Labels: req.GetLabels()}); err != nil {
 		return nil, storeErr(err)
 	}
 	s.log.Info("join token created", "token", tok.ID, "server", req.GetServer(), "expires", expires.UTC().Format(time.RFC3339), "by", actor(ctx))
@@ -268,6 +276,45 @@ func (s *Server) CordonNode(ctx context.Context, req *armadav1.CordonNodeRequest
 	s.log.Info("node cordon", "node", req.GetNode(), "cordoned", req.GetCordoned(), "by", actor(ctx))
 	s.Trigger()
 	return &armadav1.CordonNodeResponse{}, nil
+}
+
+// LabelNode sets and removes a node's admin labels (ADR 0014). Replicas
+// whose node no longer matches their app's placement are moved.
+func (s *Server) LabelNode(ctx context.Context, req *armadav1.LabelNodeRequest) (*armadav1.LabelNodeResponse, error) {
+	if len(req.GetSet()) == 0 && len(req.GetRemove()) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "no labels to set or remove")
+	}
+	for k, v := range req.GetSet() {
+		if err := spec.CheckAdminLabel(k, v); err != nil {
+			return nil, status.Error(codes.InvalidArgument, err.Error())
+		}
+	}
+	for _, k := range req.GetRemove() {
+		if err := spec.CheckAdminLabel(k, "x"); err != nil {
+			return nil, status.Error(codes.InvalidArgument, err.Error())
+		}
+		if _, ok := req.GetSet()[k]; ok {
+			return nil, status.Errorf(codes.InvalidArgument, "label %q is both set and removed", k)
+		}
+	}
+	labels, err := s.store.SetNodeLabels(ctx, req.GetNode(), req.GetSet(), req.GetRemove(), actor(ctx))
+	if err != nil {
+		return nil, storeErr(err)
+	}
+	s.log.Info("node labels", "node", req.GetNode(), "labels", len(labels), "by", actor(ctx))
+	s.Trigger()
+	return &armadav1.LabelNodeResponse{Labels: labels}, nil
+}
+
+// RestrictNode makes a node restricted (only apps whose placement selects
+// one of its labels) or open.
+func (s *Server) RestrictNode(ctx context.Context, req *armadav1.RestrictNodeRequest) (*armadav1.RestrictNodeResponse, error) {
+	if err := s.store.SetNodeRestricted(ctx, req.GetNode(), req.GetRestricted(), actor(ctx)); err != nil {
+		return nil, storeErr(err)
+	}
+	s.log.Info("node restriction", "node", req.GetNode(), "restricted", req.GetRestricted(), "by", actor(ctx))
+	s.Trigger()
+	return &armadav1.RestrictNodeResponse{}, nil
 }
 
 // RemoveNode deletes a node, revokes its certificates, and disconnects its

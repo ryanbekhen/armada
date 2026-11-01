@@ -63,6 +63,28 @@ type Node struct {
 	// CertNotAfter is when the node's newest certificate expires (zero if
 	// none is recorded).
 	CertNotAfter time.Time
+	// Labels are the admin labels (ADR 0014); OS and Arch are what its
+	// agent reports. AllLabels combines them.
+	Labels   map[string]string
+	OS, Arch string
+	// Restricted nodes only run apps whose placement selects one of their
+	// labels.
+	Restricted bool
+}
+
+// AllLabels returns the admin labels plus armada.os and armada.arch.
+func (n Node) AllLabels() map[string]string {
+	out := make(map[string]string, len(n.Labels)+2)
+	for k, v := range n.Labels {
+		out[k] = v
+	}
+	if n.OS != "" {
+		out[spec.LabelOS] = n.OS
+	}
+	if n.Arch != "" {
+		out[spec.LabelArch] = n.Arch
+	}
+	return out
 }
 
 // JoinToken is a stored join token. The secret itself is never stored.
@@ -75,6 +97,8 @@ type JoinToken struct {
 	// Server tokens add a control plane node and are redeemed only by
 	// RedeemServerToken; node tokens only by RedeemJoinToken.
 	Server bool
+	// Labels are given to the node that joins with the token.
+	Labels map[string]string
 }
 
 // Server is a control plane node.
@@ -207,6 +231,8 @@ type NodeStatus struct {
 	MemoryBytes int64
 	// Version is the agent's Armada version; empty keeps the recorded one.
 	Version string
+	// OS and Arch as the agent reports them; empty keeps the recorded ones.
+	OS, Arch string
 }
 
 // Domain is a custom domain referenced by at least one app. Apps may only
@@ -255,6 +281,12 @@ type Store interface {
 	SetNodeStatus(ctx context.Context, id string, st NodeStatus) error
 	// SetNodeCordoned marks a node (un)schedulable.
 	SetNodeCordoned(ctx context.Context, id string, cordoned bool, actor string) error
+	// SetNodeLabels sets and removes admin labels and returns the result.
+	// Keys must already be validated; more than spec.MaxNodeLabels labels
+	// is ErrPrecondition.
+	SetNodeLabels(ctx context.Context, id string, set map[string]string, remove []string, actor string) (map[string]string, error)
+	// SetNodeRestricted makes a node restricted or open (ADR 0014).
+	SetNodeRestricted(ctx context.Context, id string, restricted bool, actor string) error
 	// RemoveNode deletes a node and revokes its certificates. Unless force
 	// is set it returns ErrPrecondition while replicas are scheduled on it;
 	// with force they are deleted (and rescheduled elsewhere).

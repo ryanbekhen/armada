@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -20,6 +21,7 @@ import (
 	"github.com/ryanbekhen/armada/internal/fsutil"
 	"github.com/ryanbekhen/armada/internal/netutil"
 	"github.com/ryanbekhen/armada/internal/pki"
+	"github.com/ryanbekhen/armada/internal/spec"
 	"github.com/ryanbekhen/armada/internal/version"
 )
 
@@ -31,6 +33,7 @@ func newTokenCommand(g *globals) *cobra.Command {
 	var (
 		ttl       time.Duration
 		forServer bool
+		labels    []string
 	)
 	create := &cobra.Command{
 		Use:   "create",
@@ -50,7 +53,18 @@ func newTokenCommand(g *globals) *cobra.Command {
 			if forServer && !cmd.Flags().Changed("ttl") {
 				ttl = 15 * time.Minute
 			}
-			resp, err := client.CreateJoinToken(cmd.Context(), &armadav1.CreateJoinTokenRequest{TtlSeconds: int64(ttl / time.Second), Server: forServer})
+			req := &armadav1.CreateJoinTokenRequest{TtlSeconds: int64(ttl / time.Second), Server: forServer}
+			for _, l := range labels {
+				k, v, err := parseLabel(l)
+				if err != nil {
+					return err
+				}
+				if req.Labels == nil {
+					req.Labels = map[string]string{}
+				}
+				req.Labels[k] = v
+			}
+			resp, err := client.CreateJoinToken(cmd.Context(), req)
 			if err != nil {
 				return rpcErr(err)
 			}
@@ -69,6 +83,7 @@ func newTokenCommand(g *globals) *cobra.Command {
 	}
 	create.Flags().DurationVar(&ttl, "ttl", time.Hour, "token lifetime (1m to 24h; server tokens: default 15m, at most 1h)")
 	create.Flags().BoolVar(&forServer, "server", false, "create a token for a control plane node")
+	create.Flags().StringArrayVar(&labels, "label", nil, "label KEY=VALUE for the node that joins with the token (repeatable)")
 	cmd.AddCommand(create)
 	return cmd
 }
@@ -215,7 +230,7 @@ func checkServers(addrs []string) ([]string, error) {
 }
 
 func newNodeCommand(g *globals) *cobra.Command {
-	cmd := &cobra.Command{Use: "node", Aliases: []string{"nodes"}, Short: "List, cordon, and remove nodes"}
+	cmd := &cobra.Command{Use: "node", Aliases: []string{"nodes"}, Short: "List, label, cordon, and remove nodes"}
 	list := &cobra.Command{
 		Use:     "list",
 		Aliases: []string{"ls"},
@@ -238,13 +253,13 @@ func newNodeCommand(g *globals) *cobra.Command {
 				}
 			}
 			tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 4, 2, ' ', 0)
-			_, _ = fmt.Fprintln(tw, "NODE\tPRIVATE IP\tSTATE\tREPLICAS\tVERSION\tCERT EXPIRES")
+			_, _ = fmt.Fprintln(tw, "NODE\tPRIVATE IP\tSTATE\tREPLICAS\tVERSION\tCERT EXPIRES\tLABELS")
 			for _, n := range resp.Nodes {
 				exp := "-"
 				if n.CertExpiresAt != nil {
 					exp = n.CertExpiresAt.AsTime().Local().Format(time.DateOnly)
 				}
-				_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%d\t%s\t%s\n", n.Id, n.PrivateIp, nodeState(n), replicas[n.Id], orDash(n.Version), exp)
+				_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%d\t%s\t%s\t%s\n", n.Id, n.PrivateIp, nodeState(n), replicas[n.Id], orDash(n.Version), exp, orDash(formatLabels(n.Labels)))
 			}
 			return tw.Flush()
 		},
@@ -335,14 +350,109 @@ func newNodeCommand(g *globals) *cobra.Command {
 	}
 	remove.Flags().BoolVar(&force, "force", false, "remove now and delete its replicas without draining")
 	remove.Flags().DurationVar(&wait, "wait", 10*time.Minute, "how long to wait for replicas to move")
-	cmd.AddCommand(list, cordon("cordon", "Stop scheduling on a node and move its replicas away", true),
+	label := &cobra.Command{
+		Use:   "label NODE KEY=VALUE... | KEY-...",
+		Short: "Set or remove a node's labels",
+		Long: "Set labels with KEY=VALUE and remove them with KEY-. Apps choose nodes by\n" +
+			"label with placement.require (see the spec reference). Replicas whose node no\n" +
+			"longer matches their app's placement move to other nodes, without dropping\n" +
+			"below the serving count.\n\n" +
+			"Keys are lowercase letters, digits, '.', '-', '_', and '/'; values the same\n" +
+			"without '/'. Keys starting with \"armada.\" are set by Armada (armada.os,\n" +
+			"armada.arch) and cannot be changed.",
+		Example: "  armada node label raspi-1 region=sulawesi kind=raspi\n  armada node label raspi-1 kind-",
+		Args:    cobra.MinimumNArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			req := &armadav1.LabelNodeRequest{Node: args[0], Set: map[string]string{}}
+			for _, a := range args[1:] {
+				if k, ok := strings.CutSuffix(a, "-"); ok && !strings.Contains(a, "=") {
+					req.Remove = append(req.Remove, k)
+					continue
+				}
+				k, v, err := parseLabel(a)
+				if err != nil {
+					return err
+				}
+				req.Set[k] = v
+			}
+			client, conn, err := dialAdmin(g)
+			if err != nil {
+				return err
+			}
+			defer conn.Close()
+			resp, err := client.LabelNode(cmd.Context(), req)
+			if err != nil {
+				return rpcErr(err)
+			}
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Labels of %s: %s\n", args[0], orDash(formatLabels(resp.Labels)))
+			return err
+		},
+	}
+	restrict := func(use, short string, on bool) *cobra.Command {
+		return &cobra.Command{
+			Use:   use + " NODE",
+			Short: short,
+			Args:  cobra.ExactArgs(1),
+			RunE: func(cmd *cobra.Command, args []string) error {
+				client, conn, err := dialAdmin(g)
+				if err != nil {
+					return err
+				}
+				defer conn.Close()
+				if _, err := client.RestrictNode(cmd.Context(), &armadav1.RestrictNodeRequest{Node: args[0], Restricted: on}); err != nil {
+					return rpcErr(err)
+				}
+				msg := "Node %s is open: any app may run there.\n"
+				if on {
+					msg = "Node %s is restricted: only apps whose placement.require names one of its labels run there;\n" +
+						"other replicas move to other nodes.\n"
+				}
+				_, err = fmt.Fprintf(cmd.OutOrStdout(), msg, args[0])
+				return err
+			},
+		}
+	}
+	cmd.AddCommand(list, label,
+		restrict("restrict", "Run only apps whose placement selects one of the node's labels", true),
+		restrict("open", "Let any app run on a restricted node again", false),
+		cordon("cordon", "Stop scheduling on a node and move its replicas away", true),
 		cordon("uncordon", "Allow scheduling on a node again", false), remove)
 	return cmd
 }
 
 func nodeState(n *armadav1.NodeStatus) string {
+	s := n.State
 	if n.Cordoned {
-		return n.State + ",cordoned"
+		s += ",cordoned"
 	}
-	return n.State
+	if n.Restricted {
+		s += ",restricted"
+	}
+	return s
+}
+
+// parseLabel splits KEY=VALUE and validates both parts.
+func parseLabel(s string) (string, string, error) {
+	k, v, ok := strings.Cut(s, "=")
+	if !ok {
+		return "", "", fmt.Errorf("label %q: want KEY=VALUE (or KEY- to remove)", s)
+	}
+	if err := spec.CheckAdminLabel(k, v); err != nil {
+		return "", "", err
+	}
+	return k, v, nil
+}
+
+// formatLabels renders labels as "k=v,k2=v2", sorted by key.
+func formatLabels(labels map[string]string) string {
+	keys := make([]string, 0, len(labels))
+	for k := range labels {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+	parts := make([]string, len(keys))
+	for i, k := range keys {
+		parts[i] = k + "=" + labels[k]
+	}
+	return strings.Join(parts, ",")
 }

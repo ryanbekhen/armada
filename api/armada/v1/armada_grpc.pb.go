@@ -34,6 +34,8 @@ const (
 	AdminService_DeleteSecret_FullMethodName     = "/armada.v1.AdminService/DeleteSecret"
 	AdminService_CreateJoinToken_FullMethodName  = "/armada.v1.AdminService/CreateJoinToken"
 	AdminService_CordonNode_FullMethodName       = "/armada.v1.AdminService/CordonNode"
+	AdminService_LabelNode_FullMethodName        = "/armada.v1.AdminService/LabelNode"
+	AdminService_RestrictNode_FullMethodName     = "/armada.v1.AdminService/RestrictNode"
 	AdminService_RemoveNode_FullMethodName       = "/armada.v1.AdminService/RemoveNode"
 	AdminService_ListServers_FullMethodName      = "/armada.v1.AdminService/ListServers"
 	AdminService_RemoveServer_FullMethodName     = "/armada.v1.AdminService/RemoveServer"
@@ -61,6 +63,8 @@ type AdminServiceClient interface {
 	DeleteSecret(ctx context.Context, in *DeleteSecretRequest, opts ...grpc.CallOption) (*DeleteSecretResponse, error)
 	CreateJoinToken(ctx context.Context, in *CreateJoinTokenRequest, opts ...grpc.CallOption) (*CreateJoinTokenResponse, error)
 	CordonNode(ctx context.Context, in *CordonNodeRequest, opts ...grpc.CallOption) (*CordonNodeResponse, error)
+	LabelNode(ctx context.Context, in *LabelNodeRequest, opts ...grpc.CallOption) (*LabelNodeResponse, error)
+	RestrictNode(ctx context.Context, in *RestrictNodeRequest, opts ...grpc.CallOption) (*RestrictNodeResponse, error)
 	RemoveNode(ctx context.Context, in *RemoveNodeRequest, opts ...grpc.CallOption) (*RemoveNodeResponse, error)
 	ListServers(ctx context.Context, in *ListServersRequest, opts ...grpc.CallOption) (*ListServersResponse, error)
 	RemoveServer(ctx context.Context, in *RemoveServerRequest, opts ...grpc.CallOption) (*RemoveServerResponse, error)
@@ -233,6 +237,26 @@ func (c *adminServiceClient) CordonNode(ctx context.Context, in *CordonNodeReque
 	return out, nil
 }
 
+func (c *adminServiceClient) LabelNode(ctx context.Context, in *LabelNodeRequest, opts ...grpc.CallOption) (*LabelNodeResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(LabelNodeResponse)
+	err := c.cc.Invoke(ctx, AdminService_LabelNode_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) RestrictNode(ctx context.Context, in *RestrictNodeRequest, opts ...grpc.CallOption) (*RestrictNodeResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RestrictNodeResponse)
+	err := c.cc.Invoke(ctx, AdminService_RestrictNode_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *adminServiceClient) RemoveNode(ctx context.Context, in *RemoveNodeRequest, opts ...grpc.CallOption) (*RemoveNodeResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(RemoveNodeResponse)
@@ -285,6 +309,8 @@ type AdminServiceServer interface {
 	DeleteSecret(context.Context, *DeleteSecretRequest) (*DeleteSecretResponse, error)
 	CreateJoinToken(context.Context, *CreateJoinTokenRequest) (*CreateJoinTokenResponse, error)
 	CordonNode(context.Context, *CordonNodeRequest) (*CordonNodeResponse, error)
+	LabelNode(context.Context, *LabelNodeRequest) (*LabelNodeResponse, error)
+	RestrictNode(context.Context, *RestrictNodeRequest) (*RestrictNodeResponse, error)
 	RemoveNode(context.Context, *RemoveNodeRequest) (*RemoveNodeResponse, error)
 	ListServers(context.Context, *ListServersRequest) (*ListServersResponse, error)
 	RemoveServer(context.Context, *RemoveServerRequest) (*RemoveServerResponse, error)
@@ -342,6 +368,12 @@ func (UnimplementedAdminServiceServer) CreateJoinToken(context.Context, *CreateJ
 }
 func (UnimplementedAdminServiceServer) CordonNode(context.Context, *CordonNodeRequest) (*CordonNodeResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method CordonNode not implemented")
+}
+func (UnimplementedAdminServiceServer) LabelNode(context.Context, *LabelNodeRequest) (*LabelNodeResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method LabelNode not implemented")
+}
+func (UnimplementedAdminServiceServer) RestrictNode(context.Context, *RestrictNodeRequest) (*RestrictNodeResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RestrictNode not implemented")
 }
 func (UnimplementedAdminServiceServer) RemoveNode(context.Context, *RemoveNodeRequest) (*RemoveNodeResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method RemoveNode not implemented")
@@ -636,6 +668,42 @@ func _AdminService_CordonNode_Handler(srv interface{}, ctx context.Context, dec 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AdminService_LabelNode_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(LabelNodeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).LabelNode(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminService_LabelNode_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).LabelNode(ctx, req.(*LabelNodeRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_RestrictNode_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RestrictNodeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).RestrictNode(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminService_RestrictNode_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).RestrictNode(ctx, req.(*RestrictNodeRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _AdminService_RemoveNode_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(RemoveNodeRequest)
 	if err := dec(in); err != nil {
@@ -752,6 +820,14 @@ var AdminService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "CordonNode",
 			Handler:    _AdminService_CordonNode_Handler,
+		},
+		{
+			MethodName: "LabelNode",
+			Handler:    _AdminService_LabelNode_Handler,
+		},
+		{
+			MethodName: "RestrictNode",
+			Handler:    _AdminService_RestrictNode_Handler,
 		},
 		{
 			MethodName: "RemoveNode",
