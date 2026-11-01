@@ -3,6 +3,7 @@ package fake
 
 import (
 	"context"
+	"errors"
 	"sync"
 
 	"github.com/ryanbekhen/armada/internal/proxy"
@@ -14,6 +15,9 @@ type Driver struct {
 	applied []proxy.Config
 	// Err, if set, is returned by Apply and Health.
 	Err error
+	// down makes Health fail until the next successful Apply, like a
+	// proxy that stopped and is started again.
+	down bool
 }
 
 var _ proxy.Driver = (*Driver)(nil)
@@ -29,14 +33,25 @@ func (d *Driver) Apply(_ context.Context, cfg proxy.Config) error {
 		return err
 	}
 	d.applied = append(d.applied, cfg)
+	d.down = false
 	return nil
 }
 
-// Health returns Err.
+// Health returns Err, or an error while the proxy is down.
 func (d *Driver) Health(context.Context) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	if d.Err == nil && d.down {
+		return errors.New("proxy is not running")
+	}
 	return d.Err
+}
+
+// Stop makes the proxy unhealthy until the next Apply.
+func (d *Driver) Stop() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.down = true
 }
 
 // SetErr changes Err safely.

@@ -472,8 +472,9 @@ func (a *Agent) readiness(ctx context.Context, s *armadav1.ReplicaSpec, c runtim
 
 // applyProxy hands the latest ingress configuration to the proxy driver. A
 // failure is logged and retried on the next reconcile; the proxy keeps
-// serving its previous configuration meanwhile. The config holds TLS private
-// keys, so it is never logged.
+// serving its previous configuration meanwhile. An unchanged configuration
+// is applied again when the proxy is not healthy, which starts it if it
+// stopped. The config holds TLS private keys, so it is never logged.
 func (a *Agent) applyProxy(ctx context.Context) {
 	if a.cfg.Proxy == nil {
 		return
@@ -481,8 +482,15 @@ func (a *Agent) applyProxy(ctx context.Context) {
 	a.mu.Lock()
 	want, have := a.proxyDesired, a.proxyApplied
 	a.mu.Unlock()
-	if want == nil || proto.Equal(want, have) {
+	if want == nil {
 		return
+	}
+	if proto.Equal(want, have) {
+		err := a.cfg.Proxy.Health(ctx)
+		if err == nil {
+			return
+		}
+		a.log.Warn("proxy unhealthy, applying its configuration again", "err", err)
 	}
 	cfg := proxy.FromProto(want)
 	if err := a.cfg.Proxy.Apply(ctx, cfg); err != nil {

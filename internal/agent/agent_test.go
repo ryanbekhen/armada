@@ -337,10 +337,23 @@ func TestReconcileAppliesProxy(t *testing.T) {
 	if n, _ := px.Applied(); n != 1 {
 		t.Errorf("applied %d times", n)
 	}
+	// A proxy that stopped is started again with the same config.
+	px.Stop()
+	_, _ = a.Reconcile(ctx)
+	if n, _ := px.Applied(); n != 2 {
+		t.Errorf("stopped proxy: applied %d times, want 2", n)
+	}
+	if err := px.Health(ctx); err != nil {
+		t.Errorf("proxy still down: %v", err)
+	}
+	_, _ = a.Reconcile(ctx)
+	if n, _ := px.Applied(); n != 2 {
+		t.Errorf("healthy proxy re-applied: %d", n)
+	}
 	// An assignment without proxy config keeps the current one.
 	a.setDesired(nil, nil)
 	_, _ = a.Reconcile(ctx)
-	if n, _ := px.Applied(); n != 1 {
+	if n, _ := px.Applied(); n != 2 {
 		t.Errorf("nil proxy config re-applied or cleared")
 	}
 
@@ -353,14 +366,14 @@ func TestReconcileAppliesProxy(t *testing.T) {
 	}
 	px.SetErr(nil)
 	_, _ = a.Reconcile(ctx)
-	if n, got := px.Applied(); n != 2 || len(got.Rules) != 0 {
+	if n, got := px.Applied(); n != 3 || len(got.Rules) != 0 {
 		t.Errorf("retry: applied %d, %+v", n, got)
 	}
 
 	// A malicious config from a compromised server is refused by the driver.
 	a.setDesired(nil, &armadav1.ProxyConfig{Rules: []*armadav1.ProxyRule{{Host: "x.id\n  bind :22", PathPrefix: "/", Backend: "web"}}})
 	_, _ = a.Reconcile(ctx)
-	if n, _ := px.Applied(); n != 2 {
+	if n, _ := px.Applied(); n != 3 {
 		t.Error("invalid proxy config applied")
 	}
 }
