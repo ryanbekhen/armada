@@ -440,6 +440,32 @@ wait_for 60 "status explains why pinned has nowhere to go" placement_note
 cli node open "$_node" >/dev/null
 wait_for 600 "$APP spread back over every node" even
 
+log "image platforms"
+_arch=$(status | jq -r '.nodes[0].labels["armada.arch"]')
+case "$_arch" in
+amd64) _other=arm64 _foreign=arm64v8/busybox:1.37 ;;
+*) _other=amd64 _foreign=amd64/busybox:1.37 ;;
+esac
+hello_platforms() { cli revisions "$APP" | awk 'NR > 1 && $2 == "active"' | grep -q "linux/$_arch"; }
+foreign_note() {
+	status | jq -e --arg want "no ready node can run the image, which is built for linux/$_other" \
+		'.apps[] | select(.name == "foreign") | (.placementMessage // "") | contains($want)'
+}
+foreign_unplaced() {
+	status | jq -e '[.apps[] | select(.name == "foreign") | .replicas[]? | select((.draining // false) | not) | select(.state == "running")] | length == 0'
+}
+wait_for 30 "armada revisions shows linux/$_arch for $APP" hello_platforms
+cat <<EOF | cli deploy -f - >/dev/null
+name: foreign
+image: $_foreign
+command: ["sleep", "3600"]
+ingress:
+  type: none
+EOF
+wait_for 120 "status says no node can run a linux/$_other image" foreign_note
+foreign_unplaced || fail "a linux/$_other image is running on linux/$_arch nodes"
+ok "the linux/$_other image runs nowhere"
+
 if [ "$E2E_REBOOT" = 1 ]; then
 	log "reboot every machine at once"
 	i=1

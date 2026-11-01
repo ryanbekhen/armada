@@ -1695,10 +1695,12 @@ type RevisionInfo struct {
 	Name  string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
 	Image string                 `protobuf:"bytes,2,opt,name=image,proto3" json:"image,omitempty"`
 	// Image pinned by digest once a node pulled it; rollbacks use it.
-	ImageDigest   string                 `protobuf:"bytes,3,opt,name=image_digest,json=imageDigest,proto3" json:"image_digest,omitempty"`
-	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	Active        bool                   `protobuf:"varint,5,opt,name=active,proto3" json:"active,omitempty"`
-	Target        bool                   `protobuf:"varint,6,opt,name=target,proto3" json:"target,omitempty"`
+	ImageDigest string                 `protobuf:"bytes,3,opt,name=image_digest,json=imageDigest,proto3" json:"image_digest,omitempty"`
+	CreatedAt   *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	Active      bool                   `protobuf:"varint,5,opt,name=active,proto3" json:"active,omitempty"`
+	Target      bool                   `protobuf:"varint,6,opt,name=target,proto3" json:"target,omitempty"`
+	// The image's platforms ("os/arch") once a node reported them.
+	Platforms     []string `protobuf:"bytes,7,rep,name=platforms,proto3" json:"platforms,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1773,6 +1775,13 @@ func (x *RevisionInfo) GetTarget() bool {
 		return x.Target
 	}
 	return false
+}
+
+func (x *RevisionInfo) GetPlatforms() []string {
+	if x != nil {
+		return x.Platforms
+	}
+	return nil
 }
 
 type RollbackRequest struct {
@@ -3317,9 +3326,12 @@ type ReplicaState struct {
 	// Image reference pinned by digest after a successful pull.
 	ImageDigest string `protobuf:"bytes,6,opt,name=image_digest,json=imageDigest,proto3" json:"image_digest,omitempty"`
 	// True when the replica passes its readiness checks and may get traffic.
-	Ready         bool `protobuf:"varint,7,opt,name=ready,proto3" json:"ready,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Ready bool `protobuf:"varint,7,opt,name=ready,proto3" json:"ready,omitempty"`
+	// Platforms of the replica's image as "os/arch", reported after a pull
+	// or when the image has no variant for the node (ADR 0014).
+	ImagePlatforms []string `protobuf:"bytes,8,rep,name=image_platforms,json=imagePlatforms,proto3" json:"image_platforms,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *ReplicaState) Reset() {
@@ -3399,6 +3411,13 @@ func (x *ReplicaState) GetReady() bool {
 		return x.Ready
 	}
 	return false
+}
+
+func (x *ReplicaState) GetImagePlatforms() []string {
+	if x != nil {
+		return x.ImagePlatforms
+	}
+	return nil
 }
 
 type ServerMessage struct {
@@ -4667,7 +4686,7 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\x14ListRevisionsRequest\x12\x10\n" +
 	"\x03app\x18\x01 \x01(\tR\x03app\"N\n" +
 	"\x15ListRevisionsResponse\x125\n" +
-	"\trevisions\x18\x01 \x03(\v2\x17.armada.v1.RevisionInfoR\trevisions\"\xc6\x01\n" +
+	"\trevisions\x18\x01 \x03(\v2\x17.armada.v1.RevisionInfoR\trevisions\"\xe4\x01\n" +
 	"\fRevisionInfo\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
 	"\x05image\x18\x02 \x01(\tR\x05image\x12!\n" +
@@ -4675,7 +4694,8 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12\x16\n" +
 	"\x06active\x18\x05 \x01(\bR\x06active\x12\x16\n" +
-	"\x06target\x18\x06 \x01(\bR\x06target\"?\n" +
+	"\x06target\x18\x06 \x01(\bR\x06target\x12\x1c\n" +
+	"\tplatforms\x18\a \x03(\tR\tplatforms\"?\n" +
 	"\x0fRollbackRequest\x12\x10\n" +
 	"\x03app\x18\x01 \x01(\tR\x03app\x12\x1a\n" +
 	"\brevision\x18\x02 \x01(\tR\brevision\".\n" +
@@ -4789,7 +4809,7 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\x02os\x18\x05 \x01(\tR\x02os\x12\x12\n" +
 	"\x04arch\x18\x06 \x01(\tR\x04arch\"D\n" +
 	"\rReplicaReport\x123\n" +
-	"\breplicas\x18\x01 \x03(\v2\x17.armada.v1.ReplicaStateR\breplicas\"\xc4\x01\n" +
+	"\breplicas\x18\x01 \x03(\v2\x17.armada.v1.ReplicaStateR\breplicas\"\xed\x01\n" +
 	"\fReplicaState\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05state\x18\x02 \x01(\tR\x05state\x12!\n" +
@@ -4797,7 +4817,8 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\aaddress\x18\x04 \x01(\tR\aaddress\x12\x18\n" +
 	"\amessage\x18\x05 \x01(\tR\amessage\x12!\n" +
 	"\fimage_digest\x18\x06 \x01(\tR\vimageDigest\x12\x14\n" +
-	"\x05ready\x18\a \x01(\bR\x05ready\"\xc0\x01\n" +
+	"\x05ready\x18\a \x01(\bR\x05ready\x12'\n" +
+	"\x0fimage_platforms\x18\b \x03(\tR\x0eimagePlatforms\"\xc0\x01\n" +
 	"\rServerMessage\x127\n" +
 	"\n" +
 	"assignment\x18\x01 \x01(\v2\x15.armada.v1.AssignmentH\x00R\n" +

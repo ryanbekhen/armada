@@ -268,6 +268,11 @@ longer run, the same way a cordon does: a replacement starts on an allowed
 node first, then the old replica is drained. When no allowed node has room,
 the replica stays where it is until one does, and `armada status` says so.
 
+Clusters may mix architectures (amd64 and arm64, say): each app stays on
+the nodes its image has a variant for, as reported by the first node that
+pulls it (`armada revisions APP` shows the platforms). If no node can run
+an image, `armada status` names the platforms it is built for.
+
 Nodes may be far apart: agents cope with latency. Keep the **control plane
 servers** close to each other (the same city or region), since every change
 needs a round trip between them.

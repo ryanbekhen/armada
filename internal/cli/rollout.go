@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"text/tabwriter"
 	"time"
 
@@ -143,7 +144,7 @@ func newRevisionsCommand(g *globals) *cobra.Command {
 				return errors.New("no revisions")
 			}
 			tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 4, 2, ' ', 0)
-			_, _ = fmt.Fprintln(tw, "REVISION\tSTATUS\tCREATED\tIMAGE\tDIGEST")
+			_, _ = fmt.Fprintln(tw, "REVISION\tSTATUS\tCREATED\tIMAGE\tPLATFORMS\tDIGEST")
 			for _, r := range resp.Revisions {
 				st := "-"
 				switch {
@@ -154,8 +155,8 @@ func newRevisionsCommand(g *globals) *cobra.Command {
 				case r.Target:
 					st = "rolling out"
 				}
-				_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", r.Name, st,
-					r.CreatedAt.AsTime().Local().Format(time.DateTime), r.Image, dash(r.ImageDigest))
+				_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", r.Name, st,
+					r.CreatedAt.AsTime().Local().Format(time.DateTime), r.Image, dash(strings.Join(r.Platforms, ",")), dash(r.ImageDigest))
 			}
 			return tw.Flush()
 		},

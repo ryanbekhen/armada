@@ -68,18 +68,34 @@ placement:
   only ever choose eligible nodes; rebalancing spreads an app over its
   eligible nodes only.
 
+### Image platforms
+
+- The control plane never contacts registries: agents pull images, with
+  the app's registry credentials, as before. When an agent pulls a
+  revision's image it reports the image's platforms (`os/arch`, from the
+  index, or from the config of a single-platform image). When the image
+  has no variant for the node, the agent reads the platforms from the
+  registry without pulling, fails the replica with a message naming them,
+  and reports them too.
+- The server keeps the first valid list for the revision (like the
+  digest) and shows it in `armada revisions`. From then on a node is
+  eligible only if its `armada.os`/`armada.arch` is in the list; a replica
+  on a node that is not, which has failed to start, is replaced on one
+  that is. A node that does not report its platform is not ruled out.
+- Until the first report, replicas may land on a node that cannot run the
+  image; that replica fails fast and teaches the server. If no node can run
+  the image, nothing is placed, `armada status` says which platforms the
+  image is built for, and the rollout fails as usual, leaving the old
+  revision serving. A deploy is therefore not refused up front.
+
 ### Implemented in later steps
 
-- **Architecture:** at deploy the server reads the image's platforms and
-  adds the matching `armada.arch` values to the requirement; a deploy that
-  leaves no possible architecture is refused.
 - **CPU:** `resources.cpu` is reserved on the node like memory, with no
   overcommit, and replicas are spread in proportion to capacity.
 - **`placement.spreadBy`:** spread an app's replicas over the values of a
   label (cities, racks).
 
-Until these steps land, the spec rejects `spreadBy`, and clusters that mix
-architectures need multi-architecture images.
+Until these steps land, the spec rejects `spreadBy`.
 
 ### Topology
 
@@ -98,6 +114,10 @@ commits need a round trip between them.
   for `placement.prefer` later.
 - **Leaving architecture to the user:** every failure would appear only on
   the node, after the rollout started.
+- **The server reads image platforms at deploy and refuses impossible
+  deploys:** it would need outbound access to every registry an app names,
+  the registry credentials on the control plane for a new purpose, and
+  reachability of registries that only the nodes may reach.
 
 ## Consequences
 
@@ -111,3 +131,8 @@ commits need a round trip between them.
 - Restricting a node or narrowing a placement can leave replicas with
   nowhere to go; `armada status` reports it instead of placing them on an
   unsuitable node.
+- Image platforms are self-reported by agents, like digests: a compromised
+  agent can report a wrong list for a revision and keep it off nodes that
+  could run it. Revisions gain a field; a server that predates it drops it
+  when it records a digest, and agents report it again, so no schema change
+  is needed.

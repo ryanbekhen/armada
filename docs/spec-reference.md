@@ -166,9 +166,11 @@ Keys are lowercase letters, digits, `.`, `-`, `_`, and `/` (up to 63
 characters); values the same without `/`. Up to 16 keys, each with up to 16
 values.
 
-Until the scheduler checks image architectures, a cluster that mixes
-architectures needs multi-architecture images, or `armada.arch` in
-`require`.
+In a cluster that mixes architectures, Armada keeps each app on nodes its
+image is built for: the first node to pull the image reports its
+platforms (`armada revisions` shows them), and from then on only nodes
+with a matching `armada.os`/`armada.arch` get replicas. A replica that
+landed on another node before that fails fast and is replaced.
 
 ## Not available in v0.1
 

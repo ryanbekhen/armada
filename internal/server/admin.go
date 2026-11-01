@@ -86,7 +86,7 @@ func (s *Server) ListRevisions(ctx context.Context, req *armadav1.ListRevisionsR
 	for _, r := range revs {
 		resp.Revisions = append(resp.Revisions, &armadav1.RevisionInfo{
 			Name: r.Name, Image: r.Spec.Image, ImageDigest: r.ImageDigest, CreatedAt: timestamppb.New(r.CreatedAt),
-			Active: r.Name == app.ActiveRevision, Target: r.Name == app.TargetRevision,
+			Active: r.Name == app.ActiveRevision, Target: r.Name == app.TargetRevision, Platforms: r.Platforms,
 		})
 	}
 	return resp, nil

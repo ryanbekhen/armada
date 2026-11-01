@@ -12,6 +12,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -160,18 +161,18 @@ func normalize(image string) (ref, familiar string, digested bool, err error) {
 // Pull fetches an image and returns its digest-pinned reference. A
 // digest-pinned image already on the node is used without contacting the
 // registry.
-func (d *Driver) Pull(ctx context.Context, image string, auth *runtime.RegistryAuth) (string, error) {
+func (d *Driver) Pull(ctx context.Context, image string, auth *runtime.RegistryAuth) (runtime.Image, error) {
 	ctx = d.ctx(ctx)
 	ref, familiar, digested, err := normalize(image)
 	if err != nil {
-		return "", err
+		return runtime.Image{}, err
 	}
 	if digested {
 		if img, err := d.client.GetImage(ctx, ref); err == nil {
 			if err := unpack(ctx, img); err != nil {
-				return "", err
+				return runtime.Image{}, err
 			}
-			return image, nil
+			return runtime.Image{Ref: image, Platforms: d.localPlatforms(ctx, img)}, nil
 		}
 	}
 	resolver := docker.NewResolver(docker.ResolverOptions{
@@ -183,9 +184,14 @@ func (d *Driver) Pull(ctx context.Context, image string, auth *runtime.RegistryA
 	})
 	img, err := d.client.Pull(ctx, ref, client.WithPullUnpack, client.WithResolver(resolver))
 	if err != nil {
-		return "", fmt.Errorf("pull %s: %w", image, err)
+		// Tell an image built for other platforms from other failures.
+		want := nodePlatform()
+		if have, perr := remotePlatforms(ctx, resolver, ref); perr == nil && len(have) > 0 && !slices.Contains(have, want) {
+			return runtime.Image{}, &runtime.PlatformError{Image: image, Want: want, Have: have}
+		}
+		return runtime.Image{}, fmt.Errorf("pull %s: %w", image, err)
 	}
-	return familiar + "@" + img.Target().Digest.String(), nil
+	return runtime.Image{Ref: familiar + "@" + img.Target().Digest.String(), Platforms: d.localPlatforms(ctx, img)}, nil
 }
 
 func unpack(ctx context.Context, img client.Image) error {
