@@ -170,8 +170,15 @@ type Replica struct {
 	// DrainingSince is when the replica was taken out of the proxy before
 	// removal; zero while it is in service.
 	DrainingSince time.Time
-	UpdatedAt     time.Time
+	// MovingSince is when the scheduler decided to move the replica to
+	// another node to spread its app (it keeps serving until a replacement
+	// does); zero otherwise.
+	MovingSince time.Time
+	UpdatedAt   time.Time
 }
+
+// Moving reports whether the replica is being replaced on another node.
+func (r Replica) Moving() bool { return !r.MovingSince.IsZero() }
 
 // Draining reports whether the replica is on its way out.
 func (r Replica) Draining() bool { return !r.DrainingSince.IsZero() }
@@ -312,6 +319,9 @@ type Store interface {
 	DeleteReplica(ctx context.Context, id string) error
 	// DrainReplica marks a replica as draining (idempotent).
 	DrainReplica(ctx context.Context, id string) error
+	// SetReplicaMoving marks a replica as being moved to another node, or
+	// clears the mark.
+	SetReplicaMoving(ctx context.Context, id string, moving bool) error
 	ListReplicas(ctx context.Context, f ReplicaFilter) ([]Replica, error)
 	// UpdateReplicaStatus applies a status report from nodeID. It returns
 	// ErrNotFound if the replica does not exist on that node, so one agent

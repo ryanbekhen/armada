@@ -248,7 +248,7 @@ newer layout, instead of misreading it. To go back:
 
 | What fails | What happens |
 | --- | --- |
-| A node (machine down, network gone) | Within about 4 seconds the HAProxy on every other node stops sending it traffic; requests that hit it meanwhile are retried on another replica after 2 seconds. After `--node-lost-timeout` (default 5 minutes) the node is shown as `lost` and its replicas are started on other nodes; the old ones are removed once the new ones serve. When the node comes back, its old containers are cleaned up. See [ADR 0008](adr/0008-self-healing.md). |
+| A node (machine down, network gone) | Within about 4 seconds the HAProxy on every other node stops sending it traffic; requests that hit it meanwhile are retried on another replica after 2 seconds. After `--node-lost-timeout` (default 5 minutes) the node is shown as `lost` and its replicas are started on other nodes; the old ones are removed once the new ones serve. When the node comes back, its old containers are cleaned up and apps left unevenly spread move replicas back to it, one at a time. See [ADR 0008](adr/0008-self-healing.md) and [ADR 0013](adr/0013-replica-rebalancing.md). |
 | HAProxy on a node (crashed or killed) | The agent notices within about 10 seconds and starts a new HAProxy container with the current configuration; that node's public ports are down until it serves again. |
 | More than half of the nodes at once | Nothing is rescheduled: the control plane assumes it is the one cut off. Replicas move once enough nodes are reachable again, or with `armada node remove --force`. |
 | One of three control plane servers | Another server leads within 1–15 seconds; nothing else changes. Remove the failed server and join a replacement when convenient. |

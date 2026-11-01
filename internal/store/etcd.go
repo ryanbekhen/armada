@@ -382,6 +382,7 @@ type replicaRec struct {
 	Ready         bool   `json:"ready"`
 	ReadySince    int64  `json:"readySince"`
 	DrainingSince int64  `json:"drainingSince"`
+	MovingSince   int64  `json:"movingSince,omitempty"`
 	UpdatedAt     int64  `json:"updatedAt"`
 }
 
@@ -1306,6 +1307,29 @@ func (s *Etcd) DrainReplica(ctx context.Context, id string) error {
 	})
 }
 
+// SetReplicaMoving marks or unmarks a replica as moving. See Store.
+func (s *Etcd) SetReplicaMoving(ctx context.Context, id string, moving bool) error {
+	return s.tx(ctx, func(t *etx) error {
+		var r replicaRec
+		ok, err := t.get(pfxReplicas+id, &r)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return notFoundf("replica %s", id)
+		}
+		switch {
+		case moving && r.MovingSince == 0:
+			r.MovingSince = s.now().UnixMilli()
+		case !moving && r.MovingSince != 0:
+			r.MovingSince = 0
+		default:
+			return nil
+		}
+		return t.put(pfxReplicas+id, r)
+	})
+}
+
 // ListReplicas returns replicas matching f ordered by ID.
 func (s *Etcd) ListReplicas(ctx context.Context, f ReplicaFilter) ([]Replica, error) {
 	var out []Replica
@@ -1315,7 +1339,7 @@ func (s *Etcd) ListReplicas(ctx context.Context, f ReplicaFilter) ([]Replica, er
 			if (f.App == "" || r.App == f.App) && (f.NodeID == "" || r.NodeID == f.NodeID) {
 				out = append(out, Replica{ID: r.ID, App: r.App, Revision: r.Revision, NodeID: r.NodeID, State: r.State,
 					ContainerID: r.ContainerID, Address: r.Address, Message: r.Message, Ready: r.Ready,
-					ReadySince: fromMS(r.ReadySince), DrainingSince: fromMS(r.DrainingSince), UpdatedAt: fromMS(r.UpdatedAt)})
+					ReadySince: fromMS(r.ReadySince), DrainingSince: fromMS(r.DrainingSince), MovingSince: fromMS(r.MovingSince), UpdatedAt: fromMS(r.UpdatedAt)})
 			}
 			return nil
 		})

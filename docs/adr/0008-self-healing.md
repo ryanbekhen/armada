@@ -35,8 +35,8 @@ node. A node cut off from the control plane may still serve traffic.
   rescheduled. In that situation the control plane is more likely the one
   cut off, and rescheduling would empty healthy nodes.
 - When a lost node comes back, its agent receives an assignment without the
-  old replicas and removes their containers. Nothing is moved back; there
-  is no automatic rebalancing.
+  old replicas and removes their containers. Apps left unevenly spread are
+  then rebalanced one replica at a time (ADR 0013).
 
 ## Alternatives considered
 

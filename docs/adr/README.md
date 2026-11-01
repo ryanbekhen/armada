@@ -16,3 +16,4 @@ Every architectural decision that is hard to reverse is recorded here. Copy `000
 | [0010](0010-ha-control-plane.md) | Highly available control plane | Accepted |
 | [0011](0011-embedded-container-runtime.md) | Embedded container runtime (containerd, runc, CNI) | Accepted |
 | [0012](0012-upgrades-and-state-schema.md) | Upgrades and state schema migrations | Accepted |
+| [0013](0013-replica-rebalancing.md) | Replica rebalancing | Accepted |

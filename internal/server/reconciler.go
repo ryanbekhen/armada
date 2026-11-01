@@ -26,6 +26,10 @@ const (
 	defaultProgressDeadline = 3 * time.Minute
 )
 
+// rebalanceBackoff is how long an app is left alone after a move whose
+// replacement never served.
+const rebalanceBackoff = 10 * time.Minute
+
 // DefaultNodeLostTimeout is how long a node may be disconnected before its
 // replicas are rescheduled elsewhere.
 const DefaultNodeLostTimeout = 5 * time.Minute
@@ -207,19 +211,23 @@ func (s *Server) reconcileApp(ctx context.Context, rc *reconcileRun, app *store.
 	// Replicas on lost nodes are replaced right away (they count toward
 	// neither the desired count nor the surge) and retired once the
 	// replacements serve; until then they stay, in case the node is only
-	// cut off from the control plane and still serves.
+	// cut off from the control plane and still serves. Replicas being moved
+	// to spread the app are handled like those on cordoned nodes.
 	var moving, lost []store.Replica
 	current = slices.DeleteFunc(current, func(r store.Replica) bool {
 		switch {
 		case rc.lost[r.NodeID]:
 			lost = append(lost, r)
 			return true
-		case cordoned[r.NodeID]:
+		case cordoned[r.NodeID] || r.Moving():
 			moving = append(moving, r)
 			return true
 		}
 		return false
 	})
+	if current, moving, all, err = s.abortStuckMoves(ctx, rc, app, all, current, moving, cordoned, serving, revs); err != nil {
+		return nil, err
+	}
 
 	if app.Rolling() {
 		target, err := revs.get(ctx, app.TargetRevision)
@@ -281,6 +289,9 @@ func (s *Server) reconcileApp(ctx context.Context, rc *reconcileRun, app *store.
 		return nil, err
 	}
 	if !app.Rolling() {
+		if len(lost) == 0 && len(moving) == 0 {
+			return s.rebalance(ctx, rc, app, nodes, all, current, serving, revs)
+		}
 		return all, nil
 	}
 
@@ -335,6 +346,131 @@ func (s *Server) reconcileApp(ctx context.Context, rc *reconcileRun, app *store.
 	return all, nil
 }
 
+// rebalance starts moving one replica of a stable app whose replicas are
+// spread unevenly, for example after a node came back or joined: the node
+// holding the most of them has at least two more than the node a new
+// replica would go to. Only one replica moves in the whole cluster at a
+// time; the move itself goes through the cordon path (a replacement is
+// scheduled, the moving replica is retired once it serves).
+func (s *Server) rebalance(ctx context.Context, rc *reconcileRun, app *store.App, nodes []store.Node, all, current []store.Replica, serving func(store.Replica) bool, revs *revisionCache) ([]store.Replica, error) {
+	if len(current) != app.Replicas || len(rc.lost) > 0 {
+		return all, nil
+	}
+	for _, r := range current {
+		if !serving(r) {
+			return all, nil
+		}
+	}
+	for _, r := range all {
+		if r.Moving() && !r.Draining() {
+			return all, nil
+		}
+	}
+	s.rebalanceMu.Lock()
+	after := s.rebalanceAfter[app.Name]
+	s.rebalanceMu.Unlock()
+	if rc.now.Before(after) {
+		return all, nil
+	}
+	target, err := revs.get(ctx, app.TargetRevision)
+	if err != nil {
+		return nil, err
+	}
+	victim, to, ok := rebalanceVictim(nodes, all, current, app.Name, target.Spec.MemoryBytes(), revs.memory(ctx))
+	if !ok {
+		return all, nil
+	}
+	if err := s.store.SetReplicaMoving(ctx, victim.ID, true); err != nil {
+		return nil, err
+	}
+	s.log.Info("moving replica to spread app", "replica", victim.ID, "from", victim.NodeID, "to", to)
+	victim.MovingSince = rc.now
+	rc.wakeAt(rc.now)
+	return replace(all, victim), nil
+}
+
+// rebalanceVictim picks a replica to move: one on the node with the most
+// replicas of app, if that node has at least two more than the node
+// pickNode would choose for a new one. It also returns that node.
+func rebalanceVictim(nodes []store.Node, all, current []store.Replica, app string, memNeeded int64, memOf func(store.Replica) int64) (store.Replica, string, bool) {
+	if len(current) == 0 {
+		return store.Replica{}, "", false
+	}
+	to, ok := pickNode(nodes, all, app, memNeeded, memOf)
+	if !ok {
+		return store.Replica{}, "", false
+	}
+	perNode := map[string]int{}
+	for _, r := range current {
+		perNode[r.NodeID]++
+	}
+	victim := slices.MaxFunc(current, func(a, b store.Replica) int {
+		if c := cmp.Compare(perNode[a.NodeID], perNode[b.NodeID]); c != 0 {
+			return c
+		}
+		return cmp.Compare(a.ID, b.ID)
+	})
+	if perNode[victim.NodeID]-perNode[to.ID] < 2 {
+		return store.Replica{}, "", false
+	}
+	return victim, to.ID, true
+}
+
+// abortStuckMoves gives up moves whose replacement has not served within
+// the progress deadline: the moving replica stays where it is, the
+// replacements that do not serve are retired, and the app is left alone
+// for rebalanceBackoff. Moves off cordoned nodes are not affected.
+func (s *Server) abortStuckMoves(ctx context.Context, rc *reconcileRun, app *store.App, all, current, moving []store.Replica, cordoned map[string]bool, serving func(store.Replica) bool, revs *revisionCache) ([]store.Replica, []store.Replica, []store.Replica, error) {
+	var stuck []store.Replica
+	for _, r := range moving {
+		if !r.Moving() || cordoned[r.NodeID] {
+			continue
+		}
+		rev, err := revs.get(ctx, r.Revision)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		deadline := r.MovingSince.Add(s.progressDeadline + probeBudget(rev.Spec))
+		if rc.now.Before(deadline) {
+			rc.wakeAt(deadline)
+			continue
+		}
+		stuck = append(stuck, r)
+	}
+	if len(stuck) == 0 {
+		return current, moving, all, nil
+	}
+	var err error
+	for _, r := range stuck {
+		if err := s.store.SetReplicaMoving(ctx, r.ID, false); err != nil {
+			return nil, nil, nil, err
+		}
+		s.log.Warn("replacement of moving replica never served; keeping it", "replica", r.ID, "node", r.NodeID)
+		r.MovingSince = time.Time{}
+		all = replace(all, r)
+		moving = without(moving, r.ID)
+		current = append(current, r)
+	}
+	s.rebalanceMu.Lock()
+	s.rebalanceAfter[app.Name] = rc.now.Add(rebalanceBackoff)
+	s.rebalanceMu.Unlock()
+	// Back to the desired count by retiring what does not serve; that is
+	// the replacement, as an app is only rebalanced while all serve.
+	for _, r := range slices.Clone(current) {
+		if len(current) <= app.Replicas {
+			break
+		}
+		if serving(r) {
+			continue
+		}
+		if all, err = s.retire(ctx, rc, all, r); err != nil {
+			return nil, nil, nil, err
+		}
+		current = without(current, r.ID)
+	}
+	return current, moving, all, nil
+}
+
 // evacuate retires replicas on cordoned or lost nodes while enough other
 // replicas serve, unhealthy ones first.
 func (s *Server) evacuate(ctx context.Context, rc *reconcileRun, app *store.App, all, current, old, moving []store.Replica, serving func(store.Replica) bool) ([]store.Replica, error) {
@@ -371,8 +507,11 @@ func (s *Server) evacuate(ctx context.Context, rc *reconcileRun, app *store.App,
 			break
 		}
 		reason := "cordoned"
-		if rc.lost[r.NodeID] {
+		switch {
+		case rc.lost[r.NodeID]:
 			reason = "lost"
+		case r.Moving():
+			reason = "moving"
 		}
 		s.log.Info("evacuating replica", "replica", r.ID, "node", r.NodeID, "node_state", reason)
 		if all, err = s.retire(ctx, rc, all, r); err != nil {

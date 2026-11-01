@@ -586,6 +586,31 @@ func TestReplicaReadinessAndDraining(t *testing.T) {
 		t.Errorf("exited but ready: %+v", r)
 	}
 
+	if err := s.SetReplicaMoving(ctx, "web-1", true); err != nil {
+		t.Fatal(err)
+	}
+	since := get().MovingSince
+	clock = clock.Add(time.Minute)
+	if err := s.SetReplicaMoving(ctx, "web-1", true); err != nil {
+		t.Fatal(err)
+	}
+	if r := get(); !r.Moving() || !r.MovingSince.Equal(since) {
+		t.Errorf("moving = %+v (first %v)", r, since)
+	}
+	report(ReplicaRunning, true)
+	if r := get(); !r.Moving() {
+		t.Error("a status report cleared the moving mark")
+	}
+	if err := s.SetReplicaMoving(ctx, "web-1", false); err != nil {
+		t.Fatal(err)
+	}
+	if get().Moving() {
+		t.Error("moving mark not cleared")
+	}
+	if err := s.SetReplicaMoving(ctx, "ghost", true); !errors.Is(err, ErrNotFound) {
+		t.Errorf("move missing replica = %v", err)
+	}
+
 	if err := s.DrainReplica(ctx, "web-1"); err != nil {
 		t.Fatal(err)
 	}
