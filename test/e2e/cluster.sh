@@ -463,7 +463,7 @@ ingress:
   type: none
 EOF
 wait_for 120 "status says no node can run a linux/$_other image" foreign_note
-foreign_unplaced || fail "a linux/$_other image is running on linux/$_arch nodes"
+foreign_unplaced >/dev/null || fail "a linux/$_other image is running on linux/$_arch nodes"
 ok "the linux/$_other image runs nowhere"
 
 if [ "$E2E_REBOOT" = 1 ]; then
