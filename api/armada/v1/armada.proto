@@ -33,6 +33,8 @@ message ListServersRequest {}
 
 message ListServersResponse {
   repeated ServerInfo servers = 1;
+  // Schema the cluster state is written in.
+  int32 state_schema = 2;
 }
 
 // ServerInfo describes a control plane node.
@@ -49,6 +51,9 @@ message ServerInfo {
   bool member = 6;
   // Whether its etcd member answers.
   bool reachable = 7;
+  // Newest state schema its binary understands, and its Armada version.
+  int32 schema = 8;
+  string version = 9;
 }
 
 message RemoveServerRequest {
@@ -312,6 +317,8 @@ message NodeStatus {
   int64 memory_bytes = 6;
   bool cordoned = 7;
   google.protobuf.Timestamp cert_expires_at = 8;
+  // Armada version its agent last reported.
+  string version = 9;
 }
 
 message ScaleRequest {

@@ -137,13 +137,19 @@ func (s *Server) ListServers(ctx context.Context, _ *armadav1.ListServersRequest
 	if err != nil {
 		return nil, status.Error(codes.Unavailable, "list servers")
 	}
-	resp := &armadav1.ListServersResponse{Servers: make([]*armadav1.ServerInfo, len(views))}
+	schema, err := s.store.StoredSchema(ctx)
+	if err != nil {
+		return nil, status.Error(codes.Unavailable, "read state schema")
+	}
+	resp := &armadav1.ListServersResponse{Servers: make([]*armadav1.ServerInfo, len(views)), StateSchema: int32(schema)} //nolint:gosec // schemas are small
 	var wg sync.WaitGroup
 	for i, v := range views {
 		info := &armadav1.ServerInfo{
 			Name: v.Name, PrivateIp: v.PrivateIP, ApiAddr: v.APIAddr,
 			Leader: v.Name == s.name, Voting: v.voting, Member: v.member,
 			Reachable: v.member && s.cluster == nil,
+			Schema:    int32(v.Schema), //nolint:gosec // schemas are small
+			Version:   v.Version,
 		}
 		resp.Servers[i] = info
 		if v.member && s.cluster != nil {

@@ -55,8 +55,10 @@ const (
 	pfxAudit    = "audit/" // audit/<id, 20 digits>
 	pfxServers  = "servers/"
 
-	// etcdSchema is the version of the key layout. Bump it with a migration
-	// in migrateEtcd when records change incompatibly.
+	// etcdSchema is the version of the key layout. Bump it with a step in
+	// migrations when records change incompatibly. Records under servers/
+	// and meta/ are read and written by every server, whatever its schema,
+	// so they only ever gain optional fields.
 	etcdSchema = 1
 
 	maxTxnRetries = 100
@@ -311,6 +313,7 @@ type nodeRec struct {
 	LastSeen    int64  `json:"lastSeen"`
 	CreatedAt   int64  `json:"createdAt"`
 	Cordoned    bool   `json:"cordoned"`
+	Version     string `json:"version,omitempty"`
 	// LegacyCerts accepts any CA-signed certificate for the node until its
 	// first renewal (nodes created before certificates were recorded).
 	LegacyCerts bool `json:"legacyCerts,omitempty"`
@@ -340,6 +343,8 @@ type serverRec struct {
 	APIAddr   string `json:"apiAddr"`
 	JoinAddr  string `json:"joinAddr,omitempty"`
 	MemberID  uint64 `json:"memberId"`
+	Schema    int    `json:"schema,omitempty"`
+	Version   string `json:"version,omitempty"`
 	CreatedAt int64  `json:"createdAt"`
 }
 
@@ -479,7 +484,7 @@ func (t *etx) node(id string) (nodeRec, bool, error) {
 
 func (t *etx) toNode(n nodeRec) (Node, error) {
 	out := Node{ID: n.ID, PrivateIP: n.PrivateIP, CPUMillis: n.CPUMillis, MemoryBytes: n.MemoryBytes, State: n.State,
-		LastSeen: fromMS(n.LastSeen), CreatedAt: fromMS(n.CreatedAt), Cordoned: n.Cordoned}
+		LastSeen: fromMS(n.LastSeen), CreatedAt: fromMS(n.CreatedAt), Cordoned: n.Cordoned, Version: n.Version}
 	var latest int64
 	err := listInto(t, pfxCerts+n.ID+"/", func(_ string, c certRec) error {
 		latest = max(latest, c.NotAfter)
@@ -505,7 +510,7 @@ func (s *Etcd) UpsertNode(ctx context.Context, n Node) error {
 		rec := nodeRec{ID: n.ID, PrivateIP: n.PrivateIP, CPUMillis: n.CPUMillis, MemoryBytes: n.MemoryBytes, State: n.State,
 			LastSeen: ms(n.LastSeen), CreatedAt: ms(n.CreatedAt)}
 		if ok {
-			rec.CreatedAt, rec.Cordoned, rec.LegacyCerts = cur.CreatedAt, cur.Cordoned, cur.LegacyCerts
+			rec.CreatedAt, rec.Cordoned, rec.LegacyCerts, rec.Version = cur.CreatedAt, cur.Cordoned, cur.LegacyCerts, cur.Version
 		}
 		return t.put(pfxNodes+n.ID, rec)
 	})
@@ -553,6 +558,9 @@ func (s *Etcd) SetNodeStatus(ctx context.Context, id string, st NodeStatus) erro
 			return notFoundf("node %s", id)
 		}
 		n.State, n.LastSeen, n.CPUMillis, n.MemoryBytes = st.State, ms(st.LastSeen), st.CPUMillis, st.MemoryBytes
+		if st.Version != "" {
+			n.Version = st.Version
+		}
 		return t.put(pfxNodes+id, n)
 	})
 }
@@ -738,7 +746,7 @@ func (t *etx) putServer(srv Server, now time.Time) error {
 		created = old.CreatedAt
 	}
 	return t.put(pfxServers+srv.Name, serverRec{Name: srv.Name, PrivateIP: srv.PrivateIP, APIAddr: srv.APIAddr, JoinAddr: srv.JoinAddr,
-		MemberID: srv.MemberID, CreatedAt: created})
+		MemberID: srv.MemberID, Schema: srv.Schema, Version: srv.Version, CreatedAt: created})
 }
 
 // UpsertServer records a control plane node. See Store.
@@ -748,7 +756,8 @@ func (s *Etcd) UpsertServer(ctx context.Context, srv Server) error {
 		var old serverRec
 		if ok, err := t.get(pfxServers+srv.Name, &old); err != nil {
 			return err
-		} else if ok && old.PrivateIP == srv.PrivateIP && old.APIAddr == srv.APIAddr && old.JoinAddr == srv.JoinAddr && old.MemberID == srv.MemberID {
+		} else if ok && old.PrivateIP == srv.PrivateIP && old.APIAddr == srv.APIAddr && old.JoinAddr == srv.JoinAddr && old.MemberID == srv.MemberID &&
+			old.Schema == srv.Schema && old.Version == srv.Version {
 			return nil
 		}
 		return t.putServer(srv, now)
@@ -762,7 +771,7 @@ func (s *Etcd) ListServers(ctx context.Context) ([]Server, error) {
 		out = nil
 		return listInto(t, pfxServers, func(_ string, r serverRec) error {
 			out = append(out, Server{Name: r.Name, PrivateIP: r.PrivateIP, APIAddr: r.APIAddr, JoinAddr: r.JoinAddr,
-				MemberID: r.MemberID, CreatedAt: fromMS(r.CreatedAt)})
+				MemberID: r.MemberID, Schema: max(r.Schema, 1), Version: r.Version, CreatedAt: fromMS(r.CreatedAt)})
 			return nil
 		})
 	})
@@ -1743,3 +1752,59 @@ var _ Store = (*Etcd)(nil)
 
 // SchemaVersion is the newest state layout this binary understands.
 func SchemaVersion() int { return etcdSchema }
+
+// migration moves the keyspace one schema forward inside a transaction.
+type migration func(*etx) error
+
+// migrations[i] moves schema i+1 to i+2; len(migrations) == etcdSchema-1.
+var migrations []migration
+
+// StoredSchema returns the schema the keyspace is written in.
+func (s *Etcd) StoredSchema(ctx context.Context) (int, error) {
+	v := 0
+	err := s.view(ctx, func(t *etx) error {
+		_, err := t.get(keySchema, &v)
+		return err
+	})
+	return v, err
+}
+
+// Migrate brings the keyspace to this binary's schema, one step per
+// transaction, and returns the schema it started from. Only the leader may
+// call it, on a store fenced to its term, and only once every server
+// understands the new schema (ADR 0012).
+func (s *Etcd) Migrate(ctx context.Context) (int, error) {
+	return s.migrate(ctx, etcdSchema, migrations)
+}
+
+func (s *Etcd) migrate(ctx context.Context, target int, steps []migration) (int, error) {
+	if len(steps) != target-1 {
+		return 0, fmt.Errorf("store: %d migrations for schema %d", len(steps), target)
+	}
+	from, err := s.StoredSchema(ctx)
+	if err != nil {
+		return 0, err
+	}
+	if from > target {
+		return from, fmt.Errorf("the state was written by a newer Armada (schema %d, this binary knows %d)", from, target)
+	}
+	for v := from; v < target; v++ {
+		err := s.tx(ctx, func(t *etx) error {
+			var cur int
+			if _, err := t.get(keySchema, &cur); err != nil {
+				return err
+			}
+			if cur != v {
+				return fmt.Errorf("store: schema changed to %d during migration from %d", cur, v)
+			}
+			if err := steps[v-1](t); err != nil {
+				return fmt.Errorf("migrate schema %d to %d: %w", v, v+1, err)
+			}
+			return t.put(keySchema, v+1)
+		})
+		if err != nil {
+			return from, err
+		}
+	}
+	return from, nil
+}
