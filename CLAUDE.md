@@ -35,7 +35,8 @@ go test ./internal/proxy/haproxy -update        # update golden files
 go test ./internal/proxy/haproxy -fuzz FuzzRender -fuzztime 30s
 go test -tags integration -run Integration ./internal/proxy/haproxy/   # haproxy -c on rendered configs (dev only; needs a container CLI)
 goreleaser check                                 # validate .goreleaser.yaml
-shellcheck install.sh && sh test/install_test.sh # installer tests (Linux)
+shellcheck install.sh scripts/*.sh && sh test/install_test.sh # installer tests (Linux)
+sh scripts/check-commits.sh origin/main..HEAD    # commit subjects (Conventional Commits, checked in CI)
 armada doctor                                    # pre-flight checks on a node
 armada backup -o FILE / armada restore FILE      # control plane backup and restore
 armada runtime [--bin-dir DIR] / armada runtime reset   # embedded containerd (systemd unit) / remove its containers
@@ -59,6 +60,7 @@ armada runtime [--bin-dir DIR] / armada runtime reset   # embedded containerd (s
 ## Code conventions
 
 - Everything is in **English**: code, identifiers, comments, commit messages, error messages, and all documentation (open source project for a global audience).
+- Commit subjects follow Conventional Commits, `type(scope)!: description`, because the release notes are grouped by type (`.goreleaser.yaml`) and CI rejects other subjects (`scripts/check-commits.sh`). Types: `feat`, `fix`, `security`, `perf`, `docs`, `deps`, then `refactor`, `test`, `ci`, `build`, `chore`, `style`, `revert`; `!` marks a breaking change. Write the description for the people reading the release notes.
 - Idiomatic Go: `context.Context` as the first argument for I/O, errors wrapped with `fmt.Errorf("...: %w", err)`, logging with `log/slog`.
 - All code lives in `internal/` except the protobuf definitions in `api/`.
 - YAML specs are parsed strictly (unknown field = error). Features whose types exist but are not implemented yet must be rejected with a clear message, never silently ignored.

@@ -30,6 +30,31 @@ on a maintainer's machine.
 
 Tags with a pre-release suffix (`v0.1.0-rc.1`) are marked as pre-releases.
 
+## Commit messages and release notes
+
+GoReleaser writes the release notes from the commit subjects since the
+previous tag, grouped by their [Conventional Commits](https://www.conventionalcommits.org/)
+type, so every commit subject reads `type(scope)!: description`:
+
+| Type | Release notes section |
+| --- | --- |
+| any type with `!` (`feat!:`, `fix(api)!:`) | Breaking changes |
+| `feat` | Features |
+| `security` | Security |
+| `fix` | Bug fixes |
+| `perf` | Performance |
+| `docs` | Documentation |
+| `deps` (Dependabot's Go module updates) | Dependencies |
+| `refactor`, `revert`, anything else | Other changes |
+| `test`, `ci`, `build`, `chore`, `style` | left out |
+
+The scope is optional, lowercase (`feat(cli): ...`). Pull requests are
+merged by rebase, so each commit lands as written; the `commits` CI job
+(`scripts/check-commits.sh`) rejects subjects that do not follow the format.
+Run it locally with `sh scripts/check-commits.sh origin/main..HEAD`. Every
+release also ends with install and verification instructions (the
+`release.footer` in `.goreleaser.yaml`).
+
 ## Verifying a release by hand
 
 ```bash
