@@ -18,7 +18,9 @@ control plane. It does not run in CI.
   every node directly, so the record may name just one of them.
 - `ssh`, `scp`, `curl`, `jq`, and `openssl` on your workstation.
 - A Linux binary with the runtime embedded for the machines' architecture:
-  `make build-bundle` (add `GOARCH=arm64` for arm64).
+  `make build-bundle` (add `GOARCH=arm64` for arm64). A cluster may mix
+  amd64 and arm64 machines: build both and pass them as `ARMADA_BIN_AMD64`
+  and `ARMADA_BIN_ARM64`.
 
 ## Running
 
@@ -40,7 +42,8 @@ E2E_ACME_EMAIL=you@example.org sh test/e2e/cluster.sh hosts
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `ARMADA_BIN` | required | Binary to install on every machine |
+| `ARMADA_BIN` | required unless both below are set | Binary to install on every machine |
+| `ARMADA_BIN_AMD64`, `ARMADA_BIN_ARM64` | `ARMADA_BIN` | Binary for machines of that architecture |
 | `E2E_DOMAIN` | required | Root domain for the test app (`hello.<domain>`) |
 | `E2E_ACME_EMAIL` | required | ACME account email |
 | `E2E_ACME_CA` | `letsencrypt-staging` | Passed to `--acme-ca`; the production endpoint is refused |
@@ -79,8 +82,9 @@ once the binary has been copied to them.
    requires the label runs only there; once the label is gone, `armada
    status` explains why that app has nowhere to go; reopening the node
    spreads the app back.
-9. Image platforms: `armada revisions` lists the test app's platforms, and
-   an image built only for another architecture is placed nowhere while
-   `armada status` names the platform it is built for.
+9. Image platforms: `armada revisions` lists every node architecture for
+   the test app; an image built only for amd64, and one built only for
+   arm64, each run only on nodes of that architecture, or, when the
+   cluster has none, nowhere, with `armada status` naming the platform.
 10. After rebooting every machine at once, the control plane, the nodes, and
    the app come back on their own.

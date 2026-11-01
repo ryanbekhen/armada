@@ -10,13 +10,20 @@
 #
 # The first three become control plane servers (only the first if there are
 # fewer than three); the others join as nodes. The script installs
-# ARMADA_BIN on every machine, builds the cluster, and runs the scenarios
+# ARMADA_BIN (or ARMADA_BIN_AMD64/ARMADA_BIN_ARM64, by the machine's
+# architecture) on every machine, builds the cluster, and runs the scenarios
 # one after another, stopping at the first failure. It leaves the machines
 # as they are: throw them away afterwards.
 set -eu
 
 HOSTS=${1:?usage: cluster.sh HOSTS-FILE}
-: "${ARMADA_BIN:?set ARMADA_BIN to a Linux armada binary with the runtime embedded (make build-bundle)}"
+ARMADA_BIN=${ARMADA_BIN:-}
+ARMADA_BIN_AMD64=${ARMADA_BIN_AMD64:-$ARMADA_BIN}
+ARMADA_BIN_ARM64=${ARMADA_BIN_ARM64:-$ARMADA_BIN}
+if [ -z "$ARMADA_BIN_AMD64$ARMADA_BIN_ARM64" ]; then
+	echo "e2e: set ARMADA_BIN (or ARMADA_BIN_AMD64/ARMADA_BIN_ARM64) to Linux armada binaries with the runtime embedded (make build-bundle)" >&2
+	exit 2
+fi
 : "${E2E_DOMAIN:?set E2E_DOMAIN to a root domain whose wildcard record points at every public IP}"
 : "${E2E_ACME_EMAIL:?set E2E_ACME_EMAIL to the ACME account email}"
 E2E_ACME_CA=${E2E_ACME_CA:-letsencrypt-staging}
@@ -76,7 +83,8 @@ on() {
 	_target=$(host "$1" 2)
 	shift
 	# shellcheck disable=SC2086 # E2E_SSH_OPTS is a list of options
-	ssh $E2E_SSH_OPTS -o BatchMode=yes -o ConnectTimeout=10 "$_target" "$E2E_SUDO sh -c $(q "$*")"
+	# sudo's secure_path may leave out /usr/local/bin, where armada goes.
+	ssh $E2E_SSH_OPTS -o BatchMode=yes -o ConnectTimeout=10 "$_target" "$E2E_SUDO sh -c $(q "PATH=/usr/local/bin:\$PATH; $*")"
 }
 cli() { on "$CLI" "armada $*"; }
 
@@ -237,12 +245,18 @@ trap 'exit 130' INT TERM
 log "install on $N machines"
 i=1
 while [ "$i" -le "$N" ]; do
+	case $(on "$i" 'uname -m') in
+	x86_64 | amd64) _bin=$ARMADA_BIN_AMD64 ;;
+	aarch64 | arm64) _bin=$ARMADA_BIN_ARM64 ;;
+	*) _bin= ;;
+	esac
+	[ -n "$_bin" ] || fail "no binary for the architecture of $(host "$i" 1)"
 	# A copy can stall on a poor link: retry a few times.
 	_try=1
 	# shellcheck disable=SC2086
 	until scp -q $E2E_SSH_OPTS -o BatchMode=yes -o ServerAliveInterval=10 -o ServerAliveCountMax=3 \
-		"$ARMADA_BIN" "$(host "$i" 2):/tmp/armada.e2e"; do
-		[ "$_try" -lt 3 ] || fail "copying $ARMADA_BIN to $(host "$i" 1)"
+		"$_bin" "$(host "$i" 2):/tmp/armada.e2e"; do
+		[ "$_try" -lt 3 ] || fail "copying $_bin to $(host "$i" 1)"
 		_try=$((_try + 1))
 		sleep 5
 	done
@@ -441,30 +455,51 @@ cli node open "$_node" >/dev/null
 wait_for 600 "$APP spread back over every node" even
 
 log "image platforms"
-_arch=$(status | jq -r '.nodes[0].labels["armada.arch"]')
-case "$_arch" in
-amd64) _other=arm64 _foreign=arm64v8/busybox:1.37 ;;
-*) _other=amd64 _foreign=amd64/busybox:1.37 ;;
-esac
-hello_platforms() { cli revisions "$APP" | awk 'NR > 1 && $2 == "active"' | grep -q "linux/$_arch"; }
-foreign_note() {
-	status | jq -e --arg want "no ready node can run the image, which is built for linux/$_other" \
-		'.apps[] | select(.name == "foreign") | (.placementMessage // "") | contains($want)'
+# The architectures in the cluster; an image built for one architecture
+# only must run on nodes of that architecture, or nowhere.
+_archs=$(status | jq -r '[.nodes[].labels["armada.arch"]] | unique | .[]')
+_archlist=$(status | jq -r '[.nodes[].labels["armada.arch"]] | unique | join(", ")')
+hello_platforms() {
+	_line=$(cli revisions "$APP" | awk 'NR > 1 && $2 == "active"')
+	for _a in $_archs; do
+		echo "$_line" | grep -q "linux/$_a" || return 1
+	done
 }
-foreign_unplaced() {
-	status | jq -e '[.apps[] | select(.name == "foreign") | .replicas[]? | select((.draining // false) | not) | select(.state == "running")] | length == 0'
+# only_on APP ARCH: two replicas of APP run, each on an ARCH node.
+only_on() {
+	status | jq -e --arg app "$1" --arg arch "$2" '
+		(.nodes | map({key: .id, value: .labels["armada.arch"]}) | from_entries) as $arch
+		| [.apps[] | select(.name == $app) | .replicas[]? | select((.draining // false) | not)] as $live
+		| ($live | length) == 2 and all($live[]; .state == "running" and $arch[.nodeId] == $arch)'
 }
-wait_for 30 "armada revisions shows linux/$_arch for $APP" hello_platforms
-cat <<EOF | cli deploy -f - >/dev/null
-name: foreign
-image: $_foreign
+# unplaced APP ARCH: nothing of APP runs and status names ARCH.
+unplaced() {
+	status | jq -e --arg app "$1" --arg want "no ready node can run the image, which is built for linux/$2" '
+		.apps[] | select(.name == $app)
+		| ((.placementMessage // "") | contains($want))
+		  and ([.replicas[]? | select((.draining // false) | not) | select(.state == "running")] | length) == 0'
+}
+wait_for 30 "armada revisions lists every node architecture ($_archlist) for $APP" hello_platforms
+for _a in amd64 arm64; do
+	case $_a in
+	amd64) _image=amd64/busybox:1.37 ;;
+	arm64) _image=arm64v8/busybox:1.37 ;;
+	esac
+	cat <<EOF | cli deploy -f - >/dev/null
+name: only-$_a
+image: $_image
 command: ["sleep", "3600"]
 ingress:
   type: none
+scale:
+  min: 2
 EOF
-wait_for 120 "status says no node can run a linux/$_other image" foreign_note
-foreign_unplaced >/dev/null || fail "a linux/$_other image is running on linux/$_arch nodes"
-ok "the linux/$_other image runs nowhere"
+	if echo "$_archs" | grep -qx "$_a"; then
+		wait_for 300 "a linux/$_a image runs only on $_a nodes" only_on "only-$_a" "$_a"
+	else
+		wait_for 120 "a linux/$_a image runs nowhere and status says why" unplaced "only-$_a" "$_a"
+	fi
+done
 
 if [ "$E2E_REBOOT" = 1 ]; then
 	log "reboot every machine at once"
