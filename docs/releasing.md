@@ -51,7 +51,11 @@ type, so every commit subject reads `type(scope)!: description`:
 The scope is optional, lowercase (`feat(cli): ...`). Pull requests are
 merged by rebase, so each commit lands as written; the `commits` CI job
 (`scripts/check-commits.sh`) rejects subjects that do not follow the format.
-Run it locally with `sh scripts/check-commits.sh origin/main..HEAD`. Every
+Run it locally with `sh scripts/check-commits.sh origin/main..HEAD`.
+Dependabot pull requests are titled `deps: ...` (Go modules) or
+`ci(deps): ...` (actions); squash-merging one uses the title as the commit
+subject, so it lands in the right section. Merge commits are left out of
+the notes. Every
 release also ends with install and verification instructions (the
 `release.footer` in `.goreleaser.yaml`).
 
