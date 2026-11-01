@@ -136,12 +136,16 @@ func TestLivenessFailureRestartsContainer(t *testing.T) {
 	a.setDesired([]*armadav1.ReplicaSpec{s}, nil)
 	first := eventually(t, a, "ready", func(st *armadav1.ReplicaState) bool { return st.Ready })
 
+	// Keep the new container unready until its message has been read: the
+	// note clears once it is ready.
+	c.set("", errors.New("connection refused"))
 	c.set("/live", errors.New("HTTP 500"))
 	st := eventually(t, a, "restart", func(st *armadav1.ReplicaState) bool { return st.ContainerId != first.ContainerId })
 	c.set("/live", nil)
 	if !strings.Contains(st.Message, "restarted: liveness probe failed: HTTP 500") {
 		t.Errorf("message = %q", st.Message)
 	}
+	c.set("", nil)
 	if _, err := d.Inspect(t.Context(), first.ContainerId); !errors.Is(err, runtime.ErrNotFound) {
 		t.Errorf("old container not removed: %v", err)
 	}
