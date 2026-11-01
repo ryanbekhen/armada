@@ -161,7 +161,9 @@ func TestDrainKeepsOldReplicaRunning(t *testing.T) {
 
 func TestBrokenRolloutIsAborted(t *testing.T) {
 	t.Parallel()
-	c := newCluster(t, func(cfg *Config) { cfg.ProgressDeadline = 400 * time.Millisecond })
+	// Long enough for the agent to report the failed probe before the
+	// abort, even on a loaded machine; the message must name it.
+	c := newCluster(t, func(cfg *Config) { cfg.ProgressDeadline = 2 * time.Second })
 	d1 := c.addNode("n1", "127.0.0.1")
 	d2 := c.addNode("n2", "127.0.0.2")
 	c.checks["n1"].breakImage("nginx:broken")
