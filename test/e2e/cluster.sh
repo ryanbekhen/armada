@@ -467,10 +467,10 @@ hello_platforms() {
 }
 # only_on APP ARCH: two replicas of APP run, each on an ARCH node.
 only_on() {
-	status | jq -e --arg app "$1" --arg arch "$2" '
-		(.nodes | map({key: .id, value: .labels["armada.arch"]}) | from_entries) as $arch
+	status | jq -e --arg app "$1" --arg want "$2" '
+		(.nodes | map({key: .id, value: .labels["armada.arch"]}) | from_entries) as $archOf
 		| [.apps[] | select(.name == $app) | .replicas[]? | select((.draining // false) | not)] as $live
-		| ($live | length) == 2 and all($live[]; .state == "running" and $arch[.nodeId] == $arch)'
+		| ($live | length) == 2 and all($live[]; .state == "running" and $archOf[.nodeId] == $want)'
 }
 # unplaced APP ARCH: nothing of APP runs and status names ARCH.
 unplaced() {
