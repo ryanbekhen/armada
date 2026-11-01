@@ -137,13 +137,19 @@ func TestLivenessFailureRestartsContainer(t *testing.T) {
 	first := eventually(t, a, "ready", func(st *armadav1.ReplicaState) bool { return st.Ready })
 
 	// Keep the new container unready until its message has been read: the
-	// note clears once it is ready.
+	// note stays, also next to readiness failures, until it is ready.
 	c.set("", errors.New("connection refused"))
 	c.set("/live", errors.New("HTTP 500"))
 	st := eventually(t, a, "restart", func(st *armadav1.ReplicaState) bool { return st.ContainerId != first.ContainerId })
 	c.set("/live", nil)
 	if !strings.Contains(st.Message, "restarted: liveness probe failed: HTTP 500") {
 		t.Errorf("message = %q", st.Message)
+	}
+	st = eventually(t, a, "readiness failure reported", func(st *armadav1.ReplicaState) bool {
+		return strings.Contains(st.Message, "readiness probe failed")
+	})
+	if !strings.HasPrefix(st.Message, "restarted: liveness probe failed: HTTP 500; ") {
+		t.Errorf("restart note lost behind a readiness failure: %q", st.Message)
 	}
 	c.set("", nil)
 	if _, err := d.Inspect(t.Context(), first.ContainerId); !errors.Is(err, runtime.ErrNotFound) {

@@ -66,6 +66,9 @@ type probeWorker struct {
 	mu      sync.Mutex
 	ready   bool
 	message string
+	// note (why the container was restarted) prefixes every message until
+	// the container first becomes ready.
+	note string
 }
 
 func (w *probeWorker) status() (bool, string) {
@@ -79,6 +82,15 @@ func (w *probeWorker) set(ready bool, msg string) bool {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	changed := w.ready != ready
+	if ready {
+		w.note = ""
+	}
+	switch {
+	case w.note != "" && msg != "":
+		msg = w.note + "; " + msg
+	case w.note != "":
+		msg = w.note
+	}
 	w.ready, w.message = ready, msg
 	return changed
 }
@@ -87,7 +99,7 @@ func (w *probeWorker) set(ready bool, msg string) bool {
 // shown until the replica first becomes ready (e.g. why it was restarted).
 func (a *Agent) startProbes(ctx context.Context, s *armadav1.ReplicaSpec, c runtime.Container, message string) *probeWorker {
 	ctx, cancel := context.WithCancel(ctx)
-	w := &probeWorker{containerID: c.ID, cancel: cancel, message: message}
+	w := &probeWorker{containerID: c.ID, cancel: cancel, message: message, note: message}
 	go a.runProbes(ctx, w, s, c)
 	return w
 }
