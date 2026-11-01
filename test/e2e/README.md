@@ -62,9 +62,11 @@ once the binary has been copied to them.
    loopback, and bridge addresses.
 3. The test app gets a certificate for its host name on every node; a secret
    reaches the container's environment and appears in no journal.
-4. A rolling update, a rollback, and an agent restart serve every request
-   (round robin over all public IPs) with HTTP 200; the restart adopts the
-   running containers instead of replacing them.
+4. A minute of load while nothing changes serves every request (if this
+   fails, look at the network between your workstation and the machines
+   first). Then a rolling update, a rollback, and an agent restart serve
+   every request (round robin over all public IPs) with HTTP 200; the
+   restart adopts the running containers instead of replacing them.
 5. Stopping the leader and killing the next one with SIGKILL: a new leader
    takes over, accepts a scale change, the old one rejoins, and traffic stays
    at 200.
