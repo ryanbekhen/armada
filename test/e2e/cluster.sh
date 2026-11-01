@@ -196,7 +196,7 @@ join() {
 	_tok=$(sed -n 's/^Token (shown once): //p' "$WORK/token")
 	_cmd=$(sed -n 's/^  \(armada .*join .*\)$/\1/p' "$WORK/token")
 	rm -f "$WORK/token"
-	[ -n "$_tok" ] && [ -n "$_cmd" ] || fail "armada token create printed no token"
+	if [ -z "$_tok" ] || [ -z "$_cmd" ]; then fail "armada token create printed no token"; fi
 	printf '%s\n' "$_tok" | on "$1" 'umask 077; cat > /run/armada/e2e.token'
 	_tok=
 	if [ "$2" = server ]; then
