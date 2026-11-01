@@ -39,9 +39,17 @@ armada deploy -f web.yaml    # → https://web.apps.example.com
   read-only files on tmpfs.
 - **Multiple nodes.** Join with a single-use token; nodes get short-lived
   mTLS certificates that they renew themselves. Cordon, evacuate, remove.
+  Replicas of a lost node are started elsewhere, and apps spread out again,
+  one replica at a time, when a node returns or joins.
 - **Highly available control plane.** One server works; three survive the
   loss of any one. Servers elect a leader, agents and the CLI follow it,
   and certificates are not re-issued on failover.
+- **Rolling upgrades.** Upgrade servers, then nodes, one at a time while
+  apps keep serving; state migrations wait until every server runs the new
+  version, and downgrades onto migrated state are refused.
+- **Confined containers.** Dropped capabilities, `no-new-privileges`,
+  seccomp, AppArmor or SELinux (each container in its own MCS categories),
+  and memory, CPU, and PID limits.
 
 Armada needs Linux machines (cloud instances, VMs, or bare metal) with a
 private network between them, and nothing else: the binary embeds its own
@@ -63,8 +71,8 @@ its state store (etcd).
 | Environment | Status |
 | --- | --- |
 | Cloudflare DNS-01 with Let's Encrypt staging | Tested: wildcard certificate for the root domain |
-| Local lab: Linux VMs (arm64), Pebble ACME, 1–2 nodes | Tested end to end: deploys, rolling update, secret files, internal ingress and DNS, crash recovery, containerd restart with containers kept running, reboot recovery, replicas across nodes |
-| Oracle Cloud (arm64, Oracle Linux 9, SELinux enforcing), one server, Let's Encrypt staging | Tested end to end: install.sh with systemd, doctor, wildcard certificate over Cloudflare DNS-01, rolling update under load without errors, crash recovery, containerd restart, reboot recovery |
+| Local lab: Linux VMs (arm64), Pebble ACME, 1–2 nodes | Tested end to end: deploys, rolling update, secret files, internal ingress and DNS, crash recovery, containerd restart with containers kept running, reboot recovery, rolling upgrade with a state migration, rebalancing after uncordon under HTTPS load without errors, replicas across nodes |
+| Oracle Cloud (arm64, Oracle Linux 9, SELinux enforcing), one server, Let's Encrypt staging | Tested end to end: install.sh with systemd, doctor, wildcard certificate over Cloudflare DNS-01, rolling update under load without errors, crash recovery, containerd restart, reboot recovery, SELinux-confined apps and HAProxy, HAProxy restarted after a crash |
 | depa.id (amd64, Ubuntu 24.04), three control plane servers, Let's Encrypt staging | Tested end to end: install.sh, server joins, replicas on all three nodes, HTTPS through any node, leader stop and SIGKILL under load without errors, scale and rolling update through the new leader, backup, all three machines rebooted at once |
 
 Reports from other providers are welcome.
