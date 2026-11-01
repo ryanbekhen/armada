@@ -148,9 +148,12 @@ load_start() {
 		set -- $PUBLIC_IPS
 		while [ ! -f "$WORK/load.stop" ]; do
 			for ip in "$@"; do
-				code=$(curl -sk -o /dev/null -w '%{http_code}' --max-time 5 \
+				# "000" means curl got no response; its exit code and message
+				# tell a refused connection from a slow workstation link.
+				res=$(curl -sk -o /dev/null -w '%{http_code} curl=%{exitcode} %{errormsg}' --max-time 5 \
 					--resolve "$URL_HOST:443:$ip" "https://$URL_HOST/" || true)
-				echo "$code $ip" >>"$WORK/load"
+				code=${res%% *}
+				echo "$code $ip ${res#* }" >>"$WORK/load"
 			done
 		done
 	) &
