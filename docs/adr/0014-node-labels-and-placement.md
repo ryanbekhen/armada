@@ -1,0 +1,113 @@
+# 0014. Node labels and app placement
+
+- Status: Accepted
+- Date: 2026-11-01
+
+## Context
+
+A cluster can mix very different machines: large servers next to small
+single-board computers, amd64 next to arm64, machines in different cities
+joined over one private network. Until now the scheduler treated every
+ready node alike. It checked that the memory fits and spread each app by
+replica count, so:
+
+- an app could not be kept to a group of machines ("only the small boards
+  in one region");
+- a machine could not be kept for particular apps;
+- an image built for one architecture could land on a node of another and
+  fail to start there forever;
+- a one-core board received as many replicas as a sixteen-core server.
+
+## Decision
+
+### Labels
+
+- Every node has **labels**, `key=value` pairs. Admins set them with
+  `armada node label NODE key=value ... [key-]`, or put them in a join token
+  (`armada token create --label key=value`) so a node carries them from its
+  first moment; the node never chooses its own labels. A compromised node
+  could otherwise label itself to attract an app and its secrets.
+- The agent reports its OS and architecture; the server shows them as the
+  labels `armada.os` and `armada.arch`. The `armada.` prefix is reserved:
+  admins cannot set or remove such keys.
+- Keys are lowercase letters, digits, `.`, `-`, `_` and `/` (at most 63
+  characters, starting and ending with a letter or digit); values the same
+  without `/`. At most 32 admin labels per node. Labels are validated on
+  the server and again where they are read.
+
+### Restricted nodes
+
+- A node is **open** (the default: any app may run there) or
+  **restricted** (`armada node restrict NODE`, undone by `armada node open`).
+  A restricted node only runs apps whose placement names at least one of
+  its admin labels. Keeping a machine for one app means giving it a label
+  only that app asks for.
+
+### Placement in the app spec
+
+```yaml
+placement:
+  require:            # every key must match; a list matches any of its values
+    region: sulawesi
+    kind: [raspi, small]
+```
+
+- `placement.require` is a hard rule. A node is eligible for an app when it
+  is ready, not cordoned, matches every required label, fits the replica,
+  and, if restricted, is named by one of the app's required labels.
+- If no node is eligible, the replica is not placed anywhere else: it stays
+  missing, `armada status` says why (no node matches, or matching nodes are
+  full), and a rollout that cannot place its replicas fails as before,
+  leaving the old revision serving.
+- Placement is part of the revision. Changing it rolls the app out to
+  eligible nodes.
+- A replica whose node stops being eligible (a label removed, the node
+  restricted) is handled like a replica on a cordoned node: a replacement is
+  placed on an eligible node first, then the replica is drained.
+- Self-healing (ADR 0008), cordon evacuation, and rebalancing (ADR 0013)
+  only ever choose eligible nodes; rebalancing spreads an app over its
+  eligible nodes only.
+
+### Implemented in later steps
+
+- **Architecture:** at deploy the server reads the image's platforms and
+  adds the matching `armada.arch` values to the requirement; a deploy that
+  leaves no possible architecture is refused.
+- **CPU:** `resources.cpu` is reserved on the node like memory, with no
+  overcommit, and replicas are spread in proportion to capacity.
+- **`placement.spreadBy`:** spread an app's replicas over the values of a
+  label (cities, racks).
+
+Until these steps land, the spec rejects `spreadBy`, and clusters that mix
+architectures need multi-architecture images.
+
+### Topology
+
+Nodes may be far apart: agents tolerate latency. Control plane servers
+should be close to each other (the same city or region), because etcd
+commits need a round trip between them.
+
+## Alternatives considered
+
+- **Nodes label themselves at join:** simpler, but a node holding a join
+  token could claim any label and attract apps meant for other machines.
+- **A per-node list of allowed app names:** grows with every app and goes
+  stale; one label per purpose does the same job with one concept.
+- **Soft preferences ("prefer this region"):** useful, but weights and
+  their interplay with spreading are hard to explain; the spec leaves room
+  for `placement.prefer` later.
+- **Leaving architecture to the user:** every failure would appear only on
+  the node, after the rollout started.
+
+## Consequences
+
+- Apps can be kept to groups of machines, and machines to apps, with one
+  concept that `armada node list` shows.
+- A label change can move replicas, through the same replace-then-drain
+  path as a cordon, never dropping below the serving count.
+- Node records gain fields that older servers would drop when they rewrite
+  a node, so the state schema moves to 2 (ADR 0012): once migrated, older
+  servers cannot lead.
+- Restricting a node or narrowing a placement can leave replicas with
+  nowhere to go; `armada status` reports it instead of placing them on an
+  unsuitable node.

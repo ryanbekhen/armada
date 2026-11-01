@@ -11,6 +11,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	goruntime "runtime"
 	"slices"
 	"strconv"
 	"sync"
@@ -186,6 +187,7 @@ func (a *Agent) session(ctx context.Context) (established bool, err error) {
 	}
 	hello := &armadav1.AgentMessage{Msg: &armadav1.AgentMessage_Hello{Hello: &armadav1.Hello{
 		CpuMillis: a.cfg.CPUMillis, MemoryBytes: a.cfg.MemoryBytes, Version: version.Get().Version, PrivateIp: a.cfg.PrivateIP,
+		Os: goruntime.GOOS, Arch: goruntime.GOARCH,
 	}}}
 	if err := stream.Send(hello); err != nil {
 		return false, err

@@ -59,7 +59,7 @@ const (
 	// migrations when records change incompatibly. Records under servers/
 	// and meta/ are read and written by every server, whatever its schema,
 	// so they only ever gain optional fields.
-	etcdSchema = 1
+	etcdSchema = 2
 
 	maxTxnRetries = 100
 	// auditKeep is how many audit events are retained.
@@ -316,7 +316,11 @@ type nodeRec struct {
 	Version     string `json:"version,omitempty"`
 	// LegacyCerts accepts any CA-signed certificate for the node until its
 	// first renewal (nodes created before certificates were recorded).
-	LegacyCerts bool `json:"legacyCerts,omitempty"`
+	LegacyCerts bool              `json:"legacyCerts,omitempty"`
+	Labels      map[string]string `json:"labels,omitempty"`
+	Restricted  bool              `json:"restricted,omitempty"`
+	OS          string            `json:"os,omitempty"`
+	Arch        string            `json:"arch,omitempty"`
 }
 
 type certRec struct {
@@ -327,14 +331,15 @@ type certRec struct {
 }
 
 type tokenRec struct {
-	ID         string `json:"id"`
-	SecretHash string `json:"secretHash"`
-	ExpiresAt  int64  `json:"expiresAt"`
-	CreatedAt  int64  `json:"createdAt"`
-	CreatedBy  string `json:"createdBy"`
-	UsedAt     int64  `json:"usedAt"`
-	UsedBy     string `json:"usedBy"`
-	Server     bool   `json:"server,omitempty"`
+	ID         string            `json:"id"`
+	SecretHash string            `json:"secretHash"`
+	ExpiresAt  int64             `json:"expiresAt"`
+	CreatedAt  int64             `json:"createdAt"`
+	CreatedBy  string            `json:"createdBy"`
+	UsedAt     int64             `json:"usedAt"`
+	UsedBy     string            `json:"usedBy"`
+	Server     bool              `json:"server,omitempty"`
+	Labels     map[string]string `json:"labels,omitempty"`
 }
 
 type serverRec struct {
@@ -485,7 +490,8 @@ func (t *etx) node(id string) (nodeRec, bool, error) {
 
 func (t *etx) toNode(n nodeRec) (Node, error) {
 	out := Node{ID: n.ID, PrivateIP: n.PrivateIP, CPUMillis: n.CPUMillis, MemoryBytes: n.MemoryBytes, State: n.State,
-		LastSeen: fromMS(n.LastSeen), CreatedAt: fromMS(n.CreatedAt), Cordoned: n.Cordoned, Version: n.Version}
+		LastSeen: fromMS(n.LastSeen), CreatedAt: fromMS(n.CreatedAt), Cordoned: n.Cordoned, Version: n.Version,
+		Labels: n.Labels, OS: n.OS, Arch: n.Arch, Restricted: n.Restricted}
 	var latest int64
 	err := listInto(t, pfxCerts+n.ID+"/", func(_ string, c certRec) error {
 		latest = max(latest, c.NotAfter)
@@ -512,7 +518,15 @@ func (s *Etcd) UpsertNode(ctx context.Context, n Node) error {
 			LastSeen: ms(n.LastSeen), CreatedAt: ms(n.CreatedAt)}
 		if ok {
 			rec.CreatedAt, rec.Cordoned, rec.LegacyCerts, rec.Version = cur.CreatedAt, cur.Cordoned, cur.LegacyCerts, cur.Version
+			rec.Labels, rec.Restricted, rec.OS, rec.Arch = cur.Labels, cur.Restricted, cur.OS, cur.Arch
 		}
+		if n.Labels != nil {
+			rec.Labels = n.Labels
+		}
+		if n.OS != "" || n.Arch != "" {
+			rec.OS, rec.Arch = n.OS, n.Arch
+		}
+		rec.Restricted = rec.Restricted || n.Restricted
 		return t.put(pfxNodes+n.ID, rec)
 	})
 }
@@ -562,6 +576,12 @@ func (s *Etcd) SetNodeStatus(ctx context.Context, id string, st NodeStatus) erro
 		if st.Version != "" {
 			n.Version = st.Version
 		}
+		if st.OS != "" {
+			n.OS = st.OS
+		}
+		if st.Arch != "" {
+			n.Arch = st.Arch
+		}
 		return t.put(pfxNodes+id, n)
 	})
 }
@@ -587,6 +607,80 @@ func (s *Etcd) SetNodeCordoned(ctx context.Context, id string, cordoned bool, ac
 		}
 		return t.audit(now, actor, action, id, "")
 	})
+}
+
+// SetNodeLabels sets and removes a node's admin labels. See Store.
+func (s *Etcd) SetNodeLabels(ctx context.Context, id string, set map[string]string, remove []string, actor string) (map[string]string, error) {
+	now := s.now()
+	var out map[string]string
+	err := s.tx(ctx, func(t *etx) error {
+		n, ok, err := t.node(id)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return notFoundf("node %s", id)
+		}
+		labels := make(map[string]string, len(n.Labels)+len(set))
+		for k, v := range n.Labels {
+			labels[k] = v
+		}
+		for _, k := range remove {
+			delete(labels, k)
+		}
+		for k, v := range set {
+			labels[k] = v
+		}
+		if len(labels) > spec.MaxNodeLabels {
+			return fmt.Errorf("node %s would have %d labels (at most %d): %w", id, len(labels), spec.MaxNodeLabels, ErrPrecondition)
+		}
+		if len(labels) == 0 {
+			labels = nil
+		}
+		n.Labels, out = labels, labels
+		if err := t.put(pfxNodes+id, n); err != nil {
+			return err
+		}
+		return t.audit(now, actor, "node.label", id, labelString(labels))
+	})
+	return out, err
+}
+
+// SetNodeRestricted makes a node restricted or open. See Store.
+func (s *Etcd) SetNodeRestricted(ctx context.Context, id string, restricted bool, actor string) error {
+	now := s.now()
+	return s.tx(ctx, func(t *etx) error {
+		n, ok, err := t.node(id)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return notFoundf("node %s", id)
+		}
+		n.Restricted = restricted
+		if err := t.put(pfxNodes+id, n); err != nil {
+			return err
+		}
+		action := "node.open"
+		if restricted {
+			action = "node.restrict"
+		}
+		return t.audit(now, actor, action, id, "")
+	})
+}
+
+// labelString renders labels as "k=v,k2=v2", sorted by key.
+func labelString(labels map[string]string) string {
+	keys := make([]string, 0, len(labels))
+	for k := range labels {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+	parts := make([]string, len(keys))
+	for i, k := range keys {
+		parts[i] = k + "=" + labels[k]
+	}
+	return strings.Join(parts, ",")
 }
 
 // RemoveNode deletes a node and its certificates. See Store.
@@ -650,12 +744,15 @@ func (s *Etcd) CreateJoinToken(ctx context.Context, tok JoinToken) error {
 			return fmt.Errorf("join token %s exists: %w", tok.ID, ErrConflict)
 		}
 		if err := t.put(pfxTokens+tok.ID, tokenRec{ID: tok.ID, SecretHash: tok.SecretHash, ExpiresAt: tok.ExpiresAt.UnixMilli(),
-			CreatedAt: now.UnixMilli(), CreatedBy: tok.CreatedBy, Server: tok.Server}); err != nil {
+			CreatedAt: now.UnixMilli(), CreatedBy: tok.CreatedBy, Server: tok.Server, Labels: tok.Labels}); err != nil {
 			return err
 		}
 		detail := "expires " + tok.ExpiresAt.UTC().Format("2006-01-02T15:04Z")
 		if tok.Server {
 			detail = "server, " + detail
+		}
+		if len(tok.Labels) > 0 {
+			detail += ", labels " + labelString(tok.Labels)
 		}
 		return t.audit(now, tok.CreatedBy, "token.create", tok.ID, detail)
 	})
@@ -724,7 +821,7 @@ func (s *Etcd) redeem(ctx context.Context, id string, check func(string) bool, s
 		if n.State == "" {
 			n.State = NodeUnknown
 		}
-		if err := t.put(pfxNodes+n.ID, nodeRec{ID: n.ID, PrivateIP: n.PrivateIP, State: n.State, CreatedAt: now.UnixMilli()}); err != nil {
+		if err := t.put(pfxNodes+n.ID, nodeRec{ID: n.ID, PrivateIP: n.PrivateIP, State: n.State, CreatedAt: now.UnixMilli(), Labels: tok.Labels}); err != nil {
 			return err
 		}
 		if err := t.putCert(n.ID, cert, now); err != nil {
@@ -1781,7 +1878,12 @@ func SchemaVersion() int { return etcdSchema }
 type migration func(*etx) error
 
 // migrations[i] moves schema i+1 to i+2; len(migrations) == etcdSchema-1.
-var migrations []migration
+var migrations = []migration{
+	// 1 -> 2: node records gain labels, restricted, os, and arch (ADR
+	// 0014). Nothing to rewrite; the step exists so that servers that would
+	// drop those fields when they rewrite a node can no longer lead.
+	func(*etx) error { return nil },
+}
 
 // StoredSchema returns the schema the keyspace is written in.
 func (s *Etcd) StoredSchema(ctx context.Context) (int, error) {

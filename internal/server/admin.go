@@ -153,20 +153,33 @@ func (s *Server) Status(ctx context.Context, req *armadav1.StatusRequest) (*arma
 		}
 	}
 
+	nodes, err := s.store.ListNodes(ctx)
+	if err != nil {
+		return nil, storeErr(err)
+	}
+	all, err := s.store.ListReplicas(ctx, store.ReplicaFilter{})
+	if err != nil {
+		return nil, storeErr(err)
+	}
+	revs := &revisionCache{store: s.store, m: map[string]store.Revision{}}
+
 	resp := &armadav1.StatusResponse{}
 	for _, a := range apps {
-		reps, err := s.store.ListReplicas(ctx, store.ReplicaFilter{App: a.Name})
-		if err != nil {
-			return nil, storeErr(err)
+		var reps []store.Replica
+		for _, r := range all {
+			if r.App == a.Name {
+				reps = append(reps, r)
+			}
 		}
 		as := &armadav1.AppStatus{
 			Name: a.Name, Image: a.Spec.Image, ActiveRevision: a.ActiveRevision,
-			DesiredReplicas: int32(a.Replicas), //nolint:gosec // bounded by spec.MaxReplicas
-			Ingress:         a.Spec.Ingress.Type,
-			Urls:            s.appURLs(ctx, a),
-			TargetRevision:  a.TargetRevision,
-			RolloutState:    a.RolloutState,
-			RolloutMessage:  a.RolloutMessage,
+			DesiredReplicas:  int32(a.Replicas), //nolint:gosec // bounded by spec.MaxReplicas
+			Ingress:          a.Spec.Ingress.Type,
+			Urls:             s.appURLs(ctx, a),
+			TargetRevision:   a.TargetRevision,
+			RolloutState:     a.RolloutState,
+			RolloutMessage:   a.RolloutMessage,
+			PlacementMessage: placementMessage(ctx, revs, nodes, all, a),
 		}
 		for _, r := range reps {
 			as.Replicas = append(as.Replicas, &armadav1.ReplicaStatus{
@@ -178,16 +191,13 @@ func (s *Server) Status(ctx context.Context, req *armadav1.StatusRequest) (*arma
 		resp.Apps = append(resp.Apps, as)
 	}
 
-	nodes, err := s.store.ListNodes(ctx)
-	if err != nil {
-		return nil, storeErr(err)
-	}
 	for _, n := range nodes {
 		state := n.State
 		if nodeLost(n, s.now(), s.nodeLostTimeout) {
 			state = nodeStateLost
 		}
-		ns := &armadav1.NodeStatus{Id: n.ID, PrivateIp: n.PrivateIP, State: state, CpuMillis: n.CPUMillis, MemoryBytes: n.MemoryBytes, Cordoned: n.Cordoned, Version: n.Version}
+		ns := &armadav1.NodeStatus{Id: n.ID, PrivateIp: n.PrivateIP, State: state, CpuMillis: n.CPUMillis, MemoryBytes: n.MemoryBytes, Cordoned: n.Cordoned, Version: n.Version,
+			Labels: n.AllLabels(), Restricted: n.Restricted}
 		if !n.LastSeen.IsZero() {
 			ns.LastSeen = timestamppb.New(n.LastSeen)
 		}

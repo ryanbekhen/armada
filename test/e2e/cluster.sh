@@ -377,6 +377,40 @@ cli backup -o /root/e2e-backup.tar.gz >/dev/null 2>&1
 on "$CLI" 'rm -f /root/e2e-backup.tar.gz'
 ok "backup written with mode 0600"
 
+log "placement: labels and a restricted node under load"
+_node=$(host "$N" 1)
+# pinned_on NODE: both replicas of the pinned app serve on NODE.
+pinned_on() {
+	status | jq -e --arg node "$1" '
+		[.apps[] | select(.name == "pinned") | .replicas[]? | select((.draining // false) | not)] as $live
+		| ($live | length) == 2 and all($live[]; .nodeId == $node and .state == "running" and (.ready // false))'
+}
+placement_note() { status | jq -e '.apps[] | select(.name == "pinned") | (.placementMessage // "") | test("no ready node matches")'; }
+arch_labels() { status | jq -e --argjson n "$N" '[.nodes[] | select((.labels["armada.arch"] // "") != "")] | length == $n'; }
+wait_for 30 "every node reports armada.arch" arch_labels
+load_start
+cli node label "$_node" e2e.role=pinned >/dev/null
+cli node restrict "$_node" >/dev/null
+wait_for 300 "$APP moved off restricted $_node" none_on "$_node"
+wait_for 180 "$APP serving without $_node" serving
+load_stop "restricting a node"
+cat <<EOF | cli deploy -f - >/dev/null
+name: pinned
+image: $V1
+ingress:
+  type: none
+scale:
+  min: 2
+placement:
+  require:
+    e2e.role: pinned
+EOF
+wait_for 300 "pinned app runs only on $_node" pinned_on "$_node"
+cli node label "$_node" e2e.role- >/dev/null
+wait_for 60 "status explains why pinned has nowhere to go" placement_note
+cli node open "$_node" >/dev/null
+wait_for 600 "$APP spread back over every node" even
+
 if [ "$E2E_REBOOT" = 1 ]; then
 	log "reboot every machine at once"
 	i=1

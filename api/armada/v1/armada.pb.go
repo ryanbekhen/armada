@@ -361,7 +361,9 @@ type CreateJoinTokenRequest struct {
 	TtlSeconds int64 `protobuf:"varint,1,opt,name=ttl_seconds,json=ttlSeconds,proto3" json:"ttl_seconds,omitempty"`
 	// A server token adds a control plane node (JoinServer) instead of a
 	// node (Join).
-	Server        bool `protobuf:"varint,2,opt,name=server,proto3" json:"server,omitempty"`
+	Server bool `protobuf:"varint,2,opt,name=server,proto3" json:"server,omitempty"`
+	// Labels the node gets when it joins with this token (ADR 0014).
+	Labels        map[string]string `protobuf:"bytes,3,rep,name=labels,proto3" json:"labels,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -408,6 +410,13 @@ func (x *CreateJoinTokenRequest) GetServer() bool {
 		return x.Server
 	}
 	return false
+}
+
+func (x *CreateJoinTokenRequest) GetLabels() map[string]string {
+	if x != nil {
+		return x.Labels
+	}
+	return nil
 }
 
 type CreateJoinTokenResponse struct {
@@ -569,6 +578,201 @@ func (*CordonNodeResponse) Descriptor() ([]byte, []int) {
 	return file_armada_v1_armada_proto_rawDescGZIP(), []int{8}
 }
 
+// LabelNodeRequest sets and removes a node's admin labels.
+type LabelNodeRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Node          string                 `protobuf:"bytes,1,opt,name=node,proto3" json:"node,omitempty"`
+	Set           map[string]string      `protobuf:"bytes,2,rep,name=set,proto3" json:"set,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Remove        []string               `protobuf:"bytes,3,rep,name=remove,proto3" json:"remove,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LabelNodeRequest) Reset() {
+	*x = LabelNodeRequest{}
+	mi := &file_armada_v1_armada_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LabelNodeRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LabelNodeRequest) ProtoMessage() {}
+
+func (x *LabelNodeRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_armada_v1_armada_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LabelNodeRequest.ProtoReflect.Descriptor instead.
+func (*LabelNodeRequest) Descriptor() ([]byte, []int) {
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *LabelNodeRequest) GetNode() string {
+	if x != nil {
+		return x.Node
+	}
+	return ""
+}
+
+func (x *LabelNodeRequest) GetSet() map[string]string {
+	if x != nil {
+		return x.Set
+	}
+	return nil
+}
+
+func (x *LabelNodeRequest) GetRemove() []string {
+	if x != nil {
+		return x.Remove
+	}
+	return nil
+}
+
+type LabelNodeResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The node's admin labels after the change.
+	Labels        map[string]string `protobuf:"bytes,1,rep,name=labels,proto3" json:"labels,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LabelNodeResponse) Reset() {
+	*x = LabelNodeResponse{}
+	mi := &file_armada_v1_armada_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LabelNodeResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LabelNodeResponse) ProtoMessage() {}
+
+func (x *LabelNodeResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_armada_v1_armada_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LabelNodeResponse.ProtoReflect.Descriptor instead.
+func (*LabelNodeResponse) Descriptor() ([]byte, []int) {
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *LabelNodeResponse) GetLabels() map[string]string {
+	if x != nil {
+		return x.Labels
+	}
+	return nil
+}
+
+// A restricted node only runs apps whose placement selects one of its labels.
+type RestrictNodeRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Node          string                 `protobuf:"bytes,1,opt,name=node,proto3" json:"node,omitempty"`
+	Restricted    bool                   `protobuf:"varint,2,opt,name=restricted,proto3" json:"restricted,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RestrictNodeRequest) Reset() {
+	*x = RestrictNodeRequest{}
+	mi := &file_armada_v1_armada_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RestrictNodeRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RestrictNodeRequest) ProtoMessage() {}
+
+func (x *RestrictNodeRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_armada_v1_armada_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RestrictNodeRequest.ProtoReflect.Descriptor instead.
+func (*RestrictNodeRequest) Descriptor() ([]byte, []int) {
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *RestrictNodeRequest) GetNode() string {
+	if x != nil {
+		return x.Node
+	}
+	return ""
+}
+
+func (x *RestrictNodeRequest) GetRestricted() bool {
+	if x != nil {
+		return x.Restricted
+	}
+	return false
+}
+
+type RestrictNodeResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RestrictNodeResponse) Reset() {
+	*x = RestrictNodeResponse{}
+	mi := &file_armada_v1_armada_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RestrictNodeResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RestrictNodeResponse) ProtoMessage() {}
+
+func (x *RestrictNodeResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_armada_v1_armada_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RestrictNodeResponse.ProtoReflect.Descriptor instead.
+func (*RestrictNodeResponse) Descriptor() ([]byte, []int) {
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{12}
+}
+
 type RemoveNodeRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Node  string                 `protobuf:"bytes,1,opt,name=node,proto3" json:"node,omitempty"`
@@ -580,7 +784,7 @@ type RemoveNodeRequest struct {
 
 func (x *RemoveNodeRequest) Reset() {
 	*x = RemoveNodeRequest{}
-	mi := &file_armada_v1_armada_proto_msgTypes[9]
+	mi := &file_armada_v1_armada_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -592,7 +796,7 @@ func (x *RemoveNodeRequest) String() string {
 func (*RemoveNodeRequest) ProtoMessage() {}
 
 func (x *RemoveNodeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[9]
+	mi := &file_armada_v1_armada_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -605,7 +809,7 @@ func (x *RemoveNodeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RemoveNodeRequest.ProtoReflect.Descriptor instead.
 func (*RemoveNodeRequest) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{9}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *RemoveNodeRequest) GetNode() string {
@@ -630,7 +834,7 @@ type RemoveNodeResponse struct {
 
 func (x *RemoveNodeResponse) Reset() {
 	*x = RemoveNodeResponse{}
-	mi := &file_armada_v1_armada_proto_msgTypes[10]
+	mi := &file_armada_v1_armada_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -642,7 +846,7 @@ func (x *RemoveNodeResponse) String() string {
 func (*RemoveNodeResponse) ProtoMessage() {}
 
 func (x *RemoveNodeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[10]
+	mi := &file_armada_v1_armada_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -655,7 +859,7 @@ func (x *RemoveNodeResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RemoveNodeResponse.ProtoReflect.Descriptor instead.
 func (*RemoveNodeResponse) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{10}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{14}
 }
 
 type JoinServerRequest struct {
@@ -678,7 +882,7 @@ type JoinServerRequest struct {
 
 func (x *JoinServerRequest) Reset() {
 	*x = JoinServerRequest{}
-	mi := &file_armada_v1_armada_proto_msgTypes[11]
+	mi := &file_armada_v1_armada_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -690,7 +894,7 @@ func (x *JoinServerRequest) String() string {
 func (*JoinServerRequest) ProtoMessage() {}
 
 func (x *JoinServerRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[11]
+	mi := &file_armada_v1_armada_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -703,7 +907,7 @@ func (x *JoinServerRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use JoinServerRequest.ProtoReflect.Descriptor instead.
 func (*JoinServerRequest) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{11}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *JoinServerRequest) GetTokenId() string {
@@ -789,7 +993,7 @@ type JoinServerResponse struct {
 
 func (x *JoinServerResponse) Reset() {
 	*x = JoinServerResponse{}
-	mi := &file_armada_v1_armada_proto_msgTypes[12]
+	mi := &file_armada_v1_armada_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -801,7 +1005,7 @@ func (x *JoinServerResponse) String() string {
 func (*JoinServerResponse) ProtoMessage() {}
 
 func (x *JoinServerResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[12]
+	mi := &file_armada_v1_armada_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -814,7 +1018,7 @@ func (x *JoinServerResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use JoinServerResponse.ProtoReflect.Descriptor instead.
 func (*JoinServerResponse) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{12}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *JoinServerResponse) GetCaCert() []byte {
@@ -888,7 +1092,7 @@ type JoinRequest struct {
 
 func (x *JoinRequest) Reset() {
 	*x = JoinRequest{}
-	mi := &file_armada_v1_armada_proto_msgTypes[13]
+	mi := &file_armada_v1_armada_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -900,7 +1104,7 @@ func (x *JoinRequest) String() string {
 func (*JoinRequest) ProtoMessage() {}
 
 func (x *JoinRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[13]
+	mi := &file_armada_v1_armada_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -913,7 +1117,7 @@ func (x *JoinRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use JoinRequest.ProtoReflect.Descriptor instead.
 func (*JoinRequest) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{13}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *JoinRequest) GetTokenId() string {
@@ -970,7 +1174,7 @@ type JoinResponse struct {
 
 func (x *JoinResponse) Reset() {
 	*x = JoinResponse{}
-	mi := &file_armada_v1_armada_proto_msgTypes[14]
+	mi := &file_armada_v1_armada_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -982,7 +1186,7 @@ func (x *JoinResponse) String() string {
 func (*JoinResponse) ProtoMessage() {}
 
 func (x *JoinResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[14]
+	mi := &file_armada_v1_armada_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -995,7 +1199,7 @@ func (x *JoinResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use JoinResponse.ProtoReflect.Descriptor instead.
 func (*JoinResponse) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{14}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *JoinResponse) GetNodeCert() []byte {
@@ -1036,7 +1240,7 @@ type SetSecretRequest struct {
 
 func (x *SetSecretRequest) Reset() {
 	*x = SetSecretRequest{}
-	mi := &file_armada_v1_armada_proto_msgTypes[15]
+	mi := &file_armada_v1_armada_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1048,7 +1252,7 @@ func (x *SetSecretRequest) String() string {
 func (*SetSecretRequest) ProtoMessage() {}
 
 func (x *SetSecretRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[15]
+	mi := &file_armada_v1_armada_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1061,7 +1265,7 @@ func (x *SetSecretRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetSecretRequest.ProtoReflect.Descriptor instead.
 func (*SetSecretRequest) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{15}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *SetSecretRequest) GetApp() string {
@@ -1103,7 +1307,7 @@ type SetSecretResponse struct {
 
 func (x *SetSecretResponse) Reset() {
 	*x = SetSecretResponse{}
-	mi := &file_armada_v1_armada_proto_msgTypes[16]
+	mi := &file_armada_v1_armada_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1115,7 +1319,7 @@ func (x *SetSecretResponse) String() string {
 func (*SetSecretResponse) ProtoMessage() {}
 
 func (x *SetSecretResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[16]
+	mi := &file_armada_v1_armada_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1128,7 +1332,7 @@ func (x *SetSecretResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetSecretResponse.ProtoReflect.Descriptor instead.
 func (*SetSecretResponse) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{16}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *SetSecretResponse) GetVersion() int32 {
@@ -1154,7 +1358,7 @@ type ListSecretsRequest struct {
 
 func (x *ListSecretsRequest) Reset() {
 	*x = ListSecretsRequest{}
-	mi := &file_armada_v1_armada_proto_msgTypes[17]
+	mi := &file_armada_v1_armada_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1166,7 +1370,7 @@ func (x *ListSecretsRequest) String() string {
 func (*ListSecretsRequest) ProtoMessage() {}
 
 func (x *ListSecretsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[17]
+	mi := &file_armada_v1_armada_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1179,7 +1383,7 @@ func (x *ListSecretsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSecretsRequest.ProtoReflect.Descriptor instead.
 func (*ListSecretsRequest) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{17}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *ListSecretsRequest) GetApp() string {
@@ -1198,7 +1402,7 @@ type ListSecretsResponse struct {
 
 func (x *ListSecretsResponse) Reset() {
 	*x = ListSecretsResponse{}
-	mi := &file_armada_v1_armada_proto_msgTypes[18]
+	mi := &file_armada_v1_armada_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1210,7 +1414,7 @@ func (x *ListSecretsResponse) String() string {
 func (*ListSecretsResponse) ProtoMessage() {}
 
 func (x *ListSecretsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[18]
+	mi := &file_armada_v1_armada_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1223,7 +1427,7 @@ func (x *ListSecretsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSecretsResponse.ProtoReflect.Descriptor instead.
 func (*ListSecretsResponse) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{18}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *ListSecretsResponse) GetSecrets() []*SecretInfo {
@@ -1247,7 +1451,7 @@ type SecretInfo struct {
 
 func (x *SecretInfo) Reset() {
 	*x = SecretInfo{}
-	mi := &file_armada_v1_armada_proto_msgTypes[19]
+	mi := &file_armada_v1_armada_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1259,7 +1463,7 @@ func (x *SecretInfo) String() string {
 func (*SecretInfo) ProtoMessage() {}
 
 func (x *SecretInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[19]
+	mi := &file_armada_v1_armada_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1272,7 +1476,7 @@ func (x *SecretInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SecretInfo.ProtoReflect.Descriptor instead.
 func (*SecretInfo) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{19}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *SecretInfo) GetName() string {
@@ -1320,7 +1524,7 @@ type DeleteSecretRequest struct {
 
 func (x *DeleteSecretRequest) Reset() {
 	*x = DeleteSecretRequest{}
-	mi := &file_armada_v1_armada_proto_msgTypes[20]
+	mi := &file_armada_v1_armada_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1332,7 +1536,7 @@ func (x *DeleteSecretRequest) String() string {
 func (*DeleteSecretRequest) ProtoMessage() {}
 
 func (x *DeleteSecretRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[20]
+	mi := &file_armada_v1_armada_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1345,7 +1549,7 @@ func (x *DeleteSecretRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteSecretRequest.ProtoReflect.Descriptor instead.
 func (*DeleteSecretRequest) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{20}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *DeleteSecretRequest) GetApp() string {
@@ -1370,7 +1574,7 @@ type DeleteSecretResponse struct {
 
 func (x *DeleteSecretResponse) Reset() {
 	*x = DeleteSecretResponse{}
-	mi := &file_armada_v1_armada_proto_msgTypes[21]
+	mi := &file_armada_v1_armada_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1382,7 +1586,7 @@ func (x *DeleteSecretResponse) String() string {
 func (*DeleteSecretResponse) ProtoMessage() {}
 
 func (x *DeleteSecretResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[21]
+	mi := &file_armada_v1_armada_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1395,7 +1599,7 @@ func (x *DeleteSecretResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteSecretResponse.ProtoReflect.Descriptor instead.
 func (*DeleteSecretResponse) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{21}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{25}
 }
 
 type ListRevisionsRequest struct {
@@ -1407,7 +1611,7 @@ type ListRevisionsRequest struct {
 
 func (x *ListRevisionsRequest) Reset() {
 	*x = ListRevisionsRequest{}
-	mi := &file_armada_v1_armada_proto_msgTypes[22]
+	mi := &file_armada_v1_armada_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1419,7 +1623,7 @@ func (x *ListRevisionsRequest) String() string {
 func (*ListRevisionsRequest) ProtoMessage() {}
 
 func (x *ListRevisionsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[22]
+	mi := &file_armada_v1_armada_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1432,7 +1636,7 @@ func (x *ListRevisionsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListRevisionsRequest.ProtoReflect.Descriptor instead.
 func (*ListRevisionsRequest) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{22}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *ListRevisionsRequest) GetApp() string {
@@ -1451,7 +1655,7 @@ type ListRevisionsResponse struct {
 
 func (x *ListRevisionsResponse) Reset() {
 	*x = ListRevisionsResponse{}
-	mi := &file_armada_v1_armada_proto_msgTypes[23]
+	mi := &file_armada_v1_armada_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1463,7 +1667,7 @@ func (x *ListRevisionsResponse) String() string {
 func (*ListRevisionsResponse) ProtoMessage() {}
 
 func (x *ListRevisionsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[23]
+	mi := &file_armada_v1_armada_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1476,7 +1680,7 @@ func (x *ListRevisionsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListRevisionsResponse.ProtoReflect.Descriptor instead.
 func (*ListRevisionsResponse) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{23}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *ListRevisionsResponse) GetRevisions() []*RevisionInfo {
@@ -1501,7 +1705,7 @@ type RevisionInfo struct {
 
 func (x *RevisionInfo) Reset() {
 	*x = RevisionInfo{}
-	mi := &file_armada_v1_armada_proto_msgTypes[24]
+	mi := &file_armada_v1_armada_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1513,7 +1717,7 @@ func (x *RevisionInfo) String() string {
 func (*RevisionInfo) ProtoMessage() {}
 
 func (x *RevisionInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[24]
+	mi := &file_armada_v1_armada_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1526,7 +1730,7 @@ func (x *RevisionInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RevisionInfo.ProtoReflect.Descriptor instead.
 func (*RevisionInfo) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{24}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *RevisionInfo) GetName() string {
@@ -1582,7 +1786,7 @@ type RollbackRequest struct {
 
 func (x *RollbackRequest) Reset() {
 	*x = RollbackRequest{}
-	mi := &file_armada_v1_armada_proto_msgTypes[25]
+	mi := &file_armada_v1_armada_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1594,7 +1798,7 @@ func (x *RollbackRequest) String() string {
 func (*RollbackRequest) ProtoMessage() {}
 
 func (x *RollbackRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[25]
+	mi := &file_armada_v1_armada_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1607,7 +1811,7 @@ func (x *RollbackRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RollbackRequest.ProtoReflect.Descriptor instead.
 func (*RollbackRequest) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{25}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *RollbackRequest) GetApp() string {
@@ -1633,7 +1837,7 @@ type RollbackResponse struct {
 
 func (x *RollbackResponse) Reset() {
 	*x = RollbackResponse{}
-	mi := &file_armada_v1_armada_proto_msgTypes[26]
+	mi := &file_armada_v1_armada_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1645,7 +1849,7 @@ func (x *RollbackResponse) String() string {
 func (*RollbackResponse) ProtoMessage() {}
 
 func (x *RollbackResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[26]
+	mi := &file_armada_v1_armada_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1658,7 +1862,7 @@ func (x *RollbackResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RollbackResponse.ProtoReflect.Descriptor instead.
 func (*RollbackResponse) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{26}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *RollbackResponse) GetRevision() string {
@@ -1679,7 +1883,7 @@ type ClusterConfig struct {
 
 func (x *ClusterConfig) Reset() {
 	*x = ClusterConfig{}
-	mi := &file_armada_v1_armada_proto_msgTypes[27]
+	mi := &file_armada_v1_armada_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1691,7 +1895,7 @@ func (x *ClusterConfig) String() string {
 func (*ClusterConfig) ProtoMessage() {}
 
 func (x *ClusterConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[27]
+	mi := &file_armada_v1_armada_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1704,7 +1908,7 @@ func (x *ClusterConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ClusterConfig.ProtoReflect.Descriptor instead.
 func (*ClusterConfig) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{27}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *ClusterConfig) GetRootDomain() string {
@@ -1729,7 +1933,7 @@ type GetClusterConfigRequest struct {
 
 func (x *GetClusterConfigRequest) Reset() {
 	*x = GetClusterConfigRequest{}
-	mi := &file_armada_v1_armada_proto_msgTypes[28]
+	mi := &file_armada_v1_armada_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1741,7 +1945,7 @@ func (x *GetClusterConfigRequest) String() string {
 func (*GetClusterConfigRequest) ProtoMessage() {}
 
 func (x *GetClusterConfigRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[28]
+	mi := &file_armada_v1_armada_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1754,7 +1958,7 @@ func (x *GetClusterConfigRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetClusterConfigRequest.ProtoReflect.Descriptor instead.
 func (*GetClusterConfigRequest) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{28}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{32}
 }
 
 type SetClusterConfigRequest struct {
@@ -1766,7 +1970,7 @@ type SetClusterConfigRequest struct {
 
 func (x *SetClusterConfigRequest) Reset() {
 	*x = SetClusterConfigRequest{}
-	mi := &file_armada_v1_armada_proto_msgTypes[29]
+	mi := &file_armada_v1_armada_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1778,7 +1982,7 @@ func (x *SetClusterConfigRequest) String() string {
 func (*SetClusterConfigRequest) ProtoMessage() {}
 
 func (x *SetClusterConfigRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[29]
+	mi := &file_armada_v1_armada_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1791,7 +1995,7 @@ func (x *SetClusterConfigRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetClusterConfigRequest.ProtoReflect.Descriptor instead.
 func (*SetClusterConfigRequest) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{29}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *SetClusterConfigRequest) GetConfig() *ClusterConfig {
@@ -1811,7 +2015,7 @@ type ListDomainsRequest struct {
 
 func (x *ListDomainsRequest) Reset() {
 	*x = ListDomainsRequest{}
-	mi := &file_armada_v1_armada_proto_msgTypes[30]
+	mi := &file_armada_v1_armada_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1823,7 +2027,7 @@ func (x *ListDomainsRequest) String() string {
 func (*ListDomainsRequest) ProtoMessage() {}
 
 func (x *ListDomainsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[30]
+	mi := &file_armada_v1_armada_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1836,7 +2040,7 @@ func (x *ListDomainsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListDomainsRequest.ProtoReflect.Descriptor instead.
 func (*ListDomainsRequest) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{30}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *ListDomainsRequest) GetApp() string {
@@ -1855,7 +2059,7 @@ type ListDomainsResponse struct {
 
 func (x *ListDomainsResponse) Reset() {
 	*x = ListDomainsResponse{}
-	mi := &file_armada_v1_armada_proto_msgTypes[31]
+	mi := &file_armada_v1_armada_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1867,7 +2071,7 @@ func (x *ListDomainsResponse) String() string {
 func (*ListDomainsResponse) ProtoMessage() {}
 
 func (x *ListDomainsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[31]
+	mi := &file_armada_v1_armada_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1880,7 +2084,7 @@ func (x *ListDomainsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListDomainsResponse.ProtoReflect.Descriptor instead.
 func (*ListDomainsResponse) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{31}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *ListDomainsResponse) GetDomains() []*Domain {
@@ -1907,7 +2111,7 @@ type Domain struct {
 
 func (x *Domain) Reset() {
 	*x = Domain{}
-	mi := &file_armada_v1_armada_proto_msgTypes[32]
+	mi := &file_armada_v1_armada_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1919,7 +2123,7 @@ func (x *Domain) String() string {
 func (*Domain) ProtoMessage() {}
 
 func (x *Domain) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[32]
+	mi := &file_armada_v1_armada_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1932,7 +2136,7 @@ func (x *Domain) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Domain.ProtoReflect.Descriptor instead.
 func (*Domain) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{32}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *Domain) GetName() string {
@@ -1993,7 +2197,7 @@ type VerifyDomainRequest struct {
 
 func (x *VerifyDomainRequest) Reset() {
 	*x = VerifyDomainRequest{}
-	mi := &file_armada_v1_armada_proto_msgTypes[33]
+	mi := &file_armada_v1_armada_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2005,7 +2209,7 @@ func (x *VerifyDomainRequest) String() string {
 func (*VerifyDomainRequest) ProtoMessage() {}
 
 func (x *VerifyDomainRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[33]
+	mi := &file_armada_v1_armada_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2018,7 +2222,7 @@ func (x *VerifyDomainRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VerifyDomainRequest.ProtoReflect.Descriptor instead.
 func (*VerifyDomainRequest) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{33}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *VerifyDomainRequest) GetName() string {
@@ -2038,7 +2242,7 @@ type DeployRequest struct {
 
 func (x *DeployRequest) Reset() {
 	*x = DeployRequest{}
-	mi := &file_armada_v1_armada_proto_msgTypes[34]
+	mi := &file_armada_v1_armada_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2050,7 +2254,7 @@ func (x *DeployRequest) String() string {
 func (*DeployRequest) ProtoMessage() {}
 
 func (x *DeployRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[34]
+	mi := &file_armada_v1_armada_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2063,7 +2267,7 @@ func (x *DeployRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeployRequest.ProtoReflect.Descriptor instead.
 func (*DeployRequest) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{34}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *DeployRequest) GetSpec() []byte {
@@ -2083,7 +2287,7 @@ type DeployResponse struct {
 
 func (x *DeployResponse) Reset() {
 	*x = DeployResponse{}
-	mi := &file_armada_v1_armada_proto_msgTypes[35]
+	mi := &file_armada_v1_armada_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2095,7 +2299,7 @@ func (x *DeployResponse) String() string {
 func (*DeployResponse) ProtoMessage() {}
 
 func (x *DeployResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[35]
+	mi := &file_armada_v1_armada_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2108,7 +2312,7 @@ func (x *DeployResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeployResponse.ProtoReflect.Descriptor instead.
 func (*DeployResponse) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{35}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *DeployResponse) GetApp() string {
@@ -2135,7 +2339,7 @@ type StatusRequest struct {
 
 func (x *StatusRequest) Reset() {
 	*x = StatusRequest{}
-	mi := &file_armada_v1_armada_proto_msgTypes[36]
+	mi := &file_armada_v1_armada_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2147,7 +2351,7 @@ func (x *StatusRequest) String() string {
 func (*StatusRequest) ProtoMessage() {}
 
 func (x *StatusRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[36]
+	mi := &file_armada_v1_armada_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2160,7 +2364,7 @@ func (x *StatusRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StatusRequest.ProtoReflect.Descriptor instead.
 func (*StatusRequest) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{36}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *StatusRequest) GetApp() string {
@@ -2180,7 +2384,7 @@ type StatusResponse struct {
 
 func (x *StatusResponse) Reset() {
 	*x = StatusResponse{}
-	mi := &file_armada_v1_armada_proto_msgTypes[37]
+	mi := &file_armada_v1_armada_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2192,7 +2396,7 @@ func (x *StatusResponse) String() string {
 func (*StatusResponse) ProtoMessage() {}
 
 func (x *StatusResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[37]
+	mi := &file_armada_v1_armada_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2205,7 +2409,7 @@ func (x *StatusResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StatusResponse.ProtoReflect.Descriptor instead.
 func (*StatusResponse) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{37}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{41}
 }
 
 func (x *StatusResponse) GetApps() []*AppStatus {
@@ -2236,13 +2440,15 @@ type AppStatus struct {
 	// "progressing", "failed", or empty.
 	RolloutState   string `protobuf:"bytes,9,opt,name=rollout_state,json=rolloutState,proto3" json:"rollout_state,omitempty"`
 	RolloutMessage string `protobuf:"bytes,10,opt,name=rollout_message,json=rolloutMessage,proto3" json:"rollout_message,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Why replicas are missing, when no node can take them (ADR 0014).
+	PlacementMessage string `protobuf:"bytes,11,opt,name=placement_message,json=placementMessage,proto3" json:"placement_message,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *AppStatus) Reset() {
 	*x = AppStatus{}
-	mi := &file_armada_v1_armada_proto_msgTypes[38]
+	mi := &file_armada_v1_armada_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2254,7 +2460,7 @@ func (x *AppStatus) String() string {
 func (*AppStatus) ProtoMessage() {}
 
 func (x *AppStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[38]
+	mi := &file_armada_v1_armada_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2267,7 +2473,7 @@ func (x *AppStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AppStatus.ProtoReflect.Descriptor instead.
 func (*AppStatus) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{38}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *AppStatus) GetName() string {
@@ -2340,6 +2546,13 @@ func (x *AppStatus) GetRolloutMessage() string {
 	return ""
 }
 
+func (x *AppStatus) GetPlacementMessage() string {
+	if x != nil {
+		return x.PlacementMessage
+	}
+	return ""
+}
+
 type ReplicaStatus struct {
 	state    protoimpl.MessageState `protogen:"open.v1"`
 	Id       string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -2359,7 +2572,7 @@ type ReplicaStatus struct {
 
 func (x *ReplicaStatus) Reset() {
 	*x = ReplicaStatus{}
-	mi := &file_armada_v1_armada_proto_msgTypes[39]
+	mi := &file_armada_v1_armada_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2371,7 +2584,7 @@ func (x *ReplicaStatus) String() string {
 func (*ReplicaStatus) ProtoMessage() {}
 
 func (x *ReplicaStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[39]
+	mi := &file_armada_v1_armada_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2384,7 +2597,7 @@ func (x *ReplicaStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReplicaStatus.ProtoReflect.Descriptor instead.
 func (*ReplicaStatus) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{39}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{43}
 }
 
 func (x *ReplicaStatus) GetId() string {
@@ -2461,14 +2674,17 @@ type NodeStatus struct {
 	Cordoned      bool                   `protobuf:"varint,7,opt,name=cordoned,proto3" json:"cordoned,omitempty"`
 	CertExpiresAt *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=cert_expires_at,json=certExpiresAt,proto3" json:"cert_expires_at,omitempty"`
 	// Armada version its agent last reported.
-	Version       string `protobuf:"bytes,9,opt,name=version,proto3" json:"version,omitempty"`
+	Version string `protobuf:"bytes,9,opt,name=version,proto3" json:"version,omitempty"`
+	// Admin labels plus armada.os and armada.arch.
+	Labels        map[string]string `protobuf:"bytes,10,rep,name=labels,proto3" json:"labels,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Restricted    bool              `protobuf:"varint,11,opt,name=restricted,proto3" json:"restricted,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *NodeStatus) Reset() {
 	*x = NodeStatus{}
-	mi := &file_armada_v1_armada_proto_msgTypes[40]
+	mi := &file_armada_v1_armada_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2480,7 +2696,7 @@ func (x *NodeStatus) String() string {
 func (*NodeStatus) ProtoMessage() {}
 
 func (x *NodeStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[40]
+	mi := &file_armada_v1_armada_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2493,7 +2709,7 @@ func (x *NodeStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NodeStatus.ProtoReflect.Descriptor instead.
 func (*NodeStatus) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{40}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{44}
 }
 
 func (x *NodeStatus) GetId() string {
@@ -2559,6 +2775,20 @@ func (x *NodeStatus) GetVersion() string {
 	return ""
 }
 
+func (x *NodeStatus) GetLabels() map[string]string {
+	if x != nil {
+		return x.Labels
+	}
+	return nil
+}
+
+func (x *NodeStatus) GetRestricted() bool {
+	if x != nil {
+		return x.Restricted
+	}
+	return false
+}
+
 type ScaleRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	App           string                 `protobuf:"bytes,1,opt,name=app,proto3" json:"app,omitempty"`
@@ -2569,7 +2799,7 @@ type ScaleRequest struct {
 
 func (x *ScaleRequest) Reset() {
 	*x = ScaleRequest{}
-	mi := &file_armada_v1_armada_proto_msgTypes[41]
+	mi := &file_armada_v1_armada_proto_msgTypes[45]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2581,7 +2811,7 @@ func (x *ScaleRequest) String() string {
 func (*ScaleRequest) ProtoMessage() {}
 
 func (x *ScaleRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[41]
+	mi := &file_armada_v1_armada_proto_msgTypes[45]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2594,7 +2824,7 @@ func (x *ScaleRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ScaleRequest.ProtoReflect.Descriptor instead.
 func (*ScaleRequest) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{41}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{45}
 }
 
 func (x *ScaleRequest) GetApp() string {
@@ -2619,7 +2849,7 @@ type ScaleResponse struct {
 
 func (x *ScaleResponse) Reset() {
 	*x = ScaleResponse{}
-	mi := &file_armada_v1_armada_proto_msgTypes[42]
+	mi := &file_armada_v1_armada_proto_msgTypes[46]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2631,7 +2861,7 @@ func (x *ScaleResponse) String() string {
 func (*ScaleResponse) ProtoMessage() {}
 
 func (x *ScaleResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[42]
+	mi := &file_armada_v1_armada_proto_msgTypes[46]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2644,7 +2874,7 @@ func (x *ScaleResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ScaleResponse.ProtoReflect.Descriptor instead.
 func (*ScaleResponse) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{42}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{46}
 }
 
 type LogsRequest struct {
@@ -2661,7 +2891,7 @@ type LogsRequest struct {
 
 func (x *LogsRequest) Reset() {
 	*x = LogsRequest{}
-	mi := &file_armada_v1_armada_proto_msgTypes[43]
+	mi := &file_armada_v1_armada_proto_msgTypes[47]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2673,7 +2903,7 @@ func (x *LogsRequest) String() string {
 func (*LogsRequest) ProtoMessage() {}
 
 func (x *LogsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[43]
+	mi := &file_armada_v1_armada_proto_msgTypes[47]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2686,7 +2916,7 @@ func (x *LogsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LogsRequest.ProtoReflect.Descriptor instead.
 func (*LogsRequest) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{43}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{47}
 }
 
 func (x *LogsRequest) GetApp() string {
@@ -2728,7 +2958,7 @@ type LogEntry struct {
 
 func (x *LogEntry) Reset() {
 	*x = LogEntry{}
-	mi := &file_armada_v1_armada_proto_msgTypes[44]
+	mi := &file_armada_v1_armada_proto_msgTypes[48]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2740,7 +2970,7 @@ func (x *LogEntry) String() string {
 func (*LogEntry) ProtoMessage() {}
 
 func (x *LogEntry) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[44]
+	mi := &file_armada_v1_armada_proto_msgTypes[48]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2753,7 +2983,7 @@ func (x *LogEntry) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LogEntry.ProtoReflect.Descriptor instead.
 func (*LogEntry) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{44}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{48}
 }
 
 func (x *LogEntry) GetReplica() string {
@@ -2786,7 +3016,7 @@ type RenewCertificateRequest struct {
 
 func (x *RenewCertificateRequest) Reset() {
 	*x = RenewCertificateRequest{}
-	mi := &file_armada_v1_armada_proto_msgTypes[45]
+	mi := &file_armada_v1_armada_proto_msgTypes[49]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2798,7 +3028,7 @@ func (x *RenewCertificateRequest) String() string {
 func (*RenewCertificateRequest) ProtoMessage() {}
 
 func (x *RenewCertificateRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[45]
+	mi := &file_armada_v1_armada_proto_msgTypes[49]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2811,7 +3041,7 @@ func (x *RenewCertificateRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RenewCertificateRequest.ProtoReflect.Descriptor instead.
 func (*RenewCertificateRequest) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{45}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{49}
 }
 
 func (x *RenewCertificateRequest) GetCsr() []byte {
@@ -2830,7 +3060,7 @@ type RenewCertificateResponse struct {
 
 func (x *RenewCertificateResponse) Reset() {
 	*x = RenewCertificateResponse{}
-	mi := &file_armada_v1_armada_proto_msgTypes[46]
+	mi := &file_armada_v1_armada_proto_msgTypes[50]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2842,7 +3072,7 @@ func (x *RenewCertificateResponse) String() string {
 func (*RenewCertificateResponse) ProtoMessage() {}
 
 func (x *RenewCertificateResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[46]
+	mi := &file_armada_v1_armada_proto_msgTypes[50]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2855,7 +3085,7 @@ func (x *RenewCertificateResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RenewCertificateResponse.ProtoReflect.Descriptor instead.
 func (*RenewCertificateResponse) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{46}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{50}
 }
 
 func (x *RenewCertificateResponse) GetCert() []byte {
@@ -2878,7 +3108,7 @@ type AgentMessage struct {
 
 func (x *AgentMessage) Reset() {
 	*x = AgentMessage{}
-	mi := &file_armada_v1_armada_proto_msgTypes[47]
+	mi := &file_armada_v1_armada_proto_msgTypes[51]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2890,7 +3120,7 @@ func (x *AgentMessage) String() string {
 func (*AgentMessage) ProtoMessage() {}
 
 func (x *AgentMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[47]
+	mi := &file_armada_v1_armada_proto_msgTypes[51]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2903,7 +3133,7 @@ func (x *AgentMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentMessage.ProtoReflect.Descriptor instead.
 func (*AgentMessage) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{47}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{51}
 }
 
 func (x *AgentMessage) GetMsg() isAgentMessage_Msg {
@@ -2948,18 +3178,22 @@ func (*AgentMessage_Hello) isAgentMessage_Msg() {}
 func (*AgentMessage_Report) isAgentMessage_Msg() {}
 
 type Hello struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	CpuMillis     int64                  `protobuf:"varint,1,opt,name=cpu_millis,json=cpuMillis,proto3" json:"cpu_millis,omitempty"`
-	MemoryBytes   int64                  `protobuf:"varint,2,opt,name=memory_bytes,json=memoryBytes,proto3" json:"memory_bytes,omitempty"`
-	Version       string                 `protobuf:"bytes,3,opt,name=version,proto3" json:"version,omitempty"`
-	PrivateIp     string                 `protobuf:"bytes,4,opt,name=private_ip,json=privateIp,proto3" json:"private_ip,omitempty"`
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	CpuMillis   int64                  `protobuf:"varint,1,opt,name=cpu_millis,json=cpuMillis,proto3" json:"cpu_millis,omitempty"`
+	MemoryBytes int64                  `protobuf:"varint,2,opt,name=memory_bytes,json=memoryBytes,proto3" json:"memory_bytes,omitempty"`
+	Version     string                 `protobuf:"bytes,3,opt,name=version,proto3" json:"version,omitempty"`
+	PrivateIp   string                 `protobuf:"bytes,4,opt,name=private_ip,json=privateIp,proto3" json:"private_ip,omitempty"`
+	// GOOS and GOARCH of the agent, shown as the armada.os and armada.arch
+	// labels.
+	Os            string `protobuf:"bytes,5,opt,name=os,proto3" json:"os,omitempty"`
+	Arch          string `protobuf:"bytes,6,opt,name=arch,proto3" json:"arch,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Hello) Reset() {
 	*x = Hello{}
-	mi := &file_armada_v1_armada_proto_msgTypes[48]
+	mi := &file_armada_v1_armada_proto_msgTypes[52]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2971,7 +3205,7 @@ func (x *Hello) String() string {
 func (*Hello) ProtoMessage() {}
 
 func (x *Hello) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[48]
+	mi := &file_armada_v1_armada_proto_msgTypes[52]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2984,7 +3218,7 @@ func (x *Hello) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Hello.ProtoReflect.Descriptor instead.
 func (*Hello) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{48}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{52}
 }
 
 func (x *Hello) GetCpuMillis() int64 {
@@ -3015,6 +3249,20 @@ func (x *Hello) GetPrivateIp() string {
 	return ""
 }
 
+func (x *Hello) GetOs() string {
+	if x != nil {
+		return x.Os
+	}
+	return ""
+}
+
+func (x *Hello) GetArch() string {
+	if x != nil {
+		return x.Arch
+	}
+	return ""
+}
+
 type ReplicaReport struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Replicas      []*ReplicaState        `protobuf:"bytes,1,rep,name=replicas,proto3" json:"replicas,omitempty"`
@@ -3024,7 +3272,7 @@ type ReplicaReport struct {
 
 func (x *ReplicaReport) Reset() {
 	*x = ReplicaReport{}
-	mi := &file_armada_v1_armada_proto_msgTypes[49]
+	mi := &file_armada_v1_armada_proto_msgTypes[53]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3036,7 +3284,7 @@ func (x *ReplicaReport) String() string {
 func (*ReplicaReport) ProtoMessage() {}
 
 func (x *ReplicaReport) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[49]
+	mi := &file_armada_v1_armada_proto_msgTypes[53]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3049,7 +3297,7 @@ func (x *ReplicaReport) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReplicaReport.ProtoReflect.Descriptor instead.
 func (*ReplicaReport) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{49}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{53}
 }
 
 func (x *ReplicaReport) GetReplicas() []*ReplicaState {
@@ -3076,7 +3324,7 @@ type ReplicaState struct {
 
 func (x *ReplicaState) Reset() {
 	*x = ReplicaState{}
-	mi := &file_armada_v1_armada_proto_msgTypes[50]
+	mi := &file_armada_v1_armada_proto_msgTypes[54]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3088,7 +3336,7 @@ func (x *ReplicaState) String() string {
 func (*ReplicaState) ProtoMessage() {}
 
 func (x *ReplicaState) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[50]
+	mi := &file_armada_v1_armada_proto_msgTypes[54]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3101,7 +3349,7 @@ func (x *ReplicaState) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReplicaState.ProtoReflect.Descriptor instead.
 func (*ReplicaState) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{50}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{54}
 }
 
 func (x *ReplicaState) GetId() string {
@@ -3167,7 +3415,7 @@ type ServerMessage struct {
 
 func (x *ServerMessage) Reset() {
 	*x = ServerMessage{}
-	mi := &file_armada_v1_armada_proto_msgTypes[51]
+	mi := &file_armada_v1_armada_proto_msgTypes[55]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3179,7 +3427,7 @@ func (x *ServerMessage) String() string {
 func (*ServerMessage) ProtoMessage() {}
 
 func (x *ServerMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[51]
+	mi := &file_armada_v1_armada_proto_msgTypes[55]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3192,7 +3440,7 @@ func (x *ServerMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ServerMessage.ProtoReflect.Descriptor instead.
 func (*ServerMessage) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{51}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{55}
 }
 
 func (x *ServerMessage) GetMsg() isServerMessage_Msg {
@@ -3267,7 +3515,7 @@ type Assignment struct {
 
 func (x *Assignment) Reset() {
 	*x = Assignment{}
-	mi := &file_armada_v1_armada_proto_msgTypes[52]
+	mi := &file_armada_v1_armada_proto_msgTypes[56]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3279,7 +3527,7 @@ func (x *Assignment) String() string {
 func (*Assignment) ProtoMessage() {}
 
 func (x *Assignment) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[52]
+	mi := &file_armada_v1_armada_proto_msgTypes[56]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3292,7 +3540,7 @@ func (x *Assignment) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Assignment.ProtoReflect.Descriptor instead.
 func (*Assignment) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{52}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{56}
 }
 
 func (x *Assignment) GetReplicas() []*ReplicaSpec {
@@ -3329,7 +3577,7 @@ type ProxyConfig struct {
 
 func (x *ProxyConfig) Reset() {
 	*x = ProxyConfig{}
-	mi := &file_armada_v1_armada_proto_msgTypes[53]
+	mi := &file_armada_v1_armada_proto_msgTypes[57]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3341,7 +3589,7 @@ func (x *ProxyConfig) String() string {
 func (*ProxyConfig) ProtoMessage() {}
 
 func (x *ProxyConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[53]
+	mi := &file_armada_v1_armada_proto_msgTypes[57]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3354,7 +3602,7 @@ func (x *ProxyConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProxyConfig.ProtoReflect.Descriptor instead.
 func (*ProxyConfig) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{53}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{57}
 }
 
 func (x *ProxyConfig) GetBackends() []*ProxyBackend {
@@ -3398,7 +3646,7 @@ type ProxyBackend struct {
 
 func (x *ProxyBackend) Reset() {
 	*x = ProxyBackend{}
-	mi := &file_armada_v1_armada_proto_msgTypes[54]
+	mi := &file_armada_v1_armada_proto_msgTypes[58]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3410,7 +3658,7 @@ func (x *ProxyBackend) String() string {
 func (*ProxyBackend) ProtoMessage() {}
 
 func (x *ProxyBackend) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[54]
+	mi := &file_armada_v1_armada_proto_msgTypes[58]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3423,7 +3671,7 @@ func (x *ProxyBackend) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProxyBackend.ProtoReflect.Descriptor instead.
 func (*ProxyBackend) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{54}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{58}
 }
 
 func (x *ProxyBackend) GetName() string {
@@ -3459,7 +3707,7 @@ type ProxyServer struct {
 
 func (x *ProxyServer) Reset() {
 	*x = ProxyServer{}
-	mi := &file_armada_v1_armada_proto_msgTypes[55]
+	mi := &file_armada_v1_armada_proto_msgTypes[59]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3471,7 +3719,7 @@ func (x *ProxyServer) String() string {
 func (*ProxyServer) ProtoMessage() {}
 
 func (x *ProxyServer) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[55]
+	mi := &file_armada_v1_armada_proto_msgTypes[59]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3484,7 +3732,7 @@ func (x *ProxyServer) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProxyServer.ProtoReflect.Descriptor instead.
 func (*ProxyServer) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{55}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{59}
 }
 
 func (x *ProxyServer) GetName() string {
@@ -3516,7 +3764,7 @@ type ProxyRule struct {
 
 func (x *ProxyRule) Reset() {
 	*x = ProxyRule{}
-	mi := &file_armada_v1_armada_proto_msgTypes[56]
+	mi := &file_armada_v1_armada_proto_msgTypes[60]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3528,7 +3776,7 @@ func (x *ProxyRule) String() string {
 func (*ProxyRule) ProtoMessage() {}
 
 func (x *ProxyRule) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[56]
+	mi := &file_armada_v1_armada_proto_msgTypes[60]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3541,7 +3789,7 @@ func (x *ProxyRule) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProxyRule.ProtoReflect.Descriptor instead.
 func (*ProxyRule) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{56}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{60}
 }
 
 func (x *ProxyRule) GetHost() string {
@@ -3591,7 +3839,7 @@ type ProxyCertificate struct {
 
 func (x *ProxyCertificate) Reset() {
 	*x = ProxyCertificate{}
-	mi := &file_armada_v1_armada_proto_msgTypes[57]
+	mi := &file_armada_v1_armada_proto_msgTypes[61]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3603,7 +3851,7 @@ func (x *ProxyCertificate) String() string {
 func (*ProxyCertificate) ProtoMessage() {}
 
 func (x *ProxyCertificate) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[57]
+	mi := &file_armada_v1_armada_proto_msgTypes[61]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3616,7 +3864,7 @@ func (x *ProxyCertificate) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProxyCertificate.ProtoReflect.Descriptor instead.
 func (*ProxyCertificate) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{57}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{61}
 }
 
 func (x *ProxyCertificate) GetName() string {
@@ -3657,7 +3905,7 @@ type ReplicaSpec struct {
 
 func (x *ReplicaSpec) Reset() {
 	*x = ReplicaSpec{}
-	mi := &file_armada_v1_armada_proto_msgTypes[58]
+	mi := &file_armada_v1_armada_proto_msgTypes[62]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3669,7 +3917,7 @@ func (x *ReplicaSpec) String() string {
 func (*ReplicaSpec) ProtoMessage() {}
 
 func (x *ReplicaSpec) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[58]
+	mi := &file_armada_v1_armada_proto_msgTypes[62]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3682,7 +3930,7 @@ func (x *ReplicaSpec) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReplicaSpec.ProtoReflect.Descriptor instead.
 func (*ReplicaSpec) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{58}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{62}
 }
 
 func (x *ReplicaSpec) GetId() string {
@@ -3812,7 +4060,7 @@ type SecretFile struct {
 
 func (x *SecretFile) Reset() {
 	*x = SecretFile{}
-	mi := &file_armada_v1_armada_proto_msgTypes[59]
+	mi := &file_armada_v1_armada_proto_msgTypes[63]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3824,7 +4072,7 @@ func (x *SecretFile) String() string {
 func (*SecretFile) ProtoMessage() {}
 
 func (x *SecretFile) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[59]
+	mi := &file_armada_v1_armada_proto_msgTypes[63]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3837,7 +4085,7 @@ func (x *SecretFile) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SecretFile.ProtoReflect.Descriptor instead.
 func (*SecretFile) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{59}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{63}
 }
 
 func (x *SecretFile) GetPath() string {
@@ -3873,7 +4121,7 @@ type RegistryAuth struct {
 
 func (x *RegistryAuth) Reset() {
 	*x = RegistryAuth{}
-	mi := &file_armada_v1_armada_proto_msgTypes[60]
+	mi := &file_armada_v1_armada_proto_msgTypes[64]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3885,7 +4133,7 @@ func (x *RegistryAuth) String() string {
 func (*RegistryAuth) ProtoMessage() {}
 
 func (x *RegistryAuth) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[60]
+	mi := &file_armada_v1_armada_proto_msgTypes[64]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3898,7 +4146,7 @@ func (x *RegistryAuth) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RegistryAuth.ProtoReflect.Descriptor instead.
 func (*RegistryAuth) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{60}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{64}
 }
 
 func (x *RegistryAuth) GetServer() string {
@@ -3944,7 +4192,7 @@ type Probe struct {
 
 func (x *Probe) Reset() {
 	*x = Probe{}
-	mi := &file_armada_v1_armada_proto_msgTypes[61]
+	mi := &file_armada_v1_armada_proto_msgTypes[65]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3956,7 +4204,7 @@ func (x *Probe) String() string {
 func (*Probe) ProtoMessage() {}
 
 func (x *Probe) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[61]
+	mi := &file_armada_v1_armada_proto_msgTypes[65]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3969,7 +4217,7 @@ func (x *Probe) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Probe.ProtoReflect.Descriptor instead.
 func (*Probe) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{61}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{65}
 }
 
 func (x *Probe) GetPath() string {
@@ -4026,7 +4274,7 @@ type EnvVar struct {
 
 func (x *EnvVar) Reset() {
 	*x = EnvVar{}
-	mi := &file_armada_v1_armada_proto_msgTypes[62]
+	mi := &file_armada_v1_armada_proto_msgTypes[66]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4038,7 +4286,7 @@ func (x *EnvVar) String() string {
 func (*EnvVar) ProtoMessage() {}
 
 func (x *EnvVar) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[62]
+	mi := &file_armada_v1_armada_proto_msgTypes[66]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4051,7 +4299,7 @@ func (x *EnvVar) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EnvVar.ProtoReflect.Descriptor instead.
 func (*EnvVar) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{62}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{66}
 }
 
 func (x *EnvVar) GetName() string {
@@ -4087,7 +4335,7 @@ type LogRequest struct {
 
 func (x *LogRequest) Reset() {
 	*x = LogRequest{}
-	mi := &file_armada_v1_armada_proto_msgTypes[63]
+	mi := &file_armada_v1_armada_proto_msgTypes[67]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4099,7 +4347,7 @@ func (x *LogRequest) String() string {
 func (*LogRequest) ProtoMessage() {}
 
 func (x *LogRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[63]
+	mi := &file_armada_v1_armada_proto_msgTypes[67]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4112,7 +4360,7 @@ func (x *LogRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LogRequest.ProtoReflect.Descriptor instead.
 func (*LogRequest) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{63}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{67}
 }
 
 func (x *LogRequest) GetRequestId() string {
@@ -4152,7 +4400,7 @@ type LogCancel struct {
 
 func (x *LogCancel) Reset() {
 	*x = LogCancel{}
-	mi := &file_armada_v1_armada_proto_msgTypes[64]
+	mi := &file_armada_v1_armada_proto_msgTypes[68]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4164,7 +4412,7 @@ func (x *LogCancel) String() string {
 func (*LogCancel) ProtoMessage() {}
 
 func (x *LogCancel) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[64]
+	mi := &file_armada_v1_armada_proto_msgTypes[68]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4177,7 +4425,7 @@ func (x *LogCancel) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LogCancel.ProtoReflect.Descriptor instead.
 func (*LogCancel) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{64}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{68}
 }
 
 func (x *LogCancel) GetRequestId() string {
@@ -4200,7 +4448,7 @@ type LogPush struct {
 
 func (x *LogPush) Reset() {
 	*x = LogPush{}
-	mi := &file_armada_v1_armada_proto_msgTypes[65]
+	mi := &file_armada_v1_armada_proto_msgTypes[69]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4212,7 +4460,7 @@ func (x *LogPush) String() string {
 func (*LogPush) ProtoMessage() {}
 
 func (x *LogPush) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[65]
+	mi := &file_armada_v1_armada_proto_msgTypes[69]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4225,7 +4473,7 @@ func (x *LogPush) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LogPush.ProtoReflect.Descriptor instead.
 func (*LogPush) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{65}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{69}
 }
 
 func (x *LogPush) GetRequestId() string {
@@ -4264,7 +4512,7 @@ type PushLogsResponse struct {
 
 func (x *PushLogsResponse) Reset() {
 	*x = PushLogsResponse{}
-	mi := &file_armada_v1_armada_proto_msgTypes[66]
+	mi := &file_armada_v1_armada_proto_msgTypes[70]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4276,7 +4524,7 @@ func (x *PushLogsResponse) String() string {
 func (*PushLogsResponse) ProtoMessage() {}
 
 func (x *PushLogsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[66]
+	mi := &file_armada_v1_armada_proto_msgTypes[70]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4289,7 +4537,7 @@ func (x *PushLogsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PushLogsResponse.ProtoReflect.Descriptor instead.
 func (*PushLogsResponse) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{66}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{70}
 }
 
 var File_armada_v1_armada_proto protoreflect.FileDescriptor
@@ -4315,11 +4563,15 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\aversion\x18\t \x01(\tR\aversion\")\n" +
 	"\x13RemoveServerRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\"\x16\n" +
-	"\x14RemoveServerResponse\"Q\n" +
+	"\x14RemoveServerResponse\"\xd3\x01\n" +
 	"\x16CreateJoinTokenRequest\x12\x1f\n" +
 	"\vttl_seconds\x18\x01 \x01(\x03R\n" +
 	"ttlSeconds\x12\x16\n" +
-	"\x06server\x18\x02 \x01(\bR\x06server\"\xa5\x01\n" +
+	"\x06server\x18\x02 \x01(\bR\x06server\x12E\n" +
+	"\x06labels\x18\x03 \x03(\v2-.armada.v1.CreateJoinTokenRequest.LabelsEntryR\x06labels\x1a9\n" +
+	"\vLabelsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xa5\x01\n" +
 	"\x17CreateJoinTokenResponse\x12\x19\n" +
 	"\x05token\x18\x01 \x01(\tB\x03\x80\x01\x01R\x05token\x12\x17\n" +
 	"\aca_hash\x18\x02 \x01(\tR\x06caHash\x12\x1b\n" +
@@ -4329,7 +4581,25 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\x11CordonNodeRequest\x12\x12\n" +
 	"\x04node\x18\x01 \x01(\tR\x04node\x12\x1a\n" +
 	"\bcordoned\x18\x02 \x01(\bR\bcordoned\"\x14\n" +
-	"\x12CordonNodeResponse\"=\n" +
+	"\x12CordonNodeResponse\"\xae\x01\n" +
+	"\x10LabelNodeRequest\x12\x12\n" +
+	"\x04node\x18\x01 \x01(\tR\x04node\x126\n" +
+	"\x03set\x18\x02 \x03(\v2$.armada.v1.LabelNodeRequest.SetEntryR\x03set\x12\x16\n" +
+	"\x06remove\x18\x03 \x03(\tR\x06remove\x1a6\n" +
+	"\bSetEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x90\x01\n" +
+	"\x11LabelNodeResponse\x12@\n" +
+	"\x06labels\x18\x01 \x03(\v2(.armada.v1.LabelNodeResponse.LabelsEntryR\x06labels\x1a9\n" +
+	"\vLabelsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"I\n" +
+	"\x13RestrictNodeRequest\x12\x12\n" +
+	"\x04node\x18\x01 \x01(\tR\x04node\x12\x1e\n" +
+	"\n" +
+	"restricted\x18\x02 \x01(\bR\n" +
+	"restricted\"\x16\n" +
+	"\x14RestrictNodeResponse\"=\n" +
 	"\x11RemoveNodeRequest\x12\x12\n" +
 	"\x04node\x18\x01 \x01(\tR\x04node\x12\x14\n" +
 	"\x05force\x18\x02 \x01(\bR\x05force\"\x14\n" +
@@ -4442,7 +4712,7 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\x03app\x18\x01 \x01(\tR\x03app\"g\n" +
 	"\x0eStatusResponse\x12(\n" +
 	"\x04apps\x18\x01 \x03(\v2\x14.armada.v1.AppStatusR\x04apps\x12+\n" +
-	"\x05nodes\x18\x02 \x03(\v2\x15.armada.v1.NodeStatusR\x05nodes\"\xe4\x02\n" +
+	"\x05nodes\x18\x02 \x03(\v2\x15.armada.v1.NodeStatusR\x05nodes\"\x91\x03\n" +
 	"\tAppStatus\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
 	"\x05image\x18\x02 \x01(\tR\x05image\x12'\n" +
@@ -4454,7 +4724,8 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\x0ftarget_revision\x18\b \x01(\tR\x0etargetRevision\x12#\n" +
 	"\rrollout_state\x18\t \x01(\tR\frolloutState\x12'\n" +
 	"\x0frollout_message\x18\n" +
-	" \x01(\tR\x0erolloutMessage\"\x8b\x02\n" +
+	" \x01(\tR\x0erolloutMessage\x12+\n" +
+	"\x11placement_message\x18\v \x01(\tR\x10placementMessage\"\x8b\x02\n" +
 	"\rReplicaStatus\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1a\n" +
 	"\brevision\x18\x02 \x01(\tR\brevision\x12\x17\n" +
@@ -4465,7 +4736,7 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\n" +
 	"updated_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x12\x14\n" +
 	"\x05ready\x18\b \x01(\bR\x05ready\x12\x1a\n" +
-	"\bdraining\x18\t \x01(\bR\bdraining\"\xc6\x02\n" +
+	"\bdraining\x18\t \x01(\bR\bdraining\"\xdc\x03\n" +
 	"\n" +
 	"NodeStatus\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1d\n" +
@@ -4478,7 +4749,15 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\fmemory_bytes\x18\x06 \x01(\x03R\vmemoryBytes\x12\x1a\n" +
 	"\bcordoned\x18\a \x01(\bR\bcordoned\x12B\n" +
 	"\x0fcert_expires_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\rcertExpiresAt\x12\x18\n" +
-	"\aversion\x18\t \x01(\tR\aversion\"<\n" +
+	"\aversion\x18\t \x01(\tR\aversion\x129\n" +
+	"\x06labels\x18\n" +
+	" \x03(\v2!.armada.v1.NodeStatus.LabelsEntryR\x06labels\x12\x1e\n" +
+	"\n" +
+	"restricted\x18\v \x01(\bR\n" +
+	"restricted\x1a9\n" +
+	"\vLabelsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"<\n" +
 	"\fScaleRequest\x12\x10\n" +
 	"\x03app\x18\x01 \x01(\tR\x03app\x12\x1a\n" +
 	"\breplicas\x18\x02 \x01(\x05R\breplicas\"\x0f\n" +
@@ -4499,14 +4778,16 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\fAgentMessage\x12(\n" +
 	"\x05hello\x18\x01 \x01(\v2\x10.armada.v1.HelloH\x00R\x05hello\x122\n" +
 	"\x06report\x18\x02 \x01(\v2\x18.armada.v1.ReplicaReportH\x00R\x06reportB\x05\n" +
-	"\x03msg\"\x82\x01\n" +
+	"\x03msg\"\xa6\x01\n" +
 	"\x05Hello\x12\x1d\n" +
 	"\n" +
 	"cpu_millis\x18\x01 \x01(\x03R\tcpuMillis\x12!\n" +
 	"\fmemory_bytes\x18\x02 \x01(\x03R\vmemoryBytes\x12\x18\n" +
 	"\aversion\x18\x03 \x01(\tR\aversion\x12\x1d\n" +
 	"\n" +
-	"private_ip\x18\x04 \x01(\tR\tprivateIp\"D\n" +
+	"private_ip\x18\x04 \x01(\tR\tprivateIp\x12\x0e\n" +
+	"\x02os\x18\x05 \x01(\tR\x02os\x12\x12\n" +
+	"\x04arch\x18\x06 \x01(\tR\x04arch\"D\n" +
 	"\rReplicaReport\x123\n" +
 	"\breplicas\x18\x01 \x03(\v2\x17.armada.v1.ReplicaStateR\breplicas\"\xc4\x01\n" +
 	"\fReplicaState\x12\x0e\n" +
@@ -4616,8 +4897,7 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\x06Stream\x12\x16\n" +
 	"\x12STREAM_UNSPECIFIED\x10\x00\x12\x11\n" +
 	"\rSTREAM_STDOUT\x10\x01\x12\x11\n" +
-	"\rSTREAM_STDERR\x10\x022\xc3\n" +
-	"\n" +
+	"\rSTREAM_STDERR\x10\x022\xdc\v\n" +
 	"\fAdminService\x12=\n" +
 	"\x06Deploy\x12\x18.armada.v1.DeployRequest\x1a\x19.armada.v1.DeployResponse\x12=\n" +
 	"\x06Status\x12\x18.armada.v1.StatusRequest\x1a\x19.armada.v1.StatusResponse\x12:\n" +
@@ -4634,7 +4914,9 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\fDeleteSecret\x12\x1e.armada.v1.DeleteSecretRequest\x1a\x1f.armada.v1.DeleteSecretResponse\x12X\n" +
 	"\x0fCreateJoinToken\x12!.armada.v1.CreateJoinTokenRequest\x1a\".armada.v1.CreateJoinTokenResponse\x12I\n" +
 	"\n" +
-	"CordonNode\x12\x1c.armada.v1.CordonNodeRequest\x1a\x1d.armada.v1.CordonNodeResponse\x12I\n" +
+	"CordonNode\x12\x1c.armada.v1.CordonNodeRequest\x1a\x1d.armada.v1.CordonNodeResponse\x12F\n" +
+	"\tLabelNode\x12\x1b.armada.v1.LabelNodeRequest\x1a\x1c.armada.v1.LabelNodeResponse\x12O\n" +
+	"\fRestrictNode\x12\x1e.armada.v1.RestrictNodeRequest\x1a\x1f.armada.v1.RestrictNodeResponse\x12I\n" +
 	"\n" +
 	"RemoveNode\x12\x1c.armada.v1.RemoveNodeRequest\x1a\x1d.armada.v1.RemoveNodeResponse\x12L\n" +
 	"\vListServers\x12\x1d.armada.v1.ListServersRequest\x1a\x1e.armada.v1.ListServersResponse\x12O\n" +
@@ -4661,7 +4943,7 @@ func file_armada_v1_armada_proto_rawDescGZIP() []byte {
 }
 
 var file_armada_v1_armada_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_armada_v1_armada_proto_msgTypes = make([]protoimpl.MessageInfo, 67)
+var file_armada_v1_armada_proto_msgTypes = make([]protoimpl.MessageInfo, 75)
 var file_armada_v1_armada_proto_goTypes = []any{
 	(Stream)(0),                      // 0: armada.v1.Stream
 	(*ListServersRequest)(nil),       // 1: armada.v1.ListServersRequest
@@ -4673,152 +4955,168 @@ var file_armada_v1_armada_proto_goTypes = []any{
 	(*CreateJoinTokenResponse)(nil),  // 7: armada.v1.CreateJoinTokenResponse
 	(*CordonNodeRequest)(nil),        // 8: armada.v1.CordonNodeRequest
 	(*CordonNodeResponse)(nil),       // 9: armada.v1.CordonNodeResponse
-	(*RemoveNodeRequest)(nil),        // 10: armada.v1.RemoveNodeRequest
-	(*RemoveNodeResponse)(nil),       // 11: armada.v1.RemoveNodeResponse
-	(*JoinServerRequest)(nil),        // 12: armada.v1.JoinServerRequest
-	(*JoinServerResponse)(nil),       // 13: armada.v1.JoinServerResponse
-	(*JoinRequest)(nil),              // 14: armada.v1.JoinRequest
-	(*JoinResponse)(nil),             // 15: armada.v1.JoinResponse
-	(*SetSecretRequest)(nil),         // 16: armada.v1.SetSecretRequest
-	(*SetSecretResponse)(nil),        // 17: armada.v1.SetSecretResponse
-	(*ListSecretsRequest)(nil),       // 18: armada.v1.ListSecretsRequest
-	(*ListSecretsResponse)(nil),      // 19: armada.v1.ListSecretsResponse
-	(*SecretInfo)(nil),               // 20: armada.v1.SecretInfo
-	(*DeleteSecretRequest)(nil),      // 21: armada.v1.DeleteSecretRequest
-	(*DeleteSecretResponse)(nil),     // 22: armada.v1.DeleteSecretResponse
-	(*ListRevisionsRequest)(nil),     // 23: armada.v1.ListRevisionsRequest
-	(*ListRevisionsResponse)(nil),    // 24: armada.v1.ListRevisionsResponse
-	(*RevisionInfo)(nil),             // 25: armada.v1.RevisionInfo
-	(*RollbackRequest)(nil),          // 26: armada.v1.RollbackRequest
-	(*RollbackResponse)(nil),         // 27: armada.v1.RollbackResponse
-	(*ClusterConfig)(nil),            // 28: armada.v1.ClusterConfig
-	(*GetClusterConfigRequest)(nil),  // 29: armada.v1.GetClusterConfigRequest
-	(*SetClusterConfigRequest)(nil),  // 30: armada.v1.SetClusterConfigRequest
-	(*ListDomainsRequest)(nil),       // 31: armada.v1.ListDomainsRequest
-	(*ListDomainsResponse)(nil),      // 32: armada.v1.ListDomainsResponse
-	(*Domain)(nil),                   // 33: armada.v1.Domain
-	(*VerifyDomainRequest)(nil),      // 34: armada.v1.VerifyDomainRequest
-	(*DeployRequest)(nil),            // 35: armada.v1.DeployRequest
-	(*DeployResponse)(nil),           // 36: armada.v1.DeployResponse
-	(*StatusRequest)(nil),            // 37: armada.v1.StatusRequest
-	(*StatusResponse)(nil),           // 38: armada.v1.StatusResponse
-	(*AppStatus)(nil),                // 39: armada.v1.AppStatus
-	(*ReplicaStatus)(nil),            // 40: armada.v1.ReplicaStatus
-	(*NodeStatus)(nil),               // 41: armada.v1.NodeStatus
-	(*ScaleRequest)(nil),             // 42: armada.v1.ScaleRequest
-	(*ScaleResponse)(nil),            // 43: armada.v1.ScaleResponse
-	(*LogsRequest)(nil),              // 44: armada.v1.LogsRequest
-	(*LogEntry)(nil),                 // 45: armada.v1.LogEntry
-	(*RenewCertificateRequest)(nil),  // 46: armada.v1.RenewCertificateRequest
-	(*RenewCertificateResponse)(nil), // 47: armada.v1.RenewCertificateResponse
-	(*AgentMessage)(nil),             // 48: armada.v1.AgentMessage
-	(*Hello)(nil),                    // 49: armada.v1.Hello
-	(*ReplicaReport)(nil),            // 50: armada.v1.ReplicaReport
-	(*ReplicaState)(nil),             // 51: armada.v1.ReplicaState
-	(*ServerMessage)(nil),            // 52: armada.v1.ServerMessage
-	(*Assignment)(nil),               // 53: armada.v1.Assignment
-	(*ProxyConfig)(nil),              // 54: armada.v1.ProxyConfig
-	(*ProxyBackend)(nil),             // 55: armada.v1.ProxyBackend
-	(*ProxyServer)(nil),              // 56: armada.v1.ProxyServer
-	(*ProxyRule)(nil),                // 57: armada.v1.ProxyRule
-	(*ProxyCertificate)(nil),         // 58: armada.v1.ProxyCertificate
-	(*ReplicaSpec)(nil),              // 59: armada.v1.ReplicaSpec
-	(*SecretFile)(nil),               // 60: armada.v1.SecretFile
-	(*RegistryAuth)(nil),             // 61: armada.v1.RegistryAuth
-	(*Probe)(nil),                    // 62: armada.v1.Probe
-	(*EnvVar)(nil),                   // 63: armada.v1.EnvVar
-	(*LogRequest)(nil),               // 64: armada.v1.LogRequest
-	(*LogCancel)(nil),                // 65: armada.v1.LogCancel
-	(*LogPush)(nil),                  // 66: armada.v1.LogPush
-	(*PushLogsResponse)(nil),         // 67: armada.v1.PushLogsResponse
-	(*timestamppb.Timestamp)(nil),    // 68: google.protobuf.Timestamp
+	(*LabelNodeRequest)(nil),         // 10: armada.v1.LabelNodeRequest
+	(*LabelNodeResponse)(nil),        // 11: armada.v1.LabelNodeResponse
+	(*RestrictNodeRequest)(nil),      // 12: armada.v1.RestrictNodeRequest
+	(*RestrictNodeResponse)(nil),     // 13: armada.v1.RestrictNodeResponse
+	(*RemoveNodeRequest)(nil),        // 14: armada.v1.RemoveNodeRequest
+	(*RemoveNodeResponse)(nil),       // 15: armada.v1.RemoveNodeResponse
+	(*JoinServerRequest)(nil),        // 16: armada.v1.JoinServerRequest
+	(*JoinServerResponse)(nil),       // 17: armada.v1.JoinServerResponse
+	(*JoinRequest)(nil),              // 18: armada.v1.JoinRequest
+	(*JoinResponse)(nil),             // 19: armada.v1.JoinResponse
+	(*SetSecretRequest)(nil),         // 20: armada.v1.SetSecretRequest
+	(*SetSecretResponse)(nil),        // 21: armada.v1.SetSecretResponse
+	(*ListSecretsRequest)(nil),       // 22: armada.v1.ListSecretsRequest
+	(*ListSecretsResponse)(nil),      // 23: armada.v1.ListSecretsResponse
+	(*SecretInfo)(nil),               // 24: armada.v1.SecretInfo
+	(*DeleteSecretRequest)(nil),      // 25: armada.v1.DeleteSecretRequest
+	(*DeleteSecretResponse)(nil),     // 26: armada.v1.DeleteSecretResponse
+	(*ListRevisionsRequest)(nil),     // 27: armada.v1.ListRevisionsRequest
+	(*ListRevisionsResponse)(nil),    // 28: armada.v1.ListRevisionsResponse
+	(*RevisionInfo)(nil),             // 29: armada.v1.RevisionInfo
+	(*RollbackRequest)(nil),          // 30: armada.v1.RollbackRequest
+	(*RollbackResponse)(nil),         // 31: armada.v1.RollbackResponse
+	(*ClusterConfig)(nil),            // 32: armada.v1.ClusterConfig
+	(*GetClusterConfigRequest)(nil),  // 33: armada.v1.GetClusterConfigRequest
+	(*SetClusterConfigRequest)(nil),  // 34: armada.v1.SetClusterConfigRequest
+	(*ListDomainsRequest)(nil),       // 35: armada.v1.ListDomainsRequest
+	(*ListDomainsResponse)(nil),      // 36: armada.v1.ListDomainsResponse
+	(*Domain)(nil),                   // 37: armada.v1.Domain
+	(*VerifyDomainRequest)(nil),      // 38: armada.v1.VerifyDomainRequest
+	(*DeployRequest)(nil),            // 39: armada.v1.DeployRequest
+	(*DeployResponse)(nil),           // 40: armada.v1.DeployResponse
+	(*StatusRequest)(nil),            // 41: armada.v1.StatusRequest
+	(*StatusResponse)(nil),           // 42: armada.v1.StatusResponse
+	(*AppStatus)(nil),                // 43: armada.v1.AppStatus
+	(*ReplicaStatus)(nil),            // 44: armada.v1.ReplicaStatus
+	(*NodeStatus)(nil),               // 45: armada.v1.NodeStatus
+	(*ScaleRequest)(nil),             // 46: armada.v1.ScaleRequest
+	(*ScaleResponse)(nil),            // 47: armada.v1.ScaleResponse
+	(*LogsRequest)(nil),              // 48: armada.v1.LogsRequest
+	(*LogEntry)(nil),                 // 49: armada.v1.LogEntry
+	(*RenewCertificateRequest)(nil),  // 50: armada.v1.RenewCertificateRequest
+	(*RenewCertificateResponse)(nil), // 51: armada.v1.RenewCertificateResponse
+	(*AgentMessage)(nil),             // 52: armada.v1.AgentMessage
+	(*Hello)(nil),                    // 53: armada.v1.Hello
+	(*ReplicaReport)(nil),            // 54: armada.v1.ReplicaReport
+	(*ReplicaState)(nil),             // 55: armada.v1.ReplicaState
+	(*ServerMessage)(nil),            // 56: armada.v1.ServerMessage
+	(*Assignment)(nil),               // 57: armada.v1.Assignment
+	(*ProxyConfig)(nil),              // 58: armada.v1.ProxyConfig
+	(*ProxyBackend)(nil),             // 59: armada.v1.ProxyBackend
+	(*ProxyServer)(nil),              // 60: armada.v1.ProxyServer
+	(*ProxyRule)(nil),                // 61: armada.v1.ProxyRule
+	(*ProxyCertificate)(nil),         // 62: armada.v1.ProxyCertificate
+	(*ReplicaSpec)(nil),              // 63: armada.v1.ReplicaSpec
+	(*SecretFile)(nil),               // 64: armada.v1.SecretFile
+	(*RegistryAuth)(nil),             // 65: armada.v1.RegistryAuth
+	(*Probe)(nil),                    // 66: armada.v1.Probe
+	(*EnvVar)(nil),                   // 67: armada.v1.EnvVar
+	(*LogRequest)(nil),               // 68: armada.v1.LogRequest
+	(*LogCancel)(nil),                // 69: armada.v1.LogCancel
+	(*LogPush)(nil),                  // 70: armada.v1.LogPush
+	(*PushLogsResponse)(nil),         // 71: armada.v1.PushLogsResponse
+	nil,                              // 72: armada.v1.CreateJoinTokenRequest.LabelsEntry
+	nil,                              // 73: armada.v1.LabelNodeRequest.SetEntry
+	nil,                              // 74: armada.v1.LabelNodeResponse.LabelsEntry
+	nil,                              // 75: armada.v1.NodeStatus.LabelsEntry
+	(*timestamppb.Timestamp)(nil),    // 76: google.protobuf.Timestamp
 }
 var file_armada_v1_armada_proto_depIdxs = []int32{
 	3,  // 0: armada.v1.ListServersResponse.servers:type_name -> armada.v1.ServerInfo
-	68, // 1: armada.v1.CreateJoinTokenResponse.expires_at:type_name -> google.protobuf.Timestamp
-	20, // 2: armada.v1.ListSecretsResponse.secrets:type_name -> armada.v1.SecretInfo
-	68, // 3: armada.v1.SecretInfo.updated_at:type_name -> google.protobuf.Timestamp
-	25, // 4: armada.v1.ListRevisionsResponse.revisions:type_name -> armada.v1.RevisionInfo
-	68, // 5: armada.v1.RevisionInfo.created_at:type_name -> google.protobuf.Timestamp
-	28, // 6: armada.v1.SetClusterConfigRequest.config:type_name -> armada.v1.ClusterConfig
-	33, // 7: armada.v1.ListDomainsResponse.domains:type_name -> armada.v1.Domain
-	39, // 8: armada.v1.StatusResponse.apps:type_name -> armada.v1.AppStatus
-	41, // 9: armada.v1.StatusResponse.nodes:type_name -> armada.v1.NodeStatus
-	40, // 10: armada.v1.AppStatus.replicas:type_name -> armada.v1.ReplicaStatus
-	68, // 11: armada.v1.ReplicaStatus.updated_at:type_name -> google.protobuf.Timestamp
-	68, // 12: armada.v1.NodeStatus.last_seen:type_name -> google.protobuf.Timestamp
-	68, // 13: armada.v1.NodeStatus.cert_expires_at:type_name -> google.protobuf.Timestamp
-	0,  // 14: armada.v1.LogEntry.stream:type_name -> armada.v1.Stream
-	49, // 15: armada.v1.AgentMessage.hello:type_name -> armada.v1.Hello
-	50, // 16: armada.v1.AgentMessage.report:type_name -> armada.v1.ReplicaReport
-	51, // 17: armada.v1.ReplicaReport.replicas:type_name -> armada.v1.ReplicaState
-	53, // 18: armada.v1.ServerMessage.assignment:type_name -> armada.v1.Assignment
-	64, // 19: armada.v1.ServerMessage.log_request:type_name -> armada.v1.LogRequest
-	65, // 20: armada.v1.ServerMessage.log_cancel:type_name -> armada.v1.LogCancel
-	59, // 21: armada.v1.Assignment.replicas:type_name -> armada.v1.ReplicaSpec
-	54, // 22: armada.v1.Assignment.proxy:type_name -> armada.v1.ProxyConfig
-	55, // 23: armada.v1.ProxyConfig.backends:type_name -> armada.v1.ProxyBackend
-	57, // 24: armada.v1.ProxyConfig.rules:type_name -> armada.v1.ProxyRule
-	58, // 25: armada.v1.ProxyConfig.certificates:type_name -> armada.v1.ProxyCertificate
-	56, // 26: armada.v1.ProxyBackend.servers:type_name -> armada.v1.ProxyServer
-	63, // 27: armada.v1.ReplicaSpec.env:type_name -> armada.v1.EnvVar
-	62, // 28: armada.v1.ReplicaSpec.startup:type_name -> armada.v1.Probe
-	62, // 29: armada.v1.ReplicaSpec.readiness:type_name -> armada.v1.Probe
-	62, // 30: armada.v1.ReplicaSpec.liveness:type_name -> armada.v1.Probe
-	60, // 31: armada.v1.ReplicaSpec.secret_files:type_name -> armada.v1.SecretFile
-	61, // 32: armada.v1.ReplicaSpec.registry:type_name -> armada.v1.RegistryAuth
-	0,  // 33: armada.v1.LogPush.stream:type_name -> armada.v1.Stream
-	35, // 34: armada.v1.AdminService.Deploy:input_type -> armada.v1.DeployRequest
-	37, // 35: armada.v1.AdminService.Status:input_type -> armada.v1.StatusRequest
-	42, // 36: armada.v1.AdminService.Scale:input_type -> armada.v1.ScaleRequest
-	44, // 37: armada.v1.AdminService.Logs:input_type -> armada.v1.LogsRequest
-	29, // 38: armada.v1.AdminService.GetClusterConfig:input_type -> armada.v1.GetClusterConfigRequest
-	30, // 39: armada.v1.AdminService.SetClusterConfig:input_type -> armada.v1.SetClusterConfigRequest
-	31, // 40: armada.v1.AdminService.ListDomains:input_type -> armada.v1.ListDomainsRequest
-	34, // 41: armada.v1.AdminService.VerifyDomain:input_type -> armada.v1.VerifyDomainRequest
-	23, // 42: armada.v1.AdminService.ListRevisions:input_type -> armada.v1.ListRevisionsRequest
-	26, // 43: armada.v1.AdminService.Rollback:input_type -> armada.v1.RollbackRequest
-	16, // 44: armada.v1.AdminService.SetSecret:input_type -> armada.v1.SetSecretRequest
-	18, // 45: armada.v1.AdminService.ListSecrets:input_type -> armada.v1.ListSecretsRequest
-	21, // 46: armada.v1.AdminService.DeleteSecret:input_type -> armada.v1.DeleteSecretRequest
-	6,  // 47: armada.v1.AdminService.CreateJoinToken:input_type -> armada.v1.CreateJoinTokenRequest
-	8,  // 48: armada.v1.AdminService.CordonNode:input_type -> armada.v1.CordonNodeRequest
-	10, // 49: armada.v1.AdminService.RemoveNode:input_type -> armada.v1.RemoveNodeRequest
-	1,  // 50: armada.v1.AdminService.ListServers:input_type -> armada.v1.ListServersRequest
-	4,  // 51: armada.v1.AdminService.RemoveServer:input_type -> armada.v1.RemoveServerRequest
-	14, // 52: armada.v1.JoinService.Join:input_type -> armada.v1.JoinRequest
-	12, // 53: armada.v1.JoinService.JoinServer:input_type -> armada.v1.JoinServerRequest
-	48, // 54: armada.v1.AgentService.Connect:input_type -> armada.v1.AgentMessage
-	66, // 55: armada.v1.AgentService.PushLogs:input_type -> armada.v1.LogPush
-	46, // 56: armada.v1.AgentService.RenewCertificate:input_type -> armada.v1.RenewCertificateRequest
-	36, // 57: armada.v1.AdminService.Deploy:output_type -> armada.v1.DeployResponse
-	38, // 58: armada.v1.AdminService.Status:output_type -> armada.v1.StatusResponse
-	43, // 59: armada.v1.AdminService.Scale:output_type -> armada.v1.ScaleResponse
-	45, // 60: armada.v1.AdminService.Logs:output_type -> armada.v1.LogEntry
-	28, // 61: armada.v1.AdminService.GetClusterConfig:output_type -> armada.v1.ClusterConfig
-	28, // 62: armada.v1.AdminService.SetClusterConfig:output_type -> armada.v1.ClusterConfig
-	32, // 63: armada.v1.AdminService.ListDomains:output_type -> armada.v1.ListDomainsResponse
-	33, // 64: armada.v1.AdminService.VerifyDomain:output_type -> armada.v1.Domain
-	24, // 65: armada.v1.AdminService.ListRevisions:output_type -> armada.v1.ListRevisionsResponse
-	27, // 66: armada.v1.AdminService.Rollback:output_type -> armada.v1.RollbackResponse
-	17, // 67: armada.v1.AdminService.SetSecret:output_type -> armada.v1.SetSecretResponse
-	19, // 68: armada.v1.AdminService.ListSecrets:output_type -> armada.v1.ListSecretsResponse
-	22, // 69: armada.v1.AdminService.DeleteSecret:output_type -> armada.v1.DeleteSecretResponse
-	7,  // 70: armada.v1.AdminService.CreateJoinToken:output_type -> armada.v1.CreateJoinTokenResponse
-	9,  // 71: armada.v1.AdminService.CordonNode:output_type -> armada.v1.CordonNodeResponse
-	11, // 72: armada.v1.AdminService.RemoveNode:output_type -> armada.v1.RemoveNodeResponse
-	2,  // 73: armada.v1.AdminService.ListServers:output_type -> armada.v1.ListServersResponse
-	5,  // 74: armada.v1.AdminService.RemoveServer:output_type -> armada.v1.RemoveServerResponse
-	15, // 75: armada.v1.JoinService.Join:output_type -> armada.v1.JoinResponse
-	13, // 76: armada.v1.JoinService.JoinServer:output_type -> armada.v1.JoinServerResponse
-	52, // 77: armada.v1.AgentService.Connect:output_type -> armada.v1.ServerMessage
-	67, // 78: armada.v1.AgentService.PushLogs:output_type -> armada.v1.PushLogsResponse
-	47, // 79: armada.v1.AgentService.RenewCertificate:output_type -> armada.v1.RenewCertificateResponse
-	57, // [57:80] is the sub-list for method output_type
-	34, // [34:57] is the sub-list for method input_type
-	34, // [34:34] is the sub-list for extension type_name
-	34, // [34:34] is the sub-list for extension extendee
-	0,  // [0:34] is the sub-list for field type_name
+	72, // 1: armada.v1.CreateJoinTokenRequest.labels:type_name -> armada.v1.CreateJoinTokenRequest.LabelsEntry
+	76, // 2: armada.v1.CreateJoinTokenResponse.expires_at:type_name -> google.protobuf.Timestamp
+	73, // 3: armada.v1.LabelNodeRequest.set:type_name -> armada.v1.LabelNodeRequest.SetEntry
+	74, // 4: armada.v1.LabelNodeResponse.labels:type_name -> armada.v1.LabelNodeResponse.LabelsEntry
+	24, // 5: armada.v1.ListSecretsResponse.secrets:type_name -> armada.v1.SecretInfo
+	76, // 6: armada.v1.SecretInfo.updated_at:type_name -> google.protobuf.Timestamp
+	29, // 7: armada.v1.ListRevisionsResponse.revisions:type_name -> armada.v1.RevisionInfo
+	76, // 8: armada.v1.RevisionInfo.created_at:type_name -> google.protobuf.Timestamp
+	32, // 9: armada.v1.SetClusterConfigRequest.config:type_name -> armada.v1.ClusterConfig
+	37, // 10: armada.v1.ListDomainsResponse.domains:type_name -> armada.v1.Domain
+	43, // 11: armada.v1.StatusResponse.apps:type_name -> armada.v1.AppStatus
+	45, // 12: armada.v1.StatusResponse.nodes:type_name -> armada.v1.NodeStatus
+	44, // 13: armada.v1.AppStatus.replicas:type_name -> armada.v1.ReplicaStatus
+	76, // 14: armada.v1.ReplicaStatus.updated_at:type_name -> google.protobuf.Timestamp
+	76, // 15: armada.v1.NodeStatus.last_seen:type_name -> google.protobuf.Timestamp
+	76, // 16: armada.v1.NodeStatus.cert_expires_at:type_name -> google.protobuf.Timestamp
+	75, // 17: armada.v1.NodeStatus.labels:type_name -> armada.v1.NodeStatus.LabelsEntry
+	0,  // 18: armada.v1.LogEntry.stream:type_name -> armada.v1.Stream
+	53, // 19: armada.v1.AgentMessage.hello:type_name -> armada.v1.Hello
+	54, // 20: armada.v1.AgentMessage.report:type_name -> armada.v1.ReplicaReport
+	55, // 21: armada.v1.ReplicaReport.replicas:type_name -> armada.v1.ReplicaState
+	57, // 22: armada.v1.ServerMessage.assignment:type_name -> armada.v1.Assignment
+	68, // 23: armada.v1.ServerMessage.log_request:type_name -> armada.v1.LogRequest
+	69, // 24: armada.v1.ServerMessage.log_cancel:type_name -> armada.v1.LogCancel
+	63, // 25: armada.v1.Assignment.replicas:type_name -> armada.v1.ReplicaSpec
+	58, // 26: armada.v1.Assignment.proxy:type_name -> armada.v1.ProxyConfig
+	59, // 27: armada.v1.ProxyConfig.backends:type_name -> armada.v1.ProxyBackend
+	61, // 28: armada.v1.ProxyConfig.rules:type_name -> armada.v1.ProxyRule
+	62, // 29: armada.v1.ProxyConfig.certificates:type_name -> armada.v1.ProxyCertificate
+	60, // 30: armada.v1.ProxyBackend.servers:type_name -> armada.v1.ProxyServer
+	67, // 31: armada.v1.ReplicaSpec.env:type_name -> armada.v1.EnvVar
+	66, // 32: armada.v1.ReplicaSpec.startup:type_name -> armada.v1.Probe
+	66, // 33: armada.v1.ReplicaSpec.readiness:type_name -> armada.v1.Probe
+	66, // 34: armada.v1.ReplicaSpec.liveness:type_name -> armada.v1.Probe
+	64, // 35: armada.v1.ReplicaSpec.secret_files:type_name -> armada.v1.SecretFile
+	65, // 36: armada.v1.ReplicaSpec.registry:type_name -> armada.v1.RegistryAuth
+	0,  // 37: armada.v1.LogPush.stream:type_name -> armada.v1.Stream
+	39, // 38: armada.v1.AdminService.Deploy:input_type -> armada.v1.DeployRequest
+	41, // 39: armada.v1.AdminService.Status:input_type -> armada.v1.StatusRequest
+	46, // 40: armada.v1.AdminService.Scale:input_type -> armada.v1.ScaleRequest
+	48, // 41: armada.v1.AdminService.Logs:input_type -> armada.v1.LogsRequest
+	33, // 42: armada.v1.AdminService.GetClusterConfig:input_type -> armada.v1.GetClusterConfigRequest
+	34, // 43: armada.v1.AdminService.SetClusterConfig:input_type -> armada.v1.SetClusterConfigRequest
+	35, // 44: armada.v1.AdminService.ListDomains:input_type -> armada.v1.ListDomainsRequest
+	38, // 45: armada.v1.AdminService.VerifyDomain:input_type -> armada.v1.VerifyDomainRequest
+	27, // 46: armada.v1.AdminService.ListRevisions:input_type -> armada.v1.ListRevisionsRequest
+	30, // 47: armada.v1.AdminService.Rollback:input_type -> armada.v1.RollbackRequest
+	20, // 48: armada.v1.AdminService.SetSecret:input_type -> armada.v1.SetSecretRequest
+	22, // 49: armada.v1.AdminService.ListSecrets:input_type -> armada.v1.ListSecretsRequest
+	25, // 50: armada.v1.AdminService.DeleteSecret:input_type -> armada.v1.DeleteSecretRequest
+	6,  // 51: armada.v1.AdminService.CreateJoinToken:input_type -> armada.v1.CreateJoinTokenRequest
+	8,  // 52: armada.v1.AdminService.CordonNode:input_type -> armada.v1.CordonNodeRequest
+	10, // 53: armada.v1.AdminService.LabelNode:input_type -> armada.v1.LabelNodeRequest
+	12, // 54: armada.v1.AdminService.RestrictNode:input_type -> armada.v1.RestrictNodeRequest
+	14, // 55: armada.v1.AdminService.RemoveNode:input_type -> armada.v1.RemoveNodeRequest
+	1,  // 56: armada.v1.AdminService.ListServers:input_type -> armada.v1.ListServersRequest
+	4,  // 57: armada.v1.AdminService.RemoveServer:input_type -> armada.v1.RemoveServerRequest
+	18, // 58: armada.v1.JoinService.Join:input_type -> armada.v1.JoinRequest
+	16, // 59: armada.v1.JoinService.JoinServer:input_type -> armada.v1.JoinServerRequest
+	52, // 60: armada.v1.AgentService.Connect:input_type -> armada.v1.AgentMessage
+	70, // 61: armada.v1.AgentService.PushLogs:input_type -> armada.v1.LogPush
+	50, // 62: armada.v1.AgentService.RenewCertificate:input_type -> armada.v1.RenewCertificateRequest
+	40, // 63: armada.v1.AdminService.Deploy:output_type -> armada.v1.DeployResponse
+	42, // 64: armada.v1.AdminService.Status:output_type -> armada.v1.StatusResponse
+	47, // 65: armada.v1.AdminService.Scale:output_type -> armada.v1.ScaleResponse
+	49, // 66: armada.v1.AdminService.Logs:output_type -> armada.v1.LogEntry
+	32, // 67: armada.v1.AdminService.GetClusterConfig:output_type -> armada.v1.ClusterConfig
+	32, // 68: armada.v1.AdminService.SetClusterConfig:output_type -> armada.v1.ClusterConfig
+	36, // 69: armada.v1.AdminService.ListDomains:output_type -> armada.v1.ListDomainsResponse
+	37, // 70: armada.v1.AdminService.VerifyDomain:output_type -> armada.v1.Domain
+	28, // 71: armada.v1.AdminService.ListRevisions:output_type -> armada.v1.ListRevisionsResponse
+	31, // 72: armada.v1.AdminService.Rollback:output_type -> armada.v1.RollbackResponse
+	21, // 73: armada.v1.AdminService.SetSecret:output_type -> armada.v1.SetSecretResponse
+	23, // 74: armada.v1.AdminService.ListSecrets:output_type -> armada.v1.ListSecretsResponse
+	26, // 75: armada.v1.AdminService.DeleteSecret:output_type -> armada.v1.DeleteSecretResponse
+	7,  // 76: armada.v1.AdminService.CreateJoinToken:output_type -> armada.v1.CreateJoinTokenResponse
+	9,  // 77: armada.v1.AdminService.CordonNode:output_type -> armada.v1.CordonNodeResponse
+	11, // 78: armada.v1.AdminService.LabelNode:output_type -> armada.v1.LabelNodeResponse
+	13, // 79: armada.v1.AdminService.RestrictNode:output_type -> armada.v1.RestrictNodeResponse
+	15, // 80: armada.v1.AdminService.RemoveNode:output_type -> armada.v1.RemoveNodeResponse
+	2,  // 81: armada.v1.AdminService.ListServers:output_type -> armada.v1.ListServersResponse
+	5,  // 82: armada.v1.AdminService.RemoveServer:output_type -> armada.v1.RemoveServerResponse
+	19, // 83: armada.v1.JoinService.Join:output_type -> armada.v1.JoinResponse
+	17, // 84: armada.v1.JoinService.JoinServer:output_type -> armada.v1.JoinServerResponse
+	56, // 85: armada.v1.AgentService.Connect:output_type -> armada.v1.ServerMessage
+	71, // 86: armada.v1.AgentService.PushLogs:output_type -> armada.v1.PushLogsResponse
+	51, // 87: armada.v1.AgentService.RenewCertificate:output_type -> armada.v1.RenewCertificateResponse
+	63, // [63:88] is the sub-list for method output_type
+	38, // [38:63] is the sub-list for method input_type
+	38, // [38:38] is the sub-list for extension type_name
+	38, // [38:38] is the sub-list for extension extendee
+	0,  // [0:38] is the sub-list for field type_name
 }
 
 func init() { file_armada_v1_armada_proto_init() }
@@ -4826,11 +5124,11 @@ func file_armada_v1_armada_proto_init() {
 	if File_armada_v1_armada_proto != nil {
 		return
 	}
-	file_armada_v1_armada_proto_msgTypes[47].OneofWrappers = []any{
+	file_armada_v1_armada_proto_msgTypes[51].OneofWrappers = []any{
 		(*AgentMessage_Hello)(nil),
 		(*AgentMessage_Report)(nil),
 	}
-	file_armada_v1_armada_proto_msgTypes[51].OneofWrappers = []any{
+	file_armada_v1_armada_proto_msgTypes[55].OneofWrappers = []any{
 		(*ServerMessage_Assignment)(nil),
 		(*ServerMessage_LogRequest)(nil),
 		(*ServerMessage_LogCancel)(nil),
@@ -4841,7 +5139,7 @@ func file_armada_v1_armada_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_armada_v1_armada_proto_rawDesc), len(file_armada_v1_armada_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   67,
+			NumMessages:   75,
 			NumExtensions: 0,
 			NumServices:   3,
 		},

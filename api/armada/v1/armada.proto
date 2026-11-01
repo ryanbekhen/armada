@@ -24,6 +24,8 @@ service AdminService {
   rpc DeleteSecret(DeleteSecretRequest) returns (DeleteSecretResponse);
   rpc CreateJoinToken(CreateJoinTokenRequest) returns (CreateJoinTokenResponse);
   rpc CordonNode(CordonNodeRequest) returns (CordonNodeResponse);
+  rpc LabelNode(LabelNodeRequest) returns (LabelNodeResponse);
+  rpc RestrictNode(RestrictNodeRequest) returns (RestrictNodeResponse);
   rpc RemoveNode(RemoveNodeRequest) returns (RemoveNodeResponse);
   rpc ListServers(ListServersRequest) returns (ListServersResponse);
   rpc RemoveServer(RemoveServerRequest) returns (RemoveServerResponse);
@@ -68,6 +70,8 @@ message CreateJoinTokenRequest {
   // A server token adds a control plane node (JoinServer) instead of a
   // node (Join).
   bool server = 2;
+  // Labels the node gets when it joins with this token (ADR 0014).
+  map<string, string> labels = 3;
 }
 
 message CreateJoinTokenResponse {
@@ -86,6 +90,26 @@ message CordonNodeRequest {
 }
 
 message CordonNodeResponse {}
+
+// LabelNodeRequest sets and removes a node's admin labels.
+message LabelNodeRequest {
+  string node = 1;
+  map<string, string> set = 2;
+  repeated string remove = 3;
+}
+
+message LabelNodeResponse {
+  // The node's admin labels after the change.
+  map<string, string> labels = 1;
+}
+
+// A restricted node only runs apps whose placement selects one of its labels.
+message RestrictNodeRequest {
+  string node = 1;
+  bool restricted = 2;
+}
+
+message RestrictNodeResponse {}
 
 message RemoveNodeRequest {
   string node = 1;
@@ -292,6 +316,8 @@ message AppStatus {
   // "progressing", "failed", or empty.
   string rollout_state = 9;
   string rollout_message = 10;
+  // Why replicas are missing, when no node can take them (ADR 0014).
+  string placement_message = 11;
 }
 
 message ReplicaStatus {
@@ -319,6 +345,9 @@ message NodeStatus {
   google.protobuf.Timestamp cert_expires_at = 8;
   // Armada version its agent last reported.
   string version = 9;
+  // Admin labels plus armada.os and armada.arch.
+  map<string, string> labels = 10;
+  bool restricted = 11;
 }
 
 message ScaleRequest {
@@ -383,6 +412,10 @@ message Hello {
   int64 memory_bytes = 2;
   string version = 3;
   string private_ip = 4;
+  // GOOS and GOARCH of the agent, shown as the armada.os and armada.arch
+  // labels.
+  string os = 5;
+  string arch = 6;
 }
 
 message ReplicaReport {
