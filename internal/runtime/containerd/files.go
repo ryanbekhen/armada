@@ -57,13 +57,16 @@ func resolvConf(host []byte, dns []string) []byte {
 	}
 	var b bytes.Buffer
 	for _, s := range servers {
-		b.WriteString("nameserver " + s + "\n")
+		b.WriteString("nameserver ")
+		b.WriteString(s)
+		b.WriteByte('\n')
 	}
 	sc := bufio.NewScanner(bytes.NewReader(host))
 	for sc.Scan() {
 		f := strings.Fields(sc.Text())
 		if len(f) >= 2 && (f[0] == "search" || f[0] == "options") {
-			b.WriteString(strings.Join(f, " ") + "\n")
+			b.WriteString(strings.Join(f, " "))
+			b.WriteByte('\n')
 		}
 	}
 	return b.Bytes()
