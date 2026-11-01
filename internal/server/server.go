@@ -132,6 +132,11 @@ type Server struct {
 	progressMu sync.Mutex
 	progress   map[string]rolloutProgress
 
+	// rebalanceAfter holds, per app, when spreading it may be tried again
+	// after a move whose replacement never served.
+	rebalanceMu    sync.Mutex
+	rebalanceAfter map[string]time.Time
+
 	wakeMu    sync.Mutex
 	wakeTimer *time.Timer
 	wakeAt    time.Time
@@ -232,6 +237,7 @@ func New(cfg Config) (*Server, error) {
 		progressDeadline: cfg.ProgressDeadline,
 		nodeLostTimeout:  cfg.NodeLostTimeout,
 		progress:         map[string]rolloutProgress{},
+		rebalanceAfter:   map[string]time.Time{},
 	}
 	s.grpc = grpc.NewServer(
 		grpc.Creds(credentials.NewTLS(cfg.TLS)),

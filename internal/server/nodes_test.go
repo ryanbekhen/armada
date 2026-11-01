@@ -529,11 +529,19 @@ func TestLostNodeReplicasAreRescheduled(t *testing.T) {
 		}
 	}
 
-	// n2 comes back: its stale container is removed, nothing moves back.
+	// n2 comes back: its stale container is removed, then one replica
+	// moves back to spread the app again, without the proxy ever having
+	// fewer than two servers.
+	back := len(c.proxies["n1"].History())
 	c.startAgent("n2")
-	c.eventually("stale container removed", func() bool { return containerCount(d2) == 0 })
-	if containerCount(d1) != 2 || len(c.running("web")) != 2 {
-		t.Errorf("after return: n1=%d running=%d", containerCount(d1), len(c.running("web")))
+	c.eventually("spread again", func() bool {
+		rs, _ := c.store.ListReplicas(c.ctx, store.ReplicaFilter{App: "web"})
+		return containerCount(d1) == 1 && containerCount(d2) == 1 && len(rs) == 2 && len(c.running("web")) == 2
+	})
+	for i, cfg := range c.proxies["n1"].History()[back:] {
+		if n := len(backendServers(cfg, "web")); n < 2 {
+			t.Errorf("proxy config %d after the return had %d servers", i, n)
+		}
 	}
 }
 

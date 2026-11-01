@@ -122,7 +122,8 @@ ready; see [ADR 0005](adr/0005-rolling-updates.md).
 
 `min` is the number of replicas to run, 1–100 (default 1). `max` defaults to
 `min` and must not be lower. Replicas are spread across ready, uncordoned
-nodes. `armada scale <app> <n>` changes the count without a new revision.
+nodes, and spread out again, one at a time, when a node joins, returns, or
+is uncordoned. `armada scale <app> <n>` changes the count without a new revision.
 
 ### `resources`
 
