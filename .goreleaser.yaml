@@ -84,6 +84,7 @@ changelog:
   filters:
     exclude:
       - '^(?:[0-9a-f]+: )?(test|ci|chore|style|build)(\([^)]+\))?!?: '
+      - '^(?:[0-9a-f]+: )?Merge (pull request|branch) '
   groups:
     - title: Breaking changes
       regexp: '^(?:[0-9a-f]+: )?[a-z]+(\([^)]+\))?!: '
