@@ -570,8 +570,13 @@ func (a *Agent) state(ctx context.Context, s *armadav1.ReplicaSpec, c runtime.Co
 		st.State = store.ReplicaRunning
 		st.Ready, st.Message = a.readiness(ctx, s, c)
 		if st.Ready {
+			// This report carries the restart note, if any; later ones
+			// do not.
 			a.mu.Lock()
 			delete(a.notes, s.GetId())
+			if w := a.probes[s.GetId()]; w != nil {
+				w.clearNote()
+			}
 			a.mu.Unlock()
 		}
 	case runtime.StateCreated, runtime.StateRestarting:

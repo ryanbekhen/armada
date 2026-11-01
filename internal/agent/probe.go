@@ -67,7 +67,7 @@ type probeWorker struct {
 	ready   bool
 	message string
 	// note (why the container was restarted) prefixes every message until
-	// the container first becomes ready.
+	// it has been reported while the container is ready (clearNote).
 	note string
 }
 
@@ -82,9 +82,6 @@ func (w *probeWorker) set(ready bool, msg string) bool {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	changed := w.ready != ready
-	if ready {
-		w.note = ""
-	}
 	switch {
 	case w.note != "" && msg != "":
 		msg = w.note + "; " + msg
@@ -93,6 +90,16 @@ func (w *probeWorker) set(ready bool, msg string) bool {
 	}
 	w.ready, w.message = ready, msg
 	return changed
+}
+
+// clearNote drops the restart note once it has been reported for a ready
+// container.
+func (w *probeWorker) clearNote() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.ready && w.note != "" {
+		w.note, w.message = "", ""
+	}
 }
 
 // startProbes launches the worker for container c of replica s. message is
