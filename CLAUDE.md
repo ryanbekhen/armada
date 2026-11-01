@@ -35,9 +35,10 @@ go test ./internal/proxy/haproxy -update        # update golden files
 go test ./internal/proxy/haproxy -fuzz FuzzRender -fuzztime 30s
 go test -tags integration -run Integration ./internal/proxy/haproxy/   # haproxy -c on rendered configs (dev only; needs a container CLI)
 goreleaser check                                 # validate .goreleaser.yaml
-shellcheck install.sh scripts/*.sh && sh test/install_test.sh # installer tests (Linux)
+shellcheck install.sh scripts/*.sh test/e2e/*.sh && sh test/install_test.sh # shell scripts + installer tests (Linux)
 sh scripts/check-commits.sh origin/main..HEAD    # commit subjects (Conventional Commits, checked in CI)
 sh scripts/sync-labels.sh                        # create/update repo labels from .github/labels.json (also done by CI)
+sh test/e2e/cluster.sh HOSTS                     # end to end on real machines (test/e2e/README.md; before releases)
 armada doctor                                    # pre-flight checks on a node
 armada backup -o FILE / armada restore FILE      # control plane backup and restore
 armada runtime [--bin-dir DIR] / armada runtime reset   # embedded containerd (systemd unit) / remove its containers
