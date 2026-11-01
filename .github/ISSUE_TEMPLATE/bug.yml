@@ -1,0 +1,41 @@
+name: Bug report
+description: Something in Armada does not work as documented.
+labels: [bug, needs-triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Security problems go through private reporting (see SECURITY.md), not here.
+        Never paste tokens, keys, certificates, or secret values.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Commands and a minimal app spec, if one is involved.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Armada version
+      description: Output of `armada version`.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Linux distribution and kernel, architecture, number of servers and nodes, SELinux or AppArmor.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs and doctor output
+      description: Relevant `journalctl -u armada-server` / `armada-agent` lines and `armada doctor` output.
+      render: text

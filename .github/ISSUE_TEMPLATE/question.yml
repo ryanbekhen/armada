@@ -1,0 +1,16 @@
+name: Question
+description: How do I do something with Armada?
+labels: [question, needs-triage]
+body:
+  - type: textarea
+    id: question
+    attributes:
+      label: Question
+      description: What you want to do and what you have tried. Check the quickstart and operations guide first.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Armada version
+      description: Output of `armada version`, if you run it already.

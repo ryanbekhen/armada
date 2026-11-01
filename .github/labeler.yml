@@ -1,0 +1,31 @@
+# Area labels for pull requests, by changed path (actions/labeler).
+area/runtime:
+  - changed-files:
+      - any-glob-to-any-file: ['internal/runtime/**']
+area/ingress:
+  - changed-files:
+      - any-glob-to-any-file: ['internal/proxy/**', 'internal/certs/**', 'internal/dnsserver/**']
+area/control-plane:
+  - changed-files:
+      - any-glob-to-any-file: ['internal/server/**', 'internal/store/**', 'internal/etcd/**', 'internal/backup/**']
+area/agent:
+  - changed-files:
+      - any-glob-to-any-file: ['internal/agent/**']
+area/cli:
+  - changed-files:
+      - any-glob-to-any-file: ['internal/cli/**', 'internal/clientconfig/**', 'cmd/**']
+area/spec:
+  - changed-files:
+      - any-glob-to-any-file: ['internal/spec/**']
+area/api:
+  - changed-files:
+      - any-glob-to-any-file: ['api/**']
+area/pki:
+  - changed-files:
+      - any-glob-to-any-file: ['internal/pki/**', 'internal/secrets/**']
+area/release:
+  - changed-files:
+      - any-glob-to-any-file: ['install.sh', 'deploy/**', '.goreleaser.yaml', '.github/workflows/release.yml', 'test/install_test.sh']
+documentation:
+  - changed-files:
+      - any-glob-to-any-file: ['docs/**', '*.md']

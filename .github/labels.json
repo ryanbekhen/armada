@@ -1,0 +1,31 @@
+[
+  {"name": "bug", "color": "d73a4a", "description": "Something isn't working (fix:)"},
+  {"name": "enhancement", "color": "a2eeef", "description": "New feature or request (feat:)"},
+  {"name": "breaking", "color": "b60205", "description": "Breaking change; called out in the release notes (type!:)"},
+  {"name": "security", "color": "ee0701", "description": "Security fix or hardening (security:)"},
+  {"name": "performance", "color": "fbca04", "description": "Faster or lighter (perf:)"},
+  {"name": "documentation", "color": "0075ca", "description": "Improvements or additions to documentation (docs:)"},
+  {"name": "dependencies", "color": "0366d6", "description": "Updates a dependency (deps:, Dependabot)"},
+  {"name": "ci", "color": "5319e7", "description": "CI, build, and release tooling (ci:, build:)"},
+  {"name": "refactor", "color": "c5def5", "description": "Code change without a behaviour change (refactor:)"},
+  {"name": "tests", "color": "bfd4f2", "description": "Tests only (test:)"},
+  {"name": "chore", "color": "ededed", "description": "Housekeeping (chore:, style:)"},
+
+  {"name": "area/runtime", "color": "1d76db", "description": "Embedded container runtime: containerd, runc, CNI, SELinux"},
+  {"name": "area/ingress", "color": "1d76db", "description": "HAProxy, certificates, internal DNS"},
+  {"name": "area/control-plane", "color": "1d76db", "description": "Server, scheduler, state store, HA, backup"},
+  {"name": "area/agent", "color": "1d76db", "description": "Node agent"},
+  {"name": "area/cli", "color": "1d76db", "description": "armada command line"},
+  {"name": "area/spec", "color": "1d76db", "description": "App spec format and validation"},
+  {"name": "area/api", "color": "1d76db", "description": "gRPC API definitions"},
+  {"name": "area/pki", "color": "1d76db", "description": "Certificates, join tokens, secrets encryption"},
+  {"name": "area/release", "color": "1d76db", "description": "Installer, systemd units, release pipeline"},
+
+  {"name": "needs-triage", "color": "fef2c0", "description": "New; not looked at yet"},
+  {"name": "good first issue", "color": "7057ff", "description": "Good for newcomers"},
+  {"name": "help wanted", "color": "008672", "description": "Extra attention is needed"},
+  {"name": "question", "color": "d876e3", "description": "Further information is requested"},
+  {"name": "duplicate", "color": "cfd3d7", "description": "This issue or pull request already exists"},
+  {"name": "invalid", "color": "e4e669", "description": "This doesn't seem right"},
+  {"name": "wontfix", "color": "ffffff", "description": "This will not be worked on"}
+]
