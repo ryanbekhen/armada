@@ -60,7 +60,51 @@ release:
     name: armada
   prerelease: auto
   draft: true
+  footer: |
+    ## Install or upgrade
 
+    ```bash
+    curl -fsSLO https://raw.githubusercontent.com/ryanbekhen/armada/{{ .Tag }}/install.sh
+    less install.sh     # read what you are about to run as root
+    sudo ARMADA_VERSION={{ .Tag }} sh install.sh
+    ```
+
+    `install.sh` verifies the cosign signature of `checksums.txt` (when
+    cosign is installed) and the SHA-256 of the archive. Upgrading a
+    cluster: see the [operations guide](https://github.com/ryanbekhen/armada/blob/{{ .Tag }}/docs/operations.md#upgrades).
+    Verifying by hand: see [releasing](https://github.com/ryanbekhen/armada/blob/{{ .Tag }}/docs/releasing.md#verifying-a-release-by-hand).
+
+# Release notes are grouped by the Conventional Commits type of each
+# commit subject (see docs/releasing.md); CI checks the subjects of every
+# pull request. Entries may start with the commit hash.
 changelog:
   use: github
   sort: asc
+  abbrev: 7
+  filters:
+    exclude:
+      - '^(?:[0-9a-f]+: )?(test|ci|chore|style|build)(\([^)]+\))?!?: '
+  groups:
+    - title: Breaking changes
+      regexp: '^(?:[0-9a-f]+: )?[a-z]+(\([^)]+\))?!: '
+      order: 0
+    - title: Features
+      regexp: '^(?:[0-9a-f]+: )?feat(\([^)]+\))?: '
+      order: 1
+    - title: Security
+      regexp: '^(?:[0-9a-f]+: )?security(\([^)]+\))?: '
+      order: 2
+    - title: Bug fixes
+      regexp: '^(?:[0-9a-f]+: )?fix(\([^)]+\))?: '
+      order: 3
+    - title: Performance
+      regexp: '^(?:[0-9a-f]+: )?perf(\([^)]+\))?: '
+      order: 4
+    - title: Documentation
+      regexp: '^(?:[0-9a-f]+: )?docs(\([^)]+\))?: '
+      order: 5
+    - title: Dependencies
+      regexp: '^(?:[0-9a-f]+: )?deps(\([^)]+\))?: '
+      order: 6
+    - title: Other changes
+      order: 999

@@ -14,6 +14,21 @@ concurrency:
 
 # Actions are pinned to full commit SHAs; Dependabot keeps the pins current.
 jobs:
+  # Release notes are grouped by commit type (docs/releasing.md), so every
+  # commit of a pull request needs a Conventional Commits subject.
+  commits:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: sh scripts/check-commits.sh "$BASE..$HEAD"
+
   lint:
     runs-on: ubuntu-latest
     steps:
@@ -88,7 +103,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - run: shellcheck install.sh
+      - run: shellcheck install.sh scripts/*.sh
       - run: sh test/install_test.sh
 
   release-config:
