@@ -88,10 +88,19 @@ Armada's and visible in one place:
   `no-new-privileges`; containerd's default seccomp profile; Armada's
   AppArmor profile where AppArmor is enabled. Never privileged, never host
   namespaces for apps, no devices beyond the defaults.
-  SELinux labels (`container_t` with per-container MCS categories) are
-  not applied yet: on SELinux hosts containers run with the runtime's
-  label. Labelling them, including the rootfs and bind mounts, is a
-  planned hardening.
+- On SELinux hosts every container, HAProxy included, runs as
+  `container_t` with MCS categories of its own (two random categories,
+  unique among the node's containers; an agent that restarts reserves the
+  categories of the containers it adopts). The root filesystem is mounted
+  with the matching `container_file_t` context, so image files need no
+  labels on disk, and the files Armada bind-mounts are relabelled for
+  that container: its `/etc/resolv.conf`, `/etc/hosts`, `/etc/hostname`,
+  its secret files, and HAProxy's configuration and socket directories.
+  tini gets the read-only label all containers share. Host files mounted
+  into HAProxy keep their labels. A container that escapes its namespaces
+  still cannot read the host's files or another container's. Hosts whose
+  policy lacks the container types (no container policy package) run
+  containers with the runtime's label; `armada doctor` warns about it.
 - cgroup v2 limits under `/armada/<container>`: memory (swap limited to
   the same value), CPU quota, PIDs; the open-file limit is 1048576. cgroup
   v1 hosts are refused by `armada doctor` and at start.

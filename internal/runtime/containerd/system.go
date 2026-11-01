@@ -45,8 +45,20 @@ func (d *Driver) RunSystem(ctx context.Context, s runtime.SystemSpec) (_ string,
 			}
 		}
 	}()
+	sl, err := d.newLabels(ctx)
+	if err != nil {
+		return "", err
+	}
+	undo = append(undo, func() { releaseLabel(sl.process) })
+	// The mounted directories belong to this container; the host files in
+	// systemOpts keep their labels.
+	for _, m := range s.Mounts {
+		if err := relabel(m.Source, sl); err != nil {
+			return "", fmt.Errorf("label %s: %w", m.Source, err)
+		}
+	}
 	opts := argsOpts(img, runtime.ContainerSpec{Cmd: s.Cmd})
-	opts = append(opts, systemOpts(s, cgroupParent+"/"+id, seccompOpt())...)
+	opts = append(opts, systemOpts(s, cgroupParent+"/"+id, seccompOpt(), sl)...)
 	return d.create(ctx, id, img, labels, opts, &undo)
 }
 

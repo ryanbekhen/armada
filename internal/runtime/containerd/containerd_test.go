@@ -101,7 +101,7 @@ func TestSystemSpec(t *testing.T) {
 	s := genSpec(t, systemOpts(runtime.SystemSpec{
 		Name: "armada-haproxy", User: "0:0", CapAdd: []string{"NET_BIND_SERVICE"},
 		Mounts: []runtime.Mount{{Source: "/etc/armada/haproxy", Target: "/usr/local/etc/haproxy", ReadOnly: true}, {Source: "/run/armada/haproxy", Target: "/var/run/haproxy"}},
-	}, "/armada/armada-haproxy", nil)...)
+	}, "/armada/armada-haproxy", nil, selinuxLabels{})...)
 	if !slices.Equal(s.Process.Capabilities.Bounding, []string{"CAP_NET_BIND_SERVICE"}) {
 		t.Errorf("capabilities %v", s.Process.Capabilities.Bounding)
 	}
@@ -115,6 +115,31 @@ func TestSystemSpec(t *testing.T) {
 	}
 	if len(s.Process.Rlimits) != 1 || s.Process.Rlimits[0].Hard != nofile {
 		t.Errorf("rlimits %v", s.Process.Rlimits)
+	}
+}
+
+// Confined containers get their process and mount label; unconfined ones
+// keep the runtime's label.
+func TestSELinuxLabels(t *testing.T) {
+	l := selinuxLabels{process: "system_u:system_r:container_t:s0:c1,c2", mount: "system_u:object_r:container_file_t:s0:c1,c2"}
+	for name, opts := range map[string][]oci.SpecOpts{
+		"app":    appOpts(appSpec{spec: runtime.ContainerSpec{Name: "web"}, selinux: l}),
+		"system": systemOpts(runtime.SystemSpec{Name: "armada-haproxy"}, "/armada/x", nil, l),
+	} {
+		s := genSpec(t, opts...)
+		if s.Process.SelinuxLabel != l.process || s.Linux.MountLabel != l.mount {
+			t.Errorf("%s: labels %q %q", name, s.Process.SelinuxLabel, s.Linux.MountLabel)
+		}
+		if got := processLabel(s); got != l.process {
+			t.Errorf("%s: processLabel = %q", name, got)
+		}
+	}
+	s := genSpec(t, appOpts(appSpec{spec: runtime.ContainerSpec{Name: "web"}})...)
+	if s.Process.SelinuxLabel != "" || s.Linux.MountLabel != "" || processLabel(s) != "" {
+		t.Errorf("unconfined container labelled: %q %q", s.Process.SelinuxLabel, s.Linux.MountLabel)
+	}
+	if processLabel(nil) != "" {
+		t.Error("processLabel(nil)")
 	}
 }
 

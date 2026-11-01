@@ -85,6 +85,9 @@ type Driver struct {
 	self   string
 
 	mu sync.Mutex // serializes Run so host ports are not handed out twice
+
+	labelsMu       sync.Mutex
+	labelsReserved bool // SELinux categories of existing containers are reserved
 }
 
 var (
@@ -277,6 +280,10 @@ func (d *Driver) Run(ctx context.Context, s runtime.ContainerSpec) (_ string, er
 
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	sl, err := d.newLabels(ctx)
+	if err != nil {
+		return "", err
+	}
 	var undo []func()
 	defer func() {
 		if err != nil {
@@ -285,6 +292,7 @@ func (d *Driver) Run(ctx context.Context, s runtime.ContainerSpec) (_ string, er
 			}
 		}
 	}()
+	undo = append(undo, func() { releaseLabel(sl.process) })
 
 	labels := maps.Clone(s.Labels)
 	if labels == nil {
@@ -323,6 +331,17 @@ func (d *Driver) Run(ctx context.Context, s runtime.ContainerSpec) (_ string, er
 		return "", err
 	}
 	undo = append(undo, func() { _ = os.RemoveAll(filepath.Join(d.paths.Containers(), id)) })
+	if err := relabel(filepath.Join(d.paths.Containers(), id), sl); err != nil {
+		return "", fmt.Errorf("label container files: %w", err)
+	}
+	for _, f := range s.Files {
+		if err := relabel(f.Source, sl); err != nil {
+			return "", fmt.Errorf("label %s: %w", f.Target, err)
+		}
+	}
+	if err := relabelShared(tini, sl); err != nil {
+		return "", fmt.Errorf("label tini: %w", err)
+	}
 
 	opts := argsOpts(img, s)
 	opts = append(opts, appOpts(appSpec{
@@ -330,9 +349,35 @@ func (d *Driver) Run(ctx context.Context, s runtime.ContainerSpec) (_ string, er
 		cgroup:   cgroupParent + "/" + id,
 		seccomp:  seccompOpt(),
 		apparmor: apparmorOpt(),
+		selinux:  sl,
 	})...)
 	labels[labelStarted] = time.Now().UTC().Format(time.RFC3339Nano)
 	return d.create(ctx, id, img, labels, opts, &undo)
+}
+
+// newLabels returns fresh SELinux labels for a container (empty where
+// containers are not confined). The first call reserves the categories of
+// the containers that already exist, which an agent adopts after a
+// restart.
+func (d *Driver) newLabels(ctx context.Context) (selinuxLabels, error) {
+	if SELinux() != SELinuxConfined {
+		return selinuxLabels{}, nil
+	}
+	d.labelsMu.Lock()
+	defer d.labelsMu.Unlock()
+	if !d.labelsReserved {
+		cs, err := d.client.Containers(ctx)
+		if err != nil {
+			return selinuxLabels{}, fmt.Errorf("list containers: %w", err)
+		}
+		for _, c := range cs {
+			if s, err := c.Spec(ctx); err == nil {
+				reserveLabel(processLabel(s))
+			}
+		}
+		d.labelsReserved = true
+	}
+	return newLabels()
 }
 
 // create makes the container and starts its task; undo collects cleanups.
@@ -458,9 +503,11 @@ func (d *Driver) Remove(ctx context.Context, id string) error {
 			return fmt.Errorf("container network: %w", err)
 		}
 	}
+	spec, _ := c.Spec(ctx)
 	if err := c.Delete(ctx, client.WithSnapshotCleanup); err != nil && !errdefs.IsNotFound(err) {
 		return err
 	}
+	releaseLabel(processLabel(spec))
 	return errors.Join(
 		os.RemoveAll(filepath.Join(d.paths.Containers(), id)),
 		embedded.RemoveLogs(d.paths.Logs(), id),
