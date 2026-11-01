@@ -15,6 +15,7 @@ require (
 	github.com/libdns/libdns v1.1.1
 	github.com/miekg/dns v1.1.73
 	github.com/opencontainers/runtime-spec v1.3.0
+	github.com/opencontainers/selinux v1.15.1
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10
 	github.com/vishvananda/netlink v1.3.1
@@ -30,6 +31,7 @@ require (
 )
 
 require (
+	cyphar.com/go-pathrs v0.2.5 // indirect
 	github.com/Microsoft/go-winio v0.6.3-0.20251027160822-ad3df93bed29 // indirect
 	github.com/Microsoft/hcsshim v0.15.0-rc.4 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
@@ -49,6 +51,7 @@ require (
 	github.com/containernetworking/plugins v1.9.1 // indirect
 	github.com/coreos/go-semver v0.3.1 // indirect
 	github.com/coreos/go-systemd/v22 v22.7.0 // indirect
+	github.com/cyphar/filepath-securejoin v0.7.0 // indirect
 	github.com/dustin/go-humanize v1.1.0 // indirect
 	github.com/felixge/httpsnoop v1.1.0 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect

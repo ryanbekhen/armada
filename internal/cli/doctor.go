@@ -21,6 +21,7 @@ import (
 	"github.com/ryanbekhen/armada/internal/netutil"
 	"github.com/ryanbekhen/armada/internal/proxy/haproxy"
 	"github.com/ryanbekhen/armada/internal/runtime"
+	"github.com/ryanbekhen/armada/internal/runtime/containerd"
 	"github.com/ryanbekhen/armada/internal/runtime/embedded"
 )
 
@@ -247,6 +248,12 @@ func embeddedHostChecks(subnet netip.Prefix) []checkResult {
 		add("overlayfs", checkWarn, "overlay filesystem not loaded yet (armada-runtime.service loads it; otherwise modprobe overlay)")
 	} else if err == nil {
 		add("overlayfs", checkOK, "available")
+	}
+	switch containerd.SELinux() {
+	case containerd.SELinuxConfined:
+		add("selinux", checkOK, "containers run as container_t, each with its own categories")
+	case containerd.SELinuxNoPolicy:
+		add("selinux", checkWarn, "SELinux is enabled but its policy has no container types, so containers are not confined by it; install the container-selinux policy")
 	}
 	if _, err := exec.LookPath("iptables"); err != nil {
 		add("iptables", checkFail, "iptables not found; container networking needs it")

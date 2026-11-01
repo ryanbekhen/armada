@@ -30,6 +30,7 @@ type appSpec struct {
 	// apparmor applies an AppArmor profile when the host supports it.
 	apparmor oci.SpecOpts
 	seccomp  oci.SpecOpts
+	selinux  selinuxLabels
 }
 
 // appOpts are applied after the image configuration. They enforce Armada's
@@ -58,6 +59,7 @@ func appOpts(a appSpec) []oci.SpecOpts {
 		oci.WithCgroup(a.cgroup),
 		oci.WithRlimit(&specs.POSIXRlimit{Type: "RLIMIT_NOFILE", Hard: nofile, Soft: nofile}),
 		withInit,
+		withSELinux(a.selinux),
 	}
 	if a.seccomp != nil {
 		opts = append(opts, a.seccomp)
@@ -112,7 +114,7 @@ func capNames(caps []string) []string {
 
 // systemOpts configure an infrastructure container: host network, every
 // capability dropped except capAdd, read-only root filesystem.
-func systemOpts(s runtime.SystemSpec, cgroup string, seccomp oci.SpecOpts) []oci.SpecOpts {
+func systemOpts(s runtime.SystemSpec, cgroup string, seccomp oci.SpecOpts, sl selinuxLabels) []oci.SpecOpts {
 	var mounts []specs.Mount
 	for _, f := range []string{"/etc/resolv.conf", "/etc/hosts"} {
 		mounts = append(mounts, specs.Mount{Destination: f, Type: "bind", Source: f, Options: []string{"rbind", "ro", "nosuid", "nodev", "noexec"}})
@@ -134,6 +136,7 @@ func systemOpts(s runtime.SystemSpec, cgroup string, seccomp oci.SpecOpts) []oci
 		oci.WithRootFSReadonly(),
 		oci.WithCgroup(cgroup),
 		oci.WithRlimit(&specs.POSIXRlimit{Type: "RLIMIT_NOFILE", Hard: nofile, Soft: nofile}),
+		withSELinux(sl),
 	}
 	if len(s.Cmd) > 0 {
 		opts = append(opts, oci.WithProcessArgs(s.Cmd...))

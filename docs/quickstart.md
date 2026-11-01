@@ -66,7 +66,7 @@ sudo armada doctor
 ```
 
 `doctor` checks the container runtime (cgroup v2, overlayfs, `iptables`,
-and that the container subnet `10.121.0.0/24` is free; pick another with
+whether SELinux can confine containers on SELinux hosts, and that the container subnet `10.121.0.0/24` is free; pick another with
 `--container-subnet` on `init`/`join` if your network uses it), the
 private IP, ports listening publicly, file
 permissions, the secrets tmpfs, the clock, and the firewall. Fix every
