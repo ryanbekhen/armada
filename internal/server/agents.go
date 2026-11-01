@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/netip"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -236,12 +237,56 @@ func (s *Server) applyReport(ctx context.Context, node store.Node, r *armadav1.R
 		if d := st.GetImageDigest(); d != "" {
 			s.recordDigest(ctx, rev, d)
 		}
+		if ps := st.GetImagePlatforms(); len(ps) > 0 {
+			s.recordPlatforms(ctx, node.ID, rev, ps)
+		}
 	}
 	// Readiness and address changes move rollouts forward and update the
 	// proxies; react now rather than at the next resync.
 	if changed {
 		s.Trigger()
 	}
+}
+
+// recordPlatforms keeps the first valid list of image platforms an agent
+// reports for a revision (ADR 0014). Each entry must be "os/arch" with both
+// parts valid label values, at most spec.MaxNodeLabels of them.
+func (s *Server) recordPlatforms(ctx context.Context, nodeID, revName string, reported []string) {
+	rev, err := s.store.GetRevision(ctx, revName)
+	if err != nil || len(rev.Platforms) > 0 {
+		return
+	}
+	ps, ok := cleanPlatforms(reported)
+	if !ok {
+		s.log.Warn("ignoring invalid image platforms", "node", nodeID, "revision", revName, "count", len(reported))
+		return
+	}
+	if err := s.store.SetRevisionPlatforms(ctx, revName, ps); err != nil {
+		s.log.Warn("record image platforms", "err", err)
+		return
+	}
+	s.log.Info("image platforms", "revision", revName, "platforms", strings.Join(ps, ","))
+	s.Trigger()
+}
+
+// cleanPlatforms validates reported platforms and returns them sorted and
+// without duplicates.
+func cleanPlatforms(reported []string) ([]string, bool) {
+	if len(reported) > spec.MaxNodeLabels {
+		return nil, false
+	}
+	var out []string
+	for _, p := range reported {
+		osName, arch, ok := strings.Cut(p, "/")
+		if !ok || spec.CheckLabelValue(osName) != nil || spec.CheckLabelValue(arch) != nil {
+			return nil, false
+		}
+		if !slices.Contains(out, p) {
+			out = append(out, p)
+		}
+	}
+	slices.Sort(out)
+	return out, len(out) > 0
 }
 
 func (s *Server) recordDigest(ctx context.Context, revName, digest string) {

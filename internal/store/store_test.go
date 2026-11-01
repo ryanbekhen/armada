@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -288,6 +289,39 @@ func TestRevisionDigest(t *testing.T) {
 	}
 	if _, err := s.GetRevision(ctx, "nope"); !errors.Is(err, ErrNotFound) {
 		t.Errorf("GetRevision(nope) = %v", err)
+	}
+}
+
+func TestRevisionPlatforms(t *testing.T) {
+	t.Parallel()
+	s, ctx := open(t), context.Background()
+
+	rev, _, err := s.Deploy(ctx, appSpec(t, "web", "nginx:1", 1), "a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rev.Platforms != nil {
+		t.Errorf("new revision has platforms %v", rev.Platforms)
+	}
+	if err := s.SetRevisionPlatforms(ctx, rev.Name, []string{"linux/amd64", "linux/arm64"}); err != nil {
+		t.Fatal(err)
+	}
+	// The first report wins; recording the digest keeps it.
+	if err := s.SetRevisionPlatforms(ctx, rev.Name, []string{"linux/riscv64"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetRevisionDigest(ctx, rev.Name, "nginx@sha256:"+fmt.Sprintf("%064d", 1)); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.GetRevision(ctx, rev.Name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(got.Platforms, []string{"linux/amd64", "linux/arm64"}) {
+		t.Errorf("Platforms = %v", got.Platforms)
+	}
+	if err := s.SetRevisionPlatforms(ctx, "web--r9", []string{"linux/amd64"}); err != nil {
+		t.Errorf("unknown revision: %v", err)
 	}
 }
 

@@ -79,5 +79,8 @@ once the binary has been copied to them.
    requires the label runs only there; once the label is gone, `armada
    status` explains why that app has nowhere to go; reopening the node
    spreads the app back.
-9. After rebooting every machine at once, the control plane, the nodes, and
+9. Image platforms: `armada revisions` lists the test app's platforms, and
+   an image built only for another architecture is placed nowhere while
+   `armada status` names the platform it is built for.
+10. After rebooting every machine at once, the control plane, the nodes, and
    the app come back on their own.

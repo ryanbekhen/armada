@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/ryanbekhen/armada/internal/store"
 )
@@ -16,7 +17,7 @@ func placementMessage(ctx context.Context, revs *revisionCache, nodes []store.No
 	if err != nil {
 		return ""
 	}
-	fit := eligible(nodes, target.Spec)
+	fit := eligible(nodes, target)
 	allowed := map[string]bool{}
 	for _, n := range fit {
 		allowed[n.ID] = true
@@ -35,10 +36,8 @@ func placementMessage(ctx context.Context, revs *revisionCache, nodes []store.No
 	}
 	var why string
 	switch {
-	case len(fit) == 0 && target.Spec.Placement.String() != "":
-		why = fmt.Sprintf("no ready node matches the placement (%s)", target.Spec.Placement.String())
 	case len(fit) == 0:
-		why = "no ready node accepts the app (every ready node is cordoned or restricted)"
+		why = noNodeReason(nodes, target)
 	default:
 		if _, ok := pickNode(fit, all, nil, target.Spec.MemoryBytes(), revs.memory(ctx)); ok {
 			return ""
@@ -49,6 +48,26 @@ func placementMessage(ctx context.Context, revs *revisionCache, nodes []store.No
 		return "waiting for a node: " + why
 	}
 	return fmt.Sprintf("%d replica(s) stay on nodes the app may no longer use until one is free: %s", stuck, why)
+}
+
+// noNodeReason explains why no node is eligible for rev.
+func noNodeReason(nodes []store.Node, rev store.Revision) string {
+	labelled := 0
+	for _, n := range nodes {
+		if n.State != store.NodeReady || n.Cordoned {
+			continue
+		}
+		if placementAllows(n, store.Revision{Spec: rev.Spec}) {
+			labelled++
+		}
+	}
+	switch {
+	case labelled > 0:
+		return fmt.Sprintf("no ready node can run the image, which is built for %s", strings.Join(rev.Platforms, ", "))
+	case rev.Spec.Placement.String() != "":
+		return fmt.Sprintf("no ready node matches the placement (%s)", rev.Spec.Placement.String())
+	}
+	return "no ready node accepts the app (every ready node is cordoned or restricted)"
 }
 
 func humanMemory(b int64) string {

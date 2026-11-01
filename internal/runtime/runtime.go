@@ -5,9 +5,11 @@ package runtime
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/netip"
+	"strings"
 	"time"
 )
 
@@ -37,9 +39,9 @@ const (
 type Driver interface {
 	// Ping verifies that the engine is reachable and supported.
 	Ping(ctx context.Context) error
-	// Pull fetches image and returns a digest-pinned reference
-	// ("repo@sha256:..."), or "" if the engine reports no digest.
-	Pull(ctx context.Context, image string, auth *RegistryAuth) (string, error)
+	// Pull fetches image for this node's platform. It returns a
+	// *PlatformError when the image has no variant for it.
+	Pull(ctx context.Context, image string, auth *RegistryAuth) (Image, error)
 	// Run creates and starts a container.
 	Run(ctx context.Context, spec ContainerSpec) (string, error)
 	Stop(ctx context.Context, id string, grace time.Duration) error
@@ -48,6 +50,29 @@ type Driver interface {
 	List(ctx context.Context, labels map[string]string) ([]Container, error)
 	Inspect(ctx context.Context, id string) (Container, error)
 	Logs(ctx context.Context, id string, opts LogOptions) (LogStream, error)
+}
+
+// Image is a pulled image.
+type Image struct {
+	// Ref is the digest-pinned reference ("repo@sha256:..."), or "" if the
+	// engine reports no digest.
+	Ref string
+	// Platforms lists the image's platforms as "os/arch" (sorted, no
+	// duplicates); empty if the engine cannot tell.
+	Platforms []string
+}
+
+// PlatformError reports an image without a variant for the node's
+// platform.
+type PlatformError struct {
+	Image string
+	// Want is the node's platform, Have the image's, both as "os/arch".
+	Want string
+	Have []string
+}
+
+func (e *PlatformError) Error() string {
+	return fmt.Sprintf("image %s has no %s variant (it has %s)", e.Image, e.Want, strings.Join(e.Have, ", "))
 }
 
 // RegistryAuth holds credentials for a private registry. It prints without

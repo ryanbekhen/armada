@@ -234,6 +234,8 @@ message RevisionInfo {
   google.protobuf.Timestamp created_at = 4;
   bool active = 5;
   bool target = 6;
+  // The image's platforms ("os/arch") once a node reported them.
+  repeated string platforms = 7;
 }
 
 message RollbackRequest {
@@ -432,6 +434,9 @@ message ReplicaState {
   string image_digest = 6;
   // True when the replica passes its readiness checks and may get traffic.
   bool ready = 7;
+  // Platforms of the replica's image as "os/arch", reported after a pull
+  // or when the image has no variant for the node (ADR 0014).
+  repeated string image_platforms = 8;
 }
 
 message ServerMessage {

@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"sync"
@@ -424,5 +425,33 @@ func TestInternalDNS(t *testing.T) {
 	// does not restart running replicas.
 	if cs[0].Labels[runtime.LabelSpecHash] != specHash(replica("web-r1-a", "nginx:1", 80)) {
 		t.Error("spec hash depends on the DNS setting")
+	}
+}
+
+func TestReportsImagePlatforms(t *testing.T) {
+	t.Parallel()
+
+	a, d := newAgent(t)
+	d.Platforms = map[string][]string{"nginx:1": {"linux/amd64", "linux/arm64"}}
+	d.PullErr = map[string]error{"amd64only:1": fmt.Errorf("start: %w", &runtime.PlatformError{Image: "amd64only:1", Want: "linux/arm64", Have: []string{"linux/amd64"}})}
+	a.setDesired([]*armadav1.ReplicaSpec{replica("web-r1-a", "nginx:1", 80), replica("web-r1-b", "amd64only:1", 80)}, nil)
+
+	report, err := a.Reconcile(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range report.Replicas {
+		switch r.Id {
+		case "web-r1-a":
+			if r.State != store.ReplicaRunning || !slices.Equal(r.ImagePlatforms, []string{"linux/amd64", "linux/arm64"}) {
+				t.Errorf("pulled replica = %v", r)
+			}
+		case "web-r1-b":
+			// The server learns where the image can run.
+			if r.State != store.ReplicaFailed || !slices.Equal(r.ImagePlatforms, []string{"linux/amd64"}) ||
+				!strings.Contains(r.Message, "has no linux/arm64 variant (it has linux/amd64)") {
+				t.Errorf("replica of an image for another platform = %v", r)
+			}
+		}
 	}
 }

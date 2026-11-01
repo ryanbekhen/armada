@@ -371,6 +371,7 @@ type revRec struct {
 	Seq         int             `json:"seq"`
 	Spec        json.RawMessage `json:"spec"`
 	ImageDigest string          `json:"imageDigest"`
+	Platforms   []string        `json:"platforms,omitempty"`
 	Secrets     map[string]int  `json:"secrets"`
 	CreatedAt   int64           `json:"createdAt"`
 }
@@ -984,7 +985,7 @@ func (t *etx) revision(name string) (Revision, error) {
 }
 
 func decodeRev(r revRec) (Revision, error) {
-	out := Revision{Name: r.Name, App: r.App, Seq: r.Seq, ImageDigest: r.ImageDigest, Secrets: r.Secrets, CreatedAt: fromMS(r.CreatedAt), Spec: new(spec.App)}
+	out := Revision{Name: r.Name, App: r.App, Seq: r.Seq, ImageDigest: r.ImageDigest, Platforms: r.Platforms, Secrets: r.Secrets, CreatedAt: fromMS(r.CreatedAt), Spec: new(spec.App)}
 	if out.Secrets == nil {
 		out.Secrets = map[string]int{}
 	}
@@ -1338,6 +1339,26 @@ func (s *Etcd) SetRevisionDigest(ctx context.Context, revision, digest string) e
 			return err
 		}
 		r.ImageDigest = digest
+		return t.put(revKey(app, seq), r)
+	})
+}
+
+// SetRevisionPlatforms records the image's platforms once. A server that
+// predates the field drops it if it records the digest afterwards; agents
+// report the platforms with every replica state, so they are learned again
+// and no schema change is needed.
+func (s *Etcd) SetRevisionPlatforms(ctx context.Context, revision string, platforms []string) error {
+	return s.tx(ctx, func(t *etx) error {
+		app, seq, ok := parseRevisionName(revision)
+		if !ok {
+			return nil
+		}
+		var r revRec
+		found, err := t.get(revKey(app, seq), &r)
+		if err != nil || !found || len(r.Platforms) > 0 {
+			return err
+		}
+		r.Platforms = slices.Clone(platforms)
 		return t.put(revKey(app, seq), r)
 	})
 }

@@ -84,12 +84,13 @@ type Agent struct {
 	cfg Config
 	log *slog.Logger
 
-	mu      sync.Mutex
-	desired map[string]*armadav1.ReplicaSpec // nil until the first assignment
-	servers []string                         // last control plane list received
-	digests map[string]string                // image ref -> pinned ref
-	cancels map[string]context.CancelFunc    // log request -> cancel
-	probes  map[string]*probeWorker          // replica -> probes of its container
+	mu        sync.Mutex
+	desired   map[string]*armadav1.ReplicaSpec // nil until the first assignment
+	servers   []string                         // last control plane list received
+	digests   map[string]string                // image ref -> pinned ref
+	platforms map[string][]string              // image ref -> its platforms
+	cancels   map[string]context.CancelFunc    // log request -> cancel
+	probes    map[string]*probeWorker          // replica -> probes of its container
 	// restarts holds containers a failed probe asked to restart, with the
 	// reason; notes carries that reason to the replacement's status.
 	restarts map[string]string // container ID -> reason
@@ -129,16 +130,17 @@ func New(cfg Config) *Agent {
 		}
 	}
 	return &Agent{
-		cfg:      cfg,
-		servers:  slices.Clone(cfg.Servers),
-		log:      cfg.Logger.With("component", "agent", "node", cfg.NodeID),
-		digests:  map[string]string{},
-		cancels:  map[string]context.CancelFunc{},
-		probes:   map[string]*probeWorker{},
-		restarts: map[string]string{},
-		notes:    map[string]string{},
-		crashes:  map[string]crashLoop{},
-		trigger:  make(chan struct{}, 1),
+		cfg:       cfg,
+		servers:   slices.Clone(cfg.Servers),
+		log:       cfg.Logger.With("component", "agent", "node", cfg.NodeID),
+		digests:   map[string]string{},
+		platforms: map[string][]string{},
+		cancels:   map[string]context.CancelFunc{},
+		probes:    map[string]*probeWorker{},
+		restarts:  map[string]string{},
+		notes:     map[string]string{},
+		crashes:   map[string]crashLoop{},
+		trigger:   make(chan struct{}, 1),
 
 		crashBase: crashBackoff,
 	}
@@ -373,7 +375,12 @@ func (a *Agent) Reconcile(ctx context.Context) (*armadav1.ReplicaReport, error) 
 			if err != nil {
 				a.log.Error("start replica failed", "replica", id, "err", err)
 				a.stopProbes(id)
-				report.Replicas = append(report.Replicas, &armadav1.ReplicaState{Id: id, State: store.ReplicaFailed, Message: err.Error()})
+				failed := &armadav1.ReplicaState{Id: id, State: store.ReplicaFailed, Message: err.Error()}
+				// The server learns where the image can run instead.
+				if pe := (*runtime.PlatformError)(nil); errors.As(err, &pe) {
+					failed.ImagePlatforms = pe.Have
+				}
+				report.Replicas = append(report.Replicas, failed)
 				continue
 			}
 		}
@@ -524,15 +531,18 @@ func (a *Agent) remove(ctx context.Context, id string) {
 }
 
 func (a *Agent) start(ctx context.Context, s *armadav1.ReplicaSpec, hash string) (runtime.Container, error) {
-	pinned, err := a.cfg.Driver.Pull(ctx, s.GetImage(), registryAuth(s))
+	img, err := a.cfg.Driver.Pull(ctx, s.GetImage(), registryAuth(s))
 	if err != nil {
 		return runtime.Container{}, err
 	}
-	if pinned != "" {
-		a.mu.Lock()
-		a.digests[s.GetImage()] = pinned
-		a.mu.Unlock()
+	a.mu.Lock()
+	if img.Ref != "" {
+		a.digests[s.GetImage()] = img.Ref
 	}
+	if len(img.Platforms) > 0 {
+		a.platforms[s.GetImage()] = img.Platforms
+	}
+	a.mu.Unlock()
 	cs := ContainerSpec(s, a.cfg.PrivateIP, hash)
 	if a.cfg.DNS != nil {
 		// Not part of the spec hash: enabling internal DNS must not restart
@@ -553,6 +563,7 @@ func (a *Agent) state(ctx context.Context, s *armadav1.ReplicaSpec, c runtime.Co
 	st := &armadav1.ReplicaState{Id: s.GetId(), ContainerId: c.ID}
 	a.mu.Lock()
 	st.ImageDigest = a.digests[s.GetImage()]
+	st.ImagePlatforms = a.platforms[s.GetImage()]
 	a.mu.Unlock()
 	switch c.State {
 	case runtime.StateRunning:

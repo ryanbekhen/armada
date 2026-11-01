@@ -28,6 +28,8 @@ type Driver struct {
 	RunErr error
 	// Digests maps image references to the digest Pull returns.
 	Digests map[string]string
+	// Platforms maps image references to the platforms Pull returns.
+	Platforms map[string][]string
 	// LogLines is returned by Logs for every container.
 	LogLines []runtime.LogFrame
 
@@ -122,16 +124,16 @@ func New() *Driver {
 // Ping always succeeds.
 func (d *Driver) Ping(context.Context) error { return d.PingErr }
 
-// Pull records the pull and returns the configured digest.
-func (d *Driver) Pull(_ context.Context, image string, auth *runtime.RegistryAuth) (string, error) {
+// Pull records the pull and returns the configured digest and platforms.
+func (d *Driver) Pull(_ context.Context, image string, auth *runtime.RegistryAuth) (runtime.Image, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.Pulls = append(d.Pulls, image)
 	d.PullAuths = append(d.PullAuths, auth)
 	if err := d.PullErr[image]; err != nil {
-		return "", err
+		return runtime.Image{}, err
 	}
-	return d.Digests[image], nil
+	return runtime.Image{Ref: d.Digests[image], Platforms: d.Platforms[image]}, nil
 }
 
 // Run creates a running container.

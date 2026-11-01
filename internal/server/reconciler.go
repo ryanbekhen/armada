@@ -207,10 +207,10 @@ func (s *Server) reconcileApp(ctx context.Context, rc *reconcileRun, app *store.
 	if err != nil {
 		return nil, err
 	}
-	fit := eligible(nodes, target.Spec)
+	fit := eligible(nodes, target)
 	cordoned := map[string]bool{}
 	for _, n := range nodes {
-		if n.Cordoned || (n.State == store.NodeReady && !placementAllows(n, target.Spec)) {
+		if n.Cordoned || (n.State == store.NodeReady && !placementAllows(n, target)) {
 			cordoned[n.ID] = true
 		}
 	}
@@ -670,25 +670,31 @@ func pickVictim(rs []store.Replica) store.Replica {
 	})
 }
 
-// eligible returns the nodes that may take new replicas of sp: ready, not
-// cordoned, and allowed by its placement.
-func eligible(nodes []store.Node, sp *spec.App) []store.Node {
+// eligible returns the nodes that may take new replicas of rev: ready, not
+// cordoned, and allowed by its placement and image platforms.
+func eligible(nodes []store.Node, rev store.Revision) []store.Node {
 	var out []store.Node
 	for _, n := range nodes {
-		if n.State == store.NodeReady && !n.Cordoned && placementAllows(n, sp) {
+		if n.State == store.NodeReady && !n.Cordoned && placementAllows(n, rev) {
 			out = append(out, n)
 		}
 	}
 	return out
 }
 
-// placementAllows reports whether replicas of sp may run on n: n matches
-// the placement and, if restricted, is selected by it (ADR 0014).
-func placementAllows(n store.Node, sp *spec.App) bool {
+// placementAllows reports whether replicas of rev may run on n: n matches
+// the placement and, if restricted, is selected by it, and the image has a
+// variant for n's platform once its platforms are known (ADR 0014). A node
+// that does not report its platform is not ruled out.
+func placementAllows(n store.Node, rev store.Revision) bool {
+	sp := rev.Spec
 	if !sp.Placement.Matches(n.AllLabels()) {
 		return false
 	}
-	return !n.Restricted || sp.Placement.Selects(n.Labels)
+	if n.Restricted && !sp.Placement.Selects(n.Labels) {
+		return false
+	}
+	return len(rev.Platforms) == 0 || n.OS == "" || n.Arch == "" || slices.Contains(rev.Platforms, n.OS+"/"+n.Arch)
 }
 
 // pickNode chooses a ready node for a new replica: fewest of the spread

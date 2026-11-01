@@ -164,6 +164,9 @@ type Revision struct {
 	Seq         int
 	Spec        *spec.App
 	ImageDigest string // pinned reference once an agent has pulled the image
+	// Platforms lists the image's platforms ("os/arch") once an agent has
+	// reported them; nil until then (ADR 0014).
+	Platforms []string
 	// Secrets pins the version of every secret the spec references.
 	Secrets   map[string]int
 	CreatedAt time.Time
@@ -346,6 +349,8 @@ type Store interface {
 	ListRevisions(ctx context.Context, app string) ([]Revision, error)
 	// SetRevisionDigest records the pinned image reference if none is set yet.
 	SetRevisionDigest(ctx context.Context, revision, digest string) error
+	// SetRevisionPlatforms records the image's platforms if none are set yet.
+	SetRevisionPlatforms(ctx context.Context, revision string, platforms []string) error
 
 	CreateReplica(ctx context.Context, r Replica) error
 	DeleteReplica(ctx context.Context, id string) error
