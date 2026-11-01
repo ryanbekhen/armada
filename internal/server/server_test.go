@@ -553,6 +553,39 @@ func TestNewRequiresClientAuth(t *testing.T) {
 	}
 }
 
+// Reports after the hello must keep the capacity the hello reported, also
+// on a node's first connection, when the stored record has none yet.
+func TestReportsKeepNodeCapacity(t *testing.T) {
+	t.Parallel()
+	c := newCluster(t)
+	if err := c.store.UpsertNode(c.ctx, store.Node{ID: "n1", PrivateIP: "10.0.0.11"}); err != nil {
+		t.Fatal(err)
+	}
+	client := armadav1.NewAgentServiceClient(c.dial(c.ca, pki.Identity{Kind: pki.KindNode, Name: "n1"}))
+	ctx, cancel := context.WithCancel(c.ctx)
+	defer cancel()
+	stream, err := client.Connect(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hello := &armadav1.Hello{PrivateIp: "10.0.0.11", CpuMillis: 2000, MemoryBytes: 2 << 30}
+	if err := stream.Send(&armadav1.AgentMessage{Msg: &armadav1.AgentMessage_Hello{Hello: hello}}); err != nil {
+		t.Fatal(err)
+	}
+	c.eventually("n1 connected", func() bool { return c.srv.session("n1") != nil })
+	if err := stream.Send(&armadav1.AgentMessage{Msg: &armadav1.AgentMessage_Report{Report: &armadav1.ReplicaReport{}}}); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(200 * time.Millisecond) // the report is applied asynchronously
+	n, err := c.store.GetNode(c.ctx, "n1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n.CPUMillis != 2000 || n.MemoryBytes != 2<<30 {
+		t.Errorf("after a report: cpu %d, memory %d; want the hello's 2000, %d", n.CPUMillis, n.MemoryBytes, 2<<30)
+	}
+}
+
 // A remote agent's stream never ends on its own; shutdown must not wait
 // for it forever.
 func TestShutdownWithConnectedAgent(t *testing.T) {

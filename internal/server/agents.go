@@ -112,6 +112,9 @@ func (s *Server) Connect(stream armadav1.AgentService_ConnectServer) error {
 	// Self-reported and untrusted: bounded to plausible values.
 	hello.CpuMillis = max(0, min(hello.GetCpuMillis(), maxNodeCPUMillis))
 	hello.MemoryBytes = max(0, min(hello.GetMemoryBytes(), maxNodeMemory))
+	// Reports rewrite the node status from node: keep what hello reported,
+	// not the record as it was before this session.
+	node.CPUMillis, node.MemoryBytes = hello.GetCpuMillis(), hello.GetMemoryBytes()
 	if !validVersion(hello.GetVersion()) {
 		hello.Version = ""
 	}
