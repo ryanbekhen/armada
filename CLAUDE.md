@@ -10,11 +10,11 @@ Armada is a multi-machine container platform (cloud instances, VMs, or bare meta
 - **Implementation plan, phases, and technical design:** `PLAN.md` (local only, not tracked in git)
 - **Architecture decisions:** `docs/adr/`. **Threat model:** `docs/threat-model.md`
 
-When the design changes, update Armada.md/PLAN.md or add an ADR in the same change. Never let code and documents contradict each other.
+When the design changes, update Armada.md/PLAN.md or add an ADR in the same change. Never let code and documents contradict each other (see "Keeping documents current" below).
 
 ## Status
 
-Phases 0–6 are done and tested end to end in local lab VMs (Pebble ACME) and in the cloud: a single server on Oracle Cloud (Oracle Linux 9, SELinux enforcing, Let's Encrypt staging, HTTP-01 and Cloudflare DNS-01 wildcard) and three control plane servers on depa.id (leader stop and SIGKILL under load, rolling update through the new leader, all machines rebooted at once). Phase 7 (hardening, documentation, release) is in progress: security review fixes, `armada doctor`, signed release pipeline (GoReleaser + cosign + SBOM + provenance), `install.sh`, `armada backup`/`restore`, self-healing (ADR 0008), the embedded etcd state store (ADR 0009), the HA control plane (ADR 0010), the embedded container runtime (ADR 0011), quickstart, spec reference and operations guide are done. Before the first tagged release come the roadmap stages in PLAN.md milestone 7. Follow the phase order in PLAN.md. Do not build features outside the v0.1 scope (PLAN.md section 9) unless asked.
+Phases 0–6 are done and tested end to end in local lab VMs (Pebble ACME) and in the cloud: a single server on Oracle Cloud (Oracle Linux 9, SELinux enforcing, Let's Encrypt staging, HTTP-01 and Cloudflare DNS-01 wildcard) and three control plane servers on depa.id (leader stop and SIGKILL under load, rolling update through the new leader, all machines rebooted at once). Phase 7 (hardening, documentation, release) is in progress: security review fixes, `armada doctor`, signed release pipeline (GoReleaser + cosign + SBOM + provenance), `install.sh`, `armada backup`/`restore`, self-healing (ADR 0008), the embedded etcd state store (ADR 0009), the HA control plane (ADR 0010), the embedded container runtime (ADR 0011), quickstart, spec reference and operations guide are done. Roadmap stage 1 (PLAN.md milestone 7) is in progress: rolling upgrades with gated state migrations (ADR 0012), SELinux confinement of containers, and replica rebalancing (ADR 0013) are done. Before the first tagged release come the roadmap stages in PLAN.md milestone 7. Follow the phase order in PLAN.md. Do not build features outside the v0.1 scope (PLAN.md section 9) unless asked.
 
 Module path: `github.com/ryanbekhen/armada`. The toolchain is pinned with `toolchain` in `go.mod` (a patch release with no govulncheck findings); golangci-lint must be built with the same toolchain.
 
@@ -47,7 +47,7 @@ armada runtime [--bin-dir DIR] / armada runtime reset   # embedded containerd (s
 
 - **Desired state + reconciliation**: the CLI only writes desired state to the server; reconcilers on the server and agents converge actual state. Every operation goes through this path; never add a "just run the container" path from the CLI.
 - Agents open the gRPC (mTLS) connection to the server; the server sends assignments over a bidirectional stream.
-- Nodes (ADR 0003): joining goes through a separate join listener (server-only TLS, serves only `JoinService`, rate limited); the main API is always strict mTLS. The joining node pins the CA by hash without `InsecureSkipVerify`. Node certificates last 30 days, are renewed by the agent, and are only accepted while their serial is recorded in `node_certs` (removing a node revokes them). Cordoned nodes get no new replicas and are evacuated without dropping below the desired serving count.
+- Nodes (ADR 0003): joining goes through a separate join listener (server-only TLS, serves only `JoinService`, rate limited); the main API is always strict mTLS. The joining node pins the CA by hash without `InsecureSkipVerify`. Node certificates last 30 days, are renewed by the agent, and are only accepted while their serial is recorded in `node_certs` (removing a node revokes them). Cordoned nodes get no new replicas and are evacuated without dropping below the desired serving count. Unevenly spread apps are rebalanced one replica at a time across the cluster through the same path (ADR 0013).
 - Internal ingress (ADR 0007): `<app>.internal` is served by a HAProxy `frontend internal` bound to the container bridge gateway (`armada0`) (never the private IP: NAT and load balancers make that reachable from the internet) and resolved by the agent's DNS server (`internal/dnsserver`) on the same address, which answers only the bridge subnet. Internal and public rules never mix; the `.internal` zone is reserved.
 - Container runtime (ADR 0011): the only runtime is Armada's own containerd, run from binaries pinned in `internal/runtime/embedded/lock.go` and embedded in release builds (build tag `bundle`); `armada-runtime.service` runs `armada runtime`, which extracts and verifies the pack and execs containerd (own root, socket `/run/armada/containerd/containerd.sock`, namespace `armada`, config format 4 with `imports = []`, no CRI/NRI/TCP/debug/metrics, restart monitor disabled). `internal/runtime/containerd` builds the OCI spec itself (shared checks in `runtime.CheckContainerSpec`), uses CNI (`armada0`, host-local IPAM on tmpfs with a default route, portmap on the private IP, firewall), unique container IDs per creation (`<name>-<hex>`), and logs through `armada runtime-log`. `agent.json` records `"runtime": "embedded"`; nodes set up for the removed Docker runtime are refused. Other engines (Docker, Podman, Apple `container`) are planned as external drivers over a local gRPC protocol, never built into the core again.
 - Interfaces sit at boundaries that will change: `runtime.Driver`, `proxy.Driver`, `store.Store`, the DNS provider for certmagic. Code outside the implementing package depends only on the interface.
@@ -66,6 +66,16 @@ armada runtime [--bin-dir DIR] / armada runtime reset   # embedded containerd (s
 - YAML specs are parsed strictly (unknown field = error). Features whose types exist but are not implemented yet must be rejected with a clear message, never silently ignored.
 - Tests live next to the code (`_test.go`). Reconciler logic is tested with fake drivers/stores, not a real runtime. HAProxy renderer changes require golden files.
 - Development and CI always use ACME staging or Pebble, never the Let's Encrypt production endpoint.
+
+## Keeping documents current (mandatory)
+
+Every change updates, in the same commit or pull request, every document it makes stale. A change is not done until its documents are; do not leave it for a follow-up. Before committing, check at least:
+
+- `README.md`: the feature list, the tested environments table, and the document links.
+- `CLAUDE.md`: Status, Commands, Architecture in brief, and these conventions.
+- `docs/`: quickstart, operations guide, spec reference, `threat-model.md` for anything that changes the attack surface or a mitigation, and `docs/adr/` for design decisions (a new ADR, or an update to the one the change supersedes, plus the index in `docs/adr/README.md`).
+- CLI help text and error messages that describe the changed behaviour.
+- `PLAN.md` and `Armada.md` when they exist locally (never committed).
 
 ## Security rules (mandatory)
 
