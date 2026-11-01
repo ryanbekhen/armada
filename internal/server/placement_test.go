@@ -87,6 +87,25 @@ func TestPlacementRequireKeepsReplicasOnMatchingNodes(t *testing.T) {
 	}
 }
 
+func TestReplicasStayWhenTheirNodeNoLongerMatches(t *testing.T) {
+	t.Parallel()
+	c := placementSetup(t, nil, map[string]string{"region": "sulawesi"})
+	c.deploy(placedSpec + "placement:\n  require:\n    region: sulawesi\n")
+	c.serveAll()
+	if _, err := c.st.SetNodeLabels(c.ctx, "n2", nil, []string{"region"}, "t"); err != nil {
+		t.Fatal(err)
+	}
+	c.advance(time.Second)
+	byNode, _ := c.split()
+	if len(byNode["n1"]) != 0 || len(byNode["n2"]) != 2 {
+		t.Fatalf("replicas by node = %v, want both kept on n2", byNode)
+	}
+	if msg := c.placementNote(); !strings.Contains(msg, "2 replica(s) stay on nodes the app may no longer use") ||
+		!strings.Contains(msg, "no ready node matches the placement (region=sulawesi)") {
+		t.Errorf("placement note = %q", msg)
+	}
+}
+
 func TestRestrictedNodeOnlyTakesAppsThatSelectIt(t *testing.T) {
 	t.Parallel()
 	c := placementSetup(t, nil, map[string]string{"kind": "gpu"})
