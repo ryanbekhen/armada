@@ -35,8 +35,11 @@ cover:
 	CGO_ENABLED=1 go test -race -coverprofile=coverage.out ./...
 	go tool cover -func=coverage.out | tail -1
 
+# Lint for Linux too: the runtime code is mostly *_linux.go, which a
+# macOS run would skip.
 lint:
 	golangci-lint run
+	GOOS=linux golangci-lint run
 
 fmt:
 	golangci-lint fmt

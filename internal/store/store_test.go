@@ -326,11 +326,11 @@ func TestDomainsLifecycle(t *testing.T) {
 	t.Parallel()
 	s, ctx := open(t), context.Background()
 
-	if _, _, err := s.Deploy(ctx, ingressSpec(t, "web", []string{"contoh.id", "www.contoh.id"}), "a"); err != nil {
+	if _, _, err := s.Deploy(ctx, ingressSpec(t, "web", []string{"example.org", "www.example.org"}), "a"); err != nil {
 		t.Fatal(err)
 	}
 	ds, err := s.ListDomains(ctx)
-	if err != nil || len(ds) != 2 || ds[0].Name != "contoh.id" || ds[0].Verified || len(ds[0].Token) != 32 {
+	if err != nil || len(ds) != 2 || ds[0].Name != "example.org" || ds[0].Verified || len(ds[0].Token) != 32 {
 		t.Fatalf("ListDomains = %+v, %v", ds, err)
 	}
 	if ds[0].Token == ds[1].Token {
@@ -338,25 +338,25 @@ func TestDomainsLifecycle(t *testing.T) {
 	}
 	token := ds[0].Token
 
-	if err := s.SetDomainVerification(ctx, "contoh.id", false, "TXT record not found"); err != nil {
+	if err := s.SetDomainVerification(ctx, "example.org", false, "TXT record not found"); err != nil {
 		t.Fatal(err)
 	}
-	d, _ := s.GetDomain(ctx, "contoh.id")
+	d, _ := s.GetDomain(ctx, "example.org")
 	if d.Verified || d.Message != "TXT record not found" {
 		t.Errorf("after failed check = %+v", d)
 	}
-	if err := s.SetDomainVerification(ctx, "contoh.id", true, ""); err != nil {
+	if err := s.SetDomainVerification(ctx, "example.org", true, ""); err != nil {
 		t.Fatal(err)
 	}
-	d, _ = s.GetDomain(ctx, "contoh.id")
+	d, _ = s.GetDomain(ctx, "example.org")
 	if !d.Verified || d.VerifiedAt.IsZero() || d.Message != "" {
 		t.Errorf("after verify = %+v", d)
 	}
 	// A later failed check (e.g. TXT removed) does not revoke verification.
-	if err := s.SetDomainVerification(ctx, "contoh.id", false, "gone"); err != nil {
+	if err := s.SetDomainVerification(ctx, "example.org", false, "gone"); err != nil {
 		t.Fatal(err)
 	}
-	if d, _ = s.GetDomain(ctx, "contoh.id"); !d.Verified {
+	if d, _ = s.GetDomain(ctx, "example.org"); !d.Verified {
 		t.Error("verification was revoked")
 	}
 	if err := s.SetDomainVerification(ctx, "ghost.id", true, ""); !errors.Is(err, ErrNotFound) {
@@ -369,11 +369,11 @@ func TestDomainsLifecycle(t *testing.T) {
 	// Redeploying keeps the token and verification. A dropped domain stays
 	// while the active revision still serves it, and goes once the rollout
 	// completes.
-	rev, _, err := s.Deploy(ctx, ingressSpec(t, "web", []string{"contoh.id"}, "/app"), "a")
+	rev, _, err := s.Deploy(ctx, ingressSpec(t, "web", []string{"example.org"}, "/app"), "a")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.GetDomain(ctx, "www.contoh.id"); err != nil {
+	if _, err := s.GetDomain(ctx, "www.example.org"); err != nil {
 		t.Errorf("domain of the active revision removed mid-rollout: %v", err)
 	}
 	if err := s.CompleteRollout(ctx, "web", rev.Name); err != nil {
@@ -383,7 +383,7 @@ func TestDomainsLifecycle(t *testing.T) {
 	if len(ds) != 1 || ds[0].Token != token || !ds[0].Verified {
 		t.Errorf("after redeploy = %+v", ds)
 	}
-	if _, err := s.GetDomain(ctx, "www.contoh.id"); !errors.Is(err, ErrNotFound) {
+	if _, err := s.GetDomain(ctx, "www.example.org"); !errors.Is(err, ErrNotFound) {
 		t.Error("unused domain not removed")
 	}
 }
@@ -392,15 +392,15 @@ func TestDomainRouteConflicts(t *testing.T) {
 	t.Parallel()
 	s, ctx := open(t), context.Background()
 
-	if _, _, err := s.Deploy(ctx, ingressSpec(t, "frontend", []string{"contoh.id"}), "a"); err != nil {
+	if _, _, err := s.Deploy(ctx, ingressSpec(t, "frontend", []string{"example.org"}), "a"); err != nil {
 		t.Fatal(err)
 	}
 	// Path-based sharing of one domain across apps is allowed.
-	if _, _, err := s.Deploy(ctx, ingressSpec(t, "api", []string{"contoh.id"}, "/api"), "a"); err != nil {
+	if _, _, err := s.Deploy(ctx, ingressSpec(t, "api", []string{"example.org"}, "/api"), "a"); err != nil {
 		t.Fatalf("path-based sharing rejected: %v", err)
 	}
 	// But two apps cannot claim the same host and path.
-	_, _, err := s.Deploy(ctx, ingressSpec(t, "evil", []string{"contoh.id"}, "/api"), "a")
+	_, _, err := s.Deploy(ctx, ingressSpec(t, "evil", []string{"example.org"}, "/api"), "a")
 	if !errors.Is(err, ErrConflict) || !strings.Contains(err.Error(), "app api") {
 		t.Errorf("conflict err = %v", err)
 	}
@@ -408,10 +408,10 @@ func TestDomainRouteConflicts(t *testing.T) {
 		t.Error("conflicting deploy was partially applied")
 	}
 	// Shared domains survive when one of the apps stops using them.
-	if _, _, err := s.Deploy(ctx, ingressSpec(t, "api", []string{"api.contoh.id"}), "a"); err != nil {
+	if _, _, err := s.Deploy(ctx, ingressSpec(t, "api", []string{"api.example.org"}), "a"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.GetDomain(ctx, "contoh.id"); err != nil {
+	if _, err := s.GetDomain(ctx, "example.org"); err != nil {
 		t.Errorf("domain still used by frontend was removed: %v", err)
 	}
 }
@@ -510,17 +510,17 @@ func TestRollbackRejectsForeignRevisions(t *testing.T) {
 func TestRollbackReclaimsDomains(t *testing.T) {
 	t.Parallel()
 	s, ctx := open(t), context.Background()
-	r1, _, _ := s.Deploy(ctx, ingressSpec(t, "web", []string{"contoh.id"}), "a")
+	r1, _, _ := s.Deploy(ctx, ingressSpec(t, "web", []string{"example.org"}), "a")
 	r2, _, _ := s.Deploy(ctx, ingressSpec(t, "web", []string{"baru.id"}), "a")
 	if err := s.CompleteRollout(ctx, "web", r2.Name); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.GetDomain(ctx, "contoh.id"); !errors.Is(err, ErrNotFound) {
+	if _, err := s.GetDomain(ctx, "example.org"); !errors.Is(err, ErrNotFound) {
 		t.Fatal("dropped domain kept")
 	}
 	// Another app takes the route in the meantime: rolling back must not
 	// steal it.
-	if _, _, err := s.Deploy(ctx, ingressSpec(t, "shop", []string{"contoh.id"}), "a"); err != nil {
+	if _, _, err := s.Deploy(ctx, ingressSpec(t, "shop", []string{"example.org"}), "a"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.Rollback(ctx, "web", r1.Name, "a"); !errors.Is(err, ErrConflict) {
@@ -534,7 +534,7 @@ func TestRollbackReclaimsDomains(t *testing.T) {
 	if _, err := s.Rollback(ctx, "web", r1.Name, "a"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.GetDomain(ctx, "contoh.id"); err != nil {
+	if _, err := s.GetDomain(ctx, "example.org"); err != nil {
 		t.Errorf("rollback did not register its domain: %v", err)
 	}
 }

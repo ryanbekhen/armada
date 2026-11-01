@@ -32,11 +32,11 @@ func validConfig(t *testing.T) Config {
 			{Name: "api", Servers: []Server{{Name: "api-r1-a", Address: "10.0.0.3:32769"}}},
 		},
 		Rules: []Rule{
-			{Host: "contoh.id", PathPrefix: "/", Backend: "web"},
-			{Host: "contoh.id", PathPrefix: "/api", StripPrefix: true, Backend: "api"},
+			{Host: "example.org", PathPrefix: "/", Backend: "web"},
+			{Host: "example.org", PathPrefix: "/api", StripPrefix: true, Backend: "api"},
 			{Host: "api.internal", PathPrefix: "/", Backend: "api", Internal: true},
 		},
-		Certificates: []Certificate{{Name: "contoh.id", PEM: testPEM(t)}, {Name: "*.apps.contoh.id", PEM: testPEM(t)}},
+		Certificates: []Certificate{{Name: "example.org", PEM: testPEM(t)}, {Name: "*.apps.example.org", PEM: testPEM(t)}},
 	}
 }
 
@@ -65,12 +65,12 @@ func TestValidateRejects(t *testing.T) {
 		"server address garbage":       func(c *Config) { c.Backends[0].Servers[0].Address = "10.0.0.2:80 backup" },
 		"server port zero":             func(c *Config) { c.Backends[0].Servers[0].Address = "10.0.0.2:0" },
 		"server duplicate name":        func(c *Config) { c.Backends[0].Servers = append(c.Backends[0].Servers, c.Backends[0].Servers[0]) },
-		"rule host injection":          func(c *Config) { c.Rules[0].Host = "contoh.id }\n  use_backend x" },
+		"rule host injection":          func(c *Config) { c.Rules[0].Host = "example.org }\n  use_backend x" },
 		"server address with zone":     func(c *Config) { c.Backends[0].Servers[0].Address = "[fd00::1%x\n    global x]:80" },
 		"server address non-canonical": func(c *Config) { c.Backends[0].Servers[0].Address = "[fd00:0::1]:80" },
-		"rule host uppercase":          func(c *Config) { c.Rules[0].Host = "Contoh.id" },
+		"rule host uppercase":          func(c *Config) { c.Rules[0].Host = "Example.org" },
 		"public rule for .internal":    func(c *Config) { c.Rules[0].Host = "web.internal" },
-		"internal rule, public host":   func(c *Config) { c.Rules[2].Host = "contoh.id" },
+		"internal rule, public host":   func(c *Config) { c.Rules[2].Host = "example.org" },
 		"internal rule, nested host":   func(c *Config) { c.Rules[2].Host = "a.api.internal" },
 		"internal rule injection":      func(c *Config) { c.Rules[2].Host = "api }\n  use_backend x.internal" },
 		"certificate for .internal":    func(c *Config) { c.Certificates[0].Name = "api.internal" },
@@ -95,8 +95,8 @@ func TestValidateRejects(t *testing.T) {
 		"too many servers":        func(c *Config) { c.Backends[0].Servers = make([]Server, MaxServers+1) },
 		"too many backends":       func(c *Config) { c.Backends = make([]Backend, MaxBackends+1) },
 		"cert bundle too large":   func(c *Config) { c.Certificates[0].PEM = make([]byte, maxCertificatePEM+1) },
-		"wildcard in rule host":   func(c *Config) { c.Rules[0].Host = "*.contoh.id" },
-		"double wildcard on cert": func(c *Config) { c.Certificates[1].Name = "*.*.contoh.id" },
+		"wildcard in rule host":   func(c *Config) { c.Rules[0].Host = "*.example.org" },
+		"double wildcard on cert": func(c *Config) { c.Certificates[1].Name = "*.*.example.org" },
 	}
 	for name, mutate := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -127,10 +127,10 @@ func TestProtoRoundTrip(t *testing.T) {
 func TestCertificateFileName(t *testing.T) {
 	t.Parallel()
 
-	if got := (Certificate{Name: "*.apps.contoh.id"}).FileName(); got != "_wildcard.apps.contoh.id.pem" {
+	if got := (Certificate{Name: "*.apps.example.org"}).FileName(); got != "_wildcard.apps.example.org.pem" {
 		t.Errorf("FileName = %q", got)
 	}
-	if got := (Certificate{Name: "contoh.id"}).FileName(); got != "contoh.id.pem" {
+	if got := (Certificate{Name: "example.org"}).FileName(); got != "example.org.pem" {
 		t.Errorf("FileName = %q", got)
 	}
 }

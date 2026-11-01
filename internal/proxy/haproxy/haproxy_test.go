@@ -44,15 +44,15 @@ func sampleConfig(t *testing.T) proxy.Config {
 			{Name: "admin-panel", Servers: nil},
 		},
 		Rules: []proxy.Rule{
-			{Host: "contoh.id", PathPrefix: "/", Backend: "frontend"},
-			{Host: "contoh.id", PathPrefix: "/api", StripPrefix: true, Backend: "api-bengkel"},
-			{Host: "contoh.id", PathPrefix: "/admin", Backend: "admin-panel"},
-			{Host: "contoh.id", PathPrefix: "/api/v1.2", StripPrefix: true, Backend: "api-bengkel"},
-			{Host: "api-bengkel.apps.contoh.id", PathPrefix: "/", Backend: "api-bengkel"},
+			{Host: "example.org", PathPrefix: "/", Backend: "frontend"},
+			{Host: "example.org", PathPrefix: "/api", StripPrefix: true, Backend: "api-bengkel"},
+			{Host: "example.org", PathPrefix: "/admin", Backend: "admin-panel"},
+			{Host: "example.org", PathPrefix: "/api/v1.2", StripPrefix: true, Backend: "api-bengkel"},
+			{Host: "api-bengkel.apps.example.org", PathPrefix: "/", Backend: "api-bengkel"},
 			{Host: "api-bengkel.internal", PathPrefix: "/", Backend: "api-bengkel", Internal: true},
 			{Host: "api-bengkel.internal", PathPrefix: "/v1", StripPrefix: true, Backend: "api-bengkel", Internal: true},
 		},
-		Certificates: []proxy.Certificate{{Name: "contoh.id", PEM: cert(t)}},
+		Certificates: []proxy.Certificate{{Name: "example.org", PEM: cert(t)}},
 	}
 }
 
@@ -122,7 +122,7 @@ func TestRenderInternalFrontend(t *testing.T) {
 	if strings.Contains(pub, ".internal") {
 		t.Error("an internal name is routed on a public frontend")
 	}
-	if strings.Contains(internal, "contoh.id") {
+	if strings.Contains(internal, "example.org") {
 		t.Error("a public name is routed on the internal frontend")
 	}
 	if !strings.Contains(internal, "set-path /%[path,field(3,/,0)] if { var(txn.route) -m str i0 }") {
@@ -157,7 +157,7 @@ var allowedLine = regexp.MustCompile(`^(#.*|global|defaults|frontend [a-z]+|back
 // and checks that anything accepted renders without injecting new lines or
 // sections.
 func FuzzRender(f *testing.F) {
-	f.Add("contoh.id", "/api", "web", "/healthz", "10.0.0.2:80")
+	f.Add("example.org", "/api", "web", "/healthz", "10.0.0.2:80")
 	f.Add("a.b", "/", "x", "", "127.0.0.1:1")
 	f.Add("a.b\nbind :1", "/x }", "w\n", "/h h", "10.0.0.1:80 backup")
 	f.Fuzz(func(t *testing.T, host, path, name, health, addr string) {
@@ -338,7 +338,7 @@ func TestApplyLifecycle(t *testing.T) {
 	if !strings.Contains(string(live), "server s1 10.0.0.2:32769") {
 		t.Errorf("live config missing server:\n%s", live)
 	}
-	if err := fsutil.CheckPrivate(filepath.Join(etcDir(dir), certDir, "contoh.id.pem")); err != nil {
+	if err := fsutil.CheckPrivate(filepath.Join(etcDir(dir), certDir, "example.org.pem")); err != nil {
 		t.Error(err)
 	}
 
@@ -405,14 +405,14 @@ func TestApplyLifecycle(t *testing.T) {
 	if err := d.Apply(ctx, cfg); err != nil {
 		t.Fatal(err)
 	}
-	if len(a.cmds) != 2 || !strings.HasPrefix(a.cmds[0], "set ssl cert /usr/local/etc/haproxy/certs/contoh.id.pem <<") ||
-		a.cmds[1] != "commit ssl cert /usr/local/etc/haproxy/certs/contoh.id.pem" || e.reloads != 0 {
+	if len(a.cmds) != 2 || !strings.HasPrefix(a.cmds[0], "set ssl cert /usr/local/etc/haproxy/certs/example.org.pem <<") ||
+		a.cmds[1] != "commit ssl cert /usr/local/etc/haproxy/certs/example.org.pem" || e.reloads != 0 {
 		t.Errorf("cert update cmds = %q reloads=%d", a.cmds, e.reloads)
 	}
 
 	// New route: structural change, validated then reloaded.
-	cfg.Rules = append(cfg.Rules, proxy.Rule{Host: "www.contoh.id", PathPrefix: "/", Backend: "frontend"})
-	cfg.Certificates = append(cfg.Certificates, proxy.Certificate{Name: "www.contoh.id", PEM: cert(t)})
+	cfg.Rules = append(cfg.Rules, proxy.Rule{Host: "www.example.org", PathPrefix: "/", Backend: "frontend"})
+	cfg.Certificates = append(cfg.Certificates, proxy.Certificate{Name: "www.example.org", PEM: cert(t)})
 	if err := d.Apply(ctx, cfg); err != nil {
 		t.Fatal(err)
 	}
@@ -425,7 +425,7 @@ func TestApplyLifecycle(t *testing.T) {
 	if err := d.Apply(ctx, cfg); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(etcDir(dir), certDir, "www.contoh.id.pem")); !errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(filepath.Join(etcDir(dir), certDir, "www.example.org.pem")); !errors.Is(err, os.ErrNotExist) {
 		t.Error("stale certificate not removed")
 	}
 	if err := d.Health(ctx); err != nil {

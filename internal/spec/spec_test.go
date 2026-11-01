@@ -289,7 +289,7 @@ func TestImageReferences(t *testing.T) {
 func TestValidateDomain(t *testing.T) {
 	t.Parallel()
 
-	for _, d := range []string{"a.co", "api-bengkel.apps.contoh.id", "xn--bcher-kva.example", "a1.b2.c3"} {
+	for _, d := range []string{"a.co", "api-bengkel.apps.example.org", "xn--bcher-kva.example", "a1.b2.c3"} {
 		if err := ValidateDomain(d); err != nil {
 			t.Errorf("ValidateDomain(%q) = %v", d, err)
 		}

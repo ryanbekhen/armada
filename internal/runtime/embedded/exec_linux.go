@@ -42,7 +42,7 @@ func Exec(p Paths, pack []byte, binDir string) error {
 	}
 	bin := filepath.Join(p.Bin(), BinContainerd)
 	env := []string{"PATH=" + p.Bin() + ":/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"}
-	if err := syscall.Exec(bin, []string{"containerd", "--config", p.Config()}, env); err != nil {
+	if err := syscall.Exec(bin, []string{"containerd", "--config", p.Config()}, env); err != nil { //nolint:gosec // bin is the verified pack's containerd under the root-only data directory
 		return fmt.Errorf("exec containerd: %w", err)
 	}
 	return nil

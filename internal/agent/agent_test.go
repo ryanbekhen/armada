@@ -322,14 +322,14 @@ func TestReconcileAppliesProxy(t *testing.T) {
 
 	cfg := &armadav1.ProxyConfig{
 		Backends: []*armadav1.ProxyBackend{{Name: "web", Servers: []*armadav1.ProxyServer{{Name: "web-r1-a", Address: "10.0.0.2:32768"}}}},
-		Rules:    []*armadav1.ProxyRule{{Host: "web.apps.contoh.id", PathPrefix: "/", Backend: "web"}},
+		Rules:    []*armadav1.ProxyRule{{Host: "web.apps.example.org", PathPrefix: "/", Backend: "web"}},
 	}
 	a.setDesired(nil, cfg)
 	if _, err := a.Reconcile(ctx); err != nil {
 		t.Fatal(err)
 	}
 	n, got := px.Applied()
-	if n != 1 || got.Rules[0].Host != "web.apps.contoh.id" {
+	if n != 1 || got.Rules[0].Host != "web.apps.example.org" {
 		t.Fatalf("applied %d: %+v", n, got)
 	}
 	// Unchanged config is not re-applied.
@@ -387,7 +387,7 @@ func TestInternalDNS(t *testing.T) {
 	a.setDesired([]*armadav1.ReplicaSpec{replica("web-r1-a", "nginx:1", 80)}, &armadav1.ProxyConfig{
 		Backends: []*armadav1.ProxyBackend{{Name: "web"}, {Name: "shop-api"}},
 		Rules: []*armadav1.ProxyRule{
-			{Host: "web.apps.contoh.id", PathPrefix: "/", Backend: "web"},
+			{Host: "web.apps.example.org", PathPrefix: "/", Backend: "web"},
 			{Host: "web.internal", PathPrefix: "/", Backend: "web", Internal: true},
 			{Host: "shop-api.internal", PathPrefix: "/", Backend: "shop-api", Internal: true},
 			{Host: "shop-api.internal", PathPrefix: "/v1", Backend: "shop-api", Internal: true},
