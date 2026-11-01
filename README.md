@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/armada-logo-dark.svg">
+    <img src="docs/assets/armada-logo-light.svg" alt="Armada logo" width="96" height="96">
+  </picture>
+</p>
+
 # Armada
 
 > **Status: pre-alpha.** Not ready for production use yet.
