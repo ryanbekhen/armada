@@ -6,15 +6,13 @@ Guidance for Claude Code when working in this repository.
 
 Armada is a multi-machine container platform (cloud instances, VMs, or bare metal; do not describe it as VPS-specific). Docs describe Armada on its own terms: do not compare it with or name other products unless a component or protocol really needs naming. A single Go binary has two roles: `armada server` (control plane) and `armada agent` (runs on every node and runs containers through Armada's embedded containerd; ADR 0011; other engines are planned as external drivers). Ingress uses HAProxy as a system container managed by Armada.
 
-- **Product design (source of truth for *what* is built):** `Armada.md` (local only, not tracked in git)
-- **Implementation plan, phases, and technical design:** `PLAN.md` (local only, not tracked in git)
 - **Architecture decisions:** `docs/adr/`. **Threat model:** `docs/threat-model.md`
 
-When the design changes, update Armada.md/PLAN.md or add an ADR in the same change. Never let code and documents contradict each other (see "Keeping documents current" below).
+When the design changes, add or update an ADR in the same change. Never let code and documents contradict each other (see "Keeping documents current" below).
 
 ## Status
 
-Phases 0–6 are done and tested end to end in local lab VMs (Pebble ACME) and in the cloud: a single server on Oracle Cloud (Oracle Linux 9, SELinux enforcing, Let's Encrypt staging, HTTP-01 and Cloudflare DNS-01 wildcard) and three control plane servers on depa.id (leader stop and SIGKILL under load, rolling update through the new leader, all machines rebooted at once). Phase 7 (hardening, documentation, release) is in progress: security review fixes, `armada doctor`, signed release pipeline (GoReleaser + cosign + SBOM + provenance), `install.sh`, `armada backup`/`restore`, self-healing (ADR 0008), the embedded etcd state store (ADR 0009), the HA control plane (ADR 0010), the embedded container runtime (ADR 0011), quickstart, spec reference and operations guide are done. Roadmap stage 1 (PLAN.md milestone 7) is in progress: rolling upgrades with gated state migrations (ADR 0012), SELinux confinement of containers, and replica rebalancing (ADR 0013) are done. Before the first tagged release come the roadmap stages in PLAN.md milestone 7. Follow the phase order in PLAN.md. Do not build features outside the v0.1 scope (PLAN.md section 9) unless asked.
+Phases 0–6 are done and tested end to end in local lab VMs (Pebble ACME) and in the cloud: a single server on Oracle Cloud (Oracle Linux 9, SELinux enforcing, Let's Encrypt staging, HTTP-01 and Cloudflare DNS-01 wildcard) and three control plane servers on depa.id (leader stop and SIGKILL under load, rolling update through the new leader, all machines rebooted at once). Phase 7 (hardening, documentation, release) is in progress: security review fixes, `armada doctor`, signed release pipeline (GoReleaser + cosign + SBOM + provenance), `install.sh`, `armada backup`/`restore`, self-healing (ADR 0008), the embedded etcd state store (ADR 0009), the HA control plane (ADR 0010), the embedded container runtime (ADR 0011), quickstart, spec reference and operations guide are done. Roadmap stage 1 is in progress: rolling upgrades with gated state migrations (ADR 0012), SELinux confinement of containers, and replica rebalancing (ADR 0013) are done. More roadmap stages come before the first tagged release. Do not build features outside the agreed scope unless asked.
 
 Module path: `github.com/ryanbekhen/armada`. The toolchain is pinned with `toolchain` in `go.mod` (a patch release with no govulncheck findings); golangci-lint must be built with the same toolchain.
 
@@ -75,7 +73,6 @@ Every change updates, in the same commit or pull request, every document it make
 - `CLAUDE.md`: Status, Commands, Architecture in brief, and these conventions.
 - `docs/`: quickstart, operations guide, spec reference, `threat-model.md` for anything that changes the attack surface or a mitigation, and `docs/adr/` for design decisions (a new ADR, or an update to the one the change supersedes, plus the index in `docs/adr/README.md`).
 - CLI help text and error messages that describe the changed behaviour.
-- `PLAN.md` and `Armada.md` when they exist locally (never committed).
 
 ## Security rules (mandatory)
 
