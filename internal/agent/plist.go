@@ -148,3 +148,13 @@ func plistElement(d *xml.Decoder, se xml.StartElement, depth int) (any, error) {
 
 // plistKey is a dict key, kept apart from string values.
 type plistKey string
+
+// attachedDevice returns the device an attach command printed first, such
+// as /dev/disk8, if it is one.
+func attachedDevice(out []byte) (string, bool) {
+	f := strings.Fields(string(out))
+	if len(f) == 0 || !diskRe.MatchString(f[0]) {
+		return "", false
+	}
+	return f[0], true
+}

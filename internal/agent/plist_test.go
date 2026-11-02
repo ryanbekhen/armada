@@ -82,3 +82,22 @@ func TestDecodePlistRefusesMalformedInput(t *testing.T) {
 		}
 	}
 }
+
+func TestAttachedDevice(t *testing.T) {
+	t.Parallel()
+	for out, want := range map[string]string{
+		"/dev/disk8\n":             "/dev/disk8",
+		"/dev/disk12\t\t\n":        "/dev/disk12",
+		"/dev/disk8 \tApple_HFS\n": "/dev/disk8",
+		// diskutil without the image verb: an error, exit code 0.
+		`diskutil: did not recognize verb "image"; type "diskutil" for a list` + "\n": "",
+		"":                    "",
+		"/dev/disk8s1\n":      "",
+		"/dev/disk8;rm -rf /": "",
+	} {
+		dev, ok := attachedDevice([]byte(out))
+		if dev != want || ok != (want != "") {
+			t.Errorf("attachedDevice(%q) = %q, %v", out, dev, ok)
+		}
+	}
+}
