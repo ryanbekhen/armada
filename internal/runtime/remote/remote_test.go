@@ -138,7 +138,7 @@ func serve(t *testing.T, d driverkit.Driver, name string) string {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		_ = driverkit.Serve(ctx, l, d, driverkit.Info{Name: name, Version: "t", OS: "linux", Arch: "arm64", VMIsolation: true, MinMemoryBytes: 200 << 20})
+		_ = driverkit.Serve(ctx, l, d, driverkit.Info{Name: name, Version: "t", OS: "linux", Arch: "arm64", VMIsolation: true, MinMemoryBytes: 200 << 20, CPUMillis: 2000, MemoryBytes: 2 << 30})
 	}()
 	t.Cleanup(func() { cancel(); <-done })
 	return sock
@@ -176,7 +176,7 @@ func TestRoundTrip(t *testing.T) {
 	if err := d.Ping(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if info := d.Info(); info.GetArch() != "arm64" || !info.GetVmIsolation() || info.GetMinMemoryBytes() != 200<<20 || !d.CanRunSystem() || d.HasBridge() {
+	if info := d.Info(); info.GetArch() != "arm64" || !info.GetVmIsolation() || info.GetMinMemoryBytes() != 200<<20 || info.GetCpuMillis() != 2000 || info.GetMemoryBytes() != 2<<30 || !d.CanRunSystem() || d.HasBridge() {
 		t.Errorf("info %v, system %v, bridge %v", info, d.CanRunSystem(), d.HasBridge())
 	}
 

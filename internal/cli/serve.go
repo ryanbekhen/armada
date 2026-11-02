@@ -433,6 +433,7 @@ func runAgent(ctx context.Context, dataDir string, servers []string, proxyKind, 
 	if rd, ok := rt.(*remote.Driver); ok {
 		if info := rd.Info(); info != nil {
 			acfg.OS, acfg.Arch, acfg.MinMemoryBytes = info.GetOs(), info.GetArch(), info.GetMinMemoryBytes()
+			acfg.RuntimeCPUMillis, acfg.RuntimeMemoryBytes = info.GetCpuMillis(), info.GetMemoryBytes()
 		}
 	}
 	if dns != nil {

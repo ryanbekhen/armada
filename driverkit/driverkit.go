@@ -105,6 +105,11 @@ type Info struct {
 	// MinMemoryBytes is the smallest memory limit the driver accepts; the
 	// scheduler places no replica with a smaller limit on the node. 0: none.
 	MinMemoryBytes int64
+	// CPUMillis and MemoryBytes are what the engine can give containers
+	// when that is less than the machine has (a virtual machine of fixed
+	// size, say); the node reports the smaller of the two. 0: the
+	// machine's.
+	CPUMillis, MemoryBytes int64
 }
 
 // Image is a pulled image.

@@ -54,6 +54,10 @@ type Config struct {
 	// Capacity reported to the scheduler; zero values are auto-detected.
 	CPUMillis   int64
 	MemoryBytes int64
+	// RuntimeCPUMillis and RuntimeMemoryBytes cap the capacity when the
+	// runtime can give containers less than the machine has (a driver's
+	// virtual machine, ADR 0016); 0: no cap.
+	RuntimeCPUMillis, RuntimeMemoryBytes int64
 	// Proxy applies the ingress configuration; nil disables ingress on this
 	// node.
 	Proxy proxy.Driver
@@ -136,6 +140,12 @@ func New(cfg Config) *Agent {
 		if cfg.MemoryBytes == 0 {
 			cfg.MemoryBytes = mem
 		}
+	}
+	if c := cfg.RuntimeCPUMillis; c > 0 && c < cfg.CPUMillis {
+		cfg.CPUMillis = c
+	}
+	if m := cfg.RuntimeMemoryBytes; m > 0 && (cfg.MemoryBytes == 0 || m < cfg.MemoryBytes) {
+		cfg.MemoryBytes = m
 	}
 	return &Agent{
 		cfg:       cfg,

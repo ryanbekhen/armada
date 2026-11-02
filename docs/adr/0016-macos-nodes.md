@@ -79,7 +79,7 @@ This ADR settles how a Mac joins as a node and what that node does not do.
 
 ### What the driver declares
 
-- The handshake gains two optional fields:
+- The handshake gains three optional fields:
   - **VM isolation**: every container runs in its own virtual machine with
     its own kernel. Only a driver that declares it may leave out
     `no-new-privileges` and the PID limit, which guard a kernel shared with
@@ -91,6 +91,12 @@ This ADR settles how a Mac joins as a node and what that node does not do.
     node reports it, and the scheduler does not place a replica whose
     memory limit is below it on that node, rather than raising the limit
     behind the reservation's back.
+  - **Capacity**: the CPU and memory the engine can give containers, when
+    that is less than the machine has. An engine that runs every container
+    in one virtual machine of fixed size accepts limits beyond that
+    machine, so the node reports the smaller of the machine's and the
+    driver's capacity, and the scheduler never reserves more than the
+    virtual machine holds. A larger value than the machine's is ignored.
 - The conformance suite checks the claim: with VM isolation it checks that
   two containers run on different kernels (different boot IDs) instead of
   checking `no-new-privileges` and the PID limit from inside them.

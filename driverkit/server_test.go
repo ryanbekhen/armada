@@ -1,7 +1,9 @@
 package driverkit
 
 import (
+	"context"
 	"errors"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -130,5 +132,24 @@ func TestStatusRoundTrip(t *testing.T) {
 	}
 	if err := FromStatus(toStatus(errors.New("boom"))); err == nil || err.Error() != "boom" {
 		t.Errorf("other error: %v", err)
+	}
+}
+
+func TestServeRefusesNegativeValues(t *testing.T) {
+	t.Parallel()
+	for name, info := range map[string]Info{
+		"minimum memory": {MinMemoryBytes: -1},
+		"cpu":            {CPUMillis: -1},
+		"memory":         {MemoryBytes: -1},
+	} {
+		info.Name = "test"
+		l, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := Serve(context.Background(), l, nil, info); err == nil {
+			t.Errorf("negative %s accepted", name)
+		}
+		_ = l.Close()
 	}
 }

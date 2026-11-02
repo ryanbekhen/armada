@@ -96,8 +96,8 @@ func Serve(ctx context.Context, l net.Listener, d Driver, info Info) error {
 	if err := CheckName(info.Name); err != nil {
 		return err
 	}
-	if info.MinMemoryBytes < 0 {
-		return errors.New("negative minimum memory")
+	if info.MinMemoryBytes < 0 || info.CPUMillis < 0 || info.MemoryBytes < 0 {
+		return errors.New("negative minimum memory or capacity")
 	}
 	srv := grpc.NewServer()
 	driverv1.RegisterDriverServer(srv, &server{d: d, info: info})
@@ -120,6 +120,7 @@ func (s *server) Info(context.Context, *driverv1.InfoRequest) (*driverv1.InfoRes
 		Protocol: driverv1.ProtocolVersion_PROTOCOL_VERSION_1,
 		Name:     s.info.Name, Version: s.info.Version, Os: s.info.OS, Arch: s.info.Arch,
 		VmIsolation: s.info.VMIsolation, MinMemoryBytes: s.info.MinMemoryBytes,
+		CpuMillis: s.info.CPUMillis, MemoryBytes: s.info.MemoryBytes,
 	}
 	if _, ok := s.d.(SystemRunner); ok {
 		r.Capabilities = append(r.Capabilities, driverv1.Capability_CAPABILITY_SYSTEM_CONTAINERS)
