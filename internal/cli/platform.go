@@ -49,7 +49,7 @@ func linuxOnly(what string) error { return linuxOnlyOn(goos, what) }
 
 func linuxOnlyOn(system, what string) error {
 	if system == "darwin" {
-		return fmt.Errorf("%s runs on Linux only; a Mac joins a cluster as a compute node with `armada join TOKEN --runtime NAME` (ADR 0016)", what)
+		return fmt.Errorf("%s runs on Linux only; a Mac joins a cluster as a compute node with `armada join ADDR --ca-hash sha256:... --runtime NAME` (ADR 0016)", what)
 	}
 	return nil
 }
