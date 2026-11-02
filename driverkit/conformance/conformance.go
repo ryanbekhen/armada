@@ -442,8 +442,8 @@ func (r *runner) bridge(t *testing.T, bi driverkit.BridgeInspector) {
 }
 
 // exec checks ExecApp (ADR 0017): standard input and its end, separate
-// output streams, the exit code, a terminal, and that the command keeps the
-// container's security defaults.
+// output streams, the exit code, a terminal with its size and a resize, and
+// that the command keeps the container's security defaults.
 func (r *runner) exec(t *testing.T, ex driverkit.Execer) {
 	ctx, cancel := r.ctx()
 	defer cancel()
@@ -490,15 +490,29 @@ func (r *runner) exec(t *testing.T, ex driverkit.Execer) {
 		}
 	}
 
+	// The size may arrive shortly after the command starts (ExecOptions),
+	// so the command waits up to 2 seconds for it.
+	waitSize := func(want string) string {
+		return `for i in $(seq 20); do s=$(stty size 2>/dev/null); [ "$s" = "` + want + `" ] && break; sleep 0.1; done; echo "size:$s"`
+	}
 	out, _, code = run(driverkit.ExecOptions{
-		Cmd: []string{"sh", "-c", `test -t 1 && echo tty; stty size`}, TTY: true,
+		Cmd: []string{"sh", "-c", `test -t 1 && echo tty; ` + waitSize("33 101")}, TTY: true,
 		Size: driverkit.TermSize{Rows: 33, Cols: 101},
 	})
 	if !strings.Contains(out, "tty") || code != 0 {
 		t.Errorf("terminal: output %q, exit %d", out, code)
 	}
-	if !strings.Contains(out, "33 101") {
+	if !strings.Contains(out, "size:33 101") {
 		t.Errorf("terminal size: output %q, want 33 101", out)
+	}
+	resize := make(chan driverkit.TermSize, 1)
+	resize <- driverkit.TermSize{Rows: 40, Cols: 120}
+	out, _, _ = run(driverkit.ExecOptions{
+		Cmd: []string{"sh", "-c", waitSize("40 120")}, TTY: true,
+		Size: driverkit.TermSize{Rows: 33, Cols: 101}, Resize: resize,
+	})
+	if !strings.Contains(out, "size:40 120") {
+		t.Errorf("terminal resize: output %q, want 40 120", out)
 	}
 
 	if _, err := ex.ExecApp(ctx, "armada-conformance-missing", driverkit.ExecOptions{Cmd: []string{"true"}, Stdout: io.Discard, Stderr: io.Discard}); err == nil {
