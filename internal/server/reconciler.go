@@ -50,6 +50,11 @@ func (s *Server) Reconcile(ctx context.Context) error {
 		return err
 	}
 	revs := revisionCache{store: s.store, keys: s.keys, m: map[string]store.Revision{}}
+	// Scheduling sees only the capacity left after what Armada keeps.
+	nodes, err = s.allocatable(ctx, nodes)
+	if err != nil {
+		return err
+	}
 
 	rc := reconcileRun{now: s.now()}
 	rc.lost = s.lostNodes(&rc, nodes)
@@ -267,7 +272,7 @@ func (s *Server) reconcileApp(ctx context.Context, rc *reconcileRun, app *store.
 	// Scale up, with one replica of surge while old replicas still run.
 	if len(current) < app.Replicas {
 		for len(current) < app.Replicas && len(current)+len(old)+len(moving) < app.Replicas+maxSurge {
-			node, ok := pickNode(fit, all, current, target.Spec.MemoryBytes(), revs.memory(ctx))
+			node, ok := pickNode(fit, all, current, reservation(target), revs.reserved(ctx))
 			if !ok {
 				s.log.Warn("no node can fit replica", "app", app.Name, "want", app.Replicas, "have", len(current))
 				break
@@ -378,7 +383,7 @@ func (s *Server) rebalance(ctx context.Context, rc *reconcileRun, app *store.App
 	if err != nil {
 		return nil, err
 	}
-	victim, to, ok := rebalanceVictim(nodes, all, current, target.Spec.MemoryBytes(), revs.memory(ctx))
+	victim, to, ok := rebalanceVictim(nodes, all, current, reservation(target), revs.reserved(ctx))
 	if !ok {
 		return all, nil
 	}
@@ -394,11 +399,11 @@ func (s *Server) rebalance(ctx context.Context, rc *reconcileRun, app *store.App
 // rebalanceVictim picks a replica to move: one on the node with the most
 // current replicas, if that node has at least two more than the node
 // pickNode would choose for a new one. It also returns that node.
-func rebalanceVictim(nodes []store.Node, all, current []store.Replica, memNeeded int64, memOf func(store.Replica) int64) (store.Replica, string, bool) {
+func rebalanceVictim(nodes []store.Node, all, current []store.Replica, want resources, reserved func(store.Replica) resources) (store.Replica, string, bool) {
 	if len(current) == 0 {
 		return store.Replica{}, "", false
 	}
-	to, ok := pickNode(nodes, all, current, memNeeded, memOf)
+	to, ok := pickNode(nodes, all, current, want, reserved)
 	if !ok {
 		return store.Replica{}, "", false
 	}
@@ -703,10 +708,14 @@ func placementAllows(n store.Node, rev store.Revision) bool {
 // pickNode chooses a ready node for a new replica: fewest of the spread
 // replicas first (the app's replicas that stay: not draining, moving, lost,
 // or of a revision being replaced, which would skew the spread once they
-// are gone), then fewest replicas overall, then most free memory. Nodes that report capacity and cannot fit memNeeded are skipped;
-// capacity 0 means unknown. Capacity is self-reported, so it only breaks
-// ties: a node advertising inflated memory does not attract every replica.
-func pickNode(nodes []store.Node, replicas, spread []store.Replica, memNeeded int64, memOf func(store.Replica) int64) (store.Node, bool) {
+// are gone), then fewest replicas overall, then most free memory, then most
+// free CPU. Nodes that report capacity and cannot fit want (the CPU and
+// memory the replica reserves, nothing overcommitted) are skipped; capacity
+// 0 means unknown. nodes carry the capacity left for replicas
+// (allocatable). Capacity is self-reported, so beyond fitting it only
+// breaks ties: a node advertising inflated capacity does not attract every
+// replica.
+func pickNode(nodes []store.Node, replicas, spread []store.Replica, want resources, reserved func(store.Replica) resources) (store.Node, bool) {
 	sameApp := map[string]int{}
 	for _, r := range spread {
 		sameApp[r.NodeID]++
@@ -715,22 +724,24 @@ func pickNode(nodes []store.Node, replicas, spread []store.Replica, memNeeded in
 		node    store.Node
 		sameApp int
 		total   int
-		free    int64
+		free    resources
 	}
 	var cands []cand
 	for _, n := range nodes {
 		if n.State != store.NodeReady || n.Cordoned {
 			continue
 		}
-		c := cand{node: n, sameApp: sameApp[n.ID], free: n.MemoryBytes}
+		c := cand{node: n, sameApp: sameApp[n.ID], free: resources{cpu: n.CPUMillis, mem: n.MemoryBytes}}
 		for _, r := range replicas {
 			if r.NodeID != n.ID {
 				continue
 			}
 			c.total++
-			c.free -= memOf(r)
+			res := reserved(r)
+			c.free.cpu -= res.cpu
+			c.free.mem -= res.mem
 		}
-		if n.MemoryBytes > 0 && c.free < memNeeded {
+		if (n.MemoryBytes > 0 && c.free.mem < want.mem) || (n.CPUMillis > 0 && c.free.cpu < want.cpu) {
 			continue
 		}
 		cands = append(cands, c)
@@ -745,7 +756,10 @@ func pickNode(nodes []store.Node, replicas, spread []store.Replica, memNeeded in
 		if c := cmp.Compare(a.total, b.total); c != 0 {
 			return c
 		}
-		if c := cmp.Compare(b.free, a.free); c != 0 {
+		if c := cmp.Compare(b.free.mem, a.free.mem); c != 0 {
+			return c
+		}
+		if c := cmp.Compare(b.free.cpu, a.free.cpu); c != 0 {
 			return c
 		}
 		return cmp.Compare(a.node.ID, b.node.ID)
@@ -825,17 +839,18 @@ func replicaSpec(r store.Replica, rev store.Revision, vals map[string]secrets.Va
 		env = append(env, &armadav1.EnvVar{Name: "PORT", Value: strconv.Itoa(sp.Ingress.Port)})
 	}
 	rs := &armadav1.ReplicaSpec{
-		Id:          r.ID,
-		App:         r.App,
-		Revision:    r.Revision,
-		Image:       rev.Image(),
-		Command:     sp.Command,
-		Args:        sp.Args,
-		Env:         env,
-		Port:        port,
-		MemoryBytes: sp.MemoryBytes(),
-		NanoCpus:    sp.NanoCPUs(),
-		PidsLimit:   spec.DefaultPids,
+		Id:               r.ID,
+		App:              r.App,
+		Revision:         r.Revision,
+		Image:            rev.Image(),
+		Command:          sp.Command,
+		Args:             sp.Args,
+		Env:              env,
+		Port:             port,
+		MemoryBytes:      sp.MemoryBytes(),
+		NanoCpus:         sp.NanoCPUs(),
+		CpuReserveMillis: sp.CPUMillis(),
+		PidsLimit:        spec.DefaultPids,
 	}
 	if sp.Probes != nil {
 		rs.Startup = probeProto(sp.Probes.Startup)
@@ -922,14 +937,20 @@ func (c *revisionCache) get(ctx context.Context, name string) (store.Revision, e
 	return r, nil
 }
 
-func (c *revisionCache) memory(ctx context.Context) func(store.Replica) int64 {
-	return func(r store.Replica) int64 {
+// reserved returns what each replica reserves on its node.
+func (c *revisionCache) reserved(ctx context.Context) func(store.Replica) resources {
+	return func(r store.Replica) resources {
 		rev, err := c.get(ctx, r.Revision)
 		if err != nil {
-			return 0
+			return resources{}
 		}
-		return rev.Spec.MemoryBytes()
+		return reservation(rev)
 	}
+}
+
+// reservation is what one replica of rev reserves on its node.
+func reservation(rev store.Revision) resources {
+	return resources{cpu: rev.Spec.CPUMillis(), mem: rev.Spec.MemoryBytes()}
 }
 
 // assignmentsEqual reports whether two assignments are identical.

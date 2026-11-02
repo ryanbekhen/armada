@@ -28,27 +28,30 @@ func (e *FieldError) Unwrap() error { return e.Err }
 
 // Limits.
 const (
-	MaxReplicas     = 100
-	MinMemoryBytes  = 16 << 20
-	MaxMemoryBytes  = 64 << 30
-	MinNanoCPUs     = 10_000_000 // 10m
-	MaxNanoCPUs     = 64_000_000_000
-	DefaultMemory   = "256Mi"
-	DefaultPids     = 1024
-	maxImageLen     = 512
-	maxArgs         = 256
-	maxArgLen       = 4096
-	maxEnv          = 512
-	maxEnvValueLen  = 32 << 10
-	maxDomains      = 32
-	maxRoutes       = 32
-	maxPathLen      = 256
-	maxDomainLen    = 253
-	reservedEnvPfx  = "ARMADA_"
-	defaultPeriod   = 10 * time.Second
-	defaultTimeout  = time.Second
-	defaultFailures = 3
-	startupFailures = 30
+	MaxReplicas    = 100
+	MinMemoryBytes = 16 << 20
+	MaxMemoryBytes = 64 << 30
+	MinNanoCPUs    = 10_000_000 // 10m
+	MaxNanoCPUs    = 64_000_000_000
+	DefaultMemory  = "256Mi"
+	// DefaultCPUMillis is the CPU reserved for a replica whose spec sets no
+	// resources.cpu; such a replica has no CPU limit.
+	DefaultCPUMillis = 100
+	DefaultPids      = 1024
+	maxImageLen      = 512
+	maxArgs          = 256
+	maxArgLen        = 4096
+	maxEnv           = 512
+	maxEnvValueLen   = 32 << 10
+	maxDomains       = 32
+	maxRoutes        = 32
+	maxPathLen       = 256
+	maxDomainLen     = 253
+	reservedEnvPfx   = "ARMADA_"
+	defaultPeriod    = 10 * time.Second
+	defaultTimeout   = time.Second
+	defaultFailures  = 3
+	startupFailures  = 30
 )
 
 var (
@@ -144,6 +147,15 @@ func (a *App) NanoCPUs() int64 {
 	}
 	v, _ := ParseCPU(a.Resources.CPU)
 	return v
+}
+
+// CPUMillis returns the CPU reserved for each replica on its node, in
+// millicores: resources.cpu, or DefaultCPUMillis. It assumes a validated spec.
+func (a *App) CPUMillis() int64 {
+	if n := a.NanoCPUs(); n > 0 {
+		return max(1, n/1_000_000)
+	}
+	return DefaultCPUMillis
 }
 
 // Validate checks the spec and returns all problems joined together.

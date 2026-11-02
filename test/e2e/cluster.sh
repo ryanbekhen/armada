@@ -501,6 +501,31 @@ EOF
 	fi
 done
 
+log "CPU reservations"
+# A replica without resources.cpu reserves 100m, which gives its container
+# a CPU weight below the default of 100.
+low_weight() {
+	_r=$(status | jq -r --arg app "$APP" '[.apps[] | select(.name == $app) | .replicas[]? | select(.state == "running")][0] | "\(.id) \(.nodeId)"')
+	_w=$(on "$(index "${_r#* }")" "cat /sys/fs/cgroup/armada/armada-${_r% *}-*/cpu.weight")
+	[ -n "$_w" ] && [ "$_w" -lt 100 ]
+}
+wait_for 30 "$APP containers get a CPU weight from their reservation" low_weight
+cat <<EOF | cli deploy -f - >/dev/null
+name: cpu-hog
+image: busybox:1.37
+command: ["sleep", "3600"]
+ingress:
+  type: none
+resources:
+  cpu: "64"
+EOF
+no_cpu() {
+	status | jq -e '.apps[] | select(.name == "cpu-hog")
+		| ((.placementMessage // "") | contains("none has 64 of CPU free"))
+		  and ([.replicas[]? | select(.state == "running")] | length) == 0'
+}
+wait_for 60 "an app reserving more CPU than any node has runs nowhere and status says why" no_cpu
+
 if [ "$E2E_REBOOT" = 1 ]; then
 	log "reboot every machine at once"
 	i=1

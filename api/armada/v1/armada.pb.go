@@ -3901,25 +3901,29 @@ func (x *ProxyCertificate) GetPem() []byte {
 }
 
 type ReplicaSpec struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	App           string                 `protobuf:"bytes,2,opt,name=app,proto3" json:"app,omitempty"`
-	Revision      string                 `protobuf:"bytes,3,opt,name=revision,proto3" json:"revision,omitempty"`
-	Image         string                 `protobuf:"bytes,4,opt,name=image,proto3" json:"image,omitempty"`
-	Command       []string               `protobuf:"bytes,5,rep,name=command,proto3" json:"command,omitempty"`
-	Args          []string               `protobuf:"bytes,6,rep,name=args,proto3" json:"args,omitempty"`
-	Env           []*EnvVar              `protobuf:"bytes,7,rep,name=env,proto3" json:"env,omitempty"`
-	Port          int32                  `protobuf:"varint,8,opt,name=port,proto3" json:"port,omitempty"`
-	MemoryBytes   int64                  `protobuf:"varint,9,opt,name=memory_bytes,json=memoryBytes,proto3" json:"memory_bytes,omitempty"`
-	NanoCpus      int64                  `protobuf:"varint,10,opt,name=nano_cpus,json=nanoCpus,proto3" json:"nano_cpus,omitempty"`
-	PidsLimit     int64                  `protobuf:"varint,11,opt,name=pids_limit,json=pidsLimit,proto3" json:"pids_limit,omitempty"`
-	Startup       *Probe                 `protobuf:"bytes,12,opt,name=startup,proto3" json:"startup,omitempty"`
-	Readiness     *Probe                 `protobuf:"bytes,13,opt,name=readiness,proto3" json:"readiness,omitempty"`
-	Liveness      *Probe                 `protobuf:"bytes,14,opt,name=liveness,proto3" json:"liveness,omitempty"`
-	SecretFiles   []*SecretFile          `protobuf:"bytes,15,rep,name=secret_files,json=secretFiles,proto3" json:"secret_files,omitempty"`
-	Registry      *RegistryAuth          `protobuf:"bytes,16,opt,name=registry,proto3" json:"registry,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	Id          string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	App         string                 `protobuf:"bytes,2,opt,name=app,proto3" json:"app,omitempty"`
+	Revision    string                 `protobuf:"bytes,3,opt,name=revision,proto3" json:"revision,omitempty"`
+	Image       string                 `protobuf:"bytes,4,opt,name=image,proto3" json:"image,omitempty"`
+	Command     []string               `protobuf:"bytes,5,rep,name=command,proto3" json:"command,omitempty"`
+	Args        []string               `protobuf:"bytes,6,rep,name=args,proto3" json:"args,omitempty"`
+	Env         []*EnvVar              `protobuf:"bytes,7,rep,name=env,proto3" json:"env,omitempty"`
+	Port        int32                  `protobuf:"varint,8,opt,name=port,proto3" json:"port,omitempty"`
+	MemoryBytes int64                  `protobuf:"varint,9,opt,name=memory_bytes,json=memoryBytes,proto3" json:"memory_bytes,omitempty"`
+	NanoCpus    int64                  `protobuf:"varint,10,opt,name=nano_cpus,json=nanoCpus,proto3" json:"nano_cpus,omitempty"`
+	PidsLimit   int64                  `protobuf:"varint,11,opt,name=pids_limit,json=pidsLimit,proto3" json:"pids_limit,omitempty"`
+	Startup     *Probe                 `protobuf:"bytes,12,opt,name=startup,proto3" json:"startup,omitempty"`
+	Readiness   *Probe                 `protobuf:"bytes,13,opt,name=readiness,proto3" json:"readiness,omitempty"`
+	Liveness    *Probe                 `protobuf:"bytes,14,opt,name=liveness,proto3" json:"liveness,omitempty"`
+	SecretFiles []*SecretFile          `protobuf:"bytes,15,rep,name=secret_files,json=secretFiles,proto3" json:"secret_files,omitempty"`
+	Registry    *RegistryAuth          `protobuf:"bytes,16,opt,name=registry,proto3" json:"registry,omitempty"`
+	// CPU reserved for the replica on its node, in millicores; the agent
+	// gives the container a CPU weight in proportion. Not part of the spec
+	// hash: a revision's reservation never changes.
+	CpuReserveMillis int64 `protobuf:"varint,17,opt,name=cpu_reserve_millis,json=cpuReserveMillis,proto3" json:"cpu_reserve_millis,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *ReplicaSpec) Reset() {
@@ -4062,6 +4066,13 @@ func (x *ReplicaSpec) GetRegistry() *RegistryAuth {
 		return x.Registry
 	}
 	return nil
+}
+
+func (x *ReplicaSpec) GetCpuReserveMillis() int64 {
+	if x != nil {
+		return x.CpuReserveMillis
+	}
+	return 0
 }
 
 // SecretFile is a secret the agent writes to tmpfs on the node and
@@ -4855,7 +4866,7 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\binternal\x18\x05 \x01(\bR\binternal\"8\n" +
 	"\x10ProxyCertificate\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x10\n" +
-	"\x03pem\x18\x02 \x01(\fR\x03pem\"\xa0\x04\n" +
+	"\x03pem\x18\x02 \x01(\fR\x03pem\"\xce\x04\n" +
 	"\vReplicaSpec\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x10\n" +
 	"\x03app\x18\x02 \x01(\tR\x03app\x12\x1a\n" +
@@ -4874,7 +4885,8 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\treadiness\x18\r \x01(\v2\x10.armada.v1.ProbeR\treadiness\x12,\n" +
 	"\bliveness\x18\x0e \x01(\v2\x10.armada.v1.ProbeR\bliveness\x128\n" +
 	"\fsecret_files\x18\x0f \x03(\v2\x15.armada.v1.SecretFileR\vsecretFiles\x123\n" +
-	"\bregistry\x18\x10 \x01(\v2\x17.armada.v1.RegistryAuthR\bregistry\"K\n" +
+	"\bregistry\x18\x10 \x01(\v2\x17.armada.v1.RegistryAuthR\bregistry\x12,\n" +
+	"\x12cpu_reserve_millis\x18\x11 \x01(\x03R\x10cpuReserveMillis\"K\n" +
 	"\n" +
 	"SecretFile\x12\x12\n" +
 	"\x04path\x18\x01 \x01(\tR\x04path\x12\x17\n" +

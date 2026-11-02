@@ -135,7 +135,15 @@ count without a new revision.
 | Field | Default | Range |
 | --- | --- | --- |
 | `memory` | `256Mi` | 16Mi–64Gi; suffixes `Ki`, `Mi`, `Gi`, `K`, `M`, `G` |
-| `cpu` | no limit | 10m–64; `"250m"` or cores such as `"0.5"` |
+| `cpu` | 100m reserved, no limit | 10m–64; `"250m"` or cores such as `"0.5"` |
+
+Each value is both what a replica reserves on its node and its limit.
+Without `cpu`, a replica reserves 100m and may use any idle CPU. A node only
+takes a replica that fits in what its other replicas leave free, after
+Armada keeps 100m of CPU and 128Mi of memory for itself (another 100m on
+control plane servers). On a busy node, containers share CPU in proportion
+to what they reserve. When no node has room, `armada status` says which
+resource is short.
 
 Every container also gets a PID limit of 1024, `no-new-privileges`, and a
 reduced capability set, and never runs privileged, on the host network, or

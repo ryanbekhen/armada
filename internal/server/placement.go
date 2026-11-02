@@ -11,7 +11,7 @@ import (
 // placementMessage explains, when no node can take more replicas of app
 // (ADR 0014), why it has fewer replicas of its target revision than desired
 // or why some stay on nodes it may no longer use; it returns "" when there
-// is room or nothing is waiting.
+// is room or nothing is waiting. nodes carry their allocatable capacity.
 func placementMessage(ctx context.Context, revs *revisionCache, nodes []store.Node, all []store.Replica, app store.App) string {
 	target, err := revs.get(ctx, app.TargetRevision)
 	if err != nil {
@@ -39,10 +39,18 @@ func placementMessage(ctx context.Context, revs *revisionCache, nodes []store.No
 	case len(fit) == 0:
 		why = noNodeReason(nodes, target)
 	default:
-		if _, ok := pickNode(fit, all, nil, target.Spec.MemoryBytes(), revs.memory(ctx)); ok {
+		want, reserved := reservation(target), revs.reserved(ctx)
+		if _, ok := pickNode(fit, all, nil, want, reserved); ok {
 			return ""
 		}
-		why = fmt.Sprintf("%d node(s) may run the app, none has %s of memory free", len(fit), humanMemory(target.Spec.MemoryBytes()))
+		// Name what is short: CPU, memory, or only the two together.
+		short := want.String()
+		if _, ok := pickNode(fit, all, nil, resources{mem: want.mem}, reserved); !ok {
+			short = humanMemory(want.mem) + " of memory"
+		} else if _, ok := pickNode(fit, all, nil, resources{cpu: want.cpu}, reserved); !ok {
+			short = humanCPU(want.cpu) + " of CPU"
+		}
+		why = fmt.Sprintf("%d node(s) may run the app, none has %s free", len(fit), short)
 	}
 	if live < app.Replicas {
 		return "waiting for a node: " + why

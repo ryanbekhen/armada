@@ -62,6 +62,9 @@ func TestParseFullSpec(t *testing.T) {
 	if got := app.NanoCPUs(); got != 500_000_000 {
 		t.Errorf("NanoCPUs() = %d", got)
 	}
+	if got := app.CPUMillis(); got != 500 {
+		t.Errorf("CPUMillis() = %d, want the limit reserved", got)
+	}
 	r := app.Probes.Readiness
 	if r.Path != "/healthz" || r.Port != 3000 || r.Period.D() != 10*time.Second || r.Timeout.D() != time.Second || r.FailureThreshold != 3 {
 		t.Errorf("readiness defaults not applied: %+v", r)
@@ -100,7 +103,7 @@ func TestParseMinimalDefaults(t *testing.T) {
 	if app.Replicas() != 1 || *app.Scale.Max != 1 {
 		t.Errorf("replicas = %d, max = %d", app.Replicas(), *app.Scale.Max)
 	}
-	if app.Resources.Memory != DefaultMemory || app.NanoCPUs() != 0 {
+	if app.Resources.Memory != DefaultMemory || app.NanoCPUs() != 0 || app.CPUMillis() != DefaultCPUMillis {
 		t.Errorf("resources = %+v", app.Resources)
 	}
 	if app.Probes != nil {

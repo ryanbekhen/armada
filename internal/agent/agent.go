@@ -610,11 +610,12 @@ func ContainerSpec(s *armadav1.ReplicaSpec, hostIP, hash string) runtime.Contain
 			runtime.LabelReplica:  s.GetId(),
 			runtime.LabelSpecHash: hash,
 		},
-		Port:        int(s.GetPort()),
-		HostIP:      hostIP,
-		MemoryBytes: s.GetMemoryBytes(),
-		NanoCPUs:    s.GetNanoCpus(),
-		PidsLimit:   s.GetPidsLimit(),
+		Port:             int(s.GetPort()),
+		HostIP:           hostIP,
+		MemoryBytes:      s.GetMemoryBytes(),
+		NanoCPUs:         s.GetNanoCpus(),
+		CPUReserveMillis: s.GetCpuReserveMillis(),
+		PidsLimit:        s.GetPidsLimit(),
 	}
 }
 
@@ -626,6 +627,9 @@ func ContainerSpec(s *armadav1.ReplicaSpec, hostIP, hash string) runtime.Contain
 func specHash(s *armadav1.ReplicaSpec) string {
 	c := proto.Clone(s).(*armadav1.ReplicaSpec)
 	c.Image = ""
+	// Added after replicas existed, and fixed for a revision: hashing it
+	// would recreate every replica, undrained, when the server is upgraded.
+	c.CpuReserveMillis = 0
 	for _, e := range c.Env {
 		if e.Ref != "" {
 			e.Value = ""
