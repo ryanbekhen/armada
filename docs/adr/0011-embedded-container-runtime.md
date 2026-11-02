@@ -87,7 +87,10 @@ Armada's and visible in one place:
   read-only kernel paths), minus `NET_RAW`, `MKNOD`, and `AUDIT_WRITE`;
   `no-new-privileges`; containerd's default seccomp profile; Armada's
   AppArmor profile where AppArmor is enabled. Never privileged, never host
-  namespaces for apps, no devices beyond the defaults.
+  namespaces for apps, no devices beyond the defaults. Every container,
+  HAProxy included, has its own cgroup namespace; apps see their own cgroup
+  read-only at `/sys/fs/cgroup`, so programs can read their limits, and
+  never the host's hierarchy.
 - On SELinux hosts every container, HAProxy included, runs as
   `container_t` with MCS categories of its own (two random categories,
   unique among the node's containers; an agent that restarts reserves the

@@ -50,6 +50,9 @@ func appOpts(a appSpec) []oci.SpecOpts {
 		{Destination: "/etc/hosts", Type: "bind", Source: a.files.hosts, Options: ro},
 		{Destination: "/etc/hostname", Type: "bind", Source: a.files.hostname, Options: ro},
 		{Destination: initPath, Type: "bind", Source: a.tini, Options: []string{"rbind", "ro", "nosuid", "nodev"}},
+		// Read-only, and only the container's own cgroup (its namespace):
+		// programs read their memory and CPU limits from it.
+		{Destination: "/sys/fs/cgroup", Type: "cgroup", Source: "cgroup", Options: []string{"ro", "nosuid", "noexec", "nodev", "relatime"}},
 	}
 	for _, f := range s.Files {
 		mounts = append(mounts, specs.Mount{Destination: f.Target, Type: "bind", Source: f.Source, Options: ro})
@@ -59,6 +62,9 @@ func appOpts(a appSpec) []oci.SpecOpts {
 		oci.WithEnv([]string{"HOSTNAME=" + hostname(s.Name)}),
 		oci.WithHostname(hostname(s.Name)),
 		oci.WithLinuxNamespace(specs.LinuxNamespace{Type: specs.NetworkNamespace, Path: a.netns}),
+		// Its own cgroup namespace: the container sees its cgroup (and its
+		// limits) as the root, not the host's hierarchy.
+		oci.WithLinuxNamespace(specs.LinuxNamespace{Type: specs.CgroupNamespace}),
 		oci.WithMounts(mounts),
 		oci.WithDroppedCapabilities(capNames(runtime.DroppedCaps)),
 		oci.WithNoNewPrivileges,
@@ -139,6 +145,7 @@ func systemOpts(s runtime.SystemSpec, cgroup string, seccomp oci.SpecOpts, sl se
 	}
 	opts := []oci.SpecOpts{
 		oci.WithHostNamespace(specs.NetworkNamespace),
+		oci.WithLinuxNamespace(specs.LinuxNamespace{Type: specs.CgroupNamespace}),
 		oci.WithMounts(mounts),
 		oci.WithCapabilities(capNames(s.CapAdd)),
 		oci.WithNoNewPrivileges,
