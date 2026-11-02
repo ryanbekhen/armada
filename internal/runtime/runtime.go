@@ -193,6 +193,47 @@ func CanRunSystem(d Driver) bool {
 	return ok
 }
 
+// TermSize is a terminal's size in character cells.
+type TermSize struct {
+	Rows, Cols uint16
+}
+
+// ExecOptions describes a command to run in an app container (ADR 0017).
+type ExecOptions struct {
+	// Cmd is the command and its arguments (CheckExecCommand).
+	Cmd []string
+	// TTY allocates a terminal; output then arrives on Stdout only.
+	TTY bool
+	// Size is the terminal's initial size; Resize carries changes until
+	// the command ends.
+	Size   TermSize
+	Resize <-chan TermSize
+	// Stdin is the command's standard input; nil gives it none. EOF closes
+	// the command's standard input.
+	Stdin io.Reader
+	// Stdout and Stderr receive the command's output.
+	Stdout, Stderr io.Writer
+}
+
+// Execer runs commands in app containers (armada exec, ADR 0017). The
+// command gets the container's own security context: user, capabilities,
+// no-new-privileges, seccomp, limits, and namespaces. It is optional.
+type Execer interface {
+	// ExecApp runs opts.Cmd in a running app container and returns its exit
+	// code once it has ended and its output has been written.
+	ExecApp(ctx context.Context, id string, opts ExecOptions) (exitCode int, err error)
+}
+
+// CanExec reports whether d runs commands in app containers, like
+// CanRunSystem.
+func CanExec(d Driver) bool {
+	if c, ok := d.(interface{ CanExec() bool }); ok {
+		return c.CanExec()
+	}
+	_, ok := d.(Execer)
+	return ok
+}
+
 // HasBridge reports whether d reports a bridge network, like CanRunSystem.
 func HasBridge(d Driver) bool {
 	if c, ok := d.(interface{ HasBridge() bool }); ok {

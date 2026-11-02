@@ -16,6 +16,7 @@ import (
 	"slices"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"google.golang.org/protobuf/proto"
@@ -119,6 +120,9 @@ type Agent struct {
 	streamMu sync.Mutex
 	stream   armadav1.AgentService_ConnectClient
 	lastSent *armadav1.ReplicaReport
+
+	// execs counts running exec sessions (maxExecSessions).
+	execs atomic.Int32
 }
 
 // New returns an Agent.
@@ -239,6 +243,8 @@ func (a *Agent) session(ctx context.Context) (established bool, err error) {
 			go a.serveLogs(ctx, m.LogRequest)
 		case *armadav1.ServerMessage_LogCancel:
 			a.cancelLogs(m.LogCancel.GetRequestId())
+		case *armadav1.ServerMessage_ExecRequest:
+			go a.serveExec(ctx, m.ExecRequest)
 		}
 	}
 }

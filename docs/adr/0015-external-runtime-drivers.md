@@ -37,6 +37,8 @@ proves it keeps Armada's security defaults.
   - **bridge** (`Bridge`), which internal DNS and internal ingress need on
     the node (ADR 0007). Without it, containers on that node cannot resolve
     `<app>.internal`.
+  - **exec** (`ExecApp`, added by ADR 0017), which `armada exec` needs.
+    Without it, the node refuses to run commands in its replicas.
 - The agent refuses a driver whose protocol major version differs from its
   own, and a node set up for a capability the driver lacks. New optional
   features are added as new capabilities and fields, never by changing the

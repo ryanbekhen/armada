@@ -13,6 +13,7 @@
 package conformance
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -84,6 +85,9 @@ func Run(t *testing.T, d driverkit.Driver, opts Options) {
 	}
 	if bi, ok := d.(driverkit.BridgeInspector); ok {
 		t.Run("Bridge", func(t *testing.T) { r.bridge(t, bi) })
+	}
+	if ex, ok := d.(driverkit.Execer); ok {
+		t.Run("Exec", func(t *testing.T) { r.exec(t, ex) })
 	}
 }
 
@@ -434,5 +438,70 @@ func (r *runner) bridge(t *testing.T, bi driverkit.BridgeInspector) {
 	}
 	if !b.Gateway.IsPrivate() || !b.Subnet.Contains(b.Gateway) {
 		t.Errorf("bridge gateway %s, subnet %s: want a private gateway inside the subnet", b.Gateway, b.Subnet)
+	}
+}
+
+// exec checks ExecApp (ADR 0017): standard input and its end, separate
+// output streams, the exit code, a terminal, and that the command keeps the
+// container's security defaults.
+func (r *runner) exec(t *testing.T, ex driverkit.Execer) {
+	ctx, cancel := r.ctx()
+	defer cancel()
+	id, err := r.d.Run(ctx, r.spec("sleep", "300"))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	run := func(opts driverkit.ExecOptions) (string, string, int) {
+		t.Helper()
+		var out, errOut bytes.Buffer
+		opts.Stdout, opts.Stderr = &out, &errOut
+		code, err := ex.ExecApp(ctx, id, opts)
+		if err != nil {
+			t.Fatalf("ExecApp %q: %v", opts.Cmd, err)
+		}
+		return out.String(), errOut.String(), code
+	}
+
+	out, errOut, code := run(driverkit.ExecOptions{
+		Cmd:   []string{"sh", "-c", `read x; echo "out:$x"; cat; echo err >&2; exit 3`},
+		Stdin: strings.NewReader("first\nrest\n"),
+	})
+	if out != "out:first\nrest\n" || errOut != "err\n" || code != 3 {
+		t.Errorf("stdin and streams: stdout %q, stderr %q, exit %d", out, errOut, code)
+	}
+
+	out, _, _ = run(driverkit.ExecOptions{Cmd: []string{"sh", "-c", `grep -E '^(NoNewPrivs|CapEff):' /proc/self/status`}})
+	fields := map[string]string{}
+	for line := range strings.SplitSeq(out, "\n") {
+		if k, v, ok := strings.Cut(line, ":"); ok {
+			fields[k] = strings.TrimSpace(v)
+		}
+	}
+	if fields["NoNewPrivs"] != "1" && !r.opts.Info.VMIsolation {
+		t.Errorf("exec process NoNewPrivs = %q, want 1", fields["NoNewPrivs"])
+	}
+	capEff, err := strconv.ParseUint(fields["CapEff"], 16, 64)
+	if err != nil {
+		t.Errorf("exec process CapEff %q: %v", fields["CapEff"], err)
+	}
+	for _, c := range driverkit.RequiredDroppedCaps {
+		if bit, ok := capBits[c]; ok && capEff&(1<<bit) != 0 {
+			t.Errorf("exec process has capability %s (CapEff %s)", c, fields["CapEff"])
+		}
+	}
+
+	out, _, code = run(driverkit.ExecOptions{
+		Cmd: []string{"sh", "-c", `test -t 1 && echo tty; stty size`}, TTY: true,
+		Size: driverkit.TermSize{Rows: 33, Cols: 101},
+	})
+	if !strings.Contains(out, "tty") || code != 0 {
+		t.Errorf("terminal: output %q, exit %d", out, code)
+	}
+	if !strings.Contains(out, "33 101") {
+		t.Errorf("terminal size: output %q, want 33 101", out)
+	}
+
+	if _, err := ex.ExecApp(ctx, "armada-conformance-missing", driverkit.ExecOptions{Cmd: []string{"true"}, Stdout: io.Discard, Stderr: io.Discard}); err == nil {
+		t.Error("ExecApp in a missing container succeeded")
 	}
 }

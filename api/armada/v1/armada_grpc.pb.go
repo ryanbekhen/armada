@@ -39,6 +39,7 @@ const (
 	AdminService_RemoveNode_FullMethodName       = "/armada.v1.AdminService/RemoveNode"
 	AdminService_ListServers_FullMethodName      = "/armada.v1.AdminService/ListServers"
 	AdminService_RemoveServer_FullMethodName     = "/armada.v1.AdminService/RemoveServer"
+	AdminService_Exec_FullMethodName             = "/armada.v1.AdminService/Exec"
 )
 
 // AdminServiceClient is the client API for AdminService service.
@@ -68,6 +69,10 @@ type AdminServiceClient interface {
 	RemoveNode(ctx context.Context, in *RemoveNodeRequest, opts ...grpc.CallOption) (*RemoveNodeResponse, error)
 	ListServers(ctx context.Context, in *ListServersRequest, opts ...grpc.CallOption) (*ListServersResponse, error)
 	RemoveServer(ctx context.Context, in *RemoveServerRequest, opts ...grpc.CallOption) (*RemoveServerResponse, error)
+	// Exec runs a command in one replica of an app (ADR 0017). The first
+	// client message is start; the server's first message names the replica
+	// and its last the exit code.
+	Exec(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ExecClientMessage, ExecServerMessage], error)
 }
 
 type adminServiceClient struct {
@@ -287,6 +292,19 @@ func (c *adminServiceClient) RemoveServer(ctx context.Context, in *RemoveServerR
 	return out, nil
 }
 
+func (c *adminServiceClient) Exec(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ExecClientMessage, ExecServerMessage], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &AdminService_ServiceDesc.Streams[1], AdminService_Exec_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[ExecClientMessage, ExecServerMessage]{ClientStream: stream}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type AdminService_ExecClient = grpc.BidiStreamingClient[ExecClientMessage, ExecServerMessage]
+
 // AdminServiceServer is the server API for AdminService service.
 // All implementations must embed UnimplementedAdminServiceServer
 // for forward compatibility.
@@ -314,6 +332,10 @@ type AdminServiceServer interface {
 	RemoveNode(context.Context, *RemoveNodeRequest) (*RemoveNodeResponse, error)
 	ListServers(context.Context, *ListServersRequest) (*ListServersResponse, error)
 	RemoveServer(context.Context, *RemoveServerRequest) (*RemoveServerResponse, error)
+	// Exec runs a command in one replica of an app (ADR 0017). The first
+	// client message is start; the server's first message names the replica
+	// and its last the exit code.
+	Exec(grpc.BidiStreamingServer[ExecClientMessage, ExecServerMessage]) error
 	mustEmbedUnimplementedAdminServiceServer()
 }
 
@@ -383,6 +405,9 @@ func (UnimplementedAdminServiceServer) ListServers(context.Context, *ListServers
 }
 func (UnimplementedAdminServiceServer) RemoveServer(context.Context, *RemoveServerRequest) (*RemoveServerResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method RemoveServer not implemented")
+}
+func (UnimplementedAdminServiceServer) Exec(grpc.BidiStreamingServer[ExecClientMessage, ExecServerMessage]) error {
+	return status.Error(codes.Unimplemented, "method Exec not implemented")
 }
 func (UnimplementedAdminServiceServer) mustEmbedUnimplementedAdminServiceServer() {}
 func (UnimplementedAdminServiceServer) testEmbeddedByValue()                      {}
@@ -758,6 +783,13 @@ func _AdminService_RemoveServer_Handler(srv interface{}, ctx context.Context, de
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AdminService_Exec_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(AdminServiceServer).Exec(&grpc.GenericServerStream[ExecClientMessage, ExecServerMessage]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type AdminService_ExecServer = grpc.BidiStreamingServer[ExecClientMessage, ExecServerMessage]
+
 // AdminService_ServiceDesc is the grpc.ServiceDesc for AdminService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -847,6 +879,12 @@ var AdminService_ServiceDesc = grpc.ServiceDesc{
 			StreamName:    "Logs",
 			Handler:       _AdminService_Logs_Handler,
 			ServerStreams: true,
+		},
+		{
+			StreamName:    "Exec",
+			Handler:       _AdminService_Exec_Handler,
+			ServerStreams: true,
+			ClientStreams: true,
 		},
 	},
 	Metadata: "armada/v1/armada.proto",
@@ -1005,6 +1043,7 @@ var JoinService_ServiceDesc = grpc.ServiceDesc{
 const (
 	AgentService_Connect_FullMethodName          = "/armada.v1.AgentService/Connect"
 	AgentService_PushLogs_FullMethodName         = "/armada.v1.AgentService/PushLogs"
+	AgentService_ExecSession_FullMethodName      = "/armada.v1.AgentService/ExecSession"
 	AgentService_RenewCertificate_FullMethodName = "/armada.v1.AgentService/RenewCertificate"
 )
 
@@ -1021,6 +1060,9 @@ type AgentServiceClient interface {
 	// PushLogs carries the log stream for one LogRequest. The first message
 	// must set request_id.
 	PushLogs(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[LogPush, PushLogsResponse], error)
+	// ExecSession serves one ExecRequest: the agent sends output, the server
+	// sends input. The agent's first message must set request_id.
+	ExecSession(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ExecSessionOutput, ExecInput], error)
 	// RenewCertificate issues a new certificate for the calling node's
 	// identity from a CSR for a new key.
 	RenewCertificate(ctx context.Context, in *RenewCertificateRequest, opts ...grpc.CallOption) (*RenewCertificateResponse, error)
@@ -1060,6 +1102,19 @@ func (c *agentServiceClient) PushLogs(ctx context.Context, opts ...grpc.CallOpti
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type AgentService_PushLogsClient = grpc.ClientStreamingClient[LogPush, PushLogsResponse]
 
+func (c *agentServiceClient) ExecSession(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ExecSessionOutput, ExecInput], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &AgentService_ServiceDesc.Streams[2], AgentService_ExecSession_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[ExecSessionOutput, ExecInput]{ClientStream: stream}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type AgentService_ExecSessionClient = grpc.BidiStreamingClient[ExecSessionOutput, ExecInput]
+
 func (c *agentServiceClient) RenewCertificate(ctx context.Context, in *RenewCertificateRequest, opts ...grpc.CallOption) (*RenewCertificateResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(RenewCertificateResponse)
@@ -1083,6 +1138,9 @@ type AgentServiceServer interface {
 	// PushLogs carries the log stream for one LogRequest. The first message
 	// must set request_id.
 	PushLogs(grpc.ClientStreamingServer[LogPush, PushLogsResponse]) error
+	// ExecSession serves one ExecRequest: the agent sends output, the server
+	// sends input. The agent's first message must set request_id.
+	ExecSession(grpc.BidiStreamingServer[ExecSessionOutput, ExecInput]) error
 	// RenewCertificate issues a new certificate for the calling node's
 	// identity from a CSR for a new key.
 	RenewCertificate(context.Context, *RenewCertificateRequest) (*RenewCertificateResponse, error)
@@ -1101,6 +1159,9 @@ func (UnimplementedAgentServiceServer) Connect(grpc.BidiStreamingServer[AgentMes
 }
 func (UnimplementedAgentServiceServer) PushLogs(grpc.ClientStreamingServer[LogPush, PushLogsResponse]) error {
 	return status.Error(codes.Unimplemented, "method PushLogs not implemented")
+}
+func (UnimplementedAgentServiceServer) ExecSession(grpc.BidiStreamingServer[ExecSessionOutput, ExecInput]) error {
+	return status.Error(codes.Unimplemented, "method ExecSession not implemented")
 }
 func (UnimplementedAgentServiceServer) RenewCertificate(context.Context, *RenewCertificateRequest) (*RenewCertificateResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method RenewCertificate not implemented")
@@ -1139,6 +1200,13 @@ func _AgentService_PushLogs_Handler(srv interface{}, stream grpc.ServerStream) e
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type AgentService_PushLogsServer = grpc.ClientStreamingServer[LogPush, PushLogsResponse]
+
+func _AgentService_ExecSession_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(AgentServiceServer).ExecSession(&grpc.GenericServerStream[ExecSessionOutput, ExecInput]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type AgentService_ExecSessionServer = grpc.BidiStreamingServer[ExecSessionOutput, ExecInput]
 
 func _AgentService_RenewCertificate_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(RenewCertificateRequest)
@@ -1180,6 +1248,12 @@ var AgentService_ServiceDesc = grpc.ServiceDesc{
 		{
 			StreamName:    "PushLogs",
 			Handler:       _AgentService_PushLogs_Handler,
+			ClientStreams: true,
+		},
+		{
+			StreamName:    "ExecSession",
+			Handler:       _AgentService_ExecSession_Handler,
+			ServerStreams: true,
 			ClientStreams: true,
 		},
 	},

@@ -128,3 +128,19 @@ func TestFlagStateDoesNotLeak(t *testing.T) {
 		t.Errorf("second invocation reused json output: %q", stdout)
 	}
 }
+
+func TestExecUsage(t *testing.T) {
+	t.Parallel()
+	for _, args := range [][]string{
+		{"exec", "web"},
+		{"exec", "web", "sh"},            // no --
+		{"exec", "--", "sh"},             // no app
+		{"exec", "web", "x", "--", "sh"}, // two args before --
+		{"exec", "web", "--", "a\x00b"},  // NUL byte
+	} {
+		code, _, stderr := run(t, args...)
+		if code != 1 || stderr == "" || strings.Contains(stderr, "a\x00b") {
+			t.Errorf("%q: code=%d stderr=%q", args, code, stderr)
+		}
+	}
+}

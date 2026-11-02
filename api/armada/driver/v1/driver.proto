@@ -39,6 +39,10 @@ service Driver {
 
   // Needs CAPABILITY_BRIDGE.
   rpc Bridge(BridgeRequest) returns (BridgeResponse);
+
+  // Needs CAPABILITY_EXEC. ExecApp runs a command in an app container
+  // (ADR 0017): the first input is start, the last output exit_code.
+  rpc ExecApp(stream ExecAppInput) returns (stream ExecAppOutput);
 }
 
 // The major version of this protocol. The agent refuses drivers that
@@ -56,6 +60,9 @@ enum Capability {
   // Bridge: the network app containers share with the host, for internal
   // DNS and internal ingress.
   CAPABILITY_BRIDGE = 2;
+  // ExecApp: commands in app containers, with the container's own
+  // security context.
+  CAPABILITY_EXEC = 3;
 }
 
 message InfoRequest {}
@@ -266,4 +273,39 @@ message BridgeResponse {
   // The host's address on the bridge and the bridge's subnet.
   string gateway = 1;
   string subnet = 2;
+}
+
+message TermSize {
+  uint32 rows = 1;
+  uint32 cols = 2;
+}
+
+message ExecAppStart {
+  // Container ID.
+  string id = 1;
+  repeated string cmd = 2;
+  // tty allocates a terminal; output then arrives as stdout only.
+  bool tty = 3;
+  // stdin: the command reads the stdin inputs that follow.
+  bool stdin = 4;
+  TermSize size = 5;
+}
+
+message ExecAppInput {
+  oneof input {
+    ExecAppStart start = 1;
+    bytes stdin = 2;
+    // close_stdin ends the command's standard input.
+    bool close_stdin = 3;
+    TermSize resize = 4;
+  }
+}
+
+message ExecAppOutput {
+  oneof output {
+    bytes stdout = 1;
+    bytes stderr = 2;
+    // exit_code is the last message, once the output has been sent.
+    int32 exit_code = 3;
+  }
 }

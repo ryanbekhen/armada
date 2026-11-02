@@ -29,6 +29,10 @@ service AdminService {
   rpc RemoveNode(RemoveNodeRequest) returns (RemoveNodeResponse);
   rpc ListServers(ListServersRequest) returns (ListServersResponse);
   rpc RemoveServer(RemoveServerRequest) returns (RemoveServerResponse);
+  // Exec runs a command in one replica of an app (ADR 0017). The first
+  // client message is start; the server's first message names the replica
+  // and its last the exit code.
+  rpc Exec(stream ExecClientMessage) returns (stream ExecServerMessage);
 }
 
 message ListServersRequest {}
@@ -389,6 +393,9 @@ service AgentService {
   // PushLogs carries the log stream for one LogRequest. The first message
   // must set request_id.
   rpc PushLogs(stream LogPush) returns (PushLogsResponse);
+  // ExecSession serves one ExecRequest: the agent sends output, the server
+  // sends input. The agent's first message must set request_id.
+  rpc ExecSession(stream ExecSessionOutput) returns (stream ExecInput);
   // RenewCertificate issues a new certificate for the calling node's
   // identity from a CSR for a new key.
   rpc RenewCertificate(RenewCertificateRequest) returns (RenewCertificateResponse);
@@ -450,6 +457,7 @@ message ServerMessage {
     Assignment assignment = 1;
     LogRequest log_request = 2;
     LogCancel log_cancel = 3;
+    ExecRequest exec_request = 4;
   }
 }
 
@@ -581,3 +589,71 @@ message LogPush {
 }
 
 message PushLogsResponse {}
+
+// Exec (ADR 0017).
+
+message TermSize {
+  uint32 rows = 1;
+  uint32 cols = 2;
+}
+
+message ExecStart {
+  string app = 1;
+  // Optional; empty picks a running, ready replica of the serving revision.
+  string replica = 2;
+  repeated string cmd = 3;
+  // tty allocates a terminal; output then arrives as stdout only.
+  bool tty = 4;
+  // stdin: the command reads the stdin inputs that follow.
+  bool stdin = 5;
+  TermSize size = 6;
+}
+
+message ExecInput {
+  oneof input {
+    bytes stdin = 1;
+    // close_stdin ends the command's standard input.
+    bool close_stdin = 2;
+    TermSize resize = 3;
+  }
+}
+
+message ExecClientMessage {
+  oneof msg {
+    ExecStart start = 1;
+    ExecInput input = 2;
+  }
+}
+
+message ExecServerMessage {
+  oneof msg {
+    // The replica the command runs in; the first message.
+    string replica = 1;
+    bytes stdout = 2;
+    bytes stderr = 3;
+    // The last message.
+    int32 exit_code = 4;
+  }
+}
+
+message ExecRequest {
+  string request_id = 1;
+  string replica_id = 2;
+  repeated string cmd = 3;
+  bool tty = 4;
+  bool stdin = 5;
+  TermSize size = 6;
+}
+
+message ExecSessionOutput {
+  // Set on the first message.
+  string request_id = 1;
+  oneof output {
+    bytes stdout = 2;
+    bytes stderr = 3;
+    // The last message when the command ran.
+    int32 exit_code = 4;
+    // The last message when it could not run.
+    string error = 5;
+  }
+}

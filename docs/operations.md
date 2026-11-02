@@ -302,6 +302,33 @@ Nodes may be far apart: agents cope with latency. Keep the **control plane
 servers** close to each other (the same city or region), since every change
 needs a round trip between them.
 
+## Running commands in replicas
+
+`armada exec` runs a command in one replica of an app and exits with the
+command's exit code ([ADR 0017](adr/0017-exec.md)):
+
+```bash
+armada exec web -it -- sh                     # interactive shell
+armada exec web -- cat /etc/resolv.conf       # one command, stdout and stderr kept apart
+armada exec web -i -- sh -c 'cat > /tmp/x' < x # pass standard input
+armada exec web --replica web-r1-5muie -- env # a specific replica (armada status lists them)
+```
+
+- Without `--replica`, Armada picks a running, ready replica of the
+  serving revision.
+- The command runs with the container's own user, capabilities,
+  `no-new-privileges`, seccomp profile, limits, and namespaces; there is no
+  option to run it with more privileges.
+- Exec is for diagnosis. What a command changes inside a container is lost
+  when the replica is replaced; change the spec or the image instead.
+- Every session is recorded in the audit log with the admin, the app, the
+  replica, and the command's name, never its arguments. Still, prefer
+  reading secret values from files over passing them as arguments.
+- A node runs at most 8 sessions at once, and a session without input or
+  output for 30 minutes is ended. Sessions also end when the control
+  plane's leader changes.
+- Nodes whose runtime driver lacks the exec capability refuse it.
+
 ## When a node fails
 
 | What fails | What happens |
@@ -356,6 +383,8 @@ sending it, and the driver library checks it again on arrival.
   to them. `armada doctor` warns about such a driver.
 - A driver without the bridge capability leaves internal DNS off on the
   node, so its containers cannot resolve `<app>.internal`.
+- A driver without the exec capability refuses `armada exec` for the
+  replicas on its node.
 - The node's `armada.runtime` label names the driver, so apps can require
   it (or `embedded`). `armada.os` and `armada.arch` are the platform the
   driver's engine runs containers on.

@@ -32,6 +32,7 @@ const (
 	Driver_Exec_FullMethodName      = "/armada.driver.v1.Driver/Exec"
 	Driver_Signal_FullMethodName    = "/armada.driver.v1.Driver/Signal"
 	Driver_Bridge_FullMethodName    = "/armada.driver.v1.Driver/Bridge"
+	Driver_ExecApp_FullMethodName   = "/armada.driver.v1.Driver/ExecApp"
 )
 
 // DriverClient is the client API for Driver service.
@@ -69,6 +70,9 @@ type DriverClient interface {
 	Signal(ctx context.Context, in *SignalRequest, opts ...grpc.CallOption) (*SignalResponse, error)
 	// Needs CAPABILITY_BRIDGE.
 	Bridge(ctx context.Context, in *BridgeRequest, opts ...grpc.CallOption) (*BridgeResponse, error)
+	// Needs CAPABILITY_EXEC. ExecApp runs a command in an app container
+	// (ADR 0017): the first input is start, the last output exit_code.
+	ExecApp(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ExecAppInput, ExecAppOutput], error)
 }
 
 type driverClient struct {
@@ -218,6 +222,19 @@ func (c *driverClient) Bridge(ctx context.Context, in *BridgeRequest, opts ...gr
 	return out, nil
 }
 
+func (c *driverClient) ExecApp(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ExecAppInput, ExecAppOutput], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &Driver_ServiceDesc.Streams[1], Driver_ExecApp_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[ExecAppInput, ExecAppOutput]{ClientStream: stream}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type Driver_ExecAppClient = grpc.BidiStreamingClient[ExecAppInput, ExecAppOutput]
+
 // DriverServer is the server API for Driver service.
 // All implementations must embed UnimplementedDriverServer
 // for forward compatibility.
@@ -253,6 +270,9 @@ type DriverServer interface {
 	Signal(context.Context, *SignalRequest) (*SignalResponse, error)
 	// Needs CAPABILITY_BRIDGE.
 	Bridge(context.Context, *BridgeRequest) (*BridgeResponse, error)
+	// Needs CAPABILITY_EXEC. ExecApp runs a command in an app container
+	// (ADR 0017): the first input is start, the last output exit_code.
+	ExecApp(grpc.BidiStreamingServer[ExecAppInput, ExecAppOutput]) error
 	mustEmbedUnimplementedDriverServer()
 }
 
@@ -301,6 +321,9 @@ func (UnimplementedDriverServer) Signal(context.Context, *SignalRequest) (*Signa
 }
 func (UnimplementedDriverServer) Bridge(context.Context, *BridgeRequest) (*BridgeResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Bridge not implemented")
+}
+func (UnimplementedDriverServer) ExecApp(grpc.BidiStreamingServer[ExecAppInput, ExecAppOutput]) error {
+	return status.Error(codes.Unimplemented, "method ExecApp not implemented")
 }
 func (UnimplementedDriverServer) mustEmbedUnimplementedDriverServer() {}
 func (UnimplementedDriverServer) testEmbeddedByValue()                {}
@@ -550,6 +573,13 @@ func _Driver_Bridge_Handler(srv interface{}, ctx context.Context, dec func(inter
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Driver_ExecApp_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(DriverServer).ExecApp(&grpc.GenericServerStream[ExecAppInput, ExecAppOutput]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type Driver_ExecAppServer = grpc.BidiStreamingServer[ExecAppInput, ExecAppOutput]
+
 // Driver_ServiceDesc is the grpc.ServiceDesc for Driver service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -611,6 +641,12 @@ var Driver_ServiceDesc = grpc.ServiceDesc{
 			StreamName:    "Logs",
 			Handler:       _Driver_Logs_Handler,
 			ServerStreams: true,
+		},
+		{
+			StreamName:    "ExecApp",
+			Handler:       _Driver_ExecApp_Handler,
+			ServerStreams: true,
+			ClientStreams: true,
 		},
 	},
 	Metadata: "armada/driver/v1/driver.proto",

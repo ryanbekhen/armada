@@ -52,8 +52,8 @@ func DefaultSocketDir() string {
 // ErrNotFound is returned when a container or image does not exist.
 var ErrNotFound = errors.New("not found")
 
-// Driver runs app containers on the node. Implement SystemRunner and
-// BridgeInspector as well to offer those capabilities.
+// Driver runs app containers on the node. Implement SystemRunner,
+// BridgeInspector, and Execer as well to offer those capabilities.
 type Driver interface {
 	// Ping verifies that the engine is reachable and supported.
 	Ping(ctx context.Context) error
@@ -87,6 +87,38 @@ type SystemRunner interface {
 // BridgeInspector reports the network app containers share with the host.
 type BridgeInspector interface {
 	Bridge(ctx context.Context) (Bridge, error)
+}
+
+// Execer runs commands in app containers for `armada exec` (ADR 0017). The
+// command must get the container's own security context: user,
+// capabilities, no-new-privileges, seccomp, limits, and namespaces. Serve
+// only passes it running app containers and commands that pass
+// CheckExecCommand.
+type Execer interface {
+	// ExecApp runs opts.Cmd in container id and returns its exit code once
+	// it has ended and its output has been written.
+	ExecApp(ctx context.Context, id string, opts ExecOptions) (exitCode int, err error)
+}
+
+// TermSize is a terminal's size in character cells.
+type TermSize struct {
+	Rows, Cols uint16
+}
+
+// ExecOptions describes a command for Execer.
+type ExecOptions struct {
+	Cmd []string
+	// TTY allocates a terminal; output then goes to Stdout only.
+	TTY bool
+	// Size is the terminal's initial size; Resize carries changes until
+	// the command ends.
+	Size   TermSize
+	Resize <-chan TermSize
+	// Stdin is the command's standard input, nil for none; EOF must close
+	// the command's standard input.
+	Stdin io.Reader
+	// Stdout and Stderr receive the command's output.
+	Stdout, Stderr io.Writer
 }
 
 // Info identifies a driver in the handshake.
