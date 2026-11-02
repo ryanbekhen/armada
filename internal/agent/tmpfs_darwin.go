@@ -89,13 +89,9 @@ func PrepareSecretsDisk(dir string) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, "/usr/bin/hdiutil", "attach", "-nomount", secretsDisk).Output()
+	dev, err := attachRAMDisk(ctx)
 	if err != nil {
 		return fmt.Errorf("create RAM disk: %w", err)
-	}
-	dev := strings.TrimSpace(string(out))
-	if !diskRe.MatchString(dev) {
-		return fmt.Errorf("create RAM disk: unexpected device %q", dev)
 	}
 	run := func(name string, args ...string) error {
 		// Fixed system tools; the device matched diskRe and dir is the
@@ -117,4 +113,24 @@ func PrepareSecretsDisk(dir string) error {
 		return err
 	}
 	return CheckTmpfs(dir)
+}
+
+// attachRAMDisk attaches the secrets RAM disk without a file system and
+// returns its device. It uses `diskutil image attach`, and `hdiutil
+// attach`, which macOS deprecates, where diskutil lacks the image verb
+// (diskutil then prints an error but exits with 0).
+func attachRAMDisk(ctx context.Context) (string, error) {
+	out, err := exec.CommandContext(ctx, "/usr/sbin/diskutil", "image", "attach", "--noMount", secretsDisk).Output()
+	if dev, ok := attachedDevice(out); err == nil && ok {
+		return dev, nil
+	}
+	out, err = exec.CommandContext(ctx, "/usr/bin/hdiutil", "attach", "-nomount", secretsDisk).Output()
+	if err != nil {
+		return "", err
+	}
+	dev, ok := attachedDevice(out)
+	if !ok {
+		return "", fmt.Errorf("unexpected device %q", strings.TrimSpace(string(out)))
+	}
+	return dev, nil
 }
