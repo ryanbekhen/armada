@@ -3,6 +3,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 
@@ -42,6 +43,7 @@ func NewRootCommand() *cobra.Command {
 		newStatusCommand(g),
 		newScaleCommand(g),
 		newLogsCommand(g),
+		newExecCommand(g),
 		newRollbackCommand(g),
 		newRevisionsCommand(g),
 		newClusterCommand(g),
@@ -75,6 +77,10 @@ func execute(ctx context.Context, args []string, stdin io.Reader, stdout, stderr
 	cmd.SetErr(stderr)
 
 	if err := cmd.ExecuteContext(ctx); err != nil {
+		var code exitCodeError
+		if errors.As(err, &code) {
+			return int(code)
+		}
 		_, _ = fmt.Fprintf(stderr, "Error: %v\n", err)
 		return 1
 	}

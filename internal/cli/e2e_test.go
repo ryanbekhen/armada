@@ -243,6 +243,24 @@ func TestEndToEnd(t *testing.T) {
 		t.Errorf("logs: code=%d out=%q err=%q", code, out, stderr)
 	}
 
+	// Exec: stdin, separate streams, and the command's exit code (the fake
+	// runtime echoes stdin, writes the command name to stderr, and exits
+	// with the argument count).
+	var execOut, execErr bytes.Buffer
+	code = execute(context.Background(), []string{"exec", "web", "-i", "--config", config, "--", "cat", "a", "b"}, strings.NewReader("ping"), &execOut, &execErr)
+	if code != 2 || execOut.String() != "ping" || execErr.String() != "cat" {
+		t.Errorf("exec: code=%d out=%q err=%q", code, execOut.String(), execErr.String())
+	}
+	if code, out, stderr := run(t, "exec", "web", "--config", config, "--", "true"); code != 0 || out != "" || stderr != "true" {
+		t.Errorf("exec true: code=%d out=%q err=%q", code, out, stderr)
+	}
+	if code, _, stderr := run(t, "exec", "web", "-t", "--config", config, "--", "sh"); code != 1 || !strings.Contains(stderr, "needs a terminal") {
+		t.Errorf("exec -t without a terminal: code=%d err=%q", code, stderr)
+	}
+	if code, _, stderr := run(t, "exec", "ghost", "--config", config, "--", "sh"); code != 1 || !strings.Contains(stderr, "not found") {
+		t.Errorf("exec in a missing app: code=%d err=%q", code, stderr)
+	}
+
 	// Ingress: HAProxy is started by the embedded agent and routes
 	// <app>.<root> once a root domain is set.
 	if code, out, stderr := cli("cluster", "set", "--root-domain", "apps.example.org"); code != 0 || !strings.Contains(out, "apps.example.org") {
@@ -388,7 +406,7 @@ func TestCommandsWithoutConfig(t *testing.T) {
 	t.Parallel()
 
 	missing := filepath.Join(t.TempDir(), "nope")
-	for _, args := range [][]string{{"status"}, {"scale", "a", "1"}, {"logs", "a"}} {
+	for _, args := range [][]string{{"status"}, {"scale", "a", "1"}, {"logs", "a"}, {"exec", "a", "--", "sh"}} {
 		code, _, stderr := run(t, append(args, "--config", missing)...)
 		if code == 0 || !strings.Contains(stderr, "armada init") {
 			t.Errorf("%v: code=%d stderr=%q", args, code, stderr)

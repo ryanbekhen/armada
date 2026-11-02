@@ -112,6 +112,22 @@ func (k kit) Bridge(ctx context.Context) (driverkit.Bridge, error) {
 	return driverkit.Bridge{Gateway: b.Gateway, Subnet: b.Subnet}, kitErr(err)
 }
 
+func (k kit) ExecApp(ctx context.Context, id string, opts driverkit.ExecOptions) (int, error) {
+	ro := runtime.ExecOptions{Cmd: opts.Cmd, TTY: opts.TTY, Size: runtime.TermSize(opts.Size), Stdin: opts.Stdin, Stdout: opts.Stdout, Stderr: opts.Stderr}
+	if opts.Resize != nil {
+		resize := make(chan runtime.TermSize)
+		ro.Resize = resize
+		go func() {
+			defer close(resize)
+			for sz := range opts.Resize {
+				resize <- runtime.TermSize(sz)
+			}
+		}()
+	}
+	code, err := k.d.ExecApp(ctx, id, ro)
+	return code, kitErr(err)
+}
+
 type kitLogs struct{ ls runtime.LogStream }
 
 func (l kitLogs) Next() (driverkit.LogFrame, error) {

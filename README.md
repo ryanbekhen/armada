@@ -44,6 +44,9 @@ armada deploy -f web.yaml    # → https://web.apps.example.com
   container in the cluster at `http://<app>.internal`, never from outside.
 - **Secrets.** Encrypted at rest, versioned, delivered as env vars or as
   read-only files on tmpfs.
+- **Logs and exec.** `armada logs` streams a replica's output;
+  `armada exec web -it -- sh` opens a shell in one, with the container's
+  own security settings, and every session is audited.
 - **Multiple nodes.** Join with a single-use token; nodes get short-lived
   mTLS certificates that they renew themselves. Cordon, evacuate, remove.
   Replicas of a lost node are started elsewhere, and apps spread out again,

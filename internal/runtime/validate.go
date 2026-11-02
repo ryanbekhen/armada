@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -67,6 +68,36 @@ func CheckFileMount(f FileMount) error {
 func CheckSystemMount(m Mount) error {
 	if !strings.HasPrefix(m.Source, "/") || !strings.HasPrefix(m.Target, "/") || strings.ContainsAny(m.Source+m.Target, ":,\n") {
 		return fmt.Errorf("invalid mount %s -> %s", m.Source, m.Target)
+	}
+	return nil
+}
+
+// Exec limits (ADR 0017).
+const (
+	MaxExecArgs   = 64
+	MaxExecArgLen = 4096
+	// MaxExecChunk is the most data one exec message carries.
+	MaxExecChunk = 32 << 10
+)
+
+// CheckExecCommand checks a command for ExecApp: at least one argument, at
+// most MaxExecArgs of at most MaxExecArgLen bytes each, and no NUL bytes,
+// which cannot reach a process's arguments. Errors never repeat the
+// arguments, which may hold secret values.
+func CheckExecCommand(cmd []string) error {
+	switch {
+	case len(cmd) == 0 || cmd[0] == "":
+		return errors.New("command is empty")
+	case len(cmd) > MaxExecArgs:
+		return fmt.Errorf("command has more than %d arguments", MaxExecArgs)
+	}
+	for i, a := range cmd {
+		if len(a) > MaxExecArgLen {
+			return fmt.Errorf("argument %d is longer than %d bytes", i, MaxExecArgLen)
+		}
+		if strings.ContainsRune(a, 0) {
+			return fmt.Errorf("argument %d contains a NUL byte", i)
+		}
 	}
 	return nil
 }

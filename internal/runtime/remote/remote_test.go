@@ -1,6 +1,7 @@
 package remote
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -406,5 +407,100 @@ func TestPeerCredentials(t *testing.T) {
 	defer b.Close()
 	if _, _, err := (peerCreds{}).ClientHandshake(context.Background(), "", a); err == nil {
 		t.Error("a connection that is not a Unix socket accepted")
+	}
+}
+
+// execDriver runs a fake command: it reads standard input, then writes it
+// to stdout, the command to stderr, and exits with the argument count.
+type execDriver struct{ *memDriver }
+
+func (e execDriver) ExecApp(_ context.Context, _ string, opts driverkit.ExecOptions) (int, error) {
+	var in []byte
+	if opts.Stdin != nil {
+		in, _ = io.ReadAll(opts.Stdin)
+	}
+	_, _ = opts.Stdout.Write(append([]byte("in:"), in...))
+	if !opts.TTY {
+		_, _ = opts.Stderr.Write([]byte(strings.Join(opts.Cmd, " ")))
+	}
+	return len(opts.Cmd), nil
+}
+
+func TestExecApp(t *testing.T) {
+	t.Parallel()
+	mem := newMem()
+	ctx := context.Background()
+	add := func(id string, labels map[string]string, state string) {
+		mem.mu.Lock()
+		mem.containers[id] = driverkit.Container{ID: id, Labels: labels, State: state}
+		mem.mu.Unlock()
+	}
+	add("app", map[string]string{runtime.LabelManaged: "true", runtime.LabelApp: "web"}, driverkit.StateRunning)
+	add("sys", map[string]string{runtime.LabelManaged: "true", runtime.LabelSystem: "haproxy"}, driverkit.StateRunning)
+	add("foreign", map[string]string{}, driverkit.StateRunning)
+	add("stopped", map[string]string{runtime.LabelManaged: "true"}, driverkit.StateExited)
+
+	d := dial(t, serve(t, execDriver{mem}, "test"))
+	if err := d.Ping(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if !runtime.CanExec(d) {
+		t.Fatal("exec capability not declared")
+	}
+	var out, errOut bytes.Buffer
+	code, err := d.ExecApp(ctx, "app", runtime.ExecOptions{Cmd: []string{"cat", "-"}, Stdin: strings.NewReader("hello"), Stdout: &out, Stderr: &errOut})
+	if err != nil || code != 2 || out.String() != "in:hello" || errOut.String() != "cat -" {
+		t.Errorf("ExecApp = %d, %v, stdout %q, stderr %q", code, err, out.String(), errOut.String())
+	}
+	// A large input crosses several messages.
+	big := strings.Repeat("x", 3*runtime.MaxExecChunk+5)
+	out.Reset()
+	if _, err := d.ExecApp(ctx, "app", runtime.ExecOptions{Cmd: []string{"cat"}, Stdin: strings.NewReader(big), Stdout: &out, Stderr: io.Discard}); err != nil || out.String() != "in:"+big {
+		t.Errorf("large input: %v, %d bytes", err, out.Len())
+	}
+	for id, want := range map[string]string{"sys": "not an app container", "foreign": "not an app container", "stopped": "not running", "missing": ""} {
+		_, err := d.ExecApp(ctx, id, runtime.ExecOptions{Cmd: []string{"sh"}, Stdout: io.Discard, Stderr: io.Discard})
+		switch {
+		case err == nil:
+			t.Errorf("%s: accepted", id)
+		case want == "" && !errors.Is(err, runtime.ErrNotFound):
+			t.Errorf("%s: %v, want not found", id, err)
+		case !strings.Contains(err.Error(), want):
+			t.Errorf("%s: %v, want %q", id, err, want)
+		}
+	}
+	for _, bad := range [][]string{nil, {""}, {"a\x00b"}, make([]string, runtime.MaxExecArgs+1)} {
+		if _, err := d.ExecApp(ctx, "app", runtime.ExecOptions{Cmd: bad, Stdout: io.Discard, Stderr: io.Discard}); err == nil {
+			t.Errorf("command %q accepted", bad)
+		}
+	}
+	// driverkit refuses a session that does not start with start, and a
+	// driver without Execer.
+	raw := func(d *Driver) error {
+		st, err := d.client.ExecApp(ctx)
+		if err != nil {
+			return err
+		}
+		_ = st.Send(&driverv1.ExecAppInput{Input: &driverv1.ExecAppInput_Stdin{Stdin: []byte("x")}})
+		_, err = st.Recv()
+		return err
+	}
+	if err := raw(d); status.Code(err) != codes.InvalidArgument {
+		t.Errorf("stdin first: %v, want InvalidArgument", err)
+	}
+
+	// A driver without the capability refuses before sending anything.
+	plain := dial(t, serve(t, mem, "test"))
+	if err := plain.Ping(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if runtime.CanExec(plain) {
+		t.Error("exec capability declared without Execer")
+	}
+	if _, err := plain.ExecApp(ctx, "app", runtime.ExecOptions{Cmd: []string{"sh"}}); err == nil {
+		t.Error("ExecApp without the capability accepted")
+	}
+	if err := raw(plain); status.Code(err) != codes.Unimplemented {
+		t.Errorf("driver without Execer: %v, want Unimplemented", err)
 	}
 }

@@ -48,6 +48,50 @@ type Driver struct {
 	BridgeNet runtime.Bridge
 	// PingErr is returned by Ping.
 	PingErr error
+	// ExecAppFunc, if set, answers ExecApp calls for running containers.
+	// Without it ExecApp copies standard input to stdout, writes the command
+	// name to stderr (stdout with a terminal), and exits with the number of
+	// arguments after the command.
+	ExecAppFunc func(ctx context.Context, id string, opts runtime.ExecOptions) (int, error)
+	// AppExecs records the commands of ExecApp calls.
+	AppExecs [][]string
+}
+
+// ExecApp runs a fake command in a running container.
+func (d *Driver) ExecApp(ctx context.Context, id string, opts runtime.ExecOptions) (int, error) {
+	if err := runtime.CheckExecCommand(opts.Cmd); err != nil {
+		return 0, err
+	}
+	d.mu.Lock()
+	c, ok := d.containers[id]
+	running := ok && c.State == runtime.StateRunning
+	d.AppExecs = append(d.AppExecs, slices.Clone(opts.Cmd))
+	fn := d.ExecAppFunc
+	d.mu.Unlock()
+	if !ok {
+		return 0, runtime.ErrNotFound
+	}
+	if !running {
+		return 0, fmt.Errorf("container %s is not running", id)
+	}
+	if fn != nil {
+		return fn(ctx, id, opts)
+	}
+	if opts.Stdin != nil && opts.Stdout != nil {
+		if _, err := io.Copy(opts.Stdout, opts.Stdin); err != nil {
+			return 0, err
+		}
+	}
+	errOut := opts.Stderr
+	if opts.TTY {
+		errOut = opts.Stdout
+	}
+	if errOut != nil {
+		if _, err := io.WriteString(errOut, opts.Cmd[0]); err != nil {
+			return 0, err
+		}
+	}
+	return len(opts.Cmd) - 1, nil
 }
 
 var (
