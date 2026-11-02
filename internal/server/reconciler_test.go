@@ -32,26 +32,26 @@ func TestPickNode(t *testing.T) {
 	}
 	mem := func(store.Replica) resources { return resources{mem: 512 << 20} }
 
-	n, ok := pickNode(nodes, nil, nil, resources{mem: 512 << 20}, mem)
+	n, ok := pickNode(nodes, nil, nil, "", resources{mem: 512 << 20}, mem)
 	if !ok || n.ID != "b" {
 		t.Errorf("empty cluster picked %v, want b (most free memory)", n.ID)
 	}
-	n, _ = pickNode(nodes, []store.Replica{{App: "web", NodeID: "b"}}, []store.Replica{{App: "web", NodeID: "b"}}, resources{mem: 512 << 20}, mem)
+	n, _ = pickNode(nodes, []store.Replica{{App: "web", NodeID: "b"}}, []store.Replica{{App: "web", NodeID: "b"}}, "", resources{mem: 512 << 20}, mem)
 	if n.ID != "a" {
 		t.Errorf("picked %v, want a (spread replicas)", n.ID)
 	}
 	full := []store.Replica{{App: "x", NodeID: "a"}, {App: "x", NodeID: "a"}, {App: "web", NodeID: "b"}}
-	n, _ = pickNode(nodes, full, full[2:], resources{mem: 512 << 20}, mem)
+	n, _ = pickNode(nodes, full, full[2:], "", resources{mem: 512 << 20}, mem)
 	if n.ID != "b" {
 		t.Errorf("picked %v, want b (a is full)", n.ID)
 	}
-	if _, ok := pickNode(nodes, nil, nil, resources{mem: 4 << 30}, mem); ok {
+	if _, ok := pickNode(nodes, nil, nil, "", resources{mem: 4 << 30}, mem); ok {
 		t.Error("scheduled replica that fits nowhere")
 	}
-	if _, ok := pickNode([]store.Node{{ID: "z", State: store.NodeUnknown}}, nil, nil, resources{mem: 1}, mem); ok {
+	if _, ok := pickNode([]store.Node{{ID: "z", State: store.NodeUnknown}}, nil, nil, "", resources{mem: 1}, mem); ok {
 		t.Error("scheduled on a node that is not ready")
 	}
-	n, ok = pickNode([]store.Node{{ID: "u", State: store.NodeReady}}, nil, nil, resources{mem: 1 << 40}, mem)
+	n, ok = pickNode([]store.Node{{ID: "u", State: store.NodeReady}}, nil, nil, "", resources{mem: 1 << 40}, mem)
 	if !ok || n.ID != "u" {
 		t.Error("unknown capacity (0) should not block scheduling")
 	}
@@ -61,7 +61,7 @@ func TestPickNode(t *testing.T) {
 		{ID: "honest", State: store.NodeReady, MemoryBytes: 2 << 30},
 		{ID: "liar", State: store.NodeReady, MemoryBytes: 16 << 40},
 	}
-	n, _ = pickNode(greedy, []store.Replica{{App: "x", NodeID: "liar"}}, nil, resources{mem: 512 << 20}, mem)
+	n, _ = pickNode(greedy, []store.Replica{{App: "x", NodeID: "liar"}}, nil, "", resources{mem: 512 << 20}, mem)
 	if n.ID != "honest" {
 		t.Errorf("picked %v, want honest (fewest replicas beats reported memory)", n.ID)
 	}
@@ -69,7 +69,7 @@ func TestPickNode(t *testing.T) {
 	// load and memory but not toward the spread.
 	leaving := []store.Replica{{App: "web", NodeID: "a"}, {App: "web", NodeID: "a"}}
 	stay := []store.Replica{{App: "web", NodeID: "b"}}
-	n, _ = pickNode(nodes, append(leaving, stay...), stay, resources{mem: 256 << 20}, func(store.Replica) resources { return resources{mem: 256 << 20} })
+	n, _ = pickNode(nodes, append(leaving, stay...), stay, "", resources{mem: 256 << 20}, func(store.Replica) resources { return resources{mem: 256 << 20} })
 	if n.ID != "a" {
 		t.Errorf("picked %v, want a (no replica of the app stays there)", n.ID)
 	}
@@ -87,19 +87,19 @@ func TestPickNodeReservesCPU(t *testing.T) {
 		{App: "x", NodeID: "a"}, {App: "x", NodeID: "a"}, {App: "x", NodeID: "a"}, {App: "x", NodeID: "a"}, {App: "x", NodeID: "a"}, {App: "x", NodeID: "a"},
 		{App: "y", NodeID: "b"}, {App: "y", NodeID: "b"}, {App: "y", NodeID: "b"}, {App: "y", NodeID: "b"}, {App: "y", NodeID: "b"},
 	}
-	if n, ok := pickNode(nodes, on, nil, resources{cpu: 100, mem: 256 << 20}, small); !ok || n.ID != "a" {
+	if n, ok := pickNode(nodes, on, nil, "", resources{cpu: 100, mem: 256 << 20}, small); !ok || n.ID != "a" {
 		t.Errorf("picked %v (%v), want a (b has no CPU left)", n.ID, ok)
 	}
 	// No overcommit: 500m fits nowhere.
-	if n, ok := pickNode(nodes, on, nil, resources{cpu: 500, mem: 256 << 20}, small); ok {
+	if n, ok := pickNode(nodes, on, nil, "", resources{cpu: 500, mem: 256 << 20}, small); ok {
 		t.Errorf("scheduled on %s with too little CPU", n.ID)
 	}
 	// Equal replica counts and memory: the node with more free CPU wins.
-	if n, _ := pickNode(nodes, nil, nil, resources{cpu: 100}, small); n.ID != "a" {
+	if n, _ := pickNode(nodes, nil, nil, "", resources{cpu: 100}, small); n.ID != "a" {
 		t.Errorf("picked %v, want a (more free CPU)", n.ID)
 	}
 	// Unknown CPU capacity (0) does not block scheduling.
-	if _, ok := pickNode([]store.Node{{ID: "u", State: store.NodeReady}}, nil, nil, resources{cpu: 64000}, small); !ok {
+	if _, ok := pickNode([]store.Node{{ID: "u", State: store.NodeReady}}, nil, nil, "", resources{cpu: 64000}, small); !ok {
 		t.Error("unknown CPU capacity blocked scheduling")
 	}
 }
@@ -112,11 +112,11 @@ func TestPickVictim(t *testing.T) {
 		{ID: "2", NodeID: "b", State: store.ReplicaRunning},
 		{ID: "3", NodeID: "b", State: store.ReplicaRunning},
 	}
-	if v := pickVictim(rs); v.NodeID != "b" {
+	if v := pickVictim(rs, nil); v.NodeID != "b" {
 		t.Errorf("victim = %+v, want one from the busiest node", v)
 	}
 	rs = append(rs, store.Replica{ID: "4", NodeID: "a", State: store.ReplicaFailed})
-	if v := pickVictim(rs); v.ID != "4" {
+	if v := pickVictim(rs, nil); v.ID != "4" {
 		t.Errorf("victim = %+v, want the failed replica", v)
 	}
 }

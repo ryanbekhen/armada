@@ -526,6 +526,40 @@ no_cpu() {
 }
 wait_for 60 "an app reserving more CPU than any node has runs nowhere and status says why" no_cpu
 
+log "placement: spreading over a label"
+# Every node but the last is in zone a, the last alone in zone b: spread by
+# zone, half of the replicas go to the last node.
+_last=$(host "$N" 1)
+i=1
+while [ "$i" -le "$N" ]; do
+	_zone=a
+	[ "$i" -lt "$N" ] || _zone=b
+	cli node label "$(host "$i" 1)" "e2e.zone=$_zone" >/dev/null
+	i=$((i + 1))
+done
+cat <<EOF | cli deploy -f - >/dev/null
+name: spread
+image: busybox:1.37
+command: ["sleep", "3600"]
+ingress:
+  type: none
+resources:
+  cpu: 10m
+  memory: 16Mi
+scale:
+  min: 4
+placement:
+  spreadBy: e2e.zone
+EOF
+# half_on NODE: four replicas run, two of them on NODE.
+half_on() {
+	status | jq -e --arg node "$1" '
+		[.apps[] | select(.name == "spread") | .replicas[]? | select((.draining // false) | not)] as $live
+		| ($live | length) == 4 and all($live[]; .state == "running")
+		  and ([$live[] | select(.nodeId == $node)] | length) == 2'
+}
+wait_for 300 "spread by zone: two of four replicas on $_last, alone in its zone" half_on "$_last"
+
 if [ "$E2E_REBOOT" = 1 ]; then
 	log "reboot every machine at once"
 	i=1

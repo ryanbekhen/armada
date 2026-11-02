@@ -26,7 +26,9 @@ once.
   that stay count: those of a revision being replaced, draining, or being
   moved do not, so a rollout already spreads the new revision evenly and
   needs no move afterwards. A difference of one is as even as the count
-  allows.
+  allows. An app with `placement.spreadBy` (ADR 0014) is compared by label
+  value first, the same way, and each value is then balanced over its own
+  nodes, so the two rules never undo each other.
 - Only stable apps are rebalanced: no rollout in progress, exactly the
   desired number of replicas, all of them serving, no replica on a lost
   or cordoned node, and no lost node in the cluster.
