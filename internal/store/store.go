@@ -69,6 +69,9 @@ type Node struct {
 	OS, Arch string
 	// Runtime is the container runtime its agent reports (ADR 0015).
 	Runtime string
+	// MinMemoryBytes is the smallest memory limit its runtime accepts
+	// (ADR 0016); 0 means none.
+	MinMemoryBytes int64
 	// Restricted nodes only run apps whose placement selects one of their
 	// labels.
 	Restricted bool
@@ -243,6 +246,8 @@ type NodeStatus struct {
 	OS, Arch string
 	// Runtime as the agent reports it; empty keeps the recorded one.
 	Runtime string
+	// MinMemoryBytes as the agent reports it.
+	MinMemoryBytes int64
 }
 
 // Domain is a custom domain referenced by at least one app. Apps may only

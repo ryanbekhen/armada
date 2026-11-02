@@ -331,9 +331,10 @@ conformance suite:
 | --- | --- | --- |
 | [armada-driver-docker](https://github.com/ryanbekhen/armada-driver-docker) | Docker Engine (Linux, cgroup v2) | `docker` |
 
-A driver runs as root under its own systemd unit,
+On Linux a driver runs as root under its own systemd unit,
 `armada-driver-NAME.service`, and listens on
-`/run/armada/drivers/NAME.sock`. Then set the node up with it:
+`/run/armada/drivers/NAME.sock` (macOS: see [macOS nodes](#macos-nodes)).
+Then set the node up with it:
 
 ```bash
 sudo armada join TOKEN --runtime NAME              # or: armada init --runtime NAME
@@ -341,11 +342,11 @@ sudo armada join TOKEN --runtime NAME --proxy none # a driver without system con
 armada doctor                                      # checks the driver's socket
 ```
 
-A driver has root's trust on the node: install only drivers you trust as
-much as Armada. The agent connects only to a socket that root owns, in a
-directory closed to other users, served by a process running as root. It
-checks every container spec before sending it, and the driver library
-checks it again on arrival.
+A driver has the agent's trust on the node: install only drivers you trust
+as much as Armada. The agent connects only to a socket that its own user
+(root on Linux) owns, in a directory closed to other users, served by a
+process running as that user. It checks every container spec before
+sending it, and the driver library checks it again on arrival.
 
 - `--container-subnet` belongs to the embedded runtime; the driver chooses
   its container network.
@@ -360,6 +361,89 @@ checks it again on arrival.
 - `armada-runtime.service` exits at once on such a node, and
   `armada runtime reset` removes Armada's containers through the driver,
   leaving the engine's other containers alone.
+- A driver may declare **VM isolation**: every container runs in its own
+  virtual machine with its own kernel, and the driver leaves out
+  `no-new-privileges`, seccomp, and the PID limit, which guard a kernel
+  shared with the host ([ADR 0016](adr/0016-macos-nodes.md)). Memory and
+  CPU limits and the dropped capabilities still apply, and the
+  conformance suite checks that containers really get separate kernels.
+- A driver may declare a **minimum memory limit**. Replicas whose
+  `resources.memory` is below it are not placed on that node, and
+  `armada status` says so when no other node can take them.
+
+## macOS nodes
+
+A Mac with Apple silicon can join a cluster as a **compute node**: it runs
+replicas, which HAProxy on the other nodes serves over the Mac's private
+IP, but not the control plane, HAProxy, or internal DNS
+([ADR 0016](adr/0016-macos-nodes.md)). Container images hold Linux
+programs, so a Mac runs them in Linux virtual machines; how depends on the
+driver:
+
+- **A driver with VM isolation** (one light virtual machine per
+  container) is the lightest way to run replicas on a Mac. It suits trying
+  Armada out, and production use where its consequences are acceptable:
+  containers rely on the virtual machine boundary instead of
+  `no-new-privileges`, seccomp, and a PID limit, and the engine may refuse
+  small memory limits.
+- **A driver on a container engine that runs every container in one
+  Linux virtual machine** keeps all of Armada's container defaults, at
+  the cost of a heavier virtual machine. Use it when VM isolation's
+  consequences are a problem.
+- **A Linux virtual machine on the Mac** can instead join as an ordinary
+  Linux node, with every feature, including HAProxy and internal DNS. It
+  needs an address on the private network, such as a bridged interface.
+
+The drivers table above says which drivers support macOS.
+
+A macOS node runs as one dedicated user, not root, because the Mac's
+container engines serve the logged-in user. Set it up as that user:
+
+1. Create a standard user for the node (say `armada`), keep it for the
+   node only, and log in as it. Whoever holds this account controls the
+   node, as root does on Linux. The node runs while the user is logged
+   in: turn on automatic login for it, or log in after every restart
+   (macOS does not allow automatic login with FileVault on).
+2. Install Armada from an administrator account (`sudo sh install.sh`;
+   on a Mac it installs only the binary), and the driver as its
+   instructions say. A driver on macOS runs as a LaunchAgent of the
+   node's user.
+3. As the node's user, without sudo:
+
+   ```bash
+   armada join TOKEN --runtime NAME   # writes the agent's LaunchAgent
+   launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/io.github.ryanbekhen.armada.agent.plist
+   armada doctor
+   ```
+
+On the Mac:
+
+- The data directory is `~/Library/Application Support/Armada` (mode
+  `0700`), and driver sockets are in its `run/drivers`.
+- Secret files go to a 64 MiB RAM disk that the agent mounts on the data
+  directory's `secrets` when it starts. The RAM disk ignores file
+  ownership, so the agent refuses it unless the data directory is closed
+  to other users.
+- The agent logs to `~/Library/Logs/Armada/agent.log`; logs never contain
+  secret values. macOS does not rotate the file.
+- `armada init`, `armada server`, `armada server join`, `armada backup`,
+  `armada restore`, and `armada runtime` refuse to run.
+- Containers on the Mac cannot resolve or reach `<app>.internal`; call
+  other apps through their public domains.
+
+To keep apps off Mac nodes unless they ask for one, restrict the node and
+give it a label that those apps require:
+
+```bash
+armada node label mac-1 kind=mac
+armada node restrict mac-1
+```
+
+Removing a Mac node: `armada node remove NODE` on the control plane, then
+as the node's user `launchctl bootout gui/$(id -u)/io.github.ryanbekhen.armada.agent`,
+`armada runtime reset`, eject the RAM disk (`diskutil eject` on the device
+mounted at the secrets directory, or restart), and delete the data
+directory.
 
 ## Removing a node
 

@@ -106,6 +106,7 @@ func (s *Server) Connect(stream armadav1.AgentService_ConnectServer) error {
 		if current {
 			_ = s.store.SetNodeStatus(context.WithoutCancel(ctx), node.ID, store.NodeStatus{
 				State: store.NodeUnknown, LastSeen: time.Now(), CPUMillis: hello.GetCpuMillis(), MemoryBytes: hello.GetMemoryBytes(),
+				MinMemoryBytes: hello.GetMinMemoryBytes(),
 			})
 			s.log.Info("agent disconnected", "node", node.ID)
 		}
@@ -114,9 +115,10 @@ func (s *Server) Connect(stream armadav1.AgentService_ConnectServer) error {
 	// Self-reported and untrusted: bounded to plausible values.
 	hello.CpuMillis = max(0, min(hello.GetCpuMillis(), maxNodeCPUMillis))
 	hello.MemoryBytes = max(0, min(hello.GetMemoryBytes(), maxNodeMemory))
+	hello.MinMemoryBytes = max(0, min(hello.GetMinMemoryBytes(), maxNodeMemory))
 	// Reports rewrite the node status from node: keep what hello reported,
 	// not the record as it was before this session.
-	node.CPUMillis, node.MemoryBytes = hello.GetCpuMillis(), hello.GetMemoryBytes()
+	node.CPUMillis, node.MemoryBytes, node.MinMemoryBytes = hello.GetCpuMillis(), hello.GetMemoryBytes(), hello.GetMinMemoryBytes()
 	if !validVersion(hello.GetVersion()) {
 		hello.Version = ""
 	}
@@ -133,6 +135,7 @@ func (s *Server) Connect(stream armadav1.AgentService_ConnectServer) error {
 	if err := s.store.SetNodeStatus(ctx, node.ID, store.NodeStatus{
 		State: store.NodeReady, LastSeen: time.Now(), CPUMillis: hello.GetCpuMillis(), MemoryBytes: hello.GetMemoryBytes(),
 		Version: hello.GetVersion(), OS: hello.GetOs(), Arch: hello.GetArch(), Runtime: hello.GetRuntime(),
+		MinMemoryBytes: hello.GetMinMemoryBytes(),
 	}); err != nil {
 		return status.Error(codes.Internal, "update node")
 	}
@@ -196,7 +199,7 @@ var digestRe = regexp.MustCompile(`@sha256:[a-f0-9]{64}$`)
 // untrusted: replicas must belong to the node, addresses must be on the
 // node's private IP, and digests must match the revision's repository.
 func (s *Server) applyReport(ctx context.Context, node store.Node, r *armadav1.ReplicaReport) {
-	if err := s.store.SetNodeStatus(ctx, node.ID, store.NodeStatus{State: store.NodeReady, LastSeen: time.Now(), CPUMillis: node.CPUMillis, MemoryBytes: node.MemoryBytes}); err != nil {
+	if err := s.store.SetNodeStatus(ctx, node.ID, store.NodeStatus{State: store.NodeReady, LastSeen: time.Now(), CPUMillis: node.CPUMillis, MemoryBytes: node.MemoryBytes, MinMemoryBytes: node.MinMemoryBytes}); err != nil {
 		s.log.Warn("update node status", "err", err)
 	}
 	owned, err := s.store.ListReplicas(ctx, store.ReplicaFilter{NodeID: node.ID})

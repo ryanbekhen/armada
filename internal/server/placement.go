@@ -109,17 +109,32 @@ func spreadMessage(ctx context.Context, revs *revisionCache, fit []store.Node, a
 // noNodeReason explains why no node is eligible for rev.
 func noNodeReason(nodes []store.Node, rev store.Revision) string {
 	labelled := 0
+	// The smallest minimum memory of the nodes that match but whose
+	// runtime refuses the app's memory limit (ADR 0016).
+	var minMemory int64
 	for _, n := range nodes {
 		if n.State != store.NodeReady || n.Cordoned {
 			continue
 		}
-		if placementAllows(n, store.Revision{Spec: rev.Spec}) {
-			labelled++
+		matching := n
+		matching.MinMemoryBytes = 0
+		if !placementAllows(matching, store.Revision{Spec: rev.Spec}) {
+			continue
 		}
+		if rev.Spec.MemoryBytes() < n.MinMemoryBytes {
+			if minMemory == 0 || n.MinMemoryBytes < minMemory {
+				minMemory = n.MinMemoryBytes
+			}
+			continue
+		}
+		labelled++
 	}
 	switch {
 	case labelled > 0:
 		return fmt.Sprintf("no ready node can run the image, which is built for %s", strings.Join(rev.Platforms, ", "))
+	case minMemory > 0:
+		return fmt.Sprintf("no ready node accepts the memory limit %s; the matching nodes' runtimes need at least %s",
+			humanMemory(rev.Spec.MemoryBytes()), humanMemory(minMemory))
 	case rev.Spec.Placement.String() != "":
 		return fmt.Sprintf("no ready node matches the placement (%s)", rev.Spec.Placement.String())
 	}

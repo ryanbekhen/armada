@@ -46,6 +46,9 @@ func newServerJoinCommand() *cobra.Command {
 			"either stops the control plane.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := linuxOnly("armada server join"); err != nil {
+				return err
+			}
 			addr := args[0]
 			if err := netutil.CheckPrivateListen(addr); err != nil {
 				return fmt.Errorf("join address: %w", err)

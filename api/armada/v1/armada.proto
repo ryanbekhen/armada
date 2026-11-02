@@ -421,6 +421,9 @@ message Hello {
   // The node's container runtime, "embedded" or an external driver's name,
   // shown as the armada.runtime label.
   string runtime = 7;
+  // The smallest memory limit the node's runtime accepts (ADR 0016); the
+  // scheduler places no replica with a smaller limit there. 0: none.
+  int64 min_memory_bytes = 8;
 }
 
 message ReplicaReport {

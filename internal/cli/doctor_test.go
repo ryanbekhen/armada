@@ -70,6 +70,33 @@ func TestDoctorHealthy(t *testing.T) {
 	}
 }
 
+// A Mac with a driver is a compute node run by a user (ADR 0016): no root
+// warning, no checks of Linux services or listeners, and the secrets RAM
+// disk is mounted by the agent.
+func TestDoctorMacOSNode(t *testing.T) {
+	t.Parallel()
+	env := healthyEnv(t)
+	env.goos, env.euid, env.runtimeName = "darwin", 501, "apple"
+	env.listeners, env.ntpSynced, env.ufwActive = nil, nil, nil
+	env.checkTmpfs = func(string) error { return errors.New("not mounted yet") }
+	results := runDoctor(context.Background(), env)
+	var buf bytes.Buffer
+	if failed := printChecks(&buf, results); failed != 0 || strings.Contains(buf.String(), "warn") {
+		t.Errorf("macOS node:\n%s", buf.String())
+	}
+	for _, name := range []string{"user", "listeners", "clock", "firewall"} {
+		if got := statusOf(results, name); got != "" {
+			t.Errorf("check %s ran on macOS (%s)", name, got)
+		}
+	}
+	if !strings.Contains(buf.String(), "the agent mounts a RAM disk") {
+		t.Errorf("no secrets check:\n%s", buf.String())
+	}
+	if got := driverHint("darwin", "apple"); got != "launchctl print gui/$(id -u)/io.github.ryanbekhen.armada.driver.apple" {
+		t.Errorf("hint = %q", got)
+	}
+}
+
 func TestDoctorFindsProblems(t *testing.T) {
 	t.Parallel()
 	tests := map[string]struct {
@@ -77,10 +104,11 @@ func TestDoctorFindsProblems(t *testing.T) {
 		check  string
 		want   string
 	}{
-		"not linux":   {func(e *doctorEnv) { e.goos = "darwin" }, "os", checkFail},
-		"not root":    {func(e *doctorEnv) { e.euid = 1000 }, "user", checkWarn},
-		"loopback ip": {func(e *doctorEnv) { e.privateIP = "127.0.0.1" }, "private-ip", checkFail},
-		"public ip":   {func(e *doctorEnv) { e.privateIP = "8.8.8.8" }, "private-ip", checkFail},
+		"other os":           {func(e *doctorEnv) { e.goos = "freebsd" }, "os", checkFail},
+		"mac without driver": {func(e *doctorEnv) { e.goos = "darwin" }, "os", checkFail},
+		"not root":           {func(e *doctorEnv) { e.euid = 1000 }, "user", checkWarn},
+		"loopback ip":        {func(e *doctorEnv) { e.privateIP = "127.0.0.1" }, "private-ip", checkFail},
+		"public ip":          {func(e *doctorEnv) { e.privateIP = "8.8.8.8" }, "private-ip", checkFail},
 		"no ip": {func(e *doctorEnv) {
 			e.detectIP = func() (netip.Addr, error) { return netip.Addr{}, errors.New("none") }
 		}, "private-ip", checkFail},

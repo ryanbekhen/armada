@@ -20,8 +20,9 @@ on a maintainer's machine.
    (`.goreleaser.yaml`) builds `linux/amd64` and `linux/arm64` with
    `CGO_ENABLED=0` and `-trimpath` (after `make runtime-bundle`, with the
    `bundle` tag, so the binary embeds the container runtime; see ADR 0011),
-   and publishes a **draft** release with:
-   - `armada_<version>_linux_<arch>.tar.gz` (binary, LICENSE, README,
+   plus `darwin/arm64` without the runtime for macOS compute nodes
+   (ADR 0016), and publishes a **draft** release with:
+   - `armada_<version>_<os>_<arch>.tar.gz` (binary, LICENSE, README,
      SECURITY.md, systemd units),
    - `checksums.txt` (SHA-256),
    - an SPDX SBOM per archive (syft),

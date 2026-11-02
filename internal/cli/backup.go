@@ -52,6 +52,9 @@ created with mode 0600; encrypt it before it leaves the machine, e.g.
   armada backup -o - | age -r age1... > armada-$(date +%F).tar.gz.age`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if err := linuxOnly("armada backup"); err != nil {
+				return err
+			}
 			var w io.Writer
 			switch output {
 			case "":
@@ -112,6 +115,9 @@ before anything is written to the data directory. Stop any other control
 plane of this cluster first: two servers must never run at the same time.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := linuxOnly("armada restore"); err != nil {
+				return err
+			}
 			r := cmd.InOrStdin()
 			if args[0] != "-" {
 				f, err := os.Open(args[0])

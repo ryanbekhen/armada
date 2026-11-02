@@ -19,3 +19,4 @@ Every architectural decision that is hard to reverse is recorded here. Copy `000
 | [0013](0013-replica-rebalancing.md) | Replica rebalancing | Accepted |
 | [0014](0014-node-labels-and-placement.md) | Node labels and app placement | Accepted |
 | [0015](0015-external-runtime-drivers.md) | External runtime drivers | Accepted |
+| [0016](0016-macos-nodes.md) | macOS nodes | Accepted |

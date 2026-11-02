@@ -30,10 +30,10 @@ import (
 type Config struct {
 	// Name is the driver's name; it listens on Dir/Name.sock.
 	Name string
-	// Dir defaults to driverkit.SocketDir.
+	// Dir defaults to driverkit.DefaultSocketDir.
 	Dir string
-	// UID is the user that must own the socket and run the driver; root (0)
-	// outside tests.
+	// UID is the user that must own the socket and run the driver: the
+	// agent's own user (root on Linux, the node's user on macOS, ADR 0016).
 	UID int
 }
 
@@ -59,7 +59,7 @@ func New(cfg Config) (*Driver, error) {
 		return nil, err
 	}
 	if cfg.Dir == "" {
-		cfg.Dir = driverkit.SocketDir
+		cfg.Dir = driverkit.DefaultSocketDir()
 	}
 	d := &Driver{cfg: cfg, path: filepath.Join(cfg.Dir, cfg.Name+".sock")}
 	conn, err := grpc.NewClient("passthrough:///"+cfg.Name,

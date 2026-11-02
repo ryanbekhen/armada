@@ -69,6 +69,9 @@ type Config struct {
 	// armada.os and armada.arch labels (default: the agent's own); Runtime
 	// is the container runtime's name, the armada.runtime label.
 	OS, Arch, Runtime string
+	// MinMemoryBytes is the smallest memory limit the runtime accepts,
+	// reported so the scheduler places no smaller replica here (ADR 0016).
+	MinMemoryBytes int64
 	// Servers are the control plane addresses the agent started with;
 	// OnServers receives them whenever the server sends a different list.
 	Servers   []string
@@ -195,6 +198,7 @@ func (a *Agent) session(ctx context.Context) (established bool, err error) {
 	hello := &armadav1.AgentMessage{Msg: &armadav1.AgentMessage_Hello{Hello: &armadav1.Hello{
 		CpuMillis: a.cfg.CPUMillis, MemoryBytes: a.cfg.MemoryBytes, Version: version.Get().Version, PrivateIp: a.cfg.PrivateIP,
 		Os: cmp.Or(a.cfg.OS, goruntime.GOOS), Arch: cmp.Or(a.cfg.Arch, goruntime.GOARCH), Runtime: a.cfg.Runtime,
+		MinMemoryBytes: a.cfg.MinMemoryBytes,
 	}}}
 	if err := stream.Send(hello); err != nil {
 		return false, err

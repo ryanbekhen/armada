@@ -789,11 +789,15 @@ func eligible(nodes []store.Node, rev store.Revision) []store.Node {
 }
 
 // placementAllows reports whether replicas of rev may run on n: n matches
-// the placement and, if restricted, is selected by it, and the image has a
-// variant for n's platform once its platforms are known (ADR 0014). A node
-// that does not report its platform is not ruled out.
+// the placement and, if restricted, is selected by it, its runtime accepts
+// the replica's memory limit (ADR 0016), and the image has a variant for
+// n's platform once its platforms are known (ADR 0014). A node that does
+// not report its platform is not ruled out.
 func placementAllows(n store.Node, rev store.Revision) bool {
 	sp := rev.Spec
+	if sp.MemoryBytes() < n.MinMemoryBytes {
+		return false
+	}
 	if !sp.Placement.Matches(n.AllLabels()) {
 		return false
 	}

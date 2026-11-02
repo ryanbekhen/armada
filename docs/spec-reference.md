@@ -147,7 +147,11 @@ resource is short.
 
 Every container also gets a PID limit of 1024, `no-new-privileges`, and a
 reduced capability set, and never runs privileged, on the host network, or
-with access to the container runtime's socket.
+with access to the container runtime's socket. On nodes whose driver runs
+each container in its own virtual machine (macOS nodes, say), the virtual
+machine takes the place of the PID limit and `no-new-privileges`, and a
+replica is only placed there if its `memory` is at least what the driver
+accepts (see [operations](operations.md#macos-nodes)).
 
 ### `placement`
 

@@ -55,6 +55,9 @@ func newInitCommand(g *globals) *cobra.Command {
 			"and an admin client config. Run it once on the first machine, then start `armada server`.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if err := linuxOnly("armada init"); err != nil {
+				return err
+			}
 			ip, err := resolvePrivateIP(privateIP)
 			if err != nil {
 				return err

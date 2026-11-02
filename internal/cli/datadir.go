@@ -13,7 +13,6 @@ import (
 // Data directory layout. Every file holding key material is mode 0600 and
 // the directory itself is 0700.
 const (
-	defaultDataDir = "/var/lib/armada"
 	defaultPort    = 7443
 	fileCACert     = "ca.crt"
 	fileCAKey      = "ca.key"
@@ -36,11 +35,12 @@ const (
 // after starting it. Tests shorten it.
 var proxyStartWait = 2 * time.Second
 
-// defaultSecretsDir holds secret files on the node; it must be on tmpfs.
-const defaultSecretsDir = "/run/armada/secrets" //nolint:gosec // a directory path, not a credential
-
-// checkTmpfs verifies the agent's secrets directory; tests replace it.
-var checkTmpfs = agent.CheckTmpfs
+// checkTmpfs verifies the agent's secrets directory, and prepareSecretsDisk
+// mounts a RAM disk there on macOS; tests replace them.
+var (
+	checkTmpfs         = agent.CheckTmpfs
+	prepareSecretsDisk = agent.PrepareSecretsDisk
+)
 
 // renewCheck is how often the agent checks whether its certificate needs
 // renewal; tests shorten it.
