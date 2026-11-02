@@ -329,7 +329,7 @@ conformance suite:
 
 | Driver | Engine | `--runtime` |
 | --- | --- | --- |
-| [armada-driver-docker](https://github.com/ryanbekhen/armada-driver-docker) | Docker Engine (Linux, cgroup v2) | `docker` |
+| [armada-driver-docker](https://github.com/ryanbekhen/armada-driver-docker) | Docker Engine (Linux, cgroup v2; macOS on Apple silicon with the engine in a Linux virtual machine) | `docker` |
 | [armada-driver-apple](https://github.com/ryanbekhen/armada-driver-apple) | Apple's `container` tool (macOS on Apple silicon; VM isolation, at least 200 MiB per replica) | `apple` |
 
 On Linux a driver runs as root under its own systemd unit,
@@ -394,7 +394,9 @@ driver:
 - **A driver on a container engine that runs every container in one
   Linux virtual machine** keeps all of Armada's container defaults, at
   the cost of a heavier virtual machine. Use it when VM isolation's
-  consequences are a problem.
+  consequences are a problem. The node reports the virtual machine's CPUs
+  and memory, so size the virtual machine for the replicas it should
+  hold.
 - **A Linux virtual machine on the Mac** can instead join as an ordinary
   Linux node, with every feature, including HAProxy and internal DNS. It
   needs an address on the private network, such as a bridged interface.
