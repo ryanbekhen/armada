@@ -72,13 +72,20 @@ func TestAppSpecDefaults(t *testing.T) {
 		t.Errorf("cgroup %s", s.Linux.CgroupsPath)
 	}
 	var netns string
+	var cgroupns bool
 	for _, ns := range s.Linux.Namespaces {
-		if ns.Type == "network" {
+		switch ns.Type {
+		case "network":
 			netns = ns.Path
+		case "cgroup":
+			cgroupns = ns.Path == ""
 		}
 	}
 	if netns != "/run/armada/netns/cni-1" {
 		t.Errorf("network namespace %q", netns)
+	}
+	if !cgroupns {
+		t.Error("app container must get its own cgroup namespace")
 	}
 	mounts := map[string][]string{}
 	for _, m := range s.Mounts {
@@ -88,6 +95,9 @@ func TestAppSpecDefaults(t *testing.T) {
 		if !slices.Contains(mounts[dst], "ro") {
 			t.Errorf("mount %s: options %v", dst, mounts[dst])
 		}
+	}
+	if !slices.Contains(mounts["/sys/fs/cgroup"], "ro") {
+		t.Errorf("cgroup mount: options %v", mounts["/sys/fs/cgroup"])
 	}
 	if !slices.Contains(mounts["/run/secrets/db"], "noexec") || slices.Contains(mounts[initPath], "noexec") {
 		t.Error("wrong noexec placement")
@@ -111,10 +121,17 @@ func TestSystemSpec(t *testing.T) {
 	if !s.Root.Readonly || !s.Process.NoNewPrivileges {
 		t.Error("system container must have a read-only rootfs and no-new-privileges")
 	}
+	var cgroupns bool
 	for _, ns := range s.Linux.Namespaces {
-		if ns.Type == "network" {
+		switch ns.Type {
+		case "network":
 			t.Error("system container must use the host network")
+		case "cgroup":
+			cgroupns = ns.Path == ""
 		}
+	}
+	if !cgroupns {
+		t.Error("system container must get its own cgroup namespace")
 	}
 	if len(s.Process.Rlimits) != 1 || s.Process.Rlimits[0].Hard != nofile {
 		t.Errorf("rlimits %v", s.Process.Rlimits)
