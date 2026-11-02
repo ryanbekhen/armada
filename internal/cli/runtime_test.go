@@ -22,9 +22,13 @@ func TestRuntimeReset(t *testing.T) {
 	ctx := context.Background()
 	d := fake.New()
 	for _, n := range []string{"armada-a", "armada-b"} {
-		if _, err := d.Run(ctx, runtime.ContainerSpec{Name: n, Image: "x"}); err != nil {
+		if _, err := d.Run(ctx, runtime.ContainerSpec{Name: n, Image: "x", Labels: map[string]string{runtime.LabelManaged: "true"}}); err != nil {
 			t.Fatal(err)
 		}
+	}
+	// Not Armada's: an external driver's engine may run other containers.
+	if _, err := d.Run(ctx, runtime.ContainerSpec{Name: "someone-else", Image: "x"}); err != nil {
+		t.Fatal(err)
 	}
 	orig := newDriver
 	newDriver = func(string, *agentConfig) (runtime.Driver, error) { return d, nil }
@@ -34,16 +38,16 @@ func TestRuntimeReset(t *testing.T) {
 	if code := Execute(ctx, []string{"runtime", "reset", "--data-dir", dir}, &out, &errOut); code != 0 {
 		t.Fatalf("code %d: %s", code, errOut.String())
 	}
-	if cs, _ := d.List(ctx, nil); len(cs) != 0 || !strings.Contains(out.String(), "Removed 2") {
-		t.Errorf("left %d containers; output %q", len(cs), out.String())
+	if cs, _ := d.List(ctx, nil); len(cs) != 1 || cs[0].Name != "someone-else" || !strings.Contains(out.String(), "Removed 2") {
+		t.Errorf("left %v; output %q", cs, out.String())
 	}
 
-	ac.Runtime = "other"
+	ac.Runtime = "Not A Name"
 	if err := saveAgentConfig(dir, ac); err != nil {
 		t.Fatal(err)
 	}
 	errOut.Reset()
-	if code := Execute(ctx, []string{"runtime", "reset", "--data-dir", dir}, &out, &errOut); code == 0 || !strings.Contains(errOut.String(), "supports \"embedded\"") {
+	if code := Execute(ctx, []string{"runtime", "reset", "--data-dir", dir}, &out, &errOut); code == 0 || !strings.Contains(errOut.String(), "names container runtime") {
 		t.Errorf("unknown runtime: code %d, %q", code, errOut.String())
 	}
 }
@@ -61,7 +65,14 @@ func TestRuntimeCommandFreshAndUnknownNodes(t *testing.T) {
 		t.Fatal(err)
 	}
 	errOut.Reset()
-	if code := Execute(context.Background(), []string{"runtime", "--data-dir", dir}, &out, &errOut); code == 0 || !strings.Contains(errOut.String(), "supports \"embedded\"") {
+	if code := Execute(context.Background(), []string{"runtime", "--data-dir", dir}, &out, &errOut); code != 0 || !strings.Contains(errOut.String(), `driver "other"`) {
+		t.Errorf("node with a driver: code %d, %q", code, errOut.String())
+	}
+	if err := saveAgentConfig(dir, agentConfig{NodeID: "n1", PrivateIP: "10.0.0.2", Servers: []string{"10.0.0.2:7443"}, Runtime: "Not A Name"}); err != nil {
+		t.Fatal(err)
+	}
+	errOut.Reset()
+	if code := Execute(context.Background(), []string{"runtime", "--data-dir", dir}, &out, &errOut); code == 0 || !strings.Contains(errOut.String(), "names container runtime") {
 		t.Errorf("unknown runtime: code %d, %q", code, errOut.String())
 	}
 }

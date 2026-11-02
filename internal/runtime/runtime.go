@@ -183,6 +183,25 @@ type BridgeInspector interface {
 	Bridge(ctx context.Context) (Bridge, error)
 }
 
+// CanRunSystem reports whether d runs system containers. External drivers
+// report it after their handshake; for others it is the interface.
+func CanRunSystem(d Driver) bool {
+	if c, ok := d.(interface{ CanRunSystem() bool }); ok {
+		return c.CanRunSystem()
+	}
+	_, ok := d.(SystemRunner)
+	return ok
+}
+
+// HasBridge reports whether d reports a bridge network, like CanRunSystem.
+func HasBridge(d Driver) bool {
+	if c, ok := d.(interface{ HasBridge() bool }); ok {
+		return c.HasBridge()
+	}
+	_, ok := d.(BridgeInspector)
+	return ok
+}
+
 // LabelSystem marks Armada's own infrastructure containers (e.g. HAProxy).
 const LabelSystem = "armada.system"
 

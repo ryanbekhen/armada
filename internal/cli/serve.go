@@ -31,6 +31,7 @@ import (
 	"github.com/ryanbekhen/armada/internal/netutil"
 	"github.com/ryanbekhen/armada/internal/pki"
 	"github.com/ryanbekhen/armada/internal/runtime"
+	"github.com/ryanbekhen/armada/internal/runtime/remote"
 	"github.com/ryanbekhen/armada/internal/secrets"
 	"github.com/ryanbekhen/armada/internal/server"
 	"github.com/ryanbekhen/armada/internal/store"
@@ -422,6 +423,14 @@ func runAgent(ctx context.Context, dataDir string, servers []string, proxyKind, 
 		SecretsDir: prepareSecretsDir(secretsDir, log),
 		Servers:    ac.Servers,
 		OnServers:  onServers,
+		Runtime:    ac.Runtime,
+	}
+	// A driver's engine may run containers for another platform than the
+	// agent's (a virtual machine on macOS, say): report what it says.
+	if rd, ok := rt.(*remote.Driver); ok {
+		if info := rd.Info(); info != nil {
+			acfg.OS, acfg.Arch = info.GetOs(), info.GetArch()
+		}
 	}
 	if dns != nil {
 		acfg.DNS = dns
@@ -451,7 +460,7 @@ func startInternalDNS(ctx context.Context, rt runtime.Driver, log *slog.Logger) 
 		return nil
 	}
 	bi, ok := rt.(runtime.BridgeInspector)
-	if !ok {
+	if !ok || !runtime.HasBridge(rt) {
 		return disabled("the container runtime cannot report its bridge network", nil)
 	}
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)

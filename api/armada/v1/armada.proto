@@ -418,6 +418,9 @@ message Hello {
   // labels.
   string os = 5;
   string arch = 6;
+  // The node's container runtime, "embedded" or an external driver's name,
+  // shown as the armada.runtime label.
+  string runtime = 7;
 }
 
 message ReplicaReport {

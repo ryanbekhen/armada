@@ -57,7 +57,7 @@ proto:
 		--plugin=protoc-gen-go-grpc=bin/tools/protoc-gen-go-grpc \
 		--go_out=api --go_opt=paths=source_relative \
 		--go-grpc_out=api --go-grpc_opt=paths=source_relative \
-		api/armada/v1/*.proto
+		api/armada/v1/*.proto api/armada/driver/v1/*.proto
 
 tidy:
 	go mod tidy

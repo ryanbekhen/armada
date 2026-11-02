@@ -258,7 +258,8 @@ armada node open gpu-1
 armada node list                                         # LABELS column, "restricted" in STATE
 ```
 
-Every node also has `armada.os` and `armada.arch`, which its agent reports.
+Every node also has `armada.os`, `armada.arch`, and `armada.runtime`, which
+its agent reports.
 Label keys and values are yours to choose; Armada gives no name a meaning.
 Apps select nodes with `placement.require` and spread over a label's values
 with `placement.spreadBy` (see the
@@ -317,6 +318,42 @@ public IP; a dead node's IP keeps receiving the share of visitors that DNS
 sends it until you remove it or put a health-checked load balancer (from
 your provider, or DNS with health checks) in front of the nodes.
 
+## Container runtime drivers
+
+Nodes run containers through Armada's embedded runtime unless they are set
+up with an external driver, a separate program that runs containers on
+another engine for the agent
+([ADR 0015](adr/0015-external-runtime-drivers.md)). Install the driver
+first, following its own instructions. It runs as root under its own
+systemd unit, `armada-driver-NAME.service`, and listens on
+`/run/armada/drivers/NAME.sock`. Then set the node up with it:
+
+```bash
+sudo armada join TOKEN --runtime NAME              # or: armada init --runtime NAME
+sudo armada join TOKEN --runtime NAME --proxy none # a driver without system containers
+armada doctor                                      # checks the driver's socket
+```
+
+A driver has root's trust on the node: install only drivers you trust as
+much as Armada. The agent connects only to a socket that root owns, in a
+directory closed to other users, served by a process running as root. It
+checks every container spec before sending it, and the driver library
+checks it again on arrival.
+
+- `--container-subnet` belongs to the embedded runtime; the driver chooses
+  its container network.
+- A driver that cannot run system containers cannot run HAProxy: give the
+  node `--proxy none`. It runs replicas, and the other nodes route traffic
+  to them. `armada doctor` warns about such a driver.
+- A driver without the bridge capability leaves internal DNS off on the
+  node, so its containers cannot resolve `<app>.internal`.
+- The node's `armada.runtime` label names the driver, so apps can require
+  it (or `embedded`). `armada.os` and `armada.arch` are the platform the
+  driver's engine runs containers on.
+- `armada-runtime.service` exits at once on such a node, and
+  `armada runtime reset` removes Armada's containers through the driver,
+  leaving the engine's other containers alone.
+
 ## Removing a node
 
 ```bash
@@ -332,4 +369,5 @@ sudo systemctl disable --now armada-runtime
 sudo ip link delete armada0
 ```
 
-and delete its data directory.
+and delete its data directory. On a node with an external driver, skip the
+last two commands and remove the driver as its instructions say.

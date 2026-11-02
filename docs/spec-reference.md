@@ -159,7 +159,7 @@ placement:
   require:
     region: sulawesi          # the node must have region=sulawesi
     kind: [raspi, small]      # and kind=raspi or kind=small
-    armada.arch: arm64        # labels Armada sets: armada.os, armada.arch
+    armada.arch: arm64        # labels Armada sets: armada.os, armada.arch, armada.runtime
 ```
 
 A node runs the app only if it has every key with one of the listed values

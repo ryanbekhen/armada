@@ -32,6 +32,9 @@ E2E_SUDO=${E2E_SUDO:-}                  # "sudo" when SSH-TARGET is not root
 E2E_REBOOT=${E2E_REBOOT:-1}             # 0 skips rebooting every machine at once
 E2E_BRIDGE_GW=${E2E_BRIDGE_GW:-10.121.0.1} # armada0 address (--container-subnet)
 E2E_SERVER_FLAGS=${E2E_SERVER_FLAGS:-}
+# A driver conformance test binary for the last machine's architecture
+# (go test -c -tags integration ./internal/runtime/containerd/); empty skips.
+E2E_CONFORMANCE=${E2E_CONFORMANCE:-}
 
 case $E2E_ACME_CA in
 letsencrypt | *acme-v02.api.letsencrypt.org*)
@@ -296,6 +299,19 @@ while [ "$i" -le "$N" ]; do
 	i=$((i + 1))
 done
 wait_for 180 "all $N nodes ready" nodes_ready
+
+if [ -n "$E2E_CONFORMANCE" ]; then
+	log "driver conformance suite on the embedded runtime of $(host "$N" 1)"
+	# shellcheck disable=SC2086
+	scp -q $E2E_SSH_OPTS -o BatchMode=yes "$E2E_CONFORMANCE" "$(host "$N" 2):/tmp/conformance.e2e"
+	if ! on "$N" "chmod 0755 /tmp/conformance.e2e && ARMADA_BIN=/usr/local/bin/armada ARMADA_HOST_IP=$(host "$N" 3) \
+		/tmp/conformance.e2e -test.run Conformance -test.v; _rc=\$?; rm -f /tmp/conformance.e2e; exit \$_rc" >"$WORK/conformance" 2>&1; then
+		cat "$WORK/conformance" >&2
+		fail "driver conformance suite"
+	fi
+	grep -q -- '--- SKIP' "$WORK/conformance" && grep -- '--- SKIP' "$WORK/conformance" | sed 's/^/    /'
+	ok "$(grep -c -- '--- PASS' "$WORK/conformance") checks pass"
+fi
 if [ "$SERVERS" -gt 1 ]; then
 	# server list wrote every server address into the admin config; a copy
 	# on machine 2 keeps the CLI usable while machine 1 is down.

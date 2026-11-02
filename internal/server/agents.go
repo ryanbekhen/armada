@@ -127,9 +127,12 @@ func (s *Server) Connect(stream armadav1.AgentService_ConnectServer) error {
 	if spec.CheckLabelValue(hello.GetArch()) != nil {
 		hello.Arch = ""
 	}
+	if spec.CheckLabelValue(hello.GetRuntime()) != nil {
+		hello.Runtime = ""
+	}
 	if err := s.store.SetNodeStatus(ctx, node.ID, store.NodeStatus{
 		State: store.NodeReady, LastSeen: time.Now(), CPUMillis: hello.GetCpuMillis(), MemoryBytes: hello.GetMemoryBytes(),
-		Version: hello.GetVersion(), OS: hello.GetOs(), Arch: hello.GetArch(),
+		Version: hello.GetVersion(), OS: hello.GetOs(), Arch: hello.GetArch(), Runtime: hello.GetRuntime(),
 	}); err != nil {
 		return status.Error(codes.Internal, "update node")
 	}

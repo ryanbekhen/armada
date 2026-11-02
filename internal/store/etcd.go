@@ -321,6 +321,7 @@ type nodeRec struct {
 	Restricted  bool              `json:"restricted,omitempty"`
 	OS          string            `json:"os,omitempty"`
 	Arch        string            `json:"arch,omitempty"`
+	Runtime     string            `json:"runtime,omitempty"`
 }
 
 type certRec struct {
@@ -492,7 +493,7 @@ func (t *etx) node(id string) (nodeRec, bool, error) {
 func (t *etx) toNode(n nodeRec) (Node, error) {
 	out := Node{ID: n.ID, PrivateIP: n.PrivateIP, CPUMillis: n.CPUMillis, MemoryBytes: n.MemoryBytes, State: n.State,
 		LastSeen: fromMS(n.LastSeen), CreatedAt: fromMS(n.CreatedAt), Cordoned: n.Cordoned, Version: n.Version,
-		Labels: n.Labels, OS: n.OS, Arch: n.Arch, Restricted: n.Restricted}
+		Labels: n.Labels, OS: n.OS, Arch: n.Arch, Runtime: n.Runtime, Restricted: n.Restricted}
 	var latest int64
 	err := listInto(t, pfxCerts+n.ID+"/", func(_ string, c certRec) error {
 		latest = max(latest, c.NotAfter)
@@ -519,13 +520,16 @@ func (s *Etcd) UpsertNode(ctx context.Context, n Node) error {
 			LastSeen: ms(n.LastSeen), CreatedAt: ms(n.CreatedAt)}
 		if ok {
 			rec.CreatedAt, rec.Cordoned, rec.LegacyCerts, rec.Version = cur.CreatedAt, cur.Cordoned, cur.LegacyCerts, cur.Version
-			rec.Labels, rec.Restricted, rec.OS, rec.Arch = cur.Labels, cur.Restricted, cur.OS, cur.Arch
+			rec.Labels, rec.Restricted, rec.OS, rec.Arch, rec.Runtime = cur.Labels, cur.Restricted, cur.OS, cur.Arch, cur.Runtime
 		}
 		if n.Labels != nil {
 			rec.Labels = n.Labels
 		}
 		if n.OS != "" || n.Arch != "" {
 			rec.OS, rec.Arch = n.OS, n.Arch
+		}
+		if n.Runtime != "" {
+			rec.Runtime = n.Runtime
 		}
 		rec.Restricted = rec.Restricted || n.Restricted
 		return t.put(pfxNodes+n.ID, rec)
@@ -582,6 +586,9 @@ func (s *Etcd) SetNodeStatus(ctx context.Context, id string, st NodeStatus) erro
 		}
 		if st.Arch != "" {
 			n.Arch = st.Arch
+		}
+		if st.Runtime != "" {
+			n.Runtime = st.Runtime
 		}
 		return t.put(pfxNodes+id, n)
 	})

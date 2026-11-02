@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/pflag"
+
 	"github.com/ryanbekhen/armada/internal/proxy/haproxy"
 	"github.com/ryanbekhen/armada/internal/runtime"
 	"github.com/ryanbekhen/armada/internal/runtime/fake"
@@ -171,10 +173,33 @@ func TestRuntimeFlags(t *testing.T) {
 			t.Errorf("accepted %+v", bad)
 		}
 	}
-	for _, rt := range []string{"", "other"} {
+	for _, rt := range []string{"", "Other", "../x", "a b"} {
 		if err := (agentConfig{Runtime: rt}).checkRuntime(); err == nil {
 			t.Errorf("runtime %q accepted", rt)
 		}
+	}
+
+	// An external driver: no container subnet, which the driver chooses.
+	ac = agentConfig{}
+	if err := (runtimeFlags{runtime: "docker", subnet: "10.121.0.0/24"}).apply(&ac, ip); err != nil || ac.Runtime != "docker" || ac.ContainerSubnet != "" || !ac.external() {
+		t.Errorf("%+v %v", ac, err)
+	}
+	if err := ac.checkRuntime(); err != nil {
+		t.Errorf("driver node refused: %v", err)
+	}
+	for _, bad := range []string{"embedded-x/", "Docker", "x_y"} {
+		if err := (runtimeFlags{runtime: bad}).apply(&ac, ip); err == nil {
+			t.Errorf("--runtime %q accepted", bad)
+		}
+	}
+	fs := pflag.NewFlagSet("t", pflag.ContinueOnError)
+	var rf runtimeFlags
+	rf.register(fs)
+	if err := fs.Parse([]string{"--runtime", "docker", "--container-subnet", "10.122.0.0/24"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := rf.apply(&ac, ip); err == nil || !strings.Contains(err.Error(), "embedded runtime") {
+		t.Errorf("--container-subnet with a driver: %v", err)
 	}
 }
 
@@ -223,3 +248,34 @@ func TestExistingAncestor(t *testing.T) {
 		t.Errorf("existingAncestor(existing) = %q", got)
 	}
 }
+
+// appOnly is a driver without system containers or a bridge.
+type appOnly struct{ runtime.Driver }
+
+func TestDoctorExternalDriver(t *testing.T) {
+	t.Parallel()
+	env := healthyEnv(t)
+	env.runtimeName = "docker"
+	results := runDoctor(context.Background(), env)
+	if statusOf(results, "runtime") != checkOK || statusOf(results, "system containers") != "" {
+		t.Errorf("capable driver: %+v", results)
+	}
+
+	env.driver = appOnly{fake.New()}
+	results = runDoctor(context.Background(), env)
+	if statusOf(results, "system containers") != checkWarn || statusOf(results, "bridge") != "" {
+		t.Errorf("driver without system containers: %+v", results)
+	}
+
+	env.driver = appOnly{&failingPing{fake.New()}}
+	results = runDoctor(context.Background(), env)
+	for _, r := range results {
+		if r.Name == "runtime" && (r.Status != checkFail || !strings.Contains(r.Detail, "armada-driver-docker")) {
+			t.Errorf("unreachable driver: %+v", r)
+		}
+	}
+}
+
+type failingPing struct{ *fake.Driver }
+
+func (failingPing) Ping(context.Context) error { return errors.New("connection refused") }
