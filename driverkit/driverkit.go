@@ -110,8 +110,9 @@ type ExecOptions struct {
 	Cmd []string
 	// TTY allocates a terminal; output then goes to Stdout only.
 	TTY bool
-	// Size is the terminal's initial size; Resize carries changes until
-	// the command ends.
+	// Size is the terminal's initial size, applied before the command
+	// starts or, if the engine cannot, at most a moment after; Resize
+	// carries changes until the command ends.
 	Size   TermSize
 	Resize <-chan TermSize
 	// Stdin is the command's standard input, nil for none; EOF must close
