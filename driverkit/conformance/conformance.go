@@ -39,6 +39,11 @@ type Options struct {
 	HostIP string
 	// Timeout bounds each step; default 2 minutes.
 	Timeout time.Duration
+	// Info is what the driver serves in its handshake. With VMIsolation the
+	// suite checks that containers run on separate kernels instead of
+	// checking no-new-privileges and the PID limit; test containers get at
+	// least MinMemoryBytes.
+	Info driverkit.Info
 }
 
 // Linux capability numbers of runtime.DroppedCaps.
@@ -66,6 +71,9 @@ func Run(t *testing.T, d driverkit.Driver, opts Options) {
 	}
 
 	t.Run("SecurityDefaults", r.securityDefaults)
+	if opts.Info.VMIsolation {
+		t.Run("VMIsolation", r.vmIsolation)
+	}
 	t.Run("Lifecycle", r.lifecycle)
 	t.Run("Labels", r.labels)
 	t.Run("Logs", r.logs)
@@ -109,7 +117,7 @@ func (r *runner) spec(cmd ...string) driverkit.ContainerSpec {
 		// Not armada.managed: an agent on the same node would remove
 		// containers it does not know.
 		Labels:      map[string]string{labelRun: r.run},
-		MemoryBytes: 64 << 20,
+		MemoryBytes: max(64<<20, r.opts.Info.MinMemoryBytes),
 		PidsLimit:   100,
 		Security:    driverkit.Security{NoNewPrivileges: true, DropCapabilities: driverkit.RequiredDroppedCaps},
 	}
@@ -204,7 +212,10 @@ echo "env $GREETING"`)
 		}
 		fields[strings.TrimSuffix(f[0], ":")] = strings.Join(f[1:], " ")
 	}
-	if fields["NoNewPrivs"] != "1" {
+	// With VM isolation the container's kernel is its own, and the
+	// VMIsolation subtest checks that instead (ADR 0016).
+	vm := r.opts.Info.VMIsolation
+	if fields["NoNewPrivs"] != "1" && !vm {
 		t.Errorf("NoNewPrivs = %q, want 1", fields["NoNewPrivs"])
 	}
 	capEff, err := strconv.ParseUint(fields["CapEff"], 16, 64)
@@ -219,7 +230,7 @@ echo "env $GREETING"`)
 	if fields["memory"] != strconv.FormatInt(spec.MemoryBytes, 10) {
 		t.Errorf("memory limit %q, want %d", fields["memory"], spec.MemoryBytes)
 	}
-	if fields["pids"] != strconv.FormatInt(spec.PidsLimit, 10) {
+	if fields["pids"] != strconv.FormatInt(spec.PidsLimit, 10) && !vm {
 		t.Errorf("PID limit %q, want %d", fields["pids"], spec.PidsLimit)
 	}
 	if fields["file"] != "s3cret" {
@@ -233,6 +244,28 @@ echo "env $GREETING"`)
 	}
 	if t.Failed() {
 		t.Logf("container stdout:\n%s\nstderr:\n%s", out, errOut)
+	}
+}
+
+// vmIsolation checks a driver's VM isolation claim: two containers, and
+// this machine when it runs Linux, report different kernel boot IDs.
+func (r *runner) vmIsolation(t *testing.T) {
+	const cmd = "cat /proc/sys/kernel/random/boot_id"
+	seen := map[string]string{}
+	if b, err := os.ReadFile("/proc/sys/kernel/random/boot_id"); err == nil {
+		seen[strings.TrimSpace(string(b))] = "this machine"
+	}
+	for i := range 2 {
+		out, errOut, code := r.output(t, r.spec("sh", "-c", cmd))
+		id := strings.TrimSpace(out)
+		if code != 0 || id == "" {
+			t.Fatalf("exit %d, stdout %q, stderr %q", code, out, errOut)
+		}
+		who := fmt.Sprintf("container %d", i+1)
+		if prev, ok := seen[id]; ok {
+			t.Fatalf("%s shares a kernel with %s (boot ID %s)", who, prev, id)
+		}
+		seen[id] = who
 	}
 }
 

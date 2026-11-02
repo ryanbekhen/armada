@@ -6,6 +6,9 @@
 #   less install.sh        # read it first
 #   sudo sh install.sh
 #
+# On a Mac (Apple silicon) it installs only the binary: a Mac is a compute
+# node whose agent runs as a LaunchAgent that `armada join` writes.
+#
 # Environment:
 #   ARMADA_VERSION             release tag to install (default: latest)
 #   ARMADA_REQUIRE_SIGNATURE=1 fail unless the cosign signature is verified
@@ -35,12 +38,17 @@ need curl
 need tar
 need uname
 
-[ "$(uname -s)" = Linux ] || die "Armada runs on Linux only"
+case "$(uname -s)" in
+Linux) OS=linux ;;
+Darwin) OS=darwin ;;
+*) die "Armada runs on Linux and macOS only" ;;
+esac
 case "$(uname -m)" in
 x86_64 | amd64) ARCH=amd64 ;;
 aarch64 | arm64) ARCH=arm64 ;;
 *) die "unsupported architecture $(uname -m)" ;;
 esac
+[ "$OS" = linux ] || [ "$ARCH" = arm64 ] || die "Armada runs on Macs with Apple silicon only"
 
 if [ "$VERSION" = latest ]; then
 	VERSION=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" |
@@ -52,14 +60,14 @@ printf '%s' "$VERSION" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$' |
 	die "invalid version '$VERSION' (want vX.Y.Z)"
 
 BASE="${ARMADA_DOWNLOAD_BASE:-https://github.com/$REPO/releases/download}/$VERSION"
-ARCHIVE="armada_${VERSION#v}_linux_${ARCH}.tar.gz"
+ARCHIVE="armada_${VERSION#v}_${OS}_${ARCH}.tar.gz"
 
 TMP=$(mktemp -d)
 trap 'rm -rf -- "$TMP"' EXIT INT TERM
 
 fetch() { curl -fsSL --proto '=https,file' --retry 3 -o "$TMP/$1" "$BASE/$1"; }
 
-say "Downloading Armada $VERSION ($ARCH)..."
+say "Downloading Armada $VERSION ($OS/$ARCH)..."
 fetch "$ARCHIVE" || die "download of $ARCHIVE failed"
 fetch checksums.txt || die "download of checksums.txt failed"
 
@@ -101,6 +109,16 @@ mkdir -p "$PREFIX/bin"
 install -m 0755 "$TMP/x/armada" "$PREFIX/bin/armada.new"
 mv -f "$PREFIX/bin/armada.new" "$PREFIX/bin/armada"
 say "Installed $PREFIX/bin/armada"
+
+if [ "$OS" = darwin ]; then
+	say ""
+	say "Next, as the user that runs the node (not root):"
+	say "  install and start a runtime driver (see the operations guide, \"macOS nodes\"),"
+	say "  armada join ... --runtime NAME (from 'armada token create'),"
+	say "  then start the agent with the launchctl command join prints."
+	"$PREFIX/bin/armada" version
+	exit 0
+fi
 
 if [ -n "$SYSTEMD_DIR" ] && [ -d "$SYSTEMD_DIR" ]; then
 	for unit in armada-server.service armada-agent.service armada-runtime.service; do

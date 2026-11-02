@@ -201,6 +201,16 @@ func newJoinCommand() *cobra.Command {
 			}
 			out := cmd.OutOrStdout()
 			_, _ = fmt.Fprintf(out, "Joined as node %s (%s); control plane %s.\n", nodeName, ip, strings.Join(servers, ", "))
+			// On macOS the agent runs as a LaunchAgent of this user
+			// (ADR 0016).
+			if goos == "darwin" && dataDir == defaultDataDir {
+				start, err := installLaunchAgent()
+				if err != nil {
+					return fmt.Errorf("write the agent's LaunchAgent: %w", err)
+				}
+				_, err = fmt.Fprintf(out, "Next: start the driver's LaunchAgent, then the agent's:\n      %s\n", start)
+				return err
+			}
 			_, err = fmt.Fprint(out, nextStep("agent", dataDir))
 			return err
 		},

@@ -69,6 +69,13 @@ message InfoResponse {
   string os = 4;
   string arch = 5;
   repeated Capability capabilities = 6;
+  // vm_isolation: every container runs in its own virtual machine with its
+  // own kernel, so the driver may leave out no_new_privileges and the PID
+  // limit (ADR 0016). The conformance suite checks the claim.
+  bool vm_isolation = 7;
+  // min_memory_bytes is the smallest memory limit the driver accepts; the
+  // scheduler places no replica with a smaller limit on the node. 0: none.
+  int64 min_memory_bytes = 8;
 }
 
 message PingRequest {}

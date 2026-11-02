@@ -57,7 +57,7 @@ type runtimeFlags struct {
 
 func (r *runtimeFlags) register(f *pflag.FlagSet) {
 	r.flags = f
-	f.StringVar(&r.runtime, "runtime", runtimeEmbedded, "container runtime: embedded, or the name of an installed driver (listening on "+driverkit.SocketDir+"/NAME.sock)")
+	f.StringVar(&r.runtime, "runtime", runtimeEmbedded, "container runtime: embedded, or the name of an installed driver (listening on "+driverkit.DefaultSocketDir()+"/NAME.sock)")
 	f.StringVar(&r.subnet, "container-subnet", embedded.DefaultSubnet.String(), "private IPv4 subnet for this node's containers (embedded runtime)")
 }
 
@@ -72,6 +72,9 @@ func (r runtimeFlags) apply(c *agentConfig, privateIP netip.Addr) error {
 		}
 		c.Runtime, c.ContainerSubnet = r.runtime, ""
 		return nil
+	}
+	if err := needsDriverOn(goos, r.runtime); err != nil {
+		return err
 	}
 	p, err := netip.ParsePrefix(r.subnet)
 	if err != nil {
@@ -94,7 +97,7 @@ var newDriver = func(dataDir string, ac *agentConfig) (runtime.Driver, error) {
 		return nil, err
 	}
 	if ac.external() {
-		d, err := remote.New(remote.Config{Name: ac.Runtime})
+		d, err := remote.New(remote.Config{Name: ac.Runtime, UID: os.Geteuid()})
 		if err != nil {
 			return nil, err
 		}
@@ -114,9 +117,18 @@ var newDriver = func(dataDir string, ac *agentConfig) (runtime.Driver, error) {
 // runtimeHint says how to start the node's runtime.
 func runtimeHint(ac *agentConfig) string {
 	if ac.external() {
-		return "systemctl status armada-driver-" + ac.Runtime
+		return driverHint(goos, ac.Runtime)
 	}
 	return "systemctl start armada-runtime"
+}
+
+// driverHint says how to check a driver's service: its systemd unit, or
+// on macOS its LaunchAgent.
+func driverHint(system, name string) string {
+	if system == "darwin" {
+		return "launchctl print gui/$(id -u)/" + launchdLabel("driver."+name)
+	}
+	return "systemctl status armada-driver-" + name
 }
 
 // runtimeWait bounds how long the agent waits for the runtime at start.
@@ -159,6 +171,9 @@ func newRuntimeCommand() *cobra.Command {
 			"nothing on nodes that are not initialized yet.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if err := linuxOnly("the embedded runtime"); err != nil {
+				return err
+			}
 			ac, err := loadAgentConfig(dataDir)
 			if errors.Is(err, fs.ErrNotExist) {
 				_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "%s is not initialized; nothing to run\n", dataDir)
@@ -249,6 +264,9 @@ func newRuntimeLogCommand() *cobra.Command {
 		Hidden: true,
 		Args:   cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
+			if err := linuxOnly("the embedded runtime"); err != nil {
+				return err
+			}
 			dir := args[0]
 			if !filepath.IsAbs(dir) || filepath.Clean(dir) != dir {
 				return fmt.Errorf("log directory %q must be absolute and clean", dir)

@@ -68,9 +68,13 @@ armada deploy -f web.yaml    # → https://web.apps.example.com
   conformance suite for driver authors.
   [armada-driver-docker](https://github.com/ryanbekhen/armada-driver-docker)
   runs a node's containers on the Docker Engine.
+- **macOS compute nodes.** A Mac with Apple silicon can join as a node
+  that runs replicas through a driver, as a dedicated user with secrets on
+  a RAM disk; the control plane and HAProxy stay on Linux.
 
 Armada needs Linux machines (cloud instances, VMs, or bare metal) with a
-private network between them, and nothing else: the binary embeds its own
+private network between them, and nothing else (Macs can add compute
+nodes): the binary embeds its own
 container runtime (containerd, runc, CNI plugins) and
 its state store (etcd).
 

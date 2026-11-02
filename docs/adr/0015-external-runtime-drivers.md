@@ -52,7 +52,9 @@ proves it keeps Armada's security defaults.
   decision of the same weight as installing Armada. The agent connects only
   when the socket and its directory are owned by root and closed to group
   and others, and when the process on the other end runs as uid 0 (peer
-  credentials). There is no TCP transport.
+  credentials). There is no TCP transport. (On macOS the agent and its
+  driver run as one user instead, and "root" reads as the agent's own
+  user: [ADR 0016](0016-macos-nodes.md).)
 - Driver names are lowercase letters, digits, and `-`, up to 32
   characters; `embedded` is reserved for the built-in runtime.
 

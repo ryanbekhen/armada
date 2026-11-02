@@ -3198,9 +3198,12 @@ type Hello struct {
 	Arch string `protobuf:"bytes,6,opt,name=arch,proto3" json:"arch,omitempty"`
 	// The node's container runtime, "embedded" or an external driver's name,
 	// shown as the armada.runtime label.
-	Runtime       string `protobuf:"bytes,7,opt,name=runtime,proto3" json:"runtime,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Runtime string `protobuf:"bytes,7,opt,name=runtime,proto3" json:"runtime,omitempty"`
+	// The smallest memory limit the node's runtime accepts (ADR 0016); the
+	// scheduler places no replica with a smaller limit there. 0: none.
+	MinMemoryBytes int64 `protobuf:"varint,8,opt,name=min_memory_bytes,json=minMemoryBytes,proto3" json:"min_memory_bytes,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *Hello) Reset() {
@@ -3280,6 +3283,13 @@ func (x *Hello) GetRuntime() string {
 		return x.Runtime
 	}
 	return ""
+}
+
+func (x *Hello) GetMinMemoryBytes() int64 {
+	if x != nil {
+		return x.MinMemoryBytes
+	}
+	return 0
 }
 
 type ReplicaReport struct {
@@ -4819,7 +4829,7 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\fAgentMessage\x12(\n" +
 	"\x05hello\x18\x01 \x01(\v2\x10.armada.v1.HelloH\x00R\x05hello\x122\n" +
 	"\x06report\x18\x02 \x01(\v2\x18.armada.v1.ReplicaReportH\x00R\x06reportB\x05\n" +
-	"\x03msg\"\xc0\x01\n" +
+	"\x03msg\"\xea\x01\n" +
 	"\x05Hello\x12\x1d\n" +
 	"\n" +
 	"cpu_millis\x18\x01 \x01(\x03R\tcpuMillis\x12!\n" +
@@ -4829,7 +4839,8 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"private_ip\x18\x04 \x01(\tR\tprivateIp\x12\x0e\n" +
 	"\x02os\x18\x05 \x01(\tR\x02os\x12\x12\n" +
 	"\x04arch\x18\x06 \x01(\tR\x04arch\x12\x18\n" +
-	"\aruntime\x18\a \x01(\tR\aruntime\"D\n" +
+	"\aruntime\x18\a \x01(\tR\aruntime\x12(\n" +
+	"\x10min_memory_bytes\x18\b \x01(\x03R\x0eminMemoryBytes\"D\n" +
 	"\rReplicaReport\x123\n" +
 	"\breplicas\x18\x01 \x03(\v2\x17.armada.v1.ReplicaStateR\breplicas\"\xed\x01\n" +
 	"\fReplicaState\x12\x0e\n" +

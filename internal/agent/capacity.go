@@ -3,7 +3,6 @@ package agent
 import (
 	"bufio"
 	"bytes"
-	"os"
 	goruntime "runtime"
 	"slices"
 	"strconv"
@@ -11,14 +10,10 @@ import (
 )
 
 // detectCapacity returns the node's CPU (millicores) and memory (bytes).
-// Memory is 0 where /proc/meminfo is unavailable; the scheduler treats 0 as
-// unknown rather than empty.
+// Memory is 0 where the system does not report it; the scheduler treats 0
+// as unknown rather than empty.
 func detectCapacity() (cpuMillis, memoryBytes int64) {
-	cpuMillis = int64(goruntime.NumCPU()) * 1000
-	if b, err := os.ReadFile("/proc/meminfo"); err == nil {
-		memoryBytes = parseMemTotal(b)
-	}
-	return cpuMillis, memoryBytes
+	return int64(goruntime.NumCPU()) * 1000, systemMemory()
 }
 
 func parseMemTotal(meminfo []byte) int64 {

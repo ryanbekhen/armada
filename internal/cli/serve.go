@@ -80,6 +80,9 @@ func newServerCommand(g *globals) *cobra.Command {
 			"seconds if it fails. Add control plane nodes with `armada server join`.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if err := linuxOnly("armada server"); err != nil {
+				return err
+			}
 			log, err := newLogger(cmd.ErrOrStderr(), logFormat, verbose)
 			if err != nil {
 				return err
@@ -323,7 +326,7 @@ func newAgentCommand() *cobra.Command {
 	f.StringSliceVar(&servers, "server", nil, "control plane addresses (default: from agent.json, kept up to date by the server)")
 	f.StringVar(&logFormat, "log-format", "text", "log format: text or json")
 	f.BoolVarP(&verbose, "verbose", "v", false, "debug logging")
-	f.StringVar(&proxyKind, "proxy", "haproxy", "ingress proxy: haproxy or none")
+	f.StringVar(&proxyKind, "proxy", defaultProxy(), "ingress proxy: haproxy or none (none on macOS)")
 	f.StringVar(&secretsDir, "secrets-dir", defaultSecretsDir, "tmpfs directory for secret files")
 	f.BoolVar(&internalDNS, "internal-dns", true, "serve <app>.internal to containers on this node (needs --proxy haproxy)")
 	return cmd
@@ -429,7 +432,7 @@ func runAgent(ctx context.Context, dataDir string, servers []string, proxyKind, 
 	// agent's (a virtual machine on macOS, say): report what it says.
 	if rd, ok := rt.(*remote.Driver); ok {
 		if info := rd.Info(); info != nil {
-			acfg.OS, acfg.Arch = info.GetOs(), info.GetArch()
+			acfg.OS, acfg.Arch, acfg.MinMemoryBytes = info.GetOs(), info.GetArch(), info.GetMinMemoryBytes()
 		}
 	}
 	if dns != nil {
@@ -514,6 +517,11 @@ func prepareSecretsDir(dir string, log *slog.Logger) string {
 	}
 	if err := fsutil.MkdirPrivate(dir); err != nil {
 		log.Warn("secret files disabled", "dir", dir, "err", err)
+		return ""
+	}
+	// On macOS the agent mounts a RAM disk there itself (ADR 0016).
+	if err := prepareSecretsDisk(dir); err != nil {
+		log.Warn("secret files disabled: cannot mount a RAM disk", "dir", dir, "err", err)
 		return ""
 	}
 	if err := checkTmpfs(dir); err != nil {

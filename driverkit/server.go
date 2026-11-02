@@ -42,17 +42,23 @@ func CheckName(name string) error {
 
 // SocketPath returns the socket a driver named name listens on.
 func SocketPath(name string) string {
-	return filepath.Join(SocketDir, name+".sock")
+	return filepath.Join(DefaultSocketDir(), name+".sock")
 }
 
-// Listen creates the socket for driver name in SocketDir, which it creates
-// with mode 0700, replacing a stale socket; the socket gets mode 0600. Run
-// it as root: the agent only connects to sockets root owns.
+// Listen creates the socket for driver name in DefaultSocketDir, which it
+// creates with mode 0700, replacing a stale socket; the socket gets mode
+// 0600. Run it as the agent's user (root on Linux): the agent only connects
+// to sockets its own user owns.
 func Listen(name string) (net.Listener, error) {
+	return ListenIn(DefaultSocketDir(), name)
+}
+
+// ListenIn is Listen with the socket in dir instead of DefaultSocketDir.
+func ListenIn(dir, name string) (net.Listener, error) {
 	if err := CheckName(name); err != nil {
 		return nil, err
 	}
-	return listenAt(SocketDir, name)
+	return listenAt(dir, name)
 }
 
 func listenAt(dir, name string) (net.Listener, error) {
@@ -90,6 +96,9 @@ func Serve(ctx context.Context, l net.Listener, d Driver, info Info) error {
 	if err := CheckName(info.Name); err != nil {
 		return err
 	}
+	if info.MinMemoryBytes < 0 {
+		return errors.New("negative minimum memory")
+	}
 	srv := grpc.NewServer()
 	driverv1.RegisterDriverServer(srv, &server{d: d, info: info})
 	stop := context.AfterFunc(ctx, srv.GracefulStop)
@@ -110,6 +119,7 @@ func (s *server) Info(context.Context, *driverv1.InfoRequest) (*driverv1.InfoRes
 	r := &driverv1.InfoResponse{
 		Protocol: driverv1.ProtocolVersion_PROTOCOL_VERSION_1,
 		Name:     s.info.Name, Version: s.info.Version, Os: s.info.OS, Arch: s.info.Arch,
+		VmIsolation: s.info.VMIsolation, MinMemoryBytes: s.info.MinMemoryBytes,
 	}
 	if _, ok := s.d.(SystemRunner); ok {
 		r.Capabilities = append(r.Capabilities, driverv1.Capability_CAPABILITY_SYSTEM_CONTAINERS)

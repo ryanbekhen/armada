@@ -16,6 +16,9 @@ import (
 	"io"
 	"log/slog"
 	"net/netip"
+	"os"
+	"path/filepath"
+	goruntime "runtime"
 	"strings"
 	"time"
 )
@@ -24,8 +27,27 @@ import (
 // serves.
 const ProtocolVersion = 1
 
-// SocketDir is where drivers listen, as NAME.sock.
+// SocketDir is where drivers listen on Linux, as NAME.sock. Use
+// DefaultSocketDir for the directory on the current system.
 const SocketDir = "/run/armada/drivers"
+
+// macOSSocketDir is where drivers listen on macOS, below the home of the
+// user that runs the agent and the driver (ADR 0016).
+const macOSSocketDir = "Library/Application Support/Armada/run/drivers"
+
+// DefaultSocketDir returns where drivers listen on this system: SocketDir
+// on Linux, and below the user's home on macOS, where the agent and its
+// driver run as one user.
+func DefaultSocketDir() string {
+	if goruntime.GOOS != "darwin" {
+		return SocketDir
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return SocketDir
+	}
+	return filepath.Join(home, macOSSocketDir)
+}
 
 // ErrNotFound is returned when a container or image does not exist.
 var ErrNotFound = errors.New("not found")
@@ -75,6 +97,14 @@ type Info struct {
 	// OS and Arch are the node's platform as the engine sees it ("linux",
 	// "arm64").
 	OS, Arch string
+	// VMIsolation declares that every container runs in its own virtual
+	// machine with its own kernel, so the driver may leave out
+	// no-new-privileges and the PID limit (ADR 0016). The conformance suite
+	// checks it.
+	VMIsolation bool
+	// MinMemoryBytes is the smallest memory limit the driver accepts; the
+	// scheduler places no replica with a smaller limit on the node. 0: none.
+	MinMemoryBytes int64
 }
 
 // Image is a pulled image.

@@ -24,9 +24,26 @@ builds:
       - -X github.com/ryanbekhen/armada/internal/version.version={{ .Tag }}
       - -X github.com/ryanbekhen/armada/internal/version.commit={{ .FullCommit }}
       - -X github.com/ryanbekhen/armada/internal/version.date={{ .CommitDate }}
+  # macOS (Apple silicon) runs only the agent, through a driver (ADR 0016):
+  # no embedded runtime.
+  - id: armada-darwin
+    main: ./cmd/armada
+    binary: armada
+    env:
+      - CGO_ENABLED=0
+    goos: [darwin]
+    goarch: [arm64]
+    flags: [-trimpath]
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    ldflags:
+      - -s -w
+      - -X github.com/ryanbekhen/armada/internal/version.version={{ .Tag }}
+      - -X github.com/ryanbekhen/armada/internal/version.commit={{ .FullCommit }}
+      - -X github.com/ryanbekhen/armada/internal/version.date={{ .CommitDate }}
 
 archives:
   - id: armada
+    ids: [armada, armada-darwin]
     formats: [tar.gz]
     name_template: "armada_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     files:
@@ -68,6 +85,10 @@ release:
     less install.sh     # read what you are about to run as root
     sudo ARMADA_VERSION={{ .Tag }} sh install.sh
     ```
+
+    On a Mac with Apple silicon, which joins as a compute node through a
+    runtime driver, `install.sh` installs only the binary; see "macOS
+    nodes" in the operations guide.
 
     `install.sh` verifies the cosign signature of `checksums.txt` (when
     cosign is installed) and the SHA-256 of the archive. Upgrading a
