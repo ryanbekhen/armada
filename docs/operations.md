@@ -330,6 +330,7 @@ conformance suite:
 | Driver | Engine | `--runtime` |
 | --- | --- | --- |
 | [armada-driver-docker](https://github.com/ryanbekhen/armada-driver-docker) | Docker Engine (Linux, cgroup v2) | `docker` |
+| [armada-driver-apple](https://github.com/ryanbekhen/armada-driver-apple) | Apple's `container` tool (macOS on Apple silicon; VM isolation, at least 200 MiB per replica) | `apple` |
 
 On Linux a driver runs as root under its own systemd unit,
 `armada-driver-NAME.service`, and listens on
@@ -337,8 +338,8 @@ On Linux a driver runs as root under its own systemd unit,
 Then set the node up with it:
 
 ```bash
-sudo armada join TOKEN --runtime NAME              # or: armada init --runtime NAME
-sudo armada join TOKEN --runtime NAME --proxy none # a driver without system containers
+sudo armada join ADDR --ca-hash sha256:... --runtime NAME              # or: armada init --runtime NAME
+sudo armada join ADDR --ca-hash sha256:... --runtime NAME --proxy none # a driver without system containers
 armada doctor                                      # checks the driver's socket
 ```
 
@@ -411,7 +412,7 @@ container engines serve the logged-in user. Set it up as that user:
 3. As the node's user, without sudo:
 
    ```bash
-   armada join TOKEN --runtime NAME   # writes the agent's LaunchAgent
+   armada join ADDR --ca-hash sha256:... --runtime NAME   # writes the agent's LaunchAgent
    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/io.github.ryanbekhen.armada.agent.plist
    armada doctor
    ```

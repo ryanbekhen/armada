@@ -12,7 +12,7 @@ import (
 
 func TestMacOSRoles(t *testing.T) {
 	t.Parallel()
-	if err := linuxOnlyOn("darwin", "armada server"); err == nil || !strings.Contains(err.Error(), "armada join TOKEN --runtime NAME") {
+	if err := linuxOnlyOn("darwin", "armada server"); err == nil || !strings.Contains(err.Error(), "armada join ADDR --ca-hash sha256:... --runtime NAME") {
 		t.Errorf("server on macOS: %v", err)
 	}
 	if err := linuxOnlyOn("linux", "armada server"); err != nil {
