@@ -324,8 +324,15 @@ Nodes run containers through Armada's embedded runtime unless they are set
 up with an external driver, a separate program that runs containers on
 another engine for the agent
 ([ADR 0015](adr/0015-external-runtime-drivers.md)). Install the driver
-first, following its own instructions. It runs as root under its own
-systemd unit, `armada-driver-NAME.service`, and listens on
+first, following its own instructions. The documented drivers pass Armada's
+conformance suite:
+
+| Driver | Engine | `--runtime` |
+| --- | --- | --- |
+| [armada-driver-docker](https://github.com/ryanbekhen/armada-driver-docker) | Docker Engine (Linux, cgroup v2) | `docker` |
+
+A driver runs as root under its own systemd unit,
+`armada-driver-NAME.service`, and listens on
 `/run/armada/drivers/NAME.sock`. Then set the node up with it:
 
 ```bash
