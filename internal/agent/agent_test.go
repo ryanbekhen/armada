@@ -322,6 +322,32 @@ func TestNewDetectsCapacity(t *testing.T) {
 	}
 }
 
+func TestRuntimeCapsCapacity(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name                 string
+		cpu, mem, rcpu, rmem int64
+		wantCPU, wantMem     int64
+	}{
+		{"smaller runtime", 8000, 16 << 30, 2000, 2 << 30, 2000, 2 << 30},
+		{"no cap", 8000, 16 << 30, 0, 0, 8000, 16 << 30},
+		{"larger runtime ignored", 2000, 2 << 30, 8000, 16 << 30, 2000, 2 << 30},
+		{"unknown machine memory", 2000, 0, 0, 1 << 30, 2000, 1 << 30},
+	} {
+		a := New(Config{NodeID: "n", Driver: fake.New(), CPUMillis: c.cpu, MemoryBytes: c.mem, RuntimeCPUMillis: c.rcpu, RuntimeMemoryBytes: c.rmem})
+		if c.mem == 0 {
+			// MemoryBytes 0 is detected from the machine; only check the cap.
+			if a.cfg.MemoryBytes > c.wantMem {
+				t.Errorf("%s: memory %d", c.name, a.cfg.MemoryBytes)
+			}
+			continue
+		}
+		if a.cfg.CPUMillis != c.wantCPU || a.cfg.MemoryBytes != c.wantMem {
+			t.Errorf("%s: cpu %d memory %d", c.name, a.cfg.CPUMillis, a.cfg.MemoryBytes)
+		}
+	}
+}
+
 func TestReconcileAppliesProxy(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

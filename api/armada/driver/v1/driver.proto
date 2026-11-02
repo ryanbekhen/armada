@@ -76,6 +76,11 @@ message InfoResponse {
   // min_memory_bytes is the smallest memory limit the driver accepts; the
   // scheduler places no replica with a smaller limit on the node. 0: none.
   int64 min_memory_bytes = 8;
+  // cpu_millis and memory_bytes are what the engine can give containers
+  // when that is less than the machine has (a virtual machine of fixed
+  // size, say); the node reports the smaller of the two. 0: the machine's.
+  int64 cpu_millis = 9;
+  int64 memory_bytes = 10;
 }
 
 message PingRequest {}

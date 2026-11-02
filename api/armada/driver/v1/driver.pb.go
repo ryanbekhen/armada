@@ -225,8 +225,13 @@ type InfoResponse struct {
 	// min_memory_bytes is the smallest memory limit the driver accepts; the
 	// scheduler places no replica with a smaller limit on the node. 0: none.
 	MinMemoryBytes int64 `protobuf:"varint,8,opt,name=min_memory_bytes,json=minMemoryBytes,proto3" json:"min_memory_bytes,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// cpu_millis and memory_bytes are what the engine can give containers
+	// when that is less than the machine has (a virtual machine of fixed
+	// size, say); the node reports the smaller of the two. 0: the machine's.
+	CpuMillis     int64 `protobuf:"varint,9,opt,name=cpu_millis,json=cpuMillis,proto3" json:"cpu_millis,omitempty"`
+	MemoryBytes   int64 `protobuf:"varint,10,opt,name=memory_bytes,json=memoryBytes,proto3" json:"memory_bytes,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *InfoResponse) Reset() {
@@ -311,6 +316,20 @@ func (x *InfoResponse) GetVmIsolation() bool {
 func (x *InfoResponse) GetMinMemoryBytes() int64 {
 	if x != nil {
 		return x.MinMemoryBytes
+	}
+	return 0
+}
+
+func (x *InfoResponse) GetCpuMillis() int64 {
+	if x != nil {
+		return x.CpuMillis
+	}
+	return 0
+}
+
+func (x *InfoResponse) GetMemoryBytes() int64 {
+	if x != nil {
+		return x.MemoryBytes
 	}
 	return 0
 }
@@ -1993,7 +2012,7 @@ var File_armada_driver_v1_driver_proto protoreflect.FileDescriptor
 const file_armada_driver_v1_driver_proto_rawDesc = "" +
 	"\n" +
 	"\x1darmada/driver/v1/driver.proto\x12\x10armada.driver.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\r\n" +
-	"\vInfoRequest\"\xae\x02\n" +
+	"\vInfoRequest\"\xf0\x02\n" +
 	"\fInfoResponse\x12=\n" +
 	"\bprotocol\x18\x01 \x01(\x0e2!.armada.driver.v1.ProtocolVersionR\bprotocol\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x18\n" +
@@ -2002,7 +2021,11 @@ const file_armada_driver_v1_driver_proto_rawDesc = "" +
 	"\x04arch\x18\x05 \x01(\tR\x04arch\x12@\n" +
 	"\fcapabilities\x18\x06 \x03(\x0e2\x1c.armada.driver.v1.CapabilityR\fcapabilities\x12!\n" +
 	"\fvm_isolation\x18\a \x01(\bR\vvmIsolation\x12(\n" +
-	"\x10min_memory_bytes\x18\b \x01(\x03R\x0eminMemoryBytes\"\r\n" +
+	"\x10min_memory_bytes\x18\b \x01(\x03R\x0eminMemoryBytes\x12\x1d\n" +
+	"\n" +
+	"cpu_millis\x18\t \x01(\x03R\tcpuMillis\x12!\n" +
+	"\fmemory_bytes\x18\n" +
+	" \x01(\x03R\vmemoryBytes\"\r\n" +
 	"\vPingRequest\"\x0e\n" +
 	"\fPingResponse\"r\n" +
 	"\fRegistryAuth\x12\x1a\n" +

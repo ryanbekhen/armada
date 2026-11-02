@@ -371,6 +371,10 @@ sending it, and the driver library checks it again on arrival.
 - A driver may declare a **minimum memory limit**. Replicas whose
   `resources.memory` is below it are not placed on that node, and
   `armada status` says so when no other node can take them.
+- A driver may declare a **capacity** smaller than the machine's, such as
+  the size of the virtual machine its engine runs containers in. The node
+  then reports that CPU and memory (`armada status`), and reservations
+  only fill what the engine can give.
 
 ## macOS nodes
 
