@@ -89,5 +89,8 @@ once the binary has been copied to them.
 10. CPU reservations: the test app's containers get a CPU weight from
     their default 100m reservation; an app reserving 64 cores runs nowhere,
     and `armada status` says CPU is short.
-11. After rebooting every machine at once, the control plane, the nodes, and
+11. Spreading over a label: with every node but the last in one zone and
+    the last alone in another, an app spread by zone puts half of its
+    replicas on the last node.
+12. After rebooting every machine at once, the control plane, the nodes, and
    the app come back on their own.

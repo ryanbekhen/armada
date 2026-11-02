@@ -259,9 +259,24 @@ armada node list                                         # LABELS column, "restr
 ```
 
 Every node also has `armada.os` and `armada.arch`, which its agent reports.
-Apps select nodes with `placement.require` (see the
+Label keys and values are yours to choose; Armada gives no name a meaning.
+Apps select nodes with `placement.require` and spread over a label's values
+with `placement.spreadBy` (see the
 [spec reference](spec-reference.md#placement)). Only admins set labels; a
 node cannot label itself.
+
+To survive the loss of a site, label every node with where it is and
+spread apps by that label:
+
+```bash
+armada node label node-1 site=jakarta
+armada node label node-2 site=jakarta
+armada node label node-3 site=makassar
+```
+
+An app with `placement.spreadBy: site` then runs half of its replicas in
+each site. Nodes without the label get none of its replicas, so label
+every node.
 
 Changing a node's labels or restricting it moves the replicas it may no
 longer run, the same way a cordon does: a replacement starts on an allowed

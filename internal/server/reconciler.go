@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"fmt"
+	"maps"
 	"slices"
 	"strconv"
 	"time"
@@ -262,7 +263,7 @@ func (s *Server) reconcileApp(ctx context.Context, rc *reconcileRun, app *store.
 
 	// Scale down: drop unhealthy replicas first, then from the most loaded node.
 	for len(current) > app.Replicas {
-		victim := pickVictim(current)
+		victim := pickVictim(current, spreadGroups(fit, target.Spec.Placement.SpreadKey()))
 		if all, err = s.retire(ctx, rc, all, victim); err != nil {
 			return nil, err
 		}
@@ -272,7 +273,7 @@ func (s *Server) reconcileApp(ctx context.Context, rc *reconcileRun, app *store.
 	// Scale up, with one replica of surge while old replicas still run.
 	if len(current) < app.Replicas {
 		for len(current) < app.Replicas && len(current)+len(old)+len(moving) < app.Replicas+maxSurge {
-			node, ok := pickNode(fit, all, current, reservation(target), revs.reserved(ctx))
+			node, ok := pickNode(fit, all, current, target.Spec.Placement.SpreadKey(), reservation(target), revs.reserved(ctx))
 			if !ok {
 				s.log.Warn("no node can fit replica", "app", app.Name, "want", app.Replicas, "have", len(current))
 				break
@@ -383,7 +384,7 @@ func (s *Server) rebalance(ctx context.Context, rc *reconcileRun, app *store.App
 	if err != nil {
 		return nil, err
 	}
-	victim, to, ok := rebalanceVictim(nodes, all, current, reservation(target), revs.reserved(ctx))
+	victim, to, ok := rebalanceVictim(nodes, all, current, target.Spec.Placement.SpreadKey(), reservation(target), revs.reserved(ctx))
 	if !ok {
 		return all, nil
 	}
@@ -396,14 +397,71 @@ func (s *Server) rebalance(ctx context.Context, rc *reconcileRun, app *store.App
 	return replace(all, victim), nil
 }
 
-// rebalanceVictim picks a replica to move: one on the node with the most
+// rebalanceVictim picks a replica to move and the node to move it to. With
+// spreadBy, values come first: a replica moves from the value with the
+// most current replicas when it has at least two more than the value of
+// the node pickNode would choose; otherwise each value is balanced over its
+// own nodes, so the two never undo each other's moves. Without spreadBy,
+// see nodeVictim.
+func rebalanceVictim(nodes []store.Node, all, current []store.Replica, spreadBy string, want resources, reserved func(store.Replica) resources) (store.Replica, string, bool) {
+	if spreadBy == "" {
+		return nodeVictim(nodes, all, current, want, reserved)
+	}
+	groupOf := spreadGroups(nodes, spreadBy)
+	perGroup := map[string]int{}
+	var placed []store.Replica
+	for _, r := range current {
+		if g, ok := groupOf[r.NodeID]; ok {
+			perGroup[g]++
+			placed = append(placed, r)
+		}
+	}
+	if to, ok := pickNode(nodes, all, current, spreadBy, want, reserved); ok && len(placed) > 0 {
+		from := groupOf[slices.MaxFunc(placed, func(a, b store.Replica) int {
+			ga, gb := groupOf[a.NodeID], groupOf[b.NodeID]
+			if c := cmp.Compare(perGroup[ga], perGroup[gb]); c != 0 {
+				return c
+			}
+			return cmp.Compare(gb, ga)
+		}).NodeID]
+		if perGroup[from]-perGroup[groupOf[to.ID]] >= 2 {
+			var in []store.Replica
+			for _, r := range placed {
+				if groupOf[r.NodeID] == from {
+					in = append(in, r)
+				}
+			}
+			return mostLoaded(in), to.ID, true
+		}
+	}
+	groups := map[string][]store.Node{}
+	for _, n := range nodes {
+		if g, ok := groupOf[n.ID]; ok {
+			groups[g] = append(groups[g], n)
+		}
+	}
+	for _, g := range slices.Sorted(maps.Keys(groups)) {
+		var in []store.Replica
+		for _, r := range placed {
+			if groupOf[r.NodeID] == g {
+				in = append(in, r)
+			}
+		}
+		if v, to, ok := nodeVictim(groups[g], all, in, want, reserved); ok {
+			return v, to, true
+		}
+	}
+	return store.Replica{}, "", false
+}
+
+// nodeVictim picks a replica to move: one on the node with the most
 // current replicas, if that node has at least two more than the node
 // pickNode would choose for a new one. It also returns that node.
-func rebalanceVictim(nodes []store.Node, all, current []store.Replica, want resources, reserved func(store.Replica) resources) (store.Replica, string, bool) {
+func nodeVictim(nodes []store.Node, all, current []store.Replica, want resources, reserved func(store.Replica) resources) (store.Replica, string, bool) {
 	if len(current) == 0 {
 		return store.Replica{}, "", false
 	}
-	to, ok := pickNode(nodes, all, current, want, reserved)
+	to, ok := pickNode(nodes, all, current, "", want, reserved)
 	if !ok {
 		return store.Replica{}, "", false
 	}
@@ -411,16 +469,41 @@ func rebalanceVictim(nodes []store.Node, all, current []store.Replica, want reso
 	for _, r := range current {
 		perNode[r.NodeID]++
 	}
-	victim := slices.MaxFunc(current, func(a, b store.Replica) int {
+	victim := mostLoaded(current)
+	if perNode[victim.NodeID]-perNode[to.ID] < 2 {
+		return store.Replica{}, "", false
+	}
+	return victim, to.ID, true
+}
+
+// mostLoaded returns the replica of rs on the node with the most of them
+// (the highest ID among those, for a stable choice). rs is not empty.
+func mostLoaded(rs []store.Replica) store.Replica {
+	perNode := map[string]int{}
+	for _, r := range rs {
+		perNode[r.NodeID]++
+	}
+	return slices.MaxFunc(rs, func(a, b store.Replica) int {
 		if c := cmp.Compare(perNode[a.NodeID], perNode[b.NodeID]); c != 0 {
 			return c
 		}
 		return cmp.Compare(a.ID, b.ID)
 	})
-	if perNode[victim.NodeID]-perNode[to.ID] < 2 {
-		return store.Replica{}, "", false
+}
+
+// spreadGroups maps the nodes that have label key to its value; nil when
+// key is empty.
+func spreadGroups(nodes []store.Node, key string) map[string]string {
+	if key == "" {
+		return nil
 	}
-	return victim, to.ID, true
+	out := map[string]string{}
+	for _, n := range nodes {
+		if v, ok := n.AllLabels()[key]; ok {
+			out[n.ID] = v
+		}
+	}
+	return out
 }
 
 // abortStuckMoves gives up moves whose replacement has not served within
@@ -658,10 +741,22 @@ func without(rs []store.Replica, id string) []store.Replica {
 	return slices.DeleteFunc(slices.Clone(rs), func(r store.Replica) bool { return r.ID == id })
 }
 
-func pickVictim(rs []store.Replica) store.Replica {
-	perNode := map[string]int{}
+// pickVictim chooses the replica to remove when scaling down: one that is
+// not running first, then one on nodes whose spreadBy value (groupOf, nil
+// without spreadBy) has the most, then one on the node with the most.
+func pickVictim(rs []store.Replica, groupOf map[string]string) store.Replica {
+	perNode, perGroup := map[string]int{}, map[string]int{}
 	for _, r := range rs {
 		perNode[r.NodeID]++
+		if g, ok := groupOf[r.NodeID]; ok {
+			perGroup[g]++
+		}
+	}
+	inGroup := func(r store.Replica) int {
+		if g, ok := groupOf[r.NodeID]; ok {
+			return perGroup[g]
+		}
+		return 0
 	}
 	return slices.MinFunc(rs, func(a, b store.Replica) int {
 		ha, hb := a.State == store.ReplicaRunning, b.State == store.ReplicaRunning
@@ -670,6 +765,9 @@ func pickVictim(rs []store.Replica) store.Replica {
 				return 1
 			}
 			return -1
+		}
+		if c := cmp.Compare(inGroup(b), inGroup(a)); c != 0 {
+			return c
 		}
 		if c := cmp.Compare(perNode[b.NodeID], perNode[a.NodeID]); c != 0 {
 			return c
@@ -705,26 +803,33 @@ func placementAllows(n store.Node, rev store.Revision) bool {
 	return len(rev.Platforms) == 0 || n.OS == "" || n.Arch == "" || slices.Contains(rev.Platforms, n.OS+"/"+n.Arch)
 }
 
-// pickNode chooses a ready node for a new replica: fewest of the spread
-// replicas first (the app's replicas that stay: not draining, moving, lost,
-// or of a revision being replaced, which would skew the spread once they
-// are gone), then fewest replicas overall, then most free memory, then most
+// pickNode chooses a ready node for a new replica: with spreadBy, the
+// fewest of the spread replicas on nodes with the same value of that label
+// first; then the fewest of the spread replicas on the node (the app's
+// replicas that stay: not draining, moving, lost, or of a revision being
+// replaced, which would skew the spread once they are gone), then fewest
+// replicas overall, then most free memory, then most
 // free CPU. Nodes that report capacity and cannot fit want (the CPU and
 // memory the replica reserves, nothing overcommitted) are skipped; capacity
 // 0 means unknown. nodes carry the capacity left for replicas
 // (allocatable). Capacity is self-reported, so beyond fitting it only
 // breaks ties: a node advertising inflated capacity does not attract every
 // replica.
-func pickNode(nodes []store.Node, replicas, spread []store.Replica, want resources, reserved func(store.Replica) resources) (store.Node, bool) {
-	sameApp := map[string]int{}
+func pickNode(nodes []store.Node, replicas, spread []store.Replica, spreadBy string, want resources, reserved func(store.Replica) resources) (store.Node, bool) {
+	groupOf := spreadGroups(nodes, spreadBy)
+	sameApp, sameGroup := map[string]int{}, map[string]int{}
 	for _, r := range spread {
 		sameApp[r.NodeID]++
+		if g, ok := groupOf[r.NodeID]; ok {
+			sameGroup[g]++
+		}
 	}
 	type cand struct {
-		node    store.Node
-		sameApp int
-		total   int
-		free    resources
+		node      store.Node
+		sameGroup int
+		sameApp   int
+		total     int
+		free      resources
 	}
 	var cands []cand
 	for _, n := range nodes {
@@ -732,6 +837,9 @@ func pickNode(nodes []store.Node, replicas, spread []store.Replica, want resourc
 			continue
 		}
 		c := cand{node: n, sameApp: sameApp[n.ID], free: resources{cpu: n.CPUMillis, mem: n.MemoryBytes}}
+		if g, ok := groupOf[n.ID]; ok {
+			c.sameGroup = sameGroup[g]
+		}
 		for _, r := range replicas {
 			if r.NodeID != n.ID {
 				continue
@@ -750,6 +858,9 @@ func pickNode(nodes []store.Node, replicas, spread []store.Replica, want resourc
 		return store.Node{}, false
 	}
 	best := slices.MinFunc(cands, func(a, b cand) int {
+		if c := cmp.Compare(a.sameGroup, b.sameGroup); c != 0 {
+			return c
+		}
 		if c := cmp.Compare(a.sameApp, b.sameApp); c != 0 {
 			return c
 		}

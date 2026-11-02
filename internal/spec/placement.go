@@ -72,6 +72,11 @@ type Placement struct {
 	// Require maps label keys to the values a node must have; a node
 	// matches when it has every key with one of the listed values.
 	Require map[string]LabelValues `yaml:"require,omitempty" json:"require,omitempty"`
+	// SpreadBy is a label key: replicas are spread evenly over its values,
+	// then over the nodes within each value. Only nodes with the label are
+	// used. The spread yields to capacity: when the nodes of one value
+	// have no room, replicas go to the others.
+	SpreadBy string `yaml:"spreadBy,omitempty" json:"spreadBy,omitempty"`
 }
 
 // LabelValues is one or more label values. In YAML it may be written as a
@@ -104,11 +109,26 @@ func (p *Placement) Matches(labels map[string]string) bool {
 			return false
 		}
 	}
+	if p.SpreadBy != "" {
+		if _, ok := labels[p.SpreadBy]; !ok {
+			return false
+		}
+	}
 	return true
+}
+
+// SpreadKey returns the spreadBy label key, or "" (also for a nil placement).
+func (p *Placement) SpreadKey() string {
+	if p == nil {
+		return ""
+	}
+	return p.SpreadBy
 }
 
 // Selects reports whether the placement names one of labels by key: a
 // restricted node only runs apps that select one of its admin labels.
+// SpreadBy does not select: spreading over racks is no request for the
+// restricted machines among them.
 func (p *Placement) Selects(labels map[string]string) bool {
 	if p == nil {
 		return false
@@ -124,19 +144,27 @@ func (p *Placement) Selects(labels map[string]string) bool {
 	return false
 }
 
-// String renders the requirement as "k=v, k2=a|b", sorted by key.
+// String renders the labels a node needs as "k=v, k2=a|b", sorted by key,
+// with "k3=*" for a spreadBy key the requirement does not name.
 func (p *Placement) String() string {
-	if p == nil || len(p.Require) == 0 {
+	if p == nil {
 		return ""
 	}
-	keys := make([]string, 0, len(p.Require))
-	for k := range p.Require {
+	values := map[string]string{}
+	for k, vals := range p.Require {
+		values[k] = strings.Join(vals, "|")
+	}
+	if _, ok := values[p.SpreadBy]; p.SpreadBy != "" && !ok {
+		values[p.SpreadBy] = "*"
+	}
+	keys := make([]string, 0, len(values))
+	for k := range values {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
 	parts := make([]string, len(keys))
 	for i, k := range keys {
-		parts[i] = k + "=" + strings.Join(p.Require[k], "|")
+		parts[i] = k + "=" + values[k]
 	}
 	return strings.Join(parts, ", ")
 }
@@ -145,8 +173,15 @@ func (v *validator) placement(p *Placement) {
 	if p == nil {
 		return
 	}
+	if p.SpreadBy != "" {
+		if err := CheckLabelKey(p.SpreadBy); err != nil {
+			v.add("placement.spreadBy", "%v", err)
+		}
+	}
 	if len(p.Require) == 0 {
-		v.add("placement.require", "must list at least one label")
+		if p.SpreadBy == "" {
+			v.add("placement", "must set require or spreadBy")
+		}
 		return
 	}
 	if len(p.Require) > maxRequire {

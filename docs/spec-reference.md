@@ -162,7 +162,8 @@ placement:
     armada.arch: arm64        # labels Armada sets: armada.os, armada.arch
 ```
 
-A node runs the app only if it has every key with one of the listed values.
+A node runs the app only if it has every key with one of the listed values
+(and the `spreadBy` key, below).
 If no node qualifies, or the qualifying nodes are full, the replicas are not
 placed anywhere else: `armada status` says why, a rollout fails and leaves
 the old revision serving. Placement belongs to the revision, so changing it
@@ -170,9 +171,27 @@ rolls the app out onto the new set of nodes. A **restricted** node runs only
 apps whose `require` names one of its own labels (`armada.*` labels do not
 count).
 
+`spreadBy` names one label key and spreads the replicas evenly over its
+values, then over the nodes within each value:
+
+```yaml
+placement:
+  require:
+    region: [java, sulawesi]  # optional fence: never elsewhere
+  spreadBy: region            # even over the regions it may use
+```
+
+Four replicas on three `java` nodes and one `sulawesi` node run two in each
+region. Only nodes with the label get replicas. The spread is soft: when no
+node of a value has room, or its nodes are down, replicas go to the other
+values (`armada status` says so) and move back once there is room. Use
+`require` for values an app must never leave. Label names mean nothing to
+Armada: `region`, `rack`, or `city` are whatever your nodes are labelled
+with.
+
 Keys are lowercase letters, digits, `.`, `-`, `_`, and `/` (up to 63
 characters); values the same without `/`. Up to 16 keys, each with up to 16
-values.
+values. A placement needs `require`, `spreadBy`, or both.
 
 In a cluster that mixes architectures, Armada keeps each app on nodes its
 image is built for: the first node to pull the image reports its
@@ -191,4 +210,3 @@ until they are implemented:
 | `revisions.mode: multiple`, `revisions.traffic` (traffic splitting) | v0.2 |
 | `scale.rules` (autoscaling) | v0.2 |
 | `scale.min: 0` (scale to zero) | v0.3 |
-| `placement.spreadBy` (spread over label values) | later |

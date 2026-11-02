@@ -48,9 +48,9 @@ armada deploy -f web.yaml    # → https://web.apps.example.com
   mTLS certificates that they renew themselves. Cordon, evacuate, remove.
   Replicas of a lost node are started elsewhere, and apps spread out again,
   one replica at a time, when a node returns or joins.
-- **Placement.** Label nodes (by hand or in the join token) and keep apps
-  to the nodes they require; restricted nodes run only the apps that ask
-  for them. Every node reports its OS and architecture as labels, and apps
+- **Placement.** Label nodes (by hand or in the join token), keep apps to
+  the nodes they require, and spread them evenly over a label's values
+  (sites, racks); restricted nodes run only the apps that ask for them. Every node reports its OS and architecture as labels, and apps
   run only on nodes their image is built for. Replicas reserve CPU and
   memory on their node, and no node is overcommitted.
 - **Highly available control plane.** One server works; three survive the

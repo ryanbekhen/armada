@@ -71,6 +71,35 @@ placement:
   only ever choose eligible nodes; rebalancing spreads an app over its
   eligible nodes only.
 
+### Spreading over a label
+
+```yaml
+placement:
+  require:
+    region: [java, sulawesi]   # the fence: never elsewhere
+  spreadBy: region             # even over java and sulawesi
+```
+
+- `placement.spreadBy` names one label key. Replicas are spread evenly
+  over its values first, then over the nodes within each value: four
+  replicas on three java nodes and one sulawesi node run two in each
+  region, so the app survives the loss of either.
+- Only nodes that have the label are eligible. A node without it has no
+  known place in the spread.
+- The spread yields to capacity and readiness. When no node of a value has
+  room, or all of its nodes are down, replicas go to the other values
+  rather than waiting; `armada status` says when the spread is uneven
+  because a value has no room. Rebalancing (ADR 0013) evens it out again
+  once that value has room. To keep an app inside a set of values no
+  matter what, `require` them.
+- Scaling down removes replicas from the value with the most first.
+- `spreadBy` does not select restricted nodes: spreading over racks is not
+  a request for the restricted machines among them.
+- Label names carry no meaning to Armada: `region`, `rack`, or `city` are
+  whatever admins label nodes with. `spreadBy` may also name `armada.os` or
+  `armada.arch`, which agents report: a node that misreports them forms a
+  value of its own, so sensitive apps should spread by admin labels.
+
 ### Image platforms
 
 - The control plane never contacts registries: agents pull images, with
@@ -117,13 +146,6 @@ draining ones included, leaves room for it.
 - `armada status` names what is short when no allowed node has room
   ("none has 300m of CPU free").
 
-### Implemented in later steps
-
-- **`placement.spreadBy`:** spread an app's replicas over the values of a
-  label (cities, racks).
-
-Until these steps land, the spec rejects `spreadBy`.
-
 ### Topology
 
 Nodes may be far apart: agents tolerate latency. Control plane servers
@@ -146,6 +168,12 @@ commits need a round trip between them.
   a compromised node advertising more would attract replicas, and with
   them secrets, of apps it would not otherwise run. Spreading by count
   with capacity as a tie-break bounds that to a node's share.
+- **A hard spread (replicas wait for room in their value):** the app would
+  run short exactly when a region has trouble. `require` already gives a
+  hard fence, so `spreadBy` is the soft half.
+- **Several spreadBy keys (region, then rack):** rarely needed on small
+  clusters and harder to rebalance without moves undoing each other; one
+  key can grow into a list later without breaking specs.
 - **A separate CPU request and limit:** more control, but two numbers for
   every app and a new meaning for an existing field; one value that is
   both, with a burstable default, covers the common cases.
