@@ -145,3 +145,45 @@ func TestNodeWithoutPlatformStaysEligible(t *testing.T) {
 		t.Error("arm64 node allowed for an amd64-only image")
 	}
 }
+
+// Replicas that failed on nodes their image cannot run on do not serve:
+// they are retired at once instead of holding the surge, so the app
+// reaches its replica count on the nodes that can run it.
+func TestFailedReplicasOnWrongPlatformAreReplaced(t *testing.T) {
+	t.Parallel()
+	c := platformSetup(t)
+	if err := c.st.UpsertNode(c.ctx, store.Node{ID: "n3", PrivateIP: "10.0.0.4", State: store.NodeReady, OS: "linux", Arch: "amd64"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.st.SetNodeStatus(c.ctx, "n3", store.NodeStatus{State: store.NodeReady, LastSeen: c.clock, OS: "linux", Arch: "amd64"}); err != nil {
+		t.Fatal(err)
+	}
+	// An arm64-only image, scheduled before its platforms are known: one
+	// replica per node, two of them on amd64 nodes, where they fail.
+	c.deploy(strings.Replace(placedSpec, "min: 2", "min: 3", 1))
+	for _, r := range c.replicas() {
+		st := store.ReplicaStatus{ID: r.ID, State: store.ReplicaFailed, Message: "no linux/amd64 variant"}
+		if r.NodeID == "n2" {
+			st = store.ReplicaStatus{ID: r.ID, State: store.ReplicaRunning, Address: "10.0.0.3:30000", Ready: true}
+		}
+		if err := c.st.UpdateReplicaStatus(c.ctx, r.NodeID, st); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := c.st.SetRevisionPlatforms(c.ctx, c.app().TargetRevision, []string{"linux/arm64"}); err != nil {
+		t.Fatal(err)
+	}
+	// Only replicas on the arm64 node can start.
+	for i := 0; i < 20; i++ {
+		for _, r := range c.replicas() {
+			if r.NodeID == "n2" && !r.Draining() && !r.Ready {
+				c.readyOn(r)
+			}
+		}
+		c.advance(10 * time.Second)
+	}
+	byNode, _ := c.split()
+	if len(byNode["n1"]) != 0 || len(byNode["n3"]) != 0 || len(byNode["n2"]) != 3 {
+		t.Fatalf("replicas by node = %v, want all three on the arm64 node", byNode)
+	}
+}

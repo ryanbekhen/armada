@@ -63,7 +63,10 @@ placement:
   eligible nodes.
 - A replica whose node stops being eligible (a label removed, the node
   restricted) is handled like a replica on a cordoned node: a replacement is
-  placed on an eligible node first, then the replica is drained.
+  placed on an eligible node first, then the replica is drained. A replica
+  that gets no traffic (it failed to start, for example) is retired at
+  once, on a cordoned node too, so it never holds the surge its
+  replacement needs.
 - Self-healing (ADR 0008), cordon evacuation, and rebalancing (ADR 0013)
   only ever choose eligible nodes; rebalancing spreads an app over its
   eligible nodes only.

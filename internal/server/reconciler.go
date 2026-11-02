@@ -505,8 +505,11 @@ func (s *Server) evacuate(ctx context.Context, rc *reconcileRun, app *store.App,
 		if serving(r) {
 			lose = 1
 		}
-		if others+left-lose < app.Replicas {
-			break
+		// A replica that gets no traffic (one that failed to start, say)
+		// goes at once: nothing depends on it, and keeping it would hold
+		// the surge its replacement needs.
+		if inProxy(*app, r) && others+left-lose < app.Replicas {
+			continue
 		}
 		reason := "cordoned"
 		switch {
