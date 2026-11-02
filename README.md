@@ -66,6 +66,8 @@ armada deploy -f web.yaml    # → https://web.apps.example.com
   through an external driver: a separate program behind a local protocol
   that carries the same security defaults, with a public Go library and a
   conformance suite for driver authors.
+  [armada-driver-docker](https://github.com/ryanbekhen/armada-driver-docker)
+  runs a node's containers on the Docker Engine.
 
 Armada needs Linux machines (cloud instances, VMs, or bare metal) with a
 private network between them, and nothing else: the binary embeds its own
