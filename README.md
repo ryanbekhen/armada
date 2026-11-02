@@ -51,7 +51,8 @@ armada deploy -f web.yaml    # → https://web.apps.example.com
 - **Placement.** Label nodes (by hand or in the join token) and keep apps
   to the nodes they require; restricted nodes run only the apps that ask
   for them. Every node reports its OS and architecture as labels, and apps
-  run only on nodes their image is built for.
+  run only on nodes their image is built for. Replicas reserve CPU and
+  memory on their node, and no node is overcommitted.
 - **Highly available control plane.** One server works; three survive the
   loss of any one. Servers elect a leader, agents and the CLI follow it,
   and certificates are not re-issued on failover.

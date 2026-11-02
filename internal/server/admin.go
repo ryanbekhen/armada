@@ -162,6 +162,10 @@ func (s *Server) Status(ctx context.Context, req *armadav1.StatusRequest) (*arma
 		return nil, storeErr(err)
 	}
 	revs := &revisionCache{store: s.store, m: map[string]store.Revision{}}
+	sched, err := s.allocatable(ctx, nodes)
+	if err != nil {
+		return nil, storeErr(err)
+	}
 
 	resp := &armadav1.StatusResponse{}
 	for _, a := range apps {
@@ -179,7 +183,7 @@ func (s *Server) Status(ctx context.Context, req *armadav1.StatusRequest) (*arma
 			TargetRevision:   a.TargetRevision,
 			RolloutState:     a.RolloutState,
 			RolloutMessage:   a.RolloutMessage,
-			PlacementMessage: placementMessage(ctx, revs, nodes, all, a),
+			PlacementMessage: placementMessage(ctx, revs, sched, all, a),
 		}
 		for _, r := range reps {
 			as.Replicas = append(as.Replicas, &armadav1.ReplicaStatus{

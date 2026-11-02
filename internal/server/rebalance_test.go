@@ -11,7 +11,7 @@ import (
 
 func TestRebalanceVictim(t *testing.T) {
 	t.Parallel()
-	mem := func(store.Replica) int64 { return 512 << 20 }
+	mem := func(store.Replica) resources { return resources{mem: 512 << 20} }
 	ready := func(ids ...string) []store.Node {
 		var ns []store.Node
 		for _, id := range ids {
@@ -28,7 +28,7 @@ func TestRebalanceVictim(t *testing.T) {
 	}
 
 	rs := on("a", "a", "b")
-	v, to, ok := rebalanceVictim(ready("a", "b", "c"), rs, rs, 0, mem)
+	v, to, ok := rebalanceVictim(ready("a", "b", "c"), rs, rs, resources{}, mem)
 	if !ok || v.NodeID != "a" || to != "c" {
 		t.Errorf("2/1/0: moved %+v to %q (%v), want one from a to c", v, to, ok)
 	}
@@ -43,18 +43,18 @@ func TestRebalanceVictim(t *testing.T) {
 		"empty node cordon": {append(ready("a", "b"), store.Node{ID: "c", State: store.NodeReady, Cordoned: true}), on("a", "a", "b")},
 		"empty node down":   {append(ready("a", "b"), store.Node{ID: "c", State: store.NodeUnknown}), on("a", "a", "b")},
 	} {
-		if v, to, ok := rebalanceVictim(tc.nodes, tc.rs, tc.rs, 0, mem); ok {
+		if v, to, ok := rebalanceVictim(tc.nodes, tc.rs, tc.rs, resources{}, mem); ok {
 			t.Errorf("%s: moved %s to %s", name, v.ID, to)
 		}
 	}
 	// The empty node cannot fit the replica: nothing to gain.
 	small := []store.Node{{ID: "a", State: store.NodeReady}, {ID: "b", State: store.NodeReady, MemoryBytes: 256 << 20}}
-	if v, to, ok := rebalanceVictim(small, on("a", "a"), on("a", "a"), 512<<20, mem); ok {
+	if v, to, ok := rebalanceVictim(small, on("a", "a"), on("a", "a"), resources{mem: 512 << 20}, mem); ok {
 		t.Errorf("full node: moved %s to %s", v.ID, to)
 	}
 	// Other apps on the empty node do not matter: only this app's spread.
 	busy := append(on("a", "a"), store.Replica{ID: "db-0", App: "db", NodeID: "b"})
-	if _, to, ok := rebalanceVictim(ready("a", "b"), busy, on("a", "a"), 0, mem); !ok || to != "b" {
+	if _, to, ok := rebalanceVictim(ready("a", "b"), busy, on("a", "a"), resources{}, mem); !ok || to != "b" {
 		t.Errorf("app spread ignored: to %q, %v", to, ok)
 	}
 }

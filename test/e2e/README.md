@@ -86,5 +86,8 @@ once the binary has been copied to them.
    the test app; an image built only for amd64, and one built only for
    arm64, each run only on nodes of that architecture, or, when the
    cluster has none, nowhere, with `armada status` naming the platform.
-10. After rebooting every machine at once, the control plane, the nodes, and
+10. CPU reservations: the test app's containers get a CPU weight from
+    their default 100m reservation; an app reserving 64 cores runs nowhere,
+    and `armada status` says CPU is short.
+11. After rebooting every machine at once, the control plane, the nodes, and
    the app come back on their own.

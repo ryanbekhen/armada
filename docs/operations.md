@@ -268,6 +268,15 @@ longer run, the same way a cordon does: a replacement starts on an allowed
 node first, then the old replica is drained. When no allowed node has room,
 the replica stays where it is until one does, and `armada status` says so.
 
+Every replica reserves its `resources.cpu` (100m when unset) and
+`resources.memory` on its node, and nodes are never overcommitted; see the
+[spec reference](spec-reference.md#resources). Armada keeps 100m of CPU
+and 128Mi of memory on each node for itself, and another 100m on control
+plane servers. Replicas that no longer fit after an upgrade keep running;
+only new ones need room. If a rollout waits for a node, `armada status`
+names what is short: scale another app down, lower its reservation, or add
+a node.
+
 Clusters may mix architectures (amd64 and arm64, say): each app stays on
 the nodes its image has a variant for, as reported by the first node that
 pulls it (`armada revisions APP` shows the platforms). If no node can run

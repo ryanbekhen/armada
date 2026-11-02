@@ -33,7 +33,7 @@ func TestAppSpecDefaults(t *testing.T) {
 	s := genSpec(t, appOpts(appSpec{
 		spec: runtime.ContainerSpec{
 			Name: "armada-web-1", Env: []string{"A=1"},
-			MemoryBytes: 256 << 20, NanoCPUs: 500_000_000, PidsLimit: 100,
+			MemoryBytes: 256 << 20, NanoCPUs: 500_000_000, CPUReserveMillis: 500, PidsLimit: 100,
 			Files: []runtime.FileMount{{Source: secret, Target: "/run/secrets/db"}},
 		},
 		netns: "/run/armada/netns/cni-1",
@@ -61,6 +61,9 @@ func TestAppSpecDefaults(t *testing.T) {
 	}
 	if *r.CPU.Quota != 50000 || *r.CPU.Period != cpuPeriod {
 		t.Errorf("cpu quota %d period %d", *r.CPU.Quota, *r.CPU.Period)
+	}
+	if r.CPU.Shares == nil || *r.CPU.Shares != 512 {
+		t.Errorf("cpu shares %v, want 512 for 500m", r.CPU.Shares)
 	}
 	if r.Pids.Limit == nil || *r.Pids.Limit != 100 {
 		t.Errorf("pids %v", r.Pids)
@@ -287,6 +290,15 @@ func TestNewID(t *testing.T) {
 	for _, bad := range []string{"", "../x", "a/b"} {
 		if _, err := newID(bad); err == nil {
 			t.Errorf("accepted name %q", bad)
+		}
+	}
+}
+
+func TestCPUShares(t *testing.T) {
+	t.Parallel()
+	for millis, want := range map[int64]uint64{1: 2, 10: 10, 100: 102, 1000: 1024, 64000: 65536, 1 << 40: 262144} {
+		if got := cpuShares(millis); got != want {
+			t.Errorf("cpuShares(%d) = %d, want %d", millis, got, want)
 		}
 	}
 }

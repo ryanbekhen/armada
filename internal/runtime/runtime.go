@@ -114,7 +114,10 @@ type ContainerSpec struct {
 	HostIP      string // address to publish on; must be a private IP
 	MemoryBytes int64
 	NanoCPUs    int64
-	PidsLimit   int64
+	// CPUReserveMillis sets the CPU weight: under contention, containers
+	// share CPU in proportion to what they reserve. 0 keeps the default.
+	CPUReserveMillis int64
+	PidsLimit        int64
 	// Files are mounted read-only; the driver refuses sources that are not
 	// regular files (e.g. a runtime socket).
 	Files []FileMount

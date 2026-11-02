@@ -515,6 +515,10 @@ message ReplicaSpec {
   Probe liveness = 14;
   repeated SecretFile secret_files = 15;
   RegistryAuth registry = 16;
+  // CPU reserved for the replica on its node, in millicores; the agent
+  // gives the container a CPU weight in proportion. Not part of the spec
+  // hash: a revision's reservation never changes.
+  int64 cpu_reserve_millis = 17;
 }
 
 // SecretFile is a secret the agent writes to tmpfs on the node and

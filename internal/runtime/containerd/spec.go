@@ -17,6 +17,12 @@ const initPath = "/sbin/armada-init"
 // cpuPeriod is the CFS period used to express CPU limits (100ms).
 const cpuPeriod = 100000
 
+// cpuShares turns a CPU reservation into shares (1024 per core, at least
+// 2, at most 262144); the runtime maps them to the cgroup v2 weight.
+func cpuShares(millis int64) uint64 {
+	return uint64(min(max(millis*1024/1000, 2), 262144))
+}
+
 // nofile is the open-file limit of every container.
 const nofile = 1048576
 
@@ -76,6 +82,9 @@ func appOpts(a appSpec) []oci.SpecOpts {
 	}
 	if s.NanoCPUs > 0 {
 		opts = append(opts, oci.WithCPUCFS(s.NanoCPUs*cpuPeriod/1e9, cpuPeriod))
+	}
+	if s.CPUReserveMillis > 0 {
+		opts = append(opts, oci.WithCPUShares(cpuShares(s.CPUReserveMillis)))
 	}
 	return opts
 }

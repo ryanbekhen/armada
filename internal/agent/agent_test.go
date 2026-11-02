@@ -286,6 +286,13 @@ func TestSpecHash(t *testing.T) {
 	if a.Image != "nginx:1" {
 		t.Error("specHash mutated its input")
 	}
+	// Replicas created before the server sent CPU reservations keep their
+	// hash: a server upgrade must not recreate them.
+	d := replica("r", "nginx:1", 80)
+	d.CpuReserveMillis = 100
+	if specHash(a) != specHash(d) {
+		t.Error("hash depends on the CPU reservation")
+	}
 }
 
 func TestParseMemTotal(t *testing.T) {

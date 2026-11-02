@@ -91,10 +91,34 @@ placement:
   image is built for, and the rollout fails as usual, leaving the old
   revision serving. A deploy is therefore not refused up front.
 
+### CPU and memory reservations
+
+Every replica reserves CPU and memory on its node, and nothing is
+overcommitted: a node takes a replica only if what its replicas reserve,
+draining ones included, leaves room for it.
+
+- **Memory** reserves `resources.memory` (default `256Mi`), which is also
+  the limit.
+- **CPU** reserves `resources.cpu` when the spec sets it, which is also
+  the limit. A spec without it reserves 100m and has no limit, so small
+  apps fit many to a core and can use idle CPU.
+- Containers get a CPU weight in proportion to their reservation, so on a
+  busy node each gets at least its share.
+- Armada keeps 100m of CPU and 128Mi of memory on every node for the
+  agent, containerd, and HAProxy, and another 100m on control plane
+  servers. The rest is what replicas share.
+- Capacity is what the agent reports, bounded by the server. A node that
+  reports none (0) is not checked.
+- Reservations only gate new replicas. Replicas that no longer fit, after
+  an upgrade or a smaller capacity report, keep running.
+- Spreading is unchanged: an app's replicas first, then the number of
+  replicas on the node; free memory and then free CPU only break ties, so
+  an inflated capacity report cannot attract more than a node's share.
+- `armada status` names what is short when no allowed node has room
+  ("none has 300m of CPU free").
+
 ### Implemented in later steps
 
-- **CPU:** `resources.cpu` is reserved on the node like memory, with no
-  overcommit, and replicas are spread in proportion to capacity.
 - **`placement.spreadBy`:** spread an app's replicas over the values of a
   label (cities, racks).
 
@@ -117,6 +141,14 @@ commits need a round trip between them.
   for `placement.prefer` later.
 - **Leaving architecture to the user:** every failure would appear only on
   the node, after the rollout started.
+- **Spreading replicas in proportion to node capacity:** bigger machines
+  would take more of the cluster's work, but capacity is self-reported, and
+  a compromised node advertising more would attract replicas, and with
+  them secrets, of apps it would not otherwise run. Spreading by count
+  with capacity as a tie-break bounds that to a node's share.
+- **A separate CPU request and limit:** more control, but two numbers for
+  every app and a new meaning for an existing field; one value that is
+  both, with a burstable default, covers the common cases.
 - **The server reads image platforms at deploy and refuses impossible
   deploys:** it would need outbound access to every registry an app names,
   the registry credentials on the control plane for a new purpose, and
