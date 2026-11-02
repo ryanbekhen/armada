@@ -44,7 +44,10 @@ type doctorEnv struct {
 	euid      int
 	driver    runtime.Driver
 	driverErr error
-	// runtimeHost checks what the embedded runtime needs from the host.
+	// runtimeName is "embedded" or the node's external driver.
+	runtimeName string
+	// runtimeHost checks what the embedded runtime needs from the host;
+	// nil with an external driver.
 	runtimeHost func(subnet netip.Prefix) []checkResult
 	subnet      netip.Prefix
 	detectIP    func() (netip.Addr, error)
@@ -97,12 +100,17 @@ func hostDoctorEnv(dataDir string) doctorEnv {
 	}
 	subnet, _ := netip.ParsePrefix(ac.ContainerSubnet)
 	driver, err := newDriver(dataDir, ac)
+	host := embeddedHostChecks
+	if ac.external() {
+		host = nil
+	}
 	return doctorEnv{
 		goos:        goruntime.GOOS,
 		euid:        os.Geteuid(),
 		driver:      driver,
 		driverErr:   err,
-		runtimeHost: embeddedHostChecks,
+		runtimeName: ac.Runtime,
+		runtimeHost: host,
 		subnet:      subnet,
 		detectIP:    netutil.DetectPrivateIP,
 		statFile:    os.Stat,
@@ -202,16 +210,26 @@ func checkRuntime(ctx context.Context, env doctorEnv) []checkResult {
 	pingCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	err := env.driver.Ping(pingCtx)
 	cancel()
+	external := env.runtimeName != "" && env.runtimeName != runtimeEmbedded
 	switch {
+	case err != nil && external:
+		add("runtime", checkFail, "driver %s: %v (systemctl status armada-driver-%s)", env.runtimeName, err, env.runtimeName)
+		return out
 	case err != nil && !env.initialized():
 		add("runtime", checkWarn, "embedded runtime not running yet; it starts with armada-server or armada-agent after init or join")
 		return out
 	case err != nil:
 		add("runtime", checkFail, "embedded runtime: %v (systemctl status armada-runtime)", err)
 		return out
+	case external:
+		add("runtime", checkOK, "driver %s reachable", env.runtimeName)
+		if !runtime.CanRunSystem(env.driver) {
+			add("system containers", checkWarn, "driver %s cannot run HAProxy: run this node with --proxy none", env.runtimeName)
+		}
+	default:
+		add("runtime", checkOK, "embedded runtime reachable")
 	}
-	add("runtime", checkOK, "embedded runtime reachable")
-	if bi, ok := env.driver.(runtime.BridgeInspector); ok {
+	if bi, ok := env.driver.(runtime.BridgeInspector); ok && runtime.HasBridge(env.driver) {
 		b, err := bi.Bridge(ctx)
 		switch {
 		case err != nil:

@@ -164,8 +164,8 @@ func newProxy(kind, dataDir, privateIP, internalIP string, rt runtime.Driver, lo
 		return nil, err
 	}
 	sys, ok := rt.(runtime.SystemRunner)
-	if !ok {
-		return nil, errors.New("container runtime cannot run system containers")
+	if !ok || !runtime.CanRunSystem(rt) {
+		return nil, errors.New("this node's container runtime cannot run system containers such as HAProxy; run the node with --proxy none")
 	}
 	dir := filepath.Join(dataDir, dirHAProxy)
 	return haproxy.New(haproxy.Config{

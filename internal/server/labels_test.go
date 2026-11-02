@@ -11,6 +11,7 @@ import (
 
 	armadav1 "github.com/ryanbekhen/armada/api/armada/v1"
 	"github.com/ryanbekhen/armada/internal/pki"
+	"github.com/ryanbekhen/armada/internal/spec"
 	"github.com/ryanbekhen/armada/internal/store"
 )
 
@@ -74,7 +75,8 @@ func TestJoinTokenLabels(t *testing.T) {
 	c.eventually("labels", func() bool {
 		n, err := c.store.GetNode(c.ctx, "n7")
 		all := n.AllLabels()
-		return err == nil && all["region"] == "papua" && all["armada.os"] == goruntime.GOOS && all["armada.arch"] == goruntime.GOARCH
+		return err == nil && all["region"] == "papua" && all["armada.os"] == goruntime.GOOS && all["armada.arch"] == goruntime.GOARCH &&
+			all["armada.runtime"] == "embedded"
 	})
 
 	for name, labels := range map[string]map[string]string{
@@ -111,13 +113,13 @@ func TestHelloOSAndArch(t *testing.T) {
 		}
 		c.eventually(id+" connected", func() bool { return c.srv.session(id) != nil })
 	}
-	connect("good", &armadav1.Hello{PrivateIp: "10.0.0.21", Os: "linux", Arch: "arm64"})
-	connect("evil", &armadav1.Hello{PrivateIp: "10.0.0.22", Os: "linux\nregion=x", Arch: "../../amd64"})
+	connect("good", &armadav1.Hello{PrivateIp: "10.0.0.21", Os: "linux", Arch: "arm64", Runtime: "docker"})
+	connect("evil", &armadav1.Hello{PrivateIp: "10.0.0.22", Os: "linux\nregion=x", Arch: "../../amd64", Runtime: "Docker Engine"})
 	time.Sleep(100 * time.Millisecond)
-	if n, _ := c.store.GetNode(c.ctx, "good"); n.OS != "linux" || n.Arch != "arm64" {
-		t.Errorf("good node: os %q arch %q", n.OS, n.Arch)
+	if n, _ := c.store.GetNode(c.ctx, "good"); n.OS != "linux" || n.Arch != "arm64" || n.AllLabels()[spec.LabelRuntime] != "docker" {
+		t.Errorf("good node: os %q arch %q runtime %q", n.OS, n.Arch, n.Runtime)
 	}
-	if n, _ := c.store.GetNode(c.ctx, "evil"); n.OS != "" || n.Arch != "" {
-		t.Errorf("invalid values stored: os %q arch %q", n.OS, n.Arch)
+	if n, _ := c.store.GetNode(c.ctx, "evil"); n.OS != "" || n.Arch != "" || n.Runtime != "" {
+		t.Errorf("invalid values stored: os %q arch %q runtime %q", n.OS, n.Arch, n.Runtime)
 	}
 }

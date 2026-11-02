@@ -52,6 +52,7 @@ E2E_ACME_EMAIL=you@example.org sh test/e2e/cluster.sh hosts
 | `E2E_REBOOT` | `1` | `0` skips rebooting every machine at once |
 | `E2E_BRIDGE_GW` | `10.121.0.1` | Container bridge address, if you pass `--container-subnet` |
 | `E2E_SERVER_FLAGS` | empty | Extra `armada server` flags |
+| `E2E_CONFORMANCE` | empty | Driver conformance test binary for the last machine's architecture, built with `GOOS=linux go test -c -tags integration -o bin/conformance ./internal/runtime/containerd/`; runs the suite on that node's embedded runtime once the cluster is ready |
 
 The script stops at the first failure and prints `armada server list` and
 `armada status`. A full run on four small machines takes about 10 minutes
@@ -60,7 +61,9 @@ once the binary has been copied to them.
 ## What it checks
 
 1. `armada doctor` passes on every machine; the cluster forms with three
-   voting servers and every node ready.
+   voting servers and every node ready. With `E2E_CONFORMANCE`, the driver
+   conformance suite passes on the last node's embedded runtime, next to
+   its running agent.
 2. Nothing but SSH and HAProxy (80/443) listens outside the private,
    loopback, and bridge addresses.
 3. The test app gets a certificate for its host name on every node; a secret

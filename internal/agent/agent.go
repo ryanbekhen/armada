@@ -3,6 +3,7 @@
 package agent
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -64,6 +65,10 @@ type Config struct {
 	// DNS is the node-local resolver for <app>.internal; nil leaves
 	// containers with the engine's default DNS.
 	DNS InternalDNS
+	// OS and Arch are the platform containers run on, reported as the
+	// armada.os and armada.arch labels (default: the agent's own); Runtime
+	// is the container runtime's name, the armada.runtime label.
+	OS, Arch, Runtime string
 	// Servers are the control plane addresses the agent started with;
 	// OnServers receives them whenever the server sends a different list.
 	Servers   []string
@@ -189,7 +194,7 @@ func (a *Agent) session(ctx context.Context) (established bool, err error) {
 	}
 	hello := &armadav1.AgentMessage{Msg: &armadav1.AgentMessage_Hello{Hello: &armadav1.Hello{
 		CpuMillis: a.cfg.CPUMillis, MemoryBytes: a.cfg.MemoryBytes, Version: version.Get().Version, PrivateIp: a.cfg.PrivateIP,
-		Os: goruntime.GOOS, Arch: goruntime.GOARCH,
+		Os: cmp.Or(a.cfg.OS, goruntime.GOOS), Arch: cmp.Or(a.cfg.Arch, goruntime.GOARCH), Runtime: a.cfg.Runtime,
 	}}}
 	if err := stream.Send(hello); err != nil {
 		return false, err

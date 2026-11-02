@@ -67,6 +67,8 @@ type Node struct {
 	// agent reports. AllLabels combines them.
 	Labels   map[string]string
 	OS, Arch string
+	// Runtime is the container runtime its agent reports (ADR 0015).
+	Runtime string
 	// Restricted nodes only run apps whose placement selects one of their
 	// labels.
 	Restricted bool
@@ -74,7 +76,7 @@ type Node struct {
 
 // AllLabels returns the admin labels plus armada.os and armada.arch.
 func (n Node) AllLabels() map[string]string {
-	out := make(map[string]string, len(n.Labels)+2)
+	out := make(map[string]string, len(n.Labels)+3)
 	for k, v := range n.Labels {
 		out[k] = v
 	}
@@ -83,6 +85,9 @@ func (n Node) AllLabels() map[string]string {
 	}
 	if n.Arch != "" {
 		out[spec.LabelArch] = n.Arch
+	}
+	if n.Runtime != "" {
+		out[spec.LabelRuntime] = n.Runtime
 	}
 	return out
 }
@@ -236,6 +241,8 @@ type NodeStatus struct {
 	Version string
 	// OS and Arch as the agent reports them; empty keeps the recorded ones.
 	OS, Arch string
+	// Runtime as the agent reports it; empty keeps the recorded one.
+	Runtime string
 }
 
 // Domain is a custom domain referenced by at least one app. Apps may only

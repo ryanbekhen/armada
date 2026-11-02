@@ -50,7 +50,7 @@ armada deploy -f web.yaml    # → https://web.apps.example.com
   one replica at a time, when a node returns or joins.
 - **Placement.** Label nodes (by hand or in the join token), keep apps to
   the nodes they require, and spread them evenly over a label's values
-  (sites, racks); restricted nodes run only the apps that ask for them. Every node reports its OS and architecture as labels, and apps
+  (sites, racks); restricted nodes run only the apps that ask for them. Every node reports its OS, architecture, and container runtime as labels, and apps
   run only on nodes their image is built for. Replicas reserve CPU and
   memory on their node, and no node is overcommitted.
 - **Highly available control plane.** One server works; three survive the
@@ -62,6 +62,10 @@ armada deploy -f web.yaml    # → https://web.apps.example.com
 - **Confined containers.** Dropped capabilities, `no-new-privileges`,
   seccomp, AppArmor or SELinux (each container in its own MCS categories),
   and memory, CPU, and PID limits.
+- **Runtime drivers.** A node can run containers on another engine
+  through an external driver: a separate program behind a local protocol
+  that carries the same security defaults, with a public Go library and a
+  conformance suite for driver authors.
 
 Armada needs Linux machines (cloud instances, VMs, or bare metal) with a
 private network between them, and nothing else: the binary embeds its own
@@ -72,7 +76,7 @@ its state store (etcd).
 
 - [Quickstart](docs/quickstart.md): empty machines to an HTTPS app
 - [App spec reference](docs/spec-reference.md)
-- [Operations](docs/operations.md): control plane servers, backup, restore, upgrades
+- [Operations](docs/operations.md): control plane servers, backup, restore, upgrades, runtime drivers
 - [Threat model](docs/threat-model.md), including the accepted limitations
 - [Architecture decisions](docs/adr/README.md)
 - [Releasing and verifying releases](docs/releasing.md)

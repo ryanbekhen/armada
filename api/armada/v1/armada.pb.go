@@ -3194,8 +3194,11 @@ type Hello struct {
 	PrivateIp   string                 `protobuf:"bytes,4,opt,name=private_ip,json=privateIp,proto3" json:"private_ip,omitempty"`
 	// GOOS and GOARCH of the agent, shown as the armada.os and armada.arch
 	// labels.
-	Os            string `protobuf:"bytes,5,opt,name=os,proto3" json:"os,omitempty"`
-	Arch          string `protobuf:"bytes,6,opt,name=arch,proto3" json:"arch,omitempty"`
+	Os   string `protobuf:"bytes,5,opt,name=os,proto3" json:"os,omitempty"`
+	Arch string `protobuf:"bytes,6,opt,name=arch,proto3" json:"arch,omitempty"`
+	// The node's container runtime, "embedded" or an external driver's name,
+	// shown as the armada.runtime label.
+	Runtime       string `protobuf:"bytes,7,opt,name=runtime,proto3" json:"runtime,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3268,6 +3271,13 @@ func (x *Hello) GetOs() string {
 func (x *Hello) GetArch() string {
 	if x != nil {
 		return x.Arch
+	}
+	return ""
+}
+
+func (x *Hello) GetRuntime() string {
+	if x != nil {
+		return x.Runtime
 	}
 	return ""
 }
@@ -4809,7 +4819,7 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\fAgentMessage\x12(\n" +
 	"\x05hello\x18\x01 \x01(\v2\x10.armada.v1.HelloH\x00R\x05hello\x122\n" +
 	"\x06report\x18\x02 \x01(\v2\x18.armada.v1.ReplicaReportH\x00R\x06reportB\x05\n" +
-	"\x03msg\"\xa6\x01\n" +
+	"\x03msg\"\xc0\x01\n" +
 	"\x05Hello\x12\x1d\n" +
 	"\n" +
 	"cpu_millis\x18\x01 \x01(\x03R\tcpuMillis\x12!\n" +
@@ -4818,7 +4828,8 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\n" +
 	"private_ip\x18\x04 \x01(\tR\tprivateIp\x12\x0e\n" +
 	"\x02os\x18\x05 \x01(\tR\x02os\x12\x12\n" +
-	"\x04arch\x18\x06 \x01(\tR\x04arch\"D\n" +
+	"\x04arch\x18\x06 \x01(\tR\x04arch\x12\x18\n" +
+	"\aruntime\x18\a \x01(\tR\aruntime\"D\n" +
 	"\rReplicaReport\x123\n" +
 	"\breplicas\x18\x01 \x03(\v2\x17.armada.v1.ReplicaStateR\breplicas\"\xed\x01\n" +
 	"\fReplicaState\x12\x0e\n" +

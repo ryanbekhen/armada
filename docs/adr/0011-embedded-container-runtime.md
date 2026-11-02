@@ -20,10 +20,10 @@ rollouts, probes, and self-healing do not depend on how containers are run.
 
 Armada brings its own container runtime: a containerd instance that only
 Armada uses, started from binaries embedded in the Armada binary.
-`agent.json` records `"runtime": "embedded"`; a node with any other value is
-refused.
+`agent.json` records `"runtime": "embedded"`; any other value names an
+external driver (ADR 0015).
 
-Other engines can be supported later as **external drivers** (see below);
+Other engines can be supported as **external drivers** (ADR 0015);
 the embedded runtime stays the default and the reference implementation.
 
 ### What is bundled
@@ -145,24 +145,12 @@ The shim writes container output through a logging binary, Armada itself
 timestamp, rotated at 10 MB with 3 files kept. `armada logs` reads and
 follows these files.
 
-## External drivers (planned)
+## External drivers
 
-Anyone should be able to write a driver for another container engine
-without changing Armada. The intended shape, to be settled in its own ADR:
-
-- A driver is a separate executable started by the agent (or a socket it
-  connects to) and speaks a versioned gRPC protocol over a Unix socket in
-  a root-only directory; the protocol mirrors `runtime.Driver`,
-  `runtime.SystemRunner`, and `runtime.BridgeInspector`.
-- The agent still validates every `ContainerSpec` (`CheckContainerSpec`:
-  private host IPs, file mounts, dropped capabilities) before it reaches a
-  driver, and the protocol carries the security defaults explicitly, so a
-  driver cannot silently drop them; a driver declares which capabilities
-  it supports and the agent refuses specs it cannot honour.
-- A node chooses its driver at `init`/`join` and records it in
-  `agent.json`.
-- An external driver runs as root with the agent's trust: installing one
-  is a trust decision, which the threat model must cover.
+Other engines run containers for the agent as external drivers: separate
+programs behind a versioned gRPC protocol on a root-only Unix socket, with
+the same spec checks and security defaults. ADR 0015 describes them; the
+embedded runtime stays the default and runs in the agent's process.
 
 ## Alternatives considered
 

@@ -18,3 +18,4 @@ Every architectural decision that is hard to reverse is recorded here. Copy `000
 | [0012](0012-upgrades-and-state-schema.md) | Upgrades and state schema migrations | Accepted |
 | [0013](0013-replica-rebalancing.md) | Replica rebalancing | Accepted |
 | [0014](0014-node-labels-and-placement.md) | Node labels and app placement | Accepted |
+| [0015](0015-external-runtime-drivers.md) | External runtime drivers | Accepted |
