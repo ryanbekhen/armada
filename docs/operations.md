@@ -362,6 +362,40 @@ web-r1-q2k0d     node2  running  41m/250m   58Mi/256Mi
   appear 10 to 20 seconds after a replica starts or the control plane's
   leader changes, since samples are kept in the leader's memory only.
 
+## Jobs
+
+Jobs run a container to completion, on demand or on a schedule
+([ADR 0021](adr/0021-jobs.md); fields in the
+[spec reference](spec-reference.md#jobs)):
+
+```bash
+armada deploy -f backup.yaml     # kind: job; changes apply to the next runs
+armada job run db-backup         # start a run now
+armada job ls                    # schedule, latest run, next run
+armada job runs db-backup        # runs, newest first
+armada logs db-backup            # the newest run's output (--run N for another)
+armada job cancel db-backup      # stop the active run
+armada job rm db-backup          # delete the job, its runs, and their logs
+```
+
+```
+RUN  STATE      TRIGGER   ATTEMPTS  NODE   STARTED  DURATION  EXIT  MESSAGE
+12   succeeded  schedule  1         node2  7h ago   2m        0     -
+11   failed     schedule  3         node1  1d ago   30m       -     timed out after 30m0s
+```
+
+- Runs go to nodes that the job's placement allows and that have room for
+  its reservation, like replicas. A run that cannot be placed waits, and
+  fails when its timeout passes.
+- A failed attempt is retried while `retries` allow, possibly on another
+  node. Only the latest attempt's logs are kept.
+- Runs keep going when their node is cordoned; a run on a lost node counts
+  as failed and is retried.
+- Jobs do not appear in `armada status`. `armada events JOB` shows their
+  runs, and `armada top` shows the resources a running job uses.
+- Alert on `time() - armada_job_last_success_timestamp_seconds > 90000`
+  for a daily job that has not succeeded in 25 hours.
+
 ## Events
 
 `armada events` shows what the cluster did in the last hour
@@ -436,6 +470,9 @@ scrape_configs:
 | `armada_agents_connected` | | agents connected to the leader |
 | `armada_reconcile_duration_seconds` | | histogram of reconcile times |
 | `armada_reconcile_errors_total` | | failed reconciles |
+| `armada_job_runs_total` | `job`, `result` | job runs that ended: `succeeded`, `failed`, `cancelled`; resets when the leader changes |
+| `armada_job_runs_active` | `job` | runs pending or running |
+| `armada_job_last_success_timestamp_seconds` | `job` | when the newest kept successful run finished |
 | `armada_events_total` | `kind`, `reason` | events the leader recorded (see [Events](#events)); resets when the leader changes |
 | `armada_app_replicas_desired`, `armada_app_replicas_ready` | `app` | desired replicas, and those running, ready, and not draining |
 | `armada_app_rollout` | `app`, `state` | 1 for the current rollout state: `idle`, `progressing`, `failed` |

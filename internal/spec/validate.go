@@ -103,14 +103,14 @@ func (a *App) SetDefaults() {
 			}
 		}
 	}
-	if a.Scale == nil {
+	if a.Scale == nil && !a.IsJob() {
 		a.Scale = &Scale{}
 	}
-	if a.Scale.Min == nil {
+	if a.Scale != nil && a.Scale.Min == nil {
 		one := 1
 		a.Scale.Min = &one
 	}
-	if a.Scale.Max == nil {
+	if a.Scale != nil && a.Scale.Max == nil {
 		m := *a.Scale.Min
 		a.Scale.Max = &m
 	}
@@ -122,8 +122,12 @@ func (a *App) SetDefaults() {
 	}
 }
 
-// Replicas is the number of replicas to run in v0.1 (scale.min).
+// Replicas is the number of replicas to run in v0.1 (scale.min); jobs run
+// none outside their runs.
 func (a *App) Replicas() int {
+	if a.IsJob() {
+		return 0
+	}
 	if a.Scale == nil || a.Scale.Min == nil {
 		return 1
 	}
@@ -166,11 +170,9 @@ func (a *App) Validate() error {
 		v.add("apiVersion", "must be %q", APIVersion)
 	}
 	switch a.Kind {
-	case KindApp:
-	case KindJob:
-		v.unsupported("kind", "jobs are planned for v0.2")
+	case KindApp, KindJob:
 	default:
-		v.add("kind", "must be %q", KindApp)
+		v.add("kind", "must be %q or %q", KindApp, KindJob)
 	}
 	v.name("name", a.Name)
 	v.image("image", a.Image)
@@ -185,6 +187,7 @@ func (a *App) Validate() error {
 	v.scale(a.Scale)
 	v.resources(a.Resources)
 	v.placement(a.Placement)
+	v.job(a)
 
 	return errors.Join(v.errs...)
 }

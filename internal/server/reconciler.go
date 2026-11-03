@@ -59,11 +59,19 @@ func (s *Server) Reconcile(ctx context.Context) error {
 
 	rc := reconcileRun{now: s.now()}
 	rc.lost = s.lostNodes(ctx, &rc, nodes)
+	var jobs []store.App
 	for i, app := range apps {
+		if app.Spec.IsJob() {
+			jobs = append(jobs, app)
+			continue
+		}
 		replicas, err = s.reconcileApp(ctx, &rc, &apps[i], nodes, replicas, &revs)
 		if err != nil {
 			return fmt.Errorf("app %s: %w", app.Name, err)
 		}
+	}
+	if replicas, err = s.reconcileJobs(ctx, &rc, jobs, nodes, replicas, &revs); err != nil {
+		return err
 	}
 	if rc.wake > 0 {
 		s.wakeAfter(rc.wake)
@@ -979,6 +987,9 @@ func replicaSpec(r store.Replica, rev store.Revision, vals map[string]secrets.Va
 		&armadav1.EnvVar{Name: "ARMADA_REVISION", Value: r.Revision},
 		&armadav1.EnvVar{Name: "ARMADA_REPLICA", Value: r.ID},
 	)
+	if r.Run != 0 {
+		env = append(env, &armadav1.EnvVar{Name: "ARMADA_JOB_RUN", Value: strconv.FormatInt(r.Run, 10)})
+	}
 	var port int32
 	if sp.Ingress != nil && sp.Ingress.Type != spec.IngressNone {
 		port = int32(sp.Ingress.Port) //nolint:gosec // validated to 1..65535
@@ -997,6 +1008,9 @@ func replicaSpec(r store.Replica, rev store.Revision, vals map[string]secrets.Va
 		NanoCpus:         sp.NanoCPUs(),
 		CpuReserveMillis: sp.CPUMillis(),
 		PidsLimit:        spec.DefaultPids,
+	}
+	if r.Run != 0 {
+		rs.Job = &armadav1.JobAttempt{Job: r.App, Run: r.Run, Done: r.Done}
 	}
 	if sp.Probes != nil {
 		rs.Startup = probeProto(sp.Probes.Startup)
@@ -1086,6 +1100,9 @@ func (c *revisionCache) get(ctx context.Context, name string) (store.Revision, e
 // reserved returns what each replica reserves on its node.
 func (c *revisionCache) reserved(ctx context.Context) func(store.Replica) resources {
 	return func(r store.Replica) resources {
+		if r.Done {
+			return resources{} // a finished job attempt, kept for its logs
+		}
 		rev, err := c.get(ctx, r.Revision)
 		if err != nil {
 			return resources{}

@@ -130,7 +130,22 @@ func TestParseRejects(t *testing.T) {
 		{"two documents", base + "---\n" + base, "", false},
 		{"wrong apiVersion", "apiVersion: v2\n" + base, "apiVersion", false},
 		{"bad kind", "kind: service\n" + base, "kind", false},
-		{"job kind", "kind: job\nname: x\nimage: y\n", "kind", true},
+		{"job with ingress", "kind: job\nname: x\nimage: y\ningress:\n  type: external\n  port: 80\n", "ingress", false},
+		{"job with probes", "kind: job\nname: x\nimage: y\nprobes:\n  readiness: /\n", "probes", false},
+		{"job with scale", "kind: job\nname: x\nimage: y\nscale:\n  min: 2\n", "scale", false},
+		{"job with traffic", "kind: job\nname: x\nimage: y\nrevisions:\n  mode: multiple\n", "revisions", true},
+		{"job bad schedule", "kind: job\nname: x\nimage: y\nschedule: \"61 * * * *\"\n", "schedule", false},
+		{"job six fields", "kind: job\nname: x\nimage: y\nschedule: \"0 0 3 * * *\"\n", "schedule", false},
+		{"job descriptor", "kind: job\nname: x\nimage: y\nschedule: \"@daily\"\n", "schedule", false},
+		{"job cron tz", "kind: job\nname: x\nimage: y\nschedule: \"CRON_TZ=UTC 0 3 * * *\"\n", "schedule", false},
+		{"job bad zone", "kind: job\nname: x\nimage: y\nschedule: \"0 3 * * *\"\ntimeZone: Mars/Base\n", "schedule", false},
+		{"job zone without schedule", "kind: job\nname: x\nimage: y\ntimeZone: UTC\n", "timeZone", false},
+		{"job timeout too long", "kind: job\nname: x\nimage: y\ntimeout: 25h\n", "timeout", false},
+		{"job retries", "kind: job\nname: x\nimage: y\nretries: 11\n", "retries", false},
+		{"job concurrency", "kind: job\nname: x\nimage: y\nconcurrency: allow\n", "concurrency", false},
+		{"job history", "kind: job\nname: x\nimage: y\nhistory: 0\n", "history", false},
+		{"schedule on app", base + "schedule: \"0 3 * * *\"\n", "schedule", false},
+		{"retries on app", base + "retries: 1\n", "retries", false},
 		{"missing name", "image: nginx\n", "name", false},
 		{"uppercase name", "name: Web\nimage: nginx\n", "name", false},
 		{"double hyphen name", "name: web--canary\nimage: nginx\n", "name", false},
@@ -465,5 +480,32 @@ func TestRegistryHost(t *testing.T) {
 		if got := RegistryHost(image); got != want {
 			t.Errorf("RegistryHost(%q) = %q, want %q", image, got, want)
 		}
+	}
+}
+
+func TestParseJob(t *testing.T) {
+	t.Parallel()
+	a, err := Parse([]byte("kind: job\nname: backup\nimage: busybox\nschedule: \"30 3 * * *\"\ntimeZone: Asia/Jakarta\nretries: 2\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !a.IsJob() || a.Replicas() != 0 || a.JobTimeout() != DefaultJobTimeout || a.JobHistory() != DefaultJobHistory || a.JobConcurrency() != ConcurrencyForbid {
+		t.Errorf("defaults: %+v", a)
+	}
+	s, ok := a.JobSchedule()
+	if !ok {
+		t.Fatal("no schedule")
+	}
+	// 03:30 in Jakarta (UTC+7) is 20:30 UTC the day before.
+	next := s.Next(time.Date(2026, 11, 3, 0, 0, 0, 0, time.UTC))
+	if want := time.Date(2026, 11, 3, 20, 30, 0, 0, time.UTC); !next.Equal(want) {
+		t.Errorf("next = %v, want %v", next.UTC(), want)
+	}
+	manual, err := Parse([]byte("kind: job\nname: migrate\nimage: busybox\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := manual.JobSchedule(); ok {
+		t.Error("a job without a schedule has one")
 	}
 }

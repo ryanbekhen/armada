@@ -60,6 +60,9 @@ type Config struct {
 	// NodeLostTimeout is how long a node may be disconnected before its
 	// replicas are rescheduled on other nodes (default 5 minutes).
 	NodeLostTimeout time.Duration
+	// JobRetryBase is the delay before a job's first retry (ADR 0021); it
+	// doubles with each failed attempt. Default 10s; tests shorten it.
+	JobRetryBase time.Duration
 	// Now returns the current time (default time.Now); tests replace it.
 	Now func() time.Time
 
@@ -132,6 +135,9 @@ type Server struct {
 	execs    *execRouter
 	usage    *usageStore
 	events   *eventRecorder
+	jobRuns  *prometheus.CounterVec
+	// jobRetryBase is the delay before a job's first retry.
+	jobRetryBase time.Duration
 
 	certMu        sync.Mutex
 	lastCertNames []string
@@ -222,11 +228,15 @@ func New(cfg Config) (*Server, error) {
 	if cfg.Now == nil {
 		cfg.Now = time.Now
 	}
+	if cfg.JobRetryBase <= 0 {
+		cfg.JobRetryBase = defaultJobRetryBase
+	}
 	s := &Server{
-		store:   cfg.Store,
-		keys:    cfg.Secrets,
-		name:    cfg.Name,
-		cluster: cfg.Cluster,
+		jobRetryBase: cfg.JobRetryBase,
+		store:        cfg.Store,
+		keys:         cfg.Secrets,
+		name:         cfg.Name,
+		cluster:      cfg.Cluster,
 
 		ca:               cfg.CA,
 		joinAddr:         cfg.JoinAddr,
@@ -253,8 +263,9 @@ func New(cfg Config) (*Server, error) {
 		reconcileErrors: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "armada_reconcile_errors_total", Help: "Reconciles that failed.",
 		}),
-		usage:  newUsageStore(),
-		events: newEventRecorder(),
+		usage:   newUsageStore(),
+		events:  newEventRecorder(),
+		jobRuns: newJobRunsCounter(),
 
 		certs:          cfg.Certs,
 		acmeAddr:       cfg.ACMEAddr,

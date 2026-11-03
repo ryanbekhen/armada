@@ -60,6 +60,14 @@ type App struct {
 	Scale     *Scale     `yaml:"scale,omitempty" json:"scale,omitempty"`
 	Resources *Resources `yaml:"resources,omitempty" json:"resources,omitempty"`
 	Placement *Placement `yaml:"placement,omitempty" json:"placement,omitempty"`
+
+	// Job settings (kind: job, ADR 0021).
+	Schedule    string   `yaml:"schedule,omitempty" json:"schedule,omitempty"`
+	TimeZone    string   `yaml:"timeZone,omitempty" json:"timeZone,omitempty"`
+	Timeout     Duration `yaml:"timeout,omitempty" json:"timeout,omitempty"`
+	Retries     int      `yaml:"retries,omitempty" json:"retries,omitempty"`
+	Concurrency string   `yaml:"concurrency,omitempty" json:"concurrency,omitempty"`
+	History     *int     `yaml:"history,omitempty" json:"history,omitempty"`
 }
 
 // EnvVar is an environment variable, either literal or from a secret.
@@ -196,16 +204,6 @@ func (d *Duration) UnmarshalJSON(b []byte) error {
 func Parse(data []byte) (*App, error) {
 	if len(data) > MaxSpecBytes {
 		return nil, fmt.Errorf("spec is larger than %d bytes", MaxSpecBytes)
-	}
-
-	var head struct {
-		Kind string `yaml:"kind"`
-	}
-	if err := yaml.Unmarshal(data, &head); err != nil {
-		return nil, fmt.Errorf("invalid YAML: %w", err)
-	}
-	if head.Kind == KindJob {
-		return nil, &FieldError{Field: "kind", Msg: "jobs are planned for v0.2", Err: ErrUnsupported}
 	}
 
 	dec := yaml.NewDecoder(bytes.NewReader(data))

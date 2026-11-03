@@ -45,7 +45,7 @@ func newDeployCommand(g *globals) *cobra.Command {
 	var w waitFlags
 	cmd := &cobra.Command{
 		Use:   "deploy -f app.yaml",
-		Short: "Deploy an app from a spec file",
+		Short: "Deploy an app or a job from a spec file",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			var r io.Reader
@@ -64,7 +64,8 @@ func newDeployCommand(g *globals) *cobra.Command {
 				return err
 			}
 			// Validate locally for fast feedback; the server validates again.
-			if _, err := spec.Parse(data); err != nil {
+			sp, err := spec.Parse(data)
+			if err != nil {
 				return err
 			}
 			client, conn, err := dialAdmin(g)
@@ -75,6 +76,11 @@ func newDeployCommand(g *globals) *cobra.Command {
 			resp, err := client.Deploy(cmd.Context(), &armadav1.DeployRequest{Spec: data})
 			if err != nil {
 				return rpcErr(err)
+			}
+			if sp.IsJob() {
+				// Jobs have no rollout to wait for.
+				_, err := fmt.Fprintf(cmd.OutOrStdout(), "Deployed job %s (revision %s); start a run with `armada job run %s`\n", resp.App, resp.Revision, resp.App)
+				return err
 			}
 			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Deployed %s (revision %s)\n", resp.App, resp.Revision); err != nil {
 				return err
@@ -243,11 +249,14 @@ func newLogsCommand(g *globals) *cobra.Command {
 		follow  bool
 		tail    int
 		replica string
+		run     int64
 	)
 	cmd := &cobra.Command{
-		Use:   "logs APP",
-		Short: "Print logs from an app's replicas",
-		Args:  cobra.ExactArgs(1),
+		Use:   "logs APP|JOB",
+		Short: "Print logs from an app's replicas or a job's run",
+		Long: "Print logs from an app's replicas, or from the latest attempt of a job's newest run\n" +
+			"(--run N for another run). A finished run's logs are kept for 24 hours.",
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, conn, err := dialAdmin(g)
 			if err != nil {
@@ -255,7 +264,7 @@ func newLogsCommand(g *globals) *cobra.Command {
 			}
 			defer conn.Close()
 			stream, err := client.Logs(cmd.Context(), &armadav1.LogsRequest{
-				App: args[0], Follow: follow, Tail: int32(min(max(tail, 0), 10000)), Replica: replica,
+				App: args[0], Follow: follow, Tail: int32(min(max(tail, 0), 10000)), Replica: replica, Run: run,
 			})
 			if err != nil {
 				return rpcErr(err)
@@ -286,5 +295,6 @@ func newLogsCommand(g *globals) *cobra.Command {
 	f.BoolVarP(&follow, "follow", "f", false, "stream new log lines")
 	f.IntVar(&tail, "tail", 100, "lines per replica to show")
 	f.StringVar(&replica, "replica", "", "only show this replica")
+	f.Int64Var(&run, "run", 0, "for a job: the run to show (default: the newest)")
 	return cmd
 }

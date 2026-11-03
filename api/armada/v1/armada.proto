@@ -42,7 +42,85 @@ service AdminService {
   // Events streams what the cluster did (ADR 0020), oldest first; with
   // follow, then new events until the caller cancels.
   rpc Events(EventsRequest) returns (stream EventInfo);
+  // Jobs (ADR 0021): start a run now, list jobs and their runs, cancel the
+  // running run, delete a job with its runs.
+  rpc RunJob(RunJobRequest) returns (RunJobResponse);
+  rpc ListJobs(ListJobsRequest) returns (ListJobsResponse);
+  rpc ListJobRuns(ListJobRunsRequest) returns (ListJobRunsResponse);
+  rpc CancelJob(CancelJobRequest) returns (CancelJobResponse);
+  rpc DeleteJob(DeleteJobRequest) returns (DeleteJobResponse);
 }
+
+message RunJobRequest {
+  string job = 1;
+}
+
+message RunJobResponse {
+  int64 run = 1;
+}
+
+message ListJobsRequest {}
+
+message ListJobsResponse {
+  repeated JobInfo jobs = 1;
+}
+
+message JobInfo {
+  string name = 1;
+  string revision = 2;
+  string image = 3;
+  string schedule = 4;
+  string time_zone = 5;
+  // Unset for jobs without a schedule.
+  google.protobuf.Timestamp next_run = 6;
+  // The newest run, if any.
+  JobRunInfo last_run = 7;
+  // Runs pending or running.
+  int32 active = 8;
+}
+
+message ListJobRunsRequest {
+  string job = 1;
+}
+
+message ListJobRunsResponse {
+  // Newest first.
+  repeated JobRunInfo runs = 1;
+}
+
+message JobRunInfo {
+  string job = 1;
+  int64 run = 2;
+  // pending, running, succeeded, failed, or cancelled.
+  string state = 3;
+  // schedule or manual.
+  string trigger = 4;
+  string revision = 5;
+  int32 attempts = 6;
+  string node = 7;
+  // The replica of the latest attempt, whose logs `armada logs` shows.
+  string replica = 8;
+  int32 exit_code = 9;
+  string message = 10;
+  google.protobuf.Timestamp created_at = 11;
+  google.protobuf.Timestamp started_at = 12;
+  google.protobuf.Timestamp finished_at = 13;
+}
+
+message CancelJobRequest {
+  string job = 1;
+}
+
+message CancelJobResponse {
+  // The cancelled runs.
+  repeated int64 runs = 1;
+}
+
+message DeleteJobRequest {
+  string job = 1;
+}
+
+message DeleteJobResponse {}
 
 message EventsRequest {
   // Optional filters.
@@ -462,6 +540,9 @@ message LogsRequest {
   int32 tail = 3;
   // Optional; restrict to one replica.
   string replica = 4;
+  // For a job (ADR 0021): the run whose latest attempt to show; 0 means
+  // the newest run.
+  int64 run = 5;
 }
 
 enum Stream {
@@ -524,6 +605,9 @@ message Hello {
   // The smallest memory limit the node's runtime accepts (ADR 0016); the
   // scheduler places no replica with a smaller limit there. 0: none.
   int64 min_memory_bytes = 8;
+  // The agent runs job replicas to completion (ADR 0021); runs are only
+  // placed on nodes whose agent says so.
+  bool jobs = 9;
 }
 
 message ReplicaReport {
@@ -543,6 +627,9 @@ message ReplicaState {
   // Platforms of the replica's image as "os/arch", reported after a pull
   // or when the image has no variant for the node (ADR 0014).
   repeated string image_platforms = 8;
+  // For job replicas (ADR 0021): the container has exited, with exit_code.
+  bool finished = 9;
+  int32 exit_code = 10;
 }
 
 // UsageReport carries what the node's replicas use, sampled periodically
@@ -641,6 +728,19 @@ message ReplicaSpec {
   // gives the container a CPU weight in proportion. Not part of the spec
   // hash: a revision's reservation never changes.
   int64 cpu_reserve_millis = 17;
+  // Set for a replica that runs one attempt of a job run (ADR 0021).
+  JobAttempt job = 18;
+}
+
+// JobAttempt marks a replica the agent runs to completion: it never
+// restarts the container and reports its exit code.
+message JobAttempt {
+  string job = 1;
+  int64 run = 2;
+  // The attempt is over (finished, timed out, or cancelled): the agent
+  // stops the container if it still runs, never starts it again, and keeps
+  // it for its logs. Not part of the spec hash.
+  bool done = 3;
 }
 
 // SecretFile is a secret the agent writes to tmpfs on the node and

@@ -304,6 +304,51 @@ func TestEndToEnd(t *testing.T) {
 		t.Errorf("events ghost: code=%d out=%q", code, out)
 	}
 
+	// Jobs: deploy, run to completion, inspect, read logs, delete.
+	jobFile := filepath.Join(t.TempDir(), "job.yaml")
+	if err := os.WriteFile(jobFile, []byte("kind: job\nname: report\nimage: busybox:1\nschedule: \"0 3 * * *\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code, out, stderr := cli("deploy", "-f", jobFile); code != 0 || !strings.Contains(out, "Deployed job report") {
+		t.Fatalf("deploy job: code=%d out=%q err=%q", code, out, stderr)
+	}
+	if code, out, stderr := cli("job", "run", "report"); code != 0 || !strings.Contains(out, "Started run 1 of report") {
+		t.Fatalf("job run: code=%d out=%q err=%q", code, out, stderr)
+	}
+	waitFor("job container", func() bool {
+		cs, _ := d.List(context.Background(), map[string]string{runtime.LabelApp: "report"})
+		if len(cs) != 1 || cs[0].State != runtime.StateRunning {
+			return false
+		}
+		d.SetState(cs[0].ID, runtime.StateExited, 0)
+		return true
+	})
+	waitFor("run succeeded", func() bool {
+		code, out, _ := cli("job", "runs", "report")
+		return code == 0 && strings.Contains(out, "succeeded") && strings.Contains(out, "manual")
+	})
+	if code, out, stderr := cli("job", "ls"); code != 0 || !strings.Contains(out, "0 3 * * *") || !strings.Contains(out, "succeeded") || !strings.Contains(out, "in ") {
+		t.Errorf("job ls: code=%d out=%q err=%q", code, out, stderr)
+	}
+	if code, out, stderr := cli("logs", "report"); code != 0 || !strings.Contains(out, "listening on :80") {
+		t.Errorf("logs of a job: code=%d out=%q err=%q", code, out, stderr)
+	}
+	if code, _, stderr := cli("logs", "web", "--run", "1"); code != 1 || !strings.Contains(stderr, "for jobs") {
+		t.Errorf("logs --run on an app: code=%d err=%q", code, stderr)
+	}
+	if code, _, stderr := cli("job", "run", "web"); code != 1 || !strings.Contains(stderr, "not a job") {
+		t.Errorf("job run on an app: code=%d err=%q", code, stderr)
+	}
+	if code, out, stderr := cli("job", "cancel", "report"); code != 0 || !strings.Contains(out, "no active runs") {
+		t.Errorf("job cancel: code=%d out=%q err=%q", code, out, stderr)
+	}
+	if code, out, stderr := cli("job", "rm", "report"); code != 0 || !strings.Contains(out, "Deleted job report") {
+		t.Errorf("job rm: code=%d out=%q err=%q", code, out, stderr)
+	}
+	if code, _, stderr := cli("job", "runs", "report"); code != 1 || !strings.Contains(stderr, "not found") {
+		t.Errorf("job runs after rm: code=%d err=%q", code, stderr)
+	}
+
 	// Metrics: credentials that only scrape, written with private modes.
 	credDir := filepath.Join(t.TempDir(), "prom")
 	if code, out, stderr := cli("metrics", "credentials", "prom", "-o", credDir); code != 0 || !strings.Contains(out, "metrics:prom") {
@@ -486,7 +531,7 @@ func TestCommandsWithoutConfig(t *testing.T) {
 	t.Parallel()
 
 	missing := filepath.Join(t.TempDir(), "nope")
-	for _, args := range [][]string{{"status"}, {"scale", "a", "1"}, {"logs", "a"}, {"exec", "a", "--", "sh"}, {"top"}, {"events"}, {"metrics", "credentials", "p", "-o", filepath.Join(t.TempDir(), "m")}} {
+	for _, args := range [][]string{{"status"}, {"scale", "a", "1"}, {"logs", "a"}, {"exec", "a", "--", "sh"}, {"top"}, {"events"}, {"job", "ls"}, {"metrics", "credentials", "p", "-o", filepath.Join(t.TempDir(), "m")}} {
 		code, _, stderr := run(t, append(args, "--config", missing)...)
 		if code == 0 || !strings.Contains(stderr, "armada init") {
 			t.Errorf("%v: code=%d stderr=%q", args, code, stderr)

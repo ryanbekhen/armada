@@ -54,7 +54,10 @@ func (s *Server) Deploy(ctx context.Context, req *armadav1.DeployRequest) (*arma
 		return nil, storeErr(err)
 	}
 	s.log.Info("deployed", "app", app.Name, "revision", rev.Name, "new_revision", created, "by", actor(ctx))
-	if created {
+	switch {
+	case created && app.IsJob():
+		s.record(ctx, store.Event{Kind: eventJob, Object: app.Name, App: app.Name, Reason: "Deployed", Message: "new runs use " + rev.Name + " (image " + app.Image + ")"})
+	case created:
 		s.record(ctx, store.Event{Kind: eventRollout, Object: rev.Name, App: app.Name, Reason: "Started", Message: "rolling out " + rev.Name + " (image " + app.Image + ")"})
 	}
 	s.Trigger()
@@ -149,6 +152,9 @@ func (s *Server) Status(ctx context.Context, req *armadav1.StatusRequest) (*arma
 		if err != nil {
 			return nil, storeErr(err)
 		}
+		if a.Spec.IsJob() {
+			return nil, status.Errorf(codes.FailedPrecondition, "%s is a job; see `armada job runs %s`", a.Name, a.Name)
+		}
 		apps = []store.App{a}
 	} else {
 		var err error
@@ -173,6 +179,9 @@ func (s *Server) Status(ctx context.Context, req *armadav1.StatusRequest) (*arma
 
 	resp := &armadav1.StatusResponse{}
 	for _, a := range apps {
+		if a.Spec.IsJob() {
+			continue // `armada job list`
+		}
 		var reps []store.Replica
 		for _, r := range all {
 			if r.App == a.Name {
@@ -221,12 +230,23 @@ func (s *Server) Status(ctx context.Context, req *armadav1.StatusRequest) (*arma
 // push them.
 func (s *Server) Logs(req *armadav1.LogsRequest, stream armadav1.AdminService_LogsServer) error {
 	ctx := stream.Context()
-	if _, err := s.store.GetApp(ctx, req.GetApp()); err != nil {
+	app, err := s.store.GetApp(ctx, req.GetApp())
+	if err != nil {
 		return storeErr(err)
 	}
 	reps, err := s.store.ListReplicas(ctx, store.ReplicaFilter{App: req.GetApp()})
 	if err != nil {
 		return storeErr(err)
+	}
+	switch {
+	case req.GetRun() != 0 && !app.Spec.IsJob():
+		return status.Errorf(codes.InvalidArgument, "%s is an app; --run is for jobs", app.Name)
+	case app.Spec.IsJob() && req.GetReplica() == "":
+		replica, err := s.runReplica(ctx, app.Name, req.GetRun())
+		if err != nil {
+			return err
+		}
+		req.Replica = replica
 	}
 	if req.GetReplica() != "" {
 		var only []store.Replica

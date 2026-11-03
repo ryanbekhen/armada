@@ -222,6 +222,7 @@ control plane. See [operations](operations.md#control-plane-one-server-or-three)
 | --- | --- |
 | Logs | `armada logs hello -f` |
 | Shell in a replica | `armada exec hello -it -- sh` (a single command: `armada exec hello -- env`) |
+| Run a job | deploy a `kind: job` spec, then `armada job run NAME` (or set `schedule`); `armada job runs NAME`, `armada logs NAME` (see [spec reference](spec-reference.md#jobs)) |
 | What happened | `armada events` (one app: `armada events hello`; keep following: `-f`) |
 | CPU and memory use | `armada top` (one app's replicas: `armada top hello`; nodes: `armada top --nodes`) |
 | Prometheus metrics | add `--metrics-listen PRIVATE_IP:9443` to `ARMADA_SERVER_FLAGS`, then `armada metrics credentials prometheus` for the scraper (see [operations](operations.md#metrics)) |

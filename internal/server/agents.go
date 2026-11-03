@@ -107,7 +107,7 @@ func (s *Server) Connect(stream armadav1.AgentService_ConnectServer) error {
 			s.usage.forget(node.ID)
 			_ = s.store.SetNodeStatus(context.WithoutCancel(ctx), node.ID, store.NodeStatus{
 				State: store.NodeUnknown, LastSeen: time.Now(), CPUMillis: hello.GetCpuMillis(), MemoryBytes: hello.GetMemoryBytes(),
-				MinMemoryBytes: hello.GetMinMemoryBytes(),
+				MinMemoryBytes: hello.GetMinMemoryBytes(), Jobs: hello.GetJobs(),
 			})
 			s.log.Info("agent disconnected", "node", node.ID)
 			s.record(ctx, store.Event{Kind: eventNode, Object: node.ID, Node: node.ID, Reason: "Disconnected"})
@@ -121,6 +121,7 @@ func (s *Server) Connect(stream armadav1.AgentService_ConnectServer) error {
 	// Reports rewrite the node status from node: keep what hello reported,
 	// not the record as it was before this session.
 	node.CPUMillis, node.MemoryBytes, node.MinMemoryBytes = hello.GetCpuMillis(), hello.GetMemoryBytes(), hello.GetMinMemoryBytes()
+	node.Jobs = hello.GetJobs()
 	if !validVersion(hello.GetVersion()) {
 		hello.Version = ""
 	}
@@ -137,7 +138,7 @@ func (s *Server) Connect(stream armadav1.AgentService_ConnectServer) error {
 	if err := s.store.SetNodeStatus(ctx, node.ID, store.NodeStatus{
 		State: store.NodeReady, LastSeen: time.Now(), CPUMillis: hello.GetCpuMillis(), MemoryBytes: hello.GetMemoryBytes(),
 		Version: hello.GetVersion(), OS: hello.GetOs(), Arch: hello.GetArch(), Runtime: hello.GetRuntime(),
-		MinMemoryBytes: hello.GetMinMemoryBytes(),
+		MinMemoryBytes: hello.GetMinMemoryBytes(), Jobs: hello.GetJobs(),
 	}); err != nil {
 		return status.Error(codes.Internal, "update node")
 	}
@@ -209,7 +210,7 @@ var digestRe = regexp.MustCompile(`@sha256:[a-f0-9]{64}$`)
 // untrusted: replicas must belong to the node, addresses must be on the
 // node's private IP, and digests must match the revision's repository.
 func (s *Server) applyReport(ctx context.Context, node store.Node, r *armadav1.ReplicaReport) {
-	if err := s.store.SetNodeStatus(ctx, node.ID, store.NodeStatus{State: store.NodeReady, LastSeen: time.Now(), CPUMillis: node.CPUMillis, MemoryBytes: node.MemoryBytes, MinMemoryBytes: node.MinMemoryBytes}); err != nil {
+	if err := s.store.SetNodeStatus(ctx, node.ID, store.NodeStatus{State: store.NodeReady, LastSeen: time.Now(), CPUMillis: node.CPUMillis, MemoryBytes: node.MemoryBytes, MinMemoryBytes: node.MinMemoryBytes, Jobs: node.Jobs}); err != nil {
 		s.log.Warn("update node status", "err", err)
 	}
 	owned, err := s.store.ListReplicas(ctx, store.ReplicaFilter{NodeID: node.ID})
@@ -242,14 +243,18 @@ func (s *Server) applyReport(ctx context.Context, node store.Node, r *armadav1.R
 			Address:     addr,
 			Message:     truncate(st.GetMessage(), 512),
 			Ready:       st.GetReady(),
+			Finished:    st.GetFinished(),
+			ExitCode:    int(st.GetExitCode()),
 		}
-		if p := prev[next.ID]; p.State != next.State || p.Ready != (next.Ready && next.State == store.ReplicaRunning) || p.Address != next.Address {
+		if p := prev[next.ID]; p.State != next.State || p.Ready != (next.Ready && next.State == store.ReplicaRunning) || p.Address != next.Address || p.Finished != next.Finished {
 			changed = true
 		}
 		err := s.store.UpdateReplicaStatus(ctx, node.ID, next)
 		switch {
-		case err == nil:
+		case err == nil && prev[next.ID].Run == 0:
+			// Job attempts are recorded by the job reconciler.
 			s.replicaEvent(ctx, prev[next.ID], next)
+		case err == nil:
 		case !errors.Is(err, store.ErrNotFound):
 			s.log.Warn("update replica status", "err", err)
 		}
