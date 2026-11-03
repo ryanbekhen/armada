@@ -101,7 +101,9 @@ Egress to everywhere else is masqueraded as today.
 
 ### Keys
 
-Keys exist only in the `wireguard` mode.
+Agents generate and announce a key in both modes, so that sites added
+later (see "More than one site") need no migration. The WireGuard interface
+exists only where a pair of nodes uses it.
 
 - Each agent generates its WireGuard key pair the first time the network
   comes up. The private key is stored as `<data dir>/network.key` (`0600`
@@ -221,6 +223,30 @@ Keys exist only in the `wireguard` mode.
   Default deny cannot filter traffic to them, so an app with
   `ingress.allow` is not placed on such nodes.
 
+### More than one site
+
+This ADR covers nodes that share one private network: one site. Nodes in
+another provider, or behind NAT with no public address (a machine at home,
+say), are left to a later ADR. This ADR prepares for them so that adding
+them needs no new schema or migration:
+
+- **Site.** Each node record has a site. Every node is in the cluster's one
+  site until the later ADR adds a way to set it.
+- **Endpoints.** Each node record has a list of endpoints, the addresses
+  peers use to reach it. Today the list is only the private IP. A later
+  node may announce a public endpoint, or none when it is behind NAT and
+  starts every connection itself.
+- **Transport per pair.** The agent chooses the transport for each peer
+  rather than once for the node. Today every pair is in the same site and
+  uses the cluster's mode. Pairs in different sites will always use
+  WireGuard, whatever the mode.
+- **Keys in both modes.** Every node already has a WireGuard key (see
+  Keys).
+
+The later ADR settles how such nodes join and reach the control plane
+without exposing the main API, how traffic is relayed between nodes that
+cannot reach each other, and how routing prefers the same site.
+
 ### Migration of running clusters
 
 - A binary that knows this ADR bumps the state schema to 6: node subnets,
@@ -295,6 +321,8 @@ Doctor checks that:
   4789 for `plain`. Provider firewalls must allow it, and the docs and
   doctor say so.
 - The cluster CIDR and the service CIDR cannot be changed after `init`.
+- Nodes in other providers or behind NAT need the later ADR. The records and
+  the agent already allow for them.
 - The implementation lands in stages:
   1. the network, routing, MTU, and doctor;
   2. replicas without published ports;
