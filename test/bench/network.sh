@@ -33,7 +33,7 @@ BENCH_DURATION=${BENCH_DURATION:-30}  # seconds per HTTP run
 BENCH_IPERF_SECONDS=${BENCH_IPERF_SECONDS:-20}
 BENCH_UPLOAD_MB=${BENCH_UPLOAD_MB:-1024}
 BENCH_CONCURRENCY=${BENCH_CONCURRENCY:-32}
-BENCH_BRIDGE_GW=${BENCH_BRIDGE_GW:-10.121.0.1} # armada0 address on A
+BENCH_BRIDGE_GW=${BENCH_BRIDGE_GW:-} # armada0 address on A; read from A if empty
 BENCH_OUT=${BENCH_OUT:-bench-$(date +%Y%m%d-%H%M%S)}
 BENCH_SSH_OPTS=${BENCH_SSH_OPTS:-}
 BENCH_SUDO=${BENCH_SUDO:-} # "sudo" when SSH-TARGET is not root
@@ -78,6 +78,7 @@ mkdir -p "$BENCH_OUT"
 RESULTS=$BENCH_OUT/results.md
 MODE=
 LABEL=
+GW=
 IP_A=
 IP_B=
 
@@ -304,6 +305,11 @@ cluster_up() {
 	on 2 "systemctl enable --now -q armada-runtime && $_cmd --node-name $B --private-ip $IP_B --token-file /run/armada/bench.token >/dev/null;
 		rc=\$?; rm -f /run/armada/bench.token; [ \$rc -eq 0 ] && systemctl enable --now -q armada-agent"
 	wait_for 180 "$A and $B ready" nodes_ready
+	# Each node has its own container subnet (ADR 0027), so the internal
+	# frontend's address is read from A's bridge.
+	GW=$BENCH_BRIDGE_GW
+	[ -n "$GW" ] || GW=$(on 1 "ip -4 -o addr show dev armada0 | awk '{ sub(/\\/.*/, \"\", \$4); print \$4; exit }'")
+	[ -n "$GW" ] || fail "no address on armada0 on $A"
 	cli node label "$A" bench=a >/dev/null
 	cli node label "$B" bench=b >/dev/null
 }
@@ -392,7 +398,7 @@ iperf() { # iperf STREAMS [-R]: Gbit/s received
 iperf_ready() { on 1 "armada exec ipcli -- iperf3 -c $IP_B -p $IPERF_PORT -t 1" ; }
 
 hey() { # hey CONCURRENCY NAME
-	on 1 "armada-bench-hey -z ${BENCH_DURATION}s -c $1 -host web.internal http://$BENCH_BRIDGE_GW/" >"$BENCH_OUT/$MODE-$2-c$1.txt"
+	on 1 "armada-bench-hey -z ${BENCH_DURATION}s -c $1 -host web.internal http://$GW/" >"$BENCH_OUT/$MODE-$2-c$1.txt"
 	_f=$BENCH_OUT/$MODE-$2-c$1.txt
 	HEY_RPS=$(awk '/Requests\/sec:/ { printf "%.0f", $2 }' "$_f")
 	HEY_P50=$(awk '/ 50%+ in / { printf "%.1f", $3 * 1000 }' "$_f")
@@ -402,15 +408,15 @@ hey() { # hey CONCURRENCY NAME
 	HEY_BAD=$((_total - ${_good:-0}))
 	[ "$_total" -gt 0 ] || fail "hey sent no requests (see $_f)"
 }
-web_ok() { on 1 "curl -fsS -m 5 -H 'Host: web.internal' http://$BENCH_BRIDGE_GW/"; }
-sink_ok() { on 1 "curl -fsS -m 5 -X POST --data x -H 'Host: sink.internal' http://$BENCH_BRIDGE_GW/cgi-bin/up"; }
+web_ok() { on 1 "curl -fsS -m 5 -H 'Host: web.internal' http://$GW/"; }
+sink_ok() { on 1 "curl -fsS -m 5 -X POST --data x -H 'Host: sink.internal' http://$GW/cgi-bin/up"; }
 
 # The upload is a file, so it has a length (the sink cannot read chunked
 # bodies); a transfer that stalls until the timeout points at the MTU.
 upload_file() { on 1 "dd if=/dev/zero of=/var/tmp/armada-bench.upload bs=1M count=$BENCH_UPLOAD_MB 2>/dev/null"; }
 upload() {
 	on 1 "curl -sS -o /dev/null -m 900 -X POST -H 'Content-Type: application/octet-stream' -H 'Host: sink.internal' \\
-		-T /var/tmp/armada-bench.upload -w '%{http_code} %{time_total} %{speed_upload}' http://$BENCH_BRIDGE_GW/cgi-bin/up" >"$WORK/upload" 2>&1 || true
+		-T /var/tmp/armada-bench.upload -w '%{http_code} %{time_total} %{speed_upload}' http://$GW/cgi-bin/up" >"$WORK/upload" 2>&1 || true
 	UPLOAD=$(awk '$1 == 200 { printf "%.0f MB/s, %.1f s", $3 / 1e6, $2; next } { printf "failed: %s", $0 }' "$WORK/upload")
 }
 

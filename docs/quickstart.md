@@ -66,8 +66,7 @@ sudo armada doctor
 ```
 
 `doctor` checks the container runtime (cgroup v2, overlayfs, `iptables`,
-whether SELinux can confine containers on SELinux hosts, and that the container subnet `10.121.0.0/24` is free; pick another with
-`--container-subnet` on `init`/`join` if your network uses it), the
+whether SELinux can confine containers on SELinux hosts), the
 private IP, ports listening publicly, file
 permissions, the secrets tmpfs, the clock, and the firewall. Fix every
 `FAIL`; read every `warn`. Secret files live under `/run/armada`, which
@@ -84,8 +83,10 @@ sudo armada init
 ```
 
 This creates the cluster CA, the certificates, the state (embedded etcd), the
-secrets master key, and an admin config in `~/.armada/config`. Note the
-**CA SHA-256** it prints. Once the server runs, set up backups with
+secrets master key, and an admin config in `~/.armada/config`. Each node
+gets its own container subnet, a /24 of `10.120.0.0/16`; if your network
+uses that range, pick another private one with `--cluster-cidr` (it cannot
+change later). Note the **CA SHA-256** it prints. Once the server runs, set up backups with
 `armada backup` (see [operations](operations.md)): the data directory is the
 cluster, and without `master.key` secrets cannot be recovered.
 

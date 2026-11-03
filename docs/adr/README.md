@@ -30,4 +30,4 @@ Every architectural decision that is hard to reverse is recorded here. Copy `000
 | [0024](0024-traffic-splitting.md) | Traffic splitting | Accepted |
 | [0025](0025-persistent-volumes.md) | Persistent volumes | Accepted |
 | [0026](0026-local-first-routing.md) | Local-first routing | Accepted |
-| [0027](0027-cluster-network.md) | Cluster network | Proposed |
+| [0027](0027-cluster-network.md) | Cluster network | Accepted |

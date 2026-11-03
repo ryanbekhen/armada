@@ -79,6 +79,10 @@ type Node struct {
 	Jobs bool
 	// Volumes is true when the node mounts volumes (ADR 0025).
 	Volumes bool
+	// Subnet is the node's container subnet in the cluster network
+	// (ADR 0027), given when the node is created; empty in clusters
+	// without one.
+	Subnet string
 }
 
 // AllLabels returns the admin labels plus armada.os and armada.arch.
@@ -314,6 +318,13 @@ type Store interface {
 
 	GetMeta(ctx context.Context, key string) (string, error)
 	SetMeta(ctx context.Context, key, value string) error
+
+	// GetNetwork returns the cluster network (ADR 0027), or ErrNotFound
+	// when the cluster has none.
+	GetNetwork(ctx context.Context) (Network, error)
+	// InitNetwork records the cluster network before the first node is
+	// created; nodes created afterwards get a subnet from it.
+	InitNetwork(ctx context.Context, n Network) error
 
 	UpsertNode(ctx context.Context, n Node) error
 	GetNode(ctx context.Context, id string) (Node, error)

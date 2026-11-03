@@ -294,6 +294,9 @@ message JoinServerResponse {
   string initial_cluster = 7;
   // API addresses of every control plane node, the new one included.
   repeated string servers = 8;
+  // The node's container subnet in the cluster network (ADR 0027); empty
+  // when the cluster has none.
+  string node_subnet = 9;
 }
 
 message JoinRequest {
@@ -312,6 +315,9 @@ message JoinResponse {
   reserved 3;
   // API addresses of every control plane node.
   repeated string servers = 4;
+  // The node's container subnet in the cluster network (ADR 0027); empty
+  // when the cluster has none.
+  string node_subnet = 5;
 }
 
 // Secret values are write-only: no RPC returns them to admins. Fields that

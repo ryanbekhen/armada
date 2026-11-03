@@ -303,6 +303,24 @@ Nodes may be far apart: agents cope with latency. Keep the **control plane
 servers** close to each other (the same city or region), since every change
 needs a round trip between them.
 
+## Container network
+
+Every node's containers live on the node's own bridge subnet, a /24 of
+the cluster CIDR (`armada init --cluster-cidr`, default `10.120.0.0/16`,
+[ADR 0027](adr/0027-cluster-network.md)). The leader gives a node its
+subnet when it joins, and `armada join` prints it. A node removed from the
+cluster frees its subnet for the next one. The cluster CIDR is set once,
+holds from 16 (a /20) to 4096 (a /12) nodes, must be a private range, and
+must not contain the nodes' private IPs or overlap routes on them
+(`armada doctor` checks the node's subnet).
+
+Container addresses are unique in the cluster, and the bridge's gateway
+(where `<app>.internal` and the node's DNS answer) differs per node.
+Replicas are still reached through the port they publish on their node's
+private IP. Clusters created by an Armada without the cluster network keep
+one bridge subnet on every node (`--container-subnet`, default
+`10.121.0.0/24`).
+
 ## How requests reach replicas
 
 Every node's HAProxy serves the app's public domains and `<app>.internal`,
@@ -680,8 +698,8 @@ as much as Armada. The agent connects only to a socket that its own user
 process running as that user. It checks every container spec before
 sending it, and the driver library checks it again on arrival.
 
-- `--container-subnet` belongs to the embedded runtime; the driver chooses
-  its container network.
+- The node's container subnet (ADR 0027) belongs to the embedded runtime;
+  the driver chooses its container network.
 - A driver that cannot run system containers cannot run HAProxy: give the
   node `--proxy none`. It runs replicas, and the other nodes route traffic
   to them. `armada doctor` warns about such a driver.

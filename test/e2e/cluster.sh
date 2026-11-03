@@ -30,7 +30,7 @@ E2E_ACME_CA=${E2E_ACME_CA:-letsencrypt-staging}
 E2E_SSH_OPTS=${E2E_SSH_OPTS:-}
 E2E_SUDO=${E2E_SUDO:-}                  # "sudo" when SSH-TARGET is not root
 E2E_REBOOT=${E2E_REBOOT:-1}             # 0 skips rebooting every machine at once
-E2E_BRIDGE_GW=${E2E_BRIDGE_GW:-10.121.0.1} # armada0 address (--container-subnet)
+E2E_BRIDGE_GW=${E2E_BRIDGE_GW:-} # armada0 address; read from each node if empty
 E2E_SERVER_FLAGS=${E2E_SERVER_FLAGS:-}
 # A driver conformance test binary for the last machine's architecture
 # (go test -c -tags integration ./internal/runtime/containerd/); empty skips.
@@ -321,7 +321,10 @@ fi
 log "only HAProxy faces the public network"
 i=1
 while [ "$i" -le "$N" ]; do
-	_bad=$(on "$i" 'ss -H -ltn' | awk -v priv="$(host "$i" 3)" -v gw="$E2E_BRIDGE_GW" '{
+	# Each node has its own container subnet (ADR 0027).
+	_gw=$E2E_BRIDGE_GW
+	[ -n "$_gw" ] || _gw=$(on "$i" "ip -4 -o addr show dev armada0 | awk '{ sub(/\\/.*/, \"\", \$4); print \$4; exit }'")
+	_bad=$(on "$i" 'ss -H -ltn' | awk -v priv="$(host "$i" 3)" -v gw="$_gw" '{
 		addr = $4; port = addr; sub(/.*:/, "", port); sub(/:[^:]*$/, "", addr); sub(/%.*/, "", addr)
 		gsub(/[][]/, "", addr)
 		if (addr ~ /^127\./ || addr == "::1" || addr == priv || addr == gw) next

@@ -47,6 +47,7 @@ func newInitCommand(g *globals) *cobra.Command {
 		nodeName  string
 		adminName string
 		port      int
+		cidr      string
 	)
 	cmd := &cobra.Command{
 		Use:   "init",
@@ -64,6 +65,13 @@ func newInitCommand(g *globals) *cobra.Command {
 			}
 			var ac agentConfig
 			if err := rtFlags.apply(&ac, ip); err != nil {
+				return err
+			}
+			if rtFlags.flags.Changed("container-subnet") {
+				return errors.New("--container-subnet does not apply to init: every node gets a subnet of --cluster-cidr")
+			}
+			network, err := clusterNetwork(cidr, ip)
+			if err != nil {
 				return err
 			}
 			if port < 1 || port > 65535 {
@@ -141,12 +149,6 @@ func newInitCommand(g *globals) *cobra.Command {
 				}
 			}
 
-			ac.NodeID = nodeName
-			ac.PrivateIP = ip.String()
-			ac.Servers = []string{listen}
-			if err := saveAgentConfig(dataDir, ac); err != nil {
-				return err
-			}
 			if err := secrets.GenerateKeyFile(filepath.Join(dataDir, fileMasterKey)); err != nil {
 				return fmt.Errorf("master key: %w", err)
 			}
@@ -170,7 +172,23 @@ func newInitCommand(g *globals) *cobra.Command {
 			if err := st.SetMeta(ctx, metaMasterKey, keys.ID()); err != nil {
 				return err
 			}
+			if err := st.InitNetwork(ctx, network); err != nil {
+				return err
+			}
 			if err := st.UpsertNode(ctx, store.Node{ID: nodeName, PrivateIP: ip.String()}); err != nil {
+				return err
+			}
+			node, err := st.GetNode(ctx, nodeName)
+			if err != nil {
+				return err
+			}
+			if _, err := rtFlags.useNodeSubnet(&ac, node.Subnet, ip); err != nil {
+				return err
+			}
+			ac.NodeID = nodeName
+			ac.PrivateIP = ip.String()
+			ac.Servers = []string{listen}
+			if err := saveAgentConfig(dataDir, ac); err != nil {
 				return err
 			}
 			if err := st.RecordNodeCert(ctx, nodeName, store.NodeCert{Serial: nodeCert.Serial, NotAfter: nodeCert.NotAfter}, ""); err != nil {
@@ -186,6 +204,7 @@ func newInitCommand(g *globals) *cobra.Command {
 			_, _ = fmt.Fprintf(out, "Cluster initialized.\n\n")
 			_, _ = fmt.Fprintf(out, "  node:        %s (%s)\n", nodeName, ip)
 			_, _ = fmt.Fprintf(out, "  api:         %s (private, mTLS)\n", listen)
+			_, _ = fmt.Fprintf(out, "  network:     %s, cluster CIDR %s (this node %s)\n", network.Mode, network.ClusterCIDR, node.Subnet)
 			_, _ = fmt.Fprintf(out, "  data dir:    %s\n", dataDir)
 			_, _ = fmt.Fprintf(out, "  admin:       %s, credentials in %s\n", adminName, g.configPath)
 			_, _ = fmt.Fprintf(out, "  CA SHA-256:  %s\n\n", pki.Fingerprint(ca.Cert))
@@ -204,7 +223,28 @@ func newInitCommand(g *globals) *cobra.Command {
 	f.StringVar(&nodeName, "node-name", "", "node name (default: hostname)")
 	f.StringVar(&adminName, "admin-name", "", "admin identity name (default: current user)")
 	f.IntVar(&port, "port", defaultPort, "control plane port on the private IP")
+	f.StringVar(&cidr, "cluster-cidr", defaultClusterCIDR, "private IPv4 range for containers; each node gets a /24 of it (set once, /12 to /20)")
 	return cmd
+}
+
+// defaultClusterCIDR stays clear of the bridge subnet of clusters created
+// before the cluster network (ADR 0027).
+const defaultClusterCIDR = "10.120.0.0/16"
+
+// clusterNetwork validates --cluster-cidr for a cluster whose first node
+// has privateIP.
+func clusterNetwork(cidr string, privateIP netip.Addr) (store.Network, error) {
+	p, err := netip.ParsePrefix(cidr)
+	if err != nil {
+		return store.Network{}, fmt.Errorf("invalid --cluster-cidr: %w", err)
+	}
+	if err := store.CheckClusterCIDR(p); err != nil {
+		return store.Network{}, fmt.Errorf("invalid --cluster-cidr: %w", err)
+	}
+	if p.Contains(privateIP) {
+		return store.Network{}, fmt.Errorf("--cluster-cidr %s contains the private IP %s; pick a range the network does not use", p, privateIP)
+	}
+	return store.Network{Mode: store.NetworkPlain, ClusterCIDR: p}, nil
 }
 
 func resolvePrivateIP(flag string) (netip.Addr, error) {

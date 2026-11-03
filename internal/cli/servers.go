@@ -135,6 +135,10 @@ func newServerJoinCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			note, err := rtFlags.useNodeSubnet(&ac, resp.NodeSubnet, ip)
+			if err != nil {
+				return fmt.Errorf("%w; run `armada server remove %s` on the cluster before trying again", err, name)
+			}
 
 			// agent.json last: its presence marks a completed join.
 			files := []struct {
@@ -170,7 +174,11 @@ func newServerJoinCommand() *cobra.Command {
 			}
 
 			out := cmd.OutOrStdout()
-			_, _ = fmt.Fprintf(out, "Joined as control plane node %s (%s).\n\n", name, ip)
+			_, _ = fmt.Fprintf(out, "Joined as control plane node %s (%s).\n", name, ip)
+			if resp.NodeSubnet != "" {
+				_, _ = fmt.Fprintf(out, "Container subnet: %s.\n", resp.NodeSubnet)
+			}
+			_, _ = fmt.Fprint(out, note+"\n")
 			_, _ = fmt.Fprint(out, nextStep("server", dataDir)+"\n")
 			_, _ = fmt.Fprintf(out, "Start it now: until it runs, the cluster counts it as a missing member.\n")
 			_, _ = fmt.Fprintf(out, "Keep %s private: it holds the cluster CA key and the secrets master key.\n", dataDir)

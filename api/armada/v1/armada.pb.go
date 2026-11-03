@@ -2009,7 +2009,10 @@ type JoinServerResponse struct {
 	// etcd's initial cluster for the new member ("name=peerURL,...").
 	InitialCluster string `protobuf:"bytes,7,opt,name=initial_cluster,json=initialCluster,proto3" json:"initial_cluster,omitempty"`
 	// API addresses of every control plane node, the new one included.
-	Servers       []string `protobuf:"bytes,8,rep,name=servers,proto3" json:"servers,omitempty"`
+	Servers []string `protobuf:"bytes,8,rep,name=servers,proto3" json:"servers,omitempty"`
+	// The node's container subnet in the cluster network (ADR 0027); empty
+	// when the cluster has none.
+	NodeSubnet    string `protobuf:"bytes,9,opt,name=node_subnet,json=nodeSubnet,proto3" json:"node_subnet,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2098,6 +2101,13 @@ func (x *JoinServerResponse) GetServers() []string {
 		return x.Servers
 	}
 	return nil
+}
+
+func (x *JoinServerResponse) GetNodeSubnet() string {
+	if x != nil {
+		return x.NodeSubnet
+	}
+	return ""
 }
 
 type JoinRequest struct {
@@ -2190,7 +2200,10 @@ type JoinResponse struct {
 	NodeCert []byte                 `protobuf:"bytes,1,opt,name=node_cert,json=nodeCert,proto3" json:"node_cert,omitempty"`
 	CaCert   []byte                 `protobuf:"bytes,2,opt,name=ca_cert,json=caCert,proto3" json:"ca_cert,omitempty"`
 	// API addresses of every control plane node.
-	Servers       []string `protobuf:"bytes,4,rep,name=servers,proto3" json:"servers,omitempty"`
+	Servers []string `protobuf:"bytes,4,rep,name=servers,proto3" json:"servers,omitempty"`
+	// The node's container subnet in the cluster network (ADR 0027); empty
+	// when the cluster has none.
+	NodeSubnet    string `protobuf:"bytes,5,opt,name=node_subnet,json=nodeSubnet,proto3" json:"node_subnet,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2244,6 +2257,13 @@ func (x *JoinResponse) GetServers() []string {
 		return x.Servers
 	}
 	return nil
+}
+
+func (x *JoinResponse) GetNodeSubnet() string {
+	if x != nil {
+		return x.NodeSubnet
+	}
+	return ""
 }
 
 // Secret values are write-only: no RPC returns them to admins. Fields that
@@ -8353,7 +8373,7 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\aversion\x18\x06 \x01(\tR\aversion\x12\x19\n" +
 	"\bapi_port\x18\a \x01(\x05R\aapiPort\x12\x1b\n" +
 	"\tjoin_port\x18\b \x01(\x05R\bjoinPort\x12$\n" +
-	"\x0eetcd_peer_port\x18\t \x01(\x05R\fetcdPeerPort\"\x92\x02\n" +
+	"\x0eetcd_peer_port\x18\t \x01(\x05R\fetcdPeerPort\"\xb3\x02\n" +
 	"\x12JoinServerResponse\x12\x17\n" +
 	"\aca_cert\x18\x01 \x01(\fR\x06caCert\x12\x1a\n" +
 	"\x06ca_key\x18\x02 \x01(\fB\x03\x80\x01\x01R\x05caKey\x12\"\n" +
@@ -8365,7 +8385,9 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"server_key\x18\x05 \x01(\fB\x03\x80\x01\x01R\tserverKey\x12\x1b\n" +
 	"\tnode_cert\x18\x06 \x01(\fR\bnodeCert\x12'\n" +
 	"\x0finitial_cluster\x18\a \x01(\tR\x0einitialCluster\x12\x18\n" +
-	"\aservers\x18\b \x03(\tR\aservers\"\xb8\x01\n" +
+	"\aservers\x18\b \x03(\tR\aservers\x12\x1f\n" +
+	"\vnode_subnet\x18\t \x01(\tR\n" +
+	"nodeSubnet\"\xb8\x01\n" +
 	"\vJoinRequest\x12\x19\n" +
 	"\btoken_id\x18\x01 \x01(\tR\atokenId\x12&\n" +
 	"\ftoken_secret\x18\x02 \x01(\tB\x03\x80\x01\x01R\vtokenSecret\x12\x1b\n" +
@@ -8373,11 +8395,13 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\n" +
 	"private_ip\x18\x04 \x01(\tR\tprivateIp\x12\x10\n" +
 	"\x03csr\x18\x05 \x01(\fR\x03csr\x12\x18\n" +
-	"\aversion\x18\x06 \x01(\tR\aversion\"d\n" +
+	"\aversion\x18\x06 \x01(\tR\aversion\"\x85\x01\n" +
 	"\fJoinResponse\x12\x1b\n" +
 	"\tnode_cert\x18\x01 \x01(\fR\bnodeCert\x12\x17\n" +
 	"\aca_cert\x18\x02 \x01(\fR\x06caCert\x12\x18\n" +
-	"\aservers\x18\x04 \x03(\tR\aserversJ\x04\b\x03\x10\x04\"m\n" +
+	"\aservers\x18\x04 \x03(\tR\aservers\x12\x1f\n" +
+	"\vnode_subnet\x18\x05 \x01(\tR\n" +
+	"nodeSubnetJ\x04\b\x03\x10\x04\"m\n" +
 	"\x10SetSecretRequest\x12\x10\n" +
 	"\x03app\x18\x01 \x01(\tR\x03app\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x19\n" +

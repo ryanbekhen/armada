@@ -60,7 +60,7 @@ BENCH_MODES=wireguard BENCH_WG_UNDERLAY=public BENCH_WIPE=yes sh test/bench/netw
 | `BENCH_CONCURRENCY` | `32` | Concurrent requests of the loaded HTTP run |
 | `BENCH_IPERF_SECONDS` | `20` | Seconds per iperf3 run |
 | `BENCH_UPLOAD_MB` | `1024` | Size of the upload |
-| `BENCH_BRIDGE_GW` | `10.121.0.1` | Container bridge address on A |
+| `BENCH_BRIDGE_GW` | read from A | Container bridge address on A (each node has its own container subnet) |
 | `BENCH_OUT` | `bench-DATE` | Directory for the results and raw output |
 | `BENCH_SSH_OPTS` | empty | Extra `ssh`/`scp` options |
 | `BENCH_SUDO` | empty | `sudo` when the SSH user is not root |

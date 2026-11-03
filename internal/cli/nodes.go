@@ -178,6 +178,10 @@ func newJoinCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			note, err := rtFlags.useNodeSubnet(&ac, resp.NodeSubnet, ip)
+			if err != nil {
+				return err
+			}
 			// agent.json last: its presence marks a completed join.
 			for _, f := range []struct {
 				name string
@@ -201,6 +205,10 @@ func newJoinCommand() *cobra.Command {
 			}
 			out := cmd.OutOrStdout()
 			_, _ = fmt.Fprintf(out, "Joined as node %s (%s); control plane %s.\n", nodeName, ip, strings.Join(servers, ", "))
+			if resp.NodeSubnet != "" {
+				_, _ = fmt.Fprintf(out, "Container subnet: %s.\n", resp.NodeSubnet)
+			}
+			_, _ = fmt.Fprint(out, note)
 			// On macOS the agent runs as a LaunchAgent of this user
 			// (ADR 0016).
 			if goos == "darwin" && dataDir == defaultDataDir {

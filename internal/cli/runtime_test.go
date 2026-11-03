@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"net/netip"
 	"os"
 	"strings"
 	"testing"
@@ -83,5 +84,35 @@ func TestNextStep(t *testing.T) {
 	}
 	if got := nextStep("agent", "/srv/armada"); got != "Next: armada agent --data-dir /srv/armada\n" {
 		t.Errorf("custom data dir: %q", got)
+	}
+}
+
+// The agent takes the subnet the control plane gives it (ADR 0027) only
+// when it is a usable /24 that does not hold the node's own address.
+func TestUseNodeSubnet(t *testing.T) {
+	t.Parallel()
+	ip := netip.MustParseAddr("10.0.0.5")
+	for _, c := range []struct {
+		subnet, want string
+		ok           bool
+	}{
+		{"", "10.121.0.0/24", true}, // no cluster network: keep the setting
+		{"10.120.3.0/24", "10.120.3.0/24", true},
+		{"10.120.3.0/25", "", false},
+		{"10.120.3.1/24", "", false}, // not canonical
+		{"10.0.0.0/24", "", false},   // holds the private IP
+		{"8.8.8.0/24", "", false},
+		{"not-a-subnet", "", false},
+	} {
+		ac := agentConfig{Runtime: runtimeEmbedded, ContainerSubnet: "10.121.0.0/24"}
+		_, err := runtimeFlags{}.useNodeSubnet(&ac, c.subnet, ip)
+		if (err == nil) != c.ok || (c.ok && ac.ContainerSubnet != c.want) {
+			t.Errorf("useNodeSubnet(%q) = %q, %v", c.subnet, ac.ContainerSubnet, err)
+		}
+	}
+	// A driver chooses its own network.
+	ac := agentConfig{Runtime: "docker"}
+	if _, err := (runtimeFlags{}).useNodeSubnet(&ac, "10.120.3.0/24", ip); err != nil || ac.ContainerSubnet != "" {
+		t.Errorf("external driver: %q, %v", ac.ContainerSubnet, err)
 	}
 }
