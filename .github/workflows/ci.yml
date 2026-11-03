@@ -121,7 +121,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - run: shellcheck install.sh scripts/*.sh test/e2e/*.sh
+      - run: shellcheck install.sh scripts/*.sh test/e2e/*.sh test/bench/*.sh
       - run: sh test/install_test.sh
 
   release-config:
