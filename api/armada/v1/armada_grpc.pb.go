@@ -40,6 +40,7 @@ const (
 	AdminService_ListServers_FullMethodName      = "/armada.v1.AdminService/ListServers"
 	AdminService_RemoveServer_FullMethodName     = "/armada.v1.AdminService/RemoveServer"
 	AdminService_Exec_FullMethodName             = "/armada.v1.AdminService/Exec"
+	AdminService_Top_FullMethodName              = "/armada.v1.AdminService/Top"
 )
 
 // AdminServiceClient is the client API for AdminService service.
@@ -73,6 +74,9 @@ type AdminServiceClient interface {
 	// client message is start; the server's first message names the replica
 	// and its last the exit code.
 	Exec(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ExecClientMessage, ExecServerMessage], error)
+	// Top reports the CPU and memory replicas use, from the latest samples
+	// their agents sent (ADR 0018).
+	Top(ctx context.Context, in *TopRequest, opts ...grpc.CallOption) (*TopResponse, error)
 }
 
 type adminServiceClient struct {
@@ -305,6 +309,16 @@ func (c *adminServiceClient) Exec(ctx context.Context, opts ...grpc.CallOption) 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type AdminService_ExecClient = grpc.BidiStreamingClient[ExecClientMessage, ExecServerMessage]
 
+func (c *adminServiceClient) Top(ctx context.Context, in *TopRequest, opts ...grpc.CallOption) (*TopResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(TopResponse)
+	err := c.cc.Invoke(ctx, AdminService_Top_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AdminServiceServer is the server API for AdminService service.
 // All implementations must embed UnimplementedAdminServiceServer
 // for forward compatibility.
@@ -336,6 +350,9 @@ type AdminServiceServer interface {
 	// client message is start; the server's first message names the replica
 	// and its last the exit code.
 	Exec(grpc.BidiStreamingServer[ExecClientMessage, ExecServerMessage]) error
+	// Top reports the CPU and memory replicas use, from the latest samples
+	// their agents sent (ADR 0018).
+	Top(context.Context, *TopRequest) (*TopResponse, error)
 	mustEmbedUnimplementedAdminServiceServer()
 }
 
@@ -408,6 +425,9 @@ func (UnimplementedAdminServiceServer) RemoveServer(context.Context, *RemoveServ
 }
 func (UnimplementedAdminServiceServer) Exec(grpc.BidiStreamingServer[ExecClientMessage, ExecServerMessage]) error {
 	return status.Error(codes.Unimplemented, "method Exec not implemented")
+}
+func (UnimplementedAdminServiceServer) Top(context.Context, *TopRequest) (*TopResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method Top not implemented")
 }
 func (UnimplementedAdminServiceServer) mustEmbedUnimplementedAdminServiceServer() {}
 func (UnimplementedAdminServiceServer) testEmbeddedByValue()                      {}
@@ -790,6 +810,24 @@ func _AdminService_Exec_Handler(srv interface{}, stream grpc.ServerStream) error
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type AdminService_ExecServer = grpc.BidiStreamingServer[ExecClientMessage, ExecServerMessage]
 
+func _AdminService_Top_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(TopRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).Top(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminService_Top_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).Top(ctx, req.(*TopRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AdminService_ServiceDesc is the grpc.ServiceDesc for AdminService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -872,6 +910,10 @@ var AdminService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "RemoveServer",
 			Handler:    _AdminService_RemoveServer_Handler,
+		},
+		{
+			MethodName: "Top",
+			Handler:    _AdminService_Top_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

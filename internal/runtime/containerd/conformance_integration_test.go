@@ -128,6 +128,11 @@ func (k kit) ExecApp(ctx context.Context, id string, opts driverkit.ExecOptions)
 	return code, kitErr(err)
 }
 
+func (k kit) Stats(ctx context.Context, id string) (driverkit.Stats, error) {
+	st, err := k.d.Stats(ctx, id)
+	return driverkit.Stats{CPU: st.CPU, MemoryBytes: st.MemoryBytes}, kitErr(err)
+}
+
 type kitLogs struct{ ls runtime.LogStream }
 
 func (l kitLogs) Next() (driverkit.LogFrame, error) {

@@ -33,6 +33,7 @@ const (
 	Driver_Signal_FullMethodName    = "/armada.driver.v1.Driver/Signal"
 	Driver_Bridge_FullMethodName    = "/armada.driver.v1.Driver/Bridge"
 	Driver_ExecApp_FullMethodName   = "/armada.driver.v1.Driver/ExecApp"
+	Driver_Stats_FullMethodName     = "/armada.driver.v1.Driver/Stats"
 )
 
 // DriverClient is the client API for Driver service.
@@ -73,6 +74,9 @@ type DriverClient interface {
 	// Needs CAPABILITY_EXEC. ExecApp runs a command in an app container
 	// (ADR 0017): the first input is start, the last output exit_code.
 	ExecApp(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ExecAppInput, ExecAppOutput], error)
+	// Needs CAPABILITY_STATS. Stats samples what an app container uses
+	// (ADR 0018).
+	Stats(ctx context.Context, in *StatsRequest, opts ...grpc.CallOption) (*StatsResponse, error)
 }
 
 type driverClient struct {
@@ -235,6 +239,16 @@ func (c *driverClient) ExecApp(ctx context.Context, opts ...grpc.CallOption) (gr
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type Driver_ExecAppClient = grpc.BidiStreamingClient[ExecAppInput, ExecAppOutput]
 
+func (c *driverClient) Stats(ctx context.Context, in *StatsRequest, opts ...grpc.CallOption) (*StatsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(StatsResponse)
+	err := c.cc.Invoke(ctx, Driver_Stats_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // DriverServer is the server API for Driver service.
 // All implementations must embed UnimplementedDriverServer
 // for forward compatibility.
@@ -273,6 +287,9 @@ type DriverServer interface {
 	// Needs CAPABILITY_EXEC. ExecApp runs a command in an app container
 	// (ADR 0017): the first input is start, the last output exit_code.
 	ExecApp(grpc.BidiStreamingServer[ExecAppInput, ExecAppOutput]) error
+	// Needs CAPABILITY_STATS. Stats samples what an app container uses
+	// (ADR 0018).
+	Stats(context.Context, *StatsRequest) (*StatsResponse, error)
 	mustEmbedUnimplementedDriverServer()
 }
 
@@ -324,6 +341,9 @@ func (UnimplementedDriverServer) Bridge(context.Context, *BridgeRequest) (*Bridg
 }
 func (UnimplementedDriverServer) ExecApp(grpc.BidiStreamingServer[ExecAppInput, ExecAppOutput]) error {
 	return status.Error(codes.Unimplemented, "method ExecApp not implemented")
+}
+func (UnimplementedDriverServer) Stats(context.Context, *StatsRequest) (*StatsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method Stats not implemented")
 }
 func (UnimplementedDriverServer) mustEmbedUnimplementedDriverServer() {}
 func (UnimplementedDriverServer) testEmbeddedByValue()                {}
@@ -580,6 +600,24 @@ func _Driver_ExecApp_Handler(srv interface{}, stream grpc.ServerStream) error {
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type Driver_ExecAppServer = grpc.BidiStreamingServer[ExecAppInput, ExecAppOutput]
 
+func _Driver_Stats_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(StatsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DriverServer).Stats(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Driver_Stats_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DriverServer).Stats(ctx, req.(*StatsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Driver_ServiceDesc is the grpc.ServiceDesc for Driver service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -634,6 +672,10 @@ var Driver_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Bridge",
 			Handler:    _Driver_Bridge_Handler,
+		},
+		{
+			MethodName: "Stats",
+			Handler:    _Driver_Stats_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

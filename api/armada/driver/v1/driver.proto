@@ -43,6 +43,10 @@ service Driver {
   // Needs CAPABILITY_EXEC. ExecApp runs a command in an app container
   // (ADR 0017): the first input is start, the last output exit_code.
   rpc ExecApp(stream ExecAppInput) returns (stream ExecAppOutput);
+
+  // Needs CAPABILITY_STATS. Stats samples what an app container uses
+  // (ADR 0018).
+  rpc Stats(StatsRequest) returns (StatsResponse);
 }
 
 // The major version of this protocol. The agent refuses drivers that
@@ -63,6 +67,8 @@ enum Capability {
   // ExecApp: commands in app containers, with the container's own
   // security context.
   CAPABILITY_EXEC = 3;
+  // Stats: what app containers use.
+  CAPABILITY_STATS = 4;
 }
 
 message InfoRequest {}
@@ -308,4 +314,17 @@ message ExecAppOutput {
     // exit_code is the last message, once the output has been sent.
     int32 exit_code = 3;
   }
+}
+
+// Stats (ADR 0018).
+
+message StatsRequest {
+  string id = 1;
+}
+
+message StatsResponse {
+  // CPU time the container used since it started, in microseconds.
+  int64 cpu_usec = 1;
+  // Memory in use, without page cache the kernel can reclaim.
+  int64 memory_bytes = 2;
 }

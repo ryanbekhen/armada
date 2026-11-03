@@ -427,6 +427,8 @@ func runAgent(ctx context.Context, dataDir string, servers []string, proxyKind, 
 		Servers:    ac.Servers,
 		OnServers:  onServers,
 		Runtime:    ac.Runtime,
+
+		UsageInterval: usageInterval,
 	}
 	// A driver's engine may run containers for another platform than the
 	// agent's (a virtual machine on macOS, say): report what it says.
@@ -454,6 +456,10 @@ func runAgent(ctx context.Context, dataDir string, servers []string, proxyKind, 
 
 // resolvConf is the host resolver configuration; tests replace it.
 var resolvConf = "/etc/resolv.conf"
+
+// usageInterval is how often the agent samples its replicas for armada top;
+// 0 is the agent's default (tests shorten it).
+var usageInterval time.Duration
 
 // startInternalDNS prepares the node-local resolver on the container bridge
 // gateway. Internal ingress is optional: if anything is missing it logs why

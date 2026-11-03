@@ -55,6 +55,42 @@ type Driver struct {
 	ExecAppFunc func(ctx context.Context, id string, opts runtime.ExecOptions) (int, error)
 	// AppExecs records the commands of ExecApp calls.
 	AppExecs [][]string
+	// Usage is what Stats returns for running containers, keyed by replica
+	// ID; without an entry a running container used nothing.
+	Usage map[string]runtime.Stats
+	// NoStats makes the driver report that it cannot sample containers.
+	NoStats bool
+}
+
+// Stats returns d.Usage for a running container.
+func (d *Driver) Stats(_ context.Context, id string) (runtime.Stats, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	c, ok := d.containers[id]
+	if !ok {
+		return runtime.Stats{}, runtime.ErrNotFound
+	}
+	if c.State != runtime.StateRunning {
+		return runtime.Stats{}, fmt.Errorf("container %s is not running", id)
+	}
+	return d.Usage[c.Labels[runtime.LabelReplica]], nil
+}
+
+// CanStats reports whether Stats is offered (not NoStats).
+func (d *Driver) CanStats() bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return !d.NoStats
+}
+
+// SetUsage sets what Stats returns for a replica's container.
+func (d *Driver) SetUsage(replica string, s runtime.Stats) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.Usage == nil {
+		d.Usage = map[string]runtime.Stats{}
+	}
+	d.Usage[replica] = s
 }
 
 // ExecApp runs a fake command in a running container.

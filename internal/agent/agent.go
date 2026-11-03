@@ -52,6 +52,9 @@ type Config struct {
 	Logger    *slog.Logger
 	// Resync is how often containers are reconciled without a trigger.
 	Resync time.Duration
+	// UsageInterval is how often replicas are sampled for armada top
+	// (default 10s, ADR 0018).
+	UsageInterval time.Duration
 	// Capacity reported to the scheduler; zero values are auto-detected.
 	CPUMillis   int64
 	MemoryBytes int64
@@ -130,6 +133,9 @@ func New(cfg Config) *Agent {
 	if cfg.Resync == 0 {
 		cfg.Resync = defaultResync
 	}
+	if cfg.UsageInterval == 0 {
+		cfg.UsageInterval = defaultUsageInterval
+	}
 	if cfg.Logger == nil {
 		cfg.Logger = slog.New(slog.DiscardHandler)
 	}
@@ -174,6 +180,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		return fmt.Errorf("container runtime: %w", err)
 	}
 	go a.reconcileLoop(ctx)
+	go a.usageLoop(ctx)
 
 	backoff := time.Second
 	for {

@@ -39,6 +39,8 @@ proves it keeps Armada's security defaults.
     `<app>.internal`.
   - **exec** (`ExecApp`, added by ADR 0017), which `armada exec` needs.
     Without it, the node refuses to run commands in its replicas.
+  - **stats** (`Stats`, added by ADR 0018), which `armada top` needs.
+    Without it, the node's replicas show no usage.
 - The agent refuses a driver whose protocol major version differs from its
   own, and a node set up for a capability the driver lacks. New optional
   features are added as new capabilities and fields, never by changing the

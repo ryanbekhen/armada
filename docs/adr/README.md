@@ -21,3 +21,4 @@ Every architectural decision that is hard to reverse is recorded here. Copy `000
 | [0015](0015-external-runtime-drivers.md) | External runtime drivers | Accepted |
 | [0016](0016-macos-nodes.md) | macOS nodes | Accepted |
 | [0017](0017-exec.md) | Running commands in replicas | Accepted |
+| [0018](0018-top.md) | Resource usage of replicas | Accepted |

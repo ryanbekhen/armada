@@ -1,0 +1,91 @@
+package agent
+
+import (
+	"context"
+	"time"
+
+	armadav1 "github.com/ryanbekhen/armada/api/armada/v1"
+	"github.com/ryanbekhen/armada/internal/runtime"
+)
+
+// defaultUsageInterval is how often the agent samples what its replicas
+// use (ADR 0018).
+const defaultUsageInterval = 10 * time.Second
+
+// usageSample is a container's cumulative CPU time when it was sampled.
+type usageSample struct {
+	container string
+	cpu       time.Duration
+	at        time.Time
+}
+
+// usageLoop samples the node's replicas and sends what they use to the
+// server, if the runtime can measure containers.
+func (a *Agent) usageLoop(ctx context.Context) {
+	sr, ok := a.cfg.Driver.(runtime.StatsReader)
+	if !ok || !runtime.CanStats(a.cfg.Driver) {
+		a.log.Info("the container runtime cannot sample containers; armada top shows no usage for this node")
+		return
+	}
+	t := time.NewTicker(a.cfg.UsageInterval)
+	defer t.Stop()
+	prev := map[string]usageSample{}
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+		var report *armadav1.UsageReport
+		if report, prev = a.sampleUsage(ctx, sr, prev); report != nil {
+			a.sendUsage(report)
+		}
+	}
+}
+
+// sampleUsage measures every running replica container. CPU is a rate, so
+// a replica is reported from the second sample of the same container on.
+func (a *Agent) sampleUsage(ctx context.Context, sr runtime.StatsReader, prev map[string]usageSample) (*armadav1.UsageReport, map[string]usageSample) {
+	cs, err := a.cfg.Driver.List(ctx, map[string]string{runtime.LabelManaged: "true"})
+	if err != nil {
+		a.log.Debug("list containers for usage", "err", err)
+		return nil, prev
+	}
+	next := make(map[string]usageSample, len(cs))
+	report := &armadav1.UsageReport{}
+	for _, c := range cs {
+		id := c.Labels[runtime.LabelReplica]
+		if id == "" || c.Labels[runtime.LabelSystem] != "" || c.State != runtime.StateRunning {
+			continue
+		}
+		st, err := sr.Stats(ctx, c.ID)
+		if err != nil {
+			a.log.Debug("sample container", "replica", id, "err", err)
+			continue
+		}
+		now := time.Now()
+		next[id] = usageSample{container: c.ID, cpu: st.CPU, at: now}
+		p, ok := prev[id]
+		elapsed := now.Sub(p.at)
+		if !ok || p.container != c.ID || st.CPU < p.cpu || elapsed <= 0 {
+			continue
+		}
+		report.Replicas = append(report.Replicas, &armadav1.ReplicaUsage{
+			Id:          id,
+			CpuMillis:   int64(float64(st.CPU-p.cpu) / float64(elapsed) * 1000),
+			MemoryBytes: st.MemoryBytes,
+		})
+	}
+	return report, next
+}
+
+func (a *Agent) sendUsage(r *armadav1.UsageReport) {
+	a.streamMu.Lock()
+	defer a.streamMu.Unlock()
+	if a.stream == nil {
+		return
+	}
+	if err := a.stream.Send(&armadav1.AgentMessage{Msg: &armadav1.AgentMessage_Usage{Usage: r}}); err != nil {
+		a.log.Warn("send usage failed", "err", err)
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
@@ -144,14 +145,15 @@ func TestSanitizeName(t *testing.T) {
 func TestEndToEnd(t *testing.T) {
 	d := fake.New()
 	d.LogLines = []runtime.LogFrame{{Stream: runtime.Stdout, Data: []byte("listening on :80\n")}, {Stream: runtime.Stderr, Data: []byte("deprecated flag\n")}}
-	orig, origWait, origCheck, origPoll, origTmpfs := newDriver, proxyStartWait, probeCheck, waitPoll, checkTmpfs
+	orig, origWait, origCheck, origPoll, origTmpfs, origUsage := newDriver, proxyStartWait, probeCheck, waitPoll, checkTmpfs, usageInterval
 	newDriver = func(string, *agentConfig) (runtime.Driver, error) { return d, nil }
 	proxyStartWait = time.Millisecond
 	probeCheck = func(context.Context, string, string) error { return nil }
 	waitPoll = 50 * time.Millisecond
 	checkTmpfs = func(string) error { return nil } // a temp dir stands in for tmpfs
+	usageInterval = 20 * time.Millisecond
 	t.Cleanup(func() {
-		newDriver, proxyStartWait, probeCheck, waitPoll, checkTmpfs = orig, origWait, origCheck, origPoll, origTmpfs
+		newDriver, proxyStartWait, probeCheck, waitPoll, checkTmpfs, usageInterval = orig, origWait, origCheck, origPoll, origTmpfs, origUsage
 	})
 	secretsDir := filepath.Join(t.TempDir(), "secrets")
 
@@ -259,6 +261,31 @@ func TestEndToEnd(t *testing.T) {
 	}
 	if code, _, stderr := run(t, "exec", "ghost", "--config", config, "--", "sh"); code != 1 || !strings.Contains(stderr, "not found") {
 		t.Errorf("exec in a missing app: code=%d err=%q", code, stderr)
+	}
+
+	// Top: usage the fake runtime reports, per app, replica, and node.
+	cs, _ := d.List(context.Background(), map[string]string{runtime.LabelApp: "web"})
+	for _, c := range cs {
+		d.SetUsage(c.Labels[runtime.LabelReplica], runtime.Stats{MemoryBytes: 30 << 20})
+	}
+	waitFor("top measures web", func() bool {
+		code, out, _ := cli("top")
+		return code == 0 && strings.Contains(out, fmt.Sprintf("%d/%d", len(cs), len(cs))) && strings.Contains(out, fmt.Sprintf("%dMi/", 30*len(cs)))
+	})
+	if code, out, stderr := cli("top", "web"); code != 0 || !strings.Contains(out, "REPLICA") || !strings.Contains(out, "0m/100m") || !strings.Contains(out, "30Mi/256Mi") {
+		t.Errorf("top web: code=%d out=%q err=%q", code, out, stderr)
+	}
+	if code, out, stderr := cli("top", "--nodes"); code != 0 || !strings.Contains(out, "NODE") || !strings.Contains(out, fmt.Sprintf("%dMi ", 30*len(cs))) {
+		t.Errorf("top --nodes: code=%d out=%q err=%q", code, out, stderr)
+	}
+	if code, out, _ := cli("top", "-o", "json"); code != 0 || !regexp.MustCompile(`"measured":\s+true`).MatchString(out) {
+		t.Errorf("top -o json: code=%d out=%q", code, out)
+	}
+	if code, _, stderr := cli("top", "web", "--nodes"); code != 1 || !strings.Contains(stderr, "--nodes") {
+		t.Errorf("top web --nodes: code=%d err=%q", code, stderr)
+	}
+	if code, _, stderr := cli("top", "ghost"); code != 1 || !strings.Contains(stderr, "not found") {
+		t.Errorf("top ghost: code=%d err=%q", code, stderr)
 	}
 
 	// Ingress: HAProxy is started by the embedded agent and routes
@@ -406,7 +433,7 @@ func TestCommandsWithoutConfig(t *testing.T) {
 	t.Parallel()
 
 	missing := filepath.Join(t.TempDir(), "nope")
-	for _, args := range [][]string{{"status"}, {"scale", "a", "1"}, {"logs", "a"}, {"exec", "a", "--", "sh"}} {
+	for _, args := range [][]string{{"status"}, {"scale", "a", "1"}, {"logs", "a"}, {"exec", "a", "--", "sh"}, {"top"}} {
 		code, _, stderr := run(t, append(args, "--config", missing)...)
 		if code == 0 || !strings.Contains(stderr, "armada init") {
 			t.Errorf("%v: code=%d stderr=%q", args, code, stderr)
