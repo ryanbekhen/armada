@@ -3,6 +3,7 @@ package containerd
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/netip"
 
 	"github.com/ryanbekhen/armada/internal/netutil"
@@ -22,6 +23,17 @@ func BridgeOf(subnet netip.Prefix) (runtime.Bridge, error) {
 		return runtime.Bridge{}, fmt.Errorf("container subnet %s is not private", subnet)
 	}
 	return runtime.Bridge{Gateway: gw, Subnet: subnet}, nil
+}
+
+// bridgeMAC is the fixed hardware address of the bridge with gateway gw: a
+// locally administered unicast address holding the gateway's IPv4 bytes,
+// so it stays the same across restarts. Without a fixed address the
+// kernel gives the bridge the lowest address of its ports, which changes
+// as containers come and go, and containers keep sending to the old one
+// until their ARP entry for the gateway expires.
+func bridgeMAC(gw netip.Addr) net.HardwareAddr {
+	b := gw.As4()
+	return net.HardwareAddr{0x02, 0x41, b[0], b[1], b[2], b[3]}
 }
 
 // cniConfig renders the plugin chain: a bridge with NAT for egress,
