@@ -569,9 +569,10 @@ func (r *runner) stats(t *testing.T, sr driverkit.StatsReader) {
 
 // volumes checks that a volume is the host directory, writable, kept after
 // the container is gone, and mounted without setuid programs or device
-// files.
+// files: the agent's volume directory is a nosuid,nodev mount, and the
+// driver's mount must keep both flags.
 func (r *runner) volumes(t *testing.T) {
-	dir := t.TempDir()
+	dir, checkFlags := volumeDir(t)
 	if err := os.Chmod(dir, 0o777); err != nil { //nolint:gosec // the image's user may not be root
 		t.Fatal(err)
 	}
@@ -591,7 +592,7 @@ func (r *runner) volumes(t *testing.T) {
 	if err != nil || strings.TrimSpace(string(b)) != "written" {
 		t.Errorf("the container's write did not reach the host directory: %q, %v", b, err)
 	}
-	if !r.opts.Info.VMIsolation {
+	if checkFlags && !r.opts.Info.VMIsolation {
 		// In a VM the guest's mount table shows its own file sharing
 		// options; the host directory's flags cannot be read there.
 		for _, flag := range []string{"nosuid", "nodev"} {

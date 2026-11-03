@@ -437,7 +437,7 @@ func runAgent(ctx context.Context, dataDir string, servers []string, proxyKind, 
 		Proxy:      px,
 		Check:      probeCheck,
 		SecretsDir: prepareSecretsDir(secretsDir, log),
-		VolumesDir: filepath.Join(dataDir, backup.DirVolumes),
+		VolumesDir: prepareVolumesDir(filepath.Join(dataDir, backup.DirVolumes), log),
 		Servers:    ac.Servers,
 		OnServers:  onServers,
 		Runtime:    ac.Runtime,
@@ -550,6 +550,16 @@ func prepareSecretsDir(dir string, log *slog.Logger) string {
 	}
 	if err := checkTmpfs(dir); err != nil {
 		log.Warn("secret files disabled: plaintext must not reach a disk", "dir", dir, "err", err)
+		return ""
+	}
+	return dir
+}
+
+// prepareVolumesDir readies the node's volume directory; on failure the node
+// announces no volumes, so no app with volumes is placed on it.
+func prepareVolumesDir(dir string, log *slog.Logger) string {
+	if err := agent.PrepareVolumesDir(dir); err != nil {
+		log.Warn("volumes disabled", "dir", dir, "err", err)
 		return ""
 	}
 	return dir

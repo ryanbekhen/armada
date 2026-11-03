@@ -57,7 +57,8 @@ volumes:
   its runtime can and it has a volume directory. The embedded runtime can.
   External drivers declare `CAPABILITY_VOLUMES` (`driverkit.VolumeMounter`),
   and the conformance suite checks that a volume is the host directory,
-  writable, and mounted `nosuid` and `nodev`. A node without it is never
+  writable, and still `nosuid` and `nodev` in the container when its
+  source is on a filesystem with those flags, as the agent's is. A node without it is never
   chosen for an app with volumes.
 - **Kept.** A volume stays when the app is redeployed without it, or
   deleted, until `armada volume rm`. Redeploying an app with the same name
@@ -81,8 +82,14 @@ volumes:
   unless `--force` is given. With `--force` the volume records stay, still
   bound to the removed node, so a backup can be restored elsewhere.
 - **Rebalancing and evacuation** never move an app with volumes.
-- **Mount.** The directory is bind mounted read-write with `nosuid` and
-  `nodev`. With SELinux, the embedded runtime relabels it to the
+- **Mount.** When the agent starts it mounts its volume directory
+  (`<data dir>/volumes`) onto itself with `nosuid` and `nodev`, unless its
+  filesystem already has both; if it cannot, the node announces no
+  volumes. A bind mount keeps the flags of the mount it comes from, so
+  every volume is `nosuid,nodev` in its container whatever the runtime, and
+  drivers can bind the directory as it is. Each volume is bind mounted
+  read-write, and the embedded runtime also sets `nosuid` and `nodev` on
+  its own mount. With SELinux, the embedded runtime relabels it to the
   container's MCS label on every start, so only that container can use it.
 
 ### Usage
