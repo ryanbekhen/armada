@@ -40,6 +40,8 @@ type appScaling struct {
 	since  time.Time // first evaluation in this term
 	recs   []recommendation
 	status *armadav1.Autoscale
+	// lastActive is when the app last had a request or was woken.
+	lastActive time.Time
 }
 
 type recommendation struct {
@@ -48,6 +50,26 @@ type recommendation struct {
 }
 
 func newAutoscaler() *autoscaler { return &autoscaler{apps: map[string]*appScaling{}} }
+
+// get returns app's state, creating it at now. as.mu must be held.
+func (as *autoscaler) get(app string, now time.Time) *appScaling {
+	st := as.apps[app]
+	if st == nil {
+		st = &appScaling{since: now}
+		as.apps[app] = st
+	}
+	return st
+}
+
+// touch records activity of app at now.
+func (as *autoscaler) touch(app string, now time.Time) {
+	as.mu.Lock()
+	defer as.mu.Unlock()
+	st := as.get(app, now)
+	if now.After(st.lastActive) {
+		st.lastActive = now
+	}
+}
 
 // status returns the last evaluation of app, or nil.
 func (as *autoscaler) status(app string) *armadav1.Autoscale {
@@ -96,20 +118,22 @@ func (s *Server) autoscale(ctx context.Context) error {
 		}
 		seen[a.Name] = true
 		var mine []store.Replica
+		var ids []string
 		for _, r := range reps {
 			if r.App == a.Name {
 				mine = append(mine, r)
+				ids = append(ids, r.ID)
 			}
 		}
+		active := s.usage.lastActive(ids)
 		rev, err := revs.get(ctx, a.ActiveRevision)
 		if err != nil {
 			continue
 		}
 		s.scaler.mu.Lock()
-		st := s.scaler.apps[a.Name]
-		if st == nil {
-			st = &appScaling{since: now}
-			s.scaler.apps[a.Name] = st
+		st := s.scaler.get(a.Name, now)
+		if active.After(st.lastActive) {
+			st.lastActive = active
 		}
 		n, why, status := decide(a, reservation(rev), mine, in, st)
 		st.status = status
@@ -129,6 +153,36 @@ func (s *Server) autoscale(ctx context.Context) error {
 	return nil
 }
 
+// wakeApp starts an app scaled to zero for which a request waits at
+// nodeID's proxy (ADR 0023). Wakes are untrusted: they are rate limited per
+// node, and only raise an app that scales to zero from 0 to 1.
+func (s *Server) wakeApp(ctx context.Context, nodeID, app string) {
+	now := s.now()
+	if !spec.ValidName(app) || !s.wakeLimit.allow(nodeID, now) {
+		return
+	}
+	a, err := s.store.GetApp(ctx, app)
+	if err != nil || !a.Spec.ScalesToZero() {
+		return
+	}
+	s.scaler.touch(app, now)
+	if a.Replicas != 0 {
+		return
+	}
+	err = s.store.AutoscaleReplicas(ctx, app, 0, 1, autoscaleActor)
+	if errors.Is(err, store.ErrConflict) {
+		return
+	}
+	if err != nil {
+		s.log.Error("wake", "app", app, "err", err)
+		return
+	}
+	s.log.Info("woke app", "app", app, "node", nodeID)
+	s.record(ctx, store.Event{Kind: eventApp, Object: app, App: app, Node: nodeID, Reason: "Woken",
+		Message: "a request at " + nodeID + " started it from zero"})
+	s.Trigger()
+}
+
 func (s *Server) applyScale(ctx context.Context, a store.App, n int, why string) {
 	err := s.store.AutoscaleReplicas(ctx, a.Name, a.Replicas, n, autoscaleActor)
 	if errors.Is(err, store.ErrConflict) {
@@ -139,7 +193,10 @@ func (s *Server) applyScale(ctx context.Context, a store.App, n int, why string)
 		return
 	}
 	reason, verb := "ScaledUp", "up"
-	if n < a.Replicas {
+	switch {
+	case n == 0:
+		reason, verb = "ScaledToZero", "down"
+	case n < a.Replicas:
 		reason, verb = "ScaledDown", "down"
 	}
 	s.log.Info("autoscaled", "app", a.Name, "from", a.Replicas, "to", n, "why", why)
@@ -168,6 +225,20 @@ func decide(a store.App, res resources, reps []store.Replica, in scaleInputs, st
 	}
 	if a.Rolling() {
 		return hold("holding while a rollout is in progress")
+	}
+	if a.Replicas == 0 {
+		return hold("scaled to zero; the next request wakes it")
+	}
+	if a.Spec.ScalesToZero() && in.loadMeasured {
+		idle := a.Spec.IdleAfter()
+		quiet := in.now.Sub(st.since)
+		if !st.lastActive.IsZero() {
+			quiet = min(quiet, in.now.Sub(st.lastActive))
+		}
+		if quiet >= idle {
+			status.Message = "scaling to zero: no requests for " + idle.String()
+			return 0, "no requests for " + idle.String(), status
+		}
 	}
 	var ready []store.Replica
 	for _, r := range reps {
@@ -209,7 +280,8 @@ func decide(a store.App, res resources, reps []store.Replica, in scaleInputs, st
 	// At most double the ready replicas per step (replicas that cannot be
 	// placed do not compound), never below the current count on that
 	// account, and within the bounds.
-	rec = min(max(min(rec, max(2*len(ready), a.Replicas)), lo), hi)
+	// Rules never go below one replica: only idleness scales to zero.
+	rec = min(max(min(rec, max(2*len(ready), a.Replicas)), lo, 1), hi)
 	st.recs = append(st.recs, recommendation{at: in.now, n: rec})
 	keep := st.recs[:0]
 	for _, r := range st.recs {
@@ -220,8 +292,8 @@ func decide(a store.App, res resources, reps []store.Replica, in scaleInputs, st
 	st.recs = keep
 	why := strings.Join(reasons, ", ")
 	switch {
-	case a.Replicas < lo || a.Replicas > hi:
-		n := min(max(a.Replicas, lo), hi)
+	case a.Replicas < max(lo, 1) || a.Replicas > hi:
+		n := min(max(a.Replicas, lo, 1), hi)
 		status.Message = fmt.Sprintf("moving to %d (bounds %d..%d)", n, lo, hi)
 		return n, "within scale.min and scale.max", status
 	case rec > a.Replicas:

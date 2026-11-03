@@ -189,6 +189,9 @@ func (s *Server) Connect(stream armadav1.AgentService_ConnectServer) error {
 			if u := m.GetUsage(); u != nil {
 				s.usage.set(node.ID, u, s.now())
 			}
+			if w := m.GetWake(); w != nil {
+				s.wakeApp(ctx, node.ID, w.GetApp())
+			}
 		}
 	}()
 	err = <-errc

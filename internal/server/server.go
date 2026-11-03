@@ -144,6 +144,7 @@ type Server struct {
 	// autoscaleInterval and scaler run the autoscaler (ADR 0022).
 	autoscaleInterval time.Duration
 	scaler            *autoscaler
+	wakeLimit         *keyedLimiter
 
 	certMu        sync.Mutex
 	lastCertNames []string
@@ -243,11 +244,13 @@ func New(cfg Config) (*Server, error) {
 	s := &Server{
 		autoscaleInterval: cfg.AutoscaleInterval,
 		scaler:            newAutoscaler(),
-		jobRetryBase:      cfg.JobRetryBase,
-		store:             cfg.Store,
-		keys:              cfg.Secrets,
-		name:              cfg.Name,
-		cluster:           cfg.Cluster,
+		// Wakes: a burst for several apps at once, then one a second.
+		wakeLimit:    newKeyedLimiter(20, time.Second),
+		jobRetryBase: cfg.JobRetryBase,
+		store:        cfg.Store,
+		keys:         cfg.Secrets,
+		name:         cfg.Name,
+		cluster:      cfg.Cluster,
 
 		ca:               cfg.CA,
 		joinAddr:         cfg.JoinAddr,

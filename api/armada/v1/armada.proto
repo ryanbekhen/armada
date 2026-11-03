@@ -607,7 +607,14 @@ message AgentMessage {
     Hello hello = 1;
     ReplicaReport report = 2;
     UsageReport usage = 3;
+    Wake wake = 4;
   }
+}
+
+// Wake asks the leader to start an app scaled to zero: a request for it
+// is waiting at the node's proxy (ADR 0023).
+message Wake {
+  string app = 1;
 }
 
 message Hello {
@@ -667,6 +674,9 @@ message UsageReport {
 message ReplicaLoad {
   string id = 1;
   int64 in_flight = 2;
+  // Requests the proxy sent to the replica since the previous report
+  // (ADR 0023).
+  int64 requests = 3;
 }
 
 message ReplicaUsage {
@@ -711,6 +721,9 @@ message ProxyBackend {
   repeated ProxyServer servers = 2;
   // HTTP health check path; empty means a TCP check.
   string health_path = 3;
+  // The app scales to zero: with no replica to serve, requests wait at the
+  // agent while it starts one (ADR 0023).
+  bool wake = 4;
 }
 
 message ProxyServer {

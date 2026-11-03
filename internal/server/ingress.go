@@ -90,7 +90,7 @@ func (s *Server) buildProxy(ctx context.Context, apps []store.App, replicas []st
 		if sp.Ingress == nil || sp.Ingress.Type == spec.IngressNone {
 			continue
 		}
-		be := proxy.Backend{Name: app.Name}
+		be := proxy.Backend{Name: app.Name, Wake: sp.ScalesToZero()}
 		if sp.Probes != nil && sp.Probes.Readiness != nil {
 			be.HealthPath = sp.Probes.Readiness.Path
 		}

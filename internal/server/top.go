@@ -9,6 +9,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	armadav1 "github.com/ryanbekhen/armada/api/armada/v1"
+	"github.com/ryanbekhen/armada/internal/spec"
 	"github.com/ryanbekhen/armada/internal/store"
 )
 
@@ -31,7 +32,13 @@ const (
 type usageStore struct {
 	mu    sync.Mutex
 	nodes map[string]nodeUsage
+	// active is when a proxy last reported a request for a replica (ADR
+	// 0023), kept across reports so none is missed between evaluations.
+	active map[string]time.Time
 }
+
+// maxActive bounds usageStore.active.
+const maxActive = 8192
 
 type nodeUsage struct {
 	at       time.Time
@@ -47,7 +54,9 @@ type replicaUsage struct {
 	mem int64 // bytes
 }
 
-func newUsageStore() *usageStore { return &usageStore{nodes: map[string]nodeUsage{}} }
+func newUsageStore() *usageStore {
+	return &usageStore{nodes: map[string]nodeUsage{}, active: map[string]time.Time{}}
+}
 
 // set replaces nodeID's sample. Reports are self-reported and untrusted:
 // values are bounded, and a report with too many replicas is dropped. Which
@@ -68,15 +77,29 @@ func (u *usageStore) set(nodeID string, r *armadav1.UsageReport, at time.Time) {
 		}
 	}
 	var load map[string]int64
+	var busy []string
 	if r.GetLoadMeasured() {
 		load = make(map[string]int64, len(r.GetLoad()))
 		for _, l := range r.GetLoad() {
 			if id := l.GetId(); id != "" && len(id) <= maxReplicaIDLen {
 				load[id] = max(0, min(l.GetInFlight(), maxInFlight))
+				if l.GetInFlight() > 0 || l.GetRequests() > 0 {
+					busy = append(busy, id)
+				}
 			}
 		}
 	}
 	u.mu.Lock()
+	for _, id := range busy {
+		u.active[id] = at
+	}
+	if len(u.active) > maxActive {
+		for id, t := range u.active {
+			if at.Sub(t) > spec.MaxIdleAfter || len(u.active) > maxActive {
+				delete(u.active, id)
+			}
+		}
+	}
 	u.nodes[nodeID] = nodeUsage{at: at, replicas: reps, load: load, loadMeasured: r.GetLoadMeasured()}
 	u.mu.Unlock()
 }
@@ -96,6 +119,19 @@ func (u *usageStore) node(nodeID string, now time.Time) (nodeUsage, bool) {
 		return nodeUsage{}, false
 	}
 	return n, true
+}
+
+// lastActive returns when a proxy last reported a request for any of ids.
+func (u *usageStore) lastActive(ids []string) time.Time {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	var last time.Time
+	for _, id := range ids {
+		if t := u.active[id]; t.After(last) {
+			last = t
+		}
+	}
+	return last
 }
 
 // load sums the requests in progress per replica over every node whose

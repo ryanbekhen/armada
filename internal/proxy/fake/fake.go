@@ -18,7 +18,7 @@ type Driver struct {
 	// down makes Health fail until the next successful Apply, like a
 	// proxy that stopped and is started again.
 	down bool
-	load map[string]int64
+	load map[string]proxy.ServerLoad
 }
 
 var (
@@ -26,21 +26,37 @@ var (
 	_ proxy.LoadReader = (*Driver)(nil)
 )
 
-// SetLoad sets what Load reports.
+// SetLoad sets the requests in progress Load reports, keeping totals.
 func (d *Driver) SetLoad(load map[string]int64) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	d.load = load
+	next := map[string]proxy.ServerLoad{}
+	for k, v := range load {
+		next[k] = proxy.ServerLoad{InFlight: v, Total: d.load[k].Total}
+	}
+	d.load = next
 }
 
-// Load returns what SetLoad set, or Err.
-func (d *Driver) Load(context.Context) (map[string]int64, error) {
+// AddRequests counts n more requests to server name.
+func (d *Driver) AddRequests(name string, n int64) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.load == nil {
+		d.load = map[string]proxy.ServerLoad{}
+	}
+	l := d.load[name]
+	l.Total += n
+	d.load[name] = l
+}
+
+// Load returns what SetLoad and AddRequests set, or Err.
+func (d *Driver) Load(context.Context) (map[string]proxy.ServerLoad, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if d.Err != nil {
 		return nil, d.Err
 	}
-	out := make(map[string]int64, len(d.load))
+	out := make(map[string]proxy.ServerLoad, len(d.load))
 	for k, v := range d.load {
 		out[k] = v
 	}

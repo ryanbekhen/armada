@@ -386,6 +386,11 @@ web: autoscale 2-10, http 41/50, cpu 38%/70%: steady: http 41 of 50 per replica,
   event.
 - **Leader changes.** After the leader changes, the app does not scale
   down for 5 minutes.
+- **Scale to zero.** Apps with `scale.min: 0` show `0/0` and
+  `scaled to zero; the next request wakes it` while asleep. `armada events`
+  shows `ScaledToZero`, and `Woken` with the node whose proxy took the
+  request. The first request after a quiet period waits for a whole cold
+  start, so keep `min: 1` for apps where that delay matters.
 - **No ready replicas.** The autoscaler counts only ready replicas. If
   every replica fails its readiness probe under load, it holds until one is
   ready again, so give replicas enough CPU to answer their probes when
@@ -432,7 +437,8 @@ RUN  STATE      TRIGGER   ATTEMPTS  NODE   STARTED  DURATION  EXIT  MESSAGE
 ([ADR 0020](adr/0020-event-history.md)): replicas scheduled, started,
 restarted, or moved; rollouts started, completed, or failed; nodes
 connected, lost, or cordoned; apps that cannot be placed or that the
-autoscaler scaled; job runs; domains and certificates.
+autoscaler scaled, scaled to zero, or woke; job runs; domains and
+certificates.
 
 ```bash
 armada events                    # the last hour, everything

@@ -30,6 +30,7 @@ import (
 	"github.com/ryanbekhen/armada/internal/fsutil"
 	"github.com/ryanbekhen/armada/internal/netutil"
 	"github.com/ryanbekhen/armada/internal/pki"
+	"github.com/ryanbekhen/armada/internal/proxy/haproxy"
 	"github.com/ryanbekhen/armada/internal/runtime"
 	"github.com/ryanbekhen/armada/internal/runtime/remote"
 	"github.com/ryanbekhen/armada/internal/secrets"
@@ -440,6 +441,9 @@ func runAgent(ctx context.Context, dataDir string, servers []string, proxyKind, 
 		Runtime:    ac.Runtime,
 
 		UsageInterval: usageInterval,
+	}
+	if px != nil {
+		acfg.WakeSocket = haproxy.WakeSocket(filepath.Join(dataDir, dirHAProxy))
 	}
 	// A driver's engine may run containers for another platform than the
 	// agent's (a virtual machine on macOS, say): report what it says.

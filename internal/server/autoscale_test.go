@@ -186,3 +186,100 @@ func TestAutoscaleCluster(t *testing.T) {
 		t.Errorf("replicas after redeploy with max 3: %d", a.Replicas)
 	}
 }
+
+const zeroSpec = "name: web\nimage: nginx:1\ningress:\n  type: internal\n  port: 80\nscale:\n  min: 0\n  max: 4\n  idleAfter: 10m\n  rules:\n    - type: http\n      concurrent: 10\n"
+
+func TestDecideScaleToZero(t *testing.T) {
+	t.Parallel()
+	sp, err := spec.Parse([]byte(zeroSpec))
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	a := store.App{Name: "web", ActiveRevision: "web--r1", TargetRevision: "web--r1", Replicas: 1, Spec: sp}
+	reps := readyReplicas(1)
+	res := resources{cpu: 100, mem: 256 << 20}
+
+	// Quiet rules never go below one replica.
+	st := &appScaling{since: now}
+	if n, _, _ := decide(a, res, reps, loadOf(now, reps, 0), st); n != 1 {
+		t.Errorf("rules took it to %d", n)
+	}
+	// A request a minute ago keeps it up, even ten minutes into the term.
+	st.lastActive = now.Add(9 * time.Minute)
+	if n, _, _ := decide(a, res, reps, loadOf(now.Add(10*time.Minute), reps, 0), st); n != 1 {
+		t.Errorf("active app scaled to %d", n)
+	}
+	// Idle for idleAfter: zero.
+	n, why, status := decide(a, res, reps, loadOf(now.Add(19*time.Minute+time.Second), reps, 0), st)
+	if n != 0 || !strings.Contains(why, "no requests for 10m") || !strings.Contains(status.Message, "zero") {
+		t.Errorf("idle: %d %q %v", n, why, status)
+	}
+	// A new leader waits idleAfter from its start.
+	if n, _, _ := decide(a, res, reps, loadOf(now.Add(5*time.Minute), reps, 0), &appScaling{since: now}); n != 1 {
+		t.Errorf("new leader scaled to %d", n)
+	}
+	// Without proxy samples, nothing is known to be idle.
+	if n, _, _ := decide(a, res, reps, scaleInputs{now: now.Add(time.Hour), usage: newUsageStore()}, &appScaling{since: now}); n != 1 {
+		t.Errorf("unmeasured app scaled to %d", n)
+	}
+	// At zero it holds until woken.
+	zero := a
+	zero.Replicas = 0
+	if n, _, s := decide(zero, res, nil, loadOf(now, nil, 0), st); n != 0 || !strings.Contains(s.Message, "wakes") {
+		t.Errorf("at zero: %d %v", n, s)
+	}
+}
+
+func TestUsageLastActive(t *testing.T) {
+	t.Parallel()
+	u := newUsageStore()
+	t0 := time.Now()
+	u.set("n1", &armadav1.UsageReport{LoadMeasured: true, Load: []*armadav1.ReplicaLoad{{Id: "a", Requests: 3}, {Id: "b"}}}, t0)
+	u.set("n1", &armadav1.UsageReport{LoadMeasured: true, Load: []*armadav1.ReplicaLoad{{Id: "a"}, {Id: "b"}}}, t0.Add(10*time.Second))
+	if got := u.lastActive([]string{"a", "b"}); !got.Equal(t0) {
+		t.Errorf("last active %v, want %v (a quiet report must not erase it)", got, t0)
+	}
+	u.set("n2", &armadav1.UsageReport{LoadMeasured: true, Load: []*armadav1.ReplicaLoad{{Id: "b", InFlight: 1}}}, t0.Add(20*time.Second))
+	if got := u.lastActive([]string{"a", "b"}); !got.Equal(t0.Add(20 * time.Second)) {
+		t.Errorf("last active %v", got)
+	}
+	if got := u.lastActive([]string{"c"}); !got.IsZero() {
+		t.Errorf("unknown replica active at %v", got)
+	}
+}
+
+func TestWakeApp(t *testing.T) {
+	t.Parallel()
+	c := newCluster(t)
+	c.addNode("n1", "127.0.0.1")
+	c.deploy(zeroSpec)
+	c.eventually("1 running", func() bool { return len(c.running("web")) == 1 })
+	if err := c.store.AutoscaleReplicas(c.ctx, "web", 1, 0, autoscaleActor); err != nil {
+		t.Fatal(err)
+	}
+	c.eventually("scaled to zero", func() bool { return len(c.running("web")) == 0 })
+
+	// Wakes for unknown or invalid apps change nothing.
+	for _, app := range []string{"ghost", "Bad Name", "web\n", ""} {
+		c.srv.wakeApp(c.ctx, "n1", app)
+	}
+	if a, _ := c.store.GetApp(c.ctx, "web"); a.Replicas != 0 {
+		t.Fatalf("woken by a bad wake: %d", a.Replicas)
+	}
+	c.srv.wakeApp(c.ctx, "n1", "web")
+	c.eventually("woken", func() bool { return len(c.running("web")) == 1 })
+	evs, _ := c.store.ListEvents(c.ctx, time.Time{})
+	woken := false
+	for _, e := range evs {
+		woken = woken || (e.Reason == "Woken" && e.Node == "n1")
+	}
+	if !woken {
+		t.Errorf("no Woken event: %+v", evs)
+	}
+	// A second wake while it runs changes nothing.
+	c.srv.wakeApp(c.ctx, "n1", "web")
+	if a, _ := c.store.GetApp(c.ctx, "web"); a.Replicas != 1 {
+		t.Errorf("replicas after a second wake: %d", a.Replicas)
+	}
+}

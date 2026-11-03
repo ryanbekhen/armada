@@ -143,6 +143,9 @@ type Scale struct {
 	Min   *int        `yaml:"min,omitempty" json:"min,omitempty"`
 	Max   *int        `yaml:"max,omitempty" json:"max,omitempty"`
 	Rules []ScaleRule `yaml:"rules,omitempty" json:"rules,omitempty"`
+	// IdleAfter is how long an app with Min 0 may go without a request
+	// before it scales to zero (ADR 0023).
+	IdleAfter Duration `yaml:"idleAfter,omitempty" json:"idleAfter,omitempty"`
 }
 
 // ScaleRule is one autoscaler trigger. Which fields apply depends on Type:
