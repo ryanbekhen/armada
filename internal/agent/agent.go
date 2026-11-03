@@ -701,6 +701,11 @@ func (a *Agent) serveLogs(ctx context.Context, req *armadav1.LogRequest) {
 		}
 		_, _ = push.CloseAndRecv()
 	}
+	// Attach at once: a container that has written nothing yet would
+	// otherwise look like a node that never answered.
+	if err := push.Send(&armadav1.LogPush{RequestId: req.GetRequestId()}); err != nil {
+		return
+	}
 
 	cs, err := a.cfg.Driver.List(ctx, map[string]string{runtime.LabelManaged: "true", runtime.LabelReplica: req.GetReplicaId()})
 	if err != nil || len(cs) == 0 {
