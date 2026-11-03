@@ -382,6 +382,36 @@ func TestLogs(t *testing.T) {
 	}
 }
 
+// A replica that has written nothing yet returns no logs at once, not a
+// notice that its node did not answer.
+func TestLogsOfSilentReplica(t *testing.T) {
+	t.Parallel()
+	c := newCluster(t)
+	d := c.addNode("n1", "127.0.0.1")
+	d.LogLines = nil // no log requests run before the deploy
+	c.deploy(webSpec("nginx:1", 1))
+	c.eventually("running", func() bool { return len(c.running("web")) == 1 })
+
+	start := time.Now()
+	stream, err := c.admin.Logs(c.ctx, &armadav1.LogsRequest{App: "web"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for {
+		e, err := stream.Recv()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Errorf("entry %q", e.Data)
+	}
+	if took := time.Since(start); took >= attachTimeout {
+		t.Errorf("took %v", took)
+	}
+}
+
 func TestLogsFromDisconnectedNode(t *testing.T) {
 	t.Parallel()
 	c := newCluster(t)
