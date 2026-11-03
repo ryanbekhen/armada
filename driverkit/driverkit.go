@@ -209,8 +209,10 @@ type VolumeMount struct {
 
 // VolumeMounter is implemented by drivers that mount volumes. When
 // CanMountVolumes reports true, the driver declares CAPABILITY_VOLUMES and
-// Run receives specs with Volumes, which it must mount read-write with
-// nosuid and nodev; otherwise such specs are refused before Run.
+// Run receives specs with Volumes, which it must mount read-write and
+// keep nosuid and nodev: the agent's volume directory is a nosuid,nodev
+// mount, which a plain bind mount of the source keeps. Otherwise such
+// specs are refused before Run.
 type VolumeMounter interface {
 	CanMountVolumes() bool
 }
