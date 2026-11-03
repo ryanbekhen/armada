@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"log/slog"
 	"net"
 	"path/filepath"
@@ -522,6 +523,20 @@ func TestLostNodeReplicasAreRescheduled(t *testing.T) {
 			t.Errorf("n2 state = %q, want lost", n.State)
 		}
 	}
+	// The loss is one event, however many reconciles see it.
+	evs, _ := c.store.ListEvents(c.ctx, time.Time{})
+	lost, evacuated := 0, 0
+	for _, e := range evs {
+		switch {
+		case e.Kind == eventNode && e.Object == "n2" && e.Reason == "Lost":
+			lost += e.Count
+		case e.Reason == "Evacuating" && e.Node == "n2":
+			evacuated++
+		}
+	}
+	if lost != 1 || evacuated != 1 {
+		t.Errorf("events: lost %d, evacuating %d; want 1 each", lost, evacuated)
+	}
 	// n1's proxy never lost the app entirely.
 	for i, cfg := range c.proxies["n1"].History()[start:] {
 		if len(backendServers(cfg, "web")) == 0 {
@@ -581,7 +596,7 @@ func TestLostNodesPartitionGuard(t *testing.T) {
 	}
 	for name, tt := range tests {
 		rc := &reconcileRun{now: now}
-		got := s.lostNodes(rc, tt.nodes)
+		got := s.lostNodes(context.Background(), rc, tt.nodes)
 		if len(got) != len(tt.want) {
 			t.Errorf("%s: lost = %v, want %v", name, got, tt.want)
 			continue
@@ -594,7 +609,7 @@ func TestLostNodesPartitionGuard(t *testing.T) {
 	}
 	// A disconnected node not yet lost schedules a wake-up for when it is.
 	rc := &reconcileRun{now: now}
-	s.lostNodes(rc, []store.Node{node("a", store.NodeReady, now), node("b", store.NodeUnknown, now.Add(-50*time.Second))})
+	s.lostNodes(context.Background(), rc, []store.Node{node("a", store.NodeReady, now), node("b", store.NodeUnknown, now.Add(-50*time.Second))})
 	if rc.wake <= 0 || rc.wake > 11*time.Second {
 		t.Errorf("wake = %v, want about 10s", rc.wake)
 	}

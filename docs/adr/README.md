@@ -23,3 +23,4 @@ Every architectural decision that is hard to reverse is recorded here. Copy `000
 | [0017](0017-exec.md) | Running commands in replicas | Accepted |
 | [0018](0018-top.md) | Resource usage of replicas | Accepted |
 | [0019](0019-metrics-endpoint.md) | Metrics endpoint | Accepted |
+| [0020](0020-event-history.md) | Event history | Accepted |

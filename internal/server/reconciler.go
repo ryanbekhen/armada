@@ -58,7 +58,7 @@ func (s *Server) Reconcile(ctx context.Context) error {
 	}
 
 	rc := reconcileRun{now: s.now()}
-	rc.lost = s.lostNodes(&rc, nodes)
+	rc.lost = s.lostNodes(ctx, &rc, nodes)
 	for i, app := range apps {
 		replicas, err = s.reconcileApp(ctx, &rc, &apps[i], nodes, replicas, &revs)
 		if err != nil {
@@ -94,7 +94,7 @@ type reconcileRun struct {
 // more likely cut off from the cluster than the nodes dead, so nothing is
 // rescheduled: emptying healthy nodes would cause the outage it guards
 // against.
-func (s *Server) lostNodes(rc *reconcileRun, nodes []store.Node) map[string]bool {
+func (s *Server) lostNodes(ctx context.Context, rc *reconcileRun, nodes []store.Node) map[string]bool {
 	lost := map[string]bool{}
 	ready := 0
 	for _, n := range nodes {
@@ -107,9 +107,16 @@ func (s *Server) lostNodes(rc *reconcileRun, nodes []store.Node) map[string]bool
 			rc.wakeAt(n.LastSeen.Add(s.nodeLostTimeout))
 		}
 	}
-	if len(lost) > ready {
+	cutOff := len(lost) > ready
+	s.condition(ctx, "cut-off", cutOff, store.Event{Kind: eventNode, Object: "*", Reason: "MostUnreachable",
+		Message: fmt.Sprintf("%d nodes lost and %d ready: not moving their replicas (is the control plane cut off?)", len(lost), ready)})
+	if cutOff {
 		s.log.Warn("most nodes are unreachable; not rescheduling their replicas (is the control plane cut off?)", "lost", len(lost), "ready", ready)
 		return map[string]bool{}
+	}
+	for _, n := range nodes {
+		s.condition(ctx, "lost:"+n.ID, lost[n.ID], store.Event{Kind: eventNode, Object: n.ID, Node: n.ID, Reason: "Lost",
+			Message: fmt.Sprintf("no contact for %s; moving its replicas", s.nodeLostTimeout)})
 	}
 	return lost
 }
@@ -271,11 +278,13 @@ func (s *Server) reconcileApp(ctx context.Context, rc *reconcileRun, app *store.
 	}
 
 	// Scale up, with one replica of surge while old replicas still run.
+	unplaced := false
 	if len(current) < app.Replicas {
 		for len(current) < app.Replicas && len(current)+len(old)+len(moving) < app.Replicas+maxSurge {
 			node, ok := pickNode(fit, all, current, target.Spec.Placement.SpreadKey(), reservation(target), revs.reserved(ctx))
 			if !ok {
 				s.log.Warn("no node can fit replica", "app", app.Name, "want", app.Replicas, "have", len(current))
+				unplaced = true
 				break
 			}
 			r := store.Replica{
@@ -289,10 +298,13 @@ func (s *Server) reconcileApp(ctx context.Context, rc *reconcileRun, app *store.
 				return nil, err
 			}
 			s.log.Info("scheduled replica", "replica", r.ID, "revision", r.Revision, "node", node.ID)
+			s.record(ctx, store.Event{Kind: eventReplica, Object: r.ID, App: app.Name, Node: node.ID, Reason: "Scheduled", Message: "revision " + r.Revision + " on " + node.ID})
 			current = append(current, r)
 			all = append(all, r)
 		}
 	}
+	s.condition(ctx, "unplaced:"+app.Name, unplaced, store.Event{Kind: eventApp, Object: app.Name, App: app.Name, Reason: "Unschedulable",
+		Message: fmt.Sprintf("no node can fit another replica (%d of %d placed); see armada status", len(current), app.Replicas)})
 	if all, err = s.evacuate(ctx, rc, app, all, current, old, append(lost, moving...), serving); err != nil {
 		return nil, err
 	}
@@ -346,6 +358,7 @@ func (s *Server) reconcileApp(ctx context.Context, rc *reconcileRun, app *store.
 			return nil, err
 		}
 		s.log.Info("rollout complete", "app", app.Name, "revision", app.TargetRevision)
+		s.record(ctx, store.Event{Kind: eventRollout, Object: app.TargetRevision, App: app.Name, Reason: "Completed", Message: app.TargetRevision + " serves"})
 		app.ActiveRevision = app.TargetRevision
 		app.RolloutState = store.RolloutNone
 		app.Spec = mustRevision(ctx, revs, app.TargetRevision, app.Spec)
@@ -392,6 +405,7 @@ func (s *Server) rebalance(ctx context.Context, rc *reconcileRun, app *store.App
 		return nil, err
 	}
 	s.log.Info("moving replica to spread app", "replica", victim.ID, "from", victim.NodeID, "to", to)
+	s.record(ctx, store.Event{Kind: eventReplica, Object: victim.ID, App: victim.App, Node: victim.NodeID, Reason: "Rebalancing", Message: "moving from " + victim.NodeID + " to " + to})
 	victim.MovingSince = rc.now
 	rc.wakeAt(rc.now)
 	return replace(all, victim), nil
@@ -607,6 +621,7 @@ func (s *Server) evacuate(ctx context.Context, rc *reconcileRun, app *store.App,
 			reason = "moving"
 		}
 		s.log.Info("evacuating replica", "replica", r.ID, "node", r.NodeID, "node_state", reason)
+		s.record(ctx, store.Event{Kind: eventReplica, Object: r.ID, App: r.App, Node: r.NodeID, Reason: "Evacuating", Message: "node " + r.NodeID + " is " + reason})
 		if all, err = s.retire(ctx, rc, all, r); err != nil {
 			return nil, err
 		}
@@ -655,6 +670,7 @@ func (s *Server) checkRollout(ctx context.Context, rc *reconcileRun, app *store.
 		return false, err
 	}
 	s.log.Warn("rollout failed, keeping the active revision", "app", app.Name, "revision", target.Name, "active", app.ActiveRevision, "reason", msg)
+	s.record(ctx, store.Event{Kind: eventRollout, Object: target.Name, App: app.Name, Reason: "Failed", Message: msg + "; " + app.ActiveRevision + " keeps serving"})
 	app.TargetRevision = app.ActiveRevision
 	app.RolloutState = store.RolloutFailed
 	app.RolloutMessage = msg
@@ -724,7 +740,11 @@ func (s *Server) finishDrain(ctx context.Context, rc *reconcileRun, all []store.
 
 func (s *Server) deleteReplica(ctx context.Context, r store.Replica) error {
 	s.log.Info("removing replica", "replica", r.ID, "node", r.NodeID)
-	return s.store.DeleteReplica(ctx, r.ID)
+	if err := s.store.DeleteReplica(ctx, r.ID); err != nil {
+		return err
+	}
+	s.record(ctx, store.Event{Kind: eventReplica, Object: r.ID, App: r.App, Node: r.NodeID, Reason: "Removed"})
+	return nil
 }
 
 func replace(rs []store.Replica, r store.Replica) []store.Replica {

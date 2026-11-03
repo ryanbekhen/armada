@@ -54,6 +54,9 @@ func (s *Server) Deploy(ctx context.Context, req *armadav1.DeployRequest) (*arma
 		return nil, storeErr(err)
 	}
 	s.log.Info("deployed", "app", app.Name, "revision", rev.Name, "new_revision", created, "by", actor(ctx))
+	if created {
+		s.record(ctx, store.Event{Kind: eventRollout, Object: rev.Name, App: app.Name, Reason: "Started", Message: "rolling out " + rev.Name + " (image " + app.Image + ")"})
+	}
 	s.Trigger()
 	return &armadav1.DeployResponse{App: app.Name, Revision: rev.Name}, nil
 }
@@ -111,6 +114,7 @@ func (s *Server) Rollback(ctx context.Context, req *armadav1.RollbackRequest) (*
 		return nil, storeErr(err)
 	}
 	s.log.Info("rollback", "app", app.Name, "revision", rev.Name, "by", actor(ctx))
+	s.record(ctx, store.Event{Kind: eventRollout, Object: rev.Name, App: app.Name, Reason: "RolledBack", Message: "rolling back to " + rev.Name})
 	s.Trigger()
 	return &armadav1.RollbackResponse{Revision: rev.Name}, nil
 }

@@ -290,6 +290,20 @@ func TestEndToEnd(t *testing.T) {
 		t.Errorf("top ghost: code=%d err=%q", code, stderr)
 	}
 
+	// Events: what the cluster did, filtered, as text or JSON lines.
+	if code, out, stderr := cli("events", "web"); code != 0 || !strings.Contains(out, "REASON") || !strings.Contains(out, "Scheduled") || strings.Contains(out, " node ") {
+		t.Errorf("events web: code=%d out=%q err=%q", code, out, stderr)
+	}
+	if code, out, _ := cli("events", "-o", "json", "--since", "10m"); code != 0 || !strings.Contains(out, `"reason":"Connected"`) {
+		t.Errorf("events -o json: code=%d out=%q", code, out)
+	}
+	if code, _, stderr := cli("events", "--since", "48h"); code != 1 || !strings.Contains(stderr, "--since") {
+		t.Errorf("events --since 48h: code=%d err=%q", code, stderr)
+	}
+	if code, out, _ := cli("events", "ghost"); code != 0 || !strings.Contains(out, "No events.") {
+		t.Errorf("events ghost: code=%d out=%q", code, out)
+	}
+
 	// Metrics: credentials that only scrape, written with private modes.
 	credDir := filepath.Join(t.TempDir(), "prom")
 	if code, out, stderr := cli("metrics", "credentials", "prom", "-o", credDir); code != 0 || !strings.Contains(out, "metrics:prom") {
@@ -472,7 +486,7 @@ func TestCommandsWithoutConfig(t *testing.T) {
 	t.Parallel()
 
 	missing := filepath.Join(t.TempDir(), "nope")
-	for _, args := range [][]string{{"status"}, {"scale", "a", "1"}, {"logs", "a"}, {"exec", "a", "--", "sh"}, {"top"}, {"metrics", "credentials", "p", "-o", filepath.Join(t.TempDir(), "m")}} {
+	for _, args := range [][]string{{"status"}, {"scale", "a", "1"}, {"logs", "a"}, {"exec", "a", "--", "sh"}, {"top"}, {"events"}, {"metrics", "credentials", "p", "-o", filepath.Join(t.TempDir(), "m")}} {
 		code, _, stderr := run(t, append(args, "--config", missing)...)
 		if code == 0 || !strings.Contains(stderr, "armada init") {
 			t.Errorf("%v: code=%d stderr=%q", args, code, stderr)

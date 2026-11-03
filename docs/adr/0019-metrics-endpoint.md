@@ -61,6 +61,7 @@ on every scrape. No new state is kept.
   - `armada_agents_connected`
   - `armada_reconcile_duration_seconds` (histogram)
   - `armada_reconcile_errors_total`
+  - `armada_events_total{kind,reason}`, added with event history (ADR 0020)
   - Go runtime metrics
 - **Apps:**
   - `armada_app_replicas_desired{app}` and `armada_app_replicas_ready{app}`

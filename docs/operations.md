@@ -362,6 +362,37 @@ web-r1-q2k0d     node2  running  41m/250m   58Mi/256Mi
   appear 10 to 20 seconds after a replica starts or the control plane's
   leader changes, since samples are kept in the leader's memory only.
 
+## Events
+
+`armada events` shows what the cluster did in the last hour
+([ADR 0020](adr/0020-event-history.md)): replicas scheduled, started,
+restarted, or moved; rollouts started, completed, or failed; nodes
+connected, lost, or cordoned; apps that cannot be placed; domains and
+certificates.
+
+```bash
+armada events                    # the last hour, everything
+armada events web                # only web and its replicas
+armada events --node node2       # only node2 and its replicas
+armada events --since 6h -f      # six hours back, then new events as they happen
+armada events -o json            # one JSON object per line
+```
+
+```
+TIME            KIND         OBJECT                        REASON           COUNT  MESSAGE
+10:01:50        rollout      web--r2                       Started              1  rolling out web--r2 (image nginx:1.27)
+10:02:11        replica      web-r2-k3j9a                  Restarted            4  restarted: exit code 137
+10:58:03        node         node2                         Lost                 1  no contact for 5m0s; moving its replicas
+```
+
+- An event that repeats within 10 minutes is counted (`COUNT`) instead of
+  shown again; `TIME` is its last occurrence.
+- Events are kept for 24 hours, at most 2000 of them. For longer history,
+  run `armada events -f -o json` into your log system, or alert on
+  `armada_events_total` from the metrics endpoint.
+- Messages from nodes are shortened to 512 bytes, with control characters
+  replaced.
+
 ## Metrics
 
 The leader serves Prometheus metrics ([ADR 0019](adr/0019-metrics-endpoint.md))
@@ -405,6 +436,7 @@ scrape_configs:
 | `armada_agents_connected` | | agents connected to the leader |
 | `armada_reconcile_duration_seconds` | | histogram of reconcile times |
 | `armada_reconcile_errors_total` | | failed reconciles |
+| `armada_events_total` | `kind`, `reason` | events the leader recorded (see [Events](#events)); resets when the leader changes |
 | `armada_app_replicas_desired`, `armada_app_replicas_ready` | `app` | desired replicas, and those running, ready, and not draining |
 | `armada_app_rollout` | `app`, `state` | 1 for the current rollout state: `idle`, `progressing`, `failed` |
 | `armada_replica_ready` | `app`, `replica`, `revision`, `node` | 1 when the replica serves |
@@ -419,7 +451,8 @@ scrape_configs:
 Example alerts: `armada_app_replicas_ready < armada_app_replicas_desired`
 for 10 minutes, `armada_app_rollout{state="failed"} == 1`,
 `armada_replica_memory_usage_bytes / armada_replica_memory_limit_bytes > 0.9`,
-and `armada_node_ready == 0`.
+`increase(armada_events_total{reason="Restarted"}[10m]) > 3`, and
+`armada_node_ready == 0`.
 
 ## When a node fails
 

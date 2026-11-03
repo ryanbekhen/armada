@@ -131,6 +131,7 @@ type Server struct {
 	logs     *logRouter
 	execs    *execRouter
 	usage    *usageStore
+	events   *eventRecorder
 
 	certMu        sync.Mutex
 	lastCertNames []string
@@ -252,7 +253,8 @@ func New(cfg Config) (*Server, error) {
 		reconcileErrors: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "armada_reconcile_errors_total", Help: "Reconciles that failed.",
 		}),
-		usage: newUsageStore(),
+		usage:  newUsageStore(),
+		events: newEventRecorder(),
 
 		certs:          cfg.Certs,
 		acmeAddr:       cfg.ACMEAddr,
