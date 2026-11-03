@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net/netip"
 	"strings"
+	"time"
 
 	armadav1 "github.com/ryanbekhen/armada/api/armada/v1"
 	"github.com/ryanbekhen/armada/internal/netutil"
@@ -25,12 +26,31 @@ type Driver interface {
 	Health(ctx context.Context) error
 }
 
+const (
+	// WakeHeader names the app a request on the agent's wake socket is for
+	// (ADR 0023). Only the proxy sets it, overwriting any value from the
+	// client.
+	WakeHeader = "X-Armada-Wake"
+	// WakeTimeout is how long a request for an app scaled to zero waits for
+	// a replica.
+	WakeTimeout = 60 * time.Second
+)
+
 // LoadReader is implemented by drivers that can count the requests in
 // progress per server, which the autoscaler uses (ADR 0022).
 type LoadReader interface {
-	// Load returns the requests in progress (being served or queued) per
-	// server name, for every server the proxy routes to.
-	Load(ctx context.Context) (map[string]int64, error)
+	// Load returns, per server name for every server the proxy routes to,
+	// the requests in progress (being served or queued) and the total
+	// requests sent to it so far.
+	Load(ctx context.Context) (map[string]ServerLoad, error)
+}
+
+// ServerLoad is one server's load.
+type ServerLoad struct {
+	InFlight int64
+	// Total counts requests since the proxy started; it resets when the
+	// proxy restarts or reloads.
+	Total int64
 }
 
 // Config is the complete ingress configuration for a node.
@@ -47,6 +67,9 @@ type Backend struct {
 	Name       string
 	Servers    []Server
 	HealthPath string
+	// Wake routes requests to the agent's wake socket while no server is
+	// up, so an app scaled to zero starts on demand (ADR 0023).
+	Wake bool
 }
 
 // Server is one replica.
@@ -86,7 +109,7 @@ func FromProto(p *armadav1.ProxyConfig) Config {
 	}
 	c.ACMEAddress = p.GetAcmeChallengeAddress()
 	for _, b := range p.GetBackends() {
-		be := Backend{Name: b.GetName(), HealthPath: b.GetHealthPath()}
+		be := Backend{Name: b.GetName(), HealthPath: b.GetHealthPath(), Wake: b.GetWake()}
 		for _, s := range b.GetServers() {
 			be.Servers = append(be.Servers, Server{Name: s.GetName(), Address: s.GetAddress()})
 		}
@@ -105,7 +128,7 @@ func FromProto(p *armadav1.ProxyConfig) Config {
 func (c Config) ToProto() *armadav1.ProxyConfig {
 	p := &armadav1.ProxyConfig{AcmeChallengeAddress: c.ACMEAddress}
 	for _, b := range c.Backends {
-		pb := &armadav1.ProxyBackend{Name: b.Name, HealthPath: b.HealthPath}
+		pb := &armadav1.ProxyBackend{Name: b.Name, HealthPath: b.HealthPath, Wake: b.Wake}
 		for _, s := range b.Servers {
 			pb.Servers = append(pb.Servers, &armadav1.ProxyServer{Name: s.Name, Address: s.Address})
 		}

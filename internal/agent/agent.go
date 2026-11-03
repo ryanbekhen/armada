@@ -55,6 +55,10 @@ type Config struct {
 	// UsageInterval is how often replicas are sampled for armada top
 	// (default 10s, ADR 0018).
 	UsageInterval time.Duration
+	// WakeSocket is where the proxy sends requests for apps with no replica
+	// up (ADR 0023); empty disables it. It must be in a directory only root
+	// can reach.
+	WakeSocket string
 	// Capacity reported to the scheduler; zero values are auto-detected.
 	CPUMillis   int64
 	MemoryBytes int64
@@ -117,6 +121,9 @@ type Agent struct {
 
 	proxyDesired *armadav1.ProxyConfig
 	proxyApplied *armadav1.ProxyConfig
+	// proxyChanged is closed and replaced when proxyApplied changes.
+	proxyChanged chan struct{}
+	wakes        *waker
 
 	trigger chan struct{}
 
@@ -171,6 +178,9 @@ func New(cfg Config) *Agent {
 		trigger:   make(chan struct{}, 1),
 
 		crashBase: crashBackoff,
+
+		proxyChanged: make(chan struct{}),
+		wakes:        newWaker(),
 	}
 }
 
@@ -181,6 +191,9 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 	go a.reconcileLoop(ctx)
 	go a.usageLoop(ctx)
+	if a.cfg.WakeSocket != "" {
+		go a.serveWake(ctx)
+	}
 
 	backoff := time.Second
 	for {
@@ -556,6 +569,8 @@ func (a *Agent) applyProxy(ctx context.Context) {
 	}
 	a.mu.Lock()
 	a.proxyApplied = want
+	close(a.proxyChanged)
+	a.proxyChanged = make(chan struct{})
 	a.mu.Unlock()
 }
 

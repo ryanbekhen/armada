@@ -38,6 +38,7 @@ func (a *Agent) usageLoop(ctx context.Context) {
 	t := time.NewTicker(a.cfg.UsageInterval)
 	defer t.Stop()
 	prev := map[string]usageSample{}
+	totals := map[string]int64{}
 	for {
 		select {
 		case <-ctx.Done():
@@ -52,7 +53,7 @@ func (a *Agent) usageLoop(ctx context.Context) {
 			}
 		}
 		if lr != nil {
-			a.sampleLoad(ctx, lr, report)
+			totals = a.sampleLoad(ctx, lr, report, totals)
 		}
 		if sampled || report.LoadMeasured {
 			a.sendUsage(report)
@@ -97,17 +98,31 @@ func (a *Agent) sampleUsage(ctx context.Context, sr runtime.StatsReader, prev ma
 }
 
 // sampleLoad adds the requests in progress per replica at the node's
-// proxy. A proxy that cannot be read leaves the report unmeasured.
-func (a *Agent) sampleLoad(ctx context.Context, lr proxy.LoadReader, report *armadav1.UsageReport) {
+// proxy, and the requests sent to it since the previous sample (a counter
+// that went backwards, after a proxy reload, starts over). A proxy that
+// cannot be read leaves the report unmeasured. It returns the totals for
+// the next sample.
+func (a *Agent) sampleLoad(ctx context.Context, lr proxy.LoadReader, report *armadav1.UsageReport, prev map[string]int64) map[string]int64 {
 	load, err := lr.Load(ctx)
 	if err != nil {
 		a.log.Debug("read proxy load", "err", err)
-		return
+		return prev
 	}
 	report.LoadMeasured = true
+	next := make(map[string]int64, len(load))
 	for _, id := range slices.Sorted(maps.Keys(load)) {
-		report.Load = append(report.Load, &armadav1.ReplicaLoad{Id: id, InFlight: load[id]})
+		l := load[id]
+		next[id] = l.Total
+		var requests int64
+		if p, ok := prev[id]; ok {
+			requests = l.Total - p
+			if requests < 0 {
+				requests = l.Total
+			}
+		}
+		report.Load = append(report.Load, &armadav1.ReplicaLoad{Id: id, InFlight: l.InFlight, Requests: requests})
 	}
+	return next
 }
 
 func (a *Agent) sendUsage(r *armadav1.UsageReport) {

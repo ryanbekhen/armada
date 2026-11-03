@@ -7,9 +7,11 @@ package haproxy
 import (
 	"cmp"
 	"fmt"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/ryanbekhen/armada/internal/proxy"
@@ -58,7 +60,18 @@ type renderOptions struct {
 const internalPort = 80
 
 func backendName(app string) string { return "be_" + app }
-func slotName(i int) string         { return "s" + strconv.Itoa(i+1) }
+
+// wakeBackendName is the backend of an app's wake socket (ADR 0023).
+func wakeBackendName(app string) string { return "wk_" + app }
+
+// WakeSocketFile is the agent's wake socket in the proxy's run directory,
+// the only place HAProxy and the agent share.
+const WakeSocketFile = "wake.sock"
+
+// WakeSocket returns the host path of the wake socket for a proxy
+// directory.
+func WakeSocket(dir string) string { return filepath.Join(runDir(dir), WakeSocketFile) }
+func slotName(i int) string        { return "s" + strconv.Itoa(i+1) }
 
 // stripField returns the field() index of the first path segment after
 // prefix: "/api" splits as "", "api", ... so the rest starts at field 3.
@@ -139,7 +152,11 @@ func render(cfg proxy.Config, layout Layout, opts renderOptions) []byte {
 			public = append(public, r)
 		}
 	}
-	writeRules(w, "r", public)
+	wake := map[string]bool{}
+	for _, be := range cfg.Backends {
+		wake[be.Name] = be.Wake
+	}
+	writeRules(w, "r", public, wake)
 	w("    default_backend be_armada_notfound")
 	w("")
 
@@ -149,7 +166,7 @@ func render(cfg proxy.Config, layout Layout, opts renderOptions) []byte {
 		w("    http-request set-header X-Forwarded-Proto http")
 		w("    http-request set-var(txn.host) req.hdr(host),field(1,:),lower")
 		w("    http-request set-var(txn.path) path")
-		writeRules(w, "i", internal)
+		writeRules(w, "i", internal, wake)
 		w("    default_backend be_armada_notfound")
 		w("")
 	}
@@ -177,6 +194,14 @@ func render(cfg proxy.Config, layout Layout, opts renderOptions) []byte {
 			}
 		}
 		w("")
+		if be.Wake {
+			w("backend %s", wakeBackendName(be.Name))
+			w("    http-request set-header %s %s", proxy.WakeHeader, be.Name)
+			// Long enough for a replica to start, then answer.
+			w("    timeout server %ds", int((proxy.WakeTimeout + 60*time.Second).Seconds()))
+			w("    server wake unix@%s/%s", containerRunDir, WakeSocketFile)
+			w("")
+		}
 	}
 
 	if cfg.ACMEAddress != "" {
@@ -191,7 +216,7 @@ func render(cfg proxy.Config, layout Layout, opts renderOptions) []byte {
 
 // writeRules emits the routing of one frontend. Route IDs are prefix plus
 // an index.
-func writeRules(w func(string, ...any), prefix string, rules []proxy.Rule) {
+func writeRules(w func(string, ...any), prefix string, rules []proxy.Rule, wake map[string]bool) {
 	rules = slices.Clone(rules)
 	// Longest path first so the most specific route wins; ties by host for
 	// deterministic output.
@@ -220,6 +245,11 @@ func writeRules(w func(string, ...any), prefix string, rules []proxy.Rule) {
 		match := fmt.Sprintf("{ var(txn.route) -m str %s }", id)
 		if r.StripPrefix {
 			w("    http-request set-path /%%[path,field(%d,/,0)] if %s", stripField(r.PathPrefix), match)
+		}
+		if wake[r.Backend] {
+			// No server up (scaled to zero, or starting): the request waits
+			// at the agent, which starts a replica (ADR 0023).
+			w("    use_backend %s if %s { nbsrv(%s) eq 0 }", wakeBackendName(r.Backend), match, backendName(r.Backend))
 		}
 		w("    use_backend %s if %s", backendName(r.Backend), match)
 	}

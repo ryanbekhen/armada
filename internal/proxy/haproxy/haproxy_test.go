@@ -41,7 +41,7 @@ func sampleConfig(t *testing.T) proxy.Config {
 				{Name: "api-bengkel-r3-b", Address: "10.0.0.3:32770"},
 				{Name: "api-bengkel-r3-a", Address: "10.0.0.2:32769"},
 			}},
-			{Name: "admin-panel", Servers: nil},
+			{Name: "admin-panel", Servers: nil, Wake: true}, // scaled to zero
 		},
 		Rules: []proxy.Rule{
 			{Host: "example.org", PathPrefix: "/", Backend: "frontend"},

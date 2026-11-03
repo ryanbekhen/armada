@@ -144,5 +144,5 @@ scaling up places replicas through `eligible()` and the capacity checks
   leads during a rolling upgrade, nothing scales, and the app keeps its
   count. Agents that predate it send no request counts, so `http` rules
   see only the nodes that do.
-- Scale to zero, queue rules, schedules, and custom metrics are not part
-  of this decision.
+- Queue rules, schedules, and custom metrics are not part of this
+  decision. Scale to zero builds on it in ADR 0023.

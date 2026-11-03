@@ -123,7 +123,8 @@ ready; see [ADR 0005](adr/0005-rolling-updates.md).
 
 ### `scale`
 
-`min` is the number of replicas to run, 1–100 (default 1). `max` defaults to
+`min` is the number of replicas to run, 0–100 (default 1; 0 only with
+`rules`, see "Scale to zero" below). `max` defaults to
 `min` and must not be lower; it only matters with `rules` (see
 "Autoscaling" below). Replicas are spread across ready, uncordoned
 nodes that the app's `placement` allows (a rollout spreads the new
@@ -169,6 +170,36 @@ scale:
   `ScaledDown` with the reason.
 - **Reserved rules.** `queue` rules (`list`, `length`) and `schedule` rules
   are rejected as not implemented yet.
+
+#### Scale to zero
+
+With `min: 0`, an app stops its last replica after `idleAfter` without
+requests, and the next request starts it again
+([ADR 0023](adr/0023-scale-to-zero.md)):
+
+```yaml
+ingress:
+  type: internal
+  port: 8080
+scale:
+  min: 0
+  max: 5
+  idleAfter: 30m      # default 15m, 1m to 24h
+  rules:
+    - type: http
+      concurrent: 20
+```
+
+- **Requirements.** `min: 0` needs `rules` and ingress (external or
+  internal). `idleAfter` is only valid with `min: 0`.
+- **First deploy.** A first deploy starts one replica.
+- **Waking up.** While the app is at zero, a request waits up to 60
+  seconds while Armada starts a replica, then gets its answer as usual. If
+  no replica is ready by then, it gets `503` with `Retry-After`. The wait is
+  a whole cold start (placement, image pull, start, readiness probe), so
+  small images and quick probes help.
+- **What counts as a request.** Only HTTP requests through Armada's proxy
+  count and wake the app.
 
 ### `resources`
 
@@ -299,4 +330,3 @@ until they are implemented:
 | --- | --- |
 | `revisions.mode: multiple`, `revisions.traffic` (traffic splitting) | v0.2 |
 | `scale.rules` of type `queue` or `schedule` | later |
-| `scale.min: 0` (scale to zero) | v0.3 |

@@ -206,7 +206,12 @@ func TestParseRejects(t *testing.T) {
 		{"probe period too short", ext + "probes:\n  readiness:\n    path: /h\n    period: 500ms\n", "probes.readiness.period", false},
 		{"probe timeout over period", ext + "probes:\n  readiness:\n    path: /h\n    period: 2s\n    timeout: 3s\n", "probes.readiness.timeout", false},
 		{"probe threshold", ext + "probes:\n  liveness:\n    path: /h\n    failureThreshold: 101\n", "probes.liveness.failureThreshold", false},
-		{"scale to zero", base + "scale:\n  min: 0\n", "scale.min", true},
+		{"zero without rules", ext + "scale:\n  min: 0\n  max: 3\n", "scale.min", false},
+		{"zero without ingress", base + "scale:\n  min: 0\n  max: 3\n  rules:\n    - type: cpu\n      utilization: 50\n", "scale.min", false},
+		{"zero without max", ext + "scale:\n  min: 0\n  rules:\n    - type: http\n      concurrent: 5\n", "scale.max", false},
+		{"idleAfter without zero", ext + "scale:\n  min: 1\n  max: 3\n  idleAfter: 5m\n  rules:\n    - type: http\n      concurrent: 5\n", "scale.idleAfter", false},
+		{"idleAfter too short", ext + "scale:\n  min: 0\n  max: 3\n  idleAfter: 30s\n  rules:\n    - type: http\n      concurrent: 5\n", "scale.idleAfter", false},
+		{"idleAfter too long", ext + "scale:\n  min: 0\n  max: 3\n  idleAfter: 25h\n  rules:\n    - type: http\n      concurrent: 5\n", "scale.idleAfter", false},
 		{"negative min", base + "scale:\n  min: -1\n", "scale.min", false},
 		{"too many replicas", base + "scale:\n  min: 101\n", "scale.min", false},
 		{"max below min", base + "scale:\n  min: 3\n  max: 2\n", "scale.max", false},
@@ -505,6 +510,21 @@ func TestParseAutoscaled(t *testing.T) {
 	b, _ := Parse([]byte("name: web\nimage: nginx\nscale:\n  min: 2\n"))
 	if lo, hi := b.ScaleBounds(); b.Autoscaled() || lo != 2 || hi != 2 {
 		t.Errorf("fixed: autoscaled=%v bounds=%d..%d", b.Autoscaled(), lo, hi)
+	}
+}
+
+func TestParseScaleToZero(t *testing.T) {
+	t.Parallel()
+	a, err := Parse([]byte("name: web\nimage: nginx\ningress:\n  type: internal\n  port: 80\nscale:\n  min: 0\n  max: 4\n  rules:\n    - type: http\n      concurrent: 10\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lo, hi := a.ScaleBounds(); !a.ScalesToZero() || lo != 0 || hi != 4 || a.Replicas() != 1 || a.IdleAfter() != DefaultIdleAfter {
+		t.Errorf("zero=%v bounds=%d..%d replicas=%d idle=%v", a.ScalesToZero(), lo, hi, a.Replicas(), a.IdleAfter())
+	}
+	b, err := Parse([]byte("name: web\nimage: nginx\ningress:\n  type: internal\n  port: 80\nscale:\n  min: 0\n  max: 4\n  idleAfter: 2m\n  rules:\n    - type: http\n      concurrent: 10\n"))
+	if err != nil || b.IdleAfter() != 2*time.Minute {
+		t.Errorf("idleAfter: %v %v", b.IdleAfter(), err)
 	}
 }
 

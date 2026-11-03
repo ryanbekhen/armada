@@ -129,7 +129,13 @@ func (a *App) Autoscaled() bool {
 
 // ScaleBounds returns scale.min and scale.max. It assumes a validated spec.
 func (a *App) ScaleBounds() (lo, hi int) {
-	lo = a.Replicas()
+	if a.IsJob() {
+		return 0, 0
+	}
+	lo = 1
+	if a.Scale != nil && a.Scale.Min != nil {
+		lo = *a.Scale.Min
+	}
 	hi = lo
 	if a.Scale != nil && a.Scale.Max != nil {
 		hi = *a.Scale.Max
@@ -137,16 +143,31 @@ func (a *App) ScaleBounds() (lo, hi int) {
 	return lo, hi
 }
 
-// Replicas is the number of replicas a deploy starts with (scale.min); the
-// autoscaler may change it later. Jobs run none outside their runs.
+// ScalesToZero reports whether the app stops its last replica when idle
+// (ADR 0023).
+func (a *App) ScalesToZero() bool {
+	lo, _ := a.ScaleBounds()
+	return a.Autoscaled() && lo == 0
+}
+
+// IdleAfter returns how long an app that scales to zero may go without a
+// request before it does.
+func (a *App) IdleAfter() time.Duration {
+	if a.Scale == nil || a.Scale.IdleAfter == 0 {
+		return DefaultIdleAfter
+	}
+	return a.Scale.IdleAfter.D()
+}
+
+// Replicas is the number of replicas a deploy starts with (scale.min, and
+// one for an app that scales to zero, so a deploy shows the image runs);
+// the autoscaler may change it later. Jobs run none outside their runs.
 func (a *App) Replicas() int {
 	if a.IsJob() {
 		return 0
 	}
-	if a.Scale == nil || a.Scale.Min == nil {
-		return 1
-	}
-	return *a.Scale.Min
+	lo, _ := a.ScaleBounds()
+	return max(lo, 1)
 }
 
 // MemoryBytes returns the memory limit. It assumes a validated spec.
@@ -216,6 +237,9 @@ func (v *validator) add(field, format string, args ...any) {
 func (v *validator) unsupported(field, msg string) {
 	v.errs = append(v.errs, &FieldError{Field: field, Msg: msg, Err: ErrUnsupported})
 }
+
+// ValidName reports whether s is a valid app, job, or secret name.
+func ValidName(s string) bool { return len(s) <= 63 && nameRe.MatchString(s) }
 
 func (v *validator) name(field, s string) {
 	switch {
@@ -453,9 +477,21 @@ func (v *validator) scale(s *Scale, ing *Ingress) {
 	minR, maxR := *s.Min, *s.Max
 	switch {
 	case minR == 0:
-		v.unsupported("scale.min", "scale to zero is planned for v0.3")
+		if len(s.Rules) == 0 {
+			v.add("scale.min", "can be 0 only with scale.rules, which take over once the app has woken up")
+		}
+		if ing == nil || ing.Type == IngressNone || ing.Type == "" {
+			v.add("scale.min", "can be 0 only with ingress (external or internal): a request wakes the app")
+		}
 	case minR < 0 || minR > MaxReplicas:
-		v.add("scale.min", "must be between 1 and %d", MaxReplicas)
+		v.add("scale.min", "must be between 0 and %d", MaxReplicas)
+	}
+	switch idle := s.IdleAfter.D(); {
+	case idle == 0:
+	case minR != 0:
+		v.add("scale.idleAfter", "is only valid with scale.min: 0")
+	case idle < MinIdleAfter || idle > MaxIdleAfter:
+		v.add("scale.idleAfter", "must be between %s and %s", MinIdleAfter, MaxIdleAfter)
 	}
 	if maxR < minR || maxR > MaxReplicas {
 		v.add("scale.max", "must be between scale.min and %d", MaxReplicas)
@@ -470,6 +506,11 @@ const (
 	ScaleMemory = "memory"
 
 	MaxConcurrent = 10000
+
+	// Scale to zero (ADR 0023).
+	DefaultIdleAfter = 15 * time.Minute
+	MinIdleAfter     = time.Minute
+	MaxIdleAfter     = 24 * time.Hour
 )
 
 func (v *validator) scaleRules(s *Scale, ing *Ingress) {
