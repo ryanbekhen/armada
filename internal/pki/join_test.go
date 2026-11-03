@@ -262,3 +262,38 @@ func TestFetchPinnedCA(t *testing.T) {
 		t.Error("dead address accepted")
 	}
 }
+
+func TestSignMetricsCSR(t *testing.T) {
+	t.Parallel()
+	ca, err := NewCA("test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The CA decides the identity: a CSR asking for admin still gets a
+	// metrics certificate.
+	_, csr, err := NewCSR(Identity{Kind: KindAdmin, Name: "root"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := ca.SignMetricsCSR(csr, "prometheus")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cert, err := ParseCertPEM(c.PEM)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, err := IdentityFromCert(cert)
+	if err != nil || id != (Identity{Kind: KindMetrics, Name: "prometheus"}) {
+		t.Errorf("identity %v, %v", id, err)
+	}
+	if life := time.Until(cert.NotAfter); life < LeafValidity-time.Hour || life > LeafValidity {
+		t.Errorf("lifetime %s", life)
+	}
+	if len(cert.ExtKeyUsage) != 1 || cert.ExtKeyUsage[0] != x509.ExtKeyUsageClientAuth {
+		t.Errorf("usages %v", cert.ExtKeyUsage)
+	}
+	if _, err := ca.SignMetricsCSR(csr, "../bad"); err == nil {
+		t.Error("invalid name accepted")
+	}
+}

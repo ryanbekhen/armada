@@ -94,7 +94,12 @@ func ParseCAHash(s string) (string, error) {
 // NewNodeCSR creates a node key and a certificate request for it. The key
 // never leaves the node.
 func NewNodeCSR(node string) (keyPEM, csrDER []byte, err error) {
-	id := Identity{Kind: KindNode, Name: node}
+	return NewCSR(Identity{Kind: KindNode, Name: node})
+}
+
+// NewCSR creates a key and a certificate request for id. The key stays
+// with the caller; the CA decides the identity it signs anyway.
+func NewCSR(id Identity) (keyPEM, csrDER []byte, err error) {
 	if _, err := ParseIdentity(id.String()); err != nil {
 		return nil, nil, err
 	}
@@ -124,7 +129,19 @@ type NodeCert struct {
 // the CA, so a node cannot request a different name, a server certificate,
 // or extra extensions. The key must be ECDSA P-256 and the CSR self-signed.
 func (ca *CA) SignNodeCSR(csrDER []byte, node string, validity time.Duration) (NodeCert, error) {
-	id := Identity{Kind: KindNode, Name: node}
+	if validity <= 0 || validity > NodeValidity {
+		validity = NodeValidity
+	}
+	return ca.signClientCSR(csrDER, Identity{Kind: KindNode, Name: node}, validity)
+}
+
+// SignMetricsCSR issues a client certificate for the metrics endpoint
+// (ADR 0019) from a CSR, like SignNodeCSR. It lasts LeafValidity.
+func (ca *CA) SignMetricsCSR(csrDER []byte, name string) (NodeCert, error) {
+	return ca.signClientCSR(csrDER, Identity{Kind: KindMetrics, Name: name}, LeafValidity)
+}
+
+func (ca *CA) signClientCSR(csrDER []byte, id Identity, validity time.Duration) (NodeCert, error) {
 	if _, err := ParseIdentity(id.String()); err != nil {
 		return NodeCert{}, err
 	}
@@ -138,9 +155,6 @@ func (ca *CA) SignNodeCSR(csrDER []byte, node string, validity time.Duration) (N
 	pub, ok := csr.PublicKey.(*ecdsa.PublicKey)
 	if !ok || pub.Curve != elliptic.P256() {
 		return NodeCert{}, errors.New("CSR key must be ECDSA P-256")
-	}
-	if validity <= 0 || validity > NodeValidity {
-		validity = NodeValidity
 	}
 	serial, err := newSerial()
 	if err != nil {

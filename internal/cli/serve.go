@@ -67,6 +67,7 @@ func newServerCommand(g *globals) *cobra.Command {
 		secretsDir  string
 		internalDNS bool
 		joinListen  string
+		metrics     string
 		lostTimeout time.Duration
 		tls         tlsFlags
 	)
@@ -128,6 +129,11 @@ func newServerCommand(g *globals) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if metrics != "" {
+				if err := netutil.CheckPrivateListen(metrics); err != nil {
+					return fmt.Errorf("--metrics-listen: %w", err)
+				}
+			}
 			var joinTLS *stdtls.Config
 			if joinAddr != "" {
 				if joinTLS, err = pki.JoinServerTLS(pem[0], pem[1], pem[2]); err != nil {
@@ -163,6 +169,7 @@ func newServerCommand(g *globals) *cobra.Command {
 					Secrets: keys,
 					CA:      ca, JoinAddr: joinAddr, JoinTLS: joinTLS, APIAddr: listen,
 					NodeLostTimeout: lostTimeout,
+					MetricsAddr:     metrics,
 					Name:            id.Name, Cluster: etcd.Cluster{C: member.Client()},
 				}
 				if tlsOn {
@@ -207,6 +214,7 @@ func newServerCommand(g *globals) *cobra.Command {
 	f.StringVar(&secretsDir, "secrets-dir", defaultSecretsDir, "tmpfs directory for the embedded agent's secret files")
 	f.BoolVar(&internalDNS, "internal-dns", true, "serve <app>.internal to containers on this node (needs --proxy haproxy)")
 	f.StringVar(&joinListen, "join-listen", "", "private ip:port for joining nodes (default: API port + 1; \"off\" disables joining)")
+	f.StringVar(&metrics, "metrics-listen", "", "private ip:port for the Prometheus metrics endpoint, served by the leader to metrics and admin certificates (default: off)")
 	f.DurationVar(&lostTimeout, "node-lost-timeout", server.DefaultNodeLostTimeout, "how long a node may be unreachable before its replicas move to other nodes")
 	tls.register(cmd)
 	cmd.AddCommand(newServerJoinCommand(), newServerListCommand(g), newServerRemoveCommand(g))

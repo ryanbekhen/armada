@@ -223,6 +223,7 @@ control plane. See [operations](operations.md#control-plane-one-server-or-three)
 | Logs | `armada logs hello -f` |
 | Shell in a replica | `armada exec hello -it -- sh` (a single command: `armada exec hello -- env`) |
 | CPU and memory use | `armada top` (one app's replicas: `armada top hello`; nodes: `armada top --nodes`) |
+| Prometheus metrics | add `--metrics-listen PRIVATE_IP:9443` to `ARMADA_SERVER_FLAGS`, then `armada metrics credentials prometheus` for the scraper (see [operations](operations.md#metrics)) |
 | Scale | `armada scale hello 3` |
 | Secrets | `armada secret set hello api-key < key.txt`, then reference it with `secretRef` |
 | Custom domain | add it under `ingress.domains`, publish the TXT record from `armada domain list`, run `armada domain verify www.example.com` |

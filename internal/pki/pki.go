@@ -33,6 +33,8 @@ const (
 	// Every member shares one identity (EtcdMember), so servers can join
 	// without reconfiguring the others; the Armada API never authorizes it.
 	KindEtcd = "etcd"
+	// KindMetrics may only scrape the metrics endpoint (ADR 0019).
+	KindMetrics = "metrics"
 )
 
 // EtcdMember is the identity of every etcd member certificate.
@@ -69,7 +71,7 @@ func ParseIdentity(cn string) (Identity, error) {
 		return Identity{}, fmt.Errorf("common name %q is not an armada identity", cn)
 	}
 	switch kind {
-	case KindAdmin, KindNode, KindServer, KindEtcd:
+	case KindAdmin, KindNode, KindServer, KindEtcd, KindMetrics:
 	default:
 		return Identity{}, fmt.Errorf("unknown identity kind %q", kind)
 	}
