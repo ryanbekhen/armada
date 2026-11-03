@@ -388,6 +388,52 @@ func TestCordonOnlyNodeKeepsReplicas(t *testing.T) {
 	}
 }
 
+// A replica of an app that publishes no port works without being in any
+// proxy: cordoning its only node keeps it, and once another node can take
+// it, it leaves only after its replacement runs.
+func TestCordonKeepsWorkerReplicas(t *testing.T) {
+	t.Parallel()
+	c := newCluster(t)
+	d1 := c.addNode("n1", "10.0.0.11")
+	c.deploy("name: worker\nimage: busybox:1\nscale:\n  min: 1\n  max: 1\n")
+	c.eventually("running", func() bool { return len(c.running("worker")) == 1 })
+	if _, err := c.admin.CordonNode(c.ctx, &armadav1.CordonNodeRequest{Node: "n1", Cordoned: true}); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(300 * time.Millisecond)
+	if containerCount(d1) != 1 || len(c.running("worker")) != 1 {
+		t.Fatal("the only worker replica was evacuated to nowhere")
+	}
+
+	// Watch from here on: worker must never have no running replica.
+	stop := make(chan struct{})
+	gap := make(chan bool, 1)
+	go func() {
+		for {
+			select {
+			case <-stop:
+				gap <- false
+				return
+			default:
+			}
+			if len(c.running("worker")) == 0 {
+				gap <- true
+				return
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+	}()
+	d2 := c.addNode("n2", "10.0.0.12")
+	c.eventually("moved to n2", func() bool {
+		rs := c.running("worker")
+		return containerCount(d1) == 0 && containerCount(d2) == 1 && len(rs) == 1 && rs[0].NodeId == "n2"
+	})
+	close(stop)
+	if <-gap {
+		t.Error("worker had no running replica during the move")
+	}
+}
+
 // TestAgentRenewsBeforeExpiry runs a joined agent whose certificates live
 // three seconds: it must keep its session past the first certificate's expiry
 // by renewing and reconnecting.

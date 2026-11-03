@@ -30,7 +30,9 @@ node. A node cut off from the control plane may still serve traffic.
   once enough replacements serve, through the same path as cordon
   evacuation. If the node was only partitioned, it keeps serving until its
   replacements take over; a single-replica app is never left without a
-  replica because its only copy was dropped first.
+  replica because its only copy was dropped first. This holds for apps that
+  publish no port as well: their running, ready replicas count as serving
+  without an address.
 - **Partition guard:** if more nodes are lost than ready, nothing is
   rescheduled. In that situation the control plane is more likely the one
   cut off, and rescheduling would empty healthy nodes.
