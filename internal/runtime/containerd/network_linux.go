@@ -10,6 +10,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/containerd/containerd/v2/pkg/netns"
@@ -100,12 +101,25 @@ func (n *cniNetwork) Ensure(context.Context) error {
 			return fmt.Errorf("address bridge %s: %w", embedded.BridgeName, err)
 		}
 	}
+	// A fixed address: otherwise the bridge takes its ports' addresses as
+	// containers come and go (see bridgeMAC).
+	mac := bridgeMAC(n.bridge.Gateway)
+	assigned, _ := os.ReadFile(filepath.Join("/sys/class/net", embedded.BridgeName, "addr_assign_type"))
+	if link.Attrs().HardwareAddr.String() != mac.String() || strings.TrimSpace(string(assigned)) != addrAssignSet {
+		if err := netlink.LinkSetHardwareAddr(link, mac); err != nil {
+			return fmt.Errorf("set address of bridge %s: %w", embedded.BridgeName, err)
+		}
+	}
 	if err := netlink.LinkSetUp(link); err != nil {
 		return err
 	}
 	n.ready = true
 	return nil
 }
+
+// addrAssignSet is NET_ADDR_SET in addr_assign_type: the address was set
+// by hand, and the kernel no longer changes it.
+const addrAssignSet = "3"
 
 func (n *cniNetwork) runtimeConf(id, path string, pm *portMapping) *libcni.RuntimeConf {
 	rt := &libcni.RuntimeConf{ContainerID: id, NetNS: path, IfName: "eth0"}

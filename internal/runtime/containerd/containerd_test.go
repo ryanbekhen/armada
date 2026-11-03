@@ -319,3 +319,23 @@ func TestCPUShares(t *testing.T) {
 		}
 	}
 }
+
+func TestBridgeMAC(t *testing.T) {
+	t.Parallel()
+	b, err := BridgeOf(netip.MustParsePrefix("10.121.0.0/24"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mac := bridgeMAC(b.Gateway)
+	if mac.String() != "02:41:0a:79:00:01" {
+		t.Errorf("bridgeMAC = %s", mac)
+	}
+	// Locally administered (bit 1) and unicast (bit 0 clear).
+	if mac[0]&0x02 == 0 || mac[0]&0x01 != 0 {
+		t.Errorf("%s is not a locally administered unicast address", mac)
+	}
+	other, _ := BridgeOf(netip.MustParsePrefix("10.122.0.0/24"))
+	if bridgeMAC(other.Gateway).String() == mac.String() {
+		t.Error("two subnets share a bridge address")
+	}
+}

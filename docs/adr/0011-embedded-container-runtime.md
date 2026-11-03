@@ -124,7 +124,12 @@ Armada's and visible in one place:
 - One bridge per node, `armada0`, with a configurable subnet
   (`--container-subnet`, default `10.121.0.0/24`). The agent creates it at
   start, so internal DNS and the internal ingress (ADR 0007) can bind to
-  its gateway before any container exists.
+  its gateway before any container exists. The bridge gets a fixed,
+  locally administered hardware address derived from its gateway.
+  Otherwise the kernel gives it the lowest address of its ports, which
+  changes as containers come and go. Containers would then send to an old
+  address until their ARP entry expires, and connections to their
+  published ports would hang for seconds.
 - Containers join it through the CNI chain `bridge` (gateway, masquerade
   for egress) + `host-local` IPAM + `portmap` + `firewall`. IPAM state and
   the plugin cache live on tmpfs under `/run/armada/cni`, since the
