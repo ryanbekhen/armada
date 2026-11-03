@@ -808,6 +808,10 @@ message ProxyBackend {
   // The app scales to zero: with no replica to serve, requests wait at the
   // agent while it starts one (ADR 0023).
   bool wake = 4;
+  // Each node's proxy prefers the app's replicas on its own node while
+  // they are no busier than the app's replicas overall (ADR 0026). Off for
+  // traffic splitting, which needs every server to keep its weight.
+  bool local_first = 5;
 }
 
 message ProxyServer {

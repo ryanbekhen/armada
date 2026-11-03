@@ -303,6 +303,20 @@ Nodes may be far apart: agents cope with latency. Keep the **control plane
 servers** close to each other (the same city or region), since every change
 needs a round trip between them.
 
+## How requests reach replicas
+
+Every node's HAProxy serves the app's public domains and `<app>.internal`,
+and sends each request to one of the app's ready replicas. It prefers the
+replicas on its own node while they are no busier than the app's replicas
+overall, and spreads the rest over every replica
+([ADR 0026](adr/0026-local-first-routing.md)). At low load a request never
+leaves the node that received it; under load, and when the node has no
+replica up, the others take the excess. Apps that split traffic between
+revisions are balanced over every replica by weight instead.
+
+So point public DNS at every node that should take traffic: a node that
+receives more requests keeps its replicas busier, up to the average.
+
 ## Running commands in replicas
 
 `armada exec` runs a command in one replica of an app and exits with the

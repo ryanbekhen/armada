@@ -5,7 +5,7 @@
 
 ## Context
 
-Apps with `ingress: internal` must be reachable by other apps in the cluster as `http://<app>.internal`, from any node, but never from the internet. Replicas run on the node's container bridge and publish their port on the node's private IP. Every node already runs HAProxy (host network), which load balances and health checks every app's replicas across all nodes.
+Apps with `ingress: internal` must be reachable by other apps in the cluster as `http://<app>.internal`, from any node, but never from the internet. Replicas run on the node's container bridge and publish their port on the node's private IP. Every node already runs HAProxy (host network), which load balances and health checks every app's replicas across all nodes (preferring its own node's replicas since ADR 0026).
 
 The obvious design binds an internal HAProxy frontend to the node's private IP on port 80. That address is not a reliable boundary. On providers with 1:1 NAT (the public address is not on the interface), internet traffic to port 80 arrives with the private IP as its destination. A provider load balancer on the private network forwards public traffic from private source addresses. Either way, public traffic could reach the internal frontend.
 

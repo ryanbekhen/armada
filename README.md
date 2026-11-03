@@ -45,6 +45,9 @@ armada deploy -f web.yaml    # → https://web.apps.example.com
   domains after TXT ownership verification.
 - **Internal services.** `ingress: internal` apps are reachable from any
   container in the cluster at `http://<app>.internal`, never from outside.
+- **Local-first routing.** Each node sends requests to its own replicas
+  while they are no busier than the rest, and spreads the excess over every
+  node, so most requests never cross the network.
 - **Secrets.** Encrypted at rest, versioned, delivered as env vars or as
   read-only files on tmpfs.
 - **Logs and exec.** `armada logs` streams a replica's output;

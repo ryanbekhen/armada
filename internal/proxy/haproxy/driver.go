@@ -127,8 +127,8 @@ func (d *Driver) Apply(ctx context.Context, cfg proxy.Config) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	layout := assignLayout(d.layout, cfg)
 	opts := renderOptions{PrivateIP: d.cfg.PrivateIP, InternalIP: d.cfg.InternalIP}
+	layout := assignLayout(d.layout, cfg, opts.PrivateIP)
 	sig := signature(cfg, layout, opts)
 	content := render(cfg, layout, opts)
 	if content == nil {
@@ -175,7 +175,7 @@ func (d *Driver) Apply(ctx context.Context, cfg proxy.Config) error {
 	// Same structure: update servers and certificates live. New servers are
 	// enabled before old ones leave, so a backend never runs empty in
 	// between (one replica being replaced by another).
-	desired := desiredServers(cfg, layout)
+	desired := desiredServers(cfg, layout, opts.PrivateIP)
 	for _, enable := range []bool{true, false} {
 		for _, key := range sortedKeys(desired) {
 			cur, want := d.applied[key], desired[key]
@@ -220,7 +220,7 @@ func (d *Driver) writeValidated(ctx context.Context, cfgPath string, content []b
 func (d *Driver) commit(sig string, layout Layout, cfg proxy.Config) {
 	d.sig = sig
 	d.layout = layout
-	d.applied = desiredServers(cfg, layout)
+	d.applied = desiredServers(cfg, layout, d.cfg.PrivateIP)
 }
 
 // slot is what a server slot serves: a replica's address and its weight
@@ -321,17 +321,17 @@ func (d *Driver) Health(ctx context.Context) error {
 }
 
 // assignLayout keeps replicas in the slot they already occupy and puts new
-// ones in the lowest free slot.
-func assignLayout(prev Layout, cfg proxy.Config) Layout {
+// ones in the lowest free slot, for every slotted backend of a node.
+func assignLayout(prev Layout, cfg proxy.Config, privateIP string) Layout {
 	next := Layout{}
-	for _, be := range cfg.Backends {
-		n := slotCount(len(be.Servers))
+	for _, p := range pools(cfg, privateIP) {
+		n := slotCount(len(p.servers))
 		slots := make([]string, n)
 		want := map[string]bool{}
-		for _, s := range be.Servers {
+		for _, s := range p.servers {
 			want[s.Name] = true
 		}
-		for i, name := range prev[be.Name] {
+		for i, name := range prev[p.name] {
 			if i < n && want[name] {
 				slots[i] = name
 				delete(want, name)
@@ -345,25 +345,25 @@ func assignLayout(prev Layout, cfg proxy.Config) Layout {
 				}
 			}
 		}
-		next[be.Name] = slots
+		next[p.name] = slots
 	}
 	return next
 }
 
-func desiredServers(cfg proxy.Config, layout Layout) map[string]slot {
+func desiredServers(cfg proxy.Config, layout Layout, privateIP string) map[string]slot {
 	out := map[string]slot{}
-	for _, be := range cfg.Backends {
+	for _, p := range pools(cfg, privateIP) {
 		slots := map[string]slot{}
-		for _, s := range be.Servers {
+		for _, s := range p.servers {
 			slots[s.Name] = slot{Addr: s.Address, Weight: s.EffectiveWeight()}
 		}
-		for i, name := range layout[be.Name] {
+		for i, name := range layout[p.name] {
 			// A free slot is rendered with the default weight.
 			want, ok := slots[name]
 			if !ok {
 				want = slot{Weight: 1}
 			}
-			out[backendName(be.Name)+"/"+slotName(i)] = want
+			out[p.name+"/"+slotName(i)] = want
 		}
 	}
 	return out
@@ -377,6 +377,7 @@ func signature(cfg proxy.Config, layout Layout, opts renderOptions) string {
 		Name, Health string
 		Slots        int
 		Wake         bool
+		LocalSlots   int
 	}
 	s := struct {
 		Opts     renderOptions
@@ -386,7 +387,7 @@ func signature(cfg proxy.Config, layout Layout, opts renderOptions) string {
 		Certs    []string
 	}{Opts: opts, ACME: cfg.ACMEAddress}
 	for _, b := range cfg.Backends {
-		s.Backends = append(s.Backends, be{b.Name, b.HealthPath, len(layout[b.Name]), b.Wake})
+		s.Backends = append(s.Backends, be{b.Name, b.HealthPath, len(layout[backendName(b.Name)]), b.Wake, len(layout[localBackendName(b.Name)])})
 	}
 	slices.SortFunc(s.Backends, func(a, b be) int { return strings.Compare(a.Name, b.Name) })
 	s.Rules = slices.Clone(cfg.Rules)
