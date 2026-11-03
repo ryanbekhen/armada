@@ -37,10 +37,11 @@ go test -tags integration -run Integration ./internal/proxy/haproxy/   # haproxy
 sudo ARMADA_BIN=/usr/local/bin/armada go test -tags integration -run Conformance ./internal/runtime/containerd/   # driver conformance suite on the embedded runtime (on a node)
 ARMADA_TEST_RAMDISK=1 go test ./internal/agent/ -run TestSecretsRAMDisk   # mounts a real RAM disk (macOS; CI's macos job)
 goreleaser check                                 # validate .goreleaser.yaml
-shellcheck install.sh scripts/*.sh test/e2e/*.sh && sh test/install_test.sh # shell scripts + installer tests (Linux)
+shellcheck install.sh scripts/*.sh test/e2e/*.sh test/bench/*.sh && sh test/install_test.sh # shell scripts + installer tests (Linux)
 sh scripts/check-commits.sh origin/main..HEAD    # commit subjects (Conventional Commits, checked in CI)
 sh scripts/sync-labels.sh                        # create/update repo labels from .github/labels.json (also done by CI)
 sh test/e2e/cluster.sh HOSTS                     # end to end on real machines (test/e2e/README.md; before releases)
+BENCH_WIPE=yes sh test/bench/network.sh HOSTS    # network benchmark between two machines: plain vs WireGuard prototype (test/bench/README.md)
 armada doctor                                    # pre-flight checks on a node
 armada backup -o FILE / armada restore FILE      # control plane backup and restore
 armada runtime [--bin-dir DIR] / armada runtime reset   # embedded containerd (systemd unit) / remove Armada's containers
