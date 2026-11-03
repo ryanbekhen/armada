@@ -35,7 +35,8 @@ volumes:
   directory (not its contents) whenever a replica starts, so an owner added
   later applies too. Without it a new directory belongs to root. The
   directory is mode 0700, so an image that runs as another user names its
-  owner.
+  owner. An agent run by a user (macOS nodes, ADR 0016) cannot give files
+  away and skips it; there the driver's file sharing decides ownership.
 - **One replica.** An app with volumes runs exactly one replica: its
   `scale` may only say `min: 1` and `max: 1`, with no rules. Scale to zero,
   multiple revision mode, and jobs with volumes are rejected. Two containers

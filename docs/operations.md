@@ -759,6 +759,9 @@ On the Mac:
   `armada restore`, and `armada runtime` refuse to run.
 - Containers on the Mac cannot resolve or reach `<app>.internal`; call
   other apps through their public domains.
+- Volumes live in the data directory's `volumes`. The agent cannot give
+  files to another user, so a volume's `owner` is not applied; who owns the
+  files in the container depends on the driver (see its documentation).
 
 To keep apps off Mac nodes unless they ask for one, restrict the node and
 give it a label that those apps require:
