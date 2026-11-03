@@ -223,6 +223,12 @@ func (d *Driver) Run(ctx context.Context, s runtime.ContainerSpec) (string, erro
 	for _, f := range s.Files {
 		ks.Files = append(ks.Files, driverkit.FileMount{Source: f.Source, Target: f.Target})
 	}
+	if len(s.Volumes) > 0 && !d.CanMountVolumes() {
+		return "", errors.New("the runtime driver does not mount volumes")
+	}
+	for _, v := range s.Volumes {
+		ks.Volumes = append(ks.Volumes, driverkit.VolumeMount{Source: v.Source, Target: v.Target})
+	}
 	resp, err := d.client.Run(ctx, &driverv1.RunRequest{Spec: driverkit.ContainerSpecToProto(ks)})
 	if err != nil {
 		return "", wrap(err)

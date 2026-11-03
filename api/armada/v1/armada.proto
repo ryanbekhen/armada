@@ -15,6 +15,12 @@ service AdminService {
   // SetTraffic changes how an app in multiple revision mode splits
   // requests, until its next deploy (ADR 0024).
   rpc SetTraffic(SetTrafficRequest) returns (SetTrafficResponse);
+  // Volumes (ADR 0025): list them, remove one, and stream a backup of one
+  // out of, or a restore into, the node that holds it.
+  rpc ListVolumes(ListVolumesRequest) returns (ListVolumesResponse);
+  rpc RemoveVolume(RemoveVolumeRequest) returns (RemoveVolumeResponse);
+  rpc BackupVolume(BackupVolumeRequest) returns (stream VolumeData);
+  rpc RestoreVolume(stream RestoreVolumeMessage) returns (RestoreVolumeResponse);
   rpc Logs(LogsRequest) returns (stream LogEntry);
   rpc GetClusterConfig(GetClusterConfigRequest) returns (ClusterConfig);
   rpc SetClusterConfig(SetClusterConfigRequest) returns (ClusterConfig);
@@ -617,6 +623,10 @@ service AgentService {
   // ExecSession serves one ExecRequest: the agent sends output, the server
   // sends input. The agent's first message must set request_id.
   rpc ExecSession(stream ExecSessionOutput) returns (stream ExecInput);
+  // VolumeSession serves one VolumeRequest: archive data flows out of the
+  // agent for a backup and into it for a restore. The agent's first
+  // message must set request_id.
+  rpc VolumeSession(stream VolumeData) returns (stream VolumeData);
   // RenewCertificate issues a new certificate for the calling node's
   // identity from a CSR for a new key.
   rpc RenewCertificate(RenewCertificateRequest) returns (RenewCertificateResponse);
@@ -663,6 +673,9 @@ message Hello {
   // The agent runs job replicas to completion (ADR 0021); runs are only
   // placed on nodes whose agent says so.
   bool jobs = 9;
+  // The node mounts volumes (ADR 0025): its runtime can, and the agent has
+  // a directory for them.
+  bool volumes = 10;
 }
 
 message ReplicaReport {
@@ -697,6 +710,16 @@ message UsageReport {
   repeated ReplicaLoad load = 2;
   // Whether the node's proxy was read; false for nodes without a proxy.
   bool load_measured = 3;
+  // Disk use of the volumes on the node, measured about once a minute
+  // (ADR 0025); unset in reports between measurements.
+  repeated VolumeUsage volumes = 4;
+  bool volumes_measured = 5;
+}
+
+message VolumeUsage {
+  string app = 1;
+  string volume = 2;
+  int64 bytes = 3;
 }
 
 message ReplicaLoad {
@@ -721,7 +744,40 @@ message ServerMessage {
     LogRequest log_request = 2;
     LogCancel log_cancel = 3;
     ExecRequest exec_request = 4;
+    VolumeRequest volume_request = 5;
   }
+}
+
+// VolumeRequest asks the agent to open a VolumeSession for a volume it
+// holds (ADR 0025).
+message VolumeRequest {
+  enum Op {
+    OP_UNSPECIFIED = 0;
+    // Send the volume as a gzipped tar.
+    OP_BACKUP = 1;
+    // Replace the volume's contents with a gzipped tar the server sends.
+    OP_RESTORE = 2;
+    // Delete the volume's directory.
+    OP_REMOVE = 3;
+  }
+  string request_id = 1;
+  Op op = 2;
+  string app = 3;
+  string volume = 4;
+  // Stop the app's container on the node for the operation (always for
+  // restores and removals).
+  bool stop = 5;
+}
+
+// VolumeData carries one chunk of a volume archive, at most 64 KiB.
+message VolumeData {
+  // The agent's first message only.
+  string request_id = 1;
+  bytes data = 2;
+  // The last message: the archive is complete, or the operation is done.
+  bool done = 3;
+  // The operation failed; the last message.
+  string error = 4;
 }
 
 // Assignment is the complete desired set of replicas for the node. Replicas
@@ -803,6 +859,17 @@ message ReplicaSpec {
   int64 cpu_reserve_millis = 17;
   // Set for a replica that runs one attempt of a job run (ADR 0021).
   JobAttempt job = 18;
+  // Persistent volumes on this node (ADR 0025).
+  repeated VolumeSpec volumes = 19;
+}
+
+message VolumeSpec {
+  string name = 1;
+  // Where it appears in the container.
+  string path = 2;
+  // "uid:gid" of the directory, applied whenever a replica starts; empty:
+  // left as it is (root when created).
+  string owner = 3;
 }
 
 // JobAttempt marks a replica the agent runs to completion: it never
@@ -937,4 +1004,63 @@ message ExecSessionOutput {
     // The last message when it could not run.
     string error = 5;
   }
+}
+
+message ListVolumesRequest {
+  // Empty: every app's.
+  string app = 1;
+}
+
+message ListVolumesResponse {
+  repeated Volume volumes = 1;
+}
+
+// Volume is a persistent volume bound to a node (ADR 0025).
+message Volume {
+  string app = 1;
+  string name = 2;
+  string node = 3;
+  google.protobuf.Timestamp created_at = 4;
+  // The app's current spec uses it.
+  bool in_use = 5;
+  // Disk use from the node's latest measurement; -1: unknown.
+  int64 used_bytes = 6;
+  // Where it appears in the container, while in use.
+  string path = 7;
+}
+
+message RemoveVolumeRequest {
+  string app = 1;
+  string name = 2;
+}
+
+message RemoveVolumeResponse {}
+
+message BackupVolumeRequest {
+  string app = 1;
+  string name = 2;
+  // Stop the app's replica during the backup, for a consistent copy.
+  bool stop = 3;
+}
+
+message RestoreVolumeMessage {
+  oneof msg {
+    // The first message.
+    RestoreVolumeStart start = 1;
+    // Then the gzipped tar, in chunks of at most 64 KiB; an empty stream
+    // end completes it.
+    bytes data = 2;
+  }
+}
+
+message RestoreVolumeStart {
+  string app = 1;
+  string name = 2;
+  // Restore onto this node instead of the volume's own, e.g. when its node
+  // is lost; the volume is bound to it afterwards.
+  string node = 3;
+}
+
+message RestoreVolumeResponse {
+  string node = 1;
 }

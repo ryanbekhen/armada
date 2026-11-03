@@ -23,6 +23,10 @@ const (
 	AdminService_Status_FullMethodName                  = "/armada.v1.AdminService/Status"
 	AdminService_Scale_FullMethodName                   = "/armada.v1.AdminService/Scale"
 	AdminService_SetTraffic_FullMethodName              = "/armada.v1.AdminService/SetTraffic"
+	AdminService_ListVolumes_FullMethodName             = "/armada.v1.AdminService/ListVolumes"
+	AdminService_RemoveVolume_FullMethodName            = "/armada.v1.AdminService/RemoveVolume"
+	AdminService_BackupVolume_FullMethodName            = "/armada.v1.AdminService/BackupVolume"
+	AdminService_RestoreVolume_FullMethodName           = "/armada.v1.AdminService/RestoreVolume"
 	AdminService_Logs_FullMethodName                    = "/armada.v1.AdminService/Logs"
 	AdminService_GetClusterConfig_FullMethodName        = "/armada.v1.AdminService/GetClusterConfig"
 	AdminService_SetClusterConfig_FullMethodName        = "/armada.v1.AdminService/SetClusterConfig"
@@ -64,6 +68,12 @@ type AdminServiceClient interface {
 	// SetTraffic changes how an app in multiple revision mode splits
 	// requests, until its next deploy (ADR 0024).
 	SetTraffic(ctx context.Context, in *SetTrafficRequest, opts ...grpc.CallOption) (*SetTrafficResponse, error)
+	// Volumes (ADR 0025): list them, remove one, and stream a backup of one
+	// out of, or a restore into, the node that holds it.
+	ListVolumes(ctx context.Context, in *ListVolumesRequest, opts ...grpc.CallOption) (*ListVolumesResponse, error)
+	RemoveVolume(ctx context.Context, in *RemoveVolumeRequest, opts ...grpc.CallOption) (*RemoveVolumeResponse, error)
+	BackupVolume(ctx context.Context, in *BackupVolumeRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[VolumeData], error)
+	RestoreVolume(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[RestoreVolumeMessage, RestoreVolumeResponse], error)
 	Logs(ctx context.Context, in *LogsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[LogEntry], error)
 	GetClusterConfig(ctx context.Context, in *GetClusterConfigRequest, opts ...grpc.CallOption) (*ClusterConfig, error)
 	SetClusterConfig(ctx context.Context, in *SetClusterConfigRequest, opts ...grpc.CallOption) (*ClusterConfig, error)
@@ -151,9 +161,61 @@ func (c *adminServiceClient) SetTraffic(ctx context.Context, in *SetTrafficReque
 	return out, nil
 }
 
+func (c *adminServiceClient) ListVolumes(ctx context.Context, in *ListVolumesRequest, opts ...grpc.CallOption) (*ListVolumesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListVolumesResponse)
+	err := c.cc.Invoke(ctx, AdminService_ListVolumes_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) RemoveVolume(ctx context.Context, in *RemoveVolumeRequest, opts ...grpc.CallOption) (*RemoveVolumeResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RemoveVolumeResponse)
+	err := c.cc.Invoke(ctx, AdminService_RemoveVolume_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) BackupVolume(ctx context.Context, in *BackupVolumeRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[VolumeData], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &AdminService_ServiceDesc.Streams[0], AdminService_BackupVolume_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[BackupVolumeRequest, VolumeData]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type AdminService_BackupVolumeClient = grpc.ServerStreamingClient[VolumeData]
+
+func (c *adminServiceClient) RestoreVolume(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[RestoreVolumeMessage, RestoreVolumeResponse], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &AdminService_ServiceDesc.Streams[1], AdminService_RestoreVolume_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[RestoreVolumeMessage, RestoreVolumeResponse]{ClientStream: stream}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type AdminService_RestoreVolumeClient = grpc.ClientStreamingClient[RestoreVolumeMessage, RestoreVolumeResponse]
+
 func (c *adminServiceClient) Logs(ctx context.Context, in *LogsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[LogEntry], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &AdminService_ServiceDesc.Streams[0], AdminService_Logs_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &AdminService_ServiceDesc.Streams[2], AdminService_Logs_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -332,7 +394,7 @@ func (c *adminServiceClient) RemoveServer(ctx context.Context, in *RemoveServerR
 
 func (c *adminServiceClient) Exec(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ExecClientMessage, ExecServerMessage], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &AdminService_ServiceDesc.Streams[1], AdminService_Exec_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &AdminService_ServiceDesc.Streams[3], AdminService_Exec_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -365,7 +427,7 @@ func (c *adminServiceClient) IssueMetricsCertificate(ctx context.Context, in *Is
 
 func (c *adminServiceClient) Events(ctx context.Context, in *EventsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[EventInfo], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &AdminService_ServiceDesc.Streams[2], AdminService_Events_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &AdminService_ServiceDesc.Streams[4], AdminService_Events_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -445,6 +507,12 @@ type AdminServiceServer interface {
 	// SetTraffic changes how an app in multiple revision mode splits
 	// requests, until its next deploy (ADR 0024).
 	SetTraffic(context.Context, *SetTrafficRequest) (*SetTrafficResponse, error)
+	// Volumes (ADR 0025): list them, remove one, and stream a backup of one
+	// out of, or a restore into, the node that holds it.
+	ListVolumes(context.Context, *ListVolumesRequest) (*ListVolumesResponse, error)
+	RemoveVolume(context.Context, *RemoveVolumeRequest) (*RemoveVolumeResponse, error)
+	BackupVolume(*BackupVolumeRequest, grpc.ServerStreamingServer[VolumeData]) error
+	RestoreVolume(grpc.ClientStreamingServer[RestoreVolumeMessage, RestoreVolumeResponse]) error
 	Logs(*LogsRequest, grpc.ServerStreamingServer[LogEntry]) error
 	GetClusterConfig(context.Context, *GetClusterConfigRequest) (*ClusterConfig, error)
 	SetClusterConfig(context.Context, *SetClusterConfigRequest) (*ClusterConfig, error)
@@ -503,6 +571,18 @@ func (UnimplementedAdminServiceServer) Scale(context.Context, *ScaleRequest) (*S
 }
 func (UnimplementedAdminServiceServer) SetTraffic(context.Context, *SetTrafficRequest) (*SetTrafficResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method SetTraffic not implemented")
+}
+func (UnimplementedAdminServiceServer) ListVolumes(context.Context, *ListVolumesRequest) (*ListVolumesResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListVolumes not implemented")
+}
+func (UnimplementedAdminServiceServer) RemoveVolume(context.Context, *RemoveVolumeRequest) (*RemoveVolumeResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RemoveVolume not implemented")
+}
+func (UnimplementedAdminServiceServer) BackupVolume(*BackupVolumeRequest, grpc.ServerStreamingServer[VolumeData]) error {
+	return status.Error(codes.Unimplemented, "method BackupVolume not implemented")
+}
+func (UnimplementedAdminServiceServer) RestoreVolume(grpc.ClientStreamingServer[RestoreVolumeMessage, RestoreVolumeResponse]) error {
+	return status.Error(codes.Unimplemented, "method RestoreVolume not implemented")
 }
 func (UnimplementedAdminServiceServer) Logs(*LogsRequest, grpc.ServerStreamingServer[LogEntry]) error {
 	return status.Error(codes.Unimplemented, "method Logs not implemented")
@@ -674,6 +754,60 @@ func _AdminService_SetTraffic_Handler(srv interface{}, ctx context.Context, dec 
 	}
 	return interceptor(ctx, in, info, handler)
 }
+
+func _AdminService_ListVolumes_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListVolumesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).ListVolumes(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminService_ListVolumes_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).ListVolumes(ctx, req.(*ListVolumesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_RemoveVolume_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RemoveVolumeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).RemoveVolume(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminService_RemoveVolume_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).RemoveVolume(ctx, req.(*RemoveVolumeRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_BackupVolume_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(BackupVolumeRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(AdminServiceServer).BackupVolume(m, &grpc.GenericServerStream[BackupVolumeRequest, VolumeData]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type AdminService_BackupVolumeServer = grpc.ServerStreamingServer[VolumeData]
+
+func _AdminService_RestoreVolume_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(AdminServiceServer).RestoreVolume(&grpc.GenericServerStream[RestoreVolumeMessage, RestoreVolumeResponse]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type AdminService_RestoreVolumeServer = grpc.ClientStreamingServer[RestoreVolumeMessage, RestoreVolumeResponse]
 
 func _AdminService_Logs_Handler(srv interface{}, stream grpc.ServerStream) error {
 	m := new(LogsRequest)
@@ -1142,6 +1276,14 @@ var AdminService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _AdminService_SetTraffic_Handler,
 		},
 		{
+			MethodName: "ListVolumes",
+			Handler:    _AdminService_ListVolumes_Handler,
+		},
+		{
+			MethodName: "RemoveVolume",
+			Handler:    _AdminService_RemoveVolume_Handler,
+		},
+		{
 			MethodName: "GetClusterConfig",
 			Handler:    _AdminService_GetClusterConfig_Handler,
 		},
@@ -1235,6 +1377,16 @@ var AdminService_ServiceDesc = grpc.ServiceDesc{
 		},
 	},
 	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "BackupVolume",
+			Handler:       _AdminService_BackupVolume_Handler,
+			ServerStreams: true,
+		},
+		{
+			StreamName:    "RestoreVolume",
+			Handler:       _AdminService_RestoreVolume_Handler,
+			ClientStreams: true,
+		},
 		{
 			StreamName:    "Logs",
 			Handler:       _AdminService_Logs_Handler,
@@ -1409,6 +1561,7 @@ const (
 	AgentService_Connect_FullMethodName          = "/armada.v1.AgentService/Connect"
 	AgentService_PushLogs_FullMethodName         = "/armada.v1.AgentService/PushLogs"
 	AgentService_ExecSession_FullMethodName      = "/armada.v1.AgentService/ExecSession"
+	AgentService_VolumeSession_FullMethodName    = "/armada.v1.AgentService/VolumeSession"
 	AgentService_RenewCertificate_FullMethodName = "/armada.v1.AgentService/RenewCertificate"
 )
 
@@ -1428,6 +1581,10 @@ type AgentServiceClient interface {
 	// ExecSession serves one ExecRequest: the agent sends output, the server
 	// sends input. The agent's first message must set request_id.
 	ExecSession(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ExecSessionOutput, ExecInput], error)
+	// VolumeSession serves one VolumeRequest: archive data flows out of the
+	// agent for a backup and into it for a restore. The agent's first
+	// message must set request_id.
+	VolumeSession(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[VolumeData, VolumeData], error)
 	// RenewCertificate issues a new certificate for the calling node's
 	// identity from a CSR for a new key.
 	RenewCertificate(ctx context.Context, in *RenewCertificateRequest, opts ...grpc.CallOption) (*RenewCertificateResponse, error)
@@ -1480,6 +1637,19 @@ func (c *agentServiceClient) ExecSession(ctx context.Context, opts ...grpc.CallO
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type AgentService_ExecSessionClient = grpc.BidiStreamingClient[ExecSessionOutput, ExecInput]
 
+func (c *agentServiceClient) VolumeSession(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[VolumeData, VolumeData], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &AgentService_ServiceDesc.Streams[3], AgentService_VolumeSession_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[VolumeData, VolumeData]{ClientStream: stream}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type AgentService_VolumeSessionClient = grpc.BidiStreamingClient[VolumeData, VolumeData]
+
 func (c *agentServiceClient) RenewCertificate(ctx context.Context, in *RenewCertificateRequest, opts ...grpc.CallOption) (*RenewCertificateResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(RenewCertificateResponse)
@@ -1506,6 +1676,10 @@ type AgentServiceServer interface {
 	// ExecSession serves one ExecRequest: the agent sends output, the server
 	// sends input. The agent's first message must set request_id.
 	ExecSession(grpc.BidiStreamingServer[ExecSessionOutput, ExecInput]) error
+	// VolumeSession serves one VolumeRequest: archive data flows out of the
+	// agent for a backup and into it for a restore. The agent's first
+	// message must set request_id.
+	VolumeSession(grpc.BidiStreamingServer[VolumeData, VolumeData]) error
 	// RenewCertificate issues a new certificate for the calling node's
 	// identity from a CSR for a new key.
 	RenewCertificate(context.Context, *RenewCertificateRequest) (*RenewCertificateResponse, error)
@@ -1527,6 +1701,9 @@ func (UnimplementedAgentServiceServer) PushLogs(grpc.ClientStreamingServer[LogPu
 }
 func (UnimplementedAgentServiceServer) ExecSession(grpc.BidiStreamingServer[ExecSessionOutput, ExecInput]) error {
 	return status.Error(codes.Unimplemented, "method ExecSession not implemented")
+}
+func (UnimplementedAgentServiceServer) VolumeSession(grpc.BidiStreamingServer[VolumeData, VolumeData]) error {
+	return status.Error(codes.Unimplemented, "method VolumeSession not implemented")
 }
 func (UnimplementedAgentServiceServer) RenewCertificate(context.Context, *RenewCertificateRequest) (*RenewCertificateResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method RenewCertificate not implemented")
@@ -1573,6 +1750,13 @@ func _AgentService_ExecSession_Handler(srv interface{}, stream grpc.ServerStream
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type AgentService_ExecSessionServer = grpc.BidiStreamingServer[ExecSessionOutput, ExecInput]
 
+func _AgentService_VolumeSession_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(AgentServiceServer).VolumeSession(&grpc.GenericServerStream[VolumeData, VolumeData]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type AgentService_VolumeSessionServer = grpc.BidiStreamingServer[VolumeData, VolumeData]
+
 func _AgentService_RenewCertificate_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(RenewCertificateRequest)
 	if err := dec(in); err != nil {
@@ -1618,6 +1802,12 @@ var AgentService_ServiceDesc = grpc.ServiceDesc{
 		{
 			StreamName:    "ExecSession",
 			Handler:       _AgentService_ExecSession_Handler,
+			ServerStreams: true,
+			ClientStreams: true,
+		},
+		{
+			StreamName:    "VolumeSession",
+			Handler:       _AgentService_VolumeSession_Handler,
 			ServerStreams: true,
 			ClientStreams: true,
 		},

@@ -14,6 +14,10 @@ var _ runtime.StatsReader = (*Driver)(nil)
 // CanStats reports whether the driver samples what containers use.
 func (d *Driver) CanStats() bool { return d.has(driverv1.Capability_CAPABILITY_STATS) }
 
+// CanMountVolumes reports whether the driver declared CAPABILITY_VOLUMES
+// (ADR 0025).
+func (d *Driver) CanMountVolumes() bool { return d.has(driverv1.Capability_CAPABILITY_VOLUMES) }
+
 // Stats samples what an app container uses through the driver.
 func (d *Driver) Stats(ctx context.Context, id string) (runtime.Stats, error) {
 	if !d.CanStats() {

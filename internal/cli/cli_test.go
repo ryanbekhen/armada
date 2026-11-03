@@ -144,3 +144,28 @@ func TestExecUsage(t *testing.T) {
 		}
 	}
 }
+
+func TestVolumeUsage(t *testing.T) {
+	t.Parallel()
+	for args, want := range map[string]string{
+		"volume rm web data":      "--yes",
+		"volume backup web data":  "-o FILE",
+		"volume restore web data": "accepts 3 arg",
+		"volume ls a b":           "accepts at most 1 arg",
+		"volume rm web":           "accepts 2 arg",
+	} {
+		code, _, stderr := run(t, strings.Fields(args)...)
+		if code != 1 || !strings.Contains(stderr, want) {
+			t.Errorf("%q: code=%d stderr=%q", args, code, stderr)
+		}
+	}
+}
+
+func TestDiskBytes(t *testing.T) {
+	t.Parallel()
+	for b, want := range map[int64]string{0: "0B", 13: "13B", 1024: "1.0Ki", 1536: "1.5Ki", 5 << 20: "5.0Mi", 3 << 30: "3.0Gi", 2 << 40: "2.0Ti"} {
+		if got := diskBytes(b); got != want {
+			t.Errorf("diskBytes(%d) = %q, want %q", b, got, want)
+		}
+	}
+}

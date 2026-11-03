@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/ryanbekhen/armada/internal/netutil"
+	"github.com/ryanbekhen/armada/internal/spec"
 )
 
 // DroppedCaps are removed from the engine's default capability set for app
@@ -28,6 +29,22 @@ func CheckContainerSpec(s ContainerSpec) error {
 		if err := CheckFileMount(f); err != nil {
 			return err
 		}
+	}
+	if len(s.Volumes) > spec.MaxVolumes {
+		return fmt.Errorf("at most %d volumes", spec.MaxVolumes)
+	}
+	targets := map[string]bool{}
+	for _, f := range s.Files {
+		targets[f.Target] = true
+	}
+	for _, v := range s.Volumes {
+		if err := CheckVolumeMount(v); err != nil {
+			return err
+		}
+		if targets[v.Target] {
+			return fmt.Errorf("volume target %s is used twice", v.Target)
+		}
+		targets[v.Target] = true
 	}
 	for _, d := range s.DNS {
 		if _, err := netutil.CheckPrivateIP(d); err != nil {
@@ -59,6 +76,25 @@ func CheckFileMount(f FileMount) error {
 	}
 	if !fi.Mode().IsRegular() {
 		return fmt.Errorf("file mount %s: not a regular file", f.Source)
+	}
+	return nil
+}
+
+// CheckVolumeMount allows a directory (not a link) at an absolute, clean
+// host path, mounted at a target the spec would accept for a volume.
+func CheckVolumeMount(v VolumeMount) error {
+	if !filepath.IsAbs(v.Source) || filepath.Clean(v.Source) != v.Source || v.Source == "/" || strings.ContainsAny(v.Source, ":,\n") {
+		return fmt.Errorf("volume source %q: path must be absolute and clean", v.Source)
+	}
+	if err := spec.ValidateVolumePath(v.Target); err != nil {
+		return fmt.Errorf("volume target %q: %w", v.Target, err)
+	}
+	fi, err := os.Lstat(v.Source)
+	if err != nil {
+		return fmt.Errorf("volume: %w", err)
+	}
+	if !fi.IsDir() {
+		return fmt.Errorf("volume %s: not a directory", v.Source)
 	}
 	return nil
 }

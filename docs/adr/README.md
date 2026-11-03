@@ -28,3 +28,4 @@ Every architectural decision that is hard to reverse is recorded here. Copy `000
 | [0022](0022-autoscaling.md) | Autoscaling | Accepted |
 | [0023](0023-scale-to-zero.md) | Scale to zero | Accepted |
 | [0024](0024-traffic-splitting.md) | Traffic splitting | Accepted |
+| [0025](0025-persistent-volumes.md) | Persistent volumes | Accepted |

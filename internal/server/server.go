@@ -136,6 +136,7 @@ type Server struct {
 	sessions map[string]*session
 	logs     *logRouter
 	execs    *execRouter
+	volumes  *volumeRouter
 	usage    *usageStore
 	events   *eventRecorder
 	jobRuns  *prometheus.CounterVec
@@ -267,6 +268,7 @@ func New(cfg Config) (*Server, error) {
 		sessions:   map[string]*session{},
 		logs:       newLogRouter(),
 		execs:      newExecRouter(),
+		volumes:    newVolumeRouter(),
 		tlsCfg:     cfg.TLS,
 
 		metricsAddr: cfg.MetricsAddr,

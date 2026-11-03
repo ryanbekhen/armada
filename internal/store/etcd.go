@@ -55,7 +55,8 @@ const (
 	pfxDomains  = "domains/"
 	pfxAudit    = "audit/" // audit/<id, 20 digits>
 	pfxServers  = "servers/"
-	pfxRuns     = "runs/" // runs/<job>/<seq, 10 digits>
+	pfxRuns     = "runs/"    // runs/<job>/<seq, 10 digits>
+	pfxVolumes  = "volumes/" // volumes/<app>/<name>
 	// pfxEvents (events.go) holds expiring events; older binaries ignore
 	// the prefix, so it needs no schema step.
 
@@ -63,7 +64,7 @@ const (
 	// migrations when records change incompatibly. Records under servers/
 	// and meta/ are read and written by every server, whatever its schema,
 	// so they only ever gain optional fields.
-	etcdSchema = 4
+	etcdSchema = 5
 
 	maxTxnRetries = 100
 	// auditKeep is how many audit events are retained.
@@ -328,6 +329,7 @@ type nodeRec struct {
 	Runtime     string            `json:"runtime,omitempty"`
 	MinMemory   int64             `json:"minMemory,omitempty"`
 	Jobs        bool              `json:"jobs,omitempty"`
+	Volumes     bool              `json:"volumes,omitempty"`
 }
 
 type certRec struct {
@@ -514,7 +516,7 @@ func (t *etx) toNode(n nodeRec) (Node, error) {
 	out := Node{ID: n.ID, PrivateIP: n.PrivateIP, CPUMillis: n.CPUMillis, MemoryBytes: n.MemoryBytes, State: n.State,
 		LastSeen: fromMS(n.LastSeen), CreatedAt: fromMS(n.CreatedAt), Cordoned: n.Cordoned, Version: n.Version,
 		Labels: n.Labels, OS: n.OS, Arch: n.Arch, Runtime: n.Runtime, Restricted: n.Restricted,
-		MinMemoryBytes: n.MinMemory, Jobs: n.Jobs}
+		MinMemoryBytes: n.MinMemory, Jobs: n.Jobs, Volumes: n.Volumes}
 	var latest int64
 	err := listInto(t, pfxCerts+n.ID+"/", func(_ string, c certRec) error {
 		latest = max(latest, c.NotAfter)
@@ -600,7 +602,7 @@ func (s *Etcd) SetNodeStatus(ctx context.Context, id string, st NodeStatus) erro
 			return notFoundf("node %s", id)
 		}
 		n.State, n.LastSeen, n.CPUMillis, n.MemoryBytes = st.State, ms(st.LastSeen), st.CPUMillis, st.MemoryBytes
-		n.MinMemory, n.Jobs = st.MinMemoryBytes, st.Jobs
+		n.MinMemory, n.Jobs, n.Volumes = st.MinMemoryBytes, st.Jobs, st.Volumes
 		if st.Version != "" {
 			n.Version = st.Version
 		}
@@ -730,6 +732,21 @@ func (s *Etcd) RemoveNode(ctx context.Context, id string, force bool, actor stri
 		}
 		if len(onNode) > 0 && !force {
 			return fmt.Errorf("node %s still runs %d replicas: %w", id, len(onNode), ErrPrecondition)
+		}
+		// Volume records stay, so `armada volume restore --node` can bind
+		// them elsewhere (ADR 0025).
+		var vols []string
+		err = listInto(t, pfxVolumes, func(_ string, v volumeRec) error {
+			if v.Node == id {
+				vols = append(vols, v.App+"/"+v.Name)
+			}
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+		if len(vols) > 0 && !force {
+			return fmt.Errorf("node %s holds volumes %s; back them up and restore them on another node first, or remove the node with --force: %w", id, strings.Join(vols, ", "), ErrPrecondition)
 		}
 		if _, ok, err := t.node(id); err != nil {
 			return err
@@ -1499,6 +1516,11 @@ func (s *Etcd) SetReplicas(ctx context.Context, app string, n int, actor string)
 			lo, hi := cur.Spec.ScaleBounds()
 			return fmt.Errorf("%s scales itself between %d and %d replicas; change scale.min and scale.max in its spec: %w", app, lo, hi, ErrPrecondition)
 		}
+		if tgt, err := t.revision(a.TargetRevision); err != nil {
+			return err
+		} else if tgt.Spec.HasVolumes() && n != 1 {
+			return fmt.Errorf("%s has volumes and runs exactly one replica (ADR 0025): %w", app, ErrPrecondition)
+		}
 		a.Replicas, a.UpdatedAt = n, now.UnixMilli()
 		if err := t.put(pfxApps+app, a); err != nil {
 			return err
@@ -1510,6 +1532,9 @@ func (s *Etcd) SetReplicas(ctx context.Context, app string, n int, actor string)
 // keptReplicas is the count an app keeps when sp becomes its target: the
 // current count within sp's bounds if sp is autoscaled, else unchanged.
 func keptReplicas(sp *spec.App, cur int) int {
+	if sp.HasVolumes() {
+		return 1 // volumes: exactly one replica (ADR 0025)
+	}
 	if !sp.Autoscaled() {
 		return cur
 	}
@@ -1627,13 +1652,17 @@ func (s *Etcd) CreateReplica(ctx context.Context, r Replica) error {
 		} else if !ok {
 			return notFoundf("app %s", r.App)
 		}
-		if _, err := t.revision(r.Revision); err != nil {
+		rev, err := t.revision(r.Revision)
+		if err != nil {
 			return err
 		}
 		if _, ok, err := t.node(r.NodeID); err != nil {
 			return err
 		} else if !ok {
 			return notFoundf("node %s", r.NodeID)
+		}
+		if err := t.bindVolumes(rev, r.NodeID, s.now()); err != nil {
+			return err
 		}
 		return t.put(pfxReplicas+r.ID, replicaRec{ID: r.ID, App: r.App, Revision: r.Revision, NodeID: r.NodeID, State: r.State, UpdatedAt: s.now().UnixMilli(), Run: r.Run})
 	})
@@ -2163,6 +2192,10 @@ var migrations = []migration{
 	// 3 -> 4: traffic splitting (ADR 0024): app records gain traffic.
 	// Nothing to rewrite; servers that would drop it when they rewrite an
 	// app, and run one revision only, can no longer lead.
+	func(*etx) error { return nil },
+	// 4 -> 5: volumes (ADR 0025) under volumes/, bound to nodes. Nothing to
+	// rewrite; servers that would start a replica without its volume, or on
+	// another node, can no longer lead.
 	func(*etx) error { return nil },
 }
 

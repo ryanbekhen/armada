@@ -57,6 +57,9 @@ func appOpts(a appSpec) []oci.SpecOpts {
 	for _, f := range s.Files {
 		mounts = append(mounts, specs.Mount{Destination: f.Target, Type: "bind", Source: f.Source, Options: ro})
 	}
+	for _, v := range s.Volumes {
+		mounts = append(mounts, specs.Mount{Destination: v.Target, Type: "bind", Source: v.Source, Options: []string{"rbind", "rw", "nosuid", "nodev"}})
+	}
 	opts := []oci.SpecOpts{
 		oci.WithEnv(s.Env),
 		oci.WithEnv([]string{"HOSTNAME=" + hostname(s.Name)}),

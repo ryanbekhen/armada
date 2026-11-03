@@ -113,6 +113,7 @@ var (
 	descScaleTarget     = prometheus.NewDesc("armada_app_autoscale_target", "An autoscaling rule's target per replica.", []string{"app", "rule"}, nil)
 	descJobActive       = prometheus.NewDesc("armada_job_runs_active", "Runs of a job that are pending or running.", []string{"job"}, nil)
 	descTrafficWeight   = prometheus.NewDesc("armada_app_traffic_weight", "A revision's percent of an app's requests in multiple revision mode.", []string{"app", "revision"}, nil)
+	descVolumeUsed      = prometheus.NewDesc("armada_volume_used_bytes", "Bytes in a volume's files, from its node's latest measurement; absent while unmeasured.", []string{"app", "volume", "node"}, nil)
 )
 
 func (c *clusterCollector) Describe(ch chan<- *prometheus.Desc) {
@@ -121,7 +122,7 @@ func (c *clusterCollector) Describe(ch chan<- *prometheus.Desc) {
 		descReplicaCPU, descReplicaMemory, descReplicaCPURes, descReplicaCPULimit, descReplicaMemLimit,
 		descNodeReady, descNodeCordoned, descNodeReplicas, descNodeCPUAlloc, descNodeMemAlloc,
 		descNodeCPURes, descNodeMemRes, descNodeCPU, descNodeMemory, descJobLastSuccess, descJobActive,
-		descScaleCurrent, descScaleTarget, descTrafficWeight,
+		descScaleCurrent, descScaleTarget, descTrafficWeight, descVolumeUsed,
 	} {
 		ch <- d
 	}
@@ -208,6 +209,13 @@ func (c *clusterCollector) Collect(ch chan<- prometheus.Metric) {
 			}
 			if !last.IsZero() {
 				gauge(descJobLastSuccess, float64(last.Unix()), j.GetName())
+			}
+		}
+	}
+	if vols, err := s.ListVolumes(ctx, &armadav1.ListVolumesRequest{}); err == nil {
+		for _, v := range vols.GetVolumes() {
+			if v.GetUsedBytes() >= 0 {
+				gauge(descVolumeUsed, float64(v.GetUsedBytes()), v.GetApp(), v.GetName(), v.GetNode())
 			}
 		}
 	}

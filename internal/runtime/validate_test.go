@@ -1,6 +1,8 @@
 package runtime
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -25,5 +27,43 @@ func TestCheckExecCommand(t *testing.T) {
 		} else if strings.Contains(err.Error(), "secret") {
 			t.Errorf("error repeats an argument: %v", err)
 		}
+	}
+}
+
+func TestCheckVolumeMount(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	file := filepath.Join(dir, "f")
+	link := filepath.Join(dir, "l")
+	if err := os.WriteFile(file, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(dir, link); err != nil {
+		t.Fatal(err)
+	}
+	if err := CheckVolumeMount(VolumeMount{Source: dir, Target: "/data"}); err != nil {
+		t.Errorf("valid mount: %v", err)
+	}
+	for _, bad := range []VolumeMount{
+		{Source: "relative", Target: "/data"},
+		{Source: "/", Target: "/data"},
+		{Source: dir + "/../x", Target: "/data"},
+		{Source: dir + ",ro", Target: "/data"},
+		{Source: dir + ":x", Target: "/data"},
+		{Source: dir, Target: "/"},
+		{Source: dir, Target: "/proc/self"},
+		{Source: dir, Target: "data"},
+		{Source: dir, Target: "/data/../etc"},
+		{Source: file, Target: "/data"},
+		{Source: link, Target: "/data"},
+		{Source: filepath.Join(dir, "missing"), Target: "/data"},
+	} {
+		if err := CheckVolumeMount(bad); err == nil {
+			t.Errorf("%+v accepted", bad)
+		}
+	}
+	two := ContainerSpec{Image: "x", Volumes: []VolumeMount{{Source: dir, Target: "/data"}, {Source: dir, Target: "/data"}}}
+	if err := CheckContainerSpec(two); err == nil {
+		t.Error("two volumes at one target accepted")
 	}
 }

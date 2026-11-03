@@ -60,6 +60,15 @@ type Driver struct {
 	Usage map[string]runtime.Stats
 	// NoStats makes the driver report that it cannot sample containers.
 	NoStats bool
+	// NoVolumes makes the driver report that it cannot mount volumes.
+	NoVolumes bool
+}
+
+// CanMountVolumes reports whether volumes are offered (not NoVolumes).
+func (d *Driver) CanMountVolumes() bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return !d.NoVolumes
 }
 
 // Stats returns d.Usage for a running container.

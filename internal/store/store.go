@@ -77,6 +77,8 @@ type Node struct {
 	Restricted bool
 	// Jobs is true when the node's agent runs job replicas (ADR 0021).
 	Jobs bool
+	// Volumes is true when the node mounts volumes (ADR 0025).
+	Volumes bool
 }
 
 // AllLabels returns the admin labels plus armada.os and armada.arch.
@@ -268,8 +270,9 @@ type NodeStatus struct {
 	Runtime string
 	// MinMemoryBytes as the agent reports it.
 	MinMemoryBytes int64
-	// Jobs as the agent reports it.
-	Jobs bool
+	// Jobs and Volumes as the agent reports them.
+	Jobs    bool
+	Volumes bool
 }
 
 // Domain is a custom domain referenced by at least one app. Apps may only
@@ -403,6 +406,13 @@ type Store interface {
 	// cannot modify another node's replicas.
 	UpdateReplicaStatus(ctx context.Context, nodeID string, st ReplicaStatus) error
 
+	// Volumes (ADR 0025). CreateReplica binds the volumes its revision
+	// mounts to its node, and refuses a node other than the one a volume
+	// is bound to.
+	ListVolumes(ctx context.Context, app string) ([]Volume, error)
+	GetVolume(ctx context.Context, app, name string) (Volume, error)
+	DeleteVolume(ctx context.Context, app, name, actor string) error
+	BindVolume(ctx context.Context, app, name, node, actor string) error
 	// PutEvent stores an event (ADR 0020) that expires after EventTTL and
 	// deletes the event stored under replace, if set; it returns the new
 	// key. ListEvents returns events that last happened at or after since,

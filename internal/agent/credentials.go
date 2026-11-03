@@ -227,6 +227,10 @@ func (c switchingClient) ExecSession(ctx context.Context, opts ...grpc.CallOptio
 	return c.s.client().ExecSession(ctx, opts...)
 }
 
+func (c switchingClient) VolumeSession(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[armadav1.VolumeData, armadav1.VolumeData], error) {
+	return c.s.client().VolumeSession(ctx, opts...)
+}
+
 func (c switchingClient) RenewCertificate(ctx context.Context, in *armadav1.RenewCertificateRequest, opts ...grpc.CallOption) (*armadav1.RenewCertificateResponse, error) {
 	return c.s.client().RenewCertificate(ctx, in, opts...)
 }
