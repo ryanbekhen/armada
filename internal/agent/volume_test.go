@@ -245,3 +245,16 @@ func TestMeasureVolumes(t *testing.T) {
 		t.Errorf("measured %v", got)
 	}
 }
+
+func TestChownVolumeOnlyAsRoot(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	// A user's agent skips the owner instead of failing the replica.
+	if err := chownVolumeAs(dir, "70:70", 501); err != nil {
+		t.Errorf("as a user: %v", err)
+	}
+	// As root a bad owner is still an error (it never passes the spec).
+	if err := chownVolumeAs(dir, "x", 0); err == nil {
+		t.Error("bad owner accepted as root")
+	}
+}

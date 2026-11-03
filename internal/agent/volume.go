@@ -105,7 +105,14 @@ func ensureVolume(dir, owner string) error {
 }
 
 func chownVolume(dir, owner string) error {
-	if owner == "" {
+	return chownVolumeAs(dir, owner, os.Geteuid())
+}
+
+// chownVolumeAs gives dir to owner when the agent runs as root (euid 0).
+// An agent run by a user (macOS nodes, ADR 0016) cannot give files away;
+// there the driver's file sharing decides who owns them in the container.
+func chownVolumeAs(dir, owner string, euid int) error {
+	if owner == "" || euid != 0 {
 		return nil
 	}
 	uid, gid, err := spec.ParseOwner(owner)
