@@ -60,6 +60,8 @@ type App struct {
 	Scale     *Scale     `yaml:"scale,omitempty" json:"scale,omitempty"`
 	Resources *Resources `yaml:"resources,omitempty" json:"resources,omitempty"`
 	Placement *Placement `yaml:"placement,omitempty" json:"placement,omitempty"`
+	// Volumes keep data across restarts on the replica's node (ADR 0025).
+	Volumes []Volume `yaml:"volumes,omitempty" json:"volumes,omitempty"`
 
 	// Job settings (kind: job, ADR 0021).
 	Schedule    string   `yaml:"schedule,omitempty" json:"schedule,omitempty"`

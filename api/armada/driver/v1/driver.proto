@@ -69,6 +69,8 @@ enum Capability {
   CAPABILITY_EXEC = 3;
   // Stats: what app containers use.
   CAPABILITY_STATS = 4;
+  // ContainerSpec.volumes: persistent directories mounted read-write.
+  CAPABILITY_VOLUMES = 5;
 }
 
 message InfoRequest {}
@@ -165,6 +167,14 @@ message ContainerSpec {
   // Nameservers (private addresses); empty keeps the engine's default.
   repeated string dns = 14;
   Security security = 15;
+  // Directories the agent created on the node, mounted read-write with
+  // nosuid and nodev (ADR 0025). Needs CAPABILITY_VOLUMES.
+  repeated VolumeMount volumes = 16;
+}
+
+message VolumeMount {
+  string source = 1;
+  string target = 2;
 }
 
 message RunRequest {

@@ -57,6 +57,9 @@ func (k kit) Run(ctx context.Context, s driverkit.ContainerSpec) (string, error)
 	for _, f := range s.Files {
 		rs.Files = append(rs.Files, runtime.FileMount{Source: f.Source, Target: f.Target})
 	}
+	for _, v := range s.Volumes {
+		rs.Volumes = append(rs.Volumes, runtime.VolumeMount{Source: v.Source, Target: v.Target})
+	}
 	id, err := k.d.Run(ctx, rs)
 	return id, kitErr(err)
 }
@@ -127,6 +130,8 @@ func (k kit) ExecApp(ctx context.Context, id string, opts driverkit.ExecOptions)
 	code, err := k.d.ExecApp(ctx, id, ro)
 	return code, kitErr(err)
 }
+
+func (k kit) CanMountVolumes() bool { return k.d.CanMountVolumes() }
 
 func (k kit) Stats(ctx context.Context, id string) (driverkit.Stats, error) {
 	st, err := k.d.Stats(ctx, id)

@@ -78,8 +78,9 @@ come back.
 | `server.crt`, `server.key` | Control plane TLS identity | Re-issuable from the CA |
 | `node.crt`, `node.key`, `agent.json` | Identity of the agent on the control plane node, and its container runtime | The node must join again |
 | `runtime/`, `containerd/`, `containers/`, `logs/` | The embedded runtime: extracted binaries, images, per-container files, container output | Recreated: the binaries are extracted again, images pulled again, and the agent recreates its containers |
+| `volumes/` | App volumes held by this node (on every node, not only servers) | The apps' data, unless backed up with `armada volume backup` |
 
-`armada backup` includes all of these except the runtime directories (the state as an etcd snapshot; the
+`armada backup` includes all of these except the runtime directories and volumes (the state as an etcd snapshot; the
 member's own certificate is issued again from the CA). With several
 servers, back up on any one of them: they hold the same state. It does not include
 `~/.armada/config` (your admin credentials): keep a copy of that file
@@ -562,12 +563,68 @@ for 10 minutes, `armada_app_rollout{state="failed"} == 1`,
 `increase(armada_events_total{reason="Restarted"}[10m]) > 3`, and
 `armada_node_ready == 0`.
 
+## Volumes
+
+Volumes keep an app's data on the node that runs its single replica
+([ADR 0025](adr/0025-persistent-volumes.md); fields in the
+[spec reference](spec-reference.md#volumes)). On a node they live in
+`/var/lib/armada/volumes/<app>/<name>`.
+
+```bash
+armada volume ls                                   # app, volume, node, path, size
+armada volume backup db data -o db-data.tar.gz     # copy while the app runs
+armada volume backup db data -o db-data.tar.gz --stop   # consistent: stops the app meanwhile
+armada volume restore db data db-data.tar.gz       # replace the contents; stops the app meanwhile
+armada volume rm db data --yes                     # delete the data; only once no spec mounts it
+```
+
+```
+APP  VOLUME  NODE   PATH                      USED    AGE
+db   data    node2  /var/lib/postgresql/data  1.2GiB  14d
+```
+
+- **Deploys have downtime.** The old replica stops (after its drain)
+  before the new one starts, on the same node.
+- **Live backups may be inconsistent.** Files written during a backup may
+  be copied half-written. For databases, use their own dump tool through
+  `armada exec` (for example `armada exec db -- pg_dump -U postgres app`),
+  or `--stop`.
+- **Back up regularly, off the node.** `armada backup` holds where volumes
+  are, not their contents. Archives hold the app's data as it is: encrypt
+  them like control plane backups. For example, from a machine with admin
+  credentials:
+
+  ```bash
+  armada volume backup db data -o - | age -r age1yourpublickey... > db-data-$(date +%F).tar.gz.age
+  ```
+
+- **Cordoning or draining a node** does not move apps with volumes;
+  `armada node remove` refuses a node that holds volumes unless `--force`
+  is given.
+- **Watch disk use.** There is no quota: alert on
+  `armada_volume_used_bytes` against the node's disk.
+
+### Recovering an app whose node is gone
+
+If the node holding an app's volumes is lost for good, the app stays down
+until its data is restored somewhere else:
+
+```bash
+armada node remove node2 --force                     # if the node is gone for good
+armada volume restore db data db-data.tar.gz --node node3
+```
+
+The volume is restored onto `node3` and bound to it, and the app starts
+there. This is refused while the old node is still connected. Data written
+after the backup is lost.
+
 ## When a node fails
 
 | What fails | What happens |
 | --- | --- |
 | A node (machine down, network gone) | Within about 4 seconds the HAProxy on every other node stops sending it traffic; requests that hit it meanwhile are retried on another replica after 2 seconds. After `--node-lost-timeout` (default 5 minutes) the node is shown as `lost` and its replicas are started on other nodes that their app's placement allows; the old ones are removed once the new ones serve. When the node comes back, its old containers are cleaned up and apps left unevenly spread move replicas back to it, one at a time. See [ADR 0008](adr/0008-self-healing.md) and [ADR 0013](adr/0013-replica-rebalancing.md). |
 | HAProxy on a node (crashed or killed) | The agent notices within about 10 seconds and starts a new HAProxy container with the current configuration; that node's public ports are down until it serves again. |
+| The node holding an app's volumes | The app stays down: its data is on that node, so it is not started elsewhere. A `VolumeUnavailable` event says so. It comes back with the node, or with a restore onto another node (see [Volumes](#volumes)). |
 | More than half of the nodes at once | Nothing is rescheduled: the control plane assumes it is the one cut off. Replicas move once enough nodes are reachable again, or with `armada node remove --force`. |
 | One of three control plane servers | Another server leads within 1–15 seconds; nothing else changes. Remove the failed server and join a replacement when convenient. |
 | The only control plane server, or a majority of them | Apps keep serving: every node's HAProxy and containers keep running. Deploys, scaling, rescheduling, and certificate renewal wait until a majority is back; certificates have weeks of margin. Restore from a backup if the servers are gone. |
@@ -620,6 +677,7 @@ sending it, and the driver library checks it again on arrival.
   replicas on its node.
 - A driver without the stats capability reports no usage, so `armada top`
   shows `-` for the replicas on its node.
+- A driver without the volumes capability gets no apps with volumes.
 - The node's `armada.runtime` label names the driver, so apps can require
   it (or `embedded`). `armada.os` and `armada.arch` are the platform the
   driver's engine runs containers on.

@@ -44,6 +44,10 @@ placement:                        # optional: only nodes with these labels
     region: sulawesi
 revisions:                        # optional: split traffic between revisions
   mode: single                    # single (default) | multiple
+volumes:                          # optional: data kept on the replica's node
+  - name: uploads
+    path: /app/uploads
+    owner: "1000:1000"
 ```
 
 ## Fields
@@ -325,6 +329,44 @@ revisions:
   the newest revision. Each request is balanced on its own, with no sticky
   sessions.
 
+### `volumes`
+
+Directories that keep their contents across restarts, deploys, and
+reboots ([ADR 0025](adr/0025-persistent-volumes.md)).
+
+```yaml
+name: db
+image: postgres:17
+env:
+  - name: POSTGRES_PASSWORD
+    secretRef: postgres-password
+volumes:
+  - name: data
+    path: /var/lib/postgresql/data
+    owner: "999:999"
+```
+
+| Field | Meaning |
+| --- | --- |
+| `name` | A name like an app's, unique within the app. |
+| `path` | Where the volume appears in the container. It follows the same rules as a secret file's path, and volumes may not overlap each other or a secret file. |
+| `owner` | Optional `uid:gid` of the volume's directory, applied whenever a replica starts (its contents are left alone). Without it a new directory belongs to root, with mode 0700; an image that runs as another user (postgres runs as 999, nginx's workers as 101) needs its owner. |
+
+- An app has at most 8 volumes.
+- **One replica.** An app with volumes runs exactly one replica. `scale`
+  may only say `min: 1` and `max: 1`, without `rules`; scale to zero,
+  `revisions.mode: multiple`, and jobs with volumes are rejected.
+- **Bound to a node.** The first replica is placed on a node that can mount
+  volumes, and its volumes are created there. From then on the app always
+  runs on that node. It is not moved off a cordoned node, and it stays down
+  while that node is lost: see "Volumes" in the
+  [operations guide](operations.md#volumes) for recovery.
+- **Deploys stop the old replica before starting the new one.** The app is
+  down for the old replica's drain plus the new one's start.
+- **Kept until removed.** A volume stays when the app is redeployed without
+  it or deleted, until `armada volume rm`. Its size is shown by
+  `armada volume ls`; there is no quota.
+
 ## Jobs
 
 A spec of `kind: job` describes work that runs to completion
@@ -359,8 +401,8 @@ resources:
 | `history` | `5` | Finished runs kept, 1 to 50. The container of a finished run is kept 24 hours for `armada logs`. |
 
 - `env`, `secretFiles`, `registry`, `resources`, and `placement` mean the
-  same as for apps. `ingress`, `probes`, `scale`, and `revisions` are
-  rejected, and these job fields are rejected on apps.
+  same as for apps. `ingress`, `probes`, `scale`, `revisions`, and
+  `volumes` are rejected, and these job fields are rejected on apps.
 - A job and an app cannot share a name.
 - A deploy changes the job at once: runs that start afterwards use the new
   spec, and a run in progress keeps its own.

@@ -107,7 +107,7 @@ func (s *Server) Connect(stream armadav1.AgentService_ConnectServer) error {
 			s.usage.forget(node.ID)
 			_ = s.store.SetNodeStatus(context.WithoutCancel(ctx), node.ID, store.NodeStatus{
 				State: store.NodeUnknown, LastSeen: time.Now(), CPUMillis: hello.GetCpuMillis(), MemoryBytes: hello.GetMemoryBytes(),
-				MinMemoryBytes: hello.GetMinMemoryBytes(), Jobs: hello.GetJobs(),
+				MinMemoryBytes: hello.GetMinMemoryBytes(), Jobs: hello.GetJobs(), Volumes: hello.GetVolumes(),
 			})
 			s.log.Info("agent disconnected", "node", node.ID)
 			s.record(ctx, store.Event{Kind: eventNode, Object: node.ID, Node: node.ID, Reason: "Disconnected"})
@@ -121,7 +121,7 @@ func (s *Server) Connect(stream armadav1.AgentService_ConnectServer) error {
 	// Reports rewrite the node status from node: keep what hello reported,
 	// not the record as it was before this session.
 	node.CPUMillis, node.MemoryBytes, node.MinMemoryBytes = hello.GetCpuMillis(), hello.GetMemoryBytes(), hello.GetMinMemoryBytes()
-	node.Jobs = hello.GetJobs()
+	node.Jobs, node.Volumes = hello.GetJobs(), hello.GetVolumes()
 	if !validVersion(hello.GetVersion()) {
 		hello.Version = ""
 	}
@@ -138,7 +138,7 @@ func (s *Server) Connect(stream armadav1.AgentService_ConnectServer) error {
 	if err := s.store.SetNodeStatus(ctx, node.ID, store.NodeStatus{
 		State: store.NodeReady, LastSeen: time.Now(), CPUMillis: hello.GetCpuMillis(), MemoryBytes: hello.GetMemoryBytes(),
 		Version: hello.GetVersion(), OS: hello.GetOs(), Arch: hello.GetArch(), Runtime: hello.GetRuntime(),
-		MinMemoryBytes: hello.GetMinMemoryBytes(), Jobs: hello.GetJobs(),
+		MinMemoryBytes: hello.GetMinMemoryBytes(), Jobs: hello.GetJobs(), Volumes: hello.GetVolumes(),
 	}); err != nil {
 		return status.Error(codes.Internal, "update node")
 	}
@@ -188,6 +188,9 @@ func (s *Server) Connect(stream armadav1.AgentService_ConnectServer) error {
 			}
 			if u := m.GetUsage(); u != nil {
 				s.usage.set(node.ID, u, s.now())
+				if u.GetVolumesMeasured() {
+					s.usage.setVolumes(node.ID, u, s.now())
+				}
 			}
 			if w := m.GetWake(); w != nil {
 				s.wakeApp(ctx, node.ID, w.GetApp())
@@ -213,7 +216,7 @@ var digestRe = regexp.MustCompile(`@sha256:[a-f0-9]{64}$`)
 // untrusted: replicas must belong to the node, addresses must be on the
 // node's private IP, and digests must match the revision's repository.
 func (s *Server) applyReport(ctx context.Context, node store.Node, r *armadav1.ReplicaReport) {
-	if err := s.store.SetNodeStatus(ctx, node.ID, store.NodeStatus{State: store.NodeReady, LastSeen: time.Now(), CPUMillis: node.CPUMillis, MemoryBytes: node.MemoryBytes, MinMemoryBytes: node.MinMemoryBytes, Jobs: node.Jobs}); err != nil {
+	if err := s.store.SetNodeStatus(ctx, node.ID, store.NodeStatus{State: store.NodeReady, LastSeen: time.Now(), CPUMillis: node.CPUMillis, MemoryBytes: node.MemoryBytes, MinMemoryBytes: node.MinMemoryBytes, Jobs: node.Jobs, Volumes: node.Volumes}); err != nil {
 		s.log.Warn("update node status", "err", err)
 	}
 	owned, err := s.store.ListReplicas(ctx, store.ReplicaFilter{NodeID: node.ID})

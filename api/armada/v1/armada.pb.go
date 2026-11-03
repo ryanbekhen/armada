@@ -71,6 +71,61 @@ func (Stream) EnumDescriptor() ([]byte, []int) {
 	return file_armada_v1_armada_proto_rawDescGZIP(), []int{0}
 }
 
+type VolumeRequest_Op int32
+
+const (
+	VolumeRequest_OP_UNSPECIFIED VolumeRequest_Op = 0
+	// Send the volume as a gzipped tar.
+	VolumeRequest_OP_BACKUP VolumeRequest_Op = 1
+	// Replace the volume's contents with a gzipped tar the server sends.
+	VolumeRequest_OP_RESTORE VolumeRequest_Op = 2
+	// Delete the volume's directory.
+	VolumeRequest_OP_REMOVE VolumeRequest_Op = 3
+)
+
+// Enum value maps for VolumeRequest_Op.
+var (
+	VolumeRequest_Op_name = map[int32]string{
+		0: "OP_UNSPECIFIED",
+		1: "OP_BACKUP",
+		2: "OP_RESTORE",
+		3: "OP_REMOVE",
+	}
+	VolumeRequest_Op_value = map[string]int32{
+		"OP_UNSPECIFIED": 0,
+		"OP_BACKUP":      1,
+		"OP_RESTORE":     2,
+		"OP_REMOVE":      3,
+	}
+)
+
+func (x VolumeRequest_Op) Enum() *VolumeRequest_Op {
+	p := new(VolumeRequest_Op)
+	*p = x
+	return p
+}
+
+func (x VolumeRequest_Op) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (VolumeRequest_Op) Descriptor() protoreflect.EnumDescriptor {
+	return file_armada_v1_armada_proto_enumTypes[1].Descriptor()
+}
+
+func (VolumeRequest_Op) Type() protoreflect.EnumType {
+	return &file_armada_v1_armada_proto_enumTypes[1]
+}
+
+func (x VolumeRequest_Op) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use VolumeRequest_Op.Descriptor instead.
+func (VolumeRequest_Op) EnumDescriptor() ([]byte, []int) {
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{86, 0}
+}
+
 type RunJobRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Job           string                 `protobuf:"bytes,1,opt,name=job,proto3" json:"job,omitempty"`
@@ -4934,7 +4989,10 @@ type Hello struct {
 	MinMemoryBytes int64 `protobuf:"varint,8,opt,name=min_memory_bytes,json=minMemoryBytes,proto3" json:"min_memory_bytes,omitempty"`
 	// The agent runs job replicas to completion (ADR 0021); runs are only
 	// placed on nodes whose agent says so.
-	Jobs          bool `protobuf:"varint,9,opt,name=jobs,proto3" json:"jobs,omitempty"`
+	Jobs bool `protobuf:"varint,9,opt,name=jobs,proto3" json:"jobs,omitempty"`
+	// The node mounts volumes (ADR 0025): its runtime can, and the agent has
+	// a directory for them.
+	Volumes       bool `protobuf:"varint,10,opt,name=volumes,proto3" json:"volumes,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -5028,6 +5086,13 @@ func (x *Hello) GetMinMemoryBytes() int64 {
 func (x *Hello) GetJobs() bool {
 	if x != nil {
 		return x.Jobs
+	}
+	return false
+}
+
+func (x *Hello) GetVolumes() bool {
+	if x != nil {
+		return x.Volumes
 	}
 	return false
 }
@@ -5207,9 +5272,13 @@ type UsageReport struct {
 	// replica it routes to, not only its own (ADR 0022).
 	Load []*ReplicaLoad `protobuf:"bytes,2,rep,name=load,proto3" json:"load,omitempty"`
 	// Whether the node's proxy was read; false for nodes without a proxy.
-	LoadMeasured  bool `protobuf:"varint,3,opt,name=load_measured,json=loadMeasured,proto3" json:"load_measured,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	LoadMeasured bool `protobuf:"varint,3,opt,name=load_measured,json=loadMeasured,proto3" json:"load_measured,omitempty"`
+	// Disk use of the volumes on the node, measured about once a minute
+	// (ADR 0025); unset in reports between measurements.
+	Volumes         []*VolumeUsage `protobuf:"bytes,4,rep,name=volumes,proto3" json:"volumes,omitempty"`
+	VolumesMeasured bool           `protobuf:"varint,5,opt,name=volumes_measured,json=volumesMeasured,proto3" json:"volumes_measured,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *UsageReport) Reset() {
@@ -5263,6 +5332,80 @@ func (x *UsageReport) GetLoadMeasured() bool {
 	return false
 }
 
+func (x *UsageReport) GetVolumes() []*VolumeUsage {
+	if x != nil {
+		return x.Volumes
+	}
+	return nil
+}
+
+func (x *UsageReport) GetVolumesMeasured() bool {
+	if x != nil {
+		return x.VolumesMeasured
+	}
+	return false
+}
+
+type VolumeUsage struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	App           string                 `protobuf:"bytes,1,opt,name=app,proto3" json:"app,omitempty"`
+	Volume        string                 `protobuf:"bytes,2,opt,name=volume,proto3" json:"volume,omitempty"`
+	Bytes         int64                  `protobuf:"varint,3,opt,name=bytes,proto3" json:"bytes,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *VolumeUsage) Reset() {
+	*x = VolumeUsage{}
+	mi := &file_armada_v1_armada_proto_msgTypes[82]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *VolumeUsage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*VolumeUsage) ProtoMessage() {}
+
+func (x *VolumeUsage) ProtoReflect() protoreflect.Message {
+	mi := &file_armada_v1_armada_proto_msgTypes[82]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use VolumeUsage.ProtoReflect.Descriptor instead.
+func (*VolumeUsage) Descriptor() ([]byte, []int) {
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{82}
+}
+
+func (x *VolumeUsage) GetApp() string {
+	if x != nil {
+		return x.App
+	}
+	return ""
+}
+
+func (x *VolumeUsage) GetVolume() string {
+	if x != nil {
+		return x.Volume
+	}
+	return ""
+}
+
+func (x *VolumeUsage) GetBytes() int64 {
+	if x != nil {
+		return x.Bytes
+	}
+	return 0
+}
+
 type ReplicaLoad struct {
 	state    protoimpl.MessageState `protogen:"open.v1"`
 	Id       string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -5276,7 +5419,7 @@ type ReplicaLoad struct {
 
 func (x *ReplicaLoad) Reset() {
 	*x = ReplicaLoad{}
-	mi := &file_armada_v1_armada_proto_msgTypes[82]
+	mi := &file_armada_v1_armada_proto_msgTypes[83]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5288,7 +5431,7 @@ func (x *ReplicaLoad) String() string {
 func (*ReplicaLoad) ProtoMessage() {}
 
 func (x *ReplicaLoad) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[82]
+	mi := &file_armada_v1_armada_proto_msgTypes[83]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5301,7 +5444,7 @@ func (x *ReplicaLoad) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReplicaLoad.ProtoReflect.Descriptor instead.
 func (*ReplicaLoad) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{82}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{83}
 }
 
 func (x *ReplicaLoad) GetId() string {
@@ -5338,7 +5481,7 @@ type ReplicaUsage struct {
 
 func (x *ReplicaUsage) Reset() {
 	*x = ReplicaUsage{}
-	mi := &file_armada_v1_armada_proto_msgTypes[83]
+	mi := &file_armada_v1_armada_proto_msgTypes[84]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5350,7 +5493,7 @@ func (x *ReplicaUsage) String() string {
 func (*ReplicaUsage) ProtoMessage() {}
 
 func (x *ReplicaUsage) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[83]
+	mi := &file_armada_v1_armada_proto_msgTypes[84]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5363,7 +5506,7 @@ func (x *ReplicaUsage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReplicaUsage.ProtoReflect.Descriptor instead.
 func (*ReplicaUsage) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{83}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{84}
 }
 
 func (x *ReplicaUsage) GetId() string {
@@ -5395,6 +5538,7 @@ type ServerMessage struct {
 	//	*ServerMessage_LogRequest
 	//	*ServerMessage_LogCancel
 	//	*ServerMessage_ExecRequest
+	//	*ServerMessage_VolumeRequest
 	Msg           isServerMessage_Msg `protobuf_oneof:"msg"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -5402,7 +5546,7 @@ type ServerMessage struct {
 
 func (x *ServerMessage) Reset() {
 	*x = ServerMessage{}
-	mi := &file_armada_v1_armada_proto_msgTypes[84]
+	mi := &file_armada_v1_armada_proto_msgTypes[85]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5414,7 +5558,7 @@ func (x *ServerMessage) String() string {
 func (*ServerMessage) ProtoMessage() {}
 
 func (x *ServerMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[84]
+	mi := &file_armada_v1_armada_proto_msgTypes[85]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5427,7 +5571,7 @@ func (x *ServerMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ServerMessage.ProtoReflect.Descriptor instead.
 func (*ServerMessage) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{84}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{85}
 }
 
 func (x *ServerMessage) GetMsg() isServerMessage_Msg {
@@ -5473,6 +5617,15 @@ func (x *ServerMessage) GetExecRequest() *ExecRequest {
 	return nil
 }
 
+func (x *ServerMessage) GetVolumeRequest() *VolumeRequest {
+	if x != nil {
+		if x, ok := x.Msg.(*ServerMessage_VolumeRequest); ok {
+			return x.VolumeRequest
+		}
+	}
+	return nil
+}
+
 type isServerMessage_Msg interface {
 	isServerMessage_Msg()
 }
@@ -5493,6 +5646,10 @@ type ServerMessage_ExecRequest struct {
 	ExecRequest *ExecRequest `protobuf:"bytes,4,opt,name=exec_request,json=execRequest,proto3,oneof"`
 }
 
+type ServerMessage_VolumeRequest struct {
+	VolumeRequest *VolumeRequest `protobuf:"bytes,5,opt,name=volume_request,json=volumeRequest,proto3,oneof"`
+}
+
 func (*ServerMessage_Assignment) isServerMessage_Msg() {}
 
 func (*ServerMessage_LogRequest) isServerMessage_Msg() {}
@@ -5500,6 +5657,160 @@ func (*ServerMessage_LogRequest) isServerMessage_Msg() {}
 func (*ServerMessage_LogCancel) isServerMessage_Msg() {}
 
 func (*ServerMessage_ExecRequest) isServerMessage_Msg() {}
+
+func (*ServerMessage_VolumeRequest) isServerMessage_Msg() {}
+
+// VolumeRequest asks the agent to open a VolumeSession for a volume it
+// holds (ADR 0025).
+type VolumeRequest struct {
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	RequestId string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	Op        VolumeRequest_Op       `protobuf:"varint,2,opt,name=op,proto3,enum=armada.v1.VolumeRequest_Op" json:"op,omitempty"`
+	App       string                 `protobuf:"bytes,3,opt,name=app,proto3" json:"app,omitempty"`
+	Volume    string                 `protobuf:"bytes,4,opt,name=volume,proto3" json:"volume,omitempty"`
+	// Stop the app's container on the node for the operation (always for
+	// restores and removals).
+	Stop          bool `protobuf:"varint,5,opt,name=stop,proto3" json:"stop,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *VolumeRequest) Reset() {
+	*x = VolumeRequest{}
+	mi := &file_armada_v1_armada_proto_msgTypes[86]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *VolumeRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*VolumeRequest) ProtoMessage() {}
+
+func (x *VolumeRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_armada_v1_armada_proto_msgTypes[86]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use VolumeRequest.ProtoReflect.Descriptor instead.
+func (*VolumeRequest) Descriptor() ([]byte, []int) {
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{86}
+}
+
+func (x *VolumeRequest) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
+	}
+	return ""
+}
+
+func (x *VolumeRequest) GetOp() VolumeRequest_Op {
+	if x != nil {
+		return x.Op
+	}
+	return VolumeRequest_OP_UNSPECIFIED
+}
+
+func (x *VolumeRequest) GetApp() string {
+	if x != nil {
+		return x.App
+	}
+	return ""
+}
+
+func (x *VolumeRequest) GetVolume() string {
+	if x != nil {
+		return x.Volume
+	}
+	return ""
+}
+
+func (x *VolumeRequest) GetStop() bool {
+	if x != nil {
+		return x.Stop
+	}
+	return false
+}
+
+// VolumeData carries one chunk of a volume archive, at most 64 KiB.
+type VolumeData struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The agent's first message only.
+	RequestId string `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	Data      []byte `protobuf:"bytes,2,opt,name=data,proto3" json:"data,omitempty"`
+	// The last message: the archive is complete, or the operation is done.
+	Done bool `protobuf:"varint,3,opt,name=done,proto3" json:"done,omitempty"`
+	// The operation failed; the last message.
+	Error         string `protobuf:"bytes,4,opt,name=error,proto3" json:"error,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *VolumeData) Reset() {
+	*x = VolumeData{}
+	mi := &file_armada_v1_armada_proto_msgTypes[87]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *VolumeData) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*VolumeData) ProtoMessage() {}
+
+func (x *VolumeData) ProtoReflect() protoreflect.Message {
+	mi := &file_armada_v1_armada_proto_msgTypes[87]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use VolumeData.ProtoReflect.Descriptor instead.
+func (*VolumeData) Descriptor() ([]byte, []int) {
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{87}
+}
+
+func (x *VolumeData) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
+	}
+	return ""
+}
+
+func (x *VolumeData) GetData() []byte {
+	if x != nil {
+		return x.Data
+	}
+	return nil
+}
+
+func (x *VolumeData) GetDone() bool {
+	if x != nil {
+		return x.Done
+	}
+	return false
+}
+
+func (x *VolumeData) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
 
 // Assignment is the complete desired set of replicas for the node. Replicas
 // not listed must be removed.
@@ -5517,7 +5828,7 @@ type Assignment struct {
 
 func (x *Assignment) Reset() {
 	*x = Assignment{}
-	mi := &file_armada_v1_armada_proto_msgTypes[85]
+	mi := &file_armada_v1_armada_proto_msgTypes[88]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5529,7 +5840,7 @@ func (x *Assignment) String() string {
 func (*Assignment) ProtoMessage() {}
 
 func (x *Assignment) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[85]
+	mi := &file_armada_v1_armada_proto_msgTypes[88]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5542,7 +5853,7 @@ func (x *Assignment) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Assignment.ProtoReflect.Descriptor instead.
 func (*Assignment) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{85}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{88}
 }
 
 func (x *Assignment) GetReplicas() []*ReplicaSpec {
@@ -5579,7 +5890,7 @@ type ProxyConfig struct {
 
 func (x *ProxyConfig) Reset() {
 	*x = ProxyConfig{}
-	mi := &file_armada_v1_armada_proto_msgTypes[86]
+	mi := &file_armada_v1_armada_proto_msgTypes[89]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5591,7 +5902,7 @@ func (x *ProxyConfig) String() string {
 func (*ProxyConfig) ProtoMessage() {}
 
 func (x *ProxyConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[86]
+	mi := &file_armada_v1_armada_proto_msgTypes[89]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5604,7 +5915,7 @@ func (x *ProxyConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProxyConfig.ProtoReflect.Descriptor instead.
 func (*ProxyConfig) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{86}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{89}
 }
 
 func (x *ProxyConfig) GetBackends() []*ProxyBackend {
@@ -5651,7 +5962,7 @@ type ProxyBackend struct {
 
 func (x *ProxyBackend) Reset() {
 	*x = ProxyBackend{}
-	mi := &file_armada_v1_armada_proto_msgTypes[87]
+	mi := &file_armada_v1_armada_proto_msgTypes[90]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5663,7 +5974,7 @@ func (x *ProxyBackend) String() string {
 func (*ProxyBackend) ProtoMessage() {}
 
 func (x *ProxyBackend) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[87]
+	mi := &file_armada_v1_armada_proto_msgTypes[90]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5676,7 +5987,7 @@ func (x *ProxyBackend) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProxyBackend.ProtoReflect.Descriptor instead.
 func (*ProxyBackend) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{87}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{90}
 }
 
 func (x *ProxyBackend) GetName() string {
@@ -5721,7 +6032,7 @@ type ProxyServer struct {
 
 func (x *ProxyServer) Reset() {
 	*x = ProxyServer{}
-	mi := &file_armada_v1_armada_proto_msgTypes[88]
+	mi := &file_armada_v1_armada_proto_msgTypes[91]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5733,7 +6044,7 @@ func (x *ProxyServer) String() string {
 func (*ProxyServer) ProtoMessage() {}
 
 func (x *ProxyServer) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[88]
+	mi := &file_armada_v1_armada_proto_msgTypes[91]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5746,7 +6057,7 @@ func (x *ProxyServer) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProxyServer.ProtoReflect.Descriptor instead.
 func (*ProxyServer) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{88}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{91}
 }
 
 func (x *ProxyServer) GetName() string {
@@ -5785,7 +6096,7 @@ type ProxyRule struct {
 
 func (x *ProxyRule) Reset() {
 	*x = ProxyRule{}
-	mi := &file_armada_v1_armada_proto_msgTypes[89]
+	mi := &file_armada_v1_armada_proto_msgTypes[92]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5797,7 +6108,7 @@ func (x *ProxyRule) String() string {
 func (*ProxyRule) ProtoMessage() {}
 
 func (x *ProxyRule) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[89]
+	mi := &file_armada_v1_armada_proto_msgTypes[92]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5810,7 +6121,7 @@ func (x *ProxyRule) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProxyRule.ProtoReflect.Descriptor instead.
 func (*ProxyRule) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{89}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{92}
 }
 
 func (x *ProxyRule) GetHost() string {
@@ -5860,7 +6171,7 @@ type ProxyCertificate struct {
 
 func (x *ProxyCertificate) Reset() {
 	*x = ProxyCertificate{}
-	mi := &file_armada_v1_armada_proto_msgTypes[90]
+	mi := &file_armada_v1_armada_proto_msgTypes[93]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5872,7 +6183,7 @@ func (x *ProxyCertificate) String() string {
 func (*ProxyCertificate) ProtoMessage() {}
 
 func (x *ProxyCertificate) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[90]
+	mi := &file_armada_v1_armada_proto_msgTypes[93]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5885,7 +6196,7 @@ func (x *ProxyCertificate) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProxyCertificate.ProtoReflect.Descriptor instead.
 func (*ProxyCertificate) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{90}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{93}
 }
 
 func (x *ProxyCertificate) GetName() string {
@@ -5925,14 +6236,16 @@ type ReplicaSpec struct {
 	// hash: a revision's reservation never changes.
 	CpuReserveMillis int64 `protobuf:"varint,17,opt,name=cpu_reserve_millis,json=cpuReserveMillis,proto3" json:"cpu_reserve_millis,omitempty"`
 	// Set for a replica that runs one attempt of a job run (ADR 0021).
-	Job           *JobAttempt `protobuf:"bytes,18,opt,name=job,proto3" json:"job,omitempty"`
+	Job *JobAttempt `protobuf:"bytes,18,opt,name=job,proto3" json:"job,omitempty"`
+	// Persistent volumes on this node (ADR 0025).
+	Volumes       []*VolumeSpec `protobuf:"bytes,19,rep,name=volumes,proto3" json:"volumes,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ReplicaSpec) Reset() {
 	*x = ReplicaSpec{}
-	mi := &file_armada_v1_armada_proto_msgTypes[91]
+	mi := &file_armada_v1_armada_proto_msgTypes[94]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5944,7 +6257,7 @@ func (x *ReplicaSpec) String() string {
 func (*ReplicaSpec) ProtoMessage() {}
 
 func (x *ReplicaSpec) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[91]
+	mi := &file_armada_v1_armada_proto_msgTypes[94]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5957,7 +6270,7 @@ func (x *ReplicaSpec) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReplicaSpec.ProtoReflect.Descriptor instead.
 func (*ReplicaSpec) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{91}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{94}
 }
 
 func (x *ReplicaSpec) GetId() string {
@@ -6086,6 +6399,76 @@ func (x *ReplicaSpec) GetJob() *JobAttempt {
 	return nil
 }
 
+func (x *ReplicaSpec) GetVolumes() []*VolumeSpec {
+	if x != nil {
+		return x.Volumes
+	}
+	return nil
+}
+
+type VolumeSpec struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Name  string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	// Where it appears in the container.
+	Path string `protobuf:"bytes,2,opt,name=path,proto3" json:"path,omitempty"`
+	// "uid:gid" of the directory, applied whenever a replica starts; empty:
+	// left as it is (root when created).
+	Owner         string `protobuf:"bytes,3,opt,name=owner,proto3" json:"owner,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *VolumeSpec) Reset() {
+	*x = VolumeSpec{}
+	mi := &file_armada_v1_armada_proto_msgTypes[95]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *VolumeSpec) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*VolumeSpec) ProtoMessage() {}
+
+func (x *VolumeSpec) ProtoReflect() protoreflect.Message {
+	mi := &file_armada_v1_armada_proto_msgTypes[95]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use VolumeSpec.ProtoReflect.Descriptor instead.
+func (*VolumeSpec) Descriptor() ([]byte, []int) {
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{95}
+}
+
+func (x *VolumeSpec) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *VolumeSpec) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
+func (x *VolumeSpec) GetOwner() string {
+	if x != nil {
+		return x.Owner
+	}
+	return ""
+}
+
 // JobAttempt marks a replica the agent runs to completion: it never
 // restarts the container and reports its exit code.
 type JobAttempt struct {
@@ -6102,7 +6485,7 @@ type JobAttempt struct {
 
 func (x *JobAttempt) Reset() {
 	*x = JobAttempt{}
-	mi := &file_armada_v1_armada_proto_msgTypes[92]
+	mi := &file_armada_v1_armada_proto_msgTypes[96]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6114,7 +6497,7 @@ func (x *JobAttempt) String() string {
 func (*JobAttempt) ProtoMessage() {}
 
 func (x *JobAttempt) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[92]
+	mi := &file_armada_v1_armada_proto_msgTypes[96]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6127,7 +6510,7 @@ func (x *JobAttempt) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use JobAttempt.ProtoReflect.Descriptor instead.
 func (*JobAttempt) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{92}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{96}
 }
 
 func (x *JobAttempt) GetJob() string {
@@ -6166,7 +6549,7 @@ type SecretFile struct {
 
 func (x *SecretFile) Reset() {
 	*x = SecretFile{}
-	mi := &file_armada_v1_armada_proto_msgTypes[93]
+	mi := &file_armada_v1_armada_proto_msgTypes[97]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6178,7 +6561,7 @@ func (x *SecretFile) String() string {
 func (*SecretFile) ProtoMessage() {}
 
 func (x *SecretFile) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[93]
+	mi := &file_armada_v1_armada_proto_msgTypes[97]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6191,7 +6574,7 @@ func (x *SecretFile) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SecretFile.ProtoReflect.Descriptor instead.
 func (*SecretFile) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{93}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{97}
 }
 
 func (x *SecretFile) GetPath() string {
@@ -6227,7 +6610,7 @@ type RegistryAuth struct {
 
 func (x *RegistryAuth) Reset() {
 	*x = RegistryAuth{}
-	mi := &file_armada_v1_armada_proto_msgTypes[94]
+	mi := &file_armada_v1_armada_proto_msgTypes[98]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6239,7 +6622,7 @@ func (x *RegistryAuth) String() string {
 func (*RegistryAuth) ProtoMessage() {}
 
 func (x *RegistryAuth) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[94]
+	mi := &file_armada_v1_armada_proto_msgTypes[98]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6252,7 +6635,7 @@ func (x *RegistryAuth) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RegistryAuth.ProtoReflect.Descriptor instead.
 func (*RegistryAuth) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{94}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{98}
 }
 
 func (x *RegistryAuth) GetServer() string {
@@ -6298,7 +6681,7 @@ type Probe struct {
 
 func (x *Probe) Reset() {
 	*x = Probe{}
-	mi := &file_armada_v1_armada_proto_msgTypes[95]
+	mi := &file_armada_v1_armada_proto_msgTypes[99]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6310,7 +6693,7 @@ func (x *Probe) String() string {
 func (*Probe) ProtoMessage() {}
 
 func (x *Probe) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[95]
+	mi := &file_armada_v1_armada_proto_msgTypes[99]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6323,7 +6706,7 @@ func (x *Probe) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Probe.ProtoReflect.Descriptor instead.
 func (*Probe) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{95}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{99}
 }
 
 func (x *Probe) GetPath() string {
@@ -6380,7 +6763,7 @@ type EnvVar struct {
 
 func (x *EnvVar) Reset() {
 	*x = EnvVar{}
-	mi := &file_armada_v1_armada_proto_msgTypes[96]
+	mi := &file_armada_v1_armada_proto_msgTypes[100]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6392,7 +6775,7 @@ func (x *EnvVar) String() string {
 func (*EnvVar) ProtoMessage() {}
 
 func (x *EnvVar) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[96]
+	mi := &file_armada_v1_armada_proto_msgTypes[100]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6405,7 +6788,7 @@ func (x *EnvVar) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EnvVar.ProtoReflect.Descriptor instead.
 func (*EnvVar) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{96}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{100}
 }
 
 func (x *EnvVar) GetName() string {
@@ -6441,7 +6824,7 @@ type LogRequest struct {
 
 func (x *LogRequest) Reset() {
 	*x = LogRequest{}
-	mi := &file_armada_v1_armada_proto_msgTypes[97]
+	mi := &file_armada_v1_armada_proto_msgTypes[101]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6453,7 +6836,7 @@ func (x *LogRequest) String() string {
 func (*LogRequest) ProtoMessage() {}
 
 func (x *LogRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[97]
+	mi := &file_armada_v1_armada_proto_msgTypes[101]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6466,7 +6849,7 @@ func (x *LogRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LogRequest.ProtoReflect.Descriptor instead.
 func (*LogRequest) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{97}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{101}
 }
 
 func (x *LogRequest) GetRequestId() string {
@@ -6506,7 +6889,7 @@ type LogCancel struct {
 
 func (x *LogCancel) Reset() {
 	*x = LogCancel{}
-	mi := &file_armada_v1_armada_proto_msgTypes[98]
+	mi := &file_armada_v1_armada_proto_msgTypes[102]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6518,7 +6901,7 @@ func (x *LogCancel) String() string {
 func (*LogCancel) ProtoMessage() {}
 
 func (x *LogCancel) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[98]
+	mi := &file_armada_v1_armada_proto_msgTypes[102]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6531,7 +6914,7 @@ func (x *LogCancel) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LogCancel.ProtoReflect.Descriptor instead.
 func (*LogCancel) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{98}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{102}
 }
 
 func (x *LogCancel) GetRequestId() string {
@@ -6554,7 +6937,7 @@ type LogPush struct {
 
 func (x *LogPush) Reset() {
 	*x = LogPush{}
-	mi := &file_armada_v1_armada_proto_msgTypes[99]
+	mi := &file_armada_v1_armada_proto_msgTypes[103]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6566,7 +6949,7 @@ func (x *LogPush) String() string {
 func (*LogPush) ProtoMessage() {}
 
 func (x *LogPush) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[99]
+	mi := &file_armada_v1_armada_proto_msgTypes[103]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6579,7 +6962,7 @@ func (x *LogPush) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LogPush.ProtoReflect.Descriptor instead.
 func (*LogPush) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{99}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{103}
 }
 
 func (x *LogPush) GetRequestId() string {
@@ -6618,7 +7001,7 @@ type PushLogsResponse struct {
 
 func (x *PushLogsResponse) Reset() {
 	*x = PushLogsResponse{}
-	mi := &file_armada_v1_armada_proto_msgTypes[100]
+	mi := &file_armada_v1_armada_proto_msgTypes[104]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6630,7 +7013,7 @@ func (x *PushLogsResponse) String() string {
 func (*PushLogsResponse) ProtoMessage() {}
 
 func (x *PushLogsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[100]
+	mi := &file_armada_v1_armada_proto_msgTypes[104]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6643,7 +7026,7 @@ func (x *PushLogsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PushLogsResponse.ProtoReflect.Descriptor instead.
 func (*PushLogsResponse) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{100}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{104}
 }
 
 type TermSize struct {
@@ -6656,7 +7039,7 @@ type TermSize struct {
 
 func (x *TermSize) Reset() {
 	*x = TermSize{}
-	mi := &file_armada_v1_armada_proto_msgTypes[101]
+	mi := &file_armada_v1_armada_proto_msgTypes[105]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6668,7 +7051,7 @@ func (x *TermSize) String() string {
 func (*TermSize) ProtoMessage() {}
 
 func (x *TermSize) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[101]
+	mi := &file_armada_v1_armada_proto_msgTypes[105]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6681,7 +7064,7 @@ func (x *TermSize) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TermSize.ProtoReflect.Descriptor instead.
 func (*TermSize) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{101}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{105}
 }
 
 func (x *TermSize) GetRows() uint32 {
@@ -6715,7 +7098,7 @@ type ExecStart struct {
 
 func (x *ExecStart) Reset() {
 	*x = ExecStart{}
-	mi := &file_armada_v1_armada_proto_msgTypes[102]
+	mi := &file_armada_v1_armada_proto_msgTypes[106]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6727,7 +7110,7 @@ func (x *ExecStart) String() string {
 func (*ExecStart) ProtoMessage() {}
 
 func (x *ExecStart) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[102]
+	mi := &file_armada_v1_armada_proto_msgTypes[106]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6740,7 +7123,7 @@ func (x *ExecStart) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecStart.ProtoReflect.Descriptor instead.
 func (*ExecStart) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{102}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{106}
 }
 
 func (x *ExecStart) GetApp() string {
@@ -6799,7 +7182,7 @@ type ExecInput struct {
 
 func (x *ExecInput) Reset() {
 	*x = ExecInput{}
-	mi := &file_armada_v1_armada_proto_msgTypes[103]
+	mi := &file_armada_v1_armada_proto_msgTypes[107]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6811,7 +7194,7 @@ func (x *ExecInput) String() string {
 func (*ExecInput) ProtoMessage() {}
 
 func (x *ExecInput) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[103]
+	mi := &file_armada_v1_armada_proto_msgTypes[107]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6824,7 +7207,7 @@ func (x *ExecInput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecInput.ProtoReflect.Descriptor instead.
 func (*ExecInput) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{103}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{107}
 }
 
 func (x *ExecInput) GetInput() isExecInput_Input {
@@ -6897,7 +7280,7 @@ type ExecClientMessage struct {
 
 func (x *ExecClientMessage) Reset() {
 	*x = ExecClientMessage{}
-	mi := &file_armada_v1_armada_proto_msgTypes[104]
+	mi := &file_armada_v1_armada_proto_msgTypes[108]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6909,7 +7292,7 @@ func (x *ExecClientMessage) String() string {
 func (*ExecClientMessage) ProtoMessage() {}
 
 func (x *ExecClientMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[104]
+	mi := &file_armada_v1_armada_proto_msgTypes[108]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6922,7 +7305,7 @@ func (x *ExecClientMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecClientMessage.ProtoReflect.Descriptor instead.
 func (*ExecClientMessage) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{104}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{108}
 }
 
 func (x *ExecClientMessage) GetMsg() isExecClientMessage_Msg {
@@ -6981,7 +7364,7 @@ type ExecServerMessage struct {
 
 func (x *ExecServerMessage) Reset() {
 	*x = ExecServerMessage{}
-	mi := &file_armada_v1_armada_proto_msgTypes[105]
+	mi := &file_armada_v1_armada_proto_msgTypes[109]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6993,7 +7376,7 @@ func (x *ExecServerMessage) String() string {
 func (*ExecServerMessage) ProtoMessage() {}
 
 func (x *ExecServerMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[105]
+	mi := &file_armada_v1_armada_proto_msgTypes[109]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7006,7 +7389,7 @@ func (x *ExecServerMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecServerMessage.ProtoReflect.Descriptor instead.
 func (*ExecServerMessage) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{105}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{109}
 }
 
 func (x *ExecServerMessage) GetMsg() isExecServerMessage_Msg {
@@ -7096,7 +7479,7 @@ type ExecRequest struct {
 
 func (x *ExecRequest) Reset() {
 	*x = ExecRequest{}
-	mi := &file_armada_v1_armada_proto_msgTypes[106]
+	mi := &file_armada_v1_armada_proto_msgTypes[110]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7108,7 +7491,7 @@ func (x *ExecRequest) String() string {
 func (*ExecRequest) ProtoMessage() {}
 
 func (x *ExecRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[106]
+	mi := &file_armada_v1_armada_proto_msgTypes[110]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7121,7 +7504,7 @@ func (x *ExecRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecRequest.ProtoReflect.Descriptor instead.
 func (*ExecRequest) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{106}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{110}
 }
 
 func (x *ExecRequest) GetRequestId() string {
@@ -7183,7 +7566,7 @@ type ExecSessionOutput struct {
 
 func (x *ExecSessionOutput) Reset() {
 	*x = ExecSessionOutput{}
-	mi := &file_armada_v1_armada_proto_msgTypes[107]
+	mi := &file_armada_v1_armada_proto_msgTypes[111]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7195,7 +7578,7 @@ func (x *ExecSessionOutput) String() string {
 func (*ExecSessionOutput) ProtoMessage() {}
 
 func (x *ExecSessionOutput) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_v1_armada_proto_msgTypes[107]
+	mi := &file_armada_v1_armada_proto_msgTypes[111]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7208,7 +7591,7 @@ func (x *ExecSessionOutput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecSessionOutput.ProtoReflect.Descriptor instead.
 func (*ExecSessionOutput) Descriptor() ([]byte, []int) {
-	return file_armada_v1_armada_proto_rawDescGZIP(), []int{107}
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{111}
 }
 
 func (x *ExecSessionOutput) GetRequestId() string {
@@ -7290,6 +7673,531 @@ func (*ExecSessionOutput_Stderr) isExecSessionOutput_Output() {}
 func (*ExecSessionOutput_ExitCode) isExecSessionOutput_Output() {}
 
 func (*ExecSessionOutput_Error) isExecSessionOutput_Output() {}
+
+type ListVolumesRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Empty: every app's.
+	App           string `protobuf:"bytes,1,opt,name=app,proto3" json:"app,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListVolumesRequest) Reset() {
+	*x = ListVolumesRequest{}
+	mi := &file_armada_v1_armada_proto_msgTypes[112]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListVolumesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListVolumesRequest) ProtoMessage() {}
+
+func (x *ListVolumesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_armada_v1_armada_proto_msgTypes[112]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListVolumesRequest.ProtoReflect.Descriptor instead.
+func (*ListVolumesRequest) Descriptor() ([]byte, []int) {
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{112}
+}
+
+func (x *ListVolumesRequest) GetApp() string {
+	if x != nil {
+		return x.App
+	}
+	return ""
+}
+
+type ListVolumesResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Volumes       []*Volume              `protobuf:"bytes,1,rep,name=volumes,proto3" json:"volumes,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListVolumesResponse) Reset() {
+	*x = ListVolumesResponse{}
+	mi := &file_armada_v1_armada_proto_msgTypes[113]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListVolumesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListVolumesResponse) ProtoMessage() {}
+
+func (x *ListVolumesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_armada_v1_armada_proto_msgTypes[113]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListVolumesResponse.ProtoReflect.Descriptor instead.
+func (*ListVolumesResponse) Descriptor() ([]byte, []int) {
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{113}
+}
+
+func (x *ListVolumesResponse) GetVolumes() []*Volume {
+	if x != nil {
+		return x.Volumes
+	}
+	return nil
+}
+
+// Volume is a persistent volume bound to a node (ADR 0025).
+type Volume struct {
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	App       string                 `protobuf:"bytes,1,opt,name=app,proto3" json:"app,omitempty"`
+	Name      string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Node      string                 `protobuf:"bytes,3,opt,name=node,proto3" json:"node,omitempty"`
+	CreatedAt *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	// The app's current spec uses it.
+	InUse bool `protobuf:"varint,5,opt,name=in_use,json=inUse,proto3" json:"in_use,omitempty"`
+	// Disk use from the node's latest measurement; -1: unknown.
+	UsedBytes int64 `protobuf:"varint,6,opt,name=used_bytes,json=usedBytes,proto3" json:"used_bytes,omitempty"`
+	// Where it appears in the container, while in use.
+	Path          string `protobuf:"bytes,7,opt,name=path,proto3" json:"path,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Volume) Reset() {
+	*x = Volume{}
+	mi := &file_armada_v1_armada_proto_msgTypes[114]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Volume) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Volume) ProtoMessage() {}
+
+func (x *Volume) ProtoReflect() protoreflect.Message {
+	mi := &file_armada_v1_armada_proto_msgTypes[114]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Volume.ProtoReflect.Descriptor instead.
+func (*Volume) Descriptor() ([]byte, []int) {
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{114}
+}
+
+func (x *Volume) GetApp() string {
+	if x != nil {
+		return x.App
+	}
+	return ""
+}
+
+func (x *Volume) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *Volume) GetNode() string {
+	if x != nil {
+		return x.Node
+	}
+	return ""
+}
+
+func (x *Volume) GetCreatedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return nil
+}
+
+func (x *Volume) GetInUse() bool {
+	if x != nil {
+		return x.InUse
+	}
+	return false
+}
+
+func (x *Volume) GetUsedBytes() int64 {
+	if x != nil {
+		return x.UsedBytes
+	}
+	return 0
+}
+
+func (x *Volume) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
+type RemoveVolumeRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	App           string                 `protobuf:"bytes,1,opt,name=app,proto3" json:"app,omitempty"`
+	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RemoveVolumeRequest) Reset() {
+	*x = RemoveVolumeRequest{}
+	mi := &file_armada_v1_armada_proto_msgTypes[115]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RemoveVolumeRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RemoveVolumeRequest) ProtoMessage() {}
+
+func (x *RemoveVolumeRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_armada_v1_armada_proto_msgTypes[115]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RemoveVolumeRequest.ProtoReflect.Descriptor instead.
+func (*RemoveVolumeRequest) Descriptor() ([]byte, []int) {
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{115}
+}
+
+func (x *RemoveVolumeRequest) GetApp() string {
+	if x != nil {
+		return x.App
+	}
+	return ""
+}
+
+func (x *RemoveVolumeRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+type RemoveVolumeResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RemoveVolumeResponse) Reset() {
+	*x = RemoveVolumeResponse{}
+	mi := &file_armada_v1_armada_proto_msgTypes[116]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RemoveVolumeResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RemoveVolumeResponse) ProtoMessage() {}
+
+func (x *RemoveVolumeResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_armada_v1_armada_proto_msgTypes[116]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RemoveVolumeResponse.ProtoReflect.Descriptor instead.
+func (*RemoveVolumeResponse) Descriptor() ([]byte, []int) {
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{116}
+}
+
+type BackupVolumeRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	App   string                 `protobuf:"bytes,1,opt,name=app,proto3" json:"app,omitempty"`
+	Name  string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	// Stop the app's replica during the backup, for a consistent copy.
+	Stop          bool `protobuf:"varint,3,opt,name=stop,proto3" json:"stop,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BackupVolumeRequest) Reset() {
+	*x = BackupVolumeRequest{}
+	mi := &file_armada_v1_armada_proto_msgTypes[117]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BackupVolumeRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BackupVolumeRequest) ProtoMessage() {}
+
+func (x *BackupVolumeRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_armada_v1_armada_proto_msgTypes[117]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BackupVolumeRequest.ProtoReflect.Descriptor instead.
+func (*BackupVolumeRequest) Descriptor() ([]byte, []int) {
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{117}
+}
+
+func (x *BackupVolumeRequest) GetApp() string {
+	if x != nil {
+		return x.App
+	}
+	return ""
+}
+
+func (x *BackupVolumeRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *BackupVolumeRequest) GetStop() bool {
+	if x != nil {
+		return x.Stop
+	}
+	return false
+}
+
+type RestoreVolumeMessage struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Types that are valid to be assigned to Msg:
+	//
+	//	*RestoreVolumeMessage_Start
+	//	*RestoreVolumeMessage_Data
+	Msg           isRestoreVolumeMessage_Msg `protobuf_oneof:"msg"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RestoreVolumeMessage) Reset() {
+	*x = RestoreVolumeMessage{}
+	mi := &file_armada_v1_armada_proto_msgTypes[118]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RestoreVolumeMessage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RestoreVolumeMessage) ProtoMessage() {}
+
+func (x *RestoreVolumeMessage) ProtoReflect() protoreflect.Message {
+	mi := &file_armada_v1_armada_proto_msgTypes[118]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RestoreVolumeMessage.ProtoReflect.Descriptor instead.
+func (*RestoreVolumeMessage) Descriptor() ([]byte, []int) {
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{118}
+}
+
+func (x *RestoreVolumeMessage) GetMsg() isRestoreVolumeMessage_Msg {
+	if x != nil {
+		return x.Msg
+	}
+	return nil
+}
+
+func (x *RestoreVolumeMessage) GetStart() *RestoreVolumeStart {
+	if x != nil {
+		if x, ok := x.Msg.(*RestoreVolumeMessage_Start); ok {
+			return x.Start
+		}
+	}
+	return nil
+}
+
+func (x *RestoreVolumeMessage) GetData() []byte {
+	if x != nil {
+		if x, ok := x.Msg.(*RestoreVolumeMessage_Data); ok {
+			return x.Data
+		}
+	}
+	return nil
+}
+
+type isRestoreVolumeMessage_Msg interface {
+	isRestoreVolumeMessage_Msg()
+}
+
+type RestoreVolumeMessage_Start struct {
+	// The first message.
+	Start *RestoreVolumeStart `protobuf:"bytes,1,opt,name=start,proto3,oneof"`
+}
+
+type RestoreVolumeMessage_Data struct {
+	// Then the gzipped tar, in chunks of at most 64 KiB; an empty stream
+	// end completes it.
+	Data []byte `protobuf:"bytes,2,opt,name=data,proto3,oneof"`
+}
+
+func (*RestoreVolumeMessage_Start) isRestoreVolumeMessage_Msg() {}
+
+func (*RestoreVolumeMessage_Data) isRestoreVolumeMessage_Msg() {}
+
+type RestoreVolumeStart struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	App   string                 `protobuf:"bytes,1,opt,name=app,proto3" json:"app,omitempty"`
+	Name  string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	// Restore onto this node instead of the volume's own, e.g. when its node
+	// is lost; the volume is bound to it afterwards.
+	Node          string `protobuf:"bytes,3,opt,name=node,proto3" json:"node,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RestoreVolumeStart) Reset() {
+	*x = RestoreVolumeStart{}
+	mi := &file_armada_v1_armada_proto_msgTypes[119]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RestoreVolumeStart) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RestoreVolumeStart) ProtoMessage() {}
+
+func (x *RestoreVolumeStart) ProtoReflect() protoreflect.Message {
+	mi := &file_armada_v1_armada_proto_msgTypes[119]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RestoreVolumeStart.ProtoReflect.Descriptor instead.
+func (*RestoreVolumeStart) Descriptor() ([]byte, []int) {
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{119}
+}
+
+func (x *RestoreVolumeStart) GetApp() string {
+	if x != nil {
+		return x.App
+	}
+	return ""
+}
+
+func (x *RestoreVolumeStart) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *RestoreVolumeStart) GetNode() string {
+	if x != nil {
+		return x.Node
+	}
+	return ""
+}
+
+type RestoreVolumeResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Node          string                 `protobuf:"bytes,1,opt,name=node,proto3" json:"node,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RestoreVolumeResponse) Reset() {
+	*x = RestoreVolumeResponse{}
+	mi := &file_armada_v1_armada_proto_msgTypes[120]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RestoreVolumeResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RestoreVolumeResponse) ProtoMessage() {}
+
+func (x *RestoreVolumeResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_armada_v1_armada_proto_msgTypes[120]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RestoreVolumeResponse.ProtoReflect.Descriptor instead.
+func (*RestoreVolumeResponse) Descriptor() ([]byte, []int) {
+	return file_armada_v1_armada_proto_rawDescGZIP(), []int{120}
+}
+
+func (x *RestoreVolumeResponse) GetNode() string {
+	if x != nil {
+		return x.Node
+	}
+	return ""
+}
 
 var File_armada_v1_armada_proto protoreflect.FileDescriptor
 
@@ -7660,7 +8568,7 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\x04wake\x18\x04 \x01(\v2\x0f.armada.v1.WakeH\x00R\x04wakeB\x05\n" +
 	"\x03msg\"\x18\n" +
 	"\x04Wake\x12\x10\n" +
-	"\x03app\x18\x01 \x01(\tR\x03app\"\xfe\x01\n" +
+	"\x03app\x18\x01 \x01(\tR\x03app\"\x98\x02\n" +
 	"\x05Hello\x12\x1d\n" +
 	"\n" +
 	"cpu_millis\x18\x01 \x01(\x03R\tcpuMillis\x12!\n" +
@@ -7672,7 +8580,9 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\x04arch\x18\x06 \x01(\tR\x04arch\x12\x18\n" +
 	"\aruntime\x18\a \x01(\tR\aruntime\x12(\n" +
 	"\x10min_memory_bytes\x18\b \x01(\x03R\x0eminMemoryBytes\x12\x12\n" +
-	"\x04jobs\x18\t \x01(\bR\x04jobs\"D\n" +
+	"\x04jobs\x18\t \x01(\bR\x04jobs\x12\x18\n" +
+	"\avolumes\x18\n" +
+	" \x01(\bR\avolumes\"D\n" +
 	"\rReplicaReport\x123\n" +
 	"\breplicas\x18\x01 \x03(\v2\x17.armada.v1.ReplicaStateR\breplicas\"\xa6\x02\n" +
 	"\fReplicaState\x12\x0e\n" +
@@ -7686,11 +8596,17 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\x0fimage_platforms\x18\b \x03(\tR\x0eimagePlatforms\x12\x1a\n" +
 	"\bfinished\x18\t \x01(\bR\bfinished\x12\x1b\n" +
 	"\texit_code\x18\n" +
-	" \x01(\x05R\bexitCode\"\x93\x01\n" +
+	" \x01(\x05R\bexitCode\"\xf0\x01\n" +
 	"\vUsageReport\x123\n" +
 	"\breplicas\x18\x01 \x03(\v2\x17.armada.v1.ReplicaUsageR\breplicas\x12*\n" +
 	"\x04load\x18\x02 \x03(\v2\x16.armada.v1.ReplicaLoadR\x04load\x12#\n" +
-	"\rload_measured\x18\x03 \x01(\bR\floadMeasured\"V\n" +
+	"\rload_measured\x18\x03 \x01(\bR\floadMeasured\x120\n" +
+	"\avolumes\x18\x04 \x03(\v2\x16.armada.v1.VolumeUsageR\avolumes\x12)\n" +
+	"\x10volumes_measured\x18\x05 \x01(\bR\x0fvolumesMeasured\"M\n" +
+	"\vVolumeUsage\x12\x10\n" +
+	"\x03app\x18\x01 \x01(\tR\x03app\x12\x16\n" +
+	"\x06volume\x18\x02 \x01(\tR\x06volume\x12\x14\n" +
+	"\x05bytes\x18\x03 \x01(\x03R\x05bytes\"V\n" +
 	"\vReplicaLoad\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1b\n" +
 	"\tin_flight\x18\x02 \x01(\x03R\binFlight\x12\x1a\n" +
@@ -7699,7 +8615,7 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1d\n" +
 	"\n" +
 	"cpu_millis\x18\x02 \x01(\x03R\tcpuMillis\x12!\n" +
-	"\fmemory_bytes\x18\x03 \x01(\x03R\vmemoryBytes\"\xfd\x01\n" +
+	"\fmemory_bytes\x18\x03 \x01(\x03R\vmemoryBytes\"\xc0\x02\n" +
 	"\rServerMessage\x127\n" +
 	"\n" +
 	"assignment\x18\x01 \x01(\v2\x15.armada.v1.AssignmentH\x00R\n" +
@@ -7708,8 +8624,29 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"logRequest\x125\n" +
 	"\n" +
 	"log_cancel\x18\x03 \x01(\v2\x14.armada.v1.LogCancelH\x00R\tlogCancel\x12;\n" +
-	"\fexec_request\x18\x04 \x01(\v2\x16.armada.v1.ExecRequestH\x00R\vexecRequestB\x05\n" +
-	"\x03msg\"\x88\x01\n" +
+	"\fexec_request\x18\x04 \x01(\v2\x16.armada.v1.ExecRequestH\x00R\vexecRequest\x12A\n" +
+	"\x0evolume_request\x18\x05 \x01(\v2\x18.armada.v1.VolumeRequestH\x00R\rvolumeRequestB\x05\n" +
+	"\x03msg\"\xe1\x01\n" +
+	"\rVolumeRequest\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x01 \x01(\tR\trequestId\x12+\n" +
+	"\x02op\x18\x02 \x01(\x0e2\x1b.armada.v1.VolumeRequest.OpR\x02op\x12\x10\n" +
+	"\x03app\x18\x03 \x01(\tR\x03app\x12\x16\n" +
+	"\x06volume\x18\x04 \x01(\tR\x06volume\x12\x12\n" +
+	"\x04stop\x18\x05 \x01(\bR\x04stop\"F\n" +
+	"\x02Op\x12\x12\n" +
+	"\x0eOP_UNSPECIFIED\x10\x00\x12\r\n" +
+	"\tOP_BACKUP\x10\x01\x12\x0e\n" +
+	"\n" +
+	"OP_RESTORE\x10\x02\x12\r\n" +
+	"\tOP_REMOVE\x10\x03\"i\n" +
+	"\n" +
+	"VolumeData\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x01 \x01(\tR\trequestId\x12\x12\n" +
+	"\x04data\x18\x02 \x01(\fR\x04data\x12\x12\n" +
+	"\x04done\x18\x03 \x01(\bR\x04done\x12\x14\n" +
+	"\x05error\x18\x04 \x01(\tR\x05error\"\x88\x01\n" +
 	"\n" +
 	"Assignment\x122\n" +
 	"\breplicas\x18\x01 \x03(\v2\x16.armada.v1.ReplicaSpecR\breplicas\x12,\n" +
@@ -7739,7 +8676,7 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\binternal\x18\x05 \x01(\bR\binternal\"8\n" +
 	"\x10ProxyCertificate\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x10\n" +
-	"\x03pem\x18\x02 \x01(\fR\x03pem\"\xf7\x04\n" +
+	"\x03pem\x18\x02 \x01(\fR\x03pem\"\xa8\x05\n" +
 	"\vReplicaSpec\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x10\n" +
 	"\x03app\x18\x02 \x01(\tR\x03app\x12\x1a\n" +
@@ -7760,7 +8697,13 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\fsecret_files\x18\x0f \x03(\v2\x15.armada.v1.SecretFileR\vsecretFiles\x123\n" +
 	"\bregistry\x18\x10 \x01(\v2\x17.armada.v1.RegistryAuthR\bregistry\x12,\n" +
 	"\x12cpu_reserve_millis\x18\x11 \x01(\x03R\x10cpuReserveMillis\x12'\n" +
-	"\x03job\x18\x12 \x01(\v2\x15.armada.v1.JobAttemptR\x03job\"D\n" +
+	"\x03job\x18\x12 \x01(\v2\x15.armada.v1.JobAttemptR\x03job\x12/\n" +
+	"\avolumes\x18\x13 \x03(\v2\x15.armada.v1.VolumeSpecR\avolumes\"J\n" +
+	"\n" +
+	"VolumeSpec\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
+	"\x04path\x18\x02 \x01(\tR\x04path\x12\x14\n" +
+	"\x05owner\x18\x03 \x01(\tR\x05owner\"D\n" +
 	"\n" +
 	"JobAttempt\x12\x10\n" +
 	"\x03job\x18\x01 \x01(\tR\x03job\x12\x10\n" +
@@ -7848,17 +8791,53 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\x06stderr\x18\x03 \x01(\fH\x00R\x06stderr\x12\x1d\n" +
 	"\texit_code\x18\x04 \x01(\x05H\x00R\bexitCode\x12\x16\n" +
 	"\x05error\x18\x05 \x01(\tH\x00R\x05errorB\b\n" +
-	"\x06output*F\n" +
+	"\x06output\"&\n" +
+	"\x12ListVolumesRequest\x12\x10\n" +
+	"\x03app\x18\x01 \x01(\tR\x03app\"B\n" +
+	"\x13ListVolumesResponse\x12+\n" +
+	"\avolumes\x18\x01 \x03(\v2\x11.armada.v1.VolumeR\avolumes\"\xc7\x01\n" +
+	"\x06Volume\x12\x10\n" +
+	"\x03app\x18\x01 \x01(\tR\x03app\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x12\n" +
+	"\x04node\x18\x03 \x01(\tR\x04node\x129\n" +
+	"\n" +
+	"created_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12\x15\n" +
+	"\x06in_use\x18\x05 \x01(\bR\x05inUse\x12\x1d\n" +
+	"\n" +
+	"used_bytes\x18\x06 \x01(\x03R\tusedBytes\x12\x12\n" +
+	"\x04path\x18\a \x01(\tR\x04path\";\n" +
+	"\x13RemoveVolumeRequest\x12\x10\n" +
+	"\x03app\x18\x01 \x01(\tR\x03app\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\"\x16\n" +
+	"\x14RemoveVolumeResponse\"O\n" +
+	"\x13BackupVolumeRequest\x12\x10\n" +
+	"\x03app\x18\x01 \x01(\tR\x03app\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x12\n" +
+	"\x04stop\x18\x03 \x01(\bR\x04stop\"j\n" +
+	"\x14RestoreVolumeMessage\x125\n" +
+	"\x05start\x18\x01 \x01(\v2\x1d.armada.v1.RestoreVolumeStartH\x00R\x05start\x12\x14\n" +
+	"\x04data\x18\x02 \x01(\fH\x00R\x04dataB\x05\n" +
+	"\x03msg\"N\n" +
+	"\x12RestoreVolumeStart\x12\x10\n" +
+	"\x03app\x18\x01 \x01(\tR\x03app\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x12\n" +
+	"\x04node\x18\x03 \x01(\tR\x04node\"+\n" +
+	"\x15RestoreVolumeResponse\x12\x12\n" +
+	"\x04node\x18\x01 \x01(\tR\x04node*F\n" +
 	"\x06Stream\x12\x16\n" +
 	"\x12STREAM_UNSPECIFIED\x10\x00\x12\x11\n" +
 	"\rSTREAM_STDOUT\x10\x01\x12\x11\n" +
-	"\rSTREAM_STDERR\x10\x022\xb5\x11\n" +
+	"\rSTREAM_STDERR\x10\x022\xf3\x13\n" +
 	"\fAdminService\x12=\n" +
 	"\x06Deploy\x12\x18.armada.v1.DeployRequest\x1a\x19.armada.v1.DeployResponse\x12=\n" +
 	"\x06Status\x12\x18.armada.v1.StatusRequest\x1a\x19.armada.v1.StatusResponse\x12:\n" +
 	"\x05Scale\x12\x17.armada.v1.ScaleRequest\x1a\x18.armada.v1.ScaleResponse\x12I\n" +
 	"\n" +
-	"SetTraffic\x12\x1c.armada.v1.SetTrafficRequest\x1a\x1d.armada.v1.SetTrafficResponse\x125\n" +
+	"SetTraffic\x12\x1c.armada.v1.SetTrafficRequest\x1a\x1d.armada.v1.SetTrafficResponse\x12L\n" +
+	"\vListVolumes\x12\x1d.armada.v1.ListVolumesRequest\x1a\x1e.armada.v1.ListVolumesResponse\x12O\n" +
+	"\fRemoveVolume\x12\x1e.armada.v1.RemoveVolumeRequest\x1a\x1f.armada.v1.RemoveVolumeResponse\x12G\n" +
+	"\fBackupVolume\x12\x1e.armada.v1.BackupVolumeRequest\x1a\x15.armada.v1.VolumeData0\x01\x12T\n" +
+	"\rRestoreVolume\x12\x1f.armada.v1.RestoreVolumeMessage\x1a .armada.v1.RestoreVolumeResponse(\x01\x125\n" +
 	"\x04Logs\x12\x16.armada.v1.LogsRequest\x1a\x13.armada.v1.LogEntry0\x01\x12P\n" +
 	"\x10GetClusterConfig\x12\".armada.v1.GetClusterConfigRequest\x1a\x18.armada.v1.ClusterConfig\x12P\n" +
 	"\x10SetClusterConfig\x12\".armada.v1.SetClusterConfigRequest\x1a\x18.armada.v1.ClusterConfig\x12L\n" +
@@ -7890,11 +8869,12 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\vJoinService\x127\n" +
 	"\x04Join\x12\x16.armada.v1.JoinRequest\x1a\x17.armada.v1.JoinResponse\x12I\n" +
 	"\n" +
-	"JoinServer\x12\x1c.armada.v1.JoinServerRequest\x1a\x1d.armada.v1.JoinServerResponse2\xb3\x02\n" +
+	"JoinServer\x12\x1c.armada.v1.JoinServerRequest\x1a\x1d.armada.v1.JoinServerResponse2\xf6\x02\n" +
 	"\fAgentService\x12@\n" +
 	"\aConnect\x12\x17.armada.v1.AgentMessage\x1a\x18.armada.v1.ServerMessage(\x010\x01\x12=\n" +
 	"\bPushLogs\x12\x12.armada.v1.LogPush\x1a\x1b.armada.v1.PushLogsResponse(\x01\x12E\n" +
-	"\vExecSession\x12\x1c.armada.v1.ExecSessionOutput\x1a\x14.armada.v1.ExecInput(\x010\x01\x12[\n" +
+	"\vExecSession\x12\x1c.armada.v1.ExecSessionOutput\x1a\x14.armada.v1.ExecInput(\x010\x01\x12A\n" +
+	"\rVolumeSession\x12\x15.armada.v1.VolumeData\x1a\x15.armada.v1.VolumeData(\x010\x01\x12[\n" +
 	"\x10RenewCertificate\x12\".armada.v1.RenewCertificateRequest\x1a#.armada.v1.RenewCertificateResponseB5Z3github.com/ryanbekhen/armada/api/armada/v1;armadav1b\x06proto3"
 
 var (
@@ -7909,269 +8889,300 @@ func file_armada_v1_armada_proto_rawDescGZIP() []byte {
 	return file_armada_v1_armada_proto_rawDescData
 }
 
-var file_armada_v1_armada_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_armada_v1_armada_proto_msgTypes = make([]protoimpl.MessageInfo, 112)
+var file_armada_v1_armada_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
+var file_armada_v1_armada_proto_msgTypes = make([]protoimpl.MessageInfo, 125)
 var file_armada_v1_armada_proto_goTypes = []any{
 	(Stream)(0),                             // 0: armada.v1.Stream
-	(*RunJobRequest)(nil),                   // 1: armada.v1.RunJobRequest
-	(*RunJobResponse)(nil),                  // 2: armada.v1.RunJobResponse
-	(*ListJobsRequest)(nil),                 // 3: armada.v1.ListJobsRequest
-	(*ListJobsResponse)(nil),                // 4: armada.v1.ListJobsResponse
-	(*JobInfo)(nil),                         // 5: armada.v1.JobInfo
-	(*ListJobRunsRequest)(nil),              // 6: armada.v1.ListJobRunsRequest
-	(*ListJobRunsResponse)(nil),             // 7: armada.v1.ListJobRunsResponse
-	(*JobRunInfo)(nil),                      // 8: armada.v1.JobRunInfo
-	(*CancelJobRequest)(nil),                // 9: armada.v1.CancelJobRequest
-	(*CancelJobResponse)(nil),               // 10: armada.v1.CancelJobResponse
-	(*DeleteJobRequest)(nil),                // 11: armada.v1.DeleteJobRequest
-	(*DeleteJobResponse)(nil),               // 12: armada.v1.DeleteJobResponse
-	(*EventsRequest)(nil),                   // 13: armada.v1.EventsRequest
-	(*EventInfo)(nil),                       // 14: armada.v1.EventInfo
-	(*IssueMetricsCertificateRequest)(nil),  // 15: armada.v1.IssueMetricsCertificateRequest
-	(*IssueMetricsCertificateResponse)(nil), // 16: armada.v1.IssueMetricsCertificateResponse
-	(*ListServersRequest)(nil),              // 17: armada.v1.ListServersRequest
-	(*ListServersResponse)(nil),             // 18: armada.v1.ListServersResponse
-	(*ServerInfo)(nil),                      // 19: armada.v1.ServerInfo
-	(*RemoveServerRequest)(nil),             // 20: armada.v1.RemoveServerRequest
-	(*RemoveServerResponse)(nil),            // 21: armada.v1.RemoveServerResponse
-	(*CreateJoinTokenRequest)(nil),          // 22: armada.v1.CreateJoinTokenRequest
-	(*CreateJoinTokenResponse)(nil),         // 23: armada.v1.CreateJoinTokenResponse
-	(*CordonNodeRequest)(nil),               // 24: armada.v1.CordonNodeRequest
-	(*CordonNodeResponse)(nil),              // 25: armada.v1.CordonNodeResponse
-	(*LabelNodeRequest)(nil),                // 26: armada.v1.LabelNodeRequest
-	(*LabelNodeResponse)(nil),               // 27: armada.v1.LabelNodeResponse
-	(*RestrictNodeRequest)(nil),             // 28: armada.v1.RestrictNodeRequest
-	(*RestrictNodeResponse)(nil),            // 29: armada.v1.RestrictNodeResponse
-	(*RemoveNodeRequest)(nil),               // 30: armada.v1.RemoveNodeRequest
-	(*RemoveNodeResponse)(nil),              // 31: armada.v1.RemoveNodeResponse
-	(*JoinServerRequest)(nil),               // 32: armada.v1.JoinServerRequest
-	(*JoinServerResponse)(nil),              // 33: armada.v1.JoinServerResponse
-	(*JoinRequest)(nil),                     // 34: armada.v1.JoinRequest
-	(*JoinResponse)(nil),                    // 35: armada.v1.JoinResponse
-	(*SetSecretRequest)(nil),                // 36: armada.v1.SetSecretRequest
-	(*SetSecretResponse)(nil),               // 37: armada.v1.SetSecretResponse
-	(*ListSecretsRequest)(nil),              // 38: armada.v1.ListSecretsRequest
-	(*ListSecretsResponse)(nil),             // 39: armada.v1.ListSecretsResponse
-	(*SecretInfo)(nil),                      // 40: armada.v1.SecretInfo
-	(*DeleteSecretRequest)(nil),             // 41: armada.v1.DeleteSecretRequest
-	(*DeleteSecretResponse)(nil),            // 42: armada.v1.DeleteSecretResponse
-	(*ListRevisionsRequest)(nil),            // 43: armada.v1.ListRevisionsRequest
-	(*ListRevisionsResponse)(nil),           // 44: armada.v1.ListRevisionsResponse
-	(*RevisionInfo)(nil),                    // 45: armada.v1.RevisionInfo
-	(*RollbackRequest)(nil),                 // 46: armada.v1.RollbackRequest
-	(*RollbackResponse)(nil),                // 47: armada.v1.RollbackResponse
-	(*ClusterConfig)(nil),                   // 48: armada.v1.ClusterConfig
-	(*GetClusterConfigRequest)(nil),         // 49: armada.v1.GetClusterConfigRequest
-	(*SetClusterConfigRequest)(nil),         // 50: armada.v1.SetClusterConfigRequest
-	(*ListDomainsRequest)(nil),              // 51: armada.v1.ListDomainsRequest
-	(*ListDomainsResponse)(nil),             // 52: armada.v1.ListDomainsResponse
-	(*Domain)(nil),                          // 53: armada.v1.Domain
-	(*VerifyDomainRequest)(nil),             // 54: armada.v1.VerifyDomainRequest
-	(*DeployRequest)(nil),                   // 55: armada.v1.DeployRequest
-	(*DeployResponse)(nil),                  // 56: armada.v1.DeployResponse
-	(*StatusRequest)(nil),                   // 57: armada.v1.StatusRequest
-	(*StatusResponse)(nil),                  // 58: armada.v1.StatusResponse
-	(*AppStatus)(nil),                       // 59: armada.v1.AppStatus
-	(*Autoscale)(nil),                       // 60: armada.v1.Autoscale
-	(*AutoscaleRule)(nil),                   // 61: armada.v1.AutoscaleRule
-	(*ReplicaStatus)(nil),                   // 62: armada.v1.ReplicaStatus
-	(*NodeStatus)(nil),                      // 63: armada.v1.NodeStatus
-	(*TopRequest)(nil),                      // 64: armada.v1.TopRequest
-	(*TopResponse)(nil),                     // 65: armada.v1.TopResponse
-	(*ReplicaTop)(nil),                      // 66: armada.v1.ReplicaTop
-	(*NodeTop)(nil),                         // 67: armada.v1.NodeTop
-	(*ScaleRequest)(nil),                    // 68: armada.v1.ScaleRequest
-	(*ScaleResponse)(nil),                   // 69: armada.v1.ScaleResponse
-	(*SetTrafficRequest)(nil),               // 70: armada.v1.SetTrafficRequest
-	(*SetTrafficResponse)(nil),              // 71: armada.v1.SetTrafficResponse
-	(*TrafficTarget)(nil),                   // 72: armada.v1.TrafficTarget
-	(*LogsRequest)(nil),                     // 73: armada.v1.LogsRequest
-	(*LogEntry)(nil),                        // 74: armada.v1.LogEntry
-	(*RenewCertificateRequest)(nil),         // 75: armada.v1.RenewCertificateRequest
-	(*RenewCertificateResponse)(nil),        // 76: armada.v1.RenewCertificateResponse
-	(*AgentMessage)(nil),                    // 77: armada.v1.AgentMessage
-	(*Wake)(nil),                            // 78: armada.v1.Wake
-	(*Hello)(nil),                           // 79: armada.v1.Hello
-	(*ReplicaReport)(nil),                   // 80: armada.v1.ReplicaReport
-	(*ReplicaState)(nil),                    // 81: armada.v1.ReplicaState
-	(*UsageReport)(nil),                     // 82: armada.v1.UsageReport
-	(*ReplicaLoad)(nil),                     // 83: armada.v1.ReplicaLoad
-	(*ReplicaUsage)(nil),                    // 84: armada.v1.ReplicaUsage
-	(*ServerMessage)(nil),                   // 85: armada.v1.ServerMessage
-	(*Assignment)(nil),                      // 86: armada.v1.Assignment
-	(*ProxyConfig)(nil),                     // 87: armada.v1.ProxyConfig
-	(*ProxyBackend)(nil),                    // 88: armada.v1.ProxyBackend
-	(*ProxyServer)(nil),                     // 89: armada.v1.ProxyServer
-	(*ProxyRule)(nil),                       // 90: armada.v1.ProxyRule
-	(*ProxyCertificate)(nil),                // 91: armada.v1.ProxyCertificate
-	(*ReplicaSpec)(nil),                     // 92: armada.v1.ReplicaSpec
-	(*JobAttempt)(nil),                      // 93: armada.v1.JobAttempt
-	(*SecretFile)(nil),                      // 94: armada.v1.SecretFile
-	(*RegistryAuth)(nil),                    // 95: armada.v1.RegistryAuth
-	(*Probe)(nil),                           // 96: armada.v1.Probe
-	(*EnvVar)(nil),                          // 97: armada.v1.EnvVar
-	(*LogRequest)(nil),                      // 98: armada.v1.LogRequest
-	(*LogCancel)(nil),                       // 99: armada.v1.LogCancel
-	(*LogPush)(nil),                         // 100: armada.v1.LogPush
-	(*PushLogsResponse)(nil),                // 101: armada.v1.PushLogsResponse
-	(*TermSize)(nil),                        // 102: armada.v1.TermSize
-	(*ExecStart)(nil),                       // 103: armada.v1.ExecStart
-	(*ExecInput)(nil),                       // 104: armada.v1.ExecInput
-	(*ExecClientMessage)(nil),               // 105: armada.v1.ExecClientMessage
-	(*ExecServerMessage)(nil),               // 106: armada.v1.ExecServerMessage
-	(*ExecRequest)(nil),                     // 107: armada.v1.ExecRequest
-	(*ExecSessionOutput)(nil),               // 108: armada.v1.ExecSessionOutput
-	nil,                                     // 109: armada.v1.CreateJoinTokenRequest.LabelsEntry
-	nil,                                     // 110: armada.v1.LabelNodeRequest.SetEntry
-	nil,                                     // 111: armada.v1.LabelNodeResponse.LabelsEntry
-	nil,                                     // 112: armada.v1.NodeStatus.LabelsEntry
-	(*timestamppb.Timestamp)(nil),           // 113: google.protobuf.Timestamp
+	(VolumeRequest_Op)(0),                   // 1: armada.v1.VolumeRequest.Op
+	(*RunJobRequest)(nil),                   // 2: armada.v1.RunJobRequest
+	(*RunJobResponse)(nil),                  // 3: armada.v1.RunJobResponse
+	(*ListJobsRequest)(nil),                 // 4: armada.v1.ListJobsRequest
+	(*ListJobsResponse)(nil),                // 5: armada.v1.ListJobsResponse
+	(*JobInfo)(nil),                         // 6: armada.v1.JobInfo
+	(*ListJobRunsRequest)(nil),              // 7: armada.v1.ListJobRunsRequest
+	(*ListJobRunsResponse)(nil),             // 8: armada.v1.ListJobRunsResponse
+	(*JobRunInfo)(nil),                      // 9: armada.v1.JobRunInfo
+	(*CancelJobRequest)(nil),                // 10: armada.v1.CancelJobRequest
+	(*CancelJobResponse)(nil),               // 11: armada.v1.CancelJobResponse
+	(*DeleteJobRequest)(nil),                // 12: armada.v1.DeleteJobRequest
+	(*DeleteJobResponse)(nil),               // 13: armada.v1.DeleteJobResponse
+	(*EventsRequest)(nil),                   // 14: armada.v1.EventsRequest
+	(*EventInfo)(nil),                       // 15: armada.v1.EventInfo
+	(*IssueMetricsCertificateRequest)(nil),  // 16: armada.v1.IssueMetricsCertificateRequest
+	(*IssueMetricsCertificateResponse)(nil), // 17: armada.v1.IssueMetricsCertificateResponse
+	(*ListServersRequest)(nil),              // 18: armada.v1.ListServersRequest
+	(*ListServersResponse)(nil),             // 19: armada.v1.ListServersResponse
+	(*ServerInfo)(nil),                      // 20: armada.v1.ServerInfo
+	(*RemoveServerRequest)(nil),             // 21: armada.v1.RemoveServerRequest
+	(*RemoveServerResponse)(nil),            // 22: armada.v1.RemoveServerResponse
+	(*CreateJoinTokenRequest)(nil),          // 23: armada.v1.CreateJoinTokenRequest
+	(*CreateJoinTokenResponse)(nil),         // 24: armada.v1.CreateJoinTokenResponse
+	(*CordonNodeRequest)(nil),               // 25: armada.v1.CordonNodeRequest
+	(*CordonNodeResponse)(nil),              // 26: armada.v1.CordonNodeResponse
+	(*LabelNodeRequest)(nil),                // 27: armada.v1.LabelNodeRequest
+	(*LabelNodeResponse)(nil),               // 28: armada.v1.LabelNodeResponse
+	(*RestrictNodeRequest)(nil),             // 29: armada.v1.RestrictNodeRequest
+	(*RestrictNodeResponse)(nil),            // 30: armada.v1.RestrictNodeResponse
+	(*RemoveNodeRequest)(nil),               // 31: armada.v1.RemoveNodeRequest
+	(*RemoveNodeResponse)(nil),              // 32: armada.v1.RemoveNodeResponse
+	(*JoinServerRequest)(nil),               // 33: armada.v1.JoinServerRequest
+	(*JoinServerResponse)(nil),              // 34: armada.v1.JoinServerResponse
+	(*JoinRequest)(nil),                     // 35: armada.v1.JoinRequest
+	(*JoinResponse)(nil),                    // 36: armada.v1.JoinResponse
+	(*SetSecretRequest)(nil),                // 37: armada.v1.SetSecretRequest
+	(*SetSecretResponse)(nil),               // 38: armada.v1.SetSecretResponse
+	(*ListSecretsRequest)(nil),              // 39: armada.v1.ListSecretsRequest
+	(*ListSecretsResponse)(nil),             // 40: armada.v1.ListSecretsResponse
+	(*SecretInfo)(nil),                      // 41: armada.v1.SecretInfo
+	(*DeleteSecretRequest)(nil),             // 42: armada.v1.DeleteSecretRequest
+	(*DeleteSecretResponse)(nil),            // 43: armada.v1.DeleteSecretResponse
+	(*ListRevisionsRequest)(nil),            // 44: armada.v1.ListRevisionsRequest
+	(*ListRevisionsResponse)(nil),           // 45: armada.v1.ListRevisionsResponse
+	(*RevisionInfo)(nil),                    // 46: armada.v1.RevisionInfo
+	(*RollbackRequest)(nil),                 // 47: armada.v1.RollbackRequest
+	(*RollbackResponse)(nil),                // 48: armada.v1.RollbackResponse
+	(*ClusterConfig)(nil),                   // 49: armada.v1.ClusterConfig
+	(*GetClusterConfigRequest)(nil),         // 50: armada.v1.GetClusterConfigRequest
+	(*SetClusterConfigRequest)(nil),         // 51: armada.v1.SetClusterConfigRequest
+	(*ListDomainsRequest)(nil),              // 52: armada.v1.ListDomainsRequest
+	(*ListDomainsResponse)(nil),             // 53: armada.v1.ListDomainsResponse
+	(*Domain)(nil),                          // 54: armada.v1.Domain
+	(*VerifyDomainRequest)(nil),             // 55: armada.v1.VerifyDomainRequest
+	(*DeployRequest)(nil),                   // 56: armada.v1.DeployRequest
+	(*DeployResponse)(nil),                  // 57: armada.v1.DeployResponse
+	(*StatusRequest)(nil),                   // 58: armada.v1.StatusRequest
+	(*StatusResponse)(nil),                  // 59: armada.v1.StatusResponse
+	(*AppStatus)(nil),                       // 60: armada.v1.AppStatus
+	(*Autoscale)(nil),                       // 61: armada.v1.Autoscale
+	(*AutoscaleRule)(nil),                   // 62: armada.v1.AutoscaleRule
+	(*ReplicaStatus)(nil),                   // 63: armada.v1.ReplicaStatus
+	(*NodeStatus)(nil),                      // 64: armada.v1.NodeStatus
+	(*TopRequest)(nil),                      // 65: armada.v1.TopRequest
+	(*TopResponse)(nil),                     // 66: armada.v1.TopResponse
+	(*ReplicaTop)(nil),                      // 67: armada.v1.ReplicaTop
+	(*NodeTop)(nil),                         // 68: armada.v1.NodeTop
+	(*ScaleRequest)(nil),                    // 69: armada.v1.ScaleRequest
+	(*ScaleResponse)(nil),                   // 70: armada.v1.ScaleResponse
+	(*SetTrafficRequest)(nil),               // 71: armada.v1.SetTrafficRequest
+	(*SetTrafficResponse)(nil),              // 72: armada.v1.SetTrafficResponse
+	(*TrafficTarget)(nil),                   // 73: armada.v1.TrafficTarget
+	(*LogsRequest)(nil),                     // 74: armada.v1.LogsRequest
+	(*LogEntry)(nil),                        // 75: armada.v1.LogEntry
+	(*RenewCertificateRequest)(nil),         // 76: armada.v1.RenewCertificateRequest
+	(*RenewCertificateResponse)(nil),        // 77: armada.v1.RenewCertificateResponse
+	(*AgentMessage)(nil),                    // 78: armada.v1.AgentMessage
+	(*Wake)(nil),                            // 79: armada.v1.Wake
+	(*Hello)(nil),                           // 80: armada.v1.Hello
+	(*ReplicaReport)(nil),                   // 81: armada.v1.ReplicaReport
+	(*ReplicaState)(nil),                    // 82: armada.v1.ReplicaState
+	(*UsageReport)(nil),                     // 83: armada.v1.UsageReport
+	(*VolumeUsage)(nil),                     // 84: armada.v1.VolumeUsage
+	(*ReplicaLoad)(nil),                     // 85: armada.v1.ReplicaLoad
+	(*ReplicaUsage)(nil),                    // 86: armada.v1.ReplicaUsage
+	(*ServerMessage)(nil),                   // 87: armada.v1.ServerMessage
+	(*VolumeRequest)(nil),                   // 88: armada.v1.VolumeRequest
+	(*VolumeData)(nil),                      // 89: armada.v1.VolumeData
+	(*Assignment)(nil),                      // 90: armada.v1.Assignment
+	(*ProxyConfig)(nil),                     // 91: armada.v1.ProxyConfig
+	(*ProxyBackend)(nil),                    // 92: armada.v1.ProxyBackend
+	(*ProxyServer)(nil),                     // 93: armada.v1.ProxyServer
+	(*ProxyRule)(nil),                       // 94: armada.v1.ProxyRule
+	(*ProxyCertificate)(nil),                // 95: armada.v1.ProxyCertificate
+	(*ReplicaSpec)(nil),                     // 96: armada.v1.ReplicaSpec
+	(*VolumeSpec)(nil),                      // 97: armada.v1.VolumeSpec
+	(*JobAttempt)(nil),                      // 98: armada.v1.JobAttempt
+	(*SecretFile)(nil),                      // 99: armada.v1.SecretFile
+	(*RegistryAuth)(nil),                    // 100: armada.v1.RegistryAuth
+	(*Probe)(nil),                           // 101: armada.v1.Probe
+	(*EnvVar)(nil),                          // 102: armada.v1.EnvVar
+	(*LogRequest)(nil),                      // 103: armada.v1.LogRequest
+	(*LogCancel)(nil),                       // 104: armada.v1.LogCancel
+	(*LogPush)(nil),                         // 105: armada.v1.LogPush
+	(*PushLogsResponse)(nil),                // 106: armada.v1.PushLogsResponse
+	(*TermSize)(nil),                        // 107: armada.v1.TermSize
+	(*ExecStart)(nil),                       // 108: armada.v1.ExecStart
+	(*ExecInput)(nil),                       // 109: armada.v1.ExecInput
+	(*ExecClientMessage)(nil),               // 110: armada.v1.ExecClientMessage
+	(*ExecServerMessage)(nil),               // 111: armada.v1.ExecServerMessage
+	(*ExecRequest)(nil),                     // 112: armada.v1.ExecRequest
+	(*ExecSessionOutput)(nil),               // 113: armada.v1.ExecSessionOutput
+	(*ListVolumesRequest)(nil),              // 114: armada.v1.ListVolumesRequest
+	(*ListVolumesResponse)(nil),             // 115: armada.v1.ListVolumesResponse
+	(*Volume)(nil),                          // 116: armada.v1.Volume
+	(*RemoveVolumeRequest)(nil),             // 117: armada.v1.RemoveVolumeRequest
+	(*RemoveVolumeResponse)(nil),            // 118: armada.v1.RemoveVolumeResponse
+	(*BackupVolumeRequest)(nil),             // 119: armada.v1.BackupVolumeRequest
+	(*RestoreVolumeMessage)(nil),            // 120: armada.v1.RestoreVolumeMessage
+	(*RestoreVolumeStart)(nil),              // 121: armada.v1.RestoreVolumeStart
+	(*RestoreVolumeResponse)(nil),           // 122: armada.v1.RestoreVolumeResponse
+	nil,                                     // 123: armada.v1.CreateJoinTokenRequest.LabelsEntry
+	nil,                                     // 124: armada.v1.LabelNodeRequest.SetEntry
+	nil,                                     // 125: armada.v1.LabelNodeResponse.LabelsEntry
+	nil,                                     // 126: armada.v1.NodeStatus.LabelsEntry
+	(*timestamppb.Timestamp)(nil),           // 127: google.protobuf.Timestamp
 }
 var file_armada_v1_armada_proto_depIdxs = []int32{
-	5,   // 0: armada.v1.ListJobsResponse.jobs:type_name -> armada.v1.JobInfo
-	113, // 1: armada.v1.JobInfo.next_run:type_name -> google.protobuf.Timestamp
-	8,   // 2: armada.v1.JobInfo.last_run:type_name -> armada.v1.JobRunInfo
-	8,   // 3: armada.v1.ListJobRunsResponse.runs:type_name -> armada.v1.JobRunInfo
-	113, // 4: armada.v1.JobRunInfo.created_at:type_name -> google.protobuf.Timestamp
-	113, // 5: armada.v1.JobRunInfo.started_at:type_name -> google.protobuf.Timestamp
-	113, // 6: armada.v1.JobRunInfo.finished_at:type_name -> google.protobuf.Timestamp
-	113, // 7: armada.v1.EventInfo.first:type_name -> google.protobuf.Timestamp
-	113, // 8: armada.v1.EventInfo.last:type_name -> google.protobuf.Timestamp
-	113, // 9: armada.v1.IssueMetricsCertificateResponse.expires_at:type_name -> google.protobuf.Timestamp
-	19,  // 10: armada.v1.ListServersResponse.servers:type_name -> armada.v1.ServerInfo
-	109, // 11: armada.v1.CreateJoinTokenRequest.labels:type_name -> armada.v1.CreateJoinTokenRequest.LabelsEntry
-	113, // 12: armada.v1.CreateJoinTokenResponse.expires_at:type_name -> google.protobuf.Timestamp
-	110, // 13: armada.v1.LabelNodeRequest.set:type_name -> armada.v1.LabelNodeRequest.SetEntry
-	111, // 14: armada.v1.LabelNodeResponse.labels:type_name -> armada.v1.LabelNodeResponse.LabelsEntry
-	40,  // 15: armada.v1.ListSecretsResponse.secrets:type_name -> armada.v1.SecretInfo
-	113, // 16: armada.v1.SecretInfo.updated_at:type_name -> google.protobuf.Timestamp
-	45,  // 17: armada.v1.ListRevisionsResponse.revisions:type_name -> armada.v1.RevisionInfo
-	113, // 18: armada.v1.RevisionInfo.created_at:type_name -> google.protobuf.Timestamp
-	48,  // 19: armada.v1.SetClusterConfigRequest.config:type_name -> armada.v1.ClusterConfig
-	53,  // 20: armada.v1.ListDomainsResponse.domains:type_name -> armada.v1.Domain
-	59,  // 21: armada.v1.StatusResponse.apps:type_name -> armada.v1.AppStatus
-	63,  // 22: armada.v1.StatusResponse.nodes:type_name -> armada.v1.NodeStatus
-	62,  // 23: armada.v1.AppStatus.replicas:type_name -> armada.v1.ReplicaStatus
-	60,  // 24: armada.v1.AppStatus.autoscale:type_name -> armada.v1.Autoscale
-	72,  // 25: armada.v1.AppStatus.traffic:type_name -> armada.v1.TrafficTarget
-	61,  // 26: armada.v1.Autoscale.rules:type_name -> armada.v1.AutoscaleRule
-	113, // 27: armada.v1.ReplicaStatus.updated_at:type_name -> google.protobuf.Timestamp
-	113, // 28: armada.v1.NodeStatus.last_seen:type_name -> google.protobuf.Timestamp
-	113, // 29: armada.v1.NodeStatus.cert_expires_at:type_name -> google.protobuf.Timestamp
-	112, // 30: armada.v1.NodeStatus.labels:type_name -> armada.v1.NodeStatus.LabelsEntry
-	66,  // 31: armada.v1.TopResponse.replicas:type_name -> armada.v1.ReplicaTop
-	67,  // 32: armada.v1.TopResponse.nodes:type_name -> armada.v1.NodeTop
-	113, // 33: armada.v1.ReplicaTop.sampled_at:type_name -> google.protobuf.Timestamp
-	72,  // 34: armada.v1.SetTrafficRequest.traffic:type_name -> armada.v1.TrafficTarget
-	72,  // 35: armada.v1.SetTrafficResponse.traffic:type_name -> armada.v1.TrafficTarget
+	6,   // 0: armada.v1.ListJobsResponse.jobs:type_name -> armada.v1.JobInfo
+	127, // 1: armada.v1.JobInfo.next_run:type_name -> google.protobuf.Timestamp
+	9,   // 2: armada.v1.JobInfo.last_run:type_name -> armada.v1.JobRunInfo
+	9,   // 3: armada.v1.ListJobRunsResponse.runs:type_name -> armada.v1.JobRunInfo
+	127, // 4: armada.v1.JobRunInfo.created_at:type_name -> google.protobuf.Timestamp
+	127, // 5: armada.v1.JobRunInfo.started_at:type_name -> google.protobuf.Timestamp
+	127, // 6: armada.v1.JobRunInfo.finished_at:type_name -> google.protobuf.Timestamp
+	127, // 7: armada.v1.EventInfo.first:type_name -> google.protobuf.Timestamp
+	127, // 8: armada.v1.EventInfo.last:type_name -> google.protobuf.Timestamp
+	127, // 9: armada.v1.IssueMetricsCertificateResponse.expires_at:type_name -> google.protobuf.Timestamp
+	20,  // 10: armada.v1.ListServersResponse.servers:type_name -> armada.v1.ServerInfo
+	123, // 11: armada.v1.CreateJoinTokenRequest.labels:type_name -> armada.v1.CreateJoinTokenRequest.LabelsEntry
+	127, // 12: armada.v1.CreateJoinTokenResponse.expires_at:type_name -> google.protobuf.Timestamp
+	124, // 13: armada.v1.LabelNodeRequest.set:type_name -> armada.v1.LabelNodeRequest.SetEntry
+	125, // 14: armada.v1.LabelNodeResponse.labels:type_name -> armada.v1.LabelNodeResponse.LabelsEntry
+	41,  // 15: armada.v1.ListSecretsResponse.secrets:type_name -> armada.v1.SecretInfo
+	127, // 16: armada.v1.SecretInfo.updated_at:type_name -> google.protobuf.Timestamp
+	46,  // 17: armada.v1.ListRevisionsResponse.revisions:type_name -> armada.v1.RevisionInfo
+	127, // 18: armada.v1.RevisionInfo.created_at:type_name -> google.protobuf.Timestamp
+	49,  // 19: armada.v1.SetClusterConfigRequest.config:type_name -> armada.v1.ClusterConfig
+	54,  // 20: armada.v1.ListDomainsResponse.domains:type_name -> armada.v1.Domain
+	60,  // 21: armada.v1.StatusResponse.apps:type_name -> armada.v1.AppStatus
+	64,  // 22: armada.v1.StatusResponse.nodes:type_name -> armada.v1.NodeStatus
+	63,  // 23: armada.v1.AppStatus.replicas:type_name -> armada.v1.ReplicaStatus
+	61,  // 24: armada.v1.AppStatus.autoscale:type_name -> armada.v1.Autoscale
+	73,  // 25: armada.v1.AppStatus.traffic:type_name -> armada.v1.TrafficTarget
+	62,  // 26: armada.v1.Autoscale.rules:type_name -> armada.v1.AutoscaleRule
+	127, // 27: armada.v1.ReplicaStatus.updated_at:type_name -> google.protobuf.Timestamp
+	127, // 28: armada.v1.NodeStatus.last_seen:type_name -> google.protobuf.Timestamp
+	127, // 29: armada.v1.NodeStatus.cert_expires_at:type_name -> google.protobuf.Timestamp
+	126, // 30: armada.v1.NodeStatus.labels:type_name -> armada.v1.NodeStatus.LabelsEntry
+	67,  // 31: armada.v1.TopResponse.replicas:type_name -> armada.v1.ReplicaTop
+	68,  // 32: armada.v1.TopResponse.nodes:type_name -> armada.v1.NodeTop
+	127, // 33: armada.v1.ReplicaTop.sampled_at:type_name -> google.protobuf.Timestamp
+	73,  // 34: armada.v1.SetTrafficRequest.traffic:type_name -> armada.v1.TrafficTarget
+	73,  // 35: armada.v1.SetTrafficResponse.traffic:type_name -> armada.v1.TrafficTarget
 	0,   // 36: armada.v1.LogEntry.stream:type_name -> armada.v1.Stream
-	79,  // 37: armada.v1.AgentMessage.hello:type_name -> armada.v1.Hello
-	80,  // 38: armada.v1.AgentMessage.report:type_name -> armada.v1.ReplicaReport
-	82,  // 39: armada.v1.AgentMessage.usage:type_name -> armada.v1.UsageReport
-	78,  // 40: armada.v1.AgentMessage.wake:type_name -> armada.v1.Wake
-	81,  // 41: armada.v1.ReplicaReport.replicas:type_name -> armada.v1.ReplicaState
-	84,  // 42: armada.v1.UsageReport.replicas:type_name -> armada.v1.ReplicaUsage
-	83,  // 43: armada.v1.UsageReport.load:type_name -> armada.v1.ReplicaLoad
-	86,  // 44: armada.v1.ServerMessage.assignment:type_name -> armada.v1.Assignment
-	98,  // 45: armada.v1.ServerMessage.log_request:type_name -> armada.v1.LogRequest
-	99,  // 46: armada.v1.ServerMessage.log_cancel:type_name -> armada.v1.LogCancel
-	107, // 47: armada.v1.ServerMessage.exec_request:type_name -> armada.v1.ExecRequest
-	92,  // 48: armada.v1.Assignment.replicas:type_name -> armada.v1.ReplicaSpec
-	87,  // 49: armada.v1.Assignment.proxy:type_name -> armada.v1.ProxyConfig
-	88,  // 50: armada.v1.ProxyConfig.backends:type_name -> armada.v1.ProxyBackend
-	90,  // 51: armada.v1.ProxyConfig.rules:type_name -> armada.v1.ProxyRule
-	91,  // 52: armada.v1.ProxyConfig.certificates:type_name -> armada.v1.ProxyCertificate
-	89,  // 53: armada.v1.ProxyBackend.servers:type_name -> armada.v1.ProxyServer
-	97,  // 54: armada.v1.ReplicaSpec.env:type_name -> armada.v1.EnvVar
-	96,  // 55: armada.v1.ReplicaSpec.startup:type_name -> armada.v1.Probe
-	96,  // 56: armada.v1.ReplicaSpec.readiness:type_name -> armada.v1.Probe
-	96,  // 57: armada.v1.ReplicaSpec.liveness:type_name -> armada.v1.Probe
-	94,  // 58: armada.v1.ReplicaSpec.secret_files:type_name -> armada.v1.SecretFile
-	95,  // 59: armada.v1.ReplicaSpec.registry:type_name -> armada.v1.RegistryAuth
-	93,  // 60: armada.v1.ReplicaSpec.job:type_name -> armada.v1.JobAttempt
-	0,   // 61: armada.v1.LogPush.stream:type_name -> armada.v1.Stream
-	102, // 62: armada.v1.ExecStart.size:type_name -> armada.v1.TermSize
-	102, // 63: armada.v1.ExecInput.resize:type_name -> armada.v1.TermSize
-	103, // 64: armada.v1.ExecClientMessage.start:type_name -> armada.v1.ExecStart
-	104, // 65: armada.v1.ExecClientMessage.input:type_name -> armada.v1.ExecInput
-	102, // 66: armada.v1.ExecRequest.size:type_name -> armada.v1.TermSize
-	55,  // 67: armada.v1.AdminService.Deploy:input_type -> armada.v1.DeployRequest
-	57,  // 68: armada.v1.AdminService.Status:input_type -> armada.v1.StatusRequest
-	68,  // 69: armada.v1.AdminService.Scale:input_type -> armada.v1.ScaleRequest
-	70,  // 70: armada.v1.AdminService.SetTraffic:input_type -> armada.v1.SetTrafficRequest
-	73,  // 71: armada.v1.AdminService.Logs:input_type -> armada.v1.LogsRequest
-	49,  // 72: armada.v1.AdminService.GetClusterConfig:input_type -> armada.v1.GetClusterConfigRequest
-	50,  // 73: armada.v1.AdminService.SetClusterConfig:input_type -> armada.v1.SetClusterConfigRequest
-	51,  // 74: armada.v1.AdminService.ListDomains:input_type -> armada.v1.ListDomainsRequest
-	54,  // 75: armada.v1.AdminService.VerifyDomain:input_type -> armada.v1.VerifyDomainRequest
-	43,  // 76: armada.v1.AdminService.ListRevisions:input_type -> armada.v1.ListRevisionsRequest
-	46,  // 77: armada.v1.AdminService.Rollback:input_type -> armada.v1.RollbackRequest
-	36,  // 78: armada.v1.AdminService.SetSecret:input_type -> armada.v1.SetSecretRequest
-	38,  // 79: armada.v1.AdminService.ListSecrets:input_type -> armada.v1.ListSecretsRequest
-	41,  // 80: armada.v1.AdminService.DeleteSecret:input_type -> armada.v1.DeleteSecretRequest
-	22,  // 81: armada.v1.AdminService.CreateJoinToken:input_type -> armada.v1.CreateJoinTokenRequest
-	24,  // 82: armada.v1.AdminService.CordonNode:input_type -> armada.v1.CordonNodeRequest
-	26,  // 83: armada.v1.AdminService.LabelNode:input_type -> armada.v1.LabelNodeRequest
-	28,  // 84: armada.v1.AdminService.RestrictNode:input_type -> armada.v1.RestrictNodeRequest
-	30,  // 85: armada.v1.AdminService.RemoveNode:input_type -> armada.v1.RemoveNodeRequest
-	17,  // 86: armada.v1.AdminService.ListServers:input_type -> armada.v1.ListServersRequest
-	20,  // 87: armada.v1.AdminService.RemoveServer:input_type -> armada.v1.RemoveServerRequest
-	105, // 88: armada.v1.AdminService.Exec:input_type -> armada.v1.ExecClientMessage
-	64,  // 89: armada.v1.AdminService.Top:input_type -> armada.v1.TopRequest
-	15,  // 90: armada.v1.AdminService.IssueMetricsCertificate:input_type -> armada.v1.IssueMetricsCertificateRequest
-	13,  // 91: armada.v1.AdminService.Events:input_type -> armada.v1.EventsRequest
-	1,   // 92: armada.v1.AdminService.RunJob:input_type -> armada.v1.RunJobRequest
-	3,   // 93: armada.v1.AdminService.ListJobs:input_type -> armada.v1.ListJobsRequest
-	6,   // 94: armada.v1.AdminService.ListJobRuns:input_type -> armada.v1.ListJobRunsRequest
-	9,   // 95: armada.v1.AdminService.CancelJob:input_type -> armada.v1.CancelJobRequest
-	11,  // 96: armada.v1.AdminService.DeleteJob:input_type -> armada.v1.DeleteJobRequest
-	34,  // 97: armada.v1.JoinService.Join:input_type -> armada.v1.JoinRequest
-	32,  // 98: armada.v1.JoinService.JoinServer:input_type -> armada.v1.JoinServerRequest
-	77,  // 99: armada.v1.AgentService.Connect:input_type -> armada.v1.AgentMessage
-	100, // 100: armada.v1.AgentService.PushLogs:input_type -> armada.v1.LogPush
-	108, // 101: armada.v1.AgentService.ExecSession:input_type -> armada.v1.ExecSessionOutput
-	75,  // 102: armada.v1.AgentService.RenewCertificate:input_type -> armada.v1.RenewCertificateRequest
-	56,  // 103: armada.v1.AdminService.Deploy:output_type -> armada.v1.DeployResponse
-	58,  // 104: armada.v1.AdminService.Status:output_type -> armada.v1.StatusResponse
-	69,  // 105: armada.v1.AdminService.Scale:output_type -> armada.v1.ScaleResponse
-	71,  // 106: armada.v1.AdminService.SetTraffic:output_type -> armada.v1.SetTrafficResponse
-	74,  // 107: armada.v1.AdminService.Logs:output_type -> armada.v1.LogEntry
-	48,  // 108: armada.v1.AdminService.GetClusterConfig:output_type -> armada.v1.ClusterConfig
-	48,  // 109: armada.v1.AdminService.SetClusterConfig:output_type -> armada.v1.ClusterConfig
-	52,  // 110: armada.v1.AdminService.ListDomains:output_type -> armada.v1.ListDomainsResponse
-	53,  // 111: armada.v1.AdminService.VerifyDomain:output_type -> armada.v1.Domain
-	44,  // 112: armada.v1.AdminService.ListRevisions:output_type -> armada.v1.ListRevisionsResponse
-	47,  // 113: armada.v1.AdminService.Rollback:output_type -> armada.v1.RollbackResponse
-	37,  // 114: armada.v1.AdminService.SetSecret:output_type -> armada.v1.SetSecretResponse
-	39,  // 115: armada.v1.AdminService.ListSecrets:output_type -> armada.v1.ListSecretsResponse
-	42,  // 116: armada.v1.AdminService.DeleteSecret:output_type -> armada.v1.DeleteSecretResponse
-	23,  // 117: armada.v1.AdminService.CreateJoinToken:output_type -> armada.v1.CreateJoinTokenResponse
-	25,  // 118: armada.v1.AdminService.CordonNode:output_type -> armada.v1.CordonNodeResponse
-	27,  // 119: armada.v1.AdminService.LabelNode:output_type -> armada.v1.LabelNodeResponse
-	29,  // 120: armada.v1.AdminService.RestrictNode:output_type -> armada.v1.RestrictNodeResponse
-	31,  // 121: armada.v1.AdminService.RemoveNode:output_type -> armada.v1.RemoveNodeResponse
-	18,  // 122: armada.v1.AdminService.ListServers:output_type -> armada.v1.ListServersResponse
-	21,  // 123: armada.v1.AdminService.RemoveServer:output_type -> armada.v1.RemoveServerResponse
-	106, // 124: armada.v1.AdminService.Exec:output_type -> armada.v1.ExecServerMessage
-	65,  // 125: armada.v1.AdminService.Top:output_type -> armada.v1.TopResponse
-	16,  // 126: armada.v1.AdminService.IssueMetricsCertificate:output_type -> armada.v1.IssueMetricsCertificateResponse
-	14,  // 127: armada.v1.AdminService.Events:output_type -> armada.v1.EventInfo
-	2,   // 128: armada.v1.AdminService.RunJob:output_type -> armada.v1.RunJobResponse
-	4,   // 129: armada.v1.AdminService.ListJobs:output_type -> armada.v1.ListJobsResponse
-	7,   // 130: armada.v1.AdminService.ListJobRuns:output_type -> armada.v1.ListJobRunsResponse
-	10,  // 131: armada.v1.AdminService.CancelJob:output_type -> armada.v1.CancelJobResponse
-	12,  // 132: armada.v1.AdminService.DeleteJob:output_type -> armada.v1.DeleteJobResponse
-	35,  // 133: armada.v1.JoinService.Join:output_type -> armada.v1.JoinResponse
-	33,  // 134: armada.v1.JoinService.JoinServer:output_type -> armada.v1.JoinServerResponse
-	85,  // 135: armada.v1.AgentService.Connect:output_type -> armada.v1.ServerMessage
-	101, // 136: armada.v1.AgentService.PushLogs:output_type -> armada.v1.PushLogsResponse
-	104, // 137: armada.v1.AgentService.ExecSession:output_type -> armada.v1.ExecInput
-	76,  // 138: armada.v1.AgentService.RenewCertificate:output_type -> armada.v1.RenewCertificateResponse
-	103, // [103:139] is the sub-list for method output_type
-	67,  // [67:103] is the sub-list for method input_type
-	67,  // [67:67] is the sub-list for extension type_name
-	67,  // [67:67] is the sub-list for extension extendee
-	0,   // [0:67] is the sub-list for field type_name
+	80,  // 37: armada.v1.AgentMessage.hello:type_name -> armada.v1.Hello
+	81,  // 38: armada.v1.AgentMessage.report:type_name -> armada.v1.ReplicaReport
+	83,  // 39: armada.v1.AgentMessage.usage:type_name -> armada.v1.UsageReport
+	79,  // 40: armada.v1.AgentMessage.wake:type_name -> armada.v1.Wake
+	82,  // 41: armada.v1.ReplicaReport.replicas:type_name -> armada.v1.ReplicaState
+	86,  // 42: armada.v1.UsageReport.replicas:type_name -> armada.v1.ReplicaUsage
+	85,  // 43: armada.v1.UsageReport.load:type_name -> armada.v1.ReplicaLoad
+	84,  // 44: armada.v1.UsageReport.volumes:type_name -> armada.v1.VolumeUsage
+	90,  // 45: armada.v1.ServerMessage.assignment:type_name -> armada.v1.Assignment
+	103, // 46: armada.v1.ServerMessage.log_request:type_name -> armada.v1.LogRequest
+	104, // 47: armada.v1.ServerMessage.log_cancel:type_name -> armada.v1.LogCancel
+	112, // 48: armada.v1.ServerMessage.exec_request:type_name -> armada.v1.ExecRequest
+	88,  // 49: armada.v1.ServerMessage.volume_request:type_name -> armada.v1.VolumeRequest
+	1,   // 50: armada.v1.VolumeRequest.op:type_name -> armada.v1.VolumeRequest.Op
+	96,  // 51: armada.v1.Assignment.replicas:type_name -> armada.v1.ReplicaSpec
+	91,  // 52: armada.v1.Assignment.proxy:type_name -> armada.v1.ProxyConfig
+	92,  // 53: armada.v1.ProxyConfig.backends:type_name -> armada.v1.ProxyBackend
+	94,  // 54: armada.v1.ProxyConfig.rules:type_name -> armada.v1.ProxyRule
+	95,  // 55: armada.v1.ProxyConfig.certificates:type_name -> armada.v1.ProxyCertificate
+	93,  // 56: armada.v1.ProxyBackend.servers:type_name -> armada.v1.ProxyServer
+	102, // 57: armada.v1.ReplicaSpec.env:type_name -> armada.v1.EnvVar
+	101, // 58: armada.v1.ReplicaSpec.startup:type_name -> armada.v1.Probe
+	101, // 59: armada.v1.ReplicaSpec.readiness:type_name -> armada.v1.Probe
+	101, // 60: armada.v1.ReplicaSpec.liveness:type_name -> armada.v1.Probe
+	99,  // 61: armada.v1.ReplicaSpec.secret_files:type_name -> armada.v1.SecretFile
+	100, // 62: armada.v1.ReplicaSpec.registry:type_name -> armada.v1.RegistryAuth
+	98,  // 63: armada.v1.ReplicaSpec.job:type_name -> armada.v1.JobAttempt
+	97,  // 64: armada.v1.ReplicaSpec.volumes:type_name -> armada.v1.VolumeSpec
+	0,   // 65: armada.v1.LogPush.stream:type_name -> armada.v1.Stream
+	107, // 66: armada.v1.ExecStart.size:type_name -> armada.v1.TermSize
+	107, // 67: armada.v1.ExecInput.resize:type_name -> armada.v1.TermSize
+	108, // 68: armada.v1.ExecClientMessage.start:type_name -> armada.v1.ExecStart
+	109, // 69: armada.v1.ExecClientMessage.input:type_name -> armada.v1.ExecInput
+	107, // 70: armada.v1.ExecRequest.size:type_name -> armada.v1.TermSize
+	116, // 71: armada.v1.ListVolumesResponse.volumes:type_name -> armada.v1.Volume
+	127, // 72: armada.v1.Volume.created_at:type_name -> google.protobuf.Timestamp
+	121, // 73: armada.v1.RestoreVolumeMessage.start:type_name -> armada.v1.RestoreVolumeStart
+	56,  // 74: armada.v1.AdminService.Deploy:input_type -> armada.v1.DeployRequest
+	58,  // 75: armada.v1.AdminService.Status:input_type -> armada.v1.StatusRequest
+	69,  // 76: armada.v1.AdminService.Scale:input_type -> armada.v1.ScaleRequest
+	71,  // 77: armada.v1.AdminService.SetTraffic:input_type -> armada.v1.SetTrafficRequest
+	114, // 78: armada.v1.AdminService.ListVolumes:input_type -> armada.v1.ListVolumesRequest
+	117, // 79: armada.v1.AdminService.RemoveVolume:input_type -> armada.v1.RemoveVolumeRequest
+	119, // 80: armada.v1.AdminService.BackupVolume:input_type -> armada.v1.BackupVolumeRequest
+	120, // 81: armada.v1.AdminService.RestoreVolume:input_type -> armada.v1.RestoreVolumeMessage
+	74,  // 82: armada.v1.AdminService.Logs:input_type -> armada.v1.LogsRequest
+	50,  // 83: armada.v1.AdminService.GetClusterConfig:input_type -> armada.v1.GetClusterConfigRequest
+	51,  // 84: armada.v1.AdminService.SetClusterConfig:input_type -> armada.v1.SetClusterConfigRequest
+	52,  // 85: armada.v1.AdminService.ListDomains:input_type -> armada.v1.ListDomainsRequest
+	55,  // 86: armada.v1.AdminService.VerifyDomain:input_type -> armada.v1.VerifyDomainRequest
+	44,  // 87: armada.v1.AdminService.ListRevisions:input_type -> armada.v1.ListRevisionsRequest
+	47,  // 88: armada.v1.AdminService.Rollback:input_type -> armada.v1.RollbackRequest
+	37,  // 89: armada.v1.AdminService.SetSecret:input_type -> armada.v1.SetSecretRequest
+	39,  // 90: armada.v1.AdminService.ListSecrets:input_type -> armada.v1.ListSecretsRequest
+	42,  // 91: armada.v1.AdminService.DeleteSecret:input_type -> armada.v1.DeleteSecretRequest
+	23,  // 92: armada.v1.AdminService.CreateJoinToken:input_type -> armada.v1.CreateJoinTokenRequest
+	25,  // 93: armada.v1.AdminService.CordonNode:input_type -> armada.v1.CordonNodeRequest
+	27,  // 94: armada.v1.AdminService.LabelNode:input_type -> armada.v1.LabelNodeRequest
+	29,  // 95: armada.v1.AdminService.RestrictNode:input_type -> armada.v1.RestrictNodeRequest
+	31,  // 96: armada.v1.AdminService.RemoveNode:input_type -> armada.v1.RemoveNodeRequest
+	18,  // 97: armada.v1.AdminService.ListServers:input_type -> armada.v1.ListServersRequest
+	21,  // 98: armada.v1.AdminService.RemoveServer:input_type -> armada.v1.RemoveServerRequest
+	110, // 99: armada.v1.AdminService.Exec:input_type -> armada.v1.ExecClientMessage
+	65,  // 100: armada.v1.AdminService.Top:input_type -> armada.v1.TopRequest
+	16,  // 101: armada.v1.AdminService.IssueMetricsCertificate:input_type -> armada.v1.IssueMetricsCertificateRequest
+	14,  // 102: armada.v1.AdminService.Events:input_type -> armada.v1.EventsRequest
+	2,   // 103: armada.v1.AdminService.RunJob:input_type -> armada.v1.RunJobRequest
+	4,   // 104: armada.v1.AdminService.ListJobs:input_type -> armada.v1.ListJobsRequest
+	7,   // 105: armada.v1.AdminService.ListJobRuns:input_type -> armada.v1.ListJobRunsRequest
+	10,  // 106: armada.v1.AdminService.CancelJob:input_type -> armada.v1.CancelJobRequest
+	12,  // 107: armada.v1.AdminService.DeleteJob:input_type -> armada.v1.DeleteJobRequest
+	35,  // 108: armada.v1.JoinService.Join:input_type -> armada.v1.JoinRequest
+	33,  // 109: armada.v1.JoinService.JoinServer:input_type -> armada.v1.JoinServerRequest
+	78,  // 110: armada.v1.AgentService.Connect:input_type -> armada.v1.AgentMessage
+	105, // 111: armada.v1.AgentService.PushLogs:input_type -> armada.v1.LogPush
+	113, // 112: armada.v1.AgentService.ExecSession:input_type -> armada.v1.ExecSessionOutput
+	89,  // 113: armada.v1.AgentService.VolumeSession:input_type -> armada.v1.VolumeData
+	76,  // 114: armada.v1.AgentService.RenewCertificate:input_type -> armada.v1.RenewCertificateRequest
+	57,  // 115: armada.v1.AdminService.Deploy:output_type -> armada.v1.DeployResponse
+	59,  // 116: armada.v1.AdminService.Status:output_type -> armada.v1.StatusResponse
+	70,  // 117: armada.v1.AdminService.Scale:output_type -> armada.v1.ScaleResponse
+	72,  // 118: armada.v1.AdminService.SetTraffic:output_type -> armada.v1.SetTrafficResponse
+	115, // 119: armada.v1.AdminService.ListVolumes:output_type -> armada.v1.ListVolumesResponse
+	118, // 120: armada.v1.AdminService.RemoveVolume:output_type -> armada.v1.RemoveVolumeResponse
+	89,  // 121: armada.v1.AdminService.BackupVolume:output_type -> armada.v1.VolumeData
+	122, // 122: armada.v1.AdminService.RestoreVolume:output_type -> armada.v1.RestoreVolumeResponse
+	75,  // 123: armada.v1.AdminService.Logs:output_type -> armada.v1.LogEntry
+	49,  // 124: armada.v1.AdminService.GetClusterConfig:output_type -> armada.v1.ClusterConfig
+	49,  // 125: armada.v1.AdminService.SetClusterConfig:output_type -> armada.v1.ClusterConfig
+	53,  // 126: armada.v1.AdminService.ListDomains:output_type -> armada.v1.ListDomainsResponse
+	54,  // 127: armada.v1.AdminService.VerifyDomain:output_type -> armada.v1.Domain
+	45,  // 128: armada.v1.AdminService.ListRevisions:output_type -> armada.v1.ListRevisionsResponse
+	48,  // 129: armada.v1.AdminService.Rollback:output_type -> armada.v1.RollbackResponse
+	38,  // 130: armada.v1.AdminService.SetSecret:output_type -> armada.v1.SetSecretResponse
+	40,  // 131: armada.v1.AdminService.ListSecrets:output_type -> armada.v1.ListSecretsResponse
+	43,  // 132: armada.v1.AdminService.DeleteSecret:output_type -> armada.v1.DeleteSecretResponse
+	24,  // 133: armada.v1.AdminService.CreateJoinToken:output_type -> armada.v1.CreateJoinTokenResponse
+	26,  // 134: armada.v1.AdminService.CordonNode:output_type -> armada.v1.CordonNodeResponse
+	28,  // 135: armada.v1.AdminService.LabelNode:output_type -> armada.v1.LabelNodeResponse
+	30,  // 136: armada.v1.AdminService.RestrictNode:output_type -> armada.v1.RestrictNodeResponse
+	32,  // 137: armada.v1.AdminService.RemoveNode:output_type -> armada.v1.RemoveNodeResponse
+	19,  // 138: armada.v1.AdminService.ListServers:output_type -> armada.v1.ListServersResponse
+	22,  // 139: armada.v1.AdminService.RemoveServer:output_type -> armada.v1.RemoveServerResponse
+	111, // 140: armada.v1.AdminService.Exec:output_type -> armada.v1.ExecServerMessage
+	66,  // 141: armada.v1.AdminService.Top:output_type -> armada.v1.TopResponse
+	17,  // 142: armada.v1.AdminService.IssueMetricsCertificate:output_type -> armada.v1.IssueMetricsCertificateResponse
+	15,  // 143: armada.v1.AdminService.Events:output_type -> armada.v1.EventInfo
+	3,   // 144: armada.v1.AdminService.RunJob:output_type -> armada.v1.RunJobResponse
+	5,   // 145: armada.v1.AdminService.ListJobs:output_type -> armada.v1.ListJobsResponse
+	8,   // 146: armada.v1.AdminService.ListJobRuns:output_type -> armada.v1.ListJobRunsResponse
+	11,  // 147: armada.v1.AdminService.CancelJob:output_type -> armada.v1.CancelJobResponse
+	13,  // 148: armada.v1.AdminService.DeleteJob:output_type -> armada.v1.DeleteJobResponse
+	36,  // 149: armada.v1.JoinService.Join:output_type -> armada.v1.JoinResponse
+	34,  // 150: armada.v1.JoinService.JoinServer:output_type -> armada.v1.JoinServerResponse
+	87,  // 151: armada.v1.AgentService.Connect:output_type -> armada.v1.ServerMessage
+	106, // 152: armada.v1.AgentService.PushLogs:output_type -> armada.v1.PushLogsResponse
+	109, // 153: armada.v1.AgentService.ExecSession:output_type -> armada.v1.ExecInput
+	89,  // 154: armada.v1.AgentService.VolumeSession:output_type -> armada.v1.VolumeData
+	77,  // 155: armada.v1.AgentService.RenewCertificate:output_type -> armada.v1.RenewCertificateResponse
+	115, // [115:156] is the sub-list for method output_type
+	74,  // [74:115] is the sub-list for method input_type
+	74,  // [74:74] is the sub-list for extension type_name
+	74,  // [74:74] is the sub-list for extension extendee
+	0,   // [0:74] is the sub-list for field type_name
 }
 
 func init() { file_armada_v1_armada_proto_init() }
@@ -8185,40 +9196,45 @@ func file_armada_v1_armada_proto_init() {
 		(*AgentMessage_Usage)(nil),
 		(*AgentMessage_Wake)(nil),
 	}
-	file_armada_v1_armada_proto_msgTypes[84].OneofWrappers = []any{
+	file_armada_v1_armada_proto_msgTypes[85].OneofWrappers = []any{
 		(*ServerMessage_Assignment)(nil),
 		(*ServerMessage_LogRequest)(nil),
 		(*ServerMessage_LogCancel)(nil),
 		(*ServerMessage_ExecRequest)(nil),
+		(*ServerMessage_VolumeRequest)(nil),
 	}
-	file_armada_v1_armada_proto_msgTypes[103].OneofWrappers = []any{
+	file_armada_v1_armada_proto_msgTypes[107].OneofWrappers = []any{
 		(*ExecInput_Stdin)(nil),
 		(*ExecInput_CloseStdin)(nil),
 		(*ExecInput_Resize)(nil),
 	}
-	file_armada_v1_armada_proto_msgTypes[104].OneofWrappers = []any{
+	file_armada_v1_armada_proto_msgTypes[108].OneofWrappers = []any{
 		(*ExecClientMessage_Start)(nil),
 		(*ExecClientMessage_Input)(nil),
 	}
-	file_armada_v1_armada_proto_msgTypes[105].OneofWrappers = []any{
+	file_armada_v1_armada_proto_msgTypes[109].OneofWrappers = []any{
 		(*ExecServerMessage_Replica)(nil),
 		(*ExecServerMessage_Stdout)(nil),
 		(*ExecServerMessage_Stderr)(nil),
 		(*ExecServerMessage_ExitCode)(nil),
 	}
-	file_armada_v1_armada_proto_msgTypes[107].OneofWrappers = []any{
+	file_armada_v1_armada_proto_msgTypes[111].OneofWrappers = []any{
 		(*ExecSessionOutput_Stdout)(nil),
 		(*ExecSessionOutput_Stderr)(nil),
 		(*ExecSessionOutput_ExitCode)(nil),
 		(*ExecSessionOutput_Error)(nil),
+	}
+	file_armada_v1_armada_proto_msgTypes[118].OneofWrappers = []any{
+		(*RestoreVolumeMessage_Start)(nil),
+		(*RestoreVolumeMessage_Data)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_armada_v1_armada_proto_rawDesc), len(file_armada_v1_armada_proto_rawDesc)),
-			NumEnums:      1,
-			NumMessages:   112,
+			NumEnums:      2,
+			NumMessages:   125,
 			NumExtensions: 0,
 			NumServices:   3,
 		},

@@ -223,6 +223,7 @@ control plane. See [operations](operations.md#control-plane-one-server-or-three)
 | Logs | `armada logs hello -f` |
 | Shell in a replica | `armada exec hello -it -- sh` (a single command: `armada exec hello -- env`) |
 | Scale with load | add `scale.max` and `scale.rules` (`http`, `cpu`, `memory`) to the spec (see [spec reference](spec-reference.md#autoscaling)); `scale.min: 0` stops idle apps until the next request ([scale to zero](spec-reference.md#scale-to-zero)) |
+| Keep data | add `volumes` to the spec (one replica, bound to its node; see [spec reference](spec-reference.md#volumes)); `armada volume ls`, `armada volume backup hello data -o -` |
 | Run a job | deploy a `kind: job` spec, then `armada job run NAME` (or set `schedule`); `armada job runs NAME`, `armada logs NAME` (see [spec reference](spec-reference.md#jobs)) |
 | What happened | `armada events` (one app: `armada events hello`; keep following: `-f`) |
 | CPU and memory use | `armada top` (one app's replicas: `armada top hello`; nodes: `armada top --nodes`) |
@@ -236,7 +237,7 @@ control plane. See [operations](operations.md#control-plane-one-server-or-three)
 | Choose nodes | `armada node label NODE region=sulawesi`, then `placement.require` in the spec; `armada node restrict NODE` keeps a node for apps that ask for it |
 | Remove a node | `armada node remove NODE` (revokes its certificate) |
 | Control plane servers | `armada server list`, `armada server remove NAME` |
-| Back up / upgrade | `armada backup -o -`, then see [operations](operations.md) |
+| Back up / upgrade | `armada backup -o -` (control plane; volumes: `armada volume backup`), then see [operations](operations.md) |
 
 Short forms work everywhere: `ls` for `list`, `rm` or `delete` for
 `remove`, and plural group names (`armada nodes ls`, `armada servers ls`,

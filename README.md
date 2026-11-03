@@ -58,6 +58,9 @@ armada deploy -f web.yaml    # → https://web.apps.example.com
   starts it again.
 - **Jobs.** `kind: job` runs a container to completion, on demand or on a
   cron schedule with a time zone, with timeouts, retries, and run history.
+- **Volumes.** `volumes` keep an app's data on its node across deploys,
+  crashes, and reboots, for databases and uploads; `armada volume backup`
+  and `restore` copy it out and back, onto another node if its own is gone.
 - **Events.** `armada events` shows what the cluster did over the last day:
   crashes and restarts, rollouts, lost nodes, replicas moved, certificates;
   `-f` follows new ones.

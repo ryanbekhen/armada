@@ -53,8 +53,8 @@ func DefaultSocketDir() string {
 var ErrNotFound = errors.New("not found")
 
 // Driver runs app containers on the node. Implement SystemRunner,
-// BridgeInspector, Execer, and StatsReader as well to offer those
-// capabilities.
+// BridgeInspector, Execer, StatsReader, and VolumeMounter as well to offer
+// those capabilities.
 type Driver interface {
 	// Ping verifies that the engine is reachable and supported.
 	Ping(ctx context.Context) error
@@ -200,6 +200,21 @@ type FileMount struct {
 	Target string
 }
 
+// VolumeMount bind-mounts a host directory read-write into a container,
+// without setuid programs or device files (ADR 0025).
+type VolumeMount struct {
+	Source string
+	Target string
+}
+
+// VolumeMounter is implemented by drivers that mount volumes. When
+// CanMountVolumes reports true, the driver declares CAPABILITY_VOLUMES and
+// Run receives specs with Volumes, which it must mount read-write with
+// nosuid and nodev; otherwise such specs are refused before Run.
+type VolumeMounter interface {
+	CanMountVolumes() bool
+}
+
 // ContainerSpec describes an app container. Env may hold secret values:
 // never log a ContainerSpec.
 type ContainerSpec struct {
@@ -225,6 +240,8 @@ type ContainerSpec struct {
 	// engine's default.
 	DNS      []string
 	Security Security
+	// Volumes are only set for drivers that are VolumeMounters.
+	Volumes []VolumeMount
 }
 
 // Container is the observed state of a container.

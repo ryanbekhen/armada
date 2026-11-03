@@ -92,6 +92,9 @@ func Run(t *testing.T, d driverkit.Driver, opts Options) {
 	if sr, ok := d.(driverkit.StatsReader); ok {
 		t.Run("Stats", func(t *testing.T) { r.stats(t, sr) })
 	}
+	if vm, ok := d.(driverkit.VolumeMounter); ok && vm.CanMountVolumes() {
+		t.Run("Volumes", r.volumes)
+	}
 }
 
 type runner struct {
@@ -561,5 +564,40 @@ func (r *runner) stats(t *testing.T, sr driverkit.StatsReader) {
 
 	if _, err := sr.Stats(ctx, "armada-conformance-missing"); err == nil {
 		t.Error("Stats of a missing container succeeded")
+	}
+}
+
+// volumes checks that a volume is the host directory, writable, kept after
+// the container is gone, and mounted without setuid programs or device
+// files.
+func (r *runner) volumes(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o777); err != nil { //nolint:gosec // the image's user may not be root
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "before"), []byte("kept"), 0o644); err != nil { //nolint:gosec // test data
+		t.Fatal(err)
+	}
+	spec := r.spec("sh", "-c", "cat /data/before && echo written > /data/after && grep ' /data ' /proc/mounts")
+	spec.Volumes = []driverkit.VolumeMount{{Source: dir, Target: "/data"}}
+	out, errOut, exit := r.output(t, spec)
+	if exit != 0 {
+		t.Fatalf("exit %d: %s%s", exit, out, errOut)
+	}
+	if !strings.Contains(out, "kept") {
+		t.Errorf("the volume's existing file is not visible: %q", out)
+	}
+	b, err := os.ReadFile(filepath.Join(dir, "after")) //nolint:gosec // the test's own directory
+	if err != nil || strings.TrimSpace(string(b)) != "written" {
+		t.Errorf("the container's write did not reach the host directory: %q, %v", b, err)
+	}
+	if !r.opts.Info.VMIsolation {
+		// In a VM the guest's mount table shows its own file sharing
+		// options; the host directory's flags cannot be read there.
+		for _, flag := range []string{"nosuid", "nodev"} {
+			if !strings.Contains(out, flag) {
+				t.Errorf("volume mounted without %s: %q", flag, out)
+			}
+		}
 	}
 }

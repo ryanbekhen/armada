@@ -32,13 +32,15 @@ func (a *Agent) usageLoop(ctx context.Context) {
 		sr = nil
 	}
 	lr, _ := a.cfg.Proxy.(proxy.LoadReader)
-	if sr == nil && lr == nil {
+	vols := a.mountsVolumes()
+	if sr == nil && lr == nil && !vols {
 		return
 	}
 	t := time.NewTicker(a.cfg.UsageInterval)
 	defer t.Stop()
 	prev := map[string]usageSample{}
 	totals := map[string]int64{}
+	var measured time.Time
 	for {
 		select {
 		case <-ctx.Done():
@@ -55,7 +57,10 @@ func (a *Agent) usageLoop(ctx context.Context) {
 		if lr != nil {
 			totals = a.sampleLoad(ctx, lr, report, totals)
 		}
-		if sampled || report.LoadMeasured {
+		if vols && time.Since(measured) >= a.cfg.VolumeInterval {
+			report.Volumes, report.VolumesMeasured, measured = a.measureVolumes(ctx), true, time.Now()
+		}
+		if sampled || report.LoadMeasured || report.VolumesMeasured {
 			a.sendUsage(report)
 		}
 	}

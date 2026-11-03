@@ -217,6 +217,13 @@ func publishesPort(sp *spec.App) bool {
 }
 
 func (s *Server) reconcileApp(ctx context.Context, rc *reconcileRun, app *store.App, nodes []store.Node, all []store.Replica, revs *revisionCache) ([]store.Replica, error) {
+	target, err := revs.get(ctx, app.TargetRevision)
+	if err != nil {
+		return nil, err
+	}
+	if target.Spec.HasVolumes() {
+		return s.reconcileVolumeApp(ctx, rc, app, target, nodes, all, revs)
+	}
 	if len(app.Traffic) == 0 || app.Rolling() {
 		return s.reconcileRevision(ctx, rc, app, nodes, all, revs, nil)
 	}
@@ -224,7 +231,6 @@ func (s *Server) reconcileApp(ctx context.Context, rc *reconcileRun, app *store.
 	// reconciled like an app of its own with its share of the replicas,
 	// leaving the replicas of the others alone.
 	shares := trafficShares(app.Replicas, app.Traffic)
-	var err error
 	for i, t := range app.Traffic {
 		others := map[string]bool{}
 		for _, o := range app.Traffic {
@@ -890,6 +896,9 @@ func placementAllows(n store.Node, rev store.Revision) bool {
 	if sp.MemoryBytes() < n.MinMemoryBytes {
 		return false
 	}
+	if sp.HasVolumes() && !n.Volumes {
+		return false
+	}
 	if !sp.Placement.Matches(n.AllLabels()) {
 		return false
 	}
@@ -1069,6 +1078,9 @@ func replicaSpec(r store.Replica, rev store.Revision, vals map[string]secrets.Va
 		rs.Startup = probeProto(sp.Probes.Startup)
 		rs.Readiness = probeProto(sp.Probes.Readiness)
 		rs.Liveness = probeProto(sp.Probes.Liveness)
+	}
+	for _, v := range sp.Volumes {
+		rs.Volumes = append(rs.Volumes, &armadav1.VolumeSpec{Name: v.Name, Path: v.Path, Owner: v.Owner})
 	}
 	for _, f := range sp.SecretFiles {
 		v, ref, err := secret(f.SecretRef)

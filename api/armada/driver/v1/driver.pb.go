@@ -85,6 +85,8 @@ const (
 	Capability_CAPABILITY_EXEC Capability = 3
 	// Stats: what app containers use.
 	Capability_CAPABILITY_STATS Capability = 4
+	// ContainerSpec.volumes: persistent directories mounted read-write.
+	Capability_CAPABILITY_VOLUMES Capability = 5
 )
 
 // Enum value maps for Capability.
@@ -95,6 +97,7 @@ var (
 		2: "CAPABILITY_BRIDGE",
 		3: "CAPABILITY_EXEC",
 		4: "CAPABILITY_STATS",
+		5: "CAPABILITY_VOLUMES",
 	}
 	Capability_value = map[string]int32{
 		"CAPABILITY_UNSPECIFIED":       0,
@@ -102,6 +105,7 @@ var (
 		"CAPABILITY_BRIDGE":            2,
 		"CAPABILITY_EXEC":              3,
 		"CAPABILITY_STATS":             4,
+		"CAPABILITY_VOLUMES":           5,
 	}
 )
 
@@ -776,8 +780,11 @@ type ContainerSpec struct {
 	PidsLimit        int64        `protobuf:"varint,12,opt,name=pids_limit,json=pidsLimit,proto3" json:"pids_limit,omitempty"`
 	Files            []*FileMount `protobuf:"bytes,13,rep,name=files,proto3" json:"files,omitempty"`
 	// Nameservers (private addresses); empty keeps the engine's default.
-	Dns           []string  `protobuf:"bytes,14,rep,name=dns,proto3" json:"dns,omitempty"`
-	Security      *Security `protobuf:"bytes,15,opt,name=security,proto3" json:"security,omitempty"`
+	Dns      []string  `protobuf:"bytes,14,rep,name=dns,proto3" json:"dns,omitempty"`
+	Security *Security `protobuf:"bytes,15,opt,name=security,proto3" json:"security,omitempty"`
+	// Directories the agent created on the node, mounted read-write with
+	// nosuid and nodev (ADR 0025). Needs CAPABILITY_VOLUMES.
+	Volumes       []*VolumeMount `protobuf:"bytes,16,rep,name=volumes,proto3" json:"volumes,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -917,6 +924,65 @@ func (x *ContainerSpec) GetSecurity() *Security {
 	return nil
 }
 
+func (x *ContainerSpec) GetVolumes() []*VolumeMount {
+	if x != nil {
+		return x.Volumes
+	}
+	return nil
+}
+
+type VolumeMount struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Source        string                 `protobuf:"bytes,1,opt,name=source,proto3" json:"source,omitempty"`
+	Target        string                 `protobuf:"bytes,2,opt,name=target,proto3" json:"target,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *VolumeMount) Reset() {
+	*x = VolumeMount{}
+	mi := &file_armada_driver_v1_driver_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *VolumeMount) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*VolumeMount) ProtoMessage() {}
+
+func (x *VolumeMount) ProtoReflect() protoreflect.Message {
+	mi := &file_armada_driver_v1_driver_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use VolumeMount.ProtoReflect.Descriptor instead.
+func (*VolumeMount) Descriptor() ([]byte, []int) {
+	return file_armada_driver_v1_driver_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *VolumeMount) GetSource() string {
+	if x != nil {
+		return x.Source
+	}
+	return ""
+}
+
+func (x *VolumeMount) GetTarget() string {
+	if x != nil {
+		return x.Target
+	}
+	return ""
+}
+
 type RunRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Spec          *ContainerSpec         `protobuf:"bytes,1,opt,name=spec,proto3" json:"spec,omitempty"`
@@ -926,7 +992,7 @@ type RunRequest struct {
 
 func (x *RunRequest) Reset() {
 	*x = RunRequest{}
-	mi := &file_armada_driver_v1_driver_proto_msgTypes[11]
+	mi := &file_armada_driver_v1_driver_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -938,7 +1004,7 @@ func (x *RunRequest) String() string {
 func (*RunRequest) ProtoMessage() {}
 
 func (x *RunRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_driver_v1_driver_proto_msgTypes[11]
+	mi := &file_armada_driver_v1_driver_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -951,7 +1017,7 @@ func (x *RunRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunRequest.ProtoReflect.Descriptor instead.
 func (*RunRequest) Descriptor() ([]byte, []int) {
-	return file_armada_driver_v1_driver_proto_rawDescGZIP(), []int{11}
+	return file_armada_driver_v1_driver_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *RunRequest) GetSpec() *ContainerSpec {
@@ -970,7 +1036,7 @@ type RunResponse struct {
 
 func (x *RunResponse) Reset() {
 	*x = RunResponse{}
-	mi := &file_armada_driver_v1_driver_proto_msgTypes[12]
+	mi := &file_armada_driver_v1_driver_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -982,7 +1048,7 @@ func (x *RunResponse) String() string {
 func (*RunResponse) ProtoMessage() {}
 
 func (x *RunResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_driver_v1_driver_proto_msgTypes[12]
+	mi := &file_armada_driver_v1_driver_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -995,7 +1061,7 @@ func (x *RunResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunResponse.ProtoReflect.Descriptor instead.
 func (*RunResponse) Descriptor() ([]byte, []int) {
-	return file_armada_driver_v1_driver_proto_rawDescGZIP(), []int{12}
+	return file_armada_driver_v1_driver_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *RunResponse) GetId() string {
@@ -1015,7 +1081,7 @@ type StopRequest struct {
 
 func (x *StopRequest) Reset() {
 	*x = StopRequest{}
-	mi := &file_armada_driver_v1_driver_proto_msgTypes[13]
+	mi := &file_armada_driver_v1_driver_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1027,7 +1093,7 @@ func (x *StopRequest) String() string {
 func (*StopRequest) ProtoMessage() {}
 
 func (x *StopRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_driver_v1_driver_proto_msgTypes[13]
+	mi := &file_armada_driver_v1_driver_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1040,7 +1106,7 @@ func (x *StopRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StopRequest.ProtoReflect.Descriptor instead.
 func (*StopRequest) Descriptor() ([]byte, []int) {
-	return file_armada_driver_v1_driver_proto_rawDescGZIP(), []int{13}
+	return file_armada_driver_v1_driver_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *StopRequest) GetId() string {
@@ -1065,7 +1131,7 @@ type StopResponse struct {
 
 func (x *StopResponse) Reset() {
 	*x = StopResponse{}
-	mi := &file_armada_driver_v1_driver_proto_msgTypes[14]
+	mi := &file_armada_driver_v1_driver_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1077,7 +1143,7 @@ func (x *StopResponse) String() string {
 func (*StopResponse) ProtoMessage() {}
 
 func (x *StopResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_driver_v1_driver_proto_msgTypes[14]
+	mi := &file_armada_driver_v1_driver_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1090,7 +1156,7 @@ func (x *StopResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StopResponse.ProtoReflect.Descriptor instead.
 func (*StopResponse) Descriptor() ([]byte, []int) {
-	return file_armada_driver_v1_driver_proto_rawDescGZIP(), []int{14}
+	return file_armada_driver_v1_driver_proto_rawDescGZIP(), []int{15}
 }
 
 type RemoveRequest struct {
@@ -1102,7 +1168,7 @@ type RemoveRequest struct {
 
 func (x *RemoveRequest) Reset() {
 	*x = RemoveRequest{}
-	mi := &file_armada_driver_v1_driver_proto_msgTypes[15]
+	mi := &file_armada_driver_v1_driver_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1114,7 +1180,7 @@ func (x *RemoveRequest) String() string {
 func (*RemoveRequest) ProtoMessage() {}
 
 func (x *RemoveRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_driver_v1_driver_proto_msgTypes[15]
+	mi := &file_armada_driver_v1_driver_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1127,7 +1193,7 @@ func (x *RemoveRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RemoveRequest.ProtoReflect.Descriptor instead.
 func (*RemoveRequest) Descriptor() ([]byte, []int) {
-	return file_armada_driver_v1_driver_proto_rawDescGZIP(), []int{15}
+	return file_armada_driver_v1_driver_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *RemoveRequest) GetId() string {
@@ -1145,7 +1211,7 @@ type RemoveResponse struct {
 
 func (x *RemoveResponse) Reset() {
 	*x = RemoveResponse{}
-	mi := &file_armada_driver_v1_driver_proto_msgTypes[16]
+	mi := &file_armada_driver_v1_driver_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1157,7 +1223,7 @@ func (x *RemoveResponse) String() string {
 func (*RemoveResponse) ProtoMessage() {}
 
 func (x *RemoveResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_driver_v1_driver_proto_msgTypes[16]
+	mi := &file_armada_driver_v1_driver_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1170,7 +1236,7 @@ func (x *RemoveResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RemoveResponse.ProtoReflect.Descriptor instead.
 func (*RemoveResponse) Descriptor() ([]byte, []int) {
-	return file_armada_driver_v1_driver_proto_rawDescGZIP(), []int{16}
+	return file_armada_driver_v1_driver_proto_rawDescGZIP(), []int{17}
 }
 
 type ListRequest struct {
@@ -1182,7 +1248,7 @@ type ListRequest struct {
 
 func (x *ListRequest) Reset() {
 	*x = ListRequest{}
-	mi := &file_armada_driver_v1_driver_proto_msgTypes[17]
+	mi := &file_armada_driver_v1_driver_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1194,7 +1260,7 @@ func (x *ListRequest) String() string {
 func (*ListRequest) ProtoMessage() {}
 
 func (x *ListRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_driver_v1_driver_proto_msgTypes[17]
+	mi := &file_armada_driver_v1_driver_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1207,7 +1273,7 @@ func (x *ListRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListRequest.ProtoReflect.Descriptor instead.
 func (*ListRequest) Descriptor() ([]byte, []int) {
-	return file_armada_driver_v1_driver_proto_rawDescGZIP(), []int{17}
+	return file_armada_driver_v1_driver_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *ListRequest) GetLabels() map[string]string {
@@ -1226,7 +1292,7 @@ type ListResponse struct {
 
 func (x *ListResponse) Reset() {
 	*x = ListResponse{}
-	mi := &file_armada_driver_v1_driver_proto_msgTypes[18]
+	mi := &file_armada_driver_v1_driver_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1238,7 +1304,7 @@ func (x *ListResponse) String() string {
 func (*ListResponse) ProtoMessage() {}
 
 func (x *ListResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_driver_v1_driver_proto_msgTypes[18]
+	mi := &file_armada_driver_v1_driver_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1251,7 +1317,7 @@ func (x *ListResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListResponse.ProtoReflect.Descriptor instead.
 func (*ListResponse) Descriptor() ([]byte, []int) {
-	return file_armada_driver_v1_driver_proto_rawDescGZIP(), []int{18}
+	return file_armada_driver_v1_driver_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *ListResponse) GetContainers() []*Container {
@@ -1270,7 +1336,7 @@ type InspectRequest struct {
 
 func (x *InspectRequest) Reset() {
 	*x = InspectRequest{}
-	mi := &file_armada_driver_v1_driver_proto_msgTypes[19]
+	mi := &file_armada_driver_v1_driver_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1282,7 +1348,7 @@ func (x *InspectRequest) String() string {
 func (*InspectRequest) ProtoMessage() {}
 
 func (x *InspectRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_driver_v1_driver_proto_msgTypes[19]
+	mi := &file_armada_driver_v1_driver_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1295,7 +1361,7 @@ func (x *InspectRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InspectRequest.ProtoReflect.Descriptor instead.
 func (*InspectRequest) Descriptor() ([]byte, []int) {
-	return file_armada_driver_v1_driver_proto_rawDescGZIP(), []int{19}
+	return file_armada_driver_v1_driver_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *InspectRequest) GetId() string {
@@ -1325,7 +1391,7 @@ type Container struct {
 
 func (x *Container) Reset() {
 	*x = Container{}
-	mi := &file_armada_driver_v1_driver_proto_msgTypes[20]
+	mi := &file_armada_driver_v1_driver_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1337,7 +1403,7 @@ func (x *Container) String() string {
 func (*Container) ProtoMessage() {}
 
 func (x *Container) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_driver_v1_driver_proto_msgTypes[20]
+	mi := &file_armada_driver_v1_driver_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1350,7 +1416,7 @@ func (x *Container) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Container.ProtoReflect.Descriptor instead.
 func (*Container) Descriptor() ([]byte, []int) {
-	return file_armada_driver_v1_driver_proto_rawDescGZIP(), []int{20}
+	return file_armada_driver_v1_driver_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *Container) GetId() string {
@@ -1435,7 +1501,7 @@ type LogsRequest struct {
 
 func (x *LogsRequest) Reset() {
 	*x = LogsRequest{}
-	mi := &file_armada_driver_v1_driver_proto_msgTypes[21]
+	mi := &file_armada_driver_v1_driver_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1447,7 +1513,7 @@ func (x *LogsRequest) String() string {
 func (*LogsRequest) ProtoMessage() {}
 
 func (x *LogsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_driver_v1_driver_proto_msgTypes[21]
+	mi := &file_armada_driver_v1_driver_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1460,7 +1526,7 @@ func (x *LogsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LogsRequest.ProtoReflect.Descriptor instead.
 func (*LogsRequest) Descriptor() ([]byte, []int) {
-	return file_armada_driver_v1_driver_proto_rawDescGZIP(), []int{21}
+	return file_armada_driver_v1_driver_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *LogsRequest) GetId() string {
@@ -1494,7 +1560,7 @@ type LogFrame struct {
 
 func (x *LogFrame) Reset() {
 	*x = LogFrame{}
-	mi := &file_armada_driver_v1_driver_proto_msgTypes[22]
+	mi := &file_armada_driver_v1_driver_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1506,7 +1572,7 @@ func (x *LogFrame) String() string {
 func (*LogFrame) ProtoMessage() {}
 
 func (x *LogFrame) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_driver_v1_driver_proto_msgTypes[22]
+	mi := &file_armada_driver_v1_driver_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1519,7 +1585,7 @@ func (x *LogFrame) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LogFrame.ProtoReflect.Descriptor instead.
 func (*LogFrame) Descriptor() ([]byte, []int) {
-	return file_armada_driver_v1_driver_proto_rawDescGZIP(), []int{22}
+	return file_armada_driver_v1_driver_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *LogFrame) GetStream() LogStream {
@@ -1547,7 +1613,7 @@ type Mount struct {
 
 func (x *Mount) Reset() {
 	*x = Mount{}
-	mi := &file_armada_driver_v1_driver_proto_msgTypes[23]
+	mi := &file_armada_driver_v1_driver_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1559,7 +1625,7 @@ func (x *Mount) String() string {
 func (*Mount) ProtoMessage() {}
 
 func (x *Mount) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_driver_v1_driver_proto_msgTypes[23]
+	mi := &file_armada_driver_v1_driver_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1572,7 +1638,7 @@ func (x *Mount) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Mount.ProtoReflect.Descriptor instead.
 func (*Mount) Descriptor() ([]byte, []int) {
-	return file_armada_driver_v1_driver_proto_rawDescGZIP(), []int{23}
+	return file_armada_driver_v1_driver_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *Mount) GetSource() string {
@@ -1614,7 +1680,7 @@ type SystemSpec struct {
 
 func (x *SystemSpec) Reset() {
 	*x = SystemSpec{}
-	mi := &file_armada_driver_v1_driver_proto_msgTypes[24]
+	mi := &file_armada_driver_v1_driver_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1626,7 +1692,7 @@ func (x *SystemSpec) String() string {
 func (*SystemSpec) ProtoMessage() {}
 
 func (x *SystemSpec) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_driver_v1_driver_proto_msgTypes[24]
+	mi := &file_armada_driver_v1_driver_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1639,7 +1705,7 @@ func (x *SystemSpec) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SystemSpec.ProtoReflect.Descriptor instead.
 func (*SystemSpec) Descriptor() ([]byte, []int) {
-	return file_armada_driver_v1_driver_proto_rawDescGZIP(), []int{24}
+	return file_armada_driver_v1_driver_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *SystemSpec) GetName() string {
@@ -1700,7 +1766,7 @@ type RunSystemRequest struct {
 
 func (x *RunSystemRequest) Reset() {
 	*x = RunSystemRequest{}
-	mi := &file_armada_driver_v1_driver_proto_msgTypes[25]
+	mi := &file_armada_driver_v1_driver_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1712,7 +1778,7 @@ func (x *RunSystemRequest) String() string {
 func (*RunSystemRequest) ProtoMessage() {}
 
 func (x *RunSystemRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_driver_v1_driver_proto_msgTypes[25]
+	mi := &file_armada_driver_v1_driver_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1725,7 +1791,7 @@ func (x *RunSystemRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunSystemRequest.ProtoReflect.Descriptor instead.
 func (*RunSystemRequest) Descriptor() ([]byte, []int) {
-	return file_armada_driver_v1_driver_proto_rawDescGZIP(), []int{25}
+	return file_armada_driver_v1_driver_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *RunSystemRequest) GetSpec() *SystemSpec {
@@ -1745,7 +1811,7 @@ type ExecRequest struct {
 
 func (x *ExecRequest) Reset() {
 	*x = ExecRequest{}
-	mi := &file_armada_driver_v1_driver_proto_msgTypes[26]
+	mi := &file_armada_driver_v1_driver_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1757,7 +1823,7 @@ func (x *ExecRequest) String() string {
 func (*ExecRequest) ProtoMessage() {}
 
 func (x *ExecRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_driver_v1_driver_proto_msgTypes[26]
+	mi := &file_armada_driver_v1_driver_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1770,7 +1836,7 @@ func (x *ExecRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecRequest.ProtoReflect.Descriptor instead.
 func (*ExecRequest) Descriptor() ([]byte, []int) {
-	return file_armada_driver_v1_driver_proto_rawDescGZIP(), []int{26}
+	return file_armada_driver_v1_driver_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *ExecRequest) GetId() string {
@@ -1797,7 +1863,7 @@ type ExecResponse struct {
 
 func (x *ExecResponse) Reset() {
 	*x = ExecResponse{}
-	mi := &file_armada_driver_v1_driver_proto_msgTypes[27]
+	mi := &file_armada_driver_v1_driver_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1809,7 +1875,7 @@ func (x *ExecResponse) String() string {
 func (*ExecResponse) ProtoMessage() {}
 
 func (x *ExecResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_driver_v1_driver_proto_msgTypes[27]
+	mi := &file_armada_driver_v1_driver_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1822,7 +1888,7 @@ func (x *ExecResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecResponse.ProtoReflect.Descriptor instead.
 func (*ExecResponse) Descriptor() ([]byte, []int) {
-	return file_armada_driver_v1_driver_proto_rawDescGZIP(), []int{27}
+	return file_armada_driver_v1_driver_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *ExecResponse) GetOutput() string {
@@ -1849,7 +1915,7 @@ type SignalRequest struct {
 
 func (x *SignalRequest) Reset() {
 	*x = SignalRequest{}
-	mi := &file_armada_driver_v1_driver_proto_msgTypes[28]
+	mi := &file_armada_driver_v1_driver_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1861,7 +1927,7 @@ func (x *SignalRequest) String() string {
 func (*SignalRequest) ProtoMessage() {}
 
 func (x *SignalRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_driver_v1_driver_proto_msgTypes[28]
+	mi := &file_armada_driver_v1_driver_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1874,7 +1940,7 @@ func (x *SignalRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SignalRequest.ProtoReflect.Descriptor instead.
 func (*SignalRequest) Descriptor() ([]byte, []int) {
-	return file_armada_driver_v1_driver_proto_rawDescGZIP(), []int{28}
+	return file_armada_driver_v1_driver_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *SignalRequest) GetId() string {
@@ -1899,7 +1965,7 @@ type SignalResponse struct {
 
 func (x *SignalResponse) Reset() {
 	*x = SignalResponse{}
-	mi := &file_armada_driver_v1_driver_proto_msgTypes[29]
+	mi := &file_armada_driver_v1_driver_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1911,7 +1977,7 @@ func (x *SignalResponse) String() string {
 func (*SignalResponse) ProtoMessage() {}
 
 func (x *SignalResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_driver_v1_driver_proto_msgTypes[29]
+	mi := &file_armada_driver_v1_driver_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1924,7 +1990,7 @@ func (x *SignalResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SignalResponse.ProtoReflect.Descriptor instead.
 func (*SignalResponse) Descriptor() ([]byte, []int) {
-	return file_armada_driver_v1_driver_proto_rawDescGZIP(), []int{29}
+	return file_armada_driver_v1_driver_proto_rawDescGZIP(), []int{30}
 }
 
 type BridgeRequest struct {
@@ -1935,7 +2001,7 @@ type BridgeRequest struct {
 
 func (x *BridgeRequest) Reset() {
 	*x = BridgeRequest{}
-	mi := &file_armada_driver_v1_driver_proto_msgTypes[30]
+	mi := &file_armada_driver_v1_driver_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1947,7 +2013,7 @@ func (x *BridgeRequest) String() string {
 func (*BridgeRequest) ProtoMessage() {}
 
 func (x *BridgeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_driver_v1_driver_proto_msgTypes[30]
+	mi := &file_armada_driver_v1_driver_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1960,7 +2026,7 @@ func (x *BridgeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BridgeRequest.ProtoReflect.Descriptor instead.
 func (*BridgeRequest) Descriptor() ([]byte, []int) {
-	return file_armada_driver_v1_driver_proto_rawDescGZIP(), []int{30}
+	return file_armada_driver_v1_driver_proto_rawDescGZIP(), []int{31}
 }
 
 type BridgeResponse struct {
@@ -1974,7 +2040,7 @@ type BridgeResponse struct {
 
 func (x *BridgeResponse) Reset() {
 	*x = BridgeResponse{}
-	mi := &file_armada_driver_v1_driver_proto_msgTypes[31]
+	mi := &file_armada_driver_v1_driver_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1986,7 +2052,7 @@ func (x *BridgeResponse) String() string {
 func (*BridgeResponse) ProtoMessage() {}
 
 func (x *BridgeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_driver_v1_driver_proto_msgTypes[31]
+	mi := &file_armada_driver_v1_driver_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1999,7 +2065,7 @@ func (x *BridgeResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BridgeResponse.ProtoReflect.Descriptor instead.
 func (*BridgeResponse) Descriptor() ([]byte, []int) {
-	return file_armada_driver_v1_driver_proto_rawDescGZIP(), []int{31}
+	return file_armada_driver_v1_driver_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *BridgeResponse) GetGateway() string {
@@ -2026,7 +2092,7 @@ type TermSize struct {
 
 func (x *TermSize) Reset() {
 	*x = TermSize{}
-	mi := &file_armada_driver_v1_driver_proto_msgTypes[32]
+	mi := &file_armada_driver_v1_driver_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2038,7 +2104,7 @@ func (x *TermSize) String() string {
 func (*TermSize) ProtoMessage() {}
 
 func (x *TermSize) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_driver_v1_driver_proto_msgTypes[32]
+	mi := &file_armada_driver_v1_driver_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2051,7 +2117,7 @@ func (x *TermSize) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TermSize.ProtoReflect.Descriptor instead.
 func (*TermSize) Descriptor() ([]byte, []int) {
-	return file_armada_driver_v1_driver_proto_rawDescGZIP(), []int{32}
+	return file_armada_driver_v1_driver_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *TermSize) GetRows() uint32 {
@@ -2084,7 +2150,7 @@ type ExecAppStart struct {
 
 func (x *ExecAppStart) Reset() {
 	*x = ExecAppStart{}
-	mi := &file_armada_driver_v1_driver_proto_msgTypes[33]
+	mi := &file_armada_driver_v1_driver_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2096,7 +2162,7 @@ func (x *ExecAppStart) String() string {
 func (*ExecAppStart) ProtoMessage() {}
 
 func (x *ExecAppStart) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_driver_v1_driver_proto_msgTypes[33]
+	mi := &file_armada_driver_v1_driver_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2109,7 +2175,7 @@ func (x *ExecAppStart) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecAppStart.ProtoReflect.Descriptor instead.
 func (*ExecAppStart) Descriptor() ([]byte, []int) {
-	return file_armada_driver_v1_driver_proto_rawDescGZIP(), []int{33}
+	return file_armada_driver_v1_driver_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *ExecAppStart) GetId() string {
@@ -2162,7 +2228,7 @@ type ExecAppInput struct {
 
 func (x *ExecAppInput) Reset() {
 	*x = ExecAppInput{}
-	mi := &file_armada_driver_v1_driver_proto_msgTypes[34]
+	mi := &file_armada_driver_v1_driver_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2174,7 +2240,7 @@ func (x *ExecAppInput) String() string {
 func (*ExecAppInput) ProtoMessage() {}
 
 func (x *ExecAppInput) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_driver_v1_driver_proto_msgTypes[34]
+	mi := &file_armada_driver_v1_driver_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2187,7 +2253,7 @@ func (x *ExecAppInput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecAppInput.ProtoReflect.Descriptor instead.
 func (*ExecAppInput) Descriptor() ([]byte, []int) {
-	return file_armada_driver_v1_driver_proto_rawDescGZIP(), []int{34}
+	return file_armada_driver_v1_driver_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *ExecAppInput) GetInput() isExecAppInput_Input {
@@ -2276,7 +2342,7 @@ type ExecAppOutput struct {
 
 func (x *ExecAppOutput) Reset() {
 	*x = ExecAppOutput{}
-	mi := &file_armada_driver_v1_driver_proto_msgTypes[35]
+	mi := &file_armada_driver_v1_driver_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2288,7 +2354,7 @@ func (x *ExecAppOutput) String() string {
 func (*ExecAppOutput) ProtoMessage() {}
 
 func (x *ExecAppOutput) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_driver_v1_driver_proto_msgTypes[35]
+	mi := &file_armada_driver_v1_driver_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2301,7 +2367,7 @@ func (x *ExecAppOutput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecAppOutput.ProtoReflect.Descriptor instead.
 func (*ExecAppOutput) Descriptor() ([]byte, []int) {
-	return file_armada_driver_v1_driver_proto_rawDescGZIP(), []int{35}
+	return file_armada_driver_v1_driver_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *ExecAppOutput) GetOutput() isExecAppOutput_Output {
@@ -2370,7 +2436,7 @@ type StatsRequest struct {
 
 func (x *StatsRequest) Reset() {
 	*x = StatsRequest{}
-	mi := &file_armada_driver_v1_driver_proto_msgTypes[36]
+	mi := &file_armada_driver_v1_driver_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2382,7 +2448,7 @@ func (x *StatsRequest) String() string {
 func (*StatsRequest) ProtoMessage() {}
 
 func (x *StatsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_driver_v1_driver_proto_msgTypes[36]
+	mi := &file_armada_driver_v1_driver_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2395,7 +2461,7 @@ func (x *StatsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StatsRequest.ProtoReflect.Descriptor instead.
 func (*StatsRequest) Descriptor() ([]byte, []int) {
-	return file_armada_driver_v1_driver_proto_rawDescGZIP(), []int{36}
+	return file_armada_driver_v1_driver_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *StatsRequest) GetId() string {
@@ -2417,7 +2483,7 @@ type StatsResponse struct {
 
 func (x *StatsResponse) Reset() {
 	*x = StatsResponse{}
-	mi := &file_armada_driver_v1_driver_proto_msgTypes[37]
+	mi := &file_armada_driver_v1_driver_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2429,7 +2495,7 @@ func (x *StatsResponse) String() string {
 func (*StatsResponse) ProtoMessage() {}
 
 func (x *StatsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_armada_driver_v1_driver_proto_msgTypes[37]
+	mi := &file_armada_driver_v1_driver_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2442,7 +2508,7 @@ func (x *StatsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StatsResponse.ProtoReflect.Descriptor instead.
 func (*StatsResponse) Descriptor() ([]byte, []int) {
-	return file_armada_driver_v1_driver_proto_rawDescGZIP(), []int{37}
+	return file_armada_driver_v1_driver_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *StatsResponse) GetCpuUsec() int64 {
@@ -2499,7 +2565,7 @@ const file_armada_driver_v1_driver_proto_rawDesc = "" +
 	"\x06target\x18\x02 \x01(\tR\x06target\"c\n" +
 	"\bSecurity\x12*\n" +
 	"\x11no_new_privileges\x18\x01 \x01(\bR\x0fnoNewPrivileges\x12+\n" +
-	"\x11drop_capabilities\x18\x02 \x03(\tR\x10dropCapabilities\"\xb9\x04\n" +
+	"\x11drop_capabilities\x18\x02 \x03(\tR\x10dropCapabilities\"\xf2\x04\n" +
 	"\rContainerSpec\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
 	"\x05image\x18\x02 \x01(\tR\x05image\x12\x1e\n" +
@@ -2519,10 +2585,14 @@ const file_armada_driver_v1_driver_proto_rawDesc = "" +
 	"pids_limit\x18\f \x01(\x03R\tpidsLimit\x121\n" +
 	"\x05files\x18\r \x03(\v2\x1b.armada.driver.v1.FileMountR\x05files\x12\x10\n" +
 	"\x03dns\x18\x0e \x03(\tR\x03dns\x126\n" +
-	"\bsecurity\x18\x0f \x01(\v2\x1a.armada.driver.v1.SecurityR\bsecurity\x1a9\n" +
+	"\bsecurity\x18\x0f \x01(\v2\x1a.armada.driver.v1.SecurityR\bsecurity\x127\n" +
+	"\avolumes\x18\x10 \x03(\v2\x1d.armada.driver.v1.VolumeMountR\avolumes\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"A\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"=\n" +
+	"\vVolumeMount\x12\x16\n" +
+	"\x06source\x18\x01 \x01(\tR\x06source\x12\x16\n" +
+	"\x06target\x18\x02 \x01(\tR\x06target\"A\n" +
 	"\n" +
 	"RunRequest\x123\n" +
 	"\x04spec\x18\x01 \x01(\v2\x1f.armada.driver.v1.ContainerSpecR\x04spec\"\x1d\n" +
@@ -2629,14 +2699,15 @@ const file_armada_driver_v1_driver_proto_rawDesc = "" +
 	"\fmemory_bytes\x18\x02 \x01(\x03R\vmemoryBytes*K\n" +
 	"\x0fProtocolVersion\x12 \n" +
 	"\x1cPROTOCOL_VERSION_UNSPECIFIED\x10\x00\x12\x16\n" +
-	"\x12PROTOCOL_VERSION_1\x10\x01*\x8c\x01\n" +
+	"\x12PROTOCOL_VERSION_1\x10\x01*\xa4\x01\n" +
 	"\n" +
 	"Capability\x12\x1a\n" +
 	"\x16CAPABILITY_UNSPECIFIED\x10\x00\x12 \n" +
 	"\x1cCAPABILITY_SYSTEM_CONTAINERS\x10\x01\x12\x15\n" +
 	"\x11CAPABILITY_BRIDGE\x10\x02\x12\x13\n" +
 	"\x0fCAPABILITY_EXEC\x10\x03\x12\x14\n" +
-	"\x10CAPABILITY_STATS\x10\x04*U\n" +
+	"\x10CAPABILITY_STATS\x10\x04\x12\x16\n" +
+	"\x12CAPABILITY_VOLUMES\x10\x05*U\n" +
 	"\tLogStream\x12\x1a\n" +
 	"\x16LOG_STREAM_UNSPECIFIED\x10\x00\x12\x15\n" +
 	"\x11LOG_STREAM_STDOUT\x10\x01\x12\x15\n" +
@@ -2671,7 +2742,7 @@ func file_armada_driver_v1_driver_proto_rawDescGZIP() []byte {
 }
 
 var file_armada_driver_v1_driver_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_armada_driver_v1_driver_proto_msgTypes = make([]protoimpl.MessageInfo, 42)
+var file_armada_driver_v1_driver_proto_msgTypes = make([]protoimpl.MessageInfo, 43)
 var file_armada_driver_v1_driver_proto_goTypes = []any{
 	(ProtocolVersion)(0),          // 0: armada.driver.v1.ProtocolVersion
 	(Capability)(0),               // 1: armada.driver.v1.Capability
@@ -2687,93 +2758,95 @@ var file_armada_driver_v1_driver_proto_goTypes = []any{
 	(*FileMount)(nil),             // 11: armada.driver.v1.FileMount
 	(*Security)(nil),              // 12: armada.driver.v1.Security
 	(*ContainerSpec)(nil),         // 13: armada.driver.v1.ContainerSpec
-	(*RunRequest)(nil),            // 14: armada.driver.v1.RunRequest
-	(*RunResponse)(nil),           // 15: armada.driver.v1.RunResponse
-	(*StopRequest)(nil),           // 16: armada.driver.v1.StopRequest
-	(*StopResponse)(nil),          // 17: armada.driver.v1.StopResponse
-	(*RemoveRequest)(nil),         // 18: armada.driver.v1.RemoveRequest
-	(*RemoveResponse)(nil),        // 19: armada.driver.v1.RemoveResponse
-	(*ListRequest)(nil),           // 20: armada.driver.v1.ListRequest
-	(*ListResponse)(nil),          // 21: armada.driver.v1.ListResponse
-	(*InspectRequest)(nil),        // 22: armada.driver.v1.InspectRequest
-	(*Container)(nil),             // 23: armada.driver.v1.Container
-	(*LogsRequest)(nil),           // 24: armada.driver.v1.LogsRequest
-	(*LogFrame)(nil),              // 25: armada.driver.v1.LogFrame
-	(*Mount)(nil),                 // 26: armada.driver.v1.Mount
-	(*SystemSpec)(nil),            // 27: armada.driver.v1.SystemSpec
-	(*RunSystemRequest)(nil),      // 28: armada.driver.v1.RunSystemRequest
-	(*ExecRequest)(nil),           // 29: armada.driver.v1.ExecRequest
-	(*ExecResponse)(nil),          // 30: armada.driver.v1.ExecResponse
-	(*SignalRequest)(nil),         // 31: armada.driver.v1.SignalRequest
-	(*SignalResponse)(nil),        // 32: armada.driver.v1.SignalResponse
-	(*BridgeRequest)(nil),         // 33: armada.driver.v1.BridgeRequest
-	(*BridgeResponse)(nil),        // 34: armada.driver.v1.BridgeResponse
-	(*TermSize)(nil),              // 35: armada.driver.v1.TermSize
-	(*ExecAppStart)(nil),          // 36: armada.driver.v1.ExecAppStart
-	(*ExecAppInput)(nil),          // 37: armada.driver.v1.ExecAppInput
-	(*ExecAppOutput)(nil),         // 38: armada.driver.v1.ExecAppOutput
-	(*StatsRequest)(nil),          // 39: armada.driver.v1.StatsRequest
-	(*StatsResponse)(nil),         // 40: armada.driver.v1.StatsResponse
-	nil,                           // 41: armada.driver.v1.ContainerSpec.LabelsEntry
-	nil,                           // 42: armada.driver.v1.ListRequest.LabelsEntry
-	nil,                           // 43: armada.driver.v1.Container.LabelsEntry
-	nil,                           // 44: armada.driver.v1.SystemSpec.LabelsEntry
-	(*timestamppb.Timestamp)(nil), // 45: google.protobuf.Timestamp
+	(*VolumeMount)(nil),           // 14: armada.driver.v1.VolumeMount
+	(*RunRequest)(nil),            // 15: armada.driver.v1.RunRequest
+	(*RunResponse)(nil),           // 16: armada.driver.v1.RunResponse
+	(*StopRequest)(nil),           // 17: armada.driver.v1.StopRequest
+	(*StopResponse)(nil),          // 18: armada.driver.v1.StopResponse
+	(*RemoveRequest)(nil),         // 19: armada.driver.v1.RemoveRequest
+	(*RemoveResponse)(nil),        // 20: armada.driver.v1.RemoveResponse
+	(*ListRequest)(nil),           // 21: armada.driver.v1.ListRequest
+	(*ListResponse)(nil),          // 22: armada.driver.v1.ListResponse
+	(*InspectRequest)(nil),        // 23: armada.driver.v1.InspectRequest
+	(*Container)(nil),             // 24: armada.driver.v1.Container
+	(*LogsRequest)(nil),           // 25: armada.driver.v1.LogsRequest
+	(*LogFrame)(nil),              // 26: armada.driver.v1.LogFrame
+	(*Mount)(nil),                 // 27: armada.driver.v1.Mount
+	(*SystemSpec)(nil),            // 28: armada.driver.v1.SystemSpec
+	(*RunSystemRequest)(nil),      // 29: armada.driver.v1.RunSystemRequest
+	(*ExecRequest)(nil),           // 30: armada.driver.v1.ExecRequest
+	(*ExecResponse)(nil),          // 31: armada.driver.v1.ExecResponse
+	(*SignalRequest)(nil),         // 32: armada.driver.v1.SignalRequest
+	(*SignalResponse)(nil),        // 33: armada.driver.v1.SignalResponse
+	(*BridgeRequest)(nil),         // 34: armada.driver.v1.BridgeRequest
+	(*BridgeResponse)(nil),        // 35: armada.driver.v1.BridgeResponse
+	(*TermSize)(nil),              // 36: armada.driver.v1.TermSize
+	(*ExecAppStart)(nil),          // 37: armada.driver.v1.ExecAppStart
+	(*ExecAppInput)(nil),          // 38: armada.driver.v1.ExecAppInput
+	(*ExecAppOutput)(nil),         // 39: armada.driver.v1.ExecAppOutput
+	(*StatsRequest)(nil),          // 40: armada.driver.v1.StatsRequest
+	(*StatsResponse)(nil),         // 41: armada.driver.v1.StatsResponse
+	nil,                           // 42: armada.driver.v1.ContainerSpec.LabelsEntry
+	nil,                           // 43: armada.driver.v1.ListRequest.LabelsEntry
+	nil,                           // 44: armada.driver.v1.Container.LabelsEntry
+	nil,                           // 45: armada.driver.v1.SystemSpec.LabelsEntry
+	(*timestamppb.Timestamp)(nil), // 46: google.protobuf.Timestamp
 }
 var file_armada_driver_v1_driver_proto_depIdxs = []int32{
 	0,  // 0: armada.driver.v1.InfoResponse.protocol:type_name -> armada.driver.v1.ProtocolVersion
 	1,  // 1: armada.driver.v1.InfoResponse.capabilities:type_name -> armada.driver.v1.Capability
 	7,  // 2: armada.driver.v1.PullRequest.auth:type_name -> armada.driver.v1.RegistryAuth
-	41, // 3: armada.driver.v1.ContainerSpec.labels:type_name -> armada.driver.v1.ContainerSpec.LabelsEntry
+	42, // 3: armada.driver.v1.ContainerSpec.labels:type_name -> armada.driver.v1.ContainerSpec.LabelsEntry
 	11, // 4: armada.driver.v1.ContainerSpec.files:type_name -> armada.driver.v1.FileMount
 	12, // 5: armada.driver.v1.ContainerSpec.security:type_name -> armada.driver.v1.Security
-	13, // 6: armada.driver.v1.RunRequest.spec:type_name -> armada.driver.v1.ContainerSpec
-	42, // 7: armada.driver.v1.ListRequest.labels:type_name -> armada.driver.v1.ListRequest.LabelsEntry
-	23, // 8: armada.driver.v1.ListResponse.containers:type_name -> armada.driver.v1.Container
-	43, // 9: armada.driver.v1.Container.labels:type_name -> armada.driver.v1.Container.LabelsEntry
-	45, // 10: armada.driver.v1.Container.started_at:type_name -> google.protobuf.Timestamp
-	2,  // 11: armada.driver.v1.LogFrame.stream:type_name -> armada.driver.v1.LogStream
-	44, // 12: armada.driver.v1.SystemSpec.labels:type_name -> armada.driver.v1.SystemSpec.LabelsEntry
-	26, // 13: armada.driver.v1.SystemSpec.mounts:type_name -> armada.driver.v1.Mount
-	27, // 14: armada.driver.v1.RunSystemRequest.spec:type_name -> armada.driver.v1.SystemSpec
-	35, // 15: armada.driver.v1.ExecAppStart.size:type_name -> armada.driver.v1.TermSize
-	36, // 16: armada.driver.v1.ExecAppInput.start:type_name -> armada.driver.v1.ExecAppStart
-	35, // 17: armada.driver.v1.ExecAppInput.resize:type_name -> armada.driver.v1.TermSize
-	3,  // 18: armada.driver.v1.Driver.Info:input_type -> armada.driver.v1.InfoRequest
-	5,  // 19: armada.driver.v1.Driver.Ping:input_type -> armada.driver.v1.PingRequest
-	8,  // 20: armada.driver.v1.Driver.Pull:input_type -> armada.driver.v1.PullRequest
-	14, // 21: armada.driver.v1.Driver.Run:input_type -> armada.driver.v1.RunRequest
-	16, // 22: armada.driver.v1.Driver.Stop:input_type -> armada.driver.v1.StopRequest
-	18, // 23: armada.driver.v1.Driver.Remove:input_type -> armada.driver.v1.RemoveRequest
-	20, // 24: armada.driver.v1.Driver.List:input_type -> armada.driver.v1.ListRequest
-	22, // 25: armada.driver.v1.Driver.Inspect:input_type -> armada.driver.v1.InspectRequest
-	24, // 26: armada.driver.v1.Driver.Logs:input_type -> armada.driver.v1.LogsRequest
-	28, // 27: armada.driver.v1.Driver.RunSystem:input_type -> armada.driver.v1.RunSystemRequest
-	29, // 28: armada.driver.v1.Driver.Exec:input_type -> armada.driver.v1.ExecRequest
-	31, // 29: armada.driver.v1.Driver.Signal:input_type -> armada.driver.v1.SignalRequest
-	33, // 30: armada.driver.v1.Driver.Bridge:input_type -> armada.driver.v1.BridgeRequest
-	37, // 31: armada.driver.v1.Driver.ExecApp:input_type -> armada.driver.v1.ExecAppInput
-	39, // 32: armada.driver.v1.Driver.Stats:input_type -> armada.driver.v1.StatsRequest
-	4,  // 33: armada.driver.v1.Driver.Info:output_type -> armada.driver.v1.InfoResponse
-	6,  // 34: armada.driver.v1.Driver.Ping:output_type -> armada.driver.v1.PingResponse
-	9,  // 35: armada.driver.v1.Driver.Pull:output_type -> armada.driver.v1.PullResponse
-	15, // 36: armada.driver.v1.Driver.Run:output_type -> armada.driver.v1.RunResponse
-	17, // 37: armada.driver.v1.Driver.Stop:output_type -> armada.driver.v1.StopResponse
-	19, // 38: armada.driver.v1.Driver.Remove:output_type -> armada.driver.v1.RemoveResponse
-	21, // 39: armada.driver.v1.Driver.List:output_type -> armada.driver.v1.ListResponse
-	23, // 40: armada.driver.v1.Driver.Inspect:output_type -> armada.driver.v1.Container
-	25, // 41: armada.driver.v1.Driver.Logs:output_type -> armada.driver.v1.LogFrame
-	15, // 42: armada.driver.v1.Driver.RunSystem:output_type -> armada.driver.v1.RunResponse
-	30, // 43: armada.driver.v1.Driver.Exec:output_type -> armada.driver.v1.ExecResponse
-	32, // 44: armada.driver.v1.Driver.Signal:output_type -> armada.driver.v1.SignalResponse
-	34, // 45: armada.driver.v1.Driver.Bridge:output_type -> armada.driver.v1.BridgeResponse
-	38, // 46: armada.driver.v1.Driver.ExecApp:output_type -> armada.driver.v1.ExecAppOutput
-	40, // 47: armada.driver.v1.Driver.Stats:output_type -> armada.driver.v1.StatsResponse
-	33, // [33:48] is the sub-list for method output_type
-	18, // [18:33] is the sub-list for method input_type
-	18, // [18:18] is the sub-list for extension type_name
-	18, // [18:18] is the sub-list for extension extendee
-	0,  // [0:18] is the sub-list for field type_name
+	14, // 6: armada.driver.v1.ContainerSpec.volumes:type_name -> armada.driver.v1.VolumeMount
+	13, // 7: armada.driver.v1.RunRequest.spec:type_name -> armada.driver.v1.ContainerSpec
+	43, // 8: armada.driver.v1.ListRequest.labels:type_name -> armada.driver.v1.ListRequest.LabelsEntry
+	24, // 9: armada.driver.v1.ListResponse.containers:type_name -> armada.driver.v1.Container
+	44, // 10: armada.driver.v1.Container.labels:type_name -> armada.driver.v1.Container.LabelsEntry
+	46, // 11: armada.driver.v1.Container.started_at:type_name -> google.protobuf.Timestamp
+	2,  // 12: armada.driver.v1.LogFrame.stream:type_name -> armada.driver.v1.LogStream
+	45, // 13: armada.driver.v1.SystemSpec.labels:type_name -> armada.driver.v1.SystemSpec.LabelsEntry
+	27, // 14: armada.driver.v1.SystemSpec.mounts:type_name -> armada.driver.v1.Mount
+	28, // 15: armada.driver.v1.RunSystemRequest.spec:type_name -> armada.driver.v1.SystemSpec
+	36, // 16: armada.driver.v1.ExecAppStart.size:type_name -> armada.driver.v1.TermSize
+	37, // 17: armada.driver.v1.ExecAppInput.start:type_name -> armada.driver.v1.ExecAppStart
+	36, // 18: armada.driver.v1.ExecAppInput.resize:type_name -> armada.driver.v1.TermSize
+	3,  // 19: armada.driver.v1.Driver.Info:input_type -> armada.driver.v1.InfoRequest
+	5,  // 20: armada.driver.v1.Driver.Ping:input_type -> armada.driver.v1.PingRequest
+	8,  // 21: armada.driver.v1.Driver.Pull:input_type -> armada.driver.v1.PullRequest
+	15, // 22: armada.driver.v1.Driver.Run:input_type -> armada.driver.v1.RunRequest
+	17, // 23: armada.driver.v1.Driver.Stop:input_type -> armada.driver.v1.StopRequest
+	19, // 24: armada.driver.v1.Driver.Remove:input_type -> armada.driver.v1.RemoveRequest
+	21, // 25: armada.driver.v1.Driver.List:input_type -> armada.driver.v1.ListRequest
+	23, // 26: armada.driver.v1.Driver.Inspect:input_type -> armada.driver.v1.InspectRequest
+	25, // 27: armada.driver.v1.Driver.Logs:input_type -> armada.driver.v1.LogsRequest
+	29, // 28: armada.driver.v1.Driver.RunSystem:input_type -> armada.driver.v1.RunSystemRequest
+	30, // 29: armada.driver.v1.Driver.Exec:input_type -> armada.driver.v1.ExecRequest
+	32, // 30: armada.driver.v1.Driver.Signal:input_type -> armada.driver.v1.SignalRequest
+	34, // 31: armada.driver.v1.Driver.Bridge:input_type -> armada.driver.v1.BridgeRequest
+	38, // 32: armada.driver.v1.Driver.ExecApp:input_type -> armada.driver.v1.ExecAppInput
+	40, // 33: armada.driver.v1.Driver.Stats:input_type -> armada.driver.v1.StatsRequest
+	4,  // 34: armada.driver.v1.Driver.Info:output_type -> armada.driver.v1.InfoResponse
+	6,  // 35: armada.driver.v1.Driver.Ping:output_type -> armada.driver.v1.PingResponse
+	9,  // 36: armada.driver.v1.Driver.Pull:output_type -> armada.driver.v1.PullResponse
+	16, // 37: armada.driver.v1.Driver.Run:output_type -> armada.driver.v1.RunResponse
+	18, // 38: armada.driver.v1.Driver.Stop:output_type -> armada.driver.v1.StopResponse
+	20, // 39: armada.driver.v1.Driver.Remove:output_type -> armada.driver.v1.RemoveResponse
+	22, // 40: armada.driver.v1.Driver.List:output_type -> armada.driver.v1.ListResponse
+	24, // 41: armada.driver.v1.Driver.Inspect:output_type -> armada.driver.v1.Container
+	26, // 42: armada.driver.v1.Driver.Logs:output_type -> armada.driver.v1.LogFrame
+	16, // 43: armada.driver.v1.Driver.RunSystem:output_type -> armada.driver.v1.RunResponse
+	31, // 44: armada.driver.v1.Driver.Exec:output_type -> armada.driver.v1.ExecResponse
+	33, // 45: armada.driver.v1.Driver.Signal:output_type -> armada.driver.v1.SignalResponse
+	35, // 46: armada.driver.v1.Driver.Bridge:output_type -> armada.driver.v1.BridgeResponse
+	39, // 47: armada.driver.v1.Driver.ExecApp:output_type -> armada.driver.v1.ExecAppOutput
+	41, // 48: armada.driver.v1.Driver.Stats:output_type -> armada.driver.v1.StatsResponse
+	34, // [34:49] is the sub-list for method output_type
+	19, // [19:34] is the sub-list for method input_type
+	19, // [19:19] is the sub-list for extension type_name
+	19, // [19:19] is the sub-list for extension extendee
+	0,  // [0:19] is the sub-list for field type_name
 }
 
 func init() { file_armada_driver_v1_driver_proto_init() }
@@ -2781,13 +2854,13 @@ func file_armada_driver_v1_driver_proto_init() {
 	if File_armada_driver_v1_driver_proto != nil {
 		return
 	}
-	file_armada_driver_v1_driver_proto_msgTypes[34].OneofWrappers = []any{
+	file_armada_driver_v1_driver_proto_msgTypes[35].OneofWrappers = []any{
 		(*ExecAppInput_Start)(nil),
 		(*ExecAppInput_Stdin)(nil),
 		(*ExecAppInput_CloseStdin)(nil),
 		(*ExecAppInput_Resize)(nil),
 	}
-	file_armada_driver_v1_driver_proto_msgTypes[35].OneofWrappers = []any{
+	file_armada_driver_v1_driver_proto_msgTypes[36].OneofWrappers = []any{
 		(*ExecAppOutput_Stdout)(nil),
 		(*ExecAppOutput_Stderr)(nil),
 		(*ExecAppOutput_ExitCode)(nil),
@@ -2798,7 +2871,7 @@ func file_armada_driver_v1_driver_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_armada_driver_v1_driver_proto_rawDesc), len(file_armada_driver_v1_driver_proto_rawDesc)),
 			NumEnums:      3,
-			NumMessages:   42,
+			NumMessages:   43,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

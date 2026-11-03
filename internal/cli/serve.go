@@ -24,6 +24,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/ryanbekhen/armada/internal/agent"
+	"github.com/ryanbekhen/armada/internal/backup"
 	"github.com/ryanbekhen/armada/internal/clientconfig"
 	"github.com/ryanbekhen/armada/internal/dnsserver"
 	"github.com/ryanbekhen/armada/internal/etcd"
@@ -436,6 +437,7 @@ func runAgent(ctx context.Context, dataDir string, servers []string, proxyKind, 
 		Proxy:      px,
 		Check:      probeCheck,
 		SecretsDir: prepareSecretsDir(secretsDir, log),
+		VolumesDir: filepath.Join(dataDir, backup.DirVolumes),
 		Servers:    ac.Servers,
 		OnServers:  onServers,
 		Runtime:    ac.Runtime,

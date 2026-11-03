@@ -127,6 +127,9 @@ func New(cfg Config) (*Driver, error) {
 // Close releases the connection.
 func (d *Driver) Close() error { return d.client.Close() }
 
+// CanMountVolumes implements runtime volume support (ADR 0025).
+func (d *Driver) CanMountVolumes() bool { return true }
+
 func (d *Driver) ctx(ctx context.Context) context.Context {
 	return namespaces.WithNamespace(ctx, embedded.Namespace)
 }
@@ -343,6 +346,13 @@ func (d *Driver) Run(ctx context.Context, s runtime.ContainerSpec) (_ string, er
 	for _, f := range s.Files {
 		if err := relabel(f.Source, sl); err != nil {
 			return "", fmt.Errorf("label %s: %w", f.Target, err)
+		}
+	}
+	// A volume gets this container's categories each time: only one
+	// container uses it at a time, and a new one gets new categories.
+	for _, v := range s.Volumes {
+		if err := relabel(v.Source, sl); err != nil {
+			return "", fmt.Errorf("label volume %s: %w", v.Target, err)
 		}
 	}
 	if err := relabelShared(tini, sl); err != nil {

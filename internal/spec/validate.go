@@ -223,6 +223,7 @@ func (a *App) Validate() error {
 	v.scale(a.Scale, a.Ingress)
 	v.resources(a.Resources)
 	v.placement(a.Placement)
+	v.volumes(a)
 	v.job(a)
 
 	return errors.Join(v.errs...)

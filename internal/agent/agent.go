@@ -59,6 +59,9 @@ type Config struct {
 	// UsageInterval is how often replicas are sampled for armada top
 	// (default 10s, ADR 0018).
 	UsageInterval time.Duration
+	// VolumeInterval is how often volumes are measured (default 1m, ADR
+	// 0025).
+	VolumeInterval time.Duration
 	// WakeSocket is where the proxy sends requests for apps with no replica
 	// up (ADR 0023); empty disables it. It must be in a directory only root
 	// can reach.
@@ -75,6 +78,9 @@ type Config struct {
 	Proxy proxy.Driver
 	// Check runs health checks (default DefaultCheck).
 	Check CheckFunc
+	// VolumesDir holds persistent volumes (ADR 0025); empty: the node
+	// mounts none.
+	VolumesDir string
 	// SecretsDir is a private directory on tmpfs for secret files. Empty
 	// means replicas with secret files fail to start on this node.
 	SecretsDir string
@@ -135,6 +141,13 @@ type Agent struct {
 	stream   armadav1.AgentService_ConnectClient
 	lastSent *armadav1.ReplicaReport
 
+	// volumeOps counts running volume sessions (maxVolumeSessions).
+	volumeOps atomic.Int32
+	// paused holds apps whose containers stay stopped for a volume
+	// operation (ADR 0025).
+	paused map[string]int
+	// reconcileMu keeps pause from racing a Reconcile that starts the app.
+	reconcileMu sync.Mutex
 	// execs counts running exec sessions (maxExecSessions).
 	execs atomic.Int32
 }
@@ -146,6 +159,9 @@ func New(cfg Config) *Agent {
 	}
 	if cfg.UsageInterval == 0 {
 		cfg.UsageInterval = defaultUsageInterval
+	}
+	if cfg.VolumeInterval == 0 {
+		cfg.VolumeInterval = volumeMeasureEvery
 	}
 	if cfg.Logger == nil {
 		cfg.Logger = slog.New(slog.DiscardHandler)
@@ -179,6 +195,7 @@ func New(cfg Config) *Agent {
 		restarts:  map[string]string{},
 		notes:     map[string]string{},
 		crashes:   map[string]crashLoop{},
+		paused:    map[string]int{},
 		trigger:   make(chan struct{}, 1),
 
 		crashBase: crashBackoff,
@@ -236,7 +253,7 @@ func (a *Agent) session(ctx context.Context) (established bool, err error) {
 	hello := &armadav1.AgentMessage{Msg: &armadav1.AgentMessage_Hello{Hello: &armadav1.Hello{
 		CpuMillis: a.cfg.CPUMillis, MemoryBytes: a.cfg.MemoryBytes, Version: version.Get().Version, PrivateIp: a.cfg.PrivateIP,
 		Os: cmp.Or(a.cfg.OS, goruntime.GOOS), Arch: cmp.Or(a.cfg.Arch, goruntime.GOARCH), Runtime: a.cfg.Runtime,
-		MinMemoryBytes: a.cfg.MinMemoryBytes, Jobs: true,
+		MinMemoryBytes: a.cfg.MinMemoryBytes, Jobs: true, Volumes: a.mountsVolumes(),
 	}}}
 	if err := stream.Send(hello); err != nil {
 		return false, err
@@ -269,6 +286,8 @@ func (a *Agent) session(ctx context.Context) (established bool, err error) {
 			a.cancelLogs(m.LogCancel.GetRequestId())
 		case *armadav1.ServerMessage_ExecRequest:
 			go a.serveExec(ctx, m.ExecRequest)
+		case *armadav1.ServerMessage_VolumeRequest:
+			go a.serveVolume(ctx, m.VolumeRequest)
 		}
 	}
 }
@@ -348,6 +367,8 @@ func (a *Agent) sendReport(r *armadav1.ReplicaReport) {
 // their status. Before the first assignment it does nothing and returns nil:
 // an agent that restarts while the server is down must not remove anything.
 func (a *Agent) Reconcile(ctx context.Context) (*armadav1.ReplicaReport, error) {
+	a.reconcileMu.Lock()
+	defer a.reconcileMu.Unlock()
 	a.mu.Lock()
 	if a.desired == nil {
 		a.mu.Unlock()
@@ -386,6 +407,15 @@ func (a *Agent) Reconcile(ctx context.Context) (*armadav1.ReplicaReport, error) 
 			a.log.Info("spec changed, recreating", "replica", id)
 			a.remove(ctx, c.ID)
 			ok = false
+		}
+		if a.isPaused(spec.GetApp()) && spec.GetJob() == nil {
+			// A volume backup or restore runs (ADR 0025).
+			if ok && !stopped(c.State) {
+				_ = a.cfg.Driver.Stop(ctx, c.ID, volumeStopGrace)
+			}
+			a.stopProbes(id)
+			report.Replicas = append(report.Replicas, &armadav1.ReplicaState{Id: id, State: store.ReplicaExited, ContainerId: c.ID, Message: pausedMessage})
+			continue
 		}
 		if spec.GetJob() != nil {
 			if st := a.attempt(ctx, spec, hash, c, ok); st != nil {
@@ -608,6 +638,9 @@ func (a *Agent) start(ctx context.Context, s *armadav1.ReplicaSpec, hash string)
 		cs.DNS = []string{a.cfg.DNS.Address()}
 	}
 	if cs.Files, err = a.writeSecretFiles(s); err != nil {
+		return runtime.Container{}, err
+	}
+	if cs.Volumes, err = a.prepareVolumes(s); err != nil {
 		return runtime.Container{}, err
 	}
 	id, err := a.cfg.Driver.Run(ctx, cs)

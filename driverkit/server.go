@@ -134,6 +134,9 @@ func (s *server) Info(context.Context, *driverv1.InfoRequest) (*driverv1.InfoRes
 	if _, ok := s.d.(StatsReader); ok {
 		r.Capabilities = append(r.Capabilities, driverv1.Capability_CAPABILITY_STATS)
 	}
+	if mountsVolumes(s.d) {
+		r.Capabilities = append(r.Capabilities, driverv1.Capability_CAPABILITY_VOLUMES)
+	}
 	return r, nil
 }
 
@@ -166,6 +169,9 @@ func (s *server) Run(ctx context.Context, req *driverv1.RunRequest) (*driverv1.R
 	}
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
+	if len(spec.Volumes) > 0 && !mountsVolumes(s.d) {
+		return nil, status.Error(codes.FailedPrecondition, "this driver does not mount volumes")
 	}
 	id, err := s.d.Run(ctx, spec)
 	if err != nil {
@@ -395,7 +401,15 @@ func ContainerSpecToProto(s ContainerSpec) *driverv1.ContainerSpec {
 	for _, f := range s.Files {
 		p.Files = append(p.Files, &driverv1.FileMount{Source: f.Source, Target: f.Target})
 	}
+	for _, v := range s.Volumes {
+		p.Volumes = append(p.Volumes, &driverv1.VolumeMount{Source: v.Source, Target: v.Target})
+	}
 	return p
+}
+
+func mountsVolumes(d Driver) bool {
+	vm, ok := d.(VolumeMounter)
+	return ok && vm.CanMountVolumes()
 }
 
 // ContainerSpecFromProto converts a ContainerSpec from the wire; a spec
@@ -412,6 +426,9 @@ func ContainerSpecFromProto(p *driverv1.ContainerSpec) (ContainerSpec, error) {
 	}
 	for _, f := range p.GetFiles() {
 		s.Files = append(s.Files, FileMount{Source: f.GetSource(), Target: f.GetTarget()})
+	}
+	for _, v := range p.GetVolumes() {
+		s.Volumes = append(s.Volumes, VolumeMount{Source: v.GetSource(), Target: v.GetTarget()})
 	}
 	return s, nil
 }
@@ -437,7 +454,7 @@ func SystemSpecFromProto(p *driverv1.SystemSpec) SystemSpec {
 // CheckContainerSpec checks an app container spec: a name and an image,
 // the security defaults (no new privileges, RequiredDroppedCaps dropped),
 // and Armada's spec rules (private publish address and nameservers,
-// regular files as the only mounts).
+// regular files and volume directories as the only mounts).
 func CheckContainerSpec(s ContainerSpec) error {
 	switch {
 	case s.Name == "":
@@ -459,6 +476,9 @@ func CheckContainerSpec(s ContainerSpec) error {
 	rs := runtime.ContainerSpec{Port: s.Port, HostIP: s.HostIP, DNS: s.DNS}
 	for _, f := range s.Files {
 		rs.Files = append(rs.Files, runtime.FileMount{Source: f.Source, Target: f.Target})
+	}
+	for _, v := range s.Volumes {
+		rs.Volumes = append(rs.Volumes, runtime.VolumeMount{Source: v.Source, Target: v.Target})
 	}
 	return runtime.CheckContainerSpec(rs)
 }

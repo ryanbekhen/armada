@@ -306,7 +306,8 @@ func newNodeCommand(g *globals) *cobra.Command {
 		Long: "Cordon the node, wait until its replicas run elsewhere (drained like a rolling\n" +
 			"update), then remove it from the cluster and revoke its certificate.\n\n" +
 			"--force removes the node at once and deletes its replicas without draining;\n" +
-			"use it only for a node that is gone for good.",
+			"use it only for a node that is gone for good. A node holding volumes is only\n" +
+			"removed with --force; their records stay so a backup can be restored elsewhere.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			node := args[0]
@@ -318,6 +319,20 @@ func newNodeCommand(g *globals) *cobra.Command {
 			ctx := cmd.Context()
 			out := cmd.OutOrStdout()
 			if !force {
+				// Apps with volumes never move off their node (ADR 0025).
+				vols, err := client.ListVolumes(ctx, &armadav1.ListVolumesRequest{})
+				if err != nil {
+					return rpcErr(err)
+				}
+				var held []string
+				for _, v := range vols.Volumes {
+					if v.Node == node {
+						held = append(held, v.App+"/"+v.Name)
+					}
+				}
+				if len(held) > 0 {
+					return fmt.Errorf("%s holds volumes %s, whose apps never move; back them up (armada volume backup) and restore them on another node (armada volume restore --node), or use --force", node, strings.Join(held, ", "))
+				}
 				if _, err := client.CordonNode(ctx, &armadav1.CordonNodeRequest{Node: node, Cordoned: true}); err != nil {
 					return rpcErr(err)
 				}

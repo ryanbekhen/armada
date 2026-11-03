@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -47,10 +48,11 @@ type cluster struct {
 // testNode is a node whose agent can be stopped and started again with the
 // same containers, like a machine going down and coming back.
 type testNode struct {
-	ip     string
-	d      *fake.Driver
-	cancel context.CancelFunc
-	done   chan struct{}
+	ip      string
+	d       *fake.Driver
+	volumes string
+	cancel  context.CancelFunc
+	done    chan struct{}
 }
 
 // healthChecks stands in for probing containers: every check passes unless
@@ -167,7 +169,7 @@ func (c *cluster) addNode(id, ip string) *fake.Driver {
 	d.LogLines = []runtime.LogFrame{{Stream: runtime.Stdout, Data: []byte("hello from " + id + "\n")}, {Stream: runtime.Stderr, Data: []byte("warn\n")}}
 	c.proxies[id] = &proxyfake.Driver{}
 	c.checks[id] = &healthChecks{broken: map[string]bool{}, d: d}
-	c.nodes[id] = &testNode{ip: ip, d: d}
+	c.nodes[id] = &testNode{ip: ip, d: d, volumes: filepath.Join(c.t.TempDir(), "volumes")}
 	c.startAgent(id)
 	return d
 }
@@ -181,6 +183,7 @@ func (c *cluster) startAgent(id string) {
 	a := agent.New(agent.Config{
 		NodeID: id, PrivateIP: n.ip, Driver: n.d, Client: armadav1.NewAgentServiceClient(conn), Proxy: c.proxies[id],
 		Resync: 50 * time.Millisecond, UsageInterval: 20 * time.Millisecond, CPUMillis: 2000, MemoryBytes: 2 << 30, Check: c.checks[id].check,
+		VolumesDir: n.volumes, VolumeInterval: 50 * time.Millisecond,
 	})
 	ctx, cancel := context.WithCancel(c.ctx)
 	n.cancel, n.done = cancel, make(chan struct{})

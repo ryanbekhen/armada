@@ -124,6 +124,24 @@ type ContainerSpec struct {
 	// DNS overrides the container's nameservers (private IPs only); empty
 	// keeps the engine default.
 	DNS []string
+	// Volumes are mounted read-write (ADR 0025); only drivers for which
+	// CanMountVolumes reports true accept them.
+	Volumes []VolumeMount
+}
+
+// VolumeMount is a persistent volume: a directory the agent created for
+// the app on this node, mounted read-write without setuid or device files.
+type VolumeMount struct {
+	Source string // absolute path of a directory on the node
+	Target string // absolute path in the container
+}
+
+// CanMountVolumes reports whether d mounts volumes into app containers.
+func CanMountVolumes(d Driver) bool {
+	if c, ok := d.(interface{ CanMountVolumes() bool }); ok {
+		return c.CanMountVolumes()
+	}
+	return false
 }
 
 // Container is the observed state of a container.

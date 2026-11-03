@@ -35,6 +35,8 @@ type usageStore struct {
 	// active is when a proxy last reported a request for a replica (ADR
 	// 0023), kept across reports so none is missed between evaluations.
 	active map[string]time.Time
+	// volumes is each node's latest volume measurement (ADR 0025).
+	volumes map[string]volumeUsage
 }
 
 // maxActive bounds usageStore.active.
@@ -55,7 +57,7 @@ type replicaUsage struct {
 }
 
 func newUsageStore() *usageStore {
-	return &usageStore{nodes: map[string]nodeUsage{}, active: map[string]time.Time{}}
+	return &usageStore{nodes: map[string]nodeUsage{}, active: map[string]time.Time{}, volumes: map[string]volumeUsage{}}
 }
 
 // set replaces nodeID's sample. Reports are self-reported and untrusted:
@@ -107,6 +109,7 @@ func (u *usageStore) set(nodeID string, r *armadav1.UsageReport, at time.Time) {
 func (u *usageStore) forget(nodeID string) {
 	u.mu.Lock()
 	delete(u.nodes, nodeID)
+	delete(u.volumes, nodeID)
 	u.mu.Unlock()
 }
 

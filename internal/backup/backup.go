@@ -58,6 +58,9 @@ const (
 	// The embedded runtime's directories (runtime, containerd, containers,
 	// logs) are not copied either: the bundle is extracted again, images
 	// are pulled again, and containers are recreated by their agent.
+	// Volumes (DirVolumes, ADR 0025) hold app data on whichever node runs
+	// the app; `armada volume backup` copies them.
+	DirVolumes = "volumes"
 	// etcdPrefix is where the control plane's records live in etcd.
 	etcdPrefix = "/armada/"
 
