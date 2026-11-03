@@ -103,6 +103,9 @@ func TestTrafficSplitting(t *testing.T) {
 		b, _ := backend(applied(), "web")
 		return revsIn(b)["web--r1"] == 4
 	})
+	if b, _ := backend(applied(), "web"); !b.LocalFirst {
+		t.Error("a single-revision app is not local-first (ADR 0026)")
+	}
 
 	// 75/25 with a label: three replicas of r1 and one of r2 share the
 	// app's backend; r2 also serves alone under canary--web.
@@ -117,6 +120,9 @@ func TestTrafficSplitting(t *testing.T) {
 		return got["web--r1"] == 3 && got["web--r2"] == 1 && ok && len(lb.Servers) == 1 && revsIn(lb)["web--r2"] == 1
 	})
 	b, _ := backend(applied(), "web")
+	if b.LocalFirst {
+		t.Error("a split app is local-first: its weights would not hold")
+	}
 	for _, s := range b.Servers {
 		if s.Weight != 64 { // 75% over three, 25% over one
 			t.Errorf("server %s weight %d", s.Name, s.Weight)
@@ -155,7 +161,7 @@ func TestTrafficSplitting(t *testing.T) {
 		b, _ := backend(applied(), "web")
 		_, label := backend(applied(), "canary--web")
 		a := c.app("web")
-		return revsIn(b)["web--r3"] == 2 && len(revsIn(b)) == 1 && !label && a.RolloutState == "" && len(a.Traffic) == 0
+		return revsIn(b)["web--r3"] == 2 && len(revsIn(b)) == 1 && !label && a.RolloutState == "" && len(a.Traffic) == 0 && b.LocalFirst
 	})
 	evs, err := c.store.ListEvents(c.ctx, time.Time{})
 	if err != nil {

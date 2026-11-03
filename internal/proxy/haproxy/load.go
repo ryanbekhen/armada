@@ -61,20 +61,27 @@ func parseLoad(out string, layout Layout) (map[string]proxy.ServerLoad, error) {
 		if len(rec) <= max(px, sv, scur, qcur, stot) {
 			continue
 		}
-		app, ok := strings.CutPrefix(rec[px], "be_")
-		slot, ok2 := strings.CutPrefix(rec[sv], "s")
-		if !ok || !ok2 {
+		// be_<app> and lo_<app> (ADR 0026) serve the same replicas; a
+		// replica's load is the sum of both.
+		if !strings.HasPrefix(rec[px], "be_") && !strings.HasPrefix(rec[px], "lo_") {
+			continue
+		}
+		slot, ok := strings.CutPrefix(rec[sv], "s")
+		if !ok {
 			continue
 		}
 		i, err := strconv.Atoi(slot)
-		slots := layout[app]
+		slots := layout[rec[px]]
 		if err != nil || i < 1 || i > len(slots) || slots[i-1] == "" {
 			continue
 		}
 		cur, _ := strconv.ParseInt(rec[scur], 10, 64)
 		q, _ := strconv.ParseInt(rec[qcur], 10, 64)
 		total, _ := strconv.ParseInt(rec[stot], 10, 64)
-		load[slots[i-1]] = proxy.ServerLoad{InFlight: max(0, cur) + max(0, q), Total: max(0, total)}
+		l := load[slots[i-1]]
+		l.InFlight += max(0, cur) + max(0, q)
+		l.Total += max(0, total)
+		load[slots[i-1]] = l
 	}
 	return load, nil
 }

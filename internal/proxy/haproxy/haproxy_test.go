@@ -36,12 +36,16 @@ func sampleConfig(t *testing.T) proxy.Config {
 	return proxy.Config{
 		ACMEAddress: "10.0.0.1:7480",
 		Backends: []proxy.Backend{
-			{Name: "frontend", Servers: []proxy.Server{{Name: "frontend-r1-a", Address: "10.0.0.2:32768"}}},
+			{Name: "frontend", LocalFirst: true, Servers: []proxy.Server{{Name: "frontend-r1-a", Address: "10.0.0.2:32768"}}},
 			{Name: "api-bengkel", HealthPath: "/healthz", Servers: []proxy.Server{
 				{Name: "api-bengkel-r3-b", Address: "10.0.0.3:32770", Weight: 230}, // split traffic
 				{Name: "api-bengkel-r3-a", Address: "10.0.0.2:32769", Weight: 26},
 			}},
-			{Name: "admin-panel", Servers: nil, Wake: true}, // scaled to zero
+			{Name: "admin-panel", Servers: nil, Wake: true, LocalFirst: true}, // scaled to zero
+			{Name: "shop", LocalFirst: true, HealthPath: "/ready", Servers: []proxy.Server{
+				{Name: "shop-r2-a", Address: "10.0.0.3:32771"},
+				{Name: "shop-r2-b", Address: "10.0.0.2:32772"},
+			}},
 		},
 		Rules: []proxy.Rule{
 			{Host: "example.org", PathPrefix: "/", Backend: "frontend"},
@@ -51,6 +55,8 @@ func sampleConfig(t *testing.T) proxy.Config {
 			{Host: "api-bengkel.apps.example.org", PathPrefix: "/", Backend: "api-bengkel"},
 			{Host: "api-bengkel.internal", PathPrefix: "/", Backend: "api-bengkel", Internal: true},
 			{Host: "api-bengkel.internal", PathPrefix: "/v1", StripPrefix: true, Backend: "api-bengkel", Internal: true},
+			{Host: "shop.example.org", PathPrefix: "/", Backend: "shop"},
+			{Host: "shop.internal", PathPrefix: "/", Backend: "shop", Internal: true},
 		},
 		Certificates: []proxy.Certificate{{Name: "example.org", PEM: cert(t)}},
 	}
@@ -77,17 +83,17 @@ func TestRenderGolden(t *testing.T) {
 	t.Parallel()
 
 	cfg := sampleConfig(t)
-	layout := assignLayout(nil, cfg)
+	layout := assignLayout(nil, cfg, "10.0.0.2")
 	golden(t, "full.cfg", render(cfg, layout, renderOptions{PrivateIP: "10.0.0.2", InternalIP: "172.17.0.1"}))
 
 	empty := proxy.Config{}
-	golden(t, "empty.cfg", render(empty, assignLayout(nil, empty), renderOptions{}))
+	golden(t, "empty.cfg", render(empty, assignLayout(nil, empty, ""), renderOptions{}))
 }
 
 func TestRenderRouteOrder(t *testing.T) {
 	t.Parallel()
 
-	out := string(render(sampleConfig(t), assignLayout(nil, sampleConfig(t)), renderOptions{}))
+	out := string(render(sampleConfig(t), assignLayout(nil, sampleConfig(t), ""), renderOptions{}))
 	// The longest prefix must be considered first, and "/" last.
 	iV12 := strings.Index(out, "-m str /api/v1.2 }")
 	iAPI := strings.Index(out, "-m str /api }")
@@ -111,7 +117,7 @@ func TestRenderInternalFrontend(t *testing.T) {
 	t.Parallel()
 
 	cfg := sampleConfig(t)
-	out := string(render(cfg, assignLayout(nil, cfg), renderOptions{InternalIP: "172.17.0.1"}))
+	out := string(render(cfg, assignLayout(nil, cfg, ""), renderOptions{InternalIP: "172.17.0.1"}))
 	i := strings.Index(out, "frontend internal")
 	if i < 0 || !strings.Contains(out, "    bind 172.17.0.1:80\n") {
 		t.Fatalf("internal frontend missing:\n%s", out)
@@ -129,7 +135,7 @@ func TestRenderInternalFrontend(t *testing.T) {
 		t.Errorf("internal strip prefix:\n%s", internal)
 	}
 	// Without a bridge address there is no internal frontend at all.
-	if strings.Contains(string(render(cfg, assignLayout(nil, cfg), renderOptions{})), "frontend internal") {
+	if strings.Contains(string(render(cfg, assignLayout(nil, cfg, ""), renderOptions{})), "frontend internal") {
 		t.Error("internal frontend rendered without an internal IP")
 	}
 }
@@ -168,7 +174,7 @@ func FuzzRender(f *testing.F) {
 		if cfg.Validate() != nil {
 			return
 		}
-		out := render(cfg, assignLayout(nil, cfg), renderOptions{})
+		out := render(cfg, assignLayout(nil, cfg, ""), renderOptions{})
 		for _, line := range strings.Split(string(out), "\n") {
 			if !allowedLine.MatchString(line) {
 				t.Fatalf("unexpected line %q", line)
@@ -196,22 +202,22 @@ func TestAssignLayoutIsStable(t *testing.T) {
 	t.Parallel()
 
 	cfg := proxy.Config{Backends: []proxy.Backend{{Name: "web", Servers: []proxy.Server{{Name: "b"}, {Name: "a"}}}}}
-	l1 := assignLayout(nil, cfg)
-	if l1["web"][0] != "a" || l1["web"][1] != "b" || len(l1["web"]) != 10 {
-		t.Fatalf("layout = %v", l1["web"])
+	l1 := assignLayout(nil, cfg, "")
+	if l1["be_web"][0] != "a" || l1["be_web"][1] != "b" || len(l1["be_web"]) != 10 {
+		t.Fatalf("layout = %v", l1["be_web"])
 	}
 	// Removing "a" frees slot 0 without moving "b"; a new replica fills the gap.
 	cfg.Backends[0].Servers = []proxy.Server{{Name: "b"}, {Name: "c"}}
-	l2 := assignLayout(l1, cfg)
-	if l2["web"][0] != "c" || l2["web"][1] != "b" {
-		t.Errorf("layout = %v, want b to keep slot 1", l2["web"])
+	l2 := assignLayout(l1, cfg, "")
+	if l2["be_web"][0] != "c" || l2["be_web"][1] != "b" {
+		t.Errorf("layout = %v, want b to keep slot 1", l2["be_web"])
 	}
 	// Growing past 10 replicas adds a slot band.
 	for i := range 11 {
 		cfg.Backends[0].Servers = append(cfg.Backends[0].Servers, proxy.Server{Name: fmt.Sprintf("n%02d", i)})
 	}
-	if l3 := assignLayout(l2, cfg); len(l3["web"]) != 20 || l3["web"][1] != "b" {
-		t.Errorf("layout after growth = %v", l3["web"])
+	if l3 := assignLayout(l2, cfg, ""); len(l3["be_web"]) != 20 || l3["be_web"][1] != "b" {
+		t.Errorf("layout after growth = %v", l3["be_web"])
 	}
 }
 
@@ -219,7 +225,7 @@ func TestSignatureIgnoresServerAddresses(t *testing.T) {
 	t.Parallel()
 
 	cfg := sampleConfig(t)
-	l := assignLayout(nil, cfg)
+	l := assignLayout(nil, cfg, "")
 	s1 := signature(cfg, l, renderOptions{PrivateIP: "10.0.0.2"})
 	cfg.Backends[0].Servers[0].Address = "10.0.0.9:40000"
 	cfg.Certificates[0].PEM = cert(t)
@@ -552,10 +558,11 @@ func TestRuntimeAPIErrorPropagates(t *testing.T) {
 	if err := d.Apply(ctx, cfg); err == nil {
 		t.Error("runtime API failure not reported")
 	}
-	// The failed change is retried on the next apply.
+	// The failed change is retried on the next apply, in be_frontend and,
+	// as the server is on this node, lo_frontend.
 	a.err = nil
 	a.cmds = nil
-	if err := d.Apply(ctx, cfg); err != nil || len(a.cmds) != 2 {
+	if err := d.Apply(ctx, cfg); err != nil || len(a.cmds) != 4 {
 		t.Errorf("retry: err=%v cmds=%v", err, a.cmds)
 	}
 }
@@ -753,11 +760,72 @@ func TestRenderRefusesUnsafeTokens(t *testing.T) {
 	} {
 		cfg := sampleConfig(t)
 		mut(&cfg)
-		if out := render(cfg, assignLayout(nil, cfg), renderOptions{}); out != nil {
+		if out := render(cfg, assignLayout(nil, cfg, ""), renderOptions{}); out != nil {
 			t.Errorf("%s: rendered an unsafe config", name)
 		}
 	}
-	if render(sampleConfig(t), assignLayout(nil, sampleConfig(t)), renderOptions{}) == nil {
+	if render(sampleConfig(t), assignLayout(nil, sampleConfig(t), ""), renderOptions{}) == nil {
 		t.Error("valid config refused")
+	}
+}
+
+func TestLocalFirst(t *testing.T) {
+	t.Parallel()
+	cfg := sampleConfig(t)
+	out := string(render(cfg, assignLayout(nil, cfg, "10.0.0.2"), renderOptions{PrivateIP: "10.0.0.2"}))
+	for _, want := range []string{"backend lo_frontend", "backend lo_shop", "backend lo_admin-panel", "use_backend lo_shop if"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q", want)
+		}
+	}
+	// Traffic splitting keeps one pool, so revision weights hold.
+	if strings.Contains(out, "lo_api-bengkel") {
+		t.Error("a split app got a local backend")
+	}
+	// Without the node's private IP nothing is local.
+	if out := string(render(cfg, assignLayout(nil, cfg, ""), renderOptions{})); strings.Contains(out, "lo_") {
+		t.Error("local backends without a private IP")
+	}
+	// Only this node's servers, at weight 1.
+	l := assignLayout(nil, cfg, "10.0.0.2")
+	if got := l["lo_shop"]; got[0] != "shop-r2-b" || got[1] != "" {
+		t.Errorf("lo_shop slots %v", got)
+	}
+	if !onNode("[fd00::2]:80", "fd00::2") || onNode("10.0.0.20:80", "10.0.0.2") || onNode("nope", "10.0.0.2") {
+		t.Error("onNode")
+	}
+}
+
+func TestLocalFirstMovesWithoutReload(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	d, e, a, _ := newDriver(t)
+	cfg := sampleConfig(t)
+	if err := d.Apply(ctx, cfg); err != nil {
+		t.Fatal(err)
+	}
+	// shop's remote replica is replaced by one on this node: it joins
+	// lo_shop through the Runtime API.
+	cfg.Backends[3].Servers[0] = proxy.Server{Name: "shop-r2-c", Address: "10.0.0.2:32780"}
+	a.cmds = nil
+	if err := d.Apply(ctx, cfg); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"set server be_shop/s1 addr 10.0.0.2 port 32780", "set server be_shop/s1 state ready",
+		"set server lo_shop/s2 addr 10.0.0.2 port 32780", "set server lo_shop/s2 state ready",
+	}
+	if strings.Join(a.cmds, "|") != strings.Join(want, "|") || e.reloads != 0 {
+		t.Errorf("commands = %q, want %q (reloads %d)", a.cmds, want, e.reloads)
+	}
+	// The local replica leaves: both pools put its slot in maintenance.
+	cfg.Backends[3].Servers = cfg.Backends[3].Servers[:1]
+	a.cmds = nil
+	if err := d.Apply(ctx, cfg); err != nil {
+		t.Fatal(err)
+	}
+	want = []string{"set server be_shop/s2 state maint", "set server lo_shop/s1 state maint"}
+	if strings.Join(a.cmds, "|") != strings.Join(want, "|") || e.reloads != 0 {
+		t.Errorf("commands = %q, want %q (reloads %d)", a.cmds, want, e.reloads)
 	}
 }

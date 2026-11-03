@@ -70,6 +70,9 @@ type Backend struct {
 	// Wake routes requests to the agent's wake socket while no server is
 	// up, so an app scaled to zero starts on demand (ADR 0023).
 	Wake bool
+	// LocalFirst makes each node's proxy prefer the replicas on its own
+	// node (ADR 0026).
+	LocalFirst bool
 }
 
 // Server is one replica.
@@ -123,7 +126,7 @@ func FromProto(p *armadav1.ProxyConfig) Config {
 	}
 	c.ACMEAddress = p.GetAcmeChallengeAddress()
 	for _, b := range p.GetBackends() {
-		be := Backend{Name: b.GetName(), HealthPath: b.GetHealthPath(), Wake: b.GetWake()}
+		be := Backend{Name: b.GetName(), HealthPath: b.GetHealthPath(), Wake: b.GetWake(), LocalFirst: b.GetLocalFirst()}
 		for _, s := range b.GetServers() {
 			be.Servers = append(be.Servers, Server{Name: s.GetName(), Address: s.GetAddress(), Weight: int(min(s.GetWeight(), MaxWeight+1))})
 		}
@@ -142,7 +145,7 @@ func FromProto(p *armadav1.ProxyConfig) Config {
 func (c Config) ToProto() *armadav1.ProxyConfig {
 	p := &armadav1.ProxyConfig{AcmeChallengeAddress: c.ACMEAddress}
 	for _, b := range c.Backends {
-		pb := &armadav1.ProxyBackend{Name: b.Name, HealthPath: b.HealthPath, Wake: b.Wake}
+		pb := &armadav1.ProxyBackend{Name: b.Name, HealthPath: b.HealthPath, Wake: b.Wake, LocalFirst: b.LocalFirst}
 		for _, s := range b.Servers {
 			pb.Servers = append(pb.Servers, &armadav1.ProxyServer{Name: s.Name, Address: s.Address, Weight: uint32(max(s.Weight, 0))}) //nolint:gosec // bounded by Validate
 		}

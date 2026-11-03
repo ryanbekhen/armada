@@ -90,11 +90,13 @@ func (s *Server) buildProxy(ctx context.Context, apps []store.App, replicas []st
 		if sp.Ingress == nil || sp.Ingress.Type == spec.IngressNone {
 			continue
 		}
-		be := proxy.Backend{Name: app.Name, Wake: sp.ScalesToZero()}
+		splits := len(app.Traffic) > 0 && !app.Rolling()
+		// Traffic splitting keeps every replica in one pool so revision
+		// weights hold; other apps prefer each node's own replicas.
+		be := proxy.Backend{Name: app.Name, Wake: sp.ScalesToZero(), LocalFirst: !splits}
 		if sp.Probes != nil && sp.Probes.Readiness != nil {
 			be.HealthPath = sp.Probes.Readiness.Path
 		}
-		splits := len(app.Traffic) > 0 && !app.Rolling()
 		be.Servers = s.proxyServers(app, replicas, func(r store.Replica) bool { return inProxy(app, r) })
 		if splits {
 			weighServers(app, replicas, be.Servers)

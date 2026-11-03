@@ -5955,7 +5955,11 @@ type ProxyBackend struct {
 	HealthPath string `protobuf:"bytes,3,opt,name=health_path,json=healthPath,proto3" json:"health_path,omitempty"`
 	// The app scales to zero: with no replica to serve, requests wait at the
 	// agent while it starts one (ADR 0023).
-	Wake          bool `protobuf:"varint,4,opt,name=wake,proto3" json:"wake,omitempty"`
+	Wake bool `protobuf:"varint,4,opt,name=wake,proto3" json:"wake,omitempty"`
+	// Each node's proxy prefers the app's replicas on its own node while
+	// they are no busier than the app's replicas overall (ADR 0026). Off for
+	// traffic splitting, which needs every server to keep its weight.
+	LocalFirst    bool `protobuf:"varint,5,opt,name=local_first,json=localFirst,proto3" json:"local_first,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -6014,6 +6018,13 @@ func (x *ProxyBackend) GetHealthPath() string {
 func (x *ProxyBackend) GetWake() bool {
 	if x != nil {
 		return x.Wake
+	}
+	return false
+}
+
+func (x *ProxyBackend) GetLocalFirst() bool {
+	if x != nil {
+		return x.LocalFirst
 	}
 	return false
 }
@@ -8656,13 +8667,15 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\bbackends\x18\x01 \x03(\v2\x17.armada.v1.ProxyBackendR\bbackends\x12*\n" +
 	"\x05rules\x18\x02 \x03(\v2\x14.armada.v1.ProxyRuleR\x05rules\x12?\n" +
 	"\fcertificates\x18\x03 \x03(\v2\x1b.armada.v1.ProxyCertificateR\fcertificates\x124\n" +
-	"\x16acme_challenge_address\x18\x04 \x01(\tR\x14acmeChallengeAddress\"\x89\x01\n" +
+	"\x16acme_challenge_address\x18\x04 \x01(\tR\x14acmeChallengeAddress\"\xaa\x01\n" +
 	"\fProxyBackend\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x120\n" +
 	"\aservers\x18\x02 \x03(\v2\x16.armada.v1.ProxyServerR\aservers\x12\x1f\n" +
 	"\vhealth_path\x18\x03 \x01(\tR\n" +
 	"healthPath\x12\x12\n" +
-	"\x04wake\x18\x04 \x01(\bR\x04wake\"S\n" +
+	"\x04wake\x18\x04 \x01(\bR\x04wake\x12\x1f\n" +
+	"\vlocal_first\x18\x05 \x01(\bR\n" +
+	"localFirst\"S\n" +
 	"\vProxyServer\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
 	"\aaddress\x18\x02 \x01(\tR\aaddress\x12\x16\n" +
