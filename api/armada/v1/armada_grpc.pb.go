@@ -43,6 +43,11 @@ const (
 	AdminService_Top_FullMethodName                     = "/armada.v1.AdminService/Top"
 	AdminService_IssueMetricsCertificate_FullMethodName = "/armada.v1.AdminService/IssueMetricsCertificate"
 	AdminService_Events_FullMethodName                  = "/armada.v1.AdminService/Events"
+	AdminService_RunJob_FullMethodName                  = "/armada.v1.AdminService/RunJob"
+	AdminService_ListJobs_FullMethodName                = "/armada.v1.AdminService/ListJobs"
+	AdminService_ListJobRuns_FullMethodName             = "/armada.v1.AdminService/ListJobRuns"
+	AdminService_CancelJob_FullMethodName               = "/armada.v1.AdminService/CancelJob"
+	AdminService_DeleteJob_FullMethodName               = "/armada.v1.AdminService/DeleteJob"
 )
 
 // AdminServiceClient is the client API for AdminService service.
@@ -85,6 +90,13 @@ type AdminServiceClient interface {
 	// Events streams what the cluster did (ADR 0020), oldest first; with
 	// follow, then new events until the caller cancels.
 	Events(ctx context.Context, in *EventsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[EventInfo], error)
+	// Jobs (ADR 0021): start a run now, list jobs and their runs, cancel the
+	// running run, delete a job with its runs.
+	RunJob(ctx context.Context, in *RunJobRequest, opts ...grpc.CallOption) (*RunJobResponse, error)
+	ListJobs(ctx context.Context, in *ListJobsRequest, opts ...grpc.CallOption) (*ListJobsResponse, error)
+	ListJobRuns(ctx context.Context, in *ListJobRunsRequest, opts ...grpc.CallOption) (*ListJobRunsResponse, error)
+	CancelJob(ctx context.Context, in *CancelJobRequest, opts ...grpc.CallOption) (*CancelJobResponse, error)
+	DeleteJob(ctx context.Context, in *DeleteJobRequest, opts ...grpc.CallOption) (*DeleteJobResponse, error)
 }
 
 type adminServiceClient struct {
@@ -356,6 +368,56 @@ func (c *adminServiceClient) Events(ctx context.Context, in *EventsRequest, opts
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type AdminService_EventsClient = grpc.ServerStreamingClient[EventInfo]
 
+func (c *adminServiceClient) RunJob(ctx context.Context, in *RunJobRequest, opts ...grpc.CallOption) (*RunJobResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RunJobResponse)
+	err := c.cc.Invoke(ctx, AdminService_RunJob_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) ListJobs(ctx context.Context, in *ListJobsRequest, opts ...grpc.CallOption) (*ListJobsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListJobsResponse)
+	err := c.cc.Invoke(ctx, AdminService_ListJobs_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) ListJobRuns(ctx context.Context, in *ListJobRunsRequest, opts ...grpc.CallOption) (*ListJobRunsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListJobRunsResponse)
+	err := c.cc.Invoke(ctx, AdminService_ListJobRuns_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) CancelJob(ctx context.Context, in *CancelJobRequest, opts ...grpc.CallOption) (*CancelJobResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CancelJobResponse)
+	err := c.cc.Invoke(ctx, AdminService_CancelJob_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) DeleteJob(ctx context.Context, in *DeleteJobRequest, opts ...grpc.CallOption) (*DeleteJobResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DeleteJobResponse)
+	err := c.cc.Invoke(ctx, AdminService_DeleteJob_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AdminServiceServer is the server API for AdminService service.
 // All implementations must embed UnimplementedAdminServiceServer
 // for forward compatibility.
@@ -396,6 +458,13 @@ type AdminServiceServer interface {
 	// Events streams what the cluster did (ADR 0020), oldest first; with
 	// follow, then new events until the caller cancels.
 	Events(*EventsRequest, grpc.ServerStreamingServer[EventInfo]) error
+	// Jobs (ADR 0021): start a run now, list jobs and their runs, cancel the
+	// running run, delete a job with its runs.
+	RunJob(context.Context, *RunJobRequest) (*RunJobResponse, error)
+	ListJobs(context.Context, *ListJobsRequest) (*ListJobsResponse, error)
+	ListJobRuns(context.Context, *ListJobRunsRequest) (*ListJobRunsResponse, error)
+	CancelJob(context.Context, *CancelJobRequest) (*CancelJobResponse, error)
+	DeleteJob(context.Context, *DeleteJobRequest) (*DeleteJobResponse, error)
 	mustEmbedUnimplementedAdminServiceServer()
 }
 
@@ -477,6 +546,21 @@ func (UnimplementedAdminServiceServer) IssueMetricsCertificate(context.Context, 
 }
 func (UnimplementedAdminServiceServer) Events(*EventsRequest, grpc.ServerStreamingServer[EventInfo]) error {
 	return status.Error(codes.Unimplemented, "method Events not implemented")
+}
+func (UnimplementedAdminServiceServer) RunJob(context.Context, *RunJobRequest) (*RunJobResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RunJob not implemented")
+}
+func (UnimplementedAdminServiceServer) ListJobs(context.Context, *ListJobsRequest) (*ListJobsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListJobs not implemented")
+}
+func (UnimplementedAdminServiceServer) ListJobRuns(context.Context, *ListJobRunsRequest) (*ListJobRunsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListJobRuns not implemented")
+}
+func (UnimplementedAdminServiceServer) CancelJob(context.Context, *CancelJobRequest) (*CancelJobResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CancelJob not implemented")
+}
+func (UnimplementedAdminServiceServer) DeleteJob(context.Context, *DeleteJobRequest) (*DeleteJobResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method DeleteJob not implemented")
 }
 func (UnimplementedAdminServiceServer) mustEmbedUnimplementedAdminServiceServer() {}
 func (UnimplementedAdminServiceServer) testEmbeddedByValue()                      {}
@@ -906,6 +990,96 @@ func _AdminService_Events_Handler(srv interface{}, stream grpc.ServerStream) err
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type AdminService_EventsServer = grpc.ServerStreamingServer[EventInfo]
 
+func _AdminService_RunJob_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RunJobRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).RunJob(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminService_RunJob_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).RunJob(ctx, req.(*RunJobRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_ListJobs_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListJobsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).ListJobs(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminService_ListJobs_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).ListJobs(ctx, req.(*ListJobsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_ListJobRuns_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListJobRunsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).ListJobRuns(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminService_ListJobRuns_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).ListJobRuns(ctx, req.(*ListJobRunsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_CancelJob_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CancelJobRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).CancelJob(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminService_CancelJob_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).CancelJob(ctx, req.(*CancelJobRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_DeleteJob_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteJobRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).DeleteJob(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminService_DeleteJob_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).DeleteJob(ctx, req.(*DeleteJobRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AdminService_ServiceDesc is the grpc.ServiceDesc for AdminService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -996,6 +1170,26 @@ var AdminService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "IssueMetricsCertificate",
 			Handler:    _AdminService_IssueMetricsCertificate_Handler,
+		},
+		{
+			MethodName: "RunJob",
+			Handler:    _AdminService_RunJob_Handler,
+		},
+		{
+			MethodName: "ListJobs",
+			Handler:    _AdminService_ListJobs_Handler,
+		},
+		{
+			MethodName: "ListJobRuns",
+			Handler:    _AdminService_ListJobRuns_Handler,
+		},
+		{
+			MethodName: "CancelJob",
+			Handler:    _AdminService_CancelJob_Handler,
+		},
+		{
+			MethodName: "DeleteJob",
+			Handler:    _AdminService_DeleteJob_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

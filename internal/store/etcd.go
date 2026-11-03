@@ -55,6 +55,7 @@ const (
 	pfxDomains  = "domains/"
 	pfxAudit    = "audit/" // audit/<id, 20 digits>
 	pfxServers  = "servers/"
+	pfxRuns     = "runs/" // runs/<job>/<seq, 10 digits>
 	// pfxEvents (events.go) holds expiring events; older binaries ignore
 	// the prefix, so it needs no schema step.
 
@@ -62,7 +63,7 @@ const (
 	// migrations when records change incompatibly. Records under servers/
 	// and meta/ are read and written by every server, whatever its schema,
 	// so they only ever gain optional fields.
-	etcdSchema = 2
+	etcdSchema = 3
 
 	maxTxnRetries = 100
 	// auditKeep is how many audit events are retained.
@@ -326,6 +327,7 @@ type nodeRec struct {
 	Arch        string            `json:"arch,omitempty"`
 	Runtime     string            `json:"runtime,omitempty"`
 	MinMemory   int64             `json:"minMemory,omitempty"`
+	Jobs        bool              `json:"jobs,omitempty"`
 }
 
 type certRec struct {
@@ -368,6 +370,11 @@ type appRec struct {
 	RolloutProgressAt int64  `json:"rolloutProgressAt"`
 	CreatedAt         int64  `json:"createdAt"`
 	UpdatedAt         int64  `json:"updatedAt"`
+	// LastScheduled is the latest time a job's schedule fired (ADR 0021).
+	LastScheduled int64 `json:"lastScheduled,omitempty"`
+	// LastRun is the number of a job's newest run, kept after the run
+	// itself is pruned so numbers are never reused.
+	LastRun int64 `json:"lastRun,omitempty"`
 }
 
 type revRec struct {
@@ -395,6 +402,11 @@ type replicaRec struct {
 	DrainingSince int64  `json:"drainingSince"`
 	MovingSince   int64  `json:"movingSince,omitempty"`
 	UpdatedAt     int64  `json:"updatedAt"`
+	// Job attempts (ADR 0021).
+	Run      int64 `json:"run,omitempty"`
+	Done     bool  `json:"done,omitempty"`
+	Finished bool  `json:"finished,omitempty"`
+	ExitCode int   `json:"exitCode,omitempty"`
 }
 
 type secretRec struct {
@@ -498,7 +510,7 @@ func (t *etx) toNode(n nodeRec) (Node, error) {
 	out := Node{ID: n.ID, PrivateIP: n.PrivateIP, CPUMillis: n.CPUMillis, MemoryBytes: n.MemoryBytes, State: n.State,
 		LastSeen: fromMS(n.LastSeen), CreatedAt: fromMS(n.CreatedAt), Cordoned: n.Cordoned, Version: n.Version,
 		Labels: n.Labels, OS: n.OS, Arch: n.Arch, Runtime: n.Runtime, Restricted: n.Restricted,
-		MinMemoryBytes: n.MinMemory}
+		MinMemoryBytes: n.MinMemory, Jobs: n.Jobs}
 	var latest int64
 	err := listInto(t, pfxCerts+n.ID+"/", func(_ string, c certRec) error {
 		latest = max(latest, c.NotAfter)
@@ -584,7 +596,7 @@ func (s *Etcd) SetNodeStatus(ctx context.Context, id string, st NodeStatus) erro
 			return notFoundf("node %s", id)
 		}
 		n.State, n.LastSeen, n.CPUMillis, n.MemoryBytes = st.State, ms(st.LastSeen), st.CPUMillis, st.MemoryBytes
-		n.MinMemory = st.MinMemoryBytes
+		n.MinMemory, n.Jobs = st.MinMemoryBytes, st.Jobs
 		if st.Version != "" {
 			n.Version = st.Version
 		}
@@ -1016,7 +1028,8 @@ func (t *etx) toApp(a appRec) (App, error) {
 	}
 	return App{Name: a.Name, ActiveRevision: a.ActiveRevision, TargetRevision: a.TargetRevision, Replicas: a.Replicas,
 		Spec: rev.Spec, RolloutState: a.RolloutState, RolloutMessage: a.RolloutMessage,
-		RolloutProgressAt: fromMS(a.RolloutProgressAt), CreatedAt: fromMS(a.CreatedAt), UpdatedAt: fromMS(a.UpdatedAt)}, nil
+		RolloutProgressAt: fromMS(a.RolloutProgressAt), CreatedAt: fromMS(a.CreatedAt), UpdatedAt: fromMS(a.UpdatedAt),
+		LastScheduled: fromMS(a.LastScheduled)}, nil
 }
 
 // Deploy records a new revision. See Store.
@@ -1051,6 +1064,13 @@ func (s *Etcd) deploy(t *etx, sp *spec.App, replicas int, actor, action string) 
 		cur, err := t.revision(a.ActiveRevision)
 		if err != nil {
 			return Revision{}, false, err
+		}
+		if cur.Spec.IsJob() != sp.IsJob() {
+			what := "an app"
+			if cur.Spec.IsJob() {
+				what = "a job"
+			}
+			return Revision{}, false, fmt.Errorf("%s is %s; choose another name: %w", sp.Name, what, ErrConflict)
 		}
 		tgt := cur
 		if a.TargetRevision != a.ActiveRevision {
@@ -1102,6 +1122,10 @@ func (s *Etcd) deploy(t *etx, sp *spec.App, replicas int, actor, action string) 
 	if err := t.put(revKey(sp.Name, seq), revRec{Name: rev.Name, App: rev.App, Seq: seq, Spec: body, Secrets: pins, CreatedAt: now.UnixMilli()}); err != nil {
 		return Revision{}, false, err
 	}
+	if sp.IsJob() {
+		// Jobs have no rollouts: new runs use the new revision.
+		a.ActiveRevision = rev.Name
+	}
 	if err := t.setTarget(a, rev.Name, replicas, now); err != nil {
 		return Revision{}, false, err
 	}
@@ -1144,6 +1168,16 @@ func (t *etx) pruneRevisions(app string) error {
 	if err != nil {
 		return err
 	}
+	// A job's pending runs start with the revision they were created with.
+	err = listInto(t, pfxRuns+app+"/", func(_ string, r jobRunRec) error {
+		if r.State == RunPending || r.State == RunRunning {
+			running[r.Revision] = true
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
 	var recs []revRec
 	if err := listInto(t, pfxRevs+app+"/", func(_ string, r revRec) error { recs = append(recs, r); return nil }); err != nil {
 		return err
@@ -1179,6 +1213,9 @@ func (s *Etcd) Rollback(ctx context.Context, app, revision, actor string) (Revis
 		}
 		if rev.App != app {
 			return notFoundf("revision %s of app %s", revision, app)
+		}
+		if rev.Spec.IsJob() {
+			return fmt.Errorf("%s is a job; jobs have no rollouts (deploy the spec you want its next runs to use): %w", app, ErrPrecondition)
 		}
 		if err := t.checkPins(rev); err != nil {
 			return err
@@ -1306,6 +1343,11 @@ func (s *Etcd) SetReplicas(ctx context.Context, app string, n int, actor string)
 		if !ok {
 			return notFoundf("app %s", app)
 		}
+		if cur, err := t.revision(a.ActiveRevision); err != nil {
+			return err
+		} else if cur.Spec.IsJob() {
+			return fmt.Errorf("%s is a job; it runs one container per run: %w", app, ErrPrecondition)
+		}
 		a.Replicas, a.UpdatedAt = n, now.UnixMilli()
 		if err := t.put(pfxApps+app, a); err != nil {
 			return err
@@ -1403,7 +1445,7 @@ func (s *Etcd) CreateReplica(ctx context.Context, r Replica) error {
 		} else if !ok {
 			return notFoundf("node %s", r.NodeID)
 		}
-		return t.put(pfxReplicas+r.ID, replicaRec{ID: r.ID, App: r.App, Revision: r.Revision, NodeID: r.NodeID, State: r.State, UpdatedAt: s.now().UnixMilli()})
+		return t.put(pfxReplicas+r.ID, replicaRec{ID: r.ID, App: r.App, Revision: r.Revision, NodeID: r.NodeID, State: r.State, UpdatedAt: s.now().UnixMilli(), Run: r.Run})
 	})
 }
 
@@ -1471,7 +1513,8 @@ func (s *Etcd) ListReplicas(ctx context.Context, f ReplicaFilter) ([]Replica, er
 			if (f.App == "" || r.App == f.App) && (f.NodeID == "" || r.NodeID == f.NodeID) {
 				out = append(out, Replica{ID: r.ID, App: r.App, Revision: r.Revision, NodeID: r.NodeID, State: r.State,
 					ContainerID: r.ContainerID, Address: r.Address, Message: r.Message, Ready: r.Ready,
-					ReadySince: fromMS(r.ReadySince), DrainingSince: fromMS(r.DrainingSince), MovingSince: fromMS(r.MovingSince), UpdatedAt: fromMS(r.UpdatedAt)})
+					ReadySince: fromMS(r.ReadySince), DrainingSince: fromMS(r.DrainingSince), MovingSince: fromMS(r.MovingSince), UpdatedAt: fromMS(r.UpdatedAt),
+					Run: r.Run, Done: r.Done, Finished: r.Finished, ExitCode: r.ExitCode})
 			}
 			return nil
 		})
@@ -1502,6 +1545,11 @@ func (s *Etcd) UpdateReplicaStatus(ctx context.Context, nodeID string, st Replic
 			r.ReadySince = now
 		}
 		r.State, r.ContainerID, r.Address, r.Message, r.UpdatedAt, r.Ready = st.State, st.ContainerID, st.Address, st.Message, now, ready
+		if r.Run != 0 && !r.Finished {
+			// A job attempt's result is kept once known: the container of
+			// a done attempt is stopped and reports another exit code.
+			r.Finished, r.ExitCode = st.Finished, st.ExitCode
+		}
 		return t.put(pfxReplicas+st.ID, r)
 	})
 }
@@ -1917,6 +1965,10 @@ var migrations = []migration{
 	// 1 -> 2: node records gain labels, restricted, os, and arch (ADR
 	// 0014). Nothing to rewrite; the step exists so that servers that would
 	// drop those fields when they rewrite a node can no longer lead.
+	func(*etx) error { return nil },
+	// 2 -> 3: jobs (ADR 0021): apps of kind job, runs under runs/, and
+	// replicas that run to completion. Nothing to rewrite; servers that
+	// would treat a job as an app can no longer lead.
 	func(*etx) error { return nil },
 }
 

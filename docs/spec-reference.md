@@ -1,13 +1,13 @@
 # App spec reference
 
-`armada deploy -f app.yaml` takes one app spec in YAML. Parsing is strict:
+`armada deploy -f app.yaml` takes one app or job spec in YAML. Parsing is strict:
 an unknown field is an error, and a field that exists in the format but is
 not implemented in this version is rejected with a message saying so, never
 ignored.
 
 ```yaml
 apiVersion: armada.dev/v1alpha1   # optional; must match if present
-kind: app                         # optional; "app" is the only kind in v0.1
+kind: app                         # optional; app (default) or job, see "Jobs" below
 name: web
 image: ghcr.io/acme/web:1.4.2     # tag or @sha256 digest
 command: ["/app/server"]          # optional, replaces the image entrypoint
@@ -203,6 +203,53 @@ platforms (`armada revisions` shows them), and from then on only nodes
 with a matching `armada.os`/`armada.arch` get replicas. A replica that
 landed on another node before that fails fast and is replaced.
 
+## Jobs
+
+A spec of `kind: job` describes work that runs to completion
+([ADR 0021](adr/0021-jobs.md)). Each run starts one container; it starts
+with `armada job run JOB` or on a schedule.
+
+```yaml
+kind: job
+name: db-backup
+image: ghcr.io/acme/backup:1.4
+command: ["/backup.sh"]
+env:
+  - name: DB_PASSWORD
+    secretRef: db-password
+schedule: "0 3 * * *"        # optional
+timeZone: Asia/Jakarta        # optional
+timeout: 30m
+retries: 2
+concurrency: forbid
+history: 5
+resources:
+  memory: 512Mi
+```
+
+| Field | Default | Meaning |
+| --- | --- | --- |
+| `schedule` | none (manual runs only) | Five cron fields: minute, hour, day of month, month, day of week (`*/15 * * * *`, `0 3 * * 1-5`). Descriptors such as `@daily` and `CRON_TZ=` are rejected. |
+| `timeZone` | `UTC` | IANA zone of the schedule, such as `Asia/Jakarta`; needs `schedule`. |
+| `timeout` | `1h` | How long one attempt may take from placement (pulling the image included), `1s` to `24h`; then it is stopped and counts as failed. |
+| `retries` | `0` | Further attempts after a failed one (non-zero exit, start failure, lost node, timeout), 0 to 10, after 10s, 20s, 40s, and so on up to 5 minutes. |
+| `concurrency` | `forbid` | What happens when a run is due while another is active: `forbid` skips the new one (and `armada job run` refuses); `replace` cancels the active run. |
+| `history` | `5` | Finished runs kept, 1 to 50. The container of a finished run is kept 24 hours for `armada logs`. |
+
+- `env`, `secretFiles`, `registry`, `resources`, and `placement` mean the
+  same as for apps. `ingress`, `probes`, `scale`, and `revisions` are
+  rejected, and these job fields are rejected on apps.
+- A job and an app cannot share a name.
+- A deploy changes the job at once: runs that start afterwards use the new
+  spec, and a run in progress keeps its own.
+- If the control plane is down when a run is due, the run starts when it is
+  back, as long as that is within an hour; otherwise it is skipped.
+- The container gets `ARMADA_JOB_RUN` (the run number) besides
+  `ARMADA_APP`, `ARMADA_REVISION`, and `ARMADA_REPLICA`.
+- Runs are at least once: in rare failures (a node cut off mid-run, an
+  agent restarting at the moment the container exits) a run can be
+  attempted again, so make jobs safe to repeat.
+
 ## Not available in v0.1
 
 These fields are part of the format and are rejected with an explicit error
@@ -210,7 +257,6 @@ until they are implemented:
 
 | Field | Planned |
 | --- | --- |
-| `kind: job` | v0.2 |
 | `revisions.mode: multiple`, `revisions.traffic` (traffic splitting) | v0.2 |
 | `scale.rules` (autoscaling) | v0.2 |
 | `scale.min: 0` (scale to zero) | v0.3 |

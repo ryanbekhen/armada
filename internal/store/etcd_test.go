@@ -180,15 +180,16 @@ func TestMigrateFailedStepKeepsSchema(t *testing.T) {
 	}
 }
 
-func TestMigrateToNodeLabels(t *testing.T) {
+// Schema 2 (node labels) and 3 (jobs) need no rewrites: every step runs.
+func TestMigrateToCurrent(t *testing.T) {
 	t.Parallel()
 	s, ctx := open(t), context.Background()
 	atSchema(t, s, 1)
 	if from, err := s.Migrate(ctx); err != nil || from != 1 {
 		t.Fatalf("migrate: from %d, %v", from, err)
 	}
-	if v, _ := s.StoredSchema(ctx); v != 2 {
-		t.Errorf("schema = %d, want 2", v)
+	if v, _ := s.StoredSchema(ctx); v != 3 {
+		t.Errorf("schema = %d, want 3", v)
 	}
 }
 

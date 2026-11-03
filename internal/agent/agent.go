@@ -219,7 +219,7 @@ func (a *Agent) session(ctx context.Context) (established bool, err error) {
 	hello := &armadav1.AgentMessage{Msg: &armadav1.AgentMessage_Hello{Hello: &armadav1.Hello{
 		CpuMillis: a.cfg.CPUMillis, MemoryBytes: a.cfg.MemoryBytes, Version: version.Get().Version, PrivateIp: a.cfg.PrivateIP,
 		Os: cmp.Or(a.cfg.OS, goruntime.GOOS), Arch: cmp.Or(a.cfg.Arch, goruntime.GOARCH), Runtime: a.cfg.Runtime,
-		MinMemoryBytes: a.cfg.MinMemoryBytes,
+		MinMemoryBytes: a.cfg.MinMemoryBytes, Jobs: true,
 	}}}
 	if err := stream.Send(hello); err != nil {
 		return false, err
@@ -369,6 +369,12 @@ func (a *Agent) Reconcile(ctx context.Context) (*armadav1.ReplicaReport, error) 
 			a.log.Info("spec changed, recreating", "replica", id)
 			a.remove(ctx, c.ID)
 			ok = false
+		}
+		if spec.GetJob() != nil {
+			if st := a.attempt(ctx, spec, hash, c, ok); st != nil {
+				report.Replicas = append(report.Replicas, st)
+			}
+			continue
 		}
 		if ok {
 			a.mu.Lock()
@@ -662,6 +668,11 @@ func specHash(s *armadav1.ReplicaSpec) string {
 	// Added after replicas existed, and fixed for a revision: hashing it
 	// would recreate every replica, undrained, when the server is upgraded.
 	c.CpuReserveMillis = 0
+	// Marking a job attempt done stops its container; it must not
+	// recreate it.
+	if c.Job != nil {
+		c.Job.Done = false
+	}
 	for _, e := range c.Env {
 		if e.Ref != "" {
 			e.Value = ""

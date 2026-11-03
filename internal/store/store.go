@@ -75,6 +75,8 @@ type Node struct {
 	// Restricted nodes only run apps whose placement selects one of their
 	// labels.
 	Restricted bool
+	// Jobs is true when the node's agent runs job replicas (ADR 0021).
+	Jobs bool
 }
 
 // AllLabels returns the admin labels plus armada.os and armada.arch.
@@ -158,6 +160,9 @@ type App struct {
 	RolloutProgressAt time.Time
 	CreatedAt         time.Time
 	UpdatedAt         time.Time
+	// LastScheduled is the latest time a job's schedule fired; zero for
+	// apps and jobs whose schedule has not fired yet.
+	LastScheduled time.Time
 }
 
 // Rolling reports whether a rollout is in progress.
@@ -210,6 +215,14 @@ type Replica struct {
 	// does); zero otherwise.
 	MovingSince time.Time
 	UpdatedAt   time.Time
+	// Run is the job run this replica is an attempt of (ADR 0021), 0 for
+	// app replicas. Done marks an attempt that is over: its container is
+	// stopped and kept for its logs. Finished and ExitCode are what the
+	// agent reported when the container exited.
+	Run      int64
+	Done     bool
+	Finished bool
+	ExitCode int
 }
 
 // Moving reports whether the replica is being replaced on another node.
@@ -232,6 +245,9 @@ type ReplicaStatus struct {
 	Address     string
 	Message     string
 	Ready       bool
+	// For job attempts: the container exited with ExitCode.
+	Finished bool
+	ExitCode int
 }
 
 // NodeStatus is the runtime information an agent reports about its node.
@@ -248,6 +264,8 @@ type NodeStatus struct {
 	Runtime string
 	// MinMemoryBytes as the agent reports it.
 	MinMemoryBytes int64
+	// Jobs as the agent reports it.
+	Jobs bool
 }
 
 // Domain is a custom domain referenced by at least one app. Apps may only
@@ -384,6 +402,16 @@ type Store interface {
 	PutEvent(ctx context.Context, e Event, replace string) (string, error)
 	ListEvents(ctx context.Context, since time.Time) ([]Event, error)
 	TrimEvents(ctx context.Context, keep int) error
+
+	// Jobs (ADR 0021); see the methods of Etcd in jobs.go.
+	CreateJobRun(ctx context.Context, job, trigger string, at time.Time, actor string) (JobRun, error)
+	SkipJobSchedule(ctx context.Context, job string, at time.Time) error
+	UpdateJobRun(ctx context.Context, r JobRun) error
+	ListJobRuns(ctx context.Context, job string) ([]JobRun, error)
+	DeleteJobRun(ctx context.Context, job string, seq int64) error
+	CancelJobRuns(ctx context.Context, job, actor string) ([]JobRun, error)
+	DeleteJob(ctx context.Context, job, actor string) error
+	SetReplicaDone(ctx context.Context, id string) error
 
 	ListAudit(ctx context.Context, limit int) ([]AuditEvent, error)
 	// RecordAudit logs a change that has no transaction of its own.

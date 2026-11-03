@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"slices"
 	"sync"
 	"time"
 
@@ -96,6 +97,8 @@ func (s *Server) Top(ctx context.Context, req *armadav1.TopRequest) (*armadav1.T
 	if err != nil {
 		return nil, storeErr(err)
 	}
+	// Finished job attempts keep a stopped container for their logs only.
+	reps = slices.DeleteFunc(reps, func(r store.Replica) bool { return r.Done })
 	now := s.now()
 	revs := &revisionCache{store: s.store, m: map[string]store.Revision{}}
 	reserved := revs.reserved(ctx)

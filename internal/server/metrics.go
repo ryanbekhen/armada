@@ -31,7 +31,7 @@ func (s *Server) serveMetrics(ctx context.Context) error {
 	reg := prometheus.NewRegistry()
 	reg.MustRegister(
 		collectors.NewGoCollector(),
-		s.reconcileSeconds, s.reconcileErrors, s.events.total,
+		s.reconcileSeconds, s.reconcileErrors, s.events.total, s.jobRuns,
 		&clusterCollector{s: s},
 	)
 	mux := http.NewServeMux()
@@ -108,6 +108,8 @@ var (
 	descNodeMemRes      = prometheus.NewDesc("armada_node_memory_reserved_bytes", "Memory the replicas on a node reserve.", []string{"node"}, nil)
 	descNodeCPU         = prometheus.NewDesc("armada_node_cpu_usage_cores", "CPU the replicas on a node use, from its latest sample.", []string{"node"}, nil)
 	descNodeMemory      = prometheus.NewDesc("armada_node_memory_usage_bytes", "Memory the replicas on a node use, from its latest sample.", []string{"node"}, nil)
+	descJobLastSuccess  = prometheus.NewDesc("armada_job_last_success_timestamp_seconds", "When the newest kept successful run of a job finished.", []string{"job"}, nil)
+	descJobActive       = prometheus.NewDesc("armada_job_runs_active", "Runs of a job that are pending or running.", []string{"job"}, nil)
 )
 
 func (c *clusterCollector) Describe(ch chan<- *prometheus.Desc) {
@@ -115,7 +117,7 @@ func (c *clusterCollector) Describe(ch chan<- *prometheus.Desc) {
 		descLeader, descAgents, descAppDesired, descAppReady, descAppRollout, descReplicaReady,
 		descReplicaCPU, descReplicaMemory, descReplicaCPURes, descReplicaCPULimit, descReplicaMemLimit,
 		descNodeReady, descNodeCordoned, descNodeReplicas, descNodeCPUAlloc, descNodeMemAlloc,
-		descNodeCPURes, descNodeMemRes, descNodeCPU, descNodeMemory,
+		descNodeCPURes, descNodeMemRes, descNodeCPU, descNodeMemory, descJobLastSuccess, descJobActive,
 	} {
 		ch <- d
 	}
@@ -180,6 +182,21 @@ func (c *clusterCollector) Collect(ch chan<- prometheus.Metric) {
 			gauge(descReplicaCPULimit, cores(r.GetCpuLimitMillis()), labels...)
 		}
 		gauge(descReplicaMemLimit, float64(r.GetMemoryLimitBytes()), labels...)
+	}
+	if jobs, err := s.ListJobs(ctx, &armadav1.ListJobsRequest{}); err == nil {
+		runs, _ := s.store.ListJobRuns(ctx, "")
+		for _, j := range jobs.GetJobs() {
+			gauge(descJobActive, float64(j.GetActive()), j.GetName())
+			var last time.Time
+			for _, r := range runs {
+				if r.Job == j.GetName() && r.State == store.RunSucceeded && r.FinishedAt.After(last) {
+					last = r.FinishedAt
+				}
+			}
+			if !last.IsZero() {
+				gauge(descJobLastSuccess, float64(last.Unix()), j.GetName())
+			}
+		}
 	}
 	for _, n := range top.GetNodes() {
 		gauge(descNodeReplicas, float64(n.GetReplicas()), n.GetId())
