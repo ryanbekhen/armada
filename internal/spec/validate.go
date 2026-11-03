@@ -122,8 +122,23 @@ func (a *App) SetDefaults() {
 	}
 }
 
-// Replicas is the number of replicas to run in v0.1 (scale.min); jobs run
-// none outside their runs.
+// Autoscaled reports whether the autoscaler sets the app's replica count.
+func (a *App) Autoscaled() bool {
+	return !a.IsJob() && a.Scale != nil && len(a.Scale.Rules) > 0
+}
+
+// ScaleBounds returns scale.min and scale.max. It assumes a validated spec.
+func (a *App) ScaleBounds() (lo, hi int) {
+	lo = a.Replicas()
+	hi = lo
+	if a.Scale != nil && a.Scale.Max != nil {
+		hi = *a.Scale.Max
+	}
+	return lo, hi
+}
+
+// Replicas is the number of replicas a deploy starts with (scale.min); the
+// autoscaler may change it later. Jobs run none outside their runs.
 func (a *App) Replicas() int {
 	if a.IsJob() {
 		return 0
@@ -184,7 +199,7 @@ func (a *App) Validate() error {
 	v.ingress(a.Ingress)
 	v.revisions(a.Revisions)
 	v.probes(a.Probes)
-	v.scale(a.Scale)
+	v.scale(a.Scale, a.Ingress)
 	v.resources(a.Resources)
 	v.placement(a.Placement)
 	v.job(a)
@@ -431,7 +446,7 @@ func (v *validator) probes(p *Probes) {
 	}
 }
 
-func (v *validator) scale(s *Scale) {
+func (v *validator) scale(s *Scale, ing *Ingress) {
 	if s == nil || s.Min == nil || s.Max == nil {
 		return
 	}
@@ -445,8 +460,59 @@ func (v *validator) scale(s *Scale) {
 	if maxR < minR || maxR > MaxReplicas {
 		v.add("scale.max", "must be between scale.min and %d", MaxReplicas)
 	}
-	if len(s.Rules) > 0 {
-		v.unsupported("scale.rules", "autoscaling is planned for v0.2; v0.1 runs scale.min replicas")
+	v.scaleRules(s, ing)
+}
+
+// Autoscaler rule types (ADR 0022).
+const (
+	ScaleHTTP   = "http"
+	ScaleCPU    = "cpu"
+	ScaleMemory = "memory"
+
+	MaxConcurrent = 10000
+)
+
+func (v *validator) scaleRules(s *Scale, ing *Ingress) {
+	if len(s.Rules) == 0 {
+		return
+	}
+	if *s.Max <= *s.Min {
+		v.add("scale.max", "must be greater than scale.min when scale.rules are set")
+	}
+	seen := map[string]bool{}
+	for i, r := range s.Rules {
+		f := fmt.Sprintf("scale.rules[%d]", i)
+		if seen[r.Type] {
+			v.add(f+".type", "%q is used more than once", r.Type)
+		}
+		seen[r.Type] = true
+		if r.List != "" || r.Length != 0 || r.Schedule != "" || r.Timezone != "" || r.Replicas != 0 {
+			v.unsupported(f, "queue and schedule rules are not implemented yet")
+			continue
+		}
+		switch r.Type {
+		case ScaleHTTP:
+			if r.Concurrent < 1 || r.Concurrent > MaxConcurrent {
+				v.add(f+".concurrent", "must be between 1 and %d", MaxConcurrent)
+			}
+			if r.Utilization != 0 {
+				v.add(f+".utilization", "is only valid for cpu and memory rules")
+			}
+			if ing == nil || ing.Type == IngressNone || ing.Type == "" {
+				v.add(f+".type", "http rules need ingress (external or internal): requests are counted at the proxy")
+			}
+		case ScaleCPU, ScaleMemory:
+			if r.Utilization < 1 || r.Utilization > 100 {
+				v.add(f+".utilization", "must be between 1 and 100 (percent of resources.%s)", r.Type)
+			}
+			if r.Concurrent != 0 {
+				v.add(f+".concurrent", "is only valid for http rules")
+			}
+		case "queue", "schedule":
+			v.unsupported(f+".type", r.Type+" rules are not implemented yet")
+		default:
+			v.add(f+".type", "must be %q, %q, or %q", ScaleHTTP, ScaleCPU, ScaleMemory)
+		}
 	}
 }
 

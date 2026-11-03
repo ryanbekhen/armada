@@ -49,6 +49,8 @@ armada deploy -f web.yaml    # → https://web.apps.example.com
   own security settings, and every session is audited.
 - **Usage.** `armada top` shows the CPU and memory each app, replica, and
   node uses next to what it reserves, sampled every 10 seconds.
+- **Autoscaling.** `scale.rules` keep an app between `scale.min` and
+  `scale.max` by requests in progress, CPU, or memory per replica.
 - **Jobs.** `kind: job` runs a container to completion, on demand or on a
   cron schedule with a time zone, with timeouts, retries, and run history.
 - **Events.** `armada events` shows what the cluster did over the last day:

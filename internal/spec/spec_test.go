@@ -210,7 +210,17 @@ func TestParseRejects(t *testing.T) {
 		{"negative min", base + "scale:\n  min: -1\n", "scale.min", false},
 		{"too many replicas", base + "scale:\n  min: 101\n", "scale.min", false},
 		{"max below min", base + "scale:\n  min: 3\n  max: 2\n", "scale.max", false},
-		{"scale rules", base + "scale:\n  rules:\n    - type: http\n      concurrent: 50\n", "scale.rules", true},
+		{"rules without max", ext + "scale:\n  min: 2\n  rules:\n    - type: cpu\n      utilization: 70\n", "scale.max", false},
+		{"http rule without ingress", base + "scale:\n  max: 3\n  rules:\n    - type: http\n      concurrent: 50\n", "scale.rules[0].type", false},
+		{"http rule no target", ext + "scale:\n  max: 3\n  rules:\n    - type: http\n", "scale.rules[0].concurrent", false},
+		{"http rule huge target", ext + "scale:\n  max: 3\n  rules:\n    - type: http\n      concurrent: 10001\n", "scale.rules[0].concurrent", false},
+		{"cpu rule over 100", ext + "scale:\n  max: 3\n  rules:\n    - type: cpu\n      utilization: 150\n", "scale.rules[0].utilization", false},
+		{"cpu rule with concurrent", ext + "scale:\n  max: 3\n  rules:\n    - type: cpu\n      utilization: 50\n      concurrent: 5\n", "scale.rules[0].concurrent", false},
+		{"http rule with utilization", ext + "scale:\n  max: 3\n  rules:\n    - type: http\n      concurrent: 5\n      utilization: 5\n", "scale.rules[0].utilization", false},
+		{"duplicate rule", ext + "scale:\n  max: 3\n  rules:\n    - type: cpu\n      utilization: 50\n    - type: cpu\n      utilization: 60\n", "scale.rules[1].type", false},
+		{"unknown rule", ext + "scale:\n  max: 3\n  rules:\n    - type: rps\n", "scale.rules[0].type", false},
+		{"queue rule", ext + "scale:\n  max: 3\n  rules:\n    - type: queue\n      list: jobs\n      length: 10\n", "scale.rules[0]", true},
+		{"schedule rule", ext + "scale:\n  max: 3\n  rules:\n    - type: schedule\n", "scale.rules[0].type", true},
 		{"bad memory", base + "resources:\n  memory: lots\n", "resources.memory", false},
 		{"tiny memory", base + "resources:\n  memory: 1Mi\n", "resources.memory", false},
 		{"huge memory", base + "resources:\n  memory: 128Gi\n", "resources.memory", false},
@@ -480,6 +490,21 @@ func TestRegistryHost(t *testing.T) {
 		if got := RegistryHost(image); got != want {
 			t.Errorf("RegistryHost(%q) = %q, want %q", image, got, want)
 		}
+	}
+}
+
+func TestParseAutoscaled(t *testing.T) {
+	t.Parallel()
+	a, err := Parse([]byte("name: web\nimage: nginx\ningress:\n  type: internal\n  port: 80\nscale:\n  min: 2\n  max: 8\n  rules:\n    - type: http\n      concurrent: 40\n    - type: cpu\n      utilization: 70\n    - type: memory\n      utilization: 80\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lo, hi := a.ScaleBounds(); !a.Autoscaled() || lo != 2 || hi != 8 || a.Replicas() != 2 {
+		t.Errorf("autoscaled=%v bounds=%d..%d", a.Autoscaled(), lo, hi)
+	}
+	b, _ := Parse([]byte("name: web\nimage: nginx\nscale:\n  min: 2\n"))
+	if lo, hi := b.ScaleBounds(); b.Autoscaled() || lo != 2 || hi != 2 {
+		t.Errorf("fixed: autoscaled=%v bounds=%d..%d", b.Autoscaled(), lo, hi)
 	}
 }
 

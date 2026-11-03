@@ -25,6 +25,14 @@ type Driver interface {
 	Health(ctx context.Context) error
 }
 
+// LoadReader is implemented by drivers that can count the requests in
+// progress per server, which the autoscaler uses (ADR 0022).
+type LoadReader interface {
+	// Load returns the requests in progress (being served or queued) per
+	// server name, for every server the proxy routes to.
+	Load(ctx context.Context) (map[string]int64, error)
+}
+
 // Config is the complete ingress configuration for a node.
 type Config struct {
 	Backends     []Backend

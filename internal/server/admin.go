@@ -198,6 +198,13 @@ func (s *Server) Status(ctx context.Context, req *armadav1.StatusRequest) (*arma
 			RolloutMessage:   a.RolloutMessage,
 			PlacementMessage: placementMessage(ctx, revs, sched, all, a),
 		}
+		if a.Spec.Autoscaled() {
+			as.Autoscale = s.scaler.status(a.Name)
+			if as.Autoscale == nil {
+				lo, hi := a.Spec.ScaleBounds()
+				as.Autoscale = &armadav1.Autoscale{Min: int32(lo), Max: int32(hi), Message: "waiting for the first evaluation"} //nolint:gosec // bounded by spec.MaxReplicas
+			}
+		}
 		for _, r := range reps {
 			as.Replicas = append(as.Replicas, &armadav1.ReplicaStatus{
 				Id: r.ID, Revision: r.Revision, NodeId: r.NodeID, State: r.State,

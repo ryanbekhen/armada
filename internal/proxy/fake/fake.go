@@ -18,9 +18,34 @@ type Driver struct {
 	// down makes Health fail until the next successful Apply, like a
 	// proxy that stopped and is started again.
 	down bool
+	load map[string]int64
 }
 
-var _ proxy.Driver = (*Driver)(nil)
+var (
+	_ proxy.Driver     = (*Driver)(nil)
+	_ proxy.LoadReader = (*Driver)(nil)
+)
+
+// SetLoad sets what Load reports.
+func (d *Driver) SetLoad(load map[string]int64) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.load = load
+}
+
+// Load returns what SetLoad set, or Err.
+func (d *Driver) Load(context.Context) (map[string]int64, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.Err != nil {
+		return nil, d.Err
+	}
+	out := make(map[string]int64, len(d.load))
+	for k, v := range d.load {
+		out[k] = v
+	}
+	return out, nil
+}
 
 // Apply validates and records cfg, like a real driver would.
 func (d *Driver) Apply(_ context.Context, cfg proxy.Config) error {
