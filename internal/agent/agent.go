@@ -3,6 +3,8 @@
 package agent
 
 import (
+	"strings"
+
 	"cmp"
 	"context"
 	"crypto/sha256"
@@ -18,6 +20,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/ryanbekhen/armada/internal/spec"
 
 	"google.golang.org/protobuf/proto"
 
@@ -561,8 +565,9 @@ func (a *Agent) applyProxy(ctx context.Context) {
 		// Resolve exactly the names HAProxy now routes.
 		var apps []string
 		for _, r := range cfg.Rules {
-			if r.Internal && !slices.Contains(apps, r.Backend) {
-				apps = append(apps, r.Backend)
+			name := strings.TrimSuffix(r.Host, spec.InternalSuffix)
+			if r.Internal && !slices.Contains(apps, name) {
+				apps = append(apps, name)
 			}
 		}
 		a.cfg.DNS.SetNames(apps)

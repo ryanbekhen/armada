@@ -180,7 +180,8 @@ func TestMigrateFailedStepKeepsSchema(t *testing.T) {
 	}
 }
 
-// Schema 2 (node labels) and 3 (jobs) need no rewrites: every step runs.
+// Schema 2 (node labels), 3 (jobs), and 4 (traffic) need no rewrites:
+// every step runs.
 func TestMigrateToCurrent(t *testing.T) {
 	t.Parallel()
 	s, ctx := open(t), context.Background()
@@ -188,8 +189,8 @@ func TestMigrateToCurrent(t *testing.T) {
 	if from, err := s.Migrate(ctx); err != nil || from != 1 {
 		t.Fatalf("migrate: from %d, %v", from, err)
 	}
-	if v, _ := s.StoredSchema(ctx); v != 3 {
-		t.Errorf("schema = %d, want 3", v)
+	if v, _ := s.StoredSchema(ctx); v != 4 {
+		t.Errorf("schema = %d, want 4", v)
 	}
 }
 

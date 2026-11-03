@@ -85,8 +85,11 @@ func ask(t *testing.T, addr, network, name string, qtype uint16) *dns.Msg {
 func TestInternalNames(t *testing.T) {
 	t.Parallel()
 	s, addr := start(t, "127.0.0.0/8")
-	s.SetNames([]string{"shop-api", "web"})
+	s.SetNames([]string{"shop-api", "web", "canary--web"})
 
+	if r := ask(t, addr, "udp", "canary--web.internal.", dns.TypeA); r.Rcode != dns.RcodeSuccess || len(r.Answer) != 1 {
+		t.Errorf("revision label: %v", r)
+	}
 	for _, network := range []string{"udp", "tcp"} {
 		r := ask(t, addr, network, "Shop-API.internal.", dns.TypeA)
 		if r.Rcode != dns.RcodeSuccess || !r.Authoritative || len(r.Answer) != 1 {
@@ -99,7 +102,7 @@ func TestInternalNames(t *testing.T) {
 	if r := ask(t, addr, "udp", "web.internal.", dns.TypeAAAA); r.Rcode != dns.RcodeSuccess || len(r.Answer) != 0 {
 		t.Errorf("AAAA of a known name = %v", r)
 	}
-	for _, name := range []string{"ghost.internal.", "a.web.internal.", "internal.", "bad_name.internal."} {
+	for _, name := range []string{"ghost.internal.", "a.web.internal.", "internal.", "bad_name.internal.", "old--web.internal.", "a--b--c.internal.", "--web.internal."} {
 		if r := ask(t, addr, "udp", name, dns.TypeA); r.Rcode != dns.RcodeNameError {
 			t.Errorf("%s: rcode %s", name, dns.RcodeToString[r.Rcode])
 		}

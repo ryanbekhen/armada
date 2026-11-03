@@ -3,6 +3,8 @@ package server
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -55,6 +57,16 @@ func (s *Server) Deploy(ctx context.Context, req *armadav1.DeployRequest) (*arma
 	}
 	s.log.Info("deployed", "app", app.Name, "revision", rev.Name, "new_revision", created, "by", actor(ctx))
 	switch {
+	case app.MultipleRevisions():
+		// No rollout: the traffic applies at once (ADR 0024).
+		msg := "image " + app.Image
+		if a, err := s.store.GetApp(ctx, app.Name); err == nil {
+			msg = trafficMessage(a.Traffic)
+		}
+		if created {
+			msg += "; new revision " + rev.Name
+		}
+		s.record(ctx, store.Event{Kind: eventApp, Object: app.Name, App: app.Name, Reason: "TrafficChanged", Message: msg})
 	case created && app.IsJob():
 		s.record(ctx, store.Event{Kind: eventJob, Object: app.Name, App: app.Name, Reason: "Deployed", Message: "new runs use " + rev.Name + " (image " + app.Image + ")"})
 	case created:
@@ -76,6 +88,39 @@ func (s *Server) Scale(ctx context.Context, req *armadav1.ScaleRequest) (*armada
 	s.log.Info("scaled", "app", req.GetApp(), "replicas", n, "by", actor(ctx))
 	s.Trigger()
 	return &armadav1.ScaleResponse{}, nil
+}
+
+// SetTraffic changes how an app in multiple revision mode splits requests
+// until its next deploy (ADR 0024).
+func (s *Server) SetTraffic(ctx context.Context, req *armadav1.SetTrafficRequest) (*armadav1.SetTrafficResponse, error) {
+	if len(req.GetTraffic()) > spec.MaxTrafficTargets {
+		return nil, status.Errorf(codes.InvalidArgument, "at most %d revisions", spec.MaxTrafficTargets)
+	}
+	var want []spec.TrafficTarget
+	for _, t := range req.GetTraffic() {
+		want = append(want, spec.TrafficTarget{Revision: t.GetRevision(), Weight: int(t.GetWeight())})
+	}
+	got, err := s.store.SetTraffic(ctx, req.GetApp(), want, actor(ctx))
+	if err != nil {
+		return nil, storeErr(err)
+	}
+	s.log.Info("traffic changed", "app", req.GetApp(), "by", actor(ctx))
+	s.record(ctx, store.Event{Kind: eventApp, Object: req.GetApp(), App: req.GetApp(), Reason: "TrafficChanged", Message: trafficMessage(got)})
+	s.Trigger()
+	resp := &armadav1.SetTrafficResponse{}
+	for _, t := range got {
+		resp.Traffic = append(resp.Traffic, &armadav1.TrafficTarget{Revision: t.Revision, Weight: int32(t.Weight), Label: t.Label}) //nolint:gosec // 0 to 100
+	}
+	return resp, nil
+}
+
+// trafficMessage describes traffic for events: "web--r3 90%, web--r4 10%".
+func trafficMessage(traffic []spec.TrafficTarget) string {
+	parts := make([]string, 0, len(traffic))
+	for _, t := range traffic {
+		parts = append(parts, fmt.Sprintf("%s %d%%", t.Revision, t.Weight))
+	}
+	return strings.Join(parts, ", ")
 }
 
 // ListRevisions lists an app's retained revisions, newest first.
@@ -197,6 +242,19 @@ func (s *Server) Status(ctx context.Context, req *armadav1.StatusRequest) (*arma
 			RolloutState:     a.RolloutState,
 			RolloutMessage:   a.RolloutMessage,
 			PlacementMessage: placementMessage(ctx, revs, sched, all, a),
+		}
+		if !a.Rolling() {
+			shares := trafficShares(a.Replicas, a.Traffic)
+			total := 0
+			for i, t := range a.Traffic {
+				//nolint:gosec // weights are 0 to 100, shares bounded by spec.MaxReplicas
+				as.Traffic = append(as.Traffic, &armadav1.TrafficTarget{Revision: t.Revision, Weight: int32(t.Weight), Label: t.Label,
+					Urls: s.labelURLs(ctx, a, t.Label), Replicas: int32(shares[i])})
+				total += shares[i]
+			}
+			if total > 0 {
+				as.DesiredReplicas = int32(total)
+			}
 		}
 		if a.Spec.Autoscaled() {
 			as.Autoscale = s.scaler.status(a.Name)

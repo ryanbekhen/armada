@@ -397,6 +397,39 @@ web: autoscale 2-10, http 41/50, cpu 38%/70%: steady: http 41 of 50 per replica,
   busy.
 - **Alerts.** Watch `armada_app_replicas_desired` reach the max.
 
+## Traffic splitting
+
+Apps with `revisions.mode: multiple` split their requests between
+revisions ([ADR 0024](adr/0024-traffic-splitting.md); fields in the
+[spec reference](spec-reference.md#revisions)). A canary looks like this:
+
+```bash
+armada deploy -f web.yaml            # traffic: web--r3 90, latest 10 (label canary)
+armada status web                    # the split, replicas per revision, the label's URL
+armada traffic web r3=50 r4=50       # more traffic to the new revision
+armada traffic web r4=100            # all of it; r3 drains and stops
+```
+
+```
+web: traffic web--r3 90%, web--r4 10% (canary)
+
+APP  URL
+web  https://web.example.com/
+web  https://canary--web.example.com/ (web--r4)
+```
+
+- **Comparing revisions.** `armada logs`, `armada top`, and the replica
+  metrics carry the revision. `armada_app_traffic_weight` shows the split.
+- **Events and audit.** Each change is a `TrafficChanged` event and an
+  audit entry.
+- **Lasting changes.** `armada traffic` lasts until the next deploy, so put
+  lasting weights in the spec.
+- **Finishing.** To finish a canary, deploy the spec in single mode. That
+  is a rolling update, and every revision in the traffic serves until the
+  new one is ready.
+- **Capacity.** Every revision in the traffic runs at least one replica and
+  reserves its CPU and memory.
+
 ## Jobs
 
 Jobs run a container to completion, on demand or on a schedule
@@ -437,8 +470,8 @@ RUN  STATE      TRIGGER   ATTEMPTS  NODE   STARTED  DURATION  EXIT  MESSAGE
 ([ADR 0020](adr/0020-event-history.md)): replicas scheduled, started,
 restarted, or moved; rollouts started, completed, or failed; nodes
 connected, lost, or cordoned; apps that cannot be placed or that the
-autoscaler scaled, scaled to zero, or woke; job runs; domains and
-certificates.
+autoscaler scaled, scaled to zero, or woke; traffic changes; job runs;
+domains and certificates.
 
 ```bash
 armada events                    # the last hour, everything
@@ -507,6 +540,7 @@ scrape_configs:
 | `armada_reconcile_duration_seconds` | | histogram of reconcile times |
 | `armada_reconcile_errors_total` | | failed reconciles |
 | `armada_app_autoscale_current`, `armada_app_autoscale_target` | `app`, `rule` | an autoscaling rule's average per ready replica (absent while unmeasured) and its target |
+| `armada_app_traffic_weight` | `app`, `revision` | a revision's percent of the app's requests in multiple revision mode |
 | `armada_job_runs_total` | `job`, `result` | job runs that ended: `succeeded`, `failed`, `cancelled`; resets when the leader changes |
 | `armada_job_runs_active` | `job` | runs pending or running |
 | `armada_job_last_success_timestamp_seconds` | `job` | when the newest kept successful run finished |

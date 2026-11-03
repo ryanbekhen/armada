@@ -240,9 +240,15 @@ func decide(a store.App, res resources, reps []store.Replica, in scaleInputs, st
 			return 0, "no requests for " + idle.String(), status
 		}
 	}
+	// With split traffic, the replicas of every revision with a weight
+	// share the load (ADR 0024).
 	var ready []store.Replica
 	for _, r := range reps {
-		if r.Revision == a.ActiveRevision && r.State == store.ReplicaRunning && r.Ready && !r.Draining() && !r.Done {
+		serves := r.Revision == a.ActiveRevision
+		if len(a.Traffic) > 0 {
+			serves = trafficWeight(a, r.Revision) > 0
+		}
+		if serves && r.State == store.ReplicaRunning && r.Ready && !r.Draining() && !r.Done {
 			ready = append(ready, r)
 		}
 	}

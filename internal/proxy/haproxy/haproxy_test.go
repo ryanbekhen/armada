@@ -38,8 +38,8 @@ func sampleConfig(t *testing.T) proxy.Config {
 		Backends: []proxy.Backend{
 			{Name: "frontend", Servers: []proxy.Server{{Name: "frontend-r1-a", Address: "10.0.0.2:32768"}}},
 			{Name: "api-bengkel", HealthPath: "/healthz", Servers: []proxy.Server{
-				{Name: "api-bengkel-r3-b", Address: "10.0.0.3:32770"},
-				{Name: "api-bengkel-r3-a", Address: "10.0.0.2:32769"},
+				{Name: "api-bengkel-r3-b", Address: "10.0.0.3:32770", Weight: 230}, // split traffic
+				{Name: "api-bengkel-r3-a", Address: "10.0.0.2:32769", Weight: 26},
 			}},
 			{Name: "admin-panel", Servers: nil, Wake: true}, // scaled to zero
 		},
@@ -321,11 +321,61 @@ func TestNewPreparesDirectories(t *testing.T) {
 	}
 }
 
+func TestApplyWeights(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	d, e, a, dir := newDriver(t)
+	cfg := proxy.Config{Backends: []proxy.Backend{{Name: "web", Servers: []proxy.Server{
+		{Name: "web-r1-a", Address: "10.0.0.2:32768", Weight: 230},
+		{Name: "web-r2-a", Address: "10.0.0.3:32768", Weight: 26},
+	}}}}
+	if err := d.Apply(ctx, cfg); err != nil {
+		t.Fatal(err)
+	}
+	live, _ := os.ReadFile(filepath.Join(etcDir(dir), configFile))
+	if !strings.Contains(string(live), "server s1 10.0.0.2:32768 weight 230") || !strings.Contains(string(live), "server s2 10.0.0.3:32768 weight 26") {
+		t.Errorf("weights not rendered:\n%s", live)
+	}
+	step := func(name string, servers []proxy.Server, want ...string) {
+		t.Helper()
+		a.cmds = nil
+		cfg.Backends[0].Servers = servers
+		if err := d.Apply(ctx, cfg); err != nil {
+			t.Fatal(err)
+		}
+		if strings.Join(a.cmds, "|") != strings.Join(want, "|") || e.reloads != 0 {
+			t.Errorf("%s: commands = %q, want %q (reloads %d)", name, a.cmds, want, e.reloads)
+		}
+	}
+	// Moving traffic changes weights live, without a reload.
+	step("shift", []proxy.Server{
+		{Name: "web-r1-a", Address: "10.0.0.2:32768", Weight: 128},
+		{Name: "web-r2-a", Address: "10.0.0.3:32768", Weight: 128},
+	}, "set server be_web/s1 weight 128", "set server be_web/s2 weight 128")
+	// A slot in maintenance keeps its old weight in HAProxy, so reusing it
+	// sets the weight again.
+	step("remove", []proxy.Server{{Name: "web-r1-a", Address: "10.0.0.2:32768", Weight: 128}}, "set server be_web/s2 state maint")
+	step("reuse", []proxy.Server{
+		{Name: "web-r1-a", Address: "10.0.0.2:32768", Weight: 128},
+		{Name: "web-r3-a", Address: "10.0.0.4:32768"},
+	}, "set server be_web/s2 weight 1", "set server be_web/s2 addr 10.0.0.4 port 32768", "set server be_web/s2 state ready")
+	for _, w := range []int{-1, proxy.MaxWeight + 1} {
+		bad := cfg
+		bad.Backends = []proxy.Backend{{Name: "web", Servers: []proxy.Server{{Name: "x", Address: "10.0.0.2:1", Weight: w}}}}
+		if err := d.Apply(ctx, bad); err == nil {
+			t.Errorf("weight %d accepted", w)
+		}
+	}
+}
+
 func TestApplyLifecycle(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	d, e, a, dir := newDriver(t)
 	cfg := sampleConfig(t)
+	for i := range cfg.Backends[1].Servers {
+		cfg.Backends[1].Servers[i].Weight = 0 // TestApplyWeights covers weights
+	}
 
 	// First apply starts HAProxy with the rendered config.
 	if err := d.Apply(ctx, cfg); err != nil {

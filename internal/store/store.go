@@ -163,6 +163,10 @@ type App struct {
 	// LastScheduled is the latest time a job's schedule fired; zero for
 	// apps and jobs whose schedule has not fired yet.
 	LastScheduled time.Time
+	// Traffic splits requests between revisions in multiple revision mode,
+	// with "latest" resolved (ADR 0024); it also lists the revisions still
+	// serving while such an app rolls out to single mode.
+	Traffic []spec.TrafficTarget
 }
 
 // Rolling reports whether a rollout is in progress.
@@ -374,6 +378,8 @@ type Store interface {
 	GetApp(ctx context.Context, name string) (App, error)
 	ListApps(ctx context.Context) ([]App, error)
 	SetReplicas(ctx context.Context, app string, n int, actor string) error
+	// SetTraffic changes the weights of an app in multiple revision mode.
+	SetTraffic(ctx context.Context, app string, weights []spec.TrafficTarget, actor string) ([]spec.TrafficTarget, error)
 	// AutoscaleReplicas sets an autoscaled app's count from from to n.
 	AutoscaleReplicas(ctx context.Context, app string, from, n int, actor string) error
 

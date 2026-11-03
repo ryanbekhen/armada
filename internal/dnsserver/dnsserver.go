@@ -93,7 +93,8 @@ func New(cfg Config) (*Server, error) {
 // Address returns the nameserver address for containers.
 func (s *Server) Address() string { return s.cfg.Addr.String() }
 
-// SetNames replaces the set of app names that resolve under .internal.
+// SetNames replaces the set of names (apps, and <label>--<app> for
+// revision labels) that resolve under .internal.
 func (s *Server) SetNames(apps []string) {
 	m := make(map[string]bool, len(apps))
 	for _, a := range apps {
@@ -210,7 +211,7 @@ func (s *Server) answer(req *dns.Msg, q dns.Question, name string) *dns.Msg {
 	resp.SetReply(req)
 	resp.Authoritative = true
 	app := strings.TrimSuffix(name, "."+zone)
-	if strings.Contains(app, ".") || spec.ValidateName(app) != nil || !(*s.names.Load())[app] {
+	if strings.Contains(app, ".") || !spec.ValidHostName(app) || !(*s.names.Load())[app] {
 		resp.Rcode = dns.RcodeNameError
 		return resp
 	}

@@ -228,6 +228,7 @@ control plane. See [operations](operations.md#control-plane-one-server-or-three)
 | CPU and memory use | `armada top` (one app's replicas: `armada top hello`; nodes: `armada top --nodes`) |
 | Prometheus metrics | add `--metrics-listen PRIVATE_IP:9443` to `ARMADA_SERVER_FLAGS`, then `armada metrics credentials prometheus` for the scraper (see [operations](operations.md#metrics)) |
 | Scale | `armada scale hello 3` |
+| Canary | `revisions.mode: multiple` with weights in the spec, then `armada traffic hello r2=50 r3=50` (see [spec reference](spec-reference.md#revisions)) |
 | Secrets | `armada secret set hello api-key < key.txt`, then reference it with `secretRef` |
 | Custom domain | add it under `ingress.domains`, publish the TXT record from `armada domain list`, run `armada domain verify www.example.com` |
 | Internal service | `ingress.type: internal`; other containers call `http://<app>.internal` |

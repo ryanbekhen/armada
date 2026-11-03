@@ -12,6 +12,9 @@ service AdminService {
   rpc Deploy(DeployRequest) returns (DeployResponse);
   rpc Status(StatusRequest) returns (StatusResponse);
   rpc Scale(ScaleRequest) returns (ScaleResponse);
+  // SetTraffic changes how an app in multiple revision mode splits
+  // requests, until its next deploy (ADR 0024).
+  rpc SetTraffic(SetTrafficRequest) returns (SetTrafficResponse);
   rpc Logs(LogsRequest) returns (stream LogEntry);
   rpc GetClusterConfig(GetClusterConfigRequest) returns (ClusterConfig);
   rpc SetClusterConfig(SetClusterConfigRequest) returns (ClusterConfig);
@@ -451,6 +454,8 @@ message AppStatus {
   string placement_message = 11;
   // Set when scale.rules are (ADR 0022).
   Autoscale autoscale = 12;
+  // How requests are split between revisions (ADR 0024).
+  repeated TrafficTarget traffic = 13;
 }
 
 message Autoscale {
@@ -552,6 +557,29 @@ message ScaleRequest {
 }
 
 message ScaleResponse {}
+
+message SetTrafficRequest {
+  string app = 1;
+  // Revision and weight; labels stay as they are.
+  repeated TrafficTarget traffic = 2;
+}
+
+message SetTrafficResponse {
+  repeated TrafficTarget traffic = 1;
+}
+
+// TrafficTarget is a revision's share of an app's requests (ADR 0024).
+message TrafficTarget {
+  string revision = 1;
+  // Percent, 0 to 100.
+  int32 weight = 2;
+  // Serves the revision alone under <label>--<app>.
+  string label = 3;
+  // URLs of the label (status only).
+  repeated string urls = 4;
+  // Replicas the revision runs (status only).
+  int32 replicas = 5;
+}
 
 message LogsRequest {
   string app = 1;
@@ -731,6 +759,8 @@ message ProxyServer {
   string name = 1;
   // ip:port on a node's private IP.
   string address = 2;
+  // Share of the backend's requests, 1 to 256; 0 means 1 (ADR 0024).
+  uint32 weight = 3;
 }
 
 message ProxyRule {

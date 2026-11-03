@@ -22,6 +22,7 @@ const (
 	AdminService_Deploy_FullMethodName                  = "/armada.v1.AdminService/Deploy"
 	AdminService_Status_FullMethodName                  = "/armada.v1.AdminService/Status"
 	AdminService_Scale_FullMethodName                   = "/armada.v1.AdminService/Scale"
+	AdminService_SetTraffic_FullMethodName              = "/armada.v1.AdminService/SetTraffic"
 	AdminService_Logs_FullMethodName                    = "/armada.v1.AdminService/Logs"
 	AdminService_GetClusterConfig_FullMethodName        = "/armada.v1.AdminService/GetClusterConfig"
 	AdminService_SetClusterConfig_FullMethodName        = "/armada.v1.AdminService/SetClusterConfig"
@@ -60,6 +61,9 @@ type AdminServiceClient interface {
 	Deploy(ctx context.Context, in *DeployRequest, opts ...grpc.CallOption) (*DeployResponse, error)
 	Status(ctx context.Context, in *StatusRequest, opts ...grpc.CallOption) (*StatusResponse, error)
 	Scale(ctx context.Context, in *ScaleRequest, opts ...grpc.CallOption) (*ScaleResponse, error)
+	// SetTraffic changes how an app in multiple revision mode splits
+	// requests, until its next deploy (ADR 0024).
+	SetTraffic(ctx context.Context, in *SetTrafficRequest, opts ...grpc.CallOption) (*SetTrafficResponse, error)
 	Logs(ctx context.Context, in *LogsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[LogEntry], error)
 	GetClusterConfig(ctx context.Context, in *GetClusterConfigRequest, opts ...grpc.CallOption) (*ClusterConfig, error)
 	SetClusterConfig(ctx context.Context, in *SetClusterConfigRequest, opts ...grpc.CallOption) (*ClusterConfig, error)
@@ -131,6 +135,16 @@ func (c *adminServiceClient) Scale(ctx context.Context, in *ScaleRequest, opts .
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ScaleResponse)
 	err := c.cc.Invoke(ctx, AdminService_Scale_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) SetTraffic(ctx context.Context, in *SetTrafficRequest, opts ...grpc.CallOption) (*SetTrafficResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SetTrafficResponse)
+	err := c.cc.Invoke(ctx, AdminService_SetTraffic_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -428,6 +442,9 @@ type AdminServiceServer interface {
 	Deploy(context.Context, *DeployRequest) (*DeployResponse, error)
 	Status(context.Context, *StatusRequest) (*StatusResponse, error)
 	Scale(context.Context, *ScaleRequest) (*ScaleResponse, error)
+	// SetTraffic changes how an app in multiple revision mode splits
+	// requests, until its next deploy (ADR 0024).
+	SetTraffic(context.Context, *SetTrafficRequest) (*SetTrafficResponse, error)
 	Logs(*LogsRequest, grpc.ServerStreamingServer[LogEntry]) error
 	GetClusterConfig(context.Context, *GetClusterConfigRequest) (*ClusterConfig, error)
 	SetClusterConfig(context.Context, *SetClusterConfigRequest) (*ClusterConfig, error)
@@ -483,6 +500,9 @@ func (UnimplementedAdminServiceServer) Status(context.Context, *StatusRequest) (
 }
 func (UnimplementedAdminServiceServer) Scale(context.Context, *ScaleRequest) (*ScaleResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Scale not implemented")
+}
+func (UnimplementedAdminServiceServer) SetTraffic(context.Context, *SetTrafficRequest) (*SetTrafficResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SetTraffic not implemented")
 }
 func (UnimplementedAdminServiceServer) Logs(*LogsRequest, grpc.ServerStreamingServer[LogEntry]) error {
 	return status.Error(codes.Unimplemented, "method Logs not implemented")
@@ -633,6 +653,24 @@ func _AdminService_Scale_Handler(srv interface{}, ctx context.Context, dec func(
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(AdminServiceServer).Scale(ctx, req.(*ScaleRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_SetTraffic_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetTrafficRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).SetTraffic(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminService_SetTraffic_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).SetTraffic(ctx, req.(*SetTrafficRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1098,6 +1136,10 @@ var AdminService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Scale",
 			Handler:    _AdminService_Scale_Handler,
+		},
+		{
+			MethodName: "SetTraffic",
+			Handler:    _AdminService_SetTraffic_Handler,
 		},
 		{
 			MethodName: "GetClusterConfig",

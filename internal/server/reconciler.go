@@ -185,8 +185,30 @@ func working(r store.Replica, publishes bool) bool {
 
 // inProxy reports whether r should receive traffic.
 func inProxy(app store.App, r store.Replica) bool {
-	return r.App == app.Name && (r.Revision == app.ActiveRevision || r.Revision == app.TargetRevision) &&
+	return r.App == app.Name && (r.Revision == app.ActiveRevision || r.Revision == app.TargetRevision || trafficWeight(app, r.Revision) > 0) &&
 		r.State == store.ReplicaRunning && r.Ready && !r.Draining() && r.Address != ""
+}
+
+// trafficWeight is rev's weight in app's traffic, or -1 if it has none
+// (ADR 0024).
+func trafficWeight(app store.App, rev string) int {
+	for _, t := range app.Traffic {
+		if t.Revision == rev {
+			return t.Weight
+		}
+	}
+	return -1
+}
+
+// trafficShares splits total replicas between traffic targets by weight:
+// at least one each, so a revision reached only through its label runs
+// too.
+func trafficShares(total int, traffic []spec.TrafficTarget) []int {
+	out := make([]int, len(traffic))
+	for i, t := range traffic {
+		out[i] = max(1, (total*t.Weight+50)/100)
+	}
+	return out
 }
 
 // publishesPort reports whether replicas of sp publish a port.
@@ -195,6 +217,31 @@ func publishesPort(sp *spec.App) bool {
 }
 
 func (s *Server) reconcileApp(ctx context.Context, rc *reconcileRun, app *store.App, nodes []store.Node, all []store.Replica, revs *revisionCache) ([]store.Replica, error) {
+	if len(app.Traffic) == 0 || app.Rolling() {
+		return s.reconcileRevision(ctx, rc, app, nodes, all, revs, nil)
+	}
+	// Traffic splitting (ADR 0024): each revision in the traffic is
+	// reconciled like an app of its own with its share of the replicas,
+	// leaving the replicas of the others alone.
+	shares := trafficShares(app.Replicas, app.Traffic)
+	var err error
+	for i, t := range app.Traffic {
+		others := map[string]bool{}
+		for _, o := range app.Traffic {
+			others[o.Revision] = o.Revision != t.Revision
+		}
+		sub := *app
+		sub.ActiveRevision, sub.TargetRevision, sub.Replicas, sub.Traffic = t.Revision, t.Revision, shares[i], nil
+		if all, err = s.reconcileRevision(ctx, rc, &sub, nodes, all, revs, others); err != nil {
+			return nil, err
+		}
+	}
+	return all, nil
+}
+
+// reconcileRevision converges app's replicas toward its target revision,
+// leaving those of the revisions in others alone.
+func (s *Server) reconcileRevision(ctx context.Context, rc *reconcileRun, app *store.App, nodes []store.Node, all []store.Replica, revs *revisionCache, others map[string]bool) ([]store.Replica, error) {
 	publishes := map[string]bool{}
 	publishesRev := func(r store.Replica) bool {
 		p, ok := publishes[r.Revision]
@@ -212,7 +259,7 @@ func (s *Server) reconcileApp(ctx context.Context, rc *reconcileRun, app *store.
 	var err error
 	var current, old []store.Replica
 	for _, r := range all {
-		if r.App != app.Name {
+		if r.App != app.Name || others[r.Revision] {
 			continue
 		}
 		switch {
@@ -222,7 +269,9 @@ func (s *Server) reconcileApp(ctx context.Context, rc *reconcileRun, app *store.
 			}
 		case r.Revision == app.TargetRevision:
 			current = append(current, r)
-		case r.Revision == app.ActiveRevision && app.Rolling():
+		case app.Rolling() && (r.Revision == app.ActiveRevision || trafficWeight(*app, r.Revision) >= 0):
+			// Leaving multiple revision mode: every revision in the
+			// traffic serves until the new one does.
 			old = append(old, r)
 		default:
 			// Leftovers of an aborted or superseded rollout.
@@ -321,7 +370,11 @@ func (s *Server) reconcileApp(ctx context.Context, rc *reconcileRun, app *store.
 			all = append(all, r)
 		}
 	}
-	s.condition(ctx, "unplaced:"+app.Name, unplaced, store.Event{Kind: eventApp, Object: app.Name, App: app.Name, Reason: "Unschedulable",
+	unplacedKey := "unplaced:" + app.Name
+	if others != nil {
+		unplacedKey += "/" + target.Name
+	}
+	s.condition(ctx, unplacedKey, unplaced, store.Event{Kind: eventApp, Object: app.Name, App: app.Name, Reason: "Unschedulable",
 		Message: fmt.Sprintf("no node can fit another replica (%d of %d placed); see armada status", len(current), app.Replicas)})
 	if all, err = s.evacuate(ctx, rc, app, all, current, old, append(lost, moving...), serving, working); err != nil {
 		return nil, err

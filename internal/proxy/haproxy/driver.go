@@ -64,7 +64,7 @@ type Driver struct {
 	mu       sync.Mutex
 	sig      string
 	layout   Layout
-	applied  map[string]string // "backend/slot" -> address, "" for a free slot
+	applied  map[string]slot   // "backend/slot" -> what it serves; zero for a free slot
 	certHash map[string]string // file name -> sha256 of PEM
 }
 
@@ -111,7 +111,7 @@ func New(cfg Config) (*Driver, error) {
 		cfg:      cfg,
 		log:      cfg.Logger.With("component", "haproxy"),
 		layout:   Layout{},
-		applied:  map[string]string{},
+		applied:  map[string]slot{},
 		certHash: map[string]string{},
 	}, nil
 }
@@ -178,14 +178,17 @@ func (d *Driver) Apply(ctx context.Context, cfg proxy.Config) error {
 	desired := desiredServers(cfg, layout)
 	for _, enable := range []bool{true, false} {
 		for _, key := range sortedKeys(desired) {
-			addr := desired[key]
-			if d.applied[key] == addr || (addr != "") != enable {
+			cur, want := d.applied[key], desired[key]
+			if cur == want || (want.Addr == "" && cur.Addr == "") || (want.Addr != "") != enable {
 				continue
 			}
-			if err := d.setServer(ctx, key, addr); err != nil {
+			if err := d.setServer(ctx, key, cur, want); err != nil {
 				return err
 			}
-			d.applied[key] = addr
+			if want.Addr == "" {
+				want.Weight = cur.Weight // maintenance leaves the weight as it was
+			}
+			d.applied[key] = want
 		}
 	}
 	for _, name := range changedCerts {
@@ -220,12 +223,27 @@ func (d *Driver) commit(sig string, layout Layout, cfg proxy.Config) {
 	d.applied = desiredServers(cfg, layout)
 }
 
-func (d *Driver) setServer(ctx context.Context, key, addr string) error {
-	if addr == "" {
+// slot is what a server slot serves: a replica's address and its weight
+// (traffic splitting, ADR 0024).
+type slot struct {
+	Addr   string
+	Weight int
+}
+
+func (d *Driver) setServer(ctx context.Context, key string, cur, want slot) error {
+	if want.Addr == "" {
 		_, err := d.cfg.API.Command(ctx, "set server "+key+" state maint")
 		return err
 	}
-	ap, err := netip.ParseAddrPort(addr)
+	if want.Weight != cur.Weight {
+		if _, err := d.cfg.API.Command(ctx, fmt.Sprintf("set server %s weight %d", key, want.Weight)); err != nil {
+			return err
+		}
+	}
+	if want.Addr == cur.Addr {
+		return nil // only the weight changed
+	}
+	ap, err := netip.ParseAddrPort(want.Addr)
 	if err != nil {
 		return err
 	}
@@ -332,15 +350,20 @@ func assignLayout(prev Layout, cfg proxy.Config) Layout {
 	return next
 }
 
-func desiredServers(cfg proxy.Config, layout Layout) map[string]string {
-	out := map[string]string{}
+func desiredServers(cfg proxy.Config, layout Layout) map[string]slot {
+	out := map[string]slot{}
 	for _, be := range cfg.Backends {
-		addrs := map[string]string{}
+		slots := map[string]slot{}
 		for _, s := range be.Servers {
-			addrs[s.Name] = s.Address
+			slots[s.Name] = slot{Addr: s.Address, Weight: s.EffectiveWeight()}
 		}
 		for i, name := range layout[be.Name] {
-			out[backendName(be.Name)+"/"+slotName(i)] = addrs[name]
+			// A free slot is rendered with the default weight.
+			want, ok := slots[name]
+			if !ok {
+				want = slot{Weight: 1}
+			}
+			out[backendName(be.Name)+"/"+slotName(i)] = want
 		}
 	}
 	return out
