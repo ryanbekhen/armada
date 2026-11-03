@@ -362,6 +362,65 @@ web-r1-q2k0d     node2  running  41m/250m   58Mi/256Mi
   appear 10 to 20 seconds after a replica starts or the control plane's
   leader changes, since samples are kept in the leader's memory only.
 
+## Metrics
+
+The leader serves Prometheus metrics ([ADR 0019](adr/0019-metrics-endpoint.md))
+when servers run with `--metrics-listen`. Give every server the same flag in
+`/etc/armada/server.env`, with its own private address:
+
+```bash
+ARMADA_SERVER_FLAGS="... --metrics-listen 10.0.0.5:9443"
+```
+
+The endpoint needs a client certificate. Create one for the scraper from any
+machine with admin credentials:
+
+```bash
+armada metrics credentials prometheus -o /etc/prometheus/armada   # ca.pem, cert.pem, key.pem
+```
+
+The key is generated on that machine and never sent to the server. The
+certificate (`metrics:prometheus`) can only scrape: the API refuses it. It
+lasts a year; create a new one before it expires. Admin certificates may
+scrape too.
+
+Scrape every server. Only the leader answers, so exactly one target is up:
+
+```yaml
+scrape_configs:
+  - job_name: armada
+    scheme: https
+    tls_config:
+      ca_file: /etc/prometheus/armada/ca.pem
+      cert_file: /etc/prometheus/armada/cert.pem
+      key_file: /etc/prometheus/armada/key.pem
+      server_name: armada-server
+    static_configs:
+      - targets: ["10.0.0.5:9443", "10.0.0.6:9443", "10.0.0.7:9443"]
+```
+
+| Metric | Labels | Meaning |
+| --- | --- | --- |
+| `armada_server_leader` | `server` | 1 on the server that serves the endpoint |
+| `armada_agents_connected` | | agents connected to the leader |
+| `armada_reconcile_duration_seconds` | | histogram of reconcile times |
+| `armada_reconcile_errors_total` | | failed reconciles |
+| `armada_app_replicas_desired`, `armada_app_replicas_ready` | `app` | desired replicas, and those running, ready, and not draining |
+| `armada_app_rollout` | `app`, `state` | 1 for the current rollout state: `idle`, `progressing`, `failed` |
+| `armada_replica_ready` | `app`, `replica`, `revision`, `node` | 1 when the replica serves |
+| `armada_replica_cpu_usage_cores`, `armada_replica_memory_usage_bytes` | `app`, `replica`, `node` | usage from the latest sample (absent without one) |
+| `armada_replica_cpu_reserved_cores`, `armada_replica_cpu_limit_cores`, `armada_replica_memory_limit_bytes` | `app`, `replica`, `node` | reservation and limits (CPU limit only when set) |
+| `armada_node_ready`, `armada_node_cordoned` | `node` | node state |
+| `armada_node_replicas` | `node` | replicas assigned to the node |
+| `armada_node_cpu_allocatable_cores`, `armada_node_memory_allocatable_bytes` | `node` | what the node can give replicas |
+| `armada_node_cpu_reserved_cores`, `armada_node_memory_reserved_bytes` | `node` | what its replicas reserve |
+| `armada_node_cpu_usage_cores`, `armada_node_memory_usage_bytes` | `node` | what its replicas use |
+
+Example alerts: `armada_app_replicas_ready < armada_app_replicas_desired`
+for 10 minutes, `armada_app_rollout{state="failed"} == 1`,
+`armada_replica_memory_usage_bytes / armada_replica_memory_limit_bytes > 0.9`,
+and `armada_node_ready == 0`.
+
 ## When a node fails
 
 | What fails | What happens |

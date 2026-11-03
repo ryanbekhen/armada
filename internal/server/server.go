@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
@@ -80,6 +81,11 @@ type Config struct {
 	// (default pki.NodeValidity).
 	NodeCertValidity time.Duration
 
+	// MetricsAddr is the private ip:port of the metrics endpoint (ADR 0019),
+	// served with TLS and only to metrics and admin certificates. Empty
+	// disables it.
+	MetricsAddr string
+
 	// Name is this control plane node's name.
 	Name string
 	// Cluster manages the control plane's etcd membership. Nil disables
@@ -98,6 +104,10 @@ type Server struct {
 	cluster Cluster
 
 	ca               *pki.CA
+	tlsCfg           *tls.Config
+	metricsAddr      string
+	reconcileSeconds prometheus.Histogram
+	reconcileErrors  prometheus.Counter
 	joinAddr         string
 	joinTLS          *tls.Config
 	apiAddr          string
@@ -179,6 +189,11 @@ func New(cfg Config) (*Server, error) {
 			return nil, errors.New("server: the join listener must not request client certificates")
 		}
 	}
+	if cfg.MetricsAddr != "" {
+		if err := netutil.CheckPrivateListen(cfg.MetricsAddr); err != nil {
+			return nil, fmt.Errorf("server: metrics listener: %w", err)
+		}
+	}
 	if cfg.NodeCertValidity <= 0 || cfg.NodeCertValidity > pki.NodeValidity {
 		cfg.NodeCertValidity = pki.NodeValidity
 	}
@@ -227,7 +242,17 @@ func New(cfg Config) (*Server, error) {
 		sessions:   map[string]*session{},
 		logs:       newLogRouter(),
 		execs:      newExecRouter(),
-		usage:      newUsageStore(),
+		tlsCfg:     cfg.TLS,
+
+		metricsAddr: cfg.MetricsAddr,
+		reconcileSeconds: prometheus.NewHistogram(prometheus.HistogramOpts{
+			Name: "armada_reconcile_duration_seconds", Help: "How long a reconcile of the whole cluster takes.",
+			Buckets: prometheus.ExponentialBuckets(0.005, 2, 12),
+		}),
+		reconcileErrors: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "armada_reconcile_errors_total", Help: "Reconciles that failed.",
+		}),
+		usage: newUsageStore(),
 
 		certs:          cfg.Certs,
 		acmeAddr:       cfg.ACMEAddr,
@@ -289,6 +314,11 @@ func (s *Server) Serve(ctx context.Context, lis net.Listener) error {
 			return err
 		}
 	}
+	if s.metricsAddr != "" {
+		if err := s.serveMetrics(ctx); err != nil {
+			return err
+		}
+	}
 	go s.verifyLoop(ctx)
 	go s.reconcileLoop(ctx)
 	go func() {
@@ -327,7 +357,11 @@ func (s *Server) reconcileLoop(ctx context.Context) {
 	t := time.NewTicker(s.resync)
 	defer t.Stop()
 	for {
-		if err := s.Reconcile(ctx); err != nil && ctx.Err() == nil {
+		start := time.Now()
+		err := s.Reconcile(ctx)
+		s.reconcileSeconds.Observe(time.Since(start).Seconds())
+		if err != nil && ctx.Err() == nil {
+			s.reconcileErrors.Inc()
 			s.log.Error("reconcile failed", "err", err)
 		}
 		s.promoteLearners(ctx)

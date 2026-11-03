@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -158,7 +160,7 @@ func TestEndToEnd(t *testing.T) {
 	secretsDir := filepath.Join(t.TempDir(), "secrets")
 
 	dataDir, config, _ := initCluster(t)
-	acme, join := freeAddr(t), freeAddr(t)
+	acme, join, metrics := freeAddr(t), freeAddr(t), freeAddr(t)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan int, 1)
@@ -166,7 +168,7 @@ func TestEndToEnd(t *testing.T) {
 	go func() {
 		// Never the production ACME endpoint in tests.
 		done <- Execute(ctx, []string{"server", "--data-dir", dataDir, "--acme-ca", "letsencrypt-staging", "--acme-listen", acme,
-			"--secrets-dir", secretsDir, "--log-format", "json", "--verbose", "--join-listen", join}, serverLog, serverLog)
+			"--secrets-dir", secretsDir, "--log-format", "json", "--verbose", "--join-listen", join, "--metrics-listen", metrics}, serverLog, serverLog)
 	}()
 	t.Cleanup(func() {
 		cancel()
@@ -287,6 +289,43 @@ func TestEndToEnd(t *testing.T) {
 	if code, _, stderr := cli("top", "ghost"); code != 1 || !strings.Contains(stderr, "not found") {
 		t.Errorf("top ghost: code=%d err=%q", code, stderr)
 	}
+
+	// Metrics: credentials that only scrape, written with private modes.
+	credDir := filepath.Join(t.TempDir(), "prom")
+	if code, out, stderr := cli("metrics", "credentials", "prom", "-o", credDir); code != 0 || !strings.Contains(out, "metrics:prom") {
+		t.Fatalf("metrics credentials: code=%d out=%q err=%q", code, out, stderr)
+	}
+	if fi, err := os.Stat(credDir); err != nil || fi.Mode().Perm() != 0o700 {
+		t.Errorf("credentials directory: %v %v", fi, err)
+	}
+	pems := map[string][]byte{}
+	for _, f := range []string{"ca.pem", "cert.pem", "key.pem"} {
+		p := filepath.Join(credDir, f)
+		if fi, err := os.Stat(p); err != nil || fi.Mode().Perm() != 0o600 {
+			t.Errorf("%s: %v %v", f, fi, err)
+		}
+		pems[f], _ = os.ReadFile(p)
+	}
+	if code, _, stderr := cli("metrics", "credentials", "prom", "-o", credDir); code != 1 || !strings.Contains(stderr, "already exists") {
+		t.Errorf("credentials into an existing directory: code=%d err=%q", code, stderr)
+	}
+	if code, _, stderr := cli("metrics", "credentials", "../x"); code != 1 || !strings.Contains(stderr, "invalid name") {
+		t.Errorf("credentials with a bad name: code=%d err=%q", code, stderr)
+	}
+	mtls, err := pki.ClientTLS(pems["ca.pem"], pems["cert.pem"], pems["key.pem"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	hc := &http.Client{Transport: &http.Transport{TLSClientConfig: mtls}, Timeout: 5 * time.Second}
+	waitFor("metrics endpoint", func() bool {
+		resp, err := hc.Get("https://" + metrics + "/metrics")
+		if err != nil {
+			return false
+		}
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(resp.Body)
+		return resp.StatusCode == http.StatusOK && strings.Contains(string(b), `armada_app_replicas_ready{app="web"}`)
+	})
 
 	// Ingress: HAProxy is started by the embedded agent and routes
 	// <app>.<root> once a root domain is set.
@@ -433,7 +472,7 @@ func TestCommandsWithoutConfig(t *testing.T) {
 	t.Parallel()
 
 	missing := filepath.Join(t.TempDir(), "nope")
-	for _, args := range [][]string{{"status"}, {"scale", "a", "1"}, {"logs", "a"}, {"exec", "a", "--", "sh"}, {"top"}} {
+	for _, args := range [][]string{{"status"}, {"scale", "a", "1"}, {"logs", "a"}, {"exec", "a", "--", "sh"}, {"top"}, {"metrics", "credentials", "p", "-o", filepath.Join(t.TempDir(), "m")}} {
 		code, _, stderr := run(t, append(args, "--config", missing)...)
 		if code == 0 || !strings.Contains(stderr, "armada init") {
 			t.Errorf("%v: code=%d stderr=%q", args, code, stderr)

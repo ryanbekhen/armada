@@ -19,28 +19,29 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	AdminService_Deploy_FullMethodName           = "/armada.v1.AdminService/Deploy"
-	AdminService_Status_FullMethodName           = "/armada.v1.AdminService/Status"
-	AdminService_Scale_FullMethodName            = "/armada.v1.AdminService/Scale"
-	AdminService_Logs_FullMethodName             = "/armada.v1.AdminService/Logs"
-	AdminService_GetClusterConfig_FullMethodName = "/armada.v1.AdminService/GetClusterConfig"
-	AdminService_SetClusterConfig_FullMethodName = "/armada.v1.AdminService/SetClusterConfig"
-	AdminService_ListDomains_FullMethodName      = "/armada.v1.AdminService/ListDomains"
-	AdminService_VerifyDomain_FullMethodName     = "/armada.v1.AdminService/VerifyDomain"
-	AdminService_ListRevisions_FullMethodName    = "/armada.v1.AdminService/ListRevisions"
-	AdminService_Rollback_FullMethodName         = "/armada.v1.AdminService/Rollback"
-	AdminService_SetSecret_FullMethodName        = "/armada.v1.AdminService/SetSecret"
-	AdminService_ListSecrets_FullMethodName      = "/armada.v1.AdminService/ListSecrets"
-	AdminService_DeleteSecret_FullMethodName     = "/armada.v1.AdminService/DeleteSecret"
-	AdminService_CreateJoinToken_FullMethodName  = "/armada.v1.AdminService/CreateJoinToken"
-	AdminService_CordonNode_FullMethodName       = "/armada.v1.AdminService/CordonNode"
-	AdminService_LabelNode_FullMethodName        = "/armada.v1.AdminService/LabelNode"
-	AdminService_RestrictNode_FullMethodName     = "/armada.v1.AdminService/RestrictNode"
-	AdminService_RemoveNode_FullMethodName       = "/armada.v1.AdminService/RemoveNode"
-	AdminService_ListServers_FullMethodName      = "/armada.v1.AdminService/ListServers"
-	AdminService_RemoveServer_FullMethodName     = "/armada.v1.AdminService/RemoveServer"
-	AdminService_Exec_FullMethodName             = "/armada.v1.AdminService/Exec"
-	AdminService_Top_FullMethodName              = "/armada.v1.AdminService/Top"
+	AdminService_Deploy_FullMethodName                  = "/armada.v1.AdminService/Deploy"
+	AdminService_Status_FullMethodName                  = "/armada.v1.AdminService/Status"
+	AdminService_Scale_FullMethodName                   = "/armada.v1.AdminService/Scale"
+	AdminService_Logs_FullMethodName                    = "/armada.v1.AdminService/Logs"
+	AdminService_GetClusterConfig_FullMethodName        = "/armada.v1.AdminService/GetClusterConfig"
+	AdminService_SetClusterConfig_FullMethodName        = "/armada.v1.AdminService/SetClusterConfig"
+	AdminService_ListDomains_FullMethodName             = "/armada.v1.AdminService/ListDomains"
+	AdminService_VerifyDomain_FullMethodName            = "/armada.v1.AdminService/VerifyDomain"
+	AdminService_ListRevisions_FullMethodName           = "/armada.v1.AdminService/ListRevisions"
+	AdminService_Rollback_FullMethodName                = "/armada.v1.AdminService/Rollback"
+	AdminService_SetSecret_FullMethodName               = "/armada.v1.AdminService/SetSecret"
+	AdminService_ListSecrets_FullMethodName             = "/armada.v1.AdminService/ListSecrets"
+	AdminService_DeleteSecret_FullMethodName            = "/armada.v1.AdminService/DeleteSecret"
+	AdminService_CreateJoinToken_FullMethodName         = "/armada.v1.AdminService/CreateJoinToken"
+	AdminService_CordonNode_FullMethodName              = "/armada.v1.AdminService/CordonNode"
+	AdminService_LabelNode_FullMethodName               = "/armada.v1.AdminService/LabelNode"
+	AdminService_RestrictNode_FullMethodName            = "/armada.v1.AdminService/RestrictNode"
+	AdminService_RemoveNode_FullMethodName              = "/armada.v1.AdminService/RemoveNode"
+	AdminService_ListServers_FullMethodName             = "/armada.v1.AdminService/ListServers"
+	AdminService_RemoveServer_FullMethodName            = "/armada.v1.AdminService/RemoveServer"
+	AdminService_Exec_FullMethodName                    = "/armada.v1.AdminService/Exec"
+	AdminService_Top_FullMethodName                     = "/armada.v1.AdminService/Top"
+	AdminService_IssueMetricsCertificate_FullMethodName = "/armada.v1.AdminService/IssueMetricsCertificate"
 )
 
 // AdminServiceClient is the client API for AdminService service.
@@ -77,6 +78,9 @@ type AdminServiceClient interface {
 	// Top reports the CPU and memory replicas use, from the latest samples
 	// their agents sent (ADR 0018).
 	Top(ctx context.Context, in *TopRequest, opts ...grpc.CallOption) (*TopResponse, error)
+	// IssueMetricsCertificate signs a client certificate that may only
+	// scrape the metrics endpoint (ADR 0019).
+	IssueMetricsCertificate(ctx context.Context, in *IssueMetricsCertificateRequest, opts ...grpc.CallOption) (*IssueMetricsCertificateResponse, error)
 }
 
 type adminServiceClient struct {
@@ -319,6 +323,16 @@ func (c *adminServiceClient) Top(ctx context.Context, in *TopRequest, opts ...gr
 	return out, nil
 }
 
+func (c *adminServiceClient) IssueMetricsCertificate(ctx context.Context, in *IssueMetricsCertificateRequest, opts ...grpc.CallOption) (*IssueMetricsCertificateResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(IssueMetricsCertificateResponse)
+	err := c.cc.Invoke(ctx, AdminService_IssueMetricsCertificate_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AdminServiceServer is the server API for AdminService service.
 // All implementations must embed UnimplementedAdminServiceServer
 // for forward compatibility.
@@ -353,6 +367,9 @@ type AdminServiceServer interface {
 	// Top reports the CPU and memory replicas use, from the latest samples
 	// their agents sent (ADR 0018).
 	Top(context.Context, *TopRequest) (*TopResponse, error)
+	// IssueMetricsCertificate signs a client certificate that may only
+	// scrape the metrics endpoint (ADR 0019).
+	IssueMetricsCertificate(context.Context, *IssueMetricsCertificateRequest) (*IssueMetricsCertificateResponse, error)
 	mustEmbedUnimplementedAdminServiceServer()
 }
 
@@ -428,6 +445,9 @@ func (UnimplementedAdminServiceServer) Exec(grpc.BidiStreamingServer[ExecClientM
 }
 func (UnimplementedAdminServiceServer) Top(context.Context, *TopRequest) (*TopResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Top not implemented")
+}
+func (UnimplementedAdminServiceServer) IssueMetricsCertificate(context.Context, *IssueMetricsCertificateRequest) (*IssueMetricsCertificateResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method IssueMetricsCertificate not implemented")
 }
 func (UnimplementedAdminServiceServer) mustEmbedUnimplementedAdminServiceServer() {}
 func (UnimplementedAdminServiceServer) testEmbeddedByValue()                      {}
@@ -828,6 +848,24 @@ func _AdminService_Top_Handler(srv interface{}, ctx context.Context, dec func(in
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AdminService_IssueMetricsCertificate_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(IssueMetricsCertificateRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).IssueMetricsCertificate(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminService_IssueMetricsCertificate_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).IssueMetricsCertificate(ctx, req.(*IssueMetricsCertificateRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AdminService_ServiceDesc is the grpc.ServiceDesc for AdminService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -914,6 +952,10 @@ var AdminService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Top",
 			Handler:    _AdminService_Top_Handler,
+		},
+		{
+			MethodName: "IssueMetricsCertificate",
+			Handler:    _AdminService_IssueMetricsCertificate_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{
