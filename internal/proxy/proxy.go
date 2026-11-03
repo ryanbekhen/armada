@@ -76,6 +76,20 @@ type Backend struct {
 type Server struct {
 	Name    string
 	Address string
+	// Weight is the server's share of its backend's requests, 1 to
+	// MaxWeight; 0 means 1 (traffic splitting, ADR 0024).
+	Weight int
+}
+
+// MaxWeight is the largest server weight.
+const MaxWeight = 256
+
+// EffectiveWeight is the weight the proxy applies.
+func (s Server) EffectiveWeight() int {
+	if s.Weight == 0 {
+		return 1
+	}
+	return s.Weight
 }
 
 // Rule routes requests for Host whose path is PathPrefix or starts with
@@ -111,7 +125,7 @@ func FromProto(p *armadav1.ProxyConfig) Config {
 	for _, b := range p.GetBackends() {
 		be := Backend{Name: b.GetName(), HealthPath: b.GetHealthPath(), Wake: b.GetWake()}
 		for _, s := range b.GetServers() {
-			be.Servers = append(be.Servers, Server{Name: s.GetName(), Address: s.GetAddress()})
+			be.Servers = append(be.Servers, Server{Name: s.GetName(), Address: s.GetAddress(), Weight: int(min(s.GetWeight(), MaxWeight+1))})
 		}
 		c.Backends = append(c.Backends, be)
 	}
@@ -130,7 +144,7 @@ func (c Config) ToProto() *armadav1.ProxyConfig {
 	for _, b := range c.Backends {
 		pb := &armadav1.ProxyBackend{Name: b.Name, HealthPath: b.HealthPath, Wake: b.Wake}
 		for _, s := range b.Servers {
-			pb.Servers = append(pb.Servers, &armadav1.ProxyServer{Name: s.Name, Address: s.Address})
+			pb.Servers = append(pb.Servers, &armadav1.ProxyServer{Name: s.Name, Address: s.Address, Weight: uint32(max(s.Weight, 0))}) //nolint:gosec // bounded by Validate
 		}
 		p.Backends = append(p.Backends, pb)
 	}
@@ -172,7 +186,7 @@ func (c Config) Validate() error {
 
 	backends := map[string]bool{}
 	for _, b := range c.Backends {
-		if err := spec.ValidateName(b.Name); err != nil {
+		if !spec.ValidHostName(b.Name) {
 			add("backend %q: invalid name", b.Name)
 			continue
 		}
@@ -196,6 +210,9 @@ func (c Config) Validate() error {
 			if err != nil || !netutil.IsPrivate(ap.Addr()) || ap.Port() == 0 || ap.String() != s.Address {
 				add("backend %s: server address %q must be a private ip:port", b.Name, s.Address)
 			}
+			if s.Weight < 0 || s.Weight > MaxWeight {
+				add("backend %s: server weight must be between 1 and %d", b.Name, MaxWeight)
+			}
 			if s.Name == "" || seen[s.Name] {
 				add("backend %s: missing or duplicate server name", b.Name)
 			}
@@ -208,8 +225,8 @@ func (c Config) Validate() error {
 		if r.Internal {
 			// Only <app>.internal, never a public name on the internal side.
 			name, ok := strings.CutSuffix(r.Host, spec.InternalSuffix)
-			if !ok || spec.ValidateName(name) != nil {
-				add("internal rule host %q must be <app>%s", r.Host, spec.InternalSuffix)
+			if !ok || !spec.ValidHostName(name) {
+				add("internal rule host %q must be <app>%s or <label>--<app>%s", r.Host, spec.InternalSuffix, spec.InternalSuffix)
 			}
 		} else if err := spec.ValidateDomain(r.Host); err != nil {
 			add("rule host %q: %v", r.Host, err)

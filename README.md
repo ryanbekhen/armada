@@ -37,6 +37,9 @@ armada deploy -f web.yaml    # → https://web.apps.example.com
 - **Rolling updates and rollback.** Revisions pin the image digest and the
   secret versions. New replicas take traffic only once their probes pass,
   and old ones are drained, not killed.
+- **Traffic splitting.** `revisions.mode: multiple` splits requests between
+  revisions by weight, with a URL of their own for labelled revisions,
+  for canaries and previews.
 - **HTTPS by default.** HAProxy on every node, certificates from Let's
   Encrypt (HTTP-01, or DNS-01 with Cloudflare for a wildcard), custom
   domains after TXT ownership verification.

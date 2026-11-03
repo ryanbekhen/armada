@@ -218,7 +218,7 @@ func (a *App) Validate() error {
 	v.secretFiles(a.SecretFiles)
 	v.registry(a.Registry, a.Image)
 	v.ingress(a.Ingress)
-	v.revisions(a.Revisions)
+	v.revisions(a)
 	v.probes(a.Probes)
 	v.scale(a.Scale, a.Ingress)
 	v.resources(a.Resources)
@@ -402,6 +402,20 @@ const InternalSuffix = ".internal"
 // InternalHost returns the cluster-internal hostname of an app.
 func InternalHost(app string) string { return app + InternalSuffix }
 
+// LabelHost is the host name label of a revision of app serves under
+// (ADR 0024): <label>--<app>. App names cannot contain "--", so it never
+// collides with another app's name.
+func LabelHost(label, app string) string { return label + "--" + app }
+
+// ValidHostName reports whether s is an app name or a LabelHost.
+func ValidHostName(s string) bool {
+	if ValidName(s) {
+		return true
+	}
+	label, app, ok := strings.Cut(s, "--")
+	return ok && len(s) <= 63 && ValidName(label) && ValidName(app)
+}
+
 // ValidateRoutePath checks a route path prefix: it starts with "/", has no
 // trailing slash (except "/"), no empty or dot segments, and only unreserved
 // URL characters.
@@ -420,8 +434,17 @@ func ValidateRoutePath(p string) error {
 	return nil
 }
 
-func (v *validator) revisions(r *Revisions) {
-	if r == nil {
+// Traffic splitting (ADR 0024).
+const (
+	// LatestRevision in revisions.traffic names the revision the deploy
+	// creates.
+	LatestRevision    = "latest"
+	MaxTrafficTargets = 10
+)
+
+func (v *validator) revisions(a *App) {
+	r := a.Revisions
+	if r == nil || a.IsJob() {
 		return
 	}
 	switch r.Mode {
@@ -430,10 +453,93 @@ func (v *validator) revisions(r *Revisions) {
 			v.add("revisions.traffic", "is only allowed in multiple mode")
 		}
 	case RevisionsMultiple:
-		v.unsupported("revisions.mode", "multiple revision mode is planned for v0.2")
+		if a.Ingress == nil || a.Ingress.Type == IngressNone || a.Ingress.Type == "" {
+			v.add("revisions.mode", "multiple needs ingress (external or internal): traffic is split at the proxy")
+		}
+		if a.Scale != nil && a.Scale.Min != nil && *a.Scale.Min == 0 {
+			v.add("revisions.mode", "multiple cannot be combined with scale.min: 0")
+		}
+		for _, e := range CheckTraffic(a.Name, r.Traffic, true) {
+			v.add(e.Field, "%s", e.Msg)
+		}
 	default:
 		v.add("revisions.mode", "must be single or multiple")
 	}
+}
+
+// CheckTraffic validates traffic targets of app: 1 to 10 of them, each
+// revision once ("latest" only if allowLatest), weights 0 to 100 adding up
+// to 100, and labels that are valid names, unique, short enough to prefix
+// the app's host name (<label>--<app>), and required for weight 0.
+func CheckTraffic(app string, traffic []TrafficTarget, allowLatest bool) []*FieldError {
+	var errs []*FieldError
+	add := func(field, format string, args ...any) {
+		errs = append(errs, &FieldError{Field: field, Msg: fmt.Sprintf(format, args...)})
+	}
+	if len(traffic) == 0 || len(traffic) > MaxTrafficTargets {
+		add("revisions.traffic", "needs 1 to %d targets", MaxTrafficTargets)
+		return errs
+	}
+	sum := 0
+	revs, labels := map[string]bool{}, map[string]bool{}
+	for i, t := range traffic {
+		f := fmt.Sprintf("revisions.traffic[%d]", i)
+		switch {
+		case t.Revision == LatestRevision && allowLatest:
+		case !ValidRevisionName(app, t.Revision):
+			if allowLatest {
+				add(f+".revision", "must be %q or a revision of %s such as %s--r3", LatestRevision, app, app)
+			} else {
+				add(f+".revision", "must be a revision of %s such as %s--r3", app, app)
+			}
+		}
+		if revs[t.Revision] {
+			add(f+".revision", "%s is listed more than once", t.Revision)
+		}
+		revs[t.Revision] = true
+		if t.Weight < 0 || t.Weight > 100 {
+			add(f+".weight", "must be between 0 and 100")
+		}
+		sum += t.Weight
+		switch {
+		case t.Label == "":
+			if t.Weight == 0 {
+				add(f+".label", "is required for weight 0 (the revision is then reached only through its label)")
+			}
+		case !ValidName(t.Label):
+			add(f+".label", "must be lowercase letters, digits, and single hyphens, starting with a letter")
+		case len(t.Label)+2+len(app) > 63:
+			add(f+".label", "%s--%s must be at most 63 characters", t.Label, app)
+		case labels[t.Label]:
+			add(f+".label", "%q is used more than once", t.Label)
+		}
+		labels[t.Label] = true
+	}
+	if sum != 100 {
+		add("revisions.traffic", "weights must add up to 100, not %d", sum)
+	}
+	return errs
+}
+
+// ValidRevisionName reports whether rev names a revision of app
+// (<app>--r<number>).
+func ValidRevisionName(app, rev string) bool {
+	seq, ok := strings.CutPrefix(rev, app+"--r")
+	if !ok || seq == "" || seq[0] == '0' || len(seq) > 9 {
+		return false
+	}
+	for _, c := range seq {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// MultipleRevisions reports whether the app splits traffic between
+// revisions (ADR 0024).
+func (a *App) MultipleRevisions() bool {
+	return !a.IsJob() && a.Revisions != nil && a.Revisions.Mode == RevisionsMultiple
 }
 
 func (v *validator) probes(p *Probes) {

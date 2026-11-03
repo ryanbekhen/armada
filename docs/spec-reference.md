@@ -42,6 +42,8 @@ resources:
 placement:                        # optional: only nodes with these labels
   require:
     region: sulawesi
+revisions:                        # optional: split traffic between revisions
+  mode: single                    # single (default) | multiple
 ```
 
 ## Fields
@@ -274,6 +276,55 @@ platforms (`armada revisions` shows them), and from then on only nodes
 with a matching `armada.os`/`armada.arch` get replicas. A replica that
 landed on another node before that fails fast and is replaced.
 
+### `revisions`
+
+By default (`mode: single`) a deploy rolls the app out to the new revision
+([ADR 0005](adr/0005-rolling-updates.md)). With `mode: multiple`, the app
+splits its requests between revisions ([ADR 0024](adr/0024-traffic-splitting.md)):
+
+```yaml
+ingress:
+  type: external
+  port: 8080
+revisions:
+  mode: multiple
+  traffic:
+    - revision: web--r3   # an existing revision (armada revisions web)
+      weight: 90
+    - revision: latest    # the revision this deploy creates
+      weight: 10
+      label: canary       # https://canary--web.<root domain>
+```
+
+- **Requirements.** Multiple mode needs ingress (external or internal).
+  It cannot be combined with `scale.min: 0`.
+- **`traffic`.** 1 to 10 targets.
+  - `revision` is a revision of the app (`web--r3`) or `latest`, each at
+    most once.
+  - `weight` is percent, 0 to 100, and the weights add up to 100.
+- **Labels.** `label` serves the revision alone at `<label>--<app>.internal`,
+  and for external apps at `https://<label>--<app>.<root domain>` (not on
+  custom domains).
+  - A label is lowercase letters, digits, and single hyphens, and
+    `<label>--<app>` fits in 63 characters.
+  - Weight 0 needs a label: the revision runs and is reached only through
+    it.
+- **What a deploy does.** No rollout: the traffic applies at once, and
+  each revision takes requests as its replicas become ready. Changing only
+  `traffic` creates no new revision.
+- **Replicas.** Each revision runs `max(1, round(replicas × weight ÷ 100))`
+  replicas, where `replicas` is `scale.min`, `armada scale`, or the
+  autoscaler's count.
+- **Changing weights.** `armada traffic web web--r3=50 web--r4=50` (or
+  `r3=50 r4=50`) changes the weights until the next deploy. A revision left
+  out stops serving. `armada rollback` refuses apps in multiple mode.
+- **Leaving multiple mode.** Deploy with `mode: single` (or no
+  `revisions`) for a rolling update. Every revision in the traffic serves
+  until the new one is ready.
+- **Shared settings.** Routes, domains, and the health check path come from
+  the newest revision. Each request is balanced on its own, with no sticky
+  sessions.
+
 ## Jobs
 
 A spec of `kind: job` describes work that runs to completion
@@ -328,5 +379,4 @@ until they are implemented:
 
 | Field | Planned |
 | --- | --- |
-| `revisions.mode: multiple`, `revisions.traffic` (traffic splitting) | v0.2 |
 | `scale.rules` of type `queue` or `schedule` | later |

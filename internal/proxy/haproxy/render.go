@@ -174,9 +174,9 @@ func render(cfg proxy.Config, layout Layout, opts renderOptions) []byte {
 	backends := slices.Clone(cfg.Backends)
 	slices.SortFunc(backends, func(a, b proxy.Backend) int { return cmp.Compare(a.Name, b.Name) })
 	for _, be := range backends {
-		addrs := map[string]string{}
+		servers := map[string]proxy.Server{}
 		for _, s := range be.Servers {
-			addrs[s.Name] = s.Address
+			servers[s.Name] = s
 		}
 		w("backend %s", backendName(be.Name))
 		w("    balance roundrobin")
@@ -187,8 +187,10 @@ func render(cfg proxy.Config, layout Layout, opts renderOptions) []byte {
 		// A dead node is out of rotation within about 4s.
 		w("    default-server check inter 2s fall 2 rise 2")
 		for i, name := range layout[be.Name] {
-			if addr, ok := addrs[name]; ok && name != "" {
-				w("    server %s %s", slotName(i), addr)
+			if s, ok := servers[name]; ok && name != "" && s.EffectiveWeight() != 1 {
+				w("    server %s %s weight %d", slotName(i), s.Address, s.EffectiveWeight())
+			} else if ok && name != "" {
+				w("    server %s %s", slotName(i), s.Address)
 			} else {
 				w("    server %s 127.0.0.1:1 disabled", slotName(i))
 			}

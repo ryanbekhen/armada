@@ -63,7 +63,7 @@ const (
 	// migrations when records change incompatibly. Records under servers/
 	// and meta/ are read and written by every server, whatever its schema,
 	// so they only ever gain optional fields.
-	etcdSchema = 3
+	etcdSchema = 4
 
 	maxTxnRetries = 100
 	// auditKeep is how many audit events are retained.
@@ -375,6 +375,10 @@ type appRec struct {
 	// LastRun is the number of a job's newest run, kept after the run
 	// itself is pruned so numbers are never reused.
 	LastRun int64 `json:"lastRun,omitempty"`
+	// Traffic is how an app in multiple revision mode splits requests,
+	// with "latest" resolved (ADR 0024). It stays while such an app rolls
+	// out to single mode, so its revisions serve until the new one does.
+	Traffic []spec.TrafficTarget `json:"traffic,omitempty"`
 }
 
 type revRec struct {
@@ -1029,7 +1033,7 @@ func (t *etx) toApp(a appRec) (App, error) {
 	return App{Name: a.Name, ActiveRevision: a.ActiveRevision, TargetRevision: a.TargetRevision, Replicas: a.Replicas,
 		Spec: rev.Spec, RolloutState: a.RolloutState, RolloutMessage: a.RolloutMessage,
 		RolloutProgressAt: fromMS(a.RolloutProgressAt), CreatedAt: fromMS(a.CreatedAt), UpdatedAt: fromMS(a.UpdatedAt),
-		LastScheduled: fromMS(a.LastScheduled)}, nil
+		LastScheduled: fromMS(a.LastScheduled), Traffic: slices.Clone(a.Traffic)}, nil
 }
 
 // Deploy records a new revision. See Store.
@@ -1046,6 +1050,17 @@ func (s *Etcd) Deploy(ctx context.Context, sp *spec.App, actor string) (Revision
 
 // deploy implements Deploy inside t. replicas is the desired count to set.
 func (s *Etcd) deploy(t *etx, sp *spec.App, replicas int, actor, action string) (Revision, bool, error) {
+	// Traffic is not part of a revision: changing only the weights moves
+	// traffic without a new revision (ADR 0024).
+	var traffic []spec.TrafficTarget
+	multiple := sp.MultipleRevisions()
+	if multiple {
+		traffic = sp.Revisions.Traffic
+		c, r := *sp, *sp.Revisions
+		r.Traffic = nil
+		c.Revisions = &r
+		sp = &c
+	}
 	body, err := json.Marshal(sp)
 	if err != nil {
 		return Revision{}, false, err
@@ -1083,6 +1098,10 @@ func (s *Etcd) deploy(t *etx, sp *spec.App, replicas int, actor, action string) 
 			}
 		}
 		switch {
+		case multiple && sameRevision(tgt, body, pins):
+			return tgt, false, t.activateTraffic(a, tgt.Name, traffic, replicas, now, actor, action+".unchanged")
+		case multiple && sameRevision(cur, body, pins):
+			return cur, false, t.activateTraffic(a, cur.Name, traffic, replicas, now, actor, action+".unchanged")
 		case sameRevision(tgt, body, pins):
 			a.Replicas, a.UpdatedAt = replicas, now.UnixMilli()
 			if err := t.put(pfxApps+a.Name, a); err != nil {
@@ -1126,6 +1145,9 @@ func (s *Etcd) deploy(t *etx, sp *spec.App, replicas int, actor, action string) 
 	if err := t.put(revKey(sp.Name, seq), revRec{Name: rev.Name, App: rev.App, Seq: seq, Spec: body, Secrets: pins, CreatedAt: now.UnixMilli()}); err != nil {
 		return Revision{}, false, err
 	}
+	if multiple {
+		return rev, true, t.activateTraffic(a, rev.Name, traffic, replicas, now, actor, action)
+	}
 	if sp.IsJob() {
 		// Jobs have no rollouts: new runs use the new revision.
 		a.ActiveRevision = rev.Name
@@ -1140,6 +1162,119 @@ func (s *Etcd) deploy(t *etx, sp *spec.App, replicas int, actor, action string) 
 		return Revision{}, false, err
 	}
 	return rev, true, t.audit(now, actor, action, sp.Name, rev.Name)
+}
+
+// activateTraffic makes latest the app's current revision in multiple
+// revision mode, with no rollout: traffic, with "latest" resolved to it,
+// decides which revisions run and serve (ADR 0024). Every revision named
+// must be one of the app's.
+func (t *etx) activateTraffic(a appRec, latest string, traffic []spec.TrafficTarget, replicas int, now time.Time, actor, action string) error {
+	resolved, err := t.resolveTraffic(a.Name, latest, traffic)
+	if err != nil {
+		return err
+	}
+	a.ActiveRevision, a.TargetRevision, a.Traffic = latest, latest, resolved
+	a.RolloutState, a.RolloutMessage, a.Replicas = RolloutNone, "", replicas
+	a.RolloutProgressAt, a.UpdatedAt = now.UnixMilli(), now.UnixMilli()
+	if err := t.put(pfxApps+a.Name, a); err != nil {
+		return err
+	}
+	if err := t.pruneRevisions(a.Name); err != nil {
+		return err
+	}
+	if err := t.pruneDomains(); err != nil {
+		return err
+	}
+	return t.audit(now, actor, action, a.Name, trafficString(resolved))
+}
+
+// resolveTraffic replaces "latest" with latest and checks every revision
+// exists, belongs to app, and is listed once.
+func (t *etx) resolveTraffic(app, latest string, traffic []spec.TrafficTarget) ([]spec.TrafficTarget, error) {
+	out := make([]spec.TrafficTarget, 0, len(traffic))
+	seen := map[string]bool{}
+	for _, tt := range traffic {
+		if tt.Revision == spec.LatestRevision {
+			tt.Revision = latest
+		}
+		if seen[tt.Revision] {
+			return nil, fmt.Errorf("revisions.traffic lists %s twice (latest is %s): %w", tt.Revision, latest, ErrPrecondition)
+		}
+		seen[tt.Revision] = true
+		rev, err := t.revision(tt.Revision)
+		if errors.Is(err, ErrNotFound) || (err == nil && rev.App != app) {
+			return nil, fmt.Errorf("revisions.traffic: %s is not a revision of %s (see armada revisions %s): %w", tt.Revision, app, app, ErrPrecondition)
+		}
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, tt)
+	}
+	return out, nil
+}
+
+// trafficString is traffic for the audit log: "web--r3=90,web--r4=10".
+func trafficString(traffic []spec.TrafficTarget) string {
+	parts := make([]string, 0, len(traffic))
+	for _, tt := range traffic {
+		parts = append(parts, fmt.Sprintf("%s=%d", tt.Revision, tt.Weight))
+	}
+	return strings.Join(parts, ",")
+}
+
+// SetTraffic changes the weights of an app in multiple revision mode until
+// its next deploy (ADR 0024). Each target keeps the label it has; a
+// revision not listed stops serving.
+func (s *Etcd) SetTraffic(ctx context.Context, app string, weights []spec.TrafficTarget, actor string) ([]spec.TrafficTarget, error) {
+	now := s.now()
+	var out []spec.TrafficTarget
+	err := s.tx(ctx, func(t *etx) error {
+		a, ok, err := t.app(app)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return notFoundf("app %s", app)
+		}
+		cur, err := t.revision(a.ActiveRevision)
+		if err != nil {
+			return err
+		}
+		if !cur.Spec.MultipleRevisions() || a.TargetRevision != a.ActiveRevision {
+			return fmt.Errorf("%s does not split traffic; set revisions.mode: multiple in its spec: %w", app, ErrPrecondition)
+		}
+		labels := map[string]string{}
+		for _, tt := range a.Traffic {
+			labels[tt.Revision] = tt.Label
+		}
+		next := make([]spec.TrafficTarget, 0, len(weights))
+		for _, w := range weights {
+			next = append(next, spec.TrafficTarget{Revision: w.Revision, Weight: w.Weight, Label: labels[w.Revision]})
+		}
+		if errs := spec.CheckTraffic(app, next, false); len(errs) > 0 {
+			return fmt.Errorf("%w: %w", errors.Join(fieldErrs(errs)...), ErrPrecondition)
+		}
+		if out, err = t.resolveTraffic(app, a.ActiveRevision, next); err != nil {
+			return err
+		}
+		a.Traffic, a.UpdatedAt = out, now.UnixMilli()
+		if err := t.put(pfxApps+app, a); err != nil {
+			return err
+		}
+		if err := t.pruneRevisions(app); err != nil {
+			return err
+		}
+		return t.audit(now, actor, "traffic", app, trafficString(out))
+	})
+	return out, err
+}
+
+func fieldErrs(errs []*spec.FieldError) []error {
+	out := make([]error, len(errs))
+	for i, e := range errs {
+		out[i] = e
+	}
+	return out
 }
 
 // setTarget points a at target and resets the rollout state: progressing if
@@ -1189,6 +1324,9 @@ func (t *etx) pruneRevisions(app string) error {
 	if len(recs) == 0 {
 		return nil
 	}
+	for _, tt := range a.Traffic {
+		running[tt.Revision] = true
+	}
 	maxSeq := recs[len(recs)-1].Seq
 	for _, r := range recs {
 		if r.Name == a.ActiveRevision || r.Name == a.TargetRevision || running[r.Name] || r.Seq > maxSeq-RevisionsToKeep {
@@ -1221,6 +1359,9 @@ func (s *Etcd) Rollback(ctx context.Context, app, revision, actor string) (Revis
 		if rev.Spec.IsJob() {
 			return fmt.Errorf("%s is a job; jobs have no rollouts (deploy the spec you want its next runs to use): %w", app, ErrPrecondition)
 		}
+		if len(a.Traffic) > 0 || rev.Spec.MultipleRevisions() {
+			return fmt.Errorf("%s splits traffic between revisions; change the weights with armada traffic %s or in its spec: %w", app, app, ErrPrecondition)
+		}
 		if err := t.checkPins(rev); err != nil {
 			return err
 		}
@@ -1252,6 +1393,9 @@ func (s *Etcd) CompleteRollout(ctx context.Context, app, revision string) error 
 			return notFoundf("rollout of %s to %s", app, revision)
 		}
 		a.ActiveRevision, a.RolloutState, a.RolloutMessage, a.UpdatedAt = a.TargetRevision, RolloutNone, "", now.UnixMilli()
+		if cur, err := t.revision(revision); err == nil && !cur.Spec.MultipleRevisions() {
+			a.Traffic = nil // the app has left multiple revision mode
+		}
 		if err := t.put(pfxApps+app, a); err != nil {
 			return err
 		}
@@ -2015,6 +2159,10 @@ var migrations = []migration{
 	// 2 -> 3: jobs (ADR 0021): apps of kind job, runs under runs/, and
 	// replicas that run to completion. Nothing to rewrite; servers that
 	// would treat a job as an app can no longer lead.
+	func(*etx) error { return nil },
+	// 3 -> 4: traffic splitting (ADR 0024): app records gain traffic.
+	// Nothing to rewrite; servers that would drop it when they rewrite an
+	// app, and run one revision only, can no longer lead.
 	func(*etx) error { return nil },
 }
 

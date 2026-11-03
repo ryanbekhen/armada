@@ -94,17 +94,10 @@ func (s *Server) buildProxy(ctx context.Context, apps []store.App, replicas []st
 		if sp.Probes != nil && sp.Probes.Readiness != nil {
 			be.HealthPath = sp.Probes.Readiness.Path
 		}
-		for _, r := range replicas {
-			if !inProxy(app, r) {
-				continue
-			}
-			// One bad address must not invalidate the configuration of the
-			// whole cluster; reports are validated, this is a backstop.
-			if err := (proxy.Config{Backends: []proxy.Backend{{Name: app.Name, Servers: []proxy.Server{{Name: r.ID, Address: r.Address}}}}}).Validate(); err != nil {
-				s.log.Warn("leaving replica out of the proxy", "replica", r.ID, "err", err)
-				continue
-			}
-			be.Servers = append(be.Servers, proxy.Server{Name: r.ID, Address: r.Address})
+		splits := len(app.Traffic) > 0 && !app.Rolling()
+		be.Servers = s.proxyServers(app, replicas, func(r store.Replica) bool { return inProxy(app, r) })
+		if splits {
+			weighServers(app, replicas, be.Servers)
 		}
 		cfg.Backends = append(cfg.Backends, be)
 
@@ -112,7 +105,38 @@ func (s *Server) buildProxy(ctx context.Context, apps []store.App, replicas []st
 		for _, rt := range appRoutes(sp) {
 			cfg.Rules = append(cfg.Rules, proxy.Rule{Host: spec.InternalHost(app.Name), PathPrefix: rt.Path, StripPrefix: rt.StripPrefix, Backend: app.Name, Internal: true})
 		}
-		if sp.Ingress.Type != spec.IngressExternal {
+
+		// Each labelled revision has a backend of its own, served under
+		// <label>--<app> (ADR 0024).
+		external := sp.Ingress.Type == spec.IngressExternal
+		if splits {
+			for _, t := range app.Traffic {
+				if t.Label == "" {
+					continue
+				}
+				name := spec.LabelHost(t.Label, app.Name)
+				lb := proxy.Backend{Name: name, HealthPath: be.HealthPath}
+				lb.Servers = s.proxyServers(app, replicas, func(r store.Replica) bool {
+					return r.App == app.Name && r.Revision == t.Revision && r.State == store.ReplicaRunning && r.Ready && !r.Draining() && r.Address != ""
+				})
+				cfg.Backends = append(cfg.Backends, lb)
+				for _, rt := range appRoutes(sp) {
+					cfg.Rules = append(cfg.Rules, proxy.Rule{Host: spec.InternalHost(name), PathPrefix: rt.Path, StripPrefix: rt.StripPrefix, Backend: name, Internal: true})
+				}
+				// Labels serve under the root domain only, not custom domains.
+				h := name + "." + root
+				if !external || root == "" || spec.ValidateDomain(h) != nil {
+					continue
+				}
+				for _, rt := range appRoutes(sp) {
+					cfg.Rules = append(cfg.Rules, proxy.Rule{Host: h, PathPrefix: rt.Path, StripPrefix: rt.StripPrefix, Backend: name})
+				}
+				if !wildcard {
+					certNames = append(certNames, h)
+				}
+			}
+		}
+		if !external {
 			continue
 		}
 		for _, h := range appHosts(app, root, verified) {
@@ -151,6 +175,66 @@ func (s *Server) buildProxy(ctx context.Context, apps []store.App, replicas []st
 		return nil, fmt.Errorf("generated proxy config is invalid: %w", err)
 	}
 	return cfg, nil
+}
+
+// labelURLs returns the URLs a revision label serves under (ADR 0024).
+func (s *Server) labelURLs(ctx context.Context, app store.App, label string) []string {
+	if label == "" || app.Rolling() || app.Spec.Ingress == nil {
+		return nil
+	}
+	// Like appURLs: public apps show their public URLs.
+	name := spec.LabelHost(label, app.Name)
+	prefix := "http://" + spec.InternalHost(name)
+	if app.Spec.Ingress.Type == spec.IngressExternal {
+		root := s.rootDomain(ctx)
+		if root == "" || spec.ValidateDomain(name+"."+root) != nil {
+			return nil
+		}
+		prefix = "https://" + name + "." + root
+	}
+	var urls []string
+	for _, r := range appRoutes(app.Spec) {
+		urls = append(urls, prefix+r.Path)
+	}
+	return urls
+}
+
+// proxyServers returns the servers of app's replicas that pass keep.
+func (s *Server) proxyServers(app store.App, replicas []store.Replica, keep func(store.Replica) bool) []proxy.Server {
+	var out []proxy.Server
+	for _, r := range replicas {
+		if !keep(r) {
+			continue
+		}
+		// One bad address must not invalidate the configuration of the
+		// whole cluster; reports are validated, this is a backstop.
+		if err := (proxy.Config{Backends: []proxy.Backend{{Name: app.Name, Servers: []proxy.Server{{Name: r.ID, Address: r.Address}}}}}).Validate(); err != nil {
+			s.log.Warn("leaving replica out of the proxy", "replica", r.ID, "err", err)
+			continue
+		}
+		out = append(out, proxy.Server{Name: r.ID, Address: r.Address})
+	}
+	return out
+}
+
+// weighServers gives each server its revision's weight divided among the
+// revision's servers, scaled to the proxy's weight range, so each revision
+// gets its share of requests whatever its replica count (ADR 0024). A
+// revision with no server up has no share: its requests go to the others.
+func weighServers(app store.App, replicas []store.Replica, servers []proxy.Server) {
+	revOf := map[string]string{}
+	for _, r := range replicas {
+		revOf[r.ID] = r.Revision
+	}
+	count := map[string]int{}
+	for _, sv := range servers {
+		count[revOf[sv.Name]]++
+	}
+	for i, sv := range servers {
+		rev := revOf[sv.Name]
+		w := trafficWeight(app, rev)
+		servers[i].Weight = max(1, (w*proxy.MaxWeight+50*count[rev])/(100*count[rev]))
+	}
 }
 
 // verifyDomain checks the TXT record for d and records the result.

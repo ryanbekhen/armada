@@ -42,6 +42,7 @@ func NewRootCommand() *cobra.Command {
 		newDeployCommand(g),
 		newStatusCommand(g),
 		newScaleCommand(g),
+		newTrafficCommand(g),
 		newLogsCommand(g),
 		newTopCommand(g),
 		newEventsCommand(g),

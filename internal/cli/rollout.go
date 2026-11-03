@@ -61,6 +61,19 @@ func waitRollout(ctx context.Context, client armadav1.AdminServiceClient, app, r
 		}
 		a := resp.Apps[0]
 		ready, desired := 0, int(a.DesiredReplicas)
+		if len(a.Traffic) > 0 && a.ActiveRevision == revision {
+			// Split traffic (ADR 0024): wait for the revision's own share.
+			desired = -1
+			for _, t := range a.Traffic {
+				if t.Revision == revision {
+					desired = int(t.Replicas)
+				}
+			}
+			if desired < 0 {
+				_, err := fmt.Fprintf(out, "%s takes no traffic; traffic: %s\n", revision, trafficSummary(a.Traffic))
+				return err
+			}
+		}
 		for _, r := range a.Replicas {
 			if r.Revision == revision && r.Ready && !r.Draining {
 				ready++
@@ -86,6 +99,19 @@ func waitRollout(ctx context.Context, client armadav1.AdminServiceClient, app, r
 		case <-time.After(waitPoll):
 		}
 	}
+}
+
+// trafficSummary reads like "web--r3 90%, web--r4 10% (canary)".
+func trafficSummary(traffic []*armadav1.TrafficTarget) string {
+	parts := make([]string, 0, len(traffic))
+	for _, t := range traffic {
+		p := fmt.Sprintf("%s %d%%", t.Revision, t.Weight)
+		if t.Label != "" {
+			p += " (" + t.Label + ")"
+		}
+		parts = append(parts, p)
+	}
+	return strings.Join(parts, ", ")
 }
 
 func newRollbackCommand(g *globals) *cobra.Command {

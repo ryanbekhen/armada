@@ -122,6 +122,46 @@ func newScaleCommand(g *globals) *cobra.Command {
 	}
 }
 
+func newTrafficCommand(g *globals) *cobra.Command {
+	return &cobra.Command{
+		Use:   "traffic APP REVISION=WEIGHT...",
+		Short: "Split an app's requests between revisions until the next deploy",
+		Long: "Split the requests of an app in multiple revision mode (revisions.mode:\n" +
+			"multiple) between its revisions until its next deploy. Weights are\n" +
+			"percent and add up to 100; a revision left out stops serving, and one\n" +
+			"with weight 0 is reached only through its label. Labels stay as the\n" +
+			"spec set them. REVISION is a full name (web--r3) or its number (r3).",
+		Example: "  armada traffic web web--r3=90 web--r4=10\n  armada traffic web r4=100",
+		Args:    cobra.MinimumNArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			app := args[0]
+			req := &armadav1.SetTrafficRequest{App: app}
+			for _, a := range args[1:] {
+				rev, w, ok := strings.Cut(a, "=")
+				n, err := strconv.Atoi(w)
+				if !ok || err != nil || n < 0 || n > 100 {
+					return fmt.Errorf("%q: want REVISION=WEIGHT with a weight from 0 to 100", a)
+				}
+				if strings.HasPrefix(rev, "r") && !strings.Contains(rev, "--") {
+					rev = app + "--" + rev
+				}
+				req.Traffic = append(req.Traffic, &armadav1.TrafficTarget{Revision: rev, Weight: int32(n)}) //nolint:gosec // bounded above
+			}
+			client, conn, err := dialAdmin(g)
+			if err != nil {
+				return err
+			}
+			defer conn.Close()
+			resp, err := client.SetTraffic(cmd.Context(), req)
+			if err != nil {
+				return rpcErr(err)
+			}
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Traffic of %s: %s\n", app, trafficSummary(resp.Traffic))
+			return err
+		},
+	}
+}
+
 func newStatusCommand(g *globals) *cobra.Command {
 	var output string
 	cmd := &cobra.Command{
@@ -184,6 +224,9 @@ func printStatus(out io.Writer, resp *armadav1.StatusResponse) error {
 			if as := a.Autoscale; as != nil {
 				notes = append(notes, fmt.Sprintf("%s: %s", a.Name, autoscaleNote(as)))
 			}
+			if len(a.Traffic) > 0 {
+				notes = append(notes, fmt.Sprintf("%s: traffic %s", a.Name, trafficSummary(a.Traffic)))
+			}
 		}
 		if len(notes) > 0 {
 			_, _ = fmt.Fprintln(tw)
@@ -199,6 +242,11 @@ func printStatus(out io.Writer, resp *armadav1.StatusResponse) error {
 					urls = true
 				}
 				_, _ = fmt.Fprintf(tw, "%s\t%s\n", a.Name, u)
+			}
+			for _, t := range a.Traffic {
+				for _, u := range t.Urls {
+					_, _ = fmt.Fprintf(tw, "%s\t%s (%s)\n", a.Name, u, t.Revision)
+				}
 			}
 		}
 		_, _ = fmt.Fprintln(tw, "\nREPLICA\tREVISION\tNODE\tSTATE\tADDRESS\tMESSAGE")

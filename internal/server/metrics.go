@@ -112,6 +112,7 @@ var (
 	descScaleCurrent    = prometheus.NewDesc("armada_app_autoscale_current", "An autoscaling rule's current average per ready replica (requests in progress, or percent of the reservation); absent while unmeasured.", []string{"app", "rule"}, nil)
 	descScaleTarget     = prometheus.NewDesc("armada_app_autoscale_target", "An autoscaling rule's target per replica.", []string{"app", "rule"}, nil)
 	descJobActive       = prometheus.NewDesc("armada_job_runs_active", "Runs of a job that are pending or running.", []string{"job"}, nil)
+	descTrafficWeight   = prometheus.NewDesc("armada_app_traffic_weight", "A revision's percent of an app's requests in multiple revision mode.", []string{"app", "revision"}, nil)
 )
 
 func (c *clusterCollector) Describe(ch chan<- *prometheus.Desc) {
@@ -120,7 +121,7 @@ func (c *clusterCollector) Describe(ch chan<- *prometheus.Desc) {
 		descReplicaCPU, descReplicaMemory, descReplicaCPURes, descReplicaCPULimit, descReplicaMemLimit,
 		descNodeReady, descNodeCordoned, descNodeReplicas, descNodeCPUAlloc, descNodeMemAlloc,
 		descNodeCPURes, descNodeMemRes, descNodeCPU, descNodeMemory, descJobLastSuccess, descJobActive,
-		descScaleCurrent, descScaleTarget,
+		descScaleCurrent, descScaleTarget, descTrafficWeight,
 	} {
 		ch <- d
 	}
@@ -168,6 +169,9 @@ func (c *clusterCollector) Collect(ch chan<- prometheus.Metric) {
 			if r.GetMeasured() {
 				gauge(descScaleCurrent, float64(r.GetCurrent()), a.GetName(), r.GetType())
 			}
+		}
+		for _, t := range a.GetTraffic() {
+			gauge(descTrafficWeight, float64(t.GetWeight()), a.GetName(), t.GetRevision())
 		}
 	}
 	for _, n := range st.GetNodes() {

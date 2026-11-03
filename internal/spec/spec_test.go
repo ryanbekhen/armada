@@ -133,7 +133,7 @@ func TestParseRejects(t *testing.T) {
 		{"job with ingress", "kind: job\nname: x\nimage: y\ningress:\n  type: external\n  port: 80\n", "ingress", false},
 		{"job with probes", "kind: job\nname: x\nimage: y\nprobes:\n  readiness: /\n", "probes", false},
 		{"job with scale", "kind: job\nname: x\nimage: y\nscale:\n  min: 2\n", "scale", false},
-		{"job with traffic", "kind: job\nname: x\nimage: y\nrevisions:\n  mode: multiple\n", "revisions", true},
+		{"job with traffic", "kind: job\nname: x\nimage: y\nrevisions:\n  mode: multiple\n", "revisions", false},
 		{"job bad schedule", "kind: job\nname: x\nimage: y\nschedule: \"61 * * * *\"\n", "schedule", false},
 		{"job six fields", "kind: job\nname: x\nimage: y\nschedule: \"0 0 3 * * *\"\n", "schedule", false},
 		{"job descriptor", "kind: job\nname: x\nimage: y\nschedule: \"@daily\"\n", "schedule", false},
@@ -197,7 +197,19 @@ func TestParseRejects(t *testing.T) {
 		{"route with regex", ext + "  routes:\n    - path: \"/a.*\"\n", "ingress.routes[0].path", false},
 		{"duplicate route", ext + "  routes:\n    - path: /a\n    - path: /a\n", "ingress.routes[1].path", false},
 		{"strip root", ext + "  routes:\n    - path: /\n      stripPrefix: true\n", "ingress.routes[0].stripPrefix", false},
-		{"multiple revisions", base + "revisions:\n  mode: multiple\n", "revisions.mode", true},
+		{"multiple without ingress", base + "revisions:\n  mode: multiple\n  traffic:\n    - revision: latest\n      weight: 100\n", "revisions.mode", false},
+		{"multiple without traffic", ext + "revisions:\n  mode: multiple\n", "revisions.traffic", false},
+		{"multiple with zero", ext + "scale:\n  min: 0\n  max: 2\n  rules:\n    - type: http\n      concurrent: 5\n" + "revisions:\n  mode: multiple\n  traffic:\n    - revision: latest\n      weight: 100\n", "revisions.mode", false},
+		{"weights not 100", ext + "revisions:\n  mode: multiple\n  traffic:\n    - revision: latest\n      weight: 60\n    - revision: web--r1\n      weight: 30\n", "revisions.traffic", false},
+		{"weight over 100", ext + "revisions:\n  mode: multiple\n  traffic:\n    - revision: latest\n      weight: 101\n", "revisions.traffic[0].weight", false},
+		{"other app's revision", ext + "revisions:\n  mode: multiple\n  traffic:\n    - revision: api--r1\n      weight: 100\n", "revisions.traffic[0].revision", false},
+		{"bad revision", ext + "revisions:\n  mode: multiple\n  traffic:\n    - revision: web--r01\n      weight: 100\n", "revisions.traffic[0].revision", false},
+		{"revision twice", ext + "revisions:\n  mode: multiple\n  traffic:\n    - revision: web--r1\n      weight: 50\n    - revision: web--r1\n      weight: 50\n", "revisions.traffic[1].revision", false},
+		{"zero weight without label", ext + "revisions:\n  mode: multiple\n  traffic:\n    - revision: latest\n      weight: 100\n    - revision: web--r1\n      weight: 0\n", "revisions.traffic[1].label", false},
+		{"bad label", ext + "revisions:\n  mode: multiple\n  traffic:\n    - revision: latest\n      weight: 100\n      label: Canary\n", "revisions.traffic[0].label", false},
+		{"label twice", ext + "revisions:\n  mode: multiple\n  traffic:\n    - revision: latest\n      weight: 50\n      label: a\n    - revision: web--r1\n      weight: 50\n      label: a\n", "revisions.traffic[1].label", false},
+		{"long label", ext + "revisions:\n  mode: multiple\n  traffic:\n    - revision: latest\n      weight: 100\n      label: " + strings.Repeat("a", 59) + "\n", "revisions.traffic[0].label", false},
+		{"too many targets", ext + "revisions:\n  mode: multiple\n  traffic:\n" + strings.Repeat("    - revision: latest\n      weight: 9\n", 11), "revisions.traffic", false},
 		{"bad revision mode", base + "revisions:\n  mode: blue\n", "revisions.mode", false},
 		{"traffic in single", base + "revisions:\n  traffic:\n    - revision: latest\n      weight: 100\n", "revisions.traffic", false},
 		{"probe without port", base + "probes:\n  readiness: /healthz\n", "probes.readiness.port", false},
@@ -510,6 +522,30 @@ func TestParseAutoscaled(t *testing.T) {
 	b, _ := Parse([]byte("name: web\nimage: nginx\nscale:\n  min: 2\n"))
 	if lo, hi := b.ScaleBounds(); b.Autoscaled() || lo != 2 || hi != 2 {
 		t.Errorf("fixed: autoscaled=%v bounds=%d..%d", b.Autoscaled(), lo, hi)
+	}
+}
+
+func TestParseTraffic(t *testing.T) {
+	t.Parallel()
+	a, err := Parse([]byte("name: web\nimage: nginx\ningress:\n  type: internal\n  port: 80\nrevisions:\n  mode: multiple\n  traffic:\n    - revision: web--r3\n      weight: 90\n    - revision: latest\n      weight: 10\n      label: canary\n    - revision: web--r2\n      weight: 0\n      label: old\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !a.MultipleRevisions() || len(a.Revisions.Traffic) != 3 || a.Revisions.Traffic[1].Label != "canary" {
+		t.Errorf("traffic %+v", a.Revisions)
+	}
+	for rev, ok := range map[string]bool{"web--r1": true, "web--r123": true, "web--r0": false, "web--r": false, "web--rx": false, "api--r1": false, "web-r1": false, "latest": false} {
+		if ValidRevisionName("web", rev) != ok {
+			t.Errorf("ValidRevisionName(web, %q) = %v", rev, !ok)
+		}
+	}
+	for host, ok := range map[string]bool{"web": true, "canary--web": true, LabelHost("a", "b"): true, "a--b--c": false, "--web": false, "web--": false, "Canary--web": false, "a---b": false, strings.Repeat("a", 30) + "--" + strings.Repeat("b", 32): false} {
+		if ValidHostName(host) != ok {
+			t.Errorf("ValidHostName(%q) = %v", host, !ok)
+		}
+	}
+	if errs := CheckTraffic("web", []TrafficTarget{{Revision: LatestRevision, Weight: 100}}, false); len(errs) == 0 {
+		t.Error("latest accepted where it means nothing")
 	}
 }
 
