@@ -109,6 +109,8 @@ var (
 	descNodeCPU         = prometheus.NewDesc("armada_node_cpu_usage_cores", "CPU the replicas on a node use, from its latest sample.", []string{"node"}, nil)
 	descNodeMemory      = prometheus.NewDesc("armada_node_memory_usage_bytes", "Memory the replicas on a node use, from its latest sample.", []string{"node"}, nil)
 	descJobLastSuccess  = prometheus.NewDesc("armada_job_last_success_timestamp_seconds", "When the newest kept successful run of a job finished.", []string{"job"}, nil)
+	descScaleCurrent    = prometheus.NewDesc("armada_app_autoscale_current", "An autoscaling rule's current average per ready replica (requests in progress, or percent of the reservation); absent while unmeasured.", []string{"app", "rule"}, nil)
+	descScaleTarget     = prometheus.NewDesc("armada_app_autoscale_target", "An autoscaling rule's target per replica.", []string{"app", "rule"}, nil)
 	descJobActive       = prometheus.NewDesc("armada_job_runs_active", "Runs of a job that are pending or running.", []string{"job"}, nil)
 )
 
@@ -118,6 +120,7 @@ func (c *clusterCollector) Describe(ch chan<- *prometheus.Desc) {
 		descReplicaCPU, descReplicaMemory, descReplicaCPURes, descReplicaCPULimit, descReplicaMemLimit,
 		descNodeReady, descNodeCordoned, descNodeReplicas, descNodeCPUAlloc, descNodeMemAlloc,
 		descNodeCPURes, descNodeMemRes, descNodeCPU, descNodeMemory, descJobLastSuccess, descJobActive,
+		descScaleCurrent, descScaleTarget,
 	} {
 		ch <- d
 	}
@@ -159,6 +162,12 @@ func (c *clusterCollector) Collect(ch chan<- prometheus.Metric) {
 		}
 		for _, v := range []string{"idle", store.RolloutProgressing, store.RolloutFailed} {
 			gauge(descAppRollout, boolValue(v == state), a.GetName(), v)
+		}
+		for _, r := range a.GetAutoscale().GetRules() {
+			gauge(descScaleTarget, float64(r.GetTarget()), a.GetName(), r.GetType())
+			if r.GetMeasured() {
+				gauge(descScaleCurrent, float64(r.GetCurrent()), a.GetName(), r.GetType())
+			}
 		}
 	}
 	for _, n := range st.GetNodes() {

@@ -60,6 +60,9 @@ type Config struct {
 	// NodeLostTimeout is how long a node may be disconnected before its
 	// replicas are rescheduled on other nodes (default 5 minutes).
 	NodeLostTimeout time.Duration
+	// AutoscaleInterval is how often autoscaled apps are evaluated (ADR
+	// 0022). Default 15s; tests shorten it.
+	AutoscaleInterval time.Duration
 	// JobRetryBase is the delay before a job's first retry (ADR 0021); it
 	// doubles with each failed attempt. Default 10s; tests shorten it.
 	JobRetryBase time.Duration
@@ -138,6 +141,9 @@ type Server struct {
 	jobRuns  *prometheus.CounterVec
 	// jobRetryBase is the delay before a job's first retry.
 	jobRetryBase time.Duration
+	// autoscaleInterval and scaler run the autoscaler (ADR 0022).
+	autoscaleInterval time.Duration
+	scaler            *autoscaler
 
 	certMu        sync.Mutex
 	lastCertNames []string
@@ -231,12 +237,17 @@ func New(cfg Config) (*Server, error) {
 	if cfg.JobRetryBase <= 0 {
 		cfg.JobRetryBase = defaultJobRetryBase
 	}
+	if cfg.AutoscaleInterval <= 0 {
+		cfg.AutoscaleInterval = defaultAutoscaleInterval
+	}
 	s := &Server{
-		jobRetryBase: cfg.JobRetryBase,
-		store:        cfg.Store,
-		keys:         cfg.Secrets,
-		name:         cfg.Name,
-		cluster:      cfg.Cluster,
+		autoscaleInterval: cfg.AutoscaleInterval,
+		scaler:            newAutoscaler(),
+		jobRetryBase:      cfg.JobRetryBase,
+		store:             cfg.Store,
+		keys:              cfg.Secrets,
+		name:              cfg.Name,
+		cluster:           cfg.Cluster,
 
 		ca:               cfg.CA,
 		joinAddr:         cfg.JoinAddr,
@@ -334,6 +345,7 @@ func (s *Server) Serve(ctx context.Context, lis net.Listener) error {
 	}
 	go s.verifyLoop(ctx)
 	go s.reconcileLoop(ctx)
+	go s.autoscaleLoop(ctx)
 	go func() {
 		<-ctx.Done()
 		// Agent streams are long-lived and never finish on their own, so a

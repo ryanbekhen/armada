@@ -20,6 +20,9 @@ const (
 	// more is reported as unmeasured.
 	maxUsageReplicas = 1024
 	maxReplicaIDLen  = 128
+	// maxInFlight bounds one node's count of requests in progress for a
+	// replica.
+	maxInFlight = 1_000_000
 )
 
 // usageStore keeps the latest usage sample from each node, in memory only:
@@ -33,6 +36,10 @@ type usageStore struct {
 type nodeUsage struct {
 	at       time.Time
 	replicas map[string]replicaUsage
+	// load is the requests in progress at the node's proxy per replica,
+	// for any replica, if loadMeasured (ADR 0022).
+	load         map[string]int64
+	loadMeasured bool
 }
 
 type replicaUsage struct {
@@ -47,7 +54,7 @@ func newUsageStore() *usageStore { return &usageStore{nodes: map[string]nodeUsag
 // replicas belong to the node is only checked when the sample is read, so
 // a report costs no store access.
 func (u *usageStore) set(nodeID string, r *armadav1.UsageReport, at time.Time) {
-	if len(r.GetReplicas()) > maxUsageReplicas {
+	if len(r.GetReplicas()) > maxUsageReplicas || len(r.GetLoad()) > maxUsageReplicas {
 		u.forget(nodeID)
 		return
 	}
@@ -60,8 +67,17 @@ func (u *usageStore) set(nodeID string, r *armadav1.UsageReport, at time.Time) {
 			}
 		}
 	}
+	var load map[string]int64
+	if r.GetLoadMeasured() {
+		load = make(map[string]int64, len(r.GetLoad()))
+		for _, l := range r.GetLoad() {
+			if id := l.GetId(); id != "" && len(id) <= maxReplicaIDLen {
+				load[id] = max(0, min(l.GetInFlight(), maxInFlight))
+			}
+		}
+	}
 	u.mu.Lock()
-	u.nodes[nodeID] = nodeUsage{at: at, replicas: reps}
+	u.nodes[nodeID] = nodeUsage{at: at, replicas: reps, load: load, loadMeasured: r.GetLoadMeasured()}
 	u.mu.Unlock()
 }
 
@@ -80,6 +96,24 @@ func (u *usageStore) node(nodeID string, now time.Time) (nodeUsage, bool) {
 		return nodeUsage{}, false
 	}
 	return n, true
+}
+
+// load sums the requests in progress per replica over every node whose
+// proxy was read recently. ok is false if no node's proxy was.
+func (u *usageStore) load(now time.Time) (map[string]int64, bool) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	out, ok := map[string]int64{}, false
+	for _, n := range u.nodes {
+		if !n.loadMeasured || now.Sub(n.at) > usageMaxAge {
+			continue
+		}
+		ok = true
+		for id, v := range n.load {
+			out[id] += v
+		}
+	}
+	return out, ok
 }
 
 // Top reports what replicas use from the latest samples of their nodes

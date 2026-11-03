@@ -2,9 +2,12 @@ package agent
 
 import (
 	"context"
+	"maps"
+	"slices"
 	"time"
 
 	armadav1 "github.com/ryanbekhen/armada/api/armada/v1"
+	"github.com/ryanbekhen/armada/internal/proxy"
 	"github.com/ryanbekhen/armada/internal/runtime"
 )
 
@@ -20,11 +23,16 @@ type usageSample struct {
 }
 
 // usageLoop samples the node's replicas and sends what they use to the
-// server, if the runtime can measure containers.
+// server, if the runtime can measure containers, together with the
+// requests in progress at the node's proxy (ADR 0022).
 func (a *Agent) usageLoop(ctx context.Context) {
 	sr, ok := a.cfg.Driver.(runtime.StatsReader)
 	if !ok || !runtime.CanStats(a.cfg.Driver) {
 		a.log.Info("the container runtime cannot sample containers; armada top shows no usage for this node")
+		sr = nil
+	}
+	lr, _ := a.cfg.Proxy.(proxy.LoadReader)
+	if sr == nil && lr == nil {
 		return
 	}
 	t := time.NewTicker(a.cfg.UsageInterval)
@@ -36,8 +44,17 @@ func (a *Agent) usageLoop(ctx context.Context) {
 			return
 		case <-t.C:
 		}
-		var report *armadav1.UsageReport
-		if report, prev = a.sampleUsage(ctx, sr, prev); report != nil {
+		report, sampled := &armadav1.UsageReport{}, false
+		if sr != nil {
+			var r *armadav1.UsageReport
+			if r, prev = a.sampleUsage(ctx, sr, prev); r != nil {
+				report.Replicas, sampled = r.Replicas, true
+			}
+		}
+		if lr != nil {
+			a.sampleLoad(ctx, lr, report)
+		}
+		if sampled || report.LoadMeasured {
 			a.sendUsage(report)
 		}
 	}
@@ -77,6 +94,20 @@ func (a *Agent) sampleUsage(ctx context.Context, sr runtime.StatsReader, prev ma
 		})
 	}
 	return report, next
+}
+
+// sampleLoad adds the requests in progress per replica at the node's
+// proxy. A proxy that cannot be read leaves the report unmeasured.
+func (a *Agent) sampleLoad(ctx context.Context, lr proxy.LoadReader, report *armadav1.UsageReport) {
+	load, err := lr.Load(ctx)
+	if err != nil {
+		a.log.Debug("read proxy load", "err", err)
+		return
+	}
+	report.LoadMeasured = true
+	for _, id := range slices.Sorted(maps.Keys(load)) {
+		report.Load = append(report.Load, &armadav1.ReplicaLoad{Id: id, InFlight: load[id]})
+	}
 }
 
 func (a *Agent) sendUsage(r *armadav1.UsageReport) {

@@ -25,3 +25,4 @@ Every architectural decision that is hard to reverse is recorded here. Copy `000
 | [0019](0019-metrics-endpoint.md) | Metrics endpoint | Accepted |
 | [0020](0020-event-history.md) | Event history | Accepted |
 | [0021](0021-jobs.md) | Jobs | Accepted |
+| [0022](0022-autoscaling.md) | Autoscaling | Accepted |

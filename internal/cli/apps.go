@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"strconv"
+	"strings"
 	"text/tabwriter"
 	"time"
 
@@ -100,7 +101,7 @@ func newDeployCommand(g *globals) *cobra.Command {
 func newScaleCommand(g *globals) *cobra.Command {
 	return &cobra.Command{
 		Use:   "scale APP REPLICAS",
-		Short: "Set the number of replicas until the next deploy",
+		Short: "Set the number of replicas until the next deploy (not for autoscaled apps)",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			n, err := strconv.Atoi(args[1])
@@ -180,6 +181,9 @@ func printStatus(out io.Writer, resp *armadav1.StatusResponse) error {
 			if a.PlacementMessage != "" {
 				notes = append(notes, fmt.Sprintf("%s: %s", a.Name, a.PlacementMessage))
 			}
+			if as := a.Autoscale; as != nil {
+				notes = append(notes, fmt.Sprintf("%s: %s", a.Name, autoscaleNote(as)))
+			}
 		}
 		if len(notes) > 0 {
 			_, _ = fmt.Fprintln(tw)
@@ -214,6 +218,28 @@ func printStatus(out io.Writer, resp *armadav1.StatusResponse) error {
 			fmt.Sprintf("%.1f", float64(n.CpuMillis)/1000), humanBytes(n.MemoryBytes), seen)
 	}
 	return tw.Flush()
+}
+
+// autoscaleNote reads like "autoscale 2-10, http 34/50, cpu 61%/70%:
+// steady".
+func autoscaleNote(as *armadav1.Autoscale) string {
+	parts := []string{fmt.Sprintf("autoscale %d-%d", as.Min, as.Max)}
+	for _, r := range as.Rules {
+		unit := ""
+		if r.Type != "http" {
+			unit = "%"
+		}
+		cur := "-"
+		if r.Measured {
+			cur = fmt.Sprintf("%d%s", r.Current, unit)
+		}
+		parts = append(parts, fmt.Sprintf("%s %s/%d%s", r.Type, cur, r.Target, unit))
+	}
+	note := strings.Join(parts, ", ")
+	if as.Message != "" {
+		note += ": " + printable(as.Message)
+	}
+	return note
 }
 
 func replicaState(r *armadav1.ReplicaStatus) string {

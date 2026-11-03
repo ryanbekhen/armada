@@ -362,6 +362,36 @@ web-r1-q2k0d     node2  running  41m/250m   58Mi/256Mi
   appear 10 to 20 seconds after a replica starts or the control plane's
   leader changes, since samples are kept in the leader's memory only.
 
+## Autoscaling
+
+An app with `scale.rules` scales itself between `scale.min` and
+`scale.max` ([ADR 0022](adr/0022-autoscaling.md); rules in the
+[spec reference](spec-reference.md#autoscaling)).
+
+```
+$ armada status web
+APP  REVISION  READY  INGRESS   IMAGE
+web  web--r4   4/4    external  ghcr.io/acme/web:1.4
+
+web: autoscale 2-10, http 41/50, cpu 38%/70%: steady: http 41 of 50 per replica, cpu 38 of 70%
+```
+
+- **Rules with no data.** A rule shows `-` while it has no data. CPU and
+  memory need the runtime to sample containers (`armada top`). `http` needs
+  a proxy on at least one node.
+- **Events.** Scaling is recorded as `ScaledUp` or `ScaledDown` events, and
+  audited as `armada:autoscaler`.
+- **Capacity.** Plan room for `scale.max`, because replicas reserve CPU and
+  memory as usual. Replicas that do not fit wait, with an `Unschedulable`
+  event.
+- **Leader changes.** After the leader changes, the app does not scale
+  down for 5 minutes.
+- **No ready replicas.** The autoscaler counts only ready replicas. If
+  every replica fails its readiness probe under load, it holds until one is
+  ready again, so give replicas enough CPU to answer their probes when
+  busy.
+- **Alerts.** Watch `armada_app_replicas_desired` reach the max.
+
 ## Jobs
 
 Jobs run a container to completion, on demand or on a schedule
@@ -401,8 +431,8 @@ RUN  STATE      TRIGGER   ATTEMPTS  NODE   STARTED  DURATION  EXIT  MESSAGE
 `armada events` shows what the cluster did in the last hour
 ([ADR 0020](adr/0020-event-history.md)): replicas scheduled, started,
 restarted, or moved; rollouts started, completed, or failed; nodes
-connected, lost, or cordoned; apps that cannot be placed; domains and
-certificates.
+connected, lost, or cordoned; apps that cannot be placed or that the
+autoscaler scaled; job runs; domains and certificates.
 
 ```bash
 armada events                    # the last hour, everything
@@ -470,6 +500,7 @@ scrape_configs:
 | `armada_agents_connected` | | agents connected to the leader |
 | `armada_reconcile_duration_seconds` | | histogram of reconcile times |
 | `armada_reconcile_errors_total` | | failed reconciles |
+| `armada_app_autoscale_current`, `armada_app_autoscale_target` | `app`, `rule` | an autoscaling rule's average per ready replica (absent while unmeasured) and its target |
 | `armada_job_runs_total` | `job`, `result` | job runs that ended: `succeeded`, `failed`, `cancelled`; resets when the leader changes |
 | `armada_job_runs_active` | `job` | runs pending or running |
 | `armada_job_last_success_timestamp_seconds` | `job` | when the newest kept successful run finished |

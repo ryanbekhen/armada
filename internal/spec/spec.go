@@ -137,23 +137,27 @@ func (p *Probe) UnmarshalYAML(n *yaml.Node) error {
 	return nil
 }
 
-// Scale controls replica counts. In v0.1 the app runs Min replicas; Rules are
-// reserved for the autoscaler.
+// Scale controls replica counts. Without Rules the app runs Min replicas;
+// with Rules the autoscaler keeps it between Min and Max (ADR 0022).
 type Scale struct {
 	Min   *int        `yaml:"min,omitempty" json:"min,omitempty"`
 	Max   *int        `yaml:"max,omitempty" json:"max,omitempty"`
 	Rules []ScaleRule `yaml:"rules,omitempty" json:"rules,omitempty"`
 }
 
-// ScaleRule is one autoscaler trigger. Which fields apply depends on Type.
+// ScaleRule is one autoscaler trigger. Which fields apply depends on Type:
+// http takes Concurrent (requests in progress per replica), cpu and memory
+// take Utilization (percent of the replica's reservation). The queue and
+// schedule fields are reserved.
 type ScaleRule struct {
-	Type       string `yaml:"type" json:"type"`
-	Concurrent int    `yaml:"concurrent,omitempty" json:"concurrent,omitempty"`
-	List       string `yaml:"list,omitempty" json:"list,omitempty"`
-	Length     int    `yaml:"length,omitempty" json:"length,omitempty"`
-	Schedule   string `yaml:"schedule,omitempty" json:"schedule,omitempty"`
-	Timezone   string `yaml:"timezone,omitempty" json:"timezone,omitempty"`
-	Replicas   int    `yaml:"replicas,omitempty" json:"replicas,omitempty"`
+	Type        string `yaml:"type" json:"type"`
+	Concurrent  int    `yaml:"concurrent,omitempty" json:"concurrent,omitempty"`
+	Utilization int    `yaml:"utilization,omitempty" json:"utilization,omitempty"`
+	List        string `yaml:"list,omitempty" json:"list,omitempty"`
+	Length      int    `yaml:"length,omitempty" json:"length,omitempty"`
+	Schedule    string `yaml:"schedule,omitempty" json:"schedule,omitempty"`
+	Timezone    string `yaml:"timezone,omitempty" json:"timezone,omitempty"`
+	Replicas    int    `yaml:"replicas,omitempty" json:"replicas,omitempty"`
 }
 
 // Resources sets per-replica limits. CPU is in cores ("0.5") or millicores

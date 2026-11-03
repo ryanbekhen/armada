@@ -28,7 +28,8 @@ Changes of state, never routine checks:
 | `replica` | `Scheduled`, `Started`, `Ready`, `NotReady`, `Restarted`, `Crashed`, `Failed`, `Evacuating`, `Rebalancing`, `Removed` |
 | `rollout` | `Started`, `Completed`, `Failed`, `RolledBack` |
 | `node` | `Joined`, `Connected`, `Disconnected`, `Lost`, `MostUnreachable`, `Cordoned`, `Uncordoned`, `Removed` |
-| `app` | `Unschedulable` |
+| `app` | `Unschedulable`, `ScaledUp`, `ScaledDown` (ADR 0022) |
+| `job` | `Deployed`, `Started`, `Succeeded`, `Failed`, `Retrying`, `Cancelled`, `Skipped`, `Missed`, `Unschedulable`, `Deleted` (ADR 0021) |
 | `domain` | `Verified`, `NotVerified` |
 | `certificate` | `Obtained`, `Failed` |
 

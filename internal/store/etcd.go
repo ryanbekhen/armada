@@ -1060,6 +1060,10 @@ func (s *Etcd) deploy(t *etx, sp *spec.App, replicas int, actor, action string) 
 	if err != nil {
 		return Revision{}, false, err
 	}
+	if exists && sp.Autoscaled() {
+		// The autoscaler's count carries over, within the new bounds.
+		replicas = keptReplicas(sp, a.Replicas)
+	}
 	if exists {
 		cur, err := t.revision(a.ActiveRevision)
 		if err != nil {
@@ -1225,7 +1229,7 @@ func (s *Etcd) Rollback(ctx context.Context, app, revision, actor string) (Revis
 		if err := t.claimDomains(rev.Spec, now); err != nil {
 			return err
 		}
-		if err := t.setTarget(a, revision, a.Replicas, now); err != nil {
+		if err := t.setTarget(a, revision, keptReplicas(rev.Spec, a.Replicas), now); err != nil {
 			return err
 		}
 		if err := t.pruneDomains(); err != nil {
@@ -1347,12 +1351,54 @@ func (s *Etcd) SetReplicas(ctx context.Context, app string, n int, actor string)
 			return err
 		} else if cur.Spec.IsJob() {
 			return fmt.Errorf("%s is a job; it runs one container per run: %w", app, ErrPrecondition)
+		} else if cur.Spec.Autoscaled() {
+			lo, hi := cur.Spec.ScaleBounds()
+			return fmt.Errorf("%s scales itself between %d and %d replicas; change scale.min and scale.max in its spec: %w", app, lo, hi, ErrPrecondition)
 		}
 		a.Replicas, a.UpdatedAt = n, now.UnixMilli()
 		if err := t.put(pfxApps+app, a); err != nil {
 			return err
 		}
 		return t.audit(now, actor, "scale", app, strconv.Itoa(n))
+	})
+}
+
+// keptReplicas is the count an app keeps when sp becomes its target: the
+// current count within sp's bounds if sp is autoscaled, else unchanged.
+func keptReplicas(sp *spec.App, cur int) int {
+	if !sp.Autoscaled() {
+		return cur
+	}
+	lo, hi := sp.ScaleBounds()
+	return min(max(cur, lo), hi)
+}
+
+// AutoscaleReplicas sets an autoscaled app's replica count to n if it is
+// still from and the app is not rolling out (ErrConflict otherwise), so a
+// decision made on stale state is dropped (ADR 0022).
+func (s *Etcd) AutoscaleReplicas(ctx context.Context, app string, from, n int, actor string) error {
+	now := s.now()
+	return s.tx(ctx, func(t *etx) error {
+		a, ok, err := t.app(app)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return notFoundf("app %s", app)
+		}
+		cur, err := t.revision(a.ActiveRevision)
+		if err != nil {
+			return err
+		}
+		lo, hi := cur.Spec.ScaleBounds()
+		if !cur.Spec.Autoscaled() || a.Replicas != from || a.TargetRevision != a.ActiveRevision || n < lo || n > hi {
+			return fmt.Errorf("app %s changed since the autoscaler looked: %w", app, ErrConflict)
+		}
+		a.Replicas, a.UpdatedAt = n, now.UnixMilli()
+		if err := t.put(pfxApps+app, a); err != nil {
+			return err
+		}
+		return t.audit(now, actor, "autoscale", app, fmt.Sprintf("%d->%d", from, n))
 	})
 }
 

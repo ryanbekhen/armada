@@ -1,0 +1,188 @@
+package server
+
+import (
+	"fmt"
+	"strings"
+	"testing"
+	"time"
+
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
+	armadav1 "github.com/ryanbekhen/armada/api/armada/v1"
+	"github.com/ryanbekhen/armada/internal/spec"
+	"github.com/ryanbekhen/armada/internal/store"
+)
+
+const scaledSpec = "name: web\nimage: nginx:1\ningress:\n  type: external\n  port: 80\nresources:\n  cpu: 500m\n  memory: 256Mi\nscale:\n  min: 2\n  max: 10\n  rules:\n"
+
+func scaledApp(t *testing.T, rules string, replicas int) store.App {
+	t.Helper()
+	sp, err := spec.Parse([]byte(scaledSpec + rules))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return store.App{Name: "web", ActiveRevision: "web--r1", TargetRevision: "web--r1", Replicas: replicas, Spec: sp}
+}
+
+func readyReplicas(n int) []store.Replica {
+	var out []store.Replica
+	for i := range n {
+		out = append(out, store.Replica{ID: fmt.Sprintf("web-%d", i), App: "web", Revision: "web--r1", NodeID: fmt.Sprintf("n%d", i%2), State: store.ReplicaRunning, Ready: true})
+	}
+	return out
+}
+
+// loadOf reports in-flight requests per replica, as one node's proxy.
+func loadOf(now time.Time, reps []store.Replica, per int64) scaleInputs {
+	u := newUsageStore()
+	r := &armadav1.UsageReport{LoadMeasured: true}
+	for _, rep := range reps {
+		r.Load = append(r.Load, &armadav1.ReplicaLoad{Id: rep.ID, InFlight: per})
+	}
+	u.set("n0", r, now)
+	in := scaleInputs{now: now, usage: u}
+	in.load, in.loadMeasured = u.load(now)
+	return in
+}
+
+func TestDecideHTTP(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+	a := scaledApp(t, "    - type: http\n      concurrent: 10\n", 3)
+	reps := readyReplicas(3)
+	res := resources{cpu: 500, mem: 256 << 20}
+	st := &appScaling{since: now}
+
+	// 25 per replica against 10: 3 * 2.5 = 7.5, capped at double: 6.
+	n, why, status := decide(a, res, reps, loadOf(now, reps, 25), st)
+	if n != 6 || !strings.Contains(why, "http 25 of 10 per replica") {
+		t.Errorf("scale up: %d %q", n, why)
+	}
+	if len(status.Rules) != 1 || status.Rules[0].Current != 25 || !status.Rules[0].Measured || status.Min != 2 || status.Max != 10 {
+		t.Errorf("status %v", status)
+	}
+	// Within 10% of the target: hold.
+	if n, _, _ := decide(a, res, reps, loadOf(now, reps, 10), st); n != 3 {
+		t.Errorf("within tolerance: %d", n)
+	}
+	// Quiet, but a recent recommendation was higher: hold.
+	if n, _, _ := decide(a, res, reps, loadOf(now.Add(time.Minute), reps, 0), st); n != 3 {
+		t.Errorf("early scale down: %d", n)
+	}
+	// A new leader waits a full window before scaling down.
+	if n, _, s := decide(a, res, reps, loadOf(now, reps, 0), &appScaling{since: now}); n != 3 || !strings.Contains(s.Message, "would scale down") {
+		t.Errorf("scale down right after start: %d %v", n, s)
+	}
+	// After the window, the highest recent recommendation wins: here the
+	// one a minute ago (hold at 3, then 2).
+	later := now.Add(scaleDownWindow + 30*time.Second)
+	if n, _, _ := decide(a, res, reps, loadOf(later, reps, 0), st); n != 2 {
+		t.Errorf("scale down after the window: %d", n)
+	}
+	// Never above max.
+	big := scaledApp(t, "    - type: http\n      concurrent: 10\n", 8)
+	if n, _, _ := decide(big, res, readyReplicas(8), loadOf(now, readyReplicas(8), 1000), &appScaling{since: now}); n != 10 {
+		t.Errorf("max: %d", n)
+	}
+}
+
+func TestDecideHolds(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+	res := resources{cpu: 500, mem: 256 << 20}
+	a := scaledApp(t, "    - type: cpu\n      utilization: 50\n", 2)
+	reps := readyReplicas(2)
+
+	// No samples at all.
+	if n, _, s := decide(a, res, reps, scaleInputs{now: now, usage: newUsageStore()}, &appScaling{since: now}); n != 2 || !strings.Contains(s.Message, "not enough samples") || s.Rules[0].Measured {
+		t.Errorf("no samples: %d %v", n, s)
+	}
+	// A sample reported by another node than the replica's does not count.
+	u := newUsageStore()
+	u.set("n9", &armadav1.UsageReport{Replicas: []*armadav1.ReplicaUsage{{Id: "web-0", CpuMillis: 500}, {Id: "web-1", CpuMillis: 500}}}, now)
+	if n, _, _ := decide(a, res, reps, scaleInputs{now: now, usage: u}, &appScaling{since: now}); n != 2 {
+		t.Errorf("foreign samples: %d", n)
+	}
+	// Own samples: 100% of 500m against 50% doubles.
+	u.set("n0", &armadav1.UsageReport{Replicas: []*armadav1.ReplicaUsage{{Id: "web-0", CpuMillis: 500}}}, now)
+	u.set("n1", &armadav1.UsageReport{Replicas: []*armadav1.ReplicaUsage{{Id: "web-1", CpuMillis: 500}}}, now)
+	if n, why, _ := decide(a, res, reps, scaleInputs{now: now, usage: u}, &appScaling{since: now}); n != 4 || !strings.Contains(why, "cpu 100 of 50%") {
+		t.Errorf("cpu: %d %q", n, why)
+	}
+	// A rollout freezes the count.
+	rolling := a
+	rolling.TargetRevision, rolling.RolloutState = "web--r2", store.RolloutProgressing
+	if n, _, s := decide(rolling, res, reps, scaleInputs{now: now, usage: u}, &appScaling{since: now}); n != 2 || !strings.Contains(s.Message, "rollout") {
+		t.Errorf("rolling: %d %v", n, s)
+	}
+	// No ready replica: nothing to measure.
+	if n, _, _ := decide(a, res, nil, scaleInputs{now: now, usage: u}, &appScaling{since: now}); n != 2 {
+		t.Errorf("none ready: %d", n)
+	}
+}
+
+// Several rules: the one asking for the most replicas wins.
+func TestDecideHighestRule(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+	a := scaledApp(t, "    - type: http\n      concurrent: 100\n    - type: memory\n      utilization: 50\n", 2)
+	reps := readyReplicas(2)
+	in := loadOf(now, reps, 10)
+	in.usage.set("n1", &armadav1.UsageReport{Replicas: []*armadav1.ReplicaUsage{{Id: "web-1", MemoryBytes: 192 << 20}}}, now)
+	in.usage.set("n0", &armadav1.UsageReport{LoadMeasured: true, Load: []*armadav1.ReplicaLoad{{Id: "web-0", InFlight: 10}, {Id: "web-1", InFlight: 10}},
+		Replicas: []*armadav1.ReplicaUsage{{Id: "web-0", MemoryBytes: 192 << 20}}}, now)
+	n, why, _ := decide(a, resources{cpu: 500, mem: 256 << 20}, reps, in, &appScaling{since: now})
+	if n != 3 || !strings.Contains(why, "memory 75 of 50%") {
+		t.Errorf("highest rule: %d %q", n, why)
+	}
+}
+
+func TestAutoscaleCluster(t *testing.T) {
+	t.Parallel()
+	c := newCluster(t, func(cfg *Config) { cfg.AutoscaleInterval = 50 * time.Millisecond })
+	c.addNode("n1", "127.0.0.1")
+	c.addNode("n2", "127.0.0.2")
+	c.deploy(scaledSpec + "    - type: http\n      concurrent: 10\n")
+	c.eventually("2 running", func() bool { return len(c.running("web")) == 2 })
+
+	// Manual scaling is refused: the autoscaler owns the count.
+	if _, err := c.admin.Scale(c.ctx, &armadav1.ScaleRequest{App: "web", Replicas: 5}); status.Code(err) != codes.FailedPrecondition {
+		t.Errorf("scale an autoscaled app: %v", err)
+	}
+
+	// 30 requests in progress per replica, seen at n1's proxy.
+	load := func(per int64) {
+		m := map[string]int64{}
+		for _, r := range c.running("web") {
+			m[r.Id] = per
+		}
+		c.proxies["n1"].SetLoad(m)
+	}
+	load(30)
+	c.eventually("scaled to 4", func() bool {
+		load(30)
+		st, err := c.admin.Status(c.ctx, &armadav1.StatusRequest{App: "web"})
+		return err == nil && st.Apps[0].DesiredReplicas >= 4
+	})
+	st, _ := c.admin.Status(c.ctx, &armadav1.StatusRequest{App: "web"})
+	as := st.Apps[0].Autoscale
+	if as == nil || as.Min != 2 || as.Max != 10 || len(as.Rules) != 1 || as.Rules[0].Type != "http" {
+		t.Errorf("autoscale status %v", as)
+	}
+	evs, _ := c.store.ListEvents(c.ctx, time.Time{})
+	found := false
+	for _, e := range evs {
+		found = found || (e.Kind == eventApp && e.Reason == "ScaledUp" && strings.Contains(e.Message, "http"))
+	}
+	if !found {
+		t.Errorf("no ScaledUp event in %+v", evs)
+	}
+
+	// A redeploy keeps the count within the new bounds.
+	c.deploy(strings.Replace(scaledSpec, "max: 10", "max: 3", 1) + "    - type: http\n      concurrent: 10\n")
+	a, _ := c.store.GetApp(c.ctx, "web")
+	if a.Replicas != 3 {
+		t.Errorf("replicas after redeploy with max 3: %d", a.Replicas)
+	}
+}

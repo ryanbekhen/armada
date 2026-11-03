@@ -124,11 +124,51 @@ ready; see [ADR 0005](adr/0005-rolling-updates.md).
 ### `scale`
 
 `min` is the number of replicas to run, 1–100 (default 1). `max` defaults to
-`min` and must not be lower. Replicas are spread across ready, uncordoned
+`min` and must not be lower; it only matters with `rules` (see
+"Autoscaling" below). Replicas are spread across ready, uncordoned
 nodes that the app's `placement` allows (a rollout spreads the new
 revision the same way), and spread out again, one at a time, when a node
 joins, returns, or is uncordoned. `armada scale <app> <n>` changes the
 count without a new revision.
+
+#### Autoscaling
+
+With `rules`, Armada keeps the app between `min` and `max`, following the
+average load of its ready replicas
+([ADR 0022](adr/0022-autoscaling.md)):
+
+```yaml
+scale:
+  min: 2
+  max: 10
+  rules:
+    - type: http
+      concurrent: 50
+    - type: cpu
+      utilization: 70
+```
+
+| Rule | Field | Meaning |
+| --- | --- | --- |
+| `http` | `concurrent` (1–10000) | requests in progress per replica, counted at every node's proxy; needs `ingress.type` external or internal |
+| `cpu` | `utilization` (1–100) | percent of `resources.cpu` (default 100m) |
+| `memory` | `utilization` (1–100) | percent of `resources.memory` (default 256Mi) |
+
+- **Several rules.** The rule that asks for the most replicas wins.
+- **Bounds.** `max` must be greater than `min`, and each type may appear
+  once.
+- **How the count changes.** It is evaluated every 15 seconds:
+  - **Up:** it rises at once, at most doubling per step.
+  - **Down:** it falls only after the load has stayed lower for 5 minutes.
+  - **Hold:** changes within 10% of the target are ignored, and the count
+    is frozen during a rollout.
+- **Deploys and manual scaling.** A redeploy keeps the current count
+  within the new bounds. `armada scale` refuses an autoscaled app.
+- **What to watch.** `armada status` shows each rule's current value
+  against its target, and `armada events APP` shows `ScaledUp` and
+  `ScaledDown` with the reason.
+- **Reserved rules.** `queue` rules (`list`, `length`) and `schedule` rules
+  are rejected as not implemented yet.
 
 ### `resources`
 
@@ -258,5 +298,5 @@ until they are implemented:
 | Field | Planned |
 | --- | --- |
 | `revisions.mode: multiple`, `revisions.traffic` (traffic splitting) | v0.2 |
-| `scale.rules` (autoscaling) | v0.2 |
+| `scale.rules` of type `queue` or `schedule` | later |
 | `scale.min: 0` (scale to zero) | v0.3 |

@@ -449,6 +449,26 @@ message AppStatus {
   string rollout_message = 10;
   // Why replicas are missing, when no node can take them (ADR 0014).
   string placement_message = 11;
+  // Set when scale.rules are (ADR 0022).
+  Autoscale autoscale = 12;
+}
+
+message Autoscale {
+  int32 min = 1;
+  int32 max = 2;
+  repeated AutoscaleRule rules = 3;
+  // What the autoscaler last decided, e.g. "holding: not enough samples".
+  string message = 4;
+}
+
+message AutoscaleRule {
+  // "http", "cpu", or "memory".
+  string type = 1;
+  // Target: requests in progress per replica, or percent of the reservation.
+  int64 target = 2;
+  // Current average per ready replica, in the same unit; valid if measured.
+  int64 current = 3;
+  bool measured = 4;
 }
 
 message ReplicaStatus {
@@ -637,6 +657,16 @@ message ReplicaState {
 // every sample.
 message UsageReport {
   repeated ReplicaUsage replicas = 1;
+  // Requests in progress per replica at this node's proxy, for every
+  // replica it routes to, not only its own (ADR 0022).
+  repeated ReplicaLoad load = 2;
+  // Whether the node's proxy was read; false for nodes without a proxy.
+  bool load_measured = 3;
+}
+
+message ReplicaLoad {
+  string id = 1;
+  int64 in_flight = 2;
 }
 
 message ReplicaUsage {

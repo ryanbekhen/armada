@@ -374,6 +374,8 @@ type Store interface {
 	GetApp(ctx context.Context, name string) (App, error)
 	ListApps(ctx context.Context) ([]App, error)
 	SetReplicas(ctx context.Context, app string, n int, actor string) error
+	// AutoscaleReplicas sets an autoscaled app's count from from to n.
+	AutoscaleReplicas(ctx context.Context, app string, from, n int, actor string) error
 
 	GetRevision(ctx context.Context, name string) (Revision, error)
 	ListRevisions(ctx context.Context, app string) ([]Revision, error)
