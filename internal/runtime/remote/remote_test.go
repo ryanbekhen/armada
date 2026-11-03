@@ -504,3 +504,53 @@ func TestExecApp(t *testing.T) {
 		t.Errorf("driver without Execer: %v, want Unimplemented", err)
 	}
 }
+
+type statsDriver struct{ *memDriver }
+
+func (s statsDriver) Stats(_ context.Context, id string) (driverkit.Stats, error) {
+	switch id {
+	case "app":
+		return driverkit.Stats{CPU: 1500 * time.Millisecond, MemoryBytes: 64 << 20}, nil
+	case "liar":
+		return driverkit.Stats{CPU: -time.Second, MemoryBytes: -1}, nil
+	}
+	return driverkit.Stats{}, driverkit.ErrNotFound
+}
+
+func TestStats(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	d := dial(t, serve(t, statsDriver{newMem()}, "test"))
+	if err := d.Ping(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if !runtime.CanStats(d) {
+		t.Fatal("stats capability not declared")
+	}
+	if st, err := d.Stats(ctx, "app"); err != nil || st.CPU != 1500*time.Millisecond || st.MemoryBytes != 64<<20 {
+		t.Errorf("Stats = %+v, %v", st, err)
+	}
+	if st, err := d.Stats(ctx, "liar"); err != nil || st.CPU != 0 || st.MemoryBytes != 0 {
+		t.Errorf("negative values: %+v, %v", st, err)
+	}
+	if _, err := d.Stats(ctx, "missing"); !errors.Is(err, runtime.ErrNotFound) {
+		t.Errorf("missing: %v, want not found", err)
+	}
+	if _, err := d.client.Stats(ctx, &driverv1.StatsRequest{}); status.Code(err) != codes.InvalidArgument {
+		t.Errorf("empty ID: %v, want InvalidArgument", err)
+	}
+
+	plain := dial(t, serve(t, newMem(), "test"))
+	if err := plain.Ping(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if runtime.CanStats(plain) {
+		t.Error("stats capability declared without StatsReader")
+	}
+	if _, err := plain.Stats(ctx, "app"); err == nil {
+		t.Error("Stats without the capability accepted")
+	}
+	if _, err := plain.client.Stats(ctx, &driverv1.StatsRequest{Id: "app"}); status.Code(err) != codes.Unimplemented {
+		t.Errorf("driver without StatsReader: %v, want Unimplemented", err)
+	}
+}

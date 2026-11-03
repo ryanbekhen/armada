@@ -47,6 +47,8 @@ armada deploy -f web.yaml    # → https://web.apps.example.com
 - **Logs and exec.** `armada logs` streams a replica's output;
   `armada exec web -it -- sh` opens a shell in one, with the container's
   own security settings, and every session is audited.
+- **Usage.** `armada top` shows the CPU and memory each app, replica, and
+  node uses next to what it reserves, sampled every 10 seconds.
 - **Multiple nodes.** Join with a single-use token; nodes get short-lived
   mTLS certificates that they renew themselves. Cordon, evacuate, remove.
   Replicas of a lost node are started elsewhere, and apps spread out again,

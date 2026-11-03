@@ -234,6 +234,31 @@ func CanExec(d Driver) bool {
 	return ok
 }
 
+// Stats is what an app container uses (ADR 0018).
+type Stats struct {
+	// CPU is the CPU time the container used since it started.
+	CPU time.Duration
+	// MemoryBytes is the memory in use, without page cache the kernel can
+	// reclaim.
+	MemoryBytes int64
+}
+
+// StatsReader samples what app containers use (armada top, ADR 0018). It
+// is optional.
+type StatsReader interface {
+	Stats(ctx context.Context, id string) (Stats, error)
+}
+
+// CanStats reports whether d samples what containers use, like
+// CanRunSystem.
+func CanStats(d Driver) bool {
+	if c, ok := d.(interface{ CanStats() bool }); ok {
+		return c.CanStats()
+	}
+	_, ok := d.(StatsReader)
+	return ok
+}
+
 // HasBridge reports whether d reports a bridge network, like CanRunSystem.
 func HasBridge(d Driver) bool {
 	if c, ok := d.(interface{ HasBridge() bool }); ok {

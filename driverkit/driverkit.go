@@ -53,7 +53,8 @@ func DefaultSocketDir() string {
 var ErrNotFound = errors.New("not found")
 
 // Driver runs app containers on the node. Implement SystemRunner,
-// BridgeInspector, and Execer as well to offer those capabilities.
+// BridgeInspector, Execer, and StatsReader as well to offer those
+// capabilities.
 type Driver interface {
 	// Ping verifies that the engine is reachable and supported.
 	Ping(ctx context.Context) error

@@ -131,6 +131,9 @@ func (s *server) Info(context.Context, *driverv1.InfoRequest) (*driverv1.InfoRes
 	if _, ok := s.d.(Execer); ok {
 		r.Capabilities = append(r.Capabilities, driverv1.Capability_CAPABILITY_EXEC)
 	}
+	if _, ok := s.d.(StatsReader); ok {
+		r.Capabilities = append(r.Capabilities, driverv1.Capability_CAPABILITY_STATS)
+	}
 	return r, nil
 }
 

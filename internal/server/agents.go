@@ -104,6 +104,7 @@ func (s *Server) Connect(stream armadav1.AgentService_ConnectServer) error {
 		}
 		s.mu.Unlock()
 		if current {
+			s.usage.forget(node.ID)
 			_ = s.store.SetNodeStatus(context.WithoutCancel(ctx), node.ID, store.NodeStatus{
 				State: store.NodeUnknown, LastSeen: time.Now(), CPUMillis: hello.GetCpuMillis(), MemoryBytes: hello.GetMemoryBytes(),
 				MinMemoryBytes: hello.GetMinMemoryBytes(),
@@ -177,6 +178,9 @@ func (s *Server) Connect(stream armadav1.AgentService_ConnectServer) error {
 			}
 			if r := m.GetReport(); r != nil {
 				s.applyReport(ctx, node, r)
+			}
+			if u := m.GetUsage(); u != nil {
+				s.usage.set(node.ID, u, s.now())
 			}
 		}
 	}()

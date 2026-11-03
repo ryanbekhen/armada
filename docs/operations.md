@@ -329,6 +329,39 @@ armada exec web --replica web-r1-5muie -- env # a specific replica (armada statu
   plane's leader changes.
 - Nodes whose runtime driver lacks the exec capability refuse it.
 
+## Resource usage
+
+`armada top` shows what replicas use, from samples every agent takes every
+10 seconds ([ADR 0018](adr/0018-top.md)):
+
+```bash
+armada top            # per app
+armada top web        # per replica of web
+armada top --nodes    # per node
+armada top -o json    # everything, with the time of each sample
+```
+
+```
+REPLICA          NODE   STATE    CPU        MEMORY
+web-r1-5muie     node1  running  37m/250m   61Mi/256Mi
+web-r1-q2k0d     node2  running  41m/250m   58Mi/256Mi
+```
+
+- CPU is `used/reserved` in millicores, averaged over the last 10 seconds.
+  The reservation (`resources.cpu`, 100m by default) is also the limit when
+  the app sets one; a replica may use more than its reservation when the
+  node has CPU to spare and no limit is set.
+- Memory is `used/limit`: memory in use without page cache the kernel can
+  reclaim, the figure that counts toward the limit. A replica that stays
+  close to its limit is killed and restarted when it goes over; raise
+  `resources.memory`.
+- `--nodes` shows what each node's replicas use and reserve, and what the
+  node can give replicas after what Armada keeps for itself.
+- `-` means no recent sample: the replica is not running yet, the node is
+  disconnected, or its runtime driver lacks the stats capability. Numbers
+  appear 10 to 20 seconds after a replica starts or the control plane's
+  leader changes, since samples are kept in the leader's memory only.
+
 ## When a node fails
 
 | What fails | What happens |
@@ -385,6 +418,8 @@ sending it, and the driver library checks it again on arrival.
   node, so its containers cannot resolve `<app>.internal`.
 - A driver without the exec capability refuses `armada exec` for the
   replicas on its node.
+- A driver without the stats capability reports no usage, so `armada top`
+  shows `-` for the replicas on its node.
 - The node's `armada.runtime` label names the driver, so apps can require
   it (or `embedded`). `armada.os` and `armada.arch` are the platform the
   driver's engine runs containers on.

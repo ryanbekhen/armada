@@ -120,6 +120,7 @@ type Server struct {
 	sessions map[string]*session
 	logs     *logRouter
 	execs    *execRouter
+	usage    *usageStore
 
 	certMu        sync.Mutex
 	lastCertNames []string
@@ -226,6 +227,7 @@ func New(cfg Config) (*Server, error) {
 		sessions:   map[string]*session{},
 		logs:       newLogRouter(),
 		execs:      newExecRouter(),
+		usage:      newUsageStore(),
 
 		certs:          cfg.Certs,
 		acmeAddr:       cfg.ACMEAddr,

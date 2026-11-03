@@ -89,6 +89,9 @@ func Run(t *testing.T, d driverkit.Driver, opts Options) {
 	if ex, ok := d.(driverkit.Execer); ok {
 		t.Run("Exec", func(t *testing.T) { r.exec(t, ex) })
 	}
+	if sr, ok := d.(driverkit.StatsReader); ok {
+		t.Run("Stats", func(t *testing.T) { r.stats(t, sr) })
+	}
 }
 
 type runner struct {
@@ -517,5 +520,46 @@ func (r *runner) exec(t *testing.T, ex driverkit.Execer) {
 
 	if _, err := ex.ExecApp(ctx, "armada-conformance-missing", driverkit.ExecOptions{Cmd: []string{"true"}, Stdout: io.Discard, Stderr: io.Discard}); err == nil {
 		t.Error("ExecApp in a missing container succeeded")
+	}
+}
+
+// stats checks that a container which holds 16 MiB and keeps a CPU busy is
+// measured as such: memory between 12 MiB and its limit, and CPU time that
+// grows by at least a tenth of the wall time.
+func (r *runner) stats(t *testing.T, sr driverkit.StatsReader) {
+	ctx, cancel := r.ctx()
+	defer cancel()
+	spec := r.spec("sh", "-c", `x=$(head -c 16777216 /dev/zero | tr '\0' a); while :; do :; done`)
+	id, err := r.d.Run(ctx, spec)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	const minMemory = 12 << 20
+	var first driverkit.Stats
+	deadline := time.Now().Add(20 * time.Second)
+	for {
+		if first, err = sr.Stats(ctx, id); err != nil {
+			t.Fatalf("Stats: %v", err)
+		}
+		if first.MemoryBytes >= minMemory || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+	if first.MemoryBytes < minMemory || first.MemoryBytes > spec.MemoryBytes {
+		t.Errorf("memory %d bytes, want between %d and the limit %d", first.MemoryBytes, minMemory, spec.MemoryBytes)
+	}
+	start := time.Now()
+	time.Sleep(2 * time.Second)
+	second, err := sr.Stats(ctx, id)
+	if err != nil {
+		t.Fatalf("Stats: %v", err)
+	}
+	if used, wall := second.CPU-first.CPU, time.Since(start); used < wall/10 {
+		t.Errorf("CPU time grew by %s in %s of a busy loop", used, wall.Round(time.Millisecond))
+	}
+
+	if _, err := sr.Stats(ctx, "armada-conformance-missing"); err == nil {
+		t.Error("Stats of a missing container succeeded")
 	}
 }

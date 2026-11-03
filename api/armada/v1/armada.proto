@@ -33,6 +33,9 @@ service AdminService {
   // client message is start; the server's first message names the replica
   // and its last the exit code.
   rpc Exec(stream ExecClientMessage) returns (stream ExecServerMessage);
+  // Top reports the CPU and memory replicas use, from the latest samples
+  // their agents sent (ADR 0018).
+  rpc Top(TopRequest) returns (TopResponse);
 }
 
 message ListServersRequest {}
@@ -356,6 +359,51 @@ message NodeStatus {
   bool restricted = 11;
 }
 
+message TopRequest {
+  // Optional; empty means all apps.
+  string app = 1;
+}
+
+message TopResponse {
+  repeated ReplicaTop replicas = 1;
+  // Every node, with what its replicas use and reserve; empty when app is
+  // set.
+  repeated NodeTop nodes = 2;
+}
+
+message ReplicaTop {
+  string id = 1;
+  string app = 2;
+  string node_id = 3;
+  string state = 4;
+  // False when the node sent no recent sample for the replica: it is not
+  // running, or the node's runtime cannot measure containers.
+  bool measured = 5;
+  int64 cpu_millis = 6;
+  int64 memory_bytes = 7;
+  // What the replica reserves; cpu_limit_millis is 0 when the app sets no
+  // CPU limit. The memory reservation is also its limit.
+  int64 cpu_reserved_millis = 8;
+  int64 cpu_limit_millis = 9;
+  int64 memory_limit_bytes = 10;
+  google.protobuf.Timestamp sampled_at = 11;
+}
+
+message NodeTop {
+  string id = 1;
+  // False when the node sent no recent sample.
+  bool measured = 2;
+  // What its replicas use, summed.
+  int64 cpu_millis = 3;
+  int64 memory_bytes = 4;
+  // What its replicas reserve, and what the node can give replicas.
+  int64 cpu_reserved_millis = 5;
+  int64 memory_reserved_bytes = 6;
+  int64 cpu_allocatable_millis = 7;
+  int64 memory_allocatable_bytes = 8;
+  int32 replicas = 9;
+}
+
 message ScaleRequest {
   string app = 1;
   int32 replicas = 2;
@@ -413,6 +461,7 @@ message AgentMessage {
   oneof msg {
     Hello hello = 1;
     ReplicaReport report = 2;
+    UsageReport usage = 3;
   }
 }
 
@@ -450,6 +499,21 @@ message ReplicaState {
   // Platforms of the replica's image as "os/arch", reported after a pull
   // or when the image has no variant for the node (ADR 0014).
   repeated string image_platforms = 8;
+}
+
+// UsageReport carries what the node's replicas use, sampled periodically
+// (ADR 0018). It is sent apart from ReplicaReport because it changes on
+// every sample.
+message UsageReport {
+  repeated ReplicaUsage replicas = 1;
+}
+
+message ReplicaUsage {
+  string id = 1;
+  // CPU used since the previous sample, in millicores.
+  int64 cpu_millis = 2;
+  // Memory in use, without page cache the kernel can reclaim.
+  int64 memory_bytes = 3;
 }
 
 message ServerMessage {
