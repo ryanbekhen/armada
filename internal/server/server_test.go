@@ -576,11 +576,13 @@ func TestReportsKeepNodeCapacity(t *testing.T) {
 	if err := stream.Send(&armadav1.AgentMessage{Msg: &armadav1.AgentMessage_Report{Report: &armadav1.ReplicaReport{}}}); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(200 * time.Millisecond) // the report is applied asynchronously
-	n, err := c.store.GetNode(c.ctx, "n1")
-	if err != nil {
-		t.Fatal(err)
-	}
+	// The report is applied asynchronously; LastSeen moves when it is.
+	before, _ := c.store.GetNode(c.ctx, "n1")
+	var n store.Node
+	c.eventually("report applied", func() bool {
+		n, _ = c.store.GetNode(c.ctx, "n1")
+		return n.LastSeen.After(before.LastSeen)
+	})
 	if n.CPUMillis != 2000 || n.MemoryBytes != 2<<30 {
 		t.Errorf("after a report: cpu %d, memory %d; want the hello's 2000, %d", n.CPUMillis, n.MemoryBytes, 2<<30)
 	}

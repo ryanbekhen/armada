@@ -31,7 +31,7 @@ func (s *Server) serveMetrics(ctx context.Context) error {
 	reg := prometheus.NewRegistry()
 	reg.MustRegister(
 		collectors.NewGoCollector(),
-		s.reconcileSeconds, s.reconcileErrors,
+		s.reconcileSeconds, s.reconcileErrors, s.events.total,
 		&clusterCollector{s: s},
 	)
 	mux := http.NewServeMux()

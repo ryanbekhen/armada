@@ -180,8 +180,10 @@ func (s *Server) verifyDomain(ctx context.Context, d store.Domain) (store.Domain
 	}
 	if ok {
 		s.log.Info("domain verified", "domain", d.Name)
+		s.record(ctx, store.Event{Kind: eventDomain, Object: d.Name, Reason: "Verified"})
 		s.Trigger()
 	}
+	s.condition(ctx, "domain-unverified:"+d.Name, !ok, store.Event{Kind: eventDomain, Object: d.Name, Reason: "NotVerified", Message: msg})
 	return s.store.GetDomain(context.WithoutCancel(ctx), d.Name)
 }
 

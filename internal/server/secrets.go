@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"strconv"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -10,6 +11,7 @@ import (
 	armadav1 "github.com/ryanbekhen/armada/api/armada/v1"
 	"github.com/ryanbekhen/armada/internal/secrets"
 	"github.com/ryanbekhen/armada/internal/spec"
+	"github.com/ryanbekhen/armada/internal/store"
 )
 
 // Secret handlers never log, return, or audit secret values.
@@ -52,6 +54,7 @@ func (s *Server) SetSecret(ctx context.Context, req *armadav1.SetSecretRequest) 
 	}
 	s.log.Info("secret set", "app", app, "secret", name, "version", version, "rollout", rev, "by", actor(ctx))
 	if rev != "" {
+		s.record(ctx, store.Event{Kind: eventRollout, Object: rev, App: app, Reason: "Started", Message: "rolling out " + rev + " for secret " + name + " version " + strconv.Itoa(version)})
 		s.Trigger()
 	}
 	return &armadav1.SetSecretResponse{Version: int32(version), Revision: rev}, nil //nolint:gosec // versions are small

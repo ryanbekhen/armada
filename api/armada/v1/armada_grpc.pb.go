@@ -42,6 +42,7 @@ const (
 	AdminService_Exec_FullMethodName                    = "/armada.v1.AdminService/Exec"
 	AdminService_Top_FullMethodName                     = "/armada.v1.AdminService/Top"
 	AdminService_IssueMetricsCertificate_FullMethodName = "/armada.v1.AdminService/IssueMetricsCertificate"
+	AdminService_Events_FullMethodName                  = "/armada.v1.AdminService/Events"
 )
 
 // AdminServiceClient is the client API for AdminService service.
@@ -81,6 +82,9 @@ type AdminServiceClient interface {
 	// IssueMetricsCertificate signs a client certificate that may only
 	// scrape the metrics endpoint (ADR 0019).
 	IssueMetricsCertificate(ctx context.Context, in *IssueMetricsCertificateRequest, opts ...grpc.CallOption) (*IssueMetricsCertificateResponse, error)
+	// Events streams what the cluster did (ADR 0020), oldest first; with
+	// follow, then new events until the caller cancels.
+	Events(ctx context.Context, in *EventsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[EventInfo], error)
 }
 
 type adminServiceClient struct {
@@ -333,6 +337,25 @@ func (c *adminServiceClient) IssueMetricsCertificate(ctx context.Context, in *Is
 	return out, nil
 }
 
+func (c *adminServiceClient) Events(ctx context.Context, in *EventsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[EventInfo], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &AdminService_ServiceDesc.Streams[2], AdminService_Events_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[EventsRequest, EventInfo]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type AdminService_EventsClient = grpc.ServerStreamingClient[EventInfo]
+
 // AdminServiceServer is the server API for AdminService service.
 // All implementations must embed UnimplementedAdminServiceServer
 // for forward compatibility.
@@ -370,6 +393,9 @@ type AdminServiceServer interface {
 	// IssueMetricsCertificate signs a client certificate that may only
 	// scrape the metrics endpoint (ADR 0019).
 	IssueMetricsCertificate(context.Context, *IssueMetricsCertificateRequest) (*IssueMetricsCertificateResponse, error)
+	// Events streams what the cluster did (ADR 0020), oldest first; with
+	// follow, then new events until the caller cancels.
+	Events(*EventsRequest, grpc.ServerStreamingServer[EventInfo]) error
 	mustEmbedUnimplementedAdminServiceServer()
 }
 
@@ -448,6 +474,9 @@ func (UnimplementedAdminServiceServer) Top(context.Context, *TopRequest) (*TopRe
 }
 func (UnimplementedAdminServiceServer) IssueMetricsCertificate(context.Context, *IssueMetricsCertificateRequest) (*IssueMetricsCertificateResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method IssueMetricsCertificate not implemented")
+}
+func (UnimplementedAdminServiceServer) Events(*EventsRequest, grpc.ServerStreamingServer[EventInfo]) error {
+	return status.Error(codes.Unimplemented, "method Events not implemented")
 }
 func (UnimplementedAdminServiceServer) mustEmbedUnimplementedAdminServiceServer() {}
 func (UnimplementedAdminServiceServer) testEmbeddedByValue()                      {}
@@ -866,6 +895,17 @@ func _AdminService_IssueMetricsCertificate_Handler(srv interface{}, ctx context.
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AdminService_Events_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(EventsRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(AdminServiceServer).Events(m, &grpc.GenericServerStream[EventsRequest, EventInfo]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type AdminService_EventsServer = grpc.ServerStreamingServer[EventInfo]
+
 // AdminService_ServiceDesc is the grpc.ServiceDesc for AdminService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -969,6 +1009,11 @@ var AdminService_ServiceDesc = grpc.ServiceDesc{
 			Handler:       _AdminService_Exec_Handler,
 			ServerStreams: true,
 			ClientStreams: true,
+		},
+		{
+			StreamName:    "Events",
+			Handler:       _AdminService_Events_Handler,
+			ServerStreams: true,
 		},
 	},
 	Metadata: "armada/v1/armada.proto",

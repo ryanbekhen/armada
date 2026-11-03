@@ -36,6 +36,7 @@ type Etcd struct {
 	// fenceKey and fenceRev, if set, guard every commit: see Fenced.
 	fenceKey string
 	fenceRev int64
+	leases   *eventLeases
 }
 
 // Key layout below the prefix.
@@ -54,6 +55,8 @@ const (
 	pfxDomains  = "domains/"
 	pfxAudit    = "audit/" // audit/<id, 20 digits>
 	pfxServers  = "servers/"
+	// pfxEvents (events.go) holds expiring events; older binaries ignore
+	// the prefix, so it needs no schema step.
 
 	// etcdSchema is the version of the key layout. Bump it with a step in
 	// migrations when records change incompatibly. Records under servers/
@@ -72,7 +75,7 @@ func NewEtcd(ctx context.Context, c *clientv3.Client, prefix string) (*Etcd, err
 	if !strings.HasSuffix(prefix, "/") {
 		return nil, errors.New("store: etcd prefix must end with /")
 	}
-	s := &Etcd{c: c, prefix: prefix, now: time.Now}
+	s := &Etcd{c: c, prefix: prefix, now: time.Now, leases: &eventLeases{}}
 	err := s.tx(ctx, func(t *etx) error {
 		var v int
 		ok, err := t.get(keySchema, &v)

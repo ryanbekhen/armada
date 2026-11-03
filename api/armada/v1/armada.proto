@@ -39,6 +39,33 @@ service AdminService {
   // IssueMetricsCertificate signs a client certificate that may only
   // scrape the metrics endpoint (ADR 0019).
   rpc IssueMetricsCertificate(IssueMetricsCertificateRequest) returns (IssueMetricsCertificateResponse);
+  // Events streams what the cluster did (ADR 0020), oldest first; with
+  // follow, then new events until the caller cancels.
+  rpc Events(EventsRequest) returns (stream EventInfo);
+}
+
+message EventsRequest {
+  // Optional filters.
+  string app = 1;
+  string node = 2;
+  // How far back to start; 0 means one hour, at most 24 hours.
+  int64 since_seconds = 3;
+  bool follow = 4;
+}
+
+message EventInfo {
+  // replica, rollout, node, app, domain, or certificate.
+  string kind = 1;
+  string object = 2;
+  string app = 3;
+  string node = 4;
+  string reason = 5;
+  // Control characters are replaced; at most 512 bytes.
+  string message = 6;
+  // How often it happened between first and last.
+  int32 count = 7;
+  google.protobuf.Timestamp first = 8;
+  google.protobuf.Timestamp last = 9;
 }
 
 message IssueMetricsCertificateRequest {

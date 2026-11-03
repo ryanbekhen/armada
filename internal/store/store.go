@@ -377,6 +377,14 @@ type Store interface {
 	// cannot modify another node's replicas.
 	UpdateReplicaStatus(ctx context.Context, nodeID string, st ReplicaStatus) error
 
+	// PutEvent stores an event (ADR 0020) that expires after EventTTL and
+	// deletes the event stored under replace, if set; it returns the new
+	// key. ListEvents returns events that last happened at or after since,
+	// oldest first; TrimEvents keeps only the newest keep.
+	PutEvent(ctx context.Context, e Event, replace string) (string, error)
+	ListEvents(ctx context.Context, since time.Time) ([]Event, error)
+	TrimEvents(ctx context.Context, keep int) error
+
 	ListAudit(ctx context.Context, limit int) ([]AuditEvent, error)
 	// RecordAudit logs a change that has no transaction of its own.
 	RecordAudit(ctx context.Context, actor, action, target, detail string) error

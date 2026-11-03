@@ -110,6 +110,7 @@ func (s *Server) Connect(stream armadav1.AgentService_ConnectServer) error {
 				MinMemoryBytes: hello.GetMinMemoryBytes(),
 			})
 			s.log.Info("agent disconnected", "node", node.ID)
+			s.record(ctx, store.Event{Kind: eventNode, Object: node.ID, Node: node.ID, Reason: "Disconnected"})
 		}
 	}()
 
@@ -141,6 +142,11 @@ func (s *Server) Connect(stream armadav1.AgentService_ConnectServer) error {
 		return status.Error(codes.Internal, "update node")
 	}
 	s.log.Info("agent connected", "node", node.ID, "version", hello.GetVersion())
+	connected := store.Event{Kind: eventNode, Object: node.ID, Node: node.ID, Reason: "Connected"}
+	if hello.GetVersion() != "" {
+		connected.Message = "agent " + hello.GetVersion()
+	}
+	s.record(ctx, connected)
 	s.Trigger()
 
 	// A stream outlives the handshake that authenticated it; end it when
@@ -241,7 +247,10 @@ func (s *Server) applyReport(ctx context.Context, node store.Node, r *armadav1.R
 			changed = true
 		}
 		err := s.store.UpdateReplicaStatus(ctx, node.ID, next)
-		if err != nil && !errors.Is(err, store.ErrNotFound) {
+		switch {
+		case err == nil:
+			s.replicaEvent(ctx, prev[next.ID], next)
+		case !errors.Is(err, store.ErrNotFound):
 			s.log.Warn("update replica status", "err", err)
 		}
 		if d := st.GetImageDigest(); d != "" {

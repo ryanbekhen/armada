@@ -68,8 +68,9 @@ func acmeDirectory(v string) (string, error) {
 // certOptions validates the TLS flags and returns the certificate manager
 // options (without storage) and the ACME responder address, or ok=false
 // when TLS is disabled. serverListen is the gRPC listen address; its IP is
-// the default for the responder.
-func (f *tlsFlags) certOptions(serverListen string, log *slog.Logger, onObtained func(string)) (opts certs.Options, listen string, ok bool, err error) {
+// the default for the responder. onResult hears of every certificate
+// obtained (err nil) or failed attempt.
+func (f *tlsFlags) certOptions(serverListen string, log *slog.Logger, onResult func(name string, err error)) (opts certs.Options, listen string, ok bool, err error) {
 	if !f.enabled {
 		if f.dnsProvider != "" || f.dnsTokenFile != "" {
 			return opts, "", false, errors.New("--dns-provider needs --tls")
@@ -101,10 +102,14 @@ func (f *tlsFlags) certOptions(serverListen string, log *slog.Logger, onObtained
 		Email: f.email,
 		OnObtained: func(name string) {
 			log.Info("certificate obtained", "name", name)
-			onObtained(name)
+			onResult(name, nil)
 		},
 		OnFailed: func(name string, renewal bool, err error) {
 			log.Warn("certificate request failed; retrying with backoff", "name", name, "renewal", renewal, "err", err)
+			if err == nil {
+				err = errors.New("certificate request failed")
+			}
+			onResult(name, err)
 		},
 	}
 	switch f.dnsProvider {

@@ -193,6 +193,7 @@ func (j *joinService) Join(ctx context.Context, req *armadav1.JoinRequest) (*arm
 		return nil, status.Error(codes.Internal, "list servers")
 	}
 	s.log.Info("node joined", "node", name, "private_ip", ip.String(), "token", tok.ID, "version", req.GetVersion())
+	s.record(ctx, store.Event{Kind: eventNode, Object: name, Node: name, Reason: "Joined", Message: "joined from " + ip.String()})
 	s.Trigger()
 	return &armadav1.JoinResponse{NodeCert: cert.PEM, CaCert: s.ca.CertPEM, Servers: eps}, nil
 }
@@ -274,6 +275,11 @@ func (s *Server) CordonNode(ctx context.Context, req *armadav1.CordonNodeRequest
 		return nil, storeErr(err)
 	}
 	s.log.Info("node cordon", "node", req.GetNode(), "cordoned", req.GetCordoned(), "by", actor(ctx))
+	reason := "Uncordoned"
+	if req.GetCordoned() {
+		reason = "Cordoned"
+	}
+	s.record(ctx, store.Event{Kind: eventNode, Object: req.GetNode(), Node: req.GetNode(), Reason: reason, Message: "by " + actor(ctx)})
 	s.Trigger()
 	return &armadav1.CordonNodeResponse{}, nil
 }
@@ -330,6 +336,7 @@ func (s *Server) RemoveNode(ctx context.Context, req *armadav1.RemoveNodeRequest
 	}
 	s.mu.Unlock()
 	s.log.Info("node removed", "node", req.GetNode(), "force", req.GetForce(), "by", actor(ctx))
+	s.record(ctx, store.Event{Kind: eventNode, Object: req.GetNode(), Node: req.GetNode(), Reason: "Removed", Message: "by " + actor(ctx)})
 	s.Trigger()
 	return &armadav1.RemoveNodeResponse{}, nil
 }

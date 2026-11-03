@@ -145,9 +145,12 @@ func newServerCommand(g *globals) *cobra.Command {
 				return err
 			}
 			var trigger atomic.Pointer[server.Server]
-			certOpts, acmeAddr, tlsOn, err := tls.certOptions(listen, log, func(string) {
+			certOpts, acmeAddr, tlsOn, err := tls.certOptions(listen, log, func(name string, err error) {
 				if srv := trigger.Load(); srv != nil {
-					srv.Trigger()
+					srv.CertificateEvent(name, err)
+					if err == nil {
+						srv.Trigger()
+					}
 				}
 			})
 			if err != nil {
