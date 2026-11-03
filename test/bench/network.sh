@@ -229,11 +229,7 @@ while [ "$i" -le 2 ]; do
 		copy "$_hey" 1 /tmp/hey.bench
 		on 1 'install -m 0755 /tmp/hey.bench /usr/local/bin/armada-bench-hey && rm /tmp/hey.bench'
 	fi
-	if ! on "$i" "armada doctor --private-ip $(host "$i" 3)" >"$WORK/doctor" 2>&1 || grep -q FAIL "$WORK/doctor"; then
-		cat "$WORK/doctor" >&2
-		fail "armada doctor on $(host "$i" 1)"
-	fi
-	ok "$(host "$i" 1): $(on "$i" 'armada version' | head -1) ($_arch), doctor passes"
+	ok "$(host "$i" 1): $(on "$i" 'armada version' | head -1) ($_arch)"
 	i=$((i + 1))
 done
 
@@ -281,7 +277,19 @@ tunnel_up() {
 	LABEL="$LABEL)"
 }
 
+# doctor N IP runs armada doctor on machine N for the private IP the mode
+# uses (the tunnel's in the wireguard mode).
+doctor() {
+	if ! on "$1" "armada doctor --private-ip $2" >"$WORK/doctor" 2>&1 || grep -q FAIL "$WORK/doctor"; then
+		cat "$WORK/doctor" >&2
+		fail "armada doctor on $(host "$1" 1)"
+	fi
+}
+
 cluster_up() {
+	doctor 1 "$IP_A"
+	doctor 2 "$IP_B"
+	ok "armada doctor passes on $A and $B"
 	on 1 "umask 077; echo 'ARMADA_SERVER_FLAGS=\"--tls=false\"' > /etc/armada/server.env"
 	on 1 "systemctl enable --now -q armada-runtime && armada init --node-name $A --private-ip $IP_A >/dev/null &&
 		systemctl enable --now -q armada-server"
