@@ -118,6 +118,11 @@ func TestJoinEndToEnd(t *testing.T) {
 	if strings.Contains(out+stderr, tok[1][13:]) {
 		t.Error("join printed the token secret")
 	}
+	// The node gets the next subnet of the cluster network as its bridge
+	// subnet (ADR 0027).
+	if ac, err := loadAgentConfig(node2); err != nil || ac.ContainerSubnet != "10.120.1.0/24" || !strings.Contains(out, "Container subnet: 10.120.1.0/24") {
+		t.Errorf("joined node: config %+v, %v; output %q", ac, err, out)
+	}
 	for _, f := range []string{fileCACert, fileNodeCert, fileNodeKey, fileAgent} {
 		if err := fsutil.CheckPrivate(filepath.Join(node2, f)); err != nil {
 			t.Error(err)

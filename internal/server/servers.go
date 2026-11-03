@@ -292,11 +292,15 @@ func (j *joinService) JoinServer(ctx context.Context, req *armadav1.JoinServerRe
 	if err != nil {
 		return nil, status.Error(codes.Internal, "list servers")
 	}
-	s.log.Info("server joined", "server", name, "private_ip", ip.String(), "token", tok.ID, "version", req.GetVersion())
+	n, err := s.store.GetNode(ctx, name)
+	if err != nil {
+		return nil, status.Error(codes.Internal, "read the new node")
+	}
+	s.log.Info("server joined", "server", name, "private_ip", ip.String(), "subnet", n.Subnet, "token", tok.ID, "version", req.GetVersion())
 	s.Trigger()
 	return &armadav1.JoinServerResponse{
 		CaCert: s.ca.CertPEM, CaKey: caKey, MasterKey: s.keys.Export().Bytes(),
 		ServerCert: srvCert, ServerKey: srvKey, NodeCert: nodeCert.PEM,
-		InitialCluster: initial, Servers: eps,
+		InitialCluster: initial, Servers: eps, NodeSubnet: n.Subnet,
 	}, nil
 }

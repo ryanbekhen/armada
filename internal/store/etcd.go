@@ -64,7 +64,7 @@ const (
 	// migrations when records change incompatibly. Records under servers/
 	// and meta/ are read and written by every server, whatever its schema,
 	// so they only ever gain optional fields.
-	etcdSchema = 5
+	etcdSchema = 6
 
 	maxTxnRetries = 100
 	// auditKeep is how many audit events are retained.
@@ -330,6 +330,9 @@ type nodeRec struct {
 	MinMemory   int64             `json:"minMemory,omitempty"`
 	Jobs        bool              `json:"jobs,omitempty"`
 	Volumes     bool              `json:"volumes,omitempty"`
+	// Subnet is the node's container subnet in the cluster network
+	// (ADR 0027); empty in clusters without one.
+	Subnet string `json:"subnet,omitempty"`
 }
 
 type certRec struct {
@@ -516,7 +519,7 @@ func (t *etx) toNode(n nodeRec) (Node, error) {
 	out := Node{ID: n.ID, PrivateIP: n.PrivateIP, CPUMillis: n.CPUMillis, MemoryBytes: n.MemoryBytes, State: n.State,
 		LastSeen: fromMS(n.LastSeen), CreatedAt: fromMS(n.CreatedAt), Cordoned: n.Cordoned, Version: n.Version,
 		Labels: n.Labels, OS: n.OS, Arch: n.Arch, Runtime: n.Runtime, Restricted: n.Restricted,
-		MinMemoryBytes: n.MinMemory, Jobs: n.Jobs, Volumes: n.Volumes}
+		MinMemoryBytes: n.MinMemory, Jobs: n.Jobs, Volumes: n.Volumes, Subnet: n.Subnet}
 	var latest int64
 	err := listInto(t, pfxCerts+n.ID+"/", func(_ string, c certRec) error {
 		latest = max(latest, c.NotAfter)
@@ -526,7 +529,8 @@ func (t *etx) toNode(n nodeRec) (Node, error) {
 	return out, err
 }
 
-// UpsertNode creates or replaces a node record.
+// UpsertNode creates or replaces a node record. A new node gets a subnet
+// when the cluster has a network (ADR 0027).
 func (s *Etcd) UpsertNode(ctx context.Context, n Node) error {
 	if n.CreatedAt.IsZero() {
 		n.CreatedAt = s.now()
@@ -544,7 +548,11 @@ func (s *Etcd) UpsertNode(ctx context.Context, n Node) error {
 		if ok {
 			rec.CreatedAt, rec.Cordoned, rec.LegacyCerts, rec.Version = cur.CreatedAt, cur.Cordoned, cur.LegacyCerts, cur.Version
 			rec.Labels, rec.Restricted, rec.OS, rec.Arch, rec.Runtime = cur.Labels, cur.Restricted, cur.OS, cur.Arch, cur.Runtime
-			rec.MinMemory = cur.MinMemory
+			rec.MinMemory, rec.Subnet = cur.MinMemory, cur.Subnet
+		} else {
+			if rec.Subnet, err = t.newNodeNetwork(n.PrivateIP); err != nil {
+				return err
+			}
 		}
 		if n.Labels != nil {
 			rec.Labels = n.Labels
@@ -848,6 +856,10 @@ func (s *Etcd) redeem(ctx context.Context, id string, check func(string) bool, s
 		if taken {
 			return fmt.Errorf("private IP %s is already used by another node: %w", n.PrivateIP, ErrConflict)
 		}
+		subnet, err := t.newNodeNetwork(n.PrivateIP)
+		if err != nil {
+			return err
+		}
 		if srv != nil {
 			if _, exists, err := t.getRaw(pfxServers + srv.Name); err != nil {
 				return err
@@ -869,7 +881,7 @@ func (s *Etcd) redeem(ctx context.Context, id string, check func(string) bool, s
 		if n.State == "" {
 			n.State = NodeUnknown
 		}
-		if err := t.put(pfxNodes+n.ID, nodeRec{ID: n.ID, PrivateIP: n.PrivateIP, State: n.State, CreatedAt: now.UnixMilli(), Labels: tok.Labels}); err != nil {
+		if err := t.put(pfxNodes+n.ID, nodeRec{ID: n.ID, PrivateIP: n.PrivateIP, State: n.State, CreatedAt: now.UnixMilli(), Labels: tok.Labels, Subnet: subnet}); err != nil {
 			return err
 		}
 		if err := t.putCert(n.ID, cert, now); err != nil {
@@ -879,7 +891,7 @@ func (s *Etcd) redeem(ctx context.Context, id string, check func(string) bool, s
 		if srv != nil {
 			action = "server.join"
 		}
-		return t.audit(now, "token:"+id, action, n.ID, n.PrivateIP)
+		return t.audit(now, "token:"+id, action, n.ID, networkDetail(n.PrivateIP, subnet))
 	})
 }
 
@@ -2196,6 +2208,11 @@ var migrations = []migration{
 	// 4 -> 5: volumes (ADR 0025) under volumes/, bound to nodes. Nothing to
 	// rewrite; servers that would start a replica without its volume, or on
 	// another node, can no longer lead.
+	func(*etx) error { return nil },
+	// 5 -> 6: the cluster network (ADR 0027): the network record and node
+	// subnets. Nothing to rewrite (upgraded clusters have no network yet);
+	// servers that would register a node without a subnet can no longer
+	// lead.
 	func(*etx) error { return nil },
 }
 

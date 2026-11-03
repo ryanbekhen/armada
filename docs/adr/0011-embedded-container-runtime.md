@@ -121,8 +121,11 @@ Armada's and visible in one place:
 
 ### Networking
 
-- One bridge per node, `armada0`, with a configurable subnet
-  (`--container-subnet`, default `10.121.0.0/24`). The agent creates it at
+- One bridge per node, `armada0`, on the node's own subnet of the cluster
+  network (ADR 0027): a /24 of `--cluster-cidr`, default `10.120.0.0/16`,
+  given when the node joins. In clusters created before the cluster
+  network, every node uses the same subnet (`--container-subnet`, default
+  `10.121.0.0/24`). The agent creates it at
   start, so internal DNS and the internal ingress (ADR 0007) can bind to
   its gateway before any container exists. The bridge gets a fixed,
   locally administered hardware address derived from its gateway.
@@ -139,8 +142,8 @@ Armada's and visible in one place:
   container label, and `portmap` adds the DNAT rule. Nothing is ever
   published on a wildcard or public address.
 - `armada doctor` checks cgroup v2, overlayfs, the `iptables` tooling the
-  CNI plugins call, and that the container subnet does not overlap a host
-  route.
+  CNI plugins call, and that the node's container subnet does not overlap
+  a host route.
 
 ### Logs
 

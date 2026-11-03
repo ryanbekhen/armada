@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"net"
+	"net/netip"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -658,5 +659,33 @@ func TestLostNodesPartitionGuard(t *testing.T) {
 	s.lostNodes(context.Background(), rc, []store.Node{node("a", store.NodeReady, now), node("b", store.NodeUnknown, now.Add(-50*time.Second))})
 	if rc.wake <= 0 || rc.wake > 11*time.Second {
 		t.Errorf("wake = %v, want about 10s", rc.wake)
+	}
+}
+
+// In a cluster with a network (ADR 0027), a joining node gets its subnet in
+// the response; a node whose private IP is inside the cluster CIDR is
+// refused and leaves the token usable.
+func TestJoinGivesNodeSubnet(t *testing.T) {
+	t.Parallel()
+	c := newCluster(t, withJoin(t))
+	if err := c.store.InitNetwork(c.ctx, store.Network{Mode: store.NetworkPlain, ClusterCIDR: netip.MustParsePrefix("10.120.0.0/16")}); err != nil {
+		t.Fatal(err)
+	}
+	tok := c.token()
+	jc := c.joinClient(tok)
+	inside, _ := joinReq(t, tok.Token, "n1", "10.120.7.7")
+	if _, err := jc.Join(c.ctx, inside); err == nil || !strings.Contains(err.Error(), "cluster CIDR") {
+		t.Errorf("private IP inside the cluster CIDR = %v", err)
+	}
+	req, _ := joinReq(t, tok.Token, "n1", "10.0.0.11")
+	resp, err := jc.Join(c.ctx, req)
+	if err != nil {
+		t.Fatalf("join: %v", err)
+	}
+	if resp.NodeSubnet != "10.120.0.0/24" {
+		t.Errorf("node subnet = %q, want 10.120.0.0/24", resp.NodeSubnet)
+	}
+	if n, _ := c.store.GetNode(c.ctx, "n1"); n.Subnet != resp.NodeSubnet {
+		t.Errorf("stored subnet = %q", n.Subnet)
 	}
 }

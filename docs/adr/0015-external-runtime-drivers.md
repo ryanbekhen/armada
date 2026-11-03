@@ -101,8 +101,9 @@ proves it keeps Armada's security defaults.
 - Every node reports its runtime as the label `armada.runtime`, so apps can
   `require` one (ADR 0014). A node with a driver reports the platform the
   driver's engine runs containers on as `armada.os` and `armada.arch`.
-- `--container-subnet` belongs to the embedded runtime; a driver chooses
-  its own container network. `armada runtime reset` works through the
+- The container subnet (`--container-subnet`, or the node's subnet of the
+  cluster network, ADR 0027) belongs to the embedded runtime; a driver
+  chooses its own container network. `armada runtime reset` works through the
   driver and removes only containers with Armada's labels, since the
   engine may run others. `armada doctor` checks the driver's socket and
   warns when it cannot run system containers.

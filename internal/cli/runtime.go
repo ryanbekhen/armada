@@ -19,6 +19,7 @@ import (
 	"github.com/ryanbekhen/armada/internal/runtime/containerd"
 	"github.com/ryanbekhen/armada/internal/runtime/embedded"
 	"github.com/ryanbekhen/armada/internal/runtime/remote"
+	"github.com/ryanbekhen/armada/internal/store"
 )
 
 // runtimeEmbedded is the built-in container runtime (ADR 0011); any other
@@ -58,7 +59,7 @@ type runtimeFlags struct {
 func (r *runtimeFlags) register(f *pflag.FlagSet) {
 	r.flags = f
 	f.StringVar(&r.runtime, "runtime", runtimeEmbedded, "container runtime: embedded, or the name of an installed driver (listening on "+driverkit.DefaultSocketDir()+"/NAME.sock)")
-	f.StringVar(&r.subnet, "container-subnet", embedded.DefaultSubnet.String(), "private IPv4 subnet for this node's containers (embedded runtime)")
+	f.StringVar(&r.subnet, "container-subnet", embedded.DefaultSubnet.String(), "private IPv4 subnet for this node's containers (embedded runtime, clusters without a cluster network; others give each node a subnet)")
 }
 
 // apply validates the flags and records them in c.
@@ -89,6 +90,33 @@ func (r runtimeFlags) apply(c *agentConfig, privateIP netip.Addr) error {
 	}
 	c.Runtime, c.ContainerSubnet = runtimeEmbedded, b.Subnet.String()
 	return nil
+}
+
+// useNodeSubnet makes the subnet the cluster gave the node (ADR 0027) the
+// embedded runtime's bridge subnet. It returns a note for the operator when
+// it overrides --container-subnet. Nodes of clusters without a network, and
+// nodes with an external driver, keep their setting.
+func (r runtimeFlags) useNodeSubnet(c *agentConfig, subnet string, privateIP netip.Addr) (string, error) {
+	if subnet == "" || c.external() {
+		return "", nil
+	}
+	p, err := netip.ParsePrefix(subnet)
+	if err != nil {
+		return "", fmt.Errorf("the control plane gave this node an invalid subnet %q", subnet)
+	}
+	b, err := containerd.BridgeOf(p)
+	if err != nil || b.Subnet != p || p.Bits() != store.NodeSubnetBits {
+		return "", fmt.Errorf("the control plane gave this node an unusable subnet %s", subnet)
+	}
+	if b.Subnet.Contains(privateIP) {
+		return "", fmt.Errorf("the node subnet %s contains this machine's private IP %s", b.Subnet, privateIP)
+	}
+	note := ""
+	if r.flags != nil && r.flags.Changed("container-subnet") && r.subnet != b.Subnet.String() {
+		note = fmt.Sprintf("--container-subnet %s is not used: the cluster network gives this node %s.\n", r.subnet, b.Subnet)
+	}
+	c.ContainerSubnet = b.Subnet.String()
+	return note, nil
 }
 
 // newDriver connects to the node's container runtime; tests replace it.

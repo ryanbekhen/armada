@@ -85,6 +85,12 @@ func TestInit(t *testing.T) {
 	if admin.Subject.CommonName != "admin:ryan" {
 		t.Errorf("admin CN = %q", admin.Subject.CommonName)
 	}
+	// The first node gets the first subnet of the cluster network
+	// (ADR 0027) as its bridge subnet.
+	ac, err := loadAgentConfig(dataDir)
+	if err != nil || ac.ContainerSubnet != "10.120.0.0/24" {
+		t.Errorf("agent container subnet = %+v, %v", ac, err)
+	}
 
 	// A second init must not overwrite the CA.
 	code, _, stderr := run(t, "init", "--data-dir", dataDir, "--config", config+"2", "--private-ip", "127.0.0.1")
@@ -103,6 +109,10 @@ func TestInitRejectsUnsafeInput(t *testing.T) {
 		"unspecified IP": {"--private-ip", "0.0.0.0"},
 		"bad port":       {"--private-ip", "10.0.0.1", "--port", "0"},
 		"bad node name":  {"--private-ip", "10.0.0.1", "--node-name", "a b"},
+		"public CIDR":    {"--private-ip", "10.0.0.1", "--cluster-cidr", "203.0.112.0/20"},
+		"huge CIDR":      {"--private-ip", "10.0.0.1", "--cluster-cidr", "10.0.0.0/8"},
+		"CIDR with IP":   {"--private-ip", "10.120.3.4", "--cluster-cidr", "10.120.0.0/16"},
+		"subnet flag":    {"--private-ip", "10.0.0.1", "--container-subnet", "10.50.0.0/24"},
 	}
 	for name, extra := range tests {
 		if code, _, _ := run(t, append(base, extra...)...); code == 0 {
