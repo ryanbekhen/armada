@@ -169,6 +169,12 @@ func (s *Server) serving(rc *reconcileRun, r store.Replica, publishes bool) bool
 	return true
 }
 
+// working reports whether r runs and is ready (and, for an app that
+// publishes a port, has an address), warmed up or not.
+func working(r store.Replica, publishes bool) bool {
+	return r.State == store.ReplicaRunning && r.Ready && !r.Draining() && (!publishes || r.Address != "")
+}
+
 // inProxy reports whether r should receive traffic.
 func inProxy(app store.App, r store.Replica) bool {
 	return r.App == app.Name && (r.Revision == app.ActiveRevision || r.Revision == app.TargetRevision) &&
@@ -182,15 +188,19 @@ func publishesPort(sp *spec.App) bool {
 
 func (s *Server) reconcileApp(ctx context.Context, rc *reconcileRun, app *store.App, nodes []store.Node, all []store.Replica, revs *revisionCache) ([]store.Replica, error) {
 	publishes := map[string]bool{}
-	serving := func(r store.Replica) bool {
+	publishesRev := func(r store.Replica) bool {
 		p, ok := publishes[r.Revision]
 		if !ok {
 			rev, err := revs.get(ctx, r.Revision)
 			p = err != nil || publishesPort(rev.Spec) // unknown: require an address
 			publishes[r.Revision] = p
 		}
-		return s.serving(rc, r, p)
+		return p
 	}
+	serving := func(r store.Replica) bool { return s.serving(rc, r, publishesRev(r)) }
+	// working: r runs and is ready, warmed up or not; for apps that
+	// publish a port, it is also in the proxies.
+	working := func(r store.Replica) bool { return working(r, publishesRev(r)) }
 	var err error
 	var current, old []store.Replica
 	for _, r := range all {
@@ -305,7 +315,7 @@ func (s *Server) reconcileApp(ctx context.Context, rc *reconcileRun, app *store.
 	}
 	s.condition(ctx, "unplaced:"+app.Name, unplaced, store.Event{Kind: eventApp, Object: app.Name, App: app.Name, Reason: "Unschedulable",
 		Message: fmt.Sprintf("no node can fit another replica (%d of %d placed); see armada status", len(current), app.Replicas)})
-	if all, err = s.evacuate(ctx, rc, app, all, current, old, append(lost, moving...), serving); err != nil {
+	if all, err = s.evacuate(ctx, rc, app, all, current, old, append(lost, moving...), serving, working); err != nil {
 		return nil, err
 	}
 	if !app.Rolling() {
@@ -577,7 +587,7 @@ func (s *Server) abortStuckMoves(ctx context.Context, rc *reconcileRun, app *sto
 
 // evacuate retires replicas on cordoned or lost nodes while enough other
 // replicas serve, unhealthy ones first.
-func (s *Server) evacuate(ctx context.Context, rc *reconcileRun, app *store.App, all, current, old, moving []store.Replica, serving func(store.Replica) bool) ([]store.Replica, error) {
+func (s *Server) evacuate(ctx context.Context, rc *reconcileRun, app *store.App, all, current, old, moving []store.Replica, serving, working func(store.Replica) bool) ([]store.Replica, error) {
 	if len(moving) == 0 {
 		return all, nil
 	}
@@ -607,10 +617,11 @@ func (s *Server) evacuate(ctx context.Context, rc *reconcileRun, app *store.App,
 		if serving(r) {
 			lose = 1
 		}
-		// A replica that gets no traffic (one that failed to start, say)
+		// A replica that does no work (one that failed to start, say)
 		// goes at once: nothing depends on it, and keeping it would hold
-		// the surge its replacement needs.
-		if inProxy(*app, r) && others+left-lose < app.Replicas {
+		// the surge its replacement needs. One that works stays until
+		// enough others serve, whether or not its app takes traffic.
+		if working(r) && others+left-lose < app.Replicas {
 			continue
 		}
 		reason := "cordoned"
