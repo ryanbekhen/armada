@@ -39,9 +39,9 @@ while small requests worked.
 
 Containers get addresses that are unique in the cluster and routed between
 nodes. Each node has its own subnet. Every node is connected to every other
-over a tunnel that Armada sets up, encrypted by default. HAProxy reaches
-replicas at their container address, and nothing is published on the
-private IP any more.
+over a tunnel that Armada sets up: plain by default, encrypted on request.
+HAProxy reaches replicas at their container address, and nothing is
+published on the private IP any more.
 
 ### Address plan
 
@@ -66,8 +66,18 @@ private IP any more.
 The cluster CIDR is routed between nodes over one interface per node,
 `armada-net`, in one of two modes chosen at `armada init --network`:
 
-- **`wireguard`, the default.** It uses the kernel's WireGuard through
-  netlink (pure Go, no CGO).
+- **`plain`, the default.** It uses kernel VXLAN (no encryption, 50 bytes
+  of overhead).
+  - The socket is bound to the node's private IP. The forwarding entries
+    are static, one per peer, with no multicast and no learning.
+  - nftables accepts the VXLAN port only from current peers' private IPs.
+  - Traffic between nodes is not encrypted. A machine on the private network
+    can read it, and one that forges peer packets can inject traffic. That
+    is the trust Armada already places in the private network today (T56).
+  - It needs a private network between the nodes, like every cluster today.
+  - Before release, the benchmark gains a `vxlan` mode to confirm its cost.
+- **`wireguard`, for encryption between nodes.** It uses the kernel's
+  WireGuard through netlink (pure Go, no CGO).
   - Each peer is another node, with the peer's private IP as its endpoint.
     Its allowed addresses are exactly the peer's node subnet, so the kernel
     drops any packet whose inner source is not that node's.
@@ -80,15 +90,9 @@ The cluster CIDR is routed between nodes over one interface per node,
     implementation, embedded in the binary. It records the fallback on the
     node, and `armada doctor` and `armada status` warn about it, because it
     is markedly slower.
-- **`plain`, for a private network the operator trusts.** It uses kernel
-  VXLAN (no encryption, 50 bytes of overhead).
-  - The socket is bound to the node's private IP. The forwarding entries
-    are static, one per peer, with no multicast and no learning.
-  - nftables accepts the VXLAN port only from current peers' private IPs.
-  - A machine on the private network that forges peer packets can still
-    inject traffic. That is the trust this mode places in the private
-    network, as published ports do today (T56).
-  - Before release, the benchmark gains a `vxlan` mode to confirm its cost.
+  - It is the mode for private networks the operator does not trust
+    (shared or provider-managed networks), and for compliance needs.
+  - It costs CPU: see the numbers above.
 
 Routes for each peer's subnet point at `armada-net`, with the node's
 gateway address as the source. Traffic within the cluster CIDR is never
@@ -96,6 +100,8 @@ masqueraded, so a replica sees the real source address of the caller.
 Egress to everywhere else is masqueraded as today.
 
 ### Keys
+
+Keys exist only in the `wireguard` mode.
 
 - Each agent generates its WireGuard key pair the first time the network
   comes up. The private key is stored as `<data dir>/network.key` (`0600`
@@ -246,7 +252,8 @@ Egress to everywhere else is masqueraded as today.
 
 Doctor checks that:
 
-- the kernel has WireGuard, or warns that the userspace fallback will run;
+- in the `wireguard` mode, the kernel has WireGuard, or warns that the
+  userspace fallback will run;
 - the UDP port is free and allowed by the host firewall;
 - the cluster CIDR and service CIDR do not overlap the host's routes;
 - each peer has a recent handshake;
@@ -257,9 +264,10 @@ Doctor checks that:
 - **Always encrypted, with no `plain` mode.** At about 2 Gbit/s on two
   vCPUs and 0.5 Gbit/s on one, encryption would cap every cluster on
   trusted networks for no gain there.
-- **Encryption as an opt-in.** Traffic between nodes would stay plaintext
-  unless the operator knew to ask. Encrypted by default matches the rest of
-  Armada.
+- **Encrypted by default.** Every cluster would pay the CPU cost above,
+  including the many that run on a private network they already trust,
+  where today's traffic is plaintext too. Encryption is one flag away, and
+  `armada init` and the quickstart say what `plain` means.
 - **Routing node subnets through the private network without a tunnel.**
   Many providers' networks drop packets for addresses they did not assign,
   so it would work only on some networks, and it would need a route table
@@ -274,12 +282,15 @@ Doctor checks that:
 
 ## Consequences
 
-- Traffic between nodes is encrypted by default. Nothing an app runs is
-  reachable from the private network any more (T56), and apps can be
-  isolated from each other (T13).
+- Nothing an app runs is published on the private IP any more, and apps can
+  be isolated from each other (T13).
+- By default, traffic between nodes stays plaintext on the private network,
+  as today. T56 then narrows to reading that traffic and to forged VXLAN
+  packets from the private network. The `wireguard` mode closes both.
+  `armada init` prints the mode in use. `armada status` shows it, and the
+  operations guide explains when to choose `wireguard`.
 - Encryption costs CPU on every node that sends or receives traffic between
-  nodes. The operations guide states the numbers above and when `plain`
-  makes sense.
+  nodes. The operations guide states the numbers above.
 - Each node opens one UDP port to the other nodes: 51820 for `wireguard`,
   4789 for `plain`. Provider firewalls must allow it, and the docs and
   doctor say so.
