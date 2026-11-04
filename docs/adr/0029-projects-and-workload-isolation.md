@@ -253,7 +253,10 @@ sets the minimum:
     the others);
   - connections and request rate per route in HAProxy, set by the
     administrator per project;
-  - log volume per replica, so one project cannot fill a node's disk.
+  - log volume per replica, so one project cannot fill a node's disk or
+    take its disk bandwidth: besides rotation (3 files of 10 MB), the
+    log writer drops output past 1 MiB per second (4 MiB burst) and
+    writes one line saying how much it dropped (done).
 
 ### Usage per project
 
@@ -288,7 +291,7 @@ message:
    HAProxy's internal frontend, and `ingress.allow` (done);
 3. `isolation: sandbox` in the embedded runtime: the runtime and node
    support, the project setting, and placement (done);
-4. quotas (done), shared-path limits, and usage per project;
+4. quotas (done), shared-path limits (log rate done), and usage per project;
 5. `isolation: vm` in the embedded runtime.
 
 ## Alternatives considered

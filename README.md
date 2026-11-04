@@ -64,7 +64,8 @@ armada deploy -f web.yaml    # → https://web.apps.example.com
   bound what each project may reserve.
 - **Secrets.** Encrypted at rest, versioned, delivered as env vars or as
   read-only files on tmpfs.
-- **Logs and exec.** `armada logs` streams a replica's output;
+- **Logs and exec.** `armada logs` streams a replica's output, rotated
+  and rate limited on the node so no app can flood its disk;
   `armada exec web -it -- sh` opens a shell in one, with the container's
   own security settings, and every session is audited.
 - **Usage.** `armada top` shows the CPU and memory each app, replica, and

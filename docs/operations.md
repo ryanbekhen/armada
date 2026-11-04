@@ -363,8 +363,12 @@ refused with the dimension and the numbers. Job attempts past `jobs` wait
 timeout. Lowering a quota below what the project uses keeps everything
 running and refuses only what would grow. Only administrators set quotas;
 the projects an automation identity creates get the quota of its scope
-(below). Limits on shared paths (egress bandwidth, request rate, log
-volume) follow (ADR 0029).
+(below). Container output is limited on every node, whatever the project:
+each container may write 1 MiB per second (4 MiB at once) to its log,
+kept in 3 files of 10 MB; `armada logs` shows a line such as `[armada:
+dropped 52428800 bytes of output over the log rate limit ...]` where
+output was dropped. Limits on egress bandwidth and request rate follow
+(ADR 0029).
 
 ### Automation identities
 
