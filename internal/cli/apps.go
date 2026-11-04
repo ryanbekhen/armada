@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"text/tabwriter"
@@ -64,8 +65,11 @@ func newDeployCommand(g *globals) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if g.project != "" && !spec.ValidProject(g.project) {
+				return fmt.Errorf("invalid project %q", g.project)
+			}
 			// Validate locally for fast feedback; the server validates again.
-			sp, err := spec.Parse(data)
+			sp, err := spec.ParseIn(data, g.project)
 			if err != nil {
 				return err
 			}
@@ -74,7 +78,7 @@ func newDeployCommand(g *globals) *cobra.Command {
 				return err
 			}
 			defer conn.Close()
-			resp, err := client.Deploy(cmd.Context(), &armadav1.DeployRequest{Spec: data})
+			resp, err := client.Deploy(cmd.Context(), &armadav1.DeployRequest{Spec: data, Project: g.project})
 			if err != nil {
 				return rpcErr(err)
 			}
@@ -104,6 +108,9 @@ func newScaleCommand(g *globals) *cobra.Command {
 		Short: "Set the number of replicas until the next deploy (not for autoscaled apps)",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := g.qualify(args); err != nil {
+				return err
+			}
 			n, err := strconv.Atoi(args[1])
 			if err != nil || n < 1 || n > spec.MaxReplicas {
 				return fmt.Errorf("replicas must be a number between 1 and %d", spec.MaxReplicas)
@@ -134,6 +141,9 @@ func newTrafficCommand(g *globals) *cobra.Command {
 		Example: "  armada traffic web web--r3=90 web--r4=10\n  armada traffic web r4=100",
 		Args:    cobra.MinimumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := g.qualify(args); err != nil {
+				return err
+			}
 			app := args[0]
 			req := &armadav1.SetTrafficRequest{App: app}
 			for _, a := range args[1:] {
@@ -169,6 +179,9 @@ func newStatusCommand(g *globals) *cobra.Command {
 		Short: "Show apps, replicas, and nodes",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := g.qualify(args); err != nil {
+				return err
+			}
 			if output != outputText && output != outputJSON {
 				return fmt.Errorf("unsupported output format %q (want %q or %q)", output, outputText, outputJSON)
 			}
@@ -185,6 +198,7 @@ func newStatusCommand(g *globals) *cobra.Command {
 			if err != nil {
 				return rpcErr(err)
 			}
+			resp.Apps = slices.DeleteFunc(resp.Apps, func(a *armadav1.AppStatus) bool { return !g.listed(a.Name) })
 			out := cmd.OutOrStdout()
 			if output == outputJSON {
 				b, err := protojson.MarshalOptions{Multiline: true, Indent: "  "}.Marshal(resp)
@@ -332,6 +346,9 @@ func newLogsCommand(g *globals) *cobra.Command {
 			"(--run N for another run). A finished run's logs are kept for 24 hours.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := g.qualify(args); err != nil {
+				return err
+			}
 			client, conn, err := dialAdmin(g)
 			if err != nil {
 				return err

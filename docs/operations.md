@@ -245,6 +245,36 @@ newer layout, instead of misreading it. To go back:
   older version, and restore the backup taken before the upgrade. Changes
   made since the upgrade are lost.
 
+## Projects
+
+A project holds apps, jobs, secrets, domains, and volumes, and names only
+need to be unique within one (ADR 0029). Every cluster has the project
+`default`, which holds everything deployed without a project.
+
+```bash
+armada project create staging
+armada deploy -f web.yaml --project staging
+armada status --project staging          # only the project's apps
+armada secret set web db-password --project staging < password.txt
+armada project list
+armada project remove staging            # only once it is empty
+```
+
+Every command that names an app or a job takes `--project` (or
+`ARMADA_PROJECT`), or the app's ID, `NAME.PROJECT`: `armada scale
+web.staging 3`. Status, events, and metrics show apps of other projects by
+that ID, and so do their revisions (`web.staging--r1`) and replicas.
+Without `--project`, names are in `default` and listings show every
+project. Internal apps of a project are reached at
+`NAME.PROJECT.internal`, and external apps without domains at
+`NAME.PROJECT.<root domain>`, with a certificate of their own (a wildcard
+certificate covers only one level).
+
+Projects do not isolate anything yet: apps of different projects can still
+reach each other, and every administrator manages every project.
+Isolation between projects, automation identities limited to their
+projects, kernel isolation, and quotas follow (ADR 0029).
+
 ## Node labels and placement
 
 Nodes carry labels that apps choose them by

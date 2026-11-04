@@ -46,6 +46,8 @@ func sampleConfig(t *testing.T) proxy.Config {
 				{Name: "shop-r2-a", Address: "10.0.0.3:32771"},
 				{Name: "shop-r2-b", Address: "10.0.0.2:32772"},
 			}},
+			// An app of another project, named by its ID (ADR 0029).
+			{Name: "shop.staging", Servers: []proxy.Server{{Name: "shop.staging-r1-a", Address: "10.0.0.3:32773"}}},
 		},
 		Rules: []proxy.Rule{
 			{Host: "example.org", PathPrefix: "/", Backend: "frontend"},
@@ -57,6 +59,8 @@ func sampleConfig(t *testing.T) proxy.Config {
 			{Host: "api-bengkel.internal", PathPrefix: "/v1", StripPrefix: true, Backend: "api-bengkel", Internal: true},
 			{Host: "shop.example.org", PathPrefix: "/", Backend: "shop"},
 			{Host: "shop.internal", PathPrefix: "/", Backend: "shop", Internal: true},
+			{Host: "staging.example.org", PathPrefix: "/", Backend: "shop.staging"},
+			{Host: "shop.staging.internal", PathPrefix: "/", Backend: "shop.staging", Internal: true},
 		},
 		Certificates: []proxy.Certificate{{Name: "example.org", PEM: cert(t)}},
 	}

@@ -46,7 +46,7 @@ func actor(ctx context.Context) string {
 
 // Deploy validates a spec and records it as the app's active revision.
 func (s *Server) Deploy(ctx context.Context, req *armadav1.DeployRequest) (*armadav1.DeployResponse, error) {
-	app, err := spec.Parse(req.GetSpec())
+	app, err := spec.ParseIn(req.GetSpec(), req.GetProject())
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}

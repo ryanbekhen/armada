@@ -34,6 +34,9 @@ func newEventsCommand(g *globals) *cobra.Command {
 			"An event that repeats within 10 minutes is counted rather than shown again.",
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := g.qualify(args); err != nil {
+				return err
+			}
 			if output != outputText && output != outputJSON {
 				return fmt.Errorf("unsupported output format %q (want %q or %q)", output, outputText, outputJSON)
 			}
@@ -68,6 +71,9 @@ func newEventsCommand(g *globals) *cobra.Command {
 						return nil
 					}
 					return rpcErr(err)
+				}
+				if g.project != "" && !g.listed(e.App) {
+					continue
 				}
 				if output == outputJSON {
 					b, err := protojson.Marshal(e)

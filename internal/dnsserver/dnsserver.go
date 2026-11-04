@@ -211,7 +211,7 @@ func (s *Server) answer(req *dns.Msg, q dns.Question, name string) *dns.Msg {
 	resp.SetReply(req)
 	resp.Authoritative = true
 	app := strings.TrimSuffix(name, "."+zone)
-	if strings.Contains(app, ".") || !spec.ValidHostName(app) || !(*s.names.Load())[app] {
+	if !spec.ValidHostName(app) || !(*s.names.Load())[app] {
 		resp.Rcode = dns.RcodeNameError
 		return resp
 	}

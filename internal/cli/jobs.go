@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"io"
+	"slices"
 	"strconv"
 	"text/tabwriter"
 	"time"
@@ -34,6 +35,9 @@ func newJobRunCommand(g *globals) *cobra.Command {
 		Short: "Start a run of a job now",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := g.qualify(args); err != nil {
+				return err
+			}
 			client, conn, err := dialAdmin(g)
 			if err != nil {
 				return err
@@ -69,6 +73,7 @@ func newJobListCommand(g *globals) *cobra.Command {
 			if err != nil {
 				return rpcErr(err)
 			}
+			resp.Jobs = slices.DeleteFunc(resp.Jobs, func(j *armadav1.JobInfo) bool { return !g.listed(j.Name) })
 			out := cmd.OutOrStdout()
 			if output == outputJSON {
 				return printJSON(out, resp)
@@ -114,6 +119,9 @@ func newJobRunsCommand(g *globals) *cobra.Command {
 			"are removed; their logs are kept for 24 hours.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := g.qualify(args); err != nil {
+				return err
+			}
 			if err := checkOutput(output); err != nil {
 				return err
 			}
@@ -177,6 +185,9 @@ func newJobCancelCommand(g *globals) *cobra.Command {
 		Short: "Stop a job's pending and running runs",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := g.qualify(args); err != nil {
+				return err
+			}
 			client, conn, err := dialAdmin(g)
 			if err != nil {
 				return err
@@ -209,6 +220,9 @@ func newJobRemoveCommand(g *globals) *cobra.Command {
 		Long:    "Delete a job, stopping its runs and removing their records and logs. Its secrets are kept;\nremove them with `armada secret rm`.",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := g.qualify(args); err != nil {
+				return err
+			}
 			client, conn, err := dialAdmin(g)
 			if err != nil {
 				return err

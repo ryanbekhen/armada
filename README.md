@@ -52,6 +52,8 @@ armada deploy -f web.yaml    # → https://web.apps.example.com
   private range, routed between nodes over a tunnel on the private
   network, so a container reaches any other at its own address and sees
   its caller's real one; `--network wireguard` encrypts it.
+- **Projects.** Apps, jobs, secrets, domains, and volumes belong to a
+  project, so `web` can run in `staging` and in `default` side by side.
 - **Secrets.** Encrypted at rest, versioned, delivered as env vars or as
   read-only files on tmpfs.
 - **Logs and exec.** `armada logs` streams a replica's output;

@@ -44,6 +44,9 @@ const (
 	AdminService_RemoveNode_FullMethodName              = "/armada.v1.AdminService/RemoveNode"
 	AdminService_ListServers_FullMethodName             = "/armada.v1.AdminService/ListServers"
 	AdminService_RemoveServer_FullMethodName            = "/armada.v1.AdminService/RemoveServer"
+	AdminService_CreateProject_FullMethodName           = "/armada.v1.AdminService/CreateProject"
+	AdminService_ListProjects_FullMethodName            = "/armada.v1.AdminService/ListProjects"
+	AdminService_DeleteProject_FullMethodName           = "/armada.v1.AdminService/DeleteProject"
 	AdminService_Exec_FullMethodName                    = "/armada.v1.AdminService/Exec"
 	AdminService_Top_FullMethodName                     = "/armada.v1.AdminService/Top"
 	AdminService_IssueMetricsCertificate_FullMethodName = "/armada.v1.AdminService/IssueMetricsCertificate"
@@ -91,6 +94,11 @@ type AdminServiceClient interface {
 	RemoveNode(ctx context.Context, in *RemoveNodeRequest, opts ...grpc.CallOption) (*RemoveNodeResponse, error)
 	ListServers(ctx context.Context, in *ListServersRequest, opts ...grpc.CallOption) (*ListServersResponse, error)
 	RemoveServer(ctx context.Context, in *RemoveServerRequest, opts ...grpc.CallOption) (*RemoveServerResponse, error)
+	// Projects (ADR 0029). Every other RPC names an app by its ID:
+	// <name>.<project>, or the bare name in the default project.
+	CreateProject(ctx context.Context, in *CreateProjectRequest, opts ...grpc.CallOption) (*ProjectInfo, error)
+	ListProjects(ctx context.Context, in *ListProjectsRequest, opts ...grpc.CallOption) (*ListProjectsResponse, error)
+	DeleteProject(ctx context.Context, in *DeleteProjectRequest, opts ...grpc.CallOption) (*DeleteProjectResponse, error)
 	// Exec runs a command in one replica of an app (ADR 0017). The first
 	// client message is start; the server's first message names the replica
 	// and its last the exit code.
@@ -392,6 +400,36 @@ func (c *adminServiceClient) RemoveServer(ctx context.Context, in *RemoveServerR
 	return out, nil
 }
 
+func (c *adminServiceClient) CreateProject(ctx context.Context, in *CreateProjectRequest, opts ...grpc.CallOption) (*ProjectInfo, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ProjectInfo)
+	err := c.cc.Invoke(ctx, AdminService_CreateProject_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) ListProjects(ctx context.Context, in *ListProjectsRequest, opts ...grpc.CallOption) (*ListProjectsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListProjectsResponse)
+	err := c.cc.Invoke(ctx, AdminService_ListProjects_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) DeleteProject(ctx context.Context, in *DeleteProjectRequest, opts ...grpc.CallOption) (*DeleteProjectResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DeleteProjectResponse)
+	err := c.cc.Invoke(ctx, AdminService_DeleteProject_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *adminServiceClient) Exec(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ExecClientMessage, ExecServerMessage], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	stream, err := c.cc.NewStream(ctx, &AdminService_ServiceDesc.Streams[3], AdminService_Exec_FullMethodName, cOpts...)
@@ -530,6 +568,11 @@ type AdminServiceServer interface {
 	RemoveNode(context.Context, *RemoveNodeRequest) (*RemoveNodeResponse, error)
 	ListServers(context.Context, *ListServersRequest) (*ListServersResponse, error)
 	RemoveServer(context.Context, *RemoveServerRequest) (*RemoveServerResponse, error)
+	// Projects (ADR 0029). Every other RPC names an app by its ID:
+	// <name>.<project>, or the bare name in the default project.
+	CreateProject(context.Context, *CreateProjectRequest) (*ProjectInfo, error)
+	ListProjects(context.Context, *ListProjectsRequest) (*ListProjectsResponse, error)
+	DeleteProject(context.Context, *DeleteProjectRequest) (*DeleteProjectResponse, error)
 	// Exec runs a command in one replica of an app (ADR 0017). The first
 	// client message is start; the server's first message names the replica
 	// and its last the exit code.
@@ -634,6 +677,15 @@ func (UnimplementedAdminServiceServer) ListServers(context.Context, *ListServers
 }
 func (UnimplementedAdminServiceServer) RemoveServer(context.Context, *RemoveServerRequest) (*RemoveServerResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method RemoveServer not implemented")
+}
+func (UnimplementedAdminServiceServer) CreateProject(context.Context, *CreateProjectRequest) (*ProjectInfo, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreateProject not implemented")
+}
+func (UnimplementedAdminServiceServer) ListProjects(context.Context, *ListProjectsRequest) (*ListProjectsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListProjects not implemented")
+}
+func (UnimplementedAdminServiceServer) DeleteProject(context.Context, *DeleteProjectRequest) (*DeleteProjectResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method DeleteProject not implemented")
 }
 func (UnimplementedAdminServiceServer) Exec(grpc.BidiStreamingServer[ExecClientMessage, ExecServerMessage]) error {
 	return status.Error(codes.Unimplemented, "method Exec not implemented")
@@ -1108,6 +1160,60 @@ func _AdminService_RemoveServer_Handler(srv interface{}, ctx context.Context, de
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AdminService_CreateProject_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateProjectRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).CreateProject(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminService_CreateProject_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).CreateProject(ctx, req.(*CreateProjectRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_ListProjects_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListProjectsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).ListProjects(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminService_ListProjects_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).ListProjects(ctx, req.(*ListProjectsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_DeleteProject_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteProjectRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).DeleteProject(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminService_DeleteProject_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).DeleteProject(ctx, req.(*DeleteProjectRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _AdminService_Exec_Handler(srv interface{}, stream grpc.ServerStream) error {
 	return srv.(AdminServiceServer).Exec(&grpc.GenericServerStream[ExecClientMessage, ExecServerMessage]{ServerStream: stream})
 }
@@ -1346,6 +1452,18 @@ var AdminService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "RemoveServer",
 			Handler:    _AdminService_RemoveServer_Handler,
+		},
+		{
+			MethodName: "CreateProject",
+			Handler:    _AdminService_CreateProject_Handler,
+		},
+		{
+			MethodName: "ListProjects",
+			Handler:    _AdminService_ListProjects_Handler,
+		},
+		{
+			MethodName: "DeleteProject",
+			Handler:    _AdminService_DeleteProject_Handler,
 		},
 		{
 			MethodName: "Top",

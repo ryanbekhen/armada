@@ -8,6 +8,7 @@ import (
 	"net/netip"
 	"net/url"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"text/tabwriter"
@@ -243,14 +244,26 @@ func newDomainCommand(g *globals) *cobra.Command {
 		Short:   "List custom domains and the DNS records that prove ownership",
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			id := app
+			if id != "" {
+				var err error
+				if id, err = g.app(id); err != nil {
+					return err
+				}
+			}
 			client, conn, err := dialAdmin(g)
 			if err != nil {
 				return err
 			}
 			defer conn.Close()
-			resp, err := client.ListDomains(cmd.Context(), &armadav1.ListDomainsRequest{App: app})
+			resp, err := client.ListDomains(cmd.Context(), &armadav1.ListDomainsRequest{App: id})
 			if err != nil {
 				return rpcErr(err)
+			}
+			if g.project != "" {
+				resp.Domains = slices.DeleteFunc(resp.Domains, func(d *armadav1.Domain) bool {
+					return !slices.ContainsFunc(d.Apps, g.listed)
+				})
 			}
 			return printDomains(cmd, resp.Domains)
 		},

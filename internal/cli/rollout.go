@@ -125,9 +125,15 @@ func newRollbackCommand(g *globals) *cobra.Command {
 			"pinned image digest, so a rollback runs exactly the image that ran before.",
 		Args: cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := g.qualify(args); err != nil {
+				return err
+			}
 			req := &armadav1.RollbackRequest{App: args[0]}
 			if len(args) == 2 {
 				req.Revision = args[1]
+				if strings.HasPrefix(req.Revision, "r") && !strings.Contains(req.Revision, "--") {
+					req.Revision = args[0] + "--" + req.Revision
+				}
 			}
 			client, conn, err := dialAdmin(g)
 			if err != nil {
@@ -157,6 +163,9 @@ func newRevisionsCommand(g *globals) *cobra.Command {
 		Short: "List an app's revisions",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := g.qualify(args); err != nil {
+				return err
+			}
 			client, conn, err := dialAdmin(g)
 			if err != nil {
 				return err

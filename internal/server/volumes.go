@@ -206,7 +206,7 @@ func (u *usageStore) setVolumes(nodeID string, r *armadav1.UsageReport, at time.
 	}
 	m := make(map[string]int64, len(r.GetVolumes()))
 	for _, v := range r.GetVolumes() {
-		if spec.ValidName(v.GetApp()) && spec.ValidName(v.GetVolume()) {
+		if spec.ValidAppID(v.GetApp()) && spec.ValidName(v.GetVolume()) {
 			m[v.GetApp()+"/"+v.GetVolume()] = max(0, min(v.GetBytes(), maxVolumeBytes))
 		}
 	}
@@ -253,7 +253,7 @@ func (s *Server) mountedVolumes(ctx context.Context, app string) (map[string]spe
 
 // ListVolumes lists volumes, where they are, and how much they hold.
 func (s *Server) ListVolumes(ctx context.Context, req *armadav1.ListVolumesRequest) (*armadav1.ListVolumesResponse, error) {
-	if req.GetApp() != "" && !spec.ValidName(req.GetApp()) {
+	if req.GetApp() != "" && !spec.ValidAppID(req.GetApp()) {
 		return nil, status.Error(codes.InvalidArgument, "invalid app name")
 	}
 	vols, err := s.store.ListVolumes(ctx, req.GetApp())
@@ -284,7 +284,7 @@ func (s *Server) ListVolumes(ctx context.Context, req *armadav1.ListVolumesReque
 }
 
 func checkVolumeArgs(app, name string) error {
-	if !spec.ValidName(app) || !spec.ValidName(name) {
+	if !spec.ValidAppID(app) || !spec.ValidName(name) {
 		return status.Error(codes.InvalidArgument, "invalid app or volume name")
 	}
 	return nil

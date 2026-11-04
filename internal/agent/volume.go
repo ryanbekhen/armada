@@ -49,7 +49,7 @@ func (a *Agent) volumeDir(app, name string) (string, error) {
 	if a.cfg.VolumesDir == "" {
 		return "", errors.New("this node has no volume directory")
 	}
-	if !spec.ValidName(app) || !spec.ValidName(name) {
+	if !spec.ValidAppID(app) || !spec.ValidName(name) {
 		return "", fmt.Errorf("invalid volume name %q of app %q", name, app)
 	}
 	return filepath.Join(a.cfg.VolumesDir, app, name), nil
@@ -525,7 +525,7 @@ func (a *Agent) measureVolumes(ctx context.Context) []*armadav1.VolumeUsage {
 	}
 	var out []*armadav1.VolumeUsage
 	for _, app := range apps {
-		if !app.IsDir() || !spec.ValidName(app.Name()) {
+		if !app.IsDir() || !spec.ValidAppID(app.Name()) {
 			continue
 		}
 		vols, err := os.ReadDir(filepath.Join(root, app.Name()))

@@ -405,17 +405,24 @@ const InternalSuffix = ".internal"
 func InternalHost(app string) string { return app + InternalSuffix }
 
 // LabelHost is the host name label of a revision of app serves under
-// (ADR 0024): <label>--<app>. App names cannot contain "--", so it never
-// collides with another app's name.
+// (ADR 0024): <label>--<app>, with app an ID (<label>--<name>.<project>
+// in other projects). App names cannot contain "--", so it never collides
+// with another app's name.
 func LabelHost(label, app string) string { return label + "--" + app }
 
-// ValidHostName reports whether s is an app name or a LabelHost.
+// ValidHostName reports whether s is an app ID or a LabelHost of one.
 func ValidHostName(s string) bool {
-	if ValidName(s) {
+	if ValidAppID(s) {
 		return true
 	}
 	label, app, ok := strings.Cut(s, "--")
-	return ok && len(s) <= 63 && ValidName(label) && ValidName(app)
+	return ok && ValidName(label) && ValidAppID(app) && len(label)+2+len(hostLabel(app)) <= 63
+}
+
+// hostLabel is the first DNS label of an app ID's host name: its name.
+func hostLabel(id string) string {
+	name, _, _ := strings.Cut(id, ".")
+	return name
 }
 
 // ValidateRoutePath checks a route path prefix: it starts with "/", has no
@@ -461,7 +468,7 @@ func (v *validator) revisions(a *App) {
 		if a.Scale != nil && a.Scale.Min != nil && *a.Scale.Min == 0 {
 			v.add("revisions.mode", "multiple cannot be combined with scale.min: 0")
 		}
-		for _, e := range CheckTraffic(a.Name, r.Traffic, true) {
+		for _, e := range CheckTraffic(a.ID(), r.Traffic, true) {
 			v.add(e.Field, "%s", e.Msg)
 		}
 	default:
@@ -510,8 +517,8 @@ func CheckTraffic(app string, traffic []TrafficTarget, allowLatest bool) []*Fiel
 			}
 		case !ValidName(t.Label):
 			add(f+".label", "must be lowercase letters, digits, and single hyphens, starting with a letter")
-		case len(t.Label)+2+len(app) > 63:
-			add(f+".label", "%s--%s must be at most 63 characters", t.Label, app)
+		case len(t.Label)+2+len(hostLabel(app)) > 63:
+			add(f+".label", "%s--%s must be at most 63 characters", t.Label, hostLabel(app))
 		case labels[t.Label]:
 			add(f+".label", "%q is used more than once", t.Label)
 		}

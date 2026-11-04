@@ -135,7 +135,7 @@ func (s *Etcd) DeleteVolume(ctx context.Context, app, name, actor string) error 
 // for a restore onto another node. The app's replicas on other nodes are
 // replaced by the reconciler.
 func (s *Etcd) BindVolume(ctx context.Context, app, name, node, actor string) error {
-	if !spec.ValidName(app) || !spec.ValidName(name) {
+	if !spec.ValidAppID(app) || !spec.ValidName(name) {
 		return fmt.Errorf("invalid volume name: %w", ErrPrecondition)
 	}
 	now := s.now()

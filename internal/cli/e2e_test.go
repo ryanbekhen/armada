@@ -497,6 +497,68 @@ func TestEndToEnd(t *testing.T) {
 			t.Errorf("%v accepted", args)
 		}
 	}
+
+	testProjects(t, cli, waitFor)
+}
+
+// testProjects runs an app of the same name in another project (ADR 0029).
+func testProjects(t *testing.T, cli func(...string) (int, string, string), waitFor func(string, func() bool)) {
+	t.Helper()
+	spec := filepath.Join(t.TempDir(), "web.yaml")
+	if err := os.WriteFile(spec, []byte("name: web\nimage: nginx:1.28\ningress:\n  type: internal\n  port: 80\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, stderr := cli("deploy", "-f", spec, "--project", "staging"); code == 0 || !strings.Contains(stderr, "project staging does not exist") {
+		t.Fatalf("deploy into a missing project: code=%d err=%q", code, stderr)
+	}
+	if code, out, stderr := cli("project", "create", "staging"); code != 0 || !strings.Contains(out, "Project staging created") {
+		t.Fatalf("project create: code=%d out=%q err=%q", code, out, stderr)
+	}
+	if code, _, stderr := cli("project", "create", "staging"); code == 0 || !strings.Contains(stderr, "already exists") {
+		t.Errorf("project create twice: %q", stderr)
+	}
+	code, out, stderr := cli("deploy", "-f", spec, "--project", "staging")
+	if code != 0 || !strings.Contains(out, "Deployed web.staging (revision web.staging--r1)") {
+		t.Fatalf("deploy into staging: code=%d out=%q err=%q", code, out, stderr)
+	}
+	waitFor("web.staging ready", func() bool {
+		_, out, _ := cli("status", "web", "--project", "staging")
+		return regexp.MustCompile(`web\.staging\s+web\.staging--r1\s+1/1`).MatchString(out)
+	})
+	// The default project's web is untouched, and listings follow --project.
+	_, out, _ = cli("status", "--project", "staging")
+	if strings.Contains(out, "web--r1") || !strings.Contains(out, "web.staging-r1-") {
+		t.Errorf("status --project staging = %q", out)
+	}
+	_, out, _ = cli("status", "--project", "default")
+	if strings.Contains(out, "web.staging") || !regexp.MustCompile(`web\s+web--r1\s+3/3`).MatchString(out) {
+		t.Errorf("status --project default = %q", out)
+	}
+	if code, _, stderr := cli("scale", "web.staging", "2"); code != 0 {
+		t.Fatalf("scale by ID: %s", stderr)
+	}
+	waitFor("web.staging 2/2", func() bool {
+		_, out, _ := cli("status", "web.staging")
+		return strings.Contains(out, "2/2")
+	})
+	_, out, _ = cli("project", "list")
+	if !regexp.MustCompile(`default\s+[1-9]\s`).MatchString(out) || !regexp.MustCompile(`staging\s+1\s`).MatchString(out) {
+		t.Errorf("project list = %q", out)
+	}
+	if code, _, stderr := cli("project", "remove", "staging"); code == 0 || !strings.Contains(stderr, "apps (web.staging)") {
+		t.Errorf("remove a project with apps: %q", stderr)
+	}
+	for _, args := range [][]string{
+		{"status", "web.staging", "--project", "prod"},
+		{"status", "web.default"},
+		{"status", "web", "--project", "Bad"},
+		{"project", "remove", "default"},
+		{"project", "create", "a.b"},
+	} {
+		if code, _, _ := cli(args...); code == 0 {
+			t.Errorf("%v accepted", args)
+		}
+	}
 }
 
 // lockedBuffer is a bytes.Buffer safe for concurrent writes and reads.
