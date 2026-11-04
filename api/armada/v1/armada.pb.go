@@ -2013,7 +2013,8 @@ type JoinServerResponse struct {
 	// The node's container subnet in the cluster network (ADR 0027); empty
 	// when the cluster has none.
 	NodeSubnet string `protobuf:"bytes,9,opt,name=node_subnet,json=nodeSubnet,proto3" json:"node_subnet,omitempty"`
-	// The cluster network's mode, "plain"; empty when the cluster has none.
+	// The cluster network's mode, "plain" or "wireguard"; empty when the
+	// cluster has none.
 	NetworkMode   string `protobuf:"bytes,10,opt,name=network_mode,json=networkMode,proto3" json:"network_mode,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -2213,7 +2214,8 @@ type JoinResponse struct {
 	// The node's container subnet in the cluster network (ADR 0027); empty
 	// when the cluster has none.
 	NodeSubnet string `protobuf:"bytes,5,opt,name=node_subnet,json=nodeSubnet,proto3" json:"node_subnet,omitempty"`
-	// The cluster network's mode, "plain"; empty when the cluster has none.
+	// The cluster network's mode, "plain" or "wireguard"; empty when the
+	// cluster has none.
 	NetworkMode   string `protobuf:"bytes,6,opt,name=network_mode,json=networkMode,proto3" json:"network_mode,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -5030,7 +5032,10 @@ type Hello struct {
 	Jobs bool `protobuf:"varint,9,opt,name=jobs,proto3" json:"jobs,omitempty"`
 	// The node mounts volumes (ADR 0025): its runtime can, and the agent has
 	// a directory for them.
-	Volumes       bool `protobuf:"varint,10,opt,name=volumes,proto3" json:"volumes,omitempty"`
+	Volumes bool `protobuf:"varint,10,opt,name=volumes,proto3" json:"volumes,omitempty"`
+	// The node's WireGuard public key, base64 (ADR 0027); empty when the node
+	// is not part of a cluster network.
+	NetworkKey    string `protobuf:"bytes,11,opt,name=network_key,json=networkKey,proto3" json:"network_key,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -5133,6 +5138,13 @@ func (x *Hello) GetVolumes() bool {
 		return x.Volumes
 	}
 	return false
+}
+
+func (x *Hello) GetNetworkKey() string {
+	if x != nil {
+		return x.NetworkKey
+	}
+	return ""
 }
 
 type ReplicaReport struct {
@@ -5928,7 +5940,7 @@ func (x *Assignment) GetNetwork() *NetworkConfig {
 // nodes (ADR 0027). Identical for every node.
 type NetworkConfig struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// "plain" (VXLAN on the private network).
+	// "plain" (VXLAN on the private network) or "wireguard".
 	Mode        string `protobuf:"bytes,1,opt,name=mode,proto3" json:"mode,omitempty"`
 	ClusterCidr string `protobuf:"bytes,2,opt,name=cluster_cidr,json=clusterCidr,proto3" json:"cluster_cidr,omitempty"`
 	// Every node with a subnet, the receiving node included.
@@ -5994,7 +6006,10 @@ type NetworkPeer struct {
 	// The address the tunnel reaches the node at.
 	PrivateIp string `protobuf:"bytes,2,opt,name=private_ip,json=privateIp,proto3" json:"private_ip,omitempty"`
 	// The node's container subnet, a /24 of the cluster CIDR.
-	Subnet        string `protobuf:"bytes,3,opt,name=subnet,proto3" json:"subnet,omitempty"`
+	Subnet string `protobuf:"bytes,3,opt,name=subnet,proto3" json:"subnet,omitempty"`
+	// The node's WireGuard public key, base64; empty until it has announced
+	// one.
+	PublicKey     string `protobuf:"bytes,4,opt,name=public_key,json=publicKey,proto3" json:"public_key,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -6046,6 +6061,13 @@ func (x *NetworkPeer) GetPrivateIp() string {
 func (x *NetworkPeer) GetSubnet() string {
 	if x != nil {
 		return x.Subnet
+	}
+	return ""
+}
+
+func (x *NetworkPeer) GetPublicKey() string {
+	if x != nil {
+		return x.PublicKey
 	}
 	return ""
 }
@@ -8759,7 +8781,7 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\x04wake\x18\x04 \x01(\v2\x0f.armada.v1.WakeH\x00R\x04wakeB\x05\n" +
 	"\x03msg\"\x18\n" +
 	"\x04Wake\x12\x10\n" +
-	"\x03app\x18\x01 \x01(\tR\x03app\"\x98\x02\n" +
+	"\x03app\x18\x01 \x01(\tR\x03app\"\xb9\x02\n" +
 	"\x05Hello\x12\x1d\n" +
 	"\n" +
 	"cpu_millis\x18\x01 \x01(\x03R\tcpuMillis\x12!\n" +
@@ -8773,7 +8795,9 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\x10min_memory_bytes\x18\b \x01(\x03R\x0eminMemoryBytes\x12\x12\n" +
 	"\x04jobs\x18\t \x01(\bR\x04jobs\x12\x18\n" +
 	"\avolumes\x18\n" +
-	" \x01(\bR\avolumes\"D\n" +
+	" \x01(\bR\avolumes\x12\x1f\n" +
+	"\vnetwork_key\x18\v \x01(\tR\n" +
+	"networkKey\"D\n" +
 	"\rReplicaReport\x123\n" +
 	"\breplicas\x18\x01 \x03(\v2\x17.armada.v1.ReplicaStateR\breplicas\"\xa6\x02\n" +
 	"\fReplicaState\x12\x0e\n" +
@@ -8847,12 +8871,14 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\rNetworkConfig\x12\x12\n" +
 	"\x04mode\x18\x01 \x01(\tR\x04mode\x12!\n" +
 	"\fcluster_cidr\x18\x02 \x01(\tR\vclusterCidr\x12,\n" +
-	"\x05peers\x18\x03 \x03(\v2\x16.armada.v1.NetworkPeerR\x05peers\"X\n" +
+	"\x05peers\x18\x03 \x03(\v2\x16.armada.v1.NetworkPeerR\x05peers\"w\n" +
 	"\vNetworkPeer\x12\x12\n" +
 	"\x04node\x18\x01 \x01(\tR\x04node\x12\x1d\n" +
 	"\n" +
 	"private_ip\x18\x02 \x01(\tR\tprivateIp\x12\x16\n" +
-	"\x06subnet\x18\x03 \x01(\tR\x06subnet\"\xe5\x01\n" +
+	"\x06subnet\x18\x03 \x01(\tR\x06subnet\x12\x1d\n" +
+	"\n" +
+	"public_key\x18\x04 \x01(\tR\tpublicKey\"\xe5\x01\n" +
 	"\vProxyConfig\x123\n" +
 	"\bbackends\x18\x01 \x03(\v2\x17.armada.v1.ProxyBackendR\bbackends\x12*\n" +
 	"\x05rules\x18\x02 \x03(\v2\x14.armada.v1.ProxyRuleR\x05rules\x12?\n" +

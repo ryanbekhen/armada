@@ -23,12 +23,12 @@ func New(Config) (*Net, error) {
 func (*Net) Apply(context.Context, *armadav1.NetworkConfig) error { return nil }
 
 // ContainerMTU fails: the cluster network needs Linux.
-func ContainerMTU(netip.Addr) (int, error) {
+func ContainerMTU(string, netip.Addr) (int, error) {
 	return 0, errors.New("the cluster network needs Linux")
 }
 
 // Diagnose reports that the cluster network needs Linux.
-func Diagnose(netip.Addr) []Check {
+func Diagnose(string, netip.Addr) []Check {
 	return []Check{{Name: "network", Level: CheckFail, Detail: "the cluster network needs Linux"}}
 }
 

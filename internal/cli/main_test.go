@@ -2,6 +2,8 @@ package cli
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"log/slog"
 	"os"
 	"sync"
@@ -20,13 +22,19 @@ import (
 func TestMain(m *testing.M) {
 	goos = "linux"
 	prepareSecretsDisk = func(string) error { return nil }
-	newClusterNet = func(ac *agentConfig, _ *slog.Logger) (agent.Network, error) {
+	newClusterNet = func(_ string, ac *agentConfig, _ *slog.Logger) (agent.Network, string, error) {
 		if ac.Network == "" {
-			return nil, nil
+			return nil, "", nil
 		}
-		return testNets.get(ac.NodeID), nil
+		return testNets.get(ac.NodeID), testKey(ac.NodeID), nil
 	}
 	os.Exit(m.Run())
+}
+
+// testKey is a node's stand-in public key.
+func testKey(node string) string {
+	sum := sha256.Sum256([]byte(node))
+	return base64.StdEncoding.EncodeToString(sum[:])
 }
 
 // fakeNets holds the cluster network each test node last applied.

@@ -30,9 +30,10 @@ Ports:
 | 7443/tcp | Every node, on the private network only (control plane API) |
 | 7444/tcp | New nodes while they join, private network only |
 | 2379, 2380/tcp | Other control plane servers only (embedded etcd) |
-| 4789/udp | Every node, on the private network only (cluster network) |
+| 4789/udp | Every node, on the private network only (cluster network, `plain` mode) |
+| 51820/udp | Every node, on the private network only (cluster network, `wireguard` mode) |
 
-Never expose 7443, 7444, 2379, 2380, or 4789 to the internet. Armada binds them to the private
+Never expose 7443, 7444, 2379, 2380, 4789, or 51820 to the internet. Armada binds them to the private
 IP only, but on providers that map the public IP onto the private interface
 (1:1 NAT), restrict them in the provider firewall as well.
 
@@ -87,7 +88,9 @@ This creates the cluster CA, the certificates, the state (embedded etcd), the
 secrets master key, and an admin config in `~/.armada/config`. Each node
 gets its own container subnet, a /24 of `10.120.0.0/16`; if your network
 uses that range, pick another private one with `--cluster-cidr` (it cannot
-change later). Note the **CA SHA-256** it prints. Once the server runs, set up backups with
+change later). Traffic between nodes' containers is not encrypted unless you
+add `--network wireguard`, also fixed at init (see
+[operations](operations.md#container-network)). Note the **CA SHA-256** it prints. Once the server runs, set up backups with
 `armada backup` (see [operations](operations.md)): the data directory is the
 cluster, and without `master.key` secrets cannot be recovered.
 

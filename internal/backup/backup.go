@@ -61,6 +61,10 @@ const (
 	// Volumes (DirVolumes, ADR 0025) hold app data on whichever node runs
 	// the app; `armada volume backup` copies them.
 	DirVolumes = "volumes"
+	// FileNetworkKey is the node's own cluster network key (ADR 0027). It
+	// is not copied: it belongs to the node, and a restored node makes a
+	// new one, which its agent announces.
+	FileNetworkKey = "network.key"
 	// etcdPrefix is where the control plane's records live in etcd.
 	etcdPrefix = "/armada/"
 

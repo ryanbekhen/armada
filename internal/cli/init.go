@@ -48,6 +48,7 @@ func newInitCommand(g *globals) *cobra.Command {
 		adminName string
 		port      int
 		cidr      string
+		mode      string
 	)
 	cmd := &cobra.Command{
 		Use:   "init",
@@ -70,7 +71,7 @@ func newInitCommand(g *globals) *cobra.Command {
 			if rtFlags.flags.Changed("container-subnet") {
 				return errors.New("--container-subnet does not apply to init: every node gets a subnet of --cluster-cidr")
 			}
-			network, err := clusterNetwork(cidr, ip)
+			network, err := clusterNetwork(cidr, mode, ip)
 			if err != nil {
 				return err
 			}
@@ -224,6 +225,7 @@ func newInitCommand(g *globals) *cobra.Command {
 	f.StringVar(&adminName, "admin-name", "", "admin identity name (default: current user)")
 	f.IntVar(&port, "port", defaultPort, "control plane port on the private IP")
 	f.StringVar(&cidr, "cluster-cidr", defaultClusterCIDR, "private IPv4 range for containers; each node gets a /24 of it (set once, /12 to /20)")
+	f.StringVar(&mode, "network", store.NetworkPlain, "how traffic between nodes' containers travels: plain (VXLAN, not encrypted) or wireguard (encrypted); set once")
 	return cmd
 }
 
@@ -231,9 +233,12 @@ func newInitCommand(g *globals) *cobra.Command {
 // before the cluster network (ADR 0027).
 const defaultClusterCIDR = "10.120.0.0/16"
 
-// clusterNetwork validates --cluster-cidr for a cluster whose first node
-// has privateIP.
-func clusterNetwork(cidr string, privateIP netip.Addr) (store.Network, error) {
+// clusterNetwork validates --cluster-cidr and --network for a cluster whose
+// first node has privateIP.
+func clusterNetwork(cidr, mode string, privateIP netip.Addr) (store.Network, error) {
+	if mode != store.NetworkPlain && mode != store.NetworkWireGuard {
+		return store.Network{}, fmt.Errorf("invalid --network %q: plain or wireguard", mode)
+	}
 	p, err := netip.ParsePrefix(cidr)
 	if err != nil {
 		return store.Network{}, fmt.Errorf("invalid --cluster-cidr: %w", err)
@@ -244,7 +249,7 @@ func clusterNetwork(cidr string, privateIP netip.Addr) (store.Network, error) {
 	if p.Contains(privateIP) {
 		return store.Network{}, fmt.Errorf("--cluster-cidr %s contains the private IP %s; pick a range the network does not use", p, privateIP)
 	}
-	return store.Network{Mode: store.NetworkPlain, ClusterCIDR: p}, nil
+	return store.Network{Mode: mode, ClusterCIDR: p}, nil
 }
 
 func resolvePrivateIP(flag string) (netip.Addr, error) {

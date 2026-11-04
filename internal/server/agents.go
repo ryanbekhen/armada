@@ -135,11 +135,21 @@ func (s *Server) Connect(stream armadav1.AgentService_ConnectServer) error {
 	if spec.CheckLabelValue(hello.GetRuntime()) != nil {
 		hello.Runtime = ""
 	}
+	// The key peers will accept this node's traffic by (ADR 0027): only a
+	// well-formed one, recorded on this node's own record, which the
+	// stream's certificate names.
+	if !validNetworkKey(hello.GetNetworkKey()) {
+		hello.NetworkKey = ""
+	}
 	if err := s.store.SetNodeStatus(ctx, node.ID, store.NodeStatus{
 		State: store.NodeReady, LastSeen: time.Now(), CPUMillis: hello.GetCpuMillis(), MemoryBytes: hello.GetMemoryBytes(),
 		Version: hello.GetVersion(), OS: hello.GetOs(), Arch: hello.GetArch(), Runtime: hello.GetRuntime(),
 		MinMemoryBytes: hello.GetMinMemoryBytes(), Jobs: hello.GetJobs(), Volumes: hello.GetVolumes(),
-	}); err != nil {
+		NetworkKey: hello.GetNetworkKey(),
+	}); errors.Is(err, store.ErrConflict) {
+		s.log.Warn("agent announced another node's network key", "node", node.ID)
+		return status.Error(codes.FailedPrecondition, "the network key is already used by another node; remove "+fileNetworkKeyHint+" on this node and restart the agent")
+	} else if err != nil {
 		return status.Error(codes.Internal, "update node")
 	}
 	s.log.Info("agent connected", "node", node.ID, "version", hello.GetVersion())

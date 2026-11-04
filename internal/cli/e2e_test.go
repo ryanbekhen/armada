@@ -88,7 +88,7 @@ func TestInit(t *testing.T) {
 	// The first node gets the first subnet of the cluster network
 	// (ADR 0027) as its bridge subnet.
 	ac, err := loadAgentConfig(dataDir)
-	if err != nil || ac.ContainerSubnet != "10.120.0.0/24" {
+	if err != nil || ac.ContainerSubnet != "10.120.0.0/24" || ac.Network != "plain" {
 		t.Errorf("agent container subnet = %+v, %v", ac, err)
 	}
 
@@ -96,6 +96,19 @@ func TestInit(t *testing.T) {
 	code, _, stderr := run(t, "init", "--data-dir", dataDir, "--config", config+"2", "--private-ip", "127.0.0.1")
 	if code == 0 || !strings.Contains(stderr, "already initialized") {
 		t.Errorf("re-init: code=%d stderr=%q", code, stderr)
+	}
+}
+
+func TestInitWireGuard(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	dataDir := filepath.Join(dir, "data")
+	code, out, stderr := run(t, "init", "--data-dir", dataDir, "--config", filepath.Join(dir, "home", "config"), "--private-ip", "10.0.0.1", "--network", "wireguard")
+	if code != 0 || !strings.Contains(out, "network:     wireguard, cluster CIDR 10.120.0.0/16") {
+		t.Fatalf("init: %d %q %q", code, out, stderr)
+	}
+	if ac, err := loadAgentConfig(dataDir); err != nil || ac.Network != "wireguard" {
+		t.Errorf("agent config %+v, %v", ac, err)
 	}
 }
 
@@ -113,6 +126,7 @@ func TestInitRejectsUnsafeInput(t *testing.T) {
 		"huge CIDR":      {"--private-ip", "10.0.0.1", "--cluster-cidr", "10.0.0.0/8"},
 		"CIDR with IP":   {"--private-ip", "10.120.3.4", "--cluster-cidr", "10.120.0.0/16"},
 		"subnet flag":    {"--private-ip", "10.0.0.1", "--container-subnet", "10.50.0.0/24"},
+		"unknown mode":   {"--private-ip", "10.0.0.1", "--network", "ipsec"},
 	}
 	for name, extra := range tests {
 		if code, _, _ := run(t, append(base, extra...)...); code == 0 {

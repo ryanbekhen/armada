@@ -333,6 +333,8 @@ type nodeRec struct {
 	// Subnet is the node's container subnet in the cluster network
 	// (ADR 0027); empty in clusters without one.
 	Subnet string `json:"subnet,omitempty"`
+	// NetworkKey is the node's WireGuard public key.
+	NetworkKey string `json:"networkKey,omitempty"`
 }
 
 type certRec struct {
@@ -519,7 +521,7 @@ func (t *etx) toNode(n nodeRec) (Node, error) {
 	out := Node{ID: n.ID, PrivateIP: n.PrivateIP, CPUMillis: n.CPUMillis, MemoryBytes: n.MemoryBytes, State: n.State,
 		LastSeen: fromMS(n.LastSeen), CreatedAt: fromMS(n.CreatedAt), Cordoned: n.Cordoned, Version: n.Version,
 		Labels: n.Labels, OS: n.OS, Arch: n.Arch, Runtime: n.Runtime, Restricted: n.Restricted,
-		MinMemoryBytes: n.MinMemory, Jobs: n.Jobs, Volumes: n.Volumes, Subnet: n.Subnet}
+		MinMemoryBytes: n.MinMemory, Jobs: n.Jobs, Volumes: n.Volumes, Subnet: n.Subnet, NetworkKey: n.NetworkKey}
 	var latest int64
 	err := listInto(t, pfxCerts+n.ID+"/", func(_ string, c certRec) error {
 		latest = max(latest, c.NotAfter)
@@ -548,7 +550,7 @@ func (s *Etcd) UpsertNode(ctx context.Context, n Node) error {
 		if ok {
 			rec.CreatedAt, rec.Cordoned, rec.LegacyCerts, rec.Version = cur.CreatedAt, cur.Cordoned, cur.LegacyCerts, cur.Version
 			rec.Labels, rec.Restricted, rec.OS, rec.Arch, rec.Runtime = cur.Labels, cur.Restricted, cur.OS, cur.Arch, cur.Runtime
-			rec.MinMemory, rec.Subnet = cur.MinMemory, cur.Subnet
+			rec.MinMemory, rec.Subnet, rec.NetworkKey = cur.MinMemory, cur.Subnet, cur.NetworkKey
 		} else {
 			if rec.Subnet, err = t.newNodeNetwork(n.PrivateIP); err != nil {
 				return err
@@ -622,6 +624,20 @@ func (s *Etcd) SetNodeStatus(ctx context.Context, id string, st NodeStatus) erro
 		}
 		if st.Runtime != "" {
 			n.Runtime = st.Runtime
+		}
+		if st.NetworkKey != "" && st.NetworkKey != n.NetworkKey {
+			taken := false
+			err := listInto(t, pfxNodes, func(_ string, r nodeRec) error {
+				taken = taken || (r.ID != id && r.NetworkKey == st.NetworkKey)
+				return nil
+			})
+			if err != nil {
+				return err
+			}
+			if taken {
+				return fmt.Errorf("node %s: network key already used by another node: %w", id, ErrConflict)
+			}
+			n.NetworkKey = st.NetworkKey
 		}
 		return t.put(pfxNodes+id, n)
 	})

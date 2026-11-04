@@ -430,7 +430,7 @@ func runAgent(ctx context.Context, dataDir string, servers []string, proxyKind, 
 	if err != nil {
 		return err
 	}
-	cnet, err := newClusterNet(ac, log)
+	cnet, networkKey, err := newClusterNet(dataDir, ac, log)
 	if err != nil {
 		return err
 	}
@@ -465,7 +465,7 @@ func runAgent(ctx context.Context, dataDir string, servers []string, proxyKind, 
 		acfg.DNS = dns
 	}
 	if cnet != nil {
-		acfg.Network = cnet
+		acfg.Network, acfg.NetworkKey = cnet, networkKey
 	}
 	a := agent.New(acfg)
 	g, ctx := errgroup.WithContext(ctx)
@@ -481,22 +481,28 @@ func runAgent(ctx context.Context, dataDir string, servers []string, proxyKind, 
 }
 
 // newClusterNet returns the node's side of the cluster network (ADR 0027),
-// or nil for a node of a cluster without one. Linux nodes with an external
-// driver join it too, since the tunnel and routes are the host's; macOS
-// nodes stay on published ports. Tests replace it.
-var newClusterNet = func(ac *agentConfig, log *slog.Logger) (agent.Network, error) {
+// or nil for a node of a cluster without one, with the node's public key.
+// The key is made the first time, in both modes, so later sites need no
+// migration. Linux nodes with an external driver join too, since the
+// tunnel and routes are the host's; macOS nodes stay on published ports.
+// Tests replace it.
+var newClusterNet = func(dataDir string, ac *agentConfig, log *slog.Logger) (agent.Network, string, error) {
 	if ac.Network == "" || goos != "linux" {
-		return nil, nil
+		return nil, "", nil
 	}
 	ip, err := netip.ParseAddr(ac.PrivateIP)
 	if err != nil {
-		return nil, fmt.Errorf("%s: private IP: %w", fileAgent, err)
+		return nil, "", fmt.Errorf("%s: private IP: %w", fileAgent, err)
 	}
-	n, err := clusternet.New(clusternet.Config{Node: ac.NodeID, PrivateIP: ip, Logger: log.With("component", "network")})
+	key, err := clusternet.LoadOrCreateKey(filepath.Join(dataDir, fileNetworkKey))
 	if err != nil {
-		return nil, err
+		return nil, "", fmt.Errorf("cluster network key: %w", err)
 	}
-	return n, nil
+	n, err := clusternet.New(clusternet.Config{Node: ac.NodeID, PrivateIP: ip, Key: key, Logger: log.With("component", "network")})
+	if err != nil {
+		return nil, "", err
+	}
+	return n, key.Public(), nil
 }
 
 // resolvConf is the host resolver configuration; tests replace it.

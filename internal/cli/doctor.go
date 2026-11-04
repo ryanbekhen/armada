@@ -110,7 +110,7 @@ func hostDoctorEnv(dataDir string) doctorEnv {
 	}
 	var network func() []checkResult
 	if ip, err := netip.ParseAddr(ac.PrivateIP); err == nil && ac.Network != "" && goruntime.GOOS == "linux" {
-		network = func() []checkResult { return clusterNetChecks(ip) }
+		network = func() []checkResult { return clusterNetChecks(ac.Network, ip) }
 	}
 	return doctorEnv{
 		goos:        goruntime.GOOS,
@@ -276,10 +276,10 @@ func checkRuntime(ctx context.Context, env doctorEnv) []checkResult {
 }
 
 // clusterNetChecks are the cluster network's checks on this host.
-func clusterNetChecks(ip netip.Addr) []checkResult {
+func clusterNetChecks(mode string, ip netip.Addr) []checkResult {
 	levels := map[int]string{clusternet.CheckOK: checkOK, clusternet.CheckWarn: checkWarn, clusternet.CheckFail: checkFail}
 	var out []checkResult
-	for _, c := range clusternet.Diagnose(ip) {
+	for _, c := range clusternet.Diagnose(mode, ip) {
 		out = append(out, checkResult{Name: c.Name, Status: levels[c.Level], Detail: c.Detail})
 	}
 	return out
