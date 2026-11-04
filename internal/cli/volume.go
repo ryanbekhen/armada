@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"text/tabwriter"
 	"time"
 
@@ -38,6 +39,9 @@ func newVolumeListCommand(g *globals) *cobra.Command {
 		Short:   "List volumes, their node, and how much they hold",
 		Args:    cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := g.qualify(args); err != nil {
+				return err
+			}
 			if err := checkOutput(output); err != nil {
 				return err
 			}
@@ -54,6 +58,7 @@ func newVolumeListCommand(g *globals) *cobra.Command {
 			if err != nil {
 				return rpcErr(err)
 			}
+			resp.Volumes = slices.DeleteFunc(resp.Volumes, func(v *armadav1.Volume) bool { return !g.listed(v.App) })
 			out := cmd.OutOrStdout()
 			if output == outputJSON {
 				return printJSON(out, resp)
@@ -93,6 +98,9 @@ func newVolumeRemoveCommand(g *globals) *cobra.Command {
 			"without the volume first. This cannot be undone; back the volume up first if in doubt.",
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := g.qualify(args); err != nil {
+				return err
+			}
 			if !yes {
 				return fmt.Errorf("this deletes the data of volume %s of %s; pass --yes to confirm", args[1], args[0])
 			}
@@ -128,6 +136,9 @@ The archive holds the app's data as it is: store it as carefully as the app's
 own data.`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := g.qualify(args); err != nil {
+				return err
+			}
 			var w io.Writer
 			switch output {
 			case "":
@@ -203,6 +214,9 @@ follows. This is how an app comes back when the node holding its volume is lost
 for good; it is refused while that node is still connected.`,
 		Args: cobra.ExactArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := g.qualify(args); err != nil {
+				return err
+			}
 			r := cmd.InOrStdin()
 			if args[2] != "-" {
 				f, err := os.Open(args[2])

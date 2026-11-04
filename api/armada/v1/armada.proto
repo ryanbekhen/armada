@@ -38,6 +38,11 @@ service AdminService {
   rpc RemoveNode(RemoveNodeRequest) returns (RemoveNodeResponse);
   rpc ListServers(ListServersRequest) returns (ListServersResponse);
   rpc RemoveServer(RemoveServerRequest) returns (RemoveServerResponse);
+  // Projects (ADR 0029). Every other RPC names an app by its ID:
+  // <name>.<project>, or the bare name in the default project.
+  rpc CreateProject(CreateProjectRequest) returns (ProjectInfo);
+  rpc ListProjects(ListProjectsRequest) returns (ListProjectsResponse);
+  rpc DeleteProject(DeleteProjectRequest) returns (DeleteProjectResponse);
   // Exec runs a command in one replica of an app (ADR 0017). The first
   // client message is start; the server's first message names the replica
   // and its last the exit code.
@@ -168,6 +173,30 @@ message IssueMetricsCertificateResponse {
   bytes ca_cert = 2;
   google.protobuf.Timestamp expires_at = 3;
 }
+
+message CreateProjectRequest {
+  string name = 1;
+}
+
+message ProjectInfo {
+  string name = 1;
+  google.protobuf.Timestamp created_at = 2;
+  string created_by = 3;
+  // Apps and jobs in the project.
+  int32 apps = 4;
+}
+
+message ListProjectsRequest {}
+
+message ListProjectsResponse {
+  repeated ProjectInfo projects = 1;
+}
+
+message DeleteProjectRequest {
+  string name = 1;
+}
+
+message DeleteProjectResponse {}
 
 message ListServersRequest {}
 
@@ -438,6 +467,8 @@ message VerifyDomainRequest {
 message DeployRequest {
   // App spec as YAML, validated by the server.
   bytes spec = 1;
+  // Project to deploy into (ADR 0029); empty means the default project.
+  string project = 2;
 }
 
 message DeployResponse {

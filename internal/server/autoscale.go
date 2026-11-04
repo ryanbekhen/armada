@@ -158,7 +158,7 @@ func (s *Server) autoscale(ctx context.Context) error {
 // node, and only raise an app that scales to zero from 0 to 1.
 func (s *Server) wakeApp(ctx context.Context, nodeID, app string) {
 	now := s.now()
-	if !spec.ValidName(app) || !s.wakeLimit.allow(nodeID, now) {
+	if !spec.ValidAppID(app) || !s.wakeLimit.allow(nodeID, now) {
 		return
 	}
 	a, err := s.store.GetApp(ctx, app)

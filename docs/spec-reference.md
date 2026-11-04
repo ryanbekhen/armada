@@ -58,6 +58,11 @@ Lowercase letters, digits, and single hyphens, starting with a letter, at
 most 63 characters. It names the app's URL (`<name>.<root domain>` or
 `<name>.internal`), its containers, and its secrets.
 
+The project is not part of the file: `armada deploy --project NAME` puts
+the app in a project, where its URLs become `<name>.<project>.<root
+domain>` and `<name>.<project>.internal` (ADR 0029). A `project` field in
+the file is refused.
+
 ### `image` (required)
 
 An OCI image reference with an optional registry host, tag, and

@@ -213,8 +213,13 @@ func (d *Duration) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-// Parse decodes, defaults, and validates an app spec.
-func Parse(data []byte) (*App, error) {
+// Parse decodes, defaults, and validates an app spec of the default
+// project.
+func Parse(data []byte) (*App, error) { return ParseIn(data, "") }
+
+// ParseIn is Parse for an app of project (ADR 0029); empty means the
+// default project.
+func ParseIn(data []byte, project string) (*App, error) {
 	if len(data) > MaxSpecBytes {
 		return nil, fmt.Errorf("spec is larger than %d bytes", MaxSpecBytes)
 	}
@@ -233,6 +238,9 @@ func Parse(data []byte) (*App, error) {
 		return nil, errors.New("spec must contain exactly one YAML document")
 	}
 
+	if project != DefaultProject {
+		app.Project = project
+	}
 	app.SetDefaults()
 	if err := app.Validate(); err != nil {
 		return nil, err

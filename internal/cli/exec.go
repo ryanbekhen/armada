@@ -46,6 +46,9 @@ command's name, not its arguments.`,
 			return runtime.CheckExecCommand(args[1:])
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := g.qualify(args); err != nil {
+				return err
+			}
 			in := cmd.InOrStdin()
 			var fd int
 			if tty {

@@ -74,7 +74,7 @@ func (a *Agent) serveWake(ctx context.Context) {
 func (a *Agent) wakeHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		app := r.Header.Get(proxy.WakeHeader)
-		if !spec.ValidName(app) {
+		if !spec.ValidAppID(app) {
 			http.Error(w, "bad request", http.StatusBadRequest)
 			return
 		}

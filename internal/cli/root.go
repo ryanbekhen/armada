@@ -6,16 +6,65 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/ryanbekhen/armada/internal/clientconfig"
+	"github.com/ryanbekhen/armada/internal/spec"
 	"github.com/ryanbekhen/armada/internal/version"
 )
 
 // globals holds persistent flags shared by subcommands.
 type globals struct {
 	configPath string
+	// project is --project: the project whose apps a command names
+	// (ADR 0029). Empty names apps of the default project and lists every
+	// project.
+	project string
+}
+
+// app returns the ID of app name in --project. name may already be an ID
+// (web.staging) as long as --project does not name another project.
+func (g *globals) app(name string) (string, error) {
+	if g.project != "" && !spec.ValidProject(g.project) {
+		return "", fmt.Errorf("invalid project %q", g.project)
+	}
+	if strings.Contains(name, ".") {
+		p, _, ok := spec.SplitAppID(name)
+		if !ok {
+			return "", fmt.Errorf("invalid app %q: want NAME, or NAME.PROJECT for an app of another project", name)
+		}
+		if g.project != "" && g.project != p {
+			return "", fmt.Errorf("%s belongs to project %s, not %s", name, p, g.project)
+		}
+		return name, nil
+	}
+	return spec.AppID(g.project, name), nil
+}
+
+// qualify replaces args[0], an app or job name, with its ID (see app).
+func (g *globals) qualify(args []string) error {
+	if len(args) == 0 {
+		return nil
+	}
+	id, err := g.app(args[0])
+	if err != nil {
+		return err
+	}
+	args[0] = id
+	return nil
+}
+
+// listed reports whether a listing shows the app with ID id: every app
+// without --project, else only the project's.
+func (g *globals) listed(id string) bool {
+	if g.project == "" {
+		return true
+	}
+	p, _, ok := spec.SplitAppID(id)
+	return ok && p == g.project
 }
 
 // NewRootCommand builds the full command tree. Output goes to the writers
@@ -33,6 +82,8 @@ func NewRootCommand() *cobra.Command {
 
 	g := &globals{}
 	cmd.PersistentFlags().StringVar(&g.configPath, "config", clientconfig.DefaultPath(), "client config with admin credentials")
+	cmd.PersistentFlags().StringVar(&g.project, "project", os.Getenv("ARMADA_PROJECT"),
+		"project of the apps and jobs a command names (ADR 0029; or ARMADA_PROJECT); without it, names are in the default project and listings show every project")
 
 	cmd.AddCommand(
 		newVersionCommand(),
@@ -55,6 +106,7 @@ func NewRootCommand() *cobra.Command {
 		newClusterCommand(g),
 		newDomainCommand(g),
 		newSecretCommand(g),
+		newProjectCommand(g),
 		newTokenCommand(g),
 		newJoinCommand(),
 		newNodeCommand(g),

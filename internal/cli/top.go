@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
@@ -26,6 +27,9 @@ func newTopCommand(g *globals) *cobra.Command {
 			"(the replica is not running, or its node's runtime cannot measure containers).",
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := g.qualify(args); err != nil {
+				return err
+			}
 			if output != outputText && output != outputJSON {
 				return fmt.Errorf("unsupported output format %q (want %q or %q)", output, outputText, outputJSON)
 			}
@@ -45,6 +49,7 @@ func newTopCommand(g *globals) *cobra.Command {
 			if err != nil {
 				return rpcErr(err)
 			}
+			resp.Replicas = slices.DeleteFunc(resp.Replicas, func(r *armadav1.ReplicaTop) bool { return !g.listed(r.App) })
 			out := cmd.OutOrStdout()
 			if output == outputJSON {
 				b, err := protojson.MarshalOptions{Multiline: true, Indent: "  "}.Marshal(resp)

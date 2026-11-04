@@ -65,6 +65,9 @@ func newSecretSetCommand(g *globals) *cobra.Command {
 			"  armada secret set web tls-key --from-file key.pem",
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := g.qualify(args); err != nil {
+				return err
+			}
 			app, name := args[0], args[1]
 			if err := spec.ValidateName(app); err != nil {
 				return fmt.Errorf("app: %w", err)
@@ -156,6 +159,9 @@ func newSecretListCommand(g *globals) *cobra.Command {
 		Short:   "List an app's secrets (names and versions only)",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := g.qualify(args); err != nil {
+				return err
+			}
 			client, conn, err := dialAdmin(g)
 			if err != nil {
 				return err
@@ -191,6 +197,9 @@ func newSecretRemoveCommand(g *globals) *cobra.Command {
 		Short:   "Delete every version of a secret the app no longer uses",
 		Args:    cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := g.qualify(args); err != nil {
+				return err
+			}
 			client, conn, err := dialAdmin(g)
 			if err != nil {
 				return err

@@ -71,7 +71,10 @@ func TestValidateRejects(t *testing.T) {
 		"rule host uppercase":          func(c *Config) { c.Rules[0].Host = "Example.org" },
 		"public rule for .internal":    func(c *Config) { c.Rules[0].Host = "web.internal" },
 		"internal rule, public host":   func(c *Config) { c.Rules[2].Host = "example.org" },
-		"internal rule, nested host":   func(c *Config) { c.Rules[2].Host = "a.api.internal" },
+		"internal rule, nested host":   func(c *Config) { c.Rules[2].Host = "a.b.api.internal" },
+		"internal rule, default host":  func(c *Config) { c.Rules[2].Host = "api.default.internal" },
+		"backend in default project":   func(c *Config) { c.Backends[0].Name = "web.default" },
+		"backend with two dots":        func(c *Config) { c.Backends[0].Name = "web.a.b" },
 		"internal rule injection":      func(c *Config) { c.Rules[2].Host = "api }\n  use_backend x.internal" },
 		"certificate for .internal":    func(c *Config) { c.Certificates[0].Name = "api.internal" },
 		"rule path injection":          func(c *Config) { c.Rules[1].PathPrefix = "/api } || { always_true" },
@@ -132,5 +135,18 @@ func TestCertificateFileName(t *testing.T) {
 	}
 	if got := (Certificate{Name: "example.org"}).FileName(); got != "example.org.pem" {
 		t.Errorf("FileName = %q", got)
+	}
+}
+
+// Apps of other projects are named by their ID (ADR 0029).
+func TestValidateProjectApps(t *testing.T) {
+	c := validConfig(t)
+	c.Backends[1].Name = "api.staging"
+	c.Backends = append(c.Backends, Backend{Name: "canary--api.staging", Servers: []Server{{Name: "api-r2-a", Address: "10.0.0.4:32770"}}})
+	c.Rules[1].Backend = "api.staging"
+	c.Rules[2] = Rule{Host: "api.staging.internal", PathPrefix: "/", Backend: "api.staging", Internal: true}
+	c.Rules = append(c.Rules, Rule{Host: "canary--api.staging.internal", PathPrefix: "/", Backend: "canary--api.staging", Internal: true})
+	if err := c.Validate(); err != nil {
+		t.Fatal(err)
 	}
 }

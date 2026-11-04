@@ -2023,8 +2023,12 @@ func (t *etx) pinSecrets(sp *spec.App) (map[string]int, error) {
 		pins[name] = v
 	}
 	if len(missing) > 0 {
-		return nil, fmt.Errorf("app %s references secrets that are not set: %s (set them with `armada secret set %s NAME`): %w",
-			sp.Name, strings.Join(missing, ", "), sp.Name, ErrPrecondition)
+		cmd := "armada secret set " + sp.Name + " NAME"
+		if sp.ID() != sp.Name {
+			cmd += " --project " + sp.Project
+		}
+		return nil, fmt.Errorf("app %s references secrets that are not set: %s (set them with `%s`): %w",
+			sp.ID(), strings.Join(missing, ", "), cmd, ErrPrecondition)
 	}
 	return pins, nil
 }
