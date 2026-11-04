@@ -170,6 +170,9 @@ func TestSanitizeName(t *testing.T) {
 // package-level driver factory, so it must not run in parallel.
 func TestEndToEnd(t *testing.T) {
 	d := fake.New()
+	// Containers on the node's subnet of the cluster network, past its
+	// gateway: 10.120.0.11, 10.120.0.12, ...
+	d.BridgeIPs = "10.120.0.1"
 	d.LogLines = []runtime.LogFrame{{Stream: runtime.Stdout, Data: []byte("listening on :80\n")}, {Stream: runtime.Stderr, Data: []byte("deprecated flag\n")}}
 	orig, origWait, origCheck, origPoll, origTmpfs, origUsage := newDriver, proxyStartWait, probeCheck, waitPoll, checkTmpfs, usageInterval
 	newDriver = func(string, *agentConfig) (runtime.Driver, error) { return d, nil }
@@ -260,8 +263,10 @@ func TestEndToEnd(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &st); err != nil || len(st.Apps) != 1 || len(st.Apps[0].Replicas) != 2 {
 		t.Fatalf("status json = %s (%v)", out, err)
 	}
-	if !strings.HasPrefix(st.Apps[0].Replicas[0].Address, "127.0.0.1:") {
-		t.Errorf("replica address = %q", st.Apps[0].Replicas[0].Address)
+	// Replicas publish no port: they are reached at their own address in
+	// the node's subnet, on the app's port (ADR 0027).
+	if a := st.Apps[0].Replicas[0].Address; !strings.HasPrefix(a, "10.120.0.1") || !strings.HasSuffix(a, ":80") {
+		t.Errorf("replica address = %q", a)
 	}
 
 	if code, _, stderr := cli("scale", "web", "3"); code != 0 {

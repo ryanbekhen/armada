@@ -247,7 +247,7 @@ func (s *Server) applyReport(ctx context.Context, node store.Node, r *armadav1.R
 			continue // stale or foreign replica
 		}
 		addr := st.GetAddress()
-		if addr != "" && !validReplicaAddress(addr, node.PrivateIP) {
+		if addr != "" && !validReplicaAddress(addr, node.PrivateIP, node.Subnet) {
 			// %q keeps a hostile address from forging log lines.
 			s.log.Warn("ignoring invalid replica address", "node", node.ID, "replica", st.GetId(), "address", fmt.Sprintf("%q", truncate(addr, 128)))
 			addr = ""
@@ -459,11 +459,25 @@ func peerCertExpiry(ctx context.Context) time.Time {
 	return time.Now()
 }
 
-// validReplicaAddress accepts only "<node private IP>:<port>" in canonical
-// form: the address goes into every node's proxy configuration.
-func validReplicaAddress(addr, nodeIP string) bool {
+// validReplicaAddress accepts only "<node private IP>:<port>", or with the
+// cluster network "<address in the node's subnet>:<port>" (ADR 0027), in
+// canonical form: the address goes into every node's proxy configuration.
+// The subnet's network address (the node's tunnel end), its gateway (the
+// node's bridge), and its broadcast address are never a replica's.
+func validReplicaAddress(addr, nodeIP, subnet string) bool {
 	ap, err := netip.ParseAddrPort(addr)
-	return err == nil && ap.Port() != 0 && ap.Addr().Zone() == "" && ap.String() == addr && ap.Addr().String() == nodeIP
+	if err != nil || ap.Port() == 0 || ap.Addr().Zone() != "" || ap.String() != addr {
+		return false
+	}
+	if ap.Addr().String() == nodeIP {
+		return true
+	}
+	p, err := netip.ParsePrefix(subnet)
+	if err != nil || !p.Addr().Is4() || !p.Contains(ap.Addr()) {
+		return false
+	}
+	host := ap.Addr().As4()[3] // node subnets are /24s
+	return p.Bits() == 24 && host != 0 && host != 1 && host != 255
 }
 
 // versionRe bounds the self-reported agent version, which ends up in the

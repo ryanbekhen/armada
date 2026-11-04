@@ -164,7 +164,9 @@ func checkProxyKind(kind string) error {
 	return nil
 }
 
-func newProxy(kind, dataDir, privateIP, internalIP string, rt runtime.Driver, log *slog.Logger) (proxy.Driver, error) {
+// newProxy starts the node's HAProxy. subnet is the node's container subnet
+// when its replicas have their own addresses in it (ADR 0027), else empty.
+func newProxy(kind, dataDir, privateIP, internalIP, subnet string, rt runtime.Driver, log *slog.Logger) (proxy.Driver, error) {
 	if err := checkProxyKind(kind); err != nil || kind == "none" {
 		return nil, err
 	}
@@ -177,6 +179,7 @@ func newProxy(kind, dataDir, privateIP, internalIP string, rt runtime.Driver, lo
 		Dir:        dir,
 		PrivateIP:  privateIP,
 		InternalIP: internalIP,
+		Subnet:     subnet,
 		Engine:     &haproxy.ContainerEngine{Runtime: rt, System: sys, Dir: dir, StartWait: proxyStartWait},
 		Logger:     log,
 	})

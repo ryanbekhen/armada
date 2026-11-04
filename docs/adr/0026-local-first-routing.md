@@ -24,7 +24,8 @@ replica.
 
 - **Local backend.** Next to `be_<app>`, which holds all of an app's
   servers, each node renders `lo_<app>` with the servers whose address is
-  on its own private IP. Both use the same slots, health checks, and
+  on its own private IP, or with the cluster network (ADR 0027) in its own
+  container subnet. Both use the same slots, health checks, and
   Runtime API updates (ADR 0002). `lo_<app>` is rendered even while empty,
   so a replica arriving on a node or leaving it never needs a reload.
 - **Choice per request.** Let L be the requests in progress on the N local

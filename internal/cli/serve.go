@@ -426,11 +426,20 @@ func runAgent(ctx context.Context, dataDir string, servers []string, proxyKind, 
 			internalIP = dns.Address()
 		}
 	}
-	px, err := newProxy(proxyKind, dataDir, ac.PrivateIP, internalIP, rt, log)
+	cnet, networkKey, err := newClusterNet(dataDir, ac, log)
 	if err != nil {
 		return err
 	}
-	cnet, networkKey, err := newClusterNet(dataDir, ac, log)
+	// On the cluster network the embedded runtime's replicas live on the
+	// node subnet and publish no port; other nodes reach them through the
+	// tunnel (ADR 0027). A driver's replicas keep publishing ports until
+	// drivers can use the node subnet.
+	unpublished := cnet != nil && !ac.external() && ac.ContainerSubnet != ""
+	subnet := ""
+	if unpublished {
+		subnet = ac.ContainerSubnet
+	}
+	px, err := newProxy(proxyKind, dataDir, ac.PrivateIP, internalIP, subnet, rt, log)
 	if err != nil {
 		return err
 	}
@@ -465,7 +474,7 @@ func runAgent(ctx context.Context, dataDir string, servers []string, proxyKind, 
 		acfg.DNS = dns
 	}
 	if cnet != nil {
-		acfg.Network, acfg.NetworkKey = cnet, networkKey
+		acfg.Network, acfg.NetworkKey, acfg.Unpublished = cnet, networkKey, unpublished
 	}
 	a := agent.New(acfg)
 	g, ctx := errgroup.WithContext(ctx)

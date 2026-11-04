@@ -50,7 +50,10 @@ type Config struct {
 	// InternalIP is the container bridge gateway for the internal frontend;
 	// empty disables internal ingress on this node.
 	InternalIP string
-	Engine     Engine
+	// Subnet is the node's container subnet in the cluster network, where
+	// its replicas have their own addresses (ADR 0027); empty otherwise.
+	Subnet string
+	Engine Engine
 	// API defaults to the Runtime API socket under Dir.
 	API    API
 	Logger *slog.Logger
@@ -78,6 +81,11 @@ func New(cfg Config) (*Driver, error) {
 	if cfg.PrivateIP != "" {
 		if _, err := netip.ParseAddr(cfg.PrivateIP); err != nil {
 			return nil, fmt.Errorf("haproxy: invalid private IP %q", cfg.PrivateIP)
+		}
+	}
+	if cfg.Subnet != "" {
+		if p, err := netip.ParsePrefix(cfg.Subnet); err != nil || p.Masked() != p || !netutil.IsPrivate(p.Addr()) {
+			return nil, fmt.Errorf("haproxy: subnet %q must be a private prefix", cfg.Subnet)
 		}
 	}
 	if cfg.InternalIP != "" {
@@ -119,6 +127,11 @@ func New(cfg Config) (*Driver, error) {
 func etcDir(dir string) string { return filepath.Join(dir, "etc") }
 func runDir(dir string) string { return filepath.Join(dir, "run") }
 
+// options are the node's parts of the configuration.
+func (d *Driver) options() renderOptions {
+	return renderOptions{PrivateIP: d.cfg.PrivateIP, InternalIP: d.cfg.InternalIP, Subnet: d.cfg.Subnet}
+}
+
 // Apply implements proxy.Driver.
 func (d *Driver) Apply(ctx context.Context, cfg proxy.Config) error {
 	if err := cfg.Validate(); err != nil {
@@ -127,8 +140,8 @@ func (d *Driver) Apply(ctx context.Context, cfg proxy.Config) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	opts := renderOptions{PrivateIP: d.cfg.PrivateIP, InternalIP: d.cfg.InternalIP}
-	layout := assignLayout(d.layout, cfg, opts.PrivateIP)
+	opts := d.options()
+	layout := assignLayout(d.layout, cfg, opts.node())
 	sig := signature(cfg, layout, opts)
 	content := render(cfg, layout, opts)
 	if content == nil {
@@ -175,7 +188,7 @@ func (d *Driver) Apply(ctx context.Context, cfg proxy.Config) error {
 	// Same structure: update servers and certificates live. New servers are
 	// enabled before old ones leave, so a backend never runs empty in
 	// between (one replica being replaced by another).
-	desired := desiredServers(cfg, layout, opts.PrivateIP)
+	desired := desiredServers(cfg, layout, opts.node())
 	for _, enable := range []bool{true, false} {
 		for _, key := range sortedKeys(desired) {
 			cur, want := d.applied[key], desired[key]
@@ -220,7 +233,7 @@ func (d *Driver) writeValidated(ctx context.Context, cfgPath string, content []b
 func (d *Driver) commit(sig string, layout Layout, cfg proxy.Config) {
 	d.sig = sig
 	d.layout = layout
-	d.applied = desiredServers(cfg, layout, d.cfg.PrivateIP)
+	d.applied = desiredServers(cfg, layout, d.options().node())
 }
 
 // slot is what a server slot serves: a replica's address and its weight
@@ -322,9 +335,9 @@ func (d *Driver) Health(ctx context.Context) error {
 
 // assignLayout keeps replicas in the slot they already occupy and puts new
 // ones in the lowest free slot, for every slotted backend of a node.
-func assignLayout(prev Layout, cfg proxy.Config, privateIP string) Layout {
+func assignLayout(prev Layout, cfg proxy.Config, n node) Layout {
 	next := Layout{}
-	for _, p := range pools(cfg, privateIP) {
+	for _, p := range pools(cfg, n) {
 		n := slotCount(len(p.servers))
 		slots := make([]string, n)
 		want := map[string]bool{}
@@ -350,9 +363,9 @@ func assignLayout(prev Layout, cfg proxy.Config, privateIP string) Layout {
 	return next
 }
 
-func desiredServers(cfg proxy.Config, layout Layout, privateIP string) map[string]slot {
+func desiredServers(cfg proxy.Config, layout Layout, n node) map[string]slot {
 	out := map[string]slot{}
-	for _, p := range pools(cfg, privateIP) {
+	for _, p := range pools(cfg, n) {
 		slots := map[string]slot{}
 		for _, s := range p.servers {
 			slots[s.Name] = slot{Addr: s.Address, Weight: s.EffectiveWeight()}

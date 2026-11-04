@@ -53,7 +53,7 @@ func TestIntegrationConfigValid(t *testing.T) {
 			for _, c := range cfg.Certificates {
 				write(filepath.Join(certs, c.FileName()), c.PEM)
 			}
-			write(filepath.Join(dir, configFile), render(cfg, assignLayout(nil, cfg, "10.0.0.2"), renderOptions{PrivateIP: "10.0.0.2"}))
+			write(filepath.Join(dir, configFile), render(cfg, assignLayout(nil, cfg, renderOptions{PrivateIP: "10.0.0.2"}.node()), renderOptions{PrivateIP: "10.0.0.2"}))
 
 			out, err := exec.Command(cli, "run", "--rm", "--network", "none",
 				"-v", dir+":"+containerConfDir+":ro", "--tmpfs", containerRunDir,

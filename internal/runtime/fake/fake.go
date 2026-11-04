@@ -8,6 +8,7 @@ import (
 	"maps"
 	"slices"
 	"sort"
+	"strconv"
 	"sync"
 	"time"
 
@@ -32,6 +33,9 @@ type Driver struct {
 	Platforms map[string][]string
 	// LogLines is returned by Logs for every container.
 	LogLines []runtime.LogFrame
+	// BridgeIPs, if set, gives each new container the address BridgeIPs
+	// followed by its sequence number, such as "10.120.0." for 10.120.0.1.
+	BridgeIPs string
 
 	Pulls []string
 	// PullAuths records the credentials of each pull (nil for none).
@@ -244,6 +248,9 @@ func (d *Driver) Run(_ context.Context, s runtime.ContainerSpec) (string, error)
 	if s.Port != 0 {
 		c.HostIP, c.HostPort = s.HostIP, d.nextPort
 		d.nextPort++
+	}
+	if d.BridgeIPs != "" {
+		c.IP = d.BridgeIPs + strconv.Itoa(d.seq)
 	}
 	d.containers[id] = c
 	d.specs[id] = s

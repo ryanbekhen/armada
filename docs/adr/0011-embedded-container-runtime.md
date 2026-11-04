@@ -138,11 +138,13 @@ Armada's and visible in one place:
 - Containers join it through the CNI chain `bridge` (gateway, masquerade
   for egress) + `host-local` IPAM + `portmap` + `firewall`. IPAM state and
   the plugin cache live on tmpfs under `/run/armada/cni`, since the
-  namespaces they describe do not survive a reboot. The replica's port is
-  published only on the node's private IP: the driver picks a free host
-  port (20000–32767, below the kernel's ephemeral range), records it in a
-  container label, and `portmap` adds the DNAT rule. Nothing is ever
-  published on a wildcard or public address.
+  namespaces they describe do not survive a reboot. On a node of a cluster
+  network (ADR 0027) replicas publish nothing: other nodes reach them at
+  their own address through the tunnel. Elsewhere (clusters created before
+  it) the replica's port is published only on the node's private IP: the
+  driver picks a free host port (20000–32767, below the kernel's ephemeral
+  range), records it in a container label, and `portmap` adds the DNAT
+  rule. Nothing is ever published on a wildcard or public address.
 - `armada doctor` checks cgroup v2, overlayfs, the `iptables` tooling the
   CNI plugins call, and that the node's container subnet does not overlap
   a host route.

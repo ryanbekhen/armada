@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -27,6 +28,8 @@ func TestJoinEndToEnd(t *testing.T) {
 		mu.Lock()
 		defer mu.Unlock()
 		d := fake.New()
+		// Each node's containers on its own subnet (ADR 0027).
+		d.BridgeIPs = fmt.Sprintf("10.120.%d.1", len(drivers))
 		drivers = append(drivers, d)
 		return d, nil
 	}
