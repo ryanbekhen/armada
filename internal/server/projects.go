@@ -18,7 +18,14 @@ func (s *Server) CreateProject(ctx context.Context, req *armadav1.CreateProjectR
 	if !spec.ValidProject(name) {
 		return nil, status.Error(codes.InvalidArgument, "invalid project name: use lowercase letters, digits, and single hyphens, starting with a letter, at most 30 characters")
 	}
-	p, err := s.store.CreateProject(ctx, name, actor(ctx))
+	acc := accessFrom(ctx)
+	if !acc.admin() && acc.automation() == "" {
+		return nil, status.Error(codes.PermissionDenied, "permission denied")
+	}
+	if !acc.admin() && !acc.scope.CreateProjects {
+		return nil, status.Errorf(codes.PermissionDenied, "%s may not create projects", acc.id)
+	}
+	p, err := s.store.CreateProject(ctx, name, actor(ctx), acc.automation())
 	if err != nil {
 		return nil, storeErr(err)
 	}
@@ -42,8 +49,12 @@ func (s *Server) ListProjects(ctx context.Context, _ *armadav1.ListProjectsReque
 			count[p]++
 		}
 	}
+	acc := accessFrom(ctx)
 	resp := &armadav1.ListProjectsResponse{}
 	for _, p := range ps {
+		if acc.project(p.Name) != nil {
+			continue
+		}
 		resp.Projects = append(resp.Projects, projectInfo(p, count[p.Name]))
 	}
 	return resp, nil
@@ -54,6 +65,13 @@ func (s *Server) DeleteProject(ctx context.Context, req *armadav1.DeleteProjectR
 	name := req.GetName()
 	if !spec.ValidProject(name) {
 		return nil, status.Error(codes.InvalidArgument, "invalid project name")
+	}
+	acc := accessFrom(ctx)
+	if err := acc.project(name); err != nil {
+		return nil, err
+	}
+	if !acc.admin() && !acc.scope.CreateProjects {
+		return nil, status.Errorf(codes.PermissionDenied, "%s may not remove projects", acc.id)
 	}
 	if err := s.store.DeleteProject(ctx, name, actor(ctx)); err != nil {
 		return nil, storeErr(err)

@@ -19,43 +19,48 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	AdminService_Deploy_FullMethodName                  = "/armada.v1.AdminService/Deploy"
-	AdminService_Status_FullMethodName                  = "/armada.v1.AdminService/Status"
-	AdminService_Scale_FullMethodName                   = "/armada.v1.AdminService/Scale"
-	AdminService_SetTraffic_FullMethodName              = "/armada.v1.AdminService/SetTraffic"
-	AdminService_ListVolumes_FullMethodName             = "/armada.v1.AdminService/ListVolumes"
-	AdminService_RemoveVolume_FullMethodName            = "/armada.v1.AdminService/RemoveVolume"
-	AdminService_BackupVolume_FullMethodName            = "/armada.v1.AdminService/BackupVolume"
-	AdminService_RestoreVolume_FullMethodName           = "/armada.v1.AdminService/RestoreVolume"
-	AdminService_Logs_FullMethodName                    = "/armada.v1.AdminService/Logs"
-	AdminService_GetClusterConfig_FullMethodName        = "/armada.v1.AdminService/GetClusterConfig"
-	AdminService_SetClusterConfig_FullMethodName        = "/armada.v1.AdminService/SetClusterConfig"
-	AdminService_ListDomains_FullMethodName             = "/armada.v1.AdminService/ListDomains"
-	AdminService_VerifyDomain_FullMethodName            = "/armada.v1.AdminService/VerifyDomain"
-	AdminService_ListRevisions_FullMethodName           = "/armada.v1.AdminService/ListRevisions"
-	AdminService_Rollback_FullMethodName                = "/armada.v1.AdminService/Rollback"
-	AdminService_SetSecret_FullMethodName               = "/armada.v1.AdminService/SetSecret"
-	AdminService_ListSecrets_FullMethodName             = "/armada.v1.AdminService/ListSecrets"
-	AdminService_DeleteSecret_FullMethodName            = "/armada.v1.AdminService/DeleteSecret"
-	AdminService_CreateJoinToken_FullMethodName         = "/armada.v1.AdminService/CreateJoinToken"
-	AdminService_CordonNode_FullMethodName              = "/armada.v1.AdminService/CordonNode"
-	AdminService_LabelNode_FullMethodName               = "/armada.v1.AdminService/LabelNode"
-	AdminService_RestrictNode_FullMethodName            = "/armada.v1.AdminService/RestrictNode"
-	AdminService_RemoveNode_FullMethodName              = "/armada.v1.AdminService/RemoveNode"
-	AdminService_ListServers_FullMethodName             = "/armada.v1.AdminService/ListServers"
-	AdminService_RemoveServer_FullMethodName            = "/armada.v1.AdminService/RemoveServer"
-	AdminService_CreateProject_FullMethodName           = "/armada.v1.AdminService/CreateProject"
-	AdminService_ListProjects_FullMethodName            = "/armada.v1.AdminService/ListProjects"
-	AdminService_DeleteProject_FullMethodName           = "/armada.v1.AdminService/DeleteProject"
-	AdminService_Exec_FullMethodName                    = "/armada.v1.AdminService/Exec"
-	AdminService_Top_FullMethodName                     = "/armada.v1.AdminService/Top"
-	AdminService_IssueMetricsCertificate_FullMethodName = "/armada.v1.AdminService/IssueMetricsCertificate"
-	AdminService_Events_FullMethodName                  = "/armada.v1.AdminService/Events"
-	AdminService_RunJob_FullMethodName                  = "/armada.v1.AdminService/RunJob"
-	AdminService_ListJobs_FullMethodName                = "/armada.v1.AdminService/ListJobs"
-	AdminService_ListJobRuns_FullMethodName             = "/armada.v1.AdminService/ListJobRuns"
-	AdminService_CancelJob_FullMethodName               = "/armada.v1.AdminService/CancelJob"
-	AdminService_DeleteJob_FullMethodName               = "/armada.v1.AdminService/DeleteJob"
+	AdminService_Deploy_FullMethodName                     = "/armada.v1.AdminService/Deploy"
+	AdminService_Status_FullMethodName                     = "/armada.v1.AdminService/Status"
+	AdminService_Scale_FullMethodName                      = "/armada.v1.AdminService/Scale"
+	AdminService_SetTraffic_FullMethodName                 = "/armada.v1.AdminService/SetTraffic"
+	AdminService_ListVolumes_FullMethodName                = "/armada.v1.AdminService/ListVolumes"
+	AdminService_RemoveVolume_FullMethodName               = "/armada.v1.AdminService/RemoveVolume"
+	AdminService_BackupVolume_FullMethodName               = "/armada.v1.AdminService/BackupVolume"
+	AdminService_RestoreVolume_FullMethodName              = "/armada.v1.AdminService/RestoreVolume"
+	AdminService_Logs_FullMethodName                       = "/armada.v1.AdminService/Logs"
+	AdminService_GetClusterConfig_FullMethodName           = "/armada.v1.AdminService/GetClusterConfig"
+	AdminService_SetClusterConfig_FullMethodName           = "/armada.v1.AdminService/SetClusterConfig"
+	AdminService_ListDomains_FullMethodName                = "/armada.v1.AdminService/ListDomains"
+	AdminService_VerifyDomain_FullMethodName               = "/armada.v1.AdminService/VerifyDomain"
+	AdminService_ListRevisions_FullMethodName              = "/armada.v1.AdminService/ListRevisions"
+	AdminService_Rollback_FullMethodName                   = "/armada.v1.AdminService/Rollback"
+	AdminService_SetSecret_FullMethodName                  = "/armada.v1.AdminService/SetSecret"
+	AdminService_ListSecrets_FullMethodName                = "/armada.v1.AdminService/ListSecrets"
+	AdminService_DeleteSecret_FullMethodName               = "/armada.v1.AdminService/DeleteSecret"
+	AdminService_CreateJoinToken_FullMethodName            = "/armada.v1.AdminService/CreateJoinToken"
+	AdminService_CordonNode_FullMethodName                 = "/armada.v1.AdminService/CordonNode"
+	AdminService_LabelNode_FullMethodName                  = "/armada.v1.AdminService/LabelNode"
+	AdminService_RestrictNode_FullMethodName               = "/armada.v1.AdminService/RestrictNode"
+	AdminService_RemoveNode_FullMethodName                 = "/armada.v1.AdminService/RemoveNode"
+	AdminService_ListServers_FullMethodName                = "/armada.v1.AdminService/ListServers"
+	AdminService_RemoveServer_FullMethodName               = "/armada.v1.AdminService/RemoveServer"
+	AdminService_CreateProject_FullMethodName              = "/armada.v1.AdminService/CreateProject"
+	AdminService_ListProjects_FullMethodName               = "/armada.v1.AdminService/ListProjects"
+	AdminService_DeleteProject_FullMethodName              = "/armada.v1.AdminService/DeleteProject"
+	AdminService_SetAutomation_FullMethodName              = "/armada.v1.AdminService/SetAutomation"
+	AdminService_ListAutomations_FullMethodName            = "/armada.v1.AdminService/ListAutomations"
+	AdminService_DeleteAutomation_FullMethodName           = "/armada.v1.AdminService/DeleteAutomation"
+	AdminService_IssueAutomationCertificate_FullMethodName = "/armada.v1.AdminService/IssueAutomationCertificate"
+	AdminService_RenewAutomationCertificate_FullMethodName = "/armada.v1.AdminService/RenewAutomationCertificate"
+	AdminService_Exec_FullMethodName                       = "/armada.v1.AdminService/Exec"
+	AdminService_Top_FullMethodName                        = "/armada.v1.AdminService/Top"
+	AdminService_IssueMetricsCertificate_FullMethodName    = "/armada.v1.AdminService/IssueMetricsCertificate"
+	AdminService_Events_FullMethodName                     = "/armada.v1.AdminService/Events"
+	AdminService_RunJob_FullMethodName                     = "/armada.v1.AdminService/RunJob"
+	AdminService_ListJobs_FullMethodName                   = "/armada.v1.AdminService/ListJobs"
+	AdminService_ListJobRuns_FullMethodName                = "/armada.v1.AdminService/ListJobRuns"
+	AdminService_CancelJob_FullMethodName                  = "/armada.v1.AdminService/CancelJob"
+	AdminService_DeleteJob_FullMethodName                  = "/armada.v1.AdminService/DeleteJob"
 )
 
 // AdminServiceClient is the client API for AdminService service.
@@ -99,6 +104,17 @@ type AdminServiceClient interface {
 	CreateProject(ctx context.Context, in *CreateProjectRequest, opts ...grpc.CallOption) (*ProjectInfo, error)
 	ListProjects(ctx context.Context, in *ListProjectsRequest, opts ...grpc.CallOption) (*ListProjectsResponse, error)
 	DeleteProject(ctx context.Context, in *DeleteProjectRequest, opts ...grpc.CallOption) (*DeleteProjectResponse, error)
+	// Automation identities (ADR 0029): tools that manage the apps of some
+	// projects and nothing else. Only administrators manage them.
+	SetAutomation(ctx context.Context, in *SetAutomationRequest, opts ...grpc.CallOption) (*AutomationInfo, error)
+	ListAutomations(ctx context.Context, in *ListAutomationsRequest, opts ...grpc.CallOption) (*ListAutomationsResponse, error)
+	DeleteAutomation(ctx context.Context, in *DeleteAutomationRequest, opts ...grpc.CallOption) (*DeleteAutomationResponse, error)
+	// IssueAutomationCertificate signs a CSR made by the tool for the
+	// identity (90 days). Administrators only.
+	IssueAutomationCertificate(ctx context.Context, in *IssueAutomationCertificateRequest, opts ...grpc.CallOption) (*IssueAutomationCertificateResponse, error)
+	// RenewAutomationCertificate is called by an automation identity with its
+	// current certificate; every other certificate of it is revoked.
+	RenewAutomationCertificate(ctx context.Context, in *RenewAutomationCertificateRequest, opts ...grpc.CallOption) (*IssueAutomationCertificateResponse, error)
 	// Exec runs a command in one replica of an app (ADR 0017). The first
 	// client message is start; the server's first message names the replica
 	// and its last the exit code.
@@ -430,6 +446,56 @@ func (c *adminServiceClient) DeleteProject(ctx context.Context, in *DeleteProjec
 	return out, nil
 }
 
+func (c *adminServiceClient) SetAutomation(ctx context.Context, in *SetAutomationRequest, opts ...grpc.CallOption) (*AutomationInfo, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AutomationInfo)
+	err := c.cc.Invoke(ctx, AdminService_SetAutomation_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) ListAutomations(ctx context.Context, in *ListAutomationsRequest, opts ...grpc.CallOption) (*ListAutomationsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListAutomationsResponse)
+	err := c.cc.Invoke(ctx, AdminService_ListAutomations_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) DeleteAutomation(ctx context.Context, in *DeleteAutomationRequest, opts ...grpc.CallOption) (*DeleteAutomationResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DeleteAutomationResponse)
+	err := c.cc.Invoke(ctx, AdminService_DeleteAutomation_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) IssueAutomationCertificate(ctx context.Context, in *IssueAutomationCertificateRequest, opts ...grpc.CallOption) (*IssueAutomationCertificateResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(IssueAutomationCertificateResponse)
+	err := c.cc.Invoke(ctx, AdminService_IssueAutomationCertificate_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) RenewAutomationCertificate(ctx context.Context, in *RenewAutomationCertificateRequest, opts ...grpc.CallOption) (*IssueAutomationCertificateResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(IssueAutomationCertificateResponse)
+	err := c.cc.Invoke(ctx, AdminService_RenewAutomationCertificate_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *adminServiceClient) Exec(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ExecClientMessage, ExecServerMessage], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	stream, err := c.cc.NewStream(ctx, &AdminService_ServiceDesc.Streams[3], AdminService_Exec_FullMethodName, cOpts...)
@@ -573,6 +639,17 @@ type AdminServiceServer interface {
 	CreateProject(context.Context, *CreateProjectRequest) (*ProjectInfo, error)
 	ListProjects(context.Context, *ListProjectsRequest) (*ListProjectsResponse, error)
 	DeleteProject(context.Context, *DeleteProjectRequest) (*DeleteProjectResponse, error)
+	// Automation identities (ADR 0029): tools that manage the apps of some
+	// projects and nothing else. Only administrators manage them.
+	SetAutomation(context.Context, *SetAutomationRequest) (*AutomationInfo, error)
+	ListAutomations(context.Context, *ListAutomationsRequest) (*ListAutomationsResponse, error)
+	DeleteAutomation(context.Context, *DeleteAutomationRequest) (*DeleteAutomationResponse, error)
+	// IssueAutomationCertificate signs a CSR made by the tool for the
+	// identity (90 days). Administrators only.
+	IssueAutomationCertificate(context.Context, *IssueAutomationCertificateRequest) (*IssueAutomationCertificateResponse, error)
+	// RenewAutomationCertificate is called by an automation identity with its
+	// current certificate; every other certificate of it is revoked.
+	RenewAutomationCertificate(context.Context, *RenewAutomationCertificateRequest) (*IssueAutomationCertificateResponse, error)
 	// Exec runs a command in one replica of an app (ADR 0017). The first
 	// client message is start; the server's first message names the replica
 	// and its last the exit code.
@@ -686,6 +763,21 @@ func (UnimplementedAdminServiceServer) ListProjects(context.Context, *ListProjec
 }
 func (UnimplementedAdminServiceServer) DeleteProject(context.Context, *DeleteProjectRequest) (*DeleteProjectResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method DeleteProject not implemented")
+}
+func (UnimplementedAdminServiceServer) SetAutomation(context.Context, *SetAutomationRequest) (*AutomationInfo, error) {
+	return nil, status.Error(codes.Unimplemented, "method SetAutomation not implemented")
+}
+func (UnimplementedAdminServiceServer) ListAutomations(context.Context, *ListAutomationsRequest) (*ListAutomationsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListAutomations not implemented")
+}
+func (UnimplementedAdminServiceServer) DeleteAutomation(context.Context, *DeleteAutomationRequest) (*DeleteAutomationResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method DeleteAutomation not implemented")
+}
+func (UnimplementedAdminServiceServer) IssueAutomationCertificate(context.Context, *IssueAutomationCertificateRequest) (*IssueAutomationCertificateResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method IssueAutomationCertificate not implemented")
+}
+func (UnimplementedAdminServiceServer) RenewAutomationCertificate(context.Context, *RenewAutomationCertificateRequest) (*IssueAutomationCertificateResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RenewAutomationCertificate not implemented")
 }
 func (UnimplementedAdminServiceServer) Exec(grpc.BidiStreamingServer[ExecClientMessage, ExecServerMessage]) error {
 	return status.Error(codes.Unimplemented, "method Exec not implemented")
@@ -1214,6 +1306,96 @@ func _AdminService_DeleteProject_Handler(srv interface{}, ctx context.Context, d
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AdminService_SetAutomation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetAutomationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).SetAutomation(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminService_SetAutomation_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).SetAutomation(ctx, req.(*SetAutomationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_ListAutomations_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListAutomationsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).ListAutomations(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminService_ListAutomations_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).ListAutomations(ctx, req.(*ListAutomationsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_DeleteAutomation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteAutomationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).DeleteAutomation(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminService_DeleteAutomation_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).DeleteAutomation(ctx, req.(*DeleteAutomationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_IssueAutomationCertificate_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(IssueAutomationCertificateRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).IssueAutomationCertificate(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminService_IssueAutomationCertificate_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).IssueAutomationCertificate(ctx, req.(*IssueAutomationCertificateRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_RenewAutomationCertificate_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RenewAutomationCertificateRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).RenewAutomationCertificate(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminService_RenewAutomationCertificate_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).RenewAutomationCertificate(ctx, req.(*RenewAutomationCertificateRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _AdminService_Exec_Handler(srv interface{}, stream grpc.ServerStream) error {
 	return srv.(AdminServiceServer).Exec(&grpc.GenericServerStream[ExecClientMessage, ExecServerMessage]{ServerStream: stream})
 }
@@ -1464,6 +1646,26 @@ var AdminService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "DeleteProject",
 			Handler:    _AdminService_DeleteProject_Handler,
+		},
+		{
+			MethodName: "SetAutomation",
+			Handler:    _AdminService_SetAutomation_Handler,
+		},
+		{
+			MethodName: "ListAutomations",
+			Handler:    _AdminService_ListAutomations_Handler,
+		},
+		{
+			MethodName: "DeleteAutomation",
+			Handler:    _AdminService_DeleteAutomation_Handler,
+		},
+		{
+			MethodName: "IssueAutomationCertificate",
+			Handler:    _AdminService_IssueAutomationCertificate_Handler,
+		},
+		{
+			MethodName: "RenewAutomationCertificate",
+			Handler:    _AdminService_RenewAutomationCertificate_Handler,
 		},
 		{
 			MethodName: "Top",

@@ -107,6 +107,7 @@ func NewRootCommand() *cobra.Command {
 		newDomainCommand(g),
 		newSecretCommand(g),
 		newProjectCommand(g),
+		newAutomationCommand(g),
 		newTokenCommand(g),
 		newJoinCommand(),
 		newNodeCommand(g),

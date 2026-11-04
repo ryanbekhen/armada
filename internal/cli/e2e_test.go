@@ -559,6 +559,63 @@ func testProjects(t *testing.T, cli func(...string) (int, string, string), waitF
 			t.Errorf("%v accepted", args)
 		}
 	}
+
+	// A tool with an automation identity manages staging and nothing else.
+	if code, out, stderr := cli("automation", "set", "portal", "--project", "staging", "--create-projects"); code != 0 || !strings.Contains(out, "manages projects staging and the projects it creates") {
+		t.Fatalf("automation set: code=%d out=%q err=%q", code, out, stderr)
+	}
+	toolConfig := filepath.Join(t.TempDir(), "portal.json")
+	if code, out, stderr := cli("automation", "credentials", "portal", "-o", toolConfig); code != 0 || !strings.Contains(out, "Wrote "+toolConfig) {
+		t.Fatalf("automation credentials: code=%d out=%q err=%q", code, out, stderr)
+	}
+	if fi, err := os.Stat(toolConfig); err != nil || fi.Mode().Perm() != 0o600 {
+		t.Fatalf("tool config: %v %v", fi, err)
+	}
+	if code, _, stderr := cli("automation", "credentials", "portal", "-o", toolConfig); code == 0 || !strings.Contains(stderr, "already exists") {
+		t.Errorf("credentials over an existing file: %q", stderr)
+	}
+	tool := func(args ...string) (int, string, string) {
+		return run(t, append(args, "--config", toolConfig)...)
+	}
+	if code, _, stderr := tool("scale", "web", "1", "--project", "staging"); code != 0 {
+		t.Errorf("tool scales its app: %s", stderr)
+	}
+	_, out, _ = tool("status")
+	if !strings.Contains(out, "web.staging") || regexp.MustCompile(`(?m)^web\s`).MatchString(out) || strings.Contains(out, "PRIVATE IP") {
+		t.Errorf("tool status shows more than its projects: %q", out)
+	}
+	for _, args := range [][]string{
+		{"scale", "web", "2"},                                 // the default project
+		{"node", "cordon", "node-1"},                          // the cluster
+		{"token", "create"},                                   // joining nodes
+		{"automation", "set", "portal", "--project", "other"}, // its own scope
+		{"logs", "web"},
+	} {
+		if code, _, stderr := tool(args...); code == 0 || !strings.Contains(stderr, "may not") {
+			t.Errorf("tool %v: code=%d err=%q", args, code, stderr)
+		}
+	}
+	if code, _, stderr := tool("project", "create", "preview-1"); code != 0 {
+		t.Errorf("tool creates a project: %s", stderr)
+	}
+	if _, out, _ := tool("project", "list"); !strings.Contains(out, "preview-1") || !strings.Contains(out, "staging") || strings.Contains(out, "default") {
+		t.Errorf("tool project list = %q", out)
+	}
+	if code, out, stderr := tool("automation", "renew"); code != 0 || !strings.Contains(out, "Renewed automation:portal") {
+		t.Errorf("renew: code=%d out=%q err=%q", code, out, stderr)
+	}
+	if code, _, stderr := tool("status", "web", "--project", "staging"); code != 0 {
+		t.Errorf("status with the renewed certificate: %s", stderr)
+	}
+	if _, out, _ := cli("automation", "list"); !regexp.MustCompile(`portal\s+preview-1,staging\s+true`).MatchString(out) {
+		t.Errorf("automation list = %q", out)
+	}
+	if code, _, _ := cli("automation", "remove", "portal"); code != 0 {
+		t.Fatal("automation remove failed")
+	}
+	if code, _, stderr := tool("status"); code == 0 || !strings.Contains(stderr, "revoked") {
+		t.Errorf("tool after removal: code=%d err=%q", code, stderr)
+	}
 }
 
 // lockedBuffer is a bytes.Buffer safe for concurrent writes and reads.

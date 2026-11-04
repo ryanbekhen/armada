@@ -141,6 +141,12 @@ func (ca *CA) SignMetricsCSR(csrDER []byte, name string) (NodeCert, error) {
 	return ca.signClientCSR(csrDER, Identity{Kind: KindMetrics, Name: name}, LeafValidity)
 }
 
+// SignAutomationCSR issues a client certificate for an automation identity
+// (ADR 0029) from a CSR, like SignNodeCSR. It lasts AutomationValidity.
+func (ca *CA) SignAutomationCSR(csrDER []byte, name string) (NodeCert, error) {
+	return ca.signClientCSR(csrDER, Identity{Kind: KindAutomation, Name: name}, AutomationValidity)
+}
+
 func (ca *CA) signClientCSR(csrDER []byte, id Identity, validity time.Duration) (NodeCert, error) {
 	if _, err := ParseIdentity(id.String()); err != nil {
 		return NodeCert{}, err

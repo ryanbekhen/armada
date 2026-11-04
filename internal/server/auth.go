@@ -53,6 +53,9 @@ func (s *Server) authorize(ctx context.Context, method string) (context.Context,
 			return nil, status.Errorf(codes.Unauthenticated, "certificate of %s is revoked or the node was removed", id)
 		}
 	}
+	if id.Kind == pki.KindAutomation {
+		return s.authorizeAutomation(ctx, id, pki.SerialString(cert), method)
+	}
 	for prefix, kind := range requiredKind {
 		if strings.HasPrefix(method, prefix) {
 			if id.Kind != kind {
@@ -62,6 +65,24 @@ func (s *Server) authorize(ctx context.Context, method string) (context.Context,
 		}
 	}
 	return nil, status.Errorf(codes.PermissionDenied, "unknown method %s", method)
+}
+
+// authorizeAutomation lets an automation identity call only the methods in
+// automationMethods, and only while its certificate is recorded. Its scope
+// is read from the store on every call and checked by each handler.
+func (s *Server) authorizeAutomation(ctx context.Context, id pki.Identity, serial, method string) (context.Context, error) {
+	scope, ok, err := s.store.AutomationScope(ctx, id.Name, serial)
+	if err != nil {
+		return nil, status.Error(codes.Unavailable, "check automation certificate")
+	}
+	if !ok {
+		return nil, status.Errorf(codes.Unauthenticated, "certificate of %s is revoked, expired, or the identity was removed", id)
+	}
+	if !automationMethods[method] {
+		return nil, status.Errorf(codes.PermissionDenied, "%s may not call %s", id, method)
+	}
+	ctx = context.WithValue(ctx, identityKey{}, id)
+	return context.WithValue(ctx, scopeKey{}, scope), nil
 }
 
 func (s *Server) unaryAuth(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {

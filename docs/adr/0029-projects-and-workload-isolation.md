@@ -78,16 +78,22 @@ that identity can reach only what it manages.
   systems and portals. An administrator issues one with `armada automation
   credentials NAME`, which signs a CSR made on the tool's machine (the
   private key never leaves it), like metrics credentials (ADR 0019). Each
-  has a scope, set and changed only by administrators:
-  - the projects it manages: a fixed list, or every project it creates;
-  - whether it may create and remove projects;
-  - the limits for those projects: the lowest isolation level, the
-    largest quota, and the node labels its placement may require.
-- Automation certificates last 90 days and are renewed with the current
-  one. Like node certificates, they are accepted only while their serial
-  is recorded, so `armada automation revoke NAME` cuts a tool off at once.
-  The scope is read from the store on every call, never from the
-  certificate.
+  has a scope (`armada automation set`), set and changed only by
+  administrators:
+  - the projects it manages: a fixed list, plus every project it creates;
+  - whether it may create projects, and remove the ones it manages;
+  - the node label values its apps' `placement.require` may name
+    (`armada.*` labels are always allowed), so restricted nodes kept for
+    one project stay out of others' reach;
+  - with the features that bring them, the lowest isolation level and the
+    largest quota.
+- Automation certificates last 90 days. The tool renews with its current
+  one (`armada automation renew`), which revokes every other certificate
+  of the identity. Like node certificates, they are accepted only while
+  their serial is recorded, so `armada automation remove NAME` cuts a tool
+  off at once. The scope is read from the store on every call, never from
+  the certificate. A removed project leaves every scope, so a project
+  created later under its name is not handed over.
 - Within its projects an automation identity may do what an administrator
   may do to apps: deploy, scale, rollback, traffic, jobs, secrets, domains,
   volumes, exec, logs, events, and top. It may never touch nodes, join
@@ -97,14 +103,22 @@ that identity can reach only what it manages.
 
 ### The project API
 
-- A new `ProjectService` serves administrators and automation identities on
-  the same private API listener as today. Every request names a project;
-  the server checks the caller's scope first, then runs the same code as
-  the matching admin RPC with the project fixed. `AdminService` gains a
-  project argument with `default` as the default.
+- Automation identities call `AdminService` on the same private listener
+  as the CLI, where every RPC already names an app by its ID. The
+  interceptor lets them reach only an allowlist of methods
+  (`automationMethods`): any method not on it, including any added later,
+  is refused before its handler runs. Each allowed handler checks the app
+  or project of the request against the scope (`access`), with the same
+  answer whether or not the app exists, and listings (status, top, jobs,
+  volumes, domains, projects, events) hold only the scope's apps. Nodes
+  are left out of status and top, and node events, node arguments (volume
+  restores elsewhere), and events of the cluster are refused.
 - Specs sent by automation identities are narrower than an
   administrator's: `placement.require` must stay within the scope's
   labels, and isolation and quotas within its limits.
+- A domain serves one project: an app cannot name a domain that an app of
+  another project uses, and a domain left behind by another project is
+  verified afresh with a new token.
 - Exec, logs, and volume sessions are checked against the replica's
   project on every hop, like the node check today.
 - Events and the audit log record the project and the caller. Automation

@@ -230,8 +230,20 @@ func (s *Server) Events(req *armadav1.EventsRequest, stream armadav1.AdminServic
 	if since <= 0 || since > store.EventTTL {
 		return status.Errorf(codes.InvalidArgument, "since must be between 1s and %s", store.EventTTL)
 	}
+	acc := accessFrom(ctx)
+	if req.GetApp() != "" {
+		if err := acc.app(req.GetApp()); err != nil {
+			return err
+		}
+	}
+	if req.GetNode() != "" && !acc.admin() {
+		return status.Error(codes.PermissionDenied, "only administrators may list a node's events")
+	}
 	match := func(e store.Event) bool {
-		return (req.GetApp() == "" || e.App == req.GetApp()) && (req.GetNode() == "" || e.Node == req.GetNode())
+		// Others see only events of their projects' apps; events of the
+		// cluster (nodes, servers) have no app.
+		return (req.GetApp() == "" || e.App == req.GetApp()) && (req.GetNode() == "" || e.Node == req.GetNode()) &&
+			(acc.admin() || (e.App != "" && acc.sees(e.App)))
 	}
 	var sub chan store.Event
 	if req.GetFollow() {

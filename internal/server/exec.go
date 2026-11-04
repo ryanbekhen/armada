@@ -36,6 +36,9 @@ func (s *Server) Exec(stream armadav1.AdminService_ExecServer) error {
 	if start == nil {
 		return status.Error(codes.InvalidArgument, "the first message must be start")
 	}
+	if err := accessFrom(ctx).app(start.GetApp()); err != nil {
+		return err
+	}
 	if err := runtime.CheckExecCommand(start.GetCmd()); err != nil {
 		return status.Error(codes.InvalidArgument, err.Error())
 	}

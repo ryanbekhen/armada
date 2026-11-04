@@ -438,6 +438,8 @@ type domainRec struct {
 	VerifiedAt int64  `json:"verifiedAt"`
 	Message    string `json:"message"`
 	CreatedAt  int64  `json:"createdAt"`
+	// Project owns the domain (ADR 0029); empty is the default project.
+	Project string `json:"project,omitempty"`
 }
 
 type auditRec struct {
@@ -1844,12 +1846,21 @@ func (s *Etcd) ListAudit(ctx context.Context, limit int) ([]AuditEvent, error) {
 // has two live specs (active and target); both count.
 func (t *etx) claimDomains(sp *spec.App, now time.Time) error {
 	taken := map[string]string{}
+	project := projectOf(sp.ID())
+	// Domains in use by apps of other projects: a domain serves one project
+	// only, so no project routes a path of another's verified domain.
+	foreign := map[string]string{}
 	err := t.liveSpecs(func(app string, other *spec.App) {
 		if app == sp.ID() {
 			return
 		}
 		for _, k := range routeKeys(other) {
 			taken[k] = app
+		}
+		if p := projectOf(app); p != project && other.Ingress != nil {
+			for _, d := range other.Ingress.Domains {
+				foreign[d] = p
+			}
 		}
 	})
 	if err != nil {
@@ -1864,20 +1875,45 @@ func (t *etx) claimDomains(sp *spec.App, now time.Time) error {
 		return nil
 	}
 	for _, d := range sp.Ingress.Domains {
-		if _, ok, err := t.getRaw(pfxDomains + d); err != nil {
+		if p, ok := foreign[d]; ok {
+			return fmt.Errorf("domain %s is used by project %s: %w", d, p, ErrConflict)
+		}
+		var r domainRec
+		ok, err := t.get(pfxDomains+d, &r)
+		if err != nil {
 			return err
-		} else if ok {
+		}
+		owner := r.Project
+		if owner == "" {
+			owner = spec.DefaultProject
+		}
+		if ok && owner == project {
 			continue
 		}
+		// New, or left behind by another project: this project proves
+		// ownership afresh with a new token.
 		token, err := randomToken()
 		if err != nil {
 			return err
 		}
-		if err := t.put(pfxDomains+d, domainRec{Name: d, Token: token, CreatedAt: now.UnixMilli()}); err != nil {
+		rec := domainRec{Name: d, Token: token, CreatedAt: now.UnixMilli()}
+		if project != spec.DefaultProject {
+			rec.Project = project
+		}
+		if err := t.put(pfxDomains+d, rec); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// projectOf returns the project of an app ID.
+func projectOf(id string) string {
+	p, _, ok := spec.SplitAppID(id)
+	if !ok {
+		return ""
+	}
+	return p
 }
 
 // pruneDomains deletes domains that no live spec references any more.

@@ -297,3 +297,37 @@ func TestSignMetricsCSR(t *testing.T) {
 		t.Error("invalid name accepted")
 	}
 }
+
+func TestSignAutomationCSR(t *testing.T) {
+	ca, err := NewCA("test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The CA decides the identity: a CSR asking for admin still gets an
+	// automation certificate.
+	_, csr, err := NewCSR(Identity{Kind: KindAdmin, Name: "root"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := ca.SignAutomationCSR(csr, "portal")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cert, err := ParseCertPEM(c.PEM)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, err := IdentityFromCert(cert)
+	if err != nil || id != (Identity{Kind: KindAutomation, Name: "portal"}) {
+		t.Errorf("identity %v, %v", id, err)
+	}
+	if life := time.Until(cert.NotAfter); life < AutomationValidity-time.Hour || life > AutomationValidity {
+		t.Errorf("lifetime %s", life)
+	}
+	if len(cert.ExtKeyUsage) != 1 || cert.ExtKeyUsage[0] != x509.ExtKeyUsageClientAuth || cert.IsCA {
+		t.Errorf("usages %v, CA %v", cert.ExtKeyUsage, cert.IsCA)
+	}
+	if _, err := ca.SignAutomationCSR(csr, "../bad"); err == nil {
+		t.Error("invalid name accepted")
+	}
+}

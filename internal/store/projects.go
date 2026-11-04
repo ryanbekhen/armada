@@ -45,7 +45,7 @@ func (t *etx) projectExists(project string) error {
 }
 
 // CreateProject records a new project. See Store.
-func (s *Etcd) CreateProject(ctx context.Context, name, actor string) (Project, error) {
+func (s *Etcd) CreateProject(ctx context.Context, name, actor, automation string) (Project, error) {
 	if name == spec.DefaultProject {
 		return Project{}, fmt.Errorf("project %s always exists: %w", name, ErrConflict)
 	}
@@ -65,6 +65,11 @@ func (s *Etcd) CreateProject(ctx context.Context, name, actor string) (Project, 
 		}
 		if err := t.put(pfxProjects+name, projectRec{Name: name, CreatedAt: now.UnixMilli(), CreatedBy: actor}); err != nil {
 			return err
+		}
+		if automation != "" {
+			if err := t.grantProject(automation, name); err != nil {
+				return err
+			}
 		}
 		return t.audit(now, actor, "project.create", name, "")
 	})
@@ -128,6 +133,9 @@ func (s *Etcd) DeleteProject(ctx context.Context, name, actor string) error {
 			return fmt.Errorf("project %s still holds %s; remove them first: %w", name, strings.Join(left, ", "), ErrPrecondition)
 		}
 		t.delete(pfxProjects + name)
+		if err := t.forgetProject(name); err != nil {
+			return err
+		}
 		return t.audit(now, actor, "project.delete", name, "")
 	})
 }

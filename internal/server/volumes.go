@@ -253,6 +253,12 @@ func (s *Server) mountedVolumes(ctx context.Context, app string) (map[string]spe
 
 // ListVolumes lists volumes, where they are, and how much they hold.
 func (s *Server) ListVolumes(ctx context.Context, req *armadav1.ListVolumesRequest) (*armadav1.ListVolumesResponse, error) {
+	acc := accessFrom(ctx)
+	if req.GetApp() != "" {
+		if err := acc.app(req.GetApp()); err != nil {
+			return nil, err
+		}
+	}
 	if req.GetApp() != "" && !spec.ValidAppID(req.GetApp()) {
 		return nil, status.Error(codes.InvalidArgument, "invalid app name")
 	}
@@ -260,6 +266,7 @@ func (s *Server) ListVolumes(ctx context.Context, req *armadav1.ListVolumesReque
 	if err != nil {
 		return nil, storeErr(err)
 	}
+	vols = slices.DeleteFunc(vols, func(v store.Volume) bool { return !acc.sees(v.App) })
 	now := s.now()
 	mounted := map[string]map[string]spec.Volume{}
 	resp := &armadav1.ListVolumesResponse{}
@@ -294,6 +301,9 @@ func checkVolumeArgs(app, name string) error {
 // volume the app's spec still mounts is refused. When its node was removed
 // from the cluster only the record goes.
 func (s *Server) RemoveVolume(ctx context.Context, req *armadav1.RemoveVolumeRequest) (*armadav1.RemoveVolumeResponse, error) {
+	if err := accessFrom(ctx).app(req.GetApp()); err != nil {
+		return nil, err
+	}
 	if err := checkVolumeArgs(req.GetApp(), req.GetName()); err != nil {
 		return nil, err
 	}
@@ -338,6 +348,9 @@ func (s *Server) RemoveVolume(ctx context.Context, req *armadav1.RemoveVolumeReq
 
 // BackupVolume streams a gzipped tar of a volume from its node.
 func (s *Server) BackupVolume(req *armadav1.BackupVolumeRequest, stream armadav1.AdminService_BackupVolumeServer) error {
+	if err := accessFrom(stream.Context()).app(req.GetApp()); err != nil {
+		return err
+	}
 	ctx := stream.Context()
 	if err := checkVolumeArgs(req.GetApp(), req.GetName()); err != nil {
 		return err
@@ -388,6 +401,13 @@ func (s *Server) RestoreVolume(stream armadav1.AdminService_RestoreVolumeServer)
 	start := first.GetStart()
 	if start == nil {
 		return status.Error(codes.InvalidArgument, "the first message must be start")
+	}
+	acc := accessFrom(ctx)
+	if err := acc.app(start.GetApp()); err != nil {
+		return err
+	}
+	if start.GetNode() != "" && !acc.admin() {
+		return status.Error(codes.PermissionDenied, "only administrators may restore a volume onto another node")
 	}
 	if err := checkVolumeArgs(start.GetApp(), start.GetName()); err != nil {
 		return err

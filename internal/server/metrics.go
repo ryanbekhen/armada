@@ -141,6 +141,7 @@ func (c *clusterCollector) Collect(ch chan<- prometheus.Metric) {
 	s.mu.Unlock()
 	gauge(descAgents, float64(agents))
 
+	ctx = s.internalContext(ctx)
 	st, err := s.Status(ctx, &armadav1.StatusRequest{})
 	if err != nil {
 		ch <- prometheus.NewInvalidMetric(descAppDesired, err)
