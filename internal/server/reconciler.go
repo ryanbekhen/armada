@@ -84,7 +84,11 @@ func (s *Server) Reconcile(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return s.pushAssignments(ctx, replicas, &revs, px.ToProto(), eps)
+	network, err := s.buildNetwork(ctx, nodes)
+	if err != nil {
+		return err
+	}
+	return s.pushAssignments(ctx, replicas, &revs, px.ToProto(), eps, network)
 }
 
 // reconcileRun is the state of one Reconcile pass.
@@ -983,7 +987,7 @@ func pickNode(nodes []store.Node, replicas, spread []store.Replica, spreadBy str
 	return best.node, true
 }
 
-func (s *Server) pushAssignments(ctx context.Context, replicas []store.Replica, revs *revisionCache, px *armadav1.ProxyConfig, servers []string) error {
+func (s *Server) pushAssignments(ctx context.Context, replicas []store.Replica, revs *revisionCache, px *armadav1.ProxyConfig, servers []string, network *armadav1.NetworkConfig) error {
 	byNode := map[string][]store.Replica{}
 	for _, r := range replicas {
 		byNode[r.NodeID] = append(byNode[r.NodeID], r)
@@ -997,7 +1001,7 @@ func (s *Server) pushAssignments(ctx context.Context, replicas []store.Replica, 
 	s.mu.Unlock()
 
 	for _, sess := range sessions {
-		a := &armadav1.Assignment{Proxy: px, Servers: servers}
+		a := &armadav1.Assignment{Proxy: px, Servers: servers, Network: network}
 		for _, r := range byNode[sess.nodeID] {
 			rev, err := revs.get(ctx, r.Revision)
 			if err != nil {

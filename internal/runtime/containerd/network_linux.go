@@ -24,6 +24,7 @@ import (
 
 type cniNetwork struct {
 	bridge   runtime.Bridge
+	mtu      int
 	cni      *libcni.CNIConfig
 	conf     *libcni.NetworkConfigList
 	netnsDir string
@@ -32,12 +33,12 @@ type cniNetwork struct {
 	ready bool
 }
 
-func newNetwork(p embedded.Paths, subnet netip.Prefix) (network, error) {
+func newNetwork(p embedded.Paths, subnet netip.Prefix, mtu int) (network, error) {
 	b, err := BridgeOf(subnet)
 	if err != nil {
 		return nil, err
 	}
-	raw, err := cniConfig(b, filepath.Join(p.CNI(), "ipam"))
+	raw, err := cniConfig(b, filepath.Join(p.CNI(), "ipam"), mtu)
 	if err != nil {
 		return nil, err
 	}
@@ -47,6 +48,7 @@ func newNetwork(p embedded.Paths, subnet netip.Prefix) (network, error) {
 	}
 	return &cniNetwork{
 		bridge:   b,
+		mtu:      mtu,
 		cni:      libcni.NewCNIConfigWithCacheDir([]string{filepath.Join(p.Bin(), embedded.DirCNI)}, filepath.Join(p.CNI(), "cache"), nil),
 		conf:     conf,
 		netnsDir: p.NetNS(),
@@ -108,6 +110,11 @@ func (n *cniNetwork) Ensure(context.Context) error {
 	if link.Attrs().HardwareAddr.String() != mac.String() || strings.TrimSpace(string(assigned)) != addrAssignSet {
 		if err := netlink.LinkSetHardwareAddr(link, mac); err != nil {
 			return fmt.Errorf("set address of bridge %s: %w", embedded.BridgeName, err)
+		}
+	}
+	if n.mtu > 0 && link.Attrs().MTU != n.mtu {
+		if err := netlink.LinkSetMTU(link, n.mtu); err != nil {
+			return fmt.Errorf("set MTU of bridge %s: %w", embedded.BridgeName, err)
 		}
 	}
 	if err := netlink.LinkSetUp(link); err != nil {

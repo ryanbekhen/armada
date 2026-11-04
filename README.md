@@ -48,6 +48,10 @@ armada deploy -f web.yaml    # → https://web.apps.example.com
 - **Local-first routing.** Each node sends requests to its own replicas
   while they are no busier than the rest, and spreads the excess over every
   node, so most requests never cross the network.
+- **Cluster network.** Each node's containers get their own subnet of one
+  private range, routed between nodes over a tunnel on the private
+  network, so a container reaches any other at its own address and sees
+  its caller's real one.
 - **Secrets.** Encrypted at rest, versioned, delivered as env vars or as
   read-only files on tmpfs.
 - **Logs and exec.** `armada logs` streams a replica's output;

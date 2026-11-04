@@ -135,7 +135,7 @@ func newServerJoinCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			note, err := rtFlags.useNodeSubnet(&ac, resp.NodeSubnet, ip)
+			note, err := rtFlags.useNodeSubnet(&ac, resp.NodeSubnet, resp.NetworkMode, ip)
 			if err != nil {
 				return fmt.Errorf("%w; run `armada server remove %s` on the cluster before trying again", err, name)
 			}

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -141,6 +142,18 @@ func TestJoinEndToEnd(t *testing.T) {
 		return regexp.MustCompile(`node-2\s+10\.0\.0\.2\s+ready\s`).MatchString(out) &&
 			regexp.MustCompile(`node-1\s+127\.0\.0\.1\s+ready\s`).MatchString(out)
 	})
+	// Both nodes route each other's subnet (ADR 0027).
+	peers := func(node string) []string {
+		var out []string
+		for _, p := range testNets.get(node).applied().GetPeers() {
+			out = append(out, p.GetNode()+"="+p.GetPrivateIp()+"="+p.GetSubnet())
+		}
+		return out
+	}
+	both := []string{"node-1=127.0.0.1=10.120.0.0/24", "node-2=10.0.0.2=10.120.1.0/24"}
+	waitFor("both nodes in the cluster network", func() bool {
+		return slices.Equal(peers("node-1"), both) && slices.Equal(peers("node-2"), both)
+	})
 
 	spec := filepath.Join(t.TempDir(), "web.yaml")
 	if err := os.WriteFile(spec, []byte("name: web\nimage: nginx:1.27\nscale:\n  min: 2\n"), 0o600); err != nil {
@@ -162,6 +175,9 @@ func TestJoinEndToEnd(t *testing.T) {
 	if strings.Contains(out, "node-2") {
 		t.Errorf("node list after remove = %q", out)
 	}
+	waitFor("removed node out of the cluster network", func() bool {
+		return slices.Equal(peers("node-1"), both[:1])
+	})
 	// The removed node's agent stays locked out.
 	time.Sleep(300 * time.Millisecond)
 	if _, out, _ := cli("node", "list"); strings.Contains(out, "node-2") {

@@ -178,7 +178,7 @@ func newJoinCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			note, err := rtFlags.useNodeSubnet(&ac, resp.NodeSubnet, ip)
+			note, err := rtFlags.useNodeSubnet(&ac, resp.NodeSubnet, resp.NetworkMode, ip)
 			if err != nil {
 				return err
 			}

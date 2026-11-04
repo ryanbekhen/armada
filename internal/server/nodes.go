@@ -196,10 +196,14 @@ func (j *joinService) Join(ctx context.Context, req *armadav1.JoinRequest) (*arm
 	if err != nil {
 		return nil, status.Error(codes.Internal, "read the new node")
 	}
+	mode, err := s.networkMode(ctx)
+	if err != nil {
+		return nil, status.Error(codes.Internal, "read the cluster network")
+	}
 	s.log.Info("node joined", "node", name, "private_ip", ip.String(), "subnet", n.Subnet, "token", tok.ID, "version", req.GetVersion())
 	s.record(ctx, store.Event{Kind: eventNode, Object: name, Node: name, Reason: "Joined", Message: "joined from " + ip.String()})
 	s.Trigger()
-	return &armadav1.JoinResponse{NodeCert: cert.PEM, CaCert: s.ca.CertPEM, Servers: eps, NodeSubnet: n.Subnet}, nil
+	return &armadav1.JoinResponse{NodeCert: cert.PEM, CaCert: s.ca.CertPEM, Servers: eps, NodeSubnet: n.Subnet, NetworkMode: mode}, nil
 }
 
 // RenewCertificate issues a new certificate for the calling node.

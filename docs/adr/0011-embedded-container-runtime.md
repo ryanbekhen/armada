@@ -125,7 +125,9 @@ Armada's and visible in one place:
   network (ADR 0027): a /24 of `--cluster-cidr`, default `10.120.0.0/16`,
   given when the node joins. In clusters created before the cluster
   network, every node uses the same subnet (`--container-subnet`, default
-  `10.121.0.0/24`). The agent creates it at
+  `10.121.0.0/24`). On a node of a cluster network the bridge and
+  container interfaces get the tunnel's MTU (`mtu` in the bridge
+  configuration). The agent creates it at
   start, so internal DNS and the internal ingress (ADR 0007) can bind to
   its gateway before any container exists. The bridge gets a fixed,
   locally administered hardware address derived from its gateway.

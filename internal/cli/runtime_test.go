@@ -42,6 +42,22 @@ func TestRuntimeReset(t *testing.T) {
 	if cs, _ := d.List(ctx, nil); len(cs) != 1 || cs[0].Name != "someone-else" || !strings.Contains(out.String(), "Removed 2") {
 		t.Errorf("left %v; output %q", cs, out.String())
 	}
+	// A node of a cluster network also takes the tunnel off the host.
+	removed := 0
+	origRemove := removeClusterNet
+	removeClusterNet = func() error { removed++; return nil }
+	t.Cleanup(func() { removeClusterNet = origRemove })
+	if removed != 0 || strings.Contains(out.String(), "cluster network") {
+		t.Error("cluster network removed on a node without one")
+	}
+	ac.Network = "plain"
+	if err := saveAgentConfig(dir, ac); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if code := Execute(ctx, []string{"runtime", "reset", "--data-dir", dir}, &out, &errOut); code != 0 || removed != 1 || !strings.Contains(out.String(), "armada-net") {
+		t.Errorf("cluster network: code %d, removed %d, %q", code, removed, out.String())
+	}
 
 	ac.Runtime = "Not A Name"
 	if err := saveAgentConfig(dir, ac); err != nil {
@@ -105,14 +121,20 @@ func TestUseNodeSubnet(t *testing.T) {
 		{"not-a-subnet", "", false},
 	} {
 		ac := agentConfig{Runtime: runtimeEmbedded, ContainerSubnet: "10.121.0.0/24"}
-		_, err := runtimeFlags{}.useNodeSubnet(&ac, c.subnet, ip)
+		_, err := runtimeFlags{}.useNodeSubnet(&ac, c.subnet, "plain", ip)
 		if (err == nil) != c.ok || (c.ok && ac.ContainerSubnet != c.want) {
 			t.Errorf("useNodeSubnet(%q) = %q, %v", c.subnet, ac.ContainerSubnet, err)
 		}
 	}
-	// A driver chooses its own network.
+	// A driver chooses its own network, but the node still joins the
+	// cluster network.
 	ac := agentConfig{Runtime: "docker"}
-	if _, err := (runtimeFlags{}).useNodeSubnet(&ac, "10.120.3.0/24", ip); err != nil || ac.ContainerSubnet != "" {
-		t.Errorf("external driver: %q, %v", ac.ContainerSubnet, err)
+	if _, err := (runtimeFlags{}).useNodeSubnet(&ac, "10.120.3.0/24", "plain", ip); err != nil || ac.ContainerSubnet != "" || ac.Network != "plain" {
+		t.Errorf("external driver: %+v, %v", ac, err)
+	}
+	// A mode this binary does not know is refused.
+	ac = agentConfig{Runtime: runtimeEmbedded}
+	if _, err := (runtimeFlags{}).useNodeSubnet(&ac, "10.120.3.0/24", "carrier-pigeon", ip); err == nil {
+		t.Error("unknown mode accepted")
 	}
 }

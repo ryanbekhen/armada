@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"net"
+	"net/netip"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -16,6 +17,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/ryanbekhen/armada/internal/clusternet"
 	"github.com/ryanbekhen/armada/internal/version"
 
 	"google.golang.org/grpc"
@@ -428,6 +430,10 @@ func runAgent(ctx context.Context, dataDir string, servers []string, proxyKind, 
 	if err != nil {
 		return err
 	}
+	cnet, err := newClusterNet(ac, log)
+	if err != nil {
+		return err
+	}
 	acfg := agent.Config{
 		NodeID:     ac.NodeID,
 		PrivateIP:  ac.PrivateIP,
@@ -458,6 +464,9 @@ func runAgent(ctx context.Context, dataDir string, servers []string, proxyKind, 
 	if dns != nil {
 		acfg.DNS = dns
 	}
+	if cnet != nil {
+		acfg.Network = cnet
+	}
 	a := agent.New(acfg)
 	g, ctx := errgroup.WithContext(ctx)
 	g.Go(func() error { return a.Run(ctx) })
@@ -469,6 +478,25 @@ func runAgent(ctx context.Context, dataDir string, servers []string, proxyKind, 
 		return nil
 	})
 	return g.Wait()
+}
+
+// newClusterNet returns the node's side of the cluster network (ADR 0027),
+// or nil for a node of a cluster without one. Linux nodes with an external
+// driver join it too, since the tunnel and routes are the host's; macOS
+// nodes stay on published ports. Tests replace it.
+var newClusterNet = func(ac *agentConfig, log *slog.Logger) (agent.Network, error) {
+	if ac.Network == "" || goos != "linux" {
+		return nil, nil
+	}
+	ip, err := netip.ParseAddr(ac.PrivateIP)
+	if err != nil {
+		return nil, fmt.Errorf("%s: private IP: %w", fileAgent, err)
+	}
+	n, err := clusternet.New(clusternet.Config{Node: ac.NodeID, PrivateIP: ip, Logger: log.With("component", "network")})
+	if err != nil {
+		return nil, err
+	}
+	return n, nil
 }
 
 // resolvConf is the host resolver configuration; tests replace it.

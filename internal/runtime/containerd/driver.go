@@ -73,6 +73,10 @@ type portMapping struct {
 type Config struct {
 	Paths  embedded.Paths
 	Subnet netip.Prefix // container bridge subnet; zero means DefaultSubnet
+	// MTU of the bridge and container interfaces; 0 leaves the kernel's
+	// default (1500). The cluster network sets it from the uplink
+	// (ADR 0027).
+	MTU int
 	// Self is the armada binary the shim runs to store container output;
 	// empty means the running executable.
 	Self string
@@ -104,7 +108,7 @@ func New(cfg Config) (*Driver, error) {
 	if !subnet.IsValid() {
 		subnet = embedded.DefaultSubnet
 	}
-	n, err := newNetwork(cfg.Paths, subnet)
+	n, err := newNetwork(cfg.Paths, subnet, cfg.MTU)
 	if err != nil {
 		return nil, err
 	}
