@@ -352,8 +352,15 @@ whether `armada-net` is up and routes every other node, and in the
 `wireguard` mode whether every peer has a recent handshake. `armada runtime
 reset` on a removed node takes the interface and its firewall rules off.
 
-Replicas are still reached through the port they publish on their node's
-private IP. macOS nodes stay outside the cluster network. Clusters created
+Replicas publish no port: the agent reports each at its own address and
+the app's port (`armada status` shows `10.120.x.y:PORT`), and every node's
+HAProxy reaches it there, through the tunnel for other nodes' replicas.
+Other machines on the private network cannot reach containers at all, not
+even by routing a node's subnet through its private IP. Replicas started
+before a node joined the tunnel keep their published port until they are
+replaced. Nodes with an external driver keep publishing ports on their
+private IP until drivers can use the node subnet, and macOS nodes stay
+outside the cluster network. Clusters created
 by an Armada without the cluster network keep one bridge subnet on every
 node (`--container-subnet`, default `10.121.0.0/24`).
 

@@ -221,6 +221,13 @@ func (n *Net) firewall(p plan) error {
 		{"-i", embedded.BridgeName, "-o", Interface, "-j", "ACCEPT"},
 		// Nothing that arrives through the tunnel is routed anywhere else.
 		{"-i", Interface, "-j", "DROP"},
+		// Containers are reached from other machines only through the
+		// tunnel: a machine on the private network that routes the node's
+		// subnet through its private IP gets nowhere. Replies, traffic
+		// between containers, and ports published before the node joined
+		// (DNAT) still pass.
+		{"-i", embedded.BridgeName, "-o", embedded.BridgeName, "-j", "RETURN"},
+		{"-o", embedded.BridgeName, "-m", "conntrack", "--ctstate", "NEW", "-m", "conntrack", "!", "--ctstate", "DNAT", "-j", "DROP"},
 	}); err != nil {
 		return err
 	}

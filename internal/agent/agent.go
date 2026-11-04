@@ -81,6 +81,10 @@ type Config struct {
 	// Hello.
 	Network    Network
 	NetworkKey string
+	// Unpublished makes replicas publish no port: the cluster network
+	// routes their own addresses, in the node's subnet, to every node, and
+	// replicas are reported at <container IP>:<port> (ADR 0027).
+	Unpublished bool
 	// Check runs health checks (default DefaultCheck).
 	Check CheckFunc
 	// VolumesDir holds persistent volumes (ADR 0025); empty: the node
@@ -690,6 +694,11 @@ func (a *Agent) start(ctx context.Context, s *armadav1.ReplicaSpec, hash string)
 	}
 	a.mu.Unlock()
 	cs := ContainerSpec(s, a.cfg.PrivateIP, hash)
+	if a.cfg.Unpublished {
+		// Not part of the spec hash either: replicas started with a port
+		// keep it until they are replaced.
+		cs.Port, cs.HostIP = 0, ""
+	}
 	if a.cfg.DNS != nil {
 		// Not part of the spec hash: enabling internal DNS must not restart
 		// running replicas; they pick it up on their next replacement.
@@ -734,8 +743,11 @@ func (a *Agent) state(ctx context.Context, s *armadav1.ReplicaSpec, c runtime.Co
 		st.State = store.ReplicaExited
 		st.Message = "exit code " + strconv.Itoa(c.ExitCode)
 	}
-	if c.HostPort != 0 {
+	switch {
+	case c.HostPort != 0:
 		st.Address = net.JoinHostPort(c.HostIP, strconv.Itoa(c.HostPort))
+	case a.cfg.Unpublished && c.IP != "" && s.GetPort() != 0:
+		st.Address = net.JoinHostPort(c.IP, strconv.Itoa(int(s.GetPort())))
 	}
 	return st
 }

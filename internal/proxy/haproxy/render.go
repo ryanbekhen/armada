@@ -54,6 +54,39 @@ type renderOptions struct {
 	// frontend listens on port 80. It is reachable only from this node's
 	// containers. Empty disables internal ingress.
 	InternalIP string
+	// Subnet is the node's container subnet in the cluster network
+	// (ADR 0027), where its replicas have their own addresses; empty when
+	// replicas are reached through ports on the private IP.
+	Subnet string
+}
+
+// node returns where this node's replicas are.
+func (o renderOptions) node() node {
+	n := node{}
+	n.ip, _ = netip.ParseAddr(o.PrivateIP)
+	n.subnet, _ = netip.ParsePrefix(o.Subnet)
+	return n
+}
+
+// node is where a node's own replicas are: ports on its private IP, or
+// addresses in its container subnet.
+type node struct {
+	ip     netip.Addr
+	subnet netip.Prefix
+}
+
+// known reports whether the node's address is known, which local-first
+// routing needs.
+func (n node) known() bool { return n.ip.IsValid() }
+
+// has reports whether a server's ip:port is on the node.
+func (n node) has(addr string) bool {
+	ap, err := netip.ParseAddrPort(addr)
+	if err != nil || !n.known() {
+		return false
+	}
+	ip := ap.Addr().Unmap()
+	return ip == n.ip.Unmap() || (n.subnet.IsValid() && n.subnet.Contains(ip))
 }
 
 // internalPort is the port of the internal frontend: apps call
@@ -76,23 +109,23 @@ type pool struct {
 // app's servers and, for local-first apps when the node's private IP is
 // known, lo_<app> with the servers on this node. Local servers always have
 // weight 1: weights only split traffic, which is never local-first.
-func pools(cfg proxy.Config, privateIP string) []pool {
+func pools(cfg proxy.Config, n node) []pool {
 	var out []pool
 	for _, be := range cfg.Backends {
 		out = append(out, pool{backendName(be.Name), be.Servers})
-		if !localFirst(be, privateIP) {
+		if !localFirst(be, n) {
 			continue
 		}
-		out = append(out, pool{localBackendName(be.Name), localServers(be, privateIP)})
+		out = append(out, pool{localBackendName(be.Name), localServers(be, n)})
 	}
 	return out
 }
 
 // localServers returns be's servers on the node, at weight 1.
-func localServers(be proxy.Backend, privateIP string) []proxy.Server {
+func localServers(be proxy.Backend, n node) []proxy.Server {
 	var local []proxy.Server
 	for _, s := range be.Servers {
-		if onNode(s.Address, privateIP) {
+		if n.has(s.Address) {
 			local = append(local, proxy.Server{Name: s.Name, Address: s.Address})
 		}
 	}
@@ -100,15 +133,8 @@ func localServers(be proxy.Backend, privateIP string) []proxy.Server {
 }
 
 // localFirst reports whether be gets a local backend on a node.
-func localFirst(be proxy.Backend, privateIP string) bool {
-	return be.LocalFirst && privateIP != ""
-}
-
-// onNode reports whether a server's ip:port is on the node's private IP.
-func onNode(addr, privateIP string) bool {
-	ap, err := netip.ParseAddrPort(addr)
-	ip, err2 := netip.ParseAddr(privateIP)
-	return err == nil && err2 == nil && ap.Addr().Unmap() == ip.Unmap()
+func localFirst(be proxy.Backend, n node) bool {
+	return be.LocalFirst && n.known()
 }
 
 // wakeBackendName is the backend of an app's wake socket (ADR 0023).
@@ -206,7 +232,7 @@ func render(cfg proxy.Config, layout Layout, opts renderOptions) []byte {
 	for _, be := range cfg.Backends {
 		backendsByName[be.Name] = be
 	}
-	rr := ruleRenderer{w: w, backends: backendsByName, privateIP: opts.PrivateIP}
+	rr := ruleRenderer{w: w, backends: backendsByName, node: opts.node()}
 	rr.write("r", public)
 	w("    default_backend be_armada_notfound")
 	w("")
@@ -226,10 +252,10 @@ func render(cfg proxy.Config, layout Layout, opts renderOptions) []byte {
 	slices.SortFunc(backends, func(a, b proxy.Backend) int { return cmp.Compare(a.Name, b.Name) })
 	for _, be := range backends {
 		writeBackend(w, backendName(be.Name), be.HealthPath, be.Servers, layout)
-		if localFirst(be, opts.PrivateIP) {
+		if localFirst(be, opts.node()) {
 			// Always rendered, empty or not, so a replica arriving on or
 			// leaving this node needs no reload.
-			writeBackend(w, localBackendName(be.Name), be.HealthPath, localServers(be, opts.PrivateIP), layout)
+			writeBackend(w, localBackendName(be.Name), be.HealthPath, localServers(be, opts.node()), layout)
 		}
 		if be.Wake {
 			w("backend %s", wakeBackendName(be.Name))
@@ -279,9 +305,9 @@ func writeBackend(w func(string, ...any), name, healthPath string, list []proxy.
 
 // ruleRenderer emits the routing of the frontends.
 type ruleRenderer struct {
-	w         func(string, ...any)
-	backends  map[string]proxy.Backend
-	privateIP string
+	w        func(string, ...any)
+	backends map[string]proxy.Backend
+	node     node
 }
 
 // write emits the routing of one frontend. Route IDs are prefix plus an
@@ -319,7 +345,7 @@ func (rr ruleRenderer) write(prefix string, rules []proxy.Rule) {
 		if r.StripPrefix {
 			w("    http-request set-path /%%[path,field(%d,/,0)] if %s", stripField(r.PathPrefix), match(i))
 		}
-		if localFirst(rr.backends[r.Backend], rr.privateIP) {
+		if localFirst(rr.backends[r.Backend], rr.node) {
 			writeLocalLoad(w, match(i), r.Backend)
 		}
 	}
@@ -330,7 +356,7 @@ func (rr ruleRenderer) write(prefix string, rules []proxy.Rule) {
 			// at the agent, which starts a replica (ADR 0023).
 			w("    use_backend %s if %s { nbsrv(%s) eq 0 }", wakeBackendName(r.Backend), match(i), backendName(r.Backend))
 		}
-		if localFirst(be, rr.privateIP) {
+		if localFirst(be, rr.node) {
 			lo := localBackendName(r.Backend)
 			w("    use_backend %s if %s { nbsrv(%s) gt 0 } { var(txn.lf_d) -m int le 0 }", lo, match(i), lo)
 		}
@@ -365,7 +391,7 @@ func hostForBind(ip string) string {
 
 // safeConfig checks every value render interpolates.
 func safeConfig(cfg proxy.Config, opts renderOptions) bool {
-	vals := []string{cfg.ACMEAddress, opts.PrivateIP, opts.InternalIP}
+	vals := []string{cfg.ACMEAddress, opts.PrivateIP, opts.InternalIP, opts.Subnet}
 	for _, be := range cfg.Backends {
 		vals = append(vals, be.Name, be.HealthPath)
 		for _, s := range be.Servers {

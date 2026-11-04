@@ -34,6 +34,39 @@ func replica(id, image string, port int32) *armadav1.ReplicaSpec {
 	}
 }
 
+func TestReconcileUnpublished(t *testing.T) {
+	t.Parallel()
+	d := fake.New()
+	d.BridgeIPs = "10.120.0."
+	ok := func(context.Context, string, string) error { return nil }
+	a := New(Config{NodeID: "n1", PrivateIP: "10.0.0.2", Driver: d, Check: ok, Unpublished: true})
+	a.setDesired([]*armadav1.ReplicaSpec{replica("web-r1-a", "nginx:1", 8080), replica("job-r1-a", "busybox", 0)}, nil)
+	report, err := a.Reconcile(context.Background())
+	if err != nil || len(report.Replicas) != 2 {
+		t.Fatalf("%v %v", report, err)
+	}
+	// With the cluster network nothing is published on the private IP, and
+	// replicas are reached at their own address (ADR 0027).
+	got := map[string]string{}
+	for _, r := range report.Replicas {
+		got[r.Id] = r.Address
+	}
+	if !strings.HasPrefix(got["web-r1-a"], "10.120.0.") || !strings.HasSuffix(got["web-r1-a"], ":8080") || got["job-r1-a"] != "" {
+		t.Errorf("addresses %v", got)
+	}
+	cs, _ := d.List(context.Background(), nil)
+	for _, c := range cs {
+		if spec, _ := d.Spec(c.ID); spec.Port != 0 || spec.HostIP != "" || c.HostPort != 0 {
+			t.Errorf("%s published: %+v", c.Name, spec)
+		}
+	}
+	// A container that still has a published port (started before) keeps
+	// being reported there.
+	if got := a.state(t.Context(), replica("x", "nginx:1", 80), runtime.Container{State: runtime.StateRunning, IP: "10.120.0.9", HostIP: "10.0.0.2", HostPort: 21000}).Address; got != "10.0.0.2:21000" {
+		t.Errorf("published container reported at %q", got)
+	}
+}
+
 func TestReconcileBeforeAssignmentIsNoop(t *testing.T) {
 	t.Parallel()
 

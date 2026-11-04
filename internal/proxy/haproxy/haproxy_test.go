@@ -83,17 +83,17 @@ func TestRenderGolden(t *testing.T) {
 	t.Parallel()
 
 	cfg := sampleConfig(t)
-	layout := assignLayout(nil, cfg, "10.0.0.2")
+	layout := assignLayout(nil, cfg, renderOptions{PrivateIP: "10.0.0.2"}.node())
 	golden(t, "full.cfg", render(cfg, layout, renderOptions{PrivateIP: "10.0.0.2", InternalIP: "172.17.0.1"}))
 
 	empty := proxy.Config{}
-	golden(t, "empty.cfg", render(empty, assignLayout(nil, empty, ""), renderOptions{}))
+	golden(t, "empty.cfg", render(empty, assignLayout(nil, empty, renderOptions{PrivateIP: ""}.node()), renderOptions{}))
 }
 
 func TestRenderRouteOrder(t *testing.T) {
 	t.Parallel()
 
-	out := string(render(sampleConfig(t), assignLayout(nil, sampleConfig(t), ""), renderOptions{}))
+	out := string(render(sampleConfig(t), assignLayout(nil, sampleConfig(t), renderOptions{PrivateIP: ""}.node()), renderOptions{}))
 	// The longest prefix must be considered first, and "/" last.
 	iV12 := strings.Index(out, "-m str /api/v1.2 }")
 	iAPI := strings.Index(out, "-m str /api }")
@@ -117,7 +117,7 @@ func TestRenderInternalFrontend(t *testing.T) {
 	t.Parallel()
 
 	cfg := sampleConfig(t)
-	out := string(render(cfg, assignLayout(nil, cfg, ""), renderOptions{InternalIP: "172.17.0.1"}))
+	out := string(render(cfg, assignLayout(nil, cfg, renderOptions{PrivateIP: ""}.node()), renderOptions{InternalIP: "172.17.0.1"}))
 	i := strings.Index(out, "frontend internal")
 	if i < 0 || !strings.Contains(out, "    bind 172.17.0.1:80\n") {
 		t.Fatalf("internal frontend missing:\n%s", out)
@@ -135,7 +135,7 @@ func TestRenderInternalFrontend(t *testing.T) {
 		t.Errorf("internal strip prefix:\n%s", internal)
 	}
 	// Without a bridge address there is no internal frontend at all.
-	if strings.Contains(string(render(cfg, assignLayout(nil, cfg, ""), renderOptions{})), "frontend internal") {
+	if strings.Contains(string(render(cfg, assignLayout(nil, cfg, renderOptions{PrivateIP: ""}.node()), renderOptions{})), "frontend internal") {
 		t.Error("internal frontend rendered without an internal IP")
 	}
 }
@@ -174,7 +174,7 @@ func FuzzRender(f *testing.F) {
 		if cfg.Validate() != nil {
 			return
 		}
-		out := render(cfg, assignLayout(nil, cfg, ""), renderOptions{})
+		out := render(cfg, assignLayout(nil, cfg, renderOptions{PrivateIP: ""}.node()), renderOptions{})
 		for _, line := range strings.Split(string(out), "\n") {
 			if !allowedLine.MatchString(line) {
 				t.Fatalf("unexpected line %q", line)
@@ -202,13 +202,13 @@ func TestAssignLayoutIsStable(t *testing.T) {
 	t.Parallel()
 
 	cfg := proxy.Config{Backends: []proxy.Backend{{Name: "web", Servers: []proxy.Server{{Name: "b"}, {Name: "a"}}}}}
-	l1 := assignLayout(nil, cfg, "")
+	l1 := assignLayout(nil, cfg, renderOptions{PrivateIP: ""}.node())
 	if l1["be_web"][0] != "a" || l1["be_web"][1] != "b" || len(l1["be_web"]) != 10 {
 		t.Fatalf("layout = %v", l1["be_web"])
 	}
 	// Removing "a" frees slot 0 without moving "b"; a new replica fills the gap.
 	cfg.Backends[0].Servers = []proxy.Server{{Name: "b"}, {Name: "c"}}
-	l2 := assignLayout(l1, cfg, "")
+	l2 := assignLayout(l1, cfg, renderOptions{PrivateIP: ""}.node())
 	if l2["be_web"][0] != "c" || l2["be_web"][1] != "b" {
 		t.Errorf("layout = %v, want b to keep slot 1", l2["be_web"])
 	}
@@ -216,7 +216,7 @@ func TestAssignLayoutIsStable(t *testing.T) {
 	for i := range 11 {
 		cfg.Backends[0].Servers = append(cfg.Backends[0].Servers, proxy.Server{Name: fmt.Sprintf("n%02d", i)})
 	}
-	if l3 := assignLayout(l2, cfg, ""); len(l3["be_web"]) != 20 || l3["be_web"][1] != "b" {
+	if l3 := assignLayout(l2, cfg, renderOptions{PrivateIP: ""}.node()); len(l3["be_web"]) != 20 || l3["be_web"][1] != "b" {
 		t.Errorf("layout after growth = %v", l3["be_web"])
 	}
 }
@@ -225,7 +225,7 @@ func TestSignatureIgnoresServerAddresses(t *testing.T) {
 	t.Parallel()
 
 	cfg := sampleConfig(t)
-	l := assignLayout(nil, cfg, "")
+	l := assignLayout(nil, cfg, renderOptions{PrivateIP: ""}.node())
 	s1 := signature(cfg, l, renderOptions{PrivateIP: "10.0.0.2"})
 	cfg.Backends[0].Servers[0].Address = "10.0.0.9:40000"
 	cfg.Certificates[0].PEM = cert(t)
@@ -324,6 +324,11 @@ func TestNewPreparesDirectories(t *testing.T) {
 	}
 	if _, err := New(Config{Dir: t.TempDir(), Engine: &fakeEngine{}, PrivateIP: "nope"}); err == nil {
 		t.Error("New accepted invalid private IP")
+	}
+	for _, bad := range []string{"nope", "8.8.8.0/24", "10.120.3.1/24", "10.120.3.0/24\n"} {
+		if _, err := New(Config{Dir: t.TempDir(), Engine: &fakeEngine{}, Subnet: bad}); err == nil {
+			t.Errorf("New accepted subnet %q", bad)
+		}
 	}
 }
 
@@ -760,11 +765,11 @@ func TestRenderRefusesUnsafeTokens(t *testing.T) {
 	} {
 		cfg := sampleConfig(t)
 		mut(&cfg)
-		if out := render(cfg, assignLayout(nil, cfg, ""), renderOptions{}); out != nil {
+		if out := render(cfg, assignLayout(nil, cfg, renderOptions{PrivateIP: ""}.node()), renderOptions{}); out != nil {
 			t.Errorf("%s: rendered an unsafe config", name)
 		}
 	}
-	if render(sampleConfig(t), assignLayout(nil, sampleConfig(t), ""), renderOptions{}) == nil {
+	if render(sampleConfig(t), assignLayout(nil, sampleConfig(t), renderOptions{PrivateIP: ""}.node()), renderOptions{}) == nil {
 		t.Error("valid config refused")
 	}
 }
@@ -772,7 +777,7 @@ func TestRenderRefusesUnsafeTokens(t *testing.T) {
 func TestLocalFirst(t *testing.T) {
 	t.Parallel()
 	cfg := sampleConfig(t)
-	out := string(render(cfg, assignLayout(nil, cfg, "10.0.0.2"), renderOptions{PrivateIP: "10.0.0.2"}))
+	out := string(render(cfg, assignLayout(nil, cfg, renderOptions{PrivateIP: "10.0.0.2"}.node()), renderOptions{PrivateIP: "10.0.0.2"}))
 	for _, want := range []string{"backend lo_frontend", "backend lo_shop", "backend lo_admin-panel", "use_backend lo_shop if"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q", want)
@@ -783,16 +788,29 @@ func TestLocalFirst(t *testing.T) {
 		t.Error("a split app got a local backend")
 	}
 	// Without the node's private IP nothing is local.
-	if out := string(render(cfg, assignLayout(nil, cfg, ""), renderOptions{})); strings.Contains(out, "lo_") {
+	if out := string(render(cfg, assignLayout(nil, cfg, renderOptions{PrivateIP: ""}.node()), renderOptions{})); strings.Contains(out, "lo_") {
 		t.Error("local backends without a private IP")
 	}
 	// Only this node's servers, at weight 1.
-	l := assignLayout(nil, cfg, "10.0.0.2")
+	l := assignLayout(nil, cfg, renderOptions{PrivateIP: "10.0.0.2"}.node())
 	if got := l["lo_shop"]; got[0] != "shop-r2-b" || got[1] != "" {
 		t.Errorf("lo_shop slots %v", got)
 	}
-	if !onNode("[fd00::2]:80", "fd00::2") || onNode("10.0.0.20:80", "10.0.0.2") || onNode("nope", "10.0.0.2") {
-		t.Error("onNode")
+	at := func(ip, subnet string) node { return renderOptions{PrivateIP: ip, Subnet: subnet}.node() }
+	if !at("fd00::2", "").has("[fd00::2]:80") || at("10.0.0.2", "").has("10.0.0.20:80") || at("10.0.0.2", "").has("nope") {
+		t.Error("node.has with published ports")
+	}
+	// With the cluster network, the node's replicas have addresses in its
+	// subnet (ADR 0027); other nodes' subnets are not local.
+	n := at("10.0.0.2", "10.120.3.0/24")
+	if !n.has("10.120.3.7:8080") || !n.has("10.0.0.2:21000") || n.has("10.120.4.7:8080") || at("", "10.120.3.0/24").has("10.120.3.7:8080") {
+		t.Error("node.has with a subnet")
+	}
+	sub := proxy.Config{Backends: []proxy.Backend{{Name: "web", LocalFirst: true, Servers: []proxy.Server{
+		{Name: "web-a", Address: "10.120.3.7:8080"}, {Name: "web-b", Address: "10.120.4.7:8080"},
+	}}}}
+	if got := assignLayout(nil, sub, n)["lo_web"]; got[0] != "web-a" || got[1] != "" {
+		t.Errorf("lo_web slots %v", got)
 	}
 }
 

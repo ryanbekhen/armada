@@ -177,6 +177,13 @@ exists only where a pair of nodes uses it.
   node's subnet instead of its private IP.
 - Rollouts, drain, weights, health checks, and scale to zero are unchanged:
   only the address form changes.
+- Only replicas of the embedded runtime on a node of the cluster network
+  publish nothing; replicas started before stay on their port until they
+  are replaced (the change is outside the spec hash, so nothing restarts).
+- The node drops new connections into the container bridge that come
+  neither through the tunnel nor through a published port (DNAT), so no
+  other machine reaches containers by routing a node's subnet through its
+  private IP.
 
 ### Access between apps
 
@@ -364,7 +371,8 @@ Later stages add:
   1. the network, routing, MTU, and doctor: node subnets, the `plain`
      tunnel with routes, MTU, and firewall, and the `wireguard` mode with
      node keys (done);
-  2. replicas without published ports;
+  2. replicas without published ports (done for the embedded runtime;
+     drivers follow with `CAPABILITY_NODE_SUBNET`);
   3. default deny and `ingress.allow`;
   4. TCP apps;
   5. replica names.

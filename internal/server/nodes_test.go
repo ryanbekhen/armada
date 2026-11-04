@@ -516,8 +516,28 @@ func TestRenewRateLimit(t *testing.T) {
 
 func TestValidReplicaAddress(t *testing.T) {
 	t.Parallel()
-	if !validReplicaAddress("10.0.0.2:32768", "10.0.0.2") || !validReplicaAddress("[fd00::2]:80", "fd00::2") {
+	if !validReplicaAddress("10.0.0.2:32768", "10.0.0.2", "") || !validReplicaAddress("[fd00::2]:80", "fd00::2", "") {
 		t.Error("valid address rejected")
+	}
+	// With the cluster network: the node's private IP or its own subnet.
+	sub := "10.120.3.0/24"
+	if !validReplicaAddress("10.120.3.7:8080", "10.0.0.2", sub) || !validReplicaAddress("10.0.0.2:21000", "10.0.0.2", sub) {
+		t.Error("valid subnet address rejected")
+	}
+	for _, a := range []string{
+		"10.120.4.7:8080",   // another node's subnet
+		"10.120.3.0:8080",   // the node's tunnel end
+		"10.120.3.1:8080",   // the node's bridge gateway (internal ingress, DNS)
+		"10.120.3.255:8080", // broadcast
+		"10.120.3.7:0",
+		"10.120.3.7",
+	} {
+		if validReplicaAddress(a, "10.0.0.2", sub) {
+			t.Errorf("%q accepted with subnet %s", a, sub)
+		}
+	}
+	if validReplicaAddress("10.120.3.7:8080", "10.0.0.2", "") {
+		t.Error("subnet address accepted on a node without one")
 	}
 	for _, a := range []string{
 		"10.0.0.3:80",               // another node
@@ -528,7 +548,7 @@ func TestValidReplicaAddress(t *testing.T) {
 		"010.0.0.2:80",              // non-canonical
 		"10.0.0.2:80 backup",        // trailing directive
 	} {
-		if validReplicaAddress(a, "10.0.0.2") {
+		if validReplicaAddress(a, "10.0.0.2", "") {
 			t.Errorf("%q accepted", a)
 		}
 	}
