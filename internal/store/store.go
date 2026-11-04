@@ -377,13 +377,26 @@ type Store interface {
 	// RemoveServer deletes a control plane node's record.
 	RemoveServer(ctx context.Context, name, actor string) error
 
+	// CreateProject records a new project (ADR 0029); ErrConflict if it
+	// exists or is the default project.
+	CreateProject(ctx context.Context, name, actor string) (Project, error)
+	// GetProject returns a project; the default one always exists.
+	GetProject(ctx context.Context, name string) (Project, error)
+	// ListProjects lists every project, the default one first.
+	ListProjects(ctx context.Context) ([]Project, error)
+	// DeleteProject removes a project; ErrPrecondition while it still
+	// holds apps, secrets, volumes, runs, or replicas, and for the default
+	// project.
+	DeleteProject(ctx context.Context, name, actor string) error
+
 	// Deploy records spec as a new revision and makes it the rollout target
 	// unless it is identical to the current target. A spec identical to the
 	// active revision cancels a rollout in progress. The first revision of a
 	// new app becomes active immediately. Deploy also resets the desired
 	// replica count to spec.Replicas(), registers the spec's custom domains,
 	// and returns ErrConflict if another app already routes one of its
-	// host+path pairs.
+	// host+path pairs. The app is stored under spec.ID(); ErrPrecondition
+	// if its project does not exist.
 	Deploy(ctx context.Context, s *spec.App, actor string) (rev Revision, created bool, err error)
 	// Rollback makes an existing revision of app the rollout target (or
 	// cancels the rollout if it is the active revision).

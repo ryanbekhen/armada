@@ -40,17 +40,27 @@ they forget, so Armada builds every layer in and turns it on together.
 
 - A **project** holds apps, jobs, secrets, domains, and volumes. Names are
   unique within a project, so `api` can exist in two projects.
-- Project names follow the app name rules. `default` exists in every
-  cluster and holds everything created before projects (see Migration).
-- Store keys gain the project: `apps/<project>/<app>`, and the same for
-  revisions, replicas, secrets, runs, and volumes. Domains stay
-  cluster-wide (`domains/<domain>`) and record the project that owns them:
-  a domain verified by one project cannot be claimed by another.
-- Objects that leave the store carry the project too:
-  - container labels (`armada.project`) and container names;
-  - HAProxy backend names (`be_<project>--<app>`, validated like today);
-  - volume directories (`<data dir>/volumes/<project>/<app>/<name>`);
+- Project names follow the app name rules, at most 30 characters.
+  `default` exists in every cluster without a record and holds everything
+  created before projects (see Migration).
+- **App IDs.** Everywhere past the API, an app is named by its ID
+  (`spec.AppID`): its name in `default`, `<name>.<project>` in any other
+  project. App names have no dots, so IDs never collide, and the IDs of
+  `default` are the names apps already have. The ID is the store key
+  (`apps/<id>`, and the same for revisions, replicas, secrets, runs, and
+  volumes), and everything built from it carries the project without a
+  field of its own:
+  - revision and replica names (`web.staging--r1`, `web.staging-r1-…`)
+    and so container names and labels;
+  - HAProxy backend names (`be_web.staging`, validated like today);
+  - the internal host name (`web.staging.internal`);
+  - volume directories (`<data dir>/volumes/web.staging/<name>`);
   - metrics and event labels.
+  A project of at most 30 characters keeps container names within the
+  runtime's limit.
+- Domains stay cluster-wide (`domains/<domain>`) and record the project
+  that owns them: a domain verified by one project cannot be claimed by
+  another.
 - A project record holds its settings: isolation level, quotas, placement,
   and limits. Administrators, and automation identities allowed to (see
   below), create, change, or remove projects. Removing a project requires
@@ -196,10 +206,11 @@ usage; the totals over every project are admin only.
 
 ### Migration
 
-- Schema 7 moves every record into the `default` project in one gated
-  migration (ADR 0012). Names, hostnames (`<app>.internal`), domains, and
-  container names of `default` keep working, so a running cluster changes
-  nothing until an administrator creates a project.
+- Schema 7 is a gate with nothing to rewrite (ADR 0012): the apps of
+  `default` keep their keys, names, hostnames (`<app>.internal`), domains,
+  and container names, so a running cluster changes nothing until an
+  administrator creates a project. Servers that would read
+  `<name>.<project>` as an app name can no longer lead.
 - `default` keeps `isolation: container` and no network isolation until the
   administrator changes them.
 

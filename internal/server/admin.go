@@ -52,28 +52,28 @@ func (s *Server) Deploy(ctx context.Context, req *armadav1.DeployRequest) (*arma
 	}
 	rev, created, err := s.store.Deploy(ctx, app, actor(ctx))
 	if err != nil {
-		s.log.Error("deploy failed", "app", app.Name, "err", err)
+		s.log.Error("deploy failed", "app", app.ID(), "err", err)
 		return nil, storeErr(err)
 	}
-	s.log.Info("deployed", "app", app.Name, "revision", rev.Name, "new_revision", created, "by", actor(ctx))
+	s.log.Info("deployed", "app", app.ID(), "revision", rev.Name, "new_revision", created, "by", actor(ctx))
 	switch {
 	case app.MultipleRevisions():
 		// No rollout: the traffic applies at once (ADR 0024).
 		msg := "image " + app.Image
-		if a, err := s.store.GetApp(ctx, app.Name); err == nil {
+		if a, err := s.store.GetApp(ctx, app.ID()); err == nil {
 			msg = trafficMessage(a.Traffic)
 		}
 		if created {
 			msg += "; new revision " + rev.Name
 		}
-		s.record(ctx, store.Event{Kind: eventApp, Object: app.Name, App: app.Name, Reason: "TrafficChanged", Message: msg})
+		s.record(ctx, store.Event{Kind: eventApp, Object: app.ID(), App: app.ID(), Reason: "TrafficChanged", Message: msg})
 	case created && app.IsJob():
-		s.record(ctx, store.Event{Kind: eventJob, Object: app.Name, App: app.Name, Reason: "Deployed", Message: "new runs use " + rev.Name + " (image " + app.Image + ")"})
+		s.record(ctx, store.Event{Kind: eventJob, Object: app.ID(), App: app.ID(), Reason: "Deployed", Message: "new runs use " + rev.Name + " (image " + app.Image + ")"})
 	case created:
-		s.record(ctx, store.Event{Kind: eventRollout, Object: rev.Name, App: app.Name, Reason: "Started", Message: "rolling out " + rev.Name + " (image " + app.Image + ")"})
+		s.record(ctx, store.Event{Kind: eventRollout, Object: rev.Name, App: app.ID(), Reason: "Started", Message: "rolling out " + rev.Name + " (image " + app.Image + ")"})
 	}
 	s.Trigger()
-	return &armadav1.DeployResponse{App: app.Name, Revision: rev.Name}, nil
+	return &armadav1.DeployResponse{App: app.ID(), Revision: rev.Name}, nil
 }
 
 // Scale sets an app's desired replica count until its next deploy.

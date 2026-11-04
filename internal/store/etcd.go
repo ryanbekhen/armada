@@ -57,6 +57,9 @@ const (
 	pfxServers  = "servers/"
 	pfxRuns     = "runs/"    // runs/<job>/<seq, 10 digits>
 	pfxVolumes  = "volumes/" // volumes/<app>/<name>
+	// Apps are keyed by their ID (spec.AppID): the name in the default
+	// project, <name>.<project> in others (ADR 0029). Projects live under
+	// pfxProjects (projects.go).
 	// pfxEvents (events.go) holds expiring events; older binaries ignore
 	// the prefix, so it needs no schema step.
 
@@ -64,7 +67,7 @@ const (
 	// migrations when records change incompatibly. Records under servers/
 	// and meta/ are read and written by every server, whatever its schema,
 	// so they only ever gain optional fields.
-	etcdSchema = 6
+	etcdSchema = 7
 
 	maxTxnRetries = 100
 	// auditKeep is how many audit events are retained.
@@ -1116,7 +1119,11 @@ func (s *Etcd) deploy(t *etx, sp *spec.App, replicas int, actor, action string) 
 	}
 	now := s.now()
 
-	a, exists, err := t.app(sp.Name)
+	id := sp.ID()
+	if err := t.projectExists(sp.Project); err != nil {
+		return Revision{}, false, err
+	}
+	a, exists, err := t.app(id)
 	if err != nil {
 		return Revision{}, false, err
 	}
@@ -1134,7 +1141,7 @@ func (s *Etcd) deploy(t *etx, sp *spec.App, replicas int, actor, action string) 
 			if cur.Spec.IsJob() {
 				what = "a job"
 			}
-			return Revision{}, false, fmt.Errorf("%s is %s; choose another name: %w", sp.Name, what, ErrConflict)
+			return Revision{}, false, fmt.Errorf("%s is %s; choose another name: %w", id, what, ErrConflict)
 		}
 		tgt := cur
 		if a.TargetRevision != a.ActiveRevision {
@@ -1152,7 +1159,7 @@ func (s *Etcd) deploy(t *etx, sp *spec.App, replicas int, actor, action string) 
 			if err := t.put(pfxApps+a.Name, a); err != nil {
 				return Revision{}, false, err
 			}
-			return tgt, false, t.audit(now, actor, action+".unchanged", sp.Name, tgt.Name)
+			return tgt, false, t.audit(now, actor, action+".unchanged", id, tgt.Name)
 		case sameRevision(cur, body, pins):
 			// Deploying what is already serving cancels the rollout.
 			target := a.TargetRevision
@@ -1162,7 +1169,7 @@ func (s *Etcd) deploy(t *etx, sp *spec.App, replicas int, actor, action string) 
 			if err := t.pruneDomains(); err != nil {
 				return Revision{}, false, err
 			}
-			return cur, false, t.audit(now, actor, action+".cancel", sp.Name, target)
+			return cur, false, t.audit(now, actor, action+".cancel", id, target)
 		}
 	}
 
@@ -1170,7 +1177,7 @@ func (s *Etcd) deploy(t *etx, sp *spec.App, replicas int, actor, action string) 
 		return Revision{}, false, err
 	}
 	seq := 1
-	revs, err := t.list(pfxRevs + sp.Name + "/")
+	revs, err := t.list(pfxRevs + id + "/")
 	if err != nil {
 		return Revision{}, false, err
 	}
@@ -1182,12 +1189,12 @@ func (s *Etcd) deploy(t *etx, sp *spec.App, replicas int, actor, action string) 
 		}
 		seq = n + 1
 	}
-	rev := Revision{Name: fmt.Sprintf("%s--r%d", sp.Name, seq), App: sp.Name, Seq: seq, Spec: sp, Secrets: pins, CreatedAt: now}
+	rev := Revision{Name: fmt.Sprintf("%s--r%d", id, seq), App: id, Seq: seq, Spec: sp, Secrets: pins, CreatedAt: now}
 	if !exists {
 		// Nothing serves yet, so the first revision is active at once.
-		a = appRec{Name: sp.Name, ActiveRevision: rev.Name, TargetRevision: rev.Name, CreatedAt: now.UnixMilli()}
+		a = appRec{Name: id, ActiveRevision: rev.Name, TargetRevision: rev.Name, CreatedAt: now.UnixMilli()}
 	}
-	if err := t.put(revKey(sp.Name, seq), revRec{Name: rev.Name, App: rev.App, Seq: seq, Spec: body, Secrets: pins, CreatedAt: now.UnixMilli()}); err != nil {
+	if err := t.put(revKey(id, seq), revRec{Name: rev.Name, App: rev.App, Seq: seq, Spec: body, Secrets: pins, CreatedAt: now.UnixMilli()}); err != nil {
 		return Revision{}, false, err
 	}
 	if multiple {
@@ -1200,13 +1207,13 @@ func (s *Etcd) deploy(t *etx, sp *spec.App, replicas int, actor, action string) 
 	if err := t.setTarget(a, rev.Name, replicas, now); err != nil {
 		return Revision{}, false, err
 	}
-	if err := t.pruneRevisions(sp.Name); err != nil {
+	if err := t.pruneRevisions(id); err != nil {
 		return Revision{}, false, err
 	}
 	if err := t.pruneDomains(); err != nil {
 		return Revision{}, false, err
 	}
-	return rev, true, t.audit(now, actor, action, sp.Name, rev.Name)
+	return rev, true, t.audit(now, actor, action, id, rev.Name)
 }
 
 // activateTraffic makes latest the app's current revision in multiple
@@ -1838,7 +1845,7 @@ func (s *Etcd) ListAudit(ctx context.Context, limit int) ([]AuditEvent, error) {
 func (t *etx) claimDomains(sp *spec.App, now time.Time) error {
 	taken := map[string]string{}
 	err := t.liveSpecs(func(app string, other *spec.App) {
-		if app == sp.Name {
+		if app == sp.ID() {
 			return
 		}
 		for _, k := range routeKeys(other) {
@@ -2001,7 +2008,7 @@ func splitSecretKey(key, app string) (string, int, bool) {
 
 // pinSecrets resolves the latest version of every secret sp references.
 func (t *etx) pinSecrets(sp *spec.App) (map[string]int, error) {
-	latest, err := t.latestVersions(sp.Name)
+	latest, err := t.latestVersions(sp.ID())
 	if err != nil {
 		return nil, err
 	}
@@ -2071,8 +2078,15 @@ func (s *Etcd) SetSecret(ctx context.Context, app, name string, seal func(int) (
 	now := s.now()
 	var version int
 	var revision string
+	project, _, ok := spec.SplitAppID(app)
+	if !ok {
+		return 0, "", fmt.Errorf("invalid app %q", app)
+	}
 	err := s.tx(ctx, func(t *etx) error {
 		revision = ""
+		if err := t.projectExists(project); err != nil {
+			return err
+		}
 		latest, err := t.latestVersions(app)
 		if err != nil {
 			return err
@@ -2229,6 +2243,12 @@ var migrations = []migration{
 	// subnets. Nothing to rewrite (upgraded clusters have no network yet);
 	// servers that would register a node without a subnet can no longer
 	// lead.
+	func(*etx) error { return nil },
+	// 6 -> 7: projects (ADR 0029) under projects/, and apps of other
+	// projects keyed <name>.<project>. Nothing to rewrite (the default
+	// project's apps keep their keys); servers that would treat such a key
+	// as an app name, or deploy into a project that does not exist, can no
+	// longer lead.
 	func(*etx) error { return nil },
 }
 
