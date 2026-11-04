@@ -24,20 +24,31 @@ type Quota struct {
 	Secrets int `json:"secrets,omitempty"`
 	// Jobs bounds the job attempts that run at once.
 	Jobs int `json:"jobs,omitempty"`
+	// EgressBits is not a total but a limit on each replica and job
+	// attempt: the bits per second its container may send. It is pinned
+	// into every revision deployed into the project.
+	EgressBits int64 `json:"egressBits,omitempty"`
 }
 
 // maxQuotaCount keeps counts far from overflow and within reason.
 const maxQuotaCount = 1_000_000
 
-// quotaKeys lists the keys of ParseQuota in display order.
+// quotaKeys lists the counted keys of ParseQuota in display order; egress
+// (a limit per replica, not a total) comes after them.
 var quotaKeys = []string{"cpu", "memory", "replicas", "volumes", "domains", "secrets", "jobs"}
+
+// Bounds of the egress limit, in bits per second.
+const (
+	MinEgressBits = 1_000_000
+	MaxEgressBits = 10_000_000_000
+)
 
 // IsZero reports whether q sets no limit.
 func (q Quota) IsZero() bool { return q == Quota{} }
 
 // ParseQuota parses "cpu=4,memory=8Gi,replicas=20,volumes=4,domains=2,
-// secrets=50,jobs=2". Keys left out are unlimited, as is a value of 0;
-// "none" clears every limit.
+// secrets=50,jobs=2,egress=100M". Keys left out are unlimited, as is a
+// value of 0; "none" clears every limit.
 func ParseQuota(s string) (Quota, error) {
 	var q Quota
 	s = strings.TrimSpace(s)
@@ -45,7 +56,7 @@ func ParseQuota(s string) (Quota, error) {
 		return q, nil
 	}
 	if s == "" {
-		return q, fmt.Errorf("empty quota: give KEY=VALUE pairs (%s) or none", strings.Join(quotaKeys, ", "))
+		return q, fmt.Errorf("empty quota: give KEY=VALUE pairs (%s, egress) or none", strings.Join(quotaKeys, ", "))
 	}
 	seen := map[string]bool{}
 	for _, part := range strings.Split(s, ",") {
@@ -82,8 +93,17 @@ func ParseQuota(s string) (Quota, error) {
 				return Quota{}, fmt.Errorf("invalid quota %s=%s: a whole number from 0 to %d", k, v, maxQuotaCount)
 			}
 			*q.count(k) = n
+		case "egress":
+			if v == "0" {
+				continue
+			}
+			n, err := ParseBitRate(v)
+			if err != nil {
+				return Quota{}, err
+			}
+			q.EgressBits = n
 		default:
-			return Quota{}, fmt.Errorf("unknown quota key %q: use %s", k, strings.Join(quotaKeys, ", "))
+			return Quota{}, fmt.Errorf("unknown quota key %q: use %s, egress", k, strings.Join(quotaKeys, ", "))
 		}
 	}
 	return q, nil
@@ -108,6 +128,9 @@ func (q *Quota) count(k string) *int {
 func CheckQuota(q Quota) error {
 	if q.CPUMillis < 0 || q.MemoryBytes < 0 {
 		return fmt.Errorf("quota values cannot be negative")
+	}
+	if q.EgressBits != 0 && (q.EgressBits < MinEgressBits || q.EgressBits > MaxEgressBits) {
+		return fmt.Errorf("quota egress must be from %s to %s bits per second", FormatBitRate(MinEgressBits), FormatBitRate(MaxEgressBits))
 	}
 	for _, n := range []int{q.Replicas, q.Volumes, q.Domains, q.Secrets, q.Jobs} {
 		if n < 0 || n > maxQuotaCount {
@@ -136,6 +159,9 @@ func (q Quota) String() string {
 		if n, s := q.value(k); n > 0 {
 			parts = append(parts, k+"="+s)
 		}
+	}
+	if q.EgressBits > 0 {
+		parts = append(parts, "egress="+FormatBitRate(q.EgressBits))
 	}
 	if len(parts) == 0 {
 		return "none"
@@ -173,6 +199,9 @@ func Usage(used, q Quota) string {
 			parts = append(parts, k+"="+us)
 		}
 	}
+	if q.EgressBits > 0 {
+		parts = append(parts, "egress="+FormatBitRate(q.EgressBits))
+	}
 	if len(parts) == 0 {
 		return "-"
 	}
@@ -199,6 +228,44 @@ func FormatMemory(b int64) string {
 		return strconv.FormatInt(b>>20, 10) + "Mi"
 	case b >= 1<<10 && b%(1<<10) == 0:
 		return strconv.FormatInt(b>>10, 10) + "Ki"
+	}
+	return strconv.FormatInt(b, 10)
+}
+
+// ParseBitRate parses a rate in bits per second with an optional decimal
+// suffix: "500k", "100M", "1G" (k = 1000), within MinEgressBits and
+// MaxEgressBits.
+func ParseBitRate(v string) (int64, error) {
+	mult := int64(1)
+	num := v
+	switch {
+	case strings.HasSuffix(v, "k"):
+		mult, num = 1_000, strings.TrimSuffix(v, "k")
+	case strings.HasSuffix(v, "M"):
+		mult, num = 1_000_000, strings.TrimSuffix(v, "M")
+	case strings.HasSuffix(v, "G"):
+		mult, num = 1_000_000_000, strings.TrimSuffix(v, "G")
+	}
+	n, err := strconv.ParseInt(num, 10, 64)
+	if err != nil || n <= 0 || strconv.FormatInt(n, 10) != num || n > MaxEgressBits/mult {
+		return 0, fmt.Errorf("invalid rate %q: bits per second, such as 500k, 100M, or 1G", v)
+	}
+	if n*mult < MinEgressBits {
+		return 0, fmt.Errorf("rate %s is below the minimum of %s bits per second", v, FormatBitRate(MinEgressBits))
+	}
+	return n * mult, nil
+}
+
+// FormatBitRate shows bits per second with the largest exact suffix:
+// "1G", "100M", "1500k".
+func FormatBitRate(b int64) string {
+	switch {
+	case b >= 1_000_000_000 && b%1_000_000_000 == 0:
+		return strconv.FormatInt(b/1_000_000_000, 10) + "G"
+	case b >= 1_000_000 && b%1_000_000 == 0:
+		return strconv.FormatInt(b/1_000_000, 10) + "M"
+	case b >= 1_000 && b%1_000 == 0:
+		return strconv.FormatInt(b/1_000, 10) + "k"
 	}
 	return strconv.FormatInt(b, 10)
 }

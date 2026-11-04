@@ -209,6 +209,9 @@ message Quota {
   int32 secrets = 6;
   // Job attempts that run at once.
   int32 jobs = 7;
+  // Not a total: the bits per second each replica and job attempt may
+  // send, pinned into every revision deployed into the project.
+  int64 egress_bits = 8;
 }
 
 message ProjectInfo {
@@ -666,6 +669,8 @@ message NodeStatus {
   bool restricted = 11;
   // The node runs replicas in the sandbox (ADR 0029).
   bool sandbox = 12;
+  // The node limits containers' egress bandwidth (quota egress, ADR 0029).
+  bool egress = 13;
 }
 
 message TopRequest {
@@ -834,6 +839,9 @@ message Hello {
   // The node runs containers in a userspace kernel (`isolation: sandbox`,
   // ADR 0029): its runtime is the embedded one and carries runsc.
   bool sandbox = 12;
+  // The node limits containers' egress bandwidth (quota egress, ADR 0029):
+  // its runtime shapes traffic with the CNI bandwidth plugin.
+  bool egress = 13;
 }
 
 message ReplicaReport {
@@ -1066,6 +1074,10 @@ message ReplicaSpec {
   // Run the replica in the sandbox (isolation sandbox, ADR 0029). Part of
   // the spec hash; an agent that cannot sandbox refuses the replica.
   bool sandbox = 20;
+  // Bits per second the container may send (the revision's egress limit,
+  // ADR 0029); 0 is unlimited. Part of the spec hash; an agent that cannot
+  // limit egress refuses the replica.
+  int64 egress_bits = 21;
 }
 
 message VolumeSpec {

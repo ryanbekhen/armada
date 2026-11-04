@@ -29,6 +29,8 @@ type cniNetwork struct {
 	conf     *libcni.NetworkConfigList
 	netnsDir string
 
+	shape bool // the bandwidth plugin is in the chain and the kernel can shape
+
 	mu    sync.Mutex
 	ready bool
 }
@@ -38,7 +40,10 @@ func newNetwork(p embedded.Paths, subnet netip.Prefix, mtu int) (network, error)
 	if err != nil {
 		return nil, err
 	}
-	raw, err := cniConfig(b, filepath.Join(p.CNI(), "ipam"), mtu)
+	// Without the plugin binary (a --bin-dir without it), the chain leaves
+	// it out: every container start would fail otherwise.
+	plugin := executable(filepath.Join(p.Bin(), embedded.DirCNI, "bandwidth"))
+	raw, err := cniConfig(b, filepath.Join(p.CNI(), "ipam"), mtu, plugin)
 	if err != nil {
 		return nil, err
 	}
@@ -52,10 +57,21 @@ func newNetwork(p embedded.Paths, subnet netip.Prefix, mtu int) (network, error)
 		cni:      libcni.NewCNIConfigWithCacheDir([]string{filepath.Join(p.Bin(), embedded.DirCNI)}, filepath.Join(p.CNI(), "cache"), nil),
 		conf:     conf,
 		netnsDir: p.NetNS(),
+		shape:    plugin && kernelShapes("/", kernelRelease()),
 	}, nil
 }
 
 func (n *cniNetwork) Bridge() runtime.Bridge { return n.bridge }
+
+func (n *cniNetwork) CanShape() bool { return n.shape }
+
+func kernelRelease() string {
+	b, err := os.ReadFile("/proc/sys/kernel/osrelease")
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(b))
+}
 
 // Ensure creates the bridge up front so the gateway address exists before
 // the first container: internal DNS and ingress bind to it.
@@ -128,15 +144,21 @@ func (n *cniNetwork) Ensure(context.Context) error {
 // by hand, and the kernel no longer changes it.
 const addrAssignSet = "3"
 
-func (n *cniNetwork) runtimeConf(id, path string, pm *portMapping) *libcni.RuntimeConf {
-	rt := &libcni.RuntimeConf{ContainerID: id, NetNS: path, IfName: "eth0"}
+func (n *cniNetwork) runtimeConf(id, path string, pm *portMapping, egress int64) *libcni.RuntimeConf {
+	rt := &libcni.RuntimeConf{ContainerID: id, NetNS: path, IfName: "eth0", CapabilityArgs: map[string]any{}}
 	if m := portMappings(pm); m != nil {
-		rt.CapabilityArgs = map[string]any{"portMappings": m}
+		rt.CapabilityArgs["portMappings"] = m
+	}
+	if bw := bandwidthArgs(egress); bw != nil {
+		rt.CapabilityArgs["bandwidth"] = bw
 	}
 	return rt
 }
 
-func (n *cniNetwork) Setup(ctx context.Context, id string, pm *portMapping) (string, string, error) {
+func (n *cniNetwork) Setup(ctx context.Context, id string, pm *portMapping, egress int64) (string, string, error) {
+	if egress > 0 && !n.shape {
+		return "", "", errors.New("this node cannot limit egress bandwidth")
+	}
 	if err := os.MkdirAll(n.netnsDir, 0o700); err != nil {
 		return "", "", err
 	}
@@ -144,9 +166,9 @@ func (n *cniNetwork) Setup(ctx context.Context, id string, pm *portMapping) (str
 	if err != nil {
 		return "", "", fmt.Errorf("network namespace: %w", err)
 	}
-	res, err := n.cni.AddNetworkList(ctx, n.conf, n.runtimeConf(id, ns.GetPath(), pm))
+	res, err := n.cni.AddNetworkList(ctx, n.conf, n.runtimeConf(id, ns.GetPath(), pm, egress))
 	if err != nil {
-		_ = n.cni.DelNetworkList(context.WithoutCancel(ctx), n.conf, n.runtimeConf(id, ns.GetPath(), pm))
+		_ = n.cni.DelNetworkList(context.WithoutCancel(ctx), n.conf, n.runtimeConf(id, ns.GetPath(), pm, 0))
 		_ = ns.Remove()
 		return "", "", err
 	}
@@ -168,7 +190,9 @@ func (n *cniNetwork) Teardown(ctx context.Context, id, path string, pm *portMapp
 		// and NAT rules.
 		nsPath = ""
 	}
-	if err := n.cni.DelNetworkList(ctx, n.conf, n.runtimeConf(id, nsPath, pm)); err != nil {
+	// The bandwidth plugin removes the container's ifb device by its ID;
+	// it needs no rate to do so.
+	if err := n.cni.DelNetworkList(ctx, n.conf, n.runtimeConf(id, nsPath, pm, 0)); err != nil {
 		return err
 	}
 	if nsPath != "" {

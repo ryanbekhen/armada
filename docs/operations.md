@@ -318,7 +318,7 @@ armada project create shop                         # sandbox
 armada project create tools --isolation container  # administrators only
 armada project set default --isolation sandbox
 armada project list                                # the ISOLATION column
-armada node list                                   # SANDBOX: nodes that run sandboxed replicas
+armada node list                                   # SANDBOX: nodes that run sandboxed replicas; EGRESS: nodes that limit egress
 ```
 
 - Replicas of a `sandbox` project run only on nodes that run the sandbox
@@ -343,7 +343,7 @@ cluster (ADR 0029). Keys left out are unlimited:
 
 ```bash
 armada project set shop --quota cpu=4,memory=8Gi,replicas=20,volumes=4,domains=2,secrets=50,jobs=2
-armada project create trial --quota cpu=1,memory=1Gi,replicas=4
+armada project create trial --quota cpu=1,memory=1Gi,replicas=4,egress=20M
 armada project show shop                  # used against the quota
 armada project set shop --quota none      # remove it
 ```
@@ -356,6 +356,7 @@ armada project set shop --quota none      # remove it
 | `domains` | The custom domains its apps route |
 | `secrets` | Its secrets (names, not versions) |
 | `jobs` | Job attempts running at once |
+| `egress` | Not a total: the bits per second each replica and job attempt may send (`500k`, `100M`, `1G`; from 1M to 10G) |
 
 A deploy, scale, rollback, or new secret that would go past a limit is
 refused with the dimension and the numbers. Job attempts past `jobs` wait
@@ -367,8 +368,17 @@ the projects an automation identity creates get the quota of its scope
 each container may write 1 MiB per second (4 MiB at once) to its log,
 kept in 3 files of 10 MB; `armada logs` shows a line such as `[armada:
 dropped 52428800 bytes of output over the log rate limit ...]` where
-output was dropped. Limits on egress bandwidth and request rate follow
-(ADR 0029).
+output was dropped. Limits on request rate follow (ADR 0029).
+
+The `egress` limit covers everything a replica's container sends,
+responses to requests through ingress included; what it receives is not
+limited. Like the kernel isolation level, a revision keeps the limit its
+project had when it was deployed: after a change, deploy each app again
+(the same spec is enough) to roll it out, and rolling back to a revision
+without the limit or above it is refused. Replicas with a limit run only
+on nodes that can shape traffic (the EGRESS column of `armada node list`;
+`armada doctor` names a missing kernel module); with none they wait with
+a `NoIsolation` event.
 
 ### Automation identities
 

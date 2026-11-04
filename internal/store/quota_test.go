@@ -164,3 +164,75 @@ func TestAutomationQuota(t *testing.T) {
 		t.Error("negative automation quota accepted")
 	}
 }
+
+func TestEgressLimitPinned(t *testing.T) {
+	t.Parallel()
+	s, ctx := open(t), context.Background()
+	if _, err := s.CreateProject(ctx, "net", spec.IsolationContainer, "admin:test", ""); err != nil {
+		t.Fatal(err)
+	}
+	deploy := func(image string) (Revision, bool) {
+		t.Helper()
+		sp, err := spec.ParseIn([]byte("name: web\nimage: nginx:"+image+"\n"), "net")
+		if err != nil {
+			t.Fatal(err)
+		}
+		rev, created, err := s.Deploy(ctx, sp, "admin:test")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return rev, created
+	}
+	setEgress := func(bits int64) {
+		t.Helper()
+		if err := s.SetProjectQuota(ctx, "net", spec.Quota{EgressBits: bits}, "admin:test"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r1, _ := deploy("1")
+	if r1.EgressBits != 0 {
+		t.Errorf("unlimited project pinned %d", r1.EgressBits)
+	}
+	if err := s.CompleteRollout(ctx, "web.net", r1.Name); err != nil {
+		t.Fatal(err)
+	}
+
+	// A limit makes the same spec a new revision that pins it.
+	setEgress(100_000_000)
+	r2, created := deploy("1")
+	if !created || r2.EgressBits != 100_000_000 {
+		t.Fatalf("redeploy with a limit: created %v, egress %d", created, r2.EgressBits)
+	}
+	if got, err := s.GetRevision(ctx, r2.Name); err != nil || got.EgressBits != 100_000_000 {
+		t.Errorf("stored egress: %d %v", got.EgressBits, err)
+	}
+	if _, created := deploy("1"); created {
+		t.Error("unchanged limit made a new revision")
+	}
+	if err := s.CompleteRollout(ctx, "web.net", r2.Name); err != nil {
+		t.Fatal(err)
+	}
+	// The unlimited revision cannot serve again while the limit holds.
+	if _, err := s.Rollback(ctx, "web.net", r1.Name, "admin:test"); !errors.Is(err, ErrPrecondition) || !strings.Contains(err.Error(), "egress") {
+		t.Errorf("rollback to an unlimited revision = %v", err)
+	}
+
+	// Lowering it: the 100M revision is now over the limit; raising it
+	// makes the 100M revision fine to roll back to.
+	setEgress(10_000_000)
+	r3, _ := deploy("1")
+	if err := s.CompleteRollout(ctx, "web.net", r3.Name); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Rollback(ctx, "web.net", r2.Name, "admin:test"); !errors.Is(err, ErrPrecondition) {
+		t.Errorf("rollback over a lowered limit = %v", err)
+	}
+	setEgress(1_000_000_000)
+	if _, err := s.Rollback(ctx, "web.net", r2.Name, "admin:test"); err != nil {
+		t.Errorf("rollback within a raised limit = %v", err)
+	}
+	setEgress(0)
+	if _, err := s.Rollback(ctx, "web.net", r1.Name, "admin:test"); err != nil {
+		t.Errorf("rollback without a limit = %v", err)
+	}
+}

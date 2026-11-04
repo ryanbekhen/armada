@@ -67,6 +67,7 @@ var Lock = []Artifact{
 			"./loopback":   "cni/loopback",
 			"./portmap":    "cni/portmap",
 			"./firewall":   "cni/firewall",
+			"./bandwidth":  "cni/bandwidth",
 		},
 	},
 	{

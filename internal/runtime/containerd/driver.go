@@ -58,11 +58,15 @@ type network interface {
 	// Ensure creates the bridge with the gateway address if needed.
 	Ensure(ctx context.Context) error
 	// Setup creates a network namespace for id, attaches it, publishes the
-	// port if any, and returns the namespace path and the container IP.
-	Setup(ctx context.Context, id string, pm *portMapping) (netns, ip string, err error)
+	// port if any, limits egress to egress bits per second if above 0, and
+	// returns the namespace path and the container IP.
+	Setup(ctx context.Context, id string, pm *portMapping, egress int64) (netns, ip string, err error)
 	// Teardown undoes Setup; it tolerates a namespace that is already gone.
 	Teardown(ctx context.Context, id, netns string, pm *portMapping) error
 	Bridge() runtime.Bridge
+	// CanShape reports whether Setup can limit egress: the bandwidth
+	// plugin is in the chain and the kernel has what it needs.
+	CanShape() bool
 }
 
 type portMapping struct {
@@ -287,13 +291,16 @@ func (d *Driver) CanSandbox() bool { return sandboxAvailable(d.paths.Bin()) }
 
 func sandboxAvailable(bin string) bool {
 	for _, n := range []string{embedded.BinRunsc, embedded.BinSentry} {
-		fi, err := os.Stat(filepath.Join(bin, n))
-		if err != nil || !fi.Mode().IsRegular() || fi.Mode().Perm()&0o111 == 0 {
+		if !executable(filepath.Join(bin, n)) {
 			return false
 		}
 	}
 	return true
 }
+
+// CanLimitEgress reports whether this node limits the egress bandwidth of
+// containers (quota egress, ADR 0029).
+func (d *Driver) CanLimitEgress() bool { return d.net != nil && d.net.CanShape() }
 
 // logIO makes the shim pipe the container's output to `armada runtime-log`.
 func (d *Driver) logIO() cio.Creator {
@@ -307,6 +314,9 @@ func (d *Driver) Run(ctx context.Context, s runtime.ContainerSpec) (_ string, er
 	}
 	if s.Sandbox && !d.CanSandbox() {
 		return "", errors.New("this node cannot run sandboxed containers: the runtime has no runsc")
+	}
+	if s.EgressBits > 0 && !d.CanLimitEgress() {
+		return "", errors.New("this node cannot limit egress bandwidth: the runtime has no bandwidth plugin, or the kernel lacks ifb or traffic control modules")
 	}
 	id, err := newID(s.Name)
 	if err != nil {
@@ -367,7 +377,7 @@ func (d *Driver) Run(ctx context.Context, s runtime.ContainerSpec) (_ string, er
 	if err := d.net.Ensure(ctx); err != nil {
 		return "", err
 	}
-	netns, ip, err := d.net.Setup(ctx, id, pm)
+	netns, ip, err := d.net.Setup(ctx, id, pm, s.EgressBits)
 	if err != nil {
 		return "", fmt.Errorf("container network: %w", err)
 	}

@@ -72,9 +72,10 @@ func orContainer(level string) string {
 	return level
 }
 
-// checkIsolation refuses to serve rev again when its project now requires
-// a stronger kernel isolation level than rev was deployed with.
-func (t *etx) checkIsolation(rev Revision) error {
+// checkProjectLimits refuses to serve rev again when its project now
+// requires a stronger kernel isolation level, or a lower egress limit, than
+// rev was deployed with.
+func (t *etx) checkProjectLimits(rev Revision) error {
 	project, _, _ := spec.SplitAppID(rev.App)
 	level, err := t.projectIsolation(project)
 	if err != nil {
@@ -82,6 +83,17 @@ func (t *etx) checkIsolation(rev Revision) error {
 	}
 	if spec.IsolationRank(rev.Isolation) < spec.IsolationRank(level) {
 		return fmt.Errorf("%s ran with isolation %s, and project %s now requires %s; deploy its spec again: %w", rev.Name, orContainer(rev.Isolation), project, level, ErrPrecondition)
+	}
+	q, err := t.projectQuota(project)
+	if err != nil {
+		return err
+	}
+	if limit := q.EgressBits; limit > 0 && (rev.EgressBits == 0 || rev.EgressBits > limit) {
+		ran := "no egress limit"
+		if rev.EgressBits > 0 {
+			ran = "egress " + spec.FormatBitRate(rev.EgressBits)
+		}
+		return fmt.Errorf("%s ran with %s, and project %s now limits egress to %s; deploy its spec again: %w", rev.Name, ran, project, spec.FormatBitRate(limit), ErrPrecondition)
 	}
 	return nil
 }
