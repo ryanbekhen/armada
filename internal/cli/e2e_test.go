@@ -570,6 +570,23 @@ func testProjects(t *testing.T, d *fake.Driver, cli func(...string) (int, string
 		_, out, _ := cli("status", "web.staging")
 		return strings.Contains(out, "2/2")
 	})
+	// A quota bounds the project; shrinking stays possible (ADR 0029).
+	if code, out, stderr := cli("project", "set", "staging", "--quota", "replicas=2,cpu=1"); code != 0 || !strings.Contains(out, "quota cpu=1,replicas=2") {
+		t.Fatalf("project set --quota: code=%d out=%q err=%q", code, out, stderr)
+	}
+	if code, _, stderr := cli("scale", "web.staging", "3"); code == 0 || !strings.Contains(stderr, "replicas 3 of 2") {
+		t.Errorf("scale past the quota: %d %q", code, stderr)
+	}
+	if code, out, _ := cli("project", "show", "staging"); code != 0 || !regexp.MustCompile(`replicas\s+2\s+2`).MatchString(out) ||
+		!regexp.MustCompile(`cpu\s+200m\s+1`).MatchString(out) || !regexp.MustCompile(`secrets\s+0\s+-`).MatchString(out) {
+		t.Errorf("project show = %q", out)
+	}
+	if code, _, stderr := cli("project", "set", "staging", "--quota", "disk=1"); code == 0 || !strings.Contains(stderr, "unknown quota key") {
+		t.Errorf("bad quota: %d %q", code, stderr)
+	}
+	if code, _, _ := cli("project", "set", "staging", "--quota", "none"); code != 0 {
+		t.Error("removing the quota failed")
+	}
 	_, out, _ = cli("project", "list")
 	if !regexp.MustCompile(`default\s+[1-9]\s+container\s`).MatchString(out) || !regexp.MustCompile(`staging\s+1\s+sandbox\s+isolated\s`).MatchString(out) {
 		t.Errorf("project list = %q", out)

@@ -67,7 +67,7 @@ const (
 	// migrations when records change incompatibly. Records under servers/
 	// and meta/ are read and written by every server, whatever its schema,
 	// so they only ever gain optional fields.
-	etcdSchema = 8
+	etcdSchema = 9
 
 	maxTxnRetries = 100
 	// auditKeep is how many audit events are retained.
@@ -1133,6 +1133,9 @@ func (s *Etcd) deploy(t *etx, sp *spec.App, replicas int, actor, action string) 
 		// The autoscaler's count carries over, within the new bounds.
 		replicas = keptReplicas(sp, a.Replicas)
 	}
+	if err := t.checkQuota(sp.Project, quotaChange{apps: map[string]appUse{id: {sp: sp, replicas: replicas}}}); err != nil {
+		return Revision{}, false, err
+	}
 	if exists {
 		cur, err := t.revision(a.ActiveRevision)
 		if err != nil {
@@ -1425,12 +1428,16 @@ func (s *Etcd) Rollback(ctx context.Context, app, revision, actor string) (Revis
 		if err := t.checkIsolation(rev); err != nil {
 			return err
 		}
+		kept := keptReplicas(rev.Spec, a.Replicas)
+		if err := t.checkQuota(projectOf(app), quotaChange{apps: map[string]appUse{app: {sp: rev.Spec, replicas: kept}}}); err != nil {
+			return err
+		}
 		// The old revision may route domains that were dropped or taken by
 		// another app since.
 		if err := t.claimDomains(rev.Spec, now); err != nil {
 			return err
 		}
-		if err := t.setTarget(a, revision, keptReplicas(rev.Spec, a.Replicas), now); err != nil {
+		if err := t.setTarget(a, revision, kept, now); err != nil {
 			return err
 		}
 		if err := t.pruneDomains(); err != nil {
@@ -1563,6 +1570,8 @@ func (s *Etcd) SetReplicas(ctx context.Context, app string, n int, actor string)
 			return err
 		} else if tgt.Spec.HasVolumes() && n != 1 {
 			return fmt.Errorf("%s has volumes and runs exactly one replica (ADR 0025): %w", app, ErrPrecondition)
+		} else if err := t.checkQuota(projectOf(app), quotaChange{apps: map[string]appUse{app: {sp: tgt.Spec, replicas: n}}}); err != nil {
+			return err
 		}
 		a.Replicas, a.UpdatedAt = n, now.UnixMilli()
 		if err := t.put(pfxApps+app, a); err != nil {
@@ -1703,6 +1712,11 @@ func (s *Etcd) CreateReplica(ctx context.Context, r Replica) error {
 			return err
 		} else if !ok {
 			return notFoundf("node %s", r.NodeID)
+		}
+		if r.Run != 0 {
+			if err := t.checkQuota(projectOf(r.App), quotaChange{attempt: true}); err != nil {
+				return err
+			}
 		}
 		if err := t.bindVolumes(rev, r.NodeID, s.now()); err != nil {
 			return err
@@ -2138,6 +2152,11 @@ func (s *Etcd) SetSecret(ctx context.Context, app, name string, seal func(int) (
 			return err
 		}
 		version = latest[name] + 1
+		if version == 1 {
+			if err := t.checkQuota(project, quotaChange{secret: app + "/" + name}); err != nil {
+				return err
+			}
+		}
 		sealed, err := seal(version)
 		if err != nil {
 			return err
@@ -2310,6 +2329,10 @@ var migrations = []migration{
 			return t.put(key, r)
 		})
 	},
+	// 8 -> 9: quotas (ADR 0029) in project and automation records. Nothing
+	// to rewrite (no project has one yet); servers that would let a
+	// project grow past its quota can no longer lead.
+	func(*etx) error { return nil },
 }
 
 // StoredSchema returns the schema the keyspace is written in.

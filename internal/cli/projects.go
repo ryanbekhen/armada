@@ -63,6 +63,7 @@ func newProjectCommand(g *globals) *cobra.Command {
 			},
 		},
 		newProjectSetCommand(g),
+		newProjectShowCommand(g),
 		&cobra.Command{
 			Use:     "remove NAME",
 			Aliases: []string{"rm", "delete"},
@@ -88,12 +89,13 @@ func newProjectCommand(g *globals) *cobra.Command {
 }
 
 func newProjectCreateCommand(g *globals) *cobra.Command {
-	var isolation string
+	var isolation, quota string
 	cmd := &cobra.Command{
-		Use:   "create NAME [--isolation sandbox|container]",
+		Use:   "create NAME [--isolation sandbox|container] [--quota Q]",
 		Short: "Create a project",
 		Long: "Create a project. Its replicas run in the sandbox (a userspace kernel) unless\n" +
-			"an administrator gives --isolation container.",
+			"an administrator gives --isolation container. --quota bounds what it may\n" +
+			"reserve (administrators only; see armada project set).",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, conn, err := dialAdmin(g)
@@ -101,7 +103,13 @@ func newProjectCreateCommand(g *globals) *cobra.Command {
 				return err
 			}
 			defer conn.Close()
-			p, err := client.CreateProject(cmd.Context(), &armadav1.CreateProjectRequest{Name: args[0], Isolation: isolation})
+			req := &armadav1.CreateProjectRequest{Name: args[0], Isolation: isolation}
+			if quota != "" {
+				if req.Quota, err = parseQuotaFlag(quota); err != nil {
+					return err
+				}
+			}
+			p, err := client.CreateProject(cmd.Context(), req)
 			if err != nil {
 				return rpcErr(err)
 			}
@@ -110,14 +118,15 @@ func newProjectCreateCommand(g *globals) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&isolation, "isolation", "", "kernel isolation level: sandbox (default) or container")
+	cmd.Flags().StringVar(&quota, "quota", "", quotaHelp)
 	return cmd
 }
 
 func newProjectSetCommand(g *globals) *cobra.Command {
 	var networkIsolation bool
-	var isolation string
+	var isolation, quota string
 	cmd := &cobra.Command{
-		Use:   "set NAME [--isolation sandbox|container] [--network-isolation[=false]]",
+		Use:   "set NAME [--isolation sandbox|container] [--quota Q] [--network-isolation[=false]]",
 		Short: "Change a project's settings",
 		Long: "Change a project's settings (administrators only).\n\n" +
 			"--isolation sets the kernel isolation level of the project's replicas:\n" +
@@ -125,6 +134,12 @@ func newProjectSetCommand(g *globals) *cobra.Command {
 			"container runs them on the node's kernel. Revisions deployed afterwards use\n" +
 			"the new level: deploy each app again (the same spec is enough) to move it.\n" +
 			"Revisions with a weaker level can no longer be rolled back to.\n\n" +
+			"--quota replaces what the project may reserve, for example\n" +
+			"cpu=4,memory=8Gi,replicas=20,volumes=4,domains=2,secrets=50,jobs=2: CPU and\n" +
+			"memory are the sum of its replicas' reservations (an autoscaled app counts\n" +
+			"its scale.max, a job one attempt), jobs the attempts that run at once. Keys\n" +
+			"left out are unlimited; none removes the quota. Lowering it below what the\n" +
+			"project uses keeps what runs and refuses only what would grow past it.\n\n" +
 			"--network-isolation keeps the project's containers away from the nodes, the\n" +
 			"control plane, the private network, and the cloud's metadata service: they\n" +
 			"reach the internet, their node's DNS server, and internal and public\n" +
@@ -137,8 +152,14 @@ func newProjectSetCommand(g *globals) *cobra.Command {
 			if cmd.Flags().Changed("network-isolation") {
 				req.NetworkIsolation = &networkIsolation
 			}
-			if req.NetworkIsolation == nil && isolation == "" {
-				return errors.New("nothing to change: give --isolation or --network-isolation")
+			if quota != "" {
+				var err error
+				if req.Quota, err = parseQuotaFlag(quota); err != nil {
+					return err
+				}
+			}
+			if req.NetworkIsolation == nil && isolation == "" && req.Quota == nil {
+				return errors.New("nothing to change: give --isolation, --quota, or --network-isolation")
 			}
 			client, conn, err := dialAdmin(g)
 			if err != nil {
@@ -153,7 +174,7 @@ func newProjectSetCommand(g *globals) *cobra.Command {
 			if p.NetworkIsolation {
 				state = "on"
 			}
-			msg := fmt.Sprintf("Project %s: isolation %s, network isolation %s.\n", p.Name, p.Isolation, state)
+			msg := fmt.Sprintf("Project %s: isolation %s, network isolation %s, quota %s.\n", p.Name, p.Isolation, state, quotaOf(p.Quota))
 			if isolation != "" {
 				msg += "Apps already deployed keep their level until they are deployed again.\n"
 			}
@@ -162,6 +183,45 @@ func newProjectSetCommand(g *globals) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&isolation, "isolation", "", "kernel isolation level: sandbox or container")
+	cmd.Flags().StringVar(&quota, "quota", "", quotaHelp)
 	cmd.Flags().BoolVar(&networkIsolation, "network-isolation", false, "keep the project's containers away from the platform and the private network")
 	return cmd
+}
+
+func newProjectShowCommand(g *globals) *cobra.Command {
+	return &cobra.Command{
+		Use:   "show NAME",
+		Short: "Show a project's settings and what it uses",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			client, conn, err := dialAdmin(g)
+			if err != nil {
+				return err
+			}
+			defer conn.Close()
+			resp, err := client.ListProjects(cmd.Context(), &armadav1.ListProjectsRequest{})
+			if err != nil {
+				return rpcErr(err)
+			}
+			for _, p := range resp.Projects {
+				if p.Name != args[0] {
+					continue
+				}
+				network := "open"
+				if p.NetworkIsolation {
+					network = "isolated"
+				}
+				tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 4, 2, ' ', 0)
+				_, _ = fmt.Fprintf(tw, "Project:\t%s\nApps:\t%d\nIsolation:\t%s\nNetwork:\t%s\nCreated:\t%s by %s\n",
+					p.Name, p.Apps, dash(p.Isolation), network, ago(p.CreatedAt, time.Now()), dash(p.CreatedBy))
+				_, _ = fmt.Fprintln(tw, "\nRESOURCE\tUSED\tQUOTA")
+				used, quota := quotaOf(p.Used), quotaOf(p.Quota)
+				for _, row := range quotaRows(used, quota) {
+					_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\n", row[0], row[1], row[2])
+				}
+				return tw.Flush()
+			}
+			return fmt.Errorf("no project %s (see armada project list)", args[0])
+		},
+	}
 }

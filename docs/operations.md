@@ -336,7 +336,35 @@ armada node list                                   # SANDBOX: nodes that run san
   project.
 - Automation identities create projects at `sandbox` and change no level.
 
-Quotas follow (ADR 0029).
+### Quotas
+
+A quota bounds what a project may reserve, so one project cannot fill the
+cluster (ADR 0029). Keys left out are unlimited:
+
+```bash
+armada project set shop --quota cpu=4,memory=8Gi,replicas=20,volumes=4,domains=2,secrets=50,jobs=2
+armada project create trial --quota cpu=1,memory=1Gi,replicas=4
+armada project show shop                  # used against the quota
+armada project set shop --quota none      # remove it
+```
+
+| Key | Counts |
+| --- | --- |
+| `cpu`, `memory` | The reservations of the project's replicas (`resources`), with an autoscaled app at its `scale.max` and a job at one attempt |
+| `replicas` | Its apps' replicas, counted the same way |
+| `volumes` | The volumes its apps declare |
+| `domains` | The custom domains its apps route |
+| `secrets` | Its secrets (names, not versions) |
+| `jobs` | Job attempts running at once |
+
+A deploy, scale, rollback, or new secret that would go past a limit is
+refused with the dimension and the numbers. Job attempts past `jobs` wait
+(a `QuotaExceeded` event) until another attempt ends, within the run's
+timeout. Lowering a quota below what the project uses keeps everything
+running and refuses only what would grow. Only administrators set quotas;
+the projects an automation identity creates get the quota of its scope
+(below). Limits on shared paths (egress bandwidth, request rate, log
+volume) follow (ADR 0029).
 
 ### Automation identities
 
@@ -348,7 +376,7 @@ backups, the network, or the default project. It sees only its projects in
 listings, and no nodes.
 
 ```bash
-armada automation set portal --create-projects --project staging --label tier=shared
+armada automation set portal --create-projects --project staging --label tier=shared --quota cpu=2,memory=4Gi,replicas=10
 armada automation credentials portal -o portal.json   # 0600; keep it with the tool
 armada --config portal.json deploy -f web.yaml --project staging
 armada --config portal.json automation renew          # before the 90 days run out
@@ -359,7 +387,8 @@ armada automation remove portal                       # its certificates stop wo
 `--create-projects` lets the tool create projects, which join its scope,
 and remove the ones it manages. `--label KEY=VALUE` is a node label its
 apps may require, for nodes you keep for some projects (restricted
-nodes). `set` replaces the scope and keeps the certificates. The tool
+nodes). `--quota` is the quota of every project it creates; without it
+they have none. `set` replaces the scope and keeps the certificates. The tool
 reaches the API on the private network like the CLI.
 
 A domain serves one project: an app cannot use a domain that an app of

@@ -193,6 +193,22 @@ message CreateProjectRequest {
   // Kernel isolation level (container or sandbox); empty is sandbox.
   // Automation identities may not choose container.
   string isolation = 2;
+  // Administrators only; a project an automation identity creates gets
+  // the identity's quota.
+  Quota quota = 3;
+}
+
+// Quota bounds what a project may reserve (ADR 0029); 0 is unlimited. The
+// same message reports what a project uses.
+message Quota {
+  int64 cpu_millis = 1;
+  int64 memory_bytes = 2;
+  int32 replicas = 3;
+  int32 volumes = 4;
+  int32 domains = 5;
+  int32 secrets = 6;
+  // Job attempts that run at once.
+  int32 jobs = 7;
 }
 
 message ProjectInfo {
@@ -207,6 +223,10 @@ message ProjectInfo {
   // Kernel isolation level of its replicas (ADR 0029): container or
   // sandbox.
   string isolation = 6;
+  // Its quota (all zero: unlimited) and what it uses, counted the same
+  // way.
+  Quota quota = 7;
+  Quota used = 8;
 }
 
 message UpdateProjectRequest {
@@ -217,6 +237,8 @@ message UpdateProjectRequest {
   // Change the kernel isolation level; revisions deployed afterwards run at
   // it. Empty leaves it unchanged.
   string isolation = 3;
+  // Replace the quota; unset leaves it unchanged, all zero removes it.
+  Quota quota = 4;
 }
 
 message ListProjectsRequest {}
@@ -242,6 +264,8 @@ message SetAutomationRequest {
   bool create_projects = 3;
   // Node label values its apps' placement.require may name.
   repeated LabelAllowance labels = 4;
+  // Quota of every project it creates; unset or zero is unlimited.
+  Quota quota = 5;
 }
 
 message AutomationInfo {
@@ -254,6 +278,7 @@ message AutomationInfo {
   // Newest valid certificate's expiry; unset without one.
   google.protobuf.Timestamp cert_expires_at = 7;
   int32 certificates = 8;
+  Quota quota = 9;
 }
 
 message ListAutomationsRequest {}

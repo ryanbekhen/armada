@@ -20,19 +20,23 @@ type Project struct {
 	// Isolation is the project's kernel isolation level (spec.Isolation*),
 	// pinned into every revision deployed into it.
 	Isolation string
+	// Quota bounds what it may reserve; zero is unlimited.
+	Quota spec.Quota
 }
 
 type projectRec struct {
-	Name      string `json:"name"`
-	CreatedAt int64  `json:"createdAt"`
-	CreatedBy string `json:"createdBy,omitempty"`
-	Isolation string `json:"isolation,omitempty"`
+	Name      string      `json:"name"`
+	CreatedAt int64       `json:"createdAt"`
+	CreatedBy string      `json:"createdBy,omitempty"`
+	Isolation string      `json:"isolation,omitempty"`
+	Quota     *spec.Quota `json:"quota,omitempty"`
 }
 
 // defaultProjectRec holds the settings of the default project, which has
 // no record under projects/.
 type defaultProjectRec struct {
-	Isolation string `json:"isolation,omitempty"`
+	Isolation string      `json:"isolation,omitempty"`
+	Quota     *spec.Quota `json:"quota,omitempty"`
 }
 
 const (
@@ -124,13 +128,17 @@ func (s *Etcd) CreateProject(ctx context.Context, name, isolation, actor, automa
 		if ok {
 			return fmt.Errorf("project %s already exists: %w", name, ErrConflict)
 		}
-		if err := t.put(pfxProjects+name, projectRec{Name: name, CreatedAt: now.UnixMilli(), CreatedBy: actor, Isolation: isolation}); err != nil {
-			return err
-		}
+		// A project an automation identity creates gets the identity's
+		// quota (ADR 0029), so the projects a tool makes stay bounded.
+		var quota spec.Quota
 		if automation != "" {
-			if err := t.grantProject(automation, name); err != nil {
+			if quota, err = t.grantProject(automation, name); err != nil {
 				return err
 			}
+		}
+		p.Quota = quota
+		if err := t.put(pfxProjects+name, projectRec{Name: name, CreatedAt: now.UnixMilli(), CreatedBy: actor, Isolation: isolation, Quota: quotaPtr(quota)}); err != nil {
+			return err
 		}
 		return t.audit(now, actor, "project.create", name, "isolation "+isolation)
 	})
@@ -153,7 +161,12 @@ func (s *Etcd) SetProjectIsolation(ctx context.Context, name, isolation, actor s
 			return nil
 		}
 		if name == spec.DefaultProject {
-			if err := t.put(keyDefaultProject, defaultProjectRec{Isolation: isolation}); err != nil {
+			var r defaultProjectRec
+			if _, err := t.get(keyDefaultProject, &r); err != nil {
+				return err
+			}
+			r.Isolation = isolation
+			if err := t.put(keyDefaultProject, r); err != nil {
 				return err
 			}
 		} else {
@@ -175,8 +188,8 @@ func (s *Etcd) GetProject(ctx context.Context, name string) (Project, error) {
 	var p Project
 	err := s.view(ctx, func(t *etx) error {
 		if name == spec.DefaultProject {
-			level, err := t.projectIsolation(name)
-			p = Project{Name: name, Isolation: level}
+			var err error
+			p, err = t.defaultProject()
 			return err
 		}
 		var r projectRec
@@ -197,11 +210,11 @@ func (s *Etcd) GetProject(ctx context.Context, name string) (Project, error) {
 func (s *Etcd) ListProjects(ctx context.Context) ([]Project, error) {
 	var out []Project
 	err := s.view(ctx, func(t *etx) error {
-		level, err := t.projectIsolation(spec.DefaultProject)
+		def, err := t.defaultProject()
 		if err != nil {
 			return err
 		}
-		out = []Project{{Name: spec.DefaultProject, Isolation: level}}
+		out = []Project{def}
 		return listInto(t, pfxProjects, func(_ string, r projectRec) error {
 			out = append(out, r.project())
 			return nil
@@ -283,5 +296,12 @@ func (t *etx) projectObjects(project string) ([]string, error) {
 }
 
 func (r projectRec) project() Project {
-	return Project{Name: r.Name, CreatedAt: fromMS(r.CreatedAt), CreatedBy: r.CreatedBy, Isolation: orContainer(r.Isolation)}
+	return Project{Name: r.Name, CreatedAt: fromMS(r.CreatedAt), CreatedBy: r.CreatedBy, Isolation: orContainer(r.Isolation), Quota: r.quota()}
+}
+
+// defaultProject returns the default project with its settings.
+func (t *etx) defaultProject() (Project, error) {
+	var r defaultProjectRec
+	_, err := t.get(keyDefaultProject, &r)
+	return Project{Name: spec.DefaultProject, Isolation: orContainer(r.Isolation), Quota: r.quota()}, err
 }

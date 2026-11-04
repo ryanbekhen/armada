@@ -34,16 +34,26 @@ func newAutomationCommand(g *globals) *cobra.Command {
 func newAutomationSetCommand(g *globals) *cobra.Command {
 	var projects, labels []string
 	var create bool
+	var quota string
 	cmd := &cobra.Command{
-		Use:   "set NAME [--project P]... [--create-projects] [--label KEY=VALUE]...",
+		Use:   "set NAME [--project P]... [--create-projects] [--label KEY=VALUE]... [--quota Q]",
 		Short: "Create an automation identity or replace its scope",
 		Long: "Create an automation identity or replace its scope. --project names a project\n" +
 			"it manages (repeat it); --create-projects lets it create projects, which it\n" +
 			"then manages, and remove the ones it manages; --label KEY=VALUE allows its\n" +
-			"apps to require that node label (repeat it). Its certificates stay valid.",
+			"apps to require that node label (repeat it); --quota is the quota of every\n" +
+			"project it creates (cpu=4,memory=8Gi,replicas=20,volumes=4,domains=2,\n" +
+			"secrets=50,jobs=2; without it they have none). Its certificates stay valid.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			req := &armadav1.SetAutomationRequest{Name: args[0], Projects: projects, CreateProjects: create}
+			if quota != "" {
+				q, err := parseQuotaFlag(quota)
+				if err != nil {
+					return err
+				}
+				req.Quota = q
+			}
 			allowed := map[string][]string{}
 			var keys []string
 			for _, l := range labels {
@@ -76,6 +86,7 @@ func newAutomationSetCommand(g *globals) *cobra.Command {
 	cmd.Flags().StringArrayVar(&projects, "project", nil, "a project it manages (repeat for more)")
 	cmd.Flags().BoolVar(&create, "create-projects", false, "it may create projects, and remove the ones it manages")
 	cmd.Flags().StringArrayVar(&labels, "label", nil, "a node label KEY=VALUE its apps may require (repeat for more)")
+	cmd.Flags().StringVar(&quota, "quota", "", "the "+quotaHelp+" of each project it creates")
 	return cmd
 }
 
@@ -111,7 +122,7 @@ func newAutomationListCommand(g *globals) *cobra.Command {
 				return err
 			}
 			tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 4, 2, ' ', 0)
-			_, _ = fmt.Fprintln(tw, "NAME\tPROJECTS\tCREATE\tLABELS\tCERTIFICATES\tEXPIRES")
+			_, _ = fmt.Fprintln(tw, "NAME\tPROJECTS\tCREATE\tLABELS\tQUOTA\tCERTIFICATES\tEXPIRES")
 			for _, a := range resp.Automations {
 				var ls []string
 				for _, l := range a.Labels {
@@ -123,8 +134,8 @@ func newAutomationListCommand(g *globals) *cobra.Command {
 				if a.CertExpiresAt != nil {
 					exp = a.CertExpiresAt.AsTime().Format(time.DateOnly)
 				}
-				_, _ = fmt.Fprintf(tw, "%s\t%s\t%t\t%s\t%d\t%s\n", a.Name, dash(strings.Join(a.Projects, ",")), a.CreateProjects,
-					dash(strings.Join(ls, ",")), a.Certificates, exp)
+				_, _ = fmt.Fprintf(tw, "%s\t%s\t%t\t%s\t%s\t%d\t%s\n", a.Name, dash(strings.Join(a.Projects, ",")), a.CreateProjects,
+					dash(strings.Join(ls, ",")), quotaOf(a.Quota), a.Certificates, exp)
 			}
 			return tw.Flush()
 		},
