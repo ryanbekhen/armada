@@ -20,7 +20,9 @@ func New(Config) (*Net, error) {
 }
 
 // Apply does nothing.
-func (*Net) Apply(context.Context, *armadav1.NetworkConfig) error { return nil }
+func (*Net) Apply(context.Context, *armadav1.NetworkConfig, map[netip.Addr]string) error {
+	return nil
+}
 
 // ContainerMTU fails: the cluster network needs Linux.
 func ContainerMTU(string, netip.Addr) (int, error) {

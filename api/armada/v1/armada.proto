@@ -43,6 +43,9 @@ service AdminService {
   rpc CreateProject(CreateProjectRequest) returns (ProjectInfo);
   rpc ListProjects(ListProjectsRequest) returns (ListProjectsResponse);
   rpc DeleteProject(DeleteProjectRequest) returns (DeleteProjectResponse);
+  // Change a project's settings (administrators only). Today only the
+  // default project's network isolation, which other projects always have.
+  rpc UpdateProject(UpdateProjectRequest) returns (ProjectInfo);
   // Automation identities (ADR 0029): tools that manage the apps of some
   // projects and nothing else. Only administrators manage them.
   rpc SetAutomation(SetAutomationRequest) returns (AutomationInfo);
@@ -195,6 +198,16 @@ message ProjectInfo {
   string created_by = 3;
   // Apps and jobs in the project.
   int32 apps = 4;
+  // Its containers are kept away from the platform and the private network
+  // (ADR 0029): always for projects other than default.
+  bool network_isolation = 5;
+}
+
+message UpdateProjectRequest {
+  string name = 1;
+  // Turn network isolation on or off; only the default project may have
+  // it off. Unset leaves it unchanged.
+  optional bool network_isolation = 2;
 }
 
 message ListProjectsRequest {}
@@ -808,6 +821,9 @@ message ReplicaState {
   // For job replicas (ADR 0021): the container has exited, with exit_code.
   bool finished = 9;
   int32 exit_code = 10;
+  // The container's address in the node's subnet of the cluster network
+  // (ADR 0027), whatever the app's ingress; empty elsewhere.
+  string ip = 11;
 }
 
 // UsageReport carries what the node's replicas use, sampled periodically
@@ -911,6 +927,17 @@ message NetworkConfig {
   string cluster_cidr = 2;
   // Every node with a subnet, the receiving node included.
   repeated NetworkPeer peers = 3;
+  // The container addresses of every replica in a node subnet, with their
+  // app IDs: what each node's firewall keys on (ADR 0029).
+  repeated NetworkEndpoint endpoints = 4;
+  // The default project's containers are isolated like other projects'.
+  bool isolate_default = 5;
+}
+
+message NetworkEndpoint {
+  string address = 1;
+  // App or job ID (spec.AppID).
+  string app = 2;
 }
 
 message NetworkPeer {

@@ -26,6 +26,9 @@ const NodeSubnetBits = 24
 type Network struct {
 	Mode        string
 	ClusterCIDR netip.Prefix
+	// IsolateDefault keeps the default project's containers away from the
+	// platform, as every other project's always are (ADR 0029).
+	IsolateDefault bool
 }
 
 // CheckClusterCIDR validates a cluster CIDR: a private IPv4 prefix from /12
@@ -45,8 +48,9 @@ func CheckClusterCIDR(p netip.Prefix) error {
 }
 
 type networkRec struct {
-	Mode        string `json:"mode"`
-	ClusterCIDR string `json:"clusterCidr"`
+	Mode           string `json:"mode"`
+	ClusterCIDR    string `json:"clusterCidr"`
+	IsolateDefault bool   `json:"isolateDefault,omitempty"`
 }
 
 const keyNetwork = "network"
@@ -61,7 +65,7 @@ func (t *etx) network() (Network, bool, error) {
 	if err != nil {
 		return Network{}, false, fmt.Errorf("decode %s: cluster CIDR: %w", keyNetwork, err)
 	}
-	return Network{Mode: r.Mode, ClusterCIDR: p}, true, nil
+	return Network{Mode: r.Mode, ClusterCIDR: p, IsolateDefault: r.IsolateDefault}, true, nil
 }
 
 // GetNetwork returns the cluster network, or ErrNotFound for a cluster
@@ -102,6 +106,30 @@ func (s *Etcd) InitNetwork(ctx context.Context, n Network) error {
 			return fmt.Errorf("the cluster already has nodes: %w", ErrPrecondition)
 		}
 		return t.put(keyNetwork, networkRec{Mode: n.Mode, ClusterCIDR: n.ClusterCIDR.String()})
+	})
+}
+
+// SetDefaultIsolation turns network isolation of the default project on or
+// off (ADR 0029). It needs the cluster network, which enforces it.
+func (s *Etcd) SetDefaultIsolation(ctx context.Context, on bool, actor string) error {
+	now := s.now()
+	return s.tx(ctx, func(t *etx) error {
+		var r networkRec
+		ok, err := t.get(keyNetwork, &r)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return fmt.Errorf("network isolation needs the cluster network (armada init --cluster-cidr): %w", ErrPrecondition)
+		}
+		if r.IsolateDefault == on {
+			return nil
+		}
+		r.IsolateDefault = on
+		if err := t.put(keyNetwork, r); err != nil {
+			return err
+		}
+		return t.audit(now, actor, "project.set", "default", fmt.Sprintf("network isolation %t", on))
 	})
 }
 

@@ -3,6 +3,8 @@
 package agent
 
 import (
+	"maps"
+	"net/netip"
 	"strings"
 
 	"cmp"
@@ -114,7 +116,11 @@ type Network interface {
 	// Apply makes the node's tunnel, routes, and firewall rules match cfg.
 	// It is called again whenever cfg changes and on every resync, so it
 	// must be idempotent and repair what drifted.
-	Apply(ctx context.Context, cfg *armadav1.NetworkConfig) error
+	// local maps the addresses of this node's containers to their app
+	// IDs; it is newer than the endpoints in cfg, which come back from the
+	// control plane only after the agent reports them (nil on nodes whose
+	// containers are not in the node subnet).
+	Apply(ctx context.Context, cfg *armadav1.NetworkConfig, local map[netip.Addr]string) error
 }
 
 // InternalDNS is the node-local resolver the agent keeps in sync with the
@@ -124,6 +130,9 @@ type InternalDNS interface {
 	Address() string
 	// SetNames replaces the apps that resolve under .internal.
 	SetNames(apps []string)
+	// SetClients maps the addresses of this node's containers to their app
+	// IDs, so that each resolves only its own project's names (ADR 0029).
+	SetClients(clients map[netip.Addr]string)
 }
 
 // Agent reconciles containers on one node.
@@ -152,6 +161,9 @@ type Agent struct {
 	// holds the last error applying it, logged once per change.
 	networkDesired *armadav1.NetworkConfig
 	networkFailed  string
+	// local maps the addresses of this node's containers in the node
+	// subnet to their app IDs (Config.Unpublished only).
+	local map[netip.Addr]string
 	// proxyChanged is closed and replaced when proxyApplied changes.
 	proxyChanged chan struct{}
 	wakes        *waker
@@ -608,13 +620,36 @@ func (a *Agent) applyNetwork(ctx context.Context) {
 	if a.cfg.Network == nil {
 		return
 	}
+	if a.cfg.Unpublished {
+		if local, err := a.listLocal(ctx); err == nil {
+			a.mu.Lock()
+			a.local = local
+			a.mu.Unlock()
+		}
+	}
+	a.applyNetworkNow(ctx)
+}
+
+// applyNetworkNow applies the last cluster network received with the
+// containers known on this node, and tells the DNS server who asks.
+func (a *Agent) applyNetworkNow(ctx context.Context) {
 	a.mu.Lock()
 	want := a.networkDesired
+	var local map[netip.Addr]string
+	if a.cfg.Unpublished {
+		local = maps.Clone(a.local)
+		if local == nil {
+			local = map[netip.Addr]string{}
+		}
+	}
 	a.mu.Unlock()
 	if want == nil {
 		return
 	}
-	err := a.cfg.Network.Apply(ctx, want)
+	if local != nil && a.cfg.DNS != nil {
+		a.cfg.DNS.SetClients(local)
+	}
+	err := a.cfg.Network.Apply(ctx, want, local)
 	msg := ""
 	if err != nil {
 		msg = err.Error()
@@ -714,7 +749,41 @@ func (a *Agent) start(ctx context.Context, s *armadav1.ReplicaSpec, hash string)
 	if err != nil {
 		return runtime.Container{}, err
 	}
-	return a.cfg.Driver.Inspect(ctx, id)
+	c, err := a.cfg.Driver.Inspect(ctx, id)
+	if err == nil && a.cfg.Unpublished && a.cfg.Network != nil {
+		// Let the firewall and the DNS server know the new container now,
+		// not after the control plane has heard of it: until then, it is
+		// treated as an unknown address and reaches little.
+		if ip, perr := netip.ParseAddr(c.IP); perr == nil {
+			a.mu.Lock()
+			if a.local == nil {
+				a.local = map[netip.Addr]string{}
+			}
+			a.local[ip] = s.GetApp()
+			a.mu.Unlock()
+			a.applyNetworkNow(ctx)
+		}
+	}
+	return c, err
+}
+
+// listLocal maps the addresses of this node's running containers to their
+// app IDs.
+func (a *Agent) listLocal(ctx context.Context) (map[netip.Addr]string, error) {
+	cs, err := a.cfg.Driver.List(ctx, map[string]string{runtime.LabelManaged: "true"})
+	if err != nil {
+		return nil, err
+	}
+	local := map[netip.Addr]string{}
+	for _, c := range cs {
+		ip, err := netip.ParseAddr(c.IP)
+		app := c.Labels[runtime.LabelApp]
+		if err != nil || app == "" || stopped(c.State) {
+			continue
+		}
+		local[ip] = app
+	}
+	return local, nil
 }
 
 func (a *Agent) state(ctx context.Context, s *armadav1.ReplicaSpec, c runtime.Container) *armadav1.ReplicaState {
@@ -748,6 +817,9 @@ func (a *Agent) state(ctx context.Context, s *armadav1.ReplicaSpec, c runtime.Co
 		st.Address = net.JoinHostPort(c.HostIP, strconv.Itoa(c.HostPort))
 	case a.cfg.Unpublished && c.IP != "" && s.GetPort() != 0:
 		st.Address = net.JoinHostPort(c.IP, strconv.Itoa(int(s.GetPort())))
+	}
+	if a.cfg.Unpublished {
+		st.Ip = c.IP
 	}
 	return st
 }

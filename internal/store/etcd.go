@@ -410,6 +410,7 @@ type replicaRec struct {
 	State         string `json:"state"`
 	ContainerID   string `json:"containerId"`
 	Address       string `json:"address"`
+	IP            string `json:"ip,omitempty"`
 	Message       string `json:"message"`
 	Ready         bool   `json:"ready"`
 	ReadySince    int64  `json:"readySince"`
@@ -1768,7 +1769,7 @@ func (s *Etcd) ListReplicas(ctx context.Context, f ReplicaFilter) ([]Replica, er
 		return listInto(t, pfxReplicas, func(_ string, r replicaRec) error {
 			if (f.App == "" || r.App == f.App) && (f.NodeID == "" || r.NodeID == f.NodeID) {
 				out = append(out, Replica{ID: r.ID, App: r.App, Revision: r.Revision, NodeID: r.NodeID, State: r.State,
-					ContainerID: r.ContainerID, Address: r.Address, Message: r.Message, Ready: r.Ready,
+					ContainerID: r.ContainerID, Address: r.Address, IP: r.IP, Message: r.Message, Ready: r.Ready,
 					ReadySince: fromMS(r.ReadySince), DrainingSince: fromMS(r.DrainingSince), MovingSince: fromMS(r.MovingSince), UpdatedAt: fromMS(r.UpdatedAt),
 					Run: r.Run, Done: r.Done, Finished: r.Finished, ExitCode: r.ExitCode})
 			}
@@ -1800,7 +1801,7 @@ func (s *Etcd) UpdateReplicaStatus(ctx context.Context, nodeID string, st Replic
 		default:
 			r.ReadySince = now
 		}
-		r.State, r.ContainerID, r.Address, r.Message, r.UpdatedAt, r.Ready = st.State, st.ContainerID, st.Address, st.Message, now, ready
+		r.State, r.ContainerID, r.Address, r.IP, r.Message, r.UpdatedAt, r.Ready = st.State, st.ContainerID, st.Address, st.IP, st.Message, now, ready
 		if r.Run != 0 && !r.Finished {
 			// A job attempt's result is kept once known: the container of
 			// a done attempt is stopped and reports another exit code.

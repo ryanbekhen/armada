@@ -215,7 +215,11 @@ type Replica struct {
 	State       string
 	ContainerID string
 	Address     string
-	Message     string
+	// IP is the container's address in its node's subnet of the cluster
+	// network (ADR 0027), which every node's firewall keys on; empty
+	// elsewhere.
+	IP      string
+	Message string
 	// Ready is the agent's latest readiness verdict; ReadySince is when it
 	// last became ready (zero if not ready).
 	Ready      bool
@@ -256,6 +260,7 @@ type ReplicaStatus struct {
 	State       string
 	ContainerID string
 	Address     string
+	IP          string
 	Message     string
 	Ready       bool
 	// For job attempts: the container exited with ExitCode.
@@ -331,6 +336,9 @@ type Store interface {
 	// InitNetwork records the cluster network before the first node is
 	// created; nodes created afterwards get a subnet from it.
 	InitNetwork(ctx context.Context, n Network) error
+	// SetDefaultIsolation turns network isolation of the default project on
+	// or off; ErrPrecondition without a cluster network.
+	SetDefaultIsolation(ctx context.Context, on bool, actor string) error
 
 	UpsertNode(ctx context.Context, n Node) error
 	GetNode(ctx context.Context, id string) (Node, error)

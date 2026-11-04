@@ -11,6 +11,7 @@ import (
 	"net/netip"
 	"os"
 	"os/exec"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -37,6 +38,9 @@ type Net struct {
 
 	mu   sync.Mutex
 	last string // summary of the last applied plan, to log changes once
+	// isolated is the last isolation policy applied, to rebuild the tables
+	// only when it changes (or they went missing).
+	isolated *policy
 	// user is the userspace WireGuard device, when the kernel has none; it
 	// lives as long as the agent.
 	user *userDevice
@@ -58,7 +62,7 @@ func New(cfg Config) (*Net, error) {
 // Apply makes the tunnel, routes, and firewall rules match cfg. The
 // firewall comes first, so the tunnel never accepts packets from anyone but
 // the current peers.
-func (n *Net) Apply(_ context.Context, cfg *armadav1.NetworkConfig) error {
+func (n *Net) Apply(_ context.Context, cfg *armadav1.NetworkConfig, local map[netip.Addr]string) error {
 	p, err := parse(cfg, n.cfg.Node, n.cfg.PrivateIP)
 	if err != nil {
 		return err
@@ -70,6 +74,9 @@ func (n *Net) Apply(_ context.Context, cfg *armadav1.NetworkConfig) error {
 	defer n.mu.Unlock()
 	if err := n.firewall(p); err != nil {
 		return fmt.Errorf("firewall: %w", err)
+	}
+	if err := n.isolate(buildPolicy(p, local)); err != nil {
+		return fmt.Errorf("isolation: %w", err)
 	}
 	uplink, uplinkMTU, err := UplinkOf(n.cfg.PrivateIP)
 	if err != nil {
@@ -89,6 +96,21 @@ func (n *Net) Apply(_ context.Context, cfg *armadav1.NetworkConfig) error {
 		n.log.Info("cluster network applied", "mode", p.mode, "subnet", p.self.subnet, "peers", len(p.peers), "mtu", mtu)
 		n.last = summary
 	}
+	return nil
+}
+
+// isolate applies pol unless it is what the tables already hold.
+func (n *Net) isolate(pol policy) error {
+	if n.isolated != nil && reflect.DeepEqual(*n.isolated, pol) {
+		if ok, err := hasIsolation(); err == nil && ok {
+			return nil
+		}
+	}
+	if err := isolate(pol); err != nil {
+		n.isolated = nil
+		return err
+	}
+	n.isolated = &pol
 	return nil
 }
 
@@ -333,6 +355,23 @@ func ContainerMTU(mode string, ip netip.Addr) (int, error) {
 // Diagnose reports, for armada doctor, whether the node's uplink leaves
 // room for the tunnel and whether the tunnel is up with its peers.
 func Diagnose(mode string, ip netip.Addr) []Check {
+	return append(diagnoseTunnel(mode, ip), diagnoseIsolation())
+}
+
+// diagnoseIsolation reports whether the tables that keep apps and projects
+// apart are in place.
+func diagnoseIsolation() Check {
+	c := Check{Name: "isolation", Level: CheckOK, Detail: "the nftables tables that keep apps and projects apart are in place"}
+	switch ok, err := hasIsolation(); {
+	case err != nil:
+		c.Level, c.Detail = CheckFail, fmt.Sprintf("nftables is not usable (%v); the kernel needs nf_tables to keep apps and projects apart", err)
+	case !ok:
+		c.Level, c.Detail = CheckWarn, "the nftables tables that keep apps and projects apart are not set up yet; the agent creates them once connected"
+	}
+	return c
+}
+
+func diagnoseTunnel(mode string, ip netip.Addr) []Check {
 	var out []Check
 	add := func(name string, level int, format string, args ...any) {
 		out = append(out, Check{Name: name, Level: level, Detail: fmt.Sprintf(format, args...)})
@@ -396,6 +435,9 @@ func Remove() error {
 		if err := netlink.LinkDel(link); err != nil {
 			errs = append(errs, fmt.Errorf("remove %s: %w", Interface, err))
 		}
+	}
+	if err := removeIsolation(); err != nil {
+		errs = append(errs, fmt.Errorf("remove the isolation tables: %w", err))
 	}
 	ipt := iptables
 	for _, r := range [][]string{

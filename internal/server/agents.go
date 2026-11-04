@@ -252,17 +252,23 @@ func (s *Server) applyReport(ctx context.Context, node store.Node, r *armadav1.R
 			s.log.Warn("ignoring invalid replica address", "node", node.ID, "replica", st.GetId(), "address", fmt.Sprintf("%q", truncate(addr, 128)))
 			addr = ""
 		}
+		ip := st.GetIp()
+		if ip != "" && !validReplicaIP(ip, node.Subnet) {
+			s.log.Warn("ignoring invalid replica IP", "node", node.ID, "replica", st.GetId(), "ip", fmt.Sprintf("%q", truncate(ip, 64)))
+			ip = ""
+		}
 		next := store.ReplicaStatus{
 			ID:          st.GetId(),
 			State:       truncate(st.GetState(), 32),
 			ContainerID: truncate(st.GetContainerId(), 128),
 			Address:     addr,
+			IP:          ip,
 			Message:     truncate(st.GetMessage(), 512),
 			Ready:       st.GetReady(),
 			Finished:    st.GetFinished(),
 			ExitCode:    int(st.GetExitCode()),
 		}
-		if p := prev[next.ID]; p.State != next.State || p.Ready != (next.Ready && next.State == store.ReplicaRunning) || p.Address != next.Address || p.Finished != next.Finished {
+		if p := prev[next.ID]; p.State != next.State || p.Ready != (next.Ready && next.State == store.ReplicaRunning) || p.Address != next.Address || p.IP != next.IP || p.Finished != next.Finished {
 			changed = true
 		}
 		err := s.store.UpdateReplicaStatus(ctx, node.ID, next)
@@ -472,11 +478,25 @@ func validReplicaAddress(addr, nodeIP, subnet string) bool {
 	if ap.Addr().String() == nodeIP {
 		return true
 	}
+	return inNodeSubnet(ap.Addr(), subnet)
+}
+
+// validReplicaIP accepts a container address in the node's subnet, in
+// canonical form: it goes into every node's firewall (ADR 0029).
+func validReplicaIP(ip, subnet string) bool {
+	a, err := netip.ParseAddr(ip)
+	return err == nil && a.Zone() == "" && a.String() == ip && inNodeSubnet(a, subnet)
+}
+
+// inNodeSubnet reports whether a is a container address of the node subnet:
+// the network address (the node's tunnel end), the gateway (the node's
+// bridge), and the broadcast address are never a replica's.
+func inNodeSubnet(a netip.Addr, subnet string) bool {
 	p, err := netip.ParsePrefix(subnet)
-	if err != nil || !p.Addr().Is4() || !p.Contains(ap.Addr()) {
+	if err != nil || !p.Addr().Is4() || !p.Contains(a) {
 		return false
 	}
-	host := ap.Addr().As4()[3] // node subnets are /24s
+	host := a.As4()[3] // node subnets are /24s
 	return p.Bits() == 24 && host != 0 && host != 1 && host != 255
 }
 

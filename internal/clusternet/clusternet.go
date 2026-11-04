@@ -74,6 +74,10 @@ type plan struct {
 	cidr  netip.Prefix
 	self  peer
 	peers []peer // every node but this one, in the order received
+	// endpoints maps the cluster's container addresses to their app IDs.
+	endpoints map[netip.Addr]string
+	// isolateDefault isolates the default project like the others.
+	isolateDefault bool
 }
 
 // parse validates what the control plane sent. It never trusts the server
@@ -90,7 +94,10 @@ func parse(cfg *armadav1.NetworkConfig, self string, selfIP netip.Addr) (plan, e
 	if len(cfg.GetPeers()) > maxPeers {
 		return plan{}, fmt.Errorf("%d peers: at most %d", len(cfg.GetPeers()), maxPeers)
 	}
-	p := plan{mode: cfg.GetMode(), cidr: cidr}
+	p := plan{mode: cfg.GetMode(), cidr: cidr, isolateDefault: cfg.GetIsolateDefault()}
+	if p.endpoints, err = parseEndpoints(cfg.GetEndpoints(), cidr); err != nil {
+		return plan{}, err
+	}
 	ips, subnets, names, keys := map[netip.Addr]bool{}, map[netip.Prefix]bool{}, map[string]bool{}, map[wgtypes.Key]bool{}
 	found := false
 	for _, pp := range cfg.GetPeers() {

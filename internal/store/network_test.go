@@ -158,3 +158,36 @@ func TestNodeNetworkKey(t *testing.T) {
 		t.Errorf("changed key = %q", n.NetworkKey)
 	}
 }
+
+func TestDefaultIsolation(t *testing.T) {
+	t.Parallel()
+	s, ctx := open(t), context.Background()
+	if err := s.SetDefaultIsolation(ctx, true, "admin:a"); !errors.Is(err, ErrPrecondition) {
+		t.Fatalf("without a network = %v, want ErrPrecondition", err)
+	}
+	if err := s.InitNetwork(ctx, Network{Mode: NetworkPlain, ClusterCIDR: netip.MustParsePrefix("10.120.0.0/16")}); err != nil {
+		t.Fatal(err)
+	}
+	if n, _ := s.GetNetwork(ctx); n.IsolateDefault {
+		t.Fatal("isolated by default")
+	}
+	for _, on := range []bool{true, true, false} {
+		if err := s.SetDefaultIsolation(ctx, on, "admin:a"); err != nil {
+			t.Fatal(err)
+		}
+		n, _ := s.GetNetwork(ctx)
+		if n.IsolateDefault != on || n.Mode != NetworkPlain || n.ClusterCIDR.String() != "10.120.0.0/16" {
+			t.Errorf("after %t: %+v", on, n)
+		}
+	}
+	audit, _ := s.ListAudit(ctx, 10)
+	changes := 0
+	for _, e := range audit {
+		if e.Action == "project.set" {
+			changes++
+		}
+	}
+	if changes != 2 {
+		t.Errorf("%d audit events, want 2 (an unchanged setting is not recorded)", changes)
+	}
+}
