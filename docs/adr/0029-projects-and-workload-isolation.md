@@ -195,11 +195,25 @@ sets the minimum:
   sentry that serves its system calls and the sentry's own seccomp filter.
   The memory and PID limits bound the whole sandbox in its cgroup on the
   host.
-- Agents announce whether they run sandboxed containers (`Hello.sandbox`),
-  and
-  `placementAllows` places a replica only on a node that supports its
-  project's level. A project that requires a level no node supports gets
-  a `NoIsolation` condition, never a weaker level.
+- The level is a project setting: `armada project create NAME
+  [--isolation L]` and `armada project set NAME --isolation L`. Only
+  administrators set `container` on a project other than `default` or
+  change a level; automation identities create projects at the default,
+  `sandbox`, and change no level, so the projects a tool manages never
+  run below it.
+- Every revision pins its project's level when it is deployed, like its
+  secret versions, and the agent gets it in the replica's spec (part of
+  the spec hash). A changed level applies to revisions deployed afterwards:
+  deploying the same spec again makes a new revision, rolled out like any
+  other, so replicas move to the new level without dropping traffic. A
+  rollback or traffic weight that names a revision weaker than the
+  project's current level is refused.
+- Agents announce whether they run sandboxed containers (`Hello.sandbox`,
+  shown in `armada node list`), and `placementAllows` places a replica
+  only on a node that supports its revision's level; an agent also refuses
+  to start a sandboxed replica it cannot run. A project that requires a
+  level no node supports gets a `NoIsolation` condition, never a weaker
+  level.
 - The conformance suite gains a `Sandbox` option: the embedded runtime
   runs the whole suite with every container in gVisor, which also checks
   that each container has a kernel of its own (the boot ID differs). The
@@ -246,6 +260,10 @@ usage; the totals over every project are admin only.
   `<name>.<project>` as an app name can no longer lead.
 - `default` keeps `isolation: container` and no network isolation until the
   administrator changes them.
+- Schema 8 brings kernel isolation: projects created before it keep
+  `container`, written into their records by the migration, and servers
+  that would start a sandboxed revision's replicas as plain containers can
+  no longer lead.
 
 ### Order
 
@@ -257,8 +275,8 @@ message:
    ADR 0027's access stage: the firewall between apps and projects, the
    rules away from the platform, per-project DNS, the project check in
    HAProxy's internal frontend, and `ingress.allow` (done);
-3. `isolation: sandbox` in the embedded runtime: first the runtime and
-   node support (done), then the project setting and placement;
+3. `isolation: sandbox` in the embedded runtime: the runtime and node
+   support, the project setting, and placement (done);
 4. quotas, shared-path limits, and usage per project;
 5. `isolation: vm` in the embedded runtime.
 

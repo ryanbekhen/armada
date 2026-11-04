@@ -189,9 +189,15 @@ type Revision struct {
 	// reported them; nil until then (ADR 0014).
 	Platforms []string
 	// Secrets pins the version of every secret the spec references.
-	Secrets   map[string]int
+	Secrets map[string]int
+	// Isolation is the kernel isolation level of the app's project when
+	// the revision was deployed (spec.Isolation*; empty is container).
+	Isolation string
 	CreatedAt time.Time
 }
+
+// Sandboxed reports whether the revision's replicas run in the sandbox.
+func (r Revision) Sandboxed() bool { return r.Isolation == spec.IsolationSandbox }
 
 // Image returns the digest-pinned reference if known, otherwise the spec image.
 func (r Revision) Image() string {
@@ -380,10 +386,16 @@ type Store interface {
 	// CreateProject records a new project (ADR 0029); ErrConflict if it
 	// exists or is the default project. A non-empty automation adds the
 	// project to that identity's scope in the same transaction, and fails
-	// with ErrPrecondition unless the identity may create projects.
-	CreateProject(ctx context.Context, name, actor, automation string) (Project, error)
+	// with ErrPrecondition unless the identity may create projects. An
+	// empty isolation is spec.DefaultIsolation.
+	CreateProject(ctx context.Context, name, isolation, actor, automation string) (Project, error)
 	// GetProject returns a project; the default one always exists.
 	GetProject(ctx context.Context, name string) (Project, error)
+	// SetProjectIsolation changes a project's kernel isolation level
+	// (ADR 0029). Revisions deployed afterwards run at the new level; older
+	// ones keep theirs, and can no longer be rolled back to or given
+	// traffic if it is weaker.
+	SetProjectIsolation(ctx context.Context, name, isolation, actor string) error
 	// ListProjects lists every project, the default one first.
 	ListProjects(ctx context.Context) ([]Project, error)
 	// DeleteProject removes a project; ErrPrecondition while it still

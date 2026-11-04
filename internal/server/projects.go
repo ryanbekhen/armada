@@ -26,7 +26,18 @@ func (s *Server) CreateProject(ctx context.Context, req *armadav1.CreateProjectR
 	if !acc.admin() && !acc.scope.CreateProjects {
 		return nil, status.Errorf(codes.PermissionDenied, "%s may not create projects", acc.id)
 	}
-	p, err := s.store.CreateProject(ctx, name, actor(ctx), acc.automation())
+	isolation := req.GetIsolation()
+	if isolation != "" {
+		if err := spec.CheckIsolation(isolation); err != nil {
+			return nil, status.Error(codes.InvalidArgument, err.Error())
+		}
+	}
+	// Automation identities never weaken the default for new projects
+	// (ADR 0029): only administrators create projects of plain containers.
+	if !acc.admin() && isolation != "" && spec.IsolationRank(isolation) < spec.IsolationRank(spec.DefaultIsolation) {
+		return nil, status.Errorf(codes.PermissionDenied, "%s may not create projects with isolation %s", acc.id, isolation)
+	}
+	p, err := s.store.CreateProject(ctx, name, isolation, actor(ctx), acc.automation())
 	if err != nil {
 		return nil, storeErr(err)
 	}
@@ -99,8 +110,9 @@ func (s *Server) ListProjects(ctx context.Context, _ *armadav1.ListProjectsReque
 	return resp, nil
 }
 
-// UpdateProject changes a project's settings: today the default project's
-// network isolation (ADR 0029). Administrators only.
+// UpdateProject changes a project's settings: its kernel isolation level
+// and the default project's network isolation (ADR 0029). Administrators
+// only.
 func (s *Server) UpdateProject(ctx context.Context, req *armadav1.UpdateProjectRequest) (*armadav1.ProjectInfo, error) {
 	name := req.GetName()
 	if name == "" {
@@ -112,17 +124,25 @@ func (s *Server) UpdateProject(ctx context.Context, req *armadav1.UpdateProjectR
 	if !accessFrom(ctx).admin() {
 		return nil, status.Error(codes.PermissionDenied, "only administrators change project settings")
 	}
+	if req.NetworkIsolation != nil && !req.GetNetworkIsolation() && name != spec.DefaultProject {
+		return nil, status.Errorf(codes.InvalidArgument, "project %s is always isolated; only the default project can turn network isolation off", name)
+	}
+	if level := req.GetIsolation(); level != "" {
+		if err := spec.CheckIsolation(level); err != nil {
+			return nil, status.Error(codes.InvalidArgument, err.Error())
+		}
+		if err := s.store.SetProjectIsolation(ctx, name, level, actor(ctx)); err != nil {
+			return nil, storeErr(err)
+		}
+		s.log.Info("project isolation changed", "project", name, "isolation", level, "by", actor(ctx))
+	}
 	p, err := s.store.GetProject(ctx, name)
 	if err != nil {
 		return nil, storeErr(err)
 	}
 	if req.NetworkIsolation != nil {
 		on := req.GetNetworkIsolation()
-		if name != spec.DefaultProject {
-			if !on {
-				return nil, status.Errorf(codes.InvalidArgument, "project %s is always isolated; only the default project can turn network isolation off", name)
-			}
-		} else {
+		if name == spec.DefaultProject {
 			if err := s.store.SetDefaultIsolation(ctx, on, actor(ctx)); err != nil {
 				return nil, storeErr(err)
 			}
@@ -158,7 +178,7 @@ func (s *Server) DeleteProject(ctx context.Context, req *armadav1.DeleteProjectR
 }
 
 func projectInfo(p store.Project, apps int32) *armadav1.ProjectInfo {
-	info := &armadav1.ProjectInfo{Name: p.Name, CreatedBy: p.CreatedBy, Apps: apps}
+	info := &armadav1.ProjectInfo{Name: p.Name, CreatedBy: p.CreatedBy, Apps: apps, Isolation: p.Isolation}
 	if !p.CreatedAt.IsZero() {
 		info.CreatedAt = timestamppb.New(p.CreatedAt)
 	}

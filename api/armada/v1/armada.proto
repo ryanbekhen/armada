@@ -190,6 +190,9 @@ message IssueMetricsCertificateResponse {
 
 message CreateProjectRequest {
   string name = 1;
+  // Kernel isolation level (container or sandbox); empty is sandbox.
+  // Automation identities may not choose container.
+  string isolation = 2;
 }
 
 message ProjectInfo {
@@ -201,6 +204,9 @@ message ProjectInfo {
   // Its containers are kept away from the platform and the private network
   // (ADR 0029): always for projects other than default.
   bool network_isolation = 5;
+  // Kernel isolation level of its replicas (ADR 0029): container or
+  // sandbox.
+  string isolation = 6;
 }
 
 message UpdateProjectRequest {
@@ -208,6 +214,9 @@ message UpdateProjectRequest {
   // Turn network isolation on or off; only the default project may have
   // it off. Unset leaves it unchanged.
   optional bool network_isolation = 2;
+  // Change the kernel isolation level; revisions deployed afterwards run at
+  // it. Empty leaves it unchanged.
+  string isolation = 3;
 }
 
 message ListProjectsRequest {}
@@ -630,6 +639,8 @@ message NodeStatus {
   // Admin labels plus armada.os and armada.arch.
   map<string, string> labels = 10;
   bool restricted = 11;
+  // The node runs replicas in the sandbox (ADR 0029).
+  bool sandbox = 12;
 }
 
 message TopRequest {
@@ -1027,6 +1038,9 @@ message ReplicaSpec {
   JobAttempt job = 18;
   // Persistent volumes on this node (ADR 0025).
   repeated VolumeSpec volumes = 19;
+  // Run the replica in the sandbox (isolation sandbox, ADR 0029). Part of
+  // the spec hash; an agent that cannot sandbox refuses the replica.
+  bool sandbox = 20;
 }
 
 message VolumeSpec {

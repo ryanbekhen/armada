@@ -1095,8 +1095,11 @@ func (x *IssueMetricsCertificateResponse) GetExpiresAt() *timestamppb.Timestamp 
 }
 
 type CreateProjectRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Name  string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	// Kernel isolation level (container or sandbox); empty is sandbox.
+	// Automation identities may not choose container.
+	Isolation     string `protobuf:"bytes,2,opt,name=isolation,proto3" json:"isolation,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1138,6 +1141,13 @@ func (x *CreateProjectRequest) GetName() string {
 	return ""
 }
 
+func (x *CreateProjectRequest) GetIsolation() string {
+	if x != nil {
+		return x.Isolation
+	}
+	return ""
+}
+
 type ProjectInfo struct {
 	state     protoimpl.MessageState `protogen:"open.v1"`
 	Name      string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
@@ -1148,8 +1158,11 @@ type ProjectInfo struct {
 	// Its containers are kept away from the platform and the private network
 	// (ADR 0029): always for projects other than default.
 	NetworkIsolation bool `protobuf:"varint,5,opt,name=network_isolation,json=networkIsolation,proto3" json:"network_isolation,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// Kernel isolation level of its replicas (ADR 0029): container or
+	// sandbox.
+	Isolation     string `protobuf:"bytes,6,opt,name=isolation,proto3" json:"isolation,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ProjectInfo) Reset() {
@@ -1217,14 +1230,24 @@ func (x *ProjectInfo) GetNetworkIsolation() bool {
 	return false
 }
 
+func (x *ProjectInfo) GetIsolation() string {
+	if x != nil {
+		return x.Isolation
+	}
+	return ""
+}
+
 type UpdateProjectRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Name  string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
 	// Turn network isolation on or off; only the default project may have
 	// it off. Unset leaves it unchanged.
 	NetworkIsolation *bool `protobuf:"varint,2,opt,name=network_isolation,json=networkIsolation,proto3,oneof" json:"network_isolation,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// Change the kernel isolation level; revisions deployed afterwards run at
+	// it. Empty leaves it unchanged.
+	Isolation     string `protobuf:"bytes,3,opt,name=isolation,proto3" json:"isolation,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *UpdateProjectRequest) Reset() {
@@ -1269,6 +1292,13 @@ func (x *UpdateProjectRequest) GetNetworkIsolation() bool {
 		return *x.NetworkIsolation
 	}
 	return false
+}
+
+func (x *UpdateProjectRequest) GetIsolation() string {
+	if x != nil {
+		return x.Isolation
+	}
+	return ""
 }
 
 type ListProjectsRequest struct {
@@ -4791,8 +4821,10 @@ type NodeStatus struct {
 	// Armada version its agent last reported.
 	Version string `protobuf:"bytes,9,opt,name=version,proto3" json:"version,omitempty"`
 	// Admin labels plus armada.os and armada.arch.
-	Labels        map[string]string `protobuf:"bytes,10,rep,name=labels,proto3" json:"labels,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	Restricted    bool              `protobuf:"varint,11,opt,name=restricted,proto3" json:"restricted,omitempty"`
+	Labels     map[string]string `protobuf:"bytes,10,rep,name=labels,proto3" json:"labels,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Restricted bool              `protobuf:"varint,11,opt,name=restricted,proto3" json:"restricted,omitempty"`
+	// The node runs replicas in the sandbox (ADR 0029).
+	Sandbox       bool `protobuf:"varint,12,opt,name=sandbox,proto3" json:"sandbox,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4900,6 +4932,13 @@ func (x *NodeStatus) GetLabels() map[string]string {
 func (x *NodeStatus) GetRestricted() bool {
 	if x != nil {
 		return x.Restricted
+	}
+	return false
+}
+
+func (x *NodeStatus) GetSandbox() bool {
+	if x != nil {
+		return x.Sandbox
 	}
 	return false
 }
@@ -7411,7 +7450,10 @@ type ReplicaSpec struct {
 	// Set for a replica that runs one attempt of a job run (ADR 0021).
 	Job *JobAttempt `protobuf:"bytes,18,opt,name=job,proto3" json:"job,omitempty"`
 	// Persistent volumes on this node (ADR 0025).
-	Volumes       []*VolumeSpec `protobuf:"bytes,19,rep,name=volumes,proto3" json:"volumes,omitempty"`
+	Volumes []*VolumeSpec `protobuf:"bytes,19,rep,name=volumes,proto3" json:"volumes,omitempty"`
+	// Run the replica in the sandbox (isolation sandbox, ADR 0029). Part of
+	// the spec hash; an agent that cannot sandbox refuses the replica.
+	Sandbox       bool `protobuf:"varint,20,opt,name=sandbox,proto3" json:"sandbox,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -7577,6 +7619,13 @@ func (x *ReplicaSpec) GetVolumes() []*VolumeSpec {
 		return x.Volumes
 	}
 	return nil
+}
+
+func (x *ReplicaSpec) GetSandbox() bool {
+	if x != nil {
+		return x.Sandbox
+	}
+	return false
 }
 
 type VolumeSpec struct {
@@ -9445,9 +9494,10 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\x04cert\x18\x01 \x01(\fR\x04cert\x12\x17\n" +
 	"\aca_cert\x18\x02 \x01(\fR\x06caCert\x129\n" +
 	"\n" +
-	"expires_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\"*\n" +
+	"expires_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\"H\n" +
 	"\x14CreateProjectRequest\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\"\xbc\x01\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1c\n" +
+	"\tisolation\x18\x02 \x01(\tR\tisolation\"\xda\x01\n" +
 	"\vProjectInfo\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x129\n" +
 	"\n" +
@@ -9455,10 +9505,12 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\n" +
 	"created_by\x18\x03 \x01(\tR\tcreatedBy\x12\x12\n" +
 	"\x04apps\x18\x04 \x01(\x05R\x04apps\x12+\n" +
-	"\x11network_isolation\x18\x05 \x01(\bR\x10networkIsolation\"r\n" +
+	"\x11network_isolation\x18\x05 \x01(\bR\x10networkIsolation\x12\x1c\n" +
+	"\tisolation\x18\x06 \x01(\tR\tisolation\"\x90\x01\n" +
 	"\x14UpdateProjectRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x120\n" +
-	"\x11network_isolation\x18\x02 \x01(\bH\x00R\x10networkIsolation\x88\x01\x01B\x14\n" +
+	"\x11network_isolation\x18\x02 \x01(\bH\x00R\x10networkIsolation\x88\x01\x01\x12\x1c\n" +
+	"\tisolation\x18\x03 \x01(\tR\tisolationB\x14\n" +
 	"\x12_network_isolation\"\x15\n" +
 	"\x13ListProjectsRequest\"J\n" +
 	"\x14ListProjectsResponse\x122\n" +
@@ -9713,7 +9765,7 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\n" +
 	"updated_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x12\x14\n" +
 	"\x05ready\x18\b \x01(\bR\x05ready\x12\x1a\n" +
-	"\bdraining\x18\t \x01(\bR\bdraining\"\xdc\x03\n" +
+	"\bdraining\x18\t \x01(\bR\bdraining\"\xf6\x03\n" +
 	"\n" +
 	"NodeStatus\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1d\n" +
@@ -9731,7 +9783,8 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	" \x03(\v2!.armada.v1.NodeStatus.LabelsEntryR\x06labels\x12\x1e\n" +
 	"\n" +
 	"restricted\x18\v \x01(\bR\n" +
-	"restricted\x1a9\n" +
+	"restricted\x12\x18\n" +
+	"\asandbox\x18\f \x01(\bR\asandbox\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x1e\n" +
@@ -9934,7 +9987,7 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\x05allow\x18\x06 \x03(\tR\x05allow\"8\n" +
 	"\x10ProxyCertificate\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x10\n" +
-	"\x03pem\x18\x02 \x01(\fR\x03pem\"\xa8\x05\n" +
+	"\x03pem\x18\x02 \x01(\fR\x03pem\"\xc2\x05\n" +
 	"\vReplicaSpec\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x10\n" +
 	"\x03app\x18\x02 \x01(\tR\x03app\x12\x1a\n" +
@@ -9956,7 +10009,8 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\bregistry\x18\x10 \x01(\v2\x17.armada.v1.RegistryAuthR\bregistry\x12,\n" +
 	"\x12cpu_reserve_millis\x18\x11 \x01(\x03R\x10cpuReserveMillis\x12'\n" +
 	"\x03job\x18\x12 \x01(\v2\x15.armada.v1.JobAttemptR\x03job\x12/\n" +
-	"\avolumes\x18\x13 \x03(\v2\x15.armada.v1.VolumeSpecR\avolumes\"J\n" +
+	"\avolumes\x18\x13 \x03(\v2\x15.armada.v1.VolumeSpecR\avolumes\x12\x18\n" +
+	"\asandbox\x18\x14 \x01(\bR\asandbox\"J\n" +
 	"\n" +
 	"VolumeSpec\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +

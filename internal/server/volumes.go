@@ -149,6 +149,7 @@ func (s *Server) reconcileVolumeApp(ctx context.Context, rc *reconcileRun, app *
 		msg = fmt.Sprintf("its volumes are on node %s, which cannot take the replica now (not ready, out of capacity, or not allowed by its placement)", pinned)
 	}
 	s.condition(ctx, "unplaced:"+app.Name, unplaced, store.Event{Kind: eventApp, Object: app.Name, App: app.Name, Reason: "Unschedulable", Message: msg})
+	s.condition(ctx, "no-isolation:"+app.Name, unplaced && noIsolation(nodes, target, pinned), noIsolationEvent(app.Name, eventApp, app.Name))
 
 	if app.Rolling() && others == 0 && len(current) == app.Replicas && !slices.ContainsFunc(current, func(r store.Replica) bool { return !serving(r) }) {
 		if err := s.store.CompleteRollout(ctx, app.Name, app.TargetRevision); err != nil {

@@ -67,7 +67,7 @@ const (
 	// migrations when records change incompatibly. Records under servers/
 	// and meta/ are read and written by every server, whatever its schema,
 	// so they only ever gain optional fields.
-	etcdSchema = 7
+	etcdSchema = 8
 
 	maxTxnRetries = 100
 	// auditKeep is how many audit events are retained.
@@ -398,6 +398,7 @@ type revRec struct {
 	ImageDigest string          `json:"imageDigest"`
 	Platforms   []string        `json:"platforms,omitempty"`
 	Secrets     map[string]int  `json:"secrets"`
+	Isolation   string          `json:"isolation,omitempty"`
 	CreatedAt   int64           `json:"createdAt"`
 }
 
@@ -1059,7 +1060,7 @@ func (t *etx) revision(name string) (Revision, error) {
 }
 
 func decodeRev(r revRec) (Revision, error) {
-	out := Revision{Name: r.Name, App: r.App, Seq: r.Seq, ImageDigest: r.ImageDigest, Platforms: r.Platforms, Secrets: r.Secrets, CreatedAt: fromMS(r.CreatedAt), Spec: new(spec.App)}
+	out := Revision{Name: r.Name, App: r.App, Seq: r.Seq, ImageDigest: r.ImageDigest, Platforms: r.Platforms, Secrets: r.Secrets, Isolation: r.Isolation, CreatedAt: fromMS(r.CreatedAt), Spec: new(spec.App)}
 	if out.Secrets == nil {
 		out.Secrets = map[string]int{}
 	}
@@ -1119,6 +1120,11 @@ func (s *Etcd) deploy(t *etx, sp *spec.App, replicas int, actor, action string) 
 	if err := t.projectExists(sp.Project); err != nil {
 		return Revision{}, false, err
 	}
+	isolation, err := t.projectIsolation(sp.Project)
+	if err != nil {
+		return Revision{}, false, err
+	}
+	same := func(r Revision) bool { return sameRevision(r, body, pins) && orContainer(r.Isolation) == isolation }
 	a, exists, err := t.app(id)
 	if err != nil {
 		return Revision{}, false, err
@@ -1146,17 +1152,17 @@ func (s *Etcd) deploy(t *etx, sp *spec.App, replicas int, actor, action string) 
 			}
 		}
 		switch {
-		case multiple && sameRevision(tgt, body, pins):
+		case multiple && same(tgt):
 			return tgt, false, t.activateTraffic(a, tgt.Name, traffic, replicas, now, actor, action+".unchanged")
-		case multiple && sameRevision(cur, body, pins):
+		case multiple && same(cur):
 			return cur, false, t.activateTraffic(a, cur.Name, traffic, replicas, now, actor, action+".unchanged")
-		case sameRevision(tgt, body, pins):
+		case same(tgt):
 			a.Replicas, a.UpdatedAt = replicas, now.UnixMilli()
 			if err := t.put(pfxApps+a.Name, a); err != nil {
 				return Revision{}, false, err
 			}
 			return tgt, false, t.audit(now, actor, action+".unchanged", id, tgt.Name)
-		case sameRevision(cur, body, pins):
+		case same(cur):
 			// Deploying what is already serving cancels the rollout.
 			target := a.TargetRevision
 			if err := t.setTarget(a, cur.Name, replicas, now); err != nil {
@@ -1185,12 +1191,12 @@ func (s *Etcd) deploy(t *etx, sp *spec.App, replicas int, actor, action string) 
 		}
 		seq = n + 1
 	}
-	rev := Revision{Name: fmt.Sprintf("%s--r%d", id, seq), App: id, Seq: seq, Spec: sp, Secrets: pins, CreatedAt: now}
+	rev := Revision{Name: fmt.Sprintf("%s--r%d", id, seq), App: id, Seq: seq, Spec: sp, Secrets: pins, Isolation: isolation, CreatedAt: now}
 	if !exists {
 		// Nothing serves yet, so the first revision is active at once.
 		a = appRec{Name: id, ActiveRevision: rev.Name, TargetRevision: rev.Name, CreatedAt: now.UnixMilli()}
 	}
-	if err := t.put(revKey(id, seq), revRec{Name: rev.Name, App: rev.App, Seq: seq, Spec: body, Secrets: pins, CreatedAt: now.UnixMilli()}); err != nil {
+	if err := t.put(revKey(id, seq), revRec{Name: rev.Name, App: rev.App, Seq: seq, Spec: body, Secrets: pins, Isolation: isolation, CreatedAt: now.UnixMilli()}); err != nil {
 		return Revision{}, false, err
 	}
 	if multiple {
@@ -1254,6 +1260,9 @@ func (t *etx) resolveTraffic(app, latest string, traffic []spec.TrafficTarget) (
 			return nil, fmt.Errorf("revisions.traffic: %s is not a revision of %s (see armada revisions %s): %w", tt.Revision, app, app, ErrPrecondition)
 		}
 		if err != nil {
+			return nil, err
+		}
+		if err := t.checkIsolation(rev); err != nil {
 			return nil, err
 		}
 		out = append(out, tt)
@@ -1411,6 +1420,9 @@ func (s *Etcd) Rollback(ctx context.Context, app, revision, actor string) (Revis
 			return fmt.Errorf("%s splits traffic between revisions; change the weights with armada traffic %s or in its spec: %w", app, app, ErrPrecondition)
 		}
 		if err := t.checkPins(rev); err != nil {
+			return err
+		}
+		if err := t.checkIsolation(rev); err != nil {
 			return err
 		}
 		// The old revision may route domains that were dropped or taken by
@@ -2284,6 +2296,20 @@ var migrations = []migration{
 	// as an app name, or deploy into a project that does not exist, can no
 	// longer lead.
 	func(*etx) error { return nil },
+	// 7 -> 8: kernel isolation (ADR 0029): projects and revisions gain an
+	// isolation level. Projects created before keep container, written
+	// explicitly (a new project defaults to sandbox); servers that would
+	// start a sandboxed revision's replicas as plain containers can no
+	// longer lead.
+	func(t *etx) error {
+		return listInto(t, pfxProjects, func(key string, r projectRec) error {
+			if r.Isolation != "" {
+				return nil
+			}
+			r.Isolation = spec.IsolationContainer
+			return t.put(key, r)
+		})
+	},
 }
 
 // StoredSchema returns the schema the keyspace is written in.
