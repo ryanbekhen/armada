@@ -2,6 +2,7 @@ package server
 
 import (
 	"net/netip"
+	"slices"
 	"testing"
 
 	"google.golang.org/grpc/codes"
@@ -125,4 +126,49 @@ func TestNetworkIsolationSetting(t *testing.T) {
 	wantCode(t, "automation", err, codes.PermissionDenied)
 	_, err = auto.UpdateProject(c.ctx, &armadav1.UpdateProjectRequest{Name: "default", NetworkIsolation: &off})
 	wantCode(t, "automation on default", err, codes.PermissionDenied)
+}
+
+func TestInternalRulesCarryAllow(t *testing.T) {
+	t.Parallel()
+	if got := allowedCallers("db.shop", nil); got != nil {
+		t.Errorf("no allow = %v", got)
+	}
+	if got := allowedCallers("db.shop", []string{"api", "worker"}); !slices.Equal(got, []string{"db.shop", "api.shop", "worker.shop"}) {
+		t.Errorf("project allow = %v", got)
+	}
+	if got := allowedCallers("db", []string{"api"}); !slices.Equal(got, []string{"db", "api"}) {
+		t.Errorf("default allow = %v", got)
+	}
+
+	c := newCluster(t)
+	if _, err := c.admin.CreateProject(c.ctx, &armadav1.CreateProjectRequest{Name: "shop"}); err != nil {
+		t.Fatal(err)
+	}
+	spec := "name: db\nimage: nginx:1\ningress:\n  type: internal\n  port: 80\n  allow: [api]\n"
+	if _, err := c.admin.Deploy(c.ctx, &armadav1.DeployRequest{Spec: []byte(spec), Project: "shop"}); err != nil {
+		t.Fatal(err)
+	}
+	apps, err := c.store.ListApps(c.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	px, err := c.srv.buildProxy(c.ctx, apps, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := px.Validate(); err != nil {
+		t.Fatalf("proxy config: %v", err)
+	}
+	found := false
+	for _, r := range px.Rules {
+		if r.Host == "db.shop.internal" {
+			found = true
+			if !slices.Equal(r.Allow, []string{"db.shop", "api.shop"}) {
+				t.Errorf("allow = %v", r.Allow)
+			}
+		}
+	}
+	if !found {
+		t.Error("no internal rule for db.shop")
+	}
 }

@@ -7262,7 +7262,10 @@ type ProxyRule struct {
 	Backend     string                 `protobuf:"bytes,4,opt,name=backend,proto3" json:"backend,omitempty"`
 	// Internal rules route <app>.internal on the node-local internal
 	// frontend, which only containers on that node can reach.
-	Internal      bool `protobuf:"varint,5,opt,name=internal,proto3" json:"internal,omitempty"`
+	Internal bool `protobuf:"varint,5,opt,name=internal,proto3" json:"internal,omitempty"`
+	// For internal rules: the app IDs that may call (the app itself
+	// included); empty lets every app of the backend's project (ADR 0029).
+	Allow         []string `protobuf:"bytes,6,rep,name=allow,proto3" json:"allow,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -7330,6 +7333,13 @@ func (x *ProxyRule) GetInternal() bool {
 		return x.Internal
 	}
 	return false
+}
+
+func (x *ProxyRule) GetAllow() []string {
+	if x != nil {
+		return x.Allow
+	}
+	return nil
 }
 
 type ProxyCertificate struct {
@@ -9924,14 +9934,15 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\vProxyServer\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
 	"\aaddress\x18\x02 \x01(\tR\aaddress\x12\x16\n" +
-	"\x06weight\x18\x03 \x01(\rR\x06weight\"\x99\x01\n" +
+	"\x06weight\x18\x03 \x01(\rR\x06weight\"\xaf\x01\n" +
 	"\tProxyRule\x12\x12\n" +
 	"\x04host\x18\x01 \x01(\tR\x04host\x12\x1f\n" +
 	"\vpath_prefix\x18\x02 \x01(\tR\n" +
 	"pathPrefix\x12!\n" +
 	"\fstrip_prefix\x18\x03 \x01(\bR\vstripPrefix\x12\x18\n" +
 	"\abackend\x18\x04 \x01(\tR\abackend\x12\x1a\n" +
-	"\binternal\x18\x05 \x01(\bR\binternal\"8\n" +
+	"\binternal\x18\x05 \x01(\bR\binternal\x12\x14\n" +
+	"\x05allow\x18\x06 \x03(\tR\x05allow\"8\n" +
 	"\x10ProxyCertificate\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x10\n" +
 	"\x03pem\x18\x02 \x01(\fR\x03pem\"\xa8\x05\n" +

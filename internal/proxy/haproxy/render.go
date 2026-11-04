@@ -26,6 +26,7 @@ const (
 	defaultCertFile  = "default.pem"
 	certDir          = "certs"
 	socketFile       = "admin.sock"
+	clientsFile      = "clients.map"
 	metricsPort      = MetricsPort
 )
 
@@ -56,9 +57,15 @@ type renderOptions struct {
 	InternalIP string
 	// Subnet is the node's container subnet in the cluster network
 	// (ADR 0027), where its replicas have their own addresses; empty when
-	// replicas are reached through ports on the private IP.
+	// replicas are reached through ports on the private IP. With a subnet
+	// the node knows its containers' apps (the clients map), and the
+	// internal frontend admits a request only from the target's project,
+	// or its allowed apps (ADR 0029).
 	Subnet string
 }
+
+// checksCallers reports whether the internal frontend checks who calls.
+func (o renderOptions) checksCallers() bool { return o.Subnet != "" }
 
 // node returns where this node's replicas are.
 func (o renderOptions) node() node {
@@ -243,6 +250,13 @@ func render(cfg proxy.Config, layout Layout, opts renderOptions) []byte {
 		w("    http-request set-header X-Forwarded-Proto http")
 		w("    http-request set-var(txn.host) req.hdr(host),field(1,:),lower")
 		w("    http-request set-var(txn.path) path")
+		if opts.checksCallers() {
+			// The caller's project and app, from its address; nothing for an
+			// address this node does not know, which then matches no route.
+			w("    http-request set-var(txn.cproj) src,map_ip(%s/%s),field(1,:)", containerConfDir, clientsFile)
+			w("    http-request set-var(txn.capp) src,map_ip(%s/%s),field(2,:)", containerConfDir, clientsFile)
+			rr.callers = true
+		}
 		rr.write("i", internal)
 		w("    default_backend be_armada_notfound")
 		w("")
@@ -308,6 +322,9 @@ type ruleRenderer struct {
 	w        func(string, ...any)
 	backends map[string]proxy.Backend
 	node     node
+	// callers restricts each route to its backend's project, or its
+	// allowed apps.
+	callers bool
 }
 
 // write emits the routing of one frontend. Route IDs are prefix plus an
@@ -330,6 +347,12 @@ func (rr ruleRenderer) write(prefix string, rules []proxy.Rule) {
 		// HAProxy evaluates AND before OR, so each alternative gets its own
 		// line, all guarded by "no route chosen yet".
 		set := fmt.Sprintf("    http-request set-var(txn.route) str(%s%d) if !{ var(txn.route) -m found } { var(txn.host) -m str %s }", prefix, i, r.Host)
+		if rr.callers {
+			set += fmt.Sprintf(" { var(txn.cproj) -m str %s }", proxy.BackendProject(r.Backend))
+			if len(r.Allow) > 0 {
+				set += fmt.Sprintf(" { var(txn.capp) -m str %s }", strings.Join(r.Allow, " "))
+			}
+		}
 		if r.PathPrefix == "/" {
 			w("%s", set)
 			continue
@@ -400,6 +423,7 @@ func safeConfig(cfg proxy.Config, opts renderOptions) bool {
 	}
 	for _, r := range cfg.Rules {
 		vals = append(vals, r.Host, r.PathPrefix, r.Backend)
+		vals = append(vals, r.Allow...)
 	}
 	for _, c := range cfg.Certificates {
 		vals = append(vals, c.Name)

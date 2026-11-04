@@ -3,6 +3,7 @@ package spec
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -145,6 +146,11 @@ func TestParseRejects(t *testing.T) {
 		{"job concurrency", "kind: job\nname: x\nimage: y\nconcurrency: allow\n", "concurrency", false},
 		{"job history", "kind: job\nname: x\nimage: y\nhistory: 0\n", "history", false},
 		{"schedule on app", base + "schedule: \"0 3 * * *\"\n", "schedule", false},
+		{"allow without ingress", base + "ingress:\n  type: none\n  allow: [api]\n", "ingress", false},
+		{"allow itself", ext + "  allow: [web]\n", "ingress.allow[0]", false},
+		{"allow an app ID", ext + "  allow: [api.shop]\n", "ingress.allow[0]", false},
+		{"allow a bad name", ext + "  allow: [\"Api;x\"]\n", "ingress.allow[0]", false},
+		{"allow twice", ext + "  allow: [api, api]\n", "ingress.allow[1]", false},
 		{"retries on app", base + "retries: 1\n", "retries", false},
 		{"missing name", "image: nginx\n", "name", false},
 		{"uppercase name", "name: Web\nimage: nginx\n", "name", false},
@@ -588,5 +594,23 @@ func TestParseJob(t *testing.T) {
 	}
 	if _, ok := manual.JobSchedule(); ok {
 		t.Error("a job without a schedule has one")
+	}
+}
+
+func TestParseAllow(t *testing.T) {
+	t.Parallel()
+	app, err := Parse([]byte("name: db\nimage: postgres\ningress:\n  type: internal\n  port: 5432\n  allow: [api, worker]\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(app.Ingress.Allow, []string{"api", "worker"}) {
+		t.Errorf("allow = %v", app.Ingress.Allow)
+	}
+	many := "name: db\nimage: postgres\ningress:\n  type: internal\n  port: 5432\n  allow:\n"
+	for i := range MaxAllow + 1 {
+		many += fmt.Sprintf("    - a%d\n", i)
+	}
+	if _, err := Parse([]byte(many)); err == nil {
+		t.Error("too many allowed apps accepted")
 	}
 }

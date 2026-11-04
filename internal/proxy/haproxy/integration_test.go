@@ -3,6 +3,7 @@
 package haproxy
 
 import (
+	"net/netip"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -28,11 +29,18 @@ func TestIntegrationConfigValid(t *testing.T) {
 	if cli == "" {
 		t.Skip("no docker, podman, or nerdctl CLI")
 	}
-	cases := map[string]proxy.Config{
-		"full":  sampleConfig(t),
-		"empty": {},
+	type tc struct {
+		cfg  proxy.Config
+		opts renderOptions
 	}
-	for name, cfg := range cases {
+	cases := map[string]tc{
+		"full":  {sampleConfig(t), renderOptions{PrivateIP: "10.0.0.2"}},
+		"empty": {proxy.Config{}, renderOptions{PrivateIP: "10.0.0.2"}},
+		// The internal frontend with the clients map (ADR 0029).
+		"callers": {callersConfig(t), callersOptions()},
+	}
+	for name, c := range cases {
+		cfg, opts := c.cfg, c.opts
 		t.Run(name, func(t *testing.T) {
 			dir := t.TempDir()
 			// The check runs as root without capabilities, so the files must
@@ -53,7 +61,12 @@ func TestIntegrationConfigValid(t *testing.T) {
 			for _, c := range cfg.Certificates {
 				write(filepath.Join(certs, c.FileName()), c.PEM)
 			}
-			write(filepath.Join(dir, configFile), render(cfg, assignLayout(nil, cfg, renderOptions{PrivateIP: "10.0.0.2"}.node()), renderOptions{PrivateIP: "10.0.0.2"}))
+			clients, err := clientsMap(map[netip.Addr]string{netip.MustParseAddr("10.120.0.7"): "shop.staging", netip.MustParseAddr("10.120.0.8"): "frontend"}, netip.MustParsePrefix("10.120.0.0/24"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			write(filepath.Join(dir, clientsFile), clients)
+			write(filepath.Join(dir, configFile), render(cfg, assignLayout(nil, cfg, opts.node()), opts))
 
 			out, err := exec.Command(cli, "run", "--rm", "--network", "none",
 				"-v", dir+":"+containerConfDir+":ro", "--tmpfs", containerRunDir,

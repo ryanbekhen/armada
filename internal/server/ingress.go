@@ -64,6 +64,21 @@ func appRoutes(sp *spec.App) []spec.Route {
 	return sp.Ingress.Routes
 }
 
+// allowedCallers turns an app's ingress.allow into the app IDs that may
+// call it through its internal name, itself first; nil when it allows its
+// whole project.
+func allowedCallers(id string, names []string) []string {
+	if len(names) == 0 {
+		return nil
+	}
+	project, _, _ := spec.SplitAppID(id)
+	out := []string{id}
+	for _, n := range names {
+		out = append(out, spec.AppID(project, n))
+	}
+	return out
+}
+
 // buildProxy computes the ingress configuration shared by every node.
 func (s *Server) buildProxy(ctx context.Context, apps []store.App, replicas []store.Replica) (*proxy.Config, error) {
 	root := s.rootDomain(ctx)
@@ -103,9 +118,11 @@ func (s *Server) buildProxy(ctx context.Context, apps []store.App, replicas []st
 		}
 		cfg.Backends = append(cfg.Backends, be)
 
-		// Every app with an ingress port is reachable inside the cluster.
+		// Every app with an ingress port is reachable inside the cluster,
+		// by the apps of its project or the ones it allows (ADR 0029).
+		allow := allowedCallers(app.Name, sp.Ingress.Allow)
 		for _, rt := range appRoutes(sp) {
-			cfg.Rules = append(cfg.Rules, proxy.Rule{Host: spec.InternalHost(app.Name), PathPrefix: rt.Path, StripPrefix: rt.StripPrefix, Backend: app.Name, Internal: true})
+			cfg.Rules = append(cfg.Rules, proxy.Rule{Host: spec.InternalHost(app.Name), PathPrefix: rt.Path, StripPrefix: rt.StripPrefix, Backend: app.Name, Internal: true, Allow: allow})
 		}
 
 		// Each labelled revision has a backend of its own, served under
@@ -123,7 +140,7 @@ func (s *Server) buildProxy(ctx context.Context, apps []store.App, replicas []st
 				})
 				cfg.Backends = append(cfg.Backends, lb)
 				for _, rt := range appRoutes(sp) {
-					cfg.Rules = append(cfg.Rules, proxy.Rule{Host: spec.InternalHost(name), PathPrefix: rt.Path, StripPrefix: rt.StripPrefix, Backend: name, Internal: true})
+					cfg.Rules = append(cfg.Rules, proxy.Rule{Host: spec.InternalHost(name), PathPrefix: rt.Path, StripPrefix: rt.StripPrefix, Backend: name, Internal: true, Allow: allow})
 				}
 				// Labels serve under the root domain only, not custom domains.
 				h := name + "." + root

@@ -28,6 +28,7 @@ import (
 	"github.com/ryanbekhen/armada/internal/fsutil"
 	"github.com/ryanbekhen/armada/internal/netutil"
 	"github.com/ryanbekhen/armada/internal/proxy"
+	"github.com/ryanbekhen/armada/internal/spec"
 )
 
 // Engine controls the HAProxy process.
@@ -69,6 +70,9 @@ type Driver struct {
 	layout   Layout
 	applied  map[string]slot   // "backend/slot" -> what it serves; zero for a free slot
 	certHash map[string]string // file name -> sha256 of PEM
+	// clients is the content of the clients map HAProxy last loaded or
+	// was given through the Runtime API.
+	clients []byte
 }
 
 var _ proxy.Driver = (*Driver)(nil)
@@ -104,6 +108,13 @@ func New(cfg Config) (*Driver, error) {
 	}
 	if cfg.API == nil {
 		cfg.API = Socket{Path: filepath.Join(runDir(cfg.Dir), socketFile)}
+	}
+	// HAProxy reads the clients map at start; until the agent knows its
+	// containers it is empty, and no internal route matches anyone.
+	if _, err := os.Stat(filepath.Join(etcDir(cfg.Dir), clientsFile)); errors.Is(err, os.ErrNotExist) {
+		if err := fsutil.WriteFileAtomic(filepath.Join(etcDir(cfg.Dir), clientsFile), nil, 0o600); err != nil {
+			return nil, err
+		}
 	}
 	def := filepath.Join(etcDir(cfg.Dir), defaultCertFile)
 	if _, err := os.Stat(def); errors.Is(err, os.ErrNotExist) {
@@ -317,6 +328,91 @@ func (d *Driver) updateCert(ctx context.Context, file string, cfg proxy.Config) 
 		return err
 	}
 	_, err := d.cfg.API.Command(ctx, "commit ssl cert "+path)
+	return err
+}
+
+var _ proxy.ClientSetter = (*Driver)(nil)
+
+// maxClients bounds the clients map (a node subnet holds at most 253
+// containers; this leaves room for anything).
+const maxClients = 4096
+
+// SetClients implements proxy.ClientSetter: it maps the addresses of this
+// node's containers to their apps for the internal frontend's checks (ADR
+// 0029). The map file is replaced for the next start or reload, and a
+// running HAProxy gets the new map at once, atomically, through the
+// Runtime API.
+func (d *Driver) SetClients(ctx context.Context, clients map[netip.Addr]string) error {
+	if d.cfg.Subnet == "" {
+		return nil
+	}
+	content, err := clientsMap(clients, netip.MustParsePrefix(d.cfg.Subnet))
+	if err != nil {
+		return err
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.clients != nil && bytes.Equal(content, d.clients) {
+		return nil
+	}
+	if err := fsutil.WriteFileAtomic(filepath.Join(etcDir(d.cfg.Dir), clientsFile), content, 0o600); err != nil {
+		return err
+	}
+	running, err := d.cfg.Engine.Running(ctx)
+	if err != nil {
+		return err
+	}
+	if running {
+		if err := d.replaceMap(ctx, content); err != nil {
+			return fmt.Errorf("update the clients map: %w", err)
+		}
+	}
+	d.clients = content
+	return nil
+}
+
+// clientsMap renders the clients map: one "<address> <project>:<app ID>"
+// line per container of the node subnet, sorted. Every address and app is
+// checked again, since they end up in the proxy.
+func clientsMap(clients map[netip.Addr]string, subnet netip.Prefix) ([]byte, error) {
+	if len(clients) > maxClients {
+		return nil, fmt.Errorf("%d clients: at most %d", len(clients), maxClients)
+	}
+	addrs := make([]netip.Addr, 0, len(clients))
+	for a, app := range clients {
+		if !a.Is4() || !subnet.Contains(a) || !spec.ValidAppID(app) {
+			return nil, fmt.Errorf("invalid client %s (%q)", a, app)
+		}
+		addrs = append(addrs, a)
+	}
+	slices.SortFunc(addrs, netip.Addr.Compare)
+	var b bytes.Buffer
+	for _, a := range addrs {
+		project, _, _ := spec.SplitAppID(clients[a])
+		fmt.Fprintf(&b, "%s %s:%s\n", a, project, clients[a])
+	}
+	return b.Bytes(), nil
+}
+
+// replaceMap swaps the running HAProxy's clients map for content in one
+// step: a new version is filled, then committed.
+func (d *Driver) replaceMap(ctx context.Context, content []byte) error {
+	file := containerConfDir + "/" + clientsFile
+	out, err := d.cfg.API.Command(ctx, "prepare map "+file)
+	if err != nil {
+		return err
+	}
+	ver, ok := strings.CutPrefix(strings.TrimSpace(out), "New version created:")
+	ver = strings.TrimSpace(ver)
+	if !ok || ver == "" || strings.Trim(ver, "0123456789") != "" {
+		return fmt.Errorf("unexpected answer to prepare map: %q", out)
+	}
+	if len(content) > 0 {
+		if _, err := d.cfg.API.Payload(ctx, "add map @"+ver+" "+file, string(content)); err != nil {
+			return err
+		}
+	}
+	_, err = d.cfg.API.Command(ctx, "commit map @"+ver+" "+file)
 	return err
 }
 

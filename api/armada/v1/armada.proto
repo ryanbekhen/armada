@@ -991,6 +991,9 @@ message ProxyRule {
   // Internal rules route <app>.internal on the node-local internal
   // frontend, which only containers on that node can reach.
   bool internal = 5;
+  // For internal rules: the app IDs that may call (the app itself
+  // included); empty lets every app of the backend's project (ADR 0029).
+  repeated string allow = 6;
 }
 
 message ProxyCertificate {

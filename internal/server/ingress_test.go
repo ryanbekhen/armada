@@ -13,6 +13,7 @@ import (
 	"math/big"
 	"net"
 	"net/http"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -348,7 +349,7 @@ func TestInternalIngress(t *testing.T) {
 		{Host: "shop-api.internal", PathPrefix: "/v1", StripPrefix: true, Backend: "shop-api", Internal: true},
 		{Host: "web.internal", PathPrefix: "/", Backend: "web", Internal: true},
 	}
-	if !slices.Equal(internal, want) {
+	if !reflect.DeepEqual(internal, want) {
 		t.Errorf("internal rules = %+v", internal)
 	}
 	// The internal app gets no public name and no certificate.

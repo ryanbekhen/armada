@@ -7,9 +7,11 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -92,6 +94,38 @@ func TestRenderGolden(t *testing.T) {
 
 	empty := proxy.Config{}
 	golden(t, "empty.cfg", render(empty, assignLayout(nil, empty, renderOptions{PrivateIP: ""}.node()), renderOptions{}))
+
+	// On the cluster network the internal frontend checks who calls (ADR
+	// 0029).
+	cc := callersConfig(t)
+	opts := callersOptions()
+	golden(t, "callers.cfg", render(cc, assignLayout(nil, cc, opts.node()), opts))
+}
+
+func callersOptions() renderOptions {
+	return renderOptions{PrivateIP: "10.0.0.2", InternalIP: "10.120.0.1", Subnet: "10.120.0.0/24"}
+}
+
+// callersConfig has apps in two projects, one with ingress.allow and a
+// revision label.
+func callersConfig(t *testing.T) proxy.Config {
+	t.Helper()
+	cfg := sampleConfig(t)
+	for i := range cfg.Backends {
+		for j := range cfg.Backends[i].Servers {
+			cfg.Backends[i].Servers[j].Address = strings.Replace(cfg.Backends[i].Servers[j].Address, "10.0.0.", "10.120.0.", 1)
+		}
+	}
+	cfg.Backends = append(cfg.Backends,
+		proxy.Backend{Name: "db.staging", Servers: []proxy.Server{{Name: "db.staging-r1-a", Address: "10.120.1.4:5000"}}},
+		proxy.Backend{Name: "canary--db.staging", Servers: []proxy.Server{{Name: "db.staging-r1-a", Address: "10.120.1.4:5000"}}},
+	)
+	allow := []string{"db.staging", "shop.staging"}
+	cfg.Rules = append(cfg.Rules,
+		proxy.Rule{Host: "db.staging.internal", PathPrefix: "/", Backend: "db.staging", Internal: true, Allow: allow},
+		proxy.Rule{Host: "canary--db.staging.internal", PathPrefix: "/", Backend: "canary--db.staging", Internal: true, Allow: allow},
+	)
+	return cfg
 }
 
 func TestRenderRouteOrder(t *testing.T) {
@@ -189,6 +223,37 @@ func FuzzRender(f *testing.F) {
 		}
 		if n := strings.Count(string(out), "\nbackend "); n != 2 {
 			t.Fatalf("expected 2 backends, rendered %d", n)
+		}
+	})
+}
+
+// FuzzRenderCallers renders an internal rule that names its callers, on a
+// node that checks them (ADR 0029).
+func FuzzRenderCallers(f *testing.F) {
+	f.Add("db.shop", "api.shop")
+	f.Add("db", "api")
+	f.Add("db.shop", "api.shop }  or { always_true")
+	f.Add("canary--db.shop", "x.shop\nbind :1")
+	f.Fuzz(func(t *testing.T, name, caller string) {
+		cfg := proxy.Config{
+			Backends: []proxy.Backend{{Name: name, Servers: []proxy.Server{{Name: "r", Address: "10.120.0.5:80"}}}},
+			Rules:    []proxy.Rule{{Host: name + ".internal", PathPrefix: "/", Backend: name, Internal: true, Allow: []string{caller}}},
+		}
+		if cfg.Validate() != nil {
+			return
+		}
+		opts := renderOptions{InternalIP: "10.120.0.1", Subnet: "10.120.0.0/24"}
+		out := render(cfg, assignLayout(nil, cfg, opts.node()), opts)
+		if out == nil {
+			t.Fatal("valid config refused")
+		}
+		for _, line := range strings.Split(string(out), "\n") {
+			if strings.Count(line, "{") != strings.Count(line, "}") {
+				t.Fatalf("unbalanced ACL braces in %q", line)
+			}
+			if strings.Contains(line, "txn.capp) -m str") && !strings.HasSuffix(line, "-m str "+caller+" }") {
+				t.Fatalf("caller check %q does not name exactly %q", line, caller)
+			}
 		}
 	})
 }
@@ -291,12 +356,17 @@ type fakeAPI struct {
 	mu   sync.Mutex
 	cmds []string
 	err  error
+	// reply answers a command; nil answers nothing.
+	reply func(cmd string) string
 }
 
 func (a *fakeAPI) Command(_ context.Context, cmd string) (string, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.cmds = append(a.cmds, cmd)
+	if a.reply != nil {
+		return a.reply(cmd), a.err
+	}
 	return "", a.err
 }
 func (a *fakeAPI) Payload(_ context.Context, cmd, payload string) (string, error) {
@@ -766,6 +836,7 @@ func TestRenderRefusesUnsafeTokens(t *testing.T) {
 		"rule host":      func(c *proxy.Config) { c.Rules[0].Host = "a.test }  or { always_true" },
 		"health path":    func(c *proxy.Config) { c.Backends[0].HealthPath = "/h\r\nx" },
 		"acme":           func(c *proxy.Config) { c.ACMEAddress = "10.0.0.2:80\tbackup" },
+		"caller":         func(c *proxy.Config) { c.Rules[5].Allow = []string{"api-bengkel }  or { always_true"} },
 	} {
 		cfg := sampleConfig(t)
 		mut(&cfg)
@@ -849,5 +920,87 @@ func TestLocalFirstMovesWithoutReload(t *testing.T) {
 	want = []string{"set server be_shop/s2 state maint", "set server lo_shop/s1 state maint"}
 	if strings.Join(a.cmds, "|") != strings.Join(want, "|") || e.reloads != 0 {
 		t.Errorf("commands = %q, want %q (reloads %d)", a.cmds, want, e.reloads)
+	}
+}
+
+func TestSetClients(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	dir := filepath.Join(t.TempDir(), "haproxy")
+	e := &fakeEngine{}
+	a := &fakeAPI{reply: func(cmd string) string {
+		if strings.HasPrefix(cmd, "prepare map") {
+			return "New version created: 7"
+		}
+		return ""
+	}}
+	d, err := New(Config{Dir: dir, PrivateIP: "10.0.0.2", InternalIP: "10.120.0.1", Subnet: "10.120.0.0/24", Engine: e, API: a})
+	if err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(dir, "etc", clientsFile)
+	if b, err := os.ReadFile(file); err != nil || len(b) != 0 {
+		t.Fatalf("clients map at start = %q, %v", b, err)
+	}
+	clients := map[netip.Addr]string{
+		netip.MustParseAddr("10.120.0.9"): "db.staging",
+		netip.MustParseAddr("10.120.0.3"): "web",
+	}
+	// Not running: only the file changes.
+	if err := d.SetClients(ctx, clients); err != nil {
+		t.Fatal(err)
+	}
+	want := "10.120.0.3 default:web\n10.120.0.9 staging:db.staging\n"
+	if b, _ := os.ReadFile(file); string(b) != want {
+		t.Errorf("clients map = %q, want %q", b, want)
+	}
+	if len(a.cmds) != 0 {
+		t.Errorf("commands while stopped: %q", a.cmds)
+	}
+	// Running: the map is swapped live, in one version.
+	e.running = true
+	clients[netip.MustParseAddr("10.120.0.4")] = "web"
+	if err := d.SetClients(ctx, clients); err != nil {
+		t.Fatal(err)
+	}
+	m := containerConfDir + "/" + clientsFile
+	wantCmds := []string{"prepare map " + m, fmt.Sprintf("add map @7 %s <<payload:%d", m, len(want)+len("10.120.0.4 default:web\n")), "commit map @7 " + m}
+	if !slices.Equal(a.cmds, wantCmds) {
+		t.Errorf("commands = %q, want %q", a.cmds, wantCmds)
+	}
+	// Unchanged: nothing to do.
+	a.cmds = nil
+	if err := d.SetClients(ctx, clients); err != nil || len(a.cmds) != 0 {
+		t.Errorf("unchanged map: %v %q", err, a.cmds)
+	}
+	// Every container gone: an empty version is committed.
+	if err := d.SetClients(ctx, map[netip.Addr]string{}); err != nil || len(a.cmds) != 2 {
+		t.Errorf("empty map: %v %q", err, a.cmds)
+	}
+	// Addresses outside the node subnet and invalid apps are refused, and
+	// the map stays as it was.
+	for name, bad := range map[string]map[netip.Addr]string{
+		"other subnet": {netip.MustParseAddr("10.120.1.3"): "web"},
+		"bad app":      {netip.MustParseAddr("10.120.0.3"): "web shop"},
+		"IPv6":         {netip.MustParseAddr("fd00::3"): "web"},
+		"injection":    {netip.MustParseAddr("10.120.0.3"): "web\n10.120.0.66 staging:db.staging"},
+	} {
+		if err := d.SetClients(ctx, bad); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+	if b, _ := os.ReadFile(file); len(b) != 0 {
+		t.Errorf("map changed by refused clients: %q", b)
+	}
+	// An odd answer to prepare map stops the update.
+	a.reply = func(string) string { return "New version created: 7; show info" }
+	if err := d.SetClients(ctx, clients); err == nil {
+		t.Error("odd prepare answer accepted")
+	}
+	// Nodes off the cluster network do not check callers.
+	plain, pe, pa, _ := newDriver(t)
+	pe.running = true
+	if err := plain.SetClients(ctx, clients); err != nil || len(pa.cmds) != 0 {
+		t.Errorf("node without a subnet: %v %q", err, pa.cmds)
 	}
 }
