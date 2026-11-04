@@ -234,6 +234,20 @@ func TestEndToEnd(t *testing.T) {
 		return n != nil && n.GetMode() == "plain" && n.GetClusterCidr() == "10.120.0.0/16" &&
 			len(n.GetPeers()) == 1 && n.GetPeers()[0].GetSubnet() == "10.120.0.0/24"
 	})
+	// Network isolation of the default project reaches the node (ADR 0029).
+	if code, out, stderr := cli("project", "set", "default", "--network-isolation"); code != 0 || !strings.Contains(out, "network isolation on") {
+		t.Fatalf("project set: code=%d out=%q err=%q", code, out, stderr)
+	}
+	waitFor("isolated default", func() bool { return testNets.get("node-1").applied().GetIsolateDefault() })
+	if code, out, _ := cli("project", "list"); code != 0 || !strings.Contains(out, "ISOLATED") || !strings.Contains(out, "default  0     yes") {
+		t.Errorf("project list:\n%s", out)
+	}
+	if code, _, stderr := cli("project", "set", "default"); code == 0 || !strings.Contains(stderr, "nothing to change") {
+		t.Errorf("project set without a flag: %d %q", code, stderr)
+	}
+	if code, _, _ := cli("project", "set", "default", "--network-isolation=false"); code != 0 {
+		t.Error("turning default isolation off failed")
+	}
 
 	spec := filepath.Join(t.TempDir(), "web.yaml")
 	if err := os.WriteFile(spec, []byte("name: web\nimage: nginx:1.27\ningress:\n  type: external\n  port: 80\nscale:\n  min: 2\n"), 0o600); err != nil {

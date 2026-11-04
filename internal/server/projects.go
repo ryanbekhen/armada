@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -30,7 +31,36 @@ func (s *Server) CreateProject(ctx context.Context, req *armadav1.CreateProjectR
 		return nil, storeErr(err)
 	}
 	s.log.Info("project created", "project", name, "by", actor(ctx))
-	return projectInfo(p, 0), nil
+	info := projectInfo(p, 0)
+	info.NetworkIsolation, err = s.isolated(ctx, name)
+	if err != nil {
+		return nil, storeErr(err)
+	}
+	return info, nil
+}
+
+// isolated reports whether the cluster network keeps project's containers
+// apart (ADR 0029).
+func (s *Server) isolated(ctx context.Context, project string) (bool, error) {
+	def, others, err := s.isolation(ctx)
+	if project == spec.DefaultProject {
+		return def, err
+	}
+	return others, err
+}
+
+// isolation reports whether the default project and the others are
+// isolated: never without a cluster network, always for projects other
+// than default, and for default once an administrator turns it on.
+func (s *Server) isolation(ctx context.Context) (def, others bool, err error) {
+	n, err := s.store.GetNetwork(ctx)
+	if errors.Is(err, store.ErrNotFound) {
+		return false, false, nil
+	}
+	if err != nil {
+		return false, false, err
+	}
+	return n.IsolateDefault, true, nil
 }
 
 // ListProjects lists every project with the number of apps and jobs in it.
@@ -49,15 +79,62 @@ func (s *Server) ListProjects(ctx context.Context, _ *armadav1.ListProjectsReque
 			count[p]++
 		}
 	}
+	isolateDefault, isolateOthers, err := s.isolation(ctx)
+	if err != nil {
+		return nil, storeErr(err)
+	}
 	acc := accessFrom(ctx)
 	resp := &armadav1.ListProjectsResponse{}
 	for _, p := range ps {
 		if acc.project(p.Name) != nil {
 			continue
 		}
-		resp.Projects = append(resp.Projects, projectInfo(p, count[p.Name]))
+		info := projectInfo(p, count[p.Name])
+		info.NetworkIsolation = isolateOthers
+		if p.Name == spec.DefaultProject {
+			info.NetworkIsolation = isolateDefault
+		}
+		resp.Projects = append(resp.Projects, info)
 	}
 	return resp, nil
+}
+
+// UpdateProject changes a project's settings: today the default project's
+// network isolation (ADR 0029). Administrators only.
+func (s *Server) UpdateProject(ctx context.Context, req *armadav1.UpdateProjectRequest) (*armadav1.ProjectInfo, error) {
+	name := req.GetName()
+	if name == "" {
+		name = spec.DefaultProject
+	}
+	if !spec.ValidProject(name) {
+		return nil, status.Error(codes.InvalidArgument, "invalid project name")
+	}
+	if !accessFrom(ctx).admin() {
+		return nil, status.Error(codes.PermissionDenied, "only administrators change project settings")
+	}
+	p, err := s.store.GetProject(ctx, name)
+	if err != nil {
+		return nil, storeErr(err)
+	}
+	if req.NetworkIsolation != nil {
+		on := req.GetNetworkIsolation()
+		if name != spec.DefaultProject {
+			if !on {
+				return nil, status.Errorf(codes.InvalidArgument, "project %s is always isolated; only the default project can turn network isolation off", name)
+			}
+		} else {
+			if err := s.store.SetDefaultIsolation(ctx, on, actor(ctx)); err != nil {
+				return nil, storeErr(err)
+			}
+			s.log.Info("default project network isolation changed", "on", on, "by", actor(ctx))
+			s.Trigger()
+		}
+	}
+	info := projectInfo(p, 0)
+	if info.NetworkIsolation, err = s.isolated(ctx, name); err != nil {
+		return nil, storeErr(err)
+	}
+	return info, nil
 }
 
 // DeleteProject removes an empty project.

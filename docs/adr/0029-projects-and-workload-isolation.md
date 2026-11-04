@@ -138,10 +138,11 @@ which become project-aware:
 - **Internal ingress and DNS.** Internal names gain the project:
   `<app>.<project>.internal`, and the `default` project keeps
   `<app>.internal`. The agent's DNS server answers a container only for
-  its own project's names (it knows each container's project from its
-  address). HAProxy's internal frontend admits a request only from
-  addresses of the app's project (and, with `ingress.allow`, only the
-  listed apps).
+  its own project's names: it knows each container's app from its address
+  (from its own containers, the same list its firewall uses), and answers
+  no internal name to an address it does not know. HAProxy's internal
+  frontend admits a request only from addresses of the app's project (and,
+  with `ingress.allow`, only the listed apps).
 - **Away from the platform.** A project container may reach the internet,
   its node's DNS server and internal ingress on the bridge gateway, and the
   containers its rules allow, and nothing else. Dropped in the forward and
@@ -154,14 +155,21 @@ which become project-aware:
     the private network and the machines on it are out of reach;
   - every other port on the node's own addresses.
 
+  A new container's address is known to its node's firewall as soon as it
+  starts; until then, and for any address the node does not know, the
+  node treats it as isolated. Connections opened before a rule changed
+  keep going until they end.
+
   These rules apply to every project. In `default` they apply once the
   administrator turns them on (`armada project set default
-  --network-isolation`), so running clusters do not break.
-- **Spoofing.** Each container's interface accepts only its own address as
-  a source (ADR 0027), so a container cannot pose as another project's.
-  Projects that require isolation on a cluster in `plain` mode get a
-  warning in `armada doctor`: across nodes the source check is only as
-  strong as the private network, and `wireguard` closes that gap.
+  --network-isolation`, stored with the cluster network), so running
+  clusters do not break. `armada project list` shows which projects are
+  isolated.
+- **Spoofing.** Containers run without `NET_ADMIN` and `NET_RAW` (ADR
+  0027), so a container cannot pose as another project's. Across nodes, in
+  the `plain` mode, the source of a packet is only as trustworthy as the
+  private network (a machine on it can forge VXLAN packets, T57); the
+  `wireguard` mode closes that gap.
 
 ### Kernel isolation
 
@@ -235,7 +243,9 @@ message:
 
 1. projects, store layout, automation identities, and `ProjectService`;
 2. network isolation between projects and away from the platform, built as
-   ADR 0027's access stage;
+   ADR 0027's access stage: first the firewall between apps and projects,
+   the rules away from the platform, and per-project DNS (done), then the
+   project check in HAProxy's internal frontend and `ingress.allow`;
 3. `isolation: sandbox` in the embedded runtime;
 4. quotas, shared-path limits, and usage per project;
 5. `isolation: vm` through drivers.

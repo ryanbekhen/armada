@@ -50,12 +50,15 @@ armada deploy -f web.yaml    # → https://web.apps.example.com
   node, so most requests never cross the network.
 - **Cluster network.** Each node's containers get their own subnet of one
   private range, routed between nodes over a tunnel on the private
-  network, so a container reaches any other at its own address and sees
-  its caller's real one; `--network wireguard` encrypts it.
+  network, so replicas are reached at their own address and see their
+  caller's real one; `--network wireguard` encrypts it. Apps reach each
+  other only through their internal names.
 - **Projects.** Apps, jobs, secrets, domains, and volumes belong to a
   project, so `web` can run in `staging` and in `default` side by side.
   Tools such as CI systems get automation identities that manage only
-  their projects, never the cluster.
+  their projects, never the cluster. Each project resolves only its own
+  internal names, and its containers are kept away from the nodes, the
+  private network, and the cloud's metadata service.
 - **Secrets.** Encrypted at rest, versioned, delivered as env vars or as
   read-only files on tmpfs.
 - **Logs and exec.** `armada logs` streams a replica's output;

@@ -193,9 +193,19 @@ exists only where a pair of nodes uses it.
   - between replicas of the same app;
   - to an app whose spec lists the caller in `ingress.allow: [app, ...]`.
 
-  The rules key on address sets per app. The agent keeps those sets from
-  the cluster-wide replica list that the leader sends in the network
-  configuration.
+  The rules key on address sets per app. Agents report each replica's
+  container address, the server keeps only addresses in the node's own
+  subnet, and the leader sends every node the cluster-wide list in the
+  network configuration (`endpoints`). The agent adds its own containers as
+  soon as they start, and validates the list again.
+  - The `ip` table's forward chain sees traffic between nodes; a `bridge`
+    table on `armada0` sees traffic between containers of one node, where
+    it passes ARP and drops everything but IPv4.
+  - Replies of known connections pass first, so a replica answers a proxy
+    on another node, whose source is that node's tunnel end. Sources that
+    are a node's own (tunnel end, bridge) pass.
+  - Traffic to an address no app holds is dropped. An address two apps
+    claim (one record stale) is left out of every set.
 - **Through `<app>.internal`.** HAProxy on the host reaches every replica,
   and containers call `<app>.internal` through their own node's HAProxy
   (ADR 0007).
@@ -203,8 +213,8 @@ exists only where a pair of nodes uses it.
     It checks the caller's source address against the same sets.
   - An app without `ingress.allow` stays callable by every app through
     `<app>.internal`, as today (T13 narrows to those apps).
-- **Spoofing.** Each container's veth accepts only that container's address
-  as a source. Across nodes, WireGuard's allowed addresses check the source
+- **Spoofing.** Containers run without `NET_ADMIN` and `NET_RAW`, so they
+  cannot change their address or send packets from another one. Across nodes, WireGuard's allowed addresses check the source
   node. In `plain` mode, the source check across nodes is only as strong as
   the private network.
 
@@ -373,7 +383,9 @@ Later stages add:
      node keys (done);
   2. replicas without published ports (done for the embedded runtime;
      drivers follow with `CAPABILITY_NODE_SUBNET`);
-  3. default deny and `ingress.allow`, between projects too (ADR 0029);
+  3. default deny and `ingress.allow`, between projects too (ADR 0029):
+     default deny between apps and per-project DNS are done; the check in
+     HAProxy's internal frontend and `ingress.allow` come next;
   4. TCP apps;
   5. replica names.
 

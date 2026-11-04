@@ -239,6 +239,17 @@ func TestApplyReportDistrustsAgent(t *testing.T) {
 	if rev.ImageDigest != good {
 		t.Errorf("valid digest not recorded: %q", rev.ImageDigest)
 	}
+
+	// The container address goes into every node's firewall (ADR 0029):
+	// only one in the node's own subnet is kept.
+	node.Subnet = "10.120.3.0/24"
+	for ip, want := range map[string]string{"10.120.4.7": "", "10.120.3.1": "", "10.120.3.7": "10.120.3.7"} {
+		s.applyReport(ctx, node, &armadav1.ReplicaReport{Replicas: []*armadav1.ReplicaState{{Id: "mine", State: "running", Ip: ip}}})
+		reps, _ = st.ListReplicas(ctx, store.ReplicaFilter{App: "web", NodeID: "n1"})
+		if reps[0].IP != want {
+			t.Errorf("reported IP %s stored as %q, want %q", ip, reps[0].IP, want)
+		}
+	}
 }
 
 func TestRandomID(t *testing.T) {

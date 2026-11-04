@@ -84,7 +84,7 @@ func (s *Server) Reconcile(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	network, err := s.buildNetwork(ctx, nodes)
+	network, err := s.buildNetwork(ctx, nodes, replicas)
 	if err != nil {
 		return err
 	}

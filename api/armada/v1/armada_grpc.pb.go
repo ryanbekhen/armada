@@ -47,6 +47,7 @@ const (
 	AdminService_CreateProject_FullMethodName              = "/armada.v1.AdminService/CreateProject"
 	AdminService_ListProjects_FullMethodName               = "/armada.v1.AdminService/ListProjects"
 	AdminService_DeleteProject_FullMethodName              = "/armada.v1.AdminService/DeleteProject"
+	AdminService_UpdateProject_FullMethodName              = "/armada.v1.AdminService/UpdateProject"
 	AdminService_SetAutomation_FullMethodName              = "/armada.v1.AdminService/SetAutomation"
 	AdminService_ListAutomations_FullMethodName            = "/armada.v1.AdminService/ListAutomations"
 	AdminService_DeleteAutomation_FullMethodName           = "/armada.v1.AdminService/DeleteAutomation"
@@ -104,6 +105,9 @@ type AdminServiceClient interface {
 	CreateProject(ctx context.Context, in *CreateProjectRequest, opts ...grpc.CallOption) (*ProjectInfo, error)
 	ListProjects(ctx context.Context, in *ListProjectsRequest, opts ...grpc.CallOption) (*ListProjectsResponse, error)
 	DeleteProject(ctx context.Context, in *DeleteProjectRequest, opts ...grpc.CallOption) (*DeleteProjectResponse, error)
+	// Change a project's settings (administrators only). Today only the
+	// default project's network isolation, which other projects always have.
+	UpdateProject(ctx context.Context, in *UpdateProjectRequest, opts ...grpc.CallOption) (*ProjectInfo, error)
 	// Automation identities (ADR 0029): tools that manage the apps of some
 	// projects and nothing else. Only administrators manage them.
 	SetAutomation(ctx context.Context, in *SetAutomationRequest, opts ...grpc.CallOption) (*AutomationInfo, error)
@@ -446,6 +450,16 @@ func (c *adminServiceClient) DeleteProject(ctx context.Context, in *DeleteProjec
 	return out, nil
 }
 
+func (c *adminServiceClient) UpdateProject(ctx context.Context, in *UpdateProjectRequest, opts ...grpc.CallOption) (*ProjectInfo, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ProjectInfo)
+	err := c.cc.Invoke(ctx, AdminService_UpdateProject_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *adminServiceClient) SetAutomation(ctx context.Context, in *SetAutomationRequest, opts ...grpc.CallOption) (*AutomationInfo, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(AutomationInfo)
@@ -639,6 +653,9 @@ type AdminServiceServer interface {
 	CreateProject(context.Context, *CreateProjectRequest) (*ProjectInfo, error)
 	ListProjects(context.Context, *ListProjectsRequest) (*ListProjectsResponse, error)
 	DeleteProject(context.Context, *DeleteProjectRequest) (*DeleteProjectResponse, error)
+	// Change a project's settings (administrators only). Today only the
+	// default project's network isolation, which other projects always have.
+	UpdateProject(context.Context, *UpdateProjectRequest) (*ProjectInfo, error)
 	// Automation identities (ADR 0029): tools that manage the apps of some
 	// projects and nothing else. Only administrators manage them.
 	SetAutomation(context.Context, *SetAutomationRequest) (*AutomationInfo, error)
@@ -763,6 +780,9 @@ func (UnimplementedAdminServiceServer) ListProjects(context.Context, *ListProjec
 }
 func (UnimplementedAdminServiceServer) DeleteProject(context.Context, *DeleteProjectRequest) (*DeleteProjectResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method DeleteProject not implemented")
+}
+func (UnimplementedAdminServiceServer) UpdateProject(context.Context, *UpdateProjectRequest) (*ProjectInfo, error) {
+	return nil, status.Error(codes.Unimplemented, "method UpdateProject not implemented")
 }
 func (UnimplementedAdminServiceServer) SetAutomation(context.Context, *SetAutomationRequest) (*AutomationInfo, error) {
 	return nil, status.Error(codes.Unimplemented, "method SetAutomation not implemented")
@@ -1306,6 +1326,24 @@ func _AdminService_DeleteProject_Handler(srv interface{}, ctx context.Context, d
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AdminService_UpdateProject_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdateProjectRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).UpdateProject(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminService_UpdateProject_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).UpdateProject(ctx, req.(*UpdateProjectRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _AdminService_SetAutomation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(SetAutomationRequest)
 	if err := dec(in); err != nil {
@@ -1646,6 +1684,10 @@ var AdminService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "DeleteProject",
 			Handler:    _AdminService_DeleteProject_Handler,
+		},
+		{
+			MethodName: "UpdateProject",
+			Handler:    _AdminService_UpdateProject_Handler,
 		},
 		{
 			MethodName: "SetAutomation",

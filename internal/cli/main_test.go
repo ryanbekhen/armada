@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"log/slog"
+	"net/netip"
 	"os"
 	"sync"
 	"testing"
@@ -59,7 +60,7 @@ type fakeNet struct {
 	last *armadav1.NetworkConfig
 }
 
-func (n *fakeNet) Apply(_ context.Context, cfg *armadav1.NetworkConfig) error {
+func (n *fakeNet) Apply(_ context.Context, cfg *armadav1.NetworkConfig, _ map[netip.Addr]string) error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	n.last = proto.CloneOf(cfg)

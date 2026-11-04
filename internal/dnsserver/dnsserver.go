@@ -49,6 +49,9 @@ type Server struct {
 	cfg   Config
 	log   *slog.Logger
 	names atomic.Pointer[map[string]bool]
+	// clients maps the node's container addresses to their app IDs; nil
+	// answers every name to every client.
+	clients atomic.Pointer[map[netip.Addr]string]
 
 	pc net.PacketConn
 	l  net.Listener
@@ -101,6 +104,17 @@ func (s *Server) SetNames(apps []string) {
 		m[a] = true
 	}
 	s.names.Store(&m)
+}
+
+// SetClients maps the addresses of the node's containers to their app IDs.
+// From then on a container resolves only the names of its own project
+// (ADR 0029), and an address not in the map resolves no internal name.
+func (s *Server) SetClients(clients map[netip.Addr]string) {
+	m := make(map[netip.Addr]string, len(clients))
+	for a, app := range clients {
+		m[a] = app
+	}
+	s.clients.Store(&m)
 }
 
 // Listen opens the UDP and TCP sockets, so a caller learns about a busy
@@ -179,7 +193,7 @@ func (s *Server) ServeDNS(w dns.ResponseWriter, req *dns.Msg) {
 	q := req.Question[0]
 	name := strings.ToLower(q.Name)
 	if name == zone || strings.HasSuffix(name, "."+zone) {
-		_ = w.WriteMsg(s.answer(req, q, name))
+		_ = w.WriteMsg(s.answer(req, q, name, remoteIP(w.RemoteAddr())))
 		return
 	}
 	select {
@@ -195,6 +209,11 @@ func (s *Server) ServeDNS(w dns.ResponseWriter, req *dns.Msg) {
 }
 
 func (s *Server) allowed(a net.Addr) bool {
+	ip := remoteIP(a)
+	return ip.IsValid() && s.cfg.Clients.Contains(ip)
+}
+
+func remoteIP(a net.Addr) netip.Addr {
 	var ip netip.Addr
 	switch v := a.(type) {
 	case *net.UDPAddr:
@@ -202,16 +221,36 @@ func (s *Server) allowed(a net.Addr) bool {
 	case *net.TCPAddr:
 		ip, _ = netip.AddrFromSlice(v.IP)
 	}
-	return ip.IsValid() && s.cfg.Clients.Contains(ip.Unmap())
+	return ip.Unmap()
+}
+
+// sees reports whether the container at client may resolve host (an app ID
+// or <label>--<app ID>): always without a client map, else only within its
+// own project.
+func (s *Server) sees(client netip.Addr, host string) bool {
+	clients := s.clients.Load()
+	if clients == nil {
+		return true
+	}
+	app, ok := (*clients)[client]
+	if !ok {
+		return false
+	}
+	if _, id, labelled := strings.Cut(host, "--"); labelled {
+		host = id
+	}
+	mine, _, ok1 := spec.SplitAppID(app)
+	theirs, _, ok2 := spec.SplitAppID(host)
+	return ok1 && ok2 && mine == theirs
 }
 
 // answer resolves a name in the internal zone authoritatively.
-func (s *Server) answer(req *dns.Msg, q dns.Question, name string) *dns.Msg {
+func (s *Server) answer(req *dns.Msg, q dns.Question, name string, client netip.Addr) *dns.Msg {
 	resp := new(dns.Msg)
 	resp.SetReply(req)
 	resp.Authoritative = true
 	app := strings.TrimSuffix(name, "."+zone)
-	if !spec.ValidHostName(app) || !(*s.names.Load())[app] {
+	if !spec.ValidHostName(app) || !(*s.names.Load())[app] || !s.sees(client, app) {
 		resp.Rcode = dns.RcodeNameError
 		return resp
 	}

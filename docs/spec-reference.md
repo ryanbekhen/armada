@@ -103,7 +103,7 @@ a secret; there is no inline password field.
 
 | Field | Meaning |
 | --- | --- |
-| `type` | `external`: reachable from the internet through HAProxy on every node, over HTTPS. `internal`: reachable only from containers in the cluster at `http://<name>.internal`. `none` (the default): no traffic is routed to the app. |
+| `type` | `external`: reachable from the internet through HAProxy on every node, over HTTPS. `internal`: reachable only from containers in the cluster at `http://<name>.internal`; with the cluster network, only containers of the same project resolve the name (ADR 0029). `none` (the default): no traffic is routed to the app. |
 | `port` | The container port that serves HTTP, 1–65535. Required for `external` and `internal`. |
 | `domains` | `external` only. Up to 32 lowercase, fully qualified host names (no IP addresses, wildcards, or trailing dot). Each domain is routed and gets a certificate only after its ownership is verified: publish the TXT record shown by `armada domain list`, then run `armada domain verify <domain>`. |
 | `routes` | Up to 32 path prefixes (`/` or `/a/b`, URL-safe characters, no `.` or `..` segments). Without routes the app gets every path of its hosts. `stripPrefix: true` removes the prefix before the request reaches the app (not allowed for `/`). The longest matching prefix wins. |

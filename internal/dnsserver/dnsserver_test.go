@@ -204,3 +204,41 @@ func TestForwardingIsBounded(t *testing.T) {
 		t.Errorf("forward after release: %s", dns.RcodeToString[r.Rcode])
 	}
 }
+
+func TestOwnProjectOnly(t *testing.T) {
+	t.Parallel()
+	s, addr := start(t, "127.0.0.0/8")
+	s.SetNames([]string{"web", "api", "web.shop", "canary--web.shop", "db.blog"})
+	resolves := func(name string) bool {
+		t.Helper()
+		return ask(t, addr, "udp", name, dns.TypeA).Rcode == dns.RcodeSuccess
+	}
+	// No client map yet: every name resolves, as on nodes without the
+	// cluster network.
+	if !resolves("db.blog.internal.") {
+		t.Fatal("without clients, a project name does not resolve")
+	}
+	// The test client is 127.0.0.1: a container of web.shop.
+	s.SetClients(map[netip.Addr]string{netip.MustParseAddr("127.0.0.1"): "web.shop"})
+	for name, want := range map[string]bool{
+		"web.shop.internal.":         true,
+		"canary--web.shop.internal.": true,
+		"web.internal.":              false, // the default project's
+		"api.internal.":              false,
+		"db.blog.internal.":          false, // another project's
+	} {
+		if got := resolves(name); got != want {
+			t.Errorf("%s resolves = %t, want %t", name, got, want)
+		}
+	}
+	// A container of the default project resolves only default names.
+	s.SetClients(map[netip.Addr]string{netip.MustParseAddr("127.0.0.1"): "api"})
+	if !resolves("web.internal.") || resolves("web.shop.internal.") {
+		t.Error("default container: wrong names")
+	}
+	// An address the agent does not know resolves no internal name.
+	s.SetClients(map[netip.Addr]string{netip.MustParseAddr("127.0.0.9"): "api"})
+	if resolves("web.internal.") {
+		t.Error("unknown client resolved an internal name")
+	}
+}

@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
+	"net/netip"
 	"slices"
 	"strings"
 	"sync"
@@ -60,10 +62,72 @@ func TestReconcileUnpublished(t *testing.T) {
 			t.Errorf("%s published: %+v", c.Name, spec)
 		}
 	}
+	// Every replica reports its container address, ingress or not: the
+	// firewalls key on it (ADR 0029).
+	for _, r := range report.Replicas {
+		if !strings.HasPrefix(r.Ip, "10.120.0.") {
+			t.Errorf("%s reported IP %q", r.Id, r.Ip)
+		}
+	}
 	// A container that still has a published port (started before) keeps
 	// being reported there.
 	if got := a.state(t.Context(), replica("x", "nginx:1", 80), runtime.Container{State: runtime.StateRunning, IP: "10.120.0.9", HostIP: "10.0.0.2", HostPort: 21000}).Address; got != "10.0.0.2:21000" {
 		t.Errorf("published container reported at %q", got)
+	}
+}
+
+// recordingNet stands in for the cluster network.
+type recordingNet struct {
+	mu    sync.Mutex
+	calls int
+	local map[netip.Addr]string
+}
+
+func (n *recordingNet) Apply(_ context.Context, _ *armadav1.NetworkConfig, local map[netip.Addr]string) error {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.calls++
+	n.local = maps.Clone(local)
+	return nil
+}
+
+// The firewall and the DNS server learn a new container's address as soon
+// as it starts, and the full list on every pass (ADR 0029).
+func TestNetworkKnowsLocalContainers(t *testing.T) {
+	t.Parallel()
+	d := fake.New()
+	d.BridgeIPs = "10.120.0."
+	ok := func(context.Context, string, string) error { return nil }
+	nw, dns := &recordingNet{}, &recordingDNS{}
+	a := New(Config{NodeID: "n1", PrivateIP: "10.0.0.2", Driver: d, Check: ok, Unpublished: true, Network: nw, DNS: dns})
+	a.setNetwork(&armadav1.NetworkConfig{Mode: "plain"})
+	web := replica("web-r1-a", "nginx:1", 8080)
+	api := replica("api-r1-a", "nginx:1", 8080)
+	api.App = "api.shop"
+	a.setDesired([]*armadav1.ReplicaSpec{web, api}, nil)
+	report, err := a.Reconcile(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[netip.Addr]string{}
+	for _, r := range report.Replicas {
+		app := "web"
+		if r.Id == "api-r1-a" {
+			app = "api.shop"
+		}
+		want[netip.MustParseAddr(r.Ip)] = app
+	}
+	nw.mu.Lock()
+	calls, local := nw.calls, nw.local
+	nw.mu.Unlock()
+	// Once per start, and once at the end of the pass.
+	if calls != 3 || !maps.Equal(local, want) {
+		t.Errorf("network applied %d times with %v, want 3 with %v", calls, local, want)
+	}
+	dns.mu.Lock()
+	defer dns.mu.Unlock()
+	if !maps.Equal(dns.clients, want) {
+		t.Errorf("DNS clients = %v, want %v", dns.clients, want)
 	}
 }
 
@@ -447,8 +511,15 @@ func TestReconcileAppliesProxy(t *testing.T) {
 
 // recordingDNS stands in for the node-local resolver.
 type recordingDNS struct {
-	mu    sync.Mutex
-	names []string
+	mu      sync.Mutex
+	names   []string
+	clients map[netip.Addr]string
+}
+
+func (r *recordingDNS) SetClients(c map[netip.Addr]string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.clients = maps.Clone(c)
 }
 
 func (r *recordingDNS) Address() string { return "172.17.0.1" }

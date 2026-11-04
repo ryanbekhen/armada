@@ -270,9 +270,38 @@ project. Internal apps of a project are reached at
 `NAME.PROJECT.<root domain>`, with a certificate of their own (a wildcard
 certificate covers only one level).
 
-Projects do not isolate containers yet: apps of different projects can
-still reach each other. Isolation between projects, kernel isolation, and
-quotas follow (ADR 0029).
+### Network isolation
+
+On a cluster with the cluster network (`armada init --cluster-cidr`, ADR
+0027), every node keeps apps and projects apart (ADR 0029):
+
+- A container reaches another app only through its internal name
+  (`http://NAME.internal`, `http://NAME.PROJECT.internal`): traffic straight
+  to another app's container address is dropped, on one node and between
+  nodes. Replicas of the same app still reach each other directly.
+- A container resolves only the internal names of its own project.
+- Containers of every project but `default` are isolated from the platform:
+  they reach the internet, their node's DNS server, and internal and public
+  ingress, and nothing else. The nodes, the control plane, the private
+  network and every machine on it, and the cloud's metadata service
+  (`169.254.169.254`) are out of reach.
+
+`default` is not isolated from the platform unless you turn it on, so apps
+that use a database on the private network keep working:
+
+```bash
+armada project set default --network-isolation        # once its apps no longer need the private network
+armada project set default --network-isolation=false
+armada project list                                   # the ISOLATED column
+```
+
+`armada doctor` checks that the firewall tables are in place (`isolation`;
+the kernel needs nf_tables). Connections opened before a change keep going
+until they end. Not yet: a container can still reach another project's
+internal app through its own node's proxy by sending that app's `Host`
+header (only its DNS name is hidden), and `ingress.allow`. Replicas of
+external drivers, macOS nodes, and clusters without the cluster network are
+not filtered. Kernel isolation and quotas follow (ADR 0029).
 
 ### Automation identities
 
