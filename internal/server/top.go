@@ -159,8 +159,12 @@ func (u *usageStore) load(now time.Time) (map[string]int64, bool) {
 // (ADR 0018). A replica's usage only counts when it comes from the node the
 // replica is assigned to.
 func (s *Server) Top(ctx context.Context, req *armadav1.TopRequest) (*armadav1.TopResponse, error) {
+	acc := accessFrom(ctx)
 	filter := store.ReplicaFilter{}
 	if req.GetApp() != "" {
+		if err := acc.app(req.GetApp()); err != nil {
+			return nil, err
+		}
 		if _, err := s.store.GetApp(ctx, req.GetApp()); err != nil {
 			return nil, storeErr(err)
 		}
@@ -171,7 +175,7 @@ func (s *Server) Top(ctx context.Context, req *armadav1.TopRequest) (*armadav1.T
 		return nil, storeErr(err)
 	}
 	// Finished job attempts keep a stopped container for their logs only.
-	reps = slices.DeleteFunc(reps, func(r store.Replica) bool { return r.Done })
+	reps = slices.DeleteFunc(reps, func(r store.Replica) bool { return r.Done || !acc.sees(r.App) })
 	now := s.now()
 	revs := &revisionCache{store: s.store, m: map[string]store.Revision{}}
 	reserved := revs.reserved(ctx)
@@ -224,6 +228,9 @@ func (s *Server) Top(ctx context.Context, req *armadav1.TopRequest) (*armadav1.T
 			}
 		}
 		resp.Nodes = append(resp.Nodes, nt)
+	}
+	if !acc.admin() {
+		resp.Nodes = nil
 	}
 	return resp, nil
 }

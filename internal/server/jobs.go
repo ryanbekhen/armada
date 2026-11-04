@@ -381,6 +381,9 @@ func (s *Server) jobOf(ctx context.Context, name string) (store.App, error) {
 // RunJob starts a run of a job now. With concurrency forbid it refuses
 // while a run is active; with replace it cancels that run.
 func (s *Server) RunJob(ctx context.Context, req *armadav1.RunJobRequest) (*armadav1.RunJobResponse, error) {
+	if err := accessFrom(ctx).app(req.GetJob()); err != nil {
+		return nil, err
+	}
 	job, err := s.jobOf(ctx, req.GetJob())
 	if err != nil {
 		return nil, err
@@ -422,9 +425,10 @@ func (s *Server) ListJobs(ctx context.Context, _ *armadav1.ListJobsRequest) (*ar
 	if err != nil {
 		return nil, storeErr(err)
 	}
+	acc := accessFrom(ctx)
 	resp := &armadav1.ListJobsResponse{}
 	for _, a := range apps {
-		if !a.Spec.IsJob() {
+		if !a.Spec.IsJob() || !acc.sees(a.Name) {
 			continue
 		}
 		info := &armadav1.JobInfo{Name: a.Name, Revision: a.ActiveRevision, Image: a.Spec.Image, Schedule: a.Spec.Schedule, TimeZone: a.Spec.TimeZone}
@@ -447,6 +451,9 @@ func (s *Server) ListJobs(ctx context.Context, _ *armadav1.ListJobsRequest) (*ar
 
 // ListJobRuns lists a job's runs, newest first.
 func (s *Server) ListJobRuns(ctx context.Context, req *armadav1.ListJobRunsRequest) (*armadav1.ListJobRunsResponse, error) {
+	if err := accessFrom(ctx).app(req.GetJob()); err != nil {
+		return nil, err
+	}
 	if _, err := s.jobOf(ctx, req.GetJob()); err != nil {
 		return nil, err
 	}
@@ -479,6 +486,9 @@ func runInfo(r store.JobRun) *armadav1.JobRunInfo {
 
 // CancelJob ends a job's active runs.
 func (s *Server) CancelJob(ctx context.Context, req *armadav1.CancelJobRequest) (*armadav1.CancelJobResponse, error) {
+	if err := accessFrom(ctx).app(req.GetJob()); err != nil {
+		return nil, err
+	}
 	if _, err := s.jobOf(ctx, req.GetJob()); err != nil {
 		return nil, err
 	}
@@ -498,6 +508,9 @@ func (s *Server) CancelJob(ctx context.Context, req *armadav1.CancelJobRequest) 
 
 // DeleteJob removes a job with its runs; their containers are removed.
 func (s *Server) DeleteJob(ctx context.Context, req *armadav1.DeleteJobRequest) (*armadav1.DeleteJobResponse, error) {
+	if err := accessFrom(ctx).app(req.GetJob()); err != nil {
+		return nil, err
+	}
 	if _, err := s.jobOf(ctx, req.GetJob()); err != nil {
 		return nil, err
 	}

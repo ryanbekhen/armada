@@ -43,6 +43,17 @@ service AdminService {
   rpc CreateProject(CreateProjectRequest) returns (ProjectInfo);
   rpc ListProjects(ListProjectsRequest) returns (ListProjectsResponse);
   rpc DeleteProject(DeleteProjectRequest) returns (DeleteProjectResponse);
+  // Automation identities (ADR 0029): tools that manage the apps of some
+  // projects and nothing else. Only administrators manage them.
+  rpc SetAutomation(SetAutomationRequest) returns (AutomationInfo);
+  rpc ListAutomations(ListAutomationsRequest) returns (ListAutomationsResponse);
+  rpc DeleteAutomation(DeleteAutomationRequest) returns (DeleteAutomationResponse);
+  // IssueAutomationCertificate signs a CSR made by the tool for the
+  // identity (90 days). Administrators only.
+  rpc IssueAutomationCertificate(IssueAutomationCertificateRequest) returns (IssueAutomationCertificateResponse);
+  // RenewAutomationCertificate is called by an automation identity with its
+  // current certificate; every other certificate of it is revoked.
+  rpc RenewAutomationCertificate(RenewAutomationCertificateRequest) returns (IssueAutomationCertificateResponse);
   // Exec runs a command in one replica of an app (ADR 0017). The first
   // client message is start; the server's first message names the replica
   // and its last the exit code.
@@ -197,6 +208,59 @@ message DeleteProjectRequest {
 }
 
 message DeleteProjectResponse {}
+
+message LabelAllowance {
+  string key = 1;
+  repeated string values = 2;
+}
+
+message SetAutomationRequest {
+  string name = 1;
+  repeated string projects = 2;
+  bool create_projects = 3;
+  // Node label values its apps' placement.require may name.
+  repeated LabelAllowance labels = 4;
+}
+
+message AutomationInfo {
+  string name = 1;
+  repeated string projects = 2;
+  bool create_projects = 3;
+  repeated LabelAllowance labels = 4;
+  google.protobuf.Timestamp created_at = 5;
+  string created_by = 6;
+  // Newest valid certificate's expiry; unset without one.
+  google.protobuf.Timestamp cert_expires_at = 7;
+  int32 certificates = 8;
+}
+
+message ListAutomationsRequest {}
+
+message ListAutomationsResponse {
+  repeated AutomationInfo automations = 1;
+}
+
+message DeleteAutomationRequest {
+  string name = 1;
+}
+
+message DeleteAutomationResponse {}
+
+message IssueAutomationCertificateRequest {
+  string name = 1;
+  // DER certificate request made by the tool; only its key is used.
+  bytes csr = 2;
+}
+
+message IssueAutomationCertificateResponse {
+  bytes cert = 1;
+  bytes ca_cert = 2;
+  google.protobuf.Timestamp expires_at = 3;
+}
+
+message RenewAutomationCertificateRequest {
+  bytes csr = 1;
+}
 
 message ListServersRequest {}
 

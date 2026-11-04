@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -46,9 +47,16 @@ func actor(ctx context.Context) string {
 
 // Deploy validates a spec and records it as the app's active revision.
 func (s *Server) Deploy(ctx context.Context, req *armadav1.DeployRequest) (*armadav1.DeployResponse, error) {
+	acc := accessFrom(ctx)
+	if err := acc.project(req.GetProject()); err != nil {
+		return nil, err
+	}
 	app, err := spec.ParseIn(req.GetSpec(), req.GetProject())
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
+	if err := acc.placement(app); err != nil {
+		return nil, err
 	}
 	rev, created, err := s.store.Deploy(ctx, app, actor(ctx))
 	if err != nil {
@@ -78,6 +86,9 @@ func (s *Server) Deploy(ctx context.Context, req *armadav1.DeployRequest) (*arma
 
 // Scale sets an app's desired replica count until its next deploy.
 func (s *Server) Scale(ctx context.Context, req *armadav1.ScaleRequest) (*armadav1.ScaleResponse, error) {
+	if err := accessFrom(ctx).app(req.GetApp()); err != nil {
+		return nil, err
+	}
 	n := int(req.GetReplicas())
 	if n < 1 || n > spec.MaxReplicas {
 		return nil, status.Errorf(codes.InvalidArgument, "replicas must be between 1 and %d", spec.MaxReplicas)
@@ -93,6 +104,9 @@ func (s *Server) Scale(ctx context.Context, req *armadav1.ScaleRequest) (*armada
 // SetTraffic changes how an app in multiple revision mode splits requests
 // until its next deploy (ADR 0024).
 func (s *Server) SetTraffic(ctx context.Context, req *armadav1.SetTrafficRequest) (*armadav1.SetTrafficResponse, error) {
+	if err := accessFrom(ctx).app(req.GetApp()); err != nil {
+		return nil, err
+	}
 	if len(req.GetTraffic()) > spec.MaxTrafficTargets {
 		return nil, status.Errorf(codes.InvalidArgument, "at most %d revisions", spec.MaxTrafficTargets)
 	}
@@ -125,6 +139,9 @@ func trafficMessage(traffic []spec.TrafficTarget) string {
 
 // ListRevisions lists an app's retained revisions, newest first.
 func (s *Server) ListRevisions(ctx context.Context, req *armadav1.ListRevisionsRequest) (*armadav1.ListRevisionsResponse, error) {
+	if err := accessFrom(ctx).app(req.GetApp()); err != nil {
+		return nil, err
+	}
 	app, err := s.store.GetApp(ctx, req.GetApp())
 	if err != nil {
 		return nil, storeErr(err)
@@ -147,6 +164,9 @@ func (s *Server) ListRevisions(ctx context.Context, req *armadav1.ListRevisionsR
 // cancels a rollout in progress, or else returns to the revision before the
 // active one.
 func (s *Server) Rollback(ctx context.Context, req *armadav1.RollbackRequest) (*armadav1.RollbackResponse, error) {
+	if err := accessFrom(ctx).app(req.GetApp()); err != nil {
+		return nil, err
+	}
 	app, err := s.store.GetApp(ctx, req.GetApp())
 	if err != nil {
 		return nil, storeErr(err)
@@ -191,8 +211,12 @@ func (s *Server) previousRevision(ctx context.Context, app store.App) (string, e
 
 // Status reports apps, replicas, and nodes.
 func (s *Server) Status(ctx context.Context, req *armadav1.StatusRequest) (*armadav1.StatusResponse, error) {
+	acc := accessFrom(ctx)
 	var apps []store.App
 	if req.GetApp() != "" {
+		if err := acc.app(req.GetApp()); err != nil {
+			return nil, err
+		}
 		a, err := s.store.GetApp(ctx, req.GetApp())
 		if err != nil {
 			return nil, storeErr(err)
@@ -206,6 +230,7 @@ func (s *Server) Status(ctx context.Context, req *armadav1.StatusRequest) (*arma
 		if apps, err = s.store.ListApps(ctx); err != nil {
 			return nil, storeErr(err)
 		}
+		apps = slices.DeleteFunc(apps, func(a store.App) bool { return !acc.sees(a.Name) })
 	}
 
 	nodes, err := s.store.ListNodes(ctx)
@@ -288,12 +313,19 @@ func (s *Server) Status(ctx context.Context, req *armadav1.StatusRequest) (*arma
 		}
 		resp.Nodes = append(resp.Nodes, ns)
 	}
+	if !acc.admin() {
+		// Nodes are the cluster's, not a project's.
+		resp.Nodes = nil
+	}
 	return resp, nil
 }
 
 // Logs streams logs from an app's replicas by asking each replica's agent to
 // push them.
 func (s *Server) Logs(req *armadav1.LogsRequest, stream armadav1.AdminService_LogsServer) error {
+	if err := accessFrom(stream.Context()).app(req.GetApp()); err != nil {
+		return err
+	}
 	ctx := stream.Context()
 	app, err := s.store.GetApp(ctx, req.GetApp())
 	if err != nil {

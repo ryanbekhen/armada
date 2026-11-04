@@ -351,12 +351,26 @@ func (s *Server) ListDomains(ctx context.Context, req *armadav1.ListDomainsReque
 	if err != nil {
 		return nil, storeErr(err)
 	}
+	acc := accessFrom(ctx)
+	if req.GetApp() != "" {
+		if err := acc.app(req.GetApp()); err != nil {
+			return nil, err
+		}
+	}
 	resp := &armadav1.ListDomainsResponse{}
 	for _, d := range domains {
 		if req.GetApp() != "" && !slices.Contains(users[d.Name], req.GetApp()) {
 			continue
 		}
-		resp.Domains = append(resp.Domains, s.domainProto(ctx, d, users[d.Name]))
+		// Others see a domain only through the apps of theirs that use it.
+		apps := slices.DeleteFunc(slices.Clone(users[d.Name]), func(a string) bool { return !acc.sees(a) })
+		if len(apps) == 0 && !acc.admin() {
+			continue
+		}
+		if acc.admin() {
+			apps = users[d.Name]
+		}
+		resp.Domains = append(resp.Domains, s.domainProto(ctx, d, apps))
 	}
 	return resp, nil
 }
@@ -374,6 +388,16 @@ func (s *Server) domainProto(ctx context.Context, d store.Domain, apps []string)
 
 // VerifyDomain checks a domain's TXT record now.
 func (s *Server) VerifyDomain(ctx context.Context, req *armadav1.VerifyDomainRequest) (*armadav1.Domain, error) {
+	if !accessFrom(ctx).admin() {
+		// Only a domain one of the caller's apps uses.
+		resp, err := s.ListDomains(ctx, &armadav1.ListDomainsRequest{})
+		if err != nil {
+			return nil, err
+		}
+		if !slices.ContainsFunc(resp.Domains, func(d *armadav1.Domain) bool { return d.Name == req.GetName() }) {
+			return nil, status.Errorf(codes.PermissionDenied, "%s may not verify %s", accessFrom(ctx).id, req.GetName())
+		}
+	}
 	d, err := s.store.GetDomain(ctx, req.GetName())
 	if err != nil {
 		return nil, storeErr(err)

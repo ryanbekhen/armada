@@ -22,18 +22,18 @@ func TestProjects(t *testing.T) {
 		t.Errorf("missing project = %v", err)
 	}
 
-	p, err := s.CreateProject(ctx, "staging", "admin:test")
+	p, err := s.CreateProject(ctx, "staging", "admin:test", "")
 	if err != nil || p.Name != "staging" || p.CreatedBy != "admin:test" || p.CreatedAt.IsZero() {
 		t.Fatalf("create: %+v %v", p, err)
 	}
-	if _, err := s.CreateProject(ctx, "staging", "admin:test"); !errors.Is(err, ErrConflict) {
+	if _, err := s.CreateProject(ctx, "staging", "admin:test", ""); !errors.Is(err, ErrConflict) {
 		t.Errorf("duplicate = %v", err)
 	}
-	if _, err := s.CreateProject(ctx, "default", "admin:test"); !errors.Is(err, ErrConflict) {
+	if _, err := s.CreateProject(ctx, "default", "admin:test", ""); !errors.Is(err, ErrConflict) {
 		t.Errorf("default = %v", err)
 	}
 	for _, bad := range []string{"", "Staging", "a--b", "a.b", "a/b", "-a", strings.Repeat("a", 31)} {
-		if _, err := s.CreateProject(ctx, bad, "admin:test"); err == nil {
+		if _, err := s.CreateProject(ctx, bad, "admin:test", ""); err == nil {
 			t.Errorf("CreateProject(%q) accepted", bad)
 		}
 	}
@@ -61,7 +61,7 @@ func TestDeployIntoProject(t *testing.T) {
 	if _, _, err := s.Deploy(ctx, sp, "admin:test"); !errors.Is(err, ErrPrecondition) || !strings.Contains(err.Error(), "project staging does not exist") {
 		t.Fatalf("deploy into a missing project = %v", err)
 	}
-	if _, err := s.CreateProject(ctx, "staging", "admin:test"); err != nil {
+	if _, err := s.CreateProject(ctx, "staging", "admin:test", ""); err != nil {
 		t.Fatal(err)
 	}
 	rev, created, err := s.Deploy(ctx, sp, "admin:test")
@@ -99,7 +99,7 @@ func TestProjectSecrets(t *testing.T) {
 			t.Errorf("SetSecret(%q) accepted", bad)
 		}
 	}
-	if _, err := s.CreateProject(ctx, "staging", "admin:test"); err != nil {
+	if _, err := s.CreateProject(ctx, "staging", "admin:test", ""); err != nil {
 		t.Fatal(err)
 	}
 	setSecret(t, s, k, "db.staging", "pw", "x", false)
@@ -116,5 +116,33 @@ func TestProjectSecrets(t *testing.T) {
 	// Removed means gone: nothing can be added to it again.
 	if _, _, err := s.SetSecret(ctx, "db.staging", "pw", nil, false, "admin:test"); !errors.Is(err, ErrPrecondition) {
 		t.Errorf("secret after removal = %v", err)
+	}
+}
+
+// A domain serves one project: another project can neither route a path
+// of it nor inherit its verification.
+func TestDomainsStayInOneProject(t *testing.T) {
+	t.Parallel()
+	s, ctx := open(t), context.Background()
+	if _, err := s.CreateProject(ctx, "b", "admin:test", ""); err != nil {
+		t.Fatal(err)
+	}
+	ext := func(name, path string) string {
+		return "name: " + name + "\nimage: nginx:1\ningress:\n  type: external\n  port: 80\n  domains: [shop.example.org]\n  routes:\n    - path: " + path + "\n"
+	}
+	if _, _, err := s.Deploy(ctx, mustParse(t, ext("web", "/")), "admin:test"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetDomainVerification(ctx, "shop.example.org", true, ""); err != nil {
+		t.Fatal(err)
+	}
+	other := mustParse(t, ext("api", "/api"))
+	other.Project = "b"
+	if _, _, err := s.Deploy(ctx, other, "admin:test"); !errors.Is(err, ErrConflict) || !strings.Contains(err.Error(), "used by project default") {
+		t.Fatalf("another project on the same domain = %v", err)
+	}
+	// The same project may add paths.
+	if _, _, err := s.Deploy(ctx, mustParse(t, ext("api", "/api")), "admin:test"); err != nil {
+		t.Fatalf("same project, other path: %v", err)
 	}
 }

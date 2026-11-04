@@ -378,16 +378,32 @@ type Store interface {
 	RemoveServer(ctx context.Context, name, actor string) error
 
 	// CreateProject records a new project (ADR 0029); ErrConflict if it
-	// exists or is the default project.
-	CreateProject(ctx context.Context, name, actor string) (Project, error)
+	// exists or is the default project. A non-empty automation adds the
+	// project to that identity's scope in the same transaction, and fails
+	// with ErrPrecondition unless the identity may create projects.
+	CreateProject(ctx context.Context, name, actor, automation string) (Project, error)
 	// GetProject returns a project; the default one always exists.
 	GetProject(ctx context.Context, name string) (Project, error)
 	// ListProjects lists every project, the default one first.
 	ListProjects(ctx context.Context) ([]Project, error)
 	// DeleteProject removes a project; ErrPrecondition while it still
 	// holds apps, secrets, volumes, runs, or replicas, and for the default
-	// project.
+	// project. It also leaves every automation scope.
 	DeleteProject(ctx context.Context, name, actor string) error
+
+	// SetAutomation creates an automation identity (ADR 0029) or replaces
+	// its scope; every project must exist and none may be the default.
+	SetAutomation(ctx context.Context, a Automation, actor string) (Automation, error)
+	GetAutomation(ctx context.Context, name string) (Automation, error)
+	ListAutomations(ctx context.Context) ([]Automation, error)
+	// DeleteAutomation removes an identity and so revokes its certificates.
+	DeleteAutomation(ctx context.Context, name, actor string) error
+	// RecordAutomationCert records a certificate issued to an identity; a
+	// non-empty keep revokes every other one (renewal).
+	RecordAutomationCert(ctx context.Context, name string, c NodeCert, keep, actor string) error
+	// AutomationScope returns an identity's scope and whether serial is
+	// one of its valid certificates.
+	AutomationScope(ctx context.Context, name, serial string) (Automation, bool, error)
 
 	// Deploy records spec as a new revision and makes it the rollout target
 	// unless it is identical to the current target. A spec identical to the

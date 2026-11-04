@@ -35,6 +35,9 @@ const (
 	KindEtcd = "etcd"
 	// KindMetrics may only scrape the metrics endpoint (ADR 0019).
 	KindMetrics = "metrics"
+	// KindAutomation manages the apps of the projects in its scope and
+	// nothing else (ADR 0029).
+	KindAutomation = "automation"
 )
 
 // EtcdMember is the identity of every etcd member certificate.
@@ -51,7 +54,10 @@ const (
 	// NodeValidity is the lifetime of node certificates; agents renew them
 	// automatically (see NeedsRenewal).
 	NodeValidity = 30 * 24 * time.Hour
-	clockSkew    = 5 * time.Minute
+	// AutomationValidity is the lifetime of automation certificates; tools
+	// renew them with `armada automation renew`.
+	AutomationValidity = 90 * 24 * time.Hour
+	clockSkew          = 5 * time.Minute
 )
 
 var identityNameRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,62}$`)
@@ -71,7 +77,7 @@ func ParseIdentity(cn string) (Identity, error) {
 		return Identity{}, fmt.Errorf("common name %q is not an armada identity", cn)
 	}
 	switch kind {
-	case KindAdmin, KindNode, KindServer, KindEtcd, KindMetrics:
+	case KindAdmin, KindNode, KindServer, KindEtcd, KindMetrics, KindAutomation:
 	default:
 		return Identity{}, fmt.Errorf("unknown identity kind %q", kind)
 	}

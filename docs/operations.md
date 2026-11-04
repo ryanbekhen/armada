@@ -270,10 +270,37 @@ project. Internal apps of a project are reached at
 `NAME.PROJECT.<root domain>`, with a certificate of their own (a wildcard
 certificate covers only one level).
 
-Projects do not isolate anything yet: apps of different projects can still
-reach each other, and every administrator manages every project.
-Isolation between projects, automation identities limited to their
-projects, kernel isolation, and quotas follow (ADR 0029).
+Projects do not isolate containers yet: apps of different projects can
+still reach each other. Isolation between projects, kernel isolation, and
+quotas follow (ADR 0029).
+
+### Automation identities
+
+A tool that manages projects on your behalf, such as a CI system or a
+self-service portal, gets an automation identity instead of an admin
+certificate. It manages the apps, jobs, secrets, domains, and volumes of
+the projects in its scope, and nothing else: not nodes, tokens, servers,
+backups, the network, or the default project. It sees only its projects in
+listings, and no nodes.
+
+```bash
+armada automation set portal --create-projects --project staging --label tier=shared
+armada automation credentials portal -o portal.json   # 0600; keep it with the tool
+armada --config portal.json deploy -f web.yaml --project staging
+armada --config portal.json automation renew          # before the 90 days run out
+armada automation list
+armada automation remove portal                       # its certificates stop working at once
+```
+
+`--create-projects` lets the tool create projects, which join its scope,
+and remove the ones it manages. `--label KEY=VALUE` is a node label its
+apps may require, for nodes you keep for some projects (restricted
+nodes). `set` replaces the scope and keeps the certificates. The tool
+reaches the API on the private network like the CLI.
+
+A domain serves one project: an app cannot use a domain that an app of
+another project uses, and a domain another project left behind needs a
+new TXT record.
 
 ## Node labels and placement
 

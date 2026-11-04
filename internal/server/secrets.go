@@ -34,6 +34,9 @@ func checkSecretTarget(app, name string, listing bool) error {
 // SetSecret stores a new version of an app secret, encrypted with the
 // master key, and optionally rolls the app out with it.
 func (s *Server) SetSecret(ctx context.Context, req *armadav1.SetSecretRequest) (*armadav1.SetSecretResponse, error) {
+	if err := accessFrom(ctx).app(req.GetApp()); err != nil {
+		return nil, err
+	}
 	app, name := req.GetApp(), req.GetName()
 	if err := checkSecretTarget(app, name, false); err != nil {
 		return nil, err
@@ -62,6 +65,9 @@ func (s *Server) SetSecret(ctx context.Context, req *armadav1.SetSecretRequest) 
 
 // ListSecrets lists an app's secrets without their values.
 func (s *Server) ListSecrets(ctx context.Context, req *armadav1.ListSecretsRequest) (*armadav1.ListSecretsResponse, error) {
+	if err := accessFrom(ctx).app(req.GetApp()); err != nil {
+		return nil, err
+	}
 	if err := checkSecretTarget(req.GetApp(), "", true); err != nil {
 		return nil, err
 	}
@@ -81,6 +87,9 @@ func (s *Server) ListSecrets(ctx context.Context, req *armadav1.ListSecretsReque
 
 // DeleteSecret removes every version of a secret the app no longer uses.
 func (s *Server) DeleteSecret(ctx context.Context, req *armadav1.DeleteSecretRequest) (*armadav1.DeleteSecretResponse, error) {
+	if err := accessFrom(ctx).app(req.GetApp()); err != nil {
+		return nil, err
+	}
 	app, name := req.GetApp(), req.GetName()
 	if err := checkSecretTarget(app, name, false); err != nil {
 		return nil, err

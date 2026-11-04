@@ -146,6 +146,12 @@ func (c *cluster) dial(ca *pki.CA, id pki.Identity) *grpc.ClientConn {
 		cert, _ := pki.ParseCertPEM(certPEM)
 		_ = c.store.RecordNodeCert(c.ctx, id.Name, store.NodeCert{Serial: pki.SerialString(cert), NotAfter: cert.NotAfter}, "")
 	}
+	return c.dialPEM(certPEM, keyPEM)
+}
+
+// dialPEM connects with a client certificate and key.
+func (c *cluster) dialPEM(certPEM, keyPEM []byte) *grpc.ClientConn {
+	c.t.Helper()
 	cfg, err := pki.ClientTLS(c.ca.CertPEM, certPEM, keyPEM)
 	if err != nil {
 		c.t.Fatal(err)
