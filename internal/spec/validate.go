@@ -211,6 +211,7 @@ func (a *App) Validate() error {
 		v.add("kind", "must be %q or %q", KindApp, KindJob)
 	}
 	v.name("name", a.Name)
+	v.project(a.Project)
 	v.image("image", a.Image)
 	v.args("command", a.Command)
 	v.args("args", a.Args)

@@ -63,6 +63,10 @@ type App struct {
 	// Volumes keep data across restarts on the replica's node (ADR 0025).
 	Volumes []Volume `yaml:"volumes,omitempty" json:"volumes,omitempty"`
 
+	// Project is the project the app belongs to (ADR 0029), set by the API
+	// rather than the file; empty means the default project.
+	Project string `yaml:"-" json:"project,omitempty"`
+
 	// Job settings (kind: job, ADR 0021).
 	Schedule    string   `yaml:"schedule,omitempty" json:"schedule,omitempty"`
 	TimeZone    string   `yaml:"timeZone,omitempty" json:"timeZone,omitempty"`
