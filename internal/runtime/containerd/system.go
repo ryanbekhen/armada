@@ -59,7 +59,7 @@ func (d *Driver) RunSystem(ctx context.Context, s runtime.SystemSpec) (_ string,
 	}
 	opts := argsOpts(img, runtime.ContainerSpec{Cmd: s.Cmd})
 	opts = append(opts, systemOpts(s, cgroupParent+"/"+id, seccompOpt(), sl)...)
-	return d.create(ctx, id, img, labels, opts, &undo)
+	return d.create(ctx, id, img, labels, opts, d.runcOpts(), &undo)
 }
 
 // lockedBuffer collects output written from two goroutines.

@@ -113,15 +113,15 @@ func TestHelloOSAndArch(t *testing.T) {
 		}
 		c.eventually(id+" connected", func() bool { return c.srv.session(id) != nil })
 	}
-	connect("good", &armadav1.Hello{PrivateIp: "10.0.0.21", Os: "linux", Arch: "arm64", Runtime: "docker", MinMemoryBytes: 200 << 20})
+	connect("good", &armadav1.Hello{PrivateIp: "10.0.0.21", Os: "linux", Arch: "arm64", Runtime: "embedded", MinMemoryBytes: 200 << 20, Sandbox: true})
 	connect("evil", &armadav1.Hello{PrivateIp: "10.0.0.22", Os: "linux\nregion=x", Arch: "../../amd64", Runtime: "Docker Engine", MinMemoryBytes: -1})
 	time.Sleep(100 * time.Millisecond)
-	if n, _ := c.store.GetNode(c.ctx, "good"); n.OS != "linux" || n.Arch != "arm64" || n.AllLabels()[spec.LabelRuntime] != "docker" {
+	if n, _ := c.store.GetNode(c.ctx, "good"); n.OS != "linux" || n.Arch != "arm64" || n.AllLabels()[spec.LabelRuntime] != "embedded" {
 		t.Errorf("good node: os %q arch %q runtime %q", n.OS, n.Arch, n.Runtime)
-	} else if n.MinMemoryBytes != 200<<20 {
-		t.Errorf("good node: minimum memory %d", n.MinMemoryBytes)
+	} else if n.MinMemoryBytes != 200<<20 || !n.Sandbox {
+		t.Errorf("good node: minimum memory %d, sandbox %v", n.MinMemoryBytes, n.Sandbox)
 	}
-	if n, _ := c.store.GetNode(c.ctx, "evil"); n.OS != "" || n.Arch != "" || n.Runtime != "" || n.MinMemoryBytes != 0 {
+	if n, _ := c.store.GetNode(c.ctx, "evil"); n.OS != "" || n.Arch != "" || n.Runtime != "" || n.MinMemoryBytes != 0 || n.Sandbox {
 		t.Errorf("invalid values stored: os %q arch %q runtime %q minimum memory %d", n.OS, n.Arch, n.Runtime, n.MinMemoryBytes)
 	}
 }

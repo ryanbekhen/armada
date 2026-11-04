@@ -333,6 +333,7 @@ type nodeRec struct {
 	MinMemory   int64             `json:"minMemory,omitempty"`
 	Jobs        bool              `json:"jobs,omitempty"`
 	Volumes     bool              `json:"volumes,omitempty"`
+	Sandbox     bool              `json:"sandbox,omitempty"`
 	// Subnet is the node's container subnet in the cluster network
 	// (ADR 0027); empty in clusters without one.
 	Subnet string `json:"subnet,omitempty"`
@@ -527,7 +528,7 @@ func (t *etx) toNode(n nodeRec) (Node, error) {
 	out := Node{ID: n.ID, PrivateIP: n.PrivateIP, CPUMillis: n.CPUMillis, MemoryBytes: n.MemoryBytes, State: n.State,
 		LastSeen: fromMS(n.LastSeen), CreatedAt: fromMS(n.CreatedAt), Cordoned: n.Cordoned, Version: n.Version,
 		Labels: n.Labels, OS: n.OS, Arch: n.Arch, Runtime: n.Runtime, Restricted: n.Restricted,
-		MinMemoryBytes: n.MinMemory, Jobs: n.Jobs, Volumes: n.Volumes, Subnet: n.Subnet, NetworkKey: n.NetworkKey}
+		MinMemoryBytes: n.MinMemory, Jobs: n.Jobs, Volumes: n.Volumes, Sandbox: n.Sandbox, Subnet: n.Subnet, NetworkKey: n.NetworkKey}
 	var latest int64
 	err := listInto(t, pfxCerts+n.ID+"/", func(_ string, c certRec) error {
 		latest = max(latest, c.NotAfter)
@@ -618,7 +619,7 @@ func (s *Etcd) SetNodeStatus(ctx context.Context, id string, st NodeStatus) erro
 			return notFoundf("node %s", id)
 		}
 		n.State, n.LastSeen, n.CPUMillis, n.MemoryBytes = st.State, ms(st.LastSeen), st.CPUMillis, st.MemoryBytes
-		n.MinMemory, n.Jobs, n.Volumes = st.MinMemoryBytes, st.Jobs, st.Volumes
+		n.MinMemory, n.Jobs, n.Volumes, n.Sandbox = st.MinMemoryBytes, st.Jobs, st.Volumes, st.Sandbox
 		if st.Version != "" {
 			n.Version = st.Version
 		}

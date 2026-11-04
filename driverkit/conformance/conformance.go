@@ -45,6 +45,13 @@ type Options struct {
 	// checking no-new-privileges and the PID limit; test containers get at
 	// least MinMemoryBytes.
 	Info driverkit.Info
+	// Sandbox says every container runs under its own userspace kernel
+	// (Armada's embedded runtime with `isolation: sandbox`, ADR 0029): the
+	// suite also checks that containers run on separate kernels. The
+	// memory and PID limits and a volume's mount flags apply on the host,
+	// where the sandbox cannot show them, so the runtime's own tests check
+	// those.
+	Sandbox bool
 }
 
 // Linux capability numbers of runtime.DroppedCaps.
@@ -74,6 +81,9 @@ func Run(t *testing.T, d driverkit.Driver, opts Options) {
 	t.Run("SecurityDefaults", r.securityDefaults)
 	if opts.Info.VMIsolation {
 		t.Run("VMIsolation", r.vmIsolation)
+	}
+	if opts.Sandbox {
+		t.Run("Sandbox", r.vmIsolation)
 	}
 	t.Run("Lifecycle", r.lifecycle)
 	t.Run("Labels", r.labels)
@@ -237,10 +247,12 @@ echo "env $GREETING"`)
 			t.Errorf("capability %s not dropped (CapEff %s)", c, fields["CapEff"])
 		}
 	}
-	if fields["memory"] != strconv.FormatInt(spec.MemoryBytes, 10) {
+	// A sandbox's limits apply to the whole sandbox on the host and are
+	// not visible inside it; the runtime checks them there.
+	if fields["memory"] != strconv.FormatInt(spec.MemoryBytes, 10) && !r.opts.Sandbox {
 		t.Errorf("memory limit %q, want %d", fields["memory"], spec.MemoryBytes)
 	}
-	if fields["pids"] != strconv.FormatInt(spec.PidsLimit, 10) && !vm {
+	if fields["pids"] != strconv.FormatInt(spec.PidsLimit, 10) && !vm && !r.opts.Sandbox {
 		t.Errorf("PID limit %q, want %d", fields["pids"], spec.PidsLimit)
 	}
 	if fields["file"] != "s3cret" {
@@ -257,8 +269,9 @@ echo "env $GREETING"`)
 	}
 }
 
-// vmIsolation checks a driver's VM isolation claim: two containers, and
-// this machine when it runs Linux, report different kernel boot IDs.
+// vmIsolation checks a driver's VM isolation or sandbox claim: two
+// containers, and this machine when it runs Linux, report different kernel
+// boot IDs.
 func (r *runner) vmIsolation(t *testing.T) {
 	const cmd = "cat /proc/sys/kernel/random/boot_id"
 	seen := map[string]string{}
@@ -592,9 +605,10 @@ func (r *runner) volumes(t *testing.T) {
 	if err != nil || strings.TrimSpace(string(b)) != "written" {
 		t.Errorf("the container's write did not reach the host directory: %q, %v", b, err)
 	}
-	if checkFlags && !r.opts.Info.VMIsolation {
-		// In a VM the guest's mount table shows its own file sharing
-		// options; the host directory's flags cannot be read there.
+	if checkFlags && !r.opts.Info.VMIsolation && !r.opts.Sandbox {
+		// In a VM or a sandbox the guest's mount table shows its own file
+		// sharing options; the host directory's flags cannot be read
+		// there.
 		for _, flag := range []string{"nosuid", "nodev"} {
 			if !strings.Contains(out, flag) {
 				t.Errorf("volume mounted without %s: %q", flag, out)

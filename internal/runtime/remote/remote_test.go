@@ -260,6 +260,12 @@ func TestSpecsAreCheckedOnBothSides(t *testing.T) {
 	if _, err := d.Run(ctx, runtime.ContainerSpec{Name: "x", Image: "i", Port: 80, HostIP: "203.0.113.5", MemoryBytes: 1, PidsLimit: 1}); err == nil {
 		t.Error("public publish address accepted by the agent")
 	}
+	if _, err := d.Run(ctx, runtime.ContainerSpec{Name: "x", Image: "i", MemoryBytes: 1, PidsLimit: 1, Sandbox: true}); err == nil {
+		t.Error("sandboxed container sent to a driver")
+	}
+	if runtime.CanSandbox(d) {
+		t.Error("a driver claims to sandbox")
+	}
 
 	// A client that skips the agent's checks.
 	conn, err := grpc.NewClient("unix://"+filepath.Join(sock, "test.sock"), grpc.WithTransportCredentials(insecure.NewCredentials()))

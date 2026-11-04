@@ -799,6 +799,9 @@ message Hello {
   // The node's WireGuard public key, base64 (ADR 0027); empty when the node
   // is not part of a cluster network.
   string network_key = 11;
+  // The node runs containers in a userspace kernel (`isolation: sandbox`,
+  // ADR 0029): its runtime is the embedded one and carries runsc.
+  bool sandbox = 12;
 }
 
 message ReplicaReport {

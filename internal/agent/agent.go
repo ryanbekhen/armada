@@ -287,6 +287,7 @@ func (a *Agent) session(ctx context.Context) (established bool, err error) {
 		CpuMillis: a.cfg.CPUMillis, MemoryBytes: a.cfg.MemoryBytes, Version: version.Get().Version, PrivateIp: a.cfg.PrivateIP,
 		Os: cmp.Or(a.cfg.OS, goruntime.GOOS), Arch: cmp.Or(a.cfg.Arch, goruntime.GOARCH), Runtime: a.cfg.Runtime,
 		MinMemoryBytes: a.cfg.MinMemoryBytes, Jobs: true, Volumes: a.mountsVolumes(), NetworkKey: a.cfg.NetworkKey,
+		Sandbox: runtime.CanSandbox(a.cfg.Driver),
 	}}}
 	if err := stream.Send(hello); err != nil {
 		return false, err

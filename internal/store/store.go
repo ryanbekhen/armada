@@ -79,6 +79,9 @@ type Node struct {
 	Jobs bool
 	// Volumes is true when the node mounts volumes (ADR 0025).
 	Volumes bool
+	// Sandbox is true when the node runs containers in a userspace kernel
+	// (`isolation: sandbox`, ADR 0029).
+	Sandbox bool
 	// Subnet is the node's container subnet in the cluster network
 	// (ADR 0027), given when the node is created; empty in clusters
 	// without one.
@@ -282,9 +285,10 @@ type NodeStatus struct {
 	Runtime string
 	// MinMemoryBytes as the agent reports it.
 	MinMemoryBytes int64
-	// Jobs and Volumes as the agent reports them.
+	// Jobs, Volumes, and Sandbox as the agent reports them.
 	Jobs    bool
 	Volumes bool
+	Sandbox bool
 	// NetworkKey as the agent announces it; empty keeps the recorded one.
 	// A key another node holds is refused with ErrConflict.
 	NetworkKey string

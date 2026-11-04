@@ -117,7 +117,7 @@ armada deploy -f web.yaml    # → https://web.apps.example.com
 Armada needs Linux machines (cloud instances, VMs, or bare metal) with a
 private network between them, and nothing else (Macs can add compute
 nodes): the binary embeds its own
-container runtime (containerd, runc, CNI plugins) and
+container runtime (containerd, runc, CNI plugins, gVisor) and
 its state store (etcd).
 
 ## Documentation

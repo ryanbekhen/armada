@@ -31,6 +31,7 @@ func healthyEnv(t *testing.T) doctorEnv {
 	}
 	d := fake.New()
 	d.BridgeNet = runtime.Bridge{Gateway: netip.MustParseAddr("10.121.0.1"), Subnet: netip.MustParsePrefix("10.121.0.0/24")}
+	d.Sandbox = true
 	return doctorEnv{
 		goos:       "linux",
 		euid:       0,

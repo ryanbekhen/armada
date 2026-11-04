@@ -260,6 +260,11 @@ func checkRuntime(ctx context.Context, env doctorEnv) []checkResult {
 		}
 	default:
 		add("runtime", checkOK, "embedded runtime reachable")
+		if runtime.CanSandbox(env.driver) {
+			add("sandbox", checkOK, "runsc available: replicas with isolation sandbox run in a userspace kernel")
+		} else {
+			add("sandbox", checkWarn, "the runtime has no runsc (a build without the runtime bundle): this node runs no replicas with isolation sandbox")
+		}
 	}
 	if bi, ok := env.driver.(runtime.BridgeInspector); ok && runtime.HasBridge(env.driver) {
 		b, err := bi.Bridge(ctx)
