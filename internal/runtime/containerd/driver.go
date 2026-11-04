@@ -46,6 +46,8 @@ const (
 	labelIP       = labelPrefix + "ip"
 	labelNetNS    = labelPrefix + "netns"
 	labelStarted  = labelPrefix + "started"
+	// labelIsolation is "sandbox" for containers in gVisor (ADR 0029).
+	labelIsolation = labelPrefix + "isolation"
 )
 
 // cgroupParent groups Armada's containers in the cgroup v2 hierarchy.
@@ -267,6 +269,32 @@ func (d *Driver) runcOpts() *options.Options {
 	return &options.Options{BinaryName: filepath.Join(d.paths.Bin(), embedded.BinRunc)}
 }
 
+// sandboxOpts runs a container with runsc instead of runc (ADR 0029). The
+// runc shim drives runsc through the same OCI commands, so output, exec,
+// and stats work as for any other container; runsc keeps its state apart
+// from runc's.
+func (d *Driver) sandboxOpts() *options.Options {
+	return &options.Options{
+		BinaryName: filepath.Join(d.paths.Bin(), embedded.BinRunsc),
+		Root:       filepath.Join(d.paths.State(), "runsc"),
+	}
+}
+
+// CanSandbox reports whether this node runs sandboxed containers: the
+// runtime's binaries include runsc and its sentry. Release builds carry
+// both; a --bin-dir without them runs no sandboxed containers.
+func (d *Driver) CanSandbox() bool { return sandboxAvailable(d.paths.Bin()) }
+
+func sandboxAvailable(bin string) bool {
+	for _, n := range []string{embedded.BinRunsc, embedded.BinSentry} {
+		fi, err := os.Stat(filepath.Join(bin, n))
+		if err != nil || !fi.Mode().IsRegular() || fi.Mode().Perm()&0o111 == 0 {
+			return false
+		}
+	}
+	return true
+}
+
 // logIO makes the shim pipe the container's output to `armada runtime-log`.
 func (d *Driver) logIO() cio.Creator {
 	return cio.BinaryIO(d.self, map[string]string{"runtime-log": d.paths.Logs()})
@@ -276,6 +304,9 @@ func (d *Driver) logIO() cio.Creator {
 func (d *Driver) Run(ctx context.Context, s runtime.ContainerSpec) (_ string, err error) {
 	if err := runtime.CheckContainerSpec(s); err != nil {
 		return "", err
+	}
+	if s.Sandbox && !d.CanSandbox() {
+		return "", errors.New("this node cannot run sandboxed containers: the runtime has no runsc")
 	}
 	id, err := newID(s.Name)
 	if err != nil {
@@ -293,9 +324,14 @@ func (d *Driver) Run(ctx context.Context, s runtime.ContainerSpec) (_ string, er
 
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	sl, err := d.newLabels(ctx)
-	if err != nil {
-		return "", err
+	// gVisor refuses SELinux labels: a sandboxed container's processes are
+	// confined by the sentry, which serves its system calls, and the
+	// sentry's own seccomp filter.
+	var sl selinuxLabels
+	if !s.Sandbox {
+		if sl, err = d.newLabels(ctx); err != nil {
+			return "", err
+		}
 	}
 	var undo []func()
 	defer func() {
@@ -372,7 +408,12 @@ func (d *Driver) Run(ctx context.Context, s runtime.ContainerSpec) (_ string, er
 		selinux:  sl,
 	})...)
 	labels[labelStarted] = time.Now().UTC().Format(time.RFC3339Nano)
-	return d.create(ctx, id, img, labels, opts, &undo)
+	rt := d.runcOpts()
+	if s.Sandbox {
+		labels[labelIsolation] = "sandbox"
+		rt = d.sandboxOpts()
+	}
+	return d.create(ctx, id, img, labels, opts, rt, &undo)
 }
 
 // newLabels returns fresh SELinux labels for a container (empty where
@@ -401,11 +442,11 @@ func (d *Driver) newLabels(ctx context.Context) (selinuxLabels, error) {
 }
 
 // create makes the container and starts its task; undo collects cleanups.
-func (d *Driver) create(ctx context.Context, id string, img client.Image, labels map[string]string, opts []oci.SpecOpts, undo *[]func()) (string, error) {
+func (d *Driver) create(ctx context.Context, id string, img client.Image, labels map[string]string, opts []oci.SpecOpts, rt *options.Options, undo *[]func()) (string, error) {
 	c, err := d.client.NewContainer(ctx, id,
 		client.WithImage(img),
 		client.WithNewSnapshot(id, img),
-		client.WithRuntime(plugins.RuntimeRuncV2, d.runcOpts()),
+		client.WithRuntime(plugins.RuntimeRuncV2, rt),
 		client.WithContainerLabels(labels),
 		client.WithNewSpec(opts...),
 	)
@@ -512,7 +553,20 @@ func (d *Driver) Remove(ctx context.Context, id string) error {
 		return notFound(err)
 	}
 	if t, err := c.Task(ctx, nil); err == nil {
-		if _, err := t.Delete(ctx, client.WithProcessKill); err != nil && !errdefs.IsNotFound(err) {
+		// A stopped task is deleted without a kill: runsc, unlike runc,
+		// fails to kill a sandbox that is no longer running.
+		var opts []client.ProcessDeleteOpts
+		if st, err := t.Status(ctx); err != nil || st.Status != client.Stopped {
+			opts = append(opts, client.WithProcessKill)
+		}
+		_, err := t.Delete(ctx, opts...)
+		if err != nil && len(opts) > 0 {
+			// It may have stopped in between.
+			if st, serr := t.Status(ctx); serr == nil && st.Status == client.Stopped {
+				_, err = t.Delete(ctx)
+			}
+		}
+		if err != nil && !errdefs.IsNotFound(err) {
 			return fmt.Errorf("delete task: %w", err)
 		}
 	} else if !errdefs.IsNotFound(err) {

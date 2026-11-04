@@ -37,13 +37,15 @@ SHA-256 in `internal/runtime/embedded/lock.go`:
 | runc | OCI runtime (needs CGO and C, so it cannot be compiled into Armada) |
 | CNI plugins `bridge`, `host-local`, `loopback`, `portmap`, `firewall` | Container networking |
 | tini (static) | PID 1 in every app container: reaps zombies and forwards signals |
+| gVisor `runsc` and its sentry (`gvisor-bin/`: `gvisor_sentry` and three small helpers) | The userspace kernel of `isolation: sandbox` (ADR 0029), driven by the same runc shim |
 
 No `ctr` binary is bundled.
 
 - `make runtime-bundle` downloads the pinned artifacts over HTTPS, refuses
   any whose SHA-256 differs from the lock, and packs them per
   architecture. The maintainer who bumps a version verifies the upstream
-  signatures (runc and tini publish GPG signatures) before recording the
+  signatures (runc and tini publish GPG signatures; gVisor's checksums are
+  compared between its GitHub release and its own bucket) before recording the
   new checksums; builds trust the pinned checksums. Release builds embed
   the pack with `go:embed` (build tag `bundle`); without the tag
   (development, unit tests) `armada runtime --bin-dir DIR` uses binaries
@@ -183,8 +185,10 @@ embedded runtime stays the default and runs in the agent's process.
 
 - A node needs only the Armada binary, a Linux kernel with cgroup v2 and
   overlayfs, and `iptables`.
-- The binary grows by roughly 40 MB (compressed bundle).
-- Armada owns updates of containerd, runc, the CNI plugins, and tini.
+- The binary grows by roughly 70 MB (compressed bundle; about 30 MB of it
+  is gVisor).
+- Armada owns updates of containerd, runc, the CNI plugins, tini, and
+  gVisor.
 - `armada status` and `armada logs` are the interface to containers (an
   upstream `ctr` can inspect the instance with `--address` set to the
   socket above and `--namespace armada`).

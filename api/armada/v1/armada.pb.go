@@ -5920,7 +5920,10 @@ type Hello struct {
 	Volumes bool `protobuf:"varint,10,opt,name=volumes,proto3" json:"volumes,omitempty"`
 	// The node's WireGuard public key, base64 (ADR 0027); empty when the node
 	// is not part of a cluster network.
-	NetworkKey    string `protobuf:"bytes,11,opt,name=network_key,json=networkKey,proto3" json:"network_key,omitempty"`
+	NetworkKey string `protobuf:"bytes,11,opt,name=network_key,json=networkKey,proto3" json:"network_key,omitempty"`
+	// The node runs containers in a userspace kernel (`isolation: sandbox`,
+	// ADR 0029): its runtime is the embedded one and carries runsc.
+	Sandbox       bool `protobuf:"varint,12,opt,name=sandbox,proto3" json:"sandbox,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -6030,6 +6033,13 @@ func (x *Hello) GetNetworkKey() string {
 		return x.NetworkKey
 	}
 	return ""
+}
+
+func (x *Hello) GetSandbox() bool {
+	if x != nil {
+		return x.Sandbox
+	}
+	return false
 }
 
 type ReplicaReport struct {
@@ -9814,7 +9824,7 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\x04wake\x18\x04 \x01(\v2\x0f.armada.v1.WakeH\x00R\x04wakeB\x05\n" +
 	"\x03msg\"\x18\n" +
 	"\x04Wake\x12\x10\n" +
-	"\x03app\x18\x01 \x01(\tR\x03app\"\xb9\x02\n" +
+	"\x03app\x18\x01 \x01(\tR\x03app\"\xd3\x02\n" +
 	"\x05Hello\x12\x1d\n" +
 	"\n" +
 	"cpu_millis\x18\x01 \x01(\x03R\tcpuMillis\x12!\n" +
@@ -9830,7 +9840,8 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\avolumes\x18\n" +
 	" \x01(\bR\avolumes\x12\x1f\n" +
 	"\vnetwork_key\x18\v \x01(\tR\n" +
-	"networkKey\"D\n" +
+	"networkKey\x12\x18\n" +
+	"\asandbox\x18\f \x01(\bR\asandbox\"D\n" +
 	"\rReplicaReport\x123\n" +
 	"\breplicas\x18\x01 \x03(\v2\x17.armada.v1.ReplicaStateR\breplicas\"\xb6\x02\n" +
 	"\fReplicaState\x12\x0e\n" +

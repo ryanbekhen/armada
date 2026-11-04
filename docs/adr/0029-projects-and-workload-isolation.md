@@ -184,16 +184,27 @@ sets the minimum:
 | `vm` | Each replica in its own virtual machine through a driver that declares `vm_isolation` (ADR 0016) | a node with such a driver |
 
 - `sandbox` is the default for every project except `default`. The
-  embedded runtime ships `runsc` and its containerd shim, pinned and
-  verified like the other runtime binaries (`internal/runtime/embedded`),
-  and registers it as a second runtime. The OCI spec Armada builds stays
-  the same, so every security default still applies inside the sandbox.
-- Agents announce which levels they support (`Hello.isolation`), and
+  embedded runtime ships `runsc` and the sentry it runs, pinned and
+  verified like the other runtime binaries (`internal/runtime/embedded`).
+  The runc shim that runs every other container drives `runsc` through the
+  same OCI commands (gVisor's own shim cannot hand output to Armada's log
+  writer), so output, exec, stats, and probes keep their path. The OCI
+  spec Armada builds stays the same, so every security default still
+  applies inside the sandbox, with one exception: gVisor refuses SELinux
+  labels, so a sandboxed container runs without one, confined by the
+  sentry that serves its system calls and the sentry's own seccomp filter.
+  The memory and PID limits bound the whole sandbox in its cgroup on the
+  host.
+- Agents announce whether they run sandboxed containers (`Hello.sandbox`;
+  `vm` follows from a driver's `vm_isolation`), and
   `placementAllows` places a replica only on a node that supports its
   project's level. A project that requires a level no node supports gets
   a `NoIsolation` condition, never a weaker level.
-- The conformance suite gains a check that a `sandbox` container does not
-  see the node's kernel (version and boot ID differ).
+- The conformance suite gains a `Sandbox` option: the embedded runtime
+  runs the whole suite with every container in gVisor, which also checks
+  that each container has a kernel of its own (the boot ID differs). The
+  limits and a volume's mount flags apply on the host, where the sandbox
+  cannot show them, so the runtime's integration test checks them there.
 - Exec, stats, logs, volumes, and probes work at every level; features
   that a level cannot support are refused when the project is set, not
   silently ignored.
@@ -246,7 +257,8 @@ message:
    ADR 0027's access stage: the firewall between apps and projects, the
    rules away from the platform, per-project DNS, the project check in
    HAProxy's internal frontend, and `ingress.allow` (done);
-3. `isolation: sandbox` in the embedded runtime;
+3. `isolation: sandbox` in the embedded runtime: first the runtime and
+   node support (done), then the project setting and placement;
 4. quotas, shared-path limits, and usage per project;
 5. `isolation: vm` through drivers.
 

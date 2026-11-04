@@ -214,6 +214,11 @@ func (d *Driver) Run(ctx context.Context, s runtime.ContainerSpec) (string, erro
 	if err := runtime.CheckContainerSpec(s); err != nil {
 		return "", err
 	}
+	// The driver protocol has no sandbox: refuse rather than run the
+	// container with less isolation than asked for.
+	if s.Sandbox {
+		return "", errors.New("the runtime driver does not run sandboxed containers (isolation: sandbox needs the embedded runtime)")
+	}
 	ks := driverkit.ContainerSpec{
 		Name: s.Name, Image: s.Image, Entrypoint: s.Entrypoint, Cmd: s.Cmd, Env: s.Env, Labels: s.Labels,
 		Port: s.Port, HostIP: s.HostIP, MemoryBytes: s.MemoryBytes, NanoCPUs: s.NanoCPUs,
