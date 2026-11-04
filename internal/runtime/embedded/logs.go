@@ -49,9 +49,18 @@ type logFile struct {
 	maxSize  int64
 	maxFiles int
 	now      func() time.Time
+
+	// Write rate limit (token bucket over the output bytes); rate 0 means
+	// unlimited. Output over it is dropped, never blocked, so a container
+	// that logs synchronously keeps running; one marker line records how
+	// much was dropped once output fits again or the streams end.
+	rate, burst float64
+	tokens      float64
+	last        time.Time
+	dropped     int64
 }
 
-func openLogFile(path string, maxSize int64, maxFiles int) (*logFile, error) {
+func openLogFile(path string, maxSize int64) (*logFile, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, err
 	}
@@ -64,17 +73,58 @@ func openLogFile(path string, maxSize int64, maxFiles int) (*logFile, error) {
 		_ = f.Close()
 		return nil, err
 	}
-	return &logFile{path: path, f: f, size: fi.Size(), maxSize: maxSize, maxFiles: maxFiles, now: time.Now}, nil
+	return &logFile{path: path, f: f, size: fi.Size(), maxSize: maxSize, maxFiles: runtime.LogMaxFiles, now: time.Now}, nil
 }
 
 func (l *logFile) write(stream string, data []byte) error {
-	b, err := json.Marshal(logEntry{Log: string(data), Stream: stream, Time: l.now().UTC()})
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	now := l.now()
+	if !l.allow(now, len(data)) {
+		l.dropped += int64(len(data))
+		return nil
+	}
+	if err := l.flushDropped(now); err != nil {
+		return err
+	}
+	return l.append(logEntry{Log: string(data), Stream: stream, Time: now.UTC()})
+}
+
+// allow takes n bytes from the bucket, refilled at rate since the last call.
+func (l *logFile) allow(now time.Time, n int) bool {
+	if l.rate <= 0 {
+		return true
+	}
+	if l.last.IsZero() {
+		l.tokens = l.burst
+	} else if d := now.Sub(l.last).Seconds(); d > 0 {
+		l.tokens = min(l.burst, l.tokens+d*l.rate)
+	}
+	l.last = now
+	if float64(n) > l.tokens {
+		return false
+	}
+	l.tokens -= float64(n)
+	return true
+}
+
+// flushDropped records dropped output as one line on stderr.
+func (l *logFile) flushDropped(now time.Time) error {
+	if l.dropped == 0 {
+		return nil
+	}
+	msg := fmt.Sprintf("[armada: dropped %d bytes of output over the log rate limit of %d bytes per second]\n", l.dropped, int64(l.rate))
+	l.dropped = 0
+	return l.append(logEntry{Log: msg, Stream: "stderr", Time: now.UTC()})
+}
+
+// append writes one entry, rotating first when it would not fit.
+func (l *logFile) append(e logEntry) error {
+	b, err := json.Marshal(e)
 	if err != nil {
 		return err
 	}
 	b = append(b, '\n')
-	l.mu.Lock()
-	defer l.mu.Unlock()
 	if l.size > 0 && l.size+int64(len(b)) > l.maxSize {
 		if err := l.rotate(); err != nil {
 			return err
@@ -110,7 +160,7 @@ func (l *logFile) rotate() error {
 func (l *logFile) Close() error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	return l.f.Close()
+	return errors.Join(l.flushDropped(l.now()), l.f.Close())
 }
 
 // copyStream writes r to l line by line until EOF.
@@ -133,17 +183,20 @@ func (l *logFile) copyStream(stream string, r io.Reader) error {
 	}
 }
 
-// WriteLogs stores a container's output until both streams end. It is what
-// `armada runtime-log` runs inside the shim's logging process.
+// WriteLogs stores a container's output until both streams end, at most
+// runtime.LogRate bytes per second (runtime.LogBurst at once); the rest is
+// dropped. It is what `armada runtime-log` runs inside the shim's logging
+// process.
 func WriteLogs(dir, id string, stdout, stderr io.Reader) error {
 	path, err := LogPath(dir, id)
 	if err != nil {
 		return err
 	}
-	l, err := openLogFile(path, runtime.LogMaxSize, runtime.LogMaxFiles)
+	l, err := openLogFile(path, runtime.LogMaxSize)
 	if err != nil {
 		return err
 	}
+	l.rate, l.burst = runtime.LogRate, runtime.LogBurst
 	defer l.Close()
 	errs := make(chan error, 2)
 	go func() { errs <- l.copyStream("stdout", stdout) }()

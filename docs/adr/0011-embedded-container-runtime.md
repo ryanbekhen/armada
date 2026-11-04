@@ -157,8 +157,11 @@ Armada's and visible in one place:
 The shim writes container output through a logging binary, Armada itself
 (`armada runtime-log`, a hidden command), into
 `<data-dir>/logs/<container>.log` as JSON lines with the stream and a
-timestamp, rotated at 10 MB with 3 files kept. `armada logs` reads and
-follows these files.
+timestamp, rotated at 10 MB with 3 files kept. Each container may write
+1 MiB of output per second, with a burst of 4 MiB; output over that is
+dropped rather than blocked, so an app that logs synchronously keeps
+running, and one line on stderr records how many bytes were dropped
+(ADR 0029). `armada logs` reads and follows these files.
 
 ## Alternatives considered
 

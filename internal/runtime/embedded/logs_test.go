@@ -68,7 +68,7 @@ func TestWriteAndReadLogs(t *testing.T) {
 func TestLogRotation(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "c.log")
-	l, err := openLogFile(path, 200, 3)
+	l, err := openLogFile(path, 200)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +106,7 @@ func TestFollowLogs(t *testing.T) {
 	followInterval = 10 * time.Millisecond
 	t.Cleanup(func() { followInterval = old })
 	dir := t.TempDir()
-	l, err := openLogFile(filepath.Join(dir, "c.log"), 1<<20, 3)
+	l, err := openLogFile(filepath.Join(dir, "c.log"), 1<<20)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,5 +149,79 @@ func TestLogsRejectBadIDs(t *testing.T) {
 	}
 	if _, err := ReadLogs(context.Background(), dir, "missing", runtime.LogOptions{}); !errors.Is(err, runtime.ErrNotFound) {
 		t.Errorf("missing logs: %v", err)
+	}
+}
+
+func TestLogRateLimit(t *testing.T) {
+	dir := t.TempDir()
+	l, err := openLogFile(filepath.Join(dir, "c.log"), 1<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Unix(1000, 0)
+	l.now = func() time.Time { return now }
+	l.rate, l.burst = 100, 200
+	line := []byte(strings.Repeat("a", 49) + "\n")
+
+	// The burst lets 4 lines of 50 bytes through, then output is dropped.
+	for i := 0; i < 10; i++ {
+		if err := l.write("stdout", line); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if l.dropped != 300 {
+		t.Errorf("dropped %d bytes, want 300", l.dropped)
+	}
+	// One second refills 100 bytes: the marker comes first, then the line.
+	now = now.Add(time.Second)
+	if err := l.write("stdout", line); err != nil {
+		t.Fatal(err)
+	}
+	// Dropped again and never refilled: Close records it.
+	for i := 0; i < 3; i++ {
+		_ = l.write("stdout", line)
+	}
+	if err := l.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	s, err := ReadLogs(context.Background(), dir, "c", runtime.LogOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	frames := readAll(t, s)
+	_ = s.Close()
+	var lines, markers []string
+	for _, f := range frames {
+		if f.Stream == runtime.Stderr {
+			markers = append(markers, string(f.Data))
+		} else {
+			lines = append(lines, string(f.Data))
+		}
+	}
+	if len(lines) != 6 {
+		t.Errorf("kept %d lines, want 6", len(lines))
+	}
+	if len(markers) != 2 || !strings.Contains(markers[0], "dropped 300 bytes") || !strings.Contains(markers[1], "dropped 100 bytes") {
+		t.Errorf("markers %q", markers)
+	}
+	if len(frames) > 5 && frames[4].Stream != runtime.Stderr {
+		t.Errorf("marker not written before the next line: %+v", frames[4])
+	}
+}
+
+func TestLogRateUnlimited(t *testing.T) {
+	l, err := openLogFile(filepath.Join(t.TempDir(), "c.log"), 1<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	for i := 0; i < 1000; i++ {
+		if err := l.write("stdout", []byte(strings.Repeat("a", 999)+"\n")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if l.dropped != 0 {
+		t.Errorf("dropped %d bytes without a rate", l.dropped)
 	}
 }

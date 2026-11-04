@@ -15,10 +15,14 @@ import (
 // containers.
 var DroppedCaps = []string{"NET_RAW", "MKNOD", "AUDIT_WRITE"}
 
-// Log rotation limits for container output, the same on every engine.
+// Log limits for container output: rotation by size, and a write rate per
+// container (bytes per second, with a burst) past which output is dropped
+// so one container cannot take a node's disk bandwidth.
 const (
 	LogMaxSize  = 10 << 20
 	LogMaxFiles = 3
+	LogRate     = 1 << 20
+	LogBurst    = 4 << 20
 )
 
 // CheckContainerSpec enforces the rules every driver applies before running
