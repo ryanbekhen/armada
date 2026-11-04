@@ -71,10 +71,6 @@ type Config struct {
 	// Capacity reported to the scheduler; zero values are auto-detected.
 	CPUMillis   int64
 	MemoryBytes int64
-	// RuntimeCPUMillis and RuntimeMemoryBytes cap the capacity when the
-	// runtime can give containers less than the machine has (a driver's
-	// virtual machine, ADR 0016); 0: no cap.
-	RuntimeCPUMillis, RuntimeMemoryBytes int64
 	// Proxy applies the ingress configuration; nil disables ingress on this
 	// node.
 	Proxy proxy.Driver
@@ -99,12 +95,8 @@ type Config struct {
 	// containers with the engine's default DNS.
 	DNS InternalDNS
 	// OS and Arch are the platform containers run on, reported as the
-	// armada.os and armada.arch labels (default: the agent's own); Runtime
-	// is the container runtime's name, the armada.runtime label.
-	OS, Arch, Runtime string
-	// MinMemoryBytes is the smallest memory limit the runtime accepts,
-	// reported so the scheduler places no smaller replica here (ADR 0016).
-	MinMemoryBytes int64
+	// armada.os and armada.arch labels (default: the agent's own).
+	OS, Arch string
 	// Servers are the control plane addresses the agent started with;
 	// OnServers receives them whenever the server sends a different list.
 	Servers   []string
@@ -211,12 +203,6 @@ func New(cfg Config) *Agent {
 			cfg.MemoryBytes = mem
 		}
 	}
-	if c := cfg.RuntimeCPUMillis; c > 0 && c < cfg.CPUMillis {
-		cfg.CPUMillis = c
-	}
-	if m := cfg.RuntimeMemoryBytes; m > 0 && (cfg.MemoryBytes == 0 || m < cfg.MemoryBytes) {
-		cfg.MemoryBytes = m
-	}
 	return &Agent{
 		cfg:       cfg,
 		servers:   slices.Clone(cfg.Servers),
@@ -285,8 +271,8 @@ func (a *Agent) session(ctx context.Context) (established bool, err error) {
 	}
 	hello := &armadav1.AgentMessage{Msg: &armadav1.AgentMessage_Hello{Hello: &armadav1.Hello{
 		CpuMillis: a.cfg.CPUMillis, MemoryBytes: a.cfg.MemoryBytes, Version: version.Get().Version, PrivateIp: a.cfg.PrivateIP,
-		Os: cmp.Or(a.cfg.OS, goruntime.GOOS), Arch: cmp.Or(a.cfg.Arch, goruntime.GOARCH), Runtime: a.cfg.Runtime,
-		MinMemoryBytes: a.cfg.MinMemoryBytes, Jobs: true, Volumes: a.mountsVolumes(), NetworkKey: a.cfg.NetworkKey,
+		Os: cmp.Or(a.cfg.OS, goruntime.GOOS), Arch: cmp.Or(a.cfg.Arch, goruntime.GOARCH),
+		Jobs: true, Volumes: a.mountsVolumes(), NetworkKey: a.cfg.NetworkKey,
 		Sandbox: runtime.CanSandbox(a.cfg.Driver),
 	}}}
 	if err := stream.Send(hello); err != nil {

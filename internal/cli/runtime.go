@@ -14,17 +14,15 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
-	"github.com/ryanbekhen/armada/driverkit"
 	"github.com/ryanbekhen/armada/internal/clusternet"
 	"github.com/ryanbekhen/armada/internal/runtime"
 	"github.com/ryanbekhen/armada/internal/runtime/containerd"
 	"github.com/ryanbekhen/armada/internal/runtime/embedded"
-	"github.com/ryanbekhen/armada/internal/runtime/remote"
 	"github.com/ryanbekhen/armada/internal/store"
 )
 
-// runtimeEmbedded is the built-in container runtime (ADR 0011); any other
-// name in agent.json is an external driver (ADR 0015).
+// runtimeEmbedded is the container runtime (ADR 0011), recorded in
+// agent.json.
 const runtimeEmbedded = "embedded"
 
 // runDir holds the node's runtime state on tmpfs; tests replace it.
@@ -34,50 +32,27 @@ func runtimePaths(dataDir string) embedded.Paths {
 	return embedded.Paths{DataDir: dataDir, RunDir: runDir}
 }
 
-// checkRuntime refuses an agent.json naming neither the embedded runtime
-// nor a valid driver name.
+// checkRuntime refuses an agent.json naming another container runtime.
 func (c agentConfig) checkRuntime() error {
-	if c.Runtime == runtimeEmbedded {
+	if c.Runtime == runtimeEmbedded || c.Runtime == "" {
 		return nil
 	}
-	if err := driverkit.CheckName(c.Runtime); err != nil {
-		return fmt.Errorf("%s names container runtime %q: %w", fileAgent, c.Runtime, err)
-	}
-	return nil
+	return fmt.Errorf("%s names container runtime %q: Armada runs containers only on its embedded runtime (ADR 0011); remove the node and join it again", fileAgent, c.Runtime)
 }
-
-// external reports whether the node runs containers through an external
-// driver.
-func (c agentConfig) external() bool { return c.Runtime != runtimeEmbedded }
 
 // runtimeFlags are shared by the commands that set up a node.
 type runtimeFlags struct {
-	runtime string
-	subnet  string
-	flags   *pflag.FlagSet
+	subnet string
+	flags  *pflag.FlagSet
 }
 
 func (r *runtimeFlags) register(f *pflag.FlagSet) {
 	r.flags = f
-	f.StringVar(&r.runtime, "runtime", runtimeEmbedded, "container runtime: embedded, or the name of an installed driver (listening on "+driverkit.DefaultSocketDir()+"/NAME.sock)")
-	f.StringVar(&r.subnet, "container-subnet", embedded.DefaultSubnet.String(), "private IPv4 subnet for this node's containers (embedded runtime, clusters without a cluster network; others give each node a subnet)")
+	f.StringVar(&r.subnet, "container-subnet", embedded.DefaultSubnet.String(), "private IPv4 subnet for this node's containers (clusters without a cluster network; others give each node a subnet)")
 }
 
 // apply validates the flags and records them in c.
 func (r runtimeFlags) apply(c *agentConfig, privateIP netip.Addr) error {
-	if r.runtime != "" && r.runtime != runtimeEmbedded {
-		if err := driverkit.CheckName(r.runtime); err != nil {
-			return fmt.Errorf("invalid --runtime: %w", err)
-		}
-		if r.flags != nil && r.flags.Changed("container-subnet") {
-			return errors.New("--container-subnet applies to the embedded runtime; a driver chooses its own container network")
-		}
-		c.Runtime, c.ContainerSubnet = r.runtime, ""
-		return nil
-	}
-	if err := needsDriverOn(goos, r.runtime); err != nil {
-		return err
-	}
 	p, err := netip.ParsePrefix(r.subnet)
 	if err != nil {
 		return fmt.Errorf("invalid --container-subnet: %w", err)
@@ -97,7 +72,7 @@ func (r runtimeFlags) apply(c *agentConfig, privateIP netip.Addr) error {
 // makes the subnet the cluster gave the node the embedded runtime's bridge
 // subnet. It returns a note for the operator when it overrides
 // --container-subnet. Nodes of clusters without a network keep their
-// setting, and nodes with an external driver let the driver choose.
+// setting.
 func (r runtimeFlags) useNodeSubnet(c *agentConfig, subnet, mode string, privateIP netip.Addr) (string, error) {
 	if subnet == "" {
 		return "", nil
@@ -106,9 +81,6 @@ func (r runtimeFlags) useNodeSubnet(c *agentConfig, subnet, mode string, private
 		return "", fmt.Errorf("the control plane uses cluster network mode %q, which this Armada does not know; upgrade it", mode)
 	}
 	c.Network = mode
-	if c.external() {
-		return "", nil
-	}
 	p, err := netip.ParsePrefix(subnet)
 	if err != nil {
 		return "", fmt.Errorf("the control plane gave this node an invalid subnet %q", subnet)
@@ -132,13 +104,6 @@ func (r runtimeFlags) useNodeSubnet(c *agentConfig, subnet, mode string, private
 var newDriver = func(dataDir string, ac *agentConfig) (runtime.Driver, error) {
 	if err := ac.checkRuntime(); err != nil {
 		return nil, err
-	}
-	if ac.external() {
-		d, err := remote.New(remote.Config{Name: ac.Runtime, UID: os.Geteuid()})
-		if err != nil {
-			return nil, err
-		}
-		return d, nil
 	}
 	var subnet netip.Prefix
 	if ac.ContainerSubnet != "" {
@@ -164,21 +129,7 @@ var newDriver = func(dataDir string, ac *agentConfig) (runtime.Driver, error) {
 }
 
 // runtimeHint says how to start the node's runtime.
-func runtimeHint(ac *agentConfig) string {
-	if ac.external() {
-		return driverHint(goos, ac.Runtime)
-	}
-	return "systemctl start armada-runtime"
-}
-
-// driverHint says how to check a driver's service: its systemd unit, or
-// on macOS its LaunchAgent.
-func driverHint(system, name string) string {
-	if system == "darwin" {
-		return "launchctl print gui/$(id -u)/" + launchdLabel("driver."+name)
-	}
-	return "systemctl status armada-driver-" + name
-}
+func runtimeHint() string { return "systemctl start armada-runtime" }
 
 // runtimeWait bounds how long the agent waits for the runtime at start.
 var runtimeWait = 2 * time.Minute
@@ -234,10 +185,6 @@ func newRuntimeCommand() *cobra.Command {
 			if err := ac.checkRuntime(); err != nil {
 				return err
 			}
-			if ac.external() {
-				_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "this node runs containers through driver %q; the embedded runtime does not run\n", ac.Runtime)
-				return nil
-			}
 			return embedded.Exec(runtimePaths(dataDir), embedded.Bundled(), binDir)
 		},
 	}
@@ -258,7 +205,7 @@ func newRuntimeResetCommand() *cobra.Command {
 		Use:   "reset",
 		Short: "Remove every container Armada runs on this node",
 		Long: "reset stops and removes all of Armada's containers on this node (those with\n" +
-			"Armada's labels; with an external driver, other containers are left alone),\n" +
+			"Armada's labels),\n" +
 			"and the cluster network's interface and firewall rules.\n" +
 			"Use it after `armada node remove`, with the agent (or server) stopped first,\n" +
 			"or it starts its replicas again.",
@@ -280,14 +227,13 @@ func newRuntimeResetCommand() *cobra.Command {
 			err = rt.Ping(pctx)
 			cancel()
 			if err != nil {
-				return fmt.Errorf("container runtime: %w (%s)", err, runtimeHint(ac))
+				return fmt.Errorf("container runtime: %w (%s)", err, runtimeHint())
 			}
 			all, err := rt.List(ctx, nil)
 			if err != nil {
 				return err
 			}
-			// Only Armada's containers: an external driver's engine may run
-			// others.
+			// Only Armada's containers.
 			var cs []runtime.Container
 			for _, c := range all {
 				if c.Labels[runtime.LabelManaged] == "true" || c.Labels[runtime.LabelSystem] != "" {

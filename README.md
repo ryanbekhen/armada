@@ -100,23 +100,9 @@ armada deploy -f web.yaml    # → https://web.apps.example.com
 - **Confined containers.** Dropped capabilities, `no-new-privileges`,
   seccomp, AppArmor or SELinux (each container in its own MCS categories),
   and memory, CPU, and PID limits.
-- **Runtime drivers.** A node can run containers on another engine
-  through an external driver: a separate program behind a local protocol
-  that carries the same security defaults, with a public Go library and a
-  conformance suite for driver authors.
-  [armada-driver-docker](https://github.com/ryanbekhen/armada-driver-docker)
-  runs a node's containers on the Docker Engine.
-- **macOS compute nodes.** A Mac with Apple silicon can join as a node
-  that runs replicas through a driver, as a dedicated user with secrets on
-  a RAM disk; the control plane and HAProxy stay on Linux.
-  [armada-driver-apple](https://github.com/ryanbekhen/armada-driver-apple)
-  runs them through Apple's `container` tool, each in its own virtual
-  machine; armada-driver-docker runs them on a Docker Engine in one Linux
-  virtual machine, with every container default.
 
 Armada needs Linux machines (cloud instances, VMs, or bare metal) with a
-private network between them, and nothing else (Macs can add compute
-nodes): the binary embeds its own
+private network between them, and nothing else: the binary embeds its own
 container runtime (containerd, runc, CNI plugins, gVisor) and
 its state store (etcd).
 
@@ -124,7 +110,7 @@ its state store (etcd).
 
 - [Quickstart](docs/quickstart.md): empty machines to an HTTPS app
 - [App spec reference](docs/spec-reference.md)
-- [Operations](docs/operations.md): control plane servers, backup, restore, upgrades, runtime drivers
+- [Operations](docs/operations.md): control plane servers, backup, restore, upgrades
 - [Threat model](docs/threat-model.md), including the accepted limitations
 - [Architecture decisions](docs/adr/README.md)
 - [Releasing and verifying releases](docs/releasing.md)
@@ -138,8 +124,6 @@ its state store (etcd).
 | Local lab: Linux VMs (arm64), Pebble ACME, 1–2 nodes | Tested end to end: deploys, rolling update, secret files, internal ingress and DNS, crash recovery, containerd restart with containers kept running, reboot recovery, rolling upgrade with a state migration, rebalancing after uncordon under HTTPS load without errors, replicas across nodes |
 | Oracle Cloud (arm64, Oracle Linux 9, SELinux enforcing), one server, Let's Encrypt staging | Tested end to end: install.sh with systemd, doctor, wildcard certificate over Cloudflare DNS-01, rolling update under load without errors, crash recovery, containerd restart, reboot recovery, SELinux-confined apps and HAProxy, HAProxy restarted after a crash |
 | depa.id (amd64, Ubuntu 24.04), three control plane servers and one node, Let's Encrypt staging | Tested end to end with [test/e2e](test/e2e/README.md): server and node joins, only HAProxy public, certificates on every node, secrets, rolling update, rollback, and agent restart under load without errors, leader stop and SIGKILL under load, node loss and rebalancing under load, backup, all machines rebooted at once |
-| Local lab: a Linux server (arm64) on armada-driver-docker and a Mac (macOS 27, Apple silicon) as a node on armada-driver-apple | Tested end to end: Mac join with secrets on a RAM disk, replicas placed only on the Mac, internal ingress on the server balancing across them, a rolling update, secret files and environment, adoption after restarting the driver and agent, replicas below 200 MiB refused with a reason, `armada runtime reset` leaving other containers alone |
-| Local lab: a Linux server (arm64) on armada-driver-docker and a Mac (macOS 27, Apple silicon) as a node on armada-driver-docker with the engine in a virtual machine (colima) | Tested end to end: the node reporting the virtual machine's capacity and refusing replicas beyond it, secret files from the RAM disk read-only with every container default, internal ingress on the server balancing across the Mac's replicas, a rolling update, adoption after restarting the driver and agent, `armada runtime reset` |
 | Mixed architectures: three depa.id servers (amd64, Ubuntu 24.04) and an Oracle Cloud node (arm64, Oracle Linux 9, SELinux enforcing), Let's Encrypt staging | Tested end to end with [test/e2e](test/e2e/README.md): every scenario above except the reboot, plus placement under load and images built for one architecture running only on nodes of that architecture |
 
 Reports from other providers are welcome.

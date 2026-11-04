@@ -49,7 +49,7 @@ func TestNetworkEndpoints(t *testing.T) {
 		{ID: "done", App: "job", NodeID: "n1", IP: "10.120.0.6", Done: true},
 		// Not in its node's subnet (the node moved, or a bad record).
 		{ID: "elsewhere", App: "web", NodeID: "n2", IP: "10.120.0.7"},
-		{ID: "no-subnet", App: "web", NodeID: "mac", IP: "10.120.0.8"},
+		{ID: "no-subnet", App: "web", NodeID: "n3", IP: "10.120.0.8"},
 		// Two apps claim one address: neither gets it.
 		{ID: "x-r1-a", App: "x", NodeID: "n1", IP: "10.120.0.9"},
 		{ID: "y-r1-a", App: "y", NodeID: "n1", IP: "10.120.0.9"},

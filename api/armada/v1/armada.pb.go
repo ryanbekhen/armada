@@ -5906,12 +5906,6 @@ type Hello struct {
 	// labels.
 	Os   string `protobuf:"bytes,5,opt,name=os,proto3" json:"os,omitempty"`
 	Arch string `protobuf:"bytes,6,opt,name=arch,proto3" json:"arch,omitempty"`
-	// The node's container runtime, "embedded" or an external driver's name,
-	// shown as the armada.runtime label.
-	Runtime string `protobuf:"bytes,7,opt,name=runtime,proto3" json:"runtime,omitempty"`
-	// The smallest memory limit the node's runtime accepts (ADR 0016); the
-	// scheduler places no replica with a smaller limit there. 0: none.
-	MinMemoryBytes int64 `protobuf:"varint,8,opt,name=min_memory_bytes,json=minMemoryBytes,proto3" json:"min_memory_bytes,omitempty"`
 	// The agent runs job replicas to completion (ADR 0021); runs are only
 	// placed on nodes whose agent says so.
 	Jobs bool `protobuf:"varint,9,opt,name=jobs,proto3" json:"jobs,omitempty"`
@@ -5998,20 +5992,6 @@ func (x *Hello) GetArch() string {
 		return x.Arch
 	}
 	return ""
-}
-
-func (x *Hello) GetRuntime() string {
-	if x != nil {
-		return x.Runtime
-	}
-	return ""
-}
-
-func (x *Hello) GetMinMemoryBytes() int64 {
-	if x != nil {
-		return x.MinMemoryBytes
-	}
-	return 0
 }
 
 func (x *Hello) GetJobs() bool {
@@ -9824,7 +9804,7 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\x04wake\x18\x04 \x01(\v2\x0f.armada.v1.WakeH\x00R\x04wakeB\x05\n" +
 	"\x03msg\"\x18\n" +
 	"\x04Wake\x12\x10\n" +
-	"\x03app\x18\x01 \x01(\tR\x03app\"\xd3\x02\n" +
+	"\x03app\x18\x01 \x01(\tR\x03app\"\xb6\x02\n" +
 	"\x05Hello\x12\x1d\n" +
 	"\n" +
 	"cpu_millis\x18\x01 \x01(\x03R\tcpuMillis\x12!\n" +
@@ -9833,15 +9813,13 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\n" +
 	"private_ip\x18\x04 \x01(\tR\tprivateIp\x12\x0e\n" +
 	"\x02os\x18\x05 \x01(\tR\x02os\x12\x12\n" +
-	"\x04arch\x18\x06 \x01(\tR\x04arch\x12\x18\n" +
-	"\aruntime\x18\a \x01(\tR\aruntime\x12(\n" +
-	"\x10min_memory_bytes\x18\b \x01(\x03R\x0eminMemoryBytes\x12\x12\n" +
+	"\x04arch\x18\x06 \x01(\tR\x04arch\x12\x12\n" +
 	"\x04jobs\x18\t \x01(\bR\x04jobs\x12\x18\n" +
 	"\avolumes\x18\n" +
 	" \x01(\bR\avolumes\x12\x1f\n" +
 	"\vnetwork_key\x18\v \x01(\tR\n" +
 	"networkKey\x12\x18\n" +
-	"\asandbox\x18\f \x01(\bR\asandbox\"D\n" +
+	"\asandbox\x18\f \x01(\bR\asandboxJ\x04\b\a\x10\bJ\x04\b\b\x10\tR\aruntimeR\x10min_memory_bytes\"D\n" +
 	"\rReplicaReport\x123\n" +
 	"\breplicas\x18\x01 \x03(\v2\x17.armada.v1.ReplicaStateR\breplicas\"\xb6\x02\n" +
 	"\fReplicaState\x12\x0e\n" +

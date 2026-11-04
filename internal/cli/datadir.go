@@ -37,12 +37,8 @@ const (
 // after starting it. Tests shorten it.
 var proxyStartWait = 2 * time.Second
 
-// checkTmpfs verifies the agent's secrets directory, and prepareSecretsDisk
-// mounts a RAM disk there on macOS; tests replace them.
-var (
-	checkTmpfs         = agent.CheckTmpfs
-	prepareSecretsDisk = agent.PrepareSecretsDisk
-)
+// checkTmpfs verifies the agent's secrets directory; tests replace it.
+var checkTmpfs = agent.CheckTmpfs
 
 // renewCheck is how often the agent checks whether its certificate needs
 // renewal; tests shorten it.

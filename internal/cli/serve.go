@@ -35,7 +35,6 @@ import (
 	"github.com/ryanbekhen/armada/internal/pki"
 	"github.com/ryanbekhen/armada/internal/proxy/haproxy"
 	"github.com/ryanbekhen/armada/internal/runtime"
-	"github.com/ryanbekhen/armada/internal/runtime/remote"
 	"github.com/ryanbekhen/armada/internal/secrets"
 	"github.com/ryanbekhen/armada/internal/server"
 	"github.com/ryanbekhen/armada/internal/store"
@@ -329,6 +328,9 @@ func newAgentCommand() *cobra.Command {
 		Short: "Run the node agent",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if err := linuxOnly("armada agent"); err != nil {
+				return err
+			}
 			log, err := newLogger(cmd.ErrOrStderr(), logFormat, verbose)
 			if err != nil {
 				return err
@@ -341,7 +343,7 @@ func newAgentCommand() *cobra.Command {
 	f.StringSliceVar(&servers, "server", nil, "control plane addresses (default: from agent.json, kept up to date by the server)")
 	f.StringVar(&logFormat, "log-format", "text", "log format: text or json")
 	f.BoolVarP(&verbose, "verbose", "v", false, "debug logging")
-	f.StringVar(&proxyKind, "proxy", defaultProxy(), "ingress proxy: haproxy or none (none on macOS)")
+	f.StringVar(&proxyKind, "proxy", "haproxy", "ingress proxy: haproxy or none")
 	f.StringVar(&secretsDir, "secrets-dir", defaultSecretsDir, "tmpfs directory for secret files")
 	f.BoolVar(&internalDNS, "internal-dns", true, "serve <app>.internal to containers on this node (needs --proxy haproxy)")
 	return cmd
@@ -430,11 +432,9 @@ func runAgent(ctx context.Context, dataDir string, servers []string, proxyKind, 
 	if err != nil {
 		return err
 	}
-	// On the cluster network the embedded runtime's replicas live on the
-	// node subnet and publish no port; other nodes reach them through the
-	// tunnel (ADR 0027). A driver's replicas keep publishing ports until
-	// drivers can use the node subnet.
-	unpublished := cnet != nil && !ac.external() && ac.ContainerSubnet != ""
+	// On the cluster network replicas live on the node subnet and publish
+	// no port; other nodes reach them through the tunnel (ADR 0027).
+	unpublished := cnet != nil && ac.ContainerSubnet != ""
 	subnet := ""
 	if unpublished {
 		subnet = ac.ContainerSubnet
@@ -455,20 +455,11 @@ func runAgent(ctx context.Context, dataDir string, servers []string, proxyKind, 
 		VolumesDir: prepareVolumesDir(filepath.Join(dataDir, backup.DirVolumes), log),
 		Servers:    ac.Servers,
 		OnServers:  onServers,
-		Runtime:    ac.Runtime,
 
 		UsageInterval: usageInterval,
 	}
 	if px != nil {
 		acfg.WakeSocket = haproxy.WakeSocket(filepath.Join(dataDir, dirHAProxy))
-	}
-	// A driver's engine may run containers for another platform than the
-	// agent's (a virtual machine on macOS, say): report what it says.
-	if rd, ok := rt.(*remote.Driver); ok {
-		if info := rd.Info(); info != nil {
-			acfg.OS, acfg.Arch, acfg.MinMemoryBytes = info.GetOs(), info.GetArch(), info.GetMinMemoryBytes()
-			acfg.RuntimeCPUMillis, acfg.RuntimeMemoryBytes = info.GetCpuMillis(), info.GetMemoryBytes()
-		}
 	}
 	if dns != nil {
 		acfg.DNS = dns
@@ -492,9 +483,7 @@ func runAgent(ctx context.Context, dataDir string, servers []string, proxyKind, 
 // newClusterNet returns the node's side of the cluster network (ADR 0027),
 // or nil for a node of a cluster without one, with the node's public key.
 // The key is made the first time, in both modes, so later sites need no
-// migration. Linux nodes with an external driver join too, since the
-// tunnel and routes are the host's; macOS nodes stay on published ports.
-// Tests replace it.
+// migration. Tests replace it.
 var newClusterNet = func(dataDir string, ac *agentConfig, log *slog.Logger) (agent.Network, string, error) {
 	if ac.Network == "" || goos != "linux" {
 		return nil, "", nil
@@ -584,11 +573,6 @@ func prepareSecretsDir(dir string, log *slog.Logger) string {
 	}
 	if err := fsutil.MkdirPrivate(dir); err != nil {
 		log.Warn("secret files disabled", "dir", dir, "err", err)
-		return ""
-	}
-	// On macOS the agent mounts a RAM disk there itself (ADR 0016).
-	if err := prepareSecretsDisk(dir); err != nil {
-		log.Warn("secret files disabled: cannot mount a RAM disk", "dir", dir, "err", err)
 		return ""
 	}
 	if err := checkTmpfs(dir); err != nil {

@@ -45,10 +45,7 @@ type doctorEnv struct {
 	euid      int
 	driver    runtime.Driver
 	driverErr error
-	// runtimeName is "embedded" or the node's external driver.
-	runtimeName string
-	// runtimeHost checks what the embedded runtime needs from the host;
-	// nil with an external driver.
+	// runtimeHost checks what the embedded runtime needs from the host.
 	runtimeHost func(subnet netip.Prefix) []checkResult
 	// network checks the cluster network (ADR 0027); nil when the node is
 	// not part of one.
@@ -95,7 +92,7 @@ clock, and the host firewall. Exits non-zero if a check fails.`,
 }
 
 func hostDoctorEnv(dataDir string) doctorEnv {
-	ac := &agentConfig{Runtime: runtimeEmbedded}
+	ac := &agentConfig{}
 	if c, err := loadAgentConfig(dataDir); err == nil {
 		ac = c
 	}
@@ -104,10 +101,6 @@ func hostDoctorEnv(dataDir string) doctorEnv {
 	}
 	subnet, _ := netip.ParsePrefix(ac.ContainerSubnet)
 	driver, err := newDriver(dataDir, ac)
-	host := embeddedHostChecks
-	if ac.external() {
-		host = nil
-	}
 	var network func() []checkResult
 	if ip, err := netip.ParseAddr(ac.PrivateIP); err == nil && ac.Network != "" && goruntime.GOOS == "linux" {
 		network = func() []checkResult { return clusterNetChecks(ac.Network, ip) }
@@ -117,8 +110,7 @@ func hostDoctorEnv(dataDir string) doctorEnv {
 		euid:        os.Geteuid(),
 		driver:      driver,
 		driverErr:   err,
-		runtimeName: ac.Runtime,
-		runtimeHost: host,
+		runtimeHost: embeddedHostChecks,
 		network:     network,
 		subnet:      subnet,
 		detectIP:    netutil.DetectPrivateIP,
@@ -149,20 +141,12 @@ func runDoctor(ctx context.Context, env doctorEnv) []checkResult {
 		out = append(out, checkResult{Name: name, Status: status, Detail: fmt.Sprintf(format, args...)})
 	}
 
-	external := env.runtimeName != "" && env.runtimeName != runtimeEmbedded
-	mac := env.goos == "darwin"
-	switch {
-	case env.goos == "linux":
+	if env.goos == "linux" {
 		add("os", checkOK, "linux")
-	case mac && external:
-		add("os", checkOK, "macOS: a compute node through driver %s (ADR 0016)", env.runtimeName)
-	case mac:
-		add("os", checkFail, "a Mac runs containers through a driver: install one and join with --runtime NAME")
-	default:
-		add("os", checkFail, "Armada nodes run on Linux or macOS, not %s", env.goos)
+	} else {
+		add("os", checkFail, "Armada nodes run on Linux, not %s", env.goos)
 	}
-	// On macOS the agent runs as the node's user, not root.
-	if env.euid != 0 && !mac {
+	if env.euid != 0 {
 		add("user", checkWarn, "not running as root; some checks may be incomplete")
 	}
 
@@ -173,18 +157,6 @@ func runDoctor(ctx context.Context, env doctorEnv) []checkResult {
 		add("private-ip", checkFail, "%v", err)
 	} else {
 		add("private-ip", checkOK, "%s", ip)
-	}
-
-	if mac {
-		// A macOS node listens on no cluster port, and the agent mounts
-		// the RAM disk for secrets when it starts.
-		out = append(out, checkDataDir(env)...)
-		if env.checkTmpfs(env.secretsDir) == nil {
-			add("secrets", checkOK, "%s is a RAM disk", env.secretsDir)
-		} else {
-			add("secrets", checkOK, "the agent mounts a RAM disk on %s when it starts", env.secretsDir)
-		}
-		return out
 	}
 
 	out = append(out, checkListeners(env)...)
@@ -242,22 +214,13 @@ func checkRuntime(ctx context.Context, env doctorEnv) []checkResult {
 	pingCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	err := env.driver.Ping(pingCtx)
 	cancel()
-	external := env.runtimeName != "" && env.runtimeName != runtimeEmbedded
 	switch {
-	case err != nil && external:
-		add("runtime", checkFail, "driver %s: %v (%s)", env.runtimeName, err, driverHint(env.goos, env.runtimeName))
-		return out
 	case err != nil && !env.initialized():
 		add("runtime", checkWarn, "embedded runtime not running yet; it starts with armada-server or armada-agent after init or join")
 		return out
 	case err != nil:
 		add("runtime", checkFail, "embedded runtime: %v (systemctl status armada-runtime)", err)
 		return out
-	case external:
-		add("runtime", checkOK, "driver %s reachable", env.runtimeName)
-		if !runtime.CanRunSystem(env.driver) && env.goos != "darwin" {
-			add("system containers", checkWarn, "driver %s cannot run HAProxy: run this node with --proxy none", env.runtimeName)
-		}
 	default:
 		add("runtime", checkOK, "embedded runtime reachable")
 		if runtime.CanSandbox(env.driver) {

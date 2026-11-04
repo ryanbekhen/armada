@@ -13,8 +13,7 @@ import (
 // Net is the cluster network; only Linux nodes have one.
 type Net struct{}
 
-// New fails: the cluster network needs Linux (macOS nodes stay on
-// published ports, ADR 0027).
+// New fails: the cluster network needs Linux.
 func New(Config) (*Net, error) {
 	return nil, errors.New("the cluster network needs Linux")
 }

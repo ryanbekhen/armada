@@ -6,8 +6,8 @@
 #   less install.sh        # read it first
 #   sudo sh install.sh
 #
-# On a Mac (Apple silicon) it installs only the binary: a Mac is a compute
-# node whose agent runs as a LaunchAgent that `armada join` writes.
+# On a Mac (Apple silicon) it installs only the binary, a client of a
+# cluster: nodes are Linux machines.
 #
 # Environment:
 #   ARMADA_VERSION             release tag to install (default: latest)
@@ -41,7 +41,7 @@ need uname
 case "$(uname -s)" in
 Linux) OS=linux ;;
 Darwin) OS=darwin ;;
-*) die "Armada runs on Linux and macOS only" ;;
+*) die "Armada runs on Linux (nodes) and macOS (client) only" ;;
 esac
 case "$(uname -m)" in
 x86_64 | amd64) ARCH=amd64 ;;
@@ -112,10 +112,8 @@ say "Installed $PREFIX/bin/armada"
 
 if [ "$OS" = darwin ]; then
 	say ""
-	say "Next, as the user that runs the node (not root):"
-	say "  install and start a runtime driver (see the operations guide, \"macOS nodes\"),"
-	say "  armada join ... --runtime NAME (from 'armada token create'),"
-	say "  then start the agent with the launchctl command join prints."
+	say "On macOS armada is a client of a cluster: copy ~/.armada/config"
+	say "from the server where you ran 'armada init' (mode 0600), or pass --config."
 	"$PREFIX/bin/armada" version
 	exit 0
 fi

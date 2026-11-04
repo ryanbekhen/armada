@@ -784,12 +784,8 @@ message Hello {
   // labels.
   string os = 5;
   string arch = 6;
-  // The node's container runtime, "embedded" or an external driver's name,
-  // shown as the armada.runtime label.
-  string runtime = 7;
-  // The smallest memory limit the node's runtime accepts (ADR 0016); the
-  // scheduler places no replica with a smaller limit there. 0: none.
-  int64 min_memory_bytes = 8;
+  reserved 7, 8;
+  reserved "runtime", "min_memory_bytes";
   // The agent runs job replicas to completion (ADR 0021); runs are only
   // placed on nodes whose agent says so.
   bool jobs = 9;

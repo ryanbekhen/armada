@@ -35,8 +35,7 @@ volumes:
   directory (not its contents) whenever a replica starts, so an owner added
   later applies too. Without it a new directory belongs to root. The
   directory is mode 0700, so an image that runs as another user names its
-  owner. An agent run by a user (macOS nodes, ADR 0016) cannot give files
-  away and skips it; there the driver's file sharing decides ownership.
+  owner.
 - **One replica.** An app with volumes runs exactly one replica: its
   `scale` may only say `min: 1` and `max: 1`, with no rules. Scale to zero,
   multiple revision mode, and jobs with volumes are rejected. Two containers
@@ -47,7 +46,7 @@ volumes:
 ### Binding to a node
 
 - **Where data lives.** On a node, volume `NAME` of app `APP` is
-  `<data dir>/volumes/APP/NAME` (`/var/lib/armada/volumes/...` on Linux).
+  `<data dir>/volumes/APP/NAME` (`/var/lib/armada/volumes/...`).
   The parent directories are mode 0700 and owned by root.
 - **First placement.** The first replica is placed like any other, among
   nodes that can mount volumes. Creating that replica writes a volume
@@ -55,12 +54,11 @@ volumes:
   in etcd). From then on every replica of the app goes to that node, and
   the store refuses one on any other.
 - **Nodes that can mount volumes.** The agent announces it in `Hello` when
-  its runtime can and it has a volume directory. The embedded runtime can.
-  External drivers declare `CAPABILITY_VOLUMES` (`driverkit.VolumeMounter`),
-  and the conformance suite checks that a volume is the host directory,
-  writable, and still `nosuid` and `nodev` in the container when its
-  source is on a filesystem with those flags, as the agent's is. A node without it is never
-  chosen for an app with volumes.
+  it has a volume directory. The conformance suite checks that a volume is
+  the host directory, writable, and still `nosuid` and `nodev` in the
+  container when its source is on a filesystem with those flags, as the
+  agent's is. A node without a volume directory is never chosen for an app
+  with volumes.
 - **Kept.** A volume stays when the app is redeployed without it, or
   deleted, until `armada volume rm`. Redeploying an app with the same name
   and volume uses the same data on the same node.
@@ -87,8 +85,7 @@ volumes:
   (`<data dir>/volumes`) onto itself with `nosuid` and `nodev`, unless its
   filesystem already has both; if it cannot, the node announces no
   volumes. A bind mount keeps the flags of the mount it comes from, so
-  every volume is `nosuid,nodev` in its container whatever the runtime, and
-  drivers can bind the directory as it is. Each volume is bind mounted
+  every volume is `nosuid,nodev` in its container. Each volume is bind mounted
   read-write, and the embedded runtime also sets `nosuid` and `nodev` on
   its own mount. With SELinux, the embedded runtime relabels it to the
   container's MCS label on every start, so only that container can use it.
@@ -163,5 +160,3 @@ without its volume, or on another node, can no longer lead (ADR 0012).
 - Losing a node loses its volumes' data since the last backup. Operators
   schedule `armada volume backup` (for example from cron outside the
   cluster) or use the app's own replication.
-- External drivers that do not declare `CAPABILITY_VOLUMES` run no apps
-  with volumes.

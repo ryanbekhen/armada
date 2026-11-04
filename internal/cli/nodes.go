@@ -103,6 +103,9 @@ func newJoinCommand() *cobra.Command {
 			"an argument, which would leak into shell history.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := linuxOnly("armada join"); err != nil {
+				return err
+			}
 			addr := args[0]
 			if err := netutil.CheckPrivateListen(addr); err != nil {
 				return fmt.Errorf("join address: %w", err)
@@ -209,16 +212,6 @@ func newJoinCommand() *cobra.Command {
 				_, _ = fmt.Fprintf(out, "Container subnet: %s.\n", resp.NodeSubnet)
 			}
 			_, _ = fmt.Fprint(out, note)
-			// On macOS the agent runs as a LaunchAgent of this user
-			// (ADR 0016).
-			if goos == "darwin" && dataDir == defaultDataDir {
-				start, err := installLaunchAgent()
-				if err != nil {
-					return fmt.Errorf("write the agent's LaunchAgent: %w", err)
-				}
-				_, err = fmt.Fprintf(out, "Next: start the driver's LaunchAgent, then the agent's:\n      %s\n", start)
-				return err
-			}
 			_, err = fmt.Fprint(out, nextStep("agent", dataDir))
 			return err
 		},

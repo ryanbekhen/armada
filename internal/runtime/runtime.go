@@ -214,12 +214,8 @@ type BridgeInspector interface {
 	Bridge(ctx context.Context) (Bridge, error)
 }
 
-// CanRunSystem reports whether d runs system containers. External drivers
-// report it after their handshake; for others it is the interface.
+// CanRunSystem reports whether d runs system containers.
 func CanRunSystem(d Driver) bool {
-	if c, ok := d.(interface{ CanRunSystem() bool }); ok {
-		return c.CanRunSystem()
-	}
 	_, ok := d.(SystemRunner)
 	return ok
 }

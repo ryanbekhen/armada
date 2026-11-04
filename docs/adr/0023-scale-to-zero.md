@@ -123,7 +123,7 @@ revision.
     `idleAfter`.
   - It can also keep such an app awake by reporting requests, which is the
     same as reporting load (ADR 0022).
-- Nodes without a proxy (`--proxy none`, macOS nodes) take no part. Agents
+- Nodes without a proxy (`--proxy none`) take no part. Agents
   that predate this decision report no request counts, so idleness counts
   only what newer agents see.
 - Only HTTP requests through Armada's proxy wake an app; non-HTTP traffic

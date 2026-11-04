@@ -17,9 +17,7 @@ const (
 	ReservedLabelPrefix = "armada."
 	LabelOS             = ReservedLabelPrefix + "os"
 	LabelArch           = ReservedLabelPrefix + "arch"
-	// LabelRuntime is "embedded" or the node's external driver (ADR 0015).
-	LabelRuntime = ReservedLabelPrefix + "runtime"
-	maxLabelLen  = 63
+	maxLabelLen         = 63
 	// MaxNodeLabels is how many admin labels a node may carry.
 	MaxNodeLabels = 32
 	// maxRequire bounds placement.require: keys and values per key.

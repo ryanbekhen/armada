@@ -181,7 +181,7 @@ sets the minimum:
 | --- | --- | --- |
 | `container` | Containers as today: namespaces, cgroups, seccomp, no new privileges, SELinux where enforcing | nothing |
 | `sandbox` | Each replica in a userspace kernel (gVisor's `runsc`), so the workload's system calls never reach the node's kernel directly | the embedded runtime |
-| `vm` | Each replica in its own virtual machine through a driver that declares `vm_isolation` (ADR 0016) | a node with such a driver |
+| `vm` | Each replica in its own light virtual machine with its own kernel, run by the embedded runtime (designed in a later decision) | a node with hardware virtualization |
 
 - `sandbox` is the default for every project except `default`. The
   embedded runtime ships `runsc` and the sentry it runs, pinned and
@@ -195,8 +195,8 @@ sets the minimum:
   sentry that serves its system calls and the sentry's own seccomp filter.
   The memory and PID limits bound the whole sandbox in its cgroup on the
   host.
-- Agents announce whether they run sandboxed containers (`Hello.sandbox`;
-  `vm` follows from a driver's `vm_isolation`), and
+- Agents announce whether they run sandboxed containers (`Hello.sandbox`),
+  and
   `placementAllows` places a replica only on a node that supports its
   project's level. A project that requires a level no node supports gets
   a `NoIsolation` condition, never a weaker level.
@@ -260,7 +260,7 @@ message:
 3. `isolation: sandbox` in the embedded runtime: first the runtime and
    node support (done), then the project setting and placement;
 4. quotas, shared-path limits, and usage per project;
-5. `isolation: vm` through drivers.
+5. `isolation: vm` in the embedded runtime.
 
 ## Alternatives considered
 
