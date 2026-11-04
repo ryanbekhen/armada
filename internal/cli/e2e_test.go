@@ -211,6 +211,12 @@ func TestEndToEnd(t *testing.T) {
 		code, out, _ := cli("status")
 		return code == 0 && strings.Contains(out, "node-1") && strings.Contains(out, "ready")
 	})
+	// The agent applies the cluster network, with itself as the only peer.
+	waitFor("cluster network", func() bool {
+		n := testNets.get("node-1").applied()
+		return n != nil && n.GetMode() == "plain" && n.GetClusterCidr() == "10.120.0.0/16" &&
+			len(n.GetPeers()) == 1 && n.GetPeers()[0].GetSubnet() == "10.120.0.0/24"
+	})
 
 	spec := filepath.Join(t.TempDir(), "web.yaml")
 	if err := os.WriteFile(spec, []byte("name: web\nimage: nginx:1.27\ningress:\n  type: external\n  port: 80\nscale:\n  min: 2\n"), 0o600); err != nil {

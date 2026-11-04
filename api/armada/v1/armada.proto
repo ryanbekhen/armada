@@ -297,6 +297,8 @@ message JoinServerResponse {
   // The node's container subnet in the cluster network (ADR 0027); empty
   // when the cluster has none.
   string node_subnet = 9;
+  // The cluster network's mode, "plain"; empty when the cluster has none.
+  string network_mode = 10;
 }
 
 message JoinRequest {
@@ -318,6 +320,8 @@ message JoinResponse {
   // The node's container subnet in the cluster network (ADR 0027); empty
   // when the cluster has none.
   string node_subnet = 5;
+  // The cluster network's mode, "plain"; empty when the cluster has none.
+  string network_mode = 6;
 }
 
 // Secret values are write-only: no RPC returns them to admins. Fields that
@@ -795,6 +799,26 @@ message Assignment {
   // API addresses of every control plane node; the agent fails over to the
   // next one when its server goes away.
   repeated string servers = 3;
+  // The cluster network (ADR 0027); unset in clusters without one.
+  NetworkConfig network = 4;
+}
+
+// NetworkConfig is how the cluster network routes node subnets between
+// nodes (ADR 0027). Identical for every node.
+message NetworkConfig {
+  // "plain" (VXLAN on the private network).
+  string mode = 1;
+  string cluster_cidr = 2;
+  // Every node with a subnet, the receiving node included.
+  repeated NetworkPeer peers = 3;
+}
+
+message NetworkPeer {
+  string node = 1;
+  // The address the tunnel reaches the node at.
+  string private_ip = 2;
+  // The node's container subnet, a /24 of the cluster CIDR.
+  string subnet = 3;
 }
 
 message ProxyConfig {

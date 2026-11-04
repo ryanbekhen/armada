@@ -263,7 +263,7 @@ func TestBridgeAndCNIConfig(t *testing.T) {
 			t.Errorf("accepted subnet %s", bad)
 		}
 	}
-	raw, err := cniConfig(b, "/run/armada/cni/ipam")
+	raw, err := cniConfig(b, "/run/armada/cni/ipam", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -273,8 +273,11 @@ func TestBridgeAndCNIConfig(t *testing.T) {
 	if err := json.Unmarshal(raw, &conf); err != nil || len(conf.Plugins) != 3 {
 		t.Fatalf("%s %v", raw, err)
 	}
-	if !strings.Contains(string(raw), `"routes":[{"dst":"0.0.0.0/0"}]`) {
-		t.Errorf("no default route: %s", raw)
+	if !strings.Contains(string(raw), `"routes":[{"dst":"0.0.0.0/0"}]`) || strings.Contains(string(raw), `"mtu"`) {
+		t.Errorf("no default route, or an MTU nobody asked for: %s", raw)
+	}
+	if raw, _ := cniConfig(b, "/run/armada/cni/ipam", 1400); !strings.Contains(string(raw), `"mtu":1400`) {
+		t.Errorf("MTU not set: %s", raw)
 	}
 	pm := portMappings(&portMapping{HostIP: "10.0.0.6", HostPort: 21000, ContainerPort: 8080})
 	if pm[0]["hostIP"] != "10.0.0.6" {

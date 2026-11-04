@@ -61,6 +61,9 @@ type agentConfig struct {
 	Runtime string `json:"runtime,omitempty"`
 	// ContainerSubnet is the embedded runtime's bridge subnet.
 	ContainerSubnet string `json:"containerSubnet,omitempty"`
+	// Network is the cluster network's mode (ADR 0027), "plain"; empty in
+	// clusters without one.
+	Network string `json:"network,omitempty"`
 }
 
 func saveAgentConfig(dataDir string, c agentConfig) error {

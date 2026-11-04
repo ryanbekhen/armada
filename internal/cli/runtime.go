@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/pflag"
 
 	"github.com/ryanbekhen/armada/driverkit"
+	"github.com/ryanbekhen/armada/internal/clusternet"
 	"github.com/ryanbekhen/armada/internal/runtime"
 	"github.com/ryanbekhen/armada/internal/runtime/containerd"
 	"github.com/ryanbekhen/armada/internal/runtime/embedded"
@@ -92,12 +93,20 @@ func (r runtimeFlags) apply(c *agentConfig, privateIP netip.Addr) error {
 	return nil
 }
 
-// useNodeSubnet makes the subnet the cluster gave the node (ADR 0027) the
-// embedded runtime's bridge subnet. It returns a note for the operator when
-// it overrides --container-subnet. Nodes of clusters without a network, and
-// nodes with an external driver, keep their setting.
-func (r runtimeFlags) useNodeSubnet(c *agentConfig, subnet string, privateIP netip.Addr) (string, error) {
-	if subnet == "" || c.external() {
+// useNodeSubnet records the cluster network the node joined (ADR 0027) and
+// makes the subnet the cluster gave the node the embedded runtime's bridge
+// subnet. It returns a note for the operator when it overrides
+// --container-subnet. Nodes of clusters without a network keep their
+// setting, and nodes with an external driver let the driver choose.
+func (r runtimeFlags) useNodeSubnet(c *agentConfig, subnet, mode string, privateIP netip.Addr) (string, error) {
+	if subnet == "" {
+		return "", nil
+	}
+	if mode != store.NetworkPlain {
+		return "", fmt.Errorf("the control plane uses cluster network mode %q, which this Armada does not know; upgrade it", mode)
+	}
+	c.Network = mode
+	if c.external() {
 		return "", nil
 	}
 	p, err := netip.ParsePrefix(subnet)
@@ -139,7 +148,19 @@ var newDriver = func(dataDir string, ac *agentConfig) (runtime.Driver, error) {
 		}
 		subnet = p
 	}
-	return containerd.New(containerd.Config{Paths: runtimePaths(dataDir), Subnet: subnet})
+	mtu := 0
+	if ac.Network != "" {
+		// Containers reach other nodes through the tunnel, which takes
+		// its overhead from each packet (ADR 0027).
+		ip, err := netip.ParseAddr(ac.PrivateIP)
+		if err != nil {
+			return nil, fmt.Errorf("%s: private IP: %w", fileAgent, err)
+		}
+		if mtu, err = clusternet.ContainerMTU(ip); err != nil {
+			return nil, fmt.Errorf("cluster network: %w", err)
+		}
+	}
+	return containerd.New(containerd.Config{Paths: runtimePaths(dataDir), Subnet: subnet, MTU: mtu})
 }
 
 // runtimeHint says how to start the node's runtime.
@@ -227,13 +248,18 @@ func newRuntimeCommand() *cobra.Command {
 	return cmd
 }
 
+// removeClusterNet takes the cluster network off the node; tests replace
+// it.
+var removeClusterNet = clusternet.Remove
+
 func newRuntimeResetCommand() *cobra.Command {
 	var dataDir string
 	cmd := &cobra.Command{
 		Use:   "reset",
 		Short: "Remove every container Armada runs on this node",
 		Long: "reset stops and removes all of Armada's containers on this node (those with\n" +
-			"Armada's labels; with an external driver, other containers are left alone).\n" +
+			"Armada's labels; with an external driver, other containers are left alone),\n" +
+			"and the cluster network's interface and firewall rules.\n" +
 			"Use it after `armada node remove`, with the agent (or server) stopped first,\n" +
 			"or it starts its replicas again.",
 		Args: cobra.NoArgs,
@@ -276,6 +302,13 @@ func newRuntimeResetCommand() *cobra.Command {
 				}
 			}
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Removed %d container(s).\n", len(cs)-len(errs))
+			if ac.Network != "" && goos == "linux" {
+				if err := removeClusterNet(); err != nil {
+					errs = append(errs, fmt.Errorf("cluster network: %w", err))
+				} else {
+					_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Removed the cluster network interface %s and its firewall rules.\n", clusternet.Interface)
+				}
+			}
 			return errors.Join(errs...)
 		},
 	}

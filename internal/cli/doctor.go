@@ -18,6 +18,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/ryanbekhen/armada/internal/clusternet"
 	"github.com/ryanbekhen/armada/internal/netutil"
 	"github.com/ryanbekhen/armada/internal/proxy/haproxy"
 	"github.com/ryanbekhen/armada/internal/runtime"
@@ -49,6 +50,9 @@ type doctorEnv struct {
 	// runtimeHost checks what the embedded runtime needs from the host;
 	// nil with an external driver.
 	runtimeHost func(subnet netip.Prefix) []checkResult
+	// network checks the cluster network (ADR 0027); nil when the node is
+	// not part of one.
+	network     func() []checkResult
 	subnet      netip.Prefix
 	detectIP    func() (netip.Addr, error)
 	statFile    func(string) (fs.FileInfo, error)
@@ -104,6 +108,10 @@ func hostDoctorEnv(dataDir string) doctorEnv {
 	if ac.external() {
 		host = nil
 	}
+	var network func() []checkResult
+	if ip, err := netip.ParseAddr(ac.PrivateIP); err == nil && ac.Network != "" && goruntime.GOOS == "linux" {
+		network = func() []checkResult { return clusterNetChecks(ip) }
+	}
 	return doctorEnv{
 		goos:        goruntime.GOOS,
 		euid:        os.Geteuid(),
@@ -111,6 +119,7 @@ func hostDoctorEnv(dataDir string) doctorEnv {
 		driverErr:   err,
 		runtimeName: ac.Runtime,
 		runtimeHost: host,
+		network:     network,
 		subnet:      subnet,
 		detectIP:    netutil.DetectPrivateIP,
 		statFile:    os.Stat,
@@ -223,6 +232,9 @@ func checkRuntime(ctx context.Context, env doctorEnv) []checkResult {
 	if env.runtimeHost != nil {
 		out = append(out, env.runtimeHost(env.subnet)...)
 	}
+	if env.network != nil {
+		out = append(out, env.network()...)
+	}
 	if env.driverErr != nil {
 		add("runtime", checkFail, "%v", env.driverErr)
 		return out
@@ -259,6 +271,16 @@ func checkRuntime(ctx context.Context, env doctorEnv) []checkResult {
 		default:
 			add("bridge", checkOK, "gateway %s, subnet %s", b.Gateway, b.Subnet)
 		}
+	}
+	return out
+}
+
+// clusterNetChecks are the cluster network's checks on this host.
+func clusterNetChecks(ip netip.Addr) []checkResult {
+	levels := map[int]string{clusternet.CheckOK: checkOK, clusternet.CheckWarn: checkWarn, clusternet.CheckFail: checkFail}
+	var out []checkResult
+	for _, c := range clusternet.Diagnose(ip) {
+		out = append(out, checkResult{Name: c.Name, Status: levels[c.Level], Detail: c.Detail})
 	}
 	return out
 }

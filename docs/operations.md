@@ -315,11 +315,24 @@ must not contain the nodes' private IPs or overlap routes on them
 (`armada doctor` checks the node's subnet).
 
 Container addresses are unique in the cluster, and the bridge's gateway
-(where `<app>.internal` and the node's DNS answer) differs per node.
+(where `<app>.internal` and the node's DNS answer) differs per node. Every
+Linux node routes the other nodes' subnets over its `armada-net` interface,
+VXLAN on its private IP (UDP 4789, not encrypted). So containers and nodes
+reach a container on any node at its own address, and a replica sees the
+caller's real address. Allow UDP 4789 between the nodes in the provider
+firewall; Armada accepts it on each node only from the other nodes.
+
+The tunnel takes 50 bytes from each packet: the bridge and containers get
+the MTU of the interface that holds the private IP less 50 (at least 1280
+is required). Containers created before the node joined the tunnel keep
+their old MTU until they are replaced. `armada doctor` shows the MTU, and
+whether `armada-net` is up and routes every other node. `armada runtime
+reset` on a removed node takes the interface and its firewall rules off.
+
 Replicas are still reached through the port they publish on their node's
-private IP. Clusters created by an Armada without the cluster network keep
-one bridge subnet on every node (`--container-subnet`, default
-`10.121.0.0/24`).
+private IP. macOS nodes stay outside the cluster network. Clusters created
+by an Armada without the cluster network keep one bridge subnet on every
+node (`--container-subnet`, default `10.121.0.0/24`).
 
 ## How requests reach replicas
 

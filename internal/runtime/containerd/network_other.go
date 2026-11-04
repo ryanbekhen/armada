@@ -9,6 +9,6 @@ import (
 	"github.com/ryanbekhen/armada/internal/runtime/embedded"
 )
 
-func newNetwork(embedded.Paths, netip.Prefix) (network, error) {
+func newNetwork(embedded.Paths, netip.Prefix, int) (network, error) {
 	return nil, errors.New("the embedded runtime needs Linux")
 }

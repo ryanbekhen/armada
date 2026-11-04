@@ -167,6 +167,18 @@ func TestDoctorRuntimeDown(t *testing.T) {
 	}
 }
 
+func TestDoctorClusterNetwork(t *testing.T) {
+	t.Parallel()
+	env := healthyEnv(t)
+	if statusOf(runDoctor(context.Background(), env), "network") != "" {
+		t.Error("network checked on a node without a cluster network")
+	}
+	env.network = func() []checkResult { return []checkResult{{Name: "network", Status: checkFail}} }
+	if got := statusOf(runDoctor(context.Background(), env), "network"); got != checkFail {
+		t.Errorf("network check = %q", got)
+	}
+}
+
 func TestParseRoutes(t *testing.T) {
 	t.Parallel()
 	table := "Iface\tDestination\tGateway \tFlags\tRefCnt\tUse\tMetric\tMask\t\tMTU\tWindow\tIRTT\n" +

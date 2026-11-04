@@ -76,6 +76,9 @@ type Config struct {
 	// Proxy applies the ingress configuration; nil disables ingress on this
 	// node.
 	Proxy proxy.Driver
+	// Network applies the cluster network (ADR 0027); nil when the node is
+	// not part of one.
+	Network Network
 	// Check runs health checks (default DefaultCheck).
 	Check CheckFunc
 	// VolumesDir holds persistent volumes (ADR 0025); empty: the node
@@ -98,6 +101,14 @@ type Config struct {
 	// OnServers receives them whenever the server sends a different list.
 	Servers   []string
 	OnServers func(servers []string)
+}
+
+// Network sets up the cluster network on the node (ADR 0027).
+type Network interface {
+	// Apply makes the node's tunnel, routes, and firewall rules match cfg.
+	// It is called again whenever cfg changes and on every resync, so it
+	// must be idempotent and repair what drifted.
+	Apply(ctx context.Context, cfg *armadav1.NetworkConfig) error
 }
 
 // InternalDNS is the node-local resolver the agent keeps in sync with the
@@ -131,6 +142,10 @@ type Agent struct {
 
 	proxyDesired *armadav1.ProxyConfig
 	proxyApplied *armadav1.ProxyConfig
+	// networkDesired is the last cluster network received; networkFailed
+	// holds the last error applying it, logged once per change.
+	networkDesired *armadav1.NetworkConfig
+	networkFailed  string
 	// proxyChanged is closed and replaced when proxyApplied changes.
 	proxyChanged chan struct{}
 	wakes        *waker
@@ -278,6 +293,7 @@ func (a *Agent) session(ctx context.Context) (established bool, err error) {
 		}
 		switch m := msg.Msg.(type) {
 		case *armadav1.ServerMessage_Assignment:
+			a.setNetwork(m.Assignment.GetNetwork())
 			a.setDesired(m.Assignment.GetReplicas(), m.Assignment.GetProxy())
 			a.setServers(m.Assignment.GetServers())
 		case *armadav1.ServerMessage_LogRequest:
@@ -490,6 +506,7 @@ func (a *Agent) Reconcile(ctx context.Context) (*armadav1.ReplicaReport, error) 
 		}
 	}
 	a.mu.Unlock()
+	a.applyNetwork(ctx)
 	a.applyProxy(ctx)
 	return report, nil
 }
@@ -569,6 +586,45 @@ func (a *Agent) readiness(ctx context.Context, s *armadav1.ReplicaSpec, c runtim
 // serving its previous configuration meanwhile. An unchanged configuration
 // is applied again when the proxy is not healthy, which starts it if it
 // stopped. The config holds TLS private keys, so it is never logged.
+func (a *Agent) setNetwork(cfg *armadav1.NetworkConfig) {
+	if cfg == nil {
+		return
+	}
+	a.mu.Lock()
+	a.networkDesired = cfg
+	a.mu.Unlock()
+}
+
+// applyNetwork applies the cluster network before the proxy and the
+// containers that use it. A failure leaves the node on the network it has
+// and is retried on the next pass.
+func (a *Agent) applyNetwork(ctx context.Context) {
+	if a.cfg.Network == nil {
+		return
+	}
+	a.mu.Lock()
+	want := a.networkDesired
+	a.mu.Unlock()
+	if want == nil {
+		return
+	}
+	err := a.cfg.Network.Apply(ctx, want)
+	msg := ""
+	if err != nil {
+		msg = err.Error()
+	}
+	a.mu.Lock()
+	changed := msg != a.networkFailed
+	a.networkFailed = msg
+	a.mu.Unlock()
+	switch {
+	case err != nil && changed:
+		a.log.Error("applying the cluster network failed", "err", err)
+	case err == nil && changed:
+		a.log.Info("cluster network applied again")
+	}
+}
+
 func (a *Agent) applyProxy(ctx context.Context) {
 	if a.cfg.Proxy == nil {
 		return

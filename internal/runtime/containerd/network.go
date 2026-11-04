@@ -39,27 +39,32 @@ func bridgeMAC(gw netip.Addr) net.HardwareAddr {
 // cniConfig renders the plugin chain: a bridge with NAT for egress,
 // host-local addresses kept on tmpfs (namespaces do not survive a reboot
 // either), portmap for published ports, and firewall rules that let the
-// traffic through a restrictive FORWARD policy.
-func cniConfig(b runtime.Bridge, ipamDir string) ([]byte, error) {
+// traffic through a restrictive FORWARD policy. An mtu above 0 sets the
+// MTU of the bridge and of each container's interface.
+func cniConfig(b runtime.Bridge, ipamDir string, mtu int) ([]byte, error) {
+	bridge := map[string]any{
+		"type":        "bridge",
+		"bridge":      embedded.BridgeName,
+		"isGateway":   true,
+		"ipMasq":      true,
+		"hairpinMode": true,
+		"ipam": map[string]any{
+			"type":   "host-local",
+			"ranges": [][]map[string]string{{{"subnet": b.Subnet.String(), "gateway": b.Gateway.String()}}},
+			// The default route via the gateway: egress, and replies to
+			// connections DNAT'd from the node's private IP.
+			"routes":  []map[string]string{{"dst": "0.0.0.0/0"}},
+			"dataDir": ipamDir,
+		},
+	}
+	if mtu > 0 {
+		bridge["mtu"] = mtu
+	}
 	conf := map[string]any{
 		"cniVersion": "1.0.0",
 		"name":       "armada",
 		"plugins": []any{
-			map[string]any{
-				"type":        "bridge",
-				"bridge":      embedded.BridgeName,
-				"isGateway":   true,
-				"ipMasq":      true,
-				"hairpinMode": true,
-				"ipam": map[string]any{
-					"type":   "host-local",
-					"ranges": [][]map[string]string{{{"subnet": b.Subnet.String(), "gateway": b.Gateway.String()}}},
-					// The default route via the gateway: egress, and replies to
-					// connections DNAT'd from the node's private IP.
-					"routes":  []map[string]string{{"dst": "0.0.0.0/0"}},
-					"dataDir": ipamDir,
-				},
-			},
+			bridge,
 			map[string]any{"type": "portmap", "capabilities": map[string]bool{"portMappings": true}, "snat": true},
 			map[string]any{"type": "firewall"},
 		},

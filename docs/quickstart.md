@@ -30,8 +30,9 @@ Ports:
 | 7443/tcp | Every node, on the private network only (control plane API) |
 | 7444/tcp | New nodes while they join, private network only |
 | 2379, 2380/tcp | Other control plane servers only (embedded etcd) |
+| 4789/udp | Every node, on the private network only (cluster network) |
 
-Never expose 7443, 7444, 2379, or 2380 to the internet. Armada binds them to the private
+Never expose 7443, 7444, 2379, 2380, or 4789 to the internet. Armada binds them to the private
 IP only, but on providers that map the public IP onto the private interface
 (1:1 NAT), restrict them in the provider firewall as well.
 

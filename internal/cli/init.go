@@ -182,7 +182,7 @@ func newInitCommand(g *globals) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if _, err := rtFlags.useNodeSubnet(&ac, node.Subnet, ip); err != nil {
+			if _, err := rtFlags.useNodeSubnet(&ac, node.Subnet, network.Mode, ip); err != nil {
 				return err
 			}
 			ac.NodeID = nodeName

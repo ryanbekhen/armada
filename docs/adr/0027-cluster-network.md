@@ -68,9 +68,14 @@ The cluster CIDR is routed between nodes over one interface per node,
 
 - **`plain`, the default.** It uses kernel VXLAN (no encryption, 50 bytes
   of overhead).
-  - The socket is bound to the node's private IP. The forwarding entries
-    are static, one per peer, with no multicast and no learning.
-  - nftables accepts the VXLAN port only from current peers' private IPs.
+  - The socket is bound to the node's private IP (UDP 4789, VXLAN network
+    identifier 7027). The forwarding entries are static, one per peer, with
+    no multicast and no learning: each node's tunnel end has an address and
+    a hardware address derived from its subnet, so peers need nothing more
+    than the peer list.
+  - A firewall rule accepts the VXLAN port on the private IP only from
+    current peers' private IPs (iptables, which the container networking
+    plugins already use on every node).
   - Traffic between nodes is not encrypted. A machine on the private network
     can read it, and one that forges peer packets can inject traffic. That
     is the trust Armada already places in the private network today (T56).
@@ -83,7 +88,7 @@ The cluster CIDR is routed between nodes over one interface per node,
     drops any packet whose inner source is not that node's.
   - One UDP port, `--wireguard-port`, default 51820.
   - Kernel WireGuard cannot bind to one address. The agent therefore adds
-    an nftables rule that accepts the port only on the private IP and only
+    a firewall rule that accepts the port only on the private IP and only
     from the current peers' addresses. WireGuard never answers a packet
     that does not authenticate.
   - Where the kernel has no WireGuard, the agent runs the pure Go userspace
@@ -94,10 +99,23 @@ The cluster CIDR is routed between nodes over one interface per node,
     (shared or provider-managed networks), and for compliance needs.
   - It costs CPU: see the numbers above.
 
-Routes for each peer's subnet point at `armada-net`, with the node's
-gateway address as the source. Traffic within the cluster CIDR is never
-masqueraded, so a replica sees the real source address of the caller.
-Egress to everywhere else is masqueraded as today.
+Routes for each peer's subnet point at `armada-net`, through the peer's
+tunnel end: the network address of the peer's subnet, which the bridge
+never hands to a container. Each node holds its own tunnel end's address on
+`armada-net`, so traffic the host itself sends to other nodes' containers
+(HAProxy, health checks) leaves from that address. Traffic within the
+cluster CIDR is never masqueraded, so a replica sees the real source
+address of the caller. Egress to everywhere else is masqueraded as today.
+Packets that arrive through the tunnel are forwarded only to the container
+bridge.
+
+The control plane sends every node the peer list (name, private IP, subnet)
+in its assignment. The agent checks it again before it touches the host
+(names, private addresses outside the cluster CIDR, subnets inside it, no
+duplicates, the node itself listed at its own address), applies it on every
+reconcile pass, and removes routes and entries of nodes that left.
+`armada runtime reset` takes the interface and the firewall rules off a
+removed node.
 
 ### Keys
 
@@ -135,8 +153,9 @@ exists only where a pair of nodes uses it.
   (`mtu` in the CNI bridge configuration).
 - Nodes whose uplinks differ get different tunnel MTUs. Each side sends
   packets that fit its own path, and TCP's MSS takes the smaller of the two.
+- The agent refuses an uplink below 1280 bytes.
 - `armada doctor` sends unfragmented probes of the tunnel MTU to every peer
-  and reports a path that drops them.
+  and reports a path that drops them (a later stage).
 
 ### Replica addresses and HAProxy
 
@@ -278,7 +297,14 @@ cannot reach each other, and how routing prefers the same site.
 
 Doctor checks that:
 
-- in the `wireguard` mode, the kernel has WireGuard, or warns that the
+- the uplink's MTU leaves room for the tunnel, and reports the MTU
+  containers get;
+- the kernel has VXLAN, and `armada-net` is up with a route for each peer;
+- the node's subnet does not overlap the host's routes.
+
+Later stages add:
+
+- in the `wireguard` mode, the kernel has WireGuard, or a warning that the
   userspace fallback will run;
 - the UDP port is free and allowed by the host firewall;
 - the cluster CIDR and service CIDR do not overlap the host's routes;
@@ -324,7 +350,9 @@ Doctor checks that:
 - Nodes in other providers or behind NAT need the later ADR. The records and
   the agent already allow for them.
 - The implementation lands in stages:
-  1. the network, routing, MTU, and doctor;
+  1. the network, routing, MTU, and doctor: node subnets (done), the
+     `plain` tunnel with routes, MTU, and firewall (done), then the
+     `wireguard` mode with node keys;
   2. replicas without published ports;
   3. default deny and `ingress.allow`;
   4. TCP apps;
