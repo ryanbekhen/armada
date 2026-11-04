@@ -296,12 +296,47 @@ that use a database on the private network keep working:
 ```bash
 armada project set default --network-isolation        # once its apps no longer need the private network
 armada project set default --network-isolation=false
-armada project list                                   # the ISOLATED column
+armada project list                                   # the NETWORK column
 ```
 
 `armada doctor` checks that the firewall tables are in place (`isolation`;
 the kernel needs nf_tables). Connections opened before a change keep going
-until they end. Clusters without the cluster network are not filtered. Kernel isolation and quotas follow (ADR 0029).
+until they end. Clusters without the cluster network are not filtered.
+
+### Kernel isolation
+
+Every project has a kernel isolation level, which says how its replicas
+are kept from the node's kernel (ADR 0029):
+
+| Level | Replicas run |
+| --- | --- |
+| `sandbox` | In a userspace kernel (gVisor) that serves their system calls, so a kernel bug they reach does not hand over the node. The default for every new project. |
+| `container` | On the node's kernel, confined by namespaces, cgroups, seccomp, and SELinux where it is enforcing. The level of `default`, and of projects created before levels existed. |
+
+```bash
+armada project create shop                         # sandbox
+armada project create tools --isolation container  # administrators only
+armada project set default --isolation sandbox
+armada project list                                # the ISOLATION column
+armada node list                                   # SANDBOX: nodes that run sandboxed replicas
+```
+
+- Replicas of a `sandbox` project run only on nodes that run the sandbox
+  (release builds carry it; `armada doctor` checks it). With no such node
+  they wait, `armada status` says why, and a `NoIsolation` event is
+  recorded: a project never runs below its level.
+- A revision keeps the level its project had when it was deployed. After a
+  change, deploy each app again (the same spec is enough): the new revision
+  rolls out at the new level without dropping traffic. Rolling back to, or
+  giving traffic to, a revision weaker than the project's level is refused.
+- Exec, logs, `armada top`, probes, secret files, and volumes work in the
+  sandbox. It costs some speed on system calls, file I/O, and networking,
+  and a few images that rely on unusual system calls do not start there
+  (the replica's message shows the reason); keep those in a `container`
+  project.
+- Automation identities create projects at `sandbox` and change no level.
+
+Quotas follow (ADR 0029).
 
 ### Automation identities
 

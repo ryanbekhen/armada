@@ -173,6 +173,9 @@ func TestEndToEnd(t *testing.T) {
 	// Containers on the node's subnet of the cluster network, past its
 	// gateway: 10.120.0.11, 10.120.0.12, ...
 	d.BridgeIPs = "10.120.0.1"
+	// The node runs the sandbox, so replicas of sandboxed projects can run
+	// on it (ADR 0029).
+	d.Sandbox = true
 	d.LogLines = []runtime.LogFrame{{Stream: runtime.Stdout, Data: []byte("listening on :80\n")}, {Stream: runtime.Stderr, Data: []byte("deprecated flag\n")}}
 	orig, origWait, origCheck, origPoll, origTmpfs, origUsage := newDriver, proxyStartWait, probeCheck, waitPoll, checkTmpfs, usageInterval
 	newDriver = func(string, *agentConfig) (runtime.Driver, error) { return d, nil }
@@ -239,7 +242,7 @@ func TestEndToEnd(t *testing.T) {
 		t.Fatalf("project set: code=%d out=%q err=%q", code, out, stderr)
 	}
 	waitFor("isolated default", func() bool { return testNets.get("node-1").applied().GetIsolateDefault() })
-	if code, out, _ := cli("project", "list"); code != 0 || !strings.Contains(out, "ISOLATED") || !strings.Contains(out, "default  0     yes") {
+	if code, out, _ := cli("project", "list"); code != 0 || !regexp.MustCompile(`default\s+0\s+container\s+isolated\s`).MatchString(out) {
 		t.Errorf("project list:\n%s", out)
 	}
 	if code, _, stderr := cli("project", "set", "default"); code == 0 || !strings.Contains(stderr, "nothing to change") {
@@ -512,11 +515,11 @@ func TestEndToEnd(t *testing.T) {
 		}
 	}
 
-	testProjects(t, cli, waitFor)
+	testProjects(t, d, cli, waitFor)
 }
 
 // testProjects runs an app of the same name in another project (ADR 0029).
-func testProjects(t *testing.T, cli func(...string) (int, string, string), waitFor func(string, func() bool)) {
+func testProjects(t *testing.T, d *fake.Driver, cli func(...string) (int, string, string), waitFor func(string, func() bool)) {
 	t.Helper()
 	spec := filepath.Join(t.TempDir(), "web.yaml")
 	if err := os.WriteFile(spec, []byte("name: web\nimage: nginx:1.28\ningress:\n  type: internal\n  port: 80\n"), 0o600); err != nil {
@@ -525,7 +528,7 @@ func testProjects(t *testing.T, cli func(...string) (int, string, string), waitF
 	if code, _, stderr := cli("deploy", "-f", spec, "--project", "staging"); code == 0 || !strings.Contains(stderr, "project staging does not exist") {
 		t.Fatalf("deploy into a missing project: code=%d err=%q", code, stderr)
 	}
-	if code, out, stderr := cli("project", "create", "staging"); code != 0 || !strings.Contains(out, "Project staging created") {
+	if code, out, stderr := cli("project", "create", "staging"); code != 0 || !strings.Contains(out, "Project staging created (isolation sandbox)") {
 		t.Fatalf("project create: code=%d out=%q err=%q", code, out, stderr)
 	}
 	if code, _, stderr := cli("project", "create", "staging"); code == 0 || !strings.Contains(stderr, "already exists") {
@@ -539,6 +542,18 @@ func testProjects(t *testing.T, cli func(...string) (int, string, string), waitF
 		_, out, _ := cli("status", "web", "--project", "staging")
 		return regexp.MustCompile(`web\.staging\s+web\.staging--r1\s+1/1`).MatchString(out)
 	})
+	cs, _ := d.List(context.Background(), map[string]string{runtime.LabelApp: "web.staging"})
+	for _, c := range cs {
+		if sp, ok := d.Spec(c.ID); !ok || !sp.Sandbox {
+			t.Errorf("web.staging container %s not sandboxed", c.ID)
+		}
+	}
+	if len(cs) == 0 {
+		t.Error("no web.staging container")
+	}
+	if _, out, _ := cli("node", "list"); !regexp.MustCompile(`node-1\s+\S+\s+ready\s+yes\s`).MatchString(out) {
+		t.Errorf("node list without the sandbox column: %q", out)
+	}
 	// The default project's web is untouched, and listings follow --project.
 	_, out, _ = cli("status", "--project", "staging")
 	if strings.Contains(out, "web--r1") || !strings.Contains(out, "web.staging-r1-") {
@@ -556,7 +571,7 @@ func testProjects(t *testing.T, cli func(...string) (int, string, string), waitF
 		return strings.Contains(out, "2/2")
 	})
 	_, out, _ = cli("project", "list")
-	if !regexp.MustCompile(`default\s+[1-9]\s`).MatchString(out) || !regexp.MustCompile(`staging\s+1\s`).MatchString(out) {
+	if !regexp.MustCompile(`default\s+[1-9]\s+container\s`).MatchString(out) || !regexp.MustCompile(`staging\s+1\s+sandbox\s+isolated\s`).MatchString(out) {
 		t.Errorf("project list = %q", out)
 	}
 	if code, _, stderr := cli("project", "remove", "staging"); code == 0 || !strings.Contains(stderr, "apps (web.staging)") {

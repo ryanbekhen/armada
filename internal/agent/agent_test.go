@@ -585,3 +585,29 @@ func TestReportsImagePlatforms(t *testing.T) {
 		}
 	}
 }
+
+// A replica of a sandboxed project runs only in the sandbox, never as a
+// plain container (ADR 0029).
+func TestStartSandboxed(t *testing.T) {
+	t.Parallel()
+	a, d := newAgent(t)
+	s := replica("web-r1-a", "nginx:1", 80)
+	s.Sandbox = true
+	if specHash(s) == specHash(replica("web-r1-a", "nginx:1", 80)) {
+		t.Error("hash ignores the sandbox")
+	}
+	if _, err := a.start(context.Background(), s, specHash(s)); err == nil || !strings.Contains(err.Error(), "isolation sandbox") {
+		t.Fatalf("start without a sandbox = %v", err)
+	}
+	if cs, _ := d.List(context.Background(), nil); len(cs) != 0 {
+		t.Fatalf("containers = %v", cs)
+	}
+	d.Sandbox = true
+	c, err := a.start(context.Background(), s, specHash(s))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if spec, ok := d.Spec(c.ID); !ok || !spec.Sandbox {
+		t.Errorf("container spec sandbox = %v", spec.Sandbox)
+	}
+}

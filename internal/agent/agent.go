@@ -708,6 +708,11 @@ func (a *Agent) remove(ctx context.Context, id string) {
 }
 
 func (a *Agent) start(ctx context.Context, s *armadav1.ReplicaSpec, hash string) (runtime.Container, error) {
+	if s.GetSandbox() && !runtime.CanSandbox(a.cfg.Driver) {
+		// Never a weaker level (ADR 0029): the control plane places such
+		// replicas only on nodes that announced the sandbox.
+		return runtime.Container{}, errors.New("the replica's project requires isolation sandbox, and this node's runtime cannot run sandboxed containers (see armada doctor)")
+	}
 	img, err := a.cfg.Driver.Pull(ctx, s.GetImage(), registryAuth(s))
 	if err != nil {
 		return runtime.Container{}, err
@@ -841,6 +846,7 @@ func ContainerSpec(s *armadav1.ReplicaSpec, hostIP, hash string) runtime.Contain
 		NanoCPUs:         s.GetNanoCpus(),
 		CPUReserveMillis: s.GetCpuReserveMillis(),
 		PidsLimit:        s.GetPidsLimit(),
+		Sandbox:          s.GetSandbox(),
 	}
 }
 

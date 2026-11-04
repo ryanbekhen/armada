@@ -230,7 +230,10 @@ resource is short.
 
 Every container also gets a PID limit of 1024, `no-new-privileges`, and a
 reduced capability set, and never runs privileged, on the host network, or
-with access to the container runtime's socket.
+with access to the container runtime's socket. Replicas of a project whose
+isolation level is `sandbox` (new projects) also run in a userspace kernel,
+on nodes that run it (see
+[operations](operations.md#kernel-isolation)).
 
 ### `placement`
 

@@ -199,6 +199,7 @@ func (s *Server) startAttempt(ctx context.Context, rc *reconcileRun, job store.A
 	}
 	s.condition(ctx, "job-unplaced:"+runObject(*r), !ok, store.Event{Kind: eventJob, Object: runObject(*r), App: job.Name, Reason: "Unschedulable",
 		Message: "no node can run it now (placement, capacity, or no agent that runs jobs); see armada status"})
+	s.condition(ctx, "job-no-isolation:"+runObject(*r), !ok && noIsolation(nodes, rev, ""), noIsolationEvent(job.Name, eventJob, runObject(*r)))
 	if !ok {
 		timeout := rev.Spec.JobTimeout()
 		if rc.now.Sub(waitingSince) >= timeout {

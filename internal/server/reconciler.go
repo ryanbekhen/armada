@@ -7,6 +7,7 @@ import (
 	"maps"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"google.golang.org/protobuf/proto"
@@ -386,6 +387,7 @@ func (s *Server) reconcileRevision(ctx context.Context, rc *reconcileRun, app *s
 	}
 	s.condition(ctx, unplacedKey, unplaced, store.Event{Kind: eventApp, Object: app.Name, App: app.Name, Reason: "Unschedulable",
 		Message: fmt.Sprintf("no node can fit another replica (%d of %d placed); see armada status", len(current), app.Replicas)})
+	s.condition(ctx, "no-isolation:"+strings.TrimPrefix(unplacedKey, "unplaced:"), unplaced && noIsolation(nodes, target, ""), noIsolationEvent(app.Name, eventApp, app.Name))
 	if all, err = s.evacuate(ctx, rc, app, all, current, old, append(lost, moving...), serving, working); err != nil {
 		return nil, err
 	}
@@ -890,12 +892,16 @@ func eligible(nodes []store.Node, rev store.Revision) []store.Node {
 	return out
 }
 
-// placementAllows reports whether replicas of rev may run on n: n matches
-// the placement and, if restricted, is selected by it, and the image has a
-// variant for n's platform once its platforms are known (ADR 0014). A node
-// that does not report its platform is not ruled out.
+// placementAllows reports whether replicas of rev may run on n: n runs
+// sandboxed replicas if rev's isolation needs it (ADR 0029, never a weaker
+// level), matches the placement and, if restricted, is selected by it, and
+// the image has a variant for n's platform once its platforms are known
+// (ADR 0014). A node that does not report its platform is not ruled out.
 func placementAllows(n store.Node, rev store.Revision) bool {
 	sp := rev.Spec
+	if rev.Sandboxed() && !n.Sandbox {
+		return false
+	}
 	if sp.HasVolumes() && !n.Volumes {
 		return false
 	}
@@ -1070,6 +1076,7 @@ func replicaSpec(r store.Replica, rev store.Revision, vals map[string]secrets.Va
 		NanoCpus:         sp.NanoCPUs(),
 		CpuReserveMillis: sp.CPUMillis(),
 		PidsLimit:        spec.DefaultPids,
+		Sandbox:          rev.Sandboxed(),
 	}
 	if r.Run != 0 {
 		rs.Job = &armadav1.JobAttempt{Job: r.App, Run: r.Run, Done: r.Done}
