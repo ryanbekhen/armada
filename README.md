@@ -60,7 +60,8 @@ armada deploy -f web.yaml    # → https://web.apps.example.com
   only its own internal names (`ingress.allow` narrows an app to chosen
   callers), and its containers are kept away from the nodes, the private
   network, and the cloud's metadata service. Replicas of new projects run
-  in a sandbox, a userspace kernel between them and the node's.
+  in a sandbox, a userspace kernel between them and the node's, and quotas
+  bound what each project may reserve.
 - **Secrets.** Encrypted at rest, versioned, delivered as env vars or as
   read-only files on tmpfs.
 - **Logs and exec.** `armada logs` streams a replica's output;

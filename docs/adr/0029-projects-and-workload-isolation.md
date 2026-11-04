@@ -230,10 +230,21 @@ sets the minimum:
 ### Quotas and limits
 
 - A project's quota bounds the sum of its reservations: CPU, memory,
-  replicas (counting autoscaling's maximum), volumes and their count,
-  domains, secrets, and concurrent job attempts. Every check runs in the
-  same store transaction that would exceed it (deploy, scale, autoscaling,
-  run creation, volume binding), so concurrent requests cannot overrun it.
+  replicas (counting autoscaling's maximum), the volumes its apps declare,
+  domains, secrets, and concurrent job attempts. A job counts one attempt's
+  reservation. Every check runs in the same store transaction that would
+  exceed it (deploy, scale, rollback, a new secret, an attempt's
+  creation), so concurrent requests cannot overrun it; autoscaling never
+  goes past `scale.max`, which is already counted. A zero limit is
+  unlimited.
+- A quota lowered below what a project uses keeps what runs: only changes
+  that grow a dimension past its limit are refused (`ErrQuota`, a failed
+  precondition naming the dimension). Job attempts over the limit wait,
+  with a `QuotaExceeded` condition, within the run's timeout.
+- Administrators set quotas (`armada project create|set --quota`). An
+  automation identity's scope carries a quota (`armada automation set
+  --quota`) that every project it creates gets; it can neither choose nor
+  change one. Schema 9 gates servers that would not enforce quotas.
 - Per-replica limits stay as today and every project container gets them
   (memory, PIDs, CPU weight); `sandbox` also bounds the sandbox's own
   memory.
@@ -277,7 +288,7 @@ message:
    HAProxy's internal frontend, and `ingress.allow` (done);
 3. `isolation: sandbox` in the embedded runtime: the runtime and node
    support, the project setting, and placement (done);
-4. quotas, shared-path limits, and usage per project;
+4. quotas (done), shared-path limits, and usage per project;
 5. `isolation: vm` in the embedded runtime.
 
 ## Alternatives considered

@@ -223,7 +223,25 @@ func (s *Server) startAttempt(ctx context.Context, rc *reconcileRun, job store.A
 		State:    store.ReplicaPending,
 		Run:      r.Seq,
 	}
-	if err := s.store.CreateReplica(ctx, rep); err != nil {
+	err = s.store.CreateReplica(ctx, rep)
+	s.condition(ctx, "job-quota:"+runObject(*r), errors.Is(err, store.ErrQuota), store.Event{Kind: eventJob, Object: runObject(*r), App: job.Name,
+		Reason: "QuotaExceeded", Message: "waiting: its project runs as many job attempts at once as its quota allows"})
+	if errors.Is(err, store.ErrQuota) {
+		// Wait for another attempt of the project to end, within the
+		// run's timeout.
+		if timeout := rev.Spec.JobTimeout(); rc.now.Sub(waitingSince) >= timeout {
+			return all, s.endRun(ctx, r, store.RunFailed, 0, fmt.Sprintf("its project's quota of job attempts left no room within %s", timeout))
+		}
+		if r.Replica != "" {
+			r.Replica = ""
+			if err := s.store.UpdateJobRun(ctx, *r); err != nil {
+				return nil, err
+			}
+		}
+		rc.wakeAt(rc.now.Add(15 * time.Second))
+		return all, nil
+	}
+	if err != nil {
 		return nil, err
 	}
 	all = append(all, rep)

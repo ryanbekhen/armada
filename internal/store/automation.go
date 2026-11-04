@@ -28,7 +28,9 @@ type Automation struct {
 	CreateProjects bool
 	// Labels are the node label values its apps' placement.require may
 	// name, per key; armada.* labels are always allowed.
-	Labels    map[string][]string
+	Labels map[string][]string
+	// Quota is given to every project it creates; zero is unlimited.
+	Quota     spec.Quota
 	CreatedAt time.Time
 	CreatedBy string
 	// Certs are its valid certificates, newest last.
@@ -45,6 +47,7 @@ type automationRec struct {
 	Projects       []string            `json:"projects,omitempty"`
 	CreateProjects bool                `json:"createProjects,omitempty"`
 	Labels         map[string][]string `json:"labels,omitempty"`
+	Quota          *spec.Quota         `json:"quota,omitempty"`
 	CreatedAt      int64               `json:"createdAt"`
 	CreatedBy      string              `json:"createdBy,omitempty"`
 	Certs          []certRec           `json:"certs,omitempty"`
@@ -79,6 +82,7 @@ func (s *Etcd) SetAutomation(ctx context.Context, a Automation, actor string) (A
 		r.Projects = slices.Compact(slices.Sorted(slices.Values(a.Projects)))
 		r.CreateProjects = a.CreateProjects
 		r.Labels = a.Labels
+		r.Quota = quotaPtr(a.Quota)
 		if err := t.put(pfxAutomation+a.Name, r); err != nil {
 			return err
 		}
@@ -86,6 +90,9 @@ func (s *Etcd) SetAutomation(ctx context.Context, a Automation, actor string) (A
 		detail := "projects=" + strings.Join(r.Projects, ",")
 		if r.CreateProjects {
 			detail += " create-projects"
+		}
+		if r.Quota != nil {
+			detail += " quota=" + r.Quota.String()
 		}
 		return t.audit(now, actor, action, a.Name, detail)
 	})
@@ -110,6 +117,9 @@ func CheckAutomation(a Automation) error {
 	}
 	if len(a.Labels) > spec.MaxNodeLabels {
 		return fmt.Errorf("at most %d label keys", spec.MaxNodeLabels)
+	}
+	if err := spec.CheckQuota(a.Quota); err != nil {
+		return err
 	}
 	for k, vs := range a.Labels {
 		if err := spec.CheckLabelKey(k); err != nil {
@@ -231,20 +241,24 @@ func (s *Etcd) AutomationScope(ctx context.Context, name, serial string) (Automa
 
 // grantProject adds project to automation's scope inside t; the identity
 // must exist and be allowed to create projects.
-func (t *etx) grantProject(automation, project string) error {
+func (t *etx) grantProject(automation, project string) (spec.Quota, error) {
 	var r automationRec
 	ok, err := t.get(pfxAutomation+automation, &r)
 	if err != nil {
-		return err
+		return spec.Quota{}, err
 	}
 	if !ok || !r.CreateProjects {
-		return fmt.Errorf("automation %s may not create projects: %w", automation, ErrPrecondition)
+		return spec.Quota{}, fmt.Errorf("automation %s may not create projects: %w", automation, ErrPrecondition)
 	}
 	if !slices.Contains(r.Projects, project) {
 		r.Projects = append(r.Projects, project)
 		slices.Sort(r.Projects)
 	}
-	return t.put(pfxAutomation+automation, r)
+	var q spec.Quota
+	if r.Quota != nil {
+		q = *r.Quota
+	}
+	return q, t.put(pfxAutomation+automation, r)
 }
 
 // forgetProject removes a deleted project from every automation scope, so
@@ -272,6 +286,9 @@ func (t *etx) forgetProject(project string) error {
 func (r automationRec) automation(now time.Time) Automation {
 	a := Automation{Name: r.Name, Projects: slices.Clone(r.Projects), CreateProjects: r.CreateProjects,
 		Labels: maps.Clone(r.Labels), CreatedAt: fromMS(r.CreatedAt), CreatedBy: r.CreatedBy}
+	if r.Quota != nil {
+		a.Quota = *r.Quota
+	}
 	for _, c := range r.Certs {
 		if c.NotAfter > now.UnixMilli() {
 			a.Certs = append(a.Certs, NodeCert{Serial: c.Serial, NotAfter: fromMS(c.NotAfter)})

@@ -396,6 +396,13 @@ type Store interface {
 	// ones keep theirs, and can no longer be rolled back to or given
 	// traffic if it is weaker.
 	SetProjectIsolation(ctx context.Context, name, isolation, actor string) error
+	// SetProjectQuota replaces a project's quota (ADR 0029); zero fields
+	// are unlimited. Lowering it below what the project uses keeps what
+	// runs, and refuses only changes that grow past it: deploys, scaling,
+	// rollbacks, new secrets, and job attempts fail with ErrQuota.
+	SetProjectQuota(ctx context.Context, name string, q spec.Quota, actor string) error
+	// ProjectUsage returns what each project uses, counted like its quota.
+	ProjectUsage(ctx context.Context) (map[string]spec.Quota, error)
 	// ListProjects lists every project, the default one first.
 	ListProjects(ctx context.Context) ([]Project, error)
 	// DeleteProject removes a project; ErrPrecondition while it still
