@@ -18,9 +18,11 @@ as any of these holds:
   the control plane, or the machine's cloud credentials.
 - **Environments share a cluster.** Staging and production, or experiments
   and the apps people depend on, should not be able to touch each other.
-- **Several people or teams share a cluster.** Each should manage only
-  their own apps and see only their own logs, secrets, and events, without
-  being cluster administrators.
+- **Tools act for people.** A CI system, or a self-service portal someone
+  builds on Armada's API for the people and teams who share a cluster,
+  should manage the projects it is responsible for without holding the
+  keys to the whole cluster. If such a tool is compromised, the nodes and
+  the control plane must stay out of reach.
 - **Code is not fully trusted.** Third-party images, previews built from
   pull requests, and jobs that run code someone submitted are written by
   people the operator does not control.
@@ -50,60 +52,56 @@ they forget, so Armada builds every layer in and turns it on together.
   - volume directories (`<data dir>/volumes/<project>/<app>/<name>`);
   - metrics and event labels.
 - A project record holds its settings: isolation level, quotas, placement,
-  and members. Only administrators create, change, or remove projects.
-  Removing a project requires it to be empty.
+  and limits. Administrators, and automation identities allowed to (see
+  below), create, change, or remove projects. Removing a project requires
+  it to be empty.
 
-### Identities and roles
+### Who manages projects
 
-- A new certificate identity, `user:<name>`, belongs to a person, not to a
-  node or a cluster. Administrators keep `admin:`.
-- A user is added to projects with one role each:
+Armada has no accounts for people. Anything that needs them (sign-in,
+teams, permissions per person) belongs to the tools built on Armada's API,
+which call it with one identity of their own. Armada's job is to make sure
+that identity can reach only what it manages.
 
-  | Role | May |
-  | --- | --- |
-  | `viewer` | status, logs, events, top, list secrets by name |
-  | `deployer` | everything `viewer` may, plus deploy, scale, rollback, traffic, run jobs, exec |
-  | `owner` | everything `deployer` may, plus secrets, domains, volume backup/restore/remove, and the project's members |
-
-- **Onboarding** works like joining a node: an administrator (or a project
-  owner, for their project) creates a single-use, expiring invitation
-  token, stored only as a hash. The user runs `armada login` on their own
-  machine. The CLI makes the key pair locally, pins the CA by hash, and
-  sends a CSR with the token to the login listener (server-only TLS,
-  rate limited, the same handling as the join listener). The private key
-  never leaves the user's machine.
-- User certificates last 30 days and the CLI renews them. Like node
-  certificates they are accepted only while their serial is recorded
-  (`user_certs`), so removing a user, or their last membership, revokes
-  them at once. Membership is checked on every call, never cached in the
+- **Administrators** (`admin:`) keep full control, including every project.
+- **Automation identities** (`automation:<name>`) are for tools such as CI
+  systems and portals. An administrator issues one with `armada automation
+  credentials NAME`, which signs a CSR made on the tool's machine (the
+  private key never leaves it), like metrics credentials (ADR 0019). Each
+  has a scope, set and changed only by administrators:
+  - the projects it manages: a fixed list, or every project it creates;
+  - whether it may create and remove projects;
+  - the limits for those projects: the lowest isolation level, the
+    largest quota, and the node labels its placement may require.
+- Automation certificates last 90 days and are renewed with the current
+  one. Like node certificates, they are accepted only while their serial
+  is recorded, so `armada automation revoke NAME` cuts a tool off at once.
+  The scope is read from the store on every call, never from the
   certificate.
-- Users never get node, server, etcd, metrics, or admin identities, and no
-  RPC that names a node, the cluster, or another project.
+- Within its projects an automation identity may do what an administrator
+  may do to apps: deploy, scale, rollback, traffic, jobs, secrets, domains,
+  volumes, exec, logs, events, and top. It may never touch nodes, join
+  tokens, servers, backups, the network, the `default` project, a project
+  outside its scope, or the cluster's limits, and it cannot set a project
+  below the limits of its scope.
 
 ### The project API
 
-- A new `ProjectService` serves users. Every request names a project; the
-  server checks the caller's membership and role first, then runs the same
-  code as the matching admin RPC with the project fixed. Admin RPCs stay
-  admin only, and `AdminService` gains a project argument with `default`
-  as the default.
-- What users may put in a spec is narrower than for administrators:
-  - `placement.require` can only narrow the project's own placement, never
-    widen it;
-  - node names and node labels other than those the project's placement
-    allows are hidden from users (`status` shows replicas, not nodes'
-    private addresses);
-  - exec, logs, and volume sessions are checked against the replica's
-    project on every hop, like the node check today.
-- Events and the audit log record the project and the user. Users see only
-  their project's events; the audit log stays admin only.
-- **Where users reach the API.** The admin API stays on the private
-  address. `--project-listen IP:PORT` opens a separate listener that serves
-  only `ProjectService` and the login handshake, with strict mTLS for
-  everything but login and per-identity rate limits. It may be bound to a
-  public address: it is the one listener besides HAProxy meant to face
-  users who have no access to the private network. Without the flag users
-  reach `ProjectService` on the main API.
+- A new `ProjectService` serves administrators and automation identities on
+  the same private API listener as today. Every request names a project;
+  the server checks the caller's scope first, then runs the same code as
+  the matching admin RPC with the project fixed. `AdminService` gains a
+  project argument with `default` as the default.
+- Specs sent by automation identities are narrower than an
+  administrator's: `placement.require` must stay within the scope's
+  labels, and isolation and quotas within its limits.
+- Exec, logs, and volume sessions are checked against the replica's
+  project on every hop, like the node check today.
+- Events and the audit log record the project and the caller. Automation
+  identities see only their projects' events; the audit log stays admin
+  only.
+- No new listener: tools reach the API on the private network like the CLI
+  does, and nothing new faces the internet.
 
 ### Network isolation
 
@@ -194,7 +192,7 @@ sets the minimum:
 `armada top` and the metrics endpoint aggregate usage per project (CPU,
 memory, volume bytes, requests, egress bytes), from the samples agents
 already send (ADR 0018). `ProjectService.Top` shows a project its own
-usage; the totals per project are admin only.
+usage; the totals over every project are admin only.
 
 ### Migration
 
@@ -210,8 +208,7 @@ usage; the totals per project are admin only.
 Each step ships on its own and refuses what is not built yet with a clear
 message:
 
-1. projects, store layout, `user:` identities, roles, login, and
-   `ProjectService`;
+1. projects, store layout, automation identities, and `ProjectService`;
 2. network isolation between projects and away from the platform, built as
    ADR 0027's access stage;
 3. `isolation: sandbox` in the embedded runtime;
@@ -238,9 +235,13 @@ message:
   already applies seccomp, no new privileges, and SELinux where enforcing.
   They shrink the kernel's surface but leave it shared: one kernel bug
   still crosses every container on the node.
-- **Users on the admin API.** One listener is simpler, but it would put the
-  admin surface on whatever address users can reach. A separate listener
-  that serves only `ProjectService` keeps the admin API private.
+- **Accounts and roles for people in Armada.** Sign-in, invitations, and
+  per-person roles would make Armada an identity system and add a listener
+  meant for people outside the private network. Tools built on the API
+  already have their own accounts; Armada only needs to bound what such a
+  tool can do.
+- **Tools with admin certificates.** Simplest, but a compromised tool would
+  then control nodes, tokens, and backups, which hold the cluster's keys.
 
 ## Consequences
 
@@ -256,9 +257,9 @@ message:
 - Every RPC, store key, label, and metric gains a project, which touches
   most of the server. The migration must keep `default` byte-for-byte
   compatible for running clusters.
-- The project listener is a new internet-facing surface. It gets its own
-  threat model entries, fuzzing of the login handshake, and rate limits,
-  and serves nothing an administrator can do.
+- Armada stays a foundation: anything built on it (a portal, a CI
+  integration) manages accounts itself and uses an automation identity
+  whose damage, if compromised, stays inside its projects and limits.
 - The network rules depend on knowing every container's project from its
   address. The leader already sends every replica's address to every node
   (ADR 0027); the project is added to it.
