@@ -893,13 +893,16 @@ func eligible(nodes []store.Node, rev store.Revision) []store.Node {
 }
 
 // placementAllows reports whether replicas of rev may run on n: n runs
-// sandboxed replicas if rev's isolation needs it (ADR 0029, never a weaker
-// level), matches the placement and, if restricted, is selected by it, and
+// sandboxed replicas if rev's isolation needs it and limits egress if rev
+// has a limit (ADR 0029, never a weaker level or no limit), matches the placement and, if restricted, is selected by it, and
 // the image has a variant for n's platform once its platforms are known
 // (ADR 0014). A node that does not report its platform is not ruled out.
 func placementAllows(n store.Node, rev store.Revision) bool {
 	sp := rev.Spec
 	if rev.Sandboxed() && !n.Sandbox {
+		return false
+	}
+	if rev.EgressBits > 0 && !n.Egress {
 		return false
 	}
 	if sp.HasVolumes() && !n.Volumes {
@@ -1077,6 +1080,7 @@ func replicaSpec(r store.Replica, rev store.Revision, vals map[string]secrets.Va
 		CpuReserveMillis: sp.CPUMillis(),
 		PidsLimit:        spec.DefaultPids,
 		Sandbox:          rev.Sandboxed(),
+		EgressBits:       rev.EgressBits,
 	}
 	if r.Run != 0 {
 		rs.Job = &armadav1.JobAttempt{Job: r.App, Run: r.Run, Done: r.Done}

@@ -132,12 +132,24 @@ type ContainerSpec struct {
 	// kernel directly; only drivers for which CanSandbox reports true
 	// accept it.
 	Sandbox bool
+	// EgressBits limits the bits per second the container may send (quota
+	// egress, ADR 0029); 0 is unlimited. Only drivers for which
+	// CanLimitEgress reports true accept a limit.
+	EgressBits int64
 }
 
 // CanSandbox reports whether d runs containers with Sandbox set.
 func CanSandbox(d Driver) bool {
 	if c, ok := d.(interface{ CanSandbox() bool }); ok {
 		return c.CanSandbox()
+	}
+	return false
+}
+
+// CanLimitEgress reports whether d runs containers with EgressBits set.
+func CanLimitEgress(d Driver) bool {
+	if c, ok := d.(interface{ CanLimitEgress() bool }); ok {
+		return c.CanLimitEgress()
 	}
 	return false
 }

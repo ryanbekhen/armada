@@ -47,6 +47,8 @@ func TestProjectQuotaAPI(t *testing.T) {
 
 	_, err = c.admin.UpdateProject(c.ctx, &armadav1.UpdateProjectRequest{Name: "a", Quota: &armadav1.Quota{Replicas: -1}})
 	wantCode(t, "negative quota", err, codes.InvalidArgument)
+	_, err = c.admin.UpdateProject(c.ctx, &armadav1.UpdateProjectRequest{Name: "a", Quota: &armadav1.Quota{EgressBits: 1000}})
+	wantCode(t, "egress below the minimum", err, codes.InvalidArgument)
 	// Automation identities never set quotas, not even on their projects.
 	_, err = auto.UpdateProject(c.ctx, &armadav1.UpdateProjectRequest{Name: "a", Quota: &armadav1.Quota{}})
 	wantCode(t, "automation clears its quota", err, codes.PermissionDenied)
@@ -67,13 +69,13 @@ func TestProjectQuotaAPI(t *testing.T) {
 		t.Fatalf("admin create with quota: %v %v", p, err)
 	}
 	if _, err := c.admin.SetAutomation(c.ctx, &armadav1.SetAutomationRequest{Name: "portal", Projects: []string{"a"}, CreateProjects: true,
-		Quota: &armadav1.Quota{Replicas: 5, CpuMillis: 2000}}); err != nil {
+		Quota: &armadav1.Quota{Replicas: 5, CpuMillis: 2000, EgressBits: 50_000_000}}); err != nil {
 		t.Fatal(err)
 	}
 	_, err = auto.CreateProject(c.ctx, &armadav1.CreateProjectRequest{Name: "mine", Quota: &armadav1.Quota{}})
 	wantCode(t, "automation picks a quota", err, codes.PermissionDenied)
 	p, err := auto.CreateProject(c.ctx, &armadav1.CreateProjectRequest{Name: "mine"})
-	if err != nil || p.GetQuota().GetReplicas() != 5 || p.GetQuota().GetCpuMillis() != 2000 {
+	if err != nil || p.GetQuota().GetReplicas() != 5 || p.GetQuota().GetCpuMillis() != 2000 || p.GetQuota().GetEgressBits() != 50_000_000 {
 		t.Fatalf("automation project quota: %v %v", p, err)
 	}
 	list, err := c.admin.ListAutomations(c.ctx, &armadav1.ListAutomationsRequest{})

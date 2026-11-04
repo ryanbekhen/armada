@@ -12,7 +12,8 @@ func quotaFrom(q *armadav1.Quota) spec.Quota {
 		return spec.Quota{}
 	}
 	return spec.Quota{CPUMillis: q.GetCpuMillis(), MemoryBytes: q.GetMemoryBytes(), Replicas: int(q.GetReplicas()),
-		Volumes: int(q.GetVolumes()), Domains: int(q.GetDomains()), Secrets: int(q.GetSecrets()), Jobs: int(q.GetJobs())}
+		Volumes: int(q.GetVolumes()), Domains: int(q.GetDomains()), Secrets: int(q.GetSecrets()), Jobs: int(q.GetJobs()),
+		EgressBits: q.GetEgressBits()}
 }
 
 // quotaProto converts a quota or a usage for the API. Counts are bounded
@@ -20,5 +21,5 @@ func quotaFrom(q *armadav1.Quota) spec.Quota {
 func quotaProto(q spec.Quota) *armadav1.Quota {
 	return &armadav1.Quota{CpuMillis: q.CPUMillis, MemoryBytes: q.MemoryBytes,
 		Replicas: int32(q.Replicas), Volumes: int32(q.Volumes), Domains: int32(q.Domains), //nolint:gosec // bounded, see above
-		Secrets: int32(q.Secrets), Jobs: int32(q.Jobs)} //nolint:gosec // bounded, see above
+		Secrets: int32(q.Secrets), Jobs: int32(q.Jobs), EgressBits: q.EgressBits} //nolint:gosec // bounded, see above
 }

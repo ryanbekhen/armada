@@ -77,6 +77,9 @@ type Node struct {
 	// Sandbox is true when the node runs containers in a userspace kernel
 	// (`isolation: sandbox`, ADR 0029).
 	Sandbox bool
+	// Egress is true when the node limits the egress bandwidth of
+	// containers (quota egress, ADR 0029).
+	Egress bool
 	// Subnet is the node's container subnet in the cluster network
 	// (ADR 0027), given when the node is created; empty in clusters
 	// without one.
@@ -193,7 +196,10 @@ type Revision struct {
 	// Isolation is the kernel isolation level of the app's project when
 	// the revision was deployed (spec.Isolation*; empty is container).
 	Isolation string
-	CreatedAt time.Time
+	// EgressBits is the egress limit of each replica, from the project's
+	// quota when the revision was deployed; 0 is unlimited.
+	EgressBits int64
+	CreatedAt  time.Time
 }
 
 // Sandboxed reports whether the revision's replicas run in the sandbox.
@@ -279,10 +285,11 @@ type NodeStatus struct {
 	Version string
 	// OS and Arch as the agent reports them; empty keeps the recorded ones.
 	OS, Arch string
-	// Jobs, Volumes, and Sandbox as the agent reports them.
+	// Jobs, Volumes, Sandbox, and Egress as the agent reports them.
 	Jobs    bool
 	Volumes bool
 	Sandbox bool
+	Egress  bool
 	// NetworkKey as the agent announces it; empty keeps the recorded one.
 	// A key another node holds is refused with ErrConflict.
 	NetworkKey string

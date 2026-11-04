@@ -36,7 +36,7 @@ SHA-256 in `internal/runtime/embedded/lock.go`:
 | --- | --- |
 | containerd (static) and `containerd-shim-runc-v2` | Image store, snapshots, container lifecycle |
 | runc | OCI runtime (needs CGO and C, so it cannot be compiled into Armada) |
-| CNI plugins `bridge`, `host-local`, `loopback`, `portmap`, `firewall` | Container networking |
+| CNI plugins `bridge`, `host-local`, `loopback`, `portmap`, `firewall`, `bandwidth` | Container networking, egress limits |
 | tini (static) | PID 1 in every app container: reaps zombies and forwards signals |
 | gVisor `runsc` and its sentry (`gvisor-bin/`: `gvisor_sentry` and three small helpers) | The userspace kernel of `isolation: sandbox` (ADR 0029), driven by the same runc shim |
 
@@ -139,7 +139,10 @@ Armada's and visible in one place:
   address until their ARP entry expires, and connections to their
   published ports would hang for seconds.
 - Containers join it through the CNI chain `bridge` (gateway, masquerade
-  for egress) + `host-local` IPAM + `portmap` + `firewall`. IPAM state and
+  for egress) + `host-local` IPAM + `portmap` + `firewall` + `bandwidth`
+  (only when its binary is present; it limits what a container sends when
+  its project's quota has an egress limit and does nothing otherwise,
+  ADR 0029). IPAM state and
   the plugin cache live on tmpfs under `/run/armada/cni`, since the
   namespaces they describe do not survive a reboot. On a node of a cluster
   network (ADR 0027) replicas publish nothing: other nodes reach them at

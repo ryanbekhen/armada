@@ -273,7 +273,7 @@ func (a *Agent) session(ctx context.Context) (established bool, err error) {
 		CpuMillis: a.cfg.CPUMillis, MemoryBytes: a.cfg.MemoryBytes, Version: version.Get().Version, PrivateIp: a.cfg.PrivateIP,
 		Os: cmp.Or(a.cfg.OS, goruntime.GOOS), Arch: cmp.Or(a.cfg.Arch, goruntime.GOARCH),
 		Jobs: true, Volumes: a.mountsVolumes(), NetworkKey: a.cfg.NetworkKey,
-		Sandbox: runtime.CanSandbox(a.cfg.Driver),
+		Sandbox: runtime.CanSandbox(a.cfg.Driver), Egress: runtime.CanLimitEgress(a.cfg.Driver),
 	}}}
 	if err := stream.Send(hello); err != nil {
 		return false, err
@@ -713,6 +713,11 @@ func (a *Agent) start(ctx context.Context, s *armadav1.ReplicaSpec, hash string)
 		// replicas only on nodes that announced the sandbox.
 		return runtime.Container{}, errors.New("the replica's project requires isolation sandbox, and this node's runtime cannot run sandboxed containers (see armada doctor)")
 	}
+	if s.GetEgressBits() > 0 && !runtime.CanLimitEgress(a.cfg.Driver) {
+		// Never without the limit: the control plane places such replicas
+		// only on nodes that announced it.
+		return runtime.Container{}, errors.New("the replica's project limits egress bandwidth, and this node cannot limit it (see armada doctor)")
+	}
 	img, err := a.cfg.Driver.Pull(ctx, s.GetImage(), registryAuth(s))
 	if err != nil {
 		return runtime.Container{}, err
@@ -847,6 +852,7 @@ func ContainerSpec(s *armadav1.ReplicaSpec, hostIP, hash string) runtime.Contain
 		CPUReserveMillis: s.GetCpuReserveMillis(),
 		PidsLimit:        s.GetPidsLimit(),
 		Sandbox:          s.GetSandbox(),
+		EgressBits:       s.GetEgressBits(),
 	}
 }
 

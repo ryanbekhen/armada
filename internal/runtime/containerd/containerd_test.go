@@ -263,7 +263,7 @@ func TestBridgeAndCNIConfig(t *testing.T) {
 			t.Errorf("accepted subnet %s", bad)
 		}
 	}
-	raw, err := cniConfig(b, "/run/armada/cni/ipam", 0)
+	raw, err := cniConfig(b, "/run/armada/cni/ipam", 0, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -276,7 +276,7 @@ func TestBridgeAndCNIConfig(t *testing.T) {
 	if !strings.Contains(string(raw), `"routes":[{"dst":"0.0.0.0/0"}]`) || strings.Contains(string(raw), `"mtu"`) {
 		t.Errorf("no default route, or an MTU nobody asked for: %s", raw)
 	}
-	if raw, _ := cniConfig(b, "/run/armada/cni/ipam", 1400); !strings.Contains(string(raw), `"mtu":1400`) {
+	if raw, _ := cniConfig(b, "/run/armada/cni/ipam", 1400, false); !strings.Contains(string(raw), `"mtu":1400`) {
 		t.Errorf("MTU not set: %s", raw)
 	}
 	pm := portMappings(&portMapping{HostIP: "10.0.0.6", HostPort: 21000, ContainerPort: 8080})
@@ -285,6 +285,16 @@ func TestBridgeAndCNIConfig(t *testing.T) {
 	}
 	if portMappings(nil) != nil {
 		t.Error("mapping without a port")
+	}
+	raw, _ = cniConfig(b, "/run/armada/cni/ipam", 0, true)
+	if err := json.Unmarshal(raw, &conf); err != nil || len(conf.Plugins) != 4 || conf.Plugins[3]["type"] != "bandwidth" {
+		t.Fatalf("bandwidth plugin missing: %s %v", raw, err)
+	}
+	if bandwidthArgs(0) != nil {
+		t.Error("bandwidth arguments without a limit")
+	}
+	if a := bandwidthArgs(100_000_000); a["egressRate"] != int64(100_000_000) || a["egressBurst"] != int64(10_000_000) || a["ingressRate"] != nil {
+		t.Errorf("bandwidth arguments %v", a)
 	}
 }
 
@@ -340,5 +350,35 @@ func TestBridgeMAC(t *testing.T) {
 	other, _ := BridgeOf(netip.MustParsePrefix("10.122.0.0/24"))
 	if bridgeMAC(other.Gateway).String() == mac.String() {
 		t.Error("two subnets share a bridge address")
+	}
+}
+
+func TestKernelShapes(t *testing.T) {
+	root := t.TempDir()
+	if kernelShapes(root, "6.1.0") {
+		t.Error("shapes without any module")
+	}
+	mods := filepath.Join(root, "lib/modules/6.1.0")
+	if err := os.MkdirAll(mods, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Loaded, built in, and loadable modules all count.
+	if err := os.MkdirAll(filepath.Join(root, "sys/module/sch_ingress"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.WriteFile(filepath.Join(mods, "modules.builtin"), []byte("kernel/net/sched/cls_u32.ko\n"), 0o644)
+	dep := "kernel/drivers/net/ifb.ko.xz:\nkernel/net/sched/act_mirred.ko.zst:\n"
+	_ = os.WriteFile(filepath.Join(mods, "modules.dep"), []byte(dep), 0o644)
+	if kernelShapes(root, "6.1.0") {
+		t.Error("shapes without sch_tbf")
+	}
+	_ = os.WriteFile(filepath.Join(mods, "modules.dep"), []byte(dep+"kernel/net/sched/sch_tbf.ko: \n"), 0o644)
+	if !kernelShapes(root, "6.1.0") {
+		t.Error("does not shape with every module")
+	}
+	for _, bad := range []string{"", "../6.1.0", "6.1.0/x"} {
+		if kernelShapes(root, bad) {
+			t.Errorf("release %q accepted", bad)
+		}
 	}
 }

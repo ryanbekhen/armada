@@ -1169,7 +1169,10 @@ type Quota struct {
 	Domains     int32                  `protobuf:"varint,5,opt,name=domains,proto3" json:"domains,omitempty"`
 	Secrets     int32                  `protobuf:"varint,6,opt,name=secrets,proto3" json:"secrets,omitempty"`
 	// Job attempts that run at once.
-	Jobs          int32 `protobuf:"varint,7,opt,name=jobs,proto3" json:"jobs,omitempty"`
+	Jobs int32 `protobuf:"varint,7,opt,name=jobs,proto3" json:"jobs,omitempty"`
+	// Not a total: the bits per second each replica and job attempt may
+	// send, pinned into every revision deployed into the project.
+	EgressBits    int64 `protobuf:"varint,8,opt,name=egress_bits,json=egressBits,proto3" json:"egress_bits,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1249,6 +1252,13 @@ func (x *Quota) GetSecrets() int32 {
 func (x *Quota) GetJobs() int32 {
 	if x != nil {
 		return x.Jobs
+	}
+	return 0
+}
+
+func (x *Quota) GetEgressBits() int64 {
+	if x != nil {
+		return x.EgressBits
 	}
 	return 0
 }
@@ -4973,7 +4983,9 @@ type NodeStatus struct {
 	Labels     map[string]string `protobuf:"bytes,10,rep,name=labels,proto3" json:"labels,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	Restricted bool              `protobuf:"varint,11,opt,name=restricted,proto3" json:"restricted,omitempty"`
 	// The node runs replicas in the sandbox (ADR 0029).
-	Sandbox       bool `protobuf:"varint,12,opt,name=sandbox,proto3" json:"sandbox,omitempty"`
+	Sandbox bool `protobuf:"varint,12,opt,name=sandbox,proto3" json:"sandbox,omitempty"`
+	// The node limits containers' egress bandwidth (quota egress, ADR 0029).
+	Egress        bool `protobuf:"varint,13,opt,name=egress,proto3" json:"egress,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -5088,6 +5100,13 @@ func (x *NodeStatus) GetRestricted() bool {
 func (x *NodeStatus) GetSandbox() bool {
 	if x != nil {
 		return x.Sandbox
+	}
+	return false
+}
+
+func (x *NodeStatus) GetEgress() bool {
+	if x != nil {
+		return x.Egress
 	}
 	return false
 }
@@ -6105,7 +6124,10 @@ type Hello struct {
 	NetworkKey string `protobuf:"bytes,11,opt,name=network_key,json=networkKey,proto3" json:"network_key,omitempty"`
 	// The node runs containers in a userspace kernel (`isolation: sandbox`,
 	// ADR 0029): its runtime is the embedded one and carries runsc.
-	Sandbox       bool `protobuf:"varint,12,opt,name=sandbox,proto3" json:"sandbox,omitempty"`
+	Sandbox bool `protobuf:"varint,12,opt,name=sandbox,proto3" json:"sandbox,omitempty"`
+	// The node limits containers' egress bandwidth (quota egress, ADR 0029):
+	// its runtime shapes traffic with the CNI bandwidth plugin.
+	Egress        bool `protobuf:"varint,13,opt,name=egress,proto3" json:"egress,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -6206,6 +6228,13 @@ func (x *Hello) GetNetworkKey() string {
 func (x *Hello) GetSandbox() bool {
 	if x != nil {
 		return x.Sandbox
+	}
+	return false
+}
+
+func (x *Hello) GetEgress() bool {
+	if x != nil {
+		return x.Egress
 	}
 	return false
 }
@@ -7602,7 +7631,11 @@ type ReplicaSpec struct {
 	Volumes []*VolumeSpec `protobuf:"bytes,19,rep,name=volumes,proto3" json:"volumes,omitempty"`
 	// Run the replica in the sandbox (isolation sandbox, ADR 0029). Part of
 	// the spec hash; an agent that cannot sandbox refuses the replica.
-	Sandbox       bool `protobuf:"varint,20,opt,name=sandbox,proto3" json:"sandbox,omitempty"`
+	Sandbox bool `protobuf:"varint,20,opt,name=sandbox,proto3" json:"sandbox,omitempty"`
+	// Bits per second the container may send (the revision's egress limit,
+	// ADR 0029); 0 is unlimited. Part of the spec hash; an agent that cannot
+	// limit egress refuses the replica.
+	EgressBits    int64 `protobuf:"varint,21,opt,name=egress_bits,json=egressBits,proto3" json:"egress_bits,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -7775,6 +7808,13 @@ func (x *ReplicaSpec) GetSandbox() bool {
 		return x.Sandbox
 	}
 	return false
+}
+
+func (x *ReplicaSpec) GetEgressBits() int64 {
+	if x != nil {
+		return x.EgressBits
+	}
+	return 0
 }
 
 type VolumeSpec struct {
@@ -9647,7 +9687,7 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\x14CreateProjectRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1c\n" +
 	"\tisolation\x18\x02 \x01(\tR\tisolation\x12&\n" +
-	"\x05quota\x18\x03 \x01(\v2\x10.armada.v1.QuotaR\x05quota\"\xc7\x01\n" +
+	"\x05quota\x18\x03 \x01(\v2\x10.armada.v1.QuotaR\x05quota\"\xe8\x01\n" +
 	"\x05Quota\x12\x1d\n" +
 	"\n" +
 	"cpu_millis\x18\x01 \x01(\x03R\tcpuMillis\x12!\n" +
@@ -9656,7 +9696,9 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\avolumes\x18\x04 \x01(\x05R\avolumes\x12\x18\n" +
 	"\adomains\x18\x05 \x01(\x05R\adomains\x12\x18\n" +
 	"\asecrets\x18\x06 \x01(\x05R\asecrets\x12\x12\n" +
-	"\x04jobs\x18\a \x01(\x05R\x04jobs\"\xa8\x02\n" +
+	"\x04jobs\x18\a \x01(\x05R\x04jobs\x12\x1f\n" +
+	"\vegress_bits\x18\b \x01(\x03R\n" +
+	"egressBits\"\xa8\x02\n" +
 	"\vProjectInfo\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x129\n" +
 	"\n" +
@@ -9929,7 +9971,7 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\n" +
 	"updated_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x12\x14\n" +
 	"\x05ready\x18\b \x01(\bR\x05ready\x12\x1a\n" +
-	"\bdraining\x18\t \x01(\bR\bdraining\"\xf6\x03\n" +
+	"\bdraining\x18\t \x01(\bR\bdraining\"\x8e\x04\n" +
 	"\n" +
 	"NodeStatus\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1d\n" +
@@ -9948,7 +9990,8 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\n" +
 	"restricted\x18\v \x01(\bR\n" +
 	"restricted\x12\x18\n" +
-	"\asandbox\x18\f \x01(\bR\asandbox\x1a9\n" +
+	"\asandbox\x18\f \x01(\bR\asandbox\x12\x16\n" +
+	"\x06egress\x18\r \x01(\bR\x06egress\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x1e\n" +
@@ -10021,7 +10064,7 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\x04wake\x18\x04 \x01(\v2\x0f.armada.v1.WakeH\x00R\x04wakeB\x05\n" +
 	"\x03msg\"\x18\n" +
 	"\x04Wake\x12\x10\n" +
-	"\x03app\x18\x01 \x01(\tR\x03app\"\xb6\x02\n" +
+	"\x03app\x18\x01 \x01(\tR\x03app\"\xce\x02\n" +
 	"\x05Hello\x12\x1d\n" +
 	"\n" +
 	"cpu_millis\x18\x01 \x01(\x03R\tcpuMillis\x12!\n" +
@@ -10036,7 +10079,8 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	" \x01(\bR\avolumes\x12\x1f\n" +
 	"\vnetwork_key\x18\v \x01(\tR\n" +
 	"networkKey\x12\x18\n" +
-	"\asandbox\x18\f \x01(\bR\asandboxJ\x04\b\a\x10\bJ\x04\b\b\x10\tR\aruntimeR\x10min_memory_bytes\"D\n" +
+	"\asandbox\x18\f \x01(\bR\asandbox\x12\x16\n" +
+	"\x06egress\x18\r \x01(\bR\x06egressJ\x04\b\a\x10\bJ\x04\b\b\x10\tR\aruntimeR\x10min_memory_bytes\"D\n" +
 	"\rReplicaReport\x123\n" +
 	"\breplicas\x18\x01 \x03(\v2\x17.armada.v1.ReplicaStateR\breplicas\"\xb6\x02\n" +
 	"\fReplicaState\x12\x0e\n" +
@@ -10151,7 +10195,7 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\x05allow\x18\x06 \x03(\tR\x05allow\"8\n" +
 	"\x10ProxyCertificate\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x10\n" +
-	"\x03pem\x18\x02 \x01(\fR\x03pem\"\xc2\x05\n" +
+	"\x03pem\x18\x02 \x01(\fR\x03pem\"\xe3\x05\n" +
 	"\vReplicaSpec\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x10\n" +
 	"\x03app\x18\x02 \x01(\tR\x03app\x12\x1a\n" +
@@ -10174,7 +10218,9 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\x12cpu_reserve_millis\x18\x11 \x01(\x03R\x10cpuReserveMillis\x12'\n" +
 	"\x03job\x18\x12 \x01(\v2\x15.armada.v1.JobAttemptR\x03job\x12/\n" +
 	"\avolumes\x18\x13 \x03(\v2\x15.armada.v1.VolumeSpecR\avolumes\x12\x18\n" +
-	"\asandbox\x18\x14 \x01(\bR\asandbox\"J\n" +
+	"\asandbox\x18\x14 \x01(\bR\asandbox\x12\x1f\n" +
+	"\vegress_bits\x18\x15 \x01(\x03R\n" +
+	"egressBits\"J\n" +
 	"\n" +
 	"VolumeSpec\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +

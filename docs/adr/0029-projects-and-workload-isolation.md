@@ -245,12 +245,28 @@ sets the minimum:
   automation identity's scope carries a quota (`armada automation set
   --quota`) that every project it creates gets; it can neither choose nor
   change one. Schema 9 gates servers that would not enforce quotas.
+- A quota may also carry `egress`, which is not a total but a limit on
+  each replica and job attempt: the bits per second its container may
+  send (1M to 10G). Like the kernel isolation level it is pinned into
+  every revision at deploy (`Revision.EgressBits`): a changed limit makes
+  the same spec a new revision, which rolls out without dropping traffic,
+  and rollback or traffic to a revision deployed without the limit or
+  above it is refused. Replicas with a limit run only on nodes whose agent
+  announced that it can shape traffic (`Hello.egress`: the bundled CNI
+  `bandwidth` plugin and the kernel's ifb, ingress qdisc, u32, mirred,
+  and tbf modules); the agent refuses them elsewhere, and with no such
+  node they wait with a `NoIsolation` condition. The plugin redirects what
+  the container sends from its veth to an ifb device with a token bucket
+  filter (100 ms burst), outside the container, which has no
+  `CAP_NET_ADMIN`; it covers everything the container sends, responses
+  through ingress included. Schema 10 gates servers that would not pin or
+  place by the limit.
 - Per-replica limits stay as today and every project container gets them
   (memory, PIDs, CPU weight); `sandbox` also bounds the sandbox's own
   memory.
 - Shared paths get limits a project cannot raise:
   - egress bandwidth per replica (the CNI `bandwidth` plugin, pinned like
-    the others);
+    the others; the quota's `egress`, above; done);
   - connections and request rate per route in HAProxy, set by the
     administrator per project;
   - log volume per replica, so one project cannot fill a node's disk or
@@ -291,7 +307,7 @@ message:
    HAProxy's internal frontend, and `ingress.allow` (done);
 3. `isolation: sandbox` in the embedded runtime: the runtime and node
    support, the project setting, and placement (done);
-4. quotas (done), shared-path limits (log rate done), and usage per project;
+4. quotas (done), shared-path limits (log rate and egress done), and usage per project;
 5. `isolation: vm` in the embedded runtime.
 
 ## Alternatives considered

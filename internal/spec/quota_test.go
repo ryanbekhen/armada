@@ -50,3 +50,37 @@ func TestQuotaExceeded(t *testing.T) {
 		t.Error("empty usage")
 	}
 }
+
+func TestQuotaEgress(t *testing.T) {
+	q, err := ParseQuota("replicas=4,egress=100M")
+	if err != nil || q != (Quota{Replicas: 4, EgressBits: 100_000_000}) || q.String() != "replicas=4,egress=100M" {
+		t.Fatalf("egress: %+v %v %q", q, err, q.String())
+	}
+	for v, want := range map[string]int64{"1M": 1_000_000, "1500k": 1_500_000, "2G": 2_000_000_000, "10G": MaxEgressBits, "5000000": 5_000_000} {
+		if n, err := ParseBitRate(v); err != nil || n != want {
+			t.Errorf("ParseBitRate(%q) = %d, %v", v, n, err)
+		}
+	}
+	for _, bad := range []string{"", "M", "100", "999k", "11G", "1.5M", "-1M", "+1M", "01M", "100Mbit", "1T", "9223372036854775807G"} {
+		if _, err := ParseBitRate(bad); err == nil {
+			t.Errorf("ParseBitRate(%q) accepted", bad)
+		}
+	}
+	if q, err := ParseQuota("egress=0"); err != nil || !q.IsZero() {
+		t.Errorf("egress=0: %+v %v", q, err)
+	}
+	if CheckQuota(Quota{EgressBits: 1}) == nil || CheckQuota(Quota{EgressBits: MaxEgressBits + 1}) == nil || CheckQuota(Quota{EgressBits: 100_000_000}) != nil {
+		t.Error("CheckQuota egress bounds")
+	}
+	// A limit per replica, never a total: nothing exceeds it, and usage
+	// shows it as the limit.
+	if got := q.Exceeded(Quota{}, Quota{EgressBits: 1}); got != nil {
+		t.Errorf("Exceeded = %v", got)
+	}
+	if got := Usage(Quota{Replicas: 1}, Quota{EgressBits: 50_000_000}); got != "replicas=1,egress=50M" {
+		t.Errorf("Usage = %q", got)
+	}
+	if FormatBitRate(1_234_567) != "1234567" {
+		t.Error("FormatBitRate")
+	}
+}

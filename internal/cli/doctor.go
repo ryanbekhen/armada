@@ -228,6 +228,11 @@ func checkRuntime(ctx context.Context, env doctorEnv) []checkResult {
 		} else {
 			add("sandbox", checkWarn, "the runtime has no runsc (a build without the runtime bundle): this node runs no replicas with isolation sandbox")
 		}
+		if runtime.CanLimitEgress(env.driver) {
+			add("egress", checkOK, "bandwidth plugin and traffic control modules available: replicas of projects with an egress quota run here")
+		} else {
+			add("egress", checkWarn, "no bandwidth plugin in the runtime, or the kernel lacks one of ifb, sch_ingress, cls_u32, act_mirred, sch_tbf: this node runs no replicas of projects with an egress quota")
+		}
 	}
 	if bi, ok := env.driver.(runtime.BridgeInspector); ok && runtime.HasBridge(env.driver) {
 		b, err := bi.Bridge(ctx)
