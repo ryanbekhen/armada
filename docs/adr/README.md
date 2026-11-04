@@ -31,4 +31,4 @@ Every architectural decision that is hard to reverse is recorded here. Copy `000
 | [0025](0025-persistent-volumes.md) | Persistent volumes | Accepted |
 | [0026](0026-local-first-routing.md) | Local-first routing | Accepted |
 | [0027](0027-cluster-network.md) | Cluster network | Accepted |
-| [0029](0029-projects-and-workload-isolation.md) | Projects and workload isolation | Proposed |
+| [0029](0029-projects-and-workload-isolation.md) | Projects and workload isolation | Accepted |
