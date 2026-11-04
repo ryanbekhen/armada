@@ -255,28 +255,6 @@ exists only where a pair of nodes uses it.
   change, because the control plane can still reach both nodes. A node the
   control plane loses is handled by self-healing (ADR 0008) as today.
 
-### Nodes without the cluster network
-
-- **Linux nodes with an external driver.** They always join the network at
-  host level, because the routes, the tunnel, and HAProxy belong to the
-  agent. Their containers join the node subnet only when the driver
-  declares a new capability, `CAPABILITY_NODE_SUBNET`.
-  - The agent passes the subnet, gateway, and MTU in a new field of the
-    bridge request.
-  - Driver changes go to the driver repositories, and `driverkit` grows by
-    addition only.
-  - A driver without the capability keeps publishing ports on the private
-    IP. Its replicas are reported as `<private IP>:<port>`, which HAProxy on
-    other nodes reaches over the private network, with T56 still applying
-    to them.
-- **macOS nodes (ADR 0016).** They stay on the model of published ports.
-  The agent there runs as a user and cannot create the tunnel. Its
-  replicas are reached at `<private IP>:<port>` and run with `--proxy
-  none`. Containers on a Mac cannot call `<app>.internal`, as today.
-  Default deny cannot filter traffic to their published ports, so
-  `ingress.allow` only covers calls through `<app>.internal` for replicas
-  there.
-
 ### More than one site
 
 This ADR covers nodes that share one private network: one site. Nodes in
@@ -389,8 +367,7 @@ Later stages add:
   1. the network, routing, MTU, and doctor: node subnets, the `plain`
      tunnel with routes, MTU, and firewall, and the `wireguard` mode with
      node keys (done);
-  2. replicas without published ports (done for the embedded runtime;
-     drivers follow with `CAPABILITY_NODE_SUBNET`);
+  2. replicas without published ports (done);
   3. default deny and `ingress.allow`, between projects too (ADR 0029)
      (done);
   4. TCP apps;

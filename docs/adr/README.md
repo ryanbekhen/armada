@@ -18,8 +18,6 @@ Every architectural decision that is hard to reverse is recorded here. Copy `000
 | [0012](0012-upgrades-and-state-schema.md) | Upgrades and state schema migrations | Accepted |
 | [0013](0013-replica-rebalancing.md) | Replica rebalancing | Accepted |
 | [0014](0014-node-labels-and-placement.md) | Node labels and app placement | Accepted |
-| [0015](0015-external-runtime-drivers.md) | External runtime drivers | Accepted |
-| [0016](0016-macos-nodes.md) | macOS nodes | Accepted |
 | [0017](0017-exec.md) | Running commands in replicas | Accepted |
 | [0018](0018-top.md) | Resource usage of replicas | Accepted |
 | [0019](0019-metrics-endpoint.md) | Metrics endpoint | Accepted |

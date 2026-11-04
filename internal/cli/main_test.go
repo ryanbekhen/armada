@@ -16,13 +16,10 @@ import (
 	"github.com/ryanbekhen/armada/internal/agent"
 )
 
-// TestMain runs the tests as on Linux, also on a macOS development
-// machine, and never mounts a RAM disk there; macOS behaviour is tested
-// through the functions that take the system as an argument. The cluster
-// network is recorded instead of set up on the host.
+// TestMain runs the tests as on Linux, also on another development
+// machine. The cluster network is recorded instead of set up on the host.
 func TestMain(m *testing.M) {
 	goos = "linux"
-	prepareSecretsDisk = func(string) error { return nil }
 	newClusterNet = func(_ string, ac *agentConfig, _ *slog.Logger) (agent.Network, string, error) {
 		if ac.Network == "" {
 			return nil, "", nil

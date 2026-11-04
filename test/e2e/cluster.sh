@@ -32,7 +32,7 @@ E2E_SUDO=${E2E_SUDO:-}                  # "sudo" when SSH-TARGET is not root
 E2E_REBOOT=${E2E_REBOOT:-1}             # 0 skips rebooting every machine at once
 E2E_BRIDGE_GW=${E2E_BRIDGE_GW:-} # armada0 address; read from each node if empty
 E2E_SERVER_FLAGS=${E2E_SERVER_FLAGS:-}
-# A driver conformance test binary for the last machine's architecture
+# A conformance test binary for the last machine's architecture
 # (go test -c -tags integration ./internal/runtime/containerd/); empty skips.
 E2E_CONFORMANCE=${E2E_CONFORMANCE:-}
 
@@ -301,13 +301,14 @@ done
 wait_for 180 "all $N nodes ready" nodes_ready
 
 if [ -n "$E2E_CONFORMANCE" ]; then
-	log "driver conformance suite on the embedded runtime of $(host "$N" 1)"
+	log "conformance suite on the embedded runtime of $(host "$N" 1), also sandboxed"
 	# shellcheck disable=SC2086
 	scp -q $E2E_SSH_OPTS -o BatchMode=yes "$E2E_CONFORMANCE" "$(host "$N" 2):/tmp/conformance.e2e"
 	if ! on "$N" "chmod 0755 /tmp/conformance.e2e && ARMADA_BIN=/usr/local/bin/armada ARMADA_HOST_IP=$(host "$N" 3) \
-		/tmp/conformance.e2e -test.run Conformance -test.v; _rc=\$?; rm -f /tmp/conformance.e2e; exit \$_rc" >"$WORK/conformance" 2>&1; then
+		ARMADA_SUBNET=\$(sed -n 's/.*\"containerSubnet\": *\"\([^\"]*\)\".*/\1/p' /var/lib/armada/agent.json) \
+		/tmp/conformance.e2e -test.run 'Conformance|Sandbox' -test.v; _rc=\$?; rm -f /tmp/conformance.e2e; exit \$_rc" >"$WORK/conformance" 2>&1; then
 		cat "$WORK/conformance" >&2
-		fail "driver conformance suite"
+		fail "conformance suite"
 	fi
 	grep -q -- '--- SKIP' "$WORK/conformance" && grep -- '--- SKIP' "$WORK/conformance" | sed 's/^/    /'
 	ok "$(grep -c -- '--- PASS' "$WORK/conformance") checks pass"

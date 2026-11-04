@@ -19,12 +19,13 @@ rollouts, probes, and self-healing do not depend on how containers are run.
 ## Decision
 
 Armada brings its own container runtime: a containerd instance that only
-Armada uses, started from binaries embedded in the Armada binary.
-`agent.json` records `"runtime": "embedded"`; any other value names an
-external driver (ADR 0015).
-
-Other engines can be supported as **external drivers** (ADR 0015);
-the embedded runtime stays the default and the reference implementation.
+Armada uses, started from binaries embedded in the Armada binary. It is
+the only runtime: nodes are Linux machines, every node runs containers
+through it, and `agent.json` records `"runtime": "embedded"` (an agent
+refuses any other value; such a node is removed and joined again). One
+runtime keeps every feature (the cluster network, exec, usage, volumes,
+the sandbox) to one implementation and one set of tests. On other systems
+the binary is only a client of a cluster.
 
 ### What is bundled
 
@@ -159,18 +160,15 @@ The shim writes container output through a logging binary, Armada itself
 timestamp, rotated at 10 MB with 3 files kept. `armada logs` reads and
 follows these files.
 
-## External drivers
-
-Other engines run containers for the agent as external drivers: separate
-programs behind a versioned gRPC protocol on a root-only Unix socket, with
-the same spec checks and security defaults. ADR 0015 describes them; the
-embedded runtime stays the default and runs in the agent's process.
-
 ## Alternatives considered
 
 - **Require a container engine installed by the operator:** one more
   installation per node, and the behaviour Armada depends on changes
   outside its control.
+- **Pluggable engines behind a driver protocol:** every feature would need
+  each engine's support, and each engine its own security review and
+  tests, for little gain on Linux machines that can run the embedded
+  runtime anyway.
 - **Use the host's containerd:** its version and configuration vary per
   distribution, and other software may own it.
 - **Compile containerd into the Armada binary:** fewer files to extract,

@@ -71,30 +71,13 @@ func TestDoctorHealthy(t *testing.T) {
 	}
 }
 
-// A Mac with a driver is a compute node run by a user (ADR 0016): no root
-// warning, no checks of Linux services or listeners, and the secrets RAM
-// disk is mounted by the agent.
-func TestDoctorMacOSNode(t *testing.T) {
+// TestDoctorNotLinux: nodes run Linux; elsewhere the OS check fails.
+func TestDoctorNotLinux(t *testing.T) {
 	t.Parallel()
 	env := healthyEnv(t)
-	env.goos, env.euid, env.runtimeName = "darwin", 501, "apple"
-	env.listeners, env.ntpSynced, env.ufwActive = nil, nil, nil
-	env.checkTmpfs = func(string) error { return errors.New("not mounted yet") }
-	results := runDoctor(context.Background(), env)
-	var buf bytes.Buffer
-	if failed := printChecks(&buf, results); failed != 0 || strings.Contains(buf.String(), "warn") {
-		t.Errorf("macOS node:\n%s", buf.String())
-	}
-	for _, name := range []string{"user", "listeners", "clock", "firewall"} {
-		if got := statusOf(results, name); got != "" {
-			t.Errorf("check %s ran on macOS (%s)", name, got)
-		}
-	}
-	if !strings.Contains(buf.String(), "the agent mounts a RAM disk") {
-		t.Errorf("no secrets check:\n%s", buf.String())
-	}
-	if got := driverHint("darwin", "apple"); got != "launchctl print gui/$(id -u)/io.github.ryanbekhen.armada.driver.apple" {
-		t.Errorf("hint = %q", got)
+	env.goos = "darwin"
+	if got := statusOf(runDoctor(context.Background(), env), "os"); got != checkFail {
+		t.Errorf("os check on macOS: %s", got)
 	}
 }
 
@@ -105,11 +88,10 @@ func TestDoctorFindsProblems(t *testing.T) {
 		check  string
 		want   string
 	}{
-		"other os":           {func(e *doctorEnv) { e.goos = "freebsd" }, "os", checkFail},
-		"mac without driver": {func(e *doctorEnv) { e.goos = "darwin" }, "os", checkFail},
-		"not root":           {func(e *doctorEnv) { e.euid = 1000 }, "user", checkWarn},
-		"loopback ip":        {func(e *doctorEnv) { e.privateIP = "127.0.0.1" }, "private-ip", checkFail},
-		"public ip":          {func(e *doctorEnv) { e.privateIP = "8.8.8.8" }, "private-ip", checkFail},
+		"other os":    {func(e *doctorEnv) { e.goos = "freebsd" }, "os", checkFail},
+		"not root":    {func(e *doctorEnv) { e.euid = 1000 }, "user", checkWarn},
+		"loopback ip": {func(e *doctorEnv) { e.privateIP = "127.0.0.1" }, "private-ip", checkFail},
+		"public ip":   {func(e *doctorEnv) { e.privateIP = "8.8.8.8" }, "private-ip", checkFail},
 		"no ip": {func(e *doctorEnv) {
 			e.detectIP = func() (netip.Addr, error) { return netip.Addr{}, errors.New("none") }
 		}, "private-ip", checkFail},
@@ -214,33 +196,20 @@ func TestRuntimeFlags(t *testing.T) {
 			t.Errorf("accepted %+v", bad)
 		}
 	}
-	for _, rt := range []string{"", "Other", "../x", "a b"} {
-		if err := (agentConfig{Runtime: rt}).checkRuntime(); err == nil {
-			t.Errorf("runtime %q accepted", rt)
+	// A node recorded with another runtime (an external driver) is refused.
+	for _, rt := range []string{"docker", "apple", "Other", "../x"} {
+		if err := (agentConfig{Runtime: rt}).checkRuntime(); err == nil || !strings.Contains(err.Error(), "embedded runtime") {
+			t.Errorf("runtime %q: %v", rt, err)
 		}
 	}
-
-	// An external driver: no container subnet, which the driver chooses.
-	ac = agentConfig{}
-	if err := (runtimeFlags{runtime: "docker", subnet: "10.121.0.0/24"}).apply(&ac, ip); err != nil || ac.Runtime != "docker" || ac.ContainerSubnet != "" || !ac.external() {
-		t.Errorf("%+v %v", ac, err)
-	}
-	if err := ac.checkRuntime(); err != nil {
-		t.Errorf("driver node refused: %v", err)
-	}
-	for _, bad := range []string{"embedded-x/", "Docker", "x_y"} {
-		if err := (runtimeFlags{runtime: bad}).apply(&ac, ip); err == nil {
-			t.Errorf("--runtime %q accepted", bad)
-		}
+	if err := (agentConfig{}).checkRuntime(); err != nil {
+		t.Errorf("agent.json without a runtime refused: %v", err)
 	}
 	fs := pflag.NewFlagSet("t", pflag.ContinueOnError)
 	var rf runtimeFlags
 	rf.register(fs)
-	if err := fs.Parse([]string{"--runtime", "docker", "--container-subnet", "10.122.0.0/24"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := rf.apply(&ac, ip); err == nil || !strings.Contains(err.Error(), "embedded runtime") {
-		t.Errorf("--container-subnet with a driver: %v", err)
+	if err := fs.Parse([]string{"--runtime", "docker"}); err == nil {
+		t.Error("--runtime still accepted")
 	}
 }
 
@@ -290,30 +259,22 @@ func TestExistingAncestor(t *testing.T) {
 	}
 }
 
-// appOnly is a driver without system containers or a bridge.
-type appOnly struct{ runtime.Driver }
-
-func TestDoctorExternalDriver(t *testing.T) {
+func TestDoctorRuntimeUnreachable(t *testing.T) {
 	t.Parallel()
 	env := healthyEnv(t)
-	env.runtimeName = "docker"
+	env.driver = failingPing{fake.New()}
 	results := runDoctor(context.Background(), env)
-	if statusOf(results, "runtime") != checkOK || statusOf(results, "system containers") != "" {
-		t.Errorf("capable driver: %+v", results)
-	}
-
-	env.driver = appOnly{fake.New()}
-	results = runDoctor(context.Background(), env)
-	if statusOf(results, "system containers") != checkWarn || statusOf(results, "bridge") != "" {
-		t.Errorf("driver without system containers: %+v", results)
-	}
-
-	env.driver = appOnly{&failingPing{fake.New()}}
-	results = runDoctor(context.Background(), env)
+	found := false
 	for _, r := range results {
-		if r.Name == "runtime" && (r.Status != checkFail || !strings.Contains(r.Detail, "armada-driver-docker")) {
-			t.Errorf("unreachable driver: %+v", r)
+		if r.Name == "runtime" {
+			found = true
+			if r.Status != checkFail || !strings.Contains(r.Detail, "armada-runtime") {
+				t.Errorf("unreachable runtime: %+v", r)
+			}
 		}
+	}
+	if !found {
+		t.Error("no runtime check")
 	}
 }
 

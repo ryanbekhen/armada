@@ -24,8 +24,8 @@ builds:
       - -X github.com/ryanbekhen/armada/internal/version.version={{ .Tag }}
       - -X github.com/ryanbekhen/armada/internal/version.commit={{ .FullCommit }}
       - -X github.com/ryanbekhen/armada/internal/version.date={{ .CommitDate }}
-  # macOS (Apple silicon) runs only the agent, through a driver (ADR 0016):
-  # no embedded runtime.
+  # On macOS (Apple silicon) the binary is a client of a cluster: nodes
+  # run Linux, so no runtime bundle.
   - id: armada-darwin
     main: ./cmd/armada
     binary: armada
@@ -86,9 +86,8 @@ release:
     sudo ARMADA_VERSION={{ .Tag }} sh install.sh
     ```
 
-    On a Mac with Apple silicon, which joins as a compute node through a
-    runtime driver, `install.sh` installs only the binary; see "macOS
-    nodes" in the operations guide.
+    On a Mac with Apple silicon, `install.sh` installs the binary as a
+    client that manages a cluster; nodes run Linux.
 
     `install.sh` verifies the cosign signature of `checksums.txt` (when
     cosign is installed) and the SHA-256 of the archive. Upgrading a

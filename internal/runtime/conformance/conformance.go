@@ -1,15 +1,12 @@
-// Package conformance tests that a runtime driver behaves as Armada needs
-// (ADR 0015): the security defaults, checked from inside containers, the
-// container lifecycle, labels, publishing on a private address, logs, and
-// errors. Drivers run it from a test against a real engine:
+// Package conformance tests that the container runtime behaves as Armada
+// needs (ADR 0011): the security defaults, checked from inside containers,
+// the container lifecycle, labels, publishing on a private address, logs,
+// exec, stats, volumes, and errors. The embedded runtime runs it on a node
+// (integration build tag), also with every container sandboxed.
 //
-//	func TestConformance(t *testing.T) {
-//		conformance.Run(t, myDriver, conformance.Options{HostIP: "10.0.0.5"})
-//	}
-//
-// It needs root (or whatever the engine needs), network access to pull the
-// test image, and leaves nothing behind. It can run on a node whose agent
-// is running: its containers carry none of the labels the agent manages.
+// It needs root, network access to pull the test image, and leaves nothing
+// behind. It can run on a node whose agent is running: its containers carry
+// none of the labels the agent manages.
 package conformance
 
 import (
@@ -28,7 +25,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ryanbekhen/armada/driverkit"
+	"github.com/ryanbekhen/armada/internal/runtime"
 )
 
 // Options configures a run.
@@ -40,11 +37,6 @@ type Options struct {
 	HostIP string
 	// Timeout bounds each step; default 2 minutes.
 	Timeout time.Duration
-	// Info is what the driver serves in its handshake. With VMIsolation the
-	// suite checks that containers run on separate kernels instead of
-	// checking no-new-privileges and the PID limit; test containers get at
-	// least MinMemoryBytes.
-	Info driverkit.Info
 	// Sandbox says every container runs under its own userspace kernel
 	// (Armada's embedded runtime with `isolation: sandbox`, ADR 0029): the
 	// suite also checks that containers run on separate kernels. The
@@ -58,7 +50,7 @@ type Options struct {
 var capBits = map[string]uint{"NET_RAW": 13, "MKNOD": 27, "AUDIT_WRITE": 29}
 
 // Run runs every check against d as subtests.
-func Run(t *testing.T, d driverkit.Driver, opts Options) {
+func Run(t *testing.T, d runtime.Driver, opts Options) {
 	t.Helper()
 	if opts.Image == "" {
 		opts.Image = "busybox:1.37"
@@ -79,36 +71,33 @@ func Run(t *testing.T, d driverkit.Driver, opts Options) {
 	}
 
 	t.Run("SecurityDefaults", r.securityDefaults)
-	if opts.Info.VMIsolation {
-		t.Run("VMIsolation", r.vmIsolation)
-	}
 	if opts.Sandbox {
-		t.Run("Sandbox", r.vmIsolation)
+		t.Run("Sandbox", r.separateKernels)
 	}
 	t.Run("Lifecycle", r.lifecycle)
 	t.Run("Labels", r.labels)
 	t.Run("Logs", r.logs)
 	t.Run("NotFound", r.notFound)
 	t.Run("Publish", r.publish)
-	if sys, ok := d.(driverkit.SystemRunner); ok {
+	if sys, ok := d.(runtime.SystemRunner); ok {
 		t.Run("SystemContainers", func(t *testing.T) { r.system(t, sys) })
 	}
-	if bi, ok := d.(driverkit.BridgeInspector); ok {
+	if bi, ok := d.(runtime.BridgeInspector); ok {
 		t.Run("Bridge", func(t *testing.T) { r.bridge(t, bi) })
 	}
-	if ex, ok := d.(driverkit.Execer); ok {
+	if ex, ok := d.(runtime.Execer); ok {
 		t.Run("Exec", func(t *testing.T) { r.exec(t, ex) })
 	}
-	if sr, ok := d.(driverkit.StatsReader); ok {
+	if sr, ok := d.(runtime.StatsReader); ok {
 		t.Run("Stats", func(t *testing.T) { r.stats(t, sr) })
 	}
-	if vm, ok := d.(driverkit.VolumeMounter); ok && vm.CanMountVolumes() {
+	if runtime.CanMountVolumes(d) {
 		t.Run("Volumes", r.volumes)
 	}
 }
 
 type runner struct {
-	d    driverkit.Driver
+	d    runtime.Driver
 	opts Options
 	// run labels everything this run creates, for cleanup.
 	run string
@@ -128,18 +117,17 @@ func (r *runner) ctx() (context.Context, context.CancelFunc) {
 }
 
 // spec returns an app container spec with Armada's defaults.
-func (r *runner) spec(cmd ...string) driverkit.ContainerSpec {
+func (r *runner) spec(cmd ...string) runtime.ContainerSpec {
 	r.n++
-	return driverkit.ContainerSpec{
+	return runtime.ContainerSpec{
 		Name:  fmt.Sprintf("armada-conformance-%s-%d", r.run, r.n),
 		Image: r.opts.Image,
 		Cmd:   cmd,
 		// Not armada.managed: an agent on the same node would remove
 		// containers it does not know.
 		Labels:      map[string]string{labelRun: r.run},
-		MemoryBytes: max(64<<20, r.opts.Info.MinMemoryBytes),
+		MemoryBytes: 64 << 20,
 		PidsLimit:   100,
-		Security:    driverkit.Security{NoNewPrivileges: true, DropCapabilities: driverkit.RequiredDroppedCaps},
 	}
 }
 
@@ -156,14 +144,14 @@ func (r *runner) cleanup() {
 }
 
 // wait polls until the container is no longer running.
-func (r *runner) wait(ctx context.Context, t *testing.T, id string) driverkit.Container {
+func (r *runner) wait(ctx context.Context, t *testing.T, id string) runtime.Container {
 	t.Helper()
 	for {
 		c, err := r.d.Inspect(ctx, id)
 		if err != nil {
 			t.Fatalf("Inspect: %v", err)
 		}
-		if c.State != driverkit.StateRunning && c.State != driverkit.StateCreated && c.State != driverkit.StateRestarting {
+		if c.State != runtime.StateRunning && c.State != runtime.StateCreated && c.State != runtime.StateRestarting {
 			return c
 		}
 		select {
@@ -175,7 +163,7 @@ func (r *runner) wait(ctx context.Context, t *testing.T, id string) driverkit.Co
 }
 
 // output runs spec to completion and returns stdout and stderr.
-func (r *runner) output(t *testing.T, spec driverkit.ContainerSpec) (stdout, stderr string, exit int) {
+func (r *runner) output(t *testing.T, spec runtime.ContainerSpec) (stdout, stderr string, exit int) {
 	t.Helper()
 	ctx, cancel := r.ctx()
 	defer cancel()
@@ -184,7 +172,7 @@ func (r *runner) output(t *testing.T, spec driverkit.ContainerSpec) (stdout, std
 		t.Fatalf("Run: %v", err)
 	}
 	c := r.wait(ctx, t, id)
-	ls, err := r.d.Logs(ctx, id, driverkit.LogOptions{})
+	ls, err := r.d.Logs(ctx, id, runtime.LogOptions{})
 	if err != nil {
 		t.Fatalf("Logs: %v", err)
 	}
@@ -198,7 +186,7 @@ func (r *runner) output(t *testing.T, spec driverkit.ContainerSpec) (stdout, std
 		if err != nil {
 			t.Fatalf("Logs: %v", err)
 		}
-		if f.Stream == driverkit.Stderr {
+		if f.Stream == runtime.Stderr {
 			errOut.Write(f.Data)
 		} else {
 			out.Write(f.Data)
@@ -218,7 +206,7 @@ echo "pids $(cat /sys/fs/cgroup/pids.max)"
 echo "file $(cat /run/secrets/s)"
 if echo x > /run/secrets/s 2>/dev/null; then echo "write ok"; else echo "write refused"; fi
 echo "env $GREETING"`)
-	spec.Files = []driverkit.FileMount{{Source: file, Target: "/run/secrets/s"}}
+	spec.Files = []runtime.FileMount{{Source: file, Target: "/run/secrets/s"}}
 	spec.Env = []string{"GREETING=hello"}
 	out, errOut, code := r.output(t, spec)
 	if code != 0 {
@@ -232,17 +220,14 @@ echo "env $GREETING"`)
 		}
 		fields[strings.TrimSuffix(f[0], ":")] = strings.Join(f[1:], " ")
 	}
-	// With VM isolation the container's kernel is its own, and the
-	// VMIsolation subtest checks that instead (ADR 0016).
-	vm := r.opts.Info.VMIsolation
-	if fields["NoNewPrivs"] != "1" && !vm {
+	if fields["NoNewPrivs"] != "1" {
 		t.Errorf("NoNewPrivs = %q, want 1", fields["NoNewPrivs"])
 	}
 	capEff, err := strconv.ParseUint(fields["CapEff"], 16, 64)
 	if err != nil {
 		t.Errorf("CapEff %q: %v", fields["CapEff"], err)
 	}
-	for _, c := range driverkit.RequiredDroppedCaps {
+	for _, c := range runtime.DroppedCaps {
 		if bit, ok := capBits[c]; ok && capEff&(1<<bit) != 0 {
 			t.Errorf("capability %s not dropped (CapEff %s)", c, fields["CapEff"])
 		}
@@ -252,7 +237,7 @@ echo "env $GREETING"`)
 	if fields["memory"] != strconv.FormatInt(spec.MemoryBytes, 10) && !r.opts.Sandbox {
 		t.Errorf("memory limit %q, want %d", fields["memory"], spec.MemoryBytes)
 	}
-	if fields["pids"] != strconv.FormatInt(spec.PidsLimit, 10) && !vm && !r.opts.Sandbox {
+	if fields["pids"] != strconv.FormatInt(spec.PidsLimit, 10) && !r.opts.Sandbox {
 		t.Errorf("PID limit %q, want %d", fields["pids"], spec.PidsLimit)
 	}
 	if fields["file"] != "s3cret" {
@@ -269,10 +254,9 @@ echo "env $GREETING"`)
 	}
 }
 
-// vmIsolation checks a driver's VM isolation or sandbox claim: two
-// containers, and this machine when it runs Linux, report different kernel
-// boot IDs.
-func (r *runner) vmIsolation(t *testing.T) {
+// separateKernels checks the sandbox: two containers, and this machine,
+// report different kernel boot IDs.
+func (r *runner) separateKernels(t *testing.T) {
 	const cmd = "cat /proc/sys/kernel/random/boot_id"
 	seen := map[string]string{}
 	if b, err := os.ReadFile("/proc/sys/kernel/random/boot_id"); err == nil {
@@ -304,19 +288,19 @@ func (r *runner) lifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Inspect: %v", err)
 	}
-	if c.State != driverkit.StateRunning || c.Name != spec.Name || c.StartedAt.IsZero() {
+	if c.State != runtime.StateRunning || c.Name != spec.Name || c.StartedAt.IsZero() {
 		t.Errorf("after Run: state %q, name %q, started %v", c.State, c.Name, c.StartedAt)
 	}
 	if err := r.d.Stop(ctx, id, 2*time.Second); err != nil {
 		t.Fatalf("Stop: %v", err)
 	}
-	if c := r.wait(ctx, t, id); c.State != driverkit.StateExited && c.State != driverkit.StateDead {
+	if c := r.wait(ctx, t, id); c.State != runtime.StateExited && c.State != runtime.StateDead {
 		t.Errorf("after Stop: state %q", c.State)
 	}
 	if err := r.d.Remove(ctx, id); err != nil {
 		t.Fatalf("Remove: %v", err)
 	}
-	if _, err := r.d.Inspect(ctx, id); !errors.Is(err, driverkit.ErrNotFound) {
+	if _, err := r.d.Inspect(ctx, id); !errors.Is(err, runtime.ErrNotFound) {
 		t.Errorf("Inspect after Remove = %v, want ErrNotFound", err)
 	}
 
@@ -350,7 +334,7 @@ func (r *runner) labels(t *testing.T) {
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
-	found := map[string]driverkit.Container{}
+	found := map[string]runtime.Container{}
 	for _, c := range all {
 		found[c.ID] = c
 	}
@@ -382,10 +366,10 @@ func (r *runner) notFound(t *testing.T) {
 	ctx, cancel := r.ctx()
 	defer cancel()
 	const id = "armada-conformance-does-not-exist"
-	if _, err := r.d.Inspect(ctx, id); !errors.Is(err, driverkit.ErrNotFound) {
+	if _, err := r.d.Inspect(ctx, id); !errors.Is(err, runtime.ErrNotFound) {
 		t.Errorf("Inspect = %v", err)
 	}
-	if err := r.d.Remove(ctx, id); !errors.Is(err, driverkit.ErrNotFound) {
+	if err := r.d.Remove(ctx, id); !errors.Is(err, runtime.ErrNotFound) {
 		t.Errorf("Remove = %v", err)
 	}
 }
@@ -424,10 +408,10 @@ func (r *runner) publish(t *testing.T) {
 	}
 }
 
-func (r *runner) system(t *testing.T, sys driverkit.SystemRunner) {
+func (r *runner) system(t *testing.T, sys runtime.SystemRunner) {
 	ctx, cancel := r.ctx()
 	defer cancel()
-	id, err := sys.RunSystem(ctx, driverkit.SystemSpec{
+	id, err := sys.RunSystem(ctx, runtime.SystemSpec{
 		Name:   fmt.Sprintf("armada-conformance-%s-system", r.run),
 		Image:  r.opts.Image,
 		Cmd:    []string{"sleep", "300"},
@@ -448,7 +432,7 @@ func (r *runner) system(t *testing.T, sys driverkit.SystemRunner) {
 	}
 }
 
-func (r *runner) bridge(t *testing.T, bi driverkit.BridgeInspector) {
+func (r *runner) bridge(t *testing.T, bi runtime.BridgeInspector) {
 	ctx, cancel := r.ctx()
 	defer cancel()
 	b, err := bi.Bridge(ctx)
@@ -463,14 +447,14 @@ func (r *runner) bridge(t *testing.T, bi driverkit.BridgeInspector) {
 // exec checks ExecApp (ADR 0017): standard input and its end, separate
 // output streams, the exit code, a terminal with its size and a resize, and
 // that the command keeps the container's security defaults.
-func (r *runner) exec(t *testing.T, ex driverkit.Execer) {
+func (r *runner) exec(t *testing.T, ex runtime.Execer) {
 	ctx, cancel := r.ctx()
 	defer cancel()
 	id, err := r.d.Run(ctx, r.spec("sleep", "300"))
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	run := func(opts driverkit.ExecOptions) (string, string, int) {
+	run := func(opts runtime.ExecOptions) (string, string, int) {
 		t.Helper()
 		var out, errOut bytes.Buffer
 		opts.Stdout, opts.Stderr = &out, &errOut
@@ -481,7 +465,7 @@ func (r *runner) exec(t *testing.T, ex driverkit.Execer) {
 		return out.String(), errOut.String(), code
 	}
 
-	out, errOut, code := run(driverkit.ExecOptions{
+	out, errOut, code := run(runtime.ExecOptions{
 		Cmd:   []string{"sh", "-c", `read x; echo "out:$x"; cat; echo err >&2; exit 3`},
 		Stdin: strings.NewReader("first\nrest\n"),
 	})
@@ -489,21 +473,21 @@ func (r *runner) exec(t *testing.T, ex driverkit.Execer) {
 		t.Errorf("stdin and streams: stdout %q, stderr %q, exit %d", out, errOut, code)
 	}
 
-	out, _, _ = run(driverkit.ExecOptions{Cmd: []string{"sh", "-c", `grep -E '^(NoNewPrivs|CapEff):' /proc/self/status`}})
+	out, _, _ = run(runtime.ExecOptions{Cmd: []string{"sh", "-c", `grep -E '^(NoNewPrivs|CapEff):' /proc/self/status`}})
 	fields := map[string]string{}
 	for line := range strings.SplitSeq(out, "\n") {
 		if k, v, ok := strings.Cut(line, ":"); ok {
 			fields[k] = strings.TrimSpace(v)
 		}
 	}
-	if fields["NoNewPrivs"] != "1" && !r.opts.Info.VMIsolation {
+	if fields["NoNewPrivs"] != "1" {
 		t.Errorf("exec process NoNewPrivs = %q, want 1", fields["NoNewPrivs"])
 	}
 	capEff, err := strconv.ParseUint(fields["CapEff"], 16, 64)
 	if err != nil {
 		t.Errorf("exec process CapEff %q: %v", fields["CapEff"], err)
 	}
-	for _, c := range driverkit.RequiredDroppedCaps {
+	for _, c := range runtime.DroppedCaps {
 		if bit, ok := capBits[c]; ok && capEff&(1<<bit) != 0 {
 			t.Errorf("exec process has capability %s (CapEff %s)", c, fields["CapEff"])
 		}
@@ -514,9 +498,9 @@ func (r *runner) exec(t *testing.T, ex driverkit.Execer) {
 	waitSize := func(want string) string {
 		return `for i in $(seq 20); do s=$(stty size 2>/dev/null); [ "$s" = "` + want + `" ] && break; sleep 0.1; done; echo "size:$s"`
 	}
-	out, _, code = run(driverkit.ExecOptions{
+	out, _, code = run(runtime.ExecOptions{
 		Cmd: []string{"sh", "-c", `test -t 1 && echo tty; ` + waitSize("33 101")}, TTY: true,
-		Size: driverkit.TermSize{Rows: 33, Cols: 101},
+		Size: runtime.TermSize{Rows: 33, Cols: 101},
 	})
 	if !strings.Contains(out, "tty") || code != 0 {
 		t.Errorf("terminal: output %q, exit %d", out, code)
@@ -524,17 +508,17 @@ func (r *runner) exec(t *testing.T, ex driverkit.Execer) {
 	if !strings.Contains(out, "size:33 101") {
 		t.Errorf("terminal size: output %q, want 33 101", out)
 	}
-	resize := make(chan driverkit.TermSize, 1)
-	resize <- driverkit.TermSize{Rows: 40, Cols: 120}
-	out, _, _ = run(driverkit.ExecOptions{
+	resize := make(chan runtime.TermSize, 1)
+	resize <- runtime.TermSize{Rows: 40, Cols: 120}
+	out, _, _ = run(runtime.ExecOptions{
 		Cmd: []string{"sh", "-c", waitSize("40 120")}, TTY: true,
-		Size: driverkit.TermSize{Rows: 33, Cols: 101}, Resize: resize,
+		Size: runtime.TermSize{Rows: 33, Cols: 101}, Resize: resize,
 	})
 	if !strings.Contains(out, "size:40 120") {
 		t.Errorf("terminal resize: output %q, want 40 120", out)
 	}
 
-	if _, err := ex.ExecApp(ctx, "armada-conformance-missing", driverkit.ExecOptions{Cmd: []string{"true"}, Stdout: io.Discard, Stderr: io.Discard}); err == nil {
+	if _, err := ex.ExecApp(ctx, "armada-conformance-missing", runtime.ExecOptions{Cmd: []string{"true"}, Stdout: io.Discard, Stderr: io.Discard}); err == nil {
 		t.Error("ExecApp in a missing container succeeded")
 	}
 }
@@ -542,7 +526,7 @@ func (r *runner) exec(t *testing.T, ex driverkit.Execer) {
 // stats checks that a container which holds 16 MiB and keeps a CPU busy is
 // measured as such: memory between 12 MiB and its limit, and CPU time that
 // grows by at least a tenth of the wall time.
-func (r *runner) stats(t *testing.T, sr driverkit.StatsReader) {
+func (r *runner) stats(t *testing.T, sr runtime.StatsReader) {
 	ctx, cancel := r.ctx()
 	defer cancel()
 	spec := r.spec("sh", "-c", `x=$(head -c 16777216 /dev/zero | tr '\0' a); while :; do :; done`)
@@ -551,7 +535,7 @@ func (r *runner) stats(t *testing.T, sr driverkit.StatsReader) {
 		t.Fatalf("Run: %v", err)
 	}
 	const minMemory = 12 << 20
-	var first driverkit.Stats
+	var first runtime.Stats
 	deadline := time.Now().Add(20 * time.Second)
 	for {
 		if first, err = sr.Stats(ctx, id); err != nil {
@@ -583,7 +567,7 @@ func (r *runner) stats(t *testing.T, sr driverkit.StatsReader) {
 // volumes checks that a volume is the host directory, writable, kept after
 // the container is gone, and mounted without setuid programs or device
 // files: the agent's volume directory is a nosuid,nodev mount, and the
-// driver's mount must keep both flags.
+// runtime's mount must keep both flags.
 func (r *runner) volumes(t *testing.T) {
 	dir, checkFlags := volumeDir(t)
 	if err := os.Chmod(dir, 0o777); err != nil { //nolint:gosec // the image's user may not be root
@@ -593,7 +577,7 @@ func (r *runner) volumes(t *testing.T) {
 		t.Fatal(err)
 	}
 	spec := r.spec("sh", "-c", "cat /data/before && echo written > /data/after && grep ' /data ' /proc/mounts")
-	spec.Volumes = []driverkit.VolumeMount{{Source: dir, Target: "/data"}}
+	spec.Volumes = []runtime.VolumeMount{{Source: dir, Target: "/data"}}
 	out, errOut, exit := r.output(t, spec)
 	if exit != 0 {
 		t.Fatalf("exit %d: %s%s", exit, out, errOut)
@@ -605,10 +589,9 @@ func (r *runner) volumes(t *testing.T) {
 	if err != nil || strings.TrimSpace(string(b)) != "written" {
 		t.Errorf("the container's write did not reach the host directory: %q, %v", b, err)
 	}
-	if checkFlags && !r.opts.Info.VMIsolation && !r.opts.Sandbox {
-		// In a VM or a sandbox the guest's mount table shows its own file
-		// sharing options; the host directory's flags cannot be read
-		// there.
+	if checkFlags && !r.opts.Sandbox {
+		// In a sandbox the mount table shows the sandbox's own file sharing
+		// options; the host directory's flags cannot be read there.
 		for _, flag := range []string{"nosuid", "nodev"} {
 			if !strings.Contains(out, flag) {
 				t.Errorf("volume mounted without %s: %q", flag, out)

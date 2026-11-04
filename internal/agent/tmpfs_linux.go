@@ -22,7 +22,3 @@ func CheckTmpfs(dir string) error {
 	}
 	return nil
 }
-
-// PrepareSecretsDisk does nothing on Linux: the secrets directory lives on
-// a tmpfs the system provides (/run).
-func PrepareSecretsDisk(string) error { return nil }

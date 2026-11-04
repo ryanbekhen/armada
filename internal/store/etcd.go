@@ -329,8 +329,6 @@ type nodeRec struct {
 	Restricted  bool              `json:"restricted,omitempty"`
 	OS          string            `json:"os,omitempty"`
 	Arch        string            `json:"arch,omitempty"`
-	Runtime     string            `json:"runtime,omitempty"`
-	MinMemory   int64             `json:"minMemory,omitempty"`
 	Jobs        bool              `json:"jobs,omitempty"`
 	Volumes     bool              `json:"volumes,omitempty"`
 	Sandbox     bool              `json:"sandbox,omitempty"`
@@ -527,8 +525,8 @@ func (t *etx) node(id string) (nodeRec, bool, error) {
 func (t *etx) toNode(n nodeRec) (Node, error) {
 	out := Node{ID: n.ID, PrivateIP: n.PrivateIP, CPUMillis: n.CPUMillis, MemoryBytes: n.MemoryBytes, State: n.State,
 		LastSeen: fromMS(n.LastSeen), CreatedAt: fromMS(n.CreatedAt), Cordoned: n.Cordoned, Version: n.Version,
-		Labels: n.Labels, OS: n.OS, Arch: n.Arch, Runtime: n.Runtime, Restricted: n.Restricted,
-		MinMemoryBytes: n.MinMemory, Jobs: n.Jobs, Volumes: n.Volumes, Sandbox: n.Sandbox, Subnet: n.Subnet, NetworkKey: n.NetworkKey}
+		Labels: n.Labels, OS: n.OS, Arch: n.Arch, Restricted: n.Restricted,
+		Jobs: n.Jobs, Volumes: n.Volumes, Sandbox: n.Sandbox, Subnet: n.Subnet, NetworkKey: n.NetworkKey}
 	var latest int64
 	err := listInto(t, pfxCerts+n.ID+"/", func(_ string, c certRec) error {
 		latest = max(latest, c.NotAfter)
@@ -556,8 +554,8 @@ func (s *Etcd) UpsertNode(ctx context.Context, n Node) error {
 			LastSeen: ms(n.LastSeen), CreatedAt: ms(n.CreatedAt)}
 		if ok {
 			rec.CreatedAt, rec.Cordoned, rec.LegacyCerts, rec.Version = cur.CreatedAt, cur.Cordoned, cur.LegacyCerts, cur.Version
-			rec.Labels, rec.Restricted, rec.OS, rec.Arch, rec.Runtime = cur.Labels, cur.Restricted, cur.OS, cur.Arch, cur.Runtime
-			rec.MinMemory, rec.Subnet, rec.NetworkKey = cur.MinMemory, cur.Subnet, cur.NetworkKey
+			rec.Labels, rec.Restricted, rec.OS, rec.Arch = cur.Labels, cur.Restricted, cur.OS, cur.Arch
+			rec.Subnet, rec.NetworkKey = cur.Subnet, cur.NetworkKey
 		} else {
 			if rec.Subnet, err = t.newNodeNetwork(n.PrivateIP); err != nil {
 				return err
@@ -568,9 +566,6 @@ func (s *Etcd) UpsertNode(ctx context.Context, n Node) error {
 		}
 		if n.OS != "" || n.Arch != "" {
 			rec.OS, rec.Arch = n.OS, n.Arch
-		}
-		if n.Runtime != "" {
-			rec.Runtime = n.Runtime
 		}
 		rec.Restricted = rec.Restricted || n.Restricted
 		return t.put(pfxNodes+n.ID, rec)
@@ -619,7 +614,7 @@ func (s *Etcd) SetNodeStatus(ctx context.Context, id string, st NodeStatus) erro
 			return notFoundf("node %s", id)
 		}
 		n.State, n.LastSeen, n.CPUMillis, n.MemoryBytes = st.State, ms(st.LastSeen), st.CPUMillis, st.MemoryBytes
-		n.MinMemory, n.Jobs, n.Volumes, n.Sandbox = st.MinMemoryBytes, st.Jobs, st.Volumes, st.Sandbox
+		n.Jobs, n.Volumes, n.Sandbox = st.Jobs, st.Volumes, st.Sandbox
 		if st.Version != "" {
 			n.Version = st.Version
 		}
@@ -628,9 +623,6 @@ func (s *Etcd) SetNodeStatus(ctx context.Context, id string, st NodeStatus) erro
 		}
 		if st.Arch != "" {
 			n.Arch = st.Arch
-		}
-		if st.Runtime != "" {
-			n.Runtime = st.Runtime
 		}
 		if st.NetworkKey != "" && st.NetworkKey != n.NetworkKey {
 			taken := false

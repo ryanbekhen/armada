@@ -91,7 +91,7 @@ func (c *cluster) runJoinedAgent(name, ip string, resp *armadav1.JoinResponse, k
 	c.proxies[name] = px
 	hc := &healthChecks{broken: map[string]bool{}, d: d}
 	c.checks[name] = hc
-	a := agent.New(agent.Config{NodeID: name, PrivateIP: ip, Driver: d, Client: armadav1.NewAgentServiceClient(conn), Proxy: px, Runtime: "embedded",
+	a := agent.New(agent.Config{NodeID: name, PrivateIP: ip, Driver: d, Client: armadav1.NewAgentServiceClient(conn), Proxy: px,
 		Resync: 50 * time.Millisecond, CPUMillis: 2000, MemoryBytes: 2 << 30, Check: hc.check})
 	go func() { _ = a.Run(c.ctx) }()
 	c.eventually("joined node "+name+" ready", func() bool {

@@ -27,7 +27,7 @@ func TestRuntimeReset(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	// Not Armada's: an external driver's engine may run other containers.
+	// Not Armada's: reset leaves containers without its labels alone.
 	if _, err := d.Run(ctx, runtime.ContainerSpec{Name: "someone-else", Image: "x"}); err != nil {
 		t.Fatal(err)
 	}
@@ -78,14 +78,7 @@ func TestRuntimeCommandFreshAndUnknownNodes(t *testing.T) {
 	if err := os.Chmod(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := saveAgentConfig(dir, agentConfig{NodeID: "n1", PrivateIP: "10.0.0.2", Servers: []string{"10.0.0.2:7443"}, Runtime: "other"}); err != nil {
-		t.Fatal(err)
-	}
-	errOut.Reset()
-	if code := Execute(context.Background(), []string{"runtime", "--data-dir", dir}, &out, &errOut); code != 0 || !strings.Contains(errOut.String(), `driver "other"`) {
-		t.Errorf("node with a driver: code %d, %q", code, errOut.String())
-	}
-	if err := saveAgentConfig(dir, agentConfig{NodeID: "n1", PrivateIP: "10.0.0.2", Servers: []string{"10.0.0.2:7443"}, Runtime: "Not A Name"}); err != nil {
+	if err := saveAgentConfig(dir, agentConfig{NodeID: "n1", PrivateIP: "10.0.0.2", Servers: []string{"10.0.0.2:7443"}, Runtime: "docker"}); err != nil {
 		t.Fatal(err)
 	}
 	errOut.Reset()
@@ -126,14 +119,8 @@ func TestUseNodeSubnet(t *testing.T) {
 			t.Errorf("useNodeSubnet(%q) = %q, %v", c.subnet, ac.ContainerSubnet, err)
 		}
 	}
-	// A driver chooses its own network, but the node still joins the
-	// cluster network.
-	ac := agentConfig{Runtime: "docker"}
-	if _, err := (runtimeFlags{}).useNodeSubnet(&ac, "10.120.3.0/24", "plain", ip); err != nil || ac.ContainerSubnet != "" || ac.Network != "plain" {
-		t.Errorf("external driver: %+v, %v", ac, err)
-	}
 	// A mode this binary does not know is refused.
-	ac = agentConfig{Runtime: runtimeEmbedded}
+	ac := agentConfig{Runtime: runtimeEmbedded}
 	if _, err := (runtimeFlags{}).useNodeSubnet(&ac, "10.120.3.0/24", "carrier-pigeon", ip); err == nil {
 		t.Error("unknown mode accepted")
 	}

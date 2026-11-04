@@ -146,27 +146,6 @@ func TestNodeWithoutPlatformStaysEligible(t *testing.T) {
 	}
 }
 
-// A node whose runtime refuses small memory limits (ADR 0016) takes only
-// replicas at or above its minimum, and the placement note says why.
-func TestNodeMinimumMemory(t *testing.T) {
-	t.Parallel()
-	small := store.Revision{Spec: mustSpec(t, "name: web\nimage: nginx:1\nresources:\n  memory: 64Mi\n")}
-	enough := store.Revision{Spec: mustSpec(t, "name: web\nimage: nginx:1\nresources:\n  memory: 256Mi\n")}
-	mac := store.Node{ID: "mac", State: store.NodeReady, MinMemoryBytes: 200 << 20}
-	if placementAllows(mac, small) {
-		t.Error("64Mi replica allowed on a node with a 200Mi minimum")
-	}
-	if !placementAllows(mac, enough) {
-		t.Error("256Mi replica refused on a node with a 200Mi minimum")
-	}
-	if !placementAllows(store.Node{ID: "linux", State: store.NodeReady}, small) {
-		t.Error("node without a minimum refused a small replica")
-	}
-	if got := noNodeReason([]store.Node{mac}, small); !strings.Contains(got, "no ready node accepts the memory limit 64Mi") || !strings.Contains(got, "at least 200Mi") {
-		t.Errorf("reason = %q", got)
-	}
-}
-
 // Replicas that failed on nodes their image cannot run on do not serve:
 // they are retired at once instead of holding the surge, so the app
 // reaches its replica count on the nodes that can run it.

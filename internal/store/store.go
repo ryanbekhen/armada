@@ -67,11 +67,6 @@ type Node struct {
 	// agent reports. AllLabels combines them.
 	Labels   map[string]string
 	OS, Arch string
-	// Runtime is the container runtime its agent reports (ADR 0015).
-	Runtime string
-	// MinMemoryBytes is the smallest memory limit its runtime accepts
-	// (ADR 0016); 0 means none.
-	MinMemoryBytes int64
 	// Restricted nodes only run apps whose placement selects one of their
 	// labels.
 	Restricted bool
@@ -102,9 +97,6 @@ func (n Node) AllLabels() map[string]string {
 	}
 	if n.Arch != "" {
 		out[spec.LabelArch] = n.Arch
-	}
-	if n.Runtime != "" {
-		out[spec.LabelRuntime] = n.Runtime
 	}
 	return out
 }
@@ -281,10 +273,6 @@ type NodeStatus struct {
 	Version string
 	// OS and Arch as the agent reports them; empty keeps the recorded ones.
 	OS, Arch string
-	// Runtime as the agent reports it; empty keeps the recorded one.
-	Runtime string
-	// MinMemoryBytes as the agent reports it.
-	MinMemoryBytes int64
 	// Jobs, Volumes, and Sandbox as the agent reports them.
 	Jobs    bool
 	Volumes bool

@@ -124,7 +124,7 @@ func (s *Server) startTerm(ctx context.Context) error {
 		if n.State != store.NodeReady || s.session(n.ID) != nil {
 			continue
 		}
-		if err := s.store.SetNodeStatus(ctx, n.ID, store.NodeStatus{State: store.NodeUnknown, LastSeen: now, CPUMillis: n.CPUMillis, MemoryBytes: n.MemoryBytes, MinMemoryBytes: n.MinMemoryBytes, Jobs: n.Jobs, Volumes: n.Volumes, Sandbox: n.Sandbox}); err != nil {
+		if err := s.store.SetNodeStatus(ctx, n.ID, store.NodeStatus{State: store.NodeUnknown, LastSeen: now, CPUMillis: n.CPUMillis, MemoryBytes: n.MemoryBytes, Jobs: n.Jobs, Volumes: n.Volumes, Sandbox: n.Sandbox}); err != nil {
 			return err
 		}
 	}
