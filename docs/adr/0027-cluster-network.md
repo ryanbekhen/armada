@@ -373,7 +373,7 @@ Later stages add:
      node keys (done);
   2. replicas without published ports (done for the embedded runtime;
      drivers follow with `CAPABILITY_NODE_SUBNET`);
-  3. default deny and `ingress.allow`;
+  3. default deny and `ingress.allow`, between projects too (ADR 0029);
   4. TCP apps;
   5. replica names.
 
