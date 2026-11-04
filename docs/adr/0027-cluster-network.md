@@ -86,15 +86,22 @@ The cluster CIDR is routed between nodes over one interface per node,
   - Each peer is another node, with the peer's private IP as its endpoint.
     Its allowed addresses are exactly the peer's node subnet, so the kernel
     drops any packet whose inner source is not that node's.
-  - One UDP port, `--wireguard-port`, default 51820.
+  - One UDP port, 51820. Every peer keeps its session up with a keepalive
+    every 25 seconds, so the first packet after a quiet spell does not wait
+    for a handshake, and a peer that stops answering shows.
+  - A node that has not announced a key yet is left out of the others'
+    peer lists until it does.
+  - The agent changes only what differs from the device's current peers,
+    so sessions survive every reconcile pass.
   - Kernel WireGuard cannot bind to one address. The agent therefore adds
     a firewall rule that accepts the port only on the private IP and only
     from the current peers' addresses. WireGuard never answers a packet
     that does not authenticate.
   - Where the kernel has no WireGuard, the agent runs the pure Go userspace
-    implementation, embedded in the binary. It records the fallback on the
-    node, and `armada doctor` and `armada status` warn about it, because it
-    is markedly slower.
+    implementation, embedded in the binary, with the usual root-only
+    control socket. The agent logs a warning and `armada doctor` reports
+    it, because it is markedly slower. The device lives as long as the
+    agent, so traffic between nodes stops while the agent restarts.
   - It is the mode for private networks the operator does not trust
     (shared or provider-managed networks), and for compliance needs.
   - It costs CPU: see the numbers above.
@@ -129,7 +136,9 @@ exists only where a pair of nodes uses it.
   node or appears in logs.
 - The public key travels in `Hello` over the existing mTLS stream. The
   server stores it on the node record and accepts it only from that node's
-  certificate (T8).
+  certificate (T8), only when it is a well-formed key, and never when
+  another node holds it: such an agent is refused until it makes a new
+  key. The agent refuses a peer list with a malformed or repeated key.
 - The leader sends each node its peer list in the node's proxy and network
   configuration on the Connect stream: name, public key, endpoint, and
   subnet. It sends that list again whenever a node joins, changes its key,
@@ -138,9 +147,10 @@ exists only where a pair of nodes uses it.
   minutes. The static key only proves which node a peer is, as the node
   certificate does. Such a key leaks only together with root on the node,
   and the response then is `armada node remove`, which drops the peer from
-  every node within one configuration push. `armada node rotate-key NODE`
-  makes the agent generate a new pair. Each peer then cuts over within
-  seconds, with a short gap.
+  every node within one configuration push. A later `armada node
+  rotate-key NODE` makes the agent generate a new pair; until then,
+  removing `network.key` and restarting the agent does the same. Each peer
+  then cuts over within seconds, with a short gap.
 - **Not in backups.** The key belongs to the node, not to the control
   plane. After a restore, agents keep their keys and the leader rebuilds the
   peer lists from the node records.
@@ -299,16 +309,17 @@ Doctor checks that:
 
 - the uplink's MTU leaves room for the tunnel, and reports the MTU
   containers get;
-- the kernel has VXLAN, and `armada-net` is up with a route for each peer;
+- in the `plain` mode, the kernel has VXLAN, and `armada-net` is up with a
+  route for each peer;
+- in the `wireguard` mode, the kernel has WireGuard, or a warning that the
+  userspace fallback runs, and each peer has a handshake from the last
+  three minutes;
 - the node's subnet does not overlap the host's routes.
 
 Later stages add:
 
-- in the `wireguard` mode, the kernel has WireGuard, or a warning that the
-  userspace fallback will run;
 - the UDP port is free and allowed by the host firewall;
 - the cluster CIDR and service CIDR do not overlap the host's routes;
-- each peer has a recent handshake;
 - the tunnel MTU path to each peer passes unfragmented probes.
 
 ## Alternatives considered
@@ -339,7 +350,7 @@ Later stages add:
 - By default, traffic between nodes stays plaintext on the private network,
   as today. T56 then narrows to reading that traffic and to forged VXLAN
   packets from the private network. The `wireguard` mode closes both.
-  `armada init` prints the mode in use. `armada status` shows it, and the
+  `armada init --network` chooses the mode and prints it, and the
   operations guide explains when to choose `wireguard`.
 - Encryption costs CPU on every node that sends or receives traffic between
   nodes. The operations guide states the numbers above.
@@ -350,9 +361,9 @@ Later stages add:
 - Nodes in other providers or behind NAT need the later ADR. The records and
   the agent already allow for them.
 - The implementation lands in stages:
-  1. the network, routing, MTU, and doctor: node subnets (done), the
-     `plain` tunnel with routes, MTU, and firewall (done), then the
-     `wireguard` mode with node keys;
+  1. the network, routing, MTU, and doctor: node subnets, the `plain`
+     tunnel with routes, MTU, and firewall, and the `wireguard` mode with
+     node keys (done);
   2. replicas without published ports;
   3. default deny and `ingress.allow`;
   4. TCP apps;

@@ -23,6 +23,9 @@ func TestBackupCoversDataDirLayout(t *testing.T) {
 	if backup.DirEtcd != dirEtcd {
 		t.Errorf("etcd dir %q != %q", backup.DirEtcd, dirEtcd)
 	}
+	if backup.FileNetworkKey != fileNetworkKey || slices.Contains(all, fileNetworkKey) {
+		t.Errorf("network key %q != %q, or copied", backup.FileNetworkKey, fileNetworkKey)
+	}
 }
 
 func TestBackupRestoreCommands(t *testing.T) {

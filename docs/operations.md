@@ -317,16 +317,39 @@ must not contain the nodes' private IPs or overlap routes on them
 Container addresses are unique in the cluster, and the bridge's gateway
 (where `<app>.internal` and the node's DNS answer) differs per node. Every
 Linux node routes the other nodes' subnets over its `armada-net` interface,
-VXLAN on its private IP (UDP 4789, not encrypted). So containers and nodes
-reach a container on any node at its own address, and a replica sees the
-caller's real address. Allow UDP 4789 between the nodes in the provider
-firewall; Armada accepts it on each node only from the other nodes.
+so containers and nodes reach a container on any node at its own address,
+and a replica sees the caller's real address. `armada init --network`
+chooses, once, how that traffic travels:
 
-The tunnel takes 50 bytes from each packet: the bridge and containers get
-the MTU of the interface that holds the private IP less 50 (at least 1280
-is required). Containers created before the node joined the tunnel keep
-their old MTU until they are replaced. `armada doctor` shows the MTU, and
-whether `armada-net` is up and routes every other node. `armada runtime
+| Mode | Tunnel | Port to allow between nodes | Overhead |
+| --- | --- | --- | --- |
+| `plain` (default) | VXLAN, not encrypted | UDP 4789 | 50 bytes |
+| `wireguard` | WireGuard, encrypted and authenticated | UDP 51820 | 80 bytes |
+
+Choose `wireguard` when you do not trust the private network (shared or
+provider-managed networks) or must encrypt traffic between machines. It
+costs CPU on every node that sends or receives traffic between nodes: on
+two vCPUs, about 2 Gbit/s between containers of two nodes against 14 Gbit/s
+in `plain`, and about half the throughput of a large upload. Requests that
+stay on their node (local-first routing) do not pay it. Where the kernel
+has no WireGuard, the agent runs it in userspace, which is markedly slower,
+and traffic between nodes pauses while that agent restarts; `armada doctor`
+warns about it.
+
+Allow the mode's port between the nodes in the provider firewall; Armada
+accepts it on each node only on the private IP and only from the other
+nodes. In the `wireguard` mode each node keeps its key in `network.key` in
+the data directory (not in backups; a restored node makes a new one) and
+announces the public half; a node that announces another node's key is
+refused. To give a node a new key, remove `network.key` and restart its
+agent.
+
+The tunnel takes its overhead from each packet: the bridge and containers
+get the MTU of the interface that holds the private IP less 50 or 80 (at
+least 1280 is required). Containers created before the node joined the tunnel keep
+their old MTU until they are replaced. `armada doctor` shows the MTU,
+whether `armada-net` is up and routes every other node, and in the
+`wireguard` mode whether every peer has a recent handshake. `armada runtime
 reset` on a removed node takes the interface and its firewall rules off.
 
 Replicas are still reached through the port they publish on their node's

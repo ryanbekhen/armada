@@ -119,3 +119,42 @@ func TestFreeSubnetExhausted(t *testing.T) {
 		t.Errorf("17th subnet of a /20 = %v", err)
 	}
 }
+
+func TestNodeNetworkKey(t *testing.T) {
+	t.Parallel()
+	s, ctx := open(t), context.Background()
+	for _, id := range []string{"n1", "n2"} {
+		if err := s.UpsertNode(ctx, Node{ID: id, PrivateIP: "10.0.0." + id[1:]}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	st := NodeStatus{State: NodeReady, LastSeen: time.Now(), NetworkKey: "key-1"}
+	if err := s.SetNodeStatus(ctx, "n1", st); err != nil {
+		t.Fatal(err)
+	}
+	// An empty key keeps the recorded one, as does rewriting the node.
+	if err := s.SetNodeStatus(ctx, "n1", NodeStatus{State: NodeUnknown}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpsertNode(ctx, Node{ID: "n1", PrivateIP: "10.0.0.1", CPUMillis: 500}); err != nil {
+		t.Fatal(err)
+	}
+	if n, _ := s.GetNode(ctx, "n1"); n.NetworkKey != "key-1" {
+		t.Errorf("key = %q", n.NetworkKey)
+	}
+	// Another node cannot take it.
+	if err := s.SetNodeStatus(ctx, "n2", st); !errors.Is(err, ErrConflict) {
+		t.Errorf("duplicate key = %v", err)
+	}
+	if n, _ := s.GetNode(ctx, "n2"); n.NetworkKey != "" {
+		t.Errorf("n2 key = %q", n.NetworkKey)
+	}
+	// A node may change its own.
+	st.NetworkKey = "key-2"
+	if err := s.SetNodeStatus(ctx, "n1", st); err != nil {
+		t.Fatal(err)
+	}
+	if n, _ := s.GetNode(ctx, "n1"); n.NetworkKey != "key-2" {
+		t.Errorf("changed key = %q", n.NetworkKey)
+	}
+}

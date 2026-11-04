@@ -83,6 +83,9 @@ type Node struct {
 	// (ADR 0027), given when the node is created; empty in clusters
 	// without one.
 	Subnet string
+	// NetworkKey is the node's WireGuard public key, base64, as its agent
+	// announced it (ADR 0027); empty until then.
+	NetworkKey string
 }
 
 // AllLabels returns the admin labels plus armada.os and armada.arch.
@@ -277,6 +280,9 @@ type NodeStatus struct {
 	// Jobs and Volumes as the agent reports them.
 	Jobs    bool
 	Volumes bool
+	// NetworkKey as the agent announces it; empty keeps the recorded one.
+	// A key another node holds is refused with ErrConflict.
+	NetworkKey string
 }
 
 // Domain is a custom domain referenced by at least one app. Apps may only

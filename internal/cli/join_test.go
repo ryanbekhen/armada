@@ -146,11 +146,12 @@ func TestJoinEndToEnd(t *testing.T) {
 	peers := func(node string) []string {
 		var out []string
 		for _, p := range testNets.get(node).applied().GetPeers() {
-			out = append(out, p.GetNode()+"="+p.GetPrivateIp()+"="+p.GetSubnet())
+			out = append(out, p.GetNode()+"="+p.GetPrivateIp()+"="+p.GetSubnet()+"="+p.GetPublicKey())
 		}
 		return out
 	}
-	both := []string{"node-1=127.0.0.1=10.120.0.0/24", "node-2=10.0.0.2=10.120.1.0/24"}
+	// Each with the key its agent announced.
+	both := []string{"node-1=127.0.0.1=10.120.0.0/24=" + testKey("node-1"), "node-2=10.0.0.2=10.120.1.0/24=" + testKey("node-2")}
 	waitFor("both nodes in the cluster network", func() bool {
 		return slices.Equal(peers("node-1"), both) && slices.Equal(peers("node-2"), both)
 	})

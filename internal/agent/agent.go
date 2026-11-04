@@ -77,8 +77,10 @@ type Config struct {
 	// node.
 	Proxy proxy.Driver
 	// Network applies the cluster network (ADR 0027); nil when the node is
-	// not part of one.
-	Network Network
+	// not part of one. NetworkKey is the node's public key, announced in
+	// Hello.
+	Network    Network
+	NetworkKey string
 	// Check runs health checks (default DefaultCheck).
 	Check CheckFunc
 	// VolumesDir holds persistent volumes (ADR 0025); empty: the node
@@ -268,7 +270,7 @@ func (a *Agent) session(ctx context.Context) (established bool, err error) {
 	hello := &armadav1.AgentMessage{Msg: &armadav1.AgentMessage_Hello{Hello: &armadav1.Hello{
 		CpuMillis: a.cfg.CPUMillis, MemoryBytes: a.cfg.MemoryBytes, Version: version.Get().Version, PrivateIp: a.cfg.PrivateIP,
 		Os: cmp.Or(a.cfg.OS, goruntime.GOOS), Arch: cmp.Or(a.cfg.Arch, goruntime.GOARCH), Runtime: a.cfg.Runtime,
-		MinMemoryBytes: a.cfg.MinMemoryBytes, Jobs: true, Volumes: a.mountsVolumes(),
+		MinMemoryBytes: a.cfg.MinMemoryBytes, Jobs: true, Volumes: a.mountsVolumes(), NetworkKey: a.cfg.NetworkKey,
 	}}}
 	if err := stream.Send(hello); err != nil {
 		return false, err

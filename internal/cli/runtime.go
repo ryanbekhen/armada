@@ -102,7 +102,7 @@ func (r runtimeFlags) useNodeSubnet(c *agentConfig, subnet, mode string, private
 	if subnet == "" {
 		return "", nil
 	}
-	if mode != store.NetworkPlain {
+	if mode != store.NetworkPlain && mode != store.NetworkWireGuard {
 		return "", fmt.Errorf("the control plane uses cluster network mode %q, which this Armada does not know; upgrade it", mode)
 	}
 	c.Network = mode
@@ -156,7 +156,7 @@ var newDriver = func(dataDir string, ac *agentConfig) (runtime.Driver, error) {
 		if err != nil {
 			return nil, fmt.Errorf("%s: private IP: %w", fileAgent, err)
 		}
-		if mtu, err = clusternet.ContainerMTU(ip); err != nil {
+		if mtu, err = clusternet.ContainerMTU(ac.Network, ip); err != nil {
 			return nil, fmt.Errorf("cluster network: %w", err)
 		}
 	}

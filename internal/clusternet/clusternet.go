@@ -1,7 +1,9 @@
 // Package clusternet routes the cluster network's node subnets between
 // nodes (ADR 0027). In the plain mode every node has a VXLAN interface on
 // its private IP, with static forwarding entries for its peers and a route
-// for each peer's subnet; nothing is learned from the network.
+// for each peer's subnet; nothing is learned from the network. In the
+// wireguard mode the interface is a WireGuard device whose peers are the
+// other nodes, each allowed exactly its own subnet.
 package clusternet
 
 import (
@@ -10,6 +12,8 @@ import (
 	"log/slog"
 	"net"
 	"net/netip"
+
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	armadav1 "github.com/ryanbekhen/armada/api/armada/v1"
 	"github.com/ryanbekhen/armada/internal/netutil"
@@ -24,6 +28,11 @@ const (
 	// VXLANOverhead is what VXLAN adds to each packet over IPv4: outer IP,
 	// UDP, and VXLAN headers and the inner Ethernet header.
 	VXLANOverhead = 50
+	// WireGuardPort is the UDP port of the wireguard mode.
+	WireGuardPort = 51820
+	// WireGuardOverhead is what WireGuard adds to each packet, counted for
+	// IPv6 underlays as WireGuard's own default does.
+	WireGuardOverhead = 80
 	// MinUplinkMTU leaves containers at least the IPv4 minimum of 576
 	// bytes, with room to spare for the encapsulation.
 	MinUplinkMTU = 1280
@@ -33,8 +42,11 @@ const (
 	maxPeers = 4096
 )
 
-// ModePlain is the cluster network mode this package implements.
-const ModePlain = "plain"
+// Cluster network modes.
+const (
+	ModePlain     = "plain"
+	ModeWireGuard = "wireguard"
+)
 
 // Config describes the node.
 type Config struct {
@@ -42,7 +54,10 @@ type Config struct {
 	Node string
 	// PrivateIP is where the tunnel listens and peers reach the node.
 	PrivateIP netip.Addr
-	Logger    *slog.Logger
+	// Key is the node's own key (LoadOrCreateKey); the wireguard mode needs
+	// it.
+	Key    PrivateKey
+	Logger *slog.Logger
 }
 
 // peer is one other node.
@@ -50,10 +65,12 @@ type peer struct {
 	node   string
 	ip     netip.Addr
 	subnet netip.Prefix
+	key    wgtypes.Key // zero until the node has announced one
 }
 
 // plan is a validated network configuration.
 type plan struct {
+	mode  string
 	cidr  netip.Prefix
 	self  peer
 	peers []peer // every node but this one, in the order received
@@ -63,7 +80,7 @@ type plan struct {
 // with anything that ends up in routes or firewall rules: names, addresses
 // and subnets are checked here again.
 func parse(cfg *armadav1.NetworkConfig, self string, selfIP netip.Addr) (plan, error) {
-	if cfg.GetMode() != ModePlain {
+	if cfg.GetMode() != ModePlain && cfg.GetMode() != ModeWireGuard {
 		return plan{}, fmt.Errorf("cluster network mode %q is not supported by this agent", cfg.GetMode())
 	}
 	cidr, err := netip.ParsePrefix(cfg.GetClusterCidr())
@@ -73,8 +90,8 @@ func parse(cfg *armadav1.NetworkConfig, self string, selfIP netip.Addr) (plan, e
 	if len(cfg.GetPeers()) > maxPeers {
 		return plan{}, fmt.Errorf("%d peers: at most %d", len(cfg.GetPeers()), maxPeers)
 	}
-	p := plan{cidr: cidr}
-	ips, subnets, names := map[netip.Addr]bool{}, map[netip.Prefix]bool{}, map[string]bool{}
+	p := plan{mode: cfg.GetMode(), cidr: cidr}
+	ips, subnets, names, keys := map[netip.Addr]bool{}, map[netip.Prefix]bool{}, map[string]bool{}, map[wgtypes.Key]bool{}
 	found := false
 	for _, pp := range cfg.GetPeers() {
 		if err := spec.ValidateName(pp.GetNode()); err != nil {
@@ -96,11 +113,26 @@ func parse(cfg *armadav1.NetworkConfig, self string, selfIP netip.Addr) (plan, e
 		}
 		names[pp.GetNode()], ips[ip], subnets[sub] = true, true, true
 		pe := peer{node: pp.GetNode(), ip: ip, subnet: sub}
+		if pp.GetPublicKey() != "" {
+			k, err := wgtypes.ParseKey(pp.GetPublicKey())
+			if err != nil || k == (wgtypes.Key{}) {
+				return plan{}, fmt.Errorf("peer %s: invalid public key", pp.GetNode())
+			}
+			if keys[k] {
+				return plan{}, fmt.Errorf("peer %s: duplicate public key", pp.GetNode())
+			}
+			keys[k], pe.key = true, k
+		}
 		if pe.node == self {
 			if ip != selfIP {
 				return plan{}, fmt.Errorf("the control plane lists this node at %s, not %s", ip, selfIP)
 			}
 			p.self, found = pe, true
+			continue
+		}
+		if p.mode == ModeWireGuard && pe.key == (wgtypes.Key{}) {
+			// Not connected since it joined: it has no key to reach it by
+			// yet, and comes in with the next list.
 			continue
 		}
 		p.peers = append(p.peers, pe)
@@ -125,7 +157,12 @@ func vtepMAC(subnet netip.Prefix) net.HardwareAddr {
 
 // TunnelMTU is the MTU for the tunnel, the bridge, and containers on a
 // node whose uplink has the given MTU.
-func TunnelMTU(uplink int) int { return uplink - VXLANOverhead }
+func TunnelMTU(mode string, uplink int) int {
+	if mode == ModeWireGuard {
+		return uplink - WireGuardOverhead
+	}
+	return uplink - VXLANOverhead
+}
 
 // Check levels of Diagnose.
 const (

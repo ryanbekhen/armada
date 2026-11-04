@@ -21,6 +21,8 @@ const (
 	fileNodeCert   = "node.crt"
 	fileNodeKey    = "node.key"
 	fileAgent      = "agent.json"
+	// fileNetworkKey is the node's WireGuard key (ADR 0027).
+	fileNetworkKey = "network.key"
 	dirEtcd        = "etcd"
 	fileEtcdKey    = "etcd/member.key"
 	// fileEtcdInitial holds the etcd members of the cluster a server joins,
