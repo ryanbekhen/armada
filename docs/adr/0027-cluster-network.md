@@ -188,10 +188,9 @@ exists only where a pair of nodes uses it.
 ### Access between apps
 
 - **Direct traffic is denied by default.** nftables in the forward path
-  accepts traffic from one container straight to another only in two
-  cases:
-  - between replicas of the same app;
-  - to an app whose spec lists the caller in `ingress.allow: [app, ...]`.
+  accepts traffic from one container straight to another only between
+  replicas of the same app. Every other call between apps goes through
+  `<app>.internal`, where HAProxy applies the rules below.
 
   The rules key on address sets per app. Agents report each replica's
   container address, the server keeps only addresses in the node's own
@@ -209,10 +208,18 @@ exists only where a pair of nodes uses it.
 - **Through `<app>.internal`.** HAProxy on the host reaches every replica,
   and containers call `<app>.internal` through their own node's HAProxy
   (ADR 0007).
-  - For an app with `ingress.allow`, HAProxy admits only the listed apps.
-    It checks the caller's source address against the same sets.
-  - An app without `ingress.allow` stays callable by every app through
-    `<app>.internal`, as today (T13 narrows to those apps).
+  - The agent writes the same address list, its own containers merged in,
+    to a HAProxy map (`clients.map`: address → project and app) and
+    replaces it through the Runtime API without a reload. The internal
+    frontend looks the caller's source address up and each internal rule
+    matches only callers of the app's project.
+  - `ingress.allow: [app, ...]` narrows an app to the listed apps of its
+    project (and its own replicas). An app without it stays callable by
+    every app of its project.
+  - A caller the map does not know matches no rule, so a container that
+    has just started, the node itself, and anything else on the bridge get
+    a 404 until its address is known (fail closed). The check needs the
+    node's own subnet; nodes without one route internal names as before.
 - **Spoofing.** Containers run without `NET_ADMIN` and `NET_RAW`, so they
   cannot change their address or send packets from another one. Across nodes, WireGuard's allowed addresses check the source
   node. In `plain` mode, the source check across nodes is only as strong as
@@ -230,11 +237,11 @@ exists only where a pair of nodes uses it.
     with health checks, drain, and local-first like HTTP.
 - `<replica>.<app>.internal` resolves to the replica's container address,
   for workloads whose members find each other. It answers for replicas that
-  are `running`, and the same `ingress.allow` rules apply. Stable ordinal
+  are `running`, and the same project and `ingress.allow` rules apply. Stable ordinal
   names are outside this ADR.
 - Both get their own spec reference and threat model entries in the pull
   requests that implement them. Until then the spec rejects
-  `ingress.protocol` and `ingress.allow` with a clear message.
+  `ingress.protocol` with a clear message.
 
 ### Peers that cannot be reached
 
@@ -266,8 +273,9 @@ exists only where a pair of nodes uses it.
   The agent there runs as a user and cannot create the tunnel. Its
   replicas are reached at `<private IP>:<port>` and run with `--proxy
   none`. Containers on a Mac cannot call `<app>.internal`, as today.
-  Default deny cannot filter traffic to them, so an app with
-  `ingress.allow` is not placed on such nodes.
+  Default deny cannot filter traffic to their published ports, so
+  `ingress.allow` only covers calls through `<app>.internal` for replicas
+  there.
 
 ### More than one site
 
@@ -383,9 +391,8 @@ Later stages add:
      node keys (done);
   2. replicas without published ports (done for the embedded runtime;
      drivers follow with `CAPABILITY_NODE_SUBNET`);
-  3. default deny and `ingress.allow`, between projects too (ADR 0029):
-     default deny between apps and per-project DNS are done; the check in
-     HAProxy's internal frontend and `ingress.allow` come next;
+  3. default deny and `ingress.allow`, between projects too (ADR 0029)
+     (done);
   4. TCP apps;
   5. replica names.
 

@@ -279,7 +279,11 @@ On a cluster with the cluster network (`armada init --cluster-cidr`, ADR
   (`http://NAME.internal`, `http://NAME.PROJECT.internal`): traffic straight
   to another app's container address is dropped, on one node and between
   nodes. Replicas of the same app still reach each other directly.
-- A container resolves only the internal names of its own project.
+- A container resolves only the internal names of its own project, and
+  its node's proxy routes an internal name only for containers of that
+  app's project, whatever `Host` header they send. `ingress.allow` in a
+  spec narrows an internal app to the listed apps of its project (see the
+  spec reference). Anything else, the node itself included, gets a 404.
 - Containers of every project but `default` are isolated from the platform:
   they reach the internet, their node's DNS server, and internal and public
   ingress, and nothing else. The nodes, the control plane, the private
@@ -297,11 +301,8 @@ armada project list                                   # the ISOLATED column
 
 `armada doctor` checks that the firewall tables are in place (`isolation`;
 the kernel needs nf_tables). Connections opened before a change keep going
-until they end. Not yet: a container can still reach another project's
-internal app through its own node's proxy by sending that app's `Host`
-header (only its DNS name is hidden), and `ingress.allow`. Replicas of
-external drivers, macOS nodes, and clusters without the cluster network are
-not filtered. Kernel isolation and quotas follow (ADR 0029).
+until they end. Replicas of external drivers, macOS nodes, and clusters
+without the cluster network are not filtered. Kernel isolation and quotas follow (ADR 0029).
 
 ### Automation identities
 

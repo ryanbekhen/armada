@@ -649,6 +649,11 @@ func (a *Agent) applyNetworkNow(ctx context.Context) {
 	if local != nil && a.cfg.DNS != nil {
 		a.cfg.DNS.SetClients(local)
 	}
+	if cs, ok := a.cfg.Proxy.(proxy.ClientSetter); ok && local != nil {
+		if err := cs.SetClients(ctx, local); err != nil {
+			a.log.Warn("updating the proxy's callers failed", "err", err)
+		}
+	}
 	err := a.cfg.Network.Apply(ctx, want, local)
 	msg := ""
 	if err != nil {

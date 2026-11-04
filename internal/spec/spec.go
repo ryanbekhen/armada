@@ -89,6 +89,10 @@ type Ingress struct {
 	Port    int      `yaml:"port,omitempty" json:"port,omitempty"`
 	Domains []string `yaml:"domains,omitempty" json:"domains,omitempty"`
 	Routes  []Route  `yaml:"routes,omitempty" json:"routes,omitempty"`
+	// Allow names the apps and jobs of the same project that may call this
+	// app through its internal name; empty lets every app of the project
+	// (ADR 0027, ADR 0029). Replicas of the app itself always may.
+	Allow []string `yaml:"allow,omitempty" json:"allow,omitempty"`
 }
 
 // Route maps a path prefix on the app's hosts to the app.

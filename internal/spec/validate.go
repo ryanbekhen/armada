@@ -218,7 +218,7 @@ func (a *App) Validate() error {
 	v.env(a.Env)
 	v.secretFiles(a.SecretFiles)
 	v.registry(a.Registry, a.Image)
-	v.ingress(a.Ingress)
+	v.ingress(a.Ingress, a.Name)
 	v.revisions(a)
 	v.probes(a.Probes)
 	v.scale(a.Scale, a.Ingress)
@@ -229,6 +229,9 @@ func (a *App) Validate() error {
 
 	return errors.Join(v.errs...)
 }
+
+// MaxAllow bounds ingress.allow.
+const MaxAllow = 32
 
 type validator struct{ errs []error }
 
@@ -312,7 +315,7 @@ func (v *validator) env(env []EnvVar) {
 	}
 }
 
-func (v *validator) ingress(in *Ingress) {
+func (v *validator) ingress(in *Ingress, self string) {
 	if in == nil {
 		return
 	}
@@ -323,8 +326,8 @@ func (v *validator) ingress(in *Ingress) {
 			v.add("ingress.domains", "custom domains require type external; internal apps are reachable at http://<app>%s", InternalSuffix)
 		}
 	case IngressNone:
-		if in.Port != 0 || len(in.Domains) > 0 || len(in.Routes) > 0 {
-			v.add("ingress", "port, domains, and routes require type external or internal")
+		if in.Port != 0 || len(in.Domains) > 0 || len(in.Routes) > 0 || len(in.Allow) > 0 {
+			v.add("ingress", "port, domains, routes, and allow require type external or internal")
 		}
 		return
 	case "":
@@ -350,6 +353,22 @@ func (v *validator) ingress(in *Ingress) {
 			v.add(f, "duplicate domain %q", d)
 		}
 		seen[d] = true
+	}
+	if len(in.Allow) > MaxAllow {
+		v.add("ingress.allow", "must have at most %d entries", MaxAllow)
+	}
+	allowed := map[string]bool{}
+	for i, a := range in.Allow {
+		f := fmt.Sprintf("ingress.allow[%d]", i)
+		switch {
+		case !ValidName(a):
+			v.add(f, "%q is not an app name of this project (lowercase letters, digits, and single hyphens)", a)
+		case a == self:
+			v.add(f, "the app itself may always call itself; leave it out")
+		case allowed[a]:
+			v.add(f, "duplicate app %q", a)
+		}
+		allowed[a] = true
 	}
 	if len(in.Routes) > maxRoutes {
 		v.add("ingress.routes", "must have at most %d entries", maxRoutes)

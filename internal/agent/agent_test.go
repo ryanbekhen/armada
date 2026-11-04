@@ -91,15 +91,29 @@ func (n *recordingNet) Apply(_ context.Context, _ *armadav1.NetworkConfig, local
 	return nil
 }
 
-// The firewall and the DNS server learn a new container's address as soon
-// as it starts, and the full list on every pass (ADR 0029).
+// clientProxy is a proxy whose internal frontend checks callers.
+type clientProxy struct {
+	proxyfake.Driver
+	mu      sync.Mutex
+	clients map[netip.Addr]string
+}
+
+func (p *clientProxy) SetClients(_ context.Context, c map[netip.Addr]string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.clients = maps.Clone(c)
+	return nil
+}
+
+// The firewall, the DNS server, and the proxy learn a new container's
+// address as soon as it starts, and the full list on every pass (ADR 0029).
 func TestNetworkKnowsLocalContainers(t *testing.T) {
 	t.Parallel()
 	d := fake.New()
 	d.BridgeIPs = "10.120.0."
 	ok := func(context.Context, string, string) error { return nil }
-	nw, dns := &recordingNet{}, &recordingDNS{}
-	a := New(Config{NodeID: "n1", PrivateIP: "10.0.0.2", Driver: d, Check: ok, Unpublished: true, Network: nw, DNS: dns})
+	nw, dns, px := &recordingNet{}, &recordingDNS{}, &clientProxy{}
+	a := New(Config{NodeID: "n1", PrivateIP: "10.0.0.2", Driver: d, Check: ok, Unpublished: true, Network: nw, DNS: dns, Proxy: px})
 	a.setNetwork(&armadav1.NetworkConfig{Mode: "plain"})
 	web := replica("web-r1-a", "nginx:1", 8080)
 	api := replica("api-r1-a", "nginx:1", 8080)
@@ -128,6 +142,11 @@ func TestNetworkKnowsLocalContainers(t *testing.T) {
 	defer dns.mu.Unlock()
 	if !maps.Equal(dns.clients, want) {
 		t.Errorf("DNS clients = %v, want %v", dns.clients, want)
+	}
+	px.mu.Lock()
+	defer px.mu.Unlock()
+	if !maps.Equal(px.clients, want) {
+		t.Errorf("proxy clients = %v, want %v", px.clients, want)
 	}
 }
 

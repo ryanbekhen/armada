@@ -7,6 +7,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"fmt"
 	"math/big"
 	"strings"
 	"testing"
@@ -81,10 +82,20 @@ func TestValidateRejects(t *testing.T) {
 		"rule path regex":              func(c *Config) { c.Rules[1].PathPrefix = "/a(b)" },
 		"rule unknown backend":         func(c *Config) { c.Rules[0].Backend = "ghost" },
 		"rule strip root":              func(c *Config) { c.Rules[0].StripPrefix = true },
-		"rule duplicate":               func(c *Config) { c.Rules[1].PathPrefix = "/" },
-		"cert name traversal":          func(c *Config) { c.Certificates[0].Name = "../../etc/passwd" },
-		"cert name slash":              func(c *Config) { c.Certificates[0].Name = "a/b.com" },
-		"cert duplicate":               func(c *Config) { c.Certificates[1].Name = c.Certificates[0].Name },
+		"callers on a public rule":     func(c *Config) { c.Rules[0].Allow = []string{"web"} },
+		"caller of another project":    func(c *Config) { c.Rules[2].Allow = []string{"api", "web.staging"} },
+		"caller injection":             func(c *Config) { c.Rules[2].Allow = []string{"web }\n  use_backend x"} },
+		"caller with a space":          func(c *Config) { c.Rules[2].Allow = []string{"web api"} },
+		"caller is a label host":       func(c *Config) { c.Rules[2].Allow = []string{"canary--web"} },
+		"too many callers": func(c *Config) {
+			for i := range 40 {
+				c.Rules[2].Allow = append(c.Rules[2].Allow, fmt.Sprintf("app%d", i))
+			}
+		},
+		"rule duplicate":      func(c *Config) { c.Rules[1].PathPrefix = "/" },
+		"cert name traversal": func(c *Config) { c.Certificates[0].Name = "../../etc/passwd" },
+		"cert name slash":     func(c *Config) { c.Certificates[0].Name = "a/b.com" },
+		"cert duplicate":      func(c *Config) { c.Certificates[1].Name = c.Certificates[0].Name },
 		"cert without key": func(c *Config) {
 			c.Certificates[0].PEM = c.Certificates[0].PEM[:strings.Index(string(c.Certificates[0].PEM), "-----BEGIN PRIVATE")]
 		},
@@ -148,5 +159,21 @@ func TestValidateProjectApps(t *testing.T) {
 	c.Rules = append(c.Rules, Rule{Host: "canary--api.staging.internal", PathPrefix: "/", Backend: "canary--api.staging", Internal: true})
 	if err := c.Validate(); err != nil {
 		t.Fatal(err)
+	}
+	// Callers of a project's internal rule, the label's too, are apps of
+	// that project.
+	c.Rules[2].Allow = []string{"api.staging", "web.staging"}
+	c.Rules[len(c.Rules)-1].Allow = c.Rules[2].Allow
+	if err := c.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	c.Rules[2].Allow = []string{"api.staging", "web"}
+	if err := c.Validate(); err == nil {
+		t.Error("caller of the default project accepted for a staging app")
+	}
+	for backend, want := range map[string]string{"web": "default", "web.staging": "staging", "canary--web.staging": "staging", "canary--web": "default", "Web": "", "web.default": ""} {
+		if got := BackendProject(backend); got != want {
+			t.Errorf("BackendProject(%q) = %q, want %q", backend, got, want)
+		}
 	}
 }

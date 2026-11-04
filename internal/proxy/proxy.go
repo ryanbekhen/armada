@@ -36,6 +36,14 @@ const (
 	WakeTimeout = 60 * time.Second
 )
 
+// ClientSetter is implemented by drivers whose internal frontend checks
+// who calls (ADR 0029).
+type ClientSetter interface {
+	// SetClients maps the addresses of this node's containers to their app
+	// IDs; an address not in the map reaches no internal route.
+	SetClients(ctx context.Context, clients map[netip.Addr]string) error
+}
+
 // LoadReader is implemented by drivers that can count the requests in
 // progress per server, which the autoscaler uses (ADR 0022).
 type LoadReader interface {
@@ -104,6 +112,10 @@ type Rule struct {
 	StripPrefix bool
 	Backend     string
 	Internal    bool
+	// Allow, for internal rules on nodes that know their callers, lists
+	// the app IDs that may call (the app itself included); empty lets
+	// every app of the backend's project (ADR 0029).
+	Allow []string
 }
 
 // Certificate is a PEM bundle (chain + key) for Name, which may be a
@@ -116,6 +128,20 @@ type Certificate struct {
 // FileName returns a filesystem-safe name for the certificate.
 func (c Certificate) FileName() string {
 	return strings.Replace(c.Name, "*", "_wildcard", 1) + ".pem"
+}
+
+// BackendProject returns the project of the app a backend serves (a
+// backend is named by the app ID, or <label>--<app ID> for a revision
+// label), or "" for an invalid name.
+func BackendProject(backend string) string {
+	if _, id, labelled := strings.Cut(backend, "--"); labelled {
+		backend = id
+	}
+	p, _, ok := spec.SplitAppID(backend)
+	if !ok {
+		return ""
+	}
+	return p
 }
 
 // FromProto converts the wire format.
@@ -133,7 +159,7 @@ func FromProto(p *armadav1.ProxyConfig) Config {
 		c.Backends = append(c.Backends, be)
 	}
 	for _, r := range p.GetRules() {
-		c.Rules = append(c.Rules, Rule{Host: r.GetHost(), PathPrefix: r.GetPathPrefix(), StripPrefix: r.GetStripPrefix(), Backend: r.GetBackend(), Internal: r.GetInternal()})
+		c.Rules = append(c.Rules, Rule{Host: r.GetHost(), PathPrefix: r.GetPathPrefix(), StripPrefix: r.GetStripPrefix(), Backend: r.GetBackend(), Internal: r.GetInternal(), Allow: r.GetAllow()})
 	}
 	for _, crt := range p.GetCertificates() {
 		c.Certificates = append(c.Certificates, Certificate{Name: crt.GetName(), PEM: crt.GetPem()})
@@ -152,7 +178,7 @@ func (c Config) ToProto() *armadav1.ProxyConfig {
 		p.Backends = append(p.Backends, pb)
 	}
 	for _, r := range c.Rules {
-		p.Rules = append(p.Rules, &armadav1.ProxyRule{Host: r.Host, PathPrefix: r.PathPrefix, StripPrefix: r.StripPrefix, Backend: r.Backend, Internal: r.Internal})
+		p.Rules = append(p.Rules, &armadav1.ProxyRule{Host: r.Host, PathPrefix: r.PathPrefix, StripPrefix: r.StripPrefix, Backend: r.Backend, Internal: r.Internal, Allow: r.Allow})
 	}
 	for _, crt := range c.Certificates {
 		p.Certificates = append(p.Certificates, &armadav1.ProxyCertificate{Name: crt.Name, Pem: crt.PEM})
@@ -236,6 +262,18 @@ func (c Config) Validate() error {
 		}
 		if err := spec.ValidateRoutePath(r.PathPrefix); err != nil {
 			add("rule path %q: %v", r.PathPrefix, err)
+		}
+		if len(r.Allow) > 0 && !r.Internal {
+			add("rule %s%s: only internal rules have callers", r.Host, r.PathPrefix)
+		}
+		if len(r.Allow) > spec.MaxAllow+1 {
+			add("rule %s%s: too many callers", r.Host, r.PathPrefix)
+		}
+		project := BackendProject(r.Backend)
+		for _, a := range r.Allow {
+			if p, _, ok := spec.SplitAppID(a); !ok || p != project {
+				add("rule %s%s: caller %q is not an app of project %s", r.Host, r.PathPrefix, a, project)
+			}
 		}
 		if r.PathPrefix == "/" && r.StripPrefix {
 			add("rule %s/: cannot strip the root path", r.Host)

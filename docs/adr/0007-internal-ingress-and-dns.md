@@ -26,7 +26,7 @@ The obvious design binds an internal HAProxy frontend to the node's private IP o
 
 ## Consequences
 
-- An internal app is "not public", not "only for specific apps": every container on every node can call it (threat model T13, unchanged).
+- An internal app is "not public", not "only for specific apps": every container on every node can call it (threat model T13). With the cluster network (ADR 0027, ADR 0029), the internal frontend admits only callers of the app's project, and only the apps listed in `ingress.allow` when it is set; the node itself no longer gets an answer.
 - Host firewalls must accept traffic from the bridge (`armada0`) to the host on TCP 80 and UDP/TCP 53. A default-deny INPUT policy (for example ufw) blocks internal names; `armada doctor` warns about an active ufw.
 - While the agent restarts (a few seconds), containers on that node cannot resolve names. Containers deliberately get no fallback nameserver, because resolvers that query servers in parallel (musl) could take an upstream NXDOMAIN for an internal name.
 - Traffic from a container to its node's HAProxy and on to replicas is plain HTTP over the bridge and the private network, the same as the existing hop from HAProxy to replicas.

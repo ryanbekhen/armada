@@ -243,9 +243,9 @@ message:
 
 1. projects, store layout, automation identities, and `ProjectService`;
 2. network isolation between projects and away from the platform, built as
-   ADR 0027's access stage: first the firewall between apps and projects,
-   the rules away from the platform, and per-project DNS (done), then the
-   project check in HAProxy's internal frontend and `ingress.allow`;
+   ADR 0027's access stage: the firewall between apps and projects, the
+   rules away from the platform, per-project DNS, the project check in
+   HAProxy's internal frontend, and `ingress.allow` (done);
 3. `isolation: sandbox` in the embedded runtime;
 4. quotas, shared-path limits, and usage per project;
 5. `isolation: vm` through drivers.
