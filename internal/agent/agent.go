@@ -25,6 +25,7 @@ import (
 
 	"github.com/ryanbekhen/armada/internal/spec"
 
+	"golang.org/x/sync/singleflight"
 	"google.golang.org/protobuf/proto"
 
 	armadav1 "github.com/ryanbekhen/armada/api/armada/v1"
@@ -37,8 +38,13 @@ import (
 
 const (
 	defaultResync = 10 * time.Second
-	stopGrace     = 10 * time.Second
-	maxBackoff    = 30 * time.Second
+	// maxConcurrentStarts bounds the replicas a node starts at a time.
+	maxConcurrentStarts = 8
+	// startReportInterval is how often the server hears from an agent that
+	// is busy starting replicas.
+	startReportInterval = time.Second
+	stopGrace           = 10 * time.Second
+	maxBackoff          = 30 * time.Second
 	// reconnectDelay is the pause after a session the server had accepted.
 	reconnectDelay = 100 * time.Millisecond
 
@@ -423,7 +429,12 @@ func (a *Agent) Reconcile(ctx context.Context) (*armadav1.ReplicaReport, error) 
 		byReplica[id] = c
 	}
 
-	report := &armadav1.ReplicaReport{}
+	// Replicas in a state of their own, those whose container exists, and
+	// those to start: starts run at once after this loop, which itself never
+	// waits on an image or a container being created.
+	var settled []*armadav1.ReplicaState
+	var running []runningReplica
+	var pending []pendingStart
 	for _, id := range sortedKeys(desired) {
 		spec := desired[id]
 		hash := specHash(spec)
@@ -439,12 +450,12 @@ func (a *Agent) Reconcile(ctx context.Context) (*armadav1.ReplicaReport, error) 
 				_ = a.cfg.Driver.Stop(ctx, c.ID, volumeStopGrace)
 			}
 			a.stopProbes(id)
-			report.Replicas = append(report.Replicas, &armadav1.ReplicaState{Id: id, State: store.ReplicaExited, ContainerId: c.ID, Message: pausedMessage})
+			settled = append(settled, &armadav1.ReplicaState{Id: id, State: store.ReplicaExited, ContainerId: c.ID, Message: pausedMessage})
 			continue
 		}
 		if spec.GetJob() != nil {
 			if st := a.attempt(ctx, spec, hash, c, ok); st != nil {
-				report.Replicas = append(report.Replicas, st)
+				settled = append(settled, st)
 			}
 			continue
 		}
@@ -467,7 +478,7 @@ func (a *Agent) Reconcile(ctx context.Context) (*armadav1.ReplicaReport, error) 
 			// recreated here with crash backoff.
 			msg, wait := a.crashed(ctx, id, c)
 			if wait > 0 {
-				report.Replicas = append(report.Replicas, &armadav1.ReplicaState{
+				settled = append(settled, &armadav1.ReplicaState{
 					Id: id, State: store.ReplicaExited, ContainerId: c.ID,
 					Message: fmt.Sprintf("%s; restarting in %s", msg, wait.Round(time.Second)),
 				})
@@ -481,21 +492,12 @@ func (a *Agent) Reconcile(ctx context.Context) (*armadav1.ReplicaReport, error) 
 			ok = false
 		}
 		if !ok {
-			c, err = a.start(ctx, spec, hash)
-			if err != nil {
-				a.log.Error("start replica failed", "replica", id, "err", err)
-				a.stopProbes(id)
-				failed := &armadav1.ReplicaState{Id: id, State: store.ReplicaFailed, Message: err.Error()}
-				// The server learns where the image can run instead.
-				if pe := (*runtime.PlatformError)(nil); errors.As(err, &pe) {
-					failed.ImagePlatforms = pe.Have
-				}
-				report.Replicas = append(report.Replicas, failed)
-				continue
-			}
+			pending = append(pending, pendingStart{id: id, spec: spec, hash: hash})
+			continue
 		}
-		report.Replicas = append(report.Replicas, a.state(ctx, spec, c))
+		running = append(running, runningReplica{spec: spec, container: c})
 	}
+	report := a.startPending(ctx, pending, settled, running)
 	a.cleanSecretFiles(desired)
 	a.mu.Lock()
 	for id := range a.probes {
@@ -518,6 +520,134 @@ func (a *Agent) Reconcile(ctx context.Context) (*armadav1.ReplicaReport, error) 
 	a.applyNetwork(ctx)
 	a.applyProxy(ctx)
 	return report, nil
+}
+
+// pendingStart is a replica Reconcile has to create a container for.
+type pendingStart struct {
+	id   string
+	spec *armadav1.ReplicaSpec
+	hash string
+}
+
+// runningReplica is a replica with a container, whatever its state.
+type runningReplica struct {
+	spec      *armadav1.ReplicaSpec
+	container runtime.Container
+}
+
+// startPending starts replicas, at most maxConcurrentStarts at a time, and
+// returns the status of every replica. A start can take long, as long as a
+// large image takes to pull, and the replicas that already run must not
+// wait for it: the server only keeps a replica in the proxies while it
+// hears it is ready. So while starts run this keeps telling the server what
+// it knows, tells the firewall about new containers before the server hears
+// of them, and applies proxy changes. A replica still starting is left out
+// of the reports, and keeps the status the server has.
+func (a *Agent) startPending(ctx context.Context, pending []pendingStart, settled []*armadav1.ReplicaState, running []runningReplica) *armadav1.ReplicaReport {
+	build := func() *armadav1.ReplicaReport {
+		r := &armadav1.ReplicaReport{Replicas: slices.Clone(settled)}
+		for _, x := range running {
+			r.Replicas = append(r.Replicas, a.state(ctx, x.spec, x.container))
+		}
+		slices.SortFunc(r.Replicas, func(x, y *armadav1.ReplicaState) int { return cmp.Compare(x.GetId(), y.GetId()) })
+		return r
+	}
+	if len(pending) == 0 {
+		return build()
+	}
+
+	type result struct {
+		start     pendingStart
+		container runtime.Container
+		err       error
+	}
+	results := make(chan result, len(pending))
+	pull := newPullOnce(a.cfg.Driver)
+	limit := make(chan struct{}, maxConcurrentStarts)
+	go func() {
+		for _, p := range pending {
+			limit <- struct{}{}
+			go func() {
+				defer func() { <-limit }()
+				c, err := a.start(ctx, p.spec, p.hash, pull.pull)
+				results <- result{start: p, container: c, err: err}
+			}()
+		}
+	}()
+
+	var finished []result
+	// absorb makes finished starts part of what is reported, once the
+	// firewall knows their containers.
+	absorb := func() {
+		if len(finished) == 0 {
+			return
+		}
+		if a.cfg.Unpublished && a.cfg.Network != nil {
+			a.applyNetworkNow(ctx)
+		}
+		for _, f := range finished {
+			if f.err == nil {
+				running = append(running, runningReplica{spec: f.start.spec, container: f.container})
+				continue
+			}
+			a.log.Error("start replica failed", "replica", f.start.id, "err", f.err)
+			a.stopProbes(f.start.id)
+			failed := &armadav1.ReplicaState{Id: f.start.id, State: store.ReplicaFailed, Message: f.err.Error()}
+			// The server learns where the image can run instead.
+			if pe := (*runtime.PlatformError)(nil); errors.As(f.err, &pe) {
+				failed.ImagePlatforms = pe.Have
+			}
+			settled = append(settled, failed)
+		}
+		finished = nil
+	}
+
+	a.sendReport(build())
+	t := time.NewTicker(startReportInterval)
+	defer t.Stop()
+	for left := len(pending); left > 0; {
+		select {
+		case r := <-results:
+			finished = append(finished, r)
+			left--
+		case <-t.C:
+			absorb()
+			a.applyProxy(ctx)
+			a.sendReport(build())
+		}
+	}
+	absorb()
+	return build()
+}
+
+// pullOnce pulls each image once, for the replicas starting together: they
+// share the answer of the registry, or its failure. Replicas with other
+// credentials ask for themselves, so an image is never handed to a replica
+// on the strength of another's credentials. It lasts for one set of starts,
+// so a tag is still resolved anew by a later deploy.
+type pullOnce struct {
+	driver runtime.Driver
+	flight singleflight.Group
+}
+
+func newPullOnce(d runtime.Driver) *pullOnce { return &pullOnce{driver: d} }
+
+func (p *pullOnce) pull(ctx context.Context, image string, auth *runtime.RegistryAuth) (runtime.Image, error) {
+	h := sha256.New()
+	key := []string{image}
+	if auth != nil {
+		key = append(key, auth.Username, auth.Password, auth.ServerAddress)
+	}
+	for _, v := range key {
+		_, _ = fmt.Fprintf(h, "%d:%s", len(v), v)
+	}
+	v, err, _ := p.flight.Do(hex.EncodeToString(h.Sum(nil)), func() (any, error) {
+		return p.driver.Pull(ctx, image, auth)
+	})
+	if err != nil {
+		return runtime.Image{}, err
+	}
+	return v.(runtime.Image), nil
 }
 
 // crashLoop tracks how often a replica's container stopped.
@@ -711,8 +841,10 @@ func (a *Agent) remove(ctx context.Context, id string) {
 	}
 }
 
-func (a *Agent) start(ctx context.Context, s *armadav1.ReplicaSpec, hash string) (runtime.Container, error) {
-	img, err := a.cfg.Driver.Pull(ctx, s.GetImage(), registryAuth(s))
+// start pulls an image with pull and runs a replica's container. Starts may
+// run at once. The caller applies the cluster network afterwards.
+func (a *Agent) start(ctx context.Context, s *armadav1.ReplicaSpec, hash string, pull func(context.Context, string, *runtime.RegistryAuth) (runtime.Image, error)) (runtime.Container, error) {
+	img, err := pull(ctx, s.GetImage(), registryAuth(s))
 	if err != nil {
 		return runtime.Container{}, err
 	}
@@ -747,9 +879,9 @@ func (a *Agent) start(ctx context.Context, s *armadav1.ReplicaSpec, hash string)
 	}
 	c, err := a.cfg.Driver.Inspect(ctx, id)
 	if err == nil && a.cfg.Unpublished && a.cfg.Network != nil {
-		// Let the firewall and the DNS server know the new container now,
-		// not after the control plane has heard of it: until then, it is
-		// treated as an unknown address and reaches little.
+		// The firewall and the DNS server learn the new container before the
+		// control plane hears of it: until then, it is treated as an unknown
+		// address and reaches little.
 		if ip, perr := netip.ParseAddr(c.IP); perr == nil {
 			a.mu.Lock()
 			if a.local == nil {
@@ -757,7 +889,6 @@ func (a *Agent) start(ctx context.Context, s *armadav1.ReplicaSpec, hash string)
 			}
 			a.local[ip] = s.GetApp()
 			a.mu.Unlock()
-			a.applyNetworkNow(ctx)
 		}
 	}
 	return c, err

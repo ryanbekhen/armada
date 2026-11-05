@@ -27,6 +27,8 @@ type Driver struct {
 	PullErr map[string]error
 	// RunErr, if set, is returned by Run.
 	RunErr error
+	// RunHook, if set, is called by every Run, without the driver's lock.
+	RunHook func(ctx context.Context, s runtime.ContainerSpec)
 	// Digests maps image references to the digest Pull returns.
 	Digests map[string]string
 	// Platforms maps image references to the platforms Pull returns.
@@ -230,7 +232,10 @@ func (d *Driver) Pull(_ context.Context, image string, auth *runtime.RegistryAut
 }
 
 // Run creates a running container.
-func (d *Driver) Run(_ context.Context, s runtime.ContainerSpec) (string, error) {
+func (d *Driver) Run(ctx context.Context, s runtime.ContainerSpec) (string, error) {
+	if d.RunHook != nil {
+		d.RunHook(ctx, s)
+	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if d.RunErr != nil {

@@ -121,6 +121,19 @@ Armada's and visible in one place:
   registry credentials from the app's secrets and unpacked with the
   overlayfs snapshotter; `Pull` returns the digest-pinned reference.
 
+### Starting many containers
+
+A node can have hundreds of replicas to start, after a reboot or a large
+deploy, and the replicas it already runs must keep serving meanwhile:
+
+- The agent starts at most 8 replicas at a time. Starts that publish no port
+  do not wait for each other in the runtime.
+- Replicas starting together resolve each image once per set of credentials.
+  A later deploy resolves a tag anew, so it still picks up a moved tag.
+- While it starts replicas, the agent reports the others every second, tells
+  the firewall about new containers before reporting them, and applies proxy
+  changes. A replica still starting is left out of the report.
+
 ### Networking
 
 - One bridge per node, `armada0`, on the node's own subnet of the cluster

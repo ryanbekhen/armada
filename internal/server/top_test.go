@@ -310,3 +310,22 @@ func TestTopProjectsScope(t *testing.T) {
 		t.Errorf("admin sees %v", all.GetProjects())
 	}
 }
+
+// A node's status record only changes with its replicas; LAST SEEN comes from
+// what the node sends all the time.
+func TestStatusLastSeenFollowsUsage(t *testing.T) {
+	t.Parallel()
+	c := newCluster(t)
+	c.addNode("n1", "127.0.0.1")
+	c.deploy(webSpec("nginx:1", 1))
+	c.eventually("1 running", func() bool { return len(c.running("web")) == 1 })
+	// Nothing changes now, so the agent has no status to report.
+	time.Sleep(2 * time.Second)
+	c.eventually("a recent last seen", func() bool {
+		st, err := c.admin.Status(c.ctx, &armadav1.StatusRequest{})
+		if err != nil || len(st.GetNodes()) != 1 {
+			return false
+		}
+		return time.Since(st.GetNodes()[0].GetLastSeen().AsTime()) < time.Second
+	})
+}

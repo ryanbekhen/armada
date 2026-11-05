@@ -27,7 +27,11 @@ func (a *Agent) attempt(ctx context.Context, s *armadav1.ReplicaSpec, hash strin
 			return nil
 		}
 		var err error
-		if c, err = a.start(ctx, s, hash); err != nil {
+		c, err = a.start(ctx, s, hash, a.cfg.Driver.Pull)
+		if err == nil && a.cfg.Unpublished && a.cfg.Network != nil {
+			a.applyNetworkNow(ctx)
+		}
+		if err != nil {
 			a.log.Error("start job attempt failed", "replica", s.GetId(), "err", err)
 			return &armadav1.ReplicaState{Id: s.GetId(), State: store.ReplicaFailed, Message: err.Error()}
 		}
