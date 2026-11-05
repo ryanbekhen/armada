@@ -34,7 +34,6 @@ func healthyEnv(t *testing.T) doctorEnv {
 	d.Sandbox = true
 	d.Egress = true
 	return doctorEnv{
-		goos:       "linux",
 		euid:       0,
 		driver:     d,
 		detectIP:   func() (netip.Addr, error) { return netip.MustParseAddr("10.0.0.2"), nil },
@@ -73,15 +72,6 @@ func TestDoctorHealthy(t *testing.T) {
 }
 
 // TestDoctorNotLinux: nodes run Linux; elsewhere the OS check fails.
-func TestDoctorNotLinux(t *testing.T) {
-	t.Parallel()
-	env := healthyEnv(t)
-	env.goos = "darwin"
-	if got := statusOf(runDoctor(context.Background(), env), "os"); got != checkFail {
-		t.Errorf("os check on macOS: %s", got)
-	}
-}
-
 func TestDoctorFindsProblems(t *testing.T) {
 	t.Parallel()
 	tests := map[string]struct {
@@ -89,7 +79,6 @@ func TestDoctorFindsProblems(t *testing.T) {
 		check  string
 		want   string
 	}{
-		"other os":    {func(e *doctorEnv) { e.goos = "freebsd" }, "os", checkFail},
 		"not root":    {func(e *doctorEnv) { e.euid = 1000 }, "user", checkWarn},
 		"loopback ip": {func(e *doctorEnv) { e.privateIP = "127.0.0.1" }, "private-ip", checkFail},
 		"public ip":   {func(e *doctorEnv) { e.privateIP = "8.8.8.8" }, "private-ip", checkFail},

@@ -24,26 +24,10 @@ builds:
       - -X github.com/ryanbekhen/armada/internal/version.version={{ .Tag }}
       - -X github.com/ryanbekhen/armada/internal/version.commit={{ .FullCommit }}
       - -X github.com/ryanbekhen/armada/internal/version.date={{ .CommitDate }}
-  # On macOS (Apple silicon) the binary is a client of a cluster: nodes
-  # run Linux, so no runtime bundle.
-  - id: armada-darwin
-    main: ./cmd/armada
-    binary: armada
-    env:
-      - CGO_ENABLED=0
-    goos: [darwin]
-    goarch: [arm64]
-    flags: [-trimpath]
-    mod_timestamp: "{{ .CommitTimestamp }}"
-    ldflags:
-      - -s -w
-      - -X github.com/ryanbekhen/armada/internal/version.version={{ .Tag }}
-      - -X github.com/ryanbekhen/armada/internal/version.commit={{ .FullCommit }}
-      - -X github.com/ryanbekhen/armada/internal/version.date={{ .CommitDate }}
 
 archives:
   - id: armada
-    ids: [armada, armada-darwin]
+    ids: [armada]
     formats: [tar.gz]
     name_template: "armada_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     files:
@@ -85,9 +69,6 @@ release:
     less install.sh     # read what you are about to run as root
     sudo ARMADA_VERSION={{ .Tag }} sh install.sh
     ```
-
-    On a Mac with Apple silicon, `install.sh` installs the binary as a
-    client that manages a cluster; nodes run Linux.
 
     `install.sh` verifies the cosign signature of `checksums.txt` (when
     cosign is installed) and the SHA-256 of the archive. Upgrading a
