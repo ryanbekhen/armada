@@ -11,7 +11,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	goruntime "runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -41,7 +40,6 @@ type checkResult struct {
 
 // doctorEnv is what the checks read from the host; tests replace it.
 type doctorEnv struct {
-	goos      string
 	euid      int
 	driver    runtime.Driver
 	driverErr error
@@ -102,11 +100,10 @@ func hostDoctorEnv(dataDir string) doctorEnv {
 	subnet, _ := netip.ParsePrefix(ac.ContainerSubnet)
 	driver, err := newDriver(dataDir, ac)
 	var network func() []checkResult
-	if ip, err := netip.ParseAddr(ac.PrivateIP); err == nil && ac.Network != "" && goruntime.GOOS == "linux" {
+	if ip, err := netip.ParseAddr(ac.PrivateIP); err == nil && ac.Network != "" {
 		network = func() []checkResult { return clusterNetChecks(ac.Network, ip) }
 	}
 	return doctorEnv{
-		goos:        goruntime.GOOS,
 		euid:        os.Geteuid(),
 		driver:      driver,
 		driverErr:   err,
@@ -141,11 +138,6 @@ func runDoctor(ctx context.Context, env doctorEnv) []checkResult {
 		out = append(out, checkResult{Name: name, Status: status, Detail: fmt.Sprintf(format, args...)})
 	}
 
-	if env.goos == "linux" {
-		add("os", checkOK, "linux")
-	} else {
-		add("os", checkFail, "Armada nodes run on Linux, not %s", env.goos)
-	}
 	if env.euid != 0 {
 		add("user", checkWarn, "not running as root; some checks may be incomplete")
 	}

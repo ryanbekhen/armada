@@ -84,9 +84,6 @@ func newServerCommand(g *globals) *cobra.Command {
 			"seconds if it fails. Add control plane nodes with `armada server join`.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if err := linuxOnly("armada server"); err != nil {
-				return err
-			}
 			log, err := newLogger(cmd.ErrOrStderr(), logFormat, verbose)
 			if err != nil {
 				return err
@@ -328,9 +325,6 @@ func newAgentCommand() *cobra.Command {
 		Short: "Run the node agent",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if err := linuxOnly("armada agent"); err != nil {
-				return err
-			}
 			log, err := newLogger(cmd.ErrOrStderr(), logFormat, verbose)
 			if err != nil {
 				return err
@@ -485,7 +479,7 @@ func runAgent(ctx context.Context, dataDir string, servers []string, proxyKind, 
 // The key is made the first time, in both modes, so later sites need no
 // migration. Tests replace it.
 var newClusterNet = func(dataDir string, ac *agentConfig, log *slog.Logger) (agent.Network, string, error) {
-	if ac.Network == "" || goos != "linux" {
+	if ac.Network == "" {
 		return nil, "", nil
 	}
 	ip, err := netip.ParseAddr(ac.PrivateIP)

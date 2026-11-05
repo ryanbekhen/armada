@@ -56,18 +56,6 @@ jobs:
       - run: go test -race -coverprofile=coverage.out ./...
       - run: go tool cover -func=coverage.out | tail -1
 
-  # The tests on macOS, where the binary is a client of a cluster.
-  macos:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: go.mod
-      - run: go test ./...
-
   # Validates the rendered HAProxy configuration with the pinned image.
   haproxy:
     runs-on: ubuntu-latest
@@ -97,9 +85,6 @@ jobs:
       matrix:
         goos: [linux]
         goarch: [amd64, arm64]
-        include:
-          - goos: darwin
-            goarch: arm64
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
