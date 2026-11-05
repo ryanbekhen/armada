@@ -26,10 +26,11 @@ type cniNetwork struct {
 	bridge   runtime.Bridge
 	mtu      int
 	cni      *libcni.CNIConfig
-	conf     *libcni.NetworkConfigList
+	conf     *libcni.NetworkConfigList // without the bandwidth plugin
+	shaped   *libcni.NetworkConfigList // with it
+	plugin   string                    // path of the bandwidth plugin
+	kernel   bool                      // the kernel has the shaping modules
 	netnsDir string
-
-	shape bool // the bandwidth plugin is in the chain and the kernel can shape
 
 	mu    sync.Mutex
 	ready bool
@@ -40,30 +41,45 @@ func newNetwork(p embedded.Paths, subnet netip.Prefix, mtu int) (network, error)
 	if err != nil {
 		return nil, err
 	}
-	// Without the plugin binary (a --bin-dir without it), the chain leaves
-	// it out: every container start would fail otherwise.
-	plugin := executable(filepath.Join(p.Bin(), embedded.DirCNI, "bandwidth"))
-	raw, err := cniConfig(b, filepath.Join(p.CNI(), "ipam"), mtu, plugin)
-	if err != nil {
-		return nil, err
-	}
-	conf, err := libcni.ConfListFromBytes(raw)
-	if err != nil {
-		return nil, err
+	confs := make([]*libcni.NetworkConfigList, 2)
+	for i, shape := range []bool{false, true} {
+		raw, err := cniConfig(b, filepath.Join(p.CNI(), "ipam"), mtu, shape)
+		if err != nil {
+			return nil, err
+		}
+		if confs[i], err = libcni.ConfListFromBytes(raw); err != nil {
+			return nil, err
+		}
 	}
 	return &cniNetwork{
 		bridge:   b,
 		mtu:      mtu,
 		cni:      libcni.NewCNIConfigWithCacheDir([]string{filepath.Join(p.Bin(), embedded.DirCNI)}, filepath.Join(p.CNI(), "cache"), nil),
-		conf:     conf,
+		conf:     confs[0],
+		shaped:   confs[1],
+		plugin:   filepath.Join(p.Bin(), embedded.DirCNI, "bandwidth"),
+		kernel:   kernelShapes("/", kernelRelease()),
 		netnsDir: p.NetNS(),
-		shape:    plugin && kernelShapes("/", kernelRelease()),
 	}, nil
 }
 
 func (n *cniNetwork) Bridge() runtime.Bridge { return n.bridge }
 
-func (n *cniNetwork) CanShape() bool { return n.shape }
+// chain returns the plugin chain, with the bandwidth plugin only while its
+// binary exists: the runtime extracts the binaries when it starts, which
+// may be after the driver is created, and a chain naming a missing plugin
+// would fail every container start (a --bin-dir without it).
+func (n *cniNetwork) chain() (*libcni.NetworkConfigList, bool) {
+	if executable(n.plugin) {
+		return n.shaped, true
+	}
+	return n.conf, false
+}
+
+func (n *cniNetwork) CanShape() bool {
+	_, plugin := n.chain()
+	return plugin && n.kernel
+}
 
 func kernelRelease() string {
 	b, err := os.ReadFile("/proc/sys/kernel/osrelease")
@@ -156,7 +172,8 @@ func (n *cniNetwork) runtimeConf(id, path string, pm *portMapping, egress int64)
 }
 
 func (n *cniNetwork) Setup(ctx context.Context, id string, pm *portMapping, egress int64) (string, string, error) {
-	if egress > 0 && !n.shape {
+	conf, plugin := n.chain()
+	if egress > 0 && !(plugin && n.kernel) {
 		return "", "", errors.New("this node cannot limit egress bandwidth")
 	}
 	if err := os.MkdirAll(n.netnsDir, 0o700); err != nil {
@@ -166,9 +183,9 @@ func (n *cniNetwork) Setup(ctx context.Context, id string, pm *portMapping, egre
 	if err != nil {
 		return "", "", fmt.Errorf("network namespace: %w", err)
 	}
-	res, err := n.cni.AddNetworkList(ctx, n.conf, n.runtimeConf(id, ns.GetPath(), pm, egress))
+	res, err := n.cni.AddNetworkList(ctx, conf, n.runtimeConf(id, ns.GetPath(), pm, egress))
 	if err != nil {
-		_ = n.cni.DelNetworkList(context.WithoutCancel(ctx), n.conf, n.runtimeConf(id, ns.GetPath(), pm, 0))
+		_ = n.cni.DelNetworkList(context.WithoutCancel(ctx), conf, n.runtimeConf(id, ns.GetPath(), pm, 0))
 		_ = ns.Remove()
 		return "", "", err
 	}
@@ -192,7 +209,8 @@ func (n *cniNetwork) Teardown(ctx context.Context, id, path string, pm *portMapp
 	}
 	// The bandwidth plugin removes the container's ifb device by its ID;
 	// it needs no rate to do so.
-	if err := n.cni.DelNetworkList(ctx, n.conf, n.runtimeConf(id, nsPath, pm, 0)); err != nil {
+	conf, _ := n.chain()
+	if err := n.cni.DelNetworkList(ctx, conf, n.runtimeConf(id, nsPath, pm, 0)); err != nil {
 		return err
 	}
 	if nsPath != "" {
