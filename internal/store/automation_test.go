@@ -12,7 +12,7 @@ func TestAutomation(t *testing.T) {
 	t.Parallel()
 	s, ctx := open(t), context.Background()
 	for _, p := range []string{"a", "b"} {
-		if _, err := s.CreateProject(ctx, p, "", "admin:test", ""); err != nil {
+		if _, err := s.CreateProject(ctx, p, "admin:test", ""); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -77,7 +77,7 @@ func TestAutomation(t *testing.T) {
 	}
 
 	// Creating projects needs the permission, and grants the new project.
-	if _, err := s.CreateProject(ctx, "c", "", "automation:portal", "portal"); !errors.Is(err, ErrPrecondition) {
+	if _, err := s.CreateProject(ctx, "c", "automation:portal", "portal"); !errors.Is(err, ErrPrecondition) {
 		t.Fatalf("create without permission = %v", err)
 	}
 	if _, err := s.GetProject(ctx, "c"); !errors.Is(err, ErrNotFound) {
@@ -86,7 +86,7 @@ func TestAutomation(t *testing.T) {
 	if _, err := s.SetAutomation(ctx, Automation{Name: "portal", Projects: []string{"a"}, CreateProjects: true}, "admin:test"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateProject(ctx, "c", "", "automation:portal", "portal"); err != nil {
+	if _, err := s.CreateProject(ctx, "c", "automation:portal", "portal"); err != nil {
 		t.Fatal(err)
 	}
 	if sc, _ := s.GetAutomation(ctx, "portal"); !sc.Manages("c") {
@@ -98,7 +98,7 @@ func TestAutomation(t *testing.T) {
 	if err := s.DeleteProject(ctx, "c", "automation:portal"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateProject(ctx, "c", "", "admin:test", ""); err != nil {
+	if _, err := s.CreateProject(ctx, "c", "admin:test", ""); err != nil {
 		t.Fatal(err)
 	}
 	if sc, _ := s.GetAutomation(ctx, "portal"); sc.Manages("c") {

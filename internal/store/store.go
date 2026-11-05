@@ -74,12 +74,6 @@ type Node struct {
 	Jobs bool
 	// Volumes is true when the node mounts volumes (ADR 0023).
 	Volumes bool
-	// Sandbox is true when the node runs containers in a userspace kernel
-	// (`isolation: sandbox`, ADR 0026).
-	Sandbox bool
-	// Egress is true when the node limits the egress bandwidth of
-	// containers (quota egress, ADR 0026).
-	Egress bool
 	// Subnet is the node's container subnet in the cluster network
 	// (ADR 0025), given when the node is created; empty in clusters
 	// without one.
@@ -192,18 +186,9 @@ type Revision struct {
 	// reported them; nil until then (ADR 0014).
 	Platforms []string
 	// Secrets pins the version of every secret the spec references.
-	Secrets map[string]int
-	// Isolation is the kernel isolation level of the app's project when
-	// the revision was deployed (spec.Isolation*; empty is container).
-	Isolation string
-	// EgressBits is the egress limit of each replica, from the project's
-	// quota when the revision was deployed; 0 is unlimited.
-	EgressBits int64
-	CreatedAt  time.Time
+	Secrets   map[string]int
+	CreatedAt time.Time
 }
-
-// Sandboxed reports whether the revision's replicas run in the sandbox.
-func (r Revision) Sandboxed() bool { return r.Isolation == spec.IsolationSandbox }
 
 // Image returns the digest-pinned reference if known, otherwise the spec image.
 func (r Revision) Image() string {
@@ -285,10 +270,9 @@ type NodeStatus struct {
 	Version string
 	// OS and Arch as the agent reports them; empty keeps the recorded ones.
 	OS, Arch string
-	// Jobs, Volumes, Sandbox, and Egress as the agent reports them.
+	// Jobs and Volumes as the agent reports them.
 	Jobs    bool
 	Volumes bool
-	Sandbox bool
 	Egress  bool
 	// NetworkKey as the agent announces it; empty keeps the recorded one.
 	// A key another node holds is refused with ErrConflict.
@@ -394,22 +378,9 @@ type Store interface {
 	// exists or is the default project. A non-empty automation adds the
 	// project to that identity's scope in the same transaction, and fails
 	// with ErrPrecondition unless the identity may create projects. An
-	// empty isolation is spec.DefaultIsolation.
-	CreateProject(ctx context.Context, name, isolation, actor, automation string) (Project, error)
+	CreateProject(ctx context.Context, name, actor, automation string) (Project, error)
 	// GetProject returns a project; the default one always exists.
 	GetProject(ctx context.Context, name string) (Project, error)
-	// SetProjectIsolation changes a project's kernel isolation level
-	// (ADR 0026). Revisions deployed afterwards run at the new level; older
-	// ones keep theirs, and can no longer be rolled back to or given
-	// traffic if it is weaker.
-	SetProjectIsolation(ctx context.Context, name, isolation, actor string) error
-	// SetProjectQuota replaces a project's quota (ADR 0026); zero fields
-	// are unlimited. Lowering it below what the project uses keeps what
-	// runs, and refuses only changes that grow past it: deploys, scaling,
-	// rollbacks, new secrets, and job attempts fail with ErrQuota.
-	SetProjectQuota(ctx context.Context, name string, q spec.Quota, actor string) error
-	// ProjectUsage returns what each project uses, counted like its quota.
-	ProjectUsage(ctx context.Context) (map[string]spec.Quota, error)
 	// ListProjects lists every project, the default one first.
 	ListProjects(ctx context.Context) ([]Project, error)
 	// DeleteProject removes a project; ErrPrecondition while it still

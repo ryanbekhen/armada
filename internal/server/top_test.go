@@ -228,10 +228,10 @@ func TestTopProjects(t *testing.T) {
 	t.Parallel()
 	c := newCluster(t)
 	d := c.addNode("n1", "127.0.0.1")
-	if _, err := c.admin.CreateProject(c.ctx, &armadav1.CreateProjectRequest{Name: "shop", Isolation: "container"}); err != nil {
+	if _, err := c.admin.CreateProject(c.ctx, &armadav1.CreateProjectRequest{Name: "shop"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.admin.CreateProject(c.ctx, &armadav1.CreateProjectRequest{Name: "other", Isolation: "container"}); err != nil {
+	if _, err := c.admin.CreateProject(c.ctx, &armadav1.CreateProjectRequest{Name: "other"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := c.admin.Deploy(c.ctx, &armadav1.DeployRequest{Spec: []byte(webSpec("nginx:1", 1) + "resources:\n  cpu: 250m\n  memory: 128Mi\n"), Project: "shop"}); err != nil {
@@ -287,7 +287,7 @@ func TestTopProjects(t *testing.T) {
 func TestTopProjectsScope(t *testing.T) {
 	t.Parallel()
 	c, tool, _ := automationCluster(t)
-	if _, err := c.admin.CreateProject(c.ctx, &armadav1.CreateProjectRequest{Name: "elsewhere", Isolation: "container"}); err != nil {
+	if _, err := c.admin.CreateProject(c.ctx, &armadav1.CreateProjectRequest{Name: "elsewhere"}); err != nil {
 		t.Fatal(err)
 	}
 	resp, err := tool.Top(c.ctx, &armadav1.TopRequest{})

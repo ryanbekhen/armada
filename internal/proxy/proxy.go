@@ -81,24 +81,6 @@ type Backend struct {
 	// LocalFirst makes each node's proxy prefer the replicas on its own
 	// node (ADR 0024).
 	LocalFirst bool
-	// RequestRate and Connections limit the requests per second the app
-	// may receive at this proxy and the requests it may have in progress
-	// here; 0 is unlimited. Every backend of one app (BackendApp) shares
-	// them (ADR 0026).
-	RequestRate int
-	Connections int
-}
-
-// MaxRequestLimit bounds RequestRate and Connections.
-const MaxRequestLimit = 1_000_000
-
-// BackendApp returns the app ID a backend serves: its name, or the app
-// part of <label>--<app ID>.
-func BackendApp(backend string) string {
-	if _, id, labelled := strings.Cut(backend, "--"); labelled {
-		return id
-	}
-	return backend
 }
 
 // Server is one replica.
@@ -170,8 +152,7 @@ func FromProto(p *armadav1.ProxyConfig) Config {
 	}
 	c.ACMEAddress = p.GetAcmeChallengeAddress()
 	for _, b := range p.GetBackends() {
-		be := Backend{Name: b.GetName(), HealthPath: b.GetHealthPath(), Wake: b.GetWake(), LocalFirst: b.GetLocalFirst(),
-			RequestRate: int(b.GetRequestRate()), Connections: int(b.GetConnections())}
+		be := Backend{Name: b.GetName(), HealthPath: b.GetHealthPath(), Wake: b.GetWake(), LocalFirst: b.GetLocalFirst()}
 		for _, s := range b.GetServers() {
 			be.Servers = append(be.Servers, Server{Name: s.GetName(), Address: s.GetAddress(), Weight: int(min(s.GetWeight(), MaxWeight+1))})
 		}
@@ -190,8 +171,7 @@ func FromProto(p *armadav1.ProxyConfig) Config {
 func (c Config) ToProto() *armadav1.ProxyConfig {
 	p := &armadav1.ProxyConfig{AcmeChallengeAddress: c.ACMEAddress}
 	for _, b := range c.Backends {
-		pb := &armadav1.ProxyBackend{Name: b.Name, HealthPath: b.HealthPath, Wake: b.Wake, LocalFirst: b.LocalFirst,
-			RequestRate: int32(b.RequestRate), Connections: int32(b.Connections)} //nolint:gosec // bounded by Validate
+		pb := &armadav1.ProxyBackend{Name: b.Name, HealthPath: b.HealthPath, Wake: b.Wake, LocalFirst: b.LocalFirst}
 		for _, s := range b.Servers {
 			pb.Servers = append(pb.Servers, &armadav1.ProxyServer{Name: s.Name, Address: s.Address, Weight: uint32(max(s.Weight, 0))}) //nolint:gosec // bounded by Validate
 		}
@@ -250,9 +230,6 @@ func (c Config) Validate() error {
 		}
 		if len(b.Servers) > MaxServers {
 			add("backend %s: too many servers", b.Name)
-		}
-		if b.RequestRate < 0 || b.RequestRate > MaxRequestLimit || b.Connections < 0 || b.Connections > MaxRequestLimit {
-			add("backend %s: request limits must be between 0 and %d", b.Name, MaxRequestLimit)
 		}
 		seen := map[string]bool{}
 		for _, s := range b.Servers {

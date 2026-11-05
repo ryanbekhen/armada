@@ -108,59 +108,23 @@ func spreadMessage(ctx context.Context, revs *revisionCache, fit []store.Node, a
 
 // noNodeReason explains why no node is eligible for rev.
 func noNodeReason(nodes []store.Node, rev store.Revision) string {
-	labelled, sandboxes, shapers := 0, 0, 0
+	labelled := 0
 	for _, n := range nodes {
 		if n.State != store.NodeReady || n.Cordoned {
 			continue
 		}
-		if n.Sandbox {
-			sandboxes++
-		}
-		if n.Egress {
-			shapers++
-		}
-		if !placementAllows(n, store.Revision{Spec: rev.Spec, Isolation: rev.Isolation, EgressBits: rev.EgressBits}) {
+		if !placementAllows(n, store.Revision{Spec: rev.Spec}) {
 			continue
 		}
 		labelled++
 	}
 	switch {
-	case rev.Sandboxed() && sandboxes == 0:
-		return "no ready node runs sandboxed replicas, which the project's isolation sandbox requires (armada doctor on a node shows why)"
-	case rev.EgressBits > 0 && shapers == 0:
-		return "no ready node limits egress bandwidth, which the project's egress quota requires (armada doctor on a node shows why)"
 	case labelled > 0:
 		return fmt.Sprintf("no ready node can run the image, which is built for %s", strings.Join(rev.Platforms, ", "))
 	case rev.Spec.Placement.String() != "":
 		return fmt.Sprintf("no ready node matches the placement (%s)", rev.Spec.Placement.String())
 	}
 	return "no ready node accepts the app (every ready node is cordoned or restricted)"
-}
-
-// noIsolation reports whether rev needs the sandbox or an egress limit and
-// no node that could take its replicas provides it: the ready, uncordoned
-// nodes, or only pinned when the app's volumes are bound to it. The
-// project's level and limits are never weakened to place a replica
-// (ADR 0026).
-func noIsolation(nodes []store.Node, rev store.Revision, pinned string) bool {
-	if !rev.Sandboxed() && rev.EgressBits == 0 {
-		return false
-	}
-	for _, n := range nodes {
-		if pinned != "" && n.ID != pinned {
-			continue
-		}
-		if n.State == store.NodeReady && (!n.Cordoned || pinned != "") && (n.Sandbox || !rev.Sandboxed()) && (n.Egress || rev.EgressBits == 0) {
-			return false
-		}
-	}
-	return true
-}
-
-// noIsolationEvent is the NoIsolation condition of app.
-func noIsolationEvent(app, kind, object string) store.Event {
-	return store.Event{Kind: kind, Object: object, App: app, Reason: "NoIsolation",
-		Message: "its project requires isolation sandbox or an egress limit, and no node that may run it provides it; the SANDBOX and EGRESS columns of armada node list show which do"}
 }
 
 func humanMemory(b int64) string {

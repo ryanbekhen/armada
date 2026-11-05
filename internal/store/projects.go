@@ -17,86 +17,15 @@ type Project struct {
 	Name      string
 	CreatedAt time.Time
 	CreatedBy string
-	// Isolation is the project's kernel isolation level (spec.Isolation*),
-	// pinned into every revision deployed into it.
-	Isolation string
-	// Quota bounds what it may reserve; zero is unlimited.
-	Quota spec.Quota
 }
 
 type projectRec struct {
-	Name      string      `json:"name"`
-	CreatedAt int64       `json:"createdAt"`
-	CreatedBy string      `json:"createdBy,omitempty"`
-	Isolation string      `json:"isolation,omitempty"`
-	Quota     *spec.Quota `json:"quota,omitempty"`
+	Name      string `json:"name"`
+	CreatedAt int64  `json:"createdAt"`
+	CreatedBy string `json:"createdBy,omitempty"`
 }
 
-// defaultProjectRec holds the settings of the default project, which has
-// no record under projects/.
-type defaultProjectRec struct {
-	Isolation string      `json:"isolation,omitempty"`
-	Quota     *spec.Quota `json:"quota,omitempty"`
-}
-
-const (
-	pfxProjects       = "projects/"
-	keyDefaultProject = "default-project"
-)
-
-// projectIsolation returns project's kernel isolation level; container for
-// the default project until an administrator changes it.
-func (t *etx) projectIsolation(project string) (string, error) {
-	if project == "" || project == spec.DefaultProject {
-		var r defaultProjectRec
-		if _, err := t.get(keyDefaultProject, &r); err != nil {
-			return "", err
-		}
-		return orContainer(r.Isolation), nil
-	}
-	var r projectRec
-	ok, err := t.get(pfxProjects+project, &r)
-	if err != nil {
-		return "", err
-	}
-	if !ok {
-		return "", notFoundf("project %s", project)
-	}
-	return orContainer(r.Isolation), nil
-}
-
-func orContainer(level string) string {
-	if level == "" {
-		return spec.IsolationContainer
-	}
-	return level
-}
-
-// checkProjectLimits refuses to serve rev again when its project now
-// requires a stronger kernel isolation level, or a lower egress limit, than
-// rev was deployed with.
-func (t *etx) checkProjectLimits(rev Revision) error {
-	project, _, _ := spec.SplitAppID(rev.App)
-	level, err := t.projectIsolation(project)
-	if err != nil {
-		return err
-	}
-	if spec.IsolationRank(rev.Isolation) < spec.IsolationRank(level) {
-		return fmt.Errorf("%s ran with isolation %s, and project %s now requires %s; deploy its spec again: %w", rev.Name, orContainer(rev.Isolation), project, level, ErrPrecondition)
-	}
-	q, err := t.projectQuota(project)
-	if err != nil {
-		return err
-	}
-	if limit := q.EgressBits; limit > 0 && (rev.EgressBits == 0 || rev.EgressBits > limit) {
-		ran := "no egress limit"
-		if rev.EgressBits > 0 {
-			ran = "egress " + spec.FormatBitRate(rev.EgressBits)
-		}
-		return fmt.Errorf("%s ran with %s, and project %s now limits egress to %s; deploy its spec again: %w", rev.Name, ran, project, spec.FormatBitRate(limit), ErrPrecondition)
-	}
-	return nil
-}
+const pfxProjects = "projects/"
 
 // projectExists returns ErrPrecondition unless project is the default one
 // or has a record.
@@ -116,21 +45,15 @@ func (t *etx) projectExists(project string) error {
 }
 
 // CreateProject records a new project. See Store.
-func (s *Etcd) CreateProject(ctx context.Context, name, isolation, actor, automation string) (Project, error) {
+func (s *Etcd) CreateProject(ctx context.Context, name, actor, automation string) (Project, error) {
 	if name == spec.DefaultProject {
 		return Project{}, fmt.Errorf("project %s always exists: %w", name, ErrConflict)
 	}
 	if !spec.ValidProject(name) {
 		return Project{}, fmt.Errorf("invalid project name %q: use lowercase letters, digits, and single hyphens, at most 30 characters", name)
 	}
-	if isolation == "" {
-		isolation = spec.DefaultIsolation
-	}
-	if err := spec.CheckIsolation(isolation); err != nil {
-		return Project{}, fmt.Errorf("%w: %w", err, ErrPrecondition)
-	}
 	now := s.now()
-	p := Project{Name: name, CreatedAt: now.Truncate(time.Millisecond), CreatedBy: actor, Isolation: isolation}
+	p := Project{Name: name, CreatedAt: now.Truncate(time.Millisecond), CreatedBy: actor}
 	err := s.tx(ctx, func(t *etx) error {
 		var r projectRec
 		ok, err := t.get(pfxProjects+name, &r)
@@ -140,59 +63,17 @@ func (s *Etcd) CreateProject(ctx context.Context, name, isolation, actor, automa
 		if ok {
 			return fmt.Errorf("project %s already exists: %w", name, ErrConflict)
 		}
-		// A project an automation identity creates gets the identity's
-		// quota (ADR 0026), so the projects a tool makes stay bounded.
-		var quota spec.Quota
 		if automation != "" {
-			if quota, err = t.grantProject(automation, name); err != nil {
+			if err := t.grantProject(automation, name); err != nil {
 				return err
 			}
 		}
-		p.Quota = quota
-		if err := t.put(pfxProjects+name, projectRec{Name: name, CreatedAt: now.UnixMilli(), CreatedBy: actor, Isolation: isolation, Quota: quotaPtr(quota)}); err != nil {
+		if err := t.put(pfxProjects+name, projectRec{Name: name, CreatedAt: now.UnixMilli(), CreatedBy: actor}); err != nil {
 			return err
 		}
-		return t.audit(now, actor, "project.create", name, "isolation "+isolation)
+		return t.audit(now, actor, "project.create", name, "")
 	})
 	return p, err
-}
-
-// SetProjectIsolation changes a project's kernel isolation level. See
-// Store.
-func (s *Etcd) SetProjectIsolation(ctx context.Context, name, isolation, actor string) error {
-	if err := spec.CheckIsolation(isolation); err != nil {
-		return fmt.Errorf("%w: %w", err, ErrPrecondition)
-	}
-	now := s.now()
-	return s.tx(ctx, func(t *etx) error {
-		cur, err := t.projectIsolation(name)
-		if err != nil {
-			return err
-		}
-		if cur == isolation {
-			return nil
-		}
-		if name == spec.DefaultProject {
-			var r defaultProjectRec
-			if _, err := t.get(keyDefaultProject, &r); err != nil {
-				return err
-			}
-			r.Isolation = isolation
-			if err := t.put(keyDefaultProject, r); err != nil {
-				return err
-			}
-		} else {
-			var r projectRec
-			if _, err := t.get(pfxProjects+name, &r); err != nil {
-				return err
-			}
-			r.Isolation = isolation
-			if err := t.put(pfxProjects+name, r); err != nil {
-				return err
-			}
-		}
-		return t.audit(now, actor, "project.set", name, "isolation "+isolation)
-	})
 }
 
 // GetProject returns one project. See Store.
@@ -200,9 +81,8 @@ func (s *Etcd) GetProject(ctx context.Context, name string) (Project, error) {
 	var p Project
 	err := s.view(ctx, func(t *etx) error {
 		if name == spec.DefaultProject {
-			var err error
-			p, err = t.defaultProject()
-			return err
+			p = Project{Name: spec.DefaultProject}
+			return nil
 		}
 		var r projectRec
 		ok, err := t.get(pfxProjects+name, &r)
@@ -222,11 +102,7 @@ func (s *Etcd) GetProject(ctx context.Context, name string) (Project, error) {
 func (s *Etcd) ListProjects(ctx context.Context) ([]Project, error) {
 	var out []Project
 	err := s.view(ctx, func(t *etx) error {
-		def, err := t.defaultProject()
-		if err != nil {
-			return err
-		}
-		out = []Project{def}
+		out = []Project{{Name: spec.DefaultProject}}
 		return listInto(t, pfxProjects, func(_ string, r projectRec) error {
 			out = append(out, r.project())
 			return nil
@@ -308,12 +184,5 @@ func (t *etx) projectObjects(project string) ([]string, error) {
 }
 
 func (r projectRec) project() Project {
-	return Project{Name: r.Name, CreatedAt: fromMS(r.CreatedAt), CreatedBy: r.CreatedBy, Isolation: orContainer(r.Isolation), Quota: r.quota()}
-}
-
-// defaultProject returns the default project with its settings.
-func (t *etx) defaultProject() (Project, error) {
-	var r defaultProjectRec
-	_, err := t.get(keyDefaultProject, &r)
-	return Project{Name: spec.DefaultProject, Isolation: orContainer(r.Isolation), Quota: r.quota()}, err
+	return Project{Name: r.Name, CreatedAt: fromMS(r.CreatedAt), CreatedBy: r.CreatedBy}
 }

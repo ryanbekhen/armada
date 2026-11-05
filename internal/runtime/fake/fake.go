@@ -3,7 +3,6 @@ package fake
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"maps"
@@ -67,26 +66,6 @@ type Driver struct {
 	NoStats bool
 	// NoVolumes makes the driver report that it cannot mount volumes.
 	NoVolumes bool
-	// Sandbox makes the driver run containers with Sandbox set; without
-	// it, Run refuses them like a runtime without runsc.
-	Sandbox bool
-	// Egress makes the driver run containers with EgressBits set; without
-	// it, Run refuses them like a node that cannot shape traffic.
-	Egress bool
-}
-
-// CanSandbox reports d.Sandbox.
-func (d *Driver) CanSandbox() bool {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	return d.Sandbox
-}
-
-// CanLimitEgress reports d.Egress.
-func (d *Driver) CanLimitEgress() bool {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	return d.Egress
 }
 
 // CanMountVolumes reports whether volumes are offered (not NoVolumes).
@@ -256,12 +235,6 @@ func (d *Driver) Run(_ context.Context, s runtime.ContainerSpec) (string, error)
 	defer d.mu.Unlock()
 	if d.RunErr != nil {
 		return "", d.RunErr
-	}
-	if s.Sandbox && !d.Sandbox {
-		return "", errors.New("fake: no sandbox")
-	}
-	if s.EgressBits > 0 && !d.Egress {
-		return "", errors.New("fake: no egress limits")
 	}
 	for _, c := range d.containers {
 		if c.Name == s.Name {

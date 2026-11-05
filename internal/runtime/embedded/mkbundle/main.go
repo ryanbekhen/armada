@@ -7,7 +7,6 @@ package main
 import (
 	"archive/tar"
 	"bytes"
-	"compress/bzip2"
 	"compress/gzip"
 	"context"
 	"crypto/sha256"
@@ -63,7 +62,7 @@ func run(ctx context.Context, arch, out, cache string) error {
 			files[a.Name] = b
 			continue
 		}
-		got, err := members(b, strings.HasSuffix(url, ".tar.bz2"), a.Files)
+		got, err := members(b, a.Files)
 		if err != nil {
 			return fmt.Errorf("%s: %w", a.Name, err)
 		}
@@ -126,20 +125,13 @@ func sumHex(b []byte) string {
 	return hex.EncodeToString(s[:])
 }
 
-// members extracts the listed regular files from a tar compressed with
-// gzip or bzip2.
-func members(archive []byte, bz2 bool, want map[string]string) (map[string][]byte, error) {
-	var r io.Reader
-	if bz2 {
-		r = bzip2.NewReader(bytes.NewReader(archive))
-	} else {
-		zr, err := gzip.NewReader(bytes.NewReader(archive))
-		if err != nil {
-			return nil, err
-		}
-		defer zr.Close()
-		r = zr
+// members extracts the listed regular files from a gzipped tar.
+func members(archive []byte, want map[string]string) (map[string][]byte, error) {
+	r, err := gzip.NewReader(bytes.NewReader(archive))
+	if err != nil {
+		return nil, err
 	}
+	defer r.Close()
 	tr := tar.NewReader(r)
 	out := map[string][]byte{}
 	for {

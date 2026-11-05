@@ -1,7 +1,6 @@
 // Package embedded runs containers on Armada's own containerd instance
-// (ADR 0011). Release builds carry containerd, runc, the CNI plugins,
-// tini, and gVisor's runsc in the binary; this file pins exactly which
-// upstream artifacts.
+// (ADR 0011). Release builds carry containerd, runc, the CNI plugins, and
+// tini in the binary; this file pins exactly which upstream artifacts.
 package embedded
 
 import "strings"
@@ -10,20 +9,15 @@ import "strings"
 //
 // When bumping a version: verify the upstream signature first (runc and
 // tini publish GPG signatures; containerd and the CNI plugins publish
-// checksums with the release; gVisor publishes SHA256SUMS with the GitHub
-// release and a SHA-512 next to the same tarball in its own bucket, and
-// both must agree), then record the SHA-256 here. The hash, not the URL,
+// checksums with the release), then record the SHA-256 here. The hash, not the URL,
 // is what the bundle trusts.
 type Artifact struct {
 	Name    string
 	Version string
-	// URL has {arch} replaced by amd64 or arm64, or by Arch[arch] when
-	// set (for projects that name architectures differently).
+	// URL has {arch} replaced by amd64 or arm64.
 	URL    string
-	Arch   map[string]string
 	SHA256 map[string]string // by arch
-	// Files maps a path inside the downloaded archive (a tar compressed
-	// with gzip, or bzip2 when the URL ends in .tar.bz2) to its name in the
+	// Files maps a path inside the downloaded gzipped tar to its name in the
 	// bundle. An empty map means the download is the file itself, named
 	// Name.
 	Files map[string]string
@@ -67,7 +61,6 @@ var Lock = []Artifact{
 			"./loopback":   "cni/loopback",
 			"./portmap":    "cni/portmap",
 			"./firewall":   "cni/firewall",
-			"./bandwidth":  "cni/bandwidth",
 		},
 	},
 	{
@@ -79,34 +72,11 @@ var Lock = []Artifact{
 			"arm64": "eae1d3aa50c48fb23b8cbdf4e369d0910dfc538566bfd09df89a774aa84a48b9",
 		},
 	},
-	{
-		// The userspace kernel of `isolation: sandbox` (ADR 0026). runsc
-		// runs the sentry from gvisor-bin/ next to itself; the checkpoint
-		// gofer and the metric server are left out (Armada uses neither).
-		Name:    "gvisor",
-		Version: "20261102.0",
-		URL:     "https://github.com/google/gvisor/releases/download/release-20261102.0/gvisor-{arch}.tar.bz2",
-		Arch:    map[string]string{"amd64": "x86_64", "arm64": "aarch64"},
-		SHA256: map[string]string{
-			"amd64": "6f6b1a8f0f4665a403238135167d0d990bfaeaff5544abf68f5e0d822b35484a",
-			"arm64": "909c95f245a46000d3bb0d5285f07dde23597056e7c3a4aab758b218e95bdab0",
-		},
-		Files: map[string]string{
-			"runsc":                              "runsc",
-			"gvisor-bin/gvisor_sentry":           "gvisor-bin/gvisor_sentry",
-			"gvisor-bin/gvisor-proc-umounter":    "gvisor-bin/gvisor-proc-umounter",
-			"gvisor-bin/gvisor-sentry-prewarmer": "gvisor-bin/gvisor-sentry-prewarmer",
-			"gvisor-bin/runsc-fd-parking":        "gvisor-bin/runsc-fd-parking",
-		},
-	},
 }
 
 // URLFor returns a's download URL for arch.
 func (a Artifact) URLFor(arch string) string {
 	name := arch
-	if n, ok := a.Arch[arch]; ok {
-		name = n
-	}
 	return strings.ReplaceAll(a.URL, "{arch}", name)
 }
 
@@ -117,8 +87,4 @@ const (
 	BinRunc       = "runc"
 	BinTini       = "tini"
 	DirCNI        = "cni"
-	// BinRunsc runs sandboxed containers (ADR 0026); it needs BinSentry
-	// next to it.
-	BinRunsc  = "runsc"
-	BinSentry = "gvisor-bin/gvisor_sentry"
 )

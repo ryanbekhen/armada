@@ -59,10 +59,7 @@ armada deploy -f web.yaml    # → https://web.apps.example.com
   their projects, never the cluster. Each project resolves and reaches
   only its own internal names (`ingress.allow` narrows an app to chosen
   callers), and its containers are kept away from the nodes, the private
-  network, and the cloud's metadata service. Replicas of new projects run
-  in a sandbox, a userspace kernel between them and the node's, and quotas
-  bound what each project may reserve, how fast its replicas may send, and
-  how many requests its apps may take.
+  network, and the cloud's metadata service.
 - **Secrets.** Encrypted at rest, versioned, delivered as env vars or as
   read-only files on tmpfs.
 - **Logs and exec.** `armada logs` streams a replica's output, rotated
@@ -108,7 +105,7 @@ armada deploy -f web.yaml    # → https://web.apps.example.com
 
 Armada needs Linux machines (cloud instances, VMs, or bare metal) with a
 private network between them, and nothing else: the binary embeds its own
-container runtime (containerd, runc, CNI plugins, gVisor) and
+container runtime (containerd, runc, CNI plugins) and
 its state store (etcd).
 
 ## Documentation

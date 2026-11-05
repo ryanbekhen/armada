@@ -26,34 +26,9 @@ func (s *Server) CreateProject(ctx context.Context, req *armadav1.CreateProjectR
 	if !acc.admin() && !acc.scope.CreateProjects {
 		return nil, status.Errorf(codes.PermissionDenied, "%s may not create projects", acc.id)
 	}
-	isolation := req.GetIsolation()
-	if isolation != "" {
-		if err := spec.CheckIsolation(isolation); err != nil {
-			return nil, status.Error(codes.InvalidArgument, err.Error())
-		}
-	}
-	// Automation identities never weaken the default for new projects
-	// (ADR 0026): only administrators create projects of plain containers.
-	if !acc.admin() && isolation != "" && spec.IsolationRank(isolation) < spec.IsolationRank(spec.DefaultIsolation) {
-		return nil, status.Errorf(codes.PermissionDenied, "%s may not create projects with isolation %s", acc.id, isolation)
-	}
-	// An automation identity's projects get its quota; it never picks one.
-	quota := quotaFrom(req.GetQuota())
-	if !acc.admin() && req.GetQuota() != nil {
-		return nil, status.Errorf(codes.PermissionDenied, "%s may not set quotas; its projects get the quota of its scope", acc.id)
-	}
-	if err := spec.CheckQuota(quota); err != nil {
-		return nil, status.Error(codes.InvalidArgument, err.Error())
-	}
-	p, err := s.store.CreateProject(ctx, name, isolation, actor(ctx), acc.automation())
+	p, err := s.store.CreateProject(ctx, name, actor(ctx), acc.automation())
 	if err != nil {
 		return nil, storeErr(err)
-	}
-	if !quota.IsZero() {
-		if err := s.store.SetProjectQuota(ctx, name, quota, actor(ctx)); err != nil {
-			return nil, storeErr(err)
-		}
-		p.Quota = quota
 	}
 	s.log.Info("project created", "project", name, "by", actor(ctx))
 	info := projectInfo(p, 0)
@@ -108,10 +83,6 @@ func (s *Server) ListProjects(ctx context.Context, _ *armadav1.ListProjectsReque
 	if err != nil {
 		return nil, storeErr(err)
 	}
-	used, err := s.store.ProjectUsage(ctx)
-	if err != nil {
-		return nil, storeErr(err)
-	}
 	acc := accessFrom(ctx)
 	resp := &armadav1.ListProjectsResponse{}
 	for _, p := range ps {
@@ -119,7 +90,6 @@ func (s *Server) ListProjects(ctx context.Context, _ *armadav1.ListProjectsReque
 			continue
 		}
 		info := projectInfo(p, count[p.Name])
-		info.Used = quotaProto(used[p.Name])
 		info.NetworkIsolation = isolateOthers
 		if p.Name == spec.DefaultProject {
 			info.NetworkIsolation = isolateDefault
@@ -129,9 +99,8 @@ func (s *Server) ListProjects(ctx context.Context, _ *armadav1.ListProjectsReque
 	return resp, nil
 }
 
-// UpdateProject changes a project's settings: its kernel isolation level
-// and the default project's network isolation (ADR 0026). Administrators
-// only.
+// UpdateProject changes the default project's network isolation (ADR 0026).
+// Administrators only.
 func (s *Server) UpdateProject(ctx context.Context, req *armadav1.UpdateProjectRequest) (*armadav1.ProjectInfo, error) {
 	name := req.GetName()
 	if name == "" {
@@ -145,25 +114,6 @@ func (s *Server) UpdateProject(ctx context.Context, req *armadav1.UpdateProjectR
 	}
 	if req.NetworkIsolation != nil && !req.GetNetworkIsolation() && name != spec.DefaultProject {
 		return nil, status.Errorf(codes.InvalidArgument, "project %s is always isolated; only the default project can turn network isolation off", name)
-	}
-	if req.Quota != nil {
-		q := quotaFrom(req.GetQuota())
-		if err := spec.CheckQuota(q); err != nil {
-			return nil, status.Error(codes.InvalidArgument, err.Error())
-		}
-		if err := s.store.SetProjectQuota(ctx, name, q, actor(ctx)); err != nil {
-			return nil, storeErr(err)
-		}
-		s.log.Info("project quota changed", "project", name, "quota", q.String(), "by", actor(ctx))
-	}
-	if level := req.GetIsolation(); level != "" {
-		if err := spec.CheckIsolation(level); err != nil {
-			return nil, status.Error(codes.InvalidArgument, err.Error())
-		}
-		if err := s.store.SetProjectIsolation(ctx, name, level, actor(ctx)); err != nil {
-			return nil, storeErr(err)
-		}
-		s.log.Info("project isolation changed", "project", name, "isolation", level, "by", actor(ctx))
 	}
 	p, err := s.store.GetProject(ctx, name)
 	if err != nil {
@@ -208,7 +158,7 @@ func (s *Server) DeleteProject(ctx context.Context, req *armadav1.DeleteProjectR
 }
 
 func projectInfo(p store.Project, apps int32) *armadav1.ProjectInfo {
-	info := &armadav1.ProjectInfo{Name: p.Name, CreatedBy: p.CreatedBy, Apps: apps, Isolation: p.Isolation, Quota: quotaProto(p.Quota)}
+	info := &armadav1.ProjectInfo{Name: p.Name, CreatedBy: p.CreatedBy, Apps: apps}
 	if !p.CreatedAt.IsZero() {
 		info.CreatedAt = timestamppb.New(p.CreatedAt)
 	}

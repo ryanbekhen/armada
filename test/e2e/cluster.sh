@@ -301,12 +301,12 @@ done
 wait_for 180 "all $N nodes ready" nodes_ready
 
 if [ -n "$E2E_CONFORMANCE" ]; then
-	log "conformance suite on the embedded runtime of $(host "$N" 1), also sandboxed"
+	log "conformance suite on the embedded runtime of $(host "$N" 1)"
 	# shellcheck disable=SC2086
 	scp -q $E2E_SSH_OPTS -o BatchMode=yes "$E2E_CONFORMANCE" "$(host "$N" 2):/tmp/conformance.e2e"
 	if ! on "$N" "chmod 0755 /tmp/conformance.e2e && ARMADA_BIN=/usr/local/bin/armada ARMADA_HOST_IP=$(host "$N" 3) \
 		ARMADA_SUBNET=\$(sed -n 's/.*\"containerSubnet\": *\"\([^\"]*\)\".*/\1/p' /var/lib/armada/agent.json) \
-		/tmp/conformance.e2e -test.run 'Conformance|Sandbox' -test.v; _rc=\$?; rm -f /tmp/conformance.e2e; exit \$_rc" >"$WORK/conformance" 2>&1; then
+		/tmp/conformance.e2e -test.run Conformance -test.v; _rc=\$?; rm -f /tmp/conformance.e2e; exit \$_rc" >"$WORK/conformance" 2>&1; then
 		cat "$WORK/conformance" >&2
 		fail "conformance suite"
 	fi

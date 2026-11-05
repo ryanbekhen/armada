@@ -67,7 +67,7 @@ const (
 	// migrations when records change incompatibly. Records under servers/
 	// and meta/ are read and written by every server, whatever its schema,
 	// so they only ever gain optional fields.
-	etcdSchema = 11
+	etcdSchema = 7
 
 	maxTxnRetries = 100
 	// auditKeep is how many audit events are retained.
@@ -331,8 +331,6 @@ type nodeRec struct {
 	Arch        string            `json:"arch,omitempty"`
 	Jobs        bool              `json:"jobs,omitempty"`
 	Volumes     bool              `json:"volumes,omitempty"`
-	Sandbox     bool              `json:"sandbox,omitempty"`
-	Egress      bool              `json:"egress,omitempty"`
 	// Subnet is the node's container subnet in the cluster network
 	// (ADR 0025); empty in clusters without one.
 	Subnet string `json:"subnet,omitempty"`
@@ -399,8 +397,6 @@ type revRec struct {
 	ImageDigest string          `json:"imageDigest"`
 	Platforms   []string        `json:"platforms,omitempty"`
 	Secrets     map[string]int  `json:"secrets"`
-	Isolation   string          `json:"isolation,omitempty"`
-	EgressBits  int64           `json:"egressBits,omitempty"`
 	CreatedAt   int64           `json:"createdAt"`
 }
 
@@ -529,7 +525,7 @@ func (t *etx) toNode(n nodeRec) (Node, error) {
 	out := Node{ID: n.ID, PrivateIP: n.PrivateIP, CPUMillis: n.CPUMillis, MemoryBytes: n.MemoryBytes, State: n.State,
 		LastSeen: fromMS(n.LastSeen), CreatedAt: fromMS(n.CreatedAt), Cordoned: n.Cordoned, Version: n.Version,
 		Labels: n.Labels, OS: n.OS, Arch: n.Arch, Restricted: n.Restricted,
-		Jobs: n.Jobs, Volumes: n.Volumes, Sandbox: n.Sandbox, Egress: n.Egress, Subnet: n.Subnet, NetworkKey: n.NetworkKey}
+		Jobs: n.Jobs, Volumes: n.Volumes, Subnet: n.Subnet, NetworkKey: n.NetworkKey}
 	var latest int64
 	err := listInto(t, pfxCerts+n.ID+"/", func(_ string, c certRec) error {
 		latest = max(latest, c.NotAfter)
@@ -617,7 +613,7 @@ func (s *Etcd) SetNodeStatus(ctx context.Context, id string, st NodeStatus) erro
 			return notFoundf("node %s", id)
 		}
 		n.State, n.LastSeen, n.CPUMillis, n.MemoryBytes = st.State, ms(st.LastSeen), st.CPUMillis, st.MemoryBytes
-		n.Jobs, n.Volumes, n.Sandbox, n.Egress = st.Jobs, st.Volumes, st.Sandbox, st.Egress
+		n.Jobs, n.Volumes = st.Jobs, st.Volumes
 		if st.Version != "" {
 			n.Version = st.Version
 		}
@@ -1062,7 +1058,7 @@ func (t *etx) revision(name string) (Revision, error) {
 }
 
 func decodeRev(r revRec) (Revision, error) {
-	out := Revision{Name: r.Name, App: r.App, Seq: r.Seq, ImageDigest: r.ImageDigest, Platforms: r.Platforms, Secrets: r.Secrets, Isolation: r.Isolation, EgressBits: r.EgressBits, CreatedAt: fromMS(r.CreatedAt), Spec: new(spec.App)}
+	out := Revision{Name: r.Name, App: r.App, Seq: r.Seq, ImageDigest: r.ImageDigest, Platforms: r.Platforms, Secrets: r.Secrets, CreatedAt: fromMS(r.CreatedAt), Spec: new(spec.App)}
 	if out.Secrets == nil {
 		out.Secrets = map[string]int{}
 	}
@@ -1122,18 +1118,7 @@ func (s *Etcd) deploy(t *etx, sp *spec.App, replicas int, actor, action string) 
 	if err := t.projectExists(sp.Project); err != nil {
 		return Revision{}, false, err
 	}
-	isolation, err := t.projectIsolation(sp.Project)
-	if err != nil {
-		return Revision{}, false, err
-	}
-	quota, err := t.projectQuota(sp.Project)
-	if err != nil {
-		return Revision{}, false, err
-	}
-	egress := quota.EgressBits
-	same := func(r Revision) bool {
-		return sameRevision(r, body, pins) && orContainer(r.Isolation) == isolation && r.EgressBits == egress
-	}
+	same := func(r Revision) bool { return sameRevision(r, body, pins) }
 	a, exists, err := t.app(id)
 	if err != nil {
 		return Revision{}, false, err
@@ -1141,9 +1126,6 @@ func (s *Etcd) deploy(t *etx, sp *spec.App, replicas int, actor, action string) 
 	if exists && sp.Autoscaled() {
 		// The autoscaler's count carries over, within the new bounds.
 		replicas = keptReplicas(sp, a.Replicas)
-	}
-	if err := t.checkQuota(sp.Project, quotaChange{apps: map[string]appUse{id: {sp: sp, replicas: replicas}}}); err != nil {
-		return Revision{}, false, err
 	}
 	if exists {
 		cur, err := t.revision(a.ActiveRevision)
@@ -1203,12 +1185,12 @@ func (s *Etcd) deploy(t *etx, sp *spec.App, replicas int, actor, action string) 
 		}
 		seq = n + 1
 	}
-	rev := Revision{Name: fmt.Sprintf("%s--r%d", id, seq), App: id, Seq: seq, Spec: sp, Secrets: pins, Isolation: isolation, EgressBits: egress, CreatedAt: now}
+	rev := Revision{Name: fmt.Sprintf("%s--r%d", id, seq), App: id, Seq: seq, Spec: sp, Secrets: pins, CreatedAt: now}
 	if !exists {
 		// Nothing serves yet, so the first revision is active at once.
 		a = appRec{Name: id, ActiveRevision: rev.Name, TargetRevision: rev.Name, CreatedAt: now.UnixMilli()}
 	}
-	if err := t.put(revKey(id, seq), revRec{Name: rev.Name, App: rev.App, Seq: seq, Spec: body, Secrets: pins, Isolation: isolation, EgressBits: egress, CreatedAt: now.UnixMilli()}); err != nil {
+	if err := t.put(revKey(id, seq), revRec{Name: rev.Name, App: rev.App, Seq: seq, Spec: body, Secrets: pins, CreatedAt: now.UnixMilli()}); err != nil {
 		return Revision{}, false, err
 	}
 	if multiple {
@@ -1272,9 +1254,6 @@ func (t *etx) resolveTraffic(app, latest string, traffic []spec.TrafficTarget) (
 			return nil, fmt.Errorf("revisions.traffic: %s is not a revision of %s (see armada revisions %s): %w", tt.Revision, app, app, ErrPrecondition)
 		}
 		if err != nil {
-			return nil, err
-		}
-		if err := t.checkProjectLimits(rev); err != nil {
 			return nil, err
 		}
 		out = append(out, tt)
@@ -1434,13 +1413,7 @@ func (s *Etcd) Rollback(ctx context.Context, app, revision, actor string) (Revis
 		if err := t.checkPins(rev); err != nil {
 			return err
 		}
-		if err := t.checkProjectLimits(rev); err != nil {
-			return err
-		}
 		kept := keptReplicas(rev.Spec, a.Replicas)
-		if err := t.checkQuota(projectOf(app), quotaChange{apps: map[string]appUse{app: {sp: rev.Spec, replicas: kept}}}); err != nil {
-			return err
-		}
 		// The old revision may route domains that were dropped or taken by
 		// another app since.
 		if err := t.claimDomains(rev.Spec, now); err != nil {
@@ -1579,8 +1552,6 @@ func (s *Etcd) SetReplicas(ctx context.Context, app string, n int, actor string)
 			return err
 		} else if tgt.Spec.HasVolumes() && n != 1 {
 			return fmt.Errorf("%s has volumes and runs exactly one replica (ADR 0023): %w", app, ErrPrecondition)
-		} else if err := t.checkQuota(projectOf(app), quotaChange{apps: map[string]appUse{app: {sp: tgt.Spec, replicas: n}}}); err != nil {
-			return err
 		}
 		a.Replicas, a.UpdatedAt = n, now.UnixMilli()
 		if err := t.put(pfxApps+app, a); err != nil {
@@ -1721,11 +1692,6 @@ func (s *Etcd) CreateReplica(ctx context.Context, r Replica) error {
 			return err
 		} else if !ok {
 			return notFoundf("node %s", r.NodeID)
-		}
-		if r.Run != 0 {
-			if err := t.checkQuota(projectOf(r.App), quotaChange{attempt: true}); err != nil {
-				return err
-			}
 		}
 		if err := t.bindVolumes(rev, r.NodeID, s.now()); err != nil {
 			return err
@@ -2161,11 +2127,6 @@ func (s *Etcd) SetSecret(ctx context.Context, app, name string, seal func(int) (
 			return err
 		}
 		version = latest[name] + 1
-		if version == 1 {
-			if err := t.checkQuota(project, quotaChange{secret: app + "/" + name}); err != nil {
-				return err
-			}
-		}
 		sealed, err := seal(version)
 		if err != nil {
 			return err
@@ -2323,32 +2284,6 @@ var migrations = []migration{
 	// project's apps keep their keys); servers that would treat such a key
 	// as an app name, or deploy into a project that does not exist, can no
 	// longer lead.
-	func(*etx) error { return nil },
-	// 7 -> 8: kernel isolation (ADR 0026): projects and revisions gain an
-	// isolation level. Projects created before keep container, written
-	// explicitly (a new project defaults to sandbox); servers that would
-	// start a sandboxed revision's replicas as plain containers can no
-	// longer lead.
-	func(t *etx) error {
-		return listInto(t, pfxProjects, func(key string, r projectRec) error {
-			if r.Isolation != "" {
-				return nil
-			}
-			r.Isolation = spec.IsolationContainer
-			return t.put(key, r)
-		})
-	},
-	// 8 -> 9: quotas (ADR 0026) in project and automation records. Nothing
-	// to rewrite (no project has one yet); servers that would let a
-	// project grow past its quota can no longer lead.
-	func(*etx) error { return nil },
-	// 9 -> 10: egress limits (ADR 0026) in quotas and revisions. Nothing
-	// to rewrite; servers that would deploy without pinning the limit, or
-	// place a limited replica on a node that cannot shape traffic, can no
-	// longer lead.
-	func(*etx) error { return nil },
-	// 10 -> 11: request limits (ADR 0026) in quotas. Nothing to rewrite;
-	// servers that would not send them to the proxies can no longer lead.
 	func(*etx) error { return nil },
 }
 

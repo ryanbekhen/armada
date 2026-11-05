@@ -46,8 +46,6 @@ const (
 	labelIP       = labelPrefix + "ip"
 	labelNetNS    = labelPrefix + "netns"
 	labelStarted  = labelPrefix + "started"
-	// labelIsolation is "sandbox" for containers in gVisor (ADR 0026).
-	labelIsolation = labelPrefix + "isolation"
 )
 
 // cgroupParent groups Armada's containers in the cgroup v2 hierarchy.
@@ -58,15 +56,11 @@ type network interface {
 	// Ensure creates the bridge with the gateway address if needed.
 	Ensure(ctx context.Context) error
 	// Setup creates a network namespace for id, attaches it, publishes the
-	// port if any, limits egress to egress bits per second if above 0, and
-	// returns the namespace path and the container IP.
-	Setup(ctx context.Context, id string, pm *portMapping, egress int64) (netns, ip string, err error)
+	// port if any, and returns the namespace path and the container IP.
+	Setup(ctx context.Context, id string, pm *portMapping) (netns, ip string, err error)
 	// Teardown undoes Setup; it tolerates a namespace that is already gone.
 	Teardown(ctx context.Context, id, netns string, pm *portMapping) error
 	Bridge() runtime.Bridge
-	// CanShape reports whether Setup can limit egress: the bandwidth
-	// plugin is in the chain and the kernel has what it needs.
-	CanShape() bool
 }
 
 type portMapping struct {
@@ -273,35 +267,6 @@ func (d *Driver) runcOpts() *options.Options {
 	return &options.Options{BinaryName: filepath.Join(d.paths.Bin(), embedded.BinRunc)}
 }
 
-// sandboxOpts runs a container with runsc instead of runc (ADR 0026). The
-// runc shim drives runsc through the same OCI commands, so output, exec,
-// and stats work as for any other container; runsc keeps its state apart
-// from runc's.
-func (d *Driver) sandboxOpts() *options.Options {
-	return &options.Options{
-		BinaryName: filepath.Join(d.paths.Bin(), embedded.BinRunsc),
-		Root:       filepath.Join(d.paths.State(), "runsc"),
-	}
-}
-
-// CanSandbox reports whether this node runs sandboxed containers: the
-// runtime's binaries include runsc and its sentry. Release builds carry
-// both; a --bin-dir without them runs no sandboxed containers.
-func (d *Driver) CanSandbox() bool { return sandboxAvailable(d.paths.Bin()) }
-
-func sandboxAvailable(bin string) bool {
-	for _, n := range []string{embedded.BinRunsc, embedded.BinSentry} {
-		if !executable(filepath.Join(bin, n)) {
-			return false
-		}
-	}
-	return true
-}
-
-// CanLimitEgress reports whether this node limits the egress bandwidth of
-// containers (quota egress, ADR 0026).
-func (d *Driver) CanLimitEgress() bool { return d.net != nil && d.net.CanShape() }
-
 // logIO makes the shim pipe the container's output to `armada runtime-log`.
 func (d *Driver) logIO() cio.Creator {
 	return cio.BinaryIO(d.self, map[string]string{"runtime-log": d.paths.Logs()})
@@ -311,12 +276,6 @@ func (d *Driver) logIO() cio.Creator {
 func (d *Driver) Run(ctx context.Context, s runtime.ContainerSpec) (_ string, err error) {
 	if err := runtime.CheckContainerSpec(s); err != nil {
 		return "", err
-	}
-	if s.Sandbox && !d.CanSandbox() {
-		return "", errors.New("this node cannot run sandboxed containers: the runtime has no runsc")
-	}
-	if s.EgressBits > 0 && !d.CanLimitEgress() {
-		return "", errors.New("this node cannot limit egress bandwidth: the runtime has no bandwidth plugin, or the kernel lacks ifb or traffic control modules")
 	}
 	id, err := newID(s.Name)
 	if err != nil {
@@ -334,14 +293,9 @@ func (d *Driver) Run(ctx context.Context, s runtime.ContainerSpec) (_ string, er
 
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	// gVisor refuses SELinux labels: a sandboxed container's processes are
-	// confined by the sentry, which serves its system calls, and the
-	// sentry's own seccomp filter.
-	var sl selinuxLabels
-	if !s.Sandbox {
-		if sl, err = d.newLabels(ctx); err != nil {
-			return "", err
-		}
+	sl, err := d.newLabels(ctx)
+	if err != nil {
+		return "", err
 	}
 	var undo []func()
 	defer func() {
@@ -377,7 +331,7 @@ func (d *Driver) Run(ctx context.Context, s runtime.ContainerSpec) (_ string, er
 	if err := d.net.Ensure(ctx); err != nil {
 		return "", err
 	}
-	netns, ip, err := d.net.Setup(ctx, id, pm, s.EgressBits)
+	netns, ip, err := d.net.Setup(ctx, id, pm)
 	if err != nil {
 		return "", fmt.Errorf("container network: %w", err)
 	}
@@ -418,12 +372,7 @@ func (d *Driver) Run(ctx context.Context, s runtime.ContainerSpec) (_ string, er
 		selinux:  sl,
 	})...)
 	labels[labelStarted] = time.Now().UTC().Format(time.RFC3339Nano)
-	rt := d.runcOpts()
-	if s.Sandbox {
-		labels[labelIsolation] = "sandbox"
-		rt = d.sandboxOpts()
-	}
-	return d.create(ctx, id, img, labels, opts, rt, &undo)
+	return d.create(ctx, id, img, labels, opts, d.runcOpts(), &undo)
 }
 
 // newLabels returns fresh SELinux labels for a container (empty where
@@ -563,8 +512,7 @@ func (d *Driver) Remove(ctx context.Context, id string) error {
 		return notFound(err)
 	}
 	if t, err := c.Task(ctx, nil); err == nil {
-		// A stopped task is deleted without a kill: runsc, unlike runc,
-		// fails to kill a sandbox that is no longer running.
+		// A stopped task is deleted without a kill.
 		var opts []client.ProcessDeleteOpts
 		if st, err := t.Status(ctx); err != nil || st.Status != client.Stopped {
 			opts = append(opts, client.WithProcessKill)
