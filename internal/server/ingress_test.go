@@ -207,11 +207,11 @@ func TestIngressRoutingAndDomainVerification(t *testing.T) {
 	// The background loop may be finishing a lookup from before the record
 	// changed, and its message may replace this call's once.
 	c.eventually("wrong token reported", func() bool {
-		got, err := c.admin.VerifyDomain(c.ctx, &armadav1.VerifyDomainRequest{Name: "example.org"})
-		if err != nil || got.Verified {
-			t.Fatalf("VerifyDomain(wrong) = %v, %v", got, err)
+		wrong, err := c.admin.VerifyDomain(c.ctx, &armadav1.VerifyDomainRequest{Name: "example.org"})
+		if err != nil || wrong.Verified {
+			t.Fatalf("VerifyDomain(wrong) = %v, %v", wrong, err)
 		}
-		return strings.Contains(got.Message, "expected token")
+		return strings.Contains(wrong.Message, "expected token")
 	})
 
 	// The right token is picked up by the background loop.
@@ -230,7 +230,7 @@ func TestIngressRoutingAndDomainVerification(t *testing.T) {
 		cfg := c.proxyOn("n2")
 		return len(cfg.Certificates) == 1 && cfg.Certificates[0].Name == "example.org"
 	})
-	got, _ = c.admin.VerifyDomain(c.ctx, &armadav1.VerifyDomainRequest{Name: "example.org"})
+	got, _ := c.admin.VerifyDomain(c.ctx, &armadav1.VerifyDomainRequest{Name: "example.org"})
 	if !got.Verified || !got.TlsReady {
 		t.Errorf("domain after issuance = %v", got)
 	}
