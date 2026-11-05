@@ -18,10 +18,10 @@ import (
 	"github.com/ryanbekhen/armada/internal/store"
 )
 
-// execIdleTimeout ends an exec session without input or output (ADR 0017).
+// execIdleTimeout ends an exec session without input or output (ADR 0015).
 const execIdleTimeout = 30 * time.Minute
 
-// Exec runs a command in one replica of an app (ADR 0017): it picks the
+// Exec runs a command in one replica of an app (ADR 0015): it picks the
 // replica, asks its node's agent to open a session, and relays between the
 // admin's stream and the agent's. The command's arguments are never logged
 // or audited, only its name.

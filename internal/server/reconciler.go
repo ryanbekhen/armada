@@ -196,7 +196,7 @@ func inProxy(app store.App, r store.Replica) bool {
 }
 
 // trafficWeight is rev's weight in app's traffic, or -1 if it has none
-// (ADR 0024).
+// (ADR 0022).
 func trafficWeight(app store.App, rev string) int {
 	for _, t := range app.Traffic {
 		if t.Revision == rev {
@@ -233,7 +233,7 @@ func (s *Server) reconcileApp(ctx context.Context, rc *reconcileRun, app *store.
 	if len(app.Traffic) == 0 || app.Rolling() {
 		return s.reconcileRevision(ctx, rc, app, nodes, all, revs, nil)
 	}
-	// Traffic splitting (ADR 0024): each revision in the traffic is
+	// Traffic splitting (ADR 0022): each revision in the traffic is
 	// reconciled like an app of its own with its share of the replicas,
 	// leaving the replicas of the others alone.
 	shares := trafficShares(app.Replicas, app.Traffic)
@@ -895,7 +895,7 @@ func eligible(nodes []store.Node, rev store.Revision) []store.Node {
 
 // placementAllows reports whether replicas of rev may run on n: n runs
 // sandboxed replicas if rev's isolation needs it and limits egress if rev
-// has a limit (ADR 0029, never a weaker level or no limit), matches the placement and, if restricted, is selected by it, and
+// has a limit (ADR 0026, never a weaker level or no limit), matches the placement and, if restricted, is selected by it, and
 // the image has a variant for n's platform once its platforms are known
 // (ADR 0014). A node that does not report its platform is not ruled out.
 func placementAllows(n store.Node, rev store.Revision) bool {

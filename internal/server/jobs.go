@@ -18,7 +18,7 @@ import (
 	"github.com/ryanbekhen/armada/internal/store"
 )
 
-// Jobs (ADR 0021).
+// Jobs (ADR 0019).
 const (
 	// jobStartingDeadline is how late a scheduled run may still start, for
 	// fires missed while the control plane was down.

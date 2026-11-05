@@ -38,7 +38,7 @@ type Options struct {
 	// Timeout bounds each step; default 2 minutes.
 	Timeout time.Duration
 	// Sandbox says every container runs under its own userspace kernel
-	// (Armada's embedded runtime with `isolation: sandbox`, ADR 0029): the
+	// (Armada's embedded runtime with `isolation: sandbox`, ADR 0026): the
 	// suite also checks that containers run on separate kernels. The
 	// memory and PID limits and a volume's mount flags apply on the host,
 	// where the sandbox cannot show them, so the runtime's own tests check
@@ -445,7 +445,7 @@ func (r *runner) bridge(t *testing.T, bi runtime.BridgeInspector) {
 	}
 }
 
-// exec checks ExecApp (ADR 0017): standard input and its end, separate
+// exec checks ExecApp (ADR 0015): standard input and its end, separate
 // output streams, the exit code, a terminal with its size and a resize, and
 // that the command keeps the container's security defaults.
 func (r *runner) exec(t *testing.T, ex runtime.Execer) {

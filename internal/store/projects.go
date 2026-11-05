@@ -11,7 +11,7 @@ import (
 	"github.com/ryanbekhen/armada/internal/spec"
 )
 
-// Project holds apps, jobs, secrets, domains, and volumes (ADR 0029). The
+// Project holds apps, jobs, secrets, domains, and volumes (ADR 0026). The
 // default project always exists and has no record.
 type Project struct {
 	Name      string
@@ -141,7 +141,7 @@ func (s *Etcd) CreateProject(ctx context.Context, name, isolation, actor, automa
 			return fmt.Errorf("project %s already exists: %w", name, ErrConflict)
 		}
 		// A project an automation identity creates gets the identity's
-		// quota (ADR 0029), so the projects a tool makes stay bounded.
+		// quota (ADR 0026), so the projects a tool makes stay bounded.
 		var quota spec.Quota
 		if automation != "" {
 			if quota, err = t.grantProject(automation, name); err != nil {

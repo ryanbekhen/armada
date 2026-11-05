@@ -54,7 +54,7 @@ func containerAddr(a netip.Addr, cidr netip.Prefix) bool {
 }
 
 // policy is what the firewall that keeps apps and projects apart is built
-// from (ADR 0029).
+// from (ADR 0026).
 type policy struct {
 	cidr    netip.Prefix
 	subnet  netip.Prefix // this node's

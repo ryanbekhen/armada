@@ -1,4 +1,4 @@
-# 0026. Local-first routing
+# 0024. Local-first routing
 
 - Status: Accepted
 - Date: 2026-11-03
@@ -24,7 +24,7 @@ replica.
 
 - **Local backend.** Next to `be_<app>`, which holds all of an app's
   servers, each node renders `lo_<app>` with the servers whose address is
-  on its own private IP, or with the cluster network (ADR 0027) in its own
+  on its own private IP, or with the cluster network (ADR 0025) in its own
   container subnet. Both use the same slots, health checks, and
   Runtime API updates (ADR 0002). `lo_<app>` is rendered even while empty,
   so a replica arriving on a node or leaving it never needs a reload.
@@ -42,12 +42,12 @@ replica.
     its own traffic and needs no state from other nodes.
 - **Which apps.** The control plane marks each backend `local_first` in the
   proxy configuration. It does so for every app except one that splits
-  traffic between revisions (ADR 0024): there every server must keep its
+  traffic between revisions (ADR 0022): there every server must keep its
   weight, and preferring a node's replicas would skew the split. Label
-  backends (`<label>--<app>`) are not local-first. Scale to zero (ADR 0023)
+  backends (`<label>--<app>`) are not local-first. Scale to zero (ADR 0021)
   still checks `be_<app>`.
-- **Usage.** A replica's load for autoscaling and scale to zero (ADRs 0022,
-  0023) is the sum of its rows in both backends.
+- **Usage.** A replica's load for autoscaling and scale to zero (ADRs 0020,
+  0021) is the sum of its rows in both backends.
 - **Compatibility.** A control plane that does not know `local_first`
   leaves it unset, and agents then route as before. An agent that does not
   know it ignores it. No state schema change.

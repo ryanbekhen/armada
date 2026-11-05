@@ -61,9 +61,9 @@ type Config struct {
 	// replicas are rescheduled on other nodes (default 5 minutes).
 	NodeLostTimeout time.Duration
 	// AutoscaleInterval is how often autoscaled apps are evaluated (ADR
-	// 0022). Default 15s; tests shorten it.
+	// 0020). Default 15s; tests shorten it.
 	AutoscaleInterval time.Duration
-	// JobRetryBase is the delay before a job's first retry (ADR 0021); it
+	// JobRetryBase is the delay before a job's first retry (ADR 0019); it
 	// doubles with each failed attempt. Default 10s; tests shorten it.
 	JobRetryBase time.Duration
 	// Now returns the current time (default time.Now); tests replace it.
@@ -87,7 +87,7 @@ type Config struct {
 	// (default pki.NodeValidity).
 	NodeCertValidity time.Duration
 
-	// MetricsAddr is the private ip:port of the metrics endpoint (ADR 0019),
+	// MetricsAddr is the private ip:port of the metrics endpoint (ADR 0017),
 	// served with TLS and only to metrics and admin certificates. Empty
 	// disables it.
 	MetricsAddr string
@@ -142,7 +142,7 @@ type Server struct {
 	jobRuns  *prometheus.CounterVec
 	// jobRetryBase is the delay before a job's first retry.
 	jobRetryBase time.Duration
-	// autoscaleInterval and scaler run the autoscaler (ADR 0022).
+	// autoscaleInterval and scaler run the autoscaler (ADR 0020).
 	autoscaleInterval time.Duration
 	scaler            *autoscaler
 	wakeLimit         *keyedLimiter

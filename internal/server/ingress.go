@@ -101,7 +101,7 @@ func (s *Server) buildProxy(ctx context.Context, apps []store.App, replicas []st
 	}
 
 	// Request limits come from each project's quota and apply at once
-	// (ADR 0029).
+	// (ADR 0026).
 	limits := map[string]spec.Quota{}
 	limitsOf := func(app string) (spec.Quota, error) {
 		project, _, _ := spec.SplitAppID(app)
@@ -139,14 +139,14 @@ func (s *Server) buildProxy(ctx context.Context, apps []store.App, replicas []st
 		cfg.Backends = append(cfg.Backends, be)
 
 		// Every app with an ingress port is reachable inside the cluster,
-		// by the apps of its project or the ones it allows (ADR 0029).
+		// by the apps of its project or the ones it allows (ADR 0026).
 		allow := allowedCallers(app.Name, sp.Ingress.Allow)
 		for _, rt := range appRoutes(sp) {
 			cfg.Rules = append(cfg.Rules, proxy.Rule{Host: spec.InternalHost(app.Name), PathPrefix: rt.Path, StripPrefix: rt.StripPrefix, Backend: app.Name, Internal: true, Allow: allow})
 		}
 
 		// Each labelled revision has a backend of its own, served under
-		// <label>--<app> (ADR 0024).
+		// <label>--<app> (ADR 0022).
 		external := sp.Ingress.Type == spec.IngressExternal
 		if splits {
 			for _, t := range app.Traffic {
@@ -216,7 +216,7 @@ func (s *Server) buildProxy(ctx context.Context, apps []store.App, replicas []st
 	return cfg, nil
 }
 
-// labelURLs returns the URLs a revision label serves under (ADR 0024).
+// labelURLs returns the URLs a revision label serves under (ADR 0022).
 func (s *Server) labelURLs(ctx context.Context, app store.App, label string) []string {
 	if label == "" || app.Rolling() || app.Spec.Ingress == nil {
 		return nil
@@ -258,7 +258,7 @@ func (s *Server) proxyServers(app store.App, replicas []store.Replica, keep func
 
 // weighServers gives each server its revision's weight divided among the
 // revision's servers, scaled to the proxy's weight range, so each revision
-// gets its share of requests whatever its replica count (ADR 0024). A
+// gets its share of requests whatever its replica count (ADR 0022). A
 // revision with no server up has no share: its requests go to the others.
 func weighServers(app store.App, replicas []store.Replica, servers []proxy.Server) {
 	revOf := map[string]string{}

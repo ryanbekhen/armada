@@ -18,7 +18,7 @@ import (
 
 const (
 	// defaultAutoscaleInterval is how often the leader evaluates
-	// autoscaled apps (ADR 0022).
+	// autoscaled apps (ADR 0020).
 	defaultAutoscaleInterval = 15 * time.Second
 	// scaleDownWindow is how long the highest recommendation holds before
 	// an app scales down, so it does not flap.
@@ -154,7 +154,7 @@ func (s *Server) autoscale(ctx context.Context) error {
 }
 
 // wakeApp starts an app scaled to zero for which a request waits at
-// nodeID's proxy (ADR 0023). Wakes are untrusted: they are rate limited per
+// nodeID's proxy (ADR 0021). Wakes are untrusted: they are rate limited per
 // node, and only raise an app that scales to zero from 0 to 1.
 func (s *Server) wakeApp(ctx context.Context, nodeID, app string) {
 	now := s.now()
@@ -241,7 +241,7 @@ func decide(a store.App, res resources, reps []store.Replica, in scaleInputs, st
 		}
 	}
 	// With split traffic, the replicas of every revision with a weight
-	// share the load (ADR 0024).
+	// share the load (ADR 0022).
 	var ready []store.Replica
 	for _, r := range reps {
 		serves := r.Revision == a.ActiveRevision

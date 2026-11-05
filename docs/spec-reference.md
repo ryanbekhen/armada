@@ -60,7 +60,7 @@ most 63 characters. It names the app's URL (`<name>.<root domain>` or
 
 The project is not part of the file: `armada deploy --project NAME` puts
 the app in a project, where its URLs become `<name>.<project>.<root
-domain>` and `<name>.<project>.internal` (ADR 0029). A `project` field in
+domain>` and `<name>.<project>.internal` (ADR 0026). A `project` field in
 the file is refused.
 
 ### `image` (required)
@@ -103,10 +103,10 @@ a secret; there is no inline password field.
 
 | Field | Meaning |
 | --- | --- |
-| `type` | `external`: reachable from the internet through HAProxy on every node, over HTTPS. `internal`: reachable only from containers in the cluster at `http://<name>.internal`; with the cluster network, only containers of the same project resolve the name (ADR 0029). `none` (the default): no traffic is routed to the app. |
+| `type` | `external`: reachable from the internet through HAProxy on every node, over HTTPS. `internal`: reachable only from containers in the cluster at `http://<name>.internal`; with the cluster network, only containers of the same project resolve the name (ADR 0026). `none` (the default): no traffic is routed to the app. |
 | `port` | The container port that serves HTTP, 1–65535. Required for `external` and `internal`. |
 | `domains` | `external` only. Up to 32 lowercase, fully qualified host names (no IP addresses, wildcards, or trailing dot). Each domain is routed and gets a certificate only after its ownership is verified: publish the TXT record shown by `armada domain list`, then run `armada domain verify <domain>`. |
-| `allow` | Up to 32 names of apps in the same project that may call this app at its internal name, for example `allow: [api, worker]`. The app's own replicas always may. Without `allow`, every app of the project may. Other callers get a 404. Enforced with the cluster network (ADR 0027), for calls through the internal name; not with `type: none`. |
+| `allow` | Up to 32 names of apps in the same project that may call this app at its internal name, for example `allow: [api, worker]`. The app's own replicas always may. Without `allow`, every app of the project may. Other callers get a 404. Enforced with the cluster network (ADR 0025), for calls through the internal name; not with `type: none`. |
 | `routes` | Up to 32 path prefixes (`/` or `/a/b`, URL-safe characters, no `.` or `..` segments). Without routes the app gets every path of its hosts. `stripPrefix: true` removes the prefix before the request reaches the app (not allowed for `/`). The longest matching prefix wins. |
 
 Apps with `type: external` are reachable at `https://<name>.<root domain>`
@@ -148,7 +148,7 @@ count without a new revision.
 
 With `rules`, Armada keeps the app between `min` and `max`, following the
 average load of its ready replicas
-([ADR 0022](adr/0022-autoscaling.md)):
+([ADR 0020](adr/0020-autoscaling.md)):
 
 ```yaml
 scale:
@@ -187,7 +187,7 @@ scale:
 
 With `min: 0`, an app stops its last replica after `idleAfter` without
 requests, and the next request starts it again
-([ADR 0023](adr/0023-scale-to-zero.md)):
+([ADR 0021](adr/0021-scale-to-zero.md)):
 
 ```yaml
 ingress:
@@ -289,7 +289,7 @@ landed on another node before that fails fast and is replaced.
 
 By default (`mode: single`) a deploy rolls the app out to the new revision
 ([ADR 0005](adr/0005-rolling-updates.md)). With `mode: multiple`, the app
-splits its requests between revisions ([ADR 0024](adr/0024-traffic-splitting.md)):
+splits its requests between revisions ([ADR 0022](adr/0022-traffic-splitting.md)):
 
 ```yaml
 ingress:
@@ -337,7 +337,7 @@ revisions:
 ### `volumes`
 
 Directories that keep their contents across restarts, deploys, and
-reboots ([ADR 0025](adr/0025-persistent-volumes.md)).
+reboots ([ADR 0023](adr/0023-persistent-volumes.md)).
 
 ```yaml
 name: db
@@ -375,7 +375,7 @@ volumes:
 ## Jobs
 
 A spec of `kind: job` describes work that runs to completion
-([ADR 0021](adr/0021-jobs.md)). Each run starts one container; it starts
+([ADR 0019](adr/0019-jobs.md)). Each run starts one container; it starts
 with `armada job run JOB` or on a schedule.
 
 ```yaml

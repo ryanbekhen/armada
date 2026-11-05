@@ -22,7 +22,7 @@ import (
 	"github.com/ryanbekhen/armada/internal/spec"
 )
 
-// Volumes (ADR 0025).
+// Volumes (ADR 0023).
 const (
 	// VolumeChunk is the most archive data one VolumeData message carries.
 	VolumeChunk = 64 << 10

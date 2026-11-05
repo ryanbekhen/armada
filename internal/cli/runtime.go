@@ -68,7 +68,7 @@ func (r runtimeFlags) apply(c *agentConfig, privateIP netip.Addr) error {
 	return nil
 }
 
-// useNodeSubnet records the cluster network the node joined (ADR 0027) and
+// useNodeSubnet records the cluster network the node joined (ADR 0025) and
 // makes the subnet the cluster gave the node the embedded runtime's bridge
 // subnet. It returns a note for the operator when it overrides
 // --container-subnet. Nodes of clusters without a network keep their
@@ -116,7 +116,7 @@ var newDriver = func(dataDir string, ac *agentConfig) (runtime.Driver, error) {
 	mtu := 0
 	if ac.Network != "" {
 		// Containers reach other nodes through the tunnel, which takes
-		// its overhead from each packet (ADR 0027).
+		// its overhead from each packet (ADR 0025).
 		ip, err := netip.ParseAddr(ac.PrivateIP)
 		if err != nil {
 			return nil, fmt.Errorf("%s: private IP: %w", fileAgent, err)

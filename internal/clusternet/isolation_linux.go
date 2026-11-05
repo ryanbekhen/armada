@@ -16,7 +16,7 @@ import (
 	"github.com/ryanbekhen/armada/internal/runtime/embedded"
 )
 
-// Ports a project container may reach on its own node (ADR 0029): the DNS
+// Ports a project container may reach on its own node (ADR 0026): the DNS
 // server on the bridge gateway, and the proxy's HTTP ports on any of the
 // node's addresses (internal ingress on the gateway, public ingress, which
 // the internet reaches anyway).
@@ -27,7 +27,7 @@ const (
 )
 
 // blockedRanges are what a project container never reaches outside the
-// cluster CIDR (ADR 0029): the private, shared, loopback, and link-local
+// cluster CIDR (ADR 0026): the private, shared, loopback, and link-local
 // ranges, so the private network, the machines on it, and the cloud's
 // metadata service are out of reach. The cluster CIDR is inside 10/8, but
 // traffic within it is decided before these apply.
@@ -44,7 +44,7 @@ var blockedRanges = []netip.Prefix{
 }
 
 // isolationTable is the nftables table, in the ip and bridge families,
-// that keeps apps and projects apart (ADR 0029). It only ever drops: its
+// that keeps apps and projects apart (ADR 0026). It only ever drops: its
 // accepts end its own chains, and every other table still sees the packet.
 const isolationTable = "armada"
 

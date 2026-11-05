@@ -9,7 +9,7 @@ import (
 )
 
 // A project's request limits reach every backend of its apps, at once and
-// without a deploy; other projects' apps stay unlimited (ADR 0029).
+// without a deploy; other projects' apps stay unlimited (ADR 0026).
 func TestRequestLimitsReachTheProxy(t *testing.T) {
 	t.Parallel()
 	c := newCluster(t)

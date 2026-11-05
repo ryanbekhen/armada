@@ -22,7 +22,7 @@ func newVolumeCommand(g *globals) *cobra.Command {
 		Use:     "volume",
 		Aliases: []string{"volumes"},
 		Short:   "List, back up, restore, and remove persistent volumes",
-		Long: "Volumes keep an app's data on the node that runs its replica (ADR 0025). They are\n" +
+		Long: "Volumes keep an app's data on the node that runs its replica (ADR 0023). They are\n" +
 			"created with the app's first replica, stay on that node, and are kept until removed\n" +
 			"with `armada volume rm`. `armada backup` does not include their contents: back them\n" +
 			"up with `armada volume backup`.",

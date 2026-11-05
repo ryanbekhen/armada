@@ -8,7 +8,7 @@ import (
 )
 
 // Volume is a persistent directory on the node that runs the app's replica
-// (ADR 0025). It is created on first use, bound to that node, and kept
+// (ADR 0023). It is created on first use, bound to that node, and kept
 // until it is removed with `armada volume rm`.
 type Volume struct {
 	Name string `yaml:"name" json:"name"`
@@ -103,5 +103,5 @@ func ValidateVolumePath(p string) error {
 	return nil
 }
 
-// HasVolumes reports whether the app keeps data in volumes (ADR 0025).
+// HasVolumes reports whether the app keeps data in volumes (ADR 0023).
 func (a *App) HasVolumes() bool { return len(a.Volumes) > 0 }

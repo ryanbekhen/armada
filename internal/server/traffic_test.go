@@ -104,7 +104,7 @@ func TestTrafficSplitting(t *testing.T) {
 		return revsIn(b)["web--r1"] == 4
 	})
 	if b, _ := backend(applied(), "web"); !b.LocalFirst {
-		t.Error("a single-revision app is not local-first (ADR 0026)")
+		t.Error("a single-revision app is not local-first (ADR 0024)")
 	}
 
 	// 75/25 with a label: three replicas of r1 and one of r2 share the

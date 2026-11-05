@@ -16,7 +16,7 @@ func newProjectCommand(g *globals) *cobra.Command {
 		Use:     "project",
 		Aliases: []string{"projects"},
 		Short:   "Manage projects",
-		Long: "Projects hold apps, jobs, secrets, domains, and volumes (ADR 0029). Names only\n" +
+		Long: "Projects hold apps, jobs, secrets, domains, and volumes (ADR 0026). Names only\n" +
 			"need to be unique within a project. Every cluster has the project default,\n" +
 			"which holds everything deployed without --project.\n\n" +
 			"Other commands name an app of a project with --project (or ARMADA_PROJECT),\n" +
@@ -147,7 +147,7 @@ func newProjectSetCommand(g *globals) *cobra.Command {
 			"--network-isolation keeps the project's containers away from the nodes, the\n" +
 			"control plane, the private network, and the cloud's metadata service: they\n" +
 			"reach the internet, their node's DNS server, and internal and public\n" +
-			"ingress (ADR 0029). Every project but default always has it; turn it on for\n" +
+			"ingress (ADR 0026). Every project but default always has it; turn it on for\n" +
 			"default once its apps no longer need the private network. It needs the\n" +
 			"cluster network.",
 		Args: cobra.ExactArgs(1),

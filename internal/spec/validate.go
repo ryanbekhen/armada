@@ -144,7 +144,7 @@ func (a *App) ScaleBounds() (lo, hi int) {
 }
 
 // ScalesToZero reports whether the app stops its last replica when idle
-// (ADR 0023).
+// (ADR 0021).
 func (a *App) ScalesToZero() bool {
 	lo, _ := a.ScaleBounds()
 	return a.Autoscaled() && lo == 0
@@ -424,7 +424,7 @@ const InternalSuffix = ".internal"
 func InternalHost(app string) string { return app + InternalSuffix }
 
 // LabelHost is the host name label of a revision of app serves under
-// (ADR 0024): <label>--<app>, with app an ID (<label>--<name>.<project>
+// (ADR 0022): <label>--<app>, with app an ID (<label>--<name>.<project>
 // in other projects). App names cannot contain "--", so it never collides
 // with another app's name.
 func LabelHost(label, app string) string { return label + "--" + app }
@@ -462,7 +462,7 @@ func ValidateRoutePath(p string) error {
 	return nil
 }
 
-// Traffic splitting (ADR 0024).
+// Traffic splitting (ADR 0022).
 const (
 	// LatestRevision in revisions.traffic names the revision the deploy
 	// creates.
@@ -565,7 +565,7 @@ func ValidRevisionName(app, rev string) bool {
 }
 
 // MultipleRevisions reports whether the app splits traffic between
-// revisions (ADR 0024).
+// revisions (ADR 0022).
 func (a *App) MultipleRevisions() bool {
 	return !a.IsJob() && a.Revisions != nil && a.Revisions.Mode == RevisionsMultiple
 }
@@ -633,7 +633,7 @@ func (v *validator) scale(s *Scale, ing *Ingress) {
 	v.scaleRules(s, ing)
 }
 
-// Autoscaler rule types (ADR 0022).
+// Autoscaler rule types (ADR 0020).
 const (
 	ScaleHTTP   = "http"
 	ScaleCPU    = "cpu"
@@ -641,7 +641,7 @@ const (
 
 	MaxConcurrent = 10000
 
-	// Scale to zero (ADR 0023).
+	// Scale to zero (ADR 0021).
 	DefaultIdleAfter = 15 * time.Minute
 	MinIdleAfter     = time.Minute
 	MaxIdleAfter     = 24 * time.Hour

@@ -38,7 +38,7 @@ SHA-256 in `internal/runtime/embedded/lock.go`:
 | runc | OCI runtime (needs CGO and C, so it cannot be compiled into Armada) |
 | CNI plugins `bridge`, `host-local`, `loopback`, `portmap`, `firewall`, `bandwidth` | Container networking, egress limits |
 | tini (static) | PID 1 in every app container: reaps zombies and forwards signals |
-| gVisor `runsc` and its sentry (`gvisor-bin/`: `gvisor_sentry` and three small helpers) | The userspace kernel of `isolation: sandbox` (ADR 0029), driven by the same runc shim |
+| gVisor `runsc` and its sentry (`gvisor-bin/`: `gvisor_sentry` and three small helpers) | The userspace kernel of `isolation: sandbox` (ADR 0026), driven by the same runc shim |
 
 No `ctr` binary is bundled.
 
@@ -125,7 +125,7 @@ Armada's and visible in one place:
 ### Networking
 
 - One bridge per node, `armada0`, on the node's own subnet of the cluster
-  network (ADR 0027): a /24 of `--cluster-cidr`, default `10.120.0.0/16`,
+  network (ADR 0025): a /24 of `--cluster-cidr`, default `10.120.0.0/16`,
   given when the node joins. In clusters created before the cluster
   network, every node uses the same subnet (`--container-subnet`, default
   `10.121.0.0/24`). On a node of a cluster network the bridge and
@@ -142,10 +142,10 @@ Armada's and visible in one place:
   for egress) + `host-local` IPAM + `portmap` + `firewall` + `bandwidth`
   (only when its binary is present; it limits what a container sends when
   its project's quota has an egress limit and does nothing otherwise,
-  ADR 0029). IPAM state and
+  ADR 0026). IPAM state and
   the plugin cache live on tmpfs under `/run/armada/cni`, since the
   namespaces they describe do not survive a reboot. On a node of a cluster
-  network (ADR 0027) replicas publish nothing: other nodes reach them at
+  network (ADR 0025) replicas publish nothing: other nodes reach them at
   their own address through the tunnel. Elsewhere (clusters created before
   it) the replica's port is published only on the node's private IP: the
   driver picks a free host port (20000–32767, below the kernel's ephemeral
@@ -164,7 +164,7 @@ timestamp, rotated at 10 MB with 3 files kept. Each container may write
 1 MiB of output per second, with a burst of 4 MiB; output over that is
 dropped rather than blocked, so an app that logs synchronously keeps
 running, and one line on stderr records how many bytes were dropped
-(ADR 0029). `armada logs` reads and follows these files.
+(ADR 0026). `armada logs` reads and follows these files.
 
 ## Alternatives considered
 

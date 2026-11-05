@@ -19,7 +19,7 @@ import (
 
 const (
 	// maxWaiting bounds the requests held on one node for apps that are
-	// starting (ADR 0023).
+	// starting (ADR 0021).
 	maxWaiting = 1000
 	// wakeEvery is how often a waiting app is asked for again, in case a
 	// wake was lost or the leader changed.

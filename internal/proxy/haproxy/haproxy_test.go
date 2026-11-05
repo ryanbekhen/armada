@@ -44,12 +44,12 @@ func sampleConfig(t *testing.T) proxy.Config {
 				{Name: "api-bengkel-r3-a", Address: "10.0.0.2:32769", Weight: 26},
 			}},
 			{Name: "admin-panel", Servers: nil, Wake: true, LocalFirst: true}, // scaled to zero
-			// Its project limits requests (ADR 0029).
+			// Its project limits requests (ADR 0026).
 			{Name: "shop", LocalFirst: true, HealthPath: "/ready", RequestRate: 200, Connections: 50, Servers: []proxy.Server{
 				{Name: "shop-r2-a", Address: "10.0.0.3:32771"},
 				{Name: "shop-r2-b", Address: "10.0.0.2:32772"},
 			}},
-			// An app of another project, named by its ID (ADR 0029).
+			// An app of another project, named by its ID (ADR 0026).
 			{Name: "shop.staging", Servers: []proxy.Server{{Name: "shop.staging-r1-a", Address: "10.0.0.3:32773"}}},
 		},
 		Rules: []proxy.Rule{
@@ -97,7 +97,7 @@ func TestRenderGolden(t *testing.T) {
 	golden(t, "empty.cfg", render(empty, assignLayout(nil, empty, renderOptions{PrivateIP: ""}.node()), renderOptions{}))
 
 	// On the cluster network the internal frontend checks who calls (ADR
-	// 0029).
+	// 0026).
 	cc := callersConfig(t)
 	opts := callersOptions()
 	golden(t, "callers.cfg", render(cc, assignLayout(nil, cc, opts.node()), opts))
@@ -230,7 +230,7 @@ func FuzzRender(f *testing.F) {
 }
 
 // FuzzRenderCallers renders an internal rule that names its callers, on a
-// node that checks them (ADR 0029).
+// node that checks them (ADR 0026).
 func FuzzRenderCallers(f *testing.F) {
 	f.Add("db.shop", "api.shop")
 	f.Add("db", "api")
@@ -878,7 +878,7 @@ func TestLocalFirst(t *testing.T) {
 		t.Error("node.has with published ports")
 	}
 	// With the cluster network, the node's replicas have addresses in its
-	// subnet (ADR 0027); other nodes' subnets are not local.
+	// subnet (ADR 0025); other nodes' subnets are not local.
 	n := at("10.0.0.2", "10.120.3.0/24")
 	if !n.has("10.120.3.7:8080") || !n.has("10.0.0.2:21000") || n.has("10.120.4.7:8080") || at("", "10.120.3.0/24").has("10.120.3.7:8080") {
 		t.Error("node.has with a subnet")

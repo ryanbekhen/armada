@@ -2,7 +2,7 @@ package spec
 
 import "fmt"
 
-// Kernel isolation levels of a project (ADR 0029): how its containers are
+// Kernel isolation levels of a project (ADR 0026): how its containers are
 // kept from the node's kernel.
 const (
 	// IsolationContainer runs containers on the node's kernel, confined by

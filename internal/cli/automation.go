@@ -20,7 +20,7 @@ func newAutomationCommand(g *globals) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "automation",
 		Short: "Manage automation identities",
-		Long: "Automation identities (ADR 0029) are for tools that manage projects on an\n" +
+		Long: "Automation identities (ADR 0026) are for tools that manage projects on an\n" +
 			"operator's behalf, such as a CI system or a self-service portal. Such a tool\n" +
 			"manages the apps, jobs, secrets, domains, and volumes of the projects in its\n" +
 			"scope, and nothing else: no nodes, tokens, servers, backups, the network, or\n" +

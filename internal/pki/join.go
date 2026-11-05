@@ -136,13 +136,13 @@ func (ca *CA) SignNodeCSR(csrDER []byte, node string, validity time.Duration) (N
 }
 
 // SignMetricsCSR issues a client certificate for the metrics endpoint
-// (ADR 0019) from a CSR, like SignNodeCSR. It lasts LeafValidity.
+// (ADR 0017) from a CSR, like SignNodeCSR. It lasts LeafValidity.
 func (ca *CA) SignMetricsCSR(csrDER []byte, name string) (NodeCert, error) {
 	return ca.signClientCSR(csrDER, Identity{Kind: KindMetrics, Name: name}, LeafValidity)
 }
 
 // SignAutomationCSR issues a client certificate for an automation identity
-// (ADR 0029) from a CSR, like SignNodeCSR. It lasts AutomationValidity.
+// (ADR 0026) from a CSR, like SignNodeCSR. It lasts AutomationValidity.
 func (ca *CA) SignAutomationCSR(csrDER []byte, name string) (NodeCert, error) {
 	return ca.signClientCSR(csrDER, Identity{Kind: KindAutomation, Name: name}, AutomationValidity)
 }

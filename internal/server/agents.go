@@ -131,7 +131,7 @@ func (s *Server) Connect(stream armadav1.AgentService_ConnectServer) error {
 	if spec.CheckLabelValue(hello.GetArch()) != nil {
 		hello.Arch = ""
 	}
-	// The key peers will accept this node's traffic by (ADR 0027): only a
+	// The key peers will accept this node's traffic by (ADR 0025): only a
 	// well-formed one, recorded on this node's own record, which the
 	// stream's certificate names.
 	if !validNetworkKey(hello.GetNetworkKey()) {
@@ -462,7 +462,7 @@ func peerCertExpiry(ctx context.Context) time.Time {
 }
 
 // validReplicaAddress accepts only "<node private IP>:<port>", or with the
-// cluster network "<address in the node's subnet>:<port>" (ADR 0027), in
+// cluster network "<address in the node's subnet>:<port>" (ADR 0025), in
 // canonical form: the address goes into every node's proxy configuration.
 // The subnet's network address (the node's tunnel end), its gateway (the
 // node's bridge), and its broadcast address are never a replica's.
@@ -478,7 +478,7 @@ func validReplicaAddress(addr, nodeIP, subnet string) bool {
 }
 
 // validReplicaIP accepts a container address in the node's subnet, in
-// canonical form: it goes into every node's firewall (ADR 0029).
+// canonical form: it goes into every node's firewall (ADR 0026).
 func validReplicaIP(ip, subnet string) bool {
 	a, err := netip.ParseAddr(ip)
 	return err == nil && a.Zone() == "" && a.String() == ip && inNodeSubnet(a, subnet)

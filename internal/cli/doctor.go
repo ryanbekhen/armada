@@ -47,7 +47,7 @@ type doctorEnv struct {
 	driverErr error
 	// runtimeHost checks what the embedded runtime needs from the host.
 	runtimeHost func(subnet netip.Prefix) []checkResult
-	// network checks the cluster network (ADR 0027); nil when the node is
+	// network checks the cluster network (ADR 0025); nil when the node is
 	// not part of one.
 	network     func() []checkResult
 	subnet      netip.Prefix

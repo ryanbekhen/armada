@@ -1,4 +1,4 @@
-# 0027. Cluster network
+# 0025. Cluster network
 
 - Status: Accepted
 - Date: 2026-11-04
@@ -27,7 +27,7 @@ private network (MTU 1450), container to container and through HAProxy:
 | iperf3, 1 stream | 6.1 Gbit/s | 0.47 Gbit/s | 14.6 Gbit/s | 2.1 Gbit/s |
 | 1 GB upload through HAProxy | 74 MB/s | 32 MB/s | 149 MB/s | 76 MB/s |
 | HTTP to a remote replica, 1 at a time | 1511 req/s | 1305 req/s | 2635 req/s | 1724 req/s |
-| HTTP, local-first (ADR 0026), 1 at a time | 2073 req/s | 2037 req/s | 3176 req/s | 3159 req/s |
+| HTTP, local-first (ADR 0024), 1 at a time | 2073 req/s | 2037 req/s | 3176 req/s | 3159 req/s |
 
 Encryption between nodes costs CPU that small machines feel. A bulk
 transfer runs at about a seventh of the plain rate. Requests answered on
@@ -173,7 +173,7 @@ exists only where a pair of nodes uses it.
   The agent reports a replica's address as `<container IP>:<port>`. The
   server accepts only addresses in that node's subnet (T21 is updated), and
   HAProxy on every node targets them directly through `armada-net`.
-- Local-first routing (ADR 0026) compares a server's address with the
+- Local-first routing (ADR 0024) compares a server's address with the
   node's subnet instead of its private IP.
 - Rollouts, drain, weights, health checks, and scale to zero are unchanged:
   only the address form changes.
@@ -248,7 +248,7 @@ exists only where a pair of nodes uses it.
 - Agents report the last handshake per peer in `UsageReport`. The leader
   keeps it in memory, as it does other usage.
 - A peer with no handshake for 3 minutes raises a `PeerUnreachable`
-  condition event (ADR 0020) for both nodes. `armada status` and the
+  condition event (ADR 0018) for both nodes. `armada status` and the
   metrics endpoint show it.
 - HAProxy health checks already mark the replicas behind a broken path as
   down, and local-first keeps requests on the node. Scheduling does not
@@ -298,7 +298,7 @@ cannot reach each other, and how routing prefers the same site.
      - During this step, servers mix both address forms. Every node already
        has routes to every subnet, so every node's HAProxy reaches both
        kinds of replica.
-     - An app with a volume (ADR 0025) is recreated in place, with the same
+     - An app with a volume (ADR 0023) is recreated in place, with the same
        short outage as a deploy.
   3. When every node is done, the network record is marked complete, and
      the firewall rules for published ports are removed.
@@ -368,7 +368,7 @@ Later stages add:
      tunnel with routes, MTU, and firewall, and the `wireguard` mode with
      node keys (done);
   2. replicas without published ports (done);
-  3. default deny and `ingress.allow`, between projects too (ADR 0029)
+  3. default deny and `ingress.allow`, between projects too (ADR 0026)
      (done);
   4. TCP apps;
   5. replica names.

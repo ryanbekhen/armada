@@ -58,7 +58,7 @@ const (
 	pfxRuns     = "runs/"    // runs/<job>/<seq, 10 digits>
 	pfxVolumes  = "volumes/" // volumes/<app>/<name>
 	// Apps are keyed by their ID (spec.AppID): the name in the default
-	// project, <name>.<project> in others (ADR 0029). Projects live under
+	// project, <name>.<project> in others (ADR 0026). Projects live under
 	// pfxProjects (projects.go).
 	// pfxEvents (events.go) holds expiring events; older binaries ignore
 	// the prefix, so it needs no schema step.
@@ -334,7 +334,7 @@ type nodeRec struct {
 	Sandbox     bool              `json:"sandbox,omitempty"`
 	Egress      bool              `json:"egress,omitempty"`
 	// Subnet is the node's container subnet in the cluster network
-	// (ADR 0027); empty in clusters without one.
+	// (ADR 0025); empty in clusters without one.
 	Subnet string `json:"subnet,omitempty"`
 	// NetworkKey is the node's WireGuard public key.
 	NetworkKey string `json:"networkKey,omitempty"`
@@ -380,13 +380,13 @@ type appRec struct {
 	RolloutProgressAt int64  `json:"rolloutProgressAt"`
 	CreatedAt         int64  `json:"createdAt"`
 	UpdatedAt         int64  `json:"updatedAt"`
-	// LastScheduled is the latest time a job's schedule fired (ADR 0021).
+	// LastScheduled is the latest time a job's schedule fired (ADR 0019).
 	LastScheduled int64 `json:"lastScheduled,omitempty"`
 	// LastRun is the number of a job's newest run, kept after the run
 	// itself is pruned so numbers are never reused.
 	LastRun int64 `json:"lastRun,omitempty"`
 	// Traffic is how an app in multiple revision mode splits requests,
-	// with "latest" resolved (ADR 0024). It stays while such an app rolls
+	// with "latest" resolved (ADR 0022). It stays while such an app rolls
 	// out to single mode, so its revisions serve until the new one does.
 	Traffic []spec.TrafficTarget `json:"traffic,omitempty"`
 }
@@ -419,7 +419,7 @@ type replicaRec struct {
 	DrainingSince int64  `json:"drainingSince"`
 	MovingSince   int64  `json:"movingSince,omitempty"`
 	UpdatedAt     int64  `json:"updatedAt"`
-	// Job attempts (ADR 0021).
+	// Job attempts (ADR 0019).
 	Run      int64 `json:"run,omitempty"`
 	Done     bool  `json:"done,omitempty"`
 	Finished bool  `json:"finished,omitempty"`
@@ -441,7 +441,7 @@ type domainRec struct {
 	VerifiedAt int64  `json:"verifiedAt"`
 	Message    string `json:"message"`
 	CreatedAt  int64  `json:"createdAt"`
-	// Project owns the domain (ADR 0029); empty is the default project.
+	// Project owns the domain (ADR 0026); empty is the default project.
 	Project string `json:"project,omitempty"`
 }
 
@@ -540,7 +540,7 @@ func (t *etx) toNode(n nodeRec) (Node, error) {
 }
 
 // UpsertNode creates or replaces a node record. A new node gets a subnet
-// when the cluster has a network (ADR 0027).
+// when the cluster has a network (ADR 0025).
 func (s *Etcd) UpsertNode(ctx context.Context, n Node) error {
 	if n.CreatedAt.IsZero() {
 		n.CreatedAt = s.now()
@@ -760,7 +760,7 @@ func (s *Etcd) RemoveNode(ctx context.Context, id string, force bool, actor stri
 			return fmt.Errorf("node %s still runs %d replicas: %w", id, len(onNode), ErrPrecondition)
 		}
 		// Volume records stay, so `armada volume restore --node` can bind
-		// them elsewhere (ADR 0025).
+		// them elsewhere (ADR 0023).
 		var vols []string
 		err = listInto(t, pfxVolumes, func(_ string, v volumeRec) error {
 			if v.Node == id {
@@ -1098,7 +1098,7 @@ func (s *Etcd) Deploy(ctx context.Context, sp *spec.App, actor string) (Revision
 // deploy implements Deploy inside t. replicas is the desired count to set.
 func (s *Etcd) deploy(t *etx, sp *spec.App, replicas int, actor, action string) (Revision, bool, error) {
 	// Traffic is not part of a revision: changing only the weights moves
-	// traffic without a new revision (ADR 0024).
+	// traffic without a new revision (ADR 0022).
 	var traffic []spec.TrafficTarget
 	multiple := sp.MultipleRevisions()
 	if multiple {
@@ -1232,7 +1232,7 @@ func (s *Etcd) deploy(t *etx, sp *spec.App, replicas int, actor, action string) 
 
 // activateTraffic makes latest the app's current revision in multiple
 // revision mode, with no rollout: traffic, with "latest" resolved to it,
-// decides which revisions run and serve (ADR 0024). Every revision named
+// decides which revisions run and serve (ADR 0022). Every revision named
 // must be one of the app's.
 func (t *etx) activateTraffic(a appRec, latest string, traffic []spec.TrafficTarget, replicas int, now time.Time, actor, action string) error {
 	resolved, err := t.resolveTraffic(a.Name, latest, traffic)
@@ -1292,7 +1292,7 @@ func trafficString(traffic []spec.TrafficTarget) string {
 }
 
 // SetTraffic changes the weights of an app in multiple revision mode until
-// its next deploy (ADR 0024). Each target keeps the label it has; a
+// its next deploy (ADR 0022). Each target keeps the label it has; a
 // revision not listed stops serving.
 func (s *Etcd) SetTraffic(ctx context.Context, app string, weights []spec.TrafficTarget, actor string) ([]spec.TrafficTarget, error) {
 	now := s.now()
@@ -1578,7 +1578,7 @@ func (s *Etcd) SetReplicas(ctx context.Context, app string, n int, actor string)
 		if tgt, err := t.revision(a.TargetRevision); err != nil {
 			return err
 		} else if tgt.Spec.HasVolumes() && n != 1 {
-			return fmt.Errorf("%s has volumes and runs exactly one replica (ADR 0025): %w", app, ErrPrecondition)
+			return fmt.Errorf("%s has volumes and runs exactly one replica (ADR 0023): %w", app, ErrPrecondition)
 		} else if err := t.checkQuota(projectOf(app), quotaChange{apps: map[string]appUse{app: {sp: tgt.Spec, replicas: n}}}); err != nil {
 			return err
 		}
@@ -1594,7 +1594,7 @@ func (s *Etcd) SetReplicas(ctx context.Context, app string, n int, actor string)
 // current count within sp's bounds if sp is autoscaled, else unchanged.
 func keptReplicas(sp *spec.App, cur int) int {
 	if sp.HasVolumes() {
-		return 1 // volumes: exactly one replica (ADR 0025)
+		return 1 // volumes: exactly one replica (ADR 0023)
 	}
 	if !sp.Autoscaled() {
 		return cur
@@ -1605,7 +1605,7 @@ func keptReplicas(sp *spec.App, cur int) int {
 
 // AutoscaleReplicas sets an autoscaled app's replica count to n if it is
 // still from and the app is not rolling out (ErrConflict otherwise), so a
-// decision made on stale state is dropped (ADR 0022).
+// decision made on stale state is dropped (ADR 0020).
 func (s *Etcd) AutoscaleReplicas(ctx context.Context, app string, from, n int, actor string) error {
 	now := s.now()
 	return s.tx(ctx, func(t *etx) error {
@@ -2301,30 +2301,30 @@ var migrations = []migration{
 	// 0014). Nothing to rewrite; the step exists so that servers that would
 	// drop those fields when they rewrite a node can no longer lead.
 	func(*etx) error { return nil },
-	// 2 -> 3: jobs (ADR 0021): apps of kind job, runs under runs/, and
+	// 2 -> 3: jobs (ADR 0019): apps of kind job, runs under runs/, and
 	// replicas that run to completion. Nothing to rewrite; servers that
 	// would treat a job as an app can no longer lead.
 	func(*etx) error { return nil },
-	// 3 -> 4: traffic splitting (ADR 0024): app records gain traffic.
+	// 3 -> 4: traffic splitting (ADR 0022): app records gain traffic.
 	// Nothing to rewrite; servers that would drop it when they rewrite an
 	// app, and run one revision only, can no longer lead.
 	func(*etx) error { return nil },
-	// 4 -> 5: volumes (ADR 0025) under volumes/, bound to nodes. Nothing to
+	// 4 -> 5: volumes (ADR 0023) under volumes/, bound to nodes. Nothing to
 	// rewrite; servers that would start a replica without its volume, or on
 	// another node, can no longer lead.
 	func(*etx) error { return nil },
-	// 5 -> 6: the cluster network (ADR 0027): the network record and node
+	// 5 -> 6: the cluster network (ADR 0025): the network record and node
 	// subnets. Nothing to rewrite (upgraded clusters have no network yet);
 	// servers that would register a node without a subnet can no longer
 	// lead.
 	func(*etx) error { return nil },
-	// 6 -> 7: projects (ADR 0029) under projects/, and apps of other
+	// 6 -> 7: projects (ADR 0026) under projects/, and apps of other
 	// projects keyed <name>.<project>. Nothing to rewrite (the default
 	// project's apps keep their keys); servers that would treat such a key
 	// as an app name, or deploy into a project that does not exist, can no
 	// longer lead.
 	func(*etx) error { return nil },
-	// 7 -> 8: kernel isolation (ADR 0029): projects and revisions gain an
+	// 7 -> 8: kernel isolation (ADR 0026): projects and revisions gain an
 	// isolation level. Projects created before keep container, written
 	// explicitly (a new project defaults to sandbox); servers that would
 	// start a sandboxed revision's replicas as plain containers can no
@@ -2338,16 +2338,16 @@ var migrations = []migration{
 			return t.put(key, r)
 		})
 	},
-	// 8 -> 9: quotas (ADR 0029) in project and automation records. Nothing
+	// 8 -> 9: quotas (ADR 0026) in project and automation records. Nothing
 	// to rewrite (no project has one yet); servers that would let a
 	// project grow past its quota can no longer lead.
 	func(*etx) error { return nil },
-	// 9 -> 10: egress limits (ADR 0029) in quotas and revisions. Nothing
+	// 9 -> 10: egress limits (ADR 0026) in quotas and revisions. Nothing
 	// to rewrite; servers that would deploy without pinning the limit, or
 	// place a limited replica on a node that cannot shape traffic, can no
 	// longer lead.
 	func(*etx) error { return nil },
-	// 10 -> 11: request limits (ADR 0029) in quotas. Nothing to rewrite;
+	// 10 -> 11: request limits (ADR 0026) in quotas. Nothing to rewrite;
 	// servers that would not send them to the proxies can no longer lead.
 	func(*etx) error { return nil },
 }

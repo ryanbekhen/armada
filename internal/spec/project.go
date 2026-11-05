@@ -3,7 +3,7 @@ package spec
 import "strings"
 
 // DefaultProject holds every app created before projects, and every app
-// deployed without one (ADR 0029).
+// deployed without one (ADR 0026).
 const DefaultProject = "default"
 
 // maxProjectLen keeps app IDs, and the replica and container names built

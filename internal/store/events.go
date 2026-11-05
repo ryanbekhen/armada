@@ -12,7 +12,7 @@ import (
 	clientv3 "go.etcd.io/etcd/client/v3"
 )
 
-// Event is something the cluster did (ADR 0020): a replica crashed, a
+// Event is something the cluster did (ADR 0018): a replica crashed, a
 // rollout finished, a node was lost. Events expire on their own.
 type Event struct {
 	// Key identifies the stored event; set by PutEvent and ListEvents.

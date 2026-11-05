@@ -12,7 +12,7 @@ import (
 	"github.com/ryanbekhen/armada/internal/store"
 )
 
-// buildNetwork returns the cluster network every agent applies (ADR 0027):
+// buildNetwork returns the cluster network every agent applies (ADR 0025):
 // the mode, the cluster CIDR, and every node that has a subnet. It returns
 // nil for a cluster without a network.
 func (s *Server) buildNetwork(ctx context.Context, nodes []store.Node, replicas []store.Replica) (*armadav1.NetworkConfig, error) {
@@ -38,7 +38,7 @@ func (s *Server) buildNetwork(ctx context.Context, nodes []store.Node, replicas 
 
 // networkEndpoints lists the container address of every replica whose
 // node has a subnet, with its app ID, for the firewalls that keep apps and
-// projects apart (ADR 0029). An address two replicas claim (one of them
+// projects apart (ADR 0026). An address two replicas claim (one of them
 // stale) is left out: no node lets it reach anything until it is clear.
 func networkEndpoints(replicas []store.Replica, subnets map[string]string) []*armadav1.NetworkEndpoint {
 	apps := map[string]string{}

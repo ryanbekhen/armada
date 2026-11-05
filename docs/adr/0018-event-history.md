@@ -1,4 +1,4 @@
-# 0020. Event history
+# 0018. Event history
 
 - Status: Accepted
 - Date: 2026-11-03
@@ -28,8 +28,8 @@ Changes of state, never routine checks:
 | `replica` | `Scheduled`, `Started`, `Ready`, `NotReady`, `Restarted`, `Crashed`, `Failed`, `Evacuating`, `Rebalancing`, `Removed` |
 | `rollout` | `Started`, `Completed`, `Failed`, `RolledBack` |
 | `node` | `Joined`, `Connected`, `Disconnected`, `Lost`, `MostUnreachable`, `Cordoned`, `Uncordoned`, `Removed` |
-| `app` | `Unschedulable`, `ScaledUp`, `ScaledDown` (ADR 0022), `ScaledToZero`, `Woken` (ADR 0023), `TrafficChanged` (ADR 0024) |
-| `job` | `Deployed`, `Started`, `Succeeded`, `Failed`, `Retrying`, `Cancelled`, `Skipped`, `Missed`, `Unschedulable`, `Deleted` (ADR 0021) |
+| `app` | `Unschedulable`, `ScaledUp`, `ScaledDown` (ADR 0020), `ScaledToZero`, `Woken` (ADR 0021), `TrafficChanged` (ADR 0022) |
+| `job` | `Deployed`, `Started`, `Succeeded`, `Failed`, `Retrying`, `Cancelled`, `Skipped`, `Missed`, `Unschedulable`, `Deleted` (ADR 0019) |
 | `domain` | `Verified`, `NotVerified` |
 | `certificate` | `Obtained`, `Failed` |
 
@@ -64,7 +64,7 @@ Changes of state, never routine checks:
   disconnected with an error rather than slowing the leader.
 - Only admin certificates may call it.
 - `armada events [APP] [--node NODE] [--since DURATION] [-f] [-o json]`.
-- The metrics endpoint (ADR 0019) counts events in
+- The metrics endpoint (ADR 0017) counts events in
   `armada_events_total{kind,reason}`.
 
 ### Untrusted text

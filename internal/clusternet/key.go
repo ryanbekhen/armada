@@ -28,7 +28,7 @@ func (p PrivateKey) Public() string { return p.k.PublicKey().String() }
 func (p PrivateKey) IsZero() bool { return p.k == wgtypes.Key{} }
 
 // LoadOrCreateKey reads the node's key from path, a private file, or
-// generates one there the first time (ADR 0027).
+// generates one there the first time (ADR 0025).
 func LoadOrCreateKey(path string) (PrivateKey, error) {
 	b, err := fsutil.ReadPrivateFile(path)
 	switch {

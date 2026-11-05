@@ -11,7 +11,7 @@ import (
 	"github.com/ryanbekhen/armada/internal/runtime"
 )
 
-// maxExecSessions bounds the exec sessions an agent runs at once (ADR 0017).
+// maxExecSessions bounds the exec sessions an agent runs at once (ADR 0015).
 const maxExecSessions = 8
 
 // serveExec runs one exec request: it opens the session stream, checks the

@@ -108,7 +108,7 @@ func (s *Server) SetNames(apps []string) {
 
 // SetClients maps the addresses of the node's containers to their app IDs.
 // From then on a container resolves only the names of its own project
-// (ADR 0029), and an address not in the map resolves no internal name.
+// (ADR 0026), and an address not in the map resolves no internal name.
 func (s *Server) SetClients(clients map[netip.Addr]string) {
 	m := make(map[netip.Addr]string, len(clients))
 	for a, app := range clients {

@@ -153,7 +153,7 @@ func TestCertificateFileName(t *testing.T) {
 	}
 }
 
-// Apps of other projects are named by their ID (ADR 0029).
+// Apps of other projects are named by their ID (ADR 0026).
 func TestValidateProjectApps(t *testing.T) {
 	c := validConfig(t)
 	c.Backends[1].Name = "api.staging"

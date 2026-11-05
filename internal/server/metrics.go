@@ -24,7 +24,7 @@ import (
 // metricsTimeout bounds the store reads of one scrape.
 const metricsTimeout = 10 * time.Second
 
-// serveMetrics serves /metrics on the metrics listener (ADR 0019): TLS 1.3
+// serveMetrics serves /metrics on the metrics listener (ADR 0017): TLS 1.3
 // with the API's server certificate, and only to client certificates of
 // the metrics or admin kind.
 func (s *Server) serveMetrics(ctx context.Context) error {
@@ -266,7 +266,7 @@ func boolValue(b bool) float64 {
 }
 
 // IssueMetricsCertificate signs a metrics client certificate from the
-// caller's CSR (ADR 0019). The key never reaches the server, and the
+// caller's CSR (ADR 0017). The key never reaches the server, and the
 // certificate can only scrape metrics: the API refuses its identity.
 func (s *Server) IssueMetricsCertificate(ctx context.Context, req *armadav1.IssueMetricsCertificateRequest) (*armadav1.IssueMetricsCertificateResponse, error) {
 	if s.ca == nil {

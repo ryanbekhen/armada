@@ -322,7 +322,7 @@ fi
 log "only HAProxy faces the public network"
 i=1
 while [ "$i" -le "$N" ]; do
-	# Each node has its own container subnet (ADR 0027).
+	# Each node has its own container subnet (ADR 0025).
 	_gw=$E2E_BRIDGE_GW
 	[ -n "$_gw" ] || _gw=$(on "$i" "ip -4 -o addr show dev armada0 | awk '{ sub(/\\/.*/, \"\", \$4); print \$4; exit }'")
 	_bad=$(on "$i" 'ss -H -ltn' | awk -v priv="$(host "$i" 3)" -v gw="$_gw" '{

@@ -28,7 +28,7 @@ func TestJoinEndToEnd(t *testing.T) {
 		mu.Lock()
 		defer mu.Unlock()
 		d := fake.New()
-		// Each node's containers on its own subnet (ADR 0027).
+		// Each node's containers on its own subnet (ADR 0025).
 		d.BridgeIPs = fmt.Sprintf("10.120.%d.1", len(drivers))
 		drivers = append(drivers, d)
 		return d, nil
@@ -123,7 +123,7 @@ func TestJoinEndToEnd(t *testing.T) {
 		t.Error("join printed the token secret")
 	}
 	// The node gets the next subnet of the cluster network as its bridge
-	// subnet (ADR 0027).
+	// subnet (ADR 0025).
 	if ac, err := loadAgentConfig(node2); err != nil || ac.ContainerSubnet != "10.120.1.0/24" || !strings.Contains(out, "Container subnet: 10.120.1.0/24") {
 		t.Errorf("joined node: config %+v, %v; output %q", ac, err, out)
 	}
@@ -145,7 +145,7 @@ func TestJoinEndToEnd(t *testing.T) {
 		return regexp.MustCompile(`node-2\s+10\.0\.0\.2\s+ready\s`).MatchString(out) &&
 			regexp.MustCompile(`node-1\s+127\.0\.0\.1\s+ready\s`).MatchString(out)
 	})
-	// Both nodes route each other's subnet (ADR 0027).
+	// Both nodes route each other's subnet (ADR 0025).
 	peers := func(node string) []string {
 		var out []string
 		for _, p := range testNets.get(node).applied().GetPeers() {

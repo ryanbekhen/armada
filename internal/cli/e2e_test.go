@@ -86,7 +86,7 @@ func TestInit(t *testing.T) {
 		t.Errorf("admin CN = %q", admin.Subject.CommonName)
 	}
 	// The first node gets the first subnet of the cluster network
-	// (ADR 0027) as its bridge subnet.
+	// (ADR 0025) as its bridge subnet.
 	ac, err := loadAgentConfig(dataDir)
 	if err != nil || ac.ContainerSubnet != "10.120.0.0/24" || ac.Network != "plain" {
 		t.Errorf("agent container subnet = %+v, %v", ac, err)
@@ -174,7 +174,7 @@ func TestEndToEnd(t *testing.T) {
 	// gateway: 10.120.0.11, 10.120.0.12, ...
 	d.BridgeIPs = "10.120.0.1"
 	// The node runs the sandbox, so replicas of sandboxed projects can run
-	// on it (ADR 0029).
+	// on it (ADR 0026).
 	d.Sandbox = true
 	d.LogLines = []runtime.LogFrame{{Stream: runtime.Stdout, Data: []byte("listening on :80\n")}, {Stream: runtime.Stderr, Data: []byte("deprecated flag\n")}}
 	orig, origWait, origCheck, origPoll, origTmpfs, origUsage := newDriver, proxyStartWait, probeCheck, waitPoll, checkTmpfs, usageInterval
@@ -237,7 +237,7 @@ func TestEndToEnd(t *testing.T) {
 		return n != nil && n.GetMode() == "plain" && n.GetClusterCidr() == "10.120.0.0/16" &&
 			len(n.GetPeers()) == 1 && n.GetPeers()[0].GetSubnet() == "10.120.0.0/24"
 	})
-	// Network isolation of the default project reaches the node (ADR 0029).
+	// Network isolation of the default project reaches the node (ADR 0026).
 	if code, out, stderr := cli("project", "set", "default", "--network-isolation"); code != 0 || !strings.Contains(out, "network isolation on") {
 		t.Fatalf("project set: code=%d out=%q err=%q", code, out, stderr)
 	}
@@ -281,7 +281,7 @@ func TestEndToEnd(t *testing.T) {
 		t.Fatalf("status json = %s (%v)", out, err)
 	}
 	// Replicas publish no port: they are reached at their own address in
-	// the node's subnet, on the app's port (ADR 0027).
+	// the node's subnet, on the app's port (ADR 0025).
 	if a := st.Apps[0].Replicas[0].Address; !strings.HasPrefix(a, "10.120.0.1") || !strings.HasSuffix(a, ":80") {
 		t.Errorf("replica address = %q", a)
 	}
@@ -524,7 +524,7 @@ func TestEndToEnd(t *testing.T) {
 	testProjects(t, d, cli, waitFor)
 }
 
-// testProjects runs an app of the same name in another project (ADR 0029).
+// testProjects runs an app of the same name in another project (ADR 0026).
 func testProjects(t *testing.T, d *fake.Driver, cli func(...string) (int, string, string), waitFor func(string, func() bool)) {
 	t.Helper()
 	spec := filepath.Join(t.TempDir(), "web.yaml")
@@ -576,7 +576,7 @@ func testProjects(t *testing.T, d *fake.Driver, cli func(...string) (int, string
 		_, out, _ := cli("status", "web.staging")
 		return strings.Contains(out, "2/2")
 	})
-	// A quota bounds the project; shrinking stays possible (ADR 0029).
+	// A quota bounds the project; shrinking stays possible (ADR 0026).
 	if code, out, stderr := cli("project", "set", "staging", "--quota", "replicas=2,cpu=1"); code != 0 || !strings.Contains(out, "quota cpu=1,replicas=2") {
 		t.Fatalf("project set --quota: code=%d out=%q err=%q", code, out, stderr)
 	}

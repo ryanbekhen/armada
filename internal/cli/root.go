@@ -20,7 +20,7 @@ import (
 type globals struct {
 	configPath string
 	// project is --project: the project whose apps a command names
-	// (ADR 0029). Empty names apps of the default project and lists every
+	// (ADR 0026). Empty names apps of the default project and lists every
 	// project.
 	project string
 }
@@ -83,7 +83,7 @@ func NewRootCommand() *cobra.Command {
 	g := &globals{}
 	cmd.PersistentFlags().StringVar(&g.configPath, "config", clientconfig.DefaultPath(), "client config with admin credentials")
 	cmd.PersistentFlags().StringVar(&g.project, "project", os.Getenv("ARMADA_PROJECT"),
-		"project of the apps and jobs a command names (ADR 0029; or ARMADA_PROJECT); without it, names are in the default project and listings show every project")
+		"project of the apps and jobs a command names (ADR 0026; or ARMADA_PROJECT); without it, names are in the default project and listings show every project")
 
 	cmd.AddCommand(
 		newVersionCommand(),

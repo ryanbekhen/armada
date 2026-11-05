@@ -13,9 +13,9 @@ service AdminService {
   rpc Status(StatusRequest) returns (StatusResponse);
   rpc Scale(ScaleRequest) returns (ScaleResponse);
   // SetTraffic changes how an app in multiple revision mode splits
-  // requests, until its next deploy (ADR 0024).
+  // requests, until its next deploy (ADR 0022).
   rpc SetTraffic(SetTrafficRequest) returns (SetTrafficResponse);
-  // Volumes (ADR 0025): list them, remove one, and stream a backup of one
+  // Volumes (ADR 0023): list them, remove one, and stream a backup of one
   // out of, or a restore into, the node that holds it.
   rpc ListVolumes(ListVolumesRequest) returns (ListVolumesResponse);
   rpc RemoveVolume(RemoveVolumeRequest) returns (RemoveVolumeResponse);
@@ -38,7 +38,7 @@ service AdminService {
   rpc RemoveNode(RemoveNodeRequest) returns (RemoveNodeResponse);
   rpc ListServers(ListServersRequest) returns (ListServersResponse);
   rpc RemoveServer(RemoveServerRequest) returns (RemoveServerResponse);
-  // Projects (ADR 0029). Every other RPC names an app by its ID:
+  // Projects (ADR 0026). Every other RPC names an app by its ID:
   // <name>.<project>, or the bare name in the default project.
   rpc CreateProject(CreateProjectRequest) returns (ProjectInfo);
   rpc ListProjects(ListProjectsRequest) returns (ListProjectsResponse);
@@ -46,7 +46,7 @@ service AdminService {
   // Change a project's settings (administrators only). Today only the
   // default project's network isolation, which other projects always have.
   rpc UpdateProject(UpdateProjectRequest) returns (ProjectInfo);
-  // Automation identities (ADR 0029): tools that manage the apps of some
+  // Automation identities (ADR 0026): tools that manage the apps of some
   // projects and nothing else. Only administrators manage them.
   rpc SetAutomation(SetAutomationRequest) returns (AutomationInfo);
   rpc ListAutomations(ListAutomationsRequest) returns (ListAutomationsResponse);
@@ -57,20 +57,20 @@ service AdminService {
   // RenewAutomationCertificate is called by an automation identity with its
   // current certificate; every other certificate of it is revoked.
   rpc RenewAutomationCertificate(RenewAutomationCertificateRequest) returns (IssueAutomationCertificateResponse);
-  // Exec runs a command in one replica of an app (ADR 0017). The first
+  // Exec runs a command in one replica of an app (ADR 0015). The first
   // client message is start; the server's first message names the replica
   // and its last the exit code.
   rpc Exec(stream ExecClientMessage) returns (stream ExecServerMessage);
   // Top reports the CPU and memory replicas use, from the latest samples
-  // their agents sent (ADR 0018).
+  // their agents sent (ADR 0016).
   rpc Top(TopRequest) returns (TopResponse);
   // IssueMetricsCertificate signs a client certificate that may only
-  // scrape the metrics endpoint (ADR 0019).
+  // scrape the metrics endpoint (ADR 0017).
   rpc IssueMetricsCertificate(IssueMetricsCertificateRequest) returns (IssueMetricsCertificateResponse);
-  // Events streams what the cluster did (ADR 0020), oldest first; with
+  // Events streams what the cluster did (ADR 0018), oldest first; with
   // follow, then new events until the caller cancels.
   rpc Events(EventsRequest) returns (stream EventInfo);
-  // Jobs (ADR 0021): start a run now, list jobs and their runs, cancel the
+  // Jobs (ADR 0019): start a run now, list jobs and their runs, cancel the
   // running run, delete a job with its runs.
   rpc RunJob(RunJobRequest) returns (RunJobResponse);
   rpc ListJobs(ListJobsRequest) returns (ListJobsResponse);
@@ -198,7 +198,7 @@ message CreateProjectRequest {
   Quota quota = 3;
 }
 
-// Quota bounds what a project may reserve (ADR 0029); 0 is unlimited. The
+// Quota bounds what a project may reserve (ADR 0026); 0 is unlimited. The
 // same message reports what a project uses.
 message Quota {
   int64 cpu_millis = 1;
@@ -225,9 +225,9 @@ message ProjectInfo {
   // Apps and jobs in the project.
   int32 apps = 4;
   // Its containers are kept away from the platform and the private network
-  // (ADR 0029): always for projects other than default.
+  // (ADR 0026): always for projects other than default.
   bool network_isolation = 5;
-  // Kernel isolation level of its replicas (ADR 0029): container or
+  // Kernel isolation level of its replicas (ADR 0026): container or
   // sandbox.
   string isolation = 6;
   // Its quota (all zero: unlimited) and what it uses, counted the same
@@ -441,7 +441,7 @@ message JoinServerResponse {
   string initial_cluster = 7;
   // API addresses of every control plane node, the new one included.
   repeated string servers = 8;
-  // The node's container subnet in the cluster network (ADR 0027); empty
+  // The node's container subnet in the cluster network (ADR 0025); empty
   // when the cluster has none.
   string node_subnet = 9;
   // The cluster network's mode, "plain" or "wireguard"; empty when the
@@ -465,7 +465,7 @@ message JoinResponse {
   reserved 3;
   // API addresses of every control plane node.
   repeated string servers = 4;
-  // The node's container subnet in the cluster network (ADR 0027); empty
+  // The node's container subnet in the cluster network (ADR 0025); empty
   // when the cluster has none.
   string node_subnet = 5;
   // The cluster network's mode, "plain" or "wireguard"; empty when the
@@ -585,7 +585,7 @@ message VerifyDomainRequest {
 message DeployRequest {
   // App spec as YAML, validated by the server.
   bytes spec = 1;
-  // Project to deploy into (ADR 0029); empty means the default project.
+  // Project to deploy into (ADR 0026); empty means the default project.
   string project = 2;
 }
 
@@ -619,9 +619,9 @@ message AppStatus {
   string rollout_message = 10;
   // Why replicas are missing, when no node can take them (ADR 0014).
   string placement_message = 11;
-  // Set when scale.rules are (ADR 0022).
+  // Set when scale.rules are (ADR 0020).
   Autoscale autoscale = 12;
-  // How requests are split between revisions (ADR 0024).
+  // How requests are split between revisions (ADR 0022).
   repeated TrafficTarget traffic = 13;
 }
 
@@ -671,9 +671,9 @@ message NodeStatus {
   // Admin labels plus armada.os and armada.arch.
   map<string, string> labels = 10;
   bool restricted = 11;
-  // The node runs replicas in the sandbox (ADR 0029).
+  // The node runs replicas in the sandbox (ADR 0026).
   bool sandbox = 12;
-  // The node limits containers' egress bandwidth (quota egress, ADR 0029).
+  // The node limits containers' egress bandwidth (quota egress, ADR 0026).
   bool egress = 13;
 }
 
@@ -688,7 +688,7 @@ message TopResponse {
   // set.
   repeated NodeTop nodes = 2;
   // Each project the caller may manage, with what its apps use; empty when
-  // app is set (ADR 0029).
+  // app is set (ADR 0026).
   repeated ProjectTop projects = 3;
   // When this leader began counting ProjectTop.requests and egress_bytes.
   google.protobuf.Timestamp counted_since = 4;
@@ -761,7 +761,7 @@ message SetTrafficResponse {
   repeated TrafficTarget traffic = 1;
 }
 
-// TrafficTarget is a revision's share of an app's requests (ADR 0024).
+// TrafficTarget is a revision's share of an app's requests (ADR 0022).
 message TrafficTarget {
   string revision = 1;
   // Percent, 0 to 100.
@@ -781,7 +781,7 @@ message LogsRequest {
   int32 tail = 3;
   // Optional; restrict to one replica.
   string replica = 4;
-  // For a job (ADR 0021): the run whose latest attempt to show; 0 means
+  // For a job (ADR 0019): the run whose latest attempt to show; 0 means
   // the newest run.
   int64 run = 5;
 }
@@ -837,7 +837,7 @@ message AgentMessage {
 }
 
 // Wake asks the leader to start an app scaled to zero: a request for it
-// is waiting at the node's proxy (ADR 0023).
+// is waiting at the node's proxy (ADR 0021).
 message Wake {
   string app = 1;
 }
@@ -853,19 +853,19 @@ message Hello {
   string arch = 6;
   reserved 7, 8;
   reserved "runtime", "min_memory_bytes";
-  // The agent runs job replicas to completion (ADR 0021); runs are only
+  // The agent runs job replicas to completion (ADR 0019); runs are only
   // placed on nodes whose agent says so.
   bool jobs = 9;
-  // The node mounts volumes (ADR 0025): its runtime can, and the agent has
+  // The node mounts volumes (ADR 0023): its runtime can, and the agent has
   // a directory for them.
   bool volumes = 10;
-  // The node's WireGuard public key, base64 (ADR 0027); empty when the node
+  // The node's WireGuard public key, base64 (ADR 0025); empty when the node
   // is not part of a cluster network.
   string network_key = 11;
   // The node runs containers in a userspace kernel (`isolation: sandbox`,
-  // ADR 0029): its runtime is the embedded one and carries runsc.
+  // ADR 0026): its runtime is the embedded one and carries runsc.
   bool sandbox = 12;
-  // The node limits containers' egress bandwidth (quota egress, ADR 0029):
+  // The node limits containers' egress bandwidth (quota egress, ADR 0026):
   // its runtime shapes traffic with the CNI bandwidth plugin.
   bool egress = 13;
 }
@@ -887,26 +887,26 @@ message ReplicaState {
   // Platforms of the replica's image as "os/arch", reported after a pull
   // or when the image has no variant for the node (ADR 0014).
   repeated string image_platforms = 8;
-  // For job replicas (ADR 0021): the container has exited, with exit_code.
+  // For job replicas (ADR 0019): the container has exited, with exit_code.
   bool finished = 9;
   int32 exit_code = 10;
   // The container's address in the node's subnet of the cluster network
-  // (ADR 0027), whatever the app's ingress; empty elsewhere.
+  // (ADR 0025), whatever the app's ingress; empty elsewhere.
   string ip = 11;
 }
 
 // UsageReport carries what the node's replicas use, sampled periodically
-// (ADR 0018). It is sent apart from ReplicaReport because it changes on
+// (ADR 0016). It is sent apart from ReplicaReport because it changes on
 // every sample.
 message UsageReport {
   repeated ReplicaUsage replicas = 1;
   // Requests in progress per replica at this node's proxy, for every
-  // replica it routes to, not only its own (ADR 0022).
+  // replica it routes to, not only its own (ADR 0020).
   repeated ReplicaLoad load = 2;
   // Whether the node's proxy was read; false for nodes without a proxy.
   bool load_measured = 3;
   // Disk use of the volumes on the node, measured about once a minute
-  // (ADR 0025); unset in reports between measurements.
+  // (ADR 0023); unset in reports between measurements.
   repeated VolumeUsage volumes = 4;
   bool volumes_measured = 5;
 }
@@ -921,7 +921,7 @@ message ReplicaLoad {
   string id = 1;
   int64 in_flight = 2;
   // Requests the proxy sent to the replica since the previous report
-  // (ADR 0023).
+  // (ADR 0021).
   int64 requests = 3;
 }
 
@@ -946,7 +946,7 @@ message ServerMessage {
 }
 
 // VolumeRequest asks the agent to open a VolumeSession for a volume it
-// holds (ADR 0025).
+// holds (ADR 0023).
 message VolumeRequest {
   enum Op {
     OP_UNSPECIFIED = 0;
@@ -986,12 +986,12 @@ message Assignment {
   // API addresses of every control plane node; the agent fails over to the
   // next one when its server goes away.
   repeated string servers = 3;
-  // The cluster network (ADR 0027); unset in clusters without one.
+  // The cluster network (ADR 0025); unset in clusters without one.
   NetworkConfig network = 4;
 }
 
 // NetworkConfig is how the cluster network routes node subnets between
-// nodes (ADR 0027). Identical for every node.
+// nodes (ADR 0025). Identical for every node.
 message NetworkConfig {
   // "plain" (VXLAN on the private network) or "wireguard".
   string mode = 1;
@@ -999,7 +999,7 @@ message NetworkConfig {
   // Every node with a subnet, the receiving node included.
   repeated NetworkPeer peers = 3;
   // The container addresses of every replica in a node subnet, with their
-  // app IDs: what each node's firewall keys on (ADR 0029).
+  // app IDs: what each node's firewall keys on (ADR 0026).
   repeated NetworkEndpoint endpoints = 4;
   // The default project's containers are isolated like other projects'.
   bool isolate_default = 5;
@@ -1037,14 +1037,14 @@ message ProxyBackend {
   // HTTP health check path; empty means a TCP check.
   string health_path = 3;
   // The app scales to zero: with no replica to serve, requests wait at the
-  // agent while it starts one (ADR 0023).
+  // agent while it starts one (ADR 0021).
   bool wake = 4;
   // Each node's proxy prefers the app's replicas on its own node while
-  // they are no busier than the app's replicas overall (ADR 0026). Off for
+  // they are no busier than the app's replicas overall (ADR 0024). Off for
   // traffic splitting, which needs every server to keep its weight.
   bool local_first = 5;
   // Requests per second the app may receive at this proxy, and requests it
-  // may have in progress here at once (its project's quota, ADR 0029); 0 is
+  // may have in progress here at once (its project's quota, ADR 0026); 0 is
   // unlimited. Past them, requests get 429. Labelled backends of the same
   // app share its counters.
   int32 request_rate = 6;
@@ -1056,7 +1056,7 @@ message ProxyServer {
   string name = 1;
   // ip:port on a node's private IP.
   string address = 2;
-  // Share of the backend's requests, 1 to 256; 0 means 1 (ADR 0024).
+  // Share of the backend's requests, 1 to 256; 0 means 1 (ADR 0022).
   uint32 weight = 3;
 }
 
@@ -1069,7 +1069,7 @@ message ProxyRule {
   // frontend, which only containers on that node can reach.
   bool internal = 5;
   // For internal rules: the app IDs that may call (the app itself
-  // included); empty lets every app of the backend's project (ADR 0029).
+  // included); empty lets every app of the backend's project (ADR 0026).
   repeated string allow = 6;
 }
 
@@ -1101,15 +1101,15 @@ message ReplicaSpec {
   // gives the container a CPU weight in proportion. Not part of the spec
   // hash: a revision's reservation never changes.
   int64 cpu_reserve_millis = 17;
-  // Set for a replica that runs one attempt of a job run (ADR 0021).
+  // Set for a replica that runs one attempt of a job run (ADR 0019).
   JobAttempt job = 18;
-  // Persistent volumes on this node (ADR 0025).
+  // Persistent volumes on this node (ADR 0023).
   repeated VolumeSpec volumes = 19;
-  // Run the replica in the sandbox (isolation sandbox, ADR 0029). Part of
+  // Run the replica in the sandbox (isolation sandbox, ADR 0026). Part of
   // the spec hash; an agent that cannot sandbox refuses the replica.
   bool sandbox = 20;
   // Bits per second the container may send (the revision's egress limit,
-  // ADR 0029); 0 is unlimited. Part of the spec hash; an agent that cannot
+  // ADR 0026); 0 is unlimited. Part of the spec hash; an agent that cannot
   // limit egress refuses the replica.
   int64 egress_bits = 21;
 }
@@ -1189,7 +1189,7 @@ message LogPush {
 
 message PushLogsResponse {}
 
-// Exec (ADR 0017).
+// Exec (ADR 0015).
 
 message TermSize {
   uint32 rows = 1;
@@ -1266,7 +1266,7 @@ message ListVolumesResponse {
   repeated Volume volumes = 1;
 }
 
-// Volume is a persistent volume bound to a node (ADR 0025).
+// Volume is a persistent volume bound to a node (ADR 0023).
 message Volume {
   string app = 1;
   string name = 2;

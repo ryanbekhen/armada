@@ -248,7 +248,7 @@ newer layout, instead of misreading it. To go back:
 ## Projects
 
 A project holds apps, jobs, secrets, domains, and volumes, and names only
-need to be unique within one (ADR 0029). Every cluster has the project
+need to be unique within one (ADR 0026). Every cluster has the project
 `default`, which holds everything deployed without a project.
 
 ```bash
@@ -273,7 +273,7 @@ certificate covers only one level).
 ### Network isolation
 
 On a cluster with the cluster network (`armada init --cluster-cidr`, ADR
-0027), every node keeps apps and projects apart (ADR 0029):
+0025), every node keeps apps and projects apart (ADR 0026):
 
 - A container reaches another app only through its internal name
   (`http://NAME.internal`, `http://NAME.PROJECT.internal`): traffic straight
@@ -306,7 +306,7 @@ until they end. Clusters without the cluster network are not filtered.
 ### Kernel isolation
 
 Every project has a kernel isolation level, which says how its replicas
-are kept from the node's kernel (ADR 0029):
+are kept from the node's kernel (ADR 0026):
 
 | Level | Replicas run |
 | --- | --- |
@@ -339,7 +339,7 @@ armada node list                                   # SANDBOX: nodes that run san
 ### Quotas
 
 A quota bounds what a project may reserve, so one project cannot fill the
-cluster (ADR 0029). Keys left out are unlimited:
+cluster (ADR 0026). Keys left out are unlimited:
 
 ```bash
 armada project set shop --quota cpu=4,memory=8Gi,replicas=20,volumes=4,domains=2,secrets=50,jobs=2
@@ -480,7 +480,7 @@ needs a round trip between them.
 
 Every node's containers live on the node's own bridge subnet, a /24 of
 the cluster CIDR (`armada init --cluster-cidr`, default `10.120.0.0/16`,
-[ADR 0027](adr/0027-cluster-network.md)). The leader gives a node its
+[ADR 0025](adr/0025-cluster-network.md)). The leader gives a node its
 subnet when it joins, and `armada join` prints it. A node removed from the
 cluster frees its subnet for the next one. The cluster CIDR is set once,
 holds from 16 (a /20) to 4096 (a /12) nodes, must be a private range, and
@@ -541,7 +541,7 @@ Every node's HAProxy serves the app's public domains and `<app>.internal`,
 and sends each request to one of the app's ready replicas. It prefers the
 replicas on its own node while they are no busier than the app's replicas
 overall, and spreads the rest over every replica
-([ADR 0026](adr/0026-local-first-routing.md)). At low load a request never
+([ADR 0024](adr/0024-local-first-routing.md)). At low load a request never
 leaves the node that received it; under load, and when the node has no
 replica up, the others take the excess. Apps that split traffic between
 revisions are balanced over every replica by weight instead.
@@ -552,7 +552,7 @@ receives more requests keeps its replicas busier, up to the average.
 ## Running commands in replicas
 
 `armada exec` runs a command in one replica of an app and exits with the
-command's exit code ([ADR 0017](adr/0017-exec.md)):
+command's exit code ([ADR 0015](adr/0015-exec.md)):
 
 ```bash
 armada exec web -it -- sh                     # interactive shell
@@ -578,7 +578,7 @@ armada exec web --replica web-r1-5muie -- env # a specific replica (armada statu
 ## Resource usage
 
 `armada top` shows what replicas use, from samples every agent takes every
-10 seconds ([ADR 0018](adr/0018-top.md)):
+10 seconds ([ADR 0016](adr/0016-top.md)):
 
 ```bash
 armada top            # per app
@@ -622,7 +622,7 @@ web-r1-q2k0d     node2  running  41m/250m   58Mi/256Mi
 ## Autoscaling
 
 An app with `scale.rules` scales itself between `scale.min` and
-`scale.max` ([ADR 0022](adr/0022-autoscaling.md); rules in the
+`scale.max` ([ADR 0020](adr/0020-autoscaling.md); rules in the
 [spec reference](spec-reference.md#autoscaling)).
 
 ```
@@ -657,7 +657,7 @@ web: autoscale 2-10, http 41/50, cpu 38%/70%: steady: http 41 of 50 per replica,
 ## Traffic splitting
 
 Apps with `revisions.mode: multiple` split their requests between
-revisions ([ADR 0024](adr/0024-traffic-splitting.md); fields in the
+revisions ([ADR 0022](adr/0022-traffic-splitting.md); fields in the
 [spec reference](spec-reference.md#revisions)). A canary looks like this:
 
 ```bash
@@ -690,7 +690,7 @@ web  https://canary--web.example.com/ (web--r4)
 ## Jobs
 
 Jobs run a container to completion, on demand or on a schedule
-([ADR 0021](adr/0021-jobs.md); fields in the
+([ADR 0019](adr/0019-jobs.md); fields in the
 [spec reference](spec-reference.md#jobs)):
 
 ```bash
@@ -724,7 +724,7 @@ RUN  STATE      TRIGGER   ATTEMPTS  NODE   STARTED  DURATION  EXIT  MESSAGE
 ## Events
 
 `armada events` shows what the cluster did in the last hour
-([ADR 0020](adr/0020-event-history.md)): replicas scheduled, started,
+([ADR 0018](adr/0018-event-history.md)): replicas scheduled, started,
 restarted, or moved; rollouts started, completed, or failed; nodes
 connected, lost, or cordoned; apps that cannot be placed or that the
 autoscaler scaled, scaled to zero, or woke; traffic changes; job runs;
@@ -755,7 +755,7 @@ TIME            KIND         OBJECT                        REASON           COUN
 
 ## Metrics
 
-The leader serves Prometheus metrics ([ADR 0019](adr/0019-metrics-endpoint.md))
+The leader serves Prometheus metrics ([ADR 0017](adr/0017-metrics-endpoint.md))
 when servers run with `--metrics-listen`. Give every server the same flag in
 `/etc/armada/server.env`, with its own private address:
 
@@ -827,7 +827,7 @@ for 10 minutes, `armada_app_rollout{state="failed"} == 1`,
 ## Volumes
 
 Volumes keep an app's data on the node that runs its single replica
-([ADR 0025](adr/0025-persistent-volumes.md); fields in the
+([ADR 0023](adr/0023-persistent-volumes.md); fields in the
 [spec reference](spec-reference.md#volumes)). On a node they live in
 `/var/lib/armada/volumes/<app>/<name>`.
 

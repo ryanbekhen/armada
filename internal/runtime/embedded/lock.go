@@ -80,7 +80,7 @@ var Lock = []Artifact{
 		},
 	},
 	{
-		// The userspace kernel of `isolation: sandbox` (ADR 0029). runsc
+		// The userspace kernel of `isolation: sandbox` (ADR 0026). runsc
 		// runs the sentry from gvisor-bin/ next to itself; the checkpoint
 		// gofer and the metric server are left out (Armada uses neither).
 		Name:    "gvisor",
@@ -117,7 +117,7 @@ const (
 	BinRunc       = "runc"
 	BinTini       = "tini"
 	DirCNI        = "cni"
-	// BinRunsc runs sandboxed containers (ADR 0029); it needs BinSentry
+	// BinRunsc runs sandboxed containers (ADR 0026); it needs BinSentry
 	// next to it.
 	BinRunsc  = "runsc"
 	BinSentry = "gvisor-bin/gvisor_sentry"

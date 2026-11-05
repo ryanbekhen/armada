@@ -60,14 +60,14 @@ type App struct {
 	Scale     *Scale     `yaml:"scale,omitempty" json:"scale,omitempty"`
 	Resources *Resources `yaml:"resources,omitempty" json:"resources,omitempty"`
 	Placement *Placement `yaml:"placement,omitempty" json:"placement,omitempty"`
-	// Volumes keep data across restarts on the replica's node (ADR 0025).
+	// Volumes keep data across restarts on the replica's node (ADR 0023).
 	Volumes []Volume `yaml:"volumes,omitempty" json:"volumes,omitempty"`
 
-	// Project is the project the app belongs to (ADR 0029), set by the API
+	// Project is the project the app belongs to (ADR 0026), set by the API
 	// rather than the file; empty means the default project.
 	Project string `yaml:"-" json:"project,omitempty"`
 
-	// Job settings (kind: job, ADR 0021).
+	// Job settings (kind: job, ADR 0019).
 	Schedule    string   `yaml:"schedule,omitempty" json:"schedule,omitempty"`
 	TimeZone    string   `yaml:"timeZone,omitempty" json:"timeZone,omitempty"`
 	Timeout     Duration `yaml:"timeout,omitempty" json:"timeout,omitempty"`
@@ -91,7 +91,7 @@ type Ingress struct {
 	Routes  []Route  `yaml:"routes,omitempty" json:"routes,omitempty"`
 	// Allow names the apps and jobs of the same project that may call this
 	// app through its internal name; empty lets every app of the project
-	// (ADR 0027, ADR 0029). Replicas of the app itself always may.
+	// (ADR 0025, ADR 0026). Replicas of the app itself always may.
 	Allow []string `yaml:"allow,omitempty" json:"allow,omitempty"`
 }
 
@@ -148,13 +148,13 @@ func (p *Probe) UnmarshalYAML(n *yaml.Node) error {
 }
 
 // Scale controls replica counts. Without Rules the app runs Min replicas;
-// with Rules the autoscaler keeps it between Min and Max (ADR 0022).
+// with Rules the autoscaler keeps it between Min and Max (ADR 0020).
 type Scale struct {
 	Min   *int        `yaml:"min,omitempty" json:"min,omitempty"`
 	Max   *int        `yaml:"max,omitempty" json:"max,omitempty"`
 	Rules []ScaleRule `yaml:"rules,omitempty" json:"rules,omitempty"`
 	// IdleAfter is how long an app with Min 0 may go without a request
-	// before it scales to zero (ADR 0023).
+	// before it scales to zero (ADR 0021).
 	IdleAfter Duration `yaml:"idleAfter,omitempty" json:"idleAfter,omitempty"`
 }
 
@@ -221,7 +221,7 @@ func (d *Duration) UnmarshalJSON(b []byte) error {
 // project.
 func Parse(data []byte) (*App, error) { return ParseIn(data, "") }
 
-// ParseIn is Parse for an app of project (ADR 0029); empty means the
+// ParseIn is Parse for an app of project (ADR 0026); empty means the
 // default project.
 func ParseIn(data []byte, project string) (*App, error) {
 	if len(data) > MaxSpecBytes {

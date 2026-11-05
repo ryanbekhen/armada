@@ -14,7 +14,7 @@ import (
 )
 
 // automationMethods are the AdminService methods an automation identity
-// may call (ADR 0029). Every other method, including any added later, is
+// may call (ADR 0026). Every other method, including any added later, is
 // refused, and each of these checks the request against the identity's
 // scope with access.
 var automationMethods = map[string]bool{

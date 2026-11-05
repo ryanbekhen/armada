@@ -56,11 +56,11 @@ type renderOptions struct {
 	// containers. Empty disables internal ingress.
 	InternalIP string
 	// Subnet is the node's container subnet in the cluster network
-	// (ADR 0027), where its replicas have their own addresses; empty when
+	// (ADR 0025), where its replicas have their own addresses; empty when
 	// replicas are reached through ports on the private IP. With a subnet
 	// the node knows its containers' apps (the clients map), and the
 	// internal frontend admits a request only from the target's project,
-	// or its allowed apps (ADR 0029).
+	// or its allowed apps (ADR 0026).
 	Subnet string
 }
 
@@ -103,7 +103,7 @@ const internalPort = 80
 func backendName(app string) string { return "be_" + app }
 
 // localBackendName is the backend of an app's replicas on this node, which
-// local-first routing prefers (ADR 0026).
+// local-first routing prefers (ADR 0024).
 func localBackendName(app string) string { return "lo_" + app }
 
 // pool is one HAProxy backend with server slots.
@@ -144,7 +144,7 @@ func localFirst(be proxy.Backend, n node) bool {
 	return be.LocalFirst && n.known()
 }
 
-// wakeBackendName is the backend of an app's wake socket (ADR 0023).
+// wakeBackendName is the backend of an app's wake socket (ADR 0021).
 func wakeBackendName(app string) string { return "wk_" + app }
 
 // WakeSocketFile is the agent's wake socket in the proxy's run directory,
@@ -384,7 +384,7 @@ func (rr ruleRenderer) write(prefix string, rules []proxy.Rule) {
 		be := rr.backends[r.Backend]
 		if be.Wake {
 			// No server up (scaled to zero, or starting): the request waits
-			// at the agent, which starts a replica (ADR 0023).
+			// at the agent, which starts a replica (ADR 0021).
 			w("    use_backend %s if %s { nbsrv(%s) eq 0 }", wakeBackendName(r.Backend), match(i), backendName(r.Backend))
 		}
 		if localFirst(be, rr.node) {
@@ -396,7 +396,7 @@ func (rr ruleRenderer) write(prefix string, rules []proxy.Rule) {
 }
 
 // limitsTable is the stick table that counts each limited app's requests
-// at this proxy, keyed by app ID (ADR 0029).
+// at this proxy, keyed by app ID (ADR 0026).
 const limitsTable = "st_armada_limits"
 
 // hasLimits reports whether any backend of cfg limits its requests.
@@ -422,7 +422,7 @@ func writeLimits(w func(string, ...any), match string, be proxy.Backend) {
 }
 
 // writeLocalLoad compares the load of an app's replicas on this node with
-// that of all its replicas, for local-first routing (ADR 0026): a request
+// that of all its replicas, for local-first routing (ADR 0024): a request
 // goes to the replicas on this node while they are up and no busier, per
 // replica, than the app's replicas overall. With L requests in progress on the N local replicas
 // and R more on all M replicas through be_<app>, local wins while

@@ -305,7 +305,7 @@ cluster_up() {
 	on 2 "systemctl enable --now -q armada-runtime && $_cmd --node-name $B --private-ip $IP_B --token-file /run/armada/bench.token >/dev/null;
 		rc=\$?; rm -f /run/armada/bench.token; [ \$rc -eq 0 ] && systemctl enable --now -q armada-agent"
 	wait_for 180 "$A and $B ready" nodes_ready
-	# Each node has its own container subnet (ADR 0027), so the internal
+	# Each node has its own container subnet (ADR 0025), so the internal
 	# frontend's address is read from A's bridge.
 	GW=$BENCH_BRIDGE_GW
 	[ -n "$GW" ] || GW=$(on 1 "ip -4 -o addr show dev armada0 | awk '{ sub(/\\/.*/, \"\", \$4); print \$4; exit }'")
