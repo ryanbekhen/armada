@@ -73,6 +73,11 @@ type Driver struct {
 	// clients is the content of the clients map HAProxy last loaded or
 	// was given through the Runtime API.
 	clients []byte
+	// Each HAProxy process counts requests from zero, so totals are carried
+	// over from one process to the next (see Load).
+	workerPID string
+	totals    map[string]int64 // replica -> latest total
+	carried   map[string]int64 // replica -> total before this process
 }
 
 var _ proxy.Driver = (*Driver)(nil)
@@ -188,6 +193,11 @@ func (d *Driver) Apply(ctx context.Context, cfg proxy.Config) error {
 	}
 
 	if sig != d.sig {
+		// What the outgoing process counted since the last sample would
+		// otherwise be lost with it.
+		if _, err := d.load(ctx); err != nil {
+			d.log.Debug("read proxy load before a reload", "err", err)
+		}
 		if err := d.cfg.Engine.Reload(ctx); err != nil {
 			return fmt.Errorf("reload haproxy: %w", err)
 		}

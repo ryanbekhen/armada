@@ -56,8 +56,8 @@ type LoadReader interface {
 // ServerLoad is one server's load.
 type ServerLoad struct {
 	InFlight int64
-	// Total counts requests since the proxy started; it resets when the
-	// proxy restarts or reloads.
+	// Total counts requests; it keeps growing across reloads, and may start
+	// over when the proxy crashes or the agent restarts.
 	Total int64
 }
 

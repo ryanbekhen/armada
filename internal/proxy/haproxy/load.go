@@ -16,17 +16,55 @@ var _ proxy.LoadReader = (*Driver)(nil)
 
 // Load implements proxy.LoadReader from the Runtime API's "show stat":
 // each slot's current sessions plus its queue, and its total sessions,
-// mapped back to the replica in that slot.
+// mapped back to the replica in that slot. Totals keep growing across
+// reloads.
 func (d *Driver) Load(ctx context.Context) (map[string]proxy.ServerLoad, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.load(ctx)
+}
+
+// load is Load with d.mu held. Which process answers decides what is carried
+// over: an outgoing process may still answer just after a reload, and only
+// once another one does are the latest totals its final ones.
+func (d *Driver) load(ctx context.Context) (map[string]proxy.ServerLoad, error) {
+	info, err := d.cfg.API.Command(ctx, "show info")
+	if err != nil {
+		return nil, err
+	}
 	// Servers only: any proxy, type 4.
 	out, err := d.cfg.API.Command(ctx, "show stat -1 4 -1")
 	if err != nil {
 		return nil, err
 	}
-	d.mu.Lock()
-	layout := d.layout
-	d.mu.Unlock()
-	return parseLoad(out, layout)
+	load, err := parseLoad(out, d.layout)
+	if err != nil {
+		return nil, err
+	}
+	if pid := workerPID(info); pid != d.workerPID {
+		if d.workerPID != "" {
+			d.carried = d.totals
+		}
+		d.workerPID = pid
+	}
+	totals := make(map[string]int64, len(load))
+	for id, l := range load {
+		l.Total += d.carried[id]
+		load[id] = l
+		totals[id] = l.Total
+	}
+	d.totals = totals
+	return load, nil
+}
+
+// workerPID finds the process ID in "show info" output.
+func workerPID(info string) string {
+	for line := range strings.Lines(info) {
+		if v, ok := strings.CutPrefix(line, "Pid:"); ok {
+			return strings.TrimSpace(v)
+		}
+	}
+	return ""
 }
 
 // parseLoad reads "show stat" CSV. Only server rows of Armada's backends
