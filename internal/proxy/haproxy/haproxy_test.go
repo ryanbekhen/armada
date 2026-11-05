@@ -44,7 +44,8 @@ func sampleConfig(t *testing.T) proxy.Config {
 				{Name: "api-bengkel-r3-a", Address: "10.0.0.2:32769", Weight: 26},
 			}},
 			{Name: "admin-panel", Servers: nil, Wake: true, LocalFirst: true}, // scaled to zero
-			{Name: "shop", LocalFirst: true, HealthPath: "/ready", Servers: []proxy.Server{
+			// Its project limits requests (ADR 0029).
+			{Name: "shop", LocalFirst: true, HealthPath: "/ready", RequestRate: 200, Connections: 50, Servers: []proxy.Server{
 				{Name: "shop-r2-a", Address: "10.0.0.3:32771"},
 				{Name: "shop-r2-b", Address: "10.0.0.2:32772"},
 			}},
@@ -117,8 +118,9 @@ func callersConfig(t *testing.T) proxy.Config {
 		}
 	}
 	cfg.Backends = append(cfg.Backends,
-		proxy.Backend{Name: "db.staging", Servers: []proxy.Server{{Name: "db.staging-r1-a", Address: "10.120.1.4:5000"}}},
-		proxy.Backend{Name: "canary--db.staging", Servers: []proxy.Server{{Name: "db.staging-r1-a", Address: "10.120.1.4:5000"}}},
+		// A label shares its app's request counter.
+		proxy.Backend{Name: "db.staging", RequestRate: 100, Servers: []proxy.Server{{Name: "db.staging-r1-a", Address: "10.120.1.4:5000"}}},
+		proxy.Backend{Name: "canary--db.staging", RequestRate: 100, Servers: []proxy.Server{{Name: "db.staging-r1-a", Address: "10.120.1.4:5000"}}},
 	)
 	allow := []string{"db.staging", "shop.staging"}
 	cfg.Rules = append(cfg.Rules,

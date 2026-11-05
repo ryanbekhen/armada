@@ -343,7 +343,7 @@ cluster (ADR 0029). Keys left out are unlimited:
 
 ```bash
 armada project set shop --quota cpu=4,memory=8Gi,replicas=20,volumes=4,domains=2,secrets=50,jobs=2
-armada project create trial --quota cpu=1,memory=1Gi,replicas=4,egress=20M
+armada project create trial --quota cpu=1,memory=1Gi,replicas=4,egress=20M,requests=50,connections=20
 armada project show shop                  # used against the quota
 armada project set shop --quota none      # remove it
 ```
@@ -357,6 +357,8 @@ armada project set shop --quota none      # remove it
 | `secrets` | Its secrets (names, not versions) |
 | `jobs` | Job attempts running at once |
 | `egress` | Not a total: the bits per second each replica and job attempt may send (`500k`, `100M`, `1G`; from 1M to 10G) |
+| `requests` | Not a total: the requests per second each app may receive at each node's proxy |
+| `connections` | Not a total: the requests each app may have in progress at once at each node's proxy |
 
 A deploy, scale, rollback, or new secret that would go past a limit is
 refused with the dimension and the numbers. Job attempts past `jobs` wait
@@ -368,7 +370,14 @@ the projects an automation identity creates get the quota of its scope
 each container may write 1 MiB per second (4 MiB at once) to its log,
 kept in 3 files of 10 MB; `armada logs` shows a line such as `[armada:
 dropped 52428800 bytes of output over the log rate limit ...]` where
-output was dropped. Limits on request rate follow (ADR 0029).
+output was dropped.
+
+`requests` and `connections` apply to public and internal ingress alike,
+as soon as the quota changes, with no deploy. Requests past them get
+`429 Too Many Requests` from the proxy and never reach a replica (or wake
+one that scaled to zero). They count per app, its revision labels
+included, at each node's proxy: an app reached through three nodes may
+receive three times the limit in all.
 
 The `egress` limit covers everything a replica's container sends,
 responses to requests through ingress included; what it receives is not

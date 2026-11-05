@@ -281,6 +281,13 @@ func render(cfg proxy.Config, layout Layout, opts renderOptions) []byte {
 		}
 	}
 
+	if hasLimits(cfg) {
+		// App IDs are at most 94 bytes (spec.ValidAppID); one entry per
+		// limited app, kept a while after its last request.
+		w("backend %s", limitsTable)
+		w("    stick-table type string len 128 size %d expire 30s store http_req_rate(1s),conn_cur", 2*proxy.MaxBackends)
+		w("")
+	}
 	if cfg.ACMEAddress != "" {
 		w("backend be_armada_acme")
 		w("    server acme %s", cfg.ACMEAddress)
@@ -365,6 +372,7 @@ func (rr ruleRenderer) write(prefix string, rules []proxy.Rule) {
 	// honest.
 	match := func(i int) string { return fmt.Sprintf("{ var(txn.route) -m str %s%d }", prefix, i) }
 	for i, r := range rules {
+		writeLimits(w, match(i), rr.backends[r.Backend])
 		if r.StripPrefix {
 			w("    http-request set-path /%%[path,field(%d,/,0)] if %s", stripField(r.PathPrefix), match(i))
 		}
@@ -384,6 +392,32 @@ func (rr ruleRenderer) write(prefix string, rules []proxy.Rule) {
 			w("    use_backend %s if %s { nbsrv(%s) gt 0 } { var(txn.lf_d) -m int le 0 }", lo, match(i), lo)
 		}
 		w("    use_backend %s if %s", backendName(r.Backend), match(i))
+	}
+}
+
+// limitsTable is the stick table that counts each limited app's requests
+// at this proxy, keyed by app ID (ADR 0029).
+const limitsTable = "st_armada_limits"
+
+// hasLimits reports whether any backend of cfg limits its requests.
+func hasLimits(cfg proxy.Config) bool {
+	return slices.ContainsFunc(cfg.Backends, func(be proxy.Backend) bool { return be.RequestRate > 0 || be.Connections > 0 })
+}
+
+// writeLimits counts a route's requests under its app and answers 429
+// past the app's rate or requests in progress. The counter is tracked
+// for the request only (http-request), so it counts requests in progress,
+// not client connections; every route and backend of the app shares it.
+func writeLimits(w func(string, ...any), match string, be proxy.Backend) {
+	if be.RequestRate <= 0 && be.Connections <= 0 {
+		return
+	}
+	w("    http-request track-sc0 str(%s) table %s if %s", proxy.BackendApp(be.Name), limitsTable, match)
+	if be.RequestRate > 0 {
+		w("    http-request deny deny_status 429 if %s { sc_http_req_rate(0) gt %d }", match, be.RequestRate)
+	}
+	if be.Connections > 0 {
+		w("    http-request deny deny_status 429 if %s { sc_conn_cur(0) gt %d }", match, be.Connections)
 	}
 }
 

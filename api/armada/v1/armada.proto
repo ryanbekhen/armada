@@ -212,6 +212,10 @@ message Quota {
   // Not a total: the bits per second each replica and job attempt may
   // send, pinned into every revision deployed into the project.
   int64 egress_bits = 8;
+  // Not totals: the requests per second each app may receive at each
+  // node's proxy, and the requests it may have in progress there at once.
+  int32 request_rate = 9;
+  int32 connections = 10;
 }
 
 message ProjectInfo {
@@ -1015,6 +1019,12 @@ message ProxyBackend {
   // they are no busier than the app's replicas overall (ADR 0026). Off for
   // traffic splitting, which needs every server to keep its weight.
   bool local_first = 5;
+  // Requests per second the app may receive at this proxy, and requests it
+  // may have in progress here at once (its project's quota, ADR 0029); 0 is
+  // unlimited. Past them, requests get 429. Labelled backends of the same
+  // app share its counters.
+  int32 request_rate = 6;
+  int32 connections = 7;
 }
 
 message ProxyServer {

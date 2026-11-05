@@ -84,3 +84,28 @@ func TestQuotaEgress(t *testing.T) {
 		t.Error("FormatBitRate")
 	}
 }
+
+func TestQuotaRequestLimits(t *testing.T) {
+	q, err := ParseQuota("replicas=2,requests=200,connections=50,egress=10M")
+	if err != nil || q != (Quota{Replicas: 2, RequestRate: 200, Connections: 50, EgressBits: 10_000_000}) {
+		t.Fatalf("ParseQuota = %+v, %v", q, err)
+	}
+	if q.String() != "replicas=2,egress=10M,requests=200,connections=50" {
+		t.Errorf("String = %q", q.String())
+	}
+	for _, bad := range []string{"requests=-1", "requests=1.5", "connections=1000001", "requests=x"} {
+		if _, err := ParseQuota(bad); err == nil {
+			t.Errorf("ParseQuota(%q) accepted", bad)
+		}
+	}
+	if CheckQuota(Quota{RequestRate: -1}) == nil || CheckQuota(Quota{Connections: maxQuotaCount + 1}) == nil {
+		t.Error("CheckQuota accepted bad request limits")
+	}
+	// Limits, never totals.
+	if got := q.Exceeded(Quota{}, Quota{RequestRate: 1000, Connections: 1000}); got != nil {
+		t.Errorf("Exceeded = %v", got)
+	}
+	if got := Usage(Quota{}, Quota{RequestRate: 5}); got != "requests=5" {
+		t.Errorf("Usage = %q", got)
+	}
+}

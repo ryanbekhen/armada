@@ -67,7 +67,7 @@ const (
 	// migrations when records change incompatibly. Records under servers/
 	// and meta/ are read and written by every server, whatever its schema,
 	// so they only ever gain optional fields.
-	etcdSchema = 10
+	etcdSchema = 11
 
 	maxTxnRetries = 100
 	// auditKeep is how many audit events are retained.
@@ -2346,6 +2346,9 @@ var migrations = []migration{
 	// to rewrite; servers that would deploy without pinning the limit, or
 	// place a limited replica on a node that cannot shape traffic, can no
 	// longer lead.
+	func(*etx) error { return nil },
+	// 10 -> 11: request limits (ADR 0029) in quotas. Nothing to rewrite;
+	// servers that would not send them to the proxies can no longer lead.
 	func(*etx) error { return nil },
 }
 

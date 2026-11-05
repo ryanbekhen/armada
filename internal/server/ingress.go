@@ -100,15 +100,35 @@ func (s *Server) buildProxy(ctx context.Context, apps []store.App, replicas []st
 		certNames = append(certNames, "*."+root)
 	}
 
+	// Request limits come from each project's quota and apply at once
+	// (ADR 0029).
+	limits := map[string]spec.Quota{}
+	limitsOf := func(app string) (spec.Quota, error) {
+		project, _, _ := spec.SplitAppID(app)
+		if q, ok := limits[project]; ok {
+			return q, nil
+		}
+		p, err := s.store.GetProject(ctx, project)
+		if err != nil {
+			return spec.Quota{}, err
+		}
+		limits[project] = p.Quota
+		return p.Quota, nil
+	}
+
 	for _, app := range apps {
 		sp := app.Spec
 		if sp.Ingress == nil || sp.Ingress.Type == spec.IngressNone {
 			continue
 		}
+		q, err := limitsOf(app.Name)
+		if err != nil {
+			return nil, err
+		}
 		splits := len(app.Traffic) > 0 && !app.Rolling()
 		// Traffic splitting keeps every replica in one pool so revision
 		// weights hold; other apps prefer each node's own replicas.
-		be := proxy.Backend{Name: app.Name, Wake: sp.ScalesToZero(), LocalFirst: !splits}
+		be := proxy.Backend{Name: app.Name, Wake: sp.ScalesToZero(), LocalFirst: !splits, RequestRate: q.RequestRate, Connections: q.Connections}
 		if sp.Probes != nil && sp.Probes.Readiness != nil {
 			be.HealthPath = sp.Probes.Readiness.Path
 		}
@@ -134,7 +154,7 @@ func (s *Server) buildProxy(ctx context.Context, apps []store.App, replicas []st
 					continue
 				}
 				name := spec.LabelHost(t.Label, app.Name)
-				lb := proxy.Backend{Name: name, HealthPath: be.HealthPath}
+				lb := proxy.Backend{Name: name, HealthPath: be.HealthPath, RequestRate: q.RequestRate, Connections: q.Connections}
 				lb.Servers = s.proxyServers(app, replicas, func(r store.Replica) bool {
 					return r.App == app.Name && r.Revision == t.Revision && r.State == store.ReplicaRunning && r.Ready && !r.Draining() && r.Address != ""
 				})

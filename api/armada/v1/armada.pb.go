@@ -1172,7 +1172,11 @@ type Quota struct {
 	Jobs int32 `protobuf:"varint,7,opt,name=jobs,proto3" json:"jobs,omitempty"`
 	// Not a total: the bits per second each replica and job attempt may
 	// send, pinned into every revision deployed into the project.
-	EgressBits    int64 `protobuf:"varint,8,opt,name=egress_bits,json=egressBits,proto3" json:"egress_bits,omitempty"`
+	EgressBits int64 `protobuf:"varint,8,opt,name=egress_bits,json=egressBits,proto3" json:"egress_bits,omitempty"`
+	// Not totals: the requests per second each app may receive at each
+	// node's proxy, and the requests it may have in progress there at once.
+	RequestRate   int32 `protobuf:"varint,9,opt,name=request_rate,json=requestRate,proto3" json:"request_rate,omitempty"`
+	Connections   int32 `protobuf:"varint,10,opt,name=connections,proto3" json:"connections,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1259,6 +1263,20 @@ func (x *Quota) GetJobs() int32 {
 func (x *Quota) GetEgressBits() int64 {
 	if x != nil {
 		return x.EgressBits
+	}
+	return 0
+}
+
+func (x *Quota) GetRequestRate() int32 {
+	if x != nil {
+		return x.RequestRate
+	}
+	return 0
+}
+
+func (x *Quota) GetConnections() int32 {
+	if x != nil {
+		return x.Connections
 	}
 	return 0
 }
@@ -7328,7 +7346,13 @@ type ProxyBackend struct {
 	// Each node's proxy prefers the app's replicas on its own node while
 	// they are no busier than the app's replicas overall (ADR 0026). Off for
 	// traffic splitting, which needs every server to keep its weight.
-	LocalFirst    bool `protobuf:"varint,5,opt,name=local_first,json=localFirst,proto3" json:"local_first,omitempty"`
+	LocalFirst bool `protobuf:"varint,5,opt,name=local_first,json=localFirst,proto3" json:"local_first,omitempty"`
+	// Requests per second the app may receive at this proxy, and requests it
+	// may have in progress here at once (its project's quota, ADR 0029); 0 is
+	// unlimited. Past them, requests get 429. Labelled backends of the same
+	// app share its counters.
+	RequestRate   int32 `protobuf:"varint,6,opt,name=request_rate,json=requestRate,proto3" json:"request_rate,omitempty"`
+	Connections   int32 `protobuf:"varint,7,opt,name=connections,proto3" json:"connections,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -7396,6 +7420,20 @@ func (x *ProxyBackend) GetLocalFirst() bool {
 		return x.LocalFirst
 	}
 	return false
+}
+
+func (x *ProxyBackend) GetRequestRate() int32 {
+	if x != nil {
+		return x.RequestRate
+	}
+	return 0
+}
+
+func (x *ProxyBackend) GetConnections() int32 {
+	if x != nil {
+		return x.Connections
+	}
+	return 0
 }
 
 type ProxyServer struct {
@@ -9687,7 +9725,7 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\x14CreateProjectRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1c\n" +
 	"\tisolation\x18\x02 \x01(\tR\tisolation\x12&\n" +
-	"\x05quota\x18\x03 \x01(\v2\x10.armada.v1.QuotaR\x05quota\"\xe8\x01\n" +
+	"\x05quota\x18\x03 \x01(\v2\x10.armada.v1.QuotaR\x05quota\"\xad\x02\n" +
 	"\x05Quota\x12\x1d\n" +
 	"\n" +
 	"cpu_millis\x18\x01 \x01(\x03R\tcpuMillis\x12!\n" +
@@ -9698,7 +9736,10 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\asecrets\x18\x06 \x01(\x05R\asecrets\x12\x12\n" +
 	"\x04jobs\x18\a \x01(\x05R\x04jobs\x12\x1f\n" +
 	"\vegress_bits\x18\b \x01(\x03R\n" +
-	"egressBits\"\xa8\x02\n" +
+	"egressBits\x12!\n" +
+	"\frequest_rate\x18\t \x01(\x05R\vrequestRate\x12 \n" +
+	"\vconnections\x18\n" +
+	" \x01(\x05R\vconnections\"\xa8\x02\n" +
 	"\vProjectInfo\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x129\n" +
 	"\n" +
@@ -10172,7 +10213,7 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\bbackends\x18\x01 \x03(\v2\x17.armada.v1.ProxyBackendR\bbackends\x12*\n" +
 	"\x05rules\x18\x02 \x03(\v2\x14.armada.v1.ProxyRuleR\x05rules\x12?\n" +
 	"\fcertificates\x18\x03 \x03(\v2\x1b.armada.v1.ProxyCertificateR\fcertificates\x124\n" +
-	"\x16acme_challenge_address\x18\x04 \x01(\tR\x14acmeChallengeAddress\"\xaa\x01\n" +
+	"\x16acme_challenge_address\x18\x04 \x01(\tR\x14acmeChallengeAddress\"\xef\x01\n" +
 	"\fProxyBackend\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x120\n" +
 	"\aservers\x18\x02 \x03(\v2\x16.armada.v1.ProxyServerR\aservers\x12\x1f\n" +
@@ -10180,7 +10221,9 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"healthPath\x12\x12\n" +
 	"\x04wake\x18\x04 \x01(\bR\x04wake\x12\x1f\n" +
 	"\vlocal_first\x18\x05 \x01(\bR\n" +
-	"localFirst\"S\n" +
+	"localFirst\x12!\n" +
+	"\frequest_rate\x18\x06 \x01(\x05R\vrequestRate\x12 \n" +
+	"\vconnections\x18\a \x01(\x05R\vconnections\"S\n" +
 	"\vProxyServer\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
 	"\aaddress\x18\x02 \x01(\tR\aaddress\x12\x16\n" +
