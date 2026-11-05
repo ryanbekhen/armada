@@ -1118,6 +1118,9 @@ type revisionCache struct {
 	keys  *secrets.Keyring
 	m     map[string]store.Revision
 	vals  map[string]map[string]secrets.Value
+	// res holds what a replica of each revision reserves: scheduling asks for
+	// every replica of the cluster, once per app.
+	res map[string]resources
 }
 
 // secrets decrypts the secret versions rev pins.
@@ -1168,11 +1171,19 @@ func (c *revisionCache) reserved(ctx context.Context) func(store.Replica) resour
 		if r.Done {
 			return resources{} // a finished job attempt, kept for its logs
 		}
+		if res, ok := c.res[r.Revision]; ok {
+			return res
+		}
 		rev, err := c.get(ctx, r.Revision)
 		if err != nil {
 			return resources{}
 		}
-		return reservation(rev)
+		res := reservation(rev)
+		if c.res == nil {
+			c.res = map[string]resources{}
+		}
+		c.res[r.Revision] = res
+		return res
 	}
 }
 

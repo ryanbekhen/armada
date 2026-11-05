@@ -290,3 +290,49 @@ func TestDefaultCheck(t *testing.T) {
 		t.Error("TCP check of a closed port passed")
 	}
 }
+
+func TestImplicitPeriod(t *testing.T) {
+	t.Parallel()
+	for range 100 {
+		if d := implicitPeriod(true, 0); d < 9*time.Second || d > 11*time.Second {
+			t.Fatalf("ready and answering: %v", d)
+		}
+	}
+	if d := implicitPeriod(false, 0); d != time.Second {
+		t.Errorf("not ready yet: %v", d)
+	}
+	if d := implicitPeriod(true, 1); d != time.Second {
+		t.Errorf("after a failure: %v", d)
+	}
+}
+
+// A replica with a port and no readiness probe is checked often until it
+// answers, then rarely: a node runs this check for every replica.
+func TestImplicitReadinessSlowsOnceReady(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	a, _ := newAgent(t)
+	var checks atomic.Int32
+	a.cfg.Check = func(context.Context, string, string) error {
+		if checks.Add(1) < 3 {
+			return errors.New("refused")
+		}
+		return nil
+	}
+	a.setDesired([]*armadav1.ReplicaSpec{replica("a-1", "nginx:1", 80)}, nil)
+	if _, err := a.Reconcile(ctx); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for checks.Load() < 3 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if got := checks.Load(); got != 3 {
+		t.Fatalf("%d checks before ready", got)
+	}
+	time.Sleep(2500 * time.Millisecond)
+	if got := checks.Load(); got != 3 {
+		t.Errorf("%d checks: the check kept its fast period once ready", got)
+	}
+}

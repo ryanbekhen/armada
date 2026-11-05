@@ -267,14 +267,18 @@ func (s *Server) applyReport(ctx context.Context, node store.Node, r *armadav1.R
 		if p := prev[next.ID]; p.State != next.State || p.Ready != (next.Ready && next.State == store.ReplicaRunning) || p.Address != next.Address || p.IP != next.IP || p.Finished != next.Finished {
 			changed = true
 		}
-		err := s.store.UpdateReplicaStatus(ctx, node.ID, next)
-		switch {
-		case err == nil && prev[next.ID].Run == 0:
-			// Job attempts are recorded by the job reconciler.
-			s.replicaEvent(ctx, prev[next.ID], next)
-		case err == nil:
-		case !errors.Is(err, store.ErrNotFound):
-			s.log.Warn("update replica status", "err", err)
+		// A report lists every replica of the node, usually to say one has
+		// changed: the others cost no write.
+		if !sameStatus(prev[next.ID], next) {
+			err := s.store.UpdateReplicaStatus(ctx, node.ID, next)
+			switch {
+			case err == nil && prev[next.ID].Run == 0:
+				// Job attempts are recorded by the job reconciler.
+				s.replicaEvent(ctx, prev[next.ID], next)
+			case err == nil:
+			case !errors.Is(err, store.ErrNotFound):
+				s.log.Warn("update replica status", "err", err)
+			}
 		}
 		if d := st.GetImageDigest(); d != "" {
 			s.recordDigest(ctx, rev, d)
@@ -288,6 +292,15 @@ func (s *Server) applyReport(ctx context.Context, node store.Node, r *armadav1.R
 	if changed {
 		s.Trigger()
 	}
+}
+
+// sameStatus reports whether a report says nothing new about a replica. A
+// finished job attempt keeps the exit code it was first recorded with, and a
+// stopped container may report another one, which UpdateReplicaStatus ignores.
+func sameStatus(have store.Replica, st store.ReplicaStatus) bool {
+	return have.State == st.State && have.ContainerID == st.ContainerID && have.Address == st.Address &&
+		have.IP == st.IP && have.Message == st.Message && have.Ready == (st.Ready && st.State == store.ReplicaRunning) &&
+		have.Finished == st.Finished && (have.Finished || have.ExitCode == st.ExitCode)
 }
 
 // recordPlatforms keeps the first valid list of image platforms an agent

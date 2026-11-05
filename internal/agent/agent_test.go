@@ -740,3 +740,84 @@ func (b blockingPuller) Pull(ctx context.Context, image string, auth *runtime.Re
 	<-b.release
 	return b.Driver.Pull(ctx, image, auth)
 }
+
+// A container that ran before the agent started keeps the status the server
+// has until its probes say something, so restarting an agent takes nothing
+// out of the proxies.
+func TestAdoptedReplicaWaitsForProbes(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	a, _ := newAgent(t)
+	verdict := make(chan error)
+	a.cfg.Check = func(c context.Context, _, _ string) error {
+		select {
+		case err := <-verdict:
+			return err
+		case <-c.Done():
+			return c.Err()
+		}
+	}
+	a.setDesired([]*armadav1.ReplicaSpec{replica("a-1", "nginx:1", 80)}, nil)
+	first, err := a.Reconcile(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Started by this agent: reported as not ready, as always.
+	if len(first.GetReplicas()) != 1 || first.GetReplicas()[0].GetReady() {
+		t.Fatalf("new container: %v", first)
+	}
+
+	// The agent restarts: the same container is now older than the agent.
+	a.stopProbes("a-1")
+	a.began = time.Now().Add(time.Hour)
+	waiting, err := a.Reconcile(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(waiting.GetReplicas()) != 0 {
+		t.Fatalf("adopted container without a verdict was reported: %v", waiting)
+	}
+
+	verdict <- nil
+	var ready *armadav1.ReplicaReport
+	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		if ready, err = a.Reconcile(ctx); err != nil {
+			t.Fatal(err)
+		}
+		if len(ready.GetReplicas()) == 1 {
+			break
+		}
+	}
+	if len(ready.GetReplicas()) != 1 || !ready.GetReplicas()[0].GetReady() {
+		t.Fatalf("after a passing probe: %v", ready)
+	}
+}
+
+// An adopted container that fails its first check is reported at once.
+func TestAdoptedReplicaFailingProbeIsReported(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	a, _ := newAgent(t)
+	a.cfg.Check = func(context.Context, string, string) error { return errors.New("refused") }
+	a.setDesired([]*armadav1.ReplicaSpec{replica("a-1", "nginx:1", 80)}, nil)
+	if _, err := a.Reconcile(ctx); err != nil {
+		t.Fatal(err)
+	}
+	a.stopProbes("a-1")
+	a.began = time.Now().Add(time.Hour)
+	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		r, err := a.Reconcile(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(r.GetReplicas()) == 1 {
+			if st := r.GetReplicas()[0]; st.GetReady() || !strings.Contains(st.GetMessage(), "refused") {
+				t.Fatalf("after a failing probe: %v", st)
+			}
+			return
+		}
+	}
+	t.Fatal("the failing replica was never reported")
+}

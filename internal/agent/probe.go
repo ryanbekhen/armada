@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"math/rand/v2"
 	"net"
 	"net/http"
 	"strconv"
@@ -23,6 +24,11 @@ type CheckFunc func(ctx context.Context, addr, path string) error
 // Without a readiness probe, an app with a port is ready once the port
 // accepts connections, so it never gets traffic before it listens.
 var implicitReadiness = armadav1.Probe{PeriodMs: 1000, TimeoutMs: 1000, FailureThreshold: 3}
+
+// implicitSteadyEvery is how often that check runs while the port answers. A
+// node runs one per replica, and the proxies check the replicas themselves.
+// Any failure goes back to the period of implicitReadiness.
+const implicitSteadyEvery = 10 * time.Second
 
 // probeClient never follows redirects or uses proxy settings from the
 // environment: probes must reach the container and nothing else.
@@ -65,6 +71,7 @@ type probeWorker struct {
 
 	mu      sync.Mutex
 	ready   bool
+	checked bool // the probes have reached a verdict
 	message string
 	// note (why the container was restarted) prefixes every message until
 	// it has been reported while the container is ready (clearNote).
@@ -77,11 +84,18 @@ func (w *probeWorker) status() (bool, string) {
 	return w.ready, w.message
 }
 
+func (w *probeWorker) hasVerdict() bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.checked
+}
+
 // set records a verdict and reports whether readiness changed.
 func (w *probeWorker) set(ready bool, msg string) bool {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	changed := w.ready != ready
+	w.checked = true
 	switch {
 	case w.note != "" && msg != "":
 		msg = w.note + "; " + msg
@@ -166,7 +180,14 @@ func (a *Agent) runProbes(ctx context.Context, w *probeWorker, s *armadav1.Repli
 		})
 	}
 	if readiness != nil {
-		watch(ctx, check(readiness), readiness, func(err error, failures int) bool {
+		every := func(int) time.Duration { return millis(readiness.GetPeriodMs(), 10*time.Second) }
+		if s.GetReadiness() == nil {
+			every = func(failures int) time.Duration {
+				ready, _ := w.status()
+				return implicitPeriod(ready, failures)
+			}
+		}
+		watchEvery(ctx, check(readiness), readiness, every, func(err error, failures int) bool {
 			var changed bool
 			ready, _ := w.status()
 			switch {
@@ -189,6 +210,22 @@ func (a *Agent) runProbes(ctx context.Context, w *probeWorker, s *armadav1.Repli
 // result with the count of consecutive failures to fn until fn returns true
 // or ctx ends.
 func watch(ctx context.Context, check func(context.Context) error, p *armadav1.Probe, fn func(err error, failures int) bool) {
+	every := func(int) time.Duration { return millis(p.GetPeriodMs(), 10*time.Second) }
+	watchEvery(ctx, check, p, every, fn)
+}
+
+// implicitPeriod is how long the implicit readiness check waits. The steady
+// period varies a little to spread the checks of containers that started
+// together, such as those an agent adopts when it starts.
+func implicitPeriod(ready bool, failures int) time.Duration {
+	if !ready || failures > 0 {
+		return millis(implicitReadiness.GetPeriodMs(), time.Second)
+	}
+	return implicitSteadyEvery - implicitSteadyEvery/10 + rand.N(implicitSteadyEvery/5) //nolint:gosec // not security sensitive
+}
+
+// watchEvery is watch with a period that depends on the consecutive failures.
+func watchEvery(ctx context.Context, check func(context.Context) error, p *armadav1.Probe, every func(failures int) time.Duration, fn func(err error, failures int) bool) {
 	if !sleep(ctx, millis(p.GetInitialDelayMs(), 0)) {
 		return
 	}
@@ -208,7 +245,7 @@ func watch(ctx context.Context, check func(context.Context) error, p *armadav1.P
 		if fn(err, failures) {
 			return
 		}
-		if !sleep(ctx, millis(p.GetPeriodMs(), 10*time.Second)) {
+		if !sleep(ctx, every(failures)) {
 			return
 		}
 	}

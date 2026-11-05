@@ -19,7 +19,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/containerd/containerd/api/services/tasks/v1"
 	"github.com/containerd/containerd/api/types/runc/options"
+	"github.com/containerd/containerd/api/types/task"
 	"github.com/containerd/containerd/v2/client"
 	"github.com/containerd/containerd/v2/core/remotes/docker"
 	"github.com/containerd/containerd/v2/core/remotes/docker/config"
@@ -567,9 +569,18 @@ func (d *Driver) List(ctx context.Context, labels map[string]string) ([]runtime.
 	if err != nil {
 		return nil, err
 	}
+	// One request for the state of every task, rather than two for each. A
+	// task the answer leaves out, as containerd does when it cannot reach its
+	// shim, is asked for by itself: only that can say it is gone.
+	known := map[string]*task.Process{}
+	if resp, err := d.client.TaskService().List(ctx, &tasks.ListTasksRequest{}); err == nil {
+		for _, t := range resp.GetTasks() {
+			known[t.GetID()] = t
+		}
+	}
 	var out []runtime.Container
 	for _, c := range cs {
-		rc, err := d.describe(ctx, c)
+		rc, err := d.describeWith(ctx, c, known[c.ID()])
 		if errdefs.IsNotFound(err) {
 			continue // removed meanwhile
 		}
@@ -604,6 +615,11 @@ func (d *Driver) Inspect(ctx context.Context, id string) (runtime.Container, err
 }
 
 func (d *Driver) describe(ctx context.Context, c client.Container) (runtime.Container, error) {
+	return d.describeWith(ctx, c, nil)
+}
+
+// describeWith describes c, using its task's state if it is known already.
+func (d *Driver) describeWith(ctx context.Context, c client.Container, known *task.Process) (runtime.Container, error) {
 	info, err := c.Info(ctx, client.WithoutRefreshedMetadata)
 	if err != nil {
 		return runtime.Container{}, err
@@ -625,6 +641,21 @@ func (d *Driver) describe(ctx context.Context, c client.Container) (runtime.Cont
 	}
 	rc.StartedAt, _ = time.Parse(time.RFC3339Nano, info.Labels[labelStarted])
 
+	if known != nil {
+		switch known.GetStatus() {
+		case task.Status_RUNNING:
+			rc.State = runtime.StateRunning
+		case task.Status_CREATED:
+			rc.State = runtime.StateCreated
+		case task.Status_PAUSED, task.Status_PAUSING:
+			rc.State = runtime.StatePaused
+		case task.Status_STOPPED:
+			rc.State, rc.ExitCode = runtime.StateExited, int(known.GetExitStatus())
+		default:
+			rc.State = runtime.StateDead
+		}
+		return rc, nil
+	}
 	t, err := c.Task(ctx, nil)
 	if errdefs.IsNotFound(err) {
 		// No task: the node rebooted or containerd lost the shim. The

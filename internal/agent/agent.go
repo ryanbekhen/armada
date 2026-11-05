@@ -140,8 +140,9 @@ type InternalDNS interface {
 
 // Agent reconciles containers on one node.
 type Agent struct {
-	cfg Config
-	log *slog.Logger
+	cfg   Config
+	log   *slog.Logger
+	began time.Time
 
 	mu        sync.Mutex
 	desired   map[string]*armadav1.ReplicaSpec // nil until the first assignment
@@ -215,6 +216,7 @@ func New(cfg Config) *Agent {
 		}
 	}
 	return &Agent{
+		began:     time.Now(),
 		cfg:       cfg,
 		servers:   slices.Clone(cfg.Servers),
 		log:       cfg.Logger.With("component", "agent", "node", cfg.NodeID),
@@ -547,7 +549,11 @@ func (a *Agent) startPending(ctx context.Context, pending []pendingStart, settle
 	build := func() *armadav1.ReplicaReport {
 		r := &armadav1.ReplicaReport{Replicas: slices.Clone(settled)}
 		for _, x := range running {
-			r.Replicas = append(r.Replicas, a.state(ctx, x.spec, x.container))
+			// In this order: a verdict seen here is one state reports.
+			a.readiness(ctx, x.spec, x.container)
+			if !a.awaitsVerdict(x.spec, x.container) {
+				r.Replicas = append(r.Replicas, a.state(ctx, x.spec, x.container))
+			}
 		}
 		slices.SortFunc(r.Replicas, func(x, y *armadav1.ReplicaState) int { return cmp.Compare(x.GetId(), y.GetId()) })
 		return r
@@ -718,6 +724,21 @@ func (a *Agent) readiness(ctx context.Context, s *armadav1.ReplicaSpec, c runtim
 	}
 	a.mu.Unlock()
 	return w.status()
+}
+
+// awaitsVerdict reports whether c was already running when this agent started
+// and its probes have not said anything yet. The agent knows nothing about it
+// then, but the server does: saying "not ready" would take a container that is
+// serving out of every proxy each time an agent restarts. It is left out of
+// the reports, and keeps the status the server has, until the first verdict.
+func (a *Agent) awaitsVerdict(s *armadav1.ReplicaSpec, c runtime.Container) bool {
+	if c.State != runtime.StateRunning || c.StartedAt.IsZero() || !c.StartedAt.Before(a.began) {
+		return false
+	}
+	a.mu.Lock()
+	w := a.probes[s.GetId()]
+	a.mu.Unlock()
+	return w != nil && !w.hasVerdict()
 }
 
 // applyProxy hands the latest ingress configuration to the proxy driver. A
