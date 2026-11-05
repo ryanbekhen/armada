@@ -70,7 +70,8 @@ armada deploy -f web.yaml    # → https://web.apps.example.com
   `armada exec web -it -- sh` opens a shell in one, with the container's
   own security settings, and every session is audited.
 - **Usage.** `armada top` shows the CPU and memory each app, replica, and
-  node uses next to what it reserves, sampled every 10 seconds.
+  node uses next to what it reserves, sampled every 10 seconds, and per
+  project also its volumes, requests, and egress.
 - **Autoscaling.** `scale.rules` keep an app between `scale.min` and
   `scale.max` by requests in progress, CPU, or memory per replica. With
   `scale.min: 0`, an idle app stops its last replica and the next request

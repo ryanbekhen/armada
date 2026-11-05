@@ -6,6 +6,7 @@ import (
 	"io"
 	"slices"
 	"text/tabwriter"
+	"time"
 
 	"github.com/spf13/cobra"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -15,14 +16,17 @@ import (
 
 func newTopCommand(g *globals) *cobra.Command {
 	var (
-		output string
-		nodes  bool
+		output   string
+		nodes    bool
+		projects bool
 	)
 	cmd := &cobra.Command{
 		Use:   "top [APP]",
 		Short: "Show the CPU and memory apps, replicas, and nodes use",
 		Long: "Show the CPU and memory replicas use, from samples their nodes take every 10 seconds.\n\n" +
-			"Without arguments it lists apps; with APP, that app's replicas; with --nodes, nodes.\n" +
+			"Without arguments it lists apps; with APP, that app's replicas; with --nodes, nodes;\n" +
+			"with --projects, projects, with the requests they received and the bytes they sent\n" +
+			"since the control plane's leader started counting.\n" +
 			"CPU is shown as used/reserved and memory as used/limit; \"-\" means no recent sample\n" +
 			"(the replica is not running, or its node's runtime cannot measure containers).",
 		Args: cobra.MaximumNArgs(1),
@@ -35,6 +39,9 @@ func newTopCommand(g *globals) *cobra.Command {
 			}
 			if nodes && len(args) == 1 {
 				return errors.New("--nodes lists every node; leave out APP")
+			}
+			if projects && (nodes || len(args) == 1) {
+				return errors.New("--projects lists every project; leave out APP and --nodes")
 			}
 			req := &armadav1.TopRequest{}
 			if len(args) == 1 {
@@ -50,6 +57,7 @@ func newTopCommand(g *globals) *cobra.Command {
 				return rpcErr(err)
 			}
 			resp.Replicas = slices.DeleteFunc(resp.Replicas, func(r *armadav1.ReplicaTop) bool { return !g.listed(r.App) })
+			resp.Projects = slices.DeleteFunc(resp.Projects, func(p *armadav1.ProjectTop) bool { return g.project != "" && p.GetName() != g.project })
 			out := cmd.OutOrStdout()
 			if output == outputJSON {
 				b, err := protojson.MarshalOptions{Multiline: true, Indent: "  "}.Marshal(resp)
@@ -62,6 +70,8 @@ func newTopCommand(g *globals) *cobra.Command {
 			switch {
 			case nodes:
 				return printTopNodes(out, resp)
+			case projects:
+				return printTopProjects(out, resp)
 			case req.App != "":
 				return printTopReplicas(out, resp)
 			default:
@@ -71,6 +81,7 @@ func newTopCommand(g *globals) *cobra.Command {
 	}
 	cmd.Flags().StringVarP(&output, "output", "o", outputText, "output format: text or json")
 	cmd.Flags().BoolVar(&nodes, "nodes", false, "list nodes instead of apps")
+	cmd.Flags().BoolVar(&projects, "projects", false, "list projects instead of apps")
 	return cmd
 }
 
@@ -148,6 +159,28 @@ func printTopNodes(out io.Writer, resp *armadav1.TopResponse) error {
 			mem, usedBytes(n.GetMemoryReservedBytes()), humanBytes(n.GetMemoryAllocatableBytes()))
 	}
 	return tw.Flush()
+}
+
+func printTopProjects(out io.Writer, resp *armadav1.TopResponse) error {
+	tw := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
+	_, _ = fmt.Fprintln(tw, "PROJECT\tREPLICAS\tCPU\tMEMORY\tVOLUMES\tREQUESTS\tEGRESS")
+	for _, p := range resp.GetProjects() {
+		cpu, mem := "-", "-"
+		if p.GetMeasured() > 0 {
+			cpu, mem = millis(p.GetCpuMillis()), usedBytes(p.GetMemoryBytes())
+		}
+		_, _ = fmt.Fprintf(tw, "%s\t%d\t%s/%s\t%s/%s\t%s\t%d\t%s\n", p.GetName(), p.GetReplicas(),
+			cpu, millis(p.GetCpuReservedMillis()), mem, humanBytes(p.GetMemoryReservedBytes()),
+			usedBytes(p.GetVolumeBytes()), p.GetRequests(), usedBytes(p.GetEgressBytes()))
+	}
+	if err := tw.Flush(); err != nil {
+		return err
+	}
+	if since := resp.GetCountedSince(); since != nil {
+		_, err := fmt.Fprintf(out, "\nRequests and egress since %s.\n", since.AsTime().Local().Format(time.RFC3339))
+		return err
+	}
+	return nil
 }
 
 // millis formats millicores; 0 is shown, unlike an unknown capacity.

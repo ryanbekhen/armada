@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"math"
 	"slices"
 	"sync"
 	"time"
@@ -24,6 +25,10 @@ const (
 	// maxInFlight bounds one node's count of requests in progress for a
 	// replica.
 	maxInFlight = 1_000_000
+	// maxReportRequests and maxReportEgress bound what one report adds to a
+	// project's counters for one replica.
+	maxReportRequests = 1 << 30
+	maxReportEgress   = 1 << 40
 )
 
 // usageStore keeps the latest usage sample from each node, in memory only:
@@ -37,7 +42,18 @@ type usageStore struct {
 	active map[string]time.Time
 	// volumes is each node's latest volume measurement (ADR 0025).
 	volumes map[string]volumeUsage
+	// owners says which project and node each replica belongs to, from the
+	// reconciler's latest pass, so a report costs no store access.
+	owners map[string]replicaOwner
+	// totals counts requests and egress per project since since. Replicas
+	// come and go, so the sums are kept here, not derived when read.
+	totals map[string]projectTotals
+	since  time.Time
 }
+
+type replicaOwner struct{ project, node string }
+
+type projectTotals struct{ requests, egress int64 }
 
 // maxActive bounds usageStore.active.
 const maxActive = 8192
@@ -57,7 +73,10 @@ type replicaUsage struct {
 }
 
 func newUsageStore() *usageStore {
-	return &usageStore{nodes: map[string]nodeUsage{}, active: map[string]time.Time{}, volumes: map[string]volumeUsage{}}
+	return &usageStore{
+		nodes: map[string]nodeUsage{}, active: map[string]time.Time{}, volumes: map[string]volumeUsage{},
+		owners: map[string]replicaOwner{}, totals: map[string]projectTotals{},
+	}
 }
 
 // set replaces nodeID's sample. Reports are self-reported and untrusted:
@@ -92,6 +111,7 @@ func (u *usageStore) set(nodeID string, r *armadav1.UsageReport, at time.Time) {
 		}
 	}
 	u.mu.Lock()
+	u.count(nodeID, r)
 	for _, id := range busy {
 		u.active[id] = at
 	}
@@ -104,6 +124,67 @@ func (u *usageStore) set(nodeID string, r *armadav1.UsageReport, at time.Time) {
 	}
 	u.nodes[nodeID] = nodeUsage{at: at, replicas: reps, load: load, loadMeasured: r.GetLoadMeasured()}
 	u.mu.Unlock()
+}
+
+// count adds a report to the project counters; u.mu is held. Egress counts
+// only from a replica's own node. Requests count from every node's proxy,
+// like the load of ADR 0022.
+func (u *usageStore) count(nodeID string, r *armadav1.UsageReport) {
+	for _, ru := range r.GetReplicas() {
+		if o, ok := u.owners[ru.GetId()]; ok && o.node == nodeID {
+			t := u.totals[o.project]
+			t.egress = saturatingAdd(t.egress, max(0, min(ru.GetEgressBytes(), maxReportEgress)))
+			u.totals[o.project] = t
+		}
+	}
+	if !r.GetLoadMeasured() {
+		return
+	}
+	for _, l := range r.GetLoad() {
+		if o, ok := u.owners[l.GetId()]; ok {
+			t := u.totals[o.project]
+			t.requests = saturatingAdd(t.requests, max(0, min(l.GetRequests(), maxReportRequests)))
+			u.totals[o.project] = t
+		}
+	}
+}
+
+func saturatingAdd(a, b int64) int64 {
+	if a > math.MaxInt64-b {
+		return math.MaxInt64
+	}
+	return a + b
+}
+
+// setOwners replaces what reports are counted against. Counting starts with
+// the first call.
+func (u *usageStore) setOwners(reps []store.Replica, now time.Time) {
+	owners := make(map[string]replicaOwner, len(reps))
+	for _, r := range reps {
+		if p, _, ok := spec.SplitAppID(r.App); ok {
+			owners[r.ID] = replicaOwner{project: p, node: r.NodeID}
+		}
+	}
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	u.owners = owners
+	if u.since.IsZero() {
+		u.since = now
+	}
+}
+
+// projectTotals returns a project's counters and when counting began.
+func (u *usageStore) projectTotals(project string) (projectTotals, time.Time) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	return u.totals[project], u.since
+}
+
+// forgetProject drops a removed project's counters.
+func (u *usageStore) forgetProject(project string) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	delete(u.totals, project)
 }
 
 func (u *usageStore) forget(nodeID string) {
@@ -201,6 +282,9 @@ func (s *Server) Top(ctx context.Context, req *armadav1.TopRequest) (*armadav1.T
 	if req.GetApp() != "" {
 		return resp, nil
 	}
+	if err := s.topProjects(ctx, acc, resp, now); err != nil {
+		return nil, storeErr(err)
+	}
 
 	nodes, err := s.store.ListNodes(ctx)
 	if err != nil {
@@ -233,4 +317,54 @@ func (s *Server) Top(ctx context.Context, req *armadav1.TopRequest) (*armadav1.T
 		resp.Nodes = nil
 	}
 	return resp, nil
+}
+
+// topProjects adds up what the replicas in resp use per project, for the
+// projects the caller may manage (ADR 0029).
+func (s *Server) topProjects(ctx context.Context, acc access, resp *armadav1.TopResponse, now time.Time) error {
+	ps, err := s.store.ListProjects(ctx)
+	if err != nil {
+		return err
+	}
+	vols, err := s.store.ListVolumes(ctx, "")
+	if err != nil {
+		return err
+	}
+	byName := make(map[string]*armadav1.ProjectTop, len(ps))
+	for _, p := range ps {
+		if acc.project(p.Name) != nil {
+			continue
+		}
+		totals, since := s.usage.projectTotals(p.Name)
+		pt := &armadav1.ProjectTop{Name: p.Name, Requests: totals.requests, EgressBytes: totals.egress}
+		byName[p.Name] = pt
+		resp.Projects = append(resp.Projects, pt)
+		if !since.IsZero() {
+			resp.CountedSince = timestamppb.New(since)
+		}
+	}
+	for _, r := range resp.GetReplicas() {
+		p, _, _ := spec.SplitAppID(r.GetApp())
+		pt := byName[p]
+		if pt == nil {
+			continue
+		}
+		pt.Replicas++
+		pt.CpuReservedMillis += r.GetCpuReservedMillis()
+		pt.MemoryReservedBytes += r.GetMemoryLimitBytes()
+		if r.GetMeasured() {
+			pt.Measured++
+			pt.CpuMillis += r.GetCpuMillis()
+			pt.MemoryBytes += r.GetMemoryBytes()
+		}
+	}
+	for _, v := range vols {
+		p, _, _ := spec.SplitAppID(v.App)
+		if pt := byName[p]; pt != nil {
+			if b, ok := s.usage.volume(v.Node, v.App, v.Name, now); ok {
+				pt.VolumeBytes += b
+			}
+		}
+	}
+	return nil
 }

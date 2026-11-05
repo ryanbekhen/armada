@@ -288,6 +288,13 @@ func TestVolumeBackupRestoreRemove(t *testing.T) {
 		l, err := c.admin.ListVolumes(c.ctx, &armadav1.ListVolumesRequest{App: "web"})
 		return err == nil && len(l.Volumes) == 1 && l.Volumes[0].Node == "n2" && l.Volumes[0].InUse && l.Volumes[0].UsedBytes == 2
 	})
+	top, err := c.admin.Top(c.ctx, &armadav1.TopRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p := top.GetProjects()[0]; p.GetName() != "default" || p.GetVolumeBytes() != 2 {
+		t.Errorf("project usage: %v", p)
+	}
 	reg := prometheus.NewPedanticRegistry()
 	reg.MustRegister(&clusterCollector{s: c.srv})
 	mfs, err := reg.Gather()

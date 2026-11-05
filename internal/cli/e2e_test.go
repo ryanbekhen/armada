@@ -335,6 +335,12 @@ func TestEndToEnd(t *testing.T) {
 	if code, out, _ := cli("top", "-o", "json"); code != 0 || !regexp.MustCompile(`"measured":\s+true`).MatchString(out) {
 		t.Errorf("top -o json: code=%d out=%q", code, out)
 	}
+	if code, out, stderr := cli("top", "--projects"); code != 0 || !strings.Contains(out, "PROJECT") || !strings.Contains(out, "default") || !strings.Contains(out, "Requests and egress since") {
+		t.Errorf("top --projects: code=%d out=%q err=%q", code, out, stderr)
+	}
+	if code, _, stderr := cli("top", "web", "--projects"); code != 1 || !strings.Contains(stderr, "--projects") {
+		t.Errorf("top web --projects: code=%d err=%q", code, stderr)
+	}
 	if code, _, stderr := cli("top", "web", "--nodes"); code != 1 || !strings.Contains(stderr, "--nodes") {
 		t.Errorf("top web --nodes: code=%d err=%q", code, stderr)
 	}
