@@ -18,15 +18,15 @@ Every architectural decision that is hard to reverse is recorded here. Copy `000
 | [0012](0012-upgrades-and-state-schema.md) | Upgrades and state schema migrations | Accepted |
 | [0013](0013-replica-rebalancing.md) | Replica rebalancing | Accepted |
 | [0014](0014-node-labels-and-placement.md) | Node labels and app placement | Accepted |
-| [0017](0017-exec.md) | Running commands in replicas | Accepted |
-| [0018](0018-top.md) | Resource usage of replicas | Accepted |
-| [0019](0019-metrics-endpoint.md) | Metrics endpoint | Accepted |
-| [0020](0020-event-history.md) | Event history | Accepted |
-| [0021](0021-jobs.md) | Jobs | Accepted |
-| [0022](0022-autoscaling.md) | Autoscaling | Accepted |
-| [0023](0023-scale-to-zero.md) | Scale to zero | Accepted |
-| [0024](0024-traffic-splitting.md) | Traffic splitting | Accepted |
-| [0025](0025-persistent-volumes.md) | Persistent volumes | Accepted |
-| [0026](0026-local-first-routing.md) | Local-first routing | Accepted |
-| [0027](0027-cluster-network.md) | Cluster network | Accepted |
-| [0029](0029-projects-and-workload-isolation.md) | Projects and workload isolation | Accepted |
+| [0015](0015-exec.md) | Running commands in replicas | Accepted |
+| [0016](0016-top.md) | Resource usage of replicas | Accepted |
+| [0017](0017-metrics-endpoint.md) | Metrics endpoint | Accepted |
+| [0018](0018-event-history.md) | Event history | Accepted |
+| [0019](0019-jobs.md) | Jobs | Accepted |
+| [0020](0020-autoscaling.md) | Autoscaling | Accepted |
+| [0021](0021-scale-to-zero.md) | Scale to zero | Accepted |
+| [0022](0022-traffic-splitting.md) | Traffic splitting | Accepted |
+| [0023](0023-persistent-volumes.md) | Persistent volumes | Accepted |
+| [0024](0024-local-first-routing.md) | Local-first routing | Accepted |
+| [0025](0025-cluster-network.md) | Cluster network | Accepted |
+| [0026](0026-projects-and-workload-isolation.md) | Projects and workload isolation | Accepted |

@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// Job run states (ADR 0021).
+// Job run states (ADR 0019).
 const (
 	RunPending   = "pending"
 	RunRunning   = "running"

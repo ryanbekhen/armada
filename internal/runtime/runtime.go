@@ -124,16 +124,16 @@ type ContainerSpec struct {
 	// DNS overrides the container's nameservers (private IPs only); empty
 	// keeps the engine default.
 	DNS []string
-	// Volumes are mounted read-write (ADR 0025); only drivers for which
+	// Volumes are mounted read-write (ADR 0023); only drivers for which
 	// CanMountVolumes reports true accept them.
 	Volumes []VolumeMount
 	// Sandbox runs the container in a userspace kernel (`isolation:
-	// sandbox`, ADR 0029), so its system calls never reach the node's
+	// sandbox`, ADR 0026), so its system calls never reach the node's
 	// kernel directly; only drivers for which CanSandbox reports true
 	// accept it.
 	Sandbox bool
 	// EgressBits limits the bits per second the container may send (quota
-	// egress, ADR 0029); 0 is unlimited. Only drivers for which
+	// egress, ADR 0026); 0 is unlimited. Only drivers for which
 	// CanLimitEgress reports true accept a limit.
 	EgressBits int64
 }
@@ -237,7 +237,7 @@ type TermSize struct {
 	Rows, Cols uint16
 }
 
-// ExecOptions describes a command to run in an app container (ADR 0017).
+// ExecOptions describes a command to run in an app container (ADR 0015).
 type ExecOptions struct {
 	// Cmd is the command and its arguments (CheckExecCommand).
 	Cmd []string
@@ -254,7 +254,7 @@ type ExecOptions struct {
 	Stdout, Stderr io.Writer
 }
 
-// Execer runs commands in app containers (armada exec, ADR 0017). The
+// Execer runs commands in app containers (armada exec, ADR 0015). The
 // command gets the container's own security context: user, capabilities,
 // no-new-privileges, seccomp, limits, and namespaces. It is optional.
 type Execer interface {
@@ -273,7 +273,7 @@ func CanExec(d Driver) bool {
 	return ok
 }
 
-// Stats is what an app container uses (ADR 0018).
+// Stats is what an app container uses (ADR 0016).
 type Stats struct {
 	// CPU is the CPU time the container used since it started.
 	CPU time.Duration
@@ -285,7 +285,7 @@ type Stats struct {
 	EgressBytes int64
 }
 
-// StatsReader samples what app containers use (armada top, ADR 0018). It
+// StatsReader samples what app containers use (armada top, ADR 0016). It
 // is optional.
 type StatsReader interface {
 	Stats(ctx context.Context, id string) (Stats, error)

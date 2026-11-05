@@ -112,7 +112,7 @@ func CheckSystemMount(m Mount) error {
 	return nil
 }
 
-// Exec limits (ADR 0017).
+// Exec limits (ADR 0015).
 const (
 	MaxExecArgs   = 64
 	MaxExecArgLen = 4096

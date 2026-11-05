@@ -9,7 +9,7 @@ import (
 	"github.com/ryanbekhen/armada/internal/store"
 )
 
-// attempt runs one attempt of a job run (ADR 0021). Its container runs
+// attempt runs one attempt of a job run (ADR 0019). Its container runs
 // once: it is never restarted, and when it exits its exit code is
 // reported. A done attempt is stopped if it still runs, never started, and
 // kept for its logs until the server drops it. It returns nil when there

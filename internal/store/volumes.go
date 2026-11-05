@@ -9,7 +9,7 @@ import (
 )
 
 // Volume is a persistent volume of an app, bound to the node that holds its
-// data (ADR 0025). It is created with the first replica that mounts it and
+// data (ADR 0023). It is created with the first replica that mounts it and
 // outlives the app's spec until it is removed.
 type Volume struct {
 	App       string

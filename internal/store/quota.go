@@ -10,7 +10,7 @@ import (
 )
 
 // ErrQuota is returned when a change would take a project past its quota
-// (ADR 0029). It is a precondition failure.
+// (ADR 0026). It is a precondition failure.
 var ErrQuota = fmt.Errorf("over quota: %w", ErrPrecondition)
 
 // appUse is what one app holds against its project's quota: its target

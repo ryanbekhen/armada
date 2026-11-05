@@ -320,7 +320,7 @@ func newNodeCommand(g *globals) *cobra.Command {
 			ctx := cmd.Context()
 			out := cmd.OutOrStdout()
 			if !force {
-				// Apps with volumes never move off their node (ADR 0025).
+				// Apps with volumes never move off their node (ADR 0023).
 				vols, err := client.ListVolumes(ctx, &armadav1.ListVolumesRequest{})
 				if err != nil {
 					return rpcErr(err)

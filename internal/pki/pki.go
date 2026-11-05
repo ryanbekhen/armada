@@ -33,10 +33,10 @@ const (
 	// Every member shares one identity (EtcdMember), so servers can join
 	// without reconfiguring the others; the Armada API never authorizes it.
 	KindEtcd = "etcd"
-	// KindMetrics may only scrape the metrics endpoint (ADR 0019).
+	// KindMetrics may only scrape the metrics endpoint (ADR 0017).
 	KindMetrics = "metrics"
 	// KindAutomation manages the apps of the projects in its scope and
-	// nothing else (ADR 0029).
+	// nothing else (ADR 0026).
 	KindAutomation = "automation"
 )
 

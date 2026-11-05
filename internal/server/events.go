@@ -17,7 +17,7 @@ import (
 	"github.com/ryanbekhen/armada/internal/store"
 )
 
-// Event history (ADR 0020).
+// Event history (ADR 0018).
 const (
 	// eventDedup folds an event that happens again for the same object
 	// within this window into the stored one, counting it.
@@ -220,7 +220,7 @@ func (s *Server) CertificateEvent(name string, err error) {
 	s.record(context.Background(), e)
 }
 
-// Events streams events, newest last (ADR 0020).
+// Events streams events, newest last (ADR 0018).
 func (s *Server) Events(req *armadav1.EventsRequest, stream armadav1.AdminService_EventsServer) error {
 	ctx := stream.Context()
 	since := defaultEventsSince

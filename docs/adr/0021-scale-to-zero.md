@@ -1,11 +1,11 @@
-# 0023. Scale to zero
+# 0021. Scale to zero
 
 - Status: Accepted
 - Date: 2026-11-03
 
 ## Context
 
-Autoscaling (ADR 0022) keeps an app between `scale.min` and `scale.max`,
+Autoscaling (ADR 0020) keeps an app between `scale.min` and `scale.max`,
 with `min` at least 1. Many apps (previews, internal tools, rarely used
 APIs) sit idle most of the day and still hold a replica's CPU and memory
 reservation on some node. The spec format has reserved `scale.min: 0` from
@@ -42,7 +42,7 @@ scale:
 
 ### Going to zero
 
-- **Request counts.** Each agent's proxy sample (ADR 0022) also reports, per
+- **Request counts.** Each agent's proxy sample (ADR 0020) also reports, per
   replica, the requests sent since the previous sample. This is the change
   in HAProxy's total sessions; a counter that went backwards after a reload
   starts over.
@@ -122,7 +122,7 @@ revision.
     to one replica, rate limited, and the app scales down again after
     `idleAfter`.
   - It can also keep such an app awake by reporting requests, which is the
-    same as reporting load (ADR 0022).
+    same as reporting load (ADR 0020).
 - Nodes without a proxy (`--proxy none`) take no part. Agents
   that predate this decision report no request counts, so idleness counts
   only what newer agents see.

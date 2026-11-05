@@ -1,4 +1,4 @@
-# 0022. Autoscaling
+# 0020. Autoscaling
 
 - Status: Accepted
 - Date: 2026-11-03
@@ -11,7 +11,7 @@ for the peak all the time or watch and scale by hand. The spec format has
 reserved `scale.rules` from the start and rejected it until now.
 
 Armada already measures what replicas use: agents sample CPU and memory
-every 10 seconds for `armada top` (ADR 0018). Every node's proxy routes to
+every 10 seconds for `armada top` (ADR 0016). Every node's proxy routes to
 every replica of an app with ingress, and knows how many requests each is
 serving.
 
@@ -61,7 +61,7 @@ scale:
     the same `UsageReport`, with `load_measured` set.
   - The leader adds up the counts for each replica from every node whose
     report is recent. That includes requests to `<app>.internal`.
-- **Memory only.** Samples stay in the leader's memory, as in ADR 0018, and
+- **Memory only.** Samples stay in the leader's memory, as in ADR 0016, and
   never go to etcd.
 
 ### Decision rule
@@ -145,4 +145,4 @@ scaling up places replicas through `eligible()` and the capacity checks
   count. Agents that predate it send no request counts, so `http` rules
   see only the nodes that do.
 - Queue rules, schedules, and custom metrics are not part of this
-  decision. Scale to zero builds on it in ADR 0023.
+  decision. Scale to zero builds on it in ADR 0021.

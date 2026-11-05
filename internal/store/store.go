@@ -70,22 +70,22 @@ type Node struct {
 	// Restricted nodes only run apps whose placement selects one of their
 	// labels.
 	Restricted bool
-	// Jobs is true when the node's agent runs job replicas (ADR 0021).
+	// Jobs is true when the node's agent runs job replicas (ADR 0019).
 	Jobs bool
-	// Volumes is true when the node mounts volumes (ADR 0025).
+	// Volumes is true when the node mounts volumes (ADR 0023).
 	Volumes bool
 	// Sandbox is true when the node runs containers in a userspace kernel
-	// (`isolation: sandbox`, ADR 0029).
+	// (`isolation: sandbox`, ADR 0026).
 	Sandbox bool
 	// Egress is true when the node limits the egress bandwidth of
-	// containers (quota egress, ADR 0029).
+	// containers (quota egress, ADR 0026).
 	Egress bool
 	// Subnet is the node's container subnet in the cluster network
-	// (ADR 0027), given when the node is created; empty in clusters
+	// (ADR 0025), given when the node is created; empty in clusters
 	// without one.
 	Subnet string
 	// NetworkKey is the node's WireGuard public key, base64, as its agent
-	// announced it (ADR 0027); empty until then.
+	// announced it (ADR 0025); empty until then.
 	NetworkKey string
 }
 
@@ -171,7 +171,7 @@ type App struct {
 	// apps and jobs whose schedule has not fired yet.
 	LastScheduled time.Time
 	// Traffic splits requests between revisions in multiple revision mode,
-	// with "latest" resolved (ADR 0024); it also lists the revisions still
+	// with "latest" resolved (ADR 0022); it also lists the revisions still
 	// serving while such an app rolls out to single mode.
 	Traffic []spec.TrafficTarget
 }
@@ -223,7 +223,7 @@ type Replica struct {
 	ContainerID string
 	Address     string
 	// IP is the container's address in its node's subnet of the cluster
-	// network (ADR 0027), which every node's firewall keys on; empty
+	// network (ADR 0025), which every node's firewall keys on; empty
 	// elsewhere.
 	IP      string
 	Message string
@@ -239,7 +239,7 @@ type Replica struct {
 	// does); zero otherwise.
 	MovingSince time.Time
 	UpdatedAt   time.Time
-	// Run is the job run this replica is an attempt of (ADR 0021), 0 for
+	// Run is the job run this replica is an attempt of (ADR 0019), 0 for
 	// app replicas. Done marks an attempt that is over: its container is
 	// stopped and kept for its logs. Finished and ExitCode are what the
 	// agent reported when the container exited.
@@ -335,7 +335,7 @@ type Store interface {
 	GetMeta(ctx context.Context, key string) (string, error)
 	SetMeta(ctx context.Context, key, value string) error
 
-	// GetNetwork returns the cluster network (ADR 0027), or ErrNotFound
+	// GetNetwork returns the cluster network (ADR 0025), or ErrNotFound
 	// when the cluster has none.
 	GetNetwork(ctx context.Context) (Network, error)
 	// InitNetwork records the cluster network before the first node is
@@ -390,7 +390,7 @@ type Store interface {
 	// RemoveServer deletes a control plane node's record.
 	RemoveServer(ctx context.Context, name, actor string) error
 
-	// CreateProject records a new project (ADR 0029); ErrConflict if it
+	// CreateProject records a new project (ADR 0026); ErrConflict if it
 	// exists or is the default project. A non-empty automation adds the
 	// project to that identity's scope in the same transaction, and fails
 	// with ErrPrecondition unless the identity may create projects. An
@@ -399,11 +399,11 @@ type Store interface {
 	// GetProject returns a project; the default one always exists.
 	GetProject(ctx context.Context, name string) (Project, error)
 	// SetProjectIsolation changes a project's kernel isolation level
-	// (ADR 0029). Revisions deployed afterwards run at the new level; older
+	// (ADR 0026). Revisions deployed afterwards run at the new level; older
 	// ones keep theirs, and can no longer be rolled back to or given
 	// traffic if it is weaker.
 	SetProjectIsolation(ctx context.Context, name, isolation, actor string) error
-	// SetProjectQuota replaces a project's quota (ADR 0029); zero fields
+	// SetProjectQuota replaces a project's quota (ADR 0026); zero fields
 	// are unlimited. Lowering it below what the project uses keeps what
 	// runs, and refuses only changes that grow past it: deploys, scaling,
 	// rollbacks, new secrets, and job attempts fail with ErrQuota.
@@ -417,7 +417,7 @@ type Store interface {
 	// project. It also leaves every automation scope.
 	DeleteProject(ctx context.Context, name, actor string) error
 
-	// SetAutomation creates an automation identity (ADR 0029) or replaces
+	// SetAutomation creates an automation identity (ADR 0026) or replaces
 	// its scope; every project must exist and none may be the default.
 	SetAutomation(ctx context.Context, a Automation, actor string) (Automation, error)
 	GetAutomation(ctx context.Context, name string) (Automation, error)
@@ -478,14 +478,14 @@ type Store interface {
 	// cannot modify another node's replicas.
 	UpdateReplicaStatus(ctx context.Context, nodeID string, st ReplicaStatus) error
 
-	// Volumes (ADR 0025). CreateReplica binds the volumes its revision
+	// Volumes (ADR 0023). CreateReplica binds the volumes its revision
 	// mounts to its node, and refuses a node other than the one a volume
 	// is bound to.
 	ListVolumes(ctx context.Context, app string) ([]Volume, error)
 	GetVolume(ctx context.Context, app, name string) (Volume, error)
 	DeleteVolume(ctx context.Context, app, name, actor string) error
 	BindVolume(ctx context.Context, app, name, node, actor string) error
-	// PutEvent stores an event (ADR 0020) that expires after EventTTL and
+	// PutEvent stores an event (ADR 0018) that expires after EventTTL and
 	// deletes the event stored under replace, if set; it returns the new
 	// key. ListEvents returns events that last happened at or after since,
 	// oldest first; TrimEvents keeps only the newest keep.
@@ -493,7 +493,7 @@ type Store interface {
 	ListEvents(ctx context.Context, since time.Time) ([]Event, error)
 	TrimEvents(ctx context.Context, keep int) error
 
-	// Jobs (ADR 0021); see the methods of Etcd in jobs.go.
+	// Jobs (ADR 0019); see the methods of Etcd in jobs.go.
 	CreateJobRun(ctx context.Context, job, trigger string, at time.Time, actor string) (JobRun, error)
 	SkipJobSchedule(ctx context.Context, job string, at time.Time) error
 	UpdateJobRun(ctx context.Context, r JobRun) error

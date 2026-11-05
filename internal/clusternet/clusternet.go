@@ -1,5 +1,5 @@
 // Package clusternet routes the cluster network's node subnets between
-// nodes (ADR 0027). In the plain mode every node has a VXLAN interface on
+// nodes (ADR 0025). In the plain mode every node has a VXLAN interface on
 // its private IP, with static forwarding entries for its peers and a route
 // for each peer's subnet; nothing is learned from the network. In the
 // wireguard mode the interface is a WireGuard device whose peers are the

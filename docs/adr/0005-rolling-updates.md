@@ -11,7 +11,7 @@ The questions are: who decides a replica is ready, how traffic is shifted withou
 
 ## Decision
 
-- **Two revisions per app.** `active_revision` serves traffic; `target_revision` is being rolled out (apps in multiple revision mode split traffic between several revisions instead, ADR 0024). A deploy only changes the target. An app's first revision becomes active immediately. Deploying a spec identical to the active revision cancels the rollout.
+- **Two revisions per app.** `active_revision` serves traffic; `target_revision` is being rolled out (apps in multiple revision mode split traffic between several revisions instead, ADR 0022). A deploy only changes the target. An app's first revision becomes active immediately. Deploying a spec identical to the active revision cancels the rollout.
 - **The agent decides readiness.** The agent runs startup → readiness/liveness probes against the container's IP on the bridge network (or the published port if there is no IP) and reports `ready`. Without a readiness probe, an app with a port is considered ready once the port accepts TCP connections; an app without a port is ready once the container is running. A liveness or startup probe that keeps failing up to its threshold makes the agent recreate the container.
 - **The server only adds `running` + `ready` replicas to the proxy.** HAProxy still runs its own health checks as a second layer.
 - **maxSurge = 1, maxUnavailable = 0.** An old replica is released only if the number of *serving* replicas stays ≥ the requested count. *Serving* = ready for at least `warmup` (default 3 seconds), so that every HAProxy has installed and checked the new replica before the old one leaves. Replicas being drained do not count toward the surge.

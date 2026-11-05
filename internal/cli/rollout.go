@@ -62,7 +62,7 @@ func waitRollout(ctx context.Context, client armadav1.AdminServiceClient, app, r
 		a := resp.Apps[0]
 		ready, desired := 0, int(a.DesiredReplicas)
 		if len(a.Traffic) > 0 && a.ActiveRevision == revision {
-			// Split traffic (ADR 0024): wait for the revision's own share.
+			// Split traffic (ADR 0022): wait for the revision's own share.
 			desired = -1
 			for _, t := range a.Traffic {
 				if t.Revision == revision {

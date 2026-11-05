@@ -40,7 +40,7 @@ func TestIntegrationConformance(t *testing.T) {
 }
 
 // TestIntegrationConformanceSandbox runs the same suite with every app
-// container in gVisor (`isolation: sandbox`, ADR 0029): logs, exec,
+// container in gVisor (`isolation: sandbox`, ADR 0026): logs, exec,
 // stats, volumes, and the security defaults must work there too, and each
 // container must have a kernel of its own.
 func TestIntegrationConformanceSandbox(t *testing.T) {

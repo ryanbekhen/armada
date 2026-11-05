@@ -230,7 +230,7 @@ func newInitCommand(g *globals) *cobra.Command {
 }
 
 // defaultClusterCIDR stays clear of the bridge subnet of clusters created
-// before the cluster network (ADR 0027).
+// before the cluster network (ADR 0025).
 const defaultClusterCIDR = "10.120.0.0/16"
 
 // clusterNetwork validates --cluster-cidr and --network for a cluster whose

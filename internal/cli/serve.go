@@ -433,7 +433,7 @@ func runAgent(ctx context.Context, dataDir string, servers []string, proxyKind, 
 		return err
 	}
 	// On the cluster network replicas live on the node subnet and publish
-	// no port; other nodes reach them through the tunnel (ADR 0027).
+	// no port; other nodes reach them through the tunnel (ADR 0025).
 	unpublished := cnet != nil && ac.ContainerSubnet != ""
 	subnet := ""
 	if unpublished {
@@ -480,7 +480,7 @@ func runAgent(ctx context.Context, dataDir string, servers []string, proxyKind, 
 	return g.Wait()
 }
 
-// newClusterNet returns the node's side of the cluster network (ADR 0027),
+// newClusterNet returns the node's side of the cluster network (ADR 0025),
 // or nil for a node of a cluster without one, with the node's public key.
 // The key is made the first time, in both modes, so later sites need no
 // migration. Tests replace it.

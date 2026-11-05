@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// Quota bounds what a project may reserve (ADR 0029). A zero field is
+// Quota bounds what a project may reserve (ADR 0026). A zero field is
 // unlimited. The same type holds what a project uses.
 type Quota struct {
 	// CPUMillis and MemoryBytes bound the sum of the reservations of its

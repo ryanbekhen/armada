@@ -52,7 +52,7 @@ type Config struct {
 	// empty disables internal ingress on this node.
 	InternalIP string
 	// Subnet is the node's container subnet in the cluster network, where
-	// its replicas have their own addresses (ADR 0027); empty otherwise.
+	// its replicas have their own addresses (ADR 0025); empty otherwise.
 	Subnet string
 	Engine Engine
 	// API defaults to the Runtime API socket under Dir.
@@ -258,7 +258,7 @@ func (d *Driver) commit(sig string, layout Layout, cfg proxy.Config) {
 }
 
 // slot is what a server slot serves: a replica's address and its weight
-// (traffic splitting, ADR 0024).
+// (traffic splitting, ADR 0022).
 type slot struct {
 	Addr   string
 	Weight int
@@ -349,7 +349,7 @@ const maxClients = 4096
 
 // SetClients implements proxy.ClientSetter: it maps the addresses of this
 // node's containers to their apps for the internal frontend's checks (ADR
-// 0029). The map file is replaced for the next start or reload, and a
+// 0026). The map file is replaced for the next start or reload, and a
 // running HAProxy gets the new map at once, atomically, through the
 // Runtime API.
 func (d *Driver) SetClients(ctx context.Context, clients map[netip.Addr]string) error {

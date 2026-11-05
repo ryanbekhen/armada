@@ -1,4 +1,4 @@
-# 0029. Projects and workload isolation
+# 0026. Projects and workload isolation
 
 - Status: Accepted
 - Date: 2026-11-04
@@ -77,7 +77,7 @@ that identity can reach only what it manages.
 - **Automation identities** (`automation:<name>`) are for tools such as CI
   systems and portals. An administrator issues one with `armada automation
   credentials NAME`, which signs a CSR made on the tool's machine (the
-  private key never leaves it), like metrics credentials (ADR 0019). Each
+  private key never leaves it), like metrics credentials (ADR 0017). Each
   has a scope (`armada automation set`), set and changed only by
   administrators:
   - the projects it manages: a fixed list, plus every project it creates;
@@ -129,12 +129,12 @@ that identity can reach only what it manages.
 
 ### Network isolation
 
-Projects build on the cluster network (ADR 0027) and its access rules,
+Projects build on the cluster network (ADR 0025) and its access rules,
 which become project-aware:
 
 - **Between projects.** Direct traffic from a container of one project to
   a container of another is dropped, on the same node and across nodes.
-  `ingress.allow` (ADR 0027 stage 3) only names apps of the same project.
+  `ingress.allow` (ADR 0025 stage 3) only names apps of the same project.
 - **Internal ingress and DNS.** Internal names gain the project:
   `<app>.<project>.internal`, and the `default` project keeps
   `<app>.internal`. The agent's DNS server answers a container only for
@@ -166,7 +166,7 @@ which become project-aware:
   clusters do not break. `armada project list` shows which projects are
   isolated.
 - **Spoofing.** Containers run without `NET_ADMIN` and `NET_RAW` (ADR
-  0027), so a container cannot pose as another project's. Across nodes, in
+  0025), so a container cannot pose as another project's. Across nodes, in
   the `plain` mode, the source of a packet is only as trustworthy as the
   private network (a machine on it can forge VXLAN packets, T57); the
   `wireguard` mode closes that gap.
@@ -292,7 +292,7 @@ sets the minimum:
 
 `armada top --projects` and the metrics endpoint (`armada_project_*`)
 aggregate usage per project: CPU, memory, reservations, and volume bytes
-from the samples agents already send (ADR 0018), and two counters, requests
+from the samples agents already send (ADR 0016), and two counters, requests
 and egress bytes. `AdminService.Top` lists only the projects the caller may
 manage, so an automation identity sees its own usage and only administrators
 see every project.
@@ -302,7 +302,7 @@ counters (`/proc/PID/net/dev` of the task, which also holds in the sandbox,
 where the userspace kernel sends through the same interface). It therefore
 includes replies through the proxies and traffic to other replicas. Agents
 report what was sent since the previous sample; requests come from the
-per-replica deltas of ADR 0023.
+per-replica deltas of ADR 0021.
 
 Replicas come and go, so the counters cannot be summed when read: the leader
 adds each report to a per-project total as it arrives. So that a report
@@ -334,7 +334,7 @@ message:
 
 1. projects, store layout, automation identities, and `ProjectService`;
 2. network isolation between projects and away from the platform, built as
-   ADR 0027's access stage: the firewall between apps and projects, the
+   ADR 0025's access stage: the firewall between apps and projects, the
    rules away from the platform, per-project DNS, the project check in
    HAProxy's internal frontend, and `ingress.allow` (done);
 3. `isolation: sandbox` in the embedded runtime: the runtime and node
@@ -389,7 +389,7 @@ message:
   whose damage, if compromised, stays inside its projects and limits.
 - The network rules depend on knowing every container's project from its
   address. The leader already sends every replica's address to every node
-  (ADR 0027); the project is added to it.
+  (ADR 0025); the project is added to it.
 - Watch: sandbox compatibility with images that rely on unusual system
   calls (surfaced as a start failure with the sandbox's reason), the cost
   of the per-project rule sets on large clusters, and quota checks staying

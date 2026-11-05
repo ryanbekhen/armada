@@ -682,7 +682,7 @@ func TestLostNodesPartitionGuard(t *testing.T) {
 	}
 }
 
-// In a cluster with a network (ADR 0027), a joining node gets its subnet in
+// In a cluster with a network (ADR 0025), a joining node gets its subnet in
 // the response; a node whose private IP is inside the cluster CIDR is
 // refused and leaves the token usable.
 func TestJoinGivesNodeSubnet(t *testing.T) {

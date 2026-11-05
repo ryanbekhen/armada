@@ -98,7 +98,7 @@ Then, with the CPU use of both machines sampled around each run:
    - `remote`: one replica, on B: every request crosses to the other node.
    - `local`: one replica, on A: no request leaves A.
    - `local-first`: one replica on each machine, routed as Armada routes
-     today ([ADR 0026](../../docs/adr/0026-local-first-routing.md)).
+     today ([ADR 0024](../../docs/adr/0024-local-first-routing.md)).
    - `round-robin`: one replica on each machine, served from one weighted
      pool (a traffic split with one revision at 100%), as before local-first
      routing.

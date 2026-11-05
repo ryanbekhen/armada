@@ -18,7 +18,7 @@ import (
 
 var _ runtime.Execer = (*Driver)(nil)
 
-// ExecApp runs a command in a running app container (ADR 0017). The process
+// ExecApp runs a command in a running app container (ADR 0015). The process
 // is the container's own process spec with other arguments, so it keeps the
 // container's user, capabilities, no-new-privileges, seccomp profile,
 // SELinux label, and namespaces.
@@ -85,7 +85,7 @@ func (d *Driver) ExecApp(ctx context.Context, id string, opts runtime.ExecOption
 	if err := proc.Start(ctx); err != nil {
 		return 0, fmt.Errorf("exec: %w", err)
 	}
-	// runsc ignores the console size in the process spec (ADR 0029), so
+	// runsc ignores the console size in the process spec (ADR 0026), so
 	// the first size is also sent as a resize.
 	if opts.TTY && opts.Size.Rows > 0 && opts.Size.Cols > 0 {
 		_ = proc.Resize(ctx, uint32(opts.Size.Cols), uint32(opts.Size.Rows))

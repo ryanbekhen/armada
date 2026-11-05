@@ -13,7 +13,7 @@ import (
 	"github.com/ryanbekhen/armada/internal/store"
 )
 
-// CreateProject records a new project (ADR 0029).
+// CreateProject records a new project (ADR 0026).
 func (s *Server) CreateProject(ctx context.Context, req *armadav1.CreateProjectRequest) (*armadav1.ProjectInfo, error) {
 	name := req.GetName()
 	if !spec.ValidProject(name) {
@@ -33,7 +33,7 @@ func (s *Server) CreateProject(ctx context.Context, req *armadav1.CreateProjectR
 		}
 	}
 	// Automation identities never weaken the default for new projects
-	// (ADR 0029): only administrators create projects of plain containers.
+	// (ADR 0026): only administrators create projects of plain containers.
 	if !acc.admin() && isolation != "" && spec.IsolationRank(isolation) < spec.IsolationRank(spec.DefaultIsolation) {
 		return nil, status.Errorf(codes.PermissionDenied, "%s may not create projects with isolation %s", acc.id, isolation)
 	}
@@ -65,7 +65,7 @@ func (s *Server) CreateProject(ctx context.Context, req *armadav1.CreateProjectR
 }
 
 // isolated reports whether the cluster network keeps project's containers
-// apart (ADR 0029).
+// apart (ADR 0026).
 func (s *Server) isolated(ctx context.Context, project string) (bool, error) {
 	def, others, err := s.isolation(ctx)
 	if project == spec.DefaultProject {
@@ -130,7 +130,7 @@ func (s *Server) ListProjects(ctx context.Context, _ *armadav1.ListProjectsReque
 }
 
 // UpdateProject changes a project's settings: its kernel isolation level
-// and the default project's network isolation (ADR 0029). Administrators
+// and the default project's network isolation (ADR 0026). Administrators
 // only.
 func (s *Server) UpdateProject(ctx context.Context, req *armadav1.UpdateProjectRequest) (*armadav1.ProjectInfo, error) {
 	name := req.GetName()

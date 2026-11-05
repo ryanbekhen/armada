@@ -46,7 +46,7 @@ const (
 	labelIP       = labelPrefix + "ip"
 	labelNetNS    = labelPrefix + "netns"
 	labelStarted  = labelPrefix + "started"
-	// labelIsolation is "sandbox" for containers in gVisor (ADR 0029).
+	// labelIsolation is "sandbox" for containers in gVisor (ADR 0026).
 	labelIsolation = labelPrefix + "isolation"
 )
 
@@ -81,7 +81,7 @@ type Config struct {
 	Subnet netip.Prefix // container bridge subnet; zero means DefaultSubnet
 	// MTU of the bridge and container interfaces; 0 leaves the kernel's
 	// default (1500). The cluster network sets it from the uplink
-	// (ADR 0027).
+	// (ADR 0025).
 	MTU int
 	// Self is the armada binary the shim runs to store container output;
 	// empty means the running executable.
@@ -137,7 +137,7 @@ func New(cfg Config) (*Driver, error) {
 // Close releases the connection.
 func (d *Driver) Close() error { return d.client.Close() }
 
-// CanMountVolumes implements runtime volume support (ADR 0025).
+// CanMountVolumes implements runtime volume support (ADR 0023).
 func (d *Driver) CanMountVolumes() bool { return true }
 
 func (d *Driver) ctx(ctx context.Context) context.Context {
@@ -273,7 +273,7 @@ func (d *Driver) runcOpts() *options.Options {
 	return &options.Options{BinaryName: filepath.Join(d.paths.Bin(), embedded.BinRunc)}
 }
 
-// sandboxOpts runs a container with runsc instead of runc (ADR 0029). The
+// sandboxOpts runs a container with runsc instead of runc (ADR 0026). The
 // runc shim drives runsc through the same OCI commands, so output, exec,
 // and stats work as for any other container; runsc keeps its state apart
 // from runc's.
@@ -299,7 +299,7 @@ func sandboxAvailable(bin string) bool {
 }
 
 // CanLimitEgress reports whether this node limits the egress bandwidth of
-// containers (quota egress, ADR 0029).
+// containers (quota egress, ADR 0026).
 func (d *Driver) CanLimitEgress() bool { return d.net != nil && d.net.CanShape() }
 
 // logIO makes the shim pipe the container's output to `armada runtime-log`.

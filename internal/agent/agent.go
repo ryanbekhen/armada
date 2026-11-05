@@ -59,13 +59,13 @@ type Config struct {
 	// Resync is how often containers are reconciled without a trigger.
 	Resync time.Duration
 	// UsageInterval is how often replicas are sampled for armada top
-	// (default 10s, ADR 0018).
+	// (default 10s, ADR 0016).
 	UsageInterval time.Duration
 	// VolumeInterval is how often volumes are measured (default 1m, ADR
-	// 0025).
+	// 0023).
 	VolumeInterval time.Duration
 	// WakeSocket is where the proxy sends requests for apps with no replica
-	// up (ADR 0023); empty disables it. It must be in a directory only root
+	// up (ADR 0021); empty disables it. It must be in a directory only root
 	// can reach.
 	WakeSocket string
 	// Capacity reported to the scheduler; zero values are auto-detected.
@@ -74,18 +74,18 @@ type Config struct {
 	// Proxy applies the ingress configuration; nil disables ingress on this
 	// node.
 	Proxy proxy.Driver
-	// Network applies the cluster network (ADR 0027); nil when the node is
+	// Network applies the cluster network (ADR 0025); nil when the node is
 	// not part of one. NetworkKey is the node's public key, announced in
 	// Hello.
 	Network    Network
 	NetworkKey string
 	// Unpublished makes replicas publish no port: the cluster network
 	// routes their own addresses, in the node's subnet, to every node, and
-	// replicas are reported at <container IP>:<port> (ADR 0027).
+	// replicas are reported at <container IP>:<port> (ADR 0025).
 	Unpublished bool
 	// Check runs health checks (default DefaultCheck).
 	Check CheckFunc
-	// VolumesDir holds persistent volumes (ADR 0025); empty: the node
+	// VolumesDir holds persistent volumes (ADR 0023); empty: the node
 	// mounts none.
 	VolumesDir string
 	// SecretsDir is a private directory on tmpfs for secret files. Empty
@@ -103,7 +103,7 @@ type Config struct {
 	OnServers func(servers []string)
 }
 
-// Network sets up the cluster network on the node (ADR 0027).
+// Network sets up the cluster network on the node (ADR 0025).
 type Network interface {
 	// Apply makes the node's tunnel, routes, and firewall rules match cfg.
 	// It is called again whenever cfg changes and on every resync, so it
@@ -123,7 +123,7 @@ type InternalDNS interface {
 	// SetNames replaces the apps that resolve under .internal.
 	SetNames(apps []string)
 	// SetClients maps the addresses of this node's containers to their app
-	// IDs, so that each resolves only its own project's names (ADR 0029).
+	// IDs, so that each resolves only its own project's names (ADR 0026).
 	SetClients(clients map[netip.Addr]string)
 }
 
@@ -169,7 +169,7 @@ type Agent struct {
 	// volumeOps counts running volume sessions (maxVolumeSessions).
 	volumeOps atomic.Int32
 	// paused holds apps whose containers stay stopped for a volume
-	// operation (ADR 0025).
+	// operation (ADR 0023).
 	paused map[string]int
 	// reconcileMu keeps pause from racing a Reconcile that starts the app.
 	reconcileMu sync.Mutex
@@ -430,7 +430,7 @@ func (a *Agent) Reconcile(ctx context.Context) (*armadav1.ReplicaReport, error) 
 			ok = false
 		}
 		if a.isPaused(spec.GetApp()) && spec.GetJob() == nil {
-			// A volume backup or restore runs (ADR 0025).
+			// A volume backup or restore runs (ADR 0023).
 			if ok && !stopped(c.State) {
 				_ = a.cfg.Driver.Stop(ctx, c.ID, volumeStopGrace)
 			}
@@ -709,7 +709,7 @@ func (a *Agent) remove(ctx context.Context, id string) {
 
 func (a *Agent) start(ctx context.Context, s *armadav1.ReplicaSpec, hash string) (runtime.Container, error) {
 	if s.GetSandbox() && !runtime.CanSandbox(a.cfg.Driver) {
-		// Never a weaker level (ADR 0029): the control plane places such
+		// Never a weaker level (ADR 0026): the control plane places such
 		// replicas only on nodes that announced the sandbox.
 		return runtime.Container{}, errors.New("the replica's project requires isolation sandbox, and this node's runtime cannot run sandboxed containers (see armada doctor)")
 	}

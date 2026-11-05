@@ -15,7 +15,7 @@ import (
 	"github.com/ryanbekhen/armada/internal/store"
 )
 
-// SetAutomation creates an automation identity (ADR 0029) or replaces its
+// SetAutomation creates an automation identity (ADR 0026) or replaces its
 // scope.
 func (s *Server) SetAutomation(ctx context.Context, req *armadav1.SetAutomationRequest) (*armadav1.AutomationInfo, error) {
 	a := store.Automation{Name: req.GetName(), Projects: req.GetProjects(), CreateProjects: req.GetCreateProjects(), Quota: quotaFrom(req.GetQuota())}

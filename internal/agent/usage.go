@@ -12,7 +12,7 @@ import (
 )
 
 // defaultUsageInterval is how often the agent samples what its replicas
-// use (ADR 0018).
+// use (ADR 0016).
 const defaultUsageInterval = 10 * time.Second
 
 // usageSample is a container's cumulative CPU time when it was sampled.
@@ -25,7 +25,7 @@ type usageSample struct {
 
 // usageLoop samples the node's replicas and sends what they use to the
 // server, if the runtime can measure containers, together with the
-// requests in progress at the node's proxy (ADR 0022).
+// requests in progress at the node's proxy (ADR 0020).
 func (a *Agent) usageLoop(ctx context.Context) {
 	sr, ok := a.cfg.Driver.(runtime.StatsReader)
 	if !ok || !runtime.CanStats(a.cfg.Driver) {

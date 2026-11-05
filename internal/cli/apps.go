@@ -271,7 +271,7 @@ func printStatus(out io.Writer, resp *armadav1.StatusResponse) error {
 		}
 	}
 	if len(resp.Nodes) == 0 {
-		// Automation identities see no nodes (ADR 0029).
+		// Automation identities see no nodes (ADR 0026).
 		return tw.Flush()
 	}
 	_, _ = fmt.Fprintln(tw, "\nNODE\tPRIVATE IP\tSTATE\tCPU\tMEMORY\tLAST SEEN")

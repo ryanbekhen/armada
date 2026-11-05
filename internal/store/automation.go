@@ -16,7 +16,7 @@ import (
 // identity; issuing more drops the oldest.
 const MaxAutomationCerts = 8
 
-// Automation is the scope of an automation identity (ADR 0029): a tool
+// Automation is the scope of an automation identity (ADR 0026): a tool
 // such as a CI system or a portal that manages projects for people,
 // without administering the cluster. Only administrators change it.
 type Automation struct {

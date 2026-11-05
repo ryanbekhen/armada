@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-// Network modes (ADR 0027).
+// Network modes (ADR 0025).
 const (
 	// NetworkPlain routes the cluster CIDR between nodes over VXLAN on the
 	// private network, unencrypted.
@@ -21,13 +21,13 @@ const (
 // NodeSubnetBits is the prefix length of each node's container subnet.
 const NodeSubnetBits = 24
 
-// Network is the cluster network (ADR 0027). Clusters created before it
+// Network is the cluster network (ADR 0025). Clusters created before it
 // have none and keep one bridge subnet on every node.
 type Network struct {
 	Mode        string
 	ClusterCIDR netip.Prefix
 	// IsolateDefault keeps the default project's containers away from the
-	// platform, as every other project's always are (ADR 0029).
+	// platform, as every other project's always are (ADR 0026).
 	IsolateDefault bool
 }
 
@@ -110,7 +110,7 @@ func (s *Etcd) InitNetwork(ctx context.Context, n Network) error {
 }
 
 // SetDefaultIsolation turns network isolation of the default project on or
-// off (ADR 0029). It needs the cluster network, which enforces it.
+// off (ADR 0026). It needs the cluster network, which enforces it.
 func (s *Etcd) SetDefaultIsolation(ctx context.Context, on bool, actor string) error {
 	now := s.now()
 	return s.tx(ctx, func(t *etx) error {

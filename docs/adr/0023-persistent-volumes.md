@@ -1,4 +1,4 @@
-# 0025. Persistent volumes
+# 0023. Persistent volumes
 
 - Status: Accepted
 - Date: 2026-11-03
@@ -95,7 +95,7 @@ volumes:
 - **Measured, not limited.** The agent adds up the size of the files in
   each volume once a minute and reports it with its usage samples. The
   leader keeps the latest measurement in memory only, like other usage
-  (ADR 0018).
+  (ADR 0016).
 - **Shown.** `armada volume ls` lists volumes with their node, path, and
   size, and `armada_volume_used_bytes{app,volume,node}` is on the metrics
   endpoint.
@@ -106,7 +106,7 @@ volumes:
 
 - **Backup.** `armada volume backup APP NAME -o FILE [--stop]` streams a
   gzipped tar of the volume from its node through the leader to the CLI,
-  the way logs and exec are routed (ADR 0017). By default it is taken while
+  the way logs and exec are routed (ADR 0015). By default it is taken while
   the app runs. With `--stop` the agent stops the app's container for the
   backup and starts it again afterwards. The archive keeps owners, modes,
   times, and symbolic links, and leaves out sockets, devices, and pipes.

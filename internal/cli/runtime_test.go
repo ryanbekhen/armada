@@ -96,7 +96,7 @@ func TestNextStep(t *testing.T) {
 	}
 }
 
-// The agent takes the subnet the control plane gives it (ADR 0027) only
+// The agent takes the subnet the control plane gives it (ADR 0025) only
 // when it is a usable /24 that does not hold the node's own address.
 func TestUseNodeSubnet(t *testing.T) {
 	t.Parallel()

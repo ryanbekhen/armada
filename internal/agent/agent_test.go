@@ -48,7 +48,7 @@ func TestReconcileUnpublished(t *testing.T) {
 		t.Fatalf("%v %v", report, err)
 	}
 	// With the cluster network nothing is published on the private IP, and
-	// replicas are reached at their own address (ADR 0027).
+	// replicas are reached at their own address (ADR 0025).
 	got := map[string]string{}
 	for _, r := range report.Replicas {
 		got[r.Id] = r.Address
@@ -63,7 +63,7 @@ func TestReconcileUnpublished(t *testing.T) {
 		}
 	}
 	// Every replica reports its container address, ingress or not: the
-	// firewalls key on it (ADR 0029).
+	// firewalls key on it (ADR 0026).
 	for _, r := range report.Replicas {
 		if !strings.HasPrefix(r.Ip, "10.120.0.") {
 			t.Errorf("%s reported IP %q", r.Id, r.Ip)
@@ -106,7 +106,7 @@ func (p *clientProxy) SetClients(_ context.Context, c map[netip.Addr]string) err
 }
 
 // The firewall, the DNS server, and the proxy learn a new container's
-// address as soon as it starts, and the full list on every pass (ADR 0029).
+// address as soon as it starts, and the full list on every pass (ADR 0026).
 func TestNetworkKnowsLocalContainers(t *testing.T) {
 	t.Parallel()
 	d := fake.New()
@@ -587,7 +587,7 @@ func TestReportsImagePlatforms(t *testing.T) {
 }
 
 // A replica of a sandboxed project runs only in the sandbox, never as a
-// plain container (ADR 0029).
+// plain container (ADR 0026).
 func TestStartEgressLimited(t *testing.T) {
 	t.Parallel()
 	a, d := newAgent(t)

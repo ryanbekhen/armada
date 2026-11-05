@@ -28,7 +28,7 @@ type Driver interface {
 
 const (
 	// WakeHeader names the app a request on the agent's wake socket is for
-	// (ADR 0023). Only the proxy sets it, overwriting any value from the
+	// (ADR 0021). Only the proxy sets it, overwriting any value from the
 	// client.
 	WakeHeader = "X-Armada-Wake"
 	// WakeTimeout is how long a request for an app scaled to zero waits for
@@ -37,7 +37,7 @@ const (
 )
 
 // ClientSetter is implemented by drivers whose internal frontend checks
-// who calls (ADR 0029).
+// who calls (ADR 0026).
 type ClientSetter interface {
 	// SetClients maps the addresses of this node's containers to their app
 	// IDs; an address not in the map reaches no internal route.
@@ -45,7 +45,7 @@ type ClientSetter interface {
 }
 
 // LoadReader is implemented by drivers that can count the requests in
-// progress per server, which the autoscaler uses (ADR 0022).
+// progress per server, which the autoscaler uses (ADR 0020).
 type LoadReader interface {
 	// Load returns, per server name for every server the proxy routes to,
 	// the requests in progress (being served or queued) and the total
@@ -76,15 +76,15 @@ type Backend struct {
 	Servers    []Server
 	HealthPath string
 	// Wake routes requests to the agent's wake socket while no server is
-	// up, so an app scaled to zero starts on demand (ADR 0023).
+	// up, so an app scaled to zero starts on demand (ADR 0021).
 	Wake bool
 	// LocalFirst makes each node's proxy prefer the replicas on its own
-	// node (ADR 0026).
+	// node (ADR 0024).
 	LocalFirst bool
 	// RequestRate and Connections limit the requests per second the app
 	// may receive at this proxy and the requests it may have in progress
 	// here; 0 is unlimited. Every backend of one app (BackendApp) shares
-	// them (ADR 0029).
+	// them (ADR 0026).
 	RequestRate int
 	Connections int
 }
@@ -106,7 +106,7 @@ type Server struct {
 	Name    string
 	Address string
 	// Weight is the server's share of its backend's requests, 1 to
-	// MaxWeight; 0 means 1 (traffic splitting, ADR 0024).
+	// MaxWeight; 0 means 1 (traffic splitting, ADR 0022).
 	Weight int
 }
 
@@ -132,7 +132,7 @@ type Rule struct {
 	Internal    bool
 	// Allow, for internal rules on nodes that know their callers, lists
 	// the app IDs that may call (the app itself included); empty lets
-	// every app of the backend's project (ADR 0029).
+	// every app of the backend's project (ADR 0026).
 	Allow []string
 }
 

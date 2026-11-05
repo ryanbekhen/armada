@@ -66,7 +66,7 @@ func (s *Server) Deploy(ctx context.Context, req *armadav1.DeployRequest) (*arma
 	s.log.Info("deployed", "app", app.ID(), "revision", rev.Name, "new_revision", created, "by", actor(ctx))
 	switch {
 	case app.MultipleRevisions():
-		// No rollout: the traffic applies at once (ADR 0024).
+		// No rollout: the traffic applies at once (ADR 0022).
 		msg := "image " + app.Image
 		if a, err := s.store.GetApp(ctx, app.ID()); err == nil {
 			msg = trafficMessage(a.Traffic)
@@ -102,7 +102,7 @@ func (s *Server) Scale(ctx context.Context, req *armadav1.ScaleRequest) (*armada
 }
 
 // SetTraffic changes how an app in multiple revision mode splits requests
-// until its next deploy (ADR 0024).
+// until its next deploy (ADR 0022).
 func (s *Server) SetTraffic(ctx context.Context, req *armadav1.SetTrafficRequest) (*armadav1.SetTrafficResponse, error) {
 	if err := accessFrom(ctx).app(req.GetApp()); err != nil {
 		return nil, err

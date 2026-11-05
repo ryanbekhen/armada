@@ -45,7 +45,7 @@ func (c *clockServer) hasEvent(reason, app string) bool {
 
 // Replicas of a sandboxed project run only on nodes that announced the
 // sandbox, and get it in their spec; the default project's still run
-// anywhere (ADR 0029).
+// anywhere (ADR 0026).
 func TestSandboxedProjectPlacement(t *testing.T) {
 	t.Parallel()
 	c := placementSetup(t, nil, nil)

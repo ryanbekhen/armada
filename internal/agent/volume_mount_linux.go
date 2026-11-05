@@ -8,7 +8,7 @@ import (
 	"github.com/ryanbekhen/armada/internal/fsutil"
 )
 
-// PrepareVolumesDir makes dir, the root of the node's volumes (ADR 0025),
+// PrepareVolumesDir makes dir, the root of the node's volumes (ADR 0023),
 // a mount with nosuid and nodev: it is bound onto itself and remounted
 // with those flags unless its filesystem already has them. Every runtime
 // bind-mounts volumes from below it, and a bind mount keeps the flags of

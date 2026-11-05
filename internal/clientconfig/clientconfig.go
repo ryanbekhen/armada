@@ -76,7 +76,7 @@ func (c *Config) Save(path string) error {
 }
 
 // SaveFile writes the config with mode 0600 into an existing directory,
-// whatever its mode: a tool's config (ADR 0029) lives where the tool keeps
+// whatever its mode: a tool's config (ADR 0026) lives where the tool keeps
 // its files.
 func (c *Config) SaveFile(path string) error {
 	b, err := json.MarshalIndent(c, "", "  ")

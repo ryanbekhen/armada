@@ -141,7 +141,7 @@ func noNodeReason(nodes []store.Node, rev store.Revision) string {
 // no node that could take its replicas provides it: the ready, uncordoned
 // nodes, or only pinned when the app's volumes are bound to it. The
 // project's level and limits are never weakened to place a replica
-// (ADR 0029).
+// (ADR 0026).
 func noIsolation(nodes []store.Node, rev store.Revision, pinned string) bool {
 	if !rev.Sandboxed() && rev.EgressBits == 0 {
 		return false

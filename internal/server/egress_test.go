@@ -18,7 +18,7 @@ func (c *clockServer) setEgress(node string, on bool) {
 
 // Replicas of a project with an egress limit run only on nodes that limit
 // egress, with the limit in their spec; with none, nothing is placed
-// without it, and status and events say why (ADR 0029).
+// without it, and status and events say why (ADR 0026).
 func TestEgressLimitedPlacement(t *testing.T) {
 	t.Parallel()
 	c := placementSetup(t, nil, nil)

@@ -11,7 +11,7 @@ import (
 	"github.com/robfig/cron/v3"
 )
 
-// Job settings (ADR 0021).
+// Job settings (ADR 0019).
 const (
 	DefaultJobTimeout = time.Hour
 	MaxJobTimeout     = 24 * time.Hour

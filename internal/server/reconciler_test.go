@@ -240,7 +240,7 @@ func TestApplyReportDistrustsAgent(t *testing.T) {
 		t.Errorf("valid digest not recorded: %q", rev.ImageDigest)
 	}
 
-	// The container address goes into every node's firewall (ADR 0029):
+	// The container address goes into every node's firewall (ADR 0026):
 	// only one in the node's own subnet is kept.
 	node.Subnet = "10.120.3.0/24"
 	for ip, want := range map[string]string{"10.120.4.7": "", "10.120.3.1": "", "10.120.3.7": "10.120.3.7"} {

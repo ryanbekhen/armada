@@ -36,7 +36,7 @@ func TestIntegrationConfigValid(t *testing.T) {
 	cases := map[string]tc{
 		"full":  {sampleConfig(t), renderOptions{PrivateIP: "10.0.0.2"}},
 		"empty": {proxy.Config{}, renderOptions{PrivateIP: "10.0.0.2"}},
-		// The internal frontend with the clients map (ADR 0029).
+		// The internal frontend with the clients map (ADR 0026).
 		"callers": {callersConfig(t), callersOptions()},
 	}
 	for name, c := range cases {

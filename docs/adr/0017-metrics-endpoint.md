@@ -1,11 +1,11 @@
-# 0019. Metrics endpoint
+# 0017. Metrics endpoint
 
 - Status: Accepted
 - Date: 2026-11-03
 
 ## Context
 
-`armada status` and `armada top` (ADR 0018) answer questions at the moment
+`armada status` and `armada top` (ADR 0016) answer questions at the moment
 they are asked. Operators also need history and alerts: how memory grew
 over a week, whether an app had fewer ready replicas than desired during
 the night, how long reconciles take. Prometheus is the common format for
@@ -61,7 +61,7 @@ on every scrape. No new state is kept.
   - `armada_agents_connected`
   - `armada_reconcile_duration_seconds` (histogram)
   - `armada_reconcile_errors_total`
-  - `armada_events_total{kind,reason}`, added with event history (ADR 0020)
+  - `armada_events_total{kind,reason}`, added with event history (ADR 0018)
   - Go runtime metrics
 - **Apps:**
   - `armada_app_replicas_desired{app}` and `armada_app_replicas_ready{app}`

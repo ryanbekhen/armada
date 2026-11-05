@@ -1,4 +1,4 @@
-# 0024. Traffic splitting
+# 0022. Traffic splitting
 
 - Status: Accepted
 - Date: 2026-11-03

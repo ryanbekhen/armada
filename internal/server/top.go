@@ -16,7 +16,7 @@ import (
 
 const (
 	// usageMaxAge is how long a node's usage sample counts: a few of its
-	// agent's 10-second intervals (ADR 0018).
+	// agent's 10-second intervals (ADR 0016).
 	usageMaxAge = 35 * time.Second
 	// maxUsageReplicas bounds the replicas in one usage report; a node with
 	// more is reported as unmeasured.
@@ -38,9 +38,9 @@ type usageStore struct {
 	mu    sync.Mutex
 	nodes map[string]nodeUsage
 	// active is when a proxy last reported a request for a replica (ADR
-	// 0023), kept across reports so none is missed between evaluations.
+	// 0021), kept across reports so none is missed between evaluations.
 	active map[string]time.Time
-	// volumes is each node's latest volume measurement (ADR 0025).
+	// volumes is each node's latest volume measurement (ADR 0023).
 	volumes map[string]volumeUsage
 	// owners says which project and node each replica belongs to, from the
 	// reconciler's latest pass, so a report costs no store access.
@@ -62,7 +62,7 @@ type nodeUsage struct {
 	at       time.Time
 	replicas map[string]replicaUsage
 	// load is the requests in progress at the node's proxy per replica,
-	// for any replica, if loadMeasured (ADR 0022).
+	// for any replica, if loadMeasured (ADR 0020).
 	load         map[string]int64
 	loadMeasured bool
 }
@@ -128,7 +128,7 @@ func (u *usageStore) set(nodeID string, r *armadav1.UsageReport, at time.Time) {
 
 // count adds a report to the project counters; u.mu is held. Egress counts
 // only from a replica's own node. Requests count from every node's proxy,
-// like the load of ADR 0022.
+// like the load of ADR 0020.
 func (u *usageStore) count(nodeID string, r *armadav1.UsageReport) {
 	for _, ru := range r.GetReplicas() {
 		if o, ok := u.owners[ru.GetId()]; ok && o.node == nodeID {
@@ -237,7 +237,7 @@ func (u *usageStore) load(now time.Time) (map[string]int64, bool) {
 }
 
 // Top reports what replicas use from the latest samples of their nodes
-// (ADR 0018). A replica's usage only counts when it comes from the node the
+// (ADR 0016). A replica's usage only counts when it comes from the node the
 // replica is assigned to.
 func (s *Server) Top(ctx context.Context, req *armadav1.TopRequest) (*armadav1.TopResponse, error) {
 	acc := accessFrom(ctx)
@@ -320,7 +320,7 @@ func (s *Server) Top(ctx context.Context, req *armadav1.TopRequest) (*armadav1.T
 }
 
 // topProjects adds up what the replicas in resp use per project, for the
-// projects the caller may manage (ADR 0029).
+// projects the caller may manage (ADR 0026).
 func (s *Server) topProjects(ctx context.Context, acc access, resp *armadav1.TopResponse, now time.Time) error {
 	ps, err := s.store.ListProjects(ctx)
 	if err != nil {
