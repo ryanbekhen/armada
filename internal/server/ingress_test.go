@@ -204,10 +204,15 @@ func TestIngressRoutingAndDomainVerification(t *testing.T) {
 
 	// A wrong token does not verify.
 	txt.set("_armada-verify.example.org", "someone-else")
-	got, err := c.admin.VerifyDomain(c.ctx, &armadav1.VerifyDomainRequest{Name: "example.org"})
-	if err != nil || got.Verified || !strings.Contains(got.Message, "expected token") {
-		t.Errorf("VerifyDomain(wrong) = %v, %v", got, err)
-	}
+	// The background loop may be finishing a lookup from before the record
+	// changed, and its message may replace this call's once.
+	c.eventually("wrong token reported", func() bool {
+		got, err := c.admin.VerifyDomain(c.ctx, &armadav1.VerifyDomainRequest{Name: "example.org"})
+		if err != nil || got.Verified {
+			t.Fatalf("VerifyDomain(wrong) = %v, %v", got, err)
+		}
+		return strings.Contains(got.Message, "expected token")
+	})
 
 	// The right token is picked up by the background loop.
 	txt.set("_armada-verify.example.org", "unrelated", d.TxtValue)
