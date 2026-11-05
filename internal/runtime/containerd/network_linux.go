@@ -173,7 +173,7 @@ func (n *cniNetwork) runtimeConf(id, path string, pm *portMapping, egress int64)
 
 func (n *cniNetwork) Setup(ctx context.Context, id string, pm *portMapping, egress int64) (string, string, error) {
 	conf, plugin := n.chain()
-	if egress > 0 && !(plugin && n.kernel) {
+	if egress > 0 && (!plugin || !n.kernel) {
 		return "", "", errors.New("this node cannot limit egress bandwidth")
 	}
 	if err := os.MkdirAll(n.netnsDir, 0o700); err != nil {
