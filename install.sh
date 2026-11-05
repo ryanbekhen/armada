@@ -6,9 +6,6 @@
 #   less install.sh        # read it first
 #   sudo sh install.sh
 #
-# On a Mac (Apple silicon) it installs only the binary, a client of a
-# cluster: nodes are Linux machines.
-#
 # Environment:
 #   ARMADA_VERSION             release tag to install (default: latest)
 #   ARMADA_REQUIRE_SIGNATURE=1 fail unless the cosign signature is verified
@@ -38,17 +35,13 @@ need curl
 need tar
 need uname
 
-case "$(uname -s)" in
-Linux) OS=linux ;;
-Darwin) OS=darwin ;;
-*) die "Armada runs on Linux (nodes) and macOS (client) only" ;;
-esac
+[ "$(uname -s)" = Linux ] || die "Armada runs on Linux only"
+OS=linux
 case "$(uname -m)" in
 x86_64 | amd64) ARCH=amd64 ;;
 aarch64 | arm64) ARCH=arm64 ;;
 *) die "unsupported architecture $(uname -m)" ;;
 esac
-[ "$OS" = linux ] || [ "$ARCH" = arm64 ] || die "Armada runs on Macs with Apple silicon only"
 
 if [ "$VERSION" = latest ]; then
 	VERSION=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" |
@@ -109,14 +102,6 @@ mkdir -p "$PREFIX/bin"
 install -m 0755 "$TMP/x/armada" "$PREFIX/bin/armada.new"
 mv -f "$PREFIX/bin/armada.new" "$PREFIX/bin/armada"
 say "Installed $PREFIX/bin/armada"
-
-if [ "$OS" = darwin ]; then
-	say ""
-	say "On macOS armada is a client of a cluster: copy ~/.armada/config"
-	say "from the server where you ran 'armada init' (mode 0600), or pass --config."
-	"$PREFIX/bin/armada" version
-	exit 0
-fi
 
 if [ -n "$SYSTEMD_DIR" ] && [ -d "$SYSTEMD_DIR" ]; then
 	for unit in armada-server.service armada-agent.service armada-runtime.service; do

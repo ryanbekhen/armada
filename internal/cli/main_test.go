@@ -16,10 +16,8 @@ import (
 	"github.com/ryanbekhen/armada/internal/agent"
 )
 
-// TestMain runs the tests as on Linux, also on another development
-// machine. The cluster network is recorded instead of set up on the host.
+// TestMain records the cluster network instead of setting it up on the host.
 func TestMain(m *testing.M) {
-	goos = "linux"
 	newClusterNet = func(_ string, ac *agentConfig, _ *slog.Logger) (agent.Network, string, error) {
 		if ac.Network == "" {
 			return nil, "", nil

@@ -24,8 +24,9 @@ the only runtime: nodes are Linux machines, every node runs containers
 through it, and `agent.json` records `"runtime": "embedded"` (an agent
 refuses any other value; such a node is removed and joined again). One
 runtime keeps every feature (the cluster network, exec, usage, volumes,
-the sandbox) to one implementation and one set of tests. On other systems
-the binary is only a client of a cluster.
+the sandbox) to one implementation and one set of tests. For the same
+reason Armada is Linux only, its CLI included: containerd on Linux is the
+one platform it builds, releases, and tests.
 
 ### What is bundled
 

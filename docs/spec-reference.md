@@ -355,7 +355,7 @@ volumes:
 | --- | --- |
 | `name` | A name like an app's, unique within the app. |
 | `path` | Where the volume appears in the container. It follows the same rules as a secret file's path, and volumes may not overlap each other or a secret file. |
-| `owner` | Optional `uid:gid` of the volume's directory, applied whenever a replica starts (its contents are left alone). Without it a new directory belongs to root, with mode 0700; an image that runs as another user (postgres runs as 999, nginx's workers as 101) needs its owner. Not applied on macOS nodes, whose driver decides ownership. |
+| `owner` | Optional `uid:gid` of the volume's directory, applied whenever a replica starts (its contents are left alone). Without it a new directory belongs to root, with mode 0700; an image that runs as another user (postgres runs as 999, nginx's workers as 101) needs its owner. |
 
 - An app has at most 8 volumes.
 - **One replica.** An app with volumes runs exactly one replica. `scale`

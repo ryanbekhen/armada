@@ -171,9 +171,6 @@ func newRuntimeCommand() *cobra.Command {
 			"nothing on nodes that are not initialized yet.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if err := linuxOnly("the embedded runtime"); err != nil {
-				return err
-			}
 			ac, err := loadAgentConfig(dataDir)
 			if errors.Is(err, fs.ErrNotExist) {
 				_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "%s is not initialized; nothing to run\n", dataDir)
@@ -248,7 +245,7 @@ func newRuntimeResetCommand() *cobra.Command {
 				}
 			}
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Removed %d container(s).\n", len(cs)-len(errs))
-			if ac.Network != "" && goos == "linux" {
+			if ac.Network != "" {
 				if err := removeClusterNet(); err != nil {
 					errs = append(errs, fmt.Errorf("cluster network: %w", err))
 				} else {
@@ -271,9 +268,6 @@ func newRuntimeLogCommand() *cobra.Command {
 		Hidden: true,
 		Args:   cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
-			if err := linuxOnly("the embedded runtime"); err != nil {
-				return err
-			}
 			dir := args[0]
 			if !filepath.IsAbs(dir) || filepath.Clean(dir) != dir {
 				return fmt.Errorf("log directory %q must be absolute and clean", dir)
