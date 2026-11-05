@@ -70,7 +70,8 @@ sudo armada doctor
 `doctor` checks the container runtime (cgroup v2, overlayfs, `iptables`,
 whether SELinux can confine containers on SELinux hosts), the
 private IP, ports listening publicly, file
-permissions, the secrets tmpfs, the clock, and the firewall. Fix every
+permissions, the secrets tmpfs, the clock, the firewall, and how full the
+connection tracking table is. Fix every
 `FAIL`; read every `warn`. Secret files live under `/run/armada`, which
 must be on tmpfs so plaintext never reaches a disk; `/run` is tmpfs on
 systemd distributions, and the units recreate the directory at start.

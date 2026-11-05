@@ -28,6 +28,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	armadav1 "github.com/ryanbekhen/armada/api/armada/v1"
+	"github.com/ryanbekhen/armada/internal/conntrack"
 	"github.com/ryanbekhen/armada/internal/proxy"
 	"github.com/ryanbekhen/armada/internal/runtime"
 	"github.com/ryanbekhen/armada/internal/store"
@@ -61,6 +62,10 @@ type Config struct {
 	// UsageInterval is how often replicas are sampled for armada top
 	// (default 10s, ADR 0016).
 	UsageInterval time.Duration
+
+	// Conntrack is the node's connection tracking table, raised and reported
+	// with each sample; nil leaves it alone (ADR 0025).
+	Conntrack *conntrack.Table
 	// VolumeInterval is how often volumes are measured (default 1m, ADR
 	// 0023).
 	VolumeInterval time.Duration

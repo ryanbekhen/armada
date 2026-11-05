@@ -357,6 +357,18 @@ while [ "$i" -le "$N" ]; do
 done
 ok "the secret value is in no journal"
 
+log "connection tracking"
+# The agent raises the limit once the kernel module is loaded (ADR 0025).
+conntrack_raised() {
+	i=1
+	while [ "$i" -le "$N" ]; do
+		on "$i" 'want=$(($(sed -n "s/^MemTotal: *\([0-9]*\) kB/\1/p" /proc/meminfo) / 4)); [ "$want" -le 262144 ] || want=262144
+			[ "$(cat /proc/sys/net/netfilter/nf_conntrack_max)" -ge "$want" ]' >/dev/null 2>&1 || return 1
+		i=$((i + 1))
+	done
+}
+wait_for 60 "every node raised its connection tracking limit" conntrack_raised
+
 log "steady load"
 # Nothing changes in the cluster: a failure here is the path between this
 # machine and the nodes, not Armada.

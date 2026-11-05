@@ -306,9 +306,28 @@ cannot reach each other, and how routing prefers the same site.
   state is recorded. Going back to the legacy network is not supported.
   Operators back up before enabling (ADR 0012).
 
+### Connection tracking
+
+The firewall rules and NAT make the kernel track every connection through a
+node, and a closed connection stays in the table for two minutes. Kernel
+defaults size the table from memory (65536 entries with 4 GiB), and a proxy
+takes two entries per request when clients open a new connection each time.
+Past the limit the kernel drops new connections, which clients only see as
+a retransmit after a second or more.
+
+So the agent raises `nf_conntrack_max` to 262144, or to one entry per 4 KiB
+of memory on smaller machines, which bounds a full table to about 8% of the
+memory. It checks with each usage sample, because the kernel module may load
+after the agent starts, and never lowers a limit, so an operator's higher one
+stands. It also reports the table's use, for `armada_node_conntrack_entries`
+and `armada_node_conntrack_max`. An agent that cannot write the limit logs one
+warning and keeps working.
+
 ### `armada doctor`
 
 Doctor checks that:
+
+- the connection tracking table is less than 80% full;
 
 - the uplink's MTU leaves room for the tunnel, and reports the MTU
   containers get;

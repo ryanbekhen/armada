@@ -697,6 +697,10 @@ message NodeTop {
   int64 cpu_allocatable_millis = 7;
   int64 memory_allocatable_bytes = 8;
   int32 replicas = 9;
+  // Connections its kernel tracks and the limit, from its latest sample; the
+  // limit is 0 when unknown (ADR 0025).
+  int64 conntrack_entries = 10;
+  int64 conntrack_max = 11;
 }
 
 message ScaleRequest {
@@ -858,6 +862,10 @@ message UsageReport {
   // (ADR 0023); unset in reports between measurements.
   repeated VolumeUsage volumes = 4;
   bool volumes_measured = 5;
+  // Connections the node's kernel tracks, and the limit; the limit is 0
+  // while nothing is tracked (ADR 0025).
+  int64 conntrack_entries = 6;
+  int64 conntrack_max = 7;
 }
 
 message VolumeUsage {

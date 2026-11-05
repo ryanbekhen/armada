@@ -79,6 +79,8 @@ func TestMetrics(t *testing.T) {
 		`armada_node_replicas{node="n1"} 2`,
 		`armada_node_cpu_reserved_cores{node="n1"} 0.5`,
 		`armada_node_memory_usage_bytes{node="n1"} 1.048576e+08`,
+		`armada_node_conntrack_entries{node="n1"} 7`,
+		`armada_node_conntrack_max{node="n1"} 262144`,
 		`armada_replica_cpu_limit_cores{app="web"`,
 		`armada_replica_memory_usage_bytes{app="web"`,
 		`armada_project_replicas{project="default"} 2`,

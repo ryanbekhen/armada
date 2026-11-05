@@ -743,12 +743,28 @@ scrape_configs:
 | `armada_node_cpu_allocatable_cores`, `armada_node_memory_allocatable_bytes` | `node` | what the node can give replicas |
 | `armada_node_cpu_reserved_cores`, `armada_node_memory_reserved_bytes` | `node` | what its replicas reserve |
 | `armada_node_cpu_usage_cores`, `armada_node_memory_usage_bytes` | `node` | what its replicas use |
+| `armada_node_conntrack_entries`, `armada_node_conntrack_max` | `node` | connections its kernel tracks, and the limit |
 
 Example alerts: `armada_app_replicas_ready < armada_app_replicas_desired`
 for 10 minutes, `armada_app_rollout{state="failed"} == 1`,
 `armada_replica_memory_usage_bytes / armada_replica_memory_limit_bytes > 0.9`,
-`increase(armada_events_total{reason="Restarted"}[10m]) > 3`, and
+`increase(armada_events_total{reason="Restarted"}[10m]) > 3`,
+`armada_node_conntrack_entries / armada_node_conntrack_max > 0.8`, and
 `armada_node_ready == 0`.
+
+### Connection tracking
+
+The kernel tracks every connection through a node, and keeps a closed one for
+two minutes. Past the limit it drops new connections, and clients wait a
+second or more for a retransmit, so requests slow down with no error anywhere.
+Clients that open a new connection per request fill the table fastest: each
+one takes two entries, one on each side of the proxy.
+
+The agent raises `net.netfilter.nf_conntrack_max` to 262144, or to one entry
+per 4 KiB of memory on machines under 1 GiB, and never lowers a higher limit.
+A full table then takes about 8% of the memory at most. Raise it further with
+`sysctl` on nodes that need more; check `dmesg` for `table full` and
+`armada doctor` (`conntrack`), which warns at 80%.
 
 ## Volumes
 

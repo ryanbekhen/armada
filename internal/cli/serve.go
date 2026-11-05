@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/ryanbekhen/armada/internal/clusternet"
+	"github.com/ryanbekhen/armada/internal/conntrack"
 	"github.com/ryanbekhen/armada/internal/version"
 
 	"google.golang.org/grpc"
@@ -451,6 +452,7 @@ func runAgent(ctx context.Context, dataDir string, servers []string, proxyKind, 
 		OnServers:  onServers,
 
 		UsageInterval: usageInterval,
+		Conntrack:     conntrack.New(),
 	}
 	if px != nil {
 		acfg.WakeSocket = haproxy.WakeSocket(filepath.Join(dataDir, dirHAProxy))

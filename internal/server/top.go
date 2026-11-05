@@ -25,6 +25,8 @@ const (
 	// maxInFlight bounds one node's count of requests in progress for a
 	// replica.
 	maxInFlight = 1_000_000
+	// maxConntrack bounds a node's reported connection tracking numbers.
+	maxConntrack = 1 << 32
 	// maxReportRequests and maxReportEgress bound what one report adds to a
 	// project's counters for one replica.
 	maxReportRequests = 1 << 30
@@ -65,6 +67,10 @@ type nodeUsage struct {
 	// for any replica, if loadMeasured (ADR 0020).
 	load         map[string]int64
 	loadMeasured bool
+	// conntrackEntries and conntrackMax are the node's connection tracking
+	// table; conntrackMax is 0 when unknown (ADR 0025).
+	conntrackEntries int64
+	conntrackMax     int64
 }
 
 type replicaUsage struct {
@@ -122,7 +128,11 @@ func (u *usageStore) set(nodeID string, r *armadav1.UsageReport, at time.Time) {
 			}
 		}
 	}
-	u.nodes[nodeID] = nodeUsage{at: at, replicas: reps, load: load, loadMeasured: r.GetLoadMeasured()}
+	u.nodes[nodeID] = nodeUsage{
+		at: at, replicas: reps, load: load, loadMeasured: r.GetLoadMeasured(),
+		conntrackEntries: max(0, min(r.GetConntrackEntries(), maxConntrack)),
+		conntrackMax:     max(0, min(r.GetConntrackMax(), maxConntrack)),
+	}
 	u.mu.Unlock()
 }
 
@@ -298,6 +308,7 @@ func (s *Server) Top(ctx context.Context, req *armadav1.TopRequest) (*armadav1.T
 		nt := &armadav1.NodeTop{Id: n.ID, CpuAllocatableMillis: n.CPUMillis, MemoryAllocatableBytes: n.MemoryBytes}
 		sample, measured := s.usage.node(n.ID, now)
 		nt.Measured = measured
+		nt.ConntrackEntries, nt.ConntrackMax = sample.conntrackEntries, sample.conntrackMax
 		for _, r := range reps {
 			if r.NodeID != n.ID {
 				continue
