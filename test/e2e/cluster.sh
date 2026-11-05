@@ -362,6 +362,7 @@ log "connection tracking"
 conntrack_raised() {
 	i=1
 	while [ "$i" -le "$N" ]; do
+		# shellcheck disable=SC2016 # expanded on the node
 		on "$i" 'want=$(($(sed -n "s/^MemTotal: *\([0-9]*\) kB/\1/p" /proc/meminfo) / 4)); [ "$want" -le 262144 ] || want=262144
 			[ "$(cat /proc/sys/net/netfilter/nf_conntrack_max)" -ge "$want" ]' >/dev/null 2>&1 || return 1
 		i=$((i + 1))
