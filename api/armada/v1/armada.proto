@@ -190,32 +190,6 @@ message IssueMetricsCertificateResponse {
 
 message CreateProjectRequest {
   string name = 1;
-  // Kernel isolation level (container or sandbox); empty is sandbox.
-  // Automation identities may not choose container.
-  string isolation = 2;
-  // Administrators only; a project an automation identity creates gets
-  // the identity's quota.
-  Quota quota = 3;
-}
-
-// Quota bounds what a project may reserve (ADR 0026); 0 is unlimited. The
-// same message reports what a project uses.
-message Quota {
-  int64 cpu_millis = 1;
-  int64 memory_bytes = 2;
-  int32 replicas = 3;
-  int32 volumes = 4;
-  int32 domains = 5;
-  int32 secrets = 6;
-  // Job attempts that run at once.
-  int32 jobs = 7;
-  // Not a total: the bits per second each replica and job attempt may
-  // send, pinned into every revision deployed into the project.
-  int64 egress_bits = 8;
-  // Not totals: the requests per second each app may receive at each
-  // node's proxy, and the requests it may have in progress there at once.
-  int32 request_rate = 9;
-  int32 connections = 10;
 }
 
 message ProjectInfo {
@@ -227,13 +201,6 @@ message ProjectInfo {
   // Its containers are kept away from the platform and the private network
   // (ADR 0026): always for projects other than default.
   bool network_isolation = 5;
-  // Kernel isolation level of its replicas (ADR 0026): container or
-  // sandbox.
-  string isolation = 6;
-  // Its quota (all zero: unlimited) and what it uses, counted the same
-  // way.
-  Quota quota = 7;
-  Quota used = 8;
 }
 
 message UpdateProjectRequest {
@@ -241,11 +208,6 @@ message UpdateProjectRequest {
   // Turn network isolation on or off; only the default project may have
   // it off. Unset leaves it unchanged.
   optional bool network_isolation = 2;
-  // Change the kernel isolation level; revisions deployed afterwards run at
-  // it. Empty leaves it unchanged.
-  string isolation = 3;
-  // Replace the quota; unset leaves it unchanged, all zero removes it.
-  Quota quota = 4;
 }
 
 message ListProjectsRequest {}
@@ -271,8 +233,6 @@ message SetAutomationRequest {
   bool create_projects = 3;
   // Node label values its apps' placement.require may name.
   repeated LabelAllowance labels = 4;
-  // Quota of every project it creates; unset or zero is unlimited.
-  Quota quota = 5;
 }
 
 message AutomationInfo {
@@ -285,7 +245,6 @@ message AutomationInfo {
   // Newest valid certificate's expiry; unset without one.
   google.protobuf.Timestamp cert_expires_at = 7;
   int32 certificates = 8;
-  Quota quota = 9;
 }
 
 message ListAutomationsRequest {}
@@ -671,10 +630,6 @@ message NodeStatus {
   // Admin labels plus armada.os and armada.arch.
   map<string, string> labels = 10;
   bool restricted = 11;
-  // The node runs replicas in the sandbox (ADR 0026).
-  bool sandbox = 12;
-  // The node limits containers' egress bandwidth (quota egress, ADR 0026).
-  bool egress = 13;
 }
 
 message TopRequest {
@@ -862,12 +817,6 @@ message Hello {
   // The node's WireGuard public key, base64 (ADR 0025); empty when the node
   // is not part of a cluster network.
   string network_key = 11;
-  // The node runs containers in a userspace kernel (`isolation: sandbox`,
-  // ADR 0026): its runtime is the embedded one and carries runsc.
-  bool sandbox = 12;
-  // The node limits containers' egress bandwidth (quota egress, ADR 0026):
-  // its runtime shapes traffic with the CNI bandwidth plugin.
-  bool egress = 13;
 }
 
 message ReplicaReport {
@@ -1043,12 +992,6 @@ message ProxyBackend {
   // they are no busier than the app's replicas overall (ADR 0024). Off for
   // traffic splitting, which needs every server to keep its weight.
   bool local_first = 5;
-  // Requests per second the app may receive at this proxy, and requests it
-  // may have in progress here at once (its project's quota, ADR 0026); 0 is
-  // unlimited. Past them, requests get 429. Labelled backends of the same
-  // app share its counters.
-  int32 request_rate = 6;
-  int32 connections = 7;
 }
 
 message ProxyServer {
@@ -1105,13 +1048,6 @@ message ReplicaSpec {
   JobAttempt job = 18;
   // Persistent volumes on this node (ADR 0023).
   repeated VolumeSpec volumes = 19;
-  // Run the replica in the sandbox (isolation sandbox, ADR 0026). Part of
-  // the spec hash; an agent that cannot sandbox refuses the replica.
-  bool sandbox = 20;
-  // Bits per second the container may send (the revision's egress limit,
-  // ADR 0026); 0 is unlimited. Part of the spec hash; an agent that cannot
-  // limit egress refuses the replica.
-  int64 egress_bits = 21;
 }
 
 message VolumeSpec {

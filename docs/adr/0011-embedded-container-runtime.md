@@ -23,8 +23,8 @@ Armada uses, started from binaries embedded in the Armada binary. It is
 the only runtime: nodes are Linux machines, every node runs containers
 through it, and `agent.json` records `"runtime": "embedded"` (an agent
 refuses any other value; such a node is removed and joined again). One
-runtime keeps every feature (the cluster network, exec, usage, volumes,
-the sandbox) to one implementation and one set of tests. For the same
+runtime keeps every feature (the cluster network, exec, usage, volumes)
+to one implementation and one set of tests. For the same
 reason Armada is Linux only, its CLI included: containerd on Linux is the
 one platform it builds, releases, and tests.
 
@@ -37,17 +37,15 @@ SHA-256 in `internal/runtime/embedded/lock.go`:
 | --- | --- |
 | containerd (static) and `containerd-shim-runc-v2` | Image store, snapshots, container lifecycle |
 | runc | OCI runtime (needs CGO and C, so it cannot be compiled into Armada) |
-| CNI plugins `bridge`, `host-local`, `loopback`, `portmap`, `firewall`, `bandwidth` | Container networking, egress limits |
+| CNI plugins `bridge`, `host-local`, `loopback`, `portmap`, `firewall` | Container networking |
 | tini (static) | PID 1 in every app container: reaps zombies and forwards signals |
-| gVisor `runsc` and its sentry (`gvisor-bin/`: `gvisor_sentry` and three small helpers) | The userspace kernel of `isolation: sandbox` (ADR 0026), driven by the same runc shim |
 
 No `ctr` binary is bundled.
 
 - `make runtime-bundle` downloads the pinned artifacts over HTTPS, refuses
   any whose SHA-256 differs from the lock, and packs them per
   architecture. The maintainer who bumps a version verifies the upstream
-  signatures (runc and tini publish GPG signatures; gVisor's checksums are
-  compared between its GitHub release and its own bucket) before recording the
+  signatures (runc and tini publish GPG signatures) before recording the
   new checksums; builds trust the pinned checksums. Release builds embed
   the pack with `go:embed` (build tag `bundle`); without the tag
   (development, unit tests) `armada runtime --bin-dir DIR` uses binaries
@@ -140,10 +138,7 @@ Armada's and visible in one place:
   address until their ARP entry expires, and connections to their
   published ports would hang for seconds.
 - Containers join it through the CNI chain `bridge` (gateway, masquerade
-  for egress) + `host-local` IPAM + `portmap` + `firewall` + `bandwidth`
-  (only when its binary is present; it limits what a container sends when
-  its project's quota has an egress limit and does nothing otherwise,
-  ADR 0026). IPAM state and
+  for egress) + `host-local` IPAM + `portmap` + `firewall`. IPAM state and
   the plugin cache live on tmpfs under `/run/armada/cni`, since the
   namespaces they describe do not survive a reboot. On a node of a cluster
   network (ADR 0025) replicas publish nothing: other nodes reach them at
@@ -190,10 +185,8 @@ running, and one line on stderr records how many bytes were dropped
 
 - A node needs only the Armada binary, a Linux kernel with cgroup v2 and
   overlayfs, and `iptables`.
-- The binary grows by roughly 70 MB (compressed bundle; about 30 MB of it
-  is gVisor).
-- Armada owns updates of containerd, runc, the CNI plugins, tini, and
-  gVisor.
+- The binary grows by roughly 35 MB (the compressed bundle).
+- Armada owns updates of containerd, runc, the CNI plugins, and tini.
 - `armada status` and `armada logs` are the interface to containers (an
   upstream `ctr` can inspect the instance with `--address` set to the
   socket above and `--namespace armada`).

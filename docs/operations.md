@@ -303,91 +303,18 @@ armada project list                                   # the NETWORK column
 the kernel needs nf_tables). Connections opened before a change keep going
 until they end. Clusters without the cluster network are not filtered.
 
-### Kernel isolation
+### Sharing a cluster
 
-Every project has a kernel isolation level, which says how its replicas
-are kept from the node's kernel (ADR 0026):
+Containers of every project share each node's kernel, so projects separate
+apps you operate together; they do not contain code someone hostile wrote.
+For that, use a separate cluster or restricted nodes. Projects also share the
+cluster's capacity: `scale.max` bounds what an app can take, and `armada top
+--projects` shows what each project uses.
 
-| Level | Replicas run |
-| --- | --- |
-| `sandbox` | In a userspace kernel (gVisor) that serves their system calls, so a kernel bug they reach does not hand over the node. The default for every new project. |
-| `container` | On the node's kernel, confined by namespaces, cgroups, seccomp, and SELinux where it is enforcing. The level of `default`, and of projects created before levels existed. |
-
-```bash
-armada project create shop                         # sandbox
-armada project create tools --isolation container  # administrators only
-armada project set default --isolation sandbox
-armada project list                                # the ISOLATION column
-armada node list                                   # SANDBOX: nodes that run sandboxed replicas; EGRESS: nodes that limit egress
-```
-
-- Replicas of a `sandbox` project run only on nodes that run the sandbox
-  (release builds carry it; `armada doctor` checks it). With no such node
-  they wait, `armada status` says why, and a `NoIsolation` event is
-  recorded: a project never runs below its level.
-- A revision keeps the level its project had when it was deployed. After a
-  change, deploy each app again (the same spec is enough): the new revision
-  rolls out at the new level without dropping traffic. Rolling back to, or
-  giving traffic to, a revision weaker than the project's level is refused.
-- Exec, logs, `armada top`, probes, secret files, and volumes work in the
-  sandbox. It costs some speed on system calls, file I/O, and networking,
-  and a few images that rely on unusual system calls do not start there
-  (the replica's message shows the reason); keep those in a `container`
-  project.
-- Automation identities create projects at `sandbox` and change no level.
-
-### Quotas
-
-A quota bounds what a project may reserve, so one project cannot fill the
-cluster (ADR 0026). Keys left out are unlimited:
-
-```bash
-armada project set shop --quota cpu=4,memory=8Gi,replicas=20,volumes=4,domains=2,secrets=50,jobs=2
-armada project create trial --quota cpu=1,memory=1Gi,replicas=4,egress=20M,requests=50,connections=20
-armada project show shop                  # used against the quota
-armada project set shop --quota none      # remove it
-```
-
-| Key | Counts |
-| --- | --- |
-| `cpu`, `memory` | The reservations of the project's replicas (`resources`), with an autoscaled app at its `scale.max` and a job at one attempt |
-| `replicas` | Its apps' replicas, counted the same way |
-| `volumes` | The volumes its apps declare |
-| `domains` | The custom domains its apps route |
-| `secrets` | Its secrets (names, not versions) |
-| `jobs` | Job attempts running at once |
-| `egress` | Not a total: the bits per second each replica and job attempt may send (`500k`, `100M`, `1G`; from 1M to 10G) |
-| `requests` | Not a total: the requests per second each app may receive at each node's proxy |
-| `connections` | Not a total: the requests each app may have in progress at once at each node's proxy; a request counts until the app answers it or times out, even after its client has gone |
-
-A deploy, scale, rollback, or new secret that would go past a limit is
-refused with the dimension and the numbers. Job attempts past `jobs` wait
-(a `QuotaExceeded` event) until another attempt ends, within the run's
-timeout. Lowering a quota below what the project uses keeps everything
-running and refuses only what would grow. Only administrators set quotas;
-the projects an automation identity creates get the quota of its scope
-(below). Container output is limited on every node, whatever the project:
-each container may write 1 MiB per second (4 MiB at once) to its log,
-kept in 3 files of 10 MB; `armada logs` shows a line such as `[armada:
-dropped 52428800 bytes of output over the log rate limit ...]` where
-output was dropped.
-
-`requests` and `connections` apply to public and internal ingress alike,
-as soon as the quota changes, with no deploy. Requests past them get
-`429 Too Many Requests` from the proxy and never reach a replica (or wake
-one that scaled to zero). They count per app, its revision labels
-included, at each node's proxy: an app reached through three nodes may
-receive three times the limit in all.
-
-The `egress` limit covers everything a replica's container sends,
-responses to requests through ingress included; what it receives is not
-limited. Like the kernel isolation level, a revision keeps the limit its
-project had when it was deployed: after a change, deploy each app again
-(the same spec is enough) to roll it out, and rolling back to a revision
-without the limit or above it is refused. Replicas with a limit run only
-on nodes that can shape traffic (the EGRESS column of `armada node list`;
-`armada doctor` names a missing kernel module); with none they wait with
-a `NoIsolation` event.
+Container output is limited on every node: each container may write 1 MiB
+per second (4 MiB at once) to its log, kept in 3 files of 10 MB; `armada
+logs` shows a line such as `[armada: dropped 52428800 bytes of output over
+the log rate limit ...]` where output was dropped.
 
 ### Automation identities
 
@@ -399,7 +326,7 @@ backups, the network, or the default project. It sees only its projects in
 listings, and no nodes.
 
 ```bash
-armada automation set portal --create-projects --project staging --label tier=shared --quota cpu=2,memory=4Gi,replicas=10
+armada automation set portal --create-projects --project staging --label tier=shared
 armada automation credentials portal -o portal.json   # 0600; keep it with the tool
 armada --config portal.json deploy -f web.yaml --project staging
 armada --config portal.json automation renew          # before the 90 days run out
@@ -410,8 +337,7 @@ armada automation remove portal                       # its certificates stop wo
 `--create-projects` lets the tool create projects, which join its scope,
 and remove the ones it manages. `--label KEY=VALUE` is a node label its
 apps may require, for nodes you keep for some projects (restricted
-nodes). `--quota` is the quota of every project it creates; without it
-they have none. `set` replaces the scope and keeps the certificates. The tool
+nodes). `set` replaces the scope and keeps the certificates. The tool
 reaches the API on the private network like the CLI.
 
 A domain serves one project: an app cannot use a domain that an app of

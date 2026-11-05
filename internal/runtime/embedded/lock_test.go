@@ -33,7 +33,7 @@ func TestLock(t *testing.T) {
 			files[a.Name] = true
 		}
 	}
-	for _, f := range []string{BinContainerd, BinShim, BinRunc, BinTini, BinRunsc, BinSentry} {
+	for _, f := range []string{BinContainerd, BinShim, BinRunc, BinTini} {
 		if !files[f] {
 			t.Errorf("%s is not in the bundle", f)
 		}
@@ -45,11 +45,8 @@ func TestLock(t *testing.T) {
 
 func TestURLFor(t *testing.T) {
 	t.Parallel()
-	a := Artifact{URL: "https://example.test/x-{arch}.tgz", Arch: map[string]string{"amd64": "x86_64"}}
-	if got := a.URLFor("amd64"); got != "https://example.test/x-x86_64.tgz" {
-		t.Errorf("mapped: %s", got)
-	}
+	a := Artifact{URL: "https://example.test/x-{arch}.tgz"}
 	if got := a.URLFor("arm64"); got != "https://example.test/x-arm64.tgz" {
-		t.Errorf("unmapped: %s", got)
+		t.Errorf("URLFor: %s", got)
 	}
 }

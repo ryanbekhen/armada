@@ -111,13 +111,13 @@ func TestHelloOSAndArch(t *testing.T) {
 		}
 		c.eventually(id+" connected", func() bool { return c.srv.session(id) != nil })
 	}
-	connect("good", &armadav1.Hello{PrivateIp: "10.0.0.21", Os: "linux", Arch: "arm64", Sandbox: true})
+	connect("good", &armadav1.Hello{PrivateIp: "10.0.0.21", Os: "linux", Arch: "arm64"})
 	connect("evil", &armadav1.Hello{PrivateIp: "10.0.0.22", Os: "linux\nregion=x", Arch: "../../amd64"})
 	time.Sleep(100 * time.Millisecond)
-	if n, _ := c.store.GetNode(c.ctx, "good"); n.OS != "linux" || n.Arch != "arm64" || !n.Sandbox {
-		t.Errorf("good node: os %q arch %q sandbox %v", n.OS, n.Arch, n.Sandbox)
+	if n, _ := c.store.GetNode(c.ctx, "good"); n.OS != "linux" || n.Arch != "arm64" {
+		t.Errorf("good node: os %q arch %q", n.OS, n.Arch)
 	}
-	if n, _ := c.store.GetNode(c.ctx, "evil"); n.OS != "" || n.Arch != "" || n.Sandbox {
-		t.Errorf("invalid values stored: os %q arch %q sandbox %v", n.OS, n.Arch, n.Sandbox)
+	if n, _ := c.store.GetNode(c.ctx, "evil"); n.OS != "" || n.Arch != "" {
+		t.Errorf("invalid values stored: os %q arch %q", n.OS, n.Arch)
 	}
 }

@@ -18,7 +18,7 @@ import (
 // SetAutomation creates an automation identity (ADR 0026) or replaces its
 // scope.
 func (s *Server) SetAutomation(ctx context.Context, req *armadav1.SetAutomationRequest) (*armadav1.AutomationInfo, error) {
-	a := store.Automation{Name: req.GetName(), Projects: req.GetProjects(), CreateProjects: req.GetCreateProjects(), Quota: quotaFrom(req.GetQuota())}
+	a := store.Automation{Name: req.GetName(), Projects: req.GetProjects(), CreateProjects: req.GetCreateProjects()}
 	if len(req.GetLabels()) > 0 {
 		a.Labels = map[string][]string{}
 		for _, l := range req.GetLabels() {
@@ -115,7 +115,7 @@ func peerSerial(ctx context.Context) (string, error) {
 
 func automationInfo(a store.Automation) *armadav1.AutomationInfo {
 	out := &armadav1.AutomationInfo{Name: a.Name, Projects: a.Projects, CreateProjects: a.CreateProjects, CreatedBy: a.CreatedBy,
-		Certificates: int32(len(a.Certs)), Quota: quotaProto(a.Quota)} //nolint:gosec // at most store.MaxAutomationCerts
+		Certificates: int32(len(a.Certs))} //nolint:gosec // at most store.MaxAutomationCerts
 	if !a.CreatedAt.IsZero() {
 		out.CreatedAt = timestamppb.New(a.CreatedAt)
 	}

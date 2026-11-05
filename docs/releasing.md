@@ -101,7 +101,7 @@ gh attestation verify armada_${VERSION#v}_linux_amd64.tar.gz --repo ryanbekhen/a
   updates for actions and Go modules weekly.
 - The Go toolchain is pinned with `toolchain` in `go.mod`.
 - The HAProxy system image is pinned by digest in the code.
-- The bundled runtime binaries (containerd, runc, CNI plugins, tini, gVisor) are
+- The bundled runtime binaries (containerd, runc, CNI plugins, tini) are
   pinned by version and SHA-256 in `internal/runtime/embedded/lock.go`.
   Before each release, check their advisories: `govulncheck` does not see
   them.
@@ -112,13 +112,10 @@ gh attestation verify armada_${VERSION#v}_linux_amd64.tar.gz --repo ryanbekhen/a
 2. Download the artifact for both architectures. Where upstream signs it
    (runc, tini: detached GPG signatures), verify the signature against the
    maintainers' published keys; for containerd and the CNI plugins compare
-   with the `.sha256sum` files on the GitHub release; for gVisor, the
-   `SHA256SUMS` of the GitHub release and the `.sha512` next to the same
-   tarball in `storage.googleapis.com/gvisor/releases/release/` must both
-   match the download.
+   with the `.sha256sum` files on the GitHub release.
 3. Record the version and both SHA-256 values in `lock.go`.
 4. `make runtime-bundle build-bundle`, then run the embedded runtime
    end to end on a Linux node (deploy, rolling update, secret files,
-   internal DNS, self-healing) and both conformance runs on a node
-   (`-run 'Conformance|Sandbox'`, see CLAUDE.md) before merging.
+   internal DNS, self-healing) and the conformance suite on a node
+   (`-run Conformance`, see CLAUDE.md) before merging.
 - Never use the Let's Encrypt production endpoint in CI.

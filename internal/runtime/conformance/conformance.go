@@ -2,7 +2,7 @@
 // needs (ADR 0011): the security defaults, checked from inside containers,
 // the container lifecycle, labels, publishing on a private address, logs,
 // exec, stats, volumes, and errors. The embedded runtime runs it on a node
-// (integration build tag), also with every container sandboxed.
+// (integration build tag).
 //
 // It needs root, network access to pull the test image, and leaves nothing
 // behind. It can run on a node whose agent is running: its containers carry
@@ -37,13 +37,6 @@ type Options struct {
 	HostIP string
 	// Timeout bounds each step; default 2 minutes.
 	Timeout time.Duration
-	// Sandbox says every container runs under its own userspace kernel
-	// (Armada's embedded runtime with `isolation: sandbox`, ADR 0026): the
-	// suite also checks that containers run on separate kernels. The
-	// memory and PID limits and a volume's mount flags apply on the host,
-	// where the sandbox cannot show them, so the runtime's own tests check
-	// those.
-	Sandbox bool
 }
 
 // Linux capability numbers of runtime.DroppedCaps.
@@ -71,9 +64,6 @@ func Run(t *testing.T, d runtime.Driver, opts Options) {
 	}
 
 	t.Run("SecurityDefaults", r.securityDefaults)
-	if opts.Sandbox {
-		t.Run("Sandbox", r.separateKernels)
-	}
 	t.Run("Lifecycle", r.lifecycle)
 	t.Run("Labels", r.labels)
 	t.Run("Logs", r.logs)
@@ -233,12 +223,10 @@ echo "env $GREETING"`)
 			t.Errorf("capability %s not dropped (CapEff %s)", c, fields["CapEff"])
 		}
 	}
-	// A sandbox's limits apply to the whole sandbox on the host and are
-	// not visible inside it; the runtime checks them there.
-	if fields["memory"] != strconv.FormatInt(spec.MemoryBytes, 10) && !r.opts.Sandbox {
+	if fields["memory"] != strconv.FormatInt(spec.MemoryBytes, 10) {
 		t.Errorf("memory limit %q, want %d", fields["memory"], spec.MemoryBytes)
 	}
-	if fields["pids"] != strconv.FormatInt(spec.PidsLimit, 10) && !r.opts.Sandbox {
+	if fields["pids"] != strconv.FormatInt(spec.PidsLimit, 10) {
 		t.Errorf("PID limit %q, want %d", fields["pids"], spec.PidsLimit)
 	}
 	if fields["file"] != "s3cret" {
@@ -252,28 +240,6 @@ echo "env $GREETING"`)
 	}
 	if t.Failed() {
 		t.Logf("container stdout:\n%s\nstderr:\n%s", out, errOut)
-	}
-}
-
-// separateKernels checks the sandbox: two containers, and this machine,
-// report different kernel boot IDs.
-func (r *runner) separateKernels(t *testing.T) {
-	const cmd = "cat /proc/sys/kernel/random/boot_id"
-	seen := map[string]string{}
-	if b, err := os.ReadFile("/proc/sys/kernel/random/boot_id"); err == nil {
-		seen[strings.TrimSpace(string(b))] = "this machine"
-	}
-	for i := range 2 {
-		out, errOut, code := r.output(t, r.spec("sh", "-c", cmd))
-		id := strings.TrimSpace(out)
-		if code != 0 || id == "" {
-			t.Fatalf("exit %d, stdout %q, stderr %q", code, out, errOut)
-		}
-		who := fmt.Sprintf("container %d", i+1)
-		if prev, ok := seen[id]; ok {
-			t.Fatalf("%s shares a kernel with %s (boot ID %s)", who, prev, id)
-		}
-		seen[id] = who
 	}
 }
 
@@ -615,9 +581,7 @@ func (r *runner) volumes(t *testing.T) {
 	if err != nil || strings.TrimSpace(string(b)) != "written" {
 		t.Errorf("the container's write did not reach the host directory: %q, %v", b, err)
 	}
-	if checkFlags && !r.opts.Sandbox {
-		// In a sandbox the mount table shows the sandbox's own file sharing
-		// options; the host directory's flags cannot be read there.
+	if checkFlags {
 		for _, flag := range []string{"nosuid", "nodev"} {
 			if !strings.Contains(out, flag) {
 				t.Errorf("volume mounted without %s: %q", flag, out)

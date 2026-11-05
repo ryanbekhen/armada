@@ -29,7 +29,7 @@ func validConfig(t *testing.T) Config {
 	return Config{
 		ACMEAddress: "10.0.0.1:7480",
 		Backends: []Backend{
-			{Name: "web", HealthPath: "/healthz", RequestRate: 100, Connections: 20, Servers: []Server{{Name: "web-r1-a", Address: "10.0.0.2:32768"}}},
+			{Name: "web", HealthPath: "/healthz", Servers: []Server{{Name: "web-r1-a", Address: "10.0.0.2:32768"}}},
 			{Name: "api", Servers: []Server{{Name: "api-r1-a", Address: "10.0.0.3:32769"}}},
 		},
 		Rules: []Rule{
@@ -110,10 +110,6 @@ func TestValidateRejects(t *testing.T) {
 		"too many backends":       func(c *Config) { c.Backends = make([]Backend, MaxBackends+1) },
 		"cert bundle too large":   func(c *Config) { c.Certificates[0].PEM = make([]byte, maxCertificatePEM+1) },
 		"wildcard in rule host":   func(c *Config) { c.Rules[0].Host = "*.example.org" },
-		"negative request rate":   func(c *Config) { c.Backends[0].RequestRate = -1 },
-		"huge request rate":       func(c *Config) { c.Backends[0].RequestRate = MaxRequestLimit + 1 },
-		"negative connections":    func(c *Config) { c.Backends[0].Connections = -5 },
-		"huge connections":        func(c *Config) { c.Backends[0].Connections = MaxRequestLimit + 1 },
 		"double wildcard on cert": func(c *Config) { c.Certificates[1].Name = "*.*.example.org" },
 	}
 	for name, mutate := range tests {
@@ -178,15 +174,6 @@ func TestValidateProjectApps(t *testing.T) {
 	for backend, want := range map[string]string{"web": "default", "web.staging": "staging", "canary--web.staging": "staging", "canary--web": "default", "Web": "", "web.default": ""} {
 		if got := BackendProject(backend); got != want {
 			t.Errorf("BackendProject(%q) = %q, want %q", backend, got, want)
-		}
-	}
-}
-
-func TestBackendApp(t *testing.T) {
-	t.Parallel()
-	for in, want := range map[string]string{"web": "web", "web.shop": "web.shop", "canary--web.shop": "web.shop", "v2--web": "web"} {
-		if got := BackendApp(in); got != want {
-			t.Errorf("BackendApp(%q) = %q, want %q", in, got, want)
 		}
 	}
 }

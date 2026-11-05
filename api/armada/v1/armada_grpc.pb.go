@@ -75,9 +75,9 @@ type AdminServiceClient interface {
 	Status(ctx context.Context, in *StatusRequest, opts ...grpc.CallOption) (*StatusResponse, error)
 	Scale(ctx context.Context, in *ScaleRequest, opts ...grpc.CallOption) (*ScaleResponse, error)
 	// SetTraffic changes how an app in multiple revision mode splits
-	// requests, until its next deploy (ADR 0024).
+	// requests, until its next deploy (ADR 0022).
 	SetTraffic(ctx context.Context, in *SetTrafficRequest, opts ...grpc.CallOption) (*SetTrafficResponse, error)
-	// Volumes (ADR 0025): list them, remove one, and stream a backup of one
+	// Volumes (ADR 0023): list them, remove one, and stream a backup of one
 	// out of, or a restore into, the node that holds it.
 	ListVolumes(ctx context.Context, in *ListVolumesRequest, opts ...grpc.CallOption) (*ListVolumesResponse, error)
 	RemoveVolume(ctx context.Context, in *RemoveVolumeRequest, opts ...grpc.CallOption) (*RemoveVolumeResponse, error)
@@ -100,7 +100,7 @@ type AdminServiceClient interface {
 	RemoveNode(ctx context.Context, in *RemoveNodeRequest, opts ...grpc.CallOption) (*RemoveNodeResponse, error)
 	ListServers(ctx context.Context, in *ListServersRequest, opts ...grpc.CallOption) (*ListServersResponse, error)
 	RemoveServer(ctx context.Context, in *RemoveServerRequest, opts ...grpc.CallOption) (*RemoveServerResponse, error)
-	// Projects (ADR 0029). Every other RPC names an app by its ID:
+	// Projects (ADR 0026). Every other RPC names an app by its ID:
 	// <name>.<project>, or the bare name in the default project.
 	CreateProject(ctx context.Context, in *CreateProjectRequest, opts ...grpc.CallOption) (*ProjectInfo, error)
 	ListProjects(ctx context.Context, in *ListProjectsRequest, opts ...grpc.CallOption) (*ListProjectsResponse, error)
@@ -108,7 +108,7 @@ type AdminServiceClient interface {
 	// Change a project's settings (administrators only). Today only the
 	// default project's network isolation, which other projects always have.
 	UpdateProject(ctx context.Context, in *UpdateProjectRequest, opts ...grpc.CallOption) (*ProjectInfo, error)
-	// Automation identities (ADR 0029): tools that manage the apps of some
+	// Automation identities (ADR 0026): tools that manage the apps of some
 	// projects and nothing else. Only administrators manage them.
 	SetAutomation(ctx context.Context, in *SetAutomationRequest, opts ...grpc.CallOption) (*AutomationInfo, error)
 	ListAutomations(ctx context.Context, in *ListAutomationsRequest, opts ...grpc.CallOption) (*ListAutomationsResponse, error)
@@ -119,20 +119,20 @@ type AdminServiceClient interface {
 	// RenewAutomationCertificate is called by an automation identity with its
 	// current certificate; every other certificate of it is revoked.
 	RenewAutomationCertificate(ctx context.Context, in *RenewAutomationCertificateRequest, opts ...grpc.CallOption) (*IssueAutomationCertificateResponse, error)
-	// Exec runs a command in one replica of an app (ADR 0017). The first
+	// Exec runs a command in one replica of an app (ADR 0015). The first
 	// client message is start; the server's first message names the replica
 	// and its last the exit code.
 	Exec(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ExecClientMessage, ExecServerMessage], error)
 	// Top reports the CPU and memory replicas use, from the latest samples
-	// their agents sent (ADR 0018).
+	// their agents sent (ADR 0016).
 	Top(ctx context.Context, in *TopRequest, opts ...grpc.CallOption) (*TopResponse, error)
 	// IssueMetricsCertificate signs a client certificate that may only
-	// scrape the metrics endpoint (ADR 0019).
+	// scrape the metrics endpoint (ADR 0017).
 	IssueMetricsCertificate(ctx context.Context, in *IssueMetricsCertificateRequest, opts ...grpc.CallOption) (*IssueMetricsCertificateResponse, error)
-	// Events streams what the cluster did (ADR 0020), oldest first; with
+	// Events streams what the cluster did (ADR 0018), oldest first; with
 	// follow, then new events until the caller cancels.
 	Events(ctx context.Context, in *EventsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[EventInfo], error)
-	// Jobs (ADR 0021): start a run now, list jobs and their runs, cancel the
+	// Jobs (ADR 0019): start a run now, list jobs and their runs, cancel the
 	// running run, delete a job with its runs.
 	RunJob(ctx context.Context, in *RunJobRequest, opts ...grpc.CallOption) (*RunJobResponse, error)
 	ListJobs(ctx context.Context, in *ListJobsRequest, opts ...grpc.CallOption) (*ListJobsResponse, error)
@@ -623,9 +623,9 @@ type AdminServiceServer interface {
 	Status(context.Context, *StatusRequest) (*StatusResponse, error)
 	Scale(context.Context, *ScaleRequest) (*ScaleResponse, error)
 	// SetTraffic changes how an app in multiple revision mode splits
-	// requests, until its next deploy (ADR 0024).
+	// requests, until its next deploy (ADR 0022).
 	SetTraffic(context.Context, *SetTrafficRequest) (*SetTrafficResponse, error)
-	// Volumes (ADR 0025): list them, remove one, and stream a backup of one
+	// Volumes (ADR 0023): list them, remove one, and stream a backup of one
 	// out of, or a restore into, the node that holds it.
 	ListVolumes(context.Context, *ListVolumesRequest) (*ListVolumesResponse, error)
 	RemoveVolume(context.Context, *RemoveVolumeRequest) (*RemoveVolumeResponse, error)
@@ -648,7 +648,7 @@ type AdminServiceServer interface {
 	RemoveNode(context.Context, *RemoveNodeRequest) (*RemoveNodeResponse, error)
 	ListServers(context.Context, *ListServersRequest) (*ListServersResponse, error)
 	RemoveServer(context.Context, *RemoveServerRequest) (*RemoveServerResponse, error)
-	// Projects (ADR 0029). Every other RPC names an app by its ID:
+	// Projects (ADR 0026). Every other RPC names an app by its ID:
 	// <name>.<project>, or the bare name in the default project.
 	CreateProject(context.Context, *CreateProjectRequest) (*ProjectInfo, error)
 	ListProjects(context.Context, *ListProjectsRequest) (*ListProjectsResponse, error)
@@ -656,7 +656,7 @@ type AdminServiceServer interface {
 	// Change a project's settings (administrators only). Today only the
 	// default project's network isolation, which other projects always have.
 	UpdateProject(context.Context, *UpdateProjectRequest) (*ProjectInfo, error)
-	// Automation identities (ADR 0029): tools that manage the apps of some
+	// Automation identities (ADR 0026): tools that manage the apps of some
 	// projects and nothing else. Only administrators manage them.
 	SetAutomation(context.Context, *SetAutomationRequest) (*AutomationInfo, error)
 	ListAutomations(context.Context, *ListAutomationsRequest) (*ListAutomationsResponse, error)
@@ -667,20 +667,20 @@ type AdminServiceServer interface {
 	// RenewAutomationCertificate is called by an automation identity with its
 	// current certificate; every other certificate of it is revoked.
 	RenewAutomationCertificate(context.Context, *RenewAutomationCertificateRequest) (*IssueAutomationCertificateResponse, error)
-	// Exec runs a command in one replica of an app (ADR 0017). The first
+	// Exec runs a command in one replica of an app (ADR 0015). The first
 	// client message is start; the server's first message names the replica
 	// and its last the exit code.
 	Exec(grpc.BidiStreamingServer[ExecClientMessage, ExecServerMessage]) error
 	// Top reports the CPU and memory replicas use, from the latest samples
-	// their agents sent (ADR 0018).
+	// their agents sent (ADR 0016).
 	Top(context.Context, *TopRequest) (*TopResponse, error)
 	// IssueMetricsCertificate signs a client certificate that may only
-	// scrape the metrics endpoint (ADR 0019).
+	// scrape the metrics endpoint (ADR 0017).
 	IssueMetricsCertificate(context.Context, *IssueMetricsCertificateRequest) (*IssueMetricsCertificateResponse, error)
-	// Events streams what the cluster did (ADR 0020), oldest first; with
+	// Events streams what the cluster did (ADR 0018), oldest first; with
 	// follow, then new events until the caller cancels.
 	Events(*EventsRequest, grpc.ServerStreamingServer[EventInfo]) error
-	// Jobs (ADR 0021): start a run now, list jobs and their runs, cancel the
+	// Jobs (ADR 0019): start a run now, list jobs and their runs, cancel the
 	// running run, delete a job with its runs.
 	RunJob(context.Context, *RunJobRequest) (*RunJobResponse, error)
 	ListJobs(context.Context, *ListJobsRequest) (*ListJobsResponse, error)

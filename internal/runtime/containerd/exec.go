@@ -85,8 +85,7 @@ func (d *Driver) ExecApp(ctx context.Context, id string, opts runtime.ExecOption
 	if err := proc.Start(ctx); err != nil {
 		return 0, fmt.Errorf("exec: %w", err)
 	}
-	// runsc ignores the console size in the process spec (ADR 0026), so
-	// the first size is also sent as a resize.
+	// The first size is also sent as a resize, so the shell sees it at once.
 	if opts.TTY && opts.Size.Rows > 0 && opts.Size.Cols > 0 {
 		_ = proc.Resize(ctx, uint32(opts.Size.Cols), uint32(opts.Size.Rows))
 	}

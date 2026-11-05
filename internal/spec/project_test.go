@@ -61,25 +61,3 @@ func TestParseRejectsProject(t *testing.T) {
 		t.Fatal("a project in the file was accepted")
 	}
 }
-
-func TestIsolation(t *testing.T) {
-	for _, l := range []string{IsolationContainer, IsolationSandbox} {
-		if err := CheckIsolation(l); err != nil {
-			t.Errorf("%s: %v", l, err)
-		}
-	}
-	for _, l := range []string{"", IsolationVM, "Sandbox", "gvisor", "container "} {
-		if CheckIsolation(l) == nil {
-			t.Errorf("%q accepted", l)
-		}
-	}
-	ordered := IsolationRank("") == IsolationRank(IsolationContainer) &&
-		IsolationRank(IsolationContainer) < IsolationRank(IsolationSandbox) &&
-		IsolationRank(IsolationSandbox) < IsolationRank(IsolationVM)
-	if !ordered {
-		t.Error("levels out of order")
-	}
-	if IsolationRank("other") != -1 {
-		t.Error("unknown level ranked")
-	}
-}

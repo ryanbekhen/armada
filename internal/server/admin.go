@@ -304,7 +304,7 @@ func (s *Server) Status(ctx context.Context, req *armadav1.StatusRequest) (*arma
 			state = nodeStateLost
 		}
 		ns := &armadav1.NodeStatus{Id: n.ID, PrivateIp: n.PrivateIP, State: state, CpuMillis: n.CPUMillis, MemoryBytes: n.MemoryBytes, Cordoned: n.Cordoned, Version: n.Version,
-			Labels: n.AllLabels(), Restricted: n.Restricted, Sandbox: n.Sandbox, Egress: n.Egress}
+			Labels: n.AllLabels(), Restricted: n.Restricted}
 		if !n.LastSeen.IsZero() {
 			ns.LastSeen = timestamppb.New(n.LastSeen)
 		}
