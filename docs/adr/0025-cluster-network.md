@@ -316,7 +316,7 @@ Past the limit the kernel drops new connections, which clients only see as
 a retransmit after a second or more.
 
 So the agent raises `nf_conntrack_max` to 262144, or to one entry per 4 KiB
-of memory on smaller machines, which bounds a full table to about 8% of the
+of memory on smaller machines, which bounds a full table to about 6% of the
 memory. It checks with each usage sample, because the kernel module may load
 after the agent starts, and never lowers a limit, so an operator's higher one
 stands. It also reports the table's use, for `armada_node_conntrack_entries`
