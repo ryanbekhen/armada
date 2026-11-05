@@ -28,13 +28,20 @@ type Quota struct {
 	// attempt: the bits per second its container may send. It is pinned
 	// into every revision deployed into the project.
 	EgressBits int64 `json:"egressBits,omitempty"`
+	// RequestRate and Connections are limits on each app at each node's
+	// proxy, not totals: the requests per second it may receive there, and
+	// the requests it may have in progress there at once. Requests past
+	// them get 429. They apply to running apps as soon as they change.
+	RequestRate int `json:"requestRate,omitempty"`
+	Connections int `json:"connections,omitempty"`
 }
 
 // maxQuotaCount keeps counts far from overflow and within reason.
 const maxQuotaCount = 1_000_000
 
-// quotaKeys lists the counted keys of ParseQuota in display order; egress
-// (a limit per replica, not a total) comes after them.
+// quotaKeys lists the counted keys of ParseQuota in display order; egress,
+// requests, and connections (limits per replica or app, not totals) come
+// after them.
 var quotaKeys = []string{"cpu", "memory", "replicas", "volumes", "domains", "secrets", "jobs"}
 
 // Bounds of the egress limit, in bits per second.
@@ -47,7 +54,7 @@ const (
 func (q Quota) IsZero() bool { return q == Quota{} }
 
 // ParseQuota parses "cpu=4,memory=8Gi,replicas=20,volumes=4,domains=2,
-// secrets=50,jobs=2,egress=100M". Keys left out are unlimited, as is a
+// secrets=50,jobs=2,egress=100M,requests=200,connections=100". Keys left out are unlimited, as is a
 // value of 0; "none" clears every limit.
 func ParseQuota(s string) (Quota, error) {
 	var q Quota
@@ -56,7 +63,7 @@ func ParseQuota(s string) (Quota, error) {
 		return q, nil
 	}
 	if s == "" {
-		return q, fmt.Errorf("empty quota: give KEY=VALUE pairs (%s, egress) or none", strings.Join(quotaKeys, ", "))
+		return q, fmt.Errorf("empty quota: give KEY=VALUE pairs (%s, egress, requests, connections) or none", strings.Join(quotaKeys, ", "))
 	}
 	seen := map[string]bool{}
 	for _, part := range strings.Split(s, ",") {
@@ -87,7 +94,7 @@ func ParseQuota(s string) (Quota, error) {
 				return Quota{}, err
 			}
 			q.MemoryBytes = n
-		case "replicas", "volumes", "domains", "secrets", "jobs":
+		case "replicas", "volumes", "domains", "secrets", "jobs", "requests", "connections":
 			n, err := strconv.Atoi(v)
 			if err != nil || n < 0 || n > maxQuotaCount || strconv.Itoa(n) != v {
 				return Quota{}, fmt.Errorf("invalid quota %s=%s: a whole number from 0 to %d", k, v, maxQuotaCount)
@@ -103,7 +110,7 @@ func ParseQuota(s string) (Quota, error) {
 			}
 			q.EgressBits = n
 		default:
-			return Quota{}, fmt.Errorf("unknown quota key %q: use %s, egress", k, strings.Join(quotaKeys, ", "))
+			return Quota{}, fmt.Errorf("unknown quota key %q: use %s, egress, requests, connections", k, strings.Join(quotaKeys, ", "))
 		}
 	}
 	return q, nil
@@ -119,6 +126,10 @@ func (q *Quota) count(k string) *int {
 		return &q.Domains
 	case "secrets":
 		return &q.Secrets
+	case "requests":
+		return &q.RequestRate
+	case "connections":
+		return &q.Connections
 	}
 	return &q.Jobs
 }
@@ -132,7 +143,7 @@ func CheckQuota(q Quota) error {
 	if q.EgressBits != 0 && (q.EgressBits < MinEgressBits || q.EgressBits > MaxEgressBits) {
 		return fmt.Errorf("quota egress must be from %s to %s bits per second", FormatBitRate(MinEgressBits), FormatBitRate(MaxEgressBits))
 	}
-	for _, n := range []int{q.Replicas, q.Volumes, q.Domains, q.Secrets, q.Jobs} {
+	for _, n := range []int{q.Replicas, q.Volumes, q.Domains, q.Secrets, q.Jobs, q.RequestRate, q.Connections} {
 		if n < 0 || n > maxQuotaCount {
 			return fmt.Errorf("quota counts must be from 0 to %d", maxQuotaCount)
 		}
@@ -160,9 +171,7 @@ func (q Quota) String() string {
 			parts = append(parts, k+"="+s)
 		}
 	}
-	if q.EgressBits > 0 {
-		parts = append(parts, "egress="+FormatBitRate(q.EgressBits))
-	}
+	parts = append(parts, q.limits()...)
 	if len(parts) == 0 {
 		return "none"
 	}
@@ -199,9 +208,7 @@ func Usage(used, q Quota) string {
 			parts = append(parts, k+"="+us)
 		}
 	}
-	if q.EgressBits > 0 {
-		parts = append(parts, "egress="+FormatBitRate(q.EgressBits))
-	}
+	parts = append(parts, q.limits()...)
 	if len(parts) == 0 {
 		return "-"
 	}
@@ -230,6 +237,21 @@ func FormatMemory(b int64) string {
 		return strconv.FormatInt(b>>10, 10) + "Ki"
 	}
 	return strconv.FormatInt(b, 10)
+}
+
+// limits shows the limits q sets that are not totals.
+func (q Quota) limits() []string {
+	var parts []string
+	if q.EgressBits > 0 {
+		parts = append(parts, "egress="+FormatBitRate(q.EgressBits))
+	}
+	if q.RequestRate > 0 {
+		parts = append(parts, "requests="+strconv.Itoa(q.RequestRate))
+	}
+	if q.Connections > 0 {
+		parts = append(parts, "connections="+strconv.Itoa(q.Connections))
+	}
+	return parts
 }
 
 // ParseBitRate parses a rate in bits per second with an optional decimal

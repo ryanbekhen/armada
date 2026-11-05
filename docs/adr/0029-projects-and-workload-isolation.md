@@ -261,14 +261,28 @@ sets the minimum:
   `CAP_NET_ADMIN`; it covers everything the container sends, responses
   through ingress included. Schema 10 gates servers that would not pin or
   place by the limit.
+- A quota may also carry `requests` and `connections`, limits on each app
+  at each node's proxy rather than totals: the requests per second it may
+  receive there, and the requests it may have in progress there at once.
+  They are not pinned: `buildProxy` reads the project's quota, so a
+  change applies to running apps at once (a reload). Every backend of the
+  app (`proxy.BackendApp`: revision labels included) shares one counter in
+  a stick table keyed by app ID (`st_armada_limits`), on the public and
+  internal frontends alike; the counter is tracked per request
+  (`http-request track-sc0`), so it counts requests in progress whatever
+  the client's connections, and requests past a limit get 429 before they
+  reach a replica or wake one. The limit holds per node: an app served by
+  three nodes' proxies may receive three times as much. Schema 11 gates
+  servers that would not send the limits.
 - Per-replica limits stay as today and every project container gets them
   (memory, PIDs, CPU weight); `sandbox` also bounds the sandbox's own
   memory.
 - Shared paths get limits a project cannot raise:
   - egress bandwidth per replica (the CNI `bandwidth` plugin, pinned like
     the others; the quota's `egress`, above; done);
-  - connections and request rate per route in HAProxy, set by the
-    administrator per project;
+  - connections and request rate per app in HAProxy, set by the
+    administrator per project (the quota's `requests` and `connections`,
+    above; done);
   - log volume per replica, so one project cannot fill a node's disk or
     take its disk bandwidth: besides rotation (3 files of 10 MB), the
     log writer drops output past 1 MiB per second (4 MiB burst) and
@@ -307,7 +321,7 @@ message:
    HAProxy's internal frontend, and `ingress.allow` (done);
 3. `isolation: sandbox` in the embedded runtime: the runtime and node
    support, the project setting, and placement (done);
-4. quotas (done), shared-path limits (log rate and egress done), and usage per project;
+4. quotas (done), shared-path limits (done), and usage per project;
 5. `isolation: vm` in the embedded runtime.
 
 ## Alternatives considered

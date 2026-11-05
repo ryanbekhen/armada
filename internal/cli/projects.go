@@ -141,7 +141,9 @@ func newProjectSetCommand(g *globals) *cobra.Command {
 			"left out are unlimited; none removes the quota. Lowering it below what the\n" +
 			"project uses keeps what runs and refuses only what would grow past it.\n" +
 			"egress=100M limits the bits per second each replica may send; like the\n" +
-			"isolation level, revisions deployed afterwards use it.\n\n" +
+			"isolation level, revisions deployed afterwards use it. requests=200 and\n" +
+			"connections=100 limit the requests per second and the requests in progress\n" +
+			"each app may take at each node's proxy (429 past them), at once.\n\n" +
 			"--network-isolation keeps the project's containers away from the nodes, the\n" +
 			"control plane, the private network, and the cloud's metadata service: they\n" +
 			"reach the internet, their node's DNS server, and internal and public\n" +
