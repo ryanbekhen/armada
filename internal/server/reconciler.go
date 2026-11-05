@@ -51,6 +51,7 @@ func (s *Server) Reconcile(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	s.usage.setOwners(replicas, s.now())
 	revs := revisionCache{store: s.store, keys: s.keys, m: map[string]store.Revision{}}
 	// Scheduling sees only the capacity left after what Armada keeps.
 	nodes, err = s.allocatable(ctx, nodes)

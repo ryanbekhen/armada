@@ -30,14 +30,20 @@ func TestSampleUsage(t *testing.T) {
 	}
 
 	time.Sleep(100 * time.Millisecond)
-	d.SetUsage("web-1", runtime.Stats{CPU: time.Second + 50*time.Millisecond, MemoryBytes: 42 << 20})
+	d.SetUsage("web-1", runtime.Stats{CPU: time.Second + 50*time.Millisecond, MemoryBytes: 42 << 20, EgressBytes: 1500})
 	r, prev = a.sampleUsage(ctx, d, prev)
 	if len(r.GetReplicas()) != 1 {
 		t.Fatalf("second sample: %v", r)
 	}
 	// 50ms of CPU in a little over 100ms of wall time.
-	if u := r.GetReplicas()[0]; u.GetId() != "web-1" || u.GetMemoryBytes() != 42<<20 || u.GetCpuMillis() < 100 || u.GetCpuMillis() > 500 {
+	if u := r.GetReplicas()[0]; u.GetId() != "web-1" || u.GetMemoryBytes() != 42<<20 || u.GetCpuMillis() < 100 || u.GetCpuMillis() > 500 || u.GetEgressBytes() != 1500 {
 		t.Errorf("second sample: %v", u)
+	}
+	// Egress is reported as what was sent since the previous sample.
+	time.Sleep(10 * time.Millisecond)
+	d.SetUsage("web-1", runtime.Stats{CPU: time.Second + 60*time.Millisecond, MemoryBytes: 42 << 20, EgressBytes: 1600})
+	if r, prev = a.sampleUsage(ctx, d, prev); len(r.GetReplicas()) != 1 || r.GetReplicas()[0].GetEgressBytes() != 100 {
+		t.Errorf("third sample: %v", r)
 	}
 
 	// A replacement container starts over, as does a counter that went

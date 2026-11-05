@@ -90,6 +90,7 @@ func Run(t *testing.T, d runtime.Driver, opts Options) {
 	}
 	if sr, ok := d.(runtime.StatsReader); ok {
 		t.Run("Stats", func(t *testing.T) { r.stats(t, sr) })
+		t.Run("StatsEgress", func(t *testing.T) { r.statsEgress(t, sr) })
 	}
 	if runtime.CanMountVolumes(d) {
 		t.Run("Volumes", r.volumes)
@@ -561,6 +562,31 @@ func (r *runner) stats(t *testing.T, sr runtime.StatsReader) {
 
 	if _, err := sr.Stats(ctx, "armada-conformance-missing"); err == nil {
 		t.Error("Stats of a missing container succeeded")
+	}
+}
+
+// statsEgress checks that what a container sends over its network is counted.
+func (r *runner) statsEgress(t *testing.T, sr runtime.StatsReader) {
+	ctx, cancel := r.ctx()
+	defer cancel()
+	id, err := r.d.Run(ctx, r.spec("sh", "-c",
+		`gw=$(ip route | awk '/^default/ {print $3}'); while :; do wget -q -T 1 -O /dev/null "http://$gw:9/"; sleep 0.2; done`))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	deadline := time.Now().Add(20 * time.Second)
+	for {
+		st, err := sr.Stats(ctx, id)
+		if err != nil {
+			t.Fatalf("Stats: %v", err)
+		}
+		if st.EgressBytes > 0 {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("no egress counted for a container that keeps sending")
+		}
+		time.Sleep(250 * time.Millisecond)
 	}
 }
 

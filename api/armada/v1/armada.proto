@@ -687,6 +687,28 @@ message TopResponse {
   // Every node, with what its replicas use and reserve; empty when app is
   // set.
   repeated NodeTop nodes = 2;
+  // Each project the caller may manage, with what its apps use; empty when
+  // app is set (ADR 0029).
+  repeated ProjectTop projects = 3;
+  // When this leader began counting ProjectTop.requests and egress_bytes.
+  google.protobuf.Timestamp counted_since = 4;
+}
+
+message ProjectTop {
+  string name = 1;
+  int32 replicas = 2;
+  // How many replicas have a recent sample in cpu_millis and memory_bytes.
+  int32 measured = 3;
+  int64 cpu_millis = 4;
+  int64 memory_bytes = 5;
+  int64 cpu_reserved_millis = 6;
+  int64 memory_reserved_bytes = 7;
+  // Bytes in the project's volumes, from their latest measurements.
+  int64 volume_bytes = 8;
+  // Requests the proxies sent to the project's replicas, and bytes its
+  // containers sent, since counted_since.
+  int64 requests = 9;
+  int64 egress_bytes = 10;
 }
 
 message ReplicaTop {
@@ -909,6 +931,8 @@ message ReplicaUsage {
   int64 cpu_millis = 2;
   // Memory in use, without page cache the kernel can reclaim.
   int64 memory_bytes = 3;
+  // Bytes the container sent since the previous sample.
+  int64 egress_bytes = 4;
 }
 
 message ServerMessage {

@@ -280,6 +280,9 @@ type Stats struct {
 	// MemoryBytes is the memory in use, without page cache the kernel can
 	// reclaim.
 	MemoryBytes int64
+	// EgressBytes is what the container sent over its network interface
+	// since it started; 0 when unknown.
+	EgressBytes int64
 }
 
 // StatsReader samples what app containers use (armada top, ADR 0018). It

@@ -113,6 +113,14 @@ var (
 	descScaleTarget     = prometheus.NewDesc("armada_app_autoscale_target", "An autoscaling rule's target per replica.", []string{"app", "rule"}, nil)
 	descJobActive       = prometheus.NewDesc("armada_job_runs_active", "Runs of a job that are pending or running.", []string{"job"}, nil)
 	descTrafficWeight   = prometheus.NewDesc("armada_app_traffic_weight", "A revision's percent of an app's requests in multiple revision mode.", []string{"app", "revision"}, nil)
+	descProjectReplicas = prometheus.NewDesc("armada_project_replicas", "Replicas of a project's apps.", []string{"project"}, nil)
+	descProjectCPU      = prometheus.NewDesc("armada_project_cpu_usage_cores", "CPU a project's replicas used over the last sampling interval.", []string{"project"}, nil)
+	descProjectMemory   = prometheus.NewDesc("armada_project_memory_usage_bytes", "Memory a project's replicas use, without reclaimable page cache.", []string{"project"}, nil)
+	descProjectCPURes   = prometheus.NewDesc("armada_project_cpu_reserved_cores", "CPU a project's replicas reserve.", []string{"project"}, nil)
+	descProjectMemRes   = prometheus.NewDesc("armada_project_memory_reserved_bytes", "Memory a project's replicas reserve.", []string{"project"}, nil)
+	descProjectVolumes  = prometheus.NewDesc("armada_project_volume_used_bytes", "Bytes in a project's volumes, from their latest measurements.", []string{"project"}, nil)
+	descProjectRequests = prometheus.NewDesc("armada_project_requests_total", "Requests the proxies sent to a project's replicas; resets when the leader changes.", []string{"project"}, nil)
+	descProjectEgress   = prometheus.NewDesc("armada_project_egress_bytes_total", "Bytes a project's containers sent; resets when the leader changes.", []string{"project"}, nil)
 	descVolumeUsed      = prometheus.NewDesc("armada_volume_used_bytes", "Bytes in a volume's files, from its node's latest measurement; absent while unmeasured.", []string{"app", "volume", "node"}, nil)
 )
 
@@ -123,6 +131,8 @@ func (c *clusterCollector) Describe(ch chan<- *prometheus.Desc) {
 		descNodeReady, descNodeCordoned, descNodeReplicas, descNodeCPUAlloc, descNodeMemAlloc,
 		descNodeCPURes, descNodeMemRes, descNodeCPU, descNodeMemory, descJobLastSuccess, descJobActive,
 		descScaleCurrent, descScaleTarget, descTrafficWeight, descVolumeUsed,
+		descProjectReplicas, descProjectCPU, descProjectMemory, descProjectCPURes, descProjectMemRes,
+		descProjectVolumes, descProjectRequests, descProjectEgress,
 	} {
 		ch <- d
 	}
@@ -219,6 +229,19 @@ func (c *clusterCollector) Collect(ch chan<- prometheus.Metric) {
 				gauge(descVolumeUsed, float64(v.GetUsedBytes()), v.GetApp(), v.GetName(), v.GetNode())
 			}
 		}
+	}
+	for _, p := range top.GetProjects() {
+		name := p.GetName()
+		gauge(descProjectReplicas, float64(p.GetReplicas()), name)
+		if p.GetMeasured() > 0 {
+			gauge(descProjectCPU, cores(p.GetCpuMillis()), name)
+			gauge(descProjectMemory, float64(p.GetMemoryBytes()), name)
+		}
+		gauge(descProjectCPURes, cores(p.GetCpuReservedMillis()), name)
+		gauge(descProjectMemRes, float64(p.GetMemoryReservedBytes()), name)
+		gauge(descProjectVolumes, float64(p.GetVolumeBytes()), name)
+		ch <- prometheus.MustNewConstMetric(descProjectRequests, prometheus.CounterValue, float64(p.GetRequests()), name)
+		ch <- prometheus.MustNewConstMetric(descProjectEgress, prometheus.CounterValue, float64(p.GetEgressBytes()), name)
 	}
 	for _, n := range top.GetNodes() {
 		gauge(descNodeReplicas, float64(n.GetReplicas()), n.GetId())

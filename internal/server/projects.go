@@ -202,6 +202,7 @@ func (s *Server) DeleteProject(ctx context.Context, req *armadav1.DeleteProjectR
 	if err := s.store.DeleteProject(ctx, name, actor(ctx)); err != nil {
 		return nil, storeErr(err)
 	}
+	s.usage.forgetProject(name)
 	s.log.Info("project removed", "project", name, "by", actor(ctx))
 	return &armadav1.DeleteProjectResponse{}, nil
 }

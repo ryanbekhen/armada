@@ -290,10 +290,28 @@ sets the minimum:
 
 ### Usage per project
 
-`armada top` and the metrics endpoint aggregate usage per project (CPU,
-memory, volume bytes, requests, egress bytes), from the samples agents
-already send (ADR 0018). `ProjectService.Top` shows a project its own
-usage; the totals over every project are admin only.
+`armada top --projects` and the metrics endpoint (`armada_project_*`)
+aggregate usage per project: CPU, memory, reservations, and volume bytes
+from the samples agents already send (ADR 0018), and two counters, requests
+and egress bytes. `AdminService.Top` lists only the projects the caller may
+manage, so an automation identity sees its own usage and only administrators
+see every project.
+
+Egress is what a container's `eth0` sent, read from the network namespace's
+counters (`/proc/PID/net/dev` of the task, which also holds in the sandbox,
+where the userspace kernel sends through the same interface). It therefore
+includes replies through the proxies and traffic to other replicas. Agents
+report what was sent since the previous sample; requests come from the
+per-replica deltas of ADR 0023.
+
+Replicas come and go, so the counters cannot be summed when read: the leader
+adds each report to a per-project total as it arrives. So that a report
+still costs no store access, the reconciler hands the usage store the owner
+of every replica on each pass, and a report only counts for replicas in that
+list; egress also only from the replica's own node. Like all usage the
+totals live in the leader's memory and start over with a new leader, which
+Prometheus counters handle as a reset. Keeping them in etcd would mean a
+store write per project every 10 seconds for no gain over scraping them.
 
 ### Migration
 
@@ -321,7 +339,7 @@ message:
    HAProxy's internal frontend, and `ingress.allow` (done);
 3. `isolation: sandbox` in the embedded runtime: the runtime and node
    support, the project setting, and placement (done);
-4. quotas (done), shared-path limits (done), and usage per project;
+4. quotas (done), shared-path limits (done), and usage per project (done);
 5. `isolation: vm` in the embedded runtime.
 
 ## Alternatives considered

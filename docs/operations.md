@@ -584,6 +584,7 @@ armada exec web --replica web-r1-5muie -- env # a specific replica (armada statu
 armada top            # per app
 armada top web        # per replica of web
 armada top --nodes    # per node
+armada top --projects # per project
 armada top -o json    # everything, with the time of each sample
 ```
 
@@ -603,6 +604,15 @@ web-r1-q2k0d     node2  running  41m/250m   58Mi/256Mi
   `resources.memory`.
 - `--nodes` shows what each node's replicas use and reserve, and what the
   node can give replicas after what Armada keeps for itself.
+- `--projects` adds up each project's replicas and volumes, and counts the
+  requests the proxies sent to its replicas and the bytes its containers
+  sent over their network, replies and traffic to other replicas included.
+  An automation identity sees only its own projects.
+- Requests and egress count from when the control plane's leader started, the
+  time the listing prints, and start over when the leader changes. They are
+  sums of samples: what a container sends in its first and last 10 seconds,
+  and requests while a proxy reloads, can be missed. For history, scrape the
+  [metrics](#metrics) and use `rate()` or `increase()`.
 - `-` means no recent sample: the replica is not running yet or the node is
   disconnected. Numbers appear 10 to 20 seconds after a replica starts or
   the control plane's leader changes, since samples are kept in the
@@ -796,6 +806,11 @@ scrape_configs:
 | `armada_replica_ready` | `app`, `replica`, `revision`, `node` | 1 when the replica serves |
 | `armada_replica_cpu_usage_cores`, `armada_replica_memory_usage_bytes` | `app`, `replica`, `node` | usage from the latest sample (absent without one) |
 | `armada_replica_cpu_reserved_cores`, `armada_replica_cpu_limit_cores`, `armada_replica_memory_limit_bytes` | `app`, `replica`, `node` | reservation and limits (CPU limit only when set) |
+| `armada_project_replicas` | `project` | replicas of the project's apps |
+| `armada_project_cpu_usage_cores`, `armada_project_memory_usage_bytes` | `project` | what they use (absent without a sample) |
+| `armada_project_cpu_reserved_cores`, `armada_project_memory_reserved_bytes` | `project` | what they reserve |
+| `armada_project_volume_used_bytes` | `project` | bytes in the project's volumes, from their latest measurements |
+| `armada_project_requests_total`, `armada_project_egress_bytes_total` | `project` | requests the proxies sent to its replicas and bytes its containers sent; reset when the leader changes |
 | `armada_node_ready`, `armada_node_cordoned` | `node` | node state |
 | `armada_node_replicas` | `node` | replicas assigned to the node |
 | `armada_node_cpu_allocatable_cores`, `armada_node_memory_allocatable_bytes` | `node` | what the node can give replicas |

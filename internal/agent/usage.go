@@ -19,6 +19,7 @@ const defaultUsageInterval = 10 * time.Second
 type usageSample struct {
 	container string
 	cpu       time.Duration
+	egress    int64
 	at        time.Time
 }
 
@@ -87,7 +88,7 @@ func (a *Agent) sampleUsage(ctx context.Context, sr runtime.StatsReader, prev ma
 			continue
 		}
 		now := time.Now()
-		next[id] = usageSample{container: c.ID, cpu: st.CPU, at: now}
+		next[id] = usageSample{container: c.ID, cpu: st.CPU, egress: st.EgressBytes, at: now}
 		p, ok := prev[id]
 		elapsed := now.Sub(p.at)
 		if !ok || p.container != c.ID || st.CPU < p.cpu || elapsed <= 0 {
@@ -97,6 +98,7 @@ func (a *Agent) sampleUsage(ctx context.Context, sr runtime.StatsReader, prev ma
 			Id:          id,
 			CpuMillis:   int64(float64(st.CPU-p.cpu) / float64(elapsed) * 1000),
 			MemoryBytes: st.MemoryBytes,
+			EgressBytes: max(0, st.EgressBytes-p.egress),
 		})
 	}
 	return report, next

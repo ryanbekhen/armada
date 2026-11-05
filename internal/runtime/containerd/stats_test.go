@@ -21,3 +21,26 @@ func TestStatsFromCgroup(t *testing.T) {
 		t.Errorf("stats = %+v", s)
 	}
 }
+
+func TestEgressFromNetDev(t *testing.T) {
+	t.Parallel()
+	const header = `Inter-|   Receive                                                |  Transmit
+ face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed
+`
+	for _, tc := range []struct {
+		in   string
+		want int64
+	}{
+		{header + "    lo:    100       1    0    0    0     0          0         0      900       1    0    0    0     0       0          0\n" +
+			"  eth0: 12345      10    0    0    0     0          0         0    67890      11    0    0    0     0       0          0\n", 67890},
+		{header + "    lo:    100       1    0    0    0     0          0         0      900       1    0    0    0     0       0          0\n", 0},
+		{header + "  eth0: 1 2 3\n", 0},
+		{header + "  eth0: 1 2 3 4 5 6 7 8 nope 10\n", 0},
+		{header + "  eth0: 1 2 3 4 5 6 7 8 -9 10\n", 0},
+		{"", 0},
+	} {
+		if got := egressFromNetDev(tc.in); got != tc.want {
+			t.Errorf("%q: got %d, want %d", tc.in, got, tc.want)
+		}
+	}
+}
