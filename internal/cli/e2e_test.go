@@ -449,10 +449,17 @@ func TestEndToEnd(t *testing.T) {
 	if code, out, _ := cli("cluster", "show"); code != 0 || !strings.Contains(out, "root domain: apps.example.org") {
 		t.Errorf("cluster show = %q", out)
 	}
-	hapCfg := filepath.Join(dataDir, dirHAProxy, "etc", "haproxy.cfg")
 	waitFor("haproxy routes web", func() bool {
-		b, err := os.ReadFile(hapCfg)
-		return err == nil && strings.Contains(string(b), "-m str web.apps.example.org }")
+		maps, err := filepath.Glob(filepath.Join(dataDir, dirHAProxy, "etc", "routes-*.map"))
+		if err != nil {
+			return false
+		}
+		for _, m := range maps {
+			if b, err := os.ReadFile(m); err == nil && strings.Contains(string(b), "web.apps.example.org be_web\n") {
+				return true
+			}
+		}
+		return false
 	})
 	if sys := d.SystemSpecs(); len(sys) == 0 || sys[0].Name != "armada-haproxy" {
 		t.Errorf("HAProxy system container not started: %+v", sys)
