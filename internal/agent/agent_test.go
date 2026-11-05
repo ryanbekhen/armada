@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -134,9 +135,9 @@ func TestNetworkKnowsLocalContainers(t *testing.T) {
 	nw.mu.Lock()
 	calls, local := nw.calls, nw.local
 	nw.mu.Unlock()
-	// Once per start, and once at the end of the pass.
-	if calls != 3 || !maps.Equal(local, want) {
-		t.Errorf("network applied %d times with %v, want 3 with %v", calls, local, want)
+	// Once for the starts, before the report, and once at the end of the pass.
+	if calls != 2 || !maps.Equal(local, want) {
+		t.Errorf("network applied %d times with %v, want 2 with %v", calls, local, want)
 	}
 	dns.mu.Lock()
 	defer dns.mu.Unlock()
@@ -584,4 +585,158 @@ func TestReportsImagePlatforms(t *testing.T) {
 			}
 		}
 	}
+}
+
+// reportStream records what an agent sends.
+type reportStream struct {
+	armadav1.AgentService_ConnectClient
+	reports chan *armadav1.ReplicaReport
+}
+
+func (s *reportStream) Send(m *armadav1.AgentMessage) error {
+	if r := m.GetReport(); r != nil {
+		s.reports <- r
+	}
+	return nil
+}
+
+// A replica taking long to start must not hide that the others are ready:
+// the server takes replicas it does not hear are ready out of the proxies.
+func TestReportsWhileReplicasStart(t *testing.T) {
+	t.Parallel()
+	a, d := newAgent(t)
+	ctx := context.Background()
+	a.setDesired([]*armadav1.ReplicaSpec{replica("a-1", "nginx:1", 80)}, nil)
+	ready := false
+	for range 200 {
+		r, err := a.Reconcile(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(r.GetReplicas()) == 1 && r.GetReplicas()[0].GetReady() {
+			ready = true
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !ready {
+		t.Fatal("replica never ready")
+	}
+
+	release := make(chan struct{})
+	d.RunHook = func(context.Context, runtime.ContainerSpec) { <-release }
+	stream := &reportStream{reports: make(chan *armadav1.ReplicaReport, 16)}
+	a.streamMu.Lock()
+	a.stream = stream
+	a.streamMu.Unlock()
+	a.setDesired([]*armadav1.ReplicaSpec{replica("a-1", "nginx:1", 80), replica("b-1", "nginx:1", 80)}, nil)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		if _, err := a.Reconcile(ctx); err != nil {
+			t.Error(err)
+		}
+	}()
+	select {
+	case r := <-stream.reports:
+		if len(r.GetReplicas()) != 1 || r.GetReplicas()[0].GetId() != "a-1" || !r.GetReplicas()[0].GetReady() {
+			t.Errorf("report while starting: %v", r)
+		}
+	case <-time.After(10 * time.Second):
+		t.Error("no report while a replica starts")
+	}
+	close(release)
+	<-done
+}
+
+func TestStartsRunAtOnceWithALimit(t *testing.T) {
+	t.Parallel()
+	a, d := newAgent(t)
+	var now, peak atomic.Int32
+	var specs []*armadav1.ReplicaSpec
+	for i := range 3 * maxConcurrentStarts {
+		specs = append(specs, replica(fmt.Sprintf("r-%d", i), "nginx:1", 80))
+	}
+	d.RunHook = func(context.Context, runtime.ContainerSpec) {
+		n := now.Add(1)
+		for {
+			p := peak.Load()
+			if n <= p || peak.CompareAndSwap(p, n) {
+				break
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
+		now.Add(-1)
+	}
+	a.setDesired(specs, nil)
+	r, err := a.Reconcile(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.GetReplicas()) != len(specs) {
+		t.Errorf("%d replicas reported, want %d", len(r.GetReplicas()), len(specs))
+	}
+	for i := 1; i < len(r.GetReplicas()); i++ {
+		if r.GetReplicas()[i-1].GetId() >= r.GetReplicas()[i].GetId() {
+			t.Fatalf("report not sorted: %v", r)
+		}
+	}
+	if p := peak.Load(); p < 2 || p > maxConcurrentStarts {
+		t.Errorf("%d starts at once, want 2 to %d", p, maxConcurrentStarts)
+	}
+}
+
+// Replicas starting together share a pull, but only with the same
+// credentials: an image is never handed over on another's credentials.
+func TestPullOnce(t *testing.T) {
+	t.Parallel()
+	d := fake.New()
+	p := newPullOnce(d)
+	auth := &runtime.RegistryAuth{Username: "u", Password: "secret"}
+	other := &runtime.RegistryAuth{Username: "u", Password: "other"}
+	for _, c := range []struct {
+		image string
+		auth  *runtime.RegistryAuth
+	}{{"a:1", nil}, {"a:1", auth}, {"a:1", other}, {"b:1", auth}} {
+		if _, err := p.pull(context.Background(), c.image, c.auth); err != nil {
+			t.Fatal(err)
+		}
+		found := false
+		for i, img := range d.Pulls {
+			if img == c.image && d.PullAuths[i] == c.auth {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("no pull of %s with its own credentials", c.image)
+		}
+	}
+	// Sharing, with a pull held open until everyone asked.
+	release := make(chan struct{})
+	s := &pullOnce{driver: blockingPuller{Driver: d, release: release}}
+	before := len(d.Pulls)
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Go(func() {
+			if _, err := s.pull(context.Background(), "c:1", nil); err != nil {
+				t.Error(err)
+			}
+		})
+	}
+	time.Sleep(50 * time.Millisecond)
+	close(release)
+	wg.Wait()
+	if n := len(d.Pulls) - before; n != 1 {
+		t.Errorf("%d pulls for replicas starting together, want 1", n)
+	}
+}
+
+type blockingPuller struct {
+	*fake.Driver
+	release chan struct{}
+}
+
+func (b blockingPuller) Pull(ctx context.Context, image string, auth *runtime.RegistryAuth) (runtime.Image, error) {
+	<-b.release
+	return b.Driver.Pull(ctx, image, auth)
 }

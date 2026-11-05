@@ -291,8 +291,13 @@ func (d *Driver) Run(ctx context.Context, s runtime.ContainerSpec) (_ string, er
 		return "", fmt.Errorf("tini: %w", err)
 	}
 
-	d.mu.Lock()
-	defer d.mu.Unlock()
+	// Picking a host port and taking it must not interleave. Without a port,
+	// containers start at once: the network plugins and containerd take care
+	// of their own state.
+	if s.Port != 0 {
+		d.mu.Lock()
+		defer d.mu.Unlock()
+	}
 	sl, err := d.newLabels(ctx)
 	if err != nil {
 		return "", err

@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/nftables"
 	"github.com/google/nftables/expr"
+	"github.com/mdlayher/netlink"
 	"golang.org/x/sys/unix"
 
 	"github.com/ryanbekhen/armada/internal/runtime/embedded"
@@ -48,10 +49,13 @@ var blockedRanges = []netip.Prefix{
 // accepts end its own chains, and every other table still sees the packet.
 const isolationTable = "armada"
 
+// netlinkBuffer is the size of the socket buffers for applying the rules.
+const netlinkBuffer = 32 << 20
+
 // isolate replaces the isolation tables with ones built from pol, in one
 // transaction, so no packet ever sees half a ruleset.
 func isolate(pol policy) error {
-	c, err := nftables.New()
+	c, err := nftables.New(nftables.WithSockOptions(largeSocketBuffers))
 	if err != nil {
 		return err
 	}
@@ -68,6 +72,23 @@ func isolate(pol policy) error {
 	if err := c.Flush(); err != nil {
 		return fmt.Errorf("nftables: %w", err)
 	}
+	return nil
+}
+
+// largeSocketBuffers makes room for a whole ruleset in one transaction: the
+// kernel answers every message of it, and past the socket's buffer it fails
+// the transaction with ENOBUFS. The system's usual limit is too small for
+// hundreds of apps, so this overrides it, which the agent may do as root. Other
+// agents keep the default and find out on large clusters.
+func largeSocketBuffers(c *netlink.Conn) error {
+	raw, err := c.SyscallConn()
+	if err != nil {
+		return nil //nolint:nilerr // the default buffers still work for most clusters
+	}
+	_ = raw.Control(func(fd uintptr) {
+		_ = unix.SetsockoptInt(int(fd), unix.SOL_SOCKET, unix.SO_RCVBUFFORCE, netlinkBuffer)
+		_ = unix.SetsockoptInt(int(fd), unix.SOL_SOCKET, unix.SO_SNDBUFFORCE, netlinkBuffer)
+	})
 	return nil
 }
 
