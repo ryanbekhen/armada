@@ -3,8 +3,10 @@ package server
 import (
 	"context"
 	"log/slog"
+	"maps"
 	"strings"
 	"testing"
+	"time"
 
 	armadav1 "github.com/ryanbekhen/armada/api/armada/v1"
 	"github.com/ryanbekhen/armada/internal/secrets"
@@ -296,5 +298,75 @@ func TestReplicaSpecSecrets(t *testing.T) {
 	delete(vals, "tls")
 	if _, err := replicaSpec(store.Replica{ID: "x"}, rev, vals); err == nil {
 		t.Error("replica spec built with an unresolved secret")
+	}
+}
+
+// A report lists every replica of a node: only those it says something new
+// about are written, or each change costs a write per replica on the node.
+func TestApplyReportWritesOnlyChanges(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	st := storetest.Open(t)
+	s := &Server{store: st, log: slog.New(slog.DiscardHandler), trigger: make(chan struct{}, 1)}
+	if err := st.UpsertNode(ctx, store.Node{ID: "n1", PrivateIP: "10.0.0.2"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := st.Deploy(ctx, mustSpec(t, "name: web\nimage: ghcr.io/me/web:v1\n"), "t"); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"a", "b"} {
+		if err := st.CreateReplica(ctx, store.Replica{ID: id, App: "web", Revision: "web--r1", NodeID: "n1"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	node, err := st.GetNode(ctx, "n1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated := func() map[string]time.Time {
+		reps, err := st.ListReplicas(ctx, store.ReplicaFilter{App: "web"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		m := map[string]time.Time{}
+		for _, r := range reps {
+			m[r.ID] = r.UpdatedAt
+		}
+		return m
+	}
+	report := func(bMessage string) {
+		s.applyReport(ctx, node, &armadav1.ReplicaReport{Replicas: []*armadav1.ReplicaState{
+			{Id: "a", State: "running", Ready: true, Address: "10.0.0.2:80", ContainerId: "ca"},
+			{Id: "b", State: "running", Address: "10.0.0.2:81", ContainerId: "cb", Message: bMessage},
+		}})
+	}
+	report("starting")
+	before := updated()
+	time.Sleep(5 * time.Millisecond)
+	report("starting")
+	if after := updated(); !maps.Equal(before, after) {
+		t.Errorf("an unchanged report wrote: %v then %v", before, after)
+	}
+	time.Sleep(5 * time.Millisecond)
+	report("readiness probe failed")
+	after := updated()
+	if !after["a"].Equal(before["a"]) {
+		t.Errorf("replica a was written though only b changed")
+	}
+	if after["b"].Equal(before["b"]) {
+		t.Errorf("replica b changed but was not written")
+	}
+}
+
+func TestSameStatusFinishedJob(t *testing.T) {
+	t.Parallel()
+	have := store.Replica{State: store.ReplicaExited, Finished: true, ExitCode: 3}
+	// A done attempt's stopped container may report another exit code,
+	// which the store ignores.
+	if !sameStatus(have, store.ReplicaStatus{State: store.ReplicaExited, Finished: true, ExitCode: 137}) {
+		t.Error("a finished attempt's new exit code counted as a change")
+	}
+	if sameStatus(store.Replica{State: store.ReplicaExited}, store.ReplicaStatus{State: store.ReplicaExited, ExitCode: 1}) {
+		t.Error("the exit code of an unfinished replica was ignored")
 	}
 }

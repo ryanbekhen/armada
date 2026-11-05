@@ -129,7 +129,8 @@ their verified custom domains. HTTP redirects to HTTPS.
 Durations are strings such as `"500ms"`, `"10s"`, `"2m"`. The agent probes
 the container directly. A replica receives traffic only once it is ready:
 its readiness probe passes or, without one, its port accepts TCP
-connections. A failing startup or liveness probe recreates the container.
+connections, checked every second until it does and about every 10 seconds
+after that, every second again once a check fails. A failing startup or liveness probe recreates the container.
 During a rolling update, old replicas keep serving until the new ones are
 ready; see [ADR 0005](adr/0005-rolling-updates.md).
 

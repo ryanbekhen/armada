@@ -227,7 +227,8 @@ servers first, one at a time, then the other nodes one at a time.
    sudo systemctl restart armada-agent
    ```
 
-   Containers keep running; the restarted agent adopts them, and
+   Containers keep running and keep serving; the restarted agent adopts
+   them, and
    `armada node list` shows the node's new version. The embedded
    runtime (`armada-runtime.service`) picks up a new containerd from the
    upgraded binary at its next restart (`sudo systemctl restart

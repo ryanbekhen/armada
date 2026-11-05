@@ -133,6 +133,10 @@ deploy, and the replicas it already runs must keep serving meanwhile:
 - While it starts replicas, the agent reports the others every second, tells
   the firewall about new containers before reporting them, and applies proxy
   changes. A replica still starting is left out of the report.
+- A report lists every replica of the node; the server writes only those it
+  says something new about, so one change costs one write.
+- Listing containers asks containerd for every task's state in one request,
+  and asks for a task by itself only if the answer leaves it out.
 
 ### Networking
 
