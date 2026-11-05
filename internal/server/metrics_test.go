@@ -94,7 +94,8 @@ func TestMetrics(t *testing.T) {
 	c.eventually("metrics with usage", func() bool {
 		code, b, err := scrape(issued.GetCert(), keyPEM)
 		body = b
-		return err == nil && code == http.StatusOK && strings.Contains(b, `armada_node_memory_usage_bytes{node="n1"} 1.048576e+08`)
+		return err == nil && code == http.StatusOK && strings.Contains(b, `armada_node_memory_usage_bytes{node="n1"} 1.048576e+08`) &&
+			strings.Contains(b, `armada_project_memory_usage_bytes{project="default"} 1.048576e+08`)
 	})
 	for _, w := range want {
 		if !strings.Contains(body, w) {
