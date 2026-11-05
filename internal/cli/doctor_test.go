@@ -269,3 +269,22 @@ func TestDoctorRuntimeUnreachable(t *testing.T) {
 type failingPing struct{ *fake.Driver }
 
 func (failingPing) Ping(context.Context) error { return errors.New("connection refused") }
+
+func TestConntrackCheck(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		entries, limit int64
+		ok             bool
+		status         string
+	}{
+		{0, 0, false, checkOK},
+		{100, 262144, true, checkOK},
+		{209714, 262144, true, checkOK},
+		{209716, 262144, true, checkWarn},
+		{65536, 65536, true, checkWarn},
+	} {
+		if got := conntrackCheck(c.entries, c.limit, c.ok); got.Name != "conntrack" || got.Status != c.status {
+			t.Errorf("conntrackCheck(%d, %d, %v) = %+v, want %s", c.entries, c.limit, c.ok, got, c.status)
+		}
+	}
+}

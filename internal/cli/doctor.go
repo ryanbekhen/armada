@@ -18,6 +18,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ryanbekhen/armada/internal/clusternet"
+	"github.com/ryanbekhen/armada/internal/conntrack"
 	"github.com/ryanbekhen/armada/internal/netutil"
 	"github.com/ryanbekhen/armada/internal/proxy/haproxy"
 	"github.com/ryanbekhen/armada/internal/runtime"
@@ -245,6 +246,23 @@ func (env doctorEnv) initialized() bool {
 	return err == nil
 }
 
+// conntrackCheck warns while the connection tracking table is close to full:
+// past its limit the kernel drops new connections, and clients wait a second
+// or more for a retransmit (ADR 0025).
+func conntrackCheck(entries, limit int64, ok bool) checkResult {
+	c := checkResult{Name: "conntrack", Status: checkOK}
+	switch {
+	case !ok:
+		c.Detail = "no connections tracked yet"
+	case entries*100 >= limit*conntrack.WarnPercent:
+		c.Status = checkWarn
+		c.Detail = fmt.Sprintf("%d of %d tracked connections in use; past the limit new connections are dropped, so raise net.netfilter.nf_conntrack_max or keep connections open longer", entries, limit)
+	default:
+		c.Detail = fmt.Sprintf("%d of %d tracked connections in use", entries, limit)
+	}
+	return c
+}
+
 // embeddedHostChecks verifies the kernel features the embedded runtime
 // uses and that the container subnet is free.
 func embeddedHostChecks(subnet netip.Prefix) []checkResult {
@@ -275,6 +293,7 @@ func embeddedHostChecks(subnet netip.Prefix) []checkResult {
 	} else {
 		add("iptables", checkOK, "found")
 	}
+	out = append(out, conntrackCheck(conntrack.New().Read()))
 	if subnet.IsValid() {
 		routes, err := readRoutes("/proc/net/route")
 		switch {

@@ -3,16 +3,10 @@
 package containerd
 
 import (
-	"context"
 	"net/netip"
 	"os"
-	"path/filepath"
-	"strconv"
-	"strings"
 	"testing"
-	"time"
 
-	"github.com/ryanbekhen/armada/internal/runtime"
 	"github.com/ryanbekhen/armada/internal/runtime/conformance"
 	"github.com/ryanbekhen/armada/internal/runtime/embedded"
 )

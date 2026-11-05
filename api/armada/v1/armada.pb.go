@@ -5284,8 +5284,12 @@ type NodeTop struct {
 	CpuAllocatableMillis   int64 `protobuf:"varint,7,opt,name=cpu_allocatable_millis,json=cpuAllocatableMillis,proto3" json:"cpu_allocatable_millis,omitempty"`
 	MemoryAllocatableBytes int64 `protobuf:"varint,8,opt,name=memory_allocatable_bytes,json=memoryAllocatableBytes,proto3" json:"memory_allocatable_bytes,omitempty"`
 	Replicas               int32 `protobuf:"varint,9,opt,name=replicas,proto3" json:"replicas,omitempty"`
-	unknownFields          protoimpl.UnknownFields
-	sizeCache              protoimpl.SizeCache
+	// Connections its kernel tracks and the limit, from its latest sample; the
+	// limit is 0 when unknown (ADR 0025).
+	ConntrackEntries int64 `protobuf:"varint,10,opt,name=conntrack_entries,json=conntrackEntries,proto3" json:"conntrack_entries,omitempty"`
+	ConntrackMax     int64 `protobuf:"varint,11,opt,name=conntrack_max,json=conntrackMax,proto3" json:"conntrack_max,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *NodeTop) Reset() {
@@ -5377,6 +5381,20 @@ func (x *NodeTop) GetMemoryAllocatableBytes() int64 {
 func (x *NodeTop) GetReplicas() int32 {
 	if x != nil {
 		return x.Replicas
+	}
+	return 0
+}
+
+func (x *NodeTop) GetConntrackEntries() int64 {
+	if x != nil {
+		return x.ConntrackEntries
+	}
+	return 0
+}
+
+func (x *NodeTop) GetConntrackMax() int64 {
+	if x != nil {
+		return x.ConntrackMax
 	}
 	return 0
 }
@@ -6341,8 +6359,12 @@ type UsageReport struct {
 	// (ADR 0023); unset in reports between measurements.
 	Volumes         []*VolumeUsage `protobuf:"bytes,4,rep,name=volumes,proto3" json:"volumes,omitempty"`
 	VolumesMeasured bool           `protobuf:"varint,5,opt,name=volumes_measured,json=volumesMeasured,proto3" json:"volumes_measured,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// Connections the node's kernel tracks, and the limit; the limit is 0
+	// while nothing is tracked (ADR 0025).
+	ConntrackEntries int64 `protobuf:"varint,6,opt,name=conntrack_entries,json=conntrackEntries,proto3" json:"conntrack_entries,omitempty"`
+	ConntrackMax     int64 `protobuf:"varint,7,opt,name=conntrack_max,json=conntrackMax,proto3" json:"conntrack_max,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *UsageReport) Reset() {
@@ -6408,6 +6430,20 @@ func (x *UsageReport) GetVolumesMeasured() bool {
 		return x.VolumesMeasured
 	}
 	return false
+}
+
+func (x *UsageReport) GetConntrackEntries() int64 {
+	if x != nil {
+		return x.ConntrackEntries
+	}
+	return 0
+}
+
+func (x *UsageReport) GetConntrackMax() int64 {
+	if x != nil {
+		return x.ConntrackMax
+	}
+	return 0
 }
 
 type VolumeUsage struct {
@@ -9910,7 +9946,7 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\x12memory_limit_bytes\x18\n" +
 	" \x01(\x03R\x10memoryLimitBytes\x129\n" +
 	"\n" +
-	"sampled_at\x18\v \x01(\v2\x1a.google.protobuf.TimestampR\tsampledAt\"\xe7\x02\n" +
+	"sampled_at\x18\v \x01(\v2\x1a.google.protobuf.TimestampR\tsampledAt\"\xb9\x03\n" +
 	"\aNodeTop\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1a\n" +
 	"\bmeasured\x18\x02 \x01(\bR\bmeasured\x12\x1d\n" +
@@ -9921,7 +9957,10 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\x15memory_reserved_bytes\x18\x06 \x01(\x03R\x13memoryReservedBytes\x124\n" +
 	"\x16cpu_allocatable_millis\x18\a \x01(\x03R\x14cpuAllocatableMillis\x128\n" +
 	"\x18memory_allocatable_bytes\x18\b \x01(\x03R\x16memoryAllocatableBytes\x12\x1a\n" +
-	"\breplicas\x18\t \x01(\x05R\breplicas\"<\n" +
+	"\breplicas\x18\t \x01(\x05R\breplicas\x12+\n" +
+	"\x11conntrack_entries\x18\n" +
+	" \x01(\x03R\x10conntrackEntries\x12#\n" +
+	"\rconntrack_max\x18\v \x01(\x03R\fconntrackMax\"<\n" +
 	"\fScaleRequest\x12\x10\n" +
 	"\x03app\x18\x01 \x01(\tR\x03app\x12\x1a\n" +
 	"\breplicas\x18\x02 \x01(\x05R\breplicas\"\x0f\n" +
@@ -9987,13 +10026,15 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\bfinished\x18\t \x01(\bR\bfinished\x12\x1b\n" +
 	"\texit_code\x18\n" +
 	" \x01(\x05R\bexitCode\x12\x0e\n" +
-	"\x02ip\x18\v \x01(\tR\x02ip\"\xf0\x01\n" +
+	"\x02ip\x18\v \x01(\tR\x02ip\"\xc2\x02\n" +
 	"\vUsageReport\x123\n" +
 	"\breplicas\x18\x01 \x03(\v2\x17.armada.v1.ReplicaUsageR\breplicas\x12*\n" +
 	"\x04load\x18\x02 \x03(\v2\x16.armada.v1.ReplicaLoadR\x04load\x12#\n" +
 	"\rload_measured\x18\x03 \x01(\bR\floadMeasured\x120\n" +
 	"\avolumes\x18\x04 \x03(\v2\x16.armada.v1.VolumeUsageR\avolumes\x12)\n" +
-	"\x10volumes_measured\x18\x05 \x01(\bR\x0fvolumesMeasured\"M\n" +
+	"\x10volumes_measured\x18\x05 \x01(\bR\x0fvolumesMeasured\x12+\n" +
+	"\x11conntrack_entries\x18\x06 \x01(\x03R\x10conntrackEntries\x12#\n" +
+	"\rconntrack_max\x18\a \x01(\x03R\fconntrackMax\"M\n" +
 	"\vVolumeUsage\x12\x10\n" +
 	"\x03app\x18\x01 \x01(\tR\x03app\x12\x16\n" +
 	"\x06volume\x18\x02 \x01(\tR\x06volume\x12\x14\n" +

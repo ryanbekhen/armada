@@ -34,9 +34,11 @@ func (a *Agent) usageLoop(ctx context.Context) {
 	}
 	lr, _ := a.cfg.Proxy.(proxy.LoadReader)
 	vols := a.mountsVolumes()
-	if sr == nil && lr == nil && !vols {
+	if sr == nil && lr == nil && !vols && a.cfg.Conntrack == nil {
 		return
 	}
+	warned := false
+	a.sampleConntrack(&armadav1.UsageReport{}, &warned)
 	t := time.NewTicker(a.cfg.UsageInterval)
 	defer t.Stop()
 	prev := map[string]usageSample{}
@@ -61,9 +63,32 @@ func (a *Agent) usageLoop(ctx context.Context) {
 		if vols && time.Since(measured) >= a.cfg.VolumeInterval {
 			report.Volumes, report.VolumesMeasured, measured = a.measureVolumes(ctx), true, time.Now()
 		}
-		if sampled || report.LoadMeasured || report.VolumesMeasured {
+		a.sampleConntrack(report, &warned)
+		if sampled || report.LoadMeasured || report.VolumesMeasured || report.ConntrackMax > 0 {
 			a.sendUsage(report)
 		}
+	}
+}
+
+// sampleConntrack keeps the node's connection tracking limit raised and adds
+// the table's use to report (ADR 0025). It repeats because the kernel module
+// may load after the agent starts. A node that cannot raise it, such as an
+// agent not running as root, still works: the operator sees the limit in the
+// metrics and armada doctor.
+func (a *Agent) sampleConntrack(report *armadav1.UsageReport, warned *bool) {
+	if a.cfg.Conntrack == nil {
+		return
+	}
+	previous, err := a.cfg.Conntrack.Raise()
+	switch {
+	case err != nil && !*warned:
+		a.log.Warn("connection tracking limit not raised", "err", err)
+		*warned = true
+	case previous > 0:
+		a.log.Info("raised the connection tracking limit", "previous", previous)
+	}
+	if entries, limit, ok := a.cfg.Conntrack.Read(); ok {
+		report.ConntrackEntries, report.ConntrackMax = entries, limit
 	}
 }
 

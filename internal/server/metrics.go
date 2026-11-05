@@ -88,40 +88,42 @@ func metricsAllowed(cs *tls.ConnectionState) bool {
 type clusterCollector struct{ s *Server }
 
 var (
-	descLeader          = prometheus.NewDesc("armada_server_leader", "1 on the control plane server that leads and serves this endpoint.", []string{"server"}, nil)
-	descAgents          = prometheus.NewDesc("armada_agents_connected", "Agents connected to the leader.", nil, nil)
-	descAppDesired      = prometheus.NewDesc("armada_app_replicas_desired", "Replicas an app should run.", []string{"app"}, nil)
-	descAppReady        = prometheus.NewDesc("armada_app_replicas_ready", "Replicas of an app that are running, ready, and not draining.", []string{"app"}, nil)
-	descAppRollout      = prometheus.NewDesc("armada_app_rollout", "1 for an app's current rollout state (idle, progressing, failed).", []string{"app", "state"}, nil)
-	descReplicaReady    = prometheus.NewDesc("armada_replica_ready", "1 when a replica is running, ready, and not draining.", []string{"app", "replica", "revision", "node"}, nil)
-	descReplicaCPU      = prometheus.NewDesc("armada_replica_cpu_usage_cores", "CPU a replica used over its node's last sampling interval.", []string{"app", "replica", "node"}, nil)
-	descReplicaMemory   = prometheus.NewDesc("armada_replica_memory_usage_bytes", "Memory a replica uses, without reclaimable page cache.", []string{"app", "replica", "node"}, nil)
-	descReplicaCPURes   = prometheus.NewDesc("armada_replica_cpu_reserved_cores", "CPU a replica reserves on its node.", []string{"app", "replica", "node"}, nil)
-	descReplicaCPULimit = prometheus.NewDesc("armada_replica_cpu_limit_cores", "A replica's CPU limit, for apps that set one.", []string{"app", "replica", "node"}, nil)
-	descReplicaMemLimit = prometheus.NewDesc("armada_replica_memory_limit_bytes", "A replica's memory limit, which is also its reservation.", []string{"app", "replica", "node"}, nil)
-	descNodeReady       = prometheus.NewDesc("armada_node_ready", "1 when a node's agent is connected and the node is ready.", []string{"node"}, nil)
-	descNodeCordoned    = prometheus.NewDesc("armada_node_cordoned", "1 when a node is cordoned.", []string{"node"}, nil)
-	descNodeReplicas    = prometheus.NewDesc("armada_node_replicas", "Replicas assigned to a node.", []string{"node"}, nil)
-	descNodeCPUAlloc    = prometheus.NewDesc("armada_node_cpu_allocatable_cores", "CPU a node can give replicas, after what Armada keeps.", []string{"node"}, nil)
-	descNodeMemAlloc    = prometheus.NewDesc("armada_node_memory_allocatable_bytes", "Memory a node can give replicas, after what Armada keeps.", []string{"node"}, nil)
-	descNodeCPURes      = prometheus.NewDesc("armada_node_cpu_reserved_cores", "CPU the replicas on a node reserve.", []string{"node"}, nil)
-	descNodeMemRes      = prometheus.NewDesc("armada_node_memory_reserved_bytes", "Memory the replicas on a node reserve.", []string{"node"}, nil)
-	descNodeCPU         = prometheus.NewDesc("armada_node_cpu_usage_cores", "CPU the replicas on a node use, from its latest sample.", []string{"node"}, nil)
-	descNodeMemory      = prometheus.NewDesc("armada_node_memory_usage_bytes", "Memory the replicas on a node use, from its latest sample.", []string{"node"}, nil)
-	descJobLastSuccess  = prometheus.NewDesc("armada_job_last_success_timestamp_seconds", "When the newest kept successful run of a job finished.", []string{"job"}, nil)
-	descScaleCurrent    = prometheus.NewDesc("armada_app_autoscale_current", "An autoscaling rule's current average per ready replica (requests in progress, or percent of the reservation); absent while unmeasured.", []string{"app", "rule"}, nil)
-	descScaleTarget     = prometheus.NewDesc("armada_app_autoscale_target", "An autoscaling rule's target per replica.", []string{"app", "rule"}, nil)
-	descJobActive       = prometheus.NewDesc("armada_job_runs_active", "Runs of a job that are pending or running.", []string{"job"}, nil)
-	descTrafficWeight   = prometheus.NewDesc("armada_app_traffic_weight", "A revision's percent of an app's requests in multiple revision mode.", []string{"app", "revision"}, nil)
-	descProjectReplicas = prometheus.NewDesc("armada_project_replicas", "Replicas of a project's apps.", []string{"project"}, nil)
-	descProjectCPU      = prometheus.NewDesc("armada_project_cpu_usage_cores", "CPU a project's replicas used over the last sampling interval.", []string{"project"}, nil)
-	descProjectMemory   = prometheus.NewDesc("armada_project_memory_usage_bytes", "Memory a project's replicas use, without reclaimable page cache.", []string{"project"}, nil)
-	descProjectCPURes   = prometheus.NewDesc("armada_project_cpu_reserved_cores", "CPU a project's replicas reserve.", []string{"project"}, nil)
-	descProjectMemRes   = prometheus.NewDesc("armada_project_memory_reserved_bytes", "Memory a project's replicas reserve.", []string{"project"}, nil)
-	descProjectVolumes  = prometheus.NewDesc("armada_project_volume_used_bytes", "Bytes in a project's volumes, from their latest measurements.", []string{"project"}, nil)
-	descProjectRequests = prometheus.NewDesc("armada_project_requests_total", "Requests the proxies sent to a project's replicas; resets when the leader changes.", []string{"project"}, nil)
-	descProjectEgress   = prometheus.NewDesc("armada_project_egress_bytes_total", "Bytes a project's containers sent; resets when the leader changes.", []string{"project"}, nil)
-	descVolumeUsed      = prometheus.NewDesc("armada_volume_used_bytes", "Bytes in a volume's files, from its node's latest measurement; absent while unmeasured.", []string{"app", "volume", "node"}, nil)
+	descLeader           = prometheus.NewDesc("armada_server_leader", "1 on the control plane server that leads and serves this endpoint.", []string{"server"}, nil)
+	descAgents           = prometheus.NewDesc("armada_agents_connected", "Agents connected to the leader.", nil, nil)
+	descAppDesired       = prometheus.NewDesc("armada_app_replicas_desired", "Replicas an app should run.", []string{"app"}, nil)
+	descAppReady         = prometheus.NewDesc("armada_app_replicas_ready", "Replicas of an app that are running, ready, and not draining.", []string{"app"}, nil)
+	descAppRollout       = prometheus.NewDesc("armada_app_rollout", "1 for an app's current rollout state (idle, progressing, failed).", []string{"app", "state"}, nil)
+	descReplicaReady     = prometheus.NewDesc("armada_replica_ready", "1 when a replica is running, ready, and not draining.", []string{"app", "replica", "revision", "node"}, nil)
+	descReplicaCPU       = prometheus.NewDesc("armada_replica_cpu_usage_cores", "CPU a replica used over its node's last sampling interval.", []string{"app", "replica", "node"}, nil)
+	descReplicaMemory    = prometheus.NewDesc("armada_replica_memory_usage_bytes", "Memory a replica uses, without reclaimable page cache.", []string{"app", "replica", "node"}, nil)
+	descReplicaCPURes    = prometheus.NewDesc("armada_replica_cpu_reserved_cores", "CPU a replica reserves on its node.", []string{"app", "replica", "node"}, nil)
+	descReplicaCPULimit  = prometheus.NewDesc("armada_replica_cpu_limit_cores", "A replica's CPU limit, for apps that set one.", []string{"app", "replica", "node"}, nil)
+	descReplicaMemLimit  = prometheus.NewDesc("armada_replica_memory_limit_bytes", "A replica's memory limit, which is also its reservation.", []string{"app", "replica", "node"}, nil)
+	descNodeReady        = prometheus.NewDesc("armada_node_ready", "1 when a node's agent is connected and the node is ready.", []string{"node"}, nil)
+	descNodeCordoned     = prometheus.NewDesc("armada_node_cordoned", "1 when a node is cordoned.", []string{"node"}, nil)
+	descNodeReplicas     = prometheus.NewDesc("armada_node_replicas", "Replicas assigned to a node.", []string{"node"}, nil)
+	descNodeCPUAlloc     = prometheus.NewDesc("armada_node_cpu_allocatable_cores", "CPU a node can give replicas, after what Armada keeps.", []string{"node"}, nil)
+	descNodeMemAlloc     = prometheus.NewDesc("armada_node_memory_allocatable_bytes", "Memory a node can give replicas, after what Armada keeps.", []string{"node"}, nil)
+	descNodeCPURes       = prometheus.NewDesc("armada_node_cpu_reserved_cores", "CPU the replicas on a node reserve.", []string{"node"}, nil)
+	descNodeMemRes       = prometheus.NewDesc("armada_node_memory_reserved_bytes", "Memory the replicas on a node reserve.", []string{"node"}, nil)
+	descNodeCPU          = prometheus.NewDesc("armada_node_cpu_usage_cores", "CPU the replicas on a node use, from its latest sample.", []string{"node"}, nil)
+	descNodeMemory       = prometheus.NewDesc("armada_node_memory_usage_bytes", "Memory the replicas on a node use, from its latest sample.", []string{"node"}, nil)
+	descNodeConntrack    = prometheus.NewDesc("armada_node_conntrack_entries", "Connections a node's kernel tracks, from its latest sample.", []string{"node"}, nil)
+	descNodeConntrackMax = prometheus.NewDesc("armada_node_conntrack_max", "How many connections a node's kernel can track; new ones are dropped past it.", []string{"node"}, nil)
+	descJobLastSuccess   = prometheus.NewDesc("armada_job_last_success_timestamp_seconds", "When the newest kept successful run of a job finished.", []string{"job"}, nil)
+	descScaleCurrent     = prometheus.NewDesc("armada_app_autoscale_current", "An autoscaling rule's current average per ready replica (requests in progress, or percent of the reservation); absent while unmeasured.", []string{"app", "rule"}, nil)
+	descScaleTarget      = prometheus.NewDesc("armada_app_autoscale_target", "An autoscaling rule's target per replica.", []string{"app", "rule"}, nil)
+	descJobActive        = prometheus.NewDesc("armada_job_runs_active", "Runs of a job that are pending or running.", []string{"job"}, nil)
+	descTrafficWeight    = prometheus.NewDesc("armada_app_traffic_weight", "A revision's percent of an app's requests in multiple revision mode.", []string{"app", "revision"}, nil)
+	descProjectReplicas  = prometheus.NewDesc("armada_project_replicas", "Replicas of a project's apps.", []string{"project"}, nil)
+	descProjectCPU       = prometheus.NewDesc("armada_project_cpu_usage_cores", "CPU a project's replicas used over the last sampling interval.", []string{"project"}, nil)
+	descProjectMemory    = prometheus.NewDesc("armada_project_memory_usage_bytes", "Memory a project's replicas use, without reclaimable page cache.", []string{"project"}, nil)
+	descProjectCPURes    = prometheus.NewDesc("armada_project_cpu_reserved_cores", "CPU a project's replicas reserve.", []string{"project"}, nil)
+	descProjectMemRes    = prometheus.NewDesc("armada_project_memory_reserved_bytes", "Memory a project's replicas reserve.", []string{"project"}, nil)
+	descProjectVolumes   = prometheus.NewDesc("armada_project_volume_used_bytes", "Bytes in a project's volumes, from their latest measurements.", []string{"project"}, nil)
+	descProjectRequests  = prometheus.NewDesc("armada_project_requests_total", "Requests the proxies sent to a project's replicas; resets when the leader changes.", []string{"project"}, nil)
+	descProjectEgress    = prometheus.NewDesc("armada_project_egress_bytes_total", "Bytes a project's containers sent; resets when the leader changes.", []string{"project"}, nil)
+	descVolumeUsed       = prometheus.NewDesc("armada_volume_used_bytes", "Bytes in a volume's files, from its node's latest measurement; absent while unmeasured.", []string{"app", "volume", "node"}, nil)
 )
 
 func (c *clusterCollector) Describe(ch chan<- *prometheus.Desc) {
@@ -129,7 +131,7 @@ func (c *clusterCollector) Describe(ch chan<- *prometheus.Desc) {
 		descLeader, descAgents, descAppDesired, descAppReady, descAppRollout, descReplicaReady,
 		descReplicaCPU, descReplicaMemory, descReplicaCPURes, descReplicaCPULimit, descReplicaMemLimit,
 		descNodeReady, descNodeCordoned, descNodeReplicas, descNodeCPUAlloc, descNodeMemAlloc,
-		descNodeCPURes, descNodeMemRes, descNodeCPU, descNodeMemory, descJobLastSuccess, descJobActive,
+		descNodeCPURes, descNodeMemRes, descNodeCPU, descNodeMemory, descNodeConntrack, descNodeConntrackMax, descJobLastSuccess, descJobActive,
 		descScaleCurrent, descScaleTarget, descTrafficWeight, descVolumeUsed,
 		descProjectReplicas, descProjectCPU, descProjectMemory, descProjectCPURes, descProjectMemRes,
 		descProjectVolumes, descProjectRequests, descProjectEgress,
@@ -252,6 +254,10 @@ func (c *clusterCollector) Collect(ch chan<- prometheus.Metric) {
 		if n.GetMeasured() {
 			gauge(descNodeCPU, cores(n.GetCpuMillis()), n.GetId())
 			gauge(descNodeMemory, float64(n.GetMemoryBytes()), n.GetId())
+		}
+		if n.GetConntrackMax() > 0 {
+			gauge(descNodeConntrack, float64(n.GetConntrackEntries()), n.GetId())
+			gauge(descNodeConntrackMax, float64(n.GetConntrackMax()), n.GetId())
 		}
 	}
 }

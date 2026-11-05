@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -20,6 +21,7 @@ import (
 
 	armadav1 "github.com/ryanbekhen/armada/api/armada/v1"
 	"github.com/ryanbekhen/armada/internal/agent"
+	"github.com/ryanbekhen/armada/internal/conntrack"
 	"github.com/ryanbekhen/armada/internal/pki"
 	proxyfake "github.com/ryanbekhen/armada/internal/proxy/fake"
 	"github.com/ryanbekhen/armada/internal/runtime"
@@ -180,6 +182,19 @@ func (c *cluster) addNode(id, ip string) *fake.Driver {
 	return d
 }
 
+// conntrackTable is a connection tracking table for a test agent, with 7
+// connections and a limit the agent raises.
+func (c *cluster) conntrackTable() *conntrack.Table {
+	c.t.Helper()
+	dir := c.t.TempDir()
+	for name, v := range map[string]string{"nf_conntrack_count": "7\n", "nf_conntrack_max": "65536\n"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(v), 0o600); err != nil {
+			c.t.Fatal(err)
+		}
+	}
+	return conntrack.At(dir, 4<<30)
+}
+
 // startAgent runs the agent of a node added with addNode and waits until
 // the server sees it.
 func (c *cluster) startAgent(id string) {
@@ -190,6 +205,7 @@ func (c *cluster) startAgent(id string) {
 		NodeID: id, PrivateIP: n.ip, Driver: n.d, Client: armadav1.NewAgentServiceClient(conn), Proxy: c.proxies[id],
 		Resync: 50 * time.Millisecond, UsageInterval: 20 * time.Millisecond, CPUMillis: 2000, MemoryBytes: 2 << 30, Check: c.checks[id].check,
 		VolumesDir: n.volumes, VolumeInterval: 50 * time.Millisecond,
+		Conntrack: c.conntrackTable(),
 	})
 	ctx, cancel := context.WithCancel(c.ctx)
 	n.cancel, n.done = cancel, make(chan struct{})

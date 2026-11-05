@@ -2,9 +2,13 @@ package agent
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
+	armadav1 "github.com/ryanbekhen/armada/api/armada/v1"
+	"github.com/ryanbekhen/armada/internal/conntrack"
 	"github.com/ryanbekhen/armada/internal/runtime"
 )
 
@@ -74,5 +78,32 @@ func TestUsageLoopWithoutStats(t *testing.T) {
 	case <-done:
 	case <-time.After(5 * time.Second):
 		t.Fatal("usage loop runs although the runtime cannot sample containers")
+	}
+}
+
+func TestSampleConntrack(t *testing.T) {
+	t.Parallel()
+	a, _ := newAgent(t)
+	dir := t.TempDir()
+	for name, v := range map[string]string{"nf_conntrack_count": "7\n", "nf_conntrack_max": "65536\n"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(v), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	a.cfg.Conntrack = conntrack.At(dir, 4<<30)
+	report, warned := &armadav1.UsageReport{}, false
+	a.sampleConntrack(report, &warned)
+	if report.GetConntrackEntries() != 7 || report.GetConntrackMax() != conntrack.Minimum {
+		t.Errorf("report %d of %d", report.GetConntrackEntries(), report.GetConntrackMax())
+	}
+
+	// A limit that cannot be read warns once and reports nothing.
+	if err := os.WriteFile(filepath.Join(dir, "nf_conntrack_max"), []byte("x\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	report = &armadav1.UsageReport{}
+	a.sampleConntrack(report, &warned)
+	if !warned || report.GetConntrackMax() != 0 {
+		t.Errorf("warned %v, limit %d", warned, report.GetConntrackMax())
 	}
 }

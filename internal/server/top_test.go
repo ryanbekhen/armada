@@ -146,6 +146,11 @@ func TestUsageStore(t *testing.T) {
 		t.Error("stale sample returned")
 	}
 
+	u.set("n1", &armadav1.UsageReport{ConntrackEntries: -1, ConntrackMax: 1 << 60}, now)
+	if n, _ := u.node("n1", now); n.conntrackEntries != 0 || n.conntrackMax != maxConntrack {
+		t.Errorf("connection tracking values not bounded: %d, %d", n.conntrackEntries, n.conntrackMax)
+	}
+
 	// Too many replicas: the node counts as unmeasured.
 	big := &armadav1.UsageReport{}
 	for range maxUsageReplicas + 1 {
