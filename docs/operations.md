@@ -762,7 +762,7 @@ one takes two entries, one on each side of the proxy.
 
 The agent raises `net.netfilter.nf_conntrack_max` to 262144, or to one entry
 per 4 KiB of memory on machines under 1 GiB, and never lowers a higher limit.
-A full table then takes about 8% of the memory at most. Raise it further with
+A full table then takes about 6% of the memory at most. Raise it further with
 `sysctl` on nodes that need more; check `dmesg` for `table full` and
 `armada doctor` (`conntrack`), which warns at 80%.
 

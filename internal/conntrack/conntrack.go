@@ -19,8 +19,8 @@ import (
 const (
 	// Minimum is the limit a node gets when it has the memory for it.
 	Minimum = 262144
-	// memoryPerEntry keeps a full table to about 8% of the node's memory: an
-	// entry takes about 320 bytes.
+	// memoryPerEntry keeps a full table to about 6% of the node's memory: an
+	// entry takes about 256 bytes.
 	memoryPerEntry = 4096
 	// WarnPercent is how full the table is when armada doctor warns.
 	WarnPercent = 80
