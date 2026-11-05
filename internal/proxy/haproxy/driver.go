@@ -168,6 +168,12 @@ func (d *Driver) Apply(ctx context.Context, cfg proxy.Config) error {
 	if err != nil {
 		return err
 	}
+	routes := routeFiles(cfg, opts)
+	for name, b := range routes {
+		if err := fsutil.WriteFileAtomic(filepath.Join(etcDir(d.cfg.Dir), name), b, 0o600); err != nil {
+			return err
+		}
+	}
 
 	running, err := d.cfg.Engine.Running(ctx)
 	if err != nil {
@@ -184,6 +190,7 @@ func (d *Driver) Apply(ctx context.Context, cfg proxy.Config) error {
 			return fmt.Errorf("start haproxy: %w", err)
 		}
 		d.commit(sig, layout, cfg)
+		d.removeOldRoutes(routes)
 		d.log.Info("haproxy started")
 		return nil
 	}
@@ -202,6 +209,7 @@ func (d *Driver) Apply(ctx context.Context, cfg proxy.Config) error {
 			return fmt.Errorf("reload haproxy: %w", err)
 		}
 		d.commit(sig, layout, cfg)
+		d.removeOldRoutes(routes)
 		d.log.Info("haproxy reloaded")
 		return nil
 	}
@@ -232,6 +240,21 @@ func (d *Driver) Apply(ctx context.Context, cfg proxy.Config) error {
 	}
 	d.layout = layout
 	return nil
+}
+
+// removeOldRoutes deletes route maps the live configuration does not use.
+func (d *Driver) removeOldRoutes(keep map[string][]byte) {
+	entries, err := os.ReadDir(etcDir(d.cfg.Dir))
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		if _, ok := keep[e.Name()]; !ok && strings.HasPrefix(e.Name(), routeFilePrefix) {
+			if err := os.Remove(filepath.Join(etcDir(d.cfg.Dir), e.Name())); err != nil {
+				d.log.Debug("remove an old route map", "err", err)
+			}
+		}
+	}
 }
 
 // writeValidated writes content next to the live config, validates it, and

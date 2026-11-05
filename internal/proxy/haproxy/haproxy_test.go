@@ -137,7 +137,7 @@ func TestRenderRouteOrder(t *testing.T) {
 	// The longest prefix must be considered first, and "/" last.
 	iV12 := strings.Index(out, "-m str /api/v1.2 }")
 	iAPI := strings.Index(out, "-m str /api }")
-	iRoot := strings.Index(out, "str(r4)")
+	iRoot := strings.Index(out, ",map(")
 	if iV12 < 0 || iAPI < 0 || iRoot < 0 || iV12 > iAPI || iAPI > iRoot {
 		t.Errorf("route order wrong: v1.2=%d api=%d root=%d", iV12, iAPI, iRoot)
 	}
@@ -855,7 +855,7 @@ func TestLocalFirst(t *testing.T) {
 	t.Parallel()
 	cfg := sampleConfig(t)
 	out := string(render(cfg, assignLayout(nil, cfg, renderOptions{PrivateIP: "10.0.0.2"}.node()), renderOptions{PrivateIP: "10.0.0.2"}))
-	for _, want := range []string{"backend lo_frontend", "backend lo_shop", "backend lo_admin-panel", "use_backend lo_shop if"} {
+	for _, want := range []string{"backend lo_frontend", "backend lo_shop", "use_backend lo_shop if"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q", want)
 		}
@@ -863,6 +863,10 @@ func TestLocalFirst(t *testing.T) {
 	// Traffic splitting keeps one pool, so revision weights hold.
 	if strings.Contains(out, "lo_api-bengkel") {
 		t.Error("a split app got a local backend")
+	}
+	// An app with no replica on this node adds no rules.
+	if strings.Contains(out, "lo_admin-panel") {
+		t.Error("a local backend without a local replica")
 	}
 	// Without the node's private IP nothing is local.
 	if out := string(render(cfg, assignLayout(nil, cfg, renderOptions{PrivateIP: ""}.node()), renderOptions{})); strings.Contains(out, "lo_") {
@@ -922,6 +926,28 @@ func TestLocalFirstMovesWithoutReload(t *testing.T) {
 	want = []string{"set server be_shop/s2 state maint", "set server lo_shop/s1 state maint"}
 	if strings.Join(a.cmds, "|") != strings.Join(want, "|") || e.reloads != 0 {
 		t.Errorf("commands = %q, want %q (reloads %d)", a.cmds, want, e.reloads)
+	}
+}
+
+// An app's first replica on a node gives it a local backend, which takes a
+// reload; it does not lose a request either way.
+func TestLocalFirstFirstReplicaReloads(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	d, e, _, _ := newDriver(t)
+	cfg := proxy.Config{
+		Backends: []proxy.Backend{{Name: "web", LocalFirst: true, Servers: []proxy.Server{{Name: "web-a", Address: "10.0.0.9:80"}}}},
+		Rules:    []proxy.Rule{{Host: "web.example.org", PathPrefix: "/", Backend: "web"}},
+	}
+	if err := d.Apply(ctx, cfg); err != nil {
+		t.Fatal(err)
+	}
+	cfg.Backends[0].Servers = append(cfg.Backends[0].Servers, proxy.Server{Name: "web-b", Address: "10.0.0.2:80"})
+	if err := d.Apply(ctx, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if e.reloads != 1 {
+		t.Errorf("reloads = %d, want 1", e.reloads)
 	}
 }
 
@@ -1004,5 +1030,89 @@ func TestSetClients(t *testing.T) {
 	pe.running = true
 	if err := plain.SetClients(ctx, clients); err != nil || len(pa.cmds) != 0 {
 		t.Errorf("node without a subnet: %v %q", err, pa.cmds)
+	}
+}
+
+// A request's cost must not grow with the apps of the cluster: an app without
+// a replica on this node, and without paths, adds no rule to a frontend.
+func TestRulesPerFrontendFollowLocalReplicas(t *testing.T) {
+	t.Parallel()
+	opts := renderOptions{PrivateIP: "10.0.0.2", InternalIP: "10.120.3.1", Subnet: "10.120.3.0/24"}
+	rules := func(apps int) int {
+		cfg := proxy.Config{}
+		for i := range apps {
+			name := fmt.Sprintf("app%d", i)
+			cfg.Backends = append(cfg.Backends, proxy.Backend{Name: name, LocalFirst: true, Servers: []proxy.Server{{Name: name + "-a", Address: "10.120.4.7:80"}}})
+			cfg.Rules = append(cfg.Rules, proxy.Rule{Host: name + ".internal", PathPrefix: "/", Backend: name, Internal: true})
+		}
+		out := string(render(cfg, assignLayout(nil, cfg, opts.node()), opts))
+		return strings.Count(out, "http-request") + strings.Count(out, "use_backend")
+	}
+	if few, many := rules(2), rules(400); few != many {
+		t.Errorf("%d rules with 2 apps, %d with 400", few, many)
+	}
+}
+
+func TestRouteMap(t *testing.T) {
+	t.Parallel()
+	backends := map[string]proxy.Backend{"web.shop": {Name: "web.shop"}, "wake": {Name: "wake", Wake: true}}
+	rules := []proxy.Rule{
+		{Host: "web.shop.internal", PathPrefix: "/", Backend: "web.shop", Internal: true},
+		{Host: "api.shop.internal", PathPrefix: "/v1", Backend: "web.shop", Internal: true},
+		{Host: "only.shop.internal", PathPrefix: "/", Backend: "web.shop", Internal: true, Allow: []string{"a.shop"}},
+		{Host: "wake.internal", PathPrefix: "/", Backend: "wake", Internal: true},
+	}
+	name, content := routeMap(routesInternal, rules, backends, true)
+	// The key holds the project: another project's caller finds no route.
+	if want := "shop/web.shop.internal be_web.shop\n"; string(content) != want {
+		t.Errorf("map %q, want %q", content, want)
+	}
+	if !strings.HasPrefix(name, routeFilePrefix+routesInternal+"-") || !strings.HasSuffix(name, ".map") {
+		t.Errorf("name %q", name)
+	}
+	if other, _ := routeMap(routesInternal, rules[:0], backends, true); other != "" {
+		t.Errorf("a map without mapped rules: %q", other)
+	}
+	if plain, _ := routeMap(routesPublic, rules[:1], backends, false); plain == name {
+		t.Error("the frontends share a map name")
+	}
+}
+
+func TestApplyWritesRouteMaps(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	d, _, _, dir := newDriver(t)
+	cfg := sampleConfig(t)
+	if err := d.Apply(ctx, cfg); err != nil {
+		t.Fatal(err)
+	}
+	list := func() []string {
+		m, err := filepath.Glob(filepath.Join(etcDir(dir), routeFilePrefix+"*"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return m
+	}
+	first := list()
+	if len(first) == 0 {
+		t.Fatal("no route map")
+	}
+	content, err := os.ReadFile(first[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi, err := os.Stat(first[0]); err != nil || fi.Mode().Perm() != 0o600 {
+		t.Errorf("mode %v, err %v", fi.Mode(), err)
+	}
+	if !strings.Contains(string(content), " be_") {
+		t.Errorf("content %q", content)
+	}
+	// A changed map replaces the old one once the proxy reloaded.
+	cfg.Rules = append(cfg.Rules, proxy.Rule{Host: "new.example.com", PathPrefix: "/", Backend: cfg.Rules[0].Backend})
+	if err := d.Apply(ctx, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if next := list(); len(next) != len(first) || slices.Equal(next, first) {
+		t.Errorf("route maps %v after %v", next, first)
 	}
 }

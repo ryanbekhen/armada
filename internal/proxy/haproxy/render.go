@@ -5,7 +5,10 @@
 package haproxy
 
 import (
+	"bytes"
 	"cmp"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"net/netip"
 	"path/filepath"
@@ -27,7 +30,9 @@ const (
 	certDir          = "certs"
 	socketFile       = "admin.sock"
 	clientsFile      = "clients.map"
-	metricsPort      = MetricsPort
+	// routeFilePrefix starts the name of every route map.
+	routeFilePrefix = "routes-"
+	metricsPort     = MetricsPort
 )
 
 // MetricsPort is the HAProxy stats/metrics port on the node's private IP.
@@ -139,9 +144,12 @@ func localServers(be proxy.Backend, n node) []proxy.Server {
 	return local
 }
 
-// localFirst reports whether be gets a local backend on a node.
+// localFirst reports whether be gets a local backend on a node: only with a
+// replica there, because its rules run for every request of the frontend. The
+// first replica to arrive on a node therefore reloads the proxy; others join
+// through the Runtime API.
 func localFirst(be proxy.Backend, n node) bool {
-	return be.LocalFirst && n.known()
+	return be.LocalFirst && n.known() && len(localServers(be, n)) > 0
 }
 
 // wakeBackendName is the backend of an app's wake socket (ADR 0021).
@@ -227,20 +235,13 @@ func render(cfg proxy.Config, layout Layout, opts renderOptions) []byte {
 	w("    http-request set-var(txn.host) req.hdr(host),field(1,:),lower")
 	w("    http-request set-var(txn.path) path")
 
-	var public, internal []proxy.Rule
-	for _, r := range cfg.Rules {
-		if r.Internal {
-			internal = append(internal, r)
-		} else {
-			public = append(public, r)
-		}
-	}
+	public, internal := splitRules(cfg)
 	backendsByName := map[string]proxy.Backend{}
 	for _, be := range cfg.Backends {
 		backendsByName[be.Name] = be
 	}
 	rr := ruleRenderer{w: w, backends: backendsByName, node: opts.node()}
-	rr.write("r", public)
+	rr.write(routesPublic, public)
 	w("    default_backend be_armada_notfound")
 	w("")
 
@@ -257,7 +258,7 @@ func render(cfg proxy.Config, layout Layout, opts renderOptions) []byte {
 			w("    http-request set-var(txn.capp) src,map_ip(%s/%s),field(2,:)", containerConfDir, clientsFile)
 			rr.callers = true
 		}
-		rr.write("i", internal)
+		rr.write(routesInternal, internal)
 		w("    default_backend be_armada_notfound")
 		w("")
 	}
@@ -327,13 +328,28 @@ type ruleRenderer struct {
 	callers bool
 }
 
-// write emits the routing of one frontend. Route IDs are prefix plus an
-// index.
-func (rr ruleRenderer) write(prefix string, rules []proxy.Rule) {
-	w := rr.w
+// Route IDs start with these, one per frontend.
+const (
+	routesPublic   = "r"
+	routesInternal = "i"
+)
+
+// splitRules separates the public rules from the internal ones.
+func splitRules(cfg proxy.Config) (public, internal []proxy.Rule) {
+	for _, r := range cfg.Rules {
+		if r.Internal {
+			internal = append(internal, r)
+		} else {
+			public = append(public, r)
+		}
+	}
+	return public, internal
+}
+
+// sortRules orders rules longest path first, so the most specific route wins;
+// ties by host for deterministic output.
+func sortRules(rules []proxy.Rule) []proxy.Rule {
 	rules = slices.Clone(rules)
-	// Longest path first so the most specific route wins; ties by host for
-	// deterministic output.
 	slices.SortFunc(rules, func(a, b proxy.Rule) int {
 		if c := cmp.Compare(len(b.PathPrefix), len(a.PathPrefix)); c != 0 {
 			return c
@@ -343,7 +359,76 @@ func (rr ruleRenderer) write(prefix string, rules []proxy.Rule) {
 		}
 		return cmp.Compare(a.PathPrefix, b.PathPrefix)
 	})
-	for i, r := range rules {
+	return rules
+}
+
+// mapped reports whether a rule can be looked up in the frontend's route map
+// instead of having rules of its own: it matches a whole host, and only needs
+// the backend's project checked. HAProxy runs every http-request rule of a
+// frontend for every request, so this keeps a request's cost from growing with
+// the number of apps in the cluster.
+func mapped(r proxy.Rule, be proxy.Backend) bool {
+	return r.PathPrefix == "/" && !r.StripPrefix && len(r.Allow) == 0 && !be.Wake
+}
+
+// routeMap returns the route map of a frontend: one "<key> <backend>" line per
+// mapped rule, where the key is the host, or "<project>/<host>" when callers
+// are checked. It is named after its content, so a configuration and its map
+// are validated and replaced together. Its name is empty without mapped rules.
+// Every value is checked by safeConfig before this is used.
+func routeMap(prefix string, rules []proxy.Rule, backends map[string]proxy.Backend, callers bool) (string, []byte) {
+	var b bytes.Buffer
+	for _, r := range sortRules(rules) {
+		if !mapped(r, backends[r.Backend]) {
+			continue
+		}
+		key := r.Host
+		if callers {
+			key = proxy.BackendProject(r.Backend) + "/" + r.Host
+		}
+		fmt.Fprintf(&b, "%s %s\n", key, backendName(r.Backend))
+	}
+	if b.Len() == 0 {
+		return "", nil
+	}
+	sum := sha256.Sum256(b.Bytes())
+	return routeFilePrefix + prefix + "-" + hex.EncodeToString(sum[:8]) + ".map", b.Bytes()
+}
+
+// routeFiles returns the route maps a configuration needs, by file name.
+func routeFiles(cfg proxy.Config, opts renderOptions) map[string][]byte {
+	public, internal := splitRules(cfg)
+	backends := map[string]proxy.Backend{}
+	for _, be := range cfg.Backends {
+		backends[be.Name] = be
+	}
+	out := map[string][]byte{}
+	if name, content := routeMap(routesPublic, public, backends, false); name != "" {
+		out[name] = content
+	}
+	if opts.InternalIP != "" {
+		if name, content := routeMap(routesInternal, internal, backends, opts.checksCallers()); name != "" {
+			out[name] = content
+		}
+	}
+	return out
+}
+
+// write emits the routing of one frontend. Rules that need rules of their own
+// get a route ID, prefix plus an index, and win over mapped ones; a mapped
+// route's value is its backend.
+func (rr ruleRenderer) write(prefix string, rules []proxy.Rule) {
+	w := rr.w
+	rules = sortRules(rules)
+	var own, viaMap []proxy.Rule
+	for _, r := range rules {
+		if mapped(r, rr.backends[r.Backend]) {
+			viaMap = append(viaMap, r)
+		} else {
+			own = append(own, r)
+		}
+	}
+	for i, r := range own {
 		// HAProxy evaluates AND before OR, so each alternative gets its own
 		// line, all guarded by "no route chosen yet".
 		set := fmt.Sprintf("    http-request set-var(txn.route) str(%s%d) if !{ var(txn.route) -m found } { var(txn.host) -m str %s }", prefix, i, r.Host)
@@ -360,11 +445,23 @@ func (rr ruleRenderer) write(prefix string, rules []proxy.Rule) {
 		w("%s { var(txn.path) -m str %s }", set, r.PathPrefix)
 		w("%s { var(txn.path) -m beg %s/ }", set, r.PathPrefix)
 	}
+	if name, _ := routeMap(prefix, rules, rr.backends, rr.callers); name != "" {
+		path := containerConfDir + "/" + name
+		if rr.callers {
+			// A caller this node does not know has no project, so no key and
+			// no route.
+			w("    http-request set-var(txn.rkey) var(txn.cproj),concat(/,txn.host) if !{ var(txn.route) -m found }")
+			w("    http-request set-var(txn.route) var(txn.rkey),map(%s) if !{ var(txn.route) -m found }", path)
+		} else {
+			w("    http-request set-var(txn.route) var(txn.host),map(%s) if !{ var(txn.route) -m found }", path)
+		}
+	}
 	// HAProxy runs every http-request rule before any use_backend rule,
 	// whatever their order; writing them in that order keeps the file
 	// honest.
 	match := func(i int) string { return fmt.Sprintf("{ var(txn.route) -m str %s%d }", prefix, i) }
-	for i, r := range rules {
+	matchMapped := func(r proxy.Rule) string { return fmt.Sprintf("{ var(txn.route) -m str %s }", backendName(r.Backend)) }
+	for i, r := range own {
 		if r.StripPrefix {
 			w("    http-request set-path /%%[path,field(%d,/,0)] if %s", stripField(r.PathPrefix), match(i))
 		}
@@ -372,7 +469,12 @@ func (rr ruleRenderer) write(prefix string, rules []proxy.Rule) {
 			writeLocalLoad(w, match(i), r.Backend)
 		}
 	}
-	for i, r := range rules {
+	for _, r := range viaMap {
+		if localFirst(rr.backends[r.Backend], rr.node) {
+			writeLocalLoad(w, matchMapped(r), r.Backend)
+		}
+	}
+	for i, r := range own {
 		be := rr.backends[r.Backend]
 		if be.Wake {
 			// No server up (scaled to zero, or starting): the request waits
@@ -384,6 +486,15 @@ func (rr ruleRenderer) write(prefix string, rules []proxy.Rule) {
 			w("    use_backend %s if %s { nbsrv(%s) gt 0 } { var(txn.lf_d) -m int le 0 }", lo, match(i), lo)
 		}
 		w("    use_backend %s if %s", backendName(r.Backend), match(i))
+	}
+	for _, r := range viaMap {
+		if localFirst(rr.backends[r.Backend], rr.node) {
+			lo := localBackendName(r.Backend)
+			w("    use_backend %s if %s { nbsrv(%s) gt 0 } { var(txn.lf_d) -m int le 0 }", lo, matchMapped(r), lo)
+		}
+	}
+	if len(viaMap) > 0 {
+		w("    use_backend %%[var(txn.route)] if { var(txn.route) -m beg be_ }")
 	}
 }
 

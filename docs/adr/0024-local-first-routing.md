@@ -26,8 +26,11 @@ replica.
   servers, each node renders `lo_<app>` with the servers whose address is
   on its own private IP, or with the cluster network (ADR 0025) in its own
   container subnet. Both use the same slots, health checks, and
-  Runtime API updates (ADR 0002). `lo_<app>` is rendered even while empty,
-  so a replica arriving on a node or leaving it never needs a reload.
+  Runtime API updates (ADR 0002). `lo_<app>` and its rules exist only
+  on nodes with a replica of the app, because a frontend runs its rules for
+  every request: a request's cost then follows the replicas on the node, not
+  the apps of the cluster. The first replica arriving on a node, or the last
+  one leaving it, takes a reload.
 - **Choice per request.** Let L be the requests in progress on the N local
   replicas, and R the requests in progress through `be_<app>` on all M
   replicas. A request goes to `lo_<app>` while N > 0 and
