@@ -1,6 +1,10 @@
 package haproxy
 
 import (
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
 	"maps"
 	"testing"
 
@@ -37,5 +41,93 @@ func TestParseLoad(t *testing.T) {
 	}
 	if _, err := parseLoad("# pxname,svname,scur,qcur\nbe_web,s1,1,0\n", layout); err == nil {
 		t.Error("output without stot accepted")
+	}
+}
+
+// statAPI answers "show info" and "show stat" with what the test sets.
+type statAPI struct {
+	pid   string
+	total int
+	err   error
+}
+
+func (a *statAPI) Command(_ context.Context, cmd string) (string, error) {
+	if a.err != nil {
+		return "", a.err
+	}
+	if cmd == "show info" {
+		return "Name: HAProxy\nPid: " + a.pid + "\nUptime_sec: 1\n", nil
+	}
+	return fmt.Sprintf("# pxname,svname,scur,qcur,stot\nbe_web,s1,0,0,%d\n", a.total), nil
+}
+
+func (a *statAPI) Payload(context.Context, string, string) (string, error) { return "", nil }
+
+func TestLoadTotalsSurviveReloads(t *testing.T) {
+	t.Parallel()
+	api := &statAPI{pid: "10", total: 100}
+	d := &Driver{cfg: Config{API: api}, log: slog.New(slog.DiscardHandler), layout: Layout{"be_web": {"web-1"}}}
+	ctx := context.Background()
+	total := func(want int64) {
+		t.Helper()
+		l, err := d.Load(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := l["web-1"].Total; got != want {
+			t.Errorf("total %d, want %d", got, want)
+		}
+	}
+	total(100)
+
+	// The outgoing process's last read, and it still answers after the
+	// signal: nothing is counted twice.
+	api.total = 150
+	total(150)
+	api.total = 155
+	total(155)
+
+	// The new process starts from zero.
+	api.pid, api.total = "11", 3
+	total(158)
+	api.total = 10
+	total(165)
+
+	// A second reload carries the running total, not only the last process.
+	api.pid, api.total = "12", 0
+	total(165)
+	api.total = 1
+	total(166)
+
+	// A failed read changes nothing.
+	api.err = errors.New("socket gone")
+	if _, err := d.Load(ctx); err == nil {
+		t.Error("no error from a failed read")
+	}
+	api.err = nil
+	api.total = 2
+	total(167)
+}
+
+func TestLoadCarriesOnlyCurrentReplicas(t *testing.T) {
+	t.Parallel()
+	api := &statAPI{pid: "10", total: 100}
+	d := &Driver{cfg: Config{API: api}, log: slog.New(slog.DiscardHandler), layout: Layout{"be_web": {"web-1"}}}
+	ctx := context.Background()
+	if _, err := d.Load(ctx); err != nil {
+		t.Fatal(err)
+	}
+	// The slot now serves another replica; the first one's total is not kept
+	// past the next process.
+	d.layout = Layout{"be_web": {"web-2"}}
+	if _, err := d.Load(ctx); err != nil {
+		t.Fatal(err)
+	}
+	api.pid, api.total = "11", 0
+	if _, err := d.Load(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := d.carried["web-1"]; ok {
+		t.Errorf("carried %v", d.carried)
 	}
 }

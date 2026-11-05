@@ -358,7 +358,7 @@ armada project set shop --quota none      # remove it
 | `jobs` | Job attempts running at once |
 | `egress` | Not a total: the bits per second each replica and job attempt may send (`500k`, `100M`, `1G`; from 1M to 10G) |
 | `requests` | Not a total: the requests per second each app may receive at each node's proxy |
-| `connections` | Not a total: the requests each app may have in progress at once at each node's proxy |
+| `connections` | Not a total: the requests each app may have in progress at once at each node's proxy; a request counts until the app answers it or times out, even after its client has gone |
 
 A deploy, scale, rollback, or new secret that would go past a limit is
 refused with the dimension and the numbers. Job attempts past `jobs` wait
@@ -610,8 +610,9 @@ web-r1-q2k0d     node2  running  41m/250m   58Mi/256Mi
   An automation identity sees only its own projects.
 - Requests and egress count from when the control plane's leader started, the
   time the listing prints, and start over when the leader changes. They are
-  sums of samples: what a container sends in its first and last 10 seconds,
-  and requests while a proxy reloads, can be missed. For history, scrape the
+  sums of samples: what a container sends in its first and last 10 seconds
+  can be missed, and so can what the last sample before a lost connection
+  or a crashed proxy did not cover. For history, scrape the
   [metrics](#metrics) and use `rate()` or `increase()`.
 - `-` means no recent sample: the replica is not running yet or the node is
   disconnected. Numbers appear 10 to 20 seconds after a replica starts or
