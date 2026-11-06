@@ -32,4 +32,4 @@ The questions are: who decides a replica is ready, how traffic is shifted withou
 - Deploy and rollback were tested in the lab with 0 failed requests (about 145 thousand requests per scenario), including an HAProxy reload mid-rollout. A revision that never became ready was aborted after 3 minutes 30 seconds with no failed requests.
 - Rollouts are slow for apps with infrequent readiness probes (default period 10 seconds): one early failure delays by one period. Users can shorten `period`.
 - During drain, one extra replica still uses memory on the node.
-- Warmup, drain timeout, and progress deadline cannot yet be set from the spec or flags; the values above are hardcoded as defaults in `server.Config`.
+- `drain` in the spec sets an app's drain (1s to 1h, default 10 seconds). Warmup and progress deadline cannot yet be set from the spec or flags; the values above are hardcoded as defaults.

@@ -122,7 +122,14 @@ Limits on a connection through ingress:
   connections stay on the previous configuration for at most 1 hour after
   that, then close, so clients should be able to reconnect.
 - A replica leaving (a deploy, scaling down, a node drained) gets no new
-  requests and stops about 10 seconds later, closing what it still holds.
+  requests and stops after `drain`, 10 seconds by default, closing what it
+  still holds.
+### `drain`
+
+How long a replica that is leaving (a rollout, scale down, a moved replica, a
+removed app) keeps serving the requests it already has before it is stopped:
+1s to 1h, default `10s`. It takes no new requests in that time. Set it above the
+longest request the app serves. Not for jobs.
 
 ### `probes`
 
