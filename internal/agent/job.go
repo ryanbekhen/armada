@@ -53,6 +53,13 @@ func (a *Agent) attempt(ctx context.Context, s *armadav1.ReplicaSpec, hash strin
 	if !stopped(full.State) {
 		return a.state(ctx, s, full)
 	}
+	// The kept container is only for its logs: its address goes back at once,
+	// so finished runs do not fill the node's subnet.
+	if nr, ok := a.cfg.Driver.(runtime.NetworkReleaser); ok {
+		if err := nr.ReleaseNetwork(ctx, c.ID); err != nil {
+			a.log.Warn("release network", "container", c.ID, "err", err)
+		}
+	}
 	st := a.state(ctx, s, full)
 	st.State, st.Finished, st.ExitCode = store.ReplicaExited, true, int32(full.ExitCode) //nolint:gosec // exit codes are small
 	st.Message = "exited with code " + strconv.Itoa(full.ExitCode)

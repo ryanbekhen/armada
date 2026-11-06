@@ -412,7 +412,7 @@ resources:
 | `timeout` | `1h` | How long one attempt may take from placement (pulling the image included), `1s` to `24h`; then it is stopped and counts as failed. |
 | `retries` | `0` | Further attempts after a failed one (non-zero exit, start failure, lost node, timeout), 0 to 10, after 10s, 20s, 40s, and so on up to 5 minutes. |
 | `concurrency` | `forbid` | What happens when a run is due while another is active: `forbid` skips the new one (and `armada job run` refuses); `replace` cancels the active run. |
-| `history` | `5` | Finished runs kept, 1 to 50. The container of a finished run is kept 24 hours for `armada logs`. |
+| `history` | `5` | Finished runs kept, 1 to 50. The container of a finished run is kept 24 hours for `armada logs`; its address is freed when it stops. |
 
 - `env`, `secretFiles`, `registry`, `resources`, and `placement` mean the
   same as for apps. `ingress`, `probes`, `scale`, `revisions`, and

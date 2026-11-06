@@ -260,6 +260,12 @@ type Stats struct {
 	EgressBytes int64
 }
 
+// NetworkReleaser frees the network of a stopped container that is kept only
+// for its logs. Releasing twice is harmless. It is optional.
+type NetworkReleaser interface {
+	ReleaseNetwork(ctx context.Context, id string) error
+}
+
 // StatsReader samples what app containers use (armada top, ADR 0016). It
 // is optional.
 type StatsReader interface {
