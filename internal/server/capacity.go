@@ -62,15 +62,15 @@ func (s *Server) allocatable(ctx context.Context, nodes []store.Node) ([]store.N
 }
 
 // replicasFull reports whether n's container subnet has no address to spare
-// for another replica. A finished job attempt counts: its kept container holds
-// its address until it is removed.
+// for another replica. A finished job attempt holds none: its address is freed
+// when it stops.
 func replicasFull(n store.Node, replicas []store.Replica) bool {
 	if n.Subnet == "" {
 		return false
 	}
 	used := 0
 	for _, r := range replicas {
-		if r.NodeID == n.ID {
+		if r.NodeID == n.ID && !r.Done {
 			used++
 		}
 	}
