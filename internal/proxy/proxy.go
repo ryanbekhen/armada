@@ -176,7 +176,7 @@ func FromProto(p *armadav1.ProxyConfig) Config {
 func (c Config) ToProto() *armadav1.ProxyConfig {
 	p := &armadav1.ProxyConfig{AcmeChallengeAddress: c.ACMEAddress}
 	for _, b := range c.Backends {
-		pb := &armadav1.ProxyBackend{Name: b.Name, HealthPath: b.HealthPath, Wake: b.Wake, LocalFirst: b.LocalFirst, TimeoutSeconds: uint32(max(min(b.TimeoutSeconds, MaxTimeoutSeconds), 0))} //nolint:gosec // bounded just here
+		pb := &armadav1.ProxyBackend{Name: b.Name, HealthPath: b.HealthPath, Wake: b.Wake, LocalFirst: b.LocalFirst, TimeoutSeconds: uint32(max(min(b.TimeoutSeconds, MaxTimeoutSeconds), 0))}
 		for _, s := range b.Servers {
 			pb.Servers = append(pb.Servers, &armadav1.ProxyServer{Name: s.Name, Address: s.Address, Weight: uint32(max(s.Weight, 0))}) //nolint:gosec // bounded by Validate
 		}
