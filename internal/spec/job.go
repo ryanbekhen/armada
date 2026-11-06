@@ -120,6 +120,9 @@ func (v *validator) job(a *App) {
 	if a.Probes != nil {
 		v.add("probes", "jobs have no health checks; leave probes out")
 	}
+	if a.Drain != 0 {
+		v.add("drain", "jobs take no requests; leave drain out")
+	}
 	if a.Scale != nil {
 		v.add("scale", "a job runs one container per run; leave scale out")
 	}

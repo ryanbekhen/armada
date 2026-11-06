@@ -62,6 +62,9 @@ type App struct {
 	Placement *Placement `yaml:"placement,omitempty" json:"placement,omitempty"`
 	// Volumes keep data across restarts on the replica's node (ADR 0023).
 	Volumes []Volume `yaml:"volumes,omitempty" json:"volumes,omitempty"`
+	// Drain is how long a replica leaving serves the requests it has before
+	// it stops; zero means the default.
+	Drain Duration `yaml:"drain,omitempty" json:"drain,omitempty"`
 
 	// Project is the project the app belongs to (ADR 0026), set by the API
 	// rather than the file; empty means the default project.
