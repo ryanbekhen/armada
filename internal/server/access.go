@@ -42,6 +42,7 @@ var automationMethods = map[string]bool{
 	"/armada.v1.AdminService/ListJobRuns":   true,
 	"/armada.v1.AdminService/CancelJob":     true,
 	"/armada.v1.AdminService/DeleteJob":     true,
+	"/armada.v1.AdminService/RemoveApp":     true,
 	"/armada.v1.AdminService/CreateProject": true,
 	"/armada.v1.AdminService/ListProjects":  true,
 	"/armada.v1.AdminService/DeleteProject": true,

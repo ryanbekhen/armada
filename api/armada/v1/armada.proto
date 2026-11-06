@@ -77,6 +77,10 @@ service AdminService {
   rpc ListJobRuns(ListJobRunsRequest) returns (ListJobRunsResponse);
   rpc CancelJob(CancelJobRequest) returns (CancelJobResponse);
   rpc DeleteJob(DeleteJobRequest) returns (DeleteJobResponse);
+
+  // RemoveApp drains an app's replicas and then removes it with its revisions
+  // and secrets. Its volumes stay until `armada volume rm`.
+  rpc RemoveApp(RemoveAppRequest) returns (RemoveAppResponse);
 }
 
 message RunJobRequest {
@@ -149,6 +153,12 @@ message DeleteJobRequest {
 }
 
 message DeleteJobResponse {}
+
+message RemoveAppRequest {
+  string app = 1;
+}
+
+message RemoveAppResponse {}
 
 message EventsRequest {
   // Optional filters.

@@ -62,9 +62,16 @@ func (s *Server) Reconcile(ctx context.Context) error {
 	rc := reconcileRun{now: s.now()}
 	rc.lost = s.lostNodes(ctx, &rc, nodes)
 	var jobs []store.App
+	removed := map[string]bool{}
 	for i, app := range apps {
 		if app.Spec.IsJob() {
 			jobs = append(jobs, app)
+			continue
+		}
+		if app.Removing {
+			if replicas, removed[app.Name], err = s.reconcileRemoval(ctx, &rc, app, replicas); err != nil {
+				return fmt.Errorf("app %s: %w", app.Name, err)
+			}
 			continue
 		}
 		replicas, err = s.reconcileApp(ctx, &rc, &apps[i], nodes, replicas, &revs)
@@ -78,6 +85,7 @@ func (s *Server) Reconcile(ctx context.Context) error {
 	if rc.wake > 0 {
 		s.wakeAfter(rc.wake)
 	}
+	apps = slices.DeleteFunc(apps, func(a store.App) bool { return removed[a.Name] })
 	px, err := s.buildProxy(ctx, apps, replicas)
 	if err != nil {
 		return err

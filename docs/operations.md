@@ -409,6 +409,20 @@ needs a round trip between them.
 start `armada agent` there. A second agent on a node refuses to start and says
 why: two would take turns replacing each other's connection to the control
 plane and fail each other's replicas.
+## Removing an app
+
+```sh
+armada app rm web --yes
+```
+
+The app stops taking new requests at once, its replicas drain like those of any
+rollout, and then the app is gone with its revisions and secrets. This cannot be
+undone; `armada status` shows the app as being removed until then, and deploying
+the same name waits until it is gone.
+
+Its volumes and their data stay. Remove them with `armada volume rm` or deploy
+the same name again to use them. A project can be removed once it holds no apps
+and no volumes.
 
 ## Container network
 

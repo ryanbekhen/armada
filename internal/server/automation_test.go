@@ -161,6 +161,7 @@ func TestAutomationOutOfScope(t *testing.T) {
 			"ListJobRuns": func() error { _, err := p.ListJobRuns(ctx, &armadav1.ListJobRunsRequest{Job: app}); return err },
 			"CancelJob":   func() error { _, err := p.CancelJob(ctx, &armadav1.CancelJobRequest{Job: app}); return err },
 			"DeleteJob":   func() error { _, err := p.DeleteJob(ctx, &armadav1.DeleteJobRequest{Job: app}); return err },
+			"RemoveApp":   func() error { _, err := p.RemoveApp(ctx, &armadav1.RemoveAppRequest{App: app}); return err },
 			"RemoveVolume": func() error {
 				_, err := p.RemoveVolume(ctx, &armadav1.RemoveVolumeRequest{App: app, Name: "data"})
 				return err
