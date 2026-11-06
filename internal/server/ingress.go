@@ -100,11 +100,13 @@ func (s *Server) buildProxy(ctx context.Context, apps []store.App, replicas []st
 		certNames = append(certNames, "*."+root)
 	}
 
+	perApp := byApp(replicas)
 	for _, app := range apps {
 		sp := app.Spec
 		if sp.Ingress == nil || sp.Ingress.Type == spec.IngressNone {
 			continue
 		}
+		replicas := perApp[app.Name]
 		splits := len(app.Traffic) > 0 && !app.Rolling()
 		// Traffic splitting keeps every replica in one pool so revision
 		// weights hold; other apps prefer each node's own replicas.

@@ -114,6 +114,8 @@ type reconcileRun struct {
 	// lost holds the nodes whose replicas are being rescheduled.
 	lost map[string]bool
 	revs *revisionCache
+	// current is the latest view of the pass's replicas.
+	current *replicaView
 }
 
 // lostNodes returns the nodes that have been disconnected for longer than
@@ -283,8 +285,8 @@ func (s *Server) reconcileRevision(ctx context.Context, rc *reconcileRun, app *s
 	working := func(r store.Replica) bool { return working(r, publishesRev(r)) }
 	var err error
 	var current, old []store.Replica
-	for _, r := range all {
-		if r.App != app.Name || others[r.Revision] {
+	for _, r := range rc.view(ctx, all, revs).byApp[app.Name] {
+		if others[r.Revision] {
 			continue
 		}
 		switch {
@@ -476,10 +478,9 @@ func (s *Server) rebalance(ctx context.Context, rc *reconcileRun, app *store.App
 			return all, nil
 		}
 	}
-	for _, r := range all {
-		if r.Moving() && !r.Draining() {
-			return all, nil
-		}
+	view := rc.view(ctx, all, revs)
+	if view.moving {
+		return all, nil
 	}
 	s.rebalanceMu.Lock()
 	after := s.rebalanceAfter[app.Name]
@@ -491,7 +492,7 @@ func (s *Server) rebalance(ctx context.Context, rc *reconcileRun, app *store.App
 	if err != nil {
 		return nil, err
 	}
-	victim, to, ok := rebalanceVictim(nodes, all, current, target.Spec.Placement.SpreadKey(), reservation(target), revs.reserved(ctx))
+	victim, to, ok := rebalanceVictim(nodes, view.use, current, target.Spec.Placement.SpreadKey(), reservation(target))
 	if !ok {
 		return all, nil
 	}
@@ -511,9 +512,9 @@ func (s *Server) rebalance(ctx context.Context, rc *reconcileRun, app *store.App
 // the node pickNode would choose; otherwise each value is balanced over its
 // own nodes, so the two never undo each other's moves. Without spreadBy,
 // see nodeVictim.
-func rebalanceVictim(nodes []store.Node, all, current []store.Replica, spreadBy string, want resources, reserved func(store.Replica) resources) (store.Replica, string, bool) {
+func rebalanceVictim(nodes []store.Node, use placedUse, current []store.Replica, spreadBy string, want resources) (store.Replica, string, bool) {
 	if spreadBy == "" {
-		return nodeVictim(nodes, all, current, want, reserved)
+		return nodeVictim(nodes, use, current, want)
 	}
 	groupOf := spreadGroups(nodes, spreadBy)
 	perGroup := map[string]int{}
@@ -524,7 +525,7 @@ func rebalanceVictim(nodes []store.Node, all, current []store.Replica, spreadBy 
 			placed = append(placed, r)
 		}
 	}
-	if to, ok := pickNode(nodes, all, current, spreadBy, want, reserved); ok && len(placed) > 0 {
+	if to, ok := pickNodeBy(nodes, use, current, spreadBy, want); ok && len(placed) > 0 {
 		from := groupOf[slices.MaxFunc(placed, func(a, b store.Replica) int {
 			ga, gb := groupOf[a.NodeID], groupOf[b.NodeID]
 			if c := cmp.Compare(perGroup[ga], perGroup[gb]); c != 0 {
@@ -555,7 +556,7 @@ func rebalanceVictim(nodes []store.Node, all, current []store.Replica, spreadBy 
 				in = append(in, r)
 			}
 		}
-		if v, to, ok := nodeVictim(groups[g], all, in, want, reserved); ok {
+		if v, to, ok := nodeVictim(groups[g], use, in, want); ok {
 			return v, to, true
 		}
 	}
@@ -565,11 +566,11 @@ func rebalanceVictim(nodes []store.Node, all, current []store.Replica, spreadBy 
 // nodeVictim picks a replica to move: one on the node with the most
 // current replicas, if that node has at least two more than the node
 // pickNode would choose for a new one. It also returns that node.
-func nodeVictim(nodes []store.Node, all, current []store.Replica, want resources, reserved func(store.Replica) resources) (store.Replica, string, bool) {
+func nodeVictim(nodes []store.Node, use placedUse, current []store.Replica, want resources) (store.Replica, string, bool) {
 	if len(current) == 0 {
 		return store.Replica{}, "", false
 	}
-	to, ok := pickNode(nodes, all, current, "", want, reserved)
+	to, ok := pickNodeBy(nodes, use, current, "", want)
 	if !ok {
 		return store.Replica{}, "", false
 	}
@@ -1008,6 +1009,11 @@ func (s *Server) moveFailed(ctx context.Context, rc *reconcileRun, app *store.Ap
 // breaks ties: a node advertising inflated capacity does not attract every
 // replica.
 func pickNode(nodes []store.Node, replicas, spread []store.Replica, spreadBy string, want resources, reserved func(store.Replica) resources) (store.Node, bool) {
+	return pickNodeBy(nodes, usageOf(replicas, reserved), spread, spreadBy, want)
+}
+
+// pickNodeBy is pickNode with the use of each node already worked out.
+func pickNodeBy(nodes []store.Node, use placedUse, spread []store.Replica, spreadBy string, want resources) (store.Node, bool) {
 	groupOf := spreadGroups(nodes, spreadBy)
 	sameApp, sameGroup := map[string]int{}, map[string]int{}
 	for _, r := range spread {
@@ -1025,21 +1031,13 @@ func pickNode(nodes []store.Node, replicas, spread []store.Replica, spreadBy str
 	}
 	var cands []cand
 	for _, n := range nodes {
-		if n.State != store.NodeReady || n.Cordoned || replicasFull(n, replicas) {
+		u := use[n.ID]
+		if n.State != store.NodeReady || n.Cordoned || (n.Subnet != "" && u.holding >= maxSubnetReplicas) {
 			continue
 		}
-		c := cand{node: n, sameApp: sameApp[n.ID], free: resources{cpu: n.CPUMillis, mem: n.MemoryBytes}}
+		c := cand{node: n, sameApp: sameApp[n.ID], total: u.total, free: resources{cpu: n.CPUMillis - u.reserved.cpu, mem: n.MemoryBytes - u.reserved.mem}}
 		if g, ok := groupOf[n.ID]; ok {
 			c.sameGroup = sameGroup[g]
-		}
-		for _, r := range replicas {
-			if r.NodeID != n.ID {
-				continue
-			}
-			c.total++
-			res := reserved(r)
-			c.free.cpu -= res.cpu
-			c.free.mem -= res.mem
 		}
 		if (n.MemoryBytes > 0 && c.free.mem < want.mem) || (n.CPUMillis > 0 && c.free.cpu < want.cpu) {
 			continue
