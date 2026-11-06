@@ -466,15 +466,15 @@ node (`--container-subnet`, default `10.121.0.0/24`).
 
 Every node's HAProxy serves the app's public domains and `<app>.internal`,
 and sends each request to one of the app's ready replicas. It prefers the
-replicas on its own node while they are no busier than the app's replicas
-overall, and spreads the rest over every replica
+replicas on its own node while they are about as busy as the app's other
+replicas, and spreads the rest over every replica
 ([ADR 0024](adr/0024-local-first-routing.md)). At low load a request never
 leaves the node that received it; under load, and when the node has no
 replica up, the others take the excess. Apps that split traffic between
 revisions are balanced over every replica by weight instead.
 
 So point public DNS at every node that should take traffic: a node that
-receives more requests keeps its replicas busier, up to the average.
+receives more requests keeps its replicas somewhat busier.
 
 ## Running commands in replicas
 

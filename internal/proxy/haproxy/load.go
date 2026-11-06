@@ -99,9 +99,7 @@ func parseLoad(out string, layout Layout) (map[string]proxy.ServerLoad, error) {
 		if len(rec) <= max(px, sv, scur, qcur, stot) {
 			continue
 		}
-		// be_<app> and lo_<app> (ADR 0024) serve the same replicas; a
-		// replica's load is the sum of both.
-		if !strings.HasPrefix(rec[px], "be_") && !strings.HasPrefix(rec[px], "lo_") {
+		if !strings.HasPrefix(rec[px], "be_") {
 			continue
 		}
 		slot, ok := strings.CutPrefix(rec[sv], "s")

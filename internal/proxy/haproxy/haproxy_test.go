@@ -369,6 +369,9 @@ func (a *fakeAPI) Command(_ context.Context, cmd string) (string, error) {
 	if a.reply != nil {
 		return a.reply(cmd), a.err
 	}
+	if strings.HasPrefix(cmd, "prepare map") {
+		return "New version created: 7", a.err
+	}
 	return "", a.err
 }
 func (a *fakeAPI) Payload(_ context.Context, cmd, payload string) (string, error) {
@@ -639,11 +642,10 @@ func TestRuntimeAPIErrorPropagates(t *testing.T) {
 	if err := d.Apply(ctx, cfg); err == nil {
 		t.Error("runtime API failure not reported")
 	}
-	// The failed change is retried on the next apply, in be_frontend and,
-	// as the server is on this node, lo_frontend.
+	// The failed change is retried on the next apply.
 	a.err = nil
 	a.cmds = nil
-	if err := d.Apply(ctx, cfg); err != nil || len(a.cmds) != 4 {
+	if err := d.Apply(ctx, cfg); err != nil || len(a.cmds) != 2 {
 		t.Errorf("retry: err=%v cmds=%v", err, a.cmds)
 	}
 }
@@ -854,28 +856,32 @@ func TestRenderRefusesUnsafeTokens(t *testing.T) {
 func TestLocalFirst(t *testing.T) {
 	t.Parallel()
 	cfg := sampleConfig(t)
-	out := string(render(cfg, assignLayout(nil, cfg, renderOptions{PrivateIP: "10.0.0.2"}.node()), renderOptions{PrivateIP: "10.0.0.2"}))
-	for _, want := range []string{"backend lo_frontend", "backend lo_shop", "use_backend lo_shop if"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("missing %q", want)
+	opts := renderOptions{PrivateIP: "10.0.0.2"}
+	out := string(render(cfg, assignLayout(nil, cfg, opts.node()), opts))
+	backend := func(out, name string) string {
+		_, rest, ok := strings.Cut(out, "backend "+name+"\n")
+		if !ok {
+			t.Fatalf("no backend %s", name)
+		}
+		body, _, _ := strings.Cut(rest, "\n\n")
+		return body
+	}
+	// This node's replica weighs more; requests in progress decide.
+	shop := backend(out, "be_shop")
+	for _, want := range []string{"balance leastconn", "server s1 10.0.0.3:32771 weight 10", "server s2 10.0.0.2:32772 weight 11"} {
+		if !strings.Contains(shop, want) {
+			t.Errorf("be_shop misses %q:\n%s", want, shop)
 		}
 	}
-	// Traffic splitting keeps one pool, so revision weights hold.
-	if strings.Contains(out, "lo_api-bengkel") {
-		t.Error("a split app got a local backend")
-	}
-	// An app with no replica on this node adds no rules.
-	if strings.Contains(out, "lo_admin-panel") {
-		t.Error("a local backend without a local replica")
+	// Traffic splitting keeps its weights and takes turns.
+	split := backend(out, "be_api-bengkel")
+	if !strings.Contains(split, "balance roundrobin") || !strings.Contains(split, "weight 230") {
+		t.Errorf("a split app changed:\n%s", split)
 	}
 	// Without the node's private IP nothing is local.
-	if out := string(render(cfg, assignLayout(nil, cfg, renderOptions{PrivateIP: ""}.node()), renderOptions{})); strings.Contains(out, "lo_") {
-		t.Error("local backends without a private IP")
-	}
-	// Only this node's servers, at weight 1.
-	l := assignLayout(nil, cfg, renderOptions{PrivateIP: "10.0.0.2"}.node())
-	if got := l["lo_shop"]; got[0] != "shop-r2-b" || got[1] != "" {
-		t.Errorf("lo_shop slots %v", got)
+	out = string(render(cfg, assignLayout(nil, cfg, renderOptions{}.node()), renderOptions{}))
+	if strings.Contains(out, "leastconn") || strings.Contains(backend(out, "be_shop"), "weight") {
+		t.Errorf("local-first without a private IP:\n%s", backend(out, "be_shop"))
 	}
 	at := func(ip, subnet string) node { return renderOptions{PrivateIP: ip, Subnet: subnet}.node() }
 	if !at("fd00::2", "").has("[fd00::2]:80") || at("10.0.0.2", "").has("10.0.0.20:80") || at("10.0.0.2", "").has("nope") {
@@ -887,54 +893,20 @@ func TestLocalFirst(t *testing.T) {
 	if !n.has("10.120.3.7:8080") || !n.has("10.0.0.2:21000") || n.has("10.120.4.7:8080") || at("", "10.120.3.0/24").has("10.120.3.7:8080") {
 		t.Error("node.has with a subnet")
 	}
-	sub := proxy.Config{Backends: []proxy.Backend{{Name: "web", LocalFirst: true, Servers: []proxy.Server{
+	p := backendPool(proxy.Backend{Name: "web", LocalFirst: true, Servers: []proxy.Server{
 		{Name: "web-a", Address: "10.120.3.7:8080"}, {Name: "web-b", Address: "10.120.4.7:8080"},
-	}}}}
-	if got := assignLayout(nil, sub, n)["lo_web"]; got[0] != "web-a" || got[1] != "" {
-		t.Errorf("lo_web slots %v", got)
+	}}, n)
+	if p.servers[0].Weight != localWeight || p.servers[1].Weight != remoteWeight {
+		t.Errorf("weights %+v", p.servers)
 	}
 }
 
+// The first replica on a node, and the last one leaving it, only change a
+// server: no reload, and the other replicas keep serving.
 func TestLocalFirstMovesWithoutReload(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	d, e, a, _ := newDriver(t)
-	cfg := sampleConfig(t)
-	if err := d.Apply(ctx, cfg); err != nil {
-		t.Fatal(err)
-	}
-	// shop's remote replica is replaced by one on this node: it joins
-	// lo_shop through the Runtime API.
-	cfg.Backends[3].Servers[0] = proxy.Server{Name: "shop-r2-c", Address: "10.0.0.2:32780"}
-	a.cmds = nil
-	if err := d.Apply(ctx, cfg); err != nil {
-		t.Fatal(err)
-	}
-	want := []string{
-		"set server be_shop/s1 addr 10.0.0.2 port 32780", "set server be_shop/s1 state ready",
-		"set server lo_shop/s2 addr 10.0.0.2 port 32780", "set server lo_shop/s2 state ready",
-	}
-	if strings.Join(a.cmds, "|") != strings.Join(want, "|") || e.reloads != 0 {
-		t.Errorf("commands = %q, want %q (reloads %d)", a.cmds, want, e.reloads)
-	}
-	// The local replica leaves: both pools put its slot in maintenance.
-	cfg.Backends[3].Servers = cfg.Backends[3].Servers[:1]
-	a.cmds = nil
-	if err := d.Apply(ctx, cfg); err != nil {
-		t.Fatal(err)
-	}
-	want = []string{"set server be_shop/s2 state maint", "set server lo_shop/s1 state maint"}
-	if strings.Join(a.cmds, "|") != strings.Join(want, "|") || e.reloads != 0 {
-		t.Errorf("commands = %q, want %q (reloads %d)", a.cmds, want, e.reloads)
-	}
-}
-
-// An app's first replica on a node gives it a local backend, which takes a
-// reload; it does not lose a request either way.
-func TestLocalFirstFirstReplicaReloads(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	d, e, _, _ := newDriver(t)
 	cfg := proxy.Config{
 		Backends: []proxy.Backend{{Name: "web", LocalFirst: true, Servers: []proxy.Server{{Name: "web-a", Address: "10.0.0.9:80"}}}},
 		Rules:    []proxy.Rule{{Host: "web.example.org", PathPrefix: "/", Backend: "web"}},
@@ -942,12 +914,89 @@ func TestLocalFirstFirstReplicaReloads(t *testing.T) {
 	if err := d.Apply(ctx, cfg); err != nil {
 		t.Fatal(err)
 	}
+	e.running = true
+	before := e.reloads
 	cfg.Backends[0].Servers = append(cfg.Backends[0].Servers, proxy.Server{Name: "web-b", Address: "10.0.0.2:80"})
+	a.cmds = nil
 	if err := d.Apply(ctx, cfg); err != nil {
 		t.Fatal(err)
 	}
-	if e.reloads != 1 {
-		t.Errorf("reloads = %d, want 1", e.reloads)
+	f := containerConfDir + "/" + localFile
+	want := []string{"set server be_web/s2 weight 11", "set server be_web/s2 addr 10.0.0.2 port 80", "set server be_web/s2 state ready",
+		"prepare map " + f, "add map @7 " + f + " <<payload:48", "commit map @7 " + f}
+	if strings.Join(a.cmds, "|") != strings.Join(want, "|") || e.reloads != before {
+		t.Errorf("commands = %q, want %q (reloads %d)", a.cmds, want, e.reloads-before)
+	}
+	cfg.Backends[0].Servers = cfg.Backends[0].Servers[:1]
+	a.cmds = nil
+	if err := d.Apply(ctx, cfg); err != nil {
+		t.Fatal(err)
+	}
+	want = []string{"set server be_web/s2 state maint", "prepare map " + f, "commit map @7 " + f}
+	if strings.Join(a.cmds, "|") != strings.Join(want, "|") || e.reloads != before {
+		t.Errorf("commands = %q, want %q (reloads %d)", a.cmds, want, e.reloads-before)
+	}
+}
+
+func TestLocalMap(t *testing.T) {
+	t.Parallel()
+	n := renderOptions{PrivateIP: "10.0.0.2", Subnet: "10.120.3.0/24"}.node()
+	cfg := proxy.Config{Backends: []proxy.Backend{
+		{Name: "two", LocalFirst: true, Servers: []proxy.Server{
+			{Name: "a", Address: "10.120.4.7:80"}, {Name: "b", Address: "10.120.3.7:80"}, {Name: "c", Address: "10.0.0.2:81"},
+		}},
+		{Name: "away", LocalFirst: true, Servers: []proxy.Server{{Name: "d", Address: "10.120.4.8:80"}}},
+		{Name: "split", Servers: []proxy.Server{{Name: "e", Address: "10.120.3.9:80"}}},
+	}}
+	got := string(localMap(cfg, assignLayout(nil, cfg, n), n))
+	want := "be_two/0 s2\nbe_two/1 s3\nbe_two/2 s2\nbe_two/3 s3\n"
+	if got != want {
+		t.Errorf("map %q, want %q", got, want)
+	}
+	if got := localMap(cfg, assignLayout(nil, cfg, node{}), node{}); len(got) != 0 {
+		t.Errorf("a map without the node's address: %q", got)
+	}
+}
+
+func TestMapChunks(t *testing.T) {
+	t.Parallel()
+	var b strings.Builder
+	for i := range 3000 {
+		fmt.Fprintf(&b, "be_app%d/0 s1\n", i)
+	}
+	chunks := mapChunks([]byte(b.String()), 1024)
+	var joined []byte
+	for _, c := range chunks {
+		if len(c) > 1024 || c[len(c)-1] != '\n' {
+			t.Fatalf("chunk of %d bytes ending in %q", len(c), c[len(c)-1])
+		}
+		joined = append(joined, c...)
+	}
+	if string(joined) != b.String() {
+		t.Error("chunks lost content")
+	}
+	if got := mapChunks(nil, 1024); len(got) != 0 {
+		t.Errorf("chunks of nothing: %q", got)
+	}
+}
+
+// Balancing is part of the configuration, so leaving local-first reloads.
+func TestLocalFirstChangeReloads(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	d, e, _, _ := newDriver(t)
+	cfg := proxy.Config{Backends: []proxy.Backend{{Name: "web", LocalFirst: true, Servers: []proxy.Server{{Name: "web-a", Address: "10.0.0.9:80"}}}}}
+	if err := d.Apply(ctx, cfg); err != nil {
+		t.Fatal(err)
+	}
+	e.running = true
+	before := e.reloads
+	cfg.Backends[0].LocalFirst = false
+	if err := d.Apply(ctx, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if e.reloads != before+1 {
+		t.Errorf("reloads = %d, want 1", e.reloads-before)
 	}
 }
 
@@ -1033,23 +1082,26 @@ func TestSetClients(t *testing.T) {
 	}
 }
 
-// A request's cost must not grow with the apps of the cluster: an app without
-// a replica on this node, and without paths, adds no rule to a frontend.
-func TestRulesPerFrontendFollowLocalReplicas(t *testing.T) {
+// A request's cost must not grow with the apps of the cluster, with or
+// without a replica on this node: an app without paths adds no rule to a
+// frontend.
+func TestRulesPerFrontendStayConstant(t *testing.T) {
 	t.Parallel()
 	opts := renderOptions{PrivateIP: "10.0.0.2", InternalIP: "10.120.3.1", Subnet: "10.120.3.0/24"}
-	rules := func(apps int) int {
-		cfg := proxy.Config{}
-		for i := range apps {
-			name := fmt.Sprintf("app%d", i)
-			cfg.Backends = append(cfg.Backends, proxy.Backend{Name: name, LocalFirst: true, Servers: []proxy.Server{{Name: name + "-a", Address: "10.120.4.7:80"}}})
-			cfg.Rules = append(cfg.Rules, proxy.Rule{Host: name + ".internal", PathPrefix: "/", Backend: name, Internal: true})
+	for _, addr := range []string{"10.120.3.7:80", "10.120.4.7:80"} {
+		rules := func(apps int) int {
+			cfg := proxy.Config{}
+			for i := range apps {
+				name := fmt.Sprintf("app%d", i)
+				cfg.Backends = append(cfg.Backends, proxy.Backend{Name: name, LocalFirst: true, Servers: []proxy.Server{{Name: name + "-a", Address: addr}}})
+				cfg.Rules = append(cfg.Rules, proxy.Rule{Host: name + ".internal", PathPrefix: "/", Backend: name, Internal: true})
+			}
+			out, _, _ := strings.Cut(string(render(cfg, assignLayout(nil, cfg, opts.node()), opts)), "\nbackend ")
+			return strings.Count(out, "http-request") + strings.Count(out, "use_backend")
 		}
-		out := string(render(cfg, assignLayout(nil, cfg, opts.node()), opts))
-		return strings.Count(out, "http-request") + strings.Count(out, "use_backend")
-	}
-	if few, many := rules(2), rules(400); few != many {
-		t.Errorf("%d rules with 2 apps, %d with 400", few, many)
+		if few, many := rules(2), rules(400); few != many {
+			t.Errorf("replicas at %s: %d rules with 2 apps, %d with 400", addr, few, many)
+		}
 	}
 }
 

@@ -30,6 +30,7 @@ const (
 	certDir          = "certs"
 	socketFile       = "admin.sock"
 	clientsFile      = "clients.map"
+	localFile        = "local.map"
 	// routeFilePrefix starts the name of every route map.
 	routeFilePrefix = "routes-"
 	metricsPort     = MetricsPort
@@ -38,8 +39,7 @@ const (
 // MetricsPort is the HAProxy stats/metrics port on the node's private IP.
 const MetricsPort = 8404
 
-// Layout assigns replicas to fixed server slots per HAProxy backend (be_web,
-// lo_web). Slots let the Runtime API change servers without a reload; an
+// Layout assigns replicas to fixed server slots per HAProxy backend. Slots let the Runtime API change servers without a reload; an
 // empty string marks a free slot.
 type Layout map[string][]string
 
@@ -107,50 +107,91 @@ const internalPort = 80
 
 func backendName(app string) string { return "be_" + app }
 
-// localBackendName is the backend of an app's replicas on this node, which
-// local-first routing prefers (ADR 0024).
-func localBackendName(app string) string { return "lo_" + app }
-
 // pool is one HAProxy backend with server slots.
 type pool struct {
 	name    string
 	servers []proxy.Server
+	// leastconn balances by requests in progress instead of in turn.
+	leastconn bool
 }
 
-// pools returns every slotted backend of cfg: be_<app> with all of an
-// app's servers and, for local-first apps when the node's private IP is
-// known, lo_<app> with the servers on this node. Local servers always have
-// weight 1: weights only split traffic, which is never local-first.
+// Weights of a local-first backend (ADR 0024). HAProxy's leastconn picks the
+// server with the fewest requests in progress for its weight, so a replica here
+// takes at most a tenth more than a replica elsewhere under load. Idle servers
+// tie whatever their weight; the local map decides those.
+const (
+	localWeight  = 11
+	remoteWeight = 10
+)
+
+// localChoices is how many entries the local map holds per backend; requests
+// to an idle app pick one at random, which spreads them over that many local
+// replicas.
+const localChoices = 4
+
+// pools returns every slotted backend of cfg with the weights it has on this
+// node.
 func pools(cfg proxy.Config, n node) []pool {
-	var out []pool
+	out := make([]pool, 0, len(cfg.Backends))
 	for _, be := range cfg.Backends {
-		out = append(out, pool{backendName(be.Name), be.Servers})
-		if !localFirst(be, n) {
-			continue
-		}
-		out = append(out, pool{localBackendName(be.Name), localServers(be, n)})
+		out = append(out, backendPool(be, n))
 	}
 	return out
 }
 
-// localServers returns be's servers on the node, at weight 1.
-func localServers(be proxy.Backend, n node) []proxy.Server {
-	var local []proxy.Server
-	for _, s := range be.Servers {
+// backendPool returns be's backend on the node. Local-first needs the node's
+// address; an app that splits traffic keeps its weights and takes turns.
+func backendPool(be proxy.Backend, n node) pool {
+	p := pool{name: backendName(be.Name), servers: be.Servers}
+	if !localFirst(be, n) {
+		return p
+	}
+	p.leastconn = true
+	p.servers = slices.Clone(be.Servers)
+	for i, s := range p.servers {
+		p.servers[i].Weight = remoteWeight
 		if n.has(s.Address) {
-			local = append(local, proxy.Server{Name: s.Name, Address: s.Address})
+			p.servers[i].Weight = localWeight
 		}
 	}
-	return local
+	return p
 }
 
-// localFirst reports whether be gets a local backend on a node: only with a
-// replica there, because its rules run for every request of the frontend. The
-// first replica to arrive on a node therefore reloads the proxy; others join
-// through the Runtime API.
-func localFirst(be proxy.Backend, n node) bool {
-	return be.LocalFirst && n.known() && len(localServers(be, n)) > 0
+// localMap renders the local map: for each local-first backend with a replica
+// on this node, localChoices "<backend>/<n> <slot>" lines that take the local
+// slots in turn. The Runtime API replaces it, so an app's first replica on a
+// node, and its last, need no reload. Every value is a backend name or a slot.
+func localMap(cfg proxy.Config, layout Layout, n node) []byte {
+	var b bytes.Buffer
+	backends := slices.Clone(cfg.Backends)
+	slices.SortFunc(backends, func(a, b proxy.Backend) int { return cmp.Compare(a.Name, b.Name) })
+	for _, be := range backends {
+		if !localFirst(be, n) {
+			continue
+		}
+		addr := make(map[string]string, len(be.Servers))
+		for _, s := range be.Servers {
+			addr[s.Name] = s.Address
+		}
+		name := backendName(be.Name)
+		var slots []string
+		for i, sname := range layout[name] {
+			if sname != "" && n.has(addr[sname]) {
+				slots = append(slots, slotName(i))
+			}
+		}
+		if len(slots) == 0 {
+			continue
+		}
+		for i := range localChoices {
+			fmt.Fprintf(&b, "%s/%d %s\n", name, i, slots[i%len(slots)])
+		}
+	}
+	return b.Bytes()
 }
+
+// localFirst reports whether be prefers the replicas of the node.
+func localFirst(be proxy.Backend, n node) bool { return be.LocalFirst && n.known() }
 
 // wakeBackendName is the backend of an app's wake socket (ADR 0021).
 func wakeBackendName(app string) string { return "wk_" + app }
@@ -240,7 +281,7 @@ func render(cfg proxy.Config, layout Layout, opts renderOptions) []byte {
 	for _, be := range cfg.Backends {
 		backendsByName[be.Name] = be
 	}
-	rr := ruleRenderer{w: w, backends: backendsByName, node: opts.node()}
+	rr := ruleRenderer{w: w, backends: backendsByName}
 	rr.write(routesPublic, public)
 	w("    default_backend be_armada_notfound")
 	w("")
@@ -266,12 +307,7 @@ func render(cfg proxy.Config, layout Layout, opts renderOptions) []byte {
 	backends := slices.Clone(cfg.Backends)
 	slices.SortFunc(backends, func(a, b proxy.Backend) int { return cmp.Compare(a.Name, b.Name) })
 	for _, be := range backends {
-		writeBackend(w, backendName(be.Name), be.HealthPath, be.Servers, layout)
-		if localFirst(be, opts.node()) {
-			// Always rendered, empty or not, so a replica arriving on or
-			// leaving this node needs no reload.
-			writeBackend(w, localBackendName(be.Name), be.HealthPath, localServers(be, opts.node()), layout)
-		}
+		writeBackend(w, backendPool(be, opts.node()), be.HealthPath, layout)
 		if be.Wake {
 			w("backend %s", wakeBackendName(be.Name))
 			w("    http-request set-header %s %s", proxy.WakeHeader, be.Name)
@@ -293,20 +329,29 @@ func render(cfg proxy.Config, layout Layout, opts renderOptions) []byte {
 }
 
 // writeBackend emits one slotted backend.
-func writeBackend(w func(string, ...any), name, healthPath string, list []proxy.Server, layout Layout) {
+func writeBackend(w func(string, ...any), p pool, healthPath string, layout Layout) {
 	servers := map[string]proxy.Server{}
-	for _, s := range list {
+	for _, s := range p.servers {
 		servers[s.Name] = s
 	}
-	w("backend %s", name)
-	w("    balance roundrobin")
+	w("backend %s", p.name)
+	if p.leastconn {
+		w("    balance leastconn")
+		// With no other request in progress, a replica on this node. A name
+		// the map does not have, or a server that is down, falls through to
+		// balancing.
+		w("    http-request set-var(txn.lk) rand(%d)", localChoices)
+		w("    use-server %%[str(%s),concat(/,txn.lk),map(%s/%s)] if { be_conn le 1 }", p.name, containerConfDir, localFile)
+	} else {
+		w("    balance roundrobin")
+	}
 	if healthPath != "" {
 		w("    option httpchk GET %s", healthPath)
 		w("    http-check expect status 200-399")
 	}
 	// A dead node is out of rotation within about 4s.
 	w("    default-server check inter 2s fall 2 rise 2")
-	for i, sname := range layout[name] {
+	for i, sname := range layout[p.name] {
 		if s, ok := servers[sname]; ok && sname != "" && s.EffectiveWeight() != 1 {
 			w("    server %s %s weight %d", slotName(i), s.Address, s.EffectiveWeight())
 		} else if ok && sname != "" {
@@ -322,7 +367,6 @@ func writeBackend(w func(string, ...any), name, healthPath string, list []proxy.
 type ruleRenderer struct {
 	w        func(string, ...any)
 	backends map[string]proxy.Backend
-	node     node
 	// callers restricts each route to its backend's project, or its
 	// allowed apps.
 	callers bool
@@ -460,18 +504,9 @@ func (rr ruleRenderer) write(prefix string, rules []proxy.Rule) {
 	// whatever their order; writing them in that order keeps the file
 	// honest.
 	match := func(i int) string { return fmt.Sprintf("{ var(txn.route) -m str %s%d }", prefix, i) }
-	matchMapped := func(r proxy.Rule) string { return fmt.Sprintf("{ var(txn.route) -m str %s }", backendName(r.Backend)) }
 	for i, r := range own {
 		if r.StripPrefix {
 			w("    http-request set-path /%%[path,field(%d,/,0)] if %s", stripField(r.PathPrefix), match(i))
-		}
-		if localFirst(rr.backends[r.Backend], rr.node) {
-			writeLocalLoad(w, match(i), r.Backend)
-		}
-	}
-	for _, r := range viaMap {
-		if localFirst(rr.backends[r.Backend], rr.node) {
-			writeLocalLoad(w, matchMapped(r), r.Backend)
 		}
 	}
 	for i, r := range own {
@@ -481,39 +516,11 @@ func (rr ruleRenderer) write(prefix string, rules []proxy.Rule) {
 			// at the agent, which starts a replica (ADR 0021).
 			w("    use_backend %s if %s { nbsrv(%s) eq 0 }", wakeBackendName(r.Backend), match(i), backendName(r.Backend))
 		}
-		if localFirst(be, rr.node) {
-			lo := localBackendName(r.Backend)
-			w("    use_backend %s if %s { nbsrv(%s) gt 0 } { var(txn.lf_d) -m int le 0 }", lo, match(i), lo)
-		}
 		w("    use_backend %s if %s", backendName(r.Backend), match(i))
-	}
-	for _, r := range viaMap {
-		if localFirst(rr.backends[r.Backend], rr.node) {
-			lo := localBackendName(r.Backend)
-			w("    use_backend %s if %s { nbsrv(%s) gt 0 } { var(txn.lf_d) -m int le 0 }", lo, matchMapped(r), lo)
-		}
 	}
 	if len(viaMap) > 0 {
 		w("    use_backend %%[var(txn.route)] if { var(txn.route) -m beg be_ }")
 	}
-}
-
-// writeLocalLoad compares the load of an app's replicas on this node with
-// that of all its replicas, for local-first routing (ADR 0024): a request
-// goes to the replicas on this node while they are up and no busier, per
-// replica, than the app's replicas overall. With L requests in progress on the N local replicas
-// and R more on all M replicas through be_<app>, local wins while
-// L/N <= (L+R)/M, compared as L*M - (L+R)*N <= 0 in integers. Only this
-// proxy's own requests count. At low load every request stays on the node;
-// under load the excess spreads over every replica. txn.lf_d holds the
-// result.
-func writeLocalLoad(w func(string, ...any), match, app string) {
-	lo, be := localBackendName(app), backendName(app)
-	w("    http-request set-var(txn.lf_l) be_conn(%s) if %s", lo, match)
-	w("    http-request set-var(txn.lf_n) nbsrv(%s) if %s", lo, match)
-	w("    http-request set-var(txn.lf_m) nbsrv(%s) if %s", be, match)
-	w("    http-request set-var(txn.lf_all) be_conn(%s),add(txn.lf_l),mul(txn.lf_n) if %s", be, match)
-	w("    http-request set-var(txn.lf_d) var(txn.lf_l),mul(txn.lf_m),sub(txn.lf_all) if %s", match)
 }
 
 func hostForBind(ip string) string {

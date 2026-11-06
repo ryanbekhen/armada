@@ -46,7 +46,7 @@ armada deploy -f web.yaml    # → https://web.apps.example.com
 - **Internal services.** `ingress: internal` apps are reachable from any
   container in the cluster at `http://<app>.internal`, never from outside.
 - **Local-first routing.** Each node sends requests to its own replicas
-  while they are no busier than the rest, and spreads the excess over every
+  while they are about as busy as the rest, and spreads the excess over every
   node, so most requests never cross the network.
 - **Cluster network.** Each node's containers get their own subnet of one
   private range, routed between nodes over a tunnel on the private
