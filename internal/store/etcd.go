@@ -2040,16 +2040,30 @@ func (t *etx) pruneDomains() error {
 // liveSpecs calls fn with the active and (if different) target spec of
 // every app.
 func (t *etx) liveSpecs(fn func(app string, sp *spec.App)) error {
-	return listInto(t, pfxApps, func(_ string, a appRec) error {
+	var apps []appRec
+	var names []string
+	err := listInto(t, pfxApps, func(_ string, a appRec) error {
+		apps = append(apps, a)
+		names = append(names, a.ActiveRevision, a.TargetRevision)
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	revs, err := t.revisions(names)
+	if err != nil {
+		return err
+	}
+	for _, a := range apps {
 		for _, name := range slices.Compact([]string{a.ActiveRevision, a.TargetRevision}) {
-			rev, err := t.revision(name)
-			if err != nil {
-				return err
+			rev, ok := revs[name]
+			if !ok {
+				return notFoundf("revision %s", name)
 			}
 			fn(a.Name, rev.Spec)
 		}
-		return nil
-	})
+	}
+	return nil
 }
 
 func toDomain(d domainRec) Domain {
