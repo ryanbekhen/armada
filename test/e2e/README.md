@@ -68,32 +68,37 @@ once the binary has been copied to them.
    loopback, and bridge addresses.
 3. The test app gets a certificate for its host name on every node; a secret
    reaches the container's environment and appears in no journal.
-4. A minute of load while nothing changes serves every request (if this
+4. Isolation while replicas and apps come and go: a replica reaches its own
+   app's replicas and itself on localhost; another app of its project reaches
+   them only through the internal name; another project reaches them in no way;
+   a project's app cannot reach a node's private IP; a removed app's address
+   stays blocked. Both projects are removed afterwards.
+5. A minute of load while nothing changes serves every request (if this
    fails, look at the network between your workstation and the machines
    first). Then a rolling update, a rollback, and an agent restart serve
    every request (round robin over all public IPs) with HTTP 200; the
    restart adopts the running containers instead of replacing them.
-5. Stopping the leader and killing the next one with SIGKILL: a new leader
+6. Stopping the leader and killing the next one with SIGKILL: a new leader
    takes over, accepts a scale change, the old one rejoins, and traffic stays
    at 200.
-6. A node that stops reporting is marked lost after 30 seconds (the script
+7. A node that stops reporting is marked lost after 30 seconds (the script
    sets `--node-lost-timeout 30s`), its replicas move to other nodes, and
    once it returns the app is rebalanced onto it; traffic stays at 200.
-7. `armada backup` writes a `0600` archive.
-8. Placement: every node reports `armada.arch`; restricting a labelled node
+8. `armada backup` writes a `0600` archive.
+9. Placement: every node reports `armada.arch`; restricting a labelled node
    moves the app off it under load with every request at 200; an app that
    requires the label runs only there; once the label is gone, `armada
    status` explains why that app has nowhere to go; reopening the node
    spreads the app back.
-9. Image platforms: `armada revisions` lists every node architecture for
+10. Image platforms: `armada revisions` lists every node architecture for
    the test app; an image built only for amd64, and one built only for
    arm64, each run only on nodes of that architecture, or, when the
    cluster has none, nowhere, with `armada status` naming the platform.
-10. CPU reservations: the test app's containers get a CPU weight from
+11. CPU reservations: the test app's containers get a CPU weight from
     their default 100m reservation; an app reserving 64 cores runs nowhere,
     and `armada status` says CPU is short.
-11. Spreading over a label: with every node but the last in one zone and
+12. Spreading over a label: with every node but the last in one zone and
     the last alone in another, an app spread by zone puts half of its
     replicas on the last node.
-12. After rebooting every machine at once, the control plane, the nodes, and
+13. After rebooting every machine at once, the control plane, the nodes, and
    the app come back on their own.
