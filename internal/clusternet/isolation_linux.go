@@ -3,11 +3,13 @@
 package clusternet
 
 import (
+	"crypto/sha256"
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/netip"
-	"strconv"
+	"slices"
 
 	"github.com/google/nftables"
 	"github.com/google/nftables/expr"
@@ -144,17 +146,13 @@ func buildTable(c *nftables.Conn, t *nftables.Table, pol policy) error {
 	bridge := t.Family == nftables.TableFamilyBridge
 	dst := &nftables.Set{Table: t, Name: "dst", KeyType: nftables.TypeIPAddr, DataType: nftables.TypeVerdict, IsMap: true}
 	var targets []nftables.SetElement
-	for i, app := range pol.apps {
-		name := "a" + strconv.Itoa(i)
-		set := &nftables.Set{Table: t, Name: name, KeyType: nftables.TypeIPAddr}
-		if err := c.AddSet(set, addrElements(pol.members[app])); err != nil {
+	for _, app := range pol.apps {
+		ch, err := addAppChain(c, t, app, pol.members[app])
+		if err != nil {
 			return err
 		}
-		ch := c.AddChain(&nftables.Chain{Name: "app" + strconv.Itoa(i), Table: t})
-		c.AddRule(&nftables.Rule{Table: t, Chain: ch, Exprs: join(srcIn(bridge, set, false), accept())})
-		c.AddRule(&nftables.Rule{Table: t, Chain: ch, Exprs: drop()})
 		for _, a := range pol.members[app] {
-			targets = append(targets, nftables.SetElement{Key: a.AsSlice(), VerdictData: &expr.Verdict{Kind: expr.VerdictJump, Chain: ch.Name}})
+			targets = append(targets, jumpElement(a, ch.Name))
 		}
 	}
 	if err := c.AddSet(dst, targets); err != nil {
@@ -230,6 +228,142 @@ func join(parts ...[]expr.Any) []expr.Any {
 
 func accept() []expr.Any { return []expr.Any{&expr.Verdict{Kind: expr.VerdictAccept}} }
 func drop() []expr.Any   { return []expr.Any{&expr.Verdict{Kind: expr.VerdictDrop}} }
+
+// appNames returns the names of an app's address set and chain. They depend only
+// on the app, so a change for one app leaves the names of the others alone.
+func appNames(app string) (set, chain string) {
+	h := sha256.Sum256([]byte(app))
+	id := hex.EncodeToString(h[:8])
+	return "a" + id, "app" + id
+}
+
+// addAppChain adds an app's address set and the chain that lets only those
+// addresses reach it.
+func addAppChain(c *nftables.Conn, t *nftables.Table, app string, members []netip.Addr) (*nftables.Chain, error) {
+	bridge := t.Family == nftables.TableFamilyBridge
+	setName, chainName := appNames(app)
+	set := &nftables.Set{Table: t, Name: setName, KeyType: nftables.TypeIPAddr}
+	if err := c.AddSet(set, addrElements(members)); err != nil {
+		return nil, err
+	}
+	ch := c.AddChain(&nftables.Chain{Name: chainName, Table: t})
+	c.AddRule(&nftables.Rule{Table: t, Chain: ch, Exprs: join(srcIn(bridge, set, false), accept())})
+	c.AddRule(&nftables.Rule{Table: t, Chain: ch, Exprs: drop()})
+	return ch, nil
+}
+
+func jumpElement(a netip.Addr, chain string) nftables.SetElement {
+	return nftables.SetElement{Key: a.AsSlice(), VerdictData: &expr.Verdict{Kind: expr.VerdictJump, Chain: chain}}
+}
+
+// sameFrame reports whether two policies differ only in the apps and which
+// containers are open, which updateIsolation changes in place.
+func sameFrame(a, b policy) bool {
+	return a.cidr == b.cidr && a.subnet == b.subnet && a.gateway == b.gateway && slices.Equal(a.nodes, b.nodes)
+}
+
+// updateIsolation changes the tables from old to pol in one transaction, so no
+// packet sees a mix of the two: with many apps, rebuilding them for every
+// replica that comes or goes takes about half a second on every node.
+func updateIsolation(old, pol policy) error {
+	c, err := nftables.New(nftables.WithSockOptions(largeSocketBuffers))
+	if err != nil {
+		return err
+	}
+	for _, fam := range []nftables.TableFamily{nftables.TableFamilyIPv4, nftables.TableFamilyBridge} {
+		t := &nftables.Table{Name: isolationTable, Family: fam}
+		if err := updateTable(c, t, old, pol); err != nil {
+			return err
+		}
+	}
+	if err := c.Flush(); err != nil {
+		return fmt.Errorf("nftables: %w", err)
+	}
+	return nil
+}
+
+func updateTable(c *nftables.Conn, t *nftables.Table, old, pol policy) error {
+	dst := &nftables.Set{Table: t, Name: "dst", KeyType: nftables.TypeIPAddr, DataType: nftables.TypeVerdict, IsMap: true}
+	// Addresses leave first: an address that moved between apps is a delete and
+	// an add of the same key, and a chain can only go once nothing jumps to it.
+	var gone, come []nftables.SetElement
+	for _, app := range old.apps {
+		_, chain := appNames(app)
+		for _, a := range old.members[app] {
+			if !slices.Contains(pol.members[app], a) {
+				gone = append(gone, jumpElement(a, chain))
+			}
+		}
+	}
+	if len(gone) > 0 {
+		if err := c.SetDeleteElements(dst, gone); err != nil {
+			return err
+		}
+	}
+	for _, app := range old.apps {
+		setName, chain := appNames(app)
+		if _, stays := pol.members[app]; stays {
+			continue
+		}
+		ch := &nftables.Chain{Name: chain, Table: t}
+		c.FlushChain(ch)
+		c.DelChain(ch)
+		c.DelSet(&nftables.Set{Table: t, Name: setName, KeyType: nftables.TypeIPAddr})
+	}
+	for _, app := range pol.apps {
+		setName, chain := appNames(app)
+		members, had := old.members[app]
+		if !had {
+			if _, err := addAppChain(c, t, app, pol.members[app]); err != nil {
+				return err
+			}
+		} else {
+			set := &nftables.Set{Table: t, Name: setName, KeyType: nftables.TypeIPAddr}
+			if err := changeElements(c, set, members, pol.members[app]); err != nil {
+				return err
+			}
+		}
+		for _, a := range pol.members[app] {
+			if !slices.Contains(members, a) {
+				come = append(come, jumpElement(a, chain))
+			}
+		}
+	}
+	if len(come) > 0 {
+		if err := c.SetAddElements(dst, come); err != nil {
+			return err
+		}
+	}
+	if t.Family == nftables.TableFamilyBridge {
+		return nil
+	}
+	open := &nftables.Set{Table: t, Name: "open", KeyType: nftables.TypeIPAddr}
+	return changeElements(c, open, old.open, pol.open)
+}
+
+// changeElements makes a set hold want instead of have.
+func changeElements(c *nftables.Conn, set *nftables.Set, have, want []netip.Addr) error {
+	var gone, come []netip.Addr
+	for _, a := range have {
+		if !slices.Contains(want, a) {
+			gone = append(gone, a)
+		}
+	}
+	for _, a := range want {
+		if !slices.Contains(have, a) {
+			come = append(come, a)
+		}
+	}
+	if len(gone) > 0 {
+		if err := c.SetDeleteElements(set, addrElements(gone)); err != nil {
+			return err
+		}
+	}
+	if len(come) > 0 {
+		return c.SetAddElements(set, addrElements(come))
+	}
+	return nil
+}
 
 func addrElements(addrs []netip.Addr) []nftables.SetElement {
 	out := make([]nftables.SetElement, 0, len(addrs))
