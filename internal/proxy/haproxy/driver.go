@@ -73,6 +73,8 @@ type Driver struct {
 	// clients is the content of the clients map HAProxy last loaded or
 	// was given through the Runtime API.
 	clients []byte
+	// local is the content of the local map the same way.
+	local []byte
 	// Each HAProxy process counts requests from zero, so totals are carried
 	// over from one process to the next (see Load).
 	workerPID string
@@ -114,11 +116,13 @@ func New(cfg Config) (*Driver, error) {
 	if cfg.API == nil {
 		cfg.API = Socket{Path: filepath.Join(runDir(cfg.Dir), socketFile)}
 	}
-	// HAProxy reads the clients map at start; until the agent knows its
-	// containers it is empty, and no internal route matches anyone.
-	if _, err := os.Stat(filepath.Join(etcDir(cfg.Dir), clientsFile)); errors.Is(err, os.ErrNotExist) {
-		if err := fsutil.WriteFileAtomic(filepath.Join(etcDir(cfg.Dir), clientsFile), nil, 0o600); err != nil {
-			return nil, err
+	// HAProxy reads its maps at start. Until the agent knows its containers
+	// the clients map is empty, and no internal route matches anyone.
+	for _, name := range []string{clientsFile, localFile} {
+		if _, err := os.Stat(filepath.Join(etcDir(cfg.Dir), name)); errors.Is(err, os.ErrNotExist) {
+			if err := fsutil.WriteFileAtomic(filepath.Join(etcDir(cfg.Dir), name), nil, 0o600); err != nil {
+				return nil, err
+			}
 		}
 	}
 	def := filepath.Join(etcDir(cfg.Dir), defaultCertFile)
@@ -175,6 +179,13 @@ func (d *Driver) Apply(ctx context.Context, cfg proxy.Config) error {
 		}
 	}
 
+	local := localMap(cfg, layout, opts.node())
+	if !bytes.Equal(local, d.local) {
+		if err := fsutil.WriteFileAtomic(filepath.Join(etcDir(d.cfg.Dir), localFile), local, 0o600); err != nil {
+			return err
+		}
+	}
+
 	running, err := d.cfg.Engine.Running(ctx)
 	if err != nil {
 		return err
@@ -190,6 +201,7 @@ func (d *Driver) Apply(ctx context.Context, cfg proxy.Config) error {
 			return fmt.Errorf("start haproxy: %w", err)
 		}
 		d.commit(sig, layout, cfg)
+		d.local = local
 		d.removeOldRoutes(routes)
 		d.log.Info("haproxy started")
 		return nil
@@ -209,6 +221,7 @@ func (d *Driver) Apply(ctx context.Context, cfg proxy.Config) error {
 			return fmt.Errorf("reload haproxy: %w", err)
 		}
 		d.commit(sig, layout, cfg)
+		d.local = local
 		d.removeOldRoutes(routes)
 		d.log.Info("haproxy reloaded")
 		return nil
@@ -232,6 +245,14 @@ func (d *Driver) Apply(ctx context.Context, cfg proxy.Config) error {
 			}
 			d.applied[key] = want
 		}
+	}
+	// After the servers: a slot in the map that has gone falls through to
+	// balancing, and one that has just arrived is already up to take a request.
+	if !bytes.Equal(local, d.local) {
+		if err := d.replaceMap(ctx, localFile, local); err != nil {
+			return fmt.Errorf("update the local map: %w", err)
+		}
+		d.local = local
 	}
 	for _, name := range changedCerts {
 		if err := d.updateCert(ctx, name, cfg); err != nil {
@@ -396,7 +417,7 @@ func (d *Driver) SetClients(ctx context.Context, clients map[netip.Addr]string) 
 		return err
 	}
 	if running {
-		if err := d.replaceMap(ctx, content); err != nil {
+		if err := d.replaceMap(ctx, clientsFile, content); err != nil {
 			return fmt.Errorf("update the clients map: %w", err)
 		}
 	}
@@ -427,10 +448,14 @@ func clientsMap(clients map[netip.Addr]string, subnet netip.Prefix) ([]byte, err
 	return b.Bytes(), nil
 }
 
-// replaceMap swaps the running HAProxy's clients map for content in one
-// step: a new version is filled, then committed.
-func (d *Driver) replaceMap(ctx context.Context, content []byte) error {
-	file := containerConfDir + "/" + clientsFile
+// mapChunk bounds the lines sent in one command: HAProxy's Runtime API holds a
+// payload in a buffer of 16 KiB by default.
+const mapChunk = 8 << 10
+
+// replaceMap swaps a map of the running HAProxy for content in one step: a new
+// version is filled, then committed.
+func (d *Driver) replaceMap(ctx context.Context, name string, content []byte) error {
+	file := containerConfDir + "/" + name
 	out, err := d.cfg.API.Command(ctx, "prepare map "+file)
 	if err != nil {
 		return err
@@ -440,13 +465,33 @@ func (d *Driver) replaceMap(ctx context.Context, content []byte) error {
 	if !ok || ver == "" || strings.Trim(ver, "0123456789") != "" {
 		return fmt.Errorf("unexpected answer to prepare map: %q", out)
 	}
-	if len(content) > 0 {
-		if _, err := d.cfg.API.Payload(ctx, "add map @"+ver+" "+file, string(content)); err != nil {
+	for _, chunk := range mapChunks(content, mapChunk) {
+		if _, err := d.cfg.API.Payload(ctx, "add map @"+ver+" "+file, string(chunk)); err != nil {
 			return err
 		}
 	}
 	_, err = d.cfg.API.Command(ctx, "commit map @"+ver+" "+file)
 	return err
+}
+
+// mapChunks splits content at line ends into pieces of about limit bytes.
+func mapChunks(content []byte, limit int) [][]byte {
+	var out [][]byte
+	for len(content) > limit {
+		cut := bytes.LastIndexByte(content[:limit], '\n') + 1
+		if cut == 0 {
+			cut = bytes.IndexByte(content, '\n') + 1
+			if cut == 0 {
+				break
+			}
+		}
+		out = append(out, content[:cut])
+		content = content[cut:]
+	}
+	if len(content) > 0 {
+		out = append(out, content)
+	}
+	return out
 }
 
 // Health implements proxy.Driver.
@@ -519,7 +564,7 @@ func signature(cfg proxy.Config, layout Layout, opts renderOptions) string {
 		Name, Health string
 		Slots        int
 		Wake         bool
-		LocalSlots   int
+		LocalFirst   bool
 	}
 	s := struct {
 		Opts     renderOptions
@@ -529,7 +574,7 @@ func signature(cfg proxy.Config, layout Layout, opts renderOptions) string {
 		Certs    []string
 	}{Opts: opts, ACME: cfg.ACMEAddress}
 	for _, b := range cfg.Backends {
-		s.Backends = append(s.Backends, be{b.Name, b.HealthPath, len(layout[backendName(b.Name)]), b.Wake, len(layout[localBackendName(b.Name)])})
+		s.Backends = append(s.Backends, be{b.Name, b.HealthPath, len(layout[backendName(b.Name)]), b.Wake, b.LocalFirst})
 	}
 	slices.SortFunc(s.Backends, func(a, b be) int { return strings.Compare(a.Name, b.Name) })
 	s.Rules = slices.Clone(cfg.Rules)

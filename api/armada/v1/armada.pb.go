@@ -7283,7 +7283,7 @@ type ProxyBackend struct {
 	// agent while it starts one (ADR 0021).
 	Wake bool `protobuf:"varint,4,opt,name=wake,proto3" json:"wake,omitempty"`
 	// Each node's proxy prefers the app's replicas on its own node while
-	// they are no busier than the app's replicas overall (ADR 0024). Off for
+	// they are about as busy as its other replicas (ADR 0024). Off for
 	// traffic splitting, which needs every server to keep its weight.
 	LocalFirst    bool `protobuf:"varint,5,opt,name=local_first,json=localFirst,proto3" json:"local_first,omitempty"`
 	unknownFields protoimpl.UnknownFields

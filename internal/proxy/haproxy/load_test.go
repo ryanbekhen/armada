@@ -19,20 +19,18 @@ func TestParseLoad(t *testing.T) {
 		"be_web,s2,3,3,10,10,,60\n" +
 		"be_web,s3,0,0,0,0,,0\n" +
 		"be_web,BACKEND,3,3,17,19,,110\n" +
-		"lo_web,s1,1,1,4,4,,25\n" + // web-b through local-first: added to be_web's row
-		"lo_web,BACKEND,1,1,4,4,,25\n" +
 		"be_api,s1,0,0,2,2,,4\n" +
 		"be_api,s9,0,0,5,5,,5\n" + // slot past the layout
 		"wk_web,wake,0,0,1,1,,1\n" +
 		"be_armada_notfound,BACKEND,0,0,0,0,,0\n" +
 		"stats,FRONTEND,,,1,1,,1\n" +
 		"be_web,s1,short\n"
-	layout := Layout{"be_web": {"web-a", "web-b", ""}, "lo_web": {"web-b"}, "be_api": {"api-a"}}
+	layout := Layout{"be_web": {"web-a", "web-b", ""}, "be_api": {"api-a"}}
 	got, err := parseLoad(out, layout)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]proxy.ServerLoad{"web-a": {InFlight: 7, Total: 50}, "web-b": {InFlight: 18, Total: 85}, "api-a": {InFlight: 2, Total: 4}}
+	want := map[string]proxy.ServerLoad{"web-a": {InFlight: 7, Total: 50}, "web-b": {InFlight: 13, Total: 60}, "api-a": {InFlight: 2, Total: 4}}
 	if !maps.Equal(got, want) {
 		t.Errorf("load = %v, want %v", got, want)
 	}

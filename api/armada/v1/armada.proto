@@ -997,7 +997,7 @@ message ProxyBackend {
   // agent while it starts one (ADR 0021).
   bool wake = 4;
   // Each node's proxy prefers the app's replicas on its own node while
-  // they are no busier than the app's replicas overall (ADR 0024). Off for
+  // they are about as busy as its other replicas (ADR 0024). Off for
   // traffic splitting, which needs every server to keep its weight.
   bool local_first = 5;
 }
