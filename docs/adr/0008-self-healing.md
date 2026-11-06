@@ -43,6 +43,9 @@ node. A node cut off from the control plane may still serve traffic.
   can reach nothing and answers no probe, and restarting its process would not
   bring the interface back. When two usage samples in a row find no interface,
   the agent recreates the container.
+- **A failed start.** A replica that keeps failing to start for a minute, outside
+  a rollout, is replaced on another node that fits, one at a time per app, since
+  the cause may be its node's. With no such node it stays and keeps retrying.
 
 ## Alternatives considered
 
