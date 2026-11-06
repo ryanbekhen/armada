@@ -21,6 +21,7 @@ type usageSample struct {
 	cpu       time.Duration
 	egress    int64
 	at        time.Time
+	noNetwork bool
 }
 
 // usageLoop samples the node's replicas and sends what they use to the
@@ -94,6 +95,18 @@ func (a *Agent) sampleConntrack(report *armadav1.UsageReport, warned *bool) {
 
 // sampleUsage measures every running replica container. CPU is a rate, so
 // a replica is reported from the second sample of the same container on.
+// restartLostNetwork asks for a container whose network interface stayed gone
+// over two samples to be recreated: no probe of a replica with a port can
+// succeed, and nothing else brings the interface back.
+func (a *Agent) restartLostNetwork(replica, container string) {
+	const reason = "its network interface is gone"
+	a.mu.Lock()
+	a.restarts[container] = reason
+	a.mu.Unlock()
+	a.log.Warn("restarting replica", "replica", replica, "reason", reason)
+	a.Trigger()
+}
+
 func (a *Agent) sampleUsage(ctx context.Context, sr runtime.StatsReader, prev map[string]usageSample) (*armadav1.UsageReport, map[string]usageSample) {
 	cs, err := a.cfg.Driver.List(ctx, map[string]string{runtime.LabelManaged: "true"})
 	if err != nil {
@@ -113,8 +126,11 @@ func (a *Agent) sampleUsage(ctx context.Context, sr runtime.StatsReader, prev ma
 			continue
 		}
 		now := time.Now()
-		next[id] = usageSample{container: c.ID, cpu: st.CPU, egress: st.EgressBytes, at: now}
+		next[id] = usageSample{container: c.ID, cpu: st.CPU, egress: st.EgressBytes, at: now, noNetwork: st.NetworkLost}
 		p, ok := prev[id]
+		if ok && p.container == c.ID && p.noNetwork && st.NetworkLost {
+			a.restartLostNetwork(id, c.ID)
+		}
 		elapsed := now.Sub(p.at)
 		if !ok || p.container != c.ID || st.CPU < p.cpu || elapsed <= 0 {
 			continue

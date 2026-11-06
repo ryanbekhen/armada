@@ -39,6 +39,10 @@ node. A node cut off from the control plane may still serve traffic.
 - When a lost node comes back, its agent receives an assignment without the
   old replicas and removes their containers. Apps left unevenly spread are
   then rebalanced one replica at a time (ADR 0013).
+- **A lost network.** A replica's container whose network interface is gone
+  can reach nothing and answers no probe, and restarting its process would not
+  bring the interface back. When two usage samples in a row find no interface,
+  the agent recreates the container.
 
 ## Alternatives considered
 

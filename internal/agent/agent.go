@@ -456,6 +456,9 @@ func (a *Agent) Reconcile(ctx context.Context) (*armadav1.ReplicaReport, error) 
 			continue
 		}
 		if spec.GetJob() != nil {
+			a.mu.Lock()
+			delete(a.restarts, c.ID) // an attempt runs once, whatever happens
+			a.mu.Unlock()
 			if st := a.attempt(ctx, spec, hash, c, ok); st != nil {
 				settled = append(settled, st)
 			}

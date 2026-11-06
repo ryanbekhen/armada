@@ -44,3 +44,14 @@ func TestEgressFromNetDev(t *testing.T) {
 		}
 	}
 }
+
+func TestHasInterface(t *testing.T) {
+	t.Parallel()
+	header := "Inter-|   Receive\n face |bytes\n"
+	if !hasInterface(header + "    lo: 0 0\n  eth0: 1 2\n") {
+		t.Error("eth0 not found")
+	}
+	if hasInterface(header + "    lo: 0 0\n") {
+		t.Error("found eth0 with only loopback")
+	}
+}

@@ -258,6 +258,9 @@ type Stats struct {
 	// EgressBytes is what the container sent over its network interface
 	// since it started; 0 when unknown.
 	EgressBytes int64
+	// NetworkLost is true when the container's network namespace has no
+	// interface left: it can reach nothing until it is recreated.
+	NetworkLost bool
 }
 
 // StatsReader samples what app containers use (armada top, ADR 0016). It
