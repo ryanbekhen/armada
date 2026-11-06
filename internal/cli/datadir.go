@@ -2,9 +2,13 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"time"
+
+	"golang.org/x/sys/unix"
 
 	"github.com/ryanbekhen/armada/internal/agent"
 	"github.com/ryanbekhen/armada/internal/fsutil"
@@ -108,4 +112,22 @@ func nextStep(role, dataDir string) string {
 			"      (or `armada %s` in the foreground without systemd)\n", role, role)
 	}
 	return fmt.Sprintf("Next: armada %s --data-dir %s\n", role, dataDir)
+}
+
+// lockDataDir refuses a second agent on a data directory. Two agents with one
+// node's identity take turns on the server's connection and start and remove
+// each other's containers. The kernel releases the lock when the process ends.
+func lockDataDir(dir string) (unlock func(), err error) {
+	f, err := os.Open(dir) // #nosec G304 -- the operator's data directory
+	if err != nil {
+		return nil, fmt.Errorf("open data directory: %w", err)
+	}
+	if err := unix.Flock(int(f.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
+		_ = f.Close()
+		if errors.Is(err, unix.EWOULDBLOCK) {
+			return nil, fmt.Errorf("another agent is using %s: `armada server` already runs this node's agent, so do not also start `armada agent` here", dir)
+		}
+		return nil, fmt.Errorf("lock data directory: %w", err)
+	}
+	return func() { _ = f.Close() }, nil
 }
