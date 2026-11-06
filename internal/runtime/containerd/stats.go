@@ -46,8 +46,19 @@ func (d *Driver) Stats(ctx context.Context, id string) (runtime.Stats, error) {
 	// container does inside it; without them the rest of the sample stands.
 	if b, err := os.ReadFile(fmt.Sprintf("/proc/%d/net/dev", t.Pid())); err == nil {
 		st.EgressBytes = egressFromNetDev(string(b))
+		st.NetworkLost = !hasInterface(string(b))
 	}
 	return st, nil
+}
+
+// hasInterface reports whether /proc/PID/net/dev lists eth0.
+func hasInterface(netDev string) bool {
+	for line := range strings.Lines(netDev) {
+		if name, _, ok := strings.Cut(line, ":"); ok && strings.TrimSpace(name) == "eth0" {
+			return true
+		}
+	}
+	return false
 }
 
 // egressFromNetDev returns the bytes eth0 sent, from /proc/PID/net/dev: two

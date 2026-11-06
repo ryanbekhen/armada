@@ -107,3 +107,33 @@ func TestSampleConntrack(t *testing.T) {
 		t.Errorf("warned %v, limit %d", warned, report.GetConntrackMax())
 	}
 }
+
+// A container whose interface stays gone is recreated; one sample is not enough.
+func TestLostNetworkRestarts(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	a, d := newAgent(t)
+	a.setDesired([]*armadav1.ReplicaSpec{{Id: "web-1", App: "web", Image: "nginx:1"}}, nil)
+	if _, err := a.Reconcile(ctx); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := d.List(ctx, nil)
+	if len(before) != 1 {
+		t.Fatalf("containers %v", before)
+	}
+	d.SetUsage("web-1", runtime.Stats{NetworkLost: true})
+	_, prev := a.sampleUsage(ctx, d, map[string]usageSample{})
+	if _, err := a.Reconcile(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if after, _ := d.List(ctx, nil); len(after) != 1 || after[0].ID != before[0].ID {
+		t.Fatalf("recreated after one sample: %v", after)
+	}
+	a.sampleUsage(ctx, d, prev)
+	if _, err := a.Reconcile(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if after, _ := d.List(ctx, nil); len(after) != 1 || after[0].ID == before[0].ID {
+		t.Errorf("not recreated: %v", after)
+	}
+}
