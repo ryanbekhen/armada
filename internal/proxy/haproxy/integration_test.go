@@ -66,6 +66,7 @@ func TestIntegrationConfigValid(t *testing.T) {
 				t.Fatal(err)
 			}
 			write(filepath.Join(dir, clientsFile), clients)
+			write(filepath.Join(dir, localFile), localMap(cfg, assignLayout(nil, cfg, opts.node()), opts.node()))
 			for name, b := range routeFiles(cfg, opts) {
 				write(filepath.Join(dir, name), b)
 			}
