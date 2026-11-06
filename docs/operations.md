@@ -403,6 +403,13 @@ Nodes may be far apart: agents cope with latency. Keep the **control plane
 servers** close to each other (the same city or region), since every change
 needs a round trip between them.
 
+## One agent per node
+
+`armada server` already runs the agent of its own machine, so do not also
+start `armada agent` there. A second agent on a node refuses to start and says
+why: two would take turns replacing each other's connection to the control
+plane and fail each other's replicas.
+
 ## Container network
 
 Every node's containers live on the node's own bridge subnet, a /24 of
@@ -413,6 +420,11 @@ cluster frees its subnet for the next one. The cluster CIDR is set once,
 holds from 16 (a /20) to 4096 (a /12) nodes, must be a private range, and
 must not contain the nodes' private IPs or overlap routes on them
 (`armada doctor` checks the node's subnet).
+
+A node takes at most 250 replicas, whatever CPU and memory it has left: a /24
+has no more addresses to give. The kept container of a finished job run counts
+until it is removed. With every node at that limit, new replicas wait and
+`armada status` says so. Add a node to make room.
 
 Container addresses are unique in the cluster, and the bridge's gateway
 (where `<app>.internal` and the node's DNS answer) differs per node. Every
@@ -475,6 +487,11 @@ revisions are balanced over every replica by weight instead.
 
 So point public DNS at every node that should take traffic: a node that
 receives more requests keeps its replicas somewhat busier.
+
+Long-lived connections have their own limits: a silent WebSocket closes after
+1 hour, and the old proxy process that a reload leaves behind for open
+connections stops at most 1 hour after the reload, closing what it still holds.
+See [`ingress`](spec-reference.md#ingress) for what clients should do.
 
 ## Running commands in replicas
 

@@ -184,3 +184,25 @@ func TestPlacementNoteWhenMatchingNodesAreFull(t *testing.T) {
 		t.Errorf("placement note = %q", msg)
 	}
 }
+
+func TestPlacementNoteWhenSubnetIsFull(t *testing.T) {
+	t.Parallel()
+	c := newClockServer(t)
+	if err := c.st.UpsertNode(c.ctx, store.Node{ID: "n1", PrivateIP: "10.0.0.2", State: store.NodeReady, Subnet: "10.120.0.0/24"}); err != nil {
+		t.Fatal(err)
+	}
+	c.deploy("name: web\nimage: nginx:1\n")
+	nodes, _ := c.st.ListNodes(c.ctx)
+	for i := range nodes {
+		nodes[i].Subnet = "10.120.0.0/24"
+	}
+	all := make([]store.Replica, maxSubnetReplicas*len(nodes))
+	for i := range all {
+		all[i] = store.Replica{App: "other", NodeID: nodes[i%len(nodes)].ID}
+	}
+	revs := &revisionCache{store: c.st, m: map[string]store.Revision{}}
+	msg := placementMessage(c.ctx, revs, nodes, all, c.app())
+	if !strings.Contains(msg, "each already runs 250 replicas") {
+		t.Errorf("placement note = %q", msg)
+	}
+}

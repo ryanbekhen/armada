@@ -917,7 +917,7 @@ func placementAllows(n store.Node, rev store.Revision) bool {
 // replicas overall, then most free memory, then most
 // free CPU. Nodes that report capacity and cannot fit want (the CPU and
 // memory the replica reserves, nothing overcommitted) are skipped; capacity
-// 0 means unknown. nodes carry the capacity left for replicas
+// 0 means unknown. So are nodes whose container subnet is full. nodes carry the capacity left for replicas
 // (allocatable). Capacity is self-reported, so beyond fitting it only
 // breaks ties: a node advertising inflated capacity does not attract every
 // replica.
@@ -939,7 +939,7 @@ func pickNode(nodes []store.Node, replicas, spread []store.Replica, spreadBy str
 	}
 	var cands []cand
 	for _, n := range nodes {
-		if n.State != store.NodeReady || n.Cordoned {
+		if n.State != store.NodeReady || n.Cordoned || replicasFull(n, replicas) {
 			continue
 		}
 		c := cand{node: n, sameApp: sameApp[n.ID], free: resources{cpu: n.CPUMillis, mem: n.MemoryBytes}}
