@@ -34,7 +34,7 @@ func (d *Driver) liveConfig(ctx context.Context, cfg proxy.Config, opts renderOp
 	if running, err := d.cfg.Engine.Running(ctx); err != nil || !running {
 		return nil, false
 	}
-	live, err := os.ReadFile(filepath.Join(etcDir(d.cfg.Dir), configFile)) //nolint:gosec // path under our own directory
+	live, err := os.ReadFile(filepath.Join(etcDir(d.cfg.Dir), configFile))
 	if err != nil {
 		return nil, false
 	}
