@@ -52,6 +52,7 @@ func (s *Server) Reconcile(ctx context.Context) error {
 	}
 	s.usage.setOwners(replicas, s.now())
 	revs := revisionCache{store: s.store, keys: s.keys, m: map[string]store.Revision{}}
+	revs.preload(ctx, apps, replicas)
 	// Scheduling sees only the capacity left after what Armada keeps.
 	nodes, err = s.allocatable(ctx, nodes)
 	if err != nil {
@@ -1151,6 +1152,31 @@ func (c *revisionCache) secrets(ctx context.Context, rev store.Revision) (map[st
 	}
 	c.vals[rev.Name] = vals
 	return vals, nil
+}
+
+// preload reads the revisions a pass over apps and replicas needs at once. A
+// failure costs nothing but speed: get reads what is missing.
+func (c *revisionCache) preload(ctx context.Context, apps []store.App, replicas []store.Replica) {
+	seen := make(map[string]bool, len(apps)+len(replicas))
+	names := make([]string, 0, len(apps)+len(replicas))
+	add := func(name string) {
+		if name != "" && !seen[name] {
+			seen[name] = true
+			names = append(names, name)
+		}
+	}
+	for _, a := range apps {
+		add(a.ActiveRevision)
+		add(a.TargetRevision)
+	}
+	for _, r := range replicas {
+		add(r.Revision)
+	}
+	revs, err := c.store.GetRevisions(ctx, names)
+	if err != nil {
+		return
+	}
+	maps.Copy(c.m, revs)
 }
 
 func (c *revisionCache) get(ctx context.Context, name string) (store.Revision, error) {
