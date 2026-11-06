@@ -161,6 +161,9 @@ func (d *Driver) Apply(ctx context.Context, cfg proxy.Config) error {
 	defer d.mu.Unlock()
 
 	opts := d.options()
+	// A proxy that outlives its agent keeps serving: take over what it runs
+	// rather than reload it, if its configuration is still the right one.
+	live, adopted := d.liveConfig(ctx, cfg, opts)
 	layout := assignLayout(d.layout, cfg, opts.node())
 	sig := signature(cfg, layout, opts)
 	content := render(cfg, layout, opts)
@@ -168,9 +171,19 @@ func (d *Driver) Apply(ctx context.Context, cfg proxy.Config) error {
 		return errors.New("refusing proxy config: an interpolated value is not a single token")
 	}
 
+	adopted = adopted && sameStructure(live, content)
 	changedCerts, err := d.writeCerts(cfg.Certificates)
 	if err != nil {
 		return err
+	}
+	if adopted {
+		// A certificate may have been renewed while no agent ran.
+		changedCerts = changedCerts[:0]
+		for _, c := range cfg.Certificates {
+			changedCerts = append(changedCerts, c.FileName())
+		}
+		d.sig = sig
+		d.log.Info("kept the running haproxy")
 	}
 	routes := routeFiles(cfg, opts)
 	for name, b := range routes {
