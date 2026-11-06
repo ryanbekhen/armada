@@ -378,6 +378,68 @@ conntrack_raised() {
 }
 wait_for 60 "every node raised its connection tracking limit" conntrack_raised
 
+log "isolation between apps and projects"
+# Each replica answers on port 80 and has wget. A check that cannot run at all
+# must not pass as blocked, so a blocked request has to show wget's own error.
+iso_deploy() { # iso_deploy NAME PROJECT REPLICAS
+	printf 'name: %s\nimage: nginx:1-alpine\ningress:\n  type: internal\n  port: 80\nscale:\n  min: %s\n  max: %s\n' "$1" "$3" "$3" |
+		on "$CLI" "cat >/root/iso.yaml && armada deploy -f /root/iso.yaml --project $2" >/dev/null
+}
+iso_ready() { # iso_ready APP-ID COUNT
+	status | jq -e --arg app "$1" --argjson n "$2" '
+		.apps[] | select(.name == $app)
+		| [.replicas[]? | select((.draining // false) | not)] as $live
+		| ($live | length) == $n and all($live[]; .state == "running" and (.ready // false))'
+}
+iso_ips() { # iso_ips APP-ID: the live replicas' container addresses
+	status | jq -r --arg app "$1" '.apps[] | select(.name == $app) | .replicas[]? | select((.draining // false) | not) | .address | split(":")[0]'
+}
+iso_gone() { [ "$(status | jq --arg app "$1" '[.apps[] | select(.name == $app)] | length')" = 0 ]; }
+reaches() { cli exec "$1" -- wget -q -O /dev/null -T 3 "http://$2/" >/dev/null 2>&1; }
+blocked() {
+	if _out=$(cli exec "$1" -- wget -q -O /dev/null -T 3 "http://$2/" 2>&1); then return 1; fi
+	case $_out in *wget:*) return 0 ;; esac
+	return 1
+}
+iso_matrix() { # iso_matrix WHEN
+	for _ip in $(iso_ips web.e2e-proj); do
+		wait_for 60 "$1: a replica reaches its own app's $_ip" reaches web.e2e-proj "$_ip"
+		wait_for 60 "$1: another app of the project cannot reach $_ip directly" blocked other.e2e-proj "$_ip"
+		wait_for 60 "$1: another project cannot reach $_ip" blocked caller.e2e-other "$_ip"
+	done
+	wait_for 60 "$1: the project reaches web through its internal name" reaches other.e2e-proj web.e2e-proj.internal
+	wait_for 60 "$1: another project does not" blocked caller.e2e-other web.e2e-proj.internal
+	wait_for 60 "$1: a project's app cannot reach a node's private IP" blocked caller.e2e-other "$(host "$N" 3)"
+}
+cli project create e2e-other >/dev/null
+iso_deploy web e2e-proj 2
+iso_deploy other e2e-proj 1
+iso_deploy caller e2e-other 1
+wait_for 180 "web has 2 replicas ready" iso_ready web.e2e-proj 2
+wait_for 180 "other has 1 replica ready" iso_ready other.e2e-proj 1
+wait_for 180 "caller has 1 replica ready" iso_ready caller.e2e-other 1
+iso_matrix started
+wait_for 60 "a replica reaches itself on localhost" reaches web.e2e-proj 127.0.0.1
+iso_deploy web e2e-proj 4
+wait_for 180 "web has 4 replicas ready" iso_ready web.e2e-proj 4
+iso_matrix "scaled up"
+iso_deploy gone e2e-proj 1
+wait_for 180 "a new app is ready" iso_ready gone.e2e-proj 1
+_gone_ip=$(iso_ips gone.e2e-proj | head -n 1)
+wait_for 60 "the new app reaches itself" reaches gone.e2e-proj "$_gone_ip"
+wait_for 60 "another project cannot reach the new app" blocked caller.e2e-other "$_gone_ip"
+cli app rm gone.e2e-proj --yes >/dev/null
+wait_for 120 "a removed app is gone" iso_gone gone.e2e-proj
+wait_for 60 "a removed app's address stays blocked" blocked caller.e2e-other "$_gone_ip"
+iso_matrix "after a removal"
+for _app in web.e2e-proj other.e2e-proj caller.e2e-other; do
+	cli app rm "$_app" --yes >/dev/null
+	wait_for 120 "$_app is gone" iso_gone "$_app"
+done
+cli project rm e2e-proj >/dev/null
+cli project rm e2e-other >/dev/null
+ok "both projects are removed"
+
 log "steady load"
 # Nothing changes in the cluster: a failure here is the path between this
 # machine and the nodes, not Armada.
