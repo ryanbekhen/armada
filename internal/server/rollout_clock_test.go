@@ -260,3 +260,25 @@ func TestFailedReplicaWaits(t *testing.T) {
 		t.Error("moved although it had recovered in between")
 	}
 }
+
+// A leaving replica keeps its requests for its revision's drain, not the default.
+func TestDrainFromSpec(t *testing.T) {
+	t.Parallel()
+	c := newClockServer(t)
+	c.deploy("name: web\nimage: nginx:1\ndrain: 1m\ningress:\n  type: external\n  port: 80\nscale:\n  min: 2\n")
+	c.serveAll()
+	if err := c.st.SetReplicas(c.ctx, "web", 1, "admin:test"); err != nil {
+		t.Fatal(err)
+	}
+	c.reconcile()
+	c.advance(30 * time.Second)
+	c.reconcile()
+	if n := len(c.replicas()); n != 2 {
+		t.Fatalf("%d replicas after 30s, want 2: the leaving one still drains", n)
+	}
+	c.advance(31 * time.Second)
+	c.reconcile()
+	if n := len(c.replicas()); n != 1 {
+		t.Errorf("%d replicas after the drain, want 1", n)
+	}
+}

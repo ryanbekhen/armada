@@ -199,6 +199,9 @@ func (a *App) CPUMillis() int64 {
 }
 
 // Validate checks the spec and returns all problems joined together.
+// MaxDrain is the longest drain: what ingress keeps a connection after a reload.
+const MaxDrain = time.Hour
+
 func (a *App) Validate() error {
 	var v validator
 
@@ -219,6 +222,9 @@ func (a *App) Validate() error {
 	v.secretFiles(a.SecretFiles)
 	v.registry(a.Registry, a.Image)
 	v.ingress(a.Ingress, a.Name)
+	if a.Drain != 0 && (a.Drain.D() < time.Second || a.Drain.D() > MaxDrain) {
+		v.add("drain", "must be between 1s and %s", MaxDrain)
+	}
 	v.revisions(a)
 	v.probes(a.Probes)
 	v.scale(a.Scale, a.Ingress)

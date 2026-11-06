@@ -63,7 +63,7 @@ func (s *Server) Reconcile(ctx context.Context) error {
 		return err
 	}
 
-	rc := reconcileRun{now: s.now()}
+	rc := reconcileRun{now: s.now(), revs: &revs}
 	rc.lost = s.lostNodes(ctx, &rc, nodes)
 	var jobs []store.App
 	removed := map[string]bool{}
@@ -113,6 +113,7 @@ type reconcileRun struct {
 	wake time.Duration
 	// lost holds the nodes whose replicas are being rescheduled.
 	lost map[string]bool
+	revs *revisionCache
 }
 
 // lostNodes returns the nodes that have been disconnected for longer than
@@ -818,18 +819,28 @@ func (s *Server) retire(ctx context.Context, rc *reconcileRun, all []store.Repli
 	}
 	s.log.Info("draining replica", "replica", r.ID, "node", r.NodeID)
 	r.DrainingSince = rc.now
-	rc.wakeAt(rc.now.Add(s.drainTimeout))
+	rc.wakeAt(rc.now.Add(s.drainFor(ctx, rc, r)))
 	return replace(all, r), nil
 }
 
 // finishDrain removes a draining replica once its drain timeout has passed.
 func (s *Server) finishDrain(ctx context.Context, rc *reconcileRun, all []store.Replica, r store.Replica) ([]store.Replica, error) {
-	due := r.DrainingSince.Add(s.drainTimeout)
+	due := r.DrainingSince.Add(s.drainFor(ctx, rc, r))
 	if rc.now.Before(due) {
 		rc.wakeAt(due)
 		return all, nil
 	}
 	return without(all, r.ID), s.deleteReplica(ctx, r)
+}
+
+// drainFor returns how long r drains: its revision's setting, else the default.
+func (s *Server) drainFor(ctx context.Context, rc *reconcileRun, r store.Replica) time.Duration {
+	if rc.revs != nil {
+		if rev, err := rc.revs.get(ctx, r.Revision); err == nil && rev.Spec.Drain != 0 {
+			return rev.Spec.Drain.D()
+		}
+	}
+	return s.drainTimeout
 }
 
 func (s *Server) deleteReplica(ctx context.Context, r store.Replica) error {
