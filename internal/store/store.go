@@ -430,6 +430,9 @@ type Store interface {
 	AutoscaleReplicas(ctx context.Context, app string, from, n int, actor string) error
 
 	GetRevision(ctx context.Context, name string) (Revision, error)
+	// GetRevisions returns the revisions that exist among names, by name, in
+	// far fewer round trips than one GetRevision each.
+	GetRevisions(ctx context.Context, names []string) (map[string]Revision, error)
 	ListRevisions(ctx context.Context, app string) ([]Revision, error)
 	// SetRevisionDigest records the pinned image reference if none is set yet.
 	SetRevisionDigest(ctx context.Context, revision, digest string) error

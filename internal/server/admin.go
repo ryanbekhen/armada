@@ -242,6 +242,7 @@ func (s *Server) Status(ctx context.Context, req *armadav1.StatusRequest) (*arma
 		return nil, storeErr(err)
 	}
 	revs := &revisionCache{store: s.store, m: map[string]store.Revision{}}
+	revs.preload(ctx, apps, all)
 	sched, err := s.allocatable(ctx, nodes)
 	if err != nil {
 		return nil, storeErr(err)

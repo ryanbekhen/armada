@@ -269,6 +269,7 @@ func (s *Server) Top(ctx context.Context, req *armadav1.TopRequest) (*armadav1.T
 	reps = slices.DeleteFunc(reps, func(r store.Replica) bool { return r.Done || !acc.sees(r.App) })
 	now := s.now()
 	revs := &revisionCache{store: s.store, m: map[string]store.Revision{}}
+	revs.preload(ctx, nil, reps)
 	reserved := revs.reserved(ctx)
 
 	resp := &armadav1.TopResponse{}

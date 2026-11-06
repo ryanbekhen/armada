@@ -108,6 +108,7 @@ func (s *Server) autoscale(ctx context.Context) error {
 	}
 	now := s.now()
 	revs := &revisionCache{store: s.store, m: map[string]store.Revision{}}
+	revs.preload(ctx, apps, reps)
 	in := scaleInputs{now: now, usage: s.usage}
 	in.load, in.loadMeasured = s.usage.load(now)
 

@@ -679,3 +679,71 @@ func TestPruneKeepsActiveAndTarget(t *testing.T) {
 		t.Errorf("kept %d revisions, want %d", len(revs), RevisionsToKeep+1)
 	}
 }
+
+// More revisions than one read asks for, and names that do not exist.
+func TestGetRevisions(t *testing.T) {
+	t.Parallel()
+	s, ctx := open(t), context.Background()
+	const apps = readBatch + 5
+	names := make([]string, 0, apps+2)
+	for i := range apps {
+		app := fmt.Sprintf("app%d", i)
+		if _, _, err := s.Deploy(ctx, appSpec(t, app, "nginx:1", 1), "a"); err != nil {
+			t.Fatal(err)
+		}
+		names = append(names, app+"--r1")
+	}
+	names = append(names, "app0--r1", "app0--r9", "not a revision")
+	got, err := s.GetRevisions(ctx, names)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != apps {
+		t.Errorf("%d revisions, want %d", len(got), apps)
+	}
+	if r := got["app3--r1"]; r.App != "app3" || r.Spec == nil || r.Spec.Name != "app3" {
+		t.Errorf("revision %+v", r)
+	}
+	if _, ok := got["app0--r9"]; ok {
+		t.Error("a revision that does not exist")
+	}
+	listed, err := s.ListApps(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(listed) != apps {
+		t.Fatalf("%d apps, want %d", len(listed), apps)
+	}
+	for _, a := range listed {
+		if a.Spec == nil || a.Spec.Name != a.Name {
+			t.Errorf("app %s has spec %+v", a.Name, a.Spec)
+		}
+	}
+}
+
+// getMany sees writes buffered in the transaction.
+func TestGetManySeesBufferedWrites(t *testing.T) {
+	t.Parallel()
+	s, ctx := open(t), context.Background()
+	if err := s.SetMeta(ctx, "kept", "1"); err != nil {
+		t.Fatal(err)
+	}
+	errStop := errors.New("stop: nothing is written")
+	err := s.tx(ctx, func(tx *etx) error {
+		if err := tx.put("buffered", "x"); err != nil {
+			return err
+		}
+		tx.delete("gone")
+		got, err := tx.getMany([]string{"buffered", "gone", "missing"})
+		if err != nil {
+			return err
+		}
+		if _, ok := got["buffered"]; !ok || len(got) != 1 {
+			t.Errorf("got %v", got)
+		}
+		return errStop
+	})
+	if !errors.Is(err, errStop) {
+		t.Fatal(err)
+	}
+}

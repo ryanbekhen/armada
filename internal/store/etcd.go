@@ -162,6 +162,43 @@ func (t *etx) getRaw(k string) ([]byte, bool, error) {
 	return resp.Kvs[0].Value, true, nil
 }
 
+// readBatch is how many keys one read asks for: etcd allows 128 operations in
+// a transaction unless configured otherwise.
+const readBatch = 128
+
+// getMany returns the records at keys that exist, by key, in as few round trips
+// as the batch size allows, including writes buffered in this transaction.
+func (t *etx) getMany(keys []string) (map[string][]byte, error) {
+	out := make(map[string][]byte, len(keys))
+	var remote []string
+	for _, k := range keys {
+		if t.del[k] {
+			continue
+		}
+		if v, ok := t.ops[k]; ok {
+			out[k] = v
+			continue
+		}
+		remote = append(remote, k)
+	}
+	for batch := range slices.Chunk(remote, readBatch) {
+		ops := make([]clientv3.Op, 0, len(batch))
+		for _, k := range batch {
+			ops = append(ops, clientv3.OpGet(t.full(k), clientv3.WithRev(t.rev)))
+		}
+		resp, err := t.s.c.Txn(t.ctx).Then(ops...).Commit()
+		if err != nil {
+			return nil, err
+		}
+		for i, r := range resp.Responses {
+			if kvs := r.GetResponseRange().GetKvs(); len(kvs) > 0 {
+				out[batch[i]] = kvs[0].Value
+			}
+		}
+	}
+	return out, nil
+}
+
 // get decodes the record at k into v and reports whether it exists.
 func (t *etx) get(k string, v any) (bool, error) {
 	b, ok, err := t.getRaw(k)
@@ -1057,6 +1094,40 @@ func (t *etx) revision(name string) (Revision, error) {
 	return decodeRev(r)
 }
 
+// revisions returns the revisions that exist among names, by name.
+func (t *etx) revisions(names []string) (map[string]Revision, error) {
+	keys := make([]string, 0, len(names))
+	byKey := make(map[string]string, len(names))
+	for _, name := range names {
+		app, seq, ok := parseRevisionName(name)
+		if !ok {
+			continue
+		}
+		k := revKey(app, seq)
+		if _, seen := byKey[k]; !seen {
+			byKey[k] = name
+			keys = append(keys, k)
+		}
+	}
+	raw, err := t.getMany(keys)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]Revision, len(raw))
+	for k, b := range raw {
+		var r revRec
+		if err := json.Unmarshal(b, &r); err != nil {
+			return nil, fmt.Errorf("decode %s: %w", k, err)
+		}
+		rev, err := decodeRev(r)
+		if err != nil {
+			return nil, err
+		}
+		out[byKey[k]] = rev
+	}
+	return out, nil
+}
+
 func decodeRev(r revRec) (Revision, error) {
 	out := Revision{Name: r.Name, App: r.App, Seq: r.Seq, ImageDigest: r.ImageDigest, Platforms: r.Platforms, Secrets: r.Secrets, CreatedAt: fromMS(r.CreatedAt), Spec: new(spec.App)}
 	if out.Secrets == nil {
@@ -1073,10 +1144,15 @@ func (t *etx) toApp(a appRec) (App, error) {
 	if err != nil {
 		return App{}, err
 	}
+	return appFrom(a, rev), nil
+}
+
+// appFrom builds an app from its record and active revision.
+func appFrom(a appRec, rev Revision) App {
 	return App{Name: a.Name, ActiveRevision: a.ActiveRevision, TargetRevision: a.TargetRevision, Replicas: a.Replicas,
 		Spec: rev.Spec, RolloutState: a.RolloutState, RolloutMessage: a.RolloutMessage,
 		RolloutProgressAt: fromMS(a.RolloutProgressAt), CreatedAt: fromMS(a.CreatedAt), UpdatedAt: fromMS(a.UpdatedAt),
-		LastScheduled: fromMS(a.LastScheduled), Traffic: slices.Clone(a.Traffic)}, nil
+		LastScheduled: fromMS(a.LastScheduled), Traffic: slices.Clone(a.Traffic)}
 }
 
 // Deploy records a new revision. See Store.
@@ -1516,12 +1592,30 @@ func (s *Etcd) GetApp(ctx context.Context, name string) (App, error) {
 func (s *Etcd) ListApps(ctx context.Context) ([]App, error) {
 	var out []App
 	err := s.view(ctx, func(t *etx) error {
-		out = nil
-		return listInto(t, pfxApps, func(_ string, a appRec) error {
-			app, err := t.toApp(a)
-			out = append(out, app)
+		var recs []appRec
+		if err := listInto(t, pfxApps, func(_ string, a appRec) error {
+			recs = append(recs, a)
+			return nil
+		}); err != nil {
 			return err
-		})
+		}
+		names := make([]string, len(recs))
+		for i, a := range recs {
+			names[i] = a.ActiveRevision
+		}
+		revs, err := t.revisions(names)
+		if err != nil {
+			return err
+		}
+		out = make([]App, 0, len(recs))
+		for _, a := range recs {
+			rev, ok := revs[a.ActiveRevision]
+			if !ok {
+				return notFoundf("revision %s", a.ActiveRevision)
+			}
+			out = append(out, appFrom(a, rev))
+		}
+		return nil
 	})
 	return out, err
 }
@@ -1609,6 +1703,17 @@ func (s *Etcd) GetRevision(ctx context.Context, name string) (Revision, error) {
 	err := s.view(ctx, func(t *etx) error {
 		var err error
 		out, err = t.revision(name)
+		return err
+	})
+	return out, err
+}
+
+// GetRevisions returns the revisions that exist among names, by name.
+func (s *Etcd) GetRevisions(ctx context.Context, names []string) (map[string]Revision, error) {
+	var out map[string]Revision
+	err := s.view(ctx, func(t *etx) error {
+		var err error
+		out, err = t.revisions(names)
 		return err
 	})
 	return out, err
