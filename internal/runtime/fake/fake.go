@@ -79,7 +79,6 @@ func (d *Driver) CanMountVolumes() bool {
 	return !d.NoVolumes
 }
 
-// Stats returns d.Usage for a running container.
 // ReleaseNetwork records that a container's network was freed.
 func (d *Driver) ReleaseNetwork(_ context.Context, id string) error {
 	d.mu.Lock()
@@ -91,6 +90,7 @@ func (d *Driver) ReleaseNetwork(_ context.Context, id string) error {
 	return nil
 }
 
+// Stats returns d.Usage for a running container.
 func (d *Driver) Stats(_ context.Context, id string) (runtime.Stats, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
