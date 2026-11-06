@@ -163,6 +163,7 @@ type Server struct {
 	// after a move whose replacement never served.
 	rebalanceMu    sync.Mutex
 	rebalanceAfter map[string]time.Time
+	learned        learnedRevisions
 
 	wakeMu    sync.Mutex
 	wakeTimer *time.Timer
