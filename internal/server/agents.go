@@ -306,9 +306,47 @@ func sameStatus(have store.Replica, st store.ReplicaStatus) bool {
 // recordPlatforms keeps the first valid list of image platforms an agent
 // reports for a revision (ADR 0014). Each entry must be "os/arch" with both
 // parts valid label values, at most spec.MaxNodeLabels of them.
+// Every report repeats what a replica's image is, for every replica of the node.
+// learnedRevisions remembers what is already recorded, so that repeating it costs
+// no reads: a report would otherwise read two revisions per replica.
+type learnedRevisions struct {
+	mu sync.Mutex
+	m  map[string]uint8
+}
+
+const (
+	learnedDigest uint8 = 1 << iota
+	learnedPlatforms
+
+	// maxLearned bounds the memory; forgetting only costs a read per revision.
+	maxLearned = 1 << 16
+)
+
+func (l *learnedRevisions) has(rev string, what uint8) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.m[rev]&what != 0
+}
+
+func (l *learnedRevisions) add(rev string, what uint8) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.m == nil || len(l.m) >= maxLearned {
+		l.m = map[string]uint8{}
+	}
+	l.m[rev] |= what
+}
+
 func (s *Server) recordPlatforms(ctx context.Context, nodeID, revName string, reported []string) {
+	if s.learned.has(revName, learnedPlatforms) {
+		return
+	}
 	rev, err := s.store.GetRevision(ctx, revName)
-	if err != nil || len(rev.Platforms) > 0 {
+	if err != nil {
+		return
+	}
+	if len(rev.Platforms) > 0 {
+		s.learned.add(revName, learnedPlatforms)
 		return
 	}
 	ps, ok := cleanPlatforms(reported)
@@ -320,6 +358,7 @@ func (s *Server) recordPlatforms(ctx context.Context, nodeID, revName string, re
 		s.log.Warn("record image platforms", "err", err)
 		return
 	}
+	s.learned.add(revName, learnedPlatforms)
 	s.log.Info("image platforms", "revision", revName, "platforms", strings.Join(ps, ","))
 	s.Trigger()
 }
@@ -345,8 +384,15 @@ func cleanPlatforms(reported []string) ([]string, bool) {
 }
 
 func (s *Server) recordDigest(ctx context.Context, revName, digest string) {
+	if s.learned.has(revName, learnedDigest) {
+		return
+	}
 	rev, err := s.store.GetRevision(ctx, revName)
-	if err != nil || rev.ImageDigest != "" {
+	if err != nil {
+		return
+	}
+	if rev.ImageDigest != "" {
+		s.learned.add(revName, learnedDigest)
 		return
 	}
 	if !digestRe.MatchString(digest) || normalizeRepo(strings.SplitN(digest, "@", 2)[0]) != normalizeRepo(imageRepo(rev.Spec.Image)) {
@@ -357,6 +403,7 @@ func (s *Server) recordDigest(ctx context.Context, revName, digest string) {
 		s.log.Warn("record digest", "err", err)
 		return
 	}
+	s.learned.add(revName, learnedDigest)
 	s.Trigger()
 }
 
