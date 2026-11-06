@@ -136,10 +136,10 @@ func TestPickNodeSkipsFullSubnet(t *testing.T) {
 	if n, ok := pickNode(nodes, all, nil, "", resources{}, none); !ok || n.ID != "a" {
 		t.Errorf("picked %v (%v), want a (one address left)", n.ID, ok)
 	}
-	// A finished attempt's kept container still holds its address.
-	all = append(all, on("a", 1, true)...)
-	if n, ok := pickNode(nodes, all, nil, "", resources{}, none); ok {
-		t.Errorf("scheduled on %s with the last address held by a finished attempt", n.ID)
+	// A finished attempt's kept container holds no address.
+	all = append(all, on("a", 5, true)...)
+	if n, ok := pickNode(nodes, all, nil, "", resources{}, none); !ok || n.ID != "a" {
+		t.Errorf("picked %v (%v), want a (finished attempts hold no address)", n.ID, ok)
 	}
 	// A node with no subnet of its own has no such limit.
 	plain := []store.Node{{ID: "a", State: store.NodeReady}}

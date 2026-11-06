@@ -422,8 +422,7 @@ must not contain the nodes' private IPs or overlap routes on them
 (`armada doctor` checks the node's subnet).
 
 A node takes at most 250 replicas, whatever CPU and memory it has left: a /24
-has no more addresses to give. The kept container of a finished job run counts
-until it is removed. With every node at that limit, new replicas wait and
+has no more addresses to give. With every node at that limit, new replicas wait and
 `armada status` says so. Add a node to make room.
 
 Container addresses are unique in the cluster, and the bridge's gateway
