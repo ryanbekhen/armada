@@ -129,7 +129,8 @@ Limits on a connection through ingress:
 How long a replica that is leaving (a rollout, scale down, a moved replica, a
 removed app) keeps serving the requests it already has before it is stopped:
 1s to 1h, default `10s`. It takes no new requests in that time. Set it above the
-longest request the app serves. Not for jobs.
+longest request the app serves. A request that gets nothing back for 60 seconds
+still ends with `504` whatever `drain` says. Not for jobs.
 
 ### `probes`
 
