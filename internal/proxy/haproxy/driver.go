@@ -294,8 +294,15 @@ func (d *Driver) removeOldRoutes(keep map[string][]byte) {
 // writeValidated writes content next to the live config, validates it, and
 // only then replaces the live file.
 func (d *Driver) writeValidated(ctx context.Context, cfgPath string, content []byte) error {
-	if cur, err := os.ReadFile(cfgPath); err == nil && bytes.Equal(cur, content) { //nolint:gosec // path under our data dir
+	cur, err := os.ReadFile(cfgPath) //nolint:gosec // path under our data dir
+	if err == nil && bytes.Equal(cur, content) {
 		return nil
+	}
+	// The same structure with other server addresses, which the renderer has
+	// already checked: running haproxy -c on it would only take time, on every
+	// node, for every replica that comes or goes.
+	if err == nil && sameStructure(cur, content) {
+		return fsutil.WriteFileAtomic(cfgPath, content, 0o600)
 	}
 	next := cfgPath + ".new"
 	if err := fsutil.WriteFileAtomic(next, content, 0o600); err != nil {
