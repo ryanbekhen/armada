@@ -34,6 +34,8 @@ const (
 	// WakeTimeout is how long a request for an app scaled to zero waits for
 	// a replica.
 	WakeTimeout = 60 * time.Second
+	// MaxTimeoutSeconds bounds Backend.TimeoutSeconds.
+	MaxTimeoutSeconds = 3600
 )
 
 // ClientSetter is implemented by drivers whose internal frontend checks
@@ -81,6 +83,9 @@ type Backend struct {
 	// LocalFirst makes each node's proxy prefer the replicas on its own
 	// node (ADR 0024).
 	LocalFirst bool
+	// TimeoutSeconds is how long a request may wait for an answer; 0 means
+	// the proxy's default.
+	TimeoutSeconds int
 }
 
 // Server is one replica.
@@ -152,7 +157,7 @@ func FromProto(p *armadav1.ProxyConfig) Config {
 	}
 	c.ACMEAddress = p.GetAcmeChallengeAddress()
 	for _, b := range p.GetBackends() {
-		be := Backend{Name: b.GetName(), HealthPath: b.GetHealthPath(), Wake: b.GetWake(), LocalFirst: b.GetLocalFirst()}
+		be := Backend{Name: b.GetName(), HealthPath: b.GetHealthPath(), Wake: b.GetWake(), LocalFirst: b.GetLocalFirst(), TimeoutSeconds: int(min(b.GetTimeoutSeconds(), MaxTimeoutSeconds+1))}
 		for _, s := range b.GetServers() {
 			be.Servers = append(be.Servers, Server{Name: s.GetName(), Address: s.GetAddress(), Weight: int(min(s.GetWeight(), MaxWeight+1))})
 		}
@@ -171,7 +176,7 @@ func FromProto(p *armadav1.ProxyConfig) Config {
 func (c Config) ToProto() *armadav1.ProxyConfig {
 	p := &armadav1.ProxyConfig{AcmeChallengeAddress: c.ACMEAddress}
 	for _, b := range c.Backends {
-		pb := &armadav1.ProxyBackend{Name: b.Name, HealthPath: b.HealthPath, Wake: b.Wake, LocalFirst: b.LocalFirst}
+		pb := &armadav1.ProxyBackend{Name: b.Name, HealthPath: b.HealthPath, Wake: b.Wake, LocalFirst: b.LocalFirst, TimeoutSeconds: uint32(max(b.TimeoutSeconds, 0))}
 		for _, s := range b.Servers {
 			pb.Servers = append(pb.Servers, &armadav1.ProxyServer{Name: s.Name, Address: s.Address, Weight: uint32(max(s.Weight, 0))}) //nolint:gosec // bounded by Validate
 		}
@@ -215,6 +220,9 @@ func (c Config) Validate() error {
 
 	backends := map[string]bool{}
 	for _, b := range c.Backends {
+		if b.TimeoutSeconds < 0 || b.TimeoutSeconds > MaxTimeoutSeconds {
+			return fmt.Errorf("backend %s: timeout %d out of range", b.Name, b.TimeoutSeconds)
+		}
 		if !spec.ValidHostName(b.Name) {
 			add("backend %q: invalid name", b.Name)
 			continue

@@ -113,6 +113,9 @@ type pool struct {
 	servers []proxy.Server
 	// leastconn balances by requests in progress instead of in turn.
 	leastconn bool
+	// timeout is how long a request waits for an answer, in seconds; 0 keeps
+	// the default.
+	timeout int
 }
 
 // Weights of a local-first backend (ADR 0024). HAProxy's leastconn picks the
@@ -142,7 +145,7 @@ func pools(cfg proxy.Config, n node) []pool {
 // backendPool returns be's backend on the node. Local-first needs the node's
 // address; an app that splits traffic keeps its weights and takes turns.
 func backendPool(be proxy.Backend, n node) pool {
-	p := pool{name: backendName(be.Name), servers: be.Servers}
+	p := pool{name: backendName(be.Name), servers: be.Servers, timeout: be.TimeoutSeconds}
 	if !localFirst(be, n) {
 		return p
 	}
@@ -340,6 +343,9 @@ func writeBackend(w func(string, ...any), p pool, healthPath string, layout Layo
 		servers[s.Name] = s
 	}
 	w("backend %s", p.name)
+	if p.timeout > 0 {
+		w("    timeout server %ds", p.timeout)
+	}
 	if p.leastconn {
 		w("    balance leastconn")
 		// With no other request in progress, a replica on this node. A name

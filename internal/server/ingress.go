@@ -108,7 +108,7 @@ func (s *Server) buildProxy(ctx context.Context, apps []store.App, replicas []st
 		splits := len(app.Traffic) > 0 && !app.Rolling()
 		// Traffic splitting keeps every replica in one pool so revision
 		// weights hold; other apps prefer each node's own replicas.
-		be := proxy.Backend{Name: app.Name, Wake: sp.ScalesToZero() && !app.Removing, LocalFirst: !splits}
+		be := proxy.Backend{Name: app.Name, Wake: sp.ScalesToZero() && !app.Removing, LocalFirst: !splits, TimeoutSeconds: int(sp.Ingress.Timeout.D().Seconds())}
 		if sp.Probes != nil && sp.Probes.Readiness != nil {
 			be.HealthPath = sp.Probes.Readiness.Path
 		}
@@ -134,7 +134,7 @@ func (s *Server) buildProxy(ctx context.Context, apps []store.App, replicas []st
 					continue
 				}
 				name := spec.LabelHost(t.Label, app.Name)
-				lb := proxy.Backend{Name: name, HealthPath: be.HealthPath}
+				lb := proxy.Backend{Name: name, HealthPath: be.HealthPath, TimeoutSeconds: be.TimeoutSeconds}
 				lb.Servers = s.proxyServers(app, replicas, func(r store.Replica) bool {
 					return r.App == app.Name && r.Revision == t.Revision && r.State == store.ReplicaRunning && r.Ready && !r.Draining() && r.Address != ""
 				})
