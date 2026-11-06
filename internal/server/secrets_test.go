@@ -93,3 +93,30 @@ func TestSecretsDisabledWithoutKey(t *testing.T) {
 		t.Errorf("SetSecret without key = %v", err)
 	}
 }
+
+// An app of another project is named by its ID, like everywhere else past the API.
+func TestSecretOfProjectApp(t *testing.T) {
+	t.Parallel()
+	c := newCluster(t, withKeys(t))
+	if _, err := c.admin.CreateProject(c.ctx, &armadav1.CreateProjectRequest{Name: "staging"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.admin.SetSecret(c.ctx, &armadav1.SetSecretRequest{App: "api.staging", Name: "db", Value: []byte("one")}); err != nil {
+		t.Fatal(err)
+	}
+	resp, err := c.admin.ListSecrets(c.ctx, &armadav1.ListSecretsRequest{App: "api.staging"})
+	if err != nil || len(resp.GetSecrets()) != 1 {
+		t.Fatalf("ListSecrets = %v, %v", resp, err)
+	}
+	if _, err := c.admin.DeleteSecret(c.ctx, &armadav1.DeleteSecretRequest{App: "api.staging", Name: "db"}); err != nil {
+		t.Error(err)
+	}
+	for _, app := range []string{"api.Staging", "api..staging", "a.b.c", "../api"} {
+		if _, err := c.admin.SetSecret(c.ctx, &armadav1.SetSecretRequest{App: app, Name: "db", Value: []byte("x")}); status.Code(err) != codes.InvalidArgument {
+			t.Errorf("%q: %v", app, err)
+		}
+	}
+	if _, err := c.admin.SetSecret(c.ctx, &armadav1.SetSecretRequest{App: "api.nowhere", Name: "db", Value: []byte("x")}); err == nil {
+		t.Error("secret in a project that does not exist")
+	}
+}
