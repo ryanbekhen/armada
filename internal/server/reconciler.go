@@ -31,6 +31,10 @@ const (
 // replacement never served.
 const rebalanceBackoff = 10 * time.Minute
 
+// failedMoveAfter is how long a replica keeps failing to start on its node
+// before it is tried on another one.
+const failedMoveAfter = time.Minute
+
 // DefaultNodeLostTimeout is how long a node may be disconnected before its
 // replicas are rescheduled elsewhere.
 const DefaultNodeLostTimeout = 5 * time.Minute
@@ -355,6 +359,12 @@ func (s *Server) reconcileRevision(ctx context.Context, rc *reconcileRun, app *s
 		}
 	}
 
+	if !app.Rolling() {
+		if current, all, err = s.moveFailed(ctx, rc, app, target, fit, all, current, revs); err != nil {
+			return nil, err
+		}
+	}
+
 	// Scale down: drop unhealthy replicas first, then from the most loaded node.
 	for len(current) > app.Replicas {
 		victim := pickVictim(current, spreadGroups(fit, target.Spec.Placement.SpreadKey()))
@@ -374,18 +384,10 @@ func (s *Server) reconcileRevision(ctx context.Context, rc *reconcileRun, app *s
 				unplaced = true
 				break
 			}
-			r := store.Replica{
-				ID:       fmt.Sprintf("%s-r%d-%s", app.Name, target.Seq, randomID(5)),
-				App:      app.Name,
-				Revision: target.Name,
-				NodeID:   node.ID,
-				State:    store.ReplicaPending,
-			}
-			if err := s.store.CreateReplica(ctx, r); err != nil {
+			r, err := s.placeReplica(ctx, app, target, node.ID)
+			if err != nil {
 				return nil, err
 			}
-			s.log.Info("scheduled replica", "replica", r.ID, "revision", r.Revision, "node", node.ID)
-			s.record(ctx, store.Event{Kind: eventReplica, Object: r.ID, App: app.Name, Node: node.ID, Reason: "Scheduled", Message: "revision " + r.Revision + " on " + node.ID})
 			current = append(current, r)
 			all = append(all, r)
 		}
@@ -915,6 +917,71 @@ func placementAllows(n store.Node, rev store.Revision) bool {
 		return false
 	}
 	return len(rev.Platforms) == 0 || n.OS == "" || n.Arch == "" || slices.Contains(rev.Platforms, n.OS+"/"+n.Arch)
+}
+
+// placeReplica records a new replica of target on node.
+func (s *Server) placeReplica(ctx context.Context, app *store.App, target store.Revision, node string) (store.Replica, error) {
+	r := store.Replica{
+		ID:       fmt.Sprintf("%s-r%d-%s", app.Name, target.Seq, randomID(5)),
+		App:      app.Name,
+		Revision: target.Name,
+		NodeID:   node,
+		State:    store.ReplicaPending,
+	}
+	if err := s.store.CreateReplica(ctx, r); err != nil {
+		return store.Replica{}, err
+	}
+	s.log.Info("scheduled replica", "replica", r.ID, "revision", r.Revision, "node", node)
+	s.record(ctx, store.Event{Kind: eventReplica, Object: r.ID, App: app.Name, Node: node, Reason: "Scheduled", Message: "revision " + r.Revision + " on " + node})
+	return r, nil
+}
+
+// moveFailed replaces, on another node, a replica that has kept failing to
+// start for failedMoveAfter: what stops it may be its node's (no address left,
+// a broken container network), and another node may have room. The replacement
+// exists before the failed one goes, and the first of an app moves at a time.
+// With no other node that fits, it stays and keeps retrying.
+func (s *Server) moveFailed(ctx context.Context, rc *reconcileRun, app *store.App, target store.Revision, fit []store.Node, all, current []store.Replica, revs *revisionCache) ([]store.Replica, []store.Replica, error) {
+	s.rebalanceMu.Lock()
+	defer s.rebalanceMu.Unlock()
+	moved := false
+	for _, r := range slices.Clone(current) {
+		if r.State != store.ReplicaFailed {
+			delete(s.failedSince, r.ID)
+			continue
+		}
+		since, ok := s.failedSince[r.ID]
+		if !ok {
+			since = rc.now
+			s.failedSince[r.ID] = since
+		}
+		if due := since.Add(failedMoveAfter); rc.now.Before(due) {
+			rc.wakeAt(due)
+			continue
+		}
+		if moved {
+			rc.wakeAt(rc.now.Add(time.Second))
+			continue
+		}
+		others := slices.DeleteFunc(slices.Clone(fit), func(n store.Node) bool { return n.ID == r.NodeID })
+		to, ok := pickNode(others, all, current, target.Spec.Placement.SpreadKey(), reservation(target), revs.reserved(ctx))
+		if !ok {
+			continue
+		}
+		fresh, err := s.placeReplica(ctx, app, target, to.ID)
+		if err != nil {
+			return nil, nil, err
+		}
+		s.log.Warn("replica keeps failing to start; trying another node", "replica", r.ID, "node", r.NodeID, "to", to.ID)
+		if err := s.deleteReplica(ctx, r); err != nil {
+			return nil, nil, err
+		}
+		delete(s.failedSince, r.ID)
+		current = append(without(current, r.ID), fresh)
+		all = append(without(all, r.ID), fresh)
+		moved = true
+	}
+	return current, all, nil
 }
 
 // pickNode chooses a ready node for a new replica: with spreadBy, the

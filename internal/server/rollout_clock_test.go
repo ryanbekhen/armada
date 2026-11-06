@@ -189,3 +189,74 @@ func TestRolloutDeadline(t *testing.T) {
 		t.Error("old replica drained after a failed rollout")
 	}
 }
+
+func (c *clockServer) fail(r store.Replica) {
+	c.t.Helper()
+	if err := c.st.UpdateReplicaStatus(c.ctx, r.NodeID, store.ReplicaStatus{ID: r.ID, State: store.ReplicaFailed, Message: "no address"}); err != nil {
+		c.t.Fatal(err)
+	}
+}
+
+// A replica that keeps failing to start moves to another node that fits.
+func TestFailedReplicaMoves(t *testing.T) {
+	t.Parallel()
+	c := newClockServer(t)
+	c.deploy("name: web\nimage: nginx:1\n")
+	c.serveAll()
+	var failing store.Replica
+	for _, r := range c.replicas() {
+		failing = r
+	}
+	// With no other node it stays and keeps retrying.
+	c.fail(failing)
+	c.reconcile()
+	c.advance(2 * failedMoveAfter)
+	c.reconcile()
+	if _, ok := c.replicas()[failing.Revision+"/"+failing.ID]; !ok {
+		t.Fatal("moved with nowhere to go")
+	}
+	if err := c.st.UpsertNode(c.ctx, store.Node{ID: "n2", PrivateIP: "10.0.0.3", State: store.NodeReady}); err != nil {
+		t.Fatal(err)
+	}
+	c.reconcile()
+	rs := c.replicas()
+	if _, ok := rs[failing.Revision+"/"+failing.ID]; ok || len(rs) != 1 {
+		t.Fatalf("replicas after a node has room: %v", rs)
+	}
+	for _, r := range rs {
+		if r.NodeID != "n2" {
+			t.Errorf("replacement on %s, want n2", r.NodeID)
+		}
+	}
+}
+
+// A replica failing only briefly, or as part of a rollout, stays.
+func TestFailedReplicaWaits(t *testing.T) {
+	t.Parallel()
+	c := newClockServer(t)
+	if err := c.st.UpsertNode(c.ctx, store.Node{ID: "n2", PrivateIP: "10.0.0.3", State: store.NodeReady}); err != nil {
+		t.Fatal(err)
+	}
+	c.deploy("name: web\nimage: nginx:1\n")
+	c.serveAll()
+	var r store.Replica
+	for _, x := range c.replicas() {
+		r = x
+	}
+	c.fail(r)
+	c.reconcile()
+	c.advance(failedMoveAfter / 2)
+	c.reconcile()
+	if _, ok := c.replicas()[r.Revision+"/"+r.ID]; !ok {
+		t.Error("moved before failedMoveAfter")
+	}
+	// It started after all: the clock starts over.
+	c.readyOn(r)
+	c.reconcile()
+	c.advance(2 * failedMoveAfter)
+	c.fail(r)
+	c.reconcile()
+	if _, ok := c.replicas()[r.Revision+"/"+r.ID]; !ok {
+		t.Error("moved although it had recovered in between")
+	}
+}
