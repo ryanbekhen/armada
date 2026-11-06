@@ -1179,3 +1179,71 @@ func TestLongLivedConnectionLimits(t *testing.T) {
 		}
 	}
 }
+
+// A new agent keeps a proxy that still runs the right structure: no reload,
+// each replica in its slot, and only what changed goes through the Runtime API.
+func TestApplyTakesOverRunningProxy(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	d, e, _, dir := newDriver(t)
+	cfg := proxy.Config{Backends: []proxy.Backend{{Name: "web", Servers: []proxy.Server{
+		{Name: "a", Address: "10.0.0.2:81"}, {Name: "b", Address: "10.0.0.3:82"},
+	}}}}
+	if err := d.Apply(ctx, cfg); err != nil {
+		t.Fatal(err)
+	}
+	e.mu.Lock()
+	e.running = true
+	e.mu.Unlock()
+
+	state := "1\n# be_id be_name srv_id srv_name srv_addr srv_op_state srv_admin_state srv_uweight srv_port\n" +
+		// Reversed slots, one replica since gone, and a free slot with an old address.
+		"3 be_web 1 s1 10.0.0.3 2 0 1 82\n3 be_web 2 s2 10.0.0.2 2 0 1 81\n3 be_web 3 s3 10.0.0.9 2 0 1 89\n3 be_web 4 s4 10.0.0.8 0 5 1 88\n"
+	a2 := &fakeAPI{reply: func(cmd string) string {
+		if cmd == "show servers state" {
+			return state
+		}
+		if strings.HasPrefix(cmd, "prepare map") {
+			return "New version created: 7"
+		}
+		return ""
+	}}
+	d2, err := New(Config{Dir: dir, PrivateIP: "10.0.0.2", Engine: e, API: a2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reloads := e.reloads
+	if err := d2.Apply(ctx, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if e.reloads != reloads {
+		t.Errorf("reloaded a proxy with the right structure")
+	}
+	joined := strings.Join(a2.cmds, "\n")
+	if strings.Contains(joined, "s1 addr") || strings.Contains(joined, "s2 addr") {
+		t.Errorf("moved replicas between slots:\n%s", joined)
+	}
+	if !strings.Contains(joined, "set server be_web/s3 state maint") {
+		t.Errorf("left a slot serving a gone replica:\n%s", joined)
+	}
+	if strings.Contains(joined, "be_web/s4") {
+		t.Errorf("touched a free slot:\n%s", joined)
+	}
+
+	// A structure the proxy does not run needs a reload, as does a new agent
+	// that cannot read it.
+	d3, _ := New(Config{Dir: dir, PrivateIP: "10.0.0.2", Engine: e, API: a2})
+	more := proxy.Config{Backends: append(slices.Clone(cfg.Backends), proxy.Backend{Name: "api", Servers: []proxy.Server{{Name: "c", Address: "10.0.0.3:83"}}})}
+	if err := d3.Apply(ctx, more); err != nil {
+		t.Fatal(err)
+	}
+	if e.reloads != reloads+1 {
+		t.Errorf("no reload for a new backend")
+	}
+	a4 := &fakeAPI{err: errors.New("no socket")}
+	d4, _ := New(Config{Dir: dir, PrivateIP: "10.0.0.2", Engine: e, API: a4})
+	_ = d4.Apply(ctx, more)
+	if e.reloads != reloads+2 {
+		t.Errorf("no reload when the proxy cannot say what it runs")
+	}
+}
