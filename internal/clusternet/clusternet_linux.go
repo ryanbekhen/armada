@@ -106,6 +106,16 @@ func (n *Net) isolate(pol policy) error {
 			return nil
 		}
 	}
+	if n.isolated != nil && sameFrame(*n.isolated, pol) {
+		if ok, err := hasIsolation(); err == nil && ok {
+			if err := updateIsolation(*n.isolated, pol); err == nil {
+				n.isolated = &pol
+				return nil
+			} else { //nolint:revive // falls through to a rebuild
+				n.log.Warn("update the isolation rules; rebuilding them", "err", err)
+			}
+		}
+	}
 	if err := isolate(pol); err != nil {
 		n.isolated = nil
 		return err
