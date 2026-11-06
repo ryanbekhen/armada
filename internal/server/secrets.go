@@ -19,8 +19,8 @@ import (
 // checkSecretTarget validates an app name and, unless listing, a secret
 // name.
 func checkSecretTarget(app, name string, listing bool) error {
-	if err := spec.ValidateName(app); err != nil {
-		return status.Errorf(codes.InvalidArgument, "app: %v", err)
+	if !spec.ValidAppID(app) {
+		return status.Errorf(codes.InvalidArgument, "invalid app %q: want NAME, or NAME.PROJECT for an app of another project", app)
 	}
 	if listing {
 		return nil

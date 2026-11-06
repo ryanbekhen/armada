@@ -69,9 +69,6 @@ func newSecretSetCommand(g *globals) *cobra.Command {
 				return err
 			}
 			app, name := args[0], args[1]
-			if err := spec.ValidateName(app); err != nil {
-				return fmt.Errorf("app: %w", err)
-			}
 			if err := spec.ValidateSecretName(name); err != nil {
 				return err
 			}
