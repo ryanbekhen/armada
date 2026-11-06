@@ -270,7 +270,7 @@ func TestBridgeAndCNIConfig(t *testing.T) {
 	var conf struct {
 		Plugins []map[string]any `json:"plugins"`
 	}
-	if err := json.Unmarshal(raw, &conf); err != nil || len(conf.Plugins) != 3 {
+	if err := json.Unmarshal(raw, &conf); err != nil || len(conf.Plugins) != 4 {
 		t.Fatalf("%s %v", raw, err)
 	}
 	if !strings.Contains(string(raw), `"routes":[{"dst":"0.0.0.0/0"}]`) || strings.Contains(string(raw), `"mtu"`) {
@@ -340,5 +340,33 @@ func TestBridgeMAC(t *testing.T) {
 	other, _ := BridgeOf(netip.MustParsePrefix("10.122.0.0/24"))
 	if bridgeMAC(other.Gateway).String() == mac.String() {
 		t.Error("two subnets share a bridge address")
+	}
+}
+
+// A new network namespace has its loopback down; without the plugin localhost
+// reaches nothing inside a container.
+func TestCNIConfigBringsUpLoopback(t *testing.T) {
+	t.Parallel()
+	b, err := cniConfig(runtime.Bridge{Subnet: netip.MustParsePrefix("10.120.0.0/24"), Gateway: netip.MustParseAddr("10.120.0.1")}, "/run/ipam", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var conf struct {
+		Plugins []struct {
+			Type string `json:"type"`
+		} `json:"plugins"`
+	}
+	if err := json.Unmarshal(b, &conf); err != nil {
+		t.Fatal(err)
+	}
+	if len(conf.Plugins) == 0 || conf.Plugins[0].Type != "bridge" {
+		t.Fatalf("the bridge must come first: its result names the container's address: %+v", conf.Plugins)
+	}
+	if !slices.ContainsFunc(conf.Plugins, func(p struct {
+		Type string `json:"type"`
+	}) bool {
+		return p.Type == "loopback"
+	}) {
+		t.Errorf("no loopback plugin: %+v", conf.Plugins)
 	}
 }

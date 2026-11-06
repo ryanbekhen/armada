@@ -431,6 +431,10 @@ func (r *runner) exec(t *testing.T, ex runtime.Execer) {
 		}
 		return out.String(), errOut.String(), code
 	}
+	// Localhost works: a new network namespace starts with its loopback down.
+	if out, _, code := run(runtime.ExecOptions{Cmd: []string{"sh", "-c", "[ $(( $(cat /sys/class/net/lo/flags) & 1 )) = 1 ] && echo up"}}); code != 0 || strings.TrimSpace(out) != "up" {
+		t.Errorf("the container's loopback is not up: %q, exit %d", out, code)
+	}
 
 	out, errOut, code := run(runtime.ExecOptions{
 		Cmd:   []string{"sh", "-c", `read x; echo "out:$x"; cat; echo err >&2; exit 3`},

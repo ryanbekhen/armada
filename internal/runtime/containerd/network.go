@@ -64,6 +64,9 @@ func cniConfig(b runtime.Bridge, ipamDir string, mtu int) ([]byte, error) {
 		bridge,
 		map[string]any{"type": "portmap", "capabilities": map[string]bool{"portMappings": true}, "snat": true},
 		map[string]any{"type": "firewall"},
+		// A new network namespace has its loopback down: localhost, and a
+		// container's own address, would reach nothing.
+		map[string]any{"type": "loopback"},
 	}
 	conf := map[string]any{
 		"cniVersion": "1.0.0",
