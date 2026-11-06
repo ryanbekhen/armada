@@ -64,6 +64,8 @@ type Driver struct {
 	// Usage is what Stats returns for running containers, keyed by replica
 	// ID; without an entry a running container used nothing.
 	Usage map[string]runtime.Stats
+	// Released counts ReleaseNetwork calls per container.
+	Released map[string]int
 	// NoStats makes the driver report that it cannot sample containers.
 	NoStats bool
 	// NoVolumes makes the driver report that it cannot mount volumes.
@@ -78,6 +80,17 @@ func (d *Driver) CanMountVolumes() bool {
 }
 
 // Stats returns d.Usage for a running container.
+// ReleaseNetwork records that a container's network was freed.
+func (d *Driver) ReleaseNetwork(_ context.Context, id string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.Released == nil {
+		d.Released = map[string]int{}
+	}
+	d.Released[id]++
+	return nil
+}
+
 func (d *Driver) Stats(_ context.Context, id string) (runtime.Stats, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()

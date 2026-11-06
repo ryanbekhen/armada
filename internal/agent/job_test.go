@@ -55,6 +55,10 @@ func TestJobAttemptRunsOnce(t *testing.T) {
 		t.Errorf("attempt restarted: %v", after)
 	}
 
+	if n := d.Released[cs[0].ID]; n == 0 {
+		t.Error("the finished attempt kept its address")
+	}
+
 	// Marking it done keeps the stopped container for its logs.
 	a.setDesired([]*armadav1.ReplicaSpec{attemptSpec(true)}, nil)
 	if _, err := a.Reconcile(ctx); err != nil {

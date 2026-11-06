@@ -553,6 +553,28 @@ func (d *Driver) Remove(ctx context.Context, id string) error {
 	)
 }
 
+// ReleaseNetwork frees the address of a stopped container kept for its logs.
+// Its network namespace is the mark: once that is gone nothing is left to free,
+// and Remove releasing again is harmless.
+func (d *Driver) ReleaseNetwork(ctx context.Context, id string) error {
+	ctx = d.ctx(ctx)
+	c, err := d.client.LoadContainer(ctx, id)
+	if err != nil {
+		return notFound(err)
+	}
+	labels, err := c.Labels(ctx)
+	if err != nil {
+		return err
+	}
+	if labels[labelKind] != "app" {
+		return nil
+	}
+	if _, err := os.Stat(labels[labelNetNS]); err != nil {
+		return nil //nolint:nilerr // already released, or gone with a reboot
+	}
+	return d.net.Teardown(ctx, id, labels[labelNetNS], mappingFromLabels(labels))
+}
+
 func mappingFromLabels(l map[string]string) *portMapping {
 	hp, err1 := strconv.Atoi(l[labelHostPort])
 	cp, err2 := strconv.Atoi(l[labelPort])
