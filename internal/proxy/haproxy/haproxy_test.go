@@ -508,8 +508,8 @@ func TestApplyLifecycle(t *testing.T) {
 	if strings.Join(a.cmds, "|") != strings.Join(want, "|") {
 		t.Errorf("runtime commands = %q, want %q", a.cmds, want)
 	}
-	if len(e.validations) != 1 || !strings.HasSuffix(e.validations[0], "haproxy.cfg.new") {
-		t.Errorf("validations = %v", e.validations)
+	if len(e.validations) != 0 {
+		t.Errorf("validations = %v: only servers changed", e.validations)
 	}
 
 	// Removing a replica puts its slot in maintenance.
@@ -1245,5 +1245,40 @@ func TestApplyTakesOverRunningProxy(t *testing.T) {
 	_ = d4.Apply(ctx, more)
 	if e.reloads != reloads+2 {
 		t.Errorf("no reload when the proxy cannot say what it runs")
+	}
+}
+
+// A change only of servers goes through the Runtime API, and the file keeps up
+// without a configuration check; a new structure is checked first.
+func TestValidateOnlyNewStructure(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	d, e, _, dir := newDriver(t)
+	cfg := func(addr string, names ...string) proxy.Config {
+		var c proxy.Config
+		for _, n := range names {
+			c.Backends = append(c.Backends, proxy.Backend{Name: n, Servers: []proxy.Server{{Name: n + "-1", Address: addr}}})
+		}
+		return c
+	}
+	if err := d.Apply(ctx, cfg("10.0.0.2:81", "web")); err != nil {
+		t.Fatal(err)
+	}
+	n := len(e.validations)
+	if err := d.Apply(ctx, cfg("10.0.0.2:82", "web")); err != nil {
+		t.Fatal(err)
+	}
+	if len(e.validations) != n {
+		t.Errorf("checked a configuration that only moved a server")
+	}
+	b, err := os.ReadFile(filepath.Join(dir, "etc", configFile))
+	if err != nil || !strings.Contains(string(b), "10.0.0.2:82") {
+		t.Errorf("file not updated: %v", err)
+	}
+	if err := d.Apply(ctx, cfg("10.0.0.2:82", "web", "api")); err != nil {
+		t.Fatal(err)
+	}
+	if len(e.validations) != n+1 {
+		t.Errorf("a new backend was not checked")
 	}
 }
