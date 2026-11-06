@@ -50,7 +50,9 @@ published on the private IP any more.
   overlap the legacy bridge subnet during migration. It allows a prefix
   from /12 to /20.
 - **Node subnet.** Each node gets a /24 from the cluster CIDR (253
-  containers). The leader allocates it when the node joins, in the same
+  containers; the scheduler places at most 250 replicas on a node, so a full
+  subnet moves replicas to other nodes rather than failing their starts). The
+  leader allocates it when the node joins, in the same
   transaction that registers the node. It is stored on the node record and
   freed when the node is removed. `armada0` takes the subnet's first
   address as its gateway. Internal ingress and DNS bind there (ADR 0007),

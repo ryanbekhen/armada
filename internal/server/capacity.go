@@ -16,6 +16,11 @@ const (
 	serverCPUMillis   = 100
 )
 
+// maxSubnetReplicas is how many replicas a node with its own container subnet
+// takes. A /24 has 253 addresses for containers; the rest leave room for a
+// container whose replica is gone but whose address is not free yet.
+const maxSubnetReplicas = 250
+
 // resources is what a replica reserves on its node, or what a node has.
 type resources struct {
 	cpu int64 // millicores
@@ -54,6 +59,22 @@ func (s *Server) allocatable(ctx context.Context, nodes []store.Node) ([]store.N
 		out[i] = n
 	}
 	return out, nil
+}
+
+// replicasFull reports whether n's container subnet has no address to spare
+// for another replica. A finished job attempt counts: its kept container holds
+// its address until it is removed.
+func replicasFull(n store.Node, replicas []store.Replica) bool {
+	if n.Subnet == "" {
+		return false
+	}
+	used := 0
+	for _, r := range replicas {
+		if r.NodeID == n.ID {
+			used++
+		}
+	}
+	return used >= maxSubnetReplicas
 }
 
 func humanCPU(m int64) string {

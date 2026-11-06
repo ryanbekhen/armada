@@ -106,6 +106,48 @@ func TestPickNodeReservesCPU(t *testing.T) {
 	}
 }
 
+func TestPickNodeSkipsFullSubnet(t *testing.T) {
+	t.Parallel()
+	nodes := []store.Node{
+		{ID: "a", State: store.NodeReady, Subnet: "10.120.0.0/24"},
+		{ID: "b", State: store.NodeReady, Subnet: "10.120.1.0/24"},
+	}
+	none := func(store.Replica) resources { return resources{} }
+	on := func(node string, n int, done bool) []store.Replica {
+		out := make([]store.Replica, n)
+		for i := range out {
+			out[i] = store.Replica{App: "x", NodeID: node, Done: done}
+		}
+		return out
+	}
+	// a is full, so the replica goes to b, though the app already runs there.
+	spread := []store.Replica{{App: "web", NodeID: "b"}}
+	all := append(on("a", maxSubnetReplicas, false), spread...)
+	if n, ok := pickNode(nodes, all, spread, "", resources{}, none); !ok || n.ID != "b" {
+		t.Errorf("picked %v (%v), want b (a has no address left)", n.ID, ok)
+	}
+	// Every node full: nothing fits, even with free CPU and memory.
+	all = append(on("a", maxSubnetReplicas, false), on("b", maxSubnetReplicas, false)...)
+	if n, ok := pickNode(nodes, all, nil, "", resources{}, none); ok {
+		t.Errorf("scheduled on %s with no address left", n.ID)
+	}
+	// One below the limit still fits.
+	all = append(on("a", maxSubnetReplicas-1, false), on("b", maxSubnetReplicas, false)...)
+	if n, ok := pickNode(nodes, all, nil, "", resources{}, none); !ok || n.ID != "a" {
+		t.Errorf("picked %v (%v), want a (one address left)", n.ID, ok)
+	}
+	// A finished attempt's kept container still holds its address.
+	all = append(all, on("a", 1, true)...)
+	if n, ok := pickNode(nodes, all, nil, "", resources{}, none); ok {
+		t.Errorf("scheduled on %s with the last address held by a finished attempt", n.ID)
+	}
+	// A node with no subnet of its own has no such limit.
+	plain := []store.Node{{ID: "a", State: store.NodeReady}}
+	if _, ok := pickNode(plain, on("a", maxSubnetReplicas, false), nil, "", resources{}, none); !ok {
+		t.Error("the limit applied to a node with no subnet of its own")
+	}
+}
+
 func TestPickVictim(t *testing.T) {
 	t.Parallel()
 

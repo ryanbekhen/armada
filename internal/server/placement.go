@@ -46,6 +46,10 @@ func placementMessage(ctx context.Context, revs *revisionCache, nodes []store.No
 		if _, ok := pickNode(fit, all, nil, "", want, reserved); ok {
 			return ""
 		}
+		if !slices.ContainsFunc(fit, func(n store.Node) bool { return !replicasFull(n, all) }) {
+			why = fmt.Sprintf("%d node(s) may run the app, each already runs %d replicas", len(fit), maxSubnetReplicas)
+			break
+		}
 		// Name what is short: CPU, memory, or only the two together.
 		short := want.String()
 		if _, ok := pickNode(fit, all, nil, "", resources{mem: want.mem}, reserved); !ok {
