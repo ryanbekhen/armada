@@ -201,11 +201,11 @@ func (a *App) CPUMillis() int64 {
 // MaxDrain is the longest drain: what ingress keeps a connection after a reload.
 const MaxDrain = time.Hour
 
-// Validate checks the spec and returns all problems joined together.
 // MaxIngressTimeout is the longest ingress.timeout: as long as ingress keeps
 // any connection after a reload.
 const MaxIngressTimeout = time.Hour
 
+// Validate checks the spec and returns all problems joined together.
 func (a *App) Validate() error {
 	var v validator
 
