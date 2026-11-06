@@ -16,6 +16,9 @@ import (
 // unevenly over its spreadBy values; it returns "" when there is room or
 // nothing is waiting. nodes carry their allocatable capacity.
 func placementMessage(ctx context.Context, revs *revisionCache, nodes []store.Node, all []store.Replica, app store.App) string {
+	if app.Removing {
+		return "being removed: its replicas are draining"
+	}
 	target, err := revs.get(ctx, app.TargetRevision)
 	if err != nil {
 		return ""

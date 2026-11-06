@@ -108,7 +108,7 @@ func (s *Server) buildProxy(ctx context.Context, apps []store.App, replicas []st
 		splits := len(app.Traffic) > 0 && !app.Rolling()
 		// Traffic splitting keeps every replica in one pool so revision
 		// weights hold; other apps prefer each node's own replicas.
-		be := proxy.Backend{Name: app.Name, Wake: sp.ScalesToZero(), LocalFirst: !splits}
+		be := proxy.Backend{Name: app.Name, Wake: sp.ScalesToZero() && !app.Removing, LocalFirst: !splits}
 		if sp.Probes != nil && sp.Probes.Readiness != nil {
 			be.HealthPath = sp.Probes.Readiness.Path
 		}

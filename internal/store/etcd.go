@@ -424,6 +424,8 @@ type appRec struct {
 	// with "latest" resolved (ADR 0022). It stays while such an app rolls
 	// out to single mode, so its revisions serve until the new one does.
 	Traffic []spec.TrafficTarget `json:"traffic,omitempty"`
+	// Removing marks an app whose replicas are draining before it goes.
+	Removing bool `json:"removing,omitempty"`
 }
 
 type revRec struct {
@@ -1151,7 +1153,7 @@ func (t *etx) toApp(a appRec) (App, error) {
 func appFrom(a appRec, rev Revision) App {
 	return App{Name: a.Name, ActiveRevision: a.ActiveRevision, TargetRevision: a.TargetRevision, Replicas: a.Replicas,
 		Spec: rev.Spec, RolloutState: a.RolloutState, RolloutMessage: a.RolloutMessage,
-		RolloutProgressAt: fromMS(a.RolloutProgressAt), CreatedAt: fromMS(a.CreatedAt), UpdatedAt: fromMS(a.UpdatedAt),
+		Removing: a.Removing, RolloutProgressAt: fromMS(a.RolloutProgressAt), CreatedAt: fromMS(a.CreatedAt), UpdatedAt: fromMS(a.UpdatedAt),
 		LastScheduled: fromMS(a.LastScheduled), Traffic: slices.Clone(a.Traffic)}
 }
 
@@ -1198,6 +1200,9 @@ func (s *Etcd) deploy(t *etx, sp *spec.App, replicas int, actor, action string) 
 	a, exists, err := t.app(id)
 	if err != nil {
 		return Revision{}, false, err
+	}
+	if exists && a.Removing {
+		return Revision{}, false, fmt.Errorf("%s is being removed; deploy again once it is gone: %w", id, ErrPrecondition)
 	}
 	if exists && sp.Autoscaled() {
 		// The autoscaler's count carries over, within the new bounds.

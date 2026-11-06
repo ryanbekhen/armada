@@ -168,6 +168,9 @@ type App struct {
 	// with "latest" resolved (ADR 0022); it also lists the revisions still
 	// serving while such an app rolls out to single mode.
 	Traffic []spec.TrafficTarget
+	// Removing is true from `armada app rm` until the app's replicas have
+	// drained and the leader removes it.
+	Removing bool
 }
 
 // Rolling reports whether a rollout is in progress.
@@ -475,6 +478,12 @@ type Store interface {
 	DeleteJobRun(ctx context.Context, job string, seq int64) error
 	CancelJobRuns(ctx context.Context, job, actor string) ([]JobRun, error)
 	DeleteJob(ctx context.Context, job, actor string) error
+	// MarkAppRemoving starts removing an app: the reconciler drains its
+	// replicas and then calls DeleteApp. Marking it again changes nothing.
+	MarkAppRemoving(ctx context.Context, app, actor string) error
+	// DeleteApp removes an app marked for removal with its revisions and
+	// secrets, once it has no replicas. Its volumes stay.
+	DeleteApp(ctx context.Context, app string) error
 	SetReplicaDone(ctx context.Context, id string) error
 
 	ListAudit(ctx context.Context, limit int) ([]AuditEvent, error)

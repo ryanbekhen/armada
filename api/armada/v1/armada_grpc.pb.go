@@ -62,6 +62,7 @@ const (
 	AdminService_ListJobRuns_FullMethodName                = "/armada.v1.AdminService/ListJobRuns"
 	AdminService_CancelJob_FullMethodName                  = "/armada.v1.AdminService/CancelJob"
 	AdminService_DeleteJob_FullMethodName                  = "/armada.v1.AdminService/DeleteJob"
+	AdminService_RemoveApp_FullMethodName                  = "/armada.v1.AdminService/RemoveApp"
 )
 
 // AdminServiceClient is the client API for AdminService service.
@@ -139,6 +140,9 @@ type AdminServiceClient interface {
 	ListJobRuns(ctx context.Context, in *ListJobRunsRequest, opts ...grpc.CallOption) (*ListJobRunsResponse, error)
 	CancelJob(ctx context.Context, in *CancelJobRequest, opts ...grpc.CallOption) (*CancelJobResponse, error)
 	DeleteJob(ctx context.Context, in *DeleteJobRequest, opts ...grpc.CallOption) (*DeleteJobResponse, error)
+	// RemoveApp drains an app's replicas and then removes it with its revisions
+	// and secrets. Its volumes stay until `armada volume rm`.
+	RemoveApp(ctx context.Context, in *RemoveAppRequest, opts ...grpc.CallOption) (*RemoveAppResponse, error)
 }
 
 type adminServiceClient struct {
@@ -612,6 +616,16 @@ func (c *adminServiceClient) DeleteJob(ctx context.Context, in *DeleteJobRequest
 	return out, nil
 }
 
+func (c *adminServiceClient) RemoveApp(ctx context.Context, in *RemoveAppRequest, opts ...grpc.CallOption) (*RemoveAppResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RemoveAppResponse)
+	err := c.cc.Invoke(ctx, AdminService_RemoveApp_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AdminServiceServer is the server API for AdminService service.
 // All implementations must embed UnimplementedAdminServiceServer
 // for forward compatibility.
@@ -687,6 +701,9 @@ type AdminServiceServer interface {
 	ListJobRuns(context.Context, *ListJobRunsRequest) (*ListJobRunsResponse, error)
 	CancelJob(context.Context, *CancelJobRequest) (*CancelJobResponse, error)
 	DeleteJob(context.Context, *DeleteJobRequest) (*DeleteJobResponse, error)
+	// RemoveApp drains an app's replicas and then removes it with its revisions
+	// and secrets. Its volumes stay until `armada volume rm`.
+	RemoveApp(context.Context, *RemoveAppRequest) (*RemoveAppResponse, error)
 	mustEmbedUnimplementedAdminServiceServer()
 }
 
@@ -825,6 +842,9 @@ func (UnimplementedAdminServiceServer) CancelJob(context.Context, *CancelJobRequ
 }
 func (UnimplementedAdminServiceServer) DeleteJob(context.Context, *DeleteJobRequest) (*DeleteJobResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method DeleteJob not implemented")
+}
+func (UnimplementedAdminServiceServer) RemoveApp(context.Context, *RemoveAppRequest) (*RemoveAppResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RemoveApp not implemented")
 }
 func (UnimplementedAdminServiceServer) mustEmbedUnimplementedAdminServiceServer() {}
 func (UnimplementedAdminServiceServer) testEmbeddedByValue()                      {}
@@ -1578,6 +1598,24 @@ func _AdminService_DeleteJob_Handler(srv interface{}, ctx context.Context, dec f
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AdminService_RemoveApp_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RemoveAppRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).RemoveApp(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminService_RemoveApp_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).RemoveApp(ctx, req.(*RemoveAppRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AdminService_ServiceDesc is the grpc.ServiceDesc for AdminService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1736,6 +1774,10 @@ var AdminService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "DeleteJob",
 			Handler:    _AdminService_DeleteJob_Handler,
+		},
+		{
+			MethodName: "RemoveApp",
+			Handler:    _AdminService_RemoveApp_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

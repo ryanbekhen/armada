@@ -97,6 +97,7 @@ func NewRootCommand() *cobra.Command {
 		newLogsCommand(g),
 		newTopCommand(g),
 		newEventsCommand(g),
+		newAppCommand(g),
 		newJobCommand(g),
 		newVolumeCommand(g),
 		newMetricsCommand(g),
