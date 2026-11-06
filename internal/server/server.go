@@ -163,6 +163,8 @@ type Server struct {
 	// after a move whose replacement never served.
 	rebalanceMu    sync.Mutex
 	rebalanceAfter map[string]time.Time
+	// failedSince is when a replica was first seen failing to start.
+	failedSince map[string]time.Time
 
 	wakeMu    sync.Mutex
 	wakeTimer *time.Timer
@@ -296,6 +298,7 @@ func New(cfg Config) (*Server, error) {
 		nodeLostTimeout:  cfg.NodeLostTimeout,
 		progress:         map[string]rolloutProgress{},
 		rebalanceAfter:   map[string]time.Time{},
+		failedSince:      map[string]time.Time{},
 	}
 	s.grpc = grpc.NewServer(
 		grpc.Creds(credentials.NewTLS(cfg.TLS)),

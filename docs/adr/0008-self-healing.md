@@ -39,6 +39,9 @@ node. A node cut off from the control plane may still serve traffic.
 - When a lost node comes back, its agent receives an assignment without the
   old replicas and removes their containers. Apps left unevenly spread are
   then rebalanced one replica at a time (ADR 0013).
+- **A failed start.** A replica that keeps failing to start for a minute, outside
+  a rollout, is replaced on another node that fits, one at a time per app, since
+  the cause may be its node's. With no such node it stays and keeps retrying.
 
 ## Alternatives considered
 
