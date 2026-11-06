@@ -585,6 +585,7 @@ func signature(cfg proxy.Config, layout Layout, opts renderOptions) string {
 		Slots        int
 		Wake         bool
 		LocalFirst   bool
+		Timeout      int
 	}
 	s := struct {
 		Opts     renderOptions
@@ -594,7 +595,7 @@ func signature(cfg proxy.Config, layout Layout, opts renderOptions) string {
 		Certs    []string
 	}{Opts: opts, ACME: cfg.ACMEAddress}
 	for _, b := range cfg.Backends {
-		s.Backends = append(s.Backends, be{b.Name, b.HealthPath, len(layout[backendName(b.Name)]), b.Wake, b.LocalFirst})
+		s.Backends = append(s.Backends, be{b.Name, b.HealthPath, len(layout[backendName(b.Name)]), b.Wake, b.LocalFirst, b.TimeoutSeconds})
 	}
 	slices.SortFunc(s.Backends, func(a, b be) int { return strings.Compare(a.Name, b.Name) })
 	s.Rules = slices.Clone(cfg.Rules)

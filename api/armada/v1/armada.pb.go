@@ -7365,9 +7365,12 @@ type ProxyBackend struct {
 	// Each node's proxy prefers the app's replicas on its own node while
 	// they are about as busy as its other replicas (ADR 0024). Off for
 	// traffic splitting, which needs every server to keep its weight.
-	LocalFirst    bool `protobuf:"varint,5,opt,name=local_first,json=localFirst,proto3" json:"local_first,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	LocalFirst bool `protobuf:"varint,5,opt,name=local_first,json=localFirst,proto3" json:"local_first,omitempty"`
+	// How long a request may wait for the app's response, in seconds; 0 means
+	// the default of a minute.
+	TimeoutSeconds uint32 `protobuf:"varint,6,opt,name=timeout_seconds,json=timeoutSeconds,proto3" json:"timeout_seconds,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *ProxyBackend) Reset() {
@@ -7433,6 +7436,13 @@ func (x *ProxyBackend) GetLocalFirst() bool {
 		return x.LocalFirst
 	}
 	return false
+}
+
+func (x *ProxyBackend) GetTimeoutSeconds() uint32 {
+	if x != nil {
+		return x.TimeoutSeconds
+	}
+	return 0
 }
 
 type ProxyServer struct {
@@ -10189,7 +10199,7 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\bbackends\x18\x01 \x03(\v2\x17.armada.v1.ProxyBackendR\bbackends\x12*\n" +
 	"\x05rules\x18\x02 \x03(\v2\x14.armada.v1.ProxyRuleR\x05rules\x12?\n" +
 	"\fcertificates\x18\x03 \x03(\v2\x1b.armada.v1.ProxyCertificateR\fcertificates\x124\n" +
-	"\x16acme_challenge_address\x18\x04 \x01(\tR\x14acmeChallengeAddress\"\xaa\x01\n" +
+	"\x16acme_challenge_address\x18\x04 \x01(\tR\x14acmeChallengeAddress\"\xd3\x01\n" +
 	"\fProxyBackend\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x120\n" +
 	"\aservers\x18\x02 \x03(\v2\x16.armada.v1.ProxyServerR\aservers\x12\x1f\n" +
@@ -10197,7 +10207,8 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"healthPath\x12\x12\n" +
 	"\x04wake\x18\x04 \x01(\bR\x04wake\x12\x1f\n" +
 	"\vlocal_first\x18\x05 \x01(\bR\n" +
-	"localFirst\"S\n" +
+	"localFirst\x12'\n" +
+	"\x0ftimeout_seconds\x18\x06 \x01(\rR\x0etimeoutSeconds\"S\n" +
 	"\vProxyServer\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
 	"\aaddress\x18\x02 \x01(\tR\aaddress\x12\x16\n" +
