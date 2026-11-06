@@ -113,6 +113,17 @@ Apps with `type: external` are reachable at `https://<name>.<root domain>`
 once a root domain is set with `armada cluster set --root-domain`, plus
 their verified custom domains. HTTP redirects to HTTPS.
 
+Limits on a connection through ingress:
+
+- A request gets `504` when the app sends nothing for 60 seconds.
+- A WebSocket closes after 1 hour with no data in either direction, so
+  clients should send a ping at a shorter interval.
+- A deploy of a new app, or a new domain, makes the proxy reload. Open
+  connections stay on the previous configuration for at most 1 hour after
+  that, then close, so clients should be able to reconnect.
+- A replica leaving (a deploy, scaling down, a node drained) gets no new
+  requests and stops about 10 seconds later, closing what it still holds.
+
 ### `probes`
 
 `startup`, `readiness`, and `liveness`, each with:
