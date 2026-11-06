@@ -198,10 +198,10 @@ func (a *App) CPUMillis() int64 {
 	return DefaultCPUMillis
 }
 
-// Validate checks the spec and returns all problems joined together.
 // MaxDrain is the longest drain: what ingress keeps a connection after a reload.
 const MaxDrain = time.Hour
 
+// Validate checks the spec and returns all problems joined together.
 func (a *App) Validate() error {
 	var v validator
 
