@@ -345,6 +345,11 @@ func newAgentCommand() *cobra.Command {
 }
 
 func runAgent(ctx context.Context, dataDir string, servers []string, proxyKind, secretsDir string, internalDNS bool, log *slog.Logger) error {
+	unlock, err := lockDataDir(dataDir)
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	ac, err := loadAgentConfig(dataDir)
 	if err != nil {
 		return err
