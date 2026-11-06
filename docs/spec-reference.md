@@ -107,6 +107,7 @@ a secret; there is no inline password field.
 | `port` | The container port that serves HTTP, 1–65535. Required for `external` and `internal`. |
 | `domains` | `external` only. Up to 32 lowercase, fully qualified host names (no IP addresses, wildcards, or trailing dot). Each domain is routed and gets a certificate only after its ownership is verified: publish the TXT record shown by `armada domain list`, then run `armada domain verify <domain>`. |
 | `allow` | Up to 32 names of apps in the same project that may call this app at its internal name, for example `allow: [api, worker]`. The app's own replicas always may. Without `allow`, every app of the project may. Other callers get a 404. Enforced with the cluster network (ADR 0025), for calls through the internal name; not with `type: none`. |
+| `timeout` | How long a request may wait for the app to send something, 1s to 1h, default `60s`, for an app with slow responses such as long reports. |
 | `routes` | Up to 32 path prefixes (`/` or `/a/b`, URL-safe characters, no `.` or `..` segments). Without routes the app gets every path of its hosts. `stripPrefix: true` removes the prefix before the request reaches the app (not allowed for `/`). The longest matching prefix wins. |
 
 Apps with `type: external` are reachable at `https://<name>.<root domain>`
@@ -115,7 +116,8 @@ their verified custom domains. HTTP redirects to HTTPS.
 
 Limits on a connection through ingress:
 
-- A request gets `504` when the app sends nothing for 60 seconds.
+- A request gets `504` when the app sends nothing for `ingress.timeout`, 60
+  seconds by default.
 - A WebSocket closes after 1 hour with no data in either direction, so
   clients should send a ping at a shorter interval.
 - A deploy of a new app, or a new domain, makes the proxy reload. Open

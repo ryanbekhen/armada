@@ -1000,6 +1000,9 @@ message ProxyBackend {
   // they are about as busy as its other replicas (ADR 0024). Off for
   // traffic splitting, which needs every server to keep its weight.
   bool local_first = 5;
+  // How long a request may wait for the app's response, in seconds; 0 means
+  // the default of a minute.
+  uint32 timeout_seconds = 6;
 }
 
 message ProxyServer {

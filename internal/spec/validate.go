@@ -199,6 +199,10 @@ func (a *App) CPUMillis() int64 {
 }
 
 // Validate checks the spec and returns all problems joined together.
+// MaxIngressTimeout is the longest ingress.timeout: as long as ingress keeps
+// any connection after a reload.
+const MaxIngressTimeout = time.Hour
+
 func (a *App) Validate() error {
 	var v validator
 
@@ -318,6 +322,9 @@ func (v *validator) env(env []EnvVar) {
 func (v *validator) ingress(in *Ingress, self string) {
 	if in == nil {
 		return
+	}
+	if in.Timeout != 0 && (in.Timeout.D() < time.Second || in.Timeout.D() > MaxIngressTimeout) {
+		v.add("ingress.timeout", "must be between 1s and %s", MaxIngressTimeout)
 	}
 	switch in.Type {
 	case IngressExternal:

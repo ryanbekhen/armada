@@ -45,7 +45,7 @@ func sampleConfig(t *testing.T) proxy.Config {
 			}},
 			{Name: "admin-panel", Servers: nil, Wake: true, LocalFirst: true}, // scaled to zero
 			// Its project limits requests (ADR 0026).
-			{Name: "shop", LocalFirst: true, HealthPath: "/ready", Servers: []proxy.Server{
+			{Name: "shop", LocalFirst: true, HealthPath: "/ready", TimeoutSeconds: 300, Servers: []proxy.Server{
 				{Name: "shop-r2-a", Address: "10.0.0.3:32771"},
 				{Name: "shop-r2-b", Address: "10.0.0.2:32772"},
 			}},
@@ -1177,5 +1177,26 @@ func TestLongLivedConnectionLimits(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("config lacks %q", want)
 		}
+	}
+}
+
+func TestBackendTimeout(t *testing.T) {
+	t.Parallel()
+	cfg := proxy.Config{Backends: []proxy.Backend{{Name: "web", TimeoutSeconds: 300}}}
+	out := string(render(cfg, assignLayout(nil, cfg, node{}), renderOptions{}))
+	if !strings.Contains(out, "backend be_web\n    timeout server 300s\n") {
+		t.Errorf("no timeout in the backend:\n%s", out)
+	}
+	for _, bad := range []int{-1, proxy.MaxTimeoutSeconds + 1} {
+		cfg.Backends[0].TimeoutSeconds = bad
+		if err := cfg.Validate(); err == nil {
+			t.Errorf("accepted a timeout of %d", bad)
+		}
+	}
+	// A change is structural: it needs a reload.
+	a, b := proxy.Config{Backends: []proxy.Backend{{Name: "web"}}}, proxy.Config{Backends: []proxy.Backend{{Name: "web", TimeoutSeconds: 300}}}
+	l := assignLayout(nil, a, node{})
+	if signature(a, l, renderOptions{}) == signature(b, l, renderOptions{}) {
+		t.Error("the signature does not see the timeout")
 	}
 }
