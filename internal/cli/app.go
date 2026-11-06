@@ -21,7 +21,7 @@ func newAppRemoveCommand(g *globals) *cobra.Command {
 	var yes bool
 	cmd := &cobra.Command{
 		Use:     "remove APP --yes",
-		Aliases: []string{"rm"},
+		Aliases: []string{"rm", "delete"},
 		Short:   "Stop an app's replicas and remove it with its revisions and secrets",
 		Long: "Stops serving the app, drains its replicas, and removes it with its revisions and\n" +
 			"secrets. This cannot be undone. Its volumes and their data stay until\n" +
