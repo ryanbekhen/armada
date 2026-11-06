@@ -1168,3 +1168,14 @@ func TestApplyWritesRouteMaps(t *testing.T) {
 		t.Errorf("route maps %v after %v", next, first)
 	}
 }
+
+// A silent WebSocket outlives the request timeouts, and a reload's old process
+// does not stay forever for the connections it still holds.
+func TestLongLivedConnectionLimits(t *testing.T) {
+	out := string(render(proxy.Config{}, Layout{}, renderOptions{}))
+	for _, want := range []string{"    timeout tunnel 1h\n", "    hard-stop-after 1h\n", "    timeout server 60s\n"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("config lacks %q", want)
+		}
+	}
+}

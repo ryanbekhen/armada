@@ -227,6 +227,9 @@ func render(cfg proxy.Config, layout Layout, opts renderOptions) []byte {
 	w("    stats socket %s/%s mode 600 level admin", containerRunDir, socketFile)
 	w("    log stdout format raw local0")
 	w("    maxconn 20000")
+	// A reload leaves the old process serving its open connections. Long-lived
+	// ones would keep it, and its memory, for as long as they last.
+	w("    hard-stop-after 1h")
 	w("    ssl-default-bind-options ssl-min-ver TLSv1.2 no-tls-tickets")
 	w("    ssl-default-bind-ciphersuites TLS_AES_128_GCM_SHA256:TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256")
 	w("    ssl-default-bind-ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305")
@@ -249,6 +252,8 @@ func render(cfg proxy.Config, layout Layout, opts renderOptions) []byte {
 	w("    timeout http-request 10s")
 	w("    timeout http-keep-alive 10s")
 	w("    timeout queue 30s")
+	// A WebSocket may stay silent far longer than a request may.
+	w("    timeout tunnel 1h")
 	w("")
 
 	if opts.PrivateIP != "" {
