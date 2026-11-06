@@ -349,6 +349,14 @@ wait_for 60 "https://$URL_HOST answers 200 on every public IP" all_https_ok
 curl -sk --max-time 5 --resolve "$URL_HOST:443:$(host 1 4)" "https://$URL_HOST/?env=true" | grep -qx "E2E_SECRET=$SECRET" ||
 	fail "the secret did not reach the container"
 ok "the secret reached the container"
+
+log "a secret of an app in another project"
+cli project create e2e-proj >/dev/null
+printf '%s' "$SECRET" | cli secret set e2e-app --project e2e-proj e2e-secret --no-rollout >/dev/null
+[ "$(cli secret list e2e-app --project e2e-proj | grep -c e2e-secret)" = 1 ] ||
+	fail "armada secret list does not show the secret of a project's app"
+cli secret rm e2e-app --project e2e-proj e2e-secret >/dev/null
+ok "a project's app has secrets"
 i=1
 while [ "$i" -le "$N" ]; do
 	_hits=$(printf '%s\n' "$SECRET" | on "$i" 'journalctl --no-pager -o cat | grep -c -F -f - || true')
