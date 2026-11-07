@@ -180,7 +180,7 @@ func (u *usageStore) outOfMemory(nodeID string, r *armadav1.UsageReport) []store
 		if o, ok := u.owners[ru.GetId()]; ok && o.node == nodeID {
 			out = append(out, store.Event{
 				Kind: eventReplica, Reason: "OutOfMemory", Object: ru.GetId(), App: o.app, Node: nodeID,
-				Message: fmt.Sprintf("the kernel killed %d processes at the memory limit", min(ru.GetOomKills(), maxOOMReport)),
+				Message: fmt.Sprintf("processes killed at the memory limit: %d", min(ru.GetOomKills(), maxOOMReport)),
 			})
 		}
 	}
