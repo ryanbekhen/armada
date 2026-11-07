@@ -446,7 +446,7 @@ func TestEndToEnd(t *testing.T) {
 	if code, out, stderr := cli("cluster", "set", "--root-domain", "apps.example.org"); code != 0 || !strings.Contains(out, "apps.example.org") {
 		t.Fatalf("cluster set: %q %q", out, stderr)
 	}
-	if code, out, _ := cli("cluster", "show"); code != 0 || !strings.Contains(out, "root domain: apps.example.org") {
+	if code, out, _ := cli("cluster", "show"); code != 0 || !strings.Contains(out, "root domain:     apps.example.org") {
 		t.Errorf("cluster show = %q", out)
 	}
 	waitFor("haproxy routes web", func() bool {

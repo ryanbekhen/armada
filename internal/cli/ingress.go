@@ -47,7 +47,7 @@ func (f *tlsFlags) register(cmd *cobra.Command) {
 	fl.StringVar(&f.ca, "acme-ca", "letsencrypt", "ACME directory: letsencrypt, letsencrypt-staging, or an https:// URL")
 	fl.StringVar(&f.email, "acme-email", "", "contact email for the ACME account")
 	fl.StringVar(&f.listen, "acme-listen", "", "private ip:port for HTTP-01 challenges forwarded by HAProxy (default: <server ip>:7480)")
-	fl.StringVar(&f.dnsProvider, "dns-provider", "", "DNS provider for the wildcard certificate of the root domain: cloudflare")
+	fl.StringVar(&f.dnsProvider, "dns-provider", "", "DNS provider for certificates of the root domain and the names under it, including a wildcard: cloudflare")
 	fl.StringVar(&f.dnsTokenFile, "dns-token-file", "", "file (mode 0600) holding the DNS provider API token")
 }
 
@@ -202,35 +202,47 @@ func newClusterCommand(g *globals) *cobra.Command {
 			if err != nil {
 				return rpcErr(err)
 			}
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "root domain: %s\nacme email:  %s\n", dash(cc.RootDomain), dash(cc.AcmeEmail))
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "root domain:     %s\nacme email:      %s\ntrusted proxies: %s\n", dash(cc.RootDomain), dash(cc.AcmeEmail), dash(strings.Join(cc.TrustedProxies, ",")))
 			return err
 		},
 	}
-	var root string
+	var (
+		root    string
+		trusted []string
+	)
 	set := &cobra.Command{
 		Use:   "set",
 		Short: "Change cluster settings",
 		Long: "Change cluster settings.\n\nWith --root-domain, every app with external ingress is reachable at\n" +
-			"https://<app>.<root-domain>. Point a wildcard DNS record (*.<root-domain>)\nat your nodes first.",
+			"https://<app>.<root-domain>. Point a wildcard DNS record (*.<root-domain>)\nat your nodes first.\n\n" +
+			"With --trusted-proxies, requests from these prefixes keep the client address\n" +
+			"headers they carry (X-Forwarded-For, CF-Connecting-IP, and the like). Every\n" +
+			"other request loses them, so a client cannot claim another address.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if !cmd.Flags().Changed("root-domain") {
-				return errors.New("nothing to change; pass --root-domain")
+			setRoot, setTrusted := cmd.Flags().Changed("root-domain"), cmd.Flags().Changed("trusted-proxies")
+			if !setRoot && !setTrusted {
+				return errors.New("nothing to change; pass --root-domain or --trusted-proxies")
 			}
 			client, conn, err := dialAdmin(g)
 			if err != nil {
 				return err
 			}
 			defer conn.Close()
-			cc, err := client.SetClusterConfig(cmd.Context(), &armadav1.SetClusterConfigRequest{Config: &armadav1.ClusterConfig{RootDomain: root}})
+			cc, err := client.SetClusterConfig(cmd.Context(), &armadav1.SetClusterConfigRequest{
+				Config:            &armadav1.ClusterConfig{RootDomain: root, TrustedProxies: trusted},
+				SetRootDomain:     setRoot,
+				SetTrustedProxies: setTrusted,
+			})
 			if err != nil {
 				return rpcErr(err)
 			}
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "root domain: %s\n", dash(cc.RootDomain))
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "root domain:     %s\ntrusted proxies: %s\n", dash(cc.RootDomain), dash(strings.Join(cc.TrustedProxies, ",")))
 			return err
 		},
 	}
 	set.Flags().StringVar(&root, "root-domain", "", "root domain for app URLs (empty to clear)")
+	set.Flags().StringSliceVar(&trusted, "trusted-proxies", nil, "address prefixes of proxies in front of the nodes, comma separated (empty to clear)")
 	cmd.AddCommand(show, set)
 	return cmd
 }

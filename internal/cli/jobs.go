@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"io"
 	"slices"
@@ -9,6 +11,8 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -30,10 +34,19 @@ func newJobCommand(g *globals) *cobra.Command {
 }
 
 func newJobRunCommand(g *globals) *cobra.Command {
-	return &cobra.Command{
+	var (
+		wait    bool
+		timeout time.Duration
+	)
+	cmd := &cobra.Command{
 		Use:   "run JOB",
 		Short: "Start a run of a job now",
-		Args:  cobra.ExactArgs(1),
+		Long: "Start a run of a job now.\n\n" +
+			"With --wait the command ends when the run does and fails unless the run\n" +
+			"succeeded, so a script can stop on a failed step such as a migration. A\n" +
+			"run still going after --timeout keeps going; cancel it with `armada job cancel`.",
+		Example: "  armada job run migrate --wait --timeout 5m",
+		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := g.qualify(args); err != nil {
 				return err
@@ -47,10 +60,72 @@ func newJobRunCommand(g *globals) *cobra.Command {
 			if err != nil {
 				return rpcErr(err)
 			}
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Started run %d of %s; follow it with `armada logs %s -f`\n", resp.Run, args[0], args[0])
-			return err
+			out := cmd.OutOrStdout()
+			if !wait {
+				_, err = fmt.Fprintf(out, "Started run %d of %s; follow it with `armada logs %s -f`\n", resp.Run, args[0], args[0])
+				return err
+			}
+			_, _ = fmt.Fprintf(out, "Started run %d of %s; waiting for it to end\n", resp.Run, args[0])
+			return waitJobRun(cmd.Context(), client, args[0], resp.Run, timeout, out)
 		},
 	}
+	cmd.Flags().BoolVar(&wait, "wait", false, "wait until the run ends; fail unless it succeeded")
+	cmd.Flags().DurationVar(&timeout, "timeout", 15*time.Minute, "how long --wait waits")
+	return cmd
+}
+
+// waitJobRun polls until a run has ended and fails unless it succeeded.
+func waitJobRun(ctx context.Context, client armadav1.AdminServiceClient, job string, run int64, timeout time.Duration, out io.Writer) error {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	tick := time.NewTicker(waitPoll)
+	defer tick.Stop()
+	for {
+		resp, err := client.ListJobRuns(ctx, &armadav1.ListJobRunsRequest{Job: job})
+		switch {
+		case err == nil:
+			i := slices.IndexFunc(resp.GetRuns(), func(r *armadav1.JobRunInfo) bool { return r.GetRun() == run })
+			if i < 0 {
+				return fmt.Errorf("run %d of %s is gone; it left the job's history before it could be read", run, job)
+			}
+			if done, err := jobRunResult(resp.GetRuns()[i]); done {
+				if err == nil {
+					_, _ = fmt.Fprintf(out, "Run %d of %s succeeded\n", run, job)
+				}
+				return err
+			}
+		case ctx.Err() == nil && status.Code(err) != codes.Unavailable:
+			// Unavailable passes: the control plane changes leader and the
+			// run goes on.
+			return rpcErr(err)
+		}
+		select {
+		case <-ctx.Done():
+			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				return fmt.Errorf("run %d of %s did not end within %s; it keeps going (`armada job cancel %s` stops it)", run, job, timeout, job)
+			}
+			return ctx.Err()
+		case <-tick.C:
+		}
+	}
+}
+
+// jobRunResult reports whether a run has ended, and why when it did not succeed.
+func jobRunResult(r *armadav1.JobRunInfo) (bool, error) {
+	switch r.GetState() {
+	case "pending", "running":
+		return false, nil
+	case "succeeded":
+		return true, nil
+	}
+	why := r.GetState()
+	if c := r.GetExitCode(); c != 0 {
+		why += fmt.Sprintf(" with exit code %d", c)
+	}
+	if m := printable(r.GetMessage()); m != "" {
+		why += ": " + m
+	}
+	return true, fmt.Errorf("run %d of %s %s; see `armada logs %s --run %d`", r.GetRun(), r.GetJob(), why, r.GetJob(), r.GetRun())
 }
 
 func newJobListCommand(g *globals) *cobra.Command {

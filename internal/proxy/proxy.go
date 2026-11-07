@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
+	"slices"
 	"strings"
 	"time"
 
@@ -70,7 +71,15 @@ type Config struct {
 	Certificates []Certificate
 	// ACMEAddress is the control plane's HTTP-01 responder (private ip:port).
 	ACMEAddress string
+	// TrustedProxies are the prefixes whose requests keep the client address
+	// headers they carry (ClientAddressHeaders). Requests from anywhere else
+	// lose them, so a client cannot claim another address.
+	TrustedProxies []string
 }
+
+// ClientAddressHeaders are the headers applications read a client's address
+// from, set by proxies. They are only believed from TrustedProxies.
+var ClientAddressHeaders = []string{"Forwarded", "X-Forwarded-For", "X-Real-IP", "CF-Connecting-IP", "True-Client-IP"}
 
 // Backend is one app's set of replicas.
 type Backend struct {
@@ -156,6 +165,7 @@ func FromProto(p *armadav1.ProxyConfig) Config {
 		return c
 	}
 	c.ACMEAddress = p.GetAcmeChallengeAddress()
+	c.TrustedProxies = p.GetTrustedProxies()
 	for _, b := range p.GetBackends() {
 		be := Backend{Name: b.GetName(), HealthPath: b.GetHealthPath(), Wake: b.GetWake(), LocalFirst: b.GetLocalFirst(), TimeoutSeconds: int(min(b.GetTimeoutSeconds(), MaxTimeoutSeconds+1))}
 		for _, s := range b.GetServers() {
@@ -174,7 +184,7 @@ func FromProto(p *armadav1.ProxyConfig) Config {
 
 // ToProto converts to the wire format.
 func (c Config) ToProto() *armadav1.ProxyConfig {
-	p := &armadav1.ProxyConfig{AcmeChallengeAddress: c.ACMEAddress}
+	p := &armadav1.ProxyConfig{AcmeChallengeAddress: c.ACMEAddress, TrustedProxies: c.TrustedProxies}
 	for _, b := range c.Backends {
 		pb := &armadav1.ProxyBackend{Name: b.Name, HealthPath: b.HealthPath, Wake: b.Wake, LocalFirst: b.LocalFirst, TimeoutSeconds: uint32(max(min(b.TimeoutSeconds, MaxTimeoutSeconds), 0))}
 		for _, s := range b.Servers {
@@ -198,7 +208,32 @@ const (
 	MaxRules          = 5000
 	MaxCertificates   = 2000
 	maxCertificatePEM = 64 << 10
+	// MaxTrustedProxies bounds the prefixes of TrustedProxies.
+	MaxTrustedProxies = 64
 )
+
+// ParseTrustedProxies checks prefixes of proxies in front of the nodes and
+// returns them in canonical form, sorted and without duplicates. A prefix
+// that matches every address is refused: it would let any client claim any
+// address.
+func ParseTrustedProxies(prefixes []string) ([]string, error) {
+	if len(prefixes) > MaxTrustedProxies {
+		return nil, fmt.Errorf("at most %d trusted proxies", MaxTrustedProxies)
+	}
+	out := make([]string, 0, len(prefixes))
+	for _, s := range prefixes {
+		pfx, err := netip.ParsePrefix(s)
+		if err != nil {
+			return nil, fmt.Errorf("trusted proxy %q: want an address prefix such as 192.0.2.0/24", s)
+		}
+		if pfx.Bits() == 0 {
+			return nil, fmt.Errorf("trusted proxy %q matches every address", s)
+		}
+		out = append(out, pfx.Masked().String())
+	}
+	slices.Sort(out)
+	return slices.Compact(out), nil
+}
 
 // Validate re-checks every field that reaches generated proxy configuration.
 // The server validates specs too; this is defense in depth against a bug or a
@@ -212,6 +247,9 @@ func (c Config) Validate() error {
 		if err != nil || !netutil.IsPrivate(ap.Addr()) {
 			add("acme address %q must be a private ip:port", c.ACMEAddress)
 		}
+	}
+	if _, err := ParseTrustedProxies(c.TrustedProxies); err != nil {
+		add("%v", err)
 	}
 	if len(c.Backends) > MaxBackends || len(c.Rules) > MaxRules || len(c.Certificates) > MaxCertificates {
 		add("configuration exceeds size limits")

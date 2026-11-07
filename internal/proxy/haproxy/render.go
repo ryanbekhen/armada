@@ -281,6 +281,16 @@ func render(cfg proxy.Config, layout Layout, opts renderOptions) []byte {
 	w("frontend https")
 	w("    bind :443 ssl crt %s/%s crt %s/%s/ alpn h2,http/1.1", containerConfDir, defaultCertFile, containerConfDir, certDir)
 	w("    http-request set-header X-Forwarded-Proto https")
+	// Only a trusted proxy may say who the client is. The proxy adds the
+	// connection's own address to X-Forwarded-For after these rules.
+	unless := ""
+	if len(cfg.TrustedProxies) > 0 {
+		w("    acl trusted_proxy src %s", strings.Join(cfg.TrustedProxies, " "))
+		unless = " unless trusted_proxy"
+	}
+	for _, h := range proxy.ClientAddressHeaders {
+		w("    http-request del-header %s%s", h, unless)
+	}
 	w("    http-request set-var(txn.host) req.hdr(host),field(1,:),lower")
 	w("    http-request set-var(txn.path) path")
 
@@ -544,6 +554,7 @@ func hostForBind(ip string) string {
 // safeConfig checks every value render interpolates.
 func safeConfig(cfg proxy.Config, opts renderOptions) bool {
 	vals := []string{cfg.ACMEAddress, opts.PrivateIP, opts.InternalIP, opts.Subnet}
+	vals = append(vals, cfg.TrustedProxies...)
 	for _, be := range cfg.Backends {
 		vals = append(vals, be.Name, be.HealthPath)
 		for _, s := range be.Servers {

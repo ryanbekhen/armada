@@ -507,6 +507,31 @@ Long-lived connections have their own limits: a silent WebSocket closes after
 connections stops at most 1 hour after the reload, closing what it still holds.
 See [`ingress`](spec-reference.md#ingress) for what clients should do.
 
+### Behind a proxy or CDN
+
+Public ingress removes the headers that name a client's address
+(`Forwarded`, `X-Forwarded-For`, `X-Real-IP`, `CF-Connecting-IP`,
+`True-Client-IP`), then adds the connection's own address to
+`X-Forwarded-For`, so an app sees who really connected and nobody can claim
+another address. When a proxy or CDN sits in front of your nodes, list its
+address ranges so requests from it keep those headers:
+
+```bash
+armada cluster set --trusted-proxies 192.0.2.0/24,198.51.100.0/24
+armada cluster set --trusted-proxies ""    # no proxy trusted again
+```
+
+Requests from anywhere else still lose them. A range that matches every
+address is refused. The list is a cluster setting, audited, and applied with a
+proxy reload. Keep it current with the provider's published ranges.
+
+To stop clients going around the proxy altogether, limit ports 80 and 443 on
+the nodes to the same ranges in your firewall: HAProxy runs on the host's
+network, so firewall rules on the host apply to it.
+
+The internal frontend leaves these headers alone, so an app that proxies to
+another one can pass its client's address on.
+
 ## Running commands in replicas
 
 `armada exec` runs a command in one replica of an app and exits with the
@@ -654,6 +679,7 @@ Jobs run a container to completion, on demand or on a schedule
 ```bash
 armada deploy -f backup.yaml     # kind: job; changes apply to the next runs
 armada job run db-backup         # start a run now
+armada job run db-backup --wait  # and wait: exits non-zero unless the run succeeded
 armada job ls                    # schedule, latest run, next run
 armada job runs db-backup        # runs, newest first
 armada logs db-backup            # the newest run's output (--run N for another)

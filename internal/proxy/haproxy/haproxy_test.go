@@ -180,6 +180,48 @@ func TestRenderInternalFrontend(t *testing.T) {
 	}
 }
 
+// Client address headers survive only from trusted proxies, on the public
+// frontend. The internal one keeps what an app's own proxy passes on.
+func TestRenderClientAddressHeaders(t *testing.T) {
+	t.Parallel()
+	opts := renderOptions{InternalIP: "10.120.0.1"}
+	frontends := func(out string) (https, internal string) {
+		https = out[strings.Index(out, "frontend https"):]
+		if i := strings.Index(https, "frontend internal"); i >= 0 {
+			https, internal = https[:i], https[i:]
+		}
+		return https, internal
+	}
+	rendered := func(c proxy.Config) string { return string(render(c, assignLayout(nil, c, opts.node()), opts)) }
+	none := rendered(proxy.Config{})
+	https, internal := frontends(none)
+	for _, h := range proxy.ClientAddressHeaders {
+		if !strings.Contains(https, "http-request del-header "+h+"\n") {
+			t.Errorf("%s is kept with no trusted proxies:\n%s", h, https)
+		}
+		if strings.Contains(internal, "del-header "+h) {
+			t.Errorf("%s is removed on the internal frontend", h)
+		}
+	}
+	if strings.Contains(none, "trusted_proxy") {
+		t.Error("an empty trusted proxy list reached the configuration")
+	}
+
+	https, _ = frontends(rendered(proxy.Config{TrustedProxies: []string{"192.0.2.0/24", "2001:db8::/32"}}))
+	if !strings.Contains(https, "acl trusted_proxy src 192.0.2.0/24 2001:db8::/32\n") {
+		t.Errorf("no acl:\n%s", https)
+	}
+	for _, h := range proxy.ClientAddressHeaders {
+		if !strings.Contains(https, "http-request del-header "+h+" unless trusted_proxy\n") {
+			t.Errorf("%s is not limited to trusted proxies:\n%s", h, https)
+		}
+	}
+
+	if out := rendered(proxy.Config{TrustedProxies: []string{"192.0.2.0/24\n    bind :22"}}); out != "" {
+		t.Error("rendered a value with a line break")
+	}
+}
+
 func TestRenderNoPublicMetrics(t *testing.T) {
 	t.Parallel()
 
@@ -997,6 +1039,36 @@ func TestLocalFirstChangeReloads(t *testing.T) {
 	}
 	if e.reloads != before+1 {
 		t.Errorf("reloads = %d, want 1", e.reloads-before)
+	}
+}
+
+// A changed list of trusted proxies only takes effect through a reload: the
+// frontend's rules are not something the Runtime API can change.
+func TestTrustedProxiesChangeReloads(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	d, e, _, _ := newDriver(t)
+	cfg := proxy.Config{Backends: []proxy.Backend{{Name: "web", Servers: []proxy.Server{{Name: "web-1", Address: "10.0.0.2:80"}}}}}
+	if err := d.Apply(ctx, cfg); err != nil {
+		t.Fatal(err)
+	}
+	e.running = true
+	for _, trusted := range [][]string{{"192.0.2.0/24"}, {"192.0.2.0/24", "198.51.100.0/24"}, nil} {
+		before := e.reloads
+		cfg.TrustedProxies = trusted
+		if err := d.Apply(ctx, cfg); err != nil {
+			t.Fatal(err)
+		}
+		if e.reloads != before+1 {
+			t.Errorf("%v: reloads = %d, want 1", trusted, e.reloads-before)
+		}
+	}
+	before := e.reloads
+	if err := d.Apply(ctx, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if e.reloads != before {
+		t.Error("reloaded with nothing changed")
 	}
 }
 

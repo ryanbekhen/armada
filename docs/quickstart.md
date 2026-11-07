@@ -136,9 +136,10 @@ domain entirely and list each app's host names under `ingress.domains`
 (see "Custom domain" below).
 
 Each app gets its own certificate through HTTP-01. For a single wildcard
-certificate, start the server with `--dns-provider cloudflare
---dns-token-file /etc/armada/cloudflare.token` (a `0600` file holding a
-Cloudflare API token). Create a custom token with the permissions
+certificate, or when HTTP-01 cannot reach your nodes, start the server with
+`--dns-provider cloudflare --dns-token-file /etc/armada/cloudflare.token` (a
+`0600` file holding a Cloudflare API token). The root domain itself and every
+name under it then use DNS-01; other custom domains keep HTTP-01. Create a custom token with the permissions
 `Zone / DNS / Edit` and `Zone / Zone / Read`, limited to your zone, and
 ideally with client IP filtering set to your control plane servers' public
 IPs. Never paste the token on a command line; write the file with

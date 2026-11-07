@@ -590,10 +590,11 @@ func signature(cfg proxy.Config, layout Layout, opts renderOptions) string {
 	s := struct {
 		Opts     renderOptions
 		ACME     string
+		Trusted  []string
 		Backends []be
 		Rules    []proxy.Rule
 		Certs    []string
-	}{Opts: opts, ACME: cfg.ACMEAddress}
+	}{Opts: opts, ACME: cfg.ACMEAddress, Trusted: cfg.TrustedProxies}
 	for _, b := range cfg.Backends {
 		s.Backends = append(s.Backends, be{b.Name, b.HealthPath, len(layout[backendName(b.Name)]), b.Wake, b.LocalFirst, b.TimeoutSeconds})
 	}
