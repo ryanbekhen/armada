@@ -336,3 +336,69 @@ func TestImplicitReadinessSlowsOnceReady(t *testing.T) {
 		t.Errorf("%d checks: the check kept its fast period once ready", got)
 	}
 }
+
+// A probe's command decides by its exit code, in the replica's own container,
+// and its arguments stay out of what is reported.
+func TestCommandProbe(t *testing.T) {
+	t.Parallel()
+	c := newChecker()
+	a, d := probeAgent(t, c)
+	var code atomic.Int32
+	var runErr atomic.Bool
+	d.ExecAppFunc = func(context.Context, string, runtime.ExecOptions) (int, error) {
+		if runErr.Load() {
+			return 0, errors.New("exec: secret-argument not found")
+		}
+		return int(code.Load()), nil
+	}
+	s := replica("web-1", "nginx", 0)
+	s.Readiness = &armadav1.Probe{Command: []string{"check", "--token=secret-argument"}, PeriodMs: 5, TimeoutMs: 1000, FailureThreshold: 1}
+	a.setDesired([]*armadav1.ReplicaSpec{s}, nil)
+	eventually(t, a, "ready", func(st *armadav1.ReplicaState) bool { return st.Ready })
+
+	code.Store(3)
+	eventually(t, a, "not ready", func(st *armadav1.ReplicaState) bool {
+		return !st.Ready && strings.Contains(st.Message, "command exited with code 3")
+	})
+	code.Store(0)
+	eventually(t, a, "ready again", func(st *armadav1.ReplicaState) bool { return st.Ready })
+
+	runErr.Store(true)
+	eventually(t, a, "cannot run", func(st *armadav1.ReplicaState) bool {
+		return !st.Ready && strings.Contains(st.Message, "could not run the command") && !strings.Contains(st.Message, "secret-argument")
+	})
+}
+
+func TestCommandProbeLiveness(t *testing.T) {
+	t.Parallel()
+	a, d := probeAgent(t, newChecker())
+	d.ExecAppFunc = func(context.Context, string, runtime.ExecOptions) (int, error) { return 1, nil }
+	s := replica("worker-1", "worker", 0)
+	s.Liveness = &armadav1.Probe{Command: []string{"health"}, PeriodMs: 5, TimeoutMs: 1000, FailureThreshold: 2}
+	a.setDesired([]*armadav1.ReplicaSpec{s}, nil)
+	eventually(t, a, "restart", func(st *armadav1.ReplicaState) bool {
+		return strings.Contains(st.Message, "restarted: liveness probe failed: command exited with code 1")
+	})
+}
+
+func TestCommandProbeTimesOut(t *testing.T) {
+	t.Parallel()
+	a, d := probeAgent(t, newChecker())
+	d.ExecAppFunc = func(ctx context.Context, _ string, _ runtime.ExecOptions) (int, error) {
+		<-ctx.Done()
+		return 0, ctx.Err()
+	}
+	a.setDesired([]*armadav1.ReplicaSpec{replica("worker-1", "worker", 0)}, nil)
+	if _, err := a.Reconcile(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	cs, _ := d.List(context.Background(), nil)
+	if len(cs) != 1 {
+		t.Fatalf("containers %v", cs)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
+	defer cancel()
+	if err := a.checkCommand(ctx, cs[0].ID, []string{"slow"}); err == nil || !strings.Contains(err.Error(), "timed out") {
+		t.Errorf("err = %v", err)
+	}
+}

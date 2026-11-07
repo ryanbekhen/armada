@@ -89,7 +89,7 @@ func (a *App) SetDefaults() {
 			if p.probe == nil {
 				continue
 			}
-			if p.probe.Port == 0 {
+			if p.probe.Port == 0 && len(p.probe.Command) == 0 {
 				p.probe.Port = a.Ingress.Port
 			}
 			if p.probe.Period == 0 {
@@ -596,11 +596,15 @@ func (v *validator) probes(p *Probes) {
 		}
 		f := "probes." + c.name
 		pr := c.probe
-		if len(pr.Path) > maxPathLen || !probePath.MatchString(pr.Path) {
-			v.add(f+".path", `must start with "/" and contain only URL-safe characters`)
-		}
-		if pr.Port < 1 || pr.Port > 65535 {
-			v.add(f+".port", "must be between 1 and 65535 (defaults to ingress.port)")
+		if len(pr.Command) > 0 {
+			v.probeCommand(f, pr)
+		} else {
+			if len(pr.Path) > maxPathLen || !probePath.MatchString(pr.Path) {
+				v.add(f+".path", `must start with "/" and contain only URL-safe characters`)
+			}
+			if pr.Port < 1 || pr.Port > 65535 {
+				v.add(f+".port", "must be between 1 and 65535 (defaults to ingress.port)")
+			}
 		}
 		if pr.InitialDelay < 0 || pr.InitialDelay.D() > 10*time.Minute {
 			v.add(f+".initialDelay", "must be between 0 and 10m")
@@ -613,6 +617,30 @@ func (v *validator) probes(p *Probes) {
 		}
 		if pr.FailureThreshold < 1 || pr.FailureThreshold > 100 {
 			v.add(f+".failureThreshold", "must be between 1 and 100")
+		}
+	}
+}
+
+// Limits on a probe's command, the same as on armada exec's.
+const (
+	maxProbeArgs   = 64
+	maxProbeArgLen = 4096
+)
+
+func (v *validator) probeCommand(f string, pr *Probe) {
+	if pr.Path != "" || pr.Port != 0 {
+		v.add(f+".command", "cannot be combined with path or port")
+	}
+	if len(pr.Command) > maxProbeArgs {
+		v.add(f+".command", "must have at most %d entries", maxProbeArgs)
+	}
+	if pr.Command[0] == "" {
+		v.add(f+".command", "must start with the program to run")
+	}
+	for _, a := range pr.Command {
+		if len(a) > maxProbeArgLen || strings.ContainsRune(a, 0) {
+			v.add(f+".command", "entries must be at most %d bytes, with no NUL", maxProbeArgLen)
+			break
 		}
 	}
 }
