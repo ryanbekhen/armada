@@ -250,6 +250,11 @@ control plane servers). On a busy node, containers share CPU in proportion
 to what they reserve. When no node has room, `armada status` says which
 resource is short.
 
+A process that goes over `memory` is killed by the kernel. When that ends the
+container, `armada status` and `armada events` say it ran out of memory and the
+replica restarts; when another process of the container dies, such as an nginx
+worker, the container keeps running and `armada events` records `OutOfMemory`.
+
 Every container also gets a PID limit of 1024, `no-new-privileges`, and a
 reduced capability set, and never runs privileged, on the host network, or
 with access to the container runtime's socket.

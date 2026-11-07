@@ -97,5 +97,6 @@ func statsFromCgroup(m *cgroupstats.Metrics) runtime.Stats {
 		}
 		s.MemoryBytes = int64(min(used, 1<<62))
 	}
+	s.OOMKills = int64(min(m.GetMemoryEvents().GetOomKill(), 1<<62))
 	return s
 }

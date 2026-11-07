@@ -194,6 +194,9 @@ func (s *Server) Connect(stream armadav1.AgentService_ConnectServer) error {
 			}
 			if u := m.GetUsage(); u != nil {
 				s.usage.set(node.ID, u, s.now())
+				for _, e := range s.usage.outOfMemory(node.ID, u) {
+					s.record(ctx, e)
+				}
 				if u.GetVolumesMeasured() {
 					s.usage.setVolumes(node.ID, u, s.now())
 				}

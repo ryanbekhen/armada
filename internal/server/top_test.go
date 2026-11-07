@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"strings"
 	"testing"
@@ -328,4 +329,33 @@ func TestStatusLastSeenFollowsUsage(t *testing.T) {
 		}
 		return time.Since(st.GetNodes()[0].GetLastSeen().AsTime()) < time.Second
 	})
+}
+
+// Only a replica's own node can report it out of memory, and one report causes
+// a bounded number of events.
+func TestUsageOutOfMemory(t *testing.T) {
+	t.Parallel()
+	u := newUsageStore()
+	var reps []store.Replica
+	var report armadav1.UsageReport
+	for i := range maxOOMEvents + 4 {
+		id := fmt.Sprintf("web-%d", i)
+		reps = append(reps, store.Replica{ID: id, App: "web", NodeID: "n1"})
+		report.Replicas = append(report.Replicas, &armadav1.ReplicaUsage{Id: id, OomKills: 3})
+	}
+	u.setOwners(reps, time.Now())
+	if got := u.outOfMemory("n1", &report); len(got) != maxOOMEvents || got[0].Reason != "OutOfMemory" || got[0].App != "web" || got[0].Node != "n1" {
+		t.Errorf("events = %+v", got)
+	}
+	if got := u.outOfMemory("n2", &report); len(got) != 0 {
+		t.Errorf("another node reported: %+v", got)
+	}
+	unknown := &armadav1.UsageReport{Replicas: []*armadav1.ReplicaUsage{{Id: "ghost", OomKills: 1}, {Id: "web-0"}, {Id: "web-1", OomKills: -1}}}
+	if got := u.outOfMemory("n1", unknown); len(got) != 0 {
+		t.Errorf("events = %+v", got)
+	}
+	huge := &armadav1.UsageReport{Replicas: []*armadav1.ReplicaUsage{{Id: "web-0", OomKills: 1 << 60}}}
+	if got := u.outOfMemory("n1", huge); len(got) != 1 || strings.Contains(got[0].Message, "1152921504606846976") {
+		t.Errorf("events = %+v", got)
+	}
 }

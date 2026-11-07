@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"slices"
 	"sync"
@@ -53,7 +54,7 @@ type usageStore struct {
 	since  time.Time
 }
 
-type replicaOwner struct{ project, node string }
+type replicaOwner struct{ project, app, node string }
 
 type projectTotals struct{ requests, egress int64 }
 
@@ -159,6 +160,33 @@ func (u *usageStore) count(nodeID string, r *armadav1.UsageReport) {
 	}
 }
 
+// Bounds on what a report says about processes killed at the memory limit.
+const (
+	maxOOMEvents = 8
+	maxOOMReport = 1 << 20
+)
+
+// outOfMemory returns an event for each replica of nodeID whose processes the
+// kernel killed at the memory limit since the previous report. The container
+// lives on when that was not its main process, so nothing else would show it.
+func (u *usageStore) outOfMemory(nodeID string, r *armadav1.UsageReport) []store.Event {
+	var out []store.Event
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	for _, ru := range r.GetReplicas() {
+		if ru.GetOomKills() <= 0 || len(out) == maxOOMEvents {
+			continue
+		}
+		if o, ok := u.owners[ru.GetId()]; ok && o.node == nodeID {
+			out = append(out, store.Event{
+				Kind: eventReplica, Reason: "OutOfMemory", Object: ru.GetId(), App: o.app, Node: nodeID,
+				Message: fmt.Sprintf("the kernel killed %d processes at the memory limit", min(ru.GetOomKills(), maxOOMReport)),
+			})
+		}
+	}
+	return out
+}
+
 func saturatingAdd(a, b int64) int64 {
 	if a > math.MaxInt64-b {
 		return math.MaxInt64
@@ -172,7 +200,7 @@ func (u *usageStore) setOwners(reps []store.Replica, now time.Time) {
 	owners := make(map[string]replicaOwner, len(reps))
 	for _, r := range reps {
 		if p, _, ok := spec.SplitAppID(r.App); ok {
-			owners[r.ID] = replicaOwner{project: p, node: r.NodeID}
+			owners[r.ID] = replicaOwner{project: p, app: r.App, node: r.NodeID}
 		}
 	}
 	u.mu.Lock()

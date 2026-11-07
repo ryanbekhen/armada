@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -135,5 +136,43 @@ func TestLostNetworkRestarts(t *testing.T) {
 	}
 	if after, _ := d.List(ctx, nil); len(after) != 1 || after[0].ID == before[0].ID {
 		t.Errorf("not recreated: %v", after)
+	}
+}
+
+// A container stopped by the memory limit says so, and a process killed in a
+// container that lives on is reported once.
+func TestOutOfMemory(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	a, d := newAgent(t)
+	a.setDesired([]*armadav1.ReplicaSpec{{Id: "web-1", App: "web", Image: "nginx:1"}}, nil)
+	if _, err := a.Reconcile(ctx); err != nil {
+		t.Fatal(err)
+	}
+	cs, _ := d.List(ctx, nil)
+	if len(cs) != 1 {
+		t.Fatalf("containers %v", cs)
+	}
+	_, prev := a.sampleUsage(ctx, d, map[string]usageSample{})
+	d.SetUsage("web-1", runtime.Stats{OOMKills: 2})
+	report, prev := a.sampleUsage(ctx, d, prev)
+	if len(report.GetReplicas()) != 1 || report.GetReplicas()[0].GetOomKills() != 2 {
+		t.Errorf("report = %v", report.GetReplicas())
+	}
+	report, _ = a.sampleUsage(ctx, d, prev)
+	if len(report.GetReplicas()) != 1 || report.GetReplicas()[0].GetOomKills() != 0 {
+		t.Errorf("reported again: %v", report.GetReplicas())
+	}
+
+	d.SetState(cs[0].ID, runtime.StateExited, 137)
+	msg, _ := a.crashed(ctx, "web-1", cs[0])
+	if !strings.Contains(msg, "out of memory") || !strings.Contains(msg, "137") {
+		t.Errorf("message = %q", msg)
+	}
+	// Exit code 137 alone is any SIGKILL, not proof of running out of memory.
+	d.SetUsage("web-1", runtime.Stats{})
+	msg, _ = a.crashed(ctx, "web-1", cs[0])
+	if strings.Contains(msg, "out of memory") || !strings.Contains(msg, "137") {
+		t.Errorf("message = %q", msg)
 	}
 }

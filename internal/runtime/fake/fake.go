@@ -98,10 +98,12 @@ func (d *Driver) Stats(_ context.Context, id string) (runtime.Stats, error) {
 	if !ok {
 		return runtime.Stats{}, runtime.ErrNotFound
 	}
-	if c.State != runtime.StateRunning {
+	u := d.Usage[c.Labels[runtime.LabelReplica]]
+	// Like the real runtime, an exited container still has its OOM counter.
+	if c.State != runtime.StateRunning && u.OOMKills == 0 {
 		return runtime.Stats{}, fmt.Errorf("container %s is not running", id)
 	}
-	return d.Usage[c.Labels[runtime.LabelReplica]], nil
+	return u, nil
 }
 
 // CanStats reports whether Stats is offered (not NoStats).
