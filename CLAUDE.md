@@ -49,7 +49,7 @@ armada exec APP [--replica ID] [-i] [-t] -- CMD  # run a command in a replica (A
 armada top [APP] [--nodes] [--projects]          # CPU and memory use of apps, replicas, nodes (ADR 0016); per project with volumes, requests, egress (ADR 0026)
 armada events [APP] [--node N] [--since D] [-f]  # what the cluster did in the last day (ADR 0018)
 armada app rm APP --yes                          # drain an app's replicas, then remove it with its revisions and secrets; volumes stay
-armada job run|ls|runs|cancel|rm JOB             # jobs (kind: job, ADR 0019); armada logs JOB [--run N]
+armada job run|ls|runs|cancel|rm JOB             # jobs (kind: job, ADR 0019); job run --wait fails unless the run succeeded; armada logs JOB [--run N]
 armada traffic APP REV=WEIGHT...                 # split traffic between revisions until the next deploy (ADR 0022)
 armada volume ls|rm|backup|restore               # persistent volumes (ADR 0023): rm APP VOL --yes, backup APP VOL -o FILE [--stop], restore APP VOL FILE [--node N]
 armada server --metrics-listen IP:PORT / armada metrics credentials NAME   # Prometheus endpoint and scraper certificate (ADR 0017)

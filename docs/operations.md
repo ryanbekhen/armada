@@ -653,6 +653,7 @@ Jobs run a container to completion, on demand or on a schedule
 ```bash
 armada deploy -f backup.yaml     # kind: job; changes apply to the next runs
 armada job run db-backup         # start a run now
+armada job run db-backup --wait  # and wait: exits non-zero unless the run succeeded
 armada job ls                    # schedule, latest run, next run
 armada job runs db-backup        # runs, newest first
 armada logs db-backup            # the newest run's output (--run N for another)
