@@ -130,7 +130,10 @@ type Probes struct {
 // Probe is an HTTP GET health check. In YAML it may be written as just the
 // path, e.g. `readiness: /healthz`.
 type Probe struct {
-	Path             string   `yaml:"path" json:"path"`
+	Path string `yaml:"path,omitempty" json:"path,omitempty"`
+	// Command runs in the container instead of an HTTP check; exit code 0
+	// passes. Not with Path or Port.
+	Command          []string `yaml:"command,omitempty" json:"command,omitempty"`
 	Port             int      `yaml:"port,omitempty" json:"port,omitempty"`
 	InitialDelay     Duration `yaml:"initialDelay,omitempty" json:"initialDelay,omitempty"`
 	Period           Duration `yaml:"period,omitempty" json:"period,omitempty"`

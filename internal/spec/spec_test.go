@@ -219,6 +219,10 @@ func TestParseRejects(t *testing.T) {
 		{"bad revision mode", base + "revisions:\n  mode: blue\n", "revisions.mode", false},
 		{"traffic in single", base + "revisions:\n  traffic:\n    - revision: latest\n      weight: 100\n", "revisions.traffic", false},
 		{"probe without port", base + "probes:\n  readiness: /healthz\n", "probes.readiness.port", false},
+		{"probe command with path", base + "probes:\n  liveness:\n    command: [a]\n    path: /h\n", "probes.liveness.command", false},
+		{"probe command with port", base + "probes:\n  liveness:\n    command: [a]\n    port: 80\n", "probes.liveness.command", false},
+		{"probe command empty program", base + "probes:\n  liveness:\n    command: [\"\"]\n", "probes.liveness.command", false},
+		{"probe no path or command", base + "probes:\n  liveness:\n    period: 5s\n", "probes.liveness.path", false},
 		{"probe bad path", ext + "probes:\n  readiness: healthz\n", "probes.readiness.path", false},
 		{"probe bad duration", ext + "probes:\n  readiness:\n    path: /h\n    period: soon\n", "", false},
 		{"probe period too short", ext + "probes:\n  readiness:\n    path: /h\n    period: 500ms\n", "probes.readiness.period", false},
@@ -612,5 +616,32 @@ func TestParseAllow(t *testing.T) {
 	}
 	if _, err := Parse([]byte(many)); err == nil {
 		t.Error("too many allowed apps accepted")
+	}
+}
+
+func TestCommandProbes(t *testing.T) {
+	t.Parallel()
+	a, err := Parse([]byte("name: worker\nimage: y\nprobes:\n  liveness:\n    command: [bun, health.ts]\n    period: 60s\n    timeout: 15s\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p := a.Probes.Liveness; len(p.Command) != 2 || p.Port != 0 || p.Path != "" || p.FailureThreshold != defaultFailures {
+		t.Errorf("probe = %+v", p)
+	}
+	// An app with a port still does not give a command probe one.
+	a, err = Parse([]byte("name: web\nimage: y\ningress:\n  type: internal\n  port: 80\nprobes:\n  readiness:\n    command: [check]\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.Probes.Readiness.Port != 0 {
+		t.Errorf("port = %d", a.Probes.Readiness.Port)
+	}
+	long := "name: x\nimage: y\nprobes:\n  liveness:\n    command: [" + strings.Repeat("a,", maxProbeArgs) + "a]\n"
+	if _, err := Parse([]byte(long)); err == nil {
+		t.Error("too many entries accepted")
+	}
+	big := "name: x\nimage: y\nprobes:\n  liveness:\n    command: [" + strings.Repeat("a", maxProbeArgLen+1) + "]\n"
+	if _, err := Parse([]byte(big)); err == nil {
+		t.Error("an oversized entry accepted")
 	}
 }

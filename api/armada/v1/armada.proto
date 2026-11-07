@@ -1126,6 +1126,8 @@ message Probe {
   int64 period_ms = 4;
   int64 timeout_ms = 5;
   int32 failure_threshold = 6;
+  // Runs in the container instead of an HTTP check; exit code 0 passes.
+  repeated string command = 7;
 }
 
 message EnvVar {

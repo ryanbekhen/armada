@@ -1190,6 +1190,7 @@ func probeProto(p *spec.Probe) *armadav1.Probe {
 	}
 	return &armadav1.Probe{
 		Path:             p.Path,
+		Command:          p.Command,
 		Port:             int32(p.Port), //nolint:gosec // validated to 1..65535
 		InitialDelayMs:   p.InitialDelay.D().Milliseconds(),
 		PeriodMs:         p.Period.D().Milliseconds(),

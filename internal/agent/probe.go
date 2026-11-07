@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"math/rand/v2"
@@ -127,6 +128,9 @@ func (a *Agent) startProbes(ctx context.Context, s *armadav1.ReplicaSpec, c runt
 
 func (a *Agent) runProbes(ctx context.Context, w *probeWorker, s *armadav1.ReplicaSpec, c runtime.Container) {
 	check := func(p *armadav1.Probe) func(context.Context) error {
+		if cmd := p.GetCommand(); len(cmd) > 0 {
+			return func(ctx context.Context) error { return a.checkCommand(ctx, c.ID, cmd) }
+		}
 		addr, err := probeAddr(s, c, p)
 		return func(ctx context.Context) error {
 			if err != nil {
@@ -204,6 +208,26 @@ func (a *Agent) runProbes(ctx context.Context, w *probeWorker, s *armadav1.Repli
 			return false
 		})
 	}
+}
+
+// checkCommand runs a probe's command in the container, with the container's
+// own security settings (ADR 0015). The command's output is dropped, and its
+// arguments stay out of the result, which reaches events and logs.
+func (a *Agent) checkCommand(ctx context.Context, id string, cmd []string) error {
+	ex, ok := a.cfg.Driver.(runtime.Execer)
+	if !ok || !runtime.CanExec(a.cfg.Driver) {
+		return errors.New("this node's runtime cannot run commands in containers")
+	}
+	code, err := ex.ExecApp(ctx, id, runtime.ExecOptions{Cmd: cmd, Stdout: io.Discard, Stderr: io.Discard})
+	switch {
+	case ctx.Err() != nil:
+		return errors.New("command timed out")
+	case err != nil:
+		return errors.New("could not run the command; is the program in the image?")
+	case code != 0:
+		return fmt.Errorf("command exited with code %d", code)
+	}
+	return nil
 }
 
 // watch runs check every period after the initial delay and passes each

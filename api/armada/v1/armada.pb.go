@@ -8157,8 +8157,10 @@ type Probe struct {
 	PeriodMs         int64                  `protobuf:"varint,4,opt,name=period_ms,json=periodMs,proto3" json:"period_ms,omitempty"`
 	TimeoutMs        int64                  `protobuf:"varint,5,opt,name=timeout_ms,json=timeoutMs,proto3" json:"timeout_ms,omitempty"`
 	FailureThreshold int32                  `protobuf:"varint,6,opt,name=failure_threshold,json=failureThreshold,proto3" json:"failure_threshold,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// Runs in the container instead of an HTTP check; exit code 0 passes.
+	Command       []string `protobuf:"bytes,7,rep,name=command,proto3" json:"command,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Probe) Reset() {
@@ -8231,6 +8233,13 @@ func (x *Probe) GetFailureThreshold() int32 {
 		return x.FailureThreshold
 	}
 	return 0
+}
+
+func (x *Probe) GetCommand() []string {
+	if x != nil {
+		return x.Command
+	}
+	return nil
 }
 
 type EnvVar struct {
@@ -10315,7 +10324,7 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\x06server\x18\x01 \x01(\tR\x06server\x12\x1a\n" +
 	"\busername\x18\x02 \x01(\tR\busername\x12\x1f\n" +
 	"\bpassword\x18\x03 \x01(\tB\x03\x80\x01\x01R\bpassword\x12\x10\n" +
-	"\x03ref\x18\x04 \x01(\tR\x03ref\"\xc2\x01\n" +
+	"\x03ref\x18\x04 \x01(\tR\x03ref\"\xdc\x01\n" +
 	"\x05Probe\x12\x12\n" +
 	"\x04path\x18\x01 \x01(\tR\x04path\x12\x12\n" +
 	"\x04port\x18\x02 \x01(\x05R\x04port\x12(\n" +
@@ -10323,7 +10332,8 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\tperiod_ms\x18\x04 \x01(\x03R\bperiodMs\x12\x1d\n" +
 	"\n" +
 	"timeout_ms\x18\x05 \x01(\x03R\ttimeoutMs\x12+\n" +
-	"\x11failure_threshold\x18\x06 \x01(\x05R\x10failureThreshold\"I\n" +
+	"\x11failure_threshold\x18\x06 \x01(\x05R\x10failureThreshold\x12\x18\n" +
+	"\acommand\x18\a \x03(\tR\acommand\"I\n" +
 	"\x06EnvVar\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x19\n" +
 	"\x05value\x18\x02 \x01(\tB\x03\x80\x01\x01R\x05value\x12\x10\n" +

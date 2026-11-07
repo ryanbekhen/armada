@@ -140,12 +140,31 @@ still ends with `504` whatever `drain` says. Not for jobs.
 
 | Field | Default | Range |
 | --- | --- | --- |
-| `path` (required) | | starts with `/`, URL-safe characters, optional query |
+| `path` | | starts with `/`, URL-safe characters, optional query |
 | `port` | `ingress.port` | 1–65535 |
+| `command` | | runs in the container instead of an HTTP check, at most 64 entries of 4 KiB; exit code 0 passes |
 | `initialDelay` | `0s` | 0–10m |
 | `period` | `10s` | 1s–5m |
 | `timeout` | `1s` | at least 1s, not longer than `period` |
 | `failureThreshold` | 30 for startup, 3 otherwise | 1–100 |
+
+A probe has either `path` or `command`. A `command` suits an app with no port,
+such as a background worker:
+
+```yaml
+probes:
+  liveness:
+    command: ["bun", "src/worker-health.ts"]
+    initialDelay: 60s
+    period: 60s
+    timeout: 15s
+```
+
+It runs with the container's own user and security settings, is killed at
+`timeout` (a failure), and its output is dropped. Say what a command needs in
+`timeout`: the default of 1 second is short for most programs. HAProxy has
+no such check, so with a `command` readiness probe it only tests that the port
+accepts connections.
 
 Durations are strings such as `"500ms"`, `"10s"`, `"2m"`. The agent probes
 the container directly. A replica receives traffic only once it is ready:
