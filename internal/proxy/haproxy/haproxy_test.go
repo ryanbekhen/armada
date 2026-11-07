@@ -1042,6 +1042,36 @@ func TestLocalFirstChangeReloads(t *testing.T) {
 	}
 }
 
+// A changed list of trusted proxies only takes effect through a reload: the
+// frontend's rules are not something the Runtime API can change.
+func TestTrustedProxiesChangeReloads(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	d, e, _, _ := newDriver(t)
+	cfg := proxy.Config{Backends: []proxy.Backend{{Name: "web", Servers: []proxy.Server{{Name: "web-1", Address: "10.0.0.2:80"}}}}}
+	if err := d.Apply(ctx, cfg); err != nil {
+		t.Fatal(err)
+	}
+	e.running = true
+	for _, trusted := range [][]string{{"192.0.2.0/24"}, {"192.0.2.0/24", "198.51.100.0/24"}, nil} {
+		before := e.reloads
+		cfg.TrustedProxies = trusted
+		if err := d.Apply(ctx, cfg); err != nil {
+			t.Fatal(err)
+		}
+		if e.reloads != before+1 {
+			t.Errorf("%v: reloads = %d, want 1", trusted, e.reloads-before)
+		}
+	}
+	before := e.reloads
+	if err := d.Apply(ctx, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if e.reloads != before {
+		t.Error("reloaded with nothing changed")
+	}
+}
+
 func TestSetClients(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
