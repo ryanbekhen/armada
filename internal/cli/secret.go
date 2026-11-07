@@ -1,11 +1,14 @@
 package cli
 
 import (
+	"bufio"
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"os"
+	"regexp"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -33,6 +36,12 @@ var readTerminalSecret = func(cmd *cobra.Command) ([]byte, error) {
 
 var errNotTerminal = errors.New("not a terminal")
 
+// Limits on a file for armada secret import.
+const (
+	maxEnvKey     = 256
+	maxSecretFile = 16 << 20
+)
+
 func newSecretCommand(g *globals) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "secret",
@@ -42,7 +51,7 @@ func newSecretCommand(g *globals) *cobra.Command {
 			"Values are never shown again after they are set and are never accepted as\n" +
 			"command-line arguments, which would leak into shell history.",
 	}
-	cmd.AddCommand(newSecretSetCommand(g), newSecretListCommand(g), newSecretRemoveCommand(g))
+	cmd.AddCommand(newSecretSetCommand(g), newSecretImportCommand(g), newSecretListCommand(g), newSecretRemoveCommand(g))
 	return cmd
 }
 
@@ -110,6 +119,118 @@ func newSecretSetCommand(g *globals) *cobra.Command {
 	f.BoolVar(&allowEmpty, "allow-empty", false, "allow an empty value")
 	w.register(cmd)
 	return cmd
+}
+
+func newSecretImportCommand(g *globals) *cobra.Command {
+	return &cobra.Command{
+		Use:   "import APP FILE",
+		Short: "Set many secrets from a file of KEY=VALUE lines",
+		Long: "Set many secrets from a file of KEY=VALUE lines (- reads stdin).\n\n" +
+			"DATABASE_URL becomes the secret database-url. Blank lines and lines starting\n" +
+			"with # are skipped. A value is everything after the first =, kept exactly,\n" +
+			"quotes included. Nothing rolls out: running replicas keep the previous values\n" +
+			"until the app's next deploy. Run it for each app that needs the values.",
+		Example: "  armada secret import api .env\n" +
+			"  # then in the spec:\n" +
+			"  #   env:\n" +
+			"  #     - name: DATABASE_URL\n" +
+			"  #       secretRef: database-url",
+		Args: cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := g.qualify(args[:1]); err != nil {
+				return err
+			}
+			in := cmd.InOrStdin()
+			if args[1] != "-" {
+				f, err := os.Open(args[1])
+				if err != nil {
+					return err
+				}
+				defer f.Close()
+				in = f
+			}
+			entries, err := parseSecretFile(in)
+			if err != nil {
+				return fmt.Errorf("%s: %w", args[1], err)
+			}
+			defer func() {
+				for _, e := range entries {
+					clear(e.value)
+				}
+			}()
+			if len(entries) == 0 {
+				return fmt.Errorf("%s has no KEY=VALUE lines", args[1])
+			}
+			client, conn, err := dialAdmin(g)
+			if err != nil {
+				return err
+			}
+			defer conn.Close()
+			return importSecrets(cmd.Context(), client, args[0], entries, cmd.OutOrStdout())
+		},
+	}
+}
+
+// secretEntry is one line of a file for armada secret import.
+type secretEntry struct {
+	key   string
+	name  string
+	value []byte
+}
+
+var envKeyRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+// parseSecretFile reads KEY=VALUE lines. Errors name a line by its number and
+// never quote it, since a malformed line may well be a secret.
+func parseSecretFile(r io.Reader) ([]secretEntry, error) {
+	sc := bufio.NewScanner(io.LimitReader(r, maxSecretFile+1))
+	sc.Buffer(make([]byte, 0, 64<<10), secrets.MaxSize+maxEnvKey+2)
+	var (
+		out    []secretEntry
+		byName = map[string]int{}
+		total  int
+	)
+	for n := 1; sc.Scan(); n++ {
+		total += len(sc.Bytes()) + 1
+		line := bytes.TrimSuffix(sc.Bytes(), []byte("\r"))
+		if t := bytes.TrimSpace(line); len(t) == 0 || t[0] == '#' {
+			continue
+		}
+		key, value, ok := bytes.Cut(line, []byte("="))
+		if !ok || !envKeyRe.Match(key) {
+			return nil, fmt.Errorf("line %d: want KEY=VALUE", n)
+		}
+		name := strings.ReplaceAll(strings.ToLower(string(key)), "_", "-")
+		if err := spec.ValidateSecretName(name); err != nil {
+			return nil, fmt.Errorf("line %d: %w", n, err)
+		}
+		if first, dup := byName[name]; dup {
+			return nil, fmt.Errorf("line %d: secret %s was already set on line %d", n, name, first)
+		}
+		byName[name] = n
+		out = append(out, secretEntry{key: string(key), name: name, value: bytes.Clone(value)})
+	}
+	if err := sc.Err(); err != nil {
+		return nil, fmt.Errorf("a line is larger than %d bytes", secrets.MaxSize)
+	}
+	if total > maxSecretFile {
+		return nil, fmt.Errorf("the file is larger than %d bytes", maxSecretFile)
+	}
+	return out, nil
+}
+
+// importSecrets sets each secret without a rollout. It stops at the first
+// failure and says how far it got; running it again is harmless.
+func importSecrets(ctx context.Context, client armadav1.AdminServiceClient, app string, entries []secretEntry, out io.Writer) error {
+	for i, e := range entries {
+		resp, err := client.SetSecret(ctx, &armadav1.SetSecretRequest{App: app, Name: e.name, Value: e.value})
+		if err != nil {
+			return fmt.Errorf("secret %s (%d of %d set before it): %w", e.name, i, len(entries), rpcErr(err))
+		}
+		_, _ = fmt.Fprintf(out, "%s -> %s (version %d)\n", e.key, e.name, resp.GetVersion())
+	}
+	_, _ = fmt.Fprintf(out, "Set %d secrets of app %s. Running replicas keep the previous values until the app's next deploy.\n", len(entries), app)
+	return nil
 }
 
 // readSecretValue reads at most secrets.MaxSize bytes from a file, a hidden

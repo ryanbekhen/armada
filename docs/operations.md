@@ -257,6 +257,7 @@ armada project create staging
 armada deploy -f web.yaml --project staging
 armada status --project staging          # only the project's apps
 armada secret set web db-password --project staging < password.txt
+armada secret import web .env --project staging   # many at once: DATABASE_URL becomes database-url
 armada project list
 armada project remove staging            # only once it is empty
 ```
