@@ -294,3 +294,51 @@ func TestCertNamesHostAddresses(t *testing.T) {
 		t.Error("certificate kept after the machine gained an address")
 	}
 }
+
+func TestRenewCertKeepsKeyAndClientsPickItUp(t *testing.T) {
+	t.Parallel()
+	ca, _ := pki.NewCA("test")
+	cfg := withDefaults(Config{Dir: t.TempDir(), Name: "cp-1", Addr: netip.MustParseAddr("10.0.0.2"), CA: ca})
+	if err := ensureCert(cfg); err != nil {
+		t.Fatal(err)
+	}
+	m := &Member{cfg: cfg}
+	if ok, err := m.RenewCert(time.Now()); err != nil || ok {
+		t.Fatalf("fresh certificate renewed: %v %v", ok, err)
+	}
+	tlsCfg, err := clientTLS(cfg.Dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := tlsCfg.GetClientCertificate(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Make it due: a certificate for the same key, with an hour left.
+	certPath := filepath.Join(cfg.Dir, fileCert)
+	b, _ := os.ReadFile(certPath)
+	old, _ := pki.ParseCertPEM(b)
+	short, err := ca.Reissue(old, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(certPath, short, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := m.RenewCert(time.Now().Add(50 * time.Minute)); err != nil || !ok {
+		t.Fatalf("due certificate not renewed: %v %v", ok, err)
+	}
+	b, _ = os.ReadFile(certPath)
+	renewed, _ := pki.ParseCertPEM(b)
+	if time.Until(renewed.NotAfter) < 300*24*time.Hour || renewed.Subject.CommonName != pki.EtcdMember.String() || len(renewed.IPAddresses) != len(old.IPAddresses) {
+		t.Errorf("renewed %s %v until %v", renewed.Subject.CommonName, renewed.IPAddresses, renewed.NotAfter)
+	}
+	after, err := tlsCfg.GetClientCertificate(nil)
+	if err != nil {
+		t.Fatalf("client cannot load the renewed pair: %v", err)
+	}
+	if string(after.Certificate[0]) == string(before.Certificate[0]) || string(after.Certificate[0]) != string(renewed.Raw) {
+		t.Error("client still presents the old certificate")
+	}
+}

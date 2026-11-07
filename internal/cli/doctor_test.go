@@ -10,9 +10,12 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/spf13/pflag"
 
+	"github.com/ryanbekhen/armada/internal/clientconfig"
+	"github.com/ryanbekhen/armada/internal/pki"
 	"github.com/ryanbekhen/armada/internal/proxy/haproxy"
 	"github.com/ryanbekhen/armada/internal/runtime"
 	"github.com/ryanbekhen/armada/internal/runtime/fake"
@@ -42,6 +45,9 @@ func healthyEnv(t *testing.T) doctorEnv {
 		},
 		ntpSynced:   func(context.Context) (bool, error) { return true, nil },
 		ufwActive:   func(context.Context) (bool, error) { return false, errors.New("not installed") },
+		readFile:    os.ReadFile,
+		now:         time.Now,
+		adminConfig: filepath.Join(dir, "no-config"),
 		dataDir:     dir,
 		secretsDir:  "/run/armada/secrets",
 		clusterPort: []uint16{7443, 7444, haproxy.MetricsPort},
@@ -286,5 +292,72 @@ func TestConntrackCheck(t *testing.T) {
 		if got := conntrackCheck(c.entries, c.limit, c.ok); got.Name != "conntrack" || got.Status != c.status {
 			t.Errorf("conntrackCheck(%d, %d, %v) = %+v, want %s", c.entries, c.limit, c.ok, got, c.status)
 		}
+	}
+}
+
+func TestDoctorCertificates(t *testing.T) {
+	t.Parallel()
+	ca, _ := pki.NewCA("test")
+	write := func(dir, name string, kind string, validity time.Duration) {
+		t.Helper()
+		req := pki.IssueRequest{Identity: pki.Identity{Kind: kind, Name: "x"}, Client: true, Validity: validity}
+		if kind == pki.KindServer {
+			req = pki.IssueRequest{Identity: pki.Identity{Kind: kind, Name: "x"}, DNSNames: []string{pki.ServerName}, Server: true, Validity: validity}
+		}
+		certPEM, keyPEM, err := ca.Issue(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if name == "config" {
+			cc := &clientconfig.Config{Servers: []string{"10.0.0.2:7443"}, CA: string(ca.CertPEM), Cert: string(certPEM), Key: string(keyPEM)}
+			if err := cc.SaveFile(filepath.Join(dir, name)); err != nil {
+				t.Fatal(err)
+			}
+			return
+		}
+		_ = os.MkdirAll(filepath.Dir(filepath.Join(dir, name)), 0o700)
+		if err := os.WriteFile(filepath.Join(dir, name), certPEM, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	year := 365 * 24 * time.Hour
+	for name, tt := range map[string]struct {
+		server, admin time.Duration
+		later         time.Duration
+		want          string
+		says          string
+	}{
+		"all valid":          {year, year, 0, checkOK, "server, administrator valid"},
+		"admin expires soon": {year, 10 * 24 * time.Hour, 0, checkWarn, "armada admin renew"},
+		"admin expired":      {year, -time.Hour, 0, checkFail, "admin renew --data-dir"},
+		"server not renewed": {10 * 24 * time.Hour, year, 9 * 24 * time.Hour, checkWarn, "was not renewed"},
+		"server expired":     {-time.Hour, year, 0, checkFail, "restart armada-server"},
+	} {
+		env := healthyEnv(t)
+		write(env.dataDir, fileServerCert, pki.KindServer, tt.server)
+		write(env.dataDir, "config", pki.KindAdmin, tt.admin)
+		env.adminConfig = filepath.Join(env.dataDir, "config")
+		env.now = func() time.Time { return time.Now().Add(tt.later) }
+		var got []checkResult
+		for _, r := range runDoctor(context.Background(), env) {
+			if r.Name == "certificates" {
+				got = append(got, r)
+			}
+		}
+		worst, detail := checkOK, ""
+		for _, r := range got {
+			detail += r.Detail + "; "
+			if r.Status == checkFail || (r.Status == checkWarn && worst == checkOK) {
+				worst = r.Status
+			}
+		}
+		if worst != tt.want || !strings.Contains(detail, tt.says) {
+			t.Errorf("%s: %s %q", name, worst, detail)
+		}
+	}
+	// Nothing to check before init: no line at all.
+	env := healthyEnv(t)
+	if s := statusOf(runDoctor(context.Background(), env), "certificates"); s != "" {
+		t.Errorf("certificates on an empty host: %s", s)
 	}
 }

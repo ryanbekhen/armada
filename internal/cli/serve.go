@@ -98,7 +98,20 @@ func newServerCommand(g *globals) *cobra.Command {
 				return err
 			}
 			defer func() { _ = member.Close() }()
-			pem, err := readPrivate(dataDir, fileCACert, fileServerCert, fileServerKey, fileCAKey)
+			pem, err := readPrivate(dataDir, fileCACert, fileCAKey)
+			if err != nil {
+				return err
+			}
+			ca, err := pki.LoadCA(pem[0], pem[1])
+			if err != nil {
+				return err
+			}
+			// Renew before loading, so a server that was down past the
+			// renewal point, or past expiry, starts with a valid
+			// certificate.
+			certs := &certRenewer{dataDir: dataDir, ca: ca, member: member, log: log, now: time.Now}
+			certs.check()
+			pem, err = readPrivate(dataDir, fileCACert, fileServerCert, fileServerKey)
 			if err != nil {
 				return err
 			}
@@ -118,14 +131,12 @@ func newServerCommand(g *globals) *cobra.Command {
 			if err := netutil.CheckPrivateListen(listen); err != nil {
 				return err
 			}
-			tlsCfg, err := pki.ServerTLS(pem[0], pem[1], pem[2])
+			serverCert, err := pki.NewServerCert(pem[0], pem[1], pem[2])
 			if err != nil {
 				return err
 			}
-			ca, err := pki.LoadCA(pem[0], pem[3])
-			if err != nil {
-				return err
-			}
+			certs.server = serverCert
+			tlsCfg := serverCert.TLS()
 			joinAddr, err := resolveJoinListen(joinListen, listen)
 			if err != nil {
 				return err
@@ -137,9 +148,7 @@ func newServerCommand(g *globals) *cobra.Command {
 			}
 			var joinTLS *stdtls.Config
 			if joinAddr != "" {
-				if joinTLS, err = pki.JoinServerTLS(pem[0], pem[1], pem[2]); err != nil {
-					return err
-				}
+				joinTLS = serverCert.JoinTLS()
 			}
 			keys, err := loadMasterKey(ctx, st, dataDir, log)
 			if err != nil {
@@ -199,9 +208,14 @@ func newServerCommand(g *globals) *cobra.Command {
 
 			g, ctx := errgroup.WithContext(ctx)
 			g.Go(func() error {
+				certs.loop(ctx)
+				return nil
+			})
+			g.Go(func() error {
 				return lead(ctx, member, id.Name, log, func(ctx context.Context) error { return waitLeadReady(ctx, st, log) }, term)
 			})
 			if withAgent {
+				certs.renewNode(ctx, st)
 				g.Go(func() error {
 					return runAgent(ctx, dataDir, nil, proxyKind, secretsDir, internalDNS, log)
 				})
