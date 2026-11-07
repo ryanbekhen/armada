@@ -78,7 +78,7 @@ image's entrypoint, `args` its default arguments.
 ### `env`
 
 Up to 512 variables. A name is `[A-Za-z_][A-Za-z0-9_]*` and must not start
-with `ARMADA_` (reserved). Each entry has either `value` (at most 32 KiB) or
+with `ARMADA_`; `PORT` is reserved too, Armada sets it to `ingress.port`. Each entry has either `value` (at most 32 KiB) or
 `secretRef`, the name of a secret of this app.
 
 Environment variables are visible to anyone with root on the node (in the
