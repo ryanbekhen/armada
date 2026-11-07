@@ -5,9 +5,8 @@ Linux machines (cloud instances, VMs, or bare metal) on the same private
 network; one is enough to start, and the others can join later as nodes or
 as control plane servers.
 
-> **Status.** Armada is pre-alpha. Every step below is exercised in a local
-> lab (Linux VMs with Pebble as the ACME server), but not yet on a
-> real cloud provider with Let's Encrypt. Start with the Let's Encrypt
+> **Status.** Armada is alpha. Every step below is exercised on real cloud
+> machines with Let's Encrypt staging before each release. Start with the
 > staging environment (step 4) and report what breaks.
 
 ## What you need
@@ -145,14 +144,17 @@ ideally with client IP filtering set to your control plane servers' public
 IPs. Never paste the token on a command line; write the file with
 `read -rs` or from the clipboard.
 
-> **Cloudflare: use "DNS only" (grey cloud).** Armada terminates TLS on
-> your nodes with its own Let's Encrypt certificates. With the Cloudflare
-> proxy (orange cloud) in front, Cloudflare's free Universal SSL covers
-> only `example.com` and `*.example.com`, so a two-level name such as
-> `hello.apps.example.com` fails TLS at Cloudflare's edge unless you buy
-> an advanced certificate. Proxying through Cloudflare is not tested with
-> Armada yet. Other DNS providers have no such setting; plain A records
-> are all Armada needs.
+> **Cloudflare: proxied (orange cloud) or "DNS only" (grey cloud).**
+> Armada terminates TLS on your nodes with its own Let's Encrypt
+> certificates either way. Cloudflare's free Universal SSL covers only
+> `example.com` and `*.example.com`, so proxy only names one level under
+> the zone: a two-level name such as `hello.apps.example.com` fails TLS
+> at Cloudflare's edge unless you buy an advanced certificate, so keep
+> those "DNS only". When you proxy, set the zone's SSL/TLS mode to
+> **Full (strict)**, use DNS-01 (above), and list Cloudflare's address
+> ranges with `armada cluster set --trusted-proxies` so apps see the
+> visitor's address in `CF-Connecting-IP` and `X-Forwarded-For`. Other
+> DNS providers have no such setting; plain A records are all Armada needs.
 
 ## 6. Deploy an app
 
