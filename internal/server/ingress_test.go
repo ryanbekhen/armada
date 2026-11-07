@@ -64,7 +64,7 @@ type fakeCerts struct {
 	issued   map[string][]byte
 }
 
-func (f *fakeCerts) Manage(_ context.Context, names []string) error {
+func (f *fakeCerts) Manage(_ context.Context, names []string, _ string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.managed = slices.Clone(names)

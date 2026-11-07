@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/caddyserver/certmagic"
 	"go.uber.org/zap"
@@ -21,7 +22,8 @@ type Manager interface {
 	// Manage makes names the set of managed certificates: new names are
 	// obtained and renewed, names no longer listed stop being requested and
 	// renewed. It is idempotent and returns without waiting for issuance.
-	Manage(ctx context.Context, names []string) error
+	// With a DNS provider, root and the names under it use DNS-01.
+	Manage(ctx context.Context, names []string, root string) error
 	// Certificate returns the chain followed by the private key, if issued.
 	Certificate(ctx context.Context, name string) ([]byte, bool)
 	// HTTPHandler answers ACME HTTP-01 challenges.
@@ -43,7 +45,8 @@ type Options struct {
 	Storage certmagic.Storage
 	CA      string
 	Email   string
-	// DNSProvider enables DNS-01 for wildcard names. HTTP-01 is always used
+	// DNSProvider enables DNS-01 for wildcard names and for the root domain
+	// and the names under it, whose zone the provider holds. HTTP-01 is used
 	// for other names, because custom domains are rarely hosted at the same
 	// DNS provider.
 	DNSProvider certmagic.DNSProvider
@@ -77,9 +80,18 @@ type ACME struct {
 	issuerKey  string
 
 	mu sync.Mutex
-	// managed maps each name to the cancel function of its obtain job, so
-	// a name that is dropped stops being retried.
-	managed map[string]context.CancelFunc
+	// managed maps each name to its obtain job, so a name that is dropped
+	// stops being retried.
+	managed map[string]managedName
+	// root is the domain whose names use DNS-01. Renewals read it from
+	// certmagic's goroutines, which must not wait for mu.
+	root atomic.Pointer[string]
+}
+
+// managedName is a name's obtain job and the challenge it uses.
+type managedName struct {
+	cancel context.CancelFunc
+	dns    bool
 }
 
 var _ Manager = (*ACME)(nil)
@@ -92,21 +104,18 @@ func NewACME(opts Options) (*ACME, error) {
 	storage := opts.Storage
 	logger := zap.NewNop()
 
-	var cache *certmagic.Cache
-	var httpCfg, dnsCfg *certmagic.Config
-	cache = certmagic.NewCache(certmagic.CacheOptions{
+	a := &ACME{storage: storage, managed: map[string]managedName{}}
+	a.cache = certmagic.NewCache(certmagic.CacheOptions{
 		GetConfigForCert: func(c certmagic.Certificate) (*certmagic.Config, error) {
-			for _, n := range c.Names {
-				if strings.HasPrefix(n, "*.") && dnsCfg != nil {
-					return dnsCfg, nil
-				}
+			if slices.ContainsFunc(c.Names, a.usesDNS) {
+				return a.dnsCfg, nil
 			}
-			return httpCfg, nil
+			return a.httpCfg, nil
 		},
 		Logger: logger,
 	})
 	newCfg := func(dns certmagic.DNSProvider) (*certmagic.Config, *certmagic.ACMEIssuer) {
-		cfg := certmagic.New(cache, certmagic.Config{Storage: storage, Logger: logger, OnEvent: opts.onEvent})
+		cfg := certmagic.New(a.cache, certmagic.Config{Storage: storage, Logger: logger, OnEvent: opts.onEvent})
 		tmpl := certmagic.ACMEIssuer{
 			CA:     opts.CA,
 			Email:  opts.Email,
@@ -124,19 +133,28 @@ func NewACME(opts Options) (*ACME, error) {
 		return cfg, iss
 	}
 
-	a := &ACME{storage: storage, cache: cache, managed: map[string]context.CancelFunc{}}
-	httpCfg, a.httpIssuer = newCfg(nil)
-	a.httpCfg = httpCfg
+	a.httpCfg, a.httpIssuer = newCfg(nil)
 	if opts.DNSProvider != nil {
-		dnsCfg, _ = newCfg(opts.DNSProvider)
-		a.dnsCfg = dnsCfg
+		a.dnsCfg, _ = newCfg(opts.DNSProvider)
 	}
 	a.issuerKey = a.httpIssuer.IssuerKey()
 	return a, nil
 }
 
+// usesDNS reports whether a name gets its certificate through DNS-01.
+func (a *ACME) usesDNS(name string) bool {
+	if a.dnsCfg == nil {
+		return false
+	}
+	if strings.HasPrefix(name, "*.") {
+		return true
+	}
+	root := a.root.Load()
+	return root != nil && *root != "" && (name == *root || strings.HasSuffix(name, "."+*root))
+}
+
 // Manage implements Manager.
-func (a *ACME) Manage(ctx context.Context, names []string) error {
+func (a *ACME) Manage(ctx context.Context, names []string, root string) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	want := make(map[string]bool, len(names))
@@ -146,10 +164,12 @@ func (a *ACME) Manage(ctx context.Context, names []string) error {
 		}
 		want[n] = true
 	}
+	a.root.Store(&root)
 	var drop []certmagic.SubjectIssuer
-	for n, cancel := range a.managed {
-		if !want[n] {
-			cancel()
+	for n, m := range a.managed {
+		// A name whose challenge changed starts over with the new one.
+		if !want[n] || m.dns != a.usesDNS(n) {
+			m.cancel()
 			delete(a.managed, n)
 			drop = append(drop, certmagic.SubjectIssuer{Subject: n})
 		}
@@ -159,11 +179,12 @@ func (a *ACME) Manage(ctx context.Context, names []string) error {
 		a.cache.RemoveManaged(drop)
 	}
 	for _, n := range names {
-		if a.managed[n] != nil {
+		if _, ok := a.managed[n]; ok {
 			continue
 		}
+		dns := a.usesDNS(n)
 		cfg := a.httpCfg
-		if strings.HasPrefix(n, "*.") {
+		if dns {
 			cfg = a.dnsCfg
 		}
 		nctx, cancel := context.WithCancel(ctx)
@@ -171,7 +192,7 @@ func (a *ACME) Manage(ctx context.Context, names []string) error {
 			cancel()
 			return err
 		}
-		a.managed[n] = cancel
+		a.managed[n] = managedName{cancel: cancel, dns: dns}
 	}
 	return nil
 }

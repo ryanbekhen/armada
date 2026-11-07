@@ -178,7 +178,7 @@ func (s *Server) buildProxy(ctx context.Context, apps []store.App, replicas []st
 		slices.Sort(certNames)
 		certNames = slices.Compact(certNames)
 		if !slices.Equal(certNames, s.lastCertNames) {
-			if err := s.certs.Manage(ctx, certNames); err != nil {
+			if err := s.certs.Manage(ctx, certNames, root); err != nil {
 				s.log.Error("certificate management failed", "err", err)
 			} else {
 				s.lastCertNames = certNames
