@@ -25,7 +25,7 @@ Changes of state, never routine checks:
 
 | Kind | Reasons |
 | --- | --- |
-| `replica` | `Scheduled`, `Started`, `Ready`, `NotReady`, `Restarted`, `Crashed`, `Failed`, `Evacuating`, `Rebalancing`, `Removed` |
+| `replica` | `Scheduled`, `Started`, `Ready`, `NotReady`, `Restarted`, `Crashed`, `OutOfMemory`, `Failed`, `Evacuating`, `Rebalancing`, `Removed` |
 | `rollout` | `Started`, `Completed`, `Failed`, `RolledBack` |
 | `node` | `Joined`, `Connected`, `Disconnected`, `Lost`, `MostUnreachable`, `Cordoned`, `Uncordoned`, `Removed` |
 | `app` | `Unschedulable`, `ScaledUp`, `ScaledDown` (ADR 0020), `ScaledToZero`, `Woken` (ADR 0021), `TrafficChanged` (ADR 0022) |

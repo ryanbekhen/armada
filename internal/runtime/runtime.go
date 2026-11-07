@@ -261,6 +261,10 @@ type Stats struct {
 	// NetworkLost is true when the container's network namespace has no
 	// interface left: it can reach nothing until it is recreated.
 	NetworkLost bool
+	// OOMKills counts the processes the kernel killed at the container's
+	// memory limit since it started. It stays readable after the container
+	// exits, until it is removed.
+	OOMKills int64
 }
 
 // NetworkReleaser frees the network of a stopped container that is kept only

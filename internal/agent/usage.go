@@ -20,6 +20,7 @@ type usageSample struct {
 	container string
 	cpu       time.Duration
 	egress    int64
+	oomKills  int64
 	at        time.Time
 	noNetwork bool
 }
@@ -126,7 +127,7 @@ func (a *Agent) sampleUsage(ctx context.Context, sr runtime.StatsReader, prev ma
 			continue
 		}
 		now := time.Now()
-		next[id] = usageSample{container: c.ID, cpu: st.CPU, egress: st.EgressBytes, at: now, noNetwork: st.NetworkLost}
+		next[id] = usageSample{container: c.ID, cpu: st.CPU, egress: st.EgressBytes, oomKills: st.OOMKills, at: now, noNetwork: st.NetworkLost}
 		p, ok := prev[id]
 		if ok && p.container == c.ID && p.noNetwork && st.NetworkLost {
 			a.restartLostNetwork(id, c.ID)
@@ -140,6 +141,7 @@ func (a *Agent) sampleUsage(ctx context.Context, sr runtime.StatsReader, prev ma
 			CpuMillis:   int64(float64(st.CPU-p.cpu) / float64(elapsed) * 1000),
 			MemoryBytes: st.MemoryBytes,
 			EgressBytes: max(0, st.EgressBytes-p.egress),
+			OomKills:    max(0, st.OOMKills-p.oomKills),
 		})
 	}
 	return report, next

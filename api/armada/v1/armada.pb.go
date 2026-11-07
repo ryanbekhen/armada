@@ -6656,7 +6656,9 @@ type ReplicaUsage struct {
 	// Memory in use, without page cache the kernel can reclaim.
 	MemoryBytes int64 `protobuf:"varint,3,opt,name=memory_bytes,json=memoryBytes,proto3" json:"memory_bytes,omitempty"`
 	// Bytes the container sent since the previous sample.
-	EgressBytes   int64 `protobuf:"varint,4,opt,name=egress_bytes,json=egressBytes,proto3" json:"egress_bytes,omitempty"`
+	EgressBytes int64 `protobuf:"varint,4,opt,name=egress_bytes,json=egressBytes,proto3" json:"egress_bytes,omitempty"`
+	// Processes the kernel killed at the memory limit since the previous sample.
+	OomKills      int64 `protobuf:"varint,5,opt,name=oom_kills,json=oomKills,proto3" json:"oom_kills,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -6715,6 +6717,13 @@ func (x *ReplicaUsage) GetMemoryBytes() int64 {
 func (x *ReplicaUsage) GetEgressBytes() int64 {
 	if x != nil {
 		return x.EgressBytes
+	}
+	return 0
+}
+
+func (x *ReplicaUsage) GetOomKills() int64 {
+	if x != nil {
+		return x.OomKills
 	}
 	return 0
 }
@@ -10135,13 +10144,14 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\vReplicaLoad\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1b\n" +
 	"\tin_flight\x18\x02 \x01(\x03R\binFlight\x12\x1a\n" +
-	"\brequests\x18\x03 \x01(\x03R\brequests\"\x83\x01\n" +
+	"\brequests\x18\x03 \x01(\x03R\brequests\"\xa0\x01\n" +
 	"\fReplicaUsage\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1d\n" +
 	"\n" +
 	"cpu_millis\x18\x02 \x01(\x03R\tcpuMillis\x12!\n" +
 	"\fmemory_bytes\x18\x03 \x01(\x03R\vmemoryBytes\x12!\n" +
-	"\fegress_bytes\x18\x04 \x01(\x03R\vegressBytes\"\xc0\x02\n" +
+	"\fegress_bytes\x18\x04 \x01(\x03R\vegressBytes\x12\x1b\n" +
+	"\toom_kills\x18\x05 \x01(\x03R\boomKills\"\xc0\x02\n" +
 	"\rServerMessage\x127\n" +
 	"\n" +
 	"assignment\x18\x01 \x01(\v2\x15.armada.v1.AssignmentH\x00R\n" +

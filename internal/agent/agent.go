@@ -674,6 +674,17 @@ func stopped(state string) bool {
 	return false
 }
 
+// outOfMemory reports whether the kernel killed a process of a stopped
+// container at its memory limit.
+func (a *Agent) outOfMemory(ctx context.Context, id string) bool {
+	sr, ok := a.cfg.Driver.(runtime.StatsReader)
+	if !ok || !runtime.CanStats(a.cfg.Driver) {
+		return false
+	}
+	st, err := sr.Stats(ctx, id)
+	return err == nil && st.OOMKills > 0
+}
+
 // crashed describes why c stopped and returns how long to wait before
 // recreating it (zero: now). Each recreate doubles the next delay.
 func (a *Agent) crashed(ctx context.Context, replica string, c runtime.Container) (string, time.Duration) {
@@ -681,6 +692,9 @@ func (a *Agent) crashed(ctx context.Context, replica string, c runtime.Container
 	// Listing does not include the exit code.
 	if full, err := a.cfg.Driver.Inspect(ctx, c.ID); err == nil && full.State != runtime.StateCreated {
 		msg = "exited with code " + strconv.Itoa(full.ExitCode)
+		if a.outOfMemory(ctx, c.ID) {
+			msg = "out of memory at its limit, " + msg
+		}
 	}
 	now := time.Now()
 	a.mu.Lock()

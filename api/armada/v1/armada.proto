@@ -900,6 +900,8 @@ message ReplicaUsage {
   int64 memory_bytes = 3;
   // Bytes the container sent since the previous sample.
   int64 egress_bytes = 4;
+  // Processes the kernel killed at the memory limit since the previous sample.
+  int64 oom_kills = 5;
 }
 
 message ServerMessage {
