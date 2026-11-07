@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -94,6 +95,11 @@ var (
 	descAppReady         = prometheus.NewDesc("armada_app_replicas_ready", "Replicas of an app that are running, ready, and not draining.", []string{"app"}, nil)
 	descAppRollout       = prometheus.NewDesc("armada_app_rollout", "1 for an app's current rollout state (idle, progressing, failed).", []string{"app", "state"}, nil)
 	descReplicaReady     = prometheus.NewDesc("armada_replica_ready", "1 when a replica is running, ready, and not draining.", []string{"app", "replica", "revision", "node"}, nil)
+	descReplicaRestarts  = prometheus.NewDesc("armada_replica_restarts_total", "How often the agent recreated a replica's container.", []string{"app", "replica", "node"}, nil)
+	descReplicaLastRest  = prometheus.NewDesc("armada_replica_last_restart_timestamp_seconds", "When the agent last recreated a replica's container, and why (exited, out_of_memory, liveness, startup, network, volume, other, unknown).", []string{"app", "replica", "node", "reason"}, nil)
+	descReplicaStart     = prometheus.NewDesc("armada_replica_start_time_seconds", "When a replica was scheduled.", []string{"app", "replica", "node"}, nil)
+	descAppMin           = prometheus.NewDesc("armada_app_replicas_min", "The fewest replicas an autoscaled app may run.", []string{"app"}, nil)
+	descAppMax           = prometheus.NewDesc("armada_app_replicas_max", "The most replicas an autoscaled app may run.", []string{"app"}, nil)
 	descReplicaCPU       = prometheus.NewDesc("armada_replica_cpu_usage_cores", "CPU a replica used over its node's last sampling interval.", []string{"app", "replica", "node"}, nil)
 	descReplicaMemory    = prometheus.NewDesc("armada_replica_memory_usage_bytes", "Memory a replica uses, without reclaimable page cache.", []string{"app", "replica", "node"}, nil)
 	descReplicaCPURes    = prometheus.NewDesc("armada_replica_cpu_reserved_cores", "CPU a replica reserves on its node.", []string{"app", "replica", "node"}, nil)
@@ -129,6 +135,7 @@ var (
 func (c *clusterCollector) Describe(ch chan<- *prometheus.Desc) {
 	for _, d := range []*prometheus.Desc{
 		descLeader, descAgents, descAppDesired, descAppReady, descAppRollout, descReplicaReady,
+		descReplicaRestarts, descReplicaLastRest, descReplicaStart, descAppMin, descAppMax,
 		descReplicaCPU, descReplicaMemory, descReplicaCPURes, descReplicaCPULimit, descReplicaMemLimit,
 		descNodeReady, descNodeCordoned, descNodeReplicas, descNodeCPUAlloc, descNodeMemAlloc,
 		descNodeCPURes, descNodeMemRes, descNodeCPU, descNodeMemory, descNodeConntrack, descNodeConntrackMax, descJobLastSuccess, descJobActive,
@@ -169,6 +176,13 @@ func (c *clusterCollector) Collect(ch chan<- prometheus.Metric) {
 				ready++
 			}
 			gauge(descReplicaReady, v, a.GetName(), r.GetId(), r.GetRevision(), r.GetNodeId())
+			ch <- prometheus.MustNewConstMetric(descReplicaRestarts, prometheus.CounterValue, float64(r.GetRestarts()), a.GetName(), r.GetId(), r.GetNodeId())
+			if t := r.GetLastRestartAt(); t != nil {
+				gauge(descReplicaLastRest, float64(t.GetSeconds()), a.GetName(), r.GetId(), r.GetNodeId(), restartReason(r.GetLastRestart()))
+			}
+			if t := r.GetCreatedAt(); t != nil {
+				gauge(descReplicaStart, float64(t.GetSeconds()), a.GetName(), r.GetId(), r.GetNodeId())
+			}
 		}
 		gauge(descAppReady, float64(ready), a.GetName())
 		state := a.GetRolloutState()
@@ -177,6 +191,10 @@ func (c *clusterCollector) Collect(ch chan<- prometheus.Metric) {
 		}
 		for _, v := range []string{"idle", store.RolloutProgressing, store.RolloutFailed} {
 			gauge(descAppRollout, boolValue(v == state), a.GetName(), v)
+		}
+		if as := a.GetAutoscale(); as != nil {
+			gauge(descAppMin, float64(as.GetMin()), a.GetName())
+			gauge(descAppMax, float64(as.GetMax()), a.GetName())
 		}
 		for _, r := range a.GetAutoscale().GetRules() {
 			gauge(descScaleTarget, float64(r.GetTarget()), a.GetName(), r.GetType())
@@ -260,6 +278,28 @@ func (c *clusterCollector) Collect(ch chan<- prometheus.Metric) {
 			gauge(descNodeConntrackMax, float64(n.GetConntrackMax()), n.GetId())
 		}
 	}
+}
+
+// restartReason names why a container was recreated from the agent's
+// words, so that the label takes only a few values.
+func restartReason(msg string) string {
+	switch {
+	case msg == "":
+		return "unknown"
+	case strings.Contains(msg, "out of memory"):
+		return "out_of_memory"
+	case strings.Contains(msg, "liveness probe"):
+		return "liveness"
+	case strings.Contains(msg, "startup probe"):
+		return "startup"
+	case strings.Contains(msg, "network interface"):
+		return "network"
+	case strings.Contains(msg, "volume backup"):
+		return "volume"
+	case strings.HasPrefix(msg, "exited with code"), strings.HasPrefix(msg, "container "):
+		return "exited"
+	}
+	return "other"
 }
 
 func cores(millis int64) float64 { return float64(millis) / 1000 }

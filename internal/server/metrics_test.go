@@ -105,6 +105,21 @@ func TestMetrics(t *testing.T) {
 		}
 	}
 
+	// A crashed container is counted, with why and when.
+	if !strings.Contains(body, `armada_replica_start_time_seconds{app="web"`) || strings.Contains(body, "armada_replica_last_restart_timestamp_seconds{") {
+		t.Errorf("before a restart:\n%s", grepLines(body, "armada_replica_"))
+	}
+	cs, _ := d.List(c.ctx, nil)
+	d.SetState(cs[0].ID, "exited", 137)
+	c.eventually("restart in metrics", func() bool {
+		_, b, err := scrape(issued.GetCert(), keyPEM)
+		body = b
+		return err == nil && strings.Contains(b, `reason="exited"`)
+	})
+	if !strings.Contains(body, `armada_replica_restarts_total{app="web",node="n1",replica="`+cs[0].Labels[runtime.LabelReplica]+`"} 1`) {
+		t.Errorf("restart count:\n%s", grepLines(body, "armada_replica_restarts"))
+	}
+
 	// Admin certificates may scrape too; node certificates may not.
 	adminCert, adminKey, _ := c.ca.Issue(pki.IssueRequest{Identity: pki.Identity{Kind: pki.KindAdmin, Name: "ryan"}, Client: true})
 	if code, _, err := scrape(adminCert, adminKey); err != nil || code != http.StatusOK {
@@ -166,6 +181,35 @@ func TestMetricsAddrMustBePrivate(t *testing.T) {
 	for _, addr := range []string{"0.0.0.0:9100", ":9100", "8.8.8.8:9100"} {
 		if _, err := New(Config{Store: st, TLS: tlsCfg, MetricsAddr: addr}); err == nil || !strings.Contains(err.Error(), "metrics") {
 			t.Errorf("%s: %v", addr, err)
+		}
+	}
+}
+
+func grepLines(body, prefix string) string {
+	var out []string
+	for _, l := range strings.Split(body, "\n") {
+		if strings.HasPrefix(l, prefix) {
+			out = append(out, l)
+		}
+	}
+	return strings.Join(out, "\n")
+}
+
+func TestRestartReason(t *testing.T) {
+	t.Parallel()
+	for msg, want := range map[string]string{
+		"": "unknown",
+		"out of memory at its limit, exited with code 137": "out_of_memory",
+		"liveness probe failed: timeout; ready":            "liveness",
+		"startup probe failed: refused":                    "startup",
+		"its network interface is gone":                    "network",
+		"stopped for a volume backup or restore":           "volume",
+		"exited with code 1":                               "exited",
+		"container exited":                                 "exited",
+		"something new":                                    "other",
+	} {
+		if got := restartReason(msg); got != want {
+			t.Errorf("%q: %s, want %s", msg, got, want)
 		}
 	}
 }

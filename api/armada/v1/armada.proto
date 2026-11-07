@@ -630,6 +630,12 @@ message ReplicaStatus {
   bool ready = 8;
   // True while the replica is taken out of the proxy before removal.
   bool draining = 9;
+  // When the replica was scheduled; unset for replicas from before it was kept.
+  google.protobuf.Timestamp created_at = 10;
+  // How often the agent recreated its container, when it last did, and why.
+  int32 restarts = 11;
+  google.protobuf.Timestamp last_restart_at = 12;
+  string last_restart = 13;
 }
 
 message NodeStatus {

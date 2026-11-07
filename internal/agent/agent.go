@@ -469,7 +469,7 @@ func (a *Agent) Reconcile(ctx context.Context) (*armadav1.ReplicaReport, error) 
 			reason, restart := a.restarts[c.ID]
 			delete(a.restarts, c.ID)
 			if restart {
-				a.notes[id] = "restarted: " + reason
+				a.notes[id] = store.RestartNote + reason
 			}
 			a.mu.Unlock()
 			if restart {
@@ -491,7 +491,7 @@ func (a *Agent) Reconcile(ctx context.Context) (*armadav1.ReplicaReport, error) 
 			}
 			a.log.Warn("container stopped, recreating", "replica", id, "reason", msg)
 			a.mu.Lock()
-			a.notes[id] = "restarted: " + msg
+			a.notes[id] = store.RestartNote + msg
 			a.mu.Unlock()
 			a.remove(ctx, c.ID)
 			ok = false
