@@ -85,7 +85,7 @@ armada deploy -f web.yaml    # → https://web.apps.example.com
   usage, reconciles) on a private address, only to client certificates that
   `armada metrics credentials` creates.
 - **Multiple nodes.** Join with a single-use token; nodes get short-lived
-  mTLS certificates that they renew themselves. Cordon, evacuate, remove.
+  mTLS certificates that they renew themselves, and servers renew their own. Cordon, evacuate, remove.
   Replicas of a lost node are started elsewhere, and apps spread out again,
   one replica at a time, when a node returns or joins.
 - **Placement.** Label nodes (by hand or in the join token), keep apps to

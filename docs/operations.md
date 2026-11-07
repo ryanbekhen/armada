@@ -74,7 +74,7 @@ come back.
 | --- | --- | --- |
 | `etcd/` | The embedded etcd member: apps, revisions, replicas, nodes, domains, encrypted secrets, the ACME account and certificates | No cluster (unless other servers have it) |
 | `master.key` | Encrypts every secret in the state | Secrets are unrecoverable |
-| `ca.crt`, `ca.key` | Cluster CA: signs node, admin, and server certificates | Every node must join again; every admin config is invalid |
+| `ca.crt`, `ca.key` | Cluster CA: signs node, admin, and server certificates, and lets each server renew its own | Every node must join again; every admin config is invalid |
 | `server.crt`, `server.key` | Control plane TLS identity | Re-issuable from the CA |
 | `node.crt`, `node.key`, `agent.json` | Identity of the agent on the control plane node, and its container runtime | The node must join again |
 | `runtime/`, `containerd/`, `containers/`, `logs/` | The embedded runtime: extracted binaries, images, per-container files, container output | Recreated: the binaries are extracted again, images pulled again, and the agent recreates its containers |
@@ -245,6 +245,27 @@ newer layout, instead of misreading it. To go back:
 - If it did, stop the server, move the data directory aside, reinstall the
   older version, and restore the backup taken before the upgrade. Changes
   made since the upgrade are lost.
+
+## Certificates
+
+| Certificate | Lifetime | Renewal |
+| --- | --- | --- |
+| Node (`node.crt`) | 30 days | The agent renews it in the last third of its lifetime. A node off for more than 30 days must be removed and joined again; on a server, `armada-server` renews it at start if the node is still registered |
+| Server (`server.crt`) and etcd member | 1 year | Each server renews its own at start and every 12 hours once a third of the lifetime is left, with no restart; a server that was off past expiry renews them before it starts serving |
+| App certificates (Let's Encrypt) | 90 days | The leader renews them about 30 days before they expire |
+| Admin (`~/.armada/config`) | 1 year | By hand: `armada admin renew` before it expires |
+| Metrics scraper | 1 year | By hand: `armada metrics credentials` again |
+| Automation identity | 90 days | By hand: `armada automation renew` |
+
+`armada doctor` checks the certificates on its machine and the admin
+certificate in the client config: it warns 30 days before the admin
+certificate expires and when one Armada renews itself was not renewed,
+and fails on an expired one. If the admin certificate has expired, renew
+it on a server as root, with the CA in its data directory:
+
+```bash
+sudo armada admin renew --data-dir /var/lib/armada
+```
 
 ## Projects
 

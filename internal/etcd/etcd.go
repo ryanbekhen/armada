@@ -269,11 +269,43 @@ func clientTLS(dir string) (*tls.Config, error) {
 	if !pool.AppendCertsFromPEM(files[0]) {
 		return nil, errors.New("etcd: invalid CA certificate")
 	}
-	cert, err := tls.X509KeyPair(files[1], files[2])
-	if err != nil {
+	if _, err := tls.X509KeyPair(files[1], files[2]); err != nil {
 		return nil, err
 	}
-	return &tls.Config{MinVersion: tls.VersionTLS13, RootCAs: pool, Certificates: []tls.Certificate{cert}}, nil
+	// Read on every handshake, like etcd's own listeners, so a renewed
+	// member certificate (RenewCert) is used without a restart.
+	return &tls.Config{MinVersion: tls.VersionTLS13, RootCAs: pool, GetClientCertificate: func(*tls.CertificateRequestInfo) (*tls.Certificate, error) {
+		files, err := readAll(dir, fileCert, fileKey)
+		if err != nil {
+			return nil, err
+		}
+		cert, err := tls.X509KeyPair(files[0], files[1])
+		return &cert, err
+	}}, nil
+}
+
+// RenewCert signs the member certificate again, for the same key, once
+// pki.RenewDue says so at now. etcd and the member's clients read the files on
+// every handshake, so the new certificate is used without a restart. It
+// reports whether it renewed.
+func (m *Member) RenewCert(now time.Time) (bool, error) {
+	certPath := filepath.Join(m.cfg.Dir, fileCert)
+	b, err := fsutil.ReadPrivateFile(certPath)
+	if err != nil {
+		return false, err
+	}
+	c, err := pki.ParseCertPEM(b)
+	if err != nil {
+		return false, err
+	}
+	if !pki.RenewDue(c, now) {
+		return false, nil
+	}
+	certPEM, err := m.cfg.CA.Reissue(c, 0)
+	if err != nil {
+		return false, fmt.Errorf("etcd member certificate: %w", err)
+	}
+	return true, fsutil.WriteFileAtomic(certPath, certPEM, 0o600)
 }
 
 func readAll(dir string, names ...string) ([][]byte, error) {

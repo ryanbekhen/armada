@@ -213,3 +213,35 @@ func TestRestartReason(t *testing.T) {
 		}
 	}
 }
+
+func TestRenewAdminCertificate(t *testing.T) {
+	t.Parallel()
+	c := newCluster(t)
+	admin := armadav1.NewAdminServiceClient(c.dial(c.ca, pki.Identity{Kind: pki.KindAdmin, Name: "alice"}))
+	// The CSR may name anyone; the certificate is for the caller.
+	keyPEM, csr, _ := pki.NewCSR(pki.Identity{Kind: pki.KindAdmin, Name: "mallory"})
+	resp, err := admin.RenewAdminCertificate(c.ctx, &armadav1.RenewAdminCertificateRequest{Csr: csr})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cert, _ := pki.ParseCertPEM(resp.GetCert())
+	if id, _ := pki.IdentityFromCert(cert); id.String() != "admin:alice" || time.Until(cert.NotAfter) < 300*24*time.Hour {
+		t.Errorf("issued %v until %v", id, cert.NotAfter)
+	}
+	// The new pair works on the API.
+	renewed := armadav1.NewAdminServiceClient(c.dialPEM(resp.GetCert(), keyPEM))
+	if _, err := renewed.Status(c.ctx, &armadav1.StatusRequest{}); err != nil {
+		t.Errorf("renewed certificate refused: %v", err)
+	}
+	if _, err := admin.RenewAdminCertificate(c.ctx, &armadav1.RenewAdminCertificateRequest{Csr: []byte("not a csr")}); status.Code(err) != codes.InvalidArgument {
+		t.Errorf("garbage CSR: %v", err)
+	}
+	// Other identities cannot call it.
+	c.addNode("n1", "127.0.0.1")
+	for _, id := range []pki.Identity{{Kind: pki.KindNode, Name: "n1"}, {Kind: pki.KindMetrics, Name: "p"}} {
+		other := armadav1.NewAdminServiceClient(c.dial(c.ca, id))
+		if _, err := other.RenewAdminCertificate(c.ctx, &armadav1.RenewAdminCertificateRequest{Csr: csr}); status.Code(err) != codes.PermissionDenied {
+			t.Errorf("%v: %v", id, err)
+		}
+	}
+}

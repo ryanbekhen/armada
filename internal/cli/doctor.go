@@ -17,8 +17,10 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/ryanbekhen/armada/internal/clientconfig"
 	"github.com/ryanbekhen/armada/internal/clusternet"
 	"github.com/ryanbekhen/armada/internal/conntrack"
+	"github.com/ryanbekhen/armada/internal/fsutil"
 	"github.com/ryanbekhen/armada/internal/netutil"
 	"github.com/ryanbekhen/armada/internal/proxy/haproxy"
 	"github.com/ryanbekhen/armada/internal/runtime"
@@ -56,13 +58,16 @@ type doctorEnv struct {
 	listeners   func() ([]netip.AddrPort, error)
 	ntpSynced   func(context.Context) (bool, error)
 	ufwActive   func(context.Context) (bool, error)
+	readFile    func(string) ([]byte, error)
+	now         func() time.Time
+	adminConfig string
 	privateIP   string
 	dataDir     string
 	secretsDir  string
 	clusterPort []uint16
 }
 
-func newDoctorCommand() *cobra.Command {
+func newDoctorCommand(g *globals) *cobra.Command {
 	var (
 		dataDir, secretsDir, privateIP string
 	)
@@ -70,12 +75,14 @@ func newDoctorCommand() *cobra.Command {
 		Use:   "doctor",
 		Short: "Check that this host is ready to run Armada safely",
 		Long: `Runs pre-flight checks on this host: the container runtime, the private IP,
-ports bound publicly, file permissions in the data directory, the secrets tmpfs, the
-clock, and the host firewall. Exits non-zero if a check fails.`,
+ports bound publicly, file permissions in the data directory, the certificates on
+this machine and in the client config (--config), the secrets tmpfs, the clock, and
+the host firewall. Exits non-zero if a check fails.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			env := hostDoctorEnv(dataDir)
 			env.privateIP, env.dataDir, env.secretsDir = privateIP, dataDir, secretsDir
+			env.adminConfig = g.configPath
 			results := runDoctor(cmd.Context(), env)
 			if failed := printChecks(cmd.OutOrStdout(), results); failed > 0 {
 				return fmt.Errorf("%d check(s) failed", failed)
@@ -117,6 +124,9 @@ func hostDoctorEnv(dataDir string) doctorEnv {
 		listeners:   procListeners,
 		ntpSynced:   timedatectlSynced,
 		ufwActive:   ufwActive,
+		readFile:    fsutil.ReadPrivateFile,
+		now:         time.Now,
+		adminConfig: clientconfig.DefaultPath(),
 		clusterPort: []uint16{defaultPort, defaultPort + 1, haproxy.MetricsPort},
 	}
 }
@@ -154,6 +164,7 @@ func runDoctor(ctx context.Context, env doctorEnv) []checkResult {
 
 	out = append(out, checkListeners(env)...)
 	out = append(out, checkDataDir(env)...)
+	out = append(out, checkCertificates(env)...)
 
 	// Before the first start the directory does not exist yet: systemd
 	// creates /run/armada, so check the nearest directory that exists.

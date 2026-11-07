@@ -56,6 +56,7 @@ const (
 	AdminService_Exec_FullMethodName                       = "/armada.v1.AdminService/Exec"
 	AdminService_Top_FullMethodName                        = "/armada.v1.AdminService/Top"
 	AdminService_IssueMetricsCertificate_FullMethodName    = "/armada.v1.AdminService/IssueMetricsCertificate"
+	AdminService_RenewAdminCertificate_FullMethodName      = "/armada.v1.AdminService/RenewAdminCertificate"
 	AdminService_Events_FullMethodName                     = "/armada.v1.AdminService/Events"
 	AdminService_RunJob_FullMethodName                     = "/armada.v1.AdminService/RunJob"
 	AdminService_ListJobs_FullMethodName                   = "/armada.v1.AdminService/ListJobs"
@@ -130,6 +131,9 @@ type AdminServiceClient interface {
 	// IssueMetricsCertificate signs a client certificate that may only
 	// scrape the metrics endpoint (ADR 0017).
 	IssueMetricsCertificate(ctx context.Context, in *IssueMetricsCertificateRequest, opts ...grpc.CallOption) (*IssueMetricsCertificateResponse, error)
+	// RenewAdminCertificate gives the calling administrator a new certificate
+	// for the key in its CSR, under the same name.
+	RenewAdminCertificate(ctx context.Context, in *RenewAdminCertificateRequest, opts ...grpc.CallOption) (*IssueMetricsCertificateResponse, error)
 	// Events streams what the cluster did (ADR 0018), oldest first; with
 	// follow, then new events until the caller cancels.
 	Events(ctx context.Context, in *EventsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[EventInfo], error)
@@ -547,6 +551,16 @@ func (c *adminServiceClient) IssueMetricsCertificate(ctx context.Context, in *Is
 	return out, nil
 }
 
+func (c *adminServiceClient) RenewAdminCertificate(ctx context.Context, in *RenewAdminCertificateRequest, opts ...grpc.CallOption) (*IssueMetricsCertificateResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(IssueMetricsCertificateResponse)
+	err := c.cc.Invoke(ctx, AdminService_RenewAdminCertificate_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *adminServiceClient) Events(ctx context.Context, in *EventsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[EventInfo], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	stream, err := c.cc.NewStream(ctx, &AdminService_ServiceDesc.Streams[4], AdminService_Events_FullMethodName, cOpts...)
@@ -691,6 +705,9 @@ type AdminServiceServer interface {
 	// IssueMetricsCertificate signs a client certificate that may only
 	// scrape the metrics endpoint (ADR 0017).
 	IssueMetricsCertificate(context.Context, *IssueMetricsCertificateRequest) (*IssueMetricsCertificateResponse, error)
+	// RenewAdminCertificate gives the calling administrator a new certificate
+	// for the key in its CSR, under the same name.
+	RenewAdminCertificate(context.Context, *RenewAdminCertificateRequest) (*IssueMetricsCertificateResponse, error)
 	// Events streams what the cluster did (ADR 0018), oldest first; with
 	// follow, then new events until the caller cancels.
 	Events(*EventsRequest, grpc.ServerStreamingServer[EventInfo]) error
@@ -824,6 +841,9 @@ func (UnimplementedAdminServiceServer) Top(context.Context, *TopRequest) (*TopRe
 }
 func (UnimplementedAdminServiceServer) IssueMetricsCertificate(context.Context, *IssueMetricsCertificateRequest) (*IssueMetricsCertificateResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method IssueMetricsCertificate not implemented")
+}
+func (UnimplementedAdminServiceServer) RenewAdminCertificate(context.Context, *RenewAdminCertificateRequest) (*IssueMetricsCertificateResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RenewAdminCertificate not implemented")
 }
 func (UnimplementedAdminServiceServer) Events(*EventsRequest, grpc.ServerStreamingServer[EventInfo]) error {
 	return status.Error(codes.Unimplemented, "method Events not implemented")
@@ -1497,6 +1517,24 @@ func _AdminService_IssueMetricsCertificate_Handler(srv interface{}, ctx context.
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AdminService_RenewAdminCertificate_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RenewAdminCertificateRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).RenewAdminCertificate(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminService_RenewAdminCertificate_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).RenewAdminCertificate(ctx, req.(*RenewAdminCertificateRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _AdminService_Events_Handler(srv interface{}, stream grpc.ServerStream) error {
 	m := new(EventsRequest)
 	if err := stream.RecvMsg(m); err != nil {
@@ -1754,6 +1792,10 @@ var AdminService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "IssueMetricsCertificate",
 			Handler:    _AdminService_IssueMetricsCertificate_Handler,
+		},
+		{
+			MethodName: "RenewAdminCertificate",
+			Handler:    _AdminService_RenewAdminCertificate_Handler,
 		},
 		{
 			MethodName: "RunJob",

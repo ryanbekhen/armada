@@ -331,3 +331,25 @@ func (s *Server) IssueMetricsCertificate(ctx context.Context, req *armadav1.Issu
 	s.log.Info("issued metrics certificate", "name", req.GetName(), "serial", cert.Serial, "by", actor(ctx))
 	return &armadav1.IssueMetricsCertificateResponse{Cert: cert.PEM, CaCert: s.ca.CertPEM, ExpiresAt: timestamppb.New(cert.NotAfter)}, nil
 }
+
+// RenewAdminCertificate signs a new administrator certificate, under the
+// caller's own name, from the caller's CSR. Only an administrator calls it,
+// for itself; the old certificate stays valid until it expires.
+func (s *Server) RenewAdminCertificate(ctx context.Context, req *armadav1.RenewAdminCertificateRequest) (*armadav1.IssueMetricsCertificateResponse, error) {
+	acc := accessFrom(ctx)
+	if acc.id.Kind != pki.KindAdmin {
+		return nil, status.Error(codes.PermissionDenied, "only an administrator renews its own certificate")
+	}
+	if s.ca == nil {
+		return nil, status.Error(codes.FailedPrecondition, "this server cannot issue certificates")
+	}
+	cert, err := s.ca.SignAdminCSR(req.GetCsr(), acc.id.Name)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "sign certificate: %v", err)
+	}
+	if err := s.store.RecordAudit(ctx, actor(ctx), "admin.certificate", acc.id.Name, "serial="+cert.Serial); err != nil {
+		return nil, storeErr(err)
+	}
+	s.log.Info("renewed admin certificate", "name", acc.id.Name, "serial", cert.Serial)
+	return &armadav1.IssueMetricsCertificateResponse{Cert: cert.PEM, CaCert: s.ca.CertPEM, ExpiresAt: timestamppb.New(cert.NotAfter)}, nil
+}
