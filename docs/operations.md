@@ -788,7 +788,11 @@ scrape_configs:
 | `armada_events_total` | `kind`, `reason` | events the leader recorded (see [Events](#events)); resets when the leader changes |
 | `armada_app_replicas_desired`, `armada_app_replicas_ready` | `app` | desired replicas, and those running, ready, and not draining |
 | `armada_app_rollout` | `app`, `state` | 1 for the current rollout state: `idle`, `progressing`, `failed` |
+| `armada_app_replicas_min`, `armada_app_replicas_max` | `app` | an autoscaled app's bounds |
 | `armada_replica_ready` | `app`, `replica`, `revision`, `node` | 1 when the replica serves |
+| `armada_replica_start_time_seconds` | `app`, `replica`, `node` | when the replica was scheduled |
+| `armada_replica_restarts_total` | `app`, `replica`, `node` | how often its container was recreated (crash, out of memory, failed probe) |
+| `armada_replica_last_restart_timestamp_seconds` | `app`, `replica`, `node`, `reason` | when it last was, and why: `exited`, `out_of_memory`, `liveness`, `startup`, `network`, `volume`, `other`, `unknown` |
 | `armada_replica_cpu_usage_cores`, `armada_replica_memory_usage_bytes` | `app`, `replica`, `node` | usage from the latest sample (absent without one) |
 | `armada_replica_cpu_reserved_cores`, `armada_replica_cpu_limit_cores`, `armada_replica_memory_limit_bytes` | `app`, `replica`, `node` | reservation and limits (CPU limit only when set) |
 | `armada_project_replicas` | `project` | replicas of the project's apps |

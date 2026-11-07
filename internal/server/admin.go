@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"slices"
 	"strings"
 	"sync"
@@ -294,6 +295,8 @@ func (s *Server) Status(ctx context.Context, req *armadav1.StatusRequest) (*arma
 				Id: r.ID, Revision: r.Revision, NodeId: r.NodeID, State: r.State,
 				Message: r.Message, Address: r.Address, UpdatedAt: timestamppb.New(r.UpdatedAt),
 				Ready: r.Ready, Draining: r.Draining(),
+				Restarts: int32(min(r.Restarts, math.MaxInt32)), LastRestart: r.LastRestart, //nolint:gosec // bounded by min
+				CreatedAt: optionalTime(r.CreatedAt), LastRestartAt: optionalTime(r.LastRestartAt),
 			})
 		}
 		resp.Apps = append(resp.Apps, as)
@@ -444,4 +447,12 @@ func (s *Server) relayLogs(ctx context.Context, r store.Replica, follow bool, ta
 			return
 		}
 	}
+}
+
+// optionalTime leaves a zero time unset.
+func optionalTime(t time.Time) *timestamppb.Timestamp {
+	if t.IsZero() {
+		return nil
+	}
+	return timestamppb.New(t)
 }

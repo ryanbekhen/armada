@@ -201,6 +201,10 @@ func (r Revision) Image() string {
 	return r.Spec.Image
 }
 
+// RestartNote starts the messages an agent reports for a container it
+// recreated, followed by why, until the container is ready.
+const RestartNote = "restarted: "
+
 // Replica is one scheduled instance of a revision on a node.
 type Replica struct {
 	ID          string
@@ -227,6 +231,15 @@ type Replica struct {
 	// does); zero otherwise.
 	MovingSince time.Time
 	UpdatedAt   time.Time
+	// CreatedAt is when the replica was scheduled; zero for replicas
+	// recorded before it was kept.
+	CreatedAt time.Time
+	// Restarts counts how often the agent recreated the replica's container
+	// (it crashed, ran out of memory, or failed a probe). LastRestartAt is
+	// when it last did, LastRestart why, as the agent reported it.
+	Restarts      int
+	LastRestartAt time.Time
+	LastRestart   string
 	// Run is the job run this replica is an attempt of (ADR 0019), 0 for
 	// app replicas. Done marks an attempt that is over: its container is
 	// stopped and kept for its logs. Finished and ExitCode are what the

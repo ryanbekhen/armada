@@ -67,8 +67,16 @@ on every scrape. No new state is kept.
   - `armada_app_replicas_desired{app}` and `armada_app_replicas_ready{app}`
   - `armada_app_rollout{app,state}`, which is 1 for the current state
     (`idle`, `progressing`, or `failed`)
+  - `armada_app_replicas_min{app}` and `armada_app_replicas_max{app}` for
+    autoscaled apps
 - **Replicas:**
   - `armada_replica_ready{app,replica,revision,node}`
+  - `armada_replica_start_time_seconds`, when the replica was scheduled
+  - `armada_replica_restarts_total`, how often the agent recreated its
+    container, and `armada_replica_last_restart_timestamp_seconds{reason}`,
+    when it last did; `reason` is one of a fixed set Armada derives from the
+    agent's message (`exited`, `out_of_memory`, `liveness`, `startup`,
+    `network`, `volume`, `other`, `unknown`), never the message itself
   - `armada_replica_cpu_usage_cores` and
     `armada_replica_memory_usage_bytes`, both from the latest sample
   - `armada_replica_cpu_reserved_cores` and
@@ -83,7 +91,8 @@ on every scrape. No new state is kept.
   - `armada_node_cpu_usage_cores` and `armada_node_memory_usage_bytes`
 
 Label values are only names the store has already validated: apps, replicas,
-revisions, nodes, servers. They never include image references, domains,
+revisions, nodes, servers, plus fixed words Armada chooses (rollout states,
+restart reasons). They never include image references, domains,
 environment values, or anything else a spec or an agent could make up.
 
 ## Alternatives considered

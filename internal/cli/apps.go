@@ -263,10 +263,10 @@ func printStatus(out io.Writer, resp *armadav1.StatusResponse) error {
 				}
 			}
 		}
-		_, _ = fmt.Fprintln(tw, "\nREPLICA\tREVISION\tNODE\tSTATE\tADDRESS\tMESSAGE")
+		_, _ = fmt.Fprintln(tw, "\nREPLICA\tREVISION\tNODE\tSTATE\tRESTARTS\tADDRESS\tMESSAGE")
 		for _, a := range resp.Apps {
 			for _, r := range a.Replicas {
-				_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", r.Id, r.Revision, r.NodeId, replicaState(r), dash(r.Address), dash(r.Message))
+				_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", r.Id, r.Revision, r.NodeId, replicaState(r), restarts(r), dash(r.Address), dash(r.Message))
 			}
 		}
 	}
@@ -284,6 +284,16 @@ func printStatus(out io.Writer, resp *armadav1.StatusResponse) error {
 			fmt.Sprintf("%.1f", float64(n.CpuMillis)/1000), humanBytes(n.MemoryBytes), seen)
 	}
 	return tw.Flush()
+}
+
+// restarts reads like "3 (12m ago)": how often the replica's container was
+// recreated, and when it last was.
+func restarts(r *armadav1.ReplicaStatus) string {
+	n := strconv.Itoa(int(r.GetRestarts()))
+	if t := r.GetLastRestartAt(); t != nil && r.GetRestarts() > 0 {
+		n += " (" + time.Since(t.AsTime()).Round(time.Second).String() + " ago)"
+	}
+	return n
 }
 
 // autoscaleNote reads like "autoscale 2-10, http 34/50, cpu 61%/70%:

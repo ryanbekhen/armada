@@ -252,6 +252,33 @@ func TestReplicas(t *testing.T) {
 	if len(got) != 1 || got[0].State != ReplicaRunning || got[0].Address != "10.0.0.1:32768" || got[0].ContainerID != "c1" {
 		t.Errorf("replica = %+v", got)
 	}
+	if got[0].CreatedAt.IsZero() || got[0].Restarts != 0 {
+		t.Errorf("new replica: created %v, restarts %d", got[0].CreatedAt, got[0].Restarts)
+	}
+
+	// A new container is a restart; its reason comes from the agent's note,
+	// which may only arrive with a later report.
+	for _, st := range []ReplicaStatus{
+		{ID: "web-1", State: ReplicaStarting, ContainerID: "c2"},
+		{ID: "web-1", State: ReplicaRunning, ContainerID: "c2", Message: RestartNote + "liveness probe failed: timeout; not ready"},
+		{ID: "web-1", State: ReplicaRunning, ContainerID: "c2", Ready: true},
+	} {
+		if err := s.UpdateReplicaStatus(ctx, "n1", st); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, _ = s.ListReplicas(ctx, ReplicaFilter{App: "web", NodeID: "n1"})
+	if got[0].Restarts != 1 || got[0].LastRestart != "liveness probe failed: timeout; not ready" || got[0].LastRestartAt.IsZero() {
+		t.Errorf("after a restart: %d %q %v", got[0].Restarts, got[0].LastRestart, got[0].LastRestartAt)
+	}
+	// The next restart forgets the old reason.
+	if err := s.UpdateReplicaStatus(ctx, "n1", ReplicaStatus{ID: "web-1", State: ReplicaRunning, ContainerID: "c3"}); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = s.ListReplicas(ctx, ReplicaFilter{App: "web", NodeID: "n1"})
+	if got[0].Restarts != 2 || got[0].LastRestart != "" {
+		t.Errorf("second restart: %d %q", got[0].Restarts, got[0].LastRestart)
+	}
 
 	if err := s.DeleteReplica(ctx, "web-1"); err != nil {
 		t.Fatal(err)

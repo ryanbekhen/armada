@@ -454,6 +454,11 @@ type replicaRec struct {
 	DrainingSince int64  `json:"drainingSince"`
 	MovingSince   int64  `json:"movingSince,omitempty"`
 	UpdatedAt     int64  `json:"updatedAt"`
+	CreatedAt     int64  `json:"createdAt,omitempty"`
+	// Container recreations by the agent (Replica.Restarts).
+	Restarts      int    `json:"restarts,omitempty"`
+	LastRestartAt int64  `json:"lastRestartAt,omitempty"`
+	LastRestart   string `json:"lastRestart,omitempty"`
 	// Job attempts (ADR 0019).
 	Run      int64 `json:"run,omitempty"`
 	Done     bool  `json:"done,omitempty"`
@@ -1806,7 +1811,7 @@ func (s *Etcd) CreateReplica(ctx context.Context, r Replica) error {
 		if err := t.bindVolumes(rev, r.NodeID, s.now()); err != nil {
 			return err
 		}
-		return t.put(pfxReplicas+r.ID, replicaRec{ID: r.ID, App: r.App, Revision: r.Revision, NodeID: r.NodeID, State: r.State, UpdatedAt: s.now().UnixMilli(), Run: r.Run})
+		return t.put(pfxReplicas+r.ID, replicaRec{ID: r.ID, App: r.App, Revision: r.Revision, NodeID: r.NodeID, State: r.State, UpdatedAt: s.now().UnixMilli(), CreatedAt: s.now().UnixMilli(), Run: r.Run})
 	})
 }
 
@@ -1875,6 +1880,7 @@ func (s *Etcd) ListReplicas(ctx context.Context, f ReplicaFilter) ([]Replica, er
 				out = append(out, Replica{ID: r.ID, App: r.App, Revision: r.Revision, NodeID: r.NodeID, State: r.State,
 					ContainerID: r.ContainerID, Address: r.Address, IP: r.IP, Message: r.Message, Ready: r.Ready,
 					ReadySince: fromMS(r.ReadySince), DrainingSince: fromMS(r.DrainingSince), MovingSince: fromMS(r.MovingSince), UpdatedAt: fromMS(r.UpdatedAt),
+					CreatedAt: fromMS(r.CreatedAt), Restarts: r.Restarts, LastRestartAt: fromMS(r.LastRestartAt), LastRestart: r.LastRestart,
 					Run: r.Run, Done: r.Done, Finished: r.Finished, ExitCode: r.ExitCode})
 			}
 			return nil
@@ -1904,6 +1910,18 @@ func (s *Etcd) UpdateReplicaStatus(ctx context.Context, nodeID string, st Replic
 		case r.Ready && r.ReadySince != 0:
 		default:
 			r.ReadySince = now
+		}
+		if r.Run == 0 && r.ContainerID != "" && st.ContainerID != "" && st.ContainerID != r.ContainerID {
+			// The agent recreated the container.
+			r.Restarts++
+			r.LastRestartAt, r.LastRestart = now, ""
+		}
+		if r.Restarts > 0 && r.LastRestart == "" {
+			// The agent prefixes a recreated container's messages with
+			// why, until it is ready; the first report may come earlier.
+			if why, ok := strings.CutPrefix(st.Message, RestartNote); ok {
+				r.LastRestart = why
+			}
 		}
 		r.State, r.ContainerID, r.Address, r.IP, r.Message, r.UpdatedAt, r.Ready = st.State, st.ContainerID, st.Address, st.IP, st.Message, now, ready
 		if r.Run != 0 && !r.Finished {
