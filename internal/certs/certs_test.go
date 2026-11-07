@@ -33,7 +33,7 @@ func TestWildcardNeedsDNSProvider(t *testing.T) {
 	if a.SupportsWildcard() {
 		t.Error("wildcard support without DNS provider")
 	}
-	if err := a.Manage(context.Background(), []string{"*.apps.example.org"}); err == nil || !strings.Contains(err.Error(), "DNS provider") {
+	if err := a.Manage(context.Background(), []string{"*.apps.example.org"}, ""); err == nil || !strings.Contains(err.Error(), "DNS provider") {
 		t.Errorf("err = %v", err)
 	}
 
@@ -146,11 +146,77 @@ func TestManageDropsNames(t *testing.T) {
 		{nil, []string{}},
 	}
 	for i, st := range steps {
-		if err := a.Manage(ctx, st.names); err != nil {
+		if err := a.Manage(ctx, st.names, ""); err != nil {
 			t.Fatalf("step %d: %v", i, err)
 		}
 		if got := a.managedNames(); !slices.Equal(got, st.want) {
 			t.Errorf("step %d: managed = %v, want %v", i, got, st.want)
 		}
+	}
+}
+
+// The root domain and the names under it use DNS-01, so they get a certificate
+// when HTTP-01 cannot reach the node; other names keep HTTP-01.
+func TestRootDomainUsesDNSChallenge(t *testing.T) {
+	t.Parallel()
+	dir, err := os.MkdirTemp("", "armada-certs-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	a, err := NewACME(Options{Storage: &certmagic.FileStorage{Path: dir}, CA: "https://127.0.0.1:1/directory", DNSProvider: nopDNS{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	names := []string{"example.org", "shop.example.org", "a.b.example.org", "notexample.org", "example.org.evil.net", "custom.net"}
+	if err := a.Manage(context.Background(), names, "example.org"); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{"example.org": true, "shop.example.org": true, "a.b.example.org": true}
+	a.mu.Lock()
+	for _, n := range names {
+		if a.managed[n].dns != want[n] {
+			t.Errorf("%s: dns = %v, want %v", n, a.managed[n].dns, want[n])
+		}
+	}
+	a.mu.Unlock()
+
+	// Without the root, its names go back to HTTP-01 and stay managed.
+	if err := a.Manage(context.Background(), names, ""); err != nil {
+		t.Fatal(err)
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if len(a.managed) != len(names) {
+		t.Errorf("managed = %d names, want %d", len(a.managed), len(names))
+	}
+	for _, n := range names {
+		if a.managed[n].dns {
+			t.Errorf("%s still uses DNS-01 with no root domain", n)
+		}
+	}
+}
+
+// With no DNS provider every plain name uses HTTP-01, whatever the root.
+func TestNoProviderMeansHTTPChallenge(t *testing.T) {
+	t.Parallel()
+	dir, err := os.MkdirTemp("", "armada-certs-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	a, err := NewACME(Options{Storage: &certmagic.FileStorage{Path: dir}, CA: "https://127.0.0.1:1/directory"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	if err := a.Manage(context.Background(), []string{"example.org"}, "example.org"); err != nil {
+		t.Fatal(err)
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.managed["example.org"].dns {
+		t.Error("example.org uses DNS-01 with no DNS provider")
 	}
 }

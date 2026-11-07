@@ -47,7 +47,7 @@ func (f *tlsFlags) register(cmd *cobra.Command) {
 	fl.StringVar(&f.ca, "acme-ca", "letsencrypt", "ACME directory: letsencrypt, letsencrypt-staging, or an https:// URL")
 	fl.StringVar(&f.email, "acme-email", "", "contact email for the ACME account")
 	fl.StringVar(&f.listen, "acme-listen", "", "private ip:port for HTTP-01 challenges forwarded by HAProxy (default: <server ip>:7480)")
-	fl.StringVar(&f.dnsProvider, "dns-provider", "", "DNS provider for the wildcard certificate of the root domain: cloudflare")
+	fl.StringVar(&f.dnsProvider, "dns-provider", "", "DNS provider for certificates of the root domain and the names under it, including a wildcard: cloudflare")
 	fl.StringVar(&f.dnsTokenFile, "dns-token-file", "", "file (mode 0600) holding the DNS provider API token")
 }
 
