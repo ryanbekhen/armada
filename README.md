@@ -7,7 +7,7 @@
 
 # Armada
 
-> **Status: pre-alpha.** Not ready for production use yet.
+> **Status: alpha.** Specs, flags, and the state format may still change between releases.
 
 Armada turns a handful of Linux machines into a container platform: apps, revisions,
 rolling updates, domains, and automatic TLS.
@@ -122,7 +122,7 @@ its state store (etcd).
 
 | Environment | Status |
 | --- | --- |
-| Cloudflare DNS-01 with Let's Encrypt staging | Tested: wildcard certificate for the root domain |
+| Cloudflare DNS-01 with Let's Encrypt staging | Tested on depa.id (amd64, Ubuntu 24.04): certificates for the root domain and a wildcard, domain verification, challenge records removed afterwards, the token kept out of logs and events, and requests through the Cloudflare proxy with trusted proxies (the client's address kept, forged headers from elsewhere dropped) |
 | Local lab: Linux VMs (arm64), Pebble ACME, 1–2 nodes | Tested end to end: deploys, rolling update, secret files, internal ingress and DNS, crash recovery, containerd restart with containers kept running, reboot recovery, rolling upgrade with a state migration, rebalancing after uncordon under HTTPS load without errors, replicas across nodes |
 | Oracle Cloud (arm64, Oracle Linux 9, SELinux enforcing), one server, Let's Encrypt staging | Tested end to end: install.sh with systemd, doctor, wildcard certificate over Cloudflare DNS-01, rolling update under load without errors, crash recovery, containerd restart, reboot recovery, SELinux-confined apps and HAProxy, HAProxy restarted after a crash |
 | depa.id (amd64, Ubuntu 24.04), three control plane servers and one node, Let's Encrypt staging | Tested end to end with [test/e2e](test/e2e/README.md): server and node joins, only HAProxy public, certificates on every node, secrets, rolling update, rollback, and agent restart under load without errors, leader stop and SIGKILL under load, node loss and rebalancing under load, backup, all machines rebooted at once |
