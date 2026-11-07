@@ -126,8 +126,11 @@ if [ "$(id -u)" = 0 ] && command -v sudo >/dev/null 2>&1; then
 fi
 
 say ""
-say "Next:"
-say "  first node:   armada init && systemctl enable --now armada-server"
-say "  other nodes:  armada join ... (from 'armada token create') && systemctl enable --now armada-agent"
-say "  more servers: armada server join ... (from 'armada token create --server') && systemctl enable --now armada-server"
+say "Next, as root (sudo before each command):"
+say "  first node:   sudo armada init"
+say "                sudo systemctl enable --now armada-server"
+say "  other nodes:  sudo armada join ...         (from 'armada token create')"
+say "                sudo systemctl enable --now armada-agent"
+say "  more servers: sudo armada server join ...  (from 'armada token create --server')"
+say "                sudo systemctl enable --now armada-server"
 "$PREFIX/bin/armada" version
