@@ -54,6 +54,13 @@ const (
 	crashBackoff    = time.Second
 	maxCrashBackoff = 5 * time.Minute
 	crashReset      = 10 * time.Minute
+
+	// Images no container uses and no replica of the node's assignment
+	// names are removed every defaultImagePrune, once pulled more than
+	// imagePruneGrace ago (pulls outside a reconcile, such as the proxy's,
+	// are that recent).
+	defaultImagePrune = 10 * time.Minute
+	imagePruneGrace   = time.Hour
 )
 
 // Config configures an Agent.
@@ -68,6 +75,9 @@ type Config struct {
 	// UsageInterval is how often replicas are sampled for armada top
 	// (default 10s, ADR 0016).
 	UsageInterval time.Duration
+	// ImagePrune is how often unused images are removed (default 10m,
+	// negative turns it off).
+	ImagePrune time.Duration
 
 	// Conntrack is the node's connection tracking table, raised and reported
 	// with each sample; nil leaves it alone (ADR 0025).
@@ -196,6 +206,9 @@ func New(cfg Config) *Agent {
 	}
 	if cfg.UsageInterval == 0 {
 		cfg.UsageInterval = defaultUsageInterval
+	}
+	if cfg.ImagePrune == 0 {
+		cfg.ImagePrune = defaultImagePrune
 	}
 	if cfg.VolumeInterval == 0 {
 		cfg.VolumeInterval = volumeMeasureEvery
@@ -365,6 +378,7 @@ func (a *Agent) Trigger() {
 func (a *Agent) reconcileLoop(ctx context.Context) {
 	t := time.NewTicker(a.cfg.Resync)
 	defer t.Stop()
+	lastPrune := time.Now()
 	for {
 		select {
 		case <-ctx.Done():
@@ -380,6 +394,42 @@ func (a *Agent) reconcileLoop(ctx context.Context) {
 		if report != nil {
 			a.sendReport(report)
 		}
+		if a.cfg.ImagePrune > 0 && time.Since(lastPrune) >= a.cfg.ImagePrune {
+			lastPrune = time.Now()
+			a.PruneImages(ctx)
+		}
+	}
+}
+
+// PruneImages removes images that neither a container nor a replica of
+// the node's assignment needs. It holds reconcileMu, so no replica starts
+// meanwhile, and does nothing before the first assignment.
+func (a *Agent) PruneImages(ctx context.Context) {
+	p, ok := a.cfg.Driver.(runtime.ImagePruner)
+	if !ok {
+		return
+	}
+	a.reconcileMu.Lock()
+	defer a.reconcileMu.Unlock()
+	a.mu.Lock()
+	if a.desired == nil {
+		a.mu.Unlock()
+		return
+	}
+	var keep []string
+	for _, s := range a.desired {
+		keep = append(keep, s.GetImage())
+		if ref := a.digests[s.GetImage()]; ref != "" {
+			keep = append(keep, ref)
+		}
+	}
+	a.mu.Unlock()
+	removed, err := p.PruneImages(ctx, keep, imagePruneGrace)
+	if len(removed) > 0 {
+		a.log.Info("removed unused images", "images", removed)
+	}
+	if err != nil {
+		a.log.Warn("remove unused images", "err", err)
 	}
 }
 

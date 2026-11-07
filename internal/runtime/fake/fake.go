@@ -42,6 +42,8 @@ type Driver struct {
 	Pulls []string
 	// PullAuths records the credentials of each pull (nil for none).
 	PullAuths []*runtime.RegistryAuth
+	// Prunes records the keep list of each PruneImages call, sorted.
+	Prunes [][]string
 
 	// ExecFunc, if set, answers Exec calls.
 	ExecFunc func(id string, cmd []string) (string, int, error)
@@ -379,3 +381,11 @@ func (s *stream) Next() (runtime.LogFrame, error) {
 }
 
 func (s *stream) Close() error { return nil }
+
+// PruneImages records what it was asked to keep and removes nothing.
+func (d *Driver) PruneImages(_ context.Context, keep []string, _ time.Duration) ([]string, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.Prunes = append(d.Prunes, slices.Sorted(slices.Values(keep)))
+	return nil, nil
+}

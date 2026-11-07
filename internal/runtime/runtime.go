@@ -238,6 +238,14 @@ type Execer interface {
 	ExecApp(ctx context.Context, id string, opts ExecOptions) (exitCode int, err error)
 }
 
+// ImagePruner removes images nothing needs any more. It is optional.
+type ImagePruner interface {
+	// PruneImages removes every image that no container uses, that keep
+	// does not name (by reference or digest), and that was not pulled or
+	// updated within grace. It returns the names of the removed images.
+	PruneImages(ctx context.Context, keep []string, grace time.Duration) ([]string, error)
+}
+
 // CanExec reports whether d runs commands in app containers, like
 // CanRunSystem.
 func CanExec(d Driver) bool {

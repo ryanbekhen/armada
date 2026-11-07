@@ -85,6 +85,54 @@ func Run(t *testing.T, d runtime.Driver, opts Options) {
 	if runtime.CanMountVolumes(d) {
 		t.Run("Volumes", r.volumes)
 	}
+	if p, ok := d.(runtime.ImagePruner); ok {
+		t.Run("PruneImages", func(t *testing.T) { r.pruneImages(t, p) })
+	}
+}
+
+// pruneImages pulls a second image, then checks that pruning spares recent
+// pulls, images containers use, and kept references, and removes the rest.
+// It runs last: with no grace it also removes other unused images of the
+// node, never those a container uses.
+func (r *runner) pruneImages(t *testing.T, p runtime.ImagePruner) {
+	ctx, cancel := r.ctx()
+	defer cancel()
+	const other = "busybox:1.36"
+	pulled, err := r.d.Pull(ctx, other, nil)
+	if err != nil {
+		t.Fatalf("Pull %s: %v", other, err)
+	}
+	id, err := r.d.Run(ctx, r.spec("sleep", "300"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = r.d.Remove(ctx, id) }()
+	has := func(names []string, image string) bool {
+		for _, n := range names {
+			if strings.HasSuffix(n, "/"+image) || n == image {
+				return true
+			}
+		}
+		return false
+	}
+	if removed, err := p.PruneImages(ctx, nil, time.Hour); err != nil || has(removed, other) || has(removed, r.opts.Image) {
+		t.Fatalf("within grace: removed %v, %v", removed, err)
+	}
+	// Kept by its digest: the tag shares it.
+	if removed, err := p.PruneImages(ctx, []string{pulled.Ref}, 0); err != nil || has(removed, other) {
+		t.Fatalf("kept by digest: removed %v, %v", removed, err)
+	}
+	removed, err := p.PruneImages(ctx, nil, 0)
+	if err != nil || !has(removed, other) || has(removed, r.opts.Image) {
+		t.Fatalf("removed %v, %v; want %s gone and %s (in use) kept", removed, err, other, r.opts.Image)
+	}
+	// The removed image comes back with a pull; the used one still runs.
+	if _, err := r.d.Pull(ctx, other, nil); err != nil {
+		t.Fatalf("pull after prune: %v", err)
+	}
+	if c, err := r.d.Inspect(ctx, id); err != nil || c.State != runtime.StateRunning {
+		t.Fatalf("container after prune: %+v, %v", c, err)
+	}
 }
 
 type runner struct {
