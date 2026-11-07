@@ -3903,10 +3903,13 @@ func (x *RollbackResponse) GetRevision() string {
 type ClusterConfig struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Apps get <app>.<root_domain> automatically when set.
-	RootDomain    string `protobuf:"bytes,1,opt,name=root_domain,json=rootDomain,proto3" json:"root_domain,omitempty"`
-	AcmeEmail     string `protobuf:"bytes,2,opt,name=acme_email,json=acmeEmail,proto3" json:"acme_email,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	RootDomain string `protobuf:"bytes,1,opt,name=root_domain,json=rootDomain,proto3" json:"root_domain,omitempty"`
+	AcmeEmail  string `protobuf:"bytes,2,opt,name=acme_email,json=acmeEmail,proto3" json:"acme_email,omitempty"`
+	// Addresses of proxies in front of the nodes, as prefixes. Only requests
+	// from these may carry client address headers past ingress.
+	TrustedProxies []string `protobuf:"bytes,3,rep,name=trusted_proxies,json=trustedProxies,proto3" json:"trusted_proxies,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *ClusterConfig) Reset() {
@@ -3953,6 +3956,13 @@ func (x *ClusterConfig) GetAcmeEmail() string {
 	return ""
 }
 
+func (x *ClusterConfig) GetTrustedProxies() []string {
+	if x != nil {
+		return x.TrustedProxies
+	}
+	return nil
+}
+
 type GetClusterConfigRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -3990,10 +4000,13 @@ func (*GetClusterConfigRequest) Descriptor() ([]byte, []int) {
 }
 
 type SetClusterConfigRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Config        *ClusterConfig         `protobuf:"bytes,1,opt,name=config,proto3" json:"config,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	Config *ClusterConfig         `protobuf:"bytes,1,opt,name=config,proto3" json:"config,omitempty"`
+	// Which fields of config change.
+	SetRootDomain     bool `protobuf:"varint,2,opt,name=set_root_domain,json=setRootDomain,proto3" json:"set_root_domain,omitempty"`
+	SetTrustedProxies bool `protobuf:"varint,3,opt,name=set_trusted_proxies,json=setTrustedProxies,proto3" json:"set_trusted_proxies,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *SetClusterConfigRequest) Reset() {
@@ -4031,6 +4044,20 @@ func (x *SetClusterConfigRequest) GetConfig() *ClusterConfig {
 		return x.Config
 	}
 	return nil
+}
+
+func (x *SetClusterConfigRequest) GetSetRootDomain() bool {
+	if x != nil {
+		return x.SetRootDomain
+	}
+	return false
+}
+
+func (x *SetClusterConfigRequest) GetSetTrustedProxies() bool {
+	if x != nil {
+		return x.SetTrustedProxies
+	}
+	return false
 }
 
 type ListDomainsRequest struct {
@@ -7290,8 +7317,10 @@ type ProxyConfig struct {
 	Certificates []*ProxyCertificate    `protobuf:"bytes,3,rep,name=certificates,proto3" json:"certificates,omitempty"`
 	// Private address of the control plane's ACME HTTP-01 responder.
 	AcmeChallengeAddress string `protobuf:"bytes,4,opt,name=acme_challenge_address,json=acmeChallengeAddress,proto3" json:"acme_challenge_address,omitempty"`
-	unknownFields        protoimpl.UnknownFields
-	sizeCache            protoimpl.SizeCache
+	// Prefixes whose requests keep their client address headers.
+	TrustedProxies []string `protobuf:"bytes,5,rep,name=trusted_proxies,json=trustedProxies,proto3" json:"trusted_proxies,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *ProxyConfig) Reset() {
@@ -7350,6 +7379,13 @@ func (x *ProxyConfig) GetAcmeChallengeAddress() string {
 		return x.AcmeChallengeAddress
 	}
 	return ""
+}
+
+func (x *ProxyConfig) GetTrustedProxies() []string {
+	if x != nil {
+		return x.TrustedProxies
+	}
+	return nil
 }
 
 type ProxyBackend struct {
@@ -9911,15 +9947,18 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\x03app\x18\x01 \x01(\tR\x03app\x12\x1a\n" +
 	"\brevision\x18\x02 \x01(\tR\brevision\".\n" +
 	"\x10RollbackResponse\x12\x1a\n" +
-	"\brevision\x18\x01 \x01(\tR\brevision\"O\n" +
+	"\brevision\x18\x01 \x01(\tR\brevision\"x\n" +
 	"\rClusterConfig\x12\x1f\n" +
 	"\vroot_domain\x18\x01 \x01(\tR\n" +
 	"rootDomain\x12\x1d\n" +
 	"\n" +
-	"acme_email\x18\x02 \x01(\tR\tacmeEmail\"\x19\n" +
-	"\x17GetClusterConfigRequest\"K\n" +
+	"acme_email\x18\x02 \x01(\tR\tacmeEmail\x12'\n" +
+	"\x0ftrusted_proxies\x18\x03 \x03(\tR\x0etrustedProxies\"\x19\n" +
+	"\x17GetClusterConfigRequest\"\xa3\x01\n" +
 	"\x17SetClusterConfigRequest\x120\n" +
-	"\x06config\x18\x01 \x01(\v2\x18.armada.v1.ClusterConfigR\x06config\"&\n" +
+	"\x06config\x18\x01 \x01(\v2\x18.armada.v1.ClusterConfigR\x06config\x12&\n" +
+	"\x0fset_root_domain\x18\x02 \x01(\bR\rsetRootDomain\x12.\n" +
+	"\x13set_trusted_proxies\x18\x03 \x01(\bR\x11setTrustedProxies\"&\n" +
 	"\x12ListDomainsRequest\x12\x10\n" +
 	"\x03app\x18\x01 \x01(\tR\x03app\"B\n" +
 	"\x13ListDomainsResponse\x12+\n" +
@@ -10194,12 +10233,13 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"private_ip\x18\x02 \x01(\tR\tprivateIp\x12\x16\n" +
 	"\x06subnet\x18\x03 \x01(\tR\x06subnet\x12\x1d\n" +
 	"\n" +
-	"public_key\x18\x04 \x01(\tR\tpublicKey\"\xe5\x01\n" +
+	"public_key\x18\x04 \x01(\tR\tpublicKey\"\x8e\x02\n" +
 	"\vProxyConfig\x123\n" +
 	"\bbackends\x18\x01 \x03(\v2\x17.armada.v1.ProxyBackendR\bbackends\x12*\n" +
 	"\x05rules\x18\x02 \x03(\v2\x14.armada.v1.ProxyRuleR\x05rules\x12?\n" +
 	"\fcertificates\x18\x03 \x03(\v2\x1b.armada.v1.ProxyCertificateR\fcertificates\x124\n" +
-	"\x16acme_challenge_address\x18\x04 \x01(\tR\x14acmeChallengeAddress\"\xd3\x01\n" +
+	"\x16acme_challenge_address\x18\x04 \x01(\tR\x14acmeChallengeAddress\x12'\n" +
+	"\x0ftrusted_proxies\x18\x05 \x03(\tR\x0etrustedProxies\"\xd3\x01\n" +
 	"\fProxyBackend\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x120\n" +
 	"\aservers\x18\x02 \x03(\v2\x16.armada.v1.ProxyServerR\aservers\x12\x1f\n" +

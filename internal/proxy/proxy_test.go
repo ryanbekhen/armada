@@ -9,6 +9,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	"math/big"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -175,5 +176,28 @@ func TestValidateProjectApps(t *testing.T) {
 		if got := BackendProject(backend); got != want {
 			t.Errorf("BackendProject(%q) = %q, want %q", backend, got, want)
 		}
+	}
+}
+
+func TestParseTrustedProxies(t *testing.T) {
+	t.Parallel()
+	got, err := ParseTrustedProxies([]string{"198.51.100.7/24", "2001:db8::1/32", "192.0.2.1/32", "198.51.100.0/24"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"192.0.2.1/32", "198.51.100.0/24", "2001:db8::/32"}
+	if !slices.Equal(got, want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	for _, bad := range []string{"0.0.0.0/0", "::/0", "192.0.2.1", "example.org", "", "192.0.2.0/24 bind :22", "192.0.2.0/24\n    bind :22", "192.0.2.0/33"} {
+		if _, err := ParseTrustedProxies([]string{bad}); err == nil {
+			t.Errorf("%q accepted", bad)
+		}
+	}
+	if _, err := ParseTrustedProxies(slices.Repeat([]string{"192.0.2.0/24"}, MaxTrustedProxies+1)); err == nil {
+		t.Error("too many prefixes accepted")
+	}
+	if err := (Config{TrustedProxies: []string{"0.0.0.0/0"}}).Validate(); err == nil {
+		t.Error("Validate accepted a prefix matching every address")
 	}
 }

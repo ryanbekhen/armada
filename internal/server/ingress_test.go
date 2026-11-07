@@ -165,7 +165,7 @@ func TestIngressRoutingAndDomainVerification(t *testing.T) {
 	c.addNode("n1", "10.0.0.2")
 	c.addNode("n2", "10.0.0.3")
 
-	if _, err := c.admin.SetClusterConfig(c.ctx, &armadav1.SetClusterConfigRequest{Config: &armadav1.ClusterConfig{RootDomain: "Apps.Example.ORG"}}); err != nil {
+	if _, err := c.admin.SetClusterConfig(c.ctx, &armadav1.SetClusterConfigRequest{SetRootDomain: true, Config: &armadav1.ClusterConfig{RootDomain: "Apps.Example.ORG"}}); err != nil {
 		t.Fatal(err)
 	}
 	cc, _ := c.admin.GetClusterConfig(c.ctx, &armadav1.GetClusterConfigRequest{})
@@ -261,7 +261,7 @@ func TestWildcardCertificateCoversAppHosts(t *testing.T) {
 	certs := &fakeCerts{issued: map[string][]byte{}, wildcard: true}
 	c := newCluster(t, func(cfg *Config) { cfg.Certs = certs; cfg.ACMEAddr = freeAddr(t) })
 	c.addNode("n1", "10.0.0.2")
-	if _, err := c.admin.SetClusterConfig(c.ctx, &armadav1.SetClusterConfigRequest{Config: &armadav1.ClusterConfig{RootDomain: "apps.example.org"}}); err != nil {
+	if _, err := c.admin.SetClusterConfig(c.ctx, &armadav1.SetClusterConfigRequest{SetRootDomain: true, Config: &armadav1.ClusterConfig{RootDomain: "apps.example.org"}}); err != nil {
 		t.Fatal(err)
 	}
 	c.deploy(ingressApp)
@@ -278,13 +278,13 @@ func TestClusterConfigAndConflicts(t *testing.T) {
 	c := newCluster(t)
 
 	for _, bad := range []string{"-bad.id", "example..org", "example.org\n  bind :22", "*.example.org", "localhost"} {
-		_, err := c.admin.SetClusterConfig(c.ctx, &armadav1.SetClusterConfigRequest{Config: &armadav1.ClusterConfig{RootDomain: bad}})
+		_, err := c.admin.SetClusterConfig(c.ctx, &armadav1.SetClusterConfigRequest{SetRootDomain: true, Config: &armadav1.ClusterConfig{RootDomain: bad}})
 		if status.Code(err) != codes.InvalidArgument {
 			t.Errorf("root domain %q: err = %v", bad, err)
 		}
 	}
 	// Clearing the root domain is allowed.
-	if _, err := c.admin.SetClusterConfig(c.ctx, &armadav1.SetClusterConfigRequest{Config: &armadav1.ClusterConfig{}}); err != nil {
+	if _, err := c.admin.SetClusterConfig(c.ctx, &armadav1.SetClusterConfigRequest{SetRootDomain: true, Config: &armadav1.ClusterConfig{}}); err != nil {
 		t.Error(err)
 	}
 	events, _ := c.store.ListAudit(c.ctx, 10)
@@ -333,7 +333,7 @@ func TestInternalIngress(t *testing.T) {
 		cfg.ACMEEmail = "ops@example.org"
 	})
 	c.addNode("n1", "10.0.0.2")
-	if _, err := c.admin.SetClusterConfig(c.ctx, &armadav1.SetClusterConfigRequest{Config: &armadav1.ClusterConfig{RootDomain: "apps.example.org"}}); err != nil {
+	if _, err := c.admin.SetClusterConfig(c.ctx, &armadav1.SetClusterConfigRequest{SetRootDomain: true, Config: &armadav1.ClusterConfig{RootDomain: "apps.example.org"}}); err != nil {
 		t.Fatal(err)
 	}
 	c.deploy("name: shop-api\nimage: nginx:1\ningress:\n  type: internal\n  port: 8080\n  routes:\n    - path: /v1\n      stripPrefix: true\n")
@@ -367,5 +367,55 @@ func TestInternalIngress(t *testing.T) {
 	st, err := c.admin.Status(c.ctx, &armadav1.StatusRequest{App: "shop-api"})
 	if err != nil || len(st.Apps) != 1 || !slices.Equal(st.Apps[0].Urls, []string{"http://shop-api.internal/v1"}) {
 		t.Errorf("status = %v, %v", st, err)
+	}
+}
+
+func TestTrustedProxies(t *testing.T) {
+	t.Parallel()
+	c := newCluster(t)
+	if _, err := c.admin.SetClusterConfig(c.ctx, &armadav1.SetClusterConfigRequest{SetRootDomain: true, Config: &armadav1.ClusterConfig{RootDomain: "apps.example.org"}}); err != nil {
+		t.Fatal(err)
+	}
+	cc, err := c.admin.SetClusterConfig(c.ctx, &armadav1.SetClusterConfigRequest{SetTrustedProxies: true, Config: &armadav1.ClusterConfig{TrustedProxies: []string{"198.51.100.9/24", "192.0.2.0/24"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"192.0.2.0/24", "198.51.100.0/24"}
+	if !slices.Equal(cc.GetTrustedProxies(), want) {
+		t.Errorf("trusted = %v, want %v", cc.GetTrustedProxies(), want)
+	}
+	// Setting one field leaves the other alone.
+	if cc.GetRootDomain() != "apps.example.org" {
+		t.Errorf("root domain = %q", cc.GetRootDomain())
+	}
+	cc, err = c.admin.SetClusterConfig(c.ctx, &armadav1.SetClusterConfigRequest{SetRootDomain: true, Config: &armadav1.ClusterConfig{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(cc.GetTrustedProxies(), want) {
+		t.Errorf("clearing the root domain changed trusted proxies: %v", cc.GetTrustedProxies())
+	}
+	if events, _ := c.store.ListAudit(c.ctx, 10); len(events) < 2 || events[1].Action != "cluster.trusted_proxies" || events[1].Target != "cluster" {
+		t.Errorf("audit = %+v", events)
+	}
+	cfg, err := c.srv.buildProxy(c.ctx, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(cfg.TrustedProxies, want) {
+		t.Errorf("proxy config = %v, want %v", cfg.TrustedProxies, want)
+	}
+	for _, bad := range [][]string{{"0.0.0.0/0"}, {"::/0"}, {"192.0.2.1"}, {"192.0.2.0/24 bind :22"}} {
+		_, err := c.admin.SetClusterConfig(c.ctx, &armadav1.SetClusterConfigRequest{SetTrustedProxies: true, Config: &armadav1.ClusterConfig{TrustedProxies: bad}})
+		if status.Code(err) != codes.InvalidArgument {
+			t.Errorf("%v: err = %v", bad, err)
+		}
+	}
+	cc, err = c.admin.SetClusterConfig(c.ctx, &armadav1.SetClusterConfigRequest{SetTrustedProxies: true, Config: &armadav1.ClusterConfig{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cc.GetTrustedProxies()) != 0 {
+		t.Errorf("not cleared: %v", cc.GetTrustedProxies())
 	}
 }

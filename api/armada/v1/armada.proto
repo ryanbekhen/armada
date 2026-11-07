@@ -518,12 +518,18 @@ message ClusterConfig {
   // Apps get <app>.<root_domain> automatically when set.
   string root_domain = 1;
   string acme_email = 2;
+  // Addresses of proxies in front of the nodes, as prefixes. Only requests
+  // from these may carry client address headers past ingress.
+  repeated string trusted_proxies = 3;
 }
 
 message GetClusterConfigRequest {}
 
 message SetClusterConfigRequest {
   ClusterConfig config = 1;
+  // Which fields of config change.
+  bool set_root_domain = 2;
+  bool set_trusted_proxies = 3;
 }
 
 message ListDomainsRequest {
@@ -995,6 +1001,8 @@ message ProxyConfig {
   repeated ProxyCertificate certificates = 3;
   // Private address of the control plane's ACME HTTP-01 responder.
   string acme_challenge_address = 4;
+  // Prefixes whose requests keep their client address headers.
+  repeated string trusted_proxies = 5;
 }
 
 message ProxyBackend {
