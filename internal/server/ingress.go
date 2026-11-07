@@ -18,7 +18,10 @@ import (
 )
 
 // Meta keys for cluster settings.
-const metaRootDomain = "root_domain"
+const (
+	metaRootDomain     = "root_domain"
+	metaTrustedProxies = "trusted_proxies"
+)
 
 // TXTPrefix is the label under which domain owners publish the verification
 // token: TXT _armada-verify.<domain> = <token>.
@@ -79,6 +82,23 @@ func allowedCallers(id string, names []string) []string {
 	return out
 }
 
+// trustedProxies returns the prefixes set with SetClusterConfig. A record that
+// no longer parses is an error rather than no proxies: taking them away would
+// change every app's client addresses.
+func (s *Server) trustedProxies(ctx context.Context) ([]string, error) {
+	v, err := s.store.GetMeta(ctx, metaTrustedProxies)
+	if errors.Is(err, store.ErrNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if v == "" {
+		return nil, nil
+	}
+	return proxy.ParseTrustedProxies(strings.Split(v, ","))
+}
+
 // buildProxy computes the ingress configuration shared by every node.
 func (s *Server) buildProxy(ctx context.Context, apps []store.App, replicas []store.Replica) (*proxy.Config, error) {
 	root := s.rootDomain(ctx)
@@ -93,7 +113,11 @@ func (s *Server) buildProxy(ctx context.Context, apps []store.App, replicas []st
 		}
 	}
 
-	cfg := &proxy.Config{}
+	trusted, err := s.trustedProxies(ctx)
+	if err != nil {
+		return nil, err
+	}
+	cfg := &proxy.Config{TrustedProxies: trusted}
 	var certNames []string
 	wildcard := s.certs != nil && s.certs.SupportsWildcard() && root != ""
 	if wildcard {
@@ -316,25 +340,45 @@ func (s *Server) verifyLoop(ctx context.Context) {
 
 // GetClusterConfig returns cluster-wide settings.
 func (s *Server) GetClusterConfig(ctx context.Context, _ *armadav1.GetClusterConfigRequest) (*armadav1.ClusterConfig, error) {
-	return &armadav1.ClusterConfig{RootDomain: s.rootDomain(ctx), AcmeEmail: s.acmeEmail}, nil
+	trusted, err := s.trustedProxies(ctx)
+	if err != nil {
+		return nil, storeErr(err)
+	}
+	return &armadav1.ClusterConfig{RootDomain: s.rootDomain(ctx), AcmeEmail: s.acmeEmail, TrustedProxies: trusted}, nil
 }
 
-// SetClusterConfig updates cluster-wide settings. Only the root domain is
-// settable at runtime; the ACME email is a server flag.
+// SetClusterConfig updates the cluster-wide settings the request names: the
+// root domain and the trusted proxies. The ACME email is a server flag.
 func (s *Server) SetClusterConfig(ctx context.Context, req *armadav1.SetClusterConfigRequest) (*armadav1.ClusterConfig, error) {
-	root := strings.ToLower(strings.TrimSpace(req.GetConfig().GetRootDomain()))
-	if root != "" {
-		if err := spec.ValidateDomain(root); err != nil {
-			return nil, status.Errorf(codes.InvalidArgument, "root domain: %v", err)
+	if req.GetSetRootDomain() {
+		root := strings.ToLower(strings.TrimSpace(req.GetConfig().GetRootDomain()))
+		if root != "" {
+			if err := spec.ValidateDomain(root); err != nil {
+				return nil, status.Errorf(codes.InvalidArgument, "root domain: %v", err)
+			}
 		}
+		if err := s.store.SetMeta(ctx, metaRootDomain, root); err != nil {
+			return nil, storeErr(err)
+		}
+		if err := s.store.RecordAudit(ctx, actor(ctx), "cluster.root_domain", "cluster", root); err != nil {
+			return nil, storeErr(err)
+		}
+		s.log.Info("root domain changed", "root_domain", root, "by", actor(ctx))
 	}
-	if err := s.store.SetMeta(ctx, metaRootDomain, root); err != nil {
-		return nil, storeErr(err)
+	if req.GetSetTrustedProxies() {
+		trusted, err := proxy.ParseTrustedProxies(req.GetConfig().GetTrustedProxies())
+		if err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "%v", err)
+		}
+		list := strings.Join(trusted, ",")
+		if err := s.store.SetMeta(ctx, metaTrustedProxies, list); err != nil {
+			return nil, storeErr(err)
+		}
+		if err := s.store.RecordAudit(ctx, actor(ctx), "cluster.trusted_proxies", "cluster", list); err != nil {
+			return nil, storeErr(err)
+		}
+		s.log.Info("trusted proxies changed", "trusted_proxies", list, "by", actor(ctx))
 	}
-	if err := s.store.RecordAudit(ctx, actor(ctx), "cluster.root_domain", "cluster", root); err != nil {
-		return nil, storeErr(err)
-	}
-	s.log.Info("root domain changed", "root_domain", root, "by", actor(ctx))
 	s.Trigger()
 	return s.GetClusterConfig(ctx, nil)
 }
