@@ -395,6 +395,12 @@ only new ones need room. If a rollout waits for a node, `armada status`
 names what is short: scale another app down, lower its reservation, or add
 a node.
 
+Nodes keep only the images they need: every 10 minutes each agent removes
+images that no container uses and that no replica assigned to the node
+names, once they were pulled more than an hour ago. Rolling back to a
+revision whose image is gone pulls it again, so its registry credentials
+must still work.
+
 Clusters may mix architectures (amd64 and arm64, say): each app stays on
 the nodes its image has a variant for, as reported by the first node that
 pulls it (`armada revisions APP` shows the platforms). If no node can run

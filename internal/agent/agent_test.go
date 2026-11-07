@@ -821,3 +821,23 @@ func TestAdoptedReplicaFailingProbeIsReported(t *testing.T) {
 	}
 	t.Fatal("the failing replica was never reported")
 }
+
+func TestPruneImagesKeepsAssignedImages(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	a, d := newAgent(t)
+	// Before the first assignment nothing is pruned.
+	a.PruneImages(ctx)
+	if len(d.Prunes) != 0 {
+		t.Fatalf("pruned before an assignment: %v", d.Prunes)
+	}
+	d.Digests = map[string]string{"nginx:1": "nginx@sha256:abc"}
+	a.setDesired([]*armadav1.ReplicaSpec{replica("web-r1-a", "nginx:1", 80), replica("job-r1-a", "busybox", 0)}, nil)
+	if _, err := a.Reconcile(ctx); err != nil {
+		t.Fatal(err)
+	}
+	a.PruneImages(ctx)
+	if len(d.Prunes) != 1 || !slices.Equal(d.Prunes[0], []string{"busybox", "nginx:1", "nginx@sha256:abc"}) {
+		t.Errorf("kept %v", d.Prunes)
+	}
+}

@@ -23,6 +23,7 @@ import (
 	"github.com/containerd/containerd/api/types/runc/options"
 	"github.com/containerd/containerd/api/types/task"
 	"github.com/containerd/containerd/v2/client"
+	"github.com/containerd/containerd/v2/core/images"
 	"github.com/containerd/containerd/v2/core/remotes/docker"
 	"github.com/containerd/containerd/v2/core/remotes/docker/config"
 	"github.com/containerd/containerd/v2/pkg/cio"
@@ -710,4 +711,69 @@ func (d *Driver) describeWith(ctx context.Context, c client.Container, known *ta
 // Logs returns the container's stored output.
 func (d *Driver) Logs(ctx context.Context, id string, opts runtime.LogOptions) (runtime.LogStream, error) {
 	return embedded.ReadLogs(ctx, d.paths.Logs(), id, opts)
+}
+
+// PruneImages removes images no container of this namespace uses (Armada's
+// own containers included), that keep does not name, and that were neither
+// pulled nor updated within grace. Images that share a digest with a kept or
+// used image stay too: a tag and its digest name the same content.
+func (d *Driver) PruneImages(ctx context.Context, keep []string, grace time.Duration) ([]string, error) {
+	ctx = d.ctx(ctx)
+	names := map[string]bool{}
+	digests := map[string]bool{}
+	for _, k := range keep {
+		named, err := reference.ParseDockerRef(k)
+		if err != nil {
+			continue
+		}
+		names[named.String()] = true
+		if dg, ok := named.(reference.Digested); ok {
+			digests[dg.Digest().String()] = true
+		}
+	}
+	cs, err := d.client.Containers(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, c := range cs {
+		info, err := c.Info(ctx, client.WithoutRefreshedMetadata)
+		if errdefs.IsNotFound(err) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		names[info.Image] = true
+	}
+	is := d.client.ImageService()
+	imgs, err := is.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, img := range imgs {
+		if names[img.Name] {
+			digests[img.Target.Digest.String()] = true
+		}
+	}
+	cutoff := time.Now().Add(-grace)
+	var unused []string
+	for _, img := range imgs {
+		if !names[img.Name] && !digests[img.Target.Digest.String()] && !img.CreatedAt.After(cutoff) && !img.UpdatedAt.After(cutoff) {
+			unused = append(unused, img.Name)
+		}
+	}
+	var removed []string
+	for i, name := range unused {
+		var opts []images.DeleteOpt
+		if i == len(unused)-1 {
+			// Content and snapshots go with containerd's garbage
+			// collection; the last removal waits for it to free them.
+			opts = append(opts, images.SynchronousDelete())
+		}
+		if err := is.Delete(ctx, name, opts...); err != nil && !errdefs.IsNotFound(err) {
+			return removed, fmt.Errorf("remove image %s: %w", name, err)
+		}
+		removed = append(removed, name)
+	}
+	return removed, nil
 }

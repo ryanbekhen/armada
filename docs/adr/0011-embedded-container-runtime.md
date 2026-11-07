@@ -120,6 +120,12 @@ Armada's and visible in one place:
 - Images are pulled into containerd's content store over HTTPS with the
   registry credentials from the app's secrets and unpacked with the
   overlayfs snapshotter; `Pull` returns the digest-pinned reference.
+- Images do not pile up: every 10 minutes the agent removes images that no
+  container uses (system containers and stopped job attempts included), that
+  no replica of its assignment names by reference or digest, and that were
+  pulled more than an hour ago (`runtime.ImagePruner`). It holds the lock
+  that starts replicas while it does. A rollback to an image already
+  removed pulls it again.
 
 ### Starting many containers
 
