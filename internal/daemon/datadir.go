@@ -107,6 +107,10 @@ func readPrivate(dataDir string, names ...string) ([][]byte, error) {
 // init or join: the systemd unit from install.sh when the default data
 // directory is used, the foreground command otherwise.
 func nextStep(role, dataDir string) string {
+	// install.sh starts the unit itself right after (`sh -s - init`).
+	if os.Getenv("ARMADA_INSTALLER") == "1" && dataDir == defaultDataDir {
+		return ""
+	}
 	if dataDir == defaultDataDir {
 		return fmt.Sprintf("Next: sudo systemctl enable --now armada-%s\n"+
 			"      (or `armadad %s` in the foreground without systemd)\n", role, role)
