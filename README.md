@@ -28,7 +28,7 @@ scale:
 ```
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ryanbekhen/armada/main/install.sh | sudo sh -s - init
+curl -fsSL https://raw.githubusercontent.com/ryanbekhen/armada/main/install.sh | sudo sh
 armada deploy -f web.yaml    # → https://web.apps.example.com
 ```
 

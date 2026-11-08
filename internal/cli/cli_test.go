@@ -209,13 +209,12 @@ func TestClientDependencies(t *testing.T) {
 }
 
 func TestInstallCommand(t *testing.T) {
-	const args = "join 10.0.0.2:7444 --ca-hash sha256:ab"
-	pinned := installCommand("v0.1.0-alpha.2", args)
-	if want := "curl -fsSL " + InstallURL + " | sudo ARMADA_VERSION=v0.1.0-alpha.2 sh -s - " + args; pinned != want {
+	pinned := installCommand("v0.1.0-alpha.2")
+	if want := "curl -fsSL " + InstallURL + " | sudo ARMADA_VERSION=v0.1.0-alpha.2 sh"; pinned != want {
 		t.Fatalf("got %q, want %q", pinned, want)
 	}
 	for _, v := range []string{"", "dev", "v0.1.0-3-gabc;id", "(devel)"} {
-		if got := installCommand(v, args); strings.Contains(got, "ARMADA_VERSION") {
+		if got := installCommand(v); strings.Contains(got, "ARMADA_VERSION") {
 			t.Errorf("version %q pinned: %q", v, got)
 		}
 	}
