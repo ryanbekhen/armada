@@ -303,7 +303,7 @@ cluster_up() {
 	wait_for 120 "control plane answers" nodes_one
 	cli token create >"$WORK/token"
 	_tok=$(sed -n 's/^Token (shown once): //p' "$WORK/token")
-	_cmd=$(sed -n 's/^  \(armadad .*join .*\)$/\1/p' "$WORK/token")
+	_cmd=$(sed -n 's/^  sudo \(armadad .*join .*\)$/\1/p' "$WORK/token")
 	rm -f "$WORK/token"
 	if [ -z "$_tok" ] || [ -z "$_cmd" ]; then fail "armada token create printed no token"; fi
 	printf '%s\n' "$_tok" | on 2 'umask 077; cat > /run/armada/bench.token'
