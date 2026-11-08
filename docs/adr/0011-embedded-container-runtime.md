@@ -48,7 +48,7 @@ No `ctr` binary is bundled.
   signatures (runc and tini publish GPG signatures) before recording the
   new checksums; builds trust the pinned checksums. Release builds embed
   the pack with `go:embed` (build tag `bundle`); without the tag
-  (development, unit tests) `armada runtime --bin-dir DIR` uses binaries
+  (development, unit tests) `armadad runtime --bin-dir DIR` uses binaries
   from a directory.
 - At start the pack is extracted to `<data-dir>/runtime/<pack sha256>/bin`
   (root-owned, `0700`), every file is checked against the pack's manifest
@@ -61,7 +61,7 @@ No `ctr` binary is bundled.
 ### Running containerd
 
 - A separate systemd unit, `armada-runtime.service`, runs
-  `armada runtime`, which extracts the bundle and execs containerd. It
+  `armadad runtime`, which extracts the bundle and execs containerd. It
   uses `KillMode=process` and `Delegate=yes`, so restarting or upgrading
   containerd (or the agent) leaves running containers and their shims
   alone. `armada-server` and `armada-agent` want and start after it; on a
@@ -105,10 +105,10 @@ Armada's and visible in one place:
   into HAProxy keep their labels. A container that escapes its namespaces
   still cannot read the host's files or another container's. Hosts whose
   policy lacks the container types (no container policy package) run
-  containers with the runtime's label; `armada doctor` warns about it.
+  containers with the runtime's label; `armadad doctor` warns about it.
 - cgroup v2 limits under `/armada/<container>`: memory (swap limited to
   the same value), CPU quota, PIDs; the open-file limit is 1048576. cgroup
-  v1 hosts are refused by `armada doctor` and at start.
+  v1 hosts are refused by `armadad doctor` and at start.
 - tini is bind-mounted read-only and wraps the entrypoint.
 - `/etc/resolv.conf`, `/etc/hosts`, and `/etc/hostname` are generated per
   container. Without explicit DNS servers the host's upstream resolvers are
@@ -170,14 +170,14 @@ deploy, and the replicas it already runs must keep serving meanwhile:
   driver picks a free host port (20000–32767, below the kernel's ephemeral
   range), records it in a container label, and `portmap` adds the DNAT
   rule. Nothing is ever published on a wildcard or public address.
-- `armada doctor` checks cgroup v2, overlayfs, the `iptables` tooling the
+- `armadad doctor` checks cgroup v2, overlayfs, the `iptables` tooling the
   CNI plugins call, and that the node's container subnet does not overlap
   a host route.
 
 ### Logs
 
 The shim writes container output through a logging binary, Armada itself
-(`armada runtime-log`, a hidden command), into
+(`armadad runtime-log`, a hidden command), into
 `<data-dir>/logs/<container>.log` as JSON lines with the stream and a
 timestamp, rotated at 10 MB with 3 files kept. Each container may write
 1 MiB of output per second, with a burst of 4 MiB; output over that is

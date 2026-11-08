@@ -35,7 +35,7 @@ func withJoin(t *testing.T) func(*Config) {
 	return func(c *Config) { c.JoinAddr = addr }
 }
 
-// joinClient connects to the join listener the way `armada join` does:
+// joinClient connects to the join listener the way `armadad join` does:
 // learn the CA from the pin, then verify the server against it.
 func (c *cluster) joinClient(tok *armadav1.CreateJoinTokenResponse) armadav1.JoinServiceClient {
 	c.t.Helper()

@@ -20,7 +20,7 @@ open to anything that can reach the private network.
 ## Decision
 
 The leader serves Prometheus metrics at `GET /metrics` on
-`armada server --metrics-listen IP:PORT`. The endpoint is off by default.
+`armadad server --metrics-listen IP:PORT`. The endpoint is off by default.
 
 ### Access
 

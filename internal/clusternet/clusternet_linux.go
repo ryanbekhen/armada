@@ -362,7 +362,7 @@ func ContainerMTU(mode string, ip netip.Addr) (int, error) {
 	return TunnelMTU(mode, mtu), nil
 }
 
-// Diagnose reports, for armada doctor, whether the node's uplink leaves
+// Diagnose reports, for armadad doctor, whether the node's uplink leaves
 // room for the tunnel and whether the tunnel is up with its peers.
 func Diagnose(mode string, ip netip.Addr) []Check {
 	return append(diagnoseTunnel(mode, ip), diagnoseIsolation())

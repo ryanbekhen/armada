@@ -16,7 +16,7 @@ import (
 // the node, with the runtime running and the armada binary that stores
 // container output:
 //
-//	sudo ARMADA_BIN=/usr/local/bin/armada ARMADA_HOST_IP=10.0.0.5 \
+//	sudo ARMADA_BIN=/usr/local/bin/armadad ARMADA_HOST_IP=10.0.0.5 \
 //	  go test -tags integration -run Conformance ./internal/runtime/containerd/
 //
 // On a node of a cluster network, set ARMADA_SUBNET to the node's

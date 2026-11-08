@@ -9,7 +9,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 ExecStartPre=-/sbin/modprobe overlay
-ExecStart=/usr/local/bin/armada runtime --data-dir /var/lib/armada
+ExecStart=/usr/local/bin/armadad runtime --data-dir /var/lib/armada
 RuntimeDirectory=armada
 RuntimeDirectoryMode=0700
 RuntimeDirectoryPreserve=yes

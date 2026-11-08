@@ -19,6 +19,7 @@ import (
 	"google.golang.org/grpc/resolver/manual"
 
 	"github.com/ryanbekhen/armada/internal/fsutil"
+	"github.com/ryanbekhen/armada/internal/netutil"
 	"github.com/ryanbekhen/armada/internal/pki"
 )
 
@@ -52,7 +53,7 @@ func DefaultPath() string {
 func Load(path string) (*Config, error) {
 	b, err := fsutil.ReadPrivateFile(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return nil, fmt.Errorf("no client config at %s; run `armada init` on the server or set %s", path, EnvPath)
+		return nil, fmt.Errorf("no client config at %s; run `armadad init` on the server or set %s", path, EnvPath)
 	}
 	if err != nil {
 		return nil, err
@@ -137,4 +138,17 @@ func Dial(addrs []string, tlsCfg *tls.Config) (*Conn, error) {
 		return nil, err
 	}
 	return &Conn{ClientConn: conn, r: r}, nil
+}
+
+// CheckServers validates control plane addresses received from a server.
+func CheckServers(addrs []string) ([]string, error) {
+	if len(addrs) == 0 {
+		return nil, errors.New("server returned no control plane address")
+	}
+	for _, a := range addrs {
+		if err := netutil.CheckPrivateListen(a); err != nil {
+			return nil, fmt.Errorf("server address: %w", err)
+		}
+	}
+	return addrs, nil
 }

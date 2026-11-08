@@ -58,7 +58,7 @@ func newJobRunCommand(g *globals) *cobra.Command {
 			defer conn.Close()
 			resp, err := client.RunJob(cmd.Context(), &armadav1.RunJobRequest{Job: args[0]})
 			if err != nil {
-				return rpcErr(err)
+				return RPCError(err)
 			}
 			out := cmd.OutOrStdout()
 			if !wait {
@@ -97,7 +97,7 @@ func waitJobRun(ctx context.Context, client armadav1.AdminServiceClient, job str
 		case ctx.Err() == nil && status.Code(err) != codes.Unavailable:
 			// Unavailable passes: the control plane changes leader and the
 			// run goes on.
-			return rpcErr(err)
+			return RPCError(err)
 		}
 		select {
 		case <-ctx.Done():
@@ -146,7 +146,7 @@ func newJobListCommand(g *globals) *cobra.Command {
 			defer conn.Close()
 			resp, err := client.ListJobs(cmd.Context(), &armadav1.ListJobsRequest{})
 			if err != nil {
-				return rpcErr(err)
+				return RPCError(err)
 			}
 			resp.Jobs = slices.DeleteFunc(resp.Jobs, func(j *armadav1.JobInfo) bool { return !g.listed(j.Name) })
 			out := cmd.OutOrStdout()
@@ -207,7 +207,7 @@ func newJobRunsCommand(g *globals) *cobra.Command {
 			defer conn.Close()
 			resp, err := client.ListJobRuns(cmd.Context(), &armadav1.ListJobRunsRequest{Job: args[0]})
 			if err != nil {
-				return rpcErr(err)
+				return RPCError(err)
 			}
 			out := cmd.OutOrStdout()
 			if output == outputJSON {
@@ -270,7 +270,7 @@ func newJobCancelCommand(g *globals) *cobra.Command {
 			defer conn.Close()
 			resp, err := client.CancelJob(cmd.Context(), &armadav1.CancelJobRequest{Job: args[0]})
 			if err != nil {
-				return rpcErr(err)
+				return RPCError(err)
 			}
 			out := cmd.OutOrStdout()
 			if len(resp.Runs) == 0 {
@@ -304,7 +304,7 @@ func newJobRemoveCommand(g *globals) *cobra.Command {
 			}
 			defer conn.Close()
 			if _, err := client.DeleteJob(cmd.Context(), &armadav1.DeleteJobRequest{Job: args[0]}); err != nil {
-				return rpcErr(err)
+				return RPCError(err)
 			}
 			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Deleted job %s\n", args[0])
 			return err

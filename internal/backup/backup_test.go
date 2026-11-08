@@ -24,7 +24,7 @@ import (
 	"github.com/ryanbekhen/armada/internal/store"
 )
 
-// newDataDir builds a control plane data directory like `armada init`.
+// newDataDir builds a control plane data directory like `armadad init`.
 func newDataDir(t *testing.T) (string, *clientv3.Client) {
 	t.Helper()
 	ctx := context.Background()

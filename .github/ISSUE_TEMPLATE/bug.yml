@@ -37,5 +37,5 @@ body:
     id: logs
     attributes:
       label: Logs and doctor output
-      description: Relevant `journalctl -u armada-server` / `armada-agent` lines and `armada doctor` output.
+      description: Relevant `journalctl -u armada-server` / `armada-agent` lines and `armadad doctor` output.
       render: text

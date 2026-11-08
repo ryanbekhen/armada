@@ -19,7 +19,7 @@ func newMetricsCommand(g *globals) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "metrics",
 		Short: "Credentials for the Prometheus metrics endpoint",
-		Long: "The leader serves Prometheus metrics on `armada server --metrics-listen IP:PORT`,\n" +
+		Long: "The leader serves Prometheus metrics on `armadad server --metrics-listen IP:PORT`,\n" +
 			"over TLS, only to metrics (or admin) client certificates.",
 		Args: cobra.NoArgs,
 	}
@@ -66,7 +66,7 @@ func newMetricsCredentialsCommand(g *globals) *cobra.Command {
 			resp, err := client.IssueMetricsCertificate(cmd.Context(), &armadav1.IssueMetricsCertificateRequest{Name: name, Csr: csr})
 			if err != nil {
 				_ = os.Remove(dir)
-				return rpcErr(err)
+				return RPCError(err)
 			}
 			for _, f := range []struct {
 				name string

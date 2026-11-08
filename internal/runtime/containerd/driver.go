@@ -270,7 +270,7 @@ func (d *Driver) runcOpts() *options.Options {
 	return &options.Options{BinaryName: filepath.Join(d.paths.Bin(), embedded.BinRunc)}
 }
 
-// logIO makes the shim pipe the container's output to `armada runtime-log`.
+// logIO makes the shim pipe the container's output to `armadad runtime-log`.
 func (d *Driver) logIO() cio.Creator {
 	return cio.BinaryIO(d.self, map[string]string{"runtime-log": d.paths.Logs()})
 }

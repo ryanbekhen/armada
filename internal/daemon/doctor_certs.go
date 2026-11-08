@@ -1,4 +1,4 @@
-package cli
+package daemon
 
 import (
 	"crypto/x509"
@@ -66,7 +66,7 @@ func checkCertificates(env doctorEnv) []checkResult {
 			if id, err := pki.IdentityFromCert(c); err == nil && id.Kind == pki.KindAdmin {
 				switch left := c.NotAfter.Sub(now); {
 				case left <= 0:
-					problems = append(problems, checkResult{"certificates", checkFail, fmt.Sprintf("administrator certificate in %s expired on %s; on a server, renew it with `armada admin renew --data-dir %s`", env.adminConfig, day(c.NotAfter), env.dataDir)})
+					problems = append(problems, checkResult{"certificates", checkFail, fmt.Sprintf("administrator certificate in %s expired on %s; on a server, renew it with `armadad admin renew --data-dir %s`", env.adminConfig, day(c.NotAfter), env.dataDir)})
 				case left < adminWarnBefore:
 					problems = append(problems, checkResult{"certificates", checkWarn, fmt.Sprintf("administrator certificate in %s expires on %s; renew it with `armada admin renew`", env.adminConfig, day(c.NotAfter))})
 				default:

@@ -17,12 +17,15 @@ on a maintainer's machine.
 
 4. The `release` workflow (`.github/workflows/release.yml`) runs vet, the
    race tests, and govulncheck again, then GoReleaser
-   (`.goreleaser.yaml`) builds `linux/amd64` and `linux/arm64` with
-   `CGO_ENABLED=0` and `-trimpath` (after `make runtime-bundle`, with the
-   `bundle` tag, so the binary embeds the container runtime; see ADR 0011),
-   and publishes a **draft** release with:
-   - `armada_<version>_<os>_<arch>.tar.gz` (binary, LICENSE, README,
-     SECURITY.md, systemd units),
+   (`.goreleaser.yaml`) builds with `CGO_ENABLED=0` and `-trimpath`
+   `armadad` for `linux/amd64` and `linux/arm64` (after
+   `make runtime-bundle`, with the `bundle` tag, so it embeds the container
+   runtime; see ADR 0011) and the `armada` client for Linux and macOS
+   (ADR 0027), and publishes a **draft** release with:
+   - `armada_<version>_linux_<arch>.tar.gz` (`armadad`, `armada`, LICENSE,
+     README, SECURITY.md, systemd units),
+   - `armada_<version>_darwin_<arch>.tar.gz` (the `armada` client, LICENSE,
+     README, SECURITY.md),
    - `checksums.txt` (SHA-256),
    - an SPDX SBOM per archive (syft),
    - `checksums.txt.sigstore.json`, a keyless cosign signature bundle of

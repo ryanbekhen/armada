@@ -185,7 +185,7 @@ func (l *logFile) copyStream(stream string, r io.Reader) error {
 
 // WriteLogs stores a container's output until both streams end, at most
 // runtime.LogRate bytes per second (runtime.LogBurst at once); the rest is
-// dropped. It is what `armada runtime-log` runs inside the shim's logging
+// dropped. It is what `armadad runtime-log` runs inside the shim's logging
 // process.
 func WriteLogs(dir, id string, stdout, stderr io.Reader) error {
 	path, err := LogPath(dir, id)

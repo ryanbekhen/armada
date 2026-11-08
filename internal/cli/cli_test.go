@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"path/filepath"
+	"os/exec"
 	"strings"
 	"testing"
 
@@ -171,22 +171,39 @@ func TestDiskBytes(t *testing.T) {
 	}
 }
 
-func TestLockDataDirRefusesSecondAgent(t *testing.T) {
-	dir := t.TempDir()
-	unlock, err := lockDataDir(dir)
+func TestHumanBytes(t *testing.T) {
+	t.Parallel()
+
+	for in, want := range map[int64]string{0: "-", 512 << 20: "512Mi", 2 << 30: "2.0Gi"} {
+		if got := humanBytes(in); got != want {
+			t.Errorf("humanBytes(%d) = %q", in, got)
+		}
+	}
+}
+
+// TestClientDependencies keeps the client free of what only a machine needs
+// (ADR 0027): it must stay small and build for every system it supports.
+func TestClientDependencies(t *testing.T) {
+	out, err := exec.Command("go", "list", "-deps", "github.com/ryanbekhen/armada/cmd/armada").Output()
 	if err != nil {
-		t.Fatal(err)
+		t.Skipf("go list: %v", err)
 	}
-	if _, err := lockDataDir(dir); err == nil || !strings.Contains(err.Error(), "another agent") {
-		t.Fatalf("second lock: %v", err)
-	}
-	unlock()
-	again, err := lockDataDir(dir)
-	if err != nil {
-		t.Fatalf("lock after release: %v", err)
-	}
-	again()
-	if _, err := lockDataDir(filepath.Join(dir, "missing")); err == nil {
-		t.Fatal("locked a directory that does not exist")
+	for _, dep := range strings.Fields(string(out)) {
+		for _, banned := range []string{
+			"github.com/ryanbekhen/armada/internal/daemon",
+			"github.com/ryanbekhen/armada/internal/agent",
+			"github.com/ryanbekhen/armada/internal/server",
+			"github.com/ryanbekhen/armada/internal/store",
+			"github.com/ryanbekhen/armada/internal/etcd",
+			"github.com/ryanbekhen/armada/internal/clusternet",
+			"github.com/ryanbekhen/armada/internal/runtime/",
+			"github.com/ryanbekhen/armada/internal/proxy",
+			"go.etcd.io/etcd/server",
+			"github.com/containerd/",
+		} {
+			if strings.HasPrefix(dep, banned) {
+				t.Errorf("the armada client depends on %s", dep)
+			}
+		}
 	}
 }

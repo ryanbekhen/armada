@@ -1,4 +1,4 @@
-package cli
+package daemon
 
 import (
 	"errors"
@@ -54,7 +54,7 @@ func newInitCommand(g *globals) *cobra.Command {
 		Use:   "init",
 		Short: "Initialize a new cluster on this machine",
 		Long: "init creates the cluster CA, server and node certificates, the state database,\n" +
-			"and an admin client config. Run it once on the first machine, then start `armada server`.",
+			"and an admin client config. Run it once on the first machine, then start `armadad server`.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ip, err := resolvePrivateIP(privateIP)
@@ -209,8 +209,10 @@ func newInitCommand(g *globals) *cobra.Command {
 			_, _ = fmt.Fprint(out, nextStep("server", dataDir))
 			_, _ = fmt.Fprintf(out, "Then add nodes with `armada token create`, and control plane nodes with\n")
 			_, _ = fmt.Fprintf(out, "`armada token create --server` (three servers tolerate the loss of one).\n")
+			_, _ = fmt.Fprintf(out, "The armada client needs no root: copy %s to ~/.armada/config\n", g.configPath)
+			_, _ = fmt.Fprintf(out, "(mode 0600) of your own user, here or on another machine.\n")
 			_, _ = fmt.Fprintf(out, "Keep %s private: it contains the cluster CA key and the master key\n", dataDir)
-			_, _ = fmt.Fprintln(out, "that encrypts secrets. Back it up with `armada backup`, or secrets are lost.")
+			_, _ = fmt.Fprintln(out, "that encrypts secrets. Back it up with `armadad backup`, or secrets are lost.")
 			return nil
 		},
 	}

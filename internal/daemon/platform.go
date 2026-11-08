@@ -1,4 +1,4 @@
-package cli
+package daemon
 
 // Data and secrets directories of a node.
 const (

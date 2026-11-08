@@ -66,7 +66,7 @@ command's name, not its arguments.`,
 			defer conn.Close()
 			stream, err := client.Exec(cmd.Context())
 			if err != nil {
-				return rpcErr(err)
+				return RPCError(err)
 			}
 			var mu sync.Mutex // serializes sends
 			send := func(m *armadav1.ExecClientMessage) error {
@@ -84,13 +84,13 @@ command's name, not its arguments.`,
 				}
 			}
 			if err := send(&armadav1.ExecClientMessage{Msg: &armadav1.ExecClientMessage_Start{Start: start}}); err != nil {
-				return rpcErr(err)
+				return RPCError(err)
 			}
 			// The first message names the replica, or the error that kept
 			// the command from starting.
 			first, err := stream.Recv()
 			if err != nil {
-				return rpcErr(err)
+				return RPCError(err)
 			}
 			if first.GetReplica() == "" {
 				return errors.New("server did not start the command")
@@ -138,7 +138,7 @@ command's name, not its arguments.`,
 					if errors.Is(err, io.EOF) {
 						return errors.New("server ended the session without an exit code")
 					}
-					return rpcErr(err)
+					return RPCError(err)
 				}
 				switch o := m.GetMsg().(type) {
 				case *armadav1.ExecServerMessage_Stdout:

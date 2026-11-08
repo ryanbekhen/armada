@@ -17,14 +17,16 @@ fail() {
 	exit 1
 }
 
-# make_release DIR: a release with a fake binary and the systemd units.
+# make_release DIR: a release with fake binaries and the systemd units.
 make_release() {
 	rel="$1/$VERSION"
 	mkdir -p "$rel" "$1/src/deploy"
-	printf '#!/bin/sh\necho "armada %s (fake)"\n' "$VERSION" >"$1/src/armada"
-	chmod 755 "$1/src/armada"
+	for bin in armada armadad; do
+		printf '#!/bin/sh\necho "%s %s (fake)"\n' "$bin" "$VERSION" >"$1/src/$bin"
+		chmod 755 "$1/src/$bin"
+	done
 	cp -R "$ROOT/deploy/systemd" "$1/src/deploy/"
-	tar -czf "$rel/$ARCHIVE" -C "$1/src" armada deploy
+	tar -czf "$rel/$ARCHIVE" -C "$1/src" armada armadad deploy
 	(cd "$rel" && sha256sum "$ARCHIVE" >checksums.txt)
 }
 
@@ -45,13 +47,31 @@ install_from "$WORK/good" good || {
 	cat "$WORK/good.log"
 	fail "good release was rejected"
 }
-[ -x "$WORK/good/prefix/bin/armada" ] || fail "binary not installed"
+[ -x "$WORK/good/prefix/bin/armada" ] || fail "client not installed"
+[ -x "$WORK/good/prefix/bin/armadad" ] || fail "daemon not installed"
 grep -q "Checksum verified" "$WORK/good.log" || fail "checksum not reported"
-grep -q "$WORK/good/prefix/bin/armada server" "$WORK/good/units/armada-server.service" ||
+grep -q "$WORK/good/prefix/bin/armadad server" "$WORK/good/units/armada-server.service" ||
 	fail "unit does not point at the installed binary"
-grep -q "$WORK/good/prefix/bin/armada runtime" "$WORK/good/units/armada-runtime.service" ||
+grep -q "$WORK/good/prefix/bin/armadad runtime" "$WORK/good/units/armada-runtime.service" ||
 	fail "runtime unit not installed"
-[ "$(stat -c %a "$WORK/good/prefix/bin/armada")" = 755 ] || fail "binary mode"
+[ "$(stat -c %a "$WORK/good/prefix/bin/armadad")" = 755 ] || fail "binary mode"
+
+# The client alone: no daemon, no units.
+install_from "$WORK/good" client ARMADA_CLIENT_ONLY=1 || {
+	cat "$WORK/client.log"
+	fail "client-only install failed"
+}
+[ -x "$WORK/client/prefix/bin/armada" ] || fail "client-only: client not installed"
+[ ! -e "$WORK/client/prefix/bin/armadad" ] || fail "client-only: daemon installed"
+[ ! -e "$WORK/client/units/armada-server.service" ] || fail "client-only: units installed"
+
+# An archive without the daemon is refused for a full install.
+mkdir -p "$WORK/nodaemon/$VERSION" "$WORK/nodaemon/src"
+cp "$WORK/good/src/armada" "$WORK/nodaemon/src/"
+tar -czf "$WORK/nodaemon/$VERSION/$ARCHIVE" -C "$WORK/nodaemon/src" armada
+(cd "$WORK/nodaemon/$VERSION" && sha256sum "$ARCHIVE" >checksums.txt)
+if install_from "$WORK/nodaemon" nodaemon; then fail "archive without armadad installed"; fi
+grep -q "does not contain the armadad binary" "$WORK/nodaemon.log" || fail "nodaemon: wrong error"
 
 # A tampered archive is refused and nothing is installed.
 make_release "$WORK/tampered"
@@ -59,6 +79,7 @@ printf 'x' >>"$WORK/tampered/$VERSION/$ARCHIVE"
 if install_from "$WORK/tampered" tampered; then fail "tampered archive installed"; fi
 grep -q "checksum mismatch" "$WORK/tampered.log" || fail "tampered: wrong error: $(cat "$WORK/tampered.log")"
 [ ! -e "$WORK/tampered/prefix/bin/armada" ] || fail "tampered binary left behind"
+[ ! -e "$WORK/tampered/prefix/bin/armadad" ] || fail "tampered daemon left behind"
 
 # An archive missing from the checksum file is refused.
 make_release "$WORK/unlisted"

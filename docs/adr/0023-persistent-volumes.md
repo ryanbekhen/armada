@@ -125,7 +125,7 @@ volumes:
   node, then the record. It is refused while the app's spec, or any of its
   replicas, still mounts the volume. When the volume's node was removed
   from the cluster, only the record goes.
-- **Control plane backups.** `armada backup` holds volume records but not
+- **Control plane backups.** `armadad backup` holds volume records but not
   their contents. Volume data is backed up with `armada volume backup`.
 - **Records.** Backups, restores, binds, and removals are audited and
   recorded as events. Only admin certificates can use these RPCs.

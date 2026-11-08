@@ -1,4 +1,4 @@
-package cli
+package daemon
 
 import (
 	"bytes"
@@ -60,7 +60,7 @@ func TestServerJoinCommand(t *testing.T) {
 		t.Fatalf("token create --server: %s", stderr)
 	}
 	tok := regexp.MustCompile(`Token \(shown once\): (\S+)`).FindStringSubmatch(out)
-	line := regexp.MustCompile(`armada server join (\S+) --ca-hash (\S+)`).FindStringSubmatch(out)
+	line := regexp.MustCompile(`armadad server join (\S+) --ca-hash (\S+)`).FindStringSubmatch(out)
 	if tok == nil || line == nil || !strings.Contains(out, "Server token created") {
 		t.Fatalf("token output = %q", out)
 	}

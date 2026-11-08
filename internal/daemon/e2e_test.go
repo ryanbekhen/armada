@@ -1,4 +1,4 @@
-package cli
+package daemon
 
 import (
 	"bytes"
@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ryanbekhen/armada/internal/cli"
 	"github.com/ryanbekhen/armada/internal/fsutil"
 	"github.com/ryanbekhen/armada/internal/pki"
 	"github.com/ryanbekhen/armada/internal/runtime"
@@ -174,15 +175,15 @@ func TestEndToEnd(t *testing.T) {
 	// gateway: 10.120.0.11, 10.120.0.12, ...
 	d.BridgeIPs = "10.120.0.1"
 	d.LogLines = []runtime.LogFrame{{Stream: runtime.Stdout, Data: []byte("listening on :80\n")}, {Stream: runtime.Stderr, Data: []byte("deprecated flag\n")}}
-	orig, origWait, origCheck, origPoll, origTmpfs, origUsage := newDriver, proxyStartWait, probeCheck, waitPoll, checkTmpfs, usageInterval
+	orig, origWait, origCheck, origTmpfs, origUsage := newDriver, proxyStartWait, probeCheck, checkTmpfs, usageInterval
 	newDriver = func(string, *agentConfig) (runtime.Driver, error) { return d, nil }
 	proxyStartWait = time.Millisecond
 	probeCheck = func(context.Context, string, string) error { return nil }
-	waitPoll = 50 * time.Millisecond
+	t.Cleanup(cli.SetPollIntervals(50*time.Millisecond, 2*time.Second))
 	checkTmpfs = func(string) error { return nil } // a temp dir stands in for tmpfs
 	usageInterval = 20 * time.Millisecond
 	t.Cleanup(func() {
-		newDriver, proxyStartWait, probeCheck, waitPoll, checkTmpfs, usageInterval = orig, origWait, origCheck, origPoll, origTmpfs, origUsage
+		newDriver, proxyStartWait, probeCheck, checkTmpfs, usageInterval = orig, origWait, origCheck, origTmpfs, origUsage
 	})
 	secretsDir := filepath.Join(t.TempDir(), "secrets")
 
@@ -714,7 +715,7 @@ func TestCommandsWithoutConfig(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "nope")
 	for _, args := range [][]string{{"status"}, {"scale", "a", "1"}, {"logs", "a"}, {"exec", "a", "--", "sh"}, {"top"}, {"events"}, {"job", "ls"}, {"metrics", "credentials", "p", "-o", filepath.Join(t.TempDir(), "m")}} {
 		code, _, stderr := run(t, append(args, "--config", missing)...)
-		if code == 0 || !strings.Contains(stderr, "armada init") {
+		if code == 0 || !strings.Contains(stderr, "armadad init") {
 			t.Errorf("%v: code=%d stderr=%q", args, code, stderr)
 		}
 	}
@@ -728,15 +729,5 @@ func TestCommandsWithoutConfig(t *testing.T) {
 	}
 	if code, _, _ := run(t, "server", "--log-format", "xml", "--data-dir", t.TempDir()); code == 0 {
 		t.Error("bad log format accepted")
-	}
-}
-
-func TestHumanBytes(t *testing.T) {
-	t.Parallel()
-
-	for in, want := range map[int64]string{0: "-", 512 << 20: "512Mi", 2 << 30: "2.0Gi"} {
-		if got := humanBytes(in); got != want {
-			t.Errorf("humanBytes(%d) = %q", in, got)
-		}
 	}
 }

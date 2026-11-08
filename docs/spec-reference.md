@@ -90,7 +90,7 @@ Each entry mounts the secret `secretRef` read-only at `path`, an absolute
 path of letters, digits, `.`, `_`, `-`, and `/`. `/etc/hosts`,
 `/etc/hostname`, `/etc/resolv.conf` and anything under `/proc`, `/sys`, or
 `/dev` are refused. The node must have its secrets directory on tmpfs (see
-`armada doctor`); otherwise replicas that need secret files fail to start
+`armadad doctor`); otherwise replicas that need secret files fail to start
 with a clear message.
 
 ### `registry`

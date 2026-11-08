@@ -81,7 +81,7 @@ func newSecretSetCommand(g *globals) *cobra.Command {
 			if err := spec.ValidateSecretName(name); err != nil {
 				return err
 			}
-			value, err := readSecretValue(cmd, fromFile)
+			value, err := ReadSecretValue(cmd, fromFile)
 			if err != nil {
 				return err
 			}
@@ -96,7 +96,7 @@ func newSecretSetCommand(g *globals) *cobra.Command {
 			resp, err := client.SetSecret(cmd.Context(), &armadav1.SetSecretRequest{App: app, Name: name, Value: value, Rollout: !noRollout})
 			clear(value)
 			if err != nil {
-				return rpcErr(err)
+				return RPCError(err)
 			}
 			out := cmd.OutOrStdout()
 			_, _ = fmt.Fprintf(out, "Secret %s of app %s set (version %d).\n", name, app, resp.Version)
@@ -225,7 +225,7 @@ func importSecrets(ctx context.Context, client armadav1.AdminServiceClient, app 
 	for i, e := range entries {
 		resp, err := client.SetSecret(ctx, &armadav1.SetSecretRequest{App: app, Name: e.name, Value: e.value})
 		if err != nil {
-			return fmt.Errorf("secret %s (%d of %d set before it): %w", e.name, i, len(entries), rpcErr(err))
+			return fmt.Errorf("secret %s (%d of %d set before it): %w", e.name, i, len(entries), RPCError(err))
 		}
 		_, _ = fmt.Fprintf(out, "%s -> %s (version %d)\n", e.key, e.name, resp.GetVersion())
 	}
@@ -233,9 +233,9 @@ func importSecrets(ctx context.Context, client armadav1.AdminServiceClient, app 
 	return nil
 }
 
-// readSecretValue reads at most secrets.MaxSize bytes from a file, a hidden
+// ReadSecretValue reads at most secrets.MaxSize bytes from a file, a hidden
 // terminal prompt, or piped stdin.
-func readSecretValue(cmd *cobra.Command, fromFile string) ([]byte, error) {
+func ReadSecretValue(cmd *cobra.Command, fromFile string) ([]byte, error) {
 	if fromFile != "" {
 		f, err := os.Open(fromFile) //nolint:gosec // the operator chooses the file
 		if err != nil {
@@ -287,7 +287,7 @@ func newSecretListCommand(g *globals) *cobra.Command {
 			defer conn.Close()
 			resp, err := client.ListSecrets(cmd.Context(), &armadav1.ListSecretsRequest{App: args[0]})
 			if err != nil {
-				return rpcErr(err)
+				return RPCError(err)
 			}
 			if len(resp.Secrets) == 0 {
 				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "App %s has no secrets.\n", args[0])
@@ -324,7 +324,7 @@ func newSecretRemoveCommand(g *globals) *cobra.Command {
 			}
 			defer conn.Close()
 			if _, err := client.DeleteSecret(cmd.Context(), &armadav1.DeleteSecretRequest{App: args[0], Name: args[1]}); err != nil {
-				return rpcErr(err)
+				return RPCError(err)
 			}
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Secret %s of app %s deleted.\n", args[1], args[0])
 			return nil

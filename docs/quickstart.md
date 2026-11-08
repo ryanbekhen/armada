@@ -14,7 +14,7 @@ as control plane servers.
 - Linux machines (amd64 or arm64) with a **private network** between them
   (VPC, private networking, vSwitch, or a LAN), each with a private IP.
 - Nothing else to install: Armada brings its own container runtime
-  (containerd, runc, and the CNI plugins, embedded in the binary). The
+  (containerd, runc, and the CNI plugins, embedded in `armadad`). The
   kernel needs cgroup v2 (the default on current distributions) and
   overlayfs, and `iptables` must be installed. Other container software
   on the host is left alone.
@@ -51,19 +51,28 @@ SHA-256 checksum, and, if [cosign](https://docs.sigstore.dev/cosign/system_confi
 is installed, verifies that the checksums were signed by this repository's
 release workflow. Set `ARMADA_REQUIRE_SIGNATURE=1` to refuse installing
 without that signature, and `ARMADA_VERSION=v0.1.0` to pin a version. It
-installs `/usr/local/bin/armada` and the systemd units
-`armada-server.service` and `armada-agent.service` (not started).
+installs two programs and the systemd units `armada-server.service`,
+`armada-agent.service`, and `armada-runtime.service` (not started):
+
+- `armadad`, the daemon: the control plane, the node agent, and the
+  container runtime, run by systemd. It also sets machines up (`init`,
+  `join`) and checks them (`doctor`), as root.
+- `armada`, the client: deploys and manages apps through the control plane
+  and needs no root.
+
+On a workstation (Linux or macOS) the same script installs only the
+client.
 
 On RHEL-family distributions (RHEL, Oracle Linux, Rocky, Alma), `sudo`
 does not search `/usr/local/bin`; the installer warns about it. Install with
-`ARMADA_PREFIX=/usr`, or run the commands below from a root shell
-(`sudo -i`).
+`ARMADA_PREFIX=/usr`, or run the `armadad` commands below from a root
+shell (`sudo -i`).
 
 ## 2. Check the host
 
 ```bash
 sudo install -d -m 0700 /run/armada/secrets
-sudo armada doctor
+sudo armadad doctor
 ```
 
 `doctor` checks the container runtime (cgroup v2, overlayfs, `iptables`,
@@ -81,18 +90,31 @@ If the host has several private addresses, pass the right one with
 ## 3. Create the cluster (first machine)
 
 ```bash
-sudo armada init
+sudo armadad init
 ```
 
 This creates the cluster CA, the certificates, the state (embedded etcd), the
-secrets master key, and an admin config in `~/.armada/config`. Each node
+secrets master key, and an admin config in root's `~/.armada/config`. Each node
 gets its own container subnet, a /24 of `10.120.0.0/16`; if your network
 uses that range, pick another private one with `--cluster-cidr` (it cannot
 change later). Traffic between nodes' containers is not encrypted unless you
 add `--network wireguard`, also fixed at init (see
 [operations](operations.md#container-network)). Note the **CA SHA-256** it prints. Once the server runs, set up backups with
-`armada backup` (see [operations](operations.md)): the data directory is the
+`armadad backup` (see [operations](operations.md)): the data directory is the
 cluster, and without `master.key` secrets cannot be recovered.
+
+To use `armada` as your own user, give that user a copy of the admin
+config (it must stay mode `0600`):
+
+```bash
+sudo install -d -m 0700 -o "$(id -un)" -g "$(id -gn)" ~/.armada
+sudo install -m 0600 -o "$(id -un)" -g "$(id -gn)" /root/.armada/config ~/.armada/config
+```
+
+The file is full control of the cluster: give it only to people who
+administer it, and use [automation identities](operations.md#automation-identities) for
+tools. Copied to a workstation that reaches the control plane's private
+address, it lets `armada` work from there too.
 
 ## 4. Start the control plane
 
@@ -194,7 +216,7 @@ It prints a single-use token (valid for one hour) and the exact `armada
 join` command. On the new machine, after steps 1 and 2:
 
 ```bash
-sudo armada join 10.0.0.2:7444 --ca-hash sha256:...   # paste the token when asked
+sudo armadad join 10.0.0.2:7444 --ca-hash sha256:...   # paste the token when asked
 sudo systemctl enable --now armada-agent
 armada node list                                       # on the first machine
 ```
@@ -214,7 +236,7 @@ steps 1 and 2 (they also run apps, like the first):
 armada token create --server                                 # on the first machine
 sudo install -d -m 0700 /etc/armada                          # on the new machine:
 sudo cp server.env /etc/armada/server.env                    #   the same flags as the first server
-sudo armada server join 10.0.0.2:7444 --ca-hash sha256:...   #   paste the token when asked
+sudo armadad server join 10.0.0.2:7444 --ca-hash sha256:...   #   paste the token when asked
 sudo systemctl enable --now armada-server
 armada server list                                           # on the first machine: all "voting"
 ```
@@ -246,7 +268,7 @@ control plane. See [operations](operations.md#control-plane-one-server-or-three)
 | Choose nodes | `armada node label NODE region=sulawesi`, then `placement.require` in the spec; `armada node restrict NODE` keeps a node for apps that ask for it |
 | Remove a node | `armada node remove NODE` (revokes its certificate) |
 | Control plane servers | `armada server list`, `armada server remove NAME` |
-| Back up / upgrade | `armada backup -o -` (control plane; volumes: `armada volume backup`), then see [operations](operations.md) |
+| Back up / upgrade | `armadad backup -o -` (control plane; volumes: `armada volume backup`), then see [operations](operations.md) |
 
 Short forms work everywhere: `ls` for `list`, `rm` or `delete` for
 `remove`, and plural group names (`armada nodes ls`, `armada servers ls`,

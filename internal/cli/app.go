@@ -40,7 +40,7 @@ func newAppRemoveCommand(g *globals) *cobra.Command {
 			}
 			defer conn.Close()
 			if _, err := client.RemoveApp(cmd.Context(), &armadav1.RemoveAppRequest{App: args[0]}); err != nil {
-				return rpcErr(err)
+				return RPCError(err)
 			}
 			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Removing app %s: it is gone once its replicas have drained\n", args[0])
 			return err

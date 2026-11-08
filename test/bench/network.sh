@@ -1,7 +1,7 @@
 #!/bin/sh
 # Network benchmark between two machines (see README.md).
 #
-#   ARMADA_BIN=bin/armada BENCH_WIPE=yes sh test/bench/network.sh hosts
+#   ARMADA_BIN=bin/armadad BENCH_WIPE=yes sh test/bench/network.sh hosts
 #
 # The hosts file lists exactly two Linux machines, one per line:
 #
@@ -21,7 +21,7 @@ ARMADA_BIN=${ARMADA_BIN:-}
 ARMADA_BIN_AMD64=${ARMADA_BIN_AMD64:-$ARMADA_BIN}
 ARMADA_BIN_ARM64=${ARMADA_BIN_ARM64:-$ARMADA_BIN}
 if [ -z "$ARMADA_BIN_AMD64$ARMADA_BIN_ARM64" ]; then
-	echo "bench: set ARMADA_BIN (or ARMADA_BIN_AMD64/ARMADA_BIN_ARM64) to Linux armada binaries with the runtime embedded (make build-bundle)" >&2
+	echo "bench: set ARMADA_BIN (or ARMADA_BIN_AMD64/ARMADA_BIN_ARM64) to Linux armadad binaries with the runtime embedded (make build-bundle; the armada client next to each is installed too)" >&2
 	exit 2
 fi
 BENCH_MODES=${BENCH_MODES:-plain wireguard}
@@ -63,6 +63,10 @@ private | public) ;;
 	;;
 esac
 UNITS=$(cd "$(dirname "$0")/../../deploy/systemd" && pwd)
+
+# client_of BIN names the armada client built next to armadad binary BIN
+# (bin/armadad-linux-amd64 -> bin/armada-linux-amd64).
+client_of() { printf '%s/%s' "$(dirname "$1")" "$(basename "$1" | sed 's/^armadad/armada/')"; }
 
 # host N COLUMN prints a column of the Nth machine (1 name, 2 SSH target,
 # 3 private IP, 4 public IP).
@@ -155,7 +159,7 @@ deploy() { cli deploy -f - >/dev/null; }
 # machine N, leaving the binary and units installed.
 wipe() {
 	on "$1" 'systemctl disable --now -q armada-agent armada-server 2>/dev/null
-		if systemctl is-active -q armada-runtime; then armada runtime reset >/dev/null 2>&1 || true; fi
+		if systemctl is-active -q armada-runtime; then armadad runtime reset >/dev/null 2>&1 || true; fi
 		systemctl disable --now -q armada-runtime 2>/dev/null
 		umount /var/lib/armada/volumes 2>/dev/null
 		rm -rf /var/lib/armada /etc/armada ~root/.armada /run/armada/bench
@@ -214,11 +218,13 @@ while [ "$i" -le 2 ]; do
 	*) _bin='' _arch='' ;;
 	esac
 	[ -n "$_bin" ] || fail "no binary for the architecture of $(host "$i" 1)"
-	copy "$_bin" "$i" /tmp/armada.bench
+	copy "$_bin" "$i" /tmp/armadad.bench
+	copy "$(client_of "$_bin")" "$i" /tmp/armada.bench
 	for unit in armada-server armada-agent armada-runtime; do
 		on "$i" "cat > /etc/systemd/system/$unit.service" <"$UNITS/$unit.service"
 	done
-	on "$i" 'install -m 0755 /tmp/armada.bench /usr/local/bin/armada && rm /tmp/armada.bench && systemctl daemon-reload'
+	on "$i" 'install -m 0755 /tmp/armadad.bench /usr/local/bin/armadad && install -m 0755 /tmp/armada.bench /usr/local/bin/armada &&
+		rm /tmp/armadad.bench /tmp/armada.bench && systemctl daemon-reload'
 	wipe "$i"
 	if [ "$i" = 1 ]; then
 		# hey sends the HTTP load from A, built for A's architecture.
@@ -230,7 +236,7 @@ while [ "$i" -le 2 ]; do
 		copy "$_hey" 1 /tmp/hey.bench
 		on 1 'install -m 0755 /tmp/hey.bench /usr/local/bin/armada-bench-hey && rm /tmp/hey.bench'
 	fi
-	ok "$(host "$i" 1): $(on "$i" 'armada version' | head -1) ($_arch)"
+	ok "$(host "$i" 1): $(on "$i" 'armadad version' | head -1) ($_arch)"
 	i=$((i + 1))
 done
 
@@ -278,26 +284,26 @@ tunnel_up() {
 	LABEL="$LABEL)"
 }
 
-# doctor N IP runs armada doctor on machine N for the private IP the mode
+# doctor N IP runs armadad doctor on machine N for the private IP the mode
 # uses (the tunnel's in the wireguard mode).
 doctor() {
-	if ! on "$1" "armada doctor --private-ip $2" >"$WORK/doctor" 2>&1 || grep -q FAIL "$WORK/doctor"; then
+	if ! on "$1" "armadad doctor --private-ip $2" >"$WORK/doctor" 2>&1 || grep -q FAIL "$WORK/doctor"; then
 		cat "$WORK/doctor" >&2
-		fail "armada doctor on $(host "$1" 1)"
+		fail "armadad doctor on $(host "$1" 1)"
 	fi
 }
 
 cluster_up() {
 	doctor 1 "$IP_A"
 	doctor 2 "$IP_B"
-	ok "armada doctor passes on $A and $B"
+	ok "armadad doctor passes on $A and $B"
 	on 1 "umask 077; echo 'ARMADA_SERVER_FLAGS=\"--tls=false\"' > /etc/armada/server.env"
-	on 1 "systemctl enable --now -q armada-runtime && armada init --node-name $A --private-ip $IP_A >/dev/null &&
+	on 1 "systemctl enable --now -q armada-runtime && armadad init --node-name $A --private-ip $IP_A >/dev/null &&
 		systemctl enable --now -q armada-server"
 	wait_for 120 "control plane answers" nodes_one
 	cli token create >"$WORK/token"
 	_tok=$(sed -n 's/^Token (shown once): //p' "$WORK/token")
-	_cmd=$(sed -n 's/^  \(armada .*join .*\)$/\1/p' "$WORK/token")
+	_cmd=$(sed -n 's/^  \(armadad .*join .*\)$/\1/p' "$WORK/token")
 	rm -f "$WORK/token"
 	if [ -z "$_tok" ] || [ -z "$_cmd" ]; then fail "armada token create printed no token"; fi
 	printf '%s\n' "$_tok" | on 2 'umask 077; cat > /run/armada/bench.token'

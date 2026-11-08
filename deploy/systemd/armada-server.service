@@ -8,7 +8,7 @@ Wants=network-online.target armada-runtime.service
 Type=simple
 # Extra flags, e.g. ARMADA_SERVER_FLAGS="--acme-email ops@example.com".
 EnvironmentFile=-/etc/armada/server.env
-ExecStart=/usr/local/bin/armada server --data-dir /var/lib/armada $ARMADA_SERVER_FLAGS
+ExecStart=/usr/local/bin/armadad server --data-dir /var/lib/armada $ARMADA_SERVER_FLAGS
 # Secret files live on tmpfs under /run/armada; keep them across restarts so
 # running replicas keep their mounts.
 RuntimeDirectory=armada

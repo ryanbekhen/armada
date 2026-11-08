@@ -82,7 +82,7 @@ func (n *Net) wgDevice(mtu int) (netlink.Link, error) {
 const userSocket = "/var/run/wireguard/" + Interface + ".sock"
 
 // userDevice is WireGuard in userspace, serving the usual control socket
-// (root only) so the agent and armada doctor configure and read it as they
+// (root only) so the agent and armadad doctor configure and read it as they
 // do the kernel's.
 type userDevice struct {
 	dev  *device.Device

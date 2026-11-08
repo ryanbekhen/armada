@@ -66,7 +66,7 @@ func newAutomationSetCommand(g *globals) *cobra.Command {
 			defer conn.Close()
 			a, err := client.SetAutomation(cmd.Context(), req)
 			if err != nil {
-				return rpcErr(err)
+				return RPCError(err)
 			}
 			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Automation %s manages %s; give a tool its credentials with `armada automation credentials %s`.\n",
 				a.Name, scopeText(a), a.Name)
@@ -104,7 +104,7 @@ func newAutomationListCommand(g *globals) *cobra.Command {
 			defer conn.Close()
 			resp, err := client.ListAutomations(cmd.Context(), &armadav1.ListAutomationsRequest{})
 			if err != nil {
-				return rpcErr(err)
+				return RPCError(err)
 			}
 			if len(resp.Automations) == 0 {
 				_, err := fmt.Fprintln(cmd.OutOrStdout(), "No automation identities.")
@@ -170,7 +170,7 @@ func newAutomationCredentialsCommand(g *globals) *cobra.Command {
 			defer conn.Close()
 			resp, err := client.IssueAutomationCertificate(cmd.Context(), &armadav1.IssueAutomationCertificateRequest{Name: name, Csr: csr})
 			if err != nil {
-				return rpcErr(err)
+				return RPCError(err)
 			}
 			tool := &clientconfig.Config{Servers: cc.Servers, CA: string(resp.GetCaCert()), Cert: string(resp.GetCert()), Key: string(keyPEM)}
 			if err := tool.SaveFile(out); err != nil {
@@ -217,7 +217,7 @@ func newAutomationRenewCommand(g *globals) *cobra.Command {
 			defer conn.Close()
 			resp, err := client.RenewAutomationCertificate(cmd.Context(), &armadav1.RenewAutomationCertificateRequest{Csr: csr})
 			if err != nil {
-				return rpcErr(err)
+				return RPCError(err)
 			}
 			cc.Cert, cc.Key, cc.CA = string(resp.GetCert()), string(keyPEM), string(resp.GetCaCert())
 			if err := cc.SaveFile(g.configPath); err != nil {
@@ -242,7 +242,7 @@ func newAutomationRemoveCommand(g *globals) *cobra.Command {
 			}
 			defer conn.Close()
 			if _, err := client.DeleteAutomation(cmd.Context(), &armadav1.DeleteAutomationRequest{Name: args[0]}); err != nil {
-				return rpcErr(err)
+				return RPCError(err)
 			}
 			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Automation %s removed; its certificates no longer work.\n", args[0])
 			return err

@@ -43,7 +43,7 @@ func newProjectCommand(g *globals) *cobra.Command {
 				defer conn.Close()
 				resp, err := client.ListProjects(cmd.Context(), &armadav1.ListProjectsRequest{})
 				if err != nil {
-					return rpcErr(err)
+					return RPCError(err)
 				}
 				tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 4, 2, ' ', 0)
 				_, _ = fmt.Fprintln(tw, "PROJECT\tAPPS\tNETWORK\tCREATED\tBY")
@@ -74,7 +74,7 @@ func newProjectCommand(g *globals) *cobra.Command {
 				}
 				defer conn.Close()
 				if _, err := client.DeleteProject(cmd.Context(), &armadav1.DeleteProjectRequest{Name: args[0]}); err != nil {
-					return rpcErr(err)
+					return RPCError(err)
 				}
 				_, err = fmt.Fprintf(cmd.OutOrStdout(), "Project %s removed.\n", args[0])
 				return err
@@ -97,7 +97,7 @@ func newProjectCreateCommand(g *globals) *cobra.Command {
 			defer conn.Close()
 			p, err := client.CreateProject(cmd.Context(), &armadav1.CreateProjectRequest{Name: args[0]})
 			if err != nil {
-				return rpcErr(err)
+				return RPCError(err)
 			}
 			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Project %s created; deploy into it with `armada deploy -f FILE --project %s`.\n", p.Name, p.Name)
 			return err
@@ -133,7 +133,7 @@ func newProjectSetCommand(g *globals) *cobra.Command {
 			defer conn.Close()
 			p, err := client.UpdateProject(cmd.Context(), req)
 			if err != nil {
-				return rpcErr(err)
+				return RPCError(err)
 			}
 			state := "off"
 			if p.NetworkIsolation {
@@ -160,7 +160,7 @@ func newProjectShowCommand(g *globals) *cobra.Command {
 			defer conn.Close()
 			resp, err := client.ListProjects(cmd.Context(), &armadav1.ListProjectsRequest{})
 			if err != nil {
-				return rpcErr(err)
+				return RPCError(err)
 			}
 			for _, p := range resp.Projects {
 				if p.Name != args[0] {

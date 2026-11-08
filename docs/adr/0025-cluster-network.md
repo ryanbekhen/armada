@@ -45,7 +45,7 @@ published on the private IP any more.
 
 ### Address plan
 
-- **Cluster CIDR.** `armada init --cluster-cidr` sets it once for the
+- **Cluster CIDR.** `armadad init --cluster-cidr` sets it once for the
   cluster. The default is `10.120.0.0/16`, chosen so that it does not
   overlap the legacy bridge subnet during migration. It allows a prefix
   from /12 to /20.
@@ -59,14 +59,14 @@ published on the private IP any more.
   so the address differs per node.
 - **Overlap check.** The agent refuses to bring the network up when the
   cluster CIDR overlaps a route or address on the host (the tunnel's own
-  routes excepted). `armada doctor` reports the same, and `armada join`
+  routes excepted). `armadad doctor` reports the same, and `armadad join`
   checks it before the node joins.
 - IPv6 is out of scope.
 
 ### Transport
 
 The cluster CIDR is routed between nodes over one interface per node,
-`armada-net`, in one of two modes chosen at `armada init --network`:
+`armada-net`, in one of two modes chosen at `armadad init --network`:
 
 - **`plain`, the default.** It uses kernel VXLAN (no encryption, 50 bytes
   of overhead).
@@ -101,7 +101,7 @@ The cluster CIDR is routed between nodes over one interface per node,
     that does not authenticate.
   - Where the kernel has no WireGuard, the agent runs the pure Go userspace
     implementation, embedded in the binary, with the usual root-only
-    control socket. The agent logs a warning and `armada doctor` reports
+    control socket. The agent logs a warning and `armadad doctor` reports
     it, because it is markedly slower. The device lives as long as the
     agent, so traffic between nodes stops while the agent restarts.
   - It is the mode for private networks the operator does not trust
@@ -123,7 +123,7 @@ in its assignment. The agent checks it again before it touches the host
 (names, private addresses outside the cluster CIDR, subnets inside it, no
 duplicates, the node itself listed at its own address), applies it on every
 reconcile pass, and removes routes and entries of nodes that left.
-`armada runtime reset` takes the interface and the firewall rules off a
+`armadad runtime reset` takes the interface and the firewall rules off a
 removed node.
 
 ### Keys
@@ -166,7 +166,7 @@ exists only where a pair of nodes uses it.
 - Nodes whose uplinks differ get different tunnel MTUs. Each side sends
   packets that fit its own path, and TCP's MSS takes the smaller of the two.
 - The agent refuses an uplink below 1280 bytes.
-- `armada doctor` sends unfragmented probes of the tunnel MTU to every peer
+- `armadad doctor` sends unfragmented probes of the tunnel MTU to every peer
   and reports a path that drops them (a later stage).
 
 ### Replica addresses and HAProxy
@@ -231,7 +231,7 @@ exists only where a pair of nodes uses it.
 
 - `ingress.protocol: tcp` serves an app at a stable virtual address.
   - The leader allocates one address per app from `--service-cidr`
-    (default `10.119.0.0/16`), set at `armada init` and stored on the app
+    (default `10.119.0.0/16`), set at `armadad init` and stored on the app
     record.
   - Every node holds the service addresses on a dummy interface. HAProxy
     serves each app in `mode tcp` on `<service address>:<port>`.
@@ -325,7 +325,7 @@ stands. It also reports the table's use, for `armada_node_conntrack_entries`
 and `armada_node_conntrack_max`. An agent that cannot write the limit logs one
 warning and keeps working.
 
-### `armada doctor`
+### `armadad doctor`
 
 Doctor checks that:
 
@@ -354,7 +354,7 @@ Later stages add:
 - **Encrypted by default.** Every cluster would pay the CPU cost above,
   including the many that run on a private network they already trust,
   where today's traffic is plaintext too. Encryption is one flag away, and
-  `armada init` and the quickstart say what `plain` means.
+  `armadad init` and the quickstart say what `plain` means.
 - **Routing node subnets through the private network without a tunnel.**
   Many providers' networks drop packets for addresses they did not assign,
   so it would work only on some networks, and it would need a route table
@@ -374,7 +374,7 @@ Later stages add:
 - By default, traffic between nodes stays plaintext on the private network,
   as today. T56 then narrows to reading that traffic and to forged VXLAN
   packets from the private network. The `wireguard` mode closes both.
-  `armada init --network` chooses the mode and prints it, and the
+  `armadad init --network` chooses the mode and prints it, and the
   operations guide explains when to choose `wireguard`.
 - Encryption costs CPU on every node that sends or receives traffic between
   nodes. The operations guide states the numbers above.

@@ -1,7 +1,7 @@
 #!/bin/sh
 # End-to-end test of an Armada cluster on real machines (see README.md).
 #
-#   ARMADA_BIN=bin/armada E2E_DOMAIN=apps.example.org \
+#   ARMADA_BIN=bin/armadad E2E_DOMAIN=apps.example.org \
 #   E2E_ACME_EMAIL=you@example.org sh test/e2e/cluster.sh hosts
 #
 # The hosts file lists fresh Linux machines, one per line:
@@ -21,7 +21,7 @@ ARMADA_BIN=${ARMADA_BIN:-}
 ARMADA_BIN_AMD64=${ARMADA_BIN_AMD64:-$ARMADA_BIN}
 ARMADA_BIN_ARM64=${ARMADA_BIN_ARM64:-$ARMADA_BIN}
 if [ -z "$ARMADA_BIN_AMD64$ARMADA_BIN_ARM64" ]; then
-	echo "e2e: set ARMADA_BIN (or ARMADA_BIN_AMD64/ARMADA_BIN_ARM64) to Linux armada binaries with the runtime embedded (make build-bundle)" >&2
+	echo "e2e: set ARMADA_BIN (or ARMADA_BIN_AMD64/ARMADA_BIN_ARM64) to Linux armadad binaries with the runtime embedded (make build-bundle; the armada client next to each is installed too)" >&2
 	exit 2
 fi
 : "${E2E_DOMAIN:?set E2E_DOMAIN to a root domain whose wildcard record points at every public IP}"
@@ -49,6 +49,10 @@ for tool in ssh scp curl jq openssl awk; do
 	}
 done
 UNITS=$(cd "$(dirname "$0")/../../deploy/systemd" && pwd)
+
+# client_of BIN names the armada client built next to armadad binary BIN
+# (bin/armadad-linux-amd64 -> bin/armada-linux-amd64).
+client_of() { printf '%s/%s' "$(dirname "$1")" "$(basename "$1" | sed 's/^armadad/armada/')"; }
 
 # host N COLUMN prints a column of the Nth machine (1 name, 2 SSH target,
 # 3 private IP, 4 public IP); index NAME prints the line number of NAME.
@@ -209,7 +213,7 @@ EOF
 join() {
 	if [ "$2" = server ]; then cli token create --server; else cli token create; fi >"$WORK/token"
 	_tok=$(sed -n 's/^Token (shown once): //p' "$WORK/token")
-	_cmd=$(sed -n 's/^  \(armada .*join .*\)$/\1/p' "$WORK/token")
+	_cmd=$(sed -n 's/^  \(armadad .*join .*\)$/\1/p' "$WORK/token")
 	rm -f "$WORK/token"
 	if [ -z "$_tok" ] || [ -z "$_cmd" ]; then fail "armada token create printed no token"; fi
 	printf '%s\n' "$_tok" | on "$1" 'umask 077; cat > /run/armada/e2e.token'
@@ -255,25 +259,28 @@ while [ "$i" -le "$N" ]; do
 	esac
 	[ -n "$_bin" ] || fail "no binary for the architecture of $(host "$i" 1)"
 	# A copy can stall on a poor link: retry a few times.
-	_try=1
-	# shellcheck disable=SC2086
-	until scp -q $E2E_SSH_OPTS -o BatchMode=yes -o ServerAliveInterval=10 -o ServerAliveCountMax=3 \
-		"$_bin" "$(host "$i" 2):/tmp/armada.e2e"; do
-		[ "$_try" -lt 3 ] || fail "copying $_bin to $(host "$i" 1)"
-		_try=$((_try + 1))
-		sleep 5
+	for _f in "$_bin:/tmp/armadad.e2e" "$(client_of "$_bin"):/tmp/armada.e2e"; do
+		_try=1
+		# shellcheck disable=SC2086
+		until scp -q $E2E_SSH_OPTS -o BatchMode=yes -o ServerAliveInterval=10 -o ServerAliveCountMax=3 \
+			"${_f%%:*}" "$(host "$i" 2):${_f#*:}"; do
+			[ "$_try" -lt 3 ] || fail "copying ${_f%%:*} to $(host "$i" 1)"
+			_try=$((_try + 1))
+			sleep 5
+		done
 	done
 	for unit in armada-server armada-agent armada-runtime; do
 		on "$i" "cat > /etc/systemd/system/$unit.service" <"$UNITS/$unit.service"
 	done
-	on "$i" 'install -m 0755 /tmp/armada.e2e /usr/local/bin/armada && rm /tmp/armada.e2e &&
+	on "$i" 'install -m 0755 /tmp/armadad.e2e /usr/local/bin/armadad && install -m 0755 /tmp/armada.e2e /usr/local/bin/armada &&
+		rm /tmp/armadad.e2e /tmp/armada.e2e &&
 		systemctl daemon-reload && install -d -m 0700 /etc/armada /run/armada/secrets'
-	if ! on "$i" "armada doctor --private-ip $(host "$i" 3)" >"$WORK/doctor" 2>&1 ||
+	if ! on "$i" "armadad doctor --private-ip $(host "$i" 3)" >"$WORK/doctor" 2>&1 ||
 		grep -q 'FAIL' "$WORK/doctor"; then
 		cat "$WORK/doctor" >&2
-		fail "armada doctor on $(host "$i" 1)"
+		fail "armadad doctor on $(host "$i" 1)"
 	fi
-	ok "$(host "$i" 1): $(on "$i" 'armada version' | head -1), doctor passes"
+	ok "$(host "$i" 1): $(on "$i" 'armadad version' | head -1), doctor passes"
 	i=$((i + 1))
 done
 
@@ -284,7 +291,7 @@ while [ "$i" -le "$SERVERS" ]; do
 	on "$i" "umask 077; echo $(q "ARMADA_SERVER_FLAGS=\"$FLAGS\"") > /etc/armada/server.env"
 	i=$((i + 1))
 done
-on 1 "armada init --node-name $(host 1 1) --private-ip $(host 1 3) >/dev/null && systemctl enable --now -q armada-server"
+on 1 "armadad init --node-name $(host 1 1) --private-ip $(host 1 3) >/dev/null && systemctl enable --now -q armada-server"
 wait_for 120 "control plane answers" voting 1
 
 i=2
@@ -304,7 +311,7 @@ if [ -n "$E2E_CONFORMANCE" ]; then
 	log "conformance suite on the embedded runtime of $(host "$N" 1)"
 	# shellcheck disable=SC2086
 	scp -q $E2E_SSH_OPTS -o BatchMode=yes "$E2E_CONFORMANCE" "$(host "$N" 2):/tmp/conformance.e2e"
-	if ! on "$N" "chmod 0755 /tmp/conformance.e2e && ARMADA_BIN=/usr/local/bin/armada ARMADA_HOST_IP=$(host "$N" 3) \
+	if ! on "$N" "chmod 0755 /tmp/conformance.e2e && ARMADA_BIN=/usr/local/bin/armadad ARMADA_HOST_IP=$(host "$N" 3) \
 		ARMADA_SUBNET=\$(sed -n 's/.*\"containerSubnet\": *\"\([^\"]*\)\".*/\1/p' /var/lib/armada/agent.json) \
 		/tmp/conformance.e2e -test.run Conformance -test.v; _rc=\$?; rm -f /tmp/conformance.e2e; exit \$_rc" >"$WORK/conformance" 2>&1; then
 		cat "$WORK/conformance" >&2
@@ -518,7 +525,7 @@ wait_for 180 "$APP serving after the rebalance" serving
 load_stop "node loss and rebalance"
 
 log "backup"
-cli backup -o /root/e2e-backup.tar.gz >/dev/null 2>&1
+on "$CLI" 'armadad backup -o /root/e2e-backup.tar.gz' >/dev/null 2>&1
 [ "$(on "$CLI" 'stat -c %a /root/e2e-backup.tar.gz')" = 600 ] || fail "backup file is not 0600"
 on "$CLI" 'rm -f /root/e2e-backup.tar.gz'
 ok "backup written with mode 0600"

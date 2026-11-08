@@ -57,7 +57,7 @@ func waitRollout(ctx context.Context, client armadav1.AdminServiceClient, app, r
 			if ctx.Err() != nil {
 				return fmt.Errorf("timed out after %s waiting for %s; the rollout continues on the server", timeout, revision)
 			}
-			return rpcErr(err)
+			return RPCError(err)
 		}
 		a := resp.Apps[0]
 		ready, desired := 0, int(a.DesiredReplicas)
@@ -142,7 +142,7 @@ func newRollbackCommand(g *globals) *cobra.Command {
 			defer conn.Close()
 			resp, err := client.Rollback(cmd.Context(), req)
 			if err != nil {
-				return rpcErr(err)
+				return RPCError(err)
 			}
 			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Rolling %s back to %s\n", args[0], resp.Revision); err != nil {
 				return err
@@ -173,7 +173,7 @@ func newRevisionsCommand(g *globals) *cobra.Command {
 			defer conn.Close()
 			resp, err := client.ListRevisions(cmd.Context(), &armadav1.ListRevisionsRequest{App: args[0]})
 			if err != nil {
-				return rpcErr(err)
+				return RPCError(err)
 			}
 			if len(resp.Revisions) == 0 {
 				return errors.New("no revisions")

@@ -17,8 +17,10 @@ control plane. It does not run in CI.
   HTTP-01 can issue the test app's certificate. The script always talks to
   every node directly, so the record may name just one of them.
 - `ssh`, `scp`, `curl`, `jq`, and `openssl` on your workstation.
-- A Linux binary with the runtime embedded for the machines' architecture:
-  `make build-bundle` (add `GOARCH=arm64` for arm64). A cluster may mix
+- Linux binaries for the machines' architecture: `make build-bundle` (add
+  `GOARCH=arm64` for arm64) builds `armadad` with the runtime embedded and
+  the `armada` client next to it. `ARMADA_BIN` names the `armadad` binary;
+  the script installs the client from the same directory. A cluster may mix
   amd64 and arm64 machines: build both and pass them as `ARMADA_BIN_AMD64`
   and `ARMADA_BIN_ARM64`.
 
@@ -36,7 +38,7 @@ e2e4    root@203.0.113.13  10.0.0.4    203.0.113.13
 
 ```bash
 make build-bundle
-ARMADA_BIN=bin/armada-linux-amd64 E2E_DOMAIN=e2e.example.org \
+ARMADA_BIN=bin/armadad-linux-amd64 E2E_DOMAIN=e2e.example.org \
 E2E_ACME_EMAIL=you@example.org sh test/e2e/cluster.sh hosts
 ```
 
@@ -51,16 +53,16 @@ E2E_ACME_EMAIL=you@example.org sh test/e2e/cluster.sh hosts
 | `E2E_SUDO` | empty | `sudo` when the SSH user is not root |
 | `E2E_REBOOT` | `1` | `0` skips rebooting every machine at once |
 | `E2E_BRIDGE_GW` | read from each node | Container bridge address (each node has its own container subnet) |
-| `E2E_SERVER_FLAGS` | empty | Extra `armada server` flags |
+| `E2E_SERVER_FLAGS` | empty | Extra `armadad server` flags |
 | `E2E_CONFORMANCE` | empty | Driver conformance test binary for the last machine's architecture, built with `GOOS=linux go test -c -tags integration -o bin/conformance ./internal/runtime/containerd/`; runs the suite on that node's embedded runtime once the cluster is ready |
 
 The script stops at the first failure and prints `armada server list` and
 `armada status`. A full run on four small machines takes about 10 minutes
-once the binary has been copied to them.
+once the binaries have been copied to them.
 
 ## What it checks
 
-1. `armada doctor` passes on every machine; the cluster forms with three
+1. `armadad doctor` passes on every machine; the cluster forms with three
    voting servers and every node ready. With `E2E_CONFORMANCE`, the driver
    conformance suite passes on the last node's embedded runtime, next to
    its running agent.
@@ -84,7 +86,7 @@ once the binary has been copied to them.
 7. A node that stops reporting is marked lost after 30 seconds (the script
    sets `--node-lost-timeout 30s`), its replicas move to other nodes, and
    once it returns the app is rebalanced onto it; traffic stays at 200.
-8. `armada backup` writes a `0600` archive.
+8. `armadad backup` writes a `0600` archive.
 9. Placement: every node reports `armada.arch`; restricting a labelled node
    moves the app off it under load with every request at 200; an app that
    requires the label runs only there; once the label is gone, `armada
