@@ -94,8 +94,12 @@ esac
 [ -z "$UNIT" ] || [ "$CLIENT_ONLY" != 1 ] || die "'$1' sets up a Linux machine; this install is the client only"
 
 if [ "$VERSION" = latest ]; then
-	VERSION=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" |
-		sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -n 1)
+	tag() { sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -n 1; }
+	VERSION=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null | tag || true)
+	# releases/latest leaves out pre-releases; while there is no stable
+	# release, take the newest published one.
+	[ -n "$VERSION" ] ||
+		VERSION=$(curl -fsSL "https://api.github.com/repos/$REPO/releases?per_page=1" | tag)
 	[ -n "$VERSION" ] || die "could not determine the latest release"
 fi
 # The version ends up in URLs and file names: accept only a release tag.
