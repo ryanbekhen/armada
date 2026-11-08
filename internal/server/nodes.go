@@ -21,6 +21,7 @@ import (
 	"github.com/ryanbekhen/armada/internal/pki"
 	"github.com/ryanbekhen/armada/internal/spec"
 	"github.com/ryanbekhen/armada/internal/store"
+	"github.com/ryanbekhen/armada/internal/version"
 )
 
 const (
@@ -273,6 +274,7 @@ func (s *Server) CreateJoinToken(ctx context.Context, req *armadav1.CreateJoinTo
 	s.log.Info("join token created", "token", tok.ID, "server", req.GetServer(), "expires", expires.UTC().Format(time.RFC3339), "by", actor(ctx))
 	return &armadav1.CreateJoinTokenResponse{
 		Token: tok.Reveal(), CaHash: pki.CAHash(s.ca.Cert), JoinAddr: s.joinAddr, ExpiresAt: timestamppb.New(expires),
+		Version: version.Get().Version,
 	}, nil
 }
 
