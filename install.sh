@@ -85,7 +85,23 @@ ARCHIVE="armada_${VERSION#v}_${OS}_${ARCH}.tar.gz"
 TMP=$(mktemp -d)
 trap 'rm -rf -- "$TMP"' EXIT INT TERM
 
-fetch() { curl -fsSL --proto '=https,file' --retry 3 -o "$TMP/$1" "$BASE/$1"; }
+# fetch NAME: the release download URL first; when that fails (it sometimes
+# answers 504 for hours), the same file through the GitHub API. Integrity
+# comes from the checksum and signature checks, not the path.
+fetch() {
+	curl -fsSL --proto '=https,file' --retry 3 -o "$TMP/$1" "$BASE/$1" && return 0
+	[ -z "${ARMADA_DOWNLOAD_BASE:-}" ] || return 1
+	warn "download of $1 failed; trying the GitHub API"
+	[ -f "$TMP/release.json" ] ||
+		curl -fsSL --proto '=https' --retry 3 -o "$TMP/release.json" \
+			"https://api.github.com/repos/$REPO/releases/tags/$VERSION" || return 1
+	# Each asset's "url" (…/releases/assets/ID) comes before its "name".
+	url=$(tr ',' '\n' <"$TMP/release.json" | tr '{' '\n' | awk -v f="$1" '
+		/"url": *"https:\/\/api\.github\.com\/repos\/[^"]*\/releases\/assets\/[0-9]+"/ { u = $0; sub(/^.*"url": *"/, "", u); sub(/".*$/, "", u) }
+		/"name": *"/ { n = $0; sub(/^.*"name": *"/, "", n); sub(/".*$/, "", n); if (n == f && u != "") { print u; exit } }')
+	[ -n "$url" ] || return 1
+	curl -fsSL --proto '=https' --retry 3 -H 'Accept: application/octet-stream' -o "$TMP/$1" "$url"
+}
 
 say "Downloading Armada $VERSION ($OS/$ARCH)..."
 fetch "$ARCHIVE" || die "download of $ARCHIVE failed"
