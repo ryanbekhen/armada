@@ -54,7 +54,7 @@ func newEventsCommand(g *globals) *cobra.Command {
 			defer conn.Close()
 			stream, err := client.Events(cmd.Context(), req)
 			if err != nil {
-				return rpcErr(err)
+				return RPCError(err)
 			}
 			out := cmd.OutOrStdout()
 			header := output == outputText
@@ -70,7 +70,7 @@ func newEventsCommand(g *globals) *cobra.Command {
 					if cmd.Context().Err() != nil {
 						return nil
 					}
-					return rpcErr(err)
+					return RPCError(err)
 				}
 				if g.project != "" && !g.listed(e.App) {
 					continue

@@ -76,7 +76,7 @@ func (a *Agent) usageLoop(ctx context.Context) {
 // the table's use to report (ADR 0025). It repeats because the kernel module
 // may load after the agent starts. A node that cannot raise it, such as an
 // agent not running as root, still works: the operator sees the limit in the
-// metrics and armada doctor.
+// metrics and armadad doctor.
 func (a *Agent) sampleConntrack(report *armadav1.UsageReport, warned *bool) {
 	if a.cfg.Conntrack == nil {
 		return

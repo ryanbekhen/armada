@@ -41,7 +41,7 @@ import (
 )
 
 // Data directory layout covered by a backup. These names match the layout
-// the CLI creates with `armada init`.
+// the CLI creates with `armadad init`.
 const (
 	FileState      = "etcd.snapshot"
 	FileMasterKey  = "master.key"

@@ -54,7 +54,7 @@ func newTopCommand(g *globals) *cobra.Command {
 			defer conn.Close()
 			resp, err := client.Top(cmd.Context(), req)
 			if err != nil {
-				return rpcErr(err)
+				return RPCError(err)
 			}
 			resp.Replicas = slices.DeleteFunc(resp.Replicas, func(r *armadav1.ReplicaTop) bool { return !g.listed(r.App) })
 			resp.Projects = slices.DeleteFunc(resp.Projects, func(p *armadav1.ProjectTop) bool { return g.project != "" && p.GetName() != g.project })

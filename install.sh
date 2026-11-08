@@ -1,6 +1,8 @@
 #!/bin/sh
-# Armada installer: downloads a release, verifies it, and installs the binary
-# and systemd units. It never runs anything it has not verified.
+# Armada installer: downloads a release, verifies it, and installs armadad
+# (the daemon), armada (the client), and the systemd units. On macOS, or with
+# ARMADA_CLIENT_ONLY=1, it installs the client only. It never runs anything it
+# has not verified.
 #
 #   curl -fsSLO https://raw.githubusercontent.com/ryanbekhen/armada/main/install.sh
 #   less install.sh        # read it first
@@ -8,6 +10,7 @@
 #
 # Environment:
 #   ARMADA_VERSION             release tag to install (default: latest)
+#   ARMADA_CLIENT_ONLY=1       install only the armada client (always on macOS)
 #   ARMADA_REQUIRE_SIGNATURE=1 fail unless the cosign signature is verified
 #   ARMADA_PREFIX              install prefix (default: /usr/local)
 #   ARMADA_SYSTEMD_DIR         unit directory (default: /etc/systemd/system;
@@ -20,6 +23,7 @@ VERSION="${ARMADA_VERSION:-latest}"
 PREFIX="${ARMADA_PREFIX:-/usr/local}"
 SYSTEMD_DIR="${ARMADA_SYSTEMD_DIR-/etc/systemd/system}"
 REQUIRE_SIG="${ARMADA_REQUIRE_SIGNATURE:-0}"
+CLIENT_ONLY="${ARMADA_CLIENT_ONLY:-0}"
 OIDC_ISSUER="https://token.actions.githubusercontent.com"
 
 say() { printf '%s\n' "$*"; }
@@ -35,8 +39,14 @@ need curl
 need tar
 need uname
 
-[ "$(uname -s)" = Linux ] || die "Armada runs on Linux only"
-OS=linux
+case "$(uname -s)" in
+Linux) OS=linux ;;
+Darwin)
+	OS=darwin
+	CLIENT_ONLY=1
+	;;
+*) die "Armada runs on Linux; the armada client also on macOS" ;;
+esac
 case "$(uname -m)" in
 x86_64 | amd64) ARCH=amd64 ;;
 aarch64 | arm64) ARCH=arm64 ;;
@@ -96,17 +106,31 @@ say "Checksum verified."
 
 mkdir -p "$TMP/x"
 tar -xzf "$TMP/$ARCHIVE" -C "$TMP/x"
-[ -f "$TMP/x/armada" ] || die "archive does not contain the armada binary"
+BINS=armada
+[ "$CLIENT_ONLY" = 1 ] || BINS="armadad armada"
+for bin in $BINS; do
+	[ -f "$TMP/x/$bin" ] || die "archive does not contain the $bin binary"
+done
 
 mkdir -p "$PREFIX/bin"
-install -m 0755 "$TMP/x/armada" "$PREFIX/bin/armada.new"
-mv -f "$PREFIX/bin/armada.new" "$PREFIX/bin/armada"
-say "Installed $PREFIX/bin/armada"
+for bin in $BINS; do
+	install -m 0755 "$TMP/x/$bin" "$PREFIX/bin/$bin.new"
+	mv -f "$PREFIX/bin/$bin.new" "$PREFIX/bin/$bin"
+	say "Installed $PREFIX/bin/$bin"
+done
+
+if [ "$CLIENT_ONLY" = 1 ]; then
+	say ""
+	say "Next: copy the client config (~/.armada/config) from a server's root user,"
+	say "then run 'armada status'. The control plane's private address must be reachable."
+	"$PREFIX/bin/armada" version
+	exit 0
+fi
 
 if [ -n "$SYSTEMD_DIR" ] && [ -d "$SYSTEMD_DIR" ]; then
 	for unit in armada-server.service armada-agent.service armada-runtime.service; do
 		[ -f "$TMP/x/deploy/systemd/$unit" ] || continue
-		sed "s#/usr/local/bin/armada#$PREFIX/bin/armada#" "$TMP/x/deploy/systemd/$unit" >"$TMP/$unit"
+		sed "s#/usr/local/bin/armadad#$PREFIX/bin/armadad#" "$TMP/x/deploy/systemd/$unit" >"$TMP/$unit"
 		install -m 0644 "$TMP/$unit" "$SYSTEMD_DIR/$unit"
 	done
 	if command -v systemctl >/dev/null 2>&1 && [ "$SYSTEMD_DIR" = /etc/systemd/system ]; then
@@ -115,22 +139,21 @@ if [ -n "$SYSTEMD_DIR" ] && [ -d "$SYSTEMD_DIR" ]; then
 	say "Installed systemd units in $SYSTEMD_DIR (not started)."
 fi
 
-
 # sudo's secure_path leaves out /usr/local/bin on some distributions (RHEL,
-# Oracle Linux, Rocky, Alma), where `sudo armada` then finds nothing.
+# Oracle Linux, Rocky, Alma), where `sudo armadad` then finds nothing.
 if [ "$(id -u)" = 0 ] && command -v sudo >/dev/null 2>&1; then
-	found=$(sudo -n sh -c 'command -v armada' 2>/dev/null || true)
-	if [ "$found" != "$PREFIX/bin/armada" ]; then
-		warn "sudo does not find $PREFIX/bin/armada (its secure_path leaves out $PREFIX/bin): run 'sudo $PREFIX/bin/armada', use a root shell, or reinstall with ARMADA_PREFIX=/usr."
+	found=$(sudo -n sh -c 'command -v armadad' 2>/dev/null || true)
+	if [ "$found" != "$PREFIX/bin/armadad" ]; then
+		warn "sudo does not find $PREFIX/bin/armadad (its secure_path leaves out $PREFIX/bin): run 'sudo $PREFIX/bin/armadad', use a root shell, or reinstall with ARMADA_PREFIX=/usr."
 	fi
 fi
 
 say ""
 say "Next, as root (sudo before each command):"
-say "  first node:   sudo armada init"
+say "  first node:   sudo armadad init"
 say "                sudo systemctl enable --now armada-server"
-say "  other nodes:  sudo armada join ...         (from 'armada token create')"
+say "  other nodes:  sudo armadad join ...         (from 'armada token create')"
 say "                sudo systemctl enable --now armada-agent"
-say "  more servers: sudo armada server join ...  (from 'armada token create --server')"
+say "  more servers: sudo armadad server join ...  (from 'armada token create --server')"
 say "                sudo systemctl enable --now armada-server"
-"$PREFIX/bin/armada" version
+"$PREFIX/bin/armadad" version

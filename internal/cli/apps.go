@@ -34,8 +34,8 @@ func dialAdmin(g *globals) (armadav1.AdminServiceClient, *grpc.ClientConn, error
 	return armadav1.NewAdminServiceClient(conn), conn.ClientConn, nil
 }
 
-// rpcErr strips the gRPC wrapping from server errors for display.
-func rpcErr(err error) error {
+// RPCError strips the gRPC wrapping from server errors for display.
+func RPCError(err error) error {
 	if s, ok := status.FromError(err); ok {
 		return errors.New(s.Message())
 	}
@@ -80,7 +80,7 @@ func newDeployCommand(g *globals) *cobra.Command {
 			defer conn.Close()
 			resp, err := client.Deploy(cmd.Context(), &armadav1.DeployRequest{Spec: data, Project: g.project})
 			if err != nil {
-				return rpcErr(err)
+				return RPCError(err)
 			}
 			if sp.IsJob() {
 				// Jobs have no rollout to wait for.
@@ -121,7 +121,7 @@ func newScaleCommand(g *globals) *cobra.Command {
 			}
 			defer conn.Close()
 			if _, err := client.Scale(cmd.Context(), &armadav1.ScaleRequest{App: args[0], Replicas: int32(n)}); err != nil { //nolint:gosec // bounded above
-				return rpcErr(err)
+				return RPCError(err)
 			}
 			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Scaled %s to %d replicas\n", args[0], n)
 			return err
@@ -164,7 +164,7 @@ func newTrafficCommand(g *globals) *cobra.Command {
 			defer conn.Close()
 			resp, err := client.SetTraffic(cmd.Context(), req)
 			if err != nil {
-				return rpcErr(err)
+				return RPCError(err)
 			}
 			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Traffic of %s: %s\n", app, trafficSummary(resp.Traffic))
 			return err
@@ -196,7 +196,7 @@ func newStatusCommand(g *globals) *cobra.Command {
 			defer conn.Close()
 			resp, err := client.Status(cmd.Context(), req)
 			if err != nil {
-				return rpcErr(err)
+				return RPCError(err)
 			}
 			resp.Apps = slices.DeleteFunc(resp.Apps, func(a *armadav1.AppStatus) bool { return !g.listed(a.Name) })
 			out := cmd.OutOrStdout()
@@ -372,7 +372,7 @@ func newLogsCommand(g *globals) *cobra.Command {
 				App: args[0], Follow: follow, Tail: int32(min(max(tail, 0), 10000)), Replica: replica, Run: run,
 			})
 			if err != nil {
-				return rpcErr(err)
+				return RPCError(err)
 			}
 			for {
 				e, err := stream.Recv()
@@ -383,7 +383,7 @@ func newLogsCommand(g *globals) *cobra.Command {
 					if cmd.Context().Err() != nil {
 						return nil
 					}
-					return rpcErr(err)
+					return RPCError(err)
 				}
 				w := cmd.OutOrStdout()
 				if e.Stream == armadav1.Stream_STREAM_STDERR {

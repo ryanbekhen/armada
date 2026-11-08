@@ -120,7 +120,7 @@ func (s *Etcd) SetDefaultIsolation(ctx context.Context, on bool, actor string) e
 			return err
 		}
 		if !ok {
-			return fmt.Errorf("network isolation needs the cluster network (armada init --cluster-cidr): %w", ErrPrecondition)
+			return fmt.Errorf("network isolation needs the cluster network (armadad init --cluster-cidr): %w", ErrPrecondition)
 		}
 		if r.IsolateDefault == on {
 			return nil

@@ -11,7 +11,8 @@
 
 Armada turns a handful of Linux machines into a container platform: apps, revisions,
 rolling updates, domains, and automatic TLS.
-One binary, one install command.
+One install command: `armadad` runs each machine, `armada` manages apps
+from anywhere, Linux or macOS.
 
 ```yaml
 name: web
@@ -104,9 +105,9 @@ armada deploy -f web.yaml    # → https://web.apps.example.com
   and memory, CPU, and PID limits.
 
 Armada needs Linux machines (cloud instances, VMs, or bare metal) with a
-private network between them, and nothing else: the binary embeds its own
-container runtime (containerd, runc, CNI plugins) and
-its state store (etcd).
+private network between them, and nothing else: `armadad` embeds its own
+container runtime (containerd, runc, CNI plugins) and its state store
+(etcd). The `armada` client needs no root and also runs on macOS.
 
 ## Documentation
 
@@ -127,7 +128,7 @@ its state store (etcd).
 | Oracle Cloud (arm64, Oracle Linux 9, SELinux enforcing), one server, Let's Encrypt staging | Tested end to end: install.sh with systemd, doctor, wildcard certificate over Cloudflare DNS-01, rolling update under load without errors, crash recovery, containerd restart, reboot recovery, SELinux-confined apps and HAProxy, HAProxy restarted after a crash |
 | depa.id (amd64, Ubuntu 24.04), three control plane servers and one node, Let's Encrypt staging | Tested end to end with [test/e2e](test/e2e/README.md): server and node joins, only HAProxy public, certificates on every node, secrets, rolling update, rollback, and agent restart under load without errors, leader stop and SIGKILL under load, node loss and rebalancing under load, backup, all machines rebooted at once |
 | Mixed architectures: three depa.id servers (amd64, Ubuntu 24.04) and an Oracle Cloud node (arm64, Oracle Linux 9, SELinux enforcing), Let's Encrypt staging | Tested end to end with [test/e2e](test/e2e/README.md): every scenario above except the reboot, plus placement under load and images built for one architecture running only on nodes of that architecture |
-| depa.id (amd64, Ubuntu 24.04, kernel 6.8), two machines on a private network, `--network wireguard` | Tested: the kernel WireGuard device on both nodes, handshakes in `armada doctor`, requests between replicas on different nodes, only encrypted traffic on the private network, the tunnel staying up while an agent is stopped, the same key after an agent restart, and recovery after a node reboot |
+| depa.id (amd64, Ubuntu 24.04, kernel 6.8), two machines on a private network, `--network wireguard` | Tested: the kernel WireGuard device on both nodes, handshakes in `armadad doctor`, requests between replicas on different nodes, only encrypted traffic on the private network, the tunnel staying up while an agent is stopped, the same key after an agent restart, and recovery after a node reboot |
 
 Reports from other providers are welcome.
 
@@ -136,7 +137,7 @@ Reports from other providers are welcome.
 Requires Go (see `go.mod`), `golangci-lint` v2, `govulncheck`, and `protoc` (only for `make proto`).
 
 ```bash
-make build    # ./bin/armada
+make build    # ./bin/armada (client) and ./bin/armadad (daemon)
 make test     # unit tests with the race detector
 make check    # vet + lint + test + govulncheck (what CI runs)
 ```

@@ -17,7 +17,7 @@ partition and never accept two different histories.
 
 ## Decision
 
-The state lives in **etcd, embedded in `armada server`** (`go.etcd.io/etcd`
+The state lives in **etcd, embedded in `armadad server`** (`go.etcd.io/etcd`
 v3.7), behind the `store.Store` interface.
 
 - etcd is a widely deployed Raft-replicated key-value store with a watch

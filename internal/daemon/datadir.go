@@ -1,4 +1,4 @@
-package cli
+package daemon
 
 import (
 	"encoding/json"
@@ -109,9 +109,9 @@ func readPrivate(dataDir string, names ...string) ([][]byte, error) {
 func nextStep(role, dataDir string) string {
 	if dataDir == defaultDataDir {
 		return fmt.Sprintf("Next: sudo systemctl enable --now armada-%s\n"+
-			"      (or `armada %s` in the foreground without systemd)\n", role, role)
+			"      (or `armadad %s` in the foreground without systemd)\n", role, role)
 	}
-	return fmt.Sprintf("Next: armada %s --data-dir %s\n", role, dataDir)
+	return fmt.Sprintf("Next: armadad %s --data-dir %s\n", role, dataDir)
 }
 
 // lockDataDir refuses a second agent on a data directory. Two agents with one
@@ -125,7 +125,7 @@ func lockDataDir(dir string) (unlock func(), err error) {
 	if err := unix.Flock(int(f.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
 		_ = f.Close()
 		if errors.Is(err, unix.EWOULDBLOCK) {
-			return nil, fmt.Errorf("another agent is using %s: `armada server` already runs this node's agent, so do not also start `armada agent` here", dir)
+			return nil, fmt.Errorf("another agent is using %s: `armadad server` already runs this node's agent, so do not also start `armadad agent` here", dir)
 		}
 		return nil, fmt.Errorf("lock data directory: %w", err)
 	}

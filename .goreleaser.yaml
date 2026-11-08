@@ -9,9 +9,10 @@ before:
     - make runtime-bundle
 
 builds:
-  - id: armada
-    main: ./cmd/armada
-    binary: armada
+  # The daemon: control plane, agent, and the embedded runtime (ADR 0027).
+  - id: armadad
+    main: ./cmd/armadad
+    binary: armadad
     env:
       - CGO_ENABLED=0
     goos: [linux]
@@ -25,9 +26,41 @@ builds:
       - -X github.com/ryanbekhen/armada/internal/version.commit={{ .FullCommit }}
       - -X github.com/ryanbekhen/armada/internal/version.date={{ .CommitDate }}
 
+  # The client, for the machines of the cluster and for workstations.
+  - id: armada-linux
+    main: ./cmd/armada
+    binary: armada
+    env:
+      - CGO_ENABLED=0
+    goos: [linux]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    ldflags:
+      - -s -w
+      - -X github.com/ryanbekhen/armada/internal/version.version={{ .Tag }}
+      - -X github.com/ryanbekhen/armada/internal/version.commit={{ .FullCommit }}
+      - -X github.com/ryanbekhen/armada/internal/version.date={{ .CommitDate }}
+
+  - id: armada-darwin
+    main: ./cmd/armada
+    binary: armada
+    env:
+      - CGO_ENABLED=0
+    goos: [darwin]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    ldflags:
+      - -s -w
+      - -X github.com/ryanbekhen/armada/internal/version.version={{ .Tag }}
+      - -X github.com/ryanbekhen/armada/internal/version.commit={{ .FullCommit }}
+      - -X github.com/ryanbekhen/armada/internal/version.date={{ .CommitDate }}
+
 archives:
+  # Linux: both binaries and the systemd units.
   - id: armada
-    ids: [armada]
+    ids: [armadad, armada-linux]
     formats: [tar.gz]
     name_template: "armada_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     files:
@@ -35,6 +68,15 @@ archives:
       - README.md
       - SECURITY.md
       - deploy/systemd/*
+  # macOS: the client only.
+  - id: armada-client
+    ids: [armada-darwin]
+    formats: [tar.gz]
+    name_template: "armada_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - README.md
+      - SECURITY.md
 
 checksum:
   name_template: checksums.txt

@@ -1,4 +1,4 @@
-package cli
+package daemon
 
 import (
 	"bytes"
@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ryanbekhen/armada/internal/cli"
 	"github.com/ryanbekhen/armada/internal/fsutil"
 	"github.com/ryanbekhen/armada/internal/runtime"
 	"github.com/ryanbekhen/armada/internal/runtime/fake"
@@ -23,7 +24,7 @@ func TestJoinEndToEnd(t *testing.T) {
 	// embedded agent, the second the joined node's.
 	var mu sync.Mutex
 	var drivers []*fake.Driver
-	orig, origWait, origCheck, origPoll, origTmpfs, origPollNode := newDriver, proxyStartWait, probeCheck, waitPoll, checkTmpfs, pollInterval
+	orig, origWait, origCheck, origTmpfs := newDriver, proxyStartWait, probeCheck, checkTmpfs
 	newDriver = func(string, *agentConfig) (runtime.Driver, error) {
 		mu.Lock()
 		defer mu.Unlock()
@@ -35,11 +36,10 @@ func TestJoinEndToEnd(t *testing.T) {
 	}
 	proxyStartWait = time.Millisecond
 	probeCheck = func(context.Context, string, string) error { return nil }
-	waitPoll = 50 * time.Millisecond
-	pollInterval = 50 * time.Millisecond
+	t.Cleanup(cli.SetPollIntervals(50*time.Millisecond, 50*time.Millisecond))
 	checkTmpfs = func(string) error { return nil }
 	t.Cleanup(func() {
-		newDriver, proxyStartWait, probeCheck, waitPoll, checkTmpfs, pollInterval = orig, origWait, origCheck, origPoll, origTmpfs, origPollNode
+		newDriver, proxyStartWait, probeCheck, checkTmpfs = orig, origWait, origCheck, origTmpfs
 	})
 	count := func(i int) int {
 		mu.Lock()
@@ -87,7 +87,7 @@ func TestJoinEndToEnd(t *testing.T) {
 		t.Fatalf("token create: %s", stderr)
 	}
 	tok := regexp.MustCompile(`Token \(shown once\): ([0-9a-f]{12}\.[0-9a-f]{64})`).FindStringSubmatch(out)
-	cmdLine := regexp.MustCompile(`armada join (\S+) --ca-hash (sha256:[0-9a-f]{64})`).FindStringSubmatch(out)
+	cmdLine := regexp.MustCompile(`armadad join (\S+) --ca-hash (sha256:[0-9a-f]{64})`).FindStringSubmatch(out)
 	if tok == nil || cmdLine == nil || cmdLine[1] != join || strings.Contains(cmdLine[0], tok[1]) {
 		t.Fatalf("token create output = %q", out)
 	}

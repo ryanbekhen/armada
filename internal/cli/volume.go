@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 
 	armadav1 "github.com/ryanbekhen/armada/api/armada/v1"
 )
@@ -24,7 +25,7 @@ func newVolumeCommand(g *globals) *cobra.Command {
 		Short:   "List, back up, restore, and remove persistent volumes",
 		Long: "Volumes keep an app's data on the node that runs its replica (ADR 0023). They are\n" +
 			"created with the app's first replica, stay on that node, and are kept until removed\n" +
-			"with `armada volume rm`. `armada backup` does not include their contents: back them\n" +
+			"with `armada volume rm`. `armadad backup` does not include their contents: back them\n" +
 			"up with `armada volume backup`.",
 	}
 	cmd.AddCommand(newVolumeListCommand(g), newVolumeRemoveCommand(g), newVolumeBackupCommand(g), newVolumeRestoreCommand(g))
@@ -56,7 +57,7 @@ func newVolumeListCommand(g *globals) *cobra.Command {
 			}
 			resp, err := client.ListVolumes(cmd.Context(), req)
 			if err != nil {
-				return rpcErr(err)
+				return RPCError(err)
 			}
 			resp.Volumes = slices.DeleteFunc(resp.Volumes, func(v *armadav1.Volume) bool { return !g.listed(v.App) })
 			out := cmd.OutOrStdout()
@@ -110,7 +111,7 @@ func newVolumeRemoveCommand(g *globals) *cobra.Command {
 			}
 			defer conn.Close()
 			if _, err := client.RemoveVolume(cmd.Context(), &armadav1.RemoveVolumeRequest{App: args[0], Name: args[1]}); err != nil {
-				return rpcErr(err)
+				return RPCError(err)
 			}
 			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Volume %s of %s removed.\n", args[1], args[0])
 			return err
@@ -144,7 +145,7 @@ own data.`,
 			case "":
 				return errors.New("pass -o FILE, or -o - to write to stdout")
 			case "-":
-				if isTerminal(cmd.OutOrStdout()) {
+				if IsTerminal(cmd.OutOrStdout()) {
 					return errors.New("refusing to write a binary archive to a terminal; redirect stdout")
 				}
 				w = cmd.OutOrStdout()
@@ -169,13 +170,13 @@ own data.`,
 			defer conn.Close()
 			stream, err := client.BackupVolume(cmd.Context(), &armadav1.BackupVolumeRequest{App: args[0], Name: args[1], Stop: stop})
 			if err != nil {
-				return fail(rpcErr(err))
+				return fail(RPCError(err))
 			}
 			var n int64
 			for {
 				m, err := stream.Recv()
 				if err != nil {
-					return fail(rpcErr(err))
+					return fail(RPCError(err))
 				}
 				k, err := w.Write(m.GetData())
 				n += int64(k)
@@ -233,12 +234,12 @@ for good; it is refused while that node is still connected.`,
 			defer conn.Close()
 			stream, err := client.RestoreVolume(cmd.Context())
 			if err != nil {
-				return rpcErr(err)
+				return RPCError(err)
 			}
 			start := &armadav1.RestoreVolumeStart{App: args[0], Name: args[1], Node: node}
 			if err := stream.Send(&armadav1.RestoreVolumeMessage{Msg: &armadav1.RestoreVolumeMessage_Start{Start: start}}); err != nil {
 				_, err = stream.CloseAndRecv()
-				return rpcErr(err)
+				return RPCError(err)
 			}
 			buf := make([]byte, volumeChunk)
 			for {
@@ -257,7 +258,7 @@ for good; it is refused while that node is still connected.`,
 			}
 			resp, err := stream.CloseAndRecv()
 			if err != nil {
-				return rpcErr(err)
+				return RPCError(err)
 			}
 			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Restored volume %s of %s on %s.\n", args[1], args[0], resp.Node)
 			return err
@@ -279,4 +280,10 @@ func diskBytes(b int64) string {
 		i++
 	}
 	return fmt.Sprintf("%.1f%ci", v, "KMGTP"[i])
+}
+
+// IsTerminal reports whether w is a terminal.
+func IsTerminal(w io.Writer) bool {
+	f, ok := w.(*os.File)
+	return ok && term.IsTerminal(int(f.Fd()))
 }

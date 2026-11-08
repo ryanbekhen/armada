@@ -1,4 +1,4 @@
-package cli
+package daemon
 
 import (
 	"context"
@@ -93,7 +93,7 @@ func serverIP(certPEM []byte) (netip.Addr, error) {
 // Closing the member stops it.
 func openState(ctx context.Context, dataDir string, log *slog.Logger) (*store.Etcd, *etcd.Member, error) {
 	if _, err := os.Stat(filepath.Join(dataDir, fileServerCert)); errors.Is(err, fs.ErrNotExist) {
-		return nil, nil, fmt.Errorf("%s is not initialized; run `armada init`", dataDir)
+		return nil, nil, fmt.Errorf("%s is not initialized; run `armadad init`", dataDir)
 	}
 	cfg, err := etcdConfig(dataDir, log)
 	if err != nil {

@@ -14,7 +14,8 @@ const (
 	outputJSON = "json"
 )
 
-func newVersionCommand() *cobra.Command {
+// NewVersionCommand prints build information; both binaries have it.
+func NewVersionCommand() *cobra.Command {
 	var output string
 
 	cmd := &cobra.Command{

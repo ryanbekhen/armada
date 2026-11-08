@@ -1,4 +1,4 @@
-package cli
+package daemon
 
 import (
 	"errors"
@@ -9,9 +9,9 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
-	"golang.org/x/term"
 
 	"github.com/ryanbekhen/armada/internal/backup"
+	"github.com/ryanbekhen/armada/internal/cli"
 	"github.com/ryanbekhen/armada/internal/fsutil"
 )
 
@@ -31,11 +31,6 @@ var hostHasIP = func(ip netip.Addr) bool {
 	return false
 }
 
-func isTerminal(w io.Writer) bool {
-	f, ok := w.(*os.File)
-	return ok && term.IsTerminal(int(f.Fd()))
-}
-
 func newBackupCommand() *cobra.Command {
 	var dataDir, output string
 	cmd := &cobra.Command{
@@ -49,7 +44,7 @@ server is running.
 The archive contains the CA key and the master key in plaintext. It is
 created with mode 0600; encrypt it before it leaves the machine, e.g.
 
-  armada backup -o - | age -r age1... > armada-$(date +%F).tar.gz.age`,
+  armadad backup -o - | age -r age1... > armada-$(date +%F).tar.gz.age`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			var w io.Writer
@@ -57,7 +52,7 @@ created with mode 0600; encrypt it before it leaves the machine, e.g.
 			case "":
 				return errors.New("pass -o FILE, or -o - to write to stdout")
 			case "-":
-				if isTerminal(cmd.OutOrStdout()) {
+				if cli.IsTerminal(cmd.OutOrStdout()) {
 					return errors.New("refusing to write a binary archive with private keys to a terminal; redirect stdout")
 				}
 				w = cmd.OutOrStdout()
@@ -106,7 +101,7 @@ func newRestoreCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "restore FILE",
 		Short: "Restore the control plane from a backup",
-		Long: `Restores a backup made with 'armada backup' into an empty data directory
+		Long: `Restores a backup made with 'armadad backup' into an empty data directory
 ("-" reads the archive from stdin). The archive is verified completely
 before anything is written to the data directory. Stop any other control
 plane of this cluster first: two servers must never run at the same time.`,
@@ -136,7 +131,7 @@ plane of this cluster first: two servers must never run at the same time.`,
 				_, _ = fmt.Fprintf(out, "WARNING: %s is not assigned to this host. Nodes and certificates use that\n"+
 					"address: give this host that private IP before starting the server.\n\n", ap.Addr())
 			}
-			_, _ = fmt.Fprintf(out, "Next: systemctl start armada-server (or armada server --data-dir %s).\n", dataDir)
+			_, _ = fmt.Fprintf(out, "Next: systemctl start armada-server (or armadad server --data-dir %s).\n", dataDir)
 			_, _ = fmt.Fprintln(out, "Changes made after the backup are gone: nodes that joined since must join again,")
 			_, _ = fmt.Fprintln(out, "and apps, secrets, or nodes changed since must be redeployed or removed again.")
 			return nil

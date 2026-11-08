@@ -16,7 +16,7 @@ any one without an operator.
 
 ### One leader, elected through etcd
 
-Every control plane node runs `armada server` and its etcd member. The
+Every control plane node runs `armadad server` and its etcd member. The
 nodes campaign in an etcd election (`concurrency.Election` under
 `/armada-leader/`, lease TTL 10 s). The leader serves the gRPC API and the
 join listener and runs everything that acts: the reconciler, domain
@@ -51,7 +51,7 @@ nothing.
 - `armada token create --server` creates a single-use **server token**
   (default 15 minutes, at most one hour). Node tokens and server tokens are
   not interchangeable.
-- `armada server join ADDR --ca-hash ...` on the new machine pins the CA
+- `armadad server join ADDR --ca-hash ...` on the new machine pins the CA
   like a node join and calls `JoinServer` on the join listener. The leader
   redeems the token, registers the server and its node, adds the new etcd
   member as a **learner**, and returns the CA certificate and key, the
@@ -59,7 +59,7 @@ nothing.
   its node certificate, the etcd initial cluster, and the API addresses.
   If adding the member fails, the registration is undone.
 - The new node writes these files and `etcd/initial-cluster`; the first
-  `armada server` start joins the etcd cluster with it and waits until the
+  `armadad server` start joins the etcd cluster with it and waits until the
   leader promotes the learner (once it has caught up), then removes the
   file. A learner does not count towards quorum, so a join that never
   completes cannot stop the cluster. A first start that fails half-way

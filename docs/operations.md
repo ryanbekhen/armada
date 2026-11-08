@@ -1,7 +1,7 @@
 # Operations: control plane, backup, restore, and upgrades
 
 Armada's control plane keeps the cluster's state in etcd, embedded in
-`armada server`. A cluster runs one control plane server or, for high
+`armadad server`. A cluster runs one control plane server or, for high
 availability, three (see below). With one server, its data directory
 (`/var/lib/armada` by default) is the cluster: lose it without a backup and
 you have to build a new cluster and redeploy everything. With three, any
@@ -36,7 +36,7 @@ On a machine with Armada installed (steps 1–2 of the
 
 ```bash
 armada token create --server           # anywhere with the admin config
-sudo armada server join 10.0.0.2:7444 --ca-hash sha256:...   # on the new machine; paste the token
+sudo armadad server join 10.0.0.2:7444 --ca-hash sha256:...   # on the new machine; paste the token
 sudo systemctl enable --now armada-server
 armada server list                     # waits for "voting"; updates ~/.armada/config
 ```
@@ -80,7 +80,7 @@ come back.
 | `runtime/`, `containerd/`, `containers/`, `logs/` | The embedded runtime: extracted binaries, images, per-container files, container output | Recreated: the binaries are extracted again, images pulled again, and the agent recreates its containers |
 | `volumes/` | App volumes held by this node (on every node, not only servers) | The apps' data, unless backed up with `armada volume backup` |
 
-`armada backup` includes all of these except the runtime directories and volumes (the state as an etcd snapshot; the
+`armadad backup` includes all of these except the runtime directories and volumes (the state as an etcd snapshot; the
 member's own certificate is issued again from the CA). With several
 servers, back up on any one of them: they hold the same state. It does not include
 `~/.armada/config` (your admin credentials): keep a copy of that file
@@ -90,7 +90,7 @@ the same.
 ## Backup
 
 ```bash
-sudo armada backup -o /root/armada-$(date +%F).tar.gz
+sudo armadad backup -o /root/armada-$(date +%F).tar.gz
 ```
 
 - Safe while the server is running: the state is copied as a consistent
@@ -107,7 +107,7 @@ sudo armada backup -o /root/armada-$(date +%F).tar.gz
   [age](https://age-encryption.org):
 
   ```bash
-  sudo armada backup -o - | age -r age1yourpublickey... > armada-$(date +%F).tar.gz.age
+  sudo armadad backup -o - | age -r age1yourpublickey... > armada-$(date +%F).tar.gz.age
   ```
 
   `-o -` refuses to write to a terminal.
@@ -122,7 +122,7 @@ Description=Back up the Armada control plane
 [Service]
 Type=oneshot
 UMask=0077
-ExecStart=/bin/sh -c 'armada backup -o - | age -r age1yourpublickey... > /var/backups/armada/armada-$(date +%%F-%%H%%M).tar.gz.age'
+ExecStart=/bin/sh -c 'armadad backup -o - | age -r age1yourpublickey... > /var/backups/armada/armada-$(date +%%F-%%H%%M).tar.gz.age'
 ```
 
 ```ini
@@ -153,12 +153,12 @@ is not supported in v0.1.
 1. Make sure every old control plane server is stopped for good. A
    restored server must never run next to servers of the old cluster.
 2. Install Armada (see the [quickstart](quickstart.md)) and run
-   `armada doctor`.
+   `armadad doctor`.
 3. Restore into an empty data directory:
 
    ```bash
-   age -d -i key.txt armada-2026-10-31.tar.gz.age | sudo armada restore -
-   # or: sudo armada restore /root/armada-2026-10-31.tar.gz
+   age -d -i key.txt armada-2026-10-31.tar.gz.age | sudo armadad restore -
+   # or: sudo armadad restore /root/armada-2026-10-31.tar.gz
    ```
 
    The archive is extracted into a temporary directory and checked before
@@ -194,6 +194,12 @@ Everything that changed after the backup is gone:
 Within v0.x, run the same Armada version on every node. Mixed versions are
 expected only while an upgrade is in progress. Upgrade the control plane
 servers first, one at a time, then the other nodes one at a time.
+
+Since v0.1.0-alpha.2 a machine runs `armadad` (the daemon) and `armada` is
+only the client (ADR 0027). Upgrading from v0.1.0-alpha.1 takes the same
+steps: `install.sh` installs both programs and points the systemd units at
+`armadad`; commands that run on a machine (`init`, `join`, `doctor`,
+`backup`, `restore`, `runtime reset`) are now `armadad` commands.
 
 1. **Back up** (see above) and read the release notes.
 2. **Control plane servers**, one at a time (wait for `armada server list`
@@ -257,14 +263,14 @@ newer layout, instead of misreading it. To go back:
 | Metrics scraper | 1 year | By hand: `armada metrics credentials` again |
 | Automation identity | 90 days | By hand: `armada automation renew` |
 
-`armada doctor` checks the certificates on its machine and the admin
+`armadad doctor` checks the certificates on its machine and the admin
 certificate in the client config: it warns 30 days before the admin
 certificate expires and when one Armada renews itself was not renewed,
 and fails on an expired one. If the admin certificate has expired, renew
 it on a server as root, with the CA in its data directory:
 
 ```bash
-sudo armada admin renew --data-dir /var/lib/armada
+sudo armadad admin renew --config /root/.armada/config
 ```
 
 ## Projects
@@ -295,7 +301,7 @@ certificate covers only one level).
 
 ### Network isolation
 
-On a cluster with the cluster network (`armada init --cluster-cidr`, ADR
+On a cluster with the cluster network (`armadad init --cluster-cidr`, ADR
 0025), every node keeps apps and projects apart (ADR 0026):
 
 - A container reaches another app only through its internal name
@@ -322,7 +328,7 @@ armada project set default --network-isolation=false
 armada project list                                   # the NETWORK column
 ```
 
-`armada doctor` checks that the firewall tables are in place (`isolation`;
+`armadad doctor` checks that the firewall tables are in place (`isolation`;
 the kernel needs nf_tables). Connections opened before a change keep going
 until they end. Clusters without the cluster network are not filtered.
 
@@ -433,8 +439,8 @@ needs a round trip between them.
 
 ## One agent per node
 
-`armada server` already runs the agent of its own machine, so do not also
-start `armada agent` there. A second agent on a node refuses to start and says
+`armadad server` already runs the agent of its own machine, so do not also
+start `armadad agent` there. A second agent on a node refuses to start and says
 why: two would take turns replacing each other's connection to the control
 plane and fail each other's replicas.
 ## Removing an app
@@ -455,13 +461,13 @@ and no volumes.
 ## Container network
 
 Every node's containers live on the node's own bridge subnet, a /24 of
-the cluster CIDR (`armada init --cluster-cidr`, default `10.120.0.0/16`,
+the cluster CIDR (`armadad init --cluster-cidr`, default `10.120.0.0/16`,
 [ADR 0025](adr/0025-cluster-network.md)). The leader gives a node its
-subnet when it joins, and `armada join` prints it. A node removed from the
+subnet when it joins, and `armadad join` prints it. A node removed from the
 cluster frees its subnet for the next one. The cluster CIDR is set once,
 holds from 16 (a /20) to 4096 (a /12) nodes, must be a private range, and
 must not contain the nodes' private IPs or overlap routes on them
-(`armada doctor` checks the node's subnet).
+(`armadad doctor` checks the node's subnet).
 
 A node takes at most 250 replicas, whatever CPU and memory it has left: a /24
 has no more addresses to give. With every node at that limit, new replicas wait and
@@ -471,7 +477,7 @@ Container addresses are unique in the cluster, and the bridge's gateway
 (where `<app>.internal` and the node's DNS answer) differs per node. Every
 Linux node routes the other nodes' subnets over its `armada-net` interface,
 so containers and nodes reach a container on any node at its own address,
-and a replica sees the caller's real address. `armada init --network`
+and a replica sees the caller's real address. `armadad init --network`
 chooses, once, how that traffic travels:
 
 | Mode | Tunnel | Port to allow between nodes | Overhead |
@@ -486,7 +492,7 @@ two vCPUs, about 2 Gbit/s between containers of two nodes against 14 Gbit/s
 in `plain`, and about half the throughput of a large upload. Requests that
 stay on their node (local-first routing) do not pay it. Where the kernel
 has no WireGuard, the agent runs it in userspace, which is markedly slower,
-and traffic between nodes pauses while that agent restarts; `armada doctor`
+and traffic between nodes pauses while that agent restarts; `armadad doctor`
 warns about it.
 
 Allow the mode's port between the nodes in the provider firewall; Armada
@@ -500,9 +506,9 @@ agent.
 The tunnel takes its overhead from each packet: the bridge and containers
 get the MTU of the interface that holds the private IP less 50 or 80 (at
 least 1280 is required). Containers created before the node joined the tunnel keep
-their old MTU until they are replaced. `armada doctor` shows the MTU,
+their old MTU until they are replaced. `armadad doctor` shows the MTU,
 whether `armada-net` is up and routes every other node, and in the
-`wireguard` mode whether every peer has a recent handshake. `armada runtime
+`wireguard` mode whether every peer has a recent handshake. `armadad runtime
 reset` on a removed node takes the interface and its firewall rules off.
 
 Replicas publish no port: the agent reports each at its own address and
@@ -853,7 +859,7 @@ The agent raises `net.netfilter.nf_conntrack_max` to 262144, or to one entry
 per 4 KiB of memory on machines under 1 GiB, and never lowers a higher limit.
 A full table then takes about 6% of the memory at most. Raise it further with
 `sysctl` on nodes that need more; check `dmesg` for `table full` and
-`armada doctor` (`conntrack`), which warns at 80%.
+`armadad doctor` (`conntrack`), which warns at 80%.
 
 ## Volumes
 
@@ -881,7 +887,7 @@ db   data    node2  /var/lib/postgresql/data  1.2GiB  14d
   be copied half-written. For databases, use their own dump tool through
   `armada exec` (for example `armada exec db -- pg_dump -U postgres app`),
   or `--stop`.
-- **Back up regularly, off the node.** `armada backup` holds where volumes
+- **Back up regularly, off the node.** `armadad backup` holds where volumes
   are, not their contents. Archives hold the app's data as it is: encrypt
   them like control plane backups. For example, from a machine with admin
   credentials:
@@ -937,7 +943,7 @@ Then, on that node:
 
 ```bash
 sudo systemctl disable --now armada-agent
-sudo armada runtime reset                  # removes Armada's containers
+sudo armadad runtime reset                  # removes Armada's containers
 sudo systemctl disable --now armada-runtime
 sudo ip link delete armada0
 ```

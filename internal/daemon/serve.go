@@ -1,4 +1,4 @@
-package cli
+package daemon
 
 import (
 	"context"
@@ -61,7 +61,7 @@ func newLogger(w io.Writer, format string, verbose bool) (*slog.Logger, error) {
 // leader fails. Tests shorten it.
 var leaderLease = 10 * time.Second
 
-func newServerCommand(g *globals) *cobra.Command {
+func newServerCommand() *cobra.Command {
 	var (
 		dataDir     string
 		withAgent   bool
@@ -80,9 +80,9 @@ func newServerCommand(g *globals) *cobra.Command {
 		Aliases: []string{"servers"},
 		Short:   "Run the control plane (and, by default, this node's agent)",
 		Long: "Run the control plane (and, by default, this node's agent).\n\n" +
-			"Every control plane node runs `armada server`. They elect a leader, which serves\n" +
+			"Every control plane node runs `armadad server`. They elect a leader, which serves\n" +
 			"the API and runs the reconcilers; the others stand by and take over within\n" +
-			"seconds if it fails. Add control plane nodes with `armada server join`.",
+			"seconds if it fails. Add control plane nodes with `armadad server join`.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			log, err := newLogger(cmd.ErrOrStderr(), logFormat, verbose)
@@ -235,7 +235,7 @@ func newServerCommand(g *globals) *cobra.Command {
 	f.StringVar(&metrics, "metrics-listen", "", "private ip:port for the Prometheus metrics endpoint, served by the leader to metrics and admin certificates (default: off)")
 	f.DurationVar(&lostTimeout, "node-lost-timeout", server.DefaultNodeLostTimeout, "how long a node may be unreachable before its replicas move to other nodes")
 	tls.register(cmd)
-	cmd.AddCommand(newServerJoinCommand(), newServerListCommand(g), newServerRemoveCommand(g))
+	cmd.AddCommand(newServerJoinCommand())
 	return cmd
 }
 
@@ -369,7 +369,7 @@ func runAgent(ctx context.Context, dataDir string, servers []string, proxyKind, 
 		return err
 	}
 	if len(servers) > 0 {
-		if _, err := checkServers(servers); err != nil {
+		if _, err := clientconfig.CheckServers(servers); err != nil {
 			return err
 		}
 		ac.Servers = servers
@@ -408,7 +408,7 @@ func runAgent(ctx context.Context, dataDir string, servers []string, proxyKind, 
 	}
 	defer conn.Close()
 	onServers := func(list []string) {
-		if _, err := checkServers(list); err != nil {
+		if _, err := clientconfig.CheckServers(list); err != nil {
 			log.Warn("ignoring invalid control plane list", "err", err)
 			return
 		}

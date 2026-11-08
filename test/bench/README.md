@@ -21,8 +21,9 @@ from your workstation over SSH and does not run in CI.
 - Outbound internet access from the machines (images and Alpine packages).
 - `ssh`, `scp`, `jq`, `awk`, and `go` on your workstation (`go` builds the
   `hey` load generator for machine A).
-- A Linux binary with the runtime embedded for each architecture:
-  `make build-bundle` (add `GOARCH=arm64` for arm64).
+- Linux binaries for each architecture: `make build-bundle` (add
+  `GOARCH=arm64` for arm64) builds `armadad` with the runtime embedded and
+  the `armada` client next to it; `ARMADA_BIN` names `armadad`.
 
 ## Running
 
@@ -36,14 +37,14 @@ bench2  root@203.0.113.11  10.0.0.2    203.0.113.11
 
 ```bash
 make build-bundle
-ARMADA_BIN=bin/armada-linux-amd64 BENCH_WIPE=yes sh test/bench/network.sh hosts
+ARMADA_BIN=bin/armadad-linux-amd64 BENCH_WIPE=yes sh test/bench/network.sh hosts
 ```
 
 Machines without a private network between them (or in different
 providers) can still run the tunnel over their public addresses:
 
 ```bash
-ARMADA_BIN_AMD64=bin/armada-linux-amd64 ARMADA_BIN_ARM64=bin/armada-linux-arm64 \
+ARMADA_BIN_AMD64=bin/armadad-linux-amd64 ARMADA_BIN_ARM64=bin/armadad-linux-arm64 \
 BENCH_MODES=wireguard BENCH_WG_UNDERLAY=public BENCH_WIPE=yes sh test/bench/network.sh hosts
 ```
 
@@ -66,9 +67,9 @@ BENCH_MODES=wireguard BENCH_WG_UNDERLAY=public BENCH_WIPE=yes sh test/bench/netw
 | `BENCH_SUDO` | empty | `sudo` when the SSH user is not root |
 | `BENCH_WIPE` | empty | `yes` lets the script remove existing Armada state |
 
-A run takes about 10 minutes per mode once the binary has been copied. When
+A run takes about 10 minutes per mode once the binaries have been copied. When
 it ends, for any reason, the script removes the cluster and the tunnel from
-both machines and leaves the binary installed.
+both machines and leaves the binaries installed.
 
 ## What it measures
 

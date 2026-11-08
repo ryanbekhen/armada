@@ -1,5 +1,6 @@
 MODULE   := github.com/ryanbekhen/armada
 BIN      := bin/armada
+DAEMON   := bin/armadad
 VERSION  ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT   ?= $(shell git rev-parse --verify -q HEAD 2>/dev/null || echo unknown)
 DATE     ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
@@ -17,6 +18,7 @@ all: check build
 
 build:
 	go build -trimpath -ldflags '$(LDFLAGS)' -o $(BIN) ./cmd/armada
+	go build -trimpath -ldflags '$(LDFLAGS)' -o $(DAEMON) ./cmd/armadad
 
 # Downloads the pinned containerd, runc, CNI plugins, and tini (ADR 0011),
 # checks their SHA-256, and packs them for embedding.
@@ -24,9 +26,11 @@ runtime-bundle:
 	go run ./internal/runtime/embedded/mkbundle -arch amd64
 	go run ./internal/runtime/embedded/mkbundle -arch arm64
 
-# A Linux binary with the runtime bundle embedded (as releases are built).
+# Linux binaries as releases are built: armadad with the runtime bundle
+# embedded, and the armada client.
 build-bundle: runtime-bundle
-	GOOS=linux GOARCH=$(or $(GOARCH),amd64) go build -trimpath -tags bundle -ldflags '$(LDFLAGS)' -o $(BIN)-linux-$(or $(GOARCH),amd64) ./cmd/armada
+	GOOS=linux GOARCH=$(or $(GOARCH),amd64) go build -trimpath -tags bundle -ldflags '$(LDFLAGS)' -o $(DAEMON)-linux-$(or $(GOARCH),amd64) ./cmd/armadad
+	GOOS=linux GOARCH=$(or $(GOARCH),amd64) go build -trimpath -ldflags '$(LDFLAGS)' -o $(BIN)-linux-$(or $(GOARCH),amd64) ./cmd/armada
 
 test:
 	CGO_ENABLED=1 go test -race ./...

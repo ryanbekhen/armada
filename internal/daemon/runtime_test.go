@@ -1,4 +1,4 @@
-package cli
+package daemon
 
 import (
 	"context"
@@ -91,7 +91,7 @@ func TestNextStep(t *testing.T) {
 	if got := nextStep("server", defaultDataDir); !strings.Contains(got, "systemctl enable --now armada-server") {
 		t.Errorf("default data dir: %q", got)
 	}
-	if got := nextStep("agent", "/srv/armada"); got != "Next: armada agent --data-dir /srv/armada\n" {
+	if got := nextStep("agent", "/srv/armada"); got != "Next: armadad agent --data-dir /srv/armada\n" {
 		t.Errorf("custom data dir: %q", got)
 	}
 }

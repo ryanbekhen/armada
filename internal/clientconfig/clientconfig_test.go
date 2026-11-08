@@ -57,7 +57,7 @@ func TestLoadErrors(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 
-	if _, err := Load(filepath.Join(dir, "missing")); err == nil || !strings.Contains(err.Error(), "armada init") {
+	if _, err := Load(filepath.Join(dir, "missing")); err == nil || !strings.Contains(err.Error(), "armadad init") {
 		t.Errorf("missing file err = %v", err)
 	}
 

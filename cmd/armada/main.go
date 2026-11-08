@@ -1,5 +1,5 @@
-// Command armada is the single binary for the control plane, the node agent,
-// and the CLI.
+// Command armada is the client: it manages apps on an Armada cluster through
+// the control plane's API.
 package main
 
 import (

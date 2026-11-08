@@ -1,4 +1,6 @@
-// Package cli wires the armada command tree.
+// Package cli wires the armada command tree: the client that talks to the
+// control plane. Commands that run on a machine as root are in package daemon
+// (the armadad binary).
 package cli
 
 import (
@@ -72,9 +74,10 @@ func (g *globals) listed(id string) bool {
 func NewRootCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   version.Name,
-		Short: "Self-hosted container platform for a handful of machines",
-		Long: version.Name + " turns a few machines into a container platform: apps, revisions,\n" +
-			"rolling updates, domains, and automatic TLS.",
+		Short: "Manage apps on an Armada cluster",
+		Long: version.Name + " manages apps on an Armada cluster: deploys, revisions, rolling\n" +
+			"updates, domains, secrets, and jobs. It talks to the control plane with the\n" +
+			"credentials in --config and needs no root. Machines run `armadad`.",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
@@ -86,10 +89,8 @@ func NewRootCommand() *cobra.Command {
 		"project of the apps and jobs a command names (ADR 0026; or ARMADA_PROJECT); without it, names are in the default project and listings show every project")
 
 	cmd.AddCommand(
-		newVersionCommand(),
-		newInitCommand(g),
+		NewVersionCommand(),
 		newServerCommand(g),
-		newAgentCommand(),
 		newDeployCommand(g),
 		newStatusCommand(g),
 		newScaleCommand(g),
@@ -111,25 +112,19 @@ func NewRootCommand() *cobra.Command {
 		newProjectCommand(g),
 		newAutomationCommand(g),
 		newTokenCommand(g),
-		newJoinCommand(),
 		newNodeCommand(g),
-		newDoctorCommand(g),
-		newBackupCommand(),
-		newRestoreCommand(),
-		newRuntimeCommand(),
-		newRuntimeLogCommand(),
 	)
 	return cmd
 }
 
 // Execute runs the command tree with args and returns the process exit code.
 func Execute(ctx context.Context, args []string, stdout, stderr io.Writer) int {
-	return execute(ctx, args, nil, stdout, stderr)
+	return Run(ctx, NewRootCommand(), args, nil, stdout, stderr)
 }
 
-// execute runs the command tree; a nil stdin means os.Stdin.
-func execute(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
-	cmd := NewRootCommand()
+// Run runs a command tree with args and returns the process exit code; a nil
+// stdin means os.Stdin. armadad runs its own tree through it.
+func Run(ctx context.Context, cmd *cobra.Command, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	cmd.SetArgs(args)
 	if stdin != nil {
 		cmd.SetIn(stdin)
