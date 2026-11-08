@@ -91,10 +91,6 @@ func TestNextStep(t *testing.T) {
 	if got := nextStep("server", defaultDataDir); !strings.Contains(got, "systemctl enable --now armada-server") {
 		t.Errorf("default data dir: %q", got)
 	}
-	t.Setenv("ARMADA_INSTALLER", "1")
-	if got := nextStep("server", defaultDataDir); got != "" {
-		t.Errorf("under install.sh: %q", got)
-	}
 	if got := nextStep("agent", "/srv/armada"); got != "Next: armadad agent --data-dir /srv/armada\n" {
 		t.Errorf("custom data dir: %q", got)
 	}

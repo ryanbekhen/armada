@@ -37,7 +37,7 @@ go test -tags integration -run Integration ./internal/proxy/haproxy/   # haproxy
 go test -c -tags integration ./internal/clusternet -o t && sudo ip netns add t && sudo ip netns exec t ./t -test.run IsolationUpdate   # in-place firewall updates equal a rebuild (needs nft)
 sudo ARMADA_BIN=/usr/local/bin/armadad go test -tags integration -run Conformance ./internal/runtime/containerd/   # conformance suite on the embedded runtime (on a node; ARMADA_SUBNET=<node subnet> on a cluster network)
 goreleaser check                                 # validate .goreleaser.yaml
-curl -fsSL .../install.sh | sudo sh -s - init|join ...|server join ...   # install, run armadad, start the unit (armada token create prints it)
+curl -fsSL .../install.sh | sudo sh                                       # install or upgrade only (armada token create prints it, pinned); setting up stays manual
 shellcheck install.sh scripts/*.sh test/e2e/*.sh test/bench/*.sh && sh test/install_test.sh # shell scripts + installer tests (Linux)
 sh scripts/check-commits.sh origin/main..HEAD    # commit subjects (Conventional Commits, checked in CI)
 sh scripts/sync-labels.sh                        # create/update repo labels from .github/labels.json (also done by CI)

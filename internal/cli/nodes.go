@@ -65,13 +65,12 @@ func newTokenCommand(g *globals) *cobra.Command {
 			out := cmd.OutOrStdout()
 			_, _ = fmt.Fprintf(out, "%s token created; it works once and expires %s.\n\n", kind, resp.ExpiresAt.AsTime().Local().Format(time.RFC3339))
 			_, _ = fmt.Fprintf(out, "Token (shown once): %s\n\n", resp.Token)
-			_, _ = fmt.Fprintf(out, "On the new %s (same private network), this installs Armada, joins,\n", what)
-			_, _ = fmt.Fprintf(out, "and starts it; paste the token when asked:\n\n")
-			_, _ = fmt.Fprintf(out, "  %s\n\n", installCommand(resp.GetVersion(), args))
+			_, _ = fmt.Fprintf(out, "On the new %s (same private network), install Armada if it is not yet:\n\n", what)
+			_, _ = fmt.Fprintf(out, "  %s\n\n", installCommand(resp.GetVersion()))
 			if forServer {
-				_, _ = fmt.Fprintf(out, "Copy /etc/armada/server.env from this server first, if it has one.\n")
+				_, _ = fmt.Fprintf(out, "Copy /etc/armada/server.env from this server, if it has one.\n")
 			}
-			_, _ = fmt.Fprintf(out, "Where Armada is already installed:\n\n")
+			_, _ = fmt.Fprintf(out, "Then join and start it; paste the token when asked:\n\n")
 			_, _ = fmt.Fprintf(out, "  sudo armadad %s\n", args)
 			_, err = fmt.Fprintf(out, "  sudo systemctl enable --now %s\n", unit)
 			return err
@@ -333,12 +332,12 @@ const InstallURL = "https://raw.githubusercontent.com/ryanbekhen/armada/main/ins
 // releaseTag matches the release tags install.sh accepts.
 var releaseTag = regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$`)
 
-// installCommand is the one line that installs Armada on a new machine and
-// runs `armadad ARGS` there, pinned to the server's release when it is one.
-func installCommand(serverVersion, args string) string {
+// installCommand is the one line that installs Armada on a new machine,
+// pinned to the server's release when it is one.
+func installCommand(serverVersion string) string {
 	env := ""
 	if releaseTag.MatchString(serverVersion) {
 		env = "ARMADA_VERSION=" + serverVersion + " "
 	}
-	return fmt.Sprintf("curl -fsSL %s | sudo %ssh -s - %s", InstallURL, env, args)
+	return fmt.Sprintf("curl -fsSL %s | sudo %ssh", InstallURL, env)
 }
