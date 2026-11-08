@@ -47,6 +47,10 @@ Both print the same `version`.
 Releases carry one archive per Linux platform with both binaries and the
 units, and a client-only archive per macOS platform. `install.sh` installs
 both on Linux and only the client on macOS or with `ARMADA_CLIENT_ONLY=1`.
+Given `init`, `join ...`, or `server join ...` after the script, it runs
+that `armadad` command and starts the unit it needs, so one piped command
+sets a machine up; `armada token create` prints that command, pinned to the
+server's release.
 
 `armadad init` writes the admin config for the user that runs it (root) and
 says how to copy it to another user, who then runs `armada` without root.

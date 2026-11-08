@@ -36,6 +36,29 @@ Never expose 7443, 7444, 2379, 2380, 4789, or 51820 to the internet. Armada bind
 IP only, but on providers that map the public IP onto the private interface
 (1:1 NAT), restrict them in the provider firewall as well.
 
+## The short way
+
+On the first machine, one command installs Armada, creates the cluster, and
+starts the control plane:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ryanbekhen/armada/main/install.sh \
+  | sudo ARMADA_SERVER_FLAGS="--acme-email you@example.com --acme-ca letsencrypt-staging" sh -s - init
+```
+
+The admin config is copied to the user who ran `sudo`, so `armada status`
+works right away without root. `armada token create` then prints the
+command for each new machine, which installs the same release, joins, and
+starts it; paste the token when asked:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ryanbekhen/armada/main/install.sh \
+  | sudo ARMADA_VERSION=v0.1.0 sh -s - join 10.0.0.2:7444 --ca-hash sha256:...
+```
+
+Continue with [DNS](#5-point-dns-at-your-nodes). The steps below do the
+same one at a time, and say what each part does.
+
 ## 1. Install
 
 On every machine:
@@ -45,6 +68,10 @@ curl -fsSLO https://raw.githubusercontent.com/ryanbekhen/armada/main/install.sh
 less install.sh     # read what you are about to run as root
 sudo sh install.sh
 ```
+
+Arguments after the script (`sudo sh install.sh init`, `join ...`, or
+`server join ...`) run that `armadad` command right after installing and
+start the unit it needs, as in "The short way".
 
 The installer downloads the release for your architecture, verifies its
 SHA-256 checksum, and, if [cosign](https://docs.sigstore.dev/cosign/system_config/installation/)
@@ -212,8 +239,10 @@ On the first machine:
 armada token create
 ```
 
-It prints a single-use token (valid for one hour) and the exact `armada
-join` command. On the new machine, after steps 1 and 2:
+It prints a single-use token (valid for one hour), the one-line install
+for a new machine (see "The short way"), and the `armadad join` command
+for a machine that already has Armada. On the new machine, after steps 1
+and 2:
 
 ```bash
 sudo armadad join 10.0.0.2:7444 --ca-hash sha256:...   # paste the token when asked

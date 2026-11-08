@@ -2451,8 +2451,11 @@ type CreateJoinTokenResponse struct {
 	// Pin of the cluster CA, "sha256:<hex>".
 	CaHash string `protobuf:"bytes,2,opt,name=ca_hash,json=caHash,proto3" json:"ca_hash,omitempty"`
 	// Address of the join listener.
-	JoinAddr      string                 `protobuf:"bytes,3,opt,name=join_addr,json=joinAddr,proto3" json:"join_addr,omitempty"`
-	ExpiresAt     *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
+	JoinAddr  string                 `protobuf:"bytes,3,opt,name=join_addr,json=joinAddr,proto3" json:"join_addr,omitempty"`
+	ExpiresAt *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
+	// Armada version of the server that created the token, so the new machine
+	// can install the same release.
+	Version       string `protobuf:"bytes,5,opt,name=version,proto3" json:"version,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2513,6 +2516,13 @@ func (x *CreateJoinTokenResponse) GetExpiresAt() *timestamppb.Timestamp {
 		return x.ExpiresAt
 	}
 	return nil
+}
+
+func (x *CreateJoinTokenResponse) GetVersion() string {
+	if x != nil {
+		return x.Version
+	}
+	return ""
 }
 
 type CordonNodeRequest struct {
@@ -9930,13 +9940,14 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\x06labels\x18\x03 \x03(\v2-.armada.v1.CreateJoinTokenRequest.LabelsEntryR\x06labels\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xa5\x01\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xbf\x01\n" +
 	"\x17CreateJoinTokenResponse\x12\x19\n" +
 	"\x05token\x18\x01 \x01(\tB\x03\x80\x01\x01R\x05token\x12\x17\n" +
 	"\aca_hash\x18\x02 \x01(\tR\x06caHash\x12\x1b\n" +
 	"\tjoin_addr\x18\x03 \x01(\tR\bjoinAddr\x129\n" +
 	"\n" +
-	"expires_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\"C\n" +
+	"expires_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\x12\x18\n" +
+	"\aversion\x18\x05 \x01(\tR\aversion\"C\n" +
 	"\x11CordonNodeRequest\x12\x12\n" +
 	"\x04node\x18\x01 \x01(\tR\x04node\x12\x1a\n" +
 	"\bcordoned\x18\x02 \x01(\bR\bcordoned\"\x14\n" +

@@ -41,6 +41,11 @@ sudo systemctl enable --now armada-server
 armada server list                     # waits for "voting"; updates ~/.armada/config
 ```
 
+On a machine without Armada, the one line `armada token create --server`
+prints does the install, the join, and the start; copy
+`/etc/armada/server.env` to the new machine first, or pass the same flags in
+`ARMADA_SERVER_FLAGS`.
+
 The new server receives the cluster CA key and the secrets master key over
 the CA-pinned connection, so the server token is as sensitive as those keys:
 it works once and lasts 15 minutes by default (at most an hour). Start the

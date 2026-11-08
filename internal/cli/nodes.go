@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 	"text/tabwriter"
@@ -56,16 +57,23 @@ func newTokenCommand(g *globals) *cobra.Command {
 			if err != nil {
 				return RPCError(err)
 			}
-			kind, join, what := "Join", "armadad join", "node (same private network)"
+			kind, sub, unit, what := "Join", "join", "armada-agent", "node"
 			if forServer {
-				kind, join, what = "Server", "armadad server join", "control plane node (same private network)"
+				kind, sub, unit, what = "Server", "server join", "armada-server", "control plane node"
 			}
+			args := fmt.Sprintf("%s %s --ca-hash %s", sub, resp.JoinAddr, resp.CaHash)
 			out := cmd.OutOrStdout()
 			_, _ = fmt.Fprintf(out, "%s token created; it works once and expires %s.\n\n", kind, resp.ExpiresAt.AsTime().Local().Format(time.RFC3339))
 			_, _ = fmt.Fprintf(out, "Token (shown once): %s\n\n", resp.Token)
-			_, _ = fmt.Fprintf(out, "Run this as root on the new %s\n", what)
-			_, _ = fmt.Fprintf(out, "and paste the token when asked:\n\n")
-			_, err = fmt.Fprintf(out, "  %s %s --ca-hash %s\n", join, resp.JoinAddr, resp.CaHash)
+			_, _ = fmt.Fprintf(out, "On the new %s (same private network), this installs Armada, joins,\n", what)
+			_, _ = fmt.Fprintf(out, "and starts it; paste the token when asked:\n\n")
+			_, _ = fmt.Fprintf(out, "  %s\n\n", installCommand(resp.GetVersion(), args))
+			if forServer {
+				_, _ = fmt.Fprintf(out, "Copy /etc/armada/server.env from this server first, if it has one.\n")
+			}
+			_, _ = fmt.Fprintf(out, "Where Armada is already installed:\n\n")
+			_, _ = fmt.Fprintf(out, "  sudo armadad %s\n", args)
+			_, err = fmt.Fprintf(out, "  sudo systemctl enable --now %s\n", unit)
 			return err
 		},
 	}
@@ -317,4 +325,20 @@ func formatLabels(labels map[string]string) string {
 		parts[i] = k + "=" + labels[k]
 	}
 	return strings.Join(parts, ",")
+}
+
+// InstallURL is where the installer is published.
+const InstallURL = "https://raw.githubusercontent.com/ryanbekhen/armada/main/install.sh"
+
+// releaseTag matches the release tags install.sh accepts.
+var releaseTag = regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$`)
+
+// installCommand is the one line that installs Armada on a new machine and
+// runs `armadad ARGS` there, pinned to the server's release when it is one.
+func installCommand(serverVersion, args string) string {
+	env := ""
+	if releaseTag.MatchString(serverVersion) {
+		env = "ARMADA_VERSION=" + serverVersion + " "
+	}
+	return fmt.Sprintf("curl -fsSL %s | sudo %ssh -s - %s", InstallURL, env, args)
 }

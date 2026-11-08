@@ -345,6 +345,9 @@ message CreateJoinTokenResponse {
   // Address of the join listener.
   string join_addr = 3;
   google.protobuf.Timestamp expires_at = 4;
+  // Armada version of the server that created the token, so the new machine
+  // can install the same release.
+  string version = 5;
 }
 
 message CordonNodeRequest {
