@@ -228,9 +228,9 @@ setup() {
 	# terminal for the token prompt, or nothing.
 	say ""
 	if (: </dev/tty) 2>/dev/null; then
-		HOME="$ROOT_HOME" "$PREFIX/bin/armadad" "$@" </dev/tty || die "armadad $1 failed; nothing was started"
+		HOME="$ROOT_HOME" ARMADA_INSTALLER=1 "$PREFIX/bin/armadad" "$@" </dev/tty || die "armadad $1 failed; nothing was started"
 	else
-		HOME="$ROOT_HOME" "$PREFIX/bin/armadad" "$@" </dev/null || die "armadad $1 failed (no terminal for the token prompt? pass --token-file)"
+		HOME="$ROOT_HOME" ARMADA_INSTALLER=1 "$PREFIX/bin/armadad" "$@" </dev/null || die "armadad $1 failed (no terminal for the token prompt? pass --token-file)"
 	fi
 
 	systemctl enable --now "$UNIT.service"
