@@ -68,7 +68,8 @@ func newAdminAddCommand(g *globals) *cobra.Command {
 				return err
 			}
 			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Wrote %s for admin:%s (valid until %s). Hand it over privately;\n"+
-				"it is full control of the cluster. Remove it with `armada admin rm %s --yes`.\n",
+				"it is full control of the cluster. They keep it as ~/.armada/config (mode 0600)\n"+
+				"and need the control plane's private address. Remove it with `armada admin rm %s --yes`.\n",
 				out, name, resp.GetExpiresAt().AsTime().Format(time.DateOnly), name)
 			return err
 		},

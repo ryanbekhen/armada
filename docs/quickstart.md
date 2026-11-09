@@ -69,8 +69,8 @@ installs two programs and the systemd units `armada-server.service`,
 - `armada`, the client: deploys and manages apps through the control plane
   and needs no root.
 
-On a workstation (Linux or macOS) the same script installs only the
-client.
+On macOS the same script installs only the client; on a Linux workstation,
+run it as `sudo ARMADA_CLIENT_ONLY=1 sh` (see [step 9](#9-give-others-access)).
 
 On RHEL-family distributions (RHEL, Oracle Linux, Rocky, Alma), `sudo`
 does not search `/usr/local/bin`; the installer warns about it. Install with
@@ -257,6 +257,35 @@ token hands over the cluster's keys: it works once and expires after 15
 minutes. Do not stop at two servers: with two, losing either one stops the
 control plane. See [operations](operations.md#control-plane-one-server-or-three).
 
+## 9. Give others access
+
+Give everyone who administers the cluster a certificate of their own, so
+the audit log names them and you can take one person's access back
+without touching anyone else's. Where `armada` works for you:
+
+```bash
+armada admin add alice -o alice.config
+```
+
+Hand `alice.config` over privately: it holds Alice's private key and is
+full control of the cluster. On her machine (Linux or macOS), which must
+reach a control plane server's private address on port 7443, she installs
+the client and keeps the file as `~/.armada/config`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ryanbekhen/armada/main/install.sh | sudo ARMADA_CLIENT_ONLY=1 sh
+install -d -m 0700 ~/.armada
+install -m 0600 alice.config ~/.armada/config
+armada status
+```
+
+`armada admin ls` lists the administrators, and `armada admin rm alice
+--yes` refuses every certificate of Alice at once. Certificates last a
+year; each person renews their own with `armada admin renew`. For tools
+such as a CI system, use [automation
+identities](operations.md#automation-identities) instead: they manage only
+the projects you give them. See [operations](operations.md#administrators).
+
 ## Day two
 
 | Task | Command |
@@ -277,6 +306,7 @@ control plane. See [operations](operations.md#control-plane-one-server-or-three)
 | Maintenance | `armada node cordon NODE` moves replicas away; `armada node uncordon NODE` (replicas spread back to it on their own) |
 | Choose nodes | `armada node label NODE region=sulawesi`, then `placement.require` in the spec; `armada node restrict NODE` keeps a node for apps that ask for it |
 | Remove a node | `armada node remove NODE` (revokes its certificate) |
+| Administrators | `armada admin add NAME -o FILE`, `armada admin ls`, `armada admin rm NAME --yes` (see [step 9](#9-give-others-access)) |
 | Control plane servers | `armada server list`, `armada server remove NAME` |
 | Back up / upgrade | `armadad backup -o -` (control plane; volumes: `armada volume backup`), then see [operations](operations.md) |
 
