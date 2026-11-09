@@ -51,9 +51,19 @@ It only installs: creating or joining the cluster stays an `armadad`
 command the operator runs and configures. `armada token create` prints the
 install line pinned to the server's release, then the `armadad` command.
 
-`armadad init` writes the admin config for the user that runs it (root) and
-says how to copy it to another user, who then runs `armada` without root.
-`armadad admin renew` keeps the owner of a config it rewrites.
+`armadad init` writes the admin config to `/etc/armada/admin.config`, owned
+by root with mode 0640 and group `armada`, which the installer creates
+(`/etc/armada` gets search permission only, so the file is reached by name
+and the directory cannot be listed). Members of the group run `armada`
+without root and without a copy of their own; membership is full control
+of the cluster, like the file itself. The client reads `$ARMADA_CONFIG`,
+else `~/.armada/config` when it exists, else `/etc/armada/admin.config`, and
+accepts a group-readable config only when root owns it with exactly that
+mode and group. Rewriting a config (`admin renew`, `server list`) keeps its
+owner, group, and mode; a member who cannot write the shared file is told to
+use sudo, and `server list` still prints. Without the group, `init` leaves
+the file 0600 and says how to share it. `--config` or `ARMADA_CONFIG` still
+writes a private config wherever the operator wants.
 
 ## Consequences
 

@@ -22,7 +22,8 @@ func newAdminRenewCommand(g *globals) *cobra.Command {
 		Use:   "renew",
 		Short: "Renew the administrator certificate in your client config",
 		Long: "Get a new one-year certificate for a new key, under the same name, and\n" +
-			"rewrite the client config (--config, default ~/.armada/config). Run it\n" +
+			"rewrite the client config (--config, default ~/.armada/config, else\n" +
+			"/etc/armada/admin.config, which needs sudo). Run it\n" +
 			"before the current certificate expires: an expired one cannot renew.\n" +
 			"`armadad doctor` warns 30 days ahead. The old certificate stays valid\n" +
 			"until it expires. For a certificate that has already expired, run\n" +

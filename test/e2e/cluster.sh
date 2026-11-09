@@ -323,7 +323,7 @@ fi
 if [ "$SERVERS" -gt 1 ]; then
 	# server list wrote every server address into the admin config; a copy
 	# on machine 2 keeps the CLI usable while machine 1 is down.
-	on 1 'cat ~root/.armada/config' | on 2 'umask 077; mkdir -p ~root/.armada && cat > ~root/.armada/config'
+	on 1 'cat /etc/armada/admin.config' | on 2 'umask 077; mkdir -p ~root/.armada && cat > ~root/.armada/config'
 fi
 
 log "only HAProxy faces the public network"

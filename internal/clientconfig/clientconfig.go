@@ -37,23 +37,33 @@ type Config struct {
 	Key     string   `json:"key"`
 }
 
-// DefaultPath returns $ARMADA_CONFIG or ~/.armada/config.
+// DefaultPath returns $ARMADA_CONFIG, else ~/.armada/config when it exists,
+// else SystemPath when it exists, else ~/.armada/config.
 func DefaultPath() string {
 	if p := os.Getenv(EnvPath); p != "" {
 		return p
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return filepath.Join(".armada", "config")
+	own := filepath.Join(".armada", "config")
+	if home, err := os.UserHomeDir(); err == nil {
+		own = filepath.Join(home, ".armada", "config")
 	}
-	return filepath.Join(home, ".armada", "config")
+	if _, err := os.Stat(own); err == nil {
+		return own
+	}
+	if _, err := os.Stat(systemPath); err == nil {
+		return systemPath
+	}
+	return own
 }
 
 // Load reads a config, refusing files readable by group or others.
 func Load(path string) (*Config, error) {
-	b, err := fsutil.ReadPrivateFile(path)
+	b, err := readConfig(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, fmt.Errorf("no client config at %s; run `armadad init` on the server or set %s", path, EnvPath)
+	}
+	if errors.Is(err, os.ErrPermission) && path == systemPath {
+		return nil, fmt.Errorf("%s: %w (add yourself to the %s group: sudo usermod -aG %s $USER, then log in again)", path, err, Group, Group)
 	}
 	if err != nil {
 		return nil, err
@@ -69,7 +79,11 @@ func Load(path string) (*Config, error) {
 }
 
 // Save writes the config with mode 0600, creating its directory with 0700.
+// An existing file is rewritten in place (see SaveFile).
 func (c *Config) Save(path string) error {
+	if _, err := os.Stat(path); err == nil {
+		return c.SaveFile(path)
+	}
 	if err := fsutil.MkdirPrivate(filepath.Dir(path)); err != nil {
 		return err
 	}
@@ -78,13 +92,23 @@ func (c *Config) Save(path string) error {
 
 // SaveFile writes the config with mode 0600 into an existing directory,
 // whatever its mode: a tool's config (ADR 0026) lives where the tool keeps
-// its files.
+// its files. A config root shared with Group stays shared.
 func (c *Config) SaveFile(path string) error {
 	b, err := json.MarshalIndent(c, "", "  ")
 	if err != nil {
 		return err
 	}
-	return fsutil.WriteFileAtomic(path, append(b, '\n'), 0o600)
+	old, statErr := os.Stat(path)
+	if err := fsutil.WriteFileAtomic(path, append(b, '\n'), 0o600); err != nil {
+		if errors.Is(err, os.ErrPermission) {
+			return fmt.Errorf("%w (a shared config is changed as root: run the command with sudo)", err)
+		}
+		return err
+	}
+	if statErr == nil {
+		return keepShared(path, old)
+	}
+	return nil
 }
 
 // Dial opens an mTLS connection to the control plane.

@@ -25,7 +25,8 @@ func newAdminRenewCommand(g *globals) *cobra.Command {
 		Short: "Renew an administrator certificate with the cluster CA on this server",
 		Long: "Get a new one-year certificate for a new key, under the same name, signed\n" +
 			"by the cluster CA in the data directory, and rewrite the client config\n" +
-			"(--config, default ~/.armada/config; another user's config stays theirs).\n" +
+			"(--config, default ~/.armada/config, else /etc/armada/admin.config; another\n" +
+			"user's config stays theirs, a shared one stays shared).\n" +
 			"For a certificate that has already expired; while it is valid,\n" +
 			"`armada admin renew` does the same through the control plane.",
 		Args: cobra.NoArgs,

@@ -102,6 +102,11 @@ func newInitCommand(g *globals) *cobra.Command {
 					return err
 				}
 			}
+			// The admin config goes where every administrator of this
+			// machine finds it, unless the operator names another file.
+			if !cmd.Flag("config").Changed && os.Getenv(clientconfig.EnvPath) == "" {
+				g.configPath = clientconfig.SystemPath
+			}
 			if _, err := os.Stat(g.configPath); err == nil {
 				return fmt.Errorf("client config %s already exists; move it away or pass --config", g.configPath)
 			}
@@ -194,7 +199,12 @@ func newInitCommand(g *globals) *cobra.Command {
 			}
 
 			cc := &clientconfig.Config{Servers: []string{listen}, CA: string(ca.CertPEM), Cert: string(adminCert), Key: string(adminKey)}
-			if err := cc.Save(g.configPath); err != nil {
+			shared := false
+			if g.configPath == clientconfig.SystemPath {
+				if shared, err = cc.SaveShared(g.configPath); err != nil {
+					return err
+				}
+			} else if err := cc.Save(g.configPath); err != nil {
 				return err
 			}
 
@@ -209,8 +219,19 @@ func newInitCommand(g *globals) *cobra.Command {
 			_, _ = fmt.Fprint(out, nextStep("server", dataDir))
 			_, _ = fmt.Fprintf(out, "Then add nodes with `armada token create`, and control plane nodes with\n")
 			_, _ = fmt.Fprintf(out, "`armada token create --server` (three servers tolerate the loss of one).\n")
-			_, _ = fmt.Fprintf(out, "The armada client needs no root: copy %s to ~/.armada/config\n", g.configPath)
-			_, _ = fmt.Fprintf(out, "(mode 0600) of your own user, here or on another machine.\n")
+			switch {
+			case shared:
+				_, _ = fmt.Fprintf(out, "The armada client needs no root: members of the %s group read %s.\n", clientconfig.Group, g.configPath)
+				_, _ = fmt.Fprintf(out, "Add an administrator with `sudo usermod -aG %s NAME` (they log in again);\n", clientconfig.Group)
+				_, _ = fmt.Fprintf(out, "membership is full control of the cluster. On another machine, copy the file\n")
+				_, _ = fmt.Fprintf(out, "to ~/.armada/config (mode 0600).\n")
+			case g.configPath == clientconfig.SystemPath:
+				_, _ = fmt.Fprintf(out, "No %s group here, so %s is root's only: create the group\n", clientconfig.Group, g.configPath)
+				_, _ = fmt.Fprintf(out, "(groupadd --system %s), then chgrp %s and chmod 0640 it to share it.\n", clientconfig.Group, clientconfig.Group)
+			default:
+				_, _ = fmt.Fprintf(out, "The armada client needs no root: copy %s to ~/.armada/config\n", g.configPath)
+				_, _ = fmt.Fprintf(out, "(mode 0600) of your own user, here or on another machine.\n")
+			}
 			_, _ = fmt.Fprintf(out, "Keep %s private: it contains the cluster CA key and the master key\n", dataDir)
 			_, _ = fmt.Fprintln(out, "that encrypts secrets. Back it up with `armadad backup`, or secrets are lost.")
 			return nil
