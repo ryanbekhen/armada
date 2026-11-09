@@ -67,7 +67,7 @@ const (
 	// migrations when records change incompatibly. Records under servers/
 	// and meta/ are read and written by every server, whatever its schema,
 	// so they only ever gain optional fields.
-	etcdSchema = 7
+	etcdSchema = 8
 
 	maxTxnRetries = 100
 	// auditKeep is how many audit events are retained.
@@ -2426,6 +2426,10 @@ var migrations = []migration{
 	// project's apps keep their keys); servers that would treat such a key
 	// as an app name, or deploy into a project that does not exist, can no
 	// longer lead.
+	func(*etx) error { return nil },
+	// 7 -> 8: administrators on record (ADR 0028) under admins/. Nothing to
+	// rewrite; servers that would accept a removed administrator's
+	// certificate can no longer lead.
 	func(*etx) error { return nil },
 }
 

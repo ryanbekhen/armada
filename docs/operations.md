@@ -348,6 +348,25 @@ per second (4 MiB at once) to its log, kept in 3 files of 10 MB; `armada
 logs` shows a line such as `[armada: dropped 52428800 bytes of output over
 the log rate limit ...]` where output was dropped.
 
+### Administrators
+
+Give each person who administers the cluster a certificate of their own
+(ADR 0028), so the audit log names them and their access can be taken back
+alone:
+
+```bash
+armada admin add alice -o alice.config     # hand it over privately; it holds her key
+armada admin ls                            # names on record, who added them, you
+armada admin rm alice --yes                # refuse every certificate of alice at once
+```
+
+Alice keeps the file as `~/.armada/config` (mode `0600`). Adding a name
+again after removing it gives it a new certificate; the old ones stay
+refused. Nobody can remove themselves. Administrators from before this
+existed (the one `armadad init` created on older clusters) keep working and
+appear in the list once they run `armada admin renew`. An administrator has
+full control of the cluster; use automation identities for tools.
+
 ### Automation identities
 
 A tool that manages projects on your behalf, such as a CI system or a

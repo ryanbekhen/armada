@@ -62,6 +62,9 @@ armada deploy -f web.yaml    # → https://web.apps.example.com
   only its own internal names (`ingress.allow` narrows an app to chosen
   callers), and its containers are kept away from the nodes, the private
   network, and the cloud's metadata service.
+- **Administrators.** Each person gets a certificate under their own name
+  (`armada admin add`), so the audit log names them, and `armada admin rm`
+  takes one person's access back at once.
 - **Secrets.** Encrypted at rest, versioned, delivered as env vars or as
   read-only files on tmpfs.
 - **Logs and exec.** `armada logs` streams a replica's output, rotated

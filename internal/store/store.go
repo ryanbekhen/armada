@@ -418,6 +418,19 @@ type Store interface {
 	// one of its valid certificates.
 	AutomationScope(ctx context.Context, name, serial string) (Automation, bool, error)
 
+	// AddAdmin records an administrator (ADR 0028) whose certificates
+	// issued before since are refused; ErrConflict while it is on record.
+	AddAdmin(ctx context.Context, name string, since time.Time, actor string) error
+	// KnowAdmin records name, accepting all its certificates, unless it is
+	// on record.
+	KnowAdmin(ctx context.Context, name string) error
+	// RemoveAdmin refuses every certificate of name.
+	RemoveAdmin(ctx context.Context, name, actor string) error
+	ListAdmins(ctx context.Context) ([]Admin, error)
+	// AdminAllowed reports whether an administrator certificate of name
+	// starting at notBefore is accepted; names not on record are.
+	AdminAllowed(ctx context.Context, name string, notBefore time.Time) (bool, error)
+
 	// Deploy records spec as a new revision and makes it the rollout target
 	// unless it is identical to the current target. A spec identical to the
 	// active revision cancels a rollout in progress. The first revision of a
