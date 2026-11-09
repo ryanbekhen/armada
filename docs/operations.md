@@ -277,6 +277,32 @@ sudo armadad admin renew                     # /etc/armada/admin.config, stays s
 sudo armadad admin renew --config /home/NAME/.armada/config   # a copy; stays NAME's
 ```
 
+## Administrators
+
+An administrator has full control of the cluster. `armadad init` creates
+the first one; give every other person a certificate of their own (ADR
+0028), so the audit log names them and their access can be taken back
+alone. Never share one file between people, and use [automation
+identities](#automation-identities) for tools.
+
+```bash
+armada admin add alice -o alice.config     # hand it over privately; it holds her key
+armada admin ls                            # names on record, who added them, you
+armada admin rm alice --yes                # refuse every certificate of alice at once
+```
+
+Alice installs the client, keeps the file as `~/.armada/config` (mode
+`0600`), and runs `armada status` from a machine that reaches a control
+plane server's private address on port 7443 (see the
+[quickstart](quickstart.md#9-give-others-access)). Adding a name again
+after removing it gives it a new certificate; the old ones stay refused.
+Nobody can add or remove themselves, so at least one administrator is
+always left. Each certificate lasts a year: its holder renews it with
+`armada admin renew` (see [certificates](#certificates)). Administrators
+from before this existed (the one `armadad init` created on older
+clusters) keep working and appear in the list once they run `armada admin
+renew`.
+
 ## Projects
 
 A project holds apps, jobs, secrets, domains, and volumes, and names only
@@ -348,25 +374,6 @@ Container output is limited on every node: each container may write 1 MiB
 per second (4 MiB at once) to its log, kept in 3 files of 10 MB; `armada
 logs` shows a line such as `[armada: dropped 52428800 bytes of output over
 the log rate limit ...]` where output was dropped.
-
-### Administrators
-
-Give each person who administers the cluster a certificate of their own
-(ADR 0028), so the audit log names them and their access can be taken back
-alone:
-
-```bash
-armada admin add alice -o alice.config     # hand it over privately; it holds her key
-armada admin ls                            # names on record, who added them, you
-armada admin rm alice --yes                # refuse every certificate of alice at once
-```
-
-Alice keeps the file as `~/.armada/config` (mode `0600`). Adding a name
-again after removing it gives it a new certificate; the old ones stay
-refused. Nobody can remove themselves. Administrators from before this
-existed (the one `armadad init` created on older clusters) keep working and
-appear in the list once they run `armada admin renew`. An administrator has
-full control of the cluster; use automation identities for tools.
 
 ### Automation identities
 
