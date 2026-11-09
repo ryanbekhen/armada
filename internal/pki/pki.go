@@ -70,6 +70,9 @@ type Identity struct {
 
 func (i Identity) String() string { return i.Kind + ":" + i.Name }
 
+// ValidName reports whether name may be an identity's name.
+func ValidName(name string) bool { return identityNameRe.MatchString(name) }
+
 // ParseIdentity parses a "<kind>:<name>" common name.
 func ParseIdentity(cn string) (Identity, error) {
 	kind, name, ok := strings.Cut(cn, ":")

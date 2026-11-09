@@ -70,6 +70,14 @@ service AdminService {
   // RenewAdminCertificate gives the calling administrator a new certificate
   // for the key in its CSR, under the same name.
   rpc RenewAdminCertificate(RenewAdminCertificateRequest) returns (IssueMetricsCertificateResponse);
+  // AddAdmin gives a person an administrator certificate of their own
+  // (ADR 0028), for the key in the CSR; certificates of that name issued
+  // earlier stop working.
+  rpc AddAdmin(AddAdminRequest) returns (IssueMetricsCertificateResponse);
+  // ListAdmins lists the administrators the cluster knows by name.
+  rpc ListAdmins(ListAdminsRequest) returns (ListAdminsResponse);
+  // RemoveAdmin revokes every certificate of an administrator.
+  rpc RemoveAdmin(RemoveAdminRequest) returns (RemoveAdminResponse);
   // Events streams what the cluster did (ADR 0018), oldest first; with
   // follow, then new events until the caller cancels.
   rpc Events(EventsRequest) returns (stream EventInfo);
@@ -206,6 +214,35 @@ message RenewAdminCertificateRequest {
   // is used.
   bytes csr = 1;
 }
+
+message AddAdminRequest {
+  string name = 1;
+  // PKCS#10 request; only its public key is used.
+  bytes csr = 2;
+}
+
+message ListAdminsRequest {}
+
+message AdminInfo {
+  string name = 1;
+  string added_by = 2;
+  google.protobuf.Timestamp added_at = 3;
+  // removed administrators keep a record so their certificates stay
+  // refused.
+  bool removed = 4;
+}
+
+message ListAdminsResponse {
+  repeated AdminInfo admins = 1;
+  // you is the caller's own name.
+  string you = 2;
+}
+
+message RemoveAdminRequest {
+  string name = 1;
+}
+
+message RemoveAdminResponse {}
 
 message CreateProjectRequest {
   string name = 1;

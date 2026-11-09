@@ -38,7 +38,7 @@ func (s *Server) serveMetrics(ctx context.Context) error {
 	mux := http.NewServeMux()
 	mux.Handle("GET /metrics", promhttp.HandlerFor(reg, promhttp.HandlerOpts{ErrorHandling: promhttp.ContinueOnError}))
 	hs := &http.Server{
-		Handler:           metricsAuth(mux),
+		Handler:           s.metricsAuth(mux),
 		TLSConfig:         s.tlsCfg.Clone(),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
@@ -63,11 +63,12 @@ func (s *Server) serveMetrics(ctx context.Context) error {
 	return nil
 }
 
-// metricsAuth lets only metrics and admin certificates through; the TLS
+// metricsAuth lets only metrics and admin certificates through, and admin
+// ones only while the administrator is not removed (ADR 0028); the TLS
 // config has already verified the chain against the cluster CA.
-func metricsAuth(next http.Handler) http.Handler {
+func (s *Server) metricsAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !metricsAllowed(r.TLS) {
+		if !s.metricsAllowed(r.Context(), r.TLS) {
 			http.Error(w, "a metrics or admin client certificate is required", http.StatusForbidden)
 			return
 		}
@@ -75,12 +76,22 @@ func metricsAuth(next http.Handler) http.Handler {
 	})
 }
 
-func metricsAllowed(cs *tls.ConnectionState) bool {
+func (s *Server) metricsAllowed(ctx context.Context, cs *tls.ConnectionState) bool {
 	if cs == nil || len(cs.VerifiedChains) == 0 || len(cs.VerifiedChains[0]) == 0 {
 		return false
 	}
-	id, err := pki.IdentityFromCert(cs.VerifiedChains[0][0])
-	return err == nil && (id.Kind == pki.KindMetrics || id.Kind == pki.KindAdmin)
+	cert := cs.VerifiedChains[0][0]
+	id, err := pki.IdentityFromCert(cert)
+	switch {
+	case err != nil:
+		return false
+	case id.Kind == pki.KindMetrics:
+		return true
+	case id.Kind == pki.KindAdmin:
+		ok, err := s.store.AdminAllowed(ctx, id.Name, cert.NotBefore)
+		return err == nil && ok
+	}
+	return false
 }
 
 // clusterCollector reads the cluster's state on every scrape, from the same
@@ -348,6 +359,10 @@ func (s *Server) RenewAdminCertificate(ctx context.Context, req *armadav1.RenewA
 		return nil, status.Errorf(codes.InvalidArgument, "sign certificate: %v", err)
 	}
 	if err := s.store.RecordAudit(ctx, actor(ctx), "admin.certificate", acc.id.Name, "serial="+cert.Serial); err != nil {
+		return nil, storeErr(err)
+	}
+	// Administrators from before records show up in `armada admin ls`.
+	if err := s.store.KnowAdmin(ctx, acc.id.Name); err != nil {
 		return nil, storeErr(err)
 	}
 	s.log.Info("renewed admin certificate", "name", acc.id.Name, "serial", cert.Serial)
