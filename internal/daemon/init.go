@@ -194,6 +194,11 @@ func newInitCommand(g *globals) *cobra.Command {
 			if err := saveAgentConfig(dataDir, ac); err != nil {
 				return err
 			}
+			// The first administrator is on record (ADR 0028), with every
+			// certificate of its name accepted.
+			if err := st.KnowAdmin(ctx, adminName); err != nil {
+				return err
+			}
 			if err := st.RecordNodeCert(ctx, nodeName, store.NodeCert{Serial: nodeCert.Serial, NotAfter: nodeCert.NotAfter}, ""); err != nil {
 				return err
 			}

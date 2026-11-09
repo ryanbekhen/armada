@@ -31,3 +31,4 @@ Every architectural decision that is hard to reverse is recorded here. Copy `000
 | [0025](0025-cluster-network.md) | Cluster network | Accepted |
 | [0026](0026-projects-and-network-isolation.md) | Projects and network isolation | Accepted |
 | [0027](0027-client-and-daemon-binaries.md) | Client and daemon binaries | Accepted |
+| [0028](0028-administrators.md) | Administrators | Accepted |

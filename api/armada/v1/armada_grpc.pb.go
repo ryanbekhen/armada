@@ -57,6 +57,9 @@ const (
 	AdminService_Top_FullMethodName                        = "/armada.v1.AdminService/Top"
 	AdminService_IssueMetricsCertificate_FullMethodName    = "/armada.v1.AdminService/IssueMetricsCertificate"
 	AdminService_RenewAdminCertificate_FullMethodName      = "/armada.v1.AdminService/RenewAdminCertificate"
+	AdminService_AddAdmin_FullMethodName                   = "/armada.v1.AdminService/AddAdmin"
+	AdminService_ListAdmins_FullMethodName                 = "/armada.v1.AdminService/ListAdmins"
+	AdminService_RemoveAdmin_FullMethodName                = "/armada.v1.AdminService/RemoveAdmin"
 	AdminService_Events_FullMethodName                     = "/armada.v1.AdminService/Events"
 	AdminService_RunJob_FullMethodName                     = "/armada.v1.AdminService/RunJob"
 	AdminService_ListJobs_FullMethodName                   = "/armada.v1.AdminService/ListJobs"
@@ -134,6 +137,14 @@ type AdminServiceClient interface {
 	// RenewAdminCertificate gives the calling administrator a new certificate
 	// for the key in its CSR, under the same name.
 	RenewAdminCertificate(ctx context.Context, in *RenewAdminCertificateRequest, opts ...grpc.CallOption) (*IssueMetricsCertificateResponse, error)
+	// AddAdmin gives a person an administrator certificate of their own
+	// (ADR 0028), for the key in the CSR; certificates of that name issued
+	// earlier stop working.
+	AddAdmin(ctx context.Context, in *AddAdminRequest, opts ...grpc.CallOption) (*IssueMetricsCertificateResponse, error)
+	// ListAdmins lists the administrators the cluster knows by name.
+	ListAdmins(ctx context.Context, in *ListAdminsRequest, opts ...grpc.CallOption) (*ListAdminsResponse, error)
+	// RemoveAdmin revokes every certificate of an administrator.
+	RemoveAdmin(ctx context.Context, in *RemoveAdminRequest, opts ...grpc.CallOption) (*RemoveAdminResponse, error)
 	// Events streams what the cluster did (ADR 0018), oldest first; with
 	// follow, then new events until the caller cancels.
 	Events(ctx context.Context, in *EventsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[EventInfo], error)
@@ -561,6 +572,36 @@ func (c *adminServiceClient) RenewAdminCertificate(ctx context.Context, in *Rene
 	return out, nil
 }
 
+func (c *adminServiceClient) AddAdmin(ctx context.Context, in *AddAdminRequest, opts ...grpc.CallOption) (*IssueMetricsCertificateResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(IssueMetricsCertificateResponse)
+	err := c.cc.Invoke(ctx, AdminService_AddAdmin_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) ListAdmins(ctx context.Context, in *ListAdminsRequest, opts ...grpc.CallOption) (*ListAdminsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListAdminsResponse)
+	err := c.cc.Invoke(ctx, AdminService_ListAdmins_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) RemoveAdmin(ctx context.Context, in *RemoveAdminRequest, opts ...grpc.CallOption) (*RemoveAdminResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RemoveAdminResponse)
+	err := c.cc.Invoke(ctx, AdminService_RemoveAdmin_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *adminServiceClient) Events(ctx context.Context, in *EventsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[EventInfo], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	stream, err := c.cc.NewStream(ctx, &AdminService_ServiceDesc.Streams[4], AdminService_Events_FullMethodName, cOpts...)
@@ -708,6 +749,14 @@ type AdminServiceServer interface {
 	// RenewAdminCertificate gives the calling administrator a new certificate
 	// for the key in its CSR, under the same name.
 	RenewAdminCertificate(context.Context, *RenewAdminCertificateRequest) (*IssueMetricsCertificateResponse, error)
+	// AddAdmin gives a person an administrator certificate of their own
+	// (ADR 0028), for the key in the CSR; certificates of that name issued
+	// earlier stop working.
+	AddAdmin(context.Context, *AddAdminRequest) (*IssueMetricsCertificateResponse, error)
+	// ListAdmins lists the administrators the cluster knows by name.
+	ListAdmins(context.Context, *ListAdminsRequest) (*ListAdminsResponse, error)
+	// RemoveAdmin revokes every certificate of an administrator.
+	RemoveAdmin(context.Context, *RemoveAdminRequest) (*RemoveAdminResponse, error)
 	// Events streams what the cluster did (ADR 0018), oldest first; with
 	// follow, then new events until the caller cancels.
 	Events(*EventsRequest, grpc.ServerStreamingServer[EventInfo]) error
@@ -844,6 +893,15 @@ func (UnimplementedAdminServiceServer) IssueMetricsCertificate(context.Context, 
 }
 func (UnimplementedAdminServiceServer) RenewAdminCertificate(context.Context, *RenewAdminCertificateRequest) (*IssueMetricsCertificateResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method RenewAdminCertificate not implemented")
+}
+func (UnimplementedAdminServiceServer) AddAdmin(context.Context, *AddAdminRequest) (*IssueMetricsCertificateResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method AddAdmin not implemented")
+}
+func (UnimplementedAdminServiceServer) ListAdmins(context.Context, *ListAdminsRequest) (*ListAdminsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListAdmins not implemented")
+}
+func (UnimplementedAdminServiceServer) RemoveAdmin(context.Context, *RemoveAdminRequest) (*RemoveAdminResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RemoveAdmin not implemented")
 }
 func (UnimplementedAdminServiceServer) Events(*EventsRequest, grpc.ServerStreamingServer[EventInfo]) error {
 	return status.Error(codes.Unimplemented, "method Events not implemented")
@@ -1535,6 +1593,60 @@ func _AdminService_RenewAdminCertificate_Handler(srv interface{}, ctx context.Co
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AdminService_AddAdmin_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AddAdminRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).AddAdmin(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminService_AddAdmin_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).AddAdmin(ctx, req.(*AddAdminRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_ListAdmins_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListAdminsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).ListAdmins(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminService_ListAdmins_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).ListAdmins(ctx, req.(*ListAdminsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_RemoveAdmin_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RemoveAdminRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).RemoveAdmin(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminService_RemoveAdmin_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).RemoveAdmin(ctx, req.(*RemoveAdminRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _AdminService_Events_Handler(srv interface{}, stream grpc.ServerStream) error {
 	m := new(EventsRequest)
 	if err := stream.RecvMsg(m); err != nil {
@@ -1796,6 +1908,18 @@ var AdminService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "RenewAdminCertificate",
 			Handler:    _AdminService_RenewAdminCertificate_Handler,
+		},
+		{
+			MethodName: "AddAdmin",
+			Handler:    _AdminService_AddAdmin_Handler,
+		},
+		{
+			MethodName: "ListAdmins",
+			Handler:    _AdminService_ListAdmins_Handler,
+		},
+		{
+			MethodName: "RemoveAdmin",
+			Handler:    _AdminService_RemoveAdmin_Handler,
 		},
 		{
 			MethodName: "RunJob",

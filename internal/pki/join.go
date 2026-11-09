@@ -119,9 +119,12 @@ func NewCSR(id Identity) (keyPEM, csrDER []byte, err error) {
 
 // NodeCert is a node certificate issued from a CSR.
 type NodeCert struct {
-	PEM      []byte
-	Serial   string
-	NotAfter time.Time
+	PEM    []byte
+	Serial string
+	// NotBefore is the start of validity (backdated by the clock skew
+	// allowance), as encoded: whole seconds.
+	NotBefore time.Time
+	NotAfter  time.Time
 }
 
 // SignNodeCSR issues a client certificate for node from a CSR. Only the
@@ -184,7 +187,7 @@ func (ca *CA) signClientCSR(csrDER []byte, id Identity, validity time.Duration) 
 	if err != nil {
 		return NodeCert{}, err
 	}
-	return NodeCert{PEM: encodeCert(der), Serial: SerialString(tmpl), NotAfter: notAfter}, nil
+	return NodeCert{PEM: encodeCert(der), Serial: SerialString(tmpl), NotBefore: tmpl.NotBefore.Truncate(time.Second), NotAfter: notAfter}, nil
 }
 
 // SerialString returns a certificate's serial number as lowercase hex.

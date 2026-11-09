@@ -53,6 +53,17 @@ func (s *Server) authorize(ctx context.Context, method string) (context.Context,
 			return nil, status.Errorf(codes.Unauthenticated, "certificate of %s is revoked or the node was removed", id)
 		}
 	}
+	if id.Kind == pki.KindAdmin {
+		// A removed administrator, or a certificate older than the one the
+		// name was given last, is refused (ADR 0028).
+		ok, err := s.store.AdminAllowed(ctx, id.Name, cert.NotBefore)
+		if err != nil {
+			return nil, status.Error(codes.Unavailable, "check administrator certificate")
+		}
+		if !ok {
+			return nil, status.Errorf(codes.Unauthenticated, "certificate of %s is revoked or the administrator was removed", id)
+		}
+	}
 	if id.Kind == pki.KindAutomation {
 		return s.authorizeAutomation(ctx, id, pki.SerialString(cert), method)
 	}
