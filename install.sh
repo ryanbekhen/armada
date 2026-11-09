@@ -138,9 +138,9 @@ done
 
 if [ "$CLIENT_ONLY" = 1 ]; then
 	say ""
-	say "Next: copy the admin config (/etc/armada/admin.config on the first server)"
-	say "to ~/.armada/config (mode 0600),"
-	say "then run 'armada status'. The control plane's private address must be reachable."
+	say "Next: ask an administrator for a client config ('armada admin add NAME -o FILE'),"
+	say "keep it as ~/.armada/config (mode 0600), then run 'armada status'."
+	say "The control plane's private address must be reachable."
 	"$PREFIX/bin/armada" version
 	return 0
 fi
