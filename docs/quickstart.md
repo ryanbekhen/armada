@@ -103,7 +103,7 @@ sudo armadad init
 ```
 
 This creates the cluster CA, the certificates, the state (embedded etcd), the
-secrets master key, and an admin config in root's `~/.armada/config`. Each node
+secrets master key, and the admin config `/etc/armada/admin.config`. Each node
 gets its own container subnet, a /24 of `10.120.0.0/16`; if your network
 uses that range, pick another private one with `--cluster-cidr` (it cannot
 change later). Traffic between nodes' containers is not encrypted unless you
@@ -112,23 +112,25 @@ add `--network wireguard`, also fixed at init (see
 `armadad backup` (see [operations](operations.md)): the data directory is the
 cluster, and without `master.key` secrets cannot be recovered.
 
-To use `armada` as your own user, give that user a copy of the admin
-config (it must stay mode `0600`):
+The admin config belongs to root and the `armada` group (mode `0640`;
+the installer creates the group). To use `armada` without `sudo`, add
+yourself, and anyone else who administers the cluster, to the group, then
+log in again:
 
 ```bash
-sudo install -d -m 0700 -o "$(id -un)" -g "$(id -gn)" ~/.armada
-sudo install -m 0600 -o "$(id -un)" -g "$(id -gn)" /root/.armada/config ~/.armada/config
+sudo usermod -aG armada "$(id -un)"
 ```
 
-The file is full control of the cluster: give it only to people who
-administer it, and use [automation identities](operations.md#automation-identities) for
-tools. Copied to a workstation that reaches the control plane's private
-address, it lets `armada` work from there too.
+Membership is full control of the cluster: add only people who administer
+it, and use [automation identities](operations.md#automation-identities) for
+tools. On a workstation that reaches the control plane's private address,
+copy the file to `~/.armada/config` (mode `0600`) and `armada` works from
+there too; `armada` uses `~/.armada/config` first when it exists.
 
 ## 4. Start the control plane
 
 ```bash
-sudo install -d -m 0700 /etc/armada
+sudo install -d -m 0711 /etc/armada
 echo 'ARMADA_SERVER_FLAGS="--acme-email you@example.com --acme-ca letsencrypt-staging"' \
   | sudo tee /etc/armada/server.env
 sudo systemctl enable --now armada-server

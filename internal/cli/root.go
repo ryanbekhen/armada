@@ -84,7 +84,7 @@ func NewRootCommand() *cobra.Command {
 	cmd.CompletionOptions.HiddenDefaultCmd = true
 
 	g := &globals{}
-	cmd.PersistentFlags().StringVar(&g.configPath, "config", clientconfig.DefaultPath(), "client config with admin credentials")
+	cmd.PersistentFlags().StringVar(&g.configPath, "config", clientconfig.DefaultPath(), "client config with admin credentials (default ~/.armada/config, else /etc/armada/admin.config)")
 	cmd.PersistentFlags().StringVar(&g.project, "project", os.Getenv("ARMADA_PROJECT"),
 		"project of the apps and jobs a command names (ADR 0026; or ARMADA_PROJECT); without it, names are in the default project and listings show every project")
 

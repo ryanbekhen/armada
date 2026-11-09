@@ -138,7 +138,8 @@ done
 
 if [ "$CLIENT_ONLY" = 1 ]; then
 	say ""
-	say "Next: copy the client config (~/.armada/config) from a server's root user,"
+	say "Next: copy the admin config (/etc/armada/admin.config on the first server)"
+	say "to ~/.armada/config (mode 0600),"
 	say "then run 'armada status'. The control plane's private address must be reachable."
 	"$PREFIX/bin/armada" version
 	return 0
@@ -156,6 +157,16 @@ if [ -n "$SYSTEMD_DIR" ] && [ -d "$SYSTEMD_DIR" ]; then
 	say "Installed systemd units in $SYSTEMD_DIR (not started)."
 fi
 
+# Members of the armada group read the admin config armadad init writes
+# (/etc/armada/admin.config), so they use armada without root.
+if [ "$(id -u)" = 0 ] && ! grep -q '^armada:' /etc/group; then
+	if command -v groupadd >/dev/null 2>&1; then
+		groupadd --system armada
+	elif command -v addgroup >/dev/null 2>&1; then
+		addgroup -S armada
+	fi && say "Created the armada group: its members administer the cluster without sudo."
+fi
+
 # sudo's secure_path leaves out /usr/local/bin on some distributions (RHEL,
 # Oracle Linux, Rocky, Alma), where `sudo armadad` then finds nothing.
 if [ "$(id -u)" = 0 ] && command -v sudo >/dev/null 2>&1; then
@@ -169,6 +180,7 @@ say ""
 say "Next, as root (sudo before each command):"
 say "  first node:   sudo armadad init"
 say "                sudo systemctl enable --now armada-server"
+say "                sudo usermod -aG armada \$USER   (armada without sudo; log in again)"
 say "  other nodes:  sudo armadad join ...         (from 'armada token create')"
 say "                sudo systemctl enable --now armada-agent"
 say "  more servers: sudo armadad server join ...  (from 'armada token create --server')"

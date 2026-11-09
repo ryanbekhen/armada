@@ -1,7 +1,9 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
+	"os"
 	"slices"
 	"strings"
 	"text/tabwriter"
@@ -96,7 +98,11 @@ func syncClientServers(cmd *cobra.Command, path string, addrs []string) error {
 		return nil
 	}
 	cc.Servers = addrs
-	if err := cc.Save(path); err != nil {
+	if err := cc.Save(path); errors.Is(err, os.ErrPermission) {
+		// A shared config is root's to change; the list still printed.
+		_, err = fmt.Fprintf(cmd.ErrOrStderr(), "%s lists other control plane addresses; update it with sudo armada server list.\n", path)
+		return err
+	} else if err != nil {
 		return err
 	}
 	_, err = fmt.Fprintf(cmd.ErrOrStderr(), "Updated %s with %d control plane addresses.\n", path, len(addrs))

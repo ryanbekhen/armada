@@ -86,7 +86,7 @@ come back.
 `armadad backup` includes all of these except the runtime directories and volumes (the state as an etcd snapshot; the
 member's own certificate is issued again from the CA). With several
 servers, back up on any one of them: they hold the same state. It does not include
-`~/.armada/config` (your admin credentials): keep a copy of that file
+the admin config (`/etc/armada/admin.config` or `~/.armada/config`): keep a copy of that file
 somewhere safe as well. It stays valid after a restore because the CA is
 the same.
 
@@ -262,7 +262,7 @@ newer layout, instead of misreading it. To go back:
 | Node (`node.crt`) | 30 days | The agent renews it in the last third of its lifetime. A node off for more than 30 days must be removed and joined again; on a server, `armada-server` renews it at start if the node is still registered |
 | Server (`server.crt`) and etcd member | 1 year | Each server renews its own at start and every 12 hours once a third of the lifetime is left, with no restart; a server that was off past expiry renews them before it starts serving |
 | App certificates (Let's Encrypt) | 90 days | The leader renews them about 30 days before they expire |
-| Admin (`~/.armada/config`) | 1 year | By hand: `armada admin renew` before it expires |
+| Admin (`/etc/armada/admin.config`, `~/.armada/config`) | 1 year | By hand: `armada admin renew` (with sudo for the shared one) before it expires |
 | Metrics scraper | 1 year | By hand: `armada metrics credentials` again |
 | Automation identity | 90 days | By hand: `armada automation renew` |
 
@@ -273,7 +273,8 @@ and fails on an expired one. If the admin certificate has expired, renew
 it on a server as root, with the CA in its data directory:
 
 ```bash
-sudo armadad admin renew --config /root/.armada/config
+sudo armadad admin renew                     # /etc/armada/admin.config, stays shared with the armada group
+sudo armadad admin renew --config /home/NAME/.armada/config   # a copy; stays NAME's
 ```
 
 ## Projects
