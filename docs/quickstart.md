@@ -119,7 +119,13 @@ log in again:
 
 ```bash
 sudo usermod -aG armada "$(id -un)"
+# log out and in again, then check:
+id -nG | grep -w armada
+armada status
 ```
+
+Until then `armada` says it cannot read the file and how to join the
+group; `sudo armada ...` works in the meantime.
 
 Membership is full control of the cluster: add only people who administer
 it, and use [automation identities](operations.md#automation-identities) for
