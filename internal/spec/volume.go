@@ -9,7 +9,7 @@ import (
 
 // Volume is a persistent directory on the node that runs the app's replica
 // (ADR 0023). It is created on first use, bound to that node, and kept
-// until it is removed with `armada volume rm`.
+// until it is removed with `armada volume delete`.
 type Volume struct {
 	Name string `yaml:"name" json:"name"`
 	// Path is where the volume appears in the container.

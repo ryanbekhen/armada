@@ -225,10 +225,10 @@ func (s *Server) Status(ctx context.Context, req *armadav1.StatusRequest) (*arma
 			return nil, storeErr(err)
 		}
 		if a.Spec.IsJob() {
-			return nil, status.Errorf(codes.FailedPrecondition, "%s is a job; see `armada job runs %s`", a.Name, a.Name)
+			return nil, status.Errorf(codes.FailedPrecondition, "%s is a job; see `armada job run list %s`", a.Name, a.Name)
 		}
 		apps = []store.App{a}
-	} else {
+	} else if !req.GetNodesOnly() {
 		var err error
 		if apps, err = s.store.ListApps(ctx); err != nil {
 			return nil, storeErr(err)
@@ -244,8 +244,19 @@ func (s *Server) Status(ctx context.Context, req *armadav1.StatusRequest) (*arma
 	if err != nil {
 		return nil, storeErr(err)
 	}
+	perNode := map[string]int32{}
+	for _, r := range all {
+		if !r.Done {
+			perNode[r.NodeID]++
+		}
+	}
+	// One app needs its own replicas' revisions only.
+	mine := all
+	if req.GetApp() != "" {
+		mine = slices.DeleteFunc(slices.Clone(all), func(r store.Replica) bool { return r.App != req.GetApp() })
+	}
 	revs := &revisionCache{store: s.store, m: map[string]store.Revision{}}
-	revs.preload(ctx, apps, all)
+	revs.preload(ctx, apps, mine)
 	sched, err := s.allocatable(ctx, nodes)
 	if err != nil {
 		return nil, storeErr(err)
@@ -311,7 +322,7 @@ func (s *Server) Status(ctx context.Context, req *armadav1.StatusRequest) (*arma
 			state = nodeStateLost
 		}
 		ns := &armadav1.NodeStatus{Id: n.ID, PrivateIp: n.PrivateIP, State: state, CpuMillis: n.CPUMillis, MemoryBytes: n.MemoryBytes, Cordoned: n.Cordoned, Version: n.Version,
-			Labels: n.AllLabels(), Restricted: n.Restricted}
+			Labels: n.AllLabels(), Restricted: n.Restricted, Replicas: perNode[n.ID]}
 		// The node's record changes only with its status; its usage samples
 		// say when it was last heard, every few seconds.
 		lastSeen := n.LastSeen

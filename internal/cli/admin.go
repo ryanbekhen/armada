@@ -17,14 +17,14 @@ import (
 
 func newAdminCommand(g *globals) *cobra.Command {
 	cmd := &cobra.Command{Use: "admin", Short: "Manage administrators and your own credentials"}
-	cmd.AddCommand(newAdminRenewCommand(g), newAdminAddCommand(g), newAdminListCommand(g), newAdminRemoveCommand(g))
+	cmd.AddCommand(newAdminCreateCommand(g), newAdminListCommand(g), newAdminRenewCommand(g), newAdminDeleteCommand(g))
 	return cmd
 }
 
-func newAdminAddCommand(g *globals) *cobra.Command {
+func newAdminCreateCommand(g *globals) *cobra.Command {
 	var out string
 	cmd := &cobra.Command{
-		Use:   "add NAME -o FILE",
+		Use:   "create NAME -o FILE",
 		Short: "Give a person an administrator certificate of their own",
 		Long: "Create a client config for a new administrator, with a certificate under\n" +
 			"their own name (one year), so the audit log names them and their access\n" +
@@ -77,12 +77,16 @@ func newAdminAddCommand(g *globals) *cobra.Command {
 }
 
 func newAdminListCommand(g *globals) *cobra.Command {
-	return &cobra.Command{
+	var o *outputFlag
+	cmd := &cobra.Command{
 		Use:     "list",
 		Aliases: []string{"ls"},
 		Short:   "List the administrators on record",
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if err := o.check(); err != nil {
+				return err
+			}
 			client, conn, err := dialAdmin(g)
 			if err != nil {
 				return err
@@ -91,6 +95,9 @@ func newAdminListCommand(g *globals) *cobra.Command {
 			resp, err := client.ListAdmins(cmd.Context(), &armadav1.ListAdminsRequest{})
 			if err != nil {
 				return RPCError(err)
+			}
+			if o.json() {
+				return printJSON(cmd.OutOrStdout(), resp)
 			}
 			tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 4, 2, ' ', 0)
 			_, _ = fmt.Fprintln(tw, "NAME\tSTATUS\tADDED\tBY")
@@ -113,17 +120,19 @@ func newAdminListCommand(g *globals) *cobra.Command {
 			return tw.Flush()
 		},
 	}
+	o = addOutput(cmd, false)
+	return cmd
 }
 
-func newAdminRemoveCommand(g *globals) *cobra.Command {
+func newAdminDeleteCommand(g *globals) *cobra.Command {
 	var yes bool
 	cmd := &cobra.Command{
-		Use:     "remove NAME --yes",
-		Aliases: []string{"rm", "delete"},
+		Use:     "delete NAME --yes",
+		Aliases: []string{"rm"},
 		Short:   "Revoke every certificate of an administrator",
 		Long: "Revoke every certificate of an administrator, at once and on every\n" +
-			"server. `armada admin add NAME` gives the name a new one later. You\n" +
-			"cannot remove yourself.",
+			"server. `armada admin create NAME` gives the name a new one later. You\n" +
+			"cannot delete yourself.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !yes {
@@ -137,11 +146,11 @@ func newAdminRemoveCommand(g *globals) *cobra.Command {
 			if _, err := client.RemoveAdmin(cmd.Context(), &armadav1.RemoveAdminRequest{Name: args[0]}); err != nil {
 				return RPCError(err)
 			}
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Removed administrator %s: their certificates are refused.\n", args[0])
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Deleted administrator %s: their certificates are refused.\n", args[0])
 			return err
 		},
 	}
-	cmd.Flags().BoolVar(&yes, "yes", false, "confirm removing the administrator")
+	cmd.Flags().BoolVar(&yes, "yes", false, "confirm deleting the administrator")
 	return cmd
 }
 

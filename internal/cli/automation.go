@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"slices"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -26,24 +27,25 @@ func newAutomationCommand(g *globals) *cobra.Command {
 			"scope, and nothing else: no nodes, tokens, servers, backups, the network, or\n" +
 			"the default project. Only administrators change a scope.",
 	}
-	cmd.AddCommand(newAutomationSetCommand(g), newAutomationListCommand(g), newAutomationCredentialsCommand(g),
-		newAutomationRenewCommand(g), newAutomationRemoveCommand(g))
+	cmd.AddCommand(newAutomationSetCommand(g, true), newAutomationSetCommand(g, false), newAutomationListCommand(g),
+		newAutomationCredentialsCommand(g), newAutomationRenewCommand(g), newAutomationDeleteCommand(g))
 	return cmd
 }
 
-func newAutomationSetCommand(g *globals) *cobra.Command {
+// newAutomationSetCommand is automation create (create) and automation set.
+func newAutomationSetCommand(g *globals, create bool) *cobra.Command {
 	var projects, labels []string
-	var create bool
+	var createProjects bool
 	cmd := &cobra.Command{
 		Use:   "set NAME [--project P]... [--create-projects] [--label KEY=VALUE]...",
-		Short: "Create an automation identity or replace its scope",
-		Long: "Create an automation identity or replace its scope. --project names a project\n" +
-			"it manages (repeat it); --create-projects lets it create projects, which it\n" +
-			"then manages, and remove the ones it manages; --label KEY=VALUE allows its\n" +
-			"apps to require that node label (repeat it). Its certificates stay valid.",
+		Short: "Replace an automation identity's scope",
+		Long: "Replace an automation identity's scope. --project names a project it manages\n" +
+			"(repeat it); --create-projects lets it create projects, which it then\n" +
+			"manages, and delete the ones it manages; --label KEY=VALUE allows its apps to\n" +
+			"require that node label (repeat it). Its certificates stay valid.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			req := &armadav1.SetAutomationRequest{Name: args[0], Projects: projects, CreateProjects: create}
+			req := &armadav1.SetAutomationRequest{Name: args[0], Projects: projects, CreateProjects: createProjects}
 			allowed := map[string][]string{}
 			var keys []string
 			for _, l := range labels {
@@ -64,16 +66,35 @@ func newAutomationSetCommand(g *globals) *cobra.Command {
 				return err
 			}
 			defer conn.Close()
+			if create {
+				list, err := client.ListAutomations(cmd.Context(), &armadav1.ListAutomationsRequest{})
+				if err != nil {
+					return RPCError(err)
+				}
+				if slices.ContainsFunc(list.Automations, func(a *armadav1.AutomationInfo) bool { return a.Name == args[0] }) {
+					return fmt.Errorf("automation %s exists; change its scope with armada automation set", args[0])
+				}
+			}
 			a, err := client.SetAutomation(cmd.Context(), req)
 			if err != nil {
 				return RPCError(err)
 			}
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Automation %s manages %s.\n", a.Name, scopeText(a))
+			verb := "Updated"
+			if create {
+				verb = "Created"
+			}
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s automation %s: it manages %s.\n", verb, a.Name, scopeText(a))
 			return err
 		},
 	}
+	if create {
+		cmd.Use = "create NAME [--project P]... [--create-projects] [--label KEY=VALUE]..."
+		cmd.Short = "Create an automation identity"
+		cmd.Long = "Create an automation identity with its scope; see `armada automation set` for\n" +
+			"the flags. Give it a client config with `armada automation credentials`."
+	}
 	cmd.Flags().StringArrayVar(&projects, "project", nil, "a project it manages (repeat for more)")
-	cmd.Flags().BoolVar(&create, "create-projects", false, "it may create projects, and remove the ones it manages")
+	cmd.Flags().BoolVar(&createProjects, "create-projects", false, "it may create projects, and delete the ones it manages")
 	cmd.Flags().StringArrayVar(&labels, "label", nil, "a node label KEY=VALUE its apps may require (repeat for more)")
 	return cmd
 }
@@ -90,12 +111,16 @@ func scopeText(a *armadav1.AutomationInfo) string {
 }
 
 func newAutomationListCommand(g *globals) *cobra.Command {
-	return &cobra.Command{
+	var o *outputFlag
+	cmd := &cobra.Command{
 		Use:     "list",
 		Aliases: []string{"ls"},
 		Short:   "List automation identities",
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if err := o.check(); err != nil {
+				return err
+			}
 			client, conn, err := dialAdmin(g)
 			if err != nil {
 				return err
@@ -105,9 +130,8 @@ func newAutomationListCommand(g *globals) *cobra.Command {
 			if err != nil {
 				return RPCError(err)
 			}
-			if len(resp.Automations) == 0 {
-				_, err := fmt.Fprintln(cmd.OutOrStdout(), "No automation identities.")
-				return err
+			if o.json() {
+				return printJSON(cmd.OutOrStdout(), resp)
 			}
 			tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 4, 2, ' ', 0)
 			_, _ = fmt.Fprintln(tw, "NAME\tPROJECTS\tCREATE\tLABELS\tCERTIFICATES\tEXPIRES")
@@ -128,6 +152,8 @@ func newAutomationListCommand(g *globals) *cobra.Command {
 			return tw.Flush()
 		},
 	}
+	o = addOutput(cmd, false)
+	return cmd
 }
 
 func newAutomationCredentialsCommand(g *globals) *cobra.Command {
@@ -141,7 +167,7 @@ func newAutomationCredentialsCommand(g *globals) *cobra.Command {
 			"The tool uses it like an admin config (`armada --config FILE` or the API with\n" +
 			"its PEM fields). The certificate lasts 90 days: renew it with\n" +
 			"`armada automation renew --config FILE`, and cut the tool off at once with\n" +
-			"`armada automation remove NAME`.",
+			"`armada automation delete NAME`.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := args[0]
@@ -228,11 +254,11 @@ func newAutomationRenewCommand(g *globals) *cobra.Command {
 	}
 }
 
-func newAutomationRemoveCommand(g *globals) *cobra.Command {
+func newAutomationDeleteCommand(g *globals) *cobra.Command {
 	return &cobra.Command{
-		Use:     "remove NAME",
-		Aliases: []string{"rm", "delete"},
-		Short:   "Remove an automation identity and revoke its certificates",
+		Use:     "delete NAME",
+		Aliases: []string{"rm"},
+		Short:   "Delete an automation identity and revoke its certificates",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, conn, err := dialAdmin(g)
@@ -243,7 +269,7 @@ func newAutomationRemoveCommand(g *globals) *cobra.Command {
 			if _, err := client.DeleteAutomation(cmd.Context(), &armadav1.DeleteAutomationRequest{Name: args[0]}); err != nil {
 				return RPCError(err)
 			}
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Automation %s removed; its certificates no longer work.\n", args[0])
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Deleted automation %s; its certificates no longer work.\n", args[0])
 			return err
 		},
 	}

@@ -4,6 +4,7 @@
 package cli
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -25,22 +26,41 @@ import (
 // globals holds persistent flags shared by subcommands.
 type globals struct {
 	configPath string
-	// project is --project: the project whose apps a command names
-	// (ADR 0026). Empty names apps of the default project and lists every
-	// project.
+	// project is the project of the apps and jobs a command names (ADR
+	// 0026): --project, else ARMADA_PROJECT, else the one `armada project
+	// use` saved in the client config; empty means the default project.
 	project string
+	// allProjects is --all-projects: listings span every project.
+	allProjects bool
 }
 
-// app returns the ID of app name in --project. name may already be an ID
+// resolveProject fills project from the client config when neither
+// --project nor ARMADA_PROJECT named one.
+func (g *globals) resolveProject() error {
+	if g.project == "" {
+		if cc, err := clientconfig.Load(g.configPath); err == nil {
+			g.project = cc.Project
+		}
+	}
+	if g.project == spec.DefaultProject {
+		g.project = ""
+	}
+	if g.project != "" && !spec.ValidProject(g.project) {
+		return fmt.Errorf("invalid project %q", g.project)
+	}
+	return nil
+}
+
+// scope is the project a command works in.
+func (g *globals) scope() string { return cmp.Or(g.project, spec.DefaultProject) }
+
+// app returns the ID of app name in the project. name may already be an ID
 // (web.staging) as long as --project does not name another project.
 func (g *globals) app(name string) (string, error) {
-	if g.project != "" && !spec.ValidProject(g.project) {
-		return "", fmt.Errorf("invalid project %q", g.project)
-	}
 	if strings.Contains(name, ".") {
 		p, _, ok := spec.SplitAppID(name)
 		if !ok {
-			return "", fmt.Errorf("invalid app %q: want NAME, or NAME.PROJECT for an app of another project", name)
+			return "", fmt.Errorf("invalid name %q: want NAME, or NAME.PROJECT for one of another project", name)
 		}
 		if g.project != "" && g.project != p {
 			return "", fmt.Errorf("%s belongs to project %s, not %s", name, p, g.project)
@@ -63,60 +83,53 @@ func (g *globals) qualify(args []string) error {
 	return nil
 }
 
-// listed reports whether a listing shows the app with ID id: every app
-// without --project, else only the project's.
+// listed reports whether a listing shows the app with ID id: the
+// project's, or every one with --all-projects.
 func (g *globals) listed(id string) bool {
-	if g.project == "" {
+	if g.allProjects {
 		return true
 	}
 	p, _, ok := spec.SplitAppID(id)
-	return ok && p == g.project
+	return ok && p == g.scope()
 }
 
 // NewRootCommand builds the full command tree. Output goes to the writers
 // configured on the returned command so tests can capture it.
 func NewRootCommand() *cobra.Command {
+	g := &globals{}
 	cmd := &cobra.Command{
 		Use:   version.Name,
 		Short: "Manage apps on an Armada cluster",
-		Long: version.Name + " manages apps on an Armada cluster: deploys, revisions, rolling\n" +
-			"updates, domains, secrets, and jobs. It talks to the control plane with the\n" +
-			"credentials in --config and needs no root. Machines run `armadad`.",
+		Long: version.Name + " manages apps, jobs, and the cluster they run on. Every command is\n" +
+			"`armada <noun> <verb>`. It talks to the control plane with the credentials in\n" +
+			"--config and needs no root. Machines run `armadad`.",
 		SilenceUsage:  true,
 		SilenceErrors: true,
+		PersistentPreRunE: func(*cobra.Command, []string) error {
+			return g.resolveProject()
+		},
 	}
 	cmd.CompletionOptions.HiddenDefaultCmd = true
 
-	g := &globals{}
-	cmd.PersistentFlags().StringVar(&g.configPath, "config", clientconfig.DefaultPath(), "client config with admin credentials (default ~/.armada/config, else /etc/armada/admin.config)")
+	cmd.PersistentFlags().StringVar(&g.configPath, "config", clientconfig.DefaultPath(), "client config with credentials (default ~/.armada/config, else /etc/armada/admin.config)")
 	cmd.PersistentFlags().StringVar(&g.project, "project", os.Getenv("ARMADA_PROJECT"),
-		"project of the apps and jobs a command names (ADR 0026; or ARMADA_PROJECT); without it, names are in the default project and listings show every project")
+		"project the command works in (or ARMADA_PROJECT; default: the one saved with armada project use, else default)")
+	cmd.PersistentFlags().BoolVarP(&g.allProjects, "all-projects", "A", false, "list every project's items")
 
 	cmd.AddCommand(
-		NewVersionCommand(serverVersions(g)),
-		newServerCommand(g),
-		newDeployCommand(g),
-		newStatusCommand(g),
-		newScaleCommand(g),
-		newTrafficCommand(g),
-		newLogsCommand(g),
-		newTopCommand(g),
-		newEventsCommand(g),
 		newAppCommand(g),
-		newAdminCommand(g),
 		newJobCommand(g),
-		newVolumeCommand(g),
-		newMetricsCommand(g),
-		newExecCommand(g),
-		newRollbackCommand(g),
-		newRevisionsCommand(g),
-		newClusterCommand(g),
-		newDomainCommand(g),
 		newSecretCommand(g),
+		newDomainCommand(g),
+		newVolumeCommand(g),
 		newProjectCommand(g),
-		newAutomationCommand(g),
-		newTokenCommand(g),
 		newNodeCommand(g),
+		newServerCommand(g),
+		newClusterCommand(g),
+		newAdminCommand(g),
+		newAutomationCommand(g),
+		newMetricsCommand(g),
+		NewVersionCommand(serverVersions(g)),
 	)
 	return cmd
 }

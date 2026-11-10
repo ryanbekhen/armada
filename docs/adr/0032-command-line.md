@@ -81,8 +81,9 @@ Flags cover what is changed often. The rest (custom probes, routes with
 | `--registry-user U --registry-secret S` | `registry` |
 
 `job create` / `job update` take `--image`, `--command`, `--args`, `--env`,
-`--secret-env`, `--env-from-secrets`, `--schedule`, `--time-zone`,
-`--timeout`, `--retries`, `--concurrency`, `--cpu`, `--memory`.
+`--secret-env`, `--remove-env`, `--env-from-secrets`, `--schedule`,
+`--time-zone`, `--timeout`, `--retries`, `--concurrency`, `--cpu`,
+`--memory`, and the registry flags.
 
 **Projects.** `--project` names the project of a command; without it, the
 project `armada project use NAME` saved in the client config, else

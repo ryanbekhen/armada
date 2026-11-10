@@ -34,11 +34,11 @@ func testEnvFrom(t *testing.T, d *fake.Driver, cli func(...string) (int, string,
 	if err := os.WriteFile(vars, []byte("TAG=1.26\nMODE=development\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if code, _, stderr := cli("deploy", "-f", spec, "--var", "TAG=1.27"); code == 0 || !strings.Contains(stderr, "MODE") {
-		t.Errorf("deploy without MODE: code=%d stderr=%q", code, stderr)
+	if code, _, stderr := cli("app", "create", "--file", spec, "--var", "TAG=1.27"); code == 0 || !strings.Contains(stderr, "MODE") {
+		t.Errorf("create without MODE: code=%d stderr=%q", code, stderr)
 	}
-	if code, _, stderr := cli("deploy", "-f", spec, "--vars", vars, "--var", "TAG=1.27", "--wait", "--timeout", "1m"); code != 0 {
-		t.Fatalf("deploy with vars: %s", stderr)
+	if code, _, stderr := cli("app", "create", "--file", spec, "--vars", vars, "--var", "TAG=1.27", "--wait", "--timeout", "1m"); code != 0 {
+		t.Fatalf("create with vars: %s", stderr)
 	}
 	ids := containersOf(d, "envd")
 	if len(ids) == 0 {

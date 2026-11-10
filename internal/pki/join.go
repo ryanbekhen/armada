@@ -54,7 +54,7 @@ func ParseJoinToken(s string) (JoinToken, error) {
 	return JoinToken{ID: m[1], Secret: m[2]}, nil
 }
 
-// Reveal returns the full token. Only `armada token create` prints it.
+// Reveal returns the full token. Only `armada node join-token` and `armada server join-token` print it.
 func (t JoinToken) Reveal() string { return t.ID + "." + t.Secret }
 
 // String implements fmt.Stringer without the secret.

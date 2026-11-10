@@ -14,26 +14,20 @@ rolling updates, domains, and automatic TLS.
 One install command: `armadad` runs each machine, `armada` manages apps
 from anywhere, Linux or macOS.
 
-```yaml
-name: web
-image: ghcr.io/acme/web:1.4.2
-ingress:
-  type: external
-  port: 8080
-probes:
-  readiness:
-    path: /healthz
-scale:
-  min: 2
-```
-
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ryanbekhen/armada/main/install.sh | sudo sh
-armada deploy -f web.yaml    # → https://web.apps.example.com
+armada app create web --image ghcr.io/acme/web:1.4.2 --port 8080 --ingress external --replicas 2
+# → https://web.apps.example.com
+armada app show web -o yaml > web.yaml    # the spec it runs, to keep in git
+armada app update web --file web.yaml
 ```
 
 ## What it does
 
+- **Flags or files.** `armada app create` and `armada app update` write a
+  spec from flags or take one from a file; `armada app show -o yaml`
+  exports it, and `update --diff` shows what a change would do. Every
+  command is `armada <noun> <verb>`.
 - **Desired state, reconciled.** The CLI writes what you want; the control
   plane and an agent on every node converge to it and keep it there.
 - **Rolling updates and rollback.** Revisions pin the image digest and the
@@ -66,19 +60,19 @@ armada deploy -f web.yaml    # → https://web.apps.example.com
   callers), and its containers are kept away from the nodes, the private
   network, and the cloud's metadata service.
 - **Administrators.** Each person gets a certificate under their own name
-  (`armada admin add`), so the audit log names them, and `armada admin rm`
-  takes one person's access back at once.
+  (`armada admin create`), so the audit log names them, and `armada admin
+  delete` takes one person's access back at once.
 - **Secrets.** Encrypted at rest, versioned, delivered as env vars or as
   read-only files on tmpfs; `envFrom: secrets` turns all of an app's
   secrets into variables.
 - **One spec, several environments.** `${NAME}` in a spec is filled in
-  from `armada deploy --vars production.env --var TAG=...`.
-- **Logs and exec.** `armada logs` streams a replica's output, rotated
+  from `armada app create --file web.yaml --vars production.env --var TAG=...`.
+- **Logs and exec.** `armada app logs` streams a replica's output, rotated
   and rate limited on the node so no app can flood its disk;
-  `armada exec web -it -- sh` opens a shell in one, with the container's
+  `armada app exec web -it -- sh` opens a shell in one, with the container's
   own security settings, and every session is audited.
-- **Usage.** `armada top` shows the CPU and memory each app, replica, and
-  node uses next to what it reserves, sampled every 10 seconds, and per
+- **Usage.** `armada app top` and `armada node top` show the CPU and
+  memory each app, replica, and node uses next to what it reserves, sampled every 10 seconds, and per
   project also its volumes, requests, and egress.
 - **Autoscaling.** `scale.rules` keep an app between `scale.min` and
   `scale.max` by requests in progress, CPU, or memory per replica. With
@@ -89,14 +83,14 @@ armada deploy -f web.yaml    # → https://web.apps.example.com
 - **Volumes.** `volumes` keep an app's data on its node across deploys,
   crashes, and reboots, for databases and uploads; `armada volume backup`
   and `restore` copy it out and back, onto another node if its own is gone.
-- **Events.** `armada events` shows what the cluster did over the last day:
+- **Events.** `armada cluster events` shows what the cluster did over the last day:
   crashes and restarts, rollouts, lost nodes, replicas moved, certificates;
   `-f` follows new ones.
 - **Metrics.** The leader serves Prometheus metrics (apps, replicas, nodes,
   usage, reconciles) on a private address, only to client certificates that
   `armada metrics credentials` creates.
 - **Multiple nodes.** Join with a single-use token; nodes get short-lived
-  mTLS certificates that they renew themselves, and servers renew their own. Cordon, evacuate, remove.
+  mTLS certificates that they renew themselves, and servers renew their own. Drain, evacuate, delete.
   Replicas of a lost node are started elsewhere, and apps spread out again,
   one replica at a time, when a node returns or joins.
 - **Placement.** Label nodes (by hand or in the join token), keep apps to
@@ -136,7 +130,7 @@ container runtime (containerd, runc, CNI plugins) and its state store
 | Environment | Status |
 | --- | --- |
 | Cloudflare DNS-01 with Let's Encrypt staging | Tested on depa.id (amd64, Ubuntu 24.04): certificates for the root domain and a wildcard, domain verification, challenge records removed afterwards, the token kept out of logs and events, and requests through the Cloudflare proxy with trusted proxies (the client's address kept, forged headers from elsewhere dropped) |
-| Local lab: Linux VMs (arm64), Pebble ACME, 1–2 nodes | Tested end to end: deploys, rolling update, secret files, internal ingress and DNS, crash recovery, containerd restart with containers kept running, reboot recovery, rolling upgrade with a state migration, rebalancing after uncordon under HTTPS load without errors, replicas across nodes |
+| Local lab: Linux VMs (arm64), Pebble ACME, 1–2 nodes | Tested end to end: deploys, rolling update, secret files, internal ingress and DNS, crash recovery, containerd restart with containers kept running, reboot recovery, rolling upgrade with a state migration, rebalancing after a drained node resumed under HTTPS load without errors, replicas across nodes |
 | Oracle Cloud (arm64, Oracle Linux 9, SELinux enforcing), one server, Let's Encrypt staging | Tested end to end: install.sh with systemd, doctor, wildcard certificate over Cloudflare DNS-01, rolling update under load without errors, crash recovery, containerd restart, reboot recovery, SELinux-confined apps and HAProxy, HAProxy restarted after a crash |
 | depa.id (amd64, Ubuntu 24.04), three control plane servers and one node, Let's Encrypt staging | Tested end to end with [test/e2e](test/e2e/README.md): server and node joins, only HAProxy public, certificates on every node, secrets, rolling update, rollback, and agent restart under load without errors, leader stop and SIGKILL under load, node loss and rebalancing under load, backup, all machines rebooted at once |
 | Mixed architectures: three depa.id servers (amd64, Ubuntu 24.04) and an Oracle Cloud node (arm64, Oracle Linux 9, SELinux enforcing), Let's Encrypt staging | Tested end to end with [test/e2e](test/e2e/README.md): every scenario above except the reboot, plus placement under load and images built for one architecture running only on nodes of that architecture |

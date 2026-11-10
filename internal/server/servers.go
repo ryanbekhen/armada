@@ -161,7 +161,7 @@ func (s *Server) ListServers(ctx context.Context, _ *armadav1.ListServersRequest
 }
 
 // RemoveServer removes a control plane node from the etcd cluster and
-// forgets it. Its agent stays a node until `node remove`.
+// forgets it. Its agent stays a node until `armada node delete`.
 func (s *Server) RemoveServer(ctx context.Context, req *armadav1.RemoveServerRequest) (*armadav1.RemoveServerResponse, error) {
 	if s.cluster == nil {
 		return nil, status.Error(codes.FailedPrecondition, "server membership is not managed by this server")

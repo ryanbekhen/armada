@@ -6,27 +6,24 @@ import (
 	"io"
 	"slices"
 	"text/tabwriter"
-	"time"
 
 	"github.com/spf13/cobra"
-	"google.golang.org/protobuf/encoding/protojson"
 
 	armadav1 "github.com/ryanbekhen/armada/api/armada/v1"
 )
 
-func newTopCommand(g *globals) *cobra.Command {
+func newAppTopCommand(g *globals) *cobra.Command {
 	var (
-		output   string
-		nodes    bool
+		o        *outputFlag
 		projects bool
 	)
 	cmd := &cobra.Command{
 		Use:   "top [APP]",
-		Short: "Show the CPU and memory apps, replicas, and nodes use",
+		Short: "Show the CPU and memory apps and their replicas use",
 		Long: "Show the CPU and memory replicas use, from samples their nodes take every 10 seconds.\n\n" +
-			"Without arguments it lists apps; with APP, that app's replicas; with --nodes, nodes;\n" +
-			"with --projects, projects, with the requests they received and the bytes they sent\n" +
-			"since the control plane's leader started counting.\n" +
+			"Without arguments it lists the project's apps (every project's with -A); with APP, that\n" +
+			"app's replicas; with --projects, every project, with the requests it received and the\n" +
+			"bytes it sent since the control plane's leader started counting.\n" +
 			"CPU is shown as used/reserved and memory as used/limit; \"-\" means no recent sample\n" +
 			"(the replica is not running, or its node's runtime cannot measure containers).",
 		Args: cobra.MaximumNArgs(1),
@@ -34,42 +31,33 @@ func newTopCommand(g *globals) *cobra.Command {
 			if err := g.qualify(args); err != nil {
 				return err
 			}
-			if output != outputText && output != outputJSON {
-				return fmt.Errorf("unsupported output format %q (want %q or %q)", output, outputText, outputJSON)
+			if err := o.check(); err != nil {
+				return err
 			}
-			if nodes && len(args) == 1 {
-				return errors.New("--nodes lists every node; leave out APP")
-			}
-			if projects && (nodes || len(args) == 1) {
-				return errors.New("--projects lists every project; leave out APP and --nodes")
+			if projects && len(args) == 1 {
+				return errors.New("--projects lists every project; leave out APP")
 			}
 			req := &armadav1.TopRequest{}
 			if len(args) == 1 {
 				req.App = args[0]
 			}
-			client, conn, err := dialAdmin(g)
+			resp, err := top(cmd, g, req)
 			if err != nil {
 				return err
 			}
-			defer conn.Close()
-			resp, err := client.Top(cmd.Context(), req)
-			if err != nil {
-				return RPCError(err)
-			}
-			resp.Replicas = slices.DeleteFunc(resp.Replicas, func(r *armadav1.ReplicaTop) bool { return !g.listed(r.App) })
-			resp.Projects = slices.DeleteFunc(resp.Projects, func(p *armadav1.ProjectTop) bool { return g.project != "" && p.GetName() != g.project })
-			out := cmd.OutOrStdout()
-			if output == outputJSON {
-				b, err := protojson.MarshalOptions{Multiline: true, Indent: "  "}.Marshal(resp)
-				if err != nil {
-					return err
+			resp.Nodes = nil
+			if projects {
+				resp.Replicas = nil
+			} else {
+				resp.Projects, resp.CountedSince = nil, nil
+				if req.App == "" {
+					resp.Replicas = slices.DeleteFunc(resp.Replicas, func(r *armadav1.ReplicaTop) bool { return !g.listed(r.App) })
 				}
-				_, err = fmt.Fprintln(out, string(b))
-				return err
 			}
+			out := cmd.OutOrStdout()
 			switch {
-			case nodes:
-				return printTopNodes(out, resp)
+			case o.json():
+				return printJSON(out, resp)
 			case projects:
 				return printTopProjects(out, resp)
 			case req.App != "":
@@ -79,10 +67,46 @@ func newTopCommand(g *globals) *cobra.Command {
 			}
 		},
 	}
-	cmd.Flags().StringVarP(&output, "output", "o", outputText, "output format: text or json")
-	cmd.Flags().BoolVar(&nodes, "nodes", false, "list nodes instead of apps")
+	o = addOutput(cmd, false)
 	cmd.Flags().BoolVar(&projects, "projects", false, "list projects instead of apps")
 	return cmd
+}
+
+func newNodeTopCommand(g *globals) *cobra.Command {
+	var o *outputFlag
+	cmd := &cobra.Command{
+		Use:   "top",
+		Short: "Show the CPU and memory each node's replicas use and reserve",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if err := o.check(); err != nil {
+				return err
+			}
+			resp, err := top(cmd, g, &armadav1.TopRequest{})
+			if err != nil {
+				return err
+			}
+			if o.json() {
+				return printJSON(cmd.OutOrStdout(), &armadav1.TopResponse{Nodes: resp.Nodes})
+			}
+			return printTopNodes(cmd.OutOrStdout(), resp)
+		},
+	}
+	o = addOutput(cmd, false)
+	return cmd
+}
+
+func top(cmd *cobra.Command, g *globals, req *armadav1.TopRequest) (*armadav1.TopResponse, error) {
+	client, conn, err := dialAdmin(g)
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+	resp, err := client.Top(cmd.Context(), req)
+	if err != nil {
+		return nil, RPCError(err)
+	}
+	return resp, nil
 }
 
 // appTop sums an app's replicas.
@@ -113,10 +137,6 @@ func printTopApps(out io.Writer, resp *armadav1.TopResponse) error {
 		}
 	}
 	tw := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
-	if len(apps) == 0 {
-		_, _ = fmt.Fprintln(tw, "No replicas.")
-		return tw.Flush()
-	}
 	_, _ = fmt.Fprintln(tw, "APP\tMEASURED\tCPU\tMEMORY")
 	for _, a := range apps {
 		cpu, mem := "-", "-"
@@ -130,10 +150,6 @@ func printTopApps(out io.Writer, resp *armadav1.TopResponse) error {
 
 func printTopReplicas(out io.Writer, resp *armadav1.TopResponse) error {
 	tw := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
-	if len(resp.GetReplicas()) == 0 {
-		_, _ = fmt.Fprintln(tw, "No replicas.")
-		return tw.Flush()
-	}
 	_, _ = fmt.Fprintln(tw, "REPLICA\tNODE\tSTATE\tCPU\tMEMORY")
 	for _, r := range resp.GetReplicas() {
 		cpu, mem := "-", "-"
@@ -173,14 +189,7 @@ func printTopProjects(out io.Writer, resp *armadav1.TopResponse) error {
 			cpu, millis(p.GetCpuReservedMillis()), mem, humanBytes(p.GetMemoryReservedBytes()),
 			usedBytes(p.GetVolumeBytes()), p.GetRequests(), usedBytes(p.GetEgressBytes()))
 	}
-	if err := tw.Flush(); err != nil {
-		return err
-	}
-	if since := resp.GetCountedSince(); since != nil {
-		_, err := fmt.Fprintf(out, "\nRequests and egress since %s.\n", since.AsTime().Local().Format(time.RFC3339))
-		return err
-	}
-	return nil
+	return tw.Flush()
 }
 
 // millis formats millicores; 0 is shown, unlike an unknown capacity.

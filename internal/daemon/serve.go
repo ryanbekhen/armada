@@ -590,7 +590,7 @@ var newClusterNet = func(dataDir string, ac *agentConfig, log *slog.Logger) (age
 // resolvConf is the host resolver configuration; tests replace it.
 var resolvConf = "/etc/resolv.conf"
 
-// usageInterval is how often the agent samples its replicas for armada top;
+// usageInterval is how often the agent samples its replicas for armada app top;
 // 0 is the agent's default (tests shorten it).
 var usageInterval time.Duration
 

@@ -24,7 +24,7 @@ func (s *Etcd) MarkAppRemoving(ctx context.Context, app, actor string) error {
 			return err
 		}
 		if rev.Spec.IsJob() {
-			return fmt.Errorf("%s is a job; remove it with `armada job rm`: %w", app, ErrPrecondition)
+			return fmt.Errorf("%s is a job; delete it with `armada job delete`: %w", app, ErrPrecondition)
 		}
 		a.Removing = true
 		if err := t.put(pfxApps+app, a); err != nil {

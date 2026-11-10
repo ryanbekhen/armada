@@ -173,7 +173,7 @@ if [ "$(id -u)" = 0 ] && command -v sudo >/dev/null 2>&1; then
 	fi
 fi
 
-say "Next: sudo armadad init on the first machine, or the join command 'armada token create' prints."
+say "Next: sudo armadad init on the first machine, or the join command 'armada node join-token' prints."
 "$PREFIX/bin/armadad" version
 }
 

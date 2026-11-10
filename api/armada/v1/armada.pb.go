@@ -497,7 +497,7 @@ type JobRunInfo struct {
 	Revision string `protobuf:"bytes,5,opt,name=revision,proto3" json:"revision,omitempty"`
 	Attempts int32  `protobuf:"varint,6,opt,name=attempts,proto3" json:"attempts,omitempty"`
 	Node     string `protobuf:"bytes,7,opt,name=node,proto3" json:"node,omitempty"`
-	// The replica of the latest attempt, whose logs `armada logs` shows.
+	// The replica of the latest attempt, whose logs `armada job logs` shows.
 	Replica       string                 `protobuf:"bytes,8,opt,name=replica,proto3" json:"replica,omitempty"`
 	ExitCode      int32                  `protobuf:"varint,9,opt,name=exit_code,json=exitCode,proto3" json:"exit_code,omitempty"`
 	Message       string                 `protobuf:"bytes,10,opt,name=message,proto3" json:"message,omitempty"`
@@ -5384,7 +5384,9 @@ func (x *DeployResponse) GetRevision() string {
 type StatusRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Optional; empty means all apps.
-	App           string `protobuf:"bytes,1,opt,name=app,proto3" json:"app,omitempty"`
+	App string `protobuf:"bytes,1,opt,name=app,proto3" json:"app,omitempty"`
+	// Only the nodes, with their replica counts: no apps.
+	NodesOnly     bool `protobuf:"varint,2,opt,name=nodes_only,json=nodesOnly,proto3" json:"nodes_only,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -5424,6 +5426,13 @@ func (x *StatusRequest) GetApp() string {
 		return x.App
 	}
 	return ""
+}
+
+func (x *StatusRequest) GetNodesOnly() bool {
+	if x != nil {
+		return x.NodesOnly
+	}
+	return false
 }
 
 type StatusResponse struct {
@@ -5920,8 +5929,10 @@ type NodeStatus struct {
 	// Armada version its agent last reported.
 	Version string `protobuf:"bytes,9,opt,name=version,proto3" json:"version,omitempty"`
 	// Admin labels plus armada.os and armada.arch.
-	Labels        map[string]string `protobuf:"bytes,10,rep,name=labels,proto3" json:"labels,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	Restricted    bool              `protobuf:"varint,11,opt,name=restricted,proto3" json:"restricted,omitempty"`
+	Labels     map[string]string `protobuf:"bytes,10,rep,name=labels,proto3" json:"labels,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Restricted bool              `protobuf:"varint,11,opt,name=restricted,proto3" json:"restricted,omitempty"`
+	// Replicas assigned to the node (not finished job attempts).
+	Replicas      int32 `protobuf:"varint,12,opt,name=replicas,proto3" json:"replicas,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -6031,6 +6042,13 @@ func (x *NodeStatus) GetRestricted() bool {
 		return x.Restricted
 	}
 	return false
+}
+
+func (x *NodeStatus) GetReplicas() int32 {
+	if x != nil {
+		return x.Replicas
+	}
+	return 0
 }
 
 type TopRequest struct {
@@ -11210,9 +11228,11 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\brevision\x18\x02 \x01(\tR\brevision\">\n" +
 	"\x0eDeployResponse\x12\x10\n" +
 	"\x03app\x18\x01 \x01(\tR\x03app\x12\x1a\n" +
-	"\brevision\x18\x02 \x01(\tR\brevision\"!\n" +
+	"\brevision\x18\x02 \x01(\tR\brevision\"@\n" +
 	"\rStatusRequest\x12\x10\n" +
-	"\x03app\x18\x01 \x01(\tR\x03app\"g\n" +
+	"\x03app\x18\x01 \x01(\tR\x03app\x12\x1d\n" +
+	"\n" +
+	"nodes_only\x18\x02 \x01(\bR\tnodesOnly\"g\n" +
 	"\x0eStatusResponse\x12(\n" +
 	"\x04apps\x18\x01 \x03(\v2\x14.armada.v1.AppStatusR\x04apps\x12+\n" +
 	"\x05nodes\x18\x02 \x03(\v2\x15.armada.v1.NodeStatusR\x05nodes\"\xf9\x03\n" +
@@ -11257,7 +11277,7 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	" \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12\x1a\n" +
 	"\brestarts\x18\v \x01(\x05R\brestarts\x12B\n" +
 	"\x0flast_restart_at\x18\f \x01(\v2\x1a.google.protobuf.TimestampR\rlastRestartAt\x12!\n" +
-	"\flast_restart\x18\r \x01(\tR\vlastRestart\"\xdc\x03\n" +
+	"\flast_restart\x18\r \x01(\tR\vlastRestart\"\xf8\x03\n" +
 	"\n" +
 	"NodeStatus\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1d\n" +
@@ -11275,7 +11295,8 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	" \x03(\v2!.armada.v1.NodeStatus.LabelsEntryR\x06labels\x12\x1e\n" +
 	"\n" +
 	"restricted\x18\v \x01(\bR\n" +
-	"restricted\x1a9\n" +
+	"restricted\x12\x1a\n" +
+	"\breplicas\x18\f \x01(\x05R\breplicas\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x1e\n" +

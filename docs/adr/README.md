@@ -35,3 +35,7 @@ Every architectural decision that is hard to reverse is recorded here. Copy `000
 | [0029](0029-spec-variables-and-env-from-secrets.md) | Spec variables and variables from secrets | Accepted |
 | [0030](0030-release-checks-and-upgrades.md) | Release checks and machine upgrades | Accepted |
 | [0031](0031-cluster-settings.md) | Cluster settings | Accepted |
+| [0032](0032-command-line.md) | The command line | Accepted |
+
+Commands in records before 0032 carry the names of their time; ADR 0032
+lists the command line as it is now.

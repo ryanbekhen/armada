@@ -18,12 +18,16 @@ import (
 )
 
 func newClusterCommand(g *globals) *cobra.Command {
-	cmd := &cobra.Command{Use: "cluster", Short: "Show or change cluster settings"}
+	cmd := &cobra.Command{Use: "cluster", Short: "The cluster's status, settings, and events"}
+	var so *outputFlag
 	show := &cobra.Command{
 		Use:   "show",
 		Short: "Show cluster settings",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if err := so.check(); err != nil {
+				return err
+			}
 			client, conn, err := dialAdmin(g)
 			if err != nil {
 				return err
@@ -33,9 +37,13 @@ func newClusterCommand(g *globals) *cobra.Command {
 			if err != nil {
 				return RPCError(err)
 			}
+			if so.json() {
+				return printJSON(cmd.OutOrStdout(), cc)
+			}
 			return printClusterConfig(cmd.OutOrStdout(), cc)
 		},
 	}
+	so = addOutput(show, false)
 	var (
 		root, email, acmeCA, dnsProvider, dnsToken string
 		trusted                                    []string
@@ -100,8 +108,61 @@ func newClusterCommand(g *globals) *cobra.Command {
 	f.StringVar(&dnsToken, "dns-token", "", "file holding the DNS provider's API token, or - for stdin; an empty file removes it")
 	f.IntVar(&metricsPort, "metrics-port", 0, "port of the Prometheus metrics endpoint on each server's private address; 0 turns it off")
 	f.DurationVar(&lostTimeout, "node-lost-timeout", 0, "how long a node may be unreachable before its replicas move to other nodes")
-	cmd.AddCommand(show, set)
+	cmd.AddCommand(newClusterStatusCommand(g), show, set, newEventsCommand(g, eventsOfCluster))
 	return cmd
+}
+
+func newClusterStatusCommand(g *globals) *cobra.Command {
+	var o *outputFlag
+	cmd := &cobra.Command{
+		Use:   "status",
+		Short: "Summarize the cluster: nodes, apps, and what needs attention",
+		Long: "Summarize the cluster in one line, then list the apps that are not ready\n" +
+			"(at most 20) and the nodes that are not ready, if any.",
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if err := o.check(); err != nil {
+				return err
+			}
+			client, conn, err := dialAdmin(g)
+			if err != nil {
+				return err
+			}
+			defer conn.Close()
+			resp, err := client.ClusterStatus(cmd.Context(), &armadav1.ClusterStatusRequest{})
+			if err != nil {
+				return RPCError(err)
+			}
+			if o.json() {
+				return printJSON(cmd.OutOrStdout(), resp)
+			}
+			return printClusterStatus(cmd.OutOrStdout(), resp)
+		},
+	}
+	o = addOutput(cmd, false)
+	return cmd
+}
+
+func printClusterStatus(out io.Writer, r *armadav1.ClusterStatusResponse) error {
+	_, _ = fmt.Fprintf(out, "nodes %d/%d ready · apps %d · ready %d · rolling out %d · failing %d · jobs %d\n",
+		r.NodesReady, r.Nodes, r.Apps, r.AppsReady, r.AppsProgressing, r.AppsFailing, r.Jobs)
+	tw := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
+	if len(r.Attention) > 0 {
+		_, _ = fmt.Fprintln(tw, "\nNAME\tREADY\tSTATE\tMESSAGE")
+		for _, a := range r.Attention {
+			_, _ = fmt.Fprintf(tw, "%s\t%d/%d\t%s\t%s\n", a.Name, a.Ready, a.Desired, a.State, dash(printable(a.Message)))
+		}
+		if more := int(r.AttentionTotal) - len(r.Attention); more > 0 {
+			_, _ = fmt.Fprintf(tw, "and %d more\n", more)
+		}
+	}
+	if len(r.NodesNotReady) > 0 {
+		_, _ = fmt.Fprintln(tw, "\nNODE NOT READY")
+		for _, n := range r.NodesNotReady {
+			_, _ = fmt.Fprintln(tw, n)
+		}
+	}
+	return tw.Flush()
 }
 
 // readTokenArg reads --dns-token: a file (mode 0600) or "-" for stdin.
@@ -139,14 +200,20 @@ func printClusterConfig(w io.Writer, cc *armadav1.ClusterConfig) error {
 }
 
 func newDomainCommand(g *globals) *cobra.Command {
-	cmd := &cobra.Command{Use: "domain", Aliases: []string{"domains"}, Short: "Manage custom domains"}
-	var app string
+	cmd := &cobra.Command{Use: "domain", Aliases: []string{"domains"}, Short: "List and verify custom domains"}
+	var (
+		app    string
+		lo, vo *outputFlag
+	)
 	list := &cobra.Command{
 		Use:     "list",
 		Aliases: []string{"ls"},
 		Short:   "List custom domains and the DNS records that prove ownership",
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if err := lo.check(); err != nil {
+				return err
+			}
 			id := app
 			if id != "" {
 				var err error
@@ -163,20 +230,27 @@ func newDomainCommand(g *globals) *cobra.Command {
 			if err != nil {
 				return RPCError(err)
 			}
-			if g.project != "" {
+			if !g.allProjects {
 				resp.Domains = slices.DeleteFunc(resp.Domains, func(d *armadav1.Domain) bool {
 					return !slices.ContainsFunc(d.Apps, g.listed)
 				})
+			}
+			if lo.json() {
+				return printJSON(cmd.OutOrStdout(), resp)
 			}
 			return printDomains(cmd, resp.Domains)
 		},
 	}
 	list.Flags().StringVar(&app, "app", "", "only domains used by this app")
+	lo = addOutput(list, false)
 	verify := &cobra.Command{
 		Use:   "verify DOMAIN",
 		Short: "Check a domain's TXT record now",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := vo.check(); err != nil {
+				return err
+			}
 			client, conn, err := dialAdmin(g)
 			if err != nil {
 				return err
@@ -186,19 +260,19 @@ func newDomainCommand(g *globals) *cobra.Command {
 			if err != nil {
 				return RPCError(err)
 			}
+			if vo.json() {
+				return printJSON(cmd.OutOrStdout(), d)
+			}
 			return printDomains(cmd, []*armadav1.Domain{d})
 		},
 	}
+	vo = addOutput(verify, false)
 	cmd.AddCommand(list, verify)
 	return cmd
 }
 
 func printDomains(cmd *cobra.Command, ds []*armadav1.Domain) error {
 	out := cmd.OutOrStdout()
-	if len(ds) == 0 {
-		_, err := fmt.Fprintln(out, "No custom domains.")
-		return err
-	}
 	tw := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
 	_, _ = fmt.Fprintln(tw, "DOMAIN\tAPPS\tVERIFIED\tTLS")
 	var pending []*armadav1.Domain
@@ -211,12 +285,14 @@ func printDomains(cmd *cobra.Command, ds []*armadav1.Domain) error {
 	if err := tw.Flush(); err != nil {
 		return err
 	}
+	// What needs doing goes to stderr, so the table stays a table.
 	if len(pending) > 0 {
-		_, _ = fmt.Fprintln(out, "\nTo verify ownership, create these DNS records (checked every minute):")
+		w := cmd.ErrOrStderr()
+		_, _ = fmt.Fprintln(w, "\nTo verify ownership, create these DNS records (checked every minute):")
 		for _, d := range pending {
-			_, _ = fmt.Fprintf(out, "  TXT  %s  %q\n", d.TxtName, d.TxtValue)
+			_, _ = fmt.Fprintf(w, "  TXT  %s  %q\n", d.TxtName, d.TxtValue)
 			if d.Message != "" {
-				_, _ = fmt.Fprintf(out, "       last check: %s\n", d.Message)
+				_, _ = fmt.Fprintf(w, "       last check: %s\n", printable(d.Message))
 			}
 		}
 	}

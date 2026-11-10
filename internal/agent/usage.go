@@ -31,7 +31,7 @@ type usageSample struct {
 func (a *Agent) usageLoop(ctx context.Context) {
 	sr, ok := a.cfg.Driver.(runtime.StatsReader)
 	if !ok || !runtime.CanStats(a.cfg.Driver) {
-		a.log.Info("the container runtime cannot sample containers; armada top shows no usage for this node")
+		a.log.Info("the container runtime cannot sample containers; armada app top shows no usage for this node")
 		sr = nil
 	}
 	lr, _ := a.cfg.Proxy.(proxy.LoadReader)

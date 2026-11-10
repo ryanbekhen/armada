@@ -144,7 +144,7 @@ func (s *Server) reconcileVolumeApp(ctx context.Context, rc *reconcileRun, app *
 			}
 		}
 	}
-	msg := "no node can fit its replica; see armada status"
+	msg := "no node can fit its replica; see armada node top"
 	if pinned != "" {
 		msg = fmt.Sprintf("its volumes are on node %s, which cannot take the replica now (not ready, out of capacity, or not allowed by its placement)", pinned)
 	}

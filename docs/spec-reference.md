@@ -1,9 +1,12 @@
 # App spec reference
 
-`armada deploy -f app.yaml` takes one app or job spec in YAML. Parsing is strict:
-an unknown field is an error, and a field that exists in the format but is
-not implemented in this version is rejected with a message saying so, never
-ignored.
+A spec describes one app or job in YAML. `armada app create --file` and
+`armada app update --file` (for jobs, `armada job create --file` and
+`armada job update --file`) take one; `armada app create NAME` with flags
+writes one for you, and `armada app show NAME -o yaml` prints the spec an
+app runs, in this format. Parsing is strict: an unknown field is an error,
+and a field that exists in the format but is not implemented in this
+version is rejected with a message saying so, never ignored.
 
 ```yaml
 apiVersion: armada.dev/v1alpha1   # optional; must match if present
@@ -51,9 +54,36 @@ volumes:                          # optional: data kept on the replica's node
     owner: "1000:1000"
 ```
 
+## Flags
+
+`armada app create` and `armada app update` set these fields from flags;
+`update` changes only the fields its flags name and keeps the rest of the
+spec the app runs. Everything else is written in a file.
+
+| Flag | Field |
+| --- | --- |
+| `--image` | `image` |
+| `--port`, `--ingress external\|internal\|none` | `ingress.port`, `ingress.type` |
+| `--domain D` (repeatable), `--remove-domain D` | `ingress.domains` |
+| `--env K=V`, `--secret-env K=SECRET`, `--remove-env K` | `env` |
+| `--env-from-secrets[=false]` | `envFrom` |
+| `--command`, `--args` (one word per flag, repeated: `--args --port --args 80`) | `command`, `args` |
+| `--replicas N` | `scale.min` and `scale.max` |
+| `--min N --max N` with one of `--scale-cpu P`, `--scale-memory P`, `--scale-http N` | `scale` with one rule |
+| `--cpu`, `--memory` | `resources` |
+| `--health-path P` | `probes.readiness.path` |
+| `--registry-user U --registry-secret S` | `registry` (the server is the image's registry) |
+
+`armada job create` and `armada job update` take `--image`, `--command`,
+`--args`, `--env`, `--secret-env`, `--remove-env`, `--env-from-secrets`,
+`--cpu`, `--memory`, `--registry-user`, `--registry-secret`, and the job
+fields `--schedule`, `--time-zone`, `--timeout`, `--retries`, and
+`--concurrency`.
+
 ## Variables
 
-A spec can hold `${NAME}` in any value, filled in by `armada deploy` from
+A spec can hold `${NAME}` in any value, filled in by `create --file` and
+`update --file` from
 `--var NAME=VALUE` or from a file of `NAME=VALUE` lines given with
 `--vars`, so one spec serves several environments:
 
@@ -72,7 +102,7 @@ scale:
 
 ```bash
 # production.env holds the lines DOMAIN=example.com and API_MAX=4
-armada deploy -f api.yaml --vars production.env --var TAG=sha-1a2b3c
+armada app update api --file api.yaml --vars production.env --var TAG=sha-1a2b3c
 ```
 
 - `--var` wins over `--vars`. A file may hold variables a spec does not
@@ -96,8 +126,8 @@ Lowercase letters, digits, and single hyphens, starting with a letter, at
 most 63 characters. It names the app's URL (`<name>.<root domain>` or
 `<name>.internal`), its containers, and its secrets.
 
-The project is not part of the file: `armada deploy --project NAME` puts
-the app in a project, where its URLs become `<name>.<project>.<root
+The project is not part of the file: the project a command works in
+(`armada project use NAME`, or `--project NAME`) holds the app, where its URLs become `<name>.<project>.<root
 domain>` and `<name>.<project>.internal` (ADR 0026). A `project` field in
 the file is refused.
 
@@ -233,11 +263,11 @@ ready; see [ADR 0005](adr/0005-rolling-updates.md).
 `min` is the number of replicas to run, 0–100 (default 1; 0 only with
 `rules`, see "Scale to zero" below). `max` defaults to
 `min` and must not be lower; it only matters with `rules` (see
-"Autoscaling" below). Replicas are spread across ready, uncordoned
+"Autoscaling" below). Replicas are spread across ready, not drained
 nodes that the app's `placement` allows (a rollout spreads the new
 revision the same way), and spread out again, one at a time, when a node
-joins, returns, or is uncordoned. `armada scale <app> <n>` changes the
-count without a new revision.
+joins, returns, or resumes. `armada app scale APP --replicas N` changes
+the count until the next update, without a new revision.
 
 #### Autoscaling
 
@@ -270,10 +300,10 @@ scale:
   - **Down:** it falls only after the load has stayed lower for 5 minutes.
   - **Hold:** changes within 10% of the target are ignored, and the count
     is frozen during a rollout.
-- **Deploys and manual scaling.** A redeploy keeps the current count
-  within the new bounds. `armada scale` refuses an autoscaled app.
-- **What to watch.** `armada status` shows each rule's current value
-  against its target, and `armada events APP` shows `ScaledUp` and
+- **Updates and manual scaling.** An update keeps the current count
+  within the new bounds. `armada app scale` refuses an autoscaled app.
+- **What to watch.** `armada app show` shows each rule's current value
+  against its target, and `armada app events APP` shows `ScaledUp` and
   `ScaledDown` with the reason.
 - **Reserved rules.** `queue` rules (`list`, `length`) and `schedule` rules
   are rejected as not implemented yet.
@@ -299,7 +329,7 @@ scale:
 
 - **Requirements.** `min: 0` needs `rules` and ingress (external or
   internal). `idleAfter` is only valid with `min: 0`.
-- **First deploy.** A first deploy starts one replica.
+- **First deploy.** Creating the app starts one replica.
 - **Waking up.** While the app is at zero, a request waits up to 60
   seconds while Armada starts a replica, then gets its answer as usual. If
   no replica is ready by then, it gets `503` with `Retry-After`. The wait is
@@ -320,13 +350,13 @@ Without `cpu`, a replica reserves 100m and may use any idle CPU. A node only
 takes a replica that fits in what its other replicas leave free, after
 Armada keeps 100m of CPU and 128Mi of memory for itself (another 100m on
 control plane servers). On a busy node, containers share CPU in proportion
-to what they reserve. When no node has room, `armada status` says which
+to what they reserve. When no node has room, `armada app show` says which
 resource is short.
 
 A process that goes over `memory` is killed by the kernel. When that ends the
-container, `armada status` and `armada events` say it ran out of memory and the
+container, `armada app show` and `armada app events` say it ran out of memory and the
 replica restarts; when another process of the container dies, such as an nginx
-worker, the container keeps running and `armada events` records `OutOfMemory`.
+worker, the container keeps running and `armada app events` records `OutOfMemory`.
 
 Every container also gets a PID limit of 1024, `no-new-privileges`, and a
 reduced capability set, and never runs privileged, on the host network, or
@@ -348,7 +378,7 @@ placement:
 A node runs the app only if it has every key with one of the listed values
 (and the `spreadBy` key, below).
 If no node qualifies, or the qualifying nodes are full, the replicas are not
-placed anywhere else: `armada status` says why, a rollout fails and leaves
+placed anywhere else: `armada app show` says why, a rollout fails and leaves
 the old revision serving. Placement belongs to the revision, so changing it
 rolls the app out onto the new set of nodes. A **restricted** node runs only
 apps whose `require` names one of its own labels (`armada.*` labels do not
@@ -367,7 +397,7 @@ placement:
 Four replicas on three `java` nodes and one `sulawesi` node run two in each
 region. Only nodes with the label get replicas. The spread is soft: when no
 node of a value has room, or its nodes are down, replicas go to the other
-values (`armada status` says so) and move back once there is room. Use
+values (`armada app show` says so) and move back once there is room. Use
 `require` for values an app must never leave. Label names mean nothing to
 Armada: `region`, `rack`, or `city` are whatever your nodes are labelled
 with.
@@ -378,7 +408,7 @@ values. A placement needs `require`, `spreadBy`, or both.
 
 In a cluster that mixes architectures, Armada keeps each app on nodes its
 image is built for: the first node to pull the image reports its
-platforms (`armada revisions` shows them), and from then on only nodes
+platforms (`armada app revision list` shows them), and from then on only nodes
 with a matching `armada.os`/`armada.arch` get replicas. A replica that
 landed on another node before that fails fast and is replaced.
 
@@ -395,7 +425,7 @@ ingress:
 revisions:
   mode: multiple
   traffic:
-    - revision: web--r3   # an existing revision (armada revisions web)
+    - revision: web--r3   # an existing revision (armada app revision list web)
       weight: 90
     - revision: latest    # the revision this deploy creates
       weight: 10
@@ -419,11 +449,11 @@ revisions:
   each revision takes requests as its replicas become ready. Changing only
   `traffic` creates no new revision.
 - **Replicas.** Each revision runs `max(1, round(replicas × weight ÷ 100))`
-  replicas, where `replicas` is `scale.min`, `armada scale`, or the
+  replicas, where `replicas` is `scale.min`, `armada app scale`, or the
   autoscaler's count.
-- **Changing weights.** `armada traffic web web--r3=50 web--r4=50` (or
-  `r3=50 r4=50`) changes the weights until the next deploy. A revision left
-  out stops serving. `armada rollback` refuses apps in multiple mode.
+- **Changing weights.** `armada app traffic web web--r3=50 web--r4=50` (or
+  `r3=50 r4=50`) changes the weights until the next update. A revision left
+  out stops serving. `armada app rollback` refuses apps in multiple mode.
 - **Leaving multiple mode.** Deploy with `mode: single` (or no
   `revisions`) for a rolling update. Every revision in the traffic serves
   until the new one is ready.
@@ -460,14 +490,14 @@ volumes:
   `revisions.mode: multiple`, and jobs with volumes are rejected.
 - **Bound to a node.** The first replica is placed on a node that can mount
   volumes, and its volumes are created there. From then on the app always
-  runs on that node. It is not moved off a cordoned node, and it stays down
+  runs on that node. It is not moved off a drained node, and it stays down
   while that node is lost: see "Volumes" in the
   [operations guide](operations.md#volumes) for recovery.
 - **Deploys stop the old replica before starting the new one.** The app is
   down for the old replica's drain plus the new one's start.
 - **Kept until removed.** A volume stays when the app is redeployed without
-  it or deleted, until `armada volume rm`. Its size is shown by
-  `armada volume ls`; there is no quota.
+  it or deleted, until `armada volume delete`. Its size is shown by
+  `armada volume list`; there is no quota.
 
 ## Jobs
 
@@ -500,13 +530,13 @@ resources:
 | `timeout` | `1h` | How long one attempt may take from placement (pulling the image included), `1s` to `24h`; then it is stopped and counts as failed. |
 | `retries` | `0` | Further attempts after a failed one (non-zero exit, start failure, lost node, timeout), 0 to 10, after 10s, 20s, 40s, and so on up to 5 minutes. |
 | `concurrency` | `forbid` | What happens when a run is due while another is active: `forbid` skips the new one (and `armada job run` refuses); `replace` cancels the active run. |
-| `history` | `5` | Finished runs kept, 1 to 50. The container of a finished run is kept 24 hours for `armada logs`; its address is freed when it stops. |
+| `history` | `5` | Finished runs kept, 1 to 50. The container of a finished run is kept 24 hours for `armada job logs`; its address is freed when it stops. |
 
 - `env`, `secretFiles`, `registry`, `resources`, and `placement` mean the
   same as for apps. `ingress`, `probes`, `scale`, `revisions`, and
   `volumes` are rejected, and these job fields are rejected on apps.
 - A job and an app cannot share a name.
-- A deploy changes the job at once: runs that start afterwards use the new
+- `armada job update` changes the job at once: runs that start afterwards use the new
   spec, and a run in progress keeps its own.
 - If the control plane is down when a run is due, the run starts when it is
   back, as long as that is within an hour; otherwise it is skipped.

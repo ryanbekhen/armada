@@ -130,7 +130,7 @@ Note the **CA SHA-256** it prints; nodes check it when they join.
 
 ```bash
 sudo systemctl enable --now armada-server
-armada status    # give it a few seconds to start
+armada cluster status    # give it a few seconds to start
 armada cluster set --acme-email you@example.com --acme-ca letsencrypt-staging
 ```
 
@@ -201,38 +201,44 @@ Armada terminates TLS on your nodes either way. If you proxy:
 
 Other DNS providers need nothing but plain A records.
 
-## 6. Deploy an app
-
-```yaml
-# hello.yaml
-name: hello
-image: traefik/whoami:v1.10
-ingress:
-  type: external
-  port: 80
-probes:
-  readiness:
-    path: /health
-scale:
-  min: 2
-```
+## 6. Create an app
 
 ```bash
-armada deploy -f hello.yaml
-armada status hello
+armada app create hello --image traefik/whoami:v1.10 --port 80 --ingress external --replicas 2
+armada app show hello
 curl https://hello.apps.example.com    # add -k while on the staging CA
 ```
 
-Change the image and deploy again for a rolling update. `armada revisions
-hello` lists revisions and `armada rollback hello` returns to the previous
-one. The [spec reference](spec-reference.md) lists every field.
+Every change is a new revision, rolled out replica by replica:
+
+```bash
+armada app update hello --env WHOAMI_NAME=hello --wait
+armada app revision list hello
+armada app rollback hello          # back to the revision before
+```
+
+`armada app update` with flags changes only what they name. To keep the
+spec in a file (in git, for example), export it once and work from the
+file; `--diff` shows what an update would change:
+
+```bash
+armada app show hello -o yaml > hello.yaml
+armada app update hello --file hello.yaml --diff
+armada app update hello --file hello.yaml
+```
+
+The file holds everything flags cannot set, such as probes with their
+own timing, routes, secret files, and volumes. The
+[spec reference](spec-reference.md) lists every field, and the file
+creates the app on another cluster with `armada app create --file
+hello.yaml`.
 
 ## 7. Add nodes
 
 On the first machine:
 
 ```bash
-armada token create
+armada node join-token
 ```
 
 It prints a single-use token (valid for an hour) and the exact commands for
@@ -254,7 +260,7 @@ any one; two are worse than one. Add two more, one at a time, on machines
 prepared with steps 1 and 2:
 
 ```bash
-armada token create --server                                 # on the first machine
+armada server join-token                                     # on the first machine
 sudo armadad server join 10.0.0.2:7444 --ca-hash sha256:...   # on the new machine; paste the token when asked
 sudo systemctl enable --now armada-server
 armada server list                                           # all "voting"
@@ -275,7 +281,7 @@ curl -fsSL https://raw.githubusercontent.com/ryanbekhen/armada/main/install.sh |
 Give yourself a certificate of your own. On a server where `armada` works:
 
 ```bash
-armada admin add yourname -o yourname.config
+armada admin create yourname -o yourname.config
 ```
 
 Copy the file to your computer privately (it is full control of the
@@ -291,8 +297,8 @@ install -m 0600 yourname.config ~/.armada/config
 ways.
 
 **Through a VPN into the private network** (WireGuard or any other). If
-your computer already reaches the private IPs, run `armada status` and you
-are done. If the VPN ends on the server itself, also route the server's
+your computer already reaches the private IPs, run `armada cluster status`
+and you are done. If the VPN ends on the server itself, also route the server's
 private IP into the tunnel and let the tunnel reach port 7443, for example
 with WireGuard and ufw:
 
@@ -322,13 +328,13 @@ back into the file, so set it again afterwards.
 ## 10. Give others access
 
 Give every person who administers the cluster a certificate of their own,
-the same way as in step 9: `armada admin add alice -o alice.config`. The
+the same way as in step 9: `armada admin create alice -o alice.config`. The
 audit log names them, and you can take one person's access back without
 touching anyone else's:
 
 ```bash
-armada admin ls               # who has access
-armada admin rm alice --yes   # refuse every certificate of alice at once
+armada admin list                 # who has access
+armada admin delete alice --yes   # refuse every certificate of alice at once
 ```
 
 Certificates last a year; each person renews their own with `armada admin
@@ -347,30 +353,34 @@ certificates of their own.
 
 | Task | Command |
 | --- | --- |
-| Logs | `armada logs hello -f` |
-| Shell in a replica | `armada exec hello -it -- sh` (a single command: `armada exec hello -- env`) |
-| Scale | `armada scale hello 3` |
-| Scale with load | add `scale.max` and `scale.rules` (`http`, `cpu`, `memory`) to the spec (see [spec reference](spec-reference.md#autoscaling)); `scale.min: 0` stops idle apps until the next request ([scale to zero](spec-reference.md#scale-to-zero)) |
-| Secrets | `armada secret set hello api-key < key.txt`, or `armada secret import hello .env` for many (`API_KEY` becomes `api-key`), then reference them with `secretRef` |
-| Custom domain | add it under `ingress.domains`, publish the TXT record from `armada domain list`, run `armada domain verify www.example.com` |
-| Internal service | `ingress.type: internal`; other containers call `http://<app>.internal` |
-| Keep data | add `volumes` to the spec (one replica, bound to its node; see [spec reference](spec-reference.md#volumes)); `armada volume ls`, `armada volume backup hello data -o -` |
-| Run a job | deploy a `kind: job` spec, then `armada job run NAME` (or set `schedule`); `armada job runs NAME`, `armada logs NAME` (see [spec reference](spec-reference.md#jobs)) |
-| Canary | `revisions.mode: multiple` with weights in the spec, then `armada traffic hello r2=50 r3=50` (see [spec reference](spec-reference.md#revisions)) |
-| What happened | `armada events` (one app: `armada events hello`; keep following: `-f`) |
-| CPU and memory use | `armada top` (one app's replicas: `armada top hello`; nodes: `armada top --nodes`) |
+| Apps | `armada app list` (every project: `-A`), `armada app show hello`, `armada cluster status` for the whole cluster |
+| Logs | `armada app logs hello -f` |
+| Shell in a replica | `armada app exec hello -it -- sh` (a single command: `armada app exec hello -- env`) |
+| Scale | `armada app scale hello --replicas 3` (until the next update; to keep it, `armada app update hello --replicas 3`) |
+| Scale with load | `armada app update hello --min 2 --max 10 --scale-http 50` (or `--scale-cpu 70`, `--scale-memory 80`; see [spec reference](spec-reference.md#autoscaling)); `scale.min: 0` in the spec stops idle apps until the next request ([scale to zero](spec-reference.md#scale-to-zero)) |
+| Environment | `armada app update hello --env LOG_LEVEL=debug`, `--remove-env LOG_LEVEL` |
+| Secrets | `armada secret set hello api-key < key.txt`, or `armada secret import hello .env` for many (`API_KEY` becomes `api-key`), then `armada app update hello --secret-env API_KEY=api-key` (or `--env-from-secrets` for all of them) |
+| Custom domain | `armada app update hello --domain www.example.com`, publish the TXT record `armada domain list` prints, run `armada domain verify www.example.com` |
+| Internal service | `--ingress internal`; other containers call `http://<app>.internal` |
+| Keep data | add `volumes` to the spec file (one replica, bound to its node; see [spec reference](spec-reference.md#volumes)); `armada volume list`, `armada volume backup hello data -o -` |
+| Run a job | `armada job create migrate --image IMAGE --command ./migrate`, then `armada job run migrate --wait` (or `--schedule "0 3 * * *"`); `armada job run list migrate`, `armada job logs migrate` (see [spec reference](spec-reference.md#jobs)) |
+| Canary | `revisions.mode: multiple` with weights in the spec, then `armada app traffic hello r2=50 r3=50` (see [spec reference](spec-reference.md#revisions)) |
+| What happened | `armada app events hello` (the project's apps: `armada app events`; everything: `armada cluster events`; keep following: `-f`) |
+| CPU and memory use | `armada app top` (one app's replicas: `armada app top hello`; nodes: `armada node top`) |
+| Projects | `armada project create staging`, `armada project use staging` (commands then work in it; `--project` names another) |
 | Prometheus metrics | `armada cluster set --metrics-port 9443` (each server's private address), then `armada metrics credentials prometheus` for the scraper (see [operations](operations.md#metrics)) |
-| Maintenance | `armada node cordon NODE` moves replicas away; `armada node uncordon NODE` (replicas spread back to it on their own) |
+| Maintenance | `armada node drain NODE` moves replicas away; `armada node resume NODE` (replicas spread back to it on their own) |
 | Choose nodes | `armada node label NODE region=sulawesi`, then `placement.require` in the spec; `armada node restrict NODE` keeps a node for apps that ask for it |
-| Remove a node | `armada node remove NODE` (revokes its certificate) |
-| Administrators | `armada admin add NAME -o FILE`, `armada admin ls`, `armada admin rm NAME --yes` (see [step 10](#10-give-others-access)) |
-| Control plane servers | `armada server list`, `armada server remove NAME` |
+| Delete a node | `armada node delete NODE` (revokes its certificate) |
+| Administrators | `armada admin create NAME -o FILE`, `armada admin list`, `armada admin delete NAME --yes` (see [step 10](#10-give-others-access)) |
+| Control plane servers | `armada server list`, `armada server delete NAME` |
 | Back up | `armadad backup -o -` (control plane; volumes: `armada volume backup`; see [operations](operations.md#backup)) |
 | Upgrade | `armada version` shows the latest release; `sudo armadad upgrade` on each machine, servers first, one at a time (see [operations](operations.md#upgrades)) |
 
-Short forms work everywhere: `ls` for `list`, `rm` or `delete` for
-`remove`, and plural group names (`armada nodes ls`, `armada servers ls`,
-`armada secrets ls hello`). `armada <command> --help` lists them.
+Every command is `armada <noun> <verb>`. Short forms work everywhere: `ls`
+for `list`, `rm` for `delete`, and plural nouns (`armada apps ls`,
+`armada nodes ls`). Lists and shows take `-o json`. `armada <noun> --help`
+lists the verbs.
 
 Read the [threat model](threat-model.md), in particular the accepted
 limitations, before running anything you care about.

@@ -55,16 +55,16 @@ func TestServerJoinCommand(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 	}
 
-	code, out, stderr := cli("token", "create", "--server")
+	code, out, stderr := cli("server", "join-token")
 	if code != 0 {
-		t.Fatalf("token create --server: %s", stderr)
+		t.Fatalf("server join-token: %s", stderr)
 	}
-	tok := regexp.MustCompile(`Token \(shown once\): (\S+)`).FindStringSubmatch(out)
+	tok := regexp.MustCompile(`Token \(.*shown once\): (\S+)`).FindStringSubmatch(out)
 	line := regexp.MustCompile(`armadad server join (\S+) --ca-hash (\S+)`).FindStringSubmatch(out)
-	if tok == nil || line == nil || !strings.Contains(out, "Server token created") {
+	if tok == nil || line == nil || !strings.Contains(out, "server.env") {
 		t.Fatalf("token output = %q", out)
 	}
-	if code, _, _ := cli("token", "create", "--server", "--ttl", "2h"); code == 0 {
+	if code, _, _ := cli("server", "join-token", "--ttl", "2h"); code == 0 {
 		t.Error("2h server token accepted")
 	}
 
@@ -76,8 +76,8 @@ func TestServerJoinCommand(t *testing.T) {
 		return c, o.String(), e.String()
 	}
 	// A node token does not add a server.
-	_, nout, _ := cli("token", "create")
-	nodeTok := regexp.MustCompile(`Token \(shown once\): (\S+)`).FindStringSubmatch(nout)
+	_, nout, _ := cli("node", "join-token")
+	nodeTok := regexp.MustCompile(`Token \(.*shown once\): (\S+)`).FindStringSubmatch(nout)
 	if c, _, e := serverJoin(nodeTok[1]); c == 0 || !strings.Contains(e, "invalid join token") {
 		t.Errorf("server join with a node token: %d %q", c, e)
 	}
@@ -121,11 +121,11 @@ func TestServerJoinCommand(t *testing.T) {
 		t.Errorf("node list with two addresses: %s", stderr)
 	}
 
-	if code, _, stderr := cli("server", "remove", "node-1"); code == 0 || !strings.Contains(stderr, "leader") {
+	if code, _, stderr := cli("server", "delete", "node-1"); code == 0 || !strings.Contains(stderr, "leader") {
 		t.Errorf("leader removed itself: %q", stderr)
 	}
-	if code, out, stderr := cli("server", "remove", "cp-2"); code != 0 || !strings.Contains(out, "Wipe its data directory") {
-		t.Fatalf("server remove: %q %q", out, stderr)
+	if code, out, stderr := cli("server", "delete", "cp-2"); code != 0 || !strings.Contains(out, "Wipe its data directory") {
+		t.Fatalf("server delete: %q %q", out, stderr)
 	}
 	if _, out, _ := cli("server", "list"); strings.Contains(out, "cp-2") {
 		t.Errorf("removed server listed: %q", out)

@@ -72,7 +72,7 @@ type Config struct {
 	Logger    *slog.Logger
 	// Resync is how often containers are reconciled without a trigger.
 	Resync time.Duration
-	// UsageInterval is how often replicas are sampled for armada top
+	// UsageInterval is how often replicas are sampled for armada app top
 	// (default 10s, ADR 0016).
 	UsageInterval time.Duration
 	// ImagePrune is how often unused images are removed (default 10m,

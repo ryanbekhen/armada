@@ -442,7 +442,7 @@ func (s *Server) reconcileRevision(ctx context.Context, rc *reconcileRun, app *s
 		unplacedKey += "/" + target.Name
 	}
 	s.condition(ctx, unplacedKey, unplaced, store.Event{Kind: eventApp, Object: app.Name, App: app.Name, Reason: "Unschedulable",
-		Message: fmt.Sprintf("no node can fit another replica (%d of %d placed); see armada status", len(current), app.Replicas)})
+		Message: fmt.Sprintf("no node can fit another replica (%d of %d placed); see armada node top", len(current), app.Replicas)})
 	if all, err = s.evacuate(ctx, rc, app, all, current, old, append(lost, moving...), serving, working); err != nil {
 		return nil, err
 	}

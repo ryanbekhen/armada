@@ -1424,7 +1424,7 @@ func (t *etx) resolveTraffic(app, latest string, traffic []spec.TrafficTarget) (
 		seen[tt.Revision] = true
 		rev, err := t.revision(tt.Revision)
 		if errors.Is(err, ErrNotFound) || (err == nil && rev.App != app) {
-			return nil, fmt.Errorf("revisions.traffic: %s is not a revision of %s (see armada revisions %s): %w", tt.Revision, app, app, ErrPrecondition)
+			return nil, fmt.Errorf("revisions.traffic: %s is not a revision of %s (see armada app revision list %s): %w", tt.Revision, app, app, ErrPrecondition)
 		}
 		if err != nil {
 			return nil, err
@@ -1581,7 +1581,7 @@ func (s *Etcd) Rollback(ctx context.Context, app, revision, actor string) (Revis
 			return fmt.Errorf("%s is a job; jobs have no rollouts (deploy the spec you want its next runs to use): %w", app, ErrPrecondition)
 		}
 		if len(a.Traffic) > 0 || rev.Spec.MultipleRevisions() {
-			return fmt.Errorf("%s splits traffic between revisions; change the weights with armada traffic %s or in its spec: %w", app, app, ErrPrecondition)
+			return fmt.Errorf("%s splits traffic between revisions; change the weights with armada app traffic %s or in its spec: %w", app, app, ErrPrecondition)
 		}
 		if err := t.checkPins(rev); err != nil {
 			return err

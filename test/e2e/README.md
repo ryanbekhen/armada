@@ -58,8 +58,8 @@ E2E_ACME_EMAIL=you@example.org sh test/e2e/cluster.sh hosts
 | `E2E_SERVER_FLAGS` | empty | Extra `armadad server` flags |
 | `E2E_CONFORMANCE` | empty | Driver conformance test binary for the last machine's architecture, built with `GOOS=linux go test -c -tags integration -o bin/conformance ./internal/runtime/containerd/`; runs the suite on that node's embedded runtime once the cluster is ready |
 
-The script stops at the first failure and prints `armada server list` and
-`armada status`. A full run on four small machines takes about 10 minutes
+The script stops at the first failure and prints `armada server list`,
+`armada cluster status`, and `armada app list -A`. A full run on four small machines takes about 10 minutes
 once the binaries have been copied to them.
 
 ## Running only some scenarios
@@ -124,13 +124,13 @@ A release runs every scenario.
    requires the label runs only there; once the label is gone, `armada
    status` explains why that app has nowhere to go; reopening the node
    spreads the app back.
-10. Image platforms: `armada revisions` lists every node architecture for
+10. Image platforms: `armada app revision list` lists every node architecture for
    the test app; an image built only for amd64, and one built only for
    arm64, each run only on nodes of that architecture, or, when the
-   cluster has none, nowhere, with `armada status` naming the platform.
+   cluster has none, nowhere, with `armada app show` naming the platform.
 11. CPU reservations: the test app's containers get a CPU weight from
     their default 100m reservation; an app reserving 64 cores runs nowhere,
-    and `armada status` says CPU is short.
+    and `armada app show` says CPU is short.
 12. Spreading over a label: with every node but the last in one zone and
     the last alone in another, an app spread by zone puts half of its
     replicas on the last node.

@@ -166,7 +166,7 @@ type AdminServiceClient interface {
 	CancelJob(ctx context.Context, in *CancelJobRequest, opts ...grpc.CallOption) (*CancelJobResponse, error)
 	DeleteJob(ctx context.Context, in *DeleteJobRequest, opts ...grpc.CallOption) (*DeleteJobResponse, error)
 	// RemoveApp drains an app's replicas and then removes it with its revisions
-	// and secrets. Its volumes stay until `armada volume rm`.
+	// and secrets. Its volumes stay until `armada volume delete`.
 	RemoveApp(ctx context.Context, in *RemoveAppRequest, opts ...grpc.CallOption) (*RemoveAppResponse, error)
 }
 
@@ -815,7 +815,7 @@ type AdminServiceServer interface {
 	CancelJob(context.Context, *CancelJobRequest) (*CancelJobResponse, error)
 	DeleteJob(context.Context, *DeleteJobRequest) (*DeleteJobResponse, error)
 	// RemoveApp drains an app's replicas and then removes it with its revisions
-	// and secrets. Its volumes stay until `armada volume rm`.
+	// and secrets. Its volumes stay until `armada volume delete`.
 	RemoveApp(context.Context, *RemoveAppRequest) (*RemoveAppResponse, error)
 	mustEmbedUnimplementedAdminServiceServer()
 }

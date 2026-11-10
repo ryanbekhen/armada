@@ -139,7 +139,7 @@ func TestTrafficSplitting(t *testing.T) {
 		t.Errorf("status traffic %+v desired %d", a.Traffic, a.DesiredReplicas)
 	}
 
-	// Scaling and rollback refuse; armada traffic moves everything to r2.
+	// Scaling and rollback refuse; armada app traffic moves everything to r2.
 	if _, err := c.admin.Rollback(c.ctx, &armadav1.RollbackRequest{App: "web", Revision: "web--r1"}); status.Code(err) != codes.FailedPrecondition {
 		t.Errorf("rollback: %v", err)
 	}

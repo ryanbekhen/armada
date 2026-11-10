@@ -90,11 +90,11 @@ func TestVersionRejectsBadInput(t *testing.T) {
 func TestUnknownCommand(t *testing.T) {
 	t.Parallel()
 
-	code, _, stderr := run(t, "deploy-everything")
+	code, _, stderr := run(t, "deploy")
 	if code != 1 {
 		t.Errorf("exit code = %d, want 1", code)
 	}
-	if !strings.Contains(stderr, `unknown command "deploy-everything"`) {
+	if !strings.Contains(stderr, `unknown command "deploy"`) {
 		t.Errorf("stderr = %q, want unknown command error", stderr)
 	}
 }
@@ -139,7 +139,7 @@ func TestExecUsage(t *testing.T) {
 		{"exec", "web", "x", "--", "sh"}, // two args before --
 		{"exec", "web", "--", "a\x00b"},  // NUL byte
 	} {
-		code, _, stderr := run(t, args...)
+		code, _, stderr := run(t, append([]string{"app"}, args...)...)
 		if code != 1 || stderr == "" || strings.Contains(stderr, "a\x00b") {
 			t.Errorf("%q: code=%d stderr=%q", args, code, stderr)
 		}
@@ -149,7 +149,7 @@ func TestExecUsage(t *testing.T) {
 func TestVolumeUsage(t *testing.T) {
 	t.Parallel()
 	for args, want := range map[string]string{
-		"volume rm web data":      "--yes",
+		"volume delete web data":  "--yes",
 		"volume backup web data":  "-o FILE",
 		"volume restore web data": "accepts 3 arg",
 		"volume ls a b":           "accepts at most 1 arg",
