@@ -51,6 +51,8 @@ E2E_ACME_EMAIL=you@example.org sh test/e2e/cluster.sh hosts
 | `E2E_ACME_CA` | `letsencrypt-staging` | Passed to `--acme-ca`; the production endpoint is refused |
 | `E2E_SSH_OPTS` | empty | Extra `ssh`/`scp` options, such as `-o UserKnownHostsFile=...` |
 | `E2E_SUDO` | empty | `sudo` when the SSH user is not root |
+| `E2E_ONLY` | empty (every scenario) | Comma-separated scenarios to run, for example `isolation,rollout` (see below) |
+| `E2E_LIST` | empty | `1` prints the scenario names and exits |
 | `E2E_REBOOT` | `1` | `0` skips rebooting every machine at once |
 | `E2E_BRIDGE_GW` | read from each node | Container bridge address (each node has its own container subnet) |
 | `E2E_SERVER_FLAGS` | empty | Extra `armadad server` flags |
@@ -59,6 +61,36 @@ E2E_ACME_EMAIL=you@example.org sh test/e2e/cluster.sh hosts
 The script stops at the first failure and prints `armada server list` and
 `armada status`. A full run on four small machines takes about 10 minutes
 once the binaries have been copied to them.
+
+## Running only some scenarios
+
+Building the cluster and deploying the test app always run: every scenario
+needs them. `E2E_ONLY` then picks what follows, so a change is tested where
+it can break without waiting for the rest:
+
+```bash
+E2E_ONLY=isolation,rollout ARMADA_BIN=... sh test/e2e/cluster.sh hosts
+```
+
+| Scenario | What it checks (numbers below) | Run it for changes to |
+| --- | --- | --- |
+| `listeners` | 2 | listeners, ports, the firewall |
+| `project-secret` | 3 (a project's secret) | secrets, projects |
+| `conntrack` | the connection tracking limit | connection tracking, usage reports |
+| `isolation` | 4 | the cluster network (VXLAN, WireGuard, netlink), nftables, internal DNS, HAProxy's internal frontend |
+| `load` | 5 (steady load) | the path from clients to the nodes |
+| `rollout` | 5 (rolling update and rollback) | rollouts, readiness, draining, the proxy's live updates |
+| `agent-restart` | 5 (agent restart) | the agent, adopting containers and a running proxy, certificates |
+| `failover` | 6 | the control plane, etcd, elections |
+| `node-loss` | 7 | self-healing, rebalancing |
+| `backup` | 8 | `armadad backup` |
+| `placement` | 9 | labels, restricted nodes, scheduling |
+| `platforms` | 10 | image platforms |
+| `cpu` | 11 | CPU reservations, capacity |
+| `spread` | 12 | `placement.spreadBy` |
+| `reboot` | 13 | start-up order, units, state after a crash |
+
+A release runs every scenario.
 
 ## What it checks
 
