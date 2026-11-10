@@ -1,4 +1,25 @@
-# Operations: control plane, backup, restore, and upgrades
+# Operations guide
+
+How to run a cluster once it is up (the [quickstart](quickstart.md) gets
+you there). Each section stands on its own:
+
+- **Control plane and its data:** [one server or three](#control-plane-one-server-or-three),
+  [data directory](#what-is-in-the-data-directory), [backup](#backup),
+  [restore](#restore), [upgrades](#upgrades), [certificates](#certificates)
+- **People and tools:** [administrators](#administrators),
+  [projects](#projects), [automation identities](#automation-identities)
+- **Nodes:** [labels and placement](#node-labels-and-placement),
+  [when a node fails](#when-a-node-fails), [removing a node](#removing-a-node)
+- **Network and traffic:** [container network](#container-network),
+  [how requests reach replicas](#how-requests-reach-replicas),
+  [behind a proxy or CDN](#behind-a-proxy-or-cdn)
+- **Apps:** [removing an app](#removing-an-app), [exec](#running-commands-in-replicas),
+  [autoscaling](#autoscaling), [traffic splitting](#traffic-splitting),
+  [jobs](#jobs), [volumes](#volumes)
+- **Watching it:** [resource usage](#resource-usage), [events](#events),
+  [metrics](#metrics)
+
+## The control plane in short
 
 Armada's control plane keeps the cluster's state in etcd, embedded in
 `armadad server`. A cluster runs one control plane server or, for high
@@ -293,9 +314,10 @@ armada admin rm alice --yes                # refuse every certificate of alice a
 ```
 
 Alice installs the client, keeps the file as `~/.armada/config` (mode
-`0600`), and runs `armada status` from a machine that reaches a control
-plane server's private address on port 7443 (see the
-[quickstart](quickstart.md#9-give-others-access)). Adding a name again
+`0600`), and runs `armada status` from a computer that reaches a control
+plane server's private address on port 7443, directly, through a VPN, or
+through an SSH tunnel (see the
+[quickstart](quickstart.md#9-use-armada-from-your-own-computer)). Adding a name again
 after removing it gives it a new certificate; the old ones stay refused.
 Nobody can add or remove themselves, so at least one administrator is
 always left. Each certificate lasts a year: its holder renews it with
