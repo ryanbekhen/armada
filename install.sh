@@ -137,10 +137,7 @@ for bin in $BINS; do
 done
 
 if [ "$CLIENT_ONLY" = 1 ]; then
-	say ""
-	say "Next: ask an administrator for a client config ('armada admin add NAME -o FILE'),"
-	say "keep it as ~/.armada/config (mode 0600), then run 'armada status'."
-	say "The control plane's private address must be reachable."
+	say "Next: keep the config an administrator gives you as ~/.armada/config."
 	"$PREFIX/bin/armada" version
 	return 0
 fi
@@ -164,7 +161,7 @@ if [ "$(id -u)" = 0 ] && ! grep -q '^armada:' /etc/group; then
 		groupadd --system armada
 	elif command -v addgroup >/dev/null 2>&1; then
 		addgroup -S armada
-	fi && say "Created the armada group: its members administer the cluster without sudo."
+	fi && say "Created the armada group."
 fi
 
 # sudo's secure_path leaves out /usr/local/bin on some distributions (RHEL,
@@ -176,15 +173,7 @@ if [ "$(id -u)" = 0 ] && command -v sudo >/dev/null 2>&1; then
 	fi
 fi
 
-say ""
-say "Next, as root (sudo before each command):"
-say "  first node:   sudo armadad init"
-say "                sudo systemctl enable --now armada-server"
-say "                sudo usermod -aG armada \$USER   (armada without sudo; log in again)"
-say "  other nodes:  sudo armadad join ...         (from 'armada token create')"
-say "                sudo systemctl enable --now armada-agent"
-say "  more servers: sudo armadad server join ...  (from 'armada token create --server')"
-say "                sudo systemctl enable --now armada-server"
+say "Next: sudo armadad init on the first machine, or the join command 'armada token create' prints."
 "$PREFIX/bin/armadad" version
 }
 

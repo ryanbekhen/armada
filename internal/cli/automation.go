@@ -68,8 +68,7 @@ func newAutomationSetCommand(g *globals) *cobra.Command {
 			if err != nil {
 				return RPCError(err)
 			}
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Automation %s manages %s; give a tool its credentials with `armada automation credentials %s`.\n",
-				a.Name, scopeText(a), a.Name)
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Automation %s manages %s.\n", a.Name, scopeText(a))
 			return err
 		},
 	}
@@ -176,7 +175,7 @@ func newAutomationCredentialsCommand(g *globals) *cobra.Command {
 			if err := tool.SaveFile(out); err != nil {
 				return err
 			}
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Wrote %s for automation:%s (valid until %s). Keep it with the tool only.\n",
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Wrote %s for automation:%s (valid until %s).\n",
 				out, name, resp.GetExpiresAt().AsTime().Format(time.DateOnly))
 			return err
 		},
