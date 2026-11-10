@@ -1,23 +1,39 @@
 # Quickstart
 
-From empty machines to an app served over HTTPS. This guide uses three
-Linux machines (cloud instances, VMs, or bare metal) on the same private
-network; one is enough to start, and the others can join later as nodes or
-as control plane servers.
+From empty Linux machines to an app served over HTTPS. One machine is
+enough to start; more can join later as nodes or control plane servers.
 
 > **Status.** Armada is alpha. Every step below is exercised on real cloud
 > machines with Let's Encrypt staging before each release. Start with the
 > staging environment (step 4) and report what breaks.
 
+## How it fits together
+
+```
+ your laptop (Linux or macOS)            Linux machines on a private network
+ ┌────────────┐   mTLS, port 7443    ┌──────────────────────────────────────┐
+ │  armada    │ ───────────────────▶ │ armadad server  (control plane)      │
+ │  (client)  │   private IP only    │ armadad agent   (runs containers)    │
+ └────────────┘                      │ HAProxy on 80/443 ◀── the internet   │
+                                     └──────────────────────────────────────┘
+```
+
+- **`armadad`** runs on every machine, as root. It is the control plane,
+  the node agent, and the container runtime, and it sets machines up
+  (`init`, `join`) and checks them (`doctor`).
+- **`armada`** is the client you manage apps with. It needs no root and
+  runs on the machines themselves or on your own computer. It talks to the
+  control plane's **private** IP on port 7443; that port is never public,
+  so from elsewhere you reach it through a VPN or an SSH tunnel
+  ([step 9](#9-use-armada-from-your-own-computer)).
+
 ## What you need
 
 - Linux machines (amd64 or arm64) with a **private network** between them
   (VPC, private networking, vSwitch, or a LAN), each with a private IP.
-- Nothing else to install: Armada brings its own container runtime
-  (containerd, runc, and the CNI plugins, embedded in `armadad`). The
-  kernel needs cgroup v2 (the default on current distributions) and
-  overlayfs, and `iptables` must be installed. Other container software
-  on the host is left alone.
+- systemd, cgroup v2, overlayfs, and `iptables` (current distributions
+  have them). Nothing else: Armada brings its own container runtime and
+  leaves other container software on the host alone.
 - A domain whose DNS you control, for example `example.com`.
 - Root access.
 
@@ -32,72 +48,60 @@ Ports:
 | 4789/udp | Every node, on the private network only (cluster network, `plain` mode) |
 | 51820/udp | Every node, on the private network only (cluster network, `wireguard` mode) |
 
-Never expose 7443, 7444, 2379, 2380, 4789, or 51820 to the internet. Armada binds them to the private
-IP only, but on providers that map the public IP onto the private interface
-(1:1 NAT), restrict them in the provider firewall as well.
+Armada binds everything except 80 and 443 to the private IP. On providers
+that map the public IP onto the private interface (1:1 NAT), block those
+ports in the provider's firewall as well.
 
 ## 1. Install
 
-On every machine, in one line:
+On every machine:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ryanbekhen/armada/main/install.sh | sudo sh
 ```
 
-Or download the script and read it first:
+To read the script before running it as root:
 
 ```bash
 curl -fsSLO https://raw.githubusercontent.com/ryanbekhen/armada/main/install.sh
-less install.sh     # read what you are about to run as root
+less install.sh
 sudo sh install.sh
 ```
 
-The installer only installs (or upgrades): creating the cluster and
-joining machines are the steps below, which you run and configure yourself.
+The installer only installs or upgrades; you set the machine up in the
+next steps. It:
 
-The installer downloads the release for your architecture, verifies its
-SHA-256 checksum, and, if [cosign](https://docs.sigstore.dev/cosign/system_config/installation/)
-is installed, verifies that the checksums were signed by this repository's
-release workflow. Set `ARMADA_REQUIRE_SIGNATURE=1` to refuse installing
-without that signature, and `ARMADA_VERSION=v0.1.0` to pin a version. It
-installs two programs and the systemd units `armada-server.service`,
-`armada-agent.service`, and `armada-runtime.service` (not started):
+- downloads the release for your architecture and checks its SHA-256
+  checksum, and, when [cosign](https://docs.sigstore.dev/cosign/system_config/installation/)
+  is installed, that this repository's release workflow signed it
+  (`ARMADA_REQUIRE_SIGNATURE=1` refuses to install without the signature);
+- installs `armadad`, `armada`, and the systemd units (not started);
+- creates the `armada` group (see step 3).
 
-- `armadad`, the daemon: the control plane, the node agent, and the
-  container runtime, run by systemd. It also sets machines up (`init`,
-  `join`) and checks them (`doctor`), as root.
-- `armada`, the client: deploys and manages apps through the control plane
-  and needs no root.
+`ARMADA_VERSION=v0.1.0` pins a version. On macOS the script installs only
+the client; on a Linux computer that only needs the client, run it as
+`sudo ARMADA_CLIENT_ONLY=1 sh`.
 
-On macOS the same script installs only the client; on a Linux workstation,
-run it as `sudo ARMADA_CLIENT_ONLY=1 sh` (see [step 9](#9-give-others-access)).
+On RHEL, Oracle Linux, Rocky, and Alma, `sudo` does not search
+`/usr/local/bin` (the installer warns): install with `ARMADA_PREFIX=/usr`,
+or run the `armadad` commands from a root shell (`sudo -i`).
 
-On RHEL-family distributions (RHEL, Oracle Linux, Rocky, Alma), `sudo`
-does not search `/usr/local/bin`; the installer warns about it. Install with
-`ARMADA_PREFIX=/usr`, or run the `armadad` commands below from a root
-shell (`sudo -i`).
-
-## 2. Check the host
+## 2. Check the machine
 
 ```bash
 sudo install -d -m 0700 /run/armada/secrets
 sudo armadad doctor
 ```
 
-`doctor` checks the container runtime (cgroup v2, overlayfs, `iptables`,
-whether SELinux can confine containers on SELinux hosts), the
-private IP, ports listening publicly, file
-permissions, the secrets tmpfs, the clock, the firewall, and how full the
-connection tracking table is. Fix every
-`FAIL`; read every `warn`. Secret files live under `/run/armada`, which
-must be on tmpfs so plaintext never reaches a disk; `/run` is tmpfs on
-systemd distributions, and the units recreate the directory at start.
+Fix every `FAIL` and read every `warn`. `doctor` checks the container
+runtime, the private IP, ports open to the public, file permissions, the
+tmpfs for secrets, the clock, the firewall, and connection tracking.
 
-Armada finds the private IP itself when the machine has exactly one
-(container, VM, and VPN interfaces such as `docker0` or `wg0` do not count).
-With several, for example a VPC address and a Tailscale one, it picks none
-and lists them: pass the one the other machines reach with `--private-ip`,
-here and in `init`/`join`. The address cannot change later.
+**Private IP.** Armada finds it on its own when the machine has exactly
+one (container, VM, and VPN interfaces such as `docker0` or `wg0` do not
+count). With several, it lists them and asks for `--private-ip`: pass the
+address the other machines reach, here and in `init` or `join`. It cannot
+change later.
 
 ## 3. Create the cluster (first machine)
 
@@ -105,89 +109,101 @@ here and in `init`/`join`. The address cannot change later.
 sudo armadad init
 ```
 
-This creates the cluster CA, the certificates, the state (embedded etcd), the
-secrets master key, and the admin config `/etc/armada/admin.config`. Each node
-gets its own container subnet, a /24 of `10.120.0.0/16`; if your network
-uses that range, pick another private one with `--cluster-cidr` (it cannot
-change later). Traffic between nodes' containers is not encrypted unless you
-add `--network wireguard`, also fixed at init (see
-[operations](operations.md#container-network)). Note the **CA SHA-256** it prints. Once the server runs, set up backups with
-`armadad backup` (see [operations](operations.md)): the data directory is the
-cluster, and without `master.key` secrets cannot be recovered.
+This creates the cluster: its CA and certificates, the state, the key that
+encrypts secrets, and two copies of the admin config:
 
-You are the first administrator, under your own user name: `init` also
-writes your copy as `~/.armada/config`, so `armada` works for you without
-`sudo` once the control plane runs (step 4).
+| File | For |
+| --- | --- |
+| `~/.armada/config` | You, the user who ran `sudo armadad init`: `armada` works without `sudo` |
+| `/etc/armada/admin.config` | root and members of the `armada` group |
 
-The shared copy, `/etc/armada/admin.config`, belongs to root and the
-`armada` group (mode `0640`). Members of the group use it without `sudo`,
-but joining a group counts only in sessions that start afterwards: after
-`sudo usermod -aG armada NAME`, that person logs out and in again (until
-then `armada` says so). Membership is full control of the cluster; rather
-give each person a certificate of their own ([step 9](#9-give-others-access)),
-and [automation identities](operations.md#automation-identities) to tools.
+Two choices are fixed here and cannot change later:
+
+- `--cluster-cidr`: the private range for containers, a /24 of it per node
+  (default `10.120.0.0/16`). Pick another if your network uses it.
+- `--network wireguard`: encrypt traffic between nodes' containers
+  (default: not encrypted, see [operations](operations.md#container-network)).
+
+Note the **CA SHA-256** it prints; nodes check it when they join.
 
 ## 4. Start the control plane
 
 ```bash
-sudo install -d -m 0711 /etc/armada
 echo 'ARMADA_SERVER_FLAGS="--acme-email you@example.com --acme-ca letsencrypt-staging"' \
   | sudo tee /etc/armada/server.env
 sudo systemctl enable --now armada-server
+armada status    # give it a few seconds to start
 ```
 
-The first machine runs the control plane and an agent, so it also serves apps.
-Once everything works, remove `--acme-ca letsencrypt-staging` and restart
-to get trusted certificates.
+The first machine runs the control plane and an agent, so it also serves
+apps. Once everything works, remove `--acme-ca letsencrypt-staging` and
+restart (`sudo systemctl restart armada-server`) to get trusted
+certificates.
+
+**Back up now.** The data directory (`/var/lib/armada`) is the cluster:
+without its `master.key`, secrets cannot be recovered. See
+[backup](operations.md#backup) for `armadad backup` on a timer.
 
 ## 5. Point DNS at your nodes
 
 Apps with external ingress are served at `<app>.<root domain>`. The root
-domain can be any domain you control: the zone itself (`example.com` gives
-`hello.example.com`) or a subdomain that keeps Armada's apps apart from
-your other records (`apps.example.com` gives `hello.apps.example.com`).
-This guide uses `apps.example.com`.
+domain is any domain you control: the zone itself (`example.com` gives
+`hello.example.com`) or a subdomain that keeps Armada's apps apart
+(`apps.example.com` gives `hello.apps.example.com`). This guide uses
+`apps.example.com`.
 
-Create a wildcard record pointing at the **public** IPs of your nodes, so
-new apps work without touching DNS again:
+Point a wildcard record at the **public** IPs of your nodes, so new apps
+need no DNS changes, then tell Armada:
 
 ```
 *.apps.example.com.  A  203.0.113.10
 *.apps.example.com.  A  203.0.113.11
 ```
 
-Then tell Armada:
-
 ```bash
 armada cluster set --root-domain apps.example.com
 ```
 
-The wildcard is a convenience, not a requirement: an A record per app
-(`hello.apps.example.com`) works the same. You can also skip the root
-domain entirely and list each app's host names under `ingress.domains`
-(see "Custom domain" below).
+An A record per app works the same. You can also skip the root domain and
+list each app's host names under `ingress.domains` (see "Custom domain"
+under [Day two](#day-two)).
 
-Each app gets its own certificate through HTTP-01. For a single wildcard
-certificate, or when HTTP-01 cannot reach your nodes, start the server with
-`--dns-provider cloudflare --dns-token-file /etc/armada/cloudflare.token` (a
-`0600` file holding a Cloudflare API token). The root domain itself and every
-name under it then use DNS-01; other custom domains keep HTTP-01. Create a custom token with the permissions
-`Zone / DNS / Edit` and `Zone / Zone / Read`, limited to your zone, and
-ideally with client IP filtering set to your control plane servers' public
-IPs. Never paste the token on a command line; write the file with
-`read -rs` or from the clipboard.
+### Certificates
 
-> **Cloudflare: proxied (orange cloud) or "DNS only" (grey cloud).**
-> Armada terminates TLS on your nodes with its own Let's Encrypt
-> certificates either way. Cloudflare's free Universal SSL covers only
-> `example.com` and `*.example.com`, so proxy only names one level under
-> the zone: a two-level name such as `hello.apps.example.com` fails TLS
-> at Cloudflare's edge unless you buy an advanced certificate, so keep
-> those "DNS only". When you proxy, set the zone's SSL/TLS mode to
-> **Full (strict)**, use DNS-01 (above), and list Cloudflare's address
-> ranges with `armada cluster set --trusted-proxies` so apps see the
-> visitor's address in `CF-Connecting-IP` and `X-Forwarded-For`. Other
-> DNS providers have no such setting; plain A records are all Armada needs.
+Each app gets its own Let's Encrypt certificate through HTTP-01, which
+needs port 80 reachable from the internet. For one wildcard certificate,
+or when HTTP-01 cannot reach your nodes, use DNS-01 with Cloudflare: add
+these flags to `ARMADA_SERVER_FLAGS` and restart:
+
+```
+--dns-provider cloudflare --dns-token-file /etc/armada/cloudflare.token
+```
+
+The token file is mode `0600`. Create a custom API token with `Zone / DNS /
+Edit` and `Zone / Zone / Read`, limited to your zone (and ideally to your
+control plane servers' public IPs). Never paste it on a command line:
+
+```bash
+read -rs TOKEN && printf '%s' "$TOKEN" | sudo install -m 0600 /dev/stdin /etc/armada/cloudflare.token; unset TOKEN
+```
+
+The root domain and every name under it then use DNS-01; other custom
+domains keep HTTP-01.
+
+### Cloudflare proxy (orange cloud)
+
+Armada terminates TLS on your nodes either way. If you proxy:
+
+- Proxy only names one level under the zone (`hello.example.com`).
+  Cloudflare's free certificate does not cover `hello.apps.example.com`;
+  keep such names "DNS only".
+- Set the zone's SSL/TLS mode to **Full (strict)** and use DNS-01 (above).
+- List Cloudflare's address ranges with `armada cluster set
+  --trusted-proxies`, so apps see the visitor's address in
+  `CF-Connecting-IP` and `X-Forwarded-For` (see
+  [operations](operations.md#behind-a-proxy-or-cdn)).
+
+Other DNS providers need nothing but plain A records.
 
 ## 6. Deploy an app
 
@@ -213,7 +229,7 @@ curl https://hello.apps.example.com    # add -k while on the staging CA
 
 Change the image and deploy again for a rolling update. `armada revisions
 hello` lists revisions and `armada rollback hello` returns to the previous
-one. See the [spec reference](spec-reference.md) for every field.
+one. The [spec reference](spec-reference.md) lists every field.
 
 ## 7. Add nodes
 
@@ -223,70 +239,116 @@ On the first machine:
 armada token create
 ```
 
-It prints a single-use token (valid for one hour), the install line for the
-new machine pinned to the cluster's release, and the exact `armadad join`
-command. On the new machine, after steps 1 and 2:
+It prints a single-use token (valid for an hour) and the exact commands for
+the new machine. There, after steps 1 and 2:
 
 ```bash
 sudo armadad join 10.0.0.2:7444 --ca-hash sha256:...   # paste the token when asked
 sudo systemctl enable --now armada-agent
-armada node list                                       # on the first machine
 ```
 
-The token is read from a prompt, stdin, or `--token-file`, never from the
-command line. The new node pins the CA by its hash, receives a 30-day
+`armada node list` on the first machine shows it. The node gets a 30-day
 certificate that it renews on its own, and starts taking replicas.
 
 ## 8. Make the control plane highly available (optional)
 
-One control plane server is fine to start with: if it goes down, apps keep
-serving, but nothing can be changed until it is back. Three servers survive
-the loss of any one. Add two more, one at a time, on machines prepared with
-steps 1 and 2 (they also run apps, like the first):
+With one control plane server, apps keep serving while it is down, but
+nothing can be changed until it is back. Three servers survive the loss of
+any one; two are worse than one. Add two more, one at a time, on machines
+prepared with steps 1 and 2:
 
 ```bash
 armada token create --server                                 # on the first machine
-sudo install -d -m 0700 /etc/armada                          # on the new machine:
+sudo install -d -m 0711 /etc/armada                          # on the new machine:
 sudo cp server.env /etc/armada/server.env                    #   the same flags as the first server
 sudo armadad server join 10.0.0.2:7444 --ca-hash sha256:...   #   paste the token when asked
 sudo systemctl enable --now armada-server
-armada server list                                           # on the first machine: all "voting"
+armada server list                                           # all "voting"
 ```
 
 Every server can become the leader, so each needs the same
 `/etc/armada/server.env` (and the DNS token file, if you use one). A server
 token hands over the cluster's keys: it works once and expires after 15
-minutes. Do not stop at two servers: with two, losing either one stops the
-control plane. See [operations](operations.md#control-plane-one-server-or-three).
+minutes. See [operations](operations.md#control-plane-one-server-or-three).
 
-## 9. Give others access
+## 9. Use armada from your own computer
 
-Give everyone who administers the cluster a certificate of their own, so
-the audit log names them and you can take one person's access back
-without touching anyone else's. Where `armada` works for you:
-
-```bash
-armada admin add alice -o alice.config
-```
-
-Hand `alice.config` over privately: it holds Alice's private key and is
-full control of the cluster. On her machine (Linux or macOS), which must
-reach a control plane server's private address on port 7443, she installs
-the client and keeps the file as `~/.armada/config`:
+Install the client (on macOS the script installs only the client):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ryanbekhen/armada/main/install.sh | sudo ARMADA_CLIENT_ONLY=1 sh
-install -d -m 0700 ~/.armada
-install -m 0600 alice.config ~/.armada/config
-armada status
 ```
 
-`armada admin ls` lists the administrators, and `armada admin rm alice
---yes` refuses every certificate of Alice at once. Certificates last a
-year; each person renews their own with `armada admin renew`. For tools
-such as a CI system, use [automation
-identities](operations.md#automation-identities) instead: they manage only
-the projects you give them. See [operations](operations.md#administrators).
+Give yourself a certificate of your own. On a server where `armada` works:
+
+```bash
+armada admin add yourname -o yourname.config
+```
+
+Copy the file to your computer privately (it is full control of the
+cluster) and keep it as `~/.armada/config`:
+
+```bash
+install -d -m 0700 ~/.armada
+install -m 0600 yourname.config ~/.armada/config
+```
+
+`armada` now talks to the address in that file: a control plane server's
+**private** IP on port 7443. Your computer has to reach it, in one of two
+ways.
+
+**Through a VPN into the private network** (WireGuard or any other). If
+your computer already reaches the private IPs, run `armada status` and you
+are done. If the VPN ends on the server itself, also route the server's
+private IP into the tunnel and let the tunnel reach port 7443, for example
+with WireGuard and ufw:
+
+```ini
+# on your computer, the server's [Peer] section
+AllowedIPs = 10.8.0.1/32, 10.0.0.2/32    # the server's VPN address and its private IP
+```
+
+```bash
+sudo ufw allow in on wg0 to any port 7443 proto tcp    # on the server
+```
+
+Do not put the VPN address in the config: the API listens only on the
+private IP.
+
+**Through an SSH tunnel**, when there is no VPN:
+
+```bash
+ssh -N -L 7443:10.0.0.2:7443 you@203.0.113.10    # keep it open; 10.0.0.2 is the private IP
+```
+
+Then set `"servers": ["127.0.0.1:7443"]` in `~/.armada/config`. The
+certificate checks still pass: the client verifies the server's name,
+not its address. `armada server list` writes the servers' real addresses
+back into the file, so set it again afterwards.
+
+## 10. Give others access
+
+Give every person who administers the cluster a certificate of their own,
+the same way as in step 9: `armada admin add alice -o alice.config`. The
+audit log names them, and you can take one person's access back without
+touching anyone else's:
+
+```bash
+armada admin ls               # who has access
+armada admin rm alice --yes   # refuse every certificate of alice at once
+```
+
+Certificates last a year; each person renews their own with `armada admin
+renew`. Tools such as a CI system get [automation
+identities](operations.md#automation-identities) instead, which manage
+only the projects you give them.
+
+On a server, people with an account can also use the shared
+`/etc/armada/admin.config` by joining the `armada` group (`sudo usermod
+-aG armada NAME`). That counts only in sessions started afterwards, so
+they log out and in again; until then `armada` says so. Membership is full
+control of the cluster under the first administrator's name, so prefer
+certificates of their own.
 
 ## Day two
 
@@ -294,21 +356,21 @@ the projects you give them. See [operations](operations.md#administrators).
 | --- | --- |
 | Logs | `armada logs hello -f` |
 | Shell in a replica | `armada exec hello -it -- sh` (a single command: `armada exec hello -- env`) |
-| Scale with load | add `scale.max` and `scale.rules` (`http`, `cpu`, `memory`) to the spec (see [spec reference](spec-reference.md#autoscaling)); `scale.min: 0` stops idle apps until the next request ([scale to zero](spec-reference.md#scale-to-zero)) |
-| Keep data | add `volumes` to the spec (one replica, bound to its node; see [spec reference](spec-reference.md#volumes)); `armada volume ls`, `armada volume backup hello data -o -` |
-| Run a job | deploy a `kind: job` spec, then `armada job run NAME` (or set `schedule`); `armada job runs NAME`, `armada logs NAME` (see [spec reference](spec-reference.md#jobs)) |
-| What happened | `armada events` (one app: `armada events hello`; keep following: `-f`) |
-| CPU and memory use | `armada top` (one app's replicas: `armada top hello`; nodes: `armada top --nodes`) |
-| Prometheus metrics | add `--metrics-listen PRIVATE_IP:9443` to `ARMADA_SERVER_FLAGS`, then `armada metrics credentials prometheus` for the scraper (see [operations](operations.md#metrics)) |
 | Scale | `armada scale hello 3` |
-| Canary | `revisions.mode: multiple` with weights in the spec, then `armada traffic hello r2=50 r3=50` (see [spec reference](spec-reference.md#revisions)) |
+| Scale with load | add `scale.max` and `scale.rules` (`http`, `cpu`, `memory`) to the spec (see [spec reference](spec-reference.md#autoscaling)); `scale.min: 0` stops idle apps until the next request ([scale to zero](spec-reference.md#scale-to-zero)) |
 | Secrets | `armada secret set hello api-key < key.txt`, or `armada secret import hello .env` for many (`API_KEY` becomes `api-key`), then reference them with `secretRef` |
 | Custom domain | add it under `ingress.domains`, publish the TXT record from `armada domain list`, run `armada domain verify www.example.com` |
 | Internal service | `ingress.type: internal`; other containers call `http://<app>.internal` |
+| Keep data | add `volumes` to the spec (one replica, bound to its node; see [spec reference](spec-reference.md#volumes)); `armada volume ls`, `armada volume backup hello data -o -` |
+| Run a job | deploy a `kind: job` spec, then `armada job run NAME` (or set `schedule`); `armada job runs NAME`, `armada logs NAME` (see [spec reference](spec-reference.md#jobs)) |
+| Canary | `revisions.mode: multiple` with weights in the spec, then `armada traffic hello r2=50 r3=50` (see [spec reference](spec-reference.md#revisions)) |
+| What happened | `armada events` (one app: `armada events hello`; keep following: `-f`) |
+| CPU and memory use | `armada top` (one app's replicas: `armada top hello`; nodes: `armada top --nodes`) |
+| Prometheus metrics | add `--metrics-listen PRIVATE_IP:9443` to `ARMADA_SERVER_FLAGS`, then `armada metrics credentials prometheus` for the scraper (see [operations](operations.md#metrics)) |
 | Maintenance | `armada node cordon NODE` moves replicas away; `armada node uncordon NODE` (replicas spread back to it on their own) |
 | Choose nodes | `armada node label NODE region=sulawesi`, then `placement.require` in the spec; `armada node restrict NODE` keeps a node for apps that ask for it |
 | Remove a node | `armada node remove NODE` (revokes its certificate) |
-| Administrators | `armada admin add NAME -o FILE`, `armada admin ls`, `armada admin rm NAME --yes` (see [step 9](#9-give-others-access)) |
+| Administrators | `armada admin add NAME -o FILE`, `armada admin ls`, `armada admin rm NAME --yes` (see [step 10](#10-give-others-access)) |
 | Control plane servers | `armada server list`, `armada server remove NAME` |
 | Back up / upgrade | `armadad backup -o -` (control plane; volumes: `armada volume backup`), then see [operations](operations.md) |
 

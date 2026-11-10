@@ -117,7 +117,7 @@ container runtime (containerd, runc, CNI plugins) and its state store
 
 - [Quickstart](docs/quickstart.md): empty machines to an HTTPS app
 - [App spec reference](docs/spec-reference.md)
-- [Operations](docs/operations.md): control plane servers, backup, restore, upgrades
+- [Operations guide](docs/operations.md): day-to-day running of a cluster: control plane, backup, upgrades, administrators, nodes, network, apps, monitoring
 - [Threat model](docs/threat-model.md), including the accepted limitations
 - [Architecture decisions](docs/adr/README.md)
 - [Releasing and verifying releases](docs/releasing.md)
