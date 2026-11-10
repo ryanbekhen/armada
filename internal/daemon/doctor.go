@@ -52,15 +52,17 @@ type doctorEnv struct {
 	runtimeHost func(subnet netip.Prefix) []checkResult
 	// network checks the cluster network (ADR 0025); nil when the node is
 	// not part of one.
-	network     func() []checkResult
-	subnet      netip.Prefix
-	detectIP    func() (netip.Addr, error)
-	statFile    func(string) (fs.FileInfo, error)
-	checkTmpfs  func(string) error
-	listeners   func() ([]netip.AddrPort, error)
-	ntpSynced   func(context.Context) (bool, error)
-	ufwActive   func(context.Context) (bool, error)
-	readFile    func(string) ([]byte, error)
+	network    func() []checkResult
+	subnet     netip.Prefix
+	detectIP   func() (netip.Addr, error)
+	statFile   func(string) (fs.FileInfo, error)
+	checkTmpfs func(string) error
+	listeners  func() ([]netip.AddrPort, error)
+	ntpSynced  func(context.Context) (bool, error)
+	ufwActive  func(context.Context) (bool, error)
+	readFile   func(string) ([]byte, error)
+	// serverEnv reads /etc/armada/server.env; nil skips the check.
+	serverEnv   func() ([]byte, error)
 	now         func() time.Time
 	adminConfig string
 	// latest finds the latest release; nil skips the check.
@@ -136,6 +138,7 @@ func hostDoctorEnv(dataDir string) doctorEnv {
 		ntpSynced:   timedatectlSynced,
 		ufwActive:   ufwActive,
 		readFile:    fsutil.ReadPrivateFile,
+		serverEnv:   func() ([]byte, error) { return os.ReadFile(serverEnvFile) },
 		now:         time.Now,
 		adminConfig: clientconfig.DefaultPath(),
 		clusterPort: []uint16{defaultPort, defaultPort + 1, haproxy.MetricsPort},
@@ -216,6 +219,14 @@ func runDoctor(ctx context.Context, env doctorEnv) []checkResult {
 		add("firewall", checkWarn, "ufw is active: published container ports bypass ufw rules, and containers need %[1]s → 53/udp,tcp and 80/tcp allowed for internal names (ufw allow in on %[1]s to any port 53; ufw allow in on %[1]s to any port 80 proto tcp)", br)
 	default:
 		add("firewall", checkOK, "ufw inactive; restrict the cluster ports to the VPC in the provider firewall")
+	}
+
+	if env.serverEnv != nil {
+		if b, err := env.serverEnv(); err == nil {
+			if flags := clusterFlagsIn(string(b)); len(flags) > 0 {
+				add("server-env", checkWarn, "%s sets %s: these are cluster settings now (ADR 0031), kept for every server; check `armada cluster show`, change them with `armada cluster set`, and remove them from the file", serverEnvFile, strings.Join(flags, ", "))
+			}
+		}
 	}
 
 	if env.latest != nil {
@@ -577,4 +588,19 @@ func existingAncestor(dir string) string {
 		}
 		dir = parent
 	}
+}
+
+// serverEnvFile is where the systemd unit reads armadad server's flags.
+const serverEnvFile = "/etc/armada/server.env"
+
+// clusterFlagsIn lists the cluster-wide flags (clusterFlags) that a
+// server.env sets.
+func clusterFlagsIn(env string) []string {
+	var found []string
+	for _, f := range clusterFlags {
+		if strings.Contains(env, "--"+f+" ") || strings.Contains(env, "--"+f+"=") || strings.Contains(env, "--"+f+"\"") {
+			found = append(found, "--"+f)
+		}
+	}
+	return found
 }

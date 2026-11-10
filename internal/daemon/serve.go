@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/ryanbekhen/armada/internal/clusternet"
@@ -92,8 +93,29 @@ func newServerCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if lostTimeout < 10*time.Second {
-				return fmt.Errorf("--node-lost-timeout must be at least 10s (a short network blip must not move every replica)")
+			if err := server.CheckNodeLostTimeout(lostTimeout); err != nil {
+				return fmt.Errorf("--node-lost-timeout: %w", err)
+			}
+			if tls.enabled {
+				if err := server.CheckACMECA(tls.ca); err != nil {
+					return fmt.Errorf("--acme-ca: %w", err)
+				}
+			}
+			if server.CheckDNSProvider(tls.dnsProvider) != nil {
+				return fmt.Errorf("unsupported --dns-provider %q (want cloudflare)", tls.dnsProvider)
+			}
+			if tls.dnsProvider != "" && !tls.enabled {
+				return errors.New("--dns-provider needs --tls")
+			}
+			if (tls.dnsProvider != "") != (tls.dnsTokenFile != "") {
+				return errors.New("--dns-provider and --dns-token-file go together")
+			}
+			if tls.dnsTokenFile != "" {
+				// A bad token file should fail at startup, not when this
+				// server first leads.
+				if _, err := readTokenFile(tls.dnsTokenFile); err != nil {
+					return err
+				}
 			}
 			ctx := cmd.Context()
 			st, member, err := openState(ctx, dataDir, log)
@@ -158,15 +180,15 @@ func newServerCommand() *cobra.Command {
 				return err
 			}
 			var trigger atomic.Pointer[server.Server]
-			certOpts, acmeAddr, tlsOn, err := tls.certOptions(listen, log, func(name string, err error) {
+			onCert := func(name string, err error) {
 				if srv := trigger.Load(); srv != nil {
 					srv.CertificateEvent(name, err)
 					if err == nil {
 						srv.Trigger()
 					}
 				}
-			})
-			if err != nil {
+			}
+			if _, err := acmeListen(tls.listen, listen); err != nil {
 				return err
 			}
 			if err := st.UpsertServer(ctx, store.Server{Name: id.Name, PrivateIP: ip.String(), APIAddr: listen, JoinAddr: joinAddr, MemberID: member.ID(),
@@ -174,19 +196,31 @@ func newServerCommand() *cobra.Command {
 				return err
 			}
 
-			// One term: a server for as long as this node leads.
-			term := func(ctx context.Context, lead *etcd.Leadership) error {
-				fenced := st.Fenced(lead.Fence())
-				if err := upgradeState(ctx, fenced, log); err != nil {
-					return err
+			// One term: a server for as long as this node leads. A change of
+			// the cluster's server settings (ADR 0031) runs it again with
+			// them, keeping the leadership.
+			runTerm := func(ctx context.Context, fenced store.Store, restart func()) error {
+				ts, err := resolveSettings(ctx, fenced, keys, cmd.Flags(), tls, metrics, lostTimeout, ip.String(), log)
+				if err != nil {
+					return fmt.Errorf("cluster settings: %w", err)
 				}
 				cfg := server.Config{
 					Store: fenced, TLS: tlsCfg, Logger: log,
 					Secrets: keys,
 					CA:      ca, JoinAddr: joinAddr, JoinTLS: joinTLS, APIAddr: listen,
-					NodeLostTimeout: lostTimeout,
-					MetricsAddr:     metrics,
-					Name:            id.Name, Cluster: etcd.Cluster{C: member.Client()},
+					NodeLostTimeout:   ts.lostTimeout,
+					MetricsAddr:       ts.metrics,
+					OnSettingsChanged: restart,
+					Name:              id.Name, Cluster: etcd.Cluster{C: member.Client()},
+				}
+				if ts.metrics != "" {
+					if err := netutil.CheckPrivateListen(ts.metrics); err != nil {
+						return fmt.Errorf("metrics: %w", err)
+					}
+				}
+				certOpts, acmeAddr, tlsOn, err := certOptions(ts.certs, tls.listen, listen, log, onCert)
+				if err != nil {
+					return err
 				}
 				if tlsOn {
 					cm, stop, err := newCertManager(member.Client(), certOpts)
@@ -194,7 +228,8 @@ func newServerCommand() *cobra.Command {
 						return err
 					}
 					defer stop()
-					cfg.Certs, cfg.ACMEAddr, cfg.ACMEEmail = cm, acmeAddr, tls.email
+					cfg.Certs, cfg.ACMEAddr, cfg.ACMEEmail = cm, acmeAddr, ts.certs.email
+					cfg.ACMECA, cfg.DNSProvider = ts.certs.ca, ts.certs.dnsProvider
 				}
 				srv, err := server.New(cfg)
 				if err != nil {
@@ -207,6 +242,35 @@ func newServerCommand() *cobra.Command {
 					return err
 				}
 				return srv.Serve(ctx, lis)
+			}
+			term := func(ctx context.Context, lead *etcd.Leadership) error {
+				fenced := st.Fenced(lead.Fence())
+				if err := upgradeState(ctx, fenced, log); err != nil {
+					return err
+				}
+				restarting := false
+				for tries := 0; ; tries++ {
+					tctx, cancel := context.WithCancel(ctx)
+					var again atomic.Bool
+					err := runTerm(tctx, fenced, func() { again.Store(true); cancel() })
+					cancel()
+					switch {
+					case ctx.Err() != nil:
+						return err
+					case again.Load():
+						log.Info("cluster settings changed; applying them")
+						restarting, tries = true, 0
+					case restarting && errors.Is(err, syscall.EADDRINUSE) && tries < 20:
+						// The last run's listeners close as it ends.
+					default:
+						return err
+					}
+					select {
+					case <-ctx.Done():
+						return nil
+					case <-time.After(250 * time.Millisecond):
+					}
+				}
 			}
 
 			g, ctx := errgroup.WithContext(ctx)

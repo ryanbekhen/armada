@@ -129,16 +129,16 @@ Note the **CA SHA-256** it prints; nodes check it when they join.
 ## 4. Start the control plane
 
 ```bash
-echo 'ARMADA_SERVER_FLAGS="--acme-email you@example.com --acme-ca letsencrypt-staging"' \
-  | sudo tee /etc/armada/server.env
 sudo systemctl enable --now armada-server
 armada status    # give it a few seconds to start
+armada cluster set --acme-email you@example.com --acme-ca letsencrypt-staging
 ```
 
 The first machine runs the control plane and an agent, so it also serves
-apps. Once everything works, remove `--acme-ca letsencrypt-staging` and
-restart (`sudo systemctl restart armada-server`) to get trusted
-certificates.
+apps. `armada cluster set` keeps settings in the cluster, so every server
+uses them, also those you add later; `armada cluster show` lists them.
+Once everything works, `armada cluster set --acme-ca letsencrypt` gets
+trusted certificates.
 
 **Back up now.** The data directory (`/var/lib/armada`) is the cluster:
 without its `master.key`, secrets cannot be recovered. See
@@ -172,23 +172,19 @@ under [Day two](#day-two)).
 
 Each app gets its own Let's Encrypt certificate through HTTP-01, which
 needs port 80 reachable from the internet. For one wildcard certificate,
-or when HTTP-01 cannot reach your nodes, use DNS-01 with Cloudflare: add
-these flags to `ARMADA_SERVER_FLAGS` and restart:
-
-```
---dns-provider cloudflare --dns-token-file /etc/armada/cloudflare.token
-```
-
-The token file is mode `0600`. Create a custom API token with `Zone / DNS /
-Edit` and `Zone / Zone / Read`, limited to your zone (and ideally to your
-control plane servers' public IPs). Never paste it on a command line:
+or when HTTP-01 cannot reach your nodes, use DNS-01 with Cloudflare.
+Create a custom API token with `Zone / DNS / Edit` and `Zone / Zone /
+Read`, limited to your zone (and ideally to your control plane servers'
+public IPs), and give it to the cluster from stdin, never on a command
+line:
 
 ```bash
-read -rs TOKEN && printf '%s' "$TOKEN" | sudo install -m 0600 /dev/stdin /etc/armada/cloudflare.token; unset TOKEN
+read -rs TOKEN && printf '%s' "$TOKEN" | armada cluster set --dns-provider cloudflare --dns-token -; unset TOKEN
 ```
 
-The root domain and every name under it then use DNS-01; other custom
-domains keep HTTP-01.
+The cluster keeps the token encrypted and never shows it. The root domain
+and every name under it then use DNS-01; other custom domains keep
+HTTP-01. `armada cluster set --dns-provider none` goes back to HTTP-01.
 
 ### Cloudflare proxy (orange cloud)
 
@@ -259,17 +255,14 @@ prepared with steps 1 and 2:
 
 ```bash
 armada token create --server                                 # on the first machine
-sudo install -d -m 0711 /etc/armada                          # on the new machine:
-sudo cp server.env /etc/armada/server.env                    #   the same flags as the first server
-sudo armadad server join 10.0.0.2:7444 --ca-hash sha256:...   #   paste the token when asked
+sudo armadad server join 10.0.0.2:7444 --ca-hash sha256:...   # on the new machine; paste the token when asked
 sudo systemctl enable --now armada-server
 armada server list                                           # all "voting"
 ```
 
-Every server can become the leader, so each needs the same
-`/etc/armada/server.env` (and the DNS token file, if you use one). A server
-token hands over the cluster's keys: it works once and expires after 15
-minutes. See [operations](operations.md#control-plane-one-server-or-three).
+Every server can become the leader, and each one uses the settings of
+`armada cluster set`: nothing to copy. A server token hands over the
+cluster's keys: it works once and expires after 15 minutes. See [operations](operations.md#control-plane-one-server-or-three).
 
 ## 9. Use armada from your own computer
 
@@ -366,7 +359,7 @@ certificates of their own.
 | Canary | `revisions.mode: multiple` with weights in the spec, then `armada traffic hello r2=50 r3=50` (see [spec reference](spec-reference.md#revisions)) |
 | What happened | `armada events` (one app: `armada events hello`; keep following: `-f`) |
 | CPU and memory use | `armada top` (one app's replicas: `armada top hello`; nodes: `armada top --nodes`) |
-| Prometheus metrics | add `--metrics-listen PRIVATE_IP:9443` to `ARMADA_SERVER_FLAGS`, then `armada metrics credentials prometheus` for the scraper (see [operations](operations.md#metrics)) |
+| Prometheus metrics | `armada cluster set --metrics-port 9443` (each server's private address), then `armada metrics credentials prometheus` for the scraper (see [operations](operations.md#metrics)) |
 | Maintenance | `armada node cordon NODE` moves replicas away; `armada node uncordon NODE` (replicas spread back to it on their own) |
 | Choose nodes | `armada node label NODE region=sulawesi`, then `placement.require` in the spec; `armada node restrict NODE` keeps a node for apps that ask for it |
 | Remove a node | `armada node remove NODE` (revokes its certificate) |

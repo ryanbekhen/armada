@@ -63,41 +63,36 @@ func acmeDirectory(v string) (string, error) {
 	return v, nil
 }
 
-// certOptions validates the TLS flags and returns the certificate manager
-// options (without storage) and the ACME responder address, or ok=false
-// when TLS is disabled. serverListen is the gRPC listen address; its IP is
-// the default for the responder. onResult hears of every certificate
-// obtained (err nil) or failed attempt.
-func (f *tlsFlags) certOptions(serverListen string, log *slog.Logger, onResult func(name string, err error)) (opts certs.Options, listen string, ok bool, err error) {
-	if !f.enabled {
-		if f.dnsProvider != "" || f.dnsTokenFile != "" {
-			return opts, "", false, errors.New("--dns-provider needs --tls")
-		}
+// certSettings are the certificate settings a term uses: the cluster's
+// (ADR 0031) over this server's flags.
+type certSettings struct {
+	enabled     bool
+	ca          string
+	email       string
+	dnsProvider string
+	token       string
+}
+
+// certOptions returns the certificate manager options (without storage) and
+// the ACME responder address, or ok=false when TLS is disabled. listenFlag
+// is --acme-listen; serverListen is the gRPC listen address, whose IP is the
+// responder's default. onResult hears of every certificate obtained (err
+// nil) or failed attempt.
+func certOptions(cs certSettings, listenFlag, serverListen string, log *slog.Logger, onResult func(name string, err error)) (opts certs.Options, listen string, ok bool, err error) {
+	if !cs.enabled {
 		return opts, "", false, nil
 	}
-	ca, err := acmeDirectory(f.ca)
+	ca, err := acmeDirectory(cs.ca)
 	if err != nil {
 		return opts, "", false, err
 	}
-	listen = f.listen
-	if listen == "" {
-		ap, err := netip.ParseAddrPort(serverListen)
-		if err != nil {
-			return opts, "", false, err
-		}
-		listen = net.JoinHostPort(ap.Addr().String(), strconv.Itoa(defaultACMEPort))
-	}
-	// Checked here as well as by the server, which only starts once this
-	// node leads: a bad flag should fail at startup.
-	if err := netutil.CheckPrivateListen(listen); err != nil {
-		return opts, "", false, fmt.Errorf("ACME responder: %w", err)
-	}
-	if ap, _ := netip.ParseAddrPort(listen); ap.Port() == 0 {
-		return opts, "", false, errors.New("ACME responder needs a fixed port")
+	listen, err = acmeListen(listenFlag, serverListen)
+	if err != nil {
+		return opts, "", false, err
 	}
 	opts = certs.Options{
 		CA:    ca,
-		Email: f.email,
+		Email: cs.email,
 		OnObtained: func(name string) {
 			log.Info("certificate obtained", "name", name)
 			onResult(name, nil)
@@ -110,30 +105,52 @@ func (f *tlsFlags) certOptions(serverListen string, log *slog.Logger, onResult f
 			onResult(name, err)
 		},
 	}
-	switch f.dnsProvider {
+	switch cs.dnsProvider {
 	case "":
-		if f.dnsTokenFile != "" {
-			return opts, "", false, errors.New("--dns-token-file needs --dns-provider")
-		}
 	case "cloudflare":
-		if f.dnsTokenFile == "" {
-			return opts, "", false, errors.New("--dns-provider cloudflare needs --dns-token-file")
+		if cs.token == "" {
+			return opts, "", false, errors.New("DNS provider cloudflare needs a token (armada cluster set --dns-token - < FILE)")
 		}
-		// Read from a private file, never a flag value, so the token stays
-		// out of shell history and process listings.
-		b, err := fsutil.ReadPrivateFile(f.dnsTokenFile)
-		if err != nil {
-			return opts, "", false, fmt.Errorf("DNS token: %w", err)
-		}
-		token := strings.TrimSpace(string(b))
-		if token == "" {
-			return opts, "", false, errors.New("DNS token file is empty")
-		}
-		opts.DNSProvider = &cloudflare.Provider{APIToken: token}
+		opts.DNSProvider = &cloudflare.Provider{APIToken: cs.token}
 	default:
-		return opts, "", false, fmt.Errorf("unsupported --dns-provider %q (want cloudflare)", f.dnsProvider)
+		return opts, "", false, fmt.Errorf("unsupported DNS provider %q (want cloudflare)", cs.dnsProvider)
 	}
 	return opts, listen, true, nil
+}
+
+// acmeListen resolves --acme-listen: by default the server's IP and port
+// 7480. Checked at startup as well as by the server, which only starts once
+// this node leads: a bad flag should fail at once.
+func acmeListen(flag, serverListen string) (string, error) {
+	listen := flag
+	if listen == "" {
+		ap, err := netip.ParseAddrPort(serverListen)
+		if err != nil {
+			return "", err
+		}
+		listen = net.JoinHostPort(ap.Addr().String(), strconv.Itoa(defaultACMEPort))
+	}
+	if err := netutil.CheckPrivateListen(listen); err != nil {
+		return "", fmt.Errorf("ACME responder: %w", err)
+	}
+	if ap, _ := netip.ParseAddrPort(listen); ap.Port() == 0 {
+		return "", errors.New("ACME responder needs a fixed port")
+	}
+	return listen, nil
+}
+
+// readTokenFile reads --dns-token-file: a private file, never a flag value,
+// so the token stays out of shell history and process listings.
+func readTokenFile(path string) (string, error) {
+	b, err := fsutil.ReadPrivateFile(path)
+	if err != nil {
+		return "", fmt.Errorf("DNS token: %w", err)
+	}
+	token := strings.TrimSpace(string(b))
+	if token == "" {
+		return "", errors.New("DNS token file is empty")
+	}
+	return token, nil
 }
 
 // acmePrefix is where certificates and the ACME account live in etcd.

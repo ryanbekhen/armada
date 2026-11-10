@@ -4256,8 +4256,19 @@ type ClusterConfig struct {
 	// Addresses of proxies in front of the nodes, as prefixes. Only requests
 	// from these may carry client address headers past ingress.
 	TrustedProxies []string `protobuf:"bytes,3,rep,name=trusted_proxies,json=trustedProxies,proto3" json:"trusted_proxies,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Server settings for the whole cluster (ADR 0031), as the leader uses
+	// them: certificates on or off, the ACME directory, the DNS provider for
+	// the root domain, whether a DNS token is stored (never the token), the
+	// metrics port on each server's private address (0: off), and how long a
+	// node may be unreachable before its replicas move.
+	Tls                    bool   `protobuf:"varint,4,opt,name=tls,proto3" json:"tls,omitempty"`
+	AcmeCa                 string `protobuf:"bytes,5,opt,name=acme_ca,json=acmeCa,proto3" json:"acme_ca,omitempty"`
+	DnsProvider            string `protobuf:"bytes,6,opt,name=dns_provider,json=dnsProvider,proto3" json:"dns_provider,omitempty"`
+	DnsTokenSet            bool   `protobuf:"varint,7,opt,name=dns_token_set,json=dnsTokenSet,proto3" json:"dns_token_set,omitempty"`
+	MetricsPort            int32  `protobuf:"varint,8,opt,name=metrics_port,json=metricsPort,proto3" json:"metrics_port,omitempty"`
+	NodeLostTimeoutSeconds int64  `protobuf:"varint,9,opt,name=node_lost_timeout_seconds,json=nodeLostTimeoutSeconds,proto3" json:"node_lost_timeout_seconds,omitempty"`
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
 }
 
 func (x *ClusterConfig) Reset() {
@@ -4311,6 +4322,48 @@ func (x *ClusterConfig) GetTrustedProxies() []string {
 	return nil
 }
 
+func (x *ClusterConfig) GetTls() bool {
+	if x != nil {
+		return x.Tls
+	}
+	return false
+}
+
+func (x *ClusterConfig) GetAcmeCa() string {
+	if x != nil {
+		return x.AcmeCa
+	}
+	return ""
+}
+
+func (x *ClusterConfig) GetDnsProvider() string {
+	if x != nil {
+		return x.DnsProvider
+	}
+	return ""
+}
+
+func (x *ClusterConfig) GetDnsTokenSet() bool {
+	if x != nil {
+		return x.DnsTokenSet
+	}
+	return false
+}
+
+func (x *ClusterConfig) GetMetricsPort() int32 {
+	if x != nil {
+		return x.MetricsPort
+	}
+	return 0
+}
+
+func (x *ClusterConfig) GetNodeLostTimeoutSeconds() int64 {
+	if x != nil {
+		return x.NodeLostTimeoutSeconds
+	}
+	return 0
+}
+
 type GetClusterConfigRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -4351,10 +4404,20 @@ type SetClusterConfigRequest struct {
 	state  protoimpl.MessageState `protogen:"open.v1"`
 	Config *ClusterConfig         `protobuf:"bytes,1,opt,name=config,proto3" json:"config,omitempty"`
 	// Which fields of config change.
-	SetRootDomain     bool `protobuf:"varint,2,opt,name=set_root_domain,json=setRootDomain,proto3" json:"set_root_domain,omitempty"`
-	SetTrustedProxies bool `protobuf:"varint,3,opt,name=set_trusted_proxies,json=setTrustedProxies,proto3" json:"set_trusted_proxies,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	SetRootDomain      bool `protobuf:"varint,2,opt,name=set_root_domain,json=setRootDomain,proto3" json:"set_root_domain,omitempty"`
+	SetTrustedProxies  bool `protobuf:"varint,3,opt,name=set_trusted_proxies,json=setTrustedProxies,proto3" json:"set_trusted_proxies,omitempty"`
+	SetTls             bool `protobuf:"varint,4,opt,name=set_tls,json=setTls,proto3" json:"set_tls,omitempty"`
+	SetAcmeEmail       bool `protobuf:"varint,5,opt,name=set_acme_email,json=setAcmeEmail,proto3" json:"set_acme_email,omitempty"`
+	SetAcmeCa          bool `protobuf:"varint,6,opt,name=set_acme_ca,json=setAcmeCa,proto3" json:"set_acme_ca,omitempty"`
+	SetDnsProvider     bool `protobuf:"varint,7,opt,name=set_dns_provider,json=setDnsProvider,proto3" json:"set_dns_provider,omitempty"`
+	SetMetricsPort     bool `protobuf:"varint,8,opt,name=set_metrics_port,json=setMetricsPort,proto3" json:"set_metrics_port,omitempty"`
+	SetNodeLostTimeout bool `protobuf:"varint,9,opt,name=set_node_lost_timeout,json=setNodeLostTimeout,proto3" json:"set_node_lost_timeout,omitempty"`
+	// The DNS provider's API token, set when set_dns_token; empty removes it.
+	// Never logged or returned.
+	SetDnsToken   bool   `protobuf:"varint,10,opt,name=set_dns_token,json=setDnsToken,proto3" json:"set_dns_token,omitempty"`
+	DnsToken      []byte `protobuf:"bytes,11,opt,name=dns_token,json=dnsToken,proto3" json:"dns_token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *SetClusterConfigRequest) Reset() {
@@ -4406,6 +4469,62 @@ func (x *SetClusterConfigRequest) GetSetTrustedProxies() bool {
 		return x.SetTrustedProxies
 	}
 	return false
+}
+
+func (x *SetClusterConfigRequest) GetSetTls() bool {
+	if x != nil {
+		return x.SetTls
+	}
+	return false
+}
+
+func (x *SetClusterConfigRequest) GetSetAcmeEmail() bool {
+	if x != nil {
+		return x.SetAcmeEmail
+	}
+	return false
+}
+
+func (x *SetClusterConfigRequest) GetSetAcmeCa() bool {
+	if x != nil {
+		return x.SetAcmeCa
+	}
+	return false
+}
+
+func (x *SetClusterConfigRequest) GetSetDnsProvider() bool {
+	if x != nil {
+		return x.SetDnsProvider
+	}
+	return false
+}
+
+func (x *SetClusterConfigRequest) GetSetMetricsPort() bool {
+	if x != nil {
+		return x.SetMetricsPort
+	}
+	return false
+}
+
+func (x *SetClusterConfigRequest) GetSetNodeLostTimeout() bool {
+	if x != nil {
+		return x.SetNodeLostTimeout
+	}
+	return false
+}
+
+func (x *SetClusterConfigRequest) GetSetDnsToken() bool {
+	if x != nil {
+		return x.SetDnsToken
+	}
+	return false
+}
+
+func (x *SetClusterConfigRequest) GetDnsToken() []byte {
+	if x != nil {
+		return x.DnsToken
+	}
+	return nil
 }
 
 type ListDomainsRequest struct {
@@ -10477,18 +10596,33 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\x03app\x18\x01 \x01(\tR\x03app\x12\x1a\n" +
 	"\brevision\x18\x02 \x01(\tR\brevision\".\n" +
 	"\x10RollbackResponse\x12\x1a\n" +
-	"\brevision\x18\x01 \x01(\tR\brevision\"x\n" +
+	"\brevision\x18\x01 \x01(\tR\brevision\"\xc8\x02\n" +
 	"\rClusterConfig\x12\x1f\n" +
 	"\vroot_domain\x18\x01 \x01(\tR\n" +
 	"rootDomain\x12\x1d\n" +
 	"\n" +
 	"acme_email\x18\x02 \x01(\tR\tacmeEmail\x12'\n" +
-	"\x0ftrusted_proxies\x18\x03 \x03(\tR\x0etrustedProxies\"\x19\n" +
-	"\x17GetClusterConfigRequest\"\xa3\x01\n" +
+	"\x0ftrusted_proxies\x18\x03 \x03(\tR\x0etrustedProxies\x12\x10\n" +
+	"\x03tls\x18\x04 \x01(\bR\x03tls\x12\x17\n" +
+	"\aacme_ca\x18\x05 \x01(\tR\x06acmeCa\x12!\n" +
+	"\fdns_provider\x18\x06 \x01(\tR\vdnsProvider\x12\"\n" +
+	"\rdns_token_set\x18\a \x01(\bR\vdnsTokenSet\x12!\n" +
+	"\fmetrics_port\x18\b \x01(\x05R\vmetricsPort\x129\n" +
+	"\x19node_lost_timeout_seconds\x18\t \x01(\x03R\x16nodeLostTimeoutSeconds\"\x19\n" +
+	"\x17GetClusterConfigRequest\"\xcf\x03\n" +
 	"\x17SetClusterConfigRequest\x120\n" +
 	"\x06config\x18\x01 \x01(\v2\x18.armada.v1.ClusterConfigR\x06config\x12&\n" +
 	"\x0fset_root_domain\x18\x02 \x01(\bR\rsetRootDomain\x12.\n" +
-	"\x13set_trusted_proxies\x18\x03 \x01(\bR\x11setTrustedProxies\"&\n" +
+	"\x13set_trusted_proxies\x18\x03 \x01(\bR\x11setTrustedProxies\x12\x17\n" +
+	"\aset_tls\x18\x04 \x01(\bR\x06setTls\x12$\n" +
+	"\x0eset_acme_email\x18\x05 \x01(\bR\fsetAcmeEmail\x12\x1e\n" +
+	"\vset_acme_ca\x18\x06 \x01(\bR\tsetAcmeCa\x12(\n" +
+	"\x10set_dns_provider\x18\a \x01(\bR\x0esetDnsProvider\x12(\n" +
+	"\x10set_metrics_port\x18\b \x01(\bR\x0esetMetricsPort\x121\n" +
+	"\x15set_node_lost_timeout\x18\t \x01(\bR\x12setNodeLostTimeout\x12\"\n" +
+	"\rset_dns_token\x18\n" +
+	" \x01(\bR\vsetDnsToken\x12 \n" +
+	"\tdns_token\x18\v \x01(\fB\x03\x80\x01\x01R\bdnsToken\"&\n" +
 	"\x12ListDomainsRequest\x12\x10\n" +
 	"\x03app\x18\x01 \x01(\tR\x03app\"B\n" +
 	"\x13ListDomainsResponse\x12+\n" +

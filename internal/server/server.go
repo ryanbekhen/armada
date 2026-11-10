@@ -45,6 +45,13 @@ type Config struct {
 	// challenges forwarded by every node's HAProxy. Required with Certs.
 	ACMEAddr  string
 	ACMEEmail string
+	// ACMECA and DNSProvider are what the certificate manager uses, shown
+	// by GetClusterConfig.
+	ACMECA      string
+	DNSProvider string
+	// OnSettingsChanged is called after the cluster's server settings
+	// changed (ADR 0031): the daemon restarts this term to apply them.
+	OnSettingsChanged func()
 	// Resolver looks up domain verification TXT records (default: system).
 	Resolver       TXTResolver
 	VerifyInterval time.Duration
@@ -129,6 +136,9 @@ type Server struct {
 	certs          certs.Manager
 	acmeAddr       string
 	acmeEmail      string
+	acmeCA         string
+	dnsProvider    string
+	onSettings     func()
 	resolver       TXTResolver
 	verifyInterval time.Duration
 
@@ -298,6 +308,9 @@ func New(cfg Config) (*Server, error) {
 		certs:          cfg.Certs,
 		acmeAddr:       cfg.ACMEAddr,
 		acmeEmail:      cfg.ACMEEmail,
+		acmeCA:         cfg.ACMECA,
+		dnsProvider:    cfg.DNSProvider,
+		onSettings:     cfg.OnSettingsChanged,
 		resolver:       cfg.Resolver,
 		verifyInterval: cfg.VerifyInterval,
 
