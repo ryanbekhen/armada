@@ -372,7 +372,8 @@ certificates of their own.
 | Remove a node | `armada node remove NODE` (revokes its certificate) |
 | Administrators | `armada admin add NAME -o FILE`, `armada admin ls`, `armada admin rm NAME --yes` (see [step 10](#10-give-others-access)) |
 | Control plane servers | `armada server list`, `armada server remove NAME` |
-| Back up / upgrade | `armadad backup -o -` (control plane; volumes: `armada volume backup`), then see [operations](operations.md) |
+| Back up | `armadad backup -o -` (control plane; volumes: `armada volume backup`; see [operations](operations.md#backup)) |
+| Upgrade | `armada version` shows the latest release; `sudo armadad upgrade` on each machine, servers first, one at a time (see [operations](operations.md#upgrades)) |
 
 Short forms work everywhere: `ls` for `list`, `rm` or `delete` for
 `remove`, and plural group names (`armada nodes ls`, `armada servers ls`,

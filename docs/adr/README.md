@@ -33,3 +33,4 @@ Every architectural decision that is hard to reverse is recorded here. Copy `000
 | [0027](0027-client-and-daemon-binaries.md) | Client and daemon binaries | Accepted |
 | [0028](0028-administrators.md) | Administrators | Accepted |
 | [0029](0029-spec-variables-and-env-from-secrets.md) | Spec variables and variables from secrets | Accepted |
+| [0030](0030-release-checks-and-upgrades.md) | Release checks and machine upgrades | Accepted |

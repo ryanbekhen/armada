@@ -219,52 +219,62 @@ Within v0.x, run the same Armada version on every node. Mixed versions are
 expected only while an upgrade is in progress. Upgrade the control plane
 servers first, one at a time, then the other nodes one at a time.
 
-Since v0.1.0-alpha.2 a machine runs `armadad` (the daemon) and `armada` is
-only the client (ADR 0027). Upgrading from v0.1.0-alpha.1 takes the same
-steps: `install.sh` installs both programs and points the systemd units at
-`armadad`; commands that run on a machine (`init`, `join`, `doctor`,
-`backup`, `restore`, `runtime reset`) are now `armadad` commands.
+**Is there a newer release?** `armada version` shows your client, the
+servers, and the latest release; `armadad doctor` warns when its machine
+is behind; and `armada` says so on a terminal at most once a day. Set
+`ARMADA_NO_UPDATE_CHECK=1` to turn all of that off (it is off when `CI` is
+set). Only these ask GitHub; servers and agents never do.
 
 1. **Back up** (see above) and read the release notes.
 2. **Control plane servers**, one at a time (wait for `armada server list`
    to show the upgraded one as `voting` before the next):
 
    ```bash
-   sudo ARMADA_VERSION=v0.2.0 sh install.sh
-   sudo systemctl restart armada-server
-   armada version && armada node list && armada status
+   sudo armadad upgrade                      # or --version v0.2.0
+   armada server list && armada status
    ```
 
-   `armada server list` shows each server's version. When a release
-   changes the layout of the state (the release notes say so), upgraded
-   servers stand by and the servers still on the old version keep leading
-   until the last one is upgraded; then an upgraded server leads and
-   migrates the state (ADR 0012). Until then `armada server list` names
-   the servers it waits for. A server that is gone for good but still
-   listed blocks the migration: remove it with `armada server remove`.
-   An older binary refuses state written by a newer one instead of
-   misreading it, so the backup from step 1 is your way back.
+   `armadad upgrade` downloads the release, checks its checksum (and its
+   signature when [cosign](https://docs.sigstore.dev/cosign/system_config/installation/)
+   is installed; `--require-signature` insists), replaces `armadad`,
+   `armada`, and the systemd units, and restarts `armada-server` (or
+   `armada-agent`). It refuses to go back to an older release. On a
+   machine that cannot reach GitHub, set `ARMADA_DOWNLOAD_BASE` to a
+   mirror of the release files (`https://` or `file://`).
+
+   When a release changes the layout of the state (the release notes say
+   so), upgraded servers stand by and the servers still on the old version
+   keep leading until the last one is upgraded; then an upgraded server
+   leads and migrates the state (ADR 0012). Until then `armada server list`
+   names the servers it waits for. A server that is gone for good but
+   still listed blocks the migration: remove it with `armada server
+   remove`. An older binary refuses state written by a newer one instead
+   of misreading it, so the backup from step 1 is your way back.
 
    While a server restarts, apps keep serving: every node's HAProxy and
    containers keep running. With one server, deploys and other changes are
    unavailable for those seconds; with three, another server leads in the
    meantime. Agents reconnect on their own.
 
-3. **Every other node**, one at a time:
-
-   ```bash
-   sudo ARMADA_VERSION=v0.2.0 sh install.sh
-   sudo systemctl restart armada-agent
-   ```
+3. **Every other node**, one at a time: `sudo armadad upgrade`.
 
    Containers keep running and keep serving; the restarted agent adopts
-   them, and
-   `armada node list` shows the node's new version. The embedded
+   them, and `armada node list` shows the node's new version. The embedded
    runtime (`armada-runtime.service`) picks up a new containerd from the
    upgraded binary at its next restart (`sudo systemctl restart
    armada-runtime`); restarting it also leaves containers running. Internal
    names (`<app>.internal`) on that node do not resolve for the second or
    two it takes the agent to start its DNS server again.
+
+4. **Your own computer:** reinstall the client with the
+   [installer](quickstart.md#1-install) (`sudo ARMADA_CLIENT_ONLY=1 sh` on
+   Linux).
+
+Releases before `armadad upgrade` existed upgrade once with the installer
+instead: `sudo ARMADA_VERSION=v0.2.0 sh install.sh`, then `sudo systemctl
+restart armada-server` (or `armada-agent`). Upgrading from v0.1.0-alpha.1
+also turns the machine commands (`init`, `join`, `doctor`, `backup`,
+`restore`, `runtime reset`) into `armadad` commands (ADR 0027).
 
 ### Rolling back an upgrade
 
