@@ -48,7 +48,7 @@ func NewRootCommand() *cobra.Command {
 		newAgentCommand(),
 		newJoinCommand(),
 		newDoctorCommand(g),
-		newAdminCommand(g),
+		newUserCommand(g),
 		newBackupCommand(),
 		newRestoreCommand(),
 		newRuntimeCommand(),

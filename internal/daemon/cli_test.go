@@ -17,7 +17,7 @@ var daemonCommands = []string{"version", "init", "agent", "join", "doctor", "bac
 
 // isDaemon reports whether args name an armadad command: one of
 // daemonCommands, `server` but for its list, join-token, and delete, and
-// `admin renew` with --data-dir.
+// `user renew` with --data-dir.
 func isDaemon(args []string) bool {
 	var pos []string
 	for i := 0; i < len(args); i++ {
@@ -36,7 +36,7 @@ func isDaemon(args []string) bool {
 	switch pos[0] {
 	case "server", "servers":
 		return len(pos) == 1 || !slices.Contains([]string{"list", "ls", "join-token", "delete", "rm"}, pos[1])
-	case "admin":
+	case "user":
 		return slices.Contains(args, "--data-dir")
 	}
 	return slices.Contains(daemonCommands, pos[0])
@@ -66,8 +66,8 @@ func TestIsDaemon(t *testing.T) {
 		{[]string{"server", "--data-dir", "d"}, true},
 		{[]string{"server", "join", "a"}, true},
 		{[]string{"server", "list", "--config", "c"}, false},
-		{[]string{"--config", "c", "admin", "renew", "--data-dir", "d"}, true},
-		{[]string{"admin", "renew", "--config", "c"}, false},
+		{[]string{"--config", "c", "user", "renew", "--data-dir", "d"}, true},
+		{[]string{"rbac", "user", "renew", "--config", "c"}, false},
 		{[]string{"app", "create", "-f", "x", "--config", "c"}, false},
 		{[]string{"server", "join-token", "--config", "c"}, false},
 		{[]string{"server", "delete", "cp-2"}, false},

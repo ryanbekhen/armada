@@ -45,7 +45,7 @@ func (t *etx) projectExists(project string) error {
 }
 
 // CreateProject records a new project. See Store.
-func (s *Etcd) CreateProject(ctx context.Context, name, actor, automation string) (Project, error) {
+func (s *Etcd) CreateProject(ctx context.Context, name, actor string, by *Principal) (Project, error) {
 	if name == spec.DefaultProject {
 		return Project{}, fmt.Errorf("project %s always exists: %w", name, ErrConflict)
 	}
@@ -63,8 +63,8 @@ func (s *Etcd) CreateProject(ctx context.Context, name, actor, automation string
 		if ok {
 			return fmt.Errorf("project %s already exists: %w", name, ErrConflict)
 		}
-		if automation != "" {
-			if err := t.grantProject(automation, name); err != nil {
+		if by != nil {
+			if err := t.grantProject(by.Kind, by.Name, name); err != nil {
 				return err
 			}
 		}

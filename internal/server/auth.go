@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"crypto/x509"
 	"strings"
 
 	"google.golang.org/grpc"
@@ -11,6 +12,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/ryanbekhen/armada/internal/pki"
+	"github.com/ryanbekhen/armada/internal/store"
 )
 
 type identityKey struct{}
@@ -19,13 +21,6 @@ type identityKey struct{}
 func IdentityFrom(ctx context.Context) (pki.Identity, bool) {
 	id, ok := ctx.Value(identityKey{}).(pki.Identity)
 	return id, ok
-}
-
-// requiredKind maps service prefixes to the identity kind allowed to call
-// them. Methods outside these services are denied.
-var requiredKind = map[string]string{
-	"/armada.v1.AdminService/": pki.KindAdmin,
-	"/armada.v1.AgentService/": pki.KindNode,
 }
 
 func (s *Server) authorize(ctx context.Context, method string) (context.Context, error) {
@@ -42,58 +37,61 @@ func (s *Server) authorize(ctx context.Context, method string) (context.Context,
 	if err != nil {
 		return nil, status.Error(codes.Unauthenticated, "invalid client identity")
 	}
-	if id.Kind == pki.KindNode {
-		// Node certificates are only valid while recorded: removing a node
-		// revokes them at once.
-		ok, err := s.store.NodeCertAllowed(ctx, id.Name, pki.SerialString(cert))
-		if err != nil {
-			return nil, status.Error(codes.Unavailable, "check node certificate")
-		}
-		if !ok {
-			return nil, status.Errorf(codes.Unauthenticated, "certificate of %s is revoked or the node was removed", id)
-		}
+	if pid, ok := id.Principal(); ok {
+		return s.authorizePrincipal(ctx, pid, cert, method)
 	}
-	if id.Kind == pki.KindAdmin {
-		// A removed administrator, or a certificate older than the one the
-		// name was given last, is refused (ADR 0028).
-		ok, err := s.store.AdminAllowed(ctx, id.Name, cert.NotBefore)
-		if err != nil {
-			return nil, status.Error(codes.Unavailable, "check administrator certificate")
-		}
-		if !ok {
-			return nil, status.Errorf(codes.Unauthenticated, "certificate of %s is revoked or the administrator was removed", id)
-		}
-	}
-	if id.Kind == pki.KindAutomation {
-		return s.authorizeAutomation(ctx, id, pki.SerialString(cert), method)
-	}
-	for prefix, kind := range requiredKind {
-		if strings.HasPrefix(method, prefix) {
-			if id.Kind != kind {
-				return nil, status.Errorf(codes.PermissionDenied, "%s may not call %s", id, method)
-			}
-			return context.WithValue(ctx, identityKey{}, id), nil
-		}
-	}
-	return nil, status.Errorf(codes.PermissionDenied, "unknown method %s", method)
-}
-
-// authorizeAutomation lets an automation identity call only the methods in
-// automationMethods, and only while its certificate is recorded. Its scope
-// is read from the store on every call and checked by each handler.
-func (s *Server) authorizeAutomation(ctx context.Context, id pki.Identity, serial, method string) (context.Context, error) {
-	scope, ok, err := s.store.AutomationScope(ctx, id.Name, serial)
-	if err != nil {
-		return nil, status.Error(codes.Unavailable, "check automation certificate")
-	}
-	if !ok {
-		return nil, status.Errorf(codes.Unauthenticated, "certificate of %s is revoked, expired, or the identity was removed", id)
-	}
-	if !automationMethods[method] {
+	if id.Kind != pki.KindNode || !strings.HasPrefix(method, "/armada.v1.AgentService/") {
 		return nil, status.Errorf(codes.PermissionDenied, "%s may not call %s", id, method)
 	}
-	ctx = context.WithValue(ctx, identityKey{}, id)
-	return context.WithValue(ctx, scopeKey{}, scope), nil
+	// Node certificates are only valid while recorded: removing a node
+	// revokes them at once.
+	ok, err = s.store.NodeCertAllowed(ctx, id.Name, pki.SerialString(cert))
+	if err != nil {
+		return nil, status.Error(codes.Unavailable, "check node certificate")
+	}
+	if !ok {
+		return nil, status.Errorf(codes.Unauthenticated, "certificate of %s is revoked or the node was removed", id)
+	}
+	return context.WithValue(ctx, identityKey{}, id), nil
+}
+
+// principalAccess reads a user's or service's roles and whether the cluster
+// accepts its certificate (ADR 0033): a user's issued before their latest,
+// or a deleted user's, are refused; a service's only while recorded.
+func (s *Server) principalAccess(ctx context.Context, pid pki.Identity, cert *x509.Certificate) (store.Principal, bool, error) {
+	if pid.Kind == pki.KindService {
+		return s.store.ServiceAccess(ctx, pid.Name, pki.SerialString(cert))
+	}
+	return s.store.UserAccess(ctx, pid.Name, cert.NotBefore)
+}
+
+// authorizePrincipal lets a user or service call AdminService methods its
+// roles allow: every method with cluster-admin, else only those in
+// methodNeeds that one of its roles reaches. Its roles are read on every
+// call, and each handler checks them against the projects it touches.
+func (s *Server) authorizePrincipal(ctx context.Context, pid pki.Identity, cert *x509.Certificate, method string) (context.Context, error) {
+	if !strings.HasPrefix(method, adminService) {
+		return nil, status.Errorf(codes.PermissionDenied, "%s may not call %s", pid, method)
+	}
+	p, ok, err := s.principalAccess(ctx, pid, cert)
+	if err != nil {
+		return nil, status.Error(codes.Unavailable, "check client certificate")
+	}
+	if !ok {
+		return nil, status.Errorf(codes.Unauthenticated, "certificate of %s is revoked, expired, or the %s was deleted", pid, pid.Kind)
+	}
+	acc := access{id: pid, p: &p, need: methodNeeds[method]}
+	if !acc.admin() {
+		n, placed := methodNeeds[method]
+		if !placed {
+			return nil, status.Errorf(codes.PermissionDenied, "%s may not call %s: it needs cluster-admin", pid, method)
+		}
+		if !acc.reaches(n) {
+			return nil, status.Errorf(codes.PermissionDenied, "%s has no role that allows %s", pid, strings.TrimPrefix(method, adminService))
+		}
+	}
+	ctx = context.WithValue(ctx, identityKey{}, pid)
+	return context.WithValue(ctx, accessKey{}, acc), nil
 }
 
 func (s *Server) unaryAuth(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {

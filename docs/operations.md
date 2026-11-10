@@ -6,8 +6,8 @@ you there). Each section stands on its own:
 - **Control plane and its data:** [cluster settings](#cluster-settings), [one server or three](#control-plane-one-server-or-three),
   [data directory](#what-is-in-the-data-directory), [backup](#backup),
   [restore](#restore), [upgrades](#upgrades), [certificates](#certificates)
-- **People and tools:** [administrators](#administrators),
-  [projects](#projects), [automation identities](#automation-identities)
+- **People and tools:** [access control](#access-control),
+  [projects](#projects)
 - **Nodes:** [labels and placement](#node-labels-and-placement),
   [when a node fails](#when-a-node-fails), [removing a node](#removing-a-node)
 - **Network and traffic:** [container network](#container-network),
@@ -331,48 +331,88 @@ newer layout, instead of misreading it. To go back:
 | Node (`node.crt`) | 30 days | The agent renews it in the last third of its lifetime. A node off for more than 30 days must be removed and joined again; on a server, `armada-server` renews it at start if the node is still registered |
 | Server (`server.crt`) and etcd member | 1 year | Each server renews its own at start and every 12 hours once a third of the lifetime is left, with no restart; a server that was off past expiry renews them before it starts serving |
 | App certificates (Let's Encrypt) | 90 days | The leader renews them about 30 days before they expire |
-| Admin (`/etc/armada/admin.config`, `~/.armada/config`) | 1 year | By hand: `armada admin renew` in each file (with sudo for the shared one) before it expires |
+| User (`/etc/armada/admin.config`, `~/.armada/config`) | 1 year | By hand: `armada rbac user renew` in each file (with sudo for the shared one) before it expires |
 | Metrics scraper | 1 year | By hand: `armada metrics credentials` again |
-| Automation identity | 90 days | By hand: `armada automation renew` |
+| Service | 90 days | By hand: `armada rbac service renew` |
 
-`armadad doctor` checks the certificates on its machine and the admin
-certificate in the client config: it warns 30 days before the admin
+`armadad doctor` checks the certificates on its machine and the user
+certificate in the client config: it warns 30 days before the user
 certificate expires and when one Armada renews itself was not renewed,
-and fails on an expired one. If the admin certificate has expired, renew
+and fails on an expired one. If the user certificate has expired, renew
 it on a server as root, with the CA in its data directory:
 
 ```bash
-sudo armadad admin renew                     # /etc/armada/admin.config, stays shared with the armada group
-sudo armadad admin renew --config /home/NAME/.armada/config   # a copy; stays NAME's
+sudo armadad user renew                     # /etc/armada/admin.config, stays shared with the armada group
+sudo armadad user renew --config /home/NAME/.armada/config   # a copy; stays NAME's
 ```
 
-## Administrators
+## Access control
 
-An administrator has full control of the cluster. `armadad init` creates
-the first one, named after the user who ran it with sudo, in both
-`/etc/armada/admin.config` and that user's `~/.armada/config`; give every other person a certificate of their own (ADR
-0028), so the audit log names them and their access can be taken back
-alone. Never share one file between people, and use [automation
-identities](#automation-identities) for tools.
+Who may do what is a matter of roles ([ADR 0033](adr/0033-access-control.md)).
+**Users** are people, each with a certificate under their own name, so the
+audit log names them and their access can be taken back alone. **Services**
+are tools such as a CI system or a self-service portal. Both hold roles:
+
+| Role | Given in | Allows |
+| --- | --- | --- |
+| `viewer` | a project, or the whole cluster | apps, jobs, revisions, specs, secret names, domains, volumes, logs, usage, events |
+| `deployer` | a project (not `default`) | what a viewer may, and deploy, scale, roll back, split traffic, set secrets, run jobs, verify domains |
+| `admin` | a project (not `default`) | what a deployer may, and exec, volume backup, restore, and delete, deleting apps and jobs |
+| `project-creator` | the cluster | creating projects (becoming `admin` of each) and deleting empty ones it is `admin` of |
+| `cluster-admin` | the cluster | everything: nodes, servers, cluster settings, tokens, metrics credentials, access control |
+
+`armadad init` creates the first user, named after the user who ran it
+with sudo, with `cluster-admin`, in both `/etc/armada/admin.config` and that
+user's `~/.armada/config`. Only `cluster-admin` manages access:
 
 ```bash
-armada admin create alice -o alice.config  # hand it over privately; it holds her key
-armada admin list                          # names on record, who added them, you
-armada admin delete alice --yes            # refuse every certificate of alice at once
+armada rbac user create alice -o alice.config --role deployer --project shop   # hand it over privately; it holds her key
+armada rbac assignment create --user alice --role viewer                       # also see every project
+armada rbac assignment delete --user alice --role deployer --project shop
+armada rbac user list                          # users, their roles, who created them, you
+armada rbac user credentials alice -o new.config   # a lost key: her older certificates stop working
+armada rbac user delete alice --yes            # refuse every certificate of alice at once
+armada rbac role list                          # the roles; role show ROLE lists their API methods
 ```
 
 Alice installs the client, keeps the file as `~/.armada/config` (mode
-`0600`), and runs `armada cluster status` from a computer that reaches a control
+`0600`), and runs `armada app list` from a computer that reaches a control
 plane server's private address on port 7443, directly, through a VPN, or
 through an SSH tunnel (see the
-[quickstart](quickstart.md#9-use-armada-from-your-own-computer)). Adding a name again
-after removing it gives it a new certificate; the old ones stay refused.
-Nobody can add or remove themselves, so at least one administrator is
-always left. Each certificate lasts a year: its holder renews it with
-`armada admin renew` (see [certificates](#certificates)). Administrators
-from before this existed (the one `armadad init` created on older
-clusters) keep working and appear in the list once they run `armada admin
-renew`.
+[quickstart](quickstart.md#9-use-armada-from-your-own-computer)). Roles
+apply to her next command. Only `viewer` can be given in the `default`
+project, whose containers may reach the platform unless isolated; deploying
+there needs `cluster-admin`. Nobody can delete themselves or take their own
+`cluster-admin`, so one is always left. A user certificate lasts a year:
+its holder renews it with `armada rbac user renew` (see
+[certificates](#certificates)). A user certificate the cluster has no record
+of, which only the CA on a server can sign (`armadad user renew`, or the
+first administrator of a cluster from before records), has `cluster-admin`
+and appears in the list once it is renewed. Never share one file between
+people.
+
+A service gets a client config of its own and renews it itself:
+
+```bash
+armada rbac service create portal --role project-creator --allow-label tier=shared
+armada rbac assignment create --service portal --role admin --project staging
+armada rbac service credentials portal -o portal.json   # 0600; keep it with the tool
+armada --config portal.json app update web --file web.yaml --create-if-missing --project staging
+armada --config portal.json rbac service renew          # before the 90 days run out
+armada rbac service delete portal --yes                 # its certificates stop working at once
+```
+
+Its certificates last 90 days; renewing revokes its others. `--allow-label
+KEY=VALUE` (on `create`, or `update` for users and services) is a node label
+the apps it deploys may require, for nodes you keep for some projects
+(restricted nodes). A user or service without `cluster-admin` sees only the
+projects it holds a role in, and no nodes, servers, or cluster events; it
+reaches the API on the private network like the CLI.
+
+Upgrading from a release before access control turns every administrator
+into a user with `cluster-admin`, and every automation identity into a
+service with `admin` in each of its projects, plus `project-creator` when it
+could create projects. Their certificates keep working.
 
 ## Projects
 
@@ -449,31 +489,6 @@ Container output is limited on every node: each container may write 1 MiB
 per second (4 MiB at once) to its log, kept in 3 files of 10 MB; `armada
 app logs` shows a line such as `[armada: dropped 52428800 bytes of output over
 the log rate limit ...]` where output was dropped.
-
-### Automation identities
-
-A tool that manages projects on your behalf, such as a CI system or a
-self-service portal, gets an automation identity instead of an admin
-certificate. It manages the apps, jobs, secrets, domains, and volumes of
-the projects in its scope, and nothing else: not nodes, tokens, servers,
-backups, the network, or the default project. It sees only its projects in
-listings, and no nodes.
-
-```bash
-armada automation create portal --create-projects --project staging --label tier=shared
-armada automation credentials portal -o portal.json   # 0600; keep it with the tool
-armada --config portal.json app update web --file web.yaml --create-if-missing --project staging
-armada --config portal.json automation renew          # before the 90 days run out
-armada automation list
-armada automation delete portal                       # its certificates stop working at once
-```
-
-`--create-projects` lets the tool create projects, which join its scope,
-and delete the ones it manages. `--label KEY=VALUE` is a node label its
-apps may require, for nodes you keep for some projects (restricted
-nodes). `armada automation set` replaces the scope and keeps the
-certificates. The tool
-reaches the API on the private network like the CLI.
 
 A domain serves one project: an app cannot use a domain that an app of
 another project uses, and a domain another project left behind needs a
@@ -729,7 +744,8 @@ web-r1-q2k0d     node2  running  41m/250m   58Mi/256Mi
 - `--projects` adds up each project's replicas and volumes, and counts the
   requests the proxies sent to its replicas and the bytes its containers
   sent over their network, replies and traffic to other replicas included.
-  An automation identity sees only its own projects.
+  A user or service without `cluster-admin` sees only the projects it
+  holds a role in.
 - Requests and egress count from when the control plane's leader started
   (`countedSince` in `-o json`), and start over when the leader changes. They are
   sums of samples: what a container sends in its first and last 10 seconds

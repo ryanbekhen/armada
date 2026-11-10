@@ -216,7 +216,7 @@ func TestEventsRPC(t *testing.T) {
 			t.Fatal(err)
 		}
 		if e.GetReason() == "Cordoned" {
-			if !strings.Contains(e.GetMessage(), "admin:ryan") {
+			if !strings.Contains(e.GetMessage(), "user:ryan") {
 				t.Errorf("cordon message %q", e.GetMessage())
 			}
 			break

@@ -70,7 +70,7 @@ const (
 	// migrations when records change incompatibly. Records under servers/
 	// and meta/ are read and written by every server, whatever its schema,
 	// so they only ever gain optional fields.
-	etcdSchema = 8
+	etcdSchema = 9
 
 	maxTxnRetries = 100
 	// auditKeep is how many audit events are retained.
@@ -2535,6 +2535,10 @@ var migrations = []migration{
 	// rewrite; servers that would accept a removed administrator's
 	// certificate can no longer lead.
 	func(*etx) error { return nil },
+	// 8 -> 9: access control (ADR 0033): administrators become users with
+	// cluster-admin, automation identities services with admin in their
+	// projects (and project-creator when they could create projects).
+	migrateAccess,
 }
 
 // StoredSchema returns the schema the keyspace is written in.

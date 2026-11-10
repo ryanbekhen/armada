@@ -62,10 +62,10 @@ func (ca *CA) Reissue(old *x509.Certificate, validity time.Duration) ([]byte, er
 	return encodeCert(der), nil
 }
 
-// SignAdminCSR issues an admin client certificate for name from a CSR, like
-// SignNodeCSR. It lasts LeafValidity.
-func (ca *CA) SignAdminCSR(csrDER []byte, name string) (NodeCert, error) {
-	return ca.signClientCSR(csrDER, Identity{Kind: KindAdmin, Name: name}, LeafValidity)
+// SignUserCSR issues a user's client certificate (ADR 0033) for name from a
+// CSR, like SignNodeCSR. It lasts LeafValidity.
+func (ca *CA) SignUserCSR(csrDER []byte, name string) (NodeCert, error) {
+	return ca.signClientCSR(csrDER, Identity{Kind: KindUser, Name: name}, LeafValidity)
 }
 
 // ServerCert is a server's certificate, replaced in place when it is

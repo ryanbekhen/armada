@@ -112,7 +112,7 @@ func testSecrets(t *testing.T, d *fake.Driver, cli func(...string) (int, string,
 	}
 
 	code, out, _ = run("secret", "list", "api")
-	if code != 0 || !regexp.MustCompile(`db-pass\s+2\s+.*admin:ryan\s+api--r2,api--r1`).MatchString(out) || !strings.Contains(out, "tls-key") {
+	if code != 0 || !regexp.MustCompile(`db-pass\s+2\s+.*user:ryan\s+api--r2,api--r1`).MatchString(out) || !strings.Contains(out, "tls-key") {
 		t.Errorf("secret list:\n%s", out)
 	}
 	if code, _, stderr := run("secret", "delete", "api", "db-pass"); code == 0 || !strings.Contains(stderr, "used by revision api--r2") {

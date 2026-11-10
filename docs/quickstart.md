@@ -281,7 +281,7 @@ curl -fsSL https://raw.githubusercontent.com/ryanbekhen/armada/main/install.sh |
 Give yourself a certificate of your own. On a server where `armada` works:
 
 ```bash
-armada admin create yourname -o yourname.config
+armada rbac user create yourname -o yourname.config --role cluster-admin
 ```
 
 Copy the file to your computer privately (it is full control of the
@@ -327,26 +327,27 @@ back into the file, so set it again afterwards.
 
 ## 10. Give others access
 
-Give every person who administers the cluster a certificate of their own,
-the same way as in step 9: `armada admin create alice -o alice.config`. The
-audit log names them, and you can take one person's access back without
-touching anyone else's:
+Give every person a certificate of their own, the same way as in step 9,
+with the role they need: `viewer`, `deployer`, or `admin` in a project, or
+`cluster-admin` for the whole cluster. The audit log names them, and you can
+take one person's access back without touching anyone else's:
 
 ```bash
-armada admin list                 # who has access
-armada admin delete alice --yes   # refuse every certificate of alice at once
+armada rbac user create alice -o alice.config --role deployer --project shop
+armada rbac user list                 # who has access, and which roles
+armada rbac user delete alice --yes   # refuse every certificate of alice at once
 ```
 
-Certificates last a year; each person renews their own with `armada admin
-renew`. Tools such as a CI system get [automation
-identities](operations.md#automation-identities) instead, which manage
-only the projects you give them.
+Certificates last a year; each person renews their own with `armada rbac
+user renew`. Tools such as a CI system get a
+[service](operations.md#access-control) with its own client config and
+roles.
 
 On a server, people with an account can also use the shared
 `/etc/armada/admin.config` by joining the `armada` group (`sudo usermod
 -aG armada NAME`). That counts only in sessions started afterwards, so
 they log out and in again; until then `armada` says so. Membership is full
-control of the cluster under the first administrator's name, so prefer
+control of the cluster under the first user's name, so prefer
 certificates of their own.
 
 ## Day two
@@ -372,7 +373,7 @@ certificates of their own.
 | Maintenance | `armada node drain NODE` moves replicas away; `armada node resume NODE` (replicas spread back to it on their own) |
 | Choose nodes | `armada node label NODE region=sulawesi`, then `placement.require` in the spec; `armada node restrict NODE` keeps a node for apps that ask for it |
 | Delete a node | `armada node delete NODE` (revokes its certificate) |
-| Administrators | `armada admin create NAME -o FILE`, `armada admin list`, `armada admin delete NAME --yes` (see [step 10](#10-give-others-access)) |
+| Access | `armada rbac user create NAME -o FILE --role ROLE [--project P]`, `armada rbac assignment create --user NAME --role ROLE`, `armada rbac user list`, `armada rbac role list` (see [step 10](#10-give-others-access)) |
 | Control plane servers | `armada server list`, `armada server delete NAME` |
 | Back up | `armadad backup -o -` (control plane; volumes: `armada volume backup`; see [operations](operations.md#backup)) |
 | Upgrade | `armada version` shows the latest release; `sudo armadad upgrade` on each machine, servers first, one at a time (see [operations](operations.md#upgrades)) |

@@ -247,7 +247,7 @@ func TestRollback(t *testing.T) {
 	audit, _ := c.store.ListAudit(c.ctx, 10)
 	found := false
 	for _, e := range audit {
-		if e.Action == "rollback" && e.Actor == "admin:ryan" && e.Detail == "web--r1" {
+		if e.Action == "rollback" && e.Actor == "user:ryan" && e.Detail == "web--r1" {
 			found = true
 		}
 	}

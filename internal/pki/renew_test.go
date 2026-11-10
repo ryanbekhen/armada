@@ -64,17 +64,37 @@ func TestReissueRefusesOtherCA(t *testing.T) {
 	}
 }
 
-func TestSignAdminCSR(t *testing.T) {
+func TestSignUserCSR(t *testing.T) {
 	t.Parallel()
 	ca, _ := NewCA("c")
 	_, csr, _ := NewCSR(Identity{Kind: KindServer, Name: "asks-for-more"})
-	got, err := ca.SignAdminCSR(csr, "root")
+	got, err := ca.SignUserCSR(csr, "root")
 	if err != nil {
 		t.Fatal(err)
 	}
 	c, _ := ParseCertPEM(got.PEM)
-	if id, _ := IdentityFromCert(c); id.String() != "admin:root" || len(c.ExtKeyUsage) != 1 || c.ExtKeyUsage[0] != x509.ExtKeyUsageClientAuth {
+	if id, _ := IdentityFromCert(c); id.String() != "user:root" || len(c.ExtKeyUsage) != 1 || c.ExtKeyUsage[0] != x509.ExtKeyUsageClientAuth {
 		t.Errorf("identity %v, usages %v", id, c.ExtKeyUsage)
+	}
+}
+
+// Certificates of earlier releases are read as the same principal.
+func TestPrincipal(t *testing.T) {
+	t.Parallel()
+	for in, want := range map[Identity]Identity{
+		{KindAdmin, "a"}:      {KindUser, "a"},
+		{KindUser, "a"}:       {KindUser, "a"},
+		{KindAutomation, "b"}: {KindService, "b"},
+		{KindService, "b"}:    {KindService, "b"},
+	} {
+		if got, ok := in.Principal(); !ok || got != want {
+			t.Errorf("%v.Principal() = %v, %v", in, got, ok)
+		}
+	}
+	for _, k := range []string{KindNode, KindServer, KindEtcd, KindMetrics} {
+		if _, ok := (Identity{k, "x"}).Principal(); ok {
+			t.Errorf("%s is a principal", k)
+		}
 	}
 }
 

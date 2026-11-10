@@ -1,6 +1,6 @@
 # 0026. Projects and network isolation
 
-- Status: Accepted
+- Status: Accepted; automation identities superseded by [0033](0033-access-control.md) (services with roles)
 - Date: 2026-11-04
 
 ## Context

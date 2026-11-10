@@ -293,7 +293,7 @@ func TestTopProjects(t *testing.T) {
 
 func TestTopProjectsScope(t *testing.T) {
 	t.Parallel()
-	c, tool, _ := automationCluster(t)
+	c, tool, _ := serviceCluster(t)
 	if _, err := c.admin.CreateProject(c.ctx, &armadav1.CreateProjectRequest{Name: "elsewhere"}); err != nil {
 		t.Fatal(err)
 	}
@@ -302,7 +302,7 @@ func TestTopProjectsScope(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(resp.GetProjects()) != 1 || resp.GetProjects()[0].GetName() != "a" {
-		t.Errorf("automation identity sees %v", resp.GetProjects())
+		t.Errorf("service sees %v", resp.GetProjects())
 	}
 	all, err := c.admin.Top(c.ctx, &armadav1.TopRequest{})
 	if err != nil {

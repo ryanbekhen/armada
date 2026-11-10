@@ -96,7 +96,7 @@ type Config struct {
 	NodeCertValidity time.Duration
 
 	// MetricsAddr is the private ip:port of the metrics endpoint (ADR 0017),
-	// served with TLS and only to metrics and admin certificates. Empty
+	// served with TLS and only to metrics certificates and cluster-admin. Empty
 	// disables it.
 	MetricsAddr string
 

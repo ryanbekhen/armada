@@ -91,7 +91,7 @@ func TestCertRenewerRenewsExpiredFileBeforeLoad(t *testing.T) {
 	}
 }
 
-func TestAdminRenewFromDataDir(t *testing.T) {
+func TestUserRenewFromDataDir(t *testing.T) {
 	t.Parallel()
 	dir, ca := serverDir(t, time.Hour)
 	certPEM, keyPEM, _ := ca.Issue(pki.IssueRequest{Identity: pki.Identity{Kind: pki.KindAdmin, Name: "root"}, Client: true, Validity: -time.Hour})
@@ -100,8 +100,9 @@ func TestAdminRenewFromDataDir(t *testing.T) {
 	if err := cc.SaveFile(cfgPath); err != nil {
 		t.Fatal(err)
 	}
-	code, out, errOut := run(t, "--config", cfgPath, "admin", "renew", "--data-dir", dir)
-	if code != 0 || !strings.Contains(out, "Renewed admin:root") {
+	// An admin certificate of an earlier release renews into a user one.
+	code, out, errOut := run(t, "--config", cfgPath, "user", "renew", "--data-dir", dir)
+	if code != 0 || !strings.Contains(out, "Renewed user:root") {
 		t.Fatalf("code %d: %s %s", code, out, errOut)
 	}
 	got, err := clientconfig.Load(cfgPath)
@@ -109,19 +110,19 @@ func TestAdminRenewFromDataDir(t *testing.T) {
 		t.Fatal(err)
 	}
 	c, _ := pki.ParseCertPEM([]byte(got.Cert))
-	if id, _ := pki.IdentityFromCert(c); id.String() != "admin:root" || time.Until(c.NotAfter) < 300*24*time.Hour || got.Key == string(keyPEM) || len(got.Servers) != 1 {
+	if id, _ := pki.IdentityFromCert(c); id.String() != "user:root" || time.Until(c.NotAfter) < 300*24*time.Hour || got.Key == string(keyPEM) || len(got.Servers) != 1 {
 		t.Errorf("config holds %v until %v", id, c.NotAfter)
 	}
 	if _, err := tls.X509KeyPair([]byte(got.Cert), []byte(got.Key)); err != nil {
 		t.Error(err)
 	}
 
-	// A config without an administrator certificate is refused.
+	// A config without a user certificate is refused.
 	nodePEM, nodeKey, _ := ca.Issue(pki.IssueRequest{Identity: pki.Identity{Kind: pki.KindNode, Name: "n1"}, Client: true})
 	cc.Cert, cc.Key = string(nodePEM), string(nodeKey)
 	_ = cc.SaveFile(cfgPath)
-	if code, _, errOut := run(t, "--config", cfgPath, "admin", "renew", "--data-dir", dir); code == 0 || !strings.Contains(errOut, "administrator certificate") {
-		t.Errorf("node certificate renewed as admin: %d %s", code, errOut)
+	if code, _, errOut := run(t, "--config", cfgPath, "user", "renew", "--data-dir", dir); code == 0 || !strings.Contains(errOut, "user certificate") {
+		t.Errorf("node certificate renewed as a user: %d %s", code, errOut)
 	}
 }
 

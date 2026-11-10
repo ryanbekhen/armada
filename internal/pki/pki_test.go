@@ -24,6 +24,8 @@ func TestParseIdentity(t *testing.T) {
 
 	ok := map[string]Identity{
 		"admin:ryan":    {KindAdmin, "ryan"},
+		"user:ryan":     {KindUser, "ryan"},
+		"service:ci":    {KindService, "ci"},
 		"node:node-1":   {KindNode, "node-1"},
 		"server:armada": {KindServer, "armada"},
 	}

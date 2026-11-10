@@ -165,7 +165,7 @@ func TestJoin(t *testing.T) {
 	var joined, created bool
 	for _, e := range audit {
 		joined = joined || (e.Action == "node.join" && e.Target == "n2")
-		created = created || (e.Action == "token.create" && e.Actor == "admin:ryan")
+		created = created || (e.Action == "token.create" && e.Actor == "user:ryan")
 		if strings.Contains(e.Detail, req.TokenSecret) {
 			t.Error("audit log holds a token secret")
 		}

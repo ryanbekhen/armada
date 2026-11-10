@@ -391,45 +391,45 @@ type Store interface {
 	RemoveServer(ctx context.Context, name, actor string) error
 
 	// CreateProject records a new project (ADR 0026); ErrConflict if it
-	// exists or is the default project. A non-empty automation adds the
-	// project to that identity's scope in the same transaction, and fails
-	// with ErrPrecondition unless the identity may create projects. An
-	CreateProject(ctx context.Context, name, actor, automation string) (Project, error)
+	// exists or is the default project. A non-nil by (a principal with
+	// project-creator, else ErrPrecondition) becomes the project's admin in
+	// the same transaction (ADR 0033).
+	CreateProject(ctx context.Context, name, actor string, by *Principal) (Project, error)
 	// GetProject returns a project; the default one always exists.
 	GetProject(ctx context.Context, name string) (Project, error)
 	// ListProjects lists every project, the default one first.
 	ListProjects(ctx context.Context) ([]Project, error)
 	// DeleteProject removes a project; ErrPrecondition while it still
 	// holds apps, secrets, volumes, runs, or replicas, and for the default
-	// project. It also leaves every automation scope.
+	// project. Every role in it is taken back.
 	DeleteProject(ctx context.Context, name, actor string) error
 
-	// SetAutomation creates an automation identity (ADR 0026) or replaces
-	// its scope; every project must exist and none may be the default.
-	SetAutomation(ctx context.Context, a Automation, actor string) (Automation, error)
-	GetAutomation(ctx context.Context, name string) (Automation, error)
-	ListAutomations(ctx context.Context) ([]Automation, error)
-	// DeleteAutomation removes an identity and so revokes its certificates.
-	DeleteAutomation(ctx context.Context, name, actor string) error
-	// RecordAutomationCert records a certificate issued to an identity; a
+	// Access control (ADR 0033). CreateUser records a user (ErrConflict
+	// while one of the name is on record) whose certificates issued before
+	// p.Since are refused; KnowUser records a name not on record with
+	// cluster-admin; SetUserSince refuses a user's older certificates.
+	CreateUser(ctx context.Context, p Principal, actor string) (Principal, error)
+	KnowUser(ctx context.Context, name string) error
+	SetUserSince(ctx context.Context, name string, since time.Time, actor string) error
+	// CreateService records a service (ErrConflict if it exists).
+	CreateService(ctx context.Context, p Principal, actor string) (Principal, error)
+	GetPrincipal(ctx context.Context, kind, name string) (Principal, error)
+	// ListPrincipals lists users then services; kind "" lists both.
+	ListPrincipals(ctx context.Context, kind string) ([]Principal, error)
+	SetPrincipalLabels(ctx context.Context, kind, name string, labels map[string][]string, actor string) (Principal, error)
+	// Assign and Unassign give and take back a role; projects must exist.
+	Assign(ctx context.Context, kind, name string, g Grant, actor string) (Principal, error)
+	Unassign(ctx context.Context, kind, name string, g Grant, actor string) (Principal, error)
+	// DeletePrincipal deletes a service, or marks a user deleted so that
+	// every certificate of the name is refused.
+	DeletePrincipal(ctx context.Context, kind, name, actor string) error
+	// RecordServiceCert records a certificate issued to a service; a
 	// non-empty keep revokes every other one (renewal).
-	RecordAutomationCert(ctx context.Context, name string, c NodeCert, keep, actor string) error
-	// AutomationScope returns an identity's scope and whether serial is
-	// one of its valid certificates.
-	AutomationScope(ctx context.Context, name, serial string) (Automation, bool, error)
-
-	// AddAdmin records an administrator (ADR 0028) whose certificates
-	// issued before since are refused; ErrConflict while it is on record.
-	AddAdmin(ctx context.Context, name string, since time.Time, actor string) error
-	// KnowAdmin records name, accepting all its certificates, unless it is
-	// on record.
-	KnowAdmin(ctx context.Context, name string) error
-	// RemoveAdmin refuses every certificate of name.
-	RemoveAdmin(ctx context.Context, name, actor string) error
-	ListAdmins(ctx context.Context) ([]Admin, error)
-	// AdminAllowed reports whether an administrator certificate of name
-	// starting at notBefore is accepted; names not on record are.
-	AdminAllowed(ctx context.Context, name string, notBefore time.Time) (bool, error)
+	RecordServiceCert(ctx context.Context, name string, c NodeCert, keep, actor string) error
+	// UserAccess and ServiceAccess return a principal's roles and whether
+	// its certificate is accepted; a user not on record has cluster-admin.
+	UserAccess(ctx context.Context, name string, notBefore time.Time) (Principal, bool, error)
+	ServiceAccess(ctx context.Context, name, serial string) (Principal, bool, error)
 
 	// Deploy records spec as a new revision and makes it the rollout target
 	// unless it is identical to the current target. A spec identical to the

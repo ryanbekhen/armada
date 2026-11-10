@@ -15,7 +15,7 @@ import (
 )
 
 // SystemPath is the admin config `armadad init` writes on the first server:
-// owned by root, readable by the members of Group, so every administrator
+// owned by root, readable by the members of Group, so every cluster-admin
 // on the machine uses armada without root and without a copy (ADR 0027).
 const SystemPath = "/etc/armada/admin.config"
 

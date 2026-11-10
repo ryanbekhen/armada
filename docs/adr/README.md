@@ -29,13 +29,14 @@ Every architectural decision that is hard to reverse is recorded here. Copy `000
 | [0023](0023-persistent-volumes.md) | Persistent volumes | Accepted |
 | [0024](0024-local-first-routing.md) | Local-first routing | Accepted |
 | [0025](0025-cluster-network.md) | Cluster network | Accepted |
-| [0026](0026-projects-and-network-isolation.md) | Projects and network isolation | Accepted |
+| [0026](0026-projects-and-network-isolation.md) | Projects and network isolation | Accepted; automation identities superseded by 0033 |
 | [0027](0027-client-and-daemon-binaries.md) | Client and daemon binaries | Accepted |
-| [0028](0028-administrators.md) | Administrators | Accepted |
+| [0028](0028-administrators.md) | Administrators | Superseded by 0033 |
 | [0029](0029-spec-variables-and-env-from-secrets.md) | Spec variables and variables from secrets | Accepted |
 | [0030](0030-release-checks-and-upgrades.md) | Release checks and machine upgrades | Accepted |
 | [0031](0031-cluster-settings.md) | Cluster settings | Accepted |
 | [0032](0032-command-line.md) | The command line | Accepted |
+| [0033](0033-access-control.md) | Access control: users, services, and roles | Accepted |
 
 Commands in records before 0032 carry the names of their time; ADR 0032
 lists the command line as it is now.
