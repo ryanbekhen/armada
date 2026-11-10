@@ -3,10 +3,12 @@ package server
 import (
 	"context"
 	"crypto/tls"
+	"fmt"
 	"strconv"
 	"testing"
 	"time"
 
+	"github.com/ryanbekhen/armada/internal/spec"
 	"github.com/ryanbekhen/armada/internal/store"
 	"github.com/ryanbekhen/armada/internal/store/storetest"
 )
@@ -280,5 +282,80 @@ func TestDrainFromSpec(t *testing.T) {
 	c.reconcile()
 	if n := len(c.replicas()); n != 1 {
 		t.Errorf("%d replicas after the drain, want 1", n)
+	}
+}
+
+// An app at the most replicas rolls out with one more replica next to the
+// ones that serve; the proxy configuration must take it, or no node gets
+// anything new.
+func TestRolloutAtMaxReplicas(t *testing.T) {
+	t.Parallel()
+	c := newClockServer(t)
+	if err := c.st.UpsertNode(c.ctx, store.Node{ID: "n1", PrivateIP: "10.0.0.2", State: store.NodeReady, CPUMillis: 64000, MemoryBytes: 64 << 30}); err != nil {
+		t.Fatal(err)
+	}
+	c.deploy(fmt.Sprintf("name: web\nimage: nginx:1\ningress:\n  type: internal\n  port: 80\nscale:\n  min: %d\nresources:\n  cpu: 10m\n  memory: 16Mi\n", spec.MaxReplicas))
+	c.serveAll()
+	c.deploy(fmt.Sprintf("name: web\nimage: nginx:2\ningress:\n  type: internal\n  port: 80\nscale:\n  min: %d\nresources:\n  cpu: 10m\n  memory: 16Mi\n", spec.MaxReplicas))
+	// The surge replica is ready while every old one still serves.
+	for _, r := range c.replicas() {
+		if !r.Ready {
+			c.readyOn(r)
+		}
+	}
+	apps, err := c.st.ListApps(c.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reps, err := c.st.ListReplicas(c.ctx, store.ReplicaFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	px, err := c.srv.buildProxy(c.ctx, apps, reps)
+	if err != nil {
+		t.Fatalf("proxy during a rollout at %d replicas: %v", spec.MaxReplicas, err)
+	}
+	if n := len(px.Backends[0].Servers); n <= spec.MaxReplicas {
+		t.Errorf("backend has %d servers; the test wants the surge in it", n)
+	}
+}
+
+type domainsFail struct {
+	store.Store
+	fail bool
+}
+
+func (d *domainsFail) ListDomains(ctx context.Context) ([]store.Domain, error) {
+	if d.fail {
+		return nil, fmt.Errorf("injected")
+	}
+	return d.Store.ListDomains(ctx)
+}
+
+// A pass whose proxy configuration cannot be built still sends replicas,
+// with the last configuration that could.
+func TestProxyFailureKeepsAssigning(t *testing.T) {
+	t.Parallel()
+	c := newClockServer(t)
+	failing := &domainsFail{Store: c.st}
+	c.srv.store = failing
+	c.deploy("name: web\nimage: nginx:1\ningress:\n  type: internal\n  port: 80\n")
+	good := c.srv.lastProxy
+	if good == nil || len(good.GetBackends()) != 1 {
+		t.Fatalf("no proxy configuration kept: %v", good)
+	}
+	failing.fail = true
+	c.deploy("name: api\nimage: nginx:1\n")
+	if c.srv.lastProxy != good {
+		t.Error("the kept configuration changed while building failed")
+	}
+	got := 0
+	for _, r := range c.replicas() {
+		if r.App == "api" {
+			got++
+		}
+	}
+	if got != 1 {
+		t.Errorf("api has %d replicas; the pass stopped at the proxy", got)
 	}
 }

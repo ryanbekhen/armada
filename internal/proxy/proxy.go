@@ -203,10 +203,15 @@ func (c Config) ToProto() *armadav1.ProxyConfig {
 
 // Limits on what a single configuration may contain.
 const (
-	MaxBackends       = 1000
-	MaxServers        = 100
-	MaxRules          = 5000
-	MaxCertificates   = 2000
+	// The limits bound what a compromised control plane can make an agent
+	// render, far above what a cluster needs: a backend per app and labelled
+	// revision, a rule per host and route.
+	MaxBackends     = 100_000
+	MaxRules        = 1_000_000
+	MaxCertificates = 100_000
+	// MaxServers leaves room for an app at spec.MaxReplicas while a rollout
+	// or a move adds replicas next to the ones that serve.
+	MaxServers        = 2 * spec.MaxReplicas
 	maxCertificatePEM = 64 << 10
 	// MaxTrustedProxies bounds the prefixes of TrustedProxies.
 	MaxTrustedProxies = 64

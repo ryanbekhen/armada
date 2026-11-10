@@ -149,6 +149,9 @@ type Server struct {
 
 	certMu        sync.Mutex
 	lastCertNames []string
+	// lastProxy is the last proxy configuration that passed validation; a
+	// pass whose own does not still sends replicas with it.
+	lastProxy *armadav1.ProxyConfig
 
 	now              func() time.Time
 	drainTimeout     time.Duration
