@@ -93,8 +93,11 @@ connection tracking table is. Fix every
 must be on tmpfs so plaintext never reaches a disk; `/run` is tmpfs on
 systemd distributions, and the units recreate the directory at start.
 
-If the host has several private addresses, pass the right one with
-`--private-ip` here and in `init`/`join`.
+Armada finds the private IP itself when the machine has exactly one
+(container, VM, and VPN interfaces such as `docker0` or `wg0` do not count).
+With several, for example a VPC address and a Tailscale one, it picks none
+and lists them: pass the one the other machines reach with `--private-ip`,
+here and in `init`/`join`. The address cannot change later.
 
 ## 3. Create the cluster (first machine)
 

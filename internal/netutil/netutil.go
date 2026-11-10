@@ -69,33 +69,40 @@ func CheckPrivateListen(hostport string) error {
 	return err
 }
 
-// DetectPrivateIP returns the first private, non-loopback IPv4 address of an
-// interface that is up.
+// DetectPrivateIP returns the machine's private, non-loopback IPv4 address,
+// skipping container and VM bridges. With several it picks none: the address
+// ends up in certificates and the state, so the operator chooses.
 func DetectPrivateIP() (netip.Addr, error) {
 	ifaces, err := net.Interfaces()
 	if err != nil {
 		return netip.Addr{}, err
 	}
-	var addrs []net.Addr
+	var found []ifaceAddr
 	for _, iface := range ifaces {
 		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 || virtualInterface(iface.Name) {
 			continue
 		}
-		a, err := iface.Addrs()
+		addrs, err := iface.Addrs()
 		if err != nil {
 			continue
 		}
-		addrs = append(addrs, a...)
+		for _, a := range addrs {
+			found = append(found, ifaceAddr{iface.Name, a})
+		}
 	}
-	if ip, ok := firstPrivateIPv4(addrs); ok {
-		return ip, nil
-	}
-	return netip.Addr{}, errors.New("no private IPv4 address found; pass --private-ip")
+	return onePrivateIPv4(found)
 }
 
-func firstPrivateIPv4(addrs []net.Addr) (netip.Addr, bool) {
-	for _, a := range addrs {
-		ipnet, ok := a.(*net.IPNet)
+type ifaceAddr struct {
+	name string
+	addr net.Addr
+}
+
+func onePrivateIPv4(found []ifaceAddr) (netip.Addr, error) {
+	var ips []netip.Addr
+	var names []string
+	for _, f := range found {
+		ipnet, ok := f.addr.(*net.IPNet)
 		if !ok {
 			continue
 		}
@@ -104,11 +111,19 @@ func firstPrivateIPv4(addrs []net.Addr) (netip.Addr, bool) {
 			continue
 		}
 		ip = ip.Unmap()
-		if ip.Is4() && !ip.IsLoopback() && IsPrivate(ip) {
-			return ip, true
+		if !ip.Is4() || ip.IsLoopback() || !IsPrivate(ip) {
+			continue
 		}
+		ips = append(ips, ip)
+		names = append(names, ip.String()+" on "+f.name)
 	}
-	return netip.Addr{}, false
+	switch len(ips) {
+	case 0:
+		return netip.Addr{}, errors.New("no private IPv4 address found; pass --private-ip")
+	case 1:
+		return ips[0], nil
+	}
+	return netip.Addr{}, fmt.Errorf("several private addresses (%s); pass --private-ip", strings.Join(names, ", "))
 }
 
 // virtualInterface reports container and VM bridges, whose addresses are

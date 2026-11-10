@@ -81,6 +81,12 @@ the host firewall. Exits non-zero if a check fails.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			env := hostDoctorEnv(dataDir)
+			// A node that has joined already knows its address.
+			if privateIP == "" {
+				if ac, err := loadAgentConfig(dataDir); err == nil {
+					privateIP = ac.PrivateIP
+				}
+			}
 			env.privateIP, env.dataDir, env.secretsDir = privateIP, dataDir, secretsDir
 			env.adminConfig = g.configPath
 			results := runDoctor(cmd.Context(), env)
@@ -93,7 +99,7 @@ the host firewall. Exits non-zero if a check fails.`,
 	f := cmd.Flags()
 	f.StringVar(&dataDir, "data-dir", defaultDataDir, "Armada data directory")
 	f.StringVar(&secretsDir, "secrets-dir", defaultSecretsDir, "tmpfs directory for secret files")
-	f.StringVar(&privateIP, "private-ip", "", "this node's private (VPC) IP (default: detected)")
+	f.StringVar(&privateIP, "private-ip", "", "this node's private (VPC) IP (default: the node's own, else the only private IPv4 address)")
 	return cmd
 }
 

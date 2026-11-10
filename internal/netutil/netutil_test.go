@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net"
 	"net/netip"
+	"strings"
 	"testing"
 )
 
@@ -79,22 +80,26 @@ func TestCheckPrivateListen(t *testing.T) {
 	}
 }
 
-func TestFirstPrivateIPv4(t *testing.T) {
+func TestOnePrivateIPv4(t *testing.T) {
 	t.Parallel()
 
-	mk := func(s string) net.Addr {
+	mk := func(name, s string) ifaceAddr {
 		_, n, _ := net.ParseCIDR(s)
-		n.IP = net.ParseIP(s[:len(s)-3])
-		return n
+		n.IP = net.ParseIP(s[:strings.IndexByte(s, '/')])
+		return ifaceAddr{name, n}
 	}
-	got, ok := firstPrivateIPv4([]net.Addr{
-		mk("8.8.8.8/24"), mk("127.0.0.1/8"), &net.IPAddr{IP: net.ParseIP("10.9.9.9")}, mk("10.0.0.2/24"), mk("192.168.1.2/24"),
+	got, err := onePrivateIPv4([]ifaceAddr{
+		mk("eth0", "8.8.8.8/24"), mk("eth0", "fd00::1/64"), {"eth1", &net.IPAddr{IP: net.ParseIP("10.9.9.9")}}, mk("eth1", "10.0.0.2/24"),
 	})
-	if !ok || got != netip.MustParseAddr("10.0.0.2") {
-		t.Errorf("firstPrivateIPv4 = %v, %v", got, ok)
+	if err != nil || got != netip.MustParseAddr("10.0.0.2") {
+		t.Errorf("one private address: %v, %v", got, err)
 	}
-	if _, ok := firstPrivateIPv4([]net.Addr{mk("8.8.8.8/24")}); ok {
-		t.Error("public-only interface list returned an address")
+	if _, err := onePrivateIPv4([]ifaceAddr{mk("eth0", "8.8.8.8/24")}); err == nil || !strings.Contains(err.Error(), "no private IPv4") {
+		t.Errorf("public only: %v", err)
+	}
+	_, err = onePrivateIPv4([]ifaceAddr{mk("ens4", "10.0.0.5/24"), mk("tailscale0", "100.101.2.3/32")})
+	if err == nil || !strings.Contains(err.Error(), "10.0.0.5 on ens4, 100.101.2.3 on tailscale0") || !strings.Contains(err.Error(), "--private-ip") {
+		t.Errorf("several: %v", err)
 	}
 }
 
@@ -103,7 +108,7 @@ func TestDetectPrivateIPDoesNotReturnPublic(t *testing.T) {
 
 	ip, err := DetectPrivateIP()
 	if err != nil {
-		t.Skipf("no private interface on this machine: %v", err)
+		t.Skipf("no single private address on this machine: %v", err)
 	}
 	if !IsPrivate(ip) || ip.IsLoopback() {
 		t.Errorf("DetectPrivateIP() = %v", ip)
