@@ -47,7 +47,7 @@ Changes of state, never routine checks:
 
 - Events live in etcd under `events/`, ordered by their last occurrence,
   with an etcd lease: they expire after 24 hours (one lease per hour, so
-  between 24 and 25 hours). At most 2000 are kept; the oldest go first.
+  between 24 and 25 hours). At most 2000 are kept, or 20 per app and node on a larger cluster (up to 50,000); the oldest go first.
 - Writes bypass the state transaction, since events take no part in its
   invariants, but are fenced on the leader's term like every other write.
 - Recording never holds up the work it describes: a failed write is logged
