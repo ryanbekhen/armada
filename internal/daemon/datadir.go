@@ -108,8 +108,7 @@ func readPrivate(dataDir string, names ...string) ([][]byte, error) {
 // directory is used, the foreground command otherwise.
 func nextStep(role, dataDir string) string {
 	if dataDir == defaultDataDir {
-		return fmt.Sprintf("Next: sudo systemctl enable --now armada-%s\n"+
-			"      (or `armadad %s` in the foreground without systemd)\n", role, role)
+		return fmt.Sprintf("Next: sudo systemctl enable --now armada-%s\n", role)
 	}
 	return fmt.Sprintf("Next: armadad %s --data-dir %s\n", role, dataDir)
 }

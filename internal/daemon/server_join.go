@@ -174,12 +174,10 @@ func newServerJoinCommand() *cobra.Command {
 			if resp.NodeSubnet != "" {
 				_, _ = fmt.Fprintf(out, "Container subnet: %s.\n", resp.NodeSubnet)
 			}
-			_, _ = fmt.Fprint(out, note+"\n")
-			_, _ = fmt.Fprint(out, nextStep("server", dataDir)+"\n")
-			_, _ = fmt.Fprintf(out, "Start it now: until it runs, the cluster counts it as a missing member.\n")
-			_, _ = fmt.Fprintf(out, "Keep %s private: it holds the cluster CA key and the secrets master key.\n", dataDir)
+			_, _ = fmt.Fprint(out, note)
+			_, _ = fmt.Fprint(out, nextStep("server", dataDir))
 			if len(servers) == 2 {
-				_, _ = fmt.Fprintln(out, "\nWith two control plane nodes, losing either one stops the control plane; add a third.")
+				_, _ = fmt.Fprintln(out, "With two control plane nodes, losing either one stops the control plane; add a third.")
 			}
 			return nil
 		},
