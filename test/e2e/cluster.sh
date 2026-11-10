@@ -16,6 +16,32 @@
 # as they are: throw them away afterwards.
 set -eu
 
+# Scenarios that run after the cluster is built and the test app serves.
+# E2E_ONLY=isolation,rollout runs only those (empty: all); E2E_LIST=1 lists
+# them. test/e2e/README.md says which to pick for a change.
+SCENARIOS="listeners project-secret conntrack isolation load rollout agent-restart failover node-loss backup placement platforms cpu spread reboot"
+E2E_ONLY=${E2E_ONLY:-}
+if [ "${E2E_LIST:-}" = 1 ]; then
+	echo "$SCENARIOS" | tr ' ' '\n'
+	exit 0
+fi
+for _s in $(printf '%s' "$E2E_ONLY" | tr ',' ' '); do
+	case " $SCENARIOS " in
+	*" $_s "*) ;;
+	*)
+		echo "e2e: unknown scenario '$_s' in E2E_ONLY (E2E_LIST=1 lists them)" >&2
+		exit 2
+		;;
+	esac
+done
+want() {
+	[ -z "$E2E_ONLY" ] && return 0
+	case ",$E2E_ONLY," in
+	*",$1,"*) return 0 ;;
+	esac
+	return 1
+}
+
 HOSTS=${1:?usage: cluster.sh HOSTS-FILE}
 ARMADA_BIN=${ARMADA_BIN:-}
 ARMADA_BIN_AMD64=${ARMADA_BIN_AMD64:-$ARMADA_BIN}
@@ -326,6 +352,7 @@ if [ "$SERVERS" -gt 1 ]; then
 	on 1 'cat /etc/armada/admin.config' | on 2 'umask 077; mkdir -p ~root/.armada && cat > ~root/.armada/config'
 fi
 
+if want listeners; then
 log "only HAProxy faces the public network"
 i=1
 while [ "$i" -le "$N" ]; do
@@ -344,6 +371,7 @@ while [ "$i" -le "$N" ]; do
 done
 ok "every other listener is on a private, loopback, or bridge address"
 
+fi
 log "deploy $APP ($REPLICAS replicas) with a secret"
 SECRET=e2e-$(openssl rand -hex 16)
 printf '%s' "$SECRET" | cli secret set "$APP" e2e-secret >/dev/null
@@ -357,6 +385,7 @@ curl -sk --max-time 5 --resolve "$URL_HOST:443:$(host 1 4)" "https://$URL_HOST/?
 	fail "the secret did not reach the container"
 ok "the secret reached the container"
 
+if want project-secret; then
 log "a secret of an app in another project"
 cli project create e2e-proj >/dev/null
 printf '%s' "$SECRET" | cli secret set e2e-app --project e2e-proj e2e-secret --no-rollout >/dev/null
@@ -372,6 +401,8 @@ while [ "$i" -le "$N" ]; do
 done
 ok "the secret value is in no journal"
 
+fi
+if want conntrack; then
 log "connection tracking"
 # The agent raises the limit once the kernel module is loaded (ADR 0025).
 conntrack_raised() {
@@ -385,6 +416,8 @@ conntrack_raised() {
 }
 wait_for 60 "every node raised its connection tracking limit" conntrack_raised
 
+fi
+if want isolation; then
 log "isolation between apps and projects"
 # Each replica answers on port 80 and has wget. A check that cannot run at all
 # must not pass as blocked, so a blocked request has to show wget's own error.
@@ -447,6 +480,8 @@ cli project rm e2e-proj >/dev/null
 cli project rm e2e-other >/dev/null
 ok "both projects are removed"
 
+fi
+if want load; then
 log "steady load"
 # Nothing changes in the cluster: a failure here is the path between this
 # machine and the nodes, not Armada.
@@ -454,6 +489,8 @@ load_start
 sleep 60
 load_stop "steady load"
 
+fi
+if want rollout; then
 log "rolling update under load"
 load_start
 deploy "$V2" >/dev/null
@@ -466,6 +503,8 @@ cli rollback "$APP" >/dev/null
 wait_for 300 "rolled back to $V1" serving "$V1"
 load_stop "rollback"
 
+fi
+if want agent-restart; then
 log "agent restart adopts running containers"
 # A rollout can leave the app unevenly spread for a moment; let rebalancing
 # finish so that only the restart could change the replica set.
@@ -481,7 +520,8 @@ load_stop "agent restart"
 [ "$(replica_ids)" = "$_before" ] || fail "replicas were replaced instead of adopted"
 ok "no replica was replaced"
 
-if [ "$SERVERS" -gt 1 ]; then
+fi
+if [ "$SERVERS" -gt 1 ] && want failover; then
 	log "leader failover under load"
 	_old=$(leader)
 	_i=$(index "$_old")
@@ -509,6 +549,7 @@ if [ "$SERVERS" -gt 1 ]; then
 	CLI=1
 fi
 
+if want node-loss; then
 log "node loss and return under load"
 _node=$(host "$N" 1)
 _unit=armada-agent
@@ -524,12 +565,16 @@ wait_for 600 "replicas rebalanced onto $_node" even
 wait_for 180 "$APP serving after the rebalance" serving
 load_stop "node loss and rebalance"
 
+fi
+if want backup; then
 log "backup"
 on "$CLI" 'armadad backup -o /root/e2e-backup.tar.gz' >/dev/null 2>&1
 [ "$(on "$CLI" 'stat -c %a /root/e2e-backup.tar.gz')" = 600 ] || fail "backup file is not 0600"
 on "$CLI" 'rm -f /root/e2e-backup.tar.gz'
 ok "backup written with mode 0600"
 
+fi
+if want placement; then
 log "placement: labels and a restricted node under load"
 _node=$(host "$N" 1)
 # pinned_on NODE: both replicas of the pinned app serve on NODE.
@@ -564,6 +609,8 @@ wait_for 60 "status explains why pinned has nowhere to go" placement_note
 cli node open "$_node" >/dev/null
 wait_for 600 "$APP spread back over every node" even
 
+fi
+if want platforms; then
 log "image platforms"
 # The architectures in the cluster; an image built for one architecture
 # only must run on nodes of that architecture, or nowhere.
@@ -611,6 +658,8 @@ EOF
 	fi
 done
 
+fi
+if want cpu; then
 log "CPU reservations"
 # A replica without resources.cpu reserves 100m, which gives its container
 # a CPU weight below the default of 100.
@@ -636,6 +685,8 @@ no_cpu() {
 }
 wait_for 60 "an app reserving more CPU than any node has runs nowhere and status says why" no_cpu
 
+fi
+if want spread; then
 log "placement: spreading over a label"
 # Every node but the last is in zone a, the last alone in zone b: spread by
 # zone, half of the replicas go to the last node.
@@ -670,7 +721,8 @@ half_on() {
 }
 wait_for 300 "spread by zone: two of four replicas on $_last, alone in its zone" half_on "$_last"
 
-if [ "$E2E_REBOOT" = 1 ]; then
+fi
+if [ "$E2E_REBOOT" = 1 ] && want reboot; then
 	log "reboot every machine at once"
 	i=1
 	while [ "$i" -le "$N" ]; do
@@ -689,4 +741,4 @@ if [ "$E2E_REBOOT" = 1 ]; then
 	wait_for 120 "https://$URL_HOST answers 200 on every public IP" all_https_ok
 fi
 
-log "passed in $((($(date +%s) - STARTED) / 60)) minutes"
+log "passed in $((($(date +%s) - STARTED) / 60)) minutes (scenarios: ${E2E_ONLY:-all})"
