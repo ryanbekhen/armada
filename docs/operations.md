@@ -3,7 +3,7 @@
 How to run a cluster once it is up (the [quickstart](quickstart.md) gets
 you there). Each section stands on its own:
 
-- **Control plane and its data:** [one server or three](#control-plane-one-server-or-three),
+- **Control plane and its data:** [cluster settings](#cluster-settings), [one server or three](#control-plane-one-server-or-three),
   [data directory](#what-is-in-the-data-directory), [backup](#backup),
   [restore](#restore), [upgrades](#upgrades), [certificates](#certificates)
 - **People and tools:** [administrators](#administrators),
@@ -28,6 +28,43 @@ availability, three (see below). With one server, its data directory
 you have to build a new cluster and redeploy everything. With three, any
 one can fail, but a mistake (a deleted app, a bad secret) is replicated to
 all of them. Back up either way.
+
+## Cluster settings
+
+Settings that every server must share, because any of them can lead, live
+in the cluster's state ([ADR 0031](adr/0031-cluster-settings.md)). Change
+them from any machine with admin credentials; they apply within seconds on
+every server, and stay after a failover:
+
+```bash
+armada cluster show
+armada cluster set --acme-email ops@example.com --acme-ca letsencrypt
+printf '%s' "$TOKEN" | armada cluster set --dns-provider cloudflare --dns-token -
+armada cluster set --metrics-port 9443 --node-lost-timeout 5m
+armada cluster set --root-domain apps.example.com --trusted-proxies 173.245.48.0/20,...
+```
+
+| Setting | Flag of `armada cluster set` | Default |
+| --- | --- | --- |
+| Certificates on or off | `--tls` | on |
+| ACME directory | `--acme-ca` | `letsencrypt` |
+| ACME account email | `--acme-email` | none |
+| DNS provider for the root domain (wildcard) | `--dns-provider cloudflare\|none` with `--dns-token FILE\|-` | none (HTTP-01) |
+| Metrics endpoint | `--metrics-port` (each server's private address) | off |
+| Node-lost timeout | `--node-lost-timeout` | 5m |
+
+The DNS token is stored encrypted with the master key and never shown.
+Changing a setting makes the leader restart its control plane in the same
+process: apps keep serving, and the API and agents reconnect within a
+second or two. The root domain and trusted proxies apply without that.
+
+`/etc/armada/server.env` keeps only what belongs to one machine
+(`--acme-listen`, `--join-listen`, `--metrics-listen` for another address,
+`--proxy`, `--internal-dns`, `--secrets-dir`, `--log-format`). A cluster
+from before these settings existed moves the flags its leader was started
+with into the cluster's state once; after that the cluster's value wins, a
+server whose flags disagree logs it, and `armadad doctor` points at such
+flags left in `server.env`.
 
 ## Control plane: one server or three
 
@@ -63,7 +100,8 @@ armada server list                     # waits for "voting"; updates ~/.armada/c
 ```
 
 On a machine without Armada, run the install line `armada token create
---server` prints first, and copy `/etc/armada/server.env` to it.
+--server` prints first. Nothing else to copy: the new server uses the
+cluster's settings (see [cluster settings](#cluster-settings)).
 
 The new server receives the cluster CA key and the secrets master key over
 the CA-pinned connection, so the server token is as sensitive as those keys:
@@ -836,12 +874,15 @@ TIME            KIND         OBJECT                        REASON           COUN
 ## Metrics
 
 The leader serves Prometheus metrics ([ADR 0017](adr/0017-metrics-endpoint.md))
-when servers run with `--metrics-listen`. Give every server the same flag in
-`/etc/armada/server.env`, with its own private address:
+once a port is set. Every server listens on its own private address, so
+the endpoint follows the leader:
 
 ```bash
-ARMADA_SERVER_FLAGS="... --metrics-listen 10.0.0.5:9443"
+armada cluster set --metrics-port 9443     # 0 turns it off
 ```
+
+`--metrics-listen IP:PORT` in a server's `/etc/armada/server.env` still picks
+another address on that machine.
 
 The endpoint needs a client certificate. Create one for the scraper from any
 machine with admin credentials:

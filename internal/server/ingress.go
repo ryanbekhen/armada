@@ -1,9 +1,11 @@
 package server
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
+	"net/netip"
 	"slices"
 	"strings"
 	"time"
@@ -342,11 +344,24 @@ func (s *Server) GetClusterConfig(ctx context.Context, _ *armadav1.GetClusterCon
 	if err != nil {
 		return nil, storeErr(err)
 	}
-	return &armadav1.ClusterConfig{RootDomain: s.rootDomain(ctx), AcmeEmail: s.acmeEmail, TrustedProxies: trusted}, nil
+	set, err := LoadSettings(ctx, s.store)
+	if err != nil {
+		return nil, storeErr(err)
+	}
+	cc := &armadav1.ClusterConfig{
+		RootDomain: s.rootDomain(ctx), AcmeEmail: s.acmeEmail, TrustedProxies: trusted,
+		Tls: s.certs != nil, AcmeCa: s.acmeCA, DnsProvider: s.dnsProvider, DnsTokenSet: set.DNSToken != nil,
+		NodeLostTimeoutSeconds: int64(s.nodeLostTimeout / time.Second),
+	}
+	if ap, err := netip.ParseAddrPort(s.metricsAddr); err == nil {
+		cc.MetricsPort = int32(ap.Port())
+	}
+	return cc, nil
 }
 
 // SetClusterConfig updates the cluster-wide settings the request names: the
-// root domain and the trusted proxies. The ACME email is a server flag.
+// root domain and the trusted proxies apply at once; the server settings
+// (ADR 0031) are stored and the leader restarts its term to apply them.
 func (s *Server) SetClusterConfig(ctx context.Context, req *armadav1.SetClusterConfigRequest) (*armadav1.ClusterConfig, error) {
 	if req.GetSetRootDomain() {
 		root := strings.ToLower(strings.TrimSpace(req.GetConfig().GetRootDomain()))
@@ -377,8 +392,105 @@ func (s *Server) SetClusterConfig(ctx context.Context, req *armadav1.SetClusterC
 		}
 		s.log.Info("trusted proxies changed", "trusted_proxies", list, "by", actor(ctx))
 	}
+	changed, err := s.setSettings(ctx, req)
+	if err != nil {
+		return nil, err
+	}
 	s.Trigger()
-	return s.GetClusterConfig(ctx, nil)
+	cc, err := s.GetClusterConfig(ctx, nil)
+	if err == nil && changed && s.onSettings != nil {
+		// After this answer: the term ends with the API it serves.
+		time.AfterFunc(300*time.Millisecond, s.onSettings)
+	}
+	return cc, err
+}
+
+// setSettings validates and stores the server settings the request names.
+// It reports whether anything changed; the token is never logged.
+func (s *Server) setSettings(ctx context.Context, req *armadav1.SetClusterConfigRequest) (bool, error) {
+	c := req.GetConfig()
+	settings := req.GetSetTls() || req.GetSetAcmeEmail() || req.GetSetAcmeCa() || req.GetSetDnsProvider() ||
+		req.GetSetMetricsPort() || req.GetSetNodeLostTimeout() || req.GetSetDnsToken()
+	if !settings {
+		return false, nil
+	}
+	set, err := LoadSettings(ctx, s.store)
+	if err != nil {
+		return false, storeErr(err)
+	}
+	var what []string
+	if req.GetSetTls() {
+		on := c.GetTls()
+		set.TLS = &on
+		what = append(what, fmt.Sprintf("tls=%t", on))
+	}
+	if req.GetSetAcmeEmail() {
+		email := strings.TrimSpace(c.GetAcmeEmail())
+		if err := CheckEmail(email); err != nil {
+			return false, status.Error(codes.InvalidArgument, err.Error())
+		}
+		set.ACMEEmail = email
+		what = append(what, "acme_email="+email)
+	}
+	if req.GetSetAcmeCa() {
+		if err := CheckACMECA(c.GetAcmeCa()); err != nil {
+			return false, status.Error(codes.InvalidArgument, err.Error())
+		}
+		set.ACMECA = c.GetAcmeCa()
+		what = append(what, "acme_ca="+c.GetAcmeCa())
+	}
+	if req.GetSetDnsProvider() {
+		p := c.GetDnsProvider()
+		if p == "none" {
+			p = ""
+		}
+		if err := CheckDNSProvider(p); err != nil {
+			return false, status.Error(codes.InvalidArgument, err.Error())
+		}
+		set.DNSProvider, set.DNSProviderSet = p, true
+		what = append(what, "dns_provider="+cmp.Or(p, "none"))
+	}
+	if req.GetSetDnsToken() {
+		if s.keys == nil {
+			return false, status.Error(codes.FailedPrecondition, "this server has no master key to encrypt the token with")
+		}
+		token := []byte(strings.TrimSpace(string(req.GetDnsToken())))
+		if err := CheckDNSToken(token); err != nil {
+			return false, status.Error(codes.InvalidArgument, err.Error())
+		}
+		if err := set.SealToken(s.keys, token); err != nil {
+			return false, status.Error(codes.Internal, "seal the DNS token")
+		}
+		what = append(what, "dns_token")
+	}
+	if req.GetSetMetricsPort() {
+		port := int(c.GetMetricsPort())
+		if port < 0 || port > 65535 {
+			return false, status.Error(codes.InvalidArgument, "metrics port must be between 0 (off) and 65535")
+		}
+		set.MetricsPort = &port
+		what = append(what, fmt.Sprintf("metrics_port=%d", port))
+	}
+	if req.GetSetNodeLostTimeout() {
+		d := time.Duration(c.GetNodeLostTimeoutSeconds()) * time.Second
+		if err := CheckNodeLostTimeout(d); err != nil {
+			return false, status.Error(codes.InvalidArgument, err.Error())
+		}
+		set.NodeLostSeconds = c.GetNodeLostTimeoutSeconds()
+		what = append(what, "node_lost_timeout="+d.String())
+	}
+	if set.DNSProvider != "" && set.DNSToken == nil {
+		return false, status.Errorf(codes.FailedPrecondition, "DNS provider %s needs a token: armada cluster set --dns-token - < FILE", set.DNSProvider)
+	}
+	if err := SaveSettings(ctx, s.store, set); err != nil {
+		return false, storeErr(err)
+	}
+	detail := strings.Join(what, " ")
+	if err := s.store.RecordAudit(ctx, actor(ctx), "cluster.settings", "cluster", detail); err != nil {
+		return false, storeErr(err)
+	}
+	s.log.Info("cluster settings changed", "changed", detail, "by", actor(ctx))
+	return true, nil
 }
 
 // ListDomains returns custom domains with what their owners must configure.

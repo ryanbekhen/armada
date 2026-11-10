@@ -384,3 +384,24 @@ func TestDoctorRelease(t *testing.T) {
 		t.Errorf("check ran while turned off: %s", got)
 	}
 }
+
+func TestDoctorServerEnv(t *testing.T) {
+	t.Parallel()
+	env := healthyEnv(t)
+	env.serverEnv = func() ([]byte, error) {
+		return []byte(`ARMADA_SERVER_FLAGS="--acme-email ops@example.org --dns-provider=cloudflare --tls=false"` + "\n"), nil
+	}
+	results := runDoctor(context.Background(), env)
+	if statusOf(results, "server-env") != checkWarn {
+		t.Fatalf("no warning for cluster flags in server.env")
+	}
+	for _, r := range results {
+		if r.Name == "server-env" && (!strings.Contains(r.Detail, "--acme-email") || !strings.Contains(r.Detail, "--dns-provider") || !strings.Contains(r.Detail, "--tls")) {
+			t.Errorf("detail %q", r.Detail)
+		}
+	}
+	env.serverEnv = func() ([]byte, error) { return []byte(`ARMADA_SERVER_FLAGS="--join-listen off"` + "\n"), nil }
+	if got := statusOf(runDoctor(context.Background(), env), "server-env"); got != "" {
+		t.Errorf("machine flags flagged: %s", got)
+	}
+}

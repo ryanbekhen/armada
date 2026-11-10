@@ -45,6 +45,9 @@ armada deploy -f web.yaml    # → https://web.apps.example.com
 - **HTTPS by default.** HAProxy on every node, certificates from Let's
   Encrypt (HTTP-01, or DNS-01 with Cloudflare for the root domain and a wildcard), custom
   domains after TXT ownership verification.
+- **Cluster settings in one place.** `armada cluster set` changes
+  certificates, the DNS provider, metrics, and timeouts for every server at
+  once, and they hold after a failover.
 - **Internal services.** `ingress: internal` apps are reachable from any
   container in the cluster at `http://<app>.internal`, never from outside.
 - **Local-first routing.** Each node sends requests to its own replicas

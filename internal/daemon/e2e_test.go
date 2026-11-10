@@ -447,9 +447,30 @@ func TestEndToEnd(t *testing.T) {
 	if code, out, stderr := cli("cluster", "set", "--root-domain", "apps.example.org"); code != 0 || !strings.Contains(out, "apps.example.org") {
 		t.Fatalf("cluster set: %q %q", out, stderr)
 	}
-	if code, out, _ := cli("cluster", "show"); code != 0 || !strings.Contains(out, "root domain:     apps.example.org") {
+	if code, out, _ := cli("cluster", "show"); code != 0 || !strings.Contains(out, "root domain:       apps.example.org") {
 		t.Errorf("cluster show = %q", out)
 	}
+	// The server's flags became the cluster's settings (ADR 0031), and a
+	// change applies through a restart of the leader's term, keeping the
+	// API and the agents.
+	_, out, _ = cli("cluster", "show")
+	if !strings.Contains(out, "certificates:      on, letsencrypt-staging") || !strings.Contains(out, "metrics:           port ") {
+		t.Errorf("cluster show after adopting the flags = %q", out)
+	}
+	if code, _, stderr := cli("cluster", "set", "--node-lost-timeout", "2m"); code != 0 {
+		t.Fatalf("cluster set --node-lost-timeout: %s", stderr)
+	}
+	waitFor("the new node-lost timeout in use", func() bool {
+		_, out, _ := cli("cluster", "show")
+		return strings.Contains(out, "node lost timeout: 2m0s")
+	})
+	if !strings.Contains(serverLog.String(), "cluster settings changed; applying them") {
+		t.Error("the leader did not restart its term")
+	}
+	waitFor("the API answers after the restart", func() bool {
+		code, _, _ := cli("status", "web")
+		return code == 0
+	})
 	waitFor("haproxy routes web", func() bool {
 		maps, err := filepath.Glob(filepath.Join(dataDir, dirHAProxy, "etc", "routes-*.map"))
 		if err != nil {

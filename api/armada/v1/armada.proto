@@ -570,6 +570,17 @@ message ClusterConfig {
   // Addresses of proxies in front of the nodes, as prefixes. Only requests
   // from these may carry client address headers past ingress.
   repeated string trusted_proxies = 3;
+  // Server settings for the whole cluster (ADR 0031), as the leader uses
+  // them: certificates on or off, the ACME directory, the DNS provider for
+  // the root domain, whether a DNS token is stored (never the token), the
+  // metrics port on each server's private address (0: off), and how long a
+  // node may be unreachable before its replicas move.
+  bool tls = 4;
+  string acme_ca = 5;
+  string dns_provider = 6;
+  bool dns_token_set = 7;
+  int32 metrics_port = 8;
+  int64 node_lost_timeout_seconds = 9;
 }
 
 message GetClusterConfigRequest {}
@@ -579,6 +590,16 @@ message SetClusterConfigRequest {
   // Which fields of config change.
   bool set_root_domain = 2;
   bool set_trusted_proxies = 3;
+  bool set_tls = 4;
+  bool set_acme_email = 5;
+  bool set_acme_ca = 6;
+  bool set_dns_provider = 7;
+  bool set_metrics_port = 8;
+  bool set_node_lost_timeout = 9;
+  // The DNS provider's API token, set when set_dns_token; empty removes it.
+  // Never logged or returned.
+  bool set_dns_token = 10;
+  bytes dns_token = 11 [debug_redact = true];
 }
 
 message ListDomainsRequest {
