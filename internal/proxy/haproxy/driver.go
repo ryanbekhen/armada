@@ -269,7 +269,14 @@ func (d *Driver) Apply(ctx context.Context, cfg proxy.Config) error {
 	}
 	for _, name := range changedCerts {
 		if err := d.updateCert(ctx, name, cfg); err != nil {
-			return err
+			// The file on disk is the new certificate: a reload loads it.
+			// Otherwise the running proxy would keep the old one, and the
+			// file no longer looks changed, until it expires.
+			d.log.Warn("live certificate update failed; reloading", "cert", name, "err", err)
+			if err := d.cfg.Engine.Reload(ctx); err != nil {
+				return fmt.Errorf("reload haproxy for certificate %s: %w", name, err)
+			}
+			break
 		}
 	}
 	d.layout = layout
@@ -398,7 +405,7 @@ func (d *Driver) updateCert(ctx context.Context, file string, cfg proxy.Config) 
 		}
 	}
 	path := containerConfDir + "/" + certDir + "/" + file
-	if _, err := d.cfg.API.Payload(ctx, "set ssl cert "+path, string(data)); err != nil {
+	if _, err := d.cfg.API.Payload(ctx, "set ssl cert "+path, pemPayload(data)); err != nil {
 		return err
 	}
 	_, err := d.cfg.API.Command(ctx, "commit ssl cert "+path)

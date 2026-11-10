@@ -1,6 +1,7 @@
 package haproxy
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"flag"
@@ -417,6 +418,10 @@ func (a *fakeAPI) Command(_ context.Context, cmd string) (string, error) {
 	return "", a.err
 }
 func (a *fakeAPI) Payload(_ context.Context, cmd, payload string) (string, error) {
+	// The same check as the real socket.
+	if err := checkPayload(payload); err != nil {
+		return "", err
+	}
 	return a.Command(context.Background(), cmd+" <<payload:"+fmt.Sprint(len(payload)))
 }
 
@@ -591,6 +596,35 @@ func TestApplyLifecycle(t *testing.T) {
 		a.cmds[1] != "commit ssl cert /usr/local/etc/haproxy/certs/example.org.pem" || e.reloads != 0 {
 		t.Errorf("cert update cmds = %q reloads=%d", a.cmds, e.reloads)
 	}
+
+	// Issued bundles have empty lines between their blocks; the live update
+	// leaves them out.
+	a.cmds = nil
+	blank := cert(t)
+	blank = append(bytes.ReplaceAll(blank, []byte("-----\n-----BEGIN"), []byte("-----\n\n\n-----BEGIN")), '\n', '\n')
+	if !bytes.Contains(blank, []byte("\n\n")) {
+		t.Fatal("test certificate has no empty line")
+	}
+	cfg.Certificates[0].PEM = blank
+	if err := d.Apply(ctx, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if len(a.cmds) != 2 || !strings.HasPrefix(a.cmds[0], "set ssl cert ") || e.reloads != 0 {
+		t.Errorf("renewal with empty lines: cmds = %q reloads=%d", a.cmds, e.reloads)
+	}
+
+	// A live update that still fails reloads, so the new file is served.
+	a.cmds = nil
+	a.err = errors.New("injected")
+	cfg.Certificates[0].PEM = cert(t)
+	if err := d.Apply(ctx, cfg); err != nil {
+		t.Fatal(err)
+	}
+	a.err = nil
+	if e.reloads != 1 {
+		t.Errorf("failed live update: reloads=%d", e.reloads)
+	}
+	e.reloads = 0
 
 	// New route: structural change, validated then reloaded.
 	cfg.Rules = append(cfg.Rules, proxy.Rule{Host: "www.example.org", PathPrefix: "/", Backend: "frontend"})

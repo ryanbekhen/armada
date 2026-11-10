@@ -50,8 +50,8 @@ func (s Socket) Payload(ctx context.Context, cmd, payload string) (string, error
 		return "", fmt.Errorf("runtime API command must be a single statement")
 	}
 	payload = strings.TrimRight(payload, "\n")
-	if strings.Contains(payload, "\n\n") {
-		return "", errors.New("payload must not contain empty lines")
+	if err := checkPayload(payload); err != nil {
+		return "", err
 	}
 	return s.send(ctx, cmd+" <<\n"+payload+"\n\n")
 }
@@ -90,4 +90,27 @@ func (s Socket) send(ctx context.Context, msg string) (string, error) {
 		}
 	}
 	return out, nil
+}
+
+// checkPayload refuses a payload with an empty line: the Runtime API reads
+// one as its end, and the rest as further commands.
+func checkPayload(payload string) error {
+	if strings.Contains(strings.TrimRight(payload, "\n"), "\n\n") {
+		return errors.New("payload must not contain empty lines")
+	}
+	return nil
+}
+
+// pemPayload is a PEM bundle without empty or whitespace-only lines, which
+// PEM readers skip anyway; issued bundles have them between blocks.
+func pemPayload(b []byte) string {
+	var out strings.Builder
+	for line := range strings.Lines(string(b)) {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		out.WriteString(strings.TrimRight(line, "\r\n"))
+		out.WriteByte('\n')
+	}
+	return out.String()
 }
