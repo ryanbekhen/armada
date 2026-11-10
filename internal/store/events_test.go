@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -68,5 +69,28 @@ func TestEventsFenced(t *testing.T) {
 	}
 	if _, err := f.PutEvent(ctx, Event{Kind: "node", Object: "n1", Reason: "Lost", Count: 1, First: now, Last: now}, ""); !errors.Is(err, ErrNotLeader) {
 		t.Errorf("event after the term: %v", err)
+	}
+}
+
+// Trimming keeps the newest and drops the rest in one range delete.
+func TestTrimEventsKeepsNewest(t *testing.T) {
+	t.Parallel()
+	s, ctx := open(t), context.Background()
+	t0 := time.Now().Add(-time.Hour)
+	for i := range 300 {
+		at := t0.Add(time.Duration(i) * time.Second)
+		if _, err := s.PutEvent(ctx, Event{Kind: "replica", Object: fmt.Sprintf("r%d", i), Reason: "Started", Count: 1, First: at, Last: at}, ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.TrimEvents(ctx, 50); err != nil {
+		t.Fatal(err)
+	}
+	left, err := s.ListEvents(ctx, time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(left) != 50 || left[0].Object != "r250" || left[49].Object != "r299" {
+		t.Errorf("kept %d, first %s", len(left), left[0].Object)
 	}
 }

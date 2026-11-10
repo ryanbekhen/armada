@@ -131,12 +131,14 @@ func (s *Etcd) TrimEvents(ctx context.Context, keep int) error {
 	if err != nil {
 		return err
 	}
-	for _, kv := range resp.Kvs[:max(0, len(resp.Kvs)-keep)] {
-		if _, err := s.c.Delete(ctx, string(kv.Key)); err != nil {
-			return err
-		}
+	drop := len(resp.Kvs) - keep
+	if drop <= 0 {
+		return nil
 	}
-	return nil
+	// The oldest come first (keys start with the time): one range delete
+	// up to the first event kept, however many go.
+	_, err = s.c.Delete(ctx, s.prefix+pfxEvents, clientv3.WithRange(string(resp.Kvs[drop].Key)))
+	return err
 }
 
 func randomSuffix() string {
