@@ -104,7 +104,9 @@ armada deploy -f web.yaml    # → https://web.apps.example.com
 - **Highly available control plane.** One server works; three survive the
   loss of any one. Servers elect a leader, agents and the CLI follow it,
   and certificates are not re-issued on failover.
-- **Rolling upgrades.** Upgrade servers, then nodes, one at a time while
+- **Rolling upgrades.** `armada version` and `armadad doctor` say when a
+  newer release is out, and `sudo armadad upgrade` installs it, verified,
+  on a machine. Upgrade servers, then nodes, one at a time while
   apps keep serving; state migrations wait until every server runs the new
   version, and downgrades onto migrated state are refused.
 - **Confined containers.** Dropped capabilities, `no-new-privileges`,

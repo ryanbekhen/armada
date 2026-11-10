@@ -9,11 +9,15 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 
 	"github.com/ryanbekhen/armada/internal/clientconfig"
+	"github.com/ryanbekhen/armada/internal/release"
 	"github.com/ryanbekhen/armada/internal/spec"
 	"github.com/ryanbekhen/armada/internal/version"
 )
@@ -89,7 +93,7 @@ func NewRootCommand() *cobra.Command {
 		"project of the apps and jobs a command names (ADR 0026; or ARMADA_PROJECT); without it, names are in the default project and listings show every project")
 
 	cmd.AddCommand(
-		NewVersionCommand(),
+		NewVersionCommand(serverVersions(g)),
 		newServerCommand(g),
 		newDeployCommand(g),
 		newStatusCommand(g),
@@ -118,8 +122,32 @@ func NewRootCommand() *cobra.Command {
 }
 
 // Execute runs the command tree with args and returns the process exit code.
+// On a terminal it says, at most once a day, that a newer release exists.
 func Execute(ctx context.Context, args []string, stdout, stderr io.Writer) int {
-	return Run(ctx, NewRootCommand(), args, nil, stdout, stderr)
+	notice := startNotice(ctx, args, stderr)
+	code := Run(ctx, NewRootCommand(), args, nil, stdout, stderr)
+	if line := notice(time.Second); line != "" {
+		_, _ = fmt.Fprintln(stderr, line)
+	}
+	return code
+}
+
+// startNotice looks for a newer release (release.StartNotice) only when a
+// person reads stderr, and not for commands that need no cluster.
+func startNotice(ctx context.Context, args []string, stderr io.Writer) func(time.Duration) string {
+	none := func(time.Duration) string { return "" }
+	f, ok := stderr.(*os.File)
+	if !ok || !term.IsTerminal(int(f.Fd())) {
+		return none
+	}
+	if len(args) > 0 && slices.Contains([]string{"version", "help", "completion", "__complete"}, args[0]) {
+		return none
+	}
+	dir, err := os.UserCacheDir()
+	if err != nil {
+		return none
+	}
+	return release.StartNotice(ctx, version.Get().Version, dir, time.Now())
 }
 
 // Run runs a command tree with args and returns the process exit code; a nil

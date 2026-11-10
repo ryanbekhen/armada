@@ -361,3 +361,26 @@ func TestDoctorCertificates(t *testing.T) {
 		t.Errorf("certificates on an empty host: %s", s)
 	}
 }
+
+func TestDoctorRelease(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		latest string
+		err    error
+		want   string
+	}{
+		{"v0.2.0", nil, checkWarn},
+		{"v0.1.0", nil, checkOK},
+		{"", errors.New("timeout"), checkOK},
+	} {
+		env := healthyEnv(t)
+		env.version = "v0.1.0"
+		env.latest = func(context.Context) (string, error) { return tc.latest, tc.err }
+		if got := statusOf(runDoctor(context.Background(), env), "release"); got != tc.want {
+			t.Errorf("latest %q %v: %s, want %s", tc.latest, tc.err, got, tc.want)
+		}
+	}
+	if got := statusOf(runDoctor(context.Background(), healthyEnv(t)), "release"); got != "" {
+		t.Errorf("check ran while turned off: %s", got)
+	}
+}
