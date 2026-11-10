@@ -66,7 +66,10 @@ armada deploy -f web.yaml    # → https://web.apps.example.com
   (`armada admin add`), so the audit log names them, and `armada admin rm`
   takes one person's access back at once.
 - **Secrets.** Encrypted at rest, versioned, delivered as env vars or as
-  read-only files on tmpfs.
+  read-only files on tmpfs; `envFrom: secrets` turns all of an app's
+  secrets into variables.
+- **One spec, several environments.** `${NAME}` in a spec is filled in
+  from `armada deploy --vars production.env --var TAG=...`.
 - **Logs and exec.** `armada logs` streams a replica's output, rotated
   and rate limited on the node so no app can flood its disk;
   `armada exec web -it -- sh` opens a shell in one, with the container's

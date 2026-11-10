@@ -158,3 +158,49 @@ func (v *validator) registry(r *Registry, image string) {
 	}
 	v.secretName("registry.passwordSecretRef", r.PasswordSecretRef)
 }
+
+// EnvFromSecrets is the envFrom value that turns every secret of the app
+// into a variable.
+const EnvFromSecrets = "secrets"
+
+// SecretEnvName is the variable a secret becomes under envFrom: database-url
+// becomes DATABASE_URL, the reverse of `armada secret import`.
+func SecretEnvName(secret string) string {
+	return strings.ToUpper(strings.ReplaceAll(secret, "-", "_"))
+}
+
+// WithSecretEnv returns a copy of a whose env also holds, for envFrom:
+// secrets, a variable for each of secrets. Variables the spec sets itself
+// win; secrets the spec uses for files or the registry, and names that are
+// reserved or not valid variable names, are left out. The copy is validated
+// again, so too many variables is an error.
+func (a *App) WithSecretEnv(secrets []string) (*App, error) {
+	if a.EnvFrom != EnvFromSecrets {
+		return a, nil
+	}
+	used := map[string]bool{}
+	for _, f := range a.SecretFiles {
+		used[f.SecretRef] = true
+	}
+	if a.Registry != nil {
+		used[a.Registry.PasswordSecretRef] = true
+	}
+	set := map[string]bool{}
+	for _, e := range a.Env {
+		set[e.Name] = true
+	}
+	c := *a
+	c.Env = slices.Clone(a.Env)
+	for _, s := range slices.Sorted(slices.Values(secrets)) {
+		name := SecretEnvName(s)
+		if used[s] || set[name] || !envNameRe.MatchString(name) || name == "PORT" || strings.HasPrefix(name, reservedEnvPfx) {
+			continue
+		}
+		set[name] = true
+		c.Env = append(c.Env, EnvVar{Name: name, SecretRef: s})
+	}
+	if err := c.Validate(); err != nil {
+		return nil, err
+	}
+	return &c, nil
+}

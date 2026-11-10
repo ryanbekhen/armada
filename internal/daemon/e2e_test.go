@@ -510,6 +510,7 @@ func TestEndToEnd(t *testing.T) {
 	}
 
 	testSecrets(t, d, cli, config, dataDir, secretsDir, serverLog)
+	testEnvFrom(t, d, cli, config)
 
 	// Errors from the server come back without gRPC noise.
 	code, _, stderr = cli("scale", "ghost", "2")

@@ -223,6 +223,9 @@ func (a *App) Validate() error {
 	v.args("command", a.Command)
 	v.args("args", a.Args)
 	v.env(a.Env)
+	if a.EnvFrom != "" && a.EnvFrom != EnvFromSecrets {
+		v.add("envFrom", "must be %q", EnvFromSecrets)
+	}
 	v.secretFiles(a.SecretFiles)
 	v.registry(a.Registry, a.Image)
 	v.ingress(a.Ingress, a.Name)

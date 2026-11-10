@@ -1167,11 +1167,32 @@ func (s *Etcd) Deploy(ctx context.Context, sp *spec.App, actor string) (Revision
 	var rev Revision
 	var created bool
 	err := s.tx(ctx, func(t *etx) error {
-		var err error
-		rev, created, err = s.deploy(t, sp, sp.Replicas(), actor, "deploy")
+		full, err := t.secretEnv(sp)
+		if err != nil {
+			return err
+		}
+		rev, created, err = s.deploy(t, full, full.Replicas(), actor, "deploy")
 		return err
 	})
 	return rev, created, err
+}
+
+// secretEnv resolves envFrom: secrets against the secrets the app has now.
+// Only a deploy does: rollbacks and secret rollouts keep a revision's
+// variables, so a secret set later reaches the app with its next deploy.
+func (t *etx) secretEnv(sp *spec.App) (*spec.App, error) {
+	if sp.EnvFrom != spec.EnvFromSecrets {
+		return sp, nil
+	}
+	latest, err := t.latestVersions(sp.ID())
+	if err != nil {
+		return nil, err
+	}
+	full, err := sp.WithSecretEnv(slices.Collect(maps.Keys(latest)))
+	if err != nil {
+		return nil, fmt.Errorf("envFrom: %w: %w", err, ErrPrecondition)
+	}
+	return full, nil
 }
 
 // deploy implements Deploy inside t. replicas is the desired count to set.

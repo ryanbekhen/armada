@@ -50,6 +50,9 @@ type App struct {
 	Command    []string `yaml:"command,omitempty" json:"command,omitempty"`
 	Args       []string `yaml:"args,omitempty" json:"args,omitempty"`
 	Env        []EnvVar `yaml:"env,omitempty" json:"env,omitempty"`
+	// EnvFrom "secrets" gives the app every secret of its own as a variable
+	// (database-url becomes DATABASE_URL), resolved when it is deployed.
+	EnvFrom string `yaml:"envFrom,omitempty" json:"envFrom,omitempty"`
 	// SecretFiles mounts secrets as read-only files.
 	SecretFiles []SecretFile `yaml:"secretFiles,omitempty" json:"secretFiles,omitempty"`
 	// Registry holds credentials for pulling Image from a private registry.
