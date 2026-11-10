@@ -56,6 +56,9 @@ func (a *statAPI) Command(_ context.Context, cmd string) (string, error) {
 	if cmd == "show info" {
 		return "Name: HAProxy\nPid: " + a.pid + "\nUptime_sec: 1\n", nil
 	}
+	if cmd != "show stat -1 4 -1 no-maint" {
+		return "", fmt.Errorf("unexpected command %q", cmd)
+	}
 	return fmt.Sprintf("# pxname,svname,scur,qcur,stot\nbe_web,s1,0,0,%d\n", a.total), nil
 }
 

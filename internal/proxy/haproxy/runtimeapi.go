@@ -24,7 +24,10 @@ type Socket struct {
 	Timeout time.Duration
 }
 
-const maxResponse = 1 << 20
+// maxResponse bounds a reply. Replies grow with the cluster (a row per
+// server in "show stat"), so the bound is generous, and a reply past it is
+// an error rather than a silently shorter answer.
+var maxResponse = 128 << 20
 
 // errorPrefixes are how the Runtime API reports failures; it has no status
 // codes.
@@ -72,9 +75,12 @@ func (s Socket) send(ctx context.Context, msg string) (string, error) {
 	if _, err := io.WriteString(conn, msg); err != nil {
 		return "", fmt.Errorf("haproxy runtime API: %w", err)
 	}
-	b, err := io.ReadAll(io.LimitReader(conn, maxResponse))
+	b, err := io.ReadAll(io.LimitReader(conn, int64(maxResponse)+1))
 	if err != nil {
 		return "", fmt.Errorf("haproxy runtime API: %w", err)
+	}
+	if len(b) > maxResponse {
+		return "", fmt.Errorf("haproxy runtime API: reply larger than %d bytes", maxResponse)
 	}
 	out := strings.TrimSpace(string(b))
 	lower := strings.ToLower(out)

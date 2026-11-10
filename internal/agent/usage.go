@@ -170,7 +170,17 @@ func (a *Agent) sampleLoad(ctx context.Context, lr proxy.LoadReader, report *arm
 				requests = l.Total
 			}
 		}
-		report.Load = append(report.Load, &armadav1.ReplicaLoad{Id: id, InFlight: l.InFlight, Requests: requests})
+		// The proxy routes to every replica in the cluster; idle ones
+		// count as zero, so only busy ones are sent.
+		if l.InFlight > 0 || requests > 0 {
+			report.Load = append(report.Load, &armadav1.ReplicaLoad{Id: id, InFlight: l.InFlight, Requests: requests})
+		}
+	}
+	if len(report.Load) > proxy.MaxLoadEntries {
+		// Too many to send: unmeasured, which holds autoscaling and scale
+		// to zero instead of misleading them.
+		a.log.Warn("proxy load not reported: too many busy replicas", "replicas", len(report.Load))
+		report.Load, report.LoadMeasured = nil, false
 	}
 	return next
 }

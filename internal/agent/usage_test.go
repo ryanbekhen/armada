@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +11,7 @@ import (
 
 	armadav1 "github.com/ryanbekhen/armada/api/armada/v1"
 	"github.com/ryanbekhen/armada/internal/conntrack"
+	"github.com/ryanbekhen/armada/internal/proxy"
 	"github.com/ryanbekhen/armada/internal/runtime"
 )
 
@@ -174,5 +176,38 @@ func TestOutOfMemory(t *testing.T) {
 	msg, _ = a.crashed(ctx, "web-1", cs[0])
 	if strings.Contains(msg, "out of memory") || !strings.Contains(msg, "137") {
 		t.Errorf("message = %q", msg)
+	}
+}
+
+type loadMap map[string]proxy.ServerLoad
+
+func (l loadMap) Load(context.Context) (map[string]proxy.ServerLoad, error) { return l, nil }
+
+// The proxy routes to every replica in the cluster: only busy ones are
+// sent, and too many busy ones leave the load unmeasured.
+func TestSampleLoadSendsBusyReplicas(t *testing.T) {
+	t.Parallel()
+	a, _ := newAgent(t)
+	ctx := context.Background()
+	lr := loadMap{"idle": {Total: 5}, "busy": {InFlight: 2, Total: 9}, "served": {Total: 7}}
+	prev := map[string]int64{"idle": 5, "busy": 9, "served": 3}
+	r := &armadav1.UsageReport{}
+	a.sampleLoad(ctx, lr, r, prev)
+	got := map[string]*armadav1.ReplicaLoad{}
+	for _, l := range r.Load {
+		got[l.Id] = l
+	}
+	if !r.LoadMeasured || len(got) != 2 || got["busy"].InFlight != 2 || got["served"].Requests != 4 {
+		t.Errorf("load %v measured=%v", r.Load, r.LoadMeasured)
+	}
+
+	many := loadMap{}
+	for i := range proxy.MaxLoadEntries + 1 {
+		many[fmt.Sprintf("r%d", i)] = proxy.ServerLoad{InFlight: 1}
+	}
+	r = &armadav1.UsageReport{}
+	a.sampleLoad(ctx, many, r, nil)
+	if r.LoadMeasured || len(r.Load) != 0 {
+		t.Errorf("too many busy replicas: measured=%v entries=%d", r.LoadMeasured, len(r.Load))
 	}
 }
