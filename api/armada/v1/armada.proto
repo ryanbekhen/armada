@@ -11,6 +11,13 @@ option go_package = "github.com/ryanbekhen/armada/api/armada/v1;armadav1";
 service AdminService {
   rpc Deploy(DeployRequest) returns (DeployResponse);
   rpc Status(StatusRequest) returns (StatusResponse);
+  // ListApps lists apps one summary each, filtered and paged on the server
+  // (ADR 0032).
+  rpc ListApps(ListAppsRequest) returns (ListAppsResponse);
+  // ClusterStatus summarizes the cluster in a bounded answer.
+  rpc ClusterStatus(ClusterStatusRequest) returns (ClusterStatusResponse);
+  // GetAppSpec returns the spec an app or job runs, as a file holds it.
+  rpc GetAppSpec(GetAppSpecRequest) returns (GetAppSpecResponse);
   rpc Scale(ScaleRequest) returns (ScaleResponse);
   // SetTraffic changes how an app in multiple revision mode splits
   // requests, until its next deploy (ADR 0022).
@@ -632,6 +639,71 @@ message DeployRequest {
   bytes spec = 1;
   // Project to deploy into (ADR 0026); empty means the default project.
   string project = 2;
+  // Checks in the deploy's transaction (ADR 0032): refuse an app that
+  // exists, one that does not, or one whose target revision is no longer
+  // base_revision.
+  bool must_create = 3;
+  bool must_exist = 4;
+  string base_revision = 5;
+}
+
+message ListAppsRequest {
+  // A project, or every project the caller sees with all_projects.
+  string project = 1;
+  bool all_projects = 2;
+  // At most page_size apps (default and limit 500) after page_token.
+  int32 page_size = 3;
+  string page_token = 4;
+}
+
+message AppSummary {
+  // The app's ID (name, or name.project).
+  string name = 1;
+  string project = 2;
+  string image = 3;
+  string revision = 4;
+  int32 ready = 5;
+  int32 desired = 6;
+  string ingress = 7;
+  // The first URL, if any.
+  string url = 8;
+  // ready, progressing, failing, or idle (scaled to zero).
+  string state = 9;
+  // Why it is not ready, when it is not.
+  string message = 10;
+}
+
+message ListAppsResponse {
+  repeated AppSummary apps = 1;
+  string next_page_token = 2;
+}
+
+message ClusterStatusRequest {}
+
+message ClusterStatusResponse {
+  int32 nodes = 1;
+  int32 nodes_ready = 2;
+  int32 apps = 3;
+  int32 apps_ready = 4;
+  int32 apps_progressing = 5;
+  int32 apps_failing = 6;
+  int32 jobs = 7;
+  // Apps that are not ready, at most 20, and how many there are in all.
+  repeated AppSummary attention = 8;
+  int32 attention_total = 9;
+  // Nodes that are not ready.
+  repeated string nodes_not_ready = 10;
+}
+
+message GetAppSpecRequest {
+  string app = 1;
+}
+
+message GetAppSpecResponse {
+  // The spec as YAML.
+  bytes spec = 1;
+  // The revision it is the spec of: the app's target.
+  string revision = 2;
 }
 
 message DeployResponse {

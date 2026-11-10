@@ -191,6 +191,7 @@ func (a *App) WithSecretEnv(secrets []string) (*App, error) {
 	}
 	c := *a
 	c.Env = slices.Clone(a.Env)
+	c.EnvFromAdded = nil
 	for _, s := range slices.Sorted(slices.Values(secrets)) {
 		name := SecretEnvName(s)
 		if used[s] || set[name] || !envNameRe.MatchString(name) || name == "PORT" || strings.HasPrefix(name, reservedEnvPfx) {
@@ -198,6 +199,7 @@ func (a *App) WithSecretEnv(secrets []string) (*App, error) {
 		}
 		set[name] = true
 		c.Env = append(c.Env, EnvVar{Name: name, SecretRef: s})
+		c.EnvFromAdded = append(c.EnvFromAdded, name)
 	}
 	if err := c.Validate(); err != nil {
 		return nil, err

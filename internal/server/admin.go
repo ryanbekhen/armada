@@ -59,7 +59,9 @@ func (s *Server) Deploy(ctx context.Context, req *armadav1.DeployRequest) (*arma
 	if err := acc.placement(app); err != nil {
 		return nil, err
 	}
-	rev, created, err := s.store.Deploy(ctx, app, actor(ctx))
+	rev, created, err := s.store.DeployWith(ctx, app, actor(ctx), store.DeployOptions{
+		MustCreate: req.GetMustCreate(), MustExist: req.GetMustExist(), BaseRevision: req.GetBaseRevision(),
+	})
 	if err != nil {
 		s.log.Error("deploy failed", "app", app.ID(), "err", err)
 		return nil, storeErr(err)
@@ -250,21 +252,22 @@ func (s *Server) Status(ctx context.Context, req *armadav1.StatusRequest) (*arma
 	}
 
 	resp := &armadav1.StatusResponse{}
+	// Read once for every app: per app they cost a pass over the cluster.
+	src := s.urlSource(ctx)
+	byApp := map[string][]store.Replica{}
+	for _, r := range all {
+		byApp[r.App] = append(byApp[r.App], r)
+	}
 	for _, a := range apps {
 		if a.Spec.IsJob() {
 			continue // `armada job list`
 		}
-		var reps []store.Replica
-		for _, r := range all {
-			if r.App == a.Name {
-				reps = append(reps, r)
-			}
-		}
+		reps := byApp[a.Name]
 		as := &armadav1.AppStatus{
 			Name: a.Name, Image: a.Spec.Image, ActiveRevision: a.ActiveRevision,
 			DesiredReplicas:  int32(a.Replicas), //nolint:gosec // bounded by spec.MaxReplicas
 			Ingress:          a.Spec.Ingress.Type,
-			Urls:             s.appURLs(ctx, a),
+			Urls:             appURLsFrom(a, src),
 			TargetRevision:   a.TargetRevision,
 			RolloutState:     a.RolloutState,
 			RolloutMessage:   a.RolloutMessage,

@@ -21,6 +21,9 @@ const _ = grpc.SupportPackageIsVersion9
 const (
 	AdminService_Deploy_FullMethodName                     = "/armada.v1.AdminService/Deploy"
 	AdminService_Status_FullMethodName                     = "/armada.v1.AdminService/Status"
+	AdminService_ListApps_FullMethodName                   = "/armada.v1.AdminService/ListApps"
+	AdminService_ClusterStatus_FullMethodName              = "/armada.v1.AdminService/ClusterStatus"
+	AdminService_GetAppSpec_FullMethodName                 = "/armada.v1.AdminService/GetAppSpec"
 	AdminService_Scale_FullMethodName                      = "/armada.v1.AdminService/Scale"
 	AdminService_SetTraffic_FullMethodName                 = "/armada.v1.AdminService/SetTraffic"
 	AdminService_ListVolumes_FullMethodName                = "/armada.v1.AdminService/ListVolumes"
@@ -78,6 +81,13 @@ const (
 type AdminServiceClient interface {
 	Deploy(ctx context.Context, in *DeployRequest, opts ...grpc.CallOption) (*DeployResponse, error)
 	Status(ctx context.Context, in *StatusRequest, opts ...grpc.CallOption) (*StatusResponse, error)
+	// ListApps lists apps one summary each, filtered and paged on the server
+	// (ADR 0032).
+	ListApps(ctx context.Context, in *ListAppsRequest, opts ...grpc.CallOption) (*ListAppsResponse, error)
+	// ClusterStatus summarizes the cluster in a bounded answer.
+	ClusterStatus(ctx context.Context, in *ClusterStatusRequest, opts ...grpc.CallOption) (*ClusterStatusResponse, error)
+	// GetAppSpec returns the spec an app or job runs, as a file holds it.
+	GetAppSpec(ctx context.Context, in *GetAppSpecRequest, opts ...grpc.CallOption) (*GetAppSpecResponse, error)
 	Scale(ctx context.Context, in *ScaleRequest, opts ...grpc.CallOption) (*ScaleResponse, error)
 	// SetTraffic changes how an app in multiple revision mode splits
 	// requests, until its next deploy (ADR 0022).
@@ -182,6 +192,36 @@ func (c *adminServiceClient) Status(ctx context.Context, in *StatusRequest, opts
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(StatusResponse)
 	err := c.cc.Invoke(ctx, AdminService_Status_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) ListApps(ctx context.Context, in *ListAppsRequest, opts ...grpc.CallOption) (*ListAppsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListAppsResponse)
+	err := c.cc.Invoke(ctx, AdminService_ListApps_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) ClusterStatus(ctx context.Context, in *ClusterStatusRequest, opts ...grpc.CallOption) (*ClusterStatusResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ClusterStatusResponse)
+	err := c.cc.Invoke(ctx, AdminService_ClusterStatus_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) GetAppSpec(ctx context.Context, in *GetAppSpecRequest, opts ...grpc.CallOption) (*GetAppSpecResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetAppSpecResponse)
+	err := c.cc.Invoke(ctx, AdminService_GetAppSpec_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -690,6 +730,13 @@ func (c *adminServiceClient) RemoveApp(ctx context.Context, in *RemoveAppRequest
 type AdminServiceServer interface {
 	Deploy(context.Context, *DeployRequest) (*DeployResponse, error)
 	Status(context.Context, *StatusRequest) (*StatusResponse, error)
+	// ListApps lists apps one summary each, filtered and paged on the server
+	// (ADR 0032).
+	ListApps(context.Context, *ListAppsRequest) (*ListAppsResponse, error)
+	// ClusterStatus summarizes the cluster in a bounded answer.
+	ClusterStatus(context.Context, *ClusterStatusRequest) (*ClusterStatusResponse, error)
+	// GetAppSpec returns the spec an app or job runs, as a file holds it.
+	GetAppSpec(context.Context, *GetAppSpecRequest) (*GetAppSpecResponse, error)
 	Scale(context.Context, *ScaleRequest) (*ScaleResponse, error)
 	// SetTraffic changes how an app in multiple revision mode splits
 	// requests, until its next deploy (ADR 0022).
@@ -785,6 +832,15 @@ func (UnimplementedAdminServiceServer) Deploy(context.Context, *DeployRequest) (
 }
 func (UnimplementedAdminServiceServer) Status(context.Context, *StatusRequest) (*StatusResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Status not implemented")
+}
+func (UnimplementedAdminServiceServer) ListApps(context.Context, *ListAppsRequest) (*ListAppsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListApps not implemented")
+}
+func (UnimplementedAdminServiceServer) ClusterStatus(context.Context, *ClusterStatusRequest) (*ClusterStatusResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ClusterStatus not implemented")
+}
+func (UnimplementedAdminServiceServer) GetAppSpec(context.Context, *GetAppSpecRequest) (*GetAppSpecResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetAppSpec not implemented")
 }
 func (UnimplementedAdminServiceServer) Scale(context.Context, *ScaleRequest) (*ScaleResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Scale not implemented")
@@ -977,6 +1033,60 @@ func _AdminService_Status_Handler(srv interface{}, ctx context.Context, dec func
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(AdminServiceServer).Status(ctx, req.(*StatusRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_ListApps_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListAppsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).ListApps(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminService_ListApps_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).ListApps(ctx, req.(*ListAppsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_ClusterStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ClusterStatusRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).ClusterStatus(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminService_ClusterStatus_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).ClusterStatus(ctx, req.(*ClusterStatusRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_GetAppSpec_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetAppSpecRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).GetAppSpec(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminService_GetAppSpec_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).GetAppSpec(ctx, req.(*GetAppSpecRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1780,6 +1890,18 @@ var AdminService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Status",
 			Handler:    _AdminService_Status_Handler,
+		},
+		{
+			MethodName: "ListApps",
+			Handler:    _AdminService_ListApps_Handler,
+		},
+		{
+			MethodName: "ClusterStatus",
+			Handler:    _AdminService_ClusterStatus_Handler,
+		},
+		{
+			MethodName: "GetAppSpec",
+			Handler:    _AdminService_GetAppSpec_Handler,
 		},
 		{
 			MethodName: "Scale",

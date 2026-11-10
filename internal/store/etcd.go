@@ -1213,9 +1213,26 @@ func appFrom(a appRec, rev Revision) App {
 
 // Deploy records a new revision. See Store.
 func (s *Etcd) Deploy(ctx context.Context, sp *spec.App, actor string) (Revision, bool, error) {
+	return s.DeployWith(ctx, sp, actor, DeployOptions{})
+}
+
+// DeployWith implements Store.
+func (s *Etcd) DeployWith(ctx context.Context, sp *spec.App, actor string, opts DeployOptions) (Revision, bool, error) {
 	var rev Revision
 	var created bool
 	err := s.tx(ctx, func(t *etx) error {
+		a, exists, err := t.app(sp.ID())
+		if err != nil {
+			return err
+		}
+		switch {
+		case opts.MustCreate && exists:
+			return fmt.Errorf("%s exists; change it with update: %w", sp.ID(), ErrConflict)
+		case opts.MustExist && !exists:
+			return fmt.Errorf("app %s: %w", sp.ID(), ErrNotFound)
+		case opts.BaseRevision != "" && exists && a.TargetRevision != opts.BaseRevision:
+			return fmt.Errorf("%s changed since %s (now %s); run the command again: %w", sp.ID(), opts.BaseRevision, a.TargetRevision, ErrPrecondition)
+		}
 		full, err := t.secretEnv(sp)
 		if err != nil {
 			return err

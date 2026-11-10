@@ -20,6 +20,8 @@ import (
 var automationMethods = map[string]bool{
 	"/armada.v1.AdminService/Deploy":        true,
 	"/armada.v1.AdminService/Status":        true,
+	"/armada.v1.AdminService/ListApps":      true,
+	"/armada.v1.AdminService/GetAppSpec":    true,
 	"/armada.v1.AdminService/Scale":         true,
 	"/armada.v1.AdminService/SetTraffic":    true,
 	"/armada.v1.AdminService/ListVolumes":   true,
