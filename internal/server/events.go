@@ -243,7 +243,7 @@ func (s *Server) Events(req *armadav1.EventsRequest, stream armadav1.AdminServic
 		}
 	}
 	if req.GetNode() != "" && !acc.admin() {
-		return status.Error(codes.PermissionDenied, "only administrators may list a node's events")
+		return status.Error(codes.PermissionDenied, "listing a node's events needs cluster-admin")
 	}
 	match := func(e store.Event) bool {
 		// Others see only events of their projects' apps; events of the

@@ -40,7 +40,7 @@ func initCluster(t *testing.T) (dataDir, config string, port int) {
 	dataDir, config = filepath.Join(dir, "data"), filepath.Join(dir, "home", "config")
 	port = freePort(t)
 	code, stdout, stderr := run(t, "init", "--data-dir", dataDir, "--config", config,
-		"--private-ip", "127.0.0.1", "--node-name", "node-1", "--admin-name", "ryan", "--port", strconv.Itoa(port))
+		"--private-ip", "127.0.0.1", "--node-name", "node-1", "--user-name", "ryan", "--port", strconv.Itoa(port))
 	if code != 0 {
 		t.Fatalf("init failed: %s", stderr)
 	}
@@ -83,8 +83,8 @@ func TestInit(t *testing.T) {
 		t.Errorf("client config servers = %q", cfg.Servers)
 	}
 	admin, _ := pki.ParseCertPEM([]byte(cfg.Cert))
-	if admin.Subject.CommonName != "admin:ryan" {
-		t.Errorf("admin CN = %q", admin.Subject.CommonName)
+	if admin.Subject.CommonName != "user:ryan" {
+		t.Errorf("user CN = %q", admin.Subject.CommonName)
 	}
 	// The first node gets the first subnet of the cluster network
 	// (ADR 0025) as its bridge subnet.
@@ -686,24 +686,27 @@ func testProjects(t *testing.T, d *fake.Driver, cli func(...string) (int, string
 		}
 	}
 
-	// A tool with an automation identity manages staging and nothing else.
-	if code, out, stderr := cli("automation", "create", "portal", "--project", "staging", "--create-projects"); code != 0 || !strings.Contains(out, "manages projects staging and the projects it creates") {
-		t.Fatalf("automation create: code=%d out=%q err=%q", code, out, stderr)
+	// A service with admin in staging manages staging and nothing else.
+	if code, out, stderr := cli("rbac", "service", "create", "portal", "--role", "admin", "--project", "staging"); code != 0 || !strings.Contains(out, "Created service portal (admin in staging)") {
+		t.Fatalf("service create: code=%d out=%q err=%q", code, out, stderr)
 	}
-	if code, _, stderr := cli("automation", "create", "portal", "--project", "staging"); code == 0 || !strings.Contains(stderr, "exists") {
-		t.Errorf("automation create twice: code=%d err=%q", code, stderr)
+	if code, _, stderr := cli("rbac", "service", "create", "portal"); code == 0 || !strings.Contains(stderr, "exists") {
+		t.Errorf("service create twice: code=%d err=%q", code, stderr)
 	}
-	if code, _, stderr := cli("automation", "set", "portal", "--project", "staging", "--create-projects"); code != 0 {
-		t.Errorf("automation set: %s", stderr)
+	if code, out, stderr := cli("rbac", "assignment", "create", "--service", "portal", "--role", "project-creator"); code != 0 || !strings.Contains(out, "project-creator, admin in staging") {
+		t.Errorf("assignment create: code=%d out=%q err=%q", code, out, stderr)
+	}
+	if code, _, stderr := cli("rbac", "assignment", "create", "--service", "portal", "--role", "deployer"); code == 0 || !strings.Contains(stderr, "one project") {
+		t.Errorf("deployer without a project: code=%d err=%q", code, stderr)
 	}
 	toolConfig := filepath.Join(t.TempDir(), "portal.json")
-	if code, out, stderr := cli("automation", "credentials", "portal", "-o", toolConfig); code != 0 || !strings.Contains(out, "Wrote "+toolConfig) {
-		t.Fatalf("automation credentials: code=%d out=%q err=%q", code, out, stderr)
+	if code, out, stderr := cli("rbac", "service", "credentials", "portal", "-o", toolConfig); code != 0 || !strings.Contains(out, "Wrote "+toolConfig) {
+		t.Fatalf("service credentials: code=%d out=%q err=%q", code, out, stderr)
 	}
 	if fi, err := os.Stat(toolConfig); err != nil || fi.Mode().Perm() != 0o600 {
 		t.Fatalf("tool config: %v %v", fi, err)
 	}
-	if code, _, stderr := cli("automation", "credentials", "portal", "-o", toolConfig); code == 0 || !strings.Contains(stderr, "already exists") {
+	if code, _, stderr := cli("rbac", "service", "credentials", "portal", "-o", toolConfig); code == 0 || !strings.Contains(stderr, "already exists") {
 		t.Errorf("credentials over an existing file: %q", stderr)
 	}
 	tool := func(args ...string) (int, string, string) {
@@ -722,10 +725,10 @@ func testProjects(t *testing.T, d *fake.Driver, cli func(...string) (int, string
 		{"node", "drain", "node-1"}, // the cluster
 		{"node", "join-token"},      // joining nodes
 		{"cluster", "status"},       // the cluster
-		{"automation", "set", "portal", "--project", "other"}, // its own scope
+		{"rbac", "assignment", "create", "--service", "portal", "--role", "cluster-admin"}, // its own roles
 		{"app", "logs", "web"},
 	} {
-		if code, _, stderr := tool(args...); code == 0 || !strings.Contains(stderr, "may not") && !strings.Contains(stderr, "for administrators") {
+		if code, _, stderr := tool(args...); code == 0 || !strings.Contains(stderr, "may not") {
 			t.Errorf("tool %v: code=%d err=%q", args, code, stderr)
 		}
 	}
@@ -735,20 +738,51 @@ func testProjects(t *testing.T, d *fake.Driver, cli func(...string) (int, string
 	if _, out, _ := tool("project", "list"); !strings.Contains(out, "preview-1") || !strings.Contains(out, "staging") || strings.Contains(out, "default") {
 		t.Errorf("tool project list = %q", out)
 	}
-	if code, out, stderr := tool("automation", "renew"); code != 0 || !strings.Contains(out, "Renewed automation:portal") {
+	if code, out, stderr := tool("rbac", "service", "renew"); code != 0 || !strings.Contains(out, "Renewed service:portal") {
 		t.Errorf("renew: code=%d out=%q err=%q", code, out, stderr)
 	}
 	if code, _, stderr := tool("app", "show", "web", "--project", "staging"); code != 0 {
 		t.Errorf("app show with the renewed certificate: %s", stderr)
 	}
-	if _, out, _ := cli("automation", "list"); !regexp.MustCompile(`portal\s+preview-1,staging\s+true`).MatchString(out) {
-		t.Errorf("automation list = %q", out)
+	if _, out, _ := cli("rbac", "service", "list"); !regexp.MustCompile(`portal\s+project-creator, admin in preview-1, admin in staging\s+2\s`).MatchString(out) {
+		t.Errorf("service list = %q", out)
 	}
-	if code, _, _ := cli("automation", "delete", "portal"); code != 0 {
-		t.Fatal("automation delete failed")
+	if _, out, _ := cli("rbac", "assignment", "list", "--service", "portal"); !regexp.MustCompile(`service\s+portal\s+project-creator\s+\(cluster\)`).MatchString(out) {
+		t.Errorf("assignment list = %q", out)
+	}
+	if code, _, stderr := cli("rbac", "service", "delete", "portal"); code == 0 || !strings.Contains(stderr, "--yes") {
+		t.Errorf("delete without --yes: %q", stderr)
+	}
+	if code, _, _ := cli("rbac", "service", "delete", "portal", "--yes"); code != 0 {
+		t.Fatal("service delete failed")
 	}
 	if code, _, stderr := tool("app", "list", "-A"); code == 0 || !strings.Contains(stderr, "revoked") {
 		t.Errorf("tool after removal: code=%d err=%q", code, stderr)
+	}
+
+	// A person who may only look.
+	anaConfig := filepath.Join(t.TempDir(), "ana.json")
+	if code, out, stderr := cli("rbac", "user", "create", "ana", "-o", anaConfig, "--role", "viewer"); code != 0 || !strings.Contains(out, "Wrote "+anaConfig+" for user:ana") {
+		t.Fatalf("user create: code=%d out=%q err=%q", code, out, stderr)
+	}
+	ana := func(args ...string) (int, string, string) {
+		return run(t, append(args, "--config", anaConfig)...)
+	}
+	if code, out, stderr := ana("app", "list", "-A"); code != 0 || !strings.Contains(out, "web") {
+		t.Errorf("viewer lists apps: code=%d out=%q err=%q", code, out, stderr)
+	}
+	if code, _, stderr := ana("app", "scale", "web", "--replicas", "2"); code == 0 || !strings.Contains(stderr, "no role that allows Scale") {
+		t.Errorf("viewer scales: code=%d err=%q", code, stderr)
+	}
+	if _, out, _ := cli("rbac", "user", "list"); !regexp.MustCompile(`ana\s+viewer\s+active\s+user:ryan`).MatchString(out) ||
+		!regexp.MustCompile(`ryan\s+cluster-admin\s+active \(you\)`).MatchString(out) {
+		t.Errorf("user list = %q", out)
+	}
+	if _, out, _ := cli("rbac", "role", "show", "deployer"); !strings.Contains(out, "Deploy") || strings.Contains(out, "Exec") {
+		t.Errorf("role show = %q", out)
+	}
+	if code, _, stderr := cli("rbac", "user", "delete", "ryan", "--yes"); code == 0 || !strings.Contains(stderr, "yourself") {
+		t.Errorf("delete yourself: code=%d err=%q", code, stderr)
 	}
 }
 

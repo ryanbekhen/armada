@@ -137,7 +137,7 @@ for bin in $BINS; do
 done
 
 if [ "$CLIENT_ONLY" = 1 ]; then
-	say "Next: keep the config an administrator gives you as ~/.armada/config."
+	say "Next: keep the config a cluster-admin gives you as ~/.armada/config."
 	"$PREFIX/bin/armada" version
 	return 0
 fi

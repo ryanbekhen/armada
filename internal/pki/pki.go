@@ -26,17 +26,22 @@ import (
 
 // Identity kinds.
 const (
-	KindAdmin  = "admin"
-	KindNode   = "node"
-	KindServer = "server"
+	// KindUser is a person and KindService a tool (ADR 0033); what each
+	// may do is the cluster's record of its roles.
+	KindUser    = "user"
+	KindService = "service"
+	KindNode    = "node"
+	KindServer  = "server"
 	// KindEtcd identifies the embedded etcd members of the control plane.
 	// Every member shares one identity (EtcdMember), so servers can join
 	// without reconfiguring the others; the Armada API never authorizes it.
 	KindEtcd = "etcd"
 	// KindMetrics may only scrape the metrics endpoint (ADR 0017).
 	KindMetrics = "metrics"
-	// KindAutomation manages the apps of the projects in its scope and
-	// nothing else (ADR 0026).
+	// KindAdmin and KindAutomation are no longer issued: certificates of
+	// earlier releases with these kinds are read as a user and a service of
+	// the same name (Principal).
+	KindAdmin      = "admin"
 	KindAutomation = "automation"
 )
 
@@ -50,14 +55,14 @@ const ServerName = "armada-server"
 // Validity periods.
 const (
 	CAValidity   = 10 * 365 * 24 * time.Hour
-	LeafValidity = 365 * 24 * time.Hour // server and admin certificates
+	LeafValidity = 365 * 24 * time.Hour // server and user certificates
 	// NodeValidity is the lifetime of node certificates; agents renew them
 	// automatically (see NeedsRenewal).
 	NodeValidity = 30 * 24 * time.Hour
-	// AutomationValidity is the lifetime of automation certificates; tools
-	// renew them with `armada automation renew`.
-	AutomationValidity = 90 * 24 * time.Hour
-	clockSkew          = 5 * time.Minute
+	// ServiceValidity is the lifetime of service certificates; tools renew
+	// them with `armada rbac service renew`.
+	ServiceValidity = 90 * 24 * time.Hour
+	clockSkew       = 5 * time.Minute
 )
 
 var identityNameRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,62}$`)
@@ -70,6 +75,19 @@ type Identity struct {
 
 func (i Identity) String() string { return i.Kind + ":" + i.Name }
 
+// Principal returns the user or service an identity is (ADR 0033), reading
+// the kinds of earlier releases, admin and automation, as the same
+// principal; false for every other kind.
+func (i Identity) Principal() (Identity, bool) {
+	switch i.Kind {
+	case KindUser, KindAdmin:
+		return Identity{Kind: KindUser, Name: i.Name}, true
+	case KindService, KindAutomation:
+		return Identity{Kind: KindService, Name: i.Name}, true
+	}
+	return Identity{}, false
+}
+
 // ValidName reports whether name may be an identity's name.
 func ValidName(name string) bool { return identityNameRe.MatchString(name) }
 
@@ -80,7 +98,7 @@ func ParseIdentity(cn string) (Identity, error) {
 		return Identity{}, fmt.Errorf("common name %q is not an armada identity", cn)
 	}
 	switch kind {
-	case KindAdmin, KindNode, KindServer, KindEtcd, KindMetrics, KindAutomation:
+	case KindUser, KindService, KindAdmin, KindAutomation, KindNode, KindServer, KindEtcd, KindMetrics:
 	default:
 		return Identity{}, fmt.Errorf("unknown identity kind %q", kind)
 	}

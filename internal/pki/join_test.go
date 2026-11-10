@@ -298,18 +298,18 @@ func TestSignMetricsCSR(t *testing.T) {
 	}
 }
 
-func TestSignAutomationCSR(t *testing.T) {
+func TestSignServiceCSR(t *testing.T) {
 	ca, err := NewCA("test")
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The CA decides the identity: a CSR asking for admin still gets an
-	// automation certificate.
-	_, csr, err := NewCSR(Identity{Kind: KindAdmin, Name: "root"})
+	// The CA decides the identity: a CSR asking for a user still gets a
+	// service certificate.
+	_, csr, err := NewCSR(Identity{Kind: KindUser, Name: "root"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	c, err := ca.SignAutomationCSR(csr, "portal")
+	c, err := ca.SignServiceCSR(csr, "portal")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -318,16 +318,16 @@ func TestSignAutomationCSR(t *testing.T) {
 		t.Fatal(err)
 	}
 	id, err := IdentityFromCert(cert)
-	if err != nil || id != (Identity{Kind: KindAutomation, Name: "portal"}) {
+	if err != nil || id != (Identity{Kind: KindService, Name: "portal"}) {
 		t.Errorf("identity %v, %v", id, err)
 	}
-	if life := time.Until(cert.NotAfter); life < AutomationValidity-time.Hour || life > AutomationValidity {
+	if life := time.Until(cert.NotAfter); life < ServiceValidity-time.Hour || life > ServiceValidity {
 		t.Errorf("lifetime %s", life)
 	}
 	if len(cert.ExtKeyUsage) != 1 || cert.ExtKeyUsage[0] != x509.ExtKeyUsageClientAuth || cert.IsCA {
 		t.Errorf("usages %v, CA %v", cert.ExtKeyUsage, cert.IsCA)
 	}
-	if _, err := ca.SignAutomationCSR(csr, "../bad"); err == nil {
+	if _, err := ca.SignServiceCSR(csr, "../bad"); err == nil {
 		t.Error("invalid name accepted")
 	}
 }

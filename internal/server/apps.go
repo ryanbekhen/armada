@@ -117,7 +117,7 @@ func (s *Server) ListApps(ctx context.Context, req *armadav1.ListAppsRequest) (*
 // need attention, bounded however large the cluster is.
 func (s *Server) ClusterStatus(ctx context.Context, _ *armadav1.ClusterStatusRequest) (*armadav1.ClusterStatusResponse, error) {
 	if !accessFrom(ctx).admin() {
-		return nil, status.Error(codes.PermissionDenied, "the cluster's status is for administrators")
+		return nil, status.Error(codes.PermissionDenied, "the cluster's status needs cluster-admin")
 	}
 	apps, err := s.appSummaries(ctx, func(store.App) bool { return true })
 	if err != nil {

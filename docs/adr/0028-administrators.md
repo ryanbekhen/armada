@@ -1,6 +1,6 @@
 # 0028. Administrators
 
-- Status: Accepted
+- Status: Superseded by [0033](0033-access-control.md) (administrators are users with cluster-admin)
 - Date: 2026-11-09
 
 ## Context

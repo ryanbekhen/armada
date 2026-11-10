@@ -20,13 +20,16 @@ func (s *Server) CreateProject(ctx context.Context, req *armadav1.CreateProjectR
 		return nil, status.Error(codes.InvalidArgument, "invalid project name: use lowercase letters, digits, and single hyphens, starting with a letter, at most 30 characters")
 	}
 	acc := accessFrom(ctx)
-	if !acc.admin() && acc.automation() == "" {
-		return nil, status.Error(codes.PermissionDenied, "permission denied")
-	}
-	if !acc.admin() && !acc.scope.CreateProjects {
+	if !acc.creates() {
 		return nil, status.Errorf(codes.PermissionDenied, "%s may not create projects", acc.id)
 	}
-	p, err := s.store.CreateProject(ctx, name, actor(ctx), acc.automation())
+	// Whoever creates a project without cluster-admin becomes its admin
+	// (ADR 0033).
+	var by *store.Principal
+	if !acc.admin() {
+		by = acc.p
+	}
+	p, err := s.store.CreateProject(ctx, name, actor(ctx), by)
 	if err != nil {
 		return nil, storeErr(err)
 	}
@@ -51,7 +54,7 @@ func (s *Server) isolated(ctx context.Context, project string) (bool, error) {
 
 // isolation reports whether the default project and the others are
 // isolated: never without a cluster network, always for projects other
-// than default, and for default once an administrator turns it on.
+// than default, and for default once a cluster-admin turns it on.
 func (s *Server) isolation(ctx context.Context) (def, others bool, err error) {
 	n, err := s.store.GetNetwork(ctx)
 	if errors.Is(err, store.ErrNotFound) {
@@ -100,7 +103,7 @@ func (s *Server) ListProjects(ctx context.Context, _ *armadav1.ListProjectsReque
 }
 
 // UpdateProject changes the default project's network isolation (ADR 0026).
-// Administrators only.
+// cluster-admin only.
 func (s *Server) UpdateProject(ctx context.Context, req *armadav1.UpdateProjectRequest) (*armadav1.ProjectInfo, error) {
 	name := req.GetName()
 	if name == "" {
@@ -110,7 +113,7 @@ func (s *Server) UpdateProject(ctx context.Context, req *armadav1.UpdateProjectR
 		return nil, status.Error(codes.InvalidArgument, "invalid project name")
 	}
 	if !accessFrom(ctx).admin() {
-		return nil, status.Error(codes.PermissionDenied, "only administrators change project settings")
+		return nil, status.Error(codes.PermissionDenied, "only cluster-admin changes project settings")
 	}
 	if req.NetworkIsolation != nil && !req.GetNetworkIsolation() && name != spec.DefaultProject {
 		return nil, status.Errorf(codes.InvalidArgument, "project %s is always isolated; only the default project can turn network isolation off", name)
@@ -146,8 +149,8 @@ func (s *Server) DeleteProject(ctx context.Context, req *armadav1.DeleteProjectR
 	if err := acc.project(name); err != nil {
 		return nil, err
 	}
-	if !acc.admin() && !acc.scope.CreateProjects {
-		return nil, status.Errorf(codes.PermissionDenied, "%s may not remove projects", acc.id)
+	if !acc.creates() {
+		return nil, status.Errorf(codes.PermissionDenied, "%s may not delete projects", acc.id)
 	}
 	if err := s.store.DeleteProject(ctx, name, actor(ctx)); err != nil {
 		return nil, storeErr(err)

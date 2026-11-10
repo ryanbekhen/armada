@@ -54,14 +54,15 @@ armada app update web --file web.yaml
   other only through their internal names.
 - **Projects.** Apps, jobs, secrets, domains, and volumes belong to a
   project, so `web` can run in `staging` and in `default` side by side.
-  Tools such as CI systems get automation identities that manage only
-  their projects, never the cluster. Each project resolves and reaches
+  Each project resolves and reaches
   only its own internal names (`ingress.allow` narrows an app to chosen
   callers), and its containers are kept away from the nodes, the private
   network, and the cloud's metadata service.
-- **Administrators.** Each person gets a certificate under their own name
-  (`armada admin create`), so the audit log names them, and `armada admin
-  delete` takes one person's access back at once.
+- **Access control.** People (users) and tools (services) each get a
+  certificate under their own name and hold roles: `viewer`, `deployer`,
+  or `admin` in a project, `project-creator`, or `cluster-admin`
+  (`armada rbac`). The audit log names them, and one person's access is
+  taken back at once.
 - **Secrets.** Encrypted at rest, versioned, delivered as env vars or as
   read-only files on tmpfs; `envFrom: secrets` turns all of an app's
   secrets into variables.
@@ -119,7 +120,7 @@ container runtime (containerd, runc, CNI plugins) and its state store
 
 - [Quickstart](docs/quickstart.md): empty machines to an HTTPS app
 - [App spec reference](docs/spec-reference.md)
-- [Operations guide](docs/operations.md): day-to-day running of a cluster: control plane, backup, upgrades, administrators, nodes, network, apps, monitoring
+- [Operations guide](docs/operations.md): day-to-day running of a cluster: control plane, backup, upgrades, access control, nodes, network, apps, monitoring
 - [Threat model](docs/threat-model.md), including the accepted limitations
 - [Architecture decisions](docs/adr/README.md)
 - [Releasing and verifying releases](docs/releasing.md)

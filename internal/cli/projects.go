@@ -88,7 +88,7 @@ func newProjectSetCommand(g *globals) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "set NAME --network-isolation[=false]",
 		Short: "Change a project's settings",
-		Long: "Change a project's settings (administrators only).\n\n" +
+		Long: "Change a project's settings (cluster-admin only).\n\n" +
 			"--network-isolation keeps the project's containers away from the nodes, the\n" +
 			"control plane, the private network, and the cloud's metadata service: they\n" +
 			"reach the internet, their node's DNS server, and internal and public\n" +

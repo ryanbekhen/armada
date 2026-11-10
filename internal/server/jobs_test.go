@@ -196,7 +196,7 @@ func TestJobTimeoutAndCancel(t *testing.T) {
 	if err != nil || len(resp.Runs) != 1 || resp.Runs[0] != 2 {
 		t.Fatalf("cancel %v %v", resp, err)
 	}
-	if r := c.runState("slow", 2); r.State != store.RunCancelled || !strings.Contains(r.Message, "admin:ryan") {
+	if r := c.runState("slow", 2); r.State != store.RunCancelled || !strings.Contains(r.Message, "user:ryan") {
 		t.Errorf("cancelled run %v", r)
 	}
 	c.eventually("cancelled container stopped", func() bool {

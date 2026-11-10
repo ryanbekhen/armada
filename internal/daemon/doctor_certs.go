@@ -11,13 +11,13 @@ import (
 	"github.com/ryanbekhen/armada/internal/pki"
 )
 
-// adminWarnBefore is how long before an administrator certificate expires
+// adminWarnBefore is how long before a user certificate expires
 // doctor starts warning: it is the one certificate renewed by hand.
 const adminWarnBefore = 30 * 24 * time.Hour
 
 // checkCertificates checks the certificates on this machine: the ones
 // Armada renews itself (server, etcd member, node) must not be past their
-// renewal point by much, and the administrator certificate in the client
+// renewal point by much, and the user certificate in the client
 // config must not be close to expiring.
 func checkCertificates(env doctorEnv) []checkResult {
 	now := env.now()
@@ -63,14 +63,14 @@ func checkCertificates(env doctorEnv) []checkResult {
 
 	if cc, err := clientconfig.Load(env.adminConfig); err == nil {
 		if c, err := pki.ParseCertPEM([]byte(cc.Cert)); err == nil {
-			if id, err := pki.IdentityFromCert(c); err == nil && id.Kind == pki.KindAdmin {
+			if id, err := pki.IdentityFromCert(c); err == nil && (id.Kind == pki.KindUser || id.Kind == pki.KindAdmin) {
 				switch left := c.NotAfter.Sub(now); {
 				case left <= 0:
-					problems = append(problems, checkResult{"certificates", checkFail, fmt.Sprintf("administrator certificate in %s expired on %s; on a server, renew it with `armadad admin renew --data-dir %s`", env.adminConfig, day(c.NotAfter), env.dataDir)})
+					problems = append(problems, checkResult{"certificates", checkFail, fmt.Sprintf("user certificate in %s expired on %s; on a server, renew it with `armadad user renew --data-dir %s`", env.adminConfig, day(c.NotAfter), env.dataDir)})
 				case left < adminWarnBefore:
-					problems = append(problems, checkResult{"certificates", checkWarn, fmt.Sprintf("administrator certificate in %s expires on %s; renew it with `armada admin renew`", env.adminConfig, day(c.NotAfter))})
+					problems = append(problems, checkResult{"certificates", checkWarn, fmt.Sprintf("user certificate in %s expires on %s; renew it with `armada rbac user renew`", env.adminConfig, day(c.NotAfter))})
 				default:
-					good = append(good, "administrator")
+					good = append(good, "user")
 					note(c)
 				}
 			}

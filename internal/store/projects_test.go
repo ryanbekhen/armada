@@ -22,18 +22,18 @@ func TestProjects(t *testing.T) {
 		t.Errorf("missing project = %v", err)
 	}
 
-	p, err := s.CreateProject(ctx, "staging", "admin:test", "")
+	p, err := s.CreateProject(ctx, "staging", "admin:test", nil)
 	if err != nil || p.Name != "staging" || p.CreatedBy != "admin:test" || p.CreatedAt.IsZero() {
 		t.Fatalf("create: %+v %v", p, err)
 	}
-	if _, err := s.CreateProject(ctx, "staging", "admin:test", ""); !errors.Is(err, ErrConflict) {
+	if _, err := s.CreateProject(ctx, "staging", "admin:test", nil); !errors.Is(err, ErrConflict) {
 		t.Errorf("duplicate = %v", err)
 	}
-	if _, err := s.CreateProject(ctx, "default", "admin:test", ""); !errors.Is(err, ErrConflict) {
+	if _, err := s.CreateProject(ctx, "default", "admin:test", nil); !errors.Is(err, ErrConflict) {
 		t.Errorf("default = %v", err)
 	}
 	for _, bad := range []string{"", "Staging", "a--b", "a.b", "a/b", "-a", strings.Repeat("a", 31)} {
-		if _, err := s.CreateProject(ctx, bad, "admin:test", ""); err == nil {
+		if _, err := s.CreateProject(ctx, bad, "admin:test", nil); err == nil {
 			t.Errorf("CreateProject(%q) accepted", bad)
 		}
 	}
@@ -61,7 +61,7 @@ func TestDeployIntoProject(t *testing.T) {
 	if _, _, err := s.Deploy(ctx, sp, "admin:test"); !errors.Is(err, ErrPrecondition) || !strings.Contains(err.Error(), "project staging does not exist") {
 		t.Fatalf("deploy into a missing project = %v", err)
 	}
-	if _, err := s.CreateProject(ctx, "staging", "admin:test", ""); err != nil {
+	if _, err := s.CreateProject(ctx, "staging", "admin:test", nil); err != nil {
 		t.Fatal(err)
 	}
 	rev, created, err := s.Deploy(ctx, sp, "admin:test")
@@ -99,7 +99,7 @@ func TestProjectSecrets(t *testing.T) {
 			t.Errorf("SetSecret(%q) accepted", bad)
 		}
 	}
-	if _, err := s.CreateProject(ctx, "staging", "admin:test", ""); err != nil {
+	if _, err := s.CreateProject(ctx, "staging", "admin:test", nil); err != nil {
 		t.Fatal(err)
 	}
 	setSecret(t, s, k, "db.staging", "pw", "x", false)
@@ -124,7 +124,7 @@ func TestProjectSecrets(t *testing.T) {
 func TestDomainsStayInOneProject(t *testing.T) {
 	t.Parallel()
 	s, ctx := open(t), context.Background()
-	if _, err := s.CreateProject(ctx, "b", "admin:test", ""); err != nil {
+	if _, err := s.CreateProject(ctx, "b", "admin:test", nil); err != nil {
 		t.Fatal(err)
 	}
 	ext := func(name, path string) string {

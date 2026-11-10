@@ -27,7 +27,7 @@ const metricsTimeout = 10 * time.Second
 
 // serveMetrics serves /metrics on the metrics listener (ADR 0017): TLS 1.3
 // with the API's server certificate, and only to client certificates of
-// the metrics or admin kind.
+// the metrics kind, or a user or service with cluster-admin.
 func (s *Server) serveMetrics(ctx context.Context) error {
 	reg := prometheus.NewRegistry()
 	reg.MustRegister(
@@ -63,13 +63,13 @@ func (s *Server) serveMetrics(ctx context.Context) error {
 	return nil
 }
 
-// metricsAuth lets only metrics and admin certificates through, and admin
-// ones only while the administrator is not removed (ADR 0028); the TLS
-// config has already verified the chain against the cluster CA.
+// metricsAuth lets only metrics certificates and users or services with
+// cluster-admin through (ADR 0033); the TLS config has already verified the
+// chain against the cluster CA.
 func (s *Server) metricsAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !s.metricsAllowed(r.Context(), r.TLS) {
-			http.Error(w, "a metrics or admin client certificate is required", http.StatusForbidden)
+			http.Error(w, "a metrics certificate, or a user or service with cluster-admin, is required", http.StatusForbidden)
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -87,11 +87,13 @@ func (s *Server) metricsAllowed(ctx context.Context, cs *tls.ConnectionState) bo
 		return false
 	case id.Kind == pki.KindMetrics:
 		return true
-	case id.Kind == pki.KindAdmin:
-		ok, err := s.store.AdminAllowed(ctx, id.Name, cert.NotBefore)
-		return err == nil && ok
 	}
-	return false
+	pid, ok := id.Principal()
+	if !ok {
+		return false
+	}
+	p, ok, err := s.principalAccess(ctx, pid, cert)
+	return err == nil && ok && p.Has(store.Grant{Role: store.RoleClusterAdmin})
 }
 
 // clusterCollector reads the cluster's state on every scrape, from the same
@@ -340,31 +342,5 @@ func (s *Server) IssueMetricsCertificate(ctx context.Context, req *armadav1.Issu
 		return nil, storeErr(err)
 	}
 	s.log.Info("issued metrics certificate", "name", req.GetName(), "serial", cert.Serial, "by", actor(ctx))
-	return &armadav1.IssueMetricsCertificateResponse{Cert: cert.PEM, CaCert: s.ca.CertPEM, ExpiresAt: timestamppb.New(cert.NotAfter)}, nil
-}
-
-// RenewAdminCertificate signs a new administrator certificate, under the
-// caller's own name, from the caller's CSR. Only an administrator calls it,
-// for itself; the old certificate stays valid until it expires.
-func (s *Server) RenewAdminCertificate(ctx context.Context, req *armadav1.RenewAdminCertificateRequest) (*armadav1.IssueMetricsCertificateResponse, error) {
-	acc := accessFrom(ctx)
-	if acc.id.Kind != pki.KindAdmin {
-		return nil, status.Error(codes.PermissionDenied, "only an administrator renews its own certificate")
-	}
-	if s.ca == nil {
-		return nil, status.Error(codes.FailedPrecondition, "this server cannot issue certificates")
-	}
-	cert, err := s.ca.SignAdminCSR(req.GetCsr(), acc.id.Name)
-	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "sign certificate: %v", err)
-	}
-	if err := s.store.RecordAudit(ctx, actor(ctx), "admin.certificate", acc.id.Name, "serial="+cert.Serial); err != nil {
-		return nil, storeErr(err)
-	}
-	// Administrators from before records show up in `armada admin list`.
-	if err := s.store.KnowAdmin(ctx, acc.id.Name); err != nil {
-		return nil, storeErr(err)
-	}
-	s.log.Info("renewed admin certificate", "name", acc.id.Name, "serial", cert.Serial)
 	return &armadav1.IssueMetricsCertificateResponse{Cert: cert.PEM, CaCert: s.ca.CertPEM, ExpiresAt: timestamppb.New(cert.NotAfter)}, nil
 }

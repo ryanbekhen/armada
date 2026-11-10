@@ -330,7 +330,7 @@ func TestClusterConfigAndConflicts(t *testing.T) {
 		t.Error(err)
 	}
 	events, _ := c.store.ListAudit(c.ctx, 10)
-	if len(events) == 0 || events[0].Action != "cluster.root_domain" || events[0].Actor != "admin:ryan" {
+	if len(events) == 0 || events[0].Action != "cluster.root_domain" || events[0].Actor != "user:ryan" {
 		t.Errorf("audit = %+v", events)
 	}
 

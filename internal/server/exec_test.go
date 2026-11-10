@@ -102,7 +102,7 @@ func TestExec(t *testing.T) {
 			continue
 		}
 		n++
-		if e.Actor != "admin:ryan" {
+		if e.Actor != "user:ryan" {
 			t.Errorf("audit actor = %q", e.Actor)
 		}
 		if strings.Contains(e.Detail, "hunter2") || strings.Contains(e.Detail, "--secret") {

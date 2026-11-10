@@ -74,7 +74,7 @@ func TestNetworkEndpoints(t *testing.T) {
 
 func TestNetworkIsolationSetting(t *testing.T) {
 	t.Parallel()
-	c, auto, _ := automationCluster(t)
+	c, auto, _ := serviceCluster(t)
 	isolation := func(p string) bool {
 		t.Helper()
 		resp, err := c.admin.ListProjects(c.ctx, &armadav1.ListProjectsRequest{})
@@ -123,9 +123,9 @@ func TestNetworkIsolationSetting(t *testing.T) {
 	wantCode(t, "invalid name", err, codes.InvalidArgument)
 	// Automation identities never change it, not even for their projects.
 	_, err = auto.UpdateProject(c.ctx, &armadav1.UpdateProjectRequest{Name: "a", NetworkIsolation: &on})
-	wantCode(t, "automation", err, codes.PermissionDenied)
+	wantCode(t, "service", err, codes.PermissionDenied)
 	_, err = auto.UpdateProject(c.ctx, &armadav1.UpdateProjectRequest{Name: "default", NetworkIsolation: &off})
-	wantCode(t, "automation on default", err, codes.PermissionDenied)
+	wantCode(t, "service on default", err, codes.PermissionDenied)
 }
 
 func TestInternalRulesCarryAllow(t *testing.T) {

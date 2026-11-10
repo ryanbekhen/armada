@@ -407,7 +407,7 @@ func (s *Server) RestoreVolume(stream armadav1.AdminService_RestoreVolumeServer)
 		return err
 	}
 	if start.GetNode() != "" && !acc.admin() {
-		return status.Error(codes.PermissionDenied, "only administrators may restore a volume onto another node")
+		return status.Error(codes.PermissionDenied, "restoring a volume onto another node needs cluster-admin")
 	}
 	if err := checkVolumeArgs(start.GetApp(), start.GetName()); err != nil {
 		return err

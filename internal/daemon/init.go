@@ -45,7 +45,7 @@ func newInitCommand(g *globals) *cobra.Command {
 		dataDir   string
 		privateIP string
 		nodeName  string
-		adminName string
+		userName  string
 		port      int
 		cidr      string
 		mode      string
@@ -79,18 +79,18 @@ func newInitCommand(g *globals) *cobra.Command {
 				h, _ := os.Hostname()
 				nodeName = sanitizeName(h, "node-1")
 			}
-			// The person who ran init through sudo is the first
-			// administrator, under their own name.
+			// The person who ran init through sudo is the first user, with
+			// cluster-admin, under their own name (ADR 0033).
 			person := sudoUser()
-			if adminName == "" {
-				adminName = "admin"
+			if userName == "" {
+				userName = "admin"
 				if person != nil {
-					adminName = sanitizeName(person.Username, "admin")
+					userName = sanitizeName(person.Username, "admin")
 				} else if u, err := user.Current(); err == nil {
-					adminName = sanitizeName(u.Username, "admin")
+					userName = sanitizeName(u.Username, "admin")
 				}
 			}
-			for _, id := range []pki.Identity{{Kind: pki.KindNode, Name: nodeName}, {Kind: pki.KindAdmin, Name: adminName}} {
+			for _, id := range []pki.Identity{{Kind: pki.KindNode, Name: nodeName}, {Kind: pki.KindUser, Name: userName}} {
 				if _, err := pki.ParseIdentity(id.String()); err != nil {
 					return err
 				}
@@ -107,7 +107,7 @@ func newInitCommand(g *globals) *cobra.Command {
 					return err
 				}
 			}
-			// The admin config goes where every administrator of this
+			// The admin config goes where every cluster-admin of this
 			// machine finds it, unless the operator names another file.
 			if !cmd.Flag("config").Changed && os.Getenv(clientconfig.EnvPath) == "" {
 				g.configPath = clientconfig.SystemPath
@@ -141,7 +141,7 @@ func newInitCommand(g *globals) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			adminCert, adminKey, err := ca.Issue(pki.IssueRequest{Identity: pki.Identity{Kind: pki.KindAdmin, Name: adminName}, Client: true})
+			adminCert, adminKey, err := ca.Issue(pki.IssueRequest{Identity: pki.Identity{Kind: pki.KindUser, Name: userName}, Client: true})
 			if err != nil {
 				return err
 			}
@@ -199,9 +199,9 @@ func newInitCommand(g *globals) *cobra.Command {
 			if err := saveAgentConfig(dataDir, ac); err != nil {
 				return err
 			}
-			// The first administrator is on record (ADR 0028), with every
-			// certificate of its name accepted.
-			if err := st.KnowAdmin(ctx, adminName); err != nil {
+			// The first user is on record with cluster-admin (ADR 0033),
+			// with every certificate of its name accepted.
+			if err := st.KnowUser(ctx, userName); err != nil {
 				return err
 			}
 			if err := st.RecordNodeCert(ctx, nodeName, store.NodeCert{Serial: nodeCert.Serial, NotAfter: nodeCert.NotAfter}, ""); err != nil {
@@ -235,7 +235,7 @@ func newInitCommand(g *globals) *cobra.Command {
 			_, _ = fmt.Fprintf(out, "  node:        %s (%s), containers %s\n", nodeName, ip, node.Subnet)
 			_, _ = fmt.Fprintf(out, "  api:         %s\n", listen)
 			_, _ = fmt.Fprintf(out, "  network:     %s, %s\n", network.Mode, network.ClusterCIDR)
-			_, _ = fmt.Fprintf(out, "  admin:       %s (%s)\n", adminName, strings.Join(configs, ", "))
+			_, _ = fmt.Fprintf(out, "  user:        %s, cluster-admin (%s)\n", userName, strings.Join(configs, ", "))
 			_, _ = fmt.Fprintf(out, "  CA SHA-256:  %s\n\n", pki.Fingerprint(ca.Cert))
 			_, _ = fmt.Fprint(out, nextStep("server", dataDir))
 			_, _ = fmt.Fprintf(out, "Back up %s with `armadad backup`: without it, secrets are lost.\n", dataDir)
@@ -247,7 +247,7 @@ func newInitCommand(g *globals) *cobra.Command {
 	f.StringVar(&dataDir, "data-dir", defaultDataDir, "directory for cluster state and keys")
 	f.StringVar(&privateIP, "private-ip", "", "this node's private IP (default: the only private IPv4 address)")
 	f.StringVar(&nodeName, "node-name", "", "node name (default: hostname)")
-	f.StringVar(&adminName, "admin-name", "", "admin identity name (default: current user)")
+	f.StringVar(&userName, "user-name", "", "name of the first user, who gets cluster-admin (default: the user running it)")
 	f.IntVar(&port, "port", defaultPort, "control plane port on the private IP")
 	f.StringVar(&cidr, "cluster-cidr", defaultClusterCIDR, "private IPv4 range for containers; each node gets a /24 of it (set once, /12 to /20)")
 	f.StringVar(&mode, "network", store.NetworkPlain, "how traffic between nodes' containers travels: plain (VXLAN, not encrypted) or wireguard (encrypted); set once")

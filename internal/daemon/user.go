@@ -12,23 +12,25 @@ import (
 	"github.com/ryanbekhen/armada/internal/pki"
 )
 
-func newAdminCommand(g *globals) *cobra.Command {
-	cmd := &cobra.Command{Use: "admin", Short: "Recover administrator credentials on a server"}
-	cmd.AddCommand(newAdminRenewCommand(g))
+func newUserCommand(g *globals) *cobra.Command {
+	cmd := &cobra.Command{Use: "user", Short: "Recover a user's credentials on a server"}
+	cmd.AddCommand(newUserRenewCommand(g))
 	return cmd
 }
 
-func newAdminRenewCommand(g *globals) *cobra.Command {
+func newUserRenewCommand(g *globals) *cobra.Command {
 	dataDir := defaultDataDir
 	cmd := &cobra.Command{
 		Use:   "renew",
-		Short: "Renew an administrator certificate with the cluster CA on this server",
+		Short: "Renew a user certificate with the cluster CA on this server",
 		Long: "Get a new one-year certificate for a new key, under the same name, signed\n" +
 			"by the cluster CA in the data directory, and rewrite the client config\n" +
 			"(--config, default ~/.armada/config, else /etc/armada/admin.config; another\n" +
 			"user's config stays theirs, a shared one stays shared).\n" +
 			"For a certificate that has already expired; while it is valid,\n" +
-			"`armada admin renew` does the same through the control plane.",
+			"`armada rbac user renew` does the same through the control plane.\n" +
+			"The user keeps the roles on record (cluster-admin for one the cluster\n" +
+			"has no record of).",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cc, err := clientconfig.Load(g.configPath)
@@ -40,8 +42,11 @@ func newAdminRenewCommand(g *globals) *cobra.Command {
 				return fmt.Errorf("%s: %w", g.configPath, err)
 			}
 			id, err := pki.IdentityFromCert(cert)
-			if err != nil || id.Kind != pki.KindAdmin {
-				return fmt.Errorf("%s does not hold an administrator certificate", g.configPath)
+			if err == nil {
+				id, _ = id.Principal()
+			}
+			if err != nil || id.Kind != pki.KindUser {
+				return fmt.Errorf("%s does not hold a user certificate", g.configPath)
 			}
 			keyPEM, csr, err := pki.NewCSR(id)
 			if err != nil {
@@ -55,7 +60,7 @@ func newAdminRenewCommand(g *globals) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			c, err := ca.SignAdminCSR(csr, id.Name)
+			c, err := ca.SignUserCSR(csr, id.Name)
 			if err != nil {
 				return err
 			}

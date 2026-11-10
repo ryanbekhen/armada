@@ -19,7 +19,7 @@ func TestListAppsAndClusterStatus(t *testing.T) {
 	t.Parallel()
 	c := newClockServer(t)
 	admin := c.srv.internalContext(c.ctx)
-	if _, err := c.st.CreateProject(c.ctx, "shop", "t", ""); err != nil {
+	if _, err := c.st.CreateProject(c.ctx, "shop", "t", nil); err != nil {
 		t.Fatal(err)
 	}
 	for i := range 7 {
@@ -74,16 +74,17 @@ func TestListAppsAndClusterStatus(t *testing.T) {
 		t.Errorf("after serving: %+v", st)
 	}
 
-	// An automation identity sees only its projects, never the cluster.
-	auto := withIdentity(c, pki.Identity{Kind: pki.KindAutomation, Name: "ci"}, store.Automation{Name: "ci", Projects: []string{"shop"}})
+	// A service with a role in one project sees only that project, never
+	// the cluster.
+	auto := withPrincipal(c, store.Principal{Kind: store.KindService, Name: "ci", Roles: []store.Grant{{Role: store.RoleViewer, Project: "shop"}}}, needView)
 	if resp, err := c.srv.ListApps(auto, &armadav1.ListAppsRequest{AllProjects: true}); err != nil || len(resp.Apps) != 1 {
-		t.Errorf("automation listing: %v %v", resp, err)
+		t.Errorf("service listing: %v %v", resp, err)
 	}
 	if _, err := c.srv.ListApps(auto, &armadav1.ListAppsRequest{}); status.Code(err) != codes.PermissionDenied {
-		t.Errorf("automation in default: %v", err)
+		t.Errorf("service in default: %v", err)
 	}
 	if _, err := c.srv.ClusterStatus(auto, &armadav1.ClusterStatusRequest{}); status.Code(err) != codes.PermissionDenied {
-		t.Errorf("automation cluster status: %v", err)
+		t.Errorf("service cluster status: %v", err)
 	}
 }
 
@@ -119,10 +120,11 @@ func TestGetAppSpecAndDeployChecks(t *testing.T) {
 	}
 }
 
-// withIdentity is c's context as the given caller with an automation scope.
-func withIdentity(c *clockServer, id pki.Identity, scope store.Automation) context.Context {
+// withPrincipal is c's context as the principal p calling a method of n.
+func withPrincipal(c *clockServer, p store.Principal, n need) context.Context {
+	id := pki.Identity{Kind: p.Kind, Name: p.Name}
 	ctx := context.WithValue(c.ctx, identityKey{}, id)
-	return context.WithValue(ctx, scopeKey{}, scope)
+	return context.WithValue(ctx, accessKey{}, access{id: id, p: &p, need: n})
 }
 
 // The nodes alone, with how many replicas each holds, and no apps.

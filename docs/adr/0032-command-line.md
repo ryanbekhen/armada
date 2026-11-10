@@ -41,8 +41,11 @@ armada
 ├── node       list | show | top | label | drain | resume | restrict | unrestrict | join-token | delete
 ├── server     list | join-token | delete
 ├── cluster    status | show | set | events
-├── admin      create | list | renew | delete
-├── automation create | set | list | credentials | renew | delete
+├── rbac       (ADR 0033)
+│   ├── user       create | list | show | credentials | renew | update | delete
+│   ├── service    create | list | show | credentials | renew | update | delete
+│   ├── role       list | show
+│   └── assignment create | list | delete
 ├── metrics    credentials
 └── version
 ```
