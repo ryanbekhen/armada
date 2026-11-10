@@ -32,8 +32,9 @@ func (d *Driver) load(ctx context.Context) (map[string]proxy.ServerLoad, error) 
 	if err != nil {
 		return nil, err
 	}
-	// Servers only: any proxy, type 4.
-	out, err := d.cfg.API.Command(ctx, "show stat -1 4 -1")
+	// Servers only (any proxy, type 4), without the empty slots, which
+	// wait in maintenance: most rows are those.
+	out, err := d.cfg.API.Command(ctx, "show stat -1 4 -1 no-maint")
 	if err != nil {
 		return nil, err
 	}

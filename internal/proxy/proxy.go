@@ -201,6 +201,10 @@ func (c Config) ToProto() *armadav1.ProxyConfig {
 	return p
 }
 
+// MaxLoadEntries bounds the busy replicas in one usage report: an agent
+// with more reports its load as unmeasured, and the server takes no more.
+const MaxLoadEntries = 20000
+
 // Limits on what a single configuration may contain.
 const (
 	// The limits bound what a compromised control plane can make an agent

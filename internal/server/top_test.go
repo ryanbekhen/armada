@@ -13,6 +13,7 @@ import (
 
 	armadav1 "github.com/ryanbekhen/armada/api/armada/v1"
 	"github.com/ryanbekhen/armada/internal/pki"
+	"github.com/ryanbekhen/armada/internal/proxy"
 	"github.com/ryanbekhen/armada/internal/runtime"
 	"github.com/ryanbekhen/armada/internal/store"
 )
@@ -357,5 +358,30 @@ func TestUsageOutOfMemory(t *testing.T) {
 	huge := &armadav1.UsageReport{Replicas: []*armadav1.ReplicaUsage{{Id: "web-0", OomKills: 1 << 60}}}
 	if got := u.outOfMemory("n1", huge); len(got) != 1 || strings.Contains(got[0].Message, "1152921504606846976") {
 		t.Errorf("events = %+v", got)
+	}
+}
+
+// Load covers every replica a node's proxy routes to, cluster-wide: a lot of
+// it makes the load unmeasured, never the node's own usage.
+func TestUsageStoreLargeLoad(t *testing.T) {
+	t.Parallel()
+	u := newUsageStore()
+	now := time.Now()
+	report := func(n int) *armadav1.UsageReport {
+		r := &armadav1.UsageReport{LoadMeasured: true, Replicas: []*armadav1.ReplicaUsage{{Id: "mine", CpuMillis: 50}}}
+		for i := range n {
+			r.Load = append(r.Load, &armadav1.ReplicaLoad{Id: fmt.Sprintf("r%d", i), InFlight: 1})
+		}
+		return r
+	}
+	u.set("n1", report(5000), now)
+	n, ok := u.node("n1", now)
+	if !ok || n.replicas["mine"].cpu != 50 || !n.loadMeasured || len(n.load) != 5000 {
+		t.Fatalf("5000 busy replicas: ok=%v measured=%v load=%d", ok, n.loadMeasured, len(n.load))
+	}
+	u.set("n1", report(proxy.MaxLoadEntries+1), now)
+	n, ok = u.node("n1", now)
+	if !ok || n.replicas["mine"].cpu != 50 || n.loadMeasured {
+		t.Errorf("too much load: ok=%v measured=%v cpu=%d", ok, n.loadMeasured, n.replicas["mine"].cpu)
 	}
 }

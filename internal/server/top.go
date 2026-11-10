@@ -11,6 +11,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	armadav1 "github.com/ryanbekhen/armada/api/armada/v1"
+	"github.com/ryanbekhen/armada/internal/proxy"
 	"github.com/ryanbekhen/armada/internal/spec"
 	"github.com/ryanbekhen/armada/internal/store"
 )
@@ -91,10 +92,13 @@ func newUsageStore() *usageStore {
 // replicas belong to the node is only checked when the sample is read, so
 // a report costs no store access.
 func (u *usageStore) set(nodeID string, r *armadav1.UsageReport, at time.Time) {
-	if len(r.GetReplicas()) > maxUsageReplicas || len(r.GetLoad()) > maxUsageReplicas {
+	if len(r.GetReplicas()) > maxUsageReplicas {
 		u.forget(nodeID)
 		return
 	}
+	// Load covers every replica the node's proxy routes to, across the
+	// cluster: too much of it makes the load unmeasured, not the node.
+	measured := r.GetLoadMeasured() && len(r.GetLoad()) <= proxy.MaxLoadEntries
 	reps := make(map[string]replicaUsage, len(r.GetReplicas()))
 	for _, ru := range r.GetReplicas() {
 		if id := ru.GetId(); id != "" && len(id) <= maxReplicaIDLen {
@@ -106,7 +110,7 @@ func (u *usageStore) set(nodeID string, r *armadav1.UsageReport, at time.Time) {
 	}
 	var load map[string]int64
 	var busy []string
-	if r.GetLoadMeasured() {
+	if measured {
 		load = make(map[string]int64, len(r.GetLoad()))
 		for _, l := range r.GetLoad() {
 			if id := l.GetId(); id != "" && len(id) <= maxReplicaIDLen {
@@ -130,7 +134,7 @@ func (u *usageStore) set(nodeID string, r *armadav1.UsageReport, at time.Time) {
 		}
 	}
 	u.nodes[nodeID] = nodeUsage{
-		at: at, replicas: reps, load: load, loadMeasured: r.GetLoadMeasured(),
+		at: at, replicas: reps, load: load, loadMeasured: measured,
 		conntrackEntries: max(0, min(r.GetConntrackEntries(), maxConntrack)),
 		conntrackMax:     max(0, min(r.GetConntrackMax(), maxConntrack)),
 	}
