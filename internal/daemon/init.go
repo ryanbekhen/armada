@@ -228,14 +228,14 @@ func newInitCommand(g *globals) *cobra.Command {
 			case shared:
 				_, _ = fmt.Fprintf(out, "The armada client needs no root: members of the %s group read %s.\n", clientconfig.Group, g.configPath)
 				_, _ = fmt.Fprintf(out, "Add an administrator with `sudo usermod -aG %s NAME` (they log in again);\n", clientconfig.Group)
-				_, _ = fmt.Fprintf(out, "membership is full control of the cluster. On another machine, copy the file\n")
-				_, _ = fmt.Fprintf(out, "to ~/.armada/config (mode 0600).\n")
+				_, _ = fmt.Fprintf(out, "membership is full control of the cluster. For another machine or person,\n")
+				_, _ = fmt.Fprintf(out, "`armada admin add NAME -o FILE` makes a config of their own.\n")
 			case g.configPath == clientconfig.SystemPath:
 				_, _ = fmt.Fprintf(out, "No %s group here, so %s is root's only: create the group\n", clientconfig.Group, g.configPath)
 				_, _ = fmt.Fprintf(out, "(groupadd --system %s), then chgrp %s and chmod 0640 it to share it.\n", clientconfig.Group, clientconfig.Group)
 			default:
 				_, _ = fmt.Fprintf(out, "The armada client needs no root: copy %s to ~/.armada/config\n", g.configPath)
-				_, _ = fmt.Fprintf(out, "(mode 0600) of your own user, here or on another machine.\n")
+				_, _ = fmt.Fprintf(out, "(mode 0600) of your own user; for other people, `armada admin add NAME -o FILE`.\n")
 			}
 			_, _ = fmt.Fprintf(out, "Keep %s private: it contains the cluster CA key and the master key\n", dataDir)
 			_, _ = fmt.Fprintln(out, "that encrypts secrets. Back it up with `armadad backup`, or secrets are lost.")

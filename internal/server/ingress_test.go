@@ -273,6 +273,42 @@ func TestWildcardCertificateCoversAppHosts(t *testing.T) {
 	}
 }
 
+// A verified custom domain one label under the root domain is served with the
+// wildcard certificate, so it is TLS-ready once the wildcard is issued.
+func TestWildcardCoversCustomDomain(t *testing.T) {
+	t.Parallel()
+	certs := &fakeCerts{issued: map[string][]byte{}, wildcard: true}
+	txt := &fakeTXT{records: map[string][]string{}}
+	c := newCluster(t, func(cfg *Config) { cfg.Certs = certs; cfg.ACMEAddr = freeAddr(t); cfg.Resolver = txt })
+	c.addNode("n1", "10.0.0.2")
+	if _, err := c.admin.SetClusterConfig(c.ctx, &armadav1.SetClusterConfigRequest{SetRootDomain: true, Config: &armadav1.ClusterConfig{RootDomain: "example.org"}}); err != nil {
+		t.Fatal(err)
+	}
+	c.deploy(strings.Replace(ingressApp, "domains: [example.org]", "domains: [shop.example.org, a.b.example.org]", 1))
+	ds, err := c.admin.ListDomains(c.ctx, &armadav1.ListDomainsRequest{})
+	if err != nil || len(ds.Domains) != 2 {
+		t.Fatalf("ListDomains = %v, %v", ds, err)
+	}
+	for _, d := range ds.Domains {
+		txt.set(d.TxtName, d.TxtValue)
+	}
+	certs.issue(t, "*.example.org")
+	for _, tc := range []struct {
+		name  string
+		ready bool
+	}{{"shop.example.org", true}, {"a.b.example.org", false}} {
+		d, err := c.admin.VerifyDomain(c.ctx, &armadav1.VerifyDomainRequest{Name: tc.name})
+		if err != nil || !d.Verified || d.TlsReady != tc.ready {
+			t.Errorf("%s = %v, %v (want TLS ready %v)", tc.name, d, err, tc.ready)
+		}
+	}
+	for host, want := range map[string]bool{"shop.example.org": true, "example.org": false, "a.b.example.org": false, "xexample.org": false, ".example.org": false} {
+		if got := underWildcard(host, "example.org"); got != want {
+			t.Errorf("underWildcard(%q) = %v", host, got)
+		}
+	}
+}
+
 func TestClusterConfigAndConflicts(t *testing.T) {
 	t.Parallel()
 	c := newCluster(t)

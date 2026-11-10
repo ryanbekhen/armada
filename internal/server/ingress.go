@@ -188,9 +188,7 @@ func (s *Server) buildProxy(ctx context.Context, apps []store.App, replicas []st
 			for _, rt := range appRoutes(sp) {
 				cfg.Rules = append(cfg.Rules, proxy.Rule{Host: h, PathPrefix: rt.Path, StripPrefix: rt.StripPrefix, Backend: app.Name})
 			}
-			// <app>.<root> is covered by the wildcard certificate.
-			coveredByWildcard := wildcard && strings.HasSuffix(h, "."+root) && strings.Count(h, ".") == strings.Count(root, ".")+1
-			if !coveredByWildcard {
+			if !wildcard || !underWildcard(h, root) {
 				certNames = append(certNames, h)
 			}
 		}
@@ -444,9 +442,22 @@ func (s *Server) domainProto(ctx context.Context, d store.Domain, apps []string)
 		TxtName: TXTPrefix + d.Name, TxtValue: d.Token, Message: d.Message,
 	}
 	if s.certs != nil && d.Verified {
-		_, out.TlsReady = s.certs.Certificate(ctx, d.Name)
+		name := d.Name
+		// A domain one label under the root domain is served with the
+		// wildcard certificate, like <app>.<root> (buildProxy).
+		if root := s.rootDomain(ctx); s.certs.SupportsWildcard() && root != "" && underWildcard(name, root) {
+			name = "*." + root
+		}
+		_, out.TlsReady = s.certs.Certificate(ctx, name)
 	}
 	return out
+}
+
+// underWildcard reports whether host is exactly one label under root, so the
+// certificate for *.root covers it.
+func underWildcard(host, root string) bool {
+	label, ok := strings.CutSuffix(host, "."+root)
+	return ok && label != "" && !strings.Contains(label, ".")
 }
 
 // VerifyDomain checks a domain's TXT record now.
