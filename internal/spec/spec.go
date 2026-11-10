@@ -53,6 +53,9 @@ type App struct {
 	// EnvFrom "secrets" gives the app every secret of its own as a variable
 	// (database-url becomes DATABASE_URL), resolved when it is deployed.
 	EnvFrom string `yaml:"envFrom,omitempty" json:"envFrom,omitempty"`
+	// EnvFromAdded names the variables envFrom added when the app was
+	// deployed, so an exported spec leaves them out (ADR 0032).
+	EnvFromAdded []string `yaml:"-" json:"envFromAdded,omitempty"`
 	// SecretFiles mounts secrets as read-only files.
 	SecretFiles []SecretFile `yaml:"secretFiles,omitempty" json:"secretFiles,omitempty"`
 	// Registry holds credentials for pulling Image from a private registry.
@@ -210,6 +213,9 @@ func (d *Duration) UnmarshalYAML(n *yaml.Node) error {
 	*d = Duration(v)
 	return nil
 }
+
+// MarshalYAML writes the duration as a string, as UnmarshalYAML reads it.
+func (d Duration) MarshalYAML() (any, error) { return time.Duration(d).String(), nil }
 
 // MarshalJSON writes the duration as a string.
 func (d Duration) MarshalJSON() ([]byte, error) {

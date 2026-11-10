@@ -440,6 +440,9 @@ type Store interface {
 	// host+path pairs. The app is stored under spec.ID(); ErrPrecondition
 	// if its project does not exist.
 	Deploy(ctx context.Context, s *spec.App, actor string) (rev Revision, created bool, err error)
+	// DeployWith is Deploy with the checks of opts (ADR 0032), made in the
+	// same transaction.
+	DeployWith(ctx context.Context, s *spec.App, actor string, opts DeployOptions) (rev Revision, created bool, err error)
 	// Rollback makes an existing revision of app the rollout target (or
 	// cancels the rollout if it is the active revision).
 	Rollback(ctx context.Context, app, revision, actor string) (Revision, error)
@@ -533,4 +536,16 @@ type Store interface {
 	ListDomains(ctx context.Context) ([]Domain, error)
 	GetDomain(ctx context.Context, name string) (Domain, error)
 	SetDomainVerification(ctx context.Context, name string, verified bool, message string) error
+}
+
+// DeployOptions are the checks of a deploy that a person or tool asked for
+// (ADR 0032).
+type DeployOptions struct {
+	// MustCreate refuses an app that exists (ErrConflict); MustExist one
+	// that does not (ErrNotFound).
+	MustCreate, MustExist bool
+	// BaseRevision, when set, refuses the deploy (ErrPrecondition) unless
+	// it is still the app's target revision: the change it was made from
+	// is the latest.
+	BaseRevision string
 }

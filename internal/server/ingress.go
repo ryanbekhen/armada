@@ -610,6 +610,29 @@ func (s *Server) VerifyDomain(ctx context.Context, req *armadav1.VerifyDomainReq
 // appURLs lists the URLs of an app for status output: public ones, or the
 // cluster-internal one for internal apps.
 func (s *Server) appURLs(ctx context.Context, app store.App) []string {
+	return appURLsFrom(app, s.urlSource(ctx))
+}
+
+// urlSources are what an app's URLs depend on beyond the app: read once for
+// many apps.
+type urlSources struct {
+	root     string
+	verified map[string]bool
+}
+
+// urlSource reads the root domain and the verified domains.
+func (s *Server) urlSource(ctx context.Context) urlSources {
+	src := urlSources{root: s.rootDomain(ctx), verified: map[string]bool{}}
+	if domains, err := s.store.ListDomains(ctx); err == nil {
+		for _, d := range domains {
+			src.verified[d.Name] = d.Verified
+		}
+	}
+	return src
+}
+
+// appURLsFrom lists app's URLs.
+func appURLsFrom(app store.App, src urlSources) []string {
 	if app.Spec.Ingress == nil || app.Spec.Ingress.Type == spec.IngressNone {
 		return nil
 	}
@@ -620,16 +643,8 @@ func (s *Server) appURLs(ctx context.Context, app store.App) []string {
 		}
 		return urls
 	}
-	domains, err := s.store.ListDomains(ctx)
-	if err != nil {
-		return nil
-	}
-	verified := map[string]bool{}
-	for _, d := range domains {
-		verified[d.Name] = d.Verified
-	}
 	var urls []string
-	for _, h := range appHosts(app, s.rootDomain(ctx), verified) {
+	for _, h := range appHosts(app, src.root, src.verified) {
 		for _, r := range appRoutes(app.Spec) {
 			urls = append(urls, "https://"+h+r.Path)
 		}
