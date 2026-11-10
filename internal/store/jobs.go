@@ -259,15 +259,8 @@ func (s *Etcd) DeleteJob(ctx context.Context, job, actor string) error {
 			return err
 		}
 		t.delete(pfxApps + job)
-		for _, prefix := range []string{pfxRevs + job + "/", pfxRuns + job + "/"} {
-			kvs, err := t.list(prefix)
-			if err != nil {
-				return err
-			}
-			for _, e := range kvs {
-				t.delete(e.key)
-			}
-		}
+		t.deletePrefix(pfxRevs + job + "/")
+		t.deletePrefix(pfxRuns + job + "/")
 		err := listInto(t, pfxReplicas, func(key string, r replicaRec) error {
 			if r.App == job {
 				t.delete(key)
