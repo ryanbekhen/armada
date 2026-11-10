@@ -9,6 +9,7 @@ import (
 	"maps"
 	"slices"
 	"strconv"
+	"sync"
 	"time"
 
 	"google.golang.org/protobuf/proto"
@@ -57,7 +58,8 @@ func (s *Server) Reconcile(ctx context.Context) error {
 		return err
 	}
 	s.usage.setOwners(replicas, s.now())
-	revs := revisionCache{store: s.store, keys: s.keys, m: map[string]store.Revision{}}
+	revs := revisionCache{store: s.store, keys: s.keys, m: map[string]store.Revision{}, opened: s.opened}
+	defer s.opened.sweep()
 	revs.preload(ctx, apps, replicas)
 	// Scheduling sees only the capacity left after what Armada keeps.
 	nodes, err = s.allocatable(ctx, nodes)
@@ -65,6 +67,7 @@ func (s *Server) Reconcile(ctx context.Context) error {
 		return err
 	}
 
+	s.clusterSize.Store(int64(len(apps) + len(nodes)))
 	rc := reconcileRun{now: s.now(), revs: &revs}
 	rc.lost = s.lostNodes(ctx, &rc, nodes)
 	var jobs []store.App
@@ -1249,6 +1252,9 @@ type revisionCache struct {
 	keys  *secrets.Keyring
 	m     map[string]store.Revision
 	vals  map[string]map[string]secrets.Value
+	// opened keeps decrypted secret versions across passes; nil reads
+	// every one from the store.
+	opened *openedSecrets
 	// res holds what a replica of each revision reserves: scheduling asks for
 	// every replica of the cluster, once per app.
 	res map[string]resources
@@ -1267,6 +1273,10 @@ func (c *revisionCache) secrets(ctx context.Context, rev store.Revision) (map[st
 	}
 	vals := make(map[string]secrets.Value, len(rev.Secrets))
 	for name, version := range rev.Secrets {
+		if v, ok := c.opened.get(rev.App, name, version); ok {
+			vals[name] = v
+			continue
+		}
 		sealed, err := c.store.GetSecret(ctx, rev.App, name, version)
 		if err != nil {
 			return nil, err
@@ -1275,6 +1285,7 @@ func (c *revisionCache) secrets(ctx context.Context, rev store.Revision) (map[st
 		if err != nil {
 			return nil, err
 		}
+		c.opened.put(rev.App, name, version, v)
 		vals[name] = v
 	}
 	if c.vals == nil {
@@ -1351,4 +1362,62 @@ func reservation(rev store.Revision) resources {
 // assignmentsEqual reports whether two assignments are identical.
 func assignmentsEqual(a, b *armadav1.Assignment) bool {
 	return a != nil && b != nil && proto.Equal(a, b)
+}
+
+// openedSecrets keeps the secret versions the leader decrypted, across
+// reconcile passes: a version never changes, so each is read and opened
+// once instead of once per pass. Versions no pass used are dropped by
+// sweep, so it holds what the cluster runs and nothing more.
+type openedSecrets struct {
+	mu   sync.Mutex
+	vals map[openedKey]secrets.Value
+	used map[openedKey]bool
+}
+
+type openedKey struct {
+	app, name string
+	version   int
+}
+
+func newOpenedSecrets() *openedSecrets {
+	return &openedSecrets{vals: map[openedKey]secrets.Value{}, used: map[openedKey]bool{}}
+}
+
+func (o *openedSecrets) get(app, name string, version int) (secrets.Value, bool) {
+	if o == nil {
+		return secrets.Value{}, false
+	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	k := openedKey{app, name, version}
+	v, ok := o.vals[k]
+	if ok {
+		o.used[k] = true
+	}
+	return v, ok
+}
+
+func (o *openedSecrets) put(app, name string, version int, v secrets.Value) {
+	if o == nil {
+		return
+	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	k := openedKey{app, name, version}
+	o.vals[k], o.used[k] = v, true
+}
+
+// sweep drops what no lookup since the last sweep used.
+func (o *openedSecrets) sweep() {
+	if o == nil {
+		return
+	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	for k := range o.vals {
+		if !o.used[k] {
+			delete(o.vals, k)
+		}
+	}
+	o.used = map[openedKey]bool{}
 }

@@ -865,7 +865,7 @@ TIME            KIND         OBJECT                        REASON           COUN
 
 - An event that repeats within 10 minutes is counted (`COUNT`) instead of
   shown again; `TIME` is its last occurrence.
-- Events are kept for 24 hours, at most 2000 of them. For longer history,
+- Events are kept for 24 hours, at most 2000 of them, or 20 per app and node on a larger cluster (up to 50,000). For longer history,
   run `armada events -f -o json` into your log system, or alert on
   `armada_events_total` from the metrics endpoint.
 - Messages from nodes are shortened to 512 bytes, with control characters

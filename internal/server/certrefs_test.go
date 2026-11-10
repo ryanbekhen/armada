@@ -80,3 +80,29 @@ func TestOldAgentsGetCertificates(t *testing.T) {
 		t.Errorf("new agent: %v", p.GetCertificates())
 	}
 }
+
+// A certificate is read from storage once, and again after the manager
+// obtains it anew (a renewal).
+func TestCertificateKeptUntilRenewed(t *testing.T) {
+	t.Parallel()
+	c := newClockServer(t)
+	fc := &fakeCerts{issued: map[string][]byte{}}
+	c.srv.certs = fc
+	if err := c.st.SetMeta(c.ctx, metaRootDomain, "apps.example.org"); err != nil {
+		t.Fatal(err)
+	}
+	const name = "web.apps.example.org"
+	fc.issue(t, name)
+	c.deploy("name: web\nimage: nginx:1\ningress:\n  type: external\n  port: 80\n")
+	first := c.srv.lastProxy.GetCertificates()[0].GetPem()
+	fc.issue(t, name) // renewed in storage
+	c.reconcile()
+	if got := c.srv.lastProxy.GetCertificates()[0].GetPem(); string(got) != string(first) {
+		t.Fatal("re-read without a certificate event")
+	}
+	c.srv.CertificateEvent(name, nil)
+	c.reconcile()
+	if got := c.srv.lastProxy.GetCertificates()[0].GetPem(); string(got) == string(first) {
+		t.Error("the renewed certificate did not reach the proxy")
+	}
+}

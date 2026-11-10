@@ -22,15 +22,19 @@ const (
 	// eventDedup folds an event that happens again for the same object
 	// within this window into the stored one, counting it.
 	eventDedup = 10 * time.Minute
-	// eventKeep bounds the stored events; the oldest go first.
-	eventKeep      = 2000
-	eventTrimEvery = 100
+	// eventKeep bounds the stored events; the oldest go first. A larger
+	// cluster keeps more (eventsPerObject per app and node, up to
+	// maxEventKeep), so one busy hour does not wipe the day.
+	eventKeep       = 2000
+	eventsPerObject = 20
+	maxEventKeep    = 50_000
+	eventTrimEvery  = 100
 	// maxEventMessage bounds messages, which may come from agents.
 	maxEventMessage = 512
 	eventWrite      = 5 * time.Second
 	// defaultEventsSince is how far back `armada events` looks by default.
 	defaultEventsSince = time.Hour
-	eventSubBuffer     = 256
+	eventSubBuffer     = 1024
 )
 
 // Event kinds.
@@ -123,7 +127,7 @@ func (s *Server) record(ctx context.Context, e store.Event) {
 	r.mu.Unlock()
 	r.total.WithLabelValues(e.Kind, e.Reason).Inc()
 	if trim {
-		if err := s.store.TrimEvents(ctx, eventKeep); err != nil {
+		if err := s.store.TrimEvents(ctx, s.eventKeep()); err != nil {
 			s.log.Warn("trim events", "err", err)
 		}
 	}
@@ -213,6 +217,8 @@ func (s *Server) replicaEvent(ctx context.Context, prev store.Replica, next stor
 // CertificateEvent records that a certificate was obtained (err nil) or
 // that obtaining it failed.
 func (s *Server) CertificateEvent(name string, err error) {
+	// Obtained or renewed: the next read gets the new one.
+	s.forgetCertificate(name)
 	e := store.Event{Kind: eventCertificate, Object: name, Reason: "Obtained"}
 	if err != nil {
 		e.Reason, e.Message = "Failed", err.Error()
@@ -292,4 +298,10 @@ func eventInfo(e store.Event) *armadav1.EventInfo {
 		Count: int32(min(e.Count, 1<<31-1)), //nolint:gosec // bounded above
 		First: timestamppb.New(e.First), Last: timestamppb.New(e.Last),
 	}
+}
+
+// eventKeep is how many events to keep for a cluster of the size the last
+// reconcile pass saw.
+func (s *Server) eventKeep() int {
+	return min(max(eventKeep, eventsPerObject*int(s.clusterSize.Load())), maxEventKeep)
 }

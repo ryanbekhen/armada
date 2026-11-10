@@ -209,7 +209,7 @@ func (s *Server) buildProxy(ctx context.Context, apps []store.App, replicas []st
 			}
 		}
 		for _, n := range certNames {
-			if pem, ok := s.certs.Certificate(ctx, n); ok {
+			if pem, ok := s.certificate(ctx, n); ok {
 				cfg.Certificates = append(cfg.Certificates, proxy.Certificate{Name: n, PEM: pem})
 			}
 		}
@@ -662,9 +662,39 @@ func (s *Server) GetCertificates(ctx context.Context, req *armadav1.GetCertifica
 			continue
 		}
 		seen[n] = true
-		if pem, ok := s.certs.Certificate(ctx, n); ok {
+		if pem, ok := s.certificate(ctx, n); ok {
 			resp.Certificates = append(resp.Certificates, &armadav1.ProxyCertificate{Name: n, Pem: pem})
 		}
 	}
 	return resp, nil
+}
+
+// certificate returns the certificate for name, read from the certificate
+// manager's storage once and then kept until the manager obtains it again
+// (CertificateEvent): a reconcile pass needs every certificate of the
+// cluster, and each read costs round trips to etcd.
+func (s *Server) certificate(ctx context.Context, name string) ([]byte, bool) {
+	s.pemMu.Lock()
+	pem, ok := s.pems[name]
+	s.pemMu.Unlock()
+	if ok {
+		return pem, true
+	}
+	pem, ok = s.certs.Certificate(ctx, name)
+	if ok {
+		s.pemMu.Lock()
+		if s.pems == nil {
+			s.pems = map[string][]byte{}
+		}
+		s.pems[name] = pem
+		s.pemMu.Unlock()
+	}
+	return pem, ok
+}
+
+// forgetCertificate drops the kept certificate for name.
+func (s *Server) forgetCertificate(name string) {
+	s.pemMu.Lock()
+	delete(s.pems, name)
+	s.pemMu.Unlock()
 }

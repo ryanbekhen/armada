@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/netip"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -156,6 +157,14 @@ type Server struct {
 	autoscaleInterval time.Duration
 	scaler            *autoscaler
 	wakeLimit         *keyedLimiter
+
+	// clusterSize is the apps and nodes the last reconcile pass saw.
+	clusterSize atomic.Int64
+	// opened keeps decrypted secret versions across reconcile passes.
+	opened *openedSecrets
+	// pems keeps certificates read from the certificate manager.
+	pemMu sync.Mutex
+	pems  map[string][]byte
 
 	certMu        sync.Mutex
 	lastCertNames []string
@@ -307,6 +316,7 @@ func New(cfg Config) (*Server, error) {
 
 		certs:          cfg.Certs,
 		acmeAddr:       cfg.ACMEAddr,
+		opened:         newOpenedSecrets(),
 		acmeEmail:      cfg.ACMEEmail,
 		acmeCA:         cfg.ACMECA,
 		dnsProvider:    cfg.DNSProvider,
