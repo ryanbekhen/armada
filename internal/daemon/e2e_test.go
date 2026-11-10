@@ -226,7 +226,7 @@ func TestEndToEnd(t *testing.T) {
 	}
 
 	waitFor("node ready", func() bool {
-		code, out, _ := cli("status")
+		code, out, _ := cli("node", "list")
 		return code == 0 && strings.Contains(out, "node-1") && strings.Contains(out, "ready")
 	})
 	// The agent applies the cluster network, with itself as the only peer.
@@ -254,45 +254,52 @@ func TestEndToEnd(t *testing.T) {
 	if err := os.WriteFile(spec, []byte("name: web\nimage: nginx:1.27\ningress:\n  type: external\n  port: 80\nscale:\n  min: 2\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	code, out, stderr := cli("deploy", "-f", spec)
-	if code != 0 || !strings.Contains(out, "Deployed web (revision web--r1)") {
-		t.Fatalf("deploy: code=%d out=%q err=%q", code, out, stderr)
+	code, out, stderr := cli("app", "create", "--file", spec)
+	if code != 0 || out != "Created web (revision web--r1).\n" {
+		t.Fatalf("app create: code=%d out=%q err=%q", code, out, stderr)
+	}
+	if code, _, stderr := cli("app", "create", "--file", spec); code == 0 || !strings.Contains(stderr, "web exists") {
+		t.Errorf("app create twice: code=%d err=%q", code, stderr)
 	}
 	waitFor("2/2 ready", func() bool {
-		_, out, _ := cli("status", "web")
+		_, out, _ := cli("app", "show", "web")
 		return strings.Contains(out, "2/2")
 	})
+	if code, out, _ := cli("app", "list"); code != 0 || !regexp.MustCompile(`^NAME\s+READY\s+STATE\s+REVISION\s+IMAGE\s+URL\nweb\s+2/2\s+ready\s+web--r1\s+nginx:1.27\s+-\n$`).MatchString(out) {
+		t.Errorf("app list = %q", out)
+	}
+	if code, out, _ := cli("cluster", "status"); code != 0 || !strings.HasPrefix(out, "nodes 1/1 ready · apps 1 · ready 1 · rolling out 0 · failing 0 · jobs 0\n") {
+		t.Errorf("cluster status = %q", out)
+	}
 
-	code, out, _ = cli("status", "-o", "json")
+	code, out, _ = cli("app", "show", "web", "-o", "json")
 	if code != 0 {
-		t.Fatal("status -o json failed")
+		t.Fatal("app show -o json failed")
 	}
 	var st struct {
-		Apps []struct {
-			Name     string `json:"name"`
-			Replicas []struct {
-				Address string `json:"address"`
-			} `json:"replicas"`
-		} `json:"apps"`
+		Name     string `json:"name"`
+		Replicas []struct {
+			Address string `json:"address"`
+		} `json:"replicas"`
 	}
-	if err := json.Unmarshal([]byte(out), &st); err != nil || len(st.Apps) != 1 || len(st.Apps[0].Replicas) != 2 {
-		t.Fatalf("status json = %s (%v)", out, err)
+	if err := json.Unmarshal([]byte(out), &st); err != nil || st.Name != "web" || len(st.Replicas) != 2 {
+		t.Fatalf("app show json = %s (%v)", out, err)
 	}
 	// Replicas publish no port: they are reached at their own address in
 	// the node's subnet, on the app's port (ADR 0025).
-	if a := st.Apps[0].Replicas[0].Address; !strings.HasPrefix(a, "10.120.0.1") || !strings.HasSuffix(a, ":80") {
+	if a := st.Replicas[0].Address; !strings.HasPrefix(a, "10.120.0.1") || !strings.HasSuffix(a, ":80") {
 		t.Errorf("replica address = %q", a)
 	}
 
-	if code, _, stderr := cli("scale", "web", "3"); code != 0 {
-		t.Fatalf("scale: %s", stderr)
+	if code, out, stderr := cli("app", "scale", "web", "--replicas", "3"); code != 0 || out != "Scaled web to 3 replicas.\n" {
+		t.Fatalf("scale: %q %s", out, stderr)
 	}
 	waitFor("3/3 ready", func() bool {
-		_, out, _ := cli("status", "web")
+		_, out, _ := cli("app", "show", "web")
 		return strings.Contains(out, "3/3")
 	})
 
-	code, out, stderr = cli("logs", "web", "--tail", "5")
+	code, out, stderr = cli("app", "logs", "web", "--tail", "5")
 	if code != 0 || !strings.Contains(out, "| listening on :80") || !strings.Contains(stderr, "| deprecated flag") {
 		t.Errorf("logs: code=%d out=%q err=%q", code, out, stderr)
 	}
@@ -301,17 +308,17 @@ func TestEndToEnd(t *testing.T) {
 	// runtime echoes stdin, writes the command name to stderr, and exits
 	// with the argument count).
 	var execOut, execErr bytes.Buffer
-	code = execute(context.Background(), []string{"exec", "web", "-i", "--config", config, "--", "cat", "a", "b"}, strings.NewReader("ping"), &execOut, &execErr)
+	code = execute(context.Background(), []string{"app", "exec", "web", "-i", "--config", config, "--", "cat", "a", "b"}, strings.NewReader("ping"), &execOut, &execErr)
 	if code != 2 || execOut.String() != "ping" || execErr.String() != "cat" {
 		t.Errorf("exec: code=%d out=%q err=%q", code, execOut.String(), execErr.String())
 	}
-	if code, out, stderr := run(t, "exec", "web", "--config", config, "--", "true"); code != 0 || out != "" || stderr != "true" {
+	if code, out, stderr := run(t, "app", "exec", "web", "--config", config, "--", "true"); code != 0 || out != "" || stderr != "true" {
 		t.Errorf("exec true: code=%d out=%q err=%q", code, out, stderr)
 	}
-	if code, _, stderr := run(t, "exec", "web", "-t", "--config", config, "--", "sh"); code != 1 || !strings.Contains(stderr, "needs a terminal") {
+	if code, _, stderr := run(t, "app", "exec", "web", "-t", "--config", config, "--", "sh"); code != 1 || !strings.Contains(stderr, "needs a terminal") {
 		t.Errorf("exec -t without a terminal: code=%d err=%q", code, stderr)
 	}
-	if code, _, stderr := run(t, "exec", "ghost", "--config", config, "--", "sh"); code != 1 || !strings.Contains(stderr, "not found") {
+	if code, _, stderr := run(t, "app", "exec", "ghost", "--config", config, "--", "sh"); code != 1 || !strings.Contains(stderr, "not found") {
 		t.Errorf("exec in a missing app: code=%d err=%q", code, stderr)
 	}
 
@@ -321,43 +328,43 @@ func TestEndToEnd(t *testing.T) {
 		d.SetUsage(c.Labels[runtime.LabelReplica], runtime.Stats{MemoryBytes: 30 << 20})
 	}
 	waitFor("top measures web", func() bool {
-		code, out, _ := cli("top")
+		code, out, _ := cli("app", "top")
 		return code == 0 && strings.Contains(out, fmt.Sprintf("%d/%d", len(cs), len(cs))) && strings.Contains(out, fmt.Sprintf("%dMi/", 30*len(cs)))
 	})
-	if code, out, stderr := cli("top", "web"); code != 0 || !strings.Contains(out, "REPLICA") || !strings.Contains(out, "0m/100m") || !strings.Contains(out, "30Mi/256Mi") {
+	if code, out, stderr := cli("app", "top", "web"); code != 0 || !strings.Contains(out, "REPLICA") || !strings.Contains(out, "0m/100m") || !strings.Contains(out, "30Mi/256Mi") {
 		t.Errorf("top web: code=%d out=%q err=%q", code, out, stderr)
 	}
-	if code, out, stderr := cli("top", "--nodes"); code != 0 || !strings.Contains(out, "NODE") || !strings.Contains(out, fmt.Sprintf("%dMi ", 30*len(cs))) {
-		t.Errorf("top --nodes: code=%d out=%q err=%q", code, out, stderr)
+	if code, out, stderr := cli("node", "top"); code != 0 || !strings.Contains(out, "NODE") || !strings.Contains(out, fmt.Sprintf("%dMi ", 30*len(cs))) {
+		t.Errorf("node top: code=%d out=%q err=%q", code, out, stderr)
 	}
-	if code, out, _ := cli("top", "-o", "json"); code != 0 || !regexp.MustCompile(`"measured":\s+true`).MatchString(out) {
-		t.Errorf("top -o json: code=%d out=%q", code, out)
+	if code, out, _ := cli("app", "top", "-o", "json"); code != 0 || !regexp.MustCompile(`"measured":\s+true`).MatchString(out) {
+		t.Errorf("app top -o json: code=%d out=%q", code, out)
 	}
-	if code, out, stderr := cli("top", "--projects"); code != 0 || !strings.Contains(out, "PROJECT") || !strings.Contains(out, "default") || !strings.Contains(out, "Requests and egress since") {
-		t.Errorf("top --projects: code=%d out=%q err=%q", code, out, stderr)
+	if code, out, stderr := cli("app", "top", "--projects"); code != 0 || !strings.Contains(out, "PROJECT") || !strings.Contains(out, "default") {
+		t.Errorf("app top --projects: code=%d out=%q err=%q", code, out, stderr)
 	}
-	if code, _, stderr := cli("top", "web", "--projects"); code != 1 || !strings.Contains(stderr, "--projects") {
-		t.Errorf("top web --projects: code=%d err=%q", code, stderr)
+	if code, _, stderr := cli("app", "top", "web", "--projects"); code != 1 || !strings.Contains(stderr, "--projects") {
+		t.Errorf("app top web --projects: code=%d err=%q", code, stderr)
 	}
-	if code, _, stderr := cli("top", "web", "--nodes"); code != 1 || !strings.Contains(stderr, "--nodes") {
-		t.Errorf("top web --nodes: code=%d err=%q", code, stderr)
-	}
-	if code, _, stderr := cli("top", "ghost"); code != 1 || !strings.Contains(stderr, "not found") {
-		t.Errorf("top ghost: code=%d err=%q", code, stderr)
+	if code, _, stderr := cli("app", "top", "ghost"); code != 1 || !strings.Contains(stderr, "not found") {
+		t.Errorf("app top ghost: code=%d err=%q", code, stderr)
 	}
 
 	// Events: what the cluster did, filtered, as text or JSON lines.
-	if code, out, stderr := cli("events", "web"); code != 0 || !strings.Contains(out, "REASON") || !strings.Contains(out, "Scheduled") || strings.Contains(out, " node ") {
-		t.Errorf("events web: code=%d out=%q err=%q", code, out, stderr)
+	if code, out, stderr := cli("app", "events", "web"); code != 0 || !strings.Contains(out, "REASON") || !strings.Contains(out, "Scheduled") || strings.Contains(out, " node ") {
+		t.Errorf("app events web: code=%d out=%q err=%q", code, out, stderr)
 	}
-	if code, out, _ := cli("events", "-o", "json", "--since", "10m"); code != 0 || !strings.Contains(out, `"reason":"Connected"`) {
-		t.Errorf("events -o json: code=%d out=%q", code, out)
+	if code, out, _ := cli("app", "events"); code != 0 || !strings.Contains(out, "Scheduled") || strings.Contains(out, "Connected") {
+		t.Errorf("app events: code=%d out=%q", code, out)
 	}
-	if code, _, stderr := cli("events", "--since", "48h"); code != 1 || !strings.Contains(stderr, "--since") {
-		t.Errorf("events --since 48h: code=%d err=%q", code, stderr)
+	if code, out, _ := cli("cluster", "events", "-o", "json", "--since", "10m"); code != 0 || !strings.Contains(out, `"reason":"Connected"`) {
+		t.Errorf("cluster events -o json: code=%d out=%q", code, out)
 	}
-	if code, out, _ := cli("events", "ghost"); code != 0 || !strings.Contains(out, "No events.") {
-		t.Errorf("events ghost: code=%d out=%q", code, out)
+	if code, _, stderr := cli("cluster", "events", "--since", "48h"); code != 1 || !strings.Contains(stderr, "--since") {
+		t.Errorf("cluster events --since 48h: code=%d err=%q", code, stderr)
+	}
+	if code, out, _ := cli("app", "events", "ghost"); code != 0 || strings.Count(out, "\n") != 1 || !strings.Contains(out, "REASON") {
+		t.Errorf("app events ghost: code=%d out=%q", code, out)
 	}
 
 	// Jobs: deploy, run to completion, inspect, read logs, delete.
@@ -365,8 +372,17 @@ func TestEndToEnd(t *testing.T) {
 	if err := os.WriteFile(jobFile, []byte("kind: job\nname: report\nimage: busybox:1\nschedule: \"0 3 * * *\"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if code, out, stderr := cli("deploy", "-f", jobFile); code != 0 || !strings.Contains(out, "Deployed job report") {
-		t.Fatalf("deploy job: code=%d out=%q err=%q", code, out, stderr)
+	if code, _, stderr := cli("app", "create", "--file", jobFile); code == 0 || !strings.Contains(stderr, "armada job create") {
+		t.Errorf("app create with a job: code=%d err=%q", code, stderr)
+	}
+	if code, out, stderr := cli("job", "create", "--file", jobFile); code != 0 || out != "Created report (revision report--r1).\n" {
+		t.Fatalf("job create: code=%d out=%q err=%q", code, out, stderr)
+	}
+	if code, out, stderr := cli("job", "show", "report", "-o", "yaml"); code != 0 || !strings.Contains(out, "kind: job") || !strings.Contains(out, "schedule: 0 3 * * *") {
+		t.Errorf("job show -o yaml: code=%d out=%q err=%q", code, out, stderr)
+	}
+	if code, out, stderr := cli("job", "update", "report", "--retries", "2"); code != 0 || out != "Updated report (revision report--r2).\n" {
+		t.Errorf("job update: code=%d out=%q err=%q", code, out, stderr)
 	}
 	if code, out, stderr := cli("job", "run", "report"); code != 0 || !strings.Contains(out, "Started run 1 of report") {
 		t.Fatalf("job run: code=%d out=%q err=%q", code, out, stderr)
@@ -380,17 +396,20 @@ func TestEndToEnd(t *testing.T) {
 		return true
 	})
 	waitFor("run succeeded", func() bool {
-		code, out, _ := cli("job", "runs", "report")
+		code, out, _ := cli("job", "run", "list", "report")
 		return code == 0 && strings.Contains(out, "succeeded") && strings.Contains(out, "manual")
 	})
 	if code, out, stderr := cli("job", "ls"); code != 0 || !strings.Contains(out, "0 3 * * *") || !strings.Contains(out, "succeeded") || !strings.Contains(out, "in ") {
 		t.Errorf("job ls: code=%d out=%q err=%q", code, out, stderr)
 	}
-	if code, out, stderr := cli("logs", "report"); code != 0 || !strings.Contains(out, "listening on :80") {
-		t.Errorf("logs of a job: code=%d out=%q err=%q", code, out, stderr)
+	if code, out, stderr := cli("job", "show", "report"); code != 0 || !strings.Contains(out, "succeeded") || !strings.Contains(out, "report--r2") {
+		t.Errorf("job show: code=%d out=%q err=%q", code, out, stderr)
 	}
-	if code, _, stderr := cli("logs", "web", "--run", "1"); code != 1 || !strings.Contains(stderr, "for jobs") {
-		t.Errorf("logs --run on an app: code=%d err=%q", code, stderr)
+	if code, out, stderr := cli("job", "logs", "report"); code != 0 || !strings.Contains(out, "listening on :80") {
+		t.Errorf("job logs: code=%d out=%q err=%q", code, out, stderr)
+	}
+	if code, _, stderr := cli("job", "logs", "web", "--run", "1"); code != 1 || !strings.Contains(stderr, "for jobs") {
+		t.Errorf("job logs --run on an app: code=%d err=%q", code, stderr)
 	}
 	if code, _, stderr := cli("job", "run", "web"); code != 1 || !strings.Contains(stderr, "not a job") {
 		t.Errorf("job run on an app: code=%d err=%q", code, stderr)
@@ -401,8 +420,8 @@ func TestEndToEnd(t *testing.T) {
 	if code, out, stderr := cli("job", "rm", "report"); code != 0 || !strings.Contains(out, "Deleted job report") {
 		t.Errorf("job rm: code=%d out=%q err=%q", code, out, stderr)
 	}
-	if code, _, stderr := cli("job", "runs", "report"); code != 1 || !strings.Contains(stderr, "not found") {
-		t.Errorf("job runs after rm: code=%d err=%q", code, stderr)
+	if code, _, stderr := cli("job", "run", "list", "report"); code != 1 || !strings.Contains(stderr, "not found") {
+		t.Errorf("job run list after rm: code=%d err=%q", code, stderr)
 	}
 
 	// Metrics: credentials that only scrape, written with private modes.
@@ -468,7 +487,7 @@ func TestEndToEnd(t *testing.T) {
 		t.Error("the leader did not restart its term")
 	}
 	waitFor("the API answers after the restart", func() bool {
-		code, _, _ := cli("status", "web")
+		code, _, _ := cli("app", "show", "web")
 		return code == 0
 	})
 	waitFor("haproxy routes web", func() bool {
@@ -487,21 +506,29 @@ func TestEndToEnd(t *testing.T) {
 		t.Errorf("HAProxy system container not started: %+v", sys)
 	}
 	waitFor("status shows URL", func() bool {
-		_, out, _ := cli("status", "web")
+		_, out, _ := cli("app", "show", "web")
 		return strings.Contains(out, "https://web.apps.example.org/")
 	})
-	if code, out, _ := cli("domain", "list"); code != 0 || !strings.Contains(out, "No custom domains") {
+	if code, out, _ := cli("domain", "list"); code != 0 || out != "DOMAIN  APPS  VERIFIED  TLS\n" {
 		t.Errorf("domain list = %q", out)
 	}
 	if err := os.WriteFile(spec, []byte("name: web\nimage: nginx:1.27\ningress:\n  type: external\n  port: 80\n  domains: [example.org]\nscale:\n  min: 3\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if code, _, stderr := cli("deploy", "-f", spec); code != 0 {
-		t.Fatalf("deploy with domain: %s", stderr)
+	// --diff shows the new domain (and the replica count the file sets
+	// again) and changes nothing.
+	if code, out, _ := cli("app", "update", "web", "--file", spec, "--diff"); code != 0 || !regexp.MustCompile(`(?m)^\+ .*example\.org$`).MatchString(out) {
+		t.Errorf("app update --diff = %q", out)
 	}
-	code, out, _ = cli("domain", "list", "--app", "web")
-	if code != 0 || !strings.Contains(out, "example.org") || !strings.Contains(out, "TXT  _armada-verify.example.org") {
-		t.Errorf("domain list = %q", out)
+	if _, out, _ := cli("app", "show", "web"); !regexp.MustCompile(`Revision:\s+web--r1`).MatchString(out) {
+		t.Errorf("--diff changed the app: %q", out)
+	}
+	if code, out, stderr := cli("app", "update", "web", "--file", spec); code != 0 || out != "Updated web (revision web--r2).\n" {
+		t.Fatalf("app update with domain: %q %s", out, stderr)
+	}
+	code, out, stderr = cli("domain", "list", "--app", "web")
+	if code != 0 || !strings.Contains(out, "example.org") || !strings.Contains(stderr, "TXT  _armada-verify.example.org") {
+		t.Errorf("domain list = %q %q", out, stderr)
 	}
 	if code, _, stderr := cli("domain", "verify", "ghost.id"); code == 0 || !strings.Contains(stderr, "not found") {
 		t.Errorf("domain verify ghost: %q", stderr)
@@ -511,44 +538,86 @@ func TestEndToEnd(t *testing.T) {
 	}
 
 	// Rolling update: the domain deploy above is revision 2; wait for it.
-	code, out, stderr = cli("deploy", "-f", spec, "--wait", "--timeout", "1m")
-	if code != 0 || !strings.Contains(out, "web--r2 is live (3/3 ready)") {
-		t.Fatalf("deploy --wait: code=%d out=%q err=%q", code, out, stderr)
+	code, out, stderr = cli("app", "update", "web", "--file", spec, "--wait", "--timeout", "1m")
+	if code != 0 || !strings.Contains(out, "web is unchanged (revision web--r2).") || !strings.Contains(out, "web--r2 is live (3/3 ready)") {
+		t.Fatalf("app update --wait: code=%d out=%q err=%q", code, out, stderr)
 	}
-	code, out, _ = cli("revisions", "web")
+	code, out, _ = cli("app", "revision", "list", "web")
 	if code != 0 || !regexp.MustCompile(`web--r2\s+active\s`).MatchString(out) || !strings.Contains(out, "web--r1") {
-		t.Errorf("revisions = %q", out)
+		t.Errorf("revision list = %q", out)
 	}
-	code, out, stderr = cli("rollback", "web", "--wait", "--timeout", "1m")
-	if code != 0 || !strings.Contains(out, "Rolling web back to web--r1") || !strings.Contains(out, "web--r1 is live (3/3 ready)") {
+	if code, out, _ := cli("app", "revision", "show", "web--r1"); code != 0 || !regexp.MustCompile(`Image:\s+nginx:1.27`).MatchString(out) {
+		t.Errorf("revision show = %q", out)
+	}
+	code, out, stderr = cli("app", "rollback", "web", "--wait", "--timeout", "1m")
+	if code != 0 || !strings.Contains(out, "Rolling web back to web--r1.") || !strings.Contains(out, "web--r1 is live (3/3 ready)") {
 		t.Fatalf("rollback --wait: code=%d out=%q err=%q", code, out, stderr)
 	}
-	if _, out, _ := cli("status", "web"); !regexp.MustCompile(`web\s+web--r1\s+3/3`).MatchString(out) {
-		t.Errorf("status after rollback = %q", out)
+	if _, out, _ := cli("app", "show", "web"); !regexp.MustCompile(`Revision:\s+web--r1`).MatchString(out) || !strings.Contains(out, "3/3") {
+		t.Errorf("app show after rollback = %q", out)
 	}
-	if code, _, stderr := cli("rollback", "web", "web--r99"); code == 0 || !strings.Contains(stderr, "not found") {
+	if code, _, stderr := cli("app", "rollback", "web", "--to", "web--r99"); code == 0 || !strings.Contains(stderr, "not found") {
 		t.Errorf("rollback to unknown revision: %q", stderr)
 	}
 
 	testSecrets(t, d, cli, config, dataDir, secretsDir, serverLog)
 	testEnvFrom(t, d, cli, config)
+	testExport(t, cli)
 
 	// Errors from the server come back without gRPC noise.
-	code, _, stderr = cli("scale", "ghost", "2")
+	code, _, stderr = cli("app", "scale", "ghost", "--replicas", "2")
 	if code == 0 || !strings.Contains(stderr, "app ghost: not found") || strings.Contains(stderr, "rpc error") {
 		t.Errorf("scale ghost: code=%d stderr=%q", code, stderr)
 	}
-	code, _, stderr = cli("deploy", "-f", "-")
+	code, _, stderr = cli("app", "create", "--file", "-")
 	if code == 0 || !strings.Contains(stderr, "empty") {
-		t.Errorf("deploy empty stdin: code=%d stderr=%q", code, stderr)
+		t.Errorf("app create from empty stdin: code=%d stderr=%q", code, stderr)
 	}
-	for _, args := range [][]string{{"scale", "web", "zero"}, {"scale", "web", "0"}, {"status", "-o", "yaml"}, {"deploy"}} {
+	for _, args := range [][]string{{"app", "scale", "web", "--replicas", "zero"}, {"app", "scale", "web", "--replicas", "0"}, {"app", "list", "-o", "yaml"},
+		{"app", "create"}, {"app", "update", "web"}, {"app", "create", "x", "--image", "nginx:1", "--file", spec}} {
 		if code, _, _ := cli(args...); code == 0 {
 			t.Errorf("%v accepted", args)
 		}
 	}
 
 	testProjects(t, d, cli, waitFor)
+}
+
+// testExport copies an app through its exported spec (ADR 0032): show -o
+// yaml prints a file that create --file takes, and the copy runs the same
+// spec.
+func testExport(t *testing.T, cli func(...string) (int, string, string)) {
+	t.Helper()
+	if code, _, stderr := cli("app", "create", "hello", "--image", "traefik/whoami:v1.10", "--port", "80", "--ingress", "internal",
+		"--replicas", "2", "--env", "GREETING=hi", "--health-path", "/health"); code != 0 {
+		t.Fatalf("app create from flags: %s", stderr)
+	}
+	if code, _, stderr := cli("app", "update", "hello", "--replicas", "1"); code != 0 {
+		t.Fatalf("app update: %s", stderr)
+	}
+	code, exported, stderr := cli("app", "show", "hello", "-o", "yaml")
+	if code != 0 || !strings.Contains(exported, "name: hello\n") || !strings.Contains(exported, "GREETING") || !strings.Contains(exported, "path: /health") {
+		t.Fatalf("app show -o yaml: %d %q %q", code, exported, stderr)
+	}
+	file := filepath.Join(t.TempDir(), "copy.yaml")
+	if err := os.WriteFile(file, []byte(strings.Replace(exported, "name: hello\n", "name: hello-copy\n", 1)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code, out, stderr := cli("app", "create", "--file", file); code != 0 || out != "Created hello-copy (revision hello-copy--r1).\n" {
+		t.Fatalf("app create from the export: %d %q %q", code, out, stderr)
+	}
+	_, copied, _ := cli("app", "show", "hello-copy", "-o", "yaml")
+	if strings.Replace(copied, "name: hello-copy\n", "name: hello\n", 1) != exported {
+		t.Errorf("the copy runs another spec:\n%s\nwant\n%s", copied, exported)
+	}
+	if code, out, _ := cli("app", "update", "hello-copy", "--file", file, "--diff"); code != 0 || out != "No changes.\n" {
+		t.Errorf("diff against the export = %q", out)
+	}
+	for _, app := range []string{"hello", "hello-copy"} {
+		if code, _, stderr := cli("app", "delete", app, "--yes"); code != 0 {
+			t.Errorf("app delete %s: %s", app, stderr)
+		}
+	}
 }
 
 // testProjects runs an app of the same name in another project (ADR 0026).
@@ -558,51 +627,58 @@ func testProjects(t *testing.T, d *fake.Driver, cli func(...string) (int, string
 	if err := os.WriteFile(spec, []byte("name: web\nimage: nginx:1.28\ningress:\n  type: internal\n  port: 80\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if code, _, stderr := cli("deploy", "-f", spec, "--project", "staging"); code == 0 || !strings.Contains(stderr, "project staging does not exist") {
-		t.Fatalf("deploy into a missing project: code=%d err=%q", code, stderr)
+	if code, _, stderr := cli("app", "create", "--file", spec, "--project", "staging"); code == 0 || !strings.Contains(stderr, "project staging does not exist") {
+		t.Fatalf("create in a missing project: code=%d err=%q", code, stderr)
 	}
-	if code, out, stderr := cli("project", "create", "staging"); code != 0 || !strings.Contains(out, "Project staging created") {
+	if code, _, stderr := cli("project", "use", "staging"); code == 0 || !strings.Contains(stderr, "project staging not found") {
+		t.Errorf("project use of a missing project: code=%d err=%q", code, stderr)
+	}
+	if code, out, stderr := cli("project", "create", "staging"); code != 0 || out != "Created project staging.\n" {
 		t.Fatalf("project create: code=%d out=%q err=%q", code, out, stderr)
 	}
 	if code, _, stderr := cli("project", "create", "staging"); code == 0 || !strings.Contains(stderr, "already exists") {
 		t.Errorf("project create twice: %q", stderr)
 	}
-	code, out, stderr := cli("deploy", "-f", spec, "--project", "staging")
-	if code != 0 || !strings.Contains(out, "Deployed web.staging (revision web.staging--r1)") {
-		t.Fatalf("deploy into staging: code=%d out=%q err=%q", code, out, stderr)
+	code, out, stderr := cli("app", "create", "--file", spec, "--project", "staging")
+	if code != 0 || out != "Created web.staging (revision web.staging--r1).\n" {
+		t.Fatalf("create in staging: code=%d out=%q err=%q", code, out, stderr)
 	}
 	waitFor("web.staging ready", func() bool {
-		_, out, _ := cli("status", "web", "--project", "staging")
-		return regexp.MustCompile(`web\.staging\s+web\.staging--r1\s+1/1`).MatchString(out)
+		_, out, _ := cli("app", "show", "web", "--project", "staging")
+		return regexp.MustCompile(`Revision:\s+web\.staging--r1\n`).MatchString(out) && strings.Contains(out, "1/1")
 	})
 	// The default project's web is untouched, and listings follow --project.
-	_, out, _ = cli("status", "--project", "staging")
-	if strings.Contains(out, "web--r1") || !strings.Contains(out, "web.staging-r1-") {
-		t.Errorf("status --project staging = %q", out)
+	_, out, _ = cli("app", "list", "--project", "staging")
+	if !regexp.MustCompile(`\nweb\s+1/1\s+ready\s+web\.staging--r1\s`).MatchString(out) || strings.Contains(out, "web--r1") {
+		t.Errorf("app list --project staging = %q", out)
 	}
-	_, out, _ = cli("status", "--project", "default")
-	if strings.Contains(out, "web.staging") || !regexp.MustCompile(`web\s+web--r1\s+3/3`).MatchString(out) {
-		t.Errorf("status --project default = %q", out)
+	_, out, _ = cli("app", "list", "--project", "default")
+	if strings.Contains(out, "web.staging") || !regexp.MustCompile(`\nweb\s+3/3\s+ready\s+web--r1\s`).MatchString(out) {
+		t.Errorf("app list --project default = %q", out)
 	}
-	if code, _, stderr := cli("scale", "web.staging", "2"); code != 0 {
+	_, out, _ = cli("app", "list", "-A")
+	if !regexp.MustCompile(`\ndefault\s+web\s+3/3`).MatchString(out) || !regexp.MustCompile(`\nstaging\s+web\s+1/1`).MatchString(out) {
+		t.Errorf("app list -A = %q", out)
+	}
+	if code, _, stderr := cli("app", "scale", "web.staging", "--replicas", "2"); code != 0 {
 		t.Fatalf("scale by ID: %s", stderr)
 	}
 	waitFor("web.staging 2/2", func() bool {
-		_, out, _ := cli("status", "web.staging")
+		_, out, _ := cli("app", "show", "web.staging")
 		return strings.Contains(out, "2/2")
 	})
 	_, out, _ = cli("project", "list")
 	if !regexp.MustCompile(`default\s+[1-9]\s`).MatchString(out) || !regexp.MustCompile(`staging\s+1\s+isolated\s`).MatchString(out) {
 		t.Errorf("project list = %q", out)
 	}
-	if code, _, stderr := cli("project", "remove", "staging"); code == 0 || !strings.Contains(stderr, "apps (web.staging)") {
-		t.Errorf("remove a project with apps: %q", stderr)
+	if code, _, stderr := cli("project", "delete", "staging"); code == 0 || !strings.Contains(stderr, "apps (web.staging)") {
+		t.Errorf("delete a project with apps: %q", stderr)
 	}
 	for _, args := range [][]string{
-		{"status", "web.staging", "--project", "prod"},
-		{"status", "web.default"},
-		{"status", "web", "--project", "Bad"},
-		{"project", "remove", "default"},
+		{"app", "show", "web.staging", "--project", "prod"},
+		{"app", "show", "web.default"},
+		{"app", "show", "web", "--project", "Bad"},
+		{"project", "delete", "default"},
 		{"project", "create", "a.b"},
 	} {
 		if code, _, _ := cli(args...); code == 0 {
@@ -611,8 +687,14 @@ func testProjects(t *testing.T, d *fake.Driver, cli func(...string) (int, string
 	}
 
 	// A tool with an automation identity manages staging and nothing else.
-	if code, out, stderr := cli("automation", "set", "portal", "--project", "staging", "--create-projects"); code != 0 || !strings.Contains(out, "manages projects staging and the projects it creates") {
-		t.Fatalf("automation set: code=%d out=%q err=%q", code, out, stderr)
+	if code, out, stderr := cli("automation", "create", "portal", "--project", "staging", "--create-projects"); code != 0 || !strings.Contains(out, "manages projects staging and the projects it creates") {
+		t.Fatalf("automation create: code=%d out=%q err=%q", code, out, stderr)
+	}
+	if code, _, stderr := cli("automation", "create", "portal", "--project", "staging"); code == 0 || !strings.Contains(stderr, "exists") {
+		t.Errorf("automation create twice: code=%d err=%q", code, stderr)
+	}
+	if code, _, stderr := cli("automation", "set", "portal", "--project", "staging", "--create-projects"); code != 0 {
+		t.Errorf("automation set: %s", stderr)
 	}
 	toolConfig := filepath.Join(t.TempDir(), "portal.json")
 	if code, out, stderr := cli("automation", "credentials", "portal", "-o", toolConfig); code != 0 || !strings.Contains(out, "Wrote "+toolConfig) {
@@ -627,21 +709,23 @@ func testProjects(t *testing.T, d *fake.Driver, cli func(...string) (int, string
 	tool := func(args ...string) (int, string, string) {
 		return run(t, append(args, "--config", toolConfig)...)
 	}
-	if code, _, stderr := tool("scale", "web", "1", "--project", "staging"); code != 0 {
+	if code, _, stderr := tool("app", "scale", "web", "--replicas", "1", "--project", "staging"); code != 0 {
 		t.Errorf("tool scales its app: %s", stderr)
 	}
-	_, out, _ = tool("status")
-	if !strings.Contains(out, "web.staging") || regexp.MustCompile(`(?m)^web\s`).MatchString(out) || strings.Contains(out, "PRIVATE IP") {
-		t.Errorf("tool status shows more than its projects: %q", out)
+	_, out, _ = tool("app", "list", "-A")
+	if !regexp.MustCompile(`\nstaging\s+web\s`).MatchString(out) || strings.Contains(out, "default") {
+		t.Errorf("tool app list shows more than its projects: %q", out)
 	}
 	for _, args := range [][]string{
-		{"scale", "web", "2"},                                 // the default project
-		{"node", "cordon", "node-1"},                          // the cluster
-		{"token", "create"},                                   // joining nodes
+		{"app", "scale", "web", "--replicas", "2"}, // the default project
+		{"app", "list"},             // the default project
+		{"node", "drain", "node-1"}, // the cluster
+		{"node", "join-token"},      // joining nodes
+		{"cluster", "status"},       // the cluster
 		{"automation", "set", "portal", "--project", "other"}, // its own scope
-		{"logs", "web"},
+		{"app", "logs", "web"},
 	} {
-		if code, _, stderr := tool(args...); code == 0 || !strings.Contains(stderr, "may not") {
+		if code, _, stderr := tool(args...); code == 0 || !strings.Contains(stderr, "may not") && !strings.Contains(stderr, "for administrators") {
 			t.Errorf("tool %v: code=%d err=%q", args, code, stderr)
 		}
 	}
@@ -654,16 +738,16 @@ func testProjects(t *testing.T, d *fake.Driver, cli func(...string) (int, string
 	if code, out, stderr := tool("automation", "renew"); code != 0 || !strings.Contains(out, "Renewed automation:portal") {
 		t.Errorf("renew: code=%d out=%q err=%q", code, out, stderr)
 	}
-	if code, _, stderr := tool("status", "web", "--project", "staging"); code != 0 {
-		t.Errorf("status with the renewed certificate: %s", stderr)
+	if code, _, stderr := tool("app", "show", "web", "--project", "staging"); code != 0 {
+		t.Errorf("app show with the renewed certificate: %s", stderr)
 	}
 	if _, out, _ := cli("automation", "list"); !regexp.MustCompile(`portal\s+preview-1,staging\s+true`).MatchString(out) {
 		t.Errorf("automation list = %q", out)
 	}
-	if code, _, _ := cli("automation", "remove", "portal"); code != 0 {
-		t.Fatal("automation remove failed")
+	if code, _, _ := cli("automation", "delete", "portal"); code != 0 {
+		t.Fatal("automation delete failed")
 	}
-	if code, _, stderr := tool("status"); code == 0 || !strings.Contains(stderr, "revoked") {
+	if code, _, stderr := tool("app", "list", "-A"); code == 0 || !strings.Contains(stderr, "revoked") {
 		t.Errorf("tool after removal: code=%d err=%q", code, stderr)
 	}
 }
@@ -735,7 +819,8 @@ func TestCommandsWithoutConfig(t *testing.T) {
 	t.Parallel()
 
 	missing := filepath.Join(t.TempDir(), "nope")
-	for _, args := range [][]string{{"status"}, {"scale", "a", "1"}, {"logs", "a"}, {"exec", "a", "--", "sh"}, {"top"}, {"events"}, {"job", "ls"}, {"metrics", "credentials", "p", "-o", filepath.Join(t.TempDir(), "m")}} {
+	for _, args := range [][]string{{"cluster", "status"}, {"app", "list"}, {"app", "scale", "a", "--replicas", "1"}, {"app", "logs", "a"}, {"app", "exec", "a", "--", "sh"},
+		{"app", "top"}, {"cluster", "events"}, {"job", "ls"}, {"app", "create", "a", "--image", "nginx:1"}, {"metrics", "credentials", "p", "-o", filepath.Join(t.TempDir(), "m")}} {
 		code, _, stderr := run(t, append(args, "--config", missing)...)
 		if code == 0 || !strings.Contains(stderr, "armadad init") {
 			t.Errorf("%v: code=%d stderr=%q", args, code, stderr)

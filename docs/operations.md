@@ -13,7 +13,7 @@ you there). Each section stands on its own:
 - **Network and traffic:** [container network](#container-network),
   [how requests reach replicas](#how-requests-reach-replicas),
   [behind a proxy or CDN](#behind-a-proxy-or-cdn)
-- **Apps:** [removing an app](#removing-an-app), [exec](#running-commands-in-replicas),
+- **Apps:** [deleting an app](#deleting-an-app), [exec](#running-commands-in-replicas),
   [autoscaling](#autoscaling), [traffic splitting](#traffic-splitting),
   [jobs](#jobs), [volumes](#volumes)
 - **Watching it:** [resource usage](#resource-usage), [events](#events),
@@ -93,14 +93,14 @@ On a machine with Armada installed (steps 1–2 of the
 [quickstart](quickstart.md)), in the same private network:
 
 ```bash
-armada token create --server           # anywhere with the admin config
+armada server join-token               # anywhere with the admin config
 sudo armadad server join 10.0.0.2:7444 --ca-hash sha256:...   # on the new machine; paste the token
 sudo systemctl enable --now armada-server
 armada server list                     # waits for "voting"; updates ~/.armada/config
 ```
 
-On a machine without Armada, run the install line `armada token create
---server` prints first. Nothing else to copy: the new server uses the
+On a machine without Armada, run the install line `armada server
+join-token` prints first. Nothing else to copy: the new server uses the
 cluster's settings (see [cluster settings](#cluster-settings)).
 
 The new server receives the cluster CA key and the secrets master key over
@@ -120,8 +120,8 @@ admin machine after adding or removing servers.
 
 ```bash
 sudo systemctl disable --now armada-server   # on the server being removed
-armada server remove NAME                     # once another server leads
-armada node remove NAME                       # its agent, if you no longer want it as a node
+armada server delete NAME                     # once another server leads
+armada node delete NAME                       # its agent, if you no longer want it as a node
 ```
 
 The leader cannot remove itself: stop it first, and run the command once
@@ -234,11 +234,11 @@ is not supported in v0.1.
    that is not empty.
 
 4. Start the server: `sudo systemctl enable --now armada-server`.
-5. Check: `armada node list` and `armada status`. Agents reconnect on their
+5. Check: `armada node list` and `armada cluster status`. Agents reconnect on their
    own within seconds.
 6. With several servers before: the restored server forms a cluster of one.
-   `armada server list` shows the others as `not a member`; remove them with
-   `armada server remove`, wipe their data directories, and join them again
+   `armada server list` shows the others as `not a member`; delete them with
+   `armada server delete`, wipe their data directories, and join them again
    as new servers.
 
 Everything that changed after the backup is gone:
@@ -269,7 +269,7 @@ set). Only these ask GitHub; servers and agents never do.
 
    ```bash
    sudo armadad upgrade                      # or --version v0.2.0
-   armada server list && armada status
+   armada server list && armada cluster status
    ```
 
    `armadad upgrade` downloads the release, checks its checksum (and its
@@ -285,8 +285,8 @@ set). Only these ask GitHub; servers and agents never do.
    keep leading until the last one is upgraded; then an upgraded server
    leads and migrates the state (ADR 0012). Until then `armada server list`
    names the servers it waits for. A server that is gone for good but
-   still listed blocks the migration: remove it with `armada server
-   remove`. An older binary refuses state written by a newer one instead
+   still listed blocks the migration: delete it with `armada server
+   delete`. An older binary refuses state written by a newer one instead
    of misreading it, so the backup from step 1 is your way back.
 
    While a server restarts, apps keep serving: every node's HAProxy and
@@ -356,13 +356,13 @@ alone. Never share one file between people, and use [automation
 identities](#automation-identities) for tools.
 
 ```bash
-armada admin add alice -o alice.config     # hand it over privately; it holds her key
-armada admin ls                            # names on record, who added them, you
-armada admin rm alice --yes                # refuse every certificate of alice at once
+armada admin create alice -o alice.config  # hand it over privately; it holds her key
+armada admin list                          # names on record, who added them, you
+armada admin delete alice --yes            # refuse every certificate of alice at once
 ```
 
 Alice installs the client, keeps the file as `~/.armada/config` (mode
-`0600`), and runs `armada status` from a computer that reaches a control
+`0600`), and runs `armada cluster status` from a computer that reaches a control
 plane server's private address on port 7443, directly, through a VPN, or
 through an SSH tunnel (see the
 [quickstart](quickstart.md#9-use-armada-from-your-own-computer)). Adding a name again
@@ -382,20 +382,24 @@ need to be unique within one (ADR 0026). Every cluster has the project
 
 ```bash
 armada project create staging
-armada deploy -f web.yaml --project staging
-armada status --project staging          # only the project's apps
-armada secret set web db-password --project staging < password.txt
-armada secret import web .env --project staging   # many at once: DATABASE_URL becomes database-url
+armada project use staging               # commands now work in staging
+armada app create --file web.yaml
+armada app list                          # only the project's apps; -A for every project
+armada secret set web db-password < password.txt
+armada secret import web .env            # many at once: DATABASE_URL becomes database-url
+armada app list --project default        # --project names another project for one command
 armada project list
-armada project remove staging            # only once it is empty
+armada project use default
+armada project delete staging            # only once it is empty
 ```
 
-Every command that names an app or a job takes `--project` (or
-`ARMADA_PROJECT`), or the app's ID, `NAME.PROJECT`: `armada scale
-web.staging 3`. Status, events, and metrics show apps of other projects by
-that ID, and so do their revisions (`web.staging--r1`) and replicas.
-Without `--project`, names are in `default` and listings show every
-project. Internal apps of a project are reached at
+A command works in the project `armada project use` saved in the client
+config, else in `default`; `--project` (or `ARMADA_PROJECT`) names
+another for one command, and an app's ID, `NAME.PROJECT`, names an app of
+any project: `armada app scale web.staging --replicas 3`. Events and
+metrics show apps of other projects by that ID, and so do their revisions
+(`web.staging--r1`) and replicas. Lists show the project's items, and
+every project's with `-A` (`--all-projects`). Internal apps of a project are reached at
 `NAME.PROJECT.internal`, and external apps without domains at
 `NAME.PROJECT.<root domain>`, with a certificate of their own (a wildcard
 certificate covers only one level).
@@ -438,12 +442,12 @@ until they end. Clusters without the cluster network are not filtered.
 Containers of every project share each node's kernel, so projects separate
 apps you operate together; they do not contain code someone hostile wrote.
 For that, use a separate cluster or restricted nodes. Projects also share the
-cluster's capacity: `scale.max` bounds what an app can take, and `armada top
---projects` shows what each project uses.
+cluster's capacity: `scale.max` bounds what an app can take, and `armada app
+top --projects` shows what each project uses.
 
 Container output is limited on every node: each container may write 1 MiB
 per second (4 MiB at once) to its log, kept in 3 files of 10 MB; `armada
-logs` shows a line such as `[armada: dropped 52428800 bytes of output over
+app logs` shows a line such as `[armada: dropped 52428800 bytes of output over
 the log rate limit ...]` where output was dropped.
 
 ### Automation identities
@@ -456,18 +460,19 @@ backups, the network, or the default project. It sees only its projects in
 listings, and no nodes.
 
 ```bash
-armada automation set portal --create-projects --project staging --label tier=shared
+armada automation create portal --create-projects --project staging --label tier=shared
 armada automation credentials portal -o portal.json   # 0600; keep it with the tool
-armada --config portal.json deploy -f web.yaml --project staging
+armada --config portal.json app update web --file web.yaml --create-if-missing --project staging
 armada --config portal.json automation renew          # before the 90 days run out
 armada automation list
-armada automation remove portal                       # its certificates stop working at once
+armada automation delete portal                       # its certificates stop working at once
 ```
 
 `--create-projects` lets the tool create projects, which join its scope,
-and remove the ones it manages. `--label KEY=VALUE` is a node label its
+and delete the ones it manages. `--label KEY=VALUE` is a node label its
 apps may require, for nodes you keep for some projects (restricted
-nodes). `set` replaces the scope and keeps the certificates. The tool
+nodes). `armada automation set` replaces the scope and keeps the
+certificates. The tool
 reaches the API on the private network like the CLI.
 
 A domain serves one project: an app cannot use a domain that an app of
@@ -482,9 +487,9 @@ Nodes carry labels that apps choose them by
 ```bash
 armada node label raspi-mks region=sulawesi kind=raspi   # set
 armada node label raspi-mks kind-                         # remove
-armada token create --label region=sulawesi              # nodes joining with it get the label
+armada node join-token --label region=sulawesi           # nodes joining with it get the label
 armada node restrict gpu-1                               # only apps that ask for its labels
-armada node open gpu-1
+armada node unrestrict gpu-1
 armada node list                                         # LABELS column, "restricted" in STATE
 ```
 
@@ -510,16 +515,16 @@ each site. Nodes without the label get none of its replicas, so label
 every node.
 
 Changing a node's labels or restricting it moves the replicas it may no
-longer run, the same way a cordon does: a replacement starts on an allowed
+longer run, the same way a drain does: a replacement starts on an allowed
 node first, then the old replica is drained. When no allowed node has room,
-the replica stays where it is until one does, and `armada status` says so.
+the replica stays where it is until one does, and `armada app show` says so.
 
 Every replica reserves its `resources.cpu` (100m when unset) and
 `resources.memory` on its node, and nodes are never overcommitted; see the
 [spec reference](spec-reference.md#resources). Armada keeps 100m of CPU
 and 128Mi of memory on each node for itself, and another 100m on control
 plane servers. Replicas that no longer fit after an upgrade keep running;
-only new ones need room. If a rollout waits for a node, `armada status`
+only new ones need room. If a rollout waits for a node, `armada app show`
 names what is short: scale another app down, lower its reservation, or add
 a node.
 
@@ -531,8 +536,8 @@ must still work.
 
 Clusters may mix architectures (amd64 and arm64, say): each app stays on
 the nodes its image has a variant for, as reported by the first node that
-pulls it (`armada revisions APP` shows the platforms). If no node can run
-an image, `armada status` names the platforms it is built for.
+pulls it (`armada app revision list APP` shows the platforms). If no node
+can run an image, `armada app show` names the platforms it is built for.
 
 Nodes may be far apart: agents cope with latency. Keep the **control plane
 servers** close to each other (the same city or region), since every change
@@ -544,20 +549,20 @@ needs a round trip between them.
 start `armadad agent` there. A second agent on a node refuses to start and says
 why: two would take turns replacing each other's connection to the control
 plane and fail each other's replicas.
-## Removing an app
+## Deleting an app
 
 ```sh
-armada app rm web --yes
+armada app delete web --yes
 ```
 
 The app stops taking new requests at once, its replicas drain like those of any
 rollout, and then the app is gone with its revisions and secrets. This cannot be
-undone; `armada status` shows the app as being removed until then, and deploying
+undone; `armada app list` shows the app as being removed until then, and creating
 the same name waits until it is gone.
 
-Its volumes and their data stay. Remove them with `armada volume rm` or deploy
-the same name again to use them. A project can be removed once it holds no apps
-and no volumes.
+Its volumes and their data stay. Delete them with `armada volume delete`, or
+create the same name again to use them. A project can be deleted once it holds no
+apps and no volumes.
 
 ## Container network
 
@@ -572,7 +577,7 @@ must not contain the nodes' private IPs or overlap routes on them
 
 A node takes at most 250 replicas, whatever CPU and memory it has left: a /24
 has no more addresses to give. With every node at that limit, new replicas wait and
-`armada status` says so. Add a node to make room.
+`armada app show` says so. Add a node to make room.
 
 Container addresses are unique in the cluster, and the bridge's gateway
 (where `<app>.internal` and the node's DNS answer) differs per node. Every
@@ -613,7 +618,7 @@ whether `armada-net` is up and routes every other node, and in the
 reset` on a removed node takes the interface and its firewall rules off.
 
 Replicas publish no port: the agent reports each at its own address and
-the app's port (`armada status` shows `10.120.x.y:PORT`), and every node's
+the app's port (`armada app show` shows `10.120.x.y:PORT`), and every node's
 HAProxy reaches it there, through the tunnel for other nodes' replicas.
 Other machines on the private network cannot reach containers at all, not
 even by routing a node's subnet through its private IP. Replicas started
@@ -668,14 +673,14 @@ another one can pass its client's address on.
 
 ## Running commands in replicas
 
-`armada exec` runs a command in one replica of an app and exits with the
+`armada app exec` runs a command in one replica of an app and exits with the
 command's exit code ([ADR 0015](adr/0015-exec.md)):
 
 ```bash
-armada exec web -it -- sh                     # interactive shell
-armada exec web -- cat /etc/resolv.conf       # one command, stdout and stderr kept apart
-armada exec web -i -- sh -c 'cat > /tmp/x' < x # pass standard input
-armada exec web --replica web-r1-5muie -- env # a specific replica (armada status lists them)
+armada app exec web -it -- sh                     # interactive shell
+armada app exec web -- cat /etc/resolv.conf       # one command, stdout and stderr kept apart
+armada app exec web -i -- sh -c 'cat > /tmp/x' < x # pass standard input
+armada app exec web --replica web-r1-5muie -- env # a specific replica (armada app show lists them)
 ```
 
 - Without `--replica`, Armada picks a running, ready replica of the
@@ -694,15 +699,15 @@ armada exec web --replica web-r1-5muie -- env # a specific replica (armada statu
 
 ## Resource usage
 
-`armada top` shows what replicas use, from samples every agent takes every
-10 seconds ([ADR 0016](adr/0016-top.md)):
+`armada app top` and `armada node top` show what replicas use, from samples
+every agent takes every 10 seconds ([ADR 0016](adr/0016-top.md)):
 
 ```bash
-armada top            # per app
-armada top web        # per replica of web
-armada top --nodes    # per node
-armada top --projects # per project
-armada top -o json    # everything, with the time of each sample
+armada app top              # per app of the project (-A: every project)
+armada app top web          # per replica of web
+armada node top             # per node
+armada app top --projects   # per project, with requests and egress
+armada app top web -o json  # with the time of each sample
 ```
 
 ```
@@ -719,14 +724,14 @@ web-r1-q2k0d     node2  running  41m/250m   58Mi/256Mi
   reclaim, the figure that counts toward the limit. A replica that stays
   close to its limit is killed and restarted when it goes over; raise
   `resources.memory`.
-- `--nodes` shows what each node's replicas use and reserve, and what the
-  node can give replicas after what Armada keeps for itself.
+- `armada node top` shows what each node's replicas use and reserve, and
+  what the node can give replicas after what Armada keeps for itself.
 - `--projects` adds up each project's replicas and volumes, and counts the
   requests the proxies sent to its replicas and the bytes its containers
   sent over their network, replies and traffic to other replicas included.
   An automation identity sees only its own projects.
-- Requests and egress count from when the control plane's leader started, the
-  time the listing prints, and start over when the leader changes. They are
+- Requests and egress count from when the control plane's leader started
+  (`countedSince` in `-o json`), and start over when the leader changes. They are
   sums of samples: what a container sends in its first and last 10 seconds
   can be missed, and so can what the last sample before a lost connection
   or a crashed proxy did not cover. For history, scrape the
@@ -743,15 +748,21 @@ An app with `scale.rules` scales itself between `scale.min` and
 [spec reference](spec-reference.md#autoscaling)).
 
 ```
-$ armada status web
-APP  REVISION  READY  INGRESS   IMAGE
-web  web--r4   4/4    external  ghcr.io/acme/web:1.4
-
-web: autoscale 2-10, http 41/50, cpu 38%/70%: steady: http 41 of 50 per replica, cpu 38 of 70%
+$ armada app show web
+Name:       web
+Revision:   web--r4
+Image:      ghcr.io/acme/web:1.4
+Ready:      4/4
+Ingress:    external
+Autoscale:  autoscale 2-10, http 41/50, cpu 38%/70%: steady: http 41 of 50 per replica, cpu 38 of 70%
+...
 ```
 
+`armada app update web --min 2 --max 10 --scale-http 50` sets bounds and one
+rule from the command line; more rules go in the spec file.
+
 - **Rules with no data.** A rule shows `-` while it has no data. CPU and
-  memory need the runtime to sample containers (`armada top`). `http` needs
+  memory need the runtime to sample containers (`armada app top`). `http` needs
   a proxy on at least one node.
 - **Events.** Scaling is recorded as `ScaledUp` or `ScaledDown` events, and
   audited as `armada:autoscaler`.
@@ -761,8 +772,8 @@ web: autoscale 2-10, http 41/50, cpu 38%/70%: steady: http 41 of 50 per replica,
 - **Leader changes.** After the leader changes, the app does not scale
   down for 5 minutes.
 - **Scale to zero.** Apps with `scale.min: 0` show `0/0` and
-  `scaled to zero; the next request wakes it` while asleep. `armada events`
-  shows `ScaledToZero`, and `Woken` with the node whose proxy took the
+  `scaled to zero; the next request wakes it` while asleep. `armada app
+  events` shows `ScaledToZero`, and `Woken` with the node whose proxy took the
   request. The first request after a quiet period waits for a whole cold
   start, so keep `min: 1` for apps where that delay matters.
 - **No ready replicas.** The autoscaler counts only ready replicas. If
@@ -778,27 +789,26 @@ revisions ([ADR 0022](adr/0022-traffic-splitting.md); fields in the
 [spec reference](spec-reference.md#revisions)). A canary looks like this:
 
 ```bash
-armada deploy -f web.yaml            # traffic: web--r3 90, latest 10 (label canary)
-armada status web                    # the split, replicas per revision, the label's URL
-armada traffic web r3=50 r4=50       # more traffic to the new revision
-armada traffic web r4=100            # all of it; r3 drains and stops
+armada app update web --file web.yaml   # traffic: web--r3 90, latest 10 (label canary)
+armada app show web                     # the split, replicas per revision, the label's URL
+armada app traffic web r3=50 r4=50      # more traffic to the new revision
+armada app traffic web r4=100           # all of it; r3 drains and stops
 ```
 
 ```
-web: traffic web--r3 90%, web--r4 10% (canary)
-
-APP  URL
-web  https://web.example.com/
-web  https://canary--web.example.com/ (web--r4)
+Traffic:  web--r3 90%, web--r4 10% (canary)
+URLs:     https://web.example.com/
+          https://canary--web.example.com/ (web--r4)
 ```
 
-- **Comparing revisions.** `armada logs`, `armada top`, and the replica
+- **Comparing revisions.** `armada app logs`, `armada app top`, and the replica
   metrics carry the revision. `armada_app_traffic_weight` shows the split.
 - **Events and audit.** Each change is a `TrafficChanged` event and an
   audit entry.
-- **Lasting changes.** `armada traffic` lasts until the next deploy, so put
-  lasting weights in the spec.
-- **Finishing.** To finish a canary, deploy the spec in single mode. That
+- **Lasting changes.** `armada app traffic` lasts until the next update, so
+  put lasting weights in the spec.
+- **Finishing.** To finish a canary, update the app with the spec in single
+  mode. That
   is a rolling update, and every revision in the traffic serves until the
   new one is ready.
 - **Capacity.** Every revision in the traffic runs at least one replica and
@@ -811,14 +821,16 @@ Jobs run a container to completion, on demand or on a schedule
 [spec reference](spec-reference.md#jobs)):
 
 ```bash
-armada deploy -f backup.yaml     # kind: job; changes apply to the next runs
-armada job run db-backup         # start a run now
-armada job run db-backup --wait  # and wait: exits non-zero unless the run succeeded
-armada job ls                    # schedule, latest run, next run
-armada job runs db-backup        # runs, newest first
-armada logs db-backup            # the newest run's output (--run N for another)
-armada job cancel db-backup      # stop the active run
-armada job rm db-backup          # delete the job, its runs, and their logs
+armada job create --file backup.yaml   # kind: job (or from flags: --image, --schedule, ...)
+armada job update db-backup --schedule "0 2 * * *"   # changes apply to the next runs
+armada job run db-backup               # start a run now
+armada job run db-backup --wait        # and wait: exits non-zero unless the run succeeded
+armada job list                        # schedule, latest run, next run
+armada job show db-backup              # one job; -o yaml prints its spec
+armada job run list db-backup          # runs, newest first
+armada job logs db-backup              # the newest run's output (--run N for another)
+armada job cancel db-backup            # stop the active run
+armada job delete db-backup            # delete the job, its runs, and their logs
 ```
 
 ```
@@ -832,28 +844,29 @@ RUN  STATE      TRIGGER   ATTEMPTS  NODE   STARTED  DURATION  EXIT  MESSAGE
   fails when its timeout passes.
 - A failed attempt is retried while `retries` allow, possibly on another
   node. Only the latest attempt's logs are kept.
-- Runs keep going when their node is cordoned; a run on a lost node counts
+- Runs keep going when their node is drained; a run on a lost node counts
   as failed and is retried.
-- Jobs do not appear in `armada status`. `armada events JOB` shows their
-  runs, and `armada top` shows the resources a running job uses.
+- Jobs do not appear in `armada app list`. `armada app events JOB` shows
+  their runs, and `armada app top` shows the resources a running job uses.
 - Alert on `time() - armada_job_last_success_timestamp_seconds > 90000`
   for a daily job that has not succeeded in 25 hours.
 
 ## Events
 
-`armada events` shows what the cluster did in the last hour
+`armada cluster events` shows what the cluster did in the last hour
 ([ADR 0018](adr/0018-event-history.md)): replicas scheduled, started,
 restarted, or moved; rollouts started, completed, or failed; nodes
-connected, lost, or cordoned; apps that cannot be placed or that the
+connected, lost, or drained; apps that cannot be placed or that the
 autoscaler scaled, scaled to zero, or woke; traffic changes; job runs;
 domains and certificates.
 
 ```bash
-armada events                    # the last hour, everything
-armada events web                # only web and its replicas
-armada events --node node2       # only node2 and its replicas
-armada events --since 6h -f      # six hours back, then new events as they happen
-armada events -o json            # one JSON object per line
+armada cluster events                    # the last hour, everything
+armada app events web                    # only web and its replicas
+armada app events                        # the project's apps (-A: every project's)
+armada cluster events --node node2       # only node2 and its replicas
+armada cluster events --since 6h -f      # six hours back, then new events as they happen
+armada cluster events -o json            # one JSON object per line
 ```
 
 ```
@@ -866,7 +879,7 @@ TIME            KIND         OBJECT                        REASON           COUN
 - An event that repeats within 10 minutes is counted (`COUNT`) instead of
   shown again; `TIME` is its last occurrence.
 - Events are kept for 24 hours, at most 2000 of them. For longer history,
-  run `armada events -f -o json` into your log system, or alert on
+  run `armada cluster events -f -o json` into your log system, or alert on
   `armada_events_total` from the metrics endpoint.
 - Messages from nodes are shortened to 512 bytes, with control characters
   replaced.
@@ -973,11 +986,11 @@ Volumes keep an app's data on the node that runs its single replica
 `/var/lib/armada/volumes/<app>/<name>`.
 
 ```bash
-armada volume ls                                   # app, volume, node, path, size
+armada volume list                                 # app, volume, node, path, size
 armada volume backup db data -o db-data.tar.gz     # copy while the app runs
 armada volume backup db data -o db-data.tar.gz --stop   # consistent: stops the app meanwhile
 armada volume restore db data db-data.tar.gz       # replace the contents; stops the app meanwhile
-armada volume rm db data --yes                     # delete the data; only once no spec mounts it
+armada volume delete db data --yes                 # delete the data; only once no spec mounts it
 ```
 
 ```
@@ -989,7 +1002,7 @@ db   data    node2  /var/lib/postgresql/data  1.2GiB  14d
   before the new one starts, on the same node.
 - **Live backups may be inconsistent.** Files written during a backup may
   be copied half-written. For databases, use their own dump tool through
-  `armada exec` (for example `armada exec db -- pg_dump -U postgres app`),
+  `armada app exec` (for example `armada app exec db -- pg_dump -U postgres app`),
   or `--stop`.
 - **Back up regularly, off the node.** `armadad backup` holds where volumes
   are, not their contents. Archives hold the app's data as it is: encrypt
@@ -1001,7 +1014,7 @@ db   data    node2  /var/lib/postgresql/data  1.2GiB  14d
   ```
 
 - **Cordoning or draining a node** does not move apps with volumes;
-  `armada node remove` refuses a node that holds volumes unless `--force`
+  `armada node delete` refuses a node that holds volumes unless `--force`
   is given.
 - **Watch disk use.** There is no quota: alert on
   `armada_volume_used_bytes` against the node's disk.
@@ -1012,7 +1025,7 @@ If the node holding an app's volumes is lost for good, the app stays down
 until its data is restored somewhere else:
 
 ```bash
-armada node remove node2 --force                     # if the node is gone for good
+armada node delete node2 --force                     # if the node is gone for good
 armada volume restore db data db-data.tar.gz --node node3
 ```
 
@@ -1027,7 +1040,7 @@ after the backup is lost.
 | A node (machine down, network gone) | Within about 4 seconds the HAProxy on every other node stops sending it traffic; requests that hit it meanwhile are retried on another replica after 2 seconds. After `--node-lost-timeout` (default 5 minutes) the node is shown as `lost` and its replicas are started on other nodes that their app's placement allows; the old ones are removed once the new ones serve. When the node comes back, its old containers are cleaned up and apps left unevenly spread move replicas back to it, one at a time. See [ADR 0008](adr/0008-self-healing.md) and [ADR 0013](adr/0013-replica-rebalancing.md). |
 | HAProxy on a node (crashed or killed) | The agent notices within about 10 seconds and starts a new HAProxy container with the current configuration; that node's public ports are down until it serves again. |
 | The node holding an app's volumes | The app stays down: its data is on that node, so it is not started elsewhere. A `VolumeUnavailable` event says so. It comes back with the node, or with a restore onto another node (see [Volumes](#volumes)). |
-| More than half of the nodes at once | Nothing is rescheduled: the control plane assumes it is the one cut off. Replicas move once enough nodes are reachable again, or with `armada node remove --force`. |
+| More than half of the nodes at once | Nothing is rescheduled: the control plane assumes it is the one cut off. Replicas move once enough nodes are reachable again, or with `armada node delete --force`. |
 | One of three control plane servers | Another server leads within 1–15 seconds; nothing else changes. Remove the failed server and join a replacement when convenient. |
 | The only control plane server, or a majority of them | Apps keep serving: every node's HAProxy and containers keep running. Deploys, scaling, rescheduling, and certificate renewal wait until a majority is back; certificates have weeks of margin. Restore from a backup if the servers are gone. |
 
@@ -1040,7 +1053,7 @@ your provider, or DNS with health checks) in front of the nodes.
 ## Removing a node
 
 ```bash
-armada node remove NODE    # on the control plane: moves replicas, revokes the certificate
+armada node delete NODE    # on the control plane: moves replicas, revokes the certificate
 ```
 
 Then, on that node:

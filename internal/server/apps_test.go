@@ -124,3 +124,17 @@ func withIdentity(c *clockServer, id pki.Identity, scope store.Automation) conte
 	ctx := context.WithValue(c.ctx, identityKey{}, id)
 	return context.WithValue(ctx, scopeKey{}, scope)
 }
+
+// The nodes alone, with how many replicas each holds, and no apps.
+func TestStatusNodesOnly(t *testing.T) {
+	t.Parallel()
+	c := newClockServer(t)
+	c.deploy("name: web\nimage: nginx:1\nscale:\n  min: 3\n")
+	resp, err := c.srv.Status(c.srv.internalContext(c.ctx), &armadav1.StatusRequest{NodesOnly: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Apps) != 0 || len(resp.Nodes) != 1 || resp.Nodes[0].Replicas != 3 {
+		t.Errorf("nodes only: %d apps, nodes %v", len(resp.Apps), resp.Nodes)
+	}
+}

@@ -119,20 +119,19 @@ wait_for() {
 	ok "$_desc"
 }
 
-status() { cli status -o json; }
-nodes_ready() { status | jq -e '[.nodes[] | select(.state == "ready")] | length == 2'; }
+nodes() { cli node list -o json; }
+nodes_ready() { nodes | jq -e '[.nodes[] | select(.state == "ready")] | length == 2'; }
 # placed APP NODES: the app serves from exactly NODES (space separated, in
 # order of machine), with no rollout and nothing draining.
 placed() {
-	status | jq -e --arg app "$1" --arg nodes "$2" '
-		.apps[] | select(.name == $app)
-		| [.replicas[]? | select((.draining // false) | not)] as $live
+	cli app show "$1" -o json | jq -e --arg nodes "$2" '
+		[.replicas[]? | select((.draining // false) | not)] as $live
 		| (.rolloutState // "") == ""
 		  and ([$live[] | select(.state == "running" and (.ready // false))] | length) == ($live | length)
 		  and ([$live[].nodeId] | sort | join(" ")) == ($nodes | split(" ") | sort | join(" "))'
 }
 address() { # address APP: the published address of the app's replica
-	status | jq -r --arg app "$1" '.apps[] | select(.name == $app) | .replicas[0].address'
+	cli app show "$1" -o json | jq -r '.replicas[0].address'
 }
 
 # cpu N prints "busy total" jiffies of machine N.
@@ -153,7 +152,7 @@ row() { # row TEST RESULT
 	printf '| %s | %s | %s | %s | %s |\n' "$LABEL" "$1" "$2" "$CPU_A" "$CPU_B" | tee -a "$RESULTS"
 }
 
-deploy() { cli deploy -f - >/dev/null; }
+deploy() { cli app update --file - --create-if-missing >/dev/null; }
 
 # wipe N removes Armada's cluster state, containers, and the tunnel from
 # machine N, leaving the binary and units installed.
@@ -177,7 +176,8 @@ cleanup() {
 	_rc=$?
 	if [ "$_rc" -ne 0 ] && [ -n "$MODE" ]; then
 		printf '\n==> diagnostics\n' >&2
-		cli status >&2 || true
+		cli cluster status >&2 || true
+		cli app list >&2 || true
 	fi
 	printf '\n==> removing the cluster from both machines\n' >&2
 	wipe 1 || true
@@ -301,11 +301,11 @@ cluster_up() {
 	on 1 "systemctl enable --now -q armada-runtime && armadad init --node-name $A --private-ip $IP_A >/dev/null &&
 		systemctl enable --now -q armada-server"
 	wait_for 120 "control plane answers" nodes_one
-	cli token create >"$WORK/token"
-	_tok=$(sed -n 's/^Token (shown once): //p' "$WORK/token")
+	cli node join-token >"$WORK/token"
+	_tok=$(sed -n 's/^Token (.*shown once): //p' "$WORK/token")
 	_cmd=$(sed -n 's/^  sudo \(armadad .*join .*\)$/\1/p' "$WORK/token")
 	rm -f "$WORK/token"
-	if [ -z "$_tok" ] || [ -z "$_cmd" ]; then fail "armada token create printed no token"; fi
+	if [ -z "$_tok" ] || [ -z "$_cmd" ]; then fail "armada node join-token printed no token"; fi
 	printf '%s\n' "$_tok" | on 2 'umask 077; cat > /run/armada/bench.token'
 	_tok=
 	on 2 "systemctl enable --now -q armada-runtime && $_cmd --node-name $B --private-ip $IP_B --token-file /run/armada/bench.token >/dev/null;
@@ -319,7 +319,7 @@ cluster_up() {
 	cli node label "$A" bench=a >/dev/null
 	cli node label "$B" bench=b >/dev/null
 }
-nodes_one() { status | jq -e '[.nodes[] | select(.state == "ready")] | length == 1'; }
+nodes_one() { nodes | jq -e '[.nodes[] | select(.state == "ready")] | length == 1'; }
 
 # Apps. Every image is multi-architecture; iperf3 and busybox's httpd come
 # from Alpine packages when the container starts.
@@ -397,11 +397,11 @@ EOF
 }
 
 iperf() { # iperf STREAMS [-R]: Gbit/s received
-	on 1 "armada exec ipcli -- iperf3 -c $IP_B -p $IPERF_PORT -t $BENCH_IPERF_SECONDS -P $1 ${2:-} -J" >"$WORK/iperf.json"
+	on 1 "armada app exec ipcli -- iperf3 -c $IP_B -p $IPERF_PORT -t $BENCH_IPERF_SECONDS -P $1 ${2:-} -J" >"$WORK/iperf.json"
 	cp "$WORK/iperf.json" "$BENCH_OUT/$MODE-iperf-$1${2:-}.json"
 	IPERF=$(jq -r '.end.sum_received.bits_per_second / 1e9 * 100 | round / 100' "$WORK/iperf.json")
 }
-iperf_ready() { on 1 "armada exec ipcli -- iperf3 -c $IP_B -p $IPERF_PORT -t 1" ; }
+iperf_ready() { on 1 "armada app exec ipcli -- iperf3 -c $IP_B -p $IPERF_PORT -t 1" ; }
 
 hey() { # hey CONCURRENCY NAME
 	on 1 "armada-bench-hey -z ${BENCH_DURATION}s -c $1 -host web.internal http://$GW/" >"$BENCH_OUT/$MODE-$2-c$1.txt"

@@ -21,7 +21,7 @@ type exitCodeError int
 
 func (e exitCodeError) Error() string { return fmt.Sprintf("exit status %d", int(e)) }
 
-func newExecCommand(g *globals) *cobra.Command {
+func newAppExecCommand(g *globals) *cobra.Command {
 	var (
 		replica    string
 		stdin, tty bool
@@ -33,7 +33,7 @@ func newExecCommand(g *globals) *cobra.Command {
 
 Without --replica, Armada picks a running, ready replica of the serving
 revision. -i passes standard input; -t allocates a terminal, so
-"armada exec web -it -- sh" opens a shell. The command runs with the
+"armada app exec web -it -- sh" opens a shell. The command runs with the
 container's own user and security settings.
 
 Exec is for diagnosis: changes made inside a container are lost when its
@@ -41,7 +41,7 @@ replica is replaced. Each session is recorded in the audit log with the
 command's name, not its arguments.`,
 		Args: func(cmd *cobra.Command, args []string) error {
 			if cmd.ArgsLenAtDash() != 1 || len(args) < 2 {
-				return errors.New("usage: armada exec APP [flags] -- COMMAND [ARG...]")
+				return errors.New("usage: armada app exec APP [flags] -- COMMAND [ARG...]")
 			}
 			return runtime.CheckExecCommand(args[1:])
 		},

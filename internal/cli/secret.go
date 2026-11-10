@@ -51,7 +51,7 @@ func newSecretCommand(g *globals) *cobra.Command {
 			"Values are never shown again after they are set and are never accepted as\n" +
 			"command-line arguments, which would leak into shell history.",
 	}
-	cmd.AddCommand(newSecretSetCommand(g), newSecretImportCommand(g), newSecretListCommand(g), newSecretRemoveCommand(g))
+	cmd.AddCommand(newSecretSetCommand(g), newSecretImportCommand(g), newSecretListCommand(g), newSecretDeleteCommand(g))
 	return cmd
 }
 
@@ -99,14 +99,11 @@ func newSecretSetCommand(g *globals) *cobra.Command {
 				return RPCError(err)
 			}
 			out := cmd.OutOrStdout()
-			_, _ = fmt.Fprintf(out, "Secret %s of app %s set (version %d).\n", name, app, resp.Version)
 			if resp.Revision == "" {
-				if noRollout {
-					_, _ = fmt.Fprintf(out, "Running replicas keep the previous value until the app's next rollout (e.g. `armada deploy`).\n")
-				}
-				return nil
+				_, err := fmt.Fprintf(out, "Set secret %s of %s (version %d).\n", name, app, resp.Version)
+				return err
 			}
-			_, _ = fmt.Fprintf(out, "Rolling out %s with the new value.\n", resp.Revision)
+			_, _ = fmt.Fprintf(out, "Set secret %s of %s (version %d); rolling out %s.\n", name, app, resp.Version, resp.Revision)
 			if !w.wait {
 				return nil
 			}
@@ -129,7 +126,7 @@ func newSecretImportCommand(g *globals) *cobra.Command {
 			"DATABASE_URL becomes the secret database-url. Blank lines and lines starting\n" +
 			"with # are skipped. A value is everything after the first =, kept exactly,\n" +
 			"quotes included. Nothing rolls out: running replicas keep the previous values\n" +
-			"until the app's next deploy. Run it for each app that needs the values.",
+			"until the app's next update. Run it for each app that needs the values.",
 		Example: "  armada secret import api .env\n" +
 			"  # then in the spec:\n" +
 			"  #   env:\n" +
@@ -229,7 +226,7 @@ func importSecrets(ctx context.Context, client armadav1.AdminServiceClient, app 
 		}
 		_, _ = fmt.Fprintf(out, "%s -> %s (version %d)\n", e.key, e.name, resp.GetVersion())
 	}
-	_, _ = fmt.Fprintf(out, "Set %d secrets of app %s. Running replicas keep the previous values until the app's next deploy.\n", len(entries), app)
+	_, _ = fmt.Fprintf(out, "Set %d secrets of %s; running replicas get them with the app's next update.\n", len(entries), app)
 	return nil
 }
 
@@ -271,13 +268,17 @@ func readLimited(r io.Reader) ([]byte, error) {
 }
 
 func newSecretListCommand(g *globals) *cobra.Command {
-	return &cobra.Command{
+	var o *outputFlag
+	cmd := &cobra.Command{
 		Use:     "list APP",
 		Aliases: []string{"ls"},
 		Short:   "List an app's secrets (names and versions only)",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := g.qualify(args); err != nil {
+				return err
+			}
+			if err := o.check(); err != nil {
 				return err
 			}
 			client, conn, err := dialAdmin(g)
@@ -289,9 +290,8 @@ func newSecretListCommand(g *globals) *cobra.Command {
 			if err != nil {
 				return RPCError(err)
 			}
-			if len(resp.Secrets) == 0 {
-				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "App %s has no secrets.\n", args[0])
-				return nil
+			if o.json() {
+				return printJSON(cmd.OutOrStdout(), resp)
 			}
 			tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 4, 2, ' ', 0)
 			_, _ = fmt.Fprintln(tw, "NAME\tVERSION\tUPDATED\tBY\tUSED BY")
@@ -306,12 +306,14 @@ func newSecretListCommand(g *globals) *cobra.Command {
 			return tw.Flush()
 		},
 	}
+	o = addOutput(cmd, false)
+	return cmd
 }
 
-func newSecretRemoveCommand(g *globals) *cobra.Command {
+func newSecretDeleteCommand(g *globals) *cobra.Command {
 	return &cobra.Command{
-		Use:     "rm APP NAME",
-		Aliases: []string{"remove", "delete"},
+		Use:     "delete APP NAME",
+		Aliases: []string{"rm"},
 		Short:   "Delete every version of a secret the app no longer uses",
 		Args:    cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -326,7 +328,7 @@ func newSecretRemoveCommand(g *globals) *cobra.Command {
 			if _, err := client.DeleteSecret(cmd.Context(), &armadav1.DeleteSecretRequest{App: args[0], Name: args[1]}); err != nil {
 				return RPCError(err)
 			}
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Secret %s of app %s deleted.\n", args[1], args[0])
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Deleted secret %s of %s.\n", args[1], args[0])
 			return nil
 		},
 	}

@@ -3,12 +3,15 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"text/tabwriter"
 	"time"
 
 	"github.com/spf13/cobra"
 
 	armadav1 "github.com/ryanbekhen/armada/api/armada/v1"
+	"github.com/ryanbekhen/armada/internal/clientconfig"
+	"github.com/ryanbekhen/armada/internal/spec"
 )
 
 func newProjectCommand(g *globals) *cobra.Command {
@@ -19,9 +22,10 @@ func newProjectCommand(g *globals) *cobra.Command {
 		Long: "Projects hold apps, jobs, secrets, domains, and volumes (ADR 0026). Names only\n" +
 			"need to be unique within a project. Every cluster has the project default,\n" +
 			"which holds everything deployed without --project.\n\n" +
-			"Other commands name an app of a project with --project (or ARMADA_PROJECT),\n" +
-			"or as NAME.PROJECT, which is also how status, events, and the internal host\n" +
-			"name (NAME.PROJECT.internal) show it.\n\n" +
+			"Commands work in the project `armada project use` saved, or the one --project\n" +
+			"(or ARMADA_PROJECT) names, else default. An app of another project can also\n" +
+			"be named NAME.PROJECT, which is how events and the internal host name\n" +
+			"(NAME.PROJECT.internal) show it. Lists take -A for every project.\n\n" +
 			"On a cluster with a cluster network, containers reach other apps only\n" +
 			"through their internal names, resolve only their own project's names, and\n" +
 			"the containers of every project but default are kept away from the nodes,\n" +
@@ -30,42 +34,16 @@ func newProjectCommand(g *globals) *cobra.Command {
 	}
 	cmd.AddCommand(
 		newProjectCreateCommand(g),
-		&cobra.Command{
-			Use:     "list",
-			Aliases: []string{"ls"},
-			Short:   "List projects",
-			Args:    cobra.NoArgs,
-			RunE: func(cmd *cobra.Command, _ []string) error {
-				client, conn, err := dialAdmin(g)
-				if err != nil {
-					return err
-				}
-				defer conn.Close()
-				resp, err := client.ListProjects(cmd.Context(), &armadav1.ListProjectsRequest{})
-				if err != nil {
-					return RPCError(err)
-				}
-				tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 4, 2, ' ', 0)
-				_, _ = fmt.Fprintln(tw, "PROJECT\tAPPS\tNETWORK\tCREATED\tBY")
-				now := time.Now()
-				for _, p := range resp.Projects {
-					network := "open"
-					if p.NetworkIsolation {
-						network = "isolated"
-					}
-					_, _ = fmt.Fprintf(tw, "%s\t%d\t%s\t%s\t%s\n", p.Name, p.Apps, network, ago(p.CreatedAt, now), dash(p.CreatedBy))
-				}
-				return tw.Flush()
-			},
-		},
+		newProjectListCommand(g),
 		newProjectSetCommand(g),
 		newProjectShowCommand(g),
+		newProjectUseCommand(g),
 		&cobra.Command{
-			Use:     "remove NAME",
-			Aliases: []string{"rm", "delete"},
-			Short:   "Remove an empty project",
-			Long: "Remove a project. It must be empty: remove its jobs, secrets, and volumes\n" +
-				"first. The default project cannot be removed.",
+			Use:     "delete NAME",
+			Aliases: []string{"rm"},
+			Short:   "Delete an empty project",
+			Long: "Delete a project. It must be empty: delete its apps, jobs, secrets, and\n" +
+				"volumes first. The default project cannot be deleted.",
 			Args: cobra.ExactArgs(1),
 			RunE: func(cmd *cobra.Command, args []string) error {
 				client, conn, err := dialAdmin(g)
@@ -76,7 +54,7 @@ func newProjectCommand(g *globals) *cobra.Command {
 				if _, err := client.DeleteProject(cmd.Context(), &armadav1.DeleteProjectRequest{Name: args[0]}); err != nil {
 					return RPCError(err)
 				}
-				_, err = fmt.Fprintf(cmd.OutOrStdout(), "Project %s removed.\n", args[0])
+				_, err = fmt.Fprintf(cmd.OutOrStdout(), "Deleted project %s.\n", args[0])
 				return err
 			},
 		},
@@ -99,7 +77,7 @@ func newProjectCreateCommand(g *globals) *cobra.Command {
 			if err != nil {
 				return RPCError(err)
 			}
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Project %s created; deploy into it with `armada deploy -f FILE --project %s`.\n", p.Name, p.Name)
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Created project %s.\n", p.Name)
 			return err
 		},
 	}
@@ -147,35 +125,125 @@ func newProjectSetCommand(g *globals) *cobra.Command {
 	return cmd
 }
 
-func newProjectShowCommand(g *globals) *cobra.Command {
+func newProjectListCommand(g *globals) *cobra.Command {
+	var o *outputFlag
+	cmd := &cobra.Command{
+		Use:     "list",
+		Aliases: []string{"ls"},
+		Short:   "List projects",
+		Args:    cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if err := o.check(); err != nil {
+				return err
+			}
+			resp, err := listProjects(cmd, g)
+			if err != nil {
+				return err
+			}
+			if o.json() {
+				return printJSON(cmd.OutOrStdout(), resp)
+			}
+			tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 4, 2, ' ', 0)
+			_, _ = fmt.Fprintln(tw, "PROJECT\tAPPS\tNETWORK\tCREATED\tBY")
+			now := time.Now()
+			for _, p := range resp.Projects {
+				_, _ = fmt.Fprintf(tw, "%s\t%d\t%s\t%s\t%s\n", p.Name, p.Apps, projectNetwork(p), ago(p.CreatedAt, now), dash(p.CreatedBy))
+			}
+			return tw.Flush()
+		},
+	}
+	o = addOutput(cmd, false)
+	return cmd
+}
+
+func listProjects(cmd *cobra.Command, g *globals) (*armadav1.ListProjectsResponse, error) {
+	client, conn, err := dialAdmin(g)
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+	resp, err := client.ListProjects(cmd.Context(), &armadav1.ListProjectsRequest{})
+	if err != nil {
+		return nil, RPCError(err)
+	}
+	return resp, nil
+}
+
+func projectNetwork(p *armadav1.ProjectInfo) string {
+	if p.NetworkIsolation {
+		return "isolated"
+	}
+	return "open"
+}
+
+func newProjectUseCommand(g *globals) *cobra.Command {
 	return &cobra.Command{
+		Use:   "use NAME",
+		Short: "Work in a project: commands without --project use it",
+		Long: "Save NAME in the client config (--config) as the project commands work in when\n" +
+			"neither --project nor ARMADA_PROJECT names one. `armada project use default`\n" +
+			"goes back to the default project.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			name := args[0]
+			if !spec.ValidProject(name) {
+				return fmt.Errorf("invalid project %q", name)
+			}
+			if name != spec.DefaultProject {
+				resp, err := listProjects(cmd, g)
+				if err != nil {
+					return err
+				}
+				if !slices.ContainsFunc(resp.Projects, func(p *armadav1.ProjectInfo) bool { return p.Name == name }) {
+					return fmt.Errorf("project %s not found", name)
+				}
+			}
+			cc, err := clientconfig.Load(g.configPath)
+			if err != nil {
+				return err
+			}
+			cc.Project = name
+			if name == spec.DefaultProject {
+				cc.Project = ""
+			}
+			if err := cc.SaveFile(g.configPath); err != nil {
+				return err
+			}
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Using project %s.\n", name)
+			return err
+		},
+	}
+}
+
+func newProjectShowCommand(g *globals) *cobra.Command {
+	var o *outputFlag
+	cmd := &cobra.Command{
 		Use:   "show NAME",
 		Short: "Show a project's settings",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			client, conn, err := dialAdmin(g)
-			if err != nil {
+			if err := o.check(); err != nil {
 				return err
 			}
-			defer conn.Close()
-			resp, err := client.ListProjects(cmd.Context(), &armadav1.ListProjectsRequest{})
+			resp, err := listProjects(cmd, g)
 			if err != nil {
-				return RPCError(err)
+				return err
 			}
 			for _, p := range resp.Projects {
 				if p.Name != args[0] {
 					continue
 				}
-				network := "open"
-				if p.NetworkIsolation {
-					network = "isolated"
+				if o.json() {
+					return printJSON(cmd.OutOrStdout(), p)
 				}
 				tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 4, 2, ' ', 0)
 				_, _ = fmt.Fprintf(tw, "Project:\t%s\nApps:\t%d\nNetwork:\t%s\nCreated:\t%s by %s\n",
-					p.Name, p.Apps, network, ago(p.CreatedAt, time.Now()), dash(p.CreatedBy))
+					p.Name, p.Apps, projectNetwork(p), ago(p.CreatedAt, time.Now()), dash(p.CreatedBy))
 				return tw.Flush()
 			}
-			return fmt.Errorf("no project %s (see armada project list)", args[0])
+			return fmt.Errorf("project %s not found", args[0])
 		},
 	}
+	o = addOutput(cmd, false)
+	return cmd
 }

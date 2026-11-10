@@ -22,18 +22,18 @@ func newVolumeCommand(g *globals) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "volume",
 		Aliases: []string{"volumes"},
-		Short:   "List, back up, restore, and remove persistent volumes",
+		Short:   "List, back up, restore, and delete persistent volumes",
 		Long: "Volumes keep an app's data on the node that runs its replica (ADR 0023). They are\n" +
-			"created with the app's first replica, stay on that node, and are kept until removed\n" +
-			"with `armada volume rm`. `armadad backup` does not include their contents: back them\n" +
-			"up with `armada volume backup`.",
+			"created with the app's first replica, stay on that node, and are kept until deleted\n" +
+			"with `armada volume delete`. `armadad backup` does not include their contents: back\n" +
+			"them up with `armada volume backup`.",
 	}
-	cmd.AddCommand(newVolumeListCommand(g), newVolumeRemoveCommand(g), newVolumeBackupCommand(g), newVolumeRestoreCommand(g))
+	cmd.AddCommand(newVolumeListCommand(g), newVolumeBackupCommand(g), newVolumeRestoreCommand(g), newVolumeDeleteCommand(g))
 	return cmd
 }
 
 func newVolumeListCommand(g *globals) *cobra.Command {
-	var output string
+	var o *outputFlag
 	cmd := &cobra.Command{
 		Use:     "list [APP]",
 		Aliases: []string{"ls"},
@@ -43,7 +43,7 @@ func newVolumeListCommand(g *globals) *cobra.Command {
 			if err := g.qualify(args); err != nil {
 				return err
 			}
-			if err := checkOutput(output); err != nil {
+			if err := o.check(); err != nil {
 				return err
 			}
 			client, conn, err := dialAdmin(g)
@@ -61,12 +61,8 @@ func newVolumeListCommand(g *globals) *cobra.Command {
 			}
 			resp.Volumes = slices.DeleteFunc(resp.Volumes, func(v *armadav1.Volume) bool { return !g.listed(v.App) })
 			out := cmd.OutOrStdout()
-			if output == outputJSON {
+			if o.json() {
 				return printJSON(out, resp)
-			}
-			if len(resp.Volumes) == 0 {
-				_, err := fmt.Fprintln(out, "No volumes.")
-				return err
 			}
 			tw := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
 			_, _ = fmt.Fprintln(tw, "APP\tVOLUME\tNODE\tPATH\tUSED\tAGE")
@@ -85,17 +81,17 @@ func newVolumeListCommand(g *globals) *cobra.Command {
 			return tw.Flush()
 		},
 	}
-	cmd.Flags().StringVarP(&output, "output", "o", outputText, "output format: text or json")
+	o = addOutput(cmd, false)
 	return cmd
 }
 
-func newVolumeRemoveCommand(g *globals) *cobra.Command {
+func newVolumeDeleteCommand(g *globals) *cobra.Command {
 	var yes bool
 	cmd := &cobra.Command{
-		Use:     "remove APP VOLUME --yes",
-		Aliases: []string{"rm", "delete"},
+		Use:     "delete APP VOLUME --yes",
+		Aliases: []string{"rm"},
 		Short:   "Delete a volume and its data",
-		Long: "Delete a volume and its data on its node. The app must no longer mount it: deploy it\n" +
+		Long: "Delete a volume and its data on its node. The app must no longer mount it: update it\n" +
 			"without the volume first. This cannot be undone; back the volume up first if in doubt.",
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -113,7 +109,7 @@ func newVolumeRemoveCommand(g *globals) *cobra.Command {
 			if _, err := client.RemoveVolume(cmd.Context(), &armadav1.RemoveVolumeRequest{App: args[0], Name: args[1]}); err != nil {
 				return RPCError(err)
 			}
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Volume %s of %s removed.\n", args[1], args[0])
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Deleted volume %s of %s.\n", args[1], args[0])
 			return err
 		},
 	}
@@ -131,7 +127,7 @@ func newVolumeBackupCommand(g *globals) *cobra.Command {
 taken while the app runs; files it writes meanwhile may be copied half-written.
 With --stop the app's replica is stopped for the backup and started again
 afterwards, for a consistent copy at the cost of downtime. For databases,
-prefer their own dump tool (armada exec APP -- pg_dump ...) or --stop.
+prefer their own dump tool (armada app exec APP -- pg_dump ...) or --stop.
 
 The archive holds the app's data as it is: store it as carefully as the app's
 own data.`,

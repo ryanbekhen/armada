@@ -82,16 +82,16 @@ func TestJoinEndToEnd(t *testing.T) {
 	}
 	waitFor("server up", func() bool { code, _, _ := cli("node", "list"); return code == 0 })
 
-	code, out, stderr := cli("token", "create", "--ttl", "10m")
+	code, out, stderr := cli("node", "join-token", "--ttl", "10m")
 	if code != 0 {
-		t.Fatalf("token create: %s", stderr)
+		t.Fatalf("node join-token: %s", stderr)
 	}
-	tok := regexp.MustCompile(`Token \(shown once\): ([0-9a-f]{12}\.[0-9a-f]{64})`).FindStringSubmatch(out)
+	tok := regexp.MustCompile(`Token \(.*shown once\): ([0-9a-f]{12}\.[0-9a-f]{64})`).FindStringSubmatch(out)
 	cmdLine := regexp.MustCompile(`armadad join (\S+) --ca-hash (sha256:[0-9a-f]{64})`).FindStringSubmatch(out)
 	if tok == nil || cmdLine == nil || cmdLine[1] != join || strings.Contains(cmdLine[0], tok[1]) {
-		t.Fatalf("token create output = %q", out)
+		t.Fatalf("node join-token output = %q", out)
 	}
-	if code, _, _ := cli("token", "create", "--ttl", "48h"); code == 0 {
+	if code, _, _ := cli("node", "join-token", "--ttl", "48h"); code == 0 {
 		t.Error("48h token accepted")
 	}
 
@@ -163,14 +163,14 @@ func TestJoinEndToEnd(t *testing.T) {
 	if err := os.WriteFile(spec, []byte("name: web\nimage: nginx:1.27\nscale:\n  min: 2\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if code, _, stderr := cli("deploy", "-f", spec, "--wait", "--timeout", "30s"); code != 0 {
-		t.Fatalf("deploy: %s", stderr)
+	if code, _, stderr := cli("app", "create", "--file", spec, "--wait", "--timeout", "30s"); code != 0 {
+		t.Fatalf("app create: %s", stderr)
 	}
 	waitFor("spread over both nodes", func() bool { return count(0) == 1 && count(1) == 1 })
 
-	code, out, stderr = cli("node", "remove", "node-2")
-	if code != 0 || !strings.Contains(out, "Removed node node-2") {
-		t.Fatalf("node remove: code=%d out=%q err=%q", code, out, stderr)
+	code, out, stderr = cli("node", "delete", "node-2")
+	if code != 0 || out != "Deleted node node-2; its certificate is revoked.\n" {
+		t.Fatalf("node delete: code=%d out=%q err=%q", code, out, stderr)
 	}
 	if count(0) != 2 || count(1) != 0 {
 		t.Errorf("after remove: node-1 has %d, node-2 has %d", count(0), count(1))
@@ -188,16 +188,19 @@ func TestJoinEndToEnd(t *testing.T) {
 		t.Error("removed node came back")
 	}
 
-	if code, out, _ := cli("node", "cordon", "node-1"); code != 0 || !strings.Contains(out, "cordoned") {
-		t.Errorf("cordon = %q", out)
+	if code, out, _ := cli("node", "drain", "node-1"); code != 0 || !strings.Contains(out, "is drained") {
+		t.Errorf("drain = %q", out)
 	}
-	if _, out, _ := cli("status"); !strings.Contains(out, "ready,cordoned") {
-		t.Errorf("status does not show cordon: %q", out)
+	if _, out, _ := cli("node", "show", "node-1"); !regexp.MustCompile(`State:\s+ready,drained`).MatchString(out) {
+		t.Errorf("node show does not show the drain: %q", out)
 	}
-	if code, _, _ := cli("node", "uncordon", "node-1"); code != 0 {
-		t.Error("uncordon failed")
+	if code, _, _ := cli("node", "resume", "node-1"); code != 0 {
+		t.Error("resume failed")
 	}
-	if code, _, stderr := cli("node", "remove", "ghost", "--force"); code == 0 || !strings.Contains(stderr, "not found") {
-		t.Errorf("remove ghost: %q", stderr)
+	if code, out, _ := cli("node", "show", "node-1", "-o", "json"); code != 0 || !regexp.MustCompile(`"id":\s+"node-1"`).MatchString(out) || strings.Contains(out, "cordoned") {
+		t.Errorf("node show -o json = %q", out)
+	}
+	if code, _, stderr := cli("node", "delete", "ghost", "--force"); code == 0 || !strings.Contains(stderr, "not found") {
+		t.Errorf("delete ghost: %q", stderr)
 	}
 }

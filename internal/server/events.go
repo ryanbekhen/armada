@@ -28,7 +28,7 @@ const (
 	// maxEventMessage bounds messages, which may come from agents.
 	maxEventMessage = 512
 	eventWrite      = 5 * time.Second
-	// defaultEventsSince is how far back `armada events` looks by default.
+	// defaultEventsSince is how far back `armada app events` and `armada cluster events` look by default.
 	defaultEventsSince = time.Hour
 	eventSubBuffer     = 256
 )

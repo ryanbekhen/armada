@@ -607,12 +607,6 @@ func (s *Server) VerifyDomain(ctx context.Context, req *armadav1.VerifyDomainReq
 	return s.domainProto(ctx, d, nil), nil
 }
 
-// appURLs lists the URLs of an app for status output: public ones, or the
-// cluster-internal one for internal apps.
-func (s *Server) appURLs(ctx context.Context, app store.App) []string {
-	return appURLsFrom(app, s.urlSource(ctx))
-}
-
 // urlSources are what an app's URLs depend on beyond the app: read once for
 // many apps.
 type urlSources struct {

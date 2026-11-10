@@ -34,7 +34,7 @@ func checkCertificates(env doctorEnv) []checkResult {
 	auto := []struct{ file, what, fix string }{
 		{fileServerCert, "server", "restart armada-server: it renews its certificates at start"},
 		{filepath.Join(dirEtcd, "member.crt"), "etcd member", "restart armada-server: it renews its certificates at start"},
-		{fileNodeCert, "node", "remove the node with `armada node remove` and join it again"},
+		{fileNodeCert, "node", "remove the node with `armada node delete` and join it again"},
 	}
 	if _, err := env.readFile(filepath.Join(env.dataDir, fileServerCert)); err == nil {
 		auto[2].fix = "restart armada-server: on a server it renews this node's certificate at start"

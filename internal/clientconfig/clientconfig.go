@@ -35,6 +35,9 @@ type Config struct {
 	CA      string   `json:"ca"`
 	Cert    string   `json:"cert"`
 	Key     string   `json:"key"`
+	// Project is the project commands work in when they name none
+	// (`armada project use`, ADR 0032); empty means the default project.
+	Project string `json:"project,omitempty"`
 }
 
 // DefaultPath returns $ARMADA_CONFIG, else ~/.armada/config when it exists,

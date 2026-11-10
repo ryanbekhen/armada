@@ -44,7 +44,7 @@ func TestTraffic(t *testing.T) {
 		t.Fatalf("weights only: %v %v %v %+v", rev.Name, created, err, app().Traffic)
 	}
 
-	// armada traffic keeps labels; a revision left out stops serving.
+	// armada app traffic keeps labels; a revision left out stops serving.
 	got, err := s.SetTraffic(ctx, "web", []spec.TrafficTarget{{Revision: "web--r2", Weight: 100}}, "admin:test")
 	if err != nil || len(got) != 1 || got[0].Label != "canary" {
 		t.Fatalf("SetTraffic: %+v %v", got, err)

@@ -18,22 +18,27 @@ func newServerCommand(g *globals) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "server",
 		Aliases: []string{"servers"},
-		Short:   "List and remove control plane servers",
-		Long: "List and remove control plane servers. Running a server and adding one\n" +
-			"are done on the machine itself with `armadad server` and `armadad server join`.",
+		Short:   "List, add, and delete control plane servers",
+		Long: "List and delete control plane servers, and create tokens that add them.\n" +
+			"A server runs on its machine with `armadad server`, and joins with\n" +
+			"`armadad server join`.",
 		Args: cobra.NoArgs,
 	}
-	cmd.AddCommand(newServerListCommand(g), newServerRemoveCommand(g))
+	cmd.AddCommand(newServerListCommand(g), newJoinTokenCommand(g, true), newServerDeleteCommand(g))
 	return cmd
 }
 
 func newServerListCommand(g *globals) *cobra.Command {
-	return &cobra.Command{
+	var o *outputFlag
+	cmd := &cobra.Command{
 		Use:     "list",
 		Aliases: []string{"ls"},
-		Short:   "List control plane nodes and update the client config with them",
+		Short:   "List control plane servers and update the client config with them",
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if err := o.check(); err != nil {
+				return err
+			}
 			client, conn, err := dialAdmin(g)
 			if err != nil {
 				return err
@@ -44,9 +49,14 @@ func newServerListCommand(g *globals) *cobra.Command {
 				return RPCError(err)
 			}
 			out := cmd.OutOrStdout()
+			if o.json() {
+				if err := printJSON(out, resp); err != nil {
+					return err
+				}
+				return syncClientServers(cmd, g.configPath, serverAddrs(resp))
+			}
 			tw := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
 			_, _ = fmt.Fprintln(tw, "NAME\tADDRESS\tROLE\tSTATUS\tVERSION")
-			var addrs []string
 			for _, s := range resp.Servers {
 				role := "standby"
 				if s.Leader {
@@ -61,24 +71,34 @@ func newServerListCommand(g *globals) *cobra.Command {
 				case !s.Reachable:
 					st, role = "unreachable", "-"
 				}
-				// The leader first: a client tries the addresses in order.
-				switch {
-				case s.Member && s.Leader:
-					addrs = append([]string{s.ApiAddr}, addrs...)
-				case s.Member:
-					addrs = append(addrs, s.ApiAddr)
-				}
 				_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", s.Name, s.ApiAddr, role, st, orDash(s.Version))
 			}
 			if err := tw.Flush(); err != nil {
 				return err
 			}
 			if msg := schemaNote(resp); msg != "" {
-				_, _ = fmt.Fprintln(out, "\n"+msg)
+				_, _ = fmt.Fprintln(cmd.ErrOrStderr(), msg)
 			}
-			return syncClientServers(cmd, g.configPath, addrs)
+			return syncClientServers(cmd, g.configPath, serverAddrs(resp))
 		},
 	}
+	o = addOutput(cmd, false)
+	return cmd
+}
+
+// serverAddrs lists the members' API addresses, the leader first: a client
+// tries them in order.
+func serverAddrs(resp *armadav1.ListServersResponse) []string {
+	var addrs []string
+	for _, s := range resp.Servers {
+		switch {
+		case s.Member && s.Leader:
+			addrs = append([]string{s.ApiAddr}, addrs...)
+		case s.Member:
+			addrs = append(addrs, s.ApiAddr)
+		}
+	}
+	return addrs
 }
 
 // syncClientServers records the control plane addresses in the client
@@ -109,14 +129,14 @@ func syncClientServers(cmd *cobra.Command, path string, addrs []string) error {
 	return err
 }
 
-func newServerRemoveCommand(g *globals) *cobra.Command {
+func newServerDeleteCommand(g *globals) *cobra.Command {
 	return &cobra.Command{
-		Use:     "remove NAME",
-		Aliases: []string{"rm", "delete"},
-		Short:   "Remove a control plane node",
-		Long: "Remove a control plane node from the cluster. Stop `armadad server` on it first.\n" +
-			"Its agent stays a node; remove that with `armada node remove`. The leader cannot\n" +
-			"remove itself: stop it, and run this once another server leads.\n\n" +
+		Use:     "delete NAME",
+		Aliases: []string{"rm"},
+		Short:   "Delete a control plane server",
+		Long: "Delete a control plane server from the cluster. Stop `armadad server` on it first.\n" +
+			"Its agent stays a node; delete that with `armada node delete`. The leader cannot\n" +
+			"delete itself: stop it, and run this once another server leads.\n\n" +
 			"A removed server still holds copies of the cluster CA key and master key: wipe\n" +
 			"its data directory.",
 		Args: cobra.ExactArgs(1),
@@ -129,7 +149,7 @@ func newServerRemoveCommand(g *globals) *cobra.Command {
 			if _, err := client.RemoveServer(cmd.Context(), &armadav1.RemoveServerRequest{Name: args[0]}); err != nil {
 				return RPCError(err)
 			}
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Server %s removed. Wipe its data directory: it holds the cluster keys.\n", args[0])
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Deleted server %s. Wipe its data directory: it holds the cluster keys.\n", args[0])
 			return err
 		},
 	}

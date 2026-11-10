@@ -36,7 +36,7 @@ func newServerJoinCommand() *cobra.Command {
 		Use:   "join ADDR --ca-hash sha256:HEX",
 		Short: "Add this machine to the cluster as a control plane node",
 		Long: "Add this machine to the cluster as a control plane node. Get ADDR, the token,\n" +
-			"and the CA hash from `armada token create --server`. The CA hash pins the\n" +
+			"and the CA hash from `armada server join-token`. The CA hash pins the\n" +
 			"cluster CA, so a machine in the middle cannot pose as the server.\n\n" +
 			"The new server receives the cluster CA key and the secrets master key, so the\n" +
 			"token is as sensitive as they are. It is read from --token-file, a hidden\n" +
@@ -125,7 +125,7 @@ func newServerJoinCommand() *cobra.Command {
 				return cli.RPCError(err)
 			}
 			if err := checkJoinedServer(resp, ca, name); err != nil {
-				return fmt.Errorf("%w; run `armada server remove %s` on the cluster before trying again", err, name)
+				return fmt.Errorf("%w; run `armada server delete %s` on the cluster before trying again", err, name)
 			}
 			servers, err := clientconfig.CheckServers(resp.Servers)
 			if err != nil {
@@ -133,7 +133,7 @@ func newServerJoinCommand() *cobra.Command {
 			}
 			note, err := rtFlags.useNodeSubnet(&ac, resp.NodeSubnet, resp.NetworkMode, ip)
 			if err != nil {
-				return fmt.Errorf("%w; run `armada server remove %s` on the cluster before trying again", err, name)
+				return fmt.Errorf("%w; run `armada server delete %s` on the cluster before trying again", err, name)
 			}
 
 			// agent.json last: its presence marks a completed join.

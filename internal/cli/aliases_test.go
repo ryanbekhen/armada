@@ -7,8 +7,9 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// Every list command answers to ls and every remove command to rm and
-// delete, and no two sibling commands share a name or alias.
+// Every list command answers to ls and every delete command to rm, no two
+// sibling commands share a name or alias, and no command keeps an old verb
+// (ADR 0032).
 func TestCommandAliases(t *testing.T) {
 	var walk func(c *cobra.Command)
 	walk = func(c *cobra.Command) {
@@ -25,22 +26,29 @@ func TestCommandAliases(t *testing.T) {
 				if !slices.Contains(sub.Aliases, "ls") {
 					t.Errorf("%s has no ls alias", sub.CommandPath())
 				}
-			case "remove", "rm":
-				for _, want := range []string{"rm", "remove", "delete"} {
-					if want != sub.Name() && !slices.Contains(sub.Aliases, want) {
-						t.Errorf("%s has no %s alias", sub.CommandPath(), want)
-					}
+			case "delete":
+				if !slices.Contains(sub.Aliases, "rm") {
+					t.Errorf("%s has no rm alias", sub.CommandPath())
 				}
+			case "remove", "add", "cordon", "uncordon", "open", "runs":
+				t.Errorf("%s: old verb %s", sub.CommandPath(), sub.Name())
 			}
 			walk(sub)
 		}
 	}
 	walk(NewRootCommand())
 
-	for _, args := range [][]string{{"nodes", "ls"}, {"servers", "ls"}, {"domains", "ls"}, {"secrets", "ls"}, {"node", "rm"}, {"server", "delete"}, {"tokens", "create"}} {
+	for _, args := range [][]string{{"nodes", "ls"}, {"servers", "ls"}, {"domains", "ls"}, {"secrets", "ls"}, {"node", "rm"}, {"server", "delete"},
+		{"apps", "ls"}, {"app", "revisions", "ls"}, {"job", "run", "ls"}, {"node", "join-token"}} {
 		c, _, err := NewRootCommand().Find(args)
 		if err != nil || c.Name() == "armada" {
 			t.Errorf("armada %v does not resolve: %v", args, err)
+		}
+	}
+	// The root holds only nouns and version.
+	for _, c := range NewRootCommand().Commands() {
+		if !c.HasSubCommands() && c.Name() != "version" && c.Name() != "help" && c.Name() != "completion" {
+			t.Errorf("armada %s is not a noun", c.Name())
 		}
 	}
 }

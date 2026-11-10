@@ -133,7 +133,18 @@ wait_for() {
 	ok "$_desc"
 }
 
-status() { cli status -o json; }
+# status prints every app with its replicas, and the nodes, as one JSON
+# object: {"apps": [app show -o json...], "nodes": [...]}.
+status() {
+	_st_apps=$(cli app list -A -o json | jq -r '.apps[]?.name') || return 1
+	_st_json=$(cli node list -o json) || return 1
+	for _st_app in $_st_apps; do
+		_st_one=$(cli app show "$_st_app" -o json) || return 1
+		_st_json="$_st_json
+$_st_one"
+	done
+	printf '%s\n' "$_st_json" | jq -s '{nodes: (.[0].nodes // []), apps: .[1:]}'
+}
 # serving [IMAGE]: every desired replica of the active revision serves, no
 # rollout is in progress, and no other replica is left.
 serving() {
@@ -216,7 +227,7 @@ load_stop() {
 }
 
 deploy() { # deploy IMAGE: (re)deploys the test app with IMAGE
-	cat <<EOF | cli deploy -f -
+	cat <<EOF | cli app update --file - --create-if-missing
 name: $APP
 image: $1
 env:
@@ -237,11 +248,11 @@ EOF
 # machine N with it. The token goes through a 0600 file on tmpfs and is
 # never printed.
 join() {
-	if [ "$2" = server ]; then cli token create --server; else cli token create; fi >"$WORK/token"
-	_tok=$(sed -n 's/^Token (shown once): //p' "$WORK/token")
+	if [ "$2" = server ]; then cli server join-token; else cli node join-token; fi >"$WORK/token"
+	_tok=$(sed -n 's/^Token (.*shown once): //p' "$WORK/token")
 	_cmd=$(sed -n 's/^  sudo \(armadad .*join .*\)$/\1/p' "$WORK/token")
 	rm -f "$WORK/token"
-	if [ -z "$_tok" ] || [ -z "$_cmd" ]; then fail "armada token create printed no token"; fi
+	if [ -z "$_tok" ] || [ -z "$_cmd" ]; then fail "armada node join-token printed no token"; fi
 	printf '%s\n' "$_tok" | on "$1" 'umask 077; cat > /run/armada/e2e.token'
 	_tok=
 	if [ "$2" = server ]; then
@@ -259,7 +270,8 @@ cleanup() {
 	if [ "$_rc" -ne 0 ]; then
 		printf '\n==> diagnostics (CLI on %s)\n' "$(host "$CLI" 1)" >&2
 		cli server list >&2 || true
-		cli status >&2 || true
+		cli cluster status >&2 || true
+		cli app list -A >&2 || true
 		# HAProxy reloads and restarts explain dropped requests.
 		_since=$(date -u -r "$STARTED" '+%Y-%m-%d %H:%M:%S' 2>/dev/null || date -u -d "@$STARTED" '+%Y-%m-%d %H:%M:%S')
 		_i=1
@@ -391,7 +403,7 @@ cli project create e2e-proj >/dev/null
 printf '%s' "$SECRET" | cli secret set e2e-app --project e2e-proj e2e-secret --no-rollout >/dev/null
 [ "$(cli secret list e2e-app --project e2e-proj | grep -c e2e-secret)" = 1 ] ||
 	fail "armada secret list does not show the secret of a project's app"
-cli secret rm e2e-app --project e2e-proj e2e-secret >/dev/null
+cli secret delete e2e-app --project e2e-proj e2e-secret >/dev/null
 ok "a project's app has secrets"
 i=1
 while [ "$i" -le "$N" ]; do
@@ -423,7 +435,7 @@ log "isolation between apps and projects"
 # must not pass as blocked, so a blocked request has to show wget's own error.
 iso_deploy() { # iso_deploy NAME PROJECT REPLICAS
 	printf 'name: %s\nimage: nginx:1-alpine\ningress:\n  type: internal\n  port: 80\nscale:\n  min: %s\n  max: %s\n' "$1" "$3" "$3" |
-		on "$CLI" "cat >/root/iso.yaml && armada deploy -f /root/iso.yaml --project $2" >/dev/null
+		on "$CLI" "cat >/root/iso.yaml && armada app update --file /root/iso.yaml --create-if-missing --project $2" >/dev/null
 }
 iso_ready() { # iso_ready APP-ID COUNT
 	status | jq -e --arg app "$1" --argjson n "$2" '
@@ -435,9 +447,9 @@ iso_ips() { # iso_ips APP-ID: the live replicas' container addresses
 	status | jq -r --arg app "$1" '.apps[] | select(.name == $app) | .replicas[]? | select((.draining // false) | not) | .address | split(":")[0]'
 }
 iso_gone() { [ "$(status | jq --arg app "$1" '[.apps[] | select(.name == $app)] | length')" = 0 ]; }
-reaches() { cli exec "$1" -- wget -q -O /dev/null -T 3 "http://$2/" >/dev/null 2>&1; }
+reaches() { cli app exec "$1" -- wget -q -O /dev/null -T 3 "http://$2/" >/dev/null 2>&1; }
 blocked() {
-	if _out=$(cli exec "$1" -- wget -q -O /dev/null -T 3 "http://$2/" 2>&1); then return 1; fi
+	if _out=$(cli app exec "$1" -- wget -q -O /dev/null -T 3 "http://$2/" 2>&1); then return 1; fi
 	case $_out in *wget:*) return 0 ;; esac
 	return 1
 }
@@ -468,16 +480,16 @@ wait_for 180 "a new app is ready" iso_ready gone.e2e-proj 1
 _gone_ip=$(iso_ips gone.e2e-proj | head -n 1)
 wait_for 60 "the new app reaches itself" reaches gone.e2e-proj "$_gone_ip"
 wait_for 60 "another project cannot reach the new app" blocked caller.e2e-other "$_gone_ip"
-cli app rm gone.e2e-proj --yes >/dev/null
+cli app delete gone.e2e-proj --yes >/dev/null
 wait_for 120 "a removed app is gone" iso_gone gone.e2e-proj
 wait_for 60 "a removed app's address stays blocked" blocked caller.e2e-other "$_gone_ip"
 iso_matrix "after a removal"
 for _app in web.e2e-proj other.e2e-proj caller.e2e-other; do
-	cli app rm "$_app" --yes >/dev/null
+	cli app delete "$_app" --yes >/dev/null
 	wait_for 120 "$_app is gone" iso_gone "$_app"
 done
-cli project rm e2e-proj >/dev/null
-cli project rm e2e-other >/dev/null
+cli project delete e2e-proj >/dev/null
+cli project delete e2e-other >/dev/null
 ok "both projects are removed"
 
 fi
@@ -499,7 +511,7 @@ load_stop "rolling update"
 
 log "rollback under load"
 load_start
-cli rollback "$APP" >/dev/null
+cli app rollback "$APP" >/dev/null
 wait_for 300 "rolled back to $V1" serving "$V1"
 load_stop "rollback"
 
@@ -530,7 +542,7 @@ if [ "$SERVERS" -gt 1 ] && want failover; then
 	on "$_i" 'systemctl stop armada-server'
 	wait_for 60 "a new leader took over from $_old" new_leader "$_old"
 	REPLICAS=$((REPLICAS + 1))
-	cli scale "$APP" "$REPLICAS" >/dev/null
+	cli app scale "$APP" --replicas "$REPLICAS" >/dev/null
 	wait_for 180 "scaled to $REPLICAS through the new leader" serving
 	load_stop "leader stop"
 	on "$_i" 'systemctl start armada-server'
@@ -592,7 +604,7 @@ cli node restrict "$_node" >/dev/null
 wait_for 300 "$APP moved off restricted $_node" none_on "$_node"
 wait_for 180 "$APP serving without $_node" serving
 load_stop "restricting a node"
-cat <<EOF | cli deploy -f - >/dev/null
+cat <<EOF | cli app update --file - --create-if-missing >/dev/null
 name: pinned
 image: $V1
 ingress:
@@ -605,8 +617,8 @@ placement:
 EOF
 wait_for 300 "pinned app runs only on $_node" pinned_on "$_node"
 cli node label "$_node" e2e.role- >/dev/null
-wait_for 60 "status explains why pinned has nowhere to go" placement_note
-cli node open "$_node" >/dev/null
+wait_for 60 "app show explains why pinned has nowhere to go" placement_note
+cli node unrestrict "$_node" >/dev/null
 wait_for 600 "$APP spread back over every node" even
 
 fi
@@ -617,7 +629,7 @@ log "image platforms"
 _archs=$(status | jq -r '[.nodes[].labels["armada.arch"]] | unique | .[]')
 _archlist=$(status | jq -r '[.nodes[].labels["armada.arch"]] | unique | join(", ")')
 hello_platforms() {
-	_line=$(cli revisions "$APP" | awk 'NR > 1 && $2 == "active"')
+	_line=$(cli app revision list "$APP" | awk 'NR > 1 && $2 == "active"')
 	for _a in $_archs; do
 		echo "$_line" | grep -q "linux/$_a" || return 1
 	done
@@ -629,20 +641,20 @@ only_on() {
 		| [.apps[] | select(.name == $app) | .replicas[]? | select((.draining // false) | not)] as $live
 		| ($live | length) == 2 and all($live[]; .state == "running" and $archOf[.nodeId] == $want)'
 }
-# unplaced APP ARCH: nothing of APP runs and status names ARCH.
+# unplaced APP ARCH: nothing of APP runs and app show names ARCH.
 unplaced() {
 	status | jq -e --arg app "$1" --arg want "no ready node can run the image, which is built for linux/$2" '
 		.apps[] | select(.name == $app)
 		| ((.placementMessage // "") | contains($want))
 		  and ([.replicas[]? | select((.draining // false) | not) | select(.state == "running")] | length) == 0'
 }
-wait_for 30 "armada revisions lists every node architecture ($_archlist) for $APP" hello_platforms
+wait_for 30 "armada app revision list lists every node architecture ($_archlist) for $APP" hello_platforms
 for _a in amd64 arm64; do
 	case $_a in
 	amd64) _image=amd64/busybox:1.37 ;;
 	arm64) _image=arm64v8/busybox:1.37 ;;
 	esac
-	cat <<EOF | cli deploy -f - >/dev/null
+	cat <<EOF | cli app update --file - --create-if-missing >/dev/null
 name: only-$_a
 image: $_image
 command: ["sleep", "3600"]
@@ -654,7 +666,7 @@ EOF
 	if echo "$_archs" | grep -qx "$_a"; then
 		wait_for 300 "a linux/$_a image runs only on $_a nodes" only_on "only-$_a" "$_a"
 	else
-		wait_for 120 "a linux/$_a image runs nowhere and status says why" unplaced "only-$_a" "$_a"
+		wait_for 120 "a linux/$_a image runs nowhere and app show says why" unplaced "only-$_a" "$_a"
 	fi
 done
 
@@ -669,7 +681,7 @@ low_weight() {
 	[ -n "$_w" ] && [ "$_w" -lt 100 ]
 }
 wait_for 30 "$APP containers get a CPU weight from their reservation" low_weight
-cat <<EOF | cli deploy -f - >/dev/null
+cat <<EOF | cli app update --file - --create-if-missing >/dev/null
 name: cpu-hog
 image: busybox:1.37
 command: ["sleep", "3600"]
@@ -683,7 +695,7 @@ no_cpu() {
 		| ((.placementMessage // "") | contains("none has 64 of CPU free"))
 		  and ([.replicas[]? | select(.state == "running")] | length) == 0'
 }
-wait_for 60 "an app reserving more CPU than any node has runs nowhere and status says why" no_cpu
+wait_for 60 "an app reserving more CPU than any node has runs nowhere and app show says why" no_cpu
 
 fi
 if want spread; then
@@ -698,7 +710,7 @@ while [ "$i" -le "$N" ]; do
 	cli node label "$(host "$i" 1)" "e2e.zone=$_zone" >/dev/null
 	i=$((i + 1))
 done
-cat <<EOF | cli deploy -f - >/dev/null
+cat <<EOF | cli app update --file - --create-if-missing >/dev/null
 name: spread
 image: busybox:1.37
 command: ["sleep", "3600"]

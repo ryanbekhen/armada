@@ -229,7 +229,7 @@ type ExecOptions struct {
 	Stdout, Stderr io.Writer
 }
 
-// Execer runs commands in app containers (armada exec, ADR 0015). The
+// Execer runs commands in app containers (armada app exec, ADR 0015). The
 // command gets the container's own security context: user, capabilities,
 // no-new-privileges, seccomp, limits, and namespaces. It is optional.
 type Execer interface {
@@ -281,7 +281,7 @@ type NetworkReleaser interface {
 	ReleaseNetwork(ctx context.Context, id string) error
 }
 
-// StatsReader samples what app containers use (armada top, ADR 0016). It
+// StatsReader samples what app containers use (armada app top, ADR 0016). It
 // is optional.
 type StatsReader interface {
 	Stats(ctx context.Context, id string) (Stats, error)

@@ -95,7 +95,7 @@ func (s *Server) metricsAllowed(ctx context.Context, cs *tls.ConnectionState) bo
 }
 
 // clusterCollector reads the cluster's state on every scrape, from the same
-// sources as `armada status` and `armada top`. Label values are names the
+// sources as `armada app show` and `armada app top`. Label values are names the
 // store has validated: apps, replicas, revisions, nodes, servers.
 type clusterCollector struct{ s *Server }
 
@@ -361,7 +361,7 @@ func (s *Server) RenewAdminCertificate(ctx context.Context, req *armadav1.RenewA
 	if err := s.store.RecordAudit(ctx, actor(ctx), "admin.certificate", acc.id.Name, "serial="+cert.Serial); err != nil {
 		return nil, storeErr(err)
 	}
-	// Administrators from before records show up in `armada admin ls`.
+	// Administrators from before records show up in `armada admin list`.
 	if err := s.store.KnowAdmin(ctx, acc.id.Name); err != nil {
 		return nil, storeErr(err)
 	}

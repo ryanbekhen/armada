@@ -97,7 +97,7 @@ service AdminService {
   rpc DeleteJob(DeleteJobRequest) returns (DeleteJobResponse);
 
   // RemoveApp drains an app's replicas and then removes it with its revisions
-  // and secrets. Its volumes stay until `armada volume rm`.
+  // and secrets. Its volumes stay until `armada volume delete`.
   rpc RemoveApp(RemoveAppRequest) returns (RemoveAppResponse);
 }
 
@@ -148,7 +148,7 @@ message JobRunInfo {
   string revision = 5;
   int32 attempts = 6;
   string node = 7;
-  // The replica of the latest attempt, whose logs `armada logs` shows.
+  // The replica of the latest attempt, whose logs `armada job logs` shows.
   string replica = 8;
   int32 exit_code = 9;
   string message = 10;
@@ -714,6 +714,8 @@ message DeployResponse {
 message StatusRequest {
   // Optional; empty means all apps.
   string app = 1;
+  // Only the nodes, with their replica counts: no apps.
+  bool nodes_only = 2;
 }
 
 message StatusResponse {
@@ -794,6 +796,8 @@ message NodeStatus {
   // Admin labels plus armada.os and armada.arch.
   map<string, string> labels = 10;
   bool restricted = 11;
+  // Replicas assigned to the node (not finished job attempts).
+  int32 replicas = 12;
 }
 
 message TopRequest {

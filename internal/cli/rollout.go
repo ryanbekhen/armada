@@ -2,11 +2,9 @@ package cli
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"strings"
-	"text/tabwriter"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -112,88 +110,4 @@ func trafficSummary(traffic []*armadav1.TrafficTarget) string {
 		parts = append(parts, p)
 	}
 	return strings.Join(parts, ", ")
-}
-
-func newRollbackCommand(g *globals) *cobra.Command {
-	var w waitFlags
-	cmd := &cobra.Command{
-		Use:   "rollback APP [REVISION]",
-		Short: "Roll an app back to an earlier revision",
-		Long: "Roll an app back to an earlier revision with a rolling update.\n\n" +
-			"Without REVISION, a rollout in progress is cancelled; otherwise the app\n" +
-			"returns to the revision before the active one. Revisions keep their\n" +
-			"pinned image digest, so a rollback runs exactly the image that ran before.",
-		Args: cobra.RangeArgs(1, 2),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := g.qualify(args); err != nil {
-				return err
-			}
-			req := &armadav1.RollbackRequest{App: args[0]}
-			if len(args) == 2 {
-				req.Revision = args[1]
-				if strings.HasPrefix(req.Revision, "r") && !strings.Contains(req.Revision, "--") {
-					req.Revision = args[0] + "--" + req.Revision
-				}
-			}
-			client, conn, err := dialAdmin(g)
-			if err != nil {
-				return err
-			}
-			defer conn.Close()
-			resp, err := client.Rollback(cmd.Context(), req)
-			if err != nil {
-				return RPCError(err)
-			}
-			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Rolling %s back to %s\n", args[0], resp.Revision); err != nil {
-				return err
-			}
-			if !w.wait {
-				return nil
-			}
-			return waitRollout(cmd.Context(), client, args[0], resp.Revision, w.timeout, cmd.OutOrStdout())
-		},
-	}
-	w.register(cmd)
-	return cmd
-}
-
-func newRevisionsCommand(g *globals) *cobra.Command {
-	return &cobra.Command{
-		Use:   "revisions APP",
-		Short: "List an app's revisions",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := g.qualify(args); err != nil {
-				return err
-			}
-			client, conn, err := dialAdmin(g)
-			if err != nil {
-				return err
-			}
-			defer conn.Close()
-			resp, err := client.ListRevisions(cmd.Context(), &armadav1.ListRevisionsRequest{App: args[0]})
-			if err != nil {
-				return RPCError(err)
-			}
-			if len(resp.Revisions) == 0 {
-				return errors.New("no revisions")
-			}
-			tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 4, 2, ' ', 0)
-			_, _ = fmt.Fprintln(tw, "REVISION\tSTATUS\tCREATED\tIMAGE\tPLATFORMS\tDIGEST")
-			for _, r := range resp.Revisions {
-				st := "-"
-				switch {
-				case r.Active && r.Target:
-					st = "active"
-				case r.Active:
-					st = "active (rolling out)"
-				case r.Target:
-					st = "rolling out"
-				}
-				_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", r.Name, st,
-					r.CreatedAt.AsTime().Local().Format(time.DateTime), r.Image, dash(strings.Join(r.Platforms, ",")), dash(r.ImageDigest))
-			}
-			return tw.Flush()
-		},
-	}
 }

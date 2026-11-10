@@ -39,14 +39,14 @@ func testSecrets(t *testing.T, d *fake.Driver, cli func(...string) (int, string,
 		return code, out, errOut
 	}
 
-	// A deploy that references unset secrets fails and names them.
+	// An app that references unset secrets is refused, naming them.
 	spec := filepath.Join(t.TempDir(), "api.yaml")
 	if err := os.WriteFile(spec, []byte("name: api\nimage: nginx:1.27\nenv:\n  - name: DB_PASSWORD\n    secretRef: db-pass\n"+
 		"secretFiles:\n  - secretRef: tls-key\n    path: /run/secrets/tls.key\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if code, _, stderr := run("deploy", "-f", spec); code == 0 || !strings.Contains(stderr, "db-pass, tls-key") || !strings.Contains(stderr, "armada secret set api") {
-		t.Fatalf("deploy with unset secrets: code=%d stderr=%q", code, stderr)
+	if code, _, stderr := run("app", "create", "--file", spec); code == 0 || !strings.Contains(stderr, "db-pass, tls-key") || !strings.Contains(stderr, "armada secret set api") {
+		t.Fatalf("create with unset secrets: code=%d stderr=%q", code, stderr)
 	}
 
 	// Values never come from arguments.
@@ -65,7 +65,7 @@ func testSecrets(t *testing.T, d *fake.Driver, cli func(...string) (int, string,
 	}
 
 	code, out, stderr := cliIn(marker1+"\n", "secret", "set", "api", "db-pass")
-	if code != 0 || !strings.Contains(out, "Secret db-pass of app api set (version 1)") {
+	if code != 0 || out != "Set secret db-pass of api (version 1).\n" {
 		t.Fatalf("secret set: code=%d out=%q err=%q", code, out, stderr)
 	}
 	keyFile := filepath.Join(t.TempDir(), "tls.key")
@@ -75,8 +75,8 @@ func testSecrets(t *testing.T, d *fake.Driver, cli func(...string) (int, string,
 	if code, _, stderr := run("secret", "set", "api", "tls-key", "--from-file", keyFile); code != 0 {
 		t.Fatalf("secret set --from-file: %q", stderr)
 	}
-	if code, out, stderr := run("deploy", "-f", spec, "--wait", "--timeout", "1m"); code != 0 {
-		t.Fatalf("deploy with secrets: code=%d out=%q err=%q", code, out, stderr)
+	if code, out, stderr := run("app", "create", "--file", spec, "--wait", "--timeout", "1m"); code != 0 {
+		t.Fatalf("create with secrets: code=%d out=%q err=%q", code, out, stderr)
 	}
 
 	envOf := func() []string {
@@ -100,7 +100,7 @@ func testSecrets(t *testing.T, d *fake.Driver, cli func(...string) (int, string,
 
 	// A new value rolls out by itself.
 	code, out, stderr = cliIn(marker2, "secret", "set", "api", "db-pass", "--wait", "--timeout", "1m")
-	if code != 0 || !strings.Contains(out, "version 2") || !strings.Contains(out, "Rolling out api--r2") {
+	if code != 0 || !strings.Contains(out, "version 2") || !strings.Contains(out, "; rolling out api--r2.") {
 		t.Fatalf("secret rotation: code=%d out=%q err=%q", code, out, stderr)
 	}
 	deadline := time.Now().Add(10 * time.Second)
@@ -115,8 +115,8 @@ func testSecrets(t *testing.T, d *fake.Driver, cli func(...string) (int, string,
 	if code != 0 || !regexp.MustCompile(`db-pass\s+2\s+.*admin:ryan\s+api--r2,api--r1`).MatchString(out) || !strings.Contains(out, "tls-key") {
 		t.Errorf("secret list:\n%s", out)
 	}
-	if code, _, stderr := run("secret", "rm", "api", "db-pass"); code == 0 || !strings.Contains(stderr, "used by revision api--r2") {
-		t.Errorf("rm of a secret in use: code=%d stderr=%q", code, stderr)
+	if code, _, stderr := run("secret", "delete", "api", "db-pass"); code == 0 || !strings.Contains(stderr, "used by revision api--r2") {
+		t.Errorf("delete of a secret in use: code=%d stderr=%q", code, stderr)
 	}
 	if code, out, _ := cliIn("x", "secret", "set", "api", "spare", "--no-rollout"); code != 0 || !strings.Contains(out, "version 1") {
 		t.Errorf("set unused secret: %q", out)

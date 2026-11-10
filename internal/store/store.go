@@ -168,7 +168,7 @@ type App struct {
 	// with "latest" resolved (ADR 0022); it also lists the revisions still
 	// serving while such an app rolls out to single mode.
 	Traffic []spec.TrafficTarget
-	// Removing is true from `armada app rm` until the app's replicas have
+	// Removing is true from `armada app delete` until the app's replicas have
 	// drained and the leader removes it.
 	Removing bool
 }

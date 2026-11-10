@@ -33,7 +33,7 @@ func newJoinCommand() *cobra.Command {
 		Use:   "join ADDR --ca-hash sha256:HEX",
 		Short: "Join this machine to a cluster as a node",
 		Long: "Join this machine to a cluster as a node. Get ADDR, TOKEN, and the CA hash\n" +
-			"from `armada token create`. The CA hash pins the cluster CA, so a machine in\n" +
+			"from `armada node join-token`. The CA hash pins the cluster CA, so a machine in\n" +
 			"the middle cannot pose as the server. Afterwards, run `armadad agent`.\n\n" +
 			"The token is read from --token-file, a hidden prompt, or stdin; never from\n" +
 			"an argument, which would leak into shell history.",

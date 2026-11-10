@@ -204,7 +204,7 @@ func newRuntimeResetCommand() *cobra.Command {
 		Long: "reset stops and removes all of Armada's containers on this node (those with\n" +
 			"Armada's labels),\n" +
 			"and the cluster network's interface and firewall rules.\n" +
-			"Use it after `armada node remove`, with the agent (or server) stopped first,\n" +
+			"Use it after `armada node delete`, with the agent (or server) stopped first,\n" +
 			"or it starts its replicas again.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {

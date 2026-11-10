@@ -624,7 +624,7 @@ func (v *validator) probes(p *Probes) {
 	}
 }
 
-// Limits on a probe's command, the same as on armada exec's.
+// Limits on a probe's command, the same as on armada app exec's.
 const (
 	maxProbeArgs   = 64
 	maxProbeArgLen = 4096
