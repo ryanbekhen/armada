@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"reflect"
 	"slices"
 	"sort"
 	"strconv"
@@ -705,6 +706,7 @@ func (s *Etcd) SetNodeStatus(ctx context.Context, id string, st NodeStatus) erro
 		if !ok {
 			return notFoundf("node %s", id)
 		}
+		before := n
 		n.State, n.LastSeen, n.CPUMillis, n.MemoryBytes = st.State, ms(st.LastSeen), st.CPUMillis, st.MemoryBytes
 		n.Jobs, n.Volumes = st.Jobs, st.Volumes
 		if st.Version != "" {
@@ -730,9 +732,24 @@ func (s *Etcd) SetNodeStatus(ctx context.Context, id string, st NodeStatus) erro
 			}
 			n.NetworkKey = st.NetworkKey
 		}
+		// Every agent report says the node is alive. Writing that each time
+		// moves the commit key under every other transaction, so a report
+		// that changes nothing but a recent LastSeen writes nothing (the
+		// leader keeps fresher times from usage reports in memory).
+		if seen := n.LastSeen - before.LastSeen; seen >= 0 && seen < nodeSeenEvery.Milliseconds() {
+			same := before
+			same.LastSeen = n.LastSeen
+			if reflect.DeepEqual(same, n) {
+				return nil
+			}
+		}
 		return t.put(pfxNodes+id, n)
 	})
 }
+
+// nodeSeenEvery is how stale a node's stored LastSeen may get while
+// nothing else about it changes.
+const nodeSeenEvery = 30 * time.Second
 
 // SetNodeCordoned marks a node (un)schedulable. See Store.
 func (s *Etcd) SetNodeCordoned(ctx context.Context, id string, cordoned bool, actor string) error {
