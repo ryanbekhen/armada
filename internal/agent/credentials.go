@@ -265,3 +265,7 @@ func RenewLoop(ctx context.Context, creds *Credentials, conn *ServerConn, interv
 		}
 	}
 }
+
+func (c switchingClient) GetCertificates(ctx context.Context, in *armadav1.GetCertificatesRequest, opts ...grpc.CallOption) (*armadav1.GetCertificatesResponse, error) {
+	return c.s.client().GetCertificates(ctx, in, opts...)
+}

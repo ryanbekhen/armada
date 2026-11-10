@@ -524,3 +524,35 @@ func (s *Server) appURLs(ctx context.Context, app store.App) []string {
 	}
 	return urls
 }
+
+// maxCertificateNames bounds one GetCertificates call.
+const maxCertificateNames = 256
+
+// GetCertificates hands an agent the proxy certificates its assignment
+// names by reference. Only node certificates reach it (AgentService), and
+// only names the last proxy configuration holds are answered: every node
+// serves every one of them.
+func (s *Server) GetCertificates(ctx context.Context, req *armadav1.GetCertificatesRequest) (*armadav1.GetCertificatesResponse, error) {
+	names := req.GetNames()
+	if len(names) > maxCertificateNames {
+		return nil, status.Errorf(codes.InvalidArgument, "at most %d names per call", maxCertificateNames)
+	}
+	resp := &armadav1.GetCertificatesResponse{}
+	if s.certs == nil {
+		return resp, nil
+	}
+	s.certMu.Lock()
+	served := s.servedCerts
+	s.certMu.Unlock()
+	seen := map[string]bool{}
+	for _, n := range names {
+		if seen[n] || !served[n] {
+			continue
+		}
+		seen[n] = true
+		if pem, ok := s.certs.Certificate(ctx, n); ok {
+			resp.Certificates = append(resp.Certificates, &armadav1.ProxyCertificate{Name: n, Pem: pem})
+		}
+	}
+	return resp, nil
+}

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -230,6 +231,11 @@ func TestIngressRoutingAndDomainVerification(t *testing.T) {
 		cfg := c.proxyOn("n2")
 		return len(cfg.Certificates) == 1 && cfg.Certificates[0].Name == "example.org"
 	})
+	// Agents fetch it by reference (Hello.certificate_refs): what reaches
+	// the proxy is the certificate itself.
+	if pem, _ := certs.Certificate(c.ctx, "example.org"); !bytes.Equal(c.proxyOn("n2").Certificates[0].PEM, pem) {
+		t.Error("the proxy did not get the certificate's PEM")
+	}
 	got, _ := c.admin.VerifyDomain(c.ctx, &armadav1.VerifyDomainRequest{Name: "example.org"})
 	if !got.Verified || !got.TlsReady {
 		t.Errorf("domain after issuance = %v", got)

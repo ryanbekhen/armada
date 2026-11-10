@@ -41,6 +41,9 @@ import (
 	"github.com/ryanbekhen/armada/internal/store"
 )
 
+// agentMaxRecv bounds a message the agent takes from the server.
+const agentMaxRecv = 64 << 20
+
 func newLogger(w io.Writer, format string, verbose bool) (*slog.Logger, error) {
 	opts := &slog.HandlerOptions{Level: slog.LevelInfo}
 	if verbose {
@@ -396,7 +399,9 @@ func runAgent(ctx context.Context, dataDir string, servers []string, proxyKind, 
 	conn, err := agent.NewServerConn(func() (*grpc.ClientConn, error) {
 		connMu.Lock()
 		defer connMu.Unlock()
-		c, err := clientconfig.Dial(addrs, tlsCfg)
+		// Assignments carry the node's replicas, secrets included, and the
+		// cluster's proxy configuration.
+		c, err := clientconfig.Dial(addrs, tlsCfg, grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(agentMaxRecv)))
 		if err != nil {
 			return nil, err
 		}
