@@ -186,7 +186,7 @@ func newServerJoinCommand() *cobra.Command {
 	rtFlags.register(f)
 	f.StringVar(&tokenFile, "token-file", "", "file holding the server token (default: prompt or stdin)")
 	f.StringVar(&caHash, "ca-hash", "", "cluster CA hash, sha256:...")
-	f.StringVar(&privateIP, "private-ip", "", "this machine's private IP; auto-detected if empty")
+	f.StringVar(&privateIP, "private-ip", "", "this machine's private IP (default: the only private IPv4 address)")
 	f.StringVar(&name, "name", "", "server and node name (default: hostname)")
 	f.StringVar(&dataDir, "data-dir", defaultDataDir, "directory for cluster state and keys")
 	f.IntVar(&port, "port", defaultPort, "control plane port on the private IP")

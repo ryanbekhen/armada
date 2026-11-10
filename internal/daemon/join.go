@@ -153,7 +153,7 @@ func newJoinCommand() *cobra.Command {
 	rtFlags.register(f)
 	f.StringVar(&tokenFile, "token-file", "", "file holding the join token (default: prompt or stdin)")
 	f.StringVar(&caHash, "ca-hash", "", "cluster CA hash, sha256:...")
-	f.StringVar(&privateIP, "private-ip", "", "this node's private IP; auto-detected if empty")
+	f.StringVar(&privateIP, "private-ip", "", "this node's private IP (default: the only private IPv4 address)")
 	f.StringVar(&nodeName, "node-name", "", "node name (default: hostname)")
 	f.StringVar(&dataDir, "data-dir", defaultDataDir, "directory for the node certificate")
 	_ = cmd.MarkFlagRequired("ca-hash")

@@ -245,7 +245,7 @@ func newInitCommand(g *globals) *cobra.Command {
 	f := cmd.Flags()
 	rtFlags.register(f)
 	f.StringVar(&dataDir, "data-dir", defaultDataDir, "directory for cluster state and keys")
-	f.StringVar(&privateIP, "private-ip", "", "this node's private IP; auto-detected if empty")
+	f.StringVar(&privateIP, "private-ip", "", "this node's private IP (default: the only private IPv4 address)")
 	f.StringVar(&nodeName, "node-name", "", "node name (default: hostname)")
 	f.StringVar(&adminName, "admin-name", "", "admin identity name (default: current user)")
 	f.IntVar(&port, "port", defaultPort, "control plane port on the private IP")
