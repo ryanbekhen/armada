@@ -637,7 +637,11 @@ func TestReportsKeepNodeCapacity(t *testing.T) {
 	if err := stream.Send(&armadav1.AgentMessage{Msg: &armadav1.AgentMessage_Hello{Hello: hello}}); err != nil {
 		t.Fatal(err)
 	}
-	c.eventually("n1 connected", func() bool { return c.srv.session("n1") != nil })
+	// The session exists before the hello is stored.
+	c.eventually("hello stored", func() bool {
+		n, _ := c.store.GetNode(c.ctx, "n1")
+		return c.srv.session("n1") != nil && n.CPUMillis == 2000
+	})
 	if err := stream.Send(&armadav1.AgentMessage{Msg: &armadav1.AgentMessage_Report{Report: &armadav1.ReplicaReport{}}}); err != nil {
 		t.Fatal(err)
 	}
