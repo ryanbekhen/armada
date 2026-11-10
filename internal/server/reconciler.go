@@ -90,7 +90,7 @@ func (s *Server) Reconcile(ctx context.Context) error {
 		s.wakeAfter(rc.wake)
 	}
 	apps = slices.DeleteFunc(apps, func(a store.App) bool { return removed[a.Name] })
-	px, err := s.buildProxy(ctx, apps, replicas)
+	pxp, err := s.proxyConfig(ctx, apps, replicas)
 	if err != nil {
 		return err
 	}
@@ -102,7 +102,25 @@ func (s *Server) Reconcile(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return s.pushAssignments(ctx, replicas, &revs, px.ToProto(), eps, network)
+	return s.pushAssignments(ctx, replicas, &revs, pxp, eps, network)
+}
+
+// proxyConfig builds the pass's proxy configuration. When it cannot, the
+// nodes keep the last one that could while their replicas still start,
+// move, and stop: a bad route must not freeze every node.
+func (s *Server) proxyConfig(ctx context.Context, apps []store.App, replicas []store.Replica) (*armadav1.ProxyConfig, error) {
+	px, err := s.buildProxy(ctx, apps, replicas)
+	s.condition(ctx, "proxy-invalid", err != nil, store.Event{Kind: eventNode, Object: "*", Reason: "ProxyNotUpdated",
+		Message: fmt.Sprintf("the proxy configuration was not updated: %v", err)})
+	if err == nil {
+		s.lastProxy = px.ToProto()
+		return s.lastProxy, nil
+	}
+	s.log.Error("proxy configuration not updated", "err", err)
+	if s.lastProxy == nil {
+		return nil, err
+	}
+	return s.lastProxy, nil
 }
 
 // reconcileRun is the state of one Reconcile pass.
