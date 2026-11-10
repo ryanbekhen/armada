@@ -87,6 +87,10 @@ type Member struct {
 	closeErr  error
 }
 
+// maxTxnOps bounds the operations of one transaction (etcd's default is
+// 128).
+const maxTxnOps = 4096
+
 // Start starts the member (a new single-member cluster on first start) and
 // returns once it serves requests.
 func Start(ctx context.Context, cfg Config) (*Member, error) {
@@ -137,6 +141,9 @@ func Start(ctx context.Context, cfg Config) (*Member, error) {
 	ec.ListenMetricsUrls = nil
 	ec.TlsMinVersion = "TLS1.3"
 	ec.UnsafeNoFsync = cfg.UnsafeNoFsync
+	// Armada deletes what it can by range, but a transaction may still
+	// touch a few hundred keys (a node's replicas, a large app's records).
+	ec.MaxTxnOps = maxTxnOps
 	ec.AutoCompactionMode = "periodic"
 	ec.AutoCompactionRetention = "1h"
 	closing := new(atomic.Bool)

@@ -3,6 +3,7 @@ package server
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -72,16 +73,26 @@ func (s *Server) Reconcile(ctx context.Context) error {
 			jobs = append(jobs, app)
 			continue
 		}
+		var next []store.Replica
 		if app.Removing {
-			if replicas, removed[app.Name], err = s.reconcileRemoval(ctx, &rc, app, replicas); err != nil {
-				return fmt.Errorf("app %s: %w", app.Name, err)
-			}
-			continue
+			var done bool
+			next, done, err = s.reconcileRemoval(ctx, &rc, app, replicas)
+			removed[app.Name] = done && err == nil
+		} else {
+			next, err = s.reconcileApp(ctx, &rc, &apps[i], nodes, replicas, &revs)
 		}
-		replicas, err = s.reconcileApp(ctx, &rc, &apps[i], nodes, replicas, &revs)
-		if err != nil {
+		// One app that cannot be reconciled must not hold up the others:
+		// it is retried next pass, and the cluster says so once.
+		if err != nil && (errors.Is(err, store.ErrNotLeader) || ctx.Err() != nil) {
 			return fmt.Errorf("app %s: %w", app.Name, err)
 		}
+		s.condition(ctx, "reconcile/"+app.Name, err != nil, store.Event{Kind: eventApp, Object: app.Name, App: app.Name,
+			Reason: "ReconcileFailed", Message: fmt.Sprintf("%v", err)})
+		if err != nil {
+			s.log.Error("reconcile app", "app", app.Name, "err", err)
+			continue
+		}
+		replicas = next
 	}
 	if replicas, err = s.reconcileJobs(ctx, &rc, jobs, nodes, replicas, &revs); err != nil {
 		return err

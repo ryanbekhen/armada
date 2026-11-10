@@ -55,16 +55,11 @@ func (s *Etcd) DeleteApp(ctx context.Context, app string) error {
 		if left {
 			return fmt.Errorf("app %s still has replicas: %w", app, ErrPrecondition)
 		}
+		// One operation each, however many revisions and secret versions:
+		// a transaction has a bounded number of them.
 		t.delete(pfxApps + app)
-		for _, prefix := range []string{pfxRevs + app + "/", pfxSecrets + app + "/"} {
-			kvs, err := t.list(prefix)
-			if err != nil {
-				return err
-			}
-			for _, e := range kvs {
-				t.delete(e.key)
-			}
-		}
+		t.deletePrefix(pfxRevs + app + "/")
+		t.deletePrefix(pfxSecrets + app + "/")
 		return nil
 	})
 }

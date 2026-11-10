@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"crypto/tls"
+	"fmt"
 	"strconv"
 	"testing"
 	"time"
@@ -280,5 +281,35 @@ func TestDrainFromSpec(t *testing.T) {
 	c.reconcile()
 	if n := len(c.replicas()); n != 1 {
 		t.Errorf("%d replicas after the drain, want 1", n)
+	}
+}
+
+type failApp struct {
+	store.Store
+	app string
+}
+
+func (f *failApp) CreateReplica(ctx context.Context, r store.Replica) error {
+	if r.App == f.app {
+		return fmt.Errorf("injected")
+	}
+	return f.Store.CreateReplica(ctx, r)
+}
+
+// An app that cannot be reconciled does not hold up the others.
+func TestOneAppFailingKeepsTheRest(t *testing.T) {
+	t.Parallel()
+	c := newClockServer(t)
+	c.srv.store = &failApp{Store: c.st, app: "bad"}
+	if _, _, err := c.st.Deploy(c.ctx, mustSpec(t, "name: bad\nimage: nginx:1\n"), "t"); err != nil {
+		t.Fatal(err)
+	}
+	c.deploy("name: good\nimage: nginx:1\n")
+	got := map[string]int{}
+	for _, r := range c.replicas() {
+		got[r.App]++
+	}
+	if got["good"] != 1 || got["bad"] != 0 {
+		t.Errorf("replicas %v", got)
 	}
 }

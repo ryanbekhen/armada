@@ -37,6 +37,8 @@ type Etcd struct {
 	fenceKey string
 	fenceRev int64
 	leases   *eventLeases
+	// onCommit sees the operation count of each transaction (tests).
+	onCommit func(ops int)
 }
 
 // Key layout below the prefix.
@@ -136,6 +138,45 @@ type etx struct {
 	// ops holds buffered writes by key; a nil value is a delete.
 	ops map[string][]byte
 	del map[string]bool
+	// ranges are deleted key ranges [from, to): one operation each,
+	// however many keys they hold.
+	ranges []keyRange
+}
+
+type keyRange struct{ from, to string }
+
+// deleted reports whether k is deleted in this transaction.
+func (t *etx) deleted(k string) bool {
+	if t.del[k] {
+		return true
+	}
+	for _, r := range t.ranges {
+		if k >= r.from && k < r.to {
+			return true
+		}
+	}
+	return false
+}
+
+// deleteRange deletes every key in [from, to) with one operation. Nothing
+// may be written into the range afterwards in the same transaction.
+func (t *etx) deleteRange(from, to string) {
+	for k := range t.ops {
+		if k >= from && k < to {
+			delete(t.ops, k)
+		}
+	}
+	for k := range t.del {
+		if k >= from && k < to {
+			delete(t.del, k)
+		}
+	}
+	t.ranges = append(t.ranges, keyRange{from, to})
+}
+
+// deletePrefix deletes every key under prefix with one operation.
+func (t *etx) deletePrefix(prefix string) {
+	t.deleteRange(prefix, clientv3.GetPrefixRangeEnd(prefix))
 }
 
 type kv struct {
@@ -146,7 +187,7 @@ type kv struct {
 func (t *etx) full(k string) string { return t.s.prefix + k }
 
 func (t *etx) getRaw(k string) ([]byte, bool, error) {
-	if t.del[k] {
+	if t.deleted(k) {
 		return nil, false, nil
 	}
 	if v, ok := t.ops[k]; ok {
@@ -172,7 +213,7 @@ func (t *etx) getMany(keys []string) (map[string][]byte, error) {
 	out := make(map[string][]byte, len(keys))
 	var remote []string
 	for _, k := range keys {
-		if t.del[k] {
+		if t.deleted(k) {
 			continue
 		}
 		if v, ok := t.ops[k]; ok {
@@ -227,8 +268,8 @@ func (t *etx) list(prefix string) ([]kv, error) {
 			m[k] = v
 		}
 	}
-	for k := range t.del {
-		if strings.HasPrefix(k, prefix) {
+	for k := range m {
+		if t.deleted(k) {
 			delete(m, k)
 		}
 	}
@@ -263,6 +304,12 @@ func (t *etx) put(k string, v any) error {
 	if err != nil {
 		return err
 	}
+	for _, r := range t.ranges {
+		if k >= r.from && k < r.to {
+			// etcd refuses a write inside a deleted range in one transaction.
+			return fmt.Errorf("store: write to %s after deleting its range", k)
+		}
+	}
 	delete(t.del, k)
 	t.ops[k] = b
 	return nil
@@ -270,10 +317,12 @@ func (t *etx) put(k string, v any) error {
 
 func (t *etx) delete(k string) {
 	delete(t.ops, k)
-	t.del[k] = true
+	if !t.deleted(k) {
+		t.del[k] = true
+	}
 }
 
-func (t *etx) dirty() bool { return len(t.ops) > 0 || len(t.del) > 0 }
+func (t *etx) dirty() bool { return len(t.ops) > 0 || len(t.del) > 0 || len(t.ranges) > 0 }
 
 // tx runs fn in a transaction, retrying on conflicts. fn may run more than
 // once and must not have side effects outside t.
@@ -295,14 +344,20 @@ func (s *Etcd) tx(ctx context.Context, fn func(*etx) error) error {
 		if !t.dirty() {
 			return nil
 		}
-		ops := make([]clientv3.Op, 0, len(t.ops)+len(t.del)+1)
+		ops := make([]clientv3.Op, 0, len(t.ops)+len(t.del)+len(t.ranges)+1)
 		for _, k := range slices.Sorted(maps.Keys(t.ops)) {
 			ops = append(ops, clientv3.OpPut(t.full(k), string(t.ops[k])))
 		}
 		for _, k := range slices.Sorted(maps.Keys(t.del)) {
 			ops = append(ops, clientv3.OpDelete(t.full(k)))
 		}
+		for _, r := range t.ranges {
+			ops = append(ops, clientv3.OpDelete(t.full(r.from), clientv3.WithRange(t.full(r.to))))
+		}
 		ops = append(ops, clientv3.OpPut(commit, ""))
+		if s.onCommit != nil {
+			s.onCommit(len(ops))
+		}
 		cmps := []clientv3.Cmp{clientv3.Compare(clientv3.ModRevision(commit), "=", mod)}
 		if s.fenceKey != "" {
 			cmps = append(cmps, clientv3.Compare(clientv3.CreateRevision(s.fenceKey), "=", s.fenceRev))
@@ -525,14 +580,8 @@ func (t *etx) audit(at time.Time, actor, action, target, detail string) error {
 		return err
 	}
 	if seq > auditKeep && seq%100 == 0 {
-		// Drop the oldest events in batches.
-		kvs, err := t.list(pfxAudit)
-		if err != nil {
-			return err
-		}
-		for _, e := range kvs[:max(0, len(kvs)-auditKeep)] {
-			t.delete(e.key)
-		}
+		// Drop the oldest events in batches, with one operation.
+		t.deleteRange(pfxAudit, fmt.Sprintf("%s%020d", pfxAudit, seq-auditKeep))
 	}
 	return t.put(fmt.Sprintf("%s%020d", pfxAudit, seq), auditRec{ID: seq, At: at.UnixMilli(), Actor: actor, Action: action, Target: target, Detail: detail})
 }
