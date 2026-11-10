@@ -23,9 +23,11 @@ import (
 	"github.com/ryanbekhen/armada/internal/fsutil"
 	"github.com/ryanbekhen/armada/internal/netutil"
 	"github.com/ryanbekhen/armada/internal/proxy/haproxy"
+	"github.com/ryanbekhen/armada/internal/release"
 	"github.com/ryanbekhen/armada/internal/runtime"
 	"github.com/ryanbekhen/armada/internal/runtime/containerd"
 	"github.com/ryanbekhen/armada/internal/runtime/embedded"
+	"github.com/ryanbekhen/armada/internal/version"
 )
 
 // Pre-flight check results.
@@ -61,6 +63,9 @@ type doctorEnv struct {
 	readFile    func(string) ([]byte, error)
 	now         func() time.Time
 	adminConfig string
+	// latest finds the latest release; nil skips the check.
+	latest      func(context.Context) (string, error)
+	version     string
 	privateIP   string
 	dataDir     string
 	secretsDir  string
@@ -134,7 +139,17 @@ func hostDoctorEnv(dataDir string) doctorEnv {
 		now:         time.Now,
 		adminConfig: clientconfig.DefaultPath(),
 		clusterPort: []uint16{defaultPort, defaultPort + 1, haproxy.MetricsPort},
+		latest:      latestRelease(),
+		version:     version.Get().Version,
 	}
+}
+
+// latestRelease is release.Latest unless looking is turned off.
+func latestRelease() func(context.Context) (string, error) {
+	if os.Getenv(release.DisableEnv) != "" {
+		return nil
+	}
+	return release.Latest
 }
 
 // printChecks writes one line per result and returns the number of failures.
@@ -201,6 +216,17 @@ func runDoctor(ctx context.Context, env doctorEnv) []checkResult {
 		add("firewall", checkWarn, "ufw is active: published container ports bypass ufw rules, and containers need %[1]s → 53/udp,tcp and 80/tcp allowed for internal names (ufw allow in on %[1]s to any port 53; ufw allow in on %[1]s to any port 80 proto tcp)", br)
 	default:
 		add("firewall", checkOK, "ufw inactive; restrict the cluster ports to the VPC in the provider firewall")
+	}
+
+	if env.latest != nil {
+		switch tag, err := env.latest(ctx); {
+		case err != nil:
+			add("release", checkOK, "%s; could not look for a newer release (%v)", env.version, err)
+		case release.Newer(tag, env.version):
+			add("release", checkWarn, "%s is available (this is %s): sudo armadad upgrade, servers first, one at a time", tag, env.version)
+		default:
+			add("release", checkOK, "%s", env.version)
+		}
 	}
 	return out
 }

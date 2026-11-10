@@ -14,10 +14,13 @@ import (
 
 	armadav1 "github.com/ryanbekhen/armada/api/armada/v1"
 	"github.com/ryanbekhen/armada/internal/agent"
+	"github.com/ryanbekhen/armada/internal/release"
 )
 
 // TestMain records the cluster network instead of setting it up on the host.
 func TestMain(m *testing.M) {
+	// No look for the latest release from tests.
+	_ = os.Setenv(release.DisableEnv, "1")
 	newClusterNet = func(_ string, ac *agentConfig, _ *slog.Logger) (agent.Network, string, error) {
 		if ac.Network == "" {
 			return nil, "", nil
