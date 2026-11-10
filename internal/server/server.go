@@ -152,6 +152,12 @@ type Server struct {
 	// lastProxy is the last proxy configuration that passed validation; a
 	// pass whose own does not still sends replicas with it.
 	lastProxy *armadav1.ProxyConfig
+	// lastProxyRefs is lastProxy with certificates by reference, for
+	// agents that fetch them (Hello.certificate_refs).
+	lastProxyRefs *armadav1.ProxyConfig
+	// servedCerts are the certificate names of the last proxy
+	// configuration; GetCertificates hands out only these.
+	servedCerts map[string]bool
 
 	now              func() time.Time
 	drainTimeout     time.Duration

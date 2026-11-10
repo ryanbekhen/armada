@@ -12,7 +12,7 @@ Every node runs HAProxy, which terminates TLS. Certificates could be requested b
 - `certmagic` runs only on the server (`internal/certs`, `certs.Manager` interface). Storage: `<data-dir>/certs` (`0700`, files `0600`).
 - HTTP-01: HAProxy on every node forwards `/.well-known/acme-challenge/` to the server's responder on a private IP. TLS-ALPN is disabled because TLS is terminated by HAProxy.
 - DNS-01 is used only for root domain wildcards, with a provider from `libdns` (Cloudflare first).
-- The combined PEM (chain + key) is sent in `Assignment.proxy.certificates` over the mTLS stream; the agent writes the file and installs it via the Runtime API without a reload if the certificate name has not changed.
+- The combined PEM (chain + key) reaches the agent over mTLS; the agent writes the file and installs it via the Runtime API without a reload if the certificate name has not changed. `Assignment.proxy.certificates` names each certificate with the SHA-256 of its PEM, and the agent fetches the ones it lacks or whose digest changed with `AgentService.GetCertificates` (at most 256 per call, only names the cluster serves, node certificates only), checks each against its digest, and keeps them in memory. So an assignment does not grow with every certificate of the cluster, which on a large cluster without a wildcard went past what an agent accepts in one message. Agents from before this (no `Hello.certificate_refs`) still get the PEMs in the assignment.
 
 ## Consequences
 

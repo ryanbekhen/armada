@@ -506,6 +506,16 @@ func TestAuthorization(t *testing.T) {
 		}
 	})
 
+	t.Run("only nodes get proxy certificates", func(t *testing.T) {
+		for _, id := range []pki.Identity{{Kind: pki.KindAdmin, Name: "ryan"}, pki.EtcdMember, {Kind: pki.KindNode, Name: "intruder"}} {
+			ag := armadav1.NewAgentServiceClient(c.dial(c.ca, id))
+			_, err := ag.GetCertificates(c.ctx, &armadav1.GetCertificatesRequest{Names: []string{"web.example.org"}})
+			if code := status.Code(err); code != codes.PermissionDenied && code != codes.Unauthenticated {
+				t.Errorf("%s: err = %v, want refused", id, err)
+			}
+		}
+	})
+
 	t.Run("admin cannot impersonate an agent", func(t *testing.T) {
 		ag := armadav1.NewAgentServiceClient(c.dial(c.ca, pki.Identity{Kind: pki.KindAdmin, Name: "ryan"}))
 		stream, err := ag.Connect(c.ctx)

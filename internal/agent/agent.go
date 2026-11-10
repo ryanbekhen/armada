@@ -171,6 +171,9 @@ type Agent struct {
 
 	proxyDesired *armadav1.ProxyConfig
 	proxyApplied *armadav1.ProxyConfig
+	// certs holds the proxy certificates fetched by reference, by name;
+	// only applyProxy uses it.
+	certs map[string]cachedCert
 	// networkDesired is the last cluster network received; networkFailed
 	// holds the last error applying it, logged once per change.
 	networkDesired *armadav1.NetworkConfig
@@ -299,6 +302,7 @@ func (a *Agent) session(ctx context.Context) (established bool, err error) {
 		CpuMillis: a.cfg.CPUMillis, MemoryBytes: a.cfg.MemoryBytes, Version: version.Get().Version, PrivateIp: a.cfg.PrivateIP,
 		Os: cmp.Or(a.cfg.OS, goruntime.GOOS), Arch: cmp.Or(a.cfg.Arch, goruntime.GOARCH),
 		Jobs: true, Volumes: a.mountsVolumes(), NetworkKey: a.cfg.NetworkKey,
+		CertificateRefs: true,
 	}}}
 	if err := stream.Send(hello); err != nil {
 		return false, err
@@ -897,7 +901,12 @@ func (a *Agent) applyProxy(ctx context.Context) {
 		}
 		a.log.Warn("proxy unhealthy, applying its configuration again", "err", err)
 	}
-	cfg := proxy.FromProto(want)
+	cfg, err := a.withCertificates(ctx, want)
+	if err != nil {
+		// Applied on a later pass: the last configuration keeps serving.
+		a.log.Error("fetching proxy certificates failed", "err", err)
+		return
+	}
 	if err := a.cfg.Proxy.Apply(ctx, cfg); err != nil {
 		a.log.Error("applying proxy config failed", "err", err)
 		return

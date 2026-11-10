@@ -3,6 +3,7 @@ package server
 import (
 	"cmp"
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"maps"
@@ -101,7 +102,7 @@ func (s *Server) Reconcile(ctx context.Context) error {
 		s.wakeAfter(rc.wake)
 	}
 	apps = slices.DeleteFunc(apps, func(a store.App) bool { return removed[a.Name] })
-	pxp, err := s.proxyConfig(ctx, apps, replicas)
+	pxp, pxRefs, err := s.proxyConfig(ctx, apps, replicas)
 	if err != nil {
 		return err
 	}
@@ -113,25 +114,37 @@ func (s *Server) Reconcile(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return s.pushAssignments(ctx, replicas, &revs, pxp, eps, network)
+	return s.pushAssignments(ctx, replicas, &revs, pxp, pxRefs, eps, network)
 }
 
 // proxyConfig builds the pass's proxy configuration. When it cannot, the
 // nodes keep the last one that could while their replicas still start,
 // move, and stop: a bad route must not freeze every node.
-func (s *Server) proxyConfig(ctx context.Context, apps []store.App, replicas []store.Replica) (*armadav1.ProxyConfig, error) {
+func (s *Server) proxyConfig(ctx context.Context, apps []store.App, replicas []store.Replica) (full, refs *armadav1.ProxyConfig, err error) {
 	px, err := s.buildProxy(ctx, apps, replicas)
 	s.condition(ctx, "proxy-invalid", err != nil, store.Event{Kind: eventNode, Object: "*", Reason: "ProxyNotUpdated",
 		Message: fmt.Sprintf("the proxy configuration was not updated: %v", err)})
 	if err == nil {
 		s.lastProxy = px.ToProto()
-		return s.lastProxy, nil
+		byRef := *px
+		byRef.Certificates = nil
+		s.lastProxyRefs = byRef.ToProto()
+		served := make(map[string]bool, len(px.Certificates))
+		for _, c := range px.Certificates {
+			sum := sha256.Sum256(c.PEM)
+			s.lastProxyRefs.Certificates = append(s.lastProxyRefs.Certificates, &armadav1.ProxyCertificate{Name: c.Name, Sha256: sum[:]})
+			served[c.Name] = true
+		}
+		s.certMu.Lock()
+		s.servedCerts = served
+		s.certMu.Unlock()
+		return s.lastProxy, s.lastProxyRefs, nil
 	}
 	s.log.Error("proxy configuration not updated", "err", err)
 	if s.lastProxy == nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return s.lastProxy, nil
+	return s.lastProxy, s.lastProxyRefs, nil
 }
 
 // reconcileRun is the state of one Reconcile pass.
@@ -1097,7 +1110,7 @@ func pickNodeBy(nodes []store.Node, use placedUse, spread []store.Replica, sprea
 	return best.node, true
 }
 
-func (s *Server) pushAssignments(ctx context.Context, replicas []store.Replica, revs *revisionCache, px *armadav1.ProxyConfig, servers []string, network *armadav1.NetworkConfig) error {
+func (s *Server) pushAssignments(ctx context.Context, replicas []store.Replica, revs *revisionCache, px, pxRefs *armadav1.ProxyConfig, servers []string, network *armadav1.NetworkConfig) error {
 	byNode := map[string][]store.Replica{}
 	for _, r := range replicas {
 		byNode[r.NodeID] = append(byNode[r.NodeID], r)
@@ -1112,6 +1125,9 @@ func (s *Server) pushAssignments(ctx context.Context, replicas []store.Replica, 
 
 	for _, sess := range sessions {
 		a := &armadav1.Assignment{Proxy: px, Servers: servers, Network: network}
+		if sess.certRefs {
+			a.Proxy = pxRefs
+		}
 		for _, r := range byNode[sess.nodeID] {
 			rev, err := revs.get(ctx, r.Revision)
 			if err != nil {

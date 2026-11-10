@@ -150,7 +150,7 @@ func state(addrs []string) resolver.State {
 
 // Dial opens a gRPC connection to the control plane at addrs with the given
 // client TLS config. It is shared by the CLI and the agent.
-func Dial(addrs []string, tlsCfg *tls.Config) (*Conn, error) {
+func Dial(addrs []string, tlsCfg *tls.Config, opts ...grpc.DialOption) (*Conn, error) {
 	if len(addrs) == 0 {
 		return nil, errors.New("no control plane address")
 	}
@@ -160,11 +160,12 @@ func Dial(addrs []string, tlsCfg *tls.Config) (*Conn, error) {
 	// Fail over within seconds: an election takes about as long as the
 	// leader lease, and agents should not wait minutes after it.
 	backoff.MaxDelay = 5 * time.Second
-	conn, err := grpc.NewClient(r.Scheme()+":///control-plane",
+	conn, err := grpc.NewClient(r.Scheme()+":///control-plane", append([]grpc.DialOption{
 		grpc.WithResolvers(r),
 		grpc.WithTransportCredentials(credentials.NewTLS(tlsCfg)),
 		grpc.WithConnectParams(grpc.ConnectParams{Backoff: backoff, MinConnectTimeout: 5 * time.Second}),
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{Time: 30 * time.Second, Timeout: 10 * time.Second, PermitWithoutStream: true}),
+	}, opts...)...,
 	)
 	if err != nil {
 		return nil, err
