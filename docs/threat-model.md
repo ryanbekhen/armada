@@ -29,7 +29,7 @@ Method: STRIDE per trust boundary.
 | Cluster CA key | server data directory; backup archives | Attacker can issue node/admin certificates → full control of the cluster |
 | Secret master key | server data directory (`master.key`, `0600`); backup archives | All app secrets exposed (together with the state) |
 | Decrypted secrets | server memory; agent memory; node tmpfs (secret files); the runtime's container config on node disk (env secrets) | That app's credentials exposed |
-| Admin certificate | `/etc/armada/admin.config` on the first server (root, readable by the `armada` group); copies in `~/.armada/config` | Full control of the cluster: every member of the `armada` group on that server holds it |
+| Admin certificate | `/etc/armada/admin.config` on the first server (root, readable by the `armada` group); `~/.armada/config` of the user who ran `sudo armadad init` and of each person given one | Full control of the cluster: every member of the `armada` group on that server holds it |
 | DNS provider token | `0600` file on the server | Domain hijacking |
 | Registry credentials | store (encrypted, as an app secret) | Theft of private images |
 | Domain TLS private keys | certmagic storage, PEM on every node | Eavesdropping on/impersonation of user sites |
