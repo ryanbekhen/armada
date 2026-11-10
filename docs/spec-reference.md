@@ -17,6 +17,7 @@ env:
     value: info
   - name: DATABASE_URL
     secretRef: database-url       # from `armada secret set web database-url`
+envFrom: secrets                  # optional: every other secret of the app as a variable
 secretFiles:
   - secretRef: tls-client-key
     path: /run/secrets/client.key # read-only file on tmpfs
@@ -49,6 +50,43 @@ volumes:                          # optional: data kept on the replica's node
     path: /app/uploads
     owner: "1000:1000"
 ```
+
+## Variables
+
+A spec can hold `${NAME}` in any value, filled in by `armada deploy` from
+`--var NAME=VALUE` or from a file of `NAME=VALUE` lines given with
+`--vars`, so one spec serves several environments:
+
+```yaml
+# api.yaml
+name: api
+image: ghcr.io/acme/api:${TAG}
+ingress:
+  type: external
+  port: 3000
+  domains: [${DOMAIN}]
+scale:
+  min: 1
+  max: ${API_MAX}
+```
+
+```bash
+# production.env holds the lines DOMAIN=example.com and API_MAX=4
+armada deploy -f api.yaml --vars production.env --var TAG=sha-1a2b3c
+```
+
+- `--var` wins over `--vars`. A file may hold variables a spec does not
+  use, so one file per environment serves every app.
+- A variable the spec uses but neither sets is an error, never an empty
+  value.
+- A value that is one variable alone takes its type (`max: ${API_MAX}` is
+  a number); quotes keep it a string.
+- A value never changes the spec's structure, and `${NAME}` needs no
+  quotes inside `[...]` or `{...}`. Variables are not allowed in keys.
+- Without `--var` or `--vars` the spec is taken as written. With them,
+  write `$${` for a literal `${`.
+- Values end up in the revision like the rest of the spec: keep secrets in
+  [secrets](#envfrom), not in variables.
 
 ## Fields
 
@@ -83,6 +121,22 @@ with `ARMADA_`; `PORT` is reserved too, Armada sets it to `ingress.port`. Each e
 
 Environment variables are visible to anyone with root on the node (in the
 container runtime's metadata). Prefer `secretFiles` for sensitive values.
+
+### `envFrom`
+
+`envFrom: secrets` gives the app every secret it has as a variable, so a
+file imported with `armada secret import web .env` needs no `env` list. A
+secret's variable is its name in capitals with `_` for `-`
+(`database-url` becomes `DATABASE_URL`). Left out:
+
+- variables `env` sets itself (they win);
+- secrets the spec uses in `secretFiles` or `registry`;
+- names that are reserved (`PORT`, `ARMADA_...`) or not valid variable
+  names (a secret starting with a digit).
+
+The list is taken when you deploy and kept in the revision, like the secret
+versions: a secret set later reaches the app with its next deploy, and a
+rollback brings back the variables of that revision.
 
 ### `secretFiles`
 

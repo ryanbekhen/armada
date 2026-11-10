@@ -645,3 +645,33 @@ func TestCommandProbes(t *testing.T) {
 		t.Error("an oversized entry accepted")
 	}
 }
+
+func TestEnvFromValidation(t *testing.T) {
+	if _, err := Parse([]byte("name: a\nimage: nginx:1\nenvFrom: secrets\n")); err != nil {
+		t.Errorf("envFrom: secrets: %v", err)
+	}
+	if _, err := Parse([]byte("name: a\nimage: nginx:1\nenvFrom: files\n")); err == nil {
+		t.Error("envFrom: files accepted")
+	}
+}
+
+func TestWithSecretEnv(t *testing.T) {
+	a, err := Parse([]byte("name: a\nimage: nginx:1\nenv:\n  - { name: DATABASE_URL, value: x }\nsecretFiles:\n  - { secretRef: tls-key, path: /run/key }\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := a.WithSecretEnv([]string{"redis-url"}); err != nil || len(got.Env) != 1 {
+		t.Errorf("without envFrom: %v %v", got, err)
+	}
+	a.EnvFrom = EnvFromSecrets
+	got, err := a.WithSecretEnv([]string{"tls-key", "database-url", "redis-url", "port", "armada-token", "9lives"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Env) != 2 || got.Env[1] != (EnvVar{Name: "REDIS_URL", SecretRef: "redis-url"}) || got.Env[0].Value != "x" {
+		t.Errorf("env = %+v", got.Env)
+	}
+	if len(a.Env) != 1 {
+		t.Error("WithSecretEnv changed the original")
+	}
+}

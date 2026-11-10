@@ -43,10 +43,11 @@ func RPCError(err error) error {
 }
 
 func newDeployCommand(g *globals) *cobra.Command {
-	var file string
+	var file, varsFile string
+	var varList []string
 	var w waitFlags
 	cmd := &cobra.Command{
-		Use:   "deploy -f app.yaml",
+		Use:   "deploy -f app.yaml [--vars FILE] [--var NAME=VALUE]...",
 		Short: "Deploy an app or a job from a spec file",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -64,6 +65,15 @@ func newDeployCommand(g *globals) *cobra.Command {
 			data, err := io.ReadAll(io.LimitReader(r, spec.MaxSpecBytes+1))
 			if err != nil {
 				return err
+			}
+			if varsFile != "" || len(varList) > 0 {
+				vars, err := loadVars(varsFile, varList)
+				if err != nil {
+					return err
+				}
+				if data, err = spec.Substitute(data, vars); err != nil {
+					return err
+				}
 			}
 			if g.project != "" && !spec.ValidProject(g.project) {
 				return fmt.Errorf("invalid project %q", g.project)
@@ -98,6 +108,8 @@ func newDeployCommand(g *globals) *cobra.Command {
 	}
 	w.register(cmd)
 	cmd.Flags().StringVarP(&file, "file", "f", "", "spec file, or - for stdin")
+	cmd.Flags().StringVar(&varsFile, "vars", "", "file of NAME=VALUE lines for ${NAME} in the spec")
+	cmd.Flags().StringArrayVar(&varList, "var", nil, "NAME=VALUE for ${NAME} in the spec (repeatable; wins over --vars)")
 	_ = cmd.MarkFlagRequired("file")
 	return cmd
 }
