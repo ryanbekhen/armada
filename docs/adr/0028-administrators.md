@@ -38,7 +38,8 @@ state (schema 8):
   removed name refuses it, and so does a certificate that starts before
   `Since`. The check is one read of one key, like the one for node
   certificates.
-- `armadad init` records the first administrator, and `armada admin renew`
+- `armadad init` records the first administrator, named after the user
+  who ran it through sudo (else the current user), and `armada admin renew`
   records a caller who is not on record yet, both accepting every
   certificate of the name, so administrators show up in the list without
   losing access.

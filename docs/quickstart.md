@@ -112,26 +112,17 @@ add `--network wireguard`, also fixed at init (see
 `armadad backup` (see [operations](operations.md)): the data directory is the
 cluster, and without `master.key` secrets cannot be recovered.
 
-The admin config belongs to root and the `armada` group (mode `0640`;
-the installer creates the group). To use `armada` without `sudo`, add
-yourself, and anyone else who administers the cluster, to the group, then
-log in again:
+You are the first administrator, under your own user name: `init` also
+writes your copy as `~/.armada/config`, so `armada` works for you without
+`sudo` once the control plane runs (step 4).
 
-```bash
-sudo usermod -aG armada "$(id -un)"
-# log out and in again, then check:
-id -nG | grep -w armada
-armada status
-```
-
-Until then `armada` says it cannot read the file and how to join the
-group; `sudo armada ...` works in the meantime.
-
-Membership is full control of the cluster: add only people who administer
-it, and use [automation identities](operations.md#automation-identities) for
-tools. To use `armada` from a workstation, or to give someone access under
-their own name, see [step 9](#9-give-others-access); `armada` uses
-`~/.armada/config` first when it exists.
+The shared copy, `/etc/armada/admin.config`, belongs to root and the
+`armada` group (mode `0640`). Members of the group use it without `sudo`,
+but joining a group counts only in sessions that start afterwards: after
+`sudo usermod -aG armada NAME`, that person logs out and in again (until
+then `armada` says so). Membership is full control of the cluster; rather
+give each person a certificate of their own ([step 9](#9-give-others-access)),
+and [automation identities](operations.md#automation-identities) to tools.
 
 ## 4. Start the control plane
 

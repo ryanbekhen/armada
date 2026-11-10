@@ -62,8 +62,20 @@ accepts a group-readable config only when root owns it with exactly that
 mode and group. Rewriting a config (`admin renew`, `server list`) keeps its
 owner, group, and mode; a member who cannot write the shared file is told to
 use sudo, and `server list` still prints. Without the group, `init` leaves
-the file 0600 and says how to share it. `--config` or `ARMADA_CONFIG` still
-writes a private config wherever the operator wants.
+the file 0600. `--config` or `ARMADA_CONFIG` still writes a private config
+wherever the operator wants.
+
+Joining a group counts only in login sessions that start afterwards, so the
+person who runs `sudo armadad init` would otherwise need `sudo` or a new
+login before `armada` works. `init` therefore also writes the config as
+`~/.armada/config` of that user (`SUDO_USER`, only when it matches
+`SUDO_UID` and is not root), with the first administrator certificate named
+after them. It creates the file with `O_EXCL` and the directory through
+`os.Root` on the home directory, so it never replaces a file or follows a
+link out of the home, and gives both to the user (0600 and 0700); a failure
+there only warns, since the cluster already exists. When the shared file
+cannot be read, the client says whether the account is outside the group or
+joined it after the session started.
 
 ## Consequences
 

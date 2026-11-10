@@ -262,7 +262,7 @@ newer layout, instead of misreading it. To go back:
 | Node (`node.crt`) | 30 days | The agent renews it in the last third of its lifetime. A node off for more than 30 days must be removed and joined again; on a server, `armada-server` renews it at start if the node is still registered |
 | Server (`server.crt`) and etcd member | 1 year | Each server renews its own at start and every 12 hours once a third of the lifetime is left, with no restart; a server that was off past expiry renews them before it starts serving |
 | App certificates (Let's Encrypt) | 90 days | The leader renews them about 30 days before they expire |
-| Admin (`/etc/armada/admin.config`, `~/.armada/config`) | 1 year | By hand: `armada admin renew` (with sudo for the shared one) before it expires |
+| Admin (`/etc/armada/admin.config`, `~/.armada/config`) | 1 year | By hand: `armada admin renew` in each file (with sudo for the shared one) before it expires |
 | Metrics scraper | 1 year | By hand: `armada metrics credentials` again |
 | Automation identity | 90 days | By hand: `armada automation renew` |
 
@@ -280,7 +280,8 @@ sudo armadad admin renew --config /home/NAME/.armada/config   # a copy; stays NA
 ## Administrators
 
 An administrator has full control of the cluster. `armadad init` creates
-the first one; give every other person a certificate of their own (ADR
+the first one, named after the user who ran it with sudo, in both
+`/etc/armada/admin.config` and that user's `~/.armada/config`; give every other person a certificate of their own (ADR
 0028), so the audit log names them and their access can be taken back
 alone. Never share one file between people, and use [automation
 identities](#automation-identities) for tools.

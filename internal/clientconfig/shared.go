@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"syscall"
 
@@ -107,4 +108,89 @@ func keepShared(path string, old fs.FileInfo) error {
 		return err
 	}
 	return os.Chmod(path, sharedMode)
+}
+
+// Hooks for tests: the groups of this process and those the account is
+// listed in.
+var (
+	sessionGroups = os.Getgroups
+	accountGroups = func() ([]string, error) {
+		u, err := user.Current()
+		if err != nil {
+			return nil, err
+		}
+		return u.GroupIds()
+	}
+)
+
+// groupAdvice says why SystemPath could not be read. Joining Group takes
+// effect only in sessions that start afterwards, which is the usual reason.
+func groupAdvice() string {
+	gid, err := groupID()
+	if err != nil {
+		return "use sudo"
+	}
+	return adviceFor(gid)
+}
+
+func adviceFor(gid int) string {
+	if gids, err := sessionGroups(); err == nil && slices.Contains(gids, gid) {
+		return "the file is not shared with the " + Group + " group; use sudo"
+	}
+	if ids, err := accountGroups(); err == nil && slices.Contains(ids, strconv.Itoa(gid)) {
+		return "this session started before you joined the " + Group + " group; log in again"
+	}
+	return "you are not in the " + Group + " group; use sudo"
+}
+
+// SaveOwn writes the config as ~/.armada/config of the account u, from a
+// process running as root: it never replaces a file, never follows a link
+// out of u's home directory, and leaves the file (0600) and a directory it
+// creates (0700) owned by u. It returns the path written.
+func (c *Config) SaveOwn(u *user.User) (string, error) {
+	uid, err := strconv.Atoi(u.Uid)
+	if err != nil {
+		return "", fmt.Errorf("user %s: %w", u.Username, err)
+	}
+	gid, err := strconv.Atoi(u.Gid)
+	if err != nil {
+		return "", fmt.Errorf("user %s: %w", u.Username, err)
+	}
+	b, err := c.encode()
+	if err != nil {
+		return "", err
+	}
+	home, err := os.OpenRoot(u.HomeDir)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = home.Close() }()
+	switch err := home.Mkdir(".armada", 0o700); {
+	case err == nil:
+		if err := home.Chown(".armada", uid, gid); err != nil {
+			return "", err
+		}
+	case !errors.Is(err, fs.ErrExist):
+		return "", err
+	}
+	name := filepath.Join(".armada", "config")
+	path := filepath.Join(u.HomeDir, name)
+	f, err := home.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return "", err
+	}
+	if _, err := f.Write(b); err != nil {
+		_ = f.Close()
+		_ = home.Remove(name)
+		return "", err
+	}
+	if err := f.Chown(uid, gid); err != nil {
+		_ = f.Close()
+		_ = home.Remove(name)
+		return "", err
+	}
+	if err := f.Close(); err != nil {
+		return "", err
+	}
+	return path, nil
 }

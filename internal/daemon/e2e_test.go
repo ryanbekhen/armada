@@ -105,7 +105,7 @@ func TestInitWireGuard(t *testing.T) {
 	dir := t.TempDir()
 	dataDir := filepath.Join(dir, "data")
 	code, out, stderr := run(t, "init", "--data-dir", dataDir, "--config", filepath.Join(dir, "home", "config"), "--private-ip", "10.0.0.1", "--network", "wireguard")
-	if code != 0 || !strings.Contains(out, "network:     wireguard, cluster CIDR 10.120.0.0/16") {
+	if code != 0 || !strings.Contains(out, "network:     wireguard, 10.120.0.0/16") {
 		t.Fatalf("init: %d %q %q", code, out, stderr)
 	}
 	if ac, err := loadAgentConfig(dataDir); err != nil || ac.Network != "wireguard" {

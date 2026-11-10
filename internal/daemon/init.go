@@ -79,9 +79,14 @@ func newInitCommand(g *globals) *cobra.Command {
 				h, _ := os.Hostname()
 				nodeName = sanitizeName(h, "node-1")
 			}
+			// The person who ran init through sudo is the first
+			// administrator, under their own name.
+			person := sudoUser()
 			if adminName == "" {
 				adminName = "admin"
-				if u, err := user.Current(); err == nil {
+				if person != nil {
+					adminName = sanitizeName(person.Username, "admin")
+				} else if u, err := user.Current(); err == nil {
 					adminName = sanitizeName(u.Username, "admin")
 				}
 			}
@@ -204,10 +209,22 @@ func newInitCommand(g *globals) *cobra.Command {
 			}
 
 			cc := &clientconfig.Config{Servers: []string{listen}, CA: string(ca.CertPEM), Cert: string(adminCert), Key: string(adminKey)}
-			shared := false
+			configs := []string{g.configPath}
 			if g.configPath == clientconfig.SystemPath {
-				if shared, err = cc.SaveShared(g.configPath); err != nil {
+				if _, err := cc.SaveShared(g.configPath); err != nil {
 					return err
+				}
+				// They use armada at once, with no group to join and no new
+				// login. The cluster exists by now: a failure here only warns.
+				if person != nil {
+					switch own, err := cc.SaveOwn(person); {
+					case err == nil:
+						configs = append([]string{own}, configs...)
+					case errors.Is(err, fs.ErrExist):
+						_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "warning: kept %s's existing ~/.armada/config\n", person.Username)
+					default:
+						_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s's ~/.armada/config: %v\n", person.Username, err)
+					}
 				}
 			} else if err := cc.Save(g.configPath); err != nil {
 				return err
@@ -215,30 +232,13 @@ func newInitCommand(g *globals) *cobra.Command {
 
 			out := cmd.OutOrStdout()
 			_, _ = fmt.Fprintf(out, "Cluster initialized.\n\n")
-			_, _ = fmt.Fprintf(out, "  node:        %s (%s)\n", nodeName, ip)
-			_, _ = fmt.Fprintf(out, "  api:         %s (private, mTLS)\n", listen)
-			_, _ = fmt.Fprintf(out, "  network:     %s, cluster CIDR %s (this node %s)\n", network.Mode, network.ClusterCIDR, node.Subnet)
-			_, _ = fmt.Fprintf(out, "  data dir:    %s\n", dataDir)
-			_, _ = fmt.Fprintf(out, "  admin:       %s, credentials in %s\n", adminName, g.configPath)
+			_, _ = fmt.Fprintf(out, "  node:        %s (%s), containers %s\n", nodeName, ip, node.Subnet)
+			_, _ = fmt.Fprintf(out, "  api:         %s\n", listen)
+			_, _ = fmt.Fprintf(out, "  network:     %s, %s\n", network.Mode, network.ClusterCIDR)
+			_, _ = fmt.Fprintf(out, "  admin:       %s (%s)\n", adminName, strings.Join(configs, ", "))
 			_, _ = fmt.Fprintf(out, "  CA SHA-256:  %s\n\n", pki.Fingerprint(ca.Cert))
 			_, _ = fmt.Fprint(out, nextStep("server", dataDir))
-			_, _ = fmt.Fprintf(out, "Then add nodes with `armada token create`, and control plane nodes with\n")
-			_, _ = fmt.Fprintf(out, "`armada token create --server` (three servers tolerate the loss of one).\n")
-			switch {
-			case shared:
-				_, _ = fmt.Fprintf(out, "The armada client needs no root: members of the %s group read %s.\n", clientconfig.Group, g.configPath)
-				_, _ = fmt.Fprintf(out, "Add an administrator with `sudo usermod -aG %s NAME` (they log in again);\n", clientconfig.Group)
-				_, _ = fmt.Fprintf(out, "membership is full control of the cluster. For another machine or person,\n")
-				_, _ = fmt.Fprintf(out, "`armada admin add NAME -o FILE` makes a config of their own.\n")
-			case g.configPath == clientconfig.SystemPath:
-				_, _ = fmt.Fprintf(out, "No %s group here, so %s is root's only: create the group\n", clientconfig.Group, g.configPath)
-				_, _ = fmt.Fprintf(out, "(groupadd --system %s), then chgrp %s and chmod 0640 it to share it.\n", clientconfig.Group, clientconfig.Group)
-			default:
-				_, _ = fmt.Fprintf(out, "The armada client needs no root: copy %s to ~/.armada/config\n", g.configPath)
-				_, _ = fmt.Fprintf(out, "(mode 0600) of your own user; for other people, `armada admin add NAME -o FILE`.\n")
-			}
-			_, _ = fmt.Fprintf(out, "Keep %s private: it contains the cluster CA key and the master key\n", dataDir)
-			_, _ = fmt.Fprintln(out, "that encrypts secrets. Back it up with `armadad backup`, or secrets are lost.")
+			_, _ = fmt.Fprintf(out, "Back up %s with `armadad backup`: without it, secrets are lost.\n", dataDir)
 			return nil
 		},
 	}
@@ -275,6 +275,19 @@ func clusterNetwork(cidr, mode string, privateIP netip.Addr) (store.Network, err
 		return store.Network{}, fmt.Errorf("--cluster-cidr %s contains the private IP %s; pick a range the network does not use", p, privateIP)
 	}
 	return store.Network{Mode: mode, ClusterCIDR: p}, nil
+}
+
+// sudoUser returns the account that ran armadad as root through sudo, or nil.
+func sudoUser() *user.User {
+	name := os.Getenv("SUDO_USER")
+	if os.Geteuid() != 0 || name == "" {
+		return nil
+	}
+	u, err := user.Lookup(name)
+	if err != nil || u.Uid == "0" || u.Uid != os.Getenv("SUDO_UID") {
+		return nil
+	}
+	return u
 }
 
 func resolvePrivateIP(flag string) (netip.Addr, error) {

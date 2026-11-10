@@ -63,7 +63,7 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("no client config at %s; run `armadad init` on the server or set %s", path, EnvPath)
 	}
 	if errors.Is(err, os.ErrPermission) && path == systemPath {
-		return nil, fmt.Errorf("%s: %w (add yourself to the %s group: sudo usermod -aG %s $USER, then log in again)", path, err, Group, Group)
+		return nil, fmt.Errorf("%s: %w: %s", path, os.ErrPermission, groupAdvice())
 	}
 	if err != nil {
 		return nil, err
@@ -94,12 +94,12 @@ func (c *Config) Save(path string) error {
 // whatever its mode: a tool's config (ADR 0026) lives where the tool keeps
 // its files. A config root shared with Group stays shared.
 func (c *Config) SaveFile(path string) error {
-	b, err := json.MarshalIndent(c, "", "  ")
+	b, err := c.encode()
 	if err != nil {
 		return err
 	}
 	old, statErr := os.Stat(path)
-	if err := fsutil.WriteFileAtomic(path, append(b, '\n'), 0o600); err != nil {
+	if err := fsutil.WriteFileAtomic(path, b, 0o600); err != nil {
 		if errors.Is(err, os.ErrPermission) {
 			return fmt.Errorf("%w (a shared config is changed as root: run the command with sudo)", err)
 		}
@@ -109,6 +109,14 @@ func (c *Config) SaveFile(path string) error {
 		return keepShared(path, old)
 	}
 	return nil
+}
+
+func (c *Config) encode() ([]byte, error) {
+	b, err := json.MarshalIndent(c, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	return append(b, '\n'), nil
 }
 
 // Dial opens an mTLS connection to the control plane.
