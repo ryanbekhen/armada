@@ -48,10 +48,10 @@ placement:                        # optional: only nodes with these labels
     region: sulawesi
 revisions:                        # optional: split traffic between revisions
   mode: single                    # single (default) | multiple
-volumes:                          # optional: data kept on the replica's node
+volumes:                          # optional: a directory on the node, or an NFS export
   - name: uploads
     path: /app/uploads
-    owner: "1000:1000"
+    nfs: {server: 10.0.0.20, path: /exports/uploads}   # shared by both replicas
 initContainers:                   # optional: run to completion before the app starts
   - name: migrate
     image: ghcr.io/acme/web:1.4.2
