@@ -19,7 +19,7 @@ set -eu
 # Scenarios that run after the cluster is built and the test app serves.
 # E2E_ONLY=isolation,rollout runs only those (empty: all); E2E_LIST=1 lists
 # them. test/e2e/README.md says which to pick for a change.
-SCENARIOS="listeners project-secret conntrack isolation load rollout agent-restart failover node-loss backup placement platforms cpu spread ip-rules sticky cors sidecars tcp queues queue-jobs reboot"
+SCENARIOS="listeners project-secret conntrack isolation load rollout agent-restart failover node-loss backup placement platforms cpu spread ip-rules sticky cors sidecars tcp queues queue-jobs volume-backups volume-failover nfs reboot"
 E2E_ONLY=${E2E_ONLY:-}
 if [ "${E2E_LIST:-}" = 1 ]; then
 	echo "$SCENARIOS" | tr ' ' '\n'
@@ -1232,6 +1232,189 @@ _left() {
 }
 wait_for 60 "no network sandbox is left on any node" _left
 
+fi
+
+if want volume-backups || want volume-failover; then
+log "volumes back up to a bucket, deduplicated and encrypted, and restore from it"
+# The bucket is an S3-compatible server running as an app; nodes reach its
+# container's address on the cluster network.
+S3_USER=e2e$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')
+S3_PASS=$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')
+cat <<EOF | cli app update e2e-s3 --file - --create-if-missing >/dev/null
+name: e2e-s3
+image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+command: ["minio", "server", "/srv"]
+env:
+  - name: MINIO_ROOT_USER
+    value: $S3_USER
+  - name: MINIO_ROOT_PASSWORD
+    value: $S3_PASS
+ingress:
+  type: internal
+  port: 9000
+resources:
+  memory: 512Mi
+EOF
+s3_addr() { status | jq -er '[.apps[] | select(.name == "e2e-s3") | .replicas[]? | select(.state == "running" and .ready)][0].address'; }
+wait_for 300 "the bucket server runs" s3_addr
+S3=$(s3_addr)
+s3_bucket() { on 1 "curl -sf -X PUT --aws-sigv4 aws:amz:us-east-1:s3 --user $S3_USER:$S3_PASS http://$S3/e2e-backups"; }
+wait_for 60 "the bucket exists" s3_bucket
+printf 'http://%s:%s@%s/e2e-backups/cluster?region=us-east-1' "$S3_USER" "$S3_PASS" "$S3" | cli secret set e2e-vol backup-url >/dev/null
+od -An -N48 -tx1 /dev/urandom | tr -d ' \n' | cli secret set e2e-vol backup-key >/dev/null
+
+# The app starts on the last machine (labelled), so failover has a node to
+# leave; other machines get the label once it runs there.
+VOL_NODE=$(host "$N" 1)
+cli node label "$VOL_NODE" e2e-vol=yes >/dev/null
+cat <<'EOF' | cli app update e2e-vol --file - --create-if-missing >/dev/null
+name: e2e-vol
+image: busybox:1.37
+command: ["httpd", "-f", "-p", "80", "-h", "/data"]
+ingress:
+  type: internal
+  port: 80
+placement:
+  require:
+    e2e-vol: ["yes"]
+volumes:
+  - name: data
+    path: /data
+    backup:
+      every: 1h
+      keep: 3
+      urlSecretRef: backup-url
+      keySecretRef: backup-key
+    failover: restore
+EOF
+vol_running() { status | jq -e --arg n "$1" '[.apps[] | select(.name == "e2e-vol") | .replicas[]? | select(.state == "running" and .ready and .nodeId == $n)] | length == 1'; }
+wait_for 300 "the app with a volume runs on $VOL_NODE" vol_running "$VOL_NODE"
+vol_put() { printf '%s' "$1" | cli app exec e2e-vol -i -- sh -c 'cat > /data/notes.txt'; }
+vol_get() { cli app exec e2e-vol -- cat /data/notes.txt; }
+vol_put "first"
+first_backup() { cli volume list e2e-vol | grep -q ' ago'; }
+wait_for 180 "the first backup ran by itself" first_backup
+vol_put "second"
+cli volume snapshot create e2e-vol data | grep -q 'Backed up volume data of e2e-vol' || fail "volume snapshot create"
+[ "$(cli volume snapshot list e2e-vol data -o json | jq '.snapshots | length')" = 2 ] || fail "two backups expected"
+ok "backups on a schedule and on demand, listed from the bucket"
+# Nothing in the bucket shows the file's content or name.
+on 1 "curl -sf --aws-sigv4 aws:amz:us-east-1:s3 --user $S3_USER:$S3_PASS 'http://$S3/e2e-backups?list-type=2&prefix=cluster/'" >"$WORK/s3-list"
+grep -q 'cluster/e2e-vol/data/chunks/' "$WORK/s3-list" || fail "no chunks in the bucket"
+grep -q 'notes' "$WORK/s3-list" && fail "the bucket names the volume's files"
+ok "the bucket holds sealed chunks and snapshots only"
+
+vol_put "lost"
+cli volume restore e2e-vol data --snapshot latest >/dev/null || fail "restore from the bucket"
+vol_second() { [ "$(vol_get)" = second ]; }
+wait_for 120 "the volume holds the latest backup again" vol_second
+
+# Pull first: a deploy keeps the old replica until the new image is on the node.
+cat <<'EOF' >"$WORK/vol2.yaml"
+name: e2e-vol
+image: busybox:1.36
+command: ["httpd", "-f", "-p", "80", "-h", "/data"]
+ingress:
+  type: internal
+  port: 80
+placement:
+  require:
+    e2e-vol: ["yes"]
+volumes:
+  - name: data
+    path: /data
+    backup:
+      every: 1h
+      keep: 3
+      urlSecretRef: backup-url
+      keySecretRef: backup-key
+    failover: restore
+EOF
+on "$CLI" 'cat > /root/e2e-vol2.yaml' <"$WORK/vol2.yaml"
+cli app update e2e-vol --file /root/e2e-vol2.yaml --wait >/dev/null || fail "rolling out a new image to an app with a volume"
+vol_v2() { status | jq -e '.apps[] | select(.name == "e2e-vol") | .image == "busybox:1.36" and (.rolloutState // "") == ""'; }
+wait_for 300 "the new image serves on the volume's node" vol_v2
+vol_running "$VOL_NODE" >/dev/null || fail "the app left its volume's node"
+[ "$(vol_get)" = second ] || fail "the volume's contents changed across the rollout"
+ok "rollout of an app with a volume, image pulled first"
+fi
+
+if want volume-failover && [ "$N" -lt 4 ]; then
+	log "volume-failover needs a machine that is not a server (4 machines or more); skipped"
+elif want volume-failover; then
+log "an app with failover: restore comes back on another node when its node is cut off"
+i=1
+while [ "$i" -lt "$N" ]; do
+	cli node label "$(host "$i" 1)" e2e-vol=yes >/dev/null
+	i=$((i + 1))
+done
+vol_put "before the partition"
+cli volume snapshot create e2e-vol data >/dev/null || fail "backup before the partition"
+OLD_ADDR=$(status | jq -r '[.apps[] | select(.name == "e2e-vol") | .replicas[]? | select(.state == "running")][0].address')
+# Cut the node off from the control plane only: its agent loses its session
+# while the machine stays up.
+on "$N" "nft add table inet e2e_part && nft add chain inet e2e_part out '{ type filter hook output priority 0; }' && nft add rule inet e2e_part out tcp dport 7443 drop"
+fenced() { ! on "$N" "wget -q -O /dev/null -T 3 http://$OLD_ADDR/notes.txt"; }
+wait_for 180 "the cut-off node stops the app itself" fenced
+moved() { status | jq -e --arg n "$VOL_NODE" '[.apps[] | select(.name == "e2e-vol") | .replicas[]? | select(.state == "running" and .ready and .nodeId != $n)] | length == 1'; }
+wait_for 300 "the app runs on another node" moved
+[ "$(vol_get)" = "before the partition" ] || fail "the volume did not come back from its latest backup"
+cli app events e2e-vol 2>/dev/null | grep -q VolumeFailedOver || fail "no VolumeFailedOver event"
+ok "the volume was restored from its latest backup on $(cli volume list e2e-vol -o json | jq -r '.volumes[0].node')"
+on "$N" "nft delete table inet e2e_part"
+wait_for 120 "the node is back" nodes_ready
+gone_from_old() { status | jq -e --arg n "$VOL_NODE" '[.apps[] | select(.name == "e2e-vol") | .replicas[]? | select(.nodeId == $n)] | length == 0'; }
+wait_for 120 "the old node no longer runs the app" gone_from_old
+fi
+
+if want volume-backups || want volume-failover; then
+cli app delete e2e-vol --yes >/dev/null
+cli app delete e2e-s3 --yes >/dev/null
+vol_app_gone() { [ "$(status | jq '[.apps[] | select(.name == "e2e-vol")] | length')" = 0 ]; }
+wait_for 120 "the volume's app is gone" vol_app_gone
+cli volume delete e2e-vol data --yes >/dev/null || fail "volume delete"
+i=1
+while [ "$i" -le "$N" ]; do
+	cli node label "$(host "$i" 1)" e2e-vol- >/dev/null 2>&1 || true
+	i=$((i + 1))
+done
+fi
+
+if want nfs; then
+log "NFS volumes: one export shared by replicas on several nodes"
+NFS_IP=$(host "$N" 3)
+on "$N" 'command -v exportfs >/dev/null || DEBIAN_FRONTEND=noninteractive apt-get install -y -q nfs-kernel-server >/dev/null' || fail "installing an NFS server on $(host "$N" 1)"
+on "$N" "mkdir -p /srv/e2e-nfs && chmod 0777 /srv/e2e-nfs && echo '/srv/e2e-nfs *(rw,sync,no_subtree_check,no_root_squash)' > /etc/exports.d/e2e.exports && exportfs -ra" || fail "exporting /srv/e2e-nfs"
+on 1 'armadad doctor' | grep -q '^\[ok  *\] nfs ' || fail "doctor does not find an NFSv4 client on $(host 1 1)"
+cat <<EOF | cli app update e2e-nfs --file - --create-if-missing >/dev/null
+name: e2e-nfs
+image: busybox:1.37
+command: ["httpd", "-f", "-p", "80", "-h", "/shared"]
+ingress:
+  type: internal
+  port: 80
+scale:
+  min: 2
+  max: 2
+volumes:
+  - name: shared
+    path: /shared
+    nfs:
+      server: $NFS_IP
+      path: /srv/e2e-nfs
+EOF
+nfs_ready() { status | jq -e '[.apps[] | select(.name == "e2e-nfs") | .replicas[]? | select(.state == "running" and .ready) | .nodeId] | (length == 2) and (unique | length == 2)'; }
+wait_for 300 "two replicas on two nodes mount the export" nfs_ready
+NFS_IDS=$(status | jq -r '.apps[] | select(.name == "e2e-nfs") | .replicas[] | .id')
+NFS_A=$(echo "$NFS_IDS" | sed -n 1p) NFS_B=$(echo "$NFS_IDS" | sed -n 2p)
+printf 'shared %s' "$NFS_A" | cli app exec e2e-nfs --replica "$NFS_A" -i -- sh -c 'cat > /shared/from-a.txt'
+[ "$(cli app exec e2e-nfs --replica "$NFS_B" -- cat /shared/from-a.txt)" = "shared $NFS_A" ] || fail "the other replica does not see the file"
+[ "$(on "$N" cat /srv/e2e-nfs/from-a.txt)" = "shared $NFS_A" ] || fail "the file is not on the NFS server"
+cli volume list -o json | jq -e '[.volumes[]? | select(.app == "e2e-nfs")] | length == 0' >/dev/null || fail "NFS volumes are listed as node volumes"
+ok "replicas on different nodes share the export"
+cli app delete e2e-nfs --yes >/dev/null
+nfs_unmounted() { ! on "$N" 'grep -q " nfs4 " /proc/mounts' && ! on 1 'grep -q "/var/lib/armada/nfs" /proc/mounts'; }
+wait_for 120 "the export is unmounted once no replica uses it" nfs_unmounted
 fi
 
 if [ "$E2E_REBOOT" = 1 ] && want reboot; then
