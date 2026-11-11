@@ -147,8 +147,13 @@ func TestAutoscaleCluster(t *testing.T) {
 	c.eventually("2 running", func() bool { return len(c.running("web")) == 2 })
 
 	// Manual scaling is refused: the autoscaler owns the count.
-	if _, err := c.admin.Scale(c.ctx, &armadav1.ScaleRequest{App: "web", Replicas: 5}); status.Code(err) != codes.FailedPrecondition {
+	_, err := c.admin.Scale(c.ctx, &armadav1.ScaleRequest{App: "web", Replicas: 5})
+	if status.Code(err) != codes.FailedPrecondition {
 		t.Errorf("scale an autoscaled app: %v", err)
+	}
+	// The message says what to run instead, and ends with no sentinel.
+	if msg := status.Convert(err).Message(); !strings.Contains(msg, "armada app update web --min N") || strings.HasSuffix(msg, "failed precondition") {
+		t.Errorf("message = %q", msg)
 	}
 
 	// 30 requests in progress per replica, seen at n1's proxy.

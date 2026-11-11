@@ -1754,7 +1754,7 @@ func (s *Etcd) SetReplicas(ctx context.Context, app string, n int, actor string)
 			return fmt.Errorf("%s is a job; it runs one container per run: %w", app, ErrPrecondition)
 		} else if cur.Spec.Autoscaled() {
 			lo, hi := cur.Spec.ScaleBounds()
-			return fmt.Errorf("%s scales itself between %d and %d replicas; change scale.min and scale.max in its spec: %w", app, lo, hi, ErrPrecondition)
+			return fmt.Errorf("%s scales itself between %d and %d replicas: keep more running with `armada app update %s --min N`, or set a fixed count with `armada app update %s --replicas N`: %w", app, lo, hi, app, app, ErrPrecondition)
 		}
 		if tgt, err := t.revision(a.TargetRevision); err != nil {
 			return err

@@ -30,15 +30,22 @@ func storeErr(err error) error {
 		return status.Error(codes.NotFound, err.Error())
 	}
 	if errors.Is(err, store.ErrConflict) {
-		return status.Error(codes.AlreadyExists, err.Error())
+		return status.Error(codes.AlreadyExists, sentence(err, store.ErrConflict))
 	}
 	if errors.Is(err, store.ErrPrecondition) {
-		return status.Error(codes.FailedPrecondition, err.Error())
+		return status.Error(codes.FailedPrecondition, sentence(err, store.ErrPrecondition))
 	}
 	if errors.Is(err, store.ErrNotLeader) {
 		return status.Error(codes.Unavailable, err.Error())
 	}
 	return status.Error(codes.Internal, "internal error")
+}
+
+// sentence is err's message without the sentinel it wraps at the end: the
+// messages are written for people ("x exists; ..."), and the gRPC code
+// already says what kind of error it is.
+func sentence(err, sentinel error) string {
+	return strings.TrimSuffix(err.Error(), ": "+sentinel.Error())
 }
 
 func actor(ctx context.Context) string {
