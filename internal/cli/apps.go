@@ -47,10 +47,10 @@ func restarts(r *armadav1.ReplicaStatus) string {
 	return n
 }
 
-// autoscaleNote reads like "autoscale 2-10, http 34/50, cpu 61%/70%:
+// autoscaleNote reads like "2-10 replicas, http 34/50, cpu 61%/70%:
 // steady".
 func autoscaleNote(as *armadav1.Autoscale) string {
-	parts := []string{fmt.Sprintf("autoscale %d-%d", as.Min, as.Max)}
+	parts := []string{fmt.Sprintf("%d-%d replicas", as.Min, as.Max)}
 	for _, r := range as.Rules {
 		unit := ""
 		if r.Type != "http" {

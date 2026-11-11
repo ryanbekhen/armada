@@ -772,7 +772,7 @@ Revision:   web--r4
 Image:      ghcr.io/acme/web:1.4
 Ready:      4/4
 Ingress:    external
-Autoscale:  autoscale 2-10, http 41/50, cpu 38%/70%: steady: http 41 of 50 per replica, cpu 38 of 70%
+Autoscale:  2-10 replicas, http 41/50, cpu 38%/70%: steady: http 41 of 50 per replica, cpu 38 of 70%
 ...
 ```
 

@@ -239,11 +239,11 @@ func printApp(out io.Writer, a *armadav1.AppStatus) error {
 		field("Traffic", trafficSummary(a.Traffic))
 	}
 	for i, u := range a.Urls {
-		k := ""
-		if i == 0 {
-			k = "URLs"
+		k := "URLs:"
+		if i > 0 {
+			k = "" // the URLs below the first line up under it
 		}
-		_, _ = fmt.Fprintf(tw, "%s\t%s\n", k+":", u)
+		_, _ = fmt.Fprintf(tw, "%s\t%s\n", k, u)
 	}
 	for _, t := range a.Traffic {
 		for _, u := range t.Urls {
