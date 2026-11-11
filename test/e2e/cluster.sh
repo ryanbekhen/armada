@@ -1300,7 +1300,7 @@ volumes:
 EOF
 vol_running() { status | jq -e --arg n "$1" '[.apps[] | select(.name == "e2e-vol") | .replicas[]? | select(.state == "running" and .ready and .nodeId == $n)] | length == 1'; }
 wait_for 300 "the app with a volume runs on $VOL_NODE" vol_running "$VOL_NODE"
-vol_put() { printf '%s' "$1" | cli app exec e2e-vol -i -- sh -c 'cat > /data/notes.txt'; }
+vol_put() { printf '%s' "$1" | cli app exec e2e-vol -i -- sh -c "$(q 'cat > /data/notes.txt')"; }
 vol_get() { cli app exec e2e-vol -- cat /data/notes.txt; }
 vol_put "first"
 first_backup() { cli volume list e2e-vol | grep -q ' ago'; }
@@ -1418,7 +1418,7 @@ nfs_ready() { status | jq -e '[.apps[] | select(.name == "e2e-nfs") | .replicas[
 wait_for 300 "two replicas on two nodes mount the export" nfs_ready
 NFS_IDS=$(status | jq -r '.apps[] | select(.name == "e2e-nfs") | .replicas[] | .id')
 NFS_A=$(echo "$NFS_IDS" | sed -n 1p) NFS_B=$(echo "$NFS_IDS" | sed -n 2p)
-printf 'shared %s' "$NFS_A" | cli app exec e2e-nfs --replica "$NFS_A" -i -- sh -c 'cat > /shared/from-a.txt'
+printf 'shared %s' "$NFS_A" | cli app exec e2e-nfs --replica "$NFS_A" -i -- sh -c "$(q 'cat > /shared/from-a.txt')"
 [ "$(cli app exec e2e-nfs --replica "$NFS_B" -- cat /shared/from-a.txt)" = "shared $NFS_A" ] || fail "the other replica does not see the file"
 [ "$(on "$N" cat /srv/e2e-nfs/from-a.txt)" = "shared $NFS_A" ] || fail "the file is not on the NFS server"
 cli volume list -o json | jq -e '[.volumes[]? | select(.app == "e2e-nfs")] | length == 0' >/dev/null || fail "NFS volumes are listed as node volumes"
