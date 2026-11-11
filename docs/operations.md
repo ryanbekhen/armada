@@ -1173,6 +1173,10 @@ scrape interval under 10 seconds costs nothing more, but shows nothing new.
 | `armada_node_cpu_reserved_cores`, `armada_node_memory_reserved_bytes` | `node` | what its replicas reserve |
 | `armada_node_cpu_usage_cores`, `armada_node_memory_usage_bytes` | `node` | what its replicas use |
 | `armada_node_conntrack_entries`, `armada_node_conntrack_max` | `node` | connections its kernel tracks, and the limit |
+| `armada_volume_used_bytes` | `app`, `volume`, `node` | bytes in a volume's files, from its node's latest measurement |
+| `armada_volume_backup_last_success_timestamp_seconds` | `app`, `volume` | when the volume's last backup to its bucket worked ([ADR 0041](adr/0041-volume-backups.md)) |
+| `armada_volume_backup_stored_bytes`, `armada_volume_backup_snapshots` | `app`, `volume` | what the volume's repository held after that backup |
+| `armada_volume_backup_failing` | `app`, `volume` | 1 while the last backup failed |
 
 Example alerts: `armada_app_replicas_ready < armada_app_replicas_desired`
 for 10 minutes, `armada_app_rollout{state="failed"} == 1`,

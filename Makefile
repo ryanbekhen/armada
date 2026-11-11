@@ -12,7 +12,7 @@ LDFLAGS := -s -w \
 
 export CGO_ENABLED := 0
 
-.PHONY: all build build-bundle runtime-bundle test cover lint fmt vet vuln proto tidy check clean
+.PHONY: all build build-bundle runtime-bundle test cover lint fmt vet vuln proto docs tidy check clean
 
 all: check build
 
@@ -50,6 +50,9 @@ vet:
 
 vuln:
 	govulncheck ./...
+
+docs: ## regenerate the command line reference in docs/cli
+	go test ./internal/clidoc -run TestReferenceIsCurrent -update -count=1
 
 proto:
 	go build -o bin/tools/ google.golang.org/protobuf/cmd/protoc-gen-go google.golang.org/grpc/cmd/protoc-gen-go-grpc

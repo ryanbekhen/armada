@@ -44,6 +44,7 @@ Ports:
 | 80, 443/tcp | The internet (HAProxy on every node) |
 | 7443/tcp | Every node, on the private network only (control plane API) |
 | 7444/tcp | New nodes while they join, private network only |
+| 7480/tcp | Every node, on the private network only (HTTP-01 challenges forwarded to the leader) |
 | 2379, 2380/tcp | Other control plane servers only (embedded etcd) |
 | 4789/udp | Every node, on the private network only (cluster network, `plain` mode) |
 | 51820/udp | Every node, on the private network only (cluster network, `wireguard` mode) |
