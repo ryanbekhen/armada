@@ -790,7 +790,7 @@ expect_code 403 "a trusted proxy naming machine 1 is refused" "$N" "$IP_B" "$IP_
 expect_code 200 "a trusted proxy naming machine 2 gets in" "$N" "$IP_B" "$IP_B"
 expect_code 403 "a trusted proxy naming garbage is refused" "$N" "$IP_B" "unknown"
 
-cli cluster set --trusted-proxies "" >/dev/null
+cli cluster set --trusted-proxies "''" >/dev/null
 ipr_app ""
 wait_for 60 "without rules, machine 1 gets in again" ipr_is 200 1 "$IP_B"
 cli app delete ipr --yes >/dev/null
