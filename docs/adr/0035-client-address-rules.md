@@ -26,9 +26,20 @@ client typing an allowed address into `X-Forwarded-For`.
 ingress:
   type: external
   port: 8080
-  ipAllow: [203.0.113.0/24, 2001:db8::/32, 198.51.100.7]
+  ipAllow:
+    - range: 203.0.113.0/24
+      name: office
+      description: the VPN the admins use
+    - 2001:db8::/32
+    - 198.51.100.7
 ```
 
+- **Names.** A rule may carry a `name` (unique, up to 64 characters) and a
+  `description` (up to 256), printable text, so whoever reads the spec, or
+  `armada app show`, knows what each range is for. A bare range is the
+  short form.
+  - Only the range reaches the proxy. Names and descriptions stay in the
+    spec and the status, never in HAProxy's configuration.
 - **Entries.** An address (one client) or a prefix, IPv4 or IPv6, at most 64.
   They are stored as written and sent to the proxies as masked prefixes.
   - Refused: zones, IPv4-mapped IPv6 (write IPv4 as IPv4), prefixes that
@@ -49,7 +60,7 @@ ingress:
 - **Changing them.** The rules are part of the app's spec, so they change
   with a deploy and roll back with a rollback.
   - `armada app create`/`update` take `--ip-allow` and `--ip-deny`
-    (repeatable). Each replaces the list, because who may reach an app is
+    (repeatable, `[NAME=]RANGE`). Each replaces the list, because who may reach an app is
     safer stated in full than pieced together. `--no-ip-rules` lets everyone
     in again.
 

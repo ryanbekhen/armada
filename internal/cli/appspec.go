@@ -88,8 +88,8 @@ func (f *specFlags) register(cmd *cobra.Command, job bool) {
 	fs.StringVar(&f.ingress, "ingress", "", "who reaches the app: external, internal, or none")
 	fs.StringArrayVar(&f.domains, "domain", nil, "custom domain (repeatable)")
 	fs.StringArrayVar(&f.removeDomains, "remove-domain", nil, "remove a custom domain (repeatable)")
-	fs.StringArrayVar(&f.ipAllow, "ip-allow", nil, "only clients from this address or prefix reach the app from outside (repeatable; replaces the list)")
-	fs.StringArrayVar(&f.ipDeny, "ip-deny", nil, "clients from this address or prefix cannot reach the app from outside (repeatable; replaces the list)")
+	fs.StringArrayVar(&f.ipAllow, "ip-allow", nil, "[NAME=]RANGE: only clients from this address or prefix reach the app from outside (repeatable; replaces the list)")
+	fs.StringArrayVar(&f.ipDeny, "ip-deny", nil, "[NAME=]RANGE: clients from this address or prefix cannot reach the app from outside (repeatable; replaces the list)")
 	fs.BoolVar(&f.noIPRules, "no-ip-rules", false, "let every client reach the app again")
 	cmd.MarkFlagsMutuallyExclusive("ip-allow", "ip-deny", "no-ip-rules")
 	fs.IntVar(&f.replicas, "replicas", 0, "number of replicas")
@@ -324,9 +324,9 @@ func (f *specFlags) applyIngress(a *spec.App) {
 	case f.noIPRules:
 		in.IPAllow, in.IPDeny = nil, nil
 	case ch("ip-allow"):
-		in.IPAllow, in.IPDeny = slices.Clone(f.ipAllow), nil
+		in.IPAllow, in.IPDeny = ipRuleFlags(f.ipAllow), nil
 	case ch("ip-deny"):
-		in.IPAllow, in.IPDeny = nil, slices.Clone(f.ipDeny)
+		in.IPAllow, in.IPDeny = nil, ipRuleFlags(f.ipDeny)
 	}
 	a.Ingress = &in
 	// Probes that checked the app's port follow it.
@@ -665,4 +665,17 @@ func (d *deployFlags) registerUpdate(cmd *cobra.Command, job bool) {
 	d.registerCreate(cmd, job)
 	cmd.Flags().BoolVar(&d.diff, "diff", false, "print what would change and change nothing")
 	cmd.Flags().BoolVar(&d.createIfMissing, "create-if-missing", false, "create the "+kindWord(job)+" when it does not exist")
+}
+
+// ipRuleFlags reads --ip-allow and --ip-deny values: RANGE, or NAME=RANGE.
+func ipRuleFlags(vals []string) []spec.IPRule {
+	out := make([]spec.IPRule, 0, len(vals))
+	for _, v := range vals {
+		if name, rng, ok := strings.Cut(v, "="); ok {
+			out = append(out, spec.IPRule{Name: name, Range: rng})
+		} else {
+			out = append(out, spec.IPRule{Range: v})
+		}
+	}
+	return out
 }

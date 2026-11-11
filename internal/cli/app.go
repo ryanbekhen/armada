@@ -223,6 +223,26 @@ func printApp(out io.Writer, a *armadav1.AppStatus) error {
 	field("Image", a.Image)
 	field("Ready", fmt.Sprintf("%d/%d", serving(a), a.DesiredReplicas))
 	field("Ingress", dash(a.Ingress))
+	for _, l := range []struct {
+		key   string
+		rules []*armadav1.IPRule
+	}{{"Allowed from", a.IpAllow}, {"Denied from", a.IpDeny}} {
+		for i, r := range l.rules {
+			k := l.key + ":"
+			if i > 0 {
+				k = ""
+			}
+			// "203.0.113.0/24  office: the VPN the admins use"
+			line, note := printable(r.GetRange()), r.GetName()
+			if d := r.GetDescription(); d != "" {
+				note = strings.TrimPrefix(note+": "+d, ": ")
+			}
+			if note != "" {
+				line += "  " + printable(note)
+			}
+			_, _ = fmt.Fprintf(tw, "%s\t%s\n", k, line)
+		}
+	}
 	switch a.RolloutState {
 	case rolloutProgressing:
 		field("Rollout", fmt.Sprintf("rolling out %s; %s serves until it is ready", a.TargetRevision, a.ActiveRevision))
