@@ -30,6 +30,9 @@ const (
 	AdminService_RemoveVolume_FullMethodName            = "/armada.v1.AdminService/RemoveVolume"
 	AdminService_BackupVolume_FullMethodName            = "/armada.v1.AdminService/BackupVolume"
 	AdminService_RestoreVolume_FullMethodName           = "/armada.v1.AdminService/RestoreVolume"
+	AdminService_ListVolumeSnapshots_FullMethodName     = "/armada.v1.AdminService/ListVolumeSnapshots"
+	AdminService_CreateVolumeSnapshot_FullMethodName    = "/armada.v1.AdminService/CreateVolumeSnapshot"
+	AdminService_RestoreVolumeSnapshot_FullMethodName   = "/armada.v1.AdminService/RestoreVolumeSnapshot"
 	AdminService_Logs_FullMethodName                    = "/armada.v1.AdminService/Logs"
 	AdminService_GetClusterConfig_FullMethodName        = "/armada.v1.AdminService/GetClusterConfig"
 	AdminService_SetClusterConfig_FullMethodName        = "/armada.v1.AdminService/SetClusterConfig"
@@ -100,6 +103,10 @@ type AdminServiceClient interface {
 	RemoveVolume(ctx context.Context, in *RemoveVolumeRequest, opts ...grpc.CallOption) (*RemoveVolumeResponse, error)
 	BackupVolume(ctx context.Context, in *BackupVolumeRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[VolumeData], error)
 	RestoreVolume(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[RestoreVolumeMessage, RestoreVolumeResponse], error)
+	// Backups in the volume's bucket (ADR 0041).
+	ListVolumeSnapshots(ctx context.Context, in *ListVolumeSnapshotsRequest, opts ...grpc.CallOption) (*ListVolumeSnapshotsResponse, error)
+	CreateVolumeSnapshot(ctx context.Context, in *CreateVolumeSnapshotRequest, opts ...grpc.CallOption) (*CreateVolumeSnapshotResponse, error)
+	RestoreVolumeSnapshot(ctx context.Context, in *RestoreVolumeSnapshotRequest, opts ...grpc.CallOption) (*RestoreVolumeResponse, error)
 	Logs(ctx context.Context, in *LogsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[LogEntry], error)
 	GetClusterConfig(ctx context.Context, in *GetClusterConfigRequest, opts ...grpc.CallOption) (*ClusterConfig, error)
 	SetClusterConfig(ctx context.Context, in *SetClusterConfigRequest, opts ...grpc.CallOption) (*ClusterConfig, error)
@@ -305,6 +312,36 @@ func (c *adminServiceClient) RestoreVolume(ctx context.Context, opts ...grpc.Cal
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type AdminService_RestoreVolumeClient = grpc.ClientStreamingClient[RestoreVolumeMessage, RestoreVolumeResponse]
+
+func (c *adminServiceClient) ListVolumeSnapshots(ctx context.Context, in *ListVolumeSnapshotsRequest, opts ...grpc.CallOption) (*ListVolumeSnapshotsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListVolumeSnapshotsResponse)
+	err := c.cc.Invoke(ctx, AdminService_ListVolumeSnapshots_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) CreateVolumeSnapshot(ctx context.Context, in *CreateVolumeSnapshotRequest, opts ...grpc.CallOption) (*CreateVolumeSnapshotResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CreateVolumeSnapshotResponse)
+	err := c.cc.Invoke(ctx, AdminService_CreateVolumeSnapshot_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) RestoreVolumeSnapshot(ctx context.Context, in *RestoreVolumeSnapshotRequest, opts ...grpc.CallOption) (*RestoreVolumeResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RestoreVolumeResponse)
+	err := c.cc.Invoke(ctx, AdminService_RestoreVolumeSnapshot_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
 
 func (c *adminServiceClient) Logs(ctx context.Context, in *LogsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[LogEntry], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
@@ -773,6 +810,10 @@ type AdminServiceServer interface {
 	RemoveVolume(context.Context, *RemoveVolumeRequest) (*RemoveVolumeResponse, error)
 	BackupVolume(*BackupVolumeRequest, grpc.ServerStreamingServer[VolumeData]) error
 	RestoreVolume(grpc.ClientStreamingServer[RestoreVolumeMessage, RestoreVolumeResponse]) error
+	// Backups in the volume's bucket (ADR 0041).
+	ListVolumeSnapshots(context.Context, *ListVolumeSnapshotsRequest) (*ListVolumeSnapshotsResponse, error)
+	CreateVolumeSnapshot(context.Context, *CreateVolumeSnapshotRequest) (*CreateVolumeSnapshotResponse, error)
+	RestoreVolumeSnapshot(context.Context, *RestoreVolumeSnapshotRequest) (*RestoreVolumeResponse, error)
 	Logs(*LogsRequest, grpc.ServerStreamingServer[LogEntry]) error
 	GetClusterConfig(context.Context, *GetClusterConfigRequest) (*ClusterConfig, error)
 	SetClusterConfig(context.Context, *SetClusterConfigRequest) (*ClusterConfig, error)
@@ -889,6 +930,15 @@ func (UnimplementedAdminServiceServer) BackupVolume(*BackupVolumeRequest, grpc.S
 }
 func (UnimplementedAdminServiceServer) RestoreVolume(grpc.ClientStreamingServer[RestoreVolumeMessage, RestoreVolumeResponse]) error {
 	return status.Error(codes.Unimplemented, "method RestoreVolume not implemented")
+}
+func (UnimplementedAdminServiceServer) ListVolumeSnapshots(context.Context, *ListVolumeSnapshotsRequest) (*ListVolumeSnapshotsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListVolumeSnapshots not implemented")
+}
+func (UnimplementedAdminServiceServer) CreateVolumeSnapshot(context.Context, *CreateVolumeSnapshotRequest) (*CreateVolumeSnapshotResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreateVolumeSnapshot not implemented")
+}
+func (UnimplementedAdminServiceServer) RestoreVolumeSnapshot(context.Context, *RestoreVolumeSnapshotRequest) (*RestoreVolumeResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RestoreVolumeSnapshot not implemented")
 }
 func (UnimplementedAdminServiceServer) Logs(*LogsRequest, grpc.ServerStreamingServer[LogEntry]) error {
 	return status.Error(codes.Unimplemented, "method Logs not implemented")
@@ -1216,6 +1266,60 @@ func _AdminService_RestoreVolume_Handler(srv interface{}, stream grpc.ServerStre
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type AdminService_RestoreVolumeServer = grpc.ClientStreamingServer[RestoreVolumeMessage, RestoreVolumeResponse]
+
+func _AdminService_ListVolumeSnapshots_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListVolumeSnapshotsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).ListVolumeSnapshots(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminService_ListVolumeSnapshots_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).ListVolumeSnapshots(ctx, req.(*ListVolumeSnapshotsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_CreateVolumeSnapshot_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateVolumeSnapshotRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).CreateVolumeSnapshot(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminService_CreateVolumeSnapshot_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).CreateVolumeSnapshot(ctx, req.(*CreateVolumeSnapshotRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_RestoreVolumeSnapshot_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RestoreVolumeSnapshotRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).RestoreVolumeSnapshot(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminService_RestoreVolumeSnapshot_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).RestoreVolumeSnapshot(ctx, req.(*RestoreVolumeSnapshotRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
 
 func _AdminService_Logs_Handler(srv interface{}, stream grpc.ServerStream) error {
 	m := new(LogsRequest)
@@ -1990,6 +2094,18 @@ var AdminService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "RemoveVolume",
 			Handler:    _AdminService_RemoveVolume_Handler,
+		},
+		{
+			MethodName: "ListVolumeSnapshots",
+			Handler:    _AdminService_ListVolumeSnapshots_Handler,
+		},
+		{
+			MethodName: "CreateVolumeSnapshot",
+			Handler:    _AdminService_CreateVolumeSnapshot_Handler,
+		},
+		{
+			MethodName: "RestoreVolumeSnapshot",
+			Handler:    _AdminService_RestoreVolumeSnapshot_Handler,
 		},
 		{
 			MethodName: "GetClusterConfig",

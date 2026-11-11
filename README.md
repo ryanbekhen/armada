@@ -94,8 +94,11 @@ armada app update web --file web.yaml
   A job can also start from a Redis list or RabbitMQ queue: while messages
   wait, runs start, each taking a batch, and nothing runs while it is empty.
 - **Volumes.** `volumes` keep an app's data on its node across deploys,
-  crashes, and reboots, for databases and uploads; `armada volume backup`
-  and `restore` copy it out and back, onto another node if its own is gone.
+  crashes, and reboots, for databases and uploads; deploys pull the new
+  image before the old replica stops. Scheduled backups go to an
+  S3-compatible bucket, deduplicated and encrypted, keeping the backups
+  `keep` names; `armada volume backup` and `restore` copy a volume out and
+  back, onto another node if its own is gone.
 - **Init containers and sidecars.** `initContainers` run to completion
   before an app's container starts (a migration, a seed step); `sidecars`
   run beside it on its localhost (a proxy, a log shipper), with the app's

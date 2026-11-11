@@ -71,6 +71,9 @@ type Config struct {
 	// AutoscaleInterval is how often autoscaled apps are evaluated (ADR
 	// 0020). Default 15s; tests shorten it.
 	AutoscaleInterval time.Duration
+	// BackupInterval is how often volume backups are checked for being due
+	// (ADR 0041). Default 30s; tests shorten it.
+	BackupInterval time.Duration
 	// JobRetryBase is the delay before a job's first retry (ADR 0019); it
 	// doubles with each failed attempt. Default 10s; tests shorten it.
 	JobRetryBase time.Duration
@@ -162,7 +165,10 @@ type Server struct {
 	// autoscaleInterval and scaler run the autoscaler (ADR 0020).
 	autoscaleInterval time.Duration
 	scaler            *autoscaler
-	wakeLimit         *keyedLimiter
+	// backupInterval and backups run volume backups (ADR 0041).
+	backupInterval time.Duration
+	backups        *backupRuns
+	wakeLimit      *keyedLimiter
 
 	// clusterSize is the apps and nodes the last reconcile pass saw.
 	clusterSize atomic.Int64
@@ -282,9 +288,14 @@ func New(cfg Config) (*Server, error) {
 	if cfg.AutoscaleInterval <= 0 {
 		cfg.AutoscaleInterval = defaultAutoscaleInterval
 	}
+	if cfg.BackupInterval <= 0 {
+		cfg.BackupInterval = defaultBackupInterval
+	}
 	s := &Server{
 		autoscaleInterval: cfg.AutoscaleInterval,
 		scaler:            newAutoscaler(),
+		backupInterval:    cfg.BackupInterval,
+		backups:           newBackupRuns(),
 		// Wakes: a burst for several apps at once, then one a second.
 		wakeLimit:    newKeyedLimiter(20, time.Second),
 		jobRetryBase: cfg.JobRetryBase,
@@ -398,6 +409,7 @@ func (s *Server) Serve(ctx context.Context, lis net.Listener) error {
 	go s.verifyLoop(ctx)
 	go s.reconcileLoop(ctx)
 	go s.autoscaleLoop(ctx)
+	go s.backupLoop(ctx)
 	go func() {
 		<-ctx.Done()
 		// Agent streams are long-lived and never finish on their own, so a

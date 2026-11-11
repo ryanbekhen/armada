@@ -245,6 +245,21 @@ func (a *Agent) serveVolume(ctx context.Context, req *armadav1.VolumeRequest) {
 			return
 		}
 		finish(restoreArchive(dir, &chunkReader{recv: stream.Recv}))
+	case armadav1.VolumeRequest_OP_SNAPSHOT, armadav1.VolumeRequest_OP_SNAPSHOTS, armadav1.VolumeRequest_OP_RESTORE_SNAPSHOT:
+		if err := send(&armadav1.VolumeData{}); err != nil { // attaches the session
+			return
+		}
+		m, err := a.snapshotOp(ctx, req, dir)
+		if err != nil && m == nil {
+			finish(err)
+			return
+		}
+		m.Done = err == nil
+		if err != nil {
+			m.Error = err.Error()
+		}
+		_ = send(m)
+		finish(nil)
 	case armadav1.VolumeRequest_OP_REMOVE:
 		if a.volumeUsed(req.GetApp(), req.GetVolume()) {
 			finish(fmt.Errorf("a replica on this node still uses volume %s of %s", req.GetVolume(), req.GetApp()))
@@ -391,6 +406,64 @@ func writeArchive(ctx context.Context, dir string, w io.Writer) error {
 // links, with relative names that stay inside the volume; no entry is
 // written through a link.
 func restoreArchive(dir string, r io.Reader) error {
+	zr, err := gzip.NewReader(r)
+	if err != nil {
+		return fmt.Errorf("read archive: %w", err)
+	}
+	tr := tar.NewReader(zr)
+	return replaceDir(dir, func(w *entryWriter) error {
+		for {
+			hdr, err := tr.Next()
+			if errors.Is(err, io.EOF) {
+				return nil
+			}
+			if err != nil {
+				return fmt.Errorf("read archive: %w", err)
+			}
+			e := restoreEntry{Name: hdr.Name, Mode: hdr.FileInfo().Mode(), UID: hdr.Uid, GID: hdr.Gid, ModTime: hdr.ModTime, Link: hdr.Linkname, Size: hdr.Size}
+			switch hdr.Typeflag {
+			case tar.TypeDir:
+				e.Type = 'd'
+			case tar.TypeReg:
+				e.Type = 'f'
+			case tar.TypeSymlink:
+				e.Type = 'l'
+			default:
+				return fmt.Errorf("archive entry %q: only directories, regular files, and links can be restored", hdr.Name)
+			}
+			if err := w.write(e, tr); err != nil {
+				return err
+			}
+		}
+	})
+}
+
+// restoreEntry is one directory, file, or link to restore.
+type restoreEntry struct {
+	Name     string
+	Type     byte // 'd', 'f', or 'l'
+	Mode     fs.FileMode
+	UID, GID int
+	ModTime  time.Time
+	Link     string
+	// Size is a file's length; its content must be exactly that.
+	Size int64
+}
+
+// entryWriter writes restored entries into a new directory.
+type entryWriter struct {
+	root string
+	dirs []dirTime
+}
+
+type dirTime struct {
+	path string
+	t    time.Time
+}
+
+// replaceDir fills a new directory next to dir and swaps it in only when
+// fill succeeded, so a failure leaves the volume as it was.
+func replaceDir(dir string, fill func(*entryWriter) error) error {
 	if err := fsutil.MkdirPrivate(filepath.Dir(dir)); err != nil {
 		return err
 	}
@@ -404,75 +477,12 @@ func restoreArchive(dir string, r io.Reader) error {
 			_ = os.RemoveAll(tmp)
 		}
 	}()
-	zr, err := gzip.NewReader(r)
-	if err != nil {
-		return fmt.Errorf("read archive: %w", err)
+	w := &entryWriter{root: tmp}
+	if err := fill(w); err != nil {
+		return err
 	}
-	tr := tar.NewReader(zr)
-	type dirTime struct {
-		path string
-		t    time.Time
-	}
-	var dirs []dirTime
-	for {
-		hdr, err := tr.Next()
-		if errors.Is(err, io.EOF) {
-			break
-		}
-		if err != nil {
-			return fmt.Errorf("read archive: %w", err)
-		}
-		target, err := archivePath(tmp, hdr.Name)
-		if err != nil {
-			return err
-		}
-		mode := hdr.FileInfo().Mode() & (fs.ModePerm | fs.ModeSticky)
-		switch hdr.Typeflag {
-		case tar.TypeDir:
-			if target != tmp {
-				if err := os.Mkdir(target, 0o700); err != nil && !errors.Is(err, fs.ErrExist) {
-					return err
-				}
-			}
-			if fi, err := os.Lstat(target); err != nil || !fi.IsDir() {
-				return fmt.Errorf("archive entry %q is not a directory", hdr.Name)
-			}
-			dirs = append(dirs, dirTime{target, hdr.ModTime})
-		case tar.TypeReg:
-			f, err := os.OpenFile(target, os.O_CREATE|os.O_EXCL|os.O_WRONLY|noFollow, 0o600) //nolint:gosec // checked by archivePath
-			if err != nil {
-				return fmt.Errorf("archive entry %q: %w", hdr.Name, err)
-			}
-			_, err = io.CopyN(f, tr, hdr.Size)
-			if cerr := f.Close(); err == nil {
-				err = cerr
-			}
-			if err != nil {
-				return fmt.Errorf("archive entry %q: %w", hdr.Name, err)
-			}
-			if err := os.Chtimes(target, hdr.ModTime, hdr.ModTime); err != nil {
-				return err
-			}
-		case tar.TypeSymlink:
-			if err := os.Symlink(hdr.Linkname, target); err != nil {
-				return fmt.Errorf("archive entry %q: %w", hdr.Name, err)
-			}
-		default:
-			return fmt.Errorf("archive entry %q: only directories, regular files, and links can be restored", hdr.Name)
-		}
-		if err := os.Lchown(target, hdr.Uid, hdr.Gid); err != nil {
-			return fmt.Errorf("archive entry %q: %w", hdr.Name, err)
-		}
-		if hdr.Typeflag != tar.TypeSymlink {
-			// After the owner: chown clears setuid and setgid, which are
-			// left out anyway.
-			if err := os.Chmod(target, mode); err != nil {
-				return err
-			}
-		}
-	}
-	for i := len(dirs) - 1; i >= 0; i-- {
-		_ = os.Chtimes(dirs[i].path, dirs[i].t, dirs[i].t)
+	for i := len(w.dirs) - 1; i >= 0; i-- {
+		_ = os.Chtimes(w.dirs[i].path, w.dirs[i].t, w.dirs[i].t)
 	}
 	old := dir + ".old-" + randomSuffix()
 	if err := os.Rename(dir, old); err != nil && !errors.Is(err, fs.ErrNotExist) {
@@ -484,6 +494,63 @@ func restoreArchive(dir string, r io.Reader) error {
 	}
 	ok = true
 	return os.RemoveAll(old)
+}
+
+// write creates e, reading a file's content from content. No entry is
+// written through a link, and setuid and setgid bits are left out.
+func (w *entryWriter) write(e restoreEntry, content io.Reader) error {
+	target, err := archivePath(w.root, e.Name)
+	if err != nil {
+		return err
+	}
+	mode := e.Mode & (fs.ModePerm | fs.ModeSticky)
+	switch e.Type {
+	case 'd':
+		if target != w.root {
+			if err := os.Mkdir(target, 0o700); err != nil && !errors.Is(err, fs.ErrExist) {
+				return err
+			}
+		}
+		if fi, err := os.Lstat(target); err != nil || !fi.IsDir() {
+			return fmt.Errorf("archive entry %q is not a directory", e.Name)
+		}
+		w.dirs = append(w.dirs, dirTime{target, e.ModTime})
+	case 'f':
+		f, err := os.OpenFile(target, os.O_CREATE|os.O_EXCL|os.O_WRONLY|noFollow, 0o600) //nolint:gosec // checked by archivePath
+		if err != nil {
+			return fmt.Errorf("archive entry %q: %w", e.Name, err)
+		}
+		n, err := io.Copy(f, io.LimitReader(content, e.Size+1))
+		if cerr := f.Close(); err == nil {
+			err = cerr
+		}
+		if err == nil && n != e.Size {
+			err = fmt.Errorf("content of %d bytes, expected %d", n, e.Size)
+		}
+		if err != nil {
+			return fmt.Errorf("archive entry %q: %w", e.Name, err)
+		}
+		if err := os.Chtimes(target, e.ModTime, e.ModTime); err != nil {
+			return err
+		}
+	case 'l':
+		if err := os.Symlink(e.Link, target); err != nil {
+			return fmt.Errorf("archive entry %q: %w", e.Name, err)
+		}
+	default:
+		return fmt.Errorf("archive entry %q: only directories, regular files, and links can be restored", e.Name)
+	}
+	if err := os.Lchown(target, e.UID, e.GID); err != nil {
+		return fmt.Errorf("archive entry %q: %w", e.Name, err)
+	}
+	if e.Type != 'l' {
+		// After the owner: chown clears setuid and setgid, which are
+		// left out anyway.
+		if err := os.Chmod(target, mode); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // archivePath resolves an archive entry name inside root: relative, clean,

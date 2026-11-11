@@ -63,12 +63,15 @@ var methodNeeds = map[string]need{
 	adminService + "CancelJob":    needDeploy,
 	adminService + "VerifyDomain": needDeploy,
 
-	adminService + "Exec":          needAdmin,
-	adminService + "BackupVolume":  needAdmin,
-	adminService + "RestoreVolume": needAdmin,
-	adminService + "RemoveVolume":  needAdmin,
-	adminService + "RemoveApp":     needAdmin,
-	adminService + "DeleteJob":     needAdmin,
+	adminService + "Exec":                  needAdmin,
+	adminService + "BackupVolume":          needAdmin,
+	adminService + "RestoreVolume":         needAdmin,
+	adminService + "RemoveVolume":          needAdmin,
+	adminService + "ListVolumeSnapshots":   needView,
+	adminService + "CreateVolumeSnapshot":  needAdmin,
+	adminService + "RestoreVolumeSnapshot": needAdmin,
+	adminService + "RemoveApp":             needAdmin,
+	adminService + "DeleteJob":             needAdmin,
 	// Also project-creator, checked by the handler.
 	adminService + "DeleteProject": needAdmin,
 

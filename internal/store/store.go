@@ -514,6 +514,8 @@ type Store interface {
 	GetVolume(ctx context.Context, app, name string) (Volume, error)
 	DeleteVolume(ctx context.Context, app, name, actor string) error
 	BindVolume(ctx context.Context, app, name, node, actor string) error
+	// RecordVolumeBackup keeps how a volume's backup went (ADR 0041).
+	RecordVolumeBackup(ctx context.Context, app, name, id string, stored int64, snapshots int, errMsg string) error
 	// PutEvent stores an event (ADR 0018) that expires after EventTTL and
 	// deletes the event stored under replace, if set; it returns the new
 	// key. ListEvents returns events that last happened at or after since,
