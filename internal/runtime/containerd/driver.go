@@ -96,6 +96,9 @@ type Driver struct {
 
 	labelsMu       sync.Mutex
 	labelsReserved bool // SELinux categories of existing containers are reserved
+
+	startsMu sync.Mutex
+	starts   map[string]*startup // replicas whose init containers or sidecars are starting (ADR 0038)
 }
 
 var (
@@ -289,6 +292,14 @@ func (d *Driver) Run(ctx context.Context, s runtime.ContainerSpec) (_ string, er
 	if err != nil {
 		return "", err
 	}
+	images := map[string]client.Image{}
+	for _, m := range slices.Concat(s.Init, s.Sidecars) {
+		if images[m.Image] == nil {
+			if images[m.Image], err = d.image(ctx, m.Image); err != nil {
+				return "", fmt.Errorf("container %s: %w", m.Name, err)
+			}
+		}
+	}
 	tini, err := filepath.EvalSymlinks(filepath.Join(d.paths.Bin(), embedded.BinTini))
 	if err != nil {
 		return "", fmt.Errorf("tini: %w", err)
@@ -297,9 +308,12 @@ func (d *Driver) Run(ctx context.Context, s runtime.ContainerSpec) (_ string, er
 	// Picking a host port and taking it must not interleave. Without a port,
 	// containers start at once: the network plugins and containerd take care
 	// of their own state.
+	unlock := func() {}
 	if s.Port != 0 {
 		d.mu.Lock()
-		defer d.mu.Unlock()
+		var once sync.Once
+		unlock = func() { once.Do(d.mu.Unlock) }
+		defer unlock()
 	}
 	sl, err := d.newLabels(ctx)
 	if err != nil {
@@ -379,6 +393,13 @@ func (d *Driver) Run(ctx context.Context, s runtime.ContainerSpec) (_ string, er
 		apparmor: apparmorOpt(),
 		selinux:  sl,
 	})...)
+	if len(s.Init) > 0 || len(s.Sidecars) > 0 {
+		// Its init containers and sidecars share its network namespace,
+		// host files, and SELinux label (ADR 0038).
+		return d.runPod(ctx, id, img, labels, opts, podEnv{
+			spec: s, netns: netns, files: files, tini: tini, selinux: sl, images: images,
+		}, &undo, unlock)
+	}
 	labels[labelStarted] = time.Now().UTC().Format(time.RFC3339Nano)
 	return d.create(ctx, id, img, labels, opts, d.runcOpts(), &undo)
 }
@@ -463,12 +484,28 @@ func notFound(err error) error {
 
 // Stop sends SIGTERM to the container's init and SIGKILL after grace. The
 // stopped task is kept so its exit code stays visible until Remove.
+// A replica's sidecars stop after its own container (ADR 0038), so a proxy
+// or log shipper in front of it outlives it.
 func (d *Driver) Stop(ctx context.Context, id string, grace time.Duration) error {
 	ctx = d.ctx(ctx)
 	c, err := d.client.LoadContainer(ctx, id)
 	if err != nil {
 		return notFound(err)
 	}
+	d.endStart(id)
+	if err := d.stopContainer(ctx, c, grace); err != nil {
+		return err
+	}
+	labels, err := c.Labels(ctx)
+	if err != nil || labels[labelKind] != "app" {
+		return nil //nolint:nilerr // gone meanwhile, or no sidecars to stop
+	}
+	return d.stopSidecars(ctx, id, grace)
+}
+
+// stopContainer stops one container's task, like Stop. A task that was
+// created but never started is deleted: there is nothing to end.
+func (d *Driver) stopContainer(ctx context.Context, c client.Container, grace time.Duration) error {
 	t, err := c.Task(ctx, nil)
 	if errdefs.IsNotFound(err) {
 		return nil
@@ -480,7 +517,13 @@ func (d *Driver) Stop(ctx context.Context, id string, grace time.Duration) error
 	if err != nil {
 		return err
 	}
-	if st.Status == client.Stopped {
+	switch st.Status {
+	case client.Stopped:
+		return nil
+	case client.Created:
+		if _, err := t.Delete(ctx, client.WithProcessKill); err != nil && !errdefs.IsNotFound(err) {
+			return err
+		}
 		return nil
 	}
 	exited, err := t.Wait(ctx)
@@ -508,13 +551,27 @@ func (d *Driver) Stop(ctx context.Context, id string, grace time.Duration) error
 	}
 }
 
-// Remove kills and deletes a container with its network, files, and logs.
+// Remove kills and deletes a container with its network, files, and logs,
+// and a replica's container with its init containers and sidecars first:
+// they live in its network namespace.
 func (d *Driver) Remove(ctx context.Context, id string) error {
 	ctx = d.ctx(ctx)
 	c, err := d.client.LoadContainer(ctx, id)
 	if err != nil {
 		return notFound(err)
 	}
+	d.endStart(id)
+	if l, err := c.Labels(ctx); err == nil && l[labelKind] == "app" {
+		if err := d.removeMembers(ctx, id); err != nil {
+			return fmt.Errorf("init containers and sidecars: %w", err)
+		}
+	}
+	return d.removeContainer(ctx, c)
+}
+
+// removeContainer removes one container, like Remove.
+func (d *Driver) removeContainer(ctx context.Context, c client.Container) error {
+	id := c.ID()
 	labels, err := c.Labels(ctx)
 	if err != nil {
 		return notFound(err)
@@ -547,7 +604,11 @@ func (d *Driver) Remove(ctx context.Context, id string) error {
 	if err := c.Delete(ctx, client.WithSnapshotCleanup); err != nil && !errdefs.IsNotFound(err) {
 		return err
 	}
-	releaseLabel(processLabel(spec))
+	// An init container or sidecar has its replica's label, which the
+	// replica's container gives back.
+	if labels[labelKind] != kindMember {
+		releaseLabel(processLabel(spec))
+	}
 	return errors.Join(
 		os.RemoveAll(filepath.Join(d.paths.Containers(), id)),
 		embedded.RemoveLogs(d.paths.Logs(), id),
@@ -602,17 +663,34 @@ func (d *Driver) List(ctx context.Context, labels map[string]string) ([]runtime.
 		}
 	}
 	var out []runtime.Container
+	// Init containers and sidecars are listed with their replica's
+	// container (ADR 0038), or by themselves if it is gone.
+	members := map[string][]runtime.Container{}
+	ids := map[string]bool{}
 	for _, c := range cs {
-		rc, err := d.describeWith(ctx, c, known[c.ID()])
+		ids[c.ID()] = true
+	}
+	for _, c := range cs {
+		rc, pod, err := d.describeWith(ctx, c, known[c.ID()])
 		if errdefs.IsNotFound(err) {
 			continue // removed meanwhile
 		}
 		if err != nil {
 			return nil, err
 		}
+		if pod != "" && ids[pod] {
+			members[pod] = append(members[pod], rc)
+			continue
+		}
 		if matches(rc.Labels, labels) {
 			out = append(out, rc)
 		}
+	}
+	for i := range out {
+		for _, m := range members[out[i].ID] {
+			out[i].Members = append(out[i].Members, memberOf(m))
+		}
+		sortMembers(out[i].Members)
 	}
 	return out, nil
 }
@@ -633,21 +711,39 @@ func (d *Driver) Inspect(ctx context.Context, id string) (runtime.Container, err
 	if err != nil {
 		return runtime.Container{}, notFound(err)
 	}
-	rc, err := d.describe(ctx, c)
-	return rc, notFound(err)
+	rc, pod, err := d.describeWith(ctx, c, nil)
+	if err != nil {
+		return runtime.Container{}, notFound(err)
+	}
+	if pod == "" {
+		if err := d.describeMembers(ctx, &rc); err != nil {
+			return runtime.Container{}, notFound(err)
+		}
+	}
+	return rc, nil
 }
 
-func (d *Driver) describe(ctx context.Context, c client.Container) (runtime.Container, error) {
-	return d.describeWith(ctx, c, nil)
+// describeWith describes c, using its task's state if it is known already,
+// and returns the replica's container it belongs to if it is an init
+// container or a sidecar.
+func (d *Driver) describeWith(ctx context.Context, c client.Container, known *task.Process) (_ runtime.Container, pod string, _ error) {
+	rc, pod, err := d.describeTask(ctx, c, known)
+	if err == nil && pod == "" && d.starting(rc.ID) {
+		rc.State = runtime.StateStarting
+	}
+	return rc, pod, err
 }
 
-// describeWith describes c, using its task's state if it is known already.
-func (d *Driver) describeWith(ctx context.Context, c client.Container, known *task.Process) (runtime.Container, error) {
+func (d *Driver) describeTask(ctx context.Context, c client.Container, known *task.Process) (runtime.Container, string, error) {
 	info, err := c.Info(ctx, client.WithoutRefreshedMetadata)
 	if err != nil {
-		return runtime.Container{}, err
+		return runtime.Container{}, "", err
 	}
-	rc := runtime.Container{ID: c.ID(), Name: info.Labels[labelName], Image: info.Image, Labels: map[string]string{}}
+	pod := ""
+	if info.Labels[labelKind] == kindMember {
+		pod = info.Labels[labelPod]
+	}
+	rc := runtime.Container{ID: c.ID(), Name: info.Labels[labelName], Image: info.Image, Labels: map[string]string{}, StartError: info.Labels[labelFailed]}
 	if rc.Name == "" {
 		rc.Name = c.ID()
 	}
@@ -677,21 +773,21 @@ func (d *Driver) describeWith(ctx context.Context, c client.Container, known *ta
 		default:
 			rc.State = runtime.StateDead
 		}
-		return rc, nil
+		return rc, pod, nil
 	}
 	t, err := c.Task(ctx, nil)
 	if errdefs.IsNotFound(err) {
 		// No task: the node rebooted or containerd lost the shim. The
 		// agent recreates the container.
 		rc.State, rc.ExitCode = runtime.StateExited, 255
-		return rc, nil
+		return rc, pod, nil
 	}
 	if err != nil {
-		return runtime.Container{}, err
+		return runtime.Container{}, "", err
 	}
 	st, err := t.Status(ctx)
 	if err != nil {
-		return runtime.Container{}, err
+		return runtime.Container{}, "", err
 	}
 	switch st.Status {
 	case client.Running:
@@ -705,7 +801,7 @@ func (d *Driver) describeWith(ctx context.Context, c client.Container, known *ta
 	default:
 		rc.State = runtime.StateDead
 	}
-	return rc, nil
+	return rc, pod, nil
 }
 
 // Logs returns the container's stored output.

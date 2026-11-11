@@ -53,7 +53,8 @@ func newAppCreateCommand(g *globals) *cobra.Command {
 		Long: "Create an app from flags, or from a spec file with --file (- for stdin).\n" +
 			"It refuses a name that exists; change an app with `armada app update`. Flags\n" +
 			"cover what is changed often; the rest of the spec (custom probes, routes,\n" +
-			"secret files, volumes, placement, traffic splitting) is written in a file.",
+			"secret files, volumes, init containers, sidecars, placement, traffic\n" +
+			"splitting) is written in a file.",
 		Example: "  armada app create hello --image traefik/whoami:v1.10 --port 80 --ingress external --replicas 2\n" +
 			"  armada app create --file web.yaml --var TAG=1.4.2",
 		Args: cobra.MaximumNArgs(1),

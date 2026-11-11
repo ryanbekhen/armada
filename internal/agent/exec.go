@@ -82,11 +82,25 @@ func (a *Agent) serveExec(ctx context.Context, req *armadav1.ExecRequest) {
 	}
 	var id string
 	for _, c := range cs {
-		if c.State == runtime.StateRunning {
-			id = c.ID
+		if c.Labels[runtime.LabelRole] != "" {
+			continue // an init container or sidecar left behind
+		}
+		if req.GetContainer() == "" || req.GetContainer() == "app" {
+			if c.State == runtime.StateRunning {
+				id = c.ID
+			}
+			continue
+		}
+		// A sidecar (ADR 0038); an init container has run to its end.
+		if m, ok := c.Member(req.GetContainer()); ok && m.Role == runtime.RoleSidecar && m.State == runtime.StateRunning {
+			id = m.ID
 		}
 	}
 	if id == "" {
+		if req.GetContainer() != "" && req.GetContainer() != "app" {
+			fail("replica " + req.GetReplicaId() + " has no running sidecar " + req.GetContainer() + " on this node")
+			return
+		}
 		fail("replica " + req.GetReplicaId() + " has no running container on this node")
 		return
 	}

@@ -400,6 +400,9 @@ func (s *Server) Logs(req *armadav1.LogsRequest, stream armadav1.AdminService_Lo
 	if err != nil {
 		return storeErr(err)
 	}
+	if err := checkContainerName(req.GetContainer()); err != nil {
+		return err
+	}
 	switch {
 	case req.GetRun() != 0 && !app.Spec.IsJob():
 		return status.Errorf(codes.InvalidArgument, "%s is an app; --run is for jobs", app.Name)
@@ -433,7 +436,7 @@ func (s *Server) Logs(req *armadav1.LogsRequest, stream armadav1.AdminService_Lo
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			s.relayLogs(ctx, r, req.GetFollow(), tail, out)
+			s.relayLogs(ctx, r, req.GetContainer(), req.GetFollow(), tail, out)
 		}()
 	}
 	go func() {
@@ -448,7 +451,7 @@ func (s *Server) Logs(req *armadav1.LogsRequest, stream armadav1.AdminService_Lo
 	return nil
 }
 
-func (s *Server) relayLogs(ctx context.Context, r store.Replica, follow bool, tail int32, out chan<- *armadav1.LogEntry) {
+func (s *Server) relayLogs(ctx context.Context, r store.Replica, container string, follow bool, tail int32, out chan<- *armadav1.LogEntry) {
 	notice := func(msg string) {
 		select {
 		case out <- &armadav1.LogEntry{Replica: r.ID, Stream: armadav1.Stream_STREAM_STDERR, Data: []byte("[armada] " + msg + "\n")}:
@@ -464,7 +467,7 @@ func (s *Server) relayLogs(ctx context.Context, r store.Replica, follow bool, ta
 	defer s.logs.cancel(id, p)
 
 	ok := sess.offer(&armadav1.ServerMessage{Msg: &armadav1.ServerMessage_LogRequest{LogRequest: &armadav1.LogRequest{
-		RequestId: id, ReplicaId: r.ID, Follow: follow, Tail: tail,
+		RequestId: id, ReplicaId: r.ID, Follow: follow, Tail: tail, Container: container,
 	}}})
 	if !ok {
 		notice("node " + r.NodeID + " did not accept the log request")

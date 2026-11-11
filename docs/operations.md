@@ -581,6 +581,29 @@ Its volumes and their data stay. Delete them with `armada volume delete`, or
 create the same name again to use them. A project can be deleted once it holds no
 apps and no volumes.
 
+## Init containers and sidecars
+
+A replica can run more containers beside the app's own: init containers
+that finish before it starts, and sidecars that run with it on its
+localhost ([ADR 0038](adr/0038-init-containers-and-sidecars.md); see the
+[spec reference](spec-reference.md#initcontainers-sidecars)).
+
+- **A replica stuck starting.** While its init containers run, a replica is
+  `starting`. Follow one with `armada app logs APP --container NAME -f`.
+- **A failed init container** shows in `armada app show` and
+  `armada app events` as `init container NAME exited with code N`. The
+  replica's containers are kept until the next attempt, which comes after the
+  same growing delay as a crash (1s, 2s, 4s, up to 5 minutes), so
+  `armada app logs APP --container NAME` still has its output. Each attempt
+  runs every init container again: write them so they can run more than once
+  (a migration that skips what is applied, for example).
+- **A sidecar that exits** restarts its replica, with the message
+  `sidecar NAME exited with code N`.
+- **Upgrades.** The state layout changes for them (schema 10), so the
+  upgraded servers lead once every server is upgraded. Replicas with init
+  containers or sidecars are only placed on nodes whose agent runs them;
+  until nodes are upgraded, `armada app show` says no node fits.
+
 ## Container network
 
 Every node's containers live on the node's own bridge subnet, a /24 of
@@ -765,6 +788,11 @@ armada app exec web --replica web-r1-5muie -- env # a specific replica (armada a
 
 - Without `--replica`, Armada picks a running, ready replica of the
   serving revision.
+- `--container NAME` runs the command in one of the replica's sidecars
+  instead of the app's own container
+  ([ADR 0038](adr/0038-init-containers-and-sidecars.md)). Init containers
+  have run to their end; read what they printed with
+  `armada app logs APP --container NAME`.
 - The command runs with the container's own user, capabilities,
   `no-new-privileges`, seccomp profile, limits, and namespaces; there is no
   option to run it with more privileges.
@@ -806,6 +834,10 @@ web-r1-q2k0d     node2  running  41m/250m   58Mi/256Mi
   `resources.memory`.
 - `armada node top` shows what each node's replicas use and reserve, and
   what the node can give replicas after what Armada keeps for itself.
+- A replica with sidecars or init containers counts them all: its use is
+  the sum of its containers, and its reservation covers its container and
+  sidecars, or its largest init container if that is more
+  ([ADR 0038](adr/0038-init-containers-and-sidecars.md)).
 - `--projects` adds up each project's replicas and volumes, and counts the
   requests the proxies sent to its replicas and the bytes its containers
   sent over their network, replies and traffic to other replicas included.

@@ -11,6 +11,7 @@ import (
 	"slices"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -79,6 +80,89 @@ type Driver struct {
 	NoExec bool
 	// Dials records the addresses DialContainer was asked for.
 	Dials []string
+	// NoMembers makes the driver report that it cannot run init containers
+	// and sidecars.
+	NoMembers bool
+	// InitExits is the exit code of init containers by name; without an
+	// entry they exit with 0.
+	InitExits map[string]int
+	// HoldStarts leaves replicas with init containers or sidecars starting
+	// until FinishStarts.
+	HoldStarts bool
+	// Events records, in order, "start <name>" and "stop <name>" for the
+	// containers of replicas with init containers or sidecars, where name is
+	// "app" for the replica's own container.
+	Events []string
+
+	// pod maps an init container's or sidecar's ID to its replica's
+	// container.
+	pod map[string]string
+}
+
+// CanRunMembers reports whether init containers and sidecars are offered
+// (not NoMembers).
+func (d *Driver) CanRunMembers() bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return !d.NoMembers
+}
+
+// SetMemberState changes the state of the init container or sidecar name of
+// the replica's container id, e.g. to simulate a sidecar crash.
+func (d *Driver) SetMemberState(id, name, state string, exitCode int) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	for mid, main := range d.pod {
+		if c := d.containers[mid]; main == id && c != nil && c.Labels[runtime.LabelContainer] == name {
+			c.State, c.ExitCode = state, exitCode
+		}
+	}
+}
+
+// TakeEvents returns the events recorded so far and forgets them.
+func (d *Driver) TakeEvents() []string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	e := d.Events
+	d.Events = nil
+	return e
+}
+
+// members returns the init containers and sidecars of the container id,
+// sorted by ID (creation order). The lock is held.
+func (d *Driver) members(id string) []runtime.Member {
+	var out []runtime.Member
+	for mid, main := range d.pod {
+		if main != id {
+			continue
+		}
+		c := d.containers[mid]
+		out = append(out, runtime.Member{ID: mid, Name: c.Labels[runtime.LabelContainer], Role: c.Labels[runtime.LabelRole], State: c.State, ExitCode: c.ExitCode, StartedAt: c.StartedAt})
+	}
+	slices.SortFunc(out, func(a, b runtime.Member) int { return strings.Compare(a.ID, b.ID) })
+	return out
+}
+
+// withMembers returns a copy of c with its members. The lock is held.
+func (d *Driver) withMembers(c *runtime.Container) runtime.Container {
+	out := *c
+	out.Members = d.members(c.ID)
+	return out
+}
+
+// addMember creates an init container or sidecar of main. The lock is held.
+func (d *Driver) addMember(main string, s runtime.ContainerSpec, m runtime.MemberSpec, role, state string, exitCode int) {
+	d.seq++
+	id := fmt.Sprintf("c%04d", d.seq)
+	labels := maps.Clone(s.Labels)
+	labels[runtime.LabelRole] = role
+	labels[runtime.LabelContainer] = m.Name
+	d.containers[id] = &runtime.Container{ID: id, Name: m.Name, Image: m.Image, Labels: labels, State: state, ExitCode: exitCode, StartedAt: time.Now()}
+	if d.pod == nil {
+		d.pod = map[string]string{}
+	}
+	d.pod[id] = main
+	d.Events = append(d.Events, "start "+m.Name)
 }
 
 // DialContainer dials from the host: the fake has no network namespaces.
@@ -302,6 +386,9 @@ func (d *Driver) Run(ctx context.Context, s runtime.ContainerSpec) (string, erro
 			return "", fmt.Errorf("container name %q already in use", s.Name)
 		}
 	}
+	if (len(s.Init) > 0 || len(s.Sidecars) > 0) && d.NoMembers {
+		return "", fmt.Errorf("this runtime runs no init containers or sidecars")
+	}
 	d.seq++
 	id := fmt.Sprintf("c%04d", d.seq)
 	labels := maps.Clone(s.Labels)
@@ -315,7 +402,45 @@ func (d *Driver) Run(ctx context.Context, s runtime.ContainerSpec) (string, erro
 	}
 	d.containers[id] = c
 	d.specs[id] = s
+	if len(s.Init) > 0 || len(s.Sidecars) > 0 {
+		c.State = runtime.StateStarting
+		if !d.HoldStarts {
+			d.bringUp(id)
+		}
+	}
 	return id, nil
+}
+
+// bringUp does what the real runtime does after Run for a replica with init
+// containers or sidecars: its container exists first, and starts once its
+// init containers succeeded and its sidecars run. The lock is held.
+func (d *Driver) bringUp(id string) {
+	c, s := d.containers[id], d.specs[id]
+	if c == nil || c.State != runtime.StateStarting {
+		return
+	}
+	for _, m := range s.Init {
+		code := d.InitExits[m.Name]
+		d.addMember(id, s, m, runtime.RoleInit, runtime.StateExited, code)
+		if code != 0 {
+			c.State, c.ExitCode = runtime.StateExited, 255
+			return
+		}
+	}
+	for _, m := range s.Sidecars {
+		d.addMember(id, s, m, runtime.RoleSidecar, runtime.StateRunning, 0)
+	}
+	d.Events = append(d.Events, "start app")
+	c.State, c.StartedAt = runtime.StateRunning, time.Now()
+}
+
+// FinishStarts brings up the replicas Run left starting under HoldStarts.
+func (d *Driver) FinishStarts() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	for _, id := range slices.Sorted(maps.Keys(d.containers)) {
+		d.bringUp(id)
+	}
 }
 
 // Stop marks a container exited.
@@ -326,19 +451,35 @@ func (d *Driver) Stop(_ context.Context, id string, _ time.Duration) error {
 	if !ok {
 		return runtime.ErrNotFound
 	}
+	members := d.members(id)
+	if len(members) > 0 && c.State == runtime.StateRunning {
+		d.Events = append(d.Events, "stop app")
+	}
 	c.State = runtime.StateExited
+	// The replica's own container first, then its sidecars.
+	for _, m := range members {
+		if mc := d.containers[m.ID]; m.Role == runtime.RoleSidecar && mc.State == runtime.StateRunning {
+			mc.State = runtime.StateExited
+			d.Events = append(d.Events, "stop "+m.Name)
+		}
+	}
 	return nil
 }
 
-// Remove deletes a container.
+// Remove deletes a container with its init containers and sidecars.
 func (d *Driver) Remove(_ context.Context, id string) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if _, ok := d.containers[id]; !ok {
 		return runtime.ErrNotFound
 	}
+	for _, m := range d.members(id) {
+		delete(d.containers, m.ID)
+		delete(d.pod, m.ID)
+	}
 	delete(d.containers, id)
 	delete(d.specs, id)
+	delete(d.pod, id)
 	return nil
 }
 
@@ -348,13 +489,16 @@ func (d *Driver) List(_ context.Context, labels map[string]string) ([]runtime.Co
 	defer d.mu.Unlock()
 	var out []runtime.Container
 outer:
-	for _, c := range d.containers {
+	for id, c := range d.containers {
+		if main, ok := d.pod[id]; ok && d.containers[main] != nil {
+			continue // listed with its replica's container
+		}
 		for k, v := range labels {
 			if c.Labels[k] != v {
 				continue outer
 			}
 		}
-		out = append(out, *c)
+		out = append(out, d.withMembers(c))
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out, nil
@@ -368,7 +512,20 @@ func (d *Driver) Inspect(_ context.Context, id string) (runtime.Container, error
 	if !ok {
 		return runtime.Container{}, runtime.ErrNotFound
 	}
-	return *c, nil
+	return d.withMembers(c), nil
+}
+
+// AddMember inserts an existing init container or sidecar of the container
+// main, e.g. one left over from a previous run.
+func (d *Driver) AddMember(main string, m runtime.Container) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	cp := m
+	d.containers[m.ID] = &cp
+	if d.pod == nil {
+		d.pod = map[string]string{}
+	}
+	d.pod[m.ID] = main
 }
 
 // Logs returns LogLines.

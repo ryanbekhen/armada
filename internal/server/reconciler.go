@@ -9,6 +9,7 @@ import (
 	"maps"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -967,6 +968,9 @@ func placementAllows(n store.Node, rev store.Revision) bool {
 	if sp.HasVolumes() && !n.Volumes {
 		return false
 	}
+	if sp.HasContainers() && !n.Containers {
+		return false
+	}
 	if !sp.Placement.Matches(n.AllLabels()) {
 		return false
 	}
@@ -1249,6 +1253,47 @@ func replicaSpec(r store.Replica, rev store.Revision, vals map[string]secrets.Va
 		}
 		rs.Registry = &armadav1.RegistryAuth{Server: reg.Server, Username: reg.Username, Password: string(v.Bytes()), Ref: ref}
 	}
+	// Init containers and sidecars (ADR 0038): their own env, with the
+	// replica's identity, never the app's variables or PORT.
+	member := func(c spec.Container) (*armadav1.ContainerSpec, error) {
+		cs := &armadav1.ContainerSpec{
+			Name: c.Name, Image: c.Image, Command: c.Command, Args: c.Args,
+			MemoryBytes: c.MemoryBytes(), NanoCpus: c.NanoCPUs(), CpuReserveMillis: c.CPUMillis(), PidsLimit: spec.DefaultPids,
+			Volumes: c.Volumes, SecretFiles: c.SecretFiles,
+		}
+		for _, e := range c.Env {
+			if e.SecretRef == "" {
+				cs.Env = append(cs.Env, &armadav1.EnvVar{Name: e.Name, Value: e.Value})
+				continue
+			}
+			v, ref, err := secret(e.SecretRef)
+			if err != nil {
+				return nil, err
+			}
+			cs.Env = append(cs.Env, &armadav1.EnvVar{Name: e.Name, Value: string(v.Bytes()), Ref: ref})
+		}
+		for _, e := range env {
+			if strings.HasPrefix(e.GetName(), "ARMADA_") {
+				cs.Env = append(cs.Env, &armadav1.EnvVar{Name: e.GetName(), Value: e.GetValue()})
+			}
+		}
+		cs.Env = append(cs.Env, &armadav1.EnvVar{Name: "ARMADA_CONTAINER", Value: c.Name})
+		return cs, nil
+	}
+	for _, c := range sp.InitContainers {
+		cs, err := member(c)
+		if err != nil {
+			return nil, err
+		}
+		rs.InitContainers = append(rs.InitContainers, cs)
+	}
+	for _, c := range sp.Sidecars {
+		cs, err := member(c)
+		if err != nil {
+			return nil, err
+		}
+		rs.Sidecars = append(rs.Sidecars, cs)
+	}
 	return rs, nil
 }
 
@@ -1374,9 +1419,10 @@ func (c *revisionCache) reserved(ctx context.Context) func(store.Replica) resour
 	}
 }
 
-// reservation is what one replica of rev reserves on its node.
+// reservation is what one replica of rev reserves on its node: its own
+// container with its sidecars, or its largest init container (ADR 0038).
 func reservation(rev store.Revision) resources {
-	return resources{cpu: rev.Spec.CPUMillis(), mem: rev.Spec.MemoryBytes()}
+	return resources{cpu: rev.Spec.ReservedCPUMillis(), mem: rev.Spec.ReservedMemoryBytes()}
 }
 
 // assignmentsEqual reports whether two assignments are identical.

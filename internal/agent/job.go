@@ -53,6 +53,13 @@ func (a *Agent) attempt(ctx context.Context, s *armadav1.ReplicaSpec, hash strin
 	if !stopped(full.State) {
 		return a.state(ctx, s, full)
 	}
+	// The attempt ends with the job's own container: its sidecars stop
+	// with it (ADR 0038).
+	if len(full.Members) > 0 {
+		if err := a.cfg.Driver.Stop(ctx, c.ID, stopGrace); err != nil {
+			a.log.Warn("stop sidecars failed", "container", c.ID, "err", err)
+		}
+	}
 	// The kept container is only for its logs: its address goes back at once,
 	// so finished runs do not fill the node's subnet.
 	if nr, ok := a.cfg.Driver.(runtime.NetworkReleaser); ok {
@@ -63,5 +70,13 @@ func (a *Agent) attempt(ctx context.Context, s *armadav1.ReplicaSpec, hash strin
 	st := a.state(ctx, s, full)
 	st.State, st.Finished, st.ExitCode = store.ReplicaExited, true, int32(full.ExitCode) //nolint:gosec // exit codes are small
 	st.Message = "exited with code " + strconv.Itoa(full.ExitCode)
+	// An init container that failed ends the attempt with its exit code;
+	// the job's own container never ran (ADR 0038).
+	if down := memberDown(s, full); down != "" {
+		st.Message = down
+		if m, ok := full.FailedInit(); ok {
+			st.ExitCode = int32(m.ExitCode) //nolint:gosec // exit codes are small
+		}
+	}
 	return st
 }

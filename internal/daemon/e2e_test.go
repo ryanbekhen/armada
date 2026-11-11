@@ -318,6 +318,14 @@ func TestEndToEnd(t *testing.T) {
 	if code, _, stderr := run(t, "app", "exec", "web", "-t", "--config", config, "--", "sh"); code != 1 || !strings.Contains(stderr, "needs a terminal") {
 		t.Errorf("exec -t without a terminal: code=%d err=%q", code, stderr)
 	}
+	// --container reaches the replica's agent, which knows its sidecars
+	// (ADR 0038); web has none.
+	if code, _, stderr := run(t, "app", "exec", "web", "--container", "log", "--config", config, "--", "sh"); code != 1 || !strings.Contains(stderr, "no running sidecar log") {
+		t.Errorf("exec --container: code=%d err=%q", code, stderr)
+	}
+	if code, out, stderr := cli("app", "logs", "web", "--container", "log"); code != 0 || !strings.Contains(out+stderr, "has no container log") {
+		t.Errorf("logs --container: code=%d out=%q err=%q", code, out, stderr)
+	}
 	if code, _, stderr := run(t, "app", "exec", "ghost", "--config", config, "--", "sh"); code != 1 || !strings.Contains(stderr, "not found") {
 		t.Errorf("exec in a missing app: code=%d err=%q", code, stderr)
 	}

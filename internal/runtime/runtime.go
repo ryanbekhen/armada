@@ -34,6 +34,9 @@ const (
 	StateExited     = "exited"
 	StatePaused     = "paused"
 	StateDead       = "dead"
+	// StateStarting is a replica's container whose init containers or
+	// sidecars the driver is still starting (ADR 0038).
+	StateStarting = "starting"
 )
 
 // Driver runs containers on the local node.
@@ -43,9 +46,19 @@ type Driver interface {
 	// Pull fetches image for this node's platform. It returns a
 	// *PlatformError when the image has no variant for it.
 	Pull(ctx context.Context, image string, auth *RegistryAuth) (Image, error)
-	// Run creates and starts a container.
+	// Run creates and starts a container. One with init containers or
+	// sidecars (ContainerSpec.Init) is created and returned at once, and
+	// listed as StateStarting while the driver runs the init containers in
+	// order and starts the sidecars, then starts it. When an init container
+	// fails, it is left exited, never started, and Container.FailedInit
+	// names the init container, whose output stays readable until Remove.
+	// A container the driver stopped starting (it went away) is listed as
+	// stopped.
 	Run(ctx context.Context, spec ContainerSpec) (string, error)
+	// Stop stops a container (ending its start if it is still starting),
+	// then its sidecars, each with grace.
 	Stop(ctx context.Context, id string, grace time.Duration) error
+	// Remove removes a container with its init containers and sidecars.
 	Remove(ctx context.Context, id string) error
 	// List returns containers (running or not) carrying all given labels.
 	List(ctx context.Context, labels map[string]string) ([]Container, error)
@@ -128,6 +141,94 @@ type ContainerSpec struct {
 	// Volumes are mounted read-write (ADR 0023); only drivers for which
 	// CanMountVolumes reports true accept them.
 	Volumes []VolumeMount
+	// Init containers run in order, each to completion, before Sidecars
+	// and then the container itself start; all of them share its network
+	// namespace (ADR 0038). Only drivers for which CanRunMembers reports
+	// true accept them.
+	Init     []MemberSpec
+	Sidecars []MemberSpec
+}
+
+// MemberSpec is an init container or a sidecar of a replica (ADR 0038). It
+// gets the same security defaults as the replica's own container, joins its
+// network namespace and its host files, and mounts only the files and
+// volumes it lists, which must be among the replica's.
+type MemberSpec struct {
+	// Name is unique within the replica and a valid container name
+	// (spec.Container).
+	Name             string
+	Image            string
+	Entrypoint       []string
+	Cmd              []string
+	Env              []string
+	MemoryBytes      int64
+	NanoCPUs         int64
+	CPUReserveMillis int64
+	PidsLimit        int64
+	Files            []FileMount
+	Volumes          []VolumeMount
+}
+
+// Roles of the containers of a replica, in the LabelRole label.
+const (
+	RoleInit    = "init"
+	RoleSidecar = "sidecar"
+)
+
+// Labels on init containers and sidecars, besides the replica's own: their
+// role and name. A container without LabelRole is a replica's own.
+const (
+	LabelRole      = "armada.role"
+	LabelContainer = "armada.container"
+)
+
+// Member is the observed state of an init container or a sidecar.
+type Member struct {
+	ID        string
+	Name      string
+	Role      string
+	State     string
+	ExitCode  int
+	StartedAt time.Time
+}
+
+// CanRunMembers reports whether d runs init containers and sidecars.
+func CanRunMembers(d Driver) bool {
+	if c, ok := d.(interface{ CanRunMembers() bool }); ok {
+		return c.CanRunMembers()
+	}
+	return false
+}
+
+// FailedInit returns the init container of c that exited with another code
+// than 0, if any.
+func (c Container) FailedInit() (Member, bool) {
+	for _, m := range c.Members {
+		if m.Role == RoleInit && m.State == StateExited && m.ExitCode != 0 {
+			return m, true
+		}
+	}
+	return Member{}, false
+}
+
+// StoppedSidecar returns a sidecar of c that no longer runs, if any.
+func (c Container) StoppedSidecar() (Member, bool) {
+	for _, m := range c.Members {
+		if m.Role == RoleSidecar && m.State != StateRunning {
+			return m, true
+		}
+	}
+	return Member{}, false
+}
+
+// Member returns the init container or sidecar of c called name.
+func (c Container) Member(name string) (Member, bool) {
+	for _, m := range c.Members {
+		if m.Name == name {
+			return m, true
+		}
+	}
+	return Member{}, false
 }
 
 // VolumeMount is a persistent volume: a directory the agent created for
@@ -159,6 +260,15 @@ type Container struct {
 	// the node for health checks; empty if unknown.
 	IP        string
 	StartedAt time.Time
+	// Members are the replica's init containers and sidecars (ADR 0038),
+	// listed with the replica's own container rather than on their own. An
+	// init container or sidecar whose replica's container is gone is listed
+	// by itself, with LabelRole set, to be removed.
+	Members []Member
+	// StartError says why the driver gave up starting a replica's init
+	// containers or sidecars (one could not be created, for example); empty
+	// otherwise. It names no values from the spec.
+	StartError string
 }
 
 // LogOptions controls log retrieval.

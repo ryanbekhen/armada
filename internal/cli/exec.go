@@ -24,17 +24,19 @@ func (e exitCodeError) Error() string { return fmt.Sprintf("exit status %d", int
 func newAppExecCommand(g *globals) *cobra.Command {
 	var (
 		replica    string
+		ctr        string
 		stdin, tty bool
 	)
 	cmd := &cobra.Command{
-		Use:   "exec APP [--replica ID] [-i] [-t] -- COMMAND [ARG...]",
+		Use:   "exec APP [--replica ID] [--container NAME] [-i] [-t] -- COMMAND [ARG...]",
 		Short: "Run a command in one of an app's replicas",
 		Long: `Run a command in one of an app's replicas and exit with its exit code.
 
 Without --replica, Armada picks a running, ready replica of the serving
 revision. -i passes standard input; -t allocates a terminal, so
 "armada app exec web -it -- sh" opens a shell. The command runs with the
-container's own user and security settings.
+container's own user and security settings. --container NAME runs it in
+one of the replica's sidecars instead.
 
 Exec is for diagnosis: changes made inside a container are lost when its
 replica is replaced. Each session is recorded in the audit log with the
@@ -77,7 +79,7 @@ command's name, not its arguments.`,
 			input := func(in *armadav1.ExecInput) error {
 				return send(&armadav1.ExecClientMessage{Msg: &armadav1.ExecClientMessage_Input{Input: in}})
 			}
-			start := &armadav1.ExecStart{App: args[0], Replica: replica, Cmd: args[1:], Tty: tty, Stdin: stdin}
+			start := &armadav1.ExecStart{App: args[0], Replica: replica, Cmd: args[1:], Tty: tty, Stdin: stdin, Container: ctr}
 			if tty {
 				if cols, rows, err := term.GetSize(fd); err == nil {
 					start.Size = &armadav1.TermSize{Rows: uint32(max(rows, 0)), Cols: uint32(max(cols, 0))} //nolint:gosec // non-negative
@@ -156,6 +158,7 @@ command's name, not its arguments.`,
 	}
 	f := cmd.Flags()
 	f.StringVar(&replica, "replica", "", "run in this replica")
+	f.StringVar(&ctr, "container", "", "run in this sidecar instead of the app's own container")
 	f.BoolVarP(&stdin, "stdin", "i", false, "pass standard input to the command")
 	f.BoolVarP(&tty, "tty", "t", false, "allocate a terminal")
 	return cmd

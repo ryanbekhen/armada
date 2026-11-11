@@ -64,6 +64,13 @@ func (a *App) SecretRefs() []string {
 	for _, f := range a.SecretFiles {
 		refs = append(refs, f.SecretRef)
 	}
+	for _, c := range slices.Concat(a.InitContainers, a.Sidecars) {
+		for _, e := range c.Env {
+			if e.SecretRef != "" {
+				refs = append(refs, e.SecretRef)
+			}
+		}
+	}
 	if a.Registry != nil {
 		refs = append(refs, a.Registry.PasswordSecretRef)
 	}

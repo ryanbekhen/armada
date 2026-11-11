@@ -74,6 +74,9 @@ type Node struct {
 	Jobs bool
 	// Volumes is true when the node mounts volumes (ADR 0023).
 	Volumes bool
+	// Containers is true when the node's agent runs init containers and
+	// sidecars (ADR 0038).
+	Containers bool
 	// Subnet is the node's container subnet in the cluster network
 	// (ADR 0025), given when the node is created; empty in clusters
 	// without one.
@@ -289,10 +292,11 @@ type NodeStatus struct {
 	Version string
 	// OS and Arch as the agent reports them; empty keeps the recorded ones.
 	OS, Arch string
-	// Jobs and Volumes as the agent reports them.
-	Jobs    bool
-	Volumes bool
-	Egress  bool
+	// Jobs, Volumes, and Containers as the agent reports them.
+	Jobs       bool
+	Volumes    bool
+	Containers bool
+	Egress     bool
 	// NetworkKey as the agent announces it; empty keeps the recorded one.
 	// A key another node holds is refused with ErrConflict.
 	NetworkKey string

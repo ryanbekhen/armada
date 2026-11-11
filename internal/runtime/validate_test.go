@@ -67,3 +67,47 @@ func TestCheckVolumeMount(t *testing.T) {
 		t.Error("two volumes at one target accepted")
 	}
 }
+
+// Init containers and sidecars get only what the replica's own container
+// mounts (ADR 0038), never a host path of their own.
+func TestCheckMembers(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	file := filepath.Join(dir, "key")
+	if err := os.WriteFile(file, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	vol := VolumeMount{Source: dir, Target: "/data"}
+	key := FileMount{Source: file, Target: "/run/key"}
+	base := func() ContainerSpec {
+		return ContainerSpec{Image: "x", Files: []FileMount{key}, Volumes: []VolumeMount{vol}}
+	}
+	ok := base()
+	ok.Init = []MemberSpec{{Name: "migrate", Image: "x", Volumes: []VolumeMount{vol}}}
+	ok.Sidecars = []MemberSpec{{Name: "proxy", Image: "envoy", Files: []FileMount{key}}}
+	if err := CheckContainerSpec(ok); err != nil {
+		t.Errorf("valid: %v", err)
+	}
+	for name, change := range map[string]func(*ContainerSpec){
+		"reserved name": func(s *ContainerSpec) { s.Sidecars = []MemberSpec{{Name: "app", Image: "x"}} },
+		"bad name":      func(s *ContainerSpec) { s.Sidecars = []MemberSpec{{Name: "../x", Image: "x"}} },
+		"repeated name": func(s *ContainerSpec) {
+			s.Init = []MemberSpec{{Name: "a", Image: "x"}}
+			s.Sidecars = []MemberSpec{{Name: "a", Image: "x"}}
+		},
+		"no image": func(s *ContainerSpec) { s.Sidecars = []MemberSpec{{Name: "a"}} },
+		"other file": func(s *ContainerSpec) {
+			s.Sidecars = []MemberSpec{{Name: "a", Image: "x", Files: []FileMount{{Source: file, Target: "/etc/key"}}}}
+		},
+		"other volume": func(s *ContainerSpec) {
+			s.Sidecars = []MemberSpec{{Name: "a", Image: "x", Volumes: []VolumeMount{{Source: "/", Target: "/host"}}}}
+		},
+		"too many": func(s *ContainerSpec) { s.Sidecars = make([]MemberSpec, 5) },
+	} {
+		s := base()
+		change(&s)
+		if err := CheckContainerSpec(s); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+}
