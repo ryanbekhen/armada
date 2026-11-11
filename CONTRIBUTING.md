@@ -36,6 +36,9 @@ reboots, and every feature's scenario. Releases run all of it.
 
 ## Pull requests
 
+- **CI** builds, lints, and tests every pull request that changes code. One
+  that changes only documents (Markdown, `docs/`, the license, issue
+  templates) skips those jobs and only has its commit subjects checked.
 - **One change per pull request**, small enough to review. Open an issue
   first for anything large.
 - **Commit subjects** follow Conventional Commits
