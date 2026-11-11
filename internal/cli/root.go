@@ -111,10 +111,9 @@ func NewRootCommand() *cobra.Command {
 	}
 	cmd.CompletionOptions.HiddenDefaultCmd = true
 
-	cmd.PersistentFlags().StringVar(&g.configPath, "config", clientconfig.DefaultPath(), "client config with credentials (default ~/.armada/config, else /etc/armada/admin.config)")
-	cmd.PersistentFlags().StringVar(&g.project, "project", os.Getenv("ARMADA_PROJECT"),
-		"project the command works in (or ARMADA_PROJECT; default: the one saved with armada project use, else default)")
-	cmd.PersistentFlags().BoolVarP(&g.allProjects, "all-projects", "A", false, "list every project's items")
+	cmd.PersistentFlags().StringVar(&g.configPath, "config", clientconfig.DefaultPath(), "client config file")
+	cmd.PersistentFlags().StringVar(&g.project, "project", os.Getenv("ARMADA_PROJECT"), "project to work in")
+	cmd.PersistentFlags().BoolVarP(&g.allProjects, "all-projects", "A", false, "every project")
 
 	cmd.AddCommand(
 		newAppCommand(g),

@@ -39,7 +39,7 @@ func NewRootCommand() *cobra.Command {
 	cmd.CompletionOptions.HiddenDefaultCmd = true
 
 	g := &globals{}
-	cmd.PersistentFlags().StringVar(&g.configPath, "config", clientconfig.DefaultPath(), "client config with user credentials")
+	cmd.PersistentFlags().StringVar(&g.configPath, "config", clientconfig.DefaultPath(), "client config file")
 
 	cmd.AddCommand(
 		cli.NewVersionCommand(),
