@@ -1061,7 +1061,7 @@ message Hello {
   bool certificate_refs = 12;
   // The node reads job queues from network sandboxes in its subnet of the
   // cluster network (ADR 0040).
-  bool queue_sandboxes = 13;
+  bool queue_sandboxes = 14;
 }
 
 message ReplicaReport {

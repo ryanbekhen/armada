@@ -7577,7 +7577,7 @@ type Hello struct {
 	CertificateRefs bool `protobuf:"varint,12,opt,name=certificate_refs,json=certificateRefs,proto3" json:"certificate_refs,omitempty"`
 	// The node reads job queues from network sandboxes in its subnet of the
 	// cluster network (ADR 0040).
-	QueueSandboxes bool `protobuf:"varint,13,opt,name=queue_sandboxes,json=queueSandboxes,proto3" json:"queue_sandboxes,omitempty"`
+	QueueSandboxes bool `protobuf:"varint,14,opt,name=queue_sandboxes,json=queueSandboxes,proto3" json:"queue_sandboxes,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -12171,7 +12171,7 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\vnetwork_key\x18\v \x01(\tR\n" +
 	"networkKey\x12)\n" +
 	"\x10certificate_refs\x18\f \x01(\bR\x0fcertificateRefs\x12'\n" +
-	"\x0fqueue_sandboxes\x18\r \x01(\bR\x0equeueSandboxesJ\x04\b\a\x10\bJ\x04\b\b\x10\tR\aruntimeR\x10min_memory_bytes\"D\n" +
+	"\x0fqueue_sandboxes\x18\x0e \x01(\bR\x0equeueSandboxesJ\x04\b\a\x10\bJ\x04\b\b\x10\tR\aruntimeR\x10min_memory_bytes\"D\n" +
 	"\rReplicaReport\x123\n" +
 	"\breplicas\x18\x01 \x03(\v2\x17.armada.v1.ReplicaStateR\breplicas\"\xb6\x02\n" +
 	"\fReplicaState\x12\x0e\n" +
