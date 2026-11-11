@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -229,6 +230,13 @@ func decide(a store.App, res resources, reps []store.Replica, in scaleInputs, st
 		return hold("holding while a rollout is in progress")
 	}
 	if a.Replicas == 0 {
+		// An open schedule window wakes it (ADR 0034); otherwise the next
+		// request does.
+		if n, until := scheduleWake(a.Spec, in.now); n > 0 {
+			n = min(n, hi)
+			status.Message = fmt.Sprintf("schedule %d until %s", n, until.Format("Mon 15:04 MST"))
+			return n, "schedule " + strconv.Itoa(n) + " until " + until.Format("Mon 15:04 MST"), status
+		}
 		return hold("scaled to zero; the next request wakes it")
 	}
 	if a.Spec.ScalesToZero() && in.loadMeasured && !scheduleOpen(a.Spec, in.now) {
@@ -362,6 +370,24 @@ func decide(a store.App, res resources, reps []store.Replica, in scaleInputs, st
 	}
 	status.Message = "scaling down to " + fmt.Sprint(highest) + ": " + why
 	return highest, why + fmt.Sprintf(" (highest in the last %s)", scaleDownWindow), status
+}
+
+// scheduleWake returns the most replicas an open schedule window asks for,
+// and when that window closes; 0 while none is open.
+func scheduleWake(sp *spec.App, now time.Time) (int, time.Time) {
+	n, until := 0, time.Time{}
+	if sp.Scale == nil {
+		return 0, until
+	}
+	for _, r := range sp.Scale.Rules {
+		if r.Type != spec.ScaleSchedule {
+			continue
+		}
+		if open, end := r.Window(now); open && r.Replicas > n {
+			n, until = r.Replicas, end
+		}
+	}
+	return n, until
 }
 
 // scheduleOpen reports whether one of the app's schedule rules has its
