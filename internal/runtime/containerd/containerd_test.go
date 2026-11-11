@@ -3,6 +3,7 @@ package containerd
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/netip"
 	"os"
 	"path/filepath"
@@ -388,5 +389,22 @@ func TestVolumeMountOptions(t *testing.T) {
 	}
 	if len(want) != 0 {
 		t.Errorf("missing mounts %v", want)
+	}
+}
+
+func TestPullErrorSaysWhatItMeans(t *testing.T) {
+	t.Parallel()
+	denied := errors.New(`failed to resolve reference "ghcr.io/acme/web:1.4.2": failed to authorize: failed to fetch anonymous token: unexpected status from GET request to https://ghcr.io/token: 403 Forbidden`)
+	if got := pullError("ghcr.io/acme/web:1.4.2", false, denied).Error(); !strings.Contains(got, "does not exist, or it is private and the app has no registry credentials") || !strings.Contains(got, "403 Forbidden") {
+		t.Errorf("anonymous: %s", got)
+	}
+	if got := pullError("ghcr.io/acme/web:1.4.2", true, denied).Error(); !strings.Contains(got, "refused the app's credentials") {
+		t.Errorf("with credentials: %s", got)
+	}
+	if got := pullError("nginx:nope", false, errors.New("docker.io/library/nginx:nope: not found")).Error(); !strings.Contains(got, "no such image or tag") {
+		t.Errorf("not found: %s", got)
+	}
+	if got := pullError("nginx:1", false, errors.New("dial tcp: i/o timeout")).Error(); got != "pull nginx:1: dial tcp: i/o timeout" {
+		t.Errorf("other: %s", got)
 	}
 }

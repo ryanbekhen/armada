@@ -710,6 +710,9 @@ message AppSummary {
   string state = 9;
   // Why it is not ready, when it is not.
   string message = 10;
+  // While a rollout runs: the revision rolled out, and its image.
+  string target_revision = 11;
+  string target_image = 12;
 }
 
 message ListAppsResponse {

@@ -814,7 +814,7 @@ func (s *Server) checkRollout(ctx context.Context, rc *reconcileRun, app *store.
 		rc.wakeAt(due)
 		return false, nil
 	}
-	msg := fmt.Sprintf("no progress within %s", deadline)
+	msg := fmt.Sprintf("%s made no progress within %s", target.Name, deadline)
 	for _, r := range current {
 		if r.Message != "" && !isServing(r) {
 			msg += fmt.Sprintf("; %s: %s", r.ID, r.Message)
@@ -825,7 +825,7 @@ func (s *Server) checkRollout(ctx context.Context, rc *reconcileRun, app *store.
 		return false, err
 	}
 	s.log.Warn("rollout failed, keeping the active revision", "app", app.Name, "revision", target.Name, "active", app.ActiveRevision, "reason", msg)
-	s.record(ctx, store.Event{Kind: eventRollout, Object: target.Name, App: app.Name, Reason: "Failed", Message: msg + "; " + app.ActiveRevision + " keeps serving"})
+	s.record(ctx, store.Event{Kind: eventRollout, Object: target.Name, App: app.Name, Reason: "Failed", Message: msg + "; " + app.ActiveRevision + " stays active"})
 	app.TargetRevision = app.ActiveRevision
 	app.RolloutState = store.RolloutFailed
 	app.RolloutMessage = msg

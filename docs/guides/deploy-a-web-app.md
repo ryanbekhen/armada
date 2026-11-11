@@ -181,7 +181,7 @@ If the new replicas never become ready, the rollout fails and the old
 revision keeps serving. `--wait` then exits non-zero:
 
 ```
-Error: rollout of shop--r3 failed, shop--r2 keeps serving: ...
+Error: rollout of shop--r3 failed: shop--r3 made no progress within ...; shop--r2 stays active
 ```
 
 To follow what happens, in another terminal:

@@ -164,8 +164,8 @@ stops the script and the build goes red:
   api.shop--r8 is live (2/2 ready)
   ```
 
-  When the rollout fails, it exits with `rollout of api.shop--r8 failed,
-  api.shop--r7 keeps serving: ...`. Nothing needs undoing: the old revision
+  When the rollout fails, it exits with `rollout of api.shop--r8 failed:
+  api.shop--r8 made no progress within ...; api.shop--r7 stays active`. Nothing needs undoing: the old revision
   never stopped serving. When `--timeout` passes first, the command fails
   with `timed out after 10m0s waiting for api.shop--r8; the rollout
   continues on the server`.
