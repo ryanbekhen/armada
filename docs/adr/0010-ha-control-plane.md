@@ -57,7 +57,9 @@ nothing.
   member as a **learner**, and returns the CA certificate and key, the
   secrets master key, a server certificate for the new node's name and IP,
   its node certificate, the etcd initial cluster, and the API addresses.
-  If adding the member fails, the registration is undone.
+  If adding the member fails, the registration is undone. Run as root, the
+  join also writes the machine's admin config and the sudo user's, like
+  `armadad init`, with a user certificate it signs with the CA it received.
 - The new node writes these files and `etcd/initial-cluster`; the first
   `armadad server` start joins the etcd cluster with it and waits until the
   leader promotes the learner (once it has caught up), then removes the
@@ -78,7 +80,13 @@ nothing.
 - Agents know every control plane address: `agent.json` holds the list,
   joins return it, and every assignment carries the current one, which the
   agent saves and applies to its live connection. The CLI's config holds a
-  list as well.
+  list as well, which the client keeps current: the leader sends the API
+  addresses of its last reconcile pass in the `armada-servers` header of
+  every AdminService answer, and the CLI writes a list with other addresses
+  back to the config once per run. An agent run as root from the default
+  data directory writes its list to `/etc/armada/servers` (root's, `0644`),
+  and the CLI dials the addresses there that its config lacks after its own,
+  so a config unused since servers were added still reaches the leader.
 - Clients use one gRPC connection with a static resolver over all
   addresses and the `pick_first` policy: followers refuse connections, so
   the client ends up at the leader, and moves on when it goes away.

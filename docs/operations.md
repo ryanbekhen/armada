@@ -82,6 +82,16 @@ it crashes or loses the network, within 10–15 seconds. Agents and the CLI
 know every server and follow the leader on their own. Apps keep serving
 throughout. See [ADR 0010](adr/0010-ha-control-plane.md).
 
+The CLI keeps its client config's list of servers current by itself: the
+leader sends the list with every answer, and a list that changed is written
+back to the config (a shared config only when run with sudo; a config
+that lists a loopback address of no server, as through an SSH tunnel, is
+left alone). On every
+Armada machine the agent also keeps `/etc/armada/servers` current, and the
+CLI on that machine tries those addresses after its config's own, so even a
+config that has not been used since servers were added still finds the
+leader.
+
 **Network:** control plane nodes must reach each other on the private
 network on ports 2379 and 2380 (etcd, mutual TLS) and 7443/7444 (API and
 join listener). Allow these between servers only; nothing on the public
@@ -96,8 +106,16 @@ On a machine with Armada installed (steps 1–2 of the
 armada server join-token               # anywhere with the admin config
 sudo armadad server join 10.0.0.2:7444 --ca-hash sha256:...   # on the new machine; paste the token
 sudo systemctl enable --now armada-server
-armada server list                     # waits for "voting"; updates ~/.armada/config
+armada server list                     # waits for "voting"
 ```
+
+Like `armadad init`, the join writes `/etc/armada/admin.config` for the
+machine's cluster-admins (group `armada`) and the `~/.armada/config` of the
+person who ran it through sudo, unless they exist, so `armada` works on the
+new server at once. The certificate in them is for that person's user name
+(`--user-name` names another) and has the rights the cluster gives that
+user; a name the cluster has no record of is a cluster-admin, like the
+first user.
 
 On a machine without Armada, run the install line `armada server
 join-token` prints first. Nothing else to copy: the new server uses the
@@ -113,8 +131,9 @@ straight to three: with two, losing either stops the control plane.
 `catching up` (just joined), `unreachable` (its etcd member does not
 answer), or `not a member` (removed, or a join that never started).
 It also writes the servers' addresses into your client config, leader
-first, so the CLI keeps working when a server goes away. Run it on every
-admin machine after adding or removing servers.
+first. Any other command does the same (see above), so there is nothing to
+run on each admin machine after adding or removing servers; a config that
+lists none of the current servers needs their addresses put in by hand.
 
 ### Removing a server
 

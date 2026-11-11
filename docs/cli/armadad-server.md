@@ -47,6 +47,12 @@ The new server receives the cluster CA key and the secrets master key, so the
 token is as sensitive as they are. It is read from --token-file, a hidden
 prompt, or stdin; never from an argument. Afterwards, run `armadad server`.
 
+Like `armadad init`, it writes /etc/armada/admin.config for the machine's
+cluster-admins (group armada) and ~/.armada/config of the person running it
+through sudo, both with a certificate for --user-name signed by the cluster CA.
+The certificate has the rights the cluster gives that user; a name the cluster
+has no record of is a cluster-admin, as the first user is. Existing files stay.
+
 Run three control plane nodes to tolerate the loss of one; with two, losing
 either stops the control plane.
 
@@ -66,4 +72,5 @@ Flags:
 | `--port int` | control plane port on the private IP (default `7443`) |
 | `--private-ip string` | this machine's private IP (default: the only private IPv4 address) |
 | `--token-file string` | file holding the server token (default: prompt or stdin) |
+| `--user-name string` | user named in the client configs written here (default: the user running it) |
 

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/status"
 
 	armadav1 "github.com/ryanbekhen/armada/api/armada/v1"
@@ -22,7 +23,8 @@ var dialAdmin = func(g *globals) (armadav1.AdminServiceClient, io.Closer, error)
 	if err != nil {
 		return nil, nil, err
 	}
-	conn, err := cc.Dial()
+	ss := &serverSync{path: g.configPath, servers: cc.Servers}
+	conn, err := cc.Dial(grpc.WithChainUnaryInterceptor(ss.unary), grpc.WithChainStreamInterceptor(ss.stream))
 	if err != nil {
 		return nil, nil, err
 	}

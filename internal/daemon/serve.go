@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net"
 	"net/netip"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -444,6 +445,7 @@ func runAgent(ctx context.Context, dataDir string, servers []string, proxyKind, 
 	if _, err := netutil.CheckPrivateIP(ac.PrivateIP); err != nil {
 		return err
 	}
+	writeMachineServers(dataDir, ac.Servers, log)
 	creds, err := agent.LoadCredentials(dataDir, ac.NodeID)
 	if err != nil {
 		return err
@@ -491,6 +493,7 @@ func runAgent(ctx context.Context, dataDir string, servers []string, proxyKind, 
 			log.Warn("save control plane list", "err", err)
 			return
 		}
+		writeMachineServers(dataDir, list, log)
 		log.Info("control plane updated", "servers", strings.Join(list, ","))
 	}
 
@@ -789,4 +792,16 @@ func upgradeState(ctx context.Context, st *store.Etcd, log *slog.Logger) error {
 		log.Info("state migrated", "from_schema", from, "to_schema", to)
 	}
 	return nil
+}
+
+// writeMachineServers keeps clientconfig.ServersPath current for client
+// configs on this machine. Only the agent of the machine's own data
+// directory, run as root, writes it; failing only warns.
+func writeMachineServers(dataDir string, servers []string, log *slog.Logger) {
+	if os.Geteuid() != 0 || filepath.Clean(dataDir) != defaultDataDir || len(servers) == 0 {
+		return
+	}
+	if err := clientconfig.WriteMachineServers(servers); err != nil {
+		log.Warn("write the control plane list for clients", "err", err)
+	}
 }

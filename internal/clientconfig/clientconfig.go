@@ -122,13 +122,14 @@ func (c *Config) encode() ([]byte, error) {
 	return append(b, '\n'), nil
 }
 
-// Dial opens an mTLS connection to the control plane.
-func (c *Config) Dial() (*Conn, error) {
+// Dial opens an mTLS connection to the control plane: the config's servers
+// first, then those of the machine's ServersPath it lacks.
+func (c *Config) Dial(opts ...grpc.DialOption) (*Conn, error) {
 	tlsCfg, err := pki.ClientTLS([]byte(c.CA), []byte(c.Cert), []byte(c.Key))
 	if err != nil {
 		return nil, err
 	}
-	return Dial(c.Servers, tlsCfg)
+	return Dial(withMachineServers(c.Servers), tlsCfg, opts...)
 }
 
 // Conn is a gRPC connection to whichever control plane node serves. Only

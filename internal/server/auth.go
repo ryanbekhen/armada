@@ -4,13 +4,17 @@ import (
 	"context"
 	"crypto/x509"
 	"strings"
+	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 
+	armadav1 "github.com/ryanbekhen/armada/api/armada/v1"
+	"github.com/ryanbekhen/armada/internal/clientconfig"
 	"github.com/ryanbekhen/armada/internal/pki"
 	"github.com/ryanbekhen/armada/internal/store"
 )
@@ -99,6 +103,9 @@ func (s *Server) unaryAuth(ctx context.Context, req any, info *grpc.UnaryServerI
 	if err != nil {
 		return nil, err
 	}
+	if md := s.serversHeader(ctx, info.FullMethod); md != nil {
+		_ = grpc.SetHeader(ctx, md)
+	}
 	return handler(ctx, req)
 }
 
@@ -107,7 +114,43 @@ func (s *Server) streamAuth(srv any, ss grpc.ServerStream, info *grpc.StreamServ
 	if err != nil {
 		return err
 	}
+	if md := s.serversHeader(ctx, info.FullMethod); md != nil {
+		_ = ss.SetHeader(md)
+	}
 	return handler(srv, &authedStream{ServerStream: ss, ctx: ctx})
+}
+
+// seenEndpoints are API addresses and when they were read.
+type seenEndpoints struct {
+	addrs []string
+	at    time.Time
+}
+
+// endpointsFresh is how long addresses read for the header are used: a
+// reconcile pass also refreshes them.
+const endpointsFresh = 10 * time.Second
+
+// serversHeader returns the header for an AdminService call: the control
+// plane's API addresses, read again when older than endpointsFresh, or nil
+// when they cannot be read.
+func (s *Server) serversHeader(ctx context.Context, method string) metadata.MD {
+	if !strings.HasPrefix(method, "/"+armadav1.AdminService_ServiceDesc.ServiceName+"/") {
+		return nil
+	}
+	seen := s.endpointsSeen.Load()
+	if seen == nil || time.Since(seen.at) > endpointsFresh {
+		rctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		eps, err := s.endpoints(rctx)
+		cancel()
+		if err == nil {
+			seen = &seenEndpoints{addrs: eps, at: time.Now()}
+			s.endpointsSeen.Store(seen)
+		}
+	}
+	if seen == nil || len(seen.addrs) == 0 {
+		return nil
+	}
+	return metadata.Pairs(clientconfig.ServersHeader, strings.Join(seen.addrs, ","))
 }
 
 type authedStream struct {
