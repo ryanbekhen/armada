@@ -193,8 +193,8 @@ A release runs every scenario.
       the queue is never read and nothing runs.
     - The broker's password is in no journal, and no sandbox is left on any
       node once both jobs are deleted.
-21. Volume backups (runs after 20, before 13). An S3-compatible server runs
-    as an app (`minio/minio`); nodes reach its container's address.
+21. Volume backups (runs after 20, before 13). An S3-compatible gateway runs
+    as an app (`versity/versitygw`); nodes reach its container's address.
     - An app with a volume (placed on the last machine by a label) gets its
       first backup by itself, and one on demand; both are listed from the
       bucket, which holds sealed chunks and snapshots and no file names.
