@@ -122,6 +122,9 @@ type Server struct {
 	keys    *secrets.Keyring
 	name    string
 	cluster Cluster
+	// endpointsSeen holds the API addresses last read, sent to
+	// AdminService clients in clientconfig.ServersHeader.
+	endpointsSeen atomic.Pointer[seenEndpoints]
 
 	ca               *pki.CA
 	tlsCfg           *tls.Config

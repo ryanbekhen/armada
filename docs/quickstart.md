@@ -323,8 +323,9 @@ ssh -N -L 7443:10.0.0.2:7443 you@203.0.113.10    # keep it open; 10.0.0.2 is the
 
 Then set `"servers": ["127.0.0.1:7443"]` in `~/.armada/config`. The
 certificate checks still pass: the client verifies the server's name,
-not its address. `armada server list` writes the servers' real addresses
-back into the file, so set it again afterwards.
+not its address. Other commands leave a list with a loopback address as it
+is, but `armada server list` writes the servers' real addresses back into
+the file, so set it again after that one.
 
 ## 10. Give others access
 

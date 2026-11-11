@@ -115,6 +115,7 @@ func (s *Server) Reconcile(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	s.endpointsSeen.Store(&seenEndpoints{addrs: eps, at: time.Now()})
 	network, err := s.buildNetwork(ctx, nodes, slices.Concat(replicas, rc.sandboxAddrs))
 	if err != nil {
 		return err

@@ -377,9 +377,12 @@ if [ -n "$E2E_CONFORMANCE" ]; then
 	ok "$(grep -c -- '--- PASS' "$WORK/conformance") checks pass"
 fi
 if [ "$SERVERS" -gt 1 ]; then
-	# server list wrote every server address into the admin config; a copy
-	# on machine 2 keeps the CLI usable while machine 1 is down.
-	on 1 'cat /etc/armada/admin.config' | on 2 'umask 077; mkdir -p ~root/.armada && cat > ~root/.armada/config'
+	# The join wrote machine 2's own admin config, which keeps the CLI
+	# usable while machine 1 is down, and the agent the list of servers.
+	log "a joined server uses armada at once"
+	on 2 'armada node list >/dev/null' || fail "server join wrote no usable admin config on $(host 2 1)"
+	on 2 "grep -qx '$(host 1 3):7443' /etc/armada/servers" || fail "/etc/armada/servers on $(host 2 1) lacks $(host 1 1)"
+	ok "admin config and /etc/armada/servers on $(host 2 1)"
 fi
 
 if want listeners; then

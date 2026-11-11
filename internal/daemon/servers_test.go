@@ -107,6 +107,21 @@ func TestServerJoinCommand(t *testing.T) {
 		t.Errorf("second join into the same dir: %q", e)
 	}
 
+	// Any command updates the client config with every member's address:
+	// the leader sends them with each answer.
+	serversNow := func(n int) bool {
+		cc, err := clientconfig.Load(config)
+		return err == nil && len(cc.Servers) == n
+	}
+	deadline = time.Now().Add(15 * time.Second)
+	for code, _, stderr := cli("node", "list"); !serversNow(2); code, _, stderr = cli("node", "list") {
+		if code != 0 || time.Now().After(deadline) {
+			cc, _ := clientconfig.Load(config)
+			t.Fatalf("client config not updated by node list: %v %q", cc.Servers, stderr)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
 	// The list updates the client config with every member's address.
 	code, out, stderr = cli("server", "list")
 	if code != 0 || !regexp.MustCompile(`node-1\s+127\.0\.0\.1:\d+\s+leader\s+voting`).MatchString(out) ||
@@ -129,6 +144,14 @@ func TestServerJoinCommand(t *testing.T) {
 	}
 	if _, out, _ := cli("server", "list"); strings.Contains(out, "cp-2") {
 		t.Errorf("removed server listed: %q", out)
+	}
+	// And forgets a removed one.
+	deadline = time.Now().Add(15 * time.Second)
+	for code, _, stderr := cli("node", "list"); !serversNow(1); code, _, stderr = cli("node", "list") {
+		if code != 0 || time.Now().After(deadline) {
+			t.Fatalf("client config kept the removed server: %q", stderr)
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
 }
 
