@@ -19,7 +19,7 @@ set -eu
 # Scenarios that run after the cluster is built and the test app serves.
 # E2E_ONLY=isolation,rollout runs only those (empty: all); E2E_LIST=1 lists
 # them. test/e2e/README.md says which to pick for a change.
-SCENARIOS="listeners project-secret conntrack isolation load rollout agent-restart failover node-loss backup placement platforms cpu spread ip-rules queues reboot"
+SCENARIOS="listeners project-secret conntrack isolation load rollout agent-restart failover node-loss backup placement platforms cpu spread ip-rules sticky queues reboot"
 E2E_ONLY=${E2E_ONLY:-}
 if [ "${E2E_LIST:-}" = 1 ]; then
 	echo "$SCENARIOS" | tr ' ' '\n'
@@ -794,6 +794,50 @@ cli cluster set --trusted-proxies "''" >/dev/null
 ipr_app ""
 wait_for 60 "without rules, machine 1 gets in again" ipr_is 200 1 "$IP_B"
 cli app delete ipr --yes >/dev/null
+
+fi
+
+if want sticky; then
+log "a sticky app keeps each client on one replica"
+STICKY_HOST=sticky.$E2E_DOMAIN
+cat <<EOF | cli app update sticky --file - --create-if-missing >/dev/null
+name: sticky
+image: $V1
+ingress:
+  type: external
+  port: 80
+  sticky: true
+scale:
+  min: 3
+EOF
+sticky_ready() {
+	status | jq -e '[.apps[] | select(.name == "sticky") | .replicas[]? | select(.state == "running" and .ready)] | length == 3' >/dev/null
+}
+wait_for 240 "3 sticky replicas ready" sticky_ready
+# whoami answers with the container's host name: one client sees one, on
+# every node it goes through; a client without the cookie is balanced.
+sticky_hosts() { # sticky_hosts COOKIEJAR|-: the host names of 12 requests over every node
+	_jar=$1
+	for _ in 1 2 3 4; do
+		for _ip in $PUBLIC_IPS; do
+			if [ "$_jar" = - ]; then
+				curl -sk --max-time 5 --resolve "$STICKY_HOST:443:$_ip" "https://$STICKY_HOST/"
+			else
+				curl -sk --max-time 5 -b "$_jar" -c "$_jar" --resolve "$STICKY_HOST:443:$_ip" "https://$STICKY_HOST/"
+			fi | awk '/^Hostname:/ { print $2 }'
+		done
+	done | sort -u | wc -l | tr -d ' '
+}
+sticky_served() { curl -sk --max-time 5 --resolve "$STICKY_HOST:443:$(host 1 4)" "https://$STICKY_HOST/" | grep -q Hostname; }
+wait_for 60 "the proxies serve the sticky app" sticky_served
+_jar=$WORK/sticky.jar
+: >"$_jar"
+[ "$(sticky_hosts "$_jar")" = 1 ] || fail "a client with the cookie reached more than one replica"
+ok "a client with the cookie reaches one replica, through every node"
+grep -q 'armada_' "$_jar" || fail "no armada_ cookie was set"
+[ "$(sticky_hosts -)" -gt 1 ] || fail "requests without the cookie all reached one replica"
+ok "requests without the cookie are balanced"
+cli app delete sticky --yes >/dev/null
 
 fi
 

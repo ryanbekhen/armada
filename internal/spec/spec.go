@@ -107,6 +107,9 @@ type Ingress struct {
 	// the two (ADR 0035).
 	IPAllow []IPRule `yaml:"ipAllow,omitempty" json:"ipAllow,omitempty"`
 	IPDeny  []IPRule `yaml:"ipDeny,omitempty" json:"ipDeny,omitempty"`
+	// Sticky sends a client back to the replica that answered it first,
+	// through a cookie the proxy sets (ADR 0036).
+	Sticky bool `yaml:"sticky,omitempty" json:"sticky,omitempty"`
 	// Timeout is how long a request may wait for the app to answer; zero means
 	// a minute.
 	Timeout Duration `yaml:"timeout,omitempty" json:"timeout,omitempty"`
