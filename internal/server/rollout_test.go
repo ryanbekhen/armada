@@ -175,7 +175,7 @@ func TestBrokenRolloutIsAborted(t *testing.T) {
 
 	c.eventually("rollout aborted", func() bool { return c.app("web").RolloutState == store.RolloutFailed })
 	a := c.app("web")
-	if a.ActiveRevision != "web--r1" || a.TargetRevision != "web--r1" || !strings.Contains(a.RolloutMessage, "no progress within") ||
+	if a.ActiveRevision != "web--r1" || a.TargetRevision != "web--r1" || !strings.Contains(a.RolloutMessage, "web--r2 made no progress within") ||
 		!strings.Contains(a.RolloutMessage, "readiness probe failed") {
 		t.Errorf("after abort = %v", a)
 	}

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -149,7 +150,12 @@ func printAppList(out io.Writer, apps []*armadav1.AppSummary, projects bool) err
 		if !ok {
 			name = a.Name
 		}
-		line := fmt.Sprintf("%s\t%d/%d\t%s\t%s\t%s\t%s", name, a.Ready, a.Desired, dash(a.State), dash(a.Revision), a.Image, dash(a.Url))
+		rev, image := dash(a.Revision), a.Image
+		if a.TargetRevision != "" {
+			// A rollout runs: show where it goes, not only what serves.
+			rev, image = rev+" → "+a.TargetRevision, cmp.Or(a.TargetImage, image)
+		}
+		line := fmt.Sprintf("%s\t%d/%d\t%s\t%s\t%s\t%s", name, a.Ready, a.Desired, dash(a.State), rev, image, dash(a.Url))
 		if projects {
 			line = p + "\t" + line
 		}
@@ -248,7 +254,13 @@ func printApp(out io.Writer, a *armadav1.AppStatus) error {
 	case rolloutProgressing:
 		field("Rollout", fmt.Sprintf("rolling out %s; %s serves until it is ready", a.TargetRevision, a.ActiveRevision))
 	case rolloutFailed:
-		field("Rollout", fmt.Sprintf("%s failed, %s kept serving: %s", a.TargetRevision, a.ActiveRevision, printable(a.RolloutMessage)))
+		// The message names the revision that failed; the target is the
+		// active revision again.
+		stays := a.ActiveRevision + " stays active"
+		if ready, want := serving(a), int(a.DesiredReplicas); ready < want {
+			stays += fmt.Sprintf(", but only %d/%d of its replicas are ready", ready, want)
+		}
+		field("Rollout", fmt.Sprintf("failed: %s; %s", printable(a.RolloutMessage), stays))
 	}
 	if a.PlacementMessage != "" {
 		field("Placement", printable(a.PlacementMessage))

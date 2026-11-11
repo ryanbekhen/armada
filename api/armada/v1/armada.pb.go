@@ -5094,9 +5094,12 @@ type AppSummary struct {
 	// ready, progressing, failing, or idle (scaled to zero).
 	State string `protobuf:"bytes,9,opt,name=state,proto3" json:"state,omitempty"`
 	// Why it is not ready, when it is not.
-	Message       string `protobuf:"bytes,10,opt,name=message,proto3" json:"message,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Message string `protobuf:"bytes,10,opt,name=message,proto3" json:"message,omitempty"`
+	// While a rollout runs: the revision rolled out, and its image.
+	TargetRevision string `protobuf:"bytes,11,opt,name=target_revision,json=targetRevision,proto3" json:"target_revision,omitempty"`
+	TargetImage    string `protobuf:"bytes,12,opt,name=target_image,json=targetImage,proto3" json:"target_image,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *AppSummary) Reset() {
@@ -5195,6 +5198,20 @@ func (x *AppSummary) GetState() string {
 func (x *AppSummary) GetMessage() string {
 	if x != nil {
 		return x.Message
+	}
+	return ""
+}
+
+func (x *AppSummary) GetTargetRevision() string {
+	if x != nil {
+		return x.TargetRevision
+	}
+	return ""
+}
+
+func (x *AppSummary) GetTargetImage() string {
+	if x != nil {
+		return x.TargetImage
 	}
 	return ""
 }
@@ -12956,7 +12973,7 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\fall_projects\x18\x02 \x01(\bR\vallProjects\x12\x1b\n" +
 	"\tpage_size\x18\x03 \x01(\x05R\bpageSize\x12\x1d\n" +
 	"\n" +
-	"page_token\x18\x04 \x01(\tR\tpageToken\"\xf8\x01\n" +
+	"page_token\x18\x04 \x01(\tR\tpageToken\"\xc4\x02\n" +
 	"\n" +
 	"AppSummary\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
@@ -12969,7 +12986,9 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\x03url\x18\b \x01(\tR\x03url\x12\x14\n" +
 	"\x05state\x18\t \x01(\tR\x05state\x12\x18\n" +
 	"\amessage\x18\n" +
-	" \x01(\tR\amessage\"e\n" +
+	" \x01(\tR\amessage\x12'\n" +
+	"\x0ftarget_revision\x18\v \x01(\tR\x0etargetRevision\x12!\n" +
+	"\ftarget_image\x18\f \x01(\tR\vtargetImage\"e\n" +
 	"\x10ListAppsResponse\x12)\n" +
 	"\x04apps\x18\x01 \x03(\v2\x15.armada.v1.AppSummaryR\x04apps\x12&\n" +
 	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"\x16\n" +

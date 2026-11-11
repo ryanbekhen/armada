@@ -208,7 +208,7 @@ func (d *Driver) Pull(ctx context.Context, image string, auth *runtime.RegistryA
 		if have, perr := remotePlatforms(ctx, resolver, ref); perr == nil && len(have) > 0 && !slices.Contains(have, want) {
 			return runtime.Image{}, &runtime.PlatformError{Image: image, Want: want, Have: have}
 		}
-		return runtime.Image{}, fmt.Errorf("pull %s: %w", image, err)
+		return runtime.Image{}, pullError(image, auth != nil, err)
 	}
 	return runtime.Image{Ref: familiar + "@" + img.Target().Digest.String(), Platforms: d.localPlatforms(ctx, img)}, nil
 }
@@ -881,4 +881,23 @@ func (d *Driver) PruneImages(ctx context.Context, keep []string, grace time.Dura
 		removed = append(removed, name)
 	}
 	return removed, nil
+}
+
+// pullError says what a failed pull most likely means before the registry's
+// own words: an image that does not exist and one the registry will not
+// show without credentials look the same from outside.
+func pullError(image string, withAuth bool, err error) error {
+	msg := err.Error()
+	denied := strings.Contains(msg, "403 Forbidden") || strings.Contains(msg, "401 Unauthorized") ||
+		strings.Contains(msg, "insufficient_scope") || strings.Contains(msg, "pull access denied") ||
+		strings.Contains(msg, "authorization failed")
+	switch {
+	case errdefs.IsNotFound(err) || strings.Contains(msg, "not found"):
+		return fmt.Errorf("pull %s: no such image or tag in the registry: %w", image, err)
+	case denied && withAuth:
+		return fmt.Errorf("pull %s: the registry refused the app's credentials, or the image does not exist: %w", image, err)
+	case denied:
+		return fmt.Errorf("pull %s: the image does not exist, or it is private and the app has no registry credentials (spec registry, --registry-user/--registry-secret): %w", image, err)
+	}
+	return fmt.Errorf("pull %s: %w", image, err)
 }

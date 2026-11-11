@@ -65,6 +65,10 @@ func (s *Server) appSummaries(ctx context.Context, keep func(store.App) bool) ([
 			sum.State, sum.Message = appFailing, a.RolloutMessage
 		case a.Rolling():
 			sum.State, sum.Message = appProgress, "rolling out "+a.TargetRevision
+			sum.TargetRevision = a.TargetRevision
+			if rev, err := s.store.GetRevision(ctx, a.TargetRevision); err == nil && rev.Spec != nil {
+				sum.TargetImage = rev.Spec.Image
+			}
 		case a.Replicas == 0:
 			sum.State = appIdle
 		case int(sum.Ready) < a.Replicas:

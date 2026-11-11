@@ -83,7 +83,7 @@ func waitRollout(ctx context.Context, client armadav1.AdminServiceClient, app, r
 			return err
 		case a.TargetRevision != revision:
 			if a.RolloutState == rolloutFailed {
-				return fmt.Errorf("rollout of %s failed, %s keeps serving: %s", revision, a.ActiveRevision, a.RolloutMessage)
+				return fmt.Errorf("rollout of %s failed: %s; %s stays active", revision, a.RolloutMessage, a.ActiveRevision)
 			}
 			return fmt.Errorf("rollout of %s was replaced by %s", revision, a.TargetRevision)
 		}

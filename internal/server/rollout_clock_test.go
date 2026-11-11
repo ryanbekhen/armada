@@ -180,7 +180,7 @@ func TestRolloutDeadline(t *testing.T) {
 	if a.Rolling() || a.RolloutState != store.RolloutFailed || a.ActiveRevision != "web--r1" {
 		t.Fatalf("rollout not aborted: %+v", a)
 	}
-	if want := "no progress within 1m30s; " + bad.ID + ": readiness probe failed: HTTP 500"; a.RolloutMessage != want {
+	if want := bad.Revision + " made no progress within 1m30s; " + bad.ID + ": readiness probe failed: HTTP 500"; a.RolloutMessage != want {
 		t.Errorf("message = %q, want %q", a.RolloutMessage, want)
 	}
 	// The never-ready replica goes at once; the old one keeps serving.
