@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -814,23 +815,50 @@ func (v *validator) scaleRules(s *Scale, ing *Ingress) {
 // MaxIPRanges bounds ingress.ipAllow and ingress.ipDeny.
 const MaxIPRanges = 64
 
-func (v *validator) ipRanges(field string, ranges []string) {
-	if len(ranges) > MaxIPRanges {
+// Bounds of an IP rule's name and description, which only people read.
+const (
+	MaxIPRuleName        = 64
+	MaxIPRuleDescription = 256
+)
+
+func (v *validator) ipRanges(field string, rules []IPRule) {
+	if len(rules) > MaxIPRanges {
 		v.add(field, "must have at most %d entries", MaxIPRanges)
 		return
 	}
 	seen := map[netip.Prefix]bool{}
-	for i, s := range ranges {
-		p, err := ParseIPRange(s)
+	names := map[string]bool{}
+	for i, r := range rules {
 		f := fmt.Sprintf("%s[%d]", field, i)
+		p, err := ParseIPRange(r.Range)
 		switch {
+		case r.Range == "":
+			v.add(f+".range", "is required: an address or prefix such as 203.0.113.0/24")
 		case err != nil:
-			v.add(f, "%v", err)
+			v.add(f+".range", "%v", err)
 		case seen[p]:
-			v.add(f, "duplicate range %s", p)
+			v.add(f+".range", "duplicate range %s", p)
 		}
 		seen[p] = true
+		if r.Name != "" {
+			if !printableText(r.Name, MaxIPRuleName) {
+				v.add(f+".name", "must be at most %d characters of printable text", MaxIPRuleName)
+			} else if names[r.Name] {
+				v.add(f+".name", "duplicate name %q", r.Name)
+			}
+			names[r.Name] = true
+		}
+		if !printableText(r.Description, MaxIPRuleDescription) {
+			v.add(f+".description", "must be at most %d characters of printable text", MaxIPRuleDescription)
+		}
 	}
+}
+
+// printableText reports whether s is UTF-8 of at most n characters, with no
+// control characters (line breaks included).
+func printableText(s string, n int) bool {
+	return utf8.ValidString(s) && utf8.RuneCountInString(s) <= n &&
+		!strings.ContainsFunc(s, func(r rune) bool { return unicode.IsControl(r) || r == 0x2028 || r == 0x2029 })
 }
 
 // ParseIPRange reads an address ("203.0.113.7", a single client) or a prefix
@@ -858,12 +886,12 @@ func ParseIPRange(s string) (netip.Prefix, error) {
 	return p.Masked(), nil
 }
 
-// IPRanges returns ranges as masked prefixes in canonical form. It assumes
-// validated ranges.
-func IPRanges(ranges []string) []string {
-	out := make([]string, 0, len(ranges))
-	for _, s := range ranges {
-		if p, err := ParseIPRange(s); err == nil {
+// IPRanges returns the rules' ranges as masked prefixes in canonical form.
+// It assumes validated rules.
+func IPRanges(rules []IPRule) []string {
+	out := make([]string, 0, len(rules))
+	for _, r := range rules {
+		if p, err := ParseIPRange(r.Range); err == nil {
 			out = append(out, p.String())
 		}
 	}

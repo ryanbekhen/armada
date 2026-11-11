@@ -105,8 +105,8 @@ type Ingress struct {
 	// IPAllow lets only clients from these addresses or prefixes reach the
 	// app from outside; IPDeny lets every client but those. At most one of
 	// the two (ADR 0035).
-	IPAllow []string `yaml:"ipAllow,omitempty" json:"ipAllow,omitempty"`
-	IPDeny  []string `yaml:"ipDeny,omitempty" json:"ipDeny,omitempty"`
+	IPAllow []IPRule `yaml:"ipAllow,omitempty" json:"ipAllow,omitempty"`
+	IPDeny  []IPRule `yaml:"ipDeny,omitempty" json:"ipDeny,omitempty"`
 	// Timeout is how long a request may wait for the app to answer; zero means
 	// a minute.
 	Timeout Duration `yaml:"timeout,omitempty" json:"timeout,omitempty"`
@@ -165,6 +165,39 @@ func (p *Probe) UnmarshalYAML(n *yaml.Node) error {
 	}
 	*p = Probe(v)
 	return nil
+}
+
+// IPRule is one entry of ingress.ipAllow or ipDeny: an address or prefix,
+// with a name and description that say what it is for. Only Range reaches
+// the proxy.
+type IPRule struct {
+	Range       string `yaml:"range" json:"range"`
+	Name        string `yaml:"name,omitempty" json:"name,omitempty"`
+	Description string `yaml:"description,omitempty" json:"description,omitempty"`
+}
+
+// UnmarshalYAML accepts either a mapping or a scalar range.
+func (r *IPRule) UnmarshalYAML(n *yaml.Node) error {
+	if n.Kind == yaml.ScalarNode {
+		*r = IPRule{Range: n.Value}
+		return nil
+	}
+	type plain IPRule
+	var v plain
+	if err := decodeStrict(n, &v); err != nil {
+		return err
+	}
+	*r = IPRule(v)
+	return nil
+}
+
+// MarshalYAML writes a rule with neither name nor description as its range.
+func (r IPRule) MarshalYAML() (any, error) {
+	if r.Name == "" && r.Description == "" {
+		return r.Range, nil
+	}
+	type plain IPRule
+	return plain(r), nil
 }
 
 // Scale controls replica counts. Without Rules the app runs Min replicas;

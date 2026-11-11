@@ -291,6 +291,9 @@ func (s *Server) Status(ctx context.Context, req *armadav1.StatusRequest) (*arma
 			RolloutMessage:   a.RolloutMessage,
 			PlacementMessage: placementMessage(ctx, revs, sched, all, a),
 		}
+		if in := a.Spec.Ingress; in != nil {
+			as.IpAllow, as.IpDeny = ipRulesProto(in.IPAllow), ipRulesProto(in.IPDeny)
+		}
 		if !a.Rolling() {
 			shares := trafficShares(a.Replicas, a.Traffic)
 			total := 0
@@ -477,4 +480,12 @@ func optionalTime(t time.Time) *timestamppb.Timestamp {
 		return nil
 	}
 	return timestamppb.New(t)
+}
+
+func ipRulesProto(rules []spec.IPRule) []*armadav1.IPRule {
+	var out []*armadav1.IPRule
+	for _, r := range rules {
+		out = append(out, &armadav1.IPRule{Range: r.Range, Name: r.Name, Description: r.Description})
+	}
+	return out
 }

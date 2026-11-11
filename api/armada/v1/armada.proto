@@ -758,6 +758,16 @@ message AppStatus {
   Autoscale autoscale = 12;
   // How requests are split between revisions (ADR 0022).
   repeated TrafficTarget traffic = 13;
+  // Who may reach the app from outside (ADR 0035); at most one is set.
+  repeated IPRule ip_allow = 14;
+  repeated IPRule ip_deny = 15;
+}
+
+// One client address rule, with what it is for.
+message IPRule {
+  string range = 1;
+  string name = 2;
+  string description = 3;
 }
 
 message Autoscale {

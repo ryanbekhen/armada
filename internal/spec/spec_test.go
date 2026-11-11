@@ -268,12 +268,17 @@ func TestParseRejects(t *testing.T) {
 		{"ip allow and deny", ext + "  ipAllow: [203.0.113.0/24]\n  ipDeny: [198.51.100.0/24]\n", "ingress", false},
 		{"ip rules internal", base + "ingress:\n  type: internal\n  port: 80\n  ipAllow: [203.0.113.0/24]\n", "ingress", false},
 		{"ip rules none", base + "ingress:\n  type: none\n  ipDeny: [203.0.113.0/24]\n", "ingress", false},
-		{"ip not an address", ext + "  ipAllow: [example.org]\n", "ingress.ipAllow[0]", false},
-		{"ip everything", ext + "  ipDeny: [\"::/0\"]\n", "ingress.ipDeny[0]", false},
-		{"ip mapped", ext + "  ipAllow: [\"::ffff:203.0.113.7\"]\n", "ingress.ipAllow[0]", false},
-		{"ip zone", ext + "  ipAllow: [\"fe80::1%eth0\"]\n", "ingress.ipAllow[0]", false},
-		{"ip duplicate", ext + "  ipAllow: [203.0.113.7, 203.0.113.7/32]\n", "ingress.ipAllow[1]", false},
-		{"ip injection", ext + "  ipAllow: [\"203.0.113.0/24 } || { always_true\"]\n", "ingress.ipAllow[0]", false},
+		{"ip not an address", ext + "  ipAllow: [example.org]\n", "ingress.ipAllow[0].range", false},
+		{"ip everything", ext + "  ipDeny: [\"::/0\"]\n", "ingress.ipDeny[0].range", false},
+		{"ip mapped", ext + "  ipAllow: [\"::ffff:203.0.113.7\"]\n", "ingress.ipAllow[0].range", false},
+		{"ip zone", ext + "  ipAllow: [\"fe80::1%eth0\"]\n", "ingress.ipAllow[0].range", false},
+		{"ip duplicate", ext + "  ipAllow: [203.0.113.7, 203.0.113.7/32]\n", "ingress.ipAllow[1].range", false},
+		{"ip rule without range", ext + "  ipAllow:\n    - name: office\n", "ingress.ipAllow[0].range", false},
+		{"ip rule name with newline", ext + "  ipAllow:\n    - range: 203.0.113.0/24\n      name: \"a\\nb\"\n", "ingress.ipAllow[0].name", false},
+		{"ip rule long description", ext + "  ipAllow:\n    - range: 203.0.113.0/24\n      description: " + strings.Repeat("x", 257) + "\n", "ingress.ipAllow[0].description", false},
+		{"ip rule names twice", ext + "  ipAllow:\n    - {range: 203.0.113.0/24, name: office}\n    - {range: 198.51.100.0/24, name: office}\n", "ingress.ipAllow[1].name", false},
+		{"ip rule unknown field", ext + "  ipAllow:\n    - {range: 203.0.113.0/24, cidr: x}\n", "", false},
+		{"ip injection", ext + "  ipAllow: [\"203.0.113.0/24 } || { always_true\"]\n", "ingress.ipAllow[0].range", false},
 		{"unknown rule", base + "scale:\n  max: 3\n  rules:\n    - type: kafka\n", "scale.rules[0].type", false},
 		{"bad memory", base + "resources:\n  memory: lots\n", "resources.memory", false},
 		{"tiny memory", base + "resources:\n  memory: 1Mi\n", "resources.memory", false},
@@ -544,6 +549,39 @@ func TestRegistryHost(t *testing.T) {
 		if got := RegistryHost(image); got != want {
 			t.Errorf("RegistryHost(%q) = %q, want %q", image, got, want)
 		}
+	}
+}
+
+// IP rules take a bare range or a range with a name and description; both
+// export as written.
+func TestParseIPRules(t *testing.T) {
+	t.Parallel()
+	a, err := Parse([]byte("name: admin\nimage: a\ningress:\n  type: external\n  port: 80\n  ipAllow:\n" +
+		"    - range: 203.0.113.0/24\n      name: kantor jakarta\n      description: VPN kantor, untuk tim admin\n" +
+		"    - 198.51.100.7\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []IPRule{{Range: "203.0.113.0/24", Name: "kantor jakarta", Description: "VPN kantor, untuk tim admin"}, {Range: "198.51.100.7"}}
+	if !slices.Equal(a.Ingress.IPAllow, want) {
+		t.Errorf("rules = %+v", a.Ingress.IPAllow)
+	}
+	if got := IPRanges(a.Ingress.IPAllow); !slices.Equal(got, []string{"198.51.100.7/32", "203.0.113.0/24"}) {
+		t.Errorf("ranges = %v", got)
+	}
+	out, err := a.Export()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(out), "        - range: 203.0.113.0/24\n          name: kantor jakarta\n") && !strings.Contains(string(out), "    - range: 203.0.113.0/24\n      name: kantor jakarta\n") {
+		t.Errorf("export:\n%s", out)
+	}
+	if !strings.Contains(string(out), "- 198.51.100.7\n") {
+		t.Errorf("a bare range is not exported bare:\n%s", out)
+	}
+	b, err := Parse(out)
+	if err != nil || !slices.Equal(b.Ingress.IPAllow, want) {
+		t.Errorf("round trip: %+v %v", b, err)
 	}
 }
 

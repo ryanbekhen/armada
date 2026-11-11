@@ -392,7 +392,7 @@ func TestAppIPRuleFlags(t *testing.T) {
 	cfg := withFake(t, f)
 	cli := func(args ...string) (int, string, string) { return run(t, append(args, "--config", cfg)...) }
 	if code, _, stderr := cli("app", "create", "admin", "--image", "nginx:1", "--port", "80", "--ingress", "external",
-		"--ip-allow", "203.0.113.0/24", "--ip-allow", "2001:db8::/32"); code != 0 {
+		"--ip-allow", "office=203.0.113.0/24", "--ip-allow", "2001:db8::/32"); code != 0 {
 		t.Fatal(stderr)
 	}
 	ingress := func() *spec.Ingress {
@@ -402,20 +402,20 @@ func TestAppIPRuleFlags(t *testing.T) {
 		}
 		return sp.Ingress
 	}
-	if in := ingress(); !slices.Equal(in.IPAllow, []string{"203.0.113.0/24", "2001:db8::/32"}) || in.IPDeny != nil {
+	if in := ingress(); !slices.Equal(in.IPAllow, []spec.IPRule{{Name: "office", Range: "203.0.113.0/24"}, {Range: "2001:db8::/32"}}) || in.IPDeny != nil {
 		t.Errorf("after create: %+v", in)
 	}
 	if code, _, stderr := cli("app", "update", "admin", "--ip-deny", "198.51.100.7"); code != 0 {
 		t.Fatal(stderr)
 	}
-	if in := ingress(); in.IPAllow != nil || !slices.Equal(in.IPDeny, []string{"198.51.100.7"}) {
+	if in := ingress(); in.IPAllow != nil || !slices.Equal(in.IPDeny, []spec.IPRule{{Range: "198.51.100.7"}}) {
 		t.Errorf("after --ip-deny: %+v", in)
 	}
 	// Other ingress changes keep the rules.
 	if code, _, stderr := cli("app", "update", "admin", "--domain", "admin.example.org"); code != 0 {
 		t.Fatal(stderr)
 	}
-	if in := ingress(); !slices.Equal(in.IPDeny, []string{"198.51.100.7"}) {
+	if in := ingress(); !slices.Equal(in.IPDeny, []spec.IPRule{{Range: "198.51.100.7"}}) {
 		t.Errorf("a domain change dropped the rules: %+v", in)
 	}
 	if code, _, stderr := cli("app", "update", "admin", "--no-ip-rules"); code != 0 {
