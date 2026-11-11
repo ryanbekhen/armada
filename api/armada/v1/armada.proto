@@ -1078,6 +1078,8 @@ message Hello {
   bool held_replicas = 15;
   // The node backs volumes up to buckets (ADR 0041).
   bool volume_backups = 16;
+  // The node mounts NFSv4 exports as volumes (ADR 0042).
+  bool nfs = 17;
 }
 
 message ReplicaReport {
@@ -1491,6 +1493,15 @@ message VolumeSpec {
   // "uid:gid" of the directory, applied whenever a replica starts; empty:
   // left as it is (root when created).
   string owner = 3;
+  // An NFS export instead of a directory on the node (ADR 0042).
+  NfsSource nfs = 4;
+}
+
+message NfsSource {
+  // A private IP address.
+  string server = 1;
+  string path = 2;
+  bool read_only = 3;
 }
 
 // JobAttempt marks a replica the agent runs to completion: it never

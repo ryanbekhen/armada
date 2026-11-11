@@ -66,6 +66,14 @@ func (a *Agent) prepareVolumes(s *armadav1.ReplicaSpec) ([]runtime.VolumeMount, 
 	}
 	out := make([]runtime.VolumeMount, 0, len(s.GetVolumes()))
 	for _, v := range s.GetVolumes() {
+		if v.GetNfs() != nil {
+			m, err := a.prepareNFS(context.Background(), s.GetApp(), v)
+			if err != nil {
+				return nil, fmt.Errorf("volume %s: %w", v.GetName(), err)
+			}
+			out = append(out, m)
+			continue
+		}
 		dir, err := a.volumeDir(s.GetApp(), v.GetName())
 		if err != nil {
 			return nil, err

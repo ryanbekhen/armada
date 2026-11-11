@@ -250,7 +250,7 @@ func (s *Server) volumeNode(ctx context.Context, app string, rev store.Revision)
 		return "", false, err
 	}
 	for _, v := range vols {
-		if !slices.ContainsFunc(rev.Spec.Volumes, func(sv spec.Volume) bool { return sv.Name == v.Name }) {
+		if !slices.ContainsFunc(rev.Spec.Volumes, func(sv spec.Volume) bool { return sv.Name == v.Name && sv.Local() }) {
 			continue
 		}
 		if node != "" && node != v.Node {
@@ -321,7 +321,9 @@ func (s *Server) mountedVolumes(ctx context.Context, app string) (map[string]spe
 			return nil, err
 		}
 		for _, v := range rev.Spec.Volumes {
-			out[v.Name] = v
+			if v.Local() {
+				out[v.Name] = v
+			}
 		}
 	}
 	return out, nil
@@ -371,7 +373,9 @@ func (s *Server) mountedVolumesOf(ctx context.Context, vols []store.Volume) (map
 		}
 		for _, sp := range specs {
 			for _, v := range sp.Volumes {
-				m[v.Name] = v
+				if v.Local() {
+					m[v.Name] = v
+				}
 			}
 		}
 		out[name] = m

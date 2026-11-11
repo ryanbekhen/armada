@@ -542,10 +542,11 @@ volumes:
 | `path` | Where the volume appears in the container. It follows the same rules as a secret file's path, and volumes may not overlap each other or a secret file. |
 | `owner` | Optional `uid:gid` of the volume's directory, applied whenever a replica starts (its contents are left alone). Without it a new directory belongs to root, with mode 0700; an image that runs as another user (postgres runs as 999, nginx's workers as 101) needs its owner. |
 | `backup` | Optional: back the volume up to an S3-compatible bucket on a schedule (below). |
-| `failover` | Optional `restore`: when the volume's node is lost, restore the latest backup on another node and move the app there. Needs `backup`, and must be set on every volume of the app or none. |
+| `failover` | Optional `restore`: when the volume's node is lost, restore the latest backup on another node and move the app there. Needs `backup`, and must be set on every volume of the app on its node or none. |
+| `nfs` | Optional: mount an export of an NFS server instead of a directory on the node (below). |
 
 - An app has at most 8 volumes.
-- **One replica.** An app with volumes runs exactly one replica. `scale`
+- **One replica.** An app with volumes on its node runs exactly one replica. `scale`
   may only say `min: 1` and `max: 1`, without `rules`; scale to zero,
   `revisions.mode: multiple`, and jobs with volumes are rejected.
 - **Bound to a node.** The first replica is placed on a node that can mount
@@ -560,6 +561,38 @@ volumes:
 - **Kept until removed.** A volume stays when the app is redeployed without
   it or deleted, until `armada volume delete`. Its size is shown by
   `armada volume list`; there is no quota.
+
+#### `volumes[].nfs`
+
+An export of an NFS server you run
+([ADR 0042](adr/0042-nfs-volumes.md)): the data stays on the server, so the
+app is bound to no node and may run any number of replicas, with rolling
+updates.
+
+```yaml
+volumes:
+  - name: uploads
+    path: /app/uploads
+    nfs:
+      server: 10.0.0.20
+      path: /exports/uploads
+      readOnly: false
+```
+
+| Field | Meaning |
+| --- | --- |
+| `server` | The server's IP address, in a private range (10/8, 172.16/12, 192.168/16, 100.64/10, fc00::/7). |
+| `path` | The exported directory, absolute. |
+| `readOnly` | Mount it read-only. |
+
+- The server must export the path over NFSv4 to the nodes' private
+  addresses; files keep the server's owners and permissions, and
+  containers act with their own user and group IDs.
+- Apps are placed only on nodes whose kernel has an NFSv4 client
+  (`armadad doctor`, check `nfs`).
+- `owner`, `backup`, and `failover` do not apply: the server owns the data.
+- Adding an export to an app, or making one writable, needs cluster-admin.
+- NFS volumes are not listed by `armada volume list`.
 
 #### `volumes[].backup`
 

@@ -92,6 +92,11 @@ type Config struct {
 	// VolumeInterval is how often volumes are measured (default 1m, ADR
 	// 0023).
 	VolumeInterval time.Duration
+	// NFSDir holds the mount points of NFS volumes (ADR 0042); empty
+	// disables them.
+	NFSDir string
+	// MountNFS mounts an export (tests); nil: the kernel's NFSv4 client.
+	MountNFS func(ctx context.Context, server, export, target string, readOnly bool) error
 	// Buckets opens a volume's backup bucket (ADR 0041); nil: S3.
 	Buckets func(volbackup.Target) (volbackup.Objects, error)
 	// WakeSocket is where the proxy sends requests for apps with no replica
@@ -220,6 +225,8 @@ type Agent struct {
 	reconcileMu sync.Mutex
 	// repos keeps one backup operation per volume at a time (ADR 0041).
 	repos keyedMutex
+	// nfsMounts keeps one mount or unmount per NFS volume at a time.
+	nfsMounts keyedMutex
 	// execs counts running exec sessions (maxExecSessions).
 	execs atomic.Int32
 }
@@ -333,7 +340,7 @@ func (a *Agent) session(ctx context.Context) (established bool, err error) {
 		Os: cmp.Or(a.cfg.OS, goruntime.GOOS), Arch: cmp.Or(a.cfg.Arch, goruntime.GOARCH),
 		Jobs: true, Volumes: a.mountsVolumes(), Containers: runtime.CanRunMembers(a.cfg.Driver), NetworkKey: a.cfg.NetworkKey,
 		CertificateRefs: true, QueueSandboxes: a.sandboxesOn(), HeldReplicas: true,
-		VolumeBackups: a.mountsVolumes(),
+		VolumeBackups: a.mountsVolumes(), Nfs: a.mountsNFS(),
 	}}}
 	if err := stream.Send(hello); err != nil {
 		return false, err
@@ -632,6 +639,7 @@ func (a *Agent) Reconcile(ctx context.Context) (*armadav1.ReplicaReport, error) 
 	report := a.startPending(ctx, pending, settled, running)
 	a.forgetHolds(desired)
 	a.cleanSecretFiles(desired)
+	a.cleanNFS(desired)
 	a.mu.Lock()
 	for id := range a.probes {
 		if _, ok := desired[id]; !ok {

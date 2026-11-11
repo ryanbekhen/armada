@@ -117,7 +117,7 @@ func (s *Server) Connect(stream armadav1.AgentService_ConnectServer) error {
 			s.usage.forget(node.ID)
 			_ = s.store.SetNodeStatus(context.WithoutCancel(ctx), node.ID, store.NodeStatus{
 				State: store.NodeUnknown, LastSeen: time.Now(), CPUMillis: hello.GetCpuMillis(), MemoryBytes: hello.GetMemoryBytes(),
-				Jobs: hello.GetJobs(), Volumes: hello.GetVolumes(), Containers: hello.GetContainers(),
+				Jobs: hello.GetJobs(), Volumes: hello.GetVolumes(), Containers: hello.GetContainers(), NFS: hello.GetNfs(),
 			})
 			s.log.Info("agent disconnected", "node", node.ID)
 			s.record(ctx, store.Event{Kind: eventNode, Object: node.ID, Node: node.ID, Reason: "Disconnected"})
@@ -130,7 +130,7 @@ func (s *Server) Connect(stream armadav1.AgentService_ConnectServer) error {
 	// Reports rewrite the node status from node: keep what hello reported,
 	// not the record as it was before this session.
 	node.CPUMillis, node.MemoryBytes = hello.GetCpuMillis(), hello.GetMemoryBytes()
-	node.Jobs, node.Volumes, node.Containers = hello.GetJobs(), hello.GetVolumes(), hello.GetContainers()
+	node.Jobs, node.Volumes, node.Containers, node.NFS = hello.GetJobs(), hello.GetVolumes(), hello.GetContainers(), hello.GetNfs()
 	if !validVersion(hello.GetVersion()) {
 		hello.Version = ""
 	}
@@ -150,7 +150,7 @@ func (s *Server) Connect(stream armadav1.AgentService_ConnectServer) error {
 	if err := s.store.SetNodeStatus(ctx, node.ID, store.NodeStatus{
 		State: store.NodeReady, LastSeen: time.Now(), CPUMillis: hello.GetCpuMillis(), MemoryBytes: hello.GetMemoryBytes(),
 		Version: hello.GetVersion(), OS: hello.GetOs(), Arch: hello.GetArch(),
-		Jobs: hello.GetJobs(), Volumes: hello.GetVolumes(), Containers: hello.GetContainers(),
+		Jobs: hello.GetJobs(), Volumes: hello.GetVolumes(), Containers: hello.GetContainers(), NFS: hello.GetNfs(),
 		NetworkKey: hello.GetNetworkKey(),
 	}); errors.Is(err, store.ErrConflict) {
 		s.log.Warn("agent announced another node's network key", "node", node.ID)
@@ -238,7 +238,7 @@ var digestRe = regexp.MustCompile(`@sha256:[a-f0-9]{64}$`)
 // untrusted: replicas must belong to the node, addresses must be on the
 // node's private IP, and digests must match the revision's repository.
 func (s *Server) applyReport(ctx context.Context, node store.Node, r *armadav1.ReplicaReport) {
-	if err := s.store.SetNodeStatus(ctx, node.ID, store.NodeStatus{State: store.NodeReady, LastSeen: time.Now(), CPUMillis: node.CPUMillis, MemoryBytes: node.MemoryBytes, Jobs: node.Jobs, Volumes: node.Volumes, Containers: node.Containers}); err != nil {
+	if err := s.store.SetNodeStatus(ctx, node.ID, store.NodeStatus{State: store.NodeReady, LastSeen: time.Now(), CPUMillis: node.CPUMillis, MemoryBytes: node.MemoryBytes, Jobs: node.Jobs, Volumes: node.Volumes, Containers: node.Containers, NFS: node.NFS}); err != nil {
 		s.log.Warn("update node status", "err", err)
 	}
 	owned, err := s.store.ListReplicas(ctx, store.ReplicaFilter{NodeID: node.ID})
