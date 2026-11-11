@@ -49,6 +49,7 @@ func newJobRunsCounter() *prometheus.CounterVec {
 // prunes old runs. all is updated with the replicas it creates, marks
 // done, or deletes.
 func (s *Server) reconcileJobs(ctx context.Context, rc *reconcileRun, jobs []store.App, nodes []store.Node, all []store.Replica, revs *revisionCache) ([]store.Replica, error) {
+	defer func() { s.triggers.keep(rc.triggered) }()
 	if len(jobs) == 0 {
 		return all, nil
 	}
@@ -73,6 +74,7 @@ func (s *Server) reconcileJob(ctx context.Context, rc *reconcileRun, job store.A
 	if err != nil {
 		return nil, err
 	}
+	runs = s.triggerJob(ctx, rc, job, runs, nodes, revs)
 	for i := range runs {
 		r := &runs[i]
 		switch r.State {
@@ -393,6 +395,20 @@ func (s *Server) RunJob(ctx context.Context, req *armadav1.RunJobRequest) (*arma
 	if err != nil {
 		return nil, storeErr(err)
 	}
+	if t := job.Spec.Trigger; t != nil {
+		// A job its queue starts keeps up to its parallelism, whoever
+		// started them (ADR 0040).
+		active := 0
+		for _, r := range runs {
+			if r.Active() {
+				active++
+			}
+		}
+		if active >= t.MaxRuns() {
+			return nil, status.Errorf(codes.FailedPrecondition, "%d run(s) of %s are active, as many as trigger.parallelism allows", active, job.Name)
+		}
+		runs = nil
+	}
 	for _, r := range runs {
 		if !r.Active() {
 			continue
@@ -453,6 +469,7 @@ func (s *Server) listJobs(ctx context.Context) (*armadav1.ListJobsResponse, map[
 		if sched, ok := a.Spec.JobSchedule(); ok {
 			info.NextRun = timestamppb.New(sched.Next(s.now()))
 		}
+		info.Trigger = s.jobTrigger(a)
 		resp.Jobs = append(resp.Jobs, info)
 	}
 	return resp, byJob, nil

@@ -69,7 +69,8 @@ func (s *Server) Reconcile(ctx context.Context) error {
 	}
 
 	s.clusterSize.Store(int64(len(apps) + len(nodes)))
-	rc := reconcileRun{now: s.now(), revs: &revs}
+	rc := reconcileRun{now: s.now(), revs: &revs, sandboxNodes: s.sandboxNodes(),
+		sandboxes: map[string][]*armadav1.QueueSandbox{}, triggered: map[string]bool{}}
 	rc.lost = s.lostNodes(ctx, &rc, nodes)
 	var jobs []store.App
 	removed := map[string]bool{}
@@ -114,14 +115,14 @@ func (s *Server) Reconcile(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	network, err := s.buildNetwork(ctx, nodes, replicas)
+	network, err := s.buildNetwork(ctx, nodes, slices.Concat(replicas, rc.sandboxAddrs))
 	if err != nil {
 		return err
 	}
 	if network != nil {
 		network.TcpPorts = tcpPorts(pxp)
 	}
-	return s.pushAssignments(ctx, replicas, &revs, pxp, pxRefs, eps, network)
+	return s.pushAssignments(ctx, replicas, &revs, pxp, pxRefs, eps, network, rc.sandboxes)
 }
 
 // proxyConfig builds the pass's proxy configuration. When it cannot, the
@@ -165,6 +166,15 @@ type reconcileRun struct {
 	revs *revisionCache
 	// current is the latest view of the pass's replicas.
 	current *replicaView
+
+	// Queue triggers (ADR 0040): sandboxNodes are the connected nodes that
+	// keep network sandboxes; sandboxes what each node is asked to read;
+	// sandboxAddrs the sandboxes' addresses, as replicas of their jobs, for
+	// the firewalls; triggered the jobs with a queue trigger.
+	sandboxNodes map[string]bool
+	sandboxes    map[string][]*armadav1.QueueSandbox
+	sandboxAddrs []store.Replica
+	triggered    map[string]bool
 }
 
 // lostNodes returns the nodes that have been disconnected for longer than
@@ -1120,7 +1130,7 @@ func pickNodeBy(nodes []store.Node, use placedUse, spread []store.Replica, sprea
 	return best.node, true
 }
 
-func (s *Server) pushAssignments(ctx context.Context, replicas []store.Replica, revs *revisionCache, px, pxRefs *armadav1.ProxyConfig, servers []string, network *armadav1.NetworkConfig) error {
+func (s *Server) pushAssignments(ctx context.Context, replicas []store.Replica, revs *revisionCache, px, pxRefs *armadav1.ProxyConfig, servers []string, network *armadav1.NetworkConfig, sandboxes map[string][]*armadav1.QueueSandbox) error {
 	byNode := map[string][]store.Replica{}
 	for _, r := range replicas {
 		byNode[r.NodeID] = append(byNode[r.NodeID], r)
@@ -1134,7 +1144,7 @@ func (s *Server) pushAssignments(ctx context.Context, replicas []store.Replica, 
 	s.mu.Unlock()
 
 	for _, sess := range sessions {
-		a := &armadav1.Assignment{Proxy: px, Servers: servers, Network: network}
+		a := &armadav1.Assignment{Proxy: px, Servers: servers, Network: network, QueueSandboxes: sandboxes[sess.nodeID]}
 		if sess.certRefs {
 			a.Proxy = pxRefs
 		}

@@ -131,6 +131,25 @@ message JobInfo {
   JobRunInfo last_run = 7;
   // Runs pending or running.
   int32 active = 8;
+  // Set for jobs that a queue starts (ADR 0040).
+  JobTrigger trigger = 9;
+}
+
+// JobTrigger is a job's queue trigger with what was last read.
+message JobTrigger {
+  // "redis" or "rabbitmq".
+  string type = 1;
+  // The Redis list or the RabbitMQ queue.
+  string name = 2;
+  int64 per_run = 3;
+  int32 parallelism = 4;
+  int64 polling_interval_seconds = 5;
+  // The node whose agent reads the queue; empty when no node can.
+  string node = 6;
+  // The latest length read, if measured.
+  bool measured = 7;
+  int64 length = 8;
+  google.protobuf.Timestamp measured_at = 9;
 }
 
 message ListJobRunsRequest {
@@ -1046,6 +1065,9 @@ message Hello {
   // The agent runs init containers and sidecars (ADR 0038); replicas that
   // have them are only placed on nodes whose agent says so.
   bool containers = 13;
+  // The node reads job queues from network sandboxes in its subnet of the
+  // cluster network (ADR 0040).
+  bool queue_sandboxes = 14;
 }
 
 message ReplicaReport {
@@ -1093,6 +1115,26 @@ message UsageReport {
   int64 conntrack_max = 7;
   // Queue lengths the node read in its replicas (ADR 0034).
   repeated QueueLength queues = 8;
+  // The job queues the node reads from network sandboxes (ADR 0040), one
+  // entry per sandbox, whether or not a length was read yet.
+  repeated SandboxQueue sandboxes = 9;
+}
+
+// SandboxQueue is one job's network sandbox on the node and the length of
+// the job's queue read from it.
+message SandboxQueue {
+  // The job's ID.
+  string job = 1;
+  // The sandbox's address in the node's subnet.
+  string ip = 2;
+  // A length was read; length and the fields after it are set only then.
+  bool measured = 3;
+  int64 length = 4;
+  // How long ago the length was read, in milliseconds.
+  int64 age_millis = 5;
+  // Counts the sandbox's readings since the agent started: a new number is
+  // a new reading.
+  int64 reading = 6;
 }
 
 message QueueLength {
@@ -1182,6 +1224,21 @@ message Assignment {
   repeated string servers = 3;
   // The cluster network (ADR 0025); unset in clusters without one.
   NetworkConfig network = 4;
+  // The job queues this node reads from network sandboxes (ADR 0040).
+  // Sandboxes not listed must be removed.
+  repeated QueueSandbox queue_sandboxes = 5;
+}
+
+// QueueSandbox asks the node to keep a network sandbox for a job, wired into
+// the node's container network like the job's containers, and to read the
+// job's queue from inside it.
+message QueueSandbox {
+  // The job's ID.
+  string job = 1;
+  // The queue: type "redis" or "rabbitmq", the URL from the job's pinned
+  // secret (never logged), and the list or queue name.
+  QueueProbe probe = 2;
+  int64 interval_seconds = 3;
 }
 
 // NetworkConfig is how the cluster network routes node subnets between

@@ -199,6 +199,7 @@ var (
 	descScaleCurrent     = prometheus.NewDesc("armada_app_autoscale_current", "An autoscaling rule's current value: the average per ready replica (requests in progress, or percent of the reservation), a queue's length, or the replicas an open schedule window asks for (0 when closed); absent while unmeasured.", []string{"app", "rule"}, nil)
 	descScaleTarget      = prometheus.NewDesc("armada_app_autoscale_target", "An autoscaling rule's target: per replica, or a schedule's replicas.", []string{"app", "rule"}, nil)
 	descJobActive        = prometheus.NewDesc("armada_job_runs_active", "Runs of a job that are pending or running.", []string{"job"}, nil)
+	descJobQueueLength   = prometheus.NewDesc("armada_job_queue_length", "The length of the queue that starts a job's runs, as last read; absent while unread.", []string{"job"}, nil)
 	descTrafficWeight    = prometheus.NewDesc("armada_app_traffic_weight", "A revision's percent of an app's requests in multiple revision mode.", []string{"app", "revision"}, nil)
 	descProjectReplicas  = prometheus.NewDesc("armada_project_replicas", "Replicas of a project's apps.", []string{"project"}, nil)
 	descProjectCPU       = prometheus.NewDesc("armada_project_cpu_usage_cores", "CPU a project's replicas used over the last sampling interval.", []string{"project"}, nil)
@@ -221,7 +222,7 @@ func (c *clusterCollector) Describe(ch chan<- *prometheus.Desc) {
 		descReplicaRestarts, descReplicaLastRest, descReplicaStart, descAppMin, descAppMax,
 		descReplicaCPU, descReplicaMemory, descReplicaCPURes, descReplicaCPULimit, descReplicaMemLimit,
 		descNodeReady, descNodeCordoned, descNodeReplicas, descNodeCPUAlloc, descNodeMemAlloc,
-		descNodeCPURes, descNodeMemRes, descNodeCPU, descNodeMemory, descNodeConntrack, descNodeConntrackMax, descJobLastSuccess, descJobActive,
+		descNodeCPURes, descNodeMemRes, descNodeCPU, descNodeMemory, descNodeConntrack, descNodeConntrackMax, descJobLastSuccess, descJobActive, descJobQueueLength,
 		descScaleCurrent, descScaleTarget, descTrafficWeight, descVolumeUsed,
 		descProjectReplicas, descProjectCPU, descProjectMemory, descProjectCPURes, descProjectMemRes,
 		descProjectVolumes, descProjectRequests, descProjectEgress,
@@ -324,6 +325,9 @@ func (c *clusterCollector) gather() (out []prometheus.Metric, ok bool) {
 	if jobs, runs, err := s.listJobs(ctx); err == nil {
 		for _, j := range jobs.GetJobs() {
 			gauge(descJobActive, float64(j.GetActive()), j.GetName())
+			if tr := j.GetTrigger(); tr.GetMeasured() {
+				gauge(descJobQueueLength, float64(tr.GetLength()), j.GetName())
+			}
 			var last time.Time
 			for _, r := range runs[j.GetName()] {
 				if r.State == store.RunSucceeded && r.FinishedAt.After(last) {

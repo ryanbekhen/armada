@@ -94,6 +94,8 @@ type App struct {
 	Retries     int      `yaml:"retries,omitempty" json:"retries,omitempty"`
 	Concurrency string   `yaml:"concurrency,omitempty" json:"concurrency,omitempty"`
 	History     *int     `yaml:"history,omitempty" json:"history,omitempty"`
+	// Trigger starts runs while a queue holds work (ADR 0040).
+	Trigger *Trigger `yaml:"trigger,omitempty" json:"trigger,omitempty"`
 }
 
 // EnvVar is an environment variable, either literal or from a secret.

@@ -75,6 +75,15 @@ func (s *Server) Deploy(ctx context.Context, req *armadav1.DeployRequest) (*arma
 			return nil, storeErr(err)
 		}
 	}
+	if app.QueueTrigger() != nil {
+		// The queue is read from a network sandbox in a node's subnet, never
+		// from a node's own network (ADR 0040).
+		if mode, err := s.networkMode(ctx); err != nil {
+			return nil, storeErr(err)
+		} else if mode == "" {
+			return nil, status.Error(codes.FailedPrecondition, "trigger.queue needs a cluster network (armadad init --network): the queue is read from the job's own network, which a cluster without one does not have")
+		}
+	}
 	rev, created, err := s.store.DeployWith(ctx, app, actor(ctx), store.DeployOptions{
 		MustCreate: req.GetMustCreate(), MustExist: req.GetMustExist(), BaseRevision: req.GetBaseRevision(),
 	})

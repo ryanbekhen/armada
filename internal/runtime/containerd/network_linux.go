@@ -15,6 +15,7 @@ import (
 
 	"github.com/containerd/containerd/v2/pkg/netns"
 	"github.com/containernetworking/cni/libcni"
+	cnitypes "github.com/containernetworking/cni/pkg/types"
 	types100 "github.com/containernetworking/cni/pkg/types/100"
 	"github.com/vishvananda/netlink"
 
@@ -159,6 +160,41 @@ func (n *cniNetwork) Setup(ctx context.Context, id string, pm *portMapping) (str
 		return "", "", fmt.Errorf("network result: %w", err)
 	}
 	return ns.GetPath(), r.IPs[0].Address.IP.String(), nil
+}
+
+// SetupAt attaches the network namespace at path, which the caller made,
+// as id, with no port, and returns its address.
+func (n *cniNetwork) SetupAt(ctx context.Context, id, path string) (string, error) {
+	res, err := n.cni.AddNetworkList(ctx, n.conf, n.runtimeConf(id, path, nil))
+	if err != nil {
+		_ = n.cni.DelNetworkList(context.WithoutCancel(ctx), n.conf, n.runtimeConf(id, path, nil))
+		return "", err
+	}
+	return resultIP(res)
+}
+
+// Address returns the address SetupAt gave id in the namespace at path,
+// from the plugins' cache, which lives as long as the namespace does.
+func (n *cniNetwork) Address(id, path string) (string, error) {
+	res, err := n.cni.GetNetworkListCachedResult(n.conf, n.runtimeConf(id, path, nil))
+	if err != nil {
+		return "", err
+	}
+	if res == nil {
+		return "", errors.New("no cached network result")
+	}
+	return resultIP(res)
+}
+
+func resultIP(res cnitypes.Result) (string, error) {
+	r, err := types100.NewResultFromResult(res)
+	if err != nil {
+		return "", fmt.Errorf("network result: %w", err)
+	}
+	if len(r.IPs) == 0 {
+		return "", errors.New("network result: no IP address assigned")
+	}
+	return r.IPs[0].Address.IP.String(), nil
 }
 
 func (n *cniNetwork) Teardown(ctx context.Context, id, path string, pm *portMapping) error {

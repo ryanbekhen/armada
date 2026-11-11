@@ -63,6 +63,10 @@ type network interface {
 	Setup(ctx context.Context, id string, pm *portMapping) (netns, ip string, err error)
 	// Teardown undoes Setup; it tolerates a namespace that is already gone.
 	Teardown(ctx context.Context, id, netns string, pm *portMapping) error
+	// SetupAt attaches a namespace the caller made at path as id, with no
+	// port, and returns its IP; Address returns that IP again later.
+	SetupAt(ctx context.Context, id, path string) (ip string, err error)
+	Address(id, path string) (ip string, err error)
 	Bridge() runtime.Bridge
 }
 
@@ -93,6 +97,8 @@ type Driver struct {
 	self   string
 
 	mu sync.Mutex // serializes Run so host ports are not handed out twice
+	// sandboxMu serializes changes to network sandboxes (ADR 0040).
+	sandboxMu sync.Mutex
 
 	labelsMu       sync.Mutex
 	labelsReserved bool // SELinux categories of existing containers are reserved

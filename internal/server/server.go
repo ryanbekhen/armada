@@ -153,6 +153,8 @@ type Server struct {
 	execs    *execRouter
 	volumes  *volumeRouter
 	usage    *usageStore
+	// triggers is what the leader keeps about jobs a queue starts (ADR 0040).
+	triggers *queueTriggers
 	events   *eventRecorder
 	jobRuns  *prometheus.CounterVec
 	// jobRetryBase is the delay before a job's first retry.
@@ -318,9 +320,10 @@ func New(cfg Config) (*Server, error) {
 		reconcileErrors: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "armada_reconcile_errors_total", Help: "Reconciles that failed.",
 		}),
-		usage:   newUsageStore(),
-		events:  newEventRecorder(),
-		jobRuns: newJobRunsCounter(),
+		usage:    newUsageStore(),
+		triggers: newQueueTriggers(),
+		events:   newEventRecorder(),
+		jobRuns:  newJobRunsCounter(),
 
 		certs:          cfg.Certs,
 		acmeAddr:       cfg.ACMEAddr,

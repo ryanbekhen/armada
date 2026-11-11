@@ -78,6 +78,9 @@ type Config struct {
 	// QueueInterval is how often queue rules' commands run (default 15s,
 	// ADR 0034).
 	QueueInterval time.Duration
+	// SandboxInterval, if set, reads every job queue that often instead of
+	// its trigger's polling interval (tests; ADR 0040).
+	SandboxInterval time.Duration
 	// ImagePrune is how often unused images are removed (default 10m,
 	// negative turns it off).
 	ImagePrune time.Duration
@@ -168,8 +171,10 @@ type Agent struct {
 	// reason; notes carries that reason to the replacement's status.
 	restarts map[string]string // container ID -> reason
 	queues   queueLengths
-	notes    map[string]string // replica -> message
-	crashes  map[string]crashLoop
+	// sb holds the network sandboxes job queues are read from (ADR 0040).
+	sb      sandboxes
+	notes   map[string]string // replica -> message
+	crashes map[string]crashLoop
 	// crashBase is the first recreate delay (crashBackoff; shorter in tests).
 	crashBase time.Duration
 
@@ -257,6 +262,7 @@ func New(cfg Config) *Agent {
 
 		proxyChanged: make(chan struct{}),
 		wakes:        newWaker(),
+		sb:           sandboxes{have: map[string]*sandboxState{}, kick: make(chan struct{}, 1)},
 	}
 }
 
@@ -268,6 +274,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	go a.reconcileLoop(ctx)
 	go a.usageLoop(ctx)
 	go a.queueLoop(ctx)
+	go a.sandboxLoop(ctx)
 	if a.cfg.WakeSocket != "" {
 		go a.serveWake(ctx)
 	}
@@ -310,7 +317,7 @@ func (a *Agent) session(ctx context.Context) (established bool, err error) {
 		CpuMillis: a.cfg.CPUMillis, MemoryBytes: a.cfg.MemoryBytes, Version: version.Get().Version, PrivateIp: a.cfg.PrivateIP,
 		Os: cmp.Or(a.cfg.OS, goruntime.GOOS), Arch: cmp.Or(a.cfg.Arch, goruntime.GOARCH),
 		Jobs: true, Volumes: a.mountsVolumes(), Containers: runtime.CanRunMembers(a.cfg.Driver), NetworkKey: a.cfg.NetworkKey,
-		CertificateRefs: true,
+		CertificateRefs: true, QueueSandboxes: a.sandboxesOn(),
 	}}}
 	if err := stream.Send(hello); err != nil {
 		return false, err
@@ -338,6 +345,9 @@ func (a *Agent) session(ctx context.Context) (established bool, err error) {
 			a.setNetwork(m.Assignment.GetNetwork())
 			a.setDesired(m.Assignment.GetReplicas(), m.Assignment.GetProxy())
 			a.setServers(m.Assignment.GetServers())
+			if a.sandboxesOn() {
+				a.setSandboxes(m.Assignment.GetQueueSandboxes())
+			}
 		case *armadav1.ServerMessage_LogRequest:
 			go a.serveLogs(ctx, m.LogRequest)
 		case *armadav1.ServerMessage_LogCancel:
@@ -1048,6 +1058,7 @@ func (a *Agent) listLocal(ctx context.Context) (map[netip.Addr]string, error) {
 		}
 		local[ip] = app
 	}
+	a.localSandboxes(ctx, local)
 	return local, nil
 }
 

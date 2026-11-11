@@ -202,7 +202,7 @@ func newRuntimeResetCommand() *cobra.Command {
 		Use:   "reset",
 		Short: "Remove every container Armada runs on this node",
 		Long: "reset stops and removes all of Armada's containers on this node (those with\n" +
-			"Armada's labels),\n" +
+			"Armada's labels), the network sandboxes job queues are read from,\n" +
 			"and the cluster network's interface and firewall rules.\n" +
 			"Use it after `armada node delete`, with the agent (or server) stopped first,\n" +
 			"or it starts its replicas again.",
@@ -245,6 +245,24 @@ func newRuntimeResetCommand() *cobra.Command {
 				}
 			}
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Removed %d container(s).\n", len(cs)-len(errs))
+			if sb, ok := rt.(runtime.NetworkSandboxer); ok {
+				// Job queues are read from these (ADR 0040).
+				sandboxes, err := sb.ListSandboxes(ctx)
+				if err != nil {
+					errs = append(errs, fmt.Errorf("network sandboxes: %w", err))
+				}
+				removed := 0
+				for _, s := range sandboxes {
+					if err := sb.RemoveSandbox(ctx, s.ID); err != nil {
+						errs = append(errs, fmt.Errorf("network sandbox %s: %w", s.ID, err))
+						continue
+					}
+					removed++
+				}
+				if removed > 0 {
+					_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Removed %d network sandbox(es).\n", removed)
+				}
+			}
 			if ac.Network != "" {
 				if err := removeClusterNet(); err != nil {
 					errs = append(errs, fmt.Errorf("cluster network: %w", err))

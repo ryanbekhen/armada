@@ -157,5 +157,5 @@ is needed:
   - scaling a queue worker from zero;
   - custom metrics from the metrics endpoint.
 
-  A worker that should cost nothing while idle can be a job (ADR 0019)
-  instead.
+  A worker that should cost nothing while idle can be a job that its queue
+  starts (ADR 0040) instead.
