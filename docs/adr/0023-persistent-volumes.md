@@ -170,6 +170,6 @@ without its volume, or on another node, can no longer lead (ADR 0012).
   availability is that node's.
 - Deploys of such apps have downtime: the old replica's drain plus the new
   one's start (its images are pulled before the old replica stops).
-- Losing a node loses its volumes' data since the last backup. Operators
-  schedule `armada volume backup` (for example from cron outside the
-  cluster) or use the app's own replication.
+- Losing a node loses its volumes' data since the last backup. Volumes back
+  up to a bucket on a schedule (`volumes[].backup`, ADR 0041), or operators
+  run `armada volume backup` themselves, or use the app's own replication.

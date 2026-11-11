@@ -34,6 +34,7 @@ import (
 	"github.com/ryanbekhen/armada/internal/runtime"
 	"github.com/ryanbekhen/armada/internal/store"
 	"github.com/ryanbekhen/armada/internal/version"
+	"github.com/ryanbekhen/armada/internal/volbackup"
 )
 
 const (
@@ -91,6 +92,8 @@ type Config struct {
 	// VolumeInterval is how often volumes are measured (default 1m, ADR
 	// 0023).
 	VolumeInterval time.Duration
+	// Buckets opens a volume's backup bucket (ADR 0041); nil: S3.
+	Buckets func(volbackup.Target) (volbackup.Objects, error)
 	// WakeSocket is where the proxy sends requests for apps with no replica
 	// up (ADR 0021); empty disables it. It must be in a directory only root
 	// can reach.
@@ -209,6 +212,8 @@ type Agent struct {
 	paused map[string]int
 	// reconcileMu keeps pause from racing a Reconcile that starts the app.
 	reconcileMu sync.Mutex
+	// repos keeps one backup operation per volume at a time (ADR 0041).
+	repos keyedMutex
 	// execs counts running exec sessions (maxExecSessions).
 	execs atomic.Int32
 }
@@ -321,6 +326,7 @@ func (a *Agent) session(ctx context.Context) (established bool, err error) {
 		Os: cmp.Or(a.cfg.OS, goruntime.GOOS), Arch: cmp.Or(a.cfg.Arch, goruntime.GOARCH),
 		Jobs: true, Volumes: a.mountsVolumes(), Containers: runtime.CanRunMembers(a.cfg.Driver), NetworkKey: a.cfg.NetworkKey,
 		CertificateRefs: true, QueueSandboxes: a.sandboxesOn(), HeldReplicas: true,
+		VolumeBackups: a.mountsVolumes(),
 	}}}
 	if err := stream.Send(hello); err != nil {
 		return false, err

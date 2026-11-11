@@ -210,6 +210,10 @@ var (
 	descProjectRequests  = prometheus.NewDesc("armada_project_requests_total", "Requests the proxies sent to a project's replicas; resets when the leader changes.", []string{"project"}, nil)
 	descProjectEgress    = prometheus.NewDesc("armada_project_egress_bytes_total", "Bytes a project's containers sent; resets when the leader changes.", []string{"project"}, nil)
 	descVolumeUsed       = prometheus.NewDesc("armada_volume_used_bytes", "Bytes in a volume's files, from its node's latest measurement; absent while unmeasured.", []string{"app", "volume", "node"}, nil)
+	descBackupLast       = prometheus.NewDesc("armada_volume_backup_last_success_timestamp_seconds", "When a volume's last backup to its bucket worked (ADR 0041); absent before the first.", []string{"app", "volume"}, nil)
+	descBackupStored     = prometheus.NewDesc("armada_volume_backup_stored_bytes", "Bytes a volume's backup repository held after its last backup.", []string{"app", "volume"}, nil)
+	descBackupSnapshots  = prometheus.NewDesc("armada_volume_backup_snapshots", "Backups a volume's repository held after its last backup.", []string{"app", "volume"}, nil)
+	descBackupFailing    = prometheus.NewDesc("armada_volume_backup_failing", "1 while a volume's last backup failed, 0 otherwise.", []string{"app", "volume"}, nil)
 	descRevisionInfo     = prometheus.NewDesc("armada_revision_info", "1 for each revision of an app that serves, rolls out, or still has replicas, with the image its spec names.", []string{"app", "revision", "image"}, nil)
 	descReplicaState     = prometheus.NewDesc("armada_replica_state", "1 for a replica's current state (pending, pulling, starting, running, exited, failed, unknown).", []string{"app", "replica", "node", "state"}, nil)
 	descReplicaInfo      = prometheus.NewDesc("armada_replica_info", "1 for each replica, with its revision and the IP address it is reached at (empty until it has one).", []string{"app", "replica", "revision", "node", "ip"}, nil)
@@ -224,6 +228,7 @@ func (c *clusterCollector) Describe(ch chan<- *prometheus.Desc) {
 		descNodeReady, descNodeCordoned, descNodeReplicas, descNodeCPUAlloc, descNodeMemAlloc,
 		descNodeCPURes, descNodeMemRes, descNodeCPU, descNodeMemory, descNodeConntrack, descNodeConntrackMax, descJobLastSuccess, descJobActive, descJobQueueLength,
 		descScaleCurrent, descScaleTarget, descTrafficWeight, descVolumeUsed,
+		descBackupLast, descBackupStored, descBackupSnapshots, descBackupFailing,
 		descProjectReplicas, descProjectCPU, descProjectMemory, descProjectCPURes, descProjectMemRes,
 		descProjectVolumes, descProjectRequests, descProjectEgress,
 		descRevisionInfo, descReplicaState, descReplicaInfo, descScaledAt,
@@ -344,6 +349,19 @@ func (c *clusterCollector) gather() (out []prometheus.Metric, ok bool) {
 			if v.GetUsedBytes() >= 0 {
 				gauge(descVolumeUsed, float64(v.GetUsedBytes()), v.GetApp(), v.GetName(), v.GetNode())
 			}
+			if !v.GetBackup() {
+				continue
+			}
+			if t := v.GetLastBackupAt(); t != nil {
+				gauge(descBackupLast, float64(t.AsTime().Unix()), v.GetApp(), v.GetName())
+				gauge(descBackupStored, float64(v.GetBackupStoredBytes()), v.GetApp(), v.GetName())
+				gauge(descBackupSnapshots, float64(v.GetBackupSnapshots()), v.GetApp(), v.GetName())
+			}
+			failing := 0.0
+			if v.GetBackupFailedAt() != nil {
+				failing = 1
+			}
+			gauge(descBackupFailing, failing, v.GetApp(), v.GetName())
 		}
 	}
 	for _, p := range top.GetProjects() {

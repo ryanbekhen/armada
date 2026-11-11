@@ -149,11 +149,14 @@ func TestExecUsage(t *testing.T) {
 func TestVolumeUsage(t *testing.T) {
 	t.Parallel()
 	for args, want := range map[string]string{
-		"volume delete web data":  "--yes",
-		"volume backup web data":  "-o FILE",
-		"volume restore web data": "accepts 3 arg",
-		"volume ls a b":           "accepts at most 1 arg",
-		"volume rm web":           "accepts 2 arg",
+		"volume delete web data":                          "--yes",
+		"volume backup web data":                          "-o FILE",
+		"volume restore web data":                         "give an archive FILE or --snapshot",
+		"volume restore web data f.tgz --snapshot latest": "give an archive FILE or --snapshot",
+		"volume snapshot list web":                        "accepts 2 arg",
+		"volume snapshot create web data extra":           "accepts 2 arg",
+		"volume ls a b":                                   "accepts at most 1 arg",
+		"volume rm web":                                   "accepts 2 arg",
 	} {
 		code, _, stderr := run(t, strings.Fields(args)...)
 		if code != 1 || !strings.Contains(stderr, want) {

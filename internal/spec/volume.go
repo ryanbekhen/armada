@@ -17,6 +17,8 @@ type Volume struct {
 	// Owner is "uid:gid" for the volume's directory, applied whenever a
 	// replica starts; empty leaves it (root when created).
 	Owner string `yaml:"owner,omitempty" json:"owner,omitempty"`
+	// Backup schedules backups to an S3-compatible bucket (ADR 0041).
+	Backup *VolumeBackup `yaml:"backup,omitempty" json:"backup,omitempty"`
 }
 
 // MaxVolumes is the most volumes an app may have.
@@ -80,6 +82,9 @@ func (v *validator) volumes(a *App) {
 			if _, _, err := ParseOwner(vol.Owner); err != nil {
 				v.add(field+".owner", "%v", err)
 			}
+		}
+		if vol.Backup != nil {
+			v.volumeBackup(field+".backup", vol.Backup)
 		}
 	}
 	// One replica: two containers never write to the same volume.
