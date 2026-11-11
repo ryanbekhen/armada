@@ -95,6 +95,9 @@ E2E_ONLY=isolation,rollout ARMADA_BIN=... sh test/e2e/cluster.sh hosts
 | `tcp` | 19 | internal TCP ingress: HAProxy's TCP listeners, the clients map, nftables on the gateway, internal DNS |
 | `queues` | 14 | autoscaling on queues and schedules, dialling from containers |
 | `queue-jobs` | 20 | jobs started by a queue, network sandboxes, their isolation |
+| `volume-backups` | 21 | volumes, rollouts of apps with volumes (images pulled first), backups to a bucket, restores from it |
+| `volume-failover` | 22 (4 machines or more) | `failover: restore`, fencing of a node cut off from the control plane |
+| `nfs` | 23 | NFS volumes: mounting with the kernel client, sharing between nodes, unmounting |
 | `reboot` | 13 | start-up order, units, state after a crash |
 
 A release runs every scenario.
@@ -190,3 +193,24 @@ A release runs every scenario.
       the queue is never read and nothing runs.
     - The broker's password is in no journal, and no sandbox is left on any
       node once both jobs are deleted.
+21. Volume backups (runs after 20, before 13). An S3-compatible server runs
+    as an app (`minio/minio`); nodes reach its container's address.
+    - An app with a volume (placed on the last machine by a label) gets its
+      first backup by itself, and one on demand; both are listed from the
+      bucket, which holds sealed chunks and snapshots and no file names.
+    - A file changed after the last backup is back after
+      `armada volume restore --snapshot latest`.
+    - A rollout to another image keeps the app on its volume's node and the
+      volume's contents.
+22. Volume failover. The other machines get the label, and the last machine
+    is cut off from the control plane (outgoing TCP to port 7443 dropped)
+    while it stays up: its agent stops the app itself, the leader restores
+    the latest backup on another machine and the app runs there
+    (`VolumeFailedOver`) with the backup's contents. Once the rule is gone,
+    the node is ready again and no longer runs the app.
+23. NFS volumes. The last machine installs an NFS server
+    (`nfs-kernel-server`) and exports a directory. `armadad doctor` finds an
+    NFSv4 client; an app with two replicas on two nodes mounts the export,
+    a file one replica writes is read by the other and is on the server, NFS
+    volumes are not listed as node volumes, and the export is unmounted once
+    the app is deleted.
