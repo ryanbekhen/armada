@@ -1260,18 +1260,11 @@ S3_USER=e2e$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')
 S3_PASS=$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')
 cat <<EOF | cli app update e2e-s3 --file - --create-if-missing >/dev/null
 name: e2e-s3
-image: minio/minio:RELEASE.2025-04-22T22-12-26Z
-command: ["minio", "server", "/srv"]
-env:
-  - name: MINIO_ROOT_USER
-    value: $S3_USER
-  - name: MINIO_ROOT_PASSWORD
-    value: $S3_PASS
+image: versity/versitygw:v1.11.0
+args: ["--access", "$S3_USER", "--secret", "$S3_PASS", "--port", ":9000", "posix", "/tmp"]
 ingress:
   type: internal
   port: 9000
-resources:
-  memory: 512Mi
 EOF
 s3_addr() { status | jq -er '[.apps[] | select(.name == "e2e-s3") | .replicas[]? | select(.state == "running" and .ready)][0].address'; }
 wait_for 300 "the bucket server runs" s3_addr
