@@ -1394,7 +1394,7 @@ fi
 if want nfs; then
 log "NFS volumes: one export shared by replicas on several nodes"
 NFS_IP=$(host "$N" 3)
-on "$N" 'command -v exportfs >/dev/null || DEBIAN_FRONTEND=noninteractive apt-get install -y -q nfs-kernel-server >/dev/null' || fail "installing an NFS server on $(host "$N" 1)"
+on "$N" 'command -v exportfs >/dev/null || { apt-get update -q >/dev/null && DEBIAN_FRONTEND=noninteractive apt-get install -y -q nfs-kernel-server >/dev/null; }' || fail "installing an NFS server on $(host "$N" 1)"
 on "$N" "mkdir -p /srv/e2e-nfs && chmod 0777 /srv/e2e-nfs && echo '/srv/e2e-nfs *(rw,sync,no_subtree_check,no_root_squash)' > /etc/exports.d/e2e.exports && exportfs -ra" || fail "exporting /srv/e2e-nfs"
 on 1 'armadad doctor' | grep -q '^\[ok  *\] nfs ' || fail "doctor does not find an NFSv4 client on $(host 1 1)"
 cat <<EOF | cli app update e2e-nfs --file - --create-if-missing >/dev/null
