@@ -182,8 +182,8 @@ func (s *Etcd) ListJobRuns(ctx context.Context, job string) ([]JobRun, error) {
 func (s *Etcd) DeleteJobRun(ctx context.Context, job string, seq int64) error {
 	return s.tx(ctx, func(t *etx) error {
 		t.delete(runKey(job, seq))
-		return listInto(t, pfxReplicas, func(key string, r replicaRec) error {
-			if r.App == job && r.Run == seq {
+		return appReplicas(t, job, func(key string, r replicaRec) error {
+			if r.Run == seq {
 				t.delete(key)
 			}
 			return nil
@@ -236,8 +236,8 @@ func (s *Etcd) CancelJobRuns(ctx context.Context, job, actor string) ([]JobRun, 
 		for _, r := range out {
 			cancelled[r.Seq] = true
 		}
-		err = listInto(t, pfxReplicas, func(key string, r replicaRec) error {
-			if r.App == job && cancelled[r.Run] && !r.Done {
+		err = appReplicas(t, job, func(key string, r replicaRec) error {
+			if cancelled[r.Run] && !r.Done {
 				r.Done = true
 				return t.put(key, r)
 			}
@@ -261,10 +261,8 @@ func (s *Etcd) DeleteJob(ctx context.Context, job, actor string) error {
 		t.delete(pfxApps + job)
 		t.deletePrefix(pfxRevs + job + "/")
 		t.deletePrefix(pfxRuns + job + "/")
-		err := listInto(t, pfxReplicas, func(key string, r replicaRec) error {
-			if r.App == job {
-				t.delete(key)
-			}
+		err := appReplicas(t, job, func(key string, _ replicaRec) error {
+			t.delete(key)
 			return nil
 		})
 		if err != nil {

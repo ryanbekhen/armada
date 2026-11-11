@@ -45,8 +45,8 @@ func (s *Etcd) DeleteApp(ctx context.Context, app string) error {
 			return fmt.Errorf("app %s is not being removed: %w", app, ErrPrecondition)
 		}
 		left := false
-		err = listInto(t, pfxReplicas, func(_ string, r replicaRec) error {
-			left = left || r.App == app
+		err = appReplicas(t, app, func(string, replicaRec) error {
+			left = true
 			return nil
 		})
 		if err != nil {

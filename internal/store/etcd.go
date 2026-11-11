@@ -40,6 +40,8 @@ type Etcd struct {
 	leases   *eventLeases
 	// onCommit sees the operation count of each transaction (tests).
 	onCommit func(ops int)
+	// onList sees the prefix and stored key count of each list (tests).
+	onList func(prefix string, keys int)
 }
 
 // Key layout below the prefix.
@@ -259,6 +261,9 @@ func (t *etx) list(prefix string) ([]kv, error) {
 	resp, err := t.s.c.Get(t.ctx, t.full(prefix), clientv3.WithPrefix(), clientv3.WithRev(t.rev))
 	if err != nil {
 		return nil, err
+	}
+	if t.s.onList != nil {
+		t.s.onList(prefix, len(resp.Kvs))
 	}
 	m := make(map[string][]byte, len(resp.Kvs))
 	for _, e := range resp.Kvs {
@@ -1538,10 +1543,8 @@ func (t *etx) pruneRevisions(app string) error {
 		return err
 	}
 	running := map[string]bool{}
-	err = listInto(t, pfxReplicas, func(_ string, r replicaRec) error {
-		if r.App == app {
-			running[r.Revision] = true
-		}
+	err = appReplicas(t, app, func(_ string, r replicaRec) error {
+		running[r.Revision] = true
 		return nil
 	})
 	if err != nil {
@@ -1894,6 +1897,10 @@ func (s *Etcd) CreateReplica(ctx context.Context, r Replica) error {
 	if r.State == "" {
 		r.State = ReplicaPending
 	}
+	if !strings.HasPrefix(r.ID, replicaPrefix(r.App)) {
+		// Reads of one app's replicas rely on it (appReplicas).
+		return fmt.Errorf("replica ID %q does not start with %q: %w", r.ID, replicaPrefix(r.App), ErrPrecondition)
+	}
 	return s.tx(ctx, func(t *etx) error {
 		if _, ok, err := t.getRaw(pfxReplicas + r.ID); err != nil {
 			return err
@@ -1918,6 +1925,23 @@ func (s *Etcd) CreateReplica(ctx context.Context, r Replica) error {
 			return err
 		}
 		return t.put(pfxReplicas+r.ID, replicaRec{ID: r.ID, App: r.App, Revision: r.Revision, NodeID: r.NodeID, State: r.State, UpdatedAt: s.now().UnixMilli(), CreatedAt: s.now().UnixMilli(), Run: r.Run})
+	})
+}
+
+// replicaPrefix is what the ID of every replica of app starts with:
+// <app>-r<seq>-<random> for app replicas, <app>-j<run>-<random> for job
+// attempts. CreateReplica refuses others.
+func replicaPrefix(app string) string { return app + "-" }
+
+// appReplicas calls fn with every replica of app, reading only the keys
+// under its ID prefix. The prefix of "web" also holds the replicas of
+// "web-api", so the record's app decides.
+func appReplicas(t *etx, app string, fn func(key string, r replicaRec) error) error {
+	return listInto(t, pfxReplicas+replicaPrefix(app), func(key string, r replicaRec) error {
+		if r.App != app {
+			return nil
+		}
+		return fn(key, r)
 	})
 }
 
@@ -1981,7 +2005,11 @@ func (s *Etcd) ListReplicas(ctx context.Context, f ReplicaFilter) ([]Replica, er
 	var out []Replica
 	err := s.view(ctx, func(t *etx) error {
 		out = nil
-		return listInto(t, pfxReplicas, func(_ string, r replicaRec) error {
+		each := func(fn func(string, replicaRec) error) error { return listInto(t, pfxReplicas, fn) }
+		if f.App != "" {
+			each = func(fn func(string, replicaRec) error) error { return appReplicas(t, f.App, fn) }
+		}
+		return each(func(_ string, r replicaRec) error {
 			if (f.App == "" || r.App == f.App) && (f.NodeID == "" || r.NodeID == f.NodeID) {
 				out = append(out, Replica{ID: r.ID, App: r.App, Revision: r.Revision, NodeID: r.NodeID, State: r.State,
 					ContainerID: r.ContainerID, Address: r.Address, IP: r.IP, Message: r.Message, Ready: r.Ready,
