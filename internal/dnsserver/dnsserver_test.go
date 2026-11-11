@@ -42,10 +42,24 @@ func upstream(t *testing.T) string {
 
 func start(t *testing.T, clients string, upstreams ...string) (*Server, string) {
 	t.Helper()
-	port := freePort(t)
-	s, err := New(Config{Addr: netip.MustParseAddr("127.0.0.1"), Port: port, Clients: netip.MustParsePrefix(clients), Upstreams: upstreams})
-	if err != nil {
-		t.Fatal(err)
+	// The port is bound before anything is asked: a free port can be taken by
+	// another parallel test's server between freePort and the bind, and that
+	// server would answer in this one's place.
+	var (
+		s    *Server
+		port uint16
+	)
+	for attempt := 0; ; attempt++ {
+		port = freePort(t)
+		var err error
+		if s, err = New(Config{Addr: netip.MustParseAddr("127.0.0.1"), Port: port, Clients: netip.MustParsePrefix(clients), Upstreams: upstreams}); err != nil {
+			t.Fatal(err)
+		}
+		if err = s.Listen(); err == nil {
+			break
+		} else if attempt == 9 {
+			t.Fatal(err)
+		}
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
