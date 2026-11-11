@@ -5678,7 +5678,9 @@ type Autoscale struct {
 	Max   int32                  `protobuf:"varint,2,opt,name=max,proto3" json:"max,omitempty"`
 	Rules []*AutoscaleRule       `protobuf:"bytes,3,rep,name=rules,proto3" json:"rules,omitempty"`
 	// What the autoscaler last decided, e.g. "holding: not enough samples".
-	Message       string `protobuf:"bytes,4,opt,name=message,proto3" json:"message,omitempty"`
+	Message string `protobuf:"bytes,4,opt,name=message,proto3" json:"message,omitempty"`
+	// When the autoscaler last changed the replica count; unset until it does.
+	LastScaledAt  *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=last_scaled_at,json=lastScaledAt,proto3" json:"last_scaled_at,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -5739,6 +5741,13 @@ func (x *Autoscale) GetMessage() string {
 		return x.Message
 	}
 	return ""
+}
+
+func (x *Autoscale) GetLastScaledAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.LastScaledAt
+	}
+	return nil
 }
 
 type AutoscaleRule struct {
@@ -11299,12 +11308,13 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	" \x01(\tR\x0erolloutMessage\x12+\n" +
 	"\x11placement_message\x18\v \x01(\tR\x10placementMessage\x122\n" +
 	"\tautoscale\x18\f \x01(\v2\x14.armada.v1.AutoscaleR\tautoscale\x122\n" +
-	"\atraffic\x18\r \x03(\v2\x18.armada.v1.TrafficTargetR\atraffic\"y\n" +
+	"\atraffic\x18\r \x03(\v2\x18.armada.v1.TrafficTargetR\atraffic\"\xbb\x01\n" +
 	"\tAutoscale\x12\x10\n" +
 	"\x03min\x18\x01 \x01(\x05R\x03min\x12\x10\n" +
 	"\x03max\x18\x02 \x01(\x05R\x03max\x12.\n" +
 	"\x05rules\x18\x03 \x03(\v2\x18.armada.v1.AutoscaleRuleR\x05rules\x12\x18\n" +
-	"\amessage\x18\x04 \x01(\tR\amessage\"q\n" +
+	"\amessage\x18\x04 \x01(\tR\amessage\x12@\n" +
+	"\x0elast_scaled_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\flastScaledAt\"q\n" +
 	"\rAutoscaleRule\x12\x12\n" +
 	"\x04type\x18\x01 \x01(\tR\x04type\x12\x16\n" +
 	"\x06target\x18\x02 \x01(\x03R\x06target\x12\x18\n" +
@@ -12028,188 +12038,189 @@ var file_armada_v1_armada_proto_depIdxs = []int32{
 	93,  // 40: armada.v1.AppStatus.autoscale:type_name -> armada.v1.Autoscale
 	106, // 41: armada.v1.AppStatus.traffic:type_name -> armada.v1.TrafficTarget
 	94,  // 42: armada.v1.Autoscale.rules:type_name -> armada.v1.AutoscaleRule
-	165, // 43: armada.v1.ReplicaStatus.updated_at:type_name -> google.protobuf.Timestamp
-	165, // 44: armada.v1.ReplicaStatus.created_at:type_name -> google.protobuf.Timestamp
-	165, // 45: armada.v1.ReplicaStatus.last_restart_at:type_name -> google.protobuf.Timestamp
-	165, // 46: armada.v1.NodeStatus.last_seen:type_name -> google.protobuf.Timestamp
-	165, // 47: armada.v1.NodeStatus.cert_expires_at:type_name -> google.protobuf.Timestamp
-	164, // 48: armada.v1.NodeStatus.labels:type_name -> armada.v1.NodeStatus.LabelsEntry
-	100, // 49: armada.v1.TopResponse.replicas:type_name -> armada.v1.ReplicaTop
-	101, // 50: armada.v1.TopResponse.nodes:type_name -> armada.v1.NodeTop
-	99,  // 51: armada.v1.TopResponse.projects:type_name -> armada.v1.ProjectTop
-	165, // 52: armada.v1.TopResponse.counted_since:type_name -> google.protobuf.Timestamp
-	165, // 53: armada.v1.ReplicaTop.sampled_at:type_name -> google.protobuf.Timestamp
-	106, // 54: armada.v1.SetTrafficRequest.traffic:type_name -> armada.v1.TrafficTarget
-	106, // 55: armada.v1.SetTrafficResponse.traffic:type_name -> armada.v1.TrafficTarget
-	0,   // 56: armada.v1.LogEntry.stream:type_name -> armada.v1.Stream
-	133, // 57: armada.v1.GetCertificatesResponse.certificates:type_name -> armada.v1.ProxyCertificate
-	115, // 58: armada.v1.AgentMessage.hello:type_name -> armada.v1.Hello
-	116, // 59: armada.v1.AgentMessage.report:type_name -> armada.v1.ReplicaReport
-	118, // 60: armada.v1.AgentMessage.usage:type_name -> armada.v1.UsageReport
-	114, // 61: armada.v1.AgentMessage.wake:type_name -> armada.v1.Wake
-	117, // 62: armada.v1.ReplicaReport.replicas:type_name -> armada.v1.ReplicaState
-	121, // 63: armada.v1.UsageReport.replicas:type_name -> armada.v1.ReplicaUsage
-	120, // 64: armada.v1.UsageReport.load:type_name -> armada.v1.ReplicaLoad
-	119, // 65: armada.v1.UsageReport.volumes:type_name -> armada.v1.VolumeUsage
-	125, // 66: armada.v1.ServerMessage.assignment:type_name -> armada.v1.Assignment
-	141, // 67: armada.v1.ServerMessage.log_request:type_name -> armada.v1.LogRequest
-	142, // 68: armada.v1.ServerMessage.log_cancel:type_name -> armada.v1.LogCancel
-	150, // 69: armada.v1.ServerMessage.exec_request:type_name -> armada.v1.ExecRequest
-	123, // 70: armada.v1.ServerMessage.volume_request:type_name -> armada.v1.VolumeRequest
-	1,   // 71: armada.v1.VolumeRequest.op:type_name -> armada.v1.VolumeRequest.Op
-	134, // 72: armada.v1.Assignment.replicas:type_name -> armada.v1.ReplicaSpec
-	129, // 73: armada.v1.Assignment.proxy:type_name -> armada.v1.ProxyConfig
-	126, // 74: armada.v1.Assignment.network:type_name -> armada.v1.NetworkConfig
-	128, // 75: armada.v1.NetworkConfig.peers:type_name -> armada.v1.NetworkPeer
-	127, // 76: armada.v1.NetworkConfig.endpoints:type_name -> armada.v1.NetworkEndpoint
-	130, // 77: armada.v1.ProxyConfig.backends:type_name -> armada.v1.ProxyBackend
-	132, // 78: armada.v1.ProxyConfig.rules:type_name -> armada.v1.ProxyRule
-	133, // 79: armada.v1.ProxyConfig.certificates:type_name -> armada.v1.ProxyCertificate
-	131, // 80: armada.v1.ProxyBackend.servers:type_name -> armada.v1.ProxyServer
-	140, // 81: armada.v1.ReplicaSpec.env:type_name -> armada.v1.EnvVar
-	139, // 82: armada.v1.ReplicaSpec.startup:type_name -> armada.v1.Probe
-	139, // 83: armada.v1.ReplicaSpec.readiness:type_name -> armada.v1.Probe
-	139, // 84: armada.v1.ReplicaSpec.liveness:type_name -> armada.v1.Probe
-	137, // 85: armada.v1.ReplicaSpec.secret_files:type_name -> armada.v1.SecretFile
-	138, // 86: armada.v1.ReplicaSpec.registry:type_name -> armada.v1.RegistryAuth
-	136, // 87: armada.v1.ReplicaSpec.job:type_name -> armada.v1.JobAttempt
-	135, // 88: armada.v1.ReplicaSpec.volumes:type_name -> armada.v1.VolumeSpec
-	0,   // 89: armada.v1.LogPush.stream:type_name -> armada.v1.Stream
-	145, // 90: armada.v1.ExecStart.size:type_name -> armada.v1.TermSize
-	145, // 91: armada.v1.ExecInput.resize:type_name -> armada.v1.TermSize
-	146, // 92: armada.v1.ExecClientMessage.start:type_name -> armada.v1.ExecStart
-	147, // 93: armada.v1.ExecClientMessage.input:type_name -> armada.v1.ExecInput
-	145, // 94: armada.v1.ExecRequest.size:type_name -> armada.v1.TermSize
-	154, // 95: armada.v1.ListVolumesResponse.volumes:type_name -> armada.v1.Volume
-	165, // 96: armada.v1.Volume.created_at:type_name -> google.protobuf.Timestamp
-	159, // 97: armada.v1.RestoreVolumeMessage.start:type_name -> armada.v1.RestoreVolumeStart
-	81,  // 98: armada.v1.AdminService.Deploy:input_type -> armada.v1.DeployRequest
-	90,  // 99: armada.v1.AdminService.Status:input_type -> armada.v1.StatusRequest
-	82,  // 100: armada.v1.AdminService.ListApps:input_type -> armada.v1.ListAppsRequest
-	85,  // 101: armada.v1.AdminService.ClusterStatus:input_type -> armada.v1.ClusterStatusRequest
-	87,  // 102: armada.v1.AdminService.GetAppSpec:input_type -> armada.v1.GetAppSpecRequest
-	102, // 103: armada.v1.AdminService.Scale:input_type -> armada.v1.ScaleRequest
-	104, // 104: armada.v1.AdminService.SetTraffic:input_type -> armada.v1.SetTrafficRequest
-	152, // 105: armada.v1.AdminService.ListVolumes:input_type -> armada.v1.ListVolumesRequest
-	155, // 106: armada.v1.AdminService.RemoveVolume:input_type -> armada.v1.RemoveVolumeRequest
-	157, // 107: armada.v1.AdminService.BackupVolume:input_type -> armada.v1.BackupVolumeRequest
-	158, // 108: armada.v1.AdminService.RestoreVolume:input_type -> armada.v1.RestoreVolumeMessage
-	107, // 109: armada.v1.AdminService.Logs:input_type -> armada.v1.LogsRequest
-	75,  // 110: armada.v1.AdminService.GetClusterConfig:input_type -> armada.v1.GetClusterConfigRequest
-	76,  // 111: armada.v1.AdminService.SetClusterConfig:input_type -> armada.v1.SetClusterConfigRequest
-	77,  // 112: armada.v1.AdminService.ListDomains:input_type -> armada.v1.ListDomainsRequest
-	80,  // 113: armada.v1.AdminService.VerifyDomain:input_type -> armada.v1.VerifyDomainRequest
-	69,  // 114: armada.v1.AdminService.ListRevisions:input_type -> armada.v1.ListRevisionsRequest
-	72,  // 115: armada.v1.AdminService.Rollback:input_type -> armada.v1.RollbackRequest
-	62,  // 116: armada.v1.AdminService.SetSecret:input_type -> armada.v1.SetSecretRequest
-	64,  // 117: armada.v1.AdminService.ListSecrets:input_type -> armada.v1.ListSecretsRequest
-	67,  // 118: armada.v1.AdminService.DeleteSecret:input_type -> armada.v1.DeleteSecretRequest
-	48,  // 119: armada.v1.AdminService.CreateJoinToken:input_type -> armada.v1.CreateJoinTokenRequest
-	50,  // 120: armada.v1.AdminService.CordonNode:input_type -> armada.v1.CordonNodeRequest
-	52,  // 121: armada.v1.AdminService.LabelNode:input_type -> armada.v1.LabelNodeRequest
-	54,  // 122: armada.v1.AdminService.RestrictNode:input_type -> armada.v1.RestrictNodeRequest
-	56,  // 123: armada.v1.AdminService.RemoveNode:input_type -> armada.v1.RemoveNodeRequest
-	43,  // 124: armada.v1.AdminService.ListServers:input_type -> armada.v1.ListServersRequest
-	46,  // 125: armada.v1.AdminService.RemoveServer:input_type -> armada.v1.RemoveServerRequest
-	20,  // 126: armada.v1.AdminService.CreateProject:input_type -> armada.v1.CreateProjectRequest
-	23,  // 127: armada.v1.AdminService.ListProjects:input_type -> armada.v1.ListProjectsRequest
-	25,  // 128: armada.v1.AdminService.DeleteProject:input_type -> armada.v1.DeleteProjectRequest
-	22,  // 129: armada.v1.AdminService.UpdateProject:input_type -> armada.v1.UpdateProjectRequest
-	30,  // 130: armada.v1.AdminService.CreateUser:input_type -> armada.v1.CreateUserRequest
-	32,  // 131: armada.v1.AdminService.IssueUserCertificate:input_type -> armada.v1.IssuePrincipalCertificateRequest
-	31,  // 132: armada.v1.AdminService.CreateService:input_type -> armada.v1.CreateServiceRequest
-	32,  // 133: armada.v1.AdminService.IssueServiceCertificate:input_type -> armada.v1.IssuePrincipalCertificateRequest
-	33,  // 134: armada.v1.AdminService.ListPrincipals:input_type -> armada.v1.ListPrincipalsRequest
-	35,  // 135: armada.v1.AdminService.UpdatePrincipal:input_type -> armada.v1.UpdatePrincipalRequest
-	36,  // 136: armada.v1.AdminService.DeletePrincipal:input_type -> armada.v1.DeletePrincipalRequest
-	38,  // 137: armada.v1.AdminService.CreateAssignment:input_type -> armada.v1.AssignmentRequest
-	38,  // 138: armada.v1.AdminService.DeleteAssignment:input_type -> armada.v1.AssignmentRequest
-	39,  // 139: armada.v1.AdminService.ListRoles:input_type -> armada.v1.ListRolesRequest
-	42,  // 140: armada.v1.AdminService.RenewOwnCertificate:input_type -> armada.v1.RenewOwnCertificateRequest
-	148, // 141: armada.v1.AdminService.Exec:input_type -> armada.v1.ExecClientMessage
-	97,  // 142: armada.v1.AdminService.Top:input_type -> armada.v1.TopRequest
-	18,  // 143: armada.v1.AdminService.IssueMetricsCertificate:input_type -> armada.v1.IssueMetricsCertificateRequest
-	16,  // 144: armada.v1.AdminService.Events:input_type -> armada.v1.EventsRequest
-	2,   // 145: armada.v1.AdminService.RunJob:input_type -> armada.v1.RunJobRequest
-	4,   // 146: armada.v1.AdminService.ListJobs:input_type -> armada.v1.ListJobsRequest
-	7,   // 147: armada.v1.AdminService.ListJobRuns:input_type -> armada.v1.ListJobRunsRequest
-	10,  // 148: armada.v1.AdminService.CancelJob:input_type -> armada.v1.CancelJobRequest
-	12,  // 149: armada.v1.AdminService.DeleteJob:input_type -> armada.v1.DeleteJobRequest
-	14,  // 150: armada.v1.AdminService.RemoveApp:input_type -> armada.v1.RemoveAppRequest
-	60,  // 151: armada.v1.JoinService.Join:input_type -> armada.v1.JoinRequest
-	58,  // 152: armada.v1.JoinService.JoinServer:input_type -> armada.v1.JoinServerRequest
-	113, // 153: armada.v1.AgentService.Connect:input_type -> armada.v1.AgentMessage
-	143, // 154: armada.v1.AgentService.PushLogs:input_type -> armada.v1.LogPush
-	151, // 155: armada.v1.AgentService.ExecSession:input_type -> armada.v1.ExecSessionOutput
-	124, // 156: armada.v1.AgentService.VolumeSession:input_type -> armada.v1.VolumeData
-	111, // 157: armada.v1.AgentService.RenewCertificate:input_type -> armada.v1.RenewCertificateRequest
-	109, // 158: armada.v1.AgentService.GetCertificates:input_type -> armada.v1.GetCertificatesRequest
-	89,  // 159: armada.v1.AdminService.Deploy:output_type -> armada.v1.DeployResponse
-	91,  // 160: armada.v1.AdminService.Status:output_type -> armada.v1.StatusResponse
-	84,  // 161: armada.v1.AdminService.ListApps:output_type -> armada.v1.ListAppsResponse
-	86,  // 162: armada.v1.AdminService.ClusterStatus:output_type -> armada.v1.ClusterStatusResponse
-	88,  // 163: armada.v1.AdminService.GetAppSpec:output_type -> armada.v1.GetAppSpecResponse
-	103, // 164: armada.v1.AdminService.Scale:output_type -> armada.v1.ScaleResponse
-	105, // 165: armada.v1.AdminService.SetTraffic:output_type -> armada.v1.SetTrafficResponse
-	153, // 166: armada.v1.AdminService.ListVolumes:output_type -> armada.v1.ListVolumesResponse
-	156, // 167: armada.v1.AdminService.RemoveVolume:output_type -> armada.v1.RemoveVolumeResponse
-	124, // 168: armada.v1.AdminService.BackupVolume:output_type -> armada.v1.VolumeData
-	160, // 169: armada.v1.AdminService.RestoreVolume:output_type -> armada.v1.RestoreVolumeResponse
-	108, // 170: armada.v1.AdminService.Logs:output_type -> armada.v1.LogEntry
-	74,  // 171: armada.v1.AdminService.GetClusterConfig:output_type -> armada.v1.ClusterConfig
-	74,  // 172: armada.v1.AdminService.SetClusterConfig:output_type -> armada.v1.ClusterConfig
-	78,  // 173: armada.v1.AdminService.ListDomains:output_type -> armada.v1.ListDomainsResponse
-	79,  // 174: armada.v1.AdminService.VerifyDomain:output_type -> armada.v1.Domain
-	70,  // 175: armada.v1.AdminService.ListRevisions:output_type -> armada.v1.ListRevisionsResponse
-	73,  // 176: armada.v1.AdminService.Rollback:output_type -> armada.v1.RollbackResponse
-	63,  // 177: armada.v1.AdminService.SetSecret:output_type -> armada.v1.SetSecretResponse
-	65,  // 178: armada.v1.AdminService.ListSecrets:output_type -> armada.v1.ListSecretsResponse
-	68,  // 179: armada.v1.AdminService.DeleteSecret:output_type -> armada.v1.DeleteSecretResponse
-	49,  // 180: armada.v1.AdminService.CreateJoinToken:output_type -> armada.v1.CreateJoinTokenResponse
-	51,  // 181: armada.v1.AdminService.CordonNode:output_type -> armada.v1.CordonNodeResponse
-	53,  // 182: armada.v1.AdminService.LabelNode:output_type -> armada.v1.LabelNodeResponse
-	55,  // 183: armada.v1.AdminService.RestrictNode:output_type -> armada.v1.RestrictNodeResponse
-	57,  // 184: armada.v1.AdminService.RemoveNode:output_type -> armada.v1.RemoveNodeResponse
-	44,  // 185: armada.v1.AdminService.ListServers:output_type -> armada.v1.ListServersResponse
-	47,  // 186: armada.v1.AdminService.RemoveServer:output_type -> armada.v1.RemoveServerResponse
-	21,  // 187: armada.v1.AdminService.CreateProject:output_type -> armada.v1.ProjectInfo
-	24,  // 188: armada.v1.AdminService.ListProjects:output_type -> armada.v1.ListProjectsResponse
-	26,  // 189: armada.v1.AdminService.DeleteProject:output_type -> armada.v1.DeleteProjectResponse
-	21,  // 190: armada.v1.AdminService.UpdateProject:output_type -> armada.v1.ProjectInfo
-	19,  // 191: armada.v1.AdminService.CreateUser:output_type -> armada.v1.IssueMetricsCertificateResponse
-	19,  // 192: armada.v1.AdminService.IssueUserCertificate:output_type -> armada.v1.IssueMetricsCertificateResponse
-	29,  // 193: armada.v1.AdminService.CreateService:output_type -> armada.v1.Principal
-	19,  // 194: armada.v1.AdminService.IssueServiceCertificate:output_type -> armada.v1.IssueMetricsCertificateResponse
-	34,  // 195: armada.v1.AdminService.ListPrincipals:output_type -> armada.v1.ListPrincipalsResponse
-	29,  // 196: armada.v1.AdminService.UpdatePrincipal:output_type -> armada.v1.Principal
-	37,  // 197: armada.v1.AdminService.DeletePrincipal:output_type -> armada.v1.DeletePrincipalResponse
-	29,  // 198: armada.v1.AdminService.CreateAssignment:output_type -> armada.v1.Principal
-	29,  // 199: armada.v1.AdminService.DeleteAssignment:output_type -> armada.v1.Principal
-	41,  // 200: armada.v1.AdminService.ListRoles:output_type -> armada.v1.ListRolesResponse
-	19,  // 201: armada.v1.AdminService.RenewOwnCertificate:output_type -> armada.v1.IssueMetricsCertificateResponse
-	149, // 202: armada.v1.AdminService.Exec:output_type -> armada.v1.ExecServerMessage
-	98,  // 203: armada.v1.AdminService.Top:output_type -> armada.v1.TopResponse
-	19,  // 204: armada.v1.AdminService.IssueMetricsCertificate:output_type -> armada.v1.IssueMetricsCertificateResponse
-	17,  // 205: armada.v1.AdminService.Events:output_type -> armada.v1.EventInfo
-	3,   // 206: armada.v1.AdminService.RunJob:output_type -> armada.v1.RunJobResponse
-	5,   // 207: armada.v1.AdminService.ListJobs:output_type -> armada.v1.ListJobsResponse
-	8,   // 208: armada.v1.AdminService.ListJobRuns:output_type -> armada.v1.ListJobRunsResponse
-	11,  // 209: armada.v1.AdminService.CancelJob:output_type -> armada.v1.CancelJobResponse
-	13,  // 210: armada.v1.AdminService.DeleteJob:output_type -> armada.v1.DeleteJobResponse
-	15,  // 211: armada.v1.AdminService.RemoveApp:output_type -> armada.v1.RemoveAppResponse
-	61,  // 212: armada.v1.JoinService.Join:output_type -> armada.v1.JoinResponse
-	59,  // 213: armada.v1.JoinService.JoinServer:output_type -> armada.v1.JoinServerResponse
-	122, // 214: armada.v1.AgentService.Connect:output_type -> armada.v1.ServerMessage
-	144, // 215: armada.v1.AgentService.PushLogs:output_type -> armada.v1.PushLogsResponse
-	147, // 216: armada.v1.AgentService.ExecSession:output_type -> armada.v1.ExecInput
-	124, // 217: armada.v1.AgentService.VolumeSession:output_type -> armada.v1.VolumeData
-	112, // 218: armada.v1.AgentService.RenewCertificate:output_type -> armada.v1.RenewCertificateResponse
-	110, // 219: armada.v1.AgentService.GetCertificates:output_type -> armada.v1.GetCertificatesResponse
-	159, // [159:220] is the sub-list for method output_type
-	98,  // [98:159] is the sub-list for method input_type
-	98,  // [98:98] is the sub-list for extension type_name
-	98,  // [98:98] is the sub-list for extension extendee
-	0,   // [0:98] is the sub-list for field type_name
+	165, // 43: armada.v1.Autoscale.last_scaled_at:type_name -> google.protobuf.Timestamp
+	165, // 44: armada.v1.ReplicaStatus.updated_at:type_name -> google.protobuf.Timestamp
+	165, // 45: armada.v1.ReplicaStatus.created_at:type_name -> google.protobuf.Timestamp
+	165, // 46: armada.v1.ReplicaStatus.last_restart_at:type_name -> google.protobuf.Timestamp
+	165, // 47: armada.v1.NodeStatus.last_seen:type_name -> google.protobuf.Timestamp
+	165, // 48: armada.v1.NodeStatus.cert_expires_at:type_name -> google.protobuf.Timestamp
+	164, // 49: armada.v1.NodeStatus.labels:type_name -> armada.v1.NodeStatus.LabelsEntry
+	100, // 50: armada.v1.TopResponse.replicas:type_name -> armada.v1.ReplicaTop
+	101, // 51: armada.v1.TopResponse.nodes:type_name -> armada.v1.NodeTop
+	99,  // 52: armada.v1.TopResponse.projects:type_name -> armada.v1.ProjectTop
+	165, // 53: armada.v1.TopResponse.counted_since:type_name -> google.protobuf.Timestamp
+	165, // 54: armada.v1.ReplicaTop.sampled_at:type_name -> google.protobuf.Timestamp
+	106, // 55: armada.v1.SetTrafficRequest.traffic:type_name -> armada.v1.TrafficTarget
+	106, // 56: armada.v1.SetTrafficResponse.traffic:type_name -> armada.v1.TrafficTarget
+	0,   // 57: armada.v1.LogEntry.stream:type_name -> armada.v1.Stream
+	133, // 58: armada.v1.GetCertificatesResponse.certificates:type_name -> armada.v1.ProxyCertificate
+	115, // 59: armada.v1.AgentMessage.hello:type_name -> armada.v1.Hello
+	116, // 60: armada.v1.AgentMessage.report:type_name -> armada.v1.ReplicaReport
+	118, // 61: armada.v1.AgentMessage.usage:type_name -> armada.v1.UsageReport
+	114, // 62: armada.v1.AgentMessage.wake:type_name -> armada.v1.Wake
+	117, // 63: armada.v1.ReplicaReport.replicas:type_name -> armada.v1.ReplicaState
+	121, // 64: armada.v1.UsageReport.replicas:type_name -> armada.v1.ReplicaUsage
+	120, // 65: armada.v1.UsageReport.load:type_name -> armada.v1.ReplicaLoad
+	119, // 66: armada.v1.UsageReport.volumes:type_name -> armada.v1.VolumeUsage
+	125, // 67: armada.v1.ServerMessage.assignment:type_name -> armada.v1.Assignment
+	141, // 68: armada.v1.ServerMessage.log_request:type_name -> armada.v1.LogRequest
+	142, // 69: armada.v1.ServerMessage.log_cancel:type_name -> armada.v1.LogCancel
+	150, // 70: armada.v1.ServerMessage.exec_request:type_name -> armada.v1.ExecRequest
+	123, // 71: armada.v1.ServerMessage.volume_request:type_name -> armada.v1.VolumeRequest
+	1,   // 72: armada.v1.VolumeRequest.op:type_name -> armada.v1.VolumeRequest.Op
+	134, // 73: armada.v1.Assignment.replicas:type_name -> armada.v1.ReplicaSpec
+	129, // 74: armada.v1.Assignment.proxy:type_name -> armada.v1.ProxyConfig
+	126, // 75: armada.v1.Assignment.network:type_name -> armada.v1.NetworkConfig
+	128, // 76: armada.v1.NetworkConfig.peers:type_name -> armada.v1.NetworkPeer
+	127, // 77: armada.v1.NetworkConfig.endpoints:type_name -> armada.v1.NetworkEndpoint
+	130, // 78: armada.v1.ProxyConfig.backends:type_name -> armada.v1.ProxyBackend
+	132, // 79: armada.v1.ProxyConfig.rules:type_name -> armada.v1.ProxyRule
+	133, // 80: armada.v1.ProxyConfig.certificates:type_name -> armada.v1.ProxyCertificate
+	131, // 81: armada.v1.ProxyBackend.servers:type_name -> armada.v1.ProxyServer
+	140, // 82: armada.v1.ReplicaSpec.env:type_name -> armada.v1.EnvVar
+	139, // 83: armada.v1.ReplicaSpec.startup:type_name -> armada.v1.Probe
+	139, // 84: armada.v1.ReplicaSpec.readiness:type_name -> armada.v1.Probe
+	139, // 85: armada.v1.ReplicaSpec.liveness:type_name -> armada.v1.Probe
+	137, // 86: armada.v1.ReplicaSpec.secret_files:type_name -> armada.v1.SecretFile
+	138, // 87: armada.v1.ReplicaSpec.registry:type_name -> armada.v1.RegistryAuth
+	136, // 88: armada.v1.ReplicaSpec.job:type_name -> armada.v1.JobAttempt
+	135, // 89: armada.v1.ReplicaSpec.volumes:type_name -> armada.v1.VolumeSpec
+	0,   // 90: armada.v1.LogPush.stream:type_name -> armada.v1.Stream
+	145, // 91: armada.v1.ExecStart.size:type_name -> armada.v1.TermSize
+	145, // 92: armada.v1.ExecInput.resize:type_name -> armada.v1.TermSize
+	146, // 93: armada.v1.ExecClientMessage.start:type_name -> armada.v1.ExecStart
+	147, // 94: armada.v1.ExecClientMessage.input:type_name -> armada.v1.ExecInput
+	145, // 95: armada.v1.ExecRequest.size:type_name -> armada.v1.TermSize
+	154, // 96: armada.v1.ListVolumesResponse.volumes:type_name -> armada.v1.Volume
+	165, // 97: armada.v1.Volume.created_at:type_name -> google.protobuf.Timestamp
+	159, // 98: armada.v1.RestoreVolumeMessage.start:type_name -> armada.v1.RestoreVolumeStart
+	81,  // 99: armada.v1.AdminService.Deploy:input_type -> armada.v1.DeployRequest
+	90,  // 100: armada.v1.AdminService.Status:input_type -> armada.v1.StatusRequest
+	82,  // 101: armada.v1.AdminService.ListApps:input_type -> armada.v1.ListAppsRequest
+	85,  // 102: armada.v1.AdminService.ClusterStatus:input_type -> armada.v1.ClusterStatusRequest
+	87,  // 103: armada.v1.AdminService.GetAppSpec:input_type -> armada.v1.GetAppSpecRequest
+	102, // 104: armada.v1.AdminService.Scale:input_type -> armada.v1.ScaleRequest
+	104, // 105: armada.v1.AdminService.SetTraffic:input_type -> armada.v1.SetTrafficRequest
+	152, // 106: armada.v1.AdminService.ListVolumes:input_type -> armada.v1.ListVolumesRequest
+	155, // 107: armada.v1.AdminService.RemoveVolume:input_type -> armada.v1.RemoveVolumeRequest
+	157, // 108: armada.v1.AdminService.BackupVolume:input_type -> armada.v1.BackupVolumeRequest
+	158, // 109: armada.v1.AdminService.RestoreVolume:input_type -> armada.v1.RestoreVolumeMessage
+	107, // 110: armada.v1.AdminService.Logs:input_type -> armada.v1.LogsRequest
+	75,  // 111: armada.v1.AdminService.GetClusterConfig:input_type -> armada.v1.GetClusterConfigRequest
+	76,  // 112: armada.v1.AdminService.SetClusterConfig:input_type -> armada.v1.SetClusterConfigRequest
+	77,  // 113: armada.v1.AdminService.ListDomains:input_type -> armada.v1.ListDomainsRequest
+	80,  // 114: armada.v1.AdminService.VerifyDomain:input_type -> armada.v1.VerifyDomainRequest
+	69,  // 115: armada.v1.AdminService.ListRevisions:input_type -> armada.v1.ListRevisionsRequest
+	72,  // 116: armada.v1.AdminService.Rollback:input_type -> armada.v1.RollbackRequest
+	62,  // 117: armada.v1.AdminService.SetSecret:input_type -> armada.v1.SetSecretRequest
+	64,  // 118: armada.v1.AdminService.ListSecrets:input_type -> armada.v1.ListSecretsRequest
+	67,  // 119: armada.v1.AdminService.DeleteSecret:input_type -> armada.v1.DeleteSecretRequest
+	48,  // 120: armada.v1.AdminService.CreateJoinToken:input_type -> armada.v1.CreateJoinTokenRequest
+	50,  // 121: armada.v1.AdminService.CordonNode:input_type -> armada.v1.CordonNodeRequest
+	52,  // 122: armada.v1.AdminService.LabelNode:input_type -> armada.v1.LabelNodeRequest
+	54,  // 123: armada.v1.AdminService.RestrictNode:input_type -> armada.v1.RestrictNodeRequest
+	56,  // 124: armada.v1.AdminService.RemoveNode:input_type -> armada.v1.RemoveNodeRequest
+	43,  // 125: armada.v1.AdminService.ListServers:input_type -> armada.v1.ListServersRequest
+	46,  // 126: armada.v1.AdminService.RemoveServer:input_type -> armada.v1.RemoveServerRequest
+	20,  // 127: armada.v1.AdminService.CreateProject:input_type -> armada.v1.CreateProjectRequest
+	23,  // 128: armada.v1.AdminService.ListProjects:input_type -> armada.v1.ListProjectsRequest
+	25,  // 129: armada.v1.AdminService.DeleteProject:input_type -> armada.v1.DeleteProjectRequest
+	22,  // 130: armada.v1.AdminService.UpdateProject:input_type -> armada.v1.UpdateProjectRequest
+	30,  // 131: armada.v1.AdminService.CreateUser:input_type -> armada.v1.CreateUserRequest
+	32,  // 132: armada.v1.AdminService.IssueUserCertificate:input_type -> armada.v1.IssuePrincipalCertificateRequest
+	31,  // 133: armada.v1.AdminService.CreateService:input_type -> armada.v1.CreateServiceRequest
+	32,  // 134: armada.v1.AdminService.IssueServiceCertificate:input_type -> armada.v1.IssuePrincipalCertificateRequest
+	33,  // 135: armada.v1.AdminService.ListPrincipals:input_type -> armada.v1.ListPrincipalsRequest
+	35,  // 136: armada.v1.AdminService.UpdatePrincipal:input_type -> armada.v1.UpdatePrincipalRequest
+	36,  // 137: armada.v1.AdminService.DeletePrincipal:input_type -> armada.v1.DeletePrincipalRequest
+	38,  // 138: armada.v1.AdminService.CreateAssignment:input_type -> armada.v1.AssignmentRequest
+	38,  // 139: armada.v1.AdminService.DeleteAssignment:input_type -> armada.v1.AssignmentRequest
+	39,  // 140: armada.v1.AdminService.ListRoles:input_type -> armada.v1.ListRolesRequest
+	42,  // 141: armada.v1.AdminService.RenewOwnCertificate:input_type -> armada.v1.RenewOwnCertificateRequest
+	148, // 142: armada.v1.AdminService.Exec:input_type -> armada.v1.ExecClientMessage
+	97,  // 143: armada.v1.AdminService.Top:input_type -> armada.v1.TopRequest
+	18,  // 144: armada.v1.AdminService.IssueMetricsCertificate:input_type -> armada.v1.IssueMetricsCertificateRequest
+	16,  // 145: armada.v1.AdminService.Events:input_type -> armada.v1.EventsRequest
+	2,   // 146: armada.v1.AdminService.RunJob:input_type -> armada.v1.RunJobRequest
+	4,   // 147: armada.v1.AdminService.ListJobs:input_type -> armada.v1.ListJobsRequest
+	7,   // 148: armada.v1.AdminService.ListJobRuns:input_type -> armada.v1.ListJobRunsRequest
+	10,  // 149: armada.v1.AdminService.CancelJob:input_type -> armada.v1.CancelJobRequest
+	12,  // 150: armada.v1.AdminService.DeleteJob:input_type -> armada.v1.DeleteJobRequest
+	14,  // 151: armada.v1.AdminService.RemoveApp:input_type -> armada.v1.RemoveAppRequest
+	60,  // 152: armada.v1.JoinService.Join:input_type -> armada.v1.JoinRequest
+	58,  // 153: armada.v1.JoinService.JoinServer:input_type -> armada.v1.JoinServerRequest
+	113, // 154: armada.v1.AgentService.Connect:input_type -> armada.v1.AgentMessage
+	143, // 155: armada.v1.AgentService.PushLogs:input_type -> armada.v1.LogPush
+	151, // 156: armada.v1.AgentService.ExecSession:input_type -> armada.v1.ExecSessionOutput
+	124, // 157: armada.v1.AgentService.VolumeSession:input_type -> armada.v1.VolumeData
+	111, // 158: armada.v1.AgentService.RenewCertificate:input_type -> armada.v1.RenewCertificateRequest
+	109, // 159: armada.v1.AgentService.GetCertificates:input_type -> armada.v1.GetCertificatesRequest
+	89,  // 160: armada.v1.AdminService.Deploy:output_type -> armada.v1.DeployResponse
+	91,  // 161: armada.v1.AdminService.Status:output_type -> armada.v1.StatusResponse
+	84,  // 162: armada.v1.AdminService.ListApps:output_type -> armada.v1.ListAppsResponse
+	86,  // 163: armada.v1.AdminService.ClusterStatus:output_type -> armada.v1.ClusterStatusResponse
+	88,  // 164: armada.v1.AdminService.GetAppSpec:output_type -> armada.v1.GetAppSpecResponse
+	103, // 165: armada.v1.AdminService.Scale:output_type -> armada.v1.ScaleResponse
+	105, // 166: armada.v1.AdminService.SetTraffic:output_type -> armada.v1.SetTrafficResponse
+	153, // 167: armada.v1.AdminService.ListVolumes:output_type -> armada.v1.ListVolumesResponse
+	156, // 168: armada.v1.AdminService.RemoveVolume:output_type -> armada.v1.RemoveVolumeResponse
+	124, // 169: armada.v1.AdminService.BackupVolume:output_type -> armada.v1.VolumeData
+	160, // 170: armada.v1.AdminService.RestoreVolume:output_type -> armada.v1.RestoreVolumeResponse
+	108, // 171: armada.v1.AdminService.Logs:output_type -> armada.v1.LogEntry
+	74,  // 172: armada.v1.AdminService.GetClusterConfig:output_type -> armada.v1.ClusterConfig
+	74,  // 173: armada.v1.AdminService.SetClusterConfig:output_type -> armada.v1.ClusterConfig
+	78,  // 174: armada.v1.AdminService.ListDomains:output_type -> armada.v1.ListDomainsResponse
+	79,  // 175: armada.v1.AdminService.VerifyDomain:output_type -> armada.v1.Domain
+	70,  // 176: armada.v1.AdminService.ListRevisions:output_type -> armada.v1.ListRevisionsResponse
+	73,  // 177: armada.v1.AdminService.Rollback:output_type -> armada.v1.RollbackResponse
+	63,  // 178: armada.v1.AdminService.SetSecret:output_type -> armada.v1.SetSecretResponse
+	65,  // 179: armada.v1.AdminService.ListSecrets:output_type -> armada.v1.ListSecretsResponse
+	68,  // 180: armada.v1.AdminService.DeleteSecret:output_type -> armada.v1.DeleteSecretResponse
+	49,  // 181: armada.v1.AdminService.CreateJoinToken:output_type -> armada.v1.CreateJoinTokenResponse
+	51,  // 182: armada.v1.AdminService.CordonNode:output_type -> armada.v1.CordonNodeResponse
+	53,  // 183: armada.v1.AdminService.LabelNode:output_type -> armada.v1.LabelNodeResponse
+	55,  // 184: armada.v1.AdminService.RestrictNode:output_type -> armada.v1.RestrictNodeResponse
+	57,  // 185: armada.v1.AdminService.RemoveNode:output_type -> armada.v1.RemoveNodeResponse
+	44,  // 186: armada.v1.AdminService.ListServers:output_type -> armada.v1.ListServersResponse
+	47,  // 187: armada.v1.AdminService.RemoveServer:output_type -> armada.v1.RemoveServerResponse
+	21,  // 188: armada.v1.AdminService.CreateProject:output_type -> armada.v1.ProjectInfo
+	24,  // 189: armada.v1.AdminService.ListProjects:output_type -> armada.v1.ListProjectsResponse
+	26,  // 190: armada.v1.AdminService.DeleteProject:output_type -> armada.v1.DeleteProjectResponse
+	21,  // 191: armada.v1.AdminService.UpdateProject:output_type -> armada.v1.ProjectInfo
+	19,  // 192: armada.v1.AdminService.CreateUser:output_type -> armada.v1.IssueMetricsCertificateResponse
+	19,  // 193: armada.v1.AdminService.IssueUserCertificate:output_type -> armada.v1.IssueMetricsCertificateResponse
+	29,  // 194: armada.v1.AdminService.CreateService:output_type -> armada.v1.Principal
+	19,  // 195: armada.v1.AdminService.IssueServiceCertificate:output_type -> armada.v1.IssueMetricsCertificateResponse
+	34,  // 196: armada.v1.AdminService.ListPrincipals:output_type -> armada.v1.ListPrincipalsResponse
+	29,  // 197: armada.v1.AdminService.UpdatePrincipal:output_type -> armada.v1.Principal
+	37,  // 198: armada.v1.AdminService.DeletePrincipal:output_type -> armada.v1.DeletePrincipalResponse
+	29,  // 199: armada.v1.AdminService.CreateAssignment:output_type -> armada.v1.Principal
+	29,  // 200: armada.v1.AdminService.DeleteAssignment:output_type -> armada.v1.Principal
+	41,  // 201: armada.v1.AdminService.ListRoles:output_type -> armada.v1.ListRolesResponse
+	19,  // 202: armada.v1.AdminService.RenewOwnCertificate:output_type -> armada.v1.IssueMetricsCertificateResponse
+	149, // 203: armada.v1.AdminService.Exec:output_type -> armada.v1.ExecServerMessage
+	98,  // 204: armada.v1.AdminService.Top:output_type -> armada.v1.TopResponse
+	19,  // 205: armada.v1.AdminService.IssueMetricsCertificate:output_type -> armada.v1.IssueMetricsCertificateResponse
+	17,  // 206: armada.v1.AdminService.Events:output_type -> armada.v1.EventInfo
+	3,   // 207: armada.v1.AdminService.RunJob:output_type -> armada.v1.RunJobResponse
+	5,   // 208: armada.v1.AdminService.ListJobs:output_type -> armada.v1.ListJobsResponse
+	8,   // 209: armada.v1.AdminService.ListJobRuns:output_type -> armada.v1.ListJobRunsResponse
+	11,  // 210: armada.v1.AdminService.CancelJob:output_type -> armada.v1.CancelJobResponse
+	13,  // 211: armada.v1.AdminService.DeleteJob:output_type -> armada.v1.DeleteJobResponse
+	15,  // 212: armada.v1.AdminService.RemoveApp:output_type -> armada.v1.RemoveAppResponse
+	61,  // 213: armada.v1.JoinService.Join:output_type -> armada.v1.JoinResponse
+	59,  // 214: armada.v1.JoinService.JoinServer:output_type -> armada.v1.JoinServerResponse
+	122, // 215: armada.v1.AgentService.Connect:output_type -> armada.v1.ServerMessage
+	144, // 216: armada.v1.AgentService.PushLogs:output_type -> armada.v1.PushLogsResponse
+	147, // 217: armada.v1.AgentService.ExecSession:output_type -> armada.v1.ExecInput
+	124, // 218: armada.v1.AgentService.VolumeSession:output_type -> armada.v1.VolumeData
+	112, // 219: armada.v1.AgentService.RenewCertificate:output_type -> armada.v1.RenewCertificateResponse
+	110, // 220: armada.v1.AgentService.GetCertificates:output_type -> armada.v1.GetCertificatesResponse
+	160, // [160:221] is the sub-list for method output_type
+	99,  // [99:160] is the sub-list for method input_type
+	99,  // [99:99] is the sub-list for extension type_name
+	99,  // [99:99] is the sub-list for extension extendee
+	0,   // [0:99] is the sub-list for field type_name
 }
 
 func init() { file_armada_v1_armada_proto_init() }

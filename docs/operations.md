@@ -957,7 +957,11 @@ scrape_configs:
 | `armada_app_replicas_desired`, `armada_app_replicas_ready` | `app` | desired replicas, and those running, ready, and not draining |
 | `armada_app_rollout` | `app`, `state` | 1 for the current rollout state: `idle`, `progressing`, `failed` |
 | `armada_app_replicas_min`, `armada_app_replicas_max` | `app` | an autoscaled app's bounds |
+| `armada_app_autoscale_last_scale_timestamp_seconds` | `app` | when the autoscaler last changed the replica count (absent until it does) |
+| `armada_revision_info` | `app`, `revision`, `image` | 1 for each revision that serves, rolls out, or still has replicas, with the image its spec names |
 | `armada_replica_ready` | `app`, `replica`, `revision`, `node` | 1 when the replica serves |
+| `armada_replica_state` | `app`, `replica`, `node`, `state` | 1 for its current state: `pending`, `pulling`, `starting`, `running`, `exited`, `failed`, `unknown` |
+| `armada_replica_info` | `app`, `replica`, `revision`, `node`, `ip` | 1 for each replica, with the IP address it is reached at (empty until it has one) |
 | `armada_replica_start_time_seconds` | `app`, `replica`, `node` | when the replica was scheduled |
 | `armada_replica_restarts_total` | `app`, `replica`, `node` | how often its container was recreated (crash, out of memory, failed probe) |
 | `armada_replica_last_restart_timestamp_seconds` | `app`, `replica`, `node`, `reason` | when it last was, and why: `exited`, `out_of_memory`, `liveness`, `startup`, `network`, `volume`, `other`, `unknown` |

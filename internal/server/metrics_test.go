@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/status"
@@ -91,6 +93,10 @@ func TestMetrics(t *testing.T) {
 		`armada_project_egress_bytes_total{project="default"} 0`,
 		`armada_reconcile_duration_seconds_count`,
 		`go_goroutines`,
+		`armada_revision_info{app="web",image="nginx:1",revision="web--r1"} 1`,
+		`armada_replica_state{app="web",node="n1",replica="web-r1-`,
+		`state="running"} 1`,
+		`armada_replica_info{app="web",ip="127.0.0.1",node="n1",replica="web-r1-`,
 	}
 	var body string
 	c.eventually("metrics with usage", func() bool {
@@ -212,4 +218,51 @@ func TestRestartReason(t *testing.T) {
 			t.Errorf("%q: %s, want %s", msg, got, want)
 		}
 	}
+}
+
+func TestReplicaLabels(t *testing.T) {
+	t.Parallel()
+	for in, want := range map[string]string{"running": "running", "pulling": "pulling", "failed": "failed", "": "unknown", "made up": "unknown"} {
+		if got := replicaStateLabel(in); got != want {
+			t.Errorf("replicaStateLabel(%q) = %q, want %q", in, got, want)
+		}
+	}
+	for in, want := range map[string]string{"10.120.0.9:3000": "10.120.0.9", "": "", "10.120.0.9": "", "web:80": ""} {
+		if got := addressIP(in); got != want {
+			t.Errorf("addressIP(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestRevisionInfoDuringRollout(t *testing.T) {
+	t.Parallel()
+	c := newCluster(t)
+	c.addNode("n1", "127.0.0.1")
+	c.deploy(webSpec("nginx:1", 1))
+	c.eventually("1 running", func() bool { return len(c.running("web")) == 1 })
+	c.deploy(webSpec("nginx:2", 1))
+	// The old revision keeps its replica until the new one is ready and
+	// drained: both are named, each with its own image.
+	reg := prometheus.NewRegistry()
+	reg.MustRegister(&clusterCollector{s: c.srv})
+	c.eventually("both revisions", func() bool {
+		families, err := reg.Gather()
+		if err != nil {
+			return false
+		}
+		got := map[string]string{}
+		for _, f := range families {
+			if f.GetName() != "armada_revision_info" {
+				continue
+			}
+			for _, m := range f.GetMetric() {
+				l := map[string]string{}
+				for _, p := range m.GetLabel() {
+					l[p.GetName()] = p.GetValue()
+				}
+				got[l["revision"]] = l["image"]
+			}
+		}
+		return got["web--r1"] == "nginx:1" && got["web--r2"] == "nginx:2"
+	})
 }

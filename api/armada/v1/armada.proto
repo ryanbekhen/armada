@@ -766,6 +766,8 @@ message Autoscale {
   repeated AutoscaleRule rules = 3;
   // What the autoscaler last decided, e.g. "holding: not enough samples".
   string message = 4;
+  // When the autoscaler last changed the replica count; unset until it does.
+  google.protobuf.Timestamp last_scaled_at = 5;
 }
 
 message AutoscaleRule {

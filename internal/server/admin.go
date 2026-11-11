@@ -303,6 +303,7 @@ func (s *Server) Status(ctx context.Context, req *armadav1.StatusRequest) (*arma
 				lo, hi := a.Spec.ScaleBounds()
 				as.Autoscale = &armadav1.Autoscale{Min: int32(lo), Max: int32(hi), Message: "waiting for the first evaluation"} //nolint:gosec // bounded by spec.MaxReplicas
 			}
+			as.Autoscale.LastScaledAt = optionalTime(a.ScaledAt)
 		}
 		for _, r := range reps {
 			as.Replicas = append(as.Replicas, &armadav1.ReplicaStatus{

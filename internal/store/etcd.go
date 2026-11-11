@@ -482,6 +482,8 @@ type appRec struct {
 	Traffic []spec.TrafficTarget `json:"traffic,omitempty"`
 	// Removing marks an app whose replicas are draining before it goes.
 	Removing bool `json:"removing,omitempty"`
+	// ScaledAt is when the autoscaler last changed the replica count.
+	ScaledAt int64 `json:"scaledAt,omitempty"`
 }
 
 type revRec struct {
@@ -1225,7 +1227,7 @@ func appFrom(a appRec, rev Revision) App {
 	return App{Name: a.Name, ActiveRevision: a.ActiveRevision, TargetRevision: a.TargetRevision, Replicas: a.Replicas,
 		Spec: rev.Spec, RolloutState: a.RolloutState, RolloutMessage: a.RolloutMessage,
 		Removing: a.Removing, RolloutProgressAt: fromMS(a.RolloutProgressAt), CreatedAt: fromMS(a.CreatedAt), UpdatedAt: fromMS(a.UpdatedAt),
-		LastScheduled: fromMS(a.LastScheduled), Traffic: slices.Clone(a.Traffic)}
+		LastScheduled: fromMS(a.LastScheduled), Traffic: slices.Clone(a.Traffic), ScaledAt: fromMS(a.ScaledAt)}
 }
 
 // Deploy records a new revision. See Store.
@@ -1803,7 +1805,7 @@ func (s *Etcd) AutoscaleReplicas(ctx context.Context, app string, from, n int, a
 		if !cur.Spec.Autoscaled() || a.Replicas != from || a.TargetRevision != a.ActiveRevision || n < lo || n > hi {
 			return fmt.Errorf("app %s changed since the autoscaler looked: %w", app, ErrConflict)
 		}
-		a.Replicas, a.UpdatedAt = n, now.UnixMilli()
+		a.Replicas, a.UpdatedAt, a.ScaledAt = n, now.UnixMilli(), now.UnixMilli()
 		if err := t.put(pfxApps+app, a); err != nil {
 			return err
 		}

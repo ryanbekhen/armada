@@ -5,8 +5,11 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"maps"
 	"net"
 	"net/http"
+	"net/netip"
+	"slices"
 	"strings"
 	"time"
 
@@ -143,6 +146,10 @@ var (
 	descProjectRequests  = prometheus.NewDesc("armada_project_requests_total", "Requests the proxies sent to a project's replicas; resets when the leader changes.", []string{"project"}, nil)
 	descProjectEgress    = prometheus.NewDesc("armada_project_egress_bytes_total", "Bytes a project's containers sent; resets when the leader changes.", []string{"project"}, nil)
 	descVolumeUsed       = prometheus.NewDesc("armada_volume_used_bytes", "Bytes in a volume's files, from its node's latest measurement; absent while unmeasured.", []string{"app", "volume", "node"}, nil)
+	descRevisionInfo     = prometheus.NewDesc("armada_revision_info", "1 for each revision of an app that serves, rolls out, or still has replicas, with the image its spec names.", []string{"app", "revision", "image"}, nil)
+	descReplicaState     = prometheus.NewDesc("armada_replica_state", "1 for a replica's current state (pending, pulling, starting, running, exited, failed, unknown).", []string{"app", "replica", "node", "state"}, nil)
+	descReplicaInfo      = prometheus.NewDesc("armada_replica_info", "1 for each replica, with its revision and the IP address it is reached at (empty until it has one).", []string{"app", "replica", "revision", "node", "ip"}, nil)
+	descScaledAt         = prometheus.NewDesc("armada_app_autoscale_last_scale_timestamp_seconds", "When the autoscaler last changed an app's replica count; absent until it does.", []string{"app"}, nil)
 )
 
 func (c *clusterCollector) Describe(ch chan<- *prometheus.Desc) {
@@ -155,6 +162,7 @@ func (c *clusterCollector) Describe(ch chan<- *prometheus.Desc) {
 		descScaleCurrent, descScaleTarget, descTrafficWeight, descVolumeUsed,
 		descProjectReplicas, descProjectCPU, descProjectMemory, descProjectCPURes, descProjectMemRes,
 		descProjectVolumes, descProjectRequests, descProjectEgress,
+		descRevisionInfo, descReplicaState, descReplicaInfo, descScaledAt,
 	} {
 		ch <- d
 	}
@@ -189,6 +197,8 @@ func (c *clusterCollector) Collect(ch chan<- prometheus.Metric) {
 				ready++
 			}
 			gauge(descReplicaReady, v, a.GetName(), r.GetId(), r.GetRevision(), r.GetNodeId())
+			gauge(descReplicaState, 1, a.GetName(), r.GetId(), r.GetNodeId(), replicaStateLabel(r.GetState()))
+			gauge(descReplicaInfo, 1, a.GetName(), r.GetId(), r.GetRevision(), r.GetNodeId(), addressIP(r.GetAddress()))
 			ch <- prometheus.MustNewConstMetric(descReplicaRestarts, prometheus.CounterValue, float64(r.GetRestarts()), a.GetName(), r.GetId(), r.GetNodeId())
 			if t := r.GetLastRestartAt(); t != nil {
 				gauge(descReplicaLastRest, float64(t.GetSeconds()), a.GetName(), r.GetId(), r.GetNodeId(), restartReason(r.GetLastRestart()))
@@ -209,6 +219,9 @@ func (c *clusterCollector) Collect(ch chan<- prometheus.Metric) {
 			gauge(descAppMin, float64(as.GetMin()), a.GetName())
 			gauge(descAppMax, float64(as.GetMax()), a.GetName())
 		}
+		if t := a.GetAutoscale().GetLastScaledAt(); t != nil {
+			gauge(descScaledAt, float64(t.GetSeconds()), a.GetName())
+		}
 		for _, r := range a.GetAutoscale().GetRules() {
 			gauge(descScaleTarget, float64(r.GetTarget()), a.GetName(), r.GetType())
 			if r.GetMeasured() {
@@ -219,6 +232,7 @@ func (c *clusterCollector) Collect(ch chan<- prometheus.Metric) {
 			gauge(descTrafficWeight, float64(t.GetWeight()), a.GetName(), t.GetRevision())
 		}
 	}
+	c.revisionInfo(ctx, st.GetApps(), gauge)
 	for _, n := range st.GetNodes() {
 		gauge(descNodeReady, boolValue(n.GetState() == store.NodeReady), n.GetId())
 		gauge(descNodeCordoned, boolValue(n.GetCordoned()), n.GetId())
@@ -291,6 +305,57 @@ func (c *clusterCollector) Collect(ch chan<- prometheus.Metric) {
 			gauge(descNodeConntrackMax, float64(n.GetConntrackMax()), n.GetId())
 		}
 	}
+}
+
+// revisionInfo exports the image of every revision an app serves, rolls
+// out, or still runs replicas of, read in one batch. The image passed the
+// spec's validation when it was deployed.
+func (c *clusterCollector) revisionInfo(ctx context.Context, apps []*armadav1.AppStatus, gauge func(*prometheus.Desc, float64, ...string)) {
+	owner := map[string]string{}
+	for _, a := range apps {
+		names := []string{a.GetActiveRevision(), a.GetTargetRevision()}
+		for _, t := range a.GetTraffic() {
+			names = append(names, t.GetRevision())
+		}
+		for _, r := range a.GetReplicas() {
+			names = append(names, r.GetRevision())
+		}
+		for _, n := range names {
+			if n != "" {
+				owner[n] = a.GetName()
+			}
+		}
+	}
+	if len(owner) == 0 {
+		return
+	}
+	revs, err := c.s.store.GetRevisions(ctx, slices.Collect(maps.Keys(owner)))
+	if err != nil {
+		c.s.log.Warn("metrics: read revisions", "err", err)
+		return
+	}
+	for name, app := range owner {
+		if r, ok := revs[name]; ok && r.Spec != nil {
+			gauge(descRevisionInfo, 1, app, name, r.Spec.Image)
+		}
+	}
+}
+
+// replicaStateLabel keeps the state label to the states the store knows.
+func replicaStateLabel(state string) string {
+	switch state {
+	case store.ReplicaPending, store.ReplicaPulling, store.ReplicaStarting, store.ReplicaRunning, store.ReplicaExited, store.ReplicaFailed:
+		return state
+	}
+	return "unknown"
+}
+
+// addressIP is the IP of a replica's validated host:port address, or "".
+func addressIP(addr string) string {
+	if ap, err := netip.ParseAddrPort(addr); err == nil {
+		return ap.Addr().String()
+	}
+	return ""
 }
 
 // restartReason names why a container was recreated from the agent's
