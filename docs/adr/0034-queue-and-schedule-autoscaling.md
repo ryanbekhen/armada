@@ -110,7 +110,8 @@ is needed:
   between 1 and `scale.max`. The app gets the largest of every rule's
   answer, so other rules can still add more.
   - An open window also keeps an app that scales to zero (ADR 0021) from
-    doing so.
+    doing so, and a window that opens while the app is at zero starts it
+    with the window's `replicas`, without waiting for a request.
   - A metric rule without samples never stops an open window from raising
     the count.
 - **When the window closes**, the rule asks for nothing.

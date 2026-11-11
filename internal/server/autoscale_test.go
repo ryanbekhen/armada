@@ -397,6 +397,25 @@ func TestDecideScheduleKeepsZeroAway(t *testing.T) {
 	}
 }
 
+// A window that opens while an app is scaled to zero wakes it.
+func TestDecideScheduleWakesZero(t *testing.T) {
+	t.Parallel()
+	sp, err := spec.Parse([]byte(zeroSpec + "    - type: schedule\n      schedule: \"0 8 * * *\"\n      duration: 10h\n      replicas: 2\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := store.App{Name: "web", ActiveRevision: "web--r1", TargetRevision: "web--r1", Replicas: 0, Spec: sp}
+	day := time.Date(2026, 11, 11, 8, 1, 0, 0, time.UTC)
+	n, why, st := decide(a, resources{}, nil, scaleInputs{now: day, usage: newUsageStore()}, &appScaling{since: day})
+	if n != 2 || !strings.Contains(why, "schedule 2 until") || !strings.Contains(st.Message, "schedule 2") {
+		t.Errorf("window opened at zero: %d %q %v", n, why, st)
+	}
+	night := time.Date(2026, 11, 11, 22, 0, 0, 0, time.UTC)
+	if n, _, st := decide(a, resources{}, nil, scaleInputs{now: night, usage: newUsageStore()}, &appScaling{since: night}); n != 0 || !strings.Contains(st.Message, "next request wakes it") {
+		t.Errorf("closed window at zero: %d %v", n, st)
+	}
+}
+
 // A queue rule end to end: the agent runs the command in a replica, and the
 // leader scales the app to the queue's length (ADR 0034).
 func TestQueueCluster(t *testing.T) {
