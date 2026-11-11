@@ -47,30 +47,31 @@ sudo systemctl enable --now armada-server
 armada cluster set --acme-email you@example.com --root-domain apps.example.com
 
 # Deploy an app: two replicas behind HTTPS
-armada app create web --image ghcr.io/acme/web:1.4.2 --port 8080 --ingress external --replicas 2
-# → https://web.apps.example.com
+armada app create web --image traefik/whoami:v1.10 --port 80 --ingress external --replicas 2 --wait
+curl https://web.apps.example.com      # answers with the replica's name and the request
 ```
 
 Ship a new version, watch it roll out, and go back if you need to:
 
 ```bash
-armada app update web --image ghcr.io/acme/web:1.5.0 --wait
-armada app rollback web
+armada app update web --image traefik/whoami:v1.11 --wait
+armada app rollback web                # back to v1.10
 ```
 
-Keep the app as a file in git and change it from there:
+Every example works as written: [`traefik/whoami`](https://hub.docker.com/r/traefik/whoami)
+answers on port 80 with who it is and what it received. Put your own image and
+port in its place. Keep the app as a file in git and change it from there:
 
 ```yaml
 # web.yaml, from: armada app show web -o yaml
 name: web
-image: ghcr.io/acme/web:1.5.0
+image: traefik/whoami:v1.11
 ingress:
   type: external
-  port: 8080
-  domains: [shop.example.com]
+  port: 80
 env:
-  - name: DATABASE_URL
-    secretRef: database-url
+  - name: WHOAMI_NAME
+    value: web
 scale:
   min: 2
   max: 10
@@ -79,7 +80,7 @@ scale:
       concurrent: 50
 probes:
   readiness:
-    path: /healthz
+    path: /health
 ```
 
 ```bash
