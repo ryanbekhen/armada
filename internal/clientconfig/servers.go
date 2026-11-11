@@ -1,7 +1,6 @@
 package clientconfig
 
 import (
-	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -80,9 +79,19 @@ func WriteMachineServers(addrs []string) error {
 	if _, err := CheckServers(addrs); err != nil {
 		return err
 	}
+	// The directory needs search permission for everyone, set explicitly:
+	// the units run armadad with UMask=0077, which would leave a directory
+	// it creates at 0700 and the file unreadable to other users.
 	dir := filepath.Dir(serversPath)
-	if _, err := os.Stat(dir); errors.Is(err, fs.ErrNotExist) {
-		if err := os.MkdirAll(dir, 0o711); err != nil { //nolint:gosec // search only, like SaveShared
+	if err := os.MkdirAll(dir, 0o711); err != nil { //nolint:gosec // search only, like SaveShared
+		return err
+	}
+	fi, err := os.Stat(dir)
+	if err != nil {
+		return err
+	}
+	if fi.Mode().Perm()&0o011 != 0o011 {
+		if err := os.Chmod(dir, fi.Mode().Perm()|0o011); err != nil {
 			return err
 		}
 	}
