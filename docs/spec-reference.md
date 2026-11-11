@@ -637,7 +637,8 @@ sidecars:
 
 A spec of `kind: job` describes work that runs to completion
 ([ADR 0019](adr/0019-jobs.md)). Each run starts one container; it starts
-with `armada job run JOB` or on a schedule.
+with `armada job run JOB`, on a schedule, or while a queue holds messages
+([`trigger`](#trigger)).
 
 ```yaml
 kind: job
@@ -683,3 +684,45 @@ resources:
 - Runs are at least once: in rare failures (a node cut off mid-run, an
   agent restarting at the moment the container exits) a run can be
   attempted again, so make jobs safe to repeat.
+
+### `trigger`
+
+A job can start from a queue instead of a schedule
+([ADR 0040](adr/0040-queue-triggered-jobs.md)): while a Redis list or a
+RabbitMQ queue holds messages, runs start, each handling a batch, up to a
+limit. Nothing runs, and no container exists, while the queue is empty.
+
+```yaml
+kind: job
+name: mailer
+image: ghcr.io/acme/mailer:3
+trigger:
+  queue:
+    type: redis                 # or rabbitmq
+    urlSecretRef: redis-url     # redis://:password@redis-01:6379/0
+    list: mail:outbox           # for rabbitmq: queue: emails
+    perRun: 50
+  pollingInterval: 30s
+  parallelism: 5
+```
+
+| Field | Default | Meaning |
+| --- | --- | --- |
+| `trigger.queue.type` | required | `redis` reads `LLEN` of `list`; `rabbitmq` reads the messages ready in `queue` (declared passively over AMQP 0-9-1). |
+| `trigger.queue.urlSecretRef` | required | The job's secret holding the broker's URL with its password: `redis://`, `rediss://` (TLS), `amqp://`, or `amqps://`. Deploys pin its version. |
+| `trigger.queue.list` / `queue` | required | The Redis list or the RabbitMQ queue, at most 1024 or 255 bytes of printable UTF-8. |
+| `trigger.queue.perRun` | required | Messages one run handles, 1 to 1000000000: the job wants ⌈length ÷ `perRun`⌉ runs. |
+| `trigger.pollingInterval` | `30s` | How often the queue is read, `10s` to `10m`. |
+| `trigger.parallelism` | `1` | The most runs at once, 1 to 50, manual runs included. |
+
+- Each reading starts ⌈length ÷ `perRun`⌉ runs at most `parallelism`, less
+  the runs already active. A run should take up to `perRun` messages and
+  exit; the next reading starts more if messages are left.
+- `schedule` and `concurrency` are rejected with a trigger, and `armada
+  job run` refuses while `parallelism` runs are active.
+- The queue is read by one node's agent from a network sandbox: an address
+  of that node's subnet that belongs to the job, with no container. It
+  reaches exactly what the job's containers would, so the broker must be
+  reachable from the job's project. Triggers need a cluster network
+  (`armadad init --network`); without one the deploy is refused.
+- A run's trigger is `queue` in `armada job run list`.

@@ -45,6 +45,9 @@ type cluster struct {
 	proxies map[string]*proxyfake.Driver
 	checks  map[string]*healthChecks
 	nodes   map[string]*testNode
+	// agentConfig, if set, adjusts each agent's configuration before it
+	// starts.
+	agentConfig func(id string, cfg *agent.Config)
 }
 
 // testNode is a node whose agent can be stopped and started again with the
@@ -201,12 +204,16 @@ func (c *cluster) startAgent(id string) {
 	c.t.Helper()
 	n := c.nodes[id]
 	conn := c.dial(c.ca, pki.Identity{Kind: pki.KindNode, Name: id})
-	a := agent.New(agent.Config{
+	cfg := agent.Config{
 		NodeID: id, PrivateIP: n.ip, Driver: n.d, Client: armadav1.NewAgentServiceClient(conn), Proxy: c.proxies[id],
 		Resync: 50 * time.Millisecond, UsageInterval: 20 * time.Millisecond, QueueInterval: 20 * time.Millisecond, CPUMillis: 2000, MemoryBytes: 2 << 30, Check: c.checks[id].check,
 		VolumesDir: n.volumes, VolumeInterval: 50 * time.Millisecond,
 		Conntrack: c.conntrackTable(),
-	})
+	}
+	if c.agentConfig != nil {
+		c.agentConfig(id, &cfg)
+	}
+	a := agent.New(cfg)
 	ctx, cancel := context.WithCancel(c.ctx)
 	n.cancel, n.done = cancel, make(chan struct{})
 	go func() {

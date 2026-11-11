@@ -20,6 +20,8 @@ const (
 const (
 	TriggerSchedule = "schedule"
 	TriggerManual   = "manual"
+	// TriggerQueue: the job's queue held messages (ADR 0040).
+	TriggerQueue = "queue"
 )
 
 // JobRun is one run of a job: one or more attempts, each a replica.

@@ -27,8 +27,11 @@ type session struct {
 	nodeID string
 	// certRefs: the agent takes certificates by reference (Hello).
 	certRefs bool
-	send     chan *armadav1.ServerMessage
-	done     chan struct{}
+	// sandboxes: the agent reads job queues from network sandboxes (Hello,
+	// ADR 0040).
+	sandboxes bool
+	send      chan *armadav1.ServerMessage
+	done      chan struct{}
 
 	mu   sync.Mutex
 	last *armadav1.Assignment
@@ -90,7 +93,7 @@ func (s *Server) Connect(stream armadav1.AgentService_ConnectServer) error {
 		return status.Errorf(codes.FailedPrecondition, "agent reports private IP %q but node is registered with %q", hello.GetPrivateIp(), node.PrivateIP)
 	}
 
-	sess := &session{nodeID: node.ID, certRefs: hello.GetCertificateRefs(), send: make(chan *armadav1.ServerMessage, 64), done: make(chan struct{})}
+	sess := &session{nodeID: node.ID, certRefs: hello.GetCertificateRefs(), sandboxes: hello.GetQueueSandboxes(), send: make(chan *armadav1.ServerMessage, 64), done: make(chan struct{})}
 	s.mu.Lock()
 	if old := s.sessions[node.ID]; old != nil {
 		close(old.done)
@@ -195,7 +198,10 @@ func (s *Server) Connect(stream armadav1.AgentService_ConnectServer) error {
 				s.applyReport(ctx, node, r)
 			}
 			if u := m.GetUsage(); u != nil {
-				s.usage.set(node.ID, u, s.now())
+				if s.usage.set(node.ID, u, s.now()) {
+					// A new length of a job's queue may start runs.
+					s.Trigger()
+				}
 				for _, e := range s.usage.outOfMemory(node.ID, u) {
 					s.record(ctx, e)
 				}

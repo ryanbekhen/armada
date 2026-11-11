@@ -107,6 +107,7 @@ func (v *validator) job(a *App) {
 		for field, set := range map[string]bool{
 			"schedule": a.Schedule != "", "timeZone": a.TimeZone != "", "timeout": a.Timeout != 0,
 			"retries": a.Retries != 0, "concurrency": a.Concurrency != "", "history": a.History != nil,
+			"trigger": a.Trigger != nil,
 		} {
 			if set {
 				v.add(field, "is only valid for kind: job")
@@ -155,4 +156,5 @@ func (v *validator) job(a *App) {
 	if a.History != nil && (*a.History < 1 || *a.History > MaxJobHistory) {
 		v.add("history", "must be between 1 and %d", MaxJobHistory)
 	}
+	v.trigger(a)
 }

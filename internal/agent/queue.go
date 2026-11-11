@@ -253,32 +253,41 @@ func (a *Agent) runQueueCommand(ctx context.Context, container string, cmd []str
 // containerDialer dials from the container's network namespace. Names are
 // resolved there too, through the nameserver the container uses.
 func (a *Agent) containerDialer(container string) queuelen.Dialer {
-	return func(ctx context.Context, network, address string) (net.Conn, error) {
+	return a.namespaceDialer(func(ctx context.Context, network, address string) (net.Conn, error) {
 		cd, ok := a.cfg.Driver.(runtime.ContainerDialer)
 		if !ok || !runtime.CanDial(a.cfg.Driver) {
 			return nil, errors.New("this node's runtime cannot dial from containers")
 		}
+		return cd.DialContainer(ctx, container, network, address)
+	})
+}
+
+// namespaceDialer dials through dial, which dials IP addresses from one
+// network namespace, and resolves names from there too, through the
+// nameserver containers use.
+func (a *Agent) namespaceDialer(dial queuelen.Dialer) queuelen.Dialer {
+	return func(ctx context.Context, network, address string) (net.Conn, error) {
 		host, port, err := net.SplitHostPort(address)
 		if err != nil {
 			return nil, err
 		}
 		if _, err := netip.ParseAddr(host); err == nil {
-			return cd.DialContainer(ctx, container, network, address)
+			return dial(ctx, network, address)
 		}
 		ns := a.containerNameserver()
 		if ns == "" {
 			return nil, errors.New("no nameserver to resolve the broker's name")
 		}
 		r := &net.Resolver{PreferGo: true, Dial: func(ctx context.Context, nw, _ string) (net.Conn, error) {
-			return cd.DialContainer(ctx, container, nw, ns)
+			return dial(ctx, nw, ns)
 		}}
 		ips, err := r.LookupNetIP(ctx, "ip", host)
 		if err != nil || len(ips) == 0 {
-			return nil, errors.New("cannot resolve the broker's name from the replica")
+			return nil, errors.New("cannot resolve the broker's name from the namespace")
 		}
 		var last error
 		for _, ip := range ips {
-			c, err := cd.DialContainer(ctx, container, network, net.JoinHostPort(ip.Unmap().String(), port))
+			c, err := dial(ctx, network, net.JoinHostPort(ip.Unmap().String(), port))
 			if err == nil {
 				return c, nil
 			}

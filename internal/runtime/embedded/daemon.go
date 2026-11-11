@@ -54,6 +54,10 @@ func (p Paths) CNI() string { return filepath.Join(p.RunDir, "cni") }
 // NetNS holds the containers' pinned network namespaces.
 func (p Paths) NetNS() string { return filepath.Join(p.RunDir, "netns") }
 
+// Sandboxes holds the pinned network namespaces of network sandboxes, one
+// file named after each sandbox (ADR 0040).
+func (p Paths) Sandboxes() string { return filepath.Join(p.RunDir, "sandboxes") }
+
 // FIFO holds the pipes of exec'd processes.
 func (p Paths) FIFO() string { return filepath.Join(p.State(), "fifo") }
 

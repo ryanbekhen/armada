@@ -19,7 +19,7 @@ set -eu
 # Scenarios that run after the cluster is built and the test app serves.
 # E2E_ONLY=isolation,rollout runs only those (empty: all); E2E_LIST=1 lists
 # them. test/e2e/README.md says which to pick for a change.
-SCENARIOS="listeners project-secret conntrack isolation load rollout agent-restart failover node-loss backup placement platforms cpu spread ip-rules sticky cors sidecars tcp queues reboot"
+SCENARIOS="listeners project-secret conntrack isolation load rollout agent-restart failover node-loss backup placement platforms cpu spread ip-rules sticky cors sidecars tcp queues queue-jobs reboot"
 E2E_ONLY=${E2E_ONLY:-}
 if [ "${E2E_LIST:-}" = 1 ]; then
 	echo "$SCENARIOS" | tr ' ' '\n'
@@ -1105,6 +1105,132 @@ while [ "$i" -le "$N" ]; do
 done
 ok "the Redis password is in no journal"
 for a in e2e-redis e2e-rabbit e2e-cmdq; do cli app delete "$a" --yes >/dev/null; done
+
+fi
+
+if want queue-jobs; then
+log "jobs started by a queue, read from a network sandbox"
+# The broker answers like Redis on the first machine's private IP; its list's
+# length is the number in a file. Apps reach other apps' containers only
+# through internal names over HTTP, so the broker lives outside the cluster,
+# where the default project reaches it and an isolated project does not.
+QJ_PASS=e2e-qjob-$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')
+QJ_IP=$(host 1 3)
+QJ_PORT=6390
+on 1 'command -v python3' >/dev/null || fail "queue-jobs needs python3 on $(host 1 1) for its fake broker"
+on 1 'cat >/root/e2e-resp.py' <<'EOF'
+import socket, sys, threading
+ip, port, pw, path = sys.argv[1], int(sys.argv[2]), sys.argv[3], sys.argv[4]
+def serve(c):
+    f, authed = c.makefile('rb'), False
+    try:
+        while True:
+            line = f.readline()
+            if not line.startswith(b'*'):
+                return
+            args = []
+            for _ in range(int(line[1:])):
+                n = int(f.readline()[1:])
+                args.append(f.read(n + 2)[:-2].decode())
+            if args[0].upper() == 'AUTH' and args[-1] == pw:
+                authed = True
+                c.sendall(b'+OK\r\n')
+            elif args[0].upper() == 'LLEN' and authed:
+                c.sendall(b':' + (open(path).read().strip() or '0').encode() + b'\r\n')
+            else:
+                c.sendall(b'-ERR\r\n')
+    except Exception:
+        pass
+    finally:
+        c.close()
+s = socket.socket()
+s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+s.bind((ip, port))
+s.listen(64)
+while True:
+    c, _ = s.accept()
+    threading.Thread(target=serve, args=(c,), daemon=True).start()
+EOF
+on 1 "echo 0 >/root/e2e-queue-length && setsid -f python3 /root/e2e-resp.py $QJ_IP $QJ_PORT $QJ_PASS /root/e2e-queue-length >/dev/null 2>&1 </dev/null"
+qlen() { on 1 "echo $1 >/root/e2e-queue-length"; }
+qjob() { # qjob PROJECT: create the job in PROJECT
+	printf 'redis://:%s@%s:%s/0' "$QJ_PASS" "$QJ_IP" "$QJ_PORT" | cli secret set e2e-qjob redis-url --project "$1" >/dev/null
+	cat <<'EOF' | on "$CLI" "cat >/root/qjob.yaml && armada job update e2e-qjob --file /root/qjob.yaml --create-if-missing --project $1" >/dev/null
+kind: job
+name: e2e-qjob
+image: busybox:1.37
+command: ["sleep", "20"]
+resources:
+  memory: 32Mi
+trigger:
+  queue:
+    type: redis
+    urlSecretRef: redis-url
+    list: jobs
+    perRun: 10
+  pollingInterval: 10s
+  parallelism: 3
+EOF
+}
+qread() { # qread PROJECT LENGTH: the job's queue was read with that length
+	cli job show e2e-qjob --project "$1" -o json | jq -e --argjson n "$2" '.trigger.measured == true and ((.trigger.length // "0") | tonumber) == $n' >/dev/null
+}
+qruns() { # qruns PROJECT: how many runs the job has
+	cli job run list e2e-qjob --project "$1" -o json | jq '(.runs // []) | length'
+}
+qcount() { [ "$(qruns "$1")" = "$2" ]; }
+qdone() { # qdone PROJECT COUNT: COUNT runs, every one succeeded
+	cli job run list e2e-qjob --project "$1" -o json | jq -e --argjson n "$2" '(.runs // []) | length == $n and all(.[]; .state == "succeeded")' >/dev/null
+}
+qjob default
+wait_for 120 "the job's empty queue is read from its sandbox" qread default 0
+sleep 25
+[ "$(qruns default)" = 0 ] || fail "runs started for an empty queue"
+ok "an empty queue starts no run"
+qlen 25
+wait_for 120 "25 messages at 10 per run start 3 runs" qcount default 3
+# While they run the queue empties: 3 active runs cover every reading
+# since, and none follows them.
+qlen 0
+wait_for 120 "the runs finish" qdone default 3
+sleep 35
+[ "$(qruns default)" = 3 ] || fail "runs started again after the queue emptied: $(qruns default)"
+ok "an emptied queue starts no more runs"
+
+# In an isolated project the sandbox reaches no node's address, like the
+# job's containers: the queue is never read and nothing runs.
+cli project create e2e-qj >/dev/null
+qlen 25
+qjob e2e-qj
+_qnode=
+qnode() { _qnode=$(cli job show e2e-qjob --project e2e-qj -o json | jq -r '.trigger.node // empty') && [ -n "$_qnode" ]; }
+wait_for 60 "the isolated job's queue has a node to read it" qnode
+sleep 40
+qread e2e-qj 25 && fail "the isolated project's sandbox read a queue on a node's private IP"
+[ "$(qruns e2e-qj)" = 0 ] || fail "the isolated job ran $(qruns e2e-qj) times"
+ok "an isolated project's sandbox cannot reach the broker on a node's private IP"
+
+i=1
+while [ "$i" -le "$N" ]; do
+	_hits=$(printf '%s\n' "$QJ_PASS" | on "$i" 'journalctl --no-pager -o cat | grep -c -F -f - || true')
+	[ "$_hits" = 0 ] || fail "the broker's password appears in the journal on $(host "$i" 1)"
+	i=$((i + 1))
+done
+ok "the broker's password is in no journal"
+cli job delete e2e-qjob >/dev/null
+cli job delete e2e-qjob --project e2e-qj >/dev/null
+cli secret delete e2e-qjob redis-url >/dev/null
+cli secret delete e2e-qjob redis-url --project e2e-qj >/dev/null
+cli project delete e2e-qj >/dev/null
+on 1 "pkill -f /root/e2e-resp.py; rm -f /root/e2e-resp.py /root/e2e-queue-length" || true
+_left() {
+	i=1
+	while [ "$i" -le "$N" ]; do
+		[ -z "$(on "$i" 'ls /run/armada/sandboxes 2>/dev/null')" ] || return 1
+		i=$((i + 1))
+	done
+}
+wait_for 60 "no network sandbox is left on any node" _left
 
 fi
 

@@ -94,6 +94,7 @@ E2E_ONLY=isolation,rollout ARMADA_BIN=... sh test/e2e/cluster.sh hosts
 | `sidecars` | 18 | init containers, sidecars, the shared network namespace |
 | `tcp` | 19 | internal TCP ingress: HAProxy's TCP listeners, the clients map, nftables on the gateway, internal DNS |
 | `queues` | 14 | autoscaling on queues and schedules, dialling from containers |
+| `queue-jobs` | 20 | jobs started by a queue, network sandboxes, their isolation |
 | `reboot` | 13 | start-up order, units, state after a crash |
 
 A release runs every scenario.
@@ -176,3 +177,16 @@ A release runs every scenario.
     refused, and an app of another project neither resolves the name nor gets
     an answer at its gateway; port 7000 is open on no node's private address
     (runs before 14 and 13).
+20. Jobs started by a queue (runs after 14, before 13). The first machine
+    needs `python3`, which runs a stand-in broker that answers like Redis on
+    its private IP, port 6390: apps reach other apps' containers only through
+    internal names over HTTP, so the broker lives outside the cluster.
+    - A job in the default project has its empty queue read from a network
+      sandbox and runs nothing.
+    - 25 messages at 10 per run start 3 runs (`parallelism: 3`); once they
+      finish on an emptied queue, no run follows.
+    - The same job in an isolated project gets a node to read from, but its
+      sandbox cannot reach a node's private IP, like the job's containers:
+      the queue is never read and nothing runs.
+    - The broker's password is in no journal, and no sandbox is left on any
+      node once both jobs are deleted.

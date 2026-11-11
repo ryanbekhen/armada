@@ -23,17 +23,8 @@ var _ runtime.ContainerDialer = (*Driver)(nil)
 // container's routes and firewall. Only IP addresses are dialled: a name
 // would be resolved, and a second address tried, on other threads.
 func (d *Driver) DialContainer(ctx context.Context, id, network, address string) (net.Conn, error) {
-	host, _, err := net.SplitHostPort(address)
-	if err != nil {
+	if err := checkDial(network, address); err != nil {
 		return nil, err
-	}
-	if _, err := netip.ParseAddr(host); err != nil {
-		return nil, fmt.Errorf("dial from a container: %q is not an IP address", host)
-	}
-	switch network {
-	case "tcp", "tcp4", "tcp6", "udp", "udp4", "udp6":
-	default:
-		return nil, fmt.Errorf("dial from a container: network %q", network)
 	}
 	c, err := d.client.LoadContainer(d.ctx(ctx), id)
 	if err != nil {
@@ -47,6 +38,29 @@ func (d *Driver) DialContainer(ctx context.Context, id, network, address string)
 	if err != nil {
 		return nil, fmt.Errorf("container network namespace: %w", err)
 	}
+	return dialIn(ctx, target, network, address)
+}
+
+// checkDial accepts only an IP address and port over TCP or UDP.
+func checkDial(network, address string) error {
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		return err
+	}
+	if _, err := netip.ParseAddr(host); err != nil {
+		return fmt.Errorf("dial from a namespace: %q is not an IP address", host)
+	}
+	switch network {
+	case "tcp", "tcp4", "tcp6", "udp", "udp4", "udp6":
+	default:
+		return fmt.Errorf("dial from a namespace: network %q", network)
+	}
+	return nil
+}
+
+// dialIn dials address on a thread switched into the network namespace
+// target, and closes target.
+func dialIn(ctx context.Context, target netns.NsHandle, network, address string) (net.Conn, error) {
 	type result struct {
 		conn net.Conn
 		err  error

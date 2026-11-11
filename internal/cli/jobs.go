@@ -193,8 +193,11 @@ func newJobListCommand(g *globals) *cobra.Command {
 					last, state, finished = strconv.FormatInt(r.Run, 10), r.State, ago(r.FinishedAt, now)
 				}
 				next := "-"
-				if j.NextRun != nil {
+				switch tr := j.GetTrigger(); {
+				case j.NextRun != nil:
 					next = "in " + humanDuration(j.NextRun.AsTime().Sub(now))
+				case tr.GetMeasured():
+					next = fmt.Sprintf("%d waiting", tr.GetLength())
 				}
 				p, name, _ := spec.SplitAppID(j.Name)
 				line := fmt.Sprintf("%s\t%s\t%s\t%s\t%s\t%s", name, jobSchedule(j), last, state, finished, next)
@@ -224,6 +227,9 @@ func listJobs(ctx context.Context, g *globals) (*armadav1.ListJobsResponse, erro
 }
 
 func jobSchedule(j *armadav1.JobInfo) string {
+	if tr := j.GetTrigger(); tr != nil {
+		return "queue (" + tr.GetType() + " " + tr.GetName() + ")"
+	}
 	if j.Schedule == "" {
 		return "-"
 	}
@@ -282,6 +288,11 @@ func newJobShowCommand(g *globals) *cobra.Command {
 				}
 			}
 			tw := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
+			if tr := j.GetTrigger(); tr != nil {
+				_, _ = fmt.Fprintf(tw, "Name:\t%s\nRevision:\t%s\nImage:\t%s\nTrigger:\t%s\nQueue:\t%s\nLast run:\t%s\nActive runs:\t%d\n",
+					j.Name, dash(j.Revision), j.Image, triggerLine(tr), queueLine(tr, now), last, j.Active)
+				return tw.Flush()
+			}
 			_, _ = fmt.Fprintf(tw, "Name:\t%s\nRevision:\t%s\nImage:\t%s\nSchedule:\t%s\nNext run:\t%s\nLast run:\t%s\nActive runs:\t%d\n",
 				j.Name, dash(j.Revision), j.Image, jobSchedule(j), next, last, j.Active)
 			return tw.Flush()
@@ -437,4 +448,25 @@ func humanDuration(d time.Duration) string {
 		return fmt.Sprintf("%dh", int(d.Hours()))
 	}
 	return fmt.Sprintf("%dd", int(d.Hours()/24))
+}
+
+// triggerLine describes a job's queue trigger (ADR 0040).
+func triggerLine(tr *armadav1.JobTrigger) string {
+	what := "list"
+	if tr.GetType() == spec.ScaleRabbitMQ {
+		what = "queue"
+	}
+	return fmt.Sprintf("%s %s %s, %d per run, at most %d at once, read every %s", tr.GetType(), what, tr.GetName(),
+		tr.GetPerRun(), tr.GetParallelism(), humanDuration(time.Duration(tr.GetPollingIntervalSeconds())*time.Second))
+}
+
+// queueLine says what was last read of a job's queue, and where.
+func queueLine(tr *armadav1.JobTrigger, now time.Time) string {
+	switch {
+	case tr.GetNode() == "":
+		return "not read: no node can (see armada cluster events)"
+	case !tr.GetMeasured():
+		return "not read yet, from " + tr.GetNode()
+	}
+	return fmt.Sprintf("%d waiting, read %s from %s", tr.GetLength(), ago(tr.GetMeasuredAt(), now), tr.GetNode())
 }
