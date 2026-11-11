@@ -541,6 +541,7 @@ volumes:
 | `name` | A name like an app's, unique within the app. |
 | `path` | Where the volume appears in the container. It follows the same rules as a secret file's path, and volumes may not overlap each other or a secret file. |
 | `owner` | Optional `uid:gid` of the volume's directory, applied whenever a replica starts (its contents are left alone). Without it a new directory belongs to root, with mode 0700; an image that runs as another user (postgres runs as 999, nginx's workers as 101) needs its owner. |
+| `backup` | Optional: back the volume up to an S3-compatible bucket on a schedule (below). |
 
 - An app has at most 8 volumes.
 - **One replica.** An app with volumes runs exactly one replica. `scale`
@@ -558,6 +559,38 @@ volumes:
 - **Kept until removed.** A volume stays when the app is redeployed without
   it or deleted, until `armada volume delete`. Its size is shown by
   `armada volume list`; there is no quota.
+
+#### `volumes[].backup`
+
+Backups to a bucket on a schedule
+([ADR 0041](adr/0041-volume-backups.md)). Each backup uploads only content
+the bucket does not hold yet, encrypted with a key of the app's.
+
+```yaml
+volumes:
+  - name: data
+    path: /var/lib/postgresql/data
+    backup:
+      every: 1h
+      keep: {hourly: 24, daily: 7, weekly: 4}
+      urlSecretRef: backup-url
+      keySecretRef: backup-key
+```
+
+| Field | Meaning |
+| --- | --- |
+| `every` | Time between backups, from `5m` to `168h`. Or: |
+| `schedule`, `timeZone` | When to back up, as a [job's schedule](#jobs). |
+| `keep` | A number keeps that many of the latest backups. Or a mapping: `last` (the latest N), `hourly`, `daily`, `weekly`, `monthly` (the newest backup of each of the latest N hours, days, ISO weeks, months, in `timeZone`, else UTC). Each at most 1000; a backup any of them keeps stays. |
+| `urlSecretRef` | Secret of the app with the bucket: `https://ACCESS_KEY:SECRET_KEY@host[:port]/bucket[/prefix][?region=R]` (path-style; `http://` only for a private IP address). |
+| `keySecretRef` | Secret of the app with the encryption key: any value of at least 32 bytes, for example `openssl rand -base64 48`. **Keep a copy outside the cluster**: without it the backups cannot be read. |
+| `stop` | `true` stops the app's container while the volume is read, for a consistent copy. |
+
+- The first backup runs as soon as the volume exists; a failed one is
+  tried again after 5 minutes (or `every`, when shorter).
+- Both secrets stay out of the app's environment, `envFrom` included.
+- The volume's repository is `<prefix>/<app>/<volume>/` in the bucket
+  (`<app>.<project>` outside the default project).
 
 ### `initContainers`, `sidecars`
 

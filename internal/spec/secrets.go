@@ -84,8 +84,20 @@ func (a *App) SecretRefs() []string {
 	if q := a.QueueTrigger(); q != nil {
 		refs = append(refs, q.URLSecretRef)
 	}
+	refs = append(refs, a.BackupSecretRefs()...)
 	slices.Sort(refs)
 	return slices.Compact(refs)
+}
+
+// BackupSecretRefs lists the secrets the volumes' backups use (ADR 0041).
+func (a *App) BackupSecretRefs() []string {
+	var refs []string
+	for _, v := range a.Volumes {
+		if b := v.Backup; b != nil {
+			refs = append(refs, b.URLSecretRef, b.KeySecretRef)
+		}
+	}
+	return refs
 }
 
 // RegistryHost returns the registry an image reference pulls from, e.g.
@@ -201,6 +213,10 @@ func (a *App) WithSecretEnv(secrets []string) (*App, error) {
 	}
 	if a.Registry != nil {
 		used[a.Registry.PasswordSecretRef] = true
+	}
+	// The bucket's credentials and the backup key never reach the app.
+	for _, s := range a.BackupSecretRefs() {
+		used[s] = true
 	}
 	set := map[string]bool{}
 	for _, e := range a.Env {

@@ -16,6 +16,21 @@ type Volume struct {
 	Name      string
 	Node      string
 	CreatedAt time.Time
+	// Backup is how the volume's scheduled backups went (ADR 0041).
+	Backup VolumeBackupState
+}
+
+// VolumeBackupState is the outcome of a volume's backups to its bucket.
+type VolumeBackupState struct {
+	// LastAt is the last backup that worked; FailedAt and Error the last
+	// one that failed since, cleared by a success.
+	LastAt   time.Time
+	LastID   string
+	FailedAt time.Time
+	Error    string
+	// Stored and Snapshots are what the repository held after LastAt.
+	Stored    int64
+	Snapshots int
 }
 
 type volumeRec struct {
@@ -23,12 +38,53 @@ type volumeRec struct {
 	Name      string `json:"name"`
 	Node      string `json:"node"`
 	CreatedAt int64  `json:"createdAt"`
+	// Backups (ADR 0041).
+	BackupAt        int64  `json:"backupAt,omitempty"`
+	BackupID        string `json:"backupId,omitempty"`
+	BackupFailedAt  int64  `json:"backupFailedAt,omitempty"`
+	BackupError     string `json:"backupError,omitempty"`
+	BackupStored    int64  `json:"backupStored,omitempty"`
+	BackupSnapshots int    `json:"backupSnapshots,omitempty"`
 }
 
 func volumeKey(app, name string) string { return pfxVolumes + app + "/" + name }
 
 func (r volumeRec) volume() Volume {
-	return Volume{App: r.App, Name: r.Name, Node: r.Node, CreatedAt: fromMS(r.CreatedAt)}
+	return Volume{App: r.App, Name: r.Name, Node: r.Node, CreatedAt: fromMS(r.CreatedAt), Backup: VolumeBackupState{
+		LastAt: fromMS(r.BackupAt), LastID: r.BackupID, FailedAt: fromMS(r.BackupFailedAt), Error: r.BackupError,
+		Stored: r.BackupStored, Snapshots: r.BackupSnapshots,
+	}}
+}
+
+// maxBackupError bounds the error kept on a volume's record.
+const maxBackupError = 512
+
+// RecordVolumeBackup keeps the outcome of a backup: a success (id set)
+// clears the last failure; a failure (errMsg set) keeps the last success.
+// Both may be set when the backup worked and its cleanup failed.
+func (s *Etcd) RecordVolumeBackup(ctx context.Context, app, name, id string, stored int64, snapshots int, errMsg string) error {
+	now := ms(s.now())
+	if len(errMsg) > maxBackupError {
+		errMsg = errMsg[:maxBackupError]
+	}
+	return s.tx(ctx, func(t *etx) error {
+		var r volumeRec
+		ok, err := t.get(volumeKey(app, name), &r)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return notFoundf("volume %s of app %s", name, app)
+		}
+		if id != "" {
+			r.BackupAt, r.BackupID, r.BackupStored, r.BackupSnapshots = now, id, stored, snapshots
+			r.BackupFailedAt, r.BackupError = 0, ""
+		}
+		if errMsg != "" {
+			r.BackupFailedAt, r.BackupError = now, errMsg
+		}
+		return t.put(volumeKey(app, name), r)
+	})
 }
 
 // bindVolumes binds the volumes a replica of rev mounts to node: unbound
@@ -153,7 +209,9 @@ func (s *Etcd) BindVolume(ctx context.Context, app, name, node, actor string) er
 			if old.Node == node {
 				return nil
 			}
-			rec.CreatedAt = old.CreatedAt
+			// The backups stay the volume's.
+			rec = old
+			rec.Node = node
 		}
 		if err := t.put(volumeKey(app, name), rec); err != nil {
 			return err

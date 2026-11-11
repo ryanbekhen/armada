@@ -1203,7 +1203,10 @@ Volumes keep an app's data on the node that runs its single replica
 `/var/lib/armada/volumes/<app>/<name>`.
 
 ```bash
-armada volume list                                 # app, volume, node, path, size
+armada volume list                                 # app, volume, node, path, size, last backup
+armada volume snapshot list db data                # backups in the volume's bucket (volumes[].backup)
+armada volume snapshot create db data              # back up to the bucket now
+armada volume restore db data --snapshot latest    # replace the contents with a backup from the bucket
 armada volume backup db data -o db-data.tar.gz     # copy while the app runs
 armada volume backup db data -o db-data.tar.gz --stop   # consistent: stops the app meanwhile
 armada volume restore db data db-data.tar.gz       # replace the contents; stops the app meanwhile
@@ -1211,8 +1214,8 @@ armada volume delete db data --yes                 # delete the data; only once 
 ```
 
 ```
-APP  VOLUME  NODE   PATH                      USED    AGE
-db   data    node2  /var/lib/postgresql/data  1.2GiB  14d
+APP  VOLUME  NODE   PATH                      USED    LAST BACKUP  BACKUPS        AGE
+db   data    node2  /var/lib/postgresql/data  1.2GiB  12m ago      31 (1.9GiB)   14d
 ```
 
 - **Deploys have downtime.** The old replica stops (after its drain)
@@ -1226,9 +1229,25 @@ db   data    node2  /var/lib/postgresql/data  1.2GiB  14d
   `armada app exec` (for example `armada app exec db -- pg_dump -U postgres app`),
   or `--stop`.
 - **Back up regularly, off the node.** `armadad backup` holds where volumes
-  are, not their contents. Archives hold the app's data as it is: encrypt
-  them like control plane backups. For example, from a machine with admin
-  credentials:
+  are, not their contents. The simplest way is `backup` in the volume's
+  spec: the node backs the volume up to a bucket on a schedule, uploading
+  only what changed, encrypted, and keeps the backups `keep` names
+  ([spec reference](spec-reference.md#volumesbackup)).
+  - Keep the key secret's value somewhere outside the cluster too: it is
+    the only way to read the backups after losing the cluster.
+  - The bucket must accept the node's address. Give the access key only
+    the bucket (read, write, list, delete); turning on the bucket's
+    versioning or object lock keeps backups even from someone holding
+    the key.
+  - Alert on `armada_volume_backup_failing` and on
+    `armada_volume_backup_last_success_timestamp_seconds` growing old; a
+    failure is also a `VolumeBackupFailed` event.
+  - A bucket that is full or refuses writes fails new backups and leaves
+    the old ones as they are.
+
+  Archives from `armada volume backup` hold the app's data as it is:
+  encrypt them like control plane backups. For example, from a machine
+  with admin credentials:
 
   ```bash
   armada volume backup db data -o - | age -r age1yourpublickey... > db-data-$(date +%F).tar.gz.age
@@ -1247,7 +1266,8 @@ until its data is restored somewhere else:
 
 ```bash
 armada node delete node2 --force                     # if the node is gone for good
-armada volume restore db data db-data.tar.gz --node node3
+armada volume restore db data --snapshot latest --node node3   # from the bucket
+armada volume restore db data db-data.tar.gz --node node3       # or from an archive
 ```
 
 The volume is restored onto `node3` and bound to it, and the app starts

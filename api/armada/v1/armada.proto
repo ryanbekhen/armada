@@ -28,6 +28,10 @@ service AdminService {
   rpc RemoveVolume(RemoveVolumeRequest) returns (RemoveVolumeResponse);
   rpc BackupVolume(BackupVolumeRequest) returns (stream VolumeData);
   rpc RestoreVolume(stream RestoreVolumeMessage) returns (RestoreVolumeResponse);
+  // Backups in the volume's bucket (ADR 0041).
+  rpc ListVolumeSnapshots(ListVolumeSnapshotsRequest) returns (ListVolumeSnapshotsResponse);
+  rpc CreateVolumeSnapshot(CreateVolumeSnapshotRequest) returns (CreateVolumeSnapshotResponse);
+  rpc RestoreVolumeSnapshot(RestoreVolumeSnapshotRequest) returns (RestoreVolumeResponse);
   rpc Logs(LogsRequest) returns (stream LogEntry);
   rpc GetClusterConfig(GetClusterConfigRequest) returns (ClusterConfig);
   rpc SetClusterConfig(SetClusterConfigRequest) returns (ClusterConfig);
@@ -1072,6 +1076,8 @@ message Hello {
   // (ReplicaSpec.hold), so a volume app's new replica is ready before the
   // old one stops (ADR 0023).
   bool held_replicas = 15;
+  // The node backs volumes up to buckets (ADR 0041).
+  bool volume_backups = 16;
 }
 
 message ReplicaReport {
@@ -1196,6 +1202,12 @@ message VolumeRequest {
     OP_RESTORE = 2;
     // Delete the volume's directory.
     OP_REMOVE = 3;
+    // Back the volume up to its bucket and apply keep (ADR 0041).
+    OP_SNAPSHOT = 4;
+    // List the backups in the bucket.
+    OP_SNAPSHOTS = 5;
+    // Replace the volume's contents with a backup from the bucket.
+    OP_RESTORE_SNAPSHOT = 6;
   }
   string request_id = 1;
   Op op = 2;
@@ -1204,6 +1216,28 @@ message VolumeRequest {
   // Stop the app's container on the node for the operation (always for
   // restores and removals).
   bool stop = 5;
+  // The bucket, for the snapshot operations.
+  BackupTarget backup = 6;
+  // The backup to restore: an ID or "latest".
+  string snapshot = 7;
+}
+
+// BackupTarget is a volume's bucket and key, decrypted from the app's
+// secrets. Never log it.
+message BackupTarget {
+  string url = 1;
+  bytes key = 2;
+  BackupKeep keep = 3;
+  // The zone keep counts days in; empty: UTC.
+  string time_zone = 4;
+}
+
+message BackupKeep {
+  int32 last = 1;
+  int32 hourly = 2;
+  int32 daily = 3;
+  int32 weekly = 4;
+  int32 monthly = 5;
 }
 
 // VolumeData carries one chunk of a volume archive, at most 64 KiB.
@@ -1215,6 +1249,10 @@ message VolumeData {
   bool done = 3;
   // The operation failed; the last message.
   string error = 4;
+  // OP_SNAPSHOT: the backup taken and what the repository holds.
+  CreateVolumeSnapshotResponse snapshot = 5;
+  // OP_SNAPSHOTS: the backups, oldest first.
+  repeated VolumeSnapshot snapshots = 6;
 }
 
 // Assignment is the complete desired set of replicas for the node. Replicas
@@ -1616,6 +1654,56 @@ message Volume {
   int64 used_bytes = 6;
   // Where it appears in the container, while in use.
   string path = 7;
+  // Scheduled backups (ADR 0041): set while the app's spec has them.
+  bool backup = 8;
+  google.protobuf.Timestamp last_backup_at = 9;
+  // The last backup that failed, and why; cleared by a success.
+  google.protobuf.Timestamp backup_failed_at = 10;
+  string backup_error = 11;
+  // What the volume's repository holds, as of the last backup.
+  int64 backup_stored_bytes = 12;
+  int32 backup_snapshots = 13;
+  google.protobuf.Timestamp next_backup_at = 14;
+}
+
+message VolumeSnapshot {
+  string id = 1;
+  google.protobuf.Timestamp time = 2;
+  // Known for a backup just taken.
+  int64 files = 3;
+  int64 bytes = 4;
+}
+
+message ListVolumeSnapshotsRequest {
+  string app = 1;
+  string name = 2;
+}
+
+message ListVolumeSnapshotsResponse {
+  // Oldest first.
+  repeated VolumeSnapshot snapshots = 1;
+}
+
+message CreateVolumeSnapshotRequest {
+  string app = 1;
+  string name = 2;
+}
+
+message CreateVolumeSnapshotResponse {
+  VolumeSnapshot snapshot = 1;
+  // Content no earlier backup had, and what the repository holds now.
+  int64 new_bytes = 2;
+  int64 stored_bytes = 3;
+  int32 snapshots = 4;
+}
+
+message RestoreVolumeSnapshotRequest {
+  string app = 1;
+  string name = 2;
+  // A backup's ID, or "latest".
+  string snapshot = 3;
+  // Restore onto this node instead of the volume's own, as RestoreVolumeStart.
+  string node = 4;
 }
 
 message RemoveVolumeRequest {

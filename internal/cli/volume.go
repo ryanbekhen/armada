@@ -26,9 +26,10 @@ func newVolumeCommand(g *globals) *cobra.Command {
 		Long: "Volumes keep an app's data on the node that runs its replica (ADR 0023). They are\n" +
 			"created with the app's first replica, stay on that node, and are kept until deleted\n" +
 			"with `armada volume delete`. `armadad backup` does not include their contents: back\n" +
-			"them up with `armada volume backup`.",
+			"them up with `armada volume backup`, or to a bucket on a schedule (volumes[].backup,\n" +
+			"ADR 0041) with `armada volume snapshot` to list them and take one now.",
 	}
-	cmd.AddCommand(newVolumeListCommand(g), newVolumeBackupCommand(g), newVolumeRestoreCommand(g), newVolumeDeleteCommand(g))
+	cmd.AddCommand(newVolumeListCommand(g), newVolumeBackupCommand(g), newVolumeRestoreCommand(g), newVolumeDeleteCommand(g), newVolumeSnapshotCommand(g))
 	return cmd
 }
 
@@ -65,7 +66,7 @@ func newVolumeListCommand(g *globals) *cobra.Command {
 				return printJSON(out, resp)
 			}
 			tw := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
-			_, _ = fmt.Fprintln(tw, "APP\tVOLUME\tNODE\tPATH\tUSED\tAGE")
+			_, _ = fmt.Fprintln(tw, "APP\tVOLUME\tNODE\tPATH\tUSED\tLAST BACKUP\tBACKUPS\tAGE")
 			now := time.Now()
 			for _, v := range resp.Volumes {
 				path := v.Path
@@ -76,7 +77,18 @@ func newVolumeListCommand(g *globals) *cobra.Command {
 				if v.UsedBytes >= 0 {
 					used = diskBytes(v.UsedBytes)
 				}
-				_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", v.App, v.Name, v.Node, path, used, humanDuration(now.Sub(v.CreatedAt.AsTime())))
+				last, backups := "-", "-"
+				if v.Backup {
+					last = "never"
+					if v.LastBackupAt != nil {
+						last = humanDuration(now.Sub(v.LastBackupAt.AsTime())) + " ago"
+						backups = fmt.Sprintf("%d (%s)", v.BackupSnapshots, diskBytes(v.BackupStoredBytes))
+					}
+					if v.BackupFailedAt != nil {
+						last += ", failing"
+					}
+				}
+				_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", v.App, v.Name, v.Node, path, used, last, backups, humanDuration(now.Sub(v.CreatedAt.AsTime())))
 			}
 			return tw.Flush()
 		},
@@ -198,20 +210,37 @@ own data.`,
 }
 
 func newVolumeRestoreCommand(g *globals) *cobra.Command {
-	var node string
+	var node, snapshot string
 	cmd := &cobra.Command{
-		Use:   "restore APP VOLUME FILE",
+		Use:   "restore APP VOLUME FILE | --snapshot ID|latest",
 		Short: "Replace a volume's contents with a backup",
 		Long: `Replaces a volume's contents with an archive from armada volume backup (FILE, or
-- for stdin). The app's replica is stopped while the archive is unpacked and
-started again afterwards; a broken archive leaves the volume as it was.
+- for stdin), or with a backup from the volume's bucket (--snapshot, see
+armada volume snapshot list). The app's replica is stopped while the backup is
+written and started again afterwards; a broken backup leaves the volume as it was.
 
 With --node the volume is restored onto that node and bound to it, and the app
 follows. This is how an app comes back when the node holding its volume is lost
 for good; it is refused while that node is still connected.`,
-		Args: cobra.ExactArgs(3),
+		Args: cobra.RangeArgs(2, 3),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := g.qualify(args); err != nil {
+			if err := g.qualify(args[:2]); err != nil {
+				return err
+			}
+			if (snapshot != "") == (len(args) == 3) {
+				return errors.New("give an archive FILE or --snapshot ID|latest")
+			}
+			if snapshot != "" {
+				client, conn, err := dialAdmin(g)
+				if err != nil {
+					return err
+				}
+				defer conn.Close()
+				resp, err := client.RestoreVolumeSnapshot(cmd.Context(), &armadav1.RestoreVolumeSnapshotRequest{App: args[0], Name: args[1], Snapshot: snapshot, Node: node})
+				if err != nil {
+					return RPCError(err)
+				}
+				_, err = fmt.Fprintf(cmd.OutOrStdout(), "Restored volume %s of %s on %s from backup %s.\n", args[1], args[0], resp.Node, snapshot)
 				return err
 			}
 			r := cmd.InOrStdin()
@@ -261,6 +290,89 @@ for good; it is refused while that node is still connected.`,
 		},
 	}
 	cmd.Flags().StringVar(&node, "node", "", "restore onto this node and bind the volume to it (when its node is lost)")
+	cmd.Flags().StringVar(&snapshot, "snapshot", "", "restore this backup from the volume's bucket (an ID, or latest)")
+	return cmd
+}
+
+func newVolumeSnapshotCommand(g *globals) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:     "snapshot",
+		Aliases: []string{"snapshots"},
+		Short:   "List a volume's backups in its bucket, or take one now",
+		Long: "Volumes whose spec has backup (volumes[].backup, ADR 0041) are backed up to a bucket\n" +
+			"on a schedule. These commands list those backups and take one now; restore one with\n" +
+			"`armada volume restore APP VOLUME --snapshot ID|latest`.",
+	}
+	var o *outputFlag
+	list := &cobra.Command{
+		Use:     "list APP VOLUME",
+		Aliases: []string{"ls"},
+		Short:   "List a volume's backups, oldest first",
+		Args:    cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := g.qualify(args); err != nil {
+				return err
+			}
+			if err := o.check(); err != nil {
+				return err
+			}
+			client, conn, err := dialAdmin(g)
+			if err != nil {
+				return err
+			}
+			defer conn.Close()
+			resp, err := client.ListVolumeSnapshots(cmd.Context(), &armadav1.ListVolumeSnapshotsRequest{App: args[0], Name: args[1]})
+			if err != nil {
+				return RPCError(err)
+			}
+			out := cmd.OutOrStdout()
+			if o.json() {
+				return printJSON(out, resp)
+			}
+			tw := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
+			_, _ = fmt.Fprintln(tw, "ID\tTIME\tAGE")
+			now := time.Now()
+			for _, s := range resp.Snapshots {
+				t := s.Time.AsTime()
+				_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\n", s.Id, t.Local().Format(time.DateTime), humanDuration(now.Sub(t)))
+			}
+			return tw.Flush()
+		},
+	}
+	o = addOutput(list, false)
+	var co *outputFlag
+	create := &cobra.Command{
+		Use:   "create APP VOLUME",
+		Short: "Back a volume up to its bucket now",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := g.qualify(args); err != nil {
+				return err
+			}
+			if err := co.check(); err != nil {
+				return err
+			}
+			client, conn, err := dialAdmin(g)
+			if err != nil {
+				return err
+			}
+			defer conn.Close()
+			resp, err := client.CreateVolumeSnapshot(cmd.Context(), &armadav1.CreateVolumeSnapshotRequest{App: args[0], Name: args[1]})
+			if err != nil {
+				return RPCError(err)
+			}
+			out := cmd.OutOrStdout()
+			if co.json() {
+				return printJSON(out, resp)
+			}
+			s := resp.Snapshot
+			_, err = fmt.Fprintf(out, "Backed up volume %s of %s as %s: %d files, %s, %s new; the bucket holds %d backups in %s.\n",
+				args[1], args[0], s.Id, s.Files, diskBytes(s.Bytes), diskBytes(resp.NewBytes), resp.Snapshots, diskBytes(resp.StoredBytes))
+			return err
+		},
+	}
+	co = addOutput(create, false)
+	cmd.AddCommand(list, create)
 	return cmd
 }
 

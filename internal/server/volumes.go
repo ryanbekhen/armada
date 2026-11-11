@@ -399,6 +399,7 @@ func (s *Server) ListVolumes(ctx context.Context, req *armadav1.ListVolumesReque
 		out := &armadav1.Volume{App: v.App, Name: v.Name, Node: v.Node, CreatedAt: timestamppb.New(v.CreatedAt), UsedBytes: -1}
 		if sv, ok := mounted[v.App][v.Name]; ok {
 			out.InUse, out.Path = true, sv.Path
+			volumeBackupInfo(out, sv.Backup, v.Backup, now)
 		}
 		if b, ok := s.usage.volume(v.Node, v.App, v.Name, now); ok {
 			out.UsedBytes = b

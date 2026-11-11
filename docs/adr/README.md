@@ -44,6 +44,7 @@ Every architectural decision that is hard to reverse is recorded here. Copy `000
 | [0038](0038-init-containers-and-sidecars.md) | Init containers and sidecars | Accepted |
 | [0039](0039-internal-tcp-ingress.md) | Internal TCP ingress | Accepted |
 | [0040](0040-queue-triggered-jobs.md) | Jobs started by a queue | Accepted |
+| [0041](0041-volume-backups.md) | Scheduled volume backups to object storage | Accepted |
 
 Commands in records before 0032 carry the names of their time; ADR 0032
 lists the command line as it is now.
