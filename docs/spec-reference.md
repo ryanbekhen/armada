@@ -542,6 +542,7 @@ volumes:
 | `path` | Where the volume appears in the container. It follows the same rules as a secret file's path, and volumes may not overlap each other or a secret file. |
 | `owner` | Optional `uid:gid` of the volume's directory, applied whenever a replica starts (its contents are left alone). Without it a new directory belongs to root, with mode 0700; an image that runs as another user (postgres runs as 999, nginx's workers as 101) needs its owner. |
 | `backup` | Optional: back the volume up to an S3-compatible bucket on a schedule (below). |
+| `failover` | Optional `restore`: when the volume's node is lost, restore the latest backup on another node and move the app there. Needs `backup`, and must be set on every volume of the app or none. |
 
 - An app has at most 8 volumes.
 - **One replica.** An app with volumes runs exactly one replica. `scale`
@@ -589,6 +590,12 @@ volumes:
 - The first backup runs once the volume's node has reported it, within
   about a minute; a failed one is tried again after 5 minutes (or `every`,
   when shorter).
+- With `failover: restore` the app comes back on another node by itself
+  when its node is lost, from the latest backup: writes since then are
+  lost. The app is stopped on a node that cannot reach the control plane
+  for half the node-lost timeout, so two copies are never written at once;
+  this also happens while the control plane is down
+  ([ADR 0041](adr/0041-volume-backups.md#failover)).
 - Both secrets stay out of the app's environment, `envFrom` included.
 - The volume's repository is `<prefix>/<app>/<volume>/` in the bucket
   (`<app>.<project>` outside the default project).

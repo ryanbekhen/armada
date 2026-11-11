@@ -3,6 +3,7 @@ package spec
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -19,7 +20,13 @@ type Volume struct {
 	Owner string `yaml:"owner,omitempty" json:"owner,omitempty"`
 	// Backup schedules backups to an S3-compatible bucket (ADR 0041).
 	Backup *VolumeBackup `yaml:"backup,omitempty" json:"backup,omitempty"`
+	// Failover "restore" restores the latest backup on another node when
+	// the volume's node is lost (ADR 0041).
+	Failover string `yaml:"failover,omitempty" json:"failover,omitempty"`
 }
+
+// FailoverRestore is the failover that restores the latest backup elsewhere.
+const FailoverRestore = "restore"
 
 // MaxVolumes is the most volumes an app may have.
 const MaxVolumes = 8
@@ -86,6 +93,16 @@ func (v *validator) volumes(a *App) {
 		if vol.Backup != nil {
 			v.volumeBackup(field+".backup", vol.Backup)
 		}
+		switch {
+		case vol.Failover == "":
+		case vol.Failover != FailoverRestore:
+			v.add(field+".failover", "must be %q or left out", FailoverRestore)
+		case vol.Backup == nil:
+			v.add(field+".failover", "restores the latest backup, so the volume needs backup")
+		}
+		if (vol.Failover == "") != (a.Volumes[0].Failover == "") {
+			v.add(field+".failover", "must be set on every volume of the app, or on none: the app moves with all of them")
+		}
 	}
 	// One replica: two containers never write to the same volume.
 	if s := a.Scale; s != nil {
@@ -106,6 +123,12 @@ func ValidateVolumePath(p string) error {
 		return errors.New(msg)
 	}
 	return nil
+}
+
+// FailsOver reports whether the app's volumes are restored on another node
+// when theirs is lost (ADR 0041).
+func (a *App) FailsOver() bool {
+	return len(a.Volumes) > 0 && !slices.ContainsFunc(a.Volumes, func(v Volume) bool { return v.Failover != FailoverRestore })
 }
 
 // HasVolumes reports whether the app keeps data in volumes (ADR 0023).

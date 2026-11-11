@@ -1446,6 +1446,10 @@ message ReplicaSpec {
   // then "pulled", but starts no container until the hold is lifted. Only
   // sent to agents that announce Hello.held_replicas.
   bool hold = 23;
+  // Stop the replica's containers once the agent has been cut off from the
+  // control plane this long (0: never): its volumes may then be restored
+  // on another node (ADR 0041). Not part of the spec hash.
+  int64 fence_after_seconds = 24;
 }
 
 // An init container or a sidecar of a replica (ADR 0038).

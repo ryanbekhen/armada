@@ -164,8 +164,14 @@ func (s *Server) reconcileVolumeApp(ctx context.Context, rc *reconcileRun, app *
 	}
 
 	unavailable := !split && pinned != "" && (!known || rc.lost[pinned])
-	s.condition(ctx, "volume-lost:"+app.Name, unavailable, store.Event{Kind: eventApp, Object: app.Name, App: app.Name, Node: pinned, Reason: "VolumeUnavailable",
-		Message: fmt.Sprintf("its volumes are on node %s, which is unreachable or removed; it stays down until the node returns or a volume backup is restored on another node (armada volume restore --node)", pinned)})
+	lostMsg := fmt.Sprintf("its volumes are on node %s, which is unreachable or removed; it stays down until the node returns or a volume backup is restored on another node (armada volume restore --node)", pinned)
+	if target.Spec.FailsOver() {
+		lostMsg = fmt.Sprintf("its volumes are on node %s, which is unreachable or removed; their latest backups are being restored on another node (failover: restore)", pinned)
+	}
+	s.condition(ctx, "volume-lost:"+app.Name, unavailable, store.Event{Kind: eventApp, Object: app.Name, App: app.Name, Node: pinned, Reason: "VolumeUnavailable", Message: lostMsg})
+	if unavailable && target.Spec.FailsOver() {
+		s.failOver(ctx, rc, app.Name, pinned, target, nodes, all, revs)
+	}
 	s.condition(ctx, "volume-cordoned:"+app.Name, known && pn.Cordoned, store.Event{Kind: eventApp, Object: app.Name, App: app.Name, Node: pinned, Reason: "VolumeOnCordonedNode",
 		Message: fmt.Sprintf("node %s is cordoned, but the app keeps running there because its volumes are on it", pinned)})
 
