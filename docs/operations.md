@@ -1129,6 +1129,10 @@ scrape_configs:
       - targets: ["10.0.0.5:9443", "10.0.0.6:9443", "10.0.0.7:9443"]
 ```
 
+A program of your own that reads the endpoint follows the same rule: give it
+every server's address and have it try them in turn until one answers
+([monitoring guide](guides/monitoring-and-alerts.md#reading-the-endpoint-from-your-own-program)).
+
 The leader reads the cluster's state for the endpoint at most once every 10
 seconds: scrapes in between, from one scraper or several, get the same
 values, so the app, replica, node, project, job, and volume metrics may be

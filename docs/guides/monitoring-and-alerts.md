@@ -86,6 +86,26 @@ scrape_configs:
 - The leader reads the cluster's state for the endpoint at most once every
   10 seconds, so an interval below 10s shows nothing new.
 
+### Reading the endpoint from your own program
+
+A dashboard or script that reads `/metrics` itself has the same rule to
+follow: only the leader answers, and the leader changes when a server
+restarts. Give the program every server's address, not one, and have it try
+them in turn until one answers:
+
+```
+https://10.0.0.5:9443/metrics,https://10.0.0.6:9443/metrics,https://10.0.0.7:9443/metrics
+```
+
+- A server that is not the leader refuses the connection, so moving on is
+  quick. Keep a short timeout (a few seconds) for servers that do not
+  answer at all.
+- Verify the server's certificate against `ca.pem` with the name
+  `armada-server`, as Prometheus does above; the addresses are not in the
+  certificate.
+- When you add or remove a server, update the list (`armada server list`
+  shows the addresses).
+
 ## 4. Know the metrics that matter
 
 | Metric | What to watch |
