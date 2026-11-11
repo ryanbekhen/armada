@@ -56,6 +56,17 @@ grep -q "$WORK/good/prefix/bin/armadad runtime" "$WORK/good/units/armada-runtime
 	fail "runtime unit not installed"
 [ "$(stat -c %a "$WORK/good/prefix/bin/armadad")" = 755 ] || fail "binary mode"
 
+# A fresh machine is told to set up; one already set up, to restart.
+grep -q "Next: sudo armadad init" "$WORK/good.log" || fail "fresh install: no set-up hint"
+mkdir -p "$WORK/upgrade/data"
+printf '{}' >"$WORK/upgrade/data/agent.json"
+install_from "$WORK/good" upgrade ARMADA_DATA_DIR="$WORK/upgrade/data" || {
+	cat "$WORK/upgrade.log"
+	fail "upgrade install failed"
+}
+grep -q "already runs Armada: 'sudo systemctl restart armada-" "$WORK/upgrade.log" || fail "upgrade: no restart hint: $(cat "$WORK/upgrade.log")"
+if grep -q "Next: sudo armadad init" "$WORK/upgrade.log"; then fail "upgrade: told to init a machine that runs Armada"; fi
+
 # The client alone: no daemon, no units.
 install_from "$WORK/good" client ARMADA_CLIENT_ONLY=1 || {
 	cat "$WORK/client.log"
