@@ -528,6 +528,8 @@ type replicaRec struct {
 	Done     bool  `json:"done,omitempty"`
 	Finished bool  `json:"finished,omitempty"`
 	ExitCode int   `json:"exitCode,omitempty"`
+	// A volume app's replica held until the old one is gone (ADR 0023).
+	Held bool `json:"held,omitempty"`
 }
 
 type secretRec struct {
@@ -1981,7 +1983,7 @@ func (s *Etcd) CreateReplica(ctx context.Context, r Replica) error {
 		if err := t.bindVolumes(rev, r.NodeID, s.now()); err != nil {
 			return err
 		}
-		return t.put(pfxReplicas+r.ID, replicaRec{ID: r.ID, App: r.App, Revision: r.Revision, NodeID: r.NodeID, State: r.State, UpdatedAt: s.now().UnixMilli(), CreatedAt: s.now().UnixMilli(), Run: r.Run})
+		return t.put(pfxReplicas+r.ID, replicaRec{ID: r.ID, App: r.App, Revision: r.Revision, NodeID: r.NodeID, State: r.State, UpdatedAt: s.now().UnixMilli(), CreatedAt: s.now().UnixMilli(), Run: r.Run, Held: r.Held})
 	})
 }
 
@@ -2057,6 +2059,25 @@ func (s *Etcd) SetReplicaMoving(ctx context.Context, id string, moving bool) err
 	})
 }
 
+// ReleaseReplica lifts a replica's hold, so its node starts it.
+func (s *Etcd) ReleaseReplica(ctx context.Context, id string) error {
+	return s.tx(ctx, func(t *etx) error {
+		var r replicaRec
+		ok, err := t.get(pfxReplicas+id, &r)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return notFoundf("replica %s", id)
+		}
+		if !r.Held {
+			return nil
+		}
+		r.Held = false
+		return t.put(pfxReplicas+id, r)
+	})
+}
+
 // ListReplicas returns replicas matching f ordered by ID.
 func (s *Etcd) ListReplicas(ctx context.Context, f ReplicaFilter) ([]Replica, error) {
 	var out []Replica
@@ -2072,7 +2093,7 @@ func (s *Etcd) ListReplicas(ctx context.Context, f ReplicaFilter) ([]Replica, er
 					ContainerID: r.ContainerID, Address: r.Address, IP: r.IP, Message: r.Message, Ready: r.Ready,
 					ReadySince: fromMS(r.ReadySince), DrainingSince: fromMS(r.DrainingSince), MovingSince: fromMS(r.MovingSince), UpdatedAt: fromMS(r.UpdatedAt),
 					CreatedAt: fromMS(r.CreatedAt), Restarts: r.Restarts, LastRestartAt: fromMS(r.LastRestartAt), LastRestart: r.LastRestart,
-					Run: r.Run, Done: r.Done, Finished: r.Finished, ExitCode: r.ExitCode})
+					Run: r.Run, Done: r.Done, Finished: r.Finished, ExitCode: r.ExitCode, Held: r.Held})
 			}
 			return nil
 		})
@@ -2638,9 +2659,10 @@ var migrations = []migration{
 	// projects (and project-creator when they could create projects).
 	migrateAccess,
 	// 9 -> 10: init containers and sidecars (ADR 0038) in app specs, and
-	// nodes that say their agent runs them. Nothing to rewrite; servers
-	// that would start a replica without its other containers can no
-	// longer lead.
+	// nodes that say their agent runs them; held replicas of volume apps
+	// (ADR 0023). Nothing to rewrite; servers that would start a replica
+	// without its other containers, or start a held one next to the
+	// replica still using its volume, can no longer lead.
 	func(*etx) error { return nil },
 }
 

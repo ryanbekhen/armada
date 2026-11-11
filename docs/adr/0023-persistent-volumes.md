@@ -65,11 +65,24 @@ volumes:
 
 ### Behaviour
 
-- **Recreate rollouts.** A deploy stops the old replica (it is drained and
-  removed) before the new one starts on the same node. The app is down from
-  the end of the old replica's drain until the new one is ready. A rollout
-  that makes no progress is aborted as usual (ADR 0005), and the serving
-  revision is started again.
+- **Recreate rollouts, images first.** A deploy stops the old replica (it is
+  drained and removed) before the new one starts on the same node. So that
+  the app is not down while a large image downloads, the new replica is
+  first created *held*: the node pulls its images (the app's, its init
+  containers', and its sidecars') and reports `pulling`, then `pulled`, but
+  starts nothing, while the old replica keeps serving. Only then is the old
+  replica drained; once it is gone the hold is lifted and the node starts
+  the new one from the images it has. The app is down from the end of the
+  old replica's drain until the new one is ready. A pull that fails never
+  stops the old replica: the rollout makes no progress and is aborted as
+  usual (ADR 0005), and the serving revision keeps serving. A failed pull is
+  retried every 30 seconds until then.
+  - Agents announce that they keep held replicas (`Hello.held_replicas`);
+    a node whose agent does not gets the replica only once the hold is
+    lifted, and the old replica stops first as before. Holding is skipped
+    when the node has no room for both replicas' reservations at once.
+  - Held replicas are part of schema 10: a server that would start a held
+    replica beside the old one cannot lead.
 - **Cordoned nodes.** Cordoning a node does not move an app whose volumes
   are on it, and the app may restart there. A `VolumeOnCordonedNode` event
   says so.
@@ -156,7 +169,7 @@ without its volume, or on another node, can no longer lead (ADR 0012).
 - Stateful apps run on Armada, one replica each, tied to a node. Their
   availability is that node's.
 - Deploys of such apps have downtime: the old replica's drain plus the new
-  one's start.
+  one's start (its images are pulled before the old replica stops).
 - Losing a node loses its volumes' data since the last backup. Operators
   schedule `armada volume backup` (for example from cron outside the
   cluster) or use the app's own replication.

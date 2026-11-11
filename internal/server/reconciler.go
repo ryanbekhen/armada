@@ -1149,6 +1149,11 @@ func (s *Server) pushAssignments(ctx context.Context, replicas []store.Replica, 
 			a.Proxy = pxRefs
 		}
 		for _, r := range byNode[sess.nodeID] {
+			if r.Held && !sess.holds {
+				// An agent that does not know holds would start it next
+				// to the replica still using its volume.
+				continue
+			}
 			rev, err := revs.get(ctx, r.Revision)
 			if err != nil {
 				return err
@@ -1163,6 +1168,7 @@ func (s *Server) pushAssignments(ctx context.Context, replicas []store.Replica, 
 			if err != nil {
 				return err
 			}
+			rs.Hold = r.Held
 			a.Replicas = append(a.Replicas, rs)
 		}
 		slices.SortFunc(a.Replicas, func(x, y *armadav1.ReplicaSpec) int { return cmp.Compare(x.Id, y.Id) })

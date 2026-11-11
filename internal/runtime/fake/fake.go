@@ -28,6 +28,9 @@ type Driver struct {
 
 	// PullErr, if set, is returned by Pull for matching images.
 	PullErr map[string]error
+	// pullHook, if set (SetPullHook), is called by every Pull, without the
+	// driver's lock.
+	pullHook func(ctx context.Context, image string) error
 	// RunErr, if set, is returned by Run.
 	RunErr error
 	// RunHook, if set, is called by every Run, without the driver's lock.
@@ -448,8 +451,24 @@ func New() *Driver {
 // Ping always succeeds.
 func (d *Driver) Ping(context.Context) error { return d.PingErr }
 
+// SetPullHook makes every later Pull call fn first, without the driver's
+// lock, so a test can hold a pull or fail it.
+func (d *Driver) SetPullHook(fn func(ctx context.Context, image string) error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.pullHook = fn
+}
+
 // Pull records the pull and returns the configured digest and platforms.
-func (d *Driver) Pull(_ context.Context, image string, auth *runtime.RegistryAuth) (runtime.Image, error) {
+func (d *Driver) Pull(ctx context.Context, image string, auth *runtime.RegistryAuth) (runtime.Image, error) {
+	d.mu.Lock()
+	hook := d.pullHook
+	d.mu.Unlock()
+	if hook != nil {
+		if err := hook(ctx, image); err != nil {
+			return runtime.Image{}, err
+		}
+	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.Pulls = append(d.Pulls, image)

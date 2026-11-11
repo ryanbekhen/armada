@@ -7591,8 +7591,12 @@ type Hello struct {
 	// The node reads job queues from network sandboxes in its subnet of the
 	// cluster network (ADR 0040).
 	QueueSandboxes bool `protobuf:"varint,14,opt,name=queue_sandboxes,json=queueSandboxes,proto3" json:"queue_sandboxes,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// The node pulls the images of a held replica without starting it
+	// (ReplicaSpec.hold), so a volume app's new replica is ready before the
+	// old one stops (ADR 0023).
+	HeldReplicas  bool `protobuf:"varint,15,opt,name=held_replicas,json=heldReplicas,proto3" json:"held_replicas,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Hello) Reset() {
@@ -7705,6 +7709,13 @@ func (x *Hello) GetContainers() bool {
 func (x *Hello) GetQueueSandboxes() bool {
 	if x != nil {
 		return x.QueueSandboxes
+	}
+	return false
+}
+
+func (x *Hello) GetHeldReplicas() bool {
+	if x != nil {
+		return x.HeldReplicas
 	}
 	return false
 }
@@ -9626,8 +9637,12 @@ type ReplicaSpec struct {
 	// (ADR 0038). All share the replica's network namespace.
 	InitContainers []*ContainerSpec `protobuf:"bytes,21,rep,name=init_containers,json=initContainers,proto3" json:"init_containers,omitempty"`
 	Sidecars       []*ContainerSpec `protobuf:"bytes,22,rep,name=sidecars,proto3" json:"sidecars,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// The replica is held: the agent pulls its images and reports "pulling",
+	// then "pulled", but starts no container until the hold is lifted. Only
+	// sent to agents that announce Hello.held_replicas.
+	Hold          bool `protobuf:"varint,23,opt,name=hold,proto3" json:"hold,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ReplicaSpec) Reset() {
@@ -9812,6 +9827,13 @@ func (x *ReplicaSpec) GetSidecars() []*ContainerSpec {
 		return x.Sidecars
 	}
 	return nil
+}
+
+func (x *ReplicaSpec) GetHold() bool {
+	if x != nil {
+		return x.Hold
+	}
+	return false
 }
 
 // An init container or a sidecar of a replica (ADR 0038).
@@ -12436,7 +12458,7 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\x04wake\x18\x04 \x01(\v2\x0f.armada.v1.WakeH\x00R\x04wakeB\x05\n" +
 	"\x03msg\"\x18\n" +
 	"\x04Wake\x12\x10\n" +
-	"\x03app\x18\x01 \x01(\tR\x03app\"\x90\x03\n" +
+	"\x03app\x18\x01 \x01(\tR\x03app\"\xb5\x03\n" +
 	"\x05Hello\x12\x1d\n" +
 	"\n" +
 	"cpu_millis\x18\x01 \x01(\x03R\tcpuMillis\x12!\n" +
@@ -12455,7 +12477,8 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\n" +
 	"containers\x18\r \x01(\bR\n" +
 	"containers\x12'\n" +
-	"\x0fqueue_sandboxes\x18\x0e \x01(\bR\x0equeueSandboxesJ\x04\b\a\x10\bJ\x04\b\b\x10\tR\aruntimeR\x10min_memory_bytes\"D\n" +
+	"\x0fqueue_sandboxes\x18\x0e \x01(\bR\x0equeueSandboxes\x12#\n" +
+	"\rheld_replicas\x18\x0f \x01(\bR\fheldReplicasJ\x04\b\a\x10\bJ\x04\b\b\x10\tR\aruntimeR\x10min_memory_bytes\"D\n" +
 	"\rReplicaReport\x123\n" +
 	"\breplicas\x18\x01 \x03(\v2\x17.armada.v1.ReplicaStateR\breplicas\"\xb6\x02\n" +
 	"\fReplicaState\x12\x0e\n" +
@@ -12615,7 +12638,7 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\x10ProxyCertificate\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x10\n" +
 	"\x03pem\x18\x02 \x01(\fR\x03pem\x12\x16\n" +
-	"\x06sha256\x18\x03 \x01(\fR\x06sha256\"\xd0\x06\n" +
+	"\x06sha256\x18\x03 \x01(\fR\x06sha256\"\xe4\x06\n" +
 	"\vReplicaSpec\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x10\n" +
 	"\x03app\x18\x02 \x01(\tR\x03app\x12\x1a\n" +
@@ -12640,7 +12663,8 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\avolumes\x18\x13 \x03(\v2\x15.armada.v1.VolumeSpecR\avolumes\x12-\n" +
 	"\x06queues\x18\x14 \x03(\v2\x15.armada.v1.QueueProbeR\x06queues\x12A\n" +
 	"\x0finit_containers\x18\x15 \x03(\v2\x18.armada.v1.ContainerSpecR\x0einitContainers\x124\n" +
-	"\bsidecars\x18\x16 \x03(\v2\x18.armada.v1.ContainerSpecR\bsidecars\"\xd6\x02\n" +
+	"\bsidecars\x18\x16 \x03(\v2\x18.armada.v1.ContainerSpecR\bsidecars\x12\x12\n" +
+	"\x04hold\x18\x17 \x01(\bR\x04hold\"\xd6\x02\n" +
 	"\rContainerSpec\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
 	"\x05image\x18\x02 \x01(\tR\x05image\x12\x18\n" +
