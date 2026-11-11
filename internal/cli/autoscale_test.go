@@ -12,7 +12,7 @@ func TestAutoscaleNote(t *testing.T) {
 		{Type: "cpu", Target: 70},
 	}}
 	got := autoscaleNote(as)
-	want := "autoscale 2-10, http 34/50, cpu -/70%: steady: http 34 of 50 per replica [2J"
+	want := "2-10 replicas, http 34/50, cpu -/70%: steady: http 34 of 50 per replica [2J"
 	if got != want {
 		t.Errorf("note = %q, want %q", got, want)
 	}
