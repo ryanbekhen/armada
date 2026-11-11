@@ -8,15 +8,7 @@
 A volume is a directory on one node (ADR 0023). That binds the app to the
 node and to a single replica, and a deploy stops the old replica before
 the new one starts. Some data has to be shared instead: uploads that every
-replica of a web app serves, or files several apps read. The people
-running a cluster often have shared storage already, as a storage
-appliance, a cloud provider's file service, or a machine they keep for it,
-and it speaks NFS.
-
-Armada does not run that storage. A file server inside the cluster would
-keep its data on one node, so that node going down would take every app
-that uses it down with it, and keeping files available across failures is
-work of its own.
+replica of a web app serves, or files several apps read.
 
 ## Decision
 
@@ -32,9 +24,6 @@ volumes:
       readOnly: false
 ```
 
-- **The operator provides the server.** Armada only mounts its exports.
-  The server must export the path over NFSv4 to the nodes' private
-  addresses.
 - **Spec.**
   - `server` is an IP address in a private range (10/8, 172.16/12,
     192.168/16, 100.64/10, or fc00::/7). Host names, loopback, link-local,
@@ -43,7 +32,7 @@ volumes:
   - `path` is absolute and clean, made of letters, digits, `.`, `_`, `-`,
     and `/`, at most 256 characters.
   - `owner`, `backup`, and `failover` are refused: ownership and backups
-    belong to the server.
+    belong to the server. Exports must be NFSv4.
 - **Not bound to a node.** An app whose volumes are all NFS volumes is
   placed, scaled, autoscaled, and rolled out like any other: any number of
   replicas, rolling updates, rebalancing, and evacuation. A node-local

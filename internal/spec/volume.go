@@ -26,8 +26,8 @@ type Volume struct {
 	// Failover "restore" restores the latest backup on another node when
 	// the volume's node is lost (ADR 0041).
 	Failover string `yaml:"failover,omitempty" json:"failover,omitempty"`
-	// NFS mounts an export of an NFS server the operator runs instead of a
-	// directory on the node (ADR 0042).
+	// NFS mounts an NFS export instead of a directory on the node (ADR
+	// 0042).
 	NFS *NFSSource `yaml:"nfs,omitempty" json:"nfs,omitempty"`
 }
 
