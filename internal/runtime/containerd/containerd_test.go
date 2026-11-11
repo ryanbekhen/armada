@@ -370,3 +370,23 @@ func TestCNIConfigBringsUpLoopback(t *testing.T) {
 		t.Errorf("no loopback plugin: %+v", conf.Plugins)
 	}
 }
+
+func TestVolumeMountOptions(t *testing.T) {
+	t.Parallel()
+	s := genSpec(t, appOpts(appSpec{spec: runtime.ContainerSpec{Name: "web", Volumes: []runtime.VolumeMount{
+		{Source: "/var/lib/armada/volumes/web/data", Target: "/data"},
+		{Source: "/var/lib/armada/nfs/web/up", Target: "/up", Shared: true, ReadOnly: true},
+	}}})...)
+	want := map[string]string{"/data": "rbind,rw,nosuid,nodev", "/up": "rbind,ro,nosuid,nodev"}
+	for _, m := range s.Mounts {
+		if w, ok := want[m.Destination]; ok {
+			if got := strings.Join(m.Options, ","); got != w {
+				t.Errorf("%s: %s, want %s", m.Destination, got, w)
+			}
+			delete(want, m.Destination)
+		}
+	}
+	if len(want) != 0 {
+		t.Errorf("missing mounts %v", want)
+	}
+}

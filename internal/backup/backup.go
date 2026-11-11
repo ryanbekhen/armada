@@ -61,6 +61,9 @@ const (
 	// Volumes (DirVolumes, ADR 0023) hold app data on whichever node runs
 	// the app; `armada volume backup` copies them.
 	DirVolumes = "volumes"
+	// DirNFS holds the mount points of NFS volumes (ADR 0042); their data
+	// is on the NFS server.
+	DirNFS = "nfs"
 	// FileNetworkKey is the node's own cluster network key (ADR 0025). It
 	// is not copied: it belongs to the node, and a restored node makes a
 	// new one, which its agent announces.

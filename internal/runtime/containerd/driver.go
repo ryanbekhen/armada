@@ -383,6 +383,9 @@ func (d *Driver) Run(ctx context.Context, s runtime.ContainerSpec) (_ string, er
 	// A volume gets this container's categories each time: only one
 	// container uses it at a time, and a new one gets new categories.
 	for _, v := range s.Volumes {
+		if v.Shared {
+			continue // mounted with a label every container may use (ADR 0042)
+		}
 		if err := relabel(v.Source, sl); err != nil {
 			return "", fmt.Errorf("label volume %s: %w", v.Target, err)
 		}

@@ -97,8 +97,10 @@ armada app update web --file web.yaml
   crashes, and reboots, for databases and uploads; deploys pull the new
   image before the old replica stops. Scheduled backups go to an
   S3-compatible bucket, deduplicated and encrypted, keeping the backups
-  `keep` names; `armada volume backup` and `restore` copy a volume out and
-  back, onto another node if its own is gone.
+  `keep` names, and an app whose node is lost comes back on another node
+  from its latest backup; `armada volume backup` and `restore` copy a
+  volume out and back. A volume can also be an export of an NFS server you
+  run, shared by any number of replicas.
 - **Init containers and sidecars.** `initContainers` run to completion
   before an app's container starts (a migration, a seed step); `sidecars`
   run beside it on its localhost (a proxy, a log shipper), with the app's

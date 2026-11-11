@@ -536,6 +536,7 @@ func runAgent(ctx context.Context, dataDir string, servers []string, proxyKind, 
 		Check:      probeCheck,
 		SecretsDir: prepareSecretsDir(secretsDir, log),
 		VolumesDir: prepareVolumesDir(filepath.Join(dataDir, backup.DirVolumes), log),
+		NFSDir:     filepath.Join(dataDir, backup.DirNFS),
 		Servers:    ac.Servers,
 		OnServers:  onServers,
 

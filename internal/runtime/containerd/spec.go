@@ -58,7 +58,11 @@ func appOpts(a appSpec) []oci.SpecOpts {
 		mounts = append(mounts, specs.Mount{Destination: f.Target, Type: "bind", Source: f.Source, Options: ro})
 	}
 	for _, v := range s.Volumes {
-		mounts = append(mounts, specs.Mount{Destination: v.Target, Type: "bind", Source: v.Source, Options: []string{"rbind", "rw", "nosuid", "nodev"}})
+		rw := "rw"
+		if v.ReadOnly {
+			rw = "ro"
+		}
+		mounts = append(mounts, specs.Mount{Destination: v.Target, Type: "bind", Source: v.Source, Options: []string{"rbind", rw, "nosuid", "nodev"}})
 	}
 	opts := []oci.SpecOpts{
 		oci.WithEnv(s.Env),
