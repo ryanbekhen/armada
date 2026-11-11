@@ -118,6 +118,8 @@ type pool struct {
 	timeout int
 	// ipAllow and ipDeny are the backend's client address rules (ADR 0035).
 	ipAllow, ipDeny []string
+	// remote names the servers on other nodes, checked less often.
+	remote map[string]bool
 }
 
 // Weights of a local-first backend (ADR 0024). HAProxy's leastconn picks the
@@ -148,6 +150,16 @@ func pools(cfg proxy.Config, n node) []pool {
 // address; an app that splits traffic keeps its weights and takes turns.
 func backendPool(be proxy.Backend, n node) pool {
 	p := pool{name: backendName(be.Name), servers: be.Servers, timeout: be.TimeoutSeconds, ipAllow: be.IPAllow, ipDeny: be.IPDeny}
+	if n.known() {
+		for _, s := range be.Servers {
+			if !n.has(s.Address) {
+				if p.remote == nil {
+					p.remote = map[string]bool{}
+				}
+				p.remote[s.Name] = true
+			}
+		}
+	}
 	if !localFirst(be, n) {
 		return p
 	}
@@ -353,6 +365,10 @@ func render(cfg proxy.Config, layout Layout, opts renderOptions) []byte {
 	return []byte(b.String())
 }
 
+// remoteCheckInterval is how often a node checks a replica on another node
+// while requests to it succeed.
+const remoteCheckInterval = "15s"
+
 // maxProxyHops is how many trusted proxies in a row the client's address is
 // looked for behind (ADR 0035).
 const maxProxyHops = 4
@@ -430,13 +446,23 @@ func writeBackend(w func(string, ...any), p pool, healthPath string, layout Layo
 		w("    option httpchk GET %s", healthPath)
 		w("    http-check expect status 200-399")
 	}
-	// A dead node is out of rotation within about 4s.
-	w("    default-server check inter 2s fall 2 rise 2")
+	// Every node checks its own replicas every 2 seconds, and the other
+	// nodes' every 15: their own agent probes them, and the control plane
+	// takes a replica out once it is not ready, so the check only has to
+	// notice a node that died. Failed connections of real requests make the
+	// checks fast (1s) at once, so a dead node is out of rotation within a
+	// few seconds of the first failure while it gets traffic, and a node no
+	// longer checks every replica of the cluster every 2 seconds.
+	w("    default-server check inter 2s fastinter 1s fall 2 rise 2 observe layer4 error-limit 2 on-error fastinter")
 	for i, sname := range layout[p.name] {
+		inter := ""
+		if p.remote[sname] {
+			inter = " inter " + remoteCheckInterval
+		}
 		if s, ok := servers[sname]; ok && sname != "" && s.EffectiveWeight() != 1 {
-			w("    server %s %s weight %d", slotName(i), s.Address, s.EffectiveWeight())
+			w("    server %s %s weight %d%s", slotName(i), s.Address, s.EffectiveWeight(), inter)
 		} else if ok && sname != "" {
-			w("    server %s %s", slotName(i), s.Address)
+			w("    server %s %s%s", slotName(i), s.Address, inter)
 		} else {
 			w("    server %s 127.0.0.1:1 disabled", slotName(i))
 		}

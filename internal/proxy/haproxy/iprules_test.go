@@ -231,3 +231,36 @@ func FuzzRenderIPRules(f *testing.F) {
 		}
 	})
 }
+
+// A node checks its own replicas every 2 seconds and other nodes' every 15,
+// and real request failures make the checks fast for any of them.
+func TestRenderHealthCheckIntervals(t *testing.T) {
+	t.Parallel()
+	cfg := proxy.Config{Backends: []proxy.Backend{{Name: "web", Servers: []proxy.Server{
+		{Name: "web-local", Address: "10.0.0.2:8080"},
+		{Name: "web-subnet", Address: "10.120.0.5:80"},
+		{Name: "web-remote", Address: "10.0.0.3:8080"},
+		{Name: "web-remote-subnet", Address: "10.120.1.5:80"},
+	}}}}
+	opts := renderOptions{PrivateIP: "10.0.0.2", Subnet: "10.120.0.0/24"}
+	out := string(render(cfg, assignLayout(nil, cfg, opts.node()), opts))
+	if !strings.Contains(out, "    default-server check inter 2s fastinter 1s fall 2 rise 2 observe layer4 error-limit 2 on-error fastinter\n") {
+		t.Errorf("default checks:\n%s", out)
+	}
+	for addr, remote := range map[string]bool{"10.0.0.2:8080": false, "10.120.0.5:80": false, "10.0.0.3:8080": true, "10.120.1.5:80": true} {
+		var line string
+		for _, l := range strings.Split(out, "\n") {
+			if strings.Contains(l, " "+addr) {
+				line = l
+			}
+		}
+		if strings.HasSuffix(line, " inter 15s") != remote {
+			t.Errorf("%s (remote %v): %q", addr, remote, line)
+		}
+	}
+	// Without the node's address, nothing is known to be remote.
+	out = string(render(cfg, assignLayout(nil, cfg, renderOptions{}.node()), renderOptions{}))
+	if strings.Contains(out, "inter 15s") {
+		t.Error("servers checked slowly on a node that does not know its address")
+	}
+}
