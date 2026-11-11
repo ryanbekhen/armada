@@ -89,6 +89,7 @@ E2E_ONLY=isolation,rollout ARMADA_BIN=... sh test/e2e/cluster.sh hosts
 | `cpu` | 11 | CPU reservations, capacity |
 | `spread` | 12 | `placement.spreadBy` |
 | `ip-rules` | 15 | `ingress.ipAllow`/`ipDeny`, trusted proxies, client address headers |
+| `sticky` | 16 | `ingress.sticky`, the proxy's cookie |
 | `queues` | 14 | autoscaling on queues and schedules, dialling from containers |
 | `reboot` | 13 | start-up order, units, state after a crash |
 
@@ -156,3 +157,6 @@ A release runs every scenario.
       - a trusted proxy in the chain is stepped over;
       - a proxy that names no valid client is refused.
     - `ipDeny` refuses one machine and lets the others in.
+16. A sticky app with three replicas: a client that keeps the cookie reaches
+    one replica through every node, and requests without it are balanced
+    over several (runs before 14 and 13).

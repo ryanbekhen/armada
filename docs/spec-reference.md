@@ -192,6 +192,7 @@ a secret; there is no inline password field.
 | `domains` | `external` only. Up to 32 lowercase, fully qualified host names (no IP addresses, wildcards, or trailing dot). Each domain is routed and gets a certificate only after its ownership is verified: publish the TXT record shown by `armada domain list`, then run `armada domain verify <domain>`. With a DNS provider set, a domain one label under the root domain is served with the root domain's wildcard certificate. |
 | `allow` | Up to 32 names of apps in the same project that may call this app at its internal name, for example `allow: [api, worker]`. The app's own replicas always may. Without `allow`, every app of the project may. Other callers get a 404. Enforced with the cluster network (ADR 0025), for calls through the internal name; not with `type: none`. |
 | `ipAllow` | `external` only. Up to 64 rules, each an address or prefix, IPv4 or IPv6 (`203.0.113.7`, `203.0.113.0/24`, `2001:db8::/32`), written bare or as `{range, name, description}` so others know what it is for (name up to 64 characters, description up to 256, both printable text; names unique). Only clients from these reach the app from outside; others get `403` and wake nothing. Not with `ipDeny`. The client is the connection's address, or, behind a trusted proxy, the last address that proxy wrote in `X-Forwarded-For`; any other header is ignored ([ADR 0035](adr/0035-client-address-rules.md)). Internal callers are chosen with `allow`. |
+| `sticky` | `true` sends each client back to the replica that answered it first, through a cookie the proxy sets (`armada_<hash>`, `httponly`, `secure`, `SameSite=Lax`); a replica that is gone sends it to another one. Turns local-first routing off for the app ([ADR 0036](adr/0036-sticky-sessions.md)). Not with `type: none`. |
 | `ipDeny` | `external` only. Like `ipAllow`, but clients from these get `403` and every other client gets in. A trusted proxy that names no valid client is refused in both. |
 | `timeout` | How long a request may wait for the app to send something, 1s to 1h, default `60s`, for an app with slow responses such as long reports. |
 | `routes` | Up to 32 path prefixes (`/` or `/a/b`, URL-safe characters, no `.` or `..` segments). Without routes the app gets every path of its hosts. `stripPrefix: true` removes the prefix before the request reaches the app (not allowed for `/`). The longest matching prefix wins. |
@@ -503,8 +504,8 @@ revisions:
   `revisions`) for a rolling update. Every revision in the traffic serves
   until the new one is ready.
 - **Shared settings.** Routes, domains, and the health check path come from
-  the newest revision. Each request is balanced on its own, with no sticky
-  sessions.
+  the newest revision. Each request is balanced by revision weight; with
+  `ingress.sticky`, a client then stays on its revision's replica.
 
 ### `volumes`
 
