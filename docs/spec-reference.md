@@ -564,7 +564,7 @@ volumes:
 
 #### `volumes[].nfs`
 
-An export of an NFS server you run
+An NFS export
 ([ADR 0042](adr/0042-nfs-volumes.md)): the data stays on the server, so the
 app is bound to no node and may run any number of replicas, with rolling
 updates.
