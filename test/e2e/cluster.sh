@@ -19,7 +19,7 @@ set -eu
 # Scenarios that run after the cluster is built and the test app serves.
 # E2E_ONLY=isolation,rollout runs only those (empty: all); E2E_LIST=1 lists
 # them. test/e2e/README.md says which to pick for a change.
-SCENARIOS="listeners project-secret conntrack isolation load rollout agent-restart failover node-loss backup placement platforms cpu spread ip-rules sticky cors queues reboot"
+SCENARIOS="listeners project-secret conntrack isolation load rollout agent-restart failover node-loss backup placement platforms cpu spread ip-rules sticky cors sidecars queues reboot"
 E2E_ONLY=${E2E_ONLY:-}
 if [ "${E2E_LIST:-}" = 1 ]; then
 	echo "$SCENARIOS" | tr ' ' '\n'
@@ -889,6 +889,54 @@ _h=$(cors_headers OPTIONS https://evil.example.net "Access-Control-Request-Metho
 printf '%s\n' "$_h" | grep -qi '^access-control-allow-origin' && fail "an unlisted origin's preflight was allowed: $_h"
 ok "an unlisted origin gets no CORS headers, preflight or not"
 cli app delete cors --yes >/dev/null
+
+fi
+
+if want sidecars; then
+log "init containers run first, sidecars share the replica's localhost"
+cat <<EOF | cli app update side --file - --create-if-missing >/dev/null
+name: side
+image: $V1
+ingress:
+  type: external
+  port: 80
+initContainers:
+  - name: prepare
+    image: busybox:1.37
+    command: ["sh", "-c", "echo e2e-init-ran"]
+sidecars:
+  - name: helper
+    image: busybox:1.37
+    command: ["sleep", "86400"]
+EOF
+side_ready() {
+	status | jq -e '[.apps[] | select(.name == "side") | .replicas[]? | select(.state == "running" and .ready)] | length >= 1' >/dev/null
+}
+wait_for 300 "an app with an init container and a sidecar runs" side_ready
+cli app logs side --container prepare 2>/dev/null | grep -q e2e-init-ran || fail "the init container's output is not in its logs"
+ok "the init container ran and its logs are kept"
+side_local() { cli app exec side --container helper -- wget -qO- http://127.0.0.1:80/ 2>/dev/null | grep -q '^Hostname:'; }
+wait_for 60 "the sidecar reaches the app on 127.0.0.1" side_local
+
+cat <<'EOF' | cli app update side-fail --file - --create-if-missing >/dev/null
+name: side-fail
+image: busybox:1.37
+command: ["sleep", "86400"]
+ingress:
+  type: none
+initContainers:
+  - name: broken
+    image: busybox:1.37
+    command: ["sh", "-c", "exit 3"]
+EOF
+side_failed() {
+	status | jq -e '[.apps[] | select(.name == "side-fail") | .replicas[]? | select((.message // "") | contains("init container broken exited with code 3"))] | length >= 1' >/dev/null
+}
+wait_for 180 "a failing init container keeps the app from starting and says why" side_failed
+status | jq -e '[.apps[] | select(.name == "side-fail") | .replicas[]? | select(.state == "running" and .ready)] | length == 0' >/dev/null ||
+	fail "the app started although its init container failed"
+ok "nothing starts after a failed init container"
+for a in side side-fail; do cli app delete "$a" --yes >/dev/null; done
 
 fi
 

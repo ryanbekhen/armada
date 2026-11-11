@@ -91,6 +91,7 @@ E2E_ONLY=isolation,rollout ARMADA_BIN=... sh test/e2e/cluster.sh hosts
 | `ip-rules` | 15 | `ingress.ipAllow`/`ipDeny`, trusted proxies, client address headers |
 | `sticky` | 16 | `ingress.sticky`, the proxy's cookie |
 | `cors` | 17 | `ingress.cors`, the proxy's preflight answers |
+| `sidecars` | 18 | init containers, sidecars, the shared network namespace |
 | `queues` | 14 | autoscaling on queues and schedules, dialling from containers |
 | `reboot` | 13 | start-up order, units, state after a crash |
 
@@ -164,3 +165,7 @@ A release runs every scenario.
 17. CORS: the proxy answers a preflight from a listed origin with the
     policy, the app's answer to it carries the headers, and an unlisted origin
     gets none, preflight or not (runs before 14 and 13).
+18. Init containers and sidecars: an app with both runs; the init
+    container's output is in its logs; the sidecar reaches the app on
+    127.0.0.1; a failing init container keeps its app from starting and says
+    why (runs before 14 and 13).
