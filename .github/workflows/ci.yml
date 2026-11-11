@@ -121,27 +121,34 @@ jobs:
           go-version-file: go.mod
       - run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
 
+  # The condition is on the steps, not the job: a skipped matrix job reports
+  # one check named "build", never the "build (linux, amd64)" and
+  # "build (linux, arm64)" the ruleset requires, so documents-only pull
+  # requests could not merge.
   build:
     needs: changes
-    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     strategy:
       matrix:
         goos: [linux]
         goarch: [amd64, arm64]
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - if: needs.changes.outputs.code == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - if: needs.changes.outputs.code == 'true'
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-      - run: make build
+      - if: needs.changes.outputs.code == 'true'
+        run: make build
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
       # The armada client also builds for macOS (ADR 0027).
-      - run: go build -trimpath -o /dev/null ./cmd/armada
+      - if: needs.changes.outputs.code == 'true'
+        run: go build -trimpath -o /dev/null ./cmd/armada
         env:
           GOOS: darwin
           GOARCH: ${{ matrix.goarch }}
