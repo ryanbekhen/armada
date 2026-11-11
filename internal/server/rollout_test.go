@@ -289,3 +289,27 @@ func TestRolloutWithoutIngress(t *testing.T) {
 		return a.ActiveRevision == "worker--r2" && a.RolloutState == "" && containerCount(d1) == 1
 	})
 }
+
+// A first revision that never served must not keep the next one from fitting:
+// on a node with room for two replicas, two that never became ready give way
+// to the new revision at once.
+func TestRolloutFreesReplicasThatNeverServed(t *testing.T) {
+	t.Parallel()
+	c := newCluster(t, func(cfg *Config) { cfg.ProgressDeadline = time.Hour })
+	c.addNode("n1", "127.0.0.1")
+	c.checks["n1"].breakImage("nginx:broken")
+	spec := func(image string) string {
+		return "name: web\nimage: " + image + "\ningress:\n  type: external\n  port: 80\nscale:\n  min: 2\n  max: 2\nresources:\n  memory: 768Mi\n"
+	}
+	c.deploy(spec("nginx:broken"))
+	c.eventually("two replicas that never serve", func() bool {
+		rs, _ := c.store.ListReplicas(c.ctx, store.ReplicaFilter{App: "web"})
+		return len(rs) == 2
+	})
+	c.deploy(spec("nginx:2"))
+	c.eventually("the new revision serves on both", func() bool {
+		a := c.app("web")
+		r := c.running("web")
+		return a.ActiveRevision == "web--r2" && a.RolloutState == "" && len(r) == 2 && r[0].Revision == "web--r2" && r[1].Revision == "web--r2"
+	})
+}

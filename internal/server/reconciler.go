@@ -498,7 +498,10 @@ func (s *Server) reconcileRevision(ctx context.Context, rc *reconcileRun, app *s
 		if serving(r) {
 			lose = 1
 		}
-		if oldServing-lose+newServing < app.Replicas {
+		// One that serves nothing goes at once, whatever the new replicas
+		// do: it only holds capacity they may need (a first revision whose
+		// image never pulled, a replica that keeps crashing).
+		if lose == 1 && oldServing-lose+newServing < app.Replicas {
 			break
 		}
 		if all, err = s.retire(ctx, rc, all, r); err != nil {
