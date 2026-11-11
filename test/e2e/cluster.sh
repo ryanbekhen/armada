@@ -111,8 +111,26 @@ fail() {
 }
 q() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
 
-# on N CMD runs CMD as root on machine N; stdin is passed through.
+# on N CMD runs CMD as root on machine N; stdin is passed through. A
+# connection that fails (ssh exits 255) is tried again, up to four times:
+# cloud networks drop the odd SSH connection.
 on() {
+	_on_n=$1
+	shift
+	_on_try=1
+	while :; do
+		on_once "$_on_n" "$@" && return 0
+		_on_rc=$?
+		if [ "$_on_rc" -ne 255 ] || [ "$_on_try" -ge 4 ]; then
+			return "$_on_rc"
+		fi
+		_on_try=$((_on_try + 1))
+		sleep 5
+	done
+}
+# on_once N CMD is on without retrying, for commands that end the
+# connection themselves (a reboot).
+on_once() {
 	_target=$(host "$1" 2)
 	shift
 	# shellcheck disable=SC2086 # E2E_SSH_OPTS is a list of options
@@ -1421,7 +1439,7 @@ if [ "$E2E_REBOOT" = 1 ] && want reboot; then
 	log "reboot every machine at once"
 	i=1
 	while [ "$i" -le "$N" ]; do
-		on "$i" 'systemctl reboot' >/dev/null 2>&1 || true
+		on_once "$i" 'systemctl reboot' >/dev/null 2>&1 || true
 		i=$((i + 1))
 	done
 	sleep 30
