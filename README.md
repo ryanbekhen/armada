@@ -87,6 +87,28 @@ armada app update web --file web.yaml --diff   # what would change
 armada app update web --file web.yaml --wait
 ```
 
+## Install
+
+The same script installs Armada everywhere. It verifies what it downloads
+and installs or upgrades only: it never sets a machine up by itself.
+
+| Where | What gets installed | Command |
+| --- | --- | --- |
+| A Linux machine of the cluster | `armadad` (runs the machine) and the `armada` client | `curl -fsSL https://raw.githubusercontent.com/ryanbekhen/armada/main/install.sh \| sudo sh` |
+| Your Linux laptop, a CI runner, any Linux machine that only manages the cluster | The `armada` client only | `curl -fsSL https://raw.githubusercontent.com/ryanbekhen/armada/main/install.sh \| sudo ARMADA_CLIENT_ONLY=1 sh` |
+| macOS (Intel or Apple silicon) | The `armada` client only (always on macOS) | `curl -fsSL https://raw.githubusercontent.com/ryanbekhen/armada/main/install.sh \| sudo sh` |
+
+Without root, install the client into your home directory instead:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ryanbekhen/armada/main/install.sh | ARMADA_CLIENT_ONLY=1 ARMADA_PREFIX="$HOME/.local" sh
+```
+
+`ARMADA_VERSION=v0.1.0-alpha.6` pins a version. The client then needs a
+certificate of your own and a way to reach the control plane's private
+address (a VPN or an SSH tunnel): see
+[Use armada from your own computer](docs/quickstart.md#9-use-armada-from-your-own-computer).
+
 ## Why Armada
 
 - **Small and complete.** `armadad` runs on every machine and brings its own
