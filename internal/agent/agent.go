@@ -309,7 +309,7 @@ func (a *Agent) session(ctx context.Context) (established bool, err error) {
 	hello := &armadav1.AgentMessage{Msg: &armadav1.AgentMessage_Hello{Hello: &armadav1.Hello{
 		CpuMillis: a.cfg.CPUMillis, MemoryBytes: a.cfg.MemoryBytes, Version: version.Get().Version, PrivateIp: a.cfg.PrivateIP,
 		Os: cmp.Or(a.cfg.OS, goruntime.GOOS), Arch: cmp.Or(a.cfg.Arch, goruntime.GOARCH),
-		Jobs: true, Volumes: a.mountsVolumes(), NetworkKey: a.cfg.NetworkKey,
+		Jobs: true, Volumes: a.mountsVolumes(), Containers: runtime.CanRunMembers(a.cfg.Driver), NetworkKey: a.cfg.NetworkKey,
 		CertificateRefs: true,
 	}}}
 	if err := stream.Send(hello); err != nil {
@@ -430,9 +430,11 @@ func (a *Agent) PruneImages(ctx context.Context) {
 	}
 	var keep []string
 	for _, s := range a.desired {
-		keep = append(keep, s.GetImage())
-		if ref := a.digests[s.GetImage()]; ref != "" {
-			keep = append(keep, ref)
+		for _, image := range append([]string{s.GetImage()}, memberImages(s)...) {
+			keep = append(keep, image)
+			if ref := a.digests[image]; ref != "" {
+				keep = append(keep, ref)
+			}
 		}
 	}
 	a.mu.Unlock()
@@ -485,7 +487,9 @@ func (a *Agent) Reconcile(ctx context.Context) (*armadav1.ReplicaReport, error) 
 		id := c.Labels[runtime.LabelReplica]
 		_, want := desired[id]
 		_, dup := byReplica[id]
-		if !want || dup {
+		// An init container or sidecar listed by itself has lost its
+		// replica's container (ADR 0038): it is removed like a stray.
+		if !want || dup || c.Labels[runtime.LabelRole] != "" {
 			a.log.Info("removing container", "container", c.Name, "replica", id)
 			a.remove(ctx, c.ID)
 			continue
@@ -539,11 +543,13 @@ func (a *Agent) Reconcile(ctx context.Context) (*armadav1.ReplicaReport, error) 
 				ok = false
 			}
 		}
-		if ok && stopped(c.State) {
+		if ok && (stopped(c.State) || memberDown(spec, c) != "") {
 			// The runtime restarts nothing itself (ADR 0011): a crashed
 			// container, one left exited by a reboot, or a failed start is
-			// recreated here with crash backoff.
-			msg, wait := a.crashed(ctx, id, c)
+			// recreated here with crash backoff. So is a replica whose init
+			// container failed or whose sidecar stopped, with all of its
+			// containers (ADR 0038).
+			msg, wait := a.crashed(ctx, spec, c)
 			if wait > 0 {
 				settled = append(settled, &armadav1.ReplicaState{
 					Id: id, State: store.ReplicaExited, ContainerId: c.ID,
@@ -749,21 +755,31 @@ func (a *Agent) outOfMemory(ctx context.Context, id string) bool {
 
 // crashed describes why c stopped and returns how long to wait before
 // recreating it (zero: now). Each recreate doubles the next delay.
-func (a *Agent) crashed(ctx context.Context, replica string, c runtime.Container) (string, time.Duration) {
+func (a *Agent) crashed(ctx context.Context, s *armadav1.ReplicaSpec, c runtime.Container) (string, time.Duration) {
+	replica := s.GetId()
 	msg := "container " + c.State
 	// Listing does not include the exit code.
-	if full, err := a.cfg.Driver.Inspect(ctx, c.ID); err == nil && full.State != runtime.StateCreated {
+	if down := memberDown(s, c); down != "" {
+		msg = down
+	} else if full, err := a.cfg.Driver.Inspect(ctx, c.ID); err == nil && full.State != runtime.StateCreated {
 		msg = "exited with code " + strconv.Itoa(full.ExitCode)
 		if a.outOfMemory(ctx, c.ID) {
 			msg = "out of memory at its limit, " + msg
 		}
 	}
+	return msg, a.backoff(replica)
+}
+
+// backoff returns how long to wait before recreating replica's container
+// (zero: now, which counts as a recreate). Each recreate doubles the next
+// delay.
+func (a *Agent) backoff(replica string) time.Duration {
 	now := time.Now()
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	cl := a.crashes[replica]
 	if wait := cl.next.Sub(now); wait > 0 {
-		return msg, wait
+		return wait
 	}
 	if now.Sub(cl.last) > crashReset {
 		cl.count = 0
@@ -773,7 +789,7 @@ func (a *Agent) crashed(ctx context.Context, replica string, c runtime.Container
 	cl.last = now
 	cl.next = now.Add(min(delay, maxCrashBackoff))
 	a.crashes[replica] = cl
-	return msg, 0
+	return 0
 }
 
 func (a *Agent) stopProbes(replica string) {
@@ -961,6 +977,14 @@ func (a *Agent) start(ctx context.Context, s *armadav1.ReplicaSpec, hash string,
 		a.platforms[s.GetImage()] = img.Platforms
 	}
 	a.mu.Unlock()
+	if hasMembers(s) {
+		if !runtime.CanRunMembers(a.cfg.Driver) {
+			return runtime.Container{}, errors.New("this node's container runtime runs no init containers or sidecars")
+		}
+		if err := a.pullMembers(ctx, s, pull); err != nil {
+			return runtime.Container{}, err
+		}
+	}
 	cs := ContainerSpec(s, a.cfg.PrivateIP, hash)
 	if a.cfg.Unpublished {
 		// Not part of the spec hash either: replicas started with a port
@@ -976,6 +1000,9 @@ func (a *Agent) start(ctx context.Context, s *armadav1.ReplicaSpec, hash string,
 		return runtime.Container{}, err
 	}
 	if cs.Volumes, err = a.prepareVolumes(s); err != nil {
+		return runtime.Container{}, err
+	}
+	if err := withMemberMounts(s, &cs); err != nil {
 		return runtime.Container{}, err
 	}
 	id, err := a.cfg.Driver.Run(ctx, cs)
@@ -1038,11 +1065,17 @@ func (a *Agent) state(ctx context.Context, s *armadav1.ReplicaSpec, c runtime.Co
 			}
 			a.mu.Unlock()
 		}
-	case runtime.StateCreated, runtime.StateRestarting:
+	case runtime.StateCreated, runtime.StateRestarting, runtime.StateStarting:
 		st.State = store.ReplicaStarting
+		if c.State == runtime.StateStarting {
+			st.Message = "starting its init containers and sidecars"
+		}
 	default:
 		st.State = store.ReplicaExited
 		st.Message = "exit code " + strconv.Itoa(c.ExitCode)
+		if down := memberDown(s, c); down != "" {
+			st.Message = down
+		}
 	}
 	switch {
 	case c.HostPort != 0:
@@ -1081,6 +1114,8 @@ func ContainerSpec(s *armadav1.ReplicaSpec, hostIP, hash string) runtime.Contain
 		NanoCPUs:         s.GetNanoCpus(),
 		CPUReserveMillis: s.GetCpuReserveMillis(),
 		PidsLimit:        s.GetPidsLimit(),
+		Init:             memberSpecs(s.GetInitContainers()),
+		Sidecars:         memberSpecs(s.GetSidecars()),
 	}
 }
 
@@ -1109,6 +1144,16 @@ func specHash(s *armadav1.ReplicaSpec) string {
 	}
 	for _, f := range c.SecretFiles {
 		f.Data = nil
+	}
+	// Init containers and sidecars (ADR 0038) are hashed with their images:
+	// the server never pins those to a digest. Fields that are empty marshal
+	// to nothing, so replicas without them keep their hash.
+	for _, m := range slices.Concat(c.InitContainers, c.Sidecars) {
+		for _, e := range m.Env {
+			if e.Ref != "" {
+				e.Value = ""
+			}
+		}
 	}
 	if c.Registry != nil {
 		c.Registry.Password = ""
@@ -1152,7 +1197,12 @@ func (a *Agent) serveLogs(ctx context.Context, req *armadav1.LogRequest) {
 		finish("replica " + req.GetReplicaId() + " has no container on this node")
 		return
 	}
-	ls, err := a.cfg.Driver.Logs(ctx, cs[0].ID, runtime.LogOptions{Follow: req.GetFollow(), Tail: int(req.GetTail())})
+	id, err := containerFor(cs, req.GetContainer())
+	if err != nil {
+		finish("replica " + req.GetReplicaId() + ": " + err.Error())
+		return
+	}
+	ls, err := a.cfg.Driver.Logs(ctx, id, runtime.LogOptions{Follow: req.GetFollow(), Tail: int(req.GetTail())})
 	if err != nil {
 		finish(err.Error())
 		return

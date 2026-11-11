@@ -119,6 +119,7 @@ func newLogsCommand(g *globals, job bool) *cobra.Command {
 		tail    int
 		replica string
 		run     int64
+		ctr     string
 	)
 	cmd := &cobra.Command{
 		Use:   "logs APP",
@@ -134,7 +135,7 @@ func newLogsCommand(g *globals, job bool) *cobra.Command {
 			}
 			defer conn.Close()
 			stream, err := client.Logs(cmd.Context(), &armadav1.LogsRequest{
-				App: args[0], Follow: follow, Tail: int32(min(max(tail, 0), 10000)), Replica: replica, Run: run,
+				App: args[0], Follow: follow, Tail: int32(min(max(tail, 0), 10000)), Replica: replica, Run: run, Container: ctr,
 			})
 			if err != nil {
 				return RPCError(err)
@@ -164,6 +165,7 @@ func newLogsCommand(g *globals, job bool) *cobra.Command {
 	f := cmd.Flags()
 	f.BoolVarP(&follow, "follow", "f", false, "stream new log lines")
 	f.IntVar(&tail, "tail", 100, "lines per replica to show")
+	f.StringVar(&ctr, "container", "", "show an init container or sidecar instead of the app's own container")
 	if job {
 		cmd.Use = "logs JOB"
 		cmd.Short = "Print the logs of a job's run"

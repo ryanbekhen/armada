@@ -167,13 +167,13 @@ func TestOutOfMemory(t *testing.T) {
 	}
 
 	d.SetState(cs[0].ID, runtime.StateExited, 137)
-	msg, _ := a.crashed(ctx, "web-1", cs[0])
+	msg, _ := a.crashed(ctx, &armadav1.ReplicaSpec{Id: "web-1"}, cs[0])
 	if !strings.Contains(msg, "out of memory") || !strings.Contains(msg, "137") {
 		t.Errorf("message = %q", msg)
 	}
 	// Exit code 137 alone is any SIGKILL, not proof of running out of memory.
 	d.SetUsage("web-1", runtime.Stats{})
-	msg, _ = a.crashed(ctx, "web-1", cs[0])
+	msg, _ = a.crashed(ctx, &armadav1.ReplicaSpec{Id: "web-1"}, cs[0])
 	if strings.Contains(msg, "out of memory") || !strings.Contains(msg, "137") {
 		t.Errorf("message = %q", msg)
 	}

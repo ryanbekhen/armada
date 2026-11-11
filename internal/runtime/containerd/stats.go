@@ -9,6 +9,7 @@ import (
 	"time"
 
 	cgroupstats "github.com/containerd/cgroups/v3/cgroup2/stats"
+	"github.com/containerd/containerd/v2/client"
 	"github.com/containerd/typeurl/v2"
 
 	"github.com/ryanbekhen/armada/internal/runtime"
@@ -19,12 +20,27 @@ var _ runtime.StatsReader = (*Driver)(nil)
 // Stats samples a container's cgroup (v2, which Armada requires) through
 // its task's metrics. Memory is the cgroup's usage without inactive page
 // cache, which the kernel reclaims before it kills anything.
+//
+// A replica's container counts its init containers and sidecars too
+// (ADR 0038): what it reserves covers them all.
 func (d *Driver) Stats(ctx context.Context, id string) (runtime.Stats, error) {
 	ctx = d.ctx(ctx)
 	c, err := d.client.LoadContainer(ctx, id)
 	if err != nil {
 		return runtime.Stats{}, notFound(err)
 	}
+	st, err := d.taskStats(ctx, c)
+	if err != nil {
+		return st, err
+	}
+	if l, err := c.Labels(ctx); err == nil && l[labelKind] == "app" {
+		d.memberStats(ctx, id, &st)
+	}
+	return st, nil
+}
+
+// taskStats samples one container's task.
+func (d *Driver) taskStats(ctx context.Context, c client.Container) (runtime.Stats, error) {
 	t, err := c.Task(ctx, nil)
 	if err != nil {
 		return runtime.Stats{}, notFound(err)

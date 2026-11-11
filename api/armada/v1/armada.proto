@@ -944,6 +944,9 @@ message LogsRequest {
   // For a job (ADR 0019): the run whose latest attempt to show; 0 means
   // the newest run.
   int64 run = 5;
+  // An init container or a sidecar (ADR 0038); empty means the app's own
+  // container.
+  string container = 6;
 }
 
 enum Stream {
@@ -1039,6 +1042,9 @@ message Hello {
   // them with GetCertificates, so an assignment does not grow with every
   // certificate of the cluster.
   bool certificate_refs = 12;
+  // The agent runs init containers and sidecars (ADR 0038); replicas that
+  // have them are only placed on nodes whose agent says so.
+  bool containers = 13;
 }
 
 message ReplicaReport {
@@ -1302,6 +1308,30 @@ message ReplicaSpec {
   // The app's queue rules (ADR 0034): the agent reads each queue's length
   // from one replica of the app on the node. Not part of the spec hash.
   repeated QueueProbe queues = 20;
+  // Init containers run in order, each to completion, before the sidecars
+  // and the replica's own container start; sidecars run alongside it
+  // (ADR 0038). All share the replica's network namespace.
+  repeated ContainerSpec init_containers = 21;
+  repeated ContainerSpec sidecars = 22;
+}
+
+// An init container or a sidecar of a replica (ADR 0038).
+message ContainerSpec {
+  string name = 1;
+  // Pulled as it is, with the replica's registry credentials when the
+  // registry is the same.
+  string image = 2;
+  repeated string command = 3;
+  repeated string args = 4;
+  repeated EnvVar env = 5;
+  int64 memory_bytes = 6;
+  int64 nano_cpus = 7;
+  int64 cpu_reserve_millis = 8;
+  int64 pids_limit = 9;
+  // Names of the replica's volumes the container mounts, at their paths.
+  repeated string volumes = 10;
+  // Paths of the replica's secret files the container mounts.
+  repeated string secret_files = 11;
 }
 
 // One queue rule: a command run in the replica ("queue"), or a broker
@@ -1378,6 +1408,9 @@ message LogRequest {
   string replica_id = 2;
   bool follow = 3;
   int32 tail = 4;
+  // An init container or a sidecar of the replica (ADR 0038); empty means
+  // the replica's own container.
+  string container = 5;
 }
 
 message LogCancel {
@@ -1411,6 +1444,9 @@ message ExecStart {
   // stdin: the command reads the stdin inputs that follow.
   bool stdin = 5;
   TermSize size = 6;
+  // A sidecar of the replica (ADR 0038); empty means the app's own
+  // container.
+  string container = 7;
 }
 
 message ExecInput {
@@ -1447,6 +1483,8 @@ message ExecRequest {
   bool tty = 4;
   bool stdin = 5;
   TermSize size = 6;
+  // A sidecar of the replica; empty means its own container.
+  string container = 7;
 }
 
 message ExecSessionOutput {

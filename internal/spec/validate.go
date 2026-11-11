@@ -243,6 +243,7 @@ func (a *App) Validate() error {
 	v.resources(a.Resources)
 	v.placement(a.Placement)
 	v.volumes(a)
+	v.containers(a)
 	v.job(a)
 
 	return errors.Join(v.errs...)
@@ -297,14 +298,17 @@ func (v *validator) args(field string, args []string) {
 	}
 }
 
-func (v *validator) env(env []EnvVar) {
+func (v *validator) env(env []EnvVar) { v.envIn("env", env) }
+
+// envIn checks the variables of field (the app's env, or a container's).
+func (v *validator) envIn(field string, env []EnvVar) {
 	if len(env) > maxEnv {
-		v.add("env", "must have at most %d entries", maxEnv)
+		v.add(field, "must have at most %d entries", maxEnv)
 		return
 	}
 	seen := map[string]bool{}
 	for i, e := range env {
-		f := fmt.Sprintf("env[%d]", i)
+		f := fmt.Sprintf("%s[%d]", field, i)
 		switch {
 		case !envNameRe.MatchString(e.Name):
 			v.add(f+".name", "must match %s", envNameRe)
@@ -911,7 +915,10 @@ func (v *validator) brokerName(field, s string, maxLen int) {
 	}
 }
 
-func (v *validator) resources(r *Resources) {
+func (v *validator) resources(r *Resources) { v.resourcesIn("resources", r) }
+
+// resourcesIn checks the resources of field (the app's, or a container's).
+func (v *validator) resourcesIn(field string, r *Resources) {
 	if r == nil {
 		return
 	}
@@ -919,18 +926,18 @@ func (v *validator) resources(r *Resources) {
 		m, err := ParseMemory(r.Memory)
 		switch {
 		case err != nil:
-			v.add("resources.memory", "%v", err)
+			v.add(field+".memory", "%v", err)
 		case m < MinMemoryBytes || m > MaxMemoryBytes:
-			v.add("resources.memory", "must be between 16Mi and 64Gi")
+			v.add(field+".memory", "must be between 16Mi and 64Gi")
 		}
 	}
 	if r.CPU != "" {
 		c, err := ParseCPU(r.CPU)
 		switch {
 		case err != nil:
-			v.add("resources.cpu", "%v", err)
+			v.add(field+".cpu", "%v", err)
 		case c < MinNanoCPUs || c > MaxNanoCPUs:
-			v.add("resources.cpu", "must be between 10m and 64")
+			v.add(field+".cpu", "must be between 10m and 64")
 		}
 	}
 }

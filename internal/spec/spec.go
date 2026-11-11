@@ -68,6 +68,11 @@ type App struct {
 	Placement *Placement `yaml:"placement,omitempty" json:"placement,omitempty"`
 	// Volumes keep data across restarts on the replica's node (ADR 0023).
 	Volumes []Volume `yaml:"volumes,omitempty" json:"volumes,omitempty"`
+	// InitContainers run in order, each to completion, before the sidecars
+	// and the app's container start; Sidecars run alongside the app's
+	// container for the replica's life (ADR 0038).
+	InitContainers []Container `yaml:"initContainers,omitempty" json:"initContainers,omitempty"`
+	Sidecars       []Container `yaml:"sidecars,omitempty" json:"sidecars,omitempty"`
 	// Drain is how long a replica leaving serves the requests it has before
 	// it stops; zero means the default.
 	Drain Duration `yaml:"drain,omitempty" json:"drain,omitempty"`
