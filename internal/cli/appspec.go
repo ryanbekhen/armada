@@ -40,6 +40,7 @@ type specFlags struct {
 	domains, removeDomains           []string
 	ipAllow, ipDeny                  []string
 	noIPRules                        bool
+	sticky                           bool
 	replicas, minR, maxR             int
 	scaleCPU, scaleMemory, scaleHTTP int
 	healthPath                       string
@@ -53,7 +54,7 @@ type specFlags struct {
 // Flags that change an app's spec, and a job's.
 var (
 	appSpecFlags = []string{"image", "command", "args", "env", "secret-env", "remove-env", "env-from-secrets", "cpu", "memory",
-		"registry-user", "registry-secret", "port", "ingress", "domain", "remove-domain", "ip-allow", "ip-deny", "no-ip-rules", "replicas", "min", "max",
+		"registry-user", "registry-secret", "port", "ingress", "domain", "remove-domain", "ip-allow", "ip-deny", "no-ip-rules", "sticky", "replicas", "min", "max",
 		"scale-cpu", "scale-memory", "scale-http", "health-path"}
 	jobSpecFlags = []string{"image", "command", "args", "env", "secret-env", "remove-env", "env-from-secrets", "cpu", "memory",
 		"registry-user", "registry-secret", "schedule", "time-zone", "timeout", "retries", "concurrency"}
@@ -92,6 +93,7 @@ func (f *specFlags) register(cmd *cobra.Command, job bool) {
 	fs.StringArrayVar(&f.ipDeny, "ip-deny", nil, "RANGE[,name=NAME][,description=TEXT]: clients from this address or prefix cannot reach the app from outside (repeatable; replaces the list)")
 	fs.BoolVar(&f.noIPRules, "no-ip-rules", false, "let every client reach the app again")
 	cmd.MarkFlagsMutuallyExclusive("ip-allow", "ip-deny", "no-ip-rules")
+	fs.BoolVar(&f.sticky, "sticky", false, "keep each client on the replica that answered it first (--sticky=false to stop)")
 	fs.IntVar(&f.replicas, "replicas", 0, "number of replicas")
 	fs.IntVar(&f.minR, "min", 0, "fewest replicas when autoscaling")
 	fs.IntVar(&f.maxR, "max", 0, "most replicas when autoscaling")
@@ -294,7 +296,7 @@ func (f *specFlags) applyJob(a *spec.App) {
 
 func (f *specFlags) applyIngress(a *spec.App) error {
 	ch := f.fs.Changed
-	if !ch("ingress") && !ch("port") && !ch("domain") && !ch("remove-domain") && !ch("ip-allow") && !ch("ip-deny") && !ch("no-ip-rules") {
+	if !ch("ingress") && !ch("port") && !ch("domain") && !ch("remove-domain") && !ch("ip-allow") && !ch("ip-deny") && !ch("no-ip-rules") && !ch("sticky") {
 		return nil
 	}
 	in := spec.Ingress{Type: spec.IngressNone}
@@ -319,6 +321,9 @@ func (f *specFlags) applyIngress(a *spec.App) error {
 	}
 	if len(in.Domains) == 0 {
 		in.Domains = nil
+	}
+	if ch("sticky") {
+		in.Sticky = f.sticky
 	}
 	// Each list replaces the rules: who may reach an app is safer stated in
 	// full than pieced together.

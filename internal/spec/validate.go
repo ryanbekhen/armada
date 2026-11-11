@@ -346,7 +346,7 @@ func (v *validator) ingress(in *Ingress, self string) {
 			v.add("ingress", "ipAllow and ipDeny require type external: internal callers are chosen with allow")
 		}
 	case IngressNone:
-		if in.Port != 0 || len(in.Domains) > 0 || len(in.Routes) > 0 || len(in.Allow) > 0 || len(in.IPAllow) > 0 || len(in.IPDeny) > 0 {
+		if in.Port != 0 || len(in.Domains) > 0 || len(in.Routes) > 0 || len(in.Allow) > 0 || len(in.IPAllow) > 0 || len(in.IPDeny) > 0 || in.Sticky {
 			v.add("ingress", "port, domains, routes, and allow require type external or internal")
 		}
 		return

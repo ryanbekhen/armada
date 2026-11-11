@@ -73,7 +73,8 @@ revisions:
     `<label>--<app>.<root domain>`, which the wildcard certificate covers.
     Labels do not apply to custom domains.
   - Health checks use the newest revision's readiness path.
-  - Each request is balanced on its own; there are no sticky sessions.
+  - Each request is balanced on its own. With `ingress.sticky` (ADR 0036) a
+    client stays on the replica, and so the revision, it first reached.
 - **Autoscaling.** It counts the ready replicas of the revisions with a
   weight, and CPU and memory are measured against the newest revision's
   reservation.

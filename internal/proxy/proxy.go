@@ -100,6 +100,8 @@ type Backend struct {
 	// as masked prefixes (ADR 0035).
 	IPAllow []string
 	IPDeny  []string
+	// Sticky keeps a client on one server through a cookie (ADR 0036).
+	Sticky bool
 }
 
 // Server is one replica.
@@ -173,7 +175,7 @@ func FromProto(p *armadav1.ProxyConfig) Config {
 	c.TrustedProxies = p.GetTrustedProxies()
 	for _, b := range p.GetBackends() {
 		be := Backend{Name: b.GetName(), HealthPath: b.GetHealthPath(), Wake: b.GetWake(), LocalFirst: b.GetLocalFirst(), TimeoutSeconds: int(min(b.GetTimeoutSeconds(), MaxTimeoutSeconds+1)),
-			IPAllow: b.GetIpAllow(), IPDeny: b.GetIpDeny()}
+			IPAllow: b.GetIpAllow(), IPDeny: b.GetIpDeny(), Sticky: b.GetSticky()}
 		for _, s := range b.GetServers() {
 			be.Servers = append(be.Servers, Server{Name: s.GetName(), Address: s.GetAddress(), Weight: int(min(s.GetWeight(), MaxWeight+1))})
 		}
@@ -193,7 +195,7 @@ func (c Config) ToProto() *armadav1.ProxyConfig {
 	p := &armadav1.ProxyConfig{AcmeChallengeAddress: c.ACMEAddress, TrustedProxies: c.TrustedProxies}
 	for _, b := range c.Backends {
 		pb := &armadav1.ProxyBackend{Name: b.Name, HealthPath: b.HealthPath, Wake: b.Wake, LocalFirst: b.LocalFirst, TimeoutSeconds: uint32(max(min(b.TimeoutSeconds, MaxTimeoutSeconds), 0)),
-			IpAllow: b.IPAllow, IpDeny: b.IPDeny}
+			IpAllow: b.IPAllow, IpDeny: b.IPDeny, Sticky: b.Sticky}
 		for _, s := range b.Servers {
 			pb.Servers = append(pb.Servers, &armadav1.ProxyServer{Name: s.Name, Address: s.Address, Weight: uint32(max(s.Weight, 0))}) //nolint:gosec // bounded by Validate
 		}

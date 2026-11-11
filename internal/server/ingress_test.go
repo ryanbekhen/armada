@@ -507,3 +507,23 @@ func TestIngressIPRules(t *testing.T) {
 		}
 	}
 }
+
+// A sticky app's backend sets the cookie and leaves local-first off, which
+// would send a client to another replica on each node (ADR 0036).
+func TestIngressSticky(t *testing.T) {
+	t.Parallel()
+	c := newCluster(t)
+	c.addNode("n1", "127.0.0.1")
+	c.deploy(ipApp("  sticky: true\n"))
+	c.eventually("sticky backend", func() bool {
+		for _, b := range c.proxyOn("n1").Backends {
+			if b.Name == "web" {
+				return b.Sticky && !b.LocalFirst
+			}
+		}
+		return false
+	})
+	if _, err := c.admin.Deploy(c.ctx, &armadav1.DeployRequest{Spec: []byte("name: w\nimage: a:1\ningress:\n  type: none\n  sticky: true\n")}); status.Code(err) != codes.InvalidArgument {
+		t.Errorf("sticky without ingress: %v", err)
+	}
+}

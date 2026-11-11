@@ -120,6 +120,8 @@ type pool struct {
 	ipAllow, ipDeny []string
 	// remote names the servers on other nodes, checked less often.
 	remote map[string]bool
+	// sticky keeps clients on one server with a cookie (ADR 0036).
+	sticky bool
 }
 
 // Weights of a local-first backend (ADR 0024). HAProxy's leastconn picks the
@@ -149,7 +151,7 @@ func pools(cfg proxy.Config, n node) []pool {
 // backendPool returns be's backend on the node. Local-first needs the node's
 // address; an app that splits traffic keeps its weights and takes turns.
 func backendPool(be proxy.Backend, n node) pool {
-	p := pool{name: backendName(be.Name), servers: be.Servers, timeout: be.TimeoutSeconds, ipAllow: be.IPAllow, ipDeny: be.IPDeny}
+	p := pool{name: backendName(be.Name), servers: be.Servers, timeout: be.TimeoutSeconds, ipAllow: be.IPAllow, ipDeny: be.IPDeny, sticky: be.Sticky}
 	if n.known() {
 		for _, s := range be.Servers {
 			if !n.has(s.Address) {
@@ -369,6 +371,14 @@ func render(cfg proxy.Config, layout Layout, opts renderOptions) []byte {
 // while requests to it succeed.
 const remoteCheckInterval = "15s"
 
+// stickyCookie names a sticky backend's cookie: one per backend, so two
+// sticky apps on one host keep their own, and from a hash, so the name
+// says nothing about the app.
+func stickyCookie(backend string) string {
+	sum := sha256.Sum256([]byte(backend))
+	return "armada_" + hex.EncodeToString(sum[:4])
+}
+
 // maxProxyHops is how many trusted proxies in a row the client's address is
 // looked for behind (ADR 0035).
 const maxProxyHops = 4
@@ -442,6 +452,14 @@ func writeBackend(w func(string, ...any), p pool, healthPath string, layout Layo
 	} else {
 		w("    balance roundrobin")
 	}
+	cookie := ""
+	if p.sticky {
+		// The cookie names the slot, which says nothing about the replica;
+		// a slot that is down or empty sends the client elsewhere
+		// (option redispatch), and the next answer sets a new cookie.
+		w("    cookie %s insert indirect nocache httponly secure attr \"SameSite=Lax\"", stickyCookie(p.name))
+		cookie = " cookie "
+	}
 	if healthPath != "" {
 		w("    option httpchk GET %s", healthPath)
 		w("    http-check expect status 200-399")
@@ -455,16 +473,19 @@ func writeBackend(w func(string, ...any), p pool, healthPath string, layout Layo
 	// longer checks every replica of the cluster every 2 seconds.
 	w("    default-server check inter 2s fastinter 1s fall 2 rise 2 observe layer4 error-limit 2 on-error fastinter")
 	for i, sname := range layout[p.name] {
-		inter := ""
+		c := ""
+		if cookie != "" {
+			c = cookie + slotName(i)
+		}
 		if p.remote[sname] {
-			inter = " inter " + remoteCheckInterval
+			c += " inter " + remoteCheckInterval
 		}
 		if s, ok := servers[sname]; ok && sname != "" && s.EffectiveWeight() != 1 {
-			w("    server %s %s weight %d%s", slotName(i), s.Address, s.EffectiveWeight(), inter)
+			w("    server %s %s weight %d%s", slotName(i), s.Address, s.EffectiveWeight(), c)
 		} else if ok && sname != "" {
-			w("    server %s %s%s", slotName(i), s.Address, inter)
+			w("    server %s %s%s", slotName(i), s.Address, c)
 		} else {
-			w("    server %s 127.0.0.1:1 disabled", slotName(i))
+			w("    server %s 127.0.0.1:1 disabled%s", slotName(i), c)
 		}
 	}
 	w("")

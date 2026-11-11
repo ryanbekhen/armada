@@ -436,3 +436,28 @@ func TestAppIPRuleFlags(t *testing.T) {
 		}
 	}
 }
+
+func TestAppStickyFlag(t *testing.T) {
+	f := newFakeAdmin()
+	cfg := withFake(t, f)
+	cli := func(args ...string) (int, string, string) { return run(t, append(args, "--config", cfg)...) }
+	if code, _, stderr := cli("app", "create", "shop", "--image", "nginx:1", "--port", "80", "--ingress", "external", "--sticky"); code != 0 {
+		t.Fatal(stderr)
+	}
+	sticky := func() bool {
+		sp, err := spec.Parse([]byte(f.specs["shop"]))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return sp.Ingress.Sticky
+	}
+	if !sticky() {
+		t.Error("--sticky not set")
+	}
+	if code, _, stderr := cli("app", "update", "shop", "--image", "nginx:2"); code != 0 || !sticky() {
+		t.Errorf("another change dropped sticky: %s", stderr)
+	}
+	if code, _, stderr := cli("app", "update", "shop", "--sticky=false"); code != 0 || sticky() {
+		t.Errorf("--sticky=false: %s", stderr)
+	}
+}

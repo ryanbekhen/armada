@@ -1240,6 +1240,9 @@ message ProxyBackend {
   // of the clients that may not; at most one of the two is set (ADR 0035).
   repeated string ip_allow = 7;
   repeated string ip_deny = 8;
+  // A cookie sends each client back to the server that answered it first
+  // (ADR 0036).
+  bool sticky = 9;
 }
 
 message ProxyServer {

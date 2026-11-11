@@ -658,6 +658,12 @@ revisions are balanced over every replica by weight instead.
 So point public DNS at every node that should take traffic: a node that
 receives more requests keeps its replicas somewhat busier.
 
+An app that keeps sessions in a replica's memory can set `ingress.sticky:
+true` (`armada app update APP --sticky`): a cookie sends each client back to
+the replica it reached first, on every node
+([ADR 0036](adr/0036-sticky-sessions.md)). Such an app has no local-first
+routing. A client whose replica is gone moves to another one.
+
 Long-lived connections have their own limits: a silent WebSocket closes after
 1 hour, and the old proxy process that a reload leaves behind for open
 connections stops at most 1 hour after the reload, closing what it still holds.
