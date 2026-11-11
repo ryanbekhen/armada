@@ -150,6 +150,11 @@ func (s *Server) scheduleBackups(ctx context.Context) error {
 		if !s.backups.start(key, v.Node, true) {
 			continue
 		}
+		// A backup may have finished since the list was read.
+		if cur, err := s.store.GetVolume(ctx, v.App, v.Name); err != nil || backupDue(b, cur.Backup).After(s.now()) {
+			s.backups.done(key, v.Node, true)
+			continue
+		}
 		go func() {
 			defer s.backups.done(key, v.Node, true)
 			_, _ = s.runSnapshot(ctx, v, b, rev)
