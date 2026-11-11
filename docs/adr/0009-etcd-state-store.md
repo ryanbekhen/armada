@@ -24,8 +24,8 @@ v3.7), behind the `store.Store` interface.
   API, consistent snapshots, and membership changes, and a single member is
   fast enough for the control plane. Writing and maintaining our own Raft
   layer would be the riskiest code in the project.
-- Embedded, not a separate service: installation stays one binary. The
-  member lives in `<data-dir>/etcd/` (`0700`).
+- Embedded, not a separate service: `armadad` runs it, so there is nothing
+  else to install. The member lives in `<data-dir>/etcd/` (`0700`).
 - One server runs a single-member cluster; three (or five) servers form an
   HA cluster that tolerates the loss of one (or two). One server is
   supported; three are recommended for production.
@@ -69,7 +69,8 @@ v3.7), behind the `store.Store` interface.
   but the state machine, snapshots, and membership handling become our
   code, with all their edge cases.
 - **External etcd or a database server:** another service to install,
-  secure, and back up; against the single-binary goal.
+  secure, and back up, where Armada installs nothing beside its own
+  binaries.
 
 ## Consequences
 
