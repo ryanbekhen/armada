@@ -251,6 +251,58 @@ func (s *Server) mountedVolumes(ctx context.Context, app string) (map[string]spe
 	return out, nil
 }
 
+// mountedVolumesOf is mountedVolumes for the apps of vols, by app, read in
+// one batch of apps and one of revisions however many apps there are.
+func (s *Server) mountedVolumesOf(ctx context.Context, vols []store.Volume) (map[string]map[string]spec.Volume, error) {
+	var names []string
+	seen := map[string]bool{}
+	for _, v := range vols {
+		if !seen[v.App] {
+			seen[v.App] = true
+			names = append(names, v.App)
+		}
+	}
+	if len(names) == 0 {
+		return nil, nil
+	}
+	apps, err := s.store.GetApps(ctx, names)
+	if err != nil {
+		return nil, err
+	}
+	// The active spec comes with the app; only targets that differ are read.
+	var targets []string
+	for _, a := range apps {
+		if a.TargetRevision != "" && a.TargetRevision != a.ActiveRevision {
+			targets = append(targets, a.TargetRevision)
+		}
+	}
+	revs := map[string]store.Revision{}
+	if len(targets) > 0 {
+		if revs, err = s.store.GetRevisions(ctx, targets); err != nil {
+			return nil, err
+		}
+	}
+	out := make(map[string]map[string]spec.Volume, len(apps))
+	for name, a := range apps {
+		m := map[string]spec.Volume{}
+		specs := []*spec.App{a.Spec}
+		if a.TargetRevision != "" && a.TargetRevision != a.ActiveRevision {
+			rev, ok := revs[a.TargetRevision]
+			if !ok {
+				return nil, fmt.Errorf("revision %s: %w", a.TargetRevision, store.ErrNotFound)
+			}
+			specs = append(specs, rev.Spec)
+		}
+		for _, sp := range specs {
+			for _, v := range sp.Volumes {
+				m[v.Name] = v
+			}
+		}
+		out[name] = m
+	}
+	return out, nil
+}
+
 // ListVolumes lists volumes, where they are, and how much they hold.
 func (s *Server) ListVolumes(ctx context.Context, req *armadav1.ListVolumesRequest) (*armadav1.ListVolumesResponse, error) {
 	acc := accessFrom(ctx)
@@ -268,18 +320,14 @@ func (s *Server) ListVolumes(ctx context.Context, req *armadav1.ListVolumesReque
 	}
 	vols = slices.DeleteFunc(vols, func(v store.Volume) bool { return !acc.sees(v.App) })
 	now := s.now()
-	mounted := map[string]map[string]spec.Volume{}
+	mounted, err := s.mountedVolumesOf(ctx, vols)
+	if err != nil {
+		return nil, storeErr(err)
+	}
 	resp := &armadav1.ListVolumesResponse{}
 	for _, v := range vols {
-		m, ok := mounted[v.App]
-		if !ok {
-			if m, err = s.mountedVolumes(ctx, v.App); err != nil {
-				return nil, storeErr(err)
-			}
-			mounted[v.App] = m
-		}
 		out := &armadav1.Volume{App: v.App, Name: v.Name, Node: v.Node, CreatedAt: timestamppb.New(v.CreatedAt), UsedBytes: -1}
-		if sv, ok := m[v.Name]; ok {
+		if sv, ok := mounted[v.App][v.Name]; ok {
 			out.InUse, out.Path = true, sv.Path
 		}
 		if b, ok := s.usage.volume(v.Node, v.App, v.Name, now); ok {

@@ -728,7 +728,8 @@ message DeployResponse {
 }
 
 message StatusRequest {
-  // Optional; empty means all apps.
+  // Optional; empty means all apps and the nodes. With an app the response
+  // holds that app alone and no nodes.
   string app = 1;
   // Only the nodes, with their replica counts: no apps.
   bool nodes_only = 2;

@@ -5423,7 +5423,8 @@ func (x *DeployResponse) GetRevision() string {
 
 type StatusRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Optional; empty means all apps.
+	// Optional; empty means all apps and the nodes. With an app the response
+	// holds that app alone and no nodes.
 	App string `protobuf:"bytes,1,opt,name=app,proto3" json:"app,omitempty"`
 	// Only the nodes, with their replica counts: no apps.
 	NodesOnly     bool `protobuf:"varint,2,opt,name=nodes_only,json=nodesOnly,proto3" json:"nodes_only,omitempty"`

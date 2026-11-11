@@ -458,6 +458,12 @@ type Store interface {
 	MarkRolloutProgress(ctx context.Context, app string) error
 	GetApp(ctx context.Context, name string) (App, error)
 	ListApps(ctx context.Context) ([]App, error)
+	// GetApps returns the apps that exist among names, by name, in far
+	// fewer round trips than one GetApp each.
+	GetApps(ctx context.Context, names []string) (map[string]App, error)
+	// ListAppIDs returns the ID of every app and job, ordered, without
+	// reading their records or revisions.
+	ListAppIDs(ctx context.Context) ([]string, error)
 	SetReplicas(ctx context.Context, app string, n int, actor string) error
 	// SetTraffic changes the weights of an app in multiple revision mode.
 	SetTraffic(ctx context.Context, app string, weights []spec.TrafficTarget, actor string) ([]spec.TrafficTarget, error)

@@ -72,13 +72,14 @@ func (s *Server) ListProjects(ctx context.Context, _ *armadav1.ListProjectsReque
 	if err != nil {
 		return nil, storeErr(err)
 	}
-	apps, err := s.store.ListApps(ctx)
+	// Apps and jobs both count; their IDs name the project.
+	ids, err := s.store.ListAppIDs(ctx)
 	if err != nil {
 		return nil, storeErr(err)
 	}
 	count := map[string]int32{}
-	for _, a := range apps {
-		if p, _, ok := spec.SplitAppID(a.Name); ok {
+	for _, id := range ids {
+		if p, _, ok := spec.SplitAppID(id); ok {
 			count[p]++
 		}
 	}

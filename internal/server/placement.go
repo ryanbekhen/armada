@@ -23,20 +23,7 @@ func placementMessage(ctx context.Context, revs *revisionCache, nodes []store.No
 	if err != nil {
 		return ""
 	}
-	fit := eligible(nodes, target)
-	allowed := map[string]bool{}
-	for _, n := range fit {
-		allowed[n.ID] = true
-	}
-	live, stuck := 0, 0
-	for _, r := range all {
-		if r.App == app.Name && r.Revision == app.TargetRevision && !r.Draining() {
-			live++
-			if !allowed[r.NodeID] {
-				stuck++
-			}
-		}
-	}
+	fit, live, stuck := targetPlacement(nodes, all, app, target)
 	if live >= app.Replicas && stuck == 0 {
 		return spreadMessage(ctx, revs, fit, all, app, target)
 	}
@@ -66,6 +53,42 @@ func placementMessage(ctx context.Context, revs *revisionCache, nodes []store.No
 		return "waiting for a node: " + why
 	}
 	return fmt.Sprintf("%d replica(s) stay on nodes the app may no longer use until one is free: %s", stuck, why)
+}
+
+// targetPlacement returns the nodes that may run target, how many replicas
+// of app's target revision are not draining, and how many of those are on
+// nodes outside that set. Only app's own replicas count.
+func targetPlacement(nodes []store.Node, replicas []store.Replica, app store.App, target store.Revision) (fit []store.Node, live, stuck int) {
+	fit = eligible(nodes, target)
+	allowed := map[string]bool{}
+	for _, n := range fit {
+		allowed[n.ID] = true
+	}
+	for _, r := range replicas {
+		if r.App == app.Name && r.Revision == app.TargetRevision && !r.Draining() {
+			live++
+			if !allowed[r.NodeID] {
+				stuck++
+			}
+		}
+	}
+	return fit, live, stuck
+}
+
+// placementNeedsCluster reports whether placementMessage needs more than
+// app's own replicas and the nodes' records to explain app: the other
+// replicas and the nodes' allocatable capacity. When it does not, it says
+// the same given only own, and nodes without their capacity taken off.
+func placementNeedsCluster(ctx context.Context, revs *revisionCache, nodes []store.Node, own []store.Replica, app store.App) bool {
+	if app.Removing {
+		return false
+	}
+	target, err := revs.get(ctx, app.TargetRevision)
+	if err != nil {
+		return true // let placementMessage decide with everything
+	}
+	_, live, stuck := targetPlacement(nodes, own, app, target)
+	return live < app.Replicas || stuck > 0 || target.Spec.Placement.SpreadKey() != ""
 }
 
 // spreadMessage explains why app's replicas are spread unevenly over the

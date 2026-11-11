@@ -36,7 +36,8 @@ func freeTCPAddr(t *testing.T) string {
 func TestMetrics(t *testing.T) {
 	t.Parallel()
 	addr := freeTCPAddr(t)
-	c := newCluster(t, func(cfg *Config) { cfg.MetricsAddr = addr; cfg.Name = "s1" })
+	// Values must change between scrapes here: gather on every one.
+	c := newCluster(t, func(cfg *Config) { cfg.MetricsAddr = addr; cfg.Name = "s1"; cfg.MetricsCache = time.Nanosecond })
 	d := c.addNode("n1", "127.0.0.1")
 	c.deploy(webSpec("nginx:1", 2) + "resources:\n  cpu: 250m\n  memory: 128Mi\n")
 	c.eventually("2 running", func() bool { return len(c.running("web")) == 2 })
