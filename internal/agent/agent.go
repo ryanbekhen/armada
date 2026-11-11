@@ -928,6 +928,12 @@ func (a *Agent) applyProxy(ctx context.Context) {
 				apps = append(apps, name)
 			}
 		}
+		// And the internal TCP apps (ADR 0039).
+		for _, r := range cfg.TCP {
+			if !slices.Contains(apps, r.Backend) {
+				apps = append(apps, r.Backend)
+			}
+		}
 		a.cfg.DNS.SetNames(apps)
 	}
 	a.mu.Lock()

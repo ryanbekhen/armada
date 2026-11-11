@@ -78,6 +78,8 @@ type plan struct {
 	endpoints map[netip.Addr]string
 	// isolateDefault isolates the default project like the others.
 	isolateDefault bool
+	// tcpPorts are the ports of internal TCP apps, sorted (ADR 0039).
+	tcpPorts []uint16
 }
 
 // parse validates what the control plane sent. It never trusts the server
@@ -96,6 +98,9 @@ func parse(cfg *armadav1.NetworkConfig, self string, selfIP netip.Addr) (plan, e
 	}
 	p := plan{mode: cfg.GetMode(), cidr: cidr, isolateDefault: cfg.GetIsolateDefault()}
 	if p.endpoints, err = parseEndpoints(cfg.GetEndpoints(), cidr); err != nil {
+		return plan{}, err
+	}
+	if p.tcpPorts, err = parseTCPPorts(cfg.GetTcpPorts()); err != nil {
 		return plan{}, err
 	}
 	ips, subnets, names, keys := map[netip.Addr]bool{}, map[netip.Prefix]bool{}, map[string]bool{}, map[wgtypes.Key]bool{}

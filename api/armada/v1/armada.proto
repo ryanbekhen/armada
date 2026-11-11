@@ -1191,6 +1191,9 @@ message NetworkConfig {
   repeated NetworkEndpoint endpoints = 4;
   // The default project's containers are isolated like other projects'.
   bool isolate_default = 5;
+  // The ports of internal TCP apps, which containers of isolated projects
+  // may connect to on their bridge gateway (ADR 0039).
+  repeated uint32 tcp_ports = 6;
 }
 
 message NetworkEndpoint {
@@ -1218,6 +1221,18 @@ message ProxyConfig {
   string acme_challenge_address = 4;
   // Prefixes whose requests keep their client address headers.
   repeated string trusted_proxies = 5;
+  // Internal TCP listeners on the bridge gateway (ADR 0039).
+  repeated ProxyTCPRoute tcp_routes = 6;
+}
+
+// ProxyTCPRoute sends connections to port on a node's bridge gateway from
+// the backend's project to the backend (ADR 0039).
+message ProxyTCPRoute {
+  uint32 port = 1;
+  string backend = 2;
+  // The app IDs that may connect (the app itself included); empty lets
+  // every app of the backend's project.
+  repeated string allow = 3;
 }
 
 message ProxyBackend {

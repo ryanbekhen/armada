@@ -2,6 +2,7 @@ package haproxy
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -56,8 +57,11 @@ type Config struct {
 	Subnet string
 	Engine Engine
 	// API defaults to the Runtime API socket under Dir.
-	API    API
-	Logger *slog.Logger
+	API API
+	// Listeners returns the TCP sockets listening on the node; it defaults
+	// to reading /proc/net (ADR 0039).
+	Listeners func() ([]netip.AddrPort, error)
+	Logger    *slog.Logger
 }
 
 // Driver is the HAProxy proxy.Driver.
@@ -80,6 +84,9 @@ type Driver struct {
 	workerPID string
 	totals    map[string]int64 // replica -> latest total
 	carried   map[string]int64 // replica -> total before this process
+	// held are the TCP ports the running HAProxy listens on, and busy the
+	// ones left out because another program has them (ADR 0039).
+	held, busy []int
 }
 
 var _ proxy.Driver = (*Driver)(nil)
@@ -116,6 +123,15 @@ func New(cfg Config) (*Driver, error) {
 	if cfg.API == nil {
 		cfg.API = Socket{Path: filepath.Join(runDir(cfg.Dir), socketFile)}
 	}
+	if cfg.Listeners == nil {
+		cfg.Listeners = procListeners
+	}
+	// A HAProxy that outlives its agent holds the TCP ports of the
+	// configuration it runs.
+	var held []int
+	if b, err := os.ReadFile(filepath.Join(etcDir(cfg.Dir), configFile)); err == nil {
+		held = heldTCP(b)
+	}
 	// HAProxy reads its maps at start. Until the agent knows its containers
 	// the clients map is empty, and no internal route matches anyone.
 	for _, name := range []string{clientsFile, localFile} {
@@ -141,7 +157,31 @@ func New(cfg Config) (*Driver, error) {
 		layout:   Layout{},
 		applied:  map[string]slot{},
 		certHash: map[string]string{},
+		held:     held,
 	}, nil
+}
+
+// busyPorts returns the TCP ports of cfg that get no listener on this node
+// because another program has them, and logs when that changes.
+func (d *Driver) busyPorts(cfg proxy.Config, opts renderOptions) []int {
+	var busy []int
+	if opts.servesTCP() && len(cfg.TCP) > 0 {
+		ls, err := d.cfg.Listeners()
+		if err != nil {
+			// Unknown: no listener at all rather than a reload that fails.
+			d.log.Warn("cannot read the node's listening sockets; no internal TCP listeners", "err", err)
+			busy = cfg.TCPPorts()
+		} else {
+			busy = busyTCP(cfg, netip.MustParseAddr(opts.InternalIP), ls, d.held)
+		}
+	}
+	if !slices.Equal(busy, d.busy) {
+		if len(busy) > 0 {
+			d.log.Warn("another program listens on these TCP ports; apps using them are not reachable from this node", "ports", busy)
+		}
+		d.busy = busy
+	}
+	return busy
 }
 
 func etcDir(dir string) string { return filepath.Join(dir, "etc") }
@@ -161,6 +201,7 @@ func (d *Driver) Apply(ctx context.Context, cfg proxy.Config) error {
 	defer d.mu.Unlock()
 
 	opts := d.options()
+	opts.BusyTCP = d.busyPorts(cfg, opts)
 	// A proxy that outlives its agent keeps serving: take over what it runs
 	// rather than reload it, if its configuration is still the right one.
 	live, adopted := d.liveConfig(ctx, cfg, opts)
@@ -183,6 +224,7 @@ func (d *Driver) Apply(ctx context.Context, cfg proxy.Config) error {
 			changedCerts = append(changedCerts, c.FileName())
 		}
 		d.sig = sig
+		d.held = heldTCP(content)
 		d.log.Info("kept the running haproxy")
 	}
 	routes := routeFiles(cfg, opts)
@@ -214,6 +256,7 @@ func (d *Driver) Apply(ctx context.Context, cfg proxy.Config) error {
 			return fmt.Errorf("start haproxy: %w", err)
 		}
 		d.commit(sig, layout, cfg)
+		d.held = heldTCP(content)
 		d.local = local
 		d.removeOldRoutes(routes)
 		d.log.Info("haproxy started")
@@ -234,6 +277,7 @@ func (d *Driver) Apply(ctx context.Context, cfg proxy.Config) error {
 			return fmt.Errorf("reload haproxy: %w", err)
 		}
 		d.commit(sig, layout, cfg)
+		d.held = heldTCP(content)
 		d.local = local
 		d.removeOldRoutes(routes)
 		d.log.Info("haproxy reloaded")
@@ -605,8 +649,13 @@ func signature(cfg proxy.Config, layout Layout, opts renderOptions) string {
 		Trusted  []string
 		Backends []be
 		Rules    []proxy.Rule
+		TCP      []proxy.TCPRoute
 		Certs    []string
 	}{Opts: opts, ACME: cfg.ACMEAddress, Trusted: cfg.TrustedProxies}
+	s.TCP = slices.Clone(cfg.TCP)
+	slices.SortFunc(s.TCP, func(a, b proxy.TCPRoute) int {
+		return cmp.Or(cmp.Compare(a.Port, b.Port), strings.Compare(a.Backend, b.Backend))
+	})
 	for _, b := range cfg.Backends {
 		s.Backends = append(s.Backends, be{b.Name, b.HealthPath, len(layout[backendName(b.Name)]), b.Wake, b.LocalFirst, b.TimeoutSeconds, b.IPAllow, b.IPDeny, b.Sticky, b.CORS})
 	}

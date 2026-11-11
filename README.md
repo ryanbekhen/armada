@@ -44,6 +44,10 @@ armada app update web --file web.yaml
   once, and they hold after a failover.
 - **Internal services.** `ingress: internal` apps are reachable from any
   container in the cluster at `http://<app>.internal`, never from outside.
+  Databases, brokers, and caches take plain TCP with `protocol: tcp`: the
+  apps of their project connect to `<app>.internal:<port>`, balanced and
+  health checked by each node's proxy, which listens for them only on the
+  container bridge.
 - **Client address rules.** `ingress.ipAllow` lets only chosen addresses
   reach an external app, and `ipDeny` keeps some out. Behind a CDN, only
   the address a trusted proxy appended counts, so a client cannot claim

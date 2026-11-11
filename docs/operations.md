@@ -462,7 +462,8 @@ On a cluster with the cluster network (`armadad init --cluster-cidr`, ADR
   spec reference). Anything else, the node itself included, gets a 404.
 - Containers of every project but `default` are isolated from the platform:
   they reach the internet, their node's DNS server, and internal and public
-  ingress, and nothing else. The nodes, the control plane, the private
+  ingress (TCP apps' ports included, on the bridge gateway only, and only
+  where the proxy listens), and nothing else. The nodes, the control plane, the private
   network and every machine on it, and the cloud's metadata service
   (`169.254.169.254`) are out of reach.
 
@@ -750,6 +751,40 @@ armada app update admin --no-ip-rules                                       # ev
 - **To check what a client sees**, run
   `curl -s -o /dev/null -w '%{http_code}' https://admin.example.org/` from
   that client.
+
+### TCP apps inside the cluster
+
+A database, broker, or cache that other apps of its project use takes plain
+TCP through each node's proxy ([ADR 0039](adr/0039-internal-tcp-ingress.md)):
+
+```bash
+armada app create db --image postgres:17 --port 5432 --ingress internal --protocol tcp --project shop
+# the apps of project shop connect to db.shop.internal:5432
+```
+
+- **Never from outside.** The proxy listens for TCP apps only on each node's
+  bridge gateway, which only that node's containers reach. Nothing opens on
+  the node's private or public addresses; for clients outside the cluster,
+  run them as apps or use an HTTP API.
+- **One app per port and project.** Another app of the project cannot take
+  the same port (the deploy is refused); another project can, because the
+  caller's project picks the app. `allow` narrows the callers as for HTTP;
+  a refused caller's connection is closed at once.
+- **Needs the cluster network** (`armadad init --cluster-cidr`): the proxy
+  knows its callers only there.
+- **Idle connections** close after an hour without data in either
+  direction, and connections opened before a reload of the proxy (a new
+  app, a port or `allow` change) close at most an hour after it. Connection
+  pools should use TCP keepalives or reconnect.
+- **A port another program has.** When a program on a node already listens
+  on the app's port on every address, that node's proxy leaves the port out
+  rather than fail to reload, and the agent logs `another program listens on
+  these TCP ports`. Callers on that node get no connection until the port is
+  free. Armada's own ports (22, 53, 80, 443, 2379, 2380, 4789, 7443, 7444,
+  7480, 8404, 51820) are refused in the spec.
+- **To check from an app**, run
+  `armada app exec api --project shop -- nc -zv db.shop.internal 5432`, if
+  its image has `nc`.
 
 ## Running commands in replicas
 

@@ -117,6 +117,9 @@ func (s *Server) Reconcile(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	if network != nil {
+		network.TcpPorts = tcpPorts(pxp)
+	}
 	return s.pushAssignments(ctx, replicas, &revs, pxp, pxRefs, eps, network)
 }
 

@@ -35,6 +35,12 @@ const (
 	IngressNone     = "none"
 )
 
+// Ingress protocols (ADR 0039).
+const (
+	ProtocolHTTP = "http"
+	ProtocolTCP  = "tcp"
+)
+
 // Revision modes.
 const (
 	RevisionsSingle   = "single"
@@ -94,10 +100,14 @@ type EnvVar struct {
 
 // Ingress controls how the app receives traffic.
 type Ingress struct {
-	Type    string   `yaml:"type" json:"type"`
-	Port    int      `yaml:"port,omitempty" json:"port,omitempty"`
-	Domains []string `yaml:"domains,omitempty" json:"domains,omitempty"`
-	Routes  []Route  `yaml:"routes,omitempty" json:"routes,omitempty"`
+	Type string `yaml:"type" json:"type"`
+	// Protocol is http (the default) or tcp. A tcp app is internal only:
+	// the apps of its project connect to <app>.internal:<port> with plain
+	// TCP through their node's proxy (ADR 0039).
+	Protocol string   `yaml:"protocol,omitempty" json:"protocol,omitempty"`
+	Port     int      `yaml:"port,omitempty" json:"port,omitempty"`
+	Domains  []string `yaml:"domains,omitempty" json:"domains,omitempty"`
+	Routes   []Route  `yaml:"routes,omitempty" json:"routes,omitempty"`
 	// Allow names the apps and jobs of the same project that may call this
 	// app through its internal name; empty lets every app of the project
 	// (ADR 0025, ADR 0026). Replicas of the app itself always may.
@@ -117,6 +127,9 @@ type Ingress struct {
 	// a minute.
 	Timeout Duration `yaml:"timeout,omitempty" json:"timeout,omitempty"`
 }
+
+// TCP reports whether the app takes plain TCP connections (ADR 0039).
+func (in *Ingress) TCP() bool { return in != nil && in.Protocol == ProtocolTCP }
 
 // Route maps a path prefix on the app's hosts to the app.
 type Route struct {

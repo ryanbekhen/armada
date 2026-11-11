@@ -214,8 +214,45 @@ func buildTable(c *nftables.Conn, t *nftables.Table, pol policy) error {
 	rule(in, isolated, gw, l4(unix.IPPROTO_TCP), dport(dnsPort), accept())
 	rule(in, isolated, l4(unix.IPPROTO_TCP), dport(httpPort), accept())
 	rule(in, isolated, l4(unix.IPPROTO_TCP), dport(httpsPort), accept())
+	// Internal TCP apps (ADR 0039): their ports on the gateway, and only
+	// while a socket bound to the gateway itself has them, which is the
+	// proxy. A program listening on every address of the node is not
+	// reached through them.
+	tcp := &nftables.Set{Table: t, Name: "tcp", KeyType: nftables.TypeInetService}
+	if err := c.AddSet(tcp, portElements(pol.tcpPorts)); err != nil {
+		return err
+	}
+	if len(pol.tcpPorts) > 0 {
+		rule(in, isolated, gw, l4(unix.IPPROTO_TCP), dportIn(tcp), boundToAddress(), accept())
+	}
 	rule(in, isolated, drop())
 	return nil
+}
+
+// dportIn matches a destination port in set.
+func dportIn(set *nftables.Set) []expr.Any {
+	return []expr.Any{
+		&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseTransportHeader, Offset: 2, Len: 2},
+		&expr.Lookup{SourceRegister: 1, SetName: set.Name, SetID: set.ID},
+	}
+}
+
+// boundToAddress matches a packet for a local socket bound to a specific
+// address rather than to every address of the node (nft: socket wildcard
+// 0); a packet with no socket does not match.
+func boundToAddress() []expr.Any {
+	return []expr.Any{
+		&expr.Socket{Key: expr.SocketKeyWildcard, Register: 1},
+		&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: []byte{0}},
+	}
+}
+
+func portElements(ports []uint16) []nftables.SetElement {
+	out := make([]nftables.SetElement, 0, len(ports))
+	for _, p := range ports {
+		out = append(out, nftables.SetElement{Key: binary.BigEndian.AppendUint16(nil, p)})
+	}
+	return out
 }
 
 func join(parts ...[]expr.Any) []expr.Any {
@@ -256,10 +293,12 @@ func jumpElement(a netip.Addr, chain string) nftables.SetElement {
 	return nftables.SetElement{Key: a.AsSlice(), VerdictData: &expr.Verdict{Kind: expr.VerdictJump, Chain: chain}}
 }
 
-// sameFrame reports whether two policies differ only in the apps and which
-// containers are open, which updateIsolation changes in place.
+// sameFrame reports whether two policies differ only in the apps, which
+// containers are open, and the TCP ports, which updateIsolation changes in
+// place. The rule for TCP ports exists only while there are some.
 func sameFrame(a, b policy) bool {
-	return a.cidr == b.cidr && a.subnet == b.subnet && a.gateway == b.gateway && slices.Equal(a.nodes, b.nodes)
+	return a.cidr == b.cidr && a.subnet == b.subnet && a.gateway == b.gateway && slices.Equal(a.nodes, b.nodes) &&
+		(len(a.tcpPorts) > 0) == (len(b.tcpPorts) > 0)
 }
 
 // updateIsolation changes the tables from old to pol in one transaction, so no
@@ -338,7 +377,30 @@ func updateTable(c *nftables.Conn, t *nftables.Table, old, pol policy) error {
 		return nil
 	}
 	open := &nftables.Set{Table: t, Name: "open", KeyType: nftables.TypeIPAddr}
-	return changeElements(c, open, old.open, pol.open)
+	if err := changeElements(c, open, old.open, pol.open); err != nil {
+		return err
+	}
+	tcp := &nftables.Set{Table: t, Name: "tcp", KeyType: nftables.TypeInetService}
+	var closed, opened []uint16
+	for _, p := range old.tcpPorts {
+		if !slices.Contains(pol.tcpPorts, p) {
+			closed = append(closed, p)
+		}
+	}
+	for _, p := range pol.tcpPorts {
+		if !slices.Contains(old.tcpPorts, p) {
+			opened = append(opened, p)
+		}
+	}
+	if len(closed) > 0 {
+		if err := c.SetDeleteElements(tcp, portElements(closed)); err != nil {
+			return err
+		}
+	}
+	if len(opened) > 0 {
+		return c.SetAddElements(tcp, portElements(opened))
+	}
+	return nil
 }
 
 // changeElements makes a set hold want instead of have.

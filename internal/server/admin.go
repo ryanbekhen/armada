@@ -66,6 +66,15 @@ func (s *Server) Deploy(ctx context.Context, req *armadav1.DeployRequest) (*arma
 	if err := acc.placement(app); err != nil {
 		return nil, err
 	}
+	if app.Ingress.TCP() {
+		// The caller's project picks the app behind a port, and only nodes
+		// on the cluster network know their callers (ADR 0039).
+		if _, err := s.store.GetNetwork(ctx); errors.Is(err, store.ErrNotFound) {
+			return nil, status.Error(codes.FailedPrecondition, "TCP ingress needs the cluster network (armadad init --cluster-cidr), which this cluster was created without")
+		} else if err != nil {
+			return nil, storeErr(err)
+		}
+	}
 	rev, created, err := s.store.DeployWith(ctx, app, actor(ctx), store.DeployOptions{
 		MustCreate: req.GetMustCreate(), MustExist: req.GetMustExist(), BaseRevision: req.GetBaseRevision(),
 	})

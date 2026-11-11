@@ -36,6 +36,18 @@ func (s *Server) buildNetwork(ctx context.Context, nodes []store.Node, replicas 
 	return cfg, nil
 }
 
+// tcpPorts returns the ports the nodes' proxies listen on for internal TCP
+// apps (ADR 0039), sorted: the firewall opens them on the bridge gateway to
+// containers of isolated projects.
+func tcpPorts(px *armadav1.ProxyConfig) []uint32 {
+	var out []uint32
+	for _, r := range px.GetTcpRoutes() {
+		out = append(out, r.GetPort())
+	}
+	slices.Sort(out)
+	return slices.Compact(out)
+}
+
 // networkEndpoints lists the container address of every replica whose
 // node has a subnet, with its app ID, for the firewalls that keep apps and
 // projects apart (ADR 0026). An address two replicas claim (one of them

@@ -19,7 +19,7 @@ set -eu
 # Scenarios that run after the cluster is built and the test app serves.
 # E2E_ONLY=isolation,rollout runs only those (empty: all); E2E_LIST=1 lists
 # them. test/e2e/README.md says which to pick for a change.
-SCENARIOS="listeners project-secret conntrack isolation load rollout agent-restart failover node-loss backup placement platforms cpu spread ip-rules sticky cors queues reboot"
+SCENARIOS="listeners project-secret conntrack isolation load rollout agent-restart failover node-loss backup placement platforms cpu spread ip-rules sticky cors tcp queues reboot"
 E2E_ONLY=${E2E_ONLY:-}
 if [ "${E2E_LIST:-}" = 1 ]; then
 	echo "$SCENARIOS" | tr ' ' '\n'
@@ -880,6 +880,77 @@ _h=$(cors_headers OPTIONS https://evil.example.net "Access-Control-Request-Metho
 printf '%s\n' "$_h" | grep -qi '^access-control-allow-origin' && fail "an unlisted origin's preflight was allowed: $_h"
 ok "an unlisted origin gets no CORS headers, preflight or not"
 cli app delete cors --yes >/dev/null
+
+fi
+
+if want tcp; then
+log "internal TCP: apps of the project connect, others and the outside do not"
+# tcp-echo answers each connection with what it reads. A check that reads
+# nothing back must not pass as refused, so the refused ones have to run
+# nc at all: they print a marker after it.
+tcp_app() { # tcp_app NAME PROJECT SPEC-LINES...
+	_name=$1 _proj=$2
+	shift 2
+	printf 'name: %s\nimage: busybox:1.37\n' "$_name" >"$WORK/tcp.yaml"
+	printf '%s\n' "$@" >>"$WORK/tcp.yaml"
+	on "$CLI" "cat >/root/tcp.yaml && armada app update --file /root/tcp.yaml --create-if-missing --project $_proj" <"$WORK/tcp.yaml" >/dev/null
+}
+tcp_ready() { # tcp_ready APP-ID COUNT
+	status | jq -e --arg app "$1" --argjson n "$2" '
+		.apps[] | select(.name == $app)
+		| [.replicas[]? | select((.draining // false) | not)] as $live
+		| ($live | length) == $n and all($live[]; .state == "running" and (.ready // false))'
+}
+tcp_gone() { [ "$(status | jq --arg app "$1" '[.apps[] | select(.name == $app)] | length')" = 0 ]; }
+cli project create e2e-tcp >/dev/null
+cli project create e2e-tcp-other >/dev/null
+tcp_app tcp-echo e2e-tcp 'command: [nc, -lk, -p, "7000", -e, cat]' 'ingress:' '  type: internal' '  protocol: tcp' '  port: 7000' '  allow: [client]' \
+	'scale:' '  min: 2' '  max: 2'
+for _c in client.e2e-tcp intruder.e2e-tcp outsider.e2e-tcp-other; do
+	tcp_app "${_c%%.*}" "${_c#*.}" 'command: [sleep, "86400"]' 'ingress:' '  type: none'
+done
+wait_for 180 "tcp-echo has 2 replicas ready" tcp_ready tcp-echo.e2e-tcp 2
+for _c in client.e2e-tcp intruder.e2e-tcp outsider.e2e-tcp-other; do
+	wait_for 180 "$_c is ready" tcp_ready "$_c" 1
+done
+tcp_says() { # tcp_says APP HOST: what the echo server sends back to APP
+	cli app exec "$1" -- sh -c "$(q "echo hello-tcp | nc -w 3 $2 7000; echo :nc-ran")" 2>/dev/null
+}
+tcp_echoes() { [ "$(tcp_says "$1" "$2" | tr -d '\r' | tr '\n' ' ')" = "hello-tcp :nc-ran " ]; }
+tcp_refused() {
+	_out=$(tcp_says "$1" "$2" | tr -d '\r' | tr '\n' ' ')
+	[ "$_out" = ":nc-ran " ]
+}
+# The gateway, for a caller that cannot resolve the name.
+_gw=$(cli app exec outsider.e2e-tcp-other -- sh -c "$(q "ip route | awk '/^default/ { print \$3 }'")" | tr -d '\r')
+[ -n "$_gw" ] || fail "no default route in outsider"
+wait_for 120 "an allowed app of the project connects at tcp-echo.e2e-tcp.internal:7000" tcp_echoes client.e2e-tcp tcp-echo.e2e-tcp.internal
+for _i in 1 2 3 4; do
+	tcp_echoes client.e2e-tcp tcp-echo.e2e-tcp.internal || fail "connection $_i through the internal name failed"
+done
+ok "repeated connections are answered"
+wait_for 60 "an app of the project that is not allowed is refused" tcp_refused intruder.e2e-tcp tcp-echo.e2e-tcp.internal
+wait_for 60 "another project is refused at the gateway" tcp_refused outsider.e2e-tcp-other "$_gw"
+if cli app exec outsider.e2e-tcp-other -- nslookup tcp-echo.e2e-tcp.internal >/dev/null 2>&1; then
+	fail "another project resolves tcp-echo.e2e-tcp.internal"
+fi
+ok "another project does not resolve the name"
+# Nothing outside the cluster: the port is open on no node address.
+_i=1
+while [ "$_i" -le "$N" ]; do
+	_ip=$(host "$_i" 3)
+	if on 1 "timeout 3 bash -c $(q "</dev/tcp/$_ip/7000")" >/dev/null 2>&1; then
+		fail "port 7000 is open on $_ip"
+	fi
+	_i=$((_i + 1))
+done
+ok "port 7000 is open on no node's private address"
+for _c in tcp-echo.e2e-tcp client.e2e-tcp intruder.e2e-tcp outsider.e2e-tcp-other; do
+	cli app delete "$_c" --yes >/dev/null
+	wait_for 120 "$_c is gone" tcp_gone "$_c"
+done
+cli project delete e2e-tcp >/dev/null
+cli project delete e2e-tcp-other >/dev/null
 
 fi
 
