@@ -1261,14 +1261,12 @@ db   data    node2  /var/lib/postgresql/data  1.2GiB  12m ago      31 (1.9GiB)  
 
 ### NFS volumes
 
-A volume with `nfs` mounts an export of an NFS server you run
+A volume with `nfs` mounts an NFS export
 ([ADR 0042](adr/0042-nfs-volumes.md), fields in the
-[spec reference](spec-reference.md#volumesnfs)). Armada runs no NFS
-server.
+[spec reference](spec-reference.md#volumesnfs)).
 
-- **The server** exports the path over NFSv4 (4.2, 4.1, or 4.0) to the
-  nodes' private addresses, and its firewall lets them in on port 2049.
-  Nodes mount it themselves, `nosuid,nodev,hard` over TCP, under
+- **Mounting.** Nodes mount it over NFSv4 (4.2, 4.1, or 4.0) from their
+  private addresses, `nosuid,nodev,hard` over TCP, under
   `/var/lib/armada/nfs/<app>/<volume>`; no NFS client package is needed
   beyond the kernel's.
 - **Ownership** is the server's: give the export to the user the image

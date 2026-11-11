@@ -99,8 +99,8 @@ armada app update web --file web.yaml
   S3-compatible bucket, deduplicated and encrypted, keeping the backups
   `keep` names, and an app whose node is lost comes back on another node
   from its latest backup; `armada volume backup` and `restore` copy a
-  volume out and back. A volume can also be an export of an NFS server you
-  run, shared by any number of replicas.
+  volume out and back. A volume can also be an NFS export, shared by any
+  number of replicas.
 - **Init containers and sidecars.** `initContainers` run to completion
   before an app's container starts (a migration, a seed step); `sidecars`
   run beside it on its localhost (a proxy, a log shipper), with the app's
