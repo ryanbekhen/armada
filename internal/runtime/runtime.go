@@ -361,3 +361,54 @@ type SystemRunner interface {
 	// Signal sends a signal (e.g. "SIGUSR2") to the container's main process.
 	Signal(ctx context.Context, id, signal string) error
 }
+
+// Sandbox is a network namespace wired into the node's container network
+// like a container's, with no container and no process in it (ADR 0040).
+type Sandbox struct {
+	// ID names the sandbox (a job's ID).
+	ID string
+	// IP is its address on the container bridge.
+	IP string
+}
+
+// NetworkSandboxer keeps network sandboxes, from which the agent dials what a
+// job's containers could reach while the job has none (queue triggers, ADR
+// 0040). It is optional.
+type NetworkSandboxer interface {
+	// EnsureSandbox creates the sandbox id, or returns the one that exists.
+	EnsureSandbox(ctx context.Context, id string) (Sandbox, error)
+	// RemoveSandbox releases the sandbox's address and removes it; one that
+	// is gone is not an error.
+	RemoveSandbox(ctx context.Context, id string) error
+	// ListSandboxes returns the node's sandboxes, so that an agent that
+	// restarts adopts or removes them.
+	ListSandboxes(ctx context.Context) ([]Sandbox, error)
+	// DialSandbox dials address, an IP and port, from the sandbox.
+	DialSandbox(ctx context.Context, id, network, address string) (net.Conn, error)
+}
+
+// CanSandbox reports whether d keeps network sandboxes, like CanExec.
+func CanSandbox(d Driver) bool {
+	if c, ok := d.(interface{ CanSandbox() bool }); ok {
+		return c.CanSandbox()
+	}
+	_, ok := d.(NetworkSandboxer)
+	return ok
+}
+
+// maxSandboxID bounds a sandbox's ID: an app ID (spec.AppID).
+const maxSandboxID = 128
+
+// CheckSandboxID refuses an ID made of anything but an app ID's characters:
+// it names a file and network plugin state on the node.
+func CheckSandboxID(id string) error {
+	if id == "" || len(id) > maxSandboxID || id[0] == '.' || id[0] == '-' || strings.Contains(id, "..") {
+		return fmt.Errorf("invalid sandbox ID %q", id)
+	}
+	for _, r := range id {
+		if (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '-' && r != '.' {
+			return fmt.Errorf("invalid sandbox ID %q", id)
+		}
+	}
+	return nil
+}

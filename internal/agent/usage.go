@@ -36,7 +36,7 @@ func (a *Agent) usageLoop(ctx context.Context) {
 	}
 	lr, _ := a.cfg.Proxy.(proxy.LoadReader)
 	vols := a.mountsVolumes()
-	if sr == nil && lr == nil && !vols && a.cfg.Conntrack == nil && !runtime.CanExec(a.cfg.Driver) {
+	if sr == nil && lr == nil && !vols && a.cfg.Conntrack == nil && !runtime.CanExec(a.cfg.Driver) && !a.sandboxesOn() {
 		return
 	}
 	warned := false
@@ -67,7 +67,8 @@ func (a *Agent) usageLoop(ctx context.Context) {
 		}
 		a.sampleConntrack(report, &warned)
 		report.Queues = a.queues.fresh(time.Now(), 2*a.cfg.QueueInterval)
-		if sampled || report.LoadMeasured || report.VolumesMeasured || report.ConntrackMax > 0 || len(report.Queues) > 0 {
+		report.Sandboxes = a.sandboxReport(time.Now())
+		if sampled || report.LoadMeasured || report.VolumesMeasured || report.ConntrackMax > 0 || len(report.Queues) > 0 || len(report.Sandboxes) > 0 {
 			a.sendUsage(report)
 		}
 	}

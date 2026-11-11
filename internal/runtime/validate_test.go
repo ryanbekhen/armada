@@ -7,6 +7,20 @@ import (
 	"testing"
 )
 
+func TestCheckSandboxID(t *testing.T) {
+	t.Parallel()
+	for _, ok := range []string{"mailer", "mailer.shop", "a-1.b-2", strings.Repeat("a", 128)} {
+		if err := CheckSandboxID(ok); err != nil {
+			t.Errorf("%q: %v", ok, err)
+		}
+	}
+	for _, bad := range []string{"", ".", "..", "../etc", "a/b", "-a", ".a", "a..b", "A", "a b", "a\x00", strings.Repeat("a", 129)} {
+		if CheckSandboxID(bad) == nil {
+			t.Errorf("%q accepted", bad)
+		}
+	}
+}
+
 func TestCheckExecCommand(t *testing.T) {
 	t.Parallel()
 	long := strings.Repeat("a", MaxExecArgLen)

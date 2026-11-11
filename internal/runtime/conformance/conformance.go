@@ -1,7 +1,7 @@
 // Package conformance tests that the container runtime behaves as Armada
 // needs (ADR 0011): the security defaults, checked from inside containers,
 // the container lifecycle, labels, publishing on a private address, logs,
-// exec, stats, volumes, and errors. The embedded runtime runs it on a node
+// exec, stats, volumes, network sandboxes, and errors. The embedded runtime runs it on a node
 // (integration build tag).
 //
 // It needs root, network access to pull the test image, and leaves nothing
@@ -18,8 +18,10 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/netip"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -84,6 +86,9 @@ func Run(t *testing.T, d runtime.Driver, opts Options) {
 	}
 	if runtime.CanMountVolumes(d) {
 		t.Run("Volumes", r.volumes)
+	}
+	if sb, ok := d.(runtime.NetworkSandboxer); ok && runtime.CanSandbox(d) {
+		t.Run("NetworkSandbox", func(t *testing.T) { r.sandbox(t, sb) })
 	}
 	if p, ok := d.(runtime.ImagePruner); ok {
 		t.Run("PruneImages", func(t *testing.T) { r.pruneImages(t, p) })
@@ -639,5 +644,79 @@ func (r *runner) volumes(t *testing.T) {
 				t.Errorf("volume mounted without %s: %q", flag, out)
 			}
 		}
+	}
+}
+
+// sandbox checks network sandboxes (ADR 0040): a sandbox gets an address of
+// the bridge's subnet, making it again returns the same one, it is listed,
+// a socket dialled from it has its address and a route to the gateway, and
+// once removed it is gone and dials fail. Only UDP is dialled, which sends
+// nothing: the node's firewall may let an unknown address reach nothing.
+func (r *runner) sandbox(t *testing.T, sb runtime.NetworkSandboxer) {
+	ctx, cancel := r.ctx()
+	defer cancel()
+	id := "conformance-" + r.run
+	t.Cleanup(func() { _ = sb.RemoveSandbox(context.Background(), id) })
+	s, err := sb.EnsureSandbox(ctx, id)
+	if err != nil {
+		t.Fatalf("EnsureSandbox: %v", err)
+	}
+	ip, err := netip.ParseAddr(s.IP)
+	if err != nil {
+		t.Fatalf("sandbox address %q: %v", s.IP, err)
+	}
+	gateway := ""
+	if bi, ok := r.d.(runtime.BridgeInspector); ok {
+		b, err := bi.Bridge(ctx)
+		if err != nil {
+			t.Fatalf("Bridge: %v", err)
+		}
+		if !b.Subnet.Contains(ip) || ip == b.Gateway {
+			t.Errorf("sandbox address %s is not a container address of %s", ip, b.Subnet)
+		}
+		gateway = b.Gateway.String()
+	}
+	again, err := sb.EnsureSandbox(ctx, id)
+	if err != nil || again != s {
+		t.Errorf("EnsureSandbox again = %+v, %v; want %+v", again, err, s)
+	}
+	list, err := sb.ListSandboxes(ctx)
+	if err != nil || !slices.Contains(list, s) {
+		t.Errorf("ListSandboxes = %+v, %v; want %+v in it", list, err, s)
+	}
+	if gateway != "" {
+		conn, err := sb.DialSandbox(ctx, id, "udp", net.JoinHostPort(gateway, "53"))
+		if err != nil {
+			t.Fatalf("DialSandbox: %v", err)
+		}
+		local, _ := netip.ParseAddrPort(conn.LocalAddr().String())
+		_ = conn.Close()
+		if local.Addr() != ip {
+			t.Errorf("a socket dialled from the sandbox has address %s, want %s", local.Addr(), ip)
+		}
+	}
+	if _, err := sb.DialSandbox(ctx, id, "tcp", "example.org:80"); err == nil {
+		t.Error("DialSandbox dialled a name")
+	}
+	if err := sb.RemoveSandbox(ctx, id); err != nil {
+		t.Fatalf("RemoveSandbox: %v", err)
+	}
+	if err := sb.RemoveSandbox(ctx, id); err != nil {
+		t.Errorf("RemoveSandbox of a removed sandbox: %v", err)
+	}
+	list, _ = sb.ListSandboxes(ctx)
+	for _, x := range list {
+		if x.ID == id {
+			t.Errorf("removed sandbox still listed: %+v", x)
+		}
+	}
+	if gateway != "" {
+		if c, err := sb.DialSandbox(ctx, id, "udp", net.JoinHostPort(gateway, "53")); err == nil {
+			_ = c.Close()
+			t.Error("dialled from a removed sandbox")
+		}
+	}
+	if _, err := sb.EnsureSandbox(ctx, "../"+id); err == nil {
+		t.Error("EnsureSandbox accepted a path as its ID")
 	}
 }

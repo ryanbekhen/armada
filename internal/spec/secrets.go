@@ -74,6 +74,9 @@ func (a *App) SecretRefs() []string {
 			}
 		}
 	}
+	if q := a.QueueTrigger(); q != nil {
+		refs = append(refs, q.URLSecretRef)
+	}
 	slices.Sort(refs)
 	return slices.Compact(refs)
 }

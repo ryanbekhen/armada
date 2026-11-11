@@ -917,7 +917,7 @@ URLs:     https://web.example.com/
 
 ## Jobs
 
-Jobs run a container to completion, on demand or on a schedule
+Jobs run a container to completion, on demand, on a schedule, or from a queue
 ([ADR 0019](adr/0019-jobs.md); fields in the
 [spec reference](spec-reference.md#jobs)):
 
@@ -951,6 +951,43 @@ RUN  STATE      TRIGGER   ATTEMPTS  NODE   STARTED  DURATION  EXIT  MESSAGE
   their runs, and `armada app top` shows the resources a running job uses.
 - Alert on `time() - armada_job_last_success_timestamp_seconds > 90000`
   for a daily job that has not succeeded in 25 hours.
+
+### Jobs started by a queue
+
+A job with `trigger.queue` runs while its Redis list or RabbitMQ queue
+holds messages ([ADR 0040](adr/0040-queue-triggered-jobs.md)):
+
+```bash
+printf 'redis://:%s@redis-01:6379/0' "$PASSWORD" | armada secret set mailer redis-url
+armada job create --file mailer.yaml    # trigger.queue, perRun, parallelism
+armada job show mailer
+```
+
+```
+Trigger:      redis list mail:outbox, 50 per run, at most 5 at once, read every 30s
+Queue:        120 waiting, read 12s ago from node2
+```
+
+- One node reads each job's queue, from a network sandbox: a network
+  namespace with an address of the node's subnet that the firewall treats
+  as one of the job's containers, and no process. The node is one the job
+  may run on, connected, and on the cluster network; `armada job show`
+  names it. When it goes, another takes over.
+- Each reading starts ⌈length ÷ `perRun`⌉ runs at most `parallelism`, less
+  the active ones. A run should take its batch and exit.
+- The broker must be reachable from the job's project, as from its
+  containers: in an isolated project, not on a node's own address or outside
+  the cluster's private ranges. `Queue: not read yet` that lasts means the
+  sandbox cannot reach it, or the URL is wrong; the agent's log on that
+  node names the kind of failure (never the URL).
+- `Queue: not read: no node can` means no connected node of the cluster
+  network may run the job (placement, cordons); the cluster records a
+  `QueueUnread` event.
+- Triggers need a cluster network (`armadad init --network`).
+- Sandboxes live in `/run/armada/sandboxes`, one file per job, and are
+  removed with the job or by `armadad runtime reset`.
+- `armada_job_queue_length{job}` is the last length read; alert when it
+  stays high while `armada_job_runs_active` is at `parallelism`.
 
 ## Events
 
@@ -1042,6 +1079,7 @@ scrape interval under 10 seconds costs nothing more, but shows nothing new.
 | `armada_app_traffic_weight` | `app`, `revision` | a revision's percent of the app's requests in multiple revision mode |
 | `armada_job_runs_total` | `job`, `result` | job runs that ended: `succeeded`, `failed`, `cancelled`; resets when the leader changes |
 | `armada_job_runs_active` | `job` | runs pending or running |
+| `armada_job_queue_length` | `job` | the length of the queue that starts the job, as last read (ADR 0040); absent while unread |
 | `armada_job_last_success_timestamp_seconds` | `job` | when the newest kept successful run finished |
 | `armada_events_total` | `kind`, `reason` | events the leader recorded (see [Events](#events)); resets when the leader changes |
 | `armada_app_replicas_desired`, `armada_app_replicas_ready` | `app` | desired replicas, and those running, ready, and not draining |

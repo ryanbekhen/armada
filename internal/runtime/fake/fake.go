@@ -11,6 +11,7 @@ import (
 	"slices"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -79,6 +80,95 @@ type Driver struct {
 	NoExec bool
 	// Dials records the addresses DialContainer was asked for.
 	Dials []string
+
+	// sandboxes are the network sandboxes, by ID; sandboxSeq numbers them.
+	sandboxes  map[string]runtime.Sandbox
+	sandboxSeq int
+	// NoSandboxes makes the driver report that it keeps no network
+	// sandboxes.
+	NoSandboxes bool
+	// SandboxDials records the sandbox and address of each DialSandbox.
+	SandboxDials []string
+	// SandboxCreates counts the sandboxes EnsureSandbox created.
+	SandboxCreates int
+}
+
+var _ runtime.NetworkSandboxer = (*Driver)(nil)
+
+// CanSandbox reports whether sandboxes are offered (not NoSandboxes).
+func (d *Driver) CanSandbox() bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return !d.NoSandboxes
+}
+
+// EnsureSandbox creates a sandbox with the address BridgeIPs followed by
+// 200 and up, or returns the existing one.
+func (d *Driver) EnsureSandbox(_ context.Context, id string) (runtime.Sandbox, error) {
+	if err := runtime.CheckSandboxID(id); err != nil {
+		return runtime.Sandbox{}, err
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if s, ok := d.sandboxes[id]; ok {
+		return s, nil
+	}
+	if d.sandboxes == nil {
+		d.sandboxes = map[string]runtime.Sandbox{}
+	}
+	d.sandboxSeq++
+	d.SandboxCreates++
+	s := runtime.Sandbox{ID: id}
+	if d.BridgeIPs != "" {
+		s.IP = d.BridgeIPs + strconv.Itoa(200+d.sandboxSeq%50)
+	}
+	d.sandboxes[id] = s
+	return s, nil
+}
+
+// RemoveSandbox removes a sandbox; a missing one is not an error.
+func (d *Driver) RemoveSandbox(_ context.Context, id string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	delete(d.sandboxes, id)
+	return nil
+}
+
+// ListSandboxes returns the sandboxes, sorted by ID.
+func (d *Driver) ListSandboxes(context.Context) ([]runtime.Sandbox, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	out := slices.Collect(maps.Values(d.sandboxes))
+	slices.SortFunc(out, func(a, b runtime.Sandbox) int { return strings.Compare(a.ID, b.ID) })
+	return out, nil
+}
+
+// Sandboxes returns the IDs of the sandboxes, sorted.
+func (d *Driver) Sandboxes() []string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return slices.Sorted(maps.Keys(d.sandboxes))
+}
+
+// DialSandbox dials from the host, like DialContainer, from a sandbox that
+// exists.
+func (d *Driver) DialSandbox(ctx context.Context, id, network, address string) (net.Conn, error) {
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := netip.ParseAddr(host); err != nil {
+		return nil, fmt.Errorf("%q is not an IP address", host)
+	}
+	d.mu.Lock()
+	_, ok := d.sandboxes[id]
+	d.SandboxDials = append(d.SandboxDials, id+" "+address)
+	d.mu.Unlock()
+	if !ok {
+		return nil, fmt.Errorf("sandbox %s does not exist", id)
+	}
+	var dl net.Dialer
+	return dl.DialContext(ctx, network, address)
 }
 
 // DialContainer dials from the host: the fake has no network namespaces.

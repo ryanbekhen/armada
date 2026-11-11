@@ -87,6 +87,8 @@ armada app update web --file web.yaml
   starts it again.
 - **Jobs.** `kind: job` runs a container to completion, on demand or on a
   cron schedule with a time zone, with timeouts, retries, and run history.
+  A job can also start from a Redis list or RabbitMQ queue: while messages
+  wait, runs start, each taking a batch, and nothing runs while it is empty.
 - **Volumes.** `volumes` keep an app's data on its node across deploys,
   crashes, and reboots, for databases and uploads; `armada volume backup`
   and `restore` copy it out and back, onto another node if its own is gone.

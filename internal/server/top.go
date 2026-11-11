@@ -78,7 +78,26 @@ type nodeUsage struct {
 	// queues is the length each queue rule read, by the replica it was
 	// read from and the rule's type (ADR 0034).
 	queues map[queueKey]int64
+	// sandboxes are the node's network sandboxes by job, with the latest
+	// length of each job's queue (ADR 0040).
+	sandboxes map[string]sandboxReading
 }
+
+// sandboxReading is a job's network sandbox on a node, and the length of
+// the job's queue read from it, if measured.
+type sandboxReading struct {
+	ip       string
+	measured bool
+	length   int64
+	at       time.Time // when the length was read
+	reading  int64     // the agent's count of readings
+}
+
+// Bounds on what a report says about network sandboxes.
+const (
+	maxSandboxReports = 256
+	maxSandboxAge     = time.Hour
+)
 
 // queueKey names a queue reading: the replica it came from and the rule.
 type queueKey struct{ replica, typ string }
@@ -99,10 +118,13 @@ func newUsageStore() *usageStore {
 // values are bounded, and a report with too many replicas is dropped. Which
 // replicas belong to the node is only checked when the sample is read, so
 // a report costs no store access.
-func (u *usageStore) set(nodeID string, r *armadav1.UsageReport, at time.Time) {
+//
+// It returns true when the report brings a new reading of a job's queue, so
+// that the leader reconciles at once rather than at its next pass.
+func (u *usageStore) set(nodeID string, r *armadav1.UsageReport, at time.Time) bool {
 	if len(r.GetReplicas()) > maxUsageReplicas {
 		u.forget(nodeID)
-		return
+		return false
 	}
 	// Load covers every replica the node's proxy routes to, across the
 	// cluster: too much of it makes the load unmeasured, not the node.
@@ -141,7 +163,15 @@ func (u *usageStore) set(nodeID string, r *armadav1.UsageReport, at time.Time) {
 			}
 		}
 	}
+	sandboxes := sandboxReadings(r.GetSandboxes(), at)
 	u.mu.Lock()
+	fresh := false
+	for job, s := range sandboxes {
+		prev, ok := u.nodes[nodeID].sandboxes[job]
+		if s.measured && (!ok || !prev.measured || prev.reading != s.reading) {
+			fresh = true
+		}
+	}
 	u.count(nodeID, r)
 	for _, id := range busy {
 		u.active[id] = at
@@ -158,8 +188,31 @@ func (u *usageStore) set(nodeID string, r *armadav1.UsageReport, at time.Time) {
 		conntrackEntries: max(0, min(r.GetConntrackEntries(), maxConntrack)),
 		conntrackMax:     max(0, min(r.GetConntrackMax(), maxConntrack)),
 		queues:           queues,
+		sandboxes:        sandboxes,
 	}
 	u.mu.Unlock()
+	return fresh
+}
+
+// sandboxReadings bounds what a report says about the node's sandboxes.
+// Which jobs the node may read is checked when a reading is used.
+func sandboxReadings(list []*armadav1.SandboxQueue, at time.Time) map[string]sandboxReading {
+	if len(list) == 0 || len(list) > maxSandboxReports {
+		return nil
+	}
+	out := make(map[string]sandboxReading, len(list))
+	for _, q := range list {
+		if !spec.ValidAppID(q.GetJob()) || len(q.GetIp()) > 64 {
+			continue
+		}
+		s := sandboxReading{ip: q.GetIp()}
+		if q.GetMeasured() {
+			age := time.Duration(max(0, min(q.GetAgeMillis(), maxSandboxAge.Milliseconds()))) * time.Millisecond
+			s.measured, s.length, s.at, s.reading = true, max(0, min(q.GetLength(), maxQueueLength)), at.Add(-age), q.GetReading()
+		}
+		out[q.GetJob()] = s
+	}
+	return out
 }
 
 // count adds a report to the project counters; u.mu is held. Egress counts
