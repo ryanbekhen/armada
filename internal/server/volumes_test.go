@@ -336,3 +336,136 @@ func TestVolumeBackupRestoreRemove(t *testing.T) {
 		t.Errorf("volumes left: %v", l.GetVolumes())
 	}
 }
+
+// containerOf is the container ID recorded for a replica.
+func containerOf(c *cluster, id string) string {
+	for _, r := range replicasOf(c, "web") {
+		if r.ID == id {
+			return r.ContainerID
+		}
+	}
+	return ""
+}
+
+// replicasOf lists the app's replica records.
+func replicasOf(c *cluster, app string) []store.Replica {
+	rs, err := c.store.ListReplicas(c.ctx, store.ReplicaFilter{App: app})
+	if err != nil {
+		c.t.Fatal(err)
+	}
+	return rs
+}
+
+func TestVolumeAppPullsBeforeTheOldReplicaStops(t *testing.T) {
+	t.Parallel()
+	c := newCluster(t)
+	c.addNode("n1", "127.0.0.1")
+	c.deploy(volumeSpec("nginx:1"))
+	c.eventually("v1 running", func() bool { return len(c.running("web")) == 1 })
+	old := c.running("web")[0]
+	oldContainer := containerOf(c, old.Id)
+
+	release := make(chan struct{})
+	c.nodes["n1"].d.SetPullHook(func(ctx context.Context, image string) error {
+		if image == "nginx:2" {
+			select {
+			case <-release:
+			case <-ctx.Done():
+			}
+		}
+		return nil
+	})
+	c.deploy(volumeSpec("nginx:2"))
+	c.eventually("v2 held while its image is pulled", func() bool {
+		for _, r := range replicasOf(c, "web") {
+			if r.Revision == "web--r2" && r.Held && r.State == store.ReplicaPulling {
+				return true
+			}
+		}
+		return false
+	})
+	time.Sleep(300 * time.Millisecond)
+	if r := c.running("web"); len(r) != 1 || r[0].Id != old.Id || containerOf(c, old.Id) != oldContainer {
+		t.Fatalf("the old replica stopped before the new image was pulled: %v", r)
+	}
+
+	var most atomic.Int64
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			if n := int64(runningContainers(c, "web")); n > most.Load() {
+				most.Store(n)
+			}
+			time.Sleep(2 * time.Millisecond)
+		}
+	})
+	close(release)
+	c.eventually("v2 serving", func() bool {
+		a := c.app("web")
+		r := c.running("web")
+		return a.ActiveRevision == "web--r2" && a.RolloutState == "" && len(r) == 1 && r[0].Revision == "web--r2"
+	})
+	close(stop)
+	wg.Wait()
+	if most.Load() > 1 {
+		t.Errorf("%d containers ran at once during the rollout", most.Load())
+	}
+	for _, r := range replicasOf(c, "web") {
+		if r.Held {
+			t.Errorf("replica %s still held", r.ID)
+		}
+	}
+}
+
+func TestVolumeAppKeepsServingWhenThePullFails(t *testing.T) {
+	t.Parallel()
+	c := newCluster(t, func(cfg *Config) { cfg.ProgressDeadline = time.Second })
+	c.addNode("n1", "127.0.0.1")
+	c.deploy(volumeSpec("nginx:1"))
+	c.eventually("v1 running", func() bool { return len(c.running("web")) == 1 })
+	old := c.running("web")[0]
+	oldContainer := containerOf(c, old.Id)
+
+	c.nodes["n1"].d.SetPullHook(func(_ context.Context, image string) error {
+		if image == "nginx:missing" {
+			return errors.New("not found")
+		}
+		return nil
+	})
+	c.deploy(volumeSpec("nginx:missing"))
+	c.eventually("the rollout fails", func() bool { return c.app("web").RolloutState == store.RolloutFailed })
+	c.eventually("only the old replica is left", func() bool { return len(replicasOf(c, "web")) == 1 })
+	if r := c.running("web"); len(r) != 1 || r[0].Id != old.Id || containerOf(c, old.Id) != oldContainer {
+		t.Fatalf("the old replica did not keep serving: %v", r)
+	}
+}
+
+func TestVolumeAppStartsHeldReplicaForAgentsWithoutHolds(t *testing.T) {
+	t.Parallel()
+	c := newCluster(t)
+	c.addNode("n1", "127.0.0.1")
+	c.deploy(volumeSpec("nginx:1"))
+	c.eventually("v1 running", func() bool { return len(c.running("web")) == 1 })
+	if !c.srv.holdsAt("n1") {
+		t.Fatal("the agent did not announce held replicas")
+	}
+	c.srv.mu.Lock()
+	c.srv.sessions["n1"].holds = false
+	c.srv.mu.Unlock()
+	c.deploy(volumeSpec("nginx:2"))
+	c.eventually("v2 serving", func() bool {
+		r := c.running("web")
+		return c.app("web").ActiveRevision == "web--r2" && len(r) == 1 && r[0].Revision == "web--r2"
+	})
+	for _, r := range replicasOf(c, "web") {
+		if r.Held {
+			t.Errorf("replica %s held for an agent that does not hold", r.ID)
+		}
+	}
+}

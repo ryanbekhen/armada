@@ -39,8 +39,10 @@ const (
 
 // Replica states reported by agents.
 const (
-	ReplicaPending  = "pending"
-	ReplicaPulling  = "pulling"
+	ReplicaPending = "pending"
+	ReplicaPulling = "pulling"
+	// ReplicaPulled: a held replica's images are on its node (ADR 0023).
+	ReplicaPulled   = "pulled"
 	ReplicaStarting = "starting"
 	ReplicaRunning  = "running"
 	ReplicaExited   = "exited"
@@ -254,6 +256,10 @@ type Replica struct {
 	Done     bool
 	Finished bool
 	ExitCode int
+	// Held marks a volume app's next replica during a rollout (ADR 0023):
+	// its node pulls the images but starts nothing until the hold is
+	// lifted, once the old replica is gone.
+	Held bool
 }
 
 // Moving reports whether the replica is being replaced on another node.
@@ -493,6 +499,8 @@ type Store interface {
 	// SetReplicaMoving marks a replica as being moved to another node, or
 	// clears the mark.
 	SetReplicaMoving(ctx context.Context, id string, moving bool) error
+	// ReleaseReplica lifts a replica's hold (idempotent).
+	ReleaseReplica(ctx context.Context, id string) error
 	ListReplicas(ctx context.Context, f ReplicaFilter) ([]Replica, error)
 	// UpdateReplicaStatus applies a status report from nodeID. It returns
 	// ErrNotFound if the replica does not exist on that node, so one agent

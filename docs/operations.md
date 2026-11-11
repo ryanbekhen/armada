@@ -1216,7 +1216,11 @@ db   data    node2  /var/lib/postgresql/data  1.2GiB  14d
 ```
 
 - **Deploys have downtime.** The old replica stops (after its drain)
-  before the new one starts, on the same node.
+  before the new one starts, on the same node. The new replica's images
+  are pulled first, while the old one keeps serving (`armada app show`
+  lists it as `pulling`, then `pulled`), so the gap is the drain plus the
+  start, not the download. If the pull fails, the old replica keeps
+  serving and the rollout fails.
 - **Live backups may be inconsistent.** Files written during a backup may
   be copied half-written. For databases, use their own dump tool through
   `armada app exec` (for example `armada app exec db -- pg_dump -U postgres app`),

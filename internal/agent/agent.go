@@ -175,6 +175,8 @@ type Agent struct {
 	sb      sandboxes
 	notes   map[string]string // replica -> message
 	crashes map[string]crashLoop
+	// holds holds the image pulls of held replicas (ADR 0023).
+	holds map[string]*heldPull
 	// crashBase is the first recreate delay (crashBackoff; shorter in tests).
 	crashBase time.Duration
 
@@ -255,6 +257,7 @@ func New(cfg Config) *Agent {
 		restarts:  map[string]string{},
 		notes:     map[string]string{},
 		crashes:   map[string]crashLoop{},
+		holds:     map[string]*heldPull{},
 		paused:    map[string]int{},
 		trigger:   make(chan struct{}, 1),
 
@@ -317,7 +320,7 @@ func (a *Agent) session(ctx context.Context) (established bool, err error) {
 		CpuMillis: a.cfg.CPUMillis, MemoryBytes: a.cfg.MemoryBytes, Version: version.Get().Version, PrivateIp: a.cfg.PrivateIP,
 		Os: cmp.Or(a.cfg.OS, goruntime.GOOS), Arch: cmp.Or(a.cfg.Arch, goruntime.GOARCH),
 		Jobs: true, Volumes: a.mountsVolumes(), Containers: runtime.CanRunMembers(a.cfg.Driver), NetworkKey: a.cfg.NetworkKey,
-		CertificateRefs: true, QueueSandboxes: a.sandboxesOn(),
+		CertificateRefs: true, QueueSandboxes: a.sandboxesOn(), HeldReplicas: true,
 	}}}
 	if err := stream.Send(hello); err != nil {
 		return false, err
@@ -531,6 +534,17 @@ func (a *Agent) Reconcile(ctx context.Context) (*armadav1.ReplicaReport, error) 
 			settled = append(settled, &armadav1.ReplicaState{Id: id, State: store.ReplicaExited, ContainerId: c.ID, Message: pausedMessage})
 			continue
 		}
+		if spec.GetHold() {
+			// Its volume is still in use by the old replica: pull, start
+			// nothing (ADR 0023).
+			if ok {
+				a.log.Info("removing container of a held replica", "replica", id)
+				a.remove(ctx, c.ID)
+			}
+			a.stopProbes(id)
+			settled = append(settled, a.held(ctx, spec))
+			continue
+		}
 		if spec.GetJob() != nil {
 			a.mu.Lock()
 			delete(a.restarts, c.ID) // an attempt runs once, whatever happens
@@ -581,6 +595,7 @@ func (a *Agent) Reconcile(ctx context.Context) (*armadav1.ReplicaReport, error) 
 		running = append(running, runningReplica{spec: spec, container: c})
 	}
 	report := a.startPending(ctx, pending, settled, running)
+	a.forgetHolds(desired)
 	a.cleanSecretFiles(desired)
 	a.mu.Lock()
 	for id := range a.probes {

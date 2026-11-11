@@ -44,7 +44,7 @@ func (s *Server) reconcileVolumeApp(ctx context.Context, rc *reconcileRun, app *
 	}
 
 	var err2 error
-	var current []store.Replica
+	var current, old []store.Replica
 	others := 0
 	for _, r := range all {
 		if r.App != app.Name {
@@ -63,12 +63,7 @@ func (s *Server) reconcileVolumeApp(ctx context.Context, rc *reconcileRun, app *
 		default:
 			// The serving revision's replica during a rollout, or one left
 			// on a node the volume is no longer bound to.
-			if all, err2 = s.retire(ctx, rc, all, r); err2 != nil {
-				return nil, err2
-			}
-			if slices.ContainsFunc(all, func(o store.Replica) bool { return o.ID == r.ID }) {
-				others++
-			}
+			old = append(old, r)
 		}
 	}
 
@@ -79,13 +74,84 @@ func (s *Server) reconcileVolumeApp(ctx context.Context, rc *reconcileRun, app *
 		}
 		if aborted {
 			// The serving revision is the target again; the next pass
-			// replaces this revision's replica with one of it.
+			// replaces this revision's replica with one of it, and keeps
+			// the replica that serves.
 			for _, r := range current {
 				if all, err = s.retire(ctx, rc, all, r); err != nil {
 					return nil, err
 				}
 			}
 			return all, nil
+		}
+	}
+
+	byID := map[string]store.Node{}
+	for _, n := range nodes {
+		byID[n.ID] = n
+	}
+	pn, known := byID[pinned]
+
+	// Pull first: during a rollout the old replica keeps serving while the
+	// volume's node pulls the new revision's images into a held replica,
+	// so the app is down only while the new container starts. A failed
+	// pull never stops the old one; the rollout fails instead.
+	keepOld := false
+	if app.Rolling() && app.Replicas > 0 && pinned != "" && !split && len(old) > 0 &&
+		!slices.ContainsFunc(old, func(r store.Replica) bool { return r.NodeID != pinned }) && s.holdsAt(pinned) {
+		switch {
+		case len(current) == 0 && known && !rc.lost[pinned] && pn.State == store.NodeReady && placementAllows(pn, target):
+			if node, ok := pickNode([]store.Node{pn}, all, nil, "", reservation(target), revs.reserved(ctx)); ok {
+				r := store.Replica{
+					ID:       fmt.Sprintf("%s-r%d-%s", app.Name, target.Seq, randomID(5)),
+					App:      app.Name,
+					Revision: target.Name,
+					NodeID:   node.ID,
+					State:    store.ReplicaPending,
+					Held:     true,
+				}
+				switch err := s.store.CreateReplica(ctx, r); {
+				case errors.Is(err, store.ErrPrecondition):
+					s.log.Warn("volume bound elsewhere", "app", app.Name, "err", err)
+				case err != nil:
+					return nil, err
+				default:
+					s.log.Info("pulling ahead", "replica", r.ID, "revision", r.Revision, "node", node.ID)
+					s.record(ctx, store.Event{Kind: eventReplica, Object: r.ID, App: app.Name, Node: node.ID, Reason: "Scheduled", Message: "revision " + r.Revision + " on " + node.ID + ", held until its images are pulled and the old replica stops"})
+					current = append(current, r)
+					all = append(all, r)
+					keepOld = true
+				}
+			}
+		case len(current) > 0 && !slices.ContainsFunc(current, func(r store.Replica) bool { return !r.Held || r.State == store.ReplicaPulled }):
+			// Still pulling, or the pull failed: the rollout's deadline
+			// decides.
+			keepOld = true
+		}
+	}
+	for _, r := range old {
+		if keepOld {
+			others++
+			continue
+		}
+		if all, err2 = s.retire(ctx, rc, all, r); err2 != nil {
+			return nil, err2
+		}
+		if slices.ContainsFunc(all, func(o store.Replica) bool { return o.ID == r.ID }) {
+			others++
+		}
+	}
+	if others == 0 {
+		// Nothing else uses the volume: held replicas start.
+		for i, r := range current {
+			if !r.Held {
+				continue
+			}
+			if err := s.store.ReleaseReplica(ctx, r.ID); err != nil {
+				return nil, err
+			}
+			r.Held = false
+			current[i] = r
+			all = replace(all, r)
 		}
 	}
 
@@ -97,11 +163,6 @@ func (s *Server) reconcileVolumeApp(ctx context.Context, rc *reconcileRun, app *
 		current = without(current, victim.ID)
 	}
 
-	byID := map[string]store.Node{}
-	for _, n := range nodes {
-		byID[n.ID] = n
-	}
-	pn, known := byID[pinned]
 	unavailable := !split && pinned != "" && (!known || rc.lost[pinned])
 	s.condition(ctx, "volume-lost:"+app.Name, unavailable, store.Event{Kind: eventApp, Object: app.Name, App: app.Name, Node: pinned, Reason: "VolumeUnavailable",
 		Message: fmt.Sprintf("its volumes are on node %s, which is unreachable or removed; it stays down until the node returns or a volume backup is restored on another node (armada volume restore --node)", pinned)})
@@ -162,6 +223,15 @@ func (s *Server) reconcileVolumeApp(ctx context.Context, rc *reconcileRun, app *
 		s.forgetProgress(app.Name)
 	}
 	return all, nil
+}
+
+// holdsAt reports whether the agent of node is connected and keeps held
+// replicas.
+func (s *Server) holdsAt(node string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	sess, ok := s.sessions[node]
+	return ok && sess.holds
 }
 
 // volumeNode returns the node the volumes of rev's app are bound to, or ""

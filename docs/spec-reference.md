@@ -552,7 +552,9 @@ volumes:
   while that node is lost: see "Volumes" in the
   [operations guide](operations.md#volumes) for recovery.
 - **Deploys stop the old replica before starting the new one.** The app is
-  down for the old replica's drain plus the new one's start.
+  down for the old replica's drain plus the new one's start. The new
+  replica's images are pulled before the old replica stops; if that fails,
+  the old one keeps serving.
 - **Kept until removed.** A volume stays when the app is redeployed without
   it or deleted, until `armada volume delete`. Its size is shown by
   `armada volume list`; there is no quota.

@@ -414,7 +414,7 @@ func (c *clusterCollector) revisionInfo(ctx context.Context, apps []*armadav1.Ap
 // replicaStateLabel keeps the state label to the states the store knows.
 func replicaStateLabel(state string) string {
 	switch state {
-	case store.ReplicaPending, store.ReplicaPulling, store.ReplicaStarting, store.ReplicaRunning, store.ReplicaExited, store.ReplicaFailed:
+	case store.ReplicaPending, store.ReplicaPulling, store.ReplicaPulled, store.ReplicaStarting, store.ReplicaRunning, store.ReplicaExited, store.ReplicaFailed:
 		return state
 	}
 	return "unknown"
