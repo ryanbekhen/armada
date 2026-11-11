@@ -44,7 +44,7 @@ func healthyEnv(t *testing.T) doctorEnv {
 			return []netip.AddrPort{netip.MustParseAddrPort("10.0.0.2:7443")}, nil
 		},
 		ntpSynced:   func(context.Context) (bool, error) { return true, nil },
-		ufwActive:   func(context.Context) (bool, error) { return false, errors.New("not installed") },
+		ufwStatus:   func(context.Context) (string, error) { return "", errors.New("not installed") },
 		readFile:    os.ReadFile,
 		now:         time.Now,
 		adminConfig: filepath.Join(dir, "no-config"),
@@ -101,7 +101,9 @@ func TestDoctorFindsProblems(t *testing.T) {
 		}, "listeners", checkFail},
 		"not tmpfs": {func(e *doctorEnv) { e.checkTmpfs = func(string) error { return errors.New("ext4") } }, "secrets-tmpfs", checkWarn},
 		"clock":     {func(e *doctorEnv) { e.ntpSynced = func(context.Context) (bool, error) { return false, nil } }, "clock", checkWarn},
-		"ufw":       {func(e *doctorEnv) { e.ufwActive = func(context.Context) (bool, error) { return true, nil } }, "firewall", checkWarn},
+		"ufw": {func(e *doctorEnv) {
+			e.ufwStatus = func(context.Context) (string, error) { return "Status: active\n", nil }
+		}, "firewall", checkWarn},
 		"world-readable key": {func(e *doctorEnv) {
 			_ = os.Chmod(filepath.Join(e.dataDir, fileMasterKey), 0o644)
 		}, "data-dir", checkFail},
@@ -403,5 +405,46 @@ func TestDoctorServerEnv(t *testing.T) {
 	env.serverEnv = func() ([]byte, error) { return []byte(`ARMADA_SERVER_FLAGS="--join-listen off"` + "\n"), nil }
 	if got := statusOf(runDoctor(context.Background(), env), "server-env"); got != "" {
 		t.Errorf("machine flags flagged: %s", got)
+	}
+}
+
+func TestUFWAllowsBridge(t *testing.T) {
+	t.Parallel()
+	const head = "Status: active\n\nTo                         Action      From\n--                         ------      ----\n"
+	tests := map[string]struct {
+		rules    string
+		dns, web bool
+	}{
+		"none": {"22/tcp                     ALLOW       Anywhere\n", false, false},
+		"both": {"Anywhere                   ALLOW       10.120.0.0/16\n" +
+			"53 on armada0              ALLOW       Anywhere                   # DNS\n" +
+			"80/tcp on armada0          ALLOW       Anywhere\n" +
+			"53 (v6) on armada0         ALLOW       Anywhere (v6)\n", true, true},
+		"udp only":      {"53/udp on armada0          ALLOW IN    Anywhere\n80 on armada0              ALLOW IN    Anywhere\n", false, true},
+		"udp and tcp":   {"53/udp on armada0          ALLOW       Anywhere\n53/tcp on armada0          ALLOW       Anywhere\n", true, false},
+		"list":          {"53,80/tcp on armada0       ALLOW       Anywhere\n", false, true},
+		"interface":     {"Anywhere on armada0        ALLOW       Anywhere\n", true, true},
+		"denied":        {"53 on armada0              DENY        Anywhere\n80/tcp on armada0          DENY        Anywhere\n", false, false},
+		"v6 only":       {"53 (v6) on armada0         ALLOW       Anywhere (v6)\n80/tcp (v6) on armada0     ALLOW       Anywhere (v6)\n", false, false},
+		"other bridge":  {"53 on docker0              ALLOW       Anywhere\n80/tcp on docker0          ALLOW       Anywhere\n", false, false},
+		"prefix bridge": {"53 on armada01             ALLOW       Anywhere\n80/tcp on armada01         ALLOW       Anywhere\n", false, false},
+	}
+	for name, tt := range tests {
+		dns, web := ufwAllowsBridge(head+tt.rules, "armada0")
+		if dns != tt.dns || web != tt.web {
+			t.Errorf("%s: dns=%v web=%v, want %v %v", name, dns, web, tt.dns, tt.web)
+		}
+	}
+}
+
+func TestDoctorUFWWithBridgeRules(t *testing.T) {
+	t.Parallel()
+	env := healthyEnv(t)
+	env.ufwStatus = func(context.Context) (string, error) {
+		return "Status: active\n\nTo                         Action      From\n" +
+			"53 on armada0              ALLOW       Anywhere\n80/tcp on armada0          ALLOW       Anywhere\n", nil
+	}
+	if got := statusOf(runDoctor(context.Background(), env), "firewall"); got != checkOK {
+		t.Fatalf("firewall = %v, want ok", got)
 	}
 }
