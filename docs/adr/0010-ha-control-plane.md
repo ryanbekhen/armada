@@ -84,7 +84,8 @@ nothing.
   addresses of its last reconcile pass in the `armada-servers` header of
   every AdminService answer, and the CLI writes a list with other addresses
   back to the config once per run. An agent run as root from the default
-  data directory writes its list to `/etc/armada/servers` (root's, `0644`),
+  data directory writes its list to `/etc/armada/servers` (root's, `0644`,
+  in a directory others may search but not list),
   and the CLI dials the addresses there that its config lacks after its own,
   so a config unused since servers were added still reaches the leader.
 - Clients use one gRPC connection with a static resolver over all

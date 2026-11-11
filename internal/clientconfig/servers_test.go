@@ -60,7 +60,14 @@ func TestMachineServersRefused(t *testing.T) {
 }
 
 func TestWriteMachineServers(t *testing.T) {
+	// A directory created under a strict umask (the units' 0077) still
+	// lets every user reach the file.
+	dir := filepath.Join(t.TempDir(), "etc-armada")
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
 	machineFile(t, "", true)
+	serversPath = filepath.Join(dir, "servers")
 	if err := WriteMachineServers([]string{"10.0.0.1:7443", "10.0.0.2:7443"}); err != nil {
 		t.Fatal(err)
 	}
@@ -70,6 +77,9 @@ func TestWriteMachineServers(t *testing.T) {
 	}
 	if got := MachineServers(); !slices.Equal(got, []string{"10.0.0.1:7443", "10.0.0.2:7443"}) {
 		t.Errorf("read back %v", got)
+	}
+	if fi, err := os.Stat(dir); err != nil || fi.Mode().Perm() != 0o711 {
+		t.Errorf("directory mode = %v, %v; want 0711", fi.Mode().Perm(), err)
 	}
 	if err := WriteMachineServers([]string{"8.8.8.8:7443"}); err == nil {
 		t.Error("public address written")
