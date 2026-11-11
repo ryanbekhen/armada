@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"net"
+	"net/netip"
 	"slices"
 	"sort"
 	"strconv"
@@ -72,6 +74,43 @@ type Driver struct {
 	NoStats bool
 	// NoVolumes makes the driver report that it cannot mount volumes.
 	NoVolumes bool
+	// NoExec makes the driver report that it cannot run commands in
+	// containers or dial from them.
+	NoExec bool
+	// Dials records the addresses DialContainer was asked for.
+	Dials []string
+}
+
+// DialContainer dials from the host: the fake has no network namespaces.
+// It refuses names, like the real runtime, and containers that do not run.
+func (d *Driver) DialContainer(ctx context.Context, id, network, address string) (net.Conn, error) {
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := netip.ParseAddr(host); err != nil {
+		return nil, fmt.Errorf("%q is not an IP address", host)
+	}
+	d.mu.Lock()
+	c, ok := d.containers[id]
+	running := ok && c.State == runtime.StateRunning
+	d.Dials = append(d.Dials, address)
+	d.mu.Unlock()
+	if !running {
+		return nil, fmt.Errorf("container %s is not running", id)
+	}
+	var dl net.Dialer
+	return dl.DialContext(ctx, network, address)
+}
+
+// CanDial reports whether DialContainer is offered (not NoExec).
+func (d *Driver) CanDial() bool { return d.CanExec() }
+
+// CanExec reports whether ExecApp is offered (not NoExec).
+func (d *Driver) CanExec() bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return !d.NoExec
 }
 
 // CanMountVolumes reports whether volumes are offered (not NoVolumes).

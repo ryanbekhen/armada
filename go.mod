@@ -25,10 +25,12 @@ require (
 	github.com/opencontainers/selinux v1.15.1
 	github.com/prometheus/client_golang v1.25.0
 	github.com/prometheus/client_model v0.6.3
+	github.com/rabbitmq/amqp091-go v1.16.0
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.1.0
 	github.com/vishvananda/netlink v1.3.1
+	github.com/vishvananda/netns v0.0.5
 	go.etcd.io/etcd/client/v3 v3.7.3
 	go.etcd.io/etcd/etcdutl/v3 v3.7.3
 	go.etcd.io/etcd/server/v3 v3.7.3
@@ -95,7 +97,6 @@ require (
 	github.com/sirupsen/logrus v1.10.2 // indirect
 	github.com/soheilhy/cmux v0.1.5 // indirect
 	github.com/tmc/grpc-websocket-proxy v0.0.0-20220101234140-673ab2c3ae75 // indirect
-	github.com/vishvananda/netns v0.0.5 // indirect
 	github.com/xiang90/probing v0.0.0-20221125231312-a49e3df8f510 // indirect
 	github.com/zeebo/blake3 v0.2.4 // indirect
 	go.etcd.io/bbolt v1.5.0 // indirect

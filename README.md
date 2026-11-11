@@ -76,7 +76,9 @@ armada app update web --file web.yaml
   memory each app, replica, and node uses next to what it reserves, sampled every 10 seconds, and per
   project also its volumes, requests, and egress.
 - **Autoscaling.** `scale.rules` keep an app between `scale.min` and
-  `scale.max` by requests in progress, CPU, or memory per replica. With
+  `scale.max` by requests in progress, CPU, or memory per replica, by the
+  length of its queue (a Redis list, a RabbitMQ queue, or any queue a
+  command in the app reads), or by a schedule. With
   `scale.min: 0`, an idle app stops its last replica and the next request
   starts it again.
 - **Jobs.** `kind: job` runs a container to completion, on demand or on a

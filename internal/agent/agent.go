@@ -75,6 +75,9 @@ type Config struct {
 	// UsageInterval is how often replicas are sampled for armada app top
 	// (default 10s, ADR 0016).
 	UsageInterval time.Duration
+	// QueueInterval is how often queue rules' commands run (default 15s,
+	// ADR 0034).
+	QueueInterval time.Duration
 	// ImagePrune is how often unused images are removed (default 10m,
 	// negative turns it off).
 	ImagePrune time.Duration
@@ -164,6 +167,7 @@ type Agent struct {
 	// restarts holds containers a failed probe asked to restart, with the
 	// reason; notes carries that reason to the replacement's status.
 	restarts map[string]string // container ID -> reason
+	queues   queueLengths
 	notes    map[string]string // replica -> message
 	crashes  map[string]crashLoop
 	// crashBase is the first recreate delay (crashBackoff; shorter in tests).
@@ -209,6 +213,9 @@ func New(cfg Config) *Agent {
 	}
 	if cfg.UsageInterval == 0 {
 		cfg.UsageInterval = defaultUsageInterval
+	}
+	if cfg.QueueInterval == 0 {
+		cfg.QueueInterval = defaultQueueInterval
 	}
 	if cfg.ImagePrune == 0 {
 		cfg.ImagePrune = defaultImagePrune
@@ -260,6 +267,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 	go a.reconcileLoop(ctx)
 	go a.usageLoop(ctx)
+	go a.queueLoop(ctx)
 	if a.cfg.WakeSocket != "" {
 		go a.serveWake(ctx)
 	}
@@ -1087,6 +1095,8 @@ func specHash(s *armadav1.ReplicaSpec) string {
 	// Added after replicas existed, and fixed for a revision: hashing it
 	// would recreate every replica, undrained, when the server is upgraded.
 	c.CpuReserveMillis = 0
+	// Queue rules are read by the queue loop, not the container.
+	c.Queues = nil
 	// Marking a job attempt done stops its container; it must not
 	// recreate it.
 	if c.Job != nil {

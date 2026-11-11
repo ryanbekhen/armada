@@ -23,7 +23,7 @@ Every architectural decision that is hard to reverse is recorded here. Copy `000
 | [0017](0017-metrics-endpoint.md) | Metrics endpoint | Accepted |
 | [0018](0018-event-history.md) | Event history | Accepted |
 | [0019](0019-jobs.md) | Jobs | Accepted |
-| [0020](0020-autoscaling.md) | Autoscaling | Accepted |
+| [0020](0020-autoscaling.md) | Autoscaling | Accepted; queue and schedule rules in 0034 |
 | [0021](0021-scale-to-zero.md) | Scale to zero | Accepted |
 | [0022](0022-traffic-splitting.md) | Traffic splitting | Accepted |
 | [0023](0023-persistent-volumes.md) | Persistent volumes | Accepted |
@@ -37,6 +37,7 @@ Every architectural decision that is hard to reverse is recorded here. Copy `000
 | [0031](0031-cluster-settings.md) | Cluster settings | Accepted |
 | [0032](0032-command-line.md) | The command line | Accepted |
 | [0033](0033-access-control.md) | Access control: users, services, and roles | Accepted |
+| [0034](0034-queue-and-schedule-autoscaling.md) | Autoscaling on queues and schedules | Accepted |
 
 Commands in records before 0032 carry the names of their time; ADR 0032
 lists the command line as it is now.

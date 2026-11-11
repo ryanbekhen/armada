@@ -52,6 +52,22 @@ func restarts(r *armadav1.ReplicaStatus) string {
 func autoscaleNote(as *armadav1.Autoscale) string {
 	parts := []string{fmt.Sprintf("%d-%d replicas", as.Min, as.Max)}
 	for _, r := range as.Rules {
+		switch r.Type {
+		case "schedule":
+			if t := r.GetUntil(); t != nil {
+				parts = append(parts, fmt.Sprintf("schedule %d until %s", r.Target, t.AsTime().Local().Format("Mon 15:04")))
+			} else {
+				parts = append(parts, fmt.Sprintf("schedule %d (closed)", r.Target))
+			}
+			continue
+		case "queue", "redis", "rabbitmq":
+			cur := "-"
+			if r.Measured {
+				cur = fmt.Sprint(r.Current)
+			}
+			parts = append(parts, fmt.Sprintf("%s %s/%d per replica", r.Type, cur, r.Target))
+			continue
+		}
 		unit := ""
 		if r.Type != "http" {
 			unit = "%"

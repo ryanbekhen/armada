@@ -771,13 +771,18 @@ message Autoscale {
 }
 
 message AutoscaleRule {
-  // "http", "cpu", or "memory".
+  // "http", "cpu", "memory", "queue", or "schedule".
   string type = 1;
-  // Target: requests in progress per replica, or percent of the reservation.
+  // Target: requests in progress per replica, percent of the reservation,
+  // queue items per replica, or a schedule's replicas.
   int64 target = 2;
-  // Current average per ready replica, in the same unit; valid if measured.
+  // Current average per ready replica, in the same unit; for queue the
+  // queue's length, for schedule the replicas it asks for now (0 outside
+  // its window). Valid if measured.
   int64 current = 3;
   bool measured = 4;
+  // For an open schedule window: when it closes (ADR 0034).
+  google.protobuf.Timestamp until = 5;
 }
 
 message ReplicaStatus {
@@ -1069,6 +1074,16 @@ message UsageReport {
   // while nothing is tracked (ADR 0025).
   int64 conntrack_entries = 6;
   int64 conntrack_max = 7;
+  // Queue lengths the node read in its replicas (ADR 0034).
+  repeated QueueLength queues = 8;
+}
+
+message QueueLength {
+  // The replica the length was read from.
+  string id = 1;
+  int64 length = 2;
+  // The rule's type: "queue", "redis", or "rabbitmq".
+  string type = 3;
 }
 
 message VolumeUsage {
@@ -1270,6 +1285,22 @@ message ReplicaSpec {
   JobAttempt job = 18;
   // Persistent volumes on this node (ADR 0023).
   repeated VolumeSpec volumes = 19;
+  // The app's queue rules (ADR 0034): the agent reads each queue's length
+  // from one replica of the app on the node. Not part of the spec hash.
+  repeated QueueProbe queues = 20;
+}
+
+// One queue rule: a command run in the replica ("queue"), or a broker
+// dialled from the replica's network namespace ("redis", "rabbitmq").
+message QueueProbe {
+  repeated string command = 1;
+  string type = 2;
+  // The broker's URL, from the app's secret; never logged.
+  string url = 3;
+  // The pinned secret version the URL came from.
+  string url_ref = 4;
+  // The Redis list or the RabbitMQ queue.
+  string name = 5;
 }
 
 message VolumeSpec {

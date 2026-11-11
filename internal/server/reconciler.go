@@ -1215,6 +1215,26 @@ func replicaSpec(r store.Replica, rev store.Revision, vals map[string]secrets.Va
 	for _, v := range sp.Volumes {
 		rs.Volumes = append(rs.Volumes, &armadav1.VolumeSpec{Name: v.Name, Path: v.Path, Owner: v.Owner})
 	}
+	for _, q := range sp.QueueRules() {
+		if r.Run != 0 {
+			break
+		}
+		p := &armadav1.QueueProbe{Type: q.Type, Command: q.Command}
+		switch q.Type {
+		case spec.ScaleRedis:
+			p.Name = q.List
+		case spec.ScaleRabbitMQ:
+			p.Name = q.Queue
+		}
+		if q.URLSecretRef != "" {
+			v, ref, err := secret(q.URLSecretRef)
+			if err != nil {
+				return nil, err
+			}
+			p.Url, p.UrlRef = string(v.Bytes()), ref
+		}
+		rs.Queues = append(rs.Queues, p)
+	}
 	for _, f := range sp.SecretFiles {
 		v, ref, err := secret(f.SecretRef)
 		if err != nil {

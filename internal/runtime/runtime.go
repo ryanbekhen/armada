@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/netip"
 	"strings"
 	"time"
@@ -236,6 +237,24 @@ type Execer interface {
 	// ExecApp runs opts.Cmd in a running app container and returns its exit
 	// code once it has ended and its output has been written.
 	ExecApp(ctx context.Context, id string, opts ExecOptions) (exitCode int, err error)
+}
+
+// ContainerDialer opens connections from inside an app container's network
+// namespace, so the connection reaches only what the app could reach
+// itself (queue rules, ADR 0034). It is optional.
+type ContainerDialer interface {
+	// DialContainer dials address, an IP and port, from the network
+	// namespace of the running container id.
+	DialContainer(ctx context.Context, id, network, address string) (net.Conn, error)
+}
+
+// CanDial reports whether d dials from containers, like CanExec.
+func CanDial(d Driver) bool {
+	if c, ok := d.(interface{ CanDial() bool }); ok {
+		return c.CanDial()
+	}
+	_, ok := d.(ContainerDialer)
+	return ok
 }
 
 // ImagePruner removes images nothing needs any more. It is optional.
