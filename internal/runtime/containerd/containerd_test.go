@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/containerd/containerd/v2/core/containers"
@@ -406,5 +407,25 @@ func TestPullErrorSaysWhatItMeans(t *testing.T) {
 	}
 	if got := pullError("nginx:1", false, errors.New("dial tcp: i/o timeout")).Error(); got != "pull nginx:1: dial tcp: i/o timeout" {
 		t.Errorf("other: %s", got)
+	}
+}
+
+// The units run with UMask=0077; the files a container reads as any user
+// must still be readable by every user (resolv.conf above all).
+func TestContainerFilesReadableUnderUmask(t *testing.T) {
+	old := syscall.Umask(0o077)
+	defer syscall.Umask(old)
+	f, err := writeFiles(t.TempDir(), "c1", "web", "10.120.0.5", []string{"10.120.0.1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{f.resolv, f.hosts, f.hostname} {
+		fi, err := os.Stat(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if fi.Mode().Perm() != 0o644 {
+			t.Errorf("%s: mode %v, want 0644", filepath.Base(p), fi.Mode().Perm())
+		}
 	}
 }
