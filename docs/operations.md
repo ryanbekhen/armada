@@ -1261,8 +1261,15 @@ db   data    node2  /var/lib/postgresql/data  1.2GiB  12m ago      31 (1.9GiB)  
 
 ### Recovering an app whose node is gone
 
-If the node holding an app's volumes is lost for good, the app stays down
-until its data is restored somewhere else:
+With `failover: restore` on its volumes, this happens by itself from the
+latest backup ([spec reference](spec-reference.md#volumesbackup)); watch for
+`VolumeFailedOver` and `VolumeFailoverFailed` events. Such apps stop on a
+node that cannot reach the control plane for half the node-lost timeout,
+also while the control plane itself is down, and start again once it is
+back.
+
+Otherwise, if the node holding an app's volumes is lost for good, the app
+stays down until its data is restored somewhere else:
 
 ```bash
 armada node delete node2 --force                     # if the node is gone for good
@@ -1280,7 +1287,7 @@ after the backup is lost.
 | --- | --- |
 | A node (machine down, network gone) | Requests that hit it are retried on another replica after 2 seconds, and those failures make every other node's HAProxy check it each second, so it is out of rotation within a few seconds while it gets traffic (without traffic, within 30 seconds: other nodes check a node's replicas every 15 seconds, their own every 2). After `--node-lost-timeout` (default 5 minutes) the node is shown as `lost` and its replicas are started on other nodes that their app's placement allows; the old ones are removed once the new ones serve. When the node comes back, its old containers are cleaned up and apps left unevenly spread move replicas back to it, one at a time. See [ADR 0008](adr/0008-self-healing.md) and [ADR 0013](adr/0013-replica-rebalancing.md). |
 | HAProxy on a node (crashed or killed) | The agent notices within about 10 seconds and starts a new HAProxy container with the current configuration; that node's public ports are down until it serves again. |
-| The node holding an app's volumes | The app stays down: its data is on that node, so it is not started elsewhere. A `VolumeUnavailable` event says so. It comes back with the node, or with a restore onto another node (see [Volumes](#volumes)). |
+| The node holding an app's volumes | The app stays down: its data is on that node, so it is not started elsewhere. A `VolumeUnavailable` event says so. It comes back with the node, or with a restore onto another node (see [Volumes](#volumes)). With `failover: restore` on its volumes, the leader restores their latest backups on another node after `--node-lost-timeout` and the app starts there (`VolumeFailedOver`); the lost node stopped the app itself after half that time. |
 | More than half of the nodes at once | Nothing is rescheduled: the control plane assumes it is the one cut off. Replicas move once enough nodes are reachable again, or with `armada node delete --force`. |
 | One of three control plane servers | Another server leads within 1–15 seconds; nothing else changes. Remove the failed server and join a replacement when convenient. |
 | The only control plane server, or a majority of them | Apps keep serving: every node's HAProxy and containers keep running. Deploys, scaling, rescheduling, and certificate renewal wait until a majority is back; certificates have weeks of margin. Restore from a backup if the servers are gone. |

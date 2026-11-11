@@ -97,3 +97,29 @@ func TestEnvFromLeavesBackupSecretsOut(t *testing.T) {
 		t.Errorf("env = %+v", c.Env)
 	}
 }
+
+func TestVolumeFailoverValidation(t *testing.T) {
+	t.Parallel()
+	backup := "    backup:\n      every: 1h\n      keep: 3\n      urlSecretRef: backup-url\n      keySecretRef: backup-key\n"
+	ok := "name: db\nimage: postgres:18\nvolumes:\n  - name: data\n    path: /data\n" + backup + "    failover: restore\n"
+	a, err := Parse([]byte(ok))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !a.FailsOver() {
+		t.Error("FailsOver = false")
+	}
+	for _, tc := range []struct{ yaml, want string }{
+		{"name: db\nimage: postgres:18\nvolumes:\n  - name: data\n    path: /data\n    failover: restore\n", "needs backup"},
+		{"name: db\nimage: postgres:18\nvolumes:\n  - name: data\n    path: /data\n" + backup + "    failover: move\n", `must be "restore"`},
+		{"name: db\nimage: postgres:18\nvolumes:\n  - name: data\n    path: /data\n" + backup + "    failover: restore\n  - name: logs\n    path: /logs\n", "every volume of the app"},
+	} {
+		if _, err := Parse([]byte(tc.yaml)); err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%v, want %q", err, tc.want)
+		}
+	}
+	a, _ = Parse([]byte("name: db\nimage: postgres:18\nvolumes:\n  - name: data\n    path: /data\n" + backup))
+	if a.FailsOver() {
+		t.Error("FailsOver without failover")
+	}
+}

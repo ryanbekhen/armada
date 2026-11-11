@@ -24,6 +24,9 @@ const (
 	LabelRevision = "armada.revision"
 	LabelReplica  = "armada.replica"
 	LabelSpecHash = "armada.spec-hash"
+	// LabelFenceAfter is how many seconds without the control plane stop
+	// the container (ADR 0041); absent: never.
+	LabelFenceAfter = "armada.fence-after"
 )
 
 // Container states.

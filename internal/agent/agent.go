@@ -180,6 +180,12 @@ type Agent struct {
 	crashes map[string]crashLoop
 	// holds holds the image pulls of held replicas (ADR 0023).
 	holds map[string]*heldPull
+	// contactUp is whether a session with the server is open, contactLost
+	// when the last one ended; fencedIDs are containers stopped for being
+	// cut off (ADR 0041).
+	contactUp   bool
+	contactLost time.Time
+	fencedIDs   map[string]bool
 	// crashBase is the first recreate delay (crashBackoff; shorter in tests).
 	crashBase time.Duration
 
@@ -263,6 +269,7 @@ func New(cfg Config) *Agent {
 		notes:     map[string]string{},
 		crashes:   map[string]crashLoop{},
 		holds:     map[string]*heldPull{},
+		fencedIDs: map[string]bool{},
 		paused:    map[string]int{},
 		trigger:   make(chan struct{}, 1),
 
@@ -347,6 +354,8 @@ func (a *Agent) session(ctx context.Context) (established bool, err error) {
 		}
 		if !established {
 			established = true
+			a.setContact(true)
+			defer a.setContact(false)
 			a.log.Info("connected to server")
 		}
 		switch m := msg.Msg.(type) {
@@ -417,6 +426,7 @@ func (a *Agent) reconcileLoop(ctx context.Context) {
 		case <-t.C:
 		case <-a.trigger:
 		}
+		a.fenceUnassigned(ctx)
 		report, err := a.Reconcile(ctx)
 		if err != nil {
 			a.log.Error("reconcile failed", "err", err)
@@ -528,6 +538,25 @@ func (a *Agent) Reconcile(ctx context.Context) (*armadav1.ReplicaReport, error) 
 		c, ok := byReplica[id]
 		if ok && c.Labels[runtime.LabelSpecHash] != hash {
 			a.log.Info("spec changed, recreating", "replica", id)
+			a.remove(ctx, c.ID)
+			ok = false
+		}
+		if a.fenced(spec) {
+			// Cut off from the control plane: its volumes may be restored
+			// on another node, so it must not write them here (ADR 0041).
+			if ok && !stopped(c.State) {
+				a.log.Warn("stopping a replica cut off from the control plane", "replica", id)
+				_ = a.cfg.Driver.Stop(ctx, c.ID, volumeStopGrace)
+			}
+			if ok {
+				a.markFenced(c.ID)
+			}
+			a.stopProbes(id)
+			settled = append(settled, &armadav1.ReplicaState{Id: id, State: store.ReplicaExited, ContainerId: c.ID, Message: fencedMessage})
+			continue
+		}
+		if ok && stopped(c.State) && a.unfence(c.ID) {
+			// Back in touch: start it again at once.
 			a.remove(ctx, c.ID)
 			ok = false
 		}
@@ -1133,7 +1162,7 @@ func ContainerSpec(s *armadav1.ReplicaSpec, hostIP, hash string) runtime.Contain
 	for _, e := range s.GetEnv() {
 		env = append(env, e.GetName()+"="+e.GetValue())
 	}
-	return runtime.ContainerSpec{
+	cs := runtime.ContainerSpec{
 		Name:       "armada-" + s.GetId(),
 		Image:      s.GetImage(),
 		Entrypoint: s.GetCommand(),
@@ -1155,6 +1184,10 @@ func ContainerSpec(s *armadav1.ReplicaSpec, hostIP, hash string) runtime.Contain
 		Init:             memberSpecs(s.GetInitContainers()),
 		Sidecars:         memberSpecs(s.GetSidecars()),
 	}
+	if n := s.GetFenceAfterSeconds(); n > 0 {
+		cs.Labels[runtime.LabelFenceAfter] = strconv.FormatInt(n, 10)
+	}
+	return cs
 }
 
 // specHash fingerprints everything about a replica except its image: a
@@ -1170,6 +1203,8 @@ func specHash(s *armadav1.ReplicaSpec) string {
 	c.CpuReserveMillis = 0
 	// Queue rules are read by the queue loop, not the container.
 	c.Queues = nil
+	// Holding and fencing decide whether it runs, not how (ADR 0023, 0041).
+	c.Hold, c.FenceAfterSeconds = false, 0
 	// Marking a job attempt done stops its container; it must not
 	// recreate it.
 	if c.Job != nil {
