@@ -100,6 +100,15 @@ type Backend struct {
 	// as masked prefixes (ADR 0035).
 	IPAllow []string
 	IPDeny  []string
+	// CORS is the app's cross-origin policy; nil for none (ADR 0037).
+	CORS *CORS
+}
+
+// CORS is what the proxy answers browsers about other origins.
+type CORS struct {
+	Origins, Methods, Headers, Expose []string
+	MaxAgeSeconds                     int
+	Credentials                       bool
 }
 
 // Server is one replica.
@@ -174,6 +183,10 @@ func FromProto(p *armadav1.ProxyConfig) Config {
 	for _, b := range p.GetBackends() {
 		be := Backend{Name: b.GetName(), HealthPath: b.GetHealthPath(), Wake: b.GetWake(), LocalFirst: b.GetLocalFirst(), TimeoutSeconds: int(min(b.GetTimeoutSeconds(), MaxTimeoutSeconds+1)),
 			IPAllow: b.GetIpAllow(), IPDeny: b.GetIpDeny()}
+		if c := b.GetCors(); c != nil {
+			be.CORS = &CORS{Origins: c.GetOrigins(), Methods: c.GetMethods(), Headers: c.GetHeaders(), Expose: c.GetExpose(),
+				MaxAgeSeconds: int(min(c.GetMaxAgeSeconds(), MaxCORSMaxAgeSeconds+1)), Credentials: c.GetCredentials()}
+		}
 		for _, s := range b.GetServers() {
 			be.Servers = append(be.Servers, Server{Name: s.GetName(), Address: s.GetAddress(), Weight: int(min(s.GetWeight(), MaxWeight+1))})
 		}
@@ -194,6 +207,10 @@ func (c Config) ToProto() *armadav1.ProxyConfig {
 	for _, b := range c.Backends {
 		pb := &armadav1.ProxyBackend{Name: b.Name, HealthPath: b.HealthPath, Wake: b.Wake, LocalFirst: b.LocalFirst, TimeoutSeconds: uint32(max(min(b.TimeoutSeconds, MaxTimeoutSeconds), 0)),
 			IpAllow: b.IPAllow, IpDeny: b.IPDeny}
+		if c := b.CORS; c != nil {
+			pb.Cors = &armadav1.ProxyCORS{Origins: c.Origins, Methods: c.Methods, Headers: c.Headers, Expose: c.Expose,
+				MaxAgeSeconds: uint32(max(min(c.MaxAgeSeconds, MaxCORSMaxAgeSeconds), 0)), Credentials: c.Credentials}
+		}
 		for _, s := range b.Servers {
 			pb.Servers = append(pb.Servers, &armadav1.ProxyServer{Name: s.Name, Address: s.Address, Weight: uint32(max(s.Weight, 0))}) //nolint:gosec // bounded by Validate
 		}
@@ -251,6 +268,46 @@ func ParseTrustedProxies(prefixes []string) ([]string, error) {
 	return slices.Compact(out), nil
 }
 
+// MaxCORSMaxAgeSeconds bounds how long browsers may keep a preflight answer.
+const MaxCORSMaxAgeSeconds = 86400
+
+// validCORS re-checks a policy before its values reach the configuration.
+func validCORS(c *CORS) error {
+	if c == nil {
+		return nil
+	}
+	if len(c.Origins) == 0 || len(c.Origins) > spec.MaxCORSOrigins {
+		return errors.New("cors: 1 to 32 origins")
+	}
+	for _, o := range c.Origins {
+		if (o != "*" || len(c.Origins) > 1 || c.Credentials) && !spec.ValidCORSOrigin(o) {
+			return fmt.Errorf("cors: invalid origin %q", o)
+		}
+	}
+	if len(c.Methods) == 0 {
+		return errors.New("cors: no methods")
+	}
+	for _, m := range c.Methods {
+		if !slices.Contains(spec.CORSMethodNames, m) {
+			return fmt.Errorf("cors: invalid method %q", m)
+		}
+	}
+	for _, list := range [][]string{c.Headers, c.Expose} {
+		if len(list) > spec.MaxCORSHeaders {
+			return errors.New("cors: too many headers")
+		}
+		for _, h := range list {
+			if !spec.ValidCORSHeader(h) {
+				return fmt.Errorf("cors: invalid header %q", h)
+			}
+		}
+	}
+	if c.MaxAgeSeconds < 0 || c.MaxAgeSeconds > MaxCORSMaxAgeSeconds {
+		return errors.New("cors: max age out of range")
+	}
+	return nil
+}
+
 // validIPRules checks a backend's client address rules: one kind, bounded,
 // each a masked prefix written the way it is rendered.
 func validIPRules(b Backend) error {
@@ -306,6 +363,9 @@ func (c Config) Validate() error {
 		}
 		backends[b.Name] = true
 		if err := validIPRules(b); err != nil {
+			add("backend %s: %v", b.Name, err)
+		}
+		if err := validCORS(b.CORS); err != nil {
 			add("backend %s: %v", b.Name, err)
 		}
 		if b.HealthPath != "" {

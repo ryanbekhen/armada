@@ -346,7 +346,7 @@ func (v *validator) ingress(in *Ingress, self string) {
 			v.add("ingress", "ipAllow and ipDeny require type external: internal callers are chosen with allow")
 		}
 	case IngressNone:
-		if in.Port != 0 || len(in.Domains) > 0 || len(in.Routes) > 0 || len(in.Allow) > 0 || len(in.IPAllow) > 0 || len(in.IPDeny) > 0 {
+		if in.Port != 0 || len(in.Domains) > 0 || len(in.Routes) > 0 || len(in.Allow) > 0 || len(in.IPAllow) > 0 || len(in.IPDeny) > 0 || in.CORS != nil {
 			v.add("ingress", "port, domains, routes, and allow require type external or internal")
 		}
 		return
@@ -379,6 +379,7 @@ func (v *validator) ingress(in *Ingress, self string) {
 	}
 	v.ipRanges("ingress.ipAllow", in.IPAllow)
 	v.ipRanges("ingress.ipDeny", in.IPDeny)
+	v.cors(in.CORS)
 	if len(in.Allow) > MaxAllow {
 		v.add("ingress.allow", "must have at most %d entries", MaxAllow)
 	}
@@ -814,6 +815,89 @@ func (v *validator) scaleRules(s *Scale, ing *Ingress) {
 
 // MaxIPRanges bounds ingress.ipAllow and ingress.ipDeny.
 const MaxIPRanges = 64
+
+// CORS bounds (ADR 0037).
+const (
+	MaxCORSOrigins = 32
+	MaxCORSHeaders = 32
+	MaxCORSMaxAge  = 24 * time.Hour
+)
+
+// CORSMethodNames are the methods a CORS policy may allow.
+var CORSMethodNames = []string{"GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"}
+
+var corsHeaderRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]{0,63}$`)
+
+func (v *validator) cors(c *CORS) {
+	if c == nil {
+		return
+	}
+	switch {
+	case len(c.AllowOrigins) == 0:
+		v.add("ingress.cors.allowOrigins", "is required: the origins browsers may call from, such as https://app.example.com, or \"*\"")
+	case len(c.AllowOrigins) > MaxCORSOrigins:
+		v.add("ingress.cors.allowOrigins", "must have at most %d entries", MaxCORSOrigins)
+	}
+	seen := map[string]bool{}
+	for i, o := range c.AllowOrigins {
+		f := fmt.Sprintf("ingress.cors.allowOrigins[%d]", i)
+		switch {
+		case o == "*":
+			if len(c.AllowOrigins) > 1 {
+				v.add(f, "\"*\" allows every origin; leave the others out")
+			}
+			if c.AllowCredentials {
+				v.add(f, "\"*\" cannot be combined with allowCredentials: name the origins")
+			}
+		case !ValidCORSOrigin(o):
+			v.add(f, "%q is not an origin such as https://app.example.com or http://localhost:3000", o)
+		case seen[o]:
+			v.add(f, "duplicate origin %q", o)
+		}
+		seen[o] = true
+	}
+	for i, m := range c.AllowMethods {
+		if !slices.Contains(CORSMethodNames, m) {
+			v.add(fmt.Sprintf("ingress.cors.allowMethods[%d]", i), "must be one of %s", strings.Join(CORSMethodNames, ", "))
+		}
+	}
+	for field, list := range map[string][]string{"allowHeaders": c.AllowHeaders, "exposeHeaders": c.ExposeHeaders} {
+		if len(list) > MaxCORSHeaders {
+			v.add("ingress.cors."+field, "must have at most %d entries", MaxCORSHeaders)
+			continue
+		}
+		for i, h := range list {
+			if !corsHeaderRe.MatchString(h) {
+				v.add(fmt.Sprintf("ingress.cors.%s[%d]", field, i), "%q is not a header name (letters, digits, and hyphens)", h)
+			}
+		}
+	}
+	if d := c.MaxAge.D(); d < 0 || d > MaxCORSMaxAge {
+		v.add("ingress.cors.maxAge", "must be between 0 and %s", MaxCORSMaxAge)
+	}
+}
+
+// ValidCORSHeader reports whether h is a header name a CORS policy may list.
+func ValidCORSHeader(h string) bool { return corsHeaderRe.MatchString(h) }
+
+// ValidCORSOrigin reports whether o is an origin: http or https, a lowercase
+// host name (or localhost), and an optional port, with nothing else.
+func ValidCORSOrigin(o string) bool {
+	rest, ok := strings.CutPrefix(o, "https://")
+	if !ok {
+		if rest, ok = strings.CutPrefix(o, "http://"); !ok {
+			return false
+		}
+	}
+	host, port, hasPort := strings.Cut(rest, ":")
+	if hasPort {
+		n, err := strconv.Atoi(port)
+		if err != nil || n < 1 || n > 65535 || strconv.Itoa(n) != port {
+			return false
+		}
+	}
+	return host == "localhost" || ValidateDomain(host) == nil
+}
 
 // Bounds of an IP rule's name and description, which only people read.
 const (

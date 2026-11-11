@@ -107,6 +107,9 @@ type Ingress struct {
 	// the two (ADR 0035).
 	IPAllow []IPRule `yaml:"ipAllow,omitempty" json:"ipAllow,omitempty"`
 	IPDeny  []IPRule `yaml:"ipDeny,omitempty" json:"ipDeny,omitempty"`
+	// CORS lets browsers on other origins call the app; the proxy answers
+	// preflight requests and adds the response headers (ADR 0037).
+	CORS *CORS `yaml:"cors,omitempty" json:"cors,omitempty"`
 	// Timeout is how long a request may wait for the app to answer; zero means
 	// a minute.
 	Timeout Duration `yaml:"timeout,omitempty" json:"timeout,omitempty"`
@@ -165,6 +168,24 @@ func (p *Probe) UnmarshalYAML(n *yaml.Node) error {
 	}
 	*p = Probe(v)
 	return nil
+}
+
+// CORS is an app's cross-origin resource sharing policy.
+type CORS struct {
+	AllowOrigins     []string `yaml:"allowOrigins" json:"allowOrigins"`
+	AllowMethods     []string `yaml:"allowMethods,omitempty" json:"allowMethods,omitempty"`
+	AllowHeaders     []string `yaml:"allowHeaders,omitempty" json:"allowHeaders,omitempty"`
+	ExposeHeaders    []string `yaml:"exposeHeaders,omitempty" json:"exposeHeaders,omitempty"`
+	MaxAge           Duration `yaml:"maxAge,omitempty" json:"maxAge,omitempty"`
+	AllowCredentials bool     `yaml:"allowCredentials,omitempty" json:"allowCredentials,omitempty"`
+}
+
+// CORSMethods returns the allowed methods, GET, HEAD, and POST by default.
+func (c *CORS) CORSMethods() []string {
+	if len(c.AllowMethods) == 0 {
+		return []string{"GET", "HEAD", "POST"}
+	}
+	return c.AllowMethods
 }
 
 // IPRule is one entry of ingress.ipAllow or ipDeny: an address or prefix,

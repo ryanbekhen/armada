@@ -145,6 +145,10 @@ func (s *Server) buildProxy(ctx context.Context, apps []store.App, replicas []st
 		if sp.Ingress.Type == spec.IngressExternal {
 			be.IPAllow, be.IPDeny = nilIfEmpty(spec.IPRanges(sp.Ingress.IPAllow)), nilIfEmpty(spec.IPRanges(sp.Ingress.IPDeny))
 		}
+		if c := sp.Ingress.CORS; c != nil {
+			be.CORS = &proxy.CORS{Origins: c.AllowOrigins, Methods: c.CORSMethods(), Headers: c.AllowHeaders, Expose: c.ExposeHeaders,
+				MaxAgeSeconds: int(c.MaxAge.D().Seconds()), Credentials: c.AllowCredentials}
+		}
 		be.Servers = s.proxyServers(app, replicas, func(r store.Replica) bool { return inProxy(app, r) })
 		if splits {
 			weighServers(app, replicas, be.Servers)
@@ -167,7 +171,7 @@ func (s *Server) buildProxy(ctx context.Context, apps []store.App, replicas []st
 					continue
 				}
 				name := spec.LabelHost(t.Label, app.Name)
-				lb := proxy.Backend{Name: name, HealthPath: be.HealthPath, TimeoutSeconds: be.TimeoutSeconds, IPAllow: be.IPAllow, IPDeny: be.IPDeny}
+				lb := proxy.Backend{Name: name, HealthPath: be.HealthPath, TimeoutSeconds: be.TimeoutSeconds, IPAllow: be.IPAllow, IPDeny: be.IPDeny, CORS: be.CORS}
 				lb.Servers = s.proxyServers(app, replicas, func(r store.Replica) bool {
 					return r.App == app.Name && r.Revision == t.Revision && r.State == store.ReplicaRunning && r.Ready && !r.Draining() && r.Address != ""
 				})

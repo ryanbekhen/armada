@@ -688,6 +688,23 @@ network, so firewall rules on the host apply to it.
 The internal frontend leaves these headers alone, so an app that proxies to
 another one can pass its client's address on.
 
+### Browsers on other origins
+
+A web app on `https://app.example.com` that calls an API on another origin
+needs the API to allow it. `ingress.cors` does that in the proxy
+([ADR 0037](adr/0037-cors.md)):
+
+```bash
+armada app update api --cors-origin https://app.example.com --cors-origin http://localhost:3000
+armada app update api --no-cors
+```
+
+Methods, headers, `maxAge`, and `allowCredentials` go in the spec file. The
+proxy answers preflight `OPTIONS` requests itself (they never reach the app
+or wake it) and adds `Access-Control-Allow-Origin` with the exact listed
+origin. CORS only tells browsers what pages may read. It keeps no other
+client out: use `ipAllow` or the app's own authentication for that.
+
 ### Who may reach an app
 
 `ingress.ipAllow` lets only some clients reach an external app, and
