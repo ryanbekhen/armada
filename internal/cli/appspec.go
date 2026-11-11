@@ -88,8 +88,8 @@ func (f *specFlags) register(cmd *cobra.Command, job bool) {
 	fs.StringVar(&f.ingress, "ingress", "", "who reaches the app: external, internal, or none")
 	fs.StringArrayVar(&f.domains, "domain", nil, "custom domain (repeatable)")
 	fs.StringArrayVar(&f.removeDomains, "remove-domain", nil, "remove a custom domain (repeatable)")
-	fs.StringArrayVar(&f.ipAllow, "ip-allow", nil, "[NAME=]RANGE: only clients from this address or prefix reach the app from outside (repeatable; replaces the list)")
-	fs.StringArrayVar(&f.ipDeny, "ip-deny", nil, "[NAME=]RANGE: clients from this address or prefix cannot reach the app from outside (repeatable; replaces the list)")
+	fs.StringArrayVar(&f.ipAllow, "ip-allow", nil, "RANGE[,name=NAME][,description=TEXT]: only clients from this address or prefix reach the app from outside (repeatable; replaces the list)")
+	fs.StringArrayVar(&f.ipDeny, "ip-deny", nil, "RANGE[,name=NAME][,description=TEXT]: clients from this address or prefix cannot reach the app from outside (repeatable; replaces the list)")
 	fs.BoolVar(&f.noIPRules, "no-ip-rules", false, "let every client reach the app again")
 	cmd.MarkFlagsMutuallyExclusive("ip-allow", "ip-deny", "no-ip-rules")
 	fs.IntVar(&f.replicas, "replicas", 0, "number of replicas")
@@ -225,7 +225,9 @@ func (f *specFlags) apply(a *spec.App) error {
 		f.applyJob(a)
 		return nil
 	}
-	f.applyIngress(a)
+	if err := f.applyIngress(a); err != nil {
+		return err
+	}
 	if ch("health-path") {
 		f.applyHealthPath(a)
 	}
@@ -290,10 +292,10 @@ func (f *specFlags) applyJob(a *spec.App) {
 	}
 }
 
-func (f *specFlags) applyIngress(a *spec.App) {
+func (f *specFlags) applyIngress(a *spec.App) error {
 	ch := f.fs.Changed
 	if !ch("ingress") && !ch("port") && !ch("domain") && !ch("remove-domain") && !ch("ip-allow") && !ch("ip-deny") && !ch("no-ip-rules") {
-		return
+		return nil
 	}
 	in := spec.Ingress{Type: spec.IngressNone}
 	if a.Ingress != nil {
@@ -324,9 +326,17 @@ func (f *specFlags) applyIngress(a *spec.App) {
 	case f.noIPRules:
 		in.IPAllow, in.IPDeny = nil, nil
 	case ch("ip-allow"):
-		in.IPAllow, in.IPDeny = ipRuleFlags(f.ipAllow), nil
+		rules, err := ipRuleFlags("--ip-allow", f.ipAllow)
+		if err != nil {
+			return err
+		}
+		in.IPAllow, in.IPDeny = rules, nil
 	case ch("ip-deny"):
-		in.IPAllow, in.IPDeny = nil, ipRuleFlags(f.ipDeny)
+		rules, err := ipRuleFlags("--ip-deny", f.ipDeny)
+		if err != nil {
+			return err
+		}
+		in.IPAllow, in.IPDeny = nil, rules
 	}
 	a.Ingress = &in
 	// Probes that checked the app's port follow it.
@@ -337,6 +347,7 @@ func (f *specFlags) applyIngress(a *spec.App) {
 			}
 		}
 	}
+	return nil
 }
 
 func (f *specFlags) applyHealthPath(a *spec.App) {
@@ -667,15 +678,26 @@ func (d *deployFlags) registerUpdate(cmd *cobra.Command, job bool) {
 	cmd.Flags().BoolVar(&d.createIfMissing, "create-if-missing", false, "create the "+kindWord(job)+" when it does not exist")
 }
 
-// ipRuleFlags reads --ip-allow and --ip-deny values: RANGE, or NAME=RANGE.
-func ipRuleFlags(vals []string) []spec.IPRule {
+// ipRuleFlags reads --ip-allow and --ip-deny values:
+// RANGE[,name=NAME][,description=TEXT]. The description comes last and takes
+// the rest of the value, commas included.
+func ipRuleFlags(flag string, vals []string) ([]spec.IPRule, error) {
 	out := make([]spec.IPRule, 0, len(vals))
 	for _, v := range vals {
-		if name, rng, ok := strings.Cut(v, "="); ok {
-			out = append(out, spec.IPRule{Name: name, Range: rng})
-		} else {
-			out = append(out, spec.IPRule{Range: v})
+		rest, desc, hasDesc := strings.Cut(v, ",description=")
+		parts := strings.Split(rest, ",")
+		r := spec.IPRule{Range: parts[0]}
+		if hasDesc {
+			r.Description = desc
 		}
+		for _, p := range parts[1:] {
+			name, ok := strings.CutPrefix(p, "name=")
+			if !ok || r.Name != "" {
+				return nil, fmt.Errorf("%s %q: want RANGE[,name=NAME][,description=TEXT]", flag, v)
+			}
+			r.Name = name
+		}
+		out = append(out, r)
 	}
-	return out
+	return out, nil
 }
