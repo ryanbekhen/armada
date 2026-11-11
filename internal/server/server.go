@@ -168,6 +168,7 @@ type Server struct {
 	// backupInterval and backups run volume backups (ADR 0041).
 	backupInterval time.Duration
 	backups        *backupRuns
+	failovers      *failoverRuns
 	wakeLimit      *keyedLimiter
 
 	// clusterSize is the apps and nodes the last reconcile pass saw.
@@ -296,6 +297,7 @@ func New(cfg Config) (*Server, error) {
 		scaler:            newAutoscaler(),
 		backupInterval:    cfg.BackupInterval,
 		backups:           newBackupRuns(),
+		failovers:         newFailoverRuns(),
 		// Wakes: a burst for several apps at once, then one a second.
 		wakeLimit:    newKeyedLimiter(20, time.Second),
 		jobRetryBase: cfg.JobRetryBase,

@@ -9844,9 +9844,13 @@ type ReplicaSpec struct {
 	// The replica is held: the agent pulls its images and reports "pulling",
 	// then "pulled", but starts no container until the hold is lifted. Only
 	// sent to agents that announce Hello.held_replicas.
-	Hold          bool `protobuf:"varint,23,opt,name=hold,proto3" json:"hold,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Hold bool `protobuf:"varint,23,opt,name=hold,proto3" json:"hold,omitempty"`
+	// Stop the replica's containers once the agent has been cut off from the
+	// control plane this long (0: never): its volumes may then be restored
+	// on another node (ADR 0041). Not part of the spec hash.
+	FenceAfterSeconds int64 `protobuf:"varint,24,opt,name=fence_after_seconds,json=fenceAfterSeconds,proto3" json:"fence_after_seconds,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *ReplicaSpec) Reset() {
@@ -10038,6 +10042,13 @@ func (x *ReplicaSpec) GetHold() bool {
 		return x.Hold
 	}
 	return false
+}
+
+func (x *ReplicaSpec) GetFenceAfterSeconds() int64 {
+	if x != nil {
+		return x.FenceAfterSeconds
+	}
+	return 0
 }
 
 // An init container or a sidecar of a replica (ADR 0038).
@@ -13278,7 +13289,7 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\x10ProxyCertificate\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x10\n" +
 	"\x03pem\x18\x02 \x01(\fR\x03pem\x12\x16\n" +
-	"\x06sha256\x18\x03 \x01(\fR\x06sha256\"\xe4\x06\n" +
+	"\x06sha256\x18\x03 \x01(\fR\x06sha256\"\x94\a\n" +
 	"\vReplicaSpec\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x10\n" +
 	"\x03app\x18\x02 \x01(\tR\x03app\x12\x1a\n" +
@@ -13304,7 +13315,8 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\x06queues\x18\x14 \x03(\v2\x15.armada.v1.QueueProbeR\x06queues\x12A\n" +
 	"\x0finit_containers\x18\x15 \x03(\v2\x18.armada.v1.ContainerSpecR\x0einitContainers\x124\n" +
 	"\bsidecars\x18\x16 \x03(\v2\x18.armada.v1.ContainerSpecR\bsidecars\x12\x12\n" +
-	"\x04hold\x18\x17 \x01(\bR\x04hold\"\xd6\x02\n" +
+	"\x04hold\x18\x17 \x01(\bR\x04hold\x12.\n" +
+	"\x13fence_after_seconds\x18\x18 \x01(\x03R\x11fenceAfterSeconds\"\xd6\x02\n" +
 	"\rContainerSpec\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
 	"\x05image\x18\x02 \x01(\tR\x05image\x12\x18\n" +

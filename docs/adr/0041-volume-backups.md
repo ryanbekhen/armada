@@ -121,6 +121,40 @@ to someone without it. Standard library primitives only (`crypto/aes`,
   listing goes to any connected node that backs volumes up, and restoring
   with `--node` to that node.
 
+### Failover
+
+`failover: restore` on every volume of an app (each needs `backup`) makes
+the app come back by itself when the node holding its volumes is lost:
+
+```yaml
+volumes:
+  - name: data
+    path: /data
+    backup: {every: 1h, keep: 24, urlSecretRef: backup-url, keySecretRef: backup-key}
+    failover: restore
+```
+
+- **Fencing first.** Replicas of such apps carry a fence time, half the
+  node-lost timeout (`ReplicaSpec.fence_after_seconds`, also a container
+  label, outside the spec hash). An agent that has had no session with the
+  control plane for that long stops them, also after its own restart before
+  any assignment, and starts them again at once when it is back in touch.
+  A node that is only cut off, and still reachable by clients, therefore
+  stops writing before the leader restores the volume anywhere else.
+- **Restore elsewhere.** Once the node is lost (`--node-lost-timeout`,
+  with more nodes ready than lost, as for any rescheduling, ADR 0008), the
+  leader picks a node the app may run on, with room, whose agent backs
+  volumes up, restores each volume's latest backup there, and binds the
+  volumes to it (audited as `armada:failover`); the app then starts there.
+  A `VolumeFailedOver` event names the node and the backups. If the old
+  node reconnects before the volumes are bound, nothing is bound.
+- **Failures** (no backup yet, no node fits, the bucket refuses) are a
+  `VolumeFailoverFailed` condition and are tried again every 5 minutes. The
+  app stays down meanwhile, as without failover.
+- **When the old node returns**, its replica is no longer assigned and is
+  removed. Its copy of the volume stays in its volumes directory, untouched
+  and unused.
+
 ## Consequences
 
 - Backups reach the bucket from the node's own address, not through the
@@ -134,3 +168,7 @@ to someone without it. Standard library primitives only (`crypto/aes`,
   until removed there.
 - A bucket that fills up or refuses writes fails backups without touching
   the backups already there.
+- With `failover: restore`, writes since the last backup are lost when the
+  app moves, and the app stops on its node whenever that node cannot reach
+  the control plane for half the node-lost timeout, also when it is the
+  control plane that is down. Apps without failover keep running then.

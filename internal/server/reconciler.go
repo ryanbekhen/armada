@@ -1169,6 +1169,9 @@ func (s *Server) pushAssignments(ctx context.Context, replicas []store.Replica, 
 				return err
 			}
 			rs.Hold = r.Held
+			if rev.Spec.FailsOver() {
+				rs.FenceAfterSeconds = s.fenceAfter()
+			}
 			a.Replicas = append(a.Replicas, rs)
 		}
 		slices.SortFunc(a.Replicas, func(x, y *armadav1.ReplicaSpec) int { return cmp.Compare(x.Id, y.Id) })
