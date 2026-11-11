@@ -363,7 +363,9 @@ are tools such as a CI system or a self-service portal. Both hold roles:
 
 `armadad init` creates the first user, named after the user who ran it
 with sudo, with `cluster-admin`, in both `/etc/armada/admin.config` and that
-user's `~/.armada/config`. Only `cluster-admin` manages access:
+user's `~/.armada/config`. `armada` reads the file `--config` names, else
+`$ARMADA_CONFIG`, else `~/.armada/config` when it exists, else
+`/etc/armada/admin.config`. Only `cluster-admin` manages access:
 
 ```bash
 armada rbac user create alice -o alice.config --role deployer --project shop   # hand it over privately; it holds her key
