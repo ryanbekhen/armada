@@ -72,7 +72,7 @@ const (
 	// migrations when records change incompatibly. Records under servers/
 	// and meta/ are read and written by every server, whatever its schema,
 	// so they only ever gain optional fields.
-	etcdSchema = 9
+	etcdSchema = 10
 
 	maxTxnRetries = 100
 	// auditKeep is how many audit events are retained.
@@ -429,6 +429,7 @@ type nodeRec struct {
 	Arch        string            `json:"arch,omitempty"`
 	Jobs        bool              `json:"jobs,omitempty"`
 	Volumes     bool              `json:"volumes,omitempty"`
+	Containers  bool              `json:"containers,omitempty"`
 	// Subnet is the node's container subnet in the cluster network
 	// (ADR 0025); empty in clusters without one.
 	Subnet string `json:"subnet,omitempty"`
@@ -626,7 +627,7 @@ func (t *etx) toNode(n nodeRec) (Node, error) {
 	out := Node{ID: n.ID, PrivateIP: n.PrivateIP, CPUMillis: n.CPUMillis, MemoryBytes: n.MemoryBytes, State: n.State,
 		LastSeen: fromMS(n.LastSeen), CreatedAt: fromMS(n.CreatedAt), Cordoned: n.Cordoned, Version: n.Version,
 		Labels: n.Labels, OS: n.OS, Arch: n.Arch, Restricted: n.Restricted,
-		Jobs: n.Jobs, Volumes: n.Volumes, Subnet: n.Subnet, NetworkKey: n.NetworkKey}
+		Jobs: n.Jobs, Volumes: n.Volumes, Containers: n.Containers, Subnet: n.Subnet, NetworkKey: n.NetworkKey}
 	var latest int64
 	err := listInto(t, pfxCerts+n.ID+"/", func(_ string, c certRec) error {
 		latest = max(latest, c.NotAfter)
@@ -715,7 +716,7 @@ func (s *Etcd) SetNodeStatus(ctx context.Context, id string, st NodeStatus) erro
 		}
 		before := n
 		n.State, n.LastSeen, n.CPUMillis, n.MemoryBytes = st.State, ms(st.LastSeen), st.CPUMillis, st.MemoryBytes
-		n.Jobs, n.Volumes = st.Jobs, st.Volumes
+		n.Jobs, n.Volumes, n.Containers = st.Jobs, st.Volumes, st.Containers
 		if st.Version != "" {
 			n.Version = st.Version
 		}
@@ -2625,6 +2626,11 @@ var migrations = []migration{
 	// cluster-admin, automation identities services with admin in their
 	// projects (and project-creator when they could create projects).
 	migrateAccess,
+	// 9 -> 10: init containers and sidecars (ADR 0038) in app specs, and
+	// nodes that say their agent runs them. Nothing to rewrite; servers
+	// that would start a replica without its other containers can no
+	// longer lead.
+	func(*etx) error { return nil },
 }
 
 // StoredSchema returns the schema the keyspace is written in.

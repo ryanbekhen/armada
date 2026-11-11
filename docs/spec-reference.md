@@ -52,6 +52,14 @@ volumes:                          # optional: data kept on the replica's node
   - name: uploads
     path: /app/uploads
     owner: "1000:1000"
+initContainers:                   # optional: run to completion before the app starts
+  - name: migrate
+    image: ghcr.io/acme/web:1.4.2
+    command: ["./migrate"]
+sidecars:                         # optional: run beside the app, on its localhost
+  - name: log-shipper
+    image: ghcr.io/acme/shipper:2
+    volumes: [uploads]
 ```
 
 ## Flags
@@ -546,6 +554,82 @@ volumes:
   it or deleted, until `armada volume delete`. Its size is shown by
   `armada volume list`; there is no quota.
 
+### `initContainers`, `sidecars`
+
+More containers in each replica
+([ADR 0038](adr/0038-init-containers-and-sidecars.md)). Init containers run
+one after the other, each to its end, before anything else starts; sidecars
+start next and run beside the app's own container for the replica's life.
+All of a replica's containers share its network namespace: they reach each
+other on `127.0.0.1` and have the replica's address, host name, and DNS.
+
+```yaml
+name: web
+image: ghcr.io/acme/web:1.4
+ingress:
+  type: external
+  port: 8080
+volumes:
+  - name: data
+    path: /data
+secretFiles:
+  - secretRef: shipper-token
+    path: /run/secrets/token
+initContainers:
+  - name: migrate
+    image: ghcr.io/acme/web:1.4
+    command: ["./migrate"]
+    env:
+      - name: DATABASE_URL
+        secretRef: database-url
+    resources:
+      memory: 256Mi
+sidecars:
+  - name: log-shipper
+    image: ghcr.io/acme/shipper:2
+    args: ["--dir", "/data/logs"]
+    volumes: [data]
+    secretFiles: [/run/secrets/token]
+    resources:
+      cpu: 100m
+      memory: 64Mi
+```
+
+| Field | Meaning |
+| --- | --- |
+| `name` | Required. Lowercase letters, digits, and single hyphens, at most 30 characters, unique among the app's init containers and sidecars, and not `app` (the app's own container). |
+| `image` | Required, like the app's `image`. |
+| `command`, `args` | Like the app's. |
+| `env` | The container's own variables, with `secretRef` allowed. The app's `env` and `envFrom` do not apply, and `PORT` is not set; Armada sets `ARMADA_APP`, `ARMADA_REVISION`, `ARMADA_REPLICA`, `ARMADA_JOB_RUN` for jobs, and `ARMADA_CONTAINER` (the container's name). |
+| `resources` | Like the app's, but without `memory` a container gets 64Mi, and without `cpu` it reserves 10m (no limit). |
+| `volumes` | Names of the app's volumes to mount, at the app's paths. |
+| `secretFiles` | Paths of the app's secret files to mount. |
+
+- At most 4 init containers and 4 sidecars. They have no probes and no
+  ports: the app's probes decide whether the replica is ready.
+- **Images** are pulled as written, with `registry` credentials when the
+  image is from the same registry, anonymously otherwise. Unlike the app's
+  image they are not pinned to a digest after the first pull; write
+  `image@sha256:...` where every replica must run the same thing.
+- **A failed init container** (an exit code other than 0) keeps the replica
+  from starting. Its containers are kept, stopped, so `armada app logs APP
+  --container NAME` shows what happened, and the replica is started again,
+  from the first init container, with the same growing delay as a crash.
+  `armada app show` gives the init container's name and exit code.
+- **A sidecar that exits** restarts the replica, all of its containers, like
+  the app's own container exiting does. When a replica stops (a rollout,
+  scale down, drain, or volume backup), the app's container stops first and
+  its sidecars after it.
+- **What a replica reserves** on its node is its container plus its
+  sidecars, or its largest init container if that is more, for CPU and
+  memory each. Each container keeps its own limits.
+- **Logs and exec:** `armada app logs APP --container NAME` and
+  `armada job logs JOB --container NAME` read one of them, and
+  `armada app exec APP --container NAME -- CMD` runs a command in a running
+  sidecar.
+- Replicas with init containers or sidecars only run on nodes whose agent
+  supports them (this version and later).
+
 ## Jobs
 
 A spec of `kind: job` describes work that runs to completion
@@ -582,6 +666,10 @@ resources:
 - `env`, `secretFiles`, `registry`, `resources`, and `placement` mean the
   same as for apps. `ingress`, `probes`, `scale`, `revisions`, and
   `volumes` are rejected, and these job fields are rejected on apps.
+- `initContainers` run before each attempt; one that fails ends the attempt
+  with its exit code. `sidecars` run beside the job's container: the
+  attempt ends when the job's container exits, a sidecar that exits earlier
+  is not restarted, and the rest are stopped when the attempt ends.
 - A job and an app cannot share a name.
 - `armada job update` changes the job at once: runs that start afterwards use the new
   spec, and a run in progress keeps its own.

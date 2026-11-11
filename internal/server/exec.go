@@ -15,8 +15,19 @@ import (
 
 	armadav1 "github.com/ryanbekhen/armada/api/armada/v1"
 	"github.com/ryanbekhen/armada/internal/runtime"
+	"github.com/ryanbekhen/armada/internal/spec"
 	"github.com/ryanbekhen/armada/internal/store"
 )
+
+// checkContainerName checks the container a logs or exec request names
+// (ADR 0038): empty or "app" for the app's own, else an init container's or
+// sidecar's name. Whether the replica has it is its agent's to say.
+func checkContainerName(name string) error {
+	if name == "" || name == spec.MainContainer || runtime.ValidMemberName(name) {
+		return nil
+	}
+	return status.Errorf(codes.InvalidArgument, "%q is not a container name", name)
+}
 
 // execIdleTimeout ends an exec session without input or output (ADR 0015).
 const execIdleTimeout = 30 * time.Minute
@@ -42,6 +53,9 @@ func (s *Server) Exec(stream armadav1.AdminService_ExecServer) error {
 	if err := runtime.CheckExecCommand(start.GetCmd()); err != nil {
 		return status.Error(codes.InvalidArgument, err.Error())
 	}
+	if err := checkContainerName(start.GetContainer()); err != nil {
+		return err
+	}
 	app, err := s.store.GetApp(ctx, start.GetApp())
 	if err != nil {
 		return storeErr(err)
@@ -56,10 +70,14 @@ func (s *Server) Exec(stream armadav1.AdminService_ExecServer) error {
 	}
 
 	name := filepath.Base(start.GetCmd()[0])
-	if err := s.store.RecordAudit(ctx, actor(ctx), "app.exec", app.Name, fmt.Sprintf("replica=%s command=%s tty=%t", r.ID, name, start.GetTty())); err != nil {
+	detail := fmt.Sprintf("replica=%s command=%s tty=%t", r.ID, name, start.GetTty())
+	if c := start.GetContainer(); c != "" {
+		detail += " container=" + c
+	}
+	if err := s.store.RecordAudit(ctx, actor(ctx), "app.exec", app.Name, detail); err != nil {
 		return storeErr(err)
 	}
-	s.log.Info("exec", "app", app.Name, "replica", r.ID, "node", r.NodeID, "command", name, "tty", start.GetTty(), "by", actor(ctx))
+	s.log.Info("exec", "app", app.Name, "replica", r.ID, "node", r.NodeID, "container", start.GetContainer(), "command", name, "tty", start.GetTty(), "by", actor(ctx))
 
 	id, p := s.execs.register(r.NodeID)
 	defer s.execs.cancel(id, p)
@@ -74,6 +92,7 @@ func (s *Server) Exec(stream armadav1.AdminService_ExecServer) error {
 	}()
 	if !sess.offer(&armadav1.ServerMessage{Msg: &armadav1.ServerMessage_ExecRequest{ExecRequest: &armadav1.ExecRequest{
 		RequestId: id, ReplicaId: r.ID, Cmd: start.GetCmd(), Tty: start.GetTty(), Stdin: start.GetStdin(), Size: start.GetSize(),
+		Container: start.GetContainer(),
 	}}}) {
 		return status.Errorf(codes.Unavailable, "node %s did not accept the exec request", r.NodeID)
 	}

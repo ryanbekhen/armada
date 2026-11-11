@@ -90,6 +90,10 @@ armada app update web --file web.yaml
 - **Volumes.** `volumes` keep an app's data on its node across deploys,
   crashes, and reboots, for databases and uploads; `armada volume backup`
   and `restore` copy it out and back, onto another node if its own is gone.
+- **Init containers and sidecars.** `initContainers` run to completion
+  before an app's container starts (a migration, a seed step); `sidecars`
+  run beside it on its localhost (a proxy, a log shipper), with the app's
+  volumes and secret files they name and the same security defaults.
 - **Events.** `armada cluster events` shows what the cluster did over the last day:
   crashes and restarts, rollouts, lost nodes, replicas moved, certificates;
   `-f` follows new ones.

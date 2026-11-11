@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/ryanbekhen/armada/internal/netutil"
@@ -63,7 +64,44 @@ func CheckContainerSpec(s ContainerSpec) error {
 			return fmt.Errorf("publish address: %w", err)
 		}
 	}
+	return checkMembers(s)
+}
+
+// checkMembers checks a replica's init containers and sidecars (ADR 0038):
+// at most as many as a spec allows, valid and unique names, and only files
+// and volumes the replica's own container mounts, at the same places.
+func checkMembers(s ContainerSpec) error {
+	if len(s.Init) > spec.MaxInitContainers || len(s.Sidecars) > spec.MaxSidecars {
+		return fmt.Errorf("at most %d init containers and %d sidecars", spec.MaxInitContainers, spec.MaxSidecars)
+	}
+	names := map[string]bool{spec.MainContainer: true}
+	for _, m := range slices.Concat(s.Init, s.Sidecars) {
+		if !ValidMemberName(m.Name) || names[m.Name] {
+			return fmt.Errorf("invalid or repeated container name %q", m.Name)
+		}
+		names[m.Name] = true
+		if m.Image == "" {
+			return fmt.Errorf("container %s: no image", m.Name)
+		}
+		for _, f := range m.Files {
+			if !slices.Contains(s.Files, f) {
+				return fmt.Errorf("container %s: file %s is not one of the replica's", m.Name, f.Target)
+			}
+		}
+		for _, v := range m.Volumes {
+			if !slices.Contains(s.Volumes, v) {
+				return fmt.Errorf("container %s: volume %s is not one of the replica's", m.Name, v.Target)
+			}
+		}
+	}
 	return nil
+}
+
+// ValidMemberName reports whether name can name an init container or a
+// sidecar: a valid spec name of at most 30 characters, other than the
+// replica's own container's.
+func ValidMemberName(name string) bool {
+	return spec.ValidName(name) && len(name) <= 30 && name != spec.MainContainer
 }
 
 // CheckFileMount allows only absolute, clean paths and a regular host file,

@@ -85,6 +85,9 @@ func Run(t *testing.T, d runtime.Driver, opts Options) {
 	if runtime.CanMountVolumes(d) {
 		t.Run("Volumes", r.volumes)
 	}
+	if runtime.CanRunMembers(d) {
+		t.Run("InitContainersAndSidecars", r.members)
+	}
 	if p, ok := d.(runtime.ImagePruner); ok {
 		t.Run("PruneImages", func(t *testing.T) { r.pruneImages(t, p) })
 	}
@@ -190,7 +193,7 @@ func (r *runner) wait(ctx context.Context, t *testing.T, id string) runtime.Cont
 		if err != nil {
 			t.Fatalf("Inspect: %v", err)
 		}
-		if c.State != runtime.StateRunning && c.State != runtime.StateCreated && c.State != runtime.StateRestarting {
+		if c.State != runtime.StateRunning && c.State != runtime.StateCreated && c.State != runtime.StateRestarting && c.State != runtime.StateStarting {
 			return c
 		}
 		select {
