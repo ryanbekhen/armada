@@ -89,6 +89,7 @@ E2E_ONLY=isolation,rollout ARMADA_BIN=... sh test/e2e/cluster.sh hosts
 | `cpu` | 11 | CPU reservations, capacity |
 | `spread` | 12 | `placement.spreadBy` |
 | `ip-rules` | 15 | `ingress.ipAllow`/`ipDeny`, trusted proxies, client address headers |
+| `sidecars` | 18 | init containers, sidecars, the shared network namespace |
 | `queues` | 14 | autoscaling on queues and schedules, dialling from containers |
 | `reboot` | 13 | start-up order, units, state after a crash |
 
@@ -156,3 +157,7 @@ A release runs every scenario.
       - a trusted proxy in the chain is stepped over;
       - a proxy that names no valid client is refused.
     - `ipDeny` refuses one machine and lets the others in.
+18. Init containers and sidecars: an app with both runs; the init
+    container's output is in its logs; the sidecar reaches the app on
+    127.0.0.1; a failing init container keeps its app from starting and says
+    why (runs before 14 and 13).
