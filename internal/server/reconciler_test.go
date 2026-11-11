@@ -242,25 +242,25 @@ func TestApplyReportDistrustsAgent(t *testing.T) {
 	if _, _, err := st.Deploy(ctx, mustSpec(t, "name: web\nimage: ghcr.io/me/web:v1\n"), "t"); err != nil {
 		t.Fatal(err)
 	}
-	_ = st.CreateReplica(ctx, store.Replica{ID: "mine", App: "web", Revision: "web--r1", NodeID: "n1"})
-	_ = st.CreateReplica(ctx, store.Replica{ID: "theirs", App: "web", Revision: "web--r1", NodeID: "n2"})
+	_ = st.CreateReplica(ctx, store.Replica{ID: "web-mine", App: "web", Revision: "web--r1", NodeID: "n1"})
+	_ = st.CreateReplica(ctx, store.Replica{ID: "web-theirs", App: "web", Revision: "web--r1", NodeID: "n2"})
 
 	node, _ := st.GetNode(ctx, "n1")
 	evilDigest := "ghcr.io/attacker/web@sha256:" + strings.Repeat("e", 64)
 	s.applyReport(ctx, node, &armadav1.ReplicaReport{Replicas: []*armadav1.ReplicaState{
-		{Id: "mine", State: "running", Address: "192.168.99.1:80", ImageDigest: evilDigest, Message: strings.Repeat("x", 5000)},
-		{Id: "theirs", State: "failed"},
+		{Id: "web-mine", State: "running", Address: "192.168.99.1:80", ImageDigest: evilDigest, Message: strings.Repeat("x", 5000)},
+		{Id: "web-theirs", State: "failed"},
 		{Id: "ghost", State: "running"},
 	}})
 
 	reps, _ := st.ListReplicas(ctx, store.ReplicaFilter{})
 	for _, r := range reps {
 		switch r.ID {
-		case "mine":
+		case "web-mine":
 			if r.State != "running" || r.Address != "" || len(r.Message) != 512 {
 				t.Errorf("mine = %+v (address outside private IP must be dropped, message truncated)", r)
 			}
-		case "theirs":
+		case "web-theirs":
 			if r.State != store.ReplicaPending {
 				t.Errorf("n1 modified n2's replica: %+v", r)
 			}
@@ -273,7 +273,7 @@ func TestApplyReportDistrustsAgent(t *testing.T) {
 
 	good := "ghcr.io/me/web@sha256:" + strings.Repeat("a", 64)
 	s.applyReport(ctx, node, &armadav1.ReplicaReport{Replicas: []*armadav1.ReplicaState{
-		{Id: "mine", State: "running", Address: "10.0.0.2:32768", ImageDigest: good},
+		{Id: "web-mine", State: "running", Address: "10.0.0.2:32768", ImageDigest: good},
 	}})
 	reps, _ = st.ListReplicas(ctx, store.ReplicaFilter{App: "web", NodeID: "n1"})
 	if reps[0].Address != "10.0.0.2:32768" {
@@ -288,7 +288,7 @@ func TestApplyReportDistrustsAgent(t *testing.T) {
 	// only one in the node's own subnet is kept.
 	node.Subnet = "10.120.3.0/24"
 	for ip, want := range map[string]string{"10.120.4.7": "", "10.120.3.1": "", "10.120.3.7": "10.120.3.7"} {
-		s.applyReport(ctx, node, &armadav1.ReplicaReport{Replicas: []*armadav1.ReplicaState{{Id: "mine", State: "running", Ip: ip}}})
+		s.applyReport(ctx, node, &armadav1.ReplicaReport{Replicas: []*armadav1.ReplicaState{{Id: "web-mine", State: "running", Ip: ip}}})
 		reps, _ = st.ListReplicas(ctx, store.ReplicaFilter{App: "web", NodeID: "n1"})
 		if reps[0].IP != want {
 			t.Errorf("reported IP %s stored as %q, want %q", ip, reps[0].IP, want)
@@ -356,7 +356,7 @@ func TestApplyReportWritesOnlyChanges(t *testing.T) {
 	if _, _, err := st.Deploy(ctx, mustSpec(t, "name: web\nimage: ghcr.io/me/web:v1\n"), "t"); err != nil {
 		t.Fatal(err)
 	}
-	for _, id := range []string{"a", "b"} {
+	for _, id := range []string{"web-a", "web-b"} {
 		if err := st.CreateReplica(ctx, store.Replica{ID: id, App: "web", Revision: "web--r1", NodeID: "n1"}); err != nil {
 			t.Fatal(err)
 		}
@@ -378,8 +378,8 @@ func TestApplyReportWritesOnlyChanges(t *testing.T) {
 	}
 	report := func(bMessage string) {
 		s.applyReport(ctx, node, &armadav1.ReplicaReport{Replicas: []*armadav1.ReplicaState{
-			{Id: "a", State: "running", Ready: true, Address: "10.0.0.2:80", ContainerId: "ca"},
-			{Id: "b", State: "running", Address: "10.0.0.2:81", ContainerId: "cb", Message: bMessage},
+			{Id: "web-a", State: "running", Ready: true, Address: "10.0.0.2:80", ContainerId: "ca"},
+			{Id: "web-b", State: "running", Address: "10.0.0.2:81", ContainerId: "cb", Message: bMessage},
 		}})
 	}
 	report("starting")
@@ -392,10 +392,10 @@ func TestApplyReportWritesOnlyChanges(t *testing.T) {
 	time.Sleep(5 * time.Millisecond)
 	report("readiness probe failed")
 	after := updated()
-	if !after["a"].Equal(before["a"]) {
+	if !after["web-a"].Equal(before["web-a"]) {
 		t.Errorf("replica a was written though only b changed")
 	}
-	if after["b"].Equal(before["b"]) {
+	if after["web-b"].Equal(before["web-b"]) {
 		t.Errorf("replica b changed but was not written")
 	}
 }

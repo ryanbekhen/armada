@@ -474,6 +474,8 @@ type Store interface {
 	// SetRevisionPlatforms records the image's platforms if none are set yet.
 	SetRevisionPlatforms(ctx context.Context, revision string, platforms []string) error
 
+	// CreateReplica schedules a replica. Its ID starts with "<app>-"
+	// (ErrPrecondition otherwise), so one app's replicas are read by prefix.
 	CreateReplica(ctx context.Context, r Replica) error
 	DeleteReplica(ctx context.Context, id string) error
 	// DrainReplica marks a replica as draining (idempotent).

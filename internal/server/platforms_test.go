@@ -27,7 +27,7 @@ func TestReportedImagePlatforms(t *testing.T) {
 	if _, _, err := st.Deploy(ctx, mustSpec(t, "name: web\nimage: ghcr.io/me/web:v1\n"), "t"); err != nil {
 		t.Fatal(err)
 	}
-	_ = st.CreateReplica(ctx, store.Replica{ID: "mine", App: "web", Revision: "web--r1", NodeID: "n1"})
+	_ = st.CreateReplica(ctx, store.Replica{ID: "web-mine", App: "web", Revision: "web--r1", NodeID: "n1"})
 	n1, _ := st.GetNode(ctx, "n1")
 	n2, _ := st.GetNode(ctx, "n2")
 	report := func(node store.Node, id string, ps ...string) {
@@ -38,7 +38,7 @@ func TestReportedImagePlatforms(t *testing.T) {
 		return rev.Platforms
 	}
 
-	report(n2, "mine", "linux/riscv64") // not n2's replica
+	report(n2, "web-mine", "linux/riscv64") // not n2's replica
 	many := make([]string, 33)
 	for i := range many {
 		many[i] = "linux/a" + strings.Repeat("x", i)
@@ -52,13 +52,13 @@ func TestReportedImagePlatforms(t *testing.T) {
 		"too many":   many,
 		"one bad":    {"linux/amd64", "linux/../arm64"},
 	} {
-		report(n1, "mine", ps...)
+		report(n1, "web-mine", ps...)
 		if got := platforms(); got != nil {
 			t.Fatalf("%s: stored %v", name, got)
 		}
 	}
-	report(n1, "mine", "linux/arm64", "linux/amd64", "linux/arm64")
-	report(n1, "mine", "linux/s390x")
+	report(n1, "web-mine", "linux/arm64", "linux/amd64", "linux/arm64")
+	report(n1, "web-mine", "linux/s390x")
 	if got := platforms(); !slices.Equal(got, []string{"linux/amd64", "linux/arm64"}) {
 		t.Errorf("platforms = %v, want the first valid list, sorted and unique", got)
 	}

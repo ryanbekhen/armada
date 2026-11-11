@@ -141,7 +141,7 @@ func TestNodeCertAllowlist(t *testing.T) {
 	if _, _, err := s.Deploy(ctx, appSpec(t, "web", "nginx:1", 1), "a"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.CreateReplica(ctx, Replica{ID: "r1", App: "web", Revision: "web--r1", NodeID: "n1", State: ReplicaRunning}); err != nil {
+	if err := s.CreateReplica(ctx, Replica{ID: "web-r1-a", App: "web", Revision: "web--r1", NodeID: "n1", State: ReplicaRunning}); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.RemoveNode(ctx, "n1", false, "admin:a"); !errors.Is(err, ErrPrecondition) {
