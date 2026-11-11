@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -744,6 +745,31 @@ func TestGetRevisions(t *testing.T) {
 	for _, a := range listed {
 		if a.Spec == nil || a.Spec.Name != a.Name {
 			t.Errorf("app %s has spec %+v", a.Name, a.Spec)
+		}
+	}
+
+	// GetApps and ListAppIDs agree with ListApps, past one read batch.
+	ids, err := s.ListAppIDs(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := make([]string, len(listed))
+	for i, a := range listed {
+		want[i] = a.Name
+	}
+	if !slices.Equal(ids, want) {
+		t.Errorf("ListAppIDs = %v, want %v", ids, want)
+	}
+	byName, err := s.GetApps(ctx, append(slices.Clone(ids), "missing", "app0"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(byName) != apps {
+		t.Errorf("GetApps: %d apps, want %d", len(byName), apps)
+	}
+	for _, a := range listed {
+		if !reflect.DeepEqual(byName[a.Name], a) {
+			t.Errorf("GetApps[%s] = %+v, want %+v", a.Name, byName[a.Name], a)
 		}
 	}
 }

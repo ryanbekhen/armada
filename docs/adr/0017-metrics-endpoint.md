@@ -53,8 +53,11 @@ The leader serves Prometheus metrics at `GET /metrics` on
 
 ### Metrics
 
-Metrics are read from the same sources as `armada status` and `armada top`
-on every scrape. No new state is kept.
+Metrics are read from the same sources as `armada status` and `armada top`.
+The leader keeps the last set it read in memory for 10 seconds and answers
+scrapes in that time from it; scrapes that arrive while a set is being read
+wait for it. However many scrapers there are, the cluster is read at most
+once per 10 seconds, and values may be that old. Nothing is stored.
 
 - **Control plane:**
   - `armada_server_leader{server}`

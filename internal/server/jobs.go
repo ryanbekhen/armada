@@ -418,13 +418,24 @@ func (s *Server) RunJob(ctx context.Context, req *armadav1.RunJobRequest) (*arma
 
 // ListJobs describes every job.
 func (s *Server) ListJobs(ctx context.Context, _ *armadav1.ListJobsRequest) (*armadav1.ListJobsResponse, error) {
+	resp, _, err := s.listJobs(ctx)
+	return resp, err
+}
+
+// listJobs describes every job the caller sees, and returns the runs it
+// read, by job.
+func (s *Server) listJobs(ctx context.Context) (*armadav1.ListJobsResponse, map[string][]store.JobRun, error) {
 	apps, err := s.store.ListApps(ctx)
 	if err != nil {
-		return nil, storeErr(err)
+		return nil, nil, storeErr(err)
 	}
 	runs, err := s.store.ListJobRuns(ctx, "")
 	if err != nil {
-		return nil, storeErr(err)
+		return nil, nil, storeErr(err)
+	}
+	byJob := map[string][]store.JobRun{}
+	for _, r := range runs {
+		byJob[r.Job] = append(byJob[r.Job], r)
 	}
 	acc := accessFrom(ctx)
 	resp := &armadav1.ListJobsResponse{}
@@ -433,10 +444,7 @@ func (s *Server) ListJobs(ctx context.Context, _ *armadav1.ListJobsRequest) (*ar
 			continue
 		}
 		info := &armadav1.JobInfo{Name: a.Name, Revision: a.ActiveRevision, Image: a.Spec.Image, Schedule: a.Spec.Schedule, TimeZone: a.Spec.TimeZone}
-		for _, r := range runs {
-			if r.Job != a.Name {
-				continue
-			}
+		for _, r := range byJob[a.Name] {
 			info.LastRun = runInfo(r)
 			if r.Active() {
 				info.Active++
@@ -447,7 +455,7 @@ func (s *Server) ListJobs(ctx context.Context, _ *armadav1.ListJobsRequest) (*ar
 		}
 		resp.Jobs = append(resp.Jobs, info)
 	}
-	return resp, nil
+	return resp, byJob, nil
 }
 
 // ListJobRuns lists a job's runs, newest first.

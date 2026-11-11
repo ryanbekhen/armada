@@ -1002,6 +1002,13 @@ scrape_configs:
       - targets: ["10.0.0.5:9443", "10.0.0.6:9443", "10.0.0.7:9443"]
 ```
 
+The leader reads the cluster's state for the endpoint at most once every 10
+seconds: scrapes in between, from one scraper or several, get the same
+values, so the app, replica, node, project, job, and volume metrics may be
+up to 10 seconds old. `armada_reconcile_*`, `armada_job_runs_total`,
+`armada_events_total`, and the Go runtime metrics are always current. A
+scrape interval under 10 seconds costs nothing more, but shows nothing new.
+
 | Metric | Labels | Meaning |
 | --- | --- | --- |
 | `armada_server_leader` | `server` | 1 on the server that serves the endpoint |

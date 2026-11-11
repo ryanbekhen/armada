@@ -630,6 +630,22 @@ func (s *Server) urlSource(ctx context.Context) urlSources {
 	return src
 }
 
+// appURLSource is urlSource for one app: only the domains app names are
+// read, so appURLsFrom gives it the same URLs for app.
+func (s *Server) appURLSource(ctx context.Context, app store.App) urlSources {
+	in := app.Spec.Ingress
+	if in == nil || in.Type != spec.IngressExternal {
+		return urlSources{} // internal and private apps name no domains
+	}
+	src := urlSources{root: s.rootDomain(ctx), verified: map[string]bool{}}
+	for _, name := range in.Domains {
+		if d, err := s.store.GetDomain(ctx, name); err == nil {
+			src.verified[d.Name] = d.Verified
+		}
+	}
+	return src
+}
+
 // appURLsFrom lists app's URLs.
 func appURLsFrom(app store.App, src urlSources) []string {
 	if app.Spec.Ingress == nil || app.Spec.Ingress.Type == spec.IngressNone {

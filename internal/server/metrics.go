@@ -11,6 +11,7 @@ import (
 	"net/netip"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -36,7 +37,7 @@ func (s *Server) serveMetrics(ctx context.Context) error {
 	reg.MustRegister(
 		collectors.NewGoCollector(),
 		s.reconcileSeconds, s.reconcileErrors, s.events.total, s.jobRuns,
-		&clusterCollector{s: s},
+		&clusterCollector{s: s, every: s.metricsCache},
 	)
 	mux := http.NewServeMux()
 	mux.Handle("GET /metrics", promhttp.HandlerFor(reg, promhttp.HandlerOpts{ErrorHandling: promhttp.ContinueOnError}))
@@ -99,10 +100,72 @@ func (s *Server) metricsAllowed(ctx context.Context, cs *tls.ConnectionState) bo
 	return err == nil && ok && p.Has(store.Grant{Role: store.RoleClusterAdmin})
 }
 
-// clusterCollector reads the cluster's state on every scrape, from the same
-// sources as `armada app show` and `armada app top`. Label values are names the
-// store has validated: apps, replicas, revisions, nodes, servers.
-type clusterCollector struct{ s *Server }
+// metricsCacheFor is how long the cluster's metrics, once gathered, answer
+// further scrapes: each gathering reads the whole cluster.
+const metricsCacheFor = 10 * time.Second
+
+// clusterCollector reads the cluster's state from the same sources as
+// `armada app show` and `armada app top`, at most once per every: scrapes
+// within it get the metrics last gathered, and scrapes that arrive while
+// they are gathered wait for them. Label values are names the store has
+// validated: apps, replicas, revisions, nodes, servers.
+type clusterCollector struct {
+	s *Server
+	// every is how long gathered metrics are kept; 0 gathers on every
+	// scrape that does not find a gathering under way.
+	every time.Duration
+
+	mu      sync.Mutex
+	last    []prometheus.Metric // nil when the last gathering failed
+	lastAt  time.Time
+	pending *gathering
+}
+
+// gathering is one gathering of the cluster's metrics, shared by the
+// scrapes that arrive while it runs.
+type gathering struct {
+	done    chan struct{}
+	metrics []prometheus.Metric
+}
+
+func (c *clusterCollector) Collect(ch chan<- prometheus.Metric) {
+	for _, m := range c.metrics() {
+		ch <- m
+	}
+}
+
+// metrics returns the cluster's metrics: the last ones gathered while they
+// are fresh, else those of the gathering under way, else new ones.
+func (c *clusterCollector) metrics() []prometheus.Metric {
+	c.mu.Lock()
+	if c.last != nil && c.s.now().Sub(c.lastAt) < c.every {
+		m := c.last
+		c.mu.Unlock()
+		return m
+	}
+	if g := c.pending; g != nil {
+		c.mu.Unlock()
+		<-g.done
+		return g.metrics
+	}
+	g := &gathering{done: make(chan struct{})}
+	c.pending = g
+	c.mu.Unlock()
+
+	var ok bool
+	defer func() {
+		c.mu.Lock()
+		c.pending = nil
+		c.last, c.lastAt = nil, time.Time{}
+		if ok {
+			c.last, c.lastAt = g.metrics, c.s.now()
+		}
+		c.mu.Unlock()
+		close(g.done)
+	}()
+	g.metrics, ok = c.gather()
+	return g.metrics
+}
 
 var (
 	descLeader           = prometheus.NewDesc("armada_server_leader", "1 on the control plane server that leads and serves this endpoint.", []string{"server"}, nil)
@@ -168,12 +231,15 @@ func (c *clusterCollector) Describe(ch chan<- *prometheus.Desc) {
 	}
 }
 
-func (c *clusterCollector) Collect(ch chan<- prometheus.Metric) {
+// gather reads the cluster's metrics; ok is false when a read failed and
+// the metrics end with the error.
+func (c *clusterCollector) gather() (out []prometheus.Metric, ok bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), metricsTimeout)
 	defer cancel()
 	s := c.s
+	emit := func(m prometheus.Metric) { out = append(out, m) }
 	gauge := func(d *prometheus.Desc, v float64, labels ...string) {
-		ch <- prometheus.MustNewConstMetric(d, prometheus.GaugeValue, v, labels...)
+		emit(prometheus.MustNewConstMetric(d, prometheus.GaugeValue, v, labels...))
 	}
 	gauge(descLeader, 1, s.name)
 	s.mu.Lock()
@@ -184,8 +250,8 @@ func (c *clusterCollector) Collect(ch chan<- prometheus.Metric) {
 	ctx = s.internalContext(ctx)
 	st, err := s.Status(ctx, &armadav1.StatusRequest{})
 	if err != nil {
-		ch <- prometheus.NewInvalidMetric(descAppDesired, err)
-		return
+		emit(prometheus.NewInvalidMetric(descAppDesired, err))
+		return out, false
 	}
 	for _, a := range st.GetApps() {
 		gauge(descAppDesired, float64(a.GetDesiredReplicas()), a.GetName())
@@ -199,7 +265,7 @@ func (c *clusterCollector) Collect(ch chan<- prometheus.Metric) {
 			gauge(descReplicaReady, v, a.GetName(), r.GetId(), r.GetRevision(), r.GetNodeId())
 			gauge(descReplicaState, 1, a.GetName(), r.GetId(), r.GetNodeId(), replicaStateLabel(r.GetState()))
 			gauge(descReplicaInfo, 1, a.GetName(), r.GetId(), r.GetRevision(), r.GetNodeId(), addressIP(r.GetAddress()))
-			ch <- prometheus.MustNewConstMetric(descReplicaRestarts, prometheus.CounterValue, float64(r.GetRestarts()), a.GetName(), r.GetId(), r.GetNodeId())
+			emit(prometheus.MustNewConstMetric(descReplicaRestarts, prometheus.CounterValue, float64(r.GetRestarts()), a.GetName(), r.GetId(), r.GetNodeId()))
 			if t := r.GetLastRestartAt(); t != nil {
 				gauge(descReplicaLastRest, float64(t.GetSeconds()), a.GetName(), r.GetId(), r.GetNodeId(), restartReason(r.GetLastRestart()))
 			}
@@ -240,8 +306,8 @@ func (c *clusterCollector) Collect(ch chan<- prometheus.Metric) {
 
 	top, err := s.Top(ctx, &armadav1.TopRequest{})
 	if err != nil {
-		ch <- prometheus.NewInvalidMetric(descReplicaCPU, err)
-		return
+		emit(prometheus.NewInvalidMetric(descReplicaCPU, err))
+		return out, false
 	}
 	for _, r := range top.GetReplicas() {
 		labels := []string{r.GetApp(), r.GetId(), r.GetNodeId()}
@@ -255,13 +321,12 @@ func (c *clusterCollector) Collect(ch chan<- prometheus.Metric) {
 		}
 		gauge(descReplicaMemLimit, float64(r.GetMemoryLimitBytes()), labels...)
 	}
-	if jobs, err := s.ListJobs(ctx, &armadav1.ListJobsRequest{}); err == nil {
-		runs, _ := s.store.ListJobRuns(ctx, "")
+	if jobs, runs, err := s.listJobs(ctx); err == nil {
 		for _, j := range jobs.GetJobs() {
 			gauge(descJobActive, float64(j.GetActive()), j.GetName())
 			var last time.Time
-			for _, r := range runs {
-				if r.Job == j.GetName() && r.State == store.RunSucceeded && r.FinishedAt.After(last) {
+			for _, r := range runs[j.GetName()] {
+				if r.State == store.RunSucceeded && r.FinishedAt.After(last) {
 					last = r.FinishedAt
 				}
 			}
@@ -287,8 +352,8 @@ func (c *clusterCollector) Collect(ch chan<- prometheus.Metric) {
 		gauge(descProjectCPURes, cores(p.GetCpuReservedMillis()), name)
 		gauge(descProjectMemRes, float64(p.GetMemoryReservedBytes()), name)
 		gauge(descProjectVolumes, float64(p.GetVolumeBytes()), name)
-		ch <- prometheus.MustNewConstMetric(descProjectRequests, prometheus.CounterValue, float64(p.GetRequests()), name)
-		ch <- prometheus.MustNewConstMetric(descProjectEgress, prometheus.CounterValue, float64(p.GetEgressBytes()), name)
+		emit(prometheus.MustNewConstMetric(descProjectRequests, prometheus.CounterValue, float64(p.GetRequests()), name))
+		emit(prometheus.MustNewConstMetric(descProjectEgress, prometheus.CounterValue, float64(p.GetEgressBytes()), name))
 	}
 	for _, n := range top.GetNodes() {
 		gauge(descNodeReplicas, float64(n.GetReplicas()), n.GetId())
@@ -305,6 +370,7 @@ func (c *clusterCollector) Collect(ch chan<- prometheus.Metric) {
 			gauge(descNodeConntrackMax, float64(n.GetConntrackMax()), n.GetId())
 		}
 	}
+	return out, true
 }
 
 // revisionInfo exports the image of every revision an app serves, rolls

@@ -1739,6 +1739,62 @@ func (s *Etcd) ListApps(ctx context.Context) ([]App, error) {
 	return out, err
 }
 
+// GetApps returns the apps that exist among names, with their active specs.
+func (s *Etcd) GetApps(ctx context.Context, names []string) (map[string]App, error) {
+	var out map[string]App
+	err := s.view(ctx, func(t *etx) error {
+		keys := make([]string, 0, len(names))
+		for _, n := range names {
+			keys = append(keys, pfxApps+n)
+		}
+		raw, err := t.getMany(keys)
+		if err != nil {
+			return err
+		}
+		recs := make([]appRec, 0, len(raw))
+		active := make([]string, 0, len(raw))
+		for k, b := range raw {
+			var a appRec
+			if err := json.Unmarshal(b, &a); err != nil {
+				return fmt.Errorf("decode %s: %w", k, err)
+			}
+			recs = append(recs, a)
+			active = append(active, a.ActiveRevision)
+		}
+		revs, err := t.revisions(active)
+		if err != nil {
+			return err
+		}
+		out = make(map[string]App, len(recs))
+		for _, a := range recs {
+			rev, ok := revs[a.ActiveRevision]
+			if !ok {
+				return notFoundf("revision %s", a.ActiveRevision)
+			}
+			out[a.Name] = appFrom(a, rev)
+		}
+		return nil
+	})
+	return out, err
+}
+
+// ListAppIDs returns every app's ID from the keys alone.
+func (s *Etcd) ListAppIDs(ctx context.Context) ([]string, error) {
+	var out []string
+	err := s.view(ctx, func(t *etx) error {
+		resp, err := t.s.c.Get(t.ctx, t.full(pfxApps), clientv3.WithPrefix(), clientv3.WithKeysOnly(), clientv3.WithRev(t.rev))
+		if err != nil {
+			return err
+		}
+		out = make([]string, 0, len(resp.Kvs))
+		for _, e := range resp.Kvs {
+			out = append(out, strings.TrimPrefix(string(e.Key), t.full(pfxApps)))
+		}
+		return nil
+	})
+	return out, err
+}
+
 // SetReplicas changes the desired replica count until the next deploy.
 func (s *Etcd) SetReplicas(ctx context.Context, app string, n int, actor string) error {
 	if n < 1 || n > spec.MaxReplicas {

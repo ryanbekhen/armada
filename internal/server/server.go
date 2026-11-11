@@ -99,6 +99,9 @@ type Config struct {
 	// served with TLS and only to metrics certificates and cluster-admin. Empty
 	// disables it.
 	MetricsAddr string
+	// MetricsCache is how long metrics gathered for one scrape answer the
+	// next ones (default 10s, metricsCacheFor).
+	MetricsCache time.Duration
 
 	// Name is this control plane node's name.
 	Name string
@@ -120,6 +123,7 @@ type Server struct {
 	ca               *pki.CA
 	tlsCfg           *tls.Config
 	metricsAddr      string
+	metricsCache     time.Duration
 	reconcileSeconds prometheus.Histogram
 	reconcileErrors  prometheus.Counter
 	joinAddr         string
@@ -267,6 +271,9 @@ func New(cfg Config) (*Server, error) {
 	if cfg.Now == nil {
 		cfg.Now = time.Now
 	}
+	if cfg.MetricsCache <= 0 {
+		cfg.MetricsCache = metricsCacheFor
+	}
 	if cfg.JobRetryBase <= 0 {
 		cfg.JobRetryBase = defaultJobRetryBase
 	}
@@ -302,7 +309,8 @@ func New(cfg Config) (*Server, error) {
 		volumes:    newVolumeRouter(),
 		tlsCfg:     cfg.TLS,
 
-		metricsAddr: cfg.MetricsAddr,
+		metricsAddr:  cfg.MetricsAddr,
+		metricsCache: cfg.MetricsCache,
 		reconcileSeconds: prometheus.NewHistogram(prometheus.HistogramOpts{
 			Name: "armada_reconcile_duration_seconds", Help: "How long a reconcile of the whole cluster takes.",
 			Buckets: prometheus.ExponentialBuckets(0.005, 2, 12),

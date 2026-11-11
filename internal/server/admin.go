@@ -219,23 +219,16 @@ func (s *Server) previousRevision(ctx context.Context, app store.App) (string, e
 	return "", status.Errorf(codes.FailedPrecondition, "app %s has no earlier revision to roll back to", app.Name)
 }
 
-// Status reports apps, replicas, and nodes.
+// Status reports apps, replicas, and nodes. With an app it reports that app
+// alone, with no nodes, and reads only what the app's answer needs: `armada
+// app update --wait` asks every second.
 func (s *Server) Status(ctx context.Context, req *armadav1.StatusRequest) (*armadav1.StatusResponse, error) {
 	acc := accessFrom(ctx)
-	var apps []store.App
 	if req.GetApp() != "" {
-		if err := acc.app(req.GetApp()); err != nil {
-			return nil, err
-		}
-		a, err := s.store.GetApp(ctx, req.GetApp())
-		if err != nil {
-			return nil, storeErr(err)
-		}
-		if a.Spec.IsJob() {
-			return nil, status.Errorf(codes.FailedPrecondition, "%s is a job; see `armada job run list %s`", a.Name, a.Name)
-		}
-		apps = []store.App{a}
-	} else if !req.GetNodesOnly() {
+		return s.appStatus(ctx, acc, req.GetApp())
+	}
+	var apps []store.App
+	if !req.GetNodesOnly() {
 		var err error
 		if apps, err = s.store.ListApps(ctx); err != nil {
 			return nil, storeErr(err)
@@ -257,74 +250,26 @@ func (s *Server) Status(ctx context.Context, req *armadav1.StatusRequest) (*arma
 			perNode[r.NodeID]++
 		}
 	}
-	// One app needs its own replicas' revisions only.
-	mine := all
-	if req.GetApp() != "" {
-		mine = slices.DeleteFunc(slices.Clone(all), func(r store.Replica) bool { return r.App != req.GetApp() })
-	}
-	revs := &revisionCache{store: s.store, m: map[string]store.Revision{}}
-	revs.preload(ctx, apps, mine)
-	sched, err := s.allocatable(ctx, nodes)
-	if err != nil {
-		return nil, storeErr(err)
-	}
-
 	resp := &armadav1.StatusResponse{}
-	// Read once for every app: per app they cost a pass over the cluster.
-	src := s.urlSource(ctx)
-	byApp := map[string][]store.Replica{}
-	for _, r := range all {
-		byApp[r.App] = append(byApp[r.App], r)
-	}
-	for _, a := range apps {
-		if a.Spec.IsJob() {
-			continue // `armada job list`
+	if len(apps) > 0 {
+		revs := &revisionCache{store: s.store, m: map[string]store.Revision{}}
+		revs.preload(ctx, apps, all)
+		sched, err := s.allocatable(ctx, nodes)
+		if err != nil {
+			return nil, storeErr(err)
 		}
-		reps := byApp[a.Name]
-		as := &armadav1.AppStatus{
-			Name: a.Name, Image: a.Spec.Image, ActiveRevision: a.ActiveRevision,
-			DesiredReplicas:  int32(a.Replicas), //nolint:gosec // bounded by spec.MaxReplicas
-			Ingress:          a.Spec.Ingress.Type,
-			Urls:             appURLsFrom(a, src),
-			TargetRevision:   a.TargetRevision,
-			RolloutState:     a.RolloutState,
-			RolloutMessage:   a.RolloutMessage,
-			PlacementMessage: placementMessage(ctx, revs, sched, all, a),
+		// Read once for every app: per app they cost a pass over the cluster.
+		src := s.urlSource(ctx)
+		byApp := map[string][]store.Replica{}
+		for _, r := range all {
+			byApp[r.App] = append(byApp[r.App], r)
 		}
-		if in := a.Spec.Ingress; in != nil {
-			as.IpAllow, as.IpDeny = ipRulesProto(in.IPAllow), ipRulesProto(in.IPDeny)
-		}
-		if !a.Rolling() {
-			shares := trafficShares(a.Replicas, a.Traffic)
-			total := 0
-			for i, t := range a.Traffic {
-				//nolint:gosec // weights are 0 to 100, shares bounded by spec.MaxReplicas
-				as.Traffic = append(as.Traffic, &armadav1.TrafficTarget{Revision: t.Revision, Weight: int32(t.Weight), Label: t.Label,
-					Urls: s.labelURLs(ctx, a, t.Label), Replicas: int32(shares[i])})
-				total += shares[i]
+		for _, a := range apps {
+			if a.Spec.IsJob() {
+				continue // `armada job list`
 			}
-			if total > 0 {
-				as.DesiredReplicas = int32(total)
-			}
+			resp.Apps = append(resp.Apps, s.appStatusProto(ctx, a, byApp[a.Name], placementMessage(ctx, revs, sched, all, a), src))
 		}
-		if a.Spec.Autoscaled() {
-			as.Autoscale = s.scaler.status(a.Name)
-			if as.Autoscale == nil {
-				lo, hi := a.Spec.ScaleBounds()
-				as.Autoscale = &armadav1.Autoscale{Min: int32(lo), Max: int32(hi), Message: "waiting for the first evaluation"} //nolint:gosec // bounded by spec.MaxReplicas
-			}
-			as.Autoscale.LastScaledAt = optionalTime(a.ScaledAt)
-		}
-		for _, r := range reps {
-			as.Replicas = append(as.Replicas, &armadav1.ReplicaStatus{
-				Id: r.ID, Revision: r.Revision, NodeId: r.NodeID, State: r.State,
-				Message: r.Message, Address: r.Address, UpdatedAt: timestamppb.New(r.UpdatedAt),
-				Ready: r.Ready, Draining: r.Draining(),
-				Restarts: int32(min(r.Restarts, math.MaxInt32)), LastRestart: r.LastRestart, //nolint:gosec // bounded by min
-				CreatedAt: optionalTime(r.CreatedAt), LastRestartAt: optionalTime(r.LastRestartAt),
-			})
-		}
-		resp.Apps = append(resp.Apps, as)
 	}
 
 	for _, n := range nodes {
@@ -353,6 +298,91 @@ func (s *Server) Status(ctx context.Context, req *armadav1.StatusRequest) (*arma
 		resp.Nodes = nil
 	}
 	return resp, nil
+}
+
+// appStatus answers Status for one app from its own replicas, the nodes'
+// records, and its own domains; the other replicas and the nodes' capacity
+// only when its placement message needs them.
+func (s *Server) appStatus(ctx context.Context, acc access, name string) (*armadav1.StatusResponse, error) {
+	if err := acc.app(name); err != nil {
+		return nil, err
+	}
+	a, err := s.store.GetApp(ctx, name)
+	if err != nil {
+		return nil, storeErr(err)
+	}
+	if a.Spec.IsJob() {
+		return nil, status.Errorf(codes.FailedPrecondition, "%s is a job; see `armada job run list %s`", a.Name, a.Name)
+	}
+	nodes, err := s.store.ListNodes(ctx)
+	if err != nil {
+		return nil, storeErr(err)
+	}
+	own, err := s.store.ListReplicas(ctx, store.ReplicaFilter{App: a.Name})
+	if err != nil {
+		return nil, storeErr(err)
+	}
+	revs := &revisionCache{store: s.store, m: map[string]store.Revision{}}
+	revs.preload(ctx, []store.App{a}, own)
+	sched, all := nodes, own
+	if placementNeedsCluster(ctx, revs, nodes, own, a) {
+		if all, err = s.store.ListReplicas(ctx, store.ReplicaFilter{}); err != nil {
+			return nil, storeErr(err)
+		}
+		if sched, err = s.allocatable(ctx, nodes); err != nil {
+			return nil, storeErr(err)
+		}
+	}
+	as := s.appStatusProto(ctx, a, own, placementMessage(ctx, revs, sched, all, a), s.appURLSource(ctx, a))
+	return &armadav1.StatusResponse{Apps: []*armadav1.AppStatus{as}}, nil
+}
+
+// appStatusProto describes app with its replicas.
+func (s *Server) appStatusProto(ctx context.Context, a store.App, reps []store.Replica, placement string, src urlSources) *armadav1.AppStatus {
+	as := &armadav1.AppStatus{
+		Name: a.Name, Image: a.Spec.Image, ActiveRevision: a.ActiveRevision,
+		DesiredReplicas:  int32(a.Replicas), //nolint:gosec // bounded by spec.MaxReplicas
+		Ingress:          a.Spec.Ingress.Type,
+		Urls:             appURLsFrom(a, src),
+		TargetRevision:   a.TargetRevision,
+		RolloutState:     a.RolloutState,
+		RolloutMessage:   a.RolloutMessage,
+		PlacementMessage: placement,
+	}
+	if in := a.Spec.Ingress; in != nil {
+		as.IpAllow, as.IpDeny = ipRulesProto(in.IPAllow), ipRulesProto(in.IPDeny)
+	}
+	if !a.Rolling() {
+		shares := trafficShares(a.Replicas, a.Traffic)
+		total := 0
+		for i, t := range a.Traffic {
+			//nolint:gosec // weights are 0 to 100, shares bounded by spec.MaxReplicas
+			as.Traffic = append(as.Traffic, &armadav1.TrafficTarget{Revision: t.Revision, Weight: int32(t.Weight), Label: t.Label,
+				Urls: s.labelURLs(ctx, a, t.Label), Replicas: int32(shares[i])})
+			total += shares[i]
+		}
+		if total > 0 {
+			as.DesiredReplicas = int32(total)
+		}
+	}
+	if a.Spec.Autoscaled() {
+		as.Autoscale = s.scaler.status(a.Name)
+		if as.Autoscale == nil {
+			lo, hi := a.Spec.ScaleBounds()
+			as.Autoscale = &armadav1.Autoscale{Min: int32(lo), Max: int32(hi), Message: "waiting for the first evaluation"} //nolint:gosec // bounded by spec.MaxReplicas
+		}
+		as.Autoscale.LastScaledAt = optionalTime(a.ScaledAt)
+	}
+	for _, r := range reps {
+		as.Replicas = append(as.Replicas, &armadav1.ReplicaStatus{
+			Id: r.ID, Revision: r.Revision, NodeId: r.NodeID, State: r.State,
+			Message: r.Message, Address: r.Address, UpdatedAt: timestamppb.New(r.UpdatedAt),
+			Ready: r.Ready, Draining: r.Draining(),
+			Restarts: int32(min(r.Restarts, math.MaxInt32)), LastRestart: r.LastRestart, //nolint:gosec // bounded by min
+			CreatedAt: optionalTime(r.CreatedAt), LastRestartAt: optionalTime(r.LastRestartAt),
+		})
+	}
+	return as
 }
 
 // Logs streams logs from an app's replicas by asking each replica's agent to
