@@ -29,7 +29,43 @@ jobs:
           HEAD: ${{ github.event.pull_request.head.sha }}
         run: sh scripts/check-commits.sh "$BASE..$HEAD"
 
+  # Pull requests and pushes that touch only documents skip the jobs below
+  # that build and test code (docs/README.md, CONTRIBUTING.md). Skipped jobs
+  # count as passed for the required checks.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.diff.outputs.code }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: diff
+        env:
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        run: |
+          # Documents: Markdown anywhere, docs/ (its generated CLI reference
+          # included), the license, and issue templates. Anything else is code.
+          if [ -z "$BASE" ] || [ "$BASE" = 0000000000000000000000000000000000000000 ] ||
+            ! files=$(git diff --name-only "$BASE" "$HEAD"); then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          code=false
+          for f in $files; do
+            case "$f" in
+            *.md | docs/* | LICENSE | .github/ISSUE_TEMPLATE/*) ;;
+            *) code=true ;;
+            esac
+          done
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          echo "changed files: $(echo "$files" | wc -l); code: $code"
+
   lint:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -44,6 +80,8 @@ jobs:
           install-mode: goinstall # build with the go.mod toolchain
 
   test:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -58,6 +96,8 @@ jobs:
 
   # Validates the rendered HAProxy configuration with the pinned image.
   haproxy:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -69,6 +109,8 @@ jobs:
       - run: go test -tags integration -run Integration -v ./internal/proxy/haproxy/
 
   vuln:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -80,6 +122,8 @@ jobs:
       - run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
 
   build:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -103,6 +147,8 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
 
   installer:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -112,6 +158,8 @@ jobs:
       - run: sh test/install_test.sh
 
   release-config:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
