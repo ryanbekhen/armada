@@ -175,17 +175,26 @@ type Scale struct {
 
 // ScaleRule is one autoscaler trigger. Which fields apply depends on Type:
 // http takes Concurrent (requests in progress per replica), cpu and memory
-// take Utilization (percent of the replica's reservation). The queue and
-// schedule fields are reserved.
+// take Utilization (percent of the replica's reservation) (ADR 0020); queue
+// takes Command (run in a replica, prints the queue's length), redis takes
+// URLSecretRef and List, rabbitmq URLSecretRef and Queue, each with Length
+// (items per replica); schedule takes Schedule, TimeZone, Duration, and
+// Replicas (at least that many from each fire for Duration) (ADR 0034).
 type ScaleRule struct {
-	Type        string `yaml:"type" json:"type"`
-	Concurrent  int    `yaml:"concurrent,omitempty" json:"concurrent,omitempty"`
-	Utilization int    `yaml:"utilization,omitempty" json:"utilization,omitempty"`
-	List        string `yaml:"list,omitempty" json:"list,omitempty"`
-	Length      int    `yaml:"length,omitempty" json:"length,omitempty"`
-	Schedule    string `yaml:"schedule,omitempty" json:"schedule,omitempty"`
-	Timezone    string `yaml:"timezone,omitempty" json:"timezone,omitempty"`
-	Replicas    int    `yaml:"replicas,omitempty" json:"replicas,omitempty"`
+	Type        string   `yaml:"type" json:"type"`
+	Concurrent  int      `yaml:"concurrent,omitempty" json:"concurrent,omitempty"`
+	Utilization int      `yaml:"utilization,omitempty" json:"utilization,omitempty"`
+	Command     []string `yaml:"command,omitempty" json:"command,omitempty"`
+	// URLSecretRef names the app's secret that holds the broker's URL, with
+	// its password (redis://, rediss://, amqp://, amqps://).
+	URLSecretRef string   `yaml:"urlSecretRef,omitempty" json:"urlSecretRef,omitempty"`
+	List         string   `yaml:"list,omitempty" json:"list,omitempty"`
+	Queue        string   `yaml:"queue,omitempty" json:"queue,omitempty"`
+	Length       int      `yaml:"length,omitempty" json:"length,omitempty"`
+	Schedule     string   `yaml:"schedule,omitempty" json:"schedule,omitempty"`
+	TimeZone     string   `yaml:"timeZone,omitempty" json:"timeZone,omitempty"`
+	Duration     Duration `yaml:"duration,omitempty" json:"duration,omitempty"`
+	Replicas     int      `yaml:"replicas,omitempty" json:"replicas,omitempty"`
 }
 
 // Resources sets per-replica limits. CPU is in cores ("0.5") or millicores

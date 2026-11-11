@@ -1,8 +1,13 @@
 package server
 
 import (
+	"bufio"
+	"context"
 	"fmt"
+	"net"
+	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -10,6 +15,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	armadav1 "github.com/ryanbekhen/armada/api/armada/v1"
+	"github.com/ryanbekhen/armada/internal/runtime"
 	"github.com/ryanbekhen/armada/internal/spec"
 	"github.com/ryanbekhen/armada/internal/store"
 )
@@ -289,5 +295,190 @@ func TestWakeApp(t *testing.T) {
 	c.srv.wakeApp(c.ctx, "n1", "web")
 	if a, _ := c.store.GetApp(c.ctx, "web"); a.Replicas != 1 {
 		t.Errorf("replicas after a second wake: %d", a.Replicas)
+	}
+}
+
+// queueOf reports a queue length read in reps[0], on its own node.
+func queueOf(now time.Time, reps []store.Replica, length int64) scaleInputs {
+	u := newUsageStore()
+	u.set(reps[0].NodeID, &armadav1.UsageReport{Queues: []*armadav1.QueueLength{{Id: reps[0].ID, Length: length}}}, now)
+	return scaleInputs{now: now, usage: u}
+}
+
+func TestDecideQueue(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+	a := scaledApp(t, "    - type: queue\n      command: [queue-length]\n      length: 100\n", 2)
+	reps := readyReplicas(2)
+	res := resources{cpu: 500, mem: 256 << 20}
+
+	// 700 items at 100 per replica: 7, capped at double the ready: 4.
+	n, why, status := decide(a, res, reps, queueOf(now, reps, 700), &appScaling{since: now})
+	if n != 4 || !strings.Contains(why, "queue 700 for 100 per replica") {
+		t.Errorf("scale up: %d %q", n, why)
+	}
+	if r := status.Rules[0]; r.Type != "queue" || r.Current != 700 || r.Target != 100 || !r.Measured {
+		t.Errorf("status %v", status.Rules)
+	}
+	// 210 for 2 replicas is within 10% of 200: hold.
+	if n, _, _ := decide(a, res, reps, queueOf(now, reps, 210), &appScaling{since: now}); n != 2 {
+		t.Errorf("within tolerance: %d", n)
+	}
+	// No reading: hold, never scale down.
+	if n, _, s := decide(a, res, reps, scaleInputs{now: now, usage: newUsageStore()}, &appScaling{since: now}); n != 2 || !strings.Contains(s.Message, "not enough samples") {
+		t.Errorf("unmeasured: %d %v", n, s)
+	}
+	// A reading from a node the replica is not on does not count.
+	u := newUsageStore()
+	u.set("elsewhere", &armadav1.UsageReport{Queues: []*armadav1.QueueLength{{Id: reps[0].ID, Length: 900}}}, now)
+	if n, _, _ := decide(a, res, reps, scaleInputs{now: now, usage: u}, &appScaling{since: now}); n != 2 {
+		t.Errorf("foreign reading: %d", n)
+	}
+	// An empty queue goes down to scale.min once the window has passed.
+	st := &appScaling{since: now.Add(-2 * scaleDownWindow)}
+	if n, _, _ := decide(a, res, reps, queueOf(now, reps, 0), st); n != 2 {
+		t.Errorf("empty queue at min: %d", n)
+	}
+	// Absurd reports are bounded.
+	if n, _, _ := decide(a, res, reps, queueOf(now, reps, 1<<62), &appScaling{since: now}); n != 4 {
+		t.Errorf("huge queue: %d", n)
+	}
+}
+
+func TestDecideSchedule(t *testing.T) {
+	t.Parallel()
+	res := resources{cpu: 500, mem: 256 << 20}
+	reps := readyReplicas(2)
+	// Every day from 08:00 UTC for 10 hours, at least 6.
+	only := scaledApp(t, "    - type: schedule\n      schedule: \"0 8 * * *\"\n      duration: 10h\n      replicas: 6\n", 2)
+	day := time.Date(2026, 11, 11, 9, 0, 0, 0, time.UTC)
+	n, why, status := decide(only, res, reps, scaleInputs{now: day, usage: newUsageStore()}, &appScaling{since: day})
+	if n != 4 || !strings.Contains(why, "schedule 6 until") {
+		t.Errorf("open window: %d %q", n, why)
+	}
+	if r := status.Rules[0]; r.Current != 6 || r.Target != 6 || r.GetUntil().AsTime() != day.Add(9*time.Hour) {
+		t.Errorf("status %v", r)
+	}
+	// Closed, with only schedules: back to scale.min after the window.
+	night := time.Date(2026, 11, 11, 22, 0, 0, 0, time.UTC)
+	big := only
+	big.Replicas = 6
+	if n, _, s := decide(big, res, readyReplicas(6), scaleInputs{now: night, usage: newUsageStore()}, &appScaling{since: night.Add(-time.Hour)}); n != 2 || s.Rules[0].Current != 0 {
+		t.Errorf("closed window: %d %v", n, s)
+	}
+	// With a metric rule that has no samples, an open window still raises,
+	// and a closed one holds.
+	mixed := scaledApp(t, "    - type: cpu\n      utilization: 50\n    - type: schedule\n      schedule: \"0 8 * * *\"\n      duration: 10h\n      replicas: 3\n", 2)
+	if n, _, _ := decide(mixed, res, reps, scaleInputs{now: day, usage: newUsageStore()}, &appScaling{since: day}); n != 3 {
+		t.Errorf("open window, cpu unmeasured: %d", n)
+	}
+	if n, _, s := decide(mixed, res, reps, scaleInputs{now: night, usage: newUsageStore()}, &appScaling{since: night}); n != 2 || !strings.Contains(s.Message, "not enough samples") {
+		t.Errorf("closed window, cpu unmeasured: %d %v", n, s)
+	}
+}
+
+// An app that scales to zero stays up while a schedule window is open.
+func TestDecideScheduleKeepsZeroAway(t *testing.T) {
+	t.Parallel()
+	sp, err := spec.Parse([]byte(zeroSpec + "    - type: schedule\n      schedule: \"0 8 * * *\"\n      duration: 10h\n      replicas: 2\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := store.App{Name: "web", ActiveRevision: "web--r1", TargetRevision: "web--r1", Replicas: 1, Spec: sp}
+	reps := readyReplicas(1)
+	day := time.Date(2026, 11, 11, 9, 0, 0, 0, time.UTC)
+	idle := &appScaling{since: day.Add(-time.Hour)}
+	if n, _, _ := decide(a, resources{}, reps, loadOf(day, reps, 0), idle); n == 0 {
+		t.Error("scaled to zero inside a schedule window")
+	}
+	night := time.Date(2026, 11, 11, 22, 0, 0, 0, time.UTC)
+	if n, _, _ := decide(a, resources{}, reps, loadOf(night, reps, 0), &appScaling{since: night.Add(-time.Hour)}); n != 0 {
+		t.Errorf("outside the window: %d, want 0", n)
+	}
+}
+
+// A queue rule end to end: the agent runs the command in a replica, and the
+// leader scales the app to the queue's length (ADR 0034).
+func TestQueueCluster(t *testing.T) {
+	t.Parallel()
+	c := newCluster(t, func(cfg *Config) { cfg.AutoscaleInterval = 50 * time.Millisecond })
+	d := c.addNode("n1", "127.0.0.1")
+	var length atomic.Int64
+	length.Store(450)
+	d.ExecAppFunc = func(_ context.Context, _ string, o runtime.ExecOptions) (int, error) {
+		if len(o.Cmd) == 0 || o.Cmd[0] != "queue-length" {
+			return 1, nil
+		}
+		_, _ = fmt.Fprintf(o.Stdout, "%d\n", length.Load())
+		return 0, nil
+	}
+	c.deploy("name: worker\nimage: w:1\nscale:\n  min: 1\n  max: 6\n  rules:\n    - type: queue\n      command: [queue-length]\n      length: 100\n")
+	c.eventually("scaled to 5", func() bool {
+		st, err := c.admin.Status(c.ctx, &armadav1.StatusRequest{App: "worker"})
+		return err == nil && st.Apps[0].DesiredReplicas == 5
+	})
+	st, _ := c.admin.Status(c.ctx, &armadav1.StatusRequest{App: "worker"})
+	if r := st.Apps[0].GetAutoscale().GetRules(); len(r) != 1 || r[0].GetCurrent() != 450 || r[0].GetTarget() != 100 {
+		t.Errorf("rules %v", r)
+	}
+}
+
+// A redis rule end to end: the URL comes from the app's secret, the agent
+// dials the list's server from the replica, and the leader scales on LLEN.
+func TestRedisCluster(t *testing.T) {
+	t.Parallel()
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	var auths atomic.Int32
+	go func() {
+		for {
+			conn, err := l.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				defer conn.Close()
+				r := bufio.NewReader(conn)
+				for {
+					line, err := r.ReadString('\n')
+					if err != nil {
+						return
+					}
+					n, _ := strconv.Atoi(strings.TrimSpace(line[1:]))
+					args := make([]string, n)
+					for i := range args {
+						_, _ = r.ReadString('\n')
+						a, _ := r.ReadString('\n')
+						args[i] = strings.TrimSuffix(a, "\r\n")
+					}
+					switch {
+					case args[0] == "AUTH" && args[1] == "pw":
+						auths.Add(1)
+						_, _ = conn.Write([]byte("+OK\r\n"))
+					case args[0] == "LLEN" && args[1] == "jobs":
+						_, _ = conn.Write([]byte(":260\r\n"))
+					default:
+						_, _ = conn.Write([]byte("-ERR\r\n"))
+					}
+				}
+			}()
+		}
+	}()
+	keys := withKeys(t)
+	c := newCluster(t, func(cfg *Config) { keys(cfg); cfg.AutoscaleInterval = 50 * time.Millisecond })
+	c.addNode("n1", "127.0.0.1")
+	if _, err := c.admin.SetSecret(c.ctx, &armadav1.SetSecretRequest{App: "worker", Name: "redis-url", Value: []byte("redis://:pw@" + l.Addr().String())}); err != nil {
+		t.Fatal(err)
+	}
+	c.deploy("name: worker\nimage: w:1\nscale:\n  min: 1\n  max: 6\n  rules:\n    - type: redis\n      urlSecretRef: redis-url\n      list: jobs\n      length: 100\n")
+	c.eventually("scaled to 3", func() bool {
+		st, err := c.admin.Status(c.ctx, &armadav1.StatusRequest{App: "worker"})
+		return err == nil && st.Apps[0].DesiredReplicas == 3
+	})
+	if auths.Load() == 0 {
+		t.Error("the agent never authenticated")
 	}
 }

@@ -67,6 +67,13 @@ func (a *App) SecretRefs() []string {
 	if a.Registry != nil {
 		refs = append(refs, a.Registry.PasswordSecretRef)
 	}
+	if a.Scale != nil {
+		for _, r := range a.Scale.Rules {
+			if r.URLSecretRef != "" {
+				refs = append(refs, r.URLSecretRef)
+			}
+		}
+	}
 	slices.Sort(refs)
 	return slices.Compact(refs)
 }

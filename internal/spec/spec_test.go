@@ -246,8 +246,26 @@ func TestParseRejects(t *testing.T) {
 		{"http rule with utilization", ext + "scale:\n  max: 3\n  rules:\n    - type: http\n      concurrent: 5\n      utilization: 5\n", "scale.rules[0].utilization", false},
 		{"duplicate rule", ext + "scale:\n  max: 3\n  rules:\n    - type: cpu\n      utilization: 50\n    - type: cpu\n      utilization: 60\n", "scale.rules[1].type", false},
 		{"unknown rule", ext + "scale:\n  max: 3\n  rules:\n    - type: rps\n", "scale.rules[0].type", false},
-		{"queue rule", ext + "scale:\n  max: 3\n  rules:\n    - type: queue\n      list: jobs\n      length: 10\n", "scale.rules[0]", true},
-		{"schedule rule", ext + "scale:\n  max: 3\n  rules:\n    - type: schedule\n", "scale.rules[0].type", true},
+		{"queue without command", base + "scale:\n  max: 3\n  rules:\n    - type: queue\n      length: 10\n", "scale.rules[0].command", false},
+		{"queue without length", base + "scale:\n  max: 3\n  rules:\n    - type: queue\n      command: [sh, -c, echo 1]\n", "scale.rules[0].length", false},
+		{"queue at zero", ext + "scale:\n  min: 0\n  max: 3\n  rules:\n    - type: queue\n      command: [sh, -c, echo 1]\n      length: 10\n", "scale.rules[0].type", false},
+		{"queue with NUL", base + "scale:\n  max: 3\n  rules:\n    - type: queue\n      command: [\"a\\0b\"]\n      length: 10\n", "scale.rules[0].command", false},
+		{"queue with concurrent", base + "scale:\n  max: 3\n  rules:\n    - type: queue\n      command: [x]\n      length: 10\n      concurrent: 5\n", "scale.rules[0].concurrent", false},
+		{"two queues", base + "scale:\n  max: 3\n  rules:\n    - type: queue\n      command: [x]\n      length: 10\n    - type: queue\n      command: [y]\n      length: 10\n", "scale.rules[1].type", false},
+		{"cpu with length", base + "scale:\n  max: 3\n  rules:\n    - type: cpu\n      utilization: 50\n      length: 3\n", "scale.rules[0].length", false},
+		{"schedule without fields", base + "scale:\n  max: 3\n  rules:\n    - type: schedule\n", "scale.rules[0].schedule", false},
+		{"bad schedule", base + "scale:\n  max: 3\n  rules:\n    - type: schedule\n      schedule: \"every day\"\n      duration: 1h\n      replicas: 2\n", "scale.rules[0].schedule", false},
+		{"schedule zone", base + "scale:\n  max: 3\n  rules:\n    - type: schedule\n      schedule: \"0 8 * * *\"\n      timeZone: Mars/Base\n      duration: 1h\n      replicas: 2\n", "scale.rules[0].schedule", false},
+		{"schedule too long", base + "scale:\n  max: 3\n  rules:\n    - type: schedule\n      schedule: \"0 8 * * *\"\n      duration: 200h\n      replicas: 2\n", "scale.rules[0].duration", false},
+		{"schedule above max", base + "scale:\n  max: 3\n  rules:\n    - type: schedule\n      schedule: \"0 8 * * *\"\n      duration: 1h\n      replicas: 4\n", "scale.rules[0].replicas", false},
+		{"redis without secret", base + "scale:\n  max: 3\n  rules:\n    - type: redis\n      list: jobs\n      length: 10\n", "scale.rules[0].urlSecretRef", false},
+		{"redis without list", base + "scale:\n  max: 3\n  rules:\n    - type: redis\n      urlSecretRef: redis-url\n      length: 10\n", "scale.rules[0].list", false},
+		{"redis list with newline", base + "scale:\n  max: 3\n  rules:\n    - type: redis\n      urlSecretRef: redis-url\n      list: \"a\\nb\"\n      length: 10\n", "scale.rules[0].list", false},
+		{"redis with queue", base + "scale:\n  max: 3\n  rules:\n    - type: redis\n      urlSecretRef: redis-url\n      list: jobs\n      queue: q\n      length: 10\n", "scale.rules[0].queue", false},
+		{"rabbitmq bad secret", base + "scale:\n  max: 3\n  rules:\n    - type: rabbitmq\n      urlSecretRef: \"../x\"\n      queue: q\n      length: 10\n", "scale.rules[0].urlSecretRef", false},
+		{"rabbitmq long queue", base + "scale:\n  max: 3\n  rules:\n    - type: rabbitmq\n      urlSecretRef: amqp-url\n      queue: " + strings.Repeat("q", 256) + "\n      length: 10\n", "scale.rules[0].queue", false},
+		{"rabbitmq at zero", ext + "scale:\n  min: 0\n  max: 3\n  rules:\n    - type: rabbitmq\n      urlSecretRef: amqp-url\n      queue: q\n      length: 10\n", "scale.rules[0].type", false},
+		{"unknown rule", base + "scale:\n  max: 3\n  rules:\n    - type: kafka\n", "scale.rules[0].type", false},
 		{"bad memory", base + "resources:\n  memory: lots\n", "resources.memory", false},
 		{"tiny memory", base + "resources:\n  memory: 1Mi\n", "resources.memory", false},
 		{"huge memory", base + "resources:\n  memory: 128Gi\n", "resources.memory", false},
@@ -517,6 +535,26 @@ func TestRegistryHost(t *testing.T) {
 		if got := RegistryHost(image); got != want {
 			t.Errorf("RegistryHost(%q) = %q, want %q", image, got, want)
 		}
+	}
+}
+
+func TestParseQueueAndSchedule(t *testing.T) {
+	t.Parallel()
+	a, err := Parse([]byte("name: worker\nimage: w\nscale:\n  min: 1\n  max: 6\n  rules:\n" +
+		"    - type: queue\n      command: [bun, queue-length.ts]\n      length: 100\n" +
+		"    - type: redis\n      urlSecretRef: redis-url\n      list: mail:outbox\n      length: 50\n" +
+		"    - type: rabbitmq\n      urlSecretRef: amqp-url\n      queue: emails\n      length: 20\n" +
+		"    - type: schedule\n      schedule: \"0 8 * * 1-5\"\n      timeZone: Asia/Jakarta\n      duration: 10h\n      replicas: 3\n" +
+		"    - type: schedule\n      schedule: \"0 9 * * 6\"\n      duration: 4h\n      replicas: 2\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !a.Autoscaled() || len(a.Scale.Rules) != 5 || a.Scale.Rules[3].Duration.D() != 10*time.Hour || len(a.QueueRules()) != 3 {
+		t.Errorf("rules = %+v", a.Scale.Rules)
+	}
+	// The URLs' secrets are pinned with the revision like any other.
+	if refs := a.SecretRefs(); !slices.Contains(refs, "redis-url") || !slices.Contains(refs, "amqp-url") {
+		t.Errorf("secret refs %v", refs)
 	}
 }
 

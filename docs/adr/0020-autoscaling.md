@@ -40,12 +40,10 @@ scale:
 - **`http` needs ingress.** The rule counts requests at the proxy, so the
   app needs `ingress.type` external or internal.
 - **Bounds.** `max` must be greater than `min`.
-- **Reserved types.** The queue fields (`list`, `length`) and the schedule
-  fields (`schedule`, `timezone`, `replicas`) are rejected as not
-  implemented:
-  - A queue rule would make the control plane connect to services outside
-    the cluster.
-  - Schedules are a separate decision.
+- **Reserved types.** Queue and schedule rules were rejected as not
+  implemented here; [ADR 0034](0034-queue-and-schedule-autoscaling.md)
+  adds them. A queue rule there runs a command in the app's own replica,
+  so the control plane still connects to nothing outside the cluster.
 
 ### Samples
 
@@ -144,5 +142,5 @@ scaling up places replicas through `eligible()` and the capacity checks
   leads during a rolling upgrade, nothing scales, and the app keeps its
   count. Agents that predate it send no request counts, so `http` rules
   see only the nodes that do.
-- Queue rules, schedules, and custom metrics are not part of this
-  decision. Scale to zero builds on it in ADR 0021.
+- Queue rules and schedules are ADR 0034; custom metrics are not part of
+  this decision. Scale to zero builds on it in ADR 0021.

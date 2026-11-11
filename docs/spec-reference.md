@@ -272,8 +272,9 @@ the count until the next update, without a new revision.
 #### Autoscaling
 
 With `rules`, Armada keeps the app between `min` and `max`, following the
-average load of its ready replicas
-([ADR 0020](adr/0020-autoscaling.md)):
+average load of its ready replicas, the length of its queue, or the clock
+([ADR 0020](adr/0020-autoscaling.md),
+[ADR 0034](adr/0034-queue-and-schedule-autoscaling.md)):
 
 ```yaml
 scale:
@@ -291,22 +292,64 @@ scale:
 | `http` | `concurrent` (1–10000) | requests in progress per replica, counted at every node's proxy; needs `ingress.type` external or internal |
 | `cpu` | `utilization` (1–100) | percent of `resources.cpu` (default 100m) |
 | `memory` | `utilization` (1–100) | percent of `resources.memory` (default 256Mi) |
+| `queue` | `command`, `length` (1–1000000000) | a command run in one ready replica every 15 seconds that prints the queue's length; the app needs ⌈length ÷ `length`⌉ replicas; needs `min` of at least 1 |
+| `redis` | `urlSecretRef`, `list`, `length` | the length (`LLEN`) of a Redis list, read every 15 seconds from one ready replica's network; the URL (`redis://` or `rediss://`, with its password) is in the app's secret; needs `min` of at least 1 |
+| `rabbitmq` | `urlSecretRef`, `queue`, `length` | the messages ready in a RabbitMQ queue (AMQP 0-9-1), read the same way; the URL is `amqp://` or `amqps://`; needs `min` of at least 1 |
+| `schedule` | `schedule`, `timeZone`, `duration` (1m–168h), `replicas` (1–`max`) | at least `replicas` from each fire of `schedule` (five cron fields, as for jobs) for `duration` |
+
+```yaml
+scale:
+  min: 1
+  max: 8
+  rules:
+    - type: queue
+      command: ["bun", "queue-length.ts"]   # prints e.g. 340
+      length: 100
+    - type: redis
+      urlSecretRef: redis-url      # the secret holds redis://:password@redis-01:6379/0
+      list: mail:outbox
+      length: 50
+    - type: rabbitmq
+      urlSecretRef: amqp-url       # amqp://user:password@mq:5672/vhost
+      queue: emails
+      length: 20
+    - type: schedule
+      schedule: "0 8 * * 1-5"
+      timeZone: Asia/Jakarta
+      duration: 10h
+      replicas: 3
+```
+
+- **Queue commands.** The command runs like a command probe: in the app's
+  own container, with its own settings. It has 10 seconds and must print a
+  whole number (at most 64 bytes). Anything else, or a non-zero exit, is
+  ignored, and the app holds without a reading. Keep it cheap, since it runs
+  every 15 seconds. Armada never connects to the queue itself.
+- **Redis and RabbitMQ.** The agent connects from inside a ready replica's
+  network, so the broker must be reachable from the app, by the name or
+  address the URL gives. The URL's secret is pinned with the revision like
+  any other, and is never logged. RabbitMQ counts ready messages, not the
+  ones consumers hold.
+- **Schedules.** A fire inside an open window keeps it open. After the
+  window closes the count falls through the usual 5 minutes. An app with
+  only schedule rules goes back to `min`. While a window is open, an app
+  with `min: 0` does not scale to zero.
 
 - **Several rules.** The rule that asks for the most replicas wins.
-- **Bounds.** `max` must be greater than `min`, and each type may appear
-  once.
+- **Bounds.** `max` must be greater than `min`. Each type may appear
+  once, except `schedule`, which may appear up to 8 times. Each queue-type
+  rule asks for its own count, and the largest wins.
 - **How the count changes.** It is evaluated every 15 seconds:
   - **Up:** it rises at once, at most doubling per step.
   - **Down:** it falls only after the load has stayed lower for 5 minutes.
   - **Hold:** changes within 10% of the target are ignored, and the count
     is frozen during a rollout.
 - **Updates and manual scaling.** An update keeps the current count
-  within the new bounds. `armada app scale` refuses an autoscaled app.
+  within the new bounds. `armada app scale` refuses an autoscaled app:
+  change `min` (`armada app update APP --min N`) instead.
 - **What to watch.** `armada app show` shows each rule's current value
   against its target, and `armada app events APP` shows `ScaledUp` and
   `ScaledDown` with the reason.
-- **Reserved rules.** `queue` rules (`list`, `length`) and `schedule` rules
-  are rejected as not implemented yet.
 
 #### Scale to zero
 
@@ -545,12 +588,3 @@ resources:
 - Runs are at least once: in rare failures (a node cut off mid-run, an
   agent restarting at the moment the container exits) a run can be
   attempted again, so make jobs safe to repeat.
-
-## Not available in v0.1
-
-These fields are part of the format and are rejected with an explicit error
-until they are implemented:
-
-| Field | Planned |
-| --- | --- |
-| `scale.rules` of type `queue` or `schedule` | later |

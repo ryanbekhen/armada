@@ -799,6 +799,21 @@ rule from the command line; more rules go in the spec file.
   events` shows `ScaledToZero`, and `Woken` with the node whose proxy took the
   request. The first request after a quiet period waits for a whole cold
   start, so keep `min: 1` for apps where that delay matters.
+- **Queues** ([ADR 0034](adr/0034-queue-and-schedule-autoscaling.md)). A
+  `queue` rule's command runs every 15 seconds in one ready replica per
+  node and prints the queue's length. `app show` reads like
+  `queue 450/100 per replica`. While the command fails or prints something
+  other than a number, the rule shows `-` and the app holds. Run the command
+  yourself with `armada app exec APP -- CMD` to see what it prints. The
+  agent logs only that it failed, never the command or its output.
+  `redis` and `rabbitmq` rules read the list or queue themselves, from inside
+  a replica's network. While they show `-`, check that the app reaches the
+  broker with the URL in its secret. The agent's debug log names the kind of
+  failure (unreachable, refused credentials, unexpected answer, missing
+  queue), never the URL.
+- **Schedules.** A `schedule` rule shows `schedule 3 until Wed 18:00` while
+  its window is open, and `schedule 3 (closed)` otherwise. After a window
+  closes, the count falls through the usual 5 minutes.
 - **No ready replicas.** The autoscaler counts only ready replicas. If
   every replica fails its readiness probe under load, it holds until one is
   ready again, so give replicas enough CPU to answer their probes when

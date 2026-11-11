@@ -88,6 +88,7 @@ E2E_ONLY=isolation,rollout ARMADA_BIN=... sh test/e2e/cluster.sh hosts
 | `platforms` | 10 | image platforms |
 | `cpu` | 11 | CPU reservations, capacity |
 | `spread` | 12 | `placement.spreadBy` |
+| `queues` | 14 | autoscaling on queues and schedules, dialling from containers |
 | `reboot` | 13 | start-up order, units, state after a crash |
 
 A release runs every scenario.
@@ -136,3 +137,12 @@ A release runs every scenario.
     replicas on the last node.
 13. After rebooting every machine at once, the control plane, the nodes, and
    the app come back on their own.
+14. Autoscaling on queues (runs before 13):
+    - A Redis list of 25, read with a password from the app's secret, scales
+      its app to 2.
+    - A RabbitMQ queue of 25 does the same.
+    - Both brokers listen only on 127.0.0.1 inside their own container, so
+      the rule must connect from the replica's network namespace.
+    - A command that prints 15 is read.
+    - A schedule window that opens every minute holds its app at 2.
+    - The Redis password appears in no journal.

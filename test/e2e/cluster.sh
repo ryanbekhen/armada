@@ -19,7 +19,7 @@ set -eu
 # Scenarios that run after the cluster is built and the test app serves.
 # E2E_ONLY=isolation,rollout runs only those (empty: all); E2E_LIST=1 lists
 # them. test/e2e/README.md says which to pick for a change.
-SCENARIOS="listeners project-secret conntrack isolation load rollout agent-restart failover node-loss backup placement platforms cpu spread reboot"
+SCENARIOS="listeners project-secret conntrack isolation load rollout agent-restart failover node-loss backup placement platforms cpu spread queues reboot"
 E2E_ONLY=${E2E_ONLY:-}
 if [ "${E2E_LIST:-}" = 1 ]; then
 	echo "$SCENARIOS" | tr ' ' '\n'
@@ -734,6 +734,103 @@ half_on() {
 wait_for 300 "spread by zone: two of four replicas on $_last, alone in its zone" half_on "$_last"
 
 fi
+if want queues; then
+log "autoscaling on a Redis list, a RabbitMQ queue, a command, and a schedule"
+# Each broker runs in its app's own container on 127.0.0.1: only a
+# connection made inside the replica's network namespace reaches it.
+QPASS=e2e-queue-$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')
+printf 'redis://:%s@127.0.0.1:6379/0' "$QPASS" | cli secret set e2e-redis redis-url >/dev/null
+cat <<EOF | cli app update e2e-redis --file - --create-if-missing >/dev/null
+name: e2e-redis
+image: redis:7-alpine
+command: ["redis-server", "--requirepass", "$QPASS"]
+ingress:
+  type: none
+scale:
+  min: 1
+  max: 2
+  rules:
+    - type: redis
+      urlSecretRef: redis-url
+      list: jobs
+      length: 10
+EOF
+# Guest may only log in from localhost, which the rule's connection is.
+printf 'amqp://guest:guest@127.0.0.1:5672/' | cli secret set e2e-rabbit amqp-url >/dev/null
+cat <<'EOF' | cli app update e2e-rabbit --file - --create-if-missing >/dev/null
+name: e2e-rabbit
+image: rabbitmq:3-management-alpine
+ingress:
+  type: none
+resources:
+  memory: 512Mi
+scale:
+  min: 1
+  max: 2
+  rules:
+    - type: rabbitmq
+      urlSecretRef: amqp-url
+      queue: jobs
+      length: 10
+EOF
+cat <<'EOF' | cli app update e2e-cmdq --file - --create-if-missing >/dev/null
+name: e2e-cmdq
+image: busybox:1.37
+command: ["sleep", "86400"]
+ingress:
+  type: none
+resources:
+  memory: 32Mi
+scale:
+  min: 1
+  max: 2
+  rules:
+    - type: queue
+      command: ["sh", "-c", "cat /tmp/queue 2>/dev/null || echo 0"]
+      length: 10
+    - type: schedule
+      schedule: "* * * * *"
+      duration: 2m
+      replicas: 2
+EOF
+running() {
+	status | jq -e --arg app "$1" '[.apps[] | select(.name == $app) | .replicas[]? | select(.state == "running" and .ready)] | length >= 1' >/dev/null
+}
+rule() {
+	status | jq -e --arg app "$1" --arg type "$2" --argjson n "$3" '.apps[] | select(.name == $app)
+		| .desiredReplicas == 2 and ([.autoscale.rules[]? | select(.type == $type and .measured and ((.current // 0) | tonumber) == $n)] | length) == 1' >/dev/null
+}
+wait_for 240 "e2e-redis runs" running e2e-redis
+cli app exec e2e-redis -- redis-cli -a "$QPASS" --no-auth-warning rpush jobs $(seq 1 25) >/dev/null
+wait_for 120 "a Redis list of 25 at 10 per replica scales e2e-redis to 2" rule e2e-redis redis 25
+
+wait_for 300 "e2e-rabbit runs" running e2e-rabbit
+publish() {
+	cli app exec e2e-rabbit -- sh -c "'rabbitmqadmin declare queue name=jobs durable=true >/dev/null && for i in \$(seq 1 25); do rabbitmqadmin publish routing_key=jobs payload=\$i >/dev/null; done'"
+}
+wait_for 120 "25 messages published to RabbitMQ" publish
+wait_for 120 "a RabbitMQ queue of 25 at 10 per replica scales e2e-rabbit to 2" rule e2e-rabbit rabbitmq 25
+
+wait_for 120 "e2e-cmdq runs" running e2e-cmdq
+cli app exec e2e-cmdq -- sh -c "'echo 15 > /tmp/queue'" >/dev/null
+cmdq() {
+	status | jq -e '.apps[] | select(.name == "e2e-cmdq") | .desiredReplicas == 2
+		and ([.autoscale.rules[]? | select(.type == "queue" and .measured and ((.current // 0) | tonumber) == 15)] | length) == 1
+		and ([.autoscale.rules[]? | select(.type == "schedule" and .until != null)] | length) == 1' >/dev/null
+}
+wait_for 120 "a command's queue of 15 is read and a schedule window that opens every minute holds e2e-cmdq at 2" cmdq
+
+i=1
+while [ "$i" -le "$N" ]; do
+	_hits=$(printf '%s\n' "$QPASS" | on "$i" 'journalctl --no-pager -o cat | grep -c -F -f - || true')
+	[ "$_hits" = 0 ] || fail "the Redis password appears in the journal on $(host "$i" 1)"
+	i=$((i + 1))
+done
+ok "the Redis password is in no journal"
+for a in e2e-redis e2e-rabbit e2e-cmdq; do cli app delete "$a" --yes >/dev/null; done
+
+fi
+
 if [ "$E2E_REBOOT" = 1 ] && want reboot; then
 	log "reboot every machine at once"
 	i=1

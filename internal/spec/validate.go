@@ -3,11 +3,14 @@ package spec
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"math"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // ErrUnsupported marks fields that are part of the format but not yet
@@ -250,10 +253,6 @@ type validator struct{ errs []error }
 
 func (v *validator) add(field, format string, args ...any) {
 	v.errs = append(v.errs, &FieldError{Field: field, Msg: fmt.Sprintf(format, args...)})
-}
-
-func (v *validator) unsupported(field, msg string) {
-	v.errs = append(v.errs, &FieldError{Field: field, Msg: msg, Err: ErrUnsupported})
 }
 
 // ValidName reports whether s is a valid app, job, or secret name.
@@ -677,13 +676,29 @@ func (v *validator) scale(s *Scale, ing *Ingress) {
 	v.scaleRules(s, ing)
 }
 
-// Autoscaler rule types (ADR 0020).
+// Autoscaler rule types (ADR 0020, ADR 0034).
 const (
-	ScaleHTTP   = "http"
-	ScaleCPU    = "cpu"
-	ScaleMemory = "memory"
+	ScaleHTTP     = "http"
+	ScaleCPU      = "cpu"
+	ScaleMemory   = "memory"
+	ScaleQueue    = "queue"
+	ScaleRedis    = "redis"
+	ScaleRabbitMQ = "rabbitmq"
+	ScaleSchedule = "schedule"
 
 	MaxConcurrent = 10000
+	// MaxQueueLength bounds a queue rule's length per replica, and the
+	// length an agent may report.
+	MaxQueueLength = 1_000_000_000
+	// MaxScheduleRules bounds the schedule rules of an app.
+	MaxScheduleRules = 8
+	// MaxRedisListLen and MaxRabbitMQQueueLen bound the names a rule reads.
+	MaxRedisListLen     = 1024
+	MaxRabbitMQQueueLen = 255
+	// MinScheduleDuration and MaxScheduleDuration bound a schedule
+	// rule's window.
+	MinScheduleDuration = time.Minute
+	MaxScheduleDuration = 7 * 24 * time.Hour
 
 	// Scale to zero (ADR 0021).
 	DefaultIdleAfter = 15 * time.Minute
@@ -699,23 +714,40 @@ func (v *validator) scaleRules(s *Scale, ing *Ingress) {
 		v.add("scale.max", "must be greater than scale.min when scale.rules are set")
 	}
 	seen := map[string]bool{}
+	schedules := 0
 	for i, r := range s.Rules {
 		f := fmt.Sprintf("scale.rules[%d]", i)
-		if seen[r.Type] {
+		if r.Type == ScaleSchedule {
+			schedules++
+			if schedules == MaxScheduleRules+1 {
+				v.add(f, "an app takes at most %d schedule rules", MaxScheduleRules)
+			}
+		} else if seen[r.Type] {
 			v.add(f+".type", "%q is used more than once", r.Type)
 		}
 		seen[r.Type] = true
-		if r.List != "" || r.Length != 0 || r.Schedule != "" || r.Timezone != "" || r.Replicas != 0 {
-			v.unsupported(f, "queue and schedule rules are not implemented yet")
-			continue
+		set := map[string]bool{
+			"concurrent": r.Concurrent != 0, "utilization": r.Utilization != 0, "command": len(r.Command) > 0,
+			"urlSecretRef": r.URLSecretRef != "", "list": r.List != "", "queue": r.Queue != "",
+			"length": r.Length != 0, "schedule": r.Schedule != "", "timeZone": r.TimeZone != "",
+			"duration": r.Duration != 0, "replicas": r.Replicas != 0,
+		}
+		allowed := map[string][]string{
+			ScaleHTTP: {"concurrent"}, ScaleCPU: {"utilization"}, ScaleMemory: {"utilization"},
+			ScaleQueue: {"command", "length"}, ScaleRedis: {"urlSecretRef", "list", "length"},
+			ScaleRabbitMQ: {"urlSecretRef", "queue", "length"}, ScaleSchedule: {"schedule", "timeZone", "duration", "replicas"},
+		}
+		if fields, ok := allowed[r.Type]; ok {
+			for _, name := range slices.Sorted(maps.Keys(set)) {
+				if set[name] && !slices.Contains(fields, name) {
+					v.add(f+"."+name, "is not valid for %s rules", r.Type)
+				}
+			}
 		}
 		switch r.Type {
 		case ScaleHTTP:
 			if r.Concurrent < 1 || r.Concurrent > MaxConcurrent {
 				v.add(f+".concurrent", "must be between 1 and %d", MaxConcurrent)
-			}
-			if r.Utilization != 0 {
-				v.add(f+".utilization", "is only valid for cpu and memory rules")
 			}
 			if ing == nil || ing.Type == IngressNone || ing.Type == "" {
 				v.add(f+".type", "http rules need ingress (external or internal): requests are counted at the proxy")
@@ -724,14 +756,61 @@ func (v *validator) scaleRules(s *Scale, ing *Ingress) {
 			if r.Utilization < 1 || r.Utilization > 100 {
 				v.add(f+".utilization", "must be between 1 and 100 (percent of resources.%s)", r.Type)
 			}
-			if r.Concurrent != 0 {
-				v.add(f+".concurrent", "is only valid for http rules")
+		case ScaleQueue, ScaleRedis, ScaleRabbitMQ:
+			switch r.Type {
+			case ScaleQueue:
+				if len(r.Command) == 0 {
+					v.add(f+".command", "is required: a command run in a replica that prints the queue's length")
+				} else {
+					v.probeCommand(f, &Probe{Command: r.Command})
+				}
+			case ScaleRedis:
+				v.secretName(f+".urlSecretRef", r.URLSecretRef)
+				v.brokerName(f+".list", r.List, MaxRedisListLen)
+			case ScaleRabbitMQ:
+				v.secretName(f+".urlSecretRef", r.URLSecretRef)
+				v.brokerName(f+".queue", r.Queue, MaxRabbitMQQueueLen)
 			}
-		case "queue", "schedule":
-			v.unsupported(f+".type", r.Type+" rules are not implemented yet")
+			if r.Length < 1 || r.Length > MaxQueueLength {
+				v.add(f+".length", "must be between 1 and %d (items per replica)", MaxQueueLength)
+			}
+			if *s.Min < 1 {
+				v.add(f+".type", "%s rules need scale.min of at least 1: the length is read from a running replica", r.Type)
+			}
+		case ScaleSchedule:
+			switch {
+			case r.Schedule == "":
+				v.add(f+".schedule", "is required: when the window starts (minute hour day-of-month month day-of-week)")
+			case len(r.Schedule) > maxScheduleLen:
+				v.add(f+".schedule", "must be at most %d characters", maxScheduleLen)
+			case len(r.TimeZone) > maxTimeZoneLen:
+				v.add(f+".timeZone", "must be at most %d characters", maxTimeZoneLen)
+			default:
+				if _, _, err := parseSchedule(r.Schedule, r.TimeZone); err != nil {
+					v.add(f+".schedule", "%v", err)
+				}
+			}
+			if d := r.Duration.D(); d < MinScheduleDuration || d > MaxScheduleDuration {
+				v.add(f+".duration", "must be between %s and %s", MinScheduleDuration, MaxScheduleDuration)
+			}
+			if r.Replicas < 1 || r.Replicas > *s.Max {
+				v.add(f+".replicas", "must be between 1 and scale.max")
+			}
 		default:
-			v.add(f+".type", "must be %q, %q, or %q", ScaleHTTP, ScaleCPU, ScaleMemory)
+			v.add(f+".type", "must be %q, %q, %q, %q, %q, %q, or %q", ScaleHTTP, ScaleCPU, ScaleMemory, ScaleQueue, ScaleRedis, ScaleRabbitMQ, ScaleSchedule)
 		}
+	}
+}
+
+// brokerName checks a list or queue name: required, bounded, and printable.
+func (v *validator) brokerName(field, s string, maxLen int) {
+	switch {
+	case s == "":
+		v.add(field, "is required")
+	case len(s) > maxLen:
+		v.add(field, "must be at most %d bytes", maxLen)
+	case strings.ContainsFunc(s, func(r rune) bool { return r < 0x20 || r == 0x7f }) || !utf8.ValidString(s):
+		v.add(field, "must be printable UTF-8")
 	}
 }
 

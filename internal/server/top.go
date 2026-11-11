@@ -29,6 +29,8 @@ const (
 	maxInFlight = 1_000_000
 	// maxConntrack bounds a node's reported connection tracking numbers.
 	maxConntrack = 1 << 32
+	// maxQueueLength bounds a reported queue length (ADR 0034).
+	maxQueueLength = 1 << 40
 	// maxReportRequests and maxReportEgress bound what one report adds to a
 	// project's counters for one replica.
 	maxReportRequests = 1 << 30
@@ -73,7 +75,13 @@ type nodeUsage struct {
 	// table; conntrackMax is 0 when unknown (ADR 0025).
 	conntrackEntries int64
 	conntrackMax     int64
+	// queues is the length each queue rule read, by the replica it was
+	// read from and the rule's type (ADR 0034).
+	queues map[queueKey]int64
 }
+
+// queueKey names a queue reading: the replica it came from and the rule.
+type queueKey struct{ replica, typ string }
 
 type replicaUsage struct {
 	cpu int64 // millicores
@@ -121,6 +129,18 @@ func (u *usageStore) set(nodeID string, r *armadav1.UsageReport, at time.Time) {
 			}
 		}
 	}
+	var queues map[queueKey]int64
+	if q := r.GetQueues(); len(q) > 0 && len(q) <= maxUsageReplicas {
+		queues = make(map[queueKey]int64, len(q))
+		for _, l := range q {
+			if id, typ := l.GetId(), l.GetType(); id != "" && len(id) <= maxReplicaIDLen && len(typ) <= 16 {
+				if typ == "" {
+					typ = spec.ScaleQueue
+				}
+				queues[queueKey{id, typ}] = max(0, min(l.GetLength(), maxQueueLength))
+			}
+		}
+	}
 	u.mu.Lock()
 	u.count(nodeID, r)
 	for _, id := range busy {
@@ -137,6 +157,7 @@ func (u *usageStore) set(nodeID string, r *armadav1.UsageReport, at time.Time) {
 		at: at, replicas: reps, load: load, loadMeasured: measured,
 		conntrackEntries: max(0, min(r.GetConntrackEntries(), maxConntrack)),
 		conntrackMax:     max(0, min(r.GetConntrackMax(), maxConntrack)),
+		queues:           queues,
 	}
 	u.mu.Unlock()
 }

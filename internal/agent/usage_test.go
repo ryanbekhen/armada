@@ -70,7 +70,7 @@ func TestSampleUsage(t *testing.T) {
 func TestUsageLoopWithoutStats(t *testing.T) {
 	t.Parallel()
 	a, d := newAgent(t)
-	d.NoStats = true
+	d.NoStats, d.NoExec = true, true
 	a.cfg.UsageInterval = time.Millisecond
 	done := make(chan struct{})
 	go func() {
@@ -80,7 +80,7 @@ func TestUsageLoopWithoutStats(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(5 * time.Second):
-		t.Fatal("usage loop runs although the runtime cannot sample containers")
+		t.Fatal("usage loop runs although the runtime can neither sample containers nor read queues in them")
 	}
 }
 

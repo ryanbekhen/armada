@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	armadav1 "github.com/ryanbekhen/armada/api/armada/v1"
 	"github.com/ryanbekhen/armada/internal/spec"
@@ -230,7 +231,7 @@ func decide(a store.App, res resources, reps []store.Replica, in scaleInputs, st
 	if a.Replicas == 0 {
 		return hold("scaled to zero; the next request wakes it")
 	}
-	if a.Spec.ScalesToZero() && in.loadMeasured {
+	if a.Spec.ScalesToZero() && in.loadMeasured && !scheduleOpen(a.Spec, in.now) {
 		idle := a.Spec.IdleAfter()
 		quiet := in.now.Sub(st.since)
 		if !st.lastActive.IsZero() {
@@ -257,9 +258,38 @@ func decide(a store.App, res resources, reps []store.Replica, in scaleInputs, st
 		return hold("holding: no ready replicas")
 	}
 
-	rec := -1
+	rec, hasMetric := -1, false
+	sched := -1 // the most replicas an open schedule window asks for
 	var reasons []string
 	for _, rule := range a.Spec.Scale.Rules {
+		switch rule.Type {
+		case spec.ScaleSchedule:
+			rs := &armadav1.AutoscaleRule{Type: rule.Type, Target: int64(rule.Replicas), Measured: true}
+			status.Rules = append(status.Rules, rs)
+			if open, until := rule.Window(in.now); open {
+				rs.Current, rs.Until = int64(rule.Replicas), timestamppb.New(until)
+				sched = max(sched, rule.Replicas)
+				reasons = append(reasons, fmt.Sprintf("schedule %d until %s", rule.Replicas, until.Format("Mon 15:04 MST")))
+			}
+			continue
+		case spec.ScaleQueue, spec.ScaleRedis, spec.ScaleRabbitMQ:
+			hasMetric = true
+			length, ok := queueLength(reps, rule.Type, in)
+			rs := &armadav1.AutoscaleRule{Type: rule.Type, Target: int64(rule.Length), Measured: ok, Current: length}
+			status.Rules = append(status.Rules, rs)
+			if !ok {
+				continue
+			}
+			// The queue is shared: it needs ⌈length ÷ items per replica⌉.
+			n := a.Replicas
+			if ratio := float64(length) / float64(len(ready)*rule.Length); math.Abs(ratio-1) > scaleTolerance {
+				n = int(math.Ceil(float64(length) / float64(rule.Length)))
+			}
+			rec = max(rec, n)
+			reasons = append(reasons, fmt.Sprintf("%s %d for %d per replica", rule.Type, length, rule.Length))
+			continue
+		}
+		hasMetric = true
 		target := float64(rule.Concurrent)
 		if rule.Type != spec.ScaleHTTP {
 			target = float64(rule.Utilization)
@@ -281,9 +311,17 @@ func decide(a store.App, res resources, reps []store.Replica, in scaleInputs, st
 		}
 		reasons = append(reasons, fmt.Sprintf("%s %d of %d%s", rule.Type, rs.Current, rs.Target, unit))
 	}
-	if rec < 0 {
+	switch {
+	case rec < 0 && sched < 0 && hasMetric:
 		return hold("holding: not enough samples yet")
+	case rec < 0 && sched < 0:
+		// Only schedules, all closed: back to scale.min.
+		rec = lo
+		reasons = append(reasons, "no schedule window open")
 	}
+	// A metric rule without samples never pulls below an open window, and
+	// an open window only raises.
+	rec = max(rec, sched)
 	// At most double the ready replicas per step (replicas that cannot be
 	// placed do not compound), never below the current count on that
 	// account, and within the bounds.
@@ -324,6 +362,41 @@ func decide(a store.App, res resources, reps []store.Replica, in scaleInputs, st
 	}
 	status.Message = "scaling down to " + fmt.Sprint(highest) + ": " + why
 	return highest, why + fmt.Sprintf(" (highest in the last %s)", scaleDownWindow), status
+}
+
+// scheduleOpen reports whether one of the app's schedule rules has its
+// window open at now.
+func scheduleOpen(sp *spec.App, now time.Time) bool {
+	if sp.Scale == nil {
+		return false
+	}
+	for _, r := range sp.Scale.Rules {
+		if open, _ := r.Window(now); open {
+			return true
+		}
+	}
+	return false
+}
+
+// queueLength returns the latest length of the app's queue for the rule of
+// type typ: the largest one read from its replicas, each only from the node
+// it is assigned to (ADR 0034). ok is false while no replica's node
+// reported one.
+func queueLength(reps []store.Replica, typ string, in scaleInputs) (int64, bool) {
+	length, ok := int64(0), false
+	for _, r := range reps {
+		if r.Done {
+			continue
+		}
+		n, fresh := in.usage.node(r.NodeID, in.now)
+		if !fresh {
+			continue
+		}
+		if l, has := n.queues[queueKey{r.ID, typ}]; has {
+			length, ok = max(length, l), true
+		}
+	}
+	return length, ok
 }
 
 // ruleValue returns the current average per ready replica for one rule:
