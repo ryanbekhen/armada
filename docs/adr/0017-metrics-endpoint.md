@@ -68,9 +68,18 @@ on every scrape. No new state is kept.
   - `armada_app_rollout{app,state}`, which is 1 for the current state
     (`idle`, `progressing`, or `failed`)
   - `armada_app_replicas_min{app}` and `armada_app_replicas_max{app}` for
-    autoscaled apps
+    autoscaled apps, and
+    `armada_app_autoscale_last_scale_timestamp_seconds{app}`, when the
+    autoscaler last changed the count
+  - `armada_revision_info{app,revision,image}`, 1 for each revision that
+    serves, rolls out, or still has replicas
 - **Replicas:**
   - `armada_replica_ready{app,replica,revision,node}`
+  - `armada_replica_state{app,replica,node,state}`, 1 for the current state
+    (`pending`, `pulling`, `starting`, `running`, `exited`, `failed`, or
+    `unknown`)
+  - `armada_replica_info{app,replica,revision,node,ip}`, with the IP address
+    the replica is reached at
   - `armada_replica_start_time_seconds`, when the replica was scheduled
   - `armada_replica_restarts_total`, how often the agent recreated its
     container, and `armada_replica_last_restart_timestamp_seconds{reason}`,
@@ -91,9 +100,15 @@ on every scrape. No new state is kept.
   - `armada_node_cpu_usage_cores` and `armada_node_memory_usage_bytes`
 
 Label values are only names the store has already validated: apps, replicas,
-revisions, nodes, servers, plus fixed words Armada chooses (rollout states,
-restart reasons). They never include image references, domains,
-environment values, or anything else a spec or an agent could make up.
+revisions, nodes, servers, replica IP addresses (checked to be in the node's
+own subnet or its private IP), plus fixed words Armada chooses (rollout and
+replica states, restart reasons). The one value a spec writes is the image of
+`armada_revision_info`: it passed the spec's image validation (at most 512 characters of the
+image reference grammar: registry, path, tag, digest), there is one series
+per revision that serves, rolls out, or still has replicas, so the series
+stay few, and it answers the question dashboards ask first, which version
+runs. Labels never include domains, environment values, agent messages, or
+anything else a spec or an agent could make up.
 
 ## Alternatives considered
 

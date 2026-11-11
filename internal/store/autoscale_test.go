@@ -22,8 +22,14 @@ func TestAutoscaleReplicas(t *testing.T) {
 		}
 		return a.Replicas
 	}
+	if a, _ := s.GetApp(ctx, "web"); !a.ScaledAt.IsZero() {
+		t.Errorf("ScaledAt before any decision: %v", a.ScaledAt)
+	}
 	if err := s.AutoscaleReplicas(ctx, "web", 2, 5, "armada:autoscaler"); err != nil || replicas() != 5 {
 		t.Fatalf("autoscale: %v, %d", err, replicas())
+	}
+	if a, _ := s.GetApp(ctx, "web"); a.ScaledAt.IsZero() {
+		t.Error("ScaledAt not set by the autoscaler")
 	}
 	// A decision made on stale state, or outside the bounds, is dropped.
 	for _, c := range [][2]int{{2, 3}, {5, 7}, {5, 1}} {

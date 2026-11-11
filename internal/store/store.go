@@ -171,6 +171,9 @@ type App struct {
 	// Removing is true from `armada app delete` until the app's replicas have
 	// drained and the leader removes it.
 	Removing bool
+	// ScaledAt is when the autoscaler last changed the replica count; zero
+	// until it does.
+	ScaledAt time.Time
 }
 
 // Rolling reports whether a rollout is in progress.

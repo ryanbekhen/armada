@@ -234,6 +234,9 @@ func printApp(out io.Writer, a *armadav1.AppStatus) error {
 	}
 	if as := a.Autoscale; as != nil {
 		field("Autoscale", autoscaleNote(as))
+		if as.LastScaledAt != nil {
+			field("Last scaled", ago(as.LastScaledAt, time.Now()))
+		}
 	}
 	if len(a.Traffic) > 0 {
 		field("Traffic", trafficSummary(a.Traffic))

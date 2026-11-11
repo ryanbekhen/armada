@@ -170,6 +170,9 @@ func TestAutoscaleCluster(t *testing.T) {
 	if as == nil || as.Min != 2 || as.Max != 10 || len(as.Rules) != 1 || as.Rules[0].Type != "http" {
 		t.Errorf("autoscale status %v", as)
 	}
+	if as.GetLastScaledAt() == nil || time.Since(as.GetLastScaledAt().AsTime()) > time.Minute {
+		t.Errorf("last scaled at %v", as.GetLastScaledAt())
+	}
 	evs, _ := c.store.ListEvents(c.ctx, time.Time{})
 	found := false
 	for _, e := range evs {
