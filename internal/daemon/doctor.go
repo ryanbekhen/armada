@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -59,7 +60,7 @@ type doctorEnv struct {
 	checkTmpfs func(string) error
 	listeners  func() ([]netip.AddrPort, error)
 	ntpSynced  func(context.Context) (bool, error)
-	ufwActive  func(context.Context) (bool, error)
+	ufwStatus  func(context.Context) (string, error)
 	readFile   func(string) ([]byte, error)
 	// serverEnv reads /etc/armada/server.env; nil skips the check.
 	serverEnv   func() ([]byte, error)
@@ -136,7 +137,7 @@ func hostDoctorEnv(dataDir string) doctorEnv {
 		checkTmpfs:  checkTmpfs,
 		listeners:   procListeners,
 		ntpSynced:   timedatectlSynced,
-		ufwActive:   ufwActive,
+		ufwStatus:   ufwStatus,
 		readFile:    fsutil.ReadPrivateFile,
 		serverEnv:   func() ([]byte, error) { return os.ReadFile(serverEnvFile) },
 		now:         time.Now,
@@ -211,14 +212,18 @@ func runDoctor(ctx context.Context, env doctorEnv) []checkResult {
 		add("clock", checkOK, "NTP-synchronized")
 	}
 
-	switch active, err := env.ufwActive(ctx); {
+	switch out, err := env.ufwStatus(ctx); {
 	case err != nil:
 		// ufw not installed: nothing to say about it.
-	case active:
-		br := embedded.BridgeName
-		add("firewall", checkWarn, "ufw is active: published container ports bypass ufw rules, and containers need %[1]s → 53/udp,tcp and 80/tcp allowed for internal names (ufw allow in on %[1]s to any port 53; ufw allow in on %[1]s to any port 80 proto tcp)", br)
-	default:
+	case !ufwActive(out):
 		add("firewall", checkOK, "ufw inactive; restrict the cluster ports to the VPC in the provider firewall")
+	default:
+		br := embedded.BridgeName
+		if dns, web := ufwAllowsBridge(out, br); dns && web {
+			add("firewall", checkOK, "ufw is active and allows %s → 53 and 80/tcp for internal names; published container ports bypass its rules", br)
+		} else {
+			add("firewall", checkWarn, "ufw is active: published container ports bypass ufw rules, and containers need %[1]s → 53/udp,tcp and 80/tcp allowed for internal names (ufw allow in on %[1]s to any port 53; ufw allow in on %[1]s to any port 80 proto tcp)", br)
+		}
 	}
 
 	if env.serverEnv != nil {
@@ -568,13 +573,53 @@ func timedatectlSynced(ctx context.Context) (bool, error) {
 	return strings.TrimSpace(string(out)) == "yes", nil
 }
 
-func ufwActive(ctx context.Context) (bool, error) {
+// ufwStatus returns the output of `ufw status`.
+func ufwStatus(ctx context.Context) (string, error) {
 	out, err := exec.CommandContext(ctx, "ufw", "status").Output()
-	if err != nil {
-		return false, err
-	}
-	return strings.HasPrefix(strings.TrimSpace(string(out)), "Status: active"), nil
+	return string(out), err
 }
+
+// ufwActive reports whether `ufw status` output says the firewall is on.
+func ufwActive(out string) bool {
+	return strings.HasPrefix(strings.TrimSpace(out), "Status: active")
+}
+
+// ufwAllowsBridge reports whether `ufw status` output has IPv4 rules allowing
+// traffic in on the bridge to DNS (port 53, both protocols) and to the internal
+// frontend (80/tcp). A rule for the whole interface allows both.
+func ufwAllowsBridge(out, bridge string) (dns, web bool) {
+	var dnsUDP, dnsTCP bool
+	for line := range strings.Lines(out) {
+		cols := ufwColumns.Split(strings.TrimSpace(line), -1)
+		if len(cols) < 2 || !strings.HasPrefix(cols[1], "ALLOW") {
+			continue
+		}
+		ports, ok := strings.CutSuffix(cols[0], " on "+bridge)
+		if !ok || strings.Contains(ports, "(v6)") {
+			continue
+		}
+		if ports == "Anywhere" {
+			return true, true
+		}
+		proto := ""
+		if p, q, found := strings.Cut(ports, "/"); found {
+			ports, proto = p, q
+		}
+		for port := range strings.SplitSeq(ports, ",") {
+			switch port {
+			case "53":
+				dnsUDP = dnsUDP || proto != "tcp"
+				dnsTCP = dnsTCP || proto != "udp"
+			case "80":
+				web = web || proto != "udp"
+			}
+		}
+	}
+	return dnsUDP && dnsTCP, web
+}
+
+// ufwColumns separates the To, Action, and From columns of `ufw status`.
+var ufwColumns = regexp.MustCompile(`\s{2,}`)
 
 // existingAncestor returns dir or its nearest parent that exists.
 func existingAncestor(dir string) string {
