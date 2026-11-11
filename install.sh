@@ -23,6 +23,9 @@
 #   ARMADA_SYSTEMD_DIR         unit directory (default: /etc/systemd/system;
 #                              empty skips the units)
 #   ARMADA_DOWNLOAD_BASE       mirror of the release downloads (testing)
+#   ARMADA_DATA_DIR            where armadad keeps its state (default:
+#                              /var/lib/armada), to tell an upgrade from a
+#                              new machine
 set -eu
 
 # Everything runs from main, called on the last line, so a download cut short
@@ -35,6 +38,7 @@ PREFIX="${ARMADA_PREFIX:-/usr/local}"
 SYSTEMD_DIR="${ARMADA_SYSTEMD_DIR-/etc/systemd/system}"
 REQUIRE_SIG="${ARMADA_REQUIRE_SIGNATURE:-0}"
 CLIENT_ONLY="${ARMADA_CLIENT_ONLY:-0}"
+DATA_DIR="${ARMADA_DATA_DIR:-/var/lib/armada}"
 OIDC_ISSUER="https://token.actions.githubusercontent.com"
 
 say() { printf '%s\n' "$*"; }
@@ -173,7 +177,17 @@ if [ "$(id -u)" = 0 ] && command -v sudo >/dev/null 2>&1; then
 	fi
 fi
 
-say "Next: sudo armadad init on the first machine, or the join command 'armada node join-token' prints."
+# A machine that is already set up keeps running the old binary until its
+# service restarts; a new one still has to be set up.
+if [ -e "$DATA_DIR/agent.json" ]; then
+	unit=armada-agent
+	if command -v systemctl >/dev/null 2>&1 && systemctl is-enabled --quiet armada-server 2>/dev/null; then
+		unit=armada-server
+	fi
+	say "This machine already runs Armada: 'sudo systemctl restart $unit' starts the new version. Next time, 'sudo armadad upgrade' installs and restarts in one step."
+else
+	say "Next: sudo armadad init on the first machine, or the join command 'armada node join-token' prints."
+fi
 "$PREFIX/bin/armadad" version
 }
 
