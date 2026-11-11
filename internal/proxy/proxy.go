@@ -75,6 +75,38 @@ type Config struct {
 	// headers they carry (ClientAddressHeaders). Requests from anywhere else
 	// lose them, so a client cannot claim another address.
 	TrustedProxies []string
+	// TCP are the internal TCP listeners (ADR 0039).
+	TCP []TCPRoute
+}
+
+// TCPRoute sends connections to Port on a node's bridge gateway from apps of
+// the backend's project to Backend, which then serves plain TCP (ADR 0039).
+// A port serves at most one backend per project: the caller's project picks
+// it. Allow, when set, lists the app IDs that may connect (the app itself
+// included); empty lets every app of the project.
+type TCPRoute struct {
+	Port    int
+	Backend string
+	Allow   []string
+}
+
+// TCPBackends returns the names of the backends that serve TCP.
+func (c Config) TCPBackends() map[string]bool {
+	out := make(map[string]bool, len(c.TCP))
+	for _, r := range c.TCP {
+		out[r.Backend] = true
+	}
+	return out
+}
+
+// TCPPorts returns the distinct ports of the TCP routes, sorted.
+func (c Config) TCPPorts() []int {
+	out := make([]int, 0, len(c.TCP))
+	for _, r := range c.TCP {
+		out = append(out, r.Port)
+	}
+	slices.Sort(out)
+	return slices.Compact(out)
 }
 
 // ClientAddressHeaders are the headers applications read a client's address
@@ -200,6 +232,9 @@ func FromProto(p *armadav1.ProxyConfig) Config {
 	for _, crt := range p.GetCertificates() {
 		c.Certificates = append(c.Certificates, Certificate{Name: crt.GetName(), PEM: crt.GetPem()})
 	}
+	for _, r := range p.GetTcpRoutes() {
+		c.TCP = append(c.TCP, TCPRoute{Port: int(min(r.GetPort(), 65536)), Backend: r.GetBackend(), Allow: r.GetAllow()})
+	}
 	return c
 }
 
@@ -224,6 +259,9 @@ func (c Config) ToProto() *armadav1.ProxyConfig {
 	for _, crt := range c.Certificates {
 		p.Certificates = append(p.Certificates, &armadav1.ProxyCertificate{Name: crt.Name, Pem: crt.PEM})
 	}
+	for _, r := range c.TCP {
+		p.TcpRoutes = append(p.TcpRoutes, &armadav1.ProxyTCPRoute{Port: uint32(max(min(r.Port, 65535), 0)), Backend: r.Backend, Allow: r.Allow})
+	}
 	return p
 }
 
@@ -245,6 +283,10 @@ const (
 	maxCertificatePEM = 64 << 10
 	// MaxTrustedProxies bounds the prefixes of TrustedProxies.
 	MaxTrustedProxies = 64
+	// MaxTCPRoutes bounds the TCP routes, and MaxTCPPorts the listeners
+	// they make on each node.
+	MaxTCPRoutes = 100_000
+	MaxTCPPorts  = 4096
 )
 
 // ParseTrustedProxies checks prefixes of proxies in front of the nodes and
@@ -434,6 +476,9 @@ func (c Config) Validate() error {
 		}
 		routes[key] = true
 	}
+	for _, err := range validTCP(c) {
+		add("%v", err)
+	}
 
 	certs := map[string]bool{}
 	for _, crt := range c.Certificates {
@@ -449,6 +494,61 @@ func (c Config) Validate() error {
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// validTCP checks the TCP routes (ADR 0039): ports a TCP app may take, one
+// backend per project and port, backends that exist and serve nothing but
+// TCP, and callers of the backend's project.
+func validTCP(c Config) []error {
+	var errs []error
+	add := func(format string, args ...any) { errs = append(errs, fmt.Errorf(format, args...)) }
+	if len(c.TCP) > MaxTCPRoutes || len(c.TCPPorts()) > MaxTCPPorts {
+		add("too many TCP routes")
+		return errs
+	}
+	backends := make(map[string]Backend, len(c.Backends))
+	for _, b := range c.Backends {
+		backends[b.Name] = b
+	}
+	http := map[string]bool{}
+	for _, r := range c.Rules {
+		http[r.Backend] = true
+	}
+	routed := map[string]bool{}
+	taken := map[string]bool{}
+	for _, r := range c.TCP {
+		if err := spec.CheckTCPPort(r.Port); err != nil {
+			add("tcp port %d: %v", r.Port, err)
+		}
+		b, ok := backends[r.Backend]
+		// A labelled revision's backend (<label>--<app>) is HTTP only.
+		if !ok || !spec.ValidAppID(r.Backend) {
+			add("tcp port %d: unknown backend %q", r.Port, r.Backend)
+			continue
+		}
+		if http[r.Backend] || routed[r.Backend] {
+			add("tcp backend %s: routed more than once", r.Backend)
+		}
+		routed[r.Backend] = true
+		if b.HealthPath != "" || b.Wake || b.Sticky || b.CORS != nil || b.TimeoutSeconds != 0 || len(b.IPAllow) > 0 || len(b.IPDeny) > 0 {
+			add("tcp backend %s: has HTTP settings", r.Backend)
+		}
+		project := BackendProject(r.Backend)
+		key := fmt.Sprintf("%s/%d", project, r.Port)
+		if taken[key] {
+			add("tcp port %d: more than one backend of project %s", r.Port, project)
+		}
+		taken[key] = true
+		if len(r.Allow) > spec.MaxAllow+1 {
+			add("tcp backend %s: too many callers", r.Backend)
+		}
+		for _, a := range r.Allow {
+			if p, _, ok := spec.SplitAppID(a); !ok || p != project || !spec.ValidAppID(a) {
+				add("tcp backend %s: caller %q is not an app of project %s", r.Backend, a, project)
+			}
+		}
+	}
+	return errs
 }
 
 // checkPEM requires at least one certificate followed by exactly one private

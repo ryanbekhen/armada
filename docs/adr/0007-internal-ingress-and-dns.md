@@ -30,3 +30,4 @@ The obvious design binds an internal HAProxy frontend to the node's private IP o
 - Host firewalls must accept traffic from the bridge (`armada0`) to the host on TCP 80 and UDP/TCP 53. A default-deny INPUT policy (for example ufw) blocks internal names; `armadad doctor` warns about an active ufw without rules allowing both.
 - While the agent restarts (a few seconds), containers on that node cannot resolve names. Containers deliberately get no fallback nameserver, because resolvers that query servers in parallel (musl) could take an upstream NXDOMAIN for an internal name.
 - Traffic from a container to its node's HAProxy and on to replicas is plain HTTP over the bridge and the private network, the same as the existing hop from HAProxy to replicas.
+- Apps that speak plain TCP get listeners of their own on the same gateway, one per port, picked by the caller's project (ADR 0039).

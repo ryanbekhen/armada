@@ -2164,12 +2164,18 @@ func (t *etx) claimDomains(sp *spec.App, now time.Time) error {
 	// Domains in use by apps of other projects: a domain serves one project
 	// only, so no project routes a path of another's verified domain.
 	foreign := map[string]string{}
+	// TCP ports of the project's other apps: the caller's project picks the
+	// app behind a port, so a port serves one app per project (ADR 0039).
+	ports := map[int]string{}
 	err := t.liveSpecs(func(app string, other *spec.App) {
 		if app == sp.ID() {
 			return
 		}
 		for _, k := range routeKeys(other) {
 			taken[k] = app
+		}
+		if other.Ingress.TCP() && projectOf(app) == project {
+			ports[other.Ingress.Port] = app
 		}
 		if p := projectOf(app); p != project && other.Ingress != nil {
 			for _, d := range other.Ingress.Domains {
@@ -2183,6 +2189,11 @@ func (t *etx) claimDomains(sp *spec.App, now time.Time) error {
 	for _, k := range routeKeys(sp) {
 		if owner, ok := taken[k]; ok {
 			return fmt.Errorf("%s is already routed to app %s: %w", k, owner, ErrConflict)
+		}
+	}
+	if sp.Ingress.TCP() {
+		if owner, ok := ports[sp.Ingress.Port]; ok {
+			return fmt.Errorf("TCP port %d is already used by app %s of this project: %w", sp.Ingress.Port, owner, ErrConflict)
 		}
 	}
 	if sp.Ingress == nil {

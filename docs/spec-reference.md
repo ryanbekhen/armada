@@ -72,6 +72,7 @@ spec the app runs. Everything else is written in a file.
 | --- | --- |
 | `--image` | `image` |
 | `--port`, `--ingress external\|internal\|none` | `ingress.port`, `ingress.type` |
+| `--protocol http\|tcp` | `ingress.protocol` |
 | `--domain D` (repeatable), `--remove-domain D` | `ingress.domains` |
 | `--env K=V`, `--secret-env K=SECRET`, `--remove-env K` | `env` |
 | `--env-from-secrets[=false]` | `envFrom` |
@@ -196,7 +197,8 @@ a secret; there is no inline password field.
 | Field | Meaning |
 | --- | --- |
 | `type` | `external`: reachable from the internet through HAProxy on every node, over HTTPS. `internal`: reachable only from containers in the cluster at `http://<name>.internal`; with the cluster network, only containers of the same project resolve the name (ADR 0026). `none` (the default): no traffic is routed to the app. |
-| `port` | The container port that serves HTTP, 1–65535. Required for `external` and `internal`. |
+| `protocol` | `http` (the default) or `tcp`. A `tcp` app takes plain TCP connections from apps of its project at `<name>.internal:<port>` (`<name>.<project>.internal` outside `default`): a database, a broker, a cache. `internal` only; nothing outside the cluster reaches it. Within a project a port belongs to one app (other projects may use it too), and Armada's own ports are refused: 22, 53, 80, 443, 2379, 2380, 4789, 7443, 7444, 7480, 8404, 51820. `allow` works as for HTTP (a refused caller's connection is closed). Not with `routes`, `domains`, `sticky`, `cors`, `ipAllow`/`ipDeny`, `timeout`, `scale.min: 0`, `http` scale rules, or `revisions.mode: multiple`. Needs the cluster network ([ADR 0039](adr/0039-internal-tcp-ingress.md)). |
+| `port` | The container port that serves HTTP (or TCP with `protocol: tcp`), 1–65535. Required for `external` and `internal`. |
 | `domains` | `external` only. Up to 32 lowercase, fully qualified host names (no IP addresses, wildcards, or trailing dot). Each domain is routed and gets a certificate only after its ownership is verified: publish the TXT record shown by `armada domain list`, then run `armada domain verify <domain>`. With a DNS provider set, a domain one label under the root domain is served with the root domain's wildcard certificate. |
 | `allow` | Up to 32 names of apps in the same project that may call this app at its internal name, for example `allow: [api, worker]`. The app's own replicas always may. Without `allow`, every app of the project may. Other callers get a 404. Enforced with the cluster network (ADR 0025), for calls through the internal name; not with `type: none`. |
 | `ipAllow` | `external` only. Up to 64 rules, each an address or prefix, IPv4 or IPv6 (`203.0.113.7`, `203.0.113.0/24`, `2001:db8::/32`), written bare or as `{range, name, description}` so others know what it is for (name up to 64 characters, description up to 256, both printable text; names unique). Only clients from these reach the app from outside; others get `403` and wake nothing. Not with `ipDeny`. The client is the connection's address, or, behind a trusted proxy, the last address that proxy wrote in `X-Forwarded-For`; any other header is ignored ([ADR 0035](adr/0035-client-address-rules.md)). Internal callers are chosen with `allow`. |
@@ -215,7 +217,8 @@ Limits on a connection through ingress:
 - A request gets `504` when the app sends nothing for `ingress.timeout`, 60
   seconds by default.
 - A WebSocket closes after 1 hour with no data in either direction, so
-  clients should send a ping at a shorter interval.
+  clients should send a ping at a shorter interval. So does a connection to
+  a `protocol: tcp` app: use TCP keepalives or reconnect.
 - A deploy of a new app, or a new domain, makes the proxy reload. Open
   connections stay on the previous configuration for at most 1 hour after
   that, then close, so clients should be able to reconnect.

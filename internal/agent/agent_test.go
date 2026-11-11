@@ -530,7 +530,9 @@ func TestInternalDNS(t *testing.T) {
 	dns := &recordingDNS{}
 	a := New(Config{NodeID: "n1", PrivateIP: "10.0.0.2", Driver: d, Proxy: &proxyfake.Driver{}, DNS: dns, CPUMillis: 1, MemoryBytes: 1})
 	a.setDesired([]*armadav1.ReplicaSpec{replica("web-r1-a", "nginx:1", 80)}, &armadav1.ProxyConfig{
-		Backends: []*armadav1.ProxyBackend{{Name: "web"}, {Name: "shop-api"}},
+		Backends: []*armadav1.ProxyBackend{{Name: "web"}, {Name: "shop-api"}, {Name: "db"}},
+		// An internal TCP app resolves too (ADR 0039).
+		TcpRoutes: []*armadav1.ProxyTCPRoute{{Port: 5432, Backend: "db"}},
 		Rules: []*armadav1.ProxyRule{
 			{Host: "web.apps.example.org", PathPrefix: "/", Backend: "web"},
 			{Host: "web.internal", PathPrefix: "/", Backend: "web", Internal: true},
@@ -544,7 +546,7 @@ func TestInternalDNS(t *testing.T) {
 	dns.mu.Lock()
 	names := slices.Sorted(slices.Values(dns.names))
 	dns.mu.Unlock()
-	if !slices.Equal(names, []string{"shop-api", "web"}) {
+	if !slices.Equal(names, []string{"db", "shop-api", "web"}) {
 		t.Errorf("internal names = %v", names)
 	}
 	cs, _ := d.List(ctx, nil)

@@ -112,7 +112,8 @@ Projects build on the cluster network (ADR 0025) and its access rules:
   only from addresses of the app's project (and, with `ingress.allow`, only
   the listed apps).
 - **Away from the platform.** A project container may reach the internet,
-  its node's DNS server and internal ingress on the bridge gateway, and the
+  its node's DNS server and internal ingress on the bridge gateway (the
+  ports of internal TCP apps included, ADR 0039), and the
   containers its rules allow, and nothing else. Dropped in the forward and
   input paths of every node:
   - the private addresses of every node and server (API, join, etcd,

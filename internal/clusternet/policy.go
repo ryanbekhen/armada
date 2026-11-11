@@ -42,6 +42,26 @@ func parseEndpoints(eps []*armadav1.NetworkEndpoint, cidr netip.Prefix) (map[net
 	return out, nil
 }
 
+// maxTCPPorts bounds the internal TCP ports a node accepts.
+const maxTCPPorts = 4096
+
+// parseTCPPorts validates the ports of internal TCP apps (ADR 0039): only
+// ports a TCP app may take, never one of Armada's own, sorted and unique.
+func parseTCPPorts(ports []uint32) ([]uint16, error) {
+	if len(ports) > maxTCPPorts {
+		return nil, fmt.Errorf("%d TCP ports: at most %d", len(ports), maxTCPPorts)
+	}
+	out := make([]uint16, 0, len(ports))
+	for _, p := range ports {
+		if p > 65535 || spec.CheckTCPPort(int(p)) != nil {
+			return nil, fmt.Errorf("invalid TCP port %d", p)
+		}
+		out = append(out, uint16(p))
+	}
+	slices.Sort(out)
+	return slices.Compact(out), nil
+}
+
 // containerAddr reports whether a is an address the bridge of a node
 // subnet of cidr can give a container: not the subnet's network address
 // (the node's tunnel end), gateway, or broadcast address.
@@ -70,6 +90,9 @@ type policy struct {
 	open []netip.Addr
 	// nodes are the private addresses of every node.
 	nodes []netip.Addr
+	// tcpPorts are the ports of internal TCP apps, which isolated
+	// containers may connect to on the gateway (ADR 0039), sorted.
+	tcpPorts []uint16
 }
 
 // buildPolicy merges the cluster's container addresses with this node's
@@ -78,10 +101,11 @@ type policy struct {
 // are not in its subnet and the list from the control plane is used as is.
 func buildPolicy(p plan, local map[netip.Addr]string) policy {
 	pol := policy{
-		cidr:    p.cidr,
-		subnet:  p.self.subnet,
-		gateway: p.self.subnet.Masked().Addr().Next(),
-		members: map[string][]netip.Addr{},
+		cidr:     p.cidr,
+		subnet:   p.self.subnet,
+		gateway:  p.self.subnet.Masked().Addr().Next(),
+		members:  map[string][]netip.Addr{},
+		tcpPorts: p.tcpPorts,
 	}
 	eps := make(map[netip.Addr]string, len(p.endpoints)+len(local))
 	for a, app := range p.endpoints {

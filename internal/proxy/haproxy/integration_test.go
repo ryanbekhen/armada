@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/ryanbekhen/armada/internal/proxy"
@@ -38,6 +39,8 @@ func TestIntegrationConfigValid(t *testing.T) {
 		"empty": {proxy.Config{}, renderOptions{PrivateIP: "10.0.0.2"}},
 		// The internal frontend with the clients map (ADR 0026).
 		"callers": {callersConfig(t), callersOptions()},
+		// Internal TCP listeners (ADR 0039).
+		"tcp": {tcpConfig(), callersOptions()},
 	}
 	for name, c := range cases {
 		cfg, opts := c.cfg, c.opts
@@ -77,6 +80,9 @@ func TestIntegrationConfigValid(t *testing.T) {
 				Image, "haproxy", "-c", "-f", containerConfDir+"/"+configFile).CombinedOutput()
 			if err != nil {
 				t.Fatalf("haproxy -c failed: %v\n%s", err, out)
+			}
+			if strings.Contains(string(out), "[WARNING]") {
+				t.Errorf("haproxy -c warns:\n%s", out)
 			}
 		})
 	}

@@ -350,7 +350,7 @@ func (v *validator) ingress(in *Ingress, self string) {
 			v.add("ingress", "ipAllow and ipDeny require type external: internal callers are chosen with allow")
 		}
 	case IngressNone:
-		if in.Port != 0 || len(in.Domains) > 0 || len(in.Routes) > 0 || len(in.Allow) > 0 || len(in.IPAllow) > 0 || len(in.IPDeny) > 0 || in.Sticky || in.CORS != nil {
+		if in.Port != 0 || in.Protocol != "" || len(in.Domains) > 0 || len(in.Routes) > 0 || len(in.Allow) > 0 || len(in.IPAllow) > 0 || len(in.IPDeny) > 0 || in.Sticky || in.CORS != nil {
 			v.add("ingress", "port, domains, routes, and allow require type external or internal")
 		}
 		return
@@ -365,6 +365,7 @@ func (v *validator) ingress(in *Ingress, self string) {
 	if in.Port < 1 || in.Port > 65535 {
 		v.add("ingress.port", "must be between 1 and 65535")
 	}
+	v.protocol(in)
 	if len(in.Domains) > maxDomains {
 		v.add("ingress.domains", "must have at most %d entries", maxDomains)
 	}
@@ -416,6 +417,63 @@ func (v *validator) ingress(in *Ingress, self string) {
 		paths[r.Path] = true
 		if r.Path == "/" && r.StripPrefix {
 			v.add(fmt.Sprintf("ingress.routes[%d].stripPrefix", i), "cannot strip the root path")
+		}
+	}
+}
+
+// ReservedTCPPorts are the ports a TCP app may not take (ADR 0039): what
+// Armada itself listens on, on the bridge gateway or elsewhere on a node (SSH,
+// DNS, the proxy's HTTP ports, the API and join listeners, the ACME
+// responder, etcd, the cluster network, and the proxy's metrics), so a
+// caller never mistakes one for the other.
+var ReservedTCPPorts = []int{22, 53, 80, 443, 2379, 2380, 4789, 7443, 7444, 7480, 8404, 51820}
+
+// CheckTCPPort reports why port cannot be a TCP app's port, or nil.
+func CheckTCPPort(port int) error {
+	switch {
+	case port < 1 || port > 65535:
+		return errors.New("must be between 1 and 65535")
+	case slices.Contains(ReservedTCPPorts, port):
+		return fmt.Errorf("%d is reserved for Armada (reserved: %s)", port, joinInts(ReservedTCPPorts))
+	}
+	return nil
+}
+
+func joinInts(ns []int) string {
+	s := make([]string, len(ns))
+	for i, n := range ns {
+		s[i] = strconv.Itoa(n)
+	}
+	return strings.Join(s, ", ")
+}
+
+// protocol checks ingress.protocol and what a TCP app may not have: TCP
+// carries no host, path, cookie, or header, and never leaves the cluster.
+func (v *validator) protocol(in *Ingress) {
+	switch in.Protocol {
+	case "", ProtocolHTTP:
+		return
+	case ProtocolTCP:
+	default:
+		v.add("ingress.protocol", "must be http or tcp")
+		return
+	}
+	if in.Type != IngressInternal {
+		v.add("ingress.protocol", "tcp is internal only: set type internal; apps of the project then connect to <app>%s:<port>, and nothing outside the cluster can", InternalSuffix)
+	}
+	if in.Port >= 1 && in.Port <= 65535 {
+		if err := CheckTCPPort(in.Port); err != nil {
+			v.add("ingress.port", "%v", err)
+		}
+	}
+	for _, f := range []struct {
+		name string
+		set  bool
+	}{
+		{"routes", len(in.Routes) > 0}, {"sticky", in.Sticky}, {"cors", in.CORS != nil}, {"timeout", in.Timeout != 0},
+	} {
+		if f.set {
+			v.add("ingress."+f.name, "is HTTP only; not with protocol tcp")
 		}
 	}
 }
@@ -516,6 +574,9 @@ func (v *validator) revisions(a *App) {
 		}
 		if a.Scale != nil && a.Scale.Min != nil && *a.Scale.Min == 0 {
 			v.add("revisions.mode", "multiple cannot be combined with scale.min: 0")
+		}
+		if a.Ingress.TCP() {
+			v.add("revisions.mode", "multiple needs HTTP ingress: revision labels are host names")
 		}
 		for _, e := range CheckTraffic(a.ID(), r.Traffic, true) {
 			v.add(e.Field, "%s", e.Msg)
@@ -674,6 +735,8 @@ func (v *validator) scale(s *Scale, ing *Ingress) {
 		}
 		if ing == nil || ing.Type == IngressNone || ing.Type == "" {
 			v.add("scale.min", "can be 0 only with ingress (external or internal): a request wakes the app")
+		} else if ing.TCP() {
+			v.add("scale.min", "can be 0 only with HTTP ingress: a request wakes the app")
 		}
 	case minR < 0 || minR > MaxReplicas:
 		v.add("scale.min", "must be between 0 and %d", MaxReplicas)
@@ -766,6 +829,8 @@ func (v *validator) scaleRules(s *Scale, ing *Ingress) {
 			}
 			if ing == nil || ing.Type == IngressNone || ing.Type == "" {
 				v.add(f+".type", "http rules need ingress (external or internal): requests are counted at the proxy")
+			} else if ing.TCP() {
+				v.add(f+".type", "http rules need HTTP ingress; scale a TCP app with cpu or memory rules")
 			}
 		case ScaleCPU, ScaleMemory:
 			if r.Utilization < 1 || r.Utilization > 100 {
