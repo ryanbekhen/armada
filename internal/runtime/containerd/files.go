@@ -112,6 +112,12 @@ func writeFiles(dir, id, name, ip string, dns []string) (containerFiles, error) 
 		if err := os.WriteFile(path, data, 0o644); err != nil { //nolint:gosec // read by any user in the container; parent dir is 0700
 			return containerFiles{}, err
 		}
+		// The units run with UMask=0077, which WriteFile's mode does not
+		// override: without this, a process that is not root in the
+		// container cannot read its resolv.conf and resolves no names.
+		if err := os.Chmod(path, 0o644); err != nil { //nolint:gosec // see above
+			return containerFiles{}, err
+		}
 	}
 	return f, nil
 }
