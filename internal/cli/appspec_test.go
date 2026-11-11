@@ -461,3 +461,32 @@ func TestAppStickyFlag(t *testing.T) {
 		t.Errorf("--sticky=false: %s", stderr)
 	}
 }
+
+func TestAppCORSFlags(t *testing.T) {
+	f := newFakeAdmin()
+	cfg := withFake(t, f)
+	cli := func(args ...string) (int, string, string) { return run(t, append(args, "--config", cfg)...) }
+	if code, _, stderr := cli("app", "create", "api", "--image", "nginx:1", "--port", "80", "--ingress", "external",
+		"--cors-origin", "https://app.example.org", "--cors-origin", "http://localhost:3000"); code != 0 {
+		t.Fatal(stderr)
+	}
+	cors := func() *spec.CORS {
+		sp, err := spec.Parse([]byte(f.specs["api"]))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return sp.Ingress.CORS
+	}
+	if c := cors(); c == nil || !slices.Equal(c.AllowOrigins, []string{"https://app.example.org", "http://localhost:3000"}) {
+		t.Errorf("after create: %+v", c)
+	}
+	if code, _, stderr := cli("app", "update", "api", "--cors-origin", "*"); code != 0 || !slices.Equal(cors().AllowOrigins, []string{"*"}) {
+		t.Errorf("--cors-origin *: %s", stderr)
+	}
+	if code, _, stderr := cli("app", "update", "api", "--no-cors"); code != 0 || cors() != nil {
+		t.Errorf("--no-cors: %s", stderr)
+	}
+	if code, _, stderr := cli("app", "update", "api", "--cors-origin", "https://a.example.org/path"); code == 0 || !strings.Contains(stderr, "is not an origin") {
+		t.Errorf("bad origin: %d %q", code, stderr)
+	}
+}

@@ -90,6 +90,7 @@ E2E_ONLY=isolation,rollout ARMADA_BIN=... sh test/e2e/cluster.sh hosts
 | `spread` | 12 | `placement.spreadBy` |
 | `ip-rules` | 15 | `ingress.ipAllow`/`ipDeny`, trusted proxies, client address headers |
 | `sticky` | 16 | `ingress.sticky`, the proxy's cookie |
+| `cors` | 17 | `ingress.cors`, the proxy's preflight answers |
 | `queues` | 14 | autoscaling on queues and schedules, dialling from containers |
 | `reboot` | 13 | start-up order, units, state after a crash |
 
@@ -160,3 +161,6 @@ A release runs every scenario.
 16. A sticky app with three replicas: a client that keeps the cookie reaches
     one replica through every node, and requests without it are balanced
     over several (runs before 14 and 13).
+17. CORS: the proxy answers a preflight from a listed origin with the
+    policy, the app's answer to it carries the headers, and an unlisted origin
+    gets none, preflight or not (runs before 14 and 13).

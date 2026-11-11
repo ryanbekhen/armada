@@ -19,7 +19,7 @@ set -eu
 # Scenarios that run after the cluster is built and the test app serves.
 # E2E_ONLY=isolation,rollout runs only those (empty: all); E2E_LIST=1 lists
 # them. test/e2e/README.md says which to pick for a change.
-SCENARIOS="listeners project-secret conntrack isolation load rollout agent-restart failover node-loss backup placement platforms cpu spread ip-rules sticky queues reboot"
+SCENARIOS="listeners project-secret conntrack isolation load rollout agent-restart failover node-loss backup placement platforms cpu spread ip-rules sticky cors queues reboot"
 E2E_ONLY=${E2E_ONLY:-}
 if [ "${E2E_LIST:-}" = 1 ]; then
 	echo "$SCENARIOS" | tr ' ' '\n'
@@ -838,6 +838,48 @@ grep -q 'armada_' "$_jar" || fail "no armada_ cookie was set"
 [ "$(sticky_hosts -)" -gt 1 ] || fail "requests without the cookie all reached one replica"
 ok "requests without the cookie are balanced"
 cli app delete sticky --yes >/dev/null
+
+fi
+
+if want cors; then
+log "browsers on listed origins may call an app, others may not"
+CORS_HOST=cors.$E2E_DOMAIN
+cat <<EOF | cli app update cors --file - --create-if-missing >/dev/null
+name: cors
+image: $V1
+ingress:
+  type: external
+  port: 80
+  cors:
+    allowOrigins: [https://app.example.org]
+    allowMethods: [GET, POST]
+    allowHeaders: [Content-Type]
+    maxAge: 10m
+    allowCredentials: true
+EOF
+cors_headers() { # cors_headers METHOD ORIGIN [EXTRA-HEADER]: the response's status line and headers
+	curl -sk -o /dev/null -D - --max-time 5 -X "$1" -H "Origin: $2" ${3:+-H "$3"} \
+		--resolve "$CORS_HOST:443:$(host 1 4)" "https://$CORS_HOST/" | tr -d '\r'
+}
+cors_preflight_ok() {
+	_h=$(cors_headers OPTIONS https://app.example.org "Access-Control-Request-Method: POST")
+	printf '%s\n' "$_h" | grep -q '^HTTP/[0-9.]* 204' &&
+		printf '%s\n' "$_h" | grep -qi '^access-control-allow-origin: https://app.example.org$' &&
+		printf '%s\n' "$_h" | grep -qi '^access-control-allow-methods: GET, POST$' &&
+		printf '%s\n' "$_h" | grep -qi '^access-control-max-age: 600$'
+}
+wait_for 240 "the proxy answers a preflight from a listed origin" cors_preflight_ok
+_h=$(cors_headers GET https://app.example.org)
+printf '%s\n' "$_h" | grep -qi '^access-control-allow-origin: https://app.example.org$' ||
+	fail "a request from a listed origin lacks Access-Control-Allow-Origin: $_h"
+printf '%s\n' "$_h" | grep -qi '^access-control-allow-credentials: true$' || fail "no Access-Control-Allow-Credentials: $_h"
+ok "the app's answer to a listed origin carries the CORS headers"
+_h=$(cors_headers GET https://evil.example.net)
+printf '%s\n' "$_h" | grep -qi '^access-control-allow-origin' && fail "an unlisted origin got Access-Control-Allow-Origin: $_h"
+_h=$(cors_headers OPTIONS https://evil.example.net "Access-Control-Request-Method: POST")
+printf '%s\n' "$_h" | grep -qi '^access-control-allow-origin' && fail "an unlisted origin's preflight was allowed: $_h"
+ok "an unlisted origin gets no CORS headers, preflight or not"
+cli app delete cors --yes >/dev/null
 
 fi
 

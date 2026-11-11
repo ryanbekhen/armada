@@ -41,6 +41,8 @@ type specFlags struct {
 	ipAllow, ipDeny                  []string
 	noIPRules                        bool
 	sticky                           bool
+	corsOrigins                      []string
+	noCORS                           bool
 	replicas, minR, maxR             int
 	scaleCPU, scaleMemory, scaleHTTP int
 	healthPath                       string
@@ -54,7 +56,7 @@ type specFlags struct {
 // Flags that change an app's spec, and a job's.
 var (
 	appSpecFlags = []string{"image", "command", "args", "env", "secret-env", "remove-env", "env-from-secrets", "cpu", "memory",
-		"registry-user", "registry-secret", "port", "ingress", "domain", "remove-domain", "ip-allow", "ip-deny", "no-ip-rules", "sticky", "replicas", "min", "max",
+		"registry-user", "registry-secret", "port", "ingress", "domain", "remove-domain", "ip-allow", "ip-deny", "no-ip-rules", "sticky", "cors-origin", "no-cors", "replicas", "min", "max",
 		"scale-cpu", "scale-memory", "scale-http", "health-path"}
 	jobSpecFlags = []string{"image", "command", "args", "env", "secret-env", "remove-env", "env-from-secrets", "cpu", "memory",
 		"registry-user", "registry-secret", "schedule", "time-zone", "timeout", "retries", "concurrency"}
@@ -94,6 +96,9 @@ func (f *specFlags) register(cmd *cobra.Command, job bool) {
 	fs.BoolVar(&f.noIPRules, "no-ip-rules", false, "let every client reach the app again")
 	cmd.MarkFlagsMutuallyExclusive("ip-allow", "ip-deny", "no-ip-rules")
 	fs.BoolVar(&f.sticky, "sticky", false, "keep each client on the replica that answered it first (--sticky=false to stop)")
+	fs.StringArrayVar(&f.corsOrigins, "cors-origin", nil, "origin browsers may call the app from, such as https://app.example.com, or * (repeatable; replaces the origins; methods, headers, and the rest in the spec file)")
+	fs.BoolVar(&f.noCORS, "no-cors", false, "remove the app's CORS policy")
+	cmd.MarkFlagsMutuallyExclusive("cors-origin", "no-cors")
 	fs.IntVar(&f.replicas, "replicas", 0, "number of replicas")
 	fs.IntVar(&f.minR, "min", 0, "fewest replicas when autoscaling")
 	fs.IntVar(&f.maxR, "max", 0, "most replicas when autoscaling")
@@ -296,7 +301,7 @@ func (f *specFlags) applyJob(a *spec.App) {
 
 func (f *specFlags) applyIngress(a *spec.App) error {
 	ch := f.fs.Changed
-	if !ch("ingress") && !ch("port") && !ch("domain") && !ch("remove-domain") && !ch("ip-allow") && !ch("ip-deny") && !ch("no-ip-rules") && !ch("sticky") {
+	if !ch("ingress") && !ch("port") && !ch("domain") && !ch("remove-domain") && !ch("ip-allow") && !ch("ip-deny") && !ch("no-ip-rules") && !ch("sticky") && !ch("cors-origin") && !ch("no-cors") {
 		return nil
 	}
 	in := spec.Ingress{Type: spec.IngressNone}
@@ -324,6 +329,17 @@ func (f *specFlags) applyIngress(a *spec.App) error {
 	}
 	if ch("sticky") {
 		in.Sticky = f.sticky
+	}
+	switch {
+	case f.noCORS:
+		in.CORS = nil
+	case ch("cors-origin"):
+		c := spec.CORS{}
+		if in.CORS != nil {
+			c = *in.CORS
+		}
+		c.AllowOrigins = slices.Clone(f.corsOrigins)
+		in.CORS = &c
 	}
 	// Each list replaces the rules: who may reach an app is safer stated in
 	// full than pieced together.
