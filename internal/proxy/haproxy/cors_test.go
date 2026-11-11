@@ -24,10 +24,10 @@ func TestRenderCORS(t *testing.T) {
 	api := section("be_api")
 	for _, want := range []string{
 		"http-request set-var(txn.cors) req.hdr(Origin) if { req.hdr(Origin) -m str https://app.example.org http://localhost:3000 }\n",
-		`http-request return status 204 hdr Access-Control-Allow-Origin %[var(txn.cors)] hdr Access-Control-Allow-Methods "GET, POST" hdr Access-Control-Allow-Headers "Content-Type, Authorization" hdr Access-Control-Max-Age 600 hdr Access-Control-Allow-Credentials true hdr Vary Origin if METH_OPTIONS { var(txn.cors) -m found } { req.hdr(Access-Control-Request-Method) -m found }` + "\n",
-		"http-response set-header Access-Control-Allow-Origin %[var(txn.cors)] if { var(txn.cors) -m found }\n",
-		"http-response set-header Access-Control-Allow-Credentials true if { var(txn.cors) -m found }\n",
-		`http-response set-header Access-Control-Expose-Headers "X-Request-Id" if { var(txn.cors) -m found }` + "\n",
+		`http-request return status 204 hdr Access-Control-Allow-Origin %[var(txn.cors)] hdr Access-Control-Allow-Methods "GET, POST" hdr Access-Control-Allow-Headers "Content-Type, Authorization" hdr Access-Control-Max-Age 600 hdr Access-Control-Allow-Credentials true if METH_OPTIONS { var(txn.cors) -m found } { req.hdr(Access-Control-Request-Method) -m found }` + "\n",
+		"http-after-response set-header Access-Control-Allow-Origin %[var(txn.cors)] if { var(txn.cors) -m found }\n",
+		"http-after-response set-header Access-Control-Allow-Credentials true if { var(txn.cors) -m found }\n",
+		`http-after-response set-header Access-Control-Expose-Headers "X-Request-Id" if { var(txn.cors) -m found }` + "\n",
 	} {
 		if !strings.Contains(api, want) {
 			t.Errorf("be_api lacks %q:\n%s", want, api)

@@ -407,16 +407,19 @@ func writeCORS(w func(string, ...any), c *proxy.CORS) {
 	if c.Credentials {
 		ret += " hdr Access-Control-Allow-Credentials true"
 	}
-	ret += " hdr Vary Origin if METH_OPTIONS { var(txn.cors) -m found } { req.hdr(Access-Control-Request-Method) -m found }"
+	ret += " if METH_OPTIONS { var(txn.cors) -m found } { req.hdr(Access-Control-Request-Method) -m found }"
 	w("%s", ret)
-	w("    http-response set-header Access-Control-Allow-Origin %%[var(txn.cors)] if { var(txn.cors) -m found }")
+	// After-response rules also reach the proxy's own answers (503 with no
+	// replica up, 403 from the address rules, the preflight's 204), so a
+	// browser sees the real status instead of a CORS error.
+	w("    http-after-response set-header Access-Control-Allow-Origin %%[var(txn.cors)] if { var(txn.cors) -m found }")
 	if c.Credentials {
-		w("    http-response set-header Access-Control-Allow-Credentials true if { var(txn.cors) -m found }")
+		w("    http-after-response set-header Access-Control-Allow-Credentials true if { var(txn.cors) -m found }")
 	}
 	if len(c.Expose) > 0 {
-		w("    http-response set-header Access-Control-Expose-Headers \"%s\" if { var(txn.cors) -m found }", strings.Join(c.Expose, ", "))
+		w("    http-after-response set-header Access-Control-Expose-Headers \"%s\" if { var(txn.cors) -m found }", strings.Join(c.Expose, ", "))
 	}
-	w("    http-response add-header Vary Origin")
+	w("    http-after-response add-header Vary Origin")
 }
 
 // maxProxyHops is how many trusted proxies in a row the client's address is
