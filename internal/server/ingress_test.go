@@ -527,3 +527,20 @@ func TestIngressSticky(t *testing.T) {
 		t.Errorf("sticky without ingress: %v", err)
 	}
 }
+
+// A CORS policy reaches the app's backend with its default methods.
+func TestIngressCORS(t *testing.T) {
+	t.Parallel()
+	c := newCluster(t)
+	c.addNode("n1", "127.0.0.1")
+	c.deploy(ipApp("  cors:\n    allowOrigins: [https://app.example.org]\n    maxAge: 10m\n"))
+	c.eventually("cors on n1", func() bool {
+		for _, b := range c.proxyOn("n1").Backends {
+			if b.Name == "web" && b.CORS != nil {
+				return slices.Equal(b.CORS.Origins, []string{"https://app.example.org"}) &&
+					slices.Equal(b.CORS.Methods, []string{"GET", "HEAD", "POST"}) && b.CORS.MaxAgeSeconds == 600
+			}
+		}
+		return false
+	})
+}

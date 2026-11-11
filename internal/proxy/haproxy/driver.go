@@ -597,6 +597,7 @@ func signature(cfg proxy.Config, layout Layout, opts renderOptions) string {
 		// change must reload, or the old rules would keep applying.
 		IPAllow, IPDeny []string
 		Sticky          bool
+		CORS            *proxy.CORS
 	}
 	s := struct {
 		Opts     renderOptions
@@ -607,7 +608,7 @@ func signature(cfg proxy.Config, layout Layout, opts renderOptions) string {
 		Certs    []string
 	}{Opts: opts, ACME: cfg.ACMEAddress, Trusted: cfg.TrustedProxies}
 	for _, b := range cfg.Backends {
-		s.Backends = append(s.Backends, be{b.Name, b.HealthPath, len(layout[backendName(b.Name)]), b.Wake, b.LocalFirst, b.TimeoutSeconds, b.IPAllow, b.IPDeny, b.Sticky})
+		s.Backends = append(s.Backends, be{b.Name, b.HealthPath, len(layout[backendName(b.Name)]), b.Wake, b.LocalFirst, b.TimeoutSeconds, b.IPAllow, b.IPDeny, b.Sticky, b.CORS})
 	}
 	slices.SortFunc(s.Backends, func(a, b be) int { return strings.Compare(a.Name, b.Name) })
 	s.Rules = slices.Clone(cfg.Rules)

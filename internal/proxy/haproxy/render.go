@@ -122,6 +122,8 @@ type pool struct {
 	remote map[string]bool
 	// sticky keeps clients on one server with a cookie (ADR 0036).
 	sticky bool
+	// cors is the backend's cross-origin policy (ADR 0037).
+	cors *proxy.CORS
 }
 
 // Weights of a local-first backend (ADR 0024). HAProxy's leastconn picks the
@@ -151,7 +153,7 @@ func pools(cfg proxy.Config, n node) []pool {
 // backendPool returns be's backend on the node. Local-first needs the node's
 // address; an app that splits traffic keeps its weights and takes turns.
 func backendPool(be proxy.Backend, n node) pool {
-	p := pool{name: backendName(be.Name), servers: be.Servers, timeout: be.TimeoutSeconds, ipAllow: be.IPAllow, ipDeny: be.IPDeny, sticky: be.Sticky}
+	p := pool{name: backendName(be.Name), servers: be.Servers, timeout: be.TimeoutSeconds, ipAllow: be.IPAllow, ipDeny: be.IPDeny, sticky: be.Sticky, cors: be.CORS}
 	if n.known() {
 		for _, s := range be.Servers {
 			if !n.has(s.Address) {
@@ -347,8 +349,9 @@ func render(cfg proxy.Config, layout Layout, opts renderOptions) []byte {
 		writeBackend(w, backendPool(be, opts.node()), be.HealthPath, layout)
 		if be.Wake {
 			w("backend %s", wakeBackendName(be.Name))
-			// A refused client wakes nothing.
+			// A refused client wakes nothing, and neither does a preflight.
 			writeIPRules(w, be.IPAllow, be.IPDeny)
+			writeCORS(w, be.CORS)
 			w("    http-request set-header %s %s", proxy.WakeHeader, be.Name)
 			// Long enough for a replica to start, then answer.
 			w("    timeout server %ds", int((proxy.WakeTimeout + 60*time.Second).Seconds()))
@@ -377,6 +380,43 @@ const remoteCheckInterval = "15s"
 func stickyCookie(backend string) string {
 	sum := sha256.Sum256([]byte(backend))
 	return "armada_" + hex.EncodeToString(sum[:4])
+}
+
+// writeCORS answers preflight requests from allowed origins and adds the
+// CORS headers to the app's responses (ADR 0037). txn.cors holds the value of
+// Access-Control-Allow-Origin: the request's Origin when it is listed, or "*"
+// for a policy open to every origin; requests from other origins get no
+// CORS headers, so the browser refuses them. Every value was validated as a
+// single token (origins, methods, header names) by proxy.Config.Validate.
+func writeCORS(w func(string, ...any), c *proxy.CORS) {
+	if c == nil {
+		return
+	}
+	if len(c.Origins) == 1 && c.Origins[0] == "*" {
+		w("    http-request set-var(txn.cors) str(*) if { req.hdr(Origin) -m found }")
+	} else {
+		w("    http-request set-var(txn.cors) req.hdr(Origin) if { req.hdr(Origin) -m str %s }", strings.Join(c.Origins, " "))
+	}
+	ret := fmt.Sprintf("    http-request return status 204 hdr Access-Control-Allow-Origin %%[var(txn.cors)] hdr Access-Control-Allow-Methods \"%s\"", strings.Join(c.Methods, ", "))
+	if len(c.Headers) > 0 {
+		ret += fmt.Sprintf(" hdr Access-Control-Allow-Headers \"%s\"", strings.Join(c.Headers, ", "))
+	}
+	if c.MaxAgeSeconds > 0 {
+		ret += fmt.Sprintf(" hdr Access-Control-Max-Age %d", c.MaxAgeSeconds)
+	}
+	if c.Credentials {
+		ret += " hdr Access-Control-Allow-Credentials true"
+	}
+	ret += " hdr Vary Origin if METH_OPTIONS { var(txn.cors) -m found } { req.hdr(Access-Control-Request-Method) -m found }"
+	w("%s", ret)
+	w("    http-response set-header Access-Control-Allow-Origin %%[var(txn.cors)] if { var(txn.cors) -m found }")
+	if c.Credentials {
+		w("    http-response set-header Access-Control-Allow-Credentials true if { var(txn.cors) -m found }")
+	}
+	if len(c.Expose) > 0 {
+		w("    http-response set-header Access-Control-Expose-Headers \"%s\" if { var(txn.cors) -m found }", strings.Join(c.Expose, ", "))
+	}
+	w("    http-response add-header Vary Origin")
 }
 
 // maxProxyHops is how many trusted proxies in a row the client's address is
@@ -439,6 +479,7 @@ func writeBackend(w func(string, ...any), p pool, healthPath string, layout Layo
 	}
 	w("backend %s", p.name)
 	writeIPRules(w, p.ipAllow, p.ipDeny)
+	writeCORS(w, p.cors)
 	if p.timeout > 0 {
 		w("    timeout server %ds", p.timeout)
 	}
@@ -666,6 +707,12 @@ func safeConfig(cfg proxy.Config, opts renderOptions) bool {
 		vals = append(vals, be.Name, be.HealthPath)
 		vals = append(vals, be.IPAllow...)
 		vals = append(vals, be.IPDeny...)
+		if be.CORS != nil {
+			vals = append(vals, be.CORS.Origins...)
+			vals = append(vals, be.CORS.Methods...)
+			vals = append(vals, be.CORS.Headers...)
+			vals = append(vals, be.CORS.Expose...)
+		}
 		for _, s := range be.Servers {
 			vals = append(vals, s.Name, s.Address)
 		}

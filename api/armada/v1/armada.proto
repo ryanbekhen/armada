@@ -1243,6 +1243,17 @@ message ProxyBackend {
   // A cookie sends each client back to the server that answered it first
   // (ADR 0036).
   bool sticky = 9;
+  // The app's CORS policy (ADR 0037); unset for none.
+  ProxyCORS cors = 10;
+}
+
+message ProxyCORS {
+  repeated string origins = 1;
+  repeated string methods = 2;
+  repeated string headers = 3;
+  repeated string expose = 4;
+  uint32 max_age_seconds = 5;
+  bool credentials = 6;
 }
 
 message ProxyServer {
