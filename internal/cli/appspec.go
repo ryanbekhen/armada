@@ -38,6 +38,8 @@ type specFlags struct {
 	port                             int
 	ingress                          string
 	domains, removeDomains           []string
+	ipAllow, ipDeny                  []string
+	noIPRules                        bool
 	replicas, minR, maxR             int
 	scaleCPU, scaleMemory, scaleHTTP int
 	healthPath                       string
@@ -51,7 +53,7 @@ type specFlags struct {
 // Flags that change an app's spec, and a job's.
 var (
 	appSpecFlags = []string{"image", "command", "args", "env", "secret-env", "remove-env", "env-from-secrets", "cpu", "memory",
-		"registry-user", "registry-secret", "port", "ingress", "domain", "remove-domain", "replicas", "min", "max",
+		"registry-user", "registry-secret", "port", "ingress", "domain", "remove-domain", "ip-allow", "ip-deny", "no-ip-rules", "replicas", "min", "max",
 		"scale-cpu", "scale-memory", "scale-http", "health-path"}
 	jobSpecFlags = []string{"image", "command", "args", "env", "secret-env", "remove-env", "env-from-secrets", "cpu", "memory",
 		"registry-user", "registry-secret", "schedule", "time-zone", "timeout", "retries", "concurrency"}
@@ -86,6 +88,10 @@ func (f *specFlags) register(cmd *cobra.Command, job bool) {
 	fs.StringVar(&f.ingress, "ingress", "", "who reaches the app: external, internal, or none")
 	fs.StringArrayVar(&f.domains, "domain", nil, "custom domain (repeatable)")
 	fs.StringArrayVar(&f.removeDomains, "remove-domain", nil, "remove a custom domain (repeatable)")
+	fs.StringArrayVar(&f.ipAllow, "ip-allow", nil, "only clients from this address or prefix reach the app from outside (repeatable; replaces the list)")
+	fs.StringArrayVar(&f.ipDeny, "ip-deny", nil, "clients from this address or prefix cannot reach the app from outside (repeatable; replaces the list)")
+	fs.BoolVar(&f.noIPRules, "no-ip-rules", false, "let every client reach the app again")
+	cmd.MarkFlagsMutuallyExclusive("ip-allow", "ip-deny", "no-ip-rules")
 	fs.IntVar(&f.replicas, "replicas", 0, "number of replicas")
 	fs.IntVar(&f.minR, "min", 0, "fewest replicas when autoscaling")
 	fs.IntVar(&f.maxR, "max", 0, "most replicas when autoscaling")
@@ -286,7 +292,7 @@ func (f *specFlags) applyJob(a *spec.App) {
 
 func (f *specFlags) applyIngress(a *spec.App) {
 	ch := f.fs.Changed
-	if !ch("ingress") && !ch("port") && !ch("domain") && !ch("remove-domain") {
+	if !ch("ingress") && !ch("port") && !ch("domain") && !ch("remove-domain") && !ch("ip-allow") && !ch("ip-deny") && !ch("no-ip-rules") {
 		return
 	}
 	in := spec.Ingress{Type: spec.IngressNone}
@@ -311,6 +317,16 @@ func (f *specFlags) applyIngress(a *spec.App) {
 	}
 	if len(in.Domains) == 0 {
 		in.Domains = nil
+	}
+	// Each list replaces the rules: who may reach an app is safer stated in
+	// full than pieced together.
+	switch {
+	case f.noIPRules:
+		in.IPAllow, in.IPDeny = nil, nil
+	case ch("ip-allow"):
+		in.IPAllow, in.IPDeny = slices.Clone(f.ipAllow), nil
+	case ch("ip-deny"):
+		in.IPAllow, in.IPDeny = nil, slices.Clone(f.ipDeny)
 	}
 	a.Ingress = &in
 	// Probes that checked the app's port follow it.

@@ -19,7 +19,7 @@ set -eu
 # Scenarios that run after the cluster is built and the test app serves.
 # E2E_ONLY=isolation,rollout runs only those (empty: all); E2E_LIST=1 lists
 # them. test/e2e/README.md says which to pick for a change.
-SCENARIOS="listeners project-secret conntrack isolation load rollout agent-restart failover node-loss backup placement platforms cpu spread queues reboot"
+SCENARIOS="listeners project-secret conntrack isolation load rollout agent-restart failover node-loss backup placement platforms cpu spread ip-rules queues reboot"
 E2E_ONLY=${E2E_ONLY:-}
 if [ "${E2E_LIST:-}" = 1 ]; then
 	echo "$SCENARIOS" | tr ' ' '\n'
@@ -734,6 +734,69 @@ half_on() {
 wait_for 300 "spread by zone: two of four replicas on $_last, alone in its zone" half_on "$_last"
 
 fi
+if want ip-rules; then
+log "who may reach an app from outside, whatever the headers say"
+IPR_HOST=ipr.$E2E_DOMAIN
+IP_A=$(host 1 4) IP_B=$(host 2 4) IP_T=$(host "$N" 4)
+# ipr_code FROM TO [X-Forwarded-For]: the status machine FROM gets from the
+# proxy on public IP TO.
+ipr_code() {
+	_xff=""
+	[ -n "${3:-}" ] && _xff="-H 'X-Forwarded-For: $3'"
+	on "$1" "curl -sk -o /dev/null -w '%{http_code}' --max-time 5 --resolve $IPR_HOST:443:$2 $_xff https://$IPR_HOST/"
+}
+ipr_is() { [ "$(ipr_code "$2" "$3" "${4:-}")" = "$1" ]; }
+expect_code() { # CODE DESCRIPTION FROM TO [X-Forwarded-For]
+	_want=$1 _desc=$2
+	shift 2
+	_got=$(ipr_code "$@")
+	[ "$_got" = "$_want" ] || fail "$_desc: HTTP $_got, want $_want"
+	ok "$_desc"
+}
+ipr_app() {
+	cat <<EOF | cli app update ipr --file - --create-if-missing >/dev/null
+name: ipr
+image: $V1
+ingress:
+  type: external
+  port: 80
+  $1
+EOF
+}
+
+ipr_app "ipAllow: [192.0.2.0/24]"
+wait_for 240 "an app open only to 192.0.2.0/24 refuses machine 1" ipr_is 403 1 "$IP_B"
+expect_code 403 "machine 1 claiming 192.0.2.10 in X-Forwarded-For is still refused" 1 "$IP_B" 192.0.2.10
+
+ipr_app "ipAllow: [$IP_A/32]"
+wait_for 60 "opened to machine 1, machine 1 gets in" ipr_is 200 1 "$IP_B"
+expect_code 403 "machine 2 is refused" 2 "$IP_T"
+expect_code 403 "machine 2 claiming machine 1's address is refused" 2 "$IP_T" "$IP_A"
+expect_code 200 "machine 1 claiming another address is judged by its own" 1 "$IP_B" 192.0.2.10
+
+# The last machine acts as a proxy in front of the cluster.
+cli cluster set --trusted-proxies "$IP_T/32" >/dev/null
+wait_for 60 "through a trusted proxy, the address it appended counts" ipr_is 200 "$N" "$IP_B" "$IP_A"
+expect_code 403 "the client cannot prepend an address before the proxy's" "$N" "$IP_B" "$IP_A, 192.0.2.10"
+expect_code 200 "an address the client prepended is ignored" "$N" "$IP_B" "192.0.2.10, $IP_A"
+expect_code 200 "a trusted proxy in the chain is stepped over" "$N" "$IP_B" "$IP_A, $IP_T"
+expect_code 403 "an untrusted machine still cannot claim an address" 2 "$IP_B" "$IP_A"
+
+ipr_app "ipDeny: [$IP_A/32]"
+wait_for 60 "closed to machine 1, machine 1 is refused" ipr_is 403 1 "$IP_B"
+expect_code 200 "machine 2 gets in" 2 "$IP_T"
+expect_code 403 "a trusted proxy that names no client is refused" "$N" "$IP_B"
+expect_code 403 "a trusted proxy naming machine 1 is refused" "$N" "$IP_B" "$IP_A"
+expect_code 200 "a trusted proxy naming machine 2 gets in" "$N" "$IP_B" "$IP_B"
+expect_code 403 "a trusted proxy naming garbage is refused" "$N" "$IP_B" "unknown"
+
+cli cluster set --trusted-proxies "" >/dev/null
+ipr_app ""
+wait_for 60 "without rules, machine 1 gets in again" ipr_is 200 1 "$IP_B"
+cli app delete ipr --yes >/dev/null
+
+fi
+
 if want queues; then
 log "autoscaling on a Redis list, a RabbitMQ queue, a command, and a schedule"
 # Each broker runs in its app's own container on 127.0.0.1: only a

@@ -116,6 +116,8 @@ type pool struct {
 	// timeout is how long a request waits for an answer, in seconds; 0 keeps
 	// the default.
 	timeout int
+	// ipAllow and ipDeny are the backend's client address rules (ADR 0035).
+	ipAllow, ipDeny []string
 }
 
 // Weights of a local-first backend (ADR 0024). HAProxy's leastconn picks the
@@ -145,7 +147,7 @@ func pools(cfg proxy.Config, n node) []pool {
 // backendPool returns be's backend on the node. Local-first needs the node's
 // address; an app that splits traffic keeps its weights and takes turns.
 func backendPool(be proxy.Backend, n node) pool {
-	p := pool{name: backendName(be.Name), servers: be.Servers, timeout: be.TimeoutSeconds}
+	p := pool{name: backendName(be.Name), servers: be.Servers, timeout: be.TimeoutSeconds, ipAllow: be.IPAllow, ipDeny: be.IPDeny}
 	if !localFirst(be, n) {
 		return p
 	}
@@ -291,6 +293,9 @@ func render(cfg proxy.Config, layout Layout, opts renderOptions) []byte {
 	for _, h := range proxy.ClientAddressHeaders {
 		w("    http-request del-header %s%s", h, unless)
 	}
+	if hasIPRules(cfg) {
+		writeClientAddress(w, cfg.TrustedProxies)
+	}
 	w("    http-request set-var(txn.host) req.hdr(host),field(1,:),lower")
 	w("    http-request set-var(txn.path) path")
 
@@ -328,6 +333,8 @@ func render(cfg proxy.Config, layout Layout, opts renderOptions) []byte {
 		writeBackend(w, backendPool(be, opts.node()), be.HealthPath, layout)
 		if be.Wake {
 			w("backend %s", wakeBackendName(be.Name))
+			// A refused client wakes nothing.
+			writeIPRules(w, be.IPAllow, be.IPDeny)
 			w("    http-request set-header %s %s", proxy.WakeHeader, be.Name)
 			// Long enough for a replica to start, then answer.
 			w("    timeout server %ds", int((proxy.WakeTimeout + 60*time.Second).Seconds()))
@@ -346,6 +353,58 @@ func render(cfg proxy.Config, layout Layout, opts renderOptions) []byte {
 	return []byte(b.String())
 }
 
+// maxProxyHops is how many trusted proxies in a row the client's address is
+// looked for behind (ADR 0035).
+const maxProxyHops = 4
+
+func hasIPRules(cfg proxy.Config) bool {
+	for _, b := range cfg.Backends {
+		if len(b.IPAllow) > 0 || len(b.IPDeny) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// writeClientAddress sets txn.client, in the public frontend, to the address
+// the backends' client address rules judge (ADR 0035), and txn.ext to say
+// the request came from outside.
+//
+// The connection's own address is the client, unless the connection comes
+// from a trusted proxy. Then it is the last address in X-Forwarded-For,
+// which that proxy appended; addresses before it are whatever the client
+// sent. If that one is a trusted proxy too, the one before it, and so on,
+// for at most maxProxyHops. A trusted proxy that names no valid address, or
+// only trusted proxies, leaves txn.client unset, and the rules refuse the
+// request. No other header is read.
+func writeClientAddress(w func(string, ...any), trusted []string) {
+	w("    http-request set-var(txn.ext) bool(true)")
+	w("    http-request set-var(txn.client) src")
+	if len(trusted) == 0 {
+		return
+	}
+	t := strings.Join(trusted, " ")
+	w("    http-request unset-var(txn.client) if trusted_proxy")
+	w("    http-request set-var(txn.client) req.hdr_ip(X-Forwarded-For,-1) if trusted_proxy")
+	for hop := 2; hop <= maxProxyHops; hop++ {
+		w("    http-request set-var(txn.client) req.hdr_ip(X-Forwarded-For,-%d) if trusted_proxy { var(txn.client) -m ip %s }", hop, t)
+	}
+	w("    http-request unset-var(txn.client) if trusted_proxy { var(txn.client) -m ip %s }", t)
+}
+
+// writeIPRules refuses requests from the public frontend whose client
+// address the rules do not let through. Requests through the internal
+// frontend have no txn.ext and pass: ingress.allow chooses internal callers.
+func writeIPRules(w func(string, ...any), allow, deny []string) {
+	switch {
+	case len(allow) > 0:
+		w("    http-request deny deny_status 403 if { var(txn.ext) -m bool } !{ var(txn.client) -m ip %s }", strings.Join(allow, " "))
+	case len(deny) > 0:
+		w("    http-request deny deny_status 403 if { var(txn.ext) -m bool } !{ var(txn.client) -m found }")
+		w("    http-request deny deny_status 403 if { var(txn.ext) -m bool } { var(txn.client) -m ip %s }", strings.Join(deny, " "))
+	}
+}
+
 // writeBackend emits one slotted backend.
 func writeBackend(w func(string, ...any), p pool, healthPath string, layout Layout) {
 	servers := map[string]proxy.Server{}
@@ -353,6 +412,7 @@ func writeBackend(w func(string, ...any), p pool, healthPath string, layout Layo
 		servers[s.Name] = s
 	}
 	w("backend %s", p.name)
+	writeIPRules(w, p.ipAllow, p.ipDeny)
 	if p.timeout > 0 {
 		w("    timeout server %ds", p.timeout)
 	}
@@ -557,6 +617,8 @@ func safeConfig(cfg proxy.Config, opts renderOptions) bool {
 	vals = append(vals, cfg.TrustedProxies...)
 	for _, be := range cfg.Backends {
 		vals = append(vals, be.Name, be.HealthPath)
+		vals = append(vals, be.IPAllow...)
+		vals = append(vals, be.IPDeny...)
 		for _, s := range be.Servers {
 			vals = append(vals, s.Name, s.Address)
 		}

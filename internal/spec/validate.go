@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"maps"
 	"math"
+	"net/netip"
 	"regexp"
 	"slices"
 	"strconv"
@@ -340,8 +341,11 @@ func (v *validator) ingress(in *Ingress, self string) {
 		if len(in.Domains) > 0 {
 			v.add("ingress.domains", "custom domains require type external; internal apps are reachable at http://<app>%s", InternalSuffix)
 		}
+		if len(in.IPAllow) > 0 || len(in.IPDeny) > 0 {
+			v.add("ingress", "ipAllow and ipDeny require type external: internal callers are chosen with allow")
+		}
 	case IngressNone:
-		if in.Port != 0 || len(in.Domains) > 0 || len(in.Routes) > 0 || len(in.Allow) > 0 {
+		if in.Port != 0 || len(in.Domains) > 0 || len(in.Routes) > 0 || len(in.Allow) > 0 || len(in.IPAllow) > 0 || len(in.IPDeny) > 0 {
 			v.add("ingress", "port, domains, routes, and allow require type external or internal")
 		}
 		return
@@ -369,6 +373,11 @@ func (v *validator) ingress(in *Ingress, self string) {
 		}
 		seen[d] = true
 	}
+	if len(in.IPAllow) > 0 && len(in.IPDeny) > 0 {
+		v.add("ingress", "set ipAllow or ipDeny, not both")
+	}
+	v.ipRanges("ingress.ipAllow", in.IPAllow)
+	v.ipRanges("ingress.ipDeny", in.IPDeny)
 	if len(in.Allow) > MaxAllow {
 		v.add("ingress.allow", "must have at most %d entries", MaxAllow)
 	}
@@ -800,6 +809,66 @@ func (v *validator) scaleRules(s *Scale, ing *Ingress) {
 			v.add(f+".type", "must be %q, %q, %q, %q, %q, %q, or %q", ScaleHTTP, ScaleCPU, ScaleMemory, ScaleQueue, ScaleRedis, ScaleRabbitMQ, ScaleSchedule)
 		}
 	}
+}
+
+// MaxIPRanges bounds ingress.ipAllow and ingress.ipDeny.
+const MaxIPRanges = 64
+
+func (v *validator) ipRanges(field string, ranges []string) {
+	if len(ranges) > MaxIPRanges {
+		v.add(field, "must have at most %d entries", MaxIPRanges)
+		return
+	}
+	seen := map[netip.Prefix]bool{}
+	for i, s := range ranges {
+		p, err := ParseIPRange(s)
+		f := fmt.Sprintf("%s[%d]", field, i)
+		switch {
+		case err != nil:
+			v.add(f, "%v", err)
+		case seen[p]:
+			v.add(f, "duplicate range %s", p)
+		}
+		seen[p] = true
+	}
+}
+
+// ParseIPRange reads an address ("203.0.113.7", a single client) or a prefix
+// ("203.0.113.0/24") and returns it as a masked prefix. Zones and ranges
+// matching every address of a family are refused.
+func ParseIPRange(s string) (netip.Prefix, error) {
+	var p netip.Prefix
+	if a, err := netip.ParseAddr(s); err == nil {
+		if a.Zone() != "" {
+			return netip.Prefix{}, fmt.Errorf("%q has a zone", s)
+		}
+		p = netip.PrefixFrom(a, a.BitLen())
+	} else if p, err = netip.ParsePrefix(s); err != nil {
+		return netip.Prefix{}, fmt.Errorf("%q is not an IP address or prefix such as 203.0.113.0/24", s)
+	}
+	if !p.IsValid() {
+		return netip.Prefix{}, fmt.Errorf("%q is not an IP address or prefix such as 203.0.113.0/24", s)
+	}
+	if p.Addr().Is4In6() {
+		return netip.Prefix{}, fmt.Errorf("%q: write IPv4 addresses as IPv4", s)
+	}
+	if p.Bits() == 0 {
+		return netip.Prefix{}, fmt.Errorf("%q matches every address; leave the rule out instead", s)
+	}
+	return p.Masked(), nil
+}
+
+// IPRanges returns ranges as masked prefixes in canonical form. It assumes
+// validated ranges.
+func IPRanges(ranges []string) []string {
+	out := make([]string, 0, len(ranges))
+	for _, s := range ranges {
+		if p, err := ParseIPRange(s); err == nil {
+			out = append(out, p.String())
+		}
+	}
+	slices.Sort(out)
+	return slices.Compact(out)
 }
 
 // brokerName checks a list or queue name: required, bounded, and printable.

@@ -102,6 +102,11 @@ type Ingress struct {
 	// app through its internal name; empty lets every app of the project
 	// (ADR 0025, ADR 0026). Replicas of the app itself always may.
 	Allow []string `yaml:"allow,omitempty" json:"allow,omitempty"`
+	// IPAllow lets only clients from these addresses or prefixes reach the
+	// app from outside; IPDeny lets every client but those. At most one of
+	// the two (ADR 0035).
+	IPAllow []string `yaml:"ipAllow,omitempty" json:"ipAllow,omitempty"`
+	IPDeny  []string `yaml:"ipDeny,omitempty" json:"ipDeny,omitempty"`
 	// Timeout is how long a request may wait for the app to answer; zero means
 	// a minute.
 	Timeout Duration `yaml:"timeout,omitempty" json:"timeout,omitempty"`
