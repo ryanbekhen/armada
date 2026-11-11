@@ -461,3 +461,49 @@ func TestTrustedProxies(t *testing.T) {
 		t.Errorf("not cleared: %v", cc.GetTrustedProxies())
 	}
 }
+
+// Client address rules reach every node's proxy on the app's backend, in
+// canonical form, and change with a deploy (ADR 0035).
+// ipApp is an external app with extra ingress fields.
+func ipApp(extra string) string {
+	return "name: web\nimage: nginx:1\ningress:\n  type: external\n  port: 80\n  domains: [example.org]\n" + extra
+}
+
+func TestIngressIPRules(t *testing.T) {
+	t.Parallel()
+	c := newCluster(t)
+	c.addNode("n1", "127.0.0.1")
+	backend := func(name string) (proxy.Backend, bool) {
+		for _, b := range c.proxyOn("n1").Backends {
+			if b.Name == name {
+				return b, true
+			}
+		}
+		return proxy.Backend{}, false
+	}
+	c.deploy(ipApp("  ipAllow: [203.0.113.7, 2001:db8::/32, 198.51.100.0/24]\n"))
+	c.eventually("allow rules on n1", func() bool {
+		b, ok := backend("web")
+		return ok && slices.Equal(b.IPAllow, []string{"198.51.100.0/24", "2001:db8::/32", "203.0.113.7/32"}) && len(b.IPDeny) == 0
+	})
+	c.deploy(ipApp("  ipDeny: [198.51.100.0/24]\n"))
+	c.eventually("deny rules on n1", func() bool {
+		b, ok := backend("web")
+		return ok && len(b.IPAllow) == 0 && slices.Equal(b.IPDeny, []string{"198.51.100.0/24"})
+	})
+	c.deploy(ipApp(""))
+	c.eventually("no rules on n1", func() bool {
+		b, ok := backend("web")
+		return ok && len(b.IPAllow) == 0 && len(b.IPDeny) == 0
+	})
+	// Both at once, and rules on an internal app, are refused.
+	for _, bad := range []string{
+		ipApp("  ipAllow: [203.0.113.0/24]\n  ipDeny: [198.51.100.0/24]\n"),
+		"name: api\nimage: a:1\ningress:\n  type: internal\n  port: 80\n  ipAllow: [203.0.113.0/24]\n",
+		ipApp("  ipAllow: [\"203.0.113.0/24 } || { always_true\"]\n"),
+	} {
+		if _, err := c.admin.Deploy(c.ctx, &armadav1.DeployRequest{Spec: []byte(bad)}); status.Code(err) != codes.InvalidArgument {
+			t.Errorf("deploy %q: %v", bad, err)
+		}
+	}
+}

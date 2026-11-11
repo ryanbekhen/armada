@@ -95,6 +95,11 @@ type Backend struct {
 	// TimeoutSeconds is how long a request may wait for an answer; 0 means
 	// the proxy's default.
 	TimeoutSeconds int
+	// IPAllow lets only clients in these prefixes reach the backend through
+	// the public frontend; IPDeny refuses those in them. At most one is set,
+	// as masked prefixes (ADR 0035).
+	IPAllow []string
+	IPDeny  []string
 }
 
 // Server is one replica.
@@ -167,7 +172,8 @@ func FromProto(p *armadav1.ProxyConfig) Config {
 	c.ACMEAddress = p.GetAcmeChallengeAddress()
 	c.TrustedProxies = p.GetTrustedProxies()
 	for _, b := range p.GetBackends() {
-		be := Backend{Name: b.GetName(), HealthPath: b.GetHealthPath(), Wake: b.GetWake(), LocalFirst: b.GetLocalFirst(), TimeoutSeconds: int(min(b.GetTimeoutSeconds(), MaxTimeoutSeconds+1))}
+		be := Backend{Name: b.GetName(), HealthPath: b.GetHealthPath(), Wake: b.GetWake(), LocalFirst: b.GetLocalFirst(), TimeoutSeconds: int(min(b.GetTimeoutSeconds(), MaxTimeoutSeconds+1)),
+			IPAllow: b.GetIpAllow(), IPDeny: b.GetIpDeny()}
 		for _, s := range b.GetServers() {
 			be.Servers = append(be.Servers, Server{Name: s.GetName(), Address: s.GetAddress(), Weight: int(min(s.GetWeight(), MaxWeight+1))})
 		}
@@ -186,7 +192,8 @@ func FromProto(p *armadav1.ProxyConfig) Config {
 func (c Config) ToProto() *armadav1.ProxyConfig {
 	p := &armadav1.ProxyConfig{AcmeChallengeAddress: c.ACMEAddress, TrustedProxies: c.TrustedProxies}
 	for _, b := range c.Backends {
-		pb := &armadav1.ProxyBackend{Name: b.Name, HealthPath: b.HealthPath, Wake: b.Wake, LocalFirst: b.LocalFirst, TimeoutSeconds: uint32(max(min(b.TimeoutSeconds, MaxTimeoutSeconds), 0))}
+		pb := &armadav1.ProxyBackend{Name: b.Name, HealthPath: b.HealthPath, Wake: b.Wake, LocalFirst: b.LocalFirst, TimeoutSeconds: uint32(max(min(b.TimeoutSeconds, MaxTimeoutSeconds), 0)),
+			IpAllow: b.IPAllow, IpDeny: b.IPDeny}
 		for _, s := range b.Servers {
 			pb.Servers = append(pb.Servers, &armadav1.ProxyServer{Name: s.Name, Address: s.Address, Weight: uint32(max(s.Weight, 0))}) //nolint:gosec // bounded by Validate
 		}
@@ -244,6 +251,26 @@ func ParseTrustedProxies(prefixes []string) ([]string, error) {
 	return slices.Compact(out), nil
 }
 
+// validIPRules checks a backend's client address rules: one kind, bounded,
+// each a masked prefix written the way it is rendered.
+func validIPRules(b Backend) error {
+	if len(b.IPAllow) > 0 && len(b.IPDeny) > 0 {
+		return errors.New("both allowed and denied client addresses")
+	}
+	for _, list := range [][]string{b.IPAllow, b.IPDeny} {
+		if len(list) > spec.MaxIPRanges {
+			return errors.New("too many client address rules")
+		}
+		for _, s := range list {
+			p, err := spec.ParseIPRange(s)
+			if err != nil || p.String() != s {
+				return fmt.Errorf("client address rule %q is not a canonical prefix", s)
+			}
+		}
+	}
+	return nil
+}
+
 // Validate re-checks every field that reaches generated proxy configuration.
 // The server validates specs too; this is defense in depth against a bug or a
 // compromised control plane injecting configuration directives.
@@ -278,6 +305,9 @@ func (c Config) Validate() error {
 			add("duplicate backend %q", b.Name)
 		}
 		backends[b.Name] = true
+		if err := validIPRules(b); err != nil {
+			add("backend %s: %v", b.Name, err)
+		}
 		if b.HealthPath != "" {
 			if err := spec.ValidateProbePath(b.HealthPath); err != nil {
 				add("backend %s: health path: %v", b.Name, err)

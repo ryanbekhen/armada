@@ -1225,6 +1225,10 @@ message ProxyBackend {
   // How long a request may wait for the app's response, in seconds; 0 means
   // the default of a minute.
   uint32 timeout_seconds = 6;
+  // Prefixes of the only clients that may reach the app from outside, or
+  // of the clients that may not; at most one of the two is set (ADR 0035).
+  repeated string ip_allow = 7;
+  repeated string ip_deny = 8;
 }
 
 message ProxyServer {

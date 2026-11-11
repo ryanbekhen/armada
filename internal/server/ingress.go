@@ -140,6 +140,11 @@ func (s *Server) buildProxy(ctx context.Context, apps []store.App, replicas []st
 		if sp.Probes != nil && sp.Probes.Readiness != nil {
 			be.HealthPath = sp.Probes.Readiness.Path
 		}
+		// Who may reach the app from outside (ADR 0035); internal callers
+		// are chosen by ingress.allow.
+		if sp.Ingress.Type == spec.IngressExternal {
+			be.IPAllow, be.IPDeny = nilIfEmpty(spec.IPRanges(sp.Ingress.IPAllow)), nilIfEmpty(spec.IPRanges(sp.Ingress.IPDeny))
+		}
 		be.Servers = s.proxyServers(app, replicas, func(r store.Replica) bool { return inProxy(app, r) })
 		if splits {
 			weighServers(app, replicas, be.Servers)
@@ -162,7 +167,7 @@ func (s *Server) buildProxy(ctx context.Context, apps []store.App, replicas []st
 					continue
 				}
 				name := spec.LabelHost(t.Label, app.Name)
-				lb := proxy.Backend{Name: name, HealthPath: be.HealthPath, TimeoutSeconds: be.TimeoutSeconds}
+				lb := proxy.Backend{Name: name, HealthPath: be.HealthPath, TimeoutSeconds: be.TimeoutSeconds, IPAllow: be.IPAllow, IPDeny: be.IPDeny}
 				lb.Servers = s.proxyServers(app, replicas, func(r store.Replica) bool {
 					return r.App == app.Name && r.Revision == t.Revision && r.State == store.ReplicaRunning && r.Ready && !r.Draining() && r.Address != ""
 				})
@@ -706,4 +711,11 @@ func (s *Server) forgetCertificate(name string) {
 	s.pemMu.Lock()
 	delete(s.pems, name)
 	s.pemMu.Unlock()
+}
+
+func nilIfEmpty(s []string) []string {
+	if len(s) == 0 {
+		return nil
+	}
+	return s
 }

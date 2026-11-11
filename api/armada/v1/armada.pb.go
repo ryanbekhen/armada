@@ -8687,8 +8687,12 @@ type ProxyBackend struct {
 	// How long a request may wait for the app's response, in seconds; 0 means
 	// the default of a minute.
 	TimeoutSeconds uint32 `protobuf:"varint,6,opt,name=timeout_seconds,json=timeoutSeconds,proto3" json:"timeout_seconds,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Prefixes of the only clients that may reach the app from outside, or
+	// of the clients that may not; at most one of the two is set (ADR 0035).
+	IpAllow       []string `protobuf:"bytes,7,rep,name=ip_allow,json=ipAllow,proto3" json:"ip_allow,omitempty"`
+	IpDeny        []string `protobuf:"bytes,8,rep,name=ip_deny,json=ipDeny,proto3" json:"ip_deny,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ProxyBackend) Reset() {
@@ -8761,6 +8765,20 @@ func (x *ProxyBackend) GetTimeoutSeconds() uint32 {
 		return x.TimeoutSeconds
 	}
 	return 0
+}
+
+func (x *ProxyBackend) GetIpAllow() []string {
+	if x != nil {
+		return x.IpAllow
+	}
+	return nil
+}
+
+func (x *ProxyBackend) GetIpDeny() []string {
+	if x != nil {
+		return x.IpDeny
+	}
+	return nil
 }
 
 type ProxyServer struct {
@@ -11743,7 +11761,7 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\x05rules\x18\x02 \x03(\v2\x14.armada.v1.ProxyRuleR\x05rules\x12?\n" +
 	"\fcertificates\x18\x03 \x03(\v2\x1b.armada.v1.ProxyCertificateR\fcertificates\x124\n" +
 	"\x16acme_challenge_address\x18\x04 \x01(\tR\x14acmeChallengeAddress\x12'\n" +
-	"\x0ftrusted_proxies\x18\x05 \x03(\tR\x0etrustedProxies\"\xd3\x01\n" +
+	"\x0ftrusted_proxies\x18\x05 \x03(\tR\x0etrustedProxies\"\x87\x02\n" +
 	"\fProxyBackend\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x120\n" +
 	"\aservers\x18\x02 \x03(\v2\x16.armada.v1.ProxyServerR\aservers\x12\x1f\n" +
@@ -11752,7 +11770,9 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\x04wake\x18\x04 \x01(\bR\x04wake\x12\x1f\n" +
 	"\vlocal_first\x18\x05 \x01(\bR\n" +
 	"localFirst\x12'\n" +
-	"\x0ftimeout_seconds\x18\x06 \x01(\rR\x0etimeoutSeconds\"S\n" +
+	"\x0ftimeout_seconds\x18\x06 \x01(\rR\x0etimeoutSeconds\x12\x19\n" +
+	"\bip_allow\x18\a \x03(\tR\aipAllow\x12\x17\n" +
+	"\aip_deny\x18\b \x03(\tR\x06ipDeny\"S\n" +
 	"\vProxyServer\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
 	"\aaddress\x18\x02 \x01(\tR\aaddress\x12\x16\n" +

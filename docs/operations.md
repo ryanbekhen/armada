@@ -688,6 +688,38 @@ network, so firewall rules on the host apply to it.
 The internal frontend leaves these headers alone, so an app that proxies to
 another one can pass its client's address on.
 
+### Who may reach an app
+
+`ingress.ipAllow` lets only some clients reach an external app, and
+`ingress.ipDeny` keeps some out
+([ADR 0035](adr/0035-client-address-rules.md)):
+
+```bash
+armada app update admin --ip-allow 203.0.113.0/24 --ip-allow 2001:db8::/32   # replaces the list
+armada app update shop --ip-deny 198.51.100.7
+armada app update admin --no-ip-rules                                       # everyone again
+```
+
+- **Refused clients** get `403` from the proxy. The app never sees them, and
+  an app scaled to zero stays asleep. Calls through `<app>.internal` are
+  not affected; `allow` chooses those.
+- **Which address is checked.**
+  - The connection's own address, unless the connection comes from a
+    trusted proxy.
+  - Then the **last** address in `X-Forwarded-For`, the one that proxy
+    appended. What a client writes before it does not count. A trusted
+    proxy in that spot is stepped over, up to four in a row.
+  - No other header (`Forwarded`, `X-Real-IP`, a CDN's own) is read.
+- **Fail closed.** A trusted proxy that sends no valid `X-Forwarded-For`
+  gets `403` for apps with rules, in both modes.
+- **The rules are only as strict as your trusted proxies.** A shared CDN
+  that lets its customers make requests to your nodes can bring any of them
+  in from its own addresses. Trust only proxies whose appended address you
+  rely on.
+- **To check what a client sees**, run
+  `curl -s -o /dev/null -w '%{http_code}' https://admin.example.org/` from
+  that client.
+
 ## Running commands in replicas
 
 `armada app exec` runs a command in one replica of an app and exits with the

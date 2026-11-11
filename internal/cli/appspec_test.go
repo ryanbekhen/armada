@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -381,5 +382,55 @@ func TestLineDiff(t *testing.T) {
 	_ = printDiff(&b, long(40, "old"), long(40, "new"))
 	if lines := strings.Count(b.String(), "\n"); lines != 8 || !strings.Contains(b.String(), "- old\n+ new\n") {
 		t.Errorf("diff keeps 3 lines of context:\n%s", b.String())
+	}
+}
+
+// --ip-allow and --ip-deny replace who may reach the app from outside;
+// --no-ip-rules lets everyone again (ADR 0035).
+func TestAppIPRuleFlags(t *testing.T) {
+	f := newFakeAdmin()
+	cfg := withFake(t, f)
+	cli := func(args ...string) (int, string, string) { return run(t, append(args, "--config", cfg)...) }
+	if code, _, stderr := cli("app", "create", "admin", "--image", "nginx:1", "--port", "80", "--ingress", "external",
+		"--ip-allow", "203.0.113.0/24", "--ip-allow", "2001:db8::/32"); code != 0 {
+		t.Fatal(stderr)
+	}
+	ingress := func() *spec.Ingress {
+		sp, err := spec.Parse([]byte(f.specs["admin"]))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return sp.Ingress
+	}
+	if in := ingress(); !slices.Equal(in.IPAllow, []string{"203.0.113.0/24", "2001:db8::/32"}) || in.IPDeny != nil {
+		t.Errorf("after create: %+v", in)
+	}
+	if code, _, stderr := cli("app", "update", "admin", "--ip-deny", "198.51.100.7"); code != 0 {
+		t.Fatal(stderr)
+	}
+	if in := ingress(); in.IPAllow != nil || !slices.Equal(in.IPDeny, []string{"198.51.100.7"}) {
+		t.Errorf("after --ip-deny: %+v", in)
+	}
+	// Other ingress changes keep the rules.
+	if code, _, stderr := cli("app", "update", "admin", "--domain", "admin.example.org"); code != 0 {
+		t.Fatal(stderr)
+	}
+	if in := ingress(); !slices.Equal(in.IPDeny, []string{"198.51.100.7"}) {
+		t.Errorf("a domain change dropped the rules: %+v", in)
+	}
+	if code, _, stderr := cli("app", "update", "admin", "--no-ip-rules"); code != 0 {
+		t.Fatal(stderr)
+	}
+	if in := ingress(); in.IPAllow != nil || in.IPDeny != nil {
+		t.Errorf("after --no-ip-rules: %+v", in)
+	}
+	for args, want := range map[string]string{
+		"app update admin --ip-allow 203.0.113.0/24 --ip-deny 198.51.100.7": "none of the others can be",
+		"app update admin --ip-allow 0.0.0.0/0":                             "matches every address",
+		"app update admin --ip-allow example.org":                           "not an IP address",
+	} {
+		if code, _, stderr := cli(strings.Fields(args)...); code == 0 || !strings.Contains(stderr, want) {
+			t.Errorf("%s: %d %q, want %q", args, code, stderr, want)
+		}
 	}
 }

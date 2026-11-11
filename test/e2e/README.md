@@ -88,6 +88,7 @@ E2E_ONLY=isolation,rollout ARMADA_BIN=... sh test/e2e/cluster.sh hosts
 | `platforms` | 10 | image platforms |
 | `cpu` | 11 | CPU reservations, capacity |
 | `spread` | 12 | `placement.spreadBy` |
+| `ip-rules` | 15 | `ingress.ipAllow`/`ipDeny`, trusted proxies, client address headers |
 | `queues` | 14 | autoscaling on queues and schedules, dialling from containers |
 | `reboot` | 13 | start-up order, units, state after a crash |
 
@@ -146,3 +147,12 @@ A release runs every scenario.
     - A command that prints 15 is read.
     - A schedule window that opens every minute holds its app at 2.
     - The Redis password appears in no journal.
+15. Client address rules (runs before 14 and 13), with the last machine as a
+    trusted proxy in front of the cluster:
+    - An app open only to one range refuses the others, also when they claim
+      an allowed address in `X-Forwarded-For`.
+    - Through the trusted proxy, only the address it appended counts:
+      - an address the client put before it is ignored;
+      - a trusted proxy in the chain is stepped over;
+      - a proxy that names no valid client is refused.
+    - `ipDeny` refuses one machine and lets the others in.
