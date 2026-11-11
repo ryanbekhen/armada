@@ -137,6 +137,9 @@ func (s *Server) scheduleBackups(ctx context.Context) error {
 		if backupDue(b, v.Backup).After(now) {
 			continue
 		}
+		if _, measured := s.usage.volume(v.Node, v.App, v.Name, now); !measured {
+			continue // its node has not reported the volume's directory yet
+		}
 		sess := s.session(v.Node)
 		s.condition(ctx, "backup-agent:"+v.App+"/"+v.Name, sess != nil && !sess.backups, store.Event{Kind: eventApp, Object: v.App, App: v.App, Node: v.Node,
 			Reason: "VolumeBackupUnsupported", Message: fmt.Sprintf("volume %s is not backed up: the agent on node %s is too old; upgrade it", v.Name, v.Node)})
