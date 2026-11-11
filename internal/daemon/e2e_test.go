@@ -582,12 +582,12 @@ func TestEndToEnd(t *testing.T) {
 
 	testProjects(t, d, cli, waitFor)
 	// Client address rules with names show in app show (ADR 0035).
-	if code, _, stderr := cli("app", "update", "web", "--ip-allow", "office=203.0.113.0/24", "--ip-allow", "198.51.100.7"); code != 0 {
+	if code, _, stderr := cli("app", "update", "web", "--ip-allow", "203.0.113.0/24,name=office,description=the VPN the admins use", "--ip-allow", "198.51.100.7"); code != 0 {
 		t.Fatalf("ip rules: %s", stderr)
 	}
 	waitFor("rules in app show", func() bool {
 		_, out, _ := cli("app", "show", "web")
-		return regexp.MustCompile(`(?m)^Allowed from:\s+203\.0\.113\.0/24  office\n\s+198\.51\.100\.7\n`).MatchString(out)
+		return regexp.MustCompile(`(?m)^Allowed from:\s+203\.0\.113\.0/24  office: the VPN the admins use\n\s+198\.51\.100\.7\n`).MatchString(out)
 	})
 	if code, _, stderr := cli("app", "update", "web", "--no-ip-rules"); code != 0 {
 		t.Fatalf("no ip rules: %s", stderr)

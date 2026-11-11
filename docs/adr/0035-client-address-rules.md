@@ -60,7 +60,7 @@ ingress:
 - **Changing them.** The rules are part of the app's spec, so they change
   with a deploy and roll back with a rollback.
   - `armada app create`/`update` take `--ip-allow` and `--ip-deny`
-    (repeatable, `[NAME=]RANGE`). Each replaces the list, because who may reach an app is
+    (repeatable, `RANGE[,name=NAME][,description=TEXT]`, the description last so it may hold commas). Each replaces the list, because who may reach an app is
     safer stated in full than pieced together. `--no-ip-rules` lets everyone
     in again.
 

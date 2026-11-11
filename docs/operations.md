@@ -695,7 +695,7 @@ another one can pass its client's address on.
 ([ADR 0035](adr/0035-client-address-rules.md)):
 
 ```bash
-armada app update admin --ip-allow office=203.0.113.0/24 --ip-allow 2001:db8::/32   # [NAME=]RANGE; replaces the list
+armada app update admin --ip-allow '203.0.113.0/24,name=office,description=the VPN the admins use' --ip-allow 2001:db8::/32   # replaces the list
 armada app update shop --ip-deny 198.51.100.7
 armada app update admin --no-ip-rules                                       # everyone again
 ```
