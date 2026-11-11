@@ -301,7 +301,7 @@ func (s *Server) reconcileApp(ctx context.Context, rc *reconcileRun, app *store.
 	if err != nil {
 		return nil, err
 	}
-	if target.Spec.HasVolumes() {
+	if target.Spec.HasLocalVolumes() {
 		return s.reconcileVolumeApp(ctx, rc, app, target, nodes, all, revs)
 	}
 	if len(app.Traffic) == 0 || app.Rolling() {
@@ -978,7 +978,10 @@ func eligible(nodes []store.Node, rev store.Revision) []store.Node {
 // (ADR 0014). A node that does not report its platform is not ruled out.
 func placementAllows(n store.Node, rev store.Revision) bool {
 	sp := rev.Spec
-	if sp.HasVolumes() && !n.Volumes {
+	if sp.HasLocalVolumes() && !n.Volumes {
+		return false
+	}
+	if sp.HasNFSVolumes() && !n.NFS {
 		return false
 	}
 	if sp.HasContainers() && !n.Containers {
@@ -1239,7 +1242,11 @@ func replicaSpec(r store.Replica, rev store.Revision, vals map[string]secrets.Va
 		rs.Liveness = probeProto(sp.Probes.Liveness)
 	}
 	for _, v := range sp.Volumes {
-		rs.Volumes = append(rs.Volumes, &armadav1.VolumeSpec{Name: v.Name, Path: v.Path, Owner: v.Owner})
+		vs := &armadav1.VolumeSpec{Name: v.Name, Path: v.Path, Owner: v.Owner}
+		if n := v.NFS; n != nil {
+			vs.Nfs = &armadav1.NfsSource{Server: n.Server, Path: n.Path, ReadOnly: n.ReadOnly}
+		}
+		rs.Volumes = append(rs.Volumes, vs)
 	}
 	for _, q := range sp.QueueRules() {
 		if r.Run != 0 {

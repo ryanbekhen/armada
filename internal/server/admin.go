@@ -66,6 +66,9 @@ func (s *Server) Deploy(ctx context.Context, req *armadav1.DeployRequest) (*arma
 	if err := acc.placement(app); err != nil {
 		return nil, err
 	}
+	if err := s.checkNFSExports(ctx, acc, app); err != nil {
+		return nil, err
+	}
 	if app.Ingress.TCP() {
 		// The caller's project picks the app behind a port, and only nodes
 		// on the cluster network know their callers (ADR 0039).

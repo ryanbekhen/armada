@@ -92,6 +92,9 @@ func (s *Etcd) RecordVolumeBackup(ctx context.Context, app, name, id string, sto
 // ErrPrecondition.
 func (t *etx) bindVolumes(rev Revision, node string, now time.Time) error {
 	for _, v := range rev.Spec.Volumes {
+		if !v.Local() {
+			continue // NFS volumes are not bound to a node (ADR 0042)
+		}
 		var rec volumeRec
 		ok, err := t.get(volumeKey(rev.App, v.Name), &rec)
 		if err != nil {

@@ -239,6 +239,11 @@ func (c Container) Member(name string) (Member, bool) {
 type VolumeMount struct {
 	Source string // absolute path of a directory on the node
 	Target string // absolute path in the container
+	// Shared marks a mount other containers, on this node or others, use
+	// too (an NFS export, ADR 0042): it keeps the label it was mounted
+	// with instead of getting the container's.
+	Shared   bool
+	ReadOnly bool
 }
 
 // CanMountVolumes reports whether d mounts volumes into app containers.

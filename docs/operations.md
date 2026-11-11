@@ -1259,6 +1259,28 @@ db   data    node2  /var/lib/postgresql/data  1.2GiB  12m ago      31 (1.9GiB)  
 - **Watch disk use.** There is no quota: alert on
   `armada_volume_used_bytes` against the node's disk.
 
+### NFS volumes
+
+A volume with `nfs` mounts an export of an NFS server you run
+([ADR 0042](adr/0042-nfs-volumes.md), fields in the
+[spec reference](spec-reference.md#volumesnfs)). Armada runs no NFS
+server.
+
+- **The server** exports the path over NFSv4 (4.2, 4.1, or 4.0) to the
+  nodes' private addresses, and its firewall lets them in on port 2049.
+  Nodes mount it themselves, `nosuid,nodev,hard` over TCP, under
+  `/var/lib/armada/nfs/<app>/<volume>`; no NFS client package is needed
+  beyond the kernel's.
+- **Ownership** is the server's: give the export to the user the image
+  runs as (with root squash, root in a container is an anonymous user on
+  the server).
+- **Only cluster-admins** add exports to apps or make them writable;
+  deployers may redeploy an app with the exports it has.
+- **When the server is away**, processes that read or write the export
+  wait until it is back (`hard`) instead of getting errors.
+- **Back it up** on the server: Armada's volume backups are for volumes on
+  nodes.
+
 ### Recovering an app whose node is gone
 
 With `failover: restore` on its volumes, this happens by itself from the

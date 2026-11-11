@@ -430,6 +430,7 @@ type nodeRec struct {
 	Jobs        bool              `json:"jobs,omitempty"`
 	Volumes     bool              `json:"volumes,omitempty"`
 	Containers  bool              `json:"containers,omitempty"`
+	NFS         bool              `json:"nfs,omitempty"`
 	// Subnet is the node's container subnet in the cluster network
 	// (ADR 0025); empty in clusters without one.
 	Subnet string `json:"subnet,omitempty"`
@@ -629,7 +630,7 @@ func (t *etx) toNode(n nodeRec) (Node, error) {
 	out := Node{ID: n.ID, PrivateIP: n.PrivateIP, CPUMillis: n.CPUMillis, MemoryBytes: n.MemoryBytes, State: n.State,
 		LastSeen: fromMS(n.LastSeen), CreatedAt: fromMS(n.CreatedAt), Cordoned: n.Cordoned, Version: n.Version,
 		Labels: n.Labels, OS: n.OS, Arch: n.Arch, Restricted: n.Restricted,
-		Jobs: n.Jobs, Volumes: n.Volumes, Containers: n.Containers, Subnet: n.Subnet, NetworkKey: n.NetworkKey}
+		Jobs: n.Jobs, Volumes: n.Volumes, Containers: n.Containers, NFS: n.NFS, Subnet: n.Subnet, NetworkKey: n.NetworkKey}
 	var latest int64
 	err := listInto(t, pfxCerts+n.ID+"/", func(_ string, c certRec) error {
 		latest = max(latest, c.NotAfter)
@@ -718,7 +719,7 @@ func (s *Etcd) SetNodeStatus(ctx context.Context, id string, st NodeStatus) erro
 		}
 		before := n
 		n.State, n.LastSeen, n.CPUMillis, n.MemoryBytes = st.State, ms(st.LastSeen), st.CPUMillis, st.MemoryBytes
-		n.Jobs, n.Volumes, n.Containers = st.Jobs, st.Volumes, st.Containers
+		n.Jobs, n.Volumes, n.Containers, n.NFS = st.Jobs, st.Volumes, st.Containers, st.NFS
 		if st.Version != "" {
 			n.Version = st.Version
 		}
@@ -1822,7 +1823,7 @@ func (s *Etcd) SetReplicas(ctx context.Context, app string, n int, actor string)
 		}
 		if tgt, err := t.revision(a.TargetRevision); err != nil {
 			return err
-		} else if tgt.Spec.HasVolumes() && n != 1 {
+		} else if tgt.Spec.HasLocalVolumes() && n != 1 {
 			return fmt.Errorf("%s has volumes and runs exactly one replica (ADR 0023): %w", app, ErrPrecondition)
 		}
 		a.Replicas, a.UpdatedAt = n, now.UnixMilli()
@@ -1836,7 +1837,7 @@ func (s *Etcd) SetReplicas(ctx context.Context, app string, n int, actor string)
 // keptReplicas is the count an app keeps when sp becomes its target: the
 // current count within sp's bounds if sp is autoscaled, else unchanged.
 func keptReplicas(sp *spec.App, cur int) int {
-	if sp.HasVolumes() {
+	if sp.HasLocalVolumes() {
 		return 1 // volumes: exactly one replica (ADR 0023)
 	}
 	if !sp.Autoscaled() {

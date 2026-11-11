@@ -18,6 +18,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/ryanbekhen/armada/internal/agent"
 	"github.com/ryanbekhen/armada/internal/clientconfig"
 	"github.com/ryanbekhen/armada/internal/clusternet"
 	"github.com/ryanbekhen/armada/internal/conntrack"
@@ -61,7 +62,9 @@ type doctorEnv struct {
 	listeners  func() ([]netip.AddrPort, error)
 	ntpSynced  func(context.Context) (bool, error)
 	ufwStatus  func(context.Context) (string, error)
-	readFile   func(string) ([]byte, error)
+	// nfs reports whether the kernel has an NFSv4 client (ADR 0042).
+	nfs      func() bool
+	readFile func(string) ([]byte, error)
 	// serverEnv reads /etc/armada/server.env; nil skips the check.
 	serverEnv   func() ([]byte, error)
 	now         func() time.Time
@@ -138,6 +141,7 @@ func hostDoctorEnv(dataDir string) doctorEnv {
 		listeners:   procListeners,
 		ntpSynced:   timedatectlSynced,
 		ufwStatus:   ufwStatus,
+		nfs:         agent.NFSSupported,
 		readFile:    fsutil.ReadPrivateFile,
 		serverEnv:   func() ([]byte, error) { return os.ReadFile(serverEnvFile) },
 		now:         time.Now,
@@ -223,6 +227,14 @@ func runDoctor(ctx context.Context, env doctorEnv) []checkResult {
 			add("firewall", checkOK, "ufw is active and allows %s → 53 and 80/tcp for internal names; published container ports bypass its rules", br)
 		} else {
 			add("firewall", checkWarn, "ufw is active: published container ports bypass ufw rules, and containers need %[1]s → 53/udp,tcp and 80/tcp allowed for internal names (ufw allow in on %[1]s to any port 53; ufw allow in on %[1]s to any port 80 proto tcp)", br)
+		}
+	}
+
+	if env.nfs != nil {
+		if env.nfs() {
+			add("nfs", checkOK, "the kernel has an NFSv4 client: apps with NFS volumes may run here")
+		} else {
+			add("nfs", checkWarn, "the kernel has no NFSv4 client: apps with NFS volumes are not placed here")
 		}
 	}
 

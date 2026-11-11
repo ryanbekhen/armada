@@ -79,6 +79,8 @@ type Node struct {
 	// Containers is true when the node's agent runs init containers and
 	// sidecars (ADR 0038).
 	Containers bool
+	// NFS is true when the node's agent mounts NFS volumes (ADR 0042).
+	NFS bool
 	// Subnet is the node's container subnet in the cluster network
 	// (ADR 0025), given when the node is created; empty in clusters
 	// without one.
@@ -302,6 +304,7 @@ type NodeStatus struct {
 	Jobs       bool
 	Volumes    bool
 	Containers bool
+	NFS        bool
 	Egress     bool
 	// NetworkKey as the agent announces it; empty keeps the recorded one.
 	// A key another node holds is refused with ErrConflict.
