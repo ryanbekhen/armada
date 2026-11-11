@@ -764,6 +764,11 @@ web-r1-q2k0d     node2  running  41m/250m   58Mi/256Mi
 An app with `scale.rules` scales itself between `scale.min` and
 `scale.max` ([ADR 0020](adr/0020-autoscaling.md); rules in the
 [spec reference](spec-reference.md#autoscaling)).
+`armada app scale` refuses such an app, since the autoscaler would undo
+it. Change the bounds instead: `armada app update web --min 3` keeps at
+least three running, and `armada app update web --replicas 3` stops
+autoscaling at a fixed count. A later `app update --file` sets the bounds
+the file names again.
 
 ```
 $ armada app show web
