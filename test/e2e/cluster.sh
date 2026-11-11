@@ -620,6 +620,8 @@ cli node label "$_node" e2e.role- >/dev/null
 wait_for 60 "app show explains why pinned has nowhere to go" placement_note
 cli node unrestrict "$_node" >/dev/null
 wait_for 600 "$APP spread back over every node" even
+# Later scenarios need the room on the test machines.
+cli app delete pinned --yes >/dev/null
 
 fi
 if want platforms; then
@@ -669,6 +671,7 @@ EOF
 		wait_for 120 "a linux/$_a image runs nowhere and app show says why" unplaced "only-$_a" "$_a"
 	fi
 done
+for _a in amd64 arm64; do cli app delete "only-$_a" --yes >/dev/null; done
 
 fi
 if want cpu; then
@@ -696,6 +699,7 @@ no_cpu() {
 		  and ([.replicas[]? | select(.state == "running")] | length) == 0'
 }
 wait_for 60 "an app reserving more CPU than any node has runs nowhere and app show says why" no_cpu
+cli app delete cpu-hog --yes >/dev/null
 
 fi
 if want spread; then
@@ -732,6 +736,7 @@ half_on() {
 		  and ([$live[] | select(.nodeId == $node)] | length) == 2'
 }
 wait_for 300 "spread by zone: two of four replicas on $_last, alone in its zone" half_on "$_last"
+cli app delete spread --yes >/dev/null
 
 fi
 if want ip-rules; then
@@ -868,7 +873,11 @@ cors_preflight_ok() {
 		printf '%s\n' "$_h" | grep -qi '^access-control-allow-methods: GET, POST$' &&
 		printf '%s\n' "$_h" | grep -qi '^access-control-max-age: 600$'
 }
-wait_for 240 "the proxy answers a preflight from a listed origin" cors_preflight_ok
+cors_ready() {
+	status | jq -e '[.apps[] | select(.name == "cors") | .replicas[]? | select(.state == "running" and .ready)] | length >= 1' >/dev/null
+}
+wait_for 240 "the cors app is ready" cors_ready
+wait_for 60 "the proxy answers a preflight from a listed origin" cors_preflight_ok
 _h=$(cors_headers GET https://app.example.org)
 printf '%s\n' "$_h" | grep -qi '^access-control-allow-origin: https://app.example.org$' ||
 	fail "a request from a listed origin lacks Access-Control-Allow-Origin: $_h"
