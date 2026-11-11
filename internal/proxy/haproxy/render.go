@@ -67,10 +67,19 @@ type renderOptions struct {
 	// internal frontend admits a request only from the target's project,
 	// or its allowed apps (ADR 0026).
 	Subnet string
+	// BusyTCP are TCP ports another program listens on, on the gateway or
+	// every address of the node: binding them would fail the reload, so
+	// they get no listener (ADR 0039). Sorted.
+	BusyTCP []int
 }
 
 // checksCallers reports whether the internal frontend checks who calls.
 func (o renderOptions) checksCallers() bool { return o.Subnet != "" }
+
+// servesTCP reports whether the node has TCP listeners (ADR 0039): only on
+// the bridge gateway, and only where the caller's project is known, which
+// picks the backend.
+func (o renderOptions) servesTCP() bool { return o.InternalIP != "" && o.checksCallers() }
 
 // node returns where this node's replicas are.
 func (o renderOptions) node() node {
@@ -124,6 +133,8 @@ type pool struct {
 	sticky bool
 	// cors is the backend's cross-origin policy (ADR 0037).
 	cors *proxy.CORS
+	// tcp makes the backend serve plain TCP connections (ADR 0039).
+	tcp bool
 }
 
 // Weights of a local-first backend (ADR 0024). HAProxy's leastconn picks the
@@ -345,7 +356,11 @@ func render(cfg proxy.Config, layout Layout, opts renderOptions) []byte {
 
 	backends := slices.Clone(cfg.Backends)
 	slices.SortFunc(backends, func(a, b proxy.Backend) int { return cmp.Compare(a.Name, b.Name) })
+	tcp := cfg.TCPBackends()
 	for _, be := range backends {
+		if tcp[be.Name] {
+			continue
+		}
 		writeBackend(w, backendPool(be, opts.node()), be.HealthPath, layout)
 		if be.Wake {
 			w("backend %s", wakeBackendName(be.Name))
@@ -367,8 +382,76 @@ func render(cfg proxy.Config, layout Layout, opts renderOptions) []byte {
 	}
 	w("backend be_armada_notfound")
 	w("    http-request return status 404 content-type text/plain string \"no app is configured for this host\"")
+	if len(cfg.TCP) > 0 {
+		writeTCP(w, cfg, backends, tcp, layout, opts)
+	}
 	return []byte(b.String())
 }
+
+// tcpTimeout is how long a TCP connection may stay silent in either
+// direction, as long as a reload lets an old process keep its connections
+// (hard-stop-after).
+const tcpTimeout = "1h"
+
+// writeTCP emits the internal TCP side (ADR 0039): its own defaults, a
+// frontend per port on the bridge gateway, and the TCP backends. A port is
+// shared by the projects of the cluster: the caller's project, from its
+// address in the clients map, picks the backend, and a caller this node does
+// not know, the node included, or one the app does not allow, is refused
+// before anything is read from it. Nothing listens anywhere but the gateway,
+// which only this node's containers reach.
+func writeTCP(w func(string, ...any), cfg proxy.Config, backends []proxy.Backend, tcp map[string]bool, layout Layout, opts renderOptions) {
+	w("")
+	w("defaults tcp")
+	w("    mode tcp")
+	w("    log global")
+	w("    option tcplog")
+	w("    retries 3")
+	w("    option redispatch 1")
+	w("    timeout connect 2s")
+	w("    timeout client %s", tcpTimeout)
+	w("    timeout server %s", tcpTimeout)
+	w("")
+	if opts.servesTCP() {
+		byPort := map[int][]proxy.TCPRoute{}
+		for _, r := range cfg.TCP {
+			byPort[r.Port] = append(byPort[r.Port], r)
+		}
+		clients := containerConfDir + "/" + clientsFile
+		for _, port := range cfg.TCPPorts() {
+			if slices.Contains(opts.BusyTCP, port) {
+				continue
+			}
+			routes := byPort[port]
+			slices.SortFunc(routes, func(a, b proxy.TCPRoute) int { return cmp.Compare(a.Backend, b.Backend) })
+			w("frontend %s", tcpFrontendName(port))
+			w("    bind %s:%d", hostForBind(opts.InternalIP), port)
+			w("    tcp-request connection set-var(sess.cproj) src,map_ip(%s),field(1,:)", clients)
+			w("    tcp-request connection set-var(sess.capp) src,map_ip(%s),field(2,:)", clients)
+			for _, r := range routes {
+				set := fmt.Sprintf("    tcp-request connection set-var(sess.route) str(%s) if { var(sess.cproj) -m str %s }", backendName(r.Backend), proxy.BackendProject(r.Backend))
+				if len(r.Allow) > 0 {
+					set += fmt.Sprintf(" { var(sess.capp) -m str %s }", strings.Join(r.Allow, " "))
+				}
+				w("%s", set)
+			}
+			w("    tcp-request connection reject unless { var(sess.route) -m found }")
+			w("    use_backend %%[var(sess.route)]")
+			w("")
+		}
+	}
+	for _, be := range backends {
+		if !tcp[be.Name] {
+			continue
+		}
+		p := backendPool(be, opts.node())
+		p.tcp = true
+		writeBackend(w, p, "", layout)
+	}
+}
+
+// tcpFrontendName names the listener of a TCP port.
+func tcpFrontendName(port int) string { return "tcp_" + strconv.Itoa(port) }
 
 // remoteCheckInterval is how often a node checks a replica on another node
 // while requests to it succeed.
@@ -486,13 +569,20 @@ func writeBackend(w func(string, ...any), p pool, healthPath string, layout Layo
 	if p.timeout > 0 {
 		w("    timeout server %ds", p.timeout)
 	}
+	rules := "http-request"
+	if p.tcp {
+		rules = "tcp-request content"
+	}
 	if p.leastconn {
 		w("    balance leastconn")
 		// With no other request in progress, a replica on this node. A name
 		// the map does not have, or a server that is down, falls through to
 		// balancing.
-		w("    http-request set-var(txn.lk) rand(%d)", localChoices)
+		w("    %s set-var(txn.lk) rand(%d)", rules, localChoices)
 		w("    use-server %%[str(%s),concat(/,txn.lk),map(%s/%s)] if { be_conn le 1 }", p.name, containerConfDir, localFile)
+	} else if p.tcp {
+		// Connections last: the server with the fewest takes the next.
+		w("    balance leastconn")
 	} else {
 		w("    balance roundrobin")
 	}
@@ -722,6 +812,10 @@ func safeConfig(cfg proxy.Config, opts renderOptions) bool {
 	}
 	for _, r := range cfg.Rules {
 		vals = append(vals, r.Host, r.PathPrefix, r.Backend)
+		vals = append(vals, r.Allow...)
+	}
+	for _, r := range cfg.TCP {
+		vals = append(vals, r.Backend)
 		vals = append(vals, r.Allow...)
 	}
 	for _, c := range cfg.Certificates {

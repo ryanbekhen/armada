@@ -92,6 +92,7 @@ E2E_ONLY=isolation,rollout ARMADA_BIN=... sh test/e2e/cluster.sh hosts
 | `sticky` | 16 | `ingress.sticky`, the proxy's cookie |
 | `cors` | 17 | `ingress.cors`, the proxy's preflight answers |
 | `sidecars` | 18 | init containers, sidecars, the shared network namespace |
+| `tcp` | 19 | internal TCP ingress: HAProxy's TCP listeners, the clients map, nftables on the gateway, internal DNS |
 | `queues` | 14 | autoscaling on queues and schedules, dialling from containers |
 | `reboot` | 13 | start-up order, units, state after a crash |
 
@@ -169,3 +170,9 @@ A release runs every scenario.
     container's output is in its logs; the sidecar reaches the app on
     127.0.0.1; a failing init container keeps its app from starting and says
     why (runs before 14 and 13).
+19. Internal TCP: an echo server with `protocol: tcp` on port 7000 and
+    `allow: [client]` answers every connection from `client` of its project
+    at `tcp-echo.e2e-tcp.internal:7000`; another app of the project is
+    refused, and an app of another project neither resolves the name nor gets
+    an answer at its gateway; port 7000 is open on no node's private address
+    (runs before 14 and 13).

@@ -127,12 +127,30 @@ func (s *Server) buildProxy(ctx context.Context, apps []store.App, replicas []st
 	}
 
 	perApp := byApp(replicas)
+	// project/port -> app: the store gives each a single app (ADR 0039);
+	// should two ever claim one, the first keeps it rather than the whole
+	// configuration failing.
+	tcpTaken := map[string]string{}
 	for _, app := range apps {
 		sp := app.Spec
 		if sp.Ingress == nil || sp.Ingress.Type == spec.IngressNone {
 			continue
 		}
 		replicas := perApp[app.Name]
+		if sp.Ingress.TCP() {
+			key := fmt.Sprintf("%s/%d", proxy.BackendProject(app.Name), sp.Ingress.Port)
+			if owner, ok := tcpTaken[key]; ok {
+				s.log.Warn("TCP port taken by another app of the project", "app", app.Name, "port", sp.Ingress.Port, "owner", owner)
+				continue
+			}
+			tcpTaken[key] = app.Name
+			// Plain TCP on the internal side only: no host, path, or HTTP
+			// check; each node prefers its own replicas.
+			cfg.Backends = append(cfg.Backends, proxy.Backend{Name: app.Name, LocalFirst: true,
+				Servers: s.proxyServers(app, replicas, func(r store.Replica) bool { return inProxy(app, r) })})
+			cfg.TCP = append(cfg.TCP, proxy.TCPRoute{Port: sp.Ingress.Port, Backend: app.Name, Allow: allowedCallers(app.Name, sp.Ingress.Allow)})
+			continue
+		}
 		splits := len(app.Traffic) > 0 && !app.Rolling()
 		// Traffic splitting keeps every replica in one pool so revision
 		// weights hold; other apps prefer each node's own replicas.
@@ -657,6 +675,9 @@ func (s *Server) appURLSource(ctx context.Context, app store.App) urlSources {
 func appURLsFrom(app store.App, src urlSources) []string {
 	if app.Spec.Ingress == nil || app.Spec.Ingress.Type == spec.IngressNone {
 		return nil
+	}
+	if app.Spec.Ingress.TCP() {
+		return []string{fmt.Sprintf("tcp://%s:%d", spec.InternalHost(app.Name), app.Spec.Ingress.Port)}
 	}
 	if app.Spec.Ingress.Type == spec.IngressInternal {
 		var urls []string

@@ -36,7 +36,7 @@ type specFlags struct {
 
 	// Apps.
 	port                             int
-	ingress                          string
+	ingress, protocol                string
 	domains, removeDomains           []string
 	ipAllow, ipDeny                  []string
 	noIPRules                        bool
@@ -56,7 +56,7 @@ type specFlags struct {
 // Flags that change an app's spec, and a job's.
 var (
 	appSpecFlags = []string{"image", "command", "args", "env", "secret-env", "remove-env", "env-from-secrets", "cpu", "memory",
-		"registry-user", "registry-secret", "port", "ingress", "domain", "remove-domain", "ip-allow", "ip-deny", "no-ip-rules", "sticky", "cors-origin", "no-cors", "replicas", "min", "max",
+		"registry-user", "registry-secret", "port", "ingress", "protocol", "domain", "remove-domain", "ip-allow", "ip-deny", "no-ip-rules", "sticky", "cors-origin", "no-cors", "replicas", "min", "max",
 		"scale-cpu", "scale-memory", "scale-http", "health-path"}
 	jobSpecFlags = []string{"image", "command", "args", "env", "secret-env", "remove-env", "env-from-secrets", "cpu", "memory",
 		"registry-user", "registry-secret", "schedule", "time-zone", "timeout", "retries", "concurrency"}
@@ -89,6 +89,7 @@ func (f *specFlags) register(cmd *cobra.Command, job bool) {
 	}
 	fs.IntVar(&f.port, "port", 0, "port the app listens on")
 	fs.StringVar(&f.ingress, "ingress", "", "who reaches the app: external, internal, or none")
+	fs.StringVar(&f.protocol, "protocol", "", "http (default) or tcp: a tcp app is internal only, reached by apps of its project at <app>.internal:<port>")
 	fs.StringArrayVar(&f.domains, "domain", nil, "custom domain (repeatable)")
 	fs.StringArrayVar(&f.removeDomains, "remove-domain", nil, "remove a custom domain (repeatable)")
 	fs.StringArrayVar(&f.ipAllow, "ip-allow", nil, "RANGE[,name=NAME][,description=TEXT]: only clients from this address or prefix reach the app from outside (repeatable; replaces the list)")
@@ -301,7 +302,7 @@ func (f *specFlags) applyJob(a *spec.App) {
 
 func (f *specFlags) applyIngress(a *spec.App) error {
 	ch := f.fs.Changed
-	if !ch("ingress") && !ch("port") && !ch("domain") && !ch("remove-domain") && !ch("ip-allow") && !ch("ip-deny") && !ch("no-ip-rules") && !ch("sticky") && !ch("cors-origin") && !ch("no-cors") {
+	if !ch("ingress") && !ch("protocol") && !ch("port") && !ch("domain") && !ch("remove-domain") && !ch("ip-allow") && !ch("ip-deny") && !ch("no-ip-rules") && !ch("sticky") && !ch("cors-origin") && !ch("no-cors") {
 		return nil
 	}
 	in := spec.Ingress{Type: spec.IngressNone}
@@ -313,6 +314,12 @@ func (f *specFlags) applyIngress(a *spec.App) error {
 		in.Type = f.ingress
 		if f.ingress == spec.IngressNone {
 			in = spec.Ingress{Type: spec.IngressNone}
+		}
+	}
+	if ch("protocol") {
+		in.Protocol = f.protocol
+		if f.protocol == spec.ProtocolHTTP {
+			in.Protocol = "" // the default
 		}
 	}
 	if ch("port") {

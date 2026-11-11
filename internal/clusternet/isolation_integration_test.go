@@ -99,6 +99,12 @@ func randomPolicy(r *rand.Rand) policy {
 	}
 	slices.Sort(pol.apps)
 	slices.SortFunc(pol.open, netip.Addr.Compare)
+	// Internal TCP ports (ADR 0039); always some, which keeps the frame.
+	for range 1 + r.IntN(3) {
+		pol.tcpPorts = append(pol.tcpPorts, uint16(5000+r.IntN(6)))
+	}
+	slices.Sort(pol.tcpPorts)
+	pol.tcpPorts = slices.Compact(pol.tcpPorts)
 	return pol
 }
 
