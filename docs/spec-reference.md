@@ -586,8 +586,9 @@ volumes:
 | `keySecretRef` | Secret of the app with the encryption key: any value of at least 32 bytes, for example `openssl rand -base64 48`. **Keep a copy outside the cluster**: without it the backups cannot be read. |
 | `stop` | `true` stops the app's container while the volume is read, for a consistent copy. |
 
-- The first backup runs as soon as the volume exists; a failed one is
-  tried again after 5 minutes (or `every`, when shorter).
+- The first backup runs once the volume's node has reported it, within
+  about a minute; a failed one is tried again after 5 minutes (or `every`,
+  when shorter).
 - Both secrets stay out of the app's environment, `envFrom` included.
 - The volume's repository is `<prefix>/<app>/<volume>/` in the bucket
   (`<app>.<project>` outside the default project).
