@@ -83,9 +83,11 @@ to someone without it. Standard library primitives only (`crypto/aes`,
   the last success, or the schedule's last fire since then) and, when the
   volume's node is connected and its agent announces
   `Hello.volume_backups`, sends it a `VolumeRequest` (`OP_SNAPSHOT`) with
-  the decrypted URL and key. At most one backup per volume runs, and at
-  most one per node at a time. A failed backup is tried again after 5 minutes, or
-  the interval when shorter.
+  the decrypted URL and key. A volume's first backup waits until its node
+  has reported the volume's directory (its size, measured every minute).
+  At most one backup per volume runs, and at most one scheduled backup per
+  node at a time. A failed backup is tried again after 5 minutes, or the
+  interval when shorter.
 - The agent walks the volume (regular files, directories, and links;
   sockets, devices, and pipes are left out, as `armada volume backup`
   does), uploads the chunks the repository lacks, then writes the snapshot.
@@ -106,16 +108,18 @@ to someone without it. Standard library primitives only (`crypto/aes`,
 
 ### Restoring
 
-- `armada volume snapshot list APP VOL` lists a volume's backups (time,
-  files, size); `armada volume snapshot create APP VOL` takes one now.
+- `armada volume snapshot list APP VOL` lists a volume's backups (ID and
+  time); `armada volume snapshot create APP VOL` takes one now and says
+  what it held and added.
 - `armada volume restore APP VOL --snapshot ID|latest [--node N]` restores
   one on the volume's node (or binds the volume to `N`, refused while the
   old node is connected, as with an archive). The agent downloads and
   checks every chunk (the seal and its name), writes into a sibling
   directory, and swaps it in only when everything was written, with the
   app stopped, as with an archive.
-- Repository operations go to the volume's node; when it is not connected,
-  listing and restoring with `--node` go to that node.
+- Repository operations go to the volume's node. When it is not connected,
+  listing goes to any connected node that backs volumes up, and restoring
+  with `--node` to that node.
 
 ## Consequences
 
