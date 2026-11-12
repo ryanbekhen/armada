@@ -211,6 +211,7 @@ func TestRestartReason(t *testing.T) {
 		"startup probe failed: refused":                    "startup",
 		"its network interface is gone":                    "network",
 		"stopped for a volume backup or restore":           "volume",
+		"the machine restarted":                            "machine_restart",
 		"exited with code 1":                               "exited",
 		"container exited":                                 "exited",
 		"something new":                                    "other",

@@ -1182,7 +1182,7 @@ scrape interval under 10 seconds costs nothing more, but shows nothing new.
 | `armada_replica_info` | `app`, `replica`, `revision`, `node`, `ip` | 1 for each replica, with the IP address it is reached at (empty until it has one) |
 | `armada_replica_start_time_seconds` | `app`, `replica`, `node` | when the replica was scheduled |
 | `armada_replica_restarts_total` | `app`, `replica`, `node` | how often its container was recreated (crash, out of memory, failed probe) |
-| `armada_replica_last_restart_timestamp_seconds` | `app`, `replica`, `node`, `reason` | when it last was, and why: `exited`, `out_of_memory`, `liveness`, `startup`, `network`, `volume`, `other`, `unknown` |
+| `armada_replica_last_restart_timestamp_seconds` | `app`, `replica`, `node`, `reason` | when it last was, and why: `exited`, `out_of_memory`, `liveness`, `startup`, `network`, `volume`, `machine_restart` (the machine rebooted), `other`, `unknown` |
 | `armada_replica_cpu_usage_cores`, `armada_replica_memory_usage_bytes` | `app`, `replica`, `node` | usage from the latest sample (absent without one) |
 | `armada_replica_cpu_reserved_cores`, `armada_replica_cpu_limit_cores`, `armada_replica_memory_limit_bytes` | `app`, `replica`, `node` | reservation and limits (CPU limit only when set) |
 | `armada_project_replicas` | `project` | replicas of the project's apps |

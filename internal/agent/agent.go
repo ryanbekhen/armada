@@ -103,6 +103,10 @@ type Config struct {
 	// up (ADR 0021); empty disables it. It must be in a directory only root
 	// can reach.
 	WakeSocket string
+	// BootTime is when the machine last booted; zero: read from the
+	// system. Containers started before it are reported as restarted with
+	// the machine rather than as crashed.
+	BootTime time.Time
 	// Capacity reported to the scheduler; zero values are auto-detected.
 	CPUMillis   int64
 	MemoryBytes int64
@@ -164,9 +168,10 @@ type InternalDNS interface {
 
 // Agent reconciles containers on one node.
 type Agent struct {
-	cfg   Config
-	log   *slog.Logger
-	began time.Time
+	cfg    Config
+	log    *slog.Logger
+	began  time.Time
+	booted time.Time // when the machine last booted; zero if unknown
 
 	mu        sync.Mutex
 	desired   map[string]*armadav1.ReplicaSpec // nil until the first assignment
@@ -263,8 +268,12 @@ func New(cfg Config) *Agent {
 			cfg.MemoryBytes = mem
 		}
 	}
+	if cfg.BootTime.IsZero() {
+		cfg.BootTime = machineBoot()
+	}
 	return &Agent{
 		began:     time.Now(),
+		booted:    cfg.BootTime,
 		cfg:       cfg,
 		servers:   slices.Clone(cfg.Servers),
 		log:       cfg.Logger.With("component", "agent", "node", cfg.NodeID),
@@ -822,11 +831,17 @@ func (a *Agent) outOfMemory(ctx context.Context, id string) bool {
 }
 
 // crashed describes why c stopped and returns how long to wait before
-// recreating it (zero: now). Each recreate doubles the next delay.
+// recreating it (zero: now). Each recreate doubles the next delay, except
+// for a container the machine's reboot stopped.
 func (a *Agent) crashed(ctx context.Context, s *armadav1.ReplicaSpec, c runtime.Container) (string, time.Duration) {
 	replica := s.GetId()
 	msg := "container " + c.State
 	// Listing does not include the exit code.
+	if a.startedBeforeBoot(c.StartedAt) {
+		// Its process ended with the machine; the runtime has no task and
+		// no real exit code for it. Not a crash: no backoff.
+		return machineRestarted, 0
+	}
 	if down := memberDown(s, c); down != "" {
 		msg = down
 	} else if full, err := a.cfg.Driver.Inspect(ctx, c.ID); err == nil && full.State != runtime.StateCreated {

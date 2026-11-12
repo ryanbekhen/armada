@@ -843,3 +843,47 @@ func TestPruneImagesKeepsAssignedImages(t *testing.T) {
 		t.Errorf("kept %v", d.Prunes)
 	}
 }
+
+func TestReconcileMachineRestarted(t *testing.T) {
+	t.Parallel()
+
+	a, d := newAgent(t)
+	a.setDesired([]*armadav1.ReplicaSpec{replica("web", "nginx:1", 0)}, nil)
+	if _, err := a.Reconcile(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	cs, _ := d.List(context.Background(), map[string]string{runtime.LabelReplica: "web"})
+	// The machine booted after the container started: its task is gone and
+	// the runtime reports exit code 255.
+	a.booted = time.Now().Add(2 * time.Second)
+	d.SetState(cs[0].ID, runtime.StateExited, 255)
+	report, err := a.Reconcile(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r := report.Replicas[0]; r.State != store.ReplicaRunning || r.ContainerId == cs[0].ID || r.Message != "restarted: the machine restarted" {
+		t.Errorf("after the reboot = %v", r)
+	}
+
+	// A container started after the boot that exits crashed.
+	cs, _ = d.List(context.Background(), map[string]string{runtime.LabelReplica: "web"})
+	a.booted = time.Now().Add(-time.Hour)
+	d.SetState(cs[0].ID, runtime.StateExited, 1)
+	report, _ = a.Reconcile(context.Background())
+	if r := report.Replicas[0]; r.Message != "restarted: exited with code 1" {
+		t.Errorf("crash after the boot = %v", r)
+	}
+}
+
+func TestParseBootTime(t *testing.T) {
+	t.Parallel()
+	stat := []byte("cpu  1 2 3\nintr 5\nctxt 7\nbtime 1794068497\nprocesses 9\n")
+	if got := parseBootTime(stat); !got.Equal(time.Unix(1794068497, 0)) {
+		t.Errorf("btime = %v", got)
+	}
+	for _, bad := range []string{"", "btime\n", "btime x\n", "btime 0\n", "btime 1 2\n"} {
+		if got := parseBootTime([]byte(bad)); !got.IsZero() {
+			t.Errorf("%q: %v, want zero", bad, got)
+		}
+	}
+}
