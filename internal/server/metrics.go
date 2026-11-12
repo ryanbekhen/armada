@@ -217,6 +217,7 @@ var (
 	descRevisionInfo     = prometheus.NewDesc("armada_revision_info", "1 for each revision of an app that serves, rolls out, or still has replicas, with the image its spec names.", []string{"app", "revision", "image"}, nil)
 	descReplicaState     = prometheus.NewDesc("armada_replica_state", "1 for a replica's current state (pending, pulling, starting, running, exited, failed, unknown).", []string{"app", "replica", "node", "state"}, nil)
 	descReplicaInfo      = prometheus.NewDesc("armada_replica_info", "1 for each replica, with its revision and the IP address it is reached at (empty until it has one).", []string{"app", "replica", "revision", "node", "ip"}, nil)
+	descReplicaDraining  = prometheus.NewDesc("armada_replica_draining", "1 while a replica is out of the proxy and being stopped (an older revision after a rollout, a scale down, or a move to another node), 0 otherwise.", []string{"app", "replica", "node"}, nil)
 	descScaledAt         = prometheus.NewDesc("armada_app_autoscale_last_scale_timestamp_seconds", "When the autoscaler last changed an app's replica count; absent until it does.", []string{"app"}, nil)
 )
 
@@ -231,7 +232,7 @@ func (c *clusterCollector) Describe(ch chan<- *prometheus.Desc) {
 		descBackupLast, descBackupStored, descBackupSnapshots, descBackupFailing,
 		descProjectReplicas, descProjectCPU, descProjectMemory, descProjectCPURes, descProjectMemRes,
 		descProjectVolumes, descProjectRequests, descProjectEgress,
-		descRevisionInfo, descReplicaState, descReplicaInfo, descScaledAt,
+		descRevisionInfo, descReplicaState, descReplicaInfo, descReplicaDraining, descScaledAt,
 	} {
 		ch <- d
 	}
@@ -271,6 +272,7 @@ func (c *clusterCollector) gather() (out []prometheus.Metric, ok bool) {
 			gauge(descReplicaReady, v, a.GetName(), r.GetId(), r.GetRevision(), r.GetNodeId())
 			gauge(descReplicaState, 1, a.GetName(), r.GetId(), r.GetNodeId(), replicaStateLabel(r.GetState()))
 			gauge(descReplicaInfo, 1, a.GetName(), r.GetId(), r.GetRevision(), r.GetNodeId(), addressIP(r.GetAddress()))
+			gauge(descReplicaDraining, boolValue(r.GetDraining()), a.GetName(), r.GetId(), r.GetNodeId())
 			emit(prometheus.MustNewConstMetric(descReplicaRestarts, prometheus.CounterValue, float64(r.GetRestarts()), a.GetName(), r.GetId(), r.GetNodeId()))
 			if t := r.GetLastRestartAt(); t != nil {
 				gauge(descReplicaLastRest, float64(t.GetSeconds()), a.GetName(), r.GetId(), r.GetNodeId(), restartReason(r.GetLastRestart()))

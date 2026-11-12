@@ -83,6 +83,9 @@ once per 10 seconds, and values may be that old. Nothing is stored.
     `unknown`)
   - `armada_replica_info{app,replica,revision,node,ip}`, with the IP address
     the replica is reached at
+  - `armada_replica_draining{app,replica,node}`, 1 while the replica is out of
+    the proxy and being stopped (after a rollout, a scale down, or a move), so
+    a dashboard tells it from a new replica that is not ready yet
   - `armada_replica_start_time_seconds`, when the replica was scheduled
   - `armada_replica_restarts_total`, how often the agent recreated its
     container, and `armada_replica_last_restart_timestamp_seconds{reason}`,

@@ -1180,6 +1180,7 @@ scrape interval under 10 seconds costs nothing more, but shows nothing new.
 | `armada_app_autoscale_last_scale_timestamp_seconds` | `app` | when the autoscaler last changed the replica count (absent until it does) |
 | `armada_revision_info` | `app`, `revision`, `image` | 1 for each revision that serves, rolls out, or still has replicas, with the image its spec names |
 | `armada_replica_ready` | `app`, `replica`, `revision`, `node` | 1 when the replica serves |
+| `armada_replica_draining` | `app`, `replica`, `node` | 1 while it is out of the proxy and being stopped: an older revision after a rollout, a scale down, or a move to another node. `armada_replica_ready` is 0 then too |
 | `armada_replica_state` | `app`, `replica`, `node`, `state` | 1 for its current state: `pending`, `pulling`, `starting`, `running`, `exited`, `failed`, `unknown` |
 | `armada_replica_info` | `app`, `replica`, `revision`, `node`, `ip` | 1 for each replica, with the IP address it is reached at (empty until it has one) |
 | `armada_replica_start_time_seconds` | `app`, `replica`, `node` | when the replica was scheduled |
