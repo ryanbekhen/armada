@@ -367,7 +367,7 @@ func (d *Driver) Run(ctx context.Context, s runtime.ContainerSpec) (_ string, er
 	labels[labelNetNS] = netns
 	labels[labelIP] = ip
 
-	files, err := writeFiles(d.paths.Containers(), id, s.Name, ip, s.DNS)
+	files, err := writeFiles(d.paths.Containers(), id, s.Name, ip, s.DNS, s.DNSSearch)
 	if err != nil {
 		return "", err
 	}

@@ -105,7 +105,10 @@ Projects build on the cluster network (ADR 0025) and its access rules:
   `ingress.allow` (ADR 0025 stage 3) only names apps of the same project.
 - **Internal ingress and DNS.** Internal names carry the project:
   `<app>.<project>.internal`, and the `default` project has
-  `<app>.internal`. The agent's DNS server answers a container only for
+  `<app>.internal`; within its own project a container may use the app's
+  name alone (ADR 0007: its project's zone is its search domain, and the
+  internal frontend completes a `Host` without a dot with the caller's
+  project). The agent's DNS server answers a container only for
   its own project's names: it knows each container's app from its address
   (the same list its firewall uses), and answers no internal name to an
   address it does not know. HAProxy's internal frontend admits a request

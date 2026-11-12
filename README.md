@@ -129,7 +129,7 @@ address (a VPN or an SSH tunnel): see
 | | |
 | --- | --- |
 | **Deploy** | Rolling updates, rollback, revisions pinned to image digests, traffic splitting for canaries and previews |
-| **Traffic** | HTTPS on every node, custom domains, internal services at `<app>.internal`, internal TCP for databases, IP allow and deny lists, CORS, sticky sessions |
+| **Traffic** | HTTPS on every node, custom domains, internal services by name (`http://<app>`, `<app>.internal`), internal TCP for databases, IP allow and deny lists, CORS, sticky sessions |
 | **Scale** | Autoscaling on requests, CPU, memory, queue length, or a schedule; scale to zero and back on the next request |
 | **Run** | Jobs and cron jobs, jobs started by a queue, init containers, sidecars, `exec` into replicas, logs |
 | **Data** | Volumes, scheduled encrypted backups to an S3-compatible bucket, failover to another node, NFS exports |

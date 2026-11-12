@@ -19,6 +19,7 @@ import (
 	"unicode"
 
 	"github.com/ryanbekhen/armada/internal/proxy"
+	"github.com/ryanbekhen/armada/internal/spec"
 )
 
 // Paths inside the HAProxy container.
@@ -348,6 +349,14 @@ func render(cfg proxy.Config, layout Layout, opts renderOptions) []byte {
 			w("    http-request set-var(txn.cproj) src,map_ip(%s/%s),field(1,:)", containerConfDir, clientsFile)
 			w("    http-request set-var(txn.capp) src,map_ip(%s/%s),field(2,:)", containerConfDir, clientsFile)
 			rr.callers = true
+			// A name alone (no dot) is an app of the caller's own project:
+			// b is b.internal in default and b.shop.internal in shop.
+			w("    http-request set-var(txn.host) var(txn.host),concat(%s) if !{ var(txn.host) -m sub . } { var(txn.cproj) -m str %s }", spec.InternalSuffix, spec.DefaultProject)
+			w("    http-request set-var(txn.host) var(txn.host),concat(.,txn.cproj,%s) if !{ var(txn.host) -m sub . } { var(txn.cproj) -m found }", spec.InternalSuffix)
+		} else {
+			// Without the clients map every caller is of the default
+			// project.
+			w("    http-request set-var(txn.host) var(txn.host),concat(%s) if !{ var(txn.host) -m sub . }", spec.InternalSuffix)
 		}
 		rr.write(routesInternal, internal)
 		w("    default_backend be_armada_notfound")

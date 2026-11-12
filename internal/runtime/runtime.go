@@ -141,6 +141,10 @@ type ContainerSpec struct {
 	// DNS overrides the container's nameservers (private IPs only); empty
 	// keeps the engine default.
 	DNS []string
+	// DNSSearch are search domains put before the host's: the internal
+	// zone of the app's project (spec.ValidSearchDomain), so its apps
+	// resolve by name alone.
+	DNSSearch []string
 	// Volumes are mounted read-write (ADR 0023); only drivers for which
 	// CanMountVolumes reports true accept them.
 	Volumes []VolumeMount

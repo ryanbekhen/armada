@@ -102,7 +102,7 @@ come back.
 | Type | Reached at | From |
 | --- | --- | --- |
 | `external` | `https://web.<root domain>` and its `domains` | The internet, through HAProxy on every node |
-| `internal` | `http://web.internal` | Containers in the cluster only |
+| `internal` | `http://web` from its project, `http://web.internal` in full | Containers in the cluster only |
 | `none` | Nowhere | A worker that only makes outgoing connections |
 
 Every node's HAProxy serves every app, so DNS can point at all nodes.
@@ -110,8 +110,8 @@ HAProxy prefers replicas on its own node and sends the rest across the
 cluster. Certificates come from Let's Encrypt by themselves.
 
 Internal apps can also take plain TCP (`protocol: tcp`), so a database or
-cache in the cluster is reached at `db.internal:5432` by the apps of its
-project.
+cache in the cluster is reached at `db:5432` (or `db.internal:5432`) by the
+apps of its project.
 
 ## Projects
 
@@ -120,7 +120,9 @@ Every cluster has `default`; create others for environments or teams.
 
 - Names only need to be unique within a project. An app's full **ID** is
   `NAME.PROJECT` (just `NAME` in `default`): `web.staging`.
-- Internal names follow: `web.staging.internal`.
+- Internal names follow: `web.staging.internal`. Apps of the same project
+  just use the name: `http://web` from an app of `staging` is
+  `web.staging`.
 - Apps resolve and reach only the internal apps of their own project.
   Projects other than `default` are kept away from the nodes and the
   private network.

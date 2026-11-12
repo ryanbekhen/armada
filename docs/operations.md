@@ -461,7 +461,8 @@ any project: `armada app scale web.staging --replicas 3`. Events and
 metrics show apps of other projects by that ID, and so do their revisions
 (`web.staging--r1`) and replicas. Lists show the project's items, and
 every project's with `-A` (`--all-projects`). Internal apps of a project are reached at
-`NAME.PROJECT.internal`, and external apps without domains at
+`NAME.PROJECT.internal`, or by `NAME` alone from apps of the same project,
+and external apps without domains at
 `NAME.PROJECT.<root domain>`, with a certificate of their own (a wildcard
 certificate covers only one level).
 

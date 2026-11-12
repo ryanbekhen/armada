@@ -61,3 +61,15 @@ func TestParseRejectsProject(t *testing.T) {
 		t.Fatal("a project in the file was accepted")
 	}
 }
+
+func TestInternalSearchDomain(t *testing.T) {
+	t.Parallel()
+	for id, want := range map[string]string{"web": "internal", "web.shop": "shop.internal", "web.default": "", "Web": "", "": ""} {
+		if got := InternalSearchDomain(id); got != want {
+			t.Errorf("%q: %q, want %q", id, got, want)
+		}
+		if want != "" && !ValidSearchDomain(want) {
+			t.Errorf("%q not valid", want)
+		}
+	}
+}

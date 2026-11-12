@@ -29,7 +29,7 @@ ingress:
   allow: [api]         # optional, as for HTTP
 ```
 
-Callers connect to `<app>.internal:<port>` (`<app>.<project>.internal` in a
+Callers connect to `<app>:<port>`, the name alone resolving within their project (ADR 0007), or `<app>.internal:<port>` (`<app>.<project>.internal` in a
 project other than `default`).
 
 - **Internal only.** `protocol: tcp` needs `type: internal`; with

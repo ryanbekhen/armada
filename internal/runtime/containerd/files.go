@@ -6,6 +6,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -44,10 +45,15 @@ func nameservers(conf []byte) []string {
 	return out
 }
 
+// maxSearch is how many search domains a resolv.conf keeps; older C
+// libraries read no more.
+const maxSearch = 6
+
 // resolvConf builds a container's resolv.conf: dns (or the host's
-// non-loopback nameservers, or fallbackDNS) plus the host's search and
-// options lines.
-func resolvConf(host []byte, dns []string) []byte {
+// non-loopback nameservers, or fallbackDNS), one search line with search
+// first and then the host's domains (resolvers use only the last search
+// line, so they are merged), and the host's options lines.
+func resolvConf(host []byte, dns, search []string) []byte {
 	servers := dns
 	if len(servers) == 0 {
 		servers = nameservers(host)
@@ -61,13 +67,30 @@ func resolvConf(host []byte, dns []string) []byte {
 		b.WriteString(s)
 		b.WriteByte('\n')
 	}
+	domains := slices.Clone(search)
+	var options []string
 	sc := bufio.NewScanner(bytes.NewReader(host))
 	for sc.Scan() {
 		f := strings.Fields(sc.Text())
-		if len(f) >= 2 && (f[0] == "search" || f[0] == "options") {
-			b.WriteString(strings.Join(f, " "))
-			b.WriteByte('\n')
+		switch {
+		case len(f) >= 2 && f[0] == "search":
+			// The last search line wins, as in the resolver.
+			domains = append(slices.Clone(search), f[1:]...)
+		case len(f) >= 2 && f[0] == "options":
+			options = append(options, strings.Join(f, " "))
 		}
+	}
+	var kept []string
+	for _, d := range domains {
+		if d != "." && !slices.Contains(kept, d) && len(kept) < maxSearch {
+			kept = append(kept, d)
+		}
+	}
+	if len(kept) > 0 {
+		b.WriteString("search " + strings.Join(kept, " ") + "\n")
+	}
+	for _, o := range options {
+		b.WriteString(o + "\n")
 	}
 	return b.Bytes()
 }
@@ -92,7 +115,7 @@ type containerFiles struct{ resolv, hosts, hostname string }
 
 // writeFiles creates the per-container files under dir/<id>; the hostname
 // is the container's name.
-func writeFiles(dir, id, name, ip string, dns []string) (containerFiles, error) {
+func writeFiles(dir, id, name, ip string, dns, search []string) (containerFiles, error) {
 	d := filepath.Join(dir, id)
 	if err := os.MkdirAll(d, 0o700); err != nil {
 		return containerFiles{}, err
@@ -105,7 +128,7 @@ func writeFiles(dir, id, name, ip string, dns []string) (containerFiles, error) 
 	// World-readable: processes in the container may run as any user. The
 	// 0700 parent keeps them private on the host.
 	for path, data := range map[string][]byte{
-		f.resolv:   resolvConf(hostResolvConf(), dns),
+		f.resolv:   resolvConf(hostResolvConf(), dns, search),
 		f.hosts:    hostsFile(ip, hostname(name)),
 		f.hostname: []byte(hostname(name) + "\n"),
 	} {

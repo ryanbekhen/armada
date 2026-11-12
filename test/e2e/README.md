@@ -114,7 +114,8 @@ A release runs every scenario.
    reaches the container's environment and appears in no journal.
 4. Isolation while replicas and apps come and go: a replica reaches its own
    app's replicas and itself on localhost; another app of its project reaches
-   them only through the internal name; another project reaches them in no way;
+   them only through the internal name, full or alone (`web`); another project
+   reaches them in no way, and `web` from it is not this project's app;
    a project's app cannot reach a node's private IP; a removed app's address
    stays blocked. Both projects are removed afterwards.
 5. A minute of load while nothing changes serves every request (if this
@@ -176,7 +177,7 @@ A release runs every scenario.
     why (runs before 14 and 13).
 19. Internal TCP: an echo server with `protocol: tcp` on port 7000 and
     `allow: [client]` answers every connection from `client` of its project
-    at `tcp-echo.e2e-tcp.internal:7000`; another app of the project is
+    at `tcp-echo.e2e-tcp.internal:7000` and at `tcp-echo:7000`; another app of the project is
     refused, and an app of another project neither resolves the name nor gets
     an answer at its gateway; port 7000 is open on no node's private address
     (runs before 14 and 13).

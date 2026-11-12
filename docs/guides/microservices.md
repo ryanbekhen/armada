@@ -24,10 +24,18 @@ apart by projects.
 
 Every app with `ingress.type: internal` gets a private name:
 
-| Project | HTTP | TCP (`protocol: tcp`) |
+| Called from | HTTP | TCP (`protocol: tcp`) |
 | --- | --- | --- |
-| `default` | `http://NAME.internal` | `NAME.internal:PORT` |
-| any other, such as `shop` | `http://NAME.shop.internal` | `NAME.shop.internal:PORT` |
+| an app of the same project | `http://NAME` | `NAME:PORT` |
+| full name, project `default` | `http://NAME.internal` | `NAME.internal:PORT` |
+| full name, another project such as `shop` | `http://NAME.shop.internal` | `NAME.shop.internal:PORT` |
+
+- The name alone always means an app of the caller's own project: `orders`
+  called from `web.shop` is `orders.shop`, never an `orders` of another
+  project. Each container has its project's zone as its DNS search domain,
+  and the proxy completes a `Host` without a dot the same way. Replicas
+  started before the cluster ran a release with this get it on their next
+  deploy.
 
 - The name resolves through the node's DNS server to the node's own proxy,
   which sends the request to a ready replica of the app, preferring
@@ -52,10 +60,10 @@ Every app with `ingress.type: internal` gets a private name:
   project shop v
   +---------------------------------------------+
   |  web ----------------> orders               |
-  |   |   http://orders.shop.internal  |        |
+  |   |   http://orders                |        |
   |   |                                |        |
   |   +------------------> users <-----+        |
-  |       http://users.shop.internal            |
+  |       http://users                          |
   +---------------------------------------------+
 ```
 
@@ -92,7 +100,7 @@ name: orders
 image: ghcr.io/acme/orders:1.9.1
 env:
   - name: USERS_URL
-    value: http://users.shop.internal
+    value: http://users
 ingress:
   type: internal
   port: 8080
@@ -122,9 +130,9 @@ name: web
 image: ghcr.io/acme/web:4.0.2
 env:
   - name: ORDERS_URL
-    value: http://orders.shop.internal
+    value: http://orders
   - name: USERS_URL
-    value: http://users.shop.internal
+    value: http://users
 ingress:
   type: external
   port: 3000
@@ -155,15 +163,15 @@ URLs:     https://web.shop.example.com/
 From `web`, both APIs answer:
 
 ```bash
-armada app exec web -- wget -qO- http://orders.shop.internal/healthz
-armada app exec web -- wget -qO- http://users.shop.internal/healthz
+armada app exec web -- wget -qO- http://orders/healthz
+armada app exec web -- wget -qO- http://users/healthz
 ```
 
 From `orders`, `users` answers, and nothing else does. Calling `orders`
 from `users` gets a 404, because `users` is not in `orders`' `allow`:
 
 ```bash
-armada app exec users -- wget -qO- http://orders.shop.internal/healthz
+armada app exec users -- wget -qO- http://orders/healthz
 # wget: server returned error: HTTP/1.1 404 Not Found
 ```
 
@@ -194,7 +202,7 @@ belong to one app, so each caller gets the cache's URL as its own secret:
 PASSWORD=$(openssl rand -hex 24)
 printf %s "$PASSWORD" | armada secret set cache redis-password
 for app in orders users; do
-  printf 'redis://:%s@cache.shop.internal:6379/0' "$PASSWORD" | armada secret set "$app" redis-url --no-rollout
+  printf 'redis://:%s@cache:6379/0' "$PASSWORD" | armada secret set "$app" redis-url --no-rollout
 done
 unset PASSWORD
 ```
