@@ -58,6 +58,11 @@ func TestLatest(t *testing.T) {
 	if got, err := Latest(context.Background()); err != nil || got != "v0.1.0-alpha.4" {
 		t.Errorf("pre-release: %q %v", got, err)
 	}
+	// The API's order is not the versions': the newest by version wins.
+	fakeAPI(t, http.StatusNotFound, `[{"tag_name":"v0.0.0-rehearsal.1","draft":true},{"tag_name":"v0.1.0-alpha.9"},{"tag_name":"v0.1.0-alpha.5"},{"tag_name":"v0.1.0-alpha.10"},{"tag_name":"v0.1.0-alpha.4"},{"tag_name":"v1; rm -rf /"}]`)
+	if got, err := Latest(context.Background()); err != nil || got != "v0.1.0-alpha.10" {
+		t.Errorf("out of order: %q %v", got, err)
+	}
 	fakeAPI(t, http.StatusNotFound, `[{"tag_name":"v1; rm -rf /"}]`)
 	if _, err := Latest(context.Background()); err == nil {
 		t.Error("a tag that is not a release accepted")

@@ -50,6 +50,19 @@ die() {
 
 need() { command -v "$1" >/dev/null 2>&1 || die "$1 is required"; }
 
+# newest reads release tags, one per line, and prints the newest by version
+# (numbers compare as numbers: alpha.10 after alpha.9). Other lines are
+# skipped. Used only among pre-releases, so a stable release's rank against
+# its own pre-releases does not arise.
+newest() {
+	grep -E '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$' |
+		awk '{
+			n = split(substr($0, 2), f, /[.-]/); key = ""
+			for (i = 1; i <= n; i++) key = key sprintf(f[i] ~ /^[0-9]+$/ ? "%012d." : "%s.", f[i])
+			print key " " $0
+		}' | LC_ALL=C sort | tail -n 1 | sed 's/.* //'
+}
+
 need curl
 need tar
 need uname
@@ -71,12 +84,13 @@ aarch64 | arm64) ARCH=arm64 ;;
 esac
 
 if [ "$VERSION" = latest ]; then
-	tag() { sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -n 1; }
-	VERSION=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null | tag || true)
+	tags() { sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p'; }
+	VERSION=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null | tags | head -n 1 || true)
 	# releases/latest leaves out pre-releases; while there is no stable
-	# release, take the newest published one.
+	# release, take the newest published one by version: the API does not
+	# list them in that order (alpha.10 came after alpha.5).
 	[ -n "$VERSION" ] ||
-		VERSION=$(curl -fsSL "https://api.github.com/repos/$REPO/releases?per_page=1" | tag)
+		VERSION=$(curl -fsSL "https://api.github.com/repos/$REPO/releases?per_page=100" | tags | newest)
 	[ -n "$VERSION" ] || die "could not determine the latest release"
 fi
 # The version ends up in URLs and file names: accept only a release tag.
