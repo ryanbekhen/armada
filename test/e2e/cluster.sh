@@ -482,6 +482,8 @@ iso_matrix() { # iso_matrix WHEN
 	done
 	wait_for 60 "$1: the project reaches web through its internal name" reaches other.e2e-proj web.e2e-proj.internal
 	wait_for 60 "$1: another project does not" blocked caller.e2e-other web.e2e-proj.internal
+	wait_for 60 "$1: the project reaches web by its name alone" reaches other.e2e-proj web
+	wait_for 60 "$1: in another project the name alone is not web.e2e-proj" blocked caller.e2e-other web
 	wait_for 60 "$1: a project's app cannot reach a node's private IP" blocked caller.e2e-other "$(host "$N" 3)"
 }
 cli project create e2e-other >/dev/null
@@ -1003,6 +1005,7 @@ tcp_refused() {
 _gw=$(cli app exec outsider.e2e-tcp-other -- sh -c "$(q "ip route | awk '/^default/ { print \$3 }'")" | tr -d '\r')
 [ -n "$_gw" ] || fail "no default route in outsider"
 wait_for 120 "an allowed app of the project connects at tcp-echo.e2e-tcp.internal:7000" tcp_echoes client.e2e-tcp tcp-echo.e2e-tcp.internal
+wait_for 60 "and at tcp-echo:7000, the name alone" tcp_echoes client.e2e-tcp tcp-echo
 for _i in 1 2 3 4; do
 	tcp_echoes client.e2e-tcp tcp-echo.e2e-tcp.internal || fail "connection $_i through the internal name failed"
 done

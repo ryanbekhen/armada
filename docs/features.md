@@ -22,9 +22,10 @@ Everything Armada does. The [guides](guides/README.md) show each in use, and the
   certificates, the DNS provider, metrics, and timeouts for every server at
   once, and they hold after a failover.
 - **Internal services.** `ingress: internal` apps are reachable from any
-  container in the cluster at `http://<app>.internal`, never from outside.
+  container in the cluster at `http://<app>.internal`, never from outside;
+  apps of the same project call each other by name alone (`http://<app>`).
   Databases, brokers, and caches take plain TCP with `protocol: tcp`: the
-  apps of their project connect to `<app>.internal:<port>`, balanced and
+  apps of their project connect to `<app>:<port>`, balanced and
   health checked by each node's proxy, which listens for them only on the
   container bridge.
 - **Client address rules.** `ingress.ipAllow` lets only chosen addresses

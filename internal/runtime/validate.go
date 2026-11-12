@@ -56,6 +56,14 @@ func CheckContainerSpec(s ContainerSpec) error {
 			return fmt.Errorf("DNS server: %w", err)
 		}
 	}
+	if len(s.DNSSearch) > 1 {
+		return errors.New("at most one DNS search domain")
+	}
+	for _, d := range s.DNSSearch {
+		if !spec.ValidSearchDomain(d) {
+			return fmt.Errorf("DNS search domain %q: not an internal zone", d)
+		}
+	}
 	if s.Port != 0 {
 		if s.Port < 1 || s.Port > 65535 {
 			return fmt.Errorf("invalid port %d", s.Port)

@@ -529,7 +529,9 @@ func TestInternalDNS(t *testing.T) {
 	d := fake.New()
 	dns := &recordingDNS{}
 	a := New(Config{NodeID: "n1", PrivateIP: "10.0.0.2", Driver: d, Proxy: &proxyfake.Driver{}, DNS: dns, CPUMillis: 1, MemoryBytes: 1})
-	a.setDesired([]*armadav1.ReplicaSpec{replica("web-r1-a", "nginx:1", 80)}, &armadav1.ProxyConfig{
+	shop := replica("cart.shop-r1-a", "nginx:1", 80)
+	shop.App, shop.Revision = "cart.shop", "cart.shop--r1"
+	a.setDesired([]*armadav1.ReplicaSpec{replica("web-r1-a", "nginx:1", 80), shop}, &armadav1.ProxyConfig{
 		Backends: []*armadav1.ProxyBackend{{Name: "web"}, {Name: "shop-api"}, {Name: "db"}},
 		// An internal TCP app resolves too (ADR 0039).
 		TcpRoutes: []*armadav1.ProxyTCPRoute{{Port: 5432, Backend: "db"}},
@@ -549,10 +551,18 @@ func TestInternalDNS(t *testing.T) {
 	if !slices.Equal(names, []string{"db", "shop-api", "web"}) {
 		t.Errorf("internal names = %v", names)
 	}
-	cs, _ := d.List(ctx, nil)
+	cs, _ := d.List(ctx, map[string]string{runtime.LabelReplica: "web-r1-a"})
 	spec, _ := d.Spec(cs[0].ID)
 	if !slices.Equal(spec.DNS, []string{"172.17.0.1"}) {
 		t.Errorf("container DNS = %v", spec.DNS)
+	}
+	// Apps of the container's own project resolve by name alone.
+	if !slices.Equal(spec.DNSSearch, []string{"internal"}) {
+		t.Errorf("search domains in default = %v", spec.DNSSearch)
+	}
+	other, _ := d.List(ctx, map[string]string{runtime.LabelReplica: "cart.shop-r1-a"})
+	if s, _ := d.Spec(other[0].ID); !slices.Equal(s.DNSSearch, []string{"shop.internal"}) {
+		t.Errorf("search domains in shop = %v", s.DNSSearch)
 	}
 	// The resolver is not part of the spec hash, so turning it on or off
 	// does not restart running replicas.

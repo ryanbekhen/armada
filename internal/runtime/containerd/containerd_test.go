@@ -174,23 +174,35 @@ func TestArgsWithoutCommand(t *testing.T) {
 
 func TestResolvConf(t *testing.T) {
 	host := []byte("nameserver 127.0.0.53\nsearch example.internal\noptions edns0 trust-ad\n")
-	got := string(resolvConf(host, nil))
+	got := string(resolvConf(host, nil, nil))
 	if !strings.HasPrefix(got, "nameserver 8.8.8.8\nnameserver 8.8.4.4\n") || !strings.Contains(got, "search example.internal\n") || strings.Contains(got, "127.0.0.53") {
 		t.Errorf("loopback host conf: %q", got)
 	}
-	got = string(resolvConf([]byte("nameserver 10.0.0.2\nnameserver ::1\n"), nil))
+	got = string(resolvConf([]byte("nameserver 10.0.0.2\nnameserver ::1\n"), nil, nil))
 	if got != "nameserver 10.0.0.2\n" {
 		t.Errorf("host servers: %q", got)
 	}
-	got = string(resolvConf([]byte("nameserver 10.0.0.2\n"), []string{"10.121.0.1"}))
+	got = string(resolvConf([]byte("nameserver 10.0.0.2\n"), []string{"10.121.0.1"}, nil))
 	if got != "nameserver 10.121.0.1\n" {
 		t.Errorf("explicit DNS: %q", got)
+	}
+
+	// The project's zone comes first, in one search line with the host's
+	// (resolvers read only the last one), without repeats.
+	host = []byte("nameserver 10.0.0.2\nsearch old.example\nsearch lan example.org shop.internal\noptions ndots:2\n")
+	got = string(resolvConf(host, []string{"10.121.0.1"}, []string{"shop.internal"}))
+	if got != "nameserver 10.121.0.1\nsearch shop.internal lan example.org\noptions ndots:2\n" {
+		t.Errorf("search domains: %q", got)
+	}
+	got = string(resolvConf([]byte("search a b c d e f g\n"), []string{"10.121.0.1"}, []string{"internal"}))
+	if got != "nameserver 10.121.0.1\nsearch internal a b c d e\n" {
+		t.Errorf("at most six search domains: %q", got)
 	}
 }
 
 func TestWriteFiles(t *testing.T) {
 	dir := t.TempDir()
-	f, err := writeFiles(dir, "armada-web-1-0a1b2c3d", "armada-web-1", "10.121.0.5", []string{"10.121.0.1"})
+	f, err := writeFiles(dir, "armada-web-1-0a1b2c3d", "armada-web-1", "10.121.0.5", []string{"10.121.0.1"}, []string{"shop.internal"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -415,7 +427,7 @@ func TestPullErrorSaysWhatItMeans(t *testing.T) {
 func TestContainerFilesReadableUnderUmask(t *testing.T) {
 	old := syscall.Umask(0o077)
 	defer syscall.Umask(old)
-	f, err := writeFiles(t.TempDir(), "c1", "web", "10.120.0.5", []string{"10.120.0.1"})
+	f, err := writeFiles(t.TempDir(), "c1", "web", "10.120.0.5", []string{"10.120.0.1"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

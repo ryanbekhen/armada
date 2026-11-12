@@ -1084,6 +1084,10 @@ func (a *Agent) start(ctx context.Context, s *armadav1.ReplicaSpec, hash string,
 		// Not part of the spec hash: enabling internal DNS must not restart
 		// running replicas; they pick it up on their next replacement.
 		cs.DNS = []string{a.cfg.DNS.Address()}
+		// The app's project's names resolve by the app name alone.
+		if d := spec.InternalSearchDomain(s.GetApp()); d != "" {
+			cs.DNSSearch = []string{d}
+		}
 	}
 	if cs.Files, err = a.writeSecretFiles(s); err != nil {
 		return runtime.Container{}, err

@@ -511,6 +511,30 @@ const InternalSuffix = ".internal"
 // InternalHost returns the cluster-internal hostname of an app.
 func InternalHost(app string) string { return app + InternalSuffix }
 
+// InternalSearchDomain is the search domain of a container of the app with
+// this ID: internal names of its own project resolve by the app's name
+// alone (b for b.internal, or b.shop.internal in project shop).
+func InternalSearchDomain(appID string) string {
+	project, _, ok := SplitAppID(appID)
+	if !ok {
+		return ""
+	}
+	if project == DefaultProject {
+		return strings.TrimPrefix(InternalSuffix, ".")
+	}
+	return project + InternalSuffix
+}
+
+// ValidSearchDomain reports whether s is a search domain Armada gives
+// containers: internal, or <project>.internal.
+func ValidSearchDomain(s string) bool {
+	if s == strings.TrimPrefix(InternalSuffix, ".") {
+		return true
+	}
+	project, ok := strings.CutSuffix(s, InternalSuffix)
+	return ok && project != DefaultProject && ValidProject(project)
+}
+
 // LabelHost is the host name label of a revision of app serves under
 // (ADR 0022): <label>--<app>, with app an ID (<label>--<name>.<project>
 // in other projects). App names cannot contain "--", so it never collides

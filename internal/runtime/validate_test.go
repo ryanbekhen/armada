@@ -125,3 +125,17 @@ func TestCheckMembers(t *testing.T) {
 		}
 	}
 }
+
+func TestCheckContainerSpecSearchDomains(t *testing.T) {
+	t.Parallel()
+	for _, ok := range [][]string{nil, {"internal"}, {"shop.internal"}} {
+		if err := CheckContainerSpec(ContainerSpec{DNSSearch: ok}); err != nil {
+			t.Errorf("%q: %v", ok, err)
+		}
+	}
+	for _, bad := range [][]string{{"example.com"}, {"default.internal"}, {"a b.internal"}, {"x.internal\nnameserver 1.1.1.1"}, {".internal"}, {"internal", "shop.internal"}} {
+		if CheckContainerSpec(ContainerSpec{DNSSearch: bad}) == nil {
+			t.Errorf("%q accepted", bad)
+		}
+	}
+}
