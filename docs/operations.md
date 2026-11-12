@@ -34,7 +34,8 @@ all of them. Back up either way.
 Settings that every server must share, because any of them can lead, live
 in the cluster's state ([ADR 0031](adr/0031-cluster-settings.md)). Change
 them from any machine with admin credentials; they apply within seconds on
-every server, and stay after a failover:
+every server, and stay after a failover. `armada cluster set` returns once
+the leader answers again with them:
 
 ```bash
 armada cluster show

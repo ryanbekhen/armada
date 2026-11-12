@@ -487,17 +487,16 @@ func TestEndToEnd(t *testing.T) {
 	if code, _, stderr := cli("cluster", "set", "--node-lost-timeout", "2m"); code != 0 {
 		t.Fatalf("cluster set --node-lost-timeout: %s", stderr)
 	}
-	waitFor("the new node-lost timeout in use", func() bool {
-		_, out, _ := cli("cluster", "show")
-		return strings.Contains(out, "node lost timeout: 2m0s")
-	})
+	// cluster set waited for the restarted API: the next command works.
+	if code, _, stderr := cli("app", "show", "web"); code != 0 {
+		t.Errorf("app show right after cluster set: %s", stderr)
+	}
 	if !strings.Contains(serverLog.String(), "cluster settings changed; applying them") {
 		t.Error("the leader did not restart its term")
 	}
-	waitFor("the API answers after the restart", func() bool {
-		code, _, _ := cli("app", "show", "web")
-		return code == 0
-	})
+	if _, out, _ := cli("cluster", "show"); !strings.Contains(out, "node lost timeout: 2m0s") {
+		t.Errorf("cluster show after the restart = %q", out)
+	}
 	waitFor("haproxy routes web", func() bool {
 		maps, err := filepath.Glob(filepath.Join(dataDir, dirHAProxy, "etc", "routes-*.map"))
 		if err != nil {
