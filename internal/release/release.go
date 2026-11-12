@@ -40,7 +40,9 @@ func IsRelease(v string) bool { return tagRe.MatchString(v) }
 func URL(tag string) string { return "https://github.com/" + Repo + "/releases/tag/" + tag }
 
 // Latest returns the newest release: the latest stable one, else, while
-// there is none, the newest published pre-release, as install.sh picks.
+// there is none, the newest published pre-release by version, as install.sh
+// picks. The API does not list releases by version (alpha.10 came after
+// alpha.5), so the list is compared, not its first entry taken.
 func Latest(ctx context.Context) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, CheckTimeout)
 	defer cancel()
@@ -54,13 +56,12 @@ func Latest(ctx context.Context) (string, error) {
 			Tag   string `json:"tag_name"`
 			Draft bool   `json:"draft"`
 		}
-		if err := getJSON(ctx, apiBase+"/repos/"+Repo+"/releases?per_page=10", &list); err != nil {
+		if err := getJSON(ctx, apiBase+"/repos/"+Repo+"/releases?per_page=100", &list); err != nil {
 			return "", err
 		}
 		for _, r := range list {
-			if !r.Draft {
+			if !r.Draft && IsRelease(r.Tag) && (latest.Tag == "" || Newer(r.Tag, latest.Tag)) {
 				latest.Tag = r.Tag
-				break
 			}
 		}
 	default:

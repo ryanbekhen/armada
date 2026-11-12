@@ -122,4 +122,11 @@ fi
 grep -q "takes no arguments" "$WORK/args.log" || fail "args: wrong error"
 [ ! -e "$WORK/args/prefix/bin/armadad" ] || fail "args: installed anyway"
 
+# The newest pre-release by version, whatever order the API lists them in.
+eval "$(sed -n '/^newest() {/,/^}/p' install.sh)"
+got=$(printf 'v0.1.0-alpha.9\nv0.1.0-alpha.5\nv0.1.0-alpha.10\nnot-a-release\nv0.1.0-alpha.4\n' | newest)
+[ "$got" = v0.1.0-alpha.10 ] || fail "newest: got $got, want v0.1.0-alpha.10"
+got=$(printf 'v0.2.0-alpha.1\nv0.1.0-beta.2\nv0.1.0-alpha.11\n' | newest)
+[ "$got" = v0.2.0-alpha.1 ] || fail "newest: got $got, want v0.2.0-alpha.1"
+
 echo "install.sh: all tests passed"

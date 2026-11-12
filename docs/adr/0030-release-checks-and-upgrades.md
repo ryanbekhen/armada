@@ -14,7 +14,8 @@ servers first, one at a time, then nodes.
 
 **Finding out.** `internal/release` asks GitHub's API for the latest release:
 the latest stable one, else, while there is none, the newest published
-pre-release (the installer's rule), within 3 seconds, believing only a tag
+pre-release by version among the last 100 (the installer's rule; the API
+does not list releases in version order), within 3 seconds, believing only a tag
 shaped like a release. Versions compare by semantic versioning, with
 pre-releases before their release. It is asked by:
 
