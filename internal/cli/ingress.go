@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"cmp"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"google.golang.org/grpc"
 
 	armadav1 "github.com/ryanbekhen/armada/api/armada/v1"
 	"github.com/ryanbekhen/armada/internal/fsutil"
@@ -63,8 +65,9 @@ func newClusterCommand(g *globals) *cobra.Command {
 			"other request loses them, so a client cannot claim another address.\n\n" +
 			"Certificates, the DNS provider and its token, the metrics port, and the\n" +
 			"node-lost timeout apply within seconds: the leader restarts its control plane\n" +
-			"with them while apps keep serving. The token is read from a file or stdin\n" +
-			"(--dns-token -), stored encrypted, and never shown.",
+			"with them while apps keep serving; the command waits until it answers again.\n" +
+			"The token is read from a file or stdin (--dns-token -), stored encrypted, and\n" +
+			"never shown.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ch := cmd.Flags().Changed
@@ -95,6 +98,13 @@ func newClusterCommand(g *globals) *cobra.Command {
 			if err != nil {
 				return RPCError(err)
 			}
+			if slices.ContainsFunc(restartingSettings, ch) {
+				// The leader restarts its control plane with them right
+				// after answering; the next command would find no API.
+				if err := waitForAPI(cmd.Context(), client, settingsSettle, settingsWait); err != nil {
+					return err
+				}
+			}
 			return printClusterConfig(cmd.OutOrStdout(), cc)
 		},
 	}
@@ -110,6 +120,38 @@ func newClusterCommand(g *globals) *cobra.Command {
 	f.DurationVar(&lostTimeout, "node-lost-timeout", 0, "how long a node may be unreachable before its replicas move to other nodes")
 	cmd.AddCommand(newClusterStatusCommand(g), show, set, newEventsCommand(g, eventsOfCluster))
 	return cmd
+}
+
+// restartingSettings are the flags of cluster set whose change makes the
+// leader restart its control plane (ADR 0031).
+var restartingSettings = []string{"tls", "acme-email", "acme-ca", "dns-provider", "dns-token", "metrics-port", "node-lost-timeout"}
+
+// settingsSettle is how long cluster set waits before asking whether the
+// API is back: the leader restarts 300 ms after answering. settingsWait
+// bounds the whole wait.
+var settingsSettle, settingsWait = time.Second, time.Minute
+
+// waitForAPI waits until the control plane answers again after a change of
+// its settings, so that the next command does not fail while it restarts.
+func waitForAPI(ctx context.Context, client armadav1.AdminServiceClient, settle, limit time.Duration) error {
+	ctx, cancel := context.WithTimeout(ctx, limit)
+	defer cancel()
+	t := time.NewTimer(settle)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("the settings are saved, but the control plane did not answer within %s after applying them; see armada cluster status", limit)
+		case <-t.C:
+		}
+		cctx, ccancel := context.WithTimeout(ctx, 3*time.Second)
+		_, err := client.GetClusterConfig(cctx, &armadav1.GetClusterConfigRequest{}, grpc.WaitForReady(true))
+		ccancel()
+		if err == nil {
+			return nil
+		}
+		t.Reset(500 * time.Millisecond)
+	}
 }
 
 func newClusterStatusCommand(g *globals) *cobra.Command {

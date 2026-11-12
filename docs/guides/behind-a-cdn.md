@@ -52,7 +52,7 @@ armada cluster set --root-domain example.com
 
 - The cluster keeps the token encrypted with its master key and never
   shows it. The leader restarts its control plane within a second or two to
-  use it; apps keep serving.
+  use it, and the command waits for it; apps keep serving.
 - The root domain gets one wildcard certificate, `*.example.com`. Every
   app's `<app>.example.com`, every verified custom domain one label under
   the root (`www.example.com`), and every traffic label

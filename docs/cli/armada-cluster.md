@@ -49,8 +49,9 @@ other request loses them, so a client cannot claim another address.
 
 Certificates, the DNS provider and its token, the metrics port, and the
 node-lost timeout apply within seconds: the leader restarts its control plane
-with them while apps keep serving. The token is read from a file or stdin
-(--dns-token -), stored encrypted, and never shown.
+with them while apps keep serving; the command waits until it answers again.
+The token is read from a file or stdin (--dns-token -), stored encrypted, and
+never shown.
 
 ```
 armada cluster set [flags]

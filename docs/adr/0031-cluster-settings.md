@@ -32,7 +32,9 @@ trusted proxies already were:
 term in the same process: the gRPC listener, the certificate manager, the
 metrics endpoint, and the reconcilers start again with the new settings,
 keeping the leadership. Apps keep serving; the API and the agents reconnect
-within a second or two. Other servers read the settings when they lead.
+within a second or two, and `armada cluster set` waits until the API answers
+again, so the next command does not meet a closed listener. Other servers
+read the settings when they lead.
 The root domain and trusted proxies keep applying without a restart.
 
 **Precedence.** The cluster's value wins over a server's flag, and a flag
