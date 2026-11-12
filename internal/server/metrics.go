@@ -175,7 +175,7 @@ var (
 	descAppRollout       = prometheus.NewDesc("armada_app_rollout", "1 for an app's current rollout state (idle, progressing, failed).", []string{"app", "state"}, nil)
 	descReplicaReady     = prometheus.NewDesc("armada_replica_ready", "1 when a replica is running, ready, and not draining.", []string{"app", "replica", "revision", "node"}, nil)
 	descReplicaRestarts  = prometheus.NewDesc("armada_replica_restarts_total", "How often the agent recreated a replica's container.", []string{"app", "replica", "node"}, nil)
-	descReplicaLastRest  = prometheus.NewDesc("armada_replica_last_restart_timestamp_seconds", "When the agent last recreated a replica's container, and why (exited, out_of_memory, liveness, startup, network, volume, other, unknown).", []string{"app", "replica", "node", "reason"}, nil)
+	descReplicaLastRest  = prometheus.NewDesc("armada_replica_last_restart_timestamp_seconds", "When the agent last recreated a replica's container, and why (exited, out_of_memory, liveness, startup, network, volume, machine_restart, other, unknown).", []string{"app", "replica", "node", "reason"}, nil)
 	descReplicaStart     = prometheus.NewDesc("armada_replica_start_time_seconds", "When a replica was scheduled.", []string{"app", "replica", "node"}, nil)
 	descAppMin           = prometheus.NewDesc("armada_app_replicas_min", "The fewest replicas an autoscaled app may run.", []string{"app"}, nil)
 	descAppMax           = prometheus.NewDesc("armada_app_replicas_max", "The most replicas an autoscaled app may run.", []string{"app"}, nil)
@@ -452,6 +452,8 @@ func restartReason(msg string) string {
 	switch {
 	case msg == "":
 		return "unknown"
+	case msg == "the machine restarted":
+		return "machine_restart"
 	case strings.Contains(msg, "out of memory"):
 		return "out_of_memory"
 	case strings.Contains(msg, "liveness probe"):

@@ -112,7 +112,7 @@ https://10.0.0.5:9443/metrics,https://10.0.0.6:9443/metrics,https://10.0.0.7:944
 | --- | --- |
 | `armada_app_replicas_ready`, `armada_app_replicas_desired` | ready below desired: replicas crash, fail probes, or cannot be placed |
 | `armada_app_rollout{state="failed"}` | 1 when an app's last rollout failed (the old revision keeps serving) |
-| `armada_replica_restarts_total`, `armada_replica_last_restart_timestamp_seconds{reason}` | crash loops, and why: `exited`, `out_of_memory`, `liveness`, `startup`, `network`, `volume`, `other`, `unknown` |
+| `armada_replica_restarts_total`, `armada_replica_last_restart_timestamp_seconds{reason}` | crash loops, and why: `exited`, `out_of_memory`, `liveness`, `startup`, `network`, `volume`, `machine_restart` (the machine rebooted), `other`, `unknown` |
 | `armada_replica_memory_usage_bytes`, `armada_replica_memory_limit_bytes` | replicas close to their limit get killed |
 | `armada_node_ready`, `armada_node_cordoned` | a node that is not connected, and nodes drained by hand |
 | `armada_node_cpu_reserved_cores`, `armada_node_cpu_allocatable_cores` (and `memory`) | room left for new replicas |

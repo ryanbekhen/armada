@@ -88,7 +88,8 @@ once per 10 seconds, and values may be that old. Nothing is stored.
     container, and `armada_replica_last_restart_timestamp_seconds{reason}`,
     when it last did; `reason` is one of a fixed set Armada derives from the
     agent's message (`exited`, `out_of_memory`, `liveness`, `startup`,
-    `network`, `volume`, `other`, `unknown`), never the message itself
+    `network`, `volume`, `machine_restart`, `other`, `unknown`), never the
+    message itself
   - `armada_replica_cpu_usage_cores` and
     `armada_replica_memory_usage_bytes`, both from the latest sample
   - `armada_replica_cpu_reserved_cores` and
