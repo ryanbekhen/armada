@@ -39,7 +39,7 @@ func TestMetrics(t *testing.T) {
 	// Values must change between scrapes here: gather on every one.
 	c := newCluster(t, func(cfg *Config) { cfg.MetricsAddr = addr; cfg.Name = "s1"; cfg.MetricsCache = time.Nanosecond })
 	d := c.addNode("n1", "127.0.0.1")
-	c.deploy(webSpec("nginx:1", 2) + "resources:\n  cpu: 250m\n  memory: 128Mi\n")
+	c.deploy(webSpec("nginx:1", 2) + "drain: 30s\nresources:\n  cpu: 250m\n  memory: 128Mi\n")
 	c.eventually("2 running", func() bool { return len(c.running("web")) == 2 })
 	for _, r := range c.running("web") {
 		d.SetUsage(r.Id, runtime.Stats{MemoryBytes: 50 << 20})
@@ -98,6 +98,7 @@ func TestMetrics(t *testing.T) {
 		`armada_replica_state{app="web",node="n1",replica="web-r1-`,
 		`state="running"} 1`,
 		`armada_replica_info{app="web",ip="127.0.0.1",node="n1",replica="web-r1-`,
+		`armada_replica_draining{app="web",node="n1",replica="web-r1-`,
 	}
 	var body string
 	c.eventually("metrics with usage", func() bool {
@@ -159,6 +160,17 @@ func TestMetrics(t *testing.T) {
 	if _, err := armadav1.NewAdminServiceClient(conn).Status(c.ctx, &armadav1.StatusRequest{}); status.Code(err) != codes.PermissionDenied {
 		t.Errorf("metrics certificate on the API: %v", err)
 	}
+
+	// A replica on its way out after a scale down is draining, not a new
+	// replica that is not ready yet.
+	if _, err := c.admin.Scale(c.ctx, &armadav1.ScaleRequest{App: "web", Replicas: 1}); err != nil {
+		t.Fatal(err)
+	}
+	c.eventually("a draining replica in metrics", func() bool {
+		_, b, err := scrape(issued.GetCert(), keyPEM)
+		body = b
+		return err == nil && strings.Contains(b, "armada_replica_draining{") && strings.Contains(grepLines(b, "armada_replica_draining{"), "} 1")
+	})
 }
 
 func TestIssueMetricsCertificateRefusesBadInput(t *testing.T) {
