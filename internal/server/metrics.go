@@ -37,6 +37,7 @@ func (s *Server) serveMetrics(ctx context.Context) error {
 	reg.MustRegister(
 		collectors.NewGoCollector(),
 		s.reconcileSeconds, s.reconcileErrors, s.events.total, s.jobRuns,
+		s.alerts.sent, s.alerts.failed, s.alerts.dropped,
 		&clusterCollector{s: s, every: s.metricsCache},
 	)
 	mux := http.NewServeMux()

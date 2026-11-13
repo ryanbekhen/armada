@@ -14,6 +14,11 @@ and [`armada node top`](../cli/armada-node.md#armada-node-top)
 `cluster-admin` access, and a Prometheus server on the private network that
 reaches the control plane servers.
 
+> **No Prometheus?** For messages in Slack, Discord, Telegram, or email when
+> a node is lost, a replica runs out of memory, or a rollout fails, one
+> command is enough: see [Get alerts](alerts.md). This guide is for
+> thresholds and dashboards on top of that.
+
 ## The setup
 
 ```
@@ -311,6 +316,7 @@ app.
 
 ## Next steps
 
+- [Get alerts](alerts.md): notices in chat or email without Prometheus.
 - [Troubleshooting](troubleshooting.md): what to do when an alert fires.
 - [Disaster recovery](disaster-recovery.md): backups the alerts above watch.
 - [Teams and access](teams-and-access.md): read-only users for on call.

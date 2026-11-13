@@ -96,6 +96,13 @@ service AdminService {
   // Events streams what the cluster did (ADR 0018), oldest first; with
   // follow, then new events until the caller cancels.
   rpc Events(EventsRequest) returns (stream EventInfo);
+  // Alert channels (ADR 0045): where the leader sends notices about events
+  // that need a person. Cluster-admin only.
+  rpc CreateAlertChannel(AlertChannelRequest) returns (AlertChannel);
+  rpc UpdateAlertChannel(AlertChannelRequest) returns (AlertChannel);
+  rpc ListAlertChannels(ListAlertChannelsRequest) returns (ListAlertChannelsResponse);
+  rpc DeleteAlertChannel(DeleteAlertChannelRequest) returns (DeleteAlertChannelResponse);
+  rpc TestAlertChannel(TestAlertChannelRequest) returns (TestAlertChannelResponse);
   // Jobs (ADR 0019): start a run now, list jobs and their runs, cancel the
   // running run, delete a job with its runs.
   rpc RunJob(RunJobRequest) returns (RunJobResponse);
@@ -220,6 +227,65 @@ message RemoveAppRequest {
 }
 
 message RemoveAppResponse {}
+
+// AlertChannel is where notices go (ADR 0045). The secret (a URL, a bot
+// token, or an SMTP password) is never returned: secret_set says whether
+// one is stored.
+message AlertChannel {
+  string name = 1;
+  // webhook, slack, discord, telegram, or email.
+  string type = 2;
+  string chat_id = 3;
+  string smtp_host = 4;
+  string smtp_user = 5;
+  string from = 6;
+  repeated string to = 7;
+  // Only events of these spaces' apps; empty means every event.
+  repeated string spaces = 8;
+  // Only these reasons ("all" for every one); empty means warnings only.
+  repeated string reasons = 9;
+  bool secret_set = 10;
+  // Since the leader started: the last notice sent, the last failure, and
+  // counts.
+  google.protobuf.Timestamp last_sent = 11;
+  string last_error = 12;
+  google.protobuf.Timestamp last_error_at = 13;
+  int64 sent = 14;
+  int64 failed = 15;
+  int64 dropped = 16;
+}
+
+// AlertChannelRequest creates a channel, or updates the fields named by
+// the set_ flags.
+message AlertChannelRequest {
+  AlertChannel channel = 1;
+  bool set_secret = 2;
+  bytes secret = 3 [debug_redact = true];
+  bool set_chat_id = 4;
+  bool set_smtp = 5; // smtp_host and smtp_user
+  bool set_from = 6;
+  bool set_to = 7;
+  bool set_spaces = 8;
+  bool set_reasons = 9;
+}
+
+message ListAlertChannelsRequest {}
+
+message ListAlertChannelsResponse {
+  repeated AlertChannel channels = 1;
+}
+
+message DeleteAlertChannelRequest {
+  string name = 1;
+}
+
+message DeleteAlertChannelResponse {}
+
+message TestAlertChannelRequest {
+  string name = 1;
+}
+
+message TestAlertChannelResponse {}
 
 message EventsRequest {
   // Optional filters.

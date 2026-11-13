@@ -69,6 +69,11 @@ const (
 	AdminService_Top_FullMethodName                     = "/armada.v1.AdminService/Top"
 	AdminService_IssueMetricsCertificate_FullMethodName = "/armada.v1.AdminService/IssueMetricsCertificate"
 	AdminService_Events_FullMethodName                  = "/armada.v1.AdminService/Events"
+	AdminService_CreateAlertChannel_FullMethodName      = "/armada.v1.AdminService/CreateAlertChannel"
+	AdminService_UpdateAlertChannel_FullMethodName      = "/armada.v1.AdminService/UpdateAlertChannel"
+	AdminService_ListAlertChannels_FullMethodName       = "/armada.v1.AdminService/ListAlertChannels"
+	AdminService_DeleteAlertChannel_FullMethodName      = "/armada.v1.AdminService/DeleteAlertChannel"
+	AdminService_TestAlertChannel_FullMethodName        = "/armada.v1.AdminService/TestAlertChannel"
 	AdminService_RunJob_FullMethodName                  = "/armada.v1.AdminService/RunJob"
 	AdminService_ListJobs_FullMethodName                = "/armada.v1.AdminService/ListJobs"
 	AdminService_ListJobRuns_FullMethodName             = "/armada.v1.AdminService/ListJobRuns"
@@ -171,6 +176,13 @@ type AdminServiceClient interface {
 	// Events streams what the cluster did (ADR 0018), oldest first; with
 	// follow, then new events until the caller cancels.
 	Events(ctx context.Context, in *EventsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[EventInfo], error)
+	// Alert channels (ADR 0045): where the leader sends notices about events
+	// that need a person. Cluster-admin only.
+	CreateAlertChannel(ctx context.Context, in *AlertChannelRequest, opts ...grpc.CallOption) (*AlertChannel, error)
+	UpdateAlertChannel(ctx context.Context, in *AlertChannelRequest, opts ...grpc.CallOption) (*AlertChannel, error)
+	ListAlertChannels(ctx context.Context, in *ListAlertChannelsRequest, opts ...grpc.CallOption) (*ListAlertChannelsResponse, error)
+	DeleteAlertChannel(ctx context.Context, in *DeleteAlertChannelRequest, opts ...grpc.CallOption) (*DeleteAlertChannelResponse, error)
+	TestAlertChannel(ctx context.Context, in *TestAlertChannelRequest, opts ...grpc.CallOption) (*TestAlertChannelResponse, error)
 	// Jobs (ADR 0019): start a run now, list jobs and their runs, cancel the
 	// running run, delete a job with its runs.
 	RunJob(ctx context.Context, in *RunJobRequest, opts ...grpc.CallOption) (*RunJobResponse, error)
@@ -724,6 +736,56 @@ func (c *adminServiceClient) Events(ctx context.Context, in *EventsRequest, opts
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type AdminService_EventsClient = grpc.ServerStreamingClient[EventInfo]
 
+func (c *adminServiceClient) CreateAlertChannel(ctx context.Context, in *AlertChannelRequest, opts ...grpc.CallOption) (*AlertChannel, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AlertChannel)
+	err := c.cc.Invoke(ctx, AdminService_CreateAlertChannel_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) UpdateAlertChannel(ctx context.Context, in *AlertChannelRequest, opts ...grpc.CallOption) (*AlertChannel, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AlertChannel)
+	err := c.cc.Invoke(ctx, AdminService_UpdateAlertChannel_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) ListAlertChannels(ctx context.Context, in *ListAlertChannelsRequest, opts ...grpc.CallOption) (*ListAlertChannelsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListAlertChannelsResponse)
+	err := c.cc.Invoke(ctx, AdminService_ListAlertChannels_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) DeleteAlertChannel(ctx context.Context, in *DeleteAlertChannelRequest, opts ...grpc.CallOption) (*DeleteAlertChannelResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DeleteAlertChannelResponse)
+	err := c.cc.Invoke(ctx, AdminService_DeleteAlertChannel_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) TestAlertChannel(ctx context.Context, in *TestAlertChannelRequest, opts ...grpc.CallOption) (*TestAlertChannelResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(TestAlertChannelResponse)
+	err := c.cc.Invoke(ctx, AdminService_TestAlertChannel_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *adminServiceClient) RunJob(ctx context.Context, in *RunJobRequest, opts ...grpc.CallOption) (*RunJobResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(RunJobResponse)
@@ -878,6 +940,13 @@ type AdminServiceServer interface {
 	// Events streams what the cluster did (ADR 0018), oldest first; with
 	// follow, then new events until the caller cancels.
 	Events(*EventsRequest, grpc.ServerStreamingServer[EventInfo]) error
+	// Alert channels (ADR 0045): where the leader sends notices about events
+	// that need a person. Cluster-admin only.
+	CreateAlertChannel(context.Context, *AlertChannelRequest) (*AlertChannel, error)
+	UpdateAlertChannel(context.Context, *AlertChannelRequest) (*AlertChannel, error)
+	ListAlertChannels(context.Context, *ListAlertChannelsRequest) (*ListAlertChannelsResponse, error)
+	DeleteAlertChannel(context.Context, *DeleteAlertChannelRequest) (*DeleteAlertChannelResponse, error)
+	TestAlertChannel(context.Context, *TestAlertChannelRequest) (*TestAlertChannelResponse, error)
 	// Jobs (ADR 0019): start a run now, list jobs and their runs, cancel the
 	// running run, delete a job with its runs.
 	RunJob(context.Context, *RunJobRequest) (*RunJobResponse, error)
@@ -1047,6 +1116,21 @@ func (UnimplementedAdminServiceServer) IssueMetricsCertificate(context.Context, 
 }
 func (UnimplementedAdminServiceServer) Events(*EventsRequest, grpc.ServerStreamingServer[EventInfo]) error {
 	return status.Error(codes.Unimplemented, "method Events not implemented")
+}
+func (UnimplementedAdminServiceServer) CreateAlertChannel(context.Context, *AlertChannelRequest) (*AlertChannel, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreateAlertChannel not implemented")
+}
+func (UnimplementedAdminServiceServer) UpdateAlertChannel(context.Context, *AlertChannelRequest) (*AlertChannel, error) {
+	return nil, status.Error(codes.Unimplemented, "method UpdateAlertChannel not implemented")
+}
+func (UnimplementedAdminServiceServer) ListAlertChannels(context.Context, *ListAlertChannelsRequest) (*ListAlertChannelsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListAlertChannels not implemented")
+}
+func (UnimplementedAdminServiceServer) DeleteAlertChannel(context.Context, *DeleteAlertChannelRequest) (*DeleteAlertChannelResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method DeleteAlertChannel not implemented")
+}
+func (UnimplementedAdminServiceServer) TestAlertChannel(context.Context, *TestAlertChannelRequest) (*TestAlertChannelResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method TestAlertChannel not implemented")
 }
 func (UnimplementedAdminServiceServer) RunJob(context.Context, *RunJobRequest) (*RunJobResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method RunJob not implemented")
@@ -1944,6 +2028,96 @@ func _AdminService_Events_Handler(srv interface{}, stream grpc.ServerStream) err
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type AdminService_EventsServer = grpc.ServerStreamingServer[EventInfo]
 
+func _AdminService_CreateAlertChannel_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AlertChannelRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).CreateAlertChannel(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminService_CreateAlertChannel_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).CreateAlertChannel(ctx, req.(*AlertChannelRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_UpdateAlertChannel_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AlertChannelRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).UpdateAlertChannel(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminService_UpdateAlertChannel_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).UpdateAlertChannel(ctx, req.(*AlertChannelRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_ListAlertChannels_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListAlertChannelsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).ListAlertChannels(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminService_ListAlertChannels_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).ListAlertChannels(ctx, req.(*ListAlertChannelsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_DeleteAlertChannel_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteAlertChannelRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).DeleteAlertChannel(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminService_DeleteAlertChannel_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).DeleteAlertChannel(ctx, req.(*DeleteAlertChannelRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_TestAlertChannel_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(TestAlertChannelRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).TestAlertChannel(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminService_TestAlertChannel_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).TestAlertChannel(ctx, req.(*TestAlertChannelRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _AdminService_RunJob_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(RunJobRequest)
 	if err := dec(in); err != nil {
@@ -2238,6 +2412,26 @@ var AdminService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "IssueMetricsCertificate",
 			Handler:    _AdminService_IssueMetricsCertificate_Handler,
+		},
+		{
+			MethodName: "CreateAlertChannel",
+			Handler:    _AdminService_CreateAlertChannel_Handler,
+		},
+		{
+			MethodName: "UpdateAlertChannel",
+			Handler:    _AdminService_UpdateAlertChannel_Handler,
+		},
+		{
+			MethodName: "ListAlertChannels",
+			Handler:    _AdminService_ListAlertChannels_Handler,
+		},
+		{
+			MethodName: "DeleteAlertChannel",
+			Handler:    _AdminService_DeleteAlertChannel_Handler,
+		},
+		{
+			MethodName: "TestAlertChannel",
+			Handler:    _AdminService_TestAlertChannel_Handler,
 		},
 		{
 			MethodName: "RunJob",

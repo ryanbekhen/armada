@@ -108,6 +108,9 @@ type Config struct {
 
 	// Name is this control plane node's name.
 	Name string
+	// AlertHTTP, if set, sends notices to HTTP alert channels (tests;
+	// ADR 0045).
+	AlertHTTP *http.Client
 	// Cluster manages the control plane's etcd membership. Nil disables
 	// adding and removing servers.
 	Cluster Cluster
@@ -162,7 +165,10 @@ type Server struct {
 	// triggers is what the leader keeps about jobs a queue starts (ADR 0040).
 	triggers *queueTriggers
 	events   *eventRecorder
-	jobRuns  *prometheus.CounterVec
+	// alerts delivers notices about events (ADR 0045).
+	alerts    *alerter
+	alertHTTP *http.Client
+	jobRuns   *prometheus.CounterVec
 	// jobRetryBase is the delay before a job's first retry.
 	jobRetryBase time.Duration
 	// autoscaleInterval and scaler run the autoscaler (ADR 0020).
@@ -336,10 +342,12 @@ func New(cfg Config) (*Server, error) {
 		reconcileErrors: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "armada_reconcile_errors_total", Help: "Reconciles that failed.",
 		}),
-		usage:    newUsageStore(),
-		triggers: newQueueTriggers(),
-		events:   newEventRecorder(),
-		jobRuns:  newJobRunsCounter(),
+		usage:     newUsageStore(),
+		triggers:  newQueueTriggers(),
+		events:    newEventRecorder(),
+		alerts:    newAlerter(),
+		alertHTTP: cfg.AlertHTTP,
+		jobRuns:   newJobRunsCounter(),
 
 		certs:          cfg.Certs,
 		acmeAddr:       cfg.ACMEAddr,
@@ -410,6 +418,10 @@ func (s *Server) Serve(ctx context.Context, lis net.Listener) error {
 		if err := s.serveMetrics(ctx); err != nil {
 			return err
 		}
+	}
+	s.alerts.start(ctx, s.alertHTTP)
+	if err := s.loadAlerts(ctx); err != nil {
+		s.log.Warn("alert channels: load", "err", err)
 	}
 	go s.verifyLoop(ctx)
 	go s.reconcileLoop(ctx)

@@ -133,7 +133,7 @@ address (a VPN or an SSH tunnel): see
 | **Scale** | Autoscaling on requests, CPU, memory, queue length, or a schedule; scale to zero and back on the next request |
 | **Run** | Jobs and cron jobs, jobs started by a queue, init containers, sidecars, `exec` into replicas, logs with a searchable history |
 | **Data** | Volumes, scheduled encrypted backups to an S3-compatible bucket, failover to another node, NFS exports |
-| **Operate** | Highly available control plane, self-healing, placement by labels, spaces, users and roles, events, Prometheus metrics, verified upgrades |
+| **Operate** | Highly available control plane, self-healing, placement by labels, spaces, users and roles, events, alerts to Slack, Discord, Telegram, or email, Prometheus metrics, verified upgrades |
 
 Read the [full feature list](docs/features.md).
 

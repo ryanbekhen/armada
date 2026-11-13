@@ -47,6 +47,7 @@ Every architectural decision that is hard to reverse is recorded here. Copy `000
 | [0041](0041-volume-backups.md) | Scheduled volume backups to object storage | Accepted |
 | [0042](0042-nfs-volumes.md) | NFS volumes | Accepted |
 | [0043](0043-log-history.md) | Log history | Accepted |
+| [0045](0045-alerts.md) | Alerts | Accepted |
 
 Commands in records before 0032 carry the names of their time; ADR 0032
 lists the command line as it is now.
