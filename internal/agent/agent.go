@@ -27,6 +27,7 @@ import (
 
 	"golang.org/x/sync/singleflight"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	armadav1 "github.com/ryanbekhen/armada/api/armada/v1"
 	"github.com/ryanbekhen/armada/internal/conntrack"
@@ -1319,7 +1320,8 @@ func (a *Agent) serveLogs(ctx context.Context, req *armadav1.LogRequest) {
 		finish("replica " + req.GetReplicaId() + ": " + err.Error())
 		return
 	}
-	ls, err := a.cfg.Driver.Logs(ctx, id, runtime.LogOptions{Follow: req.GetFollow(), Tail: int(req.GetTail())})
+	grep := []byte(strings.ToLower(req.GetGrep()))
+	ls, err := a.cfg.Driver.Logs(ctx, id, runtime.LogOptions{Follow: req.GetFollow(), Tail: int(req.GetTail()), Grep: string(grep)})
 	if err != nil {
 		finish(err.Error())
 		return
@@ -1335,11 +1337,18 @@ func (a *Agent) serveLogs(ctx context.Context, req *armadav1.LogRequest) {
 			finish(err.Error())
 			return
 		}
+		if !runtime.ContainsFold(f.Data, grep) {
+			continue // a runtime that does not filter
+		}
 		stream := armadav1.Stream_STREAM_STDOUT
 		if f.Stream == runtime.Stderr {
 			stream = armadav1.Stream_STREAM_STDERR
 		}
-		if err := push.Send(&armadav1.LogPush{RequestId: req.GetRequestId(), Stream: stream, Data: f.Data}); err != nil {
+		lp := &armadav1.LogPush{RequestId: req.GetRequestId(), Stream: stream, Data: f.Data}
+		if !f.Time.IsZero() {
+			lp.Time = timestamppb.New(f.Time)
+		}
+		if err := push.Send(lp); err != nil {
 			return
 		}
 	}

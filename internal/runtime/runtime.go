@@ -3,6 +3,7 @@
 package runtime
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -287,6 +288,9 @@ type Container struct {
 type LogOptions struct {
 	Follow bool
 	Tail   int // 0 means all, negative none (with Follow: only new output)
+	// Grep keeps only lines containing it, ignoring case (lower case; empty
+	// for all); Tail counts matching lines.
+	Grep string
 }
 
 // Stream identifies stdout or stderr.
@@ -302,6 +306,8 @@ const (
 type LogFrame struct {
 	Stream Stream
 	Data   []byte
+	// Time is when the line was written; zero when the runtime does not say.
+	Time time.Time
 }
 
 // LogQuery asks for a window of an app's output from the node's log history
@@ -570,4 +576,41 @@ func CheckSandboxID(id string) error {
 		}
 	}
 	return nil
+}
+
+// ContainsFold reports whether line contains needle, ignoring case; needle
+// must already be lower case. ASCII needles are matched without allocating,
+// so filtering a busy log stays cheap.
+func ContainsFold(line, needle []byte) bool {
+	if len(needle) == 0 {
+		return true
+	}
+	for _, c := range needle {
+		if c >= utf8RuneSelf {
+			return bytes.Contains(bytes.ToLower(line), needle)
+		}
+	}
+	first := needle[0]
+	for i := 0; i+len(needle) <= len(line); i++ {
+		if lowerASCII(line[i]) != first {
+			continue
+		}
+		j := 1
+		for j < len(needle) && lowerASCII(line[i+j]) == needle[j] {
+			j++
+		}
+		if j == len(needle) {
+			return true
+		}
+	}
+	return false
+}
+
+const utf8RuneSelf = 0x80
+
+func lowerASCII(c byte) byte {
+	if 'A' <= c && c <= 'Z' {
+		return c + 'a' - 'A'
+	}
+	return c
 }

@@ -414,6 +414,59 @@ func TestLogs(t *testing.T) {
 	}
 }
 
+func init() { followScan = 50 * time.Millisecond }
+
+// Following an app filters lines on the node, stamps them, and picks up
+// replicas that start later.
+func TestLogsFollowGrep(t *testing.T) {
+	t.Parallel()
+	c := newCluster(t)
+	c.addNode("n1", "127.0.0.1")
+	c.deploy(webSpec("nginx:1", 1))
+	c.eventually("1 running", func() bool { return len(c.running("web")) == 1 })
+	ctx, cancel := context.WithCancel(c.ctx)
+	defer cancel()
+	stream, err := c.admin.Logs(ctx, &armadav1.LogsRequest{App: "web", Follow: true, Grep: "HELLO"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := make(chan *armadav1.LogEntry, 16)
+	go func() {
+		for {
+			e, err := stream.Recv()
+			if err != nil {
+				close(got)
+				return
+			}
+			got <- e
+		}
+	}()
+	first := <-got
+	if first == nil || string(first.Data) != "hello from n1\n" || first.Time == nil {
+		t.Fatalf("first entry %v", first)
+	}
+	if _, err := c.admin.Scale(c.ctx, &armadav1.ScaleRequest{App: "web", Replicas: 2}); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.After(10 * time.Second)
+	for {
+		select {
+		case e := <-got:
+			if e == nil {
+				t.Fatal("stream ended")
+			}
+			if strings.Contains(string(e.Data), "warn") {
+				t.Fatalf("grep let %q through", e.Data)
+			}
+			if e.Replica != first.Replica {
+				return // the new replica joined
+			}
+		case <-deadline:
+			t.Fatal("the new replica was not followed")
+		}
+	}
+}
+
 // A replica that has written nothing yet returns no logs at once, not a
 // notice that its node did not answer.
 func TestLogsOfSilentReplica(t *testing.T) {

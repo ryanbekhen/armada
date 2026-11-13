@@ -77,7 +77,8 @@ func TestLogHistorySearch(t *testing.T) {
 
 	for name, req := range map[string]*armadav1.LogsRequest{
 		"until before since": {App: "web", Since: timestamppb.New(base), Until: timestamppb.New(base.Add(-time.Second))},
-		"grep alone":         {App: "web", Grep: "x"},
+		"until alone":        {App: "web", Until: timestamppb.New(base)},
+		"limit alone":        {App: "web", Limit: 3},
 	} {
 		if _, err := c.searchLogs(req); status.Code(err) != codes.InvalidArgument {
 			t.Errorf("%s: %v", name, err)
