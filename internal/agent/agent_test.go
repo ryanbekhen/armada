@@ -556,7 +556,7 @@ func TestInternalDNS(t *testing.T) {
 	if !slices.Equal(spec.DNS, []string{"172.17.0.1"}) {
 		t.Errorf("container DNS = %v", spec.DNS)
 	}
-	// Apps of the container's own project resolve by name alone.
+	// Apps of the container's own space resolve by name alone.
 	if !slices.Equal(spec.DNSSearch, []string{"internal"}) {
 		t.Errorf("search domains in default = %v", spec.DNSSearch)
 	}

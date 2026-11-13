@@ -38,7 +38,7 @@ All guides: [guides/](guides/README.md).
 ## Running a cluster
 
 - **[Operations guide](operations.md)**: cluster settings, the control
-  plane, backups, upgrades, certificates, access control, projects, nodes,
+  plane, backups, upgrades, certificates, access control, spaces, nodes,
   networking, and what happens when something fails.
 - **[Tested environments](tested-environments.md)**: where Armada has been
   tested end to end.

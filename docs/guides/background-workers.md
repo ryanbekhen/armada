@@ -23,7 +23,7 @@ broker.
 ## The setup
 
 ```
-  project shop
+  space shop
   +-------------------------------------------------------------------+
   |  api --LPUSH--> queue (redis, TCP 6379) <--BRPOP-- worker x1..10  |
   |                    ^         ^                                    |
@@ -39,12 +39,12 @@ broker.
 ## 1. Run the broker
 
 Skip this step if you already run Redis or RabbitMQ that your apps can
-reach. Here the broker is an app of the same project, with a volume so
+reach. Here the broker is an app of the same space, with a volume so
 queued messages survive a restart:
 
 ```bash
-armada project create shop
-armada project use shop
+armada space create shop
+armada space use shop
 PASSWORD=$(openssl rand -hex 24)
 printf %s "$PASSWORD" | armada secret set queue redis-password
 for app in api worker mailer; do
@@ -341,7 +341,7 @@ use a job.
 | `Queue: not read: no node can` and a `QueueUnread` event | No connected node of the cluster network may run the job (placement, cordons) | Check the job's placement and the nodes |
 | Job create refused for `trigger` | No cluster network, or `schedule`/`concurrency` set with it | Remove those fields; triggers need `armadad init --network` |
 | `armada job run mailer` refused | `parallelism` runs are already active | Wait, or raise `parallelism` |
-| A broker on the private network is unreachable from `shop` | Projects other than `default` cannot reach the private network | Run the broker as an app of the project, or use `default` with its isolation off |
+| A broker on the private network is unreachable from `shop` | Spaces other than `default` cannot reach the private network | Run the broker as an app of the space, or use `default` with its isolation off |
 | Replicas wait with an `Unschedulable` event as the queue grows | No node has room for another replica's reservation | Plan room for `max` replicas, lower `resources`, or add a node |
 
 ## Next steps

@@ -65,7 +65,7 @@ type renderOptions struct {
 	// (ADR 0025), where its replicas have their own addresses; empty when
 	// replicas are reached through ports on the private IP. With a subnet
 	// the node knows its containers' apps (the clients map), and the
-	// internal frontend admits a request only from the target's project,
+	// internal frontend admits a request only from the target's space,
 	// or its allowed apps (ADR 0026).
 	Subnet string
 	// BusyTCP are TCP ports another program listens on, on the gateway or
@@ -78,7 +78,7 @@ type renderOptions struct {
 func (o renderOptions) checksCallers() bool { return o.Subnet != "" }
 
 // servesTCP reports whether the node has TCP listeners (ADR 0039): only on
-// the bridge gateway, and only where the caller's project is known, which
+// the bridge gateway, and only where the caller's space is known, which
 // picks the backend.
 func (o renderOptions) servesTCP() bool { return o.InternalIP != "" && o.checksCallers() }
 
@@ -344,18 +344,18 @@ func render(cfg proxy.Config, layout Layout, opts renderOptions) []byte {
 		w("    http-request set-var(txn.host) req.hdr(host),field(1,:),lower")
 		w("    http-request set-var(txn.path) path")
 		if opts.checksCallers() {
-			// The caller's project and app, from its address; nothing for an
+			// The caller's space and app, from its address; nothing for an
 			// address this node does not know, which then matches no route.
-			w("    http-request set-var(txn.cproj) src,map_ip(%s/%s),field(1,:)", containerConfDir, clientsFile)
+			w("    http-request set-var(txn.cspace) src,map_ip(%s/%s),field(1,:)", containerConfDir, clientsFile)
 			w("    http-request set-var(txn.capp) src,map_ip(%s/%s),field(2,:)", containerConfDir, clientsFile)
 			rr.callers = true
-			// A name alone (no dot) is an app of the caller's own project:
+			// A name alone (no dot) is an app of the caller's own space:
 			// b is b.internal in default and b.shop.internal in shop.
-			w("    http-request set-var(txn.host) var(txn.host),concat(%s) if !{ var(txn.host) -m sub . } { var(txn.cproj) -m str %s }", spec.InternalSuffix, spec.DefaultProject)
-			w("    http-request set-var(txn.host) var(txn.host),concat(.,txn.cproj,%s) if !{ var(txn.host) -m sub . } { var(txn.cproj) -m found }", spec.InternalSuffix)
+			w("    http-request set-var(txn.host) var(txn.host),concat(%s) if !{ var(txn.host) -m sub . } { var(txn.cspace) -m str %s }", spec.InternalSuffix, spec.DefaultSpace)
+			w("    http-request set-var(txn.host) var(txn.host),concat(.,txn.cspace,%s) if !{ var(txn.host) -m sub . } { var(txn.cspace) -m found }", spec.InternalSuffix)
 		} else {
 			// Without the clients map every caller is of the default
-			// project.
+			// space.
 			w("    http-request set-var(txn.host) var(txn.host),concat(%s) if !{ var(txn.host) -m sub . }", spec.InternalSuffix)
 		}
 		rr.write(routesInternal, internal)
@@ -404,7 +404,7 @@ const tcpTimeout = "1h"
 
 // writeTCP emits the internal TCP side (ADR 0039): its own defaults, a
 // frontend per port on the bridge gateway, and the TCP backends. A port is
-// shared by the projects of the cluster: the caller's project, from its
+// shared by the spaces of the cluster: the caller's space, from its
 // address in the clients map, picks the backend, and a caller this node does
 // not know, the node included, or one the app does not allow, is refused
 // before anything is read from it. Nothing listens anywhere but the gateway,
@@ -435,10 +435,10 @@ func writeTCP(w func(string, ...any), cfg proxy.Config, backends []proxy.Backend
 			slices.SortFunc(routes, func(a, b proxy.TCPRoute) int { return cmp.Compare(a.Backend, b.Backend) })
 			w("frontend %s", tcpFrontendName(port))
 			w("    bind %s:%d", hostForBind(opts.InternalIP), port)
-			w("    tcp-request connection set-var(sess.cproj) src,map_ip(%s),field(1,:)", clients)
+			w("    tcp-request connection set-var(sess.cspace) src,map_ip(%s),field(1,:)", clients)
 			w("    tcp-request connection set-var(sess.capp) src,map_ip(%s),field(2,:)", clients)
 			for _, r := range routes {
-				set := fmt.Sprintf("    tcp-request connection set-var(sess.route) str(%s) if { var(sess.cproj) -m str %s }", backendName(r.Backend), proxy.BackendProject(r.Backend))
+				set := fmt.Sprintf("    tcp-request connection set-var(sess.route) str(%s) if { var(sess.cspace) -m str %s }", backendName(r.Backend), proxy.BackendSpace(r.Backend))
 				if len(r.Allow) > 0 {
 					set += fmt.Sprintf(" { var(sess.capp) -m str %s }", strings.Join(r.Allow, " "))
 				}
@@ -638,7 +638,7 @@ func writeBackend(w func(string, ...any), p pool, healthPath string, layout Layo
 type ruleRenderer struct {
 	w        func(string, ...any)
 	backends map[string]proxy.Backend
-	// callers restricts each route to its backend's project, or its
+	// callers restricts each route to its backend's space, or its
 	// allowed apps.
 	callers bool
 }
@@ -679,7 +679,7 @@ func sortRules(rules []proxy.Rule) []proxy.Rule {
 
 // mapped reports whether a rule can be looked up in the frontend's route map
 // instead of having rules of its own: it matches a whole host, and only needs
-// the backend's project checked. HAProxy runs every http-request rule of a
+// the backend's space checked. HAProxy runs every http-request rule of a
 // frontend for every request, so this keeps a request's cost from growing with
 // the number of apps in the cluster.
 func mapped(r proxy.Rule, be proxy.Backend) bool {
@@ -687,7 +687,7 @@ func mapped(r proxy.Rule, be proxy.Backend) bool {
 }
 
 // routeMap returns the route map of a frontend: one "<key> <backend>" line per
-// mapped rule, where the key is the host, or "<project>/<host>" when callers
+// mapped rule, where the key is the host, or "<space>/<host>" when callers
 // are checked. It is named after its content, so a configuration and its map
 // are validated and replaced together. Its name is empty without mapped rules.
 // Every value is checked by safeConfig before this is used.
@@ -699,7 +699,7 @@ func routeMap(prefix string, rules []proxy.Rule, backends map[string]proxy.Backe
 		}
 		key := r.Host
 		if callers {
-			key = proxy.BackendProject(r.Backend) + "/" + r.Host
+			key = proxy.BackendSpace(r.Backend) + "/" + r.Host
 		}
 		fmt.Fprintf(&b, "%s %s\n", key, backendName(r.Backend))
 	}
@@ -748,7 +748,7 @@ func (rr ruleRenderer) write(prefix string, rules []proxy.Rule) {
 		// line, all guarded by "no route chosen yet".
 		set := fmt.Sprintf("    http-request set-var(txn.route) str(%s%d) if !{ var(txn.route) -m found } { var(txn.host) -m str %s }", prefix, i, r.Host)
 		if rr.callers {
-			set += fmt.Sprintf(" { var(txn.cproj) -m str %s }", proxy.BackendProject(r.Backend))
+			set += fmt.Sprintf(" { var(txn.cspace) -m str %s }", proxy.BackendSpace(r.Backend))
 			if len(r.Allow) > 0 {
 				set += fmt.Sprintf(" { var(txn.capp) -m str %s }", strings.Join(r.Allow, " "))
 			}
@@ -763,9 +763,9 @@ func (rr ruleRenderer) write(prefix string, rules []proxy.Rule) {
 	if name, _ := routeMap(prefix, rules, rr.backends, rr.callers); name != "" {
 		path := containerConfDir + "/" + name
 		if rr.callers {
-			// A caller this node does not know has no project, so no key and
+			// A caller this node does not know has no space, so no key and
 			// no route.
-			w("    http-request set-var(txn.rkey) var(txn.cproj),concat(/,txn.host) if !{ var(txn.route) -m found }")
+			w("    http-request set-var(txn.rkey) var(txn.cspace),concat(/,txn.host) if !{ var(txn.route) -m found }")
 			w("    http-request set-var(txn.route) var(txn.rkey),map(%s) if !{ var(txn.route) -m found }", path)
 		} else {
 			w("    http-request set-var(txn.route) var(txn.host),map(%s) if !{ var(txn.route) -m found }", path)

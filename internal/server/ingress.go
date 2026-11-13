@@ -71,15 +71,15 @@ func appRoutes(sp *spec.App) []spec.Route {
 
 // allowedCallers turns an app's ingress.allow into the app IDs that may
 // call it through its internal name, itself first; nil when it allows its
-// whole project.
+// whole space.
 func allowedCallers(id string, names []string) []string {
 	if len(names) == 0 {
 		return nil
 	}
-	project, _, _ := spec.SplitAppID(id)
+	space, _, _ := spec.SplitAppID(id)
 	out := []string{id}
 	for _, n := range names {
-		out = append(out, spec.AppID(project, n))
+		out = append(out, spec.AppID(space, n))
 	}
 	return out
 }
@@ -127,7 +127,7 @@ func (s *Server) buildProxy(ctx context.Context, apps []store.App, replicas []st
 	}
 
 	perApp := byApp(replicas)
-	// project/port -> app: the store gives each a single app (ADR 0039);
+	// space/port -> app: the store gives each a single app (ADR 0039);
 	// should two ever claim one, the first keeps it rather than the whole
 	// configuration failing.
 	tcpTaken := map[string]string{}
@@ -138,9 +138,9 @@ func (s *Server) buildProxy(ctx context.Context, apps []store.App, replicas []st
 		}
 		replicas := perApp[app.Name]
 		if sp.Ingress.TCP() {
-			key := fmt.Sprintf("%s/%d", proxy.BackendProject(app.Name), sp.Ingress.Port)
+			key := fmt.Sprintf("%s/%d", proxy.BackendSpace(app.Name), sp.Ingress.Port)
 			if owner, ok := tcpTaken[key]; ok {
-				s.log.Warn("TCP port taken by another app of the project", "app", app.Name, "port", sp.Ingress.Port, "owner", owner)
+				s.log.Warn("TCP port taken by another app of the space", "app", app.Name, "port", sp.Ingress.Port, "owner", owner)
 				continue
 			}
 			tcpTaken[key] = app.Name
@@ -177,7 +177,7 @@ func (s *Server) buildProxy(ctx context.Context, apps []store.App, replicas []st
 		cfg.Backends = append(cfg.Backends, be)
 
 		// Every app with an ingress port is reachable inside the cluster,
-		// by the apps of its project or the ones it allows (ADR 0026).
+		// by the apps of its space or the ones it allows (ADR 0026).
 		allow := allowedCallers(app.Name, sp.Ingress.Allow)
 		for _, rt := range appRoutes(sp) {
 			cfg.Rules = append(cfg.Rules, proxy.Rule{Host: spec.InternalHost(app.Name), PathPrefix: rt.Path, StripPrefix: rt.StripPrefix, Backend: app.Name, Internal: true, Allow: allow})

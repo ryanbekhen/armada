@@ -21,14 +21,14 @@ const (
 	// needClusterAdmin is the zero value: methods missing from methodNeeds
 	// are for cluster-admin only, including any added later.
 	needClusterAdmin need = iota
-	// needView, needDeploy, and needAdmin are the levels of the project
+	// needView, needDeploy, and needAdmin are the levels of the space
 	// roles viewer, deployer, and admin, checked by each handler against
-	// the project of what it touches.
+	// the space of what it touches.
 	needView
 	needDeploy
 	needAdmin
-	// needCreateProjects is the project-creator role.
-	needCreateProjects
+	// needCreateSpaces is the space-creator role.
+	needCreateSpaces
 	// needSelf is any principal, acting on its own certificate.
 	needSelf
 )
@@ -36,8 +36,8 @@ const (
 const adminService = "/armada.v1.AdminService/"
 
 // methodNeeds places every method a role other than cluster-admin may
-// call. Handlers check the project of every app, job, volume, domain, and
-// project they touch with access.
+// call. Handlers check the space of every app, job, volume, domain, and
+// space they touch with access.
 var methodNeeds = map[string]need{
 	adminService + "Status":        needView,
 	adminService + "ListApps":      needView,
@@ -48,7 +48,7 @@ var methodNeeds = map[string]need{
 	adminService + "ListDomains":   needView,
 	adminService + "ListJobs":      needView,
 	adminService + "ListJobRuns":   needView,
-	adminService + "ListProjects":  needView,
+	adminService + "ListSpaces":    needView,
 	adminService + "Logs":          needView,
 	adminService + "Top":           needView,
 	adminService + "Events":        needView,
@@ -72,15 +72,15 @@ var methodNeeds = map[string]need{
 	adminService + "RestoreVolumeSnapshot": needAdmin,
 	adminService + "RemoveApp":             needAdmin,
 	adminService + "DeleteJob":             needAdmin,
-	// Also project-creator, checked by the handler.
-	adminService + "DeleteProject": needAdmin,
+	// Also space-creator, checked by the handler.
+	adminService + "DeleteSpace": needAdmin,
 
-	adminService + "CreateProject": needCreateProjects,
+	adminService + "CreateSpace": needCreateSpaces,
 
 	adminService + "RenewOwnCertificate": needSelf,
 }
 
-// roleLevel is the project level a role gives.
+// roleLevel is the space level a role gives.
 var roleLevel = map[string]need{
 	store.RoleViewer:   needView,
 	store.RoleDeployer: needDeploy,
@@ -123,13 +123,13 @@ func (a access) admin() bool {
 	return a.p != nil && a.p.Has(store.Grant{Role: store.RoleClusterAdmin})
 }
 
-// creates reports whether the caller may create projects.
+// creates reports whether the caller may create spaces.
 func (a access) creates() bool {
-	return a.admin() || (a.p != nil && a.p.Has(store.Grant{Role: store.RoleProjectCreator}))
+	return a.admin() || (a.p != nil && a.p.Has(store.Grant{Role: store.RoleSpaceCreator}))
 }
 
-// level is the most the caller's roles give in project.
-func (a access) level(project string) need {
+// level is the most the caller's roles give in space.
+func (a access) level(space string) need {
 	if a.admin() {
 		return needAdmin
 	}
@@ -139,7 +139,7 @@ func (a access) level(project string) need {
 	best := needClusterAdmin
 	for _, g := range a.p.Roles {
 		l, ok := roleLevel[g.Role]
-		if ok && (g.Project == project || (g.Project == "" && g.Role == store.RoleViewer)) && l > best {
+		if ok && (g.Space == space || (g.Space == "" && g.Role == store.RoleViewer)) && l > best {
 			best = l
 		}
 	}
@@ -153,7 +153,7 @@ func (a access) reaches(n need) bool {
 	switch n {
 	case needSelf:
 		return true
-	case needCreateProjects:
+	case needCreateSpaces:
 		return a.creates()
 	case needView, needDeploy, needAdmin:
 		for _, g := range a.p.Roles {
@@ -165,8 +165,8 @@ func (a access) reaches(n need) bool {
 	return false
 }
 
-// required is the project level the method being called asks for; a
-// method placed elsewhere that still names a project asks for admin.
+// required is the space level the method being called asks for; a
+// method placed elsewhere that still names a space asks for admin.
 func (a access) required() need {
 	if a.need >= needView && a.need <= needAdmin {
 		return a.need
@@ -174,11 +174,11 @@ func (a access) required() need {
 	return needAdmin
 }
 
-func (a access) allows(project string) bool {
-	if project == "" {
-		project = spec.DefaultProject
+func (a access) allows(space string) bool {
+	if space == "" {
+		space = spec.DefaultSpace
 	}
-	return a.level(project) >= a.required()
+	return a.level(space) >= a.required()
 }
 
 // sees reports whether the caller may reach the app (or job) with ID id
@@ -200,15 +200,15 @@ func (a access) app(id string) error {
 	return status.Errorf(codes.PermissionDenied, "%s may not %s %s", a.id, a.verb(), id)
 }
 
-// project returns PermissionDenied unless the caller may act in project.
-func (a access) project(p string) error {
+// space returns PermissionDenied unless the caller may act in space.
+func (a access) space(p string) error {
 	if a.admin() || a.allows(p) {
 		return nil
 	}
 	if p == "" {
-		p = spec.DefaultProject
+		p = spec.DefaultSpace
 	}
-	return status.Errorf(codes.PermissionDenied, "%s may not %s project %s", a.id, a.verb(), p)
+	return status.Errorf(codes.PermissionDenied, "%s may not %s space %s", a.id, a.verb(), p)
 }
 
 func (a access) verb() string {
@@ -222,7 +222,7 @@ func (a access) verb() string {
 }
 
 // placement returns PermissionDenied if a spec requires node labels its
-// caller may not name: restricted nodes may be kept for other projects.
+// caller may not name: restricted nodes may be kept for other spaces.
 func (a access) placement(sp *spec.App) error {
 	if a.admin() || sp.Placement == nil {
 		return nil

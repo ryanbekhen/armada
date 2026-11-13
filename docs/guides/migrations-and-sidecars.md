@@ -15,7 +15,7 @@ pooler on localhost or a log shipper reading the app's files.
 [quickstart](../quickstart.md)) and a database the app uses. This guide
 uses the `db` app of [An app with a PostgreSQL
 database](app-with-a-database.md), at `db.shop.internal:5432` in the
-project `shop`.
+space `shop`.
 
 ## How a replica runs several containers
 
@@ -52,7 +52,7 @@ The migration connects to the database directly; the app goes through a
 pooler on localhost, which connects to the database:
 
 ```bash
-armada project use shop
+armada space use shop
 PASSWORD=...   # the database password, from where you keep it
 printf 'postgres://app:%s@db.shop.internal:5432/app' "$PASSWORD" | armada secret set api direct-database-url
 printf 'postgres://app:%s@db.shop.internal:5432/app' "$PASSWORD" | armada secret set api upstream-url

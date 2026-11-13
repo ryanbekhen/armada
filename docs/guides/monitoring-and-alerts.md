@@ -270,7 +270,7 @@ connection, start it again with `--since` covering the gap.
 armada app top                 # per app: measured replicas, CPU used/reserved, memory used/limit
 armada app top api             # per replica
 armada node top                # per node: used, reserved, and what the node can give
-armada app top --projects      # per project, with requests and bytes sent
+armada app top --spaces      # per space, with requests and bytes sent
 ```
 
 ```

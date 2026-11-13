@@ -211,13 +211,13 @@ exists only where a pair of nodes uses it.
   and containers call `<app>.internal` through their own node's HAProxy
   (ADR 0007).
   - The agent writes the same address list, its own containers merged in,
-    to a HAProxy map (`clients.map`: address → project and app) and
+    to a HAProxy map (`clients.map`: address → space and app) and
     replaces it through the Runtime API without a reload. The internal
     frontend looks the caller's source address up and each internal rule
-    matches only callers of the app's project.
+    matches only callers of the app's space.
   - `ingress.allow: [app, ...]` narrows an app to the listed apps of its
-    project (and its own replicas). An app without it stays callable by
-    every app of its project.
+    space (and its own replicas). An app without it stays callable by
+    every app of its space.
   - A caller the map does not know matches no rule, so a container that
     has just started, the node itself, and anything else on the bridge get
     a 404 until its address is known (fail closed). The check needs the
@@ -239,7 +239,7 @@ exists only where a pair of nodes uses it.
     with health checks, drain, and local-first like HTTP.
 - `<replica>.<app>.internal` resolves to the replica's container address,
   for workloads whose members find each other. It answers for replicas that
-  are `running`, and the same project and `ingress.allow` rules apply. Stable ordinal
+  are `running`, and the same space and `ingress.allow` rules apply. Stable ordinal
   names are outside this ADR.
 - Both get their own spec reference and threat model entries in the pull
   requests that implement them. Until then the spec rejects
@@ -389,7 +389,7 @@ Later stages add:
      tunnel with routes, MTU, and firewall, and the `wireguard` mode with
      node keys (done);
   2. replicas without published ports (done);
-  3. default deny and `ingress.allow`, between projects too (ADR 0026)
+  3. default deny and `ingress.allow`, between spaces too (ADR 0026)
      (done);
   4. TCP apps;
   5. replica names.

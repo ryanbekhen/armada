@@ -153,8 +153,8 @@ curl https://shop.example.com/
 `armada cluster events` shows the domain's `Verified` event and the
 certificate's `Obtained` event, or `Failed` with the reason.
 
-A domain belongs to one project. When you add it to an app of another
-project, that project has to verify it again with a new token.
+A domain belongs to one space. When you add it to an app of another
+space, that space has to verify it again with a new token.
 
 ## 4. Update the image and watch the rollout
 
@@ -388,7 +388,7 @@ if it had any, stay until `armada volume delete`.
 | Symptom | Cause | Fix |
 | --- | --- | --- |
 | `VERIFIED no`, `last check: TXT record ... not found` | The TXT record is missing, has another name, or has not propagated | Create `_armada-verify.<domain>` exactly as printed, wait for DNS, run `armada domain verify <domain>` |
-| `last check: ... does not contain the expected token` | The record holds another value, for example from an earlier attempt or another project | Copy the value `armada domain list` prints now |
+| `last check: ... does not contain the expected token` | The record holds another value, for example from an earlier attempt or another space | Copy the value `armada domain list` prints now |
 | `VERIFIED yes`, `TLS no` for more than a few minutes | The ACME CA cannot reach port 80 of the node the domain points to, or the domain does not point at your nodes | Check the `A` records and the firewall; `armada cluster events` shows the certificate's `Failed` event with the reason |
 | Browser warns about the certificate | The cluster uses `letsencrypt-staging` | `armada cluster set --acme-ca letsencrypt` once everything works |
 | `--wait` ends with `rollout of ... failed` | New replicas never became ready: crash, wrong port, failing probe | `armada app show shop` (the replica's message), `armada app logs shop`, `armada app events shop`; the old revision keeps serving meanwhile |

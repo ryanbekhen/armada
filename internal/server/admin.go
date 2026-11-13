@@ -56,10 +56,10 @@ func actor(ctx context.Context) string {
 // Deploy validates a spec and records it as the app's active revision.
 func (s *Server) Deploy(ctx context.Context, req *armadav1.DeployRequest) (*armadav1.DeployResponse, error) {
 	acc := accessFrom(ctx)
-	if err := acc.project(req.GetProject()); err != nil {
+	if err := acc.space(req.GetSpace()); err != nil {
 		return nil, err
 	}
-	app, err := spec.ParseIn(req.GetSpec(), req.GetProject())
+	app, err := spec.ParseIn(req.GetSpec(), req.GetSpace())
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
@@ -70,7 +70,7 @@ func (s *Server) Deploy(ctx context.Context, req *armadav1.DeployRequest) (*arma
 		return nil, err
 	}
 	if app.Ingress.TCP() {
-		// The caller's project picks the app behind a port, and only nodes
+		// The caller's space picks the app behind a port, and only nodes
 		// on the cluster network know their callers (ADR 0039).
 		if _, err := s.store.GetNetwork(ctx); errors.Is(err, store.ErrNotFound) {
 			return nil, status.Error(codes.FailedPrecondition, "TCP ingress needs the cluster network (armadad init --cluster-cidr), which this cluster was created without")
@@ -315,7 +315,7 @@ func (s *Server) Status(ctx context.Context, req *armadav1.StatusRequest) (*arma
 		resp.Nodes = append(resp.Nodes, ns)
 	}
 	if !acc.admin() {
-		// Nodes are the cluster's, not a project's.
+		// Nodes are the cluster's, not a space's.
 		resp.Nodes = nil
 	}
 	return resp, nil

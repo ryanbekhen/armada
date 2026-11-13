@@ -55,7 +55,7 @@ ingress:
 - **Where the rules apply.**
   - They apply to the app's public names: its domains, its root-domain name,
     and the names of its revision labels (ADR 0022).
-  - They do not apply to `<app>.internal`. Apps of the project call that
+  - They do not apply to `<app>.internal`. Apps of the space call that
     name, and `ingress.allow` chooses those.
 - **Changing them.** The rules are part of the app's spec, so they change
   with a deploy and roll back with a rollback.

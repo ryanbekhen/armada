@@ -118,7 +118,7 @@ resources:
 ```
 
 ```bash
-armada project use shop
+armada space use shop
 printf '%s' "$POSTGRES_PASSWORD" | armada secret set db postgres-password
 printf '%s' 'https://ACCESS_KEY:SECRET_KEY@s3.example.com/acme-backups/armada' | armada secret set db backup-url
 openssl rand -base64 48 | tr -d '\n' > db-backup-key.txt   # keep a copy outside the cluster
@@ -274,8 +274,8 @@ Without any control plane archive, build a new cluster, deploy your specs
 from git, set every secret again (including each volume's `backup-url` and
 the same `backup-key`), and restore the volumes from their buckets. A
 volume's backups live under `<prefix>/<app>/<volume>/` in the bucket
-(`<app>.<project>` outside `default`), so create the app with the same name
-in a project of the same name to find them.
+(`<app>.<space>` outside `default`), so create the app with the same name
+in a space of the same name to find them.
 
 ### Someone deleted an app
 
@@ -303,12 +303,12 @@ Run this every few months, and after upgrades:
 
 - [ ] `armada volume list` shows a recent `LAST BACKUP` for every volume (not `never` or `failing`),
       and `armada volume snapshot list APP VOLUME` lists backups.
-- [ ] A volume backup restores: create a copy of the app in a project of
-      its own (`armada app create --file db.yaml --project shop-drill`, with
+- [ ] A volume backup restores: create a copy of the app in a space of
+      its own (`armada app create --file db.yaml --space shop-drill`, with
       its secrets), copy the data into it, and check the data there:
 
       ```bash
-      armada volume backup db data -o - --project shop | armada volume restore db data - --project shop-drill
+      armada volume backup db data -o - --space shop | armada volume restore db data - --space shop-drill
       ```
 - [ ] Every volume's backup key and the age key are where you expect,
       outside the cluster, and someone besides you can get to them.

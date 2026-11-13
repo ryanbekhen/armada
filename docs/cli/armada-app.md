@@ -69,7 +69,7 @@ Flags:
 | `--no-cors` | remove the app's CORS policy |
 | `--no-ip-rules` | let every client reach the app again |
 | `--port int` | port the app listens on |
-| `--protocol string` | http (default) or tcp: a tcp app is internal only, reached by apps of its project at <app>.internal:<port> |
+| `--protocol string` | http (default) or tcp: a tcp app is internal only, reached by apps of its space at <app>.internal:<port> |
 | `--registry-secret string` | secret holding the private registry's password |
 | `--registry-user string` | user name for a private registry (the image's) |
 | `--remove-domain stringArray` | remove a custom domain (repeatable) |
@@ -107,8 +107,8 @@ Flags:
 
 Show events from the last hour (or --since, at most 24h), oldest first: replicas scheduled,
 started, crashed, moved, or removed; rollouts started, completed, failed, or rolled back;
-apps that cannot be placed. Without APP, the events of the project's apps (every
-project's with -A). An event that repeats within 10 minutes is counted rather than
+apps that cannot be placed. Without APP, the events of the space's apps (every
+space's with -A). An event that repeats within 10 minutes is counted rather than
 shown again.
 
 ```
@@ -278,8 +278,8 @@ Flags:
 
 Show the CPU and memory replicas use, from samples their nodes take every 10 seconds.
 
-Without arguments it lists the project's apps (every project's with -A); with APP, that
-app's replicas; with --projects, every project, with the requests it received and the
+Without arguments it lists the space's apps (every space's with -A); with APP, that
+app's replicas; with --spaces, every space, with the requests it received and the
 bytes it sent since the control plane's leader started counting.
 CPU is shown as used/reserved and memory as used/limit; "-" means no recent sample
 (the replica is not running, or its node's runtime cannot measure containers).
@@ -293,7 +293,7 @@ Flags:
 | Flag | Meaning |
 | --- | --- |
 | `-o`, `--output string` | output format: text or json (default `text`) |
-| `--projects` | list projects instead of apps |
+| `--spaces` | list spaces instead of apps |
 
 ## `armada app traffic`
 
@@ -361,7 +361,7 @@ Flags:
 | `--no-cors` | remove the app's CORS policy |
 | `--no-ip-rules` | let every client reach the app again |
 | `--port int` | port the app listens on |
-| `--protocol string` | http (default) or tcp: a tcp app is internal only, reached by apps of its project at <app>.internal:<port> |
+| `--protocol string` | http (default) or tcp: a tcp app is internal only, reached by apps of its space at <app>.internal:<port> |
 | `--registry-secret string` | secret holding the private registry's password |
 | `--registry-user string` | user name for a private registry (the image's) |
 | `--remove-domain stringArray` | remove a custom domain (repeatable) |

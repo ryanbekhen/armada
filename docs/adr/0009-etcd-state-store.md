@@ -23,7 +23,7 @@ v3.7), behind the `store.Store` interface.
 - etcd is a widely deployed Raft-replicated key-value store with a watch
   API, consistent snapshots, and membership changes, and a single member is
   fast enough for the control plane. Writing and maintaining our own Raft
-  layer would be the riskiest code in the project.
+  layer would be the riskiest code in the space.
 - Embedded, not a separate service: `armadad` runs it, so there is nothing
   else to install. The member lives in `<data-dir>/etcd/` (`0700`).
 - One server runs a single-member cluster; three (or five) servers form an

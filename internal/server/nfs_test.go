@@ -67,10 +67,10 @@ func TestNFSExportsNeedClusterAdmin(t *testing.T) {
 	t.Parallel()
 	c := newCluster(t)
 	ctx := c.ctx
-	if _, err := c.admin.CreateProject(ctx, &armadav1.CreateProjectRequest{Name: "a"}); err != nil {
+	if _, err := c.admin.CreateSpace(ctx, &armadav1.CreateSpaceRequest{Name: "a"}); err != nil {
 		t.Fatal(err)
 	}
-	deployer := c.newUser("dan", &armadav1.RoleAssignment{Role: "deployer", Project: "a"})
+	deployer := c.newUser("dan", &armadav1.RoleAssignment{Role: "deployer", Space: "a"})
 	nfsApp := func(image, path string, readOnly bool) []byte {
 		ro := ""
 		if readOnly {
@@ -78,19 +78,19 @@ func TestNFSExportsNeedClusterAdmin(t *testing.T) {
 		}
 		return []byte("name: web\nimage: " + image + "\nvolumes:\n  - name: up\n    path: /up\n    nfs:\n      server: 10.0.0.20\n      path: " + path + "\n" + ro)
 	}
-	_, err := deployer.Deploy(ctx, &armadav1.DeployRequest{Spec: nfsApp("nginx:1", "/exports/a", true), Project: "a"})
+	_, err := deployer.Deploy(ctx, &armadav1.DeployRequest{Spec: nfsApp("nginx:1", "/exports/a", true), Space: "a"})
 	wantCode(t, "a deployer adds an export", err, codes.PermissionDenied)
 
-	if _, err := c.admin.Deploy(ctx, &armadav1.DeployRequest{Spec: nfsApp("nginx:1", "/exports/a", false), Project: "a"}); err != nil {
+	if _, err := c.admin.Deploy(ctx, &armadav1.DeployRequest{Spec: nfsApp("nginx:1", "/exports/a", false), Space: "a"}); err != nil {
 		t.Fatal(err)
 	}
 	// Same exports, or read-only: the deployer may.
-	if _, err := deployer.Deploy(ctx, &armadav1.DeployRequest{Spec: nfsApp("nginx:2", "/exports/a", false), Project: "a"}); err != nil {
+	if _, err := deployer.Deploy(ctx, &armadav1.DeployRequest{Spec: nfsApp("nginx:2", "/exports/a", false), Space: "a"}); err != nil {
 		t.Errorf("same export: %v", err)
 	}
-	if _, err := deployer.Deploy(ctx, &armadav1.DeployRequest{Spec: nfsApp("nginx:3", "/exports/a", true), Project: "a"}); err != nil {
+	if _, err := deployer.Deploy(ctx, &armadav1.DeployRequest{Spec: nfsApp("nginx:3", "/exports/a", true), Space: "a"}); err != nil {
 		t.Errorf("read-only: %v", err)
 	}
-	_, err = deployer.Deploy(ctx, &armadav1.DeployRequest{Spec: nfsApp("nginx:4", "/exports/other-team", false), Project: "a"})
+	_, err = deployer.Deploy(ctx, &armadav1.DeployRequest{Spec: nfsApp("nginx:4", "/exports/other-team", false), Space: "a"})
 	wantCode(t, "a deployer changes the export", err, codes.PermissionDenied)
 }

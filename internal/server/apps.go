@@ -21,7 +21,7 @@ const (
 	appProgress  = "progressing"
 	appFailing   = "failing"
 	appIdle      = "idle"
-	defaultScope = spec.DefaultProject
+	defaultScope = spec.DefaultSpace
 )
 
 // appSummaries builds a summary for each app (not job) the caller sees,
@@ -49,7 +49,7 @@ func (s *Server) appSummaries(ctx context.Context, keep func(store.App) bool) ([
 			continue
 		}
 		sum := &armadav1.AppSummary{
-			Name: a.Name, Project: cmp.Or(a.Spec.Project, defaultScope), Image: a.Spec.Image, Revision: a.ActiveRevision,
+			Name: a.Name, Space: cmp.Or(a.Spec.Space, defaultScope), Image: a.Spec.Image, Revision: a.ActiveRevision,
 			Ready: int32(min(ready[a.Name], 1<<30)), Desired: int32(a.Replicas), //nolint:gosec // bounded above and by spec.MaxReplicas
 		}
 		if a.Spec.Ingress != nil {
@@ -82,13 +82,13 @@ func (s *Server) appSummaries(ctx context.Context, keep func(store.App) bool) ([
 	return out, nil
 }
 
-// ListApps lists apps one summary each, in one project or every project the
+// ListApps lists apps one summary each, in one space or every space the
 // caller sees, a page at a time.
 func (s *Server) ListApps(ctx context.Context, req *armadav1.ListAppsRequest) (*armadav1.ListAppsResponse, error) {
 	acc := accessFrom(ctx)
-	project := cmp.Or(req.GetProject(), defaultScope)
-	if !req.GetAllProjects() {
-		if err := acc.project(req.GetProject()); err != nil {
+	space := cmp.Or(req.GetSpace(), defaultScope)
+	if !req.GetAllSpaces() {
+		if err := acc.space(req.GetSpace()); err != nil {
 			return nil, err
 		}
 	}
@@ -97,7 +97,7 @@ func (s *Server) ListApps(ctx context.Context, req *armadav1.ListAppsRequest) (*
 		size = maxAppsPage
 	}
 	all, err := s.appSummaries(ctx, func(a store.App) bool {
-		return req.GetAllProjects() || cmp.Or(a.Spec.Project, defaultScope) == project
+		return req.GetAllSpaces() || cmp.Or(a.Spec.Space, defaultScope) == space
 	})
 	if err != nil {
 		return nil, err

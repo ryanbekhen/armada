@@ -45,12 +45,12 @@ func sampleConfig(t *testing.T) proxy.Config {
 				{Name: "api-bengkel-r3-a", Address: "10.0.0.2:32769", Weight: 26},
 			}},
 			{Name: "admin-panel", Servers: nil, Wake: true, LocalFirst: true}, // scaled to zero
-			// Its project limits requests (ADR 0026).
+			// Its space limits requests (ADR 0026).
 			{Name: "shop", LocalFirst: true, HealthPath: "/ready", TimeoutSeconds: 300, Servers: []proxy.Server{
 				{Name: "shop-r2-a", Address: "10.0.0.3:32771"},
 				{Name: "shop-r2-b", Address: "10.0.0.2:32772"},
 			}},
-			// An app of another project, named by its ID (ADR 0026).
+			// An app of another space, named by its ID (ADR 0026).
 			{Name: "shop.staging", Servers: []proxy.Server{{Name: "shop.staging-r1-a", Address: "10.0.0.3:32773"}}},
 		},
 		Rules: []proxy.Rule{
@@ -108,7 +108,7 @@ func callersOptions() renderOptions {
 	return renderOptions{PrivateIP: "10.0.0.2", InternalIP: "10.120.0.1", Subnet: "10.120.0.0/24"}
 }
 
-// callersConfig has apps in two projects, one with ingress.allow and a
+// callersConfig has apps in two spaces, one with ingress.allow and a
 // revision label.
 func callersConfig(t *testing.T) proxy.Config {
 	t.Helper()
@@ -1221,7 +1221,7 @@ func TestRouteMap(t *testing.T) {
 		{Host: "wake.internal", PathPrefix: "/", Backend: "wake", Internal: true},
 	}
 	name, content := routeMap(routesInternal, rules, backends, true)
-	// The key holds the project: another project's caller finds no route.
+	// The key holds the space: another space's caller finds no route.
 	if want := "shop/web.shop.internal be_web.shop\n"; string(content) != want {
 		t.Errorf("map %q, want %q", content, want)
 	}

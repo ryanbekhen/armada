@@ -183,8 +183,8 @@ func newJobListCommand(g *globals) *cobra.Command {
 			now := time.Now()
 			tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 			head := "NAME\tSCHEDULE\tLAST RUN\tSTATE\tFINISHED\tNEXT RUN"
-			if g.allProjects {
-				head = "PROJECT\t" + head
+			if g.allSpaces {
+				head = "SPACE\t" + head
 			}
 			_, _ = fmt.Fprintln(tw, head)
 			for _, j := range resp.Jobs {
@@ -201,7 +201,7 @@ func newJobListCommand(g *globals) *cobra.Command {
 				}
 				p, name, _ := spec.SplitAppID(j.Name)
 				line := fmt.Sprintf("%s\t%s\t%s\t%s\t%s\t%s", name, jobSchedule(j), last, state, finished, next)
-				if g.allProjects {
+				if g.allSpaces {
 					line = p + "\t" + line
 				}
 				_, _ = fmt.Fprintln(tw, line)

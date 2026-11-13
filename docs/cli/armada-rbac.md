@@ -5,8 +5,8 @@
 [All commands](armada.md)
 
 Users are people and services are tools such as a CI system. Each holds
-roles: viewer, deployer, or admin in a project (viewer also over the whole
-cluster), project-creator, or cluster-admin. Only cluster-admin manages
+roles: viewer, deployer, or admin in a space (viewer also over the whole
+cluster), space-creator, or cluster-admin. Only cluster-admin manages
 access. `armada rbac role list` shows what each role allows.
 
 | Command | What it does |
@@ -28,18 +28,18 @@ Give roles to users and services, and take them back.
 
 ### `armada rbac assignment create`
 
-Give a role: viewer (in --project, or without it over the whole cluster),
-deployer or admin (in --project; not in default), project-creator, or
+Give a role: viewer (in --space, or without it over the whole cluster),
+deployer or admin (in --space; not in default), space-creator, or
 cluster-admin. It applies to the next call the user or service makes.
 
 ```
-armada rbac assignment create (--user NAME | --service NAME) --role ROLE [--project P] [flags]
+armada rbac assignment create (--user NAME | --service NAME) --role ROLE [--space P] [flags]
 ```
 
 Examples:
 
 ```bash
-armada rbac assignment create --user ana --role deployer --project shop
+armada rbac assignment create --user ana --role deployer --space shop
 armada rbac assignment create --service ci --role viewer
 ```
 
@@ -56,7 +56,7 @@ Flags:
 Take a role back. You cannot take cluster-admin from yourself.
 
 ```
-armada rbac assignment delete (--user NAME | --service NAME) --role ROLE [--project P] [flags]
+armada rbac assignment delete (--user NAME | --service NAME) --role ROLE [--space P] [flags]
 ```
 
 Also: `rm`.
@@ -64,7 +64,7 @@ Also: `rm`.
 Examples:
 
 ```bash
-armada rbac assignment delete --user ana --role deployer --project shop
+armada rbac assignment delete --user ana --role deployer --space shop
 ```
 
 Flags:
@@ -148,20 +148,20 @@ Manage services: tools such as a CI system.
 
 ### `armada rbac service create`
 
-Create a service, a tool that uses the API, with a first role (in --project
+Create a service, a tool that uses the API, with a first role (in --space
 for viewer, deployer, and admin). Give it a client config with
 `armada rbac service credentials`, and more roles with
 `armada rbac assignment create`.
 
 ```
-armada rbac service create NAME [--role ROLE [--project P]] [--allow-label KEY=VALUE]... [flags]
+armada rbac service create NAME [--role ROLE [--space P]] [--allow-label KEY=VALUE]... [flags]
 ```
 
 Examples:
 
 ```bash
-armada rbac service create ci --role deployer --project shop
-armada rbac service create portal --role project-creator
+armada rbac service create ci --role deployer --space shop
+armada rbac service create portal --role space-creator
 ```
 
 Flags:
@@ -169,7 +169,7 @@ Flags:
 | Flag | Meaning |
 | --- | --- |
 | `--allow-label stringArray` | a node label KEY=VALUE its apps' placement may require (repeat for more) |
-| `--role string` | a first role: viewer, deployer, admin (with --project), project-creator, or cluster-admin |
+| `--role string` | a first role: viewer, deployer, admin (with --space), space-creator, or cluster-admin |
 
 ### `armada rbac service credentials`
 
@@ -250,7 +250,7 @@ Flags:
 
 Replace the node label values the apps a service deploys may name in
 placement.require (armada.* labels are always allowed): restricted nodes
-can be kept for some projects. Roles change with `armada rbac assignment`.
+can be kept for some spaces. Roles change with `armada rbac assignment`.
 
 ```
 armada rbac service update NAME (--allow-label KEY=VALUE... | --clear-labels) [flags]
@@ -282,17 +282,17 @@ Manage users: people, each with a certificate of their own.
 Create a user and write their client config to FILE: a certificate under
 their own name (one year) for a key made here. Give them FILE privately; they
 keep it as ~/.armada/config, mode 0600. --role gives a first role (in
---project for viewer, deployer, and admin); give more with
+--space for viewer, deployer, and admin); give more with
 `armada rbac assignment create`. A user with no role can only renew.
 
 ```
-armada rbac user create NAME -o FILE [--role ROLE [--project P]] [--allow-label KEY=VALUE]... [flags]
+armada rbac user create NAME -o FILE [--role ROLE [--space P]] [--allow-label KEY=VALUE]... [flags]
 ```
 
 Examples:
 
 ```bash
-armada rbac user create ana -o ana.config --role deployer --project shop
+armada rbac user create ana -o ana.config --role deployer --space shop
 armada rbac user create ops -o ops.config --role cluster-admin
 ```
 
@@ -302,7 +302,7 @@ Flags:
 | --- | --- |
 | `--allow-label stringArray` | a node label KEY=VALUE its apps' placement may require (repeat for more) |
 | `-o`, `--output string` | client config file to create |
-| `--role string` | a first role: viewer, deployer, admin (with --project), project-creator, or cluster-admin |
+| `--role string` | a first role: viewer, deployer, admin (with --space), space-creator, or cluster-admin |
 
 ### `armada rbac user credentials`
 
@@ -384,7 +384,7 @@ Flags:
 
 Replace the node label values the apps a user deploys may name in
 placement.require (armada.* labels are always allowed): restricted nodes
-can be kept for some projects. Roles change with `armada rbac assignment`.
+can be kept for some spaces. Roles change with `armada rbac assignment`.
 
 ```
 armada rbac user update NAME (--allow-label KEY=VALUE... | --clear-labels) [flags]

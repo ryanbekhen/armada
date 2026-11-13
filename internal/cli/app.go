@@ -103,7 +103,7 @@ func listApps(ctx context.Context, c appLister, req *armadav1.ListAppsRequest) (
 		if resp.NextPageToken == "" || resp.NextPageToken == req.PageToken {
 			return apps, nil
 		}
-		req = &armadav1.ListAppsRequest{Project: req.Project, AllProjects: req.AllProjects, PageSize: req.PageSize, PageToken: resp.NextPageToken}
+		req = &armadav1.ListAppsRequest{Space: req.Space, AllSpaces: req.AllSpaces, PageSize: req.PageSize, PageToken: resp.NextPageToken}
 	}
 }
 
@@ -123,7 +123,7 @@ func newAppListCommand(g *globals) *cobra.Command {
 				return err
 			}
 			defer conn.Close()
-			apps, err := listApps(cmd.Context(), client, &armadav1.ListAppsRequest{Project: g.project, AllProjects: g.allProjects})
+			apps, err := listApps(cmd.Context(), client, &armadav1.ListAppsRequest{Space: g.space, AllSpaces: g.allSpaces})
 			if err != nil {
 				return err
 			}
@@ -131,18 +131,18 @@ func newAppListCommand(g *globals) *cobra.Command {
 			if o.json() {
 				return printJSON(out, &armadav1.ListAppsResponse{Apps: apps})
 			}
-			return printAppList(out, apps, g.allProjects)
+			return printAppList(out, apps, g.allSpaces)
 		},
 	}
 	o = addOutput(cmd, false)
 	return cmd
 }
 
-func printAppList(out io.Writer, apps []*armadav1.AppSummary, projects bool) error {
+func printAppList(out io.Writer, apps []*armadav1.AppSummary, spaces bool) error {
 	tw := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
 	head := "NAME\tREADY\tSTATE\tREVISION\tIMAGE\tURL"
-	if projects {
-		head = "PROJECT\t" + head
+	if spaces {
+		head = "SPACE\t" + head
 	}
 	_, _ = fmt.Fprintln(tw, head)
 	for _, a := range apps {
@@ -156,7 +156,7 @@ func printAppList(out io.Writer, apps []*armadav1.AppSummary, projects bool) err
 			rev, image = rev+" → "+a.TargetRevision, cmp.Or(a.TargetImage, image)
 		}
 		line := fmt.Sprintf("%s\t%d/%d\t%s\t%s\t%s\t%s", name, a.Ready, a.Desired, dash(a.State), rev, image, dash(a.Url))
-		if projects {
+		if spaces {
 			line = p + "\t" + line
 		}
 		_, _ = fmt.Fprintln(tw, line)

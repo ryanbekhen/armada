@@ -52,7 +52,7 @@ func notSelf(ctx context.Context, kind, name, what string) error {
 func grantsFrom(in []*armadav1.RoleAssignment) ([]store.Grant, error) {
 	out := make([]store.Grant, 0, len(in))
 	for _, r := range in {
-		g := store.Grant{Role: r.GetRole(), Project: r.GetProject()}
+		g := store.Grant{Role: r.GetRole(), Space: r.GetSpace()}
 		if err := checkGrant(g); err != nil {
 			return nil, err
 		}
@@ -291,7 +291,7 @@ func assignment(req *armadav1.AssignmentRequest) (store.Grant, error) {
 	if err := checkName(req.GetKind(), req.GetName()); err != nil {
 		return store.Grant{}, err
 	}
-	g := store.Grant{Role: req.GetRole().GetRole(), Project: req.GetRole().GetProject()}
+	g := store.Grant{Role: req.GetRole().GetRole(), Space: req.GetRole().GetSpace()}
 	return g, checkGrant(g)
 }
 
@@ -330,14 +330,14 @@ func (s *Server) DeleteAssignment(ctx context.Context, req *armadav1.AssignmentR
 }
 
 var roleInfo = []*armadav1.RoleInfo{
-	{Name: store.RoleViewer, Cluster: true, Project: true,
+	{Name: store.RoleViewer, Cluster: true, Space: true,
 		Description: "See apps, jobs, revisions, specs, secret names, domains, volumes, logs, usage, and events"},
-	{Name: store.RoleDeployer, Project: true,
+	{Name: store.RoleDeployer, Space: true,
 		Description: "What a viewer may, and deploy, scale, roll back, split traffic, set secrets, run jobs, verify domains"},
-	{Name: store.RoleAdmin, Project: true,
+	{Name: store.RoleAdmin, Space: true,
 		Description: "What a deployer may, and exec, back up, restore, and delete volumes, delete apps and jobs"},
-	{Name: store.RoleProjectCreator, Cluster: true,
-		Description: "Create projects (becoming admin of each), and delete empty ones it is admin of"},
+	{Name: store.RoleSpaceCreator, Cluster: true,
+		Description: "Create spaces (becoming admin of each), and delete empty ones it is admin of"},
 	{Name: store.RoleClusterAdmin, Cluster: true,
 		Description: "Everything: nodes, servers, cluster settings, join tokens, metrics credentials, and access control"},
 }
@@ -346,7 +346,7 @@ var roleInfo = []*armadav1.RoleInfo{
 func (s *Server) ListRoles(context.Context, *armadav1.ListRolesRequest) (*armadav1.ListRolesResponse, error) {
 	out := &armadav1.ListRolesResponse{}
 	for _, r := range roleInfo {
-		info := &armadav1.RoleInfo{Name: r.GetName(), Description: r.GetDescription(), Cluster: r.GetCluster(), Project: r.GetProject()}
+		info := &armadav1.RoleInfo{Name: r.GetName(), Description: r.GetDescription(), Cluster: r.GetCluster(), Space: r.GetSpace()}
 		for m, n := range methodNeeds {
 			if roleAllows(r.GetName(), n) {
 				info.Methods = append(info.Methods, strings.TrimPrefix(m, adminService))
@@ -366,8 +366,8 @@ func roleAllows(role string, n need) bool {
 	switch n {
 	case needSelf:
 		return true
-	case needCreateProjects:
-		return role == store.RoleProjectCreator
+	case needCreateSpaces:
+		return role == store.RoleSpaceCreator
 	case needView, needDeploy, needAdmin:
 		return roleLevel[role] >= n
 	}
@@ -381,7 +381,7 @@ func principalInfo(p store.Principal) *armadav1.Principal {
 		out.CreatedAt = timestamppb.New(p.CreatedAt)
 	}
 	for _, g := range p.Roles {
-		out.Roles = append(out.Roles, &armadav1.RoleAssignment{Role: g.Role, Project: g.Project})
+		out.Roles = append(out.Roles, &armadav1.RoleAssignment{Role: g.Role, Space: g.Space})
 	}
 	for _, c := range p.Certs {
 		if out.CertExpiresAt == nil || c.NotAfter.After(out.CertExpiresAt.AsTime()) {

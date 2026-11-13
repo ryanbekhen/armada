@@ -57,7 +57,7 @@ volumes:
     mounting. A mount that does not finish within two minutes fails the
     start, which is retried with crash backoff.
 - **Who may add an export.** Nodes mount exports from their own
-  addresses, so the NFS server cannot tell projects apart. Adding an
+  addresses, so the NFS server cannot tell spaces apart. Adding an
   export to an app, or making one writable, needs cluster-admin; a deploy
   that keeps the exports the app's serving or rolling-out revision already
   mounts (or makes one read-only) needs only the right to deploy the app.

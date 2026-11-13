@@ -77,54 +77,54 @@ func TestNetworkIsolationSetting(t *testing.T) {
 	c, auto, _ := serviceCluster(t)
 	isolation := func(p string) bool {
 		t.Helper()
-		resp, err := c.admin.ListProjects(c.ctx, &armadav1.ListProjectsRequest{})
+		resp, err := c.admin.ListSpaces(c.ctx, &armadav1.ListSpacesRequest{})
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, info := range resp.Projects {
+		for _, info := range resp.Spaces {
 			if info.Name == p {
 				return info.NetworkIsolation
 			}
 		}
-		t.Fatalf("no project %s", p)
+		t.Fatalf("no space %s", p)
 		return false
 	}
 	on, off := true, false
 	// Without a cluster network nothing is isolated, and the default
-	// project cannot be.
+	// space cannot be.
 	if isolation("a") || isolation("default") {
 		t.Error("isolated without a cluster network")
 	}
-	_, err := c.admin.UpdateProject(c.ctx, &armadav1.UpdateProjectRequest{Name: "default", NetworkIsolation: &on})
+	_, err := c.admin.UpdateSpace(c.ctx, &armadav1.UpdateSpaceRequest{Name: "default", NetworkIsolation: &on})
 	wantCode(t, "isolate default without a network", err, codes.FailedPrecondition)
 
 	if err := c.store.InitNetwork(c.ctx, store.Network{Mode: store.NetworkPlain, ClusterCIDR: netip.MustParsePrefix("10.120.0.0/16")}); err != nil {
 		t.Fatal(err)
 	}
 	if !isolation("a") || isolation("default") {
-		t.Error("with a network: other projects isolated, default not")
+		t.Error("with a network: other spaces isolated, default not")
 	}
-	info, err := c.admin.UpdateProject(c.ctx, &armadav1.UpdateProjectRequest{Name: "default", NetworkIsolation: &on})
+	info, err := c.admin.UpdateSpace(c.ctx, &armadav1.UpdateSpaceRequest{Name: "default", NetworkIsolation: &on})
 	if err != nil || !info.NetworkIsolation || !isolation("default") {
 		t.Fatalf("isolate default: %v %v", info, err)
 	}
 	if n, _ := c.store.GetNetwork(c.ctx); !n.IsolateDefault {
 		t.Error("not stored")
 	}
-	if _, err := c.admin.UpdateProject(c.ctx, &armadav1.UpdateProjectRequest{Name: "default", NetworkIsolation: &off}); err != nil || isolation("default") {
+	if _, err := c.admin.UpdateSpace(c.ctx, &armadav1.UpdateSpaceRequest{Name: "default", NetworkIsolation: &off}); err != nil || isolation("default") {
 		t.Errorf("turn it off: %v", err)
 	}
-	// Other projects are always isolated.
-	_, err = c.admin.UpdateProject(c.ctx, &armadav1.UpdateProjectRequest{Name: "a", NetworkIsolation: &off})
-	wantCode(t, "turn off for a project", err, codes.InvalidArgument)
-	_, err = c.admin.UpdateProject(c.ctx, &armadav1.UpdateProjectRequest{Name: "ghost", NetworkIsolation: &on})
-	wantCode(t, "missing project", err, codes.NotFound)
-	_, err = c.admin.UpdateProject(c.ctx, &armadav1.UpdateProjectRequest{Name: "Bad;Name", NetworkIsolation: &on})
+	// Other spaces are always isolated.
+	_, err = c.admin.UpdateSpace(c.ctx, &armadav1.UpdateSpaceRequest{Name: "a", NetworkIsolation: &off})
+	wantCode(t, "turn off for a space", err, codes.InvalidArgument)
+	_, err = c.admin.UpdateSpace(c.ctx, &armadav1.UpdateSpaceRequest{Name: "ghost", NetworkIsolation: &on})
+	wantCode(t, "missing space", err, codes.NotFound)
+	_, err = c.admin.UpdateSpace(c.ctx, &armadav1.UpdateSpaceRequest{Name: "Bad;Name", NetworkIsolation: &on})
 	wantCode(t, "invalid name", err, codes.InvalidArgument)
-	// Automation identities never change it, not even for their projects.
-	_, err = auto.UpdateProject(c.ctx, &armadav1.UpdateProjectRequest{Name: "a", NetworkIsolation: &on})
+	// Automation identities never change it, not even for their spaces.
+	_, err = auto.UpdateSpace(c.ctx, &armadav1.UpdateSpaceRequest{Name: "a", NetworkIsolation: &on})
 	wantCode(t, "service", err, codes.PermissionDenied)
-	_, err = auto.UpdateProject(c.ctx, &armadav1.UpdateProjectRequest{Name: "default", NetworkIsolation: &off})
+	_, err = auto.UpdateSpace(c.ctx, &armadav1.UpdateSpaceRequest{Name: "default", NetworkIsolation: &off})
 	wantCode(t, "service on default", err, codes.PermissionDenied)
 }
 
@@ -134,18 +134,18 @@ func TestInternalRulesCarryAllow(t *testing.T) {
 		t.Errorf("no allow = %v", got)
 	}
 	if got := allowedCallers("db.shop", []string{"api", "worker"}); !slices.Equal(got, []string{"db.shop", "api.shop", "worker.shop"}) {
-		t.Errorf("project allow = %v", got)
+		t.Errorf("space allow = %v", got)
 	}
 	if got := allowedCallers("db", []string{"api"}); !slices.Equal(got, []string{"db", "api"}) {
 		t.Errorf("default allow = %v", got)
 	}
 
 	c := newCluster(t)
-	if _, err := c.admin.CreateProject(c.ctx, &armadav1.CreateProjectRequest{Name: "shop"}); err != nil {
+	if _, err := c.admin.CreateSpace(c.ctx, &armadav1.CreateSpaceRequest{Name: "shop"}); err != nil {
 		t.Fatal(err)
 	}
 	spec := "name: db\nimage: nginx:1\ningress:\n  type: internal\n  port: 80\n  allow: [api]\n"
-	if _, err := c.admin.Deploy(c.ctx, &armadav1.DeployRequest{Spec: []byte(spec), Project: "shop"}); err != nil {
+	if _, err := c.admin.Deploy(c.ctx, &armadav1.DeployRequest{Spec: []byte(spec), Space: "shop"}); err != nil {
 		t.Fatal(err)
 	}
 	apps, err := c.store.ListApps(c.ctx)

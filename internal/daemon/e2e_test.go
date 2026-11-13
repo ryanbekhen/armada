@@ -235,18 +235,18 @@ func TestEndToEnd(t *testing.T) {
 		return n != nil && n.GetMode() == "plain" && n.GetClusterCidr() == "10.120.0.0/16" &&
 			len(n.GetPeers()) == 1 && n.GetPeers()[0].GetSubnet() == "10.120.0.0/24"
 	})
-	// Network isolation of the default project reaches the node (ADR 0026).
-	if code, out, stderr := cli("project", "set", "default", "--network-isolation"); code != 0 || !strings.Contains(out, "network isolation on") {
-		t.Fatalf("project set: code=%d out=%q err=%q", code, out, stderr)
+	// Network isolation of the default space reaches the node (ADR 0026).
+	if code, out, stderr := cli("space", "set", "default", "--network-isolation"); code != 0 || !strings.Contains(out, "network isolation on") {
+		t.Fatalf("space set: code=%d out=%q err=%q", code, out, stderr)
 	}
 	waitFor("isolated default", func() bool { return testNets.get("node-1").applied().GetIsolateDefault() })
-	if code, out, _ := cli("project", "list"); code != 0 || !regexp.MustCompile(`default\s+0\s+isolated\s`).MatchString(out) {
-		t.Errorf("project list:\n%s", out)
+	if code, out, _ := cli("space", "list"); code != 0 || !regexp.MustCompile(`default\s+0\s+isolated\s`).MatchString(out) {
+		t.Errorf("space list:\n%s", out)
 	}
-	if code, _, stderr := cli("project", "set", "default"); code == 0 || !strings.Contains(stderr, "nothing to change") {
-		t.Errorf("project set without a flag: %d %q", code, stderr)
+	if code, _, stderr := cli("space", "set", "default"); code == 0 || !strings.Contains(stderr, "nothing to change") {
+		t.Errorf("space set without a flag: %d %q", code, stderr)
 	}
-	if code, _, _ := cli("project", "set", "default", "--network-isolation=false"); code != 0 {
+	if code, _, _ := cli("space", "set", "default", "--network-isolation=false"); code != 0 {
 		t.Error("turning default isolation off failed")
 	}
 
@@ -348,11 +348,11 @@ func TestEndToEnd(t *testing.T) {
 	if code, out, _ := cli("app", "top", "-o", "json"); code != 0 || !regexp.MustCompile(`"measured":\s+true`).MatchString(out) {
 		t.Errorf("app top -o json: code=%d out=%q", code, out)
 	}
-	if code, out, stderr := cli("app", "top", "--projects"); code != 0 || !strings.Contains(out, "PROJECT") || !strings.Contains(out, "default") {
-		t.Errorf("app top --projects: code=%d out=%q err=%q", code, out, stderr)
+	if code, out, stderr := cli("app", "top", "--spaces"); code != 0 || !strings.Contains(out, "SPACE") || !strings.Contains(out, "default") {
+		t.Errorf("app top --spaces: code=%d out=%q err=%q", code, out, stderr)
 	}
-	if code, _, stderr := cli("app", "top", "web", "--projects"); code != 1 || !strings.Contains(stderr, "--projects") {
-		t.Errorf("app top web --projects: code=%d err=%q", code, stderr)
+	if code, _, stderr := cli("app", "top", "web", "--spaces"); code != 1 || !strings.Contains(stderr, "--spaces") {
+		t.Errorf("app top web --spaces: code=%d err=%q", code, stderr)
 	}
 	if code, _, stderr := cli("app", "top", "ghost"); code != 1 || !strings.Contains(stderr, "not found") {
 		t.Errorf("app top ghost: code=%d err=%q", code, stderr)
@@ -587,7 +587,7 @@ func TestEndToEnd(t *testing.T) {
 		}
 	}
 
-	testProjects(t, d, cli, waitFor)
+	testSpaces(t, d, cli, waitFor)
 	// Client address rules with names show in app show (ADR 0035).
 	if code, _, stderr := cli("app", "update", "web", "--ip-allow", "203.0.113.0/24,name=office,description=the VPN the admins use", "--ip-allow", "198.51.100.7"); code != 0 {
 		t.Fatalf("ip rules: %s", stderr)
@@ -638,41 +638,41 @@ func testExport(t *testing.T, cli func(...string) (int, string, string)) {
 	}
 }
 
-// testProjects runs an app of the same name in another project (ADR 0026).
-func testProjects(t *testing.T, d *fake.Driver, cli func(...string) (int, string, string), waitFor func(string, func() bool)) {
+// testSpaces runs an app of the same name in another space (ADR 0026).
+func testSpaces(t *testing.T, d *fake.Driver, cli func(...string) (int, string, string), waitFor func(string, func() bool)) {
 	t.Helper()
 	spec := filepath.Join(t.TempDir(), "web.yaml")
 	if err := os.WriteFile(spec, []byte("name: web\nimage: nginx:1.28\ningress:\n  type: internal\n  port: 80\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if code, _, stderr := cli("app", "create", "--file", spec, "--project", "staging"); code == 0 || !strings.Contains(stderr, "project staging does not exist") {
-		t.Fatalf("create in a missing project: code=%d err=%q", code, stderr)
+	if code, _, stderr := cli("app", "create", "--file", spec, "--space", "staging"); code == 0 || !strings.Contains(stderr, "space staging does not exist") {
+		t.Fatalf("create in a missing space: code=%d err=%q", code, stderr)
 	}
-	if code, _, stderr := cli("project", "use", "staging"); code == 0 || !strings.Contains(stderr, "project staging not found") {
-		t.Errorf("project use of a missing project: code=%d err=%q", code, stderr)
+	if code, _, stderr := cli("space", "use", "staging"); code == 0 || !strings.Contains(stderr, "space staging not found") {
+		t.Errorf("space use of a missing space: code=%d err=%q", code, stderr)
 	}
-	if code, out, stderr := cli("project", "create", "staging"); code != 0 || out != "Created project staging.\n" {
-		t.Fatalf("project create: code=%d out=%q err=%q", code, out, stderr)
+	if code, out, stderr := cli("space", "create", "staging"); code != 0 || out != "Created space staging.\n" {
+		t.Fatalf("space create: code=%d out=%q err=%q", code, out, stderr)
 	}
-	if code, _, stderr := cli("project", "create", "staging"); code == 0 || !strings.Contains(stderr, "already exists") {
-		t.Errorf("project create twice: %q", stderr)
+	if code, _, stderr := cli("space", "create", "staging"); code == 0 || !strings.Contains(stderr, "already exists") {
+		t.Errorf("space create twice: %q", stderr)
 	}
-	code, out, stderr := cli("app", "create", "--file", spec, "--project", "staging")
+	code, out, stderr := cli("app", "create", "--file", spec, "--space", "staging")
 	if code != 0 || out != "Created web.staging (revision web.staging--r1).\n" {
 		t.Fatalf("create in staging: code=%d out=%q err=%q", code, out, stderr)
 	}
 	waitFor("web.staging ready", func() bool {
-		_, out, _ := cli("app", "show", "web", "--project", "staging")
+		_, out, _ := cli("app", "show", "web", "--space", "staging")
 		return regexp.MustCompile(`Revision:\s+web\.staging--r1\n`).MatchString(out) && strings.Contains(out, "1/1")
 	})
-	// The default project's web is untouched, and listings follow --project.
-	_, out, _ = cli("app", "list", "--project", "staging")
+	// The default space's web is untouched, and listings follow --space.
+	_, out, _ = cli("app", "list", "--space", "staging")
 	if !regexp.MustCompile(`\nweb\s+1/1\s+ready\s+web\.staging--r1\s`).MatchString(out) || strings.Contains(out, "web--r1") {
-		t.Errorf("app list --project staging = %q", out)
+		t.Errorf("app list --space staging = %q", out)
 	}
-	_, out, _ = cli("app", "list", "--project", "default")
+	_, out, _ = cli("app", "list", "--space", "default")
 	if strings.Contains(out, "web.staging") || !regexp.MustCompile(`\nweb\s+3/3\s+ready\s+web--r1\s`).MatchString(out) {
-		t.Errorf("app list --project default = %q", out)
+		t.Errorf("app list --space default = %q", out)
 	}
 	_, out, _ = cli("app", "list", "-A")
 	if !regexp.MustCompile(`\ndefault\s+web\s+3/3`).MatchString(out) || !regexp.MustCompile(`\nstaging\s+web\s+1/1`).MatchString(out) {
@@ -685,19 +685,19 @@ func testProjects(t *testing.T, d *fake.Driver, cli func(...string) (int, string
 		_, out, _ := cli("app", "show", "web.staging")
 		return strings.Contains(out, "2/2")
 	})
-	_, out, _ = cli("project", "list")
+	_, out, _ = cli("space", "list")
 	if !regexp.MustCompile(`default\s+[1-9]\s`).MatchString(out) || !regexp.MustCompile(`staging\s+1\s+isolated\s`).MatchString(out) {
-		t.Errorf("project list = %q", out)
+		t.Errorf("space list = %q", out)
 	}
-	if code, _, stderr := cli("project", "delete", "staging"); code == 0 || !strings.Contains(stderr, "apps (web.staging)") {
-		t.Errorf("delete a project with apps: %q", stderr)
+	if code, _, stderr := cli("space", "delete", "staging"); code == 0 || !strings.Contains(stderr, "apps (web.staging)") {
+		t.Errorf("delete a space with apps: %q", stderr)
 	}
 	for _, args := range [][]string{
-		{"app", "show", "web.staging", "--project", "prod"},
+		{"app", "show", "web.staging", "--space", "prod"},
 		{"app", "show", "web.default"},
-		{"app", "show", "web", "--project", "Bad"},
-		{"project", "delete", "default"},
-		{"project", "create", "a.b"},
+		{"app", "show", "web", "--space", "Bad"},
+		{"space", "delete", "default"},
+		{"space", "create", "a.b"},
 	} {
 		if code, _, _ := cli(args...); code == 0 {
 			t.Errorf("%v accepted", args)
@@ -705,17 +705,17 @@ func testProjects(t *testing.T, d *fake.Driver, cli func(...string) (int, string
 	}
 
 	// A service with admin in staging manages staging and nothing else.
-	if code, out, stderr := cli("rbac", "service", "create", "portal", "--role", "admin", "--project", "staging"); code != 0 || !strings.Contains(out, "Created service portal (admin in staging)") {
+	if code, out, stderr := cli("rbac", "service", "create", "portal", "--role", "admin", "--space", "staging"); code != 0 || !strings.Contains(out, "Created service portal (admin in staging)") {
 		t.Fatalf("service create: code=%d out=%q err=%q", code, out, stderr)
 	}
 	if code, _, stderr := cli("rbac", "service", "create", "portal"); code == 0 || !strings.Contains(stderr, "exists") {
 		t.Errorf("service create twice: code=%d err=%q", code, stderr)
 	}
-	if code, out, stderr := cli("rbac", "assignment", "create", "--service", "portal", "--role", "project-creator"); code != 0 || !strings.Contains(out, "project-creator, admin in staging") {
+	if code, out, stderr := cli("rbac", "assignment", "create", "--service", "portal", "--role", "space-creator"); code != 0 || !strings.Contains(out, "space-creator, admin in staging") {
 		t.Errorf("assignment create: code=%d out=%q err=%q", code, out, stderr)
 	}
-	if code, _, stderr := cli("rbac", "assignment", "create", "--service", "portal", "--role", "deployer"); code == 0 || !strings.Contains(stderr, "one project") {
-		t.Errorf("deployer without a project: code=%d err=%q", code, stderr)
+	if code, _, stderr := cli("rbac", "assignment", "create", "--service", "portal", "--role", "deployer"); code == 0 || !strings.Contains(stderr, "one space") {
+		t.Errorf("deployer without a space: code=%d err=%q", code, stderr)
 	}
 	toolConfig := filepath.Join(t.TempDir(), "portal.json")
 	if code, out, stderr := cli("rbac", "service", "credentials", "portal", "-o", toolConfig); code != 0 || !strings.Contains(out, "Wrote "+toolConfig) {
@@ -730,16 +730,16 @@ func testProjects(t *testing.T, d *fake.Driver, cli func(...string) (int, string
 	tool := func(args ...string) (int, string, string) {
 		return run(t, append(args, "--config", toolConfig)...)
 	}
-	if code, _, stderr := tool("app", "scale", "web", "--replicas", "1", "--project", "staging"); code != 0 {
+	if code, _, stderr := tool("app", "scale", "web", "--replicas", "1", "--space", "staging"); code != 0 {
 		t.Errorf("tool scales its app: %s", stderr)
 	}
 	_, out, _ = tool("app", "list", "-A")
 	if !regexp.MustCompile(`\nstaging\s+web\s`).MatchString(out) || strings.Contains(out, "default") {
-		t.Errorf("tool app list shows more than its projects: %q", out)
+		t.Errorf("tool app list shows more than its spaces: %q", out)
 	}
 	for _, args := range [][]string{
-		{"app", "scale", "web", "--replicas", "2"}, // the default project
-		{"app", "list"},             // the default project
+		{"app", "scale", "web", "--replicas", "2"}, // the default space
+		{"app", "list"},             // the default space
 		{"node", "drain", "node-1"}, // the cluster
 		{"node", "join-token"},      // joining nodes
 		{"cluster", "status"},       // the cluster
@@ -750,22 +750,22 @@ func testProjects(t *testing.T, d *fake.Driver, cli func(...string) (int, string
 			t.Errorf("tool %v: code=%d err=%q", args, code, stderr)
 		}
 	}
-	if code, _, stderr := tool("project", "create", "preview-1"); code != 0 {
-		t.Errorf("tool creates a project: %s", stderr)
+	if code, _, stderr := tool("space", "create", "preview-1"); code != 0 {
+		t.Errorf("tool creates a space: %s", stderr)
 	}
-	if _, out, _ := tool("project", "list"); !strings.Contains(out, "preview-1") || !strings.Contains(out, "staging") || strings.Contains(out, "default") {
-		t.Errorf("tool project list = %q", out)
+	if _, out, _ := tool("space", "list"); !strings.Contains(out, "preview-1") || !strings.Contains(out, "staging") || strings.Contains(out, "default") {
+		t.Errorf("tool space list = %q", out)
 	}
 	if code, out, stderr := tool("rbac", "service", "renew"); code != 0 || !strings.Contains(out, "Renewed service:portal") {
 		t.Errorf("renew: code=%d out=%q err=%q", code, out, stderr)
 	}
-	if code, _, stderr := tool("app", "show", "web", "--project", "staging"); code != 0 {
+	if code, _, stderr := tool("app", "show", "web", "--space", "staging"); code != 0 {
 		t.Errorf("app show with the renewed certificate: %s", stderr)
 	}
-	if _, out, _ := cli("rbac", "service", "list"); !regexp.MustCompile(`portal\s+project-creator, admin in preview-1, admin in staging\s+2\s`).MatchString(out) {
+	if _, out, _ := cli("rbac", "service", "list"); !regexp.MustCompile(`portal\s+space-creator, admin in preview-1, admin in staging\s+2\s`).MatchString(out) {
 		t.Errorf("service list = %q", out)
 	}
-	if _, out, _ := cli("rbac", "assignment", "list", "--service", "portal"); !regexp.MustCompile(`service\s+portal\s+project-creator\s+\(cluster\)`).MatchString(out) {
+	if _, out, _ := cli("rbac", "assignment", "list", "--service", "portal"); !regexp.MustCompile(`service\s+portal\s+space-creator\s+\(cluster\)`).MatchString(out) {
 		t.Errorf("assignment list = %q", out)
 	}
 	if code, _, stderr := cli("rbac", "service", "delete", "portal"); code == 0 || !strings.Contains(stderr, "--yes") {

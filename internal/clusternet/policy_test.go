@@ -50,7 +50,7 @@ func TestParseEndpoints(t *testing.T) {
 		"IPv6":                ep("fd00::5", "web"),
 		"not an address":      ep("10.120.1.5/32", "web"),
 		"bad app":             ep("10.120.1.5", "Web;drop"),
-		"default as project":  ep("10.120.1.5", "web.default"),
+		"default as space":    ep("10.120.1.5", "web.default"),
 		"label is not an app": ep("10.120.1.5", "canary--web"),
 	} {
 		cfg := config(np("a", "10.0.0.1", "10.120.0.0/24"))
@@ -93,8 +93,8 @@ func TestBuildPolicy(t *testing.T) {
 	if got := pol.members["api.shop"]; !slices.Equal(got, addrs("10.120.0.6", "10.120.1.7")) {
 		t.Errorf("api.shop = %v", got)
 	}
-	// Only this node's default-project containers are open; the shop
-	// project's never are.
+	// Only this node's default-space containers are open; the shop
+	// space's never are.
 	if !slices.Equal(pol.open, addrs("10.120.0.5")) {
 		t.Errorf("open = %v", pol.open)
 	}
@@ -102,7 +102,7 @@ func TestBuildPolicy(t *testing.T) {
 		t.Errorf("nodes = %v", pol.nodes)
 	}
 
-	// With the default project isolated, nothing is open.
+	// With the default space isolated, nothing is open.
 	cfg.IsolateDefault = true
 	p, _ = parse(cfg, "a", self)
 	if pol := buildPolicy(p, local); len(pol.open) != 0 {

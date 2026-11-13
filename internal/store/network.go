@@ -26,8 +26,8 @@ const NodeSubnetBits = 24
 type Network struct {
 	Mode        string
 	ClusterCIDR netip.Prefix
-	// IsolateDefault keeps the default project's containers away from the
-	// platform, as every other project's always are (ADR 0026).
+	// IsolateDefault keeps the default space's containers away from the
+	// platform, as every other space's always are (ADR 0026).
 	IsolateDefault bool
 }
 
@@ -109,7 +109,7 @@ func (s *Etcd) InitNetwork(ctx context.Context, n Network) error {
 	})
 }
 
-// SetDefaultIsolation turns network isolation of the default project on or
+// SetDefaultIsolation turns network isolation of the default space on or
 // off (ADR 0026). It needs the cluster network, which enforces it.
 func (s *Etcd) SetDefaultIsolation(ctx context.Context, on bool, actor string) error {
 	now := s.now()
@@ -129,7 +129,7 @@ func (s *Etcd) SetDefaultIsolation(ctx context.Context, on bool, actor string) e
 		if err := t.put(keyNetwork, r); err != nil {
 			return err
 		}
-		return t.audit(now, actor, "project.set", "default", fmt.Sprintf("network isolation %t", on))
+		return t.audit(now, actor, "space.set", "default", fmt.Sprintf("network isolation %t", on))
 	})
 }
 

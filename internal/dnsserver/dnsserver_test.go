@@ -219,7 +219,7 @@ func TestForwardingIsBounded(t *testing.T) {
 	}
 }
 
-func TestOwnProjectOnly(t *testing.T) {
+func TestOwnSpaceOnly(t *testing.T) {
 	t.Parallel()
 	s, addr := start(t, "127.0.0.0/8")
 	s.SetNames([]string{"web", "api", "web.shop", "canary--web.shop", "db.blog"})
@@ -230,22 +230,22 @@ func TestOwnProjectOnly(t *testing.T) {
 	// No client map yet: every name resolves, as on nodes without the
 	// cluster network.
 	if !resolves("db.blog.internal.") {
-		t.Fatal("without clients, a project name does not resolve")
+		t.Fatal("without clients, a space name does not resolve")
 	}
 	// The test client is 127.0.0.1: a container of web.shop.
 	s.SetClients(map[netip.Addr]string{netip.MustParseAddr("127.0.0.1"): "web.shop"})
 	for name, want := range map[string]bool{
 		"web.shop.internal.":         true,
 		"canary--web.shop.internal.": true,
-		"web.internal.":              false, // the default project's
+		"web.internal.":              false, // the default space's
 		"api.internal.":              false,
-		"db.blog.internal.":          false, // another project's
+		"db.blog.internal.":          false, // another space's
 	} {
 		if got := resolves(name); got != want {
 			t.Errorf("%s resolves = %t, want %t", name, got, want)
 		}
 	}
-	// A container of the default project resolves only default names.
+	// A container of the default space resolves only default names.
 	s.SetClients(map[netip.Addr]string{netip.MustParseAddr("127.0.0.1"): "api"})
 	if !resolves("web.internal.") || resolves("web.shop.internal.") {
 		t.Error("default container: wrong names")

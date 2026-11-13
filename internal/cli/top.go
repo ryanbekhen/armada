@@ -14,15 +14,15 @@ import (
 
 func newAppTopCommand(g *globals) *cobra.Command {
 	var (
-		o        *outputFlag
-		projects bool
+		o      *outputFlag
+		spaces bool
 	)
 	cmd := &cobra.Command{
 		Use:   "top [APP]",
 		Short: "Show the CPU and memory apps and their replicas use",
 		Long: "Show the CPU and memory replicas use, from samples their nodes take every 10 seconds.\n\n" +
-			"Without arguments it lists the project's apps (every project's with -A); with APP, that\n" +
-			"app's replicas; with --projects, every project, with the requests it received and the\n" +
+			"Without arguments it lists the space's apps (every space's with -A); with APP, that\n" +
+			"app's replicas; with --spaces, every space, with the requests it received and the\n" +
 			"bytes it sent since the control plane's leader started counting.\n" +
 			"CPU is shown as used/reserved and memory as used/limit; \"-\" means no recent sample\n" +
 			"(the replica is not running, or its node's runtime cannot measure containers).",
@@ -34,8 +34,8 @@ func newAppTopCommand(g *globals) *cobra.Command {
 			if err := o.check(); err != nil {
 				return err
 			}
-			if projects && len(args) == 1 {
-				return errors.New("--projects lists every project; leave out APP")
+			if spaces && len(args) == 1 {
+				return errors.New("--spaces lists every space; leave out APP")
 			}
 			req := &armadav1.TopRequest{}
 			if len(args) == 1 {
@@ -46,10 +46,10 @@ func newAppTopCommand(g *globals) *cobra.Command {
 				return err
 			}
 			resp.Nodes = nil
-			if projects {
+			if spaces {
 				resp.Replicas = nil
 			} else {
-				resp.Projects, resp.CountedSince = nil, nil
+				resp.Spaces, resp.CountedSince = nil, nil
 				if req.App == "" {
 					resp.Replicas = slices.DeleteFunc(resp.Replicas, func(r *armadav1.ReplicaTop) bool { return !g.listed(r.App) })
 				}
@@ -58,8 +58,8 @@ func newAppTopCommand(g *globals) *cobra.Command {
 			switch {
 			case o.json():
 				return printJSON(out, resp)
-			case projects:
-				return printTopProjects(out, resp)
+			case spaces:
+				return printTopSpaces(out, resp)
 			case req.App != "":
 				return printTopReplicas(out, resp)
 			default:
@@ -68,7 +68,7 @@ func newAppTopCommand(g *globals) *cobra.Command {
 		},
 	}
 	o = addOutput(cmd, false)
-	cmd.Flags().BoolVar(&projects, "projects", false, "list projects instead of apps")
+	cmd.Flags().BoolVar(&spaces, "spaces", false, "list spaces instead of apps")
 	return cmd
 }
 
@@ -177,10 +177,10 @@ func printTopNodes(out io.Writer, resp *armadav1.TopResponse) error {
 	return tw.Flush()
 }
 
-func printTopProjects(out io.Writer, resp *armadav1.TopResponse) error {
+func printTopSpaces(out io.Writer, resp *armadav1.TopResponse) error {
 	tw := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
-	_, _ = fmt.Fprintln(tw, "PROJECT\tREPLICAS\tCPU\tMEMORY\tVOLUMES\tREQUESTS\tEGRESS")
-	for _, p := range resp.GetProjects() {
+	_, _ = fmt.Fprintln(tw, "SPACE\tREPLICAS\tCPU\tMEMORY\tVOLUMES\tREQUESTS\tEGRESS")
+	for _, p := range resp.GetSpaces() {
 		cpu, mem := "-", "-"
 		if p.GetMeasured() > 0 {
 			cpu, mem = millis(p.GetCpuMillis()), usedBytes(p.GetMemoryBytes())

@@ -102,7 +102,7 @@ come back.
 | Type | Reached at | From |
 | --- | --- | --- |
 | `external` | `https://web.<root domain>` and its `domains` | The internet, through HAProxy on every node |
-| `internal` | `http://web` from its project, `http://web.internal` in full | Containers in the cluster only |
+| `internal` | `http://web` from its space, `http://web.internal` in full | Containers in the cluster only |
 | `none` | Nowhere | A worker that only makes outgoing connections |
 
 Every node's HAProxy serves every app, so DNS can point at all nodes.
@@ -111,26 +111,26 @@ cluster. Certificates come from Let's Encrypt by themselves.
 
 Internal apps can also take plain TCP (`protocol: tcp`), so a database or
 cache in the cluster is reached at `db:5432` (or `db.internal:5432`) by the
-apps of its project.
+apps of its space.
 
-## Projects
+## Spaces
 
-A **project** is a namespace for apps, jobs, secrets, domains, and volumes.
+A **space** is a namespace for apps, jobs, secrets, domains, and volumes.
 Every cluster has `default`; create others for environments or teams.
 
-- Names only need to be unique within a project. An app's full **ID** is
-  `NAME.PROJECT` (just `NAME` in `default`): `web.staging`.
-- Internal names follow: `web.staging.internal`. Apps of the same project
+- Names only need to be unique within a space. An app's full **ID** is
+  `NAME.SPACE` (just `NAME` in `default`): `web.staging`.
+- Internal names follow: `web.staging.internal`. Apps of the same space
   just use the name: `http://web` from an app of `staging` is
   `web.staging`.
-- Apps resolve and reach only the internal apps of their own project.
-  Projects other than `default` are kept away from the nodes and the
+- Apps resolve and reach only the internal apps of their own space.
+  Spaces other than `default` are kept away from the nodes and the
   private network.
-- Roles are given per project, so a person can deploy to `staging` but
+- Roles are given per space, so a person can deploy to `staging` but
   only read `production`.
 
-`armada project use staging` makes it the project of later commands;
-`--project` changes it for one.
+`armada space use staging` makes it the space of later commands;
+`--space` changes it for one.
 
 ## Secrets
 
@@ -171,7 +171,7 @@ move elsewhere) or **restricted** (it runs only apps that ask for it).
 
 People are **users** and tools are **services**. Each has a certificate
 under its own name and holds **roles**: `viewer`, `deployer`, or `admin`
-in a project, and `project-creator` or `cluster-admin` for the whole
+in a space, and `space-creator` or `cluster-admin` for the whole
 cluster. Every change is in the audit log under the name of whoever made
 it.
 

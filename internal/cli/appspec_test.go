@@ -29,7 +29,7 @@ type fakeAdmin struct {
 	revs     map[string]int
 	deploys  []*armadav1.DeployRequest
 	scales   []*armadav1.ScaleRequest
-	projects []string
+	spaces   []string
 	apps     []*armadav1.AppSummary
 	pageSize int
 	// beforeDeploy runs before a deploy is applied, as another change
@@ -38,7 +38,7 @@ type fakeAdmin struct {
 }
 
 func newFakeAdmin() *fakeAdmin {
-	return &fakeAdmin{specs: map[string]string{}, revs: map[string]int{}, projects: []string{"default"}}
+	return &fakeAdmin{specs: map[string]string{}, revs: map[string]int{}, spaces: []string{"default"}}
 }
 
 func (f *fakeAdmin) rev(id string) string { return id + "--r" + strconv.Itoa(f.revs[id]) }
@@ -56,7 +56,7 @@ func (f *fakeAdmin) Deploy(_ context.Context, req *armadav1.DeployRequest, _ ...
 	if f.beforeDeploy != nil {
 		f.beforeDeploy()
 	}
-	sp, err := spec.ParseIn(req.Spec, req.Project)
+	sp, err := spec.ParseIn(req.Spec, req.Space)
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
@@ -86,10 +86,10 @@ func (f *fakeAdmin) Scale(_ context.Context, req *armadav1.ScaleRequest, _ ...gr
 	return &armadav1.ScaleResponse{}, nil
 }
 
-func (f *fakeAdmin) ListProjects(context.Context, *armadav1.ListProjectsRequest, ...grpc.CallOption) (*armadav1.ListProjectsResponse, error) {
-	resp := &armadav1.ListProjectsResponse{}
-	for _, p := range f.projects {
-		resp.Projects = append(resp.Projects, &armadav1.ProjectInfo{Name: p})
+func (f *fakeAdmin) ListSpaces(context.Context, *armadav1.ListSpacesRequest, ...grpc.CallOption) (*armadav1.ListSpacesResponse, error) {
+	resp := &armadav1.ListSpacesResponse{}
+	for _, p := range f.spaces {
+		resp.Spaces = append(resp.Spaces, &armadav1.SpaceInfo{Name: p})
 	}
 	return resp, nil
 }
@@ -120,7 +120,7 @@ func withFake(t *testing.T, f *fakeAdmin) string {
 	orig := dialAdmin
 	dialAdmin = func(*globals) (armadav1.AdminServiceClient, io.Closer, error) { return f, nopCloser{}, nil }
 	t.Cleanup(func() { dialAdmin = orig })
-	t.Setenv("ARMADA_PROJECT", "")
+	t.Setenv("ARMADA_SPACE", "")
 	path := filepath.Join(t.TempDir(), "config")
 	cc := &clientconfig.Config{Servers: []string{"10.0.0.1:7443"}, CA: "ca", Cert: "cert", Key: "key"}
 	if err := cc.SaveFile(path); err != nil {
@@ -295,13 +295,13 @@ func TestListAppsPages(t *testing.T) {
 	for _, n := range []string{"a", "b", "c", "d", "e.staging"} {
 		f.apps = append(f.apps, &armadav1.AppSummary{Name: n, Ready: 1, Desired: 1, State: "ready", Image: "nginx:1"})
 	}
-	apps, err := listApps(context.Background(), f, &armadav1.ListAppsRequest{AllProjects: true})
+	apps, err := listApps(context.Background(), f, &armadav1.ListAppsRequest{AllSpaces: true})
 	if err != nil || len(apps) != 5 || apps[4].Name != "e.staging" {
 		t.Fatalf("listApps = %v, %v", apps, err)
 	}
 	cfg := withFake(t, f)
 	code, out, _ := run(t, "app", "list", "-A", "--config", cfg)
-	if code != 0 || !strings.HasPrefix(out, "PROJECT  NAME  READY") || !strings.Contains(out, "staging  e     1/1") || strings.Count(out, "\n") != 6 {
+	if code != 0 || !strings.HasPrefix(out, "SPACE    NAME  READY") || !strings.Contains(out, "staging  e     1/1") || strings.Count(out, "\n") != 6 {
 		t.Errorf("app list -A =\n%s", out)
 	}
 	code, out, _ = run(t, "app", "list", "-o", "json", "--config", cfg)
@@ -313,49 +313,49 @@ func TestListAppsPages(t *testing.T) {
 	}
 }
 
-func TestProjectUse(t *testing.T) {
+func TestSpaceUse(t *testing.T) {
 	f := newFakeAdmin()
-	f.projects = append(f.projects, "staging")
+	f.spaces = append(f.spaces, "staging")
 	cfg := withFake(t, f)
 	cli := func(args ...string) (int, string, string) { return run(t, append(args, "--config", cfg)...) }
 	scaled := func() string { return f.scales[len(f.scales)-1].App }
 
-	if code, out, stderr := cli("project", "use", "staging"); code != 0 || out != "Using project staging.\n" {
-		t.Fatalf("project use: %d %q %q", code, out, stderr)
+	if code, out, stderr := cli("space", "use", "staging"); code != 0 || out != "Using space staging.\n" {
+		t.Fatalf("space use: %d %q %q", code, out, stderr)
 	}
 	cc, err := clientconfig.Load(cfg)
-	if err != nil || cc.Project != "staging" {
-		t.Fatalf("config project = %v, %v", cc, err)
+	if err != nil || cc.Space != "staging" {
+		t.Fatalf("config space = %v, %v", cc, err)
 	}
 	if fi, _ := os.Stat(cfg); fi.Mode().Perm() != 0o600 {
 		t.Errorf("config mode = %v", fi.Mode())
 	}
 	cli("app", "scale", "web", "--replicas", "2")
 	if scaled() != "web.staging" {
-		t.Errorf("scale in the used project named %s", scaled())
+		t.Errorf("scale in the used space named %s", scaled())
 	}
-	cli("app", "scale", "web", "--replicas", "2", "--project", "default")
+	cli("app", "scale", "web", "--replicas", "2", "--space", "default")
 	if scaled() != "web" {
-		t.Errorf("--project default named %s", scaled())
+		t.Errorf("--space default named %s", scaled())
 	}
-	t.Setenv("ARMADA_PROJECT", "prod")
+	t.Setenv("ARMADA_SPACE", "prod")
 	cli("app", "scale", "web", "--replicas", "2")
 	if scaled() != "web.prod" {
-		t.Errorf("ARMADA_PROJECT named %s", scaled())
+		t.Errorf("ARMADA_SPACE named %s", scaled())
 	}
-	t.Setenv("ARMADA_PROJECT", "")
-	if code, _, stderr := cli("project", "use", "ghost"); code == 0 || !strings.Contains(stderr, "project ghost not found") {
-		t.Errorf("use of a missing project: %d %q", code, stderr)
+	t.Setenv("ARMADA_SPACE", "")
+	if code, _, stderr := cli("space", "use", "ghost"); code == 0 || !strings.Contains(stderr, "space ghost not found") {
+		t.Errorf("use of a missing space: %d %q", code, stderr)
 	}
-	if code, _, _ := cli("project", "use", "default"); code != 0 {
-		t.Fatal("project use default failed")
+	if code, _, _ := cli("space", "use", "default"); code != 0 {
+		t.Fatal("space use default failed")
 	}
 	cli("app", "scale", "web", "--replicas", "2")
 	if scaled() != "web" {
 		t.Errorf("after use default: %s", scaled())
 	}
-	if cc, _ := clientconfig.Load(cfg); cc.Project != "" {
-		t.Errorf("config project after use default = %q", cc.Project)
+	if cc, _ := clientconfig.Load(cfg); cc.Space != "" {
+		t.Errorf("config space after use default = %q", cc.Space)
 	}
 }
 

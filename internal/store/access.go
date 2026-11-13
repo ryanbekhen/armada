@@ -22,15 +22,15 @@ const (
 
 // Roles (ADR 0033). They are built in.
 const (
-	RoleViewer         = "viewer"
-	RoleDeployer       = "deployer"
-	RoleAdmin          = "admin"
-	RoleProjectCreator = "project-creator"
-	RoleClusterAdmin   = "cluster-admin"
+	RoleViewer       = "viewer"
+	RoleDeployer     = "deployer"
+	RoleAdmin        = "admin"
+	RoleSpaceCreator = "space-creator"
+	RoleClusterAdmin = "cluster-admin"
 )
 
 // Roles lists every role, from the least to the most.
-var Roles = []string{RoleViewer, RoleDeployer, RoleAdmin, RoleProjectCreator, RoleClusterAdmin}
+var Roles = []string{RoleViewer, RoleDeployer, RoleAdmin, RoleSpaceCreator, RoleClusterAdmin}
 
 // MaxServiceCerts bounds the certificates recorded per service; issuing
 // more drops the oldest.
@@ -39,40 +39,40 @@ const MaxServiceCerts = 8
 // MaxGrants bounds the assignments of one principal.
 const MaxGrants = 1000
 
-// Grant is a role given to a principal, in a project or, with no project,
+// Grant is a role given to a principal, in a space or, with no space,
 // over the whole cluster.
 type Grant struct {
-	Role    string
-	Project string
+	Role  string
+	Space string
 }
 
 func (g Grant) String() string {
-	if g.Project == "" {
+	if g.Space == "" {
 		return g.Role
 	}
-	return g.Role + " in " + g.Project
+	return g.Role + " in " + g.Space
 }
 
 // CheckGrant validates a role and where it is given.
 func CheckGrant(g Grant) error {
 	switch g.Role {
-	case RoleClusterAdmin, RoleProjectCreator:
-		if g.Project != "" {
-			return fmt.Errorf("role %s applies to the whole cluster: give it without a project", g.Role)
+	case RoleClusterAdmin, RoleSpaceCreator:
+		if g.Space != "" {
+			return fmt.Errorf("role %s applies to the whole cluster: give it without a space", g.Role)
 		}
 	case RoleViewer:
-		if g.Project != "" && g.Project != spec.DefaultProject && !spec.ValidProject(g.Project) {
-			return fmt.Errorf("invalid project %q", g.Project)
+		if g.Space != "" && g.Space != spec.DefaultSpace && !spec.ValidSpace(g.Space) {
+			return fmt.Errorf("invalid space %q", g.Space)
 		}
 	case RoleDeployer, RoleAdmin:
-		if g.Project == "" {
-			return fmt.Errorf("role %s is given in one project: name it", g.Role)
+		if g.Space == "" {
+			return fmt.Errorf("role %s is given in one space: name it", g.Role)
 		}
-		if g.Project == spec.DefaultProject {
-			return fmt.Errorf("role %s cannot be given in the default project, whose containers may reach the platform; give viewer there, or cluster-admin: %w", g.Role, ErrPrecondition)
+		if g.Space == spec.DefaultSpace {
+			return fmt.Errorf("role %s cannot be given in the default space, whose containers may reach the platform; give viewer there, or cluster-admin: %w", g.Role, ErrPrecondition)
 		}
-		if !spec.ValidProject(g.Project) {
-			return fmt.Errorf("invalid project %q", g.Project)
+		if !spec.ValidSpace(g.Space) {
+			return fmt.Errorf("invalid space %q", g.Space)
 		}
 	default:
 		return fmt.Errorf("unknown role %q (one of %s)", g.Role, strings.Join(Roles, ", "))
@@ -125,8 +125,8 @@ type Principal struct {
 func (p Principal) Has(g Grant) bool { return slices.Contains(p.Roles, g) }
 
 type grantRec struct {
-	Role    string `json:"role"`
-	Project string `json:"project,omitempty"`
+	Role  string `json:"role"`
+	Space string `json:"space,omitempty"`
 }
 
 type principalRec struct {
@@ -183,14 +183,14 @@ func (r *principalRec) setRoles(roles []Grant) {
 		}
 	}
 	slices.SortFunc(r.Roles, func(a, b grantRec) int {
-		if c := strings.Compare(a.Project, b.Project); c != 0 {
+		if c := strings.Compare(a.Space, b.Space); c != 0 {
 			return c
 		}
 		return slices.Index(Roles, a.Role) - slices.Index(Roles, b.Role)
 	})
 }
 
-// checkGrants validates roles in t: each project must exist.
+// checkGrants validates roles in t: each space must exist.
 func (t *etx) checkGrants(roles []Grant) error {
 	if len(roles) > MaxGrants {
 		return fmt.Errorf("at most %d assignments", MaxGrants)
@@ -199,8 +199,8 @@ func (t *etx) checkGrants(roles []Grant) error {
 		if err := CheckGrant(g); err != nil {
 			return err
 		}
-		if g.Project != "" {
-			if err := t.projectExists(g.Project); err != nil {
+		if g.Space != "" {
+			if err := t.spaceExists(g.Space); err != nil {
 				return err
 			}
 		}
@@ -542,9 +542,9 @@ func (s *Etcd) ServiceAccess(ctx context.Context, name, serial string) (Principa
 	return out, allowed, err
 }
 
-// grantProject makes the principal that creates project its admin, inside
-// t; the principal must hold project-creator.
-func (t *etx) grantProject(kind, name, project string) error {
+// grantSpace makes the principal that creates space its admin, inside
+// t; the principal must hold space-creator.
+func (t *etx) grantSpace(kind, name, space string) error {
 	key, err := principalKey(kind, name)
 	if err != nil {
 		return err
@@ -555,16 +555,16 @@ func (t *etx) grantProject(kind, name, project string) error {
 		return err
 	}
 	p := r.principal(kind, time.Time{})
-	if !ok || r.Removed || !p.Has(Grant{Role: RoleProjectCreator}) {
-		return fmt.Errorf("%s %s may not create projects: %w", kind, name, ErrPrecondition)
+	if !ok || r.Removed || !p.Has(Grant{Role: RoleSpaceCreator}) {
+		return fmt.Errorf("%s %s may not create spaces: %w", kind, name, ErrPrecondition)
 	}
-	r.setRoles(append(p.Roles, Grant{Role: RoleAdmin, Project: project}))
+	r.setRoles(append(p.Roles, Grant{Role: RoleAdmin, Space: space}))
 	return t.put(key, r)
 }
 
-// forgetProject takes every role in a deleted project back, so a project
+// forgetSpace takes every role in a deleted space back, so a space
 // created later under the same name is not handed over.
-func (t *etx) forgetProject(project string) error {
+func (t *etx) forgetSpace(space string) error {
 	for _, pfx := range []string{pfxUsers, pfxServices} {
 		kvs, err := t.list(pfx)
 		if err != nil {
@@ -575,7 +575,7 @@ func (t *etx) forgetProject(project string) error {
 			if err := json.Unmarshal(e.val, &r); err != nil {
 				return fmt.Errorf("decode %s: %w", e.key, err)
 			}
-			keep := slices.DeleteFunc(slices.Clone(r.Roles), func(g grantRec) bool { return g.Project == project })
+			keep := slices.DeleteFunc(slices.Clone(r.Roles), func(g grantRec) bool { return g.Space == space })
 			if len(keep) != len(r.Roles) {
 				r.Roles = keep
 				if err := t.put(e.key, r); err != nil {
@@ -599,13 +599,14 @@ func migrateAccess(t *etx) error {
 		AddedBy string `json:"addedBy,omitempty"`
 	}
 	type automationRec struct {
-		Name           string              `json:"name"`
-		Projects       []string            `json:"projects,omitempty"`
-		CreateProjects bool                `json:"createProjects,omitempty"`
-		Labels         map[string][]string `json:"labels,omitempty"`
-		CreatedAt      int64               `json:"createdAt"`
-		CreatedBy      string              `json:"createdBy,omitempty"`
-		Certs          []certRec           `json:"certs,omitempty"`
+		Name string `json:"name"`
+		// Written before spaces had their name (schema 11).
+		Spaces       []string            `json:"projects,omitempty"`
+		CreateSpaces bool                `json:"createProjects,omitempty"`
+		Labels       map[string][]string `json:"labels,omitempty"`
+		CreatedAt    int64               `json:"createdAt"`
+		CreatedBy    string              `json:"createdBy,omitempty"`
+		Certs        []certRec           `json:"certs,omitempty"`
 	}
 	err := listInto(t, "admins/", func(_ string, a adminRec) error {
 		r := principalRec{Name: a.Name, CreatedAt: a.AddedAt, CreatedBy: a.AddedBy, Since: a.Since, Removed: a.Removed}
@@ -620,11 +621,11 @@ func migrateAccess(t *etx) error {
 	err = listInto(t, "automation/", func(_ string, a automationRec) error {
 		r := principalRec{Name: a.Name, Labels: a.Labels, CreatedAt: a.CreatedAt, CreatedBy: a.CreatedBy, Certs: a.Certs}
 		var roles []Grant
-		for _, p := range a.Projects {
-			roles = append(roles, Grant{Role: RoleAdmin, Project: p})
+		for _, p := range a.Spaces {
+			roles = append(roles, Grant{Role: RoleAdmin, Space: p})
 		}
-		if a.CreateProjects {
-			roles = append(roles, Grant{Role: RoleProjectCreator})
+		if a.CreateSpaces {
+			roles = append(roles, Grant{Role: RoleSpaceCreator})
 		}
 		r.setRoles(roles)
 		return t.put(pfxServices+a.Name, r)

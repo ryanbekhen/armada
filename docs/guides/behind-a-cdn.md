@@ -59,7 +59,7 @@ armada cluster set --root-domain example.com
   (`canary--web.example.com`) is served with it, so new apps need no new
   certificate.
 - The root domain itself, used as a custom domain, and deeper names under it
-  (`shop.staging.example.com`, the URL of an app in project `staging`) get
+  (`shop.staging.example.com`, the URL of an app in space `staging`) get
   certificates of their own, also through DNS-01.
 - Custom domains outside the root domain keep HTTP-01, which needs the ACME
   CA to reach port 80 of your nodes through the CDN. Prefer names under the

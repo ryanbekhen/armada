@@ -26,48 +26,48 @@ import (
 // globals holds persistent flags shared by subcommands.
 type globals struct {
 	configPath string
-	// project is the project of the apps and jobs a command names (ADR
-	// 0026): --project, else ARMADA_PROJECT, else the one `armada project
-	// use` saved in the client config; empty means the default project.
-	project string
-	// allProjects is --all-projects: listings span every project.
-	allProjects bool
+	// space is the space of the apps and jobs a command names (ADR
+	// 0026): --space, else ARMADA_SPACE, else the one `armada space
+	// use` saved in the client config; empty means the default space.
+	space string
+	// allSpaces is --all-spaces: listings span every space.
+	allSpaces bool
 }
 
-// resolveProject fills project from the client config when neither
-// --project nor ARMADA_PROJECT named one.
-func (g *globals) resolveProject() error {
-	if g.project == "" {
+// resolveSpace fills space from the client config when neither
+// --space nor ARMADA_SPACE named one.
+func (g *globals) resolveSpace() error {
+	if g.space == "" {
 		if cc, err := clientconfig.Load(g.configPath); err == nil {
-			g.project = cc.Project
+			g.space = cc.Space
 		}
 	}
-	if g.project == spec.DefaultProject {
-		g.project = ""
+	if g.space == spec.DefaultSpace {
+		g.space = ""
 	}
-	if g.project != "" && !spec.ValidProject(g.project) {
-		return fmt.Errorf("invalid project %q", g.project)
+	if g.space != "" && !spec.ValidSpace(g.space) {
+		return fmt.Errorf("invalid space %q", g.space)
 	}
 	return nil
 }
 
-// scope is the project a command works in.
-func (g *globals) scope() string { return cmp.Or(g.project, spec.DefaultProject) }
+// scope is the space a command works in.
+func (g *globals) scope() string { return cmp.Or(g.space, spec.DefaultSpace) }
 
-// app returns the ID of app name in the project. name may already be an ID
-// (web.staging) as long as --project does not name another project.
+// app returns the ID of app name in the space. name may already be an ID
+// (web.staging) as long as --space does not name another space.
 func (g *globals) app(name string) (string, error) {
 	if strings.Contains(name, ".") {
 		p, _, ok := spec.SplitAppID(name)
 		if !ok {
-			return "", fmt.Errorf("invalid name %q: want NAME, or NAME.PROJECT for one of another project", name)
+			return "", fmt.Errorf("invalid name %q: want NAME, or NAME.SPACE for one of another space", name)
 		}
-		if g.project != "" && g.project != p {
-			return "", fmt.Errorf("%s belongs to project %s, not %s", name, p, g.project)
+		if g.space != "" && g.space != p {
+			return "", fmt.Errorf("%s belongs to space %s, not %s", name, p, g.space)
 		}
 		return name, nil
 	}
-	return spec.AppID(g.project, name), nil
+	return spec.AppID(g.space, name), nil
 }
 
 // qualify replaces args[0], an app or job name, with its ID (see app).
@@ -84,9 +84,9 @@ func (g *globals) qualify(args []string) error {
 }
 
 // listed reports whether a listing shows the app with ID id: the
-// project's, or every one with --all-projects.
+// space's, or every one with --all-spaces.
 func (g *globals) listed(id string) bool {
-	if g.allProjects {
+	if g.allSpaces {
 		return true
 	}
 	p, _, ok := spec.SplitAppID(id)
@@ -106,14 +106,14 @@ func NewRootCommand() *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		PersistentPreRunE: func(*cobra.Command, []string) error {
-			return g.resolveProject()
+			return g.resolveSpace()
 		},
 	}
 	cmd.CompletionOptions.HiddenDefaultCmd = true
 
 	cmd.PersistentFlags().StringVar(&g.configPath, "config", clientconfig.DefaultPath(), "client config file")
-	cmd.PersistentFlags().StringVar(&g.project, "project", os.Getenv("ARMADA_PROJECT"), "project to work in")
-	cmd.PersistentFlags().BoolVarP(&g.allProjects, "all-projects", "A", false, "every project")
+	cmd.PersistentFlags().StringVar(&g.space, "space", os.Getenv("ARMADA_SPACE"), "space to work in")
+	cmd.PersistentFlags().BoolVarP(&g.allSpaces, "all-spaces", "A", false, "every space")
 
 	cmd.AddCommand(
 		newAppCommand(g),
@@ -121,7 +121,7 @@ func NewRootCommand() *cobra.Command {
 		newSecretCommand(g),
 		newDomainCommand(g),
 		newVolumeCommand(g),
-		newProjectCommand(g),
+		newSpaceCommand(g),
 		newNodeCommand(g),
 		newServerCommand(g),
 		newClusterCommand(g),

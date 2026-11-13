@@ -76,7 +76,7 @@ type plan struct {
 	peers []peer // every node but this one, in the order received
 	// endpoints maps the cluster's container addresses to their app IDs.
 	endpoints map[netip.Addr]string
-	// isolateDefault isolates the default project like the others.
+	// isolateDefault isolates the default space like the others.
 	isolateDefault bool
 	// tcpPorts are the ports of internal TCP apps, sorted (ADR 0039).
 	tcpPorts []uint16

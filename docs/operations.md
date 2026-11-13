@@ -7,7 +7,7 @@ you there). Each section stands on its own:
   [data directory](#what-is-in-the-data-directory), [backup](#backup),
   [restore](#restore), [upgrades](#upgrades), [certificates](#certificates)
 - **People and tools:** [access control](#access-control),
-  [projects](#projects)
+  [spaces](#spaces)
 - **Nodes:** [labels and placement](#node-labels-and-placement),
   [when a node fails](#when-a-node-fails), [removing a node](#removing-a-node)
 - **Network and traffic:** [container network](#container-network),
@@ -375,10 +375,10 @@ are tools such as a CI system or a self-service portal. Both hold roles:
 
 | Role | Given in | Allows |
 | --- | --- | --- |
-| `viewer` | a project, or the whole cluster | apps, jobs, revisions, specs, secret names, domains, volumes, logs, usage, events |
-| `deployer` | a project (not `default`) | what a viewer may, and deploy, scale, roll back, split traffic, set secrets, run jobs, verify domains |
-| `admin` | a project (not `default`) | what a deployer may, and exec, volume backup, restore, and delete, deleting apps and jobs |
-| `project-creator` | the cluster | creating projects (becoming `admin` of each) and deleting empty ones it is `admin` of |
+| `viewer` | a space, or the whole cluster | apps, jobs, revisions, specs, secret names, domains, volumes, logs, usage, events |
+| `deployer` | a space (not `default`) | what a viewer may, and deploy, scale, roll back, split traffic, set secrets, run jobs, verify domains |
+| `admin` | a space (not `default`) | what a deployer may, and exec, volume backup, restore, and delete, deleting apps and jobs |
+| `space-creator` | the cluster | creating spaces (becoming `admin` of each) and deleting empty ones it is `admin` of |
 | `cluster-admin` | the cluster | everything: nodes, servers, cluster settings, tokens, metrics credentials, access control |
 
 `armadad init` creates the first user, named after the user who ran it
@@ -388,9 +388,9 @@ user's `~/.armada/config`. `armada` reads the file `--config` names, else
 `/etc/armada/admin.config`. Only `cluster-admin` manages access:
 
 ```bash
-armada rbac user create alice -o alice.config --role deployer --project shop   # hand it over privately; it holds her key
-armada rbac assignment create --user alice --role viewer                       # also see every project
-armada rbac assignment delete --user alice --role deployer --project shop
+armada rbac user create alice -o alice.config --role deployer --space shop   # hand it over privately; it holds her key
+armada rbac assignment create --user alice --role viewer                       # also see every space
+armada rbac assignment delete --user alice --role deployer --space shop
 armada rbac user list                          # users, their roles, who created them, you
 armada rbac user credentials alice -o new.config   # a lost key: her older certificates stop working
 armada rbac user delete alice --yes            # refuse every certificate of alice at once
@@ -403,7 +403,7 @@ plane server's private address on port 7443, directly, through a VPN, or
 through an SSH tunnel (see the
 [quickstart](quickstart.md#9-use-armada-from-your-own-computer)). Roles
 apply to her next command. Only `viewer` can be given in the `default`
-project, whose containers may reach the platform unless isolated; deploying
+space, whose containers may reach the platform unless isolated; deploying
 there needs `cluster-admin`. Nobody can delete themselves or take their own
 `cluster-admin`, so one is always left. A user certificate lasts a year:
 its holder renews it with `armada rbac user renew` (see
@@ -416,72 +416,72 @@ people.
 A service gets a client config of its own and renews it itself:
 
 ```bash
-armada rbac service create portal --role project-creator --allow-label tier=shared
-armada rbac assignment create --service portal --role admin --project staging
+armada rbac service create portal --role space-creator --allow-label tier=shared
+armada rbac assignment create --service portal --role admin --space staging
 armada rbac service credentials portal -o portal.json   # 0600; keep it with the tool
-armada --config portal.json app update web --file web.yaml --create-if-missing --project staging
+armada --config portal.json app update web --file web.yaml --create-if-missing --space staging
 armada --config portal.json rbac service renew          # before the 90 days run out
 armada rbac service delete portal --yes                 # its certificates stop working at once
 ```
 
 Its certificates last 90 days; renewing revokes its others. `--allow-label
 KEY=VALUE` (on `create`, or `update` for users and services) is a node label
-the apps it deploys may require, for nodes you keep for some projects
+the apps it deploys may require, for nodes you keep for some spaces
 (restricted nodes). A user or service without `cluster-admin` sees only the
-projects it holds a role in, and no nodes, servers, or cluster events; it
+spaces it holds a role in, and no nodes, servers, or cluster events; it
 reaches the API on the private network like the CLI.
 
 Upgrading from a release before access control turns every administrator
 into a user with `cluster-admin`, and every automation identity into a
-service with `admin` in each of its projects, plus `project-creator` when it
-could create projects. Their certificates keep working.
+service with `admin` in each of its spaces, plus `space-creator` when it
+could create spaces. Their certificates keep working.
 
-## Projects
+## Spaces
 
-A project holds apps, jobs, secrets, domains, and volumes, and names only
-need to be unique within one (ADR 0026). Every cluster has the project
-`default`, which holds everything deployed without a project.
+A space holds apps, jobs, secrets, domains, and volumes, and names only
+need to be unique within one (ADR 0026). Every cluster has the space
+`default`, which holds everything deployed without a space.
 
 ```bash
-armada project create staging
-armada project use staging               # commands now work in staging
+armada space create staging
+armada space use staging               # commands now work in staging
 armada app create --file web.yaml
-armada app list                          # only the project's apps; -A for every project
+armada app list                          # only the space's apps; -A for every space
 armada secret set web db-password < password.txt
 armada secret import web .env            # many at once: DATABASE_URL becomes database-url
-armada app list --project default        # --project names another project for one command
-armada project list
-armada project use default
-armada project delete staging            # only once it is empty
+armada app list --space default        # --space names another space for one command
+armada space list
+armada space use default
+armada space delete staging            # only once it is empty
 ```
 
-A command works in the project `armada project use` saved in the client
-config, else in `default`; `--project` (or `ARMADA_PROJECT`) names
-another for one command, and an app's ID, `NAME.PROJECT`, names an app of
-any project: `armada app scale web.staging --replicas 3`. Events and
-metrics show apps of other projects by that ID, and so do their revisions
-(`web.staging--r1`) and replicas. Lists show the project's items, and
-every project's with `-A` (`--all-projects`). Internal apps of a project are reached at
-`NAME.PROJECT.internal`, or by `NAME` alone from apps of the same project,
+A command works in the space `armada space use` saved in the client
+config, else in `default`; `--space` (or `ARMADA_SPACE`) names
+another for one command, and an app's ID, `NAME.SPACE`, names an app of
+any space: `armada app scale web.staging --replicas 3`. Events and
+metrics show apps of other spaces by that ID, and so do their revisions
+(`web.staging--r1`) and replicas. Lists show the space's items, and
+every space's with `-A` (`--all-spaces`). Internal apps of a space are reached at
+`NAME.SPACE.internal`, or by `NAME` alone from apps of the same space,
 and external apps without domains at
-`NAME.PROJECT.<root domain>`, with a certificate of their own (a wildcard
+`NAME.SPACE.<root domain>`, with a certificate of their own (a wildcard
 certificate covers only one level).
 
 ### Network isolation
 
 On a cluster with the cluster network (`armadad init --cluster-cidr`, ADR
-0025), every node keeps apps and projects apart (ADR 0026):
+0025), every node keeps apps and spaces apart (ADR 0026):
 
 - A container reaches another app only through its internal name
-  (`http://NAME.internal`, `http://NAME.PROJECT.internal`): traffic straight
+  (`http://NAME.internal`, `http://NAME.SPACE.internal`): traffic straight
   to another app's container address is dropped, on one node and between
   nodes. Replicas of the same app still reach each other directly.
-- A container resolves only the internal names of its own project, and
+- A container resolves only the internal names of its own space, and
   its node's proxy routes an internal name only for containers of that
-  app's project, whatever `Host` header they send. `ingress.allow` in a
-  spec narrows an internal app to the listed apps of its project (see the
+  app's space, whatever `Host` header they send. `ingress.allow` in a
+  spec narrows an internal app to the listed apps of its space (see the
   spec reference). Anything else, the node itself included, gets a 404.
-- Containers of every project but `default` are isolated from the platform:
+- Containers of every space but `default` are isolated from the platform:
   they reach the internet, their node's DNS server, and internal and public
   ingress (TCP apps' ports included, on the bridge gateway only, and only
   where the proxy listens), and nothing else. The nodes, the control plane, the private
@@ -492,9 +492,9 @@ On a cluster with the cluster network (`armadad init --cluster-cidr`, ADR
 that use a database on the private network keep working:
 
 ```bash
-armada project set default --network-isolation        # once its apps no longer need the private network
-armada project set default --network-isolation=false
-armada project list                                   # the NETWORK column
+armada space set default --network-isolation        # once its apps no longer need the private network
+armada space set default --network-isolation=false
+armada space list                                   # the NETWORK column
 ```
 
 `armadad doctor` checks that the firewall tables are in place (`isolation`;
@@ -503,19 +503,19 @@ until they end. Clusters without the cluster network are not filtered.
 
 ### Sharing a cluster
 
-Containers of every project share each node's kernel, so projects separate
+Containers of every space share each node's kernel, so spaces separate
 apps you operate together; they do not contain code someone hostile wrote.
-For that, use a separate cluster or restricted nodes. Projects also share the
+For that, use a separate cluster or restricted nodes. Spaces also share the
 cluster's capacity: `scale.max` bounds what an app can take, and `armada app
-top --projects` shows what each project uses.
+top --spaces` shows what each space uses.
 
 Container output is limited on every node: each container may write 1 MiB
 per second (4 MiB at once) to its log, kept in 3 files of 10 MB; `armada
 app logs` shows a line such as `[armada: dropped 52428800 bytes of output over
 the log rate limit ...]` where output was dropped.
 
-A domain serves one project: an app cannot use a domain that an app of
-another project uses, and a domain another project left behind needs a
+A domain serves one space: an app cannot use a domain that an app of
+another space uses, and a domain another space left behind needs a
 new TXT record.
 
 ## Node labels and placement
@@ -600,7 +600,7 @@ undone; `armada app list` shows the app as being removed until then, and creatin
 the same name waits until it is gone.
 
 Its volumes and their data stay. Delete them with `armada volume delete`, or
-create the same name again to use them. A project can be deleted once it holds no
+create the same name again to use them. A space can be deleted once it holds no
 apps and no volumes.
 
 ## Init containers and sidecars
@@ -798,21 +798,21 @@ armada app update admin --no-ip-rules                                       # ev
 
 ### TCP apps inside the cluster
 
-A database, broker, or cache that other apps of its project use takes plain
+A database, broker, or cache that other apps of its space use takes plain
 TCP through each node's proxy ([ADR 0039](adr/0039-internal-tcp-ingress.md)):
 
 ```bash
-armada app create db --image postgres:17 --port 5432 --ingress internal --protocol tcp --project shop
-# the apps of project shop connect to db.shop.internal:5432
+armada app create db --image postgres:17 --port 5432 --ingress internal --protocol tcp --space shop
+# the apps of space shop connect to db.shop.internal:5432
 ```
 
 - **Never from outside.** The proxy listens for TCP apps only on each node's
   bridge gateway, which only that node's containers reach. Nothing opens on
   the node's private or public addresses; for clients outside the cluster,
   run them as apps or use an HTTP API.
-- **One app per port and project.** Another app of the project cannot take
-  the same port (the deploy is refused); another project can, because the
-  caller's project picks the app. `allow` narrows the callers as for HTTP;
+- **One app per port and space.** Another app of the space cannot take
+  the same port (the deploy is refused); another space can, because the
+  caller's space picks the app. `allow` narrows the callers as for HTTP;
   a refused caller's connection is closed at once.
 - **Needs the cluster network** (`armadad init --cluster-cidr`): the proxy
   knows its callers only there.
@@ -827,7 +827,7 @@ armada app create db --image postgres:17 --port 5432 --ingress internal --protoc
   free. Armada's own ports (22, 53, 80, 443, 2379, 2380, 4789, 7443, 7444,
   7480, 8404, 51820) are refused in the spec.
 - **To check from an app**, run
-  `armada app exec api --project shop -- nc -zv db.shop.internal 5432`, if
+  `armada app exec api --space shop -- nc -zv db.shop.internal 5432`, if
   its image has `nc`.
 
 ## Running commands in replicas
@@ -867,10 +867,10 @@ armada app exec web --replica web-r1-5muie -- env # a specific replica (armada a
 every agent takes every 10 seconds ([ADR 0016](adr/0016-top.md)):
 
 ```bash
-armada app top              # per app of the project (-A: every project)
+armada app top              # per app of the space (-A: every space)
 armada app top web          # per replica of web
 armada node top             # per node
-armada app top --projects   # per project, with requests and egress
+armada app top --spaces   # per space, with requests and egress
 armada app top web -o json  # with the time of each sample
 ```
 
@@ -894,10 +894,10 @@ web-r1-q2k0d     node2  running  41m/250m   58Mi/256Mi
   the sum of its containers, and its reservation covers its container and
   sidecars, or its largest init container if that is more
   ([ADR 0038](adr/0038-init-containers-and-sidecars.md)).
-- `--projects` adds up each project's replicas and volumes, and counts the
+- `--spaces` adds up each space's replicas and volumes, and counts the
   requests the proxies sent to its replicas and the bytes its containers
   sent over their network, replies and traffic to other replicas included.
-  A user or service without `cluster-admin` sees only the projects it
+  A user or service without `cluster-admin` sees only the spaces it
   holds a role in.
 - Requests and egress count from when the control plane's leader started
   (`countedSince` in `-o json`), and start over when the leader changes. They are
@@ -1063,8 +1063,8 @@ Queue:        120 waiting, read 12s ago from node2
   names it. When it goes, another takes over.
 - Each reading starts ⌈length ÷ `perRun`⌉ runs at most `parallelism`, less
   the active ones. A run should take its batch and exit.
-- The broker must be reachable from the job's project, as from its
-  containers: in an isolated project, not on a node's own address or outside
+- The broker must be reachable from the job's space, as from its
+  containers: in an isolated space, not on a node's own address or outside
   the cluster's private ranges. `Queue: not read yet` that lasts means the
   sandbox cannot reach it, or the URL is wrong; the agent's log on that
   node names the kind of failure (never the URL).
@@ -1089,7 +1089,7 @@ domains and certificates.
 ```bash
 armada cluster events                    # the last hour, everything
 armada app events web                    # only web and its replicas
-armada app events                        # the project's apps (-A: every project's)
+armada app events                        # the space's apps (-A: every space's)
 armada cluster events --node node2       # only node2 and its replicas
 armada cluster events --since 6h -f      # six hours back, then new events as they happen
 armada cluster events -o json            # one JSON object per line
@@ -1156,7 +1156,7 @@ every server's address and have it try them in turn until one answers
 
 The leader reads the cluster's state for the endpoint at most once every 10
 seconds: scrapes in between, from one scraper or several, get the same
-values, so the app, replica, node, project, job, and volume metrics may be
+values, so the app, replica, node, space, job, and volume metrics may be
 up to 10 seconds old. `armada_reconcile_*`, `armada_job_runs_total`,
 `armada_events_total`, and the Go runtime metrics are always current. A
 scrape interval under 10 seconds costs nothing more, but shows nothing new.
@@ -1188,11 +1188,11 @@ scrape interval under 10 seconds costs nothing more, but shows nothing new.
 | `armada_replica_last_restart_timestamp_seconds` | `app`, `replica`, `node`, `reason` | when it last was, and why: `exited`, `out_of_memory`, `liveness`, `startup`, `network`, `volume`, `machine_restart` (the machine rebooted), `other`, `unknown` |
 | `armada_replica_cpu_usage_cores`, `armada_replica_memory_usage_bytes` | `app`, `replica`, `node` | usage from the latest sample (absent without one) |
 | `armada_replica_cpu_reserved_cores`, `armada_replica_cpu_limit_cores`, `armada_replica_memory_limit_bytes` | `app`, `replica`, `node` | reservation and limits (CPU limit only when set) |
-| `armada_project_replicas` | `project` | replicas of the project's apps |
-| `armada_project_cpu_usage_cores`, `armada_project_memory_usage_bytes` | `project` | what they use (absent without a sample) |
-| `armada_project_cpu_reserved_cores`, `armada_project_memory_reserved_bytes` | `project` | what they reserve |
-| `armada_project_volume_used_bytes` | `project` | bytes in the project's volumes, from their latest measurements |
-| `armada_project_requests_total`, `armada_project_egress_bytes_total` | `project` | requests the proxies sent to its replicas and bytes its containers sent; reset when the leader changes |
+| `armada_space_replicas` | `space` | replicas of the space's apps |
+| `armada_space_cpu_usage_cores`, `armada_space_memory_usage_bytes` | `space` | what they use (absent without a sample) |
+| `armada_space_cpu_reserved_cores`, `armada_space_memory_reserved_bytes` | `space` | what they reserve |
+| `armada_space_volume_used_bytes` | `space` | bytes in the space's volumes, from their latest measurements |
+| `armada_space_requests_total`, `armada_space_egress_bytes_total` | `space` | requests the proxies sent to its replicas and bytes its containers sent; reset when the leader changes |
 | `armada_node_ready`, `armada_node_cordoned` | `node` | node state |
 | `armada_node_replicas` | `node` | replicas assigned to the node |
 | `armada_node_cpu_allocatable_cores`, `armada_node_memory_allocatable_bytes` | `node` | what the node can give replicas |

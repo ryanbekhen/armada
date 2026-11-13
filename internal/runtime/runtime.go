@@ -142,7 +142,7 @@ type ContainerSpec struct {
 	// keeps the engine default.
 	DNS []string
 	// DNSSearch are search domains put before the host's: the internal
-	// zone of the app's project (spec.ValidSearchDomain), so its apps
+	// zone of the app's space (spec.ValidSearchDomain), so its apps
 	// resolve by name alone.
 	DNSSearch []string
 	// Volumes are mounted read-write (ADR 0023); only drivers for which

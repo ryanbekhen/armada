@@ -63,8 +63,8 @@ const (
 	pfxRuns     = "runs/"    // runs/<job>/<seq, 10 digits>
 	pfxVolumes  = "volumes/" // volumes/<app>/<name>
 	// Apps are keyed by their ID (spec.AppID): the name in the default
-	// project, <name>.<project> in others (ADR 0026). Projects live under
-	// pfxProjects (projects.go).
+	// space, <name>.<space> in others (ADR 0026). Spaces live under
+	// pfxSpaces (spaces.go).
 	// pfxEvents (events.go) holds expiring events; older binaries ignore
 	// the prefix, so it needs no schema step.
 
@@ -72,7 +72,7 @@ const (
 	// migrations when records change incompatibly. Records under servers/
 	// and meta/ are read and written by every server, whatever its schema,
 	// so they only ever gain optional fields.
-	etcdSchema = 10
+	etcdSchema = 11
 
 	maxTxnRetries = 100
 	// auditKeep is how many audit events are retained.
@@ -548,8 +548,8 @@ type domainRec struct {
 	VerifiedAt int64  `json:"verifiedAt"`
 	Message    string `json:"message"`
 	CreatedAt  int64  `json:"createdAt"`
-	// Project owns the domain (ADR 0026); empty is the default project.
-	Project string `json:"project,omitempty"`
+	// Space owns the domain (ADR 0026); empty is the default space.
+	Space string `json:"space,omitempty"`
 }
 
 type auditRec struct {
@@ -1313,7 +1313,7 @@ func (s *Etcd) deploy(t *etx, sp *spec.App, replicas int, actor, action string) 
 	now := s.now()
 
 	id := sp.ID()
-	if err := t.projectExists(sp.Project); err != nil {
+	if err := t.spaceExists(sp.Space); err != nil {
 		return Revision{}, false, err
 	}
 	same := func(r Revision) bool { return sameRevision(r, body, pins) }
@@ -2182,12 +2182,12 @@ func (s *Etcd) ListAudit(ctx context.Context, limit int) ([]AuditEvent, error) {
 // has two live specs (active and target); both count.
 func (t *etx) claimDomains(sp *spec.App, now time.Time) error {
 	taken := map[string]string{}
-	project := projectOf(sp.ID())
-	// Domains in use by apps of other projects: a domain serves one project
-	// only, so no project routes a path of another's verified domain.
+	space := spaceOf(sp.ID())
+	// Domains in use by apps of other spaces: a domain serves one space
+	// only, so no space routes a path of another's verified domain.
 	foreign := map[string]string{}
-	// TCP ports of the project's other apps: the caller's project picks the
-	// app behind a port, so a port serves one app per project (ADR 0039).
+	// TCP ports of the space's other apps: the caller's space picks the
+	// app behind a port, so a port serves one app per space (ADR 0039).
 	ports := map[int]string{}
 	err := t.liveSpecs(func(app string, other *spec.App) {
 		if app == sp.ID() {
@@ -2196,10 +2196,10 @@ func (t *etx) claimDomains(sp *spec.App, now time.Time) error {
 		for _, k := range routeKeys(other) {
 			taken[k] = app
 		}
-		if other.Ingress.TCP() && projectOf(app) == project {
+		if other.Ingress.TCP() && spaceOf(app) == space {
 			ports[other.Ingress.Port] = app
 		}
-		if p := projectOf(app); p != project && other.Ingress != nil {
+		if p := spaceOf(app); p != space && other.Ingress != nil {
 			for _, d := range other.Ingress.Domains {
 				foreign[d] = p
 			}
@@ -2215,7 +2215,7 @@ func (t *etx) claimDomains(sp *spec.App, now time.Time) error {
 	}
 	if sp.Ingress.TCP() {
 		if owner, ok := ports[sp.Ingress.Port]; ok {
-			return fmt.Errorf("TCP port %d is already used by app %s of this project: %w", sp.Ingress.Port, owner, ErrConflict)
+			return fmt.Errorf("TCP port %d is already used by app %s of this space: %w", sp.Ingress.Port, owner, ErrConflict)
 		}
 	}
 	if sp.Ingress == nil {
@@ -2223,29 +2223,29 @@ func (t *etx) claimDomains(sp *spec.App, now time.Time) error {
 	}
 	for _, d := range sp.Ingress.Domains {
 		if p, ok := foreign[d]; ok {
-			return fmt.Errorf("domain %s is used by project %s: %w", d, p, ErrConflict)
+			return fmt.Errorf("domain %s is used by space %s: %w", d, p, ErrConflict)
 		}
 		var r domainRec
 		ok, err := t.get(pfxDomains+d, &r)
 		if err != nil {
 			return err
 		}
-		owner := r.Project
+		owner := r.Space
 		if owner == "" {
-			owner = spec.DefaultProject
+			owner = spec.DefaultSpace
 		}
-		if ok && owner == project {
+		if ok && owner == space {
 			continue
 		}
-		// New, or left behind by another project: this project proves
+		// New, or left behind by another space: this space proves
 		// ownership afresh with a new token.
 		token, err := randomToken()
 		if err != nil {
 			return err
 		}
 		rec := domainRec{Name: d, Token: token, CreatedAt: now.UnixMilli()}
-		if project != spec.DefaultProject {
-			rec.Project = project
+		if space != spec.DefaultSpace {
+			rec.Space = space
 		}
 		if err := t.put(pfxDomains+d, rec); err != nil {
 			return err
@@ -2254,8 +2254,8 @@ func (t *etx) claimDomains(sp *spec.App, now time.Time) error {
 	return nil
 }
 
-// projectOf returns the project of an app ID.
-func projectOf(id string) string {
+// spaceOf returns the space of an app ID.
+func spaceOf(id string) string {
 	p, _, ok := spec.SplitAppID(id)
 	if !ok {
 		return ""
@@ -2422,7 +2422,7 @@ func (t *etx) pinSecrets(sp *spec.App) (map[string]int, error) {
 	if len(missing) > 0 {
 		cmd := "armada secret set " + sp.Name + " NAME"
 		if sp.ID() != sp.Name {
-			cmd += " --project " + sp.Project
+			cmd += " --space " + sp.Space
 		}
 		return nil, fmt.Errorf("app %s references secrets that are not set: %s (set them with `%s`): %w",
 			sp.ID(), strings.Join(missing, ", "), cmd, ErrPrecondition)
@@ -2479,13 +2479,13 @@ func (s *Etcd) SetSecret(ctx context.Context, app, name string, seal func(int) (
 	now := s.now()
 	var version int
 	var revision string
-	project, _, ok := spec.SplitAppID(app)
+	space, _, ok := spec.SplitAppID(app)
 	if !ok {
 		return 0, "", fmt.Errorf("invalid app %q", app)
 	}
 	err := s.tx(ctx, func(t *etx) error {
 		revision = ""
-		if err := t.projectExists(project); err != nil {
+		if err := t.spaceExists(space); err != nil {
 			return err
 		}
 		latest, err := t.latestVersions(app)
@@ -2645,10 +2645,10 @@ var migrations = []migration{
 	// servers that would register a node without a subnet can no longer
 	// lead.
 	func(*etx) error { return nil },
-	// 6 -> 7: projects (ADR 0026) under projects/, and apps of other
-	// projects keyed <name>.<project>. Nothing to rewrite (the default
-	// project's apps keep their keys); servers that would treat such a key
-	// as an app name, or deploy into a project that does not exist, can no
+	// 6 -> 7: spaces (ADR 0026, then called projects) under projects/,
+	// and apps of other spaces keyed <name>.<space>. Nothing to rewrite (the default
+	// space's apps keep their keys); servers that would treat such a key
+	// as an app name, or deploy into a space that does not exist, can no
 	// longer lead.
 	func(*etx) error { return nil },
 	// 7 -> 8: administrators on record (ADR 0028) under admins/. Nothing to
@@ -2657,7 +2657,7 @@ var migrations = []migration{
 	func(*etx) error { return nil },
 	// 8 -> 9: access control (ADR 0033): administrators become users with
 	// cluster-admin, automation identities services with admin in their
-	// projects (and project-creator when they could create projects).
+	// spaces (and space-creator when they could create spaces).
 	migrateAccess,
 	// 9 -> 10: init containers and sidecars (ADR 0038) in app specs, and
 	// nodes that say their agent runs them; held replicas of volume apps
@@ -2665,6 +2665,11 @@ var migrations = []migration{
 	// without its other containers, or start a held one next to the
 	// replica still using its volume, can no longer lead.
 	func(*etx) error { return nil },
+	// 10 -> 11: projects are called spaces (ADR 0026): their records move
+	// from projects/ to spaces/, and the project fields of domains, grants,
+	// and the specs of revisions become space, with project-creator
+	// renamed space-creator.
+	migrateSpaces,
 }
 
 // StoredSchema returns the schema the keyspace is written in.

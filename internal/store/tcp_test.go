@@ -7,17 +7,17 @@ import (
 	"testing"
 )
 
-// A TCP port serves one app per project; other projects may use it too,
-// since the caller's project picks the app (ADR 0039).
-func TestTCPPortsPerProject(t *testing.T) {
+// A TCP port serves one app per space; other spaces may use it too,
+// since the caller's space picks the app (ADR 0039).
+func TestTCPPortsPerSpace(t *testing.T) {
 	t.Parallel()
 	s, ctx := open(t), context.Background()
-	if _, err := s.CreateProject(ctx, "b", "admin:test", nil); err != nil {
+	if _, err := s.CreateSpace(ctx, "b", "admin:test", nil); err != nil {
 		t.Fatal(err)
 	}
-	deploy := func(name, project, port string) error {
+	deploy := func(name, space, port string) error {
 		sp := mustParse(t, "name: "+name+"\nimage: postgres:17\ningress:\n  type: internal\n  protocol: tcp\n  port: "+port+"\n")
-		sp.Project = project
+		sp.Space = space
 		_, _, err := s.Deploy(ctx, sp, "admin:test")
 		return err
 	}
@@ -31,9 +31,9 @@ func TestTCPPortsPerProject(t *testing.T) {
 	if _, err := s.GetApp(ctx, "other"); !errors.Is(err, ErrNotFound) {
 		t.Error("conflicting deploy was partially applied")
 	}
-	// Another project, the same port.
+	// Another space, the same port.
 	if err := deploy("db", "b", "5432"); err != nil {
-		t.Fatalf("another project: %v", err)
+		t.Fatalf("another space: %v", err)
 	}
 	// The app itself may redeploy; another port is free.
 	if err := deploy("db", "", "5432"); err != nil {

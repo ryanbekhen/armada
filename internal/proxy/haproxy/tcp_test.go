@@ -16,7 +16,7 @@ import (
 )
 
 // tcpConfig has internal TCP apps (ADR 0039): one port shared by two
-// projects, one app that allows only some callers, and an HTTP app next to
+// spaces, one app that allows only some callers, and an HTTP app next to
 // them.
 func tcpConfig() proxy.Config {
 	return proxy.Config{
@@ -72,11 +72,11 @@ func TestRenderTCPBindsOnlyTheGateway(t *testing.T) {
 			t.Errorf("tcp_%s has a default backend:\n%s", port, s)
 		}
 	}
-	// The caller's project picks the backend, and allow narrows it.
+	// The caller's space picks the backend, and allow narrows it.
 	for _, line := range []string{
-		"tcp-request connection set-var(sess.route) str(be_db) if { var(sess.cproj) -m str default }\n",
-		"tcp-request connection set-var(sess.route) str(be_db.staging) if { var(sess.cproj) -m str staging }\n",
-		"tcp-request connection set-var(sess.route) str(be_cache.staging) if { var(sess.cproj) -m str staging } { var(sess.capp) -m str cache.staging api.staging }\n",
+		"tcp-request connection set-var(sess.route) str(be_db) if { var(sess.cspace) -m str default }\n",
+		"tcp-request connection set-var(sess.route) str(be_db.staging) if { var(sess.cspace) -m str staging }\n",
+		"tcp-request connection set-var(sess.route) str(be_cache.staging) if { var(sess.cspace) -m str staging } { var(sess.capp) -m str cache.staging api.staging }\n",
 	} {
 		if !strings.Contains(out, line) {
 			t.Errorf("missing %q", line)
@@ -132,7 +132,7 @@ func TestValidateTCP(t *testing.T) {
 		"wake":                func(c *proxy.Config) { c.Backends[0].Wake = true },
 		"timeout":             func(c *proxy.Config) { c.Backends[0].TimeoutSeconds = 10 },
 		"sticky":              func(c *proxy.Config) { c.Backends[0].Sticky = true },
-		"two of one project":  func(c *proxy.Config) { c.TCP[2].Port = 5432 },
+		"two of one space":    func(c *proxy.Config) { c.TCP[2].Port = 5432 },
 		"backend twice":       func(c *proxy.Config) { c.TCP = append(c.TCP, proxy.TCPRoute{Port: 6000, Backend: "db"}) },
 		"caller elsewhere":    func(c *proxy.Config) { c.TCP[2].Allow = []string{"api"} },
 		"injected caller":     func(c *proxy.Config) { c.TCP[2].Allow = []string{"api.staging }  or { always_true"} },

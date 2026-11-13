@@ -50,10 +50,10 @@ const (
 	AdminService_RemoveNode_FullMethodName              = "/armada.v1.AdminService/RemoveNode"
 	AdminService_ListServers_FullMethodName             = "/armada.v1.AdminService/ListServers"
 	AdminService_RemoveServer_FullMethodName            = "/armada.v1.AdminService/RemoveServer"
-	AdminService_CreateProject_FullMethodName           = "/armada.v1.AdminService/CreateProject"
-	AdminService_ListProjects_FullMethodName            = "/armada.v1.AdminService/ListProjects"
-	AdminService_DeleteProject_FullMethodName           = "/armada.v1.AdminService/DeleteProject"
-	AdminService_UpdateProject_FullMethodName           = "/armada.v1.AdminService/UpdateProject"
+	AdminService_CreateSpace_FullMethodName             = "/armada.v1.AdminService/CreateSpace"
+	AdminService_ListSpaces_FullMethodName              = "/armada.v1.AdminService/ListSpaces"
+	AdminService_DeleteSpace_FullMethodName             = "/armada.v1.AdminService/DeleteSpace"
+	AdminService_UpdateSpace_FullMethodName             = "/armada.v1.AdminService/UpdateSpace"
 	AdminService_CreateUser_FullMethodName              = "/armada.v1.AdminService/CreateUser"
 	AdminService_IssueUserCertificate_FullMethodName    = "/armada.v1.AdminService/IssueUserCertificate"
 	AdminService_CreateService_FullMethodName           = "/armada.v1.AdminService/CreateService"
@@ -124,16 +124,16 @@ type AdminServiceClient interface {
 	RemoveNode(ctx context.Context, in *RemoveNodeRequest, opts ...grpc.CallOption) (*RemoveNodeResponse, error)
 	ListServers(ctx context.Context, in *ListServersRequest, opts ...grpc.CallOption) (*ListServersResponse, error)
 	RemoveServer(ctx context.Context, in *RemoveServerRequest, opts ...grpc.CallOption) (*RemoveServerResponse, error)
-	// Projects (ADR 0026). Every other RPC names an app by its ID:
-	// <name>.<project>, or the bare name in the default project.
-	CreateProject(ctx context.Context, in *CreateProjectRequest, opts ...grpc.CallOption) (*ProjectInfo, error)
-	ListProjects(ctx context.Context, in *ListProjectsRequest, opts ...grpc.CallOption) (*ListProjectsResponse, error)
-	DeleteProject(ctx context.Context, in *DeleteProjectRequest, opts ...grpc.CallOption) (*DeleteProjectResponse, error)
-	// Change a project's settings (administrators only). Today only the
-	// default project's network isolation, which other projects always have.
-	UpdateProject(ctx context.Context, in *UpdateProjectRequest, opts ...grpc.CallOption) (*ProjectInfo, error)
+	// Spaces (ADR 0026). Every other RPC names an app by its ID:
+	// <name>.<space>, or the bare name in the default space.
+	CreateSpace(ctx context.Context, in *CreateSpaceRequest, opts ...grpc.CallOption) (*SpaceInfo, error)
+	ListSpaces(ctx context.Context, in *ListSpacesRequest, opts ...grpc.CallOption) (*ListSpacesResponse, error)
+	DeleteSpace(ctx context.Context, in *DeleteSpaceRequest, opts ...grpc.CallOption) (*DeleteSpaceResponse, error)
+	// Change a space's settings (administrators only). Today only the
+	// default space's network isolation, which other spaces always have.
+	UpdateSpace(ctx context.Context, in *UpdateSpaceRequest, opts ...grpc.CallOption) (*SpaceInfo, error)
 	// Access control (ADR 0033): users (people) and services (tools) hold
-	// roles in the cluster or in one project. Only cluster-admin manages
+	// roles in the cluster or in one space. Only cluster-admin manages
 	// them.
 	// CreateUser records a user with their first roles and signs a
 	// certificate for the key in the CSR.
@@ -522,40 +522,40 @@ func (c *adminServiceClient) RemoveServer(ctx context.Context, in *RemoveServerR
 	return out, nil
 }
 
-func (c *adminServiceClient) CreateProject(ctx context.Context, in *CreateProjectRequest, opts ...grpc.CallOption) (*ProjectInfo, error) {
+func (c *adminServiceClient) CreateSpace(ctx context.Context, in *CreateSpaceRequest, opts ...grpc.CallOption) (*SpaceInfo, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ProjectInfo)
-	err := c.cc.Invoke(ctx, AdminService_CreateProject_FullMethodName, in, out, cOpts...)
+	out := new(SpaceInfo)
+	err := c.cc.Invoke(ctx, AdminService_CreateSpace_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *adminServiceClient) ListProjects(ctx context.Context, in *ListProjectsRequest, opts ...grpc.CallOption) (*ListProjectsResponse, error) {
+func (c *adminServiceClient) ListSpaces(ctx context.Context, in *ListSpacesRequest, opts ...grpc.CallOption) (*ListSpacesResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ListProjectsResponse)
-	err := c.cc.Invoke(ctx, AdminService_ListProjects_FullMethodName, in, out, cOpts...)
+	out := new(ListSpacesResponse)
+	err := c.cc.Invoke(ctx, AdminService_ListSpaces_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *adminServiceClient) DeleteProject(ctx context.Context, in *DeleteProjectRequest, opts ...grpc.CallOption) (*DeleteProjectResponse, error) {
+func (c *adminServiceClient) DeleteSpace(ctx context.Context, in *DeleteSpaceRequest, opts ...grpc.CallOption) (*DeleteSpaceResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(DeleteProjectResponse)
-	err := c.cc.Invoke(ctx, AdminService_DeleteProject_FullMethodName, in, out, cOpts...)
+	out := new(DeleteSpaceResponse)
+	err := c.cc.Invoke(ctx, AdminService_DeleteSpace_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *adminServiceClient) UpdateProject(ctx context.Context, in *UpdateProjectRequest, opts ...grpc.CallOption) (*ProjectInfo, error) {
+func (c *adminServiceClient) UpdateSpace(ctx context.Context, in *UpdateSpaceRequest, opts ...grpc.CallOption) (*SpaceInfo, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ProjectInfo)
-	err := c.cc.Invoke(ctx, AdminService_UpdateProject_FullMethodName, in, out, cOpts...)
+	out := new(SpaceInfo)
+	err := c.cc.Invoke(ctx, AdminService_UpdateSpace_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -831,16 +831,16 @@ type AdminServiceServer interface {
 	RemoveNode(context.Context, *RemoveNodeRequest) (*RemoveNodeResponse, error)
 	ListServers(context.Context, *ListServersRequest) (*ListServersResponse, error)
 	RemoveServer(context.Context, *RemoveServerRequest) (*RemoveServerResponse, error)
-	// Projects (ADR 0026). Every other RPC names an app by its ID:
-	// <name>.<project>, or the bare name in the default project.
-	CreateProject(context.Context, *CreateProjectRequest) (*ProjectInfo, error)
-	ListProjects(context.Context, *ListProjectsRequest) (*ListProjectsResponse, error)
-	DeleteProject(context.Context, *DeleteProjectRequest) (*DeleteProjectResponse, error)
-	// Change a project's settings (administrators only). Today only the
-	// default project's network isolation, which other projects always have.
-	UpdateProject(context.Context, *UpdateProjectRequest) (*ProjectInfo, error)
+	// Spaces (ADR 0026). Every other RPC names an app by its ID:
+	// <name>.<space>, or the bare name in the default space.
+	CreateSpace(context.Context, *CreateSpaceRequest) (*SpaceInfo, error)
+	ListSpaces(context.Context, *ListSpacesRequest) (*ListSpacesResponse, error)
+	DeleteSpace(context.Context, *DeleteSpaceRequest) (*DeleteSpaceResponse, error)
+	// Change a space's settings (administrators only). Today only the
+	// default space's network isolation, which other spaces always have.
+	UpdateSpace(context.Context, *UpdateSpaceRequest) (*SpaceInfo, error)
 	// Access control (ADR 0033): users (people) and services (tools) hold
-	// roles in the cluster or in one project. Only cluster-admin manages
+	// roles in the cluster or in one space. Only cluster-admin manages
 	// them.
 	// CreateUser records a user with their first roles and signs a
 	// certificate for the key in the CSR.
@@ -991,17 +991,17 @@ func (UnimplementedAdminServiceServer) ListServers(context.Context, *ListServers
 func (UnimplementedAdminServiceServer) RemoveServer(context.Context, *RemoveServerRequest) (*RemoveServerResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method RemoveServer not implemented")
 }
-func (UnimplementedAdminServiceServer) CreateProject(context.Context, *CreateProjectRequest) (*ProjectInfo, error) {
-	return nil, status.Error(codes.Unimplemented, "method CreateProject not implemented")
+func (UnimplementedAdminServiceServer) CreateSpace(context.Context, *CreateSpaceRequest) (*SpaceInfo, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreateSpace not implemented")
 }
-func (UnimplementedAdminServiceServer) ListProjects(context.Context, *ListProjectsRequest) (*ListProjectsResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method ListProjects not implemented")
+func (UnimplementedAdminServiceServer) ListSpaces(context.Context, *ListSpacesRequest) (*ListSpacesResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListSpaces not implemented")
 }
-func (UnimplementedAdminServiceServer) DeleteProject(context.Context, *DeleteProjectRequest) (*DeleteProjectResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method DeleteProject not implemented")
+func (UnimplementedAdminServiceServer) DeleteSpace(context.Context, *DeleteSpaceRequest) (*DeleteSpaceResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method DeleteSpace not implemented")
 }
-func (UnimplementedAdminServiceServer) UpdateProject(context.Context, *UpdateProjectRequest) (*ProjectInfo, error) {
-	return nil, status.Error(codes.Unimplemented, "method UpdateProject not implemented")
+func (UnimplementedAdminServiceServer) UpdateSpace(context.Context, *UpdateSpaceRequest) (*SpaceInfo, error) {
+	return nil, status.Error(codes.Unimplemented, "method UpdateSpace not implemented")
 }
 func (UnimplementedAdminServiceServer) CreateUser(context.Context, *CreateUserRequest) (*IssueMetricsCertificateResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method CreateUser not implemented")
@@ -1620,74 +1620,74 @@ func _AdminService_RemoveServer_Handler(srv interface{}, ctx context.Context, de
 	return interceptor(ctx, in, info, handler)
 }
 
-func _AdminService_CreateProject_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(CreateProjectRequest)
+func _AdminService_CreateSpace_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateSpaceRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(AdminServiceServer).CreateProject(ctx, in)
+		return srv.(AdminServiceServer).CreateSpace(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: AdminService_CreateProject_FullMethodName,
+		FullMethod: AdminService_CreateSpace_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(AdminServiceServer).CreateProject(ctx, req.(*CreateProjectRequest))
+		return srv.(AdminServiceServer).CreateSpace(ctx, req.(*CreateSpaceRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _AdminService_ListProjects_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ListProjectsRequest)
+func _AdminService_ListSpaces_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListSpacesRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(AdminServiceServer).ListProjects(ctx, in)
+		return srv.(AdminServiceServer).ListSpaces(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: AdminService_ListProjects_FullMethodName,
+		FullMethod: AdminService_ListSpaces_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(AdminServiceServer).ListProjects(ctx, req.(*ListProjectsRequest))
+		return srv.(AdminServiceServer).ListSpaces(ctx, req.(*ListSpacesRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _AdminService_DeleteProject_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(DeleteProjectRequest)
+func _AdminService_DeleteSpace_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteSpaceRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(AdminServiceServer).DeleteProject(ctx, in)
+		return srv.(AdminServiceServer).DeleteSpace(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: AdminService_DeleteProject_FullMethodName,
+		FullMethod: AdminService_DeleteSpace_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(AdminServiceServer).DeleteProject(ctx, req.(*DeleteProjectRequest))
+		return srv.(AdminServiceServer).DeleteSpace(ctx, req.(*DeleteSpaceRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _AdminService_UpdateProject_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(UpdateProjectRequest)
+func _AdminService_UpdateSpace_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdateSpaceRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(AdminServiceServer).UpdateProject(ctx, in)
+		return srv.(AdminServiceServer).UpdateSpace(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: AdminService_UpdateProject_FullMethodName,
+		FullMethod: AdminService_UpdateSpace_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(AdminServiceServer).UpdateProject(ctx, req.(*UpdateProjectRequest))
+		return srv.(AdminServiceServer).UpdateSpace(ctx, req.(*UpdateSpaceRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -2172,20 +2172,20 @@ var AdminService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _AdminService_RemoveServer_Handler,
 		},
 		{
-			MethodName: "CreateProject",
-			Handler:    _AdminService_CreateProject_Handler,
+			MethodName: "CreateSpace",
+			Handler:    _AdminService_CreateSpace_Handler,
 		},
 		{
-			MethodName: "ListProjects",
-			Handler:    _AdminService_ListProjects_Handler,
+			MethodName: "ListSpaces",
+			Handler:    _AdminService_ListSpaces_Handler,
 		},
 		{
-			MethodName: "DeleteProject",
-			Handler:    _AdminService_DeleteProject_Handler,
+			MethodName: "DeleteSpace",
+			Handler:    _AdminService_DeleteSpace_Handler,
 		},
 		{
-			MethodName: "UpdateProject",
-			Handler:    _AdminService_UpdateProject_Handler,
+			MethodName: "UpdateSpace",
+			Handler:    _AdminService_UpdateSpace_Handler,
 		},
 		{
 			MethodName: "CreateUser",

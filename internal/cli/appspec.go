@@ -89,7 +89,7 @@ func (f *specFlags) register(cmd *cobra.Command, job bool) {
 	}
 	fs.IntVar(&f.port, "port", 0, "port the app listens on")
 	fs.StringVar(&f.ingress, "ingress", "", "who reaches the app: external, internal, or none")
-	fs.StringVar(&f.protocol, "protocol", "", "http (default) or tcp: a tcp app is internal only, reached by apps of its project at <app>.internal:<port>")
+	fs.StringVar(&f.protocol, "protocol", "", "http (default) or tcp: a tcp app is internal only, reached by apps of its space at <app>.internal:<port>")
 	fs.StringArrayVar(&f.domains, "domain", nil, "custom domain (repeatable)")
 	fs.StringArrayVar(&f.removeDomains, "remove-domain", nil, "remove a custom domain (repeatable)")
 	fs.StringArrayVar(&f.ipAllow, "ip-allow", nil, "RANGE[,name=NAME][,description=TEXT]: only clients from this address or prefix reach the app from outside (repeatable; replaces the list)")
@@ -457,10 +457,10 @@ type deployFlags struct {
 	diff, createIfMissing bool
 }
 
-// appTarget splits the ID of NAME into the project and name a spec has.
-func appTarget(id string) (project, name string) {
+// appTarget splits the ID of NAME into the space and name a spec has.
+func appTarget(id string) (space, name string) {
 	p, n, _ := spec.SplitAppID(id)
-	if p == spec.DefaultProject {
+	if p == spec.DefaultSpace {
 		p = ""
 	}
 	return p, n
@@ -468,13 +468,13 @@ func appTarget(id string) (project, name string) {
 
 // createSpec builds the spec create sends: from --file, or from the flags
 // with name NAME (an ID, or "" with --file).
-func createSpec(cmd *cobra.Command, f *specFlags, id, project string) ([]byte, *spec.App, error) {
+func createSpec(cmd *cobra.Command, f *specFlags, id, space string) ([]byte, *spec.App, error) {
 	if f.file != "" {
 		data, err := f.readFile(cmd)
 		if err != nil {
 			return nil, nil, err
 		}
-		sp, err := spec.ParseIn(data, project)
+		sp, err := spec.ParseIn(data, space)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -502,17 +502,17 @@ func createSpec(cmd *cobra.Command, f *specFlags, id, project string) ([]byte, *
 	if err := f.apply(a); err != nil {
 		return nil, nil, err
 	}
-	return specData(a, project)
+	return specData(a, space)
 }
 
 // specData writes a as a file holds it and validates it here, for fast
 // feedback; the server validates it again.
-func specData(a *spec.App, project string) ([]byte, *spec.App, error) {
+func specData(a *spec.App, space string) ([]byte, *spec.App, error) {
 	data, err := a.Export()
 	if err != nil {
 		return nil, nil, err
 	}
-	sp, err := spec.ParseIn(data, project)
+	sp, err := spec.ParseIn(data, space)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -531,11 +531,11 @@ func runCreate(cmd *cobra.Command, g *globals, args []string, d *deployFlags) er
 			return err
 		}
 	}
-	project := g.project
+	space := g.space
 	if id != "" {
-		project, _ = appTarget(id)
+		space, _ = appTarget(id)
 	}
-	data, _, err := createSpec(cmd, &d.spec, id, project)
+	data, _, err := createSpec(cmd, &d.spec, id, space)
 	if err != nil {
 		return err
 	}
@@ -544,7 +544,7 @@ func runCreate(cmd *cobra.Command, g *globals, args []string, d *deployFlags) er
 		return err
 	}
 	defer conn.Close()
-	resp, err := client.Deploy(cmd.Context(), &armadav1.DeployRequest{Spec: data, Project: project, MustCreate: true})
+	resp, err := client.Deploy(cmd.Context(), &armadav1.DeployRequest{Spec: data, Space: space, MustCreate: true})
 	if err != nil {
 		return RPCError(err)
 	}
@@ -575,9 +575,9 @@ func runUpdate(cmd *cobra.Command, g *globals, args []string, d *deployFlags) er
 	} else if f.file == "" {
 		return fmt.Errorf("give the %s's name", kindWord(f.job))
 	}
-	project := g.project
+	space := g.space
 	if id != "" {
-		project, _ = appTarget(id)
+		space, _ = appTarget(id)
 	}
 	client, conn, err := dialAdmin(g)
 	if err != nil {
@@ -591,10 +591,10 @@ func runUpdate(cmd *cobra.Command, g *globals, args []string, d *deployFlags) er
 	exists := true
 	if f.file != "" {
 		var sp *spec.App
-		if data, sp, err = createSpec(cmd, f, id, project); err != nil {
+		if data, sp, err = createSpec(cmd, f, id, space); err != nil {
 			return err
 		}
-		id = spec.AppID(project, sp.Name)
+		id = spec.AppID(space, sp.Name)
 		cur, err := client.GetAppSpec(ctx, &armadav1.GetAppSpecRequest{App: id})
 		switch {
 		case status.Code(err) == codes.NotFound:
@@ -628,7 +628,7 @@ func runUpdate(cmd *cobra.Command, g *globals, args []string, d *deployFlags) er
 			return RPCError(err)
 		default:
 			current, base, prev = cur.Spec, cur.Revision, cur.Revision
-			if a, err = spec.ParseIn(cur.Spec, project); err != nil {
+			if a, err = spec.ParseIn(cur.Spec, space); err != nil {
 				return fmt.Errorf("the spec of %s: %w", id, err)
 			}
 			if err := checkKind(a, f.job, "update"); err != nil {
@@ -641,7 +641,7 @@ func runUpdate(cmd *cobra.Command, g *globals, args []string, d *deployFlags) er
 		if err := f.apply(a); err != nil {
 			return err
 		}
-		if data, _, err = specData(a, project); err != nil {
+		if data, _, err = specData(a, space); err != nil {
 			return err
 		}
 	}
@@ -653,7 +653,7 @@ func runUpdate(cmd *cobra.Command, g *globals, args []string, d *deployFlags) er
 	if d.diff {
 		return printDiff(out, current, data)
 	}
-	req := &armadav1.DeployRequest{Spec: data, Project: project, BaseRevision: base, MustCreate: !exists, MustExist: exists}
+	req := &armadav1.DeployRequest{Spec: data, Space: space, BaseRevision: base, MustCreate: !exists, MustExist: exists}
 	resp, err := client.Deploy(ctx, req)
 	if err != nil {
 		if status.Code(err) == codes.NotFound && req.MustExist {

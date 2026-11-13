@@ -49,16 +49,16 @@ service AdminService {
   rpc RemoveNode(RemoveNodeRequest) returns (RemoveNodeResponse);
   rpc ListServers(ListServersRequest) returns (ListServersResponse);
   rpc RemoveServer(RemoveServerRequest) returns (RemoveServerResponse);
-  // Projects (ADR 0026). Every other RPC names an app by its ID:
-  // <name>.<project>, or the bare name in the default project.
-  rpc CreateProject(CreateProjectRequest) returns (ProjectInfo);
-  rpc ListProjects(ListProjectsRequest) returns (ListProjectsResponse);
-  rpc DeleteProject(DeleteProjectRequest) returns (DeleteProjectResponse);
-  // Change a project's settings (administrators only). Today only the
-  // default project's network isolation, which other projects always have.
-  rpc UpdateProject(UpdateProjectRequest) returns (ProjectInfo);
+  // Spaces (ADR 0026). Every other RPC names an app by its ID:
+  // <name>.<space>, or the bare name in the default space.
+  rpc CreateSpace(CreateSpaceRequest) returns (SpaceInfo);
+  rpc ListSpaces(ListSpacesRequest) returns (ListSpacesResponse);
+  rpc DeleteSpace(DeleteSpaceRequest) returns (DeleteSpaceResponse);
+  // Change a space's settings (administrators only). Today only the
+  // default space's network isolation, which other spaces always have.
+  rpc UpdateSpace(UpdateSpaceRequest) returns (SpaceInfo);
   // Access control (ADR 0033): users (people) and services (tools) hold
-  // roles in the cluster or in one project. Only cluster-admin manages
+  // roles in the cluster or in one space. Only cluster-admin manages
   // them.
   // CreateUser records a user with their first roles and signs a
   // certificate for the key in the CSR.
@@ -243,44 +243,44 @@ message IssueMetricsCertificateResponse {
   google.protobuf.Timestamp expires_at = 3;
 }
 
-message CreateProjectRequest {
+message CreateSpaceRequest {
   string name = 1;
 }
 
-message ProjectInfo {
+message SpaceInfo {
   string name = 1;
   google.protobuf.Timestamp created_at = 2;
   string created_by = 3;
-  // Apps and jobs in the project.
+  // Apps and jobs in the space.
   int32 apps = 4;
   // Its containers are kept away from the platform and the private network
-  // (ADR 0026): always for projects other than default.
+  // (ADR 0026): always for spaces other than default.
   bool network_isolation = 5;
 }
 
-message UpdateProjectRequest {
+message UpdateSpaceRequest {
   string name = 1;
-  // Turn network isolation on or off; only the default project may have
+  // Turn network isolation on or off; only the default space may have
   // it off. Unset leaves it unchanged.
   optional bool network_isolation = 2;
 }
 
-message ListProjectsRequest {}
+message ListSpacesRequest {}
 
-message ListProjectsResponse {
-  repeated ProjectInfo projects = 1;
+message ListSpacesResponse {
+  repeated SpaceInfo spaces = 1;
 }
 
-message DeleteProjectRequest {
+message DeleteSpaceRequest {
   string name = 1;
 }
 
-message DeleteProjectResponse {}
+message DeleteSpaceResponse {}
 
 message RoleAssignment {
   string role = 1;
   // Empty for a role over the whole cluster.
-  string project = 2;
+  string space = 2;
 }
 
 message LabelAllowance {
@@ -361,9 +361,9 @@ message ListRolesRequest {}
 message RoleInfo {
   string name = 1;
   string description = 2;
-  // Where it may be given: the cluster, a project, or both.
+  // Where it may be given: the cluster, a space, or both.
   bool cluster = 3;
-  bool project = 4;
+  bool space = 4;
   // API methods it allows, besides cluster-admin's every method.
   repeated string methods = 5;
 }
@@ -676,8 +676,8 @@ message VerifyDomainRequest {
 message DeployRequest {
   // App spec as YAML, validated by the server.
   bytes spec = 1;
-  // Project to deploy into (ADR 0026); empty means the default project.
-  string project = 2;
+  // Space to deploy into (ADR 0026); empty means the default space.
+  string space = 2;
   // Checks in the deploy's transaction (ADR 0032): refuse an app that
   // exists, one that does not, or one whose target revision is no longer
   // base_revision.
@@ -687,18 +687,18 @@ message DeployRequest {
 }
 
 message ListAppsRequest {
-  // A project, or every project the caller sees with all_projects.
-  string project = 1;
-  bool all_projects = 2;
+  // A space, or every space the caller sees with all_spaces.
+  string space = 1;
+  bool all_spaces = 2;
   // At most page_size apps (default and limit 500) after page_token.
   int32 page_size = 3;
   string page_token = 4;
 }
 
 message AppSummary {
-  // The app's ID (name, or name.project).
+  // The app's ID (name, or name.space).
   string name = 1;
-  string project = 2;
+  string space = 2;
   string image = 3;
   string revision = 4;
   int32 ready = 5;
@@ -870,14 +870,14 @@ message TopResponse {
   // Every node, with what its replicas use and reserve; empty when app is
   // set.
   repeated NodeTop nodes = 2;
-  // Each project the caller may manage, with what its apps use; empty when
+  // Each space the caller may manage, with what its apps use; empty when
   // app is set (ADR 0026).
-  repeated ProjectTop projects = 3;
-  // When this leader began counting ProjectTop.requests and egress_bytes.
+  repeated SpaceTop spaces = 3;
+  // When this leader began counting SpaceTop.requests and egress_bytes.
   google.protobuf.Timestamp counted_since = 4;
 }
 
-message ProjectTop {
+message SpaceTop {
   string name = 1;
   int32 replicas = 2;
   // How many replicas have a recent sample in cpu_millis and memory_bytes.
@@ -886,9 +886,9 @@ message ProjectTop {
   int64 memory_bytes = 5;
   int64 cpu_reserved_millis = 6;
   int64 memory_reserved_bytes = 7;
-  // Bytes in the project's volumes, from their latest measurements.
+  // Bytes in the space's volumes, from their latest measurements.
   int64 volume_bytes = 8;
-  // Requests the proxies sent to the project's replicas, and bytes its
+  // Requests the proxies sent to the space's replicas, and bytes its
   // containers sent, since counted_since.
   int64 requests = 9;
   int64 egress_bytes = 10;
@@ -1299,9 +1299,9 @@ message NetworkConfig {
   // The container addresses of every replica in a node subnet, with their
   // app IDs: what each node's firewall keys on (ADR 0026).
   repeated NetworkEndpoint endpoints = 4;
-  // The default project's containers are isolated like other projects'.
+  // The default space's containers are isolated like other spaces'.
   bool isolate_default = 5;
-  // The ports of internal TCP apps, which containers of isolated projects
+  // The ports of internal TCP apps, which containers of isolated spaces
   // may connect to on their bridge gateway (ADR 0039).
   repeated uint32 tcp_ports = 6;
 }
@@ -1336,12 +1336,12 @@ message ProxyConfig {
 }
 
 // ProxyTCPRoute sends connections to port on a node's bridge gateway from
-// the backend's project to the backend (ADR 0039).
+// the backend's space to the backend (ADR 0039).
 message ProxyTCPRoute {
   uint32 port = 1;
   string backend = 2;
   // The app IDs that may connect (the app itself included); empty lets
-  // every app of the backend's project.
+  // every app of the backend's space.
   repeated string allow = 3;
 }
 
@@ -1399,7 +1399,7 @@ message ProxyRule {
   // frontend, which only containers on that node can reach.
   bool internal = 5;
   // For internal rules: the app IDs that may call (the app itself
-  // included); empty lets every app of the backend's project (ADR 0026).
+  // included); empty lets every app of the backend's space (ADR 0026).
   repeated string allow = 6;
 }
 

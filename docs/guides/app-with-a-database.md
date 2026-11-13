@@ -1,6 +1,6 @@
 # Run an app with a PostgreSQL database
 
-You will run PostgreSQL as an app next to your API, in the same project:
+You will run PostgreSQL as an app next to your API, in the same space:
 its data on a volume, reachable only by the API over private TCP, backed up
 to an S3-compatible bucket every hour, and brought back on another node by
 itself when its node is lost. At the end you rehearse a restore, and you
@@ -25,7 +25,7 @@ learn when a database is better kept outside the cluster.
   and delete in it. The bucket must accept connections from your nodes'
   addresses: backups leave each node from its own address, not through the
   cluster network.
-- The right to create a project (`project-creator` or `cluster-admin`).
+- The right to create a space (`space-creator` or `cluster-admin`).
 
 ## The setup
 
@@ -34,7 +34,7 @@ learn when a database is better kept outside the cluster.
                     |
           https://api.shop.<root domain>
                     |
-   project shop     v
+   space shop     v
   +----------------------------------------------+
   |   api (2 replicas)                           |
   |      |                                       |
@@ -53,23 +53,23 @@ The database is an app like any other. Three things make it a database:
 - A **volume** keeps its files across restarts, deploys, and reboots. A
   volume lives on one node, so the app runs exactly one replica there.
 - **`protocol: tcp`** makes it reachable as plain TCP at
-  `<name>.<project>.internal:<port>` from apps of its project, and from
+  `<name>.<space>.internal:<port>` from apps of its space, and from
   nowhere else: not from the internet, not from the nodes' addresses.
 - **`backup`** on the volume copies it off the node, so losing the node does
   not lose the data.
 
-## 1. Create the project
+## 1. Create the space
 
-A project gives the apps their own namespace and keeps their containers
-away from other projects, the nodes, and the private network.
+A space gives the apps their own namespace and keeps their containers
+away from other spaces, the nodes, and the private network.
 
 ```bash
-armada project create shop
-armada project use shop      # the commands below work in shop
+armada space create shop
+armada space use shop      # the commands below work in shop
 ```
 
-Internal names include the project outside `default`: the database will be
-`db.shop.internal`. In the `default` project it would be `db.internal`.
+Internal names include the space outside `default`: the database will be
+`db.shop.internal`. In the `default` space it would be `db.internal`.
 
 ## 2. Set the passwords
 
@@ -128,7 +128,7 @@ Why each part matters:
 - **`owner`.** A new volume belongs to root with mode 0700. The postgres
   image runs the server as uid 999, so the volume's directory is handed to
   `999:999` every time a replica starts. The files inside are left alone.
-- **`allow: [api]`.** Without `allow`, every app of the project may connect.
+- **`allow: [api]`.** Without `allow`, every app of the space may connect.
   With it, the proxy closes connections from anyone else at once. Add the
   name of every app or job that needs the database, a migration job for
   example.
@@ -351,12 +351,12 @@ production:
 1. In the bucket, create an access key that may only **read and list**.
    The drill cluster then cannot write or prune the production backups: its
    own scheduled backups fail, and a failed backup deletes nothing.
-2. On the drill cluster, create the same project and app name, since the
+2. On the drill cluster, create the same space and app name, since the
    repository's path in the bucket comes from them (`db.shop`):
 
    ```bash
-   armada project create shop
-   armada project use shop
+   armada space create shop
+   armada space use shop
    openssl rand -hex 24 | armada secret set db postgres-password
    printf %s 'https://READONLY_KEY:READONLY_SECRET@s3.example.com/acme-backups/armada?region=eu-central-1' \
      | armada secret set db backup-url
@@ -464,10 +464,10 @@ over within seconds, no data loss on a node failure, point-in-time
 recovery, or more disk than one node has. Run it on machines of its own or
 use a hosted database, and give the app its URL as a secret as above.
 
-From inside the cluster, mind network isolation: containers of every project
+From inside the cluster, mind network isolation: containers of every space
 except `default` cannot reach the nodes' private network. A database on a
 private address is only reachable from apps in `default` (while its network
-isolation is off), and a database outside reaches every project over its
+isolation is off), and a database outside reaches every space over its
 public address, so use TLS and a password there.
 
 ## Troubleshooting
@@ -476,7 +476,7 @@ public address, so use TLS and a password there.
 | --- | --- | --- |
 | The database keeps restarting; its logs say `Permission denied` on `/var/lib/postgresql/data` | The volume belongs to root without `owner` | Set `owner: "999:999"` and update the app |
 | Create or update refused for `protocol: tcp` | The cluster has no cluster network | TCP apps need a cluster created with `armadad init --cluster-cidr` |
-| The API cannot resolve `db.internal` | Outside `default` the name includes the project | Use `db.shop.internal` |
+| The API cannot resolve `db.internal` | Outside `default` the name includes the space | Use `db.shop.internal` |
 | The API's connections are closed at once | The API is not in the database's `allow` | Add its name to `ingress.allow` |
 | Connections drop after an idle hour, or after a deploy of another app | Idle TCP connections close after an hour; connections from before a proxy reload close within an hour of it | Use TCP keepalives or reconnect in the pool |
 | `LAST BACKUP` says `failing`; `VolumeBackupFailed` event | Wrong URL or key in `backup-url`, the bucket refuses the node's address, or the bucket is full | Read the event's message, fix the secret or the bucket; the next try is within 5 minutes |

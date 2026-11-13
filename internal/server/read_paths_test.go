@@ -95,7 +95,7 @@ func TestAppStatusReadsOnlyTheApp(t *testing.T) {
 	if err := c.st.SetMeta(c.ctx, metaRootDomain, "apps.example.org"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.st.CreateProject(c.ctx, "shop", "t", nil); err != nil {
+	if _, err := c.st.CreateSpace(c.ctx, "shop", "t", nil); err != nil {
 		t.Fatal(err)
 	}
 	c.deploy("name: web\nimage: nginx:1\ningress:\n  type: external\n  port: 80\n  domains: [shop.example.com, other.example.com]\nscale:\n  min: 2\n")
@@ -265,15 +265,15 @@ func listJobsOneByOne(apps []store.App, runs []store.JobRun, now time.Time) []*a
 	return out
 }
 
-// jobCluster deploys apps and jobs in two projects, with runs in every
+// jobCluster deploys apps and jobs in two spaces, with runs in every
 // state, without reconciling: the runs stay as written.
 func jobCluster(t *testing.T) *clockServer {
 	t.Helper()
 	c := newClockServer(t)
-	if _, err := c.st.CreateProject(c.ctx, "shop", "t", nil); err != nil {
+	if _, err := c.st.CreateSpace(c.ctx, "shop", "t", nil); err != nil {
 		t.Fatal(err)
 	}
-	for _, s := range []struct{ project, yaml string }{
+	for _, s := range []struct{ space, yaml string }{
 		{"default", "name: web\nimage: nginx:1\n"},
 		{"default", "name: api\nimage: nginx:1\n"},
 		{"default", "kind: job\nname: migrate\nimage: busybox:1\n"},
@@ -282,7 +282,7 @@ func jobCluster(t *testing.T) *clockServer {
 		{"shop", "name: cart\nimage: nginx:1\n"},
 		{"shop", "kind: job\nname: report\nimage: busybox:1\n"},
 	} {
-		sp, err := spec.ParseIn([]byte(s.yaml), s.project)
+		sp, err := spec.ParseIn([]byte(s.yaml), s.space)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -339,13 +339,13 @@ func TestListJobsGroupsRuns(t *testing.T) {
 	}
 }
 
-func TestListProjectsCountsFromIDs(t *testing.T) {
+func TestListSpacesCountsFromIDs(t *testing.T) {
 	t.Parallel()
 	c := jobCluster(t)
 	admin := c.srv.internalContext(c.ctx)
 	counting := &readCounter{Store: c.st}
 	c.srv.store = counting
-	resp, err := c.srv.ListProjects(admin, &armadav1.ListProjectsRequest{})
+	resp, err := c.srv.ListSpaces(admin, &armadav1.ListSpacesRequest{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -361,10 +361,10 @@ func TestListProjectsCountsFromIDs(t *testing.T) {
 	if want["default"] != 5 || want["shop"] != 2 {
 		t.Fatalf("setup: %v", want)
 	}
-	if len(resp.Projects) != 2 {
-		t.Fatalf("projects: %v", resp.Projects)
+	if len(resp.Spaces) != 2 {
+		t.Fatalf("spaces: %v", resp.Spaces)
 	}
-	for _, p := range resp.Projects {
+	for _, p := range resp.Spaces {
 		if p.Apps != want[p.Name] {
 			t.Errorf("%s: %d apps, want %d", p.Name, p.Apps, want[p.Name])
 		}

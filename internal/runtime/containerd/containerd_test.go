@@ -187,7 +187,7 @@ func TestResolvConf(t *testing.T) {
 		t.Errorf("explicit DNS: %q", got)
 	}
 
-	// The project's zone comes first, in one search line with the host's
+	// The space's zone comes first, in one search line with the host's
 	// (resolvers read only the last one), without repeats.
 	host = []byte("nameserver 10.0.0.2\nsearch old.example\nsearch lan example.org shop.internal\noptions ndots:2\n")
 	got = string(resolvConf(host, []string{"10.121.0.1"}, []string{"shop.internal"}))

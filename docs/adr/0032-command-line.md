@@ -37,7 +37,7 @@ armada
 ├── secret     set | import | list | delete
 ├── domain     list | verify
 ├── volume     list | backup | restore | delete
-├── project    create | list | show | set | use | delete
+├── space    create | list | show | set | use | delete
 ├── node       list | show | top | label | drain | resume | restrict | unrestrict | join-token | delete
 ├── server     list | join-token | delete
 ├── cluster    status | show | set | events
@@ -88,9 +88,9 @@ Flags cover what is changed often. The rest (custom probes, routes with
 `--time-zone`, `--timeout`, `--retries`, `--concurrency`, `--cpu`,
 `--memory`, and the registry flags.
 
-**Projects.** `--project` names the project of a command; without it, the
-project `armada project use NAME` saved in the client config, else
-`default`. `--all-projects` (`-A`) lists every project.
+**Spaces.** `--space` names the space of a command; without it, the
+space `armada space use NAME` saved in the client config, else
+`default`. `--all-spaces` (`-A`) lists every space.
 
 **Output.**
 

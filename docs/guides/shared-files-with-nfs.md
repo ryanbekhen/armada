@@ -127,7 +127,7 @@ armada app create --file web.yaml --wait
 
 Adding an export to an app, or making an export writable, needs
 `cluster-admin`. Nodes mount exports from their own addresses, so the NFS
-server cannot tell one project from another: an export in a spec reaches
+server cannot tell one space from another: an export in a spec reaches
 storage outside the cluster, and whoever may name one could read any
 export the nodes may mount. A `deployer` who tries gets:
 

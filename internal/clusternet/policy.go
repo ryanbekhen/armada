@@ -73,7 +73,7 @@ func containerAddr(a netip.Addr, cidr netip.Prefix) bool {
 	return host != 0 && host != 1 && host != 255
 }
 
-// policy is what the firewall that keeps apps and projects apart is built
+// policy is what the firewall that keeps apps and spaces apart is built
 // from (ADR 0026).
 type policy struct {
 	cidr    netip.Prefix
@@ -85,7 +85,7 @@ type policy struct {
 	apps    []string
 	members map[string][]netip.Addr
 	// open are this node's containers that are not isolated from the
-	// platform (the default project's, unless it is isolated). Every other
+	// platform (the default space's, unless it is isolated). Every other
 	// address of the node subnet, known or not, is isolated.
 	open []netip.Addr
 	// nodes are the private addresses of every node.
@@ -124,7 +124,7 @@ func buildPolicy(p plan, local map[netip.Addr]string) policy {
 		if !p.self.subnet.Contains(a) {
 			continue
 		}
-		if project, _, _ := spec.SplitAppID(app); project == spec.DefaultProject && !p.isolateDefault {
+		if space, _, _ := spec.SplitAppID(app); space == spec.DefaultSpace && !p.isolateDefault {
 			pol.open = append(pol.open, a)
 		}
 	}

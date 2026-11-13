@@ -53,6 +53,30 @@ func TestSaveLoad(t *testing.T) {
 	_ = conn.Close()
 }
 
+func TestLoadOldSpaceField(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "nested", "config")
+	c := validConfig(t)
+	c.Project = "shop"
+	if err := c.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Space != "shop" || got.Project != "" {
+		t.Errorf("space %q, project %q", got.Space, got.Project)
+	}
+	if err := got.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(path); strings.Contains(string(b), "project") {
+		t.Error("saving kept the old field")
+	}
+}
+
 func TestLoadErrors(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()

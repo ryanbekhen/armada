@@ -292,8 +292,8 @@ func TestVolumeBackupRestoreRemove(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p := top.GetProjects()[0]; p.GetName() != "default" || p.GetVolumeBytes() != 2 {
-		t.Errorf("project usage: %v", p)
+	if p := top.GetSpaces()[0]; p.GetName() != "default" || p.GetVolumeBytes() != 2 {
+		t.Errorf("space usage: %v", p)
 	}
 	reg := prometheus.NewPedanticRegistry()
 	reg.MustRegister(&clusterCollector{s: c.srv})

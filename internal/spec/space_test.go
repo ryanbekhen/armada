@@ -6,20 +6,20 @@ import (
 )
 
 func TestAppID(t *testing.T) {
-	for _, c := range []struct{ project, name, id string }{
+	for _, c := range []struct{ space, name, id string }{
 		{"", "web", "web"},
-		{DefaultProject, "web", "web"},
+		{DefaultSpace, "web", "web"},
 		{"staging", "web", "web.staging"},
 	} {
-		if got := AppID(c.project, c.name); got != c.id {
-			t.Errorf("AppID(%q, %q) = %q, want %q", c.project, c.name, got, c.id)
+		if got := AppID(c.space, c.name); got != c.id {
+			t.Errorf("AppID(%q, %q) = %q, want %q", c.space, c.name, got, c.id)
 		}
-		wantProject := c.project
-		if wantProject == "" {
-			wantProject = DefaultProject
+		wantSpace := c.space
+		if wantSpace == "" {
+			wantSpace = DefaultSpace
 		}
 		p, n, ok := SplitAppID(c.id)
-		if !ok || p != wantProject || n != c.name {
+		if !ok || p != wantSpace || n != c.name {
 			t.Errorf("SplitAppID(%q) = %q, %q, %v", c.id, p, n, ok)
 		}
 	}
@@ -40,25 +40,25 @@ func TestSplitAppIDInvalid(t *testing.T) {
 	}
 }
 
-func TestValidateProject(t *testing.T) {
+func TestValidateSpace(t *testing.T) {
 	a := &App{Kind: KindApp, Name: "web", Image: "nginx:1"}
-	for _, p := range []string{"", DefaultProject, "staging", strings.Repeat("a", 30)} {
-		a.Project = p
+	for _, p := range []string{"", DefaultSpace, "staging", strings.Repeat("a", 30)} {
+		a.Space = p
 		if err := a.Validate(); err != nil {
-			t.Errorf("project %q: %v", p, err)
+			t.Errorf("space %q: %v", p, err)
 		}
 	}
 	for _, p := range []string{"Staging", "a--b", "-a", strings.Repeat("a", 31), "a.b"} {
-		a.Project = p
-		if err := a.Validate(); err == nil || !strings.Contains(err.Error(), "project") {
-			t.Errorf("project %q: %v", p, err)
+		a.Space = p
+		if err := a.Validate(); err == nil || !strings.Contains(err.Error(), "space") {
+			t.Errorf("space %q: %v", p, err)
 		}
 	}
 }
 
-func TestParseRejectsProject(t *testing.T) {
-	if _, err := Parse([]byte("name: web\nimage: nginx:1\nproject: staging\n")); err == nil {
-		t.Fatal("a project in the file was accepted")
+func TestParseRejectsSpace(t *testing.T) {
+	if _, err := Parse([]byte("name: web\nimage: nginx:1\nspace: staging\n")); err == nil {
+		t.Fatal("a space in the file was accepted")
 	}
 }
 

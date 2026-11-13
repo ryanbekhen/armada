@@ -19,7 +19,7 @@ set -eu
 # Scenarios that run after the cluster is built and the test app serves.
 # E2E_ONLY=isolation,rollout runs only those (empty: all); E2E_LIST=1 lists
 # them. test/e2e/README.md says which to pick for a change.
-SCENARIOS="listeners project-secret conntrack isolation load rollout agent-restart failover node-loss backup placement platforms cpu spread ip-rules sticky cors sidecars tcp queues queue-jobs volume-backups volume-failover nfs reboot"
+SCENARIOS="listeners space-secret conntrack isolation load rollout agent-restart failover node-loss backup placement platforms cpu spread ip-rules sticky cors sidecars tcp queues queue-jobs volume-backups volume-failover nfs reboot"
 E2E_ONLY=${E2E_ONLY:-}
 if [ "${E2E_LIST:-}" = 1 ]; then
 	echo "$SCENARIOS" | tr ' ' '\n'
@@ -418,14 +418,14 @@ curl -sk --max-time 5 --resolve "$URL_HOST:443:$(host 1 4)" "https://$URL_HOST/?
 	fail "the secret did not reach the container"
 ok "the secret reached the container"
 
-if want project-secret; then
-log "a secret of an app in another project"
-cli project create e2e-proj >/dev/null
-printf '%s' "$SECRET" | cli secret set e2e-app --project e2e-proj e2e-secret --no-rollout >/dev/null
-[ "$(cli secret list e2e-app --project e2e-proj | grep -c e2e-secret)" = 1 ] ||
-	fail "armada secret list does not show the secret of a project's app"
-cli secret delete e2e-app --project e2e-proj e2e-secret >/dev/null
-ok "a project's app has secrets"
+if want space-secret; then
+log "a secret of an app in another space"
+cli space create e2e-space >/dev/null
+printf '%s' "$SECRET" | cli secret set e2e-app --space e2e-space e2e-secret --no-rollout >/dev/null
+[ "$(cli secret list e2e-app --space e2e-space | grep -c e2e-secret)" = 1 ] ||
+	fail "armada secret list does not show the secret of a space's app"
+cli secret delete e2e-app --space e2e-space e2e-secret >/dev/null
+ok "a space's app has secrets"
 i=1
 while [ "$i" -le "$N" ]; do
 	_hits=$(printf '%s\n' "$SECRET" | on "$i" 'journalctl --no-pager -o cat | grep -c -F -f - || true')
@@ -451,12 +451,12 @@ wait_for 60 "every node raised its connection tracking limit" conntrack_raised
 
 fi
 if want isolation; then
-log "isolation between apps and projects"
+log "isolation between apps and spaces"
 # Each replica answers on port 80 and has wget. A check that cannot run at all
 # must not pass as blocked, so a blocked request has to show wget's own error.
-iso_deploy() { # iso_deploy NAME PROJECT REPLICAS
+iso_deploy() { # iso_deploy NAME SPACE REPLICAS
 	printf 'name: %s\nimage: nginx:1-alpine\ningress:\n  type: internal\n  port: 80\nscale:\n  min: %s\n  max: %s\n' "$1" "$3" "$3" |
-		on "$CLI" "cat >/root/iso.yaml && armada app update --file /root/iso.yaml --create-if-missing --project $2" >/dev/null
+		on "$CLI" "cat >/root/iso.yaml && armada app update --file /root/iso.yaml --create-if-missing --space $2" >/dev/null
 }
 iso_ready() { # iso_ready APP-ID COUNT
 	status | jq -e --arg app "$1" --argjson n "$2" '
@@ -475,45 +475,45 @@ blocked() {
 	return 1
 }
 iso_matrix() { # iso_matrix WHEN
-	for _ip in $(iso_ips web.e2e-proj); do
-		wait_for 60 "$1: a replica reaches its own app's $_ip" reaches web.e2e-proj "$_ip"
-		wait_for 60 "$1: another app of the project cannot reach $_ip directly" blocked other.e2e-proj "$_ip"
-		wait_for 60 "$1: another project cannot reach $_ip" blocked caller.e2e-other "$_ip"
+	for _ip in $(iso_ips web.e2e-space); do
+		wait_for 60 "$1: a replica reaches its own app's $_ip" reaches web.e2e-space "$_ip"
+		wait_for 60 "$1: another app of the space cannot reach $_ip directly" blocked other.e2e-space "$_ip"
+		wait_for 60 "$1: another space cannot reach $_ip" blocked caller.e2e-other "$_ip"
 	done
-	wait_for 60 "$1: the project reaches web through its internal name" reaches other.e2e-proj web.e2e-proj.internal
-	wait_for 60 "$1: another project does not" blocked caller.e2e-other web.e2e-proj.internal
-	wait_for 60 "$1: the project reaches web by its name alone" reaches other.e2e-proj web
-	wait_for 60 "$1: in another project the name alone is not web.e2e-proj" blocked caller.e2e-other web
-	wait_for 60 "$1: a project's app cannot reach a node's private IP" blocked caller.e2e-other "$(host "$N" 3)"
+	wait_for 60 "$1: the space reaches web through its internal name" reaches other.e2e-space web.e2e-space.internal
+	wait_for 60 "$1: another space does not" blocked caller.e2e-other web.e2e-space.internal
+	wait_for 60 "$1: the space reaches web by its name alone" reaches other.e2e-space web
+	wait_for 60 "$1: in another space the name alone is not web.e2e-space" blocked caller.e2e-other web
+	wait_for 60 "$1: a space's app cannot reach a node's private IP" blocked caller.e2e-other "$(host "$N" 3)"
 }
-cli project create e2e-other >/dev/null
-iso_deploy web e2e-proj 2
-iso_deploy other e2e-proj 1
+cli space create e2e-other >/dev/null
+iso_deploy web e2e-space 2
+iso_deploy other e2e-space 1
 iso_deploy caller e2e-other 1
-wait_for 180 "web has 2 replicas ready" iso_ready web.e2e-proj 2
-wait_for 180 "other has 1 replica ready" iso_ready other.e2e-proj 1
+wait_for 180 "web has 2 replicas ready" iso_ready web.e2e-space 2
+wait_for 180 "other has 1 replica ready" iso_ready other.e2e-space 1
 wait_for 180 "caller has 1 replica ready" iso_ready caller.e2e-other 1
 iso_matrix started
-wait_for 60 "a replica reaches itself on localhost" reaches web.e2e-proj 127.0.0.1
-iso_deploy web e2e-proj 4
-wait_for 180 "web has 4 replicas ready" iso_ready web.e2e-proj 4
+wait_for 60 "a replica reaches itself on localhost" reaches web.e2e-space 127.0.0.1
+iso_deploy web e2e-space 4
+wait_for 180 "web has 4 replicas ready" iso_ready web.e2e-space 4
 iso_matrix "scaled up"
-iso_deploy gone e2e-proj 1
-wait_for 180 "a new app is ready" iso_ready gone.e2e-proj 1
-_gone_ip=$(iso_ips gone.e2e-proj | head -n 1)
-wait_for 60 "the new app reaches itself" reaches gone.e2e-proj "$_gone_ip"
-wait_for 60 "another project cannot reach the new app" blocked caller.e2e-other "$_gone_ip"
-cli app delete gone.e2e-proj --yes >/dev/null
-wait_for 120 "a removed app is gone" iso_gone gone.e2e-proj
+iso_deploy gone e2e-space 1
+wait_for 180 "a new app is ready" iso_ready gone.e2e-space 1
+_gone_ip=$(iso_ips gone.e2e-space | head -n 1)
+wait_for 60 "the new app reaches itself" reaches gone.e2e-space "$_gone_ip"
+wait_for 60 "another space cannot reach the new app" blocked caller.e2e-other "$_gone_ip"
+cli app delete gone.e2e-space --yes >/dev/null
+wait_for 120 "a removed app is gone" iso_gone gone.e2e-space
 wait_for 60 "a removed app's address stays blocked" blocked caller.e2e-other "$_gone_ip"
 iso_matrix "after a removal"
-for _app in web.e2e-proj other.e2e-proj caller.e2e-other; do
+for _app in web.e2e-space other.e2e-space caller.e2e-other; do
 	cli app delete "$_app" --yes >/dev/null
 	wait_for 120 "$_app is gone" iso_gone "$_app"
 done
-cli project delete e2e-proj >/dev/null
-cli project delete e2e-other >/dev/null
-ok "both projects are removed"
+cli space delete e2e-space >/dev/null
+cli space delete e2e-other >/dev/null
+ok "both spaces are removed"
 
 fi
 if want load; then
@@ -964,16 +964,16 @@ for a in side side-fail; do cli app delete "$a" --yes >/dev/null; done
 fi
 
 if want tcp; then
-log "internal TCP: apps of the project connect, others and the outside do not"
+log "internal TCP: apps of the space connect, others and the outside do not"
 # tcp-echo answers each connection with what it reads. A check that reads
 # nothing back must not pass as refused, so the refused ones have to run
 # nc at all: they print a marker after it.
-tcp_app() { # tcp_app NAME PROJECT SPEC-LINES...
-	_name=$1 _proj=$2
+tcp_app() { # tcp_app NAME SPACE SPEC-LINES...
+	_name=$1 _space=$2
 	shift 2
 	printf 'name: %s\nimage: busybox:1.37\n' "$_name" >"$WORK/tcp.yaml"
 	printf '%s\n' "$@" >>"$WORK/tcp.yaml"
-	on "$CLI" "cat >/root/tcp.yaml && armada app update --file /root/tcp.yaml --create-if-missing --project $_proj" <"$WORK/tcp.yaml" >/dev/null
+	on "$CLI" "cat >/root/tcp.yaml && armada app update --file /root/tcp.yaml --create-if-missing --space $_space" <"$WORK/tcp.yaml" >/dev/null
 }
 tcp_ready() { # tcp_ready APP-ID COUNT
 	status | jq -e --arg app "$1" --argjson n "$2" '
@@ -982,8 +982,8 @@ tcp_ready() { # tcp_ready APP-ID COUNT
 		| ($live | length) == $n and all($live[]; .state == "running" and (.ready // false))'
 }
 tcp_gone() { [ "$(status | jq --arg app "$1" '[.apps[] | select(.name == $app)] | length')" = 0 ]; }
-cli project create e2e-tcp >/dev/null
-cli project create e2e-tcp-other >/dev/null
+cli space create e2e-tcp >/dev/null
+cli space create e2e-tcp-other >/dev/null
 tcp_app tcp-echo e2e-tcp 'command: [nc, -lk, -p, "7000", -e, cat]' 'ingress:' '  type: internal' '  protocol: tcp' '  port: 7000' '  allow: [client]' \
 	'scale:' '  min: 2' '  max: 2'
 for _c in client.e2e-tcp intruder.e2e-tcp outsider.e2e-tcp-other; do
@@ -1004,18 +1004,18 @@ tcp_refused() {
 # The gateway, for a caller that cannot resolve the name.
 _gw=$(cli app exec outsider.e2e-tcp-other -- sh -c "$(q "ip route | awk '/^default/ { print \$3 }'")" | tr -d '\r')
 [ -n "$_gw" ] || fail "no default route in outsider"
-wait_for 120 "an allowed app of the project connects at tcp-echo.e2e-tcp.internal:7000" tcp_echoes client.e2e-tcp tcp-echo.e2e-tcp.internal
+wait_for 120 "an allowed app of the space connects at tcp-echo.e2e-tcp.internal:7000" tcp_echoes client.e2e-tcp tcp-echo.e2e-tcp.internal
 wait_for 60 "and at tcp-echo:7000, the name alone" tcp_echoes client.e2e-tcp tcp-echo
 for _i in 1 2 3 4; do
 	tcp_echoes client.e2e-tcp tcp-echo.e2e-tcp.internal || fail "connection $_i through the internal name failed"
 done
 ok "repeated connections are answered"
-wait_for 60 "an app of the project that is not allowed is refused" tcp_refused intruder.e2e-tcp tcp-echo.e2e-tcp.internal
-wait_for 60 "another project is refused at the gateway" tcp_refused outsider.e2e-tcp-other "$_gw"
+wait_for 60 "an app of the space that is not allowed is refused" tcp_refused intruder.e2e-tcp tcp-echo.e2e-tcp.internal
+wait_for 60 "another space is refused at the gateway" tcp_refused outsider.e2e-tcp-other "$_gw"
 if cli app exec outsider.e2e-tcp-other -- nslookup tcp-echo.e2e-tcp.internal >/dev/null 2>&1; then
-	fail "another project resolves tcp-echo.e2e-tcp.internal"
+	fail "another space resolves tcp-echo.e2e-tcp.internal"
 fi
-ok "another project does not resolve the name"
+ok "another space does not resolve the name"
 # Nothing outside the cluster: the port is open on no node address.
 _i=1
 while [ "$_i" -le "$N" ]; do
@@ -1030,8 +1030,8 @@ for _c in tcp-echo.e2e-tcp client.e2e-tcp intruder.e2e-tcp outsider.e2e-tcp-othe
 	cli app delete "$_c" --yes >/dev/null
 	wait_for 120 "$_c is gone" tcp_gone "$_c"
 done
-cli project delete e2e-tcp >/dev/null
-cli project delete e2e-tcp-other >/dev/null
+cli space delete e2e-tcp >/dev/null
+cli space delete e2e-tcp-other >/dev/null
 
 fi
 
@@ -1137,7 +1137,7 @@ log "jobs started by a queue, read from a network sandbox"
 # The broker answers like Redis on the first machine's private IP; its list's
 # length is the number in a file. Apps reach other apps' containers only
 # through internal names over HTTP, so the broker lives outside the cluster,
-# where the default project reaches it and an isolated project does not.
+# where the default space reaches it and an isolated space does not.
 QJ_PASS=e2e-qjob-$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')
 QJ_IP=$(host 1 3)
 QJ_PORT=6390
@@ -1177,9 +1177,9 @@ while True:
 EOF
 on 1 "echo 0 >/root/e2e-queue-length && setsid -f python3 /root/e2e-resp.py $QJ_IP $QJ_PORT $QJ_PASS /root/e2e-queue-length >/dev/null 2>&1 </dev/null"
 qlen() { on 1 "echo $1 >/root/e2e-queue-length"; }
-qjob() { # qjob PROJECT: create the job in PROJECT
-	printf 'redis://:%s@%s:%s/0' "$QJ_PASS" "$QJ_IP" "$QJ_PORT" | cli secret set e2e-qjob redis-url --project "$1" >/dev/null
-	cat <<'EOF' | on "$CLI" "cat >/root/qjob.yaml && armada job update e2e-qjob --file /root/qjob.yaml --create-if-missing --project $1" >/dev/null
+qjob() { # qjob SPACE: create the job in SPACE
+	printf 'redis://:%s@%s:%s/0' "$QJ_PASS" "$QJ_IP" "$QJ_PORT" | cli secret set e2e-qjob redis-url --space "$1" >/dev/null
+	cat <<'EOF' | on "$CLI" "cat >/root/qjob.yaml && armada job update e2e-qjob --file /root/qjob.yaml --create-if-missing --space $1" >/dev/null
 kind: job
 name: e2e-qjob
 image: busybox:1.37
@@ -1196,15 +1196,15 @@ trigger:
   parallelism: 3
 EOF
 }
-qread() { # qread PROJECT LENGTH: the job's queue was read with that length
-	cli job show e2e-qjob --project "$1" -o json | jq -e --argjson n "$2" '.trigger.measured == true and ((.trigger.length // "0") | tonumber) == $n' >/dev/null
+qread() { # qread SPACE LENGTH: the job's queue was read with that length
+	cli job show e2e-qjob --space "$1" -o json | jq -e --argjson n "$2" '.trigger.measured == true and ((.trigger.length // "0") | tonumber) == $n' >/dev/null
 }
-qruns() { # qruns PROJECT: how many runs the job has
-	cli job run list e2e-qjob --project "$1" -o json | jq '(.runs // []) | length'
+qruns() { # qruns SPACE: how many runs the job has
+	cli job run list e2e-qjob --space "$1" -o json | jq '(.runs // []) | length'
 }
 qcount() { [ "$(qruns "$1")" = "$2" ]; }
-qdone() { # qdone PROJECT COUNT: COUNT runs, every one succeeded
-	cli job run list e2e-qjob --project "$1" -o json | jq -e --argjson n "$2" '(.runs // []) | length == $n and all(.[]; .state == "succeeded")' >/dev/null
+qdone() { # qdone SPACE COUNT: COUNT runs, every one succeeded
+	cli job run list e2e-qjob --space "$1" -o json | jq -e --argjson n "$2" '(.runs // []) | length == $n and all(.[]; .state == "succeeded")' >/dev/null
 }
 qjob default
 wait_for 120 "the job's empty queue is read from its sandbox" qread default 0
@@ -1221,18 +1221,18 @@ sleep 35
 [ "$(qruns default)" = 3 ] || fail "runs started again after the queue emptied: $(qruns default)"
 ok "an emptied queue starts no more runs"
 
-# In an isolated project the sandbox reaches no node's address, like the
+# In an isolated space the sandbox reaches no node's address, like the
 # job's containers: the queue is never read and nothing runs.
-cli project create e2e-qj >/dev/null
+cli space create e2e-qj >/dev/null
 qlen 25
 qjob e2e-qj
 _qnode=
-qnode() { _qnode=$(cli job show e2e-qjob --project e2e-qj -o json | jq -r '.trigger.node // empty') && [ -n "$_qnode" ]; }
+qnode() { _qnode=$(cli job show e2e-qjob --space e2e-qj -o json | jq -r '.trigger.node // empty') && [ -n "$_qnode" ]; }
 wait_for 60 "the isolated job's queue has a node to read it" qnode
 sleep 40
-qread e2e-qj 25 && fail "the isolated project's sandbox read a queue on a node's private IP"
+qread e2e-qj 25 && fail "the isolated space's sandbox read a queue on a node's private IP"
 [ "$(qruns e2e-qj)" = 0 ] || fail "the isolated job ran $(qruns e2e-qj) times"
-ok "an isolated project's sandbox cannot reach the broker on a node's private IP"
+ok "an isolated space's sandbox cannot reach the broker on a node's private IP"
 
 i=1
 while [ "$i" -le "$N" ]; do
@@ -1242,10 +1242,10 @@ while [ "$i" -le "$N" ]; do
 done
 ok "the broker's password is in no journal"
 cli job delete e2e-qjob >/dev/null
-cli job delete e2e-qjob --project e2e-qj >/dev/null
+cli job delete e2e-qjob --space e2e-qj >/dev/null
 cli secret delete e2e-qjob redis-url >/dev/null
-cli secret delete e2e-qjob redis-url --project e2e-qj >/dev/null
-cli project delete e2e-qj >/dev/null
+cli secret delete e2e-qjob redis-url --space e2e-qj >/dev/null
+cli space delete e2e-qj >/dev/null
 on 1 "pkill -f /root/e2e-resp.py; rm -f /root/e2e-resp.py /root/e2e-queue-length" || true
 _left() {
 	i=1

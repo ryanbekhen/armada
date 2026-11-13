@@ -181,7 +181,7 @@ func TestMigrateFailedStepKeepsSchema(t *testing.T) {
 }
 
 // Schema 2 (node labels), 3 (jobs), 4 (traffic), 5 (volumes), 6 (the
-// cluster network), 7 (projects), 8 (administrators), and 10 (init
+// cluster network), 7 (spaces), 8 (administrators), and 10 (init
 // containers and sidecars) need no rewrites,
 // and 9 (access control) has nothing to move on a fresh keyspace: every
 // step runs.
@@ -192,8 +192,8 @@ func TestMigrateToCurrent(t *testing.T) {
 	if from, err := s.Migrate(ctx); err != nil || from != 1 {
 		t.Fatalf("migrate: from %d, %v", from, err)
 	}
-	if v, _ := s.StoredSchema(ctx); v != 10 {
-		t.Errorf("schema = %d, want 10", v)
+	if v, _ := s.StoredSchema(ctx); v != 11 {
+		t.Errorf("schema = %d, want 11", v)
 	}
 }
 

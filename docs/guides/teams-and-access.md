@@ -1,11 +1,11 @@
-# Give a team access to one project
+# Give a team access to one space
 
 Several people work on the cluster, and not all of them should be able to
 do everything. This guide gives each person a certificate of their own,
-lets a developer deploy to one project and read nothing else, and shows
+lets a developer deploy to one space and read nothing else, and shows
 how to take access back and see who did what.
 
-**You will use:** [projects](../operations.md#projects),
+**You will use:** [spaces](../operations.md#spaces),
 [access control](../operations.md#access-control) (users, roles,
 assignments), [`armada rbac`](../cli/armada-rbac.md)
 **Before you start:** a running cluster ([quickstart](../quickstart.md)) and
@@ -15,7 +15,7 @@ it). Only `cluster-admin` manages access.
 ## The setup
 
 ```
-  project shop                     project billing
+  space shop                     space billing
   +---------------------------+    +---------------------------+
   | api, web, worker          |    | invoices                  |
   |                           |    |                           |
@@ -24,13 +24,13 @@ it). Only `cluster-admin` manages access.
   +---------------------------+    +---------------------------+
 
   carol: viewer over the whole cluster (on call)
-  dana:  project-creator (makes projects of her own)
+  dana:  space-creator (makes spaces of her own)
   ops:   cluster-admin (you: nodes, servers, settings, access)
 ```
 
 Each person is a **user** with a certificate under their own name, valid
 for a year. What they may do comes from **assignments**: a role, and the
-project it applies in.
+space it applies in.
 
 ## 1. Know the roles
 
@@ -40,24 +40,24 @@ armada rbac role list
 
 | Role | Given in | Allows |
 | --- | --- | --- |
-| `viewer` | a project, or the whole cluster | apps, jobs, revisions, specs, secret names, domains, volumes, logs, usage, events |
-| `deployer` | a project (not `default`) | what a viewer may, and deploy, scale, roll back, split traffic, set secrets, run jobs, verify domains |
-| `admin` | a project (not `default`) | what a deployer may, and exec, volume backup, restore, and delete, deleting apps and jobs |
-| `project-creator` | the cluster | creating projects (becoming `admin` of each) and deleting empty ones it is `admin` of |
+| `viewer` | a space, or the whole cluster | apps, jobs, revisions, specs, secret names, domains, volumes, logs, usage, events |
+| `deployer` | a space (not `default`) | what a viewer may, and deploy, scale, roll back, split traffic, set secrets, run jobs, verify domains |
+| `admin` | a space (not `default`) | what a deployer may, and exec, volume backup, restore, and delete, deleting apps and jobs |
+| `space-creator` | the cluster | creating spaces (becoming `admin` of each) and deleting empty ones it is `admin` of |
 | `cluster-admin` | the cluster | everything: nodes, servers, cluster settings, tokens, metrics credentials, access control |
 
 `armada rbac role show deployer` lists the API methods a role allows. A
-person's rights in a project are the most their assignments give there.
+person's rights in a space are the most their assignments give there.
 
-Only `viewer` can be given in the `default` project: its containers may
+Only `viewer` can be given in the `default` space: its containers may
 reach the platform unless you isolate it, so deploying there needs
-`cluster-admin`. Put team apps in projects of their own.
+`cluster-admin`. Put team apps in spaces of their own.
 
-## 2. Create the project and the user
+## 2. Create the space and the user
 
 ```bash
-armada project create shop
-armada rbac user create alice -o alice.config --role deployer --project shop
+armada space create shop
+armada rbac user create alice -o alice.config --role deployer --space shop
 ```
 
 ```
@@ -77,7 +77,7 @@ Alice installs the client and keeps the file as her config:
 curl -fsSL https://raw.githubusercontent.com/ryanbekhen/armada/main/install.sh | sudo ARMADA_CLIENT_ONLY=1 sh
 install -d -m 0700 ~/.armada
 install -m 0600 alice.config ~/.armada/config
-armada project use shop
+armada space use shop
 armada app list
 ```
 
@@ -85,7 +85,7 @@ Her computer must reach a control plane server's private address on port
 7443, through a VPN or an SSH tunnel (see the
 [quickstart](../quickstart.md#9-use-armada-from-your-own-computer)).
 
-She sees only `shop`: `armada project list` lists the projects she holds a
+She sees only `shop`: `armada space list` lists the spaces she holds a
 role in, `armada app events` and `armada cluster events` show only events
 of apps she may see, `armada node list` shows no nodes, and commands that
 need `cluster-admin` (`armada server list`, `armada cluster events
@@ -94,25 +94,25 @@ need `cluster-admin` (`armada server list`, `armada cluster events
 ## 4. Give more roles
 
 ```bash
-armada rbac user create bob -o bob.config --role admin --project billing
-armada rbac assignment create --user bob --role viewer --project shop
-armada rbac user create carol -o carol.config --role viewer         # every project, read only
-armada rbac user create dana -o dana.config --role project-creator  # dana creates her own projects
+armada rbac user create bob -o bob.config --role admin --space billing
+armada rbac assignment create --user bob --role viewer --space shop
+armada rbac user create carol -o carol.config --role viewer         # every space, read only
+armada rbac user create dana -o dana.config --role space-creator  # dana creates her own spaces
 armada rbac assignment list
 ```
 
 ```
-KIND  NAME   ROLE             PROJECT
+KIND  NAME   ROLE             SPACE
 user  alice  deployer         shop
 user  bob    admin            billing
 user  bob    viewer           shop
 user  carol  viewer           (cluster)
-user  dana   project-creator  (cluster)
+user  dana   space-creator  (cluster)
 user  ops    cluster-admin    (cluster)
 ```
 
 A role applies to the next command the person runs; nothing needs to be
-reissued. A user with `project-creator` becomes `admin` of each project
+reissued. A user with `space-creator` becomes `admin` of each space
 she creates, and may delete it once it is empty.
 
 ## 5. Let a team use its own nodes
@@ -148,7 +148,7 @@ back.
 
 | You want to | Run |
 | --- | --- |
-| Take one role away | `armada rbac assignment delete --user bob --role viewer --project shop` |
+| Take one role away | `armada rbac assignment delete --user bob --role viewer --space shop` |
 | Replace a lost or leaked key | `armada rbac user credentials alice -o alice.config` (her older certificates stop working at once) |
 | Remove a person | `armada rbac user delete alice --yes` (every certificate of `alice` is refused, on every server) |
 
@@ -157,7 +157,7 @@ keeps its history. Nobody can delete themselves or take their own
 `cluster-admin`, so the cluster always keeps one.
 
 Removing access does not change what a person deployed: the apps keep
-running under the project.
+running under the space.
 
 ## 7. See who did what
 
@@ -170,7 +170,7 @@ NAME   ROLES                                STATUS        CREATED BY
 alice  deployer in shop                     active        user:ops
 bob    admin in billing, viewer in shop     active        user:ops
 carol  viewer                               active        user:ops
-dana   project-creator                      active        user:ops
+dana   space-creator                      active        user:ops
 ops    cluster-admin                        active (you)  -
 ```
 
@@ -181,7 +181,7 @@ ops    cluster-admin                        active (you)  -
   (`journalctl -u armada-server`, look for `by=user:alice`; `armada server
   list` shows which server leads).
 - `armada secret list APP` names who set each secret (`BY`), and
-  `armada project list` who created each project.
+  `armada space list` who created each space.
 - `armada app events` records removals with the caller, for example
   `Removing  by user:alice`.
 - Exec sessions are audited with the command's name, never its arguments.
@@ -216,14 +216,14 @@ From Alice's computer:
 
 ```bash
 armada app list                       # shop's apps
-armada app list --project billing     # refused: user:alice may not see project billing
+armada app list --space billing     # refused: user:alice may not see space billing
 armada app scale web --replicas 3     # allowed: deployer
 armada app exec web -- env            # refused: exec needs admin
 ```
 
 ## Variations
 
-**On call.** A cluster-wide `viewer` sees every project's apps, logs, and
+**On call.** A cluster-wide `viewer` sees every space's apps, logs, and
 events, but no nodes. Give on-call people `cluster-admin` only if they
 must drain nodes or restore backups.
 
@@ -239,7 +239,7 @@ user's name, so prefer a certificate per person.
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| `user:alice may not deploy to project default` | No project chosen, so the command works in `default` | `armada project use shop`, or `--project shop` |
+| `user:alice may not deploy to space default` | No space chosen, so the command works in `default` | `armada space use shop`, or `--space shop` |
 | `user:alice has no role that allows ...` | The method needs a role she does not hold (exec, node commands) | Give the role, or run it yourself |
 | `... has mode 0644, want 0600` | The config file is readable by others | `chmod 600 ~/.armada/config` |
 | `armada rbac user renew` fails with an expired certificate | Expired certificates cannot renew themselves | `sudo armadad user renew --config FILE` on a server |
@@ -248,5 +248,5 @@ user's name, so prefer a certificate per person.
 
 - [Deploy from CI](ci-cd.md): a service with its own role.
 - [Monitoring and alerts](monitoring-and-alerts.md): a metrics certificate that can only scrape.
-- [Projects and network isolation](../operations.md#projects).
+- [Spaces and network isolation](../operations.md#spaces).
 - [`armada rbac`](../cli/armada-rbac.md) reference.
