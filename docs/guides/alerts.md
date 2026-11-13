@@ -99,9 +99,9 @@ armada alert channel create mail --type email \
   `[armada example.com] Lost: node app-02`.
 - Leave out `--smtp-user` and `--password` for a relay that needs no login.
   A password is only ever sent over TLS.
-- Gmail and Google Workspace need an
-  [app password](https://support.google.com/accounts/answer/185833),
-  `smtp.gmail.com:587`. Other providers name theirs in their SMTP docs.
+- Mail providers that use two-step sign-in usually want an app password
+  here, not the account's password; their SMTP documentation names the
+  host and port.
 
 ### Your own webhook
 

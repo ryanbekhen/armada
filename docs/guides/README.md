@@ -36,6 +36,7 @@ New to Armada? Read [Concepts](../concepts.md), then
 | [A private registry](private-registry.md) | Pulling your images with registry credentials kept as secrets |
 | [Deploy from CI](ci-cd.md) | A service identity for your pipeline, deploys that fail the build on a bad rollout |
 | [Teams and access](teams-and-access.md) | Users, roles, and spaces for a team |
+| [Read, search, and keep logs](logs.md) | Live logs filtered as they arrive, searching replicas that are gone, sending logs to Loki or OTLP |
 | [Get alerts](alerts.md) | Notices in Slack, Discord, Telegram, email, or a webhook when something needs you |
 | [Monitoring and alerts](monitoring-and-alerts.md) | Prometheus metrics, ready-made alerts, events, and usage |
 | [Disaster recovery](disaster-recovery.md) | Backing up the control plane and volumes, and coming back from losing a server or a node |
