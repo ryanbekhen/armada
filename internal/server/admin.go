@@ -508,7 +508,10 @@ func (s *Server) Logs(req *armadav1.LogsRequest, stream armadav1.AdminService_Lo
 				continue
 			}
 			for _, r := range now {
-				if !following[r.ID] {
+				// Only once its container runs: before, its node has
+				// nothing to stream, and the replica would not be asked
+				// again.
+				if !following[r.ID] && r.State == store.ReplicaRunning {
 					relay(r, defaultLogTail)
 				}
 			}
