@@ -7,6 +7,8 @@ before:
   hooks:
     - go mod verify
     - make runtime-bundle
+    - make licenses
+    - make licenses-save
 
 builds:
   # The daemon: control plane, agent, and the embedded runtime (ADR 0027).
@@ -65,6 +67,10 @@ archives:
     name_template: "armada_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     files:
       - LICENSE
+      - THIRD_PARTY_NOTICES.md
+      - third_party/licenses/*
+      - src: build/licenses/**/*
+        dst: licenses/go
       - README.md
       - SECURITY.md
       - deploy/systemd/*
@@ -75,6 +81,10 @@ archives:
     name_template: "armada_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     files:
       - LICENSE
+      - THIRD_PARTY_NOTICES.md
+      - third_party/licenses/*
+      - src: build/licenses/**/*
+        dst: licenses/go
       - README.md
       - SECURITY.md
 

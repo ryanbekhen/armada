@@ -12,7 +12,7 @@ LDFLAGS := -s -w \
 
 export CGO_ENABLED := 0
 
-.PHONY: all build build-bundle runtime-bundle test cover lint fmt vet vuln proto docs tidy check clean
+.PHONY: all build build-bundle runtime-bundle test cover lint fmt vet vuln licenses licenses-save proto docs tidy check clean
 
 all: check build
 
@@ -71,3 +71,14 @@ check: vet lint test vuln
 
 clean:
 	rm -rf bin coverage.out internal/runtime/embedded/bundle
+
+# Licenses of the Go modules the binaries are built from (THIRD_PARTY_NOTICES.md).
+GO_LICENSES = go run github.com/google/go-licenses/v2@v2.0.1
+ALLOWED_LICENSES = Apache-2.0,MIT,BSD-2-Clause,BSD-3-Clause,ISC,MPL-2.0,CC0-1.0
+
+licenses: ## fail when a Go module under a license outside ALLOWED_LICENSES is added
+	$(GO_LICENSES) check ./cmd/... --allowed_licenses=$(ALLOWED_LICENSES)
+
+licenses-save: ## copy every Go module's license and notice files into build/licenses (release archives)
+	rm -rf build/licenses
+	$(GO_LICENSES) save ./cmd/... --save_path=build/licenses 2>/dev/null

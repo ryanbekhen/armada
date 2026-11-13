@@ -120,6 +120,9 @@ jobs:
         with:
           go-version-file: go.mod
       - run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
+      # Every Go module must be under a license that allows commercial use
+      # (THIRD_PARTY_NOTICES.md).
+      - run: make licenses
 
   # The condition is on the steps, not the job: a skipped matrix job reports
   # one check named "build", never the "build (linux, amd64)" and

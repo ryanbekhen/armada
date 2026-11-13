@@ -168,4 +168,7 @@ does.
 
 ## License
 
-[Apache License 2.0](LICENSE)
+[Apache License 2.0](LICENSE): free to use, change, and sell, also
+commercially. Armada's dependencies and the container runtime it embeds
+are under licenses that allow the same; [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
+lists them and what passing Armada on requires.
