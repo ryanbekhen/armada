@@ -80,10 +80,10 @@ type Config struct {
 }
 
 // TCPRoute sends connections to Port on a node's bridge gateway from apps of
-// the backend's project to Backend, which then serves plain TCP (ADR 0039).
-// A port serves at most one backend per project: the caller's project picks
+// the backend's space to Backend, which then serves plain TCP (ADR 0039).
+// A port serves at most one backend per space: the caller's space picks
 // it. Allow, when set, lists the app IDs that may connect (the app itself
-// included); empty lets every app of the project.
+// included); empty lets every app of the space.
 type TCPRoute struct {
 	Port    int
 	Backend string
@@ -176,7 +176,7 @@ type Rule struct {
 	Internal    bool
 	// Allow, for internal rules on nodes that know their callers, lists
 	// the app IDs that may call (the app itself included); empty lets
-	// every app of the backend's project (ADR 0026).
+	// every app of the backend's space (ADR 0026).
 	Allow []string
 }
 
@@ -192,10 +192,10 @@ func (c Certificate) FileName() string {
 	return strings.Replace(c.Name, "*", "_wildcard", 1) + ".pem"
 }
 
-// BackendProject returns the project of the app a backend serves (a
+// BackendSpace returns the space of the app a backend serves (a
 // backend is named by the app ID, or <label>--<app ID> for a revision
 // label), or "" for an invalid name.
-func BackendProject(backend string) string {
+func BackendSpace(backend string) string {
 	if _, id, labelled := strings.Cut(backend, "--"); labelled {
 		backend = id
 	}
@@ -458,10 +458,10 @@ func (c Config) Validate() error {
 		if len(r.Allow) > spec.MaxAllow+1 {
 			add("rule %s%s: too many callers", r.Host, r.PathPrefix)
 		}
-		project := BackendProject(r.Backend)
+		space := BackendSpace(r.Backend)
 		for _, a := range r.Allow {
-			if p, _, ok := spec.SplitAppID(a); !ok || p != project {
-				add("rule %s%s: caller %q is not an app of project %s", r.Host, r.PathPrefix, a, project)
+			if p, _, ok := spec.SplitAppID(a); !ok || p != space {
+				add("rule %s%s: caller %q is not an app of space %s", r.Host, r.PathPrefix, a, space)
 			}
 		}
 		if r.PathPrefix == "/" && r.StripPrefix {
@@ -497,8 +497,8 @@ func (c Config) Validate() error {
 }
 
 // validTCP checks the TCP routes (ADR 0039): ports a TCP app may take, one
-// backend per project and port, backends that exist and serve nothing but
-// TCP, and callers of the backend's project.
+// backend per space and port, backends that exist and serve nothing but
+// TCP, and callers of the backend's space.
 func validTCP(c Config) []error {
 	var errs []error
 	add := func(format string, args ...any) { errs = append(errs, fmt.Errorf(format, args...)) }
@@ -533,18 +533,18 @@ func validTCP(c Config) []error {
 		if b.HealthPath != "" || b.Wake || b.Sticky || b.CORS != nil || b.TimeoutSeconds != 0 || len(b.IPAllow) > 0 || len(b.IPDeny) > 0 {
 			add("tcp backend %s: has HTTP settings", r.Backend)
 		}
-		project := BackendProject(r.Backend)
-		key := fmt.Sprintf("%s/%d", project, r.Port)
+		space := BackendSpace(r.Backend)
+		key := fmt.Sprintf("%s/%d", space, r.Port)
 		if taken[key] {
-			add("tcp port %d: more than one backend of project %s", r.Port, project)
+			add("tcp port %d: more than one backend of space %s", r.Port, space)
 		}
 		taken[key] = true
 		if len(r.Allow) > spec.MaxAllow+1 {
 			add("tcp backend %s: too many callers", r.Backend)
 		}
 		for _, a := range r.Allow {
-			if p, _, ok := spec.SplitAppID(a); !ok || p != project || !spec.ValidAppID(a) {
-				add("tcp backend %s: caller %q is not an app of project %s", r.Backend, a, project)
+			if p, _, ok := spec.SplitAppID(a); !ok || p != space || !spec.ValidAppID(a) {
+				add("tcp backend %s: caller %q is not an app of space %s", r.Backend, a, space)
 			}
 		}
 	}

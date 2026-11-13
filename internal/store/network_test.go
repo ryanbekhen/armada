@@ -183,7 +183,7 @@ func TestDefaultIsolation(t *testing.T) {
 	audit, _ := s.ListAudit(ctx, 10)
 	changes := 0
 	for _, e := range audit {
-		if e.Action == "project.set" {
+		if e.Action == "space.set" {
 			changes++
 		}
 	}

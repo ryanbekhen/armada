@@ -9,7 +9,7 @@ app at it, and shows what Armada does with those credentials.
 [init containers and sidecars](../spec-reference.md#initcontainers-sidecars),
 [revisions](../cli/armada-app.md#armada-app-revision-list)
 **Before you start:** a running cluster ([quickstart](../quickstart.md)), a
-project you may deploy to (this guide uses `shop`), and a read-only token
+space you may deploy to (this guide uses `shop`), and a read-only token
 for your registry, such as a GitHub personal access token with
 `read:packages` for `ghcr.io`.
 
@@ -36,7 +36,7 @@ A secret belongs to one app, so name the app you are about to create.
 Read the token from a file or stdin, never from an argument:
 
 ```bash
-armada project use shop
+armada space use shop
 printf '%s' "$GHCR_TOKEN" | armada secret set api ghcr-token
 armada secret list api
 ```
@@ -218,7 +218,7 @@ pins the new version. Two things to keep in mind:
 | Same message with `not found` | The tag does not exist, or the token cannot see the repository | Check the tag in the registry; check the token's scope |
 | A sidecar or init container fails to pull while the app's image works | Its image is on another registry and is private | Move it to the app's registry, or make it public |
 | `Rollout: api.shop--r3 failed, api.shop--r2 kept serving: no progress within ...` after a pull error | The new revision never started; the old one keeps serving | Fix the credentials or the tag, then deploy again |
-| `app api.shop references secrets that are not set: ghcr-token` | The secret was not set, or was set for another app or project | `armada secret set api ghcr-token --project shop` |
+| `app api.shop references secrets that are not set: ghcr-token` | The secret was not set, or was set for another app or space | `armada secret set api ghcr-token --space shop` |
 
 See [troubleshooting](troubleshooting.md#image-pull-fails) for images built
 for the wrong platform.

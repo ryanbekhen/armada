@@ -3,14 +3,14 @@
 - Status: Accepted
 - Date: 2026-11-10
 - Supersedes: the administrator records of [0028](0028-administrators.md)
-  and the automation identities of [0026](0026-projects-and-network-isolation.md)
+  and the automation identities of [0026](0026-spaces-and-network-isolation.md)
 
 ## Context
 
 Two kinds of identity could call the API. An administrator (ADR 0028) could
 do everything. An automation identity (ADR 0026) could manage the apps of
-some projects and nothing else. Nothing in between could be expressed: a
-person who should only deploy one project needed full control, a tool
+some spaces and nothing else. Nothing in between could be expressed: a
+person who should only deploy one space needed full control, a tool
 could not be limited to reading, and the two kinds were managed with two
 command groups that did the same things differently.
 
@@ -39,24 +39,24 @@ Access is granted by **roles** given to **principals**.
 
 | Role | Scope | May |
 | --- | --- | --- |
-| `viewer` | the cluster (every project) or one project | list and show apps, jobs, revisions, specs, secret names, domains, volumes; logs, usage, events |
-| `deployer` | one project, not `default` | what a viewer may, and deploy, scale, roll back, split traffic, set and delete secrets, run and cancel jobs, verify domains |
-| `admin` | one project, not `default` | what a deployer may, and exec, back up, restore, and delete volumes, delete apps and jobs |
-| `project-creator` | the cluster | create projects (becoming `admin` of each) and delete those it is `admin` of once they are empty |
+| `viewer` | the cluster (every space) or one space | list and show apps, jobs, revisions, specs, secret names, domains, volumes; logs, usage, events |
+| `deployer` | one space, not `default` | what a viewer may, and deploy, scale, roll back, split traffic, set and delete secrets, run and cancel jobs, verify domains |
+| `admin` | one space, not `default` | what a deployer may, and exec, back up, restore, and delete volumes, delete apps and jobs |
+| `space-creator` | the cluster | create spaces (becoming `admin` of each) and delete those it is `admin` of once they are empty |
 | `cluster-admin` | the cluster | everything: nodes, servers, cluster settings, join tokens, metrics credentials, and access control |
 
-A principal holds any number of **assignments** (a role, and a project when
-the role is scoped to one). Its rights in a project are the most its
-assignments give there. The `default` project's containers may reach the
+A principal holds any number of **assignments** (a role, and a space when
+the role is scoped to one). Its rights in a space are the most its
+assignments give there. The `default` space's containers may reach the
 platform unless isolated, so only `viewer` can be given in it; deploying
 there needs `cluster-admin`.
 
 **Checks.** Every API method has one entry in a table: the role level it
-needs in the project it names (`viewer`, `deployer`, `admin`), creating
-projects, the caller's own certificate (renewal), or `cluster-admin`. A
+needs in the space it names (`viewer`, `deployer`, `admin`), creating
+spaces, the caller's own certificate (renewal), or `cluster-admin`. A
 method missing from the table is for `cluster-admin` only, so a new method
 is closed until it is placed; a test walks the whole service descriptor.
-Handlers check the project of every app, job, volume, and domain they touch
+Handlers check the space of every app, job, volume, and domain they touch
 against the level, and listings show only what the caller may see.
 Principals that are not `cluster-admin` see no nodes, servers, or cluster
 events. The metrics endpoint accepts metrics certificates and principals
@@ -79,8 +79,8 @@ armada rbac assignment  create | list | delete
 
 **Upgrade.** State schema 9 moves every administrator on record to a user
 with `cluster-admin` (removed ones stay refused), and every automation
-identity to a service with `admin` in each of its projects, plus
-`project-creator` when it could create projects. Nobody gains or loses a
+identity to a service with `admin` in each of its spaces, plus
+`space-creator` when it could create spaces. Nobody gains or loses a
 right.
 
 ## Consequences

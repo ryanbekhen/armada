@@ -75,7 +75,7 @@ func TestValidateRejects(t *testing.T) {
 		"internal rule, public host":   func(c *Config) { c.Rules[2].Host = "example.org" },
 		"internal rule, nested host":   func(c *Config) { c.Rules[2].Host = "a.b.api.internal" },
 		"internal rule, default host":  func(c *Config) { c.Rules[2].Host = "api.default.internal" },
-		"backend in default project":   func(c *Config) { c.Backends[0].Name = "web.default" },
+		"backend in default space":     func(c *Config) { c.Backends[0].Name = "web.default" },
 		"backend with two dots":        func(c *Config) { c.Backends[0].Name = "web.a.b" },
 		"internal rule injection":      func(c *Config) { c.Rules[2].Host = "api }\n  use_backend x.internal" },
 		"certificate for .internal":    func(c *Config) { c.Certificates[0].Name = "api.internal" },
@@ -84,7 +84,7 @@ func TestValidateRejects(t *testing.T) {
 		"rule unknown backend":         func(c *Config) { c.Rules[0].Backend = "ghost" },
 		"rule strip root":              func(c *Config) { c.Rules[0].StripPrefix = true },
 		"callers on a public rule":     func(c *Config) { c.Rules[0].Allow = []string{"web"} },
-		"caller of another project":    func(c *Config) { c.Rules[2].Allow = []string{"api", "web.staging"} },
+		"caller of another space":      func(c *Config) { c.Rules[2].Allow = []string{"api", "web.staging"} },
 		"caller injection":             func(c *Config) { c.Rules[2].Allow = []string{"web }\n  use_backend x"} },
 		"caller with a space":          func(c *Config) { c.Rules[2].Allow = []string{"web api"} },
 		"caller is a label host":       func(c *Config) { c.Rules[2].Allow = []string{"canary--web"} },
@@ -150,8 +150,8 @@ func TestCertificateFileName(t *testing.T) {
 	}
 }
 
-// Apps of other projects are named by their ID (ADR 0026).
-func TestValidateProjectApps(t *testing.T) {
+// Apps of other spaces are named by their ID (ADR 0026).
+func TestValidateSpaceApps(t *testing.T) {
 	c := validConfig(t)
 	c.Backends[1].Name = "api.staging"
 	c.Backends = append(c.Backends, Backend{Name: "canary--api.staging", Servers: []Server{{Name: "api-r2-a", Address: "10.0.0.4:32770"}}})
@@ -161,8 +161,8 @@ func TestValidateProjectApps(t *testing.T) {
 	if err := c.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	// Callers of a project's internal rule, the label's too, are apps of
-	// that project.
+	// Callers of a space's internal rule, the label's too, are apps of
+	// that space.
 	c.Rules[2].Allow = []string{"api.staging", "web.staging"}
 	c.Rules[len(c.Rules)-1].Allow = c.Rules[2].Allow
 	if err := c.Validate(); err != nil {
@@ -170,11 +170,11 @@ func TestValidateProjectApps(t *testing.T) {
 	}
 	c.Rules[2].Allow = []string{"api.staging", "web"}
 	if err := c.Validate(); err == nil {
-		t.Error("caller of the default project accepted for a staging app")
+		t.Error("caller of the default space accepted for a staging app")
 	}
 	for backend, want := range map[string]string{"web": "default", "web.staging": "staging", "canary--web.staging": "staging", "canary--web": "default", "Web": "", "web.default": ""} {
-		if got := BackendProject(backend); got != want {
-			t.Errorf("BackendProject(%q) = %q, want %q", backend, got, want)
+		if got := BackendSpace(backend); got != want {
+			t.Errorf("BackendSpace(%q) = %q, want %q", backend, got, want)
 		}
 	}
 }

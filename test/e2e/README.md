@@ -75,7 +75,7 @@ E2E_ONLY=isolation,rollout ARMADA_BIN=... sh test/e2e/cluster.sh hosts
 | Scenario | What it checks (numbers below) | Run it for changes to |
 | --- | --- | --- |
 | `listeners` | 2 | listeners, ports, the firewall |
-| `project-secret` | 3 (a project's secret) | secrets, projects |
+| `space-secret` | 3 (a space's secret) | secrets, spaces |
 | `conntrack` | the connection tracking limit | connection tracking, usage reports |
 | `isolation` | 4 | the cluster network (VXLAN, WireGuard, netlink), nftables, internal DNS, HAProxy's internal frontend |
 | `load` | 5 (steady load) | the path from clients to the nodes |
@@ -113,11 +113,11 @@ A release runs every scenario.
 3. The test app gets a certificate for its host name on every node; a secret
    reaches the container's environment and appears in no journal.
 4. Isolation while replicas and apps come and go: a replica reaches its own
-   app's replicas and itself on localhost; another app of its project reaches
-   them only through the internal name, full or alone (`web`); another project
-   reaches them in no way, and `web` from it is not this project's app;
-   a project's app cannot reach a node's private IP; a removed app's address
-   stays blocked. Both projects are removed afterwards.
+   app's replicas and itself on localhost; another app of its space reaches
+   them only through the internal name, full or alone (`web`); another space
+   reaches them in no way, and `web` from it is not this space's app;
+   a space's app cannot reach a node's private IP; a removed app's address
+   stays blocked. Both spaces are removed afterwards.
 5. A minute of load while nothing changes serves every request (if this
    fails, look at the network between your workstation and the machines
    first). Then a rolling update, a rollback, and an agent restart serve
@@ -176,20 +176,20 @@ A release runs every scenario.
     127.0.0.1; a failing init container keeps its app from starting and says
     why (runs before 14 and 13).
 19. Internal TCP: an echo server with `protocol: tcp` on port 7000 and
-    `allow: [client]` answers every connection from `client` of its project
-    at `tcp-echo.e2e-tcp.internal:7000` and at `tcp-echo:7000`; another app of the project is
-    refused, and an app of another project neither resolves the name nor gets
+    `allow: [client]` answers every connection from `client` of its space
+    at `tcp-echo.e2e-tcp.internal:7000` and at `tcp-echo:7000`; another app of the space is
+    refused, and an app of another space neither resolves the name nor gets
     an answer at its gateway; port 7000 is open on no node's private address
     (runs before 14 and 13).
 20. Jobs started by a queue (runs after 14, before 13). The first machine
     needs `python3`, which runs a stand-in broker that answers like Redis on
     its private IP, port 6390: apps reach other apps' containers only through
     internal names over HTTP, so the broker lives outside the cluster.
-    - A job in the default project has its empty queue read from a network
+    - A job in the default space has its empty queue read from a network
       sandbox and runs nothing.
     - 25 messages at 10 per run start 3 runs (`parallelism: 3`); once they
       finish on an emptied queue, no run follows.
-    - The same job in an isolated project gets a node to read from, but its
+    - The same job in an isolated space gets a node to read from, but its
       sandbox cannot reach a node's private IP, like the job's containers:
       the queue is never read and nothing runs.
     - The broker's password is in no journal, and no sandbox is left on any

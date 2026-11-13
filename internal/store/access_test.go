@@ -22,10 +22,10 @@ func TestUsers(t *testing.T) {
 		t.Fatalf("unrecorded user: %+v %v %v", p, ok, err)
 	}
 
-	if _, err := s.CreateProject(ctx, "shop", "user:root", nil); err != nil {
+	if _, err := s.CreateSpace(ctx, "shop", "user:root", nil); err != nil {
 		t.Fatal(err)
 	}
-	u, err := s.CreateUser(ctx, Principal{Name: "ana", Since: since, Roles: []Grant{{Role: RoleDeployer, Project: "shop"}, {Role: RoleViewer}}}, "user:root")
+	u, err := s.CreateUser(ctx, Principal{Name: "ana", Since: since, Roles: []Grant{{Role: RoleDeployer, Space: "shop"}, {Role: RoleViewer}}}, "user:root")
 	if err != nil || len(u.Roles) != 2 || u.Roles[0] != (Grant{Role: RoleViewer}) {
 		t.Fatalf("create: %+v %v", u, err)
 	}
@@ -35,7 +35,7 @@ func TestUsers(t *testing.T) {
 	if _, ok, _ := s.UserAccess(ctx, "ana", since.Add(-time.Second)); ok {
 		t.Error("accepted a certificate from before the user's latest")
 	}
-	if p, ok, _ := s.UserAccess(ctx, "ana", since); !ok || p.Has(Grant{Role: RoleClusterAdmin}) || !p.Has(Grant{Role: RoleDeployer, Project: "shop"}) {
+	if p, ok, _ := s.UserAccess(ctx, "ana", since); !ok || p.Has(Grant{Role: RoleClusterAdmin}) || !p.Has(Grant{Role: RoleDeployer, Space: "shop"}) {
 		t.Errorf("ana: %+v %v", p, ok)
 	}
 	later := since.Add(time.Hour)
@@ -84,7 +84,7 @@ func TestUsers(t *testing.T) {
 func TestAssignments(t *testing.T) {
 	t.Parallel()
 	s, ctx := open(t), context.Background()
-	if _, err := s.CreateProject(ctx, "shop", "user:root", nil); err != nil {
+	if _, err := s.CreateSpace(ctx, "shop", "user:root", nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.CreateService(ctx, Principal{Name: "ci"}, "user:root"); err != nil {
@@ -94,20 +94,20 @@ func TestAssignments(t *testing.T) {
 		t.Errorf("second create = %v", err)
 	}
 	for _, bad := range []Grant{
-		{Role: RoleDeployer, Project: "default"},
-		{Role: RoleAdmin, Project: "default"},
+		{Role: RoleDeployer, Space: "default"},
+		{Role: RoleAdmin, Space: "default"},
 		{Role: RoleDeployer},
-		{Role: RoleClusterAdmin, Project: "shop"},
-		{Role: RoleProjectCreator, Project: "shop"},
-		{Role: RoleAdmin, Project: "nope"},
-		{Role: "owner", Project: "shop"},
-		{Role: RoleViewer, Project: "Bad!"},
+		{Role: RoleClusterAdmin, Space: "shop"},
+		{Role: RoleSpaceCreator, Space: "shop"},
+		{Role: RoleAdmin, Space: "nope"},
+		{Role: "owner", Space: "shop"},
+		{Role: RoleViewer, Space: "Bad!"},
 	} {
 		if _, err := s.Assign(ctx, KindService, "ci", bad, "user:root"); err == nil {
 			t.Errorf("assigned %+v", bad)
 		}
 	}
-	for _, good := range []Grant{{Role: RoleViewer, Project: "default"}, {Role: RoleAdmin, Project: "shop"}, {Role: RoleAdmin, Project: "shop"}} {
+	for _, good := range []Grant{{Role: RoleViewer, Space: "default"}, {Role: RoleAdmin, Space: "shop"}, {Role: RoleAdmin, Space: "shop"}} {
 		if _, err := s.Assign(ctx, KindService, "ci", good, "user:root"); err != nil {
 			t.Errorf("assign %+v: %v", good, err)
 		}
@@ -116,10 +116,10 @@ func TestAssignments(t *testing.T) {
 	if len(p.Roles) != 2 {
 		t.Errorf("roles = %+v (repeats kept?)", p.Roles)
 	}
-	if _, err := s.Unassign(ctx, KindService, "ci", Grant{Role: RoleDeployer, Project: "shop"}, "user:root"); !errors.Is(err, ErrNotFound) {
+	if _, err := s.Unassign(ctx, KindService, "ci", Grant{Role: RoleDeployer, Space: "shop"}, "user:root"); !errors.Is(err, ErrNotFound) {
 		t.Errorf("unassign a role not held = %v", err)
 	}
-	if p, err := s.Unassign(ctx, KindService, "ci", Grant{Role: RoleViewer, Project: "default"}, "user:root"); err != nil || len(p.Roles) != 1 {
+	if p, err := s.Unassign(ctx, KindService, "ci", Grant{Role: RoleViewer, Space: "default"}, "user:root"); err != nil || len(p.Roles) != 1 {
 		t.Errorf("unassign: %+v %v", p.Roles, err)
 	}
 	if _, err := s.SetPrincipalLabels(ctx, KindService, "ci", map[string][]string{"pool": {"shop"}}, "user:root"); err != nil {
@@ -129,26 +129,26 @@ func TestAssignments(t *testing.T) {
 		t.Error("accepted a label with no values")
 	}
 
-	// Creating a project needs project-creator and makes the creator its
+	// Creating a space needs space-creator and makes the creator its
 	// admin; deleting it takes every role in it back.
-	if _, err := s.CreateProject(ctx, "two", "service:ci", &p); !errors.Is(err, ErrPrecondition) {
-		t.Errorf("create without project-creator = %v", err)
+	if _, err := s.CreateSpace(ctx, "two", "service:ci", &p); !errors.Is(err, ErrPrecondition) {
+		t.Errorf("create without space-creator = %v", err)
 	}
-	if _, err := s.Assign(ctx, KindService, "ci", Grant{Role: RoleProjectCreator}, "user:root"); err != nil {
+	if _, err := s.Assign(ctx, KindService, "ci", Grant{Role: RoleSpaceCreator}, "user:root"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateProject(ctx, "two", "service:ci", &p); err != nil {
+	if _, err := s.CreateSpace(ctx, "two", "service:ci", &p); err != nil {
 		t.Fatal(err)
 	}
 	p, _ = s.GetPrincipal(ctx, KindService, "ci")
-	if !p.Has(Grant{Role: RoleAdmin, Project: "two"}) {
+	if !p.Has(Grant{Role: RoleAdmin, Space: "two"}) {
 		t.Errorf("creator is not admin: %+v", p.Roles)
 	}
-	if err := s.DeleteProject(ctx, "two", "service:ci"); err != nil {
+	if err := s.DeleteSpace(ctx, "two", "service:ci"); err != nil {
 		t.Fatal(err)
 	}
 	p, _ = s.GetPrincipal(ctx, KindService, "ci")
-	if p.Has(Grant{Role: RoleAdmin, Project: "two"}) || !p.Has(Grant{Role: RoleAdmin, Project: "shop"}) {
+	if p.Has(Grant{Role: RoleAdmin, Space: "two"}) || !p.Has(Grant{Role: RoleAdmin, Space: "shop"}) {
 		t.Errorf("after deleting two: %+v", p.Roles)
 	}
 }
@@ -198,7 +198,7 @@ func TestServiceCertificates(t *testing.T) {
 func TestMigrateAccess(t *testing.T) {
 	t.Parallel()
 	s, ctx := open(t), context.Background()
-	if _, err := s.CreateProject(ctx, "shop", "admin:root", nil); err != nil {
+	if _, err := s.CreateSpace(ctx, "shop", "admin:root", nil); err != nil {
 		t.Fatal(err)
 	}
 	atSchema(t, s, 8)
@@ -234,11 +234,11 @@ func TestMigrateAccess(t *testing.T) {
 		t.Error("a removed administrator is accepted after the migration")
 	}
 	ci, ok, _ := s.ServiceAccess(ctx, "ci", "9")
-	want := []Grant{{Role: RoleProjectCreator}, {Role: RoleAdmin, Project: "shop"}}
+	want := []Grant{{Role: RoleSpaceCreator}, {Role: RoleAdmin, Space: "shop"}}
 	if !ok || !slices.Equal(ci.Roles, want) || len(ci.Labels["pool"]) != 1 {
 		t.Errorf("ci: %+v %v", ci, ok)
 	}
-	if ro, _ := s.GetPrincipal(ctx, KindService, "ro"); !slices.Equal(ro.Roles, []Grant{{Role: RoleAdmin, Project: "shop"}}) {
+	if ro, _ := s.GetPrincipal(ctx, KindService, "ro"); !slices.Equal(ro.Roles, []Grant{{Role: RoleAdmin, Space: "shop"}}) {
 		t.Errorf("ro: %+v", ro.Roles)
 	}
 	for _, pfx := range []string{"admins/", "automation/"} {

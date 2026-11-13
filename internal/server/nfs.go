@@ -13,7 +13,7 @@ import (
 
 // checkNFSExports lets only cluster-admins add an NFS export to an app, or
 // make one writable (ADR 0042): nodes mount exports from their own
-// addresses, so the NFS server cannot tell projects apart. Deploys that keep
+// addresses, so the NFS server cannot tell spaces apart. Deploys that keep
 // the exports the app already mounts are anyone's who may deploy it.
 func (s *Server) checkNFSExports(ctx context.Context, acc access, app *spec.App) error {
 	if acc.admin() || !app.HasNFSVolumes() {

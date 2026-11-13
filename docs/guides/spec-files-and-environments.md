@@ -2,12 +2,12 @@
 
 Keep one spec file per app in your repository and deploy it to staging and
 production with different values: domains, replica counts, resources, and
-the image tag. Each environment is a project with its own secrets. Use this
+the image tag. Each environment is a space with its own secrets. Use this
 once an app has more than one place to run.
 
 **You will use:** [spec variables](../spec-reference.md#variables)
-(`--vars`, `--var`), [projects](../operations.md#projects)
-(`--project`, `armada project use`), [secrets](../cli/armada-secret.md)
+(`--vars`, `--var`), [spaces](../operations.md#spaces)
+(`--space`, `armada space use`), [secrets](../cli/armada-secret.md)
 (`armada secret set`, `armada secret import`),
 [`envFrom: secrets`](../spec-reference.md#envfrom),
 [`secretFiles`](../spec-reference.md#secretfiles),
@@ -18,8 +18,8 @@ once an app has more than one place to run.
 
 - A running cluster with a root domain (see the [quickstart](../quickstart.md)).
   Here: `apps.example.com`.
-- `cluster-admin`, or the `project-creator` role, to create projects. After
-  that, `deployer` in a project is enough to set secrets and deploy;
+- `cluster-admin`, or the `space-creator` role, to create spaces. After
+  that, `deployer` in a space is enough to set secrets and deploy;
   `armada app exec` needs `admin` (see
   [teams-and-access.md](teams-and-access.md)).
 - For `secretFiles`: each node's secrets directory on tmpfs
@@ -31,10 +31,10 @@ once an app has more than one place to run.
 
 ```
  repository                       cluster
- ┌──────────────────┐             ┌─ project staging ─────────────────────┐
+ ┌──────────────────┐             ┌─ space staging ─────────────────────┐
  │ deploy/api.yaml  │──staging.env─▶ api.staging   secrets: staging values │
  │ deploy/          │             │  https://api.staging.example.com       │
- │   staging.env    │             ├─ project production ──────────────────┤
+ │   staging.env    │             ├─ space production ──────────────────┤
  │   production.env │──prod.env───▶ api.production secrets: prod values   │
  └──────────────────┘             │  https://api.example.com               │
                                   └────────────────────────────────────────┘
@@ -44,9 +44,9 @@ once an app has more than one place to run.
   environments differ.
 - A **vars file** per environment holds the values that differ and are not
   secret. It lives in git next to the spec.
-- **Secrets** live in the cluster, per app and project, never in git or in
+- **Secrets** live in the cluster, per app and space, never in git or in
   variables.
-- A **project** per environment keeps names apart: `api` in `staging` and
+- A **space** per environment keeps names apart: `api` in `staging` and
   `api` in `production` are two apps, `api.staging` and `api.production`.
 
 ## 1. Write the spec with variables
@@ -123,42 +123,42 @@ How variables behave:
 - Values end up in the revision like the rest of the spec, and anyone who
   can read the app sees them. Secrets go in secrets.
 
-## 2. Create a project per environment
+## 2. Create a space per environment
 
 ```bash
-armada project create staging
-armada project create production
-armada project list
+armada space create staging
+armada space create production
+armada space list
 ```
 
 ```
-PROJECT     APPS  NETWORK   CREATED  BY
+SPACE     APPS  NETWORK   CREATED  BY
 default     0     open      -        -
 production  0     isolated  4s ago   user:you
 staging     0     isolated  9s ago   user:you
 ```
 
-A command works in one project:
+A command works in one space:
 
-- `--project NAME` (or the `ARMADA_PROJECT` variable) for one command;
-- `armada project use NAME` saves it in your client config, so every later
-  command works there until you `use` another (`armada project use default`
+- `--space NAME` (or the `ARMADA_SPACE` variable) for one command;
+- `armada space use NAME` saves it in your client config, so every later
+  command works there until you `use` another (`armada space use default`
   goes back);
-- `NAME.PROJECT` names an app of another project:
+- `NAME.SPACE` names an app of another space:
   `armada app show api.production`.
 
-This guide passes `--project` everywhere, which is what scripts and CI
-should do: a saved project is easy to forget.
+This guide passes `--space` everywhere, which is what scripts and CI
+should do: a saved space is easy to forget.
 
 On a cluster with the cluster network, the containers of `staging` and
 `production` cannot reach each other: `api` in staging resolves only
-staging's internal names. Projects keep apps you operate apart; they are
+staging's internal names. Spaces keep apps you operate apart; they are
 not a boundary against hostile code (see
 [operations](../operations.md#sharing-a-cluster)).
 
 ## 3. Set the secrets
 
-Secrets belong to an app in a project, and you can set them before the app
+Secrets belong to an app in a space, and you can set them before the app
 exists. Put the plain values in a file you do not commit:
 
 ```
@@ -169,9 +169,9 @@ STRIPE_API_KEY=sk_test_51...
 ```
 
 ```bash
-armada secret import api staging.secrets.env --project staging
-armada secret set api jwt-signing-key --from-file jwt-staging.pem --project staging
-armada secret list api --project staging
+armada secret import api staging.secrets.env --space staging
+armada secret set api jwt-signing-key --from-file jwt-staging.pem --space staging
+armada secret list api --space staging
 ```
 
 ```
@@ -189,7 +189,7 @@ stripe-api-key   1        2026-11-10 09:12:04  user:you  -
   arguments, because they would end up in your shell history.
 - Values are never shown again. `secret list` shows names and versions.
 
-Do the same for production with its own values and `--project production`.
+Do the same for production with its own values and `--space production`.
 
 ### How the app gets them
 
@@ -218,7 +218,7 @@ Look first. `--diff` prints what would change and changes nothing; for an
 app that does not exist yet, every line is new:
 
 ```bash
-armada app update api --project staging \
+armada app update api --space staging \
   --file deploy/api.yaml --vars deploy/staging.env --var TAG=1.4.2 --diff
 ```
 
@@ -226,7 +226,7 @@ Then deploy. `--create-if-missing` creates the app the first time and
 updates it every time after, so the same command works for both:
 
 ```bash
-armada app update api --project staging \
+armada app update api --space staging \
   --file deploy/api.yaml --vars deploy/staging.env --var TAG=1.4.2 \
   --create-if-missing --wait
 ```
@@ -240,21 +240,21 @@ api.staging--r1 is live (1/1 ready)
 Verify the domain as in [deploy-a-web-app.md](deploy-a-web-app.md#3-add-your-own-domain):
 
 ```bash
-armada domain list --app api --project staging      # prints the TXT record to publish
+armada domain list --app api --space staging      # prints the TXT record to publish
 armada domain verify api.staging.example.com
 ```
 
-A domain belongs to one project, so staging and production need different
+A domain belongs to one space, so staging and production need different
 domains. Until it is verified, the app is reachable at
 `https://api.staging.apps.example.com`.
 
 ## 5. Promote the same image to production
 
 ```bash
-armada app update api --project production \
+armada app update api --space production \
   --file deploy/api.yaml --vars deploy/production.env --var TAG=1.4.2 --diff
 
-armada app update api --project production \
+armada app update api --space production \
   --file deploy/api.yaml --vars deploy/production.env --var TAG=1.4.2 \
   --create-if-missing --wait
 ```
@@ -264,7 +264,7 @@ The spec is the same file; only the variables and the secrets differ.
 ## 6. Release the next version
 
 ```bash
-armada app update api --project staging \
+armada app update api --space staging \
   --file deploy/api.yaml --vars deploy/staging.env --var TAG=1.5.0 --diff
 ```
 
@@ -317,17 +317,17 @@ armada app list -A
 ```
 
 ```
-PROJECT     NAME  READY  STATE  REVISION            IMAGE                   URL
+SPACE     NAME  READY  STATE  REVISION            IMAGE                   URL
 production  api   2/2    ready  api.production--r1  ghcr.io/acme/api:1.4.2  https://api.production.apps.example.com/
 staging     api   1/1    ready  api.staging--r2     ghcr.io/acme/api:1.5.0  https://api.staging.apps.example.com/
 ```
 
-The list shows the first URL; `armada app show api --project production`
+The list shows the first URL; `armada app show api --space production`
 lists the custom domain too.
 
 ```bash
-armada app exec api --project staging -- printenv APP_ENV DATABASE_URL
-armada app exec api --project staging -- ls -l /run/secrets/
+armada app exec api --space staging -- printenv APP_ENV DATABASE_URL
+armada app exec api --space staging -- ls -l /run/secrets/
 ```
 
 The first prints `staging` and the staging database URL, read inside the
@@ -341,11 +341,11 @@ production nodes), variables cannot help, since a value never changes the
 structure. Keep `api.staging.yaml` and `api.production.yaml`, and still use
 `--var TAG` for the image.
 
-**Preview environments.** Create a project per branch with
-`armada project create pr-42`, deploy with the staging vars and
+**Preview environments.** Create a space per branch with
+`armada space create pr-42`, deploy with the staging vars and
 `--var API_DOMAIN=...`, and delete it after: delete its apps
-(`armada app delete api --project pr-42 --yes`), then
-`armada project delete pr-42`. A project can only be deleted once it is
+(`armada app delete api --space pr-42 --yes`), then
+`armada space delete pr-42`. A space can only be deleted once it is
 empty.
 
 **Literal `${`.** With `--var` or `--vars`, write `$${` for a literal `${`.
@@ -356,11 +356,11 @@ Without them, the spec is taken as written.
 | Symptom | Cause | Fix |
 | --- | --- | --- |
 | `Error: the spec uses variables that are not set: TAG` | A variable has no value | Add it to the vars file or pass `--var TAG=...` |
-| `app api.staging references secrets that are not set: jwt-signing-key` | The spec names a secret the app does not have in this project | `armada secret set api jwt-signing-key --project staging` |
-| `api.production does not exist: create it with armada app create, or pass --create-if-missing` | First deploy to this project | Add `--create-if-missing` |
-| `domain api.example.com is used by project staging` | A domain belongs to one project | Use a different domain per environment |
+| `app api.staging references secrets that are not set: jwt-signing-key` | The spec names a secret the app does not have in this space | `armada secret set api jwt-signing-key --space staging` |
+| `api.production does not exist: create it with armada app create, or pass --create-if-missing` | First deploy to this space | Add `--create-if-missing` |
+| `domain api.example.com is used by space staging` | A domain belongs to one space | Use a different domain per environment |
 | The app does not see a new secret | `secret import` does not roll out, and `envFrom` takes the list at deploy | Deploy again (the same file and tag is fine) |
-| `armada app list` shows nothing | You are in another project | `armada project list`, `--project NAME`, or `armada app list -A` |
+| `armada app list` shows nothing | You are in another space | `armada space list`, `--space NAME`, or `armada app list -A` |
 | Replicas fail to start with a message about the secrets directory | The node's secrets directory is not on tmpfs, so `secretFiles` cannot be written | Run `armadad doctor` on that node and fix the `FAIL` |
 
 ## Next steps

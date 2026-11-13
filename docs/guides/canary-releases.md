@@ -244,7 +244,7 @@ curl https://preview--web.apps.example.com/   # the release candidate
 curl https://stable--web.apps.example.com/    # what users get
 ```
 
-From inside the cluster, other apps of the project reach the preview at
+From inside the cluster, other apps of the space reach the preview at
 `http://preview--web.internal`. When it is good, start a canary with
 `armada app traffic web r5=90 r6=10`, or go to 100 and back to single mode
 as above.

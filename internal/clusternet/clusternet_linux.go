@@ -368,15 +368,15 @@ func Diagnose(mode string, ip netip.Addr) []Check {
 	return append(diagnoseTunnel(mode, ip), diagnoseIsolation())
 }
 
-// diagnoseIsolation reports whether the tables that keep apps and projects
+// diagnoseIsolation reports whether the tables that keep apps and spaces
 // apart are in place.
 func diagnoseIsolation() Check {
-	c := Check{Name: "isolation", Level: CheckOK, Detail: "the nftables tables that keep apps and projects apart are in place"}
+	c := Check{Name: "isolation", Level: CheckOK, Detail: "the nftables tables that keep apps and spaces apart are in place"}
 	switch ok, err := hasIsolation(); {
 	case err != nil:
-		c.Level, c.Detail = CheckFail, fmt.Sprintf("nftables is not usable (%v); the kernel needs nf_tables to keep apps and projects apart", err)
+		c.Level, c.Detail = CheckFail, fmt.Sprintf("nftables is not usable (%v); the kernel needs nf_tables to keep apps and spaces apart", err)
 	case !ok:
-		c.Level, c.Detail = CheckWarn, "the nftables tables that keep apps and projects apart are not set up yet; the agent creates them once connected"
+		c.Level, c.Detail = CheckWarn, "the nftables tables that keep apps and spaces apart are not set up yet; the agent creates them once connected"
 	}
 	return c
 }

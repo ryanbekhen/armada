@@ -223,7 +223,7 @@ func (a *App) Validate() error {
 		v.add("kind", "must be %q or %q", KindApp, KindJob)
 	}
 	v.name("name", a.Name)
-	v.project(a.Project)
+	v.space(a.Space)
 	v.image("image", a.Image)
 	v.args("command", a.Command)
 	v.args("args", a.Args)
@@ -393,7 +393,7 @@ func (v *validator) ingress(in *Ingress, self string) {
 		f := fmt.Sprintf("ingress.allow[%d]", i)
 		switch {
 		case !ValidName(a):
-			v.add(f, "%q is not an app name of this project (lowercase letters, digits, and single hyphens)", a)
+			v.add(f, "%q is not an app name of this space (lowercase letters, digits, and single hyphens)", a)
 		case a == self:
 			v.add(f, "the app itself may always call itself; leave it out")
 		case allowed[a]:
@@ -459,7 +459,7 @@ func (v *validator) protocol(in *Ingress) {
 		return
 	}
 	if in.Type != IngressInternal {
-		v.add("ingress.protocol", "tcp is internal only: set type internal; apps of the project then connect to <app>%s:<port>, and nothing outside the cluster can", InternalSuffix)
+		v.add("ingress.protocol", "tcp is internal only: set type internal; apps of the space then connect to <app>%s:<port>, and nothing outside the cluster can", InternalSuffix)
 	}
 	if in.Port >= 1 && in.Port <= 65535 {
 		if err := CheckTCPPort(in.Port); err != nil {
@@ -512,32 +512,32 @@ const InternalSuffix = ".internal"
 func InternalHost(app string) string { return app + InternalSuffix }
 
 // InternalSearchDomain is the search domain of a container of the app with
-// this ID: internal names of its own project resolve by the app's name
-// alone (b for b.internal, or b.shop.internal in project shop).
+// this ID: internal names of its own space resolve by the app's name
+// alone (b for b.internal, or b.shop.internal in space shop).
 func InternalSearchDomain(appID string) string {
-	project, _, ok := SplitAppID(appID)
+	space, _, ok := SplitAppID(appID)
 	if !ok {
 		return ""
 	}
-	if project == DefaultProject {
+	if space == DefaultSpace {
 		return strings.TrimPrefix(InternalSuffix, ".")
 	}
-	return project + InternalSuffix
+	return space + InternalSuffix
 }
 
 // ValidSearchDomain reports whether s is a search domain Armada gives
-// containers: internal, or <project>.internal.
+// containers: internal, or <space>.internal.
 func ValidSearchDomain(s string) bool {
 	if s == strings.TrimPrefix(InternalSuffix, ".") {
 		return true
 	}
-	project, ok := strings.CutSuffix(s, InternalSuffix)
-	return ok && project != DefaultProject && ValidProject(project)
+	space, ok := strings.CutSuffix(s, InternalSuffix)
+	return ok && space != DefaultSpace && ValidSpace(space)
 }
 
 // LabelHost is the host name label of a revision of app serves under
-// (ADR 0022): <label>--<app>, with app an ID (<label>--<name>.<project>
-// in other projects). App names cannot contain "--", so it never collides
+// (ADR 0022): <label>--<app>, with app an ID (<label>--<name>.<space>
+// in other spaces). App names cannot contain "--", so it never collides
 // with another app's name.
 func LabelHost(label, app string) string { return label + "--" + app }
 

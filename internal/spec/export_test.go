@@ -54,7 +54,7 @@ placement:
 		t.Fatal(err)
 	}
 	if strings.Contains(string(out), "REDIS_URL") || strings.Contains(string(out), "shop") {
-		t.Errorf("export kept what envFrom added or the project:\n%s", out)
+		t.Errorf("export kept what envFrom added or the space:\n%s", out)
 	}
 	b, err := ParseIn(out, "shop")
 	if err != nil {

@@ -29,7 +29,7 @@ Every architectural decision that is hard to reverse is recorded here. Copy `000
 | [0023](0023-persistent-volumes.md) | Persistent volumes | Accepted |
 | [0024](0024-local-first-routing.md) | Local-first routing | Accepted |
 | [0025](0025-cluster-network.md) | Cluster network | Accepted |
-| [0026](0026-projects-and-network-isolation.md) | Projects and network isolation | Accepted; automation identities superseded by 0033 |
+| [0026](0026-spaces-and-network-isolation.md) | Spaces and network isolation | Accepted; automation identities superseded by 0033 |
 | [0027](0027-client-and-daemon-binaries.md) | Client and daemon binaries | Accepted |
 | [0028](0028-administrators.md) | Administrators | Superseded by 0033 |
 | [0029](0029-spec-variables-and-env-from-secrets.md) | Spec variables and variables from secrets | Accepted |

@@ -94,11 +94,11 @@ func TestSecretsDisabledWithoutKey(t *testing.T) {
 	}
 }
 
-// An app of another project is named by its ID, like everywhere else past the API.
-func TestSecretOfProjectApp(t *testing.T) {
+// An app of another space is named by its ID, like everywhere else past the API.
+func TestSecretOfSpaceApp(t *testing.T) {
 	t.Parallel()
 	c := newCluster(t, withKeys(t))
-	if _, err := c.admin.CreateProject(c.ctx, &armadav1.CreateProjectRequest{Name: "staging"}); err != nil {
+	if _, err := c.admin.CreateSpace(c.ctx, &armadav1.CreateSpaceRequest{Name: "staging"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := c.admin.SetSecret(c.ctx, &armadav1.SetSecretRequest{App: "api.staging", Name: "db", Value: []byte("one")}); err != nil {
@@ -117,6 +117,6 @@ func TestSecretOfProjectApp(t *testing.T) {
 		}
 	}
 	if _, err := c.admin.SetSecret(c.ctx, &armadav1.SetSecretRequest{App: "api.nowhere", Name: "db", Value: []byte("x")}); err == nil {
-		t.Error("secret in a project that does not exist")
+		t.Error("secret in a space that does not exist")
 	}
 }

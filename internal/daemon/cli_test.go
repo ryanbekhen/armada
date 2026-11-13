@@ -22,7 +22,7 @@ func isDaemon(args []string) bool {
 	var pos []string
 	for i := 0; i < len(args); i++ {
 		a := args[i]
-		if a == "--config" || a == "--project" {
+		if a == "--config" || a == "--space" {
 			i++
 			continue
 		}

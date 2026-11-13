@@ -19,7 +19,7 @@ func TestListAppsAndClusterStatus(t *testing.T) {
 	t.Parallel()
 	c := newClockServer(t)
 	admin := c.srv.internalContext(c.ctx)
-	if _, err := c.st.CreateProject(c.ctx, "shop", "t", nil); err != nil {
+	if _, err := c.st.CreateSpace(c.ctx, "shop", "t", nil); err != nil {
 		t.Fatal(err)
 	}
 	for i := range 7 {
@@ -34,7 +34,7 @@ func TestListAppsAndClusterStatus(t *testing.T) {
 	}
 	c.reconcile()
 
-	// Pages of three over the default project, in name order.
+	// Pages of three over the default space, in name order.
 	var names []string
 	token := ""
 	for range 5 {
@@ -50,14 +50,14 @@ func TestListAppsAndClusterStatus(t *testing.T) {
 		}
 	}
 	if strings.Join(names, ",") != "app0,app1,app2,app3,app4,app5,app6" {
-		t.Errorf("default project pages: %v", names)
+		t.Errorf("default space pages: %v", names)
 	}
-	resp, err := c.srv.ListApps(admin, &armadav1.ListAppsRequest{Project: "shop"})
-	if err != nil || len(resp.Apps) != 1 || resp.Apps[0].Name != "cart.shop" || resp.Apps[0].Project != "shop" {
+	resp, err := c.srv.ListApps(admin, &armadav1.ListAppsRequest{Space: "shop"})
+	if err != nil || len(resp.Apps) != 1 || resp.Apps[0].Name != "cart.shop" || resp.Apps[0].Space != "shop" {
 		t.Errorf("shop: %v %v", resp, err)
 	}
-	if resp, _ := c.srv.ListApps(admin, &armadav1.ListAppsRequest{AllProjects: true}); len(resp.GetApps()) != 8 {
-		t.Errorf("all projects: %d apps", len(resp.GetApps()))
+	if resp, _ := c.srv.ListApps(admin, &armadav1.ListAppsRequest{AllSpaces: true}); len(resp.GetApps()) != 8 {
+		t.Errorf("all spaces: %d apps", len(resp.GetApps()))
 	}
 
 	// Nothing is ready yet: every app needs attention, bounded.
@@ -74,10 +74,10 @@ func TestListAppsAndClusterStatus(t *testing.T) {
 		t.Errorf("after serving: %+v", st)
 	}
 
-	// A service with a role in one project sees only that project, never
+	// A service with a role in one space sees only that space, never
 	// the cluster.
-	auto := withPrincipal(c, store.Principal{Kind: store.KindService, Name: "ci", Roles: []store.Grant{{Role: store.RoleViewer, Project: "shop"}}}, needView)
-	if resp, err := c.srv.ListApps(auto, &armadav1.ListAppsRequest{AllProjects: true}); err != nil || len(resp.Apps) != 1 {
+	auto := withPrincipal(c, store.Principal{Kind: store.KindService, Name: "ci", Roles: []store.Grant{{Role: store.RoleViewer, Space: "shop"}}}, needView)
+	if resp, err := c.srv.ListApps(auto, &armadav1.ListAppsRequest{AllSpaces: true}); err != nil || len(resp.Apps) != 1 {
 		t.Errorf("service listing: %v %v", resp, err)
 	}
 	if _, err := c.srv.ListApps(auto, &armadav1.ListAppsRequest{}); status.Code(err) != codes.PermissionDenied {

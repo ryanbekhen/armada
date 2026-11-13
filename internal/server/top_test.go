@@ -164,7 +164,7 @@ func TestUsageStore(t *testing.T) {
 	}
 }
 
-func TestUsageStoreCountsProjects(t *testing.T) {
+func TestUsageStoreCountsSpaces(t *testing.T) {
 	t.Parallel()
 	u := newUsageStore()
 	now := time.Now()
@@ -175,7 +175,7 @@ func TestUsageStoreCountsProjects(t *testing.T) {
 	}
 	// Nothing counts before the reconciler says who owns what.
 	u.set("n1", report, now)
-	if got, since := u.projectTotals("p"); got != (projectTotals{}) || !since.IsZero() {
+	if got, since := u.spaceTotals("p"); got != (spaceTotals{}) || !since.IsZero() {
 		t.Fatalf("counted without owners: %+v since %v", got, since)
 	}
 
@@ -185,13 +185,13 @@ func TestUsageStoreCountsProjects(t *testing.T) {
 	}, now)
 	u.set("n1", report, now)
 	u.set("n1", report, now)
-	if got, since := u.projectTotals("p"); got != (projectTotals{requests: 6, egress: 200}) || !since.Equal(now) {
-		t.Errorf("project p: %+v since %v", got, since)
+	if got, since := u.spaceTotals("p"); got != (spaceTotals{requests: 6, egress: 200}) || !since.Equal(now) {
+		t.Errorf("space p: %+v since %v", got, since)
 	}
 	// n1 cannot claim egress for a replica on n2; requests come from any
 	// node's proxy.
-	if got, _ := u.projectTotals("default"); got != (projectTotals{requests: 10}) {
-		t.Errorf("default project: %+v", got)
+	if got, _ := u.spaceTotals("default"); got != (spaceTotals{requests: 10}) {
+		t.Errorf("default space: %+v", got)
 	}
 
 	// Untrusted values are bounded, and a replica nobody owns counts nowhere.
@@ -200,7 +200,7 @@ func TestUsageStoreCountsProjects(t *testing.T) {
 		Load:         []*armadav1.ReplicaLoad{{Id: "web.p-r1-a", Requests: -5}, {Id: "ghost", Requests: 1}},
 		LoadMeasured: true,
 	}, now)
-	if got, _ := u.projectTotals("p"); got != (projectTotals{requests: 6, egress: 200}) {
+	if got, _ := u.spaceTotals("p"); got != (spaceTotals{requests: 6, egress: 200}) {
 		t.Errorf("negative or unknown values counted: %+v", got)
 	}
 	u.set("n1", &armadav1.UsageReport{
@@ -208,7 +208,7 @@ func TestUsageStoreCountsProjects(t *testing.T) {
 		Load:         []*armadav1.ReplicaLoad{{Id: "web.p-r1-a", Requests: math.MaxInt64}},
 		LoadMeasured: true,
 	}, now)
-	if got, _ := u.projectTotals("p"); got != (projectTotals{requests: 6 + maxReportRequests, egress: 200 + maxReportEgress}) {
+	if got, _ := u.spaceTotals("p"); got != (spaceTotals{requests: 6 + maxReportRequests, egress: 200 + maxReportEgress}) {
 		t.Errorf("huge values kept: %+v", got)
 	}
 	if saturatingAdd(math.MaxInt64-1, 5) != math.MaxInt64 {
@@ -216,40 +216,40 @@ func TestUsageStoreCountsProjects(t *testing.T) {
 	}
 	// Load that was not measured adds nothing.
 	u.set("n1", &armadav1.UsageReport{Load: []*armadav1.ReplicaLoad{{Id: "api-r1-b", Requests: 5}}}, now)
-	if got, _ := u.projectTotals("default"); got.requests != 10 {
+	if got, _ := u.spaceTotals("default"); got.requests != 10 {
 		t.Errorf("unmeasured load counted: %+v", got)
 	}
 
 	// The first counting time stays, and removed replicas keep their counts.
 	u.setOwners(nil, now.Add(time.Hour))
-	if got, since := u.projectTotals("p"); got.requests == 0 || !since.Equal(now) {
+	if got, since := u.spaceTotals("p"); got.requests == 0 || !since.Equal(now) {
 		t.Errorf("after replicas left: %+v since %v", got, since)
 	}
-	u.forgetProject("p")
-	if got, _ := u.projectTotals("p"); got != (projectTotals{}) {
-		t.Errorf("removed project kept: %+v", got)
+	u.forgetSpace("p")
+	if got, _ := u.spaceTotals("p"); got != (spaceTotals{}) {
+		t.Errorf("removed space kept: %+v", got)
 	}
 }
 
-func TestTopProjects(t *testing.T) {
+func TestTopSpaces(t *testing.T) {
 	t.Parallel()
 	c := newCluster(t)
 	d := c.addNode("n1", "127.0.0.1")
-	if _, err := c.admin.CreateProject(c.ctx, &armadav1.CreateProjectRequest{Name: "shop"}); err != nil {
+	if _, err := c.admin.CreateSpace(c.ctx, &armadav1.CreateSpaceRequest{Name: "shop"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.admin.CreateProject(c.ctx, &armadav1.CreateProjectRequest{Name: "other"}); err != nil {
+	if _, err := c.admin.CreateSpace(c.ctx, &armadav1.CreateSpaceRequest{Name: "other"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.admin.Deploy(c.ctx, &armadav1.DeployRequest{Spec: []byte(webSpec("nginx:1", 1) + "resources:\n  cpu: 250m\n  memory: 128Mi\n"), Project: "shop"}); err != nil {
+	if _, err := c.admin.Deploy(c.ctx, &armadav1.DeployRequest{Spec: []byte(webSpec("nginx:1", 1) + "resources:\n  cpu: 250m\n  memory: 128Mi\n"), Space: "shop"}); err != nil {
 		t.Fatal(err)
 	}
 	c.eventually("web.shop running", func() bool { return len(c.running("web.shop")) == 1 })
 	id := c.running("web.shop")[0].Id
 	d.SetUsage(id, runtime.Stats{MemoryBytes: 50 << 20})
 
-	project := func(resp *armadav1.TopResponse, name string) *armadav1.ProjectTop {
-		for _, p := range resp.GetProjects() {
+	space := func(resp *armadav1.TopResponse, name string) *armadav1.SpaceTop {
+		for _, p := range resp.GetSpaces() {
 			if p.GetName() == name {
 				return p
 			}
@@ -264,52 +264,52 @@ func TestTopProjects(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		p := project(resp, "shop")
+		p := space(resp, "shop")
 		return p != nil && p.GetMeasured() == 1 && p.GetEgressBytes() > 0
 	})
 	resp, err := c.admin.Top(c.ctx, &armadav1.TopRequest{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	p := project(resp, "shop")
+	p := space(resp, "shop")
 	if p.GetReplicas() != 1 || p.GetMemoryBytes() != 50<<20 || p.GetCpuReservedMillis() != 250 || p.GetMemoryReservedBytes() != 128<<20 {
 		t.Errorf("shop: %v", p)
 	}
 	if resp.GetCountedSince() == nil {
 		t.Error("no counting start")
 	}
-	if o := project(resp, "other"); o == nil || o.GetReplicas() != 0 || o.GetEgressBytes() != 0 {
+	if o := space(resp, "other"); o == nil || o.GetReplicas() != 0 || o.GetEgressBytes() != 0 {
 		t.Errorf("other: %v", o)
 	}
-	if project(resp, "default") == nil {
-		t.Error("default project missing")
+	if space(resp, "default") == nil {
+		t.Error("default space missing")
 	}
 
-	// One app's listing has no project totals.
-	if resp, err := c.admin.Top(c.ctx, &armadav1.TopRequest{App: "web.shop"}); err != nil || len(resp.GetProjects()) != 0 {
-		t.Errorf("app listing: %v %v", resp.GetProjects(), err)
+	// One app's listing has no space totals.
+	if resp, err := c.admin.Top(c.ctx, &armadav1.TopRequest{App: "web.shop"}); err != nil || len(resp.GetSpaces()) != 0 {
+		t.Errorf("app listing: %v %v", resp.GetSpaces(), err)
 	}
 }
 
-func TestTopProjectsScope(t *testing.T) {
+func TestTopSpacesScope(t *testing.T) {
 	t.Parallel()
 	c, tool, _ := serviceCluster(t)
-	if _, err := c.admin.CreateProject(c.ctx, &armadav1.CreateProjectRequest{Name: "elsewhere"}); err != nil {
+	if _, err := c.admin.CreateSpace(c.ctx, &armadav1.CreateSpaceRequest{Name: "elsewhere"}); err != nil {
 		t.Fatal(err)
 	}
 	resp, err := tool.Top(c.ctx, &armadav1.TopRequest{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(resp.GetProjects()) != 1 || resp.GetProjects()[0].GetName() != "a" {
-		t.Errorf("service sees %v", resp.GetProjects())
+	if len(resp.GetSpaces()) != 1 || resp.GetSpaces()[0].GetName() != "a" {
+		t.Errorf("service sees %v", resp.GetSpaces())
 	}
 	all, err := c.admin.Top(c.ctx, &armadav1.TopRequest{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(all.GetProjects()) != 4 {
-		t.Errorf("admin sees %v", all.GetProjects())
+	if len(all.GetSpaces()) != 4 {
+		t.Errorf("admin sees %v", all.GetSpaces())
 	}
 }
 

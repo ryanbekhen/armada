@@ -12,7 +12,7 @@ import (
 )
 
 // Name is the binary and product name. Keep every user-facing reference to the
-// project name pointing here so a rename touches one line.
+// space name pointing here so a rename touches one line.
 const Name = "armada"
 
 const (

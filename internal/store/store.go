@@ -357,7 +357,7 @@ type Store interface {
 	// InitNetwork records the cluster network before the first node is
 	// created; nodes created afterwards get a subnet from it.
 	InitNetwork(ctx context.Context, n Network) error
-	// SetDefaultIsolation turns network isolation of the default project on
+	// SetDefaultIsolation turns network isolation of the default space on
 	// or off; ErrPrecondition without a cluster network.
 	SetDefaultIsolation(ctx context.Context, on bool, actor string) error
 
@@ -406,19 +406,19 @@ type Store interface {
 	// RemoveServer deletes a control plane node's record.
 	RemoveServer(ctx context.Context, name, actor string) error
 
-	// CreateProject records a new project (ADR 0026); ErrConflict if it
-	// exists or is the default project. A non-nil by (a principal with
-	// project-creator, else ErrPrecondition) becomes the project's admin in
+	// CreateSpace records a new space (ADR 0026); ErrConflict if it
+	// exists or is the default space. A non-nil by (a principal with
+	// space-creator, else ErrPrecondition) becomes the space's admin in
 	// the same transaction (ADR 0033).
-	CreateProject(ctx context.Context, name, actor string, by *Principal) (Project, error)
-	// GetProject returns a project; the default one always exists.
-	GetProject(ctx context.Context, name string) (Project, error)
-	// ListProjects lists every project, the default one first.
-	ListProjects(ctx context.Context) ([]Project, error)
-	// DeleteProject removes a project; ErrPrecondition while it still
+	CreateSpace(ctx context.Context, name, actor string, by *Principal) (Space, error)
+	// GetSpace returns a space; the default one always exists.
+	GetSpace(ctx context.Context, name string) (Space, error)
+	// ListSpaces lists every space, the default one first.
+	ListSpaces(ctx context.Context) ([]Space, error)
+	// DeleteSpace removes a space; ErrPrecondition while it still
 	// holds apps, secrets, volumes, runs, or replicas, and for the default
-	// project. Every role in it is taken back.
-	DeleteProject(ctx context.Context, name, actor string) error
+	// space. Every role in it is taken back.
+	DeleteSpace(ctx context.Context, name, actor string) error
 
 	// Access control (ADR 0033). CreateUser records a user (ErrConflict
 	// while one of the name is on record) whose certificates issued before
@@ -433,7 +433,7 @@ type Store interface {
 	// ListPrincipals lists users then services; kind "" lists both.
 	ListPrincipals(ctx context.Context, kind string) ([]Principal, error)
 	SetPrincipalLabels(ctx context.Context, kind, name string, labels map[string][]string, actor string) (Principal, error)
-	// Assign and Unassign give and take back a role; projects must exist.
+	// Assign and Unassign give and take back a role; spaces must exist.
 	Assign(ctx context.Context, kind, name string, g Grant, actor string) (Principal, error)
 	Unassign(ctx context.Context, kind, name string, g Grant, actor string) (Principal, error)
 	// DeletePrincipal deletes a service, or marks a user deleted so that
@@ -454,7 +454,7 @@ type Store interface {
 	// replica count to spec.Replicas(), registers the spec's custom domains,
 	// and returns ErrConflict if another app already routes one of its
 	// host+path pairs. The app is stored under spec.ID(); ErrPrecondition
-	// if its project does not exist.
+	// if its space does not exist.
 	Deploy(ctx context.Context, s *spec.App, actor string) (rev Revision, created bool, err error)
 	// DeployWith is Deploy with the checks of opts (ADR 0032), made in the
 	// same transaction.

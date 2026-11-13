@@ -72,7 +72,7 @@ func (s *Server) principalAccess(ctx context.Context, pid pki.Identity, cert *x5
 // authorizePrincipal lets a user or service call AdminService methods its
 // roles allow: every method with cluster-admin, else only those in
 // methodNeeds that one of its roles reaches. Its roles are read on every
-// call, and each handler checks them against the projects it touches.
+// call, and each handler checks them against the spaces it touches.
 func (s *Server) authorizePrincipal(ctx context.Context, pid pki.Identity, cert *x509.Certificate, method string) (context.Context, error) {
 	if !strings.HasPrefix(method, adminService) {
 		return nil, status.Errorf(codes.PermissionDenied, "%s may not call %s", pid, method)

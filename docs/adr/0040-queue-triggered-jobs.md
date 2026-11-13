@@ -18,8 +18,8 @@ A job costs nothing while no run is active. What it lacks is a way to know
 that work waits. The length must be read without a container, and still
 from exactly where the job's containers would stand on the network:
 reading it from the node's own network would give the job the node's reach
-(other projects, the platform, the provider's metadata service) and bypass
-project isolation (ADR 0026).
+(other spaces, the platform, the provider's metadata service) and bypass
+space isolation (ADR 0026).
 
 ## Decision
 
@@ -89,8 +89,8 @@ trigger:
   reports it in `UsageReport.sandboxes`, and the leader adds it to
   `NetworkConfig.endpoints` for every node, checked against the node's
   subnet like a replica's address. So the sandbox reaches exactly what the
-  job's containers could: in an isolated project, nothing outside the
-  project.
+  job's containers could: in an isolated space, nothing outside the
+  space.
 - **The agent dials from inside.** A thread switched into the sandbox's
   namespace creates the socket, as for queue rules (ADR 0034). Names
   resolve through the containers' nameserver, also from inside. Only IP
@@ -163,7 +163,7 @@ trigger:
 
 - **Read the queue from the leader or the agent's own network.** No
   sandbox needed, but the job would reach what the node reaches, outside its
-  project's isolation. Refused for that.
+  space's isolation. Refused for that.
 - **Keep one container of the job running to read from.** That is a worker
   app with a queue rule (ADR 0034), with the idle cost this decision
   removes.

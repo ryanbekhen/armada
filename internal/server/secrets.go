@@ -20,7 +20,7 @@ import (
 // name.
 func checkSecretTarget(app, name string, listing bool) error {
 	if !spec.ValidAppID(app) {
-		return status.Errorf(codes.InvalidArgument, "invalid app %q: want NAME, or NAME.PROJECT for an app of another project", app)
+		return status.Errorf(codes.InvalidArgument, "invalid app %q: want NAME, or NAME.SPACE for an app of another space", app)
 	}
 	if listing {
 		return nil

@@ -133,7 +133,7 @@ address (a VPN or an SSH tunnel): see
 | **Scale** | Autoscaling on requests, CPU, memory, queue length, or a schedule; scale to zero and back on the next request |
 | **Run** | Jobs and cron jobs, jobs started by a queue, init containers, sidecars, `exec` into replicas, logs |
 | **Data** | Volumes, scheduled encrypted backups to an S3-compatible bucket, failover to another node, NFS exports |
-| **Operate** | Highly available control plane, self-healing, placement by labels, projects, users and roles, events, Prometheus metrics, verified upgrades |
+| **Operate** | Highly available control plane, self-healing, placement by labels, spaces, users and roles, events, Prometheus metrics, verified upgrades |
 
 Read the [full feature list](docs/features.md).
 
@@ -142,7 +142,7 @@ Read the [full feature list](docs/features.md).
 | | |
 | --- | --- |
 | **[Quickstart](docs/quickstart.md)** | From empty machines to an app on HTTPS |
-| **[Concepts](docs/concepts.md)** | Apps, revisions, replicas, nodes, projects: how Armada thinks |
+| **[Concepts](docs/concepts.md)** | Apps, revisions, replicas, nodes, spaces: how Armada thinks |
 | **[Guides](docs/guides/README.md)** | Complete recipes: a web app, a database, workers, cron jobs, canaries, CI/CD, and more |
 | **[CLI reference](docs/cli/armada.md)** | Every `armada` and `armadad` command and flag |
 | **[Spec reference](docs/spec-reference.md)** | Every field of an app or job spec |

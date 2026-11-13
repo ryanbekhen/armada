@@ -1308,27 +1308,27 @@ func (x *IssueMetricsCertificateResponse) GetExpiresAt() *timestamppb.Timestamp 
 	return nil
 }
 
-type CreateProjectRequest struct {
+type CreateSpaceRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *CreateProjectRequest) Reset() {
-	*x = CreateProjectRequest{}
+func (x *CreateSpaceRequest) Reset() {
+	*x = CreateSpaceRequest{}
 	mi := &file_armada_v1_armada_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *CreateProjectRequest) String() string {
+func (x *CreateSpaceRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*CreateProjectRequest) ProtoMessage() {}
+func (*CreateSpaceRequest) ProtoMessage() {}
 
-func (x *CreateProjectRequest) ProtoReflect() protoreflect.Message {
+func (x *CreateSpaceRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_armada_v1_armada_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -1340,46 +1340,46 @@ func (x *CreateProjectRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use CreateProjectRequest.ProtoReflect.Descriptor instead.
-func (*CreateProjectRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use CreateSpaceRequest.ProtoReflect.Descriptor instead.
+func (*CreateSpaceRequest) Descriptor() ([]byte, []int) {
 	return file_armada_v1_armada_proto_rawDescGZIP(), []int{19}
 }
 
-func (x *CreateProjectRequest) GetName() string {
+func (x *CreateSpaceRequest) GetName() string {
 	if x != nil {
 		return x.Name
 	}
 	return ""
 }
 
-type ProjectInfo struct {
+type SpaceInfo struct {
 	state     protoimpl.MessageState `protogen:"open.v1"`
 	Name      string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
 	CreatedAt *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	CreatedBy string                 `protobuf:"bytes,3,opt,name=created_by,json=createdBy,proto3" json:"created_by,omitempty"`
-	// Apps and jobs in the project.
+	// Apps and jobs in the space.
 	Apps int32 `protobuf:"varint,4,opt,name=apps,proto3" json:"apps,omitempty"`
 	// Its containers are kept away from the platform and the private network
-	// (ADR 0026): always for projects other than default.
+	// (ADR 0026): always for spaces other than default.
 	NetworkIsolation bool `protobuf:"varint,5,opt,name=network_isolation,json=networkIsolation,proto3" json:"network_isolation,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
 
-func (x *ProjectInfo) Reset() {
-	*x = ProjectInfo{}
+func (x *SpaceInfo) Reset() {
+	*x = SpaceInfo{}
 	mi := &file_armada_v1_armada_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *ProjectInfo) String() string {
+func (x *SpaceInfo) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*ProjectInfo) ProtoMessage() {}
+func (*SpaceInfo) ProtoMessage() {}
 
-func (x *ProjectInfo) ProtoReflect() protoreflect.Message {
+func (x *SpaceInfo) ProtoReflect() protoreflect.Message {
 	mi := &file_armada_v1_armada_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -1391,70 +1391,70 @@ func (x *ProjectInfo) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use ProjectInfo.ProtoReflect.Descriptor instead.
-func (*ProjectInfo) Descriptor() ([]byte, []int) {
+// Deprecated: Use SpaceInfo.ProtoReflect.Descriptor instead.
+func (*SpaceInfo) Descriptor() ([]byte, []int) {
 	return file_armada_v1_armada_proto_rawDescGZIP(), []int{20}
 }
 
-func (x *ProjectInfo) GetName() string {
+func (x *SpaceInfo) GetName() string {
 	if x != nil {
 		return x.Name
 	}
 	return ""
 }
 
-func (x *ProjectInfo) GetCreatedAt() *timestamppb.Timestamp {
+func (x *SpaceInfo) GetCreatedAt() *timestamppb.Timestamp {
 	if x != nil {
 		return x.CreatedAt
 	}
 	return nil
 }
 
-func (x *ProjectInfo) GetCreatedBy() string {
+func (x *SpaceInfo) GetCreatedBy() string {
 	if x != nil {
 		return x.CreatedBy
 	}
 	return ""
 }
 
-func (x *ProjectInfo) GetApps() int32 {
+func (x *SpaceInfo) GetApps() int32 {
 	if x != nil {
 		return x.Apps
 	}
 	return 0
 }
 
-func (x *ProjectInfo) GetNetworkIsolation() bool {
+func (x *SpaceInfo) GetNetworkIsolation() bool {
 	if x != nil {
 		return x.NetworkIsolation
 	}
 	return false
 }
 
-type UpdateProjectRequest struct {
+type UpdateSpaceRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Name  string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	// Turn network isolation on or off; only the default project may have
+	// Turn network isolation on or off; only the default space may have
 	// it off. Unset leaves it unchanged.
 	NetworkIsolation *bool `protobuf:"varint,2,opt,name=network_isolation,json=networkIsolation,proto3,oneof" json:"network_isolation,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
 
-func (x *UpdateProjectRequest) Reset() {
-	*x = UpdateProjectRequest{}
+func (x *UpdateSpaceRequest) Reset() {
+	*x = UpdateSpaceRequest{}
 	mi := &file_armada_v1_armada_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *UpdateProjectRequest) String() string {
+func (x *UpdateSpaceRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*UpdateProjectRequest) ProtoMessage() {}
+func (*UpdateSpaceRequest) ProtoMessage() {}
 
-func (x *UpdateProjectRequest) ProtoReflect() protoreflect.Message {
+func (x *UpdateSpaceRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_armada_v1_armada_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -1466,45 +1466,45 @@ func (x *UpdateProjectRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use UpdateProjectRequest.ProtoReflect.Descriptor instead.
-func (*UpdateProjectRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use UpdateSpaceRequest.ProtoReflect.Descriptor instead.
+func (*UpdateSpaceRequest) Descriptor() ([]byte, []int) {
 	return file_armada_v1_armada_proto_rawDescGZIP(), []int{21}
 }
 
-func (x *UpdateProjectRequest) GetName() string {
+func (x *UpdateSpaceRequest) GetName() string {
 	if x != nil {
 		return x.Name
 	}
 	return ""
 }
 
-func (x *UpdateProjectRequest) GetNetworkIsolation() bool {
+func (x *UpdateSpaceRequest) GetNetworkIsolation() bool {
 	if x != nil && x.NetworkIsolation != nil {
 		return *x.NetworkIsolation
 	}
 	return false
 }
 
-type ListProjectsRequest struct {
+type ListSpacesRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *ListProjectsRequest) Reset() {
-	*x = ListProjectsRequest{}
+func (x *ListSpacesRequest) Reset() {
+	*x = ListSpacesRequest{}
 	mi := &file_armada_v1_armada_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *ListProjectsRequest) String() string {
+func (x *ListSpacesRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*ListProjectsRequest) ProtoMessage() {}
+func (*ListSpacesRequest) ProtoMessage() {}
 
-func (x *ListProjectsRequest) ProtoReflect() protoreflect.Message {
+func (x *ListSpacesRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_armada_v1_armada_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -1516,32 +1516,32 @@ func (x *ListProjectsRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use ListProjectsRequest.ProtoReflect.Descriptor instead.
-func (*ListProjectsRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use ListSpacesRequest.ProtoReflect.Descriptor instead.
+func (*ListSpacesRequest) Descriptor() ([]byte, []int) {
 	return file_armada_v1_armada_proto_rawDescGZIP(), []int{22}
 }
 
-type ListProjectsResponse struct {
+type ListSpacesResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Projects      []*ProjectInfo         `protobuf:"bytes,1,rep,name=projects,proto3" json:"projects,omitempty"`
+	Spaces        []*SpaceInfo           `protobuf:"bytes,1,rep,name=spaces,proto3" json:"spaces,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *ListProjectsResponse) Reset() {
-	*x = ListProjectsResponse{}
+func (x *ListSpacesResponse) Reset() {
+	*x = ListSpacesResponse{}
 	mi := &file_armada_v1_armada_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *ListProjectsResponse) String() string {
+func (x *ListSpacesResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*ListProjectsResponse) ProtoMessage() {}
+func (*ListSpacesResponse) ProtoMessage() {}
 
-func (x *ListProjectsResponse) ProtoReflect() protoreflect.Message {
+func (x *ListSpacesResponse) ProtoReflect() protoreflect.Message {
 	mi := &file_armada_v1_armada_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -1553,39 +1553,39 @@ func (x *ListProjectsResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use ListProjectsResponse.ProtoReflect.Descriptor instead.
-func (*ListProjectsResponse) Descriptor() ([]byte, []int) {
+// Deprecated: Use ListSpacesResponse.ProtoReflect.Descriptor instead.
+func (*ListSpacesResponse) Descriptor() ([]byte, []int) {
 	return file_armada_v1_armada_proto_rawDescGZIP(), []int{23}
 }
 
-func (x *ListProjectsResponse) GetProjects() []*ProjectInfo {
+func (x *ListSpacesResponse) GetSpaces() []*SpaceInfo {
 	if x != nil {
-		return x.Projects
+		return x.Spaces
 	}
 	return nil
 }
 
-type DeleteProjectRequest struct {
+type DeleteSpaceRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *DeleteProjectRequest) Reset() {
-	*x = DeleteProjectRequest{}
+func (x *DeleteSpaceRequest) Reset() {
+	*x = DeleteSpaceRequest{}
 	mi := &file_armada_v1_armada_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *DeleteProjectRequest) String() string {
+func (x *DeleteSpaceRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*DeleteProjectRequest) ProtoMessage() {}
+func (*DeleteSpaceRequest) ProtoMessage() {}
 
-func (x *DeleteProjectRequest) ProtoReflect() protoreflect.Message {
+func (x *DeleteSpaceRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_armada_v1_armada_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -1597,38 +1597,38 @@ func (x *DeleteProjectRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use DeleteProjectRequest.ProtoReflect.Descriptor instead.
-func (*DeleteProjectRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use DeleteSpaceRequest.ProtoReflect.Descriptor instead.
+func (*DeleteSpaceRequest) Descriptor() ([]byte, []int) {
 	return file_armada_v1_armada_proto_rawDescGZIP(), []int{24}
 }
 
-func (x *DeleteProjectRequest) GetName() string {
+func (x *DeleteSpaceRequest) GetName() string {
 	if x != nil {
 		return x.Name
 	}
 	return ""
 }
 
-type DeleteProjectResponse struct {
+type DeleteSpaceResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *DeleteProjectResponse) Reset() {
-	*x = DeleteProjectResponse{}
+func (x *DeleteSpaceResponse) Reset() {
+	*x = DeleteSpaceResponse{}
 	mi := &file_armada_v1_armada_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *DeleteProjectResponse) String() string {
+func (x *DeleteSpaceResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*DeleteProjectResponse) ProtoMessage() {}
+func (*DeleteSpaceResponse) ProtoMessage() {}
 
-func (x *DeleteProjectResponse) ProtoReflect() protoreflect.Message {
+func (x *DeleteSpaceResponse) ProtoReflect() protoreflect.Message {
 	mi := &file_armada_v1_armada_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -1640,8 +1640,8 @@ func (x *DeleteProjectResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use DeleteProjectResponse.ProtoReflect.Descriptor instead.
-func (*DeleteProjectResponse) Descriptor() ([]byte, []int) {
+// Deprecated: Use DeleteSpaceResponse.ProtoReflect.Descriptor instead.
+func (*DeleteSpaceResponse) Descriptor() ([]byte, []int) {
 	return file_armada_v1_armada_proto_rawDescGZIP(), []int{25}
 }
 
@@ -1649,7 +1649,7 @@ type RoleAssignment struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Role  string                 `protobuf:"bytes,1,opt,name=role,proto3" json:"role,omitempty"`
 	// Empty for a role over the whole cluster.
-	Project       string `protobuf:"bytes,2,opt,name=project,proto3" json:"project,omitempty"`
+	Space         string `protobuf:"bytes,2,opt,name=space,proto3" json:"space,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1691,9 +1691,9 @@ func (x *RoleAssignment) GetRole() string {
 	return ""
 }
 
-func (x *RoleAssignment) GetProject() string {
+func (x *RoleAssignment) GetSpace() string {
 	if x != nil {
-		return x.Project
+		return x.Space
 	}
 	return ""
 }
@@ -2399,9 +2399,9 @@ type RoleInfo struct {
 	state       protoimpl.MessageState `protogen:"open.v1"`
 	Name        string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
 	Description string                 `protobuf:"bytes,2,opt,name=description,proto3" json:"description,omitempty"`
-	// Where it may be given: the cluster, a project, or both.
+	// Where it may be given: the cluster, a space, or both.
 	Cluster bool `protobuf:"varint,3,opt,name=cluster,proto3" json:"cluster,omitempty"`
-	Project bool `protobuf:"varint,4,opt,name=project,proto3" json:"project,omitempty"`
+	Space   bool `protobuf:"varint,4,opt,name=space,proto3" json:"space,omitempty"`
 	// API methods it allows, besides cluster-admin's every method.
 	Methods       []string `protobuf:"bytes,5,rep,name=methods,proto3" json:"methods,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -2459,9 +2459,9 @@ func (x *RoleInfo) GetCluster() bool {
 	return false
 }
 
-func (x *RoleInfo) GetProject() bool {
+func (x *RoleInfo) GetSpace() bool {
 	if x != nil {
-		return x.Project
+		return x.Space
 	}
 	return false
 }
@@ -4932,8 +4932,8 @@ type DeployRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// App spec as YAML, validated by the server.
 	Spec []byte `protobuf:"bytes,1,opt,name=spec,proto3" json:"spec,omitempty"`
-	// Project to deploy into (ADR 0026); empty means the default project.
-	Project string `protobuf:"bytes,2,opt,name=project,proto3" json:"project,omitempty"`
+	// Space to deploy into (ADR 0026); empty means the default space.
+	Space string `protobuf:"bytes,2,opt,name=space,proto3" json:"space,omitempty"`
 	// Checks in the deploy's transaction (ADR 0032): refuse an app that
 	// exists, one that does not, or one whose target revision is no longer
 	// base_revision.
@@ -4981,9 +4981,9 @@ func (x *DeployRequest) GetSpec() []byte {
 	return nil
 }
 
-func (x *DeployRequest) GetProject() string {
+func (x *DeployRequest) GetSpace() string {
 	if x != nil {
-		return x.Project
+		return x.Space
 	}
 	return ""
 }
@@ -5011,9 +5011,9 @@ func (x *DeployRequest) GetBaseRevision() string {
 
 type ListAppsRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// A project, or every project the caller sees with all_projects.
-	Project     string `protobuf:"bytes,1,opt,name=project,proto3" json:"project,omitempty"`
-	AllProjects bool   `protobuf:"varint,2,opt,name=all_projects,json=allProjects,proto3" json:"all_projects,omitempty"`
+	// A space, or every space the caller sees with all_spaces.
+	Space     string `protobuf:"bytes,1,opt,name=space,proto3" json:"space,omitempty"`
+	AllSpaces bool   `protobuf:"varint,2,opt,name=all_spaces,json=allSpaces,proto3" json:"all_spaces,omitempty"`
 	// At most page_size apps (default and limit 500) after page_token.
 	PageSize      int32  `protobuf:"varint,3,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
 	PageToken     string `protobuf:"bytes,4,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
@@ -5051,16 +5051,16 @@ func (*ListAppsRequest) Descriptor() ([]byte, []int) {
 	return file_armada_v1_armada_proto_rawDescGZIP(), []int{81}
 }
 
-func (x *ListAppsRequest) GetProject() string {
+func (x *ListAppsRequest) GetSpace() string {
 	if x != nil {
-		return x.Project
+		return x.Space
 	}
 	return ""
 }
 
-func (x *ListAppsRequest) GetAllProjects() bool {
+func (x *ListAppsRequest) GetAllSpaces() bool {
 	if x != nil {
-		return x.AllProjects
+		return x.AllSpaces
 	}
 	return false
 }
@@ -5081,9 +5081,9 @@ func (x *ListAppsRequest) GetPageToken() string {
 
 type AppSummary struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The app's ID (name, or name.project).
+	// The app's ID (name, or name.space).
 	Name     string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	Project  string `protobuf:"bytes,2,opt,name=project,proto3" json:"project,omitempty"`
+	Space    string `protobuf:"bytes,2,opt,name=space,proto3" json:"space,omitempty"`
 	Image    string `protobuf:"bytes,3,opt,name=image,proto3" json:"image,omitempty"`
 	Revision string `protobuf:"bytes,4,opt,name=revision,proto3" json:"revision,omitempty"`
 	Ready    int32  `protobuf:"varint,5,opt,name=ready,proto3" json:"ready,omitempty"`
@@ -5139,9 +5139,9 @@ func (x *AppSummary) GetName() string {
 	return ""
 }
 
-func (x *AppSummary) GetProject() string {
+func (x *AppSummary) GetSpace() string {
 	if x != nil {
-		return x.Project
+		return x.Space
 	}
 	return ""
 }
@@ -6393,10 +6393,10 @@ type TopResponse struct {
 	// Every node, with what its replicas use and reserve; empty when app is
 	// set.
 	Nodes []*NodeTop `protobuf:"bytes,2,rep,name=nodes,proto3" json:"nodes,omitempty"`
-	// Each project the caller may manage, with what its apps use; empty when
+	// Each space the caller may manage, with what its apps use; empty when
 	// app is set (ADR 0026).
-	Projects []*ProjectTop `protobuf:"bytes,3,rep,name=projects,proto3" json:"projects,omitempty"`
-	// When this leader began counting ProjectTop.requests and egress_bytes.
+	Spaces []*SpaceTop `protobuf:"bytes,3,rep,name=spaces,proto3" json:"spaces,omitempty"`
+	// When this leader began counting SpaceTop.requests and egress_bytes.
 	CountedSince  *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=counted_since,json=countedSince,proto3" json:"counted_since,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -6446,9 +6446,9 @@ func (x *TopResponse) GetNodes() []*NodeTop {
 	return nil
 }
 
-func (x *TopResponse) GetProjects() []*ProjectTop {
+func (x *TopResponse) GetSpaces() []*SpaceTop {
 	if x != nil {
-		return x.Projects
+		return x.Spaces
 	}
 	return nil
 }
@@ -6460,7 +6460,7 @@ func (x *TopResponse) GetCountedSince() *timestamppb.Timestamp {
 	return nil
 }
 
-type ProjectTop struct {
+type SpaceTop struct {
 	state    protoimpl.MessageState `protogen:"open.v1"`
 	Name     string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
 	Replicas int32                  `protobuf:"varint,2,opt,name=replicas,proto3" json:"replicas,omitempty"`
@@ -6470,9 +6470,9 @@ type ProjectTop struct {
 	MemoryBytes         int64 `protobuf:"varint,5,opt,name=memory_bytes,json=memoryBytes,proto3" json:"memory_bytes,omitempty"`
 	CpuReservedMillis   int64 `protobuf:"varint,6,opt,name=cpu_reserved_millis,json=cpuReservedMillis,proto3" json:"cpu_reserved_millis,omitempty"`
 	MemoryReservedBytes int64 `protobuf:"varint,7,opt,name=memory_reserved_bytes,json=memoryReservedBytes,proto3" json:"memory_reserved_bytes,omitempty"`
-	// Bytes in the project's volumes, from their latest measurements.
+	// Bytes in the space's volumes, from their latest measurements.
 	VolumeBytes int64 `protobuf:"varint,8,opt,name=volume_bytes,json=volumeBytes,proto3" json:"volume_bytes,omitempty"`
-	// Requests the proxies sent to the project's replicas, and bytes its
+	// Requests the proxies sent to the space's replicas, and bytes its
 	// containers sent, since counted_since.
 	Requests      int64 `protobuf:"varint,9,opt,name=requests,proto3" json:"requests,omitempty"`
 	EgressBytes   int64 `protobuf:"varint,10,opt,name=egress_bytes,json=egressBytes,proto3" json:"egress_bytes,omitempty"`
@@ -6480,20 +6480,20 @@ type ProjectTop struct {
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *ProjectTop) Reset() {
-	*x = ProjectTop{}
+func (x *SpaceTop) Reset() {
+	*x = SpaceTop{}
 	mi := &file_armada_v1_armada_proto_msgTypes[99]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *ProjectTop) String() string {
+func (x *SpaceTop) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*ProjectTop) ProtoMessage() {}
+func (*SpaceTop) ProtoMessage() {}
 
-func (x *ProjectTop) ProtoReflect() protoreflect.Message {
+func (x *SpaceTop) ProtoReflect() protoreflect.Message {
 	mi := &file_armada_v1_armada_proto_msgTypes[99]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -6505,75 +6505,75 @@ func (x *ProjectTop) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use ProjectTop.ProtoReflect.Descriptor instead.
-func (*ProjectTop) Descriptor() ([]byte, []int) {
+// Deprecated: Use SpaceTop.ProtoReflect.Descriptor instead.
+func (*SpaceTop) Descriptor() ([]byte, []int) {
 	return file_armada_v1_armada_proto_rawDescGZIP(), []int{99}
 }
 
-func (x *ProjectTop) GetName() string {
+func (x *SpaceTop) GetName() string {
 	if x != nil {
 		return x.Name
 	}
 	return ""
 }
 
-func (x *ProjectTop) GetReplicas() int32 {
+func (x *SpaceTop) GetReplicas() int32 {
 	if x != nil {
 		return x.Replicas
 	}
 	return 0
 }
 
-func (x *ProjectTop) GetMeasured() int32 {
+func (x *SpaceTop) GetMeasured() int32 {
 	if x != nil {
 		return x.Measured
 	}
 	return 0
 }
 
-func (x *ProjectTop) GetCpuMillis() int64 {
+func (x *SpaceTop) GetCpuMillis() int64 {
 	if x != nil {
 		return x.CpuMillis
 	}
 	return 0
 }
 
-func (x *ProjectTop) GetMemoryBytes() int64 {
+func (x *SpaceTop) GetMemoryBytes() int64 {
 	if x != nil {
 		return x.MemoryBytes
 	}
 	return 0
 }
 
-func (x *ProjectTop) GetCpuReservedMillis() int64 {
+func (x *SpaceTop) GetCpuReservedMillis() int64 {
 	if x != nil {
 		return x.CpuReservedMillis
 	}
 	return 0
 }
 
-func (x *ProjectTop) GetMemoryReservedBytes() int64 {
+func (x *SpaceTop) GetMemoryReservedBytes() int64 {
 	if x != nil {
 		return x.MemoryReservedBytes
 	}
 	return 0
 }
 
-func (x *ProjectTop) GetVolumeBytes() int64 {
+func (x *SpaceTop) GetVolumeBytes() int64 {
 	if x != nil {
 		return x.VolumeBytes
 	}
 	return 0
 }
 
-func (x *ProjectTop) GetRequests() int64 {
+func (x *SpaceTop) GetRequests() int64 {
 	if x != nil {
 		return x.Requests
 	}
 	return 0
 }
 
-func (x *ProjectTop) GetEgressBytes() int64 {
+func (x *SpaceTop) GetEgressBytes() int64 {
 	if x != nil {
 		return x.EgressBytes
 	}
@@ -9046,9 +9046,9 @@ type NetworkConfig struct {
 	// The container addresses of every replica in a node subnet, with their
 	// app IDs: what each node's firewall keys on (ADR 0026).
 	Endpoints []*NetworkEndpoint `protobuf:"bytes,4,rep,name=endpoints,proto3" json:"endpoints,omitempty"`
-	// The default project's containers are isolated like other projects'.
+	// The default space's containers are isolated like other spaces'.
 	IsolateDefault bool `protobuf:"varint,5,opt,name=isolate_default,json=isolateDefault,proto3" json:"isolate_default,omitempty"`
-	// The ports of internal TCP apps, which containers of isolated projects
+	// The ports of internal TCP apps, which containers of isolated spaces
 	// may connect to on their bridge gateway (ADR 0039).
 	TcpPorts      []uint32 `protobuf:"varint,6,rep,packed,name=tcp_ports,json=tcpPorts,proto3" json:"tcp_ports,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -9340,13 +9340,13 @@ func (x *ProxyConfig) GetTcpRoutes() []*ProxyTCPRoute {
 }
 
 // ProxyTCPRoute sends connections to port on a node's bridge gateway from
-// the backend's project to the backend (ADR 0039).
+// the backend's space to the backend (ADR 0039).
 type ProxyTCPRoute struct {
 	state   protoimpl.MessageState `protogen:"open.v1"`
 	Port    uint32                 `protobuf:"varint,1,opt,name=port,proto3" json:"port,omitempty"`
 	Backend string                 `protobuf:"bytes,2,opt,name=backend,proto3" json:"backend,omitempty"`
 	// The app IDs that may connect (the app itself included); empty lets
-	// every app of the backend's project.
+	// every app of the backend's space.
 	Allow         []string `protobuf:"bytes,3,rep,name=allow,proto3" json:"allow,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -9690,7 +9690,7 @@ type ProxyRule struct {
 	// frontend, which only containers on that node can reach.
 	Internal bool `protobuf:"varint,5,opt,name=internal,proto3" json:"internal,omitempty"`
 	// For internal rules: the app IDs that may call (the app itself
-	// included); empty lets every app of the backend's project (ADR 0026).
+	// included); empty lets every app of the backend's space (ADR 0026).
 	Allow         []string `protobuf:"bytes,6,rep,name=allow,proto3" json:"allow,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -12693,30 +12693,30 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\x04cert\x18\x01 \x01(\fR\x04cert\x12\x17\n" +
 	"\aca_cert\x18\x02 \x01(\fR\x06caCert\x129\n" +
 	"\n" +
-	"expires_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\"*\n" +
-	"\x14CreateProjectRequest\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\"\xbc\x01\n" +
-	"\vProjectInfo\x12\x12\n" +
+	"expires_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\"(\n" +
+	"\x12CreateSpaceRequest\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\"\xba\x01\n" +
+	"\tSpaceInfo\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x129\n" +
 	"\n" +
 	"created_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12\x1d\n" +
 	"\n" +
 	"created_by\x18\x03 \x01(\tR\tcreatedBy\x12\x12\n" +
 	"\x04apps\x18\x04 \x01(\x05R\x04apps\x12+\n" +
-	"\x11network_isolation\x18\x05 \x01(\bR\x10networkIsolation\"r\n" +
-	"\x14UpdateProjectRequest\x12\x12\n" +
+	"\x11network_isolation\x18\x05 \x01(\bR\x10networkIsolation\"p\n" +
+	"\x12UpdateSpaceRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x120\n" +
 	"\x11network_isolation\x18\x02 \x01(\bH\x00R\x10networkIsolation\x88\x01\x01B\x14\n" +
-	"\x12_network_isolation\"\x15\n" +
-	"\x13ListProjectsRequest\"J\n" +
-	"\x14ListProjectsResponse\x122\n" +
-	"\bprojects\x18\x01 \x03(\v2\x16.armada.v1.ProjectInfoR\bprojects\"*\n" +
-	"\x14DeleteProjectRequest\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\"\x17\n" +
-	"\x15DeleteProjectResponse\">\n" +
+	"\x12_network_isolation\"\x13\n" +
+	"\x11ListSpacesRequest\"B\n" +
+	"\x12ListSpacesResponse\x12,\n" +
+	"\x06spaces\x18\x01 \x03(\v2\x14.armada.v1.SpaceInfoR\x06spaces\"(\n" +
+	"\x12DeleteSpaceRequest\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\"\x15\n" +
+	"\x13DeleteSpaceResponse\":\n" +
 	"\x0eRoleAssignment\x12\x12\n" +
-	"\x04role\x18\x01 \x01(\tR\x04role\x12\x18\n" +
-	"\aproject\x18\x02 \x01(\tR\aproject\":\n" +
+	"\x04role\x18\x01 \x01(\tR\x04role\x12\x14\n" +
+	"\x05space\x18\x02 \x01(\tR\x05space\":\n" +
 	"\x0eLabelAllowance\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x16\n" +
 	"\x06values\x18\x02 \x03(\tR\x06values\"\xf3\x02\n" +
@@ -12764,12 +12764,12 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\x04kind\x18\x01 \x01(\tR\x04kind\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12-\n" +
 	"\x04role\x18\x03 \x01(\v2\x19.armada.v1.RoleAssignmentR\x04role\"\x12\n" +
-	"\x10ListRolesRequest\"\x8e\x01\n" +
+	"\x10ListRolesRequest\"\x8a\x01\n" +
 	"\bRoleInfo\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12 \n" +
 	"\vdescription\x18\x02 \x01(\tR\vdescription\x12\x18\n" +
-	"\acluster\x18\x03 \x01(\bR\acluster\x12\x18\n" +
-	"\aproject\x18\x04 \x01(\bR\aproject\x12\x18\n" +
+	"\acluster\x18\x03 \x01(\bR\acluster\x12\x14\n" +
+	"\x05space\x18\x04 \x01(\bR\x05space\x12\x18\n" +
 	"\amethods\x18\x05 \x03(\tR\amethods\">\n" +
 	"\x11ListRolesResponse\x12)\n" +
 	"\x05roles\x18\x01 \x03(\v2\x13.armada.v1.RoleInfoR\x05roles\".\n" +
@@ -12959,25 +12959,26 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\amessage\x18\x06 \x01(\tR\amessage\x12\x1b\n" +
 	"\ttls_ready\x18\a \x01(\bR\btlsReady\")\n" +
 	"\x13VerifyDomainRequest\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\"\xa2\x01\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\"\x9e\x01\n" +
 	"\rDeployRequest\x12\x12\n" +
-	"\x04spec\x18\x01 \x01(\fR\x04spec\x12\x18\n" +
-	"\aproject\x18\x02 \x01(\tR\aproject\x12\x1f\n" +
+	"\x04spec\x18\x01 \x01(\fR\x04spec\x12\x14\n" +
+	"\x05space\x18\x02 \x01(\tR\x05space\x12\x1f\n" +
 	"\vmust_create\x18\x03 \x01(\bR\n" +
 	"mustCreate\x12\x1d\n" +
 	"\n" +
 	"must_exist\x18\x04 \x01(\bR\tmustExist\x12#\n" +
-	"\rbase_revision\x18\x05 \x01(\tR\fbaseRevision\"\x8a\x01\n" +
-	"\x0fListAppsRequest\x12\x18\n" +
-	"\aproject\x18\x01 \x01(\tR\aproject\x12!\n" +
-	"\fall_projects\x18\x02 \x01(\bR\vallProjects\x12\x1b\n" +
+	"\rbase_revision\x18\x05 \x01(\tR\fbaseRevision\"\x82\x01\n" +
+	"\x0fListAppsRequest\x12\x14\n" +
+	"\x05space\x18\x01 \x01(\tR\x05space\x12\x1d\n" +
+	"\n" +
+	"all_spaces\x18\x02 \x01(\bR\tallSpaces\x12\x1b\n" +
 	"\tpage_size\x18\x03 \x01(\x05R\bpageSize\x12\x1d\n" +
 	"\n" +
-	"page_token\x18\x04 \x01(\tR\tpageToken\"\xc4\x02\n" +
+	"page_token\x18\x04 \x01(\tR\tpageToken\"\xc0\x02\n" +
 	"\n" +
 	"AppSummary\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
-	"\aproject\x18\x02 \x01(\tR\aproject\x12\x14\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
+	"\x05space\x18\x02 \x01(\tR\x05space\x12\x14\n" +
 	"\x05image\x18\x03 \x01(\tR\x05image\x12\x1a\n" +
 	"\brevision\x18\x04 \x01(\tR\brevision\x12\x14\n" +
 	"\x05ready\x18\x05 \x01(\x05R\x05ready\x12\x18\n" +
@@ -13096,14 +13097,13 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x1e\n" +
 	"\n" +
 	"TopRequest\x12\x10\n" +
-	"\x03app\x18\x01 \x01(\tR\x03app\"\xde\x01\n" +
+	"\x03app\x18\x01 \x01(\tR\x03app\"\xd8\x01\n" +
 	"\vTopResponse\x121\n" +
 	"\breplicas\x18\x01 \x03(\v2\x15.armada.v1.ReplicaTopR\breplicas\x12(\n" +
-	"\x05nodes\x18\x02 \x03(\v2\x12.armada.v1.NodeTopR\x05nodes\x121\n" +
-	"\bprojects\x18\x03 \x03(\v2\x15.armada.v1.ProjectTopR\bprojects\x12?\n" +
-	"\rcounted_since\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\fcountedSince\"\xe0\x02\n" +
-	"\n" +
-	"ProjectTop\x12\x12\n" +
+	"\x05nodes\x18\x02 \x03(\v2\x12.armada.v1.NodeTopR\x05nodes\x12+\n" +
+	"\x06spaces\x18\x03 \x03(\v2\x13.armada.v1.SpaceTopR\x06spaces\x12?\n" +
+	"\rcounted_since\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\fcountedSince\"\xde\x02\n" +
+	"\bSpaceTop\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1a\n" +
 	"\breplicas\x18\x02 \x01(\x05R\breplicas\x12\x1a\n" +
 	"\bmeasured\x18\x03 \x01(\x05R\bmeasured\x12\x1d\n" +
@@ -13605,7 +13605,7 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\x06Stream\x12\x16\n" +
 	"\x12STREAM_UNSPECIFIED\x10\x00\x12\x11\n" +
 	"\rSTREAM_STDOUT\x10\x01\x12\x11\n" +
-	"\rSTREAM_STDERR\x10\x022\xcf\"\n" +
+	"\rSTREAM_STDERR\x10\x022\xb7\"\n" +
 	"\fAdminService\x12=\n" +
 	"\x06Deploy\x12\x18.armada.v1.DeployRequest\x1a\x19.armada.v1.DeployResponse\x12=\n" +
 	"\x06Status\x12\x18.armada.v1.StatusRequest\x1a\x19.armada.v1.StatusResponse\x12C\n" +
@@ -13641,11 +13641,12 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\n" +
 	"RemoveNode\x12\x1c.armada.v1.RemoveNodeRequest\x1a\x1d.armada.v1.RemoveNodeResponse\x12L\n" +
 	"\vListServers\x12\x1d.armada.v1.ListServersRequest\x1a\x1e.armada.v1.ListServersResponse\x12O\n" +
-	"\fRemoveServer\x12\x1e.armada.v1.RemoveServerRequest\x1a\x1f.armada.v1.RemoveServerResponse\x12H\n" +
-	"\rCreateProject\x12\x1f.armada.v1.CreateProjectRequest\x1a\x16.armada.v1.ProjectInfo\x12O\n" +
-	"\fListProjects\x12\x1e.armada.v1.ListProjectsRequest\x1a\x1f.armada.v1.ListProjectsResponse\x12R\n" +
-	"\rDeleteProject\x12\x1f.armada.v1.DeleteProjectRequest\x1a .armada.v1.DeleteProjectResponse\x12H\n" +
-	"\rUpdateProject\x12\x1f.armada.v1.UpdateProjectRequest\x1a\x16.armada.v1.ProjectInfo\x12V\n" +
+	"\fRemoveServer\x12\x1e.armada.v1.RemoveServerRequest\x1a\x1f.armada.v1.RemoveServerResponse\x12B\n" +
+	"\vCreateSpace\x12\x1d.armada.v1.CreateSpaceRequest\x1a\x14.armada.v1.SpaceInfo\x12I\n" +
+	"\n" +
+	"ListSpaces\x12\x1c.armada.v1.ListSpacesRequest\x1a\x1d.armada.v1.ListSpacesResponse\x12L\n" +
+	"\vDeleteSpace\x12\x1d.armada.v1.DeleteSpaceRequest\x1a\x1e.armada.v1.DeleteSpaceResponse\x12B\n" +
+	"\vUpdateSpace\x12\x1d.armada.v1.UpdateSpaceRequest\x1a\x14.armada.v1.SpaceInfo\x12V\n" +
 	"\n" +
 	"CreateUser\x12\x1c.armada.v1.CreateUserRequest\x1a*.armada.v1.IssueMetricsCertificateResponse\x12o\n" +
 	"\x14IssueUserCertificate\x12+.armada.v1.IssuePrincipalCertificateRequest\x1a*.armada.v1.IssueMetricsCertificateResponse\x12F\n" +
@@ -13716,13 +13717,13 @@ var file_armada_v1_armada_proto_goTypes = []any{
 	(*EventInfo)(nil),                        // 18: armada.v1.EventInfo
 	(*IssueMetricsCertificateRequest)(nil),   // 19: armada.v1.IssueMetricsCertificateRequest
 	(*IssueMetricsCertificateResponse)(nil),  // 20: armada.v1.IssueMetricsCertificateResponse
-	(*CreateProjectRequest)(nil),             // 21: armada.v1.CreateProjectRequest
-	(*ProjectInfo)(nil),                      // 22: armada.v1.ProjectInfo
-	(*UpdateProjectRequest)(nil),             // 23: armada.v1.UpdateProjectRequest
-	(*ListProjectsRequest)(nil),              // 24: armada.v1.ListProjectsRequest
-	(*ListProjectsResponse)(nil),             // 25: armada.v1.ListProjectsResponse
-	(*DeleteProjectRequest)(nil),             // 26: armada.v1.DeleteProjectRequest
-	(*DeleteProjectResponse)(nil),            // 27: armada.v1.DeleteProjectResponse
+	(*CreateSpaceRequest)(nil),               // 21: armada.v1.CreateSpaceRequest
+	(*SpaceInfo)(nil),                        // 22: armada.v1.SpaceInfo
+	(*UpdateSpaceRequest)(nil),               // 23: armada.v1.UpdateSpaceRequest
+	(*ListSpacesRequest)(nil),                // 24: armada.v1.ListSpacesRequest
+	(*ListSpacesResponse)(nil),               // 25: armada.v1.ListSpacesResponse
+	(*DeleteSpaceRequest)(nil),               // 26: armada.v1.DeleteSpaceRequest
+	(*DeleteSpaceResponse)(nil),              // 27: armada.v1.DeleteSpaceResponse
 	(*RoleAssignment)(nil),                   // 28: armada.v1.RoleAssignment
 	(*LabelAllowance)(nil),                   // 29: armada.v1.LabelAllowance
 	(*Principal)(nil),                        // 30: armada.v1.Principal
@@ -13796,7 +13797,7 @@ var file_armada_v1_armada_proto_goTypes = []any{
 	(*NodeStatus)(nil),                       // 98: armada.v1.NodeStatus
 	(*TopRequest)(nil),                       // 99: armada.v1.TopRequest
 	(*TopResponse)(nil),                      // 100: armada.v1.TopResponse
-	(*ProjectTop)(nil),                       // 101: armada.v1.ProjectTop
+	(*SpaceTop)(nil),                         // 101: armada.v1.SpaceTop
 	(*ReplicaTop)(nil),                       // 102: armada.v1.ReplicaTop
 	(*NodeTop)(nil),                          // 103: armada.v1.NodeTop
 	(*ScaleRequest)(nil),                     // 104: armada.v1.ScaleRequest
@@ -13893,8 +13894,8 @@ var file_armada_v1_armada_proto_depIdxs = []int32{
 	183, // 9: armada.v1.EventInfo.first:type_name -> google.protobuf.Timestamp
 	183, // 10: armada.v1.EventInfo.last:type_name -> google.protobuf.Timestamp
 	183, // 11: armada.v1.IssueMetricsCertificateResponse.expires_at:type_name -> google.protobuf.Timestamp
-	183, // 12: armada.v1.ProjectInfo.created_at:type_name -> google.protobuf.Timestamp
-	22,  // 13: armada.v1.ListProjectsResponse.projects:type_name -> armada.v1.ProjectInfo
+	183, // 12: armada.v1.SpaceInfo.created_at:type_name -> google.protobuf.Timestamp
+	22,  // 13: armada.v1.ListSpacesResponse.spaces:type_name -> armada.v1.SpaceInfo
 	28,  // 14: armada.v1.Principal.roles:type_name -> armada.v1.RoleAssignment
 	29,  // 15: armada.v1.Principal.labels:type_name -> armada.v1.LabelAllowance
 	183, // 16: armada.v1.Principal.created_at:type_name -> google.protobuf.Timestamp
@@ -13938,7 +13939,7 @@ var file_armada_v1_armada_proto_depIdxs = []int32{
 	182, // 54: armada.v1.NodeStatus.labels:type_name -> armada.v1.NodeStatus.LabelsEntry
 	102, // 55: armada.v1.TopResponse.replicas:type_name -> armada.v1.ReplicaTop
 	103, // 56: armada.v1.TopResponse.nodes:type_name -> armada.v1.NodeTop
-	101, // 57: armada.v1.TopResponse.projects:type_name -> armada.v1.ProjectTop
+	101, // 57: armada.v1.TopResponse.spaces:type_name -> armada.v1.SpaceTop
 	183, // 58: armada.v1.TopResponse.counted_since:type_name -> google.protobuf.Timestamp
 	183, // 59: armada.v1.ReplicaTop.sampled_at:type_name -> google.protobuf.Timestamp
 	108, // 60: armada.v1.SetTrafficRequest.traffic:type_name -> armada.v1.TrafficTarget
@@ -14037,10 +14038,10 @@ var file_armada_v1_armada_proto_depIdxs = []int32{
 	57,  // 153: armada.v1.AdminService.RemoveNode:input_type -> armada.v1.RemoveNodeRequest
 	44,  // 154: armada.v1.AdminService.ListServers:input_type -> armada.v1.ListServersRequest
 	47,  // 155: armada.v1.AdminService.RemoveServer:input_type -> armada.v1.RemoveServerRequest
-	21,  // 156: armada.v1.AdminService.CreateProject:input_type -> armada.v1.CreateProjectRequest
-	24,  // 157: armada.v1.AdminService.ListProjects:input_type -> armada.v1.ListProjectsRequest
-	26,  // 158: armada.v1.AdminService.DeleteProject:input_type -> armada.v1.DeleteProjectRequest
-	23,  // 159: armada.v1.AdminService.UpdateProject:input_type -> armada.v1.UpdateProjectRequest
+	21,  // 156: armada.v1.AdminService.CreateSpace:input_type -> armada.v1.CreateSpaceRequest
+	24,  // 157: armada.v1.AdminService.ListSpaces:input_type -> armada.v1.ListSpacesRequest
+	26,  // 158: armada.v1.AdminService.DeleteSpace:input_type -> armada.v1.DeleteSpaceRequest
+	23,  // 159: armada.v1.AdminService.UpdateSpace:input_type -> armada.v1.UpdateSpaceRequest
 	31,  // 160: armada.v1.AdminService.CreateUser:input_type -> armada.v1.CreateUserRequest
 	33,  // 161: armada.v1.AdminService.IssueUserCertificate:input_type -> armada.v1.IssuePrincipalCertificateRequest
 	32,  // 162: armada.v1.AdminService.CreateService:input_type -> armada.v1.CreateServiceRequest
@@ -14101,10 +14102,10 @@ var file_armada_v1_armada_proto_depIdxs = []int32{
 	58,  // 217: armada.v1.AdminService.RemoveNode:output_type -> armada.v1.RemoveNodeResponse
 	45,  // 218: armada.v1.AdminService.ListServers:output_type -> armada.v1.ListServersResponse
 	48,  // 219: armada.v1.AdminService.RemoveServer:output_type -> armada.v1.RemoveServerResponse
-	22,  // 220: armada.v1.AdminService.CreateProject:output_type -> armada.v1.ProjectInfo
-	25,  // 221: armada.v1.AdminService.ListProjects:output_type -> armada.v1.ListProjectsResponse
-	27,  // 222: armada.v1.AdminService.DeleteProject:output_type -> armada.v1.DeleteProjectResponse
-	22,  // 223: armada.v1.AdminService.UpdateProject:output_type -> armada.v1.ProjectInfo
+	22,  // 220: armada.v1.AdminService.CreateSpace:output_type -> armada.v1.SpaceInfo
+	25,  // 221: armada.v1.AdminService.ListSpaces:output_type -> armada.v1.ListSpacesResponse
+	27,  // 222: armada.v1.AdminService.DeleteSpace:output_type -> armada.v1.DeleteSpaceResponse
+	22,  // 223: armada.v1.AdminService.UpdateSpace:output_type -> armada.v1.SpaceInfo
 	20,  // 224: armada.v1.AdminService.CreateUser:output_type -> armada.v1.IssueMetricsCertificateResponse
 	20,  // 225: armada.v1.AdminService.IssueUserCertificate:output_type -> armada.v1.IssueMetricsCertificateResponse
 	30,  // 226: armada.v1.AdminService.CreateService:output_type -> armada.v1.Principal

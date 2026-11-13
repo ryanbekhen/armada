@@ -47,22 +47,22 @@ func (c *cluster) dialServiceKind(kind, name string, record bool) (*grpc.ClientC
 	return c.dialPEM(certPEM, keyPEM), serial
 }
 
-// serviceCluster has projects a and b, the app web in default, a, and b,
+// serviceCluster has spaces a and b, the app web in default, a, and b,
 // and service:portal with admin in a.
 func serviceCluster(t *testing.T) (*cluster, armadav1.AdminServiceClient, *grpc.ClientConn) {
 	t.Helper()
 	c := newCluster(t)
 	for _, p := range []string{"a", "b"} {
-		if _, err := c.admin.CreateProject(c.ctx, &armadav1.CreateProjectRequest{Name: p}); err != nil {
+		if _, err := c.admin.CreateSpace(c.ctx, &armadav1.CreateSpaceRequest{Name: p}); err != nil {
 			t.Fatal(err)
 		}
 	}
 	for _, p := range []string{"", "a", "b"} {
-		if _, err := c.admin.Deploy(c.ctx, &armadav1.DeployRequest{Spec: []byte(webSpec("nginx:1", 1)), Project: p}); err != nil {
+		if _, err := c.admin.Deploy(c.ctx, &armadav1.DeployRequest{Spec: []byte(webSpec("nginx:1", 1)), Space: p}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if _, err := c.admin.CreateService(c.ctx, &armadav1.CreateServiceRequest{Name: "portal", Roles: []*armadav1.RoleAssignment{{Role: "admin", Project: "a"}},
+	if _, err := c.admin.CreateService(c.ctx, &armadav1.CreateServiceRequest{Name: "portal", Roles: []*armadav1.RoleAssignment{{Role: "admin", Space: "a"}},
 		Labels: []*armadav1.LabelAllowance{{Key: "tier", Values: []string{"shared"}}}}); err != nil {
 		t.Fatal(err)
 	}
@@ -148,8 +148,8 @@ func TestRoleMethodsDefaultDeny(t *testing.T) {
 	wantCode(t, "agent API", err, codes.PermissionDenied)
 }
 
-// Every method a project role allows refuses apps of the default project
-// and of projects the principal holds no role in.
+// Every method a space role allows refuses apps of the default space
+// and of spaces the principal holds no role in.
 func TestRoleOutOfScope(t *testing.T) {
 	t.Parallel()
 	c, p, _ := serviceCluster(t)
@@ -221,9 +221,9 @@ func TestRoleOutOfScope(t *testing.T) {
 			wantCode(t, name+" "+app, call(), codes.PermissionDenied)
 		}
 	}
-	for _, project := range []string{"", "default", "b", "missing"} {
-		_, err := p.Deploy(ctx, &armadav1.DeployRequest{Spec: []byte(webSpec("nginx:2", 1)), Project: project})
-		wantCode(t, "Deploy into "+project, err, codes.PermissionDenied)
+	for _, space := range []string{"", "default", "b", "missing"} {
+		_, err := p.Deploy(ctx, &armadav1.DeployRequest{Spec: []byte(webSpec("nginx:2", 1)), Space: space})
+		wantCode(t, "Deploy into "+space, err, codes.PermissionDenied)
 	}
 	_, err := p.Events(ctx, &armadav1.EventsRequest{Node: "n1"})
 	if err == nil {
@@ -232,11 +232,11 @@ func TestRoleOutOfScope(t *testing.T) {
 	}
 	wantCode(t, "Events of a node", err, codes.PermissionDenied)
 	for _, name := range []string{"b", "default"} {
-		_, err := p.DeleteProject(ctx, &armadav1.DeleteProjectRequest{Name: name})
-		wantCode(t, "DeleteProject "+name, err, codes.PermissionDenied)
+		_, err := p.DeleteSpace(ctx, &armadav1.DeleteSpaceRequest{Name: name})
+		wantCode(t, "DeleteSpace "+name, err, codes.PermissionDenied)
 	}
-	_, err = p.CreateProject(ctx, &armadav1.CreateProjectRequest{Name: "c"})
-	wantCode(t, "CreateProject without permission", err, codes.PermissionDenied)
+	_, err = p.CreateSpace(ctx, &armadav1.CreateSpaceRequest{Name: "c"})
+	wantCode(t, "CreateSpace without permission", err, codes.PermissionDenied)
 }
 
 func TestRoleInScope(t *testing.T) {
@@ -247,14 +247,14 @@ func TestRoleInScope(t *testing.T) {
 	if _, err := p.Scale(ctx, &armadav1.ScaleRequest{App: "web.a", Replicas: 2}); err != nil {
 		t.Fatalf("scale its app: %v", err)
 	}
-	if _, err := p.Deploy(ctx, &armadav1.DeployRequest{Spec: []byte(webSpec("nginx:2", 1)), Project: "a"}); err != nil {
-		t.Fatalf("deploy into its project: %v", err)
+	if _, err := p.Deploy(ctx, &armadav1.DeployRequest{Spec: []byte(webSpec("nginx:2", 1)), Space: "a"}); err != nil {
+		t.Fatalf("deploy into its space: %v", err)
 	}
 	if _, err := p.ListRevisions(ctx, &armadav1.ListRevisionsRequest{App: "web.a"}); err != nil {
 		t.Errorf("revisions: %v", err)
 	}
 
-	// Listings hold only its projects, and no nodes.
+	// Listings hold only its spaces, and no nodes.
 	st, err := p.Status(ctx, &armadav1.StatusRequest{})
 	if err != nil || len(st.Apps) != 1 || st.Apps[0].Name != "web.a" || len(st.Nodes) != 0 {
 		t.Fatalf("status: %v %v", st, err)
@@ -263,9 +263,9 @@ func TestRoleInScope(t *testing.T) {
 	if err != nil || len(top.Nodes) != 0 || slices.ContainsFunc(top.Replicas, func(r *armadav1.ReplicaTop) bool { return r.App != "web.a" }) {
 		t.Errorf("top: %v %v", top, err)
 	}
-	ps, err := p.ListProjects(ctx, &armadav1.ListProjectsRequest{})
-	if err != nil || len(ps.Projects) != 1 || ps.Projects[0].Name != "a" {
-		t.Errorf("projects: %v %v", ps, err)
+	ps, err := p.ListSpaces(ctx, &armadav1.ListSpacesRequest{})
+	if err != nil || len(ps.Spaces) != 1 || ps.Spaces[0].Name != "a" {
+		t.Errorf("spaces: %v %v", ps, err)
 	}
 	s, err := p.Events(ctx, &armadav1.EventsRequest{})
 	if err != nil {
@@ -285,29 +285,29 @@ func TestRoleInScope(t *testing.T) {
 	placed := func(label string) string {
 		return webSpec("nginx:3", 1) + "placement:\n  require:\n    " + label + "\n"
 	}
-	if _, err := p.Deploy(ctx, &armadav1.DeployRequest{Spec: []byte(placed("tier: dedicated")), Project: "a"}); status.Code(err) != codes.PermissionDenied {
+	if _, err := p.Deploy(ctx, &armadav1.DeployRequest{Spec: []byte(placed("tier: dedicated")), Space: "a"}); status.Code(err) != codes.PermissionDenied {
 		t.Errorf("placement outside the scope: %v", err)
 	}
-	if _, err := p.Deploy(ctx, &armadav1.DeployRequest{Spec: []byte(placed("tier: shared")), Project: "a"}); err != nil {
+	if _, err := p.Deploy(ctx, &armadav1.DeployRequest{Spec: []byte(placed("tier: shared")), Space: "a"}); err != nil {
 		t.Errorf("placement inside the scope: %v", err)
 	}
-	if _, err := p.Deploy(ctx, &armadav1.DeployRequest{Spec: []byte(placed("armada.arch: arm64")), Project: "a"}); err != nil {
+	if _, err := p.Deploy(ctx, &armadav1.DeployRequest{Spec: []byte(placed("armada.arch: arm64")), Space: "a"}); err != nil {
 		t.Errorf("placement on a reported label: %v", err)
 	}
 
-	// With project-creator, it creates projects it is then admin of, and
+	// With space-creator, it creates spaces it is then admin of, and
 	// deletes them.
-	if _, err := c.admin.CreateAssignment(ctx, &armadav1.AssignmentRequest{Kind: "service", Name: "portal", Role: &armadav1.RoleAssignment{Role: "project-creator"}}); err != nil {
+	if _, err := c.admin.CreateAssignment(ctx, &armadav1.AssignmentRequest{Kind: "service", Name: "portal", Role: &armadav1.RoleAssignment{Role: "space-creator"}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := p.CreateProject(ctx, &armadav1.CreateProjectRequest{Name: "c"}); err != nil {
+	if _, err := p.CreateSpace(ctx, &armadav1.CreateSpaceRequest{Name: "c"}); err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	if _, err := p.Deploy(ctx, &armadav1.DeployRequest{Spec: []byte(webSpec("nginx:1", 1)), Project: "c"}); err != nil {
-		t.Fatalf("deploy into the created project: %v", err)
+	if _, err := p.Deploy(ctx, &armadav1.DeployRequest{Spec: []byte(webSpec("nginx:1", 1)), Space: "c"}); err != nil {
+		t.Fatalf("deploy into the created space: %v", err)
 	}
-	if _, err := p.DeleteProject(ctx, &armadav1.DeleteProjectRequest{Name: "b"}); status.Code(err) != codes.PermissionDenied {
-		t.Errorf("remove a project outside the scope: %v", err)
+	if _, err := p.DeleteSpace(ctx, &armadav1.DeleteSpaceRequest{Name: "b"}); status.Code(err) != codes.PermissionDenied {
+		t.Errorf("remove a space outside the scope: %v", err)
 	}
 	if _, err := p.RemoveApp(ctx, &armadav1.RemoveAppRequest{App: "web.c"}); err != nil {
 		t.Fatal(err)
@@ -316,8 +316,8 @@ func TestRoleInScope(t *testing.T) {
 		_, err := c.store.GetApp(ctx, "web.c")
 		return errors.Is(err, store.ErrNotFound)
 	})
-	if _, err := p.DeleteProject(ctx, &armadav1.DeleteProjectRequest{Name: "c"}); err != nil {
-		t.Errorf("delete the created project: %v", err)
+	if _, err := p.DeleteSpace(ctx, &armadav1.DeleteSpaceRequest{Name: "c"}); err != nil {
+		t.Errorf("delete the created space: %v", err)
 	}
 }
 
@@ -374,9 +374,9 @@ func TestServiceRenewAndRevoke(t *testing.T) {
 
 	// Roles are validated.
 	for _, bad := range []*armadav1.CreateServiceRequest{
-		{Name: "x", Roles: []*armadav1.RoleAssignment{{Role: "deployer", Project: "default"}}},
-		{Name: "x", Roles: []*armadav1.RoleAssignment{{Role: "admin", Project: "missing"}}},
-		{Name: "x", Roles: []*armadav1.RoleAssignment{{Role: "cluster-admin", Project: "a"}}},
+		{Name: "x", Roles: []*armadav1.RoleAssignment{{Role: "deployer", Space: "default"}}},
+		{Name: "x", Roles: []*armadav1.RoleAssignment{{Role: "admin", Space: "missing"}}},
+		{Name: "x", Roles: []*armadav1.RoleAssignment{{Role: "cluster-admin", Space: "a"}}},
 		{Name: "x", Roles: []*armadav1.RoleAssignment{{Role: "owner"}}},
 		{Name: "x", Labels: []*armadav1.LabelAllowance{{Key: "tier"}}},
 		{Name: "Bad"},
@@ -405,13 +405,13 @@ func (c *cluster) newUser(name string, roles ...*armadav1.RoleAssignment) armada
 	return armadav1.NewAdminServiceClient(c.dialPEM(resp.GetCert(), keyPEM))
 }
 
-// Each project role allows its level and refuses the next.
-func TestProjectRoleLevels(t *testing.T) {
+// Each space role allows its level and refuses the next.
+func TestSpaceRoleLevels(t *testing.T) {
 	t.Parallel()
 	c, _, _ := serviceCluster(t)
 	ctx := c.ctx
-	viewer := c.newUser("vera", &armadav1.RoleAssignment{Role: "viewer", Project: "a"})
-	deployer := c.newUser("dan", &armadav1.RoleAssignment{Role: "deployer", Project: "a"})
+	viewer := c.newUser("vera", &armadav1.RoleAssignment{Role: "viewer", Space: "a"})
+	deployer := c.newUser("dan", &armadav1.RoleAssignment{Role: "deployer", Space: "a"})
 	everywhere := c.newUser("eve", &armadav1.RoleAssignment{Role: "viewer"})
 
 	for name, u := range map[string]armadav1.AdminServiceClient{"viewer": viewer, "deployer": deployer} {
@@ -427,9 +427,9 @@ func TestProjectRoleLevels(t *testing.T) {
 	}
 	_, err := viewer.Scale(ctx, &armadav1.ScaleRequest{App: "web.a", Replicas: 2})
 	wantCode(t, "viewer scales", err, codes.PermissionDenied)
-	_, err = viewer.Deploy(ctx, &armadav1.DeployRequest{Spec: []byte(webSpec("nginx:2", 1)), Project: "a"})
+	_, err = viewer.Deploy(ctx, &armadav1.DeployRequest{Spec: []byte(webSpec("nginx:2", 1)), Space: "a"})
 	wantCode(t, "viewer deploys", err, codes.PermissionDenied)
-	if _, err := deployer.Deploy(ctx, &armadav1.DeployRequest{Spec: []byte(webSpec("nginx:2", 1)), Project: "a"}); err != nil {
+	if _, err := deployer.Deploy(ctx, &armadav1.DeployRequest{Spec: []byte(webSpec("nginx:2", 1)), Space: "a"}); err != nil {
 		t.Errorf("deployer deploys: %v", err)
 	}
 	if _, err := deployer.Rollback(ctx, &armadav1.RollbackRequest{App: "web.a"}); err != nil {
@@ -443,10 +443,10 @@ func TestProjectRoleLevels(t *testing.T) {
 		_, err = s.Recv()
 	}
 	wantCode(t, "deployer execs", err, codes.PermissionDenied)
-	_, err = deployer.CreateProject(ctx, &armadav1.CreateProjectRequest{Name: "d"})
-	wantCode(t, "deployer creates a project", err, codes.PermissionDenied)
+	_, err = deployer.CreateSpace(ctx, &armadav1.CreateSpaceRequest{Name: "d"})
+	wantCode(t, "deployer creates a space", err, codes.PermissionDenied)
 
-	// viewer over the cluster sees every project, the default one too,
+	// viewer over the cluster sees every space, the default one too,
 	// but no nodes, and changes nothing.
 	st, err := everywhere.Status(ctx, &armadav1.StatusRequest{})
 	if err != nil || len(st.Apps) != 3 || len(st.Nodes) != 0 {
@@ -466,13 +466,13 @@ func TestProjectRoleLevels(t *testing.T) {
 	}
 
 	// Roles change at once.
-	if _, err := c.admin.CreateAssignment(ctx, &armadav1.AssignmentRequest{Kind: "user", Name: "vera", Role: &armadav1.RoleAssignment{Role: "deployer", Project: "a"}}); err != nil {
+	if _, err := c.admin.CreateAssignment(ctx, &armadav1.AssignmentRequest{Kind: "user", Name: "vera", Role: &armadav1.RoleAssignment{Role: "deployer", Space: "a"}}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := viewer.Scale(ctx, &armadav1.ScaleRequest{App: "web.a", Replicas: 2}); err != nil {
 		t.Errorf("after deployer was given: %v", err)
 	}
-	if _, err := c.admin.DeleteAssignment(ctx, &armadav1.AssignmentRequest{Kind: "user", Name: "vera", Role: &armadav1.RoleAssignment{Role: "deployer", Project: "a"}}); err != nil {
+	if _, err := c.admin.DeleteAssignment(ctx, &armadav1.AssignmentRequest{Kind: "user", Name: "vera", Role: &armadav1.RoleAssignment{Role: "deployer", Space: "a"}}); err != nil {
 		t.Fatal(err)
 	}
 	_, err = viewer.Scale(ctx, &armadav1.ScaleRequest{App: "web.a", Replicas: 1})
@@ -510,11 +510,11 @@ func TestUsers(t *testing.T) {
 		t.Errorf("creating bob twice: %v", err)
 	}
 	for name, req := range map[string]*armadav1.CreateUserRequest{
-		"self":         {Name: "ryan", Csr: csr},
-		"bad name":     {Name: "bob smith", Csr: csr},
-		"empty":        {Name: "", Csr: csr},
-		"garbage":      {Name: "carol", Csr: []byte("not a csr")},
-		"project role": {Name: "carol", Csr: csr, Roles: []*armadav1.RoleAssignment{{Role: "deployer"}}},
+		"self":       {Name: "ryan", Csr: csr},
+		"bad name":   {Name: "bob smith", Csr: csr},
+		"empty":      {Name: "", Csr: csr},
+		"garbage":    {Name: "carol", Csr: []byte("not a csr")},
+		"space role": {Name: "carol", Csr: csr, Roles: []*armadav1.RoleAssignment{{Role: "deployer"}}},
 	} {
 		if _, err := c.admin.CreateUser(ctx, req); status.Code(err) != codes.InvalidArgument {
 			t.Errorf("%s: %v", name, err)
@@ -567,7 +567,7 @@ func TestUsers(t *testing.T) {
 
 	// Only cluster-admin manages access; other identities are refused.
 	c.addNode("n1", "127.0.0.1")
-	dan := c.newUserBy(bob, "dan", &armadav1.RoleAssignment{Role: "project-creator"})
+	dan := c.newUserBy(bob, "dan", &armadav1.RoleAssignment{Role: "space-creator"})
 	for _, other := range []armadav1.AdminServiceClient{
 		dan,
 		armadav1.NewAdminServiceClient(c.dial(c.ca, pki.Identity{Kind: pki.KindNode, Name: "n1"})),
@@ -687,7 +687,7 @@ func TestListRoles(t *testing.T) {
 	for _, r := range resp.Roles {
 		methods[r.Name] = r.Methods
 	}
-	for role, m := range map[string]string{"viewer": "Logs", "deployer": "Deploy", "admin": "Exec", "project-creator": "CreateProject"} {
+	for role, m := range map[string]string{"viewer": "Logs", "deployer": "Deploy", "admin": "Exec", "space-creator": "CreateSpace"} {
 		if !slices.Contains(methods[role], m) {
 			t.Errorf("%s lacks %s: %v", role, m, methods[role])
 		}

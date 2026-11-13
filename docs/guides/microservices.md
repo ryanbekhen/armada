@@ -3,12 +3,12 @@
 You will split an application into services that call each other over the
 cluster's private network: a public frontend, internal APIs only it may
 call, a shared cache over plain TCP, and two teams whose services are kept
-apart by projects.
+apart by spaces.
 
 **You will use:** [internal ingress](../spec-reference.md#ingress)
 (`type: internal`), [`ingress.allow`](../spec-reference.md#ingress),
 [internal TCP](../operations.md#tcp-apps-inside-the-cluster)
-(`protocol: tcp`), [projects](../operations.md#projects) and
+(`protocol: tcp`), [spaces](../operations.md#spaces) and
 [network isolation](../operations.md#network-isolation), and
 [roles](../operations.md#access-control).
 
@@ -17,7 +17,7 @@ apart by projects.
 - A running cluster created with the cluster network
   (`armadad init --cluster-cidr`, see the [quickstart](../quickstart.md)).
   Without it, internal names still work, but `allow`, TCP apps, and the
-  isolation between apps and projects do not.
+  isolation between apps and spaces do not.
 - A root domain for the public frontend (`armada cluster set --root-domain`).
 
 ## How services find each other
@@ -26,13 +26,13 @@ Every app with `ingress.type: internal` gets a private name:
 
 | Called from | HTTP | TCP (`protocol: tcp`) |
 | --- | --- | --- |
-| an app of the same project | `http://NAME` | `NAME:PORT` |
-| full name, project `default` | `http://NAME.internal` | `NAME.internal:PORT` |
-| full name, another project such as `shop` | `http://NAME.shop.internal` | `NAME.shop.internal:PORT` |
+| an app of the same space | `http://NAME` | `NAME:PORT` |
+| full name, space `default` | `http://NAME.internal` | `NAME.internal:PORT` |
+| full name, another space such as `shop` | `http://NAME.shop.internal` | `NAME.shop.internal:PORT` |
 
-- The name alone always means an app of the caller's own project: `orders`
+- The name alone always means an app of the caller's own space: `orders`
   called from `web.shop` is `orders.shop`, never an `orders` of another
-  project. Each container has its project's zone as its DNS search domain,
+  space. Each container has its space's zone as its DNS search domain,
   and the proxy completes a `Host` without a dot the same way. Replicas
   started before the cluster ran a release with this get it on their next
   deploy.
@@ -41,8 +41,8 @@ Every app with `ingress.type: internal` gets a private name:
   which sends the request to a ready replica of the app, preferring
   replicas on the same node. HTTP goes to port 80 of the name; the proxy
   knows the app's port.
-- The name resolves only for containers of the same project. Another
-  project's container gets no answer, and the proxy refuses it with a 404
+- The name resolves only for containers of the same space. Another
+  space's container gets no answer, and the proxy refuses it with a 404
   whatever `Host` header it sends.
 - A container cannot reach another app's container address directly: the
   firewall drops it, on one node and between nodes. The internal name is
@@ -57,7 +57,7 @@ Every app with `ingress.type: internal` gets a private name:
                |
    https://web.shop.<root domain>
                |
-  project shop v
+  space shop v
   +---------------------------------------------+
   |  web ----------------> orders               |
   |   |   http://orders                |        |
@@ -70,11 +70,11 @@ Every app with `ingress.type: internal` gets a private name:
 `web` is public. `orders` and `users` are internal; only `web` may call
 `orders`, and only `web` and `orders` may call `users`.
 
-### 1. Create the project
+### 1. Create the space
 
 ```bash
-armada project create shop
-armada project use shop
+armada space create shop
+armada space use shop
 ```
 
 ### 2. Deploy the internal APIs
@@ -117,8 +117,8 @@ armada app create --file users.yaml --wait
 armada app create --file orders.yaml --wait
 ```
 
-`allow` lists up to 32 apps of the same project. The app's own replicas may
-always call it. Without `allow`, every app of the project may. A caller
+`allow` lists up to 32 apps of the same space. The app's own replicas may
+always call it. Without `allow`, every app of the space may. A caller
 not on the list gets a 404 from the proxy, and the app never sees the
 request.
 
@@ -193,7 +193,7 @@ zero](autoscaling-and-scale-to-zero.md).
 ## Case B: a shared cache over TCP
 
 Redis speaks its own protocol over TCP, not HTTP. `protocol: tcp` makes an
-internal app take plain TCP at `NAME.PROJECT.internal:PORT`.
+internal app take plain TCP at `NAME.SPACE.internal:PORT`.
 
 Generate a password and give it to the cache and to each caller. Secrets
 belong to one app, so each caller gets the cache's URL as its own secret:
@@ -247,8 +247,8 @@ Things to know about TCP apps:
 
 - **Never reachable from outside.** Each node's proxy listens for them only
   on the node's container bridge, which only that node's containers reach.
-- **One app per port and project.** A second app of `shop` on port 6379 is
-  refused; another project may use 6379 for its own app.
+- **One app per port and space.** A second app of `shop` on port 6379 is
+  refused; another space may use 6379 for its own app.
 - **`allow` closes the connection** of any other caller at once.
 - **Long connections.** A connection with no data in either direction for an
   hour is closed, and so is one opened before a proxy reload, at most an
@@ -261,53 +261,53 @@ Things to know about TCP apps:
   give the app a volume (see [An app with a PostgreSQL
   database](app-with-a-database.md)).
 
-## Case C: two teams, two projects
+## Case C: two teams, two spaces
 
 The shop team runs `web`, `orders`, `users`, and `cache` in `shop`. The
 payments team runs its services in `payments`. Neither should be able to
 reach, or break, the other's services.
 
 ```bash
-armada project create payments
+armada space create payments
 ```
 
-What projects give you, on a cluster with the cluster network:
+What spaces give you, on a cluster with the cluster network:
 
 - **Separate names.** Both teams may have an app called `api`; their IDs
   are `api.shop` and `api.payments`.
 - **Separate networks.** A container in `payments` resolves no name of
   `shop` and is refused by the proxy for `shop`'s internal apps, TCP apps
-  included. Calling another project's app directly by address is dropped.
-- **Kept away from the platform.** Containers of every project except
+  included. Calling another space's app directly by address is dropped.
+- **Kept away from the platform.** Containers of every space except
   `default` reach the internet, their node's DNS server, and Armada's
   ingress, and nothing else: not the nodes, not the private network, not
   the cloud's metadata service.
-- **Separate rights.** Give each team a role in its own project only:
+- **Separate rights.** Give each team a role in its own space only:
 
   ```bash
-  armada rbac user create ana -o ana.config --role deployer --project shop
-  armada rbac user create budi -o budi.config --role deployer --project payments
+  armada rbac user create ana -o ana.config --role deployer --space shop
+  armada rbac user create budi -o budi.config --role deployer --space payments
   ```
 
   Ana deploys and reads logs in `shop`, and sees nothing of `payments`. See
   [Teams and access](teams-and-access.md) for the other roles.
 
-- **Usage per project.** `armada app top --projects` shows what each
-  project's replicas use and reserve, with its requests and egress.
+- **Usage per space.** `armada app top --spaces` shows what each
+  space's replicas use and reserve, with its requests and egress.
 
 ### When teams must talk to each other
 
-Internal names do not cross projects. If `shop` calls `payments`, either:
+Internal names do not cross spaces. If `shop` calls `payments`, either:
 
-- **Put the services that call each other in one project.** Projects are
+- **Put the services that call each other in one space.** Spaces are
   for things you want kept apart; services that work as one belong
   together.
 - **Or call the other team's public API**: make the `payments` service
   `type: external` and have it authenticate its callers, with a token as a
-  secret of each caller. External apps of a project without a custom domain
-  are at `https://NAME.PROJECT.<root domain>`.
+  secret of each caller. External apps of a space without a custom domain
+  are at `https://NAME.SPACE.<root domain>`.
 
-Projects share each node's kernel. They separate services you operate; they
+Spaces share each node's kernel. They separate services you operate; they
 do not contain code someone hostile wrote. For that, use restricted nodes
 or a separate cluster.
 
@@ -317,7 +317,7 @@ or a separate cluster.
 - From each caller, the names it should reach answer; from an app not in
   `allow`, HTTP gets a 404 and TCP connections are closed.
 - From an app of `payments`, `orders.shop.internal` does not resolve
-  (`armada app exec api --project payments -- nslookup orders.shop.internal`,
+  (`armada app exec api --space payments -- nslookup orders.shop.internal`,
   if its image has `nslookup`).
 - `armadad doctor` on a node reports the `isolation` check as `ok`.
 
@@ -325,12 +325,12 @@ or a separate cluster.
 
 | What you see | Why | What to do |
 | --- | --- | --- |
-| `orders.internal` does not resolve | Outside `default` the name includes the project | Use `orders.shop.internal` |
-| A caller gets 404 from an internal app that runs | The caller is not in the app's `allow`, or is in another project | Add it to `allow`, or move it into the project |
+| `orders.internal` does not resolve | Outside `default` the name includes the space | Use `orders.shop.internal` |
+| A caller gets 404 from an internal app that runs | The caller is not in the app's `allow`, or is in another space | Add it to `allow`, or move it into the space |
 | A TCP client is disconnected right after connecting | The caller is not in `allow` | Add it to `allow` |
 | Calling a replica's address (`10.120.x.y:8080`) times out | Direct traffic between apps is dropped | Use the internal name |
-| `create` with `protocol: tcp` is refused | No cluster network, the port is Armada's own, or another app of the project has the port | Pick another port, or create the cluster with the cluster network |
-| An app in another project cannot reach a server on the private network | Projects other than `default` are isolated from the private network | Run that service as an app, or use `default` (with its isolation off) for apps that need the private network |
+| `create` with `protocol: tcp` is refused | No cluster network, the port is Armada's own, or another app of the space has the port | Pick another port, or create the cluster with the cluster network |
+| An app in another space cannot reach a server on the private network | Spaces other than `default` are isolated from the private network | Run that service as an app, or use `default` (with its isolation off) for apps that need the private network |
 | Connections to a TCP app drop after an idle hour | Idle connections close after an hour | Use TCP keepalives or reconnect |
 
 ## Next steps
@@ -339,8 +339,8 @@ or a separate cluster.
   with a volume and backups.
 - [Workers that scale on a queue](background-workers.md): workers that read
   a queue in the shared Redis.
-- [Teams and access](teams-and-access.md): users, roles, and projects.
+- [Teams and access](teams-and-access.md): users, roles, and spaces.
 - Reference: [`ingress`](../spec-reference.md#ingress),
-  [Projects](../operations.md#projects),
-  [ADR 0026](../adr/0026-projects-and-network-isolation.md),
+  [Spaces](../operations.md#spaces),
+  [ADR 0026](../adr/0026-spaces-and-network-isolation.md),
   [ADR 0039](../adr/0039-internal-tcp-ingress.md).

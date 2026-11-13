@@ -12,9 +12,9 @@ Every command takes these.
 
 | Flag | Meaning |
 | --- | --- |
-| `-A`, `--all-projects` | every project |
+| `-A`, `--all-spaces` | every space |
 | `--config string` | client config file (default `$ARMADA_CONFIG, else ~/.armada/config if it exists, else /etc/armada/admin.config`) |
-| `--project string` | project to work in |
+| `--space string` | space to work in |
 
 ## Commands
 
@@ -26,9 +26,9 @@ Every command takes these.
 | [`armada job`](armada-job.md) | Create, run, and inspect jobs |
 | [`armada metrics`](armada-metrics.md) | Credentials for the Prometheus metrics endpoint |
 | [`armada node`](armada-node.md) | List, label, drain, and delete nodes |
-| [`armada project`](armada-project.md) | Manage projects |
 | [`armada rbac`](armada-rbac.md) | Manage users, services, and the roles they hold |
 | [`armada secret`](armada-secret.md) | Manage app secrets (values are write-only) |
 | [`armada server`](armada-server.md) | List, add, and delete control plane servers |
+| [`armada space`](armada-space.md) | Manage spaces |
 | [`armada version`](armada-version.md) | Print build information and the latest release |
 | [`armada volume`](armada-volume.md) | List, back up, restore, and delete persistent volumes |

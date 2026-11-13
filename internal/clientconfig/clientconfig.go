@@ -35,8 +35,11 @@ type Config struct {
 	CA      string   `json:"ca"`
 	Cert    string   `json:"cert"`
 	Key     string   `json:"key"`
-	// Project is the project commands work in when they name none
-	// (`armada project use`, ADR 0032); empty means the default project.
+	// Space is the space commands work in when they name none
+	// (`armada space use`, ADR 0032); empty means the default space.
+	Space string `json:"space,omitempty"`
+	// Project is where configs written before spaces had their name kept
+	// the space; Load moves it to Space and the next save drops it.
 	Project string `json:"project,omitempty"`
 }
 
@@ -78,6 +81,10 @@ func Load(path string) (*Config, error) {
 	if len(c.Servers) == 0 || c.CA == "" || c.Cert == "" || c.Key == "" {
 		return nil, fmt.Errorf("%s is incomplete", path)
 	}
+	if c.Space == "" {
+		c.Space = c.Project
+	}
+	c.Project = ""
 	return &c, nil
 }
 

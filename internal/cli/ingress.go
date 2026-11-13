@@ -272,7 +272,7 @@ func newDomainCommand(g *globals) *cobra.Command {
 			if err != nil {
 				return RPCError(err)
 			}
-			if !g.allProjects {
+			if !g.allSpaces {
 				resp.Domains = slices.DeleteFunc(resp.Domains, func(d *armadav1.Domain) bool {
 					return !slices.ContainsFunc(d.Apps, g.listed)
 				})

@@ -23,9 +23,9 @@ Everything Armada does. The [guides](guides/README.md) show each in use, and the
   once, and they hold after a failover.
 - **Internal services.** `ingress: internal` apps are reachable from any
   container in the cluster at `http://<app>.internal`, never from outside;
-  apps of the same project call each other by name alone (`http://<app>`).
+  apps of the same space call each other by name alone (`http://<app>`).
   Databases, brokers, and caches take plain TCP with `protocol: tcp`: the
-  apps of their project connect to `<app>:<port>`, balanced and
+  apps of their space connect to `<app>:<port>`, balanced and
   health checked by each node's proxy, which listens for them only on the
   container bridge.
 - **Client address rules.** `ingress.ipAllow` lets only chosen addresses
@@ -40,15 +40,15 @@ Everything Armada does. The [guides](guides/README.md) show each in use, and the
   network, so replicas are reached at their own address and see their
   caller's real one; `--network wireguard` encrypts it. Apps reach each
   other only through their internal names.
-- **Projects.** Apps, jobs, secrets, domains, and volumes belong to a
-  project, so `web` can run in `staging` and in `default` side by side.
-  Each project resolves and reaches
+- **Spaces.** Apps, jobs, secrets, domains, and volumes belong to a
+  space, so `web` can run in `staging` and in `default` side by side.
+  Each space resolves and reaches
   only its own internal names (`ingress.allow` narrows an app to chosen
   callers), and its containers are kept away from the nodes, the private
   network, and the cloud's metadata service.
 - **Access control.** People (users) and tools (services) each get a
   certificate under their own name and hold roles: `viewer`, `deployer`,
-  or `admin` in a project, `project-creator`, or `cluster-admin`
+  or `admin` in a space, `space-creator`, or `cluster-admin`
   (`armada rbac`). The audit log names them, and one person's access is
   taken back at once.
 - **Secrets.** Encrypted at rest, versioned, delivered as env vars or as
@@ -62,7 +62,7 @@ Everything Armada does. The [guides](guides/README.md) show each in use, and the
   own security settings, and every session is audited.
 - **Usage.** `armada app top` and `armada node top` show the CPU and
   memory each app, replica, and node uses next to what it reserves, sampled every 10 seconds, and per
-  project also its volumes, requests, and egress.
+  space also its volumes, requests, and egress.
 - **Autoscaling.** `scale.rules` keep an app between `scale.min` and
   `scale.max` by requests in progress, CPU, or memory per replica, by the
   length of its queue (a Redis list, a RabbitMQ queue, or any queue a

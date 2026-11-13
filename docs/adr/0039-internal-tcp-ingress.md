@@ -19,7 +19,7 @@ proxy on ports 80 and 443 faces the public.
 
 ## Decision
 
-An app can take plain TCP connections from other apps of its project:
+An app can take plain TCP connections from other apps of its space:
 
 ```yaml
 ingress:
@@ -29,31 +29,31 @@ ingress:
   allow: [api]         # optional, as for HTTP
 ```
 
-Callers connect to `<app>:<port>`, the name alone resolving within their project (ADR 0007), or `<app>.internal:<port>` (`<app>.<project>.internal` in a
-project other than `default`).
+Callers connect to `<app>:<port>`, the name alone resolving within their space (ADR 0007), or `<app>.internal:<port>` (`<app>.<space>.internal` in a
+space other than `default`).
 
 - **Internal only.** `protocol: tcp` needs `type: internal`; with
   `external` the spec is refused ("tcp is internal only"). Nothing listens
   for TCP apps anywhere but the bridge gateway.
-- **One listener per port, shared by projects.** TCP carries no host name,
+- **One listener per port, shared by spaces.** TCP carries no host name,
   so the proxy cannot tell apps apart by name the way the internal HTTP
   frontend does. Each port gets one `mode tcp` frontend, `tcp_<port>`,
-  bound to `<bridge gateway>:<port>` on every node. The caller's project,
+  bound to `<bridge gateway>:<port>` on every node. The caller's space,
   from its address in the clients map (ADR 0026), picks the backend: within a
-  project a port belongs to one app, and another project can use the same
-  port for its own app. The store refuses a second app of a project on a
+  space a port belongs to one app, and another space can use the same
+  port for its own app. The store refuses a second app of a space on a
   port in the deploy (or rollback) transaction, over the live specs of the
-  project, as it does for routes on custom domains; during a rollout both
+  space, as it does for routes on custom domains; during a rollout both
   the active and the target port count. Giving each app an address of its
   own was the other option: it would cost an address per app on every node
   out of a /24 that also holds the replicas, and DNS answers per app, for no
-  gain over picking by project.
-- **Callers.** The frontend sets the caller's project and app from
+  gain over picking by space.
+- **Callers.** The frontend sets the caller's space and app from
   `src,map_ip(clients.map)` at `tcp-request connection`, picks the
-  backend of that project (and, with `allow`, only for the listed apps and
+  backend of that space (and, with `allow`, only for the listed apps and
   the app itself), and rejects the connection before reading anything when
   none matches: an address the node does not know (the node itself
-  included), another project, or an app that is not allowed. So TCP ingress
+  included), another space, or an app that is not allowed. So TCP ingress
   needs the cluster network (ADR 0025), where nodes know their callers; a
   deploy in a cluster without one is refused, and a node without a subnet
   renders no TCP listener.
@@ -92,7 +92,7 @@ project other than `default`).
   through a TCP app's port. The rule exists only while there are TCP ports,
   so nodes without TCP apps need nothing new from the kernel.
 - **DNS.** `<app>.internal` resolves to the gateway for TCP apps like for
-  HTTP apps, within the asker's project only.
+  HTTP apps, within the asker's space only.
 - **Command line.** `armada app create|update --protocol tcp|http`;
   `armada app show` lists `tcp://<app>.internal:<port>` as the app's URL.
 
@@ -100,11 +100,11 @@ project other than `default`).
 
 - Databases, brokers, and other TCP services get a stable name, balancing
   over ready replicas, health checks, and failover across nodes, with the
-  same project boundary and `allow` as HTTP apps.
+  same space boundary and `allow` as HTTP apps.
 - Nothing new faces the internet: the listeners are on the bridge gateway,
   which only the node's containers reach, and the firewall opens only the
   ports of TCP apps there.
-- A port is a cluster-wide resource only within a project; two projects can
+- A port is a cluster-wide resource only within a space; two spaces can
   run their own app on 5432.
 - The proxy sees TCP, not requests: no per-request logging, retries, or
   limits. Connections through a node's proxy to a replica on another node

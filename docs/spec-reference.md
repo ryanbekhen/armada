@@ -135,9 +135,9 @@ Lowercase letters, digits, and single hyphens, starting with a letter, at
 most 63 characters. It names the app's URL (`<name>.<root domain>` or
 `<name>.internal`), its containers, and its secrets.
 
-The project is not part of the file: the project a command works in
-(`armada project use NAME`, or `--project NAME`) holds the app, where its URLs become `<name>.<project>.<root
-domain>` and `<name>.<project>.internal` (ADR 0026). A `project` field in
+The space is not part of the file: the space a command works in
+(`armada space use NAME`, or `--space NAME`) holds the app, where its URLs become `<name>.<space>.<root
+domain>` and `<name>.<space>.internal` (ADR 0026). A `space` field in
 the file is refused.
 
 ### `image` (required)
@@ -196,11 +196,11 @@ a secret; there is no inline password field.
 
 | Field | Meaning |
 | --- | --- |
-| `type` | `external`: reachable from the internet through HAProxy on every node, over HTTPS. `internal`: reachable only from containers in the cluster at `http://<name>.internal`, and by apps of the same project at `http://<name>` (no port: the proxy knows it); with the cluster network, only containers of the same project resolve the name (ADR 0026). `none` (the default): no traffic is routed to the app. |
-| `protocol` | `http` (the default) or `tcp`. A `tcp` app takes plain TCP connections from apps of its project at `<name>:<port>`, or `<name>.internal:<port>` (`<name>.<project>.internal` outside `default`): a database, a broker, a cache. `internal` only; nothing outside the cluster reaches it. Within a project a port belongs to one app (other projects may use it too), and Armada's own ports are refused: 22, 53, 80, 443, 2379, 2380, 4789, 7443, 7444, 7480, 8404, 51820. `allow` works as for HTTP (a refused caller's connection is closed). Not with `routes`, `domains`, `sticky`, `cors`, `ipAllow`/`ipDeny`, `timeout`, `scale.min: 0`, `http` scale rules, or `revisions.mode: multiple`. Needs the cluster network ([ADR 0039](adr/0039-internal-tcp-ingress.md)). |
+| `type` | `external`: reachable from the internet through HAProxy on every node, over HTTPS. `internal`: reachable only from containers in the cluster at `http://<name>.internal`, and by apps of the same space at `http://<name>` (no port: the proxy knows it); with the cluster network, only containers of the same space resolve the name (ADR 0026). `none` (the default): no traffic is routed to the app. |
+| `protocol` | `http` (the default) or `tcp`. A `tcp` app takes plain TCP connections from apps of its space at `<name>:<port>`, or `<name>.internal:<port>` (`<name>.<space>.internal` outside `default`): a database, a broker, a cache. `internal` only; nothing outside the cluster reaches it. Within a space a port belongs to one app (other spaces may use it too), and Armada's own ports are refused: 22, 53, 80, 443, 2379, 2380, 4789, 7443, 7444, 7480, 8404, 51820. `allow` works as for HTTP (a refused caller's connection is closed). Not with `routes`, `domains`, `sticky`, `cors`, `ipAllow`/`ipDeny`, `timeout`, `scale.min: 0`, `http` scale rules, or `revisions.mode: multiple`. Needs the cluster network ([ADR 0039](adr/0039-internal-tcp-ingress.md)). |
 | `port` | The container port that serves HTTP (or TCP with `protocol: tcp`), 1–65535. Required for `external` and `internal`. |
 | `domains` | `external` only. Up to 32 lowercase, fully qualified host names (no IP addresses, wildcards, or trailing dot). Each domain is routed and gets a certificate only after its ownership is verified: publish the TXT record shown by `armada domain list`, then run `armada domain verify <domain>`. With a DNS provider set, a domain one label under the root domain is served with the root domain's wildcard certificate. |
-| `allow` | Up to 32 names of apps in the same project that may call this app at its internal name, for example `allow: [api, worker]`. The app's own replicas always may. Without `allow`, every app of the project may. Other callers get a 404. Enforced with the cluster network (ADR 0025), for calls through the internal name; not with `type: none`. |
+| `allow` | Up to 32 names of apps in the same space that may call this app at its internal name, for example `allow: [api, worker]`. The app's own replicas always may. Without `allow`, every app of the space may. Other callers get a 404. Enforced with the cluster network (ADR 0025), for calls through the internal name; not with `type: none`. |
 | `ipAllow` | `external` only. Up to 64 rules, each an address or prefix, IPv4 or IPv6 (`203.0.113.7`, `203.0.113.0/24`, `2001:db8::/32`), written bare or as `{range, name, description}` so others know what it is for (name up to 64 characters, description up to 256, both printable text; names unique). Only clients from these reach the app from outside; others get `403` and wake nothing. Not with `ipDeny`. The client is the connection's address, or, behind a trusted proxy, the last address that proxy wrote in `X-Forwarded-For`; any other header is ignored ([ADR 0035](adr/0035-client-address-rules.md)). Internal callers are chosen with `allow`. |
 | `sticky` | `true` sends each client back to the replica that answered it first, through a cookie the proxy sets (`armada_<hash>`, `httponly`, `secure`, `SameSite=Lax`); a replica that is gone sends it to another one. Turns local-first routing off for the app ([ADR 0036](adr/0036-sticky-sessions.md)). Not with `type: none`. |
 | `cors` | Lets browsers on other origins call the app ([ADR 0037](adr/0037-cors.md)): `allowOrigins` (required; up to 32 origins such as `https://app.example.com` or `http://localhost:3000`, or `["*"]` alone), `allowMethods` (default `GET, HEAD, POST`; from `GET HEAD POST PUT PATCH DELETE OPTIONS`), `allowHeaders`, `exposeHeaders` (header names), `maxAge` (up to `24h`), `allowCredentials` (not with `*`). The proxy answers preflight requests from listed origins with `204` and adds the headers to the app's responses; other origins get none. Not with `type: none`. |
@@ -631,7 +631,7 @@ volumes:
   ([ADR 0041](adr/0041-volume-backups.md#failover)).
 - Both secrets stay out of the app's environment, `envFrom` included.
 - The volume's repository is `<prefix>/<app>/<volume>/` in the bucket
-  (`<app>.<project>` outside the default project).
+  (`<app>.<space>` outside the default space).
 
 ### `initContainers`, `sidecars`
 
@@ -799,6 +799,6 @@ trigger:
 - The queue is read by one node's agent from a network sandbox: an address
   of that node's subnet that belongs to the job, with no container. It
   reaches exactly what the job's containers would, so the broker must be
-  reachable from the job's project. Triggers need a cluster network
+  reachable from the job's space. Triggers need a cluster network
   (`armadad init --network`); without one the deploy is refused.
 - A run's trigger is `queue` in `armada job run list`.

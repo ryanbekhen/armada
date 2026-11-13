@@ -83,9 +83,9 @@ type App struct {
 	// it stops; zero means the default.
 	Drain Duration `yaml:"drain,omitempty" json:"drain,omitempty"`
 
-	// Project is the project the app belongs to (ADR 0026), set by the API
-	// rather than the file; empty means the default project.
-	Project string `yaml:"-" json:"project,omitempty"`
+	// Space is the space the app belongs to (ADR 0026), set by the API
+	// rather than the file; empty means the default space.
+	Space string `yaml:"-" json:"space,omitempty"`
 
 	// Job settings (kind: job, ADR 0019).
 	Schedule    string   `yaml:"schedule,omitempty" json:"schedule,omitempty"`
@@ -109,14 +109,14 @@ type EnvVar struct {
 type Ingress struct {
 	Type string `yaml:"type" json:"type"`
 	// Protocol is http (the default) or tcp. A tcp app is internal only:
-	// the apps of its project connect to <app>.internal:<port> with plain
+	// the apps of its space connect to <app>.internal:<port> with plain
 	// TCP through their node's proxy (ADR 0039).
 	Protocol string   `yaml:"protocol,omitempty" json:"protocol,omitempty"`
 	Port     int      `yaml:"port,omitempty" json:"port,omitempty"`
 	Domains  []string `yaml:"domains,omitempty" json:"domains,omitempty"`
 	Routes   []Route  `yaml:"routes,omitempty" json:"routes,omitempty"`
-	// Allow names the apps and jobs of the same project that may call this
-	// app through its internal name; empty lets every app of the project
+	// Allow names the apps and jobs of the same space that may call this
+	// app through its internal name; empty lets every app of the space
 	// (ADR 0025, ADR 0026). Replicas of the app itself always may.
 	Allow []string `yaml:"allow,omitempty" json:"allow,omitempty"`
 	// IPAllow lets only clients from these addresses or prefixes reach the
@@ -327,12 +327,12 @@ func (d *Duration) UnmarshalJSON(b []byte) error {
 }
 
 // Parse decodes, defaults, and validates an app spec of the default
-// project.
+// space.
 func Parse(data []byte) (*App, error) { return ParseIn(data, "") }
 
-// ParseIn is Parse for an app of project (ADR 0026); empty means the
-// default project.
-func ParseIn(data []byte, project string) (*App, error) {
+// ParseIn is Parse for an app of space (ADR 0026); empty means the
+// default space.
+func ParseIn(data []byte, space string) (*App, error) {
 	if len(data) > MaxSpecBytes {
 		return nil, fmt.Errorf("spec is larger than %d bytes", MaxSpecBytes)
 	}
@@ -351,8 +351,8 @@ func ParseIn(data []byte, project string) (*App, error) {
 		return nil, errors.New("spec must contain exactly one YAML document")
 	}
 
-	if project != DefaultProject {
-		app.Project = project
+	if space != DefaultSpace {
+		app.Space = space
 	}
 	app.SetDefaults()
 	if err := app.Validate(); err != nil {

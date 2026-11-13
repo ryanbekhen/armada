@@ -37,8 +37,8 @@ func newEventsCommand(g *globals, scope eventsScope) *cobra.Command {
 		Short: "Show what happened to apps: crashes, rollouts, placement",
 		Long: "Show events from the last hour (or --since, at most 24h), oldest first: replicas scheduled,\n" +
 			"started, crashed, moved, or removed; rollouts started, completed, failed, or rolled back;\n" +
-			"apps that cannot be placed. Without APP, the events of the project's apps (every\n" +
-			"project's with -A). An event that repeats within 10 minutes is counted rather than\n" +
+			"apps that cannot be placed. Without APP, the events of the space's apps (every\n" +
+			"space's with -A). An event that repeats within 10 minutes is counted rather than\n" +
 			"shown again.",
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {

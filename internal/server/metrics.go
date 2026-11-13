@@ -201,14 +201,14 @@ var (
 	descJobActive        = prometheus.NewDesc("armada_job_runs_active", "Runs of a job that are pending or running.", []string{"job"}, nil)
 	descJobQueueLength   = prometheus.NewDesc("armada_job_queue_length", "The length of the queue that starts a job's runs, as last read; absent while unread.", []string{"job"}, nil)
 	descTrafficWeight    = prometheus.NewDesc("armada_app_traffic_weight", "A revision's percent of an app's requests in multiple revision mode.", []string{"app", "revision"}, nil)
-	descProjectReplicas  = prometheus.NewDesc("armada_project_replicas", "Replicas of a project's apps.", []string{"project"}, nil)
-	descProjectCPU       = prometheus.NewDesc("armada_project_cpu_usage_cores", "CPU a project's replicas used over the last sampling interval.", []string{"project"}, nil)
-	descProjectMemory    = prometheus.NewDesc("armada_project_memory_usage_bytes", "Memory a project's replicas use, without reclaimable page cache.", []string{"project"}, nil)
-	descProjectCPURes    = prometheus.NewDesc("armada_project_cpu_reserved_cores", "CPU a project's replicas reserve.", []string{"project"}, nil)
-	descProjectMemRes    = prometheus.NewDesc("armada_project_memory_reserved_bytes", "Memory a project's replicas reserve.", []string{"project"}, nil)
-	descProjectVolumes   = prometheus.NewDesc("armada_project_volume_used_bytes", "Bytes in a project's volumes, from their latest measurements.", []string{"project"}, nil)
-	descProjectRequests  = prometheus.NewDesc("armada_project_requests_total", "Requests the proxies sent to a project's replicas; resets when the leader changes.", []string{"project"}, nil)
-	descProjectEgress    = prometheus.NewDesc("armada_project_egress_bytes_total", "Bytes a project's containers sent; resets when the leader changes.", []string{"project"}, nil)
+	descSpaceReplicas    = prometheus.NewDesc("armada_space_replicas", "Replicas of a space's apps.", []string{"space"}, nil)
+	descSpaceCPU         = prometheus.NewDesc("armada_space_cpu_usage_cores", "CPU a space's replicas used over the last sampling interval.", []string{"space"}, nil)
+	descSpaceMemory      = prometheus.NewDesc("armada_space_memory_usage_bytes", "Memory a space's replicas use, without reclaimable page cache.", []string{"space"}, nil)
+	descSpaceCPURes      = prometheus.NewDesc("armada_space_cpu_reserved_cores", "CPU a space's replicas reserve.", []string{"space"}, nil)
+	descSpaceMemRes      = prometheus.NewDesc("armada_space_memory_reserved_bytes", "Memory a space's replicas reserve.", []string{"space"}, nil)
+	descSpaceVolumes     = prometheus.NewDesc("armada_space_volume_used_bytes", "Bytes in a space's volumes, from their latest measurements.", []string{"space"}, nil)
+	descSpaceRequests    = prometheus.NewDesc("armada_space_requests_total", "Requests the proxies sent to a space's replicas; resets when the leader changes.", []string{"space"}, nil)
+	descSpaceEgress      = prometheus.NewDesc("armada_space_egress_bytes_total", "Bytes a space's containers sent; resets when the leader changes.", []string{"space"}, nil)
 	descVolumeUsed       = prometheus.NewDesc("armada_volume_used_bytes", "Bytes in a volume's files, from its node's latest measurement; absent while unmeasured.", []string{"app", "volume", "node"}, nil)
 	descBackupLast       = prometheus.NewDesc("armada_volume_backup_last_success_timestamp_seconds", "When a volume's last backup to its bucket worked (ADR 0041); absent before the first.", []string{"app", "volume"}, nil)
 	descBackupStored     = prometheus.NewDesc("armada_volume_backup_stored_bytes", "Bytes a volume's backup repository held after its last backup.", []string{"app", "volume"}, nil)
@@ -230,8 +230,8 @@ func (c *clusterCollector) Describe(ch chan<- *prometheus.Desc) {
 		descNodeCPURes, descNodeMemRes, descNodeCPU, descNodeMemory, descNodeConntrack, descNodeConntrackMax, descJobLastSuccess, descJobActive, descJobQueueLength,
 		descScaleCurrent, descScaleTarget, descTrafficWeight, descVolumeUsed,
 		descBackupLast, descBackupStored, descBackupSnapshots, descBackupFailing,
-		descProjectReplicas, descProjectCPU, descProjectMemory, descProjectCPURes, descProjectMemRes,
-		descProjectVolumes, descProjectRequests, descProjectEgress,
+		descSpaceReplicas, descSpaceCPU, descSpaceMemory, descSpaceCPURes, descSpaceMemRes,
+		descSpaceVolumes, descSpaceRequests, descSpaceEgress,
 		descRevisionInfo, descReplicaState, descReplicaInfo, descReplicaDraining, descScaledAt,
 	} {
 		ch <- d
@@ -366,18 +366,18 @@ func (c *clusterCollector) gather() (out []prometheus.Metric, ok bool) {
 			gauge(descBackupFailing, failing, v.GetApp(), v.GetName())
 		}
 	}
-	for _, p := range top.GetProjects() {
+	for _, p := range top.GetSpaces() {
 		name := p.GetName()
-		gauge(descProjectReplicas, float64(p.GetReplicas()), name)
+		gauge(descSpaceReplicas, float64(p.GetReplicas()), name)
 		if p.GetMeasured() > 0 {
-			gauge(descProjectCPU, cores(p.GetCpuMillis()), name)
-			gauge(descProjectMemory, float64(p.GetMemoryBytes()), name)
+			gauge(descSpaceCPU, cores(p.GetCpuMillis()), name)
+			gauge(descSpaceMemory, float64(p.GetMemoryBytes()), name)
 		}
-		gauge(descProjectCPURes, cores(p.GetCpuReservedMillis()), name)
-		gauge(descProjectMemRes, float64(p.GetMemoryReservedBytes()), name)
-		gauge(descProjectVolumes, float64(p.GetVolumeBytes()), name)
-		emit(prometheus.MustNewConstMetric(descProjectRequests, prometheus.CounterValue, float64(p.GetRequests()), name))
-		emit(prometheus.MustNewConstMetric(descProjectEgress, prometheus.CounterValue, float64(p.GetEgressBytes()), name))
+		gauge(descSpaceCPURes, cores(p.GetCpuReservedMillis()), name)
+		gauge(descSpaceMemRes, float64(p.GetMemoryReservedBytes()), name)
+		gauge(descSpaceVolumes, float64(p.GetVolumeBytes()), name)
+		emit(prometheus.MustNewConstMetric(descSpaceRequests, prometheus.CounterValue, float64(p.GetRequests()), name))
+		emit(prometheus.MustNewConstMetric(descSpaceEgress, prometheus.CounterValue, float64(p.GetEgressBytes()), name))
 	}
 	for _, n := range top.GetNodes() {
 		gauge(descNodeReplicas, float64(n.GetReplicas()), n.GetId())

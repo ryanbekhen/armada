@@ -10,7 +10,7 @@ steps that work in any CI system.
 and `--diff`, [spec variables](../spec-reference.md#variables),
 [`armada job run --wait`](../cli/armada-job.md#armada-job-run)
 **Before you start:** a running cluster ([quickstart](../quickstart.md)),
-`cluster-admin` access for the one-time setup, a project for the app (this
+`cluster-admin` access for the one-time setup, a space for the app (this
 guide uses `shop`), and CI runners that can reach a control plane server's
 private address on port 7443 (a runner inside the private network, or one
 that joins it over a VPN).
@@ -31,15 +31,15 @@ that joins it over a VPN).
 ```
 
 The pipeline holds a **service**: an identity of its own with the
-`deployer` role in one project, a 90-day certificate, and nothing else. It
-cannot touch other projects, nodes, or cluster settings, and you can revoke
+`deployer` role in one space, a 90-day certificate, and nothing else. It
+cannot touch other spaces, nodes, or cluster settings, and you can revoke
 it without touching anyone's access.
 
 ## 1. Create the service (once, as cluster-admin)
 
 ```bash
-armada project create shop                                  # if it does not exist yet
-armada rbac service create ci --role deployer --project shop
+armada space create shop                                  # if it does not exist yet
+armada rbac service create ci --role deployer --space shop
 armada rbac service credentials ci -o ci.json
 ```
 
@@ -50,13 +50,13 @@ its contents as a secret variable of your CI system (for example
 
 `deployer` may deploy, scale, roll back, set secrets, and run jobs in
 `shop`. It may not run `armada app exec`, delete apps, or touch volumes;
-give `admin` in the project if the pipeline needs those.
+give `admin` in the space if the pipeline needs those.
 
 For pull requests, create a second service that can only read, so code
 from a pull request never holds deploy rights:
 
 ```bash
-armada rbac service create ci-preview --role viewer --project shop
+armada rbac service create ci-preview --role viewer --space shop
 armada rbac service credentials ci-preview -o ci-preview.json
 ```
 
@@ -109,7 +109,7 @@ resources:
 each app and job, so set them for both, once:
 
 ```bash
-armada project use shop
+armada space use shop
 for app in api migrate; do
   printf '%s' "$GHCR_TOKEN"   | armada secret set "$app" ghcr-token
   printf '%s' "$DATABASE_URL" | armada secret set "$app" database-url
@@ -138,7 +138,7 @@ export PATH="$HOME/.local/bin:$PATH"
 umask 077
 printf '%s' "$ARMADA_CLIENT_CONFIG" > "$RUNNER_TEMP_DIR/armada.json"
 export ARMADA_CONFIG="$RUNNER_TEMP_DIR/armada.json"
-export ARMADA_PROJECT=shop
+export ARMADA_SPACE=shop
 
 # 1. Migrate with the new image; stop here unless the run succeeds.
 armada job update migrate --file deploy/migrate.yaml --var TAG="$TAG" --create-if-missing
@@ -233,7 +233,7 @@ If the file leaks, revoke everything at once and start again:
 
 ```bash
 armada rbac service delete ci --yes
-armada rbac service create ci --role deployer --project shop
+armada rbac service create ci --role deployer --space shop
 armada rbac service credentials ci -o ci.json
 ```
 
@@ -248,8 +248,8 @@ armada app events api          # Started and Completed rollouts
 
 ## Variations
 
-**Several environments.** Use one project per environment (`shop-staging`,
-`shop`) and one service per project, so the staging pipeline cannot touch
+**Several environments.** Use one space per environment (`shop-staging`,
+`shop`) and one service per space, so the staging pipeline cannot touch
 production. Keep per-environment values in `--vars` files (see
 [spec files and environments](spec-files-and-environments.md)):
 
@@ -270,12 +270,12 @@ to follow from CI: one run, one log, one exit code.
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| `service:ci may not deploy to project default`, or `service:ci may not see api` | The command works in another project than the one the service holds its role in | Set `ARMADA_PROJECT` (or `--project`) to that project; `armada rbac service show ci` shows its roles |
+| `service:ci may not deploy to space default`, or `service:ci may not see api` | The command works in another space than the one the service holds its role in | Set `ARMADA_SPACE` (or `--space`) to that space; `armada rbac service show ci` shows its roles |
 | `service:ci has no role that allows ...` | The method needs more than the service's role (`deployer` cannot exec or delete) | Give the role it needs with `armada rbac assignment create --service ci` |
 | `... may not require node label tier=shop` | The spec's `placement.require` names a label the service may not use | `armada rbac service update ci --allow-label tier=shop` |
 | `... has mode 0644, want 0600` | The config file was written without `umask 077` | Write it with `umask 077`, or `chmod 600` it |
 | The command hangs, then fails to connect | The runner cannot reach the server's private address on port 7443 | Run the job on a runner in the private network or on its VPN |
-| `app api.shop references secrets that are not set` | A secret was set for another app, project, or not at all | `armada secret set api NAME --project shop` |
+| `app api.shop references secrets that are not set` | A secret was set for another app, space, or not at all | `armada secret set api NAME --space shop` |
 | The certificate is refused after a renewal | The CI secret still holds the revoked file | Put the renewed file into the CI secret |
 
 More in [troubleshooting](troubleshooting.md).

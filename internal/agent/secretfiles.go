@@ -15,7 +15,7 @@ import (
 )
 
 // replicaIDRe bounds replica IDs before they become directory names.
-// Apps of other projects than the default one have a dot in their ID, and
+// Apps of other spaces than the default one have a dot in their ID, and
 // so in their replicas' IDs (ADR 0026).
 var replicaIDRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9.-]{0,126}[a-z0-9])?$`)
 

@@ -330,12 +330,12 @@ the file, so set it again after that one.
 ## 10. Give others access
 
 Give every person a certificate of their own, the same way as in step 9,
-with the role they need: `viewer`, `deployer`, or `admin` in a project, or
+with the role they need: `viewer`, `deployer`, or `admin` in a space, or
 `cluster-admin` for the whole cluster. The audit log names them, and you can
 take one person's access back without touching anyone else's:
 
 ```bash
-armada rbac user create alice -o alice.config --role deployer --project shop
+armada rbac user create alice -o alice.config --role deployer --space shop
 armada rbac user list                 # who has access, and which roles
 armada rbac user delete alice --yes   # refuse every certificate of alice at once
 ```
@@ -356,7 +356,7 @@ certificates of their own.
 
 | Task | Command |
 | --- | --- |
-| Apps | `armada app list` (every project: `-A`), `armada app show hello`, `armada cluster status` for the whole cluster |
+| Apps | `armada app list` (every space: `-A`), `armada app show hello`, `armada cluster status` for the whole cluster |
 | Logs | `armada app logs hello -f` |
 | Shell in a replica | `armada app exec hello -it -- sh` (a single command: `armada app exec hello -- env`) |
 | Scale | `armada app scale hello --replicas 3` (until the next update; to keep it, `armada app update hello --replicas 3`) |
@@ -368,14 +368,14 @@ certificates of their own.
 | Keep data | add `volumes` to the spec file (one replica, bound to its node; see [spec reference](spec-reference.md#volumes)); `armada volume list`, `armada volume backup hello data -o -` |
 | Run a job | `armada job create migrate --image IMAGE --command ./migrate`, then `armada job run migrate --wait` (or `--schedule "0 3 * * *"`); `armada job run list migrate`, `armada job logs migrate` (see [spec reference](spec-reference.md#jobs)) |
 | Canary | `revisions.mode: multiple` with weights in the spec, then `armada app traffic hello r2=50 r3=50` (see [spec reference](spec-reference.md#revisions)) |
-| What happened | `armada app events hello` (the project's apps: `armada app events`; everything: `armada cluster events`; keep following: `-f`) |
+| What happened | `armada app events hello` (the space's apps: `armada app events`; everything: `armada cluster events`; keep following: `-f`) |
 | CPU and memory use | `armada app top` (one app's replicas: `armada app top hello`; nodes: `armada node top`) |
-| Projects | `armada project create staging`, `armada project use staging` (commands then work in it; `--project` names another) |
+| Spaces | `armada space create staging`, `armada space use staging` (commands then work in it; `--space` names another) |
 | Prometheus metrics | `armada cluster set --metrics-port 9443` (each server's private address), then `armada metrics credentials prometheus` for the scraper (see [operations](operations.md#metrics)) |
 | Maintenance | `armada node drain NODE` moves replicas away; `armada node resume NODE` (replicas spread back to it on their own) |
 | Choose nodes | `armada node label NODE region=sulawesi`, then `placement.require` in the spec; `armada node restrict NODE` keeps a node for apps that ask for it |
 | Delete a node | `armada node delete NODE` (revokes its certificate) |
-| Access | `armada rbac user create NAME -o FILE --role ROLE [--project P]`, `armada rbac assignment create --user NAME --role ROLE`, `armada rbac user list`, `armada rbac role list` (see [step 10](#10-give-others-access)) |
+| Access | `armada rbac user create NAME -o FILE --role ROLE [--space P]`, `armada rbac assignment create --user NAME --role ROLE`, `armada rbac user list`, `armada rbac role list` (see [step 10](#10-give-others-access)) |
 | Control plane servers | `armada server list`, `armada server delete NAME` |
 | Back up | `armadad backup -o -` (control plane; volumes: `armada volume backup`; see [operations](operations.md#backup)) |
 | Upgrade | `armada version` shows the latest release; `sudo armadad upgrade` on each machine, servers first, one at a time (see [operations](operations.md#upgrades)) |

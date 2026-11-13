@@ -496,7 +496,7 @@ func (d *Driver) SetClients(ctx context.Context, clients map[netip.Addr]string) 
 	return nil
 }
 
-// clientsMap renders the clients map: one "<address> <project>:<app ID>"
+// clientsMap renders the clients map: one "<address> <space>:<app ID>"
 // line per container of the node subnet, sorted. Every address and app is
 // checked again, since they end up in the proxy.
 func clientsMap(clients map[netip.Addr]string, subnet netip.Prefix) ([]byte, error) {
@@ -513,8 +513,8 @@ func clientsMap(clients map[netip.Addr]string, subnet netip.Prefix) ([]byte, err
 	slices.SortFunc(addrs, netip.Addr.Compare)
 	var b bytes.Buffer
 	for _, a := range addrs {
-		project, _, _ := spec.SplitAppID(clients[a])
-		fmt.Fprintf(&b, "%s %s:%s\n", a, project, clients[a])
+		space, _, _ := spec.SplitAppID(clients[a])
+		fmt.Fprintf(&b, "%s %s:%s\n", a, space, clients[a])
 	}
 	return b.Bytes(), nil
 }

@@ -90,7 +90,7 @@ is needed:
     the socket, which keeps the container's routes and firewall.
   - Names resolve through the nameserver containers use, also from inside.
   - A rule therefore reaches exactly what its app can reach, and an
-    isolated project's rule reaches nothing outside it. The agent's own
+    isolated space's rule reaches nothing outside it. The agent's own
     network position gives the spec nothing.
 - **TLS** uses the node's root certificates. Certificate paths in the URL
   are ignored, so a URL cannot make the agent read files on the node.

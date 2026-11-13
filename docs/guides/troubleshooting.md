@@ -10,7 +10,7 @@ this page for what your terminal shows.
 [events](../operations.md#events), [`armada app logs`](../cli/armada-app.md#armada-app-logs),
 [`armada app exec`](../cli/armada-app.md#armada-app-exec),
 [`armadad doctor`](../cli/armadad-doctor.md)
-**Before you start:** access to the project the app is in. Node and
+**Before you start:** access to the space the app is in. Node and
 network problems need `cluster-admin` and a shell on the node.
 
 ## First look
@@ -256,8 +256,8 @@ of waiting a minute:
 armada domain verify www.example.com
 ```
 
-A domain serves one project. A deploy that names a domain an app of
-another project uses is refused, and a domain another project left behind
+A domain serves one space. A deploy that names a domain an app of
+another space uses is refused, and a domain another space left behind
 needs a new TXT record.
 
 ## 403 from an app with ipAllow
@@ -377,7 +377,7 @@ sudo armadad doctor
 ```
 [ok  ] network        armada-net routes 2 other node subnet(s) over VXLAN (UDP 4789 on 10.0.0.5, open it to the other nodes)
 [ok  ] network-mtu    eth1 has MTU 1450; the tunnel and containers use 1400
-[ok  ] isolation      the nftables tables that keep apps and projects apart are in place
+[ok  ] isolation      the nftables tables that keep apps and spaces apart are in place
 ```
 
 | Doctor says | Cause | Fix |
@@ -390,17 +390,17 @@ sudo armadad doctor
 | `subnet` failure: `container subnet ... overlaps route ...` | The node's container subnet clashes with a route on the machine | Remove the clashing route (the cluster CIDR is chosen once, at `armadad init`) |
 
 Isolation is not a fault: a container reaches another app only through its
-internal name, resolves only its own project's names, and gets `404` from
-the proxy for apps of other projects or apps whose `ingress.allow` leaves
+internal name, resolves only its own space's names, and gets `404` from
+the proxy for apps of other spaces or apps whose `ingress.allow` leaves
 it out. If `armada app exec web -- wget -qO- http://api.internal/` gets a
-404, check that both apps are in the same project and that `allow` lists
+404, check that both apps are in the same space and that `allow` lists
 the caller.
 
 ## Commands are refused
 
 | Message | Fix |
 | --- | --- |
-| `user:alice may not see project billing` (or `deploy to`, `manage`) | Work in a project you hold a role in: `armada project use shop`; `armada rbac assignment list` (cluster-admin) |
+| `user:alice may not see space billing` (or `deploy to`, `manage`) | Work in a space you hold a role in: `armada space use shop`; `armada rbac assignment list` (cluster-admin) |
 | `user:alice has no role that allows ...` | The method needs a higher role; see [teams and access](teams-and-access.md) |
 | `app api references secrets that are not set: ...` | `armada secret set api NAME` before you deploy |
 | `api changed since api--r7 (now api--r8); run the command again` | Another change landed while the command ran; flag updates refuse to overwrite it. Run it again |

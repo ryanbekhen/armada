@@ -86,12 +86,12 @@ func TestMetrics(t *testing.T) {
 		`armada_node_conntrack_max{node="n1"} 262144`,
 		`armada_replica_cpu_limit_cores{app="web"`,
 		`armada_replica_memory_usage_bytes{app="web"`,
-		`armada_project_replicas{project="default"} 2`,
-		`armada_project_memory_usage_bytes{project="default"} 1.048576e+08`,
-		`armada_project_cpu_reserved_cores{project="default"} 0.5`,
-		`armada_project_volume_used_bytes{project="default"} 0`,
-		`armada_project_requests_total{project="default"} 0`,
-		`armada_project_egress_bytes_total{project="default"} 0`,
+		`armada_space_replicas{space="default"} 2`,
+		`armada_space_memory_usage_bytes{space="default"} 1.048576e+08`,
+		`armada_space_cpu_reserved_cores{space="default"} 0.5`,
+		`armada_space_volume_used_bytes{space="default"} 0`,
+		`armada_space_requests_total{space="default"} 0`,
+		`armada_space_egress_bytes_total{space="default"} 0`,
 		`armada_reconcile_duration_seconds_count`,
 		`go_goroutines`,
 		`armada_revision_info{app="web",image="nginx:1",revision="web--r1"} 1`,
@@ -105,7 +105,7 @@ func TestMetrics(t *testing.T) {
 		code, b, err := scrape(issued.GetCert(), keyPEM)
 		body = b
 		return err == nil && code == http.StatusOK && strings.Contains(b, `armada_node_memory_usage_bytes{node="n1"} 1.048576e+08`) &&
-			strings.Contains(b, `armada_project_memory_usage_bytes{project="default"} 1.048576e+08`)
+			strings.Contains(b, `armada_space_memory_usage_bytes{space="default"} 1.048576e+08`)
 	})
 	for _, w := range want {
 		if !strings.Contains(body, w) {

@@ -162,7 +162,7 @@ type InternalDNS interface {
 	// SetNames replaces the apps that resolve under .internal.
 	SetNames(apps []string)
 	// SetClients maps the addresses of this node's containers to their app
-	// IDs, so that each resolves only its own project's names (ADR 0026).
+	// IDs, so that each resolves only its own space's names (ADR 0026).
 	SetClients(clients map[netip.Addr]string)
 }
 
@@ -1084,7 +1084,7 @@ func (a *Agent) start(ctx context.Context, s *armadav1.ReplicaSpec, hash string,
 		// Not part of the spec hash: enabling internal DNS must not restart
 		// running replicas; they pick it up on their next replacement.
 		cs.DNS = []string{a.cfg.DNS.Address()}
-		// The app's project's names resolve by the app name alone.
+		// The app's space's names resolve by the app name alone.
 		if d := spec.InternalSearchDomain(s.GetApp()); d != "" {
 			cs.DNSSearch = []string{d}
 		}

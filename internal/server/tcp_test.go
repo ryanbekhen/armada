@@ -30,7 +30,7 @@ func TestIngressTCP(t *testing.T) {
 	c.deploy(db)
 	c.deploy("name: cache\nimage: redis:8\ningress:\n  type: internal\n  protocol: tcp\n  port: 6379\n")
 	_, err = c.admin.Deploy(c.ctx, &armadav1.DeployRequest{Spec: []byte("name: other\nimage: postgres:17\ningress:\n  type: internal\n  protocol: tcp\n  port: 5432\n")})
-	wantCode(t, "a port of another app of the project", err, codes.AlreadyExists)
+	wantCode(t, "a port of another app of the space", err, codes.AlreadyExists)
 
 	c.eventually("tcp routes on n1", func() bool { return len(c.proxyOn("n1").TCP) == 2 })
 	cfg := c.proxyOn("n1")

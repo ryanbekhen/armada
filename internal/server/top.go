@@ -32,7 +32,7 @@ const (
 	// maxQueueLength bounds a reported queue length (ADR 0034).
 	maxQueueLength = 1 << 40
 	// maxReportRequests and maxReportEgress bound what one report adds to a
-	// project's counters for one replica.
+	// space's counters for one replica.
 	maxReportRequests = 1 << 30
 	maxReportEgress   = 1 << 40
 )
@@ -48,18 +48,18 @@ type usageStore struct {
 	active map[string]time.Time
 	// volumes is each node's latest volume measurement (ADR 0023).
 	volumes map[string]volumeUsage
-	// owners says which project and node each replica belongs to, from the
+	// owners says which space and node each replica belongs to, from the
 	// reconciler's latest pass, so a report costs no store access.
 	owners map[string]replicaOwner
-	// totals counts requests and egress per project since since. Replicas
+	// totals counts requests and egress per space since since. Replicas
 	// come and go, so the sums are kept here, not derived when read.
-	totals map[string]projectTotals
+	totals map[string]spaceTotals
 	since  time.Time
 }
 
-type replicaOwner struct{ project, app, node string }
+type replicaOwner struct{ space, app, node string }
 
-type projectTotals struct{ requests, egress int64 }
+type spaceTotals struct{ requests, egress int64 }
 
 // maxActive bounds usageStore.active.
 const maxActive = 8192
@@ -110,7 +110,7 @@ type replicaUsage struct {
 func newUsageStore() *usageStore {
 	return &usageStore{
 		nodes: map[string]nodeUsage{}, active: map[string]time.Time{}, volumes: map[string]volumeUsage{},
-		owners: map[string]replicaOwner{}, totals: map[string]projectTotals{},
+		owners: map[string]replicaOwner{}, totals: map[string]spaceTotals{},
 	}
 }
 
@@ -215,15 +215,15 @@ func sandboxReadings(list []*armadav1.SandboxQueue, at time.Time) map[string]san
 	return out
 }
 
-// count adds a report to the project counters; u.mu is held. Egress counts
+// count adds a report to the space counters; u.mu is held. Egress counts
 // only from a replica's own node. Requests count from every node's proxy,
 // like the load of ADR 0020.
 func (u *usageStore) count(nodeID string, r *armadav1.UsageReport) {
 	for _, ru := range r.GetReplicas() {
 		if o, ok := u.owners[ru.GetId()]; ok && o.node == nodeID {
-			t := u.totals[o.project]
+			t := u.totals[o.space]
 			t.egress = saturatingAdd(t.egress, max(0, min(ru.GetEgressBytes(), maxReportEgress)))
-			u.totals[o.project] = t
+			u.totals[o.space] = t
 		}
 	}
 	if !r.GetLoadMeasured() {
@@ -231,9 +231,9 @@ func (u *usageStore) count(nodeID string, r *armadav1.UsageReport) {
 	}
 	for _, l := range r.GetLoad() {
 		if o, ok := u.owners[l.GetId()]; ok {
-			t := u.totals[o.project]
+			t := u.totals[o.space]
 			t.requests = saturatingAdd(t.requests, max(0, min(l.GetRequests(), maxReportRequests)))
-			u.totals[o.project] = t
+			u.totals[o.space] = t
 		}
 	}
 }
@@ -278,7 +278,7 @@ func (u *usageStore) setOwners(reps []store.Replica, now time.Time) {
 	owners := make(map[string]replicaOwner, len(reps))
 	for _, r := range reps {
 		if p, _, ok := spec.SplitAppID(r.App); ok {
-			owners[r.ID] = replicaOwner{project: p, app: r.App, node: r.NodeID}
+			owners[r.ID] = replicaOwner{space: p, app: r.App, node: r.NodeID}
 		}
 	}
 	u.mu.Lock()
@@ -289,18 +289,18 @@ func (u *usageStore) setOwners(reps []store.Replica, now time.Time) {
 	}
 }
 
-// projectTotals returns a project's counters and when counting began.
-func (u *usageStore) projectTotals(project string) (projectTotals, time.Time) {
+// spaceTotals returns a space's counters and when counting began.
+func (u *usageStore) spaceTotals(space string) (spaceTotals, time.Time) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
-	return u.totals[project], u.since
+	return u.totals[space], u.since
 }
 
-// forgetProject drops a removed project's counters.
-func (u *usageStore) forgetProject(project string) {
+// forgetSpace drops a removed space's counters.
+func (u *usageStore) forgetSpace(space string) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
-	delete(u.totals, project)
+	delete(u.totals, space)
 }
 
 func (u *usageStore) forget(nodeID string) {
@@ -399,7 +399,7 @@ func (s *Server) Top(ctx context.Context, req *armadav1.TopRequest) (*armadav1.T
 	if req.GetApp() != "" {
 		return resp, nil
 	}
-	if err := s.topProjects(ctx, acc, resp, now); err != nil {
+	if err := s.topSpaces(ctx, acc, resp, now); err != nil {
 		return nil, storeErr(err)
 	}
 
@@ -437,10 +437,10 @@ func (s *Server) Top(ctx context.Context, req *armadav1.TopRequest) (*armadav1.T
 	return resp, nil
 }
 
-// topProjects adds up what the replicas in resp use per project, for the
-// projects the caller may manage (ADR 0026).
-func (s *Server) topProjects(ctx context.Context, acc access, resp *armadav1.TopResponse, now time.Time) error {
-	ps, err := s.store.ListProjects(ctx)
+// topSpaces adds up what the replicas in resp use per space, for the
+// spaces the caller may manage (ADR 0026).
+func (s *Server) topSpaces(ctx context.Context, acc access, resp *armadav1.TopResponse, now time.Time) error {
+	ps, err := s.store.ListSpaces(ctx)
 	if err != nil {
 		return err
 	}
@@ -448,15 +448,15 @@ func (s *Server) topProjects(ctx context.Context, acc access, resp *armadav1.Top
 	if err != nil {
 		return err
 	}
-	byName := make(map[string]*armadav1.ProjectTop, len(ps))
+	byName := make(map[string]*armadav1.SpaceTop, len(ps))
 	for _, p := range ps {
-		if acc.project(p.Name) != nil {
+		if acc.space(p.Name) != nil {
 			continue
 		}
-		totals, since := s.usage.projectTotals(p.Name)
-		pt := &armadav1.ProjectTop{Name: p.Name, Requests: totals.requests, EgressBytes: totals.egress}
+		totals, since := s.usage.spaceTotals(p.Name)
+		pt := &armadav1.SpaceTop{Name: p.Name, Requests: totals.requests, EgressBytes: totals.egress}
 		byName[p.Name] = pt
-		resp.Projects = append(resp.Projects, pt)
+		resp.Spaces = append(resp.Spaces, pt)
 		if !since.IsZero() {
 			resp.CountedSince = timestamppb.New(since)
 		}
