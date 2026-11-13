@@ -421,9 +421,17 @@ func init() { followScan = 50 * time.Millisecond }
 func TestLogsFollowGrep(t *testing.T) {
 	t.Parallel()
 	c := newCluster(t)
-	c.addNode("n1", "127.0.0.1")
+	d := c.addNode("n1", "127.0.0.1")
 	c.deploy(webSpec("nginx:1", 1))
 	c.eventually("1 running", func() bool { return len(c.running("web")) == 1 })
+	// The next replica pulls for a while: it exists before its container.
+	d.SetPullHook(func(ctx context.Context, _ string) error {
+		select {
+		case <-time.After(time.Second):
+		case <-ctx.Done():
+		}
+		return nil
+	})
 	ctx, cancel := context.WithCancel(c.ctx)
 	defer cancel()
 	stream, err := c.admin.Logs(ctx, &armadav1.LogsRequest{App: "web", Follow: true, Grep: "HELLO"})
@@ -459,7 +467,12 @@ func TestLogsFollowGrep(t *testing.T) {
 				t.Fatalf("grep let %q through", e.Data)
 			}
 			if e.Replica != first.Replica {
-				return // the new replica joined
+				// The new replica joined once it ran: its output, not a
+				// notice that its node had nothing yet.
+				if string(e.Data) != "hello from n1\n" {
+					t.Fatalf("new replica sent %q", e.Data)
+				}
+				return
 			}
 		case <-deadline:
 			t.Fatal("the new replica was not followed")
