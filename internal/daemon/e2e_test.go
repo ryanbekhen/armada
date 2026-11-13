@@ -497,6 +497,21 @@ func TestEndToEnd(t *testing.T) {
 	if _, out, _ := cli("cluster", "show"); !strings.Contains(out, "node lost timeout: 2m0s") {
 		t.Errorf("cluster show after the restart = %q", out)
 	}
+	// Log export (ADR 0044): the four flags go together, the ones not
+	// given are kept.
+	if code, out, stderr := cli("cluster", "set", "--log-export", "loki", "--log-endpoint", "http://10.0.0.9:3100/loki/api/v1/push"); code != 0 ||
+		!strings.Contains(out, "log export:        loki to http://10.0.0.9:3100/loki/api/v1/push (no token)") {
+		t.Errorf("cluster set --log-export: %q %q", out, stderr)
+	}
+	if _, out, _ := cli("cluster", "set", "--log-export-tenant", "team-a"); !strings.Contains(out, "loki to http://10.0.0.9:3100/loki/api/v1/push, tenant team-a") {
+		t.Errorf("cluster set --log-export-tenant: %q", out)
+	}
+	if code, _, stderr := cli("cluster", "set", "--log-export", "loki", "--log-endpoint", "http://logs.example.org/push"); code == 0 || !strings.Contains(stderr, "private IP") {
+		t.Errorf("public http endpoint: %q", stderr)
+	}
+	if _, out, _ := cli("cluster", "set", "--log-export", "none"); !strings.Contains(out, "log export:        none") {
+		t.Errorf("cluster set --log-export none: %q", out)
+	}
 	waitFor("haproxy routes web", func() bool {
 		maps, err := filepath.Glob(filepath.Join(dataDir, dirHAProxy, "etc", "routes-*.map"))
 		if err != nil {

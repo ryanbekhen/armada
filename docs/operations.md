@@ -539,6 +539,34 @@ armada cluster set --log-retention 336h --log-max-disk 10Gi   # every node, no r
 armada cluster show                                           # log history: ...
 ```
 
+### Sending logs elsewhere
+
+Every node can also send its apps' output to a log store
+([ADR 0044](adr/0044-log-export.md)), a Loki push URL or an OTLP/HTTP logs
+URL, from the moment it is set:
+
+```bash
+armada cluster set --log-export loki --log-endpoint https://logs.example.com/loki/api/v1/push \
+  --log-export-user 123456 --log-token - < loki-token     # basic authentication
+armada cluster set --log-export otlp --log-endpoint https://otlp.example.com/v1/logs \
+  --log-token - < otlp-token                               # bearer token
+armada cluster set --log-export loki --log-endpoint http://10.0.0.20:3100/loki/api/v1/push \
+  --log-export-tenant platform                             # private address: http allowed
+armada cluster set --log-export none                       # stop and remove the token
+```
+
+The URL must be `https://`, or `http://` to a private IP address, with no
+credentials or query in it; the token is read from a file or stdin and
+stored encrypted. Loki streams are labelled `app`, `space`, `container`,
+`stream`, and `node`, with `replica` and `revision` as structured metadata
+(Loki 3 or later); OTLP resources carry `service.name` (app),
+`service.namespace` (space), `service.instance.id` (replica),
+`service.version` (revision), and `host.name` (node). Each node needs to
+reach the endpoint. Delivery is at least once: while the endpoint is down,
+output waits in the node's log history and is sent when it answers again,
+and `armada cluster events` shows `LogExportFailing` for each node that
+cannot send.
+
 A domain serves one space: an app cannot use a domain that an app of
 another space uses, and a domain another space left behind needs a
 new TXT record.

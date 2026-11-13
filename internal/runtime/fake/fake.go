@@ -46,6 +46,10 @@ type Driver struct {
 	LogHistory map[string][]runtime.LogRecord
 	LogQueries []runtime.LogQuery
 	LogPrunes  [][2]int64
+	// LogOutput is what TailLogs returns once, then removes on commit;
+	// LogTargets records the targets it was asked for.
+	LogOutput  []runtime.LogRecord
+	LogTargets []string
 	// BridgeIPs, if set, gives each new container the address BridgeIPs
 	// followed by its sequence number, such as "10.120.0." for 10.120.0.1.
 	BridgeIPs string
@@ -701,6 +705,36 @@ func (d *Driver) PruneLogs(_ context.Context, retention time.Duration, maxBytes 
 	defer d.mu.Unlock()
 	d.LogPrunes = append(d.LogPrunes, [2]int64{int64(retention), maxBytes})
 	return nil
+}
+
+// AddLogOutput adds output for TailLogs to return.
+func (d *Driver) AddLogOutput(recs ...runtime.LogRecord) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.LogOutput = append(d.LogOutput, recs...)
+}
+
+// TailLogs returns LogOutput; committing removes what it returned.
+func (d *Driver) TailLogs(_ context.Context, target string, _ int64) (runtime.LogTail, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if len(d.LogTargets) == 0 || d.LogTargets[len(d.LogTargets)-1] != target {
+		d.LogTargets = append(d.LogTargets, target)
+	}
+	recs := slices.Clone(d.LogOutput)
+	return runtime.LogTail{Records: recs, Commit: func() error {
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		d.LogOutput = d.LogOutput[min(len(recs), len(d.LogOutput)):]
+		return nil
+	}}, nil
+}
+
+// LogOutputLeft returns how many records TailLogs has not had committed.
+func (d *Driver) LogOutputLeft() int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return len(d.LogOutput)
 }
 
 // SetState changes a container's state, e.g. to simulate a crash.

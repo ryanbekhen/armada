@@ -71,6 +71,8 @@ func TestUsageLoopWithoutStats(t *testing.T) {
 	t.Parallel()
 	a, d := newAgent(t)
 	d.NoStats, d.NoExec = true, true
+	// Only the driver itself: no log tailing either.
+	a.cfg.Driver = struct{ runtime.Driver }{d}
 	a.cfg.UsageInterval = time.Millisecond
 	done := make(chan struct{})
 	go func() {
@@ -80,7 +82,7 @@ func TestUsageLoopWithoutStats(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(5 * time.Second):
-		t.Fatal("usage loop runs although the runtime can neither sample containers nor read queues in them")
+		t.Fatal("usage loop runs although the runtime can neither sample containers, read queues in them, nor send their logs")
 	}
 }
 

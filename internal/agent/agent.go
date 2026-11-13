@@ -4,6 +4,7 @@ package agent
 
 import (
 	"maps"
+	"net/http"
 	"net/netip"
 	"strings"
 
@@ -88,6 +89,11 @@ type Config struct {
 	// LogPrune is how often the log history is bounded (default 1m; ADR
 	// 0043).
 	LogPrune time.Duration
+	// LogExport is how often new output is sent to the cluster's log
+	// endpoint (default 2s; ADR 0044); LogExportClient, if set, sends it
+	// (tests).
+	LogExport       time.Duration
+	LogExportClient *http.Client
 
 	// Conntrack is the node's connection tracking table, raised and reported
 	// with each sample; nil leaves it alone (ADR 0025).
@@ -239,6 +245,8 @@ type Agent struct {
 	execs atomic.Int32
 	// logs holds the cluster's log history settings (ADR 0043).
 	logs logSettings
+	// export is how sending logs elsewhere goes (ADR 0044).
+	export exportStatus
 }
 
 // New returns an Agent.
@@ -254,6 +262,9 @@ func New(cfg Config) *Agent {
 	}
 	if cfg.LogPrune == 0 {
 		cfg.LogPrune = logPruneEvery
+	}
+	if cfg.LogExport == 0 {
+		cfg.LogExport = logExportEvery
 	}
 	if cfg.ImagePrune == 0 {
 		cfg.ImagePrune = defaultImagePrune
@@ -314,6 +325,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	go a.usageLoop(ctx)
 	go a.queueLoop(ctx)
 	go a.sandboxLoop(ctx)
+	go a.logExportLoop(ctx)
 	if a.cfg.WakeSocket != "" {
 		go a.serveWake(ctx)
 	}

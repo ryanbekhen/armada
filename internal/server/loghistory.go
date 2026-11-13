@@ -1,12 +1,14 @@
 package server
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -14,6 +16,8 @@ import (
 	"google.golang.org/grpc/status"
 
 	armadav1 "github.com/ryanbekhen/armada/api/armada/v1"
+	"github.com/ryanbekhen/armada/internal/logexport"
+	"github.com/ryanbekhen/armada/internal/secrets"
 	"github.com/ryanbekhen/armada/internal/store"
 )
 
@@ -33,10 +37,23 @@ const (
 	maxLogMaxBytes  = 1 << 40
 )
 
-// logSettings is the meta record of the cluster's log history settings.
+// The log endpoint's token is sealed like the DNS token (ADR 0044).
+const logTokenName = "log-token"
+
+// logSettings is the meta record of the cluster's log settings: history
+// (ADR 0043) and where logs are sent (ADR 0044).
 type logSettings struct {
 	RetentionSeconds int64 `json:"retentionSeconds,omitempty"`
 	MaxBytes         int64 `json:"maxBytes,omitempty"`
+	// Export is loki or otlp; empty sends nothing.
+	Export       string          `json:"export,omitempty"`
+	Endpoint     string          `json:"endpoint,omitempty"`
+	User         string          `json:"user,omitempty"`
+	Tenant       string          `json:"tenant,omitempty"`
+	Token        *secrets.Sealed `json:"token,omitempty"`
+	TokenVersion int             `json:"tokenVersion,omitempty"`
+	// SetAt is when the export was last set, in unix nanoseconds.
+	SetAt int64 `json:"setAt,omitempty"`
 }
 
 func (s *Server) logSettings(ctx context.Context) (logSettings, error) {
@@ -74,7 +91,7 @@ func CheckLogMaxBytes(n int64) error {
 // setLogSettings stores the log settings the request names; they reach the
 // agents with the next assignments, without a restart.
 func (s *Server) setLogSettings(ctx context.Context, req *armadav1.SetClusterConfigRequest) error {
-	if !req.GetSetLogRetention() && !req.GetSetLogMaxBytes() {
+	if !req.GetSetLogRetention() && !req.GetSetLogMaxBytes() && !req.GetSetLogExport() && !req.GetSetLogToken() {
 		return nil
 	}
 	ls, err := s.logSettings(ctx)
@@ -94,6 +111,9 @@ func (s *Server) setLogSettings(ctx context.Context, req *armadav1.SetClusterCon
 		}
 		ls.MaxBytes = c.GetLogMaxBytes()
 	}
+	if err := s.setLogExport(req, &ls); err != nil {
+		return err
+	}
 	b, err := json.Marshal(ls)
 	if err != nil {
 		return err
@@ -101,12 +121,91 @@ func (s *Server) setLogSettings(ctx context.Context, req *armadav1.SetClusterCon
 	if err := s.store.SetMeta(ctx, metaLogs, string(b)); err != nil {
 		return storeErr(err)
 	}
-	what := fmt.Sprintf("retention=%ds max_bytes=%d", ls.RetentionSeconds, ls.MaxBytes)
+	what := fmt.Sprintf("retention=%ds max_bytes=%d export=%s", ls.RetentionSeconds, ls.MaxBytes, cmp.Or(ls.Export, "none"))
+	if ls.Export != "" {
+		what += " endpoint=" + ls.Endpoint
+	}
+	if req.GetSetLogToken() {
+		what += " token"
+	}
 	if err := s.store.RecordAudit(ctx, actor(ctx), "cluster.logs", "cluster", what); err != nil {
 		return storeErr(err)
 	}
-	s.log.Info("log settings changed", "retention_seconds", ls.RetentionSeconds, "max_bytes", ls.MaxBytes, "by", actor(ctx))
+	s.log.Info("log settings changed", "retention_seconds", ls.RetentionSeconds, "max_bytes", ls.MaxBytes, "export", cmp.Or(ls.Export, "none"), "by", actor(ctx))
 	return nil
+}
+
+// setLogExport applies the request's log export and token to ls (ADR 0044).
+func (s *Server) setLogExport(req *armadav1.SetClusterConfigRequest, ls *logSettings) error {
+	c := req.GetConfig()
+	if req.GetSetLogExport() {
+		format := strings.TrimSpace(c.GetLogExport())
+		if format == "none" {
+			format = ""
+		}
+		ls.Export, ls.Endpoint, ls.User, ls.Tenant = format, strings.TrimSpace(c.GetLogEndpoint()), strings.TrimSpace(c.GetLogExportUser()), strings.TrimSpace(c.GetLogExportTenant())
+		ls.SetAt = s.now().UnixNano()
+		if format == "" {
+			*ls = logSettings{RetentionSeconds: ls.RetentionSeconds, MaxBytes: ls.MaxBytes}
+		}
+	}
+	if req.GetSetLogToken() {
+		token := []byte(strings.TrimSpace(string(req.GetLogToken())))
+		if err := logexport.CheckToken(token); err != nil {
+			return status.Error(codes.InvalidArgument, err.Error())
+		}
+		if len(token) == 0 {
+			ls.Token = nil
+		} else {
+			if s.keys == nil {
+				return status.Error(codes.FailedPrecondition, "this server has no master key to encrypt the token with")
+			}
+			sealed, err := s.keys.Seal(tokenScope, logTokenName, ls.TokenVersion+1, secrets.NewValue(token))
+			if err != nil {
+				return status.Error(codes.Internal, "seal the log token")
+			}
+			ls.TokenVersion++
+			ls.Token = &sealed
+		}
+	}
+	if ls.Export == "" {
+		if ls.Token != nil {
+			return status.Error(codes.FailedPrecondition, "a log token needs a log export: --log-export loki|otlp --log-endpoint URL")
+		}
+		return nil
+	}
+	check := logexport.Config{Format: ls.Export, Endpoint: ls.Endpoint, User: ls.User, Tenant: ls.Tenant}
+	if ls.Token != nil {
+		check.Token = []byte("x") // stands for the sealed token
+	}
+	if err := check.Check(); err != nil {
+		return status.Error(codes.InvalidArgument, err.Error())
+	}
+	return nil
+}
+
+// logSettingsProto is what assignments carry: the token opened, since the
+// agents send it (never logged; assignments are not).
+func (s *Server) logSettingsProto(ls logSettings) *armadav1.LogSettings {
+	p := &armadav1.LogSettings{RetentionSeconds: ls.RetentionSeconds, MaxBytes: ls.MaxBytes}
+	if ls.Export == "" {
+		return p
+	}
+	e := &armadav1.LogExport{Format: ls.Export, Endpoint: ls.Endpoint, User: ls.User, Tenant: ls.Tenant, SetAt: ls.SetAt}
+	if ls.Token != nil {
+		if s.keys == nil {
+			s.log.Warn("log export: no master key to open the token with; logs are not sent")
+			return p
+		}
+		v, err := s.keys.Open(*ls.Token, tokenScope, logTokenName, ls.TokenVersion)
+		if err != nil {
+			s.log.Warn("log export: open the token", "err", err)
+			return p
+		}
+		e.Token = v.Bytes()
+	}
+	p.Export = e
+	return p
 }
 
 // searchSessions are the connected agents whose runtime keeps a log
@@ -218,9 +317,4 @@ func (s *Server) searchNode(ctx context.Context, sess *session, q *armadav1.LogQ
 			return out, "did not finish in time"
 		}
 	}
-}
-
-// logSettingsProto is what assignments carry.
-func (ls logSettings) proto() *armadav1.LogSettings {
-	return &armadav1.LogSettings{RetentionSeconds: ls.RetentionSeconds, MaxBytes: ls.MaxBytes}
 }

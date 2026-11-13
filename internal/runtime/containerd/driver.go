@@ -839,6 +839,11 @@ func (d *Driver) PruneLogs(_ context.Context, retention time.Duration, maxBytes 
 	return embedded.PruneLogs(d.paths.Logs(), retention, maxBytes, time.Now())
 }
 
+// TailLogs reads app output not yet sent to target (ADR 0044).
+func (d *Driver) TailLogs(ctx context.Context, target string, maxBytes int64) (runtime.LogTail, error) {
+	return embedded.TailLogs(ctx, d.paths.Logs(), target, maxBytes, time.Now())
+}
+
 // Logs returns the container's stored output.
 func (d *Driver) Logs(ctx context.Context, id string, opts runtime.LogOptions) (runtime.LogStream, error) {
 	return embedded.ReadLogs(ctx, d.paths.Logs(), id, opts)

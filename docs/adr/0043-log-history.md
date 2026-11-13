@@ -56,7 +56,7 @@ app logs` searches it across the cluster. No database is added.
 
 ### Not in this step
 
-Sending logs elsewhere (OTLP, Loki) is a separate decision.
+Sending logs elsewhere (OTLP, Loki) is a separate decision: ADR 0044.
 
 ## Consequences
 

@@ -216,6 +216,9 @@ func (s *Server) Connect(stream armadav1.AgentService_ConnectServer) error {
 				if u.GetVolumesMeasured() {
 					s.usage.setVolumes(node.ID, u, s.now())
 				}
+				le := u.GetLogExport()
+				s.condition(ctx, "log-export:"+node.ID, le.GetFailing(), store.Event{Kind: eventNode, Object: node.ID, Node: node.ID,
+					Reason: "LogExportFailing", Message: "sending logs failed: " + le.GetError()})
 			}
 			if w := m.GetWake(); w != nil {
 				s.wakeApp(ctx, node.ID, w.GetApp())
