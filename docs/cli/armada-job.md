@@ -57,12 +57,14 @@ Flags:
 | `-f`, `--file string` | spec file, or - for stdin |
 | `--image string` | container image |
 | `--memory string` | memory limit, e.g. 256Mi |
+| `--parallelism int` | how many tasks of a run run at once (0 for all) |
 | `--registry-secret string` | secret holding the private registry's password |
 | `--registry-user string` | user name for a private registry (the image's) |
 | `--remove-env stringArray` | remove an environment variable (repeatable) |
 | `--retries int` | attempts after a failed one |
 | `--schedule string` | cron schedule that starts runs, e.g. "0 3 * * *" (empty to clear) |
 | `--secret-env stringArray` | environment variable NAME=SECRET from a secret of the job (repeatable) |
+| `--tasks int` | split each run into this many tasks, each told its index in ARMADA_JOB_TASK (0 or 1 for one) |
 | `--time-zone string` | time zone of the schedule, e.g. Asia/Jakarta |
 | `--timeout duration` | how long one attempt may run |
 | `--var stringArray` | with --file: NAME=VALUE for ${NAME} in the spec (repeatable; wins over --vars) |
@@ -98,7 +100,8 @@ Flags:
 ## `armada job logs`
 
 Print the logs of the latest attempt of a job's newest run (--run N for another
-run). A finished run's logs are kept for 24 hours.
+run, --task I for one task of a run that has several). A finished run's logs are
+kept for 24 hours.
 
 ```
 armada job logs JOB [flags]
@@ -112,6 +115,7 @@ Flags:
 | `-f`, `--follow` | stream new log lines |
 | `--run int` | the run to show (default: the newest) |
 | `--tail int` | lines per replica to show (default `100`) |
+| `--task int` | the task to show, for a job with tasks (default: the latest attempt of any task) |
 
 ## `armada job run`
 
@@ -149,6 +153,20 @@ armada job run list JOB [flags]
 ```
 
 Also: `ls`.
+
+Flags:
+
+| Flag | Meaning |
+| --- | --- |
+| `-o`, `--output string` | output format: text or json (default `text`) |
+
+### `armada job run show`
+
+Show a run of a job, with its tasks.
+
+```
+armada job run show JOB RUN [flags]
+```
 
 Flags:
 
@@ -198,12 +216,14 @@ Flags:
 | `-f`, `--file string` | spec file, or - for stdin |
 | `--image string` | container image |
 | `--memory string` | memory limit, e.g. 256Mi |
+| `--parallelism int` | how many tasks of a run run at once (0 for all) |
 | `--registry-secret string` | secret holding the private registry's password |
 | `--registry-user string` | user name for a private registry (the image's) |
 | `--remove-env stringArray` | remove an environment variable (repeatable) |
 | `--retries int` | attempts after a failed one |
 | `--schedule string` | cron schedule that starts runs, e.g. "0 3 * * *" (empty to clear) |
 | `--secret-env stringArray` | environment variable NAME=SECRET from a secret of the job (repeatable) |
+| `--tasks int` | split each run into this many tasks, each told its index in ARMADA_JOB_TASK (0 or 1 for one) |
 | `--time-zone string` | time zone of the schedule, e.g. Asia/Jakarta |
 | `--timeout duration` | how long one attempt may run |
 | `--var stringArray` | with --file: NAME=VALUE for ${NAME} in the spec (repeatable; wins over --vars) |

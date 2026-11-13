@@ -182,6 +182,22 @@ message JobRunInfo {
   google.protobuf.Timestamp created_at = 11;
   google.protobuf.Timestamp started_at = 12;
   google.protobuf.Timestamp finished_at = 13;
+  // The run's tasks when its job has several (spec tasks); attempts,
+  // node, and replica above then name the latest attempt of any task.
+  repeated JobTaskInfo tasks = 14;
+}
+
+// JobTaskInfo is one task of a run: pending, running, succeeded, failed,
+// or cancelled, with its own attempts.
+message JobTaskInfo {
+  int32 index = 1;
+  string state = 2;
+  int32 attempts = 3;
+  string node = 4;
+  // The replica of the task's latest attempt.
+  string replica = 5;
+  int32 exit_code = 6;
+  string message = 7;
 }
 
 message CancelJobRequest {
@@ -974,6 +990,9 @@ message LogsRequest {
   // An init container or a sidecar (ADR 0038); empty means the app's own
   // container.
   string container = 6;
+  // For a job whose runs have several tasks: the task whose latest attempt
+  // to show; unset means the run's latest attempt of any task.
+  optional int32 task = 7;
 }
 
 enum Stream {

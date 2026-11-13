@@ -742,6 +742,8 @@ resources:
 | `retries` | `0` | Further attempts after a failed one (non-zero exit, start failure, lost node, timeout), 0 to 10, after 10s, 20s, 40s, and so on up to 5 minutes. |
 | `concurrency` | `forbid` | What happens when a run is due while another is active: `forbid` skips the new one (and `armada job run` refuses); `replace` cancels the active run. |
 | `history` | `5` | Finished runs kept, 1 to 50. The container of a finished run is kept 24 hours for `armada job logs`; its address is freed when it stops. |
+| `tasks` | `1` | Split each run into this many tasks, 1 to 100: one container each, told its index in `ARMADA_JOB_TASK` (0 to `tasks` − 1) and the count in `ARMADA_JOB_TASKS`, so each can take its share of the work. Each task has its own attempts and `retries`; the run succeeds when every task did, and fails as soon as one task has no retries left (the others are stopped). Not with `trigger`. |
+| `parallelism` | `tasks` | How many tasks of a run run at once, 1 to `tasks`; the next starts when one ends. |
 
 - `env`, `secretFiles`, `registry`, `resources`, and `placement` mean the
   same as for apps. `ingress`, `probes`, `scale`, `revisions`, and
@@ -756,7 +758,8 @@ resources:
 - If the control plane is down when a run is due, the run starts when it is
   back, as long as that is within an hour; otherwise it is skipped.
 - The container gets `ARMADA_JOB_RUN` (the run number) besides
-  `ARMADA_APP`, `ARMADA_REVISION`, and `ARMADA_REPLICA`.
+  `ARMADA_APP`, `ARMADA_REVISION`, and `ARMADA_REPLICA`, and, with
+  `tasks`, `ARMADA_JOB_TASK` and `ARMADA_JOB_TASKS`.
 - Runs are at least once: in rare failures (a node cut off mid-run, an
   agent restarting at the moment the container exits) a run can be
   attempted again, so make jobs safe to repeat.

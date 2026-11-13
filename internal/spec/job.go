@@ -19,6 +19,7 @@ const (
 	MaxJobRetries     = 10
 	DefaultJobHistory = 5
 	MaxJobHistory     = 50
+	MaxJobTasks       = 100
 	maxScheduleLen    = 128
 	maxTimeZoneLen    = 64
 )
@@ -94,6 +95,17 @@ func (a *App) JobHistory() int {
 	return *a.History
 }
 
+// JobTasks is how many tasks each run has (1 unless tasks is set).
+func (a *App) JobTasks() int { return max(a.Tasks, 1) }
+
+// JobParallelism is how many tasks of a run may run at once.
+func (a *App) JobParallelism() int {
+	if a.Parallelism == 0 {
+		return a.JobTasks()
+	}
+	return min(a.Parallelism, a.JobTasks())
+}
+
 // JobConcurrency is the job's concurrency policy.
 func (a *App) JobConcurrency() string {
 	if a.Concurrency == "" {
@@ -107,7 +119,7 @@ func (v *validator) job(a *App) {
 		for field, set := range map[string]bool{
 			"schedule": a.Schedule != "", "timeZone": a.TimeZone != "", "timeout": a.Timeout != 0,
 			"retries": a.Retries != 0, "concurrency": a.Concurrency != "", "history": a.History != nil,
-			"trigger": a.Trigger != nil,
+			"trigger": a.Trigger != nil, "tasks": a.Tasks != 0, "parallelism": a.Parallelism != 0,
 		} {
 			if set {
 				v.add(field, "is only valid for kind: job")
@@ -125,7 +137,7 @@ func (v *validator) job(a *App) {
 		v.add("drain", "jobs take no requests; leave drain out")
 	}
 	if a.Scale != nil {
-		v.add("scale", "a job runs one container per run; leave scale out")
+		v.add("scale", "a job runs one container per run, or per task with tasks; leave scale out")
 	}
 	if a.Revisions != nil && (a.Revisions.Mode != RevisionsSingle || len(a.Revisions.Traffic) > 0) {
 		v.add("revisions", "jobs have no traffic to split; leave revisions out")
@@ -155,6 +167,14 @@ func (v *validator) job(a *App) {
 	}
 	if a.History != nil && (*a.History < 1 || *a.History > MaxJobHistory) {
 		v.add("history", "must be between 1 and %d", MaxJobHistory)
+	}
+	switch {
+	case a.Tasks < 0 || a.Tasks > MaxJobTasks:
+		v.add("tasks", "must be between 1 and %d", MaxJobTasks)
+	case a.Parallelism < 0 || a.Parallelism > a.JobTasks():
+		v.add("parallelism", "must be between 1 and tasks (%d)", a.JobTasks())
+	case a.Tasks > 1 && a.Trigger != nil:
+		v.add("tasks", "a job its queue starts runs one task per run; set trigger.parallelism and trigger.perRun instead")
 	}
 	v.trigger(a)
 }

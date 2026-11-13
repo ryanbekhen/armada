@@ -52,6 +52,7 @@ func TestQueueTriggerValidation(t *testing.T) {
 		"no queue":      {triggerJob + "trigger:\n  parallelism: 2\n", "trigger.queue"},
 		"with schedule": {triggerJob + "schedule: \"* * * * *\"\n" + redis, "trigger"},
 		"concurrency":   {triggerJob + "concurrency: replace\n" + redis, "concurrency"},
+		"tasks":         {triggerJob + "tasks: 2\n" + redis, "tasks"},
 		"command type":  {triggerJob + "trigger:\n  queue:\n    type: queue\n    perRun: 1\n", "trigger.queue.type"},
 		"no secret":     {triggerJob + "trigger:\n  queue:\n    type: redis\n    list: jobs\n    perRun: 1\n", "trigger.queue.urlSecretRef"},
 		"bad secret":    {triggerJob + "trigger:\n  queue:\n    type: redis\n    urlSecretRef: Bad_Name\n    list: jobs\n    perRun: 1\n", "trigger.queue.urlSecretRef"},
@@ -70,6 +71,23 @@ func TestQueueTriggerValidation(t *testing.T) {
 		_, err := Parse([]byte(c.doc))
 		if err == nil || !strings.Contains(err.Error(), c.field) {
 			t.Errorf("%s: err = %v, want one about %s", name, err, c.field)
+		}
+	}
+}
+
+func TestJobTasks(t *testing.T) {
+	t.Parallel()
+	for doc, want := range map[string][2]int{
+		"":                            {1, 1},
+		"tasks: 10\n":                 {10, 10},
+		"tasks: 10\nparallelism: 3\n": {10, 3},
+	} {
+		a, err := Parse([]byte(triggerJob + doc))
+		if err != nil {
+			t.Fatalf("%q: %v", doc, err)
+		}
+		if got := [2]int{a.JobTasks(), a.JobParallelism()}; got != want {
+			t.Errorf("%q: tasks, parallelism = %v, want %v", doc, got, want)
 		}
 	}
 }

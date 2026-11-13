@@ -94,6 +94,10 @@ type App struct {
 	Retries     int      `yaml:"retries,omitempty" json:"retries,omitempty"`
 	Concurrency string   `yaml:"concurrency,omitempty" json:"concurrency,omitempty"`
 	History     *int     `yaml:"history,omitempty" json:"history,omitempty"`
+	// Tasks splits each run of a job into that many tasks, each a container
+	// told its index, of which Parallelism run at once (default: all).
+	Tasks       int `yaml:"tasks,omitempty" json:"tasks,omitempty"`
+	Parallelism int `yaml:"parallelism,omitempty" json:"parallelism,omitempty"`
 	// Trigger starts runs while a queue holds work (ADR 0040).
 	Trigger *Trigger `yaml:"trigger,omitempty" json:"trigger,omitempty"`
 }

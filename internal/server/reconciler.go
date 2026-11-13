@@ -1217,6 +1217,11 @@ func replicaSpec(r store.Replica, rev store.Revision, vals map[string]secrets.Va
 	)
 	if r.Run != 0 {
 		env = append(env, &armadav1.EnvVar{Name: "ARMADA_JOB_RUN", Value: strconv.FormatInt(r.Run, 10)})
+		if n := sp.JobTasks(); n > 1 {
+			env = append(env,
+				&armadav1.EnvVar{Name: "ARMADA_JOB_TASK", Value: strconv.Itoa(r.Task)},
+				&armadav1.EnvVar{Name: "ARMADA_JOB_TASKS", Value: strconv.Itoa(n)})
+		}
 	}
 	var port int32
 	if sp.Ingress != nil && sp.Ingress.Type != spec.IngressNone {

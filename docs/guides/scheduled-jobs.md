@@ -212,6 +212,41 @@ To run migrations as part of each replica's start instead, see
 
 To stop runs in progress: `armada job cancel JOB`.
 
+## Split a big run into tasks
+
+A run that works through many items, such as a report per customer, can
+be split into tasks that run side by side. Each task is a container told
+its index, and takes its share of the items:
+
+```yaml
+kind: job
+name: monthly-reports
+image: ghcr.io/acme/worker:2.1
+command: ["./bin/monthly-reports"]
+schedule: "0 2 1 * *"
+timeZone: Asia/Jakarta
+tasks: 10          # ten tasks per run
+parallelism: 5     # at most five at once, to spare the database
+retries: 2         # per task
+timeout: 1h        # per attempt of a task
+```
+
+```ts
+const task = Number(process.env.ARMADA_JOB_TASK)    // 0 to 9
+const tasks = Number(process.env.ARMADA_JOB_TASKS)  // 10
+const customers = await db.query("SELECT id FROM customers WHERE id % $1 = $2", [tasks, task])
+```
+
+A failed task is retried on its own; the others keep going. The run
+succeeds when all ten did, and fails once a task has no retries left (the
+rest are stopped). Flags do the same: `armada job update monthly-reports
+--tasks 10 --parallelism 5`.
+
+```bash
+armada job run show monthly-reports 4       # the run with each task's state
+armada job logs monthly-reports --run 4 --task 7
+```
+
 ## Things to know
 
 - **At least once.** In rare failures (a node cut off mid-run, an agent

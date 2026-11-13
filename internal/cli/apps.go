@@ -121,6 +121,7 @@ func newLogsCommand(g *globals, job bool) *cobra.Command {
 		tail    int
 		replica string
 		run     int64
+		task    int
 		ctr     string
 	)
 	cmd := &cobra.Command{
@@ -136,9 +137,14 @@ func newLogsCommand(g *globals, job bool) *cobra.Command {
 				return err
 			}
 			defer conn.Close()
-			stream, err := client.Logs(cmd.Context(), &armadav1.LogsRequest{
+			req := &armadav1.LogsRequest{
 				App: args[0], Follow: follow, Tail: int32(min(max(tail, 0), 10000)), Replica: replica, Run: run, Container: ctr,
-			})
+			}
+			if job && cmd.Flags().Changed("task") {
+				t := int32(min(max(task, -1), 1<<20))
+				req.Task = &t
+			}
+			stream, err := client.Logs(cmd.Context(), req)
 			if err != nil {
 				return RPCError(err)
 			}
@@ -172,8 +178,10 @@ func newLogsCommand(g *globals, job bool) *cobra.Command {
 		cmd.Use = "logs JOB"
 		cmd.Short = "Print the logs of a job's run"
 		cmd.Long = "Print the logs of the latest attempt of a job's newest run (--run N for another\n" +
-			"run). A finished run's logs are kept for 24 hours."
+			"run, --task I for one task of a run that has several). A finished run's logs are\n" +
+			"kept for 24 hours."
 		f.Int64Var(&run, "run", 0, "the run to show (default: the newest)")
+		f.IntVar(&task, "task", 0, "the task to show, for a job with tasks (default: the latest attempt of any task)")
 	} else {
 		f.StringVar(&replica, "replica", "", "only show this replica")
 	}
