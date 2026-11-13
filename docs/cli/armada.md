@@ -20,6 +20,7 @@ Every command takes these.
 
 | Command | What it does |
 | --- | --- |
+| [`armada alert`](armada-alert.md) | Send notices about events to Slack, Discord, Telegram, email, or a webhook |
 | [`armada app`](armada-app.md) | Create, change, and inspect apps |
 | [`armada cluster`](armada-cluster.md) | The cluster's status, settings, and events |
 | [`armada domain`](armada-domain.md) | List and verify custom domains |

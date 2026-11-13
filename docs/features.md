@@ -94,6 +94,11 @@ Everything Armada does. The [guides](guides/README.md) show each in use, and the
 - **Events.** `armada cluster events` shows what the cluster did over the last day:
   crashes and restarts, rollouts, lost nodes, replicas moved, certificates;
   `-f` follows new ones.
+- **Alerts.** Events that need a person (a lost node, a crash, out of
+  memory, a failed rollout, job, certificate, or backup) reach Slack,
+  Discord, Telegram, email, or a webhook, with a second notice when the
+  problem is resolved; filtered by space and reason, rate limited, and
+  tested with `armada alert test`.
 - **Metrics.** The leader serves Prometheus metrics (apps, replicas, nodes,
   usage, reconciles) on a private address, only to client certificates that
   `armada metrics credentials` creates.

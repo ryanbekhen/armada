@@ -14,6 +14,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	armadav1 "github.com/ryanbekhen/armada/api/armada/v1"
+	"github.com/ryanbekhen/armada/internal/alert"
 	"github.com/ryanbekhen/armada/internal/store"
 )
 
@@ -126,6 +127,10 @@ func (s *Server) record(ctx context.Context, e store.Event) {
 	}
 	r.mu.Unlock()
 	r.total.WithLabelValues(e.Kind, e.Reason).Inc()
+	if replace == "" && s.alerts != nil {
+		// A repeat within the dedup window was already told (ADR 0045).
+		s.alerts.notify(noticeOf(e, alert.KindEvent))
+	}
 	if trim {
 		if err := s.store.TrimEvents(ctx, s.eventKeep()); err != nil {
 			s.log.Warn("trim events", "err", err)
@@ -150,6 +155,10 @@ func (s *Server) condition(ctx context.Context, key string, on bool, e store.Eve
 	r.mu.Unlock()
 	if on && !was {
 		s.record(ctx, e)
+	}
+	if !on && was && s.alerts != nil {
+		e.Last = s.now()
+		s.alerts.notify(noticeOf(e, alert.KindResolved))
 	}
 }
 

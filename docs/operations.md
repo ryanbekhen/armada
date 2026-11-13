@@ -1165,6 +1165,25 @@ TIME            KIND         OBJECT                        REASON           COUN
 - Messages from nodes are shortened to 512 bytes, with control characters
   replaced.
 
+### Alerts
+
+The leader can send a notice about events that need a person, such as a
+lost node, a crash, running out of memory, or a failed rollout, job,
+certificate, or backup, to Slack, Discord, Telegram, email, or your own
+webhook ([ADR 0045](adr/0045-alerts.md)):
+
+```bash
+armada alert channel create ops --type slack --url - < slack-webhook-url
+armada alert test ops                                    # a test notice, now
+armada alert channel update ops --space shop             # only shop's apps
+armada alert channel list                                # sent, failed, last error
+```
+
+A lasting problem sends one notice when it starts and one when it is
+resolved; repeats within 10 minutes are not sent, and a channel gets at
+most 20 notices a minute. [Get alerts](guides/alerts.md) walks through
+every channel type.
+
 ## Metrics
 
 The leader serves Prometheus metrics ([ADR 0017](adr/0017-metrics-endpoint.md))
