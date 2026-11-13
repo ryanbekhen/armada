@@ -543,6 +543,9 @@ armada cluster show                                           # log history: ...
 
 ### Sending logs elsewhere
 
+The [logs guide](guides/logs.md) walks through live logs, searches, and
+sending logs to a log store step by step.
+
 Every node can also send its apps' output to a log store
 ([ADR 0044](adr/0044-log-export.md)), a Loki push URL or an OTLP/HTTP logs
 URL, from the moment it is set:

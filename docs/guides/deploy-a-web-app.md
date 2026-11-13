@@ -196,6 +196,8 @@ armada app events shop -f
 armada app logs shop                 # the last 100 lines of each replica, prefixed with its ID
 armada app logs shop -f              # keep streaming
 armada app logs shop --replica shop-r3-8xk2p --tail 500
+armada app logs shop -f --grep error # only errors, as they happen
+armada app logs shop --since 2h      # the last two hours, replicas that are gone included
 armada app exec shop -- env          # one command in a ready replica
 armada app exec shop -it -- sh       # a shell, if the image has one
 ```
