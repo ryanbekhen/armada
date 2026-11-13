@@ -207,7 +207,7 @@ func (c *cluster) startAgent(id string) {
 	cfg := agent.Config{
 		NodeID: id, PrivateIP: n.ip, Driver: n.d, Client: armadav1.NewAgentServiceClient(conn), Proxy: c.proxies[id],
 		Resync: 50 * time.Millisecond, UsageInterval: 20 * time.Millisecond, QueueInterval: 20 * time.Millisecond, CPUMillis: 2000, MemoryBytes: 2 << 30, Check: c.checks[id].check,
-		VolumesDir: n.volumes, VolumeInterval: 50 * time.Millisecond,
+		VolumesDir: n.volumes, VolumeInterval: 50 * time.Millisecond, LogPrune: 50 * time.Millisecond,
 		Conntrack: c.conntrackTable(),
 	}
 	if c.agentConfig != nil {

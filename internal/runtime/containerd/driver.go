@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log/slog"
 	"maps"
 	"net/netip"
 	"os"
@@ -453,6 +454,7 @@ func (d *Driver) create(ctx context.Context, id string, img client.Image, labels
 	*undo = append(*undo, func() {
 		_ = c.Delete(context.WithoutCancel(ctx), client.WithSnapshotCleanup)
 	})
+	d.logMeta(id, labels)
 	t, err := c.NewTask(ctx, d.logIO())
 	if err != nil {
 		return "", fmt.Errorf("create task: %w", err)
@@ -811,6 +813,30 @@ func (d *Driver) describeTask(ctx context.Context, c client.Container, known *ta
 		rc.State = runtime.StateDead
 	}
 	return rc, pod, nil
+}
+
+// logMeta records whose container id is, so its output is kept in the
+// log history (ADR 0043). System containers keep none.
+func (d *Driver) logMeta(id string, labels map[string]string) {
+	app := labels[runtime.LabelApp]
+	if app == "" {
+		return
+	}
+	m := embedded.LogMeta{App: app, Replica: labels[runtime.LabelReplica], Revision: labels[runtime.LabelRevision],
+		Container: labels[runtime.LabelContainer], Created: time.Now().UTC()}
+	if err := embedded.WriteLogMeta(d.paths.Logs(), id, m); err != nil {
+		slog.Warn("log history: record container", "id", id, "err", err)
+	}
+}
+
+// SearchLogs searches the node's log history and live logs (ADR 0043).
+func (d *Driver) SearchLogs(ctx context.Context, q runtime.LogQuery) ([]runtime.LogRecord, string, error) {
+	return embedded.SearchLogs(ctx, d.paths.Logs(), q)
+}
+
+// PruneLogs bounds the node's log history (ADR 0043).
+func (d *Driver) PruneLogs(_ context.Context, retention time.Duration, maxBytes int64) error {
+	return embedded.PruneLogs(d.paths.Logs(), retention, maxBytes, time.Now())
 }
 
 // Logs returns the container's stored output.

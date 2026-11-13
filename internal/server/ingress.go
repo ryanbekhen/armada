@@ -386,6 +386,11 @@ func (s *Server) GetClusterConfig(ctx context.Context, _ *armadav1.GetClusterCon
 	if ap, err := netip.ParseAddrPort(s.metricsAddr); err == nil {
 		cc.MetricsPort = int32(ap.Port())
 	}
+	ls, err := s.logSettings(ctx)
+	if err != nil {
+		return nil, storeErr(err)
+	}
+	cc.LogRetentionSeconds, cc.LogMaxBytes = ls.RetentionSeconds, ls.MaxBytes
 	return cc, nil
 }
 
@@ -421,6 +426,9 @@ func (s *Server) SetClusterConfig(ctx context.Context, req *armadav1.SetClusterC
 			return nil, storeErr(err)
 		}
 		s.log.Info("trusted proxies changed", "trusted_proxies", list, "by", actor(ctx))
+	}
+	if err := s.setLogSettings(ctx, req); err != nil {
+		return nil, err
 	}
 	changed, err := s.setSettings(ctx, req)
 	if err != nil {

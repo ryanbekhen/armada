@@ -17,6 +17,7 @@ import (
 
 	armadav1 "github.com/ryanbekhen/armada/api/armada/v1"
 	"github.com/ryanbekhen/armada/internal/fsutil"
+	"github.com/ryanbekhen/armada/internal/spec"
 )
 
 func newClusterCommand(g *globals) *cobra.Command {
@@ -51,7 +52,8 @@ func newClusterCommand(g *globals) *cobra.Command {
 		trusted                                    []string
 		tlsOn                                      bool
 		metricsPort                                int
-		lostTimeout                                time.Duration
+		lostTimeout, logRetention                  time.Duration
+		logMaxDisk                                 string
 	)
 	set := &cobra.Command{
 		Use:   "set",
@@ -67,7 +69,10 @@ func newClusterCommand(g *globals) *cobra.Command {
 			"node-lost timeout apply within seconds: the leader restarts its control plane\n" +
 			"with them while apps keep serving; the command waits until it answers again.\n" +
 			"The token is read from a file or stdin (--dns-token -), stored encrypted, and\n" +
-			"never shown.",
+			"never shown.\n\n" +
+			"--log-retention and --log-max-disk bound the log history every node keeps for\n" +
+			"`armada app logs --since` (ADR 0043); 0 restores the default (7 days; 10% of\n" +
+			"the disk, at most 5Gi). They apply without a restart.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ch := cmd.Flags().Changed
@@ -77,9 +82,18 @@ func newClusterCommand(g *globals) *cobra.Command {
 				SetRootDomain: ch("root-domain"), SetTrustedProxies: ch("trusted-proxies"), SetTls: ch("tls"),
 				SetAcmeEmail: ch("acme-email"), SetAcmeCa: ch("acme-ca"), SetDnsProvider: ch("dns-provider"),
 				SetMetricsPort: ch("metrics-port"), SetNodeLostTimeout: ch("node-lost-timeout"), SetDnsToken: ch("dns-token"),
+				SetLogRetention: ch("log-retention"), SetLogMaxBytes: ch("log-max-disk"),
 			}
-			if !slices.ContainsFunc([]string{"root-domain", "trusted-proxies", "tls", "acme-email", "acme-ca", "dns-provider", "dns-token", "metrics-port", "node-lost-timeout"}, ch) {
+			if !slices.ContainsFunc([]string{"root-domain", "trusted-proxies", "tls", "acme-email", "acme-ca", "dns-provider", "dns-token", "metrics-port", "node-lost-timeout", "log-retention", "log-max-disk"}, ch) {
 				return errors.New("nothing to change; see armada cluster set --help")
+			}
+			req.Config.LogRetentionSeconds = int64(logRetention / time.Second)
+			if ch("log-max-disk") && logMaxDisk != "0" {
+				n, err := spec.ParseMemory(logMaxDisk)
+				if err != nil {
+					return fmt.Errorf("--log-max-disk: %w", err)
+				}
+				req.Config.LogMaxBytes = n
 			}
 			if ch("dns-token") {
 				// Never from an argument: shell history keeps those.
@@ -118,6 +132,8 @@ func newClusterCommand(g *globals) *cobra.Command {
 	f.StringVar(&dnsToken, "dns-token", "", "file holding the DNS provider's API token, or - for stdin; an empty file removes it")
 	f.IntVar(&metricsPort, "metrics-port", 0, "port of the Prometheus metrics endpoint on each server's private address; 0 turns it off")
 	f.DurationVar(&lostTimeout, "node-lost-timeout", 0, "how long a node may be unreachable before its replicas move to other nodes")
+	f.DurationVar(&logRetention, "log-retention", 0, "how long each node keeps log history, e.g. 168h (0 for the default, 7 days)")
+	f.StringVar(&logMaxDisk, "log-max-disk", "", "log history each node keeps at most, e.g. 5Gi (0 for the default: 10% of the disk, at most 5Gi)")
 	cmd.AddCommand(newClusterStatusCommand(g), show, set, newEventsCommand(g, eventsOfCluster))
 	return cmd
 }
@@ -235,9 +251,18 @@ func printClusterConfig(w io.Writer, cc *armadav1.ClusterConfig) error {
 	if cc.Tls {
 		certs = "on, " + dash(cc.AcmeCa)
 	}
-	_, err := fmt.Fprintf(w, "root domain:       %s\ntrusted proxies:   %s\ncertificates:      %s\nacme email:        %s\ndns provider:      %s (token %s)\nmetrics:           %s\nnode lost timeout: %s\n",
+	logs := "7 days (default)"
+	if cc.LogRetentionSeconds > 0 {
+		logs = humanDuration(time.Duration(cc.LogRetentionSeconds) * time.Second)
+	}
+	if cc.LogMaxBytes > 0 {
+		logs += ", at most " + humanBytes(cc.LogMaxBytes) + " per node"
+	} else {
+		logs += ", at most 10% of the disk (5Gi) per node"
+	}
+	_, err := fmt.Fprintf(w, "root domain:       %s\ntrusted proxies:   %s\ncertificates:      %s\nacme email:        %s\ndns provider:      %s (token %s)\nmetrics:           %s\nnode lost timeout: %s\nlog history:       %s\n",
 		dash(cc.RootDomain), dash(strings.Join(cc.TrustedProxies, ",")), certs, dash(cc.AcmeEmail),
-		cmp.Or(cc.DnsProvider, "none"), token, metrics, time.Duration(cc.NodeLostTimeoutSeconds)*time.Second)
+		cmp.Or(cc.DnsProvider, "none"), token, metrics, time.Duration(cc.NodeLostTimeoutSeconds)*time.Second, logs)
 	return err
 }
 

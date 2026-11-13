@@ -1142,6 +1142,11 @@ func (s *Server) pushAssignments(ctx context.Context, replicas []store.Replica, 
 	for _, r := range replicas {
 		byNode[r.NodeID] = append(byNode[r.NodeID], r)
 	}
+	ls, err := s.logSettings(ctx)
+	if err != nil {
+		return err
+	}
+	logs := ls.proto()
 
 	s.mu.Lock()
 	sessions := make([]*session, 0, len(s.sessions))
@@ -1151,7 +1156,7 @@ func (s *Server) pushAssignments(ctx context.Context, replicas []store.Replica, 
 	s.mu.Unlock()
 
 	for _, sess := range sessions {
-		a := &armadav1.Assignment{Proxy: px, Servers: servers, Network: network, QueueSandboxes: sandboxes[sess.nodeID]}
+		a := &armadav1.Assignment{Proxy: px, Servers: servers, Network: network, QueueSandboxes: sandboxes[sess.nodeID], Logs: logs}
 		if sess.certRefs {
 			a.Proxy = pxRefs
 		}

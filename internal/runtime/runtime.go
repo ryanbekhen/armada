@@ -286,7 +286,7 @@ type Container struct {
 // LogOptions controls log retrieval.
 type LogOptions struct {
 	Follow bool
-	Tail   int // 0 means all
+	Tail   int // 0 means all, negative none (with Follow: only new output)
 }
 
 // Stream identifies stdout or stderr.
@@ -302,6 +302,43 @@ const (
 type LogFrame struct {
 	Stream Stream
 	Data   []byte
+}
+
+// LogQuery asks for a window of an app's output from the node's log history
+// and live logs (ADR 0043).
+type LogQuery struct {
+	App       string
+	Replica   string // empty for every replica
+	Container string // empty for the app's own container
+	// Since and Until bound the entries' times; a zero Until means now.
+	Since, Until time.Time
+	// Grep keeps entries containing it, ignoring case; never a pattern.
+	Grep string
+	// Limit keeps the newest entries; MaxBytes bounds what is read.
+	Limit    int
+	MaxBytes int64
+}
+
+// LogRecord is one entry a log search found.
+type LogRecord struct {
+	Time      time.Time
+	Stream    Stream
+	Data      []byte
+	Replica   string
+	Container string
+}
+
+// LogSearcher is implemented by runtimes that keep a log history (ADR
+// 0043). Search returns the newest q.Limit matching entries, oldest first,
+// and a notice when it stopped early.
+type LogSearcher interface {
+	SearchLogs(ctx context.Context, q LogQuery) ([]LogRecord, string, error)
+}
+
+// LogPruner removes log history older than retention, then the oldest
+// until it fits maxBytes (0 means the runtime's default).
+type LogPruner interface {
+	PruneLogs(ctx context.Context, retention time.Duration, maxBytes int64) error
 }
 
 // LogStream yields log frames until io.EOF.

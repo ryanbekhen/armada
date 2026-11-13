@@ -53,6 +53,10 @@ with them while apps keep serving; the command waits until it answers again.
 The token is read from a file or stdin (--dns-token -), stored encrypted, and
 never shown.
 
+--log-retention and --log-max-disk bound the log history every node keeps for
+`armada app logs --since` (ADR 0043); 0 restores the default (7 days; 10% of
+the disk, at most 5Gi). They apply without a restart.
+
 ```
 armada cluster set [flags]
 ```
@@ -65,6 +69,8 @@ Flags:
 | `--acme-email string` | contact email for the ACME account |
 | `--dns-provider string` | DNS provider for the root domain and the names under it, including a wildcard: cloudflare, or none |
 | `--dns-token string` | file holding the DNS provider's API token, or - for stdin; an empty file removes it |
+| `--log-max-disk string` | log history each node keeps at most, e.g. 5Gi (0 for the default: 10% of the disk, at most 5Gi) |
+| `--log-retention duration` | how long each node keeps log history, e.g. 168h (0 for the default, 7 days) |
 | `--metrics-port int` | port of the Prometheus metrics endpoint on each server's private address; 0 turns it off |
 | `--node-lost-timeout duration` | how long a node may be unreachable before its replicas move to other nodes |
 | `--root-domain string` | root domain for app URLs (empty to clear) |

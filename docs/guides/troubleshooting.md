@@ -20,6 +20,7 @@ armada cluster status            # one line, then apps and nodes that are not re
 armada app show api              # revision, Ready, Rollout, Placement, and each replica's message
 armada app events api            # what happened to it in the last hour (--since 24h for more)
 armada app logs api --tail 200   # what the app printed (--replica ID, --container NAME, -f)
+armada app logs api --since 2h --grep error   # its history, replicas that are gone included
 armada cluster events            # everything, with nodes and certificates (cluster-admin)
 sudo armadad doctor              # on a node: runtime, network, firewall, certificates, clock
 ```

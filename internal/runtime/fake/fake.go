@@ -41,6 +41,11 @@ type Driver struct {
 	Platforms map[string][]string
 	// LogLines is returned by Logs for every container.
 	LogLines []runtime.LogFrame
+	// LogHistory holds what SearchLogs finds, by app ID; LogQueries and
+	// LogPrunes record the calls.
+	LogHistory map[string][]runtime.LogRecord
+	LogQueries []runtime.LogQuery
+	LogPrunes  [][2]int64
 	// BridgeIPs, if set, gives each new container the address BridgeIPs
 	// followed by its sequence number, such as "10.120.0." for 10.120.0.1.
 	BridgeIPs string
@@ -644,6 +649,58 @@ func (d *Driver) Logs(_ context.Context, id string, _ runtime.LogOptions) (runti
 		return nil, runtime.ErrNotFound
 	}
 	return &stream{frames: append([]runtime.LogFrame(nil), d.LogLines...)}, nil
+}
+
+// SearchLogs filters LogHistory like the embedded runtime: the window,
+// replica, plain text ignoring case, and the newest Limit, oldest first.
+func (d *Driver) SearchLogs(_ context.Context, q runtime.LogQuery) ([]runtime.LogRecord, string, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.LogQueries = append(d.LogQueries, q)
+	var out []runtime.LogRecord
+	for _, r := range d.LogHistory[q.App] {
+		if r.Time.Before(q.Since) || (!q.Until.IsZero() && r.Time.After(q.Until)) || (q.Replica != "" && r.Replica != q.Replica) ||
+			r.Container != q.Container || !strings.Contains(strings.ToLower(string(r.Data)), strings.ToLower(q.Grep)) {
+			continue
+		}
+		out = append(out, r)
+	}
+	if len(out) > q.Limit {
+		out = out[len(out)-q.Limit:]
+	}
+	return out, "", nil
+}
+
+// SetLogHistory replaces what SearchLogs finds for app.
+func (d *Driver) SetLogHistory(app string, recs []runtime.LogRecord) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.LogHistory == nil {
+		d.LogHistory = map[string][]runtime.LogRecord{}
+	}
+	d.LogHistory[app] = recs
+}
+
+// LogSearches returns the queries SearchLogs got.
+func (d *Driver) LogSearches() []runtime.LogQuery {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return slices.Clone(d.LogQueries)
+}
+
+// LogPruneCalls returns PruneLogs' arguments: retention and size.
+func (d *Driver) LogPruneCalls() [][2]int64 {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return slices.Clone(d.LogPrunes)
+}
+
+// PruneLogs records its arguments.
+func (d *Driver) PruneLogs(_ context.Context, retention time.Duration, maxBytes int64) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.LogPrunes = append(d.LogPrunes, [2]int64{int64(retention), maxBytes})
+	return nil
 }
 
 // SetState changes a container's state, e.g. to simulate a crash.

@@ -514,6 +514,31 @@ per second (4 MiB at once) to its log, kept in 3 files of 10 MB; `armada
 app logs` shows a line such as `[armada: dropped 52428800 bytes of output over
 the log rate limit ...]` where output was dropped.
 
+### Log history
+
+Each node keeps the output of its app containers after they rotate out or
+the container is removed ([ADR 0043](adr/0043-log-history.md)), so a
+search finds what an app printed before a deploy, a crash, or a move:
+
+```bash
+armada app logs api --since 2h --grep error          # every replica, gone ones included
+armada app logs api --since 2026-11-13T09:00:00+07:00 --until 30m --timestamps
+armada app logs api --since 1d --replica api-r8-q2k0d --limit 2000
+armada app logs api --since 10m -f                   # then keep following live output
+```
+
+`--grep` is plain text, ignoring case. A search returns the newest 500
+lines (`--limit`, at most 5000) merged by time across nodes, and each node
+reads at most 1 GiB of output for it within 30 seconds, saying so when it
+stops early. History lives in the runtime's log directory, readable only
+by root, and is kept 7 days and at most 10% of the disk (5 GiB) per node,
+the oldest dropped first:
+
+```bash
+armada cluster set --log-retention 336h --log-max-disk 10Gi   # every node, no restart
+armada cluster show                                           # log history: ...
+```
+
 A domain serves one space: an app cannot use a domain that an app of
 another space uses, and a domain another space left behind needs a
 new TXT record.
