@@ -77,3 +77,24 @@ func TestWaitJobRun(t *testing.T) {
 		t.Errorf("err = %v", err)
 	}
 }
+
+func TestJobRunShowTasks(t *testing.T) {
+	f := &fakeRuns{steps: []*armadav1.JobRunInfo{{Job: "report", Run: 3, State: "running", Tasks: []*armadav1.JobTaskInfo{
+		{Index: 0, State: "succeeded", Attempts: 1, Node: "n1"},
+		{Index: 1, State: "running", Attempts: 2, Node: "n2", Message: "exited with code 4"},
+		{Index: 2, State: "pending"},
+	}}}}
+	orig := dialAdmin
+	dialAdmin = func(*globals) (armadav1.AdminServiceClient, io.Closer, error) { return f, nopCloser{}, nil }
+	t.Cleanup(func() { dialAdmin = orig })
+	cfg := withFake(t, newFakeAdmin())
+	dialAdmin = func(*globals) (armadav1.AdminServiceClient, io.Closer, error) { return f, nopCloser{}, nil }
+	code, out, stderr := run(t, "job", "run", "show", "report", "3", "--config", cfg)
+	if code != 0 || !strings.Contains(out, "1/3 tasks") || !strings.Contains(out, "TASK  STATE") ||
+		!strings.Contains(out, "1     running    2         n2    -     exited with code 4") {
+		t.Errorf("job run show = %d %q\n%s", code, stderr, out)
+	}
+	if code, _, stderr := run(t, "job", "run", "show", "report", "7", "--config", cfg); code == 0 || !strings.Contains(stderr, "not found") {
+		t.Errorf("missing run: %d %q", code, stderr)
+	}
+}

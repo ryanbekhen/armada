@@ -72,7 +72,7 @@ const (
 	// migrations when records change incompatibly. Records under servers/
 	// and meta/ are read and written by every server, whatever its schema,
 	// so they only ever gain optional fields.
-	etcdSchema = 11
+	etcdSchema = 12
 
 	maxTxnRetries = 100
 	// auditKeep is how many audit events are retained.
@@ -527,6 +527,7 @@ type replicaRec struct {
 	// Job attempts (ADR 0019).
 	Run      int64 `json:"run,omitempty"`
 	Done     bool  `json:"done,omitempty"`
+	Task     int   `json:"task,omitempty"`
 	Finished bool  `json:"finished,omitempty"`
 	ExitCode int   `json:"exitCode,omitempty"`
 	// A volume app's replica held until the old one is gone (ADR 0023).
@@ -1984,7 +1985,7 @@ func (s *Etcd) CreateReplica(ctx context.Context, r Replica) error {
 		if err := t.bindVolumes(rev, r.NodeID, s.now()); err != nil {
 			return err
 		}
-		return t.put(pfxReplicas+r.ID, replicaRec{ID: r.ID, App: r.App, Revision: r.Revision, NodeID: r.NodeID, State: r.State, UpdatedAt: s.now().UnixMilli(), CreatedAt: s.now().UnixMilli(), Run: r.Run, Held: r.Held})
+		return t.put(pfxReplicas+r.ID, replicaRec{ID: r.ID, App: r.App, Revision: r.Revision, NodeID: r.NodeID, State: r.State, UpdatedAt: s.now().UnixMilli(), CreatedAt: s.now().UnixMilli(), Run: r.Run, Task: r.Task, Held: r.Held})
 	})
 }
 
@@ -2094,7 +2095,7 @@ func (s *Etcd) ListReplicas(ctx context.Context, f ReplicaFilter) ([]Replica, er
 					ContainerID: r.ContainerID, Address: r.Address, IP: r.IP, Message: r.Message, Ready: r.Ready,
 					ReadySince: fromMS(r.ReadySince), DrainingSince: fromMS(r.DrainingSince), MovingSince: fromMS(r.MovingSince), UpdatedAt: fromMS(r.UpdatedAt),
 					CreatedAt: fromMS(r.CreatedAt), Restarts: r.Restarts, LastRestartAt: fromMS(r.LastRestartAt), LastRestart: r.LastRestart,
-					Run: r.Run, Done: r.Done, Finished: r.Finished, ExitCode: r.ExitCode, Held: r.Held})
+					Run: r.Run, Done: r.Done, Finished: r.Finished, ExitCode: r.ExitCode, Task: r.Task, Held: r.Held})
 			}
 			return nil
 		})
@@ -2670,6 +2671,11 @@ var migrations = []migration{
 	// and the specs of revisions become space, with project-creator
 	// renamed space-creator.
 	migrateSpaces,
+	// 11 -> 12: job runs split into tasks (ADR 0019): run records gain
+	// tasks, replicas their task. Nothing to rewrite; servers that would
+	// run such a job as one container, or drop the tasks of a run when they
+	// rewrite it, can no longer lead.
+	func(*etx) error { return nil },
 }
 
 // StoredSchema returns the schema the keyspace is written in.

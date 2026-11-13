@@ -77,10 +77,12 @@ func (s *Server) reconcileJob(ctx context.Context, rc *reconcileRun, job store.A
 	runs = s.triggerJob(ctx, rc, job, runs, nodes, revs)
 	for i := range runs {
 		r := &runs[i]
-		switch r.State {
-		case store.RunPending:
+		switch {
+		case len(r.Tasks) > 0 && r.Active():
+			all, err = s.reconcileTasks(ctx, rc, job, r, nodes, all, revs)
+		case r.State == store.RunPending:
 			all, err = s.startAttempt(ctx, rc, job, r, nodes, all, revs)
-		case store.RunRunning:
+		case r.State == store.RunRunning:
 			all, err = s.watchAttempt(ctx, rc, job, r, all)
 		}
 		if err != nil {
@@ -257,27 +259,8 @@ func (s *Server) watchAttempt(ctx context.Context, rc *reconcileRun, job store.A
 	if rev, err := s.store.GetRevision(ctx, r.Revision); err == nil {
 		timeout = rev.Spec.JobTimeout()
 	}
-	var (
-		code      int
-		msg       string
-		succeeded bool
-	)
-	switch {
-	case rep.Finished && rep.ExitCode == 0:
-		succeeded = true
-	case rep.Finished:
-		code, msg = rep.ExitCode, "exited with code "+strconv.Itoa(rep.ExitCode)
-	case rep.State == store.ReplicaFailed:
-		msg = "could not start: " + rep.Message
-	case rc.lost[rep.NodeID]:
-		msg = "its node " + rep.NodeID + " was lost"
-	case rc.now.Sub(r.AttemptAt) >= timeout:
-		msg = fmt.Sprintf("timed out after %s", timeout)
-		if rep.ContainerID == "" {
-			msg += " before its container started (pulling the image?)"
-		}
-	default:
-		rc.wakeAt(r.AttemptAt.Add(timeout))
+	over, succeeded, code, msg := attemptOutcome(rc, rep, r.AttemptAt, timeout)
+	if !over {
 		return all, nil
 	}
 	if err := s.store.SetReplicaDone(ctx, rep.ID); err != nil && !errors.Is(err, store.ErrNotFound) {
@@ -289,6 +272,29 @@ func (s *Server) watchAttempt(ctx context.Context, rc *reconcileRun, job store.A
 		return all, s.endRun(ctx, r, store.RunSucceeded, 0, "")
 	}
 	return all, s.attemptFailed(ctx, rc, job, r, code, msg)
+}
+
+// attemptOutcome says whether the attempt rep, placed at at, is over:
+// finished, failed to start, lost its node, or ran past timeout.
+func attemptOutcome(rc *reconcileRun, rep store.Replica, at time.Time, timeout time.Duration) (over, succeeded bool, code int, msg string) {
+	switch {
+	case rep.Finished && rep.ExitCode == 0:
+		return true, true, 0, ""
+	case rep.Finished:
+		return true, false, rep.ExitCode, "exited with code " + strconv.Itoa(rep.ExitCode)
+	case rep.State == store.ReplicaFailed:
+		return true, false, 0, "could not start: " + rep.Message
+	case rc.lost[rep.NodeID]:
+		return true, false, 0, "its node " + rep.NodeID + " was lost"
+	case rc.now.Sub(at) >= timeout:
+		msg = fmt.Sprintf("timed out after %s", timeout)
+		if rep.ContainerID == "" {
+			msg += " before its container started (pulling the image?)"
+		}
+		return true, false, 0, msg
+	}
+	rc.wakeAt(at.Add(timeout))
+	return false, false, 0, ""
 }
 
 // attemptFailed retries a run if its job allows another attempt, or ends it
@@ -507,7 +513,22 @@ func runInfo(r store.JobRun) *armadav1.JobRunInfo {
 		Node:     r.Node, Replica: r.Replica,
 		ExitCode: int32(r.ExitCode), //nolint:gosec // exit codes are small
 		Message:  r.Message, CreatedAt: ts(r.CreatedAt), StartedAt: ts(r.StartedAt), FinishedAt: ts(r.FinishedAt),
+		Tasks: taskInfos(r.Tasks),
 	}
+}
+
+func taskInfos(tasks []store.RunTask) []*armadav1.JobTaskInfo {
+	var out []*armadav1.JobTaskInfo
+	for _, t := range tasks {
+		out = append(out, &armadav1.JobTaskInfo{
+			Index: int32(t.Index), State: t.State, //nolint:gosec // at most spec.MaxJobTasks
+			Attempts: int32(min(t.Attempts, 1<<31-1)), //nolint:gosec // bounded above
+			Node:     t.Node, Replica: t.Replica,
+			ExitCode: int32(t.ExitCode), //nolint:gosec // exit codes are small
+			Message:  t.Message,
+		})
+	}
+	return out
 }
 
 // CancelJob ends a job's active runs.
@@ -551,7 +572,7 @@ func (s *Server) DeleteJob(ctx context.Context, req *armadav1.DeleteJobRequest) 
 
 // runReplica returns the replica of the latest attempt of a job's run (the
 // newest run if seq is 0), whose container holds its logs.
-func (s *Server) runReplica(ctx context.Context, job string, seq int64) (string, error) {
+func (s *Server) runReplica(ctx context.Context, job string, seq int64, task *int32) (string, error) {
 	runs, err := s.store.ListJobRuns(ctx, job)
 	if err != nil {
 		return "", storeErr(err)
@@ -567,7 +588,17 @@ func (s *Server) runReplica(ctx context.Context, job string, seq int64) (string,
 		case !r.Active() && s.now().Sub(r.FinishedAt) >= jobLogsKept:
 			return "", status.Errorf(codes.NotFound, "the logs of run %d of %s were removed %s after it finished", r.Seq, job, jobLogsKept)
 		}
-		return r.Replica, nil
+		if task == nil {
+			return r.Replica, nil
+		}
+		i := int(*task)
+		if i < 0 || i >= len(r.Tasks) {
+			return "", status.Errorf(codes.InvalidArgument, "run %d of %s has no task %d (it has %d)", r.Seq, job, i, len(r.Tasks))
+		}
+		if r.Tasks[i].Replica == "" {
+			return "", status.Errorf(codes.FailedPrecondition, "task %d of run %d of %s has not started", i, r.Seq, job)
+		}
+		return r.Tasks[i].Replica, nil
 	}
 	if seq != 0 {
 		return "", status.Errorf(codes.NotFound, "run %d of %s not found (finished runs beyond the job's history are removed)", seq, job)

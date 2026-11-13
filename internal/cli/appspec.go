@@ -50,7 +50,7 @@ type specFlags struct {
 	// Jobs.
 	schedule, timeZone, concurrency string
 	timeout                         time.Duration
-	retries                         int
+	retries, tasks, parallelism     int
 }
 
 // Flags that change an app's spec, and a job's.
@@ -59,7 +59,7 @@ var (
 		"registry-user", "registry-secret", "port", "ingress", "protocol", "domain", "remove-domain", "ip-allow", "ip-deny", "no-ip-rules", "sticky", "cors-origin", "no-cors", "replicas", "min", "max",
 		"scale-cpu", "scale-memory", "scale-http", "health-path"}
 	jobSpecFlags = []string{"image", "command", "args", "env", "secret-env", "remove-env", "env-from-secrets", "cpu", "memory",
-		"registry-user", "registry-secret", "schedule", "time-zone", "timeout", "retries", "concurrency"}
+		"registry-user", "registry-secret", "schedule", "time-zone", "timeout", "retries", "concurrency", "tasks", "parallelism"}
 )
 
 func (f *specFlags) register(cmd *cobra.Command, job bool) {
@@ -85,6 +85,8 @@ func (f *specFlags) register(cmd *cobra.Command, job bool) {
 		fs.DurationVar(&f.timeout, "timeout", 0, "how long one attempt may run")
 		fs.IntVar(&f.retries, "retries", 0, "attempts after a failed one")
 		fs.StringVar(&f.concurrency, "concurrency", "", "when a run is due while one runs: forbid or replace")
+		fs.IntVar(&f.tasks, "tasks", 0, "split each run into this many tasks, each told its index in ARMADA_JOB_TASK (0 or 1 for one)")
+		fs.IntVar(&f.parallelism, "parallelism", 0, "how many tasks of a run run at once (0 for all)")
 		return
 	}
 	fs.IntVar(&f.port, "port", 0, "port the app listens on")
@@ -297,6 +299,15 @@ func (f *specFlags) applyJob(a *spec.App) {
 	}
 	if ch("concurrency") {
 		a.Concurrency = f.concurrency
+	}
+	if ch("tasks") {
+		a.Tasks = f.tasks
+		if a.Tasks == 1 {
+			a.Tasks = 0
+		}
+	}
+	if ch("parallelism") {
+		a.Parallelism = f.parallelism
 	}
 }
 

@@ -44,40 +44,84 @@ type JobRun struct {
 	// after a failed attempt, when the next may start; FinishedAt when it
 	// ended.
 	CreatedAt, StartedAt, AttemptAt, FinishedAt time.Time
+	// Tasks are the run's tasks when its job has several (spec.App.Tasks):
+	// each runs its own attempts. Attempts, Replica, and Node then sum up
+	// and name the latest attempt of any task.
+	Tasks []RunTask
+}
+
+// RunTask is one task of a run with several: index Index of the run's
+// tasks, with its own attempts.
+type RunTask struct {
+	Index    int
+	State    string
+	Attempts int
+	Replica  string
+	Node     string
+	ExitCode int
+	Message  string
+	// AttemptAt is when its latest attempt was placed, or, while pending
+	// after a failed attempt, when the next may start; WaitingSince when it
+	// last had a free place in the run's parallelism but no node to run on.
+	AttemptAt, WaitingSince, FinishedAt time.Time
+}
+
+type runTaskRec struct {
+	Index        int    `json:"index"`
+	State        string `json:"state"`
+	Attempts     int    `json:"attempts,omitempty"`
+	Replica      string `json:"replica,omitempty"`
+	Node         string `json:"node,omitempty"`
+	ExitCode     int    `json:"exitCode,omitempty"`
+	Message      string `json:"message,omitempty"`
+	AttemptAt    int64  `json:"attemptAt,omitempty"`
+	WaitingSince int64  `json:"waitingSince,omitempty"`
+	FinishedAt   int64  `json:"finishedAt,omitempty"`
 }
 
 // Active reports whether the run has not ended.
 func (r JobRun) Active() bool { return r.State == RunPending || r.State == RunRunning }
 
 type jobRunRec struct {
-	Job        string `json:"job"`
-	Seq        int64  `json:"seq"`
-	Revision   string `json:"revision"`
-	Trigger    string `json:"trigger"`
-	State      string `json:"state"`
-	Attempts   int    `json:"attempts,omitempty"`
-	Replica    string `json:"replica,omitempty"`
-	Node       string `json:"node,omitempty"`
-	ExitCode   int    `json:"exitCode,omitempty"`
-	Message    string `json:"message,omitempty"`
-	CreatedAt  int64  `json:"createdAt"`
-	StartedAt  int64  `json:"startedAt,omitempty"`
-	AttemptAt  int64  `json:"attemptAt,omitempty"`
-	FinishedAt int64  `json:"finishedAt,omitempty"`
+	Job        string       `json:"job"`
+	Seq        int64        `json:"seq"`
+	Revision   string       `json:"revision"`
+	Trigger    string       `json:"trigger"`
+	State      string       `json:"state"`
+	Attempts   int          `json:"attempts,omitempty"`
+	Replica    string       `json:"replica,omitempty"`
+	Node       string       `json:"node,omitempty"`
+	ExitCode   int          `json:"exitCode,omitempty"`
+	Message    string       `json:"message,omitempty"`
+	CreatedAt  int64        `json:"createdAt"`
+	StartedAt  int64        `json:"startedAt,omitempty"`
+	AttemptAt  int64        `json:"attemptAt,omitempty"`
+	FinishedAt int64        `json:"finishedAt,omitempty"`
+	Tasks      []runTaskRec `json:"tasks,omitempty"`
 }
 
 func runKey(job string, seq int64) string { return fmt.Sprintf("%s%s/%010d", pfxRuns, job, seq) }
 
 func toRunRec(r JobRun) jobRunRec {
-	return jobRunRec{Job: r.Job, Seq: r.Seq, Revision: r.Revision, Trigger: r.Trigger, State: r.State, Attempts: r.Attempts,
+	out := jobRunRec{Job: r.Job, Seq: r.Seq, Revision: r.Revision, Trigger: r.Trigger, State: r.State, Attempts: r.Attempts,
 		Replica: r.Replica, Node: r.Node, ExitCode: r.ExitCode, Message: r.Message, CreatedAt: ms(r.CreatedAt),
 		StartedAt: ms(r.StartedAt), AttemptAt: ms(r.AttemptAt), FinishedAt: ms(r.FinishedAt)}
+	for _, t := range r.Tasks {
+		out.Tasks = append(out.Tasks, runTaskRec{Index: t.Index, State: t.State, Attempts: t.Attempts, Replica: t.Replica, Node: t.Node,
+			ExitCode: t.ExitCode, Message: t.Message, AttemptAt: ms(t.AttemptAt), WaitingSince: ms(t.WaitingSince), FinishedAt: ms(t.FinishedAt)})
+	}
+	return out
 }
 
 func (r jobRunRec) run() JobRun {
-	return JobRun{Job: r.Job, Seq: r.Seq, Revision: r.Revision, Trigger: r.Trigger, State: r.State, Attempts: r.Attempts,
+	out := JobRun{Job: r.Job, Seq: r.Seq, Revision: r.Revision, Trigger: r.Trigger, State: r.State, Attempts: r.Attempts,
 		Replica: r.Replica, Node: r.Node, ExitCode: r.ExitCode, Message: r.Message, CreatedAt: fromMS(r.CreatedAt),
 		StartedAt: fromMS(r.StartedAt), AttemptAt: fromMS(r.AttemptAt), FinishedAt: fromMS(r.FinishedAt)}
+	for _, t := range r.Tasks {
+		out.Tasks = append(out.Tasks, RunTask{Index: t.Index, State: t.State, Attempts: t.Attempts, Replica: t.Replica, Node: t.Node,
+			ExitCode: t.ExitCode, Message: t.Message, AttemptAt: fromMS(t.AttemptAt), WaitingSince: fromMS(t.WaitingSince), FinishedAt: fromMS(t.FinishedAt)})
+	}
+	return out
 }
 
 // job returns the app record of a job, or an error if name is not a job.
@@ -124,6 +168,11 @@ func (s *Etcd) CreateJobRun(ctx context.Context, job, trigger string, at time.Ti
 			return err
 		}
 		out = JobRun{Job: job, Seq: seq, Revision: rev.Name, Trigger: trigger, State: RunPending, CreatedAt: created}
+		if n := rev.Spec.JobTasks(); n > 1 {
+			for i := range n {
+				out.Tasks = append(out.Tasks, RunTask{Index: i, State: RunPending})
+			}
+		}
 		if err := t.put(runKey(job, seq), toRunRec(out)); err != nil {
 			return err
 		}
@@ -228,6 +277,11 @@ func (s *Etcd) CancelJobRuns(ctx context.Context, job, actor string) ([]JobRun, 
 				return nil
 			}
 			r.State, r.Message, r.FinishedAt = RunCancelled, "cancelled by "+actor, ms(now)
+			for i := range r.Tasks {
+				if r.Tasks[i].State == RunPending || r.Tasks[i].State == RunRunning {
+					r.Tasks[i].State, r.Tasks[i].FinishedAt = RunCancelled, ms(now)
+				}
+			}
 			out = append(out, r.run())
 			return t.put(key, r)
 		})

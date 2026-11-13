@@ -428,7 +428,7 @@ func (s *Server) Logs(req *armadav1.LogsRequest, stream armadav1.AdminService_Lo
 	case req.GetRun() != 0 && !app.Spec.IsJob():
 		return status.Errorf(codes.InvalidArgument, "%s is an app; --run is for jobs", app.Name)
 	case app.Spec.IsJob() && req.GetReplica() == "":
-		replica, err := s.runReplica(ctx, app.Name, req.GetRun())
+		replica, err := s.runReplica(ctx, app.Name, req.GetRun(), taskOf(req))
 		if err != nil {
 			return err
 		}
@@ -542,4 +542,9 @@ func ipRulesProto(rules []spec.IPRule) []*armadav1.IPRule {
 		out = append(out, &armadav1.IPRule{Range: r.Range, Name: r.Name, Description: r.Description})
 	}
 	return out
+}
+
+// taskOf is the task a logs request names, or nil.
+func taskOf(req *armadav1.LogsRequest) *int32 {
+	return req.Task
 }

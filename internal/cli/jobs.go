@@ -7,6 +7,7 @@ import (
 	"io"
 	"slices"
 	"strconv"
+	"strings"
 	"text/tabwriter"
 	"time"
 
@@ -102,7 +103,7 @@ func newJobRunCommand(g *globals) *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&wait, "wait", false, "wait until the run ends; fail unless it succeeded")
 	cmd.Flags().DurationVar(&timeout, "timeout", 15*time.Minute, "how long --wait waits")
-	cmd.AddCommand(newJobRunListCommand(g))
+	cmd.AddCommand(newJobRunListCommand(g), newJobRunShowCommand(g))
 	return cmd
 }
 
@@ -360,10 +361,87 @@ func printRuns(out io.Writer, runs []*armadav1.JobRunInfo, now time.Time) error 
 			node = "-"
 		}
 		msg := printable(r.Message)
+		if t := tasksDone(r); t != "" {
+			msg = strings.TrimSuffix(t+"; "+msg, "; ")
+		}
 		if msg == "" {
 			msg = "-"
 		}
 		_, _ = fmt.Fprintf(tw, "%d\t%s\t%s\t%d\t%s\t%s\t%s\t%s\t%s\n", r.Run, r.State, r.Trigger, r.Attempts, node, ago(r.StartedAt, now), dur, exit, msg)
+	}
+	return tw.Flush()
+}
+
+// tasksDone says how many of a run's tasks succeeded, as "3/10 tasks".
+func tasksDone(r *armadav1.JobRunInfo) string {
+	if len(r.Tasks) == 0 {
+		return ""
+	}
+	n := 0
+	for _, t := range r.Tasks {
+		if t.State == "succeeded" {
+			n++
+		}
+	}
+	return fmt.Sprintf("%d/%d tasks", n, len(r.Tasks))
+}
+
+func newJobRunShowCommand(g *globals) *cobra.Command {
+	var o *outputFlag
+	cmd := &cobra.Command{
+		Use:   "show JOB RUN",
+		Short: "Show a run of a job, with its tasks",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := g.qualify(args[:1]); err != nil {
+				return err
+			}
+			if err := o.check(); err != nil {
+				return err
+			}
+			seq, err := strconv.ParseInt(args[1], 10, 64)
+			if err != nil || seq < 1 {
+				return fmt.Errorf("run must be a number such as 3, not %q", args[1])
+			}
+			client, conn, err := dialAdmin(g)
+			if err != nil {
+				return err
+			}
+			defer conn.Close()
+			resp, err := client.ListJobRuns(cmd.Context(), &armadav1.ListJobRunsRequest{Job: args[0]})
+			if err != nil {
+				return RPCError(err)
+			}
+			for _, r := range resp.Runs {
+				if r.Run != seq {
+					continue
+				}
+				out := cmd.OutOrStdout()
+				if o.json() {
+					return printJSON(out, r)
+				}
+				if err := printRuns(out, []*armadav1.JobRunInfo{r}, time.Now()); err != nil || len(r.Tasks) == 0 {
+					return err
+				}
+				_, _ = fmt.Fprintln(out)
+				return printTasks(out, r.Tasks)
+			}
+			return fmt.Errorf("run %d of %s not found (finished runs beyond the job's history are removed)", seq, args[0])
+		},
+	}
+	o = addOutput(cmd, false)
+	return cmd
+}
+
+func printTasks(out io.Writer, tasks []*armadav1.JobTaskInfo) error {
+	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+	_, _ = fmt.Fprintln(tw, "TASK\tSTATE\tATTEMPTS\tNODE\tEXIT\tMESSAGE")
+	for _, t := range tasks {
+		exit := "-"
+		if t.State == "succeeded" || t.ExitCode != 0 {
+			exit = strconv.Itoa(int(t.ExitCode))
+		}
+		_, _ = fmt.Fprintf(tw, "%d\t%s\t%d\t%s\t%s\t%s\n", t.Index, t.State, t.Attempts, dash(t.Node), exit, dash(printable(t.Message)))
 	}
 	return tw.Flush()
 }

@@ -258,6 +258,9 @@ type Replica struct {
 	Done     bool
 	Finished bool
 	ExitCode int
+	// Task is the index of the run's task this replica is an attempt of,
+	// for jobs whose runs have several (spec.App.Completions).
+	Task int
 	// Held marks a volume app's next replica during a rollout (ADR 0023):
 	// its node pulls the images but starts nothing until the hold is
 	// lifted, once the old replica is gone.

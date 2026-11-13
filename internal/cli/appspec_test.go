@@ -287,6 +287,15 @@ func TestAppUpdateFileDiffAndCreateIfMissing(t *testing.T) {
 	if !strings.Contains(f.specs["nightly"], "kind: job") || !strings.Contains(f.specs["nightly"], "schedule: 0 3 * * *") {
 		t.Errorf("job spec:\n%s", f.specs["nightly"])
 	}
+	if code, _, stderr := cli("job", "update", "nightly", "--tasks", "10", "--parallelism", "3"); code != 0 {
+		t.Errorf("job update --tasks: %d %q", code, stderr)
+	}
+	if !strings.Contains(f.specs["nightly"], "tasks: 10") || !strings.Contains(f.specs["nightly"], "parallelism: 3") {
+		t.Errorf("job spec with tasks:\n%s", f.specs["nightly"])
+	}
+	if code, _, stderr := cli("job", "update", "nightly", "--parallelism", "11"); code == 0 || !strings.Contains(stderr, "parallelism") {
+		t.Errorf("parallelism over tasks: %d %q", code, stderr)
+	}
 }
 
 func TestListAppsPages(t *testing.T) {
