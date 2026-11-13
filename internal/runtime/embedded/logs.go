@@ -42,7 +42,9 @@ func LogPath(dir, id string) (string, error) {
 
 // logFile is a size-rotated log file shared by a container's streams.
 type logFile struct {
-	mu       sync.Mutex
+	mu sync.Mutex
+	// dir and id name the container's files, for history (ADR 0043).
+	dir, id  string
 	path     string
 	f        *os.File
 	size     int64
@@ -135,10 +137,16 @@ func (l *logFile) append(e logEntry) error {
 	return err
 }
 
-// rotate shifts path -> path.1 -> ... and drops the oldest file.
+// rotate shifts path -> path.1 -> ... and moves the oldest file into
+// history, or drops it when the container keeps none.
 func (l *logFile) rotate() error {
 	if err := l.f.Close(); err != nil {
 		return err
+	}
+	if l.id != "" && l.maxFiles > 1 {
+		if err := keep(l.dir, l.id, l.path+"."+strconv.Itoa(l.maxFiles-1), 0); err != nil {
+			return err
+		}
 	}
 	for i := l.maxFiles - 1; i >= 1; i-- {
 		src := l.path
@@ -196,6 +204,7 @@ func WriteLogs(dir, id string, stdout, stderr io.Reader) error {
 	if err != nil {
 		return err
 	}
+	l.dir, l.id = dir, id
 	l.rate, l.burst = runtime.LogRate, runtime.LogBurst
 	defer l.Close()
 	errs := make(chan error, 2)
@@ -204,19 +213,20 @@ func WriteLogs(dir, id string, stdout, stderr io.Reader) error {
 	return errors.Join(<-errs, <-errs)
 }
 
-// RemoveLogs deletes a container's log files.
+// RemoveLogs moves a removed container's log files into history, oldest
+// first, or deletes them when it keeps none (ADR 0043).
 func RemoveLogs(dir, id string) error {
 	path, err := LogPath(dir, id)
 	if err != nil {
 		return err
 	}
 	var errs []error
-	for i := 0; i < runtime.LogMaxFiles; i++ {
+	for i := runtime.LogMaxFiles - 1; i >= 0; i-- {
 		p := path
 		if i > 0 {
 			p += "." + strconv.Itoa(i)
 		}
-		if err := os.Remove(p); err != nil && !errors.Is(err, os.ErrNotExist) {
+		if err := keep(dir, id, p, runtime.LogMaxFiles-i); err != nil {
 			errs = append(errs, err)
 		}
 	}
@@ -293,6 +303,9 @@ func readLogs(ctx context.Context, path string, opts runtime.LogOptions, out cha
 	// Rotated files first, oldest first.
 	var entries []logEntry
 	keep := func(e logEntry) {
+		if opts.Tail < 0 {
+			return // only output written from now
+		}
 		entries = append(entries, e)
 		if opts.Tail > 0 && len(entries) > opts.Tail {
 			entries = entries[1:]

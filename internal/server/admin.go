@@ -424,15 +424,26 @@ func (s *Server) Logs(req *armadav1.LogsRequest, stream armadav1.AdminService_Lo
 	if err := checkContainerName(req.GetContainer()); err != nil {
 		return err
 	}
+	search := req.GetSince() != nil
+	if !search && (req.GetUntil() != nil || req.GetGrep() != "" || req.GetLimit() != 0) {
+		return status.Error(codes.InvalidArgument, "--until, --grep, and --limit search the log history: give --since too")
+	}
 	switch {
 	case req.GetRun() != 0 && !app.Spec.IsJob():
 		return status.Errorf(codes.InvalidArgument, "%s is an app; --run is for jobs", app.Name)
-	case app.Spec.IsJob() && req.GetReplica() == "":
+	case app.Spec.IsJob() && req.GetReplica() == "" && (!search || req.GetRun() != 0 || req.Task != nil):
 		replica, err := s.runReplica(ctx, app.Name, req.GetRun(), taskOf(req))
 		if err != nil {
 			return err
 		}
 		req.Replica = replica
+	}
+	if search {
+		if err := s.searchLogs(ctx, app.Name, req, stream); err != nil || !req.GetFollow() {
+			return err
+		}
+		// Live output follows, from now.
+		req.Tail = -1
 	}
 	if req.GetReplica() != "" {
 		var only []store.Replica
@@ -447,8 +458,11 @@ func (s *Server) Logs(req *armadav1.LogsRequest, stream armadav1.AdminService_Lo
 		reps = only
 	}
 	tail := int32(defaultLogTail)
-	if t := req.GetTail(); t > 0 {
+	switch t := req.GetTail(); {
+	case t > 0:
 		tail = min(t, maxLogTail)
+	case t < 0:
+		tail = -1 // after a search: only new output
 	}
 
 	out := make(chan *armadav1.LogEntry, 64)

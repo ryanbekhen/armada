@@ -85,6 +85,9 @@ type Config struct {
 	// ImagePrune is how often unused images are removed (default 10m,
 	// negative turns it off).
 	ImagePrune time.Duration
+	// LogPrune is how often the log history is bounded (default 1m; ADR
+	// 0043).
+	LogPrune time.Duration
 
 	// Conntrack is the node's connection tracking table, raised and reported
 	// with each sample; nil leaves it alone (ADR 0025).
@@ -234,6 +237,8 @@ type Agent struct {
 	nfsMounts keyedMutex
 	// execs counts running exec sessions (maxExecSessions).
 	execs atomic.Int32
+	// logs holds the cluster's log history settings (ADR 0043).
+	logs logSettings
 }
 
 // New returns an Agent.
@@ -246,6 +251,9 @@ func New(cfg Config) *Agent {
 	}
 	if cfg.QueueInterval == 0 {
 		cfg.QueueInterval = defaultQueueInterval
+	}
+	if cfg.LogPrune == 0 {
+		cfg.LogPrune = logPruneEvery
 	}
 	if cfg.ImagePrune == 0 {
 		cfg.ImagePrune = defaultImagePrune
@@ -349,7 +357,7 @@ func (a *Agent) session(ctx context.Context) (established bool, err error) {
 		Os: cmp.Or(a.cfg.OS, goruntime.GOOS), Arch: cmp.Or(a.cfg.Arch, goruntime.GOARCH),
 		Jobs: true, Volumes: a.mountsVolumes(), Containers: runtime.CanRunMembers(a.cfg.Driver), NetworkKey: a.cfg.NetworkKey,
 		CertificateRefs: true, QueueSandboxes: a.sandboxesOn(), HeldReplicas: true,
-		VolumeBackups: a.mountsVolumes(), Nfs: a.mountsNFS(),
+		VolumeBackups: a.mountsVolumes(), Nfs: a.mountsNFS(), LogHistory: a.logHistoryOn(),
 	}}}
 	if err := stream.Send(hello); err != nil {
 		return false, err
@@ -379,6 +387,7 @@ func (a *Agent) session(ctx context.Context) (established bool, err error) {
 			a.setNetwork(m.Assignment.GetNetwork())
 			a.setDesired(m.Assignment.GetReplicas(), m.Assignment.GetProxy())
 			a.setServers(m.Assignment.GetServers())
+			a.setLogSettings(m.Assignment.GetLogs())
 			if a.sandboxesOn() {
 				a.setSandboxes(m.Assignment.GetQueueSandboxes())
 			}
@@ -434,7 +443,7 @@ func (a *Agent) Trigger() {
 func (a *Agent) reconcileLoop(ctx context.Context) {
 	t := time.NewTicker(a.cfg.Resync)
 	defer t.Stop()
-	lastPrune := time.Now()
+	lastPrune, lastLogPrune := time.Now(), time.Time{}
 	for {
 		select {
 		case <-ctx.Done():
@@ -454,6 +463,10 @@ func (a *Agent) reconcileLoop(ctx context.Context) {
 		if a.cfg.ImagePrune > 0 && time.Since(lastPrune) >= a.cfg.ImagePrune {
 			lastPrune = time.Now()
 			a.PruneImages(ctx)
+		}
+		if time.Since(lastLogPrune) >= a.cfg.LogPrune {
+			lastLogPrune = time.Now()
+			a.pruneLogs(ctx)
 		}
 	}
 }
@@ -1289,6 +1302,10 @@ func (a *Agent) serveLogs(ctx context.Context, req *armadav1.LogRequest) {
 	// Attach at once: a container that has written nothing yet would
 	// otherwise look like a node that never answered.
 	if err := push.Send(&armadav1.LogPush{RequestId: req.GetRequestId()}); err != nil {
+		return
+	}
+	if req.GetQuery() != nil {
+		a.serveSearch(ctx, req, push, finish)
 		return
 	}
 

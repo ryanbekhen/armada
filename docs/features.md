@@ -57,7 +57,9 @@ Everything Armada does. The [guides](guides/README.md) show each in use, and the
 - **One spec, several environments.** `${NAME}` in a spec is filled in
   from `armada app create --file web.yaml --vars production.env --var TAG=...`.
 - **Logs and exec.** `armada app logs` streams a replica's output, rotated
-  and rate limited on the node so no app can flood its disk;
+  and rate limited on the node so no app can flood its disk, and `--since`
+  searches each node's bounded log history, replicas that are gone
+  included, by time and text;
   `armada app exec web -it -- sh` opens a shell in one, with the container's
   own security settings, and every session is audited.
 - **Usage.** `armada app top` and `armada node top` show the CPU and

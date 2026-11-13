@@ -91,6 +91,7 @@ func (d *Driver) runPod(ctx context.Context, id string, img client.Image, labels
 	}
 	*undo = append(*undo, func() { _ = c.Delete(context.WithoutCancel(ctx), client.WithSnapshotCleanup) })
 	unlock()
+	d.logMeta(id, labels)
 	t, err := c.NewTask(ctx, d.logIO())
 	if err != nil {
 		return "", fmt.Errorf("create task: %w", err)
@@ -241,6 +242,7 @@ func (d *Driver) startMember(ctx context.Context, pod string, m runtime.MemberSp
 		return nil, nil, fmt.Errorf("create container: %w", err)
 	}
 	undo = append(undo, func() { _ = c.Delete(context.WithoutCancel(ctx), client.WithSnapshotCleanup) })
+	d.logMeta(mid, labels)
 	t, err := c.NewTask(ctx, d.logIO())
 	if err != nil {
 		return nil, nil, fmt.Errorf("create task: %w", err)

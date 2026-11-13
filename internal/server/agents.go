@@ -35,8 +35,11 @@ type session struct {
 	holds bool
 	// backups: the agent backs volumes up to buckets (Hello, ADR 0041).
 	backups bool
-	send    chan *armadav1.ServerMessage
-	done    chan struct{}
+	// logHistory: the agent searches its node's log history (Hello, ADR
+	// 0043).
+	logHistory bool
+	send       chan *armadav1.ServerMessage
+	done       chan struct{}
 
 	mu   sync.Mutex
 	last *armadav1.Assignment
@@ -98,7 +101,7 @@ func (s *Server) Connect(stream armadav1.AgentService_ConnectServer) error {
 		return status.Errorf(codes.FailedPrecondition, "agent reports private IP %q but node is registered with %q", hello.GetPrivateIp(), node.PrivateIP)
 	}
 
-	sess := &session{nodeID: node.ID, certRefs: hello.GetCertificateRefs(), sandboxes: hello.GetQueueSandboxes(), holds: hello.GetHeldReplicas(), backups: hello.GetVolumeBackups(), send: make(chan *armadav1.ServerMessage, 64), done: make(chan struct{})}
+	sess := &session{nodeID: node.ID, certRefs: hello.GetCertificateRefs(), sandboxes: hello.GetQueueSandboxes(), holds: hello.GetHeldReplicas(), backups: hello.GetVolumeBackups(), logHistory: hello.GetLogHistory(), send: make(chan *armadav1.ServerMessage, 64), done: make(chan struct{})}
 	s.mu.Lock()
 	if old := s.sessions[node.ID]; old != nil {
 		close(old.done)

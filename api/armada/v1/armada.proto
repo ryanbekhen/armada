@@ -643,6 +643,10 @@ message ClusterConfig {
   bool dns_token_set = 7;
   int32 metrics_port = 8;
   int64 node_lost_timeout_seconds = 9;
+  // Log history on every node (ADR 0043); 0 means the default (7 days;
+  // 10% of the log file system, at most 5 GiB).
+  int64 log_retention_seconds = 10;
+  int64 log_max_bytes = 11;
 }
 
 message GetClusterConfigRequest {}
@@ -662,6 +666,8 @@ message SetClusterConfigRequest {
   // Never logged or returned.
   bool set_dns_token = 10;
   bytes dns_token = 11 [debug_redact = true];
+  bool set_log_retention = 12;
+  bool set_log_max_bytes = 13;
 }
 
 message ListDomainsRequest {
@@ -993,6 +999,14 @@ message LogsRequest {
   // For a job whose runs have several tasks: the task whose latest attempt
   // to show; unset means the run's latest attempt of any task.
   optional int32 task = 7;
+  // Search the log history of the app's containers on every node (ADR
+  // 0043) from since (required for a search) to until (unset: now): the
+  // newest limit entries (0: 500, at most 5000) containing grep, ignoring
+  // case. With follow, live output follows.
+  google.protobuf.Timestamp since = 8;
+  google.protobuf.Timestamp until = 9;
+  string grep = 10;
+  int32 limit = 11;
 }
 
 enum Stream {
@@ -1005,6 +1019,8 @@ message LogEntry {
   string replica = 1;
   Stream stream = 2;
   bytes data = 3;
+  // When the container wrote it; set for searches.
+  google.protobuf.Timestamp time = 4;
 }
 
 // AgentService is called by node agents. Callers must present a node client
@@ -1102,6 +1118,8 @@ message Hello {
   bool volume_backups = 16;
   // The node mounts NFSv4 exports as volumes (ADR 0042).
   bool nfs = 17;
+  // The agent's runtime keeps a log history it can search (ADR 0043).
+  bool log_history = 18;
 }
 
 message ReplicaReport {
@@ -1293,6 +1311,8 @@ message Assignment {
   // The job queues this node reads from network sandboxes (ADR 0040).
   // Sandboxes not listed must be removed.
   repeated QueueSandbox queue_sandboxes = 5;
+  // How much log history the node keeps (ADR 0043).
+  LogSettings logs = 6;
 }
 
 // QueueSandbox asks the node to keep a network sandbox for a job, wired into
@@ -1581,6 +1601,26 @@ message LogRequest {
   // An init container or a sidecar of the replica (ADR 0038); empty means
   // the replica's own container.
   string container = 5;
+  // Set for a search of the node's log history (ADR 0043); replica_id,
+  // follow, and tail are then unused.
+  LogQuery query = 6;
+}
+
+// LogQuery asks a node for an app's entries in a window (ADR 0043).
+message LogQuery {
+  string app = 1;
+  string replica = 2;
+  string container = 3;
+  google.protobuf.Timestamp since = 4;
+  google.protobuf.Timestamp until = 5;
+  string grep = 6;
+  int32 limit = 7;
+}
+
+// LogSettings bound a node's log history; 0 means the node's default.
+message LogSettings {
+  int64 retention_seconds = 1;
+  int64 max_bytes = 2;
 }
 
 message LogCancel {
@@ -1593,6 +1633,9 @@ message LogPush {
   bytes data = 3;
   // Set on the last message if the agent failed to read logs.
   string error = 4;
+  // Set for search results.
+  google.protobuf.Timestamp time = 5;
+  string replica = 6;
 }
 
 message PushLogsResponse {}
