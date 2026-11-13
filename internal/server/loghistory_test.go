@@ -1,9 +1,17 @@
 package server
 
 import (
+	"bytes"
+	"compress/gzip"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
+	"net/http"
+	"net/http/httptest"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -12,7 +20,10 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	armadav1 "github.com/ryanbekhen/armada/api/armada/v1"
+	"github.com/ryanbekhen/armada/internal/agent"
 	"github.com/ryanbekhen/armada/internal/runtime"
+	"github.com/ryanbekhen/armada/internal/secrets"
+	"github.com/ryanbekhen/armada/internal/store"
 )
 
 // searchLogs runs a log search and returns its lines as "replica|data".
@@ -107,6 +118,133 @@ func TestLogSettings(t *testing.T) {
 		_, err := c.admin.SetClusterConfig(c.ctx, &armadav1.SetClusterConfigRequest{Config: cfg, SetLogRetention: cfg.LogRetentionSeconds != 0, SetLogMaxBytes: cfg.LogMaxBytes != 0})
 		if status.Code(err) != codes.InvalidArgument {
 			t.Errorf("%v: %v", cfg, err)
+		}
+	}
+}
+
+// lokiSink is a log endpoint that records what it is sent.
+type lokiSink struct {
+	mu     sync.Mutex
+	status int
+	auth   []string
+	lines  []string
+}
+
+func (k *lokiSink) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	if k.status != 0 && k.status != http.StatusNoContent {
+		w.WriteHeader(k.status)
+		return
+	}
+	zr, err := gzip.NewReader(r.Body)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	var push struct {
+		Streams []struct {
+			Stream map[string]string `json:"stream"`
+			Values [][]any           `json:"values"`
+		} `json:"streams"`
+	}
+	if err := json.NewDecoder(zr).Decode(&push); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	k.auth = append(k.auth, r.Header.Get("Authorization"))
+	for _, s := range push.Streams {
+		for _, v := range s.Values {
+			k.lines = append(k.lines, fmt.Sprintf("%s/%s/%s|%v", s.Stream["space"], s.Stream["app"], s.Stream["node"], v[1]))
+		}
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (k *lokiSink) got() ([]string, []string) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	return slices.Clone(k.lines), slices.Clone(k.auth)
+}
+
+func (k *lokiSink) answer(code int) {
+	k.mu.Lock()
+	k.status = code
+	k.mu.Unlock()
+}
+
+func TestLogExport(t *testing.T) {
+	t.Parallel()
+	keys, err := secrets.NewKeyring(bytes.Repeat([]byte{5}, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sink := &lokiSink{}
+	srv := httptest.NewServer(sink)
+	defer srv.Close()
+	c := newCluster(t, func(cfg *Config) { cfg.Secrets = keys })
+	c.agentConfig = func(_ string, cfg *agent.Config) { cfg.LogExport = 20 * time.Millisecond }
+	d := c.addNode("n1", "127.0.0.1")
+	rec := func(app, text string) runtime.LogRecord {
+		return runtime.LogRecord{Time: time.Now(), Stream: runtime.Stdout, Data: []byte(text + "\n"), App: app, Replica: "x", Revision: "r"}
+	}
+	d.AddLogOutput(rec("web", "one"), rec("api.shop", "two"))
+
+	set := func(req *armadav1.SetClusterConfigRequest) (*armadav1.ClusterConfig, error) {
+		return c.admin.SetClusterConfig(c.ctx, req)
+	}
+	endpoint := srv.URL + "/loki/api/v1/push"
+	for name, req := range map[string]*armadav1.SetClusterConfigRequest{
+		"no endpoint":     {Config: &armadav1.ClusterConfig{LogExport: "loki"}, SetLogExport: true},
+		"public http":     {Config: &armadav1.ClusterConfig{LogExport: "loki", LogEndpoint: "http://logs.example.com/push"}, SetLogExport: true},
+		"format":          {Config: &armadav1.ClusterConfig{LogExport: "syslog", LogEndpoint: endpoint}, SetLogExport: true},
+		"token, no sink":  {SetLogToken: true, LogToken: []byte("tok")},
+		"user, no token":  {Config: &armadav1.ClusterConfig{LogExport: "loki", LogEndpoint: endpoint, LogExportUser: "u"}, SetLogExport: true},
+		"multiline token": {Config: &armadav1.ClusterConfig{LogExport: "loki", LogEndpoint: endpoint}, SetLogExport: true, SetLogToken: true, LogToken: []byte("a\nb")},
+	} {
+		if _, err := set(req); status.Code(err) != codes.InvalidArgument && status.Code(err) != codes.FailedPrecondition {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	cc, err := set(&armadav1.SetClusterConfigRequest{Config: &armadav1.ClusterConfig{LogExport: "loki", LogEndpoint: endpoint},
+		SetLogExport: true, SetLogToken: true, LogToken: []byte(" tok-9\n")})
+	if err != nil || cc.LogExport != "loki" || cc.LogEndpoint != endpoint || !cc.LogTokenSet {
+		t.Fatalf("set: %v %v", cc, err)
+	}
+	c.eventually("output sent with the token", func() bool {
+		lines, auth := sink.got()
+		return len(lines) == 2 && d.LogOutputLeft() == 0 && auth[0] == "Bearer tok-9"
+	})
+	if lines, _ := sink.got(); !slices.Contains(lines, "default/web/n1|one") || !slices.Contains(lines, "shop/api/n1|two") {
+		t.Errorf("lines %v", lines)
+	}
+
+	// While the endpoint refuses, output waits and the node says so.
+	sink.answer(http.StatusInternalServerError)
+	d.AddLogOutput(rec("web", "three"))
+	c.eventually("failing event", func() bool {
+		evs, _ := c.store.ListEvents(c.ctx, time.Time{})
+		return slices.ContainsFunc(evs, func(e store.Event) bool {
+			return e.Reason == "LogExportFailing" && e.Node == "n1" && strings.Contains(e.Message, "500") && !strings.Contains(e.Message, "tok-9")
+		})
+	})
+	if d.LogOutputLeft() != 1 {
+		t.Errorf("output dropped while failing")
+	}
+	sink.answer(http.StatusNoContent)
+	c.eventually("sent once the endpoint is back", func() bool {
+		lines, _ := sink.got()
+		return d.LogOutputLeft() == 0 && slices.Contains(lines, "default/web/n1|three")
+	})
+
+	cc, err = set(&armadav1.SetClusterConfigRequest{Config: &armadav1.ClusterConfig{LogExport: "none"}, SetLogExport: true})
+	if err != nil || cc.LogExport != "" || cc.LogTokenSet || cc.LogEndpoint != "" {
+		t.Fatalf("none: %v %v", cc, err)
+	}
+	audit, _ := c.store.ListAudit(c.ctx, 100)
+	for _, e := range audit {
+		if strings.Contains(fmt.Sprint(e), "tok-9") {
+			t.Errorf("token in the audit log: %v", e)
 		}
 	}
 }

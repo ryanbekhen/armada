@@ -647,6 +647,14 @@ message ClusterConfig {
   // 10% of the log file system, at most 5 GiB).
   int64 log_retention_seconds = 10;
   int64 log_max_bytes = 11;
+  // Where every node sends its apps' output (ADR 0044): loki, otlp, or
+  // empty; the endpoint, the basic authentication user and Loki tenant, and
+  // whether a token is stored (never the token).
+  string log_export = 12;
+  string log_endpoint = 13;
+  string log_export_user = 14;
+  string log_export_tenant = 15;
+  bool log_token_set = 16;
 }
 
 message GetClusterConfigRequest {}
@@ -668,6 +676,14 @@ message SetClusterConfigRequest {
   bytes dns_token = 11 [debug_redact = true];
   bool set_log_retention = 12;
   bool set_log_max_bytes = 13;
+  // set_log_export replaces log_export, log_endpoint, log_export_user, and
+  // log_export_tenant together; log_export empty (or none) stops sending
+  // logs and removes the token.
+  bool set_log_export = 14;
+  // The log endpoint's token, set when set_log_token; empty removes it.
+  // Never logged or returned.
+  bool set_log_token = 15;
+  bytes log_token = 16 [debug_redact = true];
 }
 
 message ListDomainsRequest {
@@ -1170,6 +1186,8 @@ message UsageReport {
   // The job queues the node reads from network sandboxes (ADR 0040), one
   // entry per sandbox, whether or not a length was read yet.
   repeated SandboxQueue sandboxes = 9;
+  // Set while the node sends logs elsewhere (ADR 0044).
+  LogExportStatus log_export = 10;
 }
 
 // SandboxQueue is one job's network sandbox on the node and the length of
@@ -1621,6 +1639,32 @@ message LogQuery {
 message LogSettings {
   int64 retention_seconds = 1;
   int64 max_bytes = 2;
+  // Where the node sends its apps' output (ADR 0044); unset sends nothing.
+  LogExport export = 3;
+}
+
+// LogExport is the endpoint every node sends its apps' output to (ADR 0044).
+message LogExport {
+  // loki or otlp.
+  string format = 1;
+  // The full URL of the push endpoint: https://, or http:// to a private IP.
+  string endpoint = 2;
+  // With user, token is the password of basic authentication; without, a
+  // bearer token. Never logged.
+  string user = 3;
+  bytes token = 4 [debug_redact = true];
+  // Loki's X-Scope-OrgID, for a multi-tenant Loki.
+  string tenant = 5;
+  // When the export was last set (unix nanoseconds): setting it again, also
+  // to the same endpoint, starts at the end of the output that exists.
+  int64 set_at = 6;
+}
+
+// LogExportStatus is how sending logs elsewhere goes on a node (ADR 0044).
+message LogExportStatus {
+  // The last push failed; error says why, without the token.
+  bool failing = 1;
+  string error = 2;
 }
 
 message LogCancel {

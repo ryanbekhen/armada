@@ -1146,7 +1146,7 @@ func (s *Server) pushAssignments(ctx context.Context, replicas []store.Replica, 
 	if err != nil {
 		return err
 	}
-	logs := ls.proto()
+	logs := s.logSettingsProto(ls)
 
 	s.mu.Lock()
 	sessions := make([]*session, 0, len(s.sessions))

@@ -326,6 +326,8 @@ type LogRecord struct {
 	Data      []byte
 	Replica   string
 	Container string
+	// App and Revision are set by LogTailer.
+	App, Revision string
 }
 
 // LogSearcher is implemented by runtimes that keep a log history (ADR
@@ -339,6 +341,21 @@ type LogSearcher interface {
 // until it fits maxBytes (0 means the runtime's default).
 type LogPruner interface {
 	PruneLogs(ctx context.Context, retention time.Duration, maxBytes int64) error
+}
+
+// LogTail is app output a LogTailer read; Commit records it as sent, so
+// the next tail starts after it.
+type LogTail struct {
+	Records []LogRecord
+	Commit  func() error
+}
+
+// LogTailer reads app containers' output written since the last committed
+// tail, at most about maxBytes of it, also across restarts (ADR 0044).
+// target names the destination: for a new one, containers that already
+// exist start at the end of their output.
+type LogTailer interface {
+	TailLogs(ctx context.Context, target string, maxBytes int64) (LogTail, error)
 }
 
 // LogStream yields log frames until io.EOF.

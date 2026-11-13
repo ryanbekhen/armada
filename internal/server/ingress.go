@@ -391,6 +391,7 @@ func (s *Server) GetClusterConfig(ctx context.Context, _ *armadav1.GetClusterCon
 		return nil, storeErr(err)
 	}
 	cc.LogRetentionSeconds, cc.LogMaxBytes = ls.RetentionSeconds, ls.MaxBytes
+	cc.LogExport, cc.LogEndpoint, cc.LogExportUser, cc.LogExportTenant, cc.LogTokenSet = ls.Export, ls.Endpoint, ls.User, ls.Tenant, ls.Token != nil
 	return cc, nil
 }
 

@@ -54,6 +54,8 @@ func newClusterCommand(g *globals) *cobra.Command {
 		metricsPort                                int
 		lostTimeout, logRetention                  time.Duration
 		logMaxDisk                                 string
+		logExport, logEndpoint, logUser, logTenant string
+		logToken                                   string
 	)
 	set := &cobra.Command{
 		Use:   "set",
@@ -72,7 +74,11 @@ func newClusterCommand(g *globals) *cobra.Command {
 			"never shown.\n\n" +
 			"--log-retention and --log-max-disk bound the log history every node keeps for\n" +
 			"`armada app logs --since` (ADR 0043); 0 restores the default (7 days; 10% of\n" +
-			"the disk, at most 5Gi). They apply without a restart.",
+			"the disk, at most 5Gi). They apply without a restart.\n\n" +
+			"--log-export loki|otlp with --log-endpoint sends every app's output from every\n" +
+			"node to that push URL as well (ADR 0044), from now on; none stops it.\n" +
+			"--log-token - reads a token from stdin, stored encrypted: a bearer token, or\n" +
+			"the password of --log-export-user. --log-export-tenant sets Loki's tenant.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ch := cmd.Flags().Changed
@@ -83,8 +89,9 @@ func newClusterCommand(g *globals) *cobra.Command {
 				SetAcmeEmail: ch("acme-email"), SetAcmeCa: ch("acme-ca"), SetDnsProvider: ch("dns-provider"),
 				SetMetricsPort: ch("metrics-port"), SetNodeLostTimeout: ch("node-lost-timeout"), SetDnsToken: ch("dns-token"),
 				SetLogRetention: ch("log-retention"), SetLogMaxBytes: ch("log-max-disk"),
+				SetLogExport: slices.ContainsFunc(logExportFlags, ch), SetLogToken: ch("log-token"),
 			}
-			if !slices.ContainsFunc([]string{"root-domain", "trusted-proxies", "tls", "acme-email", "acme-ca", "dns-provider", "dns-token", "metrics-port", "node-lost-timeout", "log-retention", "log-max-disk"}, ch) {
+			if !slices.ContainsFunc([]string{"root-domain", "trusted-proxies", "tls", "acme-email", "acme-ca", "dns-provider", "dns-token", "metrics-port", "node-lost-timeout", "log-retention", "log-max-disk", "log-token"}, ch) && !req.SetLogExport {
 				return errors.New("nothing to change; see armada cluster set --help")
 			}
 			req.Config.LogRetentionSeconds = int64(logRetention / time.Second)
@@ -97,17 +104,41 @@ func newClusterCommand(g *globals) *cobra.Command {
 			}
 			if ch("dns-token") {
 				// Never from an argument: shell history keeps those.
-				v, err := readTokenArg(cmd, dnsToken)
+				v, err := readTokenArg(cmd, "--dns-token", dnsToken)
 				if err != nil {
 					return err
 				}
 				req.DnsToken = v
+			}
+			if ch("log-token") {
+				v, err := readTokenArg(cmd, "--log-token", logToken)
+				if err != nil {
+					return err
+				}
+				req.LogToken = v
 			}
 			client, conn, err := dialAdmin(g)
 			if err != nil {
 				return err
 			}
 			defer conn.Close()
+			if req.SetLogExport {
+				// The four go together: keep the ones not given.
+				cur, err := client.GetClusterConfig(cmd.Context(), &armadav1.GetClusterConfigRequest{})
+				if err != nil {
+					return RPCError(err)
+				}
+				pick := func(flag, v, old string) string {
+					if ch(flag) {
+						return v
+					}
+					return old
+				}
+				req.Config.LogExport = pick("log-export", logExport, cur.LogExport)
+				req.Config.LogEndpoint = pick("log-endpoint", logEndpoint, cur.LogEndpoint)
+				req.Config.LogExportUser = pick("log-export-user", logUser, cur.LogExportUser)
+				req.Config.LogExportTenant = pick("log-export-tenant", logTenant, cur.LogExportTenant)
+			}
 			cc, err := client.SetClusterConfig(cmd.Context(), req)
 			if err != nil {
 				return RPCError(err)
@@ -134,6 +165,11 @@ func newClusterCommand(g *globals) *cobra.Command {
 	f.DurationVar(&lostTimeout, "node-lost-timeout", 0, "how long a node may be unreachable before its replicas move to other nodes")
 	f.DurationVar(&logRetention, "log-retention", 0, "how long each node keeps log history, e.g. 168h (0 for the default, 7 days)")
 	f.StringVar(&logMaxDisk, "log-max-disk", "", "log history each node keeps at most, e.g. 5Gi (0 for the default: 10% of the disk, at most 5Gi)")
+	f.StringVar(&logExport, "log-export", "", "send every app's output to a log store as well: loki, otlp, or none")
+	f.StringVar(&logEndpoint, "log-endpoint", "", "push URL of the log store, e.g. https://logs.example.com/loki/api/v1/push or https://otlp.example.com/v1/logs")
+	f.StringVar(&logUser, "log-export-user", "", "user for basic authentication at the log store, with --log-token as the password (empty for a bearer token)")
+	f.StringVar(&logTenant, "log-export-tenant", "", "Loki tenant (X-Scope-OrgID), for a multi-tenant Loki")
+	f.StringVar(&logToken, "log-token", "", "file holding the log store's token, or - for stdin; an empty file removes it")
 	cmd.AddCommand(newClusterStatusCommand(g), show, set, newEventsCommand(g, eventsOfCluster))
 	return cmd
 }
@@ -223,8 +259,11 @@ func printClusterStatus(out io.Writer, r *armadav1.ClusterStatusResponse) error 
 	return tw.Flush()
 }
 
-// readTokenArg reads --dns-token: a file (mode 0600) or "-" for stdin.
-func readTokenArg(cmd *cobra.Command, arg string) ([]byte, error) {
+// logExportFlags change the log export together (ADR 0044).
+var logExportFlags = []string{"log-export", "log-endpoint", "log-export-user", "log-export-tenant"}
+
+// readTokenArg reads a token flag: a file (mode 0600) or "-" for stdin.
+func readTokenArg(cmd *cobra.Command, flag, arg string) ([]byte, error) {
 	var b []byte
 	var err error
 	if arg == "-" {
@@ -233,7 +272,7 @@ func readTokenArg(cmd *cobra.Command, arg string) ([]byte, error) {
 		b, err = fsutil.ReadPrivateFile(arg)
 	}
 	if err != nil {
-		return nil, fmt.Errorf("--dns-token: %w", err)
+		return nil, fmt.Errorf("%s: %w", flag, err)
 	}
 	return bytes.TrimSpace(b), nil
 }
@@ -260,9 +299,24 @@ func printClusterConfig(w io.Writer, cc *armadav1.ClusterConfig) error {
 	} else {
 		logs += ", at most 10% of the disk (5Gi) per node"
 	}
-	_, err := fmt.Fprintf(w, "root domain:       %s\ntrusted proxies:   %s\ncertificates:      %s\nacme email:        %s\ndns provider:      %s (token %s)\nmetrics:           %s\nnode lost timeout: %s\nlog history:       %s\n",
+	export := "none"
+	if cc.LogExport != "" {
+		export = cc.LogExport + " to " + cc.LogEndpoint
+		if cc.LogExportUser != "" {
+			export += ", user " + cc.LogExportUser
+		}
+		if cc.LogExportTenant != "" {
+			export += ", tenant " + cc.LogExportTenant
+		}
+		if cc.LogTokenSet {
+			export += " (token set)"
+		} else {
+			export += " (no token)"
+		}
+	}
+	_, err := fmt.Fprintf(w, "root domain:       %s\ntrusted proxies:   %s\ncertificates:      %s\nacme email:        %s\ndns provider:      %s (token %s)\nmetrics:           %s\nnode lost timeout: %s\nlog history:       %s\nlog export:        %s\n",
 		dash(cc.RootDomain), dash(strings.Join(cc.TrustedProxies, ",")), certs, dash(cc.AcmeEmail),
-		cmp.Or(cc.DnsProvider, "none"), token, metrics, time.Duration(cc.NodeLostTimeoutSeconds)*time.Second, logs)
+		cmp.Or(cc.DnsProvider, "none"), token, metrics, time.Duration(cc.NodeLostTimeoutSeconds)*time.Second, logs, export)
 	return err
 }
 
