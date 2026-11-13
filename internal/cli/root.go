@@ -125,6 +125,7 @@ func NewRootCommand() *cobra.Command {
 		newNodeCommand(g),
 		newServerCommand(g),
 		newClusterCommand(g),
+		newAlertCommand(g),
 		newRBACCommand(g),
 		newMetricsCommand(g),
 		NewVersionCommand(serverVersions(g)),

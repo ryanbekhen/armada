@@ -24,7 +24,7 @@ running cluster and ends with something that works.
 | Something with data | [An app with a PostgreSQL database](guides/app-with-a-database.md) · [Shared files over NFS](guides/shared-files-with-nfs.md) |
 | Several services | [Microservices](guides/microservices.md) · [Migrations and sidecars](guides/migrations-and-sidecars.md) · [A private registry](guides/private-registry.md) |
 | Background work | [Workers that scale on a queue](guides/background-workers.md) · [Scheduled jobs](guides/scheduled-jobs.md) · [Autoscaling and scale to zero](guides/autoscaling-and-scale-to-zero.md) |
-| A team and its cluster | [Teams and access](guides/teams-and-access.md) · [Monitoring and alerts](guides/monitoring-and-alerts.md) · [Disaster recovery](guides/disaster-recovery.md) · [Troubleshooting](guides/troubleshooting.md) |
+| A team and its cluster | [Teams and access](guides/teams-and-access.md) · [Get alerts](guides/alerts.md) · [Monitoring and alerts](guides/monitoring-and-alerts.md) · [Disaster recovery](guides/disaster-recovery.md) · [Troubleshooting](guides/troubleshooting.md) |
 
 All guides: [guides/](guides/README.md).
 

@@ -8,12 +8,14 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -511,6 +513,33 @@ func TestEndToEnd(t *testing.T) {
 	}
 	if _, out, _ := cli("cluster", "set", "--log-export", "none"); !strings.Contains(out, "log export:        none") {
 		t.Errorf("cluster set --log-export none: %q", out)
+	}
+	// Alerts (ADR 0045): a channel from a URL file, a test notice, and the
+	// list, which never shows the URL.
+	var hooks atomic.Int32
+	hook := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { hooks.Add(1) }))
+	defer hook.Close()
+	urlFile := filepath.Join(t.TempDir(), "hook-url")
+	if err := os.WriteFile(urlFile, []byte(hook.URL+"/secret-path\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code, out, stderr := cli("alert", "channel", "create", "ops", "--type", "webhook", "--url", urlFile); code != 0 || !strings.Contains(out, "armada alert test ops") {
+		t.Errorf("alert channel create: %q %q", out, stderr)
+	}
+	if code, out, stderr := cli("alert", "test", "ops"); code != 0 || hooks.Load() != 1 {
+		t.Errorf("alert test: %q %q", out, stderr)
+	}
+	if _, out, _ := cli("alert", "channel", "list"); !strings.Contains(out, "ops") || !strings.Contains(out, "warnings") || strings.Contains(out, "secret-path") {
+		t.Errorf("alert channel list: %q", out)
+	}
+	if code, _, stderr := cli("alert", "channel", "update", "ops", "--reason", "Lost,Crashed", "--space", "default"); code != 0 {
+		t.Errorf("alert channel update: %q", stderr)
+	}
+	if code, _, stderr := cli("alert", "channel", "create", "tg", "--type", "telegram", "--token", urlFile); code == 0 || !strings.Contains(stderr, "chat-id") {
+		t.Errorf("telegram without a chat: %q", stderr)
+	}
+	if code, _, stderr := cli("alert", "channel", "delete", "ops"); code != 0 {
+		t.Errorf("alert channel delete: %q", stderr)
 	}
 	waitFor("haproxy routes web", func() bool {
 		maps, err := filepath.Glob(filepath.Join(dataDir, dirHAProxy, "etc", "routes-*.map"))
