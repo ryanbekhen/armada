@@ -52,6 +52,13 @@ reboots, and every feature's scenario. Releases run all of it.
 - **Tests.** New behaviour comes with tests next to the code. Changes to
   certificates, secrets, the proxy configuration, or API authorization also
   test what must be refused.
+- **Licenses of dependencies.** A new Go module must be under Apache-2.0,
+  MIT, BSD-2-Clause, BSD-3-Clause, ISC, MPL-2.0, or CC0-1.0, so Armada
+  stays free for commercial use; `make licenses` checks it, and CI runs it.
+  Never add code under the GPL, AGPL, SSPL, BUSL, or a license that limits
+  commercial use. A new or upgraded program in the embedded runtime
+  (`internal/runtime/embedded/lock.go`) updates
+  [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) in the same change.
 - **Security rules.** Armada holds root on every node: never weaken mTLS,
   validate anything that reaches the proxy configuration, keep secrets out
   of logs and arguments, and bind internal services only to private

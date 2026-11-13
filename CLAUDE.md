@@ -29,6 +29,8 @@ make fmt            # golangci-lint fmt (gofmt + goimports)
 make proto          # protoc + plugins pinned in go.mod (api/armada/v1)
 make docs           # regenerate the CLI reference docs/cli from the commands (internal/clidoc; TestReferenceIsCurrent fails when it is stale)
 make vuln           # govulncheck ./...
+make licenses       # fail on a Go module under a license outside the allowed list (Apache-2.0, MIT, BSD-2/3, ISC, MPL-2.0, CC0-1.0; CI runs it)
+make licenses-save  # every Go module's license and notice files into build/licenses (release archives: licenses/go)
 make runtime-bundle # download + checksum the pinned runtime binaries into packs (both arches)
 make build-bundle   # Linux armadad with the runtime embedded, plus the client (GOARCH=arm64 for arm64)
 go test ./internal/spec/... -run TestName      # a single test
@@ -136,6 +138,7 @@ finished job attempts hold no address). A replica that has kept failing to start
 ## Code conventions
 
 - Everything is in **English**: code, identifiers, comments, commit messages, error messages, and all documentation (open source project for a global audience).
+- Licenses (mandatory): Armada is Apache-2.0 and must stay free for commercial use. New Go modules only under Apache-2.0, MIT, BSD-2-Clause, BSD-3-Clause, ISC, MPL-2.0, or CC0-1.0 (`make licenses`, CI); never GPL, AGPL, SSPL, BUSL, or anything that limits commercial use, and no copied code under such licenses. Do not change MPL-2.0 files of a dependency. Changing an embedded runtime program (`lock.go`) updates `THIRD_PARTY_NOTICES.md` in the same change (`TestNoticesMatchLock`); its static LGPL libraries (glibc, libseccomp) are listed there with their source. Release archives carry `LICENSE`, `THIRD_PARTY_NOTICES.md`, `third_party/licenses/`, and `licenses/go/`. Images Armada pulls at run time (HAProxy, GPL-2.0) run as separate containers and are never linked or bundled.
 - Commit subjects follow Conventional Commits, `type(scope)!: description`, because the release notes are grouped by type (`.goreleaser.yaml`) and CI rejects other subjects (`scripts/check-commits.sh`). Types: `feat`, `fix`, `security`, `perf`, `docs`, `deps`, then `refactor`, `test`, `ci`, `build`, `chore`, `style`, `revert`; `!` marks a breaking change. Write the description for the people reading the release notes. `main` only changes through pull requests that pass every CI job (repository ruleset; see docs/releasing.md).
 - Idiomatic Go: `context.Context` as the first argument for I/O, errors wrapped with `fmt.Errorf("...: %w", err)`, logging with `log/slog`.
 - All code lives in `internal/` except the protobuf definitions in `api/` (Armada has no public Go API).
