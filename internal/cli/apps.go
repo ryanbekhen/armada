@@ -162,8 +162,8 @@ func newLogsCommand(g *globals, job bool) *cobra.Command {
 				}
 				req.Until = timestamppb.New(t)
 			}
-			if since == "" && (until != "" || grep != "" || limit != 0) {
-				return errors.New("--until, --grep, and --limit search the log history: give --since too, e.g. --since 1h")
+			if since == "" && (until != "" || limit != 0) {
+				return errors.New("--until and --limit search the log history: give --since too, e.g. --since 1h")
 			}
 			if job && cmd.Flags().Changed("task") {
 				t := int32(min(max(task, -1), 1<<20))
@@ -199,14 +199,14 @@ func newLogsCommand(g *globals, job bool) *cobra.Command {
 		},
 	}
 	f := cmd.Flags()
-	f.BoolVarP(&follow, "follow", "f", false, "stream new log lines")
+	f.BoolVarP(&follow, "follow", "f", false, "stream new log lines, also from replicas that start later")
 	f.IntVar(&tail, "tail", 100, "lines per replica to show")
 	f.StringVar(&ctr, "container", "", "show an init container or sidecar instead of the app's own container")
 	f.StringVar(&since, "since", "", "search the log history from this long ago (2h, 3d) or this time (RFC 3339), across every node, including replicas that are gone")
 	f.StringVar(&until, "until", "", "with --since: up to this long ago or this time (default now)")
-	f.StringVar(&grep, "grep", "", "with --since: only lines containing this text, ignoring case (plain text, not a pattern)")
+	f.StringVar(&grep, "grep", "", "only lines containing this text, ignoring case (plain text, not a pattern); also while following")
 	f.IntVar(&limit, "limit", 0, "with --since: the newest lines to show (default 500, at most 5000)")
-	f.BoolVar(&stamps, "timestamps", false, "with --since: show when each line was written")
+	f.BoolVar(&stamps, "timestamps", false, "show when each line was written")
 	if job {
 		cmd.Use = "logs JOB"
 		cmd.Short = "Print the logs of a job's run"

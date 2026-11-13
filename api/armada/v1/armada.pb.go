@@ -11076,7 +11076,10 @@ type LogRequest struct {
 	Container string `protobuf:"bytes,5,opt,name=container,proto3" json:"container,omitempty"`
 	// Set for a search of the node's log history (ADR 0043); replica_id,
 	// follow, and tail are then unused.
-	Query         *LogQuery `protobuf:"bytes,6,opt,name=query,proto3" json:"query,omitempty"`
+	Query *LogQuery `protobuf:"bytes,6,opt,name=query,proto3" json:"query,omitempty"`
+	// Only lines containing it, ignoring case (lower case); filtered on the
+	// node, so other lines never cross the network.
+	Grep          string `protobuf:"bytes,7,opt,name=grep,proto3" json:"grep,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -11151,6 +11154,13 @@ func (x *LogRequest) GetQuery() *LogQuery {
 		return x.Query
 	}
 	return nil
+}
+
+func (x *LogRequest) GetGrep() string {
+	if x != nil {
+		return x.Grep
+	}
+	return ""
 }
 
 // LogQuery asks a node for an app's entries in a window (ADR 0043).
@@ -14132,7 +14142,7 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\x06EnvVar\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x19\n" +
 	"\x05value\x18\x02 \x01(\tB\x03\x80\x01\x01R\x05value\x12\x10\n" +
-	"\x03ref\x18\x03 \x01(\tR\x03ref\"\xbf\x01\n" +
+	"\x03ref\x18\x03 \x01(\tR\x03ref\"\xd3\x01\n" +
 	"\n" +
 	"LogRequest\x12\x1d\n" +
 	"\n" +
@@ -14142,7 +14152,8 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\x06follow\x18\x03 \x01(\bR\x06follow\x12\x12\n" +
 	"\x04tail\x18\x04 \x01(\x05R\x04tail\x12\x1c\n" +
 	"\tcontainer\x18\x05 \x01(\tR\tcontainer\x12)\n" +
-	"\x05query\x18\x06 \x01(\v2\x13.armada.v1.LogQueryR\x05query\"\xe2\x01\n" +
+	"\x05query\x18\x06 \x01(\v2\x13.armada.v1.LogQueryR\x05query\x12\x12\n" +
+	"\x04grep\x18\a \x01(\tR\x04grep\"\xe2\x01\n" +
 	"\bLogQuery\x12\x10\n" +
 	"\x03app\x18\x01 \x01(\tR\x03app\x12\x18\n" +
 	"\areplica\x18\x02 \x01(\tR\areplica\x12\x1c\n" +
