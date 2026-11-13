@@ -221,7 +221,7 @@ func (s *searchState) match(e logEntry, m LogMeta) {
 	if e.Time.Before(s.q.Since) || (!s.q.Until.IsZero() && e.Time.After(s.q.Until)) {
 		return
 	}
-	if len(s.grep) > 0 && !bytes.Contains(bytes.ToLower([]byte(e.Log)), s.grep) {
+	if !runtime.ContainsFold([]byte(e.Log), s.grep) {
 		return
 	}
 	st := runtime.Stdout

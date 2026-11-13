@@ -112,14 +112,14 @@ Flags:
 | Flag | Meaning |
 | --- | --- |
 | `--container string` | show an init container or sidecar instead of the app's own container |
-| `-f`, `--follow` | stream new log lines |
-| `--grep string` | with --since: only lines containing this text, ignoring case (plain text, not a pattern) |
+| `-f`, `--follow` | stream new log lines, also from replicas that start later |
+| `--grep string` | only lines containing this text, ignoring case (plain text, not a pattern); also while following |
 | `--limit int` | with --since: the newest lines to show (default 500, at most 5000) |
 | `--run int` | the run to show (default: the newest) |
 | `--since string` | search the log history from this long ago (2h, 3d) or this time (RFC 3339), across every node, including replicas that are gone |
 | `--tail int` | lines per replica to show (default `100`) |
 | `--task int` | the task to show, for a job with tasks (default: the latest attempt of any task) |
-| `--timestamps` | with --since: show when each line was written |
+| `--timestamps` | show when each line was written |
 | `--until string` | with --since: up to this long ago or this time (default now) |
 
 ## `armada job run`

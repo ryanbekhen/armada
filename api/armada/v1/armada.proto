@@ -1622,6 +1622,9 @@ message LogRequest {
   // Set for a search of the node's log history (ADR 0043); replica_id,
   // follow, and tail are then unused.
   LogQuery query = 6;
+  // Only lines containing it, ignoring case (lower case); filtered on the
+  // node, so other lines never cross the network.
+  string grep = 7;
 }
 
 // LogQuery asks a node for an app's entries in a window (ADR 0043).

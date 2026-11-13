@@ -59,7 +59,8 @@ Everything Armada does. The [guides](guides/README.md) show each in use, and the
 - **Logs and exec.** `armada app logs` streams a replica's output, rotated
   and rate limited on the node so no app can flood its disk, and `--since`
   searches each node's bounded log history, replicas that are gone
-  included, by time and text; every node can also send all output to Loki
+  included, by time and text; `-f --grep` follows only matching lines,
+  from new replicas too; every node can also send all output to Loki
   or an OTLP endpoint, labelled by app, space, replica, revision, and node;
   `armada app exec web -it -- sh` opens a shell in one, with the container's
   own security settings, and every session is audited.

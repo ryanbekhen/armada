@@ -288,13 +288,14 @@ func ReadLogs(ctx context.Context, dir, id string, opts runtime.LogOptions) (run
 }
 
 func readLogs(ctx context.Context, path string, opts runtime.LogOptions, out chan<- runtime.LogFrame) error {
+	grep := []byte(opts.Grep)
 	send := func(e logEntry) error {
 		st := runtime.Stdout
 		if e.Stream == "stderr" {
 			st = runtime.Stderr
 		}
 		select {
-		case out <- runtime.LogFrame{Stream: st, Data: []byte(e.Log)}:
+		case out <- runtime.LogFrame{Stream: st, Data: []byte(e.Log), Time: e.Time}:
 			return nil
 		case <-ctx.Done():
 			return ctx.Err()
@@ -303,8 +304,8 @@ func readLogs(ctx context.Context, path string, opts runtime.LogOptions, out cha
 	// Rotated files first, oldest first.
 	var entries []logEntry
 	keep := func(e logEntry) {
-		if opts.Tail < 0 {
-			return // only output written from now
+		if opts.Tail < 0 || !runtime.ContainsFold([]byte(e.Log), grep) {
+			return // only output written from now, or not a match
 		}
 		entries = append(entries, e)
 		if opts.Tail > 0 && len(entries) > opts.Tail {
@@ -361,6 +362,9 @@ func readLogs(ctx context.Context, path string, opts runtime.LogOptions, out cha
 			return err
 		}
 		n, err := scanEntries(f, func(e logEntry) {
+			if !runtime.ContainsFold([]byte(e.Log), grep) {
+				return
+			}
 			if err := send(e); err != nil {
 				return
 			}

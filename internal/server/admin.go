@@ -15,6 +15,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	armadav1 "github.com/ryanbekhen/armada/api/armada/v1"
+	"github.com/ryanbekhen/armada/internal/runtime"
 	"github.com/ryanbekhen/armada/internal/spec"
 	"github.com/ryanbekhen/armada/internal/store"
 )
@@ -425,8 +426,8 @@ func (s *Server) Logs(req *armadav1.LogsRequest, stream armadav1.AdminService_Lo
 		return err
 	}
 	search := req.GetSince() != nil
-	if !search && (req.GetUntil() != nil || req.GetGrep() != "" || req.GetLimit() != 0) {
-		return status.Error(codes.InvalidArgument, "--until, --grep, and --limit search the log history: give --since too")
+	if !search && (req.GetUntil() != nil || req.GetLimit() != 0) {
+		return status.Error(codes.InvalidArgument, "--until and --limit search the log history: give --since too")
 	}
 	switch {
 	case req.GetRun() != 0 && !app.Spec.IsJob():
@@ -465,28 +466,64 @@ func (s *Server) Logs(req *armadav1.LogsRequest, stream armadav1.AdminService_Lo
 		tail = -1 // after a search: only new output
 	}
 
+	grep := []byte(strings.ToLower(req.GetGrep()))
 	out := make(chan *armadav1.LogEntry, 64)
 	var wg sync.WaitGroup
-	for _, r := range reps {
+	following := map[string]bool{}
+	relay := func(r store.Replica, tail int32) {
+		following[r.ID] = true
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			s.relayLogs(ctx, r, req.GetContainer(), req.GetFollow(), tail, out)
+			s.relayLogs(ctx, r, req.GetContainer(), req.GetFollow(), tail, grep, out)
 		}()
 	}
-	go func() {
-		wg.Wait()
-		close(out)
-	}()
-	for e := range out {
-		if err := stream.Send(e); err != nil {
-			return err
+	for _, r := range reps {
+		relay(r, tail)
+	}
+	// Following a whole app also follows the replicas it gets later.
+	var scan <-chan time.Time
+	if req.GetFollow() && req.GetReplica() == "" {
+		t := time.NewTicker(followScan)
+		defer t.Stop()
+		scan = t.C
+	} else {
+		go func() {
+			wg.Wait()
+			close(out)
+		}()
+	}
+	for {
+		select {
+		case e, open := <-out:
+			if !open {
+				return nil
+			}
+			if err := stream.Send(e); err != nil {
+				return err
+			}
+		case <-scan:
+			now, err := s.store.ListReplicas(ctx, store.ReplicaFilter{App: req.GetApp()})
+			if err != nil {
+				continue
+			}
+			for _, r := range now {
+				if !following[r.ID] {
+					relay(r, defaultLogTail)
+				}
+			}
+		case <-ctx.Done():
+			return nil
 		}
 	}
-	return nil
 }
 
-func (s *Server) relayLogs(ctx context.Context, r store.Replica, container string, follow bool, tail int32, out chan<- *armadav1.LogEntry) {
+// followScan is how often a followed app is checked for new replicas.
+var followScan = 2 * time.Second
+
+// relayLogs sends a replica's output to out: lines containing grep (lower
+// case; empty for all), stamped with when they were written.
+func (s *Server) relayLogs(ctx context.Context, r store.Replica, container string, follow bool, tail int32, grep []byte, out chan<- *armadav1.LogEntry) {
 	notice := func(msg string) {
 		select {
 		case out <- &armadav1.LogEntry{Replica: r.ID, Stream: armadav1.Stream_STREAM_STDERR, Data: []byte("[armada] " + msg + "\n")}:
@@ -502,7 +539,7 @@ func (s *Server) relayLogs(ctx context.Context, r store.Replica, container strin
 	defer s.logs.cancel(id, p)
 
 	ok := sess.offer(&armadav1.ServerMessage{Msg: &armadav1.ServerMessage_LogRequest{LogRequest: &armadav1.LogRequest{
-		RequestId: id, ReplicaId: r.ID, Follow: follow, Tail: tail, Container: container,
+		RequestId: id, ReplicaId: r.ID, Follow: follow, Tail: tail, Container: container, Grep: string(grep),
 	}}})
 	if !ok {
 		notice("node " + r.NodeID + " did not accept the log request")
@@ -528,11 +565,15 @@ func (s *Server) relayLogs(ctx context.Context, r store.Replica, container strin
 				notice(m.GetError())
 				continue
 			}
-			if len(m.GetData()) == 0 {
+			if len(m.GetData()) == 0 || !runtime.ContainsFold(m.GetData(), grep) { // older agents do not filter
 				continue
 			}
+			at := m.GetTime()
+			if at == nil {
+				at = timestamppb.New(s.now())
+			}
 			select {
-			case out <- &armadav1.LogEntry{Replica: r.ID, Stream: m.GetStream(), Data: m.GetData()}:
+			case out <- &armadav1.LogEntry{Replica: r.ID, Stream: m.GetStream(), Data: m.GetData(), Time: at}:
 			case <-ctx.Done():
 				return
 			}

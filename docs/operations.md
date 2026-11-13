@@ -525,9 +525,11 @@ armada app logs api --since 2h --grep error          # every replica, gone ones 
 armada app logs api --since 2026-11-13T09:00:00+07:00 --until 30m --timestamps
 armada app logs api --since 1d --replica api-r8-q2k0d --limit 2000
 armada app logs api --since 10m -f                   # then keep following live output
+armada app logs api -f --grep error --timestamps     # live: only matching lines, filtered on the nodes,
+                                                     # and replicas that start later join
 ```
 
-`--grep` is plain text, ignoring case. A search returns the newest 500
+`--grep` is plain text, ignoring case, and also filters live output. A search returns the newest 500
 lines (`--limit`, at most 5000) merged by time across nodes, and each node
 reads at most 1 GiB of output for it within 30 seconds, saying so when it
 stops early. History lives in the runtime's log directory, readable only
