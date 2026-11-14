@@ -5,6 +5,7 @@ import (
 	"encoding/xml"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -115,10 +116,11 @@ func TestS3Objects(t *testing.T) {
 	fake := &fakeS3{objects: map[string][]byte{}}
 	srv := httptest.NewServer(fake)
 	t.Cleanup(srv.Close)
-	target, err := ParseTarget("http://AKID:topsecret@" + strings.TrimPrefix(srv.URL, "http://") + "/bk1/pre?region=us-east-1")
+	target, err := ParseTarget("http://AKID:topsecret@10.0.0.9/bk1/pre?region=us-east-1")
 	if err != nil {
 		t.Fatal(err)
 	}
+	target.Endpoint, target.loopback = strings.TrimPrefix(srv.URL, "http://"), true
 	obj, err := S3(target)
 	if err != nil {
 		t.Fatal(err)
@@ -176,5 +178,56 @@ func TestS3Objects(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "topsecret") || strings.Contains(err.Error(), srv.URL) {
 		t.Errorf("the error repeats the URL: %v", err)
+	}
+}
+
+// A bucket is never the node itself: loopback, link-local (cloud metadata),
+// unspecified, and multicast addresses are refused in the URL and when a
+// name resolves to one; private addresses are reported for the
+// cluster-admin check.
+func TestTargetRefusesNodeAddresses(t *testing.T) {
+	t.Parallel()
+	for _, u := range []string{
+		"http://k:s@127.0.0.1:9000/bk1",
+		"https://k:s@127.0.0.1/bk1",
+		"https://k:s@[::1]/bk1",
+		"http://k:s@169.254.169.254/bk1",
+		"https://k:s@[fe80::1]/bk1",
+		"https://k:s@0.0.0.0/bk1",
+		"https://k:s@[::ffff:127.0.0.1]/bk1",
+	} {
+		if _, err := ParseTarget(u); err == nil {
+			t.Errorf("%s accepted", strings.Replace(u, "k:s@", "", 1))
+		}
+	}
+	for u, private := range map[string]bool{
+		"http://k:s@10.0.0.9:9000/bk1":   true,
+		"https://k:s@[fd00::5]/bk1":      true,
+		"https://k:s@s3.example.com/bk1": false,
+		"https://k:s@203.0.113.7/bk1":    false,
+	} {
+		tg, err := ParseTarget(u)
+		if err != nil {
+			t.Errorf("%s: %v", strings.Replace(u, "k:s@", "", 1), err)
+			continue
+		}
+		if _, ok := tg.PrivateIP(); ok != private {
+			t.Errorf("%s: private = %v", strings.Replace(u, "k:s@", "", 1), ok)
+		}
+	}
+	// A name that resolves to the node is refused when dialled.
+	srv := httptest.NewServer(http.NotFoundHandler())
+	t.Cleanup(srv.Close)
+	_, port, _ := net.SplitHostPort(strings.TrimPrefix(srv.URL, "http://"))
+	tg, err := ParseTarget("https://k:s@localhost:" + port + "/bk1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	obj, err := S3(tg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := obj.Get(context.Background(), "x", 10); err == nil || !strings.Contains(err.Error(), "loopback") {
+		t.Errorf("dialled a name that resolves to loopback: %v", err)
 	}
 }

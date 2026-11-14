@@ -45,6 +45,13 @@ volumes:
     the access key and secret key as user and password, the bucket as the
     first path segment, an optional prefix after it, and `region` as a
     query parameter. Path-style requests, so any S3-compatible store works.
+  - Nodes reach the bucket from their own addresses, outside the space's
+    network isolation. A bucket on a private IP address therefore needs
+    cluster-admin, like an NFS export (ADR 0042): a deploy, rollback, or
+    change of the URL secret by anyone else may only keep the private
+    addresses of the revision the app is heading to. Loopback, link-local,
+    unspecified, and multicast addresses are never a bucket, neither in
+    the URL nor when a name resolves to one.
   - The key is any value of at least 32 bytes. **Whoever loses it loses the
     backups**: Armada keeps it only as the app's secret, so it must be kept
     elsewhere too, to restore after losing the cluster.
