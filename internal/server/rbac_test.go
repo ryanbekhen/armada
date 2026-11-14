@@ -696,3 +696,61 @@ func TestListRoles(t *testing.T) {
 		t.Error("a role lists a method above it")
 	}
 }
+
+// Replacing a user's certificate refuses every certificate issued before
+// it, also one the old key renewed in the same second, and the old key
+// cannot renew afterwards; renewals are rate limited per user.
+func TestReplacedUserCertificateRefusesRenewals(t *testing.T) {
+	t.Parallel()
+	c := newCluster(t)
+	ctx := c.ctx
+	bob := c.newUser("bob", &armadav1.RoleAssignment{Role: "viewer"})
+	renew := func(client armadav1.AdminServiceClient) (armadav1.AdminServiceClient, error) {
+		keyPEM, csr, _ := pki.NewCSR(pki.Identity{Kind: pki.KindUser, Name: "bob"})
+		resp, err := client.RenewOwnCertificate(ctx, &armadav1.RenewOwnCertificateRequest{Csr: csr})
+		if err != nil {
+			return nil, err
+		}
+		return armadav1.NewAdminServiceClient(c.dialPEM(resp.GetCert(), keyPEM)), nil
+	}
+	stolen, err := renew(bob)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyPEM, csr, _ := pki.NewCSR(pki.Identity{Kind: pki.KindUser, Name: "bob"})
+	resp, err := c.admin.IssueUserCertificate(ctx, &armadav1.IssuePrincipalCertificateRequest{Name: "bob", Csr: csr})
+	if err != nil {
+		t.Fatal(err)
+	}
+	replacement := armadav1.NewAdminServiceClient(c.dialPEM(resp.GetCert(), keyPEM))
+	for name, client := range map[string]armadav1.AdminServiceClient{"original": bob, "renewed before the replacement": stolen} {
+		if _, err := client.Status(ctx, &armadav1.StatusRequest{}); status.Code(err) != codes.Unauthenticated {
+			t.Errorf("%s certificate after the replacement: %v", name, err)
+		}
+		if _, err := renew(client); status.Code(err) != codes.Unauthenticated {
+			t.Errorf("%s certificate renews after the replacement: %v", name, err)
+		}
+	}
+	if _, err := replacement.Status(ctx, &armadav1.StatusRequest{}); err != nil {
+		t.Errorf("replacement refused: %v", err)
+	}
+	// Renewals a second after the replacement are accepted, up to the limit.
+	time.Sleep(time.Until(time.Now().Truncate(time.Second).Add(time.Second)))
+	var limited bool
+	for range 8 {
+		next, err := renew(replacement)
+		if status.Code(err) == codes.ResourceExhausted {
+			limited = true
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := next.Status(ctx, &armadav1.StatusRequest{}); err != nil {
+			t.Errorf("renewed replacement refused: %v", err)
+		}
+	}
+	if !limited {
+		t.Error("user renewals are not rate limited")
+	}
+}

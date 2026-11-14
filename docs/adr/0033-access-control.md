@@ -23,7 +23,12 @@ Access is granted by **roles** given to **principals**.
 - A **user** is a person. Their certificate (kind `user`, one year) is
   made from a key that never leaves their machine. A user on record whose
   certificate was issued before their latest one (`Since`) or who was
-  deleted is refused, as administrators were. A user certificate the
+  deleted is refused, as administrators were. A replacement records the
+  new certificate's serial and when it was recorded: from then on only
+  that certificate and ones issued in a later second are accepted, so a
+  certificate the old key renewed just before, even in the same second,
+  is refused. A user's own renewal is checked and recorded in one
+  transaction with that record, and is rate limited per name. A user certificate the
   cluster has no record of, which only the CA on a server can sign
   (`armadad user renew`, or clusters from before records), keeps full
   control, as such administrator certificates did.

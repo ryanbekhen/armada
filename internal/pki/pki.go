@@ -62,7 +62,7 @@ const (
 	// ServiceValidity is the lifetime of service certificates; tools renew
 	// them with `armada rbac service renew`.
 	ServiceValidity = 90 * 24 * time.Hour
-	clockSkew       = 5 * time.Minute
+	clockSkew       = ClockSkew
 )
 
 var identityNameRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,62}$`)
@@ -329,3 +329,7 @@ func encodeKey(k *ecdsa.PrivateKey) ([]byte, error) {
 	}
 	return pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der}), nil
 }
+
+// ClockSkew is how far certificates are backdated, so machines whose clocks
+// lag accept them: a certificate was issued at NotBefore + ClockSkew.
+const ClockSkew = 5 * time.Minute
