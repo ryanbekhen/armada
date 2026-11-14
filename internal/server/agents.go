@@ -421,6 +421,12 @@ func (s *Server) recordDigest(ctx context.Context, revName, digest string) {
 		s.log.Warn("ignoring image digest that does not match revision image", "revision", revName, "digest", digest)
 		return
 	}
+	// A spec that pins a digest runs that digest on every node: one node's
+	// report never replaces it.
+	if i := strings.LastIndex(rev.Spec.Image, "@"); i >= 0 && rev.Spec.Image[i:] != digest[strings.LastIndex(digest, "@"):] {
+		s.log.Warn("ignoring image digest that differs from the pinned one", "revision", revName, "digest", digest)
+		return
+	}
 	if err := s.store.SetRevisionDigest(ctx, revName, digest); err != nil {
 		s.log.Warn("record digest", "err", err)
 		return

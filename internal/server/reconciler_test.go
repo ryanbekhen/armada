@@ -412,3 +412,30 @@ func TestSameStatusFinishedJob(t *testing.T) {
 		t.Error("the exit code of an unfinished replica was ignored")
 	}
 }
+
+// A spec that pins a digest runs that digest everywhere: a node reporting
+// another digest of the same repository is ignored.
+func TestPinnedDigestNotReplaced(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	st := storetest.Open(t)
+	s := &Server{store: st, log: slog.New(slog.DiscardHandler), trigger: make(chan struct{}, 1)}
+	_ = st.UpsertNode(ctx, store.Node{ID: "n1", PrivateIP: "10.0.0.2"})
+	pinned := "nginx@sha256:" + strings.Repeat("a", 64)
+	if _, _, err := st.Deploy(ctx, mustSpec(t, "name: pin\nimage: "+pinned+"\n"), "t"); err != nil {
+		t.Fatal(err)
+	}
+	_ = st.CreateReplica(ctx, store.Replica{ID: "pin-1", App: "pin", Revision: "pin--r1", NodeID: "n1"})
+	node, _ := st.GetNode(ctx, "n1")
+	report := func(digest string) store.Revision {
+		s.applyReport(ctx, node, &armadav1.ReplicaReport{Replicas: []*armadav1.ReplicaState{{Id: "pin-1", State: "running", ImageDigest: digest}}})
+		rev, _ := st.GetRevision(ctx, "pin--r1")
+		return rev
+	}
+	if rev := report("docker.io/library/nginx@sha256:" + strings.Repeat("b", 64)); rev.ImageDigest != "" || rev.Image() != pinned {
+		t.Errorf("another digest replaced the pinned one: %q, image %q", rev.ImageDigest, rev.Image())
+	}
+	if rev := report("docker.io/library/nginx@sha256:" + strings.Repeat("a", 64)); rev.Image() != "docker.io/library/nginx@sha256:"+strings.Repeat("a", 64) {
+		t.Errorf("the pinned digest itself: image %q", rev.Image())
+	}
+}
