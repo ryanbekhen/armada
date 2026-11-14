@@ -59,8 +59,11 @@ volumes:
 - **Who may add an export.** Nodes mount exports from their own
   addresses, so the NFS server cannot tell spaces apart. Adding an
   export to an app, or making one writable, needs cluster-admin; a deploy
-  that keeps the exports the app's serving or rolling-out revision already
-  mounts (or makes one read-only) needs only the right to deploy the app.
+  or rollback that keeps the exports of the revision the app is heading to
+  (its rolling-out revision, else its serving one), or makes one read-only,
+  needs only the right to deploy the app. A rollback runs the same check
+  on the stored spec, so an export a cluster-admin removed cannot come
+  back through an older revision, not even while the removal rolls out.
 - **Unmounting.** An export no replica on the node names any more is
   unmounted, lazily, so containers still using it keep it, and its mount
   point is removed. A spec that changes the export or `readOnly` remounts
