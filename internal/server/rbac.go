@@ -6,10 +6,9 @@ import (
 	"maps"
 	"slices"
 	"strings"
+	"time"
 
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/credentials"
-	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -121,7 +120,7 @@ func (s *Server) CreateUser(ctx context.Context, req *armadav1.CreateUserRequest
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "sign certificate: %v", err)
 	}
-	p, err := s.store.CreateUser(ctx, store.Principal{Name: name, Since: cert.NotBefore, Roles: roles, Labels: labels}, actor(ctx))
+	p, err := s.store.CreateUser(ctx, store.Principal{Name: name, Since: cert.NotBefore, SinceSerial: cert.Serial, Roles: roles, Labels: labels}, actor(ctx))
 	if err != nil {
 		return nil, storeErr(err)
 	}
@@ -149,7 +148,7 @@ func (s *Server) IssueUserCertificate(ctx context.Context, req *armadav1.IssuePr
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "sign certificate: %v", err)
 	}
-	if err := s.store.SetUserSince(ctx, name, cert.NotBefore, actor(ctx)); err != nil {
+	if err := s.store.SetUserSince(ctx, name, cert.NotBefore, cert.Serial, actor(ctx)); err != nil {
 		return nil, storeErr(err)
 	}
 	s.log.Info("issued user certificate", "name", name, "by", actor(ctx), "serial", cert.Serial)
@@ -207,7 +206,9 @@ func (s *Server) issueService(ctx context.Context, name string, csr []byte, keep
 
 // RenewOwnCertificate gives the calling user or service a new certificate.
 // A service's other certificates are revoked, as a node's are; a user's
-// stay valid until they expire.
+// stay valid until they expire or `rbac user credentials` replaces them.
+// User renewals are rate limited per name, and recorded in the same
+// transaction that checks the caller's certificate is still accepted.
 func (s *Server) RenewOwnCertificate(ctx context.Context, req *armadav1.RenewOwnCertificateRequest) (*armadav1.IssueMetricsCertificateResponse, error) {
 	acc := accessFrom(ctx)
 	if acc.p == nil {
@@ -220,6 +221,13 @@ func (s *Server) RenewOwnCertificate(ctx context.Context, req *armadav1.RenewOwn
 		}
 		return s.issueService(ctx, acc.id.Name, req.GetCsr(), serial)
 	}
+	if !s.userRenewLimit.allow(acc.id.Name, time.Now()) {
+		return nil, status.Error(codes.ResourceExhausted, "too many certificate renewals; try again later")
+	}
+	caller := peerCert(ctx)
+	if caller == nil {
+		return nil, status.Error(codes.Unauthenticated, "client certificate required")
+	}
 	if err := s.canSign(); err != nil {
 		return nil, err
 	}
@@ -227,11 +235,14 @@ func (s *Server) RenewOwnCertificate(ctx context.Context, req *armadav1.RenewOwn
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "sign certificate: %v", err)
 	}
-	if err := s.store.RecordAudit(ctx, actor(ctx), "user.certificate", acc.id.Name, "serial="+cert.Serial); err != nil {
-		return nil, storeErr(err)
-	}
-	// A user the CA signed outside the API shows up in listings.
-	if err := s.store.KnowUser(ctx, acc.id.Name); err != nil {
+	// Signed first, then checked and recorded in one transaction: a
+	// replacement of the caller's certificate either commits after this
+	// (and its cutoff refuses the new certificate) or makes it fail. A
+	// user the CA signed outside the API shows up in listings.
+	if err := s.store.RenewedUser(ctx, acc.id.Name, caller.NotBefore, pki.SerialString(caller), cert.Serial); err != nil {
+		if errors.Is(err, store.ErrPrecondition) {
+			return nil, status.Errorf(codes.Unauthenticated, "certificate of user:%s was replaced or revoked", acc.id.Name)
+		}
 		return nil, storeErr(err)
 	}
 	s.log.Info("renewed user certificate", "name", acc.id.Name, "serial", cert.Serial)
@@ -396,13 +407,9 @@ func principalInfo(p store.Principal) *armadav1.Principal {
 
 // peerSerial returns the serial of the caller's client certificate.
 func peerSerial(ctx context.Context) (string, error) {
-	p, ok := peer.FromContext(ctx)
-	if !ok {
-		return "", status.Error(codes.Unauthenticated, "no peer")
-	}
-	info, ok := p.AuthInfo.(credentials.TLSInfo)
-	if !ok || len(info.State.PeerCertificates) == 0 {
+	c := peerCert(ctx)
+	if c == nil {
 		return "", status.Error(codes.Unauthenticated, "client certificate required")
 	}
-	return pki.SerialString(info.State.PeerCertificates[0]), nil
+	return pki.SerialString(c), nil
 }

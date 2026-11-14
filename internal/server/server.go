@@ -146,6 +146,7 @@ type Server struct {
 	joinLimit        *keyedLimiter
 	joinGlobal       *limiter
 	renewLimit       *keyedLimiter
+	userRenewLimit   *keyedLimiter
 	log              *slog.Logger
 	grpc             *grpc.Server
 	resync           time.Duration
@@ -329,14 +330,16 @@ func New(cfg Config) (*Server, error) {
 		joinGlobal:       newLimiter(joinGlobalBurst, joinGlobalRef),
 		// Renewals: a burst for retries, then one per tenth of a lifetime.
 		renewLimit: newKeyedLimiter(5, max(cfg.NodeCertValidity/10, time.Second)),
-		log:        cfg.Logger.With("component", "server"),
-		resync:     cfg.Resync,
-		trigger:    make(chan struct{}, 1),
-		sessions:   map[string]*session{},
-		logs:       newLogRouter(),
-		execs:      newExecRouter(),
-		volumes:    newVolumeRouter(),
-		tlsCfg:     cfg.TLS,
+		// A user renews about once a year; 5 at once, then one a minute.
+		userRenewLimit: newKeyedLimiter(5, time.Minute),
+		log:            cfg.Logger.With("component", "server"),
+		resync:         cfg.Resync,
+		trigger:        make(chan struct{}, 1),
+		sessions:       map[string]*session{},
+		logs:           newLogRouter(),
+		execs:          newExecRouter(),
+		volumes:        newVolumeRouter(),
+		tlsCfg:         cfg.TLS,
 
 		metricsAddr:  cfg.MetricsAddr,
 		metricsCache: cfg.MetricsCache,

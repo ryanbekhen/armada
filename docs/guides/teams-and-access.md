@@ -149,7 +149,7 @@ back.
 | You want to | Run |
 | --- | --- |
 | Take one role away | `armada rbac assignment delete --user bob --role viewer --space shop` |
-| Replace a lost or leaked key | `armada rbac user credentials alice -o alice.config` (her older certificates stop working at once) |
+| Replace a lost or leaked key | `armada rbac user credentials alice -o alice.config` (her older certificates stop working at once, including any the leaked key renewed) |
 | Remove a person | `armada rbac user delete alice --yes` (every certificate of `alice` is refused, on every server) |
 
 A deleted user stays in `armada rbac user list` as `deleted`, so the name

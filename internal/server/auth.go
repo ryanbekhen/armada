@@ -66,7 +66,7 @@ func (s *Server) principalAccess(ctx context.Context, pid pki.Identity, cert *x5
 	if pid.Kind == pki.KindService {
 		return s.store.ServiceAccess(ctx, pid.Name, pki.SerialString(cert))
 	}
-	return s.store.UserAccess(ctx, pid.Name, cert.NotBefore)
+	return s.store.UserAccess(ctx, pid.Name, cert.NotBefore, pki.SerialString(cert))
 }
 
 // authorizePrincipal lets a user or service call AdminService methods its

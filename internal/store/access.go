@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ryanbekhen/armada/internal/pki"
 	"github.com/ryanbekhen/armada/internal/spec"
 )
 
@@ -114,9 +115,12 @@ type Principal struct {
 	CreatedAt time.Time
 	CreatedBy string
 	// Users: certificates issued (NotBefore) before Since are refused, and
-	// every one once Removed.
-	Since   time.Time
-	Removed bool
+	// every one once Removed. SinceSerial is the serial of the certificate
+	// Since came from: when it is set, only that certificate and ones issued
+	// after the record was written are accepted (see userAllowed).
+	Since       time.Time
+	SinceSerial string
+	Removed     bool
 	// Services: its valid certificates, newest last.
 	Certs []NodeCert
 }
@@ -136,9 +140,32 @@ type principalRec struct {
 	CreatedAt int64               `json:"createdAt,omitempty"`
 	CreatedBy string              `json:"createdBy,omitempty"`
 	// Since is in seconds, like a certificate's NotBefore.
-	Since   int64     `json:"since,omitempty"`
-	Removed bool      `json:"removed,omitempty"`
-	Certs   []certRec `json:"certs,omitempty"`
+	Since int64 `json:"since,omitempty"`
+	// SinceSerial and Cutoff (Unix seconds when Since was written) bind a
+	// user's latest certificate: see userAllowed.
+	SinceSerial string    `json:"sinceSerial,omitempty"`
+	Cutoff      int64     `json:"cutoff,omitempty"`
+	Removed     bool      `json:"removed,omitempty"`
+	Certs       []certRec `json:"certs,omitempty"`
+}
+
+// certBackdate is how far the CA backdates a certificate's NotBefore
+// (pki.ClockSkew): NotBefore + certBackdate is when it was issued.
+const certBackdate = pki.ClockSkew
+
+// userAllowed reports whether r accepts a user certificate. Records written
+// since the cutoff accept the certificate Since came from (by serial) and
+// certificates issued in a later second than the record was written, so
+// that one renewed from a replaced key, even in the same second, is
+// refused; older records compare whole seconds of NotBefore with Since.
+func (r principalRec) userAllowed(notBefore time.Time, serial string) bool {
+	if r.Removed {
+		return false
+	}
+	if r.Cutoff != 0 {
+		return (r.SinceSerial != "" && serial == r.SinceSerial) || notBefore.Add(certBackdate).Unix() > r.Cutoff
+	}
+	return notBefore.Unix() >= r.Since
 }
 
 const (
@@ -159,6 +186,7 @@ func principalKey(kind, name string) (string, error) {
 func (r principalRec) principal(kind string, now time.Time) Principal {
 	p := Principal{Kind: kind, Name: r.Name, Labels: maps.Clone(r.Labels), CreatedAt: fromMS(r.CreatedAt),
 		CreatedBy: r.CreatedBy, Removed: r.Removed}
+	p.SinceSerial = r.SinceSerial
 	if r.Since != 0 {
 		p.Since = time.Unix(r.Since, 0)
 	}
@@ -229,7 +257,10 @@ func (s *Etcd) CreateUser(ctx context.Context, p Principal, actor string) (Princ
 		if ok && !r.Removed {
 			return fmt.Errorf("user %s exists; give them a new certificate with `armada rbac user credentials`: %w", p.Name, ErrConflict)
 		}
-		r = principalRec{Name: p.Name, Labels: p.Labels, CreatedAt: now.UnixMilli(), CreatedBy: actor, Since: p.Since.Unix()}
+		r = principalRec{Name: p.Name, Labels: p.Labels, CreatedAt: now.UnixMilli(), CreatedBy: actor, Since: p.Since.Unix(), SinceSerial: p.SinceSerial}
+		if p.SinceSerial != "" {
+			r.Cutoff = s.now().Unix() // in the transaction: later than any certificate it refuses
+		}
 		r.setRoles(p.Roles)
 		if err := t.put(pfxUsers+p.Name, r); err != nil {
 			return err
@@ -259,8 +290,9 @@ func (s *Etcd) KnowUser(ctx context.Context, name string) error {
 }
 
 // SetUserSince refuses a user's certificates issued before since, after a
-// new one was issued to them.
-func (s *Etcd) SetUserSince(ctx context.Context, name string, since time.Time, actor string) error {
+// new one (serial) was issued to them: from then on only that certificate
+// and ones issued later are accepted (userAllowed).
+func (s *Etcd) SetUserSince(ctx context.Context, name string, since time.Time, serial, actor string) error {
 	now := s.now()
 	return s.tx(ctx, func(t *etx) error {
 		var r principalRec
@@ -272,6 +304,10 @@ func (s *Etcd) SetUserSince(ctx context.Context, name string, since time.Time, a
 			return notFoundf("user %s", name)
 		}
 		r.Since = since.Unix()
+		r.SinceSerial = serial
+		// Read in the transaction, so a renewal that committed before it
+		// (RenewedUser) issued its certificate at or before the cutoff.
+		r.Cutoff = s.now().Unix()
 		if err := t.put(pfxUsers+name, r); err != nil {
 			return err
 		}
@@ -502,7 +538,7 @@ func (s *Etcd) RecordServiceCert(ctx context.Context, name string, c NodeCert, k
 // UserAccess returns what the user may do and whether a certificate of
 // theirs that starts at notBefore is accepted. A name not on record has
 // cluster-admin: only the CA on a server signs such certificates.
-func (s *Etcd) UserAccess(ctx context.Context, name string, notBefore time.Time) (Principal, bool, error) {
+func (s *Etcd) UserAccess(ctx context.Context, name string, notBefore time.Time, serial string) (Principal, bool, error) {
 	var out Principal
 	allowed := false
 	err := s.view(ctx, func(t *etx) error {
@@ -517,10 +553,38 @@ func (s *Etcd) UserAccess(ctx context.Context, name string, notBefore time.Time)
 			return nil
 		}
 		out = r.principal(KindUser, s.now())
-		allowed = !r.Removed && notBefore.Unix() >= r.Since
+		allowed = r.userAllowed(notBefore, serial)
 		return nil
 	})
 	return out, allowed, err
+}
+
+// RenewedUser records that a user renewed their own certificate (serial)
+// with a certificate that starts at callerNotBefore and has callerSerial,
+// recording a name not on record with cluster-admin like KnowUser. It
+// refuses (ErrPrecondition) when the caller's certificate is no longer
+// accepted: the check and the record are one transaction, so a renewal
+// either commits before a replacement (SetUserSince), whose cutoff then
+// refuses the renewed certificate, or sees the replacement and fails.
+func (s *Etcd) RenewedUser(ctx context.Context, name string, callerNotBefore time.Time, callerSerial, serial string) error {
+	now := s.now()
+	return s.tx(ctx, func(t *etx) error {
+		var r principalRec
+		ok, err := t.get(pfxUsers+name, &r)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			r = principalRec{Name: name, CreatedAt: now.UnixMilli()}
+			r.setRoles([]Grant{{Role: RoleClusterAdmin}})
+			if err := t.put(pfxUsers+name, r); err != nil {
+				return err
+			}
+		} else if !r.userAllowed(callerNotBefore, callerSerial) {
+			return fmt.Errorf("certificate of user:%s was replaced or revoked: %w", name, ErrPrecondition)
+		}
+		return t.audit(now, "user:"+name, "user.certificate", name, "serial="+serial)
+	})
 }
 
 // ServiceAccess returns what the service may do and whether serial is one

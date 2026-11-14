@@ -429,7 +429,10 @@ type Store interface {
 	// cluster-admin; SetUserSince refuses a user's older certificates.
 	CreateUser(ctx context.Context, p Principal, actor string) (Principal, error)
 	KnowUser(ctx context.Context, name string) error
-	SetUserSince(ctx context.Context, name string, since time.Time, actor string) error
+	SetUserSince(ctx context.Context, name string, since time.Time, serial, actor string) error
+	// RenewedUser records a user's own renewal, refusing it when the
+	// caller's certificate is no longer accepted.
+	RenewedUser(ctx context.Context, name string, callerNotBefore time.Time, callerSerial, serial string) error
 	// CreateService records a service (ErrConflict if it exists).
 	CreateService(ctx context.Context, p Principal, actor string) (Principal, error)
 	GetPrincipal(ctx context.Context, kind, name string) (Principal, error)
@@ -447,7 +450,7 @@ type Store interface {
 	RecordServiceCert(ctx context.Context, name string, c NodeCert, keep, actor string) error
 	// UserAccess and ServiceAccess return a principal's roles and whether
 	// its certificate is accepted; a user not on record has cluster-admin.
-	UserAccess(ctx context.Context, name string, notBefore time.Time) (Principal, bool, error)
+	UserAccess(ctx context.Context, name string, notBefore time.Time, serial string) (Principal, bool, error)
 	ServiceAccess(ctx context.Context, name, serial string) (Principal, bool, error)
 
 	// Deploy records spec as a new revision and makes it the rollout target

@@ -17,7 +17,7 @@ func TestUsers(t *testing.T) {
 
 	// A name not on record has full control: only the CA signs such
 	// certificates.
-	p, ok, err := s.UserAccess(ctx, "root", since)
+	p, ok, err := s.UserAccess(ctx, "root", since, "")
 	if err != nil || !ok || !p.Has(Grant{Role: RoleClusterAdmin}) {
 		t.Fatalf("unrecorded user: %+v %v %v", p, ok, err)
 	}
@@ -32,25 +32,48 @@ func TestUsers(t *testing.T) {
 	if _, err := s.CreateUser(ctx, Principal{Name: "ana", Since: since}, "user:root"); !errors.Is(err, ErrConflict) {
 		t.Errorf("second create = %v", err)
 	}
-	if _, ok, _ := s.UserAccess(ctx, "ana", since.Add(-time.Second)); ok {
+	if _, ok, _ := s.UserAccess(ctx, "ana", since.Add(-time.Second), ""); ok {
 		t.Error("accepted a certificate from before the user's latest")
 	}
-	if p, ok, _ := s.UserAccess(ctx, "ana", since); !ok || p.Has(Grant{Role: RoleClusterAdmin}) || !p.Has(Grant{Role: RoleDeployer, Space: "shop"}) {
+	if p, ok, _ := s.UserAccess(ctx, "ana", since, ""); !ok || p.Has(Grant{Role: RoleClusterAdmin}) || !p.Has(Grant{Role: RoleDeployer, Space: "shop"}) {
 		t.Errorf("ana: %+v %v", p, ok)
 	}
 	later := since.Add(time.Hour)
-	if err := s.SetUserSince(ctx, "ana", later, "user:root"); err != nil {
+	// The replacement certificate (serial S2) starts at later - backdate
+	// and is recorded at later: it is accepted by serial, certificates
+	// issued up to that second are refused, later ones accepted.
+	s.SetNow(func() time.Time { return later })
+	issued := func(at time.Time) time.Time { return at.Add(-certBackdate) }
+	if err := s.SetUserSince(ctx, "ana", issued(later), "S2", "user:root"); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok, _ := s.UserAccess(ctx, "ana", since); ok {
-		t.Error("an older certificate stayed valid after a new one")
+	for _, c := range []struct {
+		name      string
+		notBefore time.Time
+		serial    string
+		want      bool
+	}{
+		{"older certificate", since, "S1", false},
+		{"replacement", issued(later), "S2", true},
+		{"renewed in the replacement's second", issued(later), "R1", false},
+		{"renewed a second later", issued(later.Add(time.Second)), "R2", true},
+	} {
+		if _, ok, _ := s.UserAccess(ctx, "ana", c.notBefore, c.serial); ok != c.want {
+			t.Errorf("%s: accepted=%v, want %v", c.name, ok, c.want)
+		}
+	}
+	if err := s.RenewedUser(ctx, "ana", since, "S1", "R3"); !errors.Is(err, ErrPrecondition) {
+		t.Errorf("renewal with a replaced certificate = %v", err)
+	}
+	if err := s.RenewedUser(ctx, "ana", issued(later), "S2", "R4"); err != nil {
+		t.Errorf("renewal with the current certificate: %v", err)
 	}
 
 	// KnowUser leaves a user on record alone.
 	if err := s.KnowUser(ctx, "ana"); err != nil {
 		t.Fatal(err)
 	}
-	if p, _, _ := s.UserAccess(ctx, "ana", later); p.Has(Grant{Role: RoleClusterAdmin}) {
+	if p, _, _ := s.UserAccess(ctx, "ana", issued(later), "S2"); p.Has(Grant{Role: RoleClusterAdmin}) {
 		t.Error("KnowUser gave a recorded user cluster-admin")
 	}
 	if err := s.KnowUser(ctx, "root"); err != nil {
@@ -69,7 +92,7 @@ func TestUsers(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, n := range []string{"ana", "ghost"} {
-		if _, ok, _ := s.UserAccess(ctx, n, later.Add(time.Hour)); ok {
+		if _, ok, _ := s.UserAccess(ctx, n, later.Add(time.Hour), ""); ok {
 			t.Errorf("deleted user %s accepted", n)
 		}
 	}
@@ -223,14 +246,14 @@ func TestMigrateAccess(t *testing.T) {
 	if _, err := s.Migrate(ctx); err != nil {
 		t.Fatal(err)
 	}
-	root, ok, _ := s.UserAccess(ctx, "root", time.Unix(1_800_000_000, 0))
+	root, ok, _ := s.UserAccess(ctx, "root", time.Unix(1_800_000_000, 0), "")
 	if !ok || !slices.Equal(root.Roles, []Grant{{Role: RoleClusterAdmin}}) || root.CreatedBy != "admin:init" {
 		t.Errorf("root: %+v %v", root, ok)
 	}
-	if _, ok, _ := s.UserAccess(ctx, "root", time.Unix(1_799_999_999, 0)); ok {
+	if _, ok, _ := s.UserAccess(ctx, "root", time.Unix(1_799_999_999, 0), ""); ok {
 		t.Error("migration dropped Since")
 	}
-	if _, ok, _ := s.UserAccess(ctx, "old", time.Now()); ok {
+	if _, ok, _ := s.UserAccess(ctx, "old", time.Now(), ""); ok {
 		t.Error("a removed administrator is accepted after the migration")
 	}
 	ci, ok, _ := s.ServiceAccess(ctx, "ci", "9")
