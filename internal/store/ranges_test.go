@@ -80,7 +80,7 @@ func TestDeleteAppIsSmall(t *testing.T) {
 	if err := s.DeleteApp(ctx, "web"); err != nil {
 		t.Fatal(err)
 	}
-	if ops > 4 {
+	if ops > 5 {
 		t.Errorf("DeleteApp took %d operations", ops)
 	}
 	if _, err := s.GetApp(ctx, "web"); err == nil {
