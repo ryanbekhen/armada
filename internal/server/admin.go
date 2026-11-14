@@ -70,6 +70,9 @@ func (s *Server) Deploy(ctx context.Context, req *armadav1.DeployRequest) (*arma
 	if err := s.checkNFSExports(ctx, acc, app); err != nil {
 		return nil, err
 	}
+	if err := s.checkBackupTargets(ctx, acc, app.ID(), app, s.latestValue(ctx, app.ID())); err != nil {
+		return nil, err
+	}
 	if app.Ingress.TCP() {
 		// The caller's space picks the app behind a port, and only nodes
 		// on the cluster network know their callers (ADR 0039).
@@ -208,6 +211,9 @@ func (s *Server) Rollback(ctx context.Context, req *armadav1.RollbackRequest) (*
 		if target, err = s.previousRevision(ctx, app); err != nil {
 			return nil, err
 		}
+	}
+	if err := s.checkRollbackBackups(ctx, app.Name, target); err != nil {
+		return nil, err
 	}
 	rev, err := s.store.Rollback(ctx, app.Name, target, actor(ctx))
 	if err != nil {
