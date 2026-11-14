@@ -2,6 +2,7 @@ package server
 
 import (
 	"crypto/tls"
+	"errors"
 	"io"
 	"net"
 	"testing"
@@ -40,7 +41,7 @@ func TestConnLimit(t *testing.T) {
 	closed := func(c net.Conn) bool {
 		_ = c.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
 		_, err := c.Read(make([]byte, 1))
-		return err == io.EOF
+		return errors.Is(err, io.EOF)
 	}
 	first := dial()
 	got := <-accepted
@@ -88,7 +89,7 @@ func TestJoinListenerClosesIdleConnections(t *testing.T) {
 	buf := make([]byte, 4096)
 	for {
 		if _, err := conn.Read(buf); err != nil {
-			if ne, ok := err.(net.Error); ok && ne.Timeout() {
+			if ne := net.Error(nil); errors.As(err, &ne) && ne.Timeout() {
 				t.Fatal("an idle join connection is still open after 10s")
 			}
 			return // closed by the server
