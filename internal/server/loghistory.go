@@ -15,10 +15,12 @@ import (
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	armadav1 "github.com/ryanbekhen/armada/api/armada/v1"
 	"github.com/ryanbekhen/armada/internal/logexport"
 	"github.com/ryanbekhen/armada/internal/secrets"
+	"github.com/ryanbekhen/armada/internal/spec"
 	"github.com/ryanbekhen/armada/internal/store"
 )
 
@@ -247,8 +249,21 @@ func (s *Server) searchLogs(ctx context.Context, app string, req *armadav1.LogsR
 		return err
 	}
 	defer release()
+	since := req.GetSince()
+	if acc := accessFrom(ctx); !acc.admin() {
+		// History from before the app's space was created belongs to an
+		// earlier space of the same name.
+		created, err := s.spacesCreated(ctx)
+		if err != nil {
+			return err
+		}
+		if beforeSpace(created, app, since.AsTime()) {
+			sp, _, _ := spec.SplitAppID(app)
+			since = timestamppb.New(created[sp])
+		}
+	}
 	q := &armadav1.LogQuery{App: app, Replica: req.GetReplica(), Container: req.GetContainer(),
-		Since: req.GetSince(), Until: req.GetUntil(), Grep: req.GetGrep(), Limit: limit}
+		Since: since, Until: req.GetUntil(), Grep: req.GetGrep(), Limit: limit}
 	ctx, cancel := context.WithTimeout(ctx, searchWait)
 	defer cancel()
 
