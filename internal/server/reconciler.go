@@ -1171,6 +1171,13 @@ func (s *Server) pushAssignments(ctx context.Context, replicas []store.Replica, 
 				return err
 			}
 			vals, err := revs.secrets(ctx, rev)
+			if err != nil && errors.Is(err, store.ErrNotFound) && (r.Done || r.Draining()) {
+				// A finished attempt never starts again, and a draining
+				// replica is on its way out: a secret version deleted
+				// since only needs its reference, which is what the
+				// agent's spec hash keeps.
+				vals, err = unresolvedSecrets(rev), nil
+			}
 			if err != nil {
 				// Withhold the whole assignment: a partial one would make
 				// the agent stop replicas that are serving.
@@ -1190,6 +1197,15 @@ func (s *Server) pushAssignments(ctx context.Context, replicas []store.Replica, 
 		sess.offerAssignment(a)
 	}
 	return nil
+}
+
+// unresolvedSecrets stands in empty values for every secret rev pins.
+func unresolvedSecrets(rev store.Revision) map[string]secrets.Value {
+	out := make(map[string]secrets.Value, len(rev.Secrets))
+	for name := range rev.Secrets {
+		out[name] = secrets.NewValue(nil)
+	}
+	return out
 }
 
 // replicaSpec builds what an agent needs to run one replica. vals holds the
@@ -1514,6 +1530,23 @@ func (o *openedSecrets) put(app, name string, version int, v secrets.Value) {
 	defer o.mu.Unlock()
 	k := openedKey{app, name, version}
 	o.vals[k], o.used[k] = v, true
+}
+
+// forget drops every cached version of an app's secret. Versions are never
+// reused (the store continues after deleted ones); this keeps a deleted
+// value out of memory as soon as it is deleted.
+func (o *openedSecrets) forget(app, name string) {
+	if o == nil {
+		return
+	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	for k := range o.vals {
+		if k.app == app && k.name == name {
+			delete(o.vals, k)
+			delete(o.used, k)
+		}
+	}
 }
 
 // sweep drops what no lookup since the last sweep used.

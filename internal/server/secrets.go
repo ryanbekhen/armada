@@ -100,6 +100,7 @@ func (s *Server) DeleteSecret(ctx context.Context, req *armadav1.DeleteSecretReq
 	if err := s.store.DeleteSecret(ctx, app, name, actor(ctx)); err != nil {
 		return nil, storeErr(err)
 	}
+	s.opened.forget(app, name)
 	s.log.Info("secret deleted", "app", app, "secret", name, "by", actor(ctx))
 	return &armadav1.DeleteSecretResponse{}, nil
 }

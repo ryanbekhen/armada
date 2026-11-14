@@ -60,6 +60,7 @@ func (s *Etcd) DeleteApp(ctx context.Context, app string) error {
 		t.delete(pfxApps + app)
 		t.deletePrefix(pfxRevs + app + "/")
 		t.deletePrefix(pfxSecrets + app + "/")
+		t.deletePrefix(pfxSecretSeq + app + "/")
 		return nil
 	})
 }
