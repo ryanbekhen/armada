@@ -28,6 +28,11 @@ func execCmd(c *cluster, admin armadav1.AdminServiceClient, start *armadav1.Exec
 		return execResult{err: err}
 	}
 	if err := stream.Send(&armadav1.ExecClientMessage{Msg: &armadav1.ExecClientMessage_Start{Start: start}}); err != nil {
+		// io.EOF means the server already ended the stream (refused it
+		// before reading); its status comes with Recv.
+		if errors.Is(err, io.EOF) {
+			_, err = stream.Recv()
+		}
 		return execResult{err: err}
 	}
 	if start.GetStdin() {

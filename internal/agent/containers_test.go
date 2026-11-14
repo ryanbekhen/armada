@@ -140,7 +140,8 @@ func TestReplicaSidecarStops(t *testing.T) {
 	c := onlyContainer(t, d)
 	d.TakeEvents()
 	d.SetMemberState(c.ID, "log", runtime.StateExited, 2)
-	if _, err := a.Reconcile(ctx); err != nil {
+	rep, err := a.Reconcile(ctx)
+	if err != nil {
 		t.Fatal(err)
 	}
 	after := onlyContainer(t, d)
@@ -150,9 +151,16 @@ func TestReplicaSidecarStops(t *testing.T) {
 	if got := d.TakeEvents(); !slices.Equal(got, []string{"stop app", "start migrate", "start seed", "start log", "start app"}) {
 		t.Errorf("events %v", got)
 	}
+	// The note waits for the next report, or rides on this one when the
+	// new replica was ready at once, after which it is dropped.
 	a.mu.Lock()
 	note := a.notes["web-r1-a"]
 	a.mu.Unlock()
+	for _, r := range rep.GetReplicas() {
+		if r.GetId() == "web-r1-a" && r.GetReady() {
+			note += r.GetMessage()
+		}
+	}
 	if !strings.Contains(note, "sidecar log exited with code 2") {
 		t.Errorf("restart note %q", note)
 	}

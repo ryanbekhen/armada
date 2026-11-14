@@ -30,9 +30,8 @@ func withJoin(t *testing.T) func(*Config) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	addr := l.Addr().String()
-	_ = l.Close()
-	return func(c *Config) { c.JoinAddr = addr }
+	t.Cleanup(func() { _ = l.Close() })
+	return func(c *Config) { c.JoinAddr, c.JoinListener = l.Addr().String(), l }
 }
 
 // joinClient connects to the join listener the way `armadad join` does:

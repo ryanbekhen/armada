@@ -103,9 +103,12 @@ type joinService struct {
 }
 
 func (s *Server) serveJoin(ctx context.Context) error {
-	lis, err := net.Listen("tcp", s.joinAddr)
-	if err != nil {
-		return fmt.Errorf("join listener: %w", err)
+	lis := s.joinLis
+	if lis == nil {
+		var err error
+		if lis, err = net.Listen("tcp", s.joinAddr); err != nil {
+			return fmt.Errorf("join listener: %w", err)
+		}
 	}
 	g := grpc.NewServer(
 		grpc.Creds(credentials.NewTLS(s.joinTLS)),

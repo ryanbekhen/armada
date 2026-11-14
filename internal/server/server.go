@@ -91,7 +91,10 @@ type Config struct {
 	// only JoinService with JoinTLS (no client certificates). Empty
 	// disables joining.
 	JoinAddr string
-	JoinTLS  *tls.Config
+	// JoinListener, if set, is the join listener already listening on
+	// JoinAddr (tests: no window in which another test takes the port).
+	JoinListener net.Listener
+	JoinTLS      *tls.Config
 	// APIAddr is the control plane address given to joining agents.
 	APIAddr string
 	// NodeCertValidity is the lifetime of issued node certificates
@@ -136,6 +139,7 @@ type Server struct {
 	reconcileSeconds prometheus.Histogram
 	reconcileErrors  prometheus.Counter
 	joinAddr         string
+	joinLis          net.Listener
 	joinTLS          *tls.Config
 	apiAddr          string
 	nodeCertValidity time.Duration
@@ -317,6 +321,7 @@ func New(cfg Config) (*Server, error) {
 
 		ca:               cfg.CA,
 		joinAddr:         cfg.JoinAddr,
+		joinLis:          cfg.JoinListener,
 		joinTLS:          cfg.JoinTLS,
 		apiAddr:          cfg.APIAddr,
 		nodeCertValidity: cfg.NodeCertValidity,
