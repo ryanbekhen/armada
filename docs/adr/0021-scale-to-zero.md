@@ -75,7 +75,9 @@ scale:
   - Going from zero to one replica and back needs no reload: only the slots
     of `be_<app>` change, through the Runtime API.
 - **Holding the request.** The agent holds the request: at most 1000 per
-  node, each for at most 60 seconds.
+  node, each for at most 60 seconds. One app takes at most 100 of them,
+  so an app that never starts cannot keep the others asleep; a request
+  refused for that reason still asks the leader to start its app.
   - It sends `Wake{app}` to the leader on its control stream, at most every
     5 seconds per app, again while the request waits.
   - It forwards the request as soon as the proxy configuration it applied

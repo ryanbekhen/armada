@@ -125,3 +125,35 @@ func waitFor(t *testing.T, cond func() bool) {
 	}
 	t.Fatal("timed out")
 }
+
+// One app takes at most its share of the node's waiting requests, so the
+// others can still be woken.
+func TestWakePoolPerApp(t *testing.T) {
+	t.Parallel()
+	a, _ := newAgent(t)
+	h := a.wakeHandler()
+	for range maxWaitingPerApp {
+		if !a.wakes.hold("stuck") {
+			t.Fatal("hold refused below the app's share")
+		}
+	}
+	do := func(app string) *httptest.ResponseRecorder {
+		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+		defer cancel()
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/", nil).WithContext(ctx)
+		req.Header.Set(proxy.WakeHeader, app)
+		h.ServeHTTP(rec, req)
+		return rec
+	}
+	if rec := do("stuck"); !strings.Contains(rec.Body.String(), "too many") {
+		t.Errorf("stuck over its share: %d %q", rec.Code, rec.Body.String())
+	}
+	if rec := do("shop"); strings.Contains(rec.Body.String(), "too many") {
+		t.Errorf("another app was refused: %q", rec.Body.String())
+	}
+	a.wakes.release("stuck")
+	if !a.wakes.hold("stuck") {
+		t.Error("a released place was not given back")
+	}
+}
