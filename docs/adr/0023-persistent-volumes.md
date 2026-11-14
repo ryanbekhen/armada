@@ -123,6 +123,9 @@ volumes:
   the app runs. With `--stop` the agent stops the app's container for the
   backup and starts it again afterwards. The archive keeps owners, modes,
   times, and symbolic links, and leaves out sockets, devices, and pipes.
+  The agent walks the volume through a handle on its directory (`os.Root`),
+  so links are stored, never followed, even when the running app swaps an
+  entry for a link during the backup.
 - **Restore.** `armada volume restore APP NAME FILE [--node N]` streams an
   archive to the volume's node.
   - The agent stops the app's container and unpacks the archive into a new
