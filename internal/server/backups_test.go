@@ -171,3 +171,54 @@ func TestVolumeSnapshotNeedsBackupSpec(t *testing.T) {
 	}
 	_ = store.ErrNotFound
 }
+
+// Only cluster-admins point backups at a bucket on a private address:
+// nodes reach it from their own addresses, outside the space's isolation.
+// Deploys, rollbacks, and secret changes that keep the address are
+// anyone's who may deploy the app; loopback is never a bucket.
+func TestBackupTargetsNeedClusterAdmin(t *testing.T) {
+	t.Parallel()
+	c := newCluster(t, withKeys(t))
+	ctx := c.ctx
+	if _, err := c.admin.CreateSpace(ctx, &armadav1.CreateSpaceRequest{Name: "a"}); err != nil {
+		t.Fatal(err)
+	}
+	deployer := c.newUser("dan", &armadav1.RoleAssignment{Role: "deployer", Space: "a"})
+	set := func(client armadav1.AdminServiceClient, name, v string) error {
+		_, err := client.SetSecret(ctx, &armadav1.SetSecretRequest{App: "web.a", Name: name, Value: []byte(v)})
+		return err
+	}
+	deploy := func(client armadav1.AdminServiceClient, image string) (*armadav1.DeployResponse, error) {
+		return client.Deploy(ctx, &armadav1.DeployRequest{Space: "a", Spec: []byte(strings.Replace(backupSpec, "nginx:1", image, 1))})
+	}
+	if err := set(deployer, "backup-key", strings.Repeat("k", 32)); err != nil {
+		t.Fatal(err)
+	}
+	if err := set(deployer, "backup-url", "http://k:s@127.0.0.1:2379/bk1"); err != nil {
+		t.Fatal(err)
+	}
+	_, err := deploy(deployer, "nginx:1")
+	wantCode(t, "a loopback bucket", err, codes.InvalidArgument)
+	if err := set(deployer, "backup-url", "http://k:s@10.0.0.9:9000/bk1"); err != nil {
+		t.Fatal(err)
+	}
+	_, err = deploy(deployer, "nginx:1")
+	wantCode(t, "a deployer picks a private bucket", err, codes.PermissionDenied)
+
+	r1, err := deploy(c.admin, "nginx:1")
+	if err != nil {
+		t.Fatalf("cluster-admin: %v", err)
+	}
+	if _, err := deploy(deployer, "nginx:2"); err != nil {
+		t.Errorf("deploy keeping the bucket: %v", err)
+	}
+	wantCode(t, "a deployer moves the bucket to another private address", set(deployer, "backup-url", "http://k:s@10.0.0.10:9000/bk1"), codes.PermissionDenied)
+	if err := set(deployer, "backup-url", "https://k:s@s3.example.com/bk1"); err != nil {
+		t.Errorf("a bucket by name: %v", err)
+	}
+	if _, err := deploy(deployer, "nginx:3"); err != nil {
+		t.Errorf("deploy with a bucket by name: %v", err)
+	}
+	_, err = deployer.Rollback(ctx, &armadav1.RollbackRequest{App: "web.a", Revision: r1.GetRevision()})
+	wantCode(t, "a deployer rolls back to the private bucket", err, codes.PermissionDenied)
+}

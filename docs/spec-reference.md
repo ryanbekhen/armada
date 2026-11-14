@@ -616,7 +616,7 @@ volumes:
 | `every` | Time between backups, from `5m` to `168h`. Or: |
 | `schedule`, `timeZone` | When to back up, as a [job's schedule](#jobs). |
 | `keep` | A number keeps that many of the latest backups. Or a mapping: `last` (the latest N), `hourly`, `daily`, `weekly`, `monthly` (the newest backup of each of the latest N hours, days, ISO weeks, months, in `timeZone`, else UTC). Each at most 1000; a backup any of them keeps stays. |
-| `urlSecretRef` | Secret of the app with the bucket: `https://ACCESS_KEY:SECRET_KEY@host[:port]/bucket[/prefix][?region=R]` (path-style; `http://` only for a private IP address). |
+| `urlSecretRef` | Secret of the app with the bucket: `https://ACCESS_KEY:SECRET_KEY@host[:port]/bucket[/prefix][?region=R]` (path-style; `http://` only for a private IP address). A bucket on a private IP address needs cluster-admin to deploy, roll back to, or set; loopback and link-local addresses are refused. |
 | `keySecretRef` | Secret of the app with the encryption key: any value of at least 32 bytes, for example `openssl rand -base64 48`. **Keep a copy outside the cluster**: without it the backups cannot be read. |
 | `stop` | `true` stops the app's container while the volume is read, for a consistent copy. |
 

@@ -9,10 +9,12 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"slices"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/minio/minio-go/v7"
@@ -46,7 +48,7 @@ const requestTimeout = 5 * time.Minute
 func S3(t Target) (Objects, error) {
 	tr := &http.Transport{
 		Proxy:                 http.ProxyFromEnvironment,
-		DialContext:           (&net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
+		DialContext:           (&net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second, Control: dialGuard(t)}).DialContext,
 		TLSClientConfig:       &tls.Config{MinVersion: tls.VersionTLS12},
 		TLSHandshakeTimeout:   30 * time.Second,
 		ResponseHeaderTimeout: 2 * time.Minute,
@@ -235,4 +237,25 @@ func (m *Memory) Set(key string, data []byte) {
 	o := m.objs[key]
 	o.data = data
 	m.objs[key] = o
+}
+
+func dialGuard(t Target) func(string, string, syscall.RawConn) error {
+	if t.loopback {
+		return nil
+	}
+	return refuseNodeOnly
+}
+
+// refuseNodeOnly keeps a bucket name that resolves to the node itself, its
+// link, or cloud metadata from being dialled (ParseTarget refuses such IP
+// addresses in the URL).
+func refuseNodeOnly(_, address string, _ syscall.RawConn) error {
+	ap, err := netip.ParseAddrPort(address)
+	if err != nil {
+		return errTarget("cannot dial the bucket")
+	}
+	if nodeOnly(ap.Addr()) {
+		return errTarget("the bucket's name resolves to a loopback, link-local, or multicast address")
+	}
+	return nil
 }

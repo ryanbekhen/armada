@@ -47,6 +47,9 @@ func (s *Server) SetSecret(ctx context.Context, req *armadav1.SetSecretRequest) 
 	if s.keys == nil {
 		return nil, status.Error(codes.FailedPrecondition, "secrets are disabled: the server has no master key")
 	}
+	if err := s.checkSecretBackups(ctx, app, name, req.GetValue()); err != nil {
+		return nil, err
+	}
 	val := secrets.NewValue(req.GetValue())
 	version, rev, err := s.store.SetSecret(ctx, app, name, func(v int) (secrets.Sealed, error) {
 		return s.keys.Seal(app, name, v, val)

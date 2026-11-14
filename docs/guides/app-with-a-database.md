@@ -207,7 +207,11 @@ armada secret set db backup-key --from-file backup-key.txt --no-rollout
 ```
 
 The URL is path-style: `https://ACCESS_KEY:SECRET_KEY@host[:port]/bucket[/prefix][?region=R]`.
-`http://` is accepted only for a private IP address.
+`http://` is accepted only for a private IP address. A bucket on a private
+IP address (a store on your own network) needs `cluster-admin` the first
+time: nodes reach it from their own addresses. After that, anyone who may
+deploy the app can keep it. A bucket by name over `https://` needs no extra
+role. Loopback and link-local addresses are never accepted.
 
 **Store `backup-key.txt` outside the cluster** (a password manager, a vault)
 and then delete the local file. The backups are encrypted with it, and
