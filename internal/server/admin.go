@@ -196,7 +196,8 @@ func (s *Server) ListRevisions(ctx context.Context, req *armadav1.ListRevisionsR
 // cancels a rollout in progress, or else returns to the revision before the
 // active one.
 func (s *Server) Rollback(ctx context.Context, req *armadav1.RollbackRequest) (*armadav1.RollbackResponse, error) {
-	if err := accessFrom(ctx).app(req.GetApp()); err != nil {
+	acc := accessFrom(ctx)
+	if err := acc.app(req.GetApp()); err != nil {
 		return nil, err
 	}
 	app, err := s.store.GetApp(ctx, req.GetApp())
@@ -207,6 +208,23 @@ func (s *Server) Rollback(ctx context.Context, req *armadav1.RollbackRequest) (*
 	if target == "" {
 		if target, err = s.previousRevision(ctx, app); err != nil {
 			return nil, err
+		}
+	}
+	if !acc.admin() {
+		// A rollback deploys a stored spec: it passes the same checks
+		// as Deploy, so it cannot bring back an NFS export or a node
+		// label a cluster-admin has since taken away.
+		rev, err := s.store.GetRevision(ctx, target)
+		if err != nil {
+			return nil, storeErr(err)
+		}
+		if rev.App == app.Name && rev.Spec != nil {
+			if err := acc.placement(rev.Spec); err != nil {
+				return nil, err
+			}
+			if err := s.checkNFSExports(ctx, acc, rev.Spec); err != nil {
+				return nil, err
+			}
 		}
 	}
 	rev, err := s.store.Rollback(ctx, app.Name, target, actor(ctx))

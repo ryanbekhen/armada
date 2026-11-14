@@ -94,3 +94,60 @@ func TestNFSExportsNeedClusterAdmin(t *testing.T) {
 	_, err = deployer.Deploy(ctx, &armadav1.DeployRequest{Spec: nfsApp("nginx:4", "/exports/other-team", false), Space: "a"})
 	wantCode(t, "a deployer changes the export", err, codes.PermissionDenied)
 }
+
+// A rollback deploys a stored spec, so it passes Deploy's checks: a
+// deployer cannot bring back an NFS export or a node label a cluster-admin
+// has since removed, and may still roll back to anything they could deploy.
+func TestRollbackKeepsDeployChecks(t *testing.T) {
+	t.Parallel()
+	c := newCluster(t)
+	ctx := c.ctx
+	if _, err := c.admin.CreateSpace(ctx, &armadav1.CreateSpaceRequest{Name: "a"}); err != nil {
+		t.Fatal(err)
+	}
+	c.addNode("n1", "127.0.0.1")
+	deployer := c.newUser("eve", &armadav1.RoleAssignment{Role: "deployer", Space: "a"})
+	settled := func(app, rev string) {
+		t.Helper()
+		c.eventually(app+" on "+rev, func() bool {
+			a := c.app(app)
+			return a.ActiveRevision == rev && a.TargetRevision == rev
+		})
+	}
+
+	nfs := []byte("name: api\nimage: nginx:1\nvolumes:\n  - name: d\n    path: /d\n    nfs:\n      server: 10.0.0.30\n      path: /exports/b\n")
+	r1, err := c.admin.Deploy(ctx, &armadav1.DeployRequest{Spec: nfs, Space: "a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.admin.Deploy(ctx, &armadav1.DeployRequest{Spec: []byte("name: api\nimage: nginx:2\n"), Space: "a"}); err != nil {
+		t.Fatal(err)
+	}
+	settled("api.a", "api.a--r2")
+	_, err = deployer.Rollback(ctx, &armadav1.RollbackRequest{App: "api.a", Revision: r1.GetRevision()})
+	wantCode(t, "a deployer rolls back to a removed export", err, codes.PermissionDenied)
+	if a := c.app("api.a"); a.TargetRevision != "api.a--r2" {
+		t.Errorf("target %s after a refused rollback", a.TargetRevision)
+	}
+	if _, err := c.admin.Rollback(ctx, &armadav1.RollbackRequest{App: "api.a", Revision: r1.GetRevision()}); err != nil {
+		t.Errorf("cluster-admin rollback: %v", err)
+	}
+
+	pl := []byte("name: gpu\nimage: nginx:1\nplacement:\n  require:\n    pool: [gpu]\n")
+	p1, err := c.admin.Deploy(ctx, &armadav1.DeployRequest{Spec: pl, Space: "a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.admin.Deploy(ctx, &armadav1.DeployRequest{Spec: []byte("name: gpu\nimage: nginx:2\n"), Space: "a"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := deployer.Deploy(ctx, &armadav1.DeployRequest{Spec: []byte("name: gpu\nimage: nginx:3\n"), Space: "a"}); err != nil {
+		t.Fatal(err)
+	}
+	settled("gpu.a", "gpu.a--r3")
+	_, err = deployer.Rollback(ctx, &armadav1.RollbackRequest{App: "gpu.a", Revision: p1.GetRevision()})
+	wantCode(t, "a deployer rolls back to a restricted label", err, codes.PermissionDenied)
+	if _, err := deployer.Rollback(ctx, &armadav1.RollbackRequest{App: "gpu.a", Revision: "gpu.a--r2"}); err != nil {
+		t.Errorf("rollback to a revision the deployer could deploy: %v", err)
+	}
+}

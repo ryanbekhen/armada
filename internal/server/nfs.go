@@ -13,8 +13,11 @@ import (
 
 // checkNFSExports lets only cluster-admins add an NFS export to an app, or
 // make one writable (ADR 0042): nodes mount exports from their own
-// addresses, so the NFS server cannot tell spaces apart. Deploys that keep
-// the exports the app already mounts are anyone's who may deploy it.
+// addresses, so the NFS server cannot tell spaces apart. Deploys and
+// rollbacks that keep the exports of the revision the app is heading to
+// (its target, else its active one) are anyone's who may deploy it, so a
+// cluster-admin's removal of an export cannot be undone by someone else,
+// not even while it is still rolling out.
 func (s *Server) checkNFSExports(ctx context.Context, acc access, app *spec.App) error {
 	if acc.admin() || !app.HasNFSVolumes() {
 		return nil
@@ -25,10 +28,11 @@ func (s *Server) checkNFSExports(ctx context.Context, acc access, app *spec.App)
 		return storeErr(err)
 	}
 	if err == nil {
-		for _, rn := range []string{a.ActiveRevision, a.TargetRevision} {
-			if rn == "" {
-				continue
-			}
+		rn := a.TargetRevision
+		if rn == "" {
+			rn = a.ActiveRevision
+		}
+		if rn != "" {
 			rev, err := s.store.GetRevision(ctx, rn)
 			if err != nil {
 				return storeErr(err)
