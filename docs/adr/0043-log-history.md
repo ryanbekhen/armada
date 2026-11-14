@@ -47,10 +47,15 @@ app logs` searches it across the cluster. No database is added.
   (`runtime.LogSearcher`), keeps the newest `limit` matching entries, and
   sends them oldest first with their time and replica. A node reads at
   most `maxSearchBytes` (1 GiB) per search, and stops after 30 seconds;
-  either way it says so in a final notice.
+  either way it says so in a final notice. It runs at most 2 searches at
+  once and answers more with a notice.
 - The leader merges the answers by time and sends the newest `limit`
   (default 500, at most 5000). With `--follow`, it then streams live
-  output as before.
+  output as before. It runs at most 4 searches at once, 2 per caller
+  (more are refused with `ResourceExhausted`), keeps at most 32 MiB of
+  one node's answer, and keeps only entries of the queried app's replicas
+  (the asked one, if any) inside the window, not more than a minute
+  ahead, so a node cannot answer for apps it never ran.
 - Access is the same as for logs today: a viewer of the app's space.
   The app must exist; history of a deleted app expires with retention.
 

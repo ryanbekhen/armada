@@ -195,9 +195,11 @@ type Agent struct {
 	restarts map[string]string // container ID -> reason
 	queues   queueLengths
 	// sb holds the network sandboxes job queues are read from (ADR 0040).
-	sb      sandboxes
-	notes   map[string]string // replica -> message
-	crashes map[string]crashLoop
+	sb    sandboxes
+	notes map[string]string // replica -> message
+	// searches bounds the log history searches this node runs at once.
+	searches chan struct{}
+	crashes  map[string]crashLoop
 	// holds holds the image pulls of held replicas (ADR 0023).
 	holds map[string]*heldPull
 	// contactUp is whether a session with the server is open, contactLost
@@ -303,6 +305,7 @@ func New(cfg Config) *Agent {
 		probes:    map[string]*probeWorker{},
 		restarts:  map[string]string{},
 		notes:     map[string]string{},
+		searches:  make(chan struct{}, maxSearches),
 		crashes:   map[string]crashLoop{},
 		holds:     map[string]*heldPull{},
 		fencedIDs: map[string]bool{},
