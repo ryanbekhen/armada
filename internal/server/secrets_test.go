@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"slices"
 	"strings"
 	"testing"
 
@@ -10,6 +11,8 @@ import (
 
 	armadav1 "github.com/ryanbekhen/armada/api/armada/v1"
 	"github.com/ryanbekhen/armada/internal/pki"
+	"github.com/ryanbekhen/armada/internal/runtime"
+	"github.com/ryanbekhen/armada/internal/runtime/fake"
 	"github.com/ryanbekhen/armada/internal/secrets"
 	"github.com/ryanbekhen/armada/internal/store"
 )
@@ -118,5 +121,70 @@ func TestSecretOfSpaceApp(t *testing.T) {
 	}
 	if _, err := c.admin.SetSecret(c.ctx, &armadav1.SetSecretRequest{App: "api.nowhere", Name: "db", Value: []byte("x")}); err == nil {
 		t.Error("secret in a space that does not exist")
+	}
+}
+
+// Rotating a secret by deleting it and setting it again never gives a new
+// replica the deleted value: versions continue after the deleted ones, and
+// the leader forgets what it had opened.
+func TestSecretDeleteThenSetRotates(t *testing.T) {
+	t.Parallel()
+	c := newCluster(t, withKeys(t))
+	d := c.addNode("n1", "10.0.0.11")
+	set := func(v string) int32 {
+		r, err := c.admin.SetSecret(c.ctx, &armadav1.SetSecretRequest{App: "rot", Name: "tok", Value: []byte(v)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return r.Version
+	}
+	set("OLD")
+	with := "kind: job\nname: rot\nimage: busybox:1\ncommand: [\"/x\"]\nenv:\n  - { name: TOK, secretRef: tok }\n"
+	c.deploy(with)
+	if _, err := c.admin.RunJob(c.ctx, &armadav1.RunJobRequest{Job: "rot"}); err != nil {
+		t.Fatal(err)
+	}
+	var rep string
+	c.eventually("run 1", func() bool {
+		r := c.runState("rot", 1)
+		rep = r.GetReplica()
+		return r.GetState() == store.RunRunning && containerCount(d) == 1
+	})
+	exitAttempt(t, []*fake.Driver{d}, rep, 0)
+	c.eventually("run 1 done", func() bool { return c.runState("rot", 1).GetState() == store.RunSucceeded })
+	c.deploy("kind: job\nname: rot\nimage: busybox:1\ncommand: [\"/x\"]\n")
+	if _, err := c.admin.DeleteSecret(c.ctx, &armadav1.DeleteSecretRequest{App: "rot", Name: "tok"}); err != nil {
+		t.Fatal(err)
+	}
+	if v := set("NEW"); v != 2 {
+		t.Errorf("version after delete and set = %d, want 2", v)
+	}
+	c.deploy(with)
+	if _, err := c.admin.RunJob(c.ctx, &armadav1.RunJobRequest{Job: "rot"}); err != nil {
+		t.Fatal(err)
+	}
+	c.eventually("run 2", func() bool {
+		r := c.runState("rot", 2)
+		rep = r.GetReplica()
+		if r.GetState() != store.RunRunning {
+			return false
+		}
+		cs, _ := d.List(c.ctx, nil)
+		return slices.ContainsFunc(cs, func(ct runtime.Container) bool { return ct.Labels[runtime.LabelReplica] == rep })
+	})
+	found := false
+	cs, _ := d.List(c.ctx, nil)
+	for _, ct := range cs {
+		if ct.Labels[runtime.LabelReplica] != rep {
+			continue
+		}
+		found = true
+		sp, _ := d.Spec(ct.ID)
+		if !slices.Contains(sp.Env, "TOK=NEW") {
+			t.Errorf("run 2 env %v, want TOK=NEW", sp.Env)
+		}
+	}
+	if !found {
+		t.Errorf("no container for run 2 (%s)", rep)
 	}
 }

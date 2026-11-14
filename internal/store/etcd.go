@@ -57,11 +57,14 @@ const (
 	pfxRevs     = "revs/" // revs/<app>/<seq, 10 digits>
 	pfxReplicas = "replicas/"
 	pfxSecrets  = "secrets/" // secrets/<app>/<name>/<version, 10 digits>
-	pfxDomains  = "domains/"
-	pfxAudit    = "audit/" // audit/<id, 20 digits>
-	pfxServers  = "servers/"
-	pfxRuns     = "runs/"    // runs/<job>/<seq, 10 digits>
-	pfxVolumes  = "volumes/" // volumes/<app>/<name>
+	// secretseq/<app>/<name> keeps the last version of a deleted secret,
+	// so a secret set again never reuses a version number.
+	pfxSecretSeq = "secretseq/"
+	pfxDomains   = "domains/"
+	pfxAudit     = "audit/" // audit/<id, 20 digits>
+	pfxServers   = "servers/"
+	pfxRuns      = "runs/"    // runs/<job>/<seq, 10 digits>
+	pfxVolumes   = "volumes/" // volumes/<app>/<name>
 	// Apps are keyed by their ID (spec.AppID): the name in the default
 	// space, <name>.<space> in others (ADR 0026). Spaces live under
 	// pfxSpaces (spaces.go).
@@ -2493,7 +2496,11 @@ func (s *Etcd) SetSecret(ctx context.Context, app, name string, seal func(int) (
 		if err != nil {
 			return err
 		}
-		version = latest[name] + 1
+		var floor int
+		if _, err := t.get(pfxSecretSeq+app+"/"+name, &floor); err != nil {
+			return err
+		}
+		version = max(latest[name], floor) + 1
 		sealed, err := seal(version)
 		if err != nil {
 			return err
@@ -2608,8 +2615,18 @@ func (s *Etcd) DeleteSecret(ctx context.Context, app, name, actor string) error 
 		if len(kvs) == 0 {
 			return notFoundf("secret %s/%s", app, name)
 		}
+		last := 0
 		for _, e := range kvs {
+			if _, v, ok := splitSecretKey(e.key, app); ok {
+				last = max(last, v)
+			}
 			t.delete(e.key)
+		}
+		// A version number names one value forever: the next set
+		// continues after the deleted ones (revisions and the leader's
+		// cache of opened secrets rely on it).
+		if err := t.put(pfxSecretSeq+app+"/"+name, last); err != nil {
+			return err
 		}
 		return t.audit(now, actor, "secret.delete", app, name)
 	})
