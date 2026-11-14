@@ -190,6 +190,7 @@ app writing them.
 | `LogExportFailing` events, `log endpoint answered 401` | Wrong token or user | `armada cluster set --log-token - < token` |
 | `log endpoint answered 400 ... structured metadata` | Loki older than 3, or structured metadata turned off | Upgrade Loki, or allow structured metadata |
 | `LogExportFailing`, `connection refused` or a timeout | The node cannot reach the endpoint | Check the node's outbound access to the endpoint |
+| `too many log searches are running` | Several searches with `--since` run at once (at most 4 on the cluster, 2 per person) | Wait for one to finish, or narrow it with `--until` or `--replica` |
 | `-f --grep` shows nothing | No new line matches yet | Leave out `--grep` to see that lines arrive |
 
 ## Next steps

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -30,6 +31,14 @@ const (
 	maxSearchLimit     = 5000
 	// searchWait is how long the leader waits for the nodes' answers.
 	searchWait = 45 * time.Second
+	// maxSearches and maxSearchesPerCaller bound the searches the leader
+	// runs at once; maxSearchNodeBytes bounds what it keeps of one node's
+	// answer.
+	maxSearches          = 4
+	maxSearchesPerCaller = 2
+	maxSearchNodeBytes   = 32 << 20
+	// searchSkew is how far in the future a node's entry may be stamped.
+	searchSkew = time.Minute
 	// Bounds of the cluster's log settings.
 	minLogRetention = time.Hour
 	maxLogRetention = 90 * 24 * time.Hour
@@ -233,6 +242,11 @@ func (s *Server) searchLogs(ctx context.Context, app string, req *armadav1.LogsR
 	if req.GetUntil() != nil && req.GetUntil().AsTime().Before(req.GetSince().AsTime()) {
 		return status.Error(codes.InvalidArgument, "--until is before --since")
 	}
+	release, err := s.searches.take(actor(ctx))
+	if err != nil {
+		return err
+	}
+	defer release()
 	q := &armadav1.LogQuery{App: app, Replica: req.GetReplica(), Container: req.GetContainer(),
 		Since: req.GetSince(), Until: req.GetUntil(), Grep: req.GetGrep(), Limit: limit}
 	ctx, cancel := context.WithTimeout(ctx, searchWait)
@@ -299,22 +313,77 @@ func (s *Server) searchNode(ctx context.Context, sess *session, q *armadav1.LogQ
 	case <-ctx.Done():
 		return nil, "did not answer in time"
 	}
-	var out []*armadav1.LogEntry
+	var (
+		out   []*armadav1.LogEntry
+		bytes int
+		full  string
+	)
 	for {
 		select {
 		case m, open := <-p.ch:
 			if !open {
-				return out, ""
+				return out, full
 			}
 			if m.GetError() != "" {
 				return out, m.GetError()
 			}
-			if len(m.GetData()) == 0 || m.GetTime() == nil || len(out) >= maxSearchLimit {
+			// A node's answer is trusted only for the query it was
+			// asked: the app's replicas, inside the window.
+			if len(m.GetData()) == 0 || m.GetTime() == nil || len(out) >= maxSearchLimit || !searchMatch(q, m, time.Now()) {
 				continue
 			}
+			if bytes+len(m.GetData()) > maxSearchNodeBytes {
+				full = "stopped at " + strconv.Itoa(maxSearchNodeBytes>>20) + " MiB of output; narrow the search"
+				continue
+			}
+			bytes += len(m.GetData())
 			out = append(out, &armadav1.LogEntry{Replica: m.GetReplica(), Stream: m.GetStream(), Data: m.GetData(), Time: m.GetTime()})
 		case <-ctx.Done():
 			return out, "did not finish in time"
 		}
 	}
+}
+
+// searchMatch reports whether a node's entry answers q: a replica of the
+// queried app (the asked one, if any) and a time inside the window, not
+// later than a minute from now.
+func searchMatch(q *armadav1.LogQuery, m *armadav1.LogPush, now time.Time) bool {
+	r := m.GetReplica()
+	if !strings.HasPrefix(r, q.GetApp()+"-") || (q.GetReplica() != "" && r != q.GetReplica()) {
+		return false
+	}
+	t := m.GetTime().AsTime()
+	if t.Before(q.GetSince().AsTime()) || t.After(now.Add(searchSkew)) {
+		return false
+	}
+	return q.GetUntil() == nil || !t.After(q.GetUntil().AsTime())
+}
+
+// searchSlots bounds the history searches the leader runs at once, in
+// total and per caller.
+type searchSlots struct {
+	mu     sync.Mutex
+	total  int
+	caller map[string]int
+}
+
+func (s *searchSlots) take(who string) (func(), error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.caller == nil {
+		s.caller = map[string]int{}
+	}
+	if s.total >= maxSearches || s.caller[who] >= maxSearchesPerCaller {
+		return nil, status.Error(codes.ResourceExhausted, "too many log searches are running; try again shortly")
+	}
+	s.total++
+	s.caller[who]++
+	return func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		s.total--
+		if s.caller[who]--; s.caller[who] <= 0 {
+			delete(s.caller, who)
+		}
+	}, nil
 }

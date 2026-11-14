@@ -159,6 +159,7 @@ type Server struct {
 	mu       sync.Mutex
 	sessions map[string]*session
 	logs     *logRouter
+	searches searchSlots
 	execs    *execRouter
 	volumes  *volumeRouter
 	usage    *usageStore

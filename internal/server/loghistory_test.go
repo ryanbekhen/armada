@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -247,5 +248,68 @@ func TestLogExport(t *testing.T) {
 		if strings.Contains(fmt.Sprint(e), "tok-9") {
 			t.Errorf("token in the audit log: %v", e)
 		}
+	}
+}
+
+// A node's search answer counts only for the query it was asked: the
+// app's replicas (the asked one, if any), inside the window.
+func TestSearchMatch(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+	q := &armadav1.LogQuery{App: "web.a", Since: timestamppb.New(now.Add(-time.Hour)), Until: timestamppb.New(now)}
+	at := func(r string, d time.Duration) *armadav1.LogPush {
+		return &armadav1.LogPush{Replica: r, Time: timestamppb.New(now.Add(d)), Data: []byte("x")}
+	}
+	for _, c := range []struct {
+		m    *armadav1.LogPush
+		want bool
+	}{
+		{at("web.a-r1-abcde", -time.Minute), true},
+		{at("billing.b-r9-zzzzz", -time.Minute), false},
+		{at("web.a-r1-abcde", -2*time.Hour), false},
+		{at("web.a-r1-abcde", time.Minute), false},
+	} {
+		if got := searchMatch(q, c.m, now); got != c.want {
+			t.Errorf("%s at %v: %v, want %v", c.m.GetReplica(), c.m.GetTime().AsTime().Sub(now), got, c.want)
+		}
+	}
+	q.Until = nil
+	if !searchMatch(q, at("web.a-r1-abcde", 30*time.Second), now) || searchMatch(q, at("web.a-r1-abcde", 2*time.Minute), now) {
+		t.Error("without --until, entries may be at most a minute ahead")
+	}
+	q.Replica = "web.a-r2-fghij"
+	if searchMatch(q, at("web.a-r1-abcde", -time.Minute), now) {
+		t.Error("an entry of another replica than the asked one")
+	}
+}
+
+// The leader runs a bounded number of searches, in total and per caller.
+func TestSearchSlots(t *testing.T) {
+	t.Parallel()
+	var s searchSlots
+	var release []func()
+	for range maxSearchesPerCaller {
+		r, err := s.take("user:a")
+		if err != nil {
+			t.Fatal(err)
+		}
+		release = append(release, r)
+	}
+	if _, err := s.take("user:a"); status.Code(err) != codes.ResourceExhausted {
+		t.Errorf("caller over its limit: %v", err)
+	}
+	for i := maxSearchesPerCaller; i < maxSearches; i++ {
+		r, err := s.take("user:b" + strconv.Itoa(i))
+		if err != nil {
+			t.Fatal(err)
+		}
+		release = append(release, r)
+	}
+	if _, err := s.take("user:c"); status.Code(err) != codes.ResourceExhausted {
+		t.Errorf("over the total: %v", err)
+	}
+	release[0]()
+	if _, err := s.take("user:c"); err != nil {
+		t.Errorf("after a release: %v", err)
 	}
 }

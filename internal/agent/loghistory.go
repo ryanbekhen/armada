@@ -20,6 +20,9 @@ const (
 	searchTimeout  = 30 * time.Second
 	// maxSearchLimit bounds the entries one search returns.
 	maxSearchLimit = 5000
+	// maxSearches bounds the searches the node runs at once: each may
+	// hold its matching entries in memory.
+	maxSearches = 2
 )
 
 // logSettings holds the latest Assignment.logs.
@@ -57,6 +60,13 @@ func (a *Agent) pruneLogs(ctx context.Context) {
 // serveSearch answers a search of this node's log history; finish closes
 // the push stream with an optional notice.
 func (a *Agent) serveSearch(ctx context.Context, req *armadav1.LogRequest, push armadav1.AgentService_PushLogsClient, finish func(string)) {
+	select {
+	case a.searches <- struct{}{}:
+		defer func() { <-a.searches }()
+	default:
+		finish("busy with other log searches; try again shortly")
+		return
+	}
 	ls, ok := a.cfg.Driver.(runtime.LogSearcher)
 	if !ok {
 		finish("this node keeps no log history")
