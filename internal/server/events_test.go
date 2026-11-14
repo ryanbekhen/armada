@@ -259,3 +259,51 @@ func TestEventSlowFollower(t *testing.T) {
 		t.Errorf("follower got %d events before being dropped", n)
 	}
 }
+
+// A space created again under a deleted space's name, by someone else,
+// shows none of the earlier space's events; cluster-admins still see them.
+func TestRecreatedSpaceHidesEarlierEvents(t *testing.T) {
+	t.Parallel()
+	c := newCluster(t)
+	ctx := c.ctx
+	c.addNode("n1", "10.0.0.11")
+	owner := c.newUser("olivia", &armadav1.RoleAssignment{Role: "space-creator"})
+	other := c.newUser("mallory", &armadav1.RoleAssignment{Role: "space-creator"})
+	if _, err := owner.CreateSpace(ctx, &armadav1.CreateSpaceRequest{Name: "team"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := owner.Deploy(ctx, &armadav1.DeployRequest{Spec: []byte("name: api\nimage: example/private-api:7\n"), Space: "team"}); err != nil {
+		t.Fatal(err)
+	}
+	c.eventually("api.team running", func() bool { return len(c.running("api.team")) == 1 })
+	if _, err := owner.RemoveApp(ctx, &armadav1.RemoveAppRequest{App: "api.team"}); err != nil {
+		t.Fatal(err)
+	}
+	c.eventually("api.team gone", func() bool {
+		_, err := c.admin.GetAppSpec(ctx, &armadav1.GetAppSpecRequest{App: "api.team"})
+		return err != nil
+	})
+	if _, err := owner.DeleteSpace(ctx, &armadav1.DeleteSpaceRequest{Name: "team"}); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(10 * time.Millisecond) // the space's creation time has milliseconds
+	if _, err := other.CreateSpace(ctx, &armadav1.CreateSpaceRequest{Name: "team"}); err != nil {
+		t.Fatal(err)
+	}
+	st, err := other.Events(ctx, &armadav1.EventsRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range collect(t, st) {
+		if e.GetApp() == "api.team" {
+			t.Errorf("mallory sees the earlier space's event %s %s", e.GetReason(), e.GetMessage())
+		}
+	}
+	st, err = c.admin.Events(ctx, &armadav1.EventsRequest{App: "api.team"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(collect(t, st)) == 0 {
+		t.Error("cluster-admin lost the earlier space's events")
+	}
+}

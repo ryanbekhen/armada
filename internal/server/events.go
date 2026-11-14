@@ -15,6 +15,7 @@ import (
 
 	armadav1 "github.com/ryanbekhen/armada/api/armada/v1"
 	"github.com/ryanbekhen/armada/internal/alert"
+	"github.com/ryanbekhen/armada/internal/spec"
 	"github.com/ryanbekhen/armada/internal/store"
 )
 
@@ -254,11 +255,18 @@ func (s *Server) Events(req *armadav1.EventsRequest, stream armadav1.AdminServic
 	if req.GetNode() != "" && !acc.admin() {
 		return status.Error(codes.PermissionDenied, "listing a node's events needs cluster-admin")
 	}
+	var created map[string]time.Time
+	if !acc.admin() {
+		var err error
+		if created, err = s.spacesCreated(ctx); err != nil {
+			return err
+		}
+	}
 	match := func(e store.Event) bool {
 		// Others see only events of their spaces' apps; events of the
 		// cluster (nodes, servers) have no app.
 		return (req.GetApp() == "" || e.App == req.GetApp()) && (req.GetNode() == "" || e.Node == req.GetNode()) &&
-			(acc.admin() || (e.App != "" && acc.sees(e.App)))
+			(acc.admin() || (e.App != "" && acc.sees(e.App) && !beforeSpace(created, e.App, e.Last)))
 	}
 	var sub chan store.Event
 	if req.GetFollow() {
@@ -313,4 +321,33 @@ func eventInfo(e store.Event) *armadav1.EventInfo {
 // reconcile pass saw.
 func (s *Server) eventKeep() int {
 	return min(max(eventKeep, eventsPerObject*int(s.clusterSize.Load())), maxEventKeep)
+}
+
+// spacesCreated returns when each space other than default was created. A
+// space name can be deleted and created again, by someone else: history
+// kept under its apps' IDs (events, log history) from before then belongs
+// to the earlier space and is not shown to anyone but cluster-admins.
+func (s *Server) spacesCreated(ctx context.Context) (map[string]time.Time, error) {
+	sps, err := s.store.ListSpaces(ctx)
+	if err != nil {
+		return nil, storeErr(err)
+	}
+	out := make(map[string]time.Time, len(sps))
+	for _, sp := range sps {
+		if sp.Name != spec.DefaultSpace && !sp.CreatedAt.IsZero() {
+			out[sp.Name] = sp.CreatedAt
+		}
+	}
+	return out, nil
+}
+
+// beforeSpace reports whether t, a time in app's history, is from before
+// its space was created.
+func beforeSpace(created map[string]time.Time, app string, t time.Time) bool {
+	space, _, ok := spec.SplitAppID(app)
+	if !ok {
+		return false
+	}
+	c, ok := created[space]
+	return ok && t.Before(c)
 }
