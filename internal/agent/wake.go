@@ -21,6 +21,9 @@ const (
 	// maxWaiting bounds the requests held on one node for apps that are
 	// starting (ADR 0021).
 	maxWaiting = 1000
+	// maxWaitingPerApp bounds those of one app, so one app that never
+	// starts cannot keep every other app on the node asleep.
+	maxWaitingPerApp = 100
 	// wakeEvery is how often a waiting app is asked for again, in case a
 	// wake was lost or the leader changed.
 	wakeEvery = 5 * time.Second
@@ -31,12 +34,39 @@ type waker struct {
 	slots chan struct{}
 	next  atomic.Uint64 // round robin over an app's servers
 
-	mu   sync.Mutex
-	sent map[string]time.Time // app -> when a wake was last sent
+	mu      sync.Mutex
+	sent    map[string]time.Time // app -> when a wake was last sent
+	waiting map[string]int       // app -> requests held
 }
 
 func newWaker() *waker {
-	return &waker{slots: make(chan struct{}, maxWaiting), sent: map[string]time.Time{}}
+	return &waker{slots: make(chan struct{}, maxWaiting), sent: map[string]time.Time{}, waiting: map[string]int{}}
+}
+
+// hold takes a place for a request of app: one of the node's and one of
+// the app's own.
+func (w *waker) hold(app string) bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.waiting[app] >= maxWaitingPerApp {
+		return false
+	}
+	select {
+	case w.slots <- struct{}{}:
+	default:
+		return false
+	}
+	w.waiting[app]++
+	return true
+}
+
+func (w *waker) release(app string) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	<-w.slots
+	if w.waiting[app]--; w.waiting[app] <= 0 {
+		delete(w.waiting, app)
+	}
 }
 
 // serveWake listens on the wake socket until ctx ends. The socket is
@@ -78,14 +108,13 @@ func (a *Agent) wakeHandler() http.Handler {
 			http.Error(w, "bad request", http.StatusBadRequest)
 			return
 		}
-		select {
-		case a.wakes.slots <- struct{}{}:
-			defer func() { <-a.wakes.slots }()
-		default:
+		if !a.wakes.hold(app) {
+			a.wake(app) // still ask: the request's app starts all the same
 			w.Header().Set("Retry-After", "5")
 			http.Error(w, "too many requests are waiting for apps to start", http.StatusServiceUnavailable)
 			return
 		}
+		defer a.wakes.release(app)
 		ctx, cancel := context.WithTimeout(r.Context(), proxy.WakeTimeout)
 		defer cancel()
 		addr, ok := a.awaitServer(ctx, app)
