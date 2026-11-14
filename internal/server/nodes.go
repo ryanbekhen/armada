@@ -12,6 +12,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -97,24 +98,42 @@ func (l *limiter) allow(now time.Time) bool {
 }
 
 // joinService serves only Join, on its own listener.
+// Bounds of the join listener's connections: a join is one short RPC.
+const (
+	joinMaxConns          = 256
+	joinMaxConnsPerSource = 16
+	joinIdle              = 15 * time.Second
+	joinMaxAge            = 2 * time.Minute
+)
+
 type joinService struct {
 	armadav1.UnimplementedJoinServiceServer
 	s *Server
 }
 
 func (s *Server) serveJoin(ctx context.Context) error {
-	lis := s.joinLis
-	if lis == nil {
+	l := s.joinLis
+	if l == nil {
 		var err error
-		if lis, err = net.Listen("tcp", s.joinAddr); err != nil {
+		if l, err = net.Listen("tcp", s.joinAddr); err != nil {
 			return fmt.Errorf("join listener: %w", err)
 		}
+	}
+	// Anyone who reaches the address may connect: bound the connections
+	// before TLS, and close idle or old ones, so held connections cannot
+	// use up the server process's descriptors (the token buckets below
+	// only see RPCs).
+	lis := newConnLimit(l, joinMaxConns, joinMaxConnsPerSource)
+	idle := joinIdle
+	if s.joinIdle > 0 {
+		idle = s.joinIdle
 	}
 	g := grpc.NewServer(
 		grpc.Creds(credentials.NewTLS(s.joinTLS)),
 		grpc.MaxRecvMsgSize(64<<10),
 		grpc.MaxConcurrentStreams(4),
 		grpc.ConnectionTimeout(10*time.Second),
+		grpc.KeepaliveParams(keepalive.ServerParameters{MaxConnectionIdle: idle, MaxConnectionAge: joinMaxAge, MaxConnectionAgeGrace: 10 * time.Second, Time: idle, Timeout: 10 * time.Second}),
 		grpc.UnaryInterceptor(func(ctx context.Context, req any, info *grpc.UnaryServerInfo, h grpc.UnaryHandler) (any, error) {
 			if info.FullMethod != armadav1.JoinService_Join_FullMethodName && info.FullMethod != armadav1.JoinService_JoinServer_FullMethodName {
 				return nil, status.Error(codes.PermissionDenied, "only joining is served here")
