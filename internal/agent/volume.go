@@ -349,16 +349,24 @@ func (r *chunkReader) Read(p []byte) (int, error) {
 // then its contents with relative names. Links are stored, never followed;
 // sockets, devices, and pipes are left out.
 func writeArchive(ctx context.Context, dir string, w io.Writer) error {
+	// Every lookup goes through a handle on the volume's directory: the
+	// app may keep running and swap an entry for a link while the walk
+	// is under way, and os.Root refuses to resolve anything outside dir.
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return fmt.Errorf("archive volume: %w", err)
+	}
+	defer root.Close()
 	zw := gzip.NewWriter(w)
 	tw := tar.NewWriter(zw)
-	err := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+	err = fs.WalkDir(root.FS(), ".", func(p string, _ fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		fi, err := d.Info()
+		fi, err := root.Lstat(p)
 		if err != nil {
 			return err
 		}
@@ -368,7 +376,7 @@ func writeArchive(ctx context.Context, dir string, w io.Writer) error {
 		}
 		link := ""
 		if mode&fs.ModeSymlink != 0 {
-			if link, err = os.Readlink(p); err != nil {
+			if link, err = root.Readlink(p); err != nil {
 				return err
 			}
 		}
@@ -376,12 +384,8 @@ func writeArchive(ctx context.Context, dir string, w io.Writer) error {
 		if err != nil {
 			return err
 		}
-		rel, err := filepath.Rel(dir, p)
-		if err != nil {
-			return err
-		}
-		hdr.Name = filepath.ToSlash(rel)
-		if mode.IsDir() && rel != "." {
+		hdr.Name = p
+		if mode.IsDir() && p != "." {
 			hdr.Name += "/"
 		}
 		hdr.Uname, hdr.Gname = "", ""
@@ -391,7 +395,7 @@ func writeArchive(ctx context.Context, dir string, w io.Writer) error {
 		if !mode.IsRegular() {
 			return nil
 		}
-		f, err := os.Open(p) //nolint:gosec // walking the volume's own directory
+		f, err := root.Open(p) // cannot resolve outside dir
 		if err != nil {
 			return err
 		}
@@ -611,18 +615,30 @@ func (a *Agent) measureVolumes(ctx context.Context) []*armadav1.VolumeUsage {
 			if !v.IsDir() || !spec.ValidName(v.Name()) {
 				continue // leftovers of a restore, among others
 			}
-			var size int64
-			_ = filepath.WalkDir(filepath.Join(root, app.Name(), v.Name()), func(_ string, d fs.DirEntry, err error) error {
-				if err != nil || ctx.Err() != nil {
-					return ctx.Err()
-				}
-				if fi, err := d.Info(); err == nil && fi.Mode().IsRegular() {
-					size += fi.Size()
-				}
-				return nil
-			})
+			size := volumeSize(ctx, filepath.Join(root, app.Name(), v.Name()))
 			out = append(out, &armadav1.VolumeUsage{App: app.Name(), Volume: v.Name(), Bytes: size})
 		}
 	}
 	return out
+}
+
+// volumeSize adds up the regular files in dir, walking through a handle on
+// dir so that links the app swaps in cannot send the walk elsewhere.
+func volumeSize(ctx context.Context, dir string) int64 {
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return 0
+	}
+	defer root.Close()
+	var size int64
+	_ = fs.WalkDir(root.FS(), ".", func(_ string, d fs.DirEntry, err error) error {
+		if err != nil || ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if fi, err := d.Info(); err == nil && fi.Mode().IsRegular() {
+			size += fi.Size()
+		}
+		return nil
+	})
+	return size
 }

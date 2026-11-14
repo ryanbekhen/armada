@@ -5,6 +5,8 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/rand"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -256,5 +258,80 @@ func TestChownVolumeOnlyAsRoot(t *testing.T) {
 	// As root a bad owner is still an error (it never passes the spec).
 	if err := chownVolumeAs(dir, "x", 0); err == nil {
 		t.Error("bad owner accepted as root")
+	}
+}
+
+// swapWriter replaces a directory of the volume with a link to another
+// directory once some output was written, like an app that keeps running
+// during a backup.
+type swapWriter struct {
+	w       io.Writer
+	n       int
+	dir, to string
+	done    bool
+	err     error
+}
+
+func (s *swapWriter) Write(p []byte) (int, error) {
+	s.n += len(p)
+	if !s.done && s.n > 32<<10 {
+		s.done = true
+		if err := os.RemoveAll(s.dir); err != nil {
+			s.err = err
+		} else {
+			s.err = os.Symlink(s.to, s.dir)
+		}
+	}
+	return s.w.Write(p)
+}
+
+func TestArchiveStaysInVolume(t *testing.T) {
+	t.Parallel()
+	vol := filepath.Join(t.TempDir(), "vol")
+	outside := filepath.Join(t.TempDir(), "outside")
+	for _, d := range []string{filepath.Join(vol, "z"), outside} {
+		if err := os.MkdirAll(d, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	big := make([]byte, 2<<20)
+	if _, err := rand.Read(big); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(vol, "a"), big, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(outside, "secret"), []byte("OUTSIDE"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	sw := &swapWriter{w: &buf, dir: filepath.Join(vol, "z"), to: outside}
+	werr := writeArchive(context.Background(), vol, sw)
+	if !sw.done || sw.err != nil {
+		t.Fatalf("swap: done=%v err=%v", sw.done, sw.err)
+	}
+	if werr == nil {
+		// The archive may end early with an error; if it completed, it
+		// must still hold nothing from outside the volume.
+		zr, err := gzip.NewReader(&buf)
+		if err != nil {
+			t.Fatal(err)
+		}
+		tr := tar.NewReader(zr)
+		for {
+			h, err := tr.Next()
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.HasPrefix(h.Name, "z/") {
+				t.Errorf("archive holds %s from outside the volume", h.Name)
+			}
+		}
+	}
+	if got := volumeSize(context.Background(), vol); got != int64(len(big)) {
+		t.Errorf("volume size %d counts files outside the volume", got)
 	}
 }
