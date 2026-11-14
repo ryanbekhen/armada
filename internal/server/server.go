@@ -111,6 +111,9 @@ type Config struct {
 
 	// Name is this control plane node's name.
 	Name string
+	// JoinIdle closes idle connections to the join listener sooner than
+	// its default of 15 seconds (tests).
+	JoinIdle time.Duration
 	// AlertHTTP, if set, sends notices to HTTP alert channels (tests;
 	// ADR 0045).
 	AlertHTTP *http.Client
@@ -174,6 +177,7 @@ type Server struct {
 	// alerts delivers notices about events (ADR 0045).
 	alerts    *alerter
 	alertHTTP *http.Client
+	joinIdle  time.Duration
 	jobRuns   *prometheus.CounterVec
 	// jobRetryBase is the delay before a job's first retry.
 	jobRetryBase time.Duration
@@ -356,6 +360,7 @@ func New(cfg Config) (*Server, error) {
 		events:    newEventRecorder(),
 		alerts:    newAlerter(),
 		alertHTTP: cfg.AlertHTTP,
+		joinIdle:  cfg.JoinIdle,
 		jobRuns:   newJobRunsCounter(),
 
 		certs:          cfg.Certs,
@@ -382,6 +387,8 @@ func New(cfg Config) (*Server, error) {
 		grpc.UnaryInterceptor(s.unaryAuth),
 		grpc.StreamInterceptor(s.streamAuth),
 		grpc.MaxRecvMsgSize(4<<20),
+		// A peer that does not finish the TLS handshake is dropped soon.
+		grpc.ConnectionTimeout(10*time.Second),
 		grpc.KeepaliveParams(keepalive.ServerParameters{Time: 30 * time.Second, Timeout: 10 * time.Second}),
 		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{MinTime: 10 * time.Second, PermitWithoutStream: true}),
 	)
