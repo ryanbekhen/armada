@@ -52,7 +52,7 @@ func TestRenderTCPBindsOnlyTheGateway(t *testing.T) {
 	t.Parallel()
 	cfg, opts := tcpConfig(), callersOptions()
 	out := string(render(cfg, assignLayout(nil, cfg, opts.node()), opts))
-	want := map[string]bool{":80": true, ":443": true, "10.0.0.2:8404": true, "10.120.0.1:80": true, "10.120.0.1:5432": true, "10.120.0.1:6379": true}
+	want := map[string]bool{":80": true, ":443": true, "127.0.0.1:8404": true, "10.120.0.1:80": true, "10.120.0.1:5432": true, "10.120.0.1:6379": true}
 	for _, m := range bindLine.FindAllStringSubmatch(out, -1) {
 		if !want[m[1]] {
 			t.Errorf("unexpected bind %q", m[1])
@@ -172,7 +172,7 @@ func FuzzRenderTCP(f *testing.F) {
 				t.Fatalf("unbalanced ACL braces in %q", line)
 			}
 			if strings.HasPrefix(line, "    bind ") && line != "    bind :80" && !strings.HasPrefix(line, "    bind :443 ") &&
-				line != "    bind 10.0.0.2:8404" && line != "    bind 10.120.0.1:80" && line != fmt.Sprintf("    bind 10.120.0.1:%d", port) {
+				line != "    bind 127.0.0.1:8404" && line != "    bind 10.120.0.1:80" && line != fmt.Sprintf("    bind 10.120.0.1:%d", port) {
 				t.Fatalf("unexpected bind %q", line)
 			}
 			if strings.Contains(line, "sess.capp) -m str") && !strings.HasSuffix(line, "-m str "+caller+" }") {

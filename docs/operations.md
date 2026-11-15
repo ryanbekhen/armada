@@ -96,7 +96,9 @@ leader.
 **Network:** control plane nodes must reach each other on the private
 network on ports 2379 and 2380 (etcd, mutual TLS) and 7443/7444 (API and
 join listener). Allow these between servers only; nothing on the public
-interface.
+interface. Each node's HAProxy serves its own statistics in Prometheus
+format at `http://127.0.0.1:8404/metrics`, on the node's loopback address
+only, since they name every space's apps; scrape them from the node itself.
 
 ### Adding a server
 

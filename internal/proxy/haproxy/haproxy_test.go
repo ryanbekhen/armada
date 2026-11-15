@@ -236,11 +236,11 @@ func TestRenderNoPublicMetrics(t *testing.T) {
 	t.Parallel()
 
 	out := string(render(proxy.Config{}, Layout{}, renderOptions{PrivateIP: "fd00::2"}))
-	if !strings.Contains(out, "bind [fd00::2]:8404") {
+	if !strings.Contains(out, "frontend metrics\n    bind 127.0.0.1:8404\n") {
 		t.Errorf("metrics bind missing:\n%s", out)
 	}
-	if strings.Contains(out, "bind :8404") || strings.Contains(out, "bind *:8404") {
-		t.Error("metrics bound on all interfaces")
+	if strings.Contains(out, ":8404") && strings.Count(out, ":8404") != 1 {
+		t.Error("metrics bound beyond the loopback address")
 	}
 	if strings.Contains(string(render(proxy.Config{}, Layout{}, renderOptions{})), "frontend metrics") {
 		t.Error("metrics frontend rendered without a private IP")
