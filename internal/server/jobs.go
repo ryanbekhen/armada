@@ -61,6 +61,7 @@ func (s *Server) reconcileJobs(ctx context.Context, rc *reconcileRun, jobs []sto
 	for _, r := range runs {
 		byJob[r.Job] = append(byJob[r.Job], r)
 	}
+	rc.queueNodes = s.placeQueues(ctx, rc, jobs, nodes, revs)
 	for _, job := range jobs {
 		if all, err = s.reconcileJob(ctx, rc, job, byJob[job.Name], nodes, all, revs); err != nil {
 			return nil, fmt.Errorf("job %s: %w", job.Name, err)
@@ -74,7 +75,7 @@ func (s *Server) reconcileJob(ctx context.Context, rc *reconcileRun, job store.A
 	if err != nil {
 		return nil, err
 	}
-	runs = s.triggerJob(ctx, rc, job, runs, nodes, revs)
+	runs = s.triggerJob(ctx, rc, job, runs, revs)
 	for i := range runs {
 		r := &runs[i]
 		switch {

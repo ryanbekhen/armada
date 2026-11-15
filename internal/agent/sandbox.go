@@ -19,13 +19,17 @@ import (
 
 // Network sandboxes for job queue triggers (ADR 0040).
 const (
-	// maxSandboxes bounds the sandboxes one node keeps.
-	maxSandboxes = 64
+	// maxSandboxes bounds the sandboxes one node keeps; the leader places
+	// no more on a node.
+	maxSandboxes = spec.MaxNodeQueueSandboxes
 	// sandboxTick is how often the agent checks for sandboxes to make,
 	// remove, or read.
 	sandboxTick = time.Second
-	// maxSandboxReads bounds the readings that run at once.
-	maxSandboxReads = 8
+	// maxSandboxReads bounds the readings that run at once, and
+	// maxSandboxReadsPerSpace those of one space's jobs, so one space's
+	// slow brokers cannot hold every reading.
+	maxSandboxReads         = 8
+	maxSandboxReadsPerSpace = 2
 )
 
 // sandboxes is what the agent knows of its network sandboxes: the ones the
@@ -37,6 +41,14 @@ type sandboxes struct {
 	want map[string]*armadav1.QueueSandbox
 	have map[string]*sandboxState
 	kick chan struct{}
+	// dropped are the jobs of the last assignment past maxSandboxes, for
+	// the leader to know (UsageReport.dropped_sandboxes).
+	dropped []string
+	// running and spaces count the readings that run, in total and by
+	// space; reads waits for them (tests).
+	running int
+	spaces  map[string]int
+	reads   sync.WaitGroup
 }
 
 type sandboxState struct {
@@ -61,20 +73,36 @@ func (a *Agent) sandboxesOn() bool {
 
 // setSandboxes takes the sandboxes of an assignment. Entries are checked
 // again: the job must be a valid ID and the queue a type the agent reads.
+// Past maxSandboxes it keeps them one space at a time, like the leader
+// places them, and reports the rest as dropped.
 func (a *Agent) setSandboxes(list []*armadav1.QueueSandbox) {
-	want := map[string]*armadav1.QueueSandbox{}
+	valid := map[string]*armadav1.QueueSandbox{}
 	for _, s := range list {
 		p := s.GetProbe()
 		switch {
-		case len(want) == maxSandboxes:
+		case len(valid) == maxDroppedSandboxes+maxSandboxes:
 		case !spec.ValidAppID(s.GetJob()) || runtime.CheckSandboxID(s.GetJob()) != nil:
 		case p.GetType() != spec.ScaleRedis && p.GetType() != spec.ScaleRabbitMQ:
 		default:
-			want[s.GetJob()] = s
+			valid[s.GetJob()] = s
 		}
 	}
+	want := map[string]*armadav1.QueueSandbox{}
+	var dropped []string
+	for _, id := range spec.FairOrder(slices.Sorted(maps.Keys(valid))) {
+		if len(want) < maxSandboxes {
+			want[id] = valid[id]
+		} else {
+			dropped = append(dropped, id)
+		}
+	}
+	if len(dropped) > 0 {
+		a.log.Warn("queue sandboxes past what the node keeps", "kept", len(want), "dropped", len(dropped))
+	}
+	slices.Sort(dropped)
 	a.sb.mu.Lock()
 	a.sb.want = want
+	a.sb.dropped = dropped
 	a.sb.mu.Unlock()
 	select {
 	case a.sb.kick <- struct{}{}:
@@ -178,17 +206,22 @@ func (a *Agent) syncSandboxes(ctx context.Context) {
 	a.readSandboxes(ctx, want)
 }
 
-// readSandboxes starts the readings that are due, at most maxSandboxReads at
-// a time, and waits for them.
+// readSandboxes starts the readings that are due, longest waiting first, at
+// most maxSandboxReads at a time and maxSandboxReadsPerSpace of one space,
+// and returns without waiting for them: a slow reading holds only its own
+// slot, and the next round starts others as slots free up.
 func (a *Agent) readSandboxes(ctx context.Context, want map[string]*armadav1.QueueSandbox) {
 	now := time.Now()
 	type job struct {
 		id    string
+		space string
 		probe *armadav1.QueueProbe
 		every time.Duration
+		next  time.Time
 	}
 	var due []job
 	a.sb.mu.Lock()
+	defer a.sb.mu.Unlock()
 	for id, w := range want {
 		st := a.sb.have[id]
 		if st == nil || st.ip == "" || st.busy {
@@ -201,20 +234,31 @@ func (a *Agent) readSandboxes(ctx context.Context, want map[string]*armadav1.Que
 		if now.Before(st.next) {
 			continue
 		}
-		st.busy = true
-		due = append(due, job{id: id, probe: w.GetProbe(), every: a.sandboxInterval(w)})
+		sp, _, _ := spec.SplitAppID(id)
+		due = append(due, job{id: id, space: sp, probe: w.GetProbe(), every: a.sandboxInterval(w), next: st.next})
 	}
-	a.sb.mu.Unlock()
-	slices.SortFunc(due, func(x, y job) int { return cmp.Compare(x.id, y.id) })
-	limit := make(chan struct{}, maxSandboxReads)
-	var wg sync.WaitGroup
+	slices.SortFunc(due, func(x, y job) int { return cmp.Or(x.next.Compare(y.next), cmp.Compare(x.id, y.id)) })
+	if a.sb.spaces == nil {
+		a.sb.spaces = map[string]int{}
+	}
 	for _, j := range due {
-		limit <- struct{}{}
-		wg.Go(func() {
-			defer func() { <-limit }()
+		if a.sb.running >= maxSandboxReads {
+			break
+		}
+		if a.sb.spaces[j.space] >= maxSandboxReadsPerSpace {
+			continue // the space's other readings first
+		}
+		a.sb.have[j.id].busy = true
+		a.sb.running++
+		a.sb.spaces[j.space]++
+		a.sb.reads.Go(func() {
 			n, err := a.readSandbox(ctx, j.id, j.probe)
 			a.sb.mu.Lock()
 			defer a.sb.mu.Unlock()
+			a.sb.running--
+			if a.sb.spaces[j.space]--; a.sb.spaces[j.space] <= 0 {
+				delete(a.sb.spaces, j.space)
+			}
 			st := a.sb.have[j.id]
 			if st == nil {
 				return
@@ -236,7 +280,6 @@ func (a *Agent) readSandboxes(ctx context.Context, want map[string]*armadav1.Que
 			st.reading++
 		})
 	}
-	wg.Wait()
 }
 
 func sameProbe(x, y *armadav1.QueueProbe) bool {
@@ -268,6 +311,17 @@ func (a *Agent) readSandbox(ctx context.Context, id string, p *armadav1.QueuePro
 		return queuelen.RabbitMQQueueLength(ctx, dial, p.GetUrl(), p.GetName())
 	}
 	return 0, errors.New("unknown queue type")
+}
+
+// maxDroppedSandboxes bounds the dropped jobs a node reports.
+const maxDroppedSandboxes = 64
+
+// droppedSandboxes returns the jobs of the last assignment the node does not
+// keep, past maxSandboxes.
+func (a *Agent) droppedSandboxes() []string {
+	a.sb.mu.Lock()
+	defer a.sb.mu.Unlock()
+	return slices.Clone(a.sb.dropped)
 }
 
 // sandboxReport is every sandbox with its address and, when one is recent,

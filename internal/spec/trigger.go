@@ -1,6 +1,7 @@
 package spec
 
 import (
+	"maps"
 	"slices"
 	"time"
 )
@@ -35,7 +36,33 @@ const (
 	MaxPollingInterval     = 10 * time.Minute
 	// MaxJobParallelism bounds the runs a trigger keeps at once.
 	MaxJobParallelism = 50
+	// MaxNodeQueueSandboxes bounds the network sandboxes one node keeps
+	// to read job queues from: the leader places no more on a node, and
+	// the agent keeps no more.
+	MaxNodeQueueSandboxes = 64
 )
+
+// FairOrder orders app IDs one space at a time: the first ID of every
+// space (spaces by name), then the second of every space, and so on, each
+// space's IDs in their own order. A place given out in this order cannot
+// all go to a space with many IDs ahead of another space's first.
+func FairOrder(ids []string) []string {
+	bySpace := map[string][]string{}
+	for _, id := range ids {
+		sp, _, _ := SplitAppID(id)
+		bySpace[sp] = append(bySpace[sp], id)
+	}
+	spaces := slices.Sorted(maps.Keys(bySpace))
+	out := make([]string, 0, len(ids))
+	for round := 0; len(out) < len(ids); round++ {
+		for _, sp := range spaces {
+			if round < len(bySpace[sp]) {
+				out = append(out, bySpace[sp][round])
+			}
+		}
+	}
+	return out
+}
 
 // QueueTrigger returns the job's queue trigger, or nil.
 func (a *App) QueueTrigger() *QueueTrigger {

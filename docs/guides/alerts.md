@@ -216,7 +216,7 @@ or `armada app events`.
 | `ReconcileFailed` | The control plane could not converge an app |
 | `ProxyNotUpdated` | The ingress configuration could not be rebuilt; the last good one serves |
 | `NotVerified` | A custom domain's DNS record is missing |
-| `QueueUnread` | No node can read the queue that starts a job |
+| `QueueUnread` | No node can read the queue that starts a job, or its node keeps no more queues |
 | `LogExportFailing` | A node cannot send logs to the log store |
 | `VolumeUnavailable`, `VolumesSplit`, `VolumeOnCordonedNode` | An app with a volume cannot run where its volume is |
 | `VolumeBackupFailed`, `VolumeBackupUnsupported` | Scheduled volume backups do not work |

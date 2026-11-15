@@ -173,6 +173,9 @@ type reconcileRun struct {
 	// sandboxAddrs the sandboxes' addresses, as replicas of their jobs, for
 	// the firewalls; triggered the jobs with a queue trigger.
 	sandboxNodes map[string]bool
+	// queueNodes is the node that reads each queue-triggered job's queue,
+	// "" for none (placeQueues).
+	queueNodes   map[string]string
 	sandboxes    map[string][]*armadav1.QueueSandbox
 	sandboxAddrs []store.Replica
 	triggered    map[string]bool
