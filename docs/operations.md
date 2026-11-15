@@ -115,8 +115,10 @@ machine's cluster-admins (group `armada`) and the `~/.armada/config` of the
 person who ran it through sudo, unless they exist, so `armada` works on the
 new server at once. The certificate in them is for that person's user name
 (`--user-name` names another) and has the rights the cluster gives that
-user; a name the cluster has no record of is a cluster-admin, like the
-first user.
+user; a name the cluster has no record of is recorded as a cluster-admin
+by the leader first, like the first user. A leader of an older version
+records nothing, so no config is written then; create the user with
+`armada rbac user create` once every server is upgraded.
 
 On a machine without Armada, run the install line `armada server
 join-token` prints first. Nothing else to copy: the new server uses the
@@ -270,6 +272,15 @@ Everything that changed after the backup is gone:
 - Agents adopt the containers that are still running and converge to the
   restored state, so replicas of apps deployed after the backup are
   removed.
+- Users and services are as they were at the backup. Users and services
+  created after it are refused (their certificates name someone the
+  cluster has no record of): create them again. Roles given or taken,
+  deletions, and certificate replacements made after the backup are
+  undone, so a user deleted since can use their old certificate again:
+  make those changes again at once. A backup taken before the upgrade to
+  the version with schema v14 does not tell later users apart; `restore`
+  warns, and each user created after it must be deleted with
+  `armada rbac user delete NAME --yes` at once, then created again.
 
 ## Upgrades
 
@@ -415,11 +426,14 @@ space, whose containers may reach the platform unless isolated; deploying
 there needs `cluster-admin`. Nobody can delete themselves or take their own
 `cluster-admin`, so one is always left. A user certificate lasts a year:
 its holder renews it with `armada rbac user renew` (see
-[certificates](#certificates)). A user certificate the cluster has no record
-of, which only the CA on a server can sign (`armadad user renew`, or the
-first administrator of a cluster from before records), has `cluster-admin`
-and appears in the list once it is renewed. Never share one file between
-people.
+[certificates](#certificates)). Every user certificate names a user on
+record: `armadad init`, `armadad server join`, and `armadad user renew`
+record the name, with `cluster-admin`, before the CA on a server signs one
+for a name the cluster does not know. A certificate of a name with no
+record is refused, unless it was issued before the cluster moved to
+schema v14 (the first administrator of a cluster from before records); such
+a certificate has `cluster-admin` and appears in the list once it is
+renewed. Never share one file between people.
 
 A service gets a client config of its own and renews it itself:
 

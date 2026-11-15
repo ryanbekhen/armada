@@ -76,7 +76,7 @@ const (
 	// migrations when records change incompatibly. Records under servers/
 	// and meta/ are read and written by every server, whatever its schema,
 	// so they only ever gain optional fields.
-	etcdSchema = 13
+	etcdSchema = 14
 
 	maxTxnRetries = 100
 	// auditKeep is how many audit events are retained.
@@ -2699,6 +2699,11 @@ var migrations = []migration{
 	// their name is revoked. Servers that would accept a revoked one can no
 	// longer lead.
 	migrateMetrics,
+	// 13 -> 14: a user name with no record is a cluster-admin only for
+	// certificates issued before this step (meta/user-cutoff), so a user
+	// the state lost (a restore from an older backup) is refused. Servers
+	// that would accept such a certificate can no longer lead.
+	migrateUsers,
 }
 
 // StoredSchema returns the schema the keyspace is written in.

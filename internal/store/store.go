@@ -426,7 +426,8 @@ type Store interface {
 	// Access control (ADR 0033). CreateUser records a user (ErrConflict
 	// while one of the name is on record) whose certificates issued before
 	// p.Since are refused; KnowUser records a name not on record with
-	// cluster-admin; SetUserSince refuses a user's older certificates.
+	// cluster-admin, before a certificate is signed outside the API;
+	// SetUserSince refuses a user's older certificates.
 	CreateUser(ctx context.Context, p Principal, actor string) (Principal, error)
 	KnowUser(ctx context.Context, name string) error
 	SetUserSince(ctx context.Context, name string, since time.Time, serial, actor string) error
@@ -449,7 +450,8 @@ type Store interface {
 	// non-empty keep revokes every other one (renewal).
 	RecordServiceCert(ctx context.Context, name string, c NodeCert, keep, actor string) error
 	// UserAccess and ServiceAccess return a principal's roles and whether
-	// its certificate is accepted; a user not on record has cluster-admin.
+	// its certificate is accepted; a user not on record has cluster-admin
+	// only with a certificate issued before schema 14 (meta/user-cutoff).
 	UserAccess(ctx context.Context, name string, notBefore time.Time, serial string) (Principal, bool, error)
 	ServiceAccess(ctx context.Context, name, serial string) (Principal, bool, error)
 	// RecordMetricsCert records a certificate issued to a metrics scraper;

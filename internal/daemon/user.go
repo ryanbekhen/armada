@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"syscall"
@@ -10,7 +11,27 @@ import (
 
 	"github.com/ryanbekhen/armada/internal/clientconfig"
 	"github.com/ryanbekhen/armada/internal/pki"
+	"github.com/ryanbekhen/armada/internal/store"
 )
+
+// recordUser records a user name the cluster has no record of with
+// cluster-admin (store.KnowUser) in the state of the server in dataDir,
+// before the CA signs a certificate for it outside the API: the cluster
+// refuses a later certificate of a name with no record. Tests replace it.
+var recordUser = func(ctx context.Context, dataDir, name string) error {
+	ctx, cancel := context.WithTimeout(ctx, time.Minute)
+	defer cancel()
+	c, release, err := stateClient(ctx, dataDir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = release() }()
+	st, err := store.NewEtcd(ctx, c, etcdPrefix)
+	if err != nil {
+		return err
+	}
+	return st.KnowUser(ctx, name)
+}
 
 func newUserCommand(g *globals) *cobra.Command {
 	cmd := &cobra.Command{Use: "user", Short: "Recover a user's credentials on a server"}
@@ -29,8 +50,10 @@ func newUserRenewCommand(g *globals) *cobra.Command {
 			"user's config stays theirs, a shared one stays shared).\n" +
 			"For a certificate that has already expired; while it is valid,\n" +
 			"`armada rbac user renew` does the same through the control plane.\n" +
-			"The user keeps the roles on record (cluster-admin for one the cluster\n" +
-			"has no record of).",
+			"The user keeps the roles on record; a name the cluster has no record of\n" +
+			"is recorded first, with cluster-admin (the cluster refuses certificates\n" +
+			"of names it has no record of). It needs the cluster state: run it on a\n" +
+			"server whose control plane is running or can start.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cc, err := clientconfig.Load(g.configPath)
@@ -59,6 +82,9 @@ func newUserRenewCommand(g *globals) *cobra.Command {
 			ca, err := pki.LoadCA(pem[0], pem[1])
 			if err != nil {
 				return err
+			}
+			if err := recordUser(cmd.Context(), dataDir, id.Name); err != nil {
+				return fmt.Errorf("record %s in the cluster state: %w", id, err)
 			}
 			c, err := ca.SignUserCSR(csr, id.Name)
 			if err != nil {

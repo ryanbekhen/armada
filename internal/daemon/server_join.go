@@ -47,7 +47,8 @@ func newServerJoinCommand() *cobra.Command {
 			"cluster-admins (group " + clientconfig.Group + ") and ~/.armada/config of the person running it\n" +
 			"through sudo, both with a certificate for --user-name signed by the cluster CA.\n" +
 			"The certificate has the rights the cluster gives that user; a name the cluster\n" +
-			"has no record of is a cluster-admin, as the first user is. Existing files stay.\n\n" +
+			"has no record of is recorded as a cluster-admin, as the first user is (a leader\n" +
+			"too old to record it gets no configs written). Existing files stay.\n\n" +
 			"Run three control plane nodes to tolerate the loss of one; with two, losing\n" +
 			"either stops the control plane.",
 		Args: cobra.ExactArgs(1),
@@ -123,10 +124,17 @@ func newServerJoinCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			// The user of the client configs written below: the leader
+			// records it before this machine signs its certificate.
+			clientUser, err := joinUserName(userName)
+			if err != nil {
+				return err
+			}
 			_, peerPort := etcdPorts(dataDir)
 			resp, err := armadav1.NewJoinServiceClient(conn).JoinServer(ctx, &armadav1.JoinServerRequest{
 				TokenId: tok.ID, TokenSecret: tok.Secret, Name: name, PrivateIp: ip.String(), NodeCsr: csr,
 				Version: version.Get().Version, ApiPort: int32(port), JoinPort: int32(joinPort), EtcdPeerPort: int32(peerPort), //nolint:gosec // ports validated above
+				UserName: clientUser,
 			})
 			if err != nil {
 				return cli.RPCError(err)
@@ -178,7 +186,7 @@ func newServerJoinCommand() *cobra.Command {
 			// Like init: the machine's cluster-admins, and the person who
 			// ran this through sudo, can use armada here at once. The cluster
 			// already exists, so a failure only warns.
-			configs, err := joinedClientConfigs(resp, servers, userName)
+			configs, err := joinedClientConfigs(resp, servers, clientUser)
 			if err != nil {
 				_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "warning: client config: %v\n", err)
 			}
@@ -242,26 +250,41 @@ func checkJoinedServer(resp *armadav1.JoinServerResponse, pinned *x509.Certifica
 	return nil
 }
 
-// joinedClientConfigs writes the machine's shared admin config and, run
-// through sudo, the person's own, each kept when it exists. The
-// certificate names userName, else the sudo user, else the current user,
-// and is signed with the CA the cluster handed over.
-func joinedClientConfigs(resp *armadav1.JoinServerResponse, servers []string, userName string) ([]string, error) {
+// joinUserName returns the user of the client configs a joining server
+// writes: userName, else the sudo user, else the current user; "" when not
+// run as root (no configs are written).
+func joinUserName(userName string) (string, error) {
 	if os.Geteuid() != 0 {
-		return nil, nil
+		return "", nil
 	}
-	person := sudoUser()
 	if userName == "" {
 		userName = "admin"
-		if person != nil {
+		if person := sudoUser(); person != nil {
 			userName = sanitizeName(person.Username, "admin")
 		} else if u, err := user.Current(); err == nil {
 			userName = sanitizeName(u.Username, "admin")
 		}
 	}
 	if _, err := pki.ParseIdentity(pki.Identity{Kind: pki.KindUser, Name: userName}.String()); err != nil {
-		return nil, err
+		return "", err
 	}
+	return userName, nil
+}
+
+// joinedClientConfigs writes the machine's shared admin config and, run
+// through sudo, the person's own, each kept when it exists. The
+// certificate names userName (joinUserName) and is signed with the CA the
+// cluster handed over, only once the leader recorded the name: the cluster
+// refuses certificates of names it has no record of.
+func joinedClientConfigs(resp *armadav1.JoinServerResponse, servers []string, userName string) ([]string, error) {
+	if userName == "" {
+		return nil, nil
+	}
+	if !resp.GetUserRecorded() {
+		return nil, fmt.Errorf("the leader did not record user %s (it may run an older Armada), so no client config was written; "+
+			"once every server is upgraded, create the user with `armada rbac user create %s --role cluster-admin -o FILE`", userName, userName)
+	}
+	person := sudoUser()
 	ca, err := pki.LoadCA(resp.CaCert, resp.CaKey)
 	if err != nil {
 		return nil, err
