@@ -125,8 +125,12 @@ to someone without it. Standard library primitives only (`crypto/aes`,
   directory, and swaps it in only when everything was written, with the
   app stopped, as with an archive.
 - Repository operations go to the volume's node. When it is not connected,
-  listing goes to any connected node that backs volumes up, and restoring
-  with `--node` to that node.
+  listing goes to a connected node that backs volumes up and may run the
+  app (ready, and allowed by the placement of the serving revision and the
+  one the app is heading to: restricted nodes, `placement.require`, and
+  capabilities), and is refused when there is none, since the request
+  carries the bucket credentials and the backup key. Restoring with
+  `--node` goes to that node, which must pass the same check.
 
 ### Failover
 

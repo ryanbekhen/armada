@@ -1425,8 +1425,10 @@ armada volume restore db data db-data.tar.gz --node node3       # or from an arc
 ```
 
 The volume is restored onto `node3` and bound to it, and the app starts
-there. This is refused while the old node is still connected. Data written
-after the backup is lost.
+there. This is refused while the old node is still connected, and a restore
+from the bucket is refused onto a node the app may not run on (not ready, or
+left out by its placement or a restriction), since it is sent the bucket's
+credentials and key. Data written after the backup is lost.
 
 ## When a node fails
 
