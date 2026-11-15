@@ -87,7 +87,7 @@ The CLI keeps its client config's list of servers current by itself: the
 leader sends the list with every answer, and a list that changed is written
 back to the config (a shared config only when run with sudo; a config
 that lists a loopback address of no server, as through an SSH tunnel, is
-left alone). On every
+left alone, by `armada server list` too). On every
 Armada machine the agent also keeps `/etc/armada/servers` current, and the
 CLI on that machine tries those addresses after its config's own, so even a
 config that has not been used since servers were added still finds the

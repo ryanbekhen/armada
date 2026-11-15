@@ -114,7 +114,9 @@ func syncClientServers(cmd *cobra.Command, path string, addrs []string) error {
 	if err != nil {
 		return err
 	}
-	if slices.Equal(cc.Servers, addrs) {
+	// A config that reaches the servers through a tunnel keeps its list:
+	// their own addresses may not be reachable from here.
+	if slices.Equal(cc.Servers, addrs) || tunnelled(cc.Servers, addrs) {
 		return nil
 	}
 	cc.Servers = addrs

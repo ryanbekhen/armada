@@ -1,10 +1,12 @@
 package cli
 
 import (
+	"io"
 	"path/filepath"
 	"slices"
 	"testing"
 
+	"github.com/spf13/cobra"
 	"google.golang.org/grpc/metadata"
 
 	"github.com/ryanbekhen/armada/internal/clientconfig"
@@ -55,5 +57,34 @@ func TestServerSync(t *testing.T) {
 	s.observe(metadata.Pairs(clientconfig.ServersHeader, "10.0.0.2:7443"))
 	if got := load(); !slices.Equal(got, []string{"127.0.0.1:7443"}) {
 		t.Errorf("tunnelled config changed: %v", got)
+	}
+}
+
+// armada server list records the servers' addresses like the sync does,
+// and also leaves a tunnelled config alone.
+func TestSyncClientServersKeepsTunnel(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".armada", "config")
+	cc := &clientconfig.Config{Servers: []string{"127.0.0.1:17441", "127.0.0.1:17442"}, CA: "ca", Cert: "cert", Key: "key"}
+	if err := cc.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	cmd := &cobra.Command{}
+	cmd.SetErr(io.Discard)
+	if err := syncClientServers(cmd, path, []string{"10.0.0.1:7443", "10.0.0.2:7443"}); err != nil {
+		t.Fatal(err)
+	}
+	if c, _ := clientconfig.Load(path); !slices.Equal(c.Servers, cc.Servers) {
+		t.Errorf("tunnelled config changed: %v", c.Servers)
+	}
+
+	cc.Servers = []string{"10.0.0.1:7443"}
+	if err := cc.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := syncClientServers(cmd, path, []string{"10.0.0.1:7443", "10.0.0.2:7443"}); err != nil {
+		t.Fatal(err)
+	}
+	if c, _ := clientconfig.Load(path); len(c.Servers) != 2 {
+		t.Errorf("servers not recorded: %v", c.Servers)
 	}
 }
