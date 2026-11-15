@@ -70,6 +70,13 @@ func (s *Server) Deploy(ctx context.Context, req *armadav1.DeployRequest) (*arma
 	if err := s.checkNFSExports(ctx, acc, app); err != nil {
 		return nil, err
 	}
+	if app.Revisions != nil && len(app.Revisions.Traffic) > 0 {
+		// Other revisions the spec makes serve run with their own stored
+		// specs: they pass the same checks as a rollback to them.
+		if err := s.checkTrafficRevisions(ctx, acc, app.ID(), app.Revisions.Traffic); err != nil {
+			return nil, err
+		}
+	}
 	if err := s.checkBackupTargets(ctx, acc, app.ID(), app, s.latestValue(ctx, app.ID())); err != nil {
 		return nil, err
 	}
@@ -139,7 +146,8 @@ func (s *Server) Scale(ctx context.Context, req *armadav1.ScaleRequest) (*armada
 // SetTraffic changes how an app in multiple revision mode splits requests
 // until its next deploy (ADR 0022).
 func (s *Server) SetTraffic(ctx context.Context, req *armadav1.SetTrafficRequest) (*armadav1.SetTrafficResponse, error) {
-	if err := accessFrom(ctx).app(req.GetApp()); err != nil {
+	acc := accessFrom(ctx)
+	if err := acc.app(req.GetApp()); err != nil {
 		return nil, err
 	}
 	if len(req.GetTraffic()) > spec.MaxTrafficTargets {
@@ -148,6 +156,9 @@ func (s *Server) SetTraffic(ctx context.Context, req *armadav1.SetTrafficRequest
 	var want []spec.TrafficTarget
 	for _, t := range req.GetTraffic() {
 		want = append(want, spec.TrafficTarget{Revision: t.GetRevision(), Weight: int(t.GetWeight())})
+	}
+	if err := s.checkTrafficRevisions(ctx, acc, req.GetApp(), want); err != nil {
+		return nil, err
 	}
 	got, err := s.store.SetTraffic(ctx, req.GetApp(), want, actor(ctx))
 	if err != nil {
@@ -213,22 +224,11 @@ func (s *Server) Rollback(ctx context.Context, req *armadav1.RollbackRequest) (*
 			return nil, err
 		}
 	}
-	if !acc.admin() {
-		// A rollback deploys a stored spec: it passes the same checks
-		// as Deploy, so it cannot bring back an NFS export or a node
-		// label a cluster-admin has since taken away.
-		rev, err := s.store.GetRevision(ctx, target)
-		if err != nil {
-			return nil, storeErr(err)
-		}
-		if rev.App == app.Name && rev.Spec != nil {
-			if err := acc.placement(rev.Spec); err != nil {
-				return nil, err
-			}
-			if err := s.checkNFSExports(ctx, acc, rev.Spec); err != nil {
-				return nil, err
-			}
-		}
+	// A rollback deploys a stored spec: it passes the same checks as
+	// Deploy, so it cannot bring back an NFS export or a node label a
+	// cluster-admin has since taken away.
+	if err := s.checkStoredRevision(ctx, acc, app.Name, target); err != nil {
+		return nil, err
 	}
 	if err := s.checkRollbackBackups(ctx, app.Name, target); err != nil {
 		return nil, err
@@ -241,6 +241,58 @@ func (s *Server) Rollback(ctx context.Context, req *armadav1.RollbackRequest) (*
 	s.record(ctx, store.Event{Kind: eventRollout, Object: rev.Name, App: app.Name, Reason: "RolledBack", Message: "rolling back to " + rev.Name})
 	s.Trigger()
 	return &armadav1.RollbackResponse{Revision: rev.Name}, nil
+}
+
+// checkStoredRevision runs Deploy's placement and NFS checks on the stored
+// spec of revision name of app, which a non-cluster-admin makes serve
+// again (a rollback, or traffic): it cannot bring back an NFS export, a
+// writable one, or a node label a cluster-admin has since taken away. A
+// revision that is not the app's is left to the store, which refuses it.
+func (s *Server) checkStoredRevision(ctx context.Context, acc access, app, name string) error {
+	if acc.admin() {
+		return nil
+	}
+	rev, err := s.store.GetRevision(ctx, name)
+	if errors.Is(err, store.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return storeErr(err)
+	}
+	if rev.App != app || rev.Spec == nil {
+		return nil
+	}
+	if err := acc.placement(rev.Spec); err != nil {
+		return err
+	}
+	return s.checkNFSExports(ctx, acc, rev.Spec)
+}
+
+// checkTrafficRevisions runs checkStoredRevision on every revision traffic
+// names other than latest (the spec being deployed, checked on its own).
+// Revisions already in the app's traffic are skipped, so a deployer can
+// still change their weights.
+func (s *Server) checkTrafficRevisions(ctx context.Context, acc access, app string, traffic []spec.TrafficTarget) error {
+	if acc.admin() {
+		return nil
+	}
+	serving := map[string]bool{}
+	a, err := s.store.GetApp(ctx, app)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return storeErr(err)
+	}
+	for _, t := range a.Traffic {
+		serving[t.Revision] = true
+	}
+	for _, t := range traffic {
+		if t.Revision == spec.LatestRevision || serving[t.Revision] {
+			continue
+		}
+		if err := s.checkStoredRevision(ctx, acc, app, t.Revision); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Server) previousRevision(ctx context.Context, app store.App) (string, error) {

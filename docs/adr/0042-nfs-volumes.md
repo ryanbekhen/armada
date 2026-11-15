@@ -62,8 +62,11 @@ volumes:
   or rollback that keeps the exports of the revision the app is heading to
   (its rolling-out revision, else its serving one), or makes one read-only,
   needs only the right to deploy the app. A rollback runs the same check
-  on the stored spec, so an export a cluster-admin removed cannot come
-  back through an older revision, not even while the removal rolls out.
+  on the stored spec, and so does traffic splitting (ADR 0022) on every
+  revision `armada app traffic` or a spec's `revisions.traffic` adds to an
+  app's traffic, so an export a cluster-admin removed cannot come back
+  through an older revision, not even while the removal rolls out.
+  Revisions already in the traffic can be reweighted.
 - **Unmounting.** An export no replica on the node names any more is
   unmounted, lazily, so containers still using it keep it, and its mount
   point is removed. A spec that changes the export or `readOnly` remounts
