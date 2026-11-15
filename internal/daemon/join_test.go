@@ -172,9 +172,9 @@ func TestJoinEndToEnd(t *testing.T) {
 	if code != 0 || out != "Deleted node node-2; its certificate is revoked.\n" {
 		t.Fatalf("node delete: code=%d out=%q err=%q", code, out, stderr)
 	}
-	if count(0) != 2 || count(1) != 0 {
-		t.Errorf("after remove: node-1 has %d, node-2 has %d", count(0), count(1))
-	}
+	// The removed node's agent stops its replica once its session ends,
+	// which may be after the delete returns.
+	waitFor("replicas moved off the removed node", func() bool { return count(0) == 2 && count(1) == 0 })
 	_, out, _ = cli("node", "list")
 	if strings.Contains(out, "node-2") {
 		t.Errorf("node list after remove = %q", out)
