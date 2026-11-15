@@ -324,6 +324,14 @@ set). Only these ask GitHub; servers and agents never do.
    names (`<app>.internal`) on that node do not resolve for the second or
    two it takes the agent to start its DNS server again.
 
+   On Debian and Ubuntu, needrestart restarts services after package
+   upgrades, and after `armadad upgrade` it counts `armada-runtime` among
+   them (the containers' log processes still run the old binary).
+   `armadad upgrade` and the installer write
+   `/etc/needrestart/conf.d/armada.conf`, so needrestart lists Armada's
+   services but never restarts them; `armadad doctor` warns
+   (`needrestart`) when that file is missing.
+
 4. **Your own computer:** reinstall the client with the
    [installer](quickstart.md#1-install) (`sudo ARMADA_CLIENT_ONLY=1 sh` on
    Linux).

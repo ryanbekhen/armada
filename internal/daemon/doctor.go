@@ -65,6 +65,9 @@ type doctorEnv struct {
 	// nfs reports whether the kernel has an NFSv4 client (ADR 0042).
 	nfs      func() bool
 	readFile func(string) ([]byte, error)
+	// needrestart reports whether needrestart is installed and holds
+	// Armada's setting; nil skips the check.
+	needrestart func() (installed, set bool)
 	// serverEnv reads /etc/armada/server.env; nil skips the check.
 	serverEnv   func() ([]byte, error)
 	now         func() time.Time
@@ -144,6 +147,7 @@ func hostDoctorEnv(dataDir string) doctorEnv {
 		nfs:         agent.NFSSupported,
 		readFile:    fsutil.ReadPrivateFile,
 		serverEnv:   func() ([]byte, error) { return os.ReadFile(serverEnvFile) },
+		needrestart: func() (bool, bool) { return needrestartState(needrestartDir) },
 		now:         time.Now,
 		adminConfig: clientconfig.DefaultPath(),
 		clusterPort: []uint16{defaultPort, defaultPort + 1, haproxy.MetricsPort},
@@ -235,6 +239,16 @@ func runDoctor(ctx context.Context, env doctorEnv) []checkResult {
 			add("nfs", checkOK, "the kernel has an NFSv4 client: apps with NFS volumes may run here")
 		} else {
 			add("nfs", checkWarn, "the kernel has no NFSv4 client: apps with NFS volumes are not placed here")
+		}
+	}
+
+	if env.needrestart != nil {
+		switch installed, set := env.needrestart(); {
+		case !installed:
+		case set:
+			add("needrestart", checkOK, "needrestart leaves Armada's services alone")
+		default:
+			add("needrestart", checkWarn, "needrestart may restart armada-runtime and the other Armada services after package upgrades; sudo armadad upgrade (or install.sh) writes %s/%s to stop it", needrestartDir, needrestartFile)
 		}
 	}
 

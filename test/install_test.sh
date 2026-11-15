@@ -35,9 +35,10 @@ install_from() {
 	dir=$1
 	name=$2
 	shift 2
-	mkdir -p "$WORK/$name/units"
+	mkdir -p "$WORK/$name/units" "$WORK/$name/needrestart"
 	env ARMADA_VERSION="$VERSION" ARMADA_DOWNLOAD_BASE="file://$dir" \
 		ARMADA_PREFIX="$WORK/$name/prefix" ARMADA_SYSTEMD_DIR="$WORK/$name/units" \
+		ARMADA_NEEDRESTART_DIR="$WORK/$name/needrestart" \
 		"$@" sh "$ROOT/install.sh" >"$WORK/$name.log" 2>&1
 }
 
@@ -55,6 +56,15 @@ grep -q "$WORK/good/prefix/bin/armadad server" "$WORK/good/units/armada-server.s
 grep -q "$WORK/good/prefix/bin/armadad runtime" "$WORK/good/units/armada-runtime.service" ||
 	fail "runtime unit not installed"
 [ "$(stat -c %a "$WORK/good/prefix/bin/armadad")" = 755 ] || fail "binary mode"
+
+# needrestart leaves Armada's services alone: the same file armadad upgrade
+# writes (internal/daemon/needrestart.go), where needrestart is installed.
+# shellcheck disable=SC2016 # a literal line of the file
+grep -qxF '$nrconf{override_rc}{qr(^armada-)} = 0;' "$WORK/good/needrestart/armada.conf" ||
+	fail "needrestart setting not written"
+[ "$(stat -c %a "$WORK/good/needrestart/armada.conf")" = 644 ] || fail "needrestart setting mode"
+install_from "$WORK/good" nonr ARMADA_NEEDRESTART_DIR="$WORK/nonr/absent" || fail "install without needrestart failed"
+[ ! -e "$WORK/nonr/absent" ] || fail "needrestart directory created"
 
 # A fresh machine is told to set up; one already set up, to restart.
 grep -q "Next: sudo armadad init" "$WORK/good.log" || fail "fresh install: no set-up hint"
@@ -75,6 +85,7 @@ install_from "$WORK/good" client ARMADA_CLIENT_ONLY=1 || {
 [ -x "$WORK/client/prefix/bin/armada" ] || fail "client-only: client not installed"
 [ ! -e "$WORK/client/prefix/bin/armadad" ] || fail "client-only: daemon installed"
 [ ! -e "$WORK/client/units/armada-server.service" ] || fail "client-only: units installed"
+[ ! -e "$WORK/client/needrestart/armada.conf" ] || fail "client-only: needrestart setting written"
 
 # An archive without the daemon is refused for a full install.
 mkdir -p "$WORK/nodaemon/$VERSION" "$WORK/nodaemon/src"
