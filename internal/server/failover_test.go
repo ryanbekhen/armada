@@ -11,13 +11,20 @@ import (
 	armadav1 "github.com/ryanbekhen/armada/api/armada/v1"
 	"github.com/ryanbekhen/armada/internal/agent"
 	"github.com/ryanbekhen/armada/internal/runtime"
+	"github.com/ryanbekhen/armada/internal/store"
 	"github.com/ryanbekhen/armada/internal/volbackup"
 )
 
 const failoverSpec = backupSpec + "    failover: restore\n"
 
-// failoverCluster runs three nodes sharing one bucket.
+// failoverCluster runs a node sharing one bucket; tests add more.
 func failoverCluster(t *testing.T, bucket *volbackup.Memory) *cluster {
+	t.Helper()
+	return failoverClusterWith(t, bucket, nil)
+}
+
+// failoverClusterWith is failoverCluster with more agent settings.
+func failoverClusterWith(t *testing.T, bucket *volbackup.Memory, more func(*agent.Config)) *cluster {
 	t.Helper()
 	keys := withKeys(t)
 	c := newCluster(t, func(cfg *Config) {
@@ -27,6 +34,9 @@ func failoverCluster(t *testing.T, bucket *volbackup.Memory) *cluster {
 	})
 	c.agentConfig = func(_ string, cfg *agent.Config) {
 		cfg.Buckets = func(volbackup.Target) (volbackup.Objects, error) { return bucket, nil }
+		if more != nil {
+			more(cfg)
+		}
 	}
 	c.addNode("n1", "127.0.0.1")
 	for name, v := range map[string]string{"backup-url": "https://AK:SK@s3.example.com/backups", "backup-key": strings.Repeat("k", 32)} {
@@ -90,6 +100,49 @@ func TestVolumeFailsOverToAnotherNode(t *testing.T) {
 	}
 	if !found {
 		t.Error("the rebinding is not in the audit log")
+	}
+}
+
+// An NFS volume next to failing-over local ones has no backup: failover
+// restores and binds only the local ones and the server keeps running.
+func TestVolumeFailoverSkipsNFSVolumes(t *testing.T) {
+	t.Parallel()
+	bucket := volbackup.NewMemory()
+	c := failoverClusterWith(t, bucket, func(cfg *agent.Config) {
+		cfg.NFSDir = t.TempDir()
+		cfg.MountNFS = func(context.Context, string, string, string, bool) error { return nil }
+	})
+	c.deploy(strings.Replace(failoverSpec, "volumes:\n", "volumes:\n  - name: shared\n    path: /shared\n    nfs:\n      server: 10.0.0.21\n      path: /exports/shared\n", 1))
+	c.eventually("web running on n1", func() bool { r := c.running("web"); return len(r) == 1 && r[0].NodeId == "n1" })
+	c.addNode("n2", "127.0.0.2")
+	if err := os.WriteFile(filepath.Join(c.nodes["n1"].volumes, "web", "data", "notes.txt"), []byte("saved"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// The scheduled first backup may still be running.
+	c.eventually("a backup holding the file", func() bool {
+		_, err := c.admin.CreateVolumeSnapshot(c.ctx, &armadav1.CreateVolumeSnapshotRequest{App: "web", Name: "data"})
+		return err == nil
+	})
+
+	c.stopAgent("n1")
+	c.eventually("the local volume moved to n2", func() bool {
+		v := volumeOf(c)
+		return v != nil && v.Name == "data" && v.Node == "n2"
+	})
+	c.eventually("web running on n2", func() bool { r := c.running("web"); return len(r) == 1 && r[0].NodeId == "n2" })
+	if b, err := os.ReadFile(filepath.Join(c.nodes["n2"].volumes, "web", "data", "notes.txt")); err != nil || string(b) != "saved" {
+		t.Fatalf("restored %q, %v", b, err)
+	}
+	if !webEvent(c, "VolumeFailedOver") {
+		t.Error("no VolumeFailedOver event")
+	}
+}
+
+func TestBackupTargetRefusesNoBackup(t *testing.T) {
+	t.Parallel()
+	s := &Server{}
+	if _, err := s.backupTarget(context.Background(), nil, store.Revision{}); err == nil {
+		t.Fatal("a volume without a backup got a target")
 	}
 }
 

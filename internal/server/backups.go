@@ -166,6 +166,9 @@ func (s *Server) scheduleBackups(ctx context.Context) error {
 // backupTarget builds the request's bucket and key from the revision's
 // pinned secrets.
 func (s *Server) backupTarget(ctx context.Context, b *spec.VolumeBackup, rev store.Revision) (*armadav1.BackupTarget, error) {
+	if b == nil {
+		return nil, errors.New("the volume has no backup (volumes[].backup)")
+	}
 	revs := &revisionCache{store: s.store, keys: s.keys, m: map[string]store.Revision{}, opened: s.opened}
 	vals, err := revs.secrets(ctx, rev)
 	if err != nil {

@@ -155,11 +155,14 @@ volumes:
 - **Restore elsewhere.** Once the node is lost (`--node-lost-timeout`,
   with more nodes ready than lost, as for any rescheduling, ADR 0008), the
   leader picks a node the app may run on, with room, whose agent backs
-  volumes up, restores each volume's latest backup there, and binds the
-  volumes to it (audited as `armada:failover`); the app then starts there.
+  volumes up, restores each local volume's latest backup there, and binds
+  the local volumes to it (audited as `armada:failover`); the app then
+  starts there. NFS volumes (ADR 0042) stay on their server and are
+  neither restored nor bound.
   A `VolumeFailedOver` event names the node and the backups. If the old
   node reconnects before the volumes are bound, nothing is bound.
-- **Failures** (no backup yet, no node fits, the bucket refuses) are a
+- **Failures** (no backup yet, no node fits, the bucket refuses, or an
+  unexpected error in the failover, which never stops the server) are a
   `VolumeFailoverFailed` condition and are tried again every 5 minutes. The
   app stays down meanwhile, as without failover.
 - **When the old node returns**, its replica is no longer assigned and is

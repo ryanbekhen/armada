@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -95,10 +96,20 @@ func (s *Server) failOver(ctx context.Context, rc *reconcileRun, app, from strin
 	}
 	s.log.Info("failing over volumes", "app", app, "from", from, "to", node.ID)
 	go func() {
+		// An unexpected spec fails this failover, never the server.
+		defer func() {
+			if r := recover(); r != nil {
+				s.log.Error("volume failover panicked", "app", app, "panic", r, "stack", string(debug.Stack()))
+				failed("internal error")
+			}
+		}()
 		ctx, cancel := context.WithTimeout(ctx, backupTimeout)
 		defer cancel()
 		var restored []string
 		for _, v := range target.Spec.Volumes {
+			if !v.Local() {
+				continue // an NFS volume stays on its server
+			}
 			bt, err := s.backupTarget(ctx, v.Backup, target)
 			if err != nil {
 				failed(fmt.Sprintf("volume %s: %v", v.Name, err))
@@ -118,6 +129,9 @@ func (s *Server) failOver(ctx context.Context, rc *reconcileRun, app, from strin
 			return
 		}
 		for _, v := range target.Spec.Volumes {
+			if !v.Local() {
+				continue
+			}
 			if err := s.store.BindVolume(ctx, app, v.Name, node.ID, failoverActor); err != nil {
 				failed(fmt.Sprintf("binding volume %s to %s: %v", v.Name, node.ID, err))
 				return
