@@ -37,16 +37,18 @@ const (
 // upgrader replaces this machine's binaries and units with a release, the
 // way install.sh does, and restarts the service that runs (ADR 0030).
 type upgrader struct {
-	base       string // release downloads, without the tag
-	binDir     string // where armadad and armada are installed
-	unitDir    string // systemd units; empty skips them
-	cosign     string // cosign binary; empty skips the signature
-	requireSig bool
-	restart    bool
-	goarch     string
-	systemctl  func(ctx context.Context, args ...string) error
-	isActive   func(ctx context.Context, unit string) bool
-	out, warn  io.Writer
+	base    string // release downloads, without the tag
+	binDir  string // where armadad and armada are installed
+	unitDir string // systemd units; empty skips them
+	// needrestart is needrestart's settings directory; empty skips it.
+	needrestart string
+	cosign      string // cosign binary; empty skips the signature
+	requireSig  bool
+	restart     bool
+	goarch      string
+	systemctl   func(ctx context.Context, args ...string) error
+	isActive    func(ctx context.Context, unit string) bool
+	out, warn   io.Writer
 }
 
 func newUpgradeCommand() *cobra.Command {
@@ -72,16 +74,17 @@ func newUpgradeCommand() *cobra.Command {
 				return err
 			}
 			u := upgrader{
-				base:       os.Getenv("ARMADA_DOWNLOAD_BASE"),
-				binDir:     filepath.Dir(exe),
-				unitDir:    "/etc/systemd/system",
-				requireSig: requireSig || os.Getenv("ARMADA_REQUIRE_SIGNATURE") == "1",
-				restart:    !noRestart,
-				goarch:     runtime.GOARCH,
-				systemctl:  systemctl,
-				isActive:   unitActive,
-				out:        cmd.OutOrStdout(),
-				warn:       cmd.ErrOrStderr(),
+				base:        os.Getenv("ARMADA_DOWNLOAD_BASE"),
+				binDir:      filepath.Dir(exe),
+				unitDir:     "/etc/systemd/system",
+				needrestart: needrestartDir,
+				requireSig:  requireSig || os.Getenv("ARMADA_REQUIRE_SIGNATURE") == "1",
+				restart:     !noRestart,
+				goarch:      runtime.GOARCH,
+				systemctl:   systemctl,
+				isActive:    unitActive,
+				out:         cmd.OutOrStdout(),
+				warn:        cmd.ErrOrStderr(),
 			}
 			if u.base == "" {
 				u.base = defaultDownloadBase
@@ -152,6 +155,11 @@ func (u *upgrader) run(ctx context.Context, current, target string) error {
 	}
 	if err := u.installUnits(ctx, files); err != nil {
 		return err
+	}
+	if u.needrestart != "" {
+		if _, err := writeNeedrestart(u.needrestart); err != nil {
+			_, _ = fmt.Fprintf(u.warn, "warning: needrestart may restart Armada's services after package upgrades: %v\n", err)
+		}
 	}
 
 	msg := fmt.Sprintf("Upgraded to %s (from %s)", target, current)

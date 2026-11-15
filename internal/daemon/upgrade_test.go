@@ -170,3 +170,52 @@ func TestUpgradeRefuses(t *testing.T) {
 		t.Errorf("same version: %v %q %v", err, out.String(), *calls)
 	}
 }
+
+// An upgrade keeps needrestart from restarting Armada's services, where
+// needrestart is installed, and leaves machines without it alone.
+func TestUpgradeNeedrestart(t *testing.T) {
+	t.Parallel()
+	base := fakeRelease(t, "v0.2.0", releaseFiles, false)
+	u, _, _ := testUpgrader(t, base, "armada-agent")
+	u.needrestart = t.TempDir()
+	if err := u.run(context.Background(), "v0.1.0", "v0.2.0"); err != nil {
+		t.Fatal(err)
+	}
+	if got := read(t, filepath.Join(u.needrestart, needrestartFile)); got != needrestartConf {
+		t.Errorf("needrestart setting = %q", got)
+	}
+	if fi, _ := os.Stat(filepath.Join(u.needrestart, needrestartFile)); fi.Mode().Perm() != 0o644 {
+		t.Errorf("mode %v", fi.Mode())
+	}
+	if installed, set := needrestartState(u.needrestart); !installed || !set {
+		t.Errorf("state = %v, %v", installed, set)
+	}
+	if wrote, err := writeNeedrestart(u.needrestart); wrote || err != nil {
+		t.Errorf("rewrote an unchanged file: %v, %v", wrote, err)
+	}
+
+	missing := filepath.Join(t.TempDir(), "none")
+	if wrote, err := writeNeedrestart(missing); wrote || err != nil {
+		t.Errorf("without needrestart: %v, %v", wrote, err)
+	}
+	if _, err := os.Stat(missing); err == nil {
+		t.Error("created needrestart's directory")
+	}
+	if installed, _ := needrestartState(missing); installed {
+		t.Error("needrestart reported installed")
+	}
+}
+
+// install.sh writes the same needrestart setting as armadad upgrade.
+func TestInstallScriptNeedrestart(t *testing.T) {
+	t.Parallel()
+	b, err := os.ReadFile("../../install.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, rest, ok := strings.Cut(string(b), "<<'NR'\n")
+	body, _, ok2 := strings.Cut(rest, "\nNR\n")
+	if !ok || !ok2 || body+"\n" != needrestartConf {
+		t.Errorf("install.sh writes %q, armadad upgrade %q", body, needrestartConf)
+	}
+}

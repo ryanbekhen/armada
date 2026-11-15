@@ -107,7 +107,10 @@ func TestDoctorFindsProblems(t *testing.T) {
 		"world-readable key": {func(e *doctorEnv) {
 			_ = os.Chmod(filepath.Join(e.dataDir, fileMasterKey), 0o644)
 		}, "data-dir", checkFail},
-		"open data dir": {func(e *doctorEnv) { _ = os.Chmod(e.dataDir, 0o755) }, "data-dir", checkFail},
+		"open data dir":   {func(e *doctorEnv) { _ = os.Chmod(e.dataDir, 0o755) }, "data-dir", checkFail},
+		"needrestart":     {func(e *doctorEnv) { e.needrestart = func() (bool, bool) { return true, false } }, "needrestart", checkWarn},
+		"needrestart set": {func(e *doctorEnv) { e.needrestart = func() (bool, bool) { return true, true } }, "needrestart", checkOK},
+		"no needrestart":  {func(e *doctorEnv) { e.needrestart = func() (bool, bool) { return false, false } }, "needrestart", ""},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {

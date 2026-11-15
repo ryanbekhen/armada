@@ -40,6 +40,14 @@ atomically, reloads systemd, and restarts whichever of `armada-server` and
 `armada-agent` runs. It refuses a release older than the running one,
 because state migrations only go forward (ADR 0012).
 
+Armada's services restart only when `armadad upgrade` or the operator asks.
+On machines with needrestart (Debian, Ubuntu), `armadad upgrade` and the
+installer write `/etc/needrestart/conf.d/armada.conf`, so a package upgrade
+lists `armada-*` services but never restarts them. Without it, needrestart
+restarts `armada-runtime` at the next package upgrade after every Armada
+upgrade, because the containers' log processes still run the replaced
+binary.
+
 The control plane does not upgrade machines itself. A cluster-wide upgrade
 pushed from the leader would turn one bad release, or one stolen
 administrator certificate, into code running as root on every machine at

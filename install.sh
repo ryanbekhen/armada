@@ -22,6 +22,8 @@
 #   ARMADA_PREFIX              install prefix (default: /usr/local)
 #   ARMADA_SYSTEMD_DIR         unit directory (default: /etc/systemd/system;
 #                              empty skips the units)
+#   ARMADA_NEEDRESTART_DIR     needrestart's settings directory (default:
+#                              /etc/needrestart/conf.d; empty skips it)
 #   ARMADA_DOWNLOAD_BASE       mirror of the release downloads (testing)
 #   ARMADA_DATA_DIR            where armadad keeps its state (default:
 #                              /var/lib/armada), to tell an upgrade from a
@@ -39,6 +41,7 @@ SYSTEMD_DIR="${ARMADA_SYSTEMD_DIR-/etc/systemd/system}"
 REQUIRE_SIG="${ARMADA_REQUIRE_SIGNATURE:-0}"
 CLIENT_ONLY="${ARMADA_CLIENT_ONLY:-0}"
 DATA_DIR="${ARMADA_DATA_DIR:-/var/lib/armada}"
+NEEDRESTART_DIR="${ARMADA_NEEDRESTART_DIR-/etc/needrestart/conf.d}"
 OIDC_ISSUER="https://token.actions.githubusercontent.com"
 
 say() { printf '%s\n' "$*"; }
@@ -170,6 +173,19 @@ if [ -n "$SYSTEMD_DIR" ] && [ -d "$SYSTEMD_DIR" ]; then
 		systemctl daemon-reload
 	fi
 	say "Installed systemd units in $SYSTEMD_DIR (not started)."
+fi
+
+# needrestart (Debian, Ubuntu) restarts services after package upgrades,
+# armada-runtime included; Armada's services restart only when asked. The
+# same file armadad upgrade writes.
+if [ -n "$NEEDRESTART_DIR" ] && [ -d "$NEEDRESTART_DIR" ]; then
+	cat >"$TMP/armada.conf" <<'NR'
+# Written by Armada: needrestart lists Armada's services but never restarts
+# them; armadad upgrade restarts what it upgrades.
+$nrconf{override_rc}{qr(^armada-)} = 0;
+NR
+	install -m 0644 "$TMP/armada.conf" "$NEEDRESTART_DIR/armada.conf"
+	say "needrestart leaves Armada's services alone ($NEEDRESTART_DIR/armada.conf)."
 fi
 
 # Members of the armada group read the admin config armadad init writes
