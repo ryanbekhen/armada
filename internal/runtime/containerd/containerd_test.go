@@ -441,3 +441,49 @@ func TestContainerFilesReadableUnderUmask(t *testing.T) {
 		}
 	}
 }
+
+// An image on the node is used without the registry only with the
+// credentials that fetched it, or by anyone when it needed none.
+func TestPulledWith(t *testing.T) {
+	t.Parallel()
+	ref := "registry.example.com/team/app@sha256:" + strings.Repeat("a", 64)
+	a := &runtime.RegistryAuth{ServerAddress: "registry.example.com", Username: "a", Password: "one"}
+	b := &runtime.RegistryAuth{ServerAddress: "registry.example.com", Username: "a", Password: "two"}
+	other := &runtime.RegistryAuth{ServerAddress: "ghcr.io", Username: "a", Password: "one"}
+	ka, kb := pullKey(ref, a), pullKey(ref, b)
+	if ka == kb || ka == pullAnyone || strings.Contains(ka, "one") {
+		t.Fatalf("keys %q %q", ka, kb)
+	}
+	if pullKey(ref, nil) != pullAnyone || pullKey(ref, other) != pullAnyone {
+		t.Error("credentials for no or another registry are not anyone's")
+	}
+	if pullKey("nginx@sha256:"+strings.Repeat("b", 64), &runtime.RegistryAuth{ServerAddress: "docker.io", Username: "u", Password: "p"}) == pullAnyone {
+		t.Error("Docker Hub credentials not matched to a Docker Hub image")
+	}
+	private := map[string]string{pullLabel + ka: "1"}
+	if !pulledWith(private, ka) || pulledWith(private, kb) || pulledWith(private, pullAnyone) || pulledWith(nil, ka) {
+		t.Error("a private image is used with other credentials")
+	}
+	public := map[string]string{pullLabel + pullAnyone: "1"}
+	if !pulledWith(public, ka) || !pulledWith(public, pullAnyone) {
+		t.Error("a public image needs the registry again")
+	}
+}
+
+func TestRefusedOrUnreachable(t *testing.T) {
+	t.Parallel()
+	for msg, want := range map[string]bool{
+		"unexpected status from HEAD request to https://r/v2/x/manifests/sha256:a: 401 Unauthorized": true,
+		"pull access denied, repository does not exist or may require authorization":                 true,
+		"r/x@sha256:a: not found":                            true,
+		"dial tcp 10.0.0.1:443: connect: connection refused": false,
+		"context deadline exceeded":                          false,
+	} {
+		if got := refused(errors.New(msg)); got != want {
+			t.Errorf("refused(%q) = %v", msg, got)
+		}
+	}
+	if !unrecorded(map[string]string{"other": "x"}) || unrecorded(map[string]string{pullLabel + "k": "1"}) {
+		t.Error("unrecorded")
+	}
+}

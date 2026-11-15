@@ -119,7 +119,13 @@ Armada's and visible in one place:
   root filesystem, explicit bind mounts.
 - Images are pulled into containerd's content store over HTTPS with the
   registry credentials from the app's secrets and unpacked with the
-  overlayfs snapshotter; `Pull` returns the digest-pinned reference.
+  overlayfs snapshotter; `Pull` returns the digest-pinned reference. A
+  digest-pinned image already on the node is used without the registry
+  only with the credentials that fetched it, or by anyone when it needed
+  none (image labels `armada.pulled-with/<key>`, a hash of the registry,
+  user, and password, or `anyone`); otherwise the registry is asked once
+  whether these credentials may read the digest, so an app cannot run
+  another app's private image by naming its digest.
 - Images do not pile up: every 10 minutes the agent removes images that no
   container uses (system containers and stopped job attempts included), that
   no replica of its assignment names by reference or digest, and that were

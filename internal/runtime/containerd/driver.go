@@ -5,6 +5,7 @@ package containerd
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -180,21 +181,17 @@ func normalize(image string) (ref, familiar string, digested bool, err error) {
 
 // Pull fetches an image and returns its digest-pinned reference. A
 // digest-pinned image already on the node is used without contacting the
-// registry.
+// registry only when the same credentials, or none, fetched it before
+// (pullLabel); otherwise the registry is asked once whether these
+// credentials may read it, so an app cannot run another space's private
+// image by naming its digest.
 func (d *Driver) Pull(ctx context.Context, image string, auth *runtime.RegistryAuth) (runtime.Image, error) {
 	ctx = d.ctx(ctx)
 	ref, familiar, digested, err := normalize(image)
 	if err != nil {
 		return runtime.Image{}, err
 	}
-	if digested {
-		if img, err := d.client.GetImage(ctx, ref); err == nil {
-			if err := unpack(ctx, img); err != nil {
-				return runtime.Image{}, err
-			}
-			return runtime.Image{Ref: image, Platforms: d.localPlatforms(ctx, img)}, nil
-		}
-	}
+	key := pullKey(ref, auth)
 	resolver := docker.NewResolver(docker.ResolverOptions{
 		Hosts: config.ConfigureHosts(ctx, config.HostOptions{
 			// Always TLS, also for registries on localhost.
@@ -202,6 +199,29 @@ func (d *Driver) Pull(ctx context.Context, image string, auth *runtime.RegistryA
 			Credentials:   credentials(auth),
 		}),
 	})
+	if digested {
+		if img, err := d.client.GetImage(ctx, ref); err == nil {
+			if !pulledWith(img.Labels(), key) {
+				_, _, err := resolver.Resolve(ctx, ref)
+				switch {
+				case err == nil:
+					if err := d.markPulled(ctx, img.Name(), key); err != nil {
+						return runtime.Image{}, err
+					}
+				case unrecorded(img.Labels()) && !refused(err):
+					// Pulled by a release that kept no record: while the
+					// registry cannot be reached, it stays usable, so an
+					// upgrade during an outage does not stop the proxy.
+				default:
+					return runtime.Image{}, pullError(image, auth != nil, err)
+				}
+			}
+			if err := unpack(ctx, img); err != nil {
+				return runtime.Image{}, err
+			}
+			return runtime.Image{Ref: image, Platforms: d.localPlatforms(ctx, img)}, nil
+		}
+	}
 	img, err := d.client.Pull(ctx, ref, client.WithPullUnpack, client.WithResolver(resolver))
 	if err != nil {
 		// Tell an image built for other platforms from other failures.
@@ -211,7 +231,57 @@ func (d *Driver) Pull(ctx context.Context, image string, auth *runtime.RegistryA
 		}
 		return runtime.Image{}, pullError(image, auth != nil, err)
 	}
+	if err := d.markPulled(ctx, img.Name(), key); err != nil {
+		return runtime.Image{}, err
+	}
 	return runtime.Image{Ref: familiar + "@" + img.Target().Digest.String(), Platforms: d.localPlatforms(ctx, img)}, nil
+}
+
+// pullLabel prefixes the image labels that record which credentials the
+// registry let read an image: pullAnyone when it needed none, else a hash
+// of the registry, user, and password (never the password itself).
+const (
+	pullLabel  = "armada.pulled-with/"
+	pullAnyone = "anyone"
+)
+
+// pullKey names the credentials a pull of ref uses: pullAnyone without
+// credentials for ref's registry.
+func pullKey(ref string, auth *runtime.RegistryAuth) string {
+	host := ""
+	if named, err := reference.ParseDockerRef(ref); err == nil {
+		host = registryHost(reference.Domain(named))
+	}
+	if auth == nil || registryHost(auth.ServerAddress) != host {
+		return pullAnyone
+	}
+	sum := sha256.Sum256([]byte(host + "\x00" + auth.Username + "\x00" + auth.Password))
+	return hex.EncodeToString(sum[:16])
+}
+
+// pulledWith reports whether an image may be used with key's credentials
+// without asking the registry: anyone may use an image that needed none.
+func pulledWith(labels map[string]string, key string) bool {
+	return labels[pullLabel+pullAnyone] != "" || labels[pullLabel+key] != ""
+}
+
+// unrecorded reports whether an image has no record of who pulled it.
+func unrecorded(labels map[string]string) bool {
+	for k := range labels {
+		if strings.HasPrefix(k, pullLabel) {
+			return false
+		}
+	}
+	return true
+}
+
+func (d *Driver) markPulled(ctx context.Context, name, key string) error {
+	label := pullLabel + key
+	_, err := d.client.ImageService().Update(ctx, images.Image{Name: name, Labels: map[string]string{label: "1"}}, "labels."+label)
+	if err != nil {
+		return fmt.Errorf("image %s: record the pull: %w", name, err)
+	}
+	return nil
 }
 
 func unpack(ctx context.Context, img client.Image) error {
@@ -914,14 +984,24 @@ func (d *Driver) PruneImages(ctx context.Context, keep []string, grace time.Dura
 	return removed, nil
 }
 
+func deniedMessage(msg string) bool {
+	return strings.Contains(msg, "403 Forbidden") || strings.Contains(msg, "401 Unauthorized") ||
+		strings.Contains(msg, "insufficient_scope") || strings.Contains(msg, "pull access denied") ||
+		strings.Contains(msg, "authorization failed")
+}
+
+// refused reports whether a registry answered that an image does not exist
+// or may not be read, as opposed to not answering.
+func refused(err error) bool {
+	return errdefs.IsNotFound(err) || strings.Contains(err.Error(), "not found") || deniedMessage(err.Error())
+}
+
 // pullError says what a failed pull most likely means before the registry's
 // own words: an image that does not exist and one the registry will not
 // show without credentials look the same from outside.
 func pullError(image string, withAuth bool, err error) error {
 	msg := err.Error()
-	denied := strings.Contains(msg, "403 Forbidden") || strings.Contains(msg, "401 Unauthorized") ||
-		strings.Contains(msg, "insufficient_scope") || strings.Contains(msg, "pull access denied") ||
-		strings.Contains(msg, "authorization failed")
+	denied := deniedMessage(msg)
 	switch {
 	case errdefs.IsNotFound(err) || strings.Contains(msg, "not found"):
 		return fmt.Errorf("pull %s: no such image or tag in the registry: %w", image, err)
