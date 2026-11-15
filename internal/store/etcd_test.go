@@ -192,8 +192,8 @@ func TestMigrateToCurrent(t *testing.T) {
 	if from, err := s.Migrate(ctx); err != nil || from != 1 {
 		t.Fatalf("migrate: from %d, %v", from, err)
 	}
-	if v, _ := s.StoredSchema(ctx); v != 12 {
-		t.Errorf("schema = %d, want 12", v)
+	if v, _ := s.StoredSchema(ctx); v != 13 {
+		t.Errorf("schema = %d, want 13", v)
 	}
 }
 

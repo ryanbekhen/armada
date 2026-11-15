@@ -113,6 +113,13 @@ func (c Config) TCPPorts() []int {
 // from, set by proxies. They are only believed from TrustedProxies.
 var ClientAddressHeaders = []string{"Forwarded", "X-Forwarded-For", "X-Real-IP", "CF-Connecting-IP", "True-Client-IP"}
 
+// ForwardedURLHeaders are the headers applications build their own URLs
+// from (links in emails, redirects). The public frontend routed the request
+// on its Host and serves only HTTPS on 443, so these are removed from every
+// request, a trusted proxy's included: proxies in front commonly pass a
+// client's value on unchanged.
+var ForwardedURLHeaders = []string{"X-Forwarded-Host", "X-Forwarded-Port", "X-Forwarded-Prefix", "X-Forwarded-Server"}
+
 // Backend is one app's set of replicas.
 type Backend struct {
 	Name       string

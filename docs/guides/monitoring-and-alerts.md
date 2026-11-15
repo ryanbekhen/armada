@@ -63,9 +63,17 @@ armada metrics credentials prometheus -o /etc/prometheus/armada
 
 The key is made on this machine and never sent to the server. The
 certificate (`metrics:prometheus`) is refused by every API call, so a
-leaked key exposes metrics, not the cluster. It lasts a year and cannot be
-revoked short of replacing the cluster CA: keep the key with Prometheus
-only, and create a new one before the year is out.
+leaked key exposes metrics, not the cluster. It lasts a year: keep the key
+with Prometheus only, and create a new one before the year is out.
+
+If a key leaks, revoke every certificate of the name at once, then create a
+new one:
+
+```bash
+armada metrics list                      # scrapers with a valid certificate
+armada metrics revoke prometheus --yes
+armada metrics credentials prometheus -o /etc/prometheus/armada-new
+```
 
 ## 3. Scrape every server
 

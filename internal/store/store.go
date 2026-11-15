@@ -452,6 +452,13 @@ type Store interface {
 	// its certificate is accepted; a user not on record has cluster-admin.
 	UserAccess(ctx context.Context, name string, notBefore time.Time, serial string) (Principal, bool, error)
 	ServiceAccess(ctx context.Context, name, serial string) (Principal, bool, error)
+	// RecordMetricsCert records a certificate issued to a metrics scraper;
+	// RevokeMetricsCerts refuses every certificate of the name;
+	// MetricsAccess reports whether one is accepted (ADR 0017).
+	RecordMetricsCert(ctx context.Context, name string, c NodeCert, actor string) error
+	RevokeMetricsCerts(ctx context.Context, name, actor string) error
+	ListMetricsCerts(ctx context.Context) ([]MetricsCredential, error)
+	MetricsAccess(ctx context.Context, name string, notBefore time.Time, serial string) (bool, error)
 
 	// Deploy records spec as a new revision and makes it the rollout target
 	// unless it is identical to the current target. A spec identical to the

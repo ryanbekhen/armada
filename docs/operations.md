@@ -1222,7 +1222,11 @@ armada metrics credentials prometheus -o /etc/prometheus/armada   # ca.pem, cert
 The key is generated on that machine and never sent to the server. The
 certificate (`metrics:prometheus`) can only scrape: the API refuses it. It
 lasts a year; create a new one before it expires. Admin certificates may
-scrape too.
+scrape too. `armada metrics list` shows the scrapers with a valid
+certificate, and `armada metrics revoke NAME --yes` refuses every certificate
+of a name at once. Certificates created before Armada recorded them (before
+v0.1.0-alpha.20) keep working until their name is revoked or given a new
+one.
 
 Scrape every server. Only the leader answers, so exactly one target is up:
 
@@ -1331,6 +1335,10 @@ armada volume backup db data -o db-data.tar.gz --stop   # consistent: stops the 
 armada volume restore db data db-data.tar.gz       # replace the contents; stops the app meanwhile
 armada volume delete db data --yes                 # delete the data; only once no spec mounts it
 ```
+
+A restore needs room: it writes next to the volume first, and refuses a file
+that would leave less than 5% of the node's volume file system (at least
+1 GiB), or 5% of its inodes, free.
 
 ```
 APP  VOLUME  NODE   PATH                      USED    LAST BACKUP  BACKUPS        AGE

@@ -321,6 +321,11 @@ func render(cfg proxy.Config, layout Layout, opts renderOptions) []byte {
 	for _, h := range proxy.ClientAddressHeaders {
 		w("    http-request del-header %s%s", h, unless)
 	}
+	// Nobody may say which host or port the client asked for: the request
+	// was routed on its Host.
+	for _, h := range proxy.ForwardedURLHeaders {
+		w("    http-request del-header %s", h)
+	}
 	if hasIPRules(cfg) {
 		writeClientAddress(w, cfg.TrustedProxies)
 	}

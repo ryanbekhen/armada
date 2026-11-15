@@ -466,12 +466,17 @@ type restoreEntry struct {
 type entryWriter struct {
 	root string
 	dirs []dirTime
+	// space reads the file system's free space (fsSpace; tests replace it).
+	space func(string) (fsFree, bool)
 }
 
 type dirTime struct {
 	path string
 	t    time.Time
 }
+
+// restoreSpace is fsSpace, a variable for tests.
+var restoreSpace = fsSpace
 
 // replaceDir fills a new directory next to dir and swaps it in only when
 // fill succeeded, so a failure leaves the volume as it was.
@@ -489,7 +494,7 @@ func replaceDir(dir string, fill func(*entryWriter) error) error {
 			_ = os.RemoveAll(tmp)
 		}
 	}()
-	w := &entryWriter{root: tmp}
+	w := &entryWriter{root: tmp, space: restoreSpace}
 	if err := fill(w); err != nil {
 		return err
 	}
@@ -508,11 +513,44 @@ func replaceDir(dir string, fill func(*entryWriter) error) error {
 	return os.RemoveAll(old)
 }
 
+// fsFree is what a file system has left.
+type fsFree struct {
+	Bytes, TotalBytes   uint64
+	Inodes, TotalInodes uint64
+}
+
+// restoreReserve is what a restore leaves free on the volumes' file system:
+// 5% of its space (at least 1 GiB) and of its inodes. An archive or
+// snapshot that would take more is refused before the file is written, so
+// a restore cannot fill the node's disk for the other apps on it.
+func restoreReserve(f fsFree) (bytes, inodes uint64) {
+	return max(f.TotalBytes/20, 1<<30), f.TotalInodes / 20
+}
+
+// room refuses e when writing it would leave less than restoreReserve.
+func (w *entryWriter) room(e restoreEntry) error {
+	if e.Size < 0 {
+		return fmt.Errorf("archive entry %q: negative size", e.Name)
+	}
+	f, ok := w.space(w.root)
+	if !ok {
+		return nil
+	}
+	bytes, inodes := restoreReserve(f)
+	if f.Bytes < bytes || f.Bytes-bytes < uint64(e.Size) || (f.TotalInodes > 0 && f.Inodes <= inodes) {
+		return fmt.Errorf("archive entry %q: not enough space on the node: a restore leaves 5%% of the volumes' file system free", e.Name)
+	}
+	return nil
+}
+
 // write creates e, reading a file's content from content. No entry is
 // written through a link, and setuid and setgid bits are left out.
 func (w *entryWriter) write(e restoreEntry, content io.Reader) error {
 	target, err := archivePath(w.root, e.Name)
 	if err != nil {
+		return err
+	}
+	if err := w.room(e); err != nil {
 		return err
 	}
 	mode := e.Mode & (fs.ModePerm | fs.ModeSticky)

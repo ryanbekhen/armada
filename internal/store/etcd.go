@@ -68,6 +68,7 @@ const (
 	// Apps are keyed by their ID (spec.AppID): the name in the default
 	// space, <name>.<space> in others (ADR 0026). Spaces live under
 	// pfxSpaces (spaces.go).
+	// pfxMetrics (metrics.go).
 	// pfxEvents (events.go) holds expiring events; older binaries ignore
 	// the prefix, so it needs no schema step.
 
@@ -75,7 +76,7 @@ const (
 	// migrations when records change incompatibly. Records under servers/
 	// and meta/ are read and written by every server, whatever its schema,
 	// so they only ever gain optional fields.
-	etcdSchema = 12
+	etcdSchema = 13
 
 	maxTxnRetries = 100
 	// auditKeep is how many audit events are retained.
@@ -2693,6 +2694,11 @@ var migrations = []migration{
 	// run such a job as one container, or drop the tasks of a run when they
 	// rewrite it, can no longer lead.
 	func(*etx) error { return nil },
+	// 12 -> 13: metrics certificates on record under metrics/ (ADR 0017),
+	// so they can be revoked; the ones issued earlier stay accepted until
+	// their name is revoked. Servers that would accept a revoked one can no
+	// longer lead.
+	migrateMetrics,
 }
 
 // StoredSchema returns the schema the keyspace is written in.

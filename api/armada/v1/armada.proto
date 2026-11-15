@@ -93,6 +93,12 @@ service AdminService {
   // IssueMetricsCertificate signs a client certificate that may only
   // scrape the metrics endpoint (ADR 0017).
   rpc IssueMetricsCertificate(IssueMetricsCertificateRequest) returns (IssueMetricsCertificateResponse);
+  // ListMetricsCredentials lists the metrics scrapers with a certificate
+  // on record that has not expired.
+  rpc ListMetricsCredentials(ListMetricsCredentialsRequest) returns (ListMetricsCredentialsResponse);
+  // RevokeMetricsCredentials refuses every certificate of a metrics
+  // scraper from now on.
+  rpc RevokeMetricsCredentials(RevokeMetricsCredentialsRequest) returns (RevokeMetricsCredentialsResponse);
   // Events streams what the cluster did (ADR 0018), oldest first; with
   // follow, then new events until the caller cancels.
   rpc Events(EventsRequest) returns (stream EventInfo);
@@ -324,6 +330,28 @@ message IssueMetricsCertificateResponse {
   bytes ca_cert = 2;
   google.protobuf.Timestamp expires_at = 3;
 }
+
+message ListMetricsCredentialsRequest {}
+
+message MetricsCertificate {
+  string serial = 1;
+  google.protobuf.Timestamp expires_at = 2;
+}
+
+message MetricsCredential {
+  string name = 1;
+  repeated MetricsCertificate certificates = 2;
+}
+
+message ListMetricsCredentialsResponse {
+  repeated MetricsCredential credentials = 1;
+}
+
+message RevokeMetricsCredentialsRequest {
+  string name = 1;
+}
+
+message RevokeMetricsCredentialsResponse {}
 
 message CreateSpaceRequest {
   string name = 1;

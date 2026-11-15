@@ -101,7 +101,8 @@ Everything Armada does. The [guides](guides/README.md) show each in use, and the
   tested with `armada alert test`.
 - **Metrics.** The leader serves Prometheus metrics (apps, replicas, nodes,
   usage, reconciles) on a private address, only to client certificates that
-  `armada metrics credentials` creates.
+  `armada metrics credentials` creates; `armada metrics revoke` refuses
+  every certificate of a scraper at once.
 - **Multiple nodes.** Join with a single-use token; nodes get short-lived
   mTLS certificates that they renew themselves, and servers renew their own. Drain, evacuate, delete.
   Replicas of a lost node are started elsewhere, and apps spread out again,

@@ -335,3 +335,45 @@ func TestArchiveStaysInVolume(t *testing.T) {
 		t.Errorf("volume size %d counts files outside the volume", got)
 	}
 }
+
+// A restore leaves 5% of the file system (at least 1 GiB) and of its
+// inodes free: an entry that would take more is refused before it is
+// written, whatever the archive or snapshot claims.
+func TestRestoreLeavesSpace(t *testing.T) {
+	t.Parallel()
+	const gib = 1 << 30
+	disk := fsFree{Bytes: 2 * gib, TotalBytes: 10 * gib, Inodes: 1000, TotalInodes: 10000}
+	w := &entryWriter{root: t.TempDir(), space: func(string) (fsFree, bool) { return disk, true }}
+	uid, gid := os.Getuid(), os.Getgid()
+	file := func(name string, size int64) restoreEntry {
+		return restoreEntry{Name: name, Type: 'f', Mode: 0o600, UID: uid, GID: gid, Size: size}
+	}
+	if err := w.write(file("small", 1), strings.NewReader("x")); err != nil {
+		t.Fatalf("a file that fits was refused: %v", err)
+	}
+	if err := w.write(file("big", gib+1), strings.NewReader("x")); err == nil {
+		t.Error("a file past the reserve was accepted")
+	}
+	if _, err := os.Stat(filepath.Join(w.root, "big")); err == nil {
+		t.Error("a refused file was created")
+	}
+	if err := w.write(file("negative", -1), strings.NewReader("")); err == nil {
+		t.Error("a negative size was accepted")
+	}
+
+	disk.Inodes = 500 // the reserve: 5% of 10000
+	if err := w.write(restoreEntry{Name: "d", Type: 'd', Mode: 0o700, UID: uid, GID: gid}, nil); err == nil {
+		t.Error("a directory past the inode reserve was accepted")
+	}
+
+	disk = fsFree{Bytes: gib - 1, TotalBytes: 4 * gib, Inodes: 1000, TotalInodes: 10000}
+	if err := w.write(file("tiny", 0), strings.NewReader("")); err == nil {
+		t.Error("a file was accepted below the 1 GiB floor")
+	}
+
+	// Unknown space: not limited.
+	w.space = func(string) (fsFree, bool) { return fsFree{}, false }
+	if err := w.write(file("unknown", 1), strings.NewReader("x")); err != nil {
+		t.Errorf("unknown space refused a file: %v", err)
+	}
+}

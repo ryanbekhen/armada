@@ -231,3 +231,16 @@ func TestTargetRefusesNodeAddresses(t *testing.T) {
 		t.Errorf("dialled a name that resolves to loopback: %v", err)
 	}
 }
+
+// The bucket is dialled directly: through a proxy from the environment,
+// the dial guard would check the proxy's address instead of the bucket's.
+func TestS3IgnoresEnvironmentProxy(t *testing.T) {
+	t.Parallel()
+	target, err := ParseTarget("https://AKID:topsecret@s3.example.com/bk1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if transport(target).Proxy != nil {
+		t.Error("the S3 transport uses a proxy")
+	}
+}

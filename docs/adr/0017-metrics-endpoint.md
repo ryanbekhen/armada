@@ -41,6 +41,15 @@ The leader serves Prometheus metrics at `GET /metrics` on
     request says.
   - Issuing is recorded in the audit log.
   - The certificate lasts a year, like admin certificates.
+  - The serial is recorded under `metrics/<name>` (schema 13), and the
+    endpoint accepts only recorded serials that have not expired.
+    `armada metrics list` shows them; `armada metrics revoke NAME` refuses
+    every certificate of the name until a new one is issued. Certificates
+    issued before schema 13 were never recorded: they stay accepted while
+    their name has no record (`meta/metrics-cutoff`, written by the
+    migration, is when recording started), so a running scraper keeps
+    working through the upgrade, and revoking the name or issuing it a new
+    certificate ends them.
 
 ### Where it runs
 
@@ -135,8 +144,8 @@ anything else a spec or an agent could make up.
 
 - Prometheus needs the client certificate and the cluster CA in its TLS
   configuration, with `server_name: armada-server`.
-- A metrics certificate can only be revoked by replacing the cluster CA,
-  like an admin certificate. Its holder sees names and resource numbers,
+- A metrics certificate is revoked by name (`armada metrics revoke`), at
+  once on every server. Its holder sees names and resource numbers,
   nothing more.
 - There is a short gap in the series when the leader changes.
 - Series grow with replicas. Each replica has about seven series, which is
