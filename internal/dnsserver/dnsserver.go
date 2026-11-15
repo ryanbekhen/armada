@@ -59,11 +59,26 @@ type Server struct {
 	// inflight bounds concurrent upstream queries, so a busy or hostile
 	// container cannot exhaust the agent's sockets.
 	inflight chan struct{}
+
+	// perClient counts each client address's forwarded queries in flight
+	// and its open TCP connections, so one container cannot take every
+	// slot of the node from the containers of other spaces.
+	mu        sync.Mutex
+	perClient map[netip.Addr]int
+	perConn   map[netip.Addr]int
 }
 
-// maxInflight is the number of queries forwarded at the same time; beyond
-// it clients get SERVFAIL and retry.
-const maxInflight = 128
+const (
+	// maxInflight is the number of queries forwarded at the same time;
+	// beyond it clients get SERVFAIL and retry.
+	maxInflight = 128
+	// maxInflightPerClient is one client address's share of maxInflight:
+	// a client past it gets SERVFAIL without taking a node slot.
+	maxInflightPerClient = 16
+	// maxConnsPerClient bounds one client address's open TCP connections;
+	// further connections are closed at once.
+	maxConnsPerClient = 16
+)
 
 // New validates cfg. The listen address must be private.
 func New(cfg Config) (*Server, error) {
@@ -88,7 +103,8 @@ func New(cfg Config) (*Server, error) {
 		}
 	}
 	cfg.Upstreams = ups
-	s := &Server{cfg: cfg, log: cfg.Logger.With("component", "dns"), inflight: make(chan struct{}, maxInflight)}
+	s := &Server{cfg: cfg, log: cfg.Logger.With("component", "dns"), inflight: make(chan struct{}, maxInflight),
+		perClient: map[netip.Addr]int{}, perConn: map[netip.Addr]int{}}
 	s.names.Store(&map[string]bool{})
 	return s, nil
 }
@@ -130,7 +146,7 @@ func (s *Server) Listen() error {
 		_ = pc.Close()
 		return fmt.Errorf("dns: %w", err)
 	}
-	s.pc, s.l = pc, l
+	s.pc, s.l = pc, &clientListener{Listener: l, s: s}
 	return nil
 }
 
@@ -196,16 +212,81 @@ func (s *Server) ServeDNS(w dns.ResponseWriter, req *dns.Msg) {
 		_ = w.WriteMsg(s.answer(req, q, name, remoteIP(w.RemoteAddr())))
 		return
 	}
+	// The client's own share first, so a client past it never holds a
+	// node slot another client could use.
+	client := remoteIP(w.RemoteAddr())
+	if !s.take(s.perClient, client, maxInflightPerClient) {
+		s.fail(w, req)
+		return
+	}
+	defer s.release(s.perClient, client)
 	select {
 	case s.inflight <- struct{}{}:
 		defer func() { <-s.inflight }()
 	default:
-		resp := new(dns.Msg)
-		resp.SetRcode(req, dns.RcodeServerFailure)
-		_ = w.WriteMsg(resp)
+		s.fail(w, req)
 		return
 	}
 	_ = w.WriteMsg(s.forward(req, w.RemoteAddr().Network()))
+}
+
+func (s *Server) fail(w dns.ResponseWriter, req *dns.Msg) {
+	resp := new(dns.Msg)
+	resp.SetRcode(req, dns.RcodeServerFailure)
+	_ = w.WriteMsg(resp)
+}
+
+// take counts one more use by client in m unless it already has limit.
+func (s *Server) take(m map[netip.Addr]int, client netip.Addr, limit int) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if m[client] >= limit {
+		return false
+	}
+	m[client]++
+	return true
+}
+
+func (s *Server) release(m map[netip.Addr]int, client netip.Addr) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if m[client]--; m[client] <= 0 {
+		delete(m, client)
+	}
+}
+
+// clientListener closes a TCP connection at once when its client address
+// already has maxConnsPerClient open.
+type clientListener struct {
+	net.Listener
+	s *Server
+}
+
+func (l *clientListener) Accept() (net.Conn, error) {
+	for {
+		c, err := l.Listener.Accept()
+		if err != nil {
+			return nil, err
+		}
+		ip := remoteIP(c.RemoteAddr())
+		if !l.s.take(l.s.perConn, ip, maxConnsPerClient) {
+			_ = c.Close()
+			continue
+		}
+		return &clientConn{Conn: c, s: l.s, ip: ip}, nil
+	}
+}
+
+type clientConn struct {
+	net.Conn
+	s    *Server
+	ip   netip.Addr
+	once sync.Once
+}
+
+func (c *clientConn) Close() error {
+	c.once.Do(func() { c.s.release(c.s.perConn, c.ip) })
+	return c.Conn.Close()
 }
 
 func (s *Server) allowed(a net.Addr) bool {
