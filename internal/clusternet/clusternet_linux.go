@@ -377,6 +377,11 @@ func diagnoseIsolation() Check {
 		c.Level, c.Detail = CheckFail, fmt.Sprintf("nftables is not usable (%v); the kernel needs nf_tables to keep apps and spaces apart", err)
 	case !ok:
 		c.Level, c.Detail = CheckWarn, "the nftables tables that keep apps and spaces apart are not set up yet; the agent creates them once connected"
+	default:
+		// The tables filter IPv4 only; the bridge must have no IPv6.
+		if off, err := embedded.IPv6Off(embedded.BridgeName); err != nil || !off {
+			c.Level, c.Detail = CheckFail, fmt.Sprintf("IPv6 is on for %s, so containers can reach this machine's IPv6 listeners past the firewall; restart the agent, which turns it off", embedded.BridgeName)
+		}
 	}
 	return c
 }

@@ -130,9 +130,16 @@ Spaces build on the cluster network (ADR 0025) and its access rules:
     metrics, the tunnel);
   - the link-local range (`169.254.0.0/16`, the cloud metadata service);
   - every other private, shared, and loopback range outside the cluster
-    CIDR (`10/8`, `172.16/12`, `192.168/16`, `100.64/10`, `fc00::/7`), so
+    CIDR (`10/8`, `172.16/12`, `192.168/16`, `100.64/10`), so
     the private network and the machines on it are out of reach;
   - every other port on the node's own addresses.
+
+  Containers have IPv4 only. The bridge (`armada0`) has IPv6 turned off
+  before it comes up, so it has no link-local address a container could
+  reach the node's IPv6 listeners through, and the bridge table drops
+  every frame that is not IPv4 between containers. The rules above are
+  therefore IPv4 rules; doctor's `isolation` check fails when the bridge
+  has IPv6 on.
 
   A new container's address is known to its node's firewall as soon as it
   starts; until then, and for any address the node does not know, the
