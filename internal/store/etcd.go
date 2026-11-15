@@ -1989,6 +1989,9 @@ func (s *Etcd) CreateReplica(ctx context.Context, r Replica) error {
 		if err := t.bindVolumes(rev, r.NodeID, s.now()); err != nil {
 			return err
 		}
+		if err := t.putPlacement(r, s.now()); err != nil {
+			return err
+		}
 		return t.put(pfxReplicas+r.ID, replicaRec{ID: r.ID, App: r.App, Revision: r.Revision, NodeID: r.NodeID, State: r.State, UpdatedAt: s.now().UnixMilli(), CreatedAt: s.now().UnixMilli(), Run: r.Run, Task: r.Task, Held: r.Held})
 	})
 }
