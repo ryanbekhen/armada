@@ -12,6 +12,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 const botToken = "123456:ABCdefGHIjklMNOpqrSTUvwx-yz_0123"
@@ -241,5 +242,55 @@ func TestSendEmail(t *testing.T) {
 	}
 	if err := s2.Send(context.Background(), n); err == nil || !strings.Contains(err.Error(), "STARTTLS") {
 		t.Errorf("public host without STARTTLS: %v", err)
+	}
+}
+
+// Text from registries, commands, and file names reaches chat services as
+// plain text: no mentions, and no links whose label hides where they go.
+func TestChatMarkupEscaped(t *testing.T) {
+	var mu sync.Mutex
+	var body map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		body = nil
+		_ = json.NewDecoder(r.Body).Decode(&body)
+	}))
+	defer srv.Close()
+	n := notice()
+	n.Message = "pull: 500 <!here> <https://evil.example/login|sign in again> [sign in](https://evil.example/d) *b* & `x`"
+	if err := NewSender(Channel{Name: "s", Type: Slack, Secret: []byte(srv.URL)}, nil, nil).Send(context.Background(), n); err != nil {
+		t.Fatal(err)
+	}
+	text, _ := body["text"].(string)
+	if strings.ContainsAny(text, "<>") || !strings.Contains(text, "&lt;!here&gt;") || !strings.Contains(text, "&amp; ") {
+		t.Errorf("slack text %q", text)
+	}
+	if err := NewSender(Channel{Name: "d", Type: Discord, Secret: []byte(srv.URL)}, nil, nil).Send(context.Background(), n); err != nil {
+		t.Fatal(err)
+	}
+	content, _ := body["content"].(string)
+	if !strings.Contains(content, `\[sign in\]\(https://evil.example/d\)`) || !strings.Contains(content, `\<!here\>`) || !strings.Contains(content, "\\`x\\`") {
+		t.Errorf("discord content %q", content)
+	}
+}
+
+func TestDiscordEscapeBounded(t *testing.T) {
+	for _, tc := range []struct {
+		in   string
+		max  int
+		want string
+	}{
+		{"abc", 3, "abc"},
+		{"abcd", 3, "ab…"},
+		{"a[b", 4, `a\[b`},
+		{"a[b", 3, "a…"},
+		{"[[[[", 5, `\[\[…`},
+		{"ab[", 4, `ab\[`},
+	} {
+		got := discordEscape(tc.in, tc.max)
+		if got != tc.want || utf8.RuneCountInString(got) > tc.max {
+			t.Errorf("discordEscape(%q, %d) = %q, want %q", tc.in, tc.max, got, tc.want)
+		}
 	}
 }

@@ -353,9 +353,9 @@ func (s *Sender) Send(ctx context.Context, n Notice) error {
 	case Webhook:
 		err = s.post(ctx, string(s.c.Secret), n)
 	case Slack:
-		err = s.post(ctx, string(s.c.Secret), map[string]string{"text": n.Text()})
+		err = s.post(ctx, string(s.c.Secret), map[string]string{"text": slackEscape(n.Text())})
 	case Discord:
-		err = s.post(ctx, string(s.c.Secret), map[string]any{"content": cut(n.Text(), discordMax), "allowed_mentions": map[string]any{"parse": []string{}}})
+		err = s.post(ctx, string(s.c.Secret), map[string]any{"content": discordEscape(n.Text(), discordMax), "allowed_mentions": map[string]any{"parse": []string{}}})
 	case Telegram:
 		err = s.post(ctx, TelegramAPI+"/bot"+string(s.c.Secret)+"/sendMessage",
 			map[string]any{"chat_id": s.c.ChatID, "text": cut(n.Text(), telegramMax), "disable_web_page_preview": true})
@@ -507,6 +507,39 @@ func oneLine(s string) string {
 		}
 		return r
 	}, s)
+}
+
+// slackEscape keeps text plain in Slack: notices carry text from
+// registries, commands, and file names, and Slack reads <!here>, <!channel>,
+// and <url|label> in a message as mentions and links whose label hides
+// where they go. Slack's own escaping turns them into text.
+func slackEscape(s string) string {
+	return strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;").Replace(s)
+}
+
+// discordEscape keeps text plain in Discord: a backslash before every
+// Markdown character, so [label](url) is not a link whose label hides where
+// it goes and nothing else is formatted. Mentions are off in the request.
+// At most max runes are kept, an escape never cut from its character.
+func discordEscape(s string, max int) string {
+	var b strings.Builder
+	runes := 0
+	for i, r := range s {
+		n := 1
+		if strings.ContainsRune(`\*_~|[]()<>#`+"`", r) {
+			n = 2
+		}
+		if runes+n > max || (runes+n == max && i+utf8.RuneLen(r) < len(s)) {
+			b.WriteString("…")
+			break
+		}
+		if n == 2 {
+			b.WriteByte('\\')
+		}
+		b.WriteRune(r)
+		runes += n
+	}
+	return b.String()
 }
 
 func cut(s string, n int) string {
