@@ -9028,9 +9028,12 @@ type UsageReport struct {
 	// entry per sandbox, whether or not a length was read yet.
 	Sandboxes []*SandboxQueue `protobuf:"bytes,9,rep,name=sandboxes,proto3" json:"sandboxes,omitempty"`
 	// Set while the node sends logs elsewhere (ADR 0044).
-	LogExport     *LogExportStatus `protobuf:"bytes,10,opt,name=log_export,json=logExport,proto3" json:"log_export,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	LogExport *LogExportStatus `protobuf:"bytes,10,opt,name=log_export,json=logExport,proto3" json:"log_export,omitempty"`
+	// Jobs of the assignment's queue sandboxes the node does not keep,
+	// being past the sandboxes one node keeps (ADR 0040).
+	DroppedSandboxes []string `protobuf:"bytes,11,rep,name=dropped_sandboxes,json=droppedSandboxes,proto3" json:"dropped_sandboxes,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *UsageReport) Reset() {
@@ -9129,6 +9132,13 @@ func (x *UsageReport) GetSandboxes() []*SandboxQueue {
 func (x *UsageReport) GetLogExport() *LogExportStatus {
 	if x != nil {
 		return x.LogExport
+	}
+	return nil
+}
+
+func (x *UsageReport) GetDroppedSandboxes() []string {
+	if x != nil {
+		return x.DroppedSandboxes
 	}
 	return nil
 }
@@ -14729,7 +14739,7 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\bfinished\x18\t \x01(\bR\bfinished\x12\x1b\n" +
 	"\texit_code\x18\n" +
 	" \x01(\x05R\bexitCode\x12\x0e\n" +
-	"\x02ip\x18\v \x01(\tR\x02ip\"\xe4\x03\n" +
+	"\x02ip\x18\v \x01(\tR\x02ip\"\x91\x04\n" +
 	"\vUsageReport\x123\n" +
 	"\breplicas\x18\x01 \x03(\v2\x17.armada.v1.ReplicaUsageR\breplicas\x12*\n" +
 	"\x04load\x18\x02 \x03(\v2\x16.armada.v1.ReplicaLoadR\x04load\x12#\n" +
@@ -14742,7 +14752,8 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\tsandboxes\x18\t \x03(\v2\x17.armada.v1.SandboxQueueR\tsandboxes\x129\n" +
 	"\n" +
 	"log_export\x18\n" +
-	" \x01(\v2\x1a.armada.v1.LogExportStatusR\tlogExport\"\x9d\x01\n" +
+	" \x01(\v2\x1a.armada.v1.LogExportStatusR\tlogExport\x12+\n" +
+	"\x11dropped_sandboxes\x18\v \x03(\tR\x10droppedSandboxes\"\x9d\x01\n" +
 	"\fSandboxQueue\x12\x10\n" +
 	"\x03job\x18\x01 \x01(\tR\x03job\x12\x0e\n" +
 	"\x02ip\x18\x02 \x01(\tR\x02ip\x12\x1a\n" +

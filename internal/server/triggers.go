@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"hash/fnv"
+	"slices"
 	"strconv"
 	"sync"
 	"time"
@@ -76,13 +77,14 @@ func (s *Server) sandboxNodes() map[string]bool {
 
 // probeNode picks the node that reads a job's queue: one the job may run on
 // (eligible), with a subnet of the cluster network, connected, not lost,
-// and whose agent keeps sandboxes. Of those it takes the one whose hash with
-// the job is highest, so a job stays on its node while that node fits, jobs
-// spread over the nodes, and every leader picks the same node.
-func probeNode(job string, nodes []store.Node, rev store.Revision, lost, sandboxes map[string]bool) (string, bool) {
+// whose agent keeps sandboxes, and with room for one more (room; nil for
+// any). Of those it takes the one whose hash with the job is highest, so a
+// job stays on its node while that node fits, jobs spread over the nodes,
+// and every leader picks the same node.
+func probeNode(job string, nodes []store.Node, rev store.Revision, lost, sandboxes map[string]bool, room func(node string) bool) (string, bool) {
 	best, bestHash := "", uint64(0)
 	for _, n := range eligible(nodes, rev) {
-		if n.Subnet == "" || !n.Jobs || lost[n.ID] || !sandboxes[n.ID] {
+		if n.Subnet == "" || !n.Jobs || lost[n.ID] || !sandboxes[n.ID] || (room != nil && !room(n.ID)) {
 			continue
 		}
 		h := fnv.New64a()
@@ -92,6 +94,37 @@ func probeNode(job string, nodes []store.Node, rev store.Revision, lost, sandbox
 		}
 	}
 	return best, best != ""
+}
+
+// placeQueues picks the node that reads each queue-triggered job's queue in
+// this pass, and "" for jobs no node can read. Nodes get at most
+// spec.MaxNodeQueueSandboxes sandboxes, what an agent keeps, and jobs are
+// placed one space at a time (spec.FairOrder), so the jobs of one space,
+// however many and whatever their names, cannot take every place on a node
+// from another space's.
+func (s *Server) placeQueues(ctx context.Context, rc *reconcileRun, jobs []store.App, nodes []store.Node, revs *revisionCache) map[string]string {
+	out := map[string]string{}
+	queued := map[string]store.Revision{}
+	var ids []string
+	for _, job := range jobs {
+		rev, err := revs.get(ctx, job.ActiveRevision)
+		if err != nil || rev.Spec.QueueTrigger() == nil {
+			continue
+		}
+		queued[job.Name] = rev
+		ids = append(ids, job.Name)
+	}
+	slices.Sort(ids)
+	placed := map[string]int{}
+	room := func(node string) bool { return placed[node] < spec.MaxNodeQueueSandboxes }
+	for _, id := range spec.FairOrder(ids) {
+		node, ok := probeNode(id, nodes, queued[id], rc.lost, rc.sandboxNodes, room)
+		if ok {
+			placed[node]++
+		}
+		out[id] = node
+	}
+	return out
 }
 
 // queueReading returns what node last reported of job's sandbox, if the
@@ -113,7 +146,7 @@ func (s *Server) queueReading(job, node string, every time.Duration, now time.Ti
 // and starts runs for what waits in it: ⌈length ÷ perRun⌉ runs at most
 // trigger.parallelism, less the active ones, once per reading. Without a
 // recent reading it starts nothing.
-func (s *Server) triggerJob(ctx context.Context, rc *reconcileRun, job store.App, runs []store.JobRun, nodes []store.Node, revs *revisionCache) []store.JobRun {
+func (s *Server) triggerJob(ctx context.Context, rc *reconcileRun, job store.App, runs []store.JobRun, revs *revisionCache) []store.JobRun {
 	rev, err := revs.get(ctx, job.ActiveRevision)
 	if err != nil {
 		return runs
@@ -124,13 +157,20 @@ func (s *Server) triggerJob(ctx context.Context, rc *reconcileRun, job store.App
 		return runs
 	}
 	rc.triggered[job.Name] = true
-	node, ok := probeNode(job.Name, nodes, rev, rc.lost, rc.sandboxNodes)
-	s.condition(ctx, "job-queue:"+job.Name, !ok, store.Event{Kind: eventJob, Object: job.Name, App: job.Name, Reason: "QueueUnread",
-		Message: "no node can read the queue: it needs a connected node the job may run on, in the cluster network, whose agent reads queues"})
+	node := rc.queueNodes[job.Name]
+	ok := node != ""
+	msg := fmt.Sprintf("no node can read the queue: it needs a connected node the job may run on, in the cluster network, whose agent reads queues, and that reads fewer than %d queues", spec.MaxNodeQueueSandboxes)
+	if ok && s.usage.droppedSandbox(node, job.Name, rc.now) {
+		// The node keeps fewer sandboxes than the leader placed there,
+		// such as an agent of another release.
+		msg = "node " + node + " does not read the queue: it keeps no more queue sandboxes"
+		ok = false
+	}
+	s.condition(ctx, "job-queue:"+job.Name, !ok, store.Event{Kind: eventJob, Object: job.Name, App: job.Name, Reason: "QueueUnread", Message: msg})
 	s.triggers.mu.Lock()
 	s.triggers.nodes[job.Name] = node
 	s.triggers.mu.Unlock()
-	if !ok {
+	if node == "" {
 		return runs
 	}
 	vals, err := revs.secrets(ctx, rev)

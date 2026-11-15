@@ -1149,8 +1149,9 @@ Queue:        120 waiting, read 12s ago from node2
   sandbox cannot reach it, or the URL is wrong; the agent's log on that
   node names the kind of failure (never the URL).
 - `Queue: not read: no node can` means no connected node of the cluster
-  network may run the job (placement, cordons); the cluster records a
-  `QueueUnread` event.
+  network may run the job (placement, cordons), or every such node already
+  reads 64 queues; the cluster records a `QueueUnread` event. Nodes take
+  queues one space at a time, so one space's jobs cannot take every place.
 - Triggers need a cluster network (`armadad init --network`).
 - Sandboxes live in `/run/armada/sandboxes`, one file per job, and are
   removed with the job or by `armadad runtime reset`.

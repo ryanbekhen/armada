@@ -1282,6 +1282,9 @@ message UsageReport {
   repeated SandboxQueue sandboxes = 9;
   // Set while the node sends logs elsewhere (ADR 0044).
   LogExportStatus log_export = 10;
+  // Jobs of the assignment's queue sandboxes the node does not keep,
+  // being past the sandboxes one node keeps (ADR 0040).
+  repeated string dropped_sandboxes = 11;
 }
 
 // SandboxQueue is one job's network sandbox on the node and the length of

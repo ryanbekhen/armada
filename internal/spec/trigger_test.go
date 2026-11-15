@@ -91,3 +91,17 @@ func TestJobTasks(t *testing.T) {
 		}
 	}
 }
+
+// FairOrder takes one ID of every space per round, so a space with many IDs
+// that sort first cannot push another space's first one back.
+func TestFairOrder(t *testing.T) {
+	t.Parallel()
+	got := FairOrder([]string{"a00.evil", "a01.evil", "a02.evil", "mailer", "worker.prod", "zz.prod"})
+	want := []string{"mailer", "a00.evil", "worker.prod", "a01.evil", "zz.prod", "a02.evil"}
+	if !slices.Equal(got, want) {
+		t.Errorf("FairOrder = %v, want %v", got, want)
+	}
+	if got := FairOrder(nil); len(got) != 0 {
+		t.Errorf("FairOrder(nil) = %v", got)
+	}
+}
