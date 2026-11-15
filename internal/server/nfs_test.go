@@ -151,3 +151,63 @@ func TestRollbackKeepsDeployChecks(t *testing.T) {
 		t.Errorf("rollback to a revision the deployer could deploy: %v", err)
 	}
 }
+
+// Traffic makes stored revisions serve with their own specs, so, like a
+// rollback, it passes Deploy's checks on every revision it adds: a
+// deployer cannot bring back an NFS export or a restricted node label a
+// cluster-admin has since removed, through SetTraffic or a deploy's
+// revisions.traffic, and may still reweight what already serves.
+func TestTrafficKeepsDeployChecks(t *testing.T) {
+	t.Parallel()
+	c := newCluster(t)
+	ctx := c.ctx
+	if _, err := c.admin.CreateSpace(ctx, &armadav1.CreateSpaceRequest{Name: "a"}); err != nil {
+		t.Fatal(err)
+	}
+	deployer := c.newUser("eve", &armadav1.RoleAssignment{Role: "deployer", Space: "a"})
+	multiple := func(name, image, extra, traffic string) []byte {
+		return []byte("name: " + name + "\nimage: " + image + "\ningress:\n  type: internal\n  port: 80\n" + extra +
+			"revisions:\n  mode: multiple\n  traffic:\n" + traffic)
+	}
+	latest := "    - revision: latest\n      weight: 100\n"
+
+	for _, tc := range []struct {
+		app, extra string
+	}{
+		{"api", "volumes:\n  - name: d\n    path: /d\n    nfs:\n      server: 10.0.0.30\n      path: /exports/b\n"},
+		{"gpu", "placement:\n  require:\n    pool: [gpu]\n"},
+	} {
+		id := tc.app + ".a"
+		r1, err := c.admin.Deploy(ctx, &armadav1.DeployRequest{Spec: multiple(tc.app, "nginx:1", tc.extra, latest), Space: "a"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		// The cluster-admin removes the export or the label.
+		r2, err := c.admin.Deploy(ctx, &armadav1.DeployRequest{Spec: multiple(tc.app, "nginx:2", "", latest), Space: "a"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = deployer.SetTraffic(ctx, &armadav1.SetTrafficRequest{App: id, Traffic: []*armadav1.TrafficTarget{{Revision: r1.GetRevision(), Weight: 100}}})
+		wantCode(t, tc.app+": a deployer sets traffic to the removed revision", err, codes.PermissionDenied)
+		back := "    - revision: " + r1.GetRevision() + "\n      weight: 50\n    - revision: latest\n      weight: 50\n"
+		_, err = deployer.Deploy(ctx, &armadav1.DeployRequest{Spec: multiple(tc.app, "nginx:3", "", back), Space: "a"})
+		wantCode(t, tc.app+": a deployer deploys traffic to the removed revision", err, codes.PermissionDenied)
+		if a := c.app(id); len(a.Traffic) != 1 || a.Traffic[0].Revision != r2.GetRevision() {
+			t.Errorf("%s: traffic %v after refused calls", tc.app, a.Traffic)
+		}
+
+		// Revisions the deployer could deploy are theirs to weigh.
+		if _, err := deployer.SetTraffic(ctx, &armadav1.SetTrafficRequest{App: id, Traffic: []*armadav1.TrafficTarget{{Revision: r2.GetRevision(), Weight: 100}}}); err != nil {
+			t.Errorf("%s: traffic to an allowed revision: %v", tc.app, err)
+		}
+		// Once a cluster-admin sends traffic to it, a deployer may reweight.
+		if _, err := c.admin.SetTraffic(ctx, &armadav1.SetTrafficRequest{App: id, Traffic: []*armadav1.TrafficTarget{
+			{Revision: r1.GetRevision(), Weight: 50}, {Revision: r2.GetRevision(), Weight: 50}}}); err != nil {
+			t.Fatalf("%s: cluster-admin traffic: %v", tc.app, err)
+		}
+		if _, err := deployer.SetTraffic(ctx, &armadav1.SetTrafficRequest{App: id, Traffic: []*armadav1.TrafficTarget{
+			{Revision: r1.GetRevision(), Weight: 10}, {Revision: r2.GetRevision(), Weight: 90}}}); err != nil {
+			t.Errorf("%s: reweighting serving revisions: %v", tc.app, err)
+		}
+	}
+}

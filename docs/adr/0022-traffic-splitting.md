@@ -83,6 +83,12 @@ revisions:
   revisions that exist, and refuses an app in single mode.
   - `armada rollback` refuses an app in multiple mode. Traffic moves back
     through `armada traffic` or the spec.
+  - A revision serves with its own stored spec, so for anyone but a
+    cluster-admin each revision added to the traffic (by `armada traffic`
+    or a spec's `revisions.traffic`, other than `latest`) passes the checks
+    a rollback to it would: its node labels (ADR 0014, ADR 0033) and NFS
+    exports (ADR 0042). Revisions already in the traffic can be
+    reweighted.
 - **Back to single mode.** Deploying a spec without `mode: multiple` is a
   rolling update. Every revision in the traffic keeps serving until the new
   one is ready, then they drain. During that rollout, replicas share
