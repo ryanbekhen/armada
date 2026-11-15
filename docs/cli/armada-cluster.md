@@ -45,7 +45,8 @@ at your nodes first.
 
 With --trusted-proxies, requests from these prefixes keep the client address
 headers they carry (X-Forwarded-For, CF-Connecting-IP, and the like). Every
-other request loses them, so a client cannot claim another address.
+other request loses them, so a client cannot claim another address. The
+cluster's container addresses are never trusted, even inside a listed range.
 
 Certificates, the DNS provider and its token, the metrics port, and the
 node-lost timeout apply within seconds: the leader restarts its control plane

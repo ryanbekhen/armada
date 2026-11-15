@@ -312,6 +312,56 @@ func ParseTrustedProxies(prefixes []string) ([]string, error) {
 	return slices.Compact(out), nil
 }
 
+// ExcludePrefixes returns trusted with every address of out taken away, in
+// canonical form, sorted: a prefix inside one of out is dropped, and one
+// that holds one of out is split into the prefixes around it. The leader
+// takes the cluster's container ranges out of the trusted proxies this way,
+// so a workload is never a trusted proxy (T79).
+func ExcludePrefixes(trusted []string, out []netip.Prefix) []string {
+	var cur []netip.Prefix
+	for _, s := range trusted {
+		if p, err := netip.ParsePrefix(s); err == nil {
+			cur = append(cur, p.Masked())
+		}
+	}
+	for _, e := range out {
+		e = e.Masked()
+		var next []netip.Prefix
+		for _, p := range cur {
+			switch {
+			case !p.Overlaps(e):
+				next = append(next, p)
+			case e.Bits() <= p.Bits():
+				// p lies inside e: none of it is left.
+			default:
+				next = append(next, around(p, e)...)
+			}
+		}
+		cur = next
+	}
+	res := make([]string, 0, len(cur))
+	for _, p := range cur {
+		res = append(res, p.String())
+	}
+	slices.Sort(res)
+	return slices.Compact(res)
+}
+
+// around returns the prefixes that make up p without e, which p holds: the
+// sibling of each of e's ancestors below p.
+func around(p, e netip.Prefix) []netip.Prefix {
+	var res []netip.Prefix
+	addr := e.Addr().AsSlice()
+	for bits := p.Bits() + 1; bits <= e.Bits(); bits++ {
+		b := slices.Clone(addr)
+		i := bits - 1
+		b[i/8] ^= 0x80 >> (i % 8)
+		a, _ := netip.AddrFromSlice(b)
+		res = append(res, netip.PrefixFrom(a, bits).Masked())
+	}
+	return res
+}
+
 // MaxCORSMaxAgeSeconds bounds how long browsers may keep a preflight answer.
 const MaxCORSMaxAgeSeconds = 86400
 

@@ -66,7 +66,8 @@ func newClusterCommand(g *globals) *cobra.Command {
 			"https://<app>.<root-domain>. Point a wildcard DNS record (*.<root-domain>)\nat your nodes first.\n\n" +
 			"With --trusted-proxies, requests from these prefixes keep the client address\n" +
 			"headers they carry (X-Forwarded-For, CF-Connecting-IP, and the like). Every\n" +
-			"other request loses them, so a client cannot claim another address.\n\n" +
+			"other request loses them, so a client cannot claim another address. The\n" +
+			"cluster's container addresses are never trusted, even inside a listed range.\n\n" +
 			"Certificates, the DNS provider and its token, the metrics port, and the\n" +
 			"node-lost timeout apply within seconds: the leader restarts its control plane\n" +
 			"with them while apps keep serving; the command waits until it answers again.\n" +

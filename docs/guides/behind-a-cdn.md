@@ -220,6 +220,10 @@ received the connection from:
 armada cluster set --trusted-proxies 10.0.0.5/32,10.0.0.6/32
 ```
 
+List the proxies' own addresses rather than a whole private range. A range
+that holds the cluster's container addresses still works, since Armada
+never trusts a container, but the narrower list trusts fewer machines.
+
 **Two proxies in a row** (a CDN, then a proxy of yours): list both. The
 client is found by stepping over trusted addresses at the end of
 `X-Forwarded-For`, up to four.
@@ -240,6 +244,7 @@ with address rules.
 | Certificate `Failed` with a DNS error | The token lacks a permission or the zone | A token with `Zone / DNS / Edit` and `Zone / Zone / Read` for the zone; set it again from stdin |
 | `trusted proxy "0.0.0.0/0" matches every address` | Trusting everyone would let any client choose its address | List the proxy's ranges |
 | `at most 64 trusted proxies` | Too many prefixes | Merge ranges where the CDN allows it |
+| `trusted proxy ... holds only the cluster's container addresses` | The range is inside the cluster CIDR, where only containers are | List the proxy's own addresses |
 | A name two levels deep fails in the browser through the CDN | The CDN's free certificate covers one level | Keep that name "DNS only" |
 
 ## Next steps

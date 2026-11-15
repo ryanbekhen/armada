@@ -787,7 +787,11 @@ armada cluster set --trusted-proxies ""    # no proxy trusted again
 ```
 
 Requests from anywhere else still lose them. A range that matches every
-address is refused. The list is a cluster setting, audited, and applied with a
+address is refused. The cluster's own container addresses are never
+trusted: a range that holds them, such as `10.0.0.0/8`, trusts the rest of
+the range, and a range inside them is refused. A cluster without a cluster
+network whose agents use another `--container-subnet` than the default
+`10.121.0.0/24` should leave that subnet out of the list. The list is a cluster setting, audited, and applied with a
 proxy reload. Keep it current with the provider's published ranges.
 
 To stop clients going around the proxy altogether, limit ports 80 and 443 on
