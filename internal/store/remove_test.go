@@ -60,3 +60,90 @@ func TestRemoveApp(t *testing.T) {
 		t.Errorf("delete twice: %v", err)
 	}
 }
+
+// A verified domain belongs to the space that proved it, not to its name:
+// deleting the last app that routes it, or the space, drops its record,
+// so a space created again under the name must prove it afresh.
+func TestDeletedSpaceForgetsDomains(t *testing.T) {
+	t.Parallel()
+	s, ctx := open(t), context.Background()
+	for _, sp := range []string{"b", "c"} {
+		if _, err := s.CreateSpace(ctx, sp, "user:root", nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	deploy := func(name, space string, domains []string, paths ...string) {
+		t.Helper()
+		a := ingressSpec(t, name, domains, paths...)
+		a.Space = space
+		if _, _, err := s.Deploy(ctx, a, "user:owner"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	remove := func(id string) {
+		t.Helper()
+		if err := s.MarkAppRemoving(ctx, id, "user:owner"); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.DeleteApp(ctx, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	deploy("web", "b", []string{"shop.example.org", "keep.example.org"})
+	deploy("api", "b", []string{"keep.example.org"}, "/api")
+	for _, d := range []string{"shop.example.org", "keep.example.org"} {
+		if err := s.SetDomainVerification(ctx, d, true, ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	old, err := s.GetDomain(ctx, "shop.example.org")
+	if err != nil || !old.Verified {
+		t.Fatalf("verified domain: %+v %v", old, err)
+	}
+
+	// Deleting web drops the domain only it used and keeps the shared one.
+	remove("web.b")
+	if _, err := s.GetDomain(ctx, "shop.example.org"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("domain of a deleted app: %v", err)
+	}
+	if d, err := s.GetDomain(ctx, "keep.example.org"); err != nil || !d.Verified {
+		t.Errorf("domain another app still routes: %+v %v", d, err)
+	}
+	remove("api.b")
+	if _, err := s.GetDomain(ctx, "keep.example.org"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("domain of the last app: %v", err)
+	}
+
+	// Records an older version left behind go with their space only.
+	err = s.tx(ctx, func(tx *etx) error {
+		if err := tx.put(pfxDomains+"left.example.org", domainRec{Name: "left.example.org", Token: "t1", Verified: true, Space: "b"}); err != nil {
+			return err
+		}
+		return tx.put(pfxDomains+"other.example.org", domainRec{Name: "other.example.org", Token: "t2", Verified: true, Space: "c"})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeleteSpace(ctx, "b", "user:owner"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.GetDomain(ctx, "left.example.org"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("domain of a deleted space: %v", err)
+	}
+	if _, err := s.GetDomain(ctx, "other.example.org"); err != nil {
+		t.Errorf("another space's domain: %v", err)
+	}
+
+	// Someone else creates b again and names the domains: unverified, with
+	// new tokens.
+	if _, err := s.CreateSpace(ctx, "b", "service:mallory", nil); err != nil {
+		t.Fatal(err)
+	}
+	deploy("grab", "b", []string{"shop.example.org", "left.example.org"})
+	for _, name := range []string{"shop.example.org", "left.example.org"} {
+		d, err := s.GetDomain(ctx, name)
+		if err != nil || d.Verified || d.Token == "" || d.Token == old.Token || d.Token == "t1" {
+			t.Errorf("%s in the recreated space: %+v %v", name, d, err)
+		}
+	}
+}

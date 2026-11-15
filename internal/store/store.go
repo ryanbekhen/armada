@@ -420,7 +420,7 @@ type Store interface {
 	ListSpaces(ctx context.Context) ([]Space, error)
 	// DeleteSpace removes a space; ErrPrecondition while it still
 	// holds apps, secrets, volumes, runs, or replicas, and for the default
-	// space. Every role in it is taken back.
+	// space. Every role in it, and its domains, are taken back.
 	DeleteSpace(ctx context.Context, name, actor string) error
 
 	// Access control (ADR 0033). CreateUser records a user (ErrConflict
@@ -554,7 +554,8 @@ type Store interface {
 	// replicas and then calls DeleteApp. Marking it again changes nothing.
 	MarkAppRemoving(ctx context.Context, app, actor string) error
 	// DeleteApp removes an app marked for removal with its revisions and
-	// secrets, once it has no replicas. Its volumes stay.
+	// secrets, and the domains no other app names, once it has no
+	// replicas. Its volumes stay.
 	DeleteApp(ctx context.Context, app string) error
 	SetReplicaDone(ctx context.Context, id string) error
 

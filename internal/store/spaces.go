@@ -137,6 +137,17 @@ func (s *Etcd) DeleteSpace(ctx context.Context, name, actor string) error {
 		if err := t.forgetSpace(name); err != nil {
 			return err
 		}
+		// Domain verification belongs to this space, not its name: a
+		// space created again under the name proves its domains afresh.
+		err = listInto(t, pfxDomains, func(k string, d domainRec) error {
+			if d.Space == name {
+				t.delete(k)
+			}
+			return nil
+		})
+		if err != nil {
+			return err
+		}
 		return t.audit(now, actor, "space.delete", name, "")
 	})
 }
