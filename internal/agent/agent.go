@@ -199,6 +199,8 @@ type Agent struct {
 	notes map[string]string // replica -> message
 	// searches bounds the log history searches this node runs at once.
 	searches chan struct{}
+	// liveLogs bounds the live log streams this node serves at once.
+	liveLogs chan struct{}
 	crashes  map[string]crashLoop
 	// holds holds the image pulls of held replicas (ADR 0023).
 	holds map[string]*heldPull
@@ -306,6 +308,7 @@ func New(cfg Config) *Agent {
 		restarts:  map[string]string{},
 		notes:     map[string]string{},
 		searches:  make(chan struct{}, maxSearches),
+		liveLogs:  make(chan struct{}, maxLiveLogs),
 		crashes:   map[string]crashLoop{},
 		holds:     map[string]*heldPull{},
 		fencedIDs: map[string]bool{},
@@ -1324,7 +1327,19 @@ func (a *Agent) serveLogs(ctx context.Context, req *armadav1.LogRequest) {
 		a.serveSearch(ctx, req, push, finish)
 		return
 	}
+	a.serveLive(ctx, req, push, finish)
+}
 
+// serveLive streams a replica's live logs, at most maxLiveLogs at once on
+// this node: each holds a file and up to its tail in memory.
+func (a *Agent) serveLive(ctx context.Context, req *armadav1.LogRequest, push armadav1.AgentService_PushLogsClient, finish func(string)) {
+	select {
+	case a.liveLogs <- struct{}{}:
+		defer func() { <-a.liveLogs }()
+	default:
+		finish("busy with other log streams; try again shortly")
+		return
+	}
 	cs, err := a.cfg.Driver.List(ctx, map[string]string{runtime.LabelManaged: "true", runtime.LabelReplica: req.GetReplicaId()})
 	if err != nil || len(cs) == 0 {
 		finish("replica " + req.GetReplicaId() + " has no container on this node")

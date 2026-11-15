@@ -39,6 +39,11 @@ const (
 	maxSearches          = 4
 	maxSearchesPerCaller = 2
 	maxSearchNodeBytes   = 32 << 20
+	// maxLiveLogs and maxLiveLogsPerCaller bound the live log calls (tails
+	// and follows, each relayed from every replica's node) the leader
+	// serves at once.
+	maxLiveLogs          = 128
+	maxLiveLogsPerCaller = 8
 	// searchSkew is how far in the future a node's entry may be stamped.
 	searchSkew = time.Minute
 	// Bounds of the cluster's log settings.
@@ -374,22 +379,26 @@ func searchMatch(q *armadav1.LogQuery, m *armadav1.LogPush, now time.Time) bool 
 	return q.GetUntil() == nil || !t.After(q.GetUntil().AsTime())
 }
 
-// searchSlots bounds the history searches the leader runs at once, in
+// callerSlots bounds the calls of one kind the leader serves at once, in
 // total and per caller.
-type searchSlots struct {
-	mu     sync.Mutex
-	total  int
-	caller map[string]int
+type callerSlots struct {
+	mu        sync.Mutex
+	total     int
+	caller    map[string]int
+	limit     int
+	perCaller int
+	busy      string
 }
 
-func (s *searchSlots) take(who string) (func(), error) {
+func newCallerSlots(limit, perCaller int, busy string) *callerSlots {
+	return &callerSlots{caller: map[string]int{}, limit: limit, perCaller: perCaller, busy: busy}
+}
+
+func (s *callerSlots) take(who string) (func(), error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.caller == nil {
-		s.caller = map[string]int{}
-	}
-	if s.total >= maxSearches || s.caller[who] >= maxSearchesPerCaller {
-		return nil, status.Error(codes.ResourceExhausted, "too many log searches are running; try again shortly")
+	if s.total >= s.limit || s.caller[who] >= s.perCaller {
+		return nil, status.Error(codes.ResourceExhausted, s.busy)
 	}
 	s.total++
 	s.caller[who]++

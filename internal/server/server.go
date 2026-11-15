@@ -170,7 +170,8 @@ type Server struct {
 	mu       sync.Mutex
 	sessions map[string]*session
 	logs     *logRouter
-	searches searchSlots
+	searches *callerSlots
+	liveLogs *callerSlots
 	execs    *execRouter
 	volumes  *volumeRouter
 	usage    *usageStore
@@ -350,6 +351,8 @@ func New(cfg Config) (*Server, error) {
 		trigger:        make(chan struct{}, 1),
 		sessions:       map[string]*session{},
 		logs:           newLogRouter(),
+		searches:       newCallerSlots(maxSearches, maxSearchesPerCaller, "too many log searches are running; try again shortly"),
+		liveLogs:       newCallerSlots(maxLiveLogs, maxLiveLogsPerCaller, "too many log streams are open; close one or try again shortly"),
 		execs:          newExecRouter(),
 		volumes:        newVolumeRouter(),
 		tlsCfg:         cfg.TLS,

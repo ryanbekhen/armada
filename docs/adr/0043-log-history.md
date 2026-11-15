@@ -56,6 +56,13 @@ app logs` searches it across the cluster. No database is added.
   one node's answer, and keeps only entries of the queried app's replicas
   (the asked one, if any) inside the window, not more than a minute
   ahead, so a node cannot answer for apps it never ran.
+- Live logs (no `--since`) are bounded like searches: the leader serves
+  at most 128 `Logs` calls at once, 8 per caller (`callerSlots`, the same
+  type as the search slots; more are refused with `ResourceExhausted`),
+  each node streams at most 32 at once and answers more with a notice
+  (`maxLiveLogs`), and the embedded runtime keeps at most 4 MiB of a tail
+  in memory (`maxTailBytes`, oldest entries dropped first), whatever
+  `--tail` asks for.
 - Access is the same as for logs today: a viewer of the app's space.
   The app must exist; history of a deleted app expires with retention.
 
