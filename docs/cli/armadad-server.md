@@ -51,7 +51,8 @@ Like `armadad init`, it writes /etc/armada/admin.config for the machine's
 cluster-admins (group armada) and ~/.armada/config of the person running it
 through sudo, both with a certificate for --user-name signed by the cluster CA.
 The certificate has the rights the cluster gives that user; a name the cluster
-has no record of is a cluster-admin, as the first user is. Existing files stay.
+has no record of is recorded as a cluster-admin, as the first user is (a leader
+too old to record it gets no configs written). Existing files stay.
 
 Run three control plane nodes to tolerate the loss of one; with two, losing
 either stops the control plane.

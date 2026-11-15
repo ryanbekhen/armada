@@ -107,6 +107,10 @@ func newCluster(t *testing.T, opts ...func(*Config)) *cluster {
 		t.Fatal(err)
 	}
 	st := storetest.Open(t)
+	// The test's cluster-admin is on record, as init records the first user.
+	if err := st.KnowUser(ctx, "ryan"); err != nil {
+		t.Fatal(err)
+	}
 
 	joinTLS, err := pki.JoinServerTLS(ca.CertPEM, certPEM, keyPEM)
 	if err != nil {

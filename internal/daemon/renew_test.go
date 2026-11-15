@@ -105,6 +105,11 @@ func TestUserRenewFromDataDir(t *testing.T) {
 	if code != 0 || !strings.Contains(out, "Renewed user:root") {
 		t.Fatalf("code %d: %s %s", code, out, errOut)
 	}
+	// The name is on record before the CA signs: the cluster refuses
+	// later certificates of names it has no record of.
+	if _, ok := recordedUsers.Load(dir + "/root"); !ok {
+		t.Error("user renew did not record the user")
+	}
 	got, err := clientconfig.Load(cfgPath)
 	if err != nil {
 		t.Fatal(err)

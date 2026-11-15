@@ -15,11 +15,17 @@ func TestUsers(t *testing.T) {
 	s, ctx := open(t), context.Background()
 	since := time.Unix(1_800_000_000, 0)
 
-	// A name not on record has full control: only the CA signs such
-	// certificates.
+	// A name not on record is refused on a keyspace created at schema 14
+	// (TestUnrecordedUsers); init records the first user.
+	if _, ok, err := s.UserAccess(ctx, "root", since, ""); err != nil || ok {
+		t.Fatalf("unrecorded user on a fresh keyspace: %v %v", ok, err)
+	}
+	if err := s.KnowUser(ctx, "root"); err != nil {
+		t.Fatal(err)
+	}
 	p, ok, err := s.UserAccess(ctx, "root", since, "")
 	if err != nil || !ok || !p.Has(Grant{Role: RoleClusterAdmin}) {
-		t.Fatalf("unrecorded user: %+v %v %v", p, ok, err)
+		t.Fatalf("recorded first user: %+v %v %v", p, ok, err)
 	}
 
 	if _, err := s.CreateSpace(ctx, "shop", "user:root", nil); err != nil {
@@ -101,6 +107,96 @@ func TestUsers(t *testing.T) {
 	}
 	if _, err := s.CreateUser(ctx, Principal{Name: "ana", Since: later.Add(time.Hour)}, "user:root"); err != nil {
 		t.Errorf("give a deleted name again: %v", err)
+	}
+}
+
+// A user name with no record is a cluster-admin only for certificates
+// issued before the keyspace moved to schema 14, or while it is older: a
+// user the state lost (restored from an earlier backup) is refused, and
+// cannot renew into a record either.
+func TestUnrecordedUsers(t *testing.T) {
+	t.Parallel()
+	s, ctx := open(t), context.Background()
+	now := time.Now().Truncate(time.Millisecond)
+	s.SetNow(func() time.Time { return now })
+	issued := func(at time.Time) time.Time { return at.Add(-certBackdate) }
+	allowed := func(name string, nb time.Time) bool {
+		t.Helper()
+		p, ok, err := s.UserAccess(ctx, name, nb, "S")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ok != p.Has(Grant{Role: RoleClusterAdmin}) {
+			t.Fatalf("%s: accepted=%v with roles %v", name, ok, p.Roles)
+		}
+		return ok
+	}
+	if allowed("legacy", issued(now.Add(-time.Hour))) {
+		t.Error("a fresh keyspace accepted an unrecorded user")
+	}
+	if err := s.RenewedUser(ctx, "legacy", issued(now.Add(-time.Hour)), "S", "R0"); !errors.Is(err, ErrPrecondition) {
+		t.Errorf("renewal of an unrecorded user on a fresh keyspace = %v", err)
+	}
+	if _, err := s.GetPrincipal(ctx, KindUser, "legacy"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("a refused renewal recorded the user: %v", err)
+	}
+
+	// Servers still at schema 13 accept as they did.
+	atSchema(t, s, 13)
+	if !allowed("legacy", issued(now.Add(time.Hour))) {
+		t.Error("before the migration, an unrecorded user was refused")
+	}
+	if _, err := s.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		name   string
+		issued time.Time
+		want   bool
+	}{
+		{"an hour before the cutoff", now.Add(-time.Hour), true},
+		{"at the cutoff", now, true},
+		{"a millisecond after the cutoff", now.Add(time.Millisecond), false},
+		{"a day later", now.Add(24 * time.Hour), false},
+	} {
+		if got := allowed("legacy", issued(c.issued)); got != c.want {
+			t.Errorf("issued %s: accepted=%v, want %v", c.name, got, c.want)
+		}
+	}
+
+	// A restored keyspace migrated again keeps its cutoff.
+	cutoff := now
+	now = now.Add(48 * time.Hour)
+	atSchema(t, s, 13)
+	if _, err := s.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if allowed("legacy", issued(cutoff.Add(time.Hour))) {
+		t.Error("migrating again moved the cutoff")
+	}
+
+	// A refused certificate cannot renew into a cluster-admin record; one
+	// from before the cutoff can.
+	if err := s.RenewedUser(ctx, "late", issued(cutoff.Add(time.Hour)), "S", "R1"); !errors.Is(err, ErrPrecondition) {
+		t.Errorf("renewal of a refused unrecorded user = %v", err)
+	}
+	if _, err := s.GetPrincipal(ctx, KindUser, "late"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("a refused renewal recorded the user: %v", err)
+	}
+	if err := s.RenewedUser(ctx, "legacy", issued(cutoff.Add(-time.Hour)), "S", "R2"); err != nil {
+		t.Errorf("renewal of a legacy user: %v", err)
+	}
+	if p, err := s.GetPrincipal(ctx, KindUser, "legacy"); err != nil || !p.Has(Grant{Role: RoleClusterAdmin}) {
+		t.Errorf("renewed legacy user: %+v %v", p, err)
+	}
+
+	// Recorded first (init, `armadad user renew`, server join): later
+	// certificates of the name are accepted.
+	if err := s.KnowUser(ctx, "late"); err != nil {
+		t.Fatal(err)
+	}
+	if !allowed("late", issued(now)) {
+		t.Error("a recorded user was refused")
 	}
 }
 

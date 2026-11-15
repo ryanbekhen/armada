@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"net"
 	"os"
@@ -177,6 +178,86 @@ func TestRoundTrip(t *testing.T) {
 	entries, _ := os.ReadDir(filepath.Dir(dst))
 	if len(entries) != 1 {
 		t.Errorf("leftovers next to the data dir: %v", entries)
+	}
+}
+
+// A user created after the backup is refused once it is restored, while
+// users on record before it keep their roles and certificates issued
+// before user records (schema 14) keep cluster-admin.
+func TestRestoreForgetsLaterUsers(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	src, c := newDataDir(t)
+	// An upgraded cluster: the migration to schema 14 sets the cutoff.
+	if _, err := c.Put(ctx, etcdPrefix+"schema", "13"); err != nil {
+		t.Fatal(err)
+	}
+	st, err := store.NewEtcd(ctx, c, etcdPrefix)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	legacy := time.Now().Add(-time.Hour)
+	since := time.Now().Add(-pki.ClockSkew)
+	if err := st.KnowUser(ctx, "root"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateUser(ctx, store.Principal{Name: "vera", Since: since, Roles: []store.Grant{{Role: store.RoleViewer}}}, "user:root"); err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	if _, err := Create(ctx, src, c, &buf); err != nil {
+		t.Fatal(err)
+	}
+	// Created through the API after the backup, a second later.
+	later := since.Add(time.Second)
+	if _, err := st.CreateUser(ctx, store.Principal{Name: "dana", Since: later, Roles: []store.Grant{{Role: store.RoleViewer}}}, "user:root"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, _ := st.UserAccess(ctx, "dana", later, "1"); !ok {
+		t.Fatal("dana refused before the restore")
+	}
+
+	dst := filepath.Join(t.TempDir(), "restored")
+	cfg := member(t, "", "", nil)
+	if _, err := Restore(ctx, &buf, dst, cfg); err != nil {
+		t.Fatal(err)
+	}
+	caPEM, _ := os.ReadFile(filepath.Join(dst, FileCACert))
+	caKey, _ := os.ReadFile(filepath.Join(dst, FileCAKey))
+	ca, err := pki.LoadCA(caPEM, caKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Dir, cfg.Name, cfg.CA = filepath.Join(dst, DirEtcd), "n1", ca
+	em, err := etcd.Start(ctx, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer em.Close()
+	rs, err := store.NewEtcd(ctx, em.Client(), etcdPrefix)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rs.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if p, ok, err := rs.UserAccess(ctx, "dana", later, "1"); err != nil || ok || p.Has(store.Grant{Role: store.RoleClusterAdmin}) {
+		t.Errorf("user created after the backup: %+v accepted=%v %v", p, ok, err)
+	}
+	if err := rs.RenewedUser(ctx, "dana", later, "1", "2"); !errors.Is(err, store.ErrPrecondition) {
+		t.Errorf("renewal of a user created after the backup = %v", err)
+	}
+	if p, ok, _ := rs.UserAccess(ctx, "vera", later, "3"); !ok || p.Has(store.Grant{Role: store.RoleClusterAdmin}) || !p.Has(store.Grant{Role: store.RoleViewer}) {
+		t.Errorf("user created before the backup: %+v accepted=%v", p, ok)
+	}
+	if p, ok, _ := rs.UserAccess(ctx, "root", later, "4"); !ok || !p.Has(store.Grant{Role: store.RoleClusterAdmin}) {
+		t.Errorf("first user: %+v accepted=%v", p, ok)
+	}
+	if p, ok, _ := rs.UserAccess(ctx, "legacy", legacy.Add(-pki.ClockSkew), "5"); !ok || !p.Has(store.Grant{Role: store.RoleClusterAdmin}) {
+		t.Errorf("certificate from before user records: %+v accepted=%v", p, ok)
 	}
 }
 

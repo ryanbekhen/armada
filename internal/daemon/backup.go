@@ -134,6 +134,14 @@ plane of this cluster first: two servers must never run at the same time.`,
 			_, _ = fmt.Fprintf(out, "Next: systemctl start armada-server (or armadad server --data-dir %s).\n", dataDir)
 			_, _ = fmt.Fprintln(out, "Changes made after the backup are gone: nodes that joined since must join again,")
 			_, _ = fmt.Fprintln(out, "and apps, secrets, or nodes changed since must be redeployed or removed again.")
+			_, _ = fmt.Fprintln(out, "Users and services are as of the backup: those created since are refused (create")
+			_, _ = fmt.Fprintln(out, "them again), and roles, deletions, or certificate replacements made since are undone")
+			_, _ = fmt.Fprintln(out, "(make them again; a deleted user's certificates are valid again until then).")
+			if m.Schema < 14 {
+				_, _ = fmt.Fprintln(out, "\nWARNING: this backup predates user records of schema v14. A user created after it")
+				_, _ = fmt.Fprintln(out, "and missing from it would be a cluster-admin: delete each one at once with")
+				_, _ = fmt.Fprintln(out, "`armada rbac user delete NAME --yes`, then create it again.")
+			}
 			return nil
 		},
 	}

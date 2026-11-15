@@ -152,9 +152,27 @@ func TestJoinServer(t *testing.T) {
 		}
 	}
 
-	resp, err := (&joinService{s: c.srv}).JoinServer(c.ctx, joinServerReq(t, tok.Token, "cp-2", "10.0.0.2"))
+	// The joining machine names the user of its admin configs: the leader
+	// records it with cluster-admin before the machine signs its
+	// certificate, which the cluster then accepts.
+	req := joinServerReq(t, tok.Token, "cp-2", "10.0.0.2")
+	req.UserName = "joiner"
+	resp, err := (&joinService{s: c.srv}).JoinServer(c.ctx, req)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if !resp.GetUserRecorded() {
+		t.Error("user not recorded")
+	}
+	if p, err := c.store.GetPrincipal(c.ctx, store.KindUser, "joiner"); err != nil || !p.Has(store.Grant{Role: store.RoleClusterAdmin}) {
+		t.Errorf("joined user: %+v %v", p, err)
+	}
+	jca, err := pki.LoadCA(resp.CaCert, resp.CaKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := armadav1.NewAdminServiceClient(c.dial(jca, pki.Identity{Kind: pki.KindUser, Name: "joiner"})).Status(c.ctx, &armadav1.StatusRequest{}); err != nil {
+		t.Errorf("the joined machine's user certificate: %v", err)
 	}
 	if _, err := pki.LoadCA(resp.CaCert, resp.CaKey); err != nil {
 		t.Errorf("CA key: %v", err)
@@ -186,6 +204,12 @@ func TestJoinServer(t *testing.T) {
 	})
 	if _, err := c.store.GetNode(c.ctx, "cp-2"); err != nil {
 		t.Errorf("server's node not registered: %v", err)
+	}
+	// An invalid user name records nothing; the join still succeeds.
+	req = joinServerReq(t, c.serverToken().Token, "cp-3", "10.0.0.3")
+	req.UserName = "Bad Name"
+	if resp, err := (&joinService{s: c.srv}).JoinServer(c.ctx, req); err != nil || resp.GetUserRecorded() {
+		t.Errorf("invalid user name: recorded=%v %v", resp.GetUserRecorded(), err)
 	}
 }
 
