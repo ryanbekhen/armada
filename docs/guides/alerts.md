@@ -31,8 +31,12 @@ server.
 - A lasting problem, such as a lost node, sends one notice when it starts
   and one **Resolved** notice when it is over, not one a minute.
 - The same event again within 10 minutes is not sent again. A channel gets
-  at most 20 notices a minute; the rest are summed up in one notice
-  ("12 more notices were held back").
+  at most 20 notices a minute about each space, and 20 about the cluster
+  itself (nodes, servers); the rest are summed up in one notice ("12 more
+  notices about space shop were held back"). A space that floods a channel
+  does not hold back another space's notices or a lost node's.
+- Slack and Discord show notices as plain text: text from a registry, a
+  command, or a file name never becomes a mention or a link.
 - A notice that cannot be sent is tried three times over about 12 seconds.
   `armada alert channel list` shows how sending went.
 
