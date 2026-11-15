@@ -669,7 +669,10 @@ Nodes keep only the images they need: every 10 minutes each agent removes
 images that no container uses and that no replica assigned to the node
 names, once they were pulled more than an hour ago. Rolling back to a
 revision whose image is gone pulls it again, so its registry credentials
-must still work.
+must still work. A private image already on a node serves only apps whose
+credentials fetched it: an app with other credentials, or none, makes the
+node ask the registry once whether it may read the image, and the start
+fails when the registry refuses or cannot be reached.
 
 Clusters may mix architectures (amd64 and arm64, say): each app stays on
 the nodes its image has a variant for, as reported by the first node that
