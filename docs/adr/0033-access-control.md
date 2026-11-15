@@ -28,10 +28,19 @@ Access is granted by **roles** given to **principals**.
   that certificate and ones issued in a later second are accepted, so a
   certificate the old key renewed just before, even in the same second,
   is refused. A user's own renewal is checked and recorded in one
-  transaction with that record, and is rate limited per name. A user certificate the
-  cluster has no record of, which only the CA on a server can sign
-  (`armadad user renew`, or clusters from before records), keeps full
-  control, as such administrator certificates did.
+  transaction with that record, and is rate limited per name. Every path that signs a
+  user certificate outside the API records the name first, with
+  cluster-admin unless it is on record: `armadad init`, `armadad user
+  renew`, and `armadad server join` (through the leader, `JoinServerRequest.
+  user_name`; a leader that does not record it gets no config written).
+  A certificate of a name with no record keeps full control only when it
+  was issued before the keyspace moved to schema 14 (`meta/user-cutoff`,
+  compared with NotBefore plus the CA's backdating), as such administrator
+  certificates did; a later one, or any on a keyspace created at schema
+  14, is refused, and cannot renew into a record. This keeps a restore
+  from turning a user created after the backup, whom the restored state
+  no longer knows, into a cluster-admin; users and services are as of the
+  backup, and changes made since must be made again.
 - A **service** is a tool: a CI system, a portal. Its certificates (kind
   `service`, 90 days) are recorded by serial, and only recorded ones are
   accepted; it renews its own, which revokes its others.

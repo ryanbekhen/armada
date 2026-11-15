@@ -241,7 +241,7 @@ func (s *Server) RenewOwnCertificate(ctx context.Context, req *armadav1.RenewOwn
 	// user the CA signed outside the API shows up in listings.
 	if err := s.store.RenewedUser(ctx, acc.id.Name, caller.NotBefore, pki.SerialString(caller), cert.Serial); err != nil {
 		if errors.Is(err, store.ErrPrecondition) {
-			return nil, status.Errorf(codes.Unauthenticated, "certificate of user:%s was replaced or revoked", acc.id.Name)
+			return nil, status.Errorf(codes.Unauthenticated, "certificate of user:%s was replaced or revoked, or the user is not on record", acc.id.Name)
 		}
 		return nil, storeErr(err)
 	}

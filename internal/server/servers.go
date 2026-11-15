@@ -300,11 +300,27 @@ func (j *joinService) JoinServer(ctx context.Context, req *armadav1.JoinServerRe
 	if err != nil {
 		return nil, status.Error(codes.Internal, "read the cluster network")
 	}
-	s.log.Info("server joined", "server", name, "private_ip", ip.String(), "subnet", n.Subnet, "token", tok.ID, "version", req.GetVersion())
+	// The joining machine signs a user certificate for its admin configs
+	// with the CA it receives: record the name first (as init does), since
+	// a certificate of a name with no record is refused. The token hands
+	// over the CA key, so recording a cluster-admin grants nothing more.
+	// A failure only means the machine writes no config.
+	recorded := false
+	if u := req.GetUserName(); u != "" {
+		if _, err := pki.ParseIdentity(pki.Identity{Kind: pki.KindUser, Name: u}.String()); err != nil {
+			s.log.Warn("server join: invalid user name; no client config", "server", name)
+		} else if err := s.store.KnowUser(ctx, u); err != nil {
+			s.log.Warn("server join: could not record the user; no client config", "server", name, "user", u, "err", err)
+		} else {
+			recorded = true
+		}
+	}
+	s.log.Info("server joined", "server", name, "private_ip", ip.String(), "subnet", n.Subnet, "token", tok.ID, "version", req.GetVersion(), "user_recorded", recorded)
 	s.Trigger()
 	return &armadav1.JoinServerResponse{
 		CaCert: s.ca.CertPEM, CaKey: caKey, MasterKey: s.keys.Export().Bytes(),
 		ServerCert: srvCert, ServerKey: srvKey, NodeCert: nodeCert.PEM,
 		InitialCluster: initial, Servers: eps, NodeSubnet: n.Subnet, NetworkMode: mode,
+		UserRecorded: recorded,
 	}, nil
 }

@@ -4265,9 +4265,14 @@ type JoinServerRequest struct {
 	Version string `protobuf:"bytes,6,opt,name=version,proto3" json:"version,omitempty"`
 	// Ports on private_ip for the API, the join listener (0: disabled), and
 	// the etcd member.
-	ApiPort       int32 `protobuf:"varint,7,opt,name=api_port,json=apiPort,proto3" json:"api_port,omitempty"`
-	JoinPort      int32 `protobuf:"varint,8,opt,name=join_port,json=joinPort,proto3" json:"join_port,omitempty"`
-	EtcdPeerPort  int32 `protobuf:"varint,9,opt,name=etcd_peer_port,json=etcdPeerPort,proto3" json:"etcd_peer_port,omitempty"`
+	ApiPort      int32 `protobuf:"varint,7,opt,name=api_port,json=apiPort,proto3" json:"api_port,omitempty"`
+	JoinPort     int32 `protobuf:"varint,8,opt,name=join_port,json=joinPort,proto3" json:"join_port,omitempty"`
+	EtcdPeerPort int32 `protobuf:"varint,9,opt,name=etcd_peer_port,json=etcdPeerPort,proto3" json:"etcd_peer_port,omitempty"`
+	// A user the joining machine signs a client certificate for with the
+	// cluster CA (its admin configs). The leader records the name with
+	// cluster-admin unless it is on record (user_recorded), since the cluster
+	// refuses certificates of names it has no record of. Empty: none.
+	UserName      string `protobuf:"bytes,10,opt,name=user_name,json=userName,proto3" json:"user_name,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4365,6 +4370,13 @@ func (x *JoinServerRequest) GetEtcdPeerPort() int32 {
 	return 0
 }
 
+func (x *JoinServerRequest) GetUserName() string {
+	if x != nil {
+		return x.UserName
+	}
+	return ""
+}
+
 // JoinServerResponse carries every key a control plane node holds. Never
 // log it.
 type JoinServerResponse struct {
@@ -4384,7 +4396,10 @@ type JoinServerResponse struct {
 	NodeSubnet string `protobuf:"bytes,9,opt,name=node_subnet,json=nodeSubnet,proto3" json:"node_subnet,omitempty"`
 	// The cluster network's mode, "plain" or "wireguard"; empty when the
 	// cluster has none.
-	NetworkMode   string `protobuf:"bytes,10,opt,name=network_mode,json=networkMode,proto3" json:"network_mode,omitempty"`
+	NetworkMode string `protobuf:"bytes,10,opt,name=network_mode,json=networkMode,proto3" json:"network_mode,omitempty"`
+	// The request's user_name is on record. Older leaders leave it false,
+	// and the joining machine then writes no client config.
+	UserRecorded  bool `protobuf:"varint,11,opt,name=user_recorded,json=userRecorded,proto3" json:"user_recorded,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4487,6 +4502,13 @@ func (x *JoinServerResponse) GetNetworkMode() string {
 		return x.NetworkMode
 	}
 	return ""
+}
+
+func (x *JoinServerResponse) GetUserRecorded() bool {
+	if x != nil {
+		return x.UserRecorded
+	}
+	return false
 }
 
 type JoinRequest struct {
@@ -14315,7 +14337,7 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\x11RemoveNodeRequest\x12\x12\n" +
 	"\x04node\x18\x01 \x01(\tR\x04node\x12\x14\n" +
 	"\x05force\x18\x02 \x01(\bR\x05force\"\x14\n" +
-	"\x12RemoveNodeResponse\"\x9c\x02\n" +
+	"\x12RemoveNodeResponse\"\xb9\x02\n" +
 	"\x11JoinServerRequest\x12\x19\n" +
 	"\btoken_id\x18\x01 \x01(\tR\atokenId\x12&\n" +
 	"\ftoken_secret\x18\x02 \x01(\tB\x03\x80\x01\x01R\vtokenSecret\x12\x12\n" +
@@ -14326,7 +14348,9 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\aversion\x18\x06 \x01(\tR\aversion\x12\x19\n" +
 	"\bapi_port\x18\a \x01(\x05R\aapiPort\x12\x1b\n" +
 	"\tjoin_port\x18\b \x01(\x05R\bjoinPort\x12$\n" +
-	"\x0eetcd_peer_port\x18\t \x01(\x05R\fetcdPeerPort\"\xd6\x02\n" +
+	"\x0eetcd_peer_port\x18\t \x01(\x05R\fetcdPeerPort\x12\x1b\n" +
+	"\tuser_name\x18\n" +
+	" \x01(\tR\buserName\"\xfb\x02\n" +
 	"\x12JoinServerResponse\x12\x17\n" +
 	"\aca_cert\x18\x01 \x01(\fR\x06caCert\x12\x1a\n" +
 	"\x06ca_key\x18\x02 \x01(\fB\x03\x80\x01\x01R\x05caKey\x12\"\n" +
@@ -14342,7 +14366,8 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\vnode_subnet\x18\t \x01(\tR\n" +
 	"nodeSubnet\x12!\n" +
 	"\fnetwork_mode\x18\n" +
-	" \x01(\tR\vnetworkMode\"\xb8\x01\n" +
+	" \x01(\tR\vnetworkMode\x12#\n" +
+	"\ruser_recorded\x18\v \x01(\bR\fuserRecorded\"\xb8\x01\n" +
 	"\vJoinRequest\x12\x19\n" +
 	"\btoken_id\x18\x01 \x01(\tR\atokenId\x12&\n" +
 	"\ftoken_secret\x18\x02 \x01(\tB\x03\x80\x01\x01R\vtokenSecret\x12\x1b\n" +

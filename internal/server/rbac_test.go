@@ -489,11 +489,11 @@ func TestUsers(t *testing.T) {
 	}
 
 	// A certificate bob held before he was created; whole seconds apart,
-	// as certificates encode them. Users not on record have cluster-admin,
-	// as administrators of earlier releases did.
+	// as certificates encode them. A name not on record is refused on a
+	// cluster created with user records (store.UserAccess).
 	oldBob := armadav1.NewAdminServiceClient(c.dial(c.ca, pki.Identity{Kind: pki.KindUser, Name: "bob"}))
-	if err := works(oldBob); err != nil {
-		t.Fatalf("names not on record: %v", err)
+	if err := works(oldBob); status.Code(err) != codes.Unauthenticated {
+		t.Fatalf("a name not on record: %v", err)
 	}
 	time.Sleep(1100 * time.Millisecond)
 
@@ -521,12 +521,13 @@ func TestUsers(t *testing.T) {
 		}
 	}
 
-	// The list names bob, his role, who created him, and the caller.
+	// The list names bob, his role, who created him, and the caller (and
+	// ryan, recorded as init records the first user).
 	list, err := bob.ListPrincipals(ctx, &armadav1.ListPrincipalsRequest{Kind: "user"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if list.GetYou() != "bob" || list.GetYouKind() != "user" || len(list.GetPrincipals()) != 1 ||
+	if list.GetYou() != "bob" || list.GetYouKind() != "user" || len(list.GetPrincipals()) != 2 ||
 		list.GetPrincipals()[0].GetCreatedBy() != "user:ryan" || list.GetPrincipals()[0].GetRoles()[0].GetRole() != "cluster-admin" {
 		t.Errorf("list: %v", list)
 	}
@@ -601,9 +602,20 @@ func (c *cluster) newUserBy(admin armadav1.AdminServiceClient, name string, role
 func TestRenewOwnUserCertificate(t *testing.T) {
 	t.Parallel()
 	c := newCluster(t)
-	// An admin certificate of an earlier release renews into a user one.
+	// An admin certificate of an earlier release renews into a user one,
+	// once its name is on record (as `armadad user renew` and init record
+	// it); before that, it is refused and records nothing.
 	admin := armadav1.NewAdminServiceClient(c.dial(c.ca, pki.Identity{Kind: pki.KindAdmin, Name: "alice"}))
 	keyPEM, csr, _ := pki.NewCSR(pki.Identity{Kind: pki.KindAdmin, Name: "mallory"})
+	if _, err := admin.RenewOwnCertificate(c.ctx, &armadav1.RenewOwnCertificateRequest{Csr: csr}); status.Code(err) != codes.Unauthenticated {
+		t.Errorf("a name not on record renews: %v", err)
+	}
+	if _, err := c.store.GetPrincipal(c.ctx, store.KindUser, "alice"); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("a refused renewal recorded the user: %v", err)
+	}
+	if err := c.store.KnowUser(c.ctx, "alice"); err != nil {
+		t.Fatal(err)
+	}
 	resp, err := admin.RenewOwnCertificate(c.ctx, &armadav1.RenewOwnCertificateRequest{Csr: csr})
 	if err != nil {
 		t.Fatal(err)
@@ -616,7 +628,7 @@ func TestRenewOwnUserCertificate(t *testing.T) {
 	if _, err := renewed.Status(c.ctx, &armadav1.StatusRequest{}); err != nil {
 		t.Errorf("renewed certificate refused: %v", err)
 	}
-	// alice is on record now, with the cluster-admin she had.
+	// alice keeps the cluster-admin she was recorded with.
 	if p, err := c.store.GetPrincipal(c.ctx, store.KindUser, "alice"); err != nil || !p.Has(store.Grant{Role: store.RoleClusterAdmin}) {
 		t.Errorf("record: %+v %v", p, err)
 	}
@@ -644,6 +656,9 @@ func TestMetricsNeedsClusterAdmin(t *testing.T) {
 		return &tls.ConnectionState{VerifiedChains: [][]*x509.Certificate{{cert}}}, cert
 	}
 	ctx := context.Background()
+	if err := c.store.KnowUser(ctx, "alice"); err != nil {
+		t.Fatal(err)
+	}
 	alice, _ := state(pki.Identity{Kind: pki.KindAdmin, Name: "alice"})
 	metrics, mcert := state(pki.Identity{Kind: pki.KindMetrics, Name: "p"})
 	if err := c.store.RecordMetricsCert(ctx, "p", store.NodeCert{Serial: pki.SerialString(mcert), NotAfter: mcert.NotAfter}, "user:ryan"); err != nil {

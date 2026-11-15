@@ -27,8 +27,17 @@ func TestMain(m *testing.M) {
 		}
 		return testNets.get(ac.NodeID), testKey(ac.NodeID), nil
 	}
+	// `armadad user renew` records the name in a stand-in for the state.
+	recordUser = func(_ context.Context, dataDir, name string) error {
+		recordedUsers.Store(dataDir+"/"+name, true)
+		return nil
+	}
 	os.Exit(m.Run())
 }
+
+// recordedUsers holds dataDir/name of every user `armadad user renew`
+// recorded.
+var recordedUsers sync.Map
 
 // testKey is a node's stand-in public key.
 func testKey(node string) string {

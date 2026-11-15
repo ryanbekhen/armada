@@ -18,8 +18,10 @@ by the cluster CA in the data directory, and rewrite the client config
 user's config stays theirs, a shared one stays shared).
 For a certificate that has already expired; while it is valid,
 `armada rbac user renew` does the same through the control plane.
-The user keeps the roles on record (cluster-admin for one the cluster
-has no record of).
+The user keeps the roles on record; a name the cluster has no record of
+is recorded first, with cluster-admin (the cluster refuses certificates
+of names it has no record of). It needs the cluster state: run it on a
+server whose control plane is running or can start.
 
 ```
 armadad user renew [flags]

@@ -600,6 +600,11 @@ message JoinServerRequest {
   int32 api_port = 7;
   int32 join_port = 8;
   int32 etcd_peer_port = 9;
+  // A user the joining machine signs a client certificate for with the
+  // cluster CA (its admin configs). The leader records the name with
+  // cluster-admin unless it is on record (user_recorded), since the cluster
+  // refuses certificates of names it has no record of. Empty: none.
+  string user_name = 10;
 }
 
 // JoinServerResponse carries every key a control plane node holds. Never
@@ -621,6 +626,9 @@ message JoinServerResponse {
   // The cluster network's mode, "plain" or "wireguard"; empty when the
   // cluster has none.
   string network_mode = 10;
+  // The request's user_name is on record. Older leaders leave it false,
+  // and the joining machine then writes no client config.
+  bool user_recorded = 11;
 }
 
 message JoinRequest {

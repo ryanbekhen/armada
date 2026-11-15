@@ -271,10 +271,11 @@ func (s *Etcd) CreateUser(ctx context.Context, p Principal, actor string) (Princ
 	return out, err
 }
 
-// KnowUser records a user with cluster-admin unless the name is on record:
-// a certificate the CA signed outside the API (init, `armadad user renew`,
-// clusters from before records) has full control, and so shows up in
-// listings once it is used to renew.
+// KnowUser records a user with cluster-admin unless the name is on record.
+// Every path that signs a user certificate outside the API (init,
+// `armadad user renew`, `armadad server join`) calls it before signing,
+// since a later certificate of a name with no record is refused
+// (UserAccess).
 func (s *Etcd) KnowUser(ctx context.Context, name string) error {
 	now := s.now()
 	return s.tx(ctx, func(t *etx) error {
@@ -287,6 +288,45 @@ func (s *Etcd) KnowUser(ctx context.Context, name string) error {
 		r.setRoles([]Grant{{Role: RoleClusterAdmin}})
 		return t.put(pfxUsers+name, r)
 	})
+}
+
+// keyUserCutoff is when the keyspace moved to schema 14 (unix ms): user
+// certificates issued before it whose name has no record keep
+// cluster-admin (init before user records, `armadad user renew` of older
+// versions); certificates of unrecorded names issued later are refused.
+const keyUserCutoff = pfxMeta + "user-cutoff"
+
+// unrecordedUserAllowed reports whether a user certificate that starts at
+// notBefore is accepted while its name has no record: issued (notBefore +
+// certBackdate) no later than the cutoff, or any while the keyspace is
+// still at an older schema (servers being upgraded accept as older ones
+// do). A keyspace created at schema 14 has no cutoff and accepts none.
+func (t *etx) unrecordedUserAllowed(notBefore time.Time) (bool, error) {
+	var cutoff int64
+	found, err := t.get(keyUserCutoff, &cutoff)
+	if err != nil {
+		return false, err
+	}
+	if found {
+		return notBefore.Add(certBackdate).UnixMilli() <= cutoff, nil
+	}
+	var v int
+	if _, err := t.get(keySchema, &v); err != nil {
+		return false, err
+	}
+	return v < 14, nil
+}
+
+// migrateUsers (schema 13 -> 14) records when unrecorded user names
+// stopped being cluster-admins for new certificates. A cutoff already
+// there (a keyspace restored and migrated again) is kept: moving it later
+// would accept certificates the earlier one refuses.
+func migrateUsers(t *etx) error {
+	ok, err := t.get(keyUserCutoff, new(int64))
+	if err != nil || ok {
+		return err
+	}
+	return t.put(keyUserCutoff, t.s.now().UnixMilli())
 }
 
 // SetUserSince refuses a user's certificates issued before since, after a
@@ -537,7 +577,12 @@ func (s *Etcd) RecordServiceCert(ctx context.Context, name string, c NodeCert, k
 
 // UserAccess returns what the user may do and whether a certificate of
 // theirs that starts at notBefore is accepted. A name not on record has
-// cluster-admin: only the CA on a server signs such certificates.
+// cluster-admin only for a certificate issued before the keyspace moved to
+// schema 14 (unrecordedUserAllowed): every certificate issued since is
+// either the API's, which records its user, or the CA's on a server, after
+// init or `armadad user renew` recorded the name (KnowUser). A user the
+// state does not know, such as one created after the backup a control
+// plane was restored from, is refused.
 func (s *Etcd) UserAccess(ctx context.Context, name string, notBefore time.Time, serial string) (Principal, bool, error) {
 	var out Principal
 	allowed := false
@@ -548,9 +593,11 @@ func (s *Etcd) UserAccess(ctx context.Context, name string, notBefore time.Time,
 			return err
 		}
 		if !ok {
-			out = Principal{Kind: KindUser, Name: name, Roles: []Grant{{Role: RoleClusterAdmin}}}
-			allowed = true
-			return nil
+			allowed, err = t.unrecordedUserAllowed(notBefore)
+			if allowed {
+				out = Principal{Kind: KindUser, Name: name, Roles: []Grant{{Role: RoleClusterAdmin}}}
+			}
+			return err
 		}
 		out = r.principal(KindUser, s.now())
 		allowed = r.userAllowed(notBefore, serial)
@@ -561,7 +608,8 @@ func (s *Etcd) UserAccess(ctx context.Context, name string, notBefore time.Time,
 
 // RenewedUser records that a user renewed their own certificate (serial)
 // with a certificate that starts at callerNotBefore and has callerSerial,
-// recording a name not on record with cluster-admin like KnowUser. It
+// recording a name not on record with cluster-admin like KnowUser when
+// UserAccess accepts the caller's certificate (refused otherwise). It
 // refuses (ErrPrecondition) when the caller's certificate is no longer
 // accepted: the check and the record are one transaction, so a renewal
 // either commits before a replacement (SetUserSince), whose cutoff then
@@ -575,6 +623,13 @@ func (s *Etcd) RenewedUser(ctx context.Context, name string, callerNotBefore tim
 			return err
 		}
 		if !ok {
+			allowed, err := t.unrecordedUserAllowed(callerNotBefore)
+			if err != nil {
+				return err
+			}
+			if !allowed {
+				return fmt.Errorf("user:%s is not on record: %w", name, ErrPrecondition)
+			}
 			r = principalRec{Name: name, CreatedAt: now.UnixMilli()}
 			r.setRoles([]Grant{{Role: RoleClusterAdmin}})
 			if err := t.put(pfxUsers+name, r); err != nil {

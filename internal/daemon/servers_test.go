@@ -16,6 +16,7 @@ import (
 
 	"github.com/ryanbekhen/armada/internal/store"
 
+	armadav1 "github.com/ryanbekhen/armada/api/armada/v1"
 	"github.com/ryanbekhen/armada/internal/clientconfig"
 	"github.com/ryanbekhen/armada/internal/etcd"
 	"github.com/ryanbekhen/armada/internal/fsutil"
@@ -294,4 +295,17 @@ func TestLeadReadyDuringUpgrade(t *testing.T) {
 func leadReadyNow(ctx context.Context, st *store.Etcd, mine int) (bool, error) {
 	ok, _, err := leadReady(ctx, st, mine)
 	return ok, err
+}
+
+// A joining server writes no client config for a user the leader did not
+// record: the cluster would refuse its certificate.
+func TestJoinedClientConfigsNeedRecordedUser(t *testing.T) {
+	t.Parallel()
+	written, err := joinedClientConfigs(&armadav1.JoinServerResponse{}, []string{"10.0.0.2:7443"}, "alice")
+	if err == nil || len(written) != 0 || !strings.Contains(err.Error(), "did not record user alice") {
+		t.Errorf("unrecorded user: %v %v", written, err)
+	}
+	if written, err := joinedClientConfigs(&armadav1.JoinServerResponse{UserRecorded: true}, nil, ""); err != nil || len(written) != 0 {
+		t.Errorf("no user: %v %v", written, err)
+	}
 }
