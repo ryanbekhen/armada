@@ -421,7 +421,10 @@ Alice installs the client, keeps the file as `~/.armada/config` (mode
 plane server's private address on port 7443, directly, through a VPN, or
 through an SSH tunnel (see the
 [quickstart](quickstart.md#9-use-armada-from-your-own-computer)). Roles
-apply to her next command. Only `viewer` can be given in the `default`
+apply to her next command, and to the streams she has open within
+seconds: `armada app logs -f`, `armada cluster events -f`, and
+`armada app exec` end once she is deleted, her certificate is replaced or
+expires, or her role in the app's space is taken back. Only `viewer` can be given in the `default`
 space, whose containers may reach the platform unless isolated; deploying
 there needs `cluster-admin`. Nobody can delete themselves or take their own
 `cluster-admin`, so one is always left. A user certificate lasts a year:

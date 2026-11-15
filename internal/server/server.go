@@ -38,6 +38,9 @@ type Config struct {
 	Logger *slog.Logger
 	// Resync is how often the reconciler runs without a trigger.
 	Resync time.Duration
+	// StreamRecheck is how often a user's or service's open AdminService
+	// stream checks its access again (default streamRecheckEvery).
+	StreamRecheck time.Duration
 
 	// Certs manages ACME certificates. Nil disables TLS certificate
 	// management (HAProxy then only serves its self-signed default).
@@ -211,6 +214,7 @@ type Server struct {
 	servedCerts map[string]bool
 
 	now              func() time.Time
+	streamRecheck    time.Duration
 	drainTimeout     time.Duration
 	warmup           time.Duration
 	progressDeadline time.Duration
@@ -245,6 +249,9 @@ func New(cfg Config) (*Server, error) {
 	}
 	if cfg.Resync == 0 {
 		cfg.Resync = defaultResync
+	}
+	if cfg.StreamRecheck == 0 {
+		cfg.StreamRecheck = streamRecheckEvery
 	}
 	if cfg.Certs != nil {
 		if err := netutil.CheckPrivateListen(cfg.ACMEAddr); err != nil {
@@ -312,6 +319,7 @@ func New(cfg Config) (*Server, error) {
 		cfg.BackupInterval = defaultBackupInterval
 	}
 	s := &Server{
+		streamRecheck:     cfg.StreamRecheck,
 		autoscaleInterval: cfg.AutoscaleInterval,
 		scaler:            newAutoscaler(),
 		backupInterval:    cfg.BackupInterval,

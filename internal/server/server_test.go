@@ -120,7 +120,7 @@ func newCluster(t *testing.T, opts ...func(*Config)) *cluster {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg := Config{Store: st, TLS: tlsCfg, Resync: 50 * time.Millisecond, Resolver: noTXT{},
+	cfg := Config{Store: st, TLS: tlsCfg, Resync: 50 * time.Millisecond, Resolver: noTXT{}, StreamRecheck: testStreamRecheck,
 		DrainTimeout: 50 * time.Millisecond, Warmup: 20 * time.Millisecond,
 		CA: ca, JoinTLS: joinTLS, APIAddr: lis.Addr().String()}
 	for _, o := range opts {
