@@ -10,14 +10,16 @@ over TLS, only to metrics (or admin) client certificates.
 | Command | What it does |
 | --- | --- |
 | [`armada metrics credentials`](#armada-metrics-credentials) | Create a client certificate that may only scrape metrics |
+| [`armada metrics list`](#armada-metrics-list) | List metrics scrapers with a valid certificate |
+| [`armada metrics revoke`](#armada-metrics-revoke) | Refuse every certificate of a metrics scraper |
 
 ## `armada metrics credentials`
 
 Create a key and a client certificate (metrics:NAME) that may only scrape the
 metrics endpoint, and write ca.pem, cert.pem, and key.pem to a new directory.
 The key is generated here and never sent to the server. The certificate lasts
-a year and cannot be revoked short of replacing the cluster CA: keep the key
-with the scraper only.
+a year; armada metrics revoke NAME refuses every certificate of the name.
+Keep the key with the scraper only.
 
 ```
 armada metrics credentials NAME [flags]
@@ -28,4 +30,38 @@ Flags:
 | Flag | Meaning |
 | --- | --- |
 | `-o`, `--output string` | directory to create for the files (default: armada-metrics-NAME) |
+
+## `armada metrics list`
+
+List the metrics scrapers (metrics:NAME) whose certificates are on record and
+have not expired. Certificates issued before the cluster recorded them are
+not listed; they still work until armada metrics revoke NAME.
+
+```
+armada metrics list [flags]
+```
+
+Also: `ls`.
+
+Flags:
+
+| Flag | Meaning |
+| --- | --- |
+| `-o`, `--output string` | output format: text or json (default `text`) |
+
+## `armada metrics revoke`
+
+Refuse every certificate of metrics:NAME from now on, on every server,
+including ones issued before the cluster recorded them. armada metrics
+credentials NAME issues a new one.
+
+```
+armada metrics revoke NAME --yes [flags]
+```
+
+Flags:
+
+| Flag | Meaning |
+| --- | --- |
+| `--yes` | confirm revoking |
 

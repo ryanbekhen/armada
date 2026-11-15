@@ -92,7 +92,9 @@ Public ingress removes every header that names a client's address
 `True-Client-IP`) and adds the connection's own address to
 `X-Forwarded-For`. Behind a CDN, that address is the CDN's edge, so your
 apps would see only the CDN. List its address ranges, so requests from it
-keep those headers:
+keep those headers. `X-Forwarded-Host`, `-Port`, `-Prefix`, and `-Server` are
+removed from every request, the CDN's included, and `X-Forwarded-Proto` is
+always `https`: build your app's links from the `Host` header.
 
 ```bash
 armada cluster set --trusted-proxies "$(

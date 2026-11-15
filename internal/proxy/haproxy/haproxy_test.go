@@ -217,6 +217,15 @@ func TestRenderClientAddressHeaders(t *testing.T) {
 			t.Errorf("%s is not limited to trusted proxies:\n%s", h, https)
 		}
 	}
+	// A trusted proxy passes these on from the client: removed always.
+	for _, h := range proxy.ForwardedURLHeaders {
+		if !strings.Contains(https, "http-request del-header "+h+"\n") {
+			t.Errorf("%s is kept from a trusted proxy:\n%s", h, https)
+		}
+		if strings.Contains(internal, "del-header "+h) {
+			t.Errorf("%s is removed on the internal frontend", h)
+		}
+	}
 
 	if out := rendered(proxy.Config{TrustedProxies: []string{"192.0.2.0/24\n    bind :22"}}); out != "" {
 		t.Error("rendered a value with a line break")

@@ -645,7 +645,10 @@ func TestMetricsNeedsClusterAdmin(t *testing.T) {
 	}
 	ctx := context.Background()
 	alice, _ := state(pki.Identity{Kind: pki.KindAdmin, Name: "alice"})
-	metrics, _ := state(pki.Identity{Kind: pki.KindMetrics, Name: "p"})
+	metrics, mcert := state(pki.Identity{Kind: pki.KindMetrics, Name: "p"})
+	if err := c.store.RecordMetricsCert(ctx, "p", store.NodeCert{Serial: pki.SerialString(mcert), NotAfter: mcert.NotAfter}, "user:ryan"); err != nil {
+		t.Fatal(err)
+	}
 	if !c.srv.metricsAllowed(ctx, alice) || !c.srv.metricsAllowed(ctx, metrics) {
 		t.Fatal("cluster-admin or metrics certificate refused")
 	}

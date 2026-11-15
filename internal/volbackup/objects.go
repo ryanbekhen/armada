@@ -44,10 +44,12 @@ var ErrNotExist = errors.New("object does not exist")
 // requestTimeout bounds one request to the bucket.
 const requestTimeout = 5 * time.Minute
 
-// S3 opens the bucket of t.
-func S3(t Target) (Objects, error) {
-	tr := &http.Transport{
-		Proxy:                 http.ProxyFromEnvironment,
+// transport dials the bucket itself, never through a proxy from the
+// environment: dialGuard checks the address it dials, which would then be
+// the proxy's, not the bucket's.
+func transport(t Target) *http.Transport {
+	return &http.Transport{
+		Proxy:                 nil,
 		DialContext:           (&net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second, Control: dialGuard(t)}).DialContext,
 		TLSClientConfig:       &tls.Config{MinVersion: tls.VersionTLS12},
 		TLSHandshakeTimeout:   30 * time.Second,
@@ -55,6 +57,11 @@ func S3(t Target) (Objects, error) {
 		MaxIdleConnsPerHost:   8,
 		IdleConnTimeout:       90 * time.Second,
 	}
+}
+
+// S3 opens the bucket of t.
+func S3(t Target) (Objects, error) {
+	tr := transport(t)
 	c, err := minio.New(t.Endpoint, &minio.Options{
 		Creds:        credentials.NewStaticV4(t.AccessKey, t.SecretKey, ""),
 		Secure:       t.Secure,

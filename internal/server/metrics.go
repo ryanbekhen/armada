@@ -91,7 +91,8 @@ func (s *Server) metricsAllowed(ctx context.Context, cs *tls.ConnectionState) bo
 	case err != nil:
 		return false
 	case id.Kind == pki.KindMetrics:
-		return true
+		ok, err := s.store.MetricsAccess(ctx, id.Name, cert.NotBefore, pki.SerialString(cert))
+		return err == nil && ok
 	}
 	pid, ok := id.Principal()
 	if !ok {
@@ -483,8 +484,9 @@ func boolValue(b bool) float64 {
 }
 
 // IssueMetricsCertificate signs a metrics client certificate from the
-// caller's CSR (ADR 0017). The key never reaches the server, and the
-// certificate can only scrape metrics: the API refuses its identity.
+// caller's CSR (ADR 0017) and records it, so it can be revoked. The key
+// never reaches the server, and the certificate can only scrape metrics:
+// the API refuses its identity.
 func (s *Server) IssueMetricsCertificate(ctx context.Context, req *armadav1.IssueMetricsCertificateRequest) (*armadav1.IssueMetricsCertificateResponse, error) {
 	if s.ca == nil {
 		return nil, status.Error(codes.FailedPrecondition, "this server cannot issue certificates")
@@ -496,9 +498,40 @@ func (s *Server) IssueMetricsCertificate(ctx context.Context, req *armadav1.Issu
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "sign certificate: %v", err)
 	}
-	if err := s.store.RecordAudit(ctx, actor(ctx), "metrics.certificate", req.GetName(), "serial="+cert.Serial); err != nil {
+	if err := s.store.RecordMetricsCert(ctx, req.GetName(), store.NodeCert{Serial: cert.Serial, NotAfter: cert.NotAfter}, actor(ctx)); err != nil {
 		return nil, storeErr(err)
 	}
 	s.log.Info("issued metrics certificate", "name", req.GetName(), "serial", cert.Serial, "by", actor(ctx))
 	return &armadav1.IssueMetricsCertificateResponse{Cert: cert.PEM, CaCert: s.ca.CertPEM, ExpiresAt: timestamppb.New(cert.NotAfter)}, nil
+}
+
+// ListMetricsCredentials lists the metrics scrapers with a certificate on
+// record that has not expired.
+func (s *Server) ListMetricsCredentials(ctx context.Context, _ *armadav1.ListMetricsCredentialsRequest) (*armadav1.ListMetricsCredentialsResponse, error) {
+	creds, err := s.store.ListMetricsCerts(ctx)
+	if err != nil {
+		return nil, storeErr(err)
+	}
+	out := &armadav1.ListMetricsCredentialsResponse{}
+	for _, c := range creds {
+		mc := &armadav1.MetricsCredential{Name: c.Name}
+		for _, cert := range c.Certs {
+			mc.Certificates = append(mc.Certificates, &armadav1.MetricsCertificate{Serial: cert.Serial, ExpiresAt: timestamppb.New(cert.NotAfter)})
+		}
+		out.Credentials = append(out.Credentials, mc)
+	}
+	return out, nil
+}
+
+// RevokeMetricsCredentials refuses every certificate of a metrics scraper
+// from now on, including ones issued before they were recorded.
+func (s *Server) RevokeMetricsCredentials(ctx context.Context, req *armadav1.RevokeMetricsCredentialsRequest) (*armadav1.RevokeMetricsCredentialsResponse, error) {
+	if _, err := pki.ParseIdentity(pki.KindMetrics + ":" + req.GetName()); err != nil {
+		return nil, status.Error(codes.InvalidArgument, "invalid name: use letters, digits, '.', '_', and '-' (at most 63)")
+	}
+	if err := s.store.RevokeMetricsCerts(ctx, req.GetName(), actor(ctx)); err != nil {
+		return nil, storeErr(err)
+	}
+	s.log.Info("revoked metrics certificates", "name", req.GetName(), "by", actor(ctx))
+	return &armadav1.RevokeMetricsCredentialsResponse{}, nil
 }

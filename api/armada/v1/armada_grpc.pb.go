@@ -19,67 +19,69 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	AdminService_Deploy_FullMethodName                  = "/armada.v1.AdminService/Deploy"
-	AdminService_Status_FullMethodName                  = "/armada.v1.AdminService/Status"
-	AdminService_ListApps_FullMethodName                = "/armada.v1.AdminService/ListApps"
-	AdminService_ClusterStatus_FullMethodName           = "/armada.v1.AdminService/ClusterStatus"
-	AdminService_GetAppSpec_FullMethodName              = "/armada.v1.AdminService/GetAppSpec"
-	AdminService_Scale_FullMethodName                   = "/armada.v1.AdminService/Scale"
-	AdminService_SetTraffic_FullMethodName              = "/armada.v1.AdminService/SetTraffic"
-	AdminService_ListVolumes_FullMethodName             = "/armada.v1.AdminService/ListVolumes"
-	AdminService_RemoveVolume_FullMethodName            = "/armada.v1.AdminService/RemoveVolume"
-	AdminService_BackupVolume_FullMethodName            = "/armada.v1.AdminService/BackupVolume"
-	AdminService_RestoreVolume_FullMethodName           = "/armada.v1.AdminService/RestoreVolume"
-	AdminService_ListVolumeSnapshots_FullMethodName     = "/armada.v1.AdminService/ListVolumeSnapshots"
-	AdminService_CreateVolumeSnapshot_FullMethodName    = "/armada.v1.AdminService/CreateVolumeSnapshot"
-	AdminService_RestoreVolumeSnapshot_FullMethodName   = "/armada.v1.AdminService/RestoreVolumeSnapshot"
-	AdminService_Logs_FullMethodName                    = "/armada.v1.AdminService/Logs"
-	AdminService_GetClusterConfig_FullMethodName        = "/armada.v1.AdminService/GetClusterConfig"
-	AdminService_SetClusterConfig_FullMethodName        = "/armada.v1.AdminService/SetClusterConfig"
-	AdminService_ListDomains_FullMethodName             = "/armada.v1.AdminService/ListDomains"
-	AdminService_VerifyDomain_FullMethodName            = "/armada.v1.AdminService/VerifyDomain"
-	AdminService_ListRevisions_FullMethodName           = "/armada.v1.AdminService/ListRevisions"
-	AdminService_Rollback_FullMethodName                = "/armada.v1.AdminService/Rollback"
-	AdminService_SetSecret_FullMethodName               = "/armada.v1.AdminService/SetSecret"
-	AdminService_ListSecrets_FullMethodName             = "/armada.v1.AdminService/ListSecrets"
-	AdminService_DeleteSecret_FullMethodName            = "/armada.v1.AdminService/DeleteSecret"
-	AdminService_CreateJoinToken_FullMethodName         = "/armada.v1.AdminService/CreateJoinToken"
-	AdminService_CordonNode_FullMethodName              = "/armada.v1.AdminService/CordonNode"
-	AdminService_LabelNode_FullMethodName               = "/armada.v1.AdminService/LabelNode"
-	AdminService_RestrictNode_FullMethodName            = "/armada.v1.AdminService/RestrictNode"
-	AdminService_RemoveNode_FullMethodName              = "/armada.v1.AdminService/RemoveNode"
-	AdminService_ListServers_FullMethodName             = "/armada.v1.AdminService/ListServers"
-	AdminService_RemoveServer_FullMethodName            = "/armada.v1.AdminService/RemoveServer"
-	AdminService_CreateSpace_FullMethodName             = "/armada.v1.AdminService/CreateSpace"
-	AdminService_ListSpaces_FullMethodName              = "/armada.v1.AdminService/ListSpaces"
-	AdminService_DeleteSpace_FullMethodName             = "/armada.v1.AdminService/DeleteSpace"
-	AdminService_UpdateSpace_FullMethodName             = "/armada.v1.AdminService/UpdateSpace"
-	AdminService_CreateUser_FullMethodName              = "/armada.v1.AdminService/CreateUser"
-	AdminService_IssueUserCertificate_FullMethodName    = "/armada.v1.AdminService/IssueUserCertificate"
-	AdminService_CreateService_FullMethodName           = "/armada.v1.AdminService/CreateService"
-	AdminService_IssueServiceCertificate_FullMethodName = "/armada.v1.AdminService/IssueServiceCertificate"
-	AdminService_ListPrincipals_FullMethodName          = "/armada.v1.AdminService/ListPrincipals"
-	AdminService_UpdatePrincipal_FullMethodName         = "/armada.v1.AdminService/UpdatePrincipal"
-	AdminService_DeletePrincipal_FullMethodName         = "/armada.v1.AdminService/DeletePrincipal"
-	AdminService_CreateAssignment_FullMethodName        = "/armada.v1.AdminService/CreateAssignment"
-	AdminService_DeleteAssignment_FullMethodName        = "/armada.v1.AdminService/DeleteAssignment"
-	AdminService_ListRoles_FullMethodName               = "/armada.v1.AdminService/ListRoles"
-	AdminService_RenewOwnCertificate_FullMethodName     = "/armada.v1.AdminService/RenewOwnCertificate"
-	AdminService_Exec_FullMethodName                    = "/armada.v1.AdminService/Exec"
-	AdminService_Top_FullMethodName                     = "/armada.v1.AdminService/Top"
-	AdminService_IssueMetricsCertificate_FullMethodName = "/armada.v1.AdminService/IssueMetricsCertificate"
-	AdminService_Events_FullMethodName                  = "/armada.v1.AdminService/Events"
-	AdminService_CreateAlertChannel_FullMethodName      = "/armada.v1.AdminService/CreateAlertChannel"
-	AdminService_UpdateAlertChannel_FullMethodName      = "/armada.v1.AdminService/UpdateAlertChannel"
-	AdminService_ListAlertChannels_FullMethodName       = "/armada.v1.AdminService/ListAlertChannels"
-	AdminService_DeleteAlertChannel_FullMethodName      = "/armada.v1.AdminService/DeleteAlertChannel"
-	AdminService_TestAlertChannel_FullMethodName        = "/armada.v1.AdminService/TestAlertChannel"
-	AdminService_RunJob_FullMethodName                  = "/armada.v1.AdminService/RunJob"
-	AdminService_ListJobs_FullMethodName                = "/armada.v1.AdminService/ListJobs"
-	AdminService_ListJobRuns_FullMethodName             = "/armada.v1.AdminService/ListJobRuns"
-	AdminService_CancelJob_FullMethodName               = "/armada.v1.AdminService/CancelJob"
-	AdminService_DeleteJob_FullMethodName               = "/armada.v1.AdminService/DeleteJob"
-	AdminService_RemoveApp_FullMethodName               = "/armada.v1.AdminService/RemoveApp"
+	AdminService_Deploy_FullMethodName                   = "/armada.v1.AdminService/Deploy"
+	AdminService_Status_FullMethodName                   = "/armada.v1.AdminService/Status"
+	AdminService_ListApps_FullMethodName                 = "/armada.v1.AdminService/ListApps"
+	AdminService_ClusterStatus_FullMethodName            = "/armada.v1.AdminService/ClusterStatus"
+	AdminService_GetAppSpec_FullMethodName               = "/armada.v1.AdminService/GetAppSpec"
+	AdminService_Scale_FullMethodName                    = "/armada.v1.AdminService/Scale"
+	AdminService_SetTraffic_FullMethodName               = "/armada.v1.AdminService/SetTraffic"
+	AdminService_ListVolumes_FullMethodName              = "/armada.v1.AdminService/ListVolumes"
+	AdminService_RemoveVolume_FullMethodName             = "/armada.v1.AdminService/RemoveVolume"
+	AdminService_BackupVolume_FullMethodName             = "/armada.v1.AdminService/BackupVolume"
+	AdminService_RestoreVolume_FullMethodName            = "/armada.v1.AdminService/RestoreVolume"
+	AdminService_ListVolumeSnapshots_FullMethodName      = "/armada.v1.AdminService/ListVolumeSnapshots"
+	AdminService_CreateVolumeSnapshot_FullMethodName     = "/armada.v1.AdminService/CreateVolumeSnapshot"
+	AdminService_RestoreVolumeSnapshot_FullMethodName    = "/armada.v1.AdminService/RestoreVolumeSnapshot"
+	AdminService_Logs_FullMethodName                     = "/armada.v1.AdminService/Logs"
+	AdminService_GetClusterConfig_FullMethodName         = "/armada.v1.AdminService/GetClusterConfig"
+	AdminService_SetClusterConfig_FullMethodName         = "/armada.v1.AdminService/SetClusterConfig"
+	AdminService_ListDomains_FullMethodName              = "/armada.v1.AdminService/ListDomains"
+	AdminService_VerifyDomain_FullMethodName             = "/armada.v1.AdminService/VerifyDomain"
+	AdminService_ListRevisions_FullMethodName            = "/armada.v1.AdminService/ListRevisions"
+	AdminService_Rollback_FullMethodName                 = "/armada.v1.AdminService/Rollback"
+	AdminService_SetSecret_FullMethodName                = "/armada.v1.AdminService/SetSecret"
+	AdminService_ListSecrets_FullMethodName              = "/armada.v1.AdminService/ListSecrets"
+	AdminService_DeleteSecret_FullMethodName             = "/armada.v1.AdminService/DeleteSecret"
+	AdminService_CreateJoinToken_FullMethodName          = "/armada.v1.AdminService/CreateJoinToken"
+	AdminService_CordonNode_FullMethodName               = "/armada.v1.AdminService/CordonNode"
+	AdminService_LabelNode_FullMethodName                = "/armada.v1.AdminService/LabelNode"
+	AdminService_RestrictNode_FullMethodName             = "/armada.v1.AdminService/RestrictNode"
+	AdminService_RemoveNode_FullMethodName               = "/armada.v1.AdminService/RemoveNode"
+	AdminService_ListServers_FullMethodName              = "/armada.v1.AdminService/ListServers"
+	AdminService_RemoveServer_FullMethodName             = "/armada.v1.AdminService/RemoveServer"
+	AdminService_CreateSpace_FullMethodName              = "/armada.v1.AdminService/CreateSpace"
+	AdminService_ListSpaces_FullMethodName               = "/armada.v1.AdminService/ListSpaces"
+	AdminService_DeleteSpace_FullMethodName              = "/armada.v1.AdminService/DeleteSpace"
+	AdminService_UpdateSpace_FullMethodName              = "/armada.v1.AdminService/UpdateSpace"
+	AdminService_CreateUser_FullMethodName               = "/armada.v1.AdminService/CreateUser"
+	AdminService_IssueUserCertificate_FullMethodName     = "/armada.v1.AdminService/IssueUserCertificate"
+	AdminService_CreateService_FullMethodName            = "/armada.v1.AdminService/CreateService"
+	AdminService_IssueServiceCertificate_FullMethodName  = "/armada.v1.AdminService/IssueServiceCertificate"
+	AdminService_ListPrincipals_FullMethodName           = "/armada.v1.AdminService/ListPrincipals"
+	AdminService_UpdatePrincipal_FullMethodName          = "/armada.v1.AdminService/UpdatePrincipal"
+	AdminService_DeletePrincipal_FullMethodName          = "/armada.v1.AdminService/DeletePrincipal"
+	AdminService_CreateAssignment_FullMethodName         = "/armada.v1.AdminService/CreateAssignment"
+	AdminService_DeleteAssignment_FullMethodName         = "/armada.v1.AdminService/DeleteAssignment"
+	AdminService_ListRoles_FullMethodName                = "/armada.v1.AdminService/ListRoles"
+	AdminService_RenewOwnCertificate_FullMethodName      = "/armada.v1.AdminService/RenewOwnCertificate"
+	AdminService_Exec_FullMethodName                     = "/armada.v1.AdminService/Exec"
+	AdminService_Top_FullMethodName                      = "/armada.v1.AdminService/Top"
+	AdminService_IssueMetricsCertificate_FullMethodName  = "/armada.v1.AdminService/IssueMetricsCertificate"
+	AdminService_ListMetricsCredentials_FullMethodName   = "/armada.v1.AdminService/ListMetricsCredentials"
+	AdminService_RevokeMetricsCredentials_FullMethodName = "/armada.v1.AdminService/RevokeMetricsCredentials"
+	AdminService_Events_FullMethodName                   = "/armada.v1.AdminService/Events"
+	AdminService_CreateAlertChannel_FullMethodName       = "/armada.v1.AdminService/CreateAlertChannel"
+	AdminService_UpdateAlertChannel_FullMethodName       = "/armada.v1.AdminService/UpdateAlertChannel"
+	AdminService_ListAlertChannels_FullMethodName        = "/armada.v1.AdminService/ListAlertChannels"
+	AdminService_DeleteAlertChannel_FullMethodName       = "/armada.v1.AdminService/DeleteAlertChannel"
+	AdminService_TestAlertChannel_FullMethodName         = "/armada.v1.AdminService/TestAlertChannel"
+	AdminService_RunJob_FullMethodName                   = "/armada.v1.AdminService/RunJob"
+	AdminService_ListJobs_FullMethodName                 = "/armada.v1.AdminService/ListJobs"
+	AdminService_ListJobRuns_FullMethodName              = "/armada.v1.AdminService/ListJobRuns"
+	AdminService_CancelJob_FullMethodName                = "/armada.v1.AdminService/CancelJob"
+	AdminService_DeleteJob_FullMethodName                = "/armada.v1.AdminService/DeleteJob"
+	AdminService_RemoveApp_FullMethodName                = "/armada.v1.AdminService/RemoveApp"
 )
 
 // AdminServiceClient is the client API for AdminService service.
@@ -173,6 +175,12 @@ type AdminServiceClient interface {
 	// IssueMetricsCertificate signs a client certificate that may only
 	// scrape the metrics endpoint (ADR 0017).
 	IssueMetricsCertificate(ctx context.Context, in *IssueMetricsCertificateRequest, opts ...grpc.CallOption) (*IssueMetricsCertificateResponse, error)
+	// ListMetricsCredentials lists the metrics scrapers with a certificate
+	// on record that has not expired.
+	ListMetricsCredentials(ctx context.Context, in *ListMetricsCredentialsRequest, opts ...grpc.CallOption) (*ListMetricsCredentialsResponse, error)
+	// RevokeMetricsCredentials refuses every certificate of a metrics
+	// scraper from now on.
+	RevokeMetricsCredentials(ctx context.Context, in *RevokeMetricsCredentialsRequest, opts ...grpc.CallOption) (*RevokeMetricsCredentialsResponse, error)
 	// Events streams what the cluster did (ADR 0018), oldest first; with
 	// follow, then new events until the caller cancels.
 	Events(ctx context.Context, in *EventsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[EventInfo], error)
@@ -717,6 +725,26 @@ func (c *adminServiceClient) IssueMetricsCertificate(ctx context.Context, in *Is
 	return out, nil
 }
 
+func (c *adminServiceClient) ListMetricsCredentials(ctx context.Context, in *ListMetricsCredentialsRequest, opts ...grpc.CallOption) (*ListMetricsCredentialsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListMetricsCredentialsResponse)
+	err := c.cc.Invoke(ctx, AdminService_ListMetricsCredentials_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) RevokeMetricsCredentials(ctx context.Context, in *RevokeMetricsCredentialsRequest, opts ...grpc.CallOption) (*RevokeMetricsCredentialsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RevokeMetricsCredentialsResponse)
+	err := c.cc.Invoke(ctx, AdminService_RevokeMetricsCredentials_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *adminServiceClient) Events(ctx context.Context, in *EventsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[EventInfo], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	stream, err := c.cc.NewStream(ctx, &AdminService_ServiceDesc.Streams[4], AdminService_Events_FullMethodName, cOpts...)
@@ -937,6 +965,12 @@ type AdminServiceServer interface {
 	// IssueMetricsCertificate signs a client certificate that may only
 	// scrape the metrics endpoint (ADR 0017).
 	IssueMetricsCertificate(context.Context, *IssueMetricsCertificateRequest) (*IssueMetricsCertificateResponse, error)
+	// ListMetricsCredentials lists the metrics scrapers with a certificate
+	// on record that has not expired.
+	ListMetricsCredentials(context.Context, *ListMetricsCredentialsRequest) (*ListMetricsCredentialsResponse, error)
+	// RevokeMetricsCredentials refuses every certificate of a metrics
+	// scraper from now on.
+	RevokeMetricsCredentials(context.Context, *RevokeMetricsCredentialsRequest) (*RevokeMetricsCredentialsResponse, error)
 	// Events streams what the cluster did (ADR 0018), oldest first; with
 	// follow, then new events until the caller cancels.
 	Events(*EventsRequest, grpc.ServerStreamingServer[EventInfo]) error
@@ -1113,6 +1147,12 @@ func (UnimplementedAdminServiceServer) Top(context.Context, *TopRequest) (*TopRe
 }
 func (UnimplementedAdminServiceServer) IssueMetricsCertificate(context.Context, *IssueMetricsCertificateRequest) (*IssueMetricsCertificateResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method IssueMetricsCertificate not implemented")
+}
+func (UnimplementedAdminServiceServer) ListMetricsCredentials(context.Context, *ListMetricsCredentialsRequest) (*ListMetricsCredentialsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListMetricsCredentials not implemented")
+}
+func (UnimplementedAdminServiceServer) RevokeMetricsCredentials(context.Context, *RevokeMetricsCredentialsRequest) (*RevokeMetricsCredentialsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RevokeMetricsCredentials not implemented")
 }
 func (UnimplementedAdminServiceServer) Events(*EventsRequest, grpc.ServerStreamingServer[EventInfo]) error {
 	return status.Error(codes.Unimplemented, "method Events not implemented")
@@ -2017,6 +2057,42 @@ func _AdminService_IssueMetricsCertificate_Handler(srv interface{}, ctx context.
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AdminService_ListMetricsCredentials_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListMetricsCredentialsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).ListMetricsCredentials(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminService_ListMetricsCredentials_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).ListMetricsCredentials(ctx, req.(*ListMetricsCredentialsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_RevokeMetricsCredentials_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RevokeMetricsCredentialsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).RevokeMetricsCredentials(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminService_RevokeMetricsCredentials_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).RevokeMetricsCredentials(ctx, req.(*RevokeMetricsCredentialsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _AdminService_Events_Handler(srv interface{}, stream grpc.ServerStream) error {
 	m := new(EventsRequest)
 	if err := stream.RecvMsg(m); err != nil {
@@ -2412,6 +2488,14 @@ var AdminService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "IssueMetricsCertificate",
 			Handler:    _AdminService_IssueMetricsCertificate_Handler,
+		},
+		{
+			MethodName: "ListMetricsCredentials",
+			Handler:    _AdminService_ListMetricsCredentials_Handler,
+		},
+		{
+			MethodName: "RevokeMetricsCredentials",
+			Handler:    _AdminService_RevokeMetricsCredentials_Handler,
 		},
 		{
 			MethodName: "CreateAlertChannel",

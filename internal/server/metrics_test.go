@@ -1,7 +1,9 @@
 package server
 
 import (
+	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"io"
 	"net"
 	"net/http"
@@ -279,4 +281,70 @@ func TestRevisionInfoDuringRollout(t *testing.T) {
 		}
 		return got["web--r1"] == "nginx:1" && got["web--r2"] == "nginx:2"
 	})
+}
+
+// Metrics certificates are on record: one the cluster never issued is
+// refused, and revoking a name refuses every certificate of it until a new
+// one is issued.
+func TestMetricsCertificatesRevoke(t *testing.T) {
+	t.Parallel()
+	c := newCluster(t)
+	ctx := context.Background()
+	issue := func() (*tls.ConnectionState, string) {
+		t.Helper()
+		_, csr, err := pki.NewCSR(pki.Identity{Kind: pki.KindMetrics, Name: "prom"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp, err := c.admin.IssueMetricsCertificate(c.ctx, &armadav1.IssueMetricsCertificateRequest{Name: "prom", Csr: csr})
+		if err != nil {
+			t.Fatal(err)
+		}
+		cert, err := pki.ParseCertPEM(resp.GetCert())
+		if err != nil {
+			t.Fatal(err)
+		}
+		return &tls.ConnectionState{VerifiedChains: [][]*x509.Certificate{{cert}}}, pki.SerialString(cert)
+	}
+
+	// Signed by the CA but never issued through the API: refused.
+	certPEM, _, _ := c.ca.Issue(pki.IssueRequest{Identity: pki.Identity{Kind: pki.KindMetrics, Name: "stray"}, Client: true})
+	stray, _ := pki.ParseCertPEM(certPEM)
+	if c.srv.metricsAllowed(ctx, &tls.ConnectionState{VerifiedChains: [][]*x509.Certificate{{stray}}}) {
+		t.Error("a metrics certificate not on record scrapes")
+	}
+
+	first, serial := issue()
+	second, _ := issue()
+	if !c.srv.metricsAllowed(ctx, first) || !c.srv.metricsAllowed(ctx, second) {
+		t.Fatal("issued metrics certificates refused")
+	}
+	list, err := c.admin.ListMetricsCredentials(c.ctx, &armadav1.ListMetricsCredentialsRequest{})
+	if err != nil || len(list.GetCredentials()) != 1 || len(list.GetCredentials()[0].GetCertificates()) != 2 ||
+		list.GetCredentials()[0].GetCertificates()[0].GetSerial() != serial {
+		t.Fatalf("list: %v %v", list, err)
+	}
+
+	if _, err := c.admin.RevokeMetricsCredentials(c.ctx, &armadav1.RevokeMetricsCredentialsRequest{Name: "prom"}); err != nil {
+		t.Fatal(err)
+	}
+	if c.srv.metricsAllowed(ctx, first) || c.srv.metricsAllowed(ctx, second) {
+		t.Error("a revoked metrics certificate scrapes")
+	}
+	if list, _ := c.admin.ListMetricsCredentials(c.ctx, &armadav1.ListMetricsCredentialsRequest{}); len(list.GetCredentials()) != 0 {
+		t.Errorf("revoked name listed: %v", list)
+	}
+	third, _ := issue()
+	if !c.srv.metricsAllowed(ctx, third) || c.srv.metricsAllowed(ctx, first) {
+		t.Error("after a new certificate: only it scrapes")
+	}
+
+	if _, err := c.admin.RevokeMetricsCredentials(c.ctx, &armadav1.RevokeMetricsCredentialsRequest{Name: "../x"}); status.Code(err) != codes.InvalidArgument {
+		t.Errorf("bad name: %v", err)
+	}
+	// Only cluster-admin revokes.
+	viewer := armadav1.NewAdminServiceClient(c.dial(c.ca, pki.Identity{Kind: pki.KindMetrics, Name: "prom"}))
+	if _, err := viewer.RevokeMetricsCredentials(c.ctx, &armadav1.RevokeMetricsCredentialsRequest{Name: "prom"}); status.Code(err) != codes.PermissionDenied {
+		t.Errorf("metrics certificate revoked: %v", err)
+	}
 }
