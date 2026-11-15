@@ -219,6 +219,93 @@ func TestForwardingIsBounded(t *testing.T) {
 	}
 }
 
+// askFrom queries addr from the loopback address from.
+func askFrom(t *testing.T, addr, network, from, name string) *dns.Msg {
+	t.Helper()
+	local := net.Addr(&net.UDPAddr{IP: net.ParseIP(from)})
+	if network == "tcp" {
+		local = &net.TCPAddr{IP: net.ParseIP(from)}
+	}
+	c := &dns.Client{Net: network, Timeout: time.Second, Dialer: &net.Dialer{LocalAddr: local, Timeout: time.Second}}
+	r, _, err := c.Exchange(query(name, dns.TypeA), addr)
+	if err != nil {
+		t.Fatalf("%s %s from %s: %v", network, name, from, err)
+	}
+	return r
+}
+
+func TestForwardingSharePerClient(t *testing.T) {
+	t.Parallel()
+	s, addr := start(t, "127.0.0.0/8", upstream(t))
+	noisy := netip.MustParseAddr("127.0.0.2")
+	// The noisy client holds its whole share, as with slow upstream names.
+	s.mu.Lock()
+	s.perClient[noisy] = maxInflightPerClient
+	s.mu.Unlock()
+	if r := askFrom(t, addr, "udp", "127.0.0.2", "example.com."); r.Rcode != dns.RcodeServerFailure {
+		t.Errorf("forward beyond the client's share: %s", dns.RcodeToString[r.Rcode])
+	}
+	// Refusing it took no node slot, and another client still resolves.
+	if n := len(s.inflight); n != 0 {
+		t.Errorf("over-limit client holds %d node slots", n)
+	}
+	if r := askFrom(t, addr, "udp", "127.0.0.3", "example.com."); r.Rcode != dns.RcodeSuccess || len(r.Answer) != 1 {
+		t.Errorf("other client: %s %v", dns.RcodeToString[r.Rcode], r.Answer)
+	}
+	s.mu.Lock()
+	s.perClient[noisy] = 0
+	s.mu.Unlock()
+	if r := askFrom(t, addr, "udp", "127.0.0.2", "example.com."); r.Rcode != dns.RcodeSuccess {
+		t.Errorf("after release: %s", dns.RcodeToString[r.Rcode])
+	}
+	// Counts return to zero once queries finish.
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.perClient) != 0 {
+		t.Errorf("counts left: %v", s.perClient)
+	}
+}
+
+func TestTCPConnectionsPerClient(t *testing.T) {
+	t.Parallel()
+	s, addr := start(t, "127.0.0.0/8", upstream(t))
+	var held []net.Conn
+	t.Cleanup(func() {
+		for _, c := range held {
+			_ = c.Close()
+		}
+	})
+	d := &net.Dialer{LocalAddr: &net.TCPAddr{IP: net.ParseIP("127.0.0.4")}}
+	for range maxConnsPerClient {
+		c, err := d.Dial("tcp", addr)
+		if err != nil {
+			t.Fatal(err)
+		}
+		held = append(held, c)
+	}
+	// The next connection of that client is closed at once.
+	c, err := d.Dial("tcp", addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	_ = c.SetReadDeadline(time.Now().Add(2 * time.Second))
+	if _, err := c.Read(make([]byte, 1)); err == nil {
+		t.Error("connection past the client's bound was kept open")
+	}
+	// Another client is unaffected (the test upstream answers UDP only).
+	s.SetNames([]string{"web"})
+	if r := askFrom(t, addr, "tcp", "127.0.0.5", "web.internal."); r.Rcode != dns.RcodeSuccess {
+		t.Errorf("other client over TCP: %s", dns.RcodeToString[r.Rcode])
+	}
+	s.mu.Lock()
+	n := s.perConn[netip.MustParseAddr("127.0.0.4")]
+	s.mu.Unlock()
+	if n != maxConnsPerClient {
+		t.Errorf("open connections counted %d, want %d", n, maxConnsPerClient)
+	}
+}
+
 func TestOwnSpaceOnly(t *testing.T) {
 	t.Parallel()
 	s, addr := start(t, "127.0.0.0/8")
