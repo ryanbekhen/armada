@@ -58,10 +58,22 @@ SMTP. Nothing runs besides Armada, and agents are unchanged.
 ### Delivery
 
 - Each channel has its own queue (256) and worker on the leader, so a slow
-  channel holds up no other and recording an event never waits. A full
-  queue drops the notice and counts it.
-- At most 20 notices go per channel at once, refilled at 20 a minute; the
-  ones held back are summed up in one notice before the next that goes.
+  channel holds up no other and recording an event never waits. Notices
+  wait by source: their space, or the cluster for notices about nodes,
+  servers, and certificates. A source holds at most 64 places; when the
+  queue is full, a notice takes the place of the oldest notice of the
+  source holding the most, so a space that floods a channel crowds out only
+  its own notices. A dropped notice is counted.
+- Sources take turns. At most 20 notices of a source go per channel at
+  once, refilled at 20 a minute; the ones held back are summed up in one
+  notice, naming the source, before the next of that source that goes.
+- Event text comes partly from outside Armada (a registry's error, a
+  command, a file name in a volume), so chat services get it as plain text:
+  Slack's text has `&`, `<`, and `>` escaped, so `<!here>` or `<url|label>`
+  is neither a mention nor a link; Discord's has a backslash before every
+  Markdown character, so `[label](url)` is not a link, and mentions are
+  turned off in the request. Telegram gets no parse mode, and email is
+  plain text.
 - A notice is tried three times (waits of 2 s and 10 s). Counts and the
   last error are kept in memory and shown by `armada alert channel list`
   and the metrics `armada_alerts_sent_total`,
