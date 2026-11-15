@@ -33,10 +33,18 @@ var dialAdmin = func(g *globals) (armadav1.AdminServiceClient, io.Closer, error)
 	return armadav1.NewAdminServiceClient(conn), conn.ClientConn, nil
 }
 
-// RPCError strips the gRPC wrapping from server errors for display.
+// RPCError strips the gRPC wrapping from server errors for display. The
+// message may carry text from a node or an app (a file name in a volume),
+// so control characters are replaced: it cannot move the cursor or send
+// terminal sequences. Line breaks stay, since the server lists several
+// problems (a spec's) one per line; text it relays from agents has none.
 func RPCError(err error) error {
 	if s, ok := status.FromError(err); ok {
-		return errors.New(s.Message())
+		lines := strings.Split(s.Message(), "\n")
+		for i, l := range lines {
+			lines[i] = printable(l)
+		}
+		return errors.New(strings.Join(lines, "\n"))
 	}
 	return err
 }
