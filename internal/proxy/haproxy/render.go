@@ -290,8 +290,11 @@ func render(cfg proxy.Config, layout Layout, opts renderOptions) []byte {
 	w("")
 
 	if opts.PrivateIP != "" {
+		// HAProxy's own statistics name every space's apps, so only the
+		// node itself reaches them: not the private network, and not
+		// containers, whose packets never reach the host's loopback.
 		w("frontend metrics")
-		w("    bind %s:%d", hostForBind(opts.PrivateIP), metricsPort)
+		w("    bind 127.0.0.1:%d", metricsPort)
 		w("    http-request use-service prometheus-exporter if { path /metrics }")
 		w("    http-request return status 404")
 		w("")
