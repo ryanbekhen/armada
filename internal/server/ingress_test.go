@@ -14,6 +14,7 @@ import (
 	"math/big"
 	"net"
 	"net/http"
+	"net/netip"
 	"reflect"
 	"slices"
 	"strings"
@@ -27,6 +28,7 @@ import (
 	armadav1 "github.com/ryanbekhen/armada/api/armada/v1"
 	"github.com/ryanbekhen/armada/internal/pki"
 	"github.com/ryanbekhen/armada/internal/proxy"
+	"github.com/ryanbekhen/armada/internal/runtime/embedded"
 	"github.com/ryanbekhen/armada/internal/store"
 )
 
@@ -543,4 +545,60 @@ func TestIngressCORS(t *testing.T) {
 		}
 		return false
 	})
+}
+
+// A workload is never a trusted proxy (T79): the proxies leave the cluster's
+// container ranges out of the trusted prefixes, and a prefix that holds only
+// container addresses is refused.
+func TestTrustedProxiesLeaveOutContainers(t *testing.T) {
+	t.Parallel()
+	for _, network := range []bool{false, true} {
+		c := newCluster(t)
+		containers := legacyContainerSubnet
+		if network {
+			containers = netip.MustParsePrefix("10.120.0.0/16")
+			if err := c.store.InitNetwork(c.ctx, store.Network{Mode: store.NetworkPlain, ClusterCIDR: containers}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		set := func(p ...string) error {
+			_, err := c.admin.SetClusterConfig(c.ctx, &armadav1.SetClusterConfigRequest{SetTrustedProxies: true, Config: &armadav1.ClusterConfig{TrustedProxies: p}})
+			return err
+		}
+		inside := netip.PrefixFrom(containers.Addr().Next(), 32).String()
+		for _, bad := range []string{containers.String(), inside} {
+			if err := set("192.0.2.0/24", bad); status.Code(err) != codes.InvalidArgument {
+				t.Errorf("network %v: %s: err = %v", network, bad, err)
+			}
+		}
+		if err := set("10.0.0.0/8"); err != nil {
+			t.Fatal(err)
+		}
+		cc, err := c.admin.GetClusterConfig(c.ctx, &armadav1.GetClusterConfigRequest{})
+		if err != nil || !slices.Equal(cc.GetTrustedProxies(), []string{"10.0.0.0/8"}) {
+			t.Errorf("network %v: config shows %v, %v", network, cc.GetTrustedProxies(), err)
+		}
+		cfg, err := c.srv.buildProxy(c.ctx, nil, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, a := range []netip.Addr{containers.Addr(), containers.Addr().Next(), netip.MustParseAddr("10.0.0.5")} {
+			trusted := false
+			for _, s := range cfg.TrustedProxies {
+				trusted = trusted || netip.MustParsePrefix(s).Contains(a)
+			}
+			if trusted != !containers.Contains(a) {
+				t.Errorf("network %v: %s trusted = %v (proxy config %v)", network, a, trusted, cfg.TrustedProxies)
+			}
+		}
+		if err := cfg.Validate(); err != nil {
+			t.Errorf("network %v: %v", network, err)
+		}
+	}
+}
+
+func TestLegacyContainerSubnet(t *testing.T) {
+	if legacyContainerSubnet != embedded.DefaultSubnet {
+		t.Errorf("legacyContainerSubnet = %s, embedded.DefaultSubnet = %s", legacyContainerSubnet, embedded.DefaultSubnet)
+	}
 }

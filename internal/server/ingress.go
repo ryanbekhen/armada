@@ -101,6 +101,69 @@ func (s *Server) trustedProxies(ctx context.Context) ([]string, error) {
 	return proxy.ParseTrustedProxies(strings.Split(v, ","))
 }
 
+// legacyContainerSubnet is the bridge subnet of clusters without a cluster
+// network (embedded.DefaultSubnet; TestLegacyContainerSubnet).
+var legacyContainerSubnet = netip.MustParsePrefix("10.121.0.0/24")
+
+// containerRanges returns the addresses the cluster's containers send from:
+// the cluster CIDR, or the default bridge subnet of a cluster without one.
+func (s *Server) containerRanges(ctx context.Context) ([]netip.Prefix, error) {
+	n, err := s.store.GetNetwork(ctx)
+	if errors.Is(err, store.ErrNotFound) {
+		return []netip.Prefix{legacyContainerSubnet}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return []netip.Prefix{n.ClusterCIDR}, nil
+}
+
+// proxyTrusted returns the trusted proxies the nodes' proxies get: the ones
+// set with SetClusterConfig without the container ranges, so a workload is
+// never a trusted proxy and cannot claim a client address (T79).
+func (s *Server) proxyTrusted(ctx context.Context) ([]string, error) {
+	trusted, err := s.trustedProxies(ctx)
+	if err != nil || len(trusted) == 0 {
+		return trusted, err
+	}
+	ranges, err := s.containerRanges(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := proxy.ExcludePrefixes(trusted, ranges)
+	if len(out) > proxy.MaxTrustedProxies {
+		return nil, fmt.Errorf("the trusted proxies without the container addresses (%s) are more than %d prefixes; set narrower ones", joinPrefixes(ranges), proxy.MaxTrustedProxies)
+	}
+	return out, nil
+}
+
+// checkTrustedProxies refuses trusted proxies that would trust only
+// containers, or that make too many prefixes once the container ranges are
+// taken out.
+func (s *Server) checkTrustedProxies(ctx context.Context, trusted []string) error {
+	ranges, err := s.containerRanges(ctx)
+	if err != nil {
+		return storeErr(err)
+	}
+	for _, t := range trusted {
+		if len(proxy.ExcludePrefixes([]string{t}, ranges)) == 0 {
+			return status.Errorf(codes.InvalidArgument, "trusted proxy %s holds only the cluster's container addresses (%s); a workload is never a trusted proxy", t, joinPrefixes(ranges))
+		}
+	}
+	if n := len(proxy.ExcludePrefixes(trusted, ranges)); n > proxy.MaxTrustedProxies {
+		return status.Errorf(codes.InvalidArgument, "the trusted proxies without the container addresses (%s) make %d prefixes, more than %d; set narrower ones", joinPrefixes(ranges), n, proxy.MaxTrustedProxies)
+	}
+	return nil
+}
+
+func joinPrefixes(ps []netip.Prefix) string {
+	out := make([]string, len(ps))
+	for i, p := range ps {
+		out[i] = p.String()
+	}
+	return strings.Join(out, ", ")
+}
+
 // buildProxy computes the ingress configuration shared by every node.
 func (s *Server) buildProxy(ctx context.Context, apps []store.App, replicas []store.Replica) (*proxy.Config, error) {
 	root := s.rootDomain(ctx)
@@ -115,7 +178,7 @@ func (s *Server) buildProxy(ctx context.Context, apps []store.App, replicas []st
 		}
 	}
 
-	trusted, err := s.trustedProxies(ctx)
+	trusted, err := s.proxyTrusted(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -418,6 +481,9 @@ func (s *Server) SetClusterConfig(ctx context.Context, req *armadav1.SetClusterC
 		trusted, err := proxy.ParseTrustedProxies(req.GetConfig().GetTrustedProxies())
 		if err != nil {
 			return nil, status.Errorf(codes.InvalidArgument, "%v", err)
+		}
+		if err := s.checkTrustedProxies(ctx, trusted); err != nil {
+			return nil, err
 		}
 		list := strings.Join(trusted, ",")
 		if err := s.store.SetMeta(ctx, metaTrustedProxies, list); err != nil {

@@ -84,6 +84,13 @@ and only when some app has rules:
    the client unknown. Both `ipAllow` and `ipDeny` refuse an unknown client.
 6. **No other header counts.** `Forwarded`, `X-Real-IP`, and the CDN-specific
    headers are left for the app.
+7. **A workload is never a trusted proxy.** Containers reach the public
+   frontend on their node's addresses, from the cluster CIDR (or the default
+   bridge subnet, `10.121.0.0/24`, on a cluster without a cluster network).
+   The leader takes those addresses out of the trusted prefixes before they
+   reach the proxies (`proxy.ExcludePrefixes`), so a broad range such as
+   `10.0.0.0/8` trusts the load balancers in it but no container. A prefix
+   that holds only container addresses is refused.
 
 Each backend of the app (and its wake backend) starts with one
 `http-request deny deny_status 403` rule that tests `txn.client` against

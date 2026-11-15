@@ -9,6 +9,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	"math/big"
+	"net/netip"
 	"slices"
 	"strings"
 	"testing"
@@ -199,5 +200,36 @@ func TestParseTrustedProxies(t *testing.T) {
 	}
 	if err := (Config{TrustedProxies: []string{"0.0.0.0/0"}}).Validate(); err == nil {
 		t.Error("Validate accepted a prefix matching every address")
+	}
+}
+
+func TestExcludePrefixes(t *testing.T) {
+	cidr := []netip.Prefix{netip.MustParsePrefix("10.120.0.0/16")}
+	for _, tc := range []struct {
+		in, want []string
+	}{
+		{[]string{"192.0.2.0/24", "10.0.0.5/32"}, []string{"10.0.0.5/32", "192.0.2.0/24"}},
+		{[]string{"10.120.3.0/24"}, []string{}},
+		{[]string{"10.120.0.0/16"}, []string{}},
+		{[]string{"10.120.0.0/15"}, []string{"10.121.0.0/16"}},
+		{[]string{"10.0.0.0/8"}, []string{"10.0.0.0/10", "10.112.0.0/13", "10.121.0.0/16", "10.122.0.0/15", "10.124.0.0/14", "10.128.0.0/9", "10.64.0.0/11", "10.96.0.0/12"}},
+		{[]string{"2001:db8::/32"}, []string{"2001:db8::/32"}},
+	} {
+		got := ExcludePrefixes(tc.in, cidr)
+		if !slices.Equal(got, tc.want) {
+			t.Errorf("ExcludePrefixes(%v) = %v, want %v", tc.in, got, tc.want)
+		}
+	}
+	// What is left covers every address of the input but the excluded ones.
+	left := ExcludePrefixes([]string{"10.0.0.0/8"}, cidr)
+	for _, a := range []string{"10.0.0.1", "10.119.255.255", "10.121.0.1", "10.255.255.254", "10.120.0.1", "10.120.255.255"} {
+		addr := netip.MustParseAddr(a)
+		in := false
+		for _, s := range left {
+			in = in || netip.MustParsePrefix(s).Contains(addr)
+		}
+		if in != !cidr[0].Contains(addr) {
+			t.Errorf("%s: trusted = %v", a, in)
+		}
 	}
 }
