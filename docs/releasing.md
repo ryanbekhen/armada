@@ -82,6 +82,11 @@ release also ends with install and verification instructions (the
   and every CI job must pass (`lint`, `test`, `vuln`, both `build` jobs,
   `haproxy`, `installer`, `release-config`, `commits`). A new required CI
   job must be added to the ruleset as well.
+- Release tags (`v*`) are protected by a second ruleset: only repository
+  admins may create, move, or delete them. The `release` workflow also
+  refuses a tag whose commit is not on `main`, so only reviewed code is
+  built and signed. That check runs from the tagged commit's own workflow
+  file, so the tag ruleset is what keeps anyone else from tagging.
 
 ## Verifying a release by hand
 
