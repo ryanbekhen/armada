@@ -118,6 +118,10 @@ func (n *cniNetwork) Ensure(context.Context) error {
 			return fmt.Errorf("set MTU of bridge %s: %w", embedded.BridgeName, err)
 		}
 	}
+	// Before the link is up, so it never gets a link-local address.
+	if err := embedded.DisableIPv6(embedded.BridgeName); err != nil {
+		return err
+	}
 	if err := netlink.LinkSetUp(link); err != nil {
 		return err
 	}
