@@ -77,25 +77,37 @@ func (s *Server) authorizePrincipal(ctx context.Context, pid pki.Identity, cert 
 	if !strings.HasPrefix(method, adminService) {
 		return nil, status.Errorf(codes.PermissionDenied, "%s may not call %s", pid, method)
 	}
+	acc, err := s.methodAccess(ctx, pid, cert, method)
+	if err != nil {
+		return nil, err
+	}
+	ctx = context.WithValue(ctx, identityKey{}, pid)
+	return context.WithValue(ctx, accessKey{}, acc), nil
+}
+
+// methodAccess reads the principal's roles and returns its access to
+// method, or the error that refuses the call: Unauthenticated for a
+// certificate the cluster no longer accepts, PermissionDenied for a method
+// no role of it reaches.
+func (s *Server) methodAccess(ctx context.Context, pid pki.Identity, cert *x509.Certificate, method string) (access, error) {
 	p, ok, err := s.principalAccess(ctx, pid, cert)
 	if err != nil {
-		return nil, status.Error(codes.Unavailable, "check client certificate")
+		return access{}, status.Error(codes.Unavailable, "check client certificate")
 	}
 	if !ok {
-		return nil, status.Errorf(codes.Unauthenticated, "certificate of %s is revoked, expired, or the %s was deleted", pid, pid.Kind)
+		return access{}, status.Errorf(codes.Unauthenticated, "certificate of %s is revoked, expired, or the %s was deleted", pid, pid.Kind)
 	}
 	acc := access{id: pid, p: &p, need: methodNeeds[method]}
 	if !acc.admin() {
 		n, placed := methodNeeds[method]
 		if !placed {
-			return nil, status.Errorf(codes.PermissionDenied, "%s may not call %s: it needs cluster-admin", pid, method)
+			return access{}, status.Errorf(codes.PermissionDenied, "%s may not call %s: it needs cluster-admin", pid, method)
 		}
 		if !acc.reaches(n) {
-			return nil, status.Errorf(codes.PermissionDenied, "%s has no role that allows %s", pid, strings.TrimPrefix(method, adminService))
+			return access{}, status.Errorf(codes.PermissionDenied, "%s has no role that allows %s", pid, strings.TrimPrefix(method, adminService))
 		}
 	}
-	ctx = context.WithValue(ctx, identityKey{}, pid)
-	return context.WithValue(ctx, accessKey{}, acc), nil
+	return acc, nil
 }
 
 func (s *Server) unaryAuth(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
@@ -117,7 +129,18 @@ func (s *Server) streamAuth(srv any, ss grpc.ServerStream, info *grpc.StreamServ
 	if md := s.serversHeader(ctx, info.FullMethod); md != nil {
 		_ = ss.SetHeader(md)
 	}
-	return handler(srv, &authedStream{ServerStream: ss, ctx: ctx})
+	// A user's or service's stream keeps checking its access, and ends
+	// once it is gone (streamGuard).
+	g, ctx := s.guardStream(ctx, info.FullMethod)
+	if g == nil {
+		return handler(srv, &authedStream{ServerStream: ss, ctx: ctx})
+	}
+	defer g.stop()
+	err = handler(srv, &authedStream{ServerStream: ss, ctx: ctx})
+	if ended := g.ended(); ended != nil {
+		return ended
+	}
+	return err
 }
 
 // seenEndpoints are API addresses and when they were read.

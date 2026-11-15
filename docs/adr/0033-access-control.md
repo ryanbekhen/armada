@@ -74,7 +74,13 @@ Handlers check the space of every app, job, volume, and domain they touch
 against the level, and listings show only what the caller may see.
 Principals that are not `cluster-admin` see no nodes, servers, or cluster
 events. The metrics endpoint accepts metrics certificates and principals
-with `cluster-admin`.
+with `cluster-admin`. Roles are read on every call, and again every few
+seconds while a stream stays open (an events or logs follow, an exec
+session, a volume transfer): a stream ends once its certificate is
+refused (the principal deleted, its certificate replaced) or expires, or
+once no role reaches the method or the app it serves, and an events follow
+stops showing spaces whose role was taken back. A logs follow also checks
+before it adds a replica that started later.
 
 **Safety.** A caller cannot delete themselves or remove their own
 `cluster-admin` assignment, so the cluster always keeps one. Every change

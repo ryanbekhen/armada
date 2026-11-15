@@ -477,10 +477,11 @@ func (s *Server) RemoveVolume(ctx context.Context, req *armadav1.RemoveVolumeReq
 
 // BackupVolume streams a gzipped tar of a volume from its node.
 func (s *Server) BackupVolume(req *armadav1.BackupVolumeRequest, stream armadav1.AdminService_BackupVolumeServer) error {
-	if err := accessFrom(stream.Context()).app(req.GetApp()); err != nil {
+	ctx := stream.Context()
+	// Checked again while the transfer runs (streamGuard).
+	if err := requireAccess(ctx, func(a access) error { return a.app(req.GetApp()) }); err != nil {
 		return err
 	}
-	ctx := stream.Context()
 	if err := checkVolumeArgs(req.GetApp(), req.GetName()); err != nil {
 		return err
 	}
@@ -532,7 +533,8 @@ func (s *Server) RestoreVolume(stream armadav1.AdminService_RestoreVolumeServer)
 		return status.Error(codes.InvalidArgument, "the first message must be start")
 	}
 	acc := accessFrom(ctx)
-	if err := acc.app(start.GetApp()); err != nil {
+	// Checked again while the transfer runs (streamGuard).
+	if err := requireAccess(ctx, func(a access) error { return a.app(start.GetApp()) }); err != nil {
 		return err
 	}
 	if start.GetNode() != "" && !acc.admin() {
