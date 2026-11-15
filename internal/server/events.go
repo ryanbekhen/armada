@@ -246,17 +246,26 @@ func (s *Server) Events(req *armadav1.EventsRequest, stream armadav1.AdminServic
 	if since <= 0 || since > store.EventTTL {
 		return status.Errorf(codes.InvalidArgument, "since must be between 1s and %s", store.EventTTL)
 	}
-	acc := accessFrom(ctx)
+	// A follow keeps to what the caller may see now: its access is
+	// checked again while the stream is open (streamGuard).
 	if req.GetApp() != "" {
-		if err := acc.app(req.GetApp()); err != nil {
+		if err := requireAccess(ctx, func(a access) error { return a.app(req.GetApp()) }); err != nil {
 			return err
 		}
 	}
-	if req.GetNode() != "" && !acc.admin() {
-		return status.Error(codes.PermissionDenied, "listing a node's events needs cluster-admin")
+	if req.GetNode() != "" {
+		err := requireAccess(ctx, func(a access) error {
+			if !a.admin() {
+				return status.Error(codes.PermissionDenied, "listing a node's events needs cluster-admin")
+			}
+			return nil
+		})
+		if err != nil {
+			return err
+		}
 	}
 	var created map[string]time.Time
-	if !acc.admin() {
+	if !accessFrom(ctx).admin() || req.GetFollow() {
 		var err error
 		if created, err = s.spacesCreated(ctx); err != nil {
 			return err
@@ -265,6 +274,7 @@ func (s *Server) Events(req *armadav1.EventsRequest, stream armadav1.AdminServic
 	match := func(e store.Event) bool {
 		// Others see only events of their spaces' apps; events of the
 		// cluster (nodes, servers) have no app.
+		acc := streamAccess(ctx)
 		return (req.GetApp() == "" || e.App == req.GetApp()) && (req.GetNode() == "" || e.Node == req.GetNode()) &&
 			(acc.admin() || (e.App != "" && acc.sees(e.App) && !beforeSpace(created, e.App, e.Last)))
 	}

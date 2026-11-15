@@ -486,10 +486,11 @@ func (s *Server) appStatusProto(ctx context.Context, a store.App, reps []store.R
 // Logs streams logs from an app's replicas by asking each replica's agent to
 // push them.
 func (s *Server) Logs(req *armadav1.LogsRequest, stream armadav1.AdminService_LogsServer) error {
-	if err := accessFrom(stream.Context()).app(req.GetApp()); err != nil {
+	ctx := stream.Context()
+	// Checked again while the stream is open (streamGuard).
+	if err := requireAccess(ctx, func(a access) error { return a.app(req.GetApp()) }); err != nil {
 		return err
 	}
-	ctx := stream.Context()
 	app, err := s.store.GetApp(ctx, req.GetApp())
 	if err != nil {
 		return storeErr(err)
@@ -583,11 +584,20 @@ func (s *Server) Logs(req *armadav1.LogsRequest, stream armadav1.AdminService_Lo
 			if err != nil {
 				continue
 			}
+			rechecked := false
 			for _, r := range now {
 				// Only once its container runs: before, its node has
 				// nothing to stream, and the replica would not be asked
 				// again.
 				if !following[r.ID] && r.State == store.ReplicaRunning {
+					// The caller's access, as of now, before a new
+					// replica's output reaches it.
+					if !rechecked {
+						if err := recheckAccess(ctx); err != nil {
+							return err
+						}
+						rechecked = true
+					}
 					relay(r, defaultLogTail)
 				}
 			}
