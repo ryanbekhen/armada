@@ -35,6 +35,10 @@ func TestIntegrationConformance(t *testing.T) {
 		t.Fatal(err)
 	}
 	conformance.Run(t, d, conformance.Options{HostIP: os.Getenv("ARMADA_HOST_IP")})
+	// The isolation firewall filters IPv4 only (T13).
+	if off, err := embedded.IPv6Off(embedded.BridgeName); err != nil || !off {
+		t.Errorf("IPv6 on %s: off = %v, err = %v", embedded.BridgeName, off, err)
+	}
 }
 
 // TestIntegrationSandboxAdopt checks that a network sandbox outlives the
