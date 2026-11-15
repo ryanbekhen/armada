@@ -79,14 +79,23 @@ func TestOpenFileRefusesAPipeSwappedIn(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 
-	// Another regular file in its place is refused too.
-	if err := os.Remove(filepath.Join(dir, "f")); err != nil {
+	// Another regular file in its place is refused too. The new file is
+	// written while the looked-up one still exists, so the file system
+	// cannot give it the same inode.
+	if err := os.WriteFile(filepath.Join(dir, "h"), []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "f"), []byte("y"), 0o600); err != nil {
+	fi, err = root.Lstat("h")
+	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := OpenFile(root, "f", fi); !errors.Is(err, ErrChanged) {
+	if err := os.WriteFile(filepath.Join(dir, "g"), []byte("y"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(filepath.Join(dir, "g"), filepath.Join(dir, "h")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := OpenFile(root, "h", fi); !errors.Is(err, ErrChanged) {
 		t.Fatalf("a replaced file: %v", err)
 	}
 }
