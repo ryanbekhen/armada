@@ -6,10 +6,12 @@ import (
 	"compress/gzip"
 	"context"
 	"crypto/rand"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -17,6 +19,7 @@ import (
 	"github.com/ryanbekhen/armada/internal/runtime"
 	"github.com/ryanbekhen/armada/internal/runtime/fake"
 	"github.com/ryanbekhen/armada/internal/store"
+	"github.com/ryanbekhen/armada/internal/volbackup"
 )
 
 func volumeAgent(t *testing.T) (*Agent, *fake.Driver) {
@@ -375,5 +378,47 @@ func TestRestoreLeavesSpace(t *testing.T) {
 	w.space = func(string) (fsFree, bool) { return fsFree{}, false }
 	if err := w.write(file("unknown", 1), strings.NewReader("x")); err != nil {
 		t.Errorf("unknown space refused a file: %v", err)
+	}
+}
+
+// The app may put a pipe where the walk saw a regular file; opening it for
+// reading would block the agent until a writer appears. Not parallel: the
+// hook is shared by the package.
+func TestArchiveFailsOnAPipeSwappedIn(t *testing.T) {
+	vol := t.TempDir()
+	name := "f\x1b]0;title\x07"
+	p := filepath.Join(vol, name)
+	if err := os.WriteFile(p, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Mkfifo(filepath.Join(vol, "pipe"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	archiveHook = func(e string) {
+		if e == name {
+			_ = os.Remove(p)
+			_ = syscall.Mkfifo(p, 0o600)
+		}
+	}
+	t.Cleanup(func() { archiveHook = nil })
+	done := make(chan error, 1)
+	go func() { done <- writeArchive(context.Background(), vol, io.Discard) }()
+	var err error
+	select {
+	case err = <-done:
+	case <-time.After(10 * time.Second):
+		if w, err := os.OpenFile(p, os.O_WRONLY|syscall.O_NONBLOCK, 0); err == nil {
+			_ = w.Close()
+		}
+		t.Fatal("the archive blocked opening a pipe")
+	}
+	if !errors.Is(err, volbackup.ErrChanged) {
+		t.Fatalf("err = %v", err)
+	}
+	if strings.ContainsAny(err.Error(), "\x1b\x07") {
+		t.Errorf("the entry is not quoted: %q", err)
+	}
+	if got := volumeSize(context.Background(), vol); got != 0 {
+		t.Errorf("volume size %d", got)
 	}
 }
