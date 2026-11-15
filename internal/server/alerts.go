@@ -26,11 +26,13 @@ import (
 // Alerts (ADR 0045).
 const (
 	metaAlerts = "alerts"
-	// alertQueue bounds the notices waiting per channel; more are dropped
-	// and counted.
-	alertQueue = 256
-	// alertBurst notices may go at once per channel, then alertBurst per
-	// minute; the rest are summed up in one notice.
+	// alertQueue bounds the notices waiting per channel, alertSourceQueue
+	// those of one source (a space, or the cluster); more are dropped and
+	// counted.
+	alertQueue       = 256
+	alertSourceQueue = 64
+	// alertBurst notices of one source may go at once per channel, then
+	// alertBurst per minute; the rest are summed up in one notice.
 	alertBurst = 20
 	// alertTries is how often a notice is tried, alertRetry the first wait.
 	alertTries = 3
@@ -106,17 +108,127 @@ func newAlerter() *alerter {
 type alertWorker struct {
 	ch     alert.Channel
 	send   *alert.Sender
-	queue  chan alert.Notice
+	queue  *noticeQueue
 	cancel context.CancelFunc
 
 	mu                    sync.Mutex
 	lastSent, lastErrorAt time.Time
 	lastError             string
 	sentN, failedN, drops int64
+}
+
+// noticeQueue holds a channel's waiting notices by source: a notice's
+// space, or "" for the cluster's own (nodes, servers, certificates). Each
+// source has its own place in the queue and its own rate, and sources take
+// turns, so a space that floods a channel neither crowds out nor delays
+// another space's notices or a lost node's.
+type noticeQueue struct {
+	mu      sync.Mutex
+	sources map[string]*noticeSource
+	order   []string // sources with waiting notices, in turn order
+	waiting int
+	wake    chan struct{}
+}
+
+type noticeSource struct {
+	waiting []alert.Notice
 	// Rate limit: tokens refill alertBurst per minute.
 	tokens   float64
 	refilled time.Time
 	held     int
+}
+
+func newNoticeQueue() *noticeQueue {
+	return &noticeQueue{sources: map[string]*noticeSource{}, wake: make(chan struct{}, 1)}
+}
+
+// put queues n, never blocking. When its source is full, or the queue is
+// full and n's source holds no more than the largest, a notice is dropped
+// (put reports false): n itself, or the oldest of the largest source.
+func (q *noticeQueue) put(n alert.Notice, now time.Time) bool {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	src := q.source(n.Space, now)
+	if len(src.waiting) >= alertSourceQueue {
+		return false
+	}
+	kept := true
+	if q.waiting >= alertQueue {
+		var big *noticeSource
+		for _, name := range q.order {
+			if s := q.sources[name]; big == nil || len(s.waiting) > len(big.waiting) {
+				big = s
+			}
+		}
+		if big == nil || len(big.waiting) <= len(src.waiting)+1 {
+			return false
+		}
+		big.waiting = big.waiting[1:]
+		q.waiting--
+		kept = false
+	}
+	if len(src.waiting) == 0 {
+		q.order = append(q.order, n.Space)
+	}
+	src.waiting = append(src.waiting, n)
+	q.waiting++
+	select {
+	case q.wake <- struct{}{}:
+	default:
+	}
+	return kept
+}
+
+// source returns a source's record, making it. Records of sources with
+// nothing waiting or held and a full rate are forgotten first, so the map
+// holds only sources that are active.
+func (q *noticeQueue) source(name string, now time.Time) *noticeSource {
+	if s := q.sources[name]; s != nil {
+		return s
+	}
+	for k, s := range q.sources {
+		if len(s.waiting) == 0 && s.held == 0 && s.tokens+now.Sub(s.refilled).Minutes()*alertBurst >= alertBurst {
+			delete(q.sources, k)
+		}
+	}
+	s := &noticeSource{tokens: alertBurst, refilled: now}
+	q.sources[name] = s
+	return s
+}
+
+// next takes the next notice that may go now, sources taking turns; notices
+// over their source's rate are counted as held. held is how many of that
+// source's notices were held since one last went.
+func (q *noticeQueue) next(now time.Time) (n alert.Notice, held int, ok bool) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	for len(q.order) > 0 {
+		name := q.order[0]
+		s := q.sources[name]
+		n, s.waiting = s.waiting[0], s.waiting[1:]
+		q.waiting--
+		q.order = q.order[1:]
+		if len(s.waiting) > 0 {
+			q.order = append(q.order, name)
+		}
+		if s.take(now) {
+			held, s.held = s.held, 0
+			return n, held, true
+		}
+	}
+	return alert.Notice{}, 0, false
+}
+
+// take spends a token, or counts the notice as held back.
+func (s *noticeSource) take(now time.Time) bool {
+	s.tokens = min(alertBurst, s.tokens+now.Sub(s.refilled).Minutes()*alertBurst)
+	s.refilled = now
+	if s.tokens < 1 {
+		s.held++
+		return false
+	}
+	s.tokens--
+	return true
 }
 
 // start begins delivering with the leader term's context.
@@ -142,23 +254,18 @@ func (a *alerter) set(chs []alert.Channel, cluster string) {
 			continue
 		}
 		ctx, cancel := context.WithCancel(a.ctx)
-		w := &alertWorker{ch: c, send: alert.NewSender(c, a.http, nil), queue: make(chan alert.Notice, alertQueue),
-			cancel: cancel, tokens: alertBurst, refilled: time.Now()}
+		w := &alertWorker{ch: c, send: alert.NewSender(c, a.http, nil), queue: newNoticeQueue(), cancel: cancel}
 		if old := a.workers[c.Name]; old != nil {
-			// A changed channel keeps its counts, rate, and waiting notices.
+			// A changed channel keeps its counts, rates, and waiting notices.
 			old.cancel()
 			old.mu.Lock()
 			w.lastSent, w.lastErrorAt, w.lastError = old.lastSent, old.lastErrorAt, old.lastError
-			w.sentN, w.failedN, w.drops, w.tokens, w.refilled, w.held = old.sentN, old.failedN, old.drops, old.tokens, old.refilled, old.held
+			w.sentN, w.failedN, w.drops = old.sentN, old.failedN, old.drops
 			old.mu.Unlock()
-		moved:
-			for {
-				select {
-				case n := <-old.queue:
-					w.queue <- n
-				default:
-					break moved
-				}
+			w.queue = old.queue
+			select {
+			case w.queue.wake <- struct{}{}:
+			default:
 			}
 		}
 		a.workers[c.Name] = w
@@ -187,9 +294,7 @@ func (a *alerter) notify(n alert.Notice) {
 		if !w.ch.Wants(n.Reason, n.Space) {
 			continue
 		}
-		select {
-		case w.queue <- n:
-		default:
+		if !w.queue.put(n, time.Now()) {
 			w.mu.Lock()
 			w.drops++
 			w.mu.Unlock()
@@ -203,39 +308,29 @@ func (a *alerter) run(ctx context.Context, w *alertWorker) {
 		select {
 		case <-ctx.Done():
 			return
-		case n := <-w.queue:
-			if !w.take(time.Now()) {
-				continue // summed up in the next notice that goes
+		case <-w.queue.wake:
+		}
+		for ctx.Err() == nil {
+			n, held, ok := w.queue.next(time.Now())
+			if !ok {
+				break
 			}
-			if held := w.release(); held > 0 {
-				a.deliver(ctx, w, alert.Notice{Kind: alert.KindSummary, Cluster: n.Cluster, Time: time.Now(),
-					Message: fmt.Sprintf("%d more notices were held back (more than %d a minute)", held, alertBurst)})
+			if held > 0 {
+				a.deliver(ctx, w, heldNotice(n, held))
 			}
 			a.deliver(ctx, w, n)
 		}
 	}
 }
 
-// take spends a token, or counts the notice as held back.
-func (w *alertWorker) take(now time.Time) bool {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	w.tokens = min(alertBurst, w.tokens+now.Sub(w.refilled).Minutes()*alertBurst)
-	w.refilled = now
-	if w.tokens < 1 {
-		w.held++
-		return false
+// heldNotice sums up the notices of n's source that were held back.
+func heldNotice(n alert.Notice, held int) alert.Notice {
+	about := "the cluster"
+	if n.Space != "" {
+		about = "space " + n.Space
 	}
-	w.tokens--
-	return true
-}
-
-func (w *alertWorker) release() int {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	h := w.held
-	w.held = 0
-	return h
+	return alert.Notice{Kind: alert.KindSummary, Cluster: n.Cluster, Space: n.Space, Time: time.Now(),
+		Message: fmt.Sprintf("%d more notices about %s were held back (more than %d a minute)", held, about, alertBurst)}
 }
 
 // deliver tries n a few times with backoff and records how it went.

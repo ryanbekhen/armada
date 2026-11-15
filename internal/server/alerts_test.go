@@ -3,6 +3,8 @@ package server
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -130,22 +132,74 @@ func TestAlerts(t *testing.T) {
 
 func TestAlertRateLimit(t *testing.T) {
 	t.Parallel()
-	w := &alertWorker{tokens: alertBurst, refilled: time.Now()}
-	now := w.refilled
-	for range alertBurst {
-		if !w.take(now) {
-			t.Fatal("burst refused")
+	q := newNoticeQueue()
+	now := time.Now()
+	for range alertBurst + 2 {
+		if !q.put(alert.Notice{Space: "noisy"}, now) {
+			t.Fatal("refused under the queue limits")
 		}
 	}
-	for range 2 {
-		if w.take(now) {
-			t.Error("over the burst")
+	q.put(alert.Notice{Reason: "Lost"}, now)
+	q.put(alert.Notice{Space: "quiet"}, now)
+	var got []string
+	for {
+		n, _, ok := q.next(now)
+		if !ok {
+			break
+		}
+		got = append(got, n.Space+"/"+n.Reason)
+	}
+	if len(got) != alertBurst+2 {
+		t.Fatalf("sent %d, want the burst of one space plus the others", len(got))
+	}
+	// Sources take turns: the cluster's and the quiet space's notices go
+	// right after the noisy space's first, not behind its flood.
+	if got[1] != "/Lost" || got[2] != "quiet/" {
+		t.Errorf("order %v", got[:3])
+	}
+	q.put(alert.Notice{Space: "noisy"}, now.Add(4*time.Second)) // 20 a minute: one token
+	n, held, ok := q.next(now.Add(4 * time.Second))
+	if !ok || n.Space != "noisy" || held != 2 {
+		t.Errorf("after a refill: %v %d %v, want the noisy space with 2 held", n, held, ok)
+	}
+	if s := heldNotice(n, held); !strings.Contains(s.Message, "space noisy") || s.Space != "noisy" {
+		t.Errorf("summary %+v", s)
+	}
+}
+
+func TestAlertQueueFair(t *testing.T) {
+	t.Parallel()
+	q := newNoticeQueue()
+	now := time.Now()
+	dropped := 0
+	for i := range alertQueue {
+		if !q.put(alert.Notice{Space: fmt.Sprintf("s%d", i%4)}, now) {
+			dropped++
 		}
 	}
-	if w.release() != 2 || w.release() != 0 {
-		t.Error("held count")
+	if dropped != 0 || q.waiting != alertQueue {
+		t.Fatalf("dropped %d, waiting %d", dropped, q.waiting)
 	}
-	if !w.take(now.Add(4 * time.Second)) {
-		t.Error("not refilled after 4s (20 a minute)")
+	if q.put(alert.Notice{Space: "s0"}, now) {
+		t.Error("a full source took another place")
+	}
+	// The queue is full of other spaces' notices: the cluster's notice
+	// still gets in, in place of the oldest of the largest source.
+	if q.put(alert.Notice{Reason: "Lost"}, now) {
+		t.Error("no notice was dropped for it")
+	}
+	if q.waiting != alertQueue || len(q.sources[""].waiting) != 1 {
+		t.Errorf("waiting %d, cluster %d", q.waiting, len(q.sources[""].waiting))
+	}
+	// Records of idle sources at a full rate are forgotten; ones with
+	// held notices wait to sum them up.
+	for {
+		if _, _, ok := q.next(now); !ok {
+			break
+		}
+	}
+	q.put(alert.Notice{Space: "new"}, now.Add(time.Hour))
+	if q.sources[""] != nil || q.sources["s0"] == nil || q.sources["new"] == nil {
+		t.Errorf("source records %v", slices.Collect(maps.Keys(q.sources)))
 	}
 }
