@@ -504,7 +504,7 @@ func (s *Server) BackupVolume(req *armadav1.BackupVolumeRequest, stream armadav1
 		}
 		switch {
 		case m.GetError() != "":
-			return status.Error(codes.FailedPrecondition, m.GetError())
+			return status.Error(codes.FailedPrecondition, cleanMessage(m.GetError()))
 		case len(m.GetData()) > volumeChunk:
 			return status.Error(codes.DataLoss, "the node sent an oversized chunk")
 		}
@@ -588,7 +588,7 @@ func (s *Server) RestoreVolume(stream armadav1.AdminService_RestoreVolumeServer)
 			case err != nil:
 				result <- status.Error(codes.Unavailable, "the node ended the restore")
 			case m.GetError() != "":
-				result <- status.Error(codes.FailedPrecondition, m.GetError())
+				result <- status.Error(codes.FailedPrecondition, cleanMessage(m.GetError()))
 			case m.GetDone():
 				result <- nil
 			default:

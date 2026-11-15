@@ -248,7 +248,7 @@ func (s *Server) repoOp(ctx context.Context, node string, req *armadav1.VolumeRe
 			case err != nil:
 				got <- answer{err: status.Errorf(codes.Unavailable, "node %s ended the volume operation", node)}
 			case m.GetError() != "":
-				got <- answer{m: m, err: status.Error(codes.FailedPrecondition, m.GetError())}
+				got <- answer{m: m, err: status.Error(codes.FailedPrecondition, cleanMessage(m.GetError()))}
 			case m.GetDone():
 				got <- answer{m: m}
 			default:
