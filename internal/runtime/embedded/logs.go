@@ -26,6 +26,10 @@ var validID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`)
 // maxLogChunk splits very long lines.
 const maxLogChunk = 16 << 10
 
+// maxTailBytes bounds the output a tail keeps in memory before sending it,
+// whatever the number of entries asked: past it the oldest are dropped.
+const maxTailBytes = 4 << 20
+
 type logEntry struct {
 	Log    string    `json:"log"`
 	Stream string    `json:"stream"`
@@ -302,13 +306,18 @@ func readLogs(ctx context.Context, path string, opts runtime.LogOptions, out cha
 		}
 	}
 	// Rotated files first, oldest first.
-	var entries []logEntry
+	var (
+		entries []logEntry
+		kept    int
+	)
 	keep := func(e logEntry) {
 		if opts.Tail < 0 || !runtime.ContainsFold([]byte(e.Log), grep) {
 			return // only output written from now, or not a match
 		}
 		entries = append(entries, e)
-		if opts.Tail > 0 && len(entries) > opts.Tail {
+		kept += len(e.Log)
+		for len(entries) > 1 && ((opts.Tail > 0 && len(entries) > opts.Tail) || kept > maxTailBytes) {
+			kept -= len(entries[0].Log)
 			entries = entries[1:]
 		}
 	}

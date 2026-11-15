@@ -191,6 +191,9 @@ app writing them.
 | `log endpoint answered 400 ... structured metadata` | Loki older than 3, or structured metadata turned off | Upgrade Loki, or allow structured metadata |
 | `LogExportFailing`, `connection refused` or a timeout | The node cannot reach the endpoint | Check the node's outbound access to the endpoint |
 | `too many log searches are running` | Several searches with `--since` run at once (at most 4 on the cluster, 2 per person) | Wait for one to finish, or narrow it with `--until` or `--replica` |
+| `too many log streams are open` | You already follow 8 apps or replicas (at most 128 on the cluster) | Stop a `-f` you no longer watch |
+| `[armada] busy with other log streams; try again shortly` | That node already streams 32 logs | Stop a `-f` you no longer watch, or try again |
+| Fewer lines than `--tail` asked for | A node sends at most 4 MiB of a tail | Use `--since` with `--limit`, or `--grep` |
 | `-f --grep` shows nothing | No new line matches yet | Leave out `--grep` to see that lines arrive |
 
 ## Next steps

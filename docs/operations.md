@@ -522,6 +522,13 @@ per second (4 MiB at once) to its log, kept in 3 files of 10 MB; `armada
 app logs` shows a line such as `[armada: dropped 52428800 bytes of output over
 the log rate limit ...]` where output was dropped.
 
+Live logs (`armada app logs` without `--since`) are bounded too: the
+cluster serves at most 128 such calls at once, 8 per person or service
+(more are refused with `too many log streams are open`), each node streams
+at most 32 at once (more get `busy with other log streams`), and a tail
+keeps at most 4 MiB of output in a node's memory before it is sent, the
+newest lines, however many `--tail` asks for.
+
 ### Log history
 
 Each node keeps the output of its app containers after they rotate out or

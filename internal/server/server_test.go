@@ -480,6 +480,50 @@ func TestLogsFollowGrep(t *testing.T) {
 	}
 }
 
+// One caller holds at most maxLiveLogsPerCaller live log calls at once; the
+// next is refused until one ends.
+func TestLiveLogsAreBounded(t *testing.T) {
+	t.Parallel()
+	c := newCluster(t)
+	c.addNode("n1", "127.0.0.1")
+	c.deploy(webSpec("nginx:1", 1))
+	c.eventually("1 running", func() bool { return len(c.running("web")) == 1 })
+	follow := func() (context.CancelFunc, armadav1.AdminService_LogsClient) {
+		ctx, cancel := context.WithCancel(c.ctx)
+		stream, err := c.admin.Logs(ctx, &armadav1.LogsRequest{App: "web", Follow: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return cancel, stream
+	}
+	var cancels []context.CancelFunc
+	defer func() {
+		for _, cancel := range cancels {
+			cancel()
+		}
+	}()
+	for range maxLiveLogsPerCaller {
+		cancel, stream := follow()
+		cancels = append(cancels, cancel)
+		// The first entry means the call holds its slot.
+		if _, err := stream.Recv(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cancel, stream := follow()
+	defer cancel()
+	if _, err := stream.Recv(); status.Code(err) != codes.ResourceExhausted {
+		t.Fatalf("call past the caller's bound: %v", err)
+	}
+	cancels[0]()
+	c.eventually("a slot freed", func() bool {
+		cancel, stream := follow()
+		defer cancel()
+		_, err := stream.Recv()
+		return err == nil
+	})
+}
+
 // A replica that has written nothing yet returns no logs at once, not a
 // notice that its node did not answer.
 func TestLogsOfSilentReplica(t *testing.T) {

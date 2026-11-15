@@ -286,7 +286,7 @@ func TestSearchMatch(t *testing.T) {
 // The leader runs a bounded number of searches, in total and per caller.
 func TestSearchSlots(t *testing.T) {
 	t.Parallel()
-	var s searchSlots
+	s := newCallerSlots(maxSearches, maxSearchesPerCaller, "busy")
 	var release []func()
 	for range maxSearchesPerCaller {
 		r, err := s.take("user:a")
