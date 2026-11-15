@@ -446,6 +446,7 @@ func (s *Server) Serve(ctx context.Context, lis net.Listener) error {
 	go s.reconcileLoop(ctx)
 	go s.autoscaleLoop(ctx)
 	go s.backupLoop(ctx)
+	go s.placementLoop(ctx)
 	go func() {
 		<-ctx.Done()
 		// Agent streams are long-lived and never finish on their own, so a

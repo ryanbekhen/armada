@@ -549,7 +549,10 @@ lines (`--limit`, at most 5000) merged by time across nodes, and each node
 reads at most 1 GiB of output for it within 30 seconds, saying so when it
 stops early. History lives in the runtime's log directory, readable only
 by root, and is kept 7 days and at most 10% of the disk (5 GiB) per node,
-the oldest dropped first:
+the oldest dropped first. A search returns a node's lines only for
+replicas that ran on that node, from a record the control plane keeps of
+where each replica was created; replicas removed before the servers ran a
+release with these records are no longer found by a search:
 
 ```bash
 armada cluster set --log-retention 336h --log-max-disk 10Gi   # every node, no restart

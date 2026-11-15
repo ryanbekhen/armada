@@ -49,8 +49,11 @@ const (
 	// Bounds of the cluster's log settings.
 	minLogRetention = time.Hour
 	maxLogRetention = 90 * 24 * time.Hour
-	minLogMaxBytes  = 64 << 20
-	maxLogMaxBytes  = 1 << 40
+	// defaultLogRetention is what nodes keep when the cluster sets no
+	// retention (embedded.DefaultLogRetention, checked in a test).
+	defaultLogRetention = 7 * 24 * time.Hour
+	minLogMaxBytes      = 64 << 20
+	maxLogMaxBytes      = 1 << 40
 )
 
 // The log endpoint's token is sealed like the DNS token (ADR 0044).
@@ -287,9 +290,14 @@ func (s *Server) searchLogs(ctx context.Context, app string, req *armadav1.LogsR
 	if len(sessions) == 0 {
 		return status.Error(codes.FailedPrecondition, "no connected node keeps a log history (upgrade the nodes)")
 	}
+	// A node answers only for the app's replicas that were placed on it.
+	placed, err := s.store.ReplicaPlacements(ctx, app)
+	if err != nil {
+		return storeErr(err)
+	}
 	for _, sess := range sessions {
 		wg.Go(func() {
-			got, msg := s.searchNode(ctx, sess, q)
+			got, msg := s.searchNode(ctx, sess, q, placed)
 			if msg != "" {
 				note(sess.nodeID, msg)
 			}
@@ -319,7 +327,7 @@ func (s *Server) searchLogs(ctx context.Context, app string, req *armadav1.LogsR
 
 // searchNode runs one node's part of a search and returns its entries and
 // a notice, if any.
-func (s *Server) searchNode(ctx context.Context, sess *session, q *armadav1.LogQuery) ([]*armadav1.LogEntry, string) {
+func (s *Server) searchNode(ctx context.Context, sess *session, q *armadav1.LogQuery, placed map[string]string) ([]*armadav1.LogEntry, string) {
 	id, p := s.logs.register(sess.nodeID)
 	defer s.logs.cancel(id, p)
 	if !sess.offer(&armadav1.ServerMessage{Msg: &armadav1.ServerMessage_LogRequest{LogRequest: &armadav1.LogRequest{RequestId: id, Query: q}}}) {
@@ -348,8 +356,10 @@ func (s *Server) searchNode(ctx context.Context, sess *session, q *armadav1.LogQ
 				return out, m.GetError()
 			}
 			// A node's answer is trusted only for the query it was
-			// asked: the app's replicas, inside the window.
-			if len(m.GetData()) == 0 || m.GetTime() == nil || len(out) >= maxSearchLimit || !searchMatch(q, m, time.Now()) {
+			// asked: the app's replicas that ran on this node, inside the
+			// window.
+			if len(m.GetData()) == 0 || m.GetTime() == nil || len(out) >= maxSearchLimit ||
+				placed[m.GetReplica()] != sess.nodeID || !searchMatch(q, m, time.Now()) {
 				continue
 			}
 			if bytes+len(m.GetData()) > maxSearchNodeBytes {
@@ -366,10 +376,11 @@ func (s *Server) searchNode(ctx context.Context, sess *session, q *armadav1.LogQ
 
 // searchMatch reports whether a node's entry answers q: a replica of the
 // queried app (the asked one, if any) and a time inside the window, not
-// later than a minute from now.
+// later than a minute from now. The caller also checks that the replica
+// ran on the answering node.
 func searchMatch(q *armadav1.LogQuery, m *armadav1.LogPush, now time.Time) bool {
 	r := m.GetReplica()
-	if !strings.HasPrefix(r, q.GetApp()+"-") || (q.GetReplica() != "" && r != q.GetReplica()) {
+	if !replicaOf(r, q.GetApp()) || (q.GetReplica() != "" && r != q.GetReplica()) {
 		return false
 	}
 	t := m.GetTime().AsTime()
@@ -410,4 +421,45 @@ func (s *callerSlots) take(who string) (func(), error) {
 			delete(s.caller, who)
 		}
 	}, nil
+}
+
+// replicaOf reports whether id has the form of a replica ID of app:
+// <app>-r<seq>-... for app replicas, <app>-j<run>-... for job attempts. A
+// bare "<app>-" prefix would also take "web-api"'s replicas for "web"'s.
+func replicaOf(id, app string) bool {
+	rest, ok := strings.CutPrefix(id, app+"-")
+	return ok && len(rest) >= 2 && (rest[0] == 'r' || rest[0] == 'j') && rest[1] >= '0' && rest[1] <= '9'
+}
+
+// placementPrune is how often the leader drops placement records older
+// than the log retention; placementMargin is how much longer it keeps them.
+const (
+	placementPrune  = time.Hour
+	placementMargin = 24 * time.Hour
+)
+
+// placementLoop prunes the records of where replicas ran (ADR 0043) once
+// they are older than any history a node keeps.
+func (s *Server) placementLoop(ctx context.Context) {
+	t := time.NewTicker(placementPrune)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+		ls, err := s.logSettings(ctx)
+		if err != nil {
+			s.log.Warn("prune placements: log settings", "err", err)
+			continue
+		}
+		keep := defaultLogRetention
+		if ls.RetentionSeconds > 0 {
+			keep = time.Duration(ls.RetentionSeconds) * time.Second
+		}
+		if _, err := s.store.PrunePlacements(ctx, s.now().Add(-keep-placementMargin)); err != nil && ctx.Err() == nil {
+			s.log.Warn("prune placements", "err", err)
+		}
+	}
 }

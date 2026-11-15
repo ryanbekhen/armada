@@ -509,6 +509,12 @@ type Store interface {
 	// CreateReplica schedules a replica. Its ID starts with "<app>-"
 	// (ErrPrecondition otherwise), so one app's replicas are read by prefix.
 	CreateReplica(ctx context.Context, r Replica) error
+	// ReplicaPlacements returns the node each replica of app was created
+	// on, by replica ID, including replicas that are gone (ADR 0043).
+	ReplicaPlacements(ctx context.Context, app string) (map[string]string, error)
+	// PrunePlacements deletes the placement records written before
+	// before, returning how many it deleted.
+	PrunePlacements(ctx context.Context, before time.Time) (int, error)
 	DeleteReplica(ctx context.Context, id string) error
 	// DrainReplica marks a replica as draining (idempotent).
 	DrainReplica(ctx context.Context, id string) error

@@ -54,8 +54,18 @@ app logs` searches it across the cluster. No database is added.
   output as before. It runs at most 4 searches at once, 2 per caller
   (more are refused with `ResourceExhausted`), keeps at most 32 MiB of
   one node's answer, and keeps only entries of the queried app's replicas
-  (the asked one, if any) inside the window, not more than a minute
-  ahead, so a node cannot answer for apps it never ran.
+  (the asked one, if any; the whole app ID, so `web` never takes
+  `web-api`'s) inside the window, not more than a minute ahead, and only
+  of replicas that were placed on the answering node, so a node cannot
+  answer for apps or replicas it never ran. For that the store records
+  the node of every replica when it is created (`placements/<replica
+  ID>`, in the same transaction), and keeps the record after the replica
+  is gone; the leader prunes records older than the log retention plus a
+  day every hour. Records live in etcd, so they survive a change of
+  leader. Replicas removed before the cluster's servers were upgraded to a
+  release that keeps these records have none, and their history is no
+  longer returned by a search (live replicas are checked against the
+  replica records themselves).
 - Live logs (no `--since`) are bounded like searches: the leader serves
   at most 128 `Logs` calls at once, 8 per caller (`callerSlots`, the same
   type as the search slots; more are refused with `ResourceExhausted`),
