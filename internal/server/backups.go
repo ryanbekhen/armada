@@ -263,9 +263,12 @@ func (s *Server) repoOp(ctx context.Context, node string, req *armadav1.VolumeRe
 }
 
 // repoNode picks where a bucket operation runs: the volume's node, or,
-// when it is not connected and the operation needs no data, any connected
-// node that backs volumes up.
-func (s *Server) repoNode(v store.Volume, needsData bool) (string, error) {
+// when it is not connected and the operation needs no data, a connected
+// node that backs volumes up and may run the app: ready, and allowed by the
+// placement of every revision in revs (restricted nodes, placement.require,
+// capabilities). The request carries the app's bucket credentials and
+// backup key, which go only to nodes that may hold the app's secrets.
+func (s *Server) repoNode(ctx context.Context, v store.Volume, needsData bool, revs ...store.Revision) (string, error) {
 	if sess := s.session(v.Node); sess != nil {
 		if !sess.backups {
 			return "", status.Errorf(codes.FailedPrecondition, "the agent on node %s is too old to back volumes up; upgrade it", v.Node)
@@ -275,18 +278,55 @@ func (s *Server) repoNode(v store.Volume, needsData bool) (string, error) {
 	if needsData {
 		return "", status.Errorf(codes.Unavailable, "node %s, which holds the volume, is not connected", v.Node)
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	nodes, err := s.store.ListNodes(ctx)
+	if err != nil {
+		return "", storeErr(err)
+	}
 	best := ""
-	for id, sess := range s.sessions {
-		if sess.backups && (best == "" || id < best) {
-			best = id
+	for _, n := range nodes {
+		if (best != "" && n.ID >= best) || !mayHoldSecrets(n, revs) {
+			continue
+		}
+		if sess := s.session(n.ID); sess != nil && sess.backups {
+			best = n.ID
 		}
 	}
 	if best == "" {
-		return "", status.Error(codes.Unavailable, "no connected node backs volumes up")
+		return "", status.Errorf(codes.Unavailable, "node %s, which holds the volume, is not connected, and no other connected node that backs volumes up may run %s", v.Node, v.App)
 	}
 	return best, nil
+}
+
+// mayHoldSecrets reports whether n is ready and the placement of every
+// revision in revs allows it, so n may be sent the secrets they pin.
+func mayHoldSecrets(n store.Node, revs []store.Revision) bool {
+	if n.State != store.NodeReady || len(revs) == 0 {
+		return false
+	}
+	for _, rev := range revs {
+		if !placementAllows(n, rev) {
+			return false
+		}
+	}
+	return true
+}
+
+// heading returns rev and, while the app rolls out to another revision,
+// that one too: a node that reads the bucket must be allowed by both.
+func (s *Server) heading(ctx context.Context, app string, rev store.Revision) ([]store.Revision, error) {
+	a, err := s.store.GetApp(ctx, app)
+	if err != nil {
+		return nil, storeErr(err)
+	}
+	out := []store.Revision{rev}
+	if a.TargetRevision != "" && a.TargetRevision != rev.Name {
+		t, err := s.store.GetRevision(ctx, a.TargetRevision)
+		if err != nil {
+			return nil, storeErr(err)
+		}
+		out = append(out, t)
+	}
+	return out, nil
 }
 
 // backupFor returns the volume and its backup settings for an RPC.
@@ -317,7 +357,11 @@ func (s *Server) ListVolumeSnapshots(ctx context.Context, req *armadav1.ListVolu
 	if err != nil {
 		return nil, err
 	}
-	node, err := s.repoNode(v, false)
+	revs, err := s.heading(ctx, v.App, rev)
+	if err != nil {
+		return nil, err
+	}
+	node, err := s.repoNode(ctx, v, false, revs...)
 	if err != nil {
 		return nil, err
 	}
@@ -341,7 +385,7 @@ func (s *Server) CreateVolumeSnapshot(ctx context.Context, req *armadav1.CreateV
 	if err != nil {
 		return nil, err
 	}
-	if _, err := s.repoNode(v, true); err != nil {
+	if _, err := s.repoNode(ctx, v, true); err != nil {
 		return nil, err
 	}
 	key := v.App + "/" + v.Name
@@ -382,8 +426,17 @@ func (s *Server) RestoreVolumeSnapshot(ctx context.Context, req *armadav1.Restor
 	node := v.Node
 	if req.GetNode() != "" && req.GetNode() != node {
 		node = req.GetNode()
-		if _, err := s.store.GetNode(ctx, node); err != nil {
+		n, err := s.store.GetNode(ctx, node)
+		if err != nil {
 			return nil, storeErr(err)
+		}
+		// The request carries the app's bucket credentials and backup key.
+		revs, err := s.heading(ctx, v.App, rev)
+		if err != nil {
+			return nil, err
+		}
+		if !mayHoldSecrets(n, revs) {
+			return nil, status.Errorf(codes.FailedPrecondition, "node %s is not ready, or the app may not run there (placement, restricted node, or capabilities)", node)
 		}
 		// Never leave two copies that could both be written.
 		if s.session(v.Node) != nil {

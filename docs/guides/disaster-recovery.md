@@ -329,6 +329,8 @@ Run this every few months, and after upgrades:
 | `VolumeFailoverFailed: ...; trying again in 5m0s` | No backup yet, no node with room or allowed by placement, or the bucket refuses | Read the message; `armada volume snapshot list`; `armada node top` |
 | `VolumeBackupFailed` | The bucket refuses the node's address or the key, or is full | Check the URL secret and the bucket's policy; old backups stay as they were |
 | `armada volume restore --node` is refused | The old node is still connected | Wait until it is lost, or delete it with `armada node delete --force` if it is gone for good |
+| `armada volume restore --snapshot ... --node` is refused: the app may not run there | The node is not ready, or the app's placement or a restricted node leaves it out; the request would carry the bucket credentials and key | Pick a node the app may run on (`armada node list`) |
+| `armada volume snapshot list` is unavailable | The volume's node is away and no other connected node the app may run on backs volumes up | Wait for the node, or add a node the app's placement allows |
 
 More in [troubleshooting](troubleshooting.md).
 

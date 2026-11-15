@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -221,4 +222,56 @@ func TestBackupTargetsNeedClusterAdmin(t *testing.T) {
 	}
 	_, err = deployer.Rollback(ctx, &armadav1.RollbackRequest{App: "web.a", Revision: r1.GetRevision()})
 	wantCode(t, "a deployer rolls back to the private bucket", err, codes.PermissionDenied)
+}
+
+// While the volume's node is away, a listing reads the bucket only through a
+// node the app may run on: the request carries the bucket credentials and
+// the backup key.
+func TestVolumeSnapshotListingSkipsNodesTheAppMayNotUse(t *testing.T) {
+	t.Parallel()
+	bucket := volbackup.NewMemory()
+	c := backupCluster(t, bucket)
+	var mu sync.Mutex
+	got := map[string]int{}
+	c.agentConfig = func(id string, cfg *agent.Config) {
+		cfg.Buckets = func(volbackup.Target) (volbackup.Objects, error) {
+			mu.Lock()
+			got[id]++
+			mu.Unlock()
+			return bucket, nil
+		}
+	}
+	c.addNode("a0", "127.0.0.2")
+	if _, err := c.admin.RestrictNode(c.ctx, &armadav1.RestrictNodeRequest{Node: "a0", Restricted: true}); err != nil {
+		t.Fatal(err)
+	}
+	c.deploy(backupSpec)
+	c.eventually("web running on n1", func() bool { r := c.running("web"); return len(r) == 1 && r[0].NodeId == "n1" })
+	c.eventually("first backup", func() bool { v := volumeOf(c); return v != nil && v.BackupSnapshots >= 1 })
+	c.stopAgent("n1")
+	c.eventually("n1 disconnected", func() bool { return c.srv.session("n1") == nil })
+
+	_, err := c.admin.ListVolumeSnapshots(c.ctx, &armadav1.ListVolumeSnapshotsRequest{App: "web", Name: "data"})
+	if status.Code(err) != codes.Unavailable {
+		t.Fatalf("listing with only a restricted node: %v", err)
+	}
+	_, err = c.admin.RestoreVolumeSnapshot(c.ctx, &armadav1.RestoreVolumeSnapshotRequest{App: "web", Name: "data", Snapshot: "latest", Node: "a0"})
+	if status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("restoring onto a restricted node: %v", err)
+	}
+
+	c.addNode("n2", "127.0.0.3")
+	c.eventually("n2 connected", func() bool { s := c.srv.session("n2"); return s != nil && s.backups })
+	list, err := c.admin.ListVolumeSnapshots(c.ctx, &armadav1.ListVolumeSnapshotsRequest{App: "web", Name: "data"})
+	if err != nil || len(list.Snapshots) == 0 {
+		t.Fatalf("listing through n2: %v, %v", list, err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if got["a0"] != 0 {
+		t.Errorf("the restricted node was sent the backup target %d times", got["a0"])
+	}
+	if got["n2"] == 0 {
+		t.Error("the listing did not go through n2")
+	}
 }
