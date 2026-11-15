@@ -78,6 +78,14 @@ The cluster CIDR is routed between nodes over one interface per node,
   - A firewall rule accepts the VXLAN port on the private IP only from
     current peers' private IPs (iptables, which the container networking
     plugins already use on every node).
+  - Containers never reach a peer's tunnel port: masqueraded to their
+    node's address, their packets would pass that rule, and a frame inside
+    with any source address would leave the peer's tunnel as another node
+    container's, past the isolation of spaces. A chain in the `raw` table
+    (`ARMADA-NET-PRE`, ahead of the plugins' own rules, which accept
+    containers' packets) drops UDP from the container bridge to every
+    peer's tunnel port, and drops what leaves the tunnel with a source in
+    the node's own subnet or outside the cluster's range.
   - Traffic between nodes is not encrypted. A machine on the private network
     can read it, and one that forges peer packets can inject traffic. That
     is the trust Armada already places in the private network today (T56).

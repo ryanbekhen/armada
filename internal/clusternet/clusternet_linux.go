@@ -29,6 +29,10 @@ import (
 const (
 	chainIn  = "ARMADA-NET-IN"
 	chainFwd = "ARMADA-NET-FWD"
+	// chainPre (raw table) drops forged tunnel traffic before anything
+	// else sees it: the container networking plugins accept containers'
+	// packets in FORWARD ahead of chainFwd.
+	chainPre = "ARMADA-NET-PRE"
 )
 
 // Net is the cluster network on a Linux node.
@@ -248,7 +252,28 @@ func (n *Net) firewall(p plan) error {
 	if err := ipt.chain("filter", chainFwd); err != nil {
 		return err
 	}
-	if err := ipt.fill("filter", chainFwd, [][]string{
+	if err := ipt.fill("filter", chainFwd, forwardRules()); err != nil {
+		return err
+	}
+	if err := ipt.first("filter", "FORWARD", "-j", chainFwd); err != nil {
+		return err
+	}
+	if err := ipt.chain("raw", chainPre); err != nil {
+		return err
+	}
+	if err := ipt.fill("raw", chainPre, spoofRules(p)); err != nil {
+		return err
+	}
+	if err := ipt.first("raw", "PREROUTING", "-j", chainPre); err != nil {
+		return err
+	}
+	// Ahead of the container runtime's masquerading.
+	return ipt.first("nat", "POSTROUTING", "-o", Interface, "-j", "RETURN")
+}
+
+// forwardRules are ARMADA-NET-FWD's rules.
+func forwardRules() [][]string {
+	return [][]string{
 		{"-i", Interface, "-o", embedded.BridgeName, "-j", "ACCEPT"},
 		{"-i", embedded.BridgeName, "-o", Interface, "-j", "ACCEPT"},
 		// Nothing that arrives through the tunnel is routed anywhere else.
@@ -260,14 +285,28 @@ func (n *Net) firewall(p plan) error {
 		// (DNAT) still pass.
 		{"-i", embedded.BridgeName, "-o", embedded.BridgeName, "-j", "RETURN"},
 		{"-o", embedded.BridgeName, "-m", "conntrack", "--ctstate", "NEW", "-m", "conntrack", "!", "--ctstate", "DNAT", "-j", "DROP"},
-	}); err != nil {
-		return err
 	}
-	if err := ipt.first("filter", "FORWARD", "-j", chainFwd); err != nil {
-		return err
+}
+
+// spoofRules are ARMADA-NET-PRE's rules, written as iptables -S prints them
+// so that fill finds them unchanged.
+func spoofRules(p plan) [][]string {
+	var rules [][]string
+	// A container never sends to a peer's tunnel port: masqueraded to the
+	// node's address, its packets would pass the peer's ARMADA-NET-IN, and
+	// the frame inside, with any source address it likes, would come out of
+	// the peer's tunnel as if another node's container had sent it, past
+	// the isolation of spaces.
+	for _, pe := range p.peers {
+		rules = append(rules, []string{"-d", pe.ip.String() + "/32", "-i", embedded.BridgeName, "-p", "udp", "-m", "udp", "--dport", strconv.Itoa(port(p.mode)), "-j", "DROP"})
 	}
-	// Ahead of the container runtime's masquerading.
-	return ipt.first("nat", "POSTROUTING", "-o", Interface, "-j", "RETURN")
+	// What comes out of the tunnel is from another node's containers or
+	// that node itself (its tunnel address): never from this node's
+	// subnet, and never from outside the cluster's range.
+	return append(rules,
+		[]string{"-s", p.self.subnet.String(), "-i", Interface, "-j", "DROP"},
+		[]string{"!", "-s", p.cidr.String(), "-i", Interface, "-j", "DROP"},
+	)
 }
 
 // iptablesCmd runs the iptables tool the container networking plugins use.
@@ -457,6 +496,7 @@ func Remove() error {
 	ipt := iptables
 	for _, r := range [][]string{
 		{"filter", "FORWARD", "-j", chainFwd},
+		{"raw", "PREROUTING", "-j", chainPre},
 		{"nat", "POSTROUTING", "-o", Interface, "-j", "RETURN"},
 	} {
 		for ipt.run(append([]string{"-t", r[0], "-D", r[1]}, r[2:]...)...) == nil {
@@ -469,6 +509,9 @@ func Remove() error {
 		if ipt.run("-L", c, "-n") == nil {
 			errs = append(errs, ipt.run("-F", c), ipt.run("-X", c))
 		}
+	}
+	if ipt.run("-t", "raw", "-L", chainPre, "-n") == nil {
+		errs = append(errs, ipt.run("-t", "raw", "-F", chainPre), ipt.run("-t", "raw", "-X", chainPre))
 	}
 	// The control socket a userspace WireGuard device leaves behind.
 	if err := os.Remove(userSocket); err != nil && !errors.Is(err, os.ErrNotExist) {
