@@ -63,6 +63,15 @@ func statusOf(results []checkResult, name string) string {
 	return ""
 }
 
+func detailOf(results []checkResult, name string) string {
+	for _, r := range results {
+		if r.Name == name {
+			return r.Detail
+		}
+	}
+	return ""
+}
+
 func TestDoctorHealthy(t *testing.T) {
 	t.Parallel()
 	results := runDoctor(context.Background(), healthyEnv(t))
@@ -143,6 +152,13 @@ func TestDoctorRuntimeDown(t *testing.T) {
 	if statusOf(results, "cgroup") != checkOK {
 		t.Error("host checks not run")
 	}
+	// Without root the socket cannot be opened: doctor says so instead of
+	// calling a running runtime not started.
+	env.euid = 1000
+	if got := detailOf(runDoctor(context.Background(), env), "runtime"); !strings.Contains(got, "without root") {
+		t.Errorf("not root: %q", got)
+	}
+	env.euid = 0
 	env.driverErr = errors.New("bad subnet")
 	if got := statusOf(runDoctor(context.Background(), env), "runtime"); got != checkFail {
 		t.Errorf("driver error = %q", got)

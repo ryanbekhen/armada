@@ -293,6 +293,11 @@ func checkRuntime(ctx context.Context, env doctorEnv) []checkResult {
 	err := env.driver.Ping(pingCtx)
 	cancel()
 	switch {
+	case err != nil && env.euid != 0:
+		// The socket is root's, and so is the data directory that tells
+		// a set-up node from a fresh one: say nothing about the runtime.
+		add("runtime", checkWarn, "cannot reach the embedded runtime without root (its socket is root's only): run sudo armadad doctor")
+		return out
 	case err != nil && !env.initialized():
 		add("runtime", checkWarn, "embedded runtime not running yet; it starts with armada-server or armada-agent after init or join")
 		return out
