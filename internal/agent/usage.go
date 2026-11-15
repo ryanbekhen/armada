@@ -68,8 +68,10 @@ func (a *Agent) usageLoop(ctx context.Context) {
 		a.sampleConntrack(report, &warned)
 		report.Queues = a.queues.fresh(time.Now(), 2*a.cfg.QueueInterval)
 		report.Sandboxes = a.sandboxReport(time.Now())
+		report.DroppedSandboxes = a.droppedSandboxes()
 		report.LogExport = a.export.v.Load()
-		if sampled || report.LoadMeasured || report.VolumesMeasured || report.ConntrackMax > 0 || len(report.Queues) > 0 || len(report.Sandboxes) > 0 || report.LogExport != nil {
+		if sampled || report.LoadMeasured || report.VolumesMeasured || report.ConntrackMax > 0 || len(report.Queues) > 0 || len(report.Sandboxes) > 0 ||
+			len(report.DroppedSandboxes) > 0 || report.LogExport != nil {
 			a.sendUsage(report)
 		}
 	}

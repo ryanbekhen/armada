@@ -81,6 +81,9 @@ type nodeUsage struct {
 	// sandboxes are the node's network sandboxes by job, with the latest
 	// length of each job's queue (ADR 0040).
 	sandboxes map[string]sandboxReading
+	// dropped are the jobs whose sandboxes the node said it does not keep,
+	// past what one node keeps (ADR 0040).
+	dropped map[string]bool
 }
 
 // sandboxReading is a job's network sandbox on a node, and the length of
@@ -164,6 +167,15 @@ func (u *usageStore) set(nodeID string, r *armadav1.UsageReport, at time.Time) b
 		}
 	}
 	sandboxes := sandboxReadings(r.GetSandboxes(), at)
+	var dropped map[string]bool
+	if d := r.GetDroppedSandboxes(); len(d) > 0 && len(d) <= maxSandboxReports {
+		dropped = make(map[string]bool, len(d))
+		for _, job := range d {
+			if spec.ValidAppID(job) {
+				dropped[job] = true
+			}
+		}
+	}
 	u.mu.Lock()
 	fresh := false
 	for job, s := range sandboxes {
@@ -189,6 +201,7 @@ func (u *usageStore) set(nodeID string, r *armadav1.UsageReport, at time.Time) b
 		conntrackMax:     max(0, min(r.GetConntrackMax(), maxConntrack)),
 		queues:           queues,
 		sandboxes:        sandboxes,
+		dropped:          dropped,
 	}
 	u.mu.Unlock()
 	return fresh
@@ -319,6 +332,13 @@ func (u *usageStore) node(nodeID string, now time.Time) (nodeUsage, bool) {
 		return nodeUsage{}, false
 	}
 	return n, true
+}
+
+// droppedSandbox reports whether node's recent sample says it does not keep
+// job's sandbox.
+func (u *usageStore) droppedSandbox(nodeID, job string, now time.Time) bool {
+	n, ok := u.node(nodeID, now)
+	return ok && n.dropped[job]
 }
 
 // lastActive returns when a proxy last reported a request for any of ids.

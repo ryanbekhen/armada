@@ -338,7 +338,7 @@ use a job.
 | `queue -/100` | The command fails, takes over 10 seconds, or prints something other than a number | Run it with `armada app exec` and look at what it prints |
 | The worker never goes below 1 | Queue rules need `min` of at least 1 | Use a job with `trigger.queue` for zero while idle |
 | `Queue: not read yet, from node2` for long | The sandbox cannot reach the broker, or the URL is wrong | Add the job to the broker's `allow`; read the agent's log on that node |
-| `Queue: not read: no node can` and a `QueueUnread` event | No connected node of the cluster network may run the job (placement, cordons) | Check the job's placement and the nodes |
+| `Queue: not read: no node can` and a `QueueUnread` event | No connected node of the cluster network may run the job (placement, cordons), or each such node already reads 64 queues | Check the job's placement and the nodes; add a node for more queues |
 | Job create refused for `trigger` | No cluster network, or `schedule`/`concurrency` set with it | Remove those fields; triggers need `armadad init --network` |
 | `armada job run mailer` refused | `parallelism` runs are already active | Wait, or raise `parallelism` |
 | A broker on the private network is unreachable from `shop` | Spaces other than `default` cannot reach the private network | Run the broker as an app of the space, or use `default` with its isolation off |

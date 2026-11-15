@@ -116,6 +116,7 @@ func TestSandboxLifecycle(t *testing.T) {
 
 	// Before the first assignment nothing is removed.
 	a.syncSandboxes(ctx)
+	a.sb.reads.Wait()
 	if got := d.Sandboxes(); !slices.Equal(got, []string{"gone", "mailer.shop"}) {
 		t.Fatalf("before an assignment: %v", got)
 	}
@@ -127,6 +128,7 @@ func TestSandboxLifecycle(t *testing.T) {
 		{Job: "cmd", Probe: &armadav1.QueueProbe{Type: "queue"}}, // not read from a sandbox
 	})
 	a.syncSandboxes(ctx)
+	a.sb.reads.Wait()
 	if got := d.Sandboxes(); !slices.Equal(got, []string{"mailer.shop"}) {
 		t.Fatalf("sandboxes = %v", got)
 	}
@@ -152,6 +154,7 @@ func TestSandboxLifecycle(t *testing.T) {
 	length.Store(120)
 	time.Sleep(5 * time.Millisecond)
 	a.syncSandboxes(ctx)
+	a.sb.reads.Wait()
 	rep = a.sandboxReport(time.Now())
 	if len(rep) != 1 || rep[0].GetLength() != 120 || rep[0].GetReading() != 2 {
 		t.Fatalf("second reading: %v", rep)
@@ -173,6 +176,7 @@ func TestSandboxLifecycle(t *testing.T) {
 	a.setSandboxes([]*armadav1.QueueSandbox{{Job: "mailer.shop", Probe: bad, IntervalSeconds: 30}})
 	time.Sleep(5 * time.Millisecond)
 	a.syncSandboxes(ctx)
+	a.sb.reads.Wait()
 	if rep := a.sandboxReport(time.Now()); len(rep) != 1 || rep[0].GetMeasured() {
 		t.Errorf("a refused reading, or the length of the old URL, reported: %v", rep)
 	}
@@ -183,6 +187,7 @@ func TestSandboxLifecycle(t *testing.T) {
 	// Gone from the assignment: removed, and no longer the job's address.
 	a.setSandboxes(nil)
 	a.syncSandboxes(ctx)
+	a.sb.reads.Wait()
 	if got := d.Sandboxes(); len(got) != 0 {
 		t.Errorf("after removal: %v", got)
 	}
@@ -216,5 +221,111 @@ func TestSandboxesNeedClusterNetwork(t *testing.T) {
 	a.sandboxLoop(ctx) // returns at once
 	if len(d.Sandboxes()) != 0 {
 		t.Error("made a sandbox")
+	}
+}
+
+// Past what a node keeps, sandboxes are kept one space at a time, and the
+// rest are reported as dropped, so jobs of one space that sort first cannot
+// silently push out another space's.
+func TestSandboxesDroppedFairly(t *testing.T) {
+	t.Parallel()
+	a, _, _ := sandboxAgent(t, fake.New())
+	probe := &armadav1.QueueProbe{Type: "redis", Url: "redis://10.0.0.50:6379", Name: "l"}
+	var list []*armadav1.QueueSandbox
+	for i := range maxSandboxes + 6 {
+		list = append(list, &armadav1.QueueSandbox{Job: "a" + strconv.Itoa(100+i) + ".evil", Probe: probe})
+	}
+	list = append(list, &armadav1.QueueSandbox{Job: "worker.prod", Probe: probe})
+	a.setSandboxes(list)
+	a.sb.mu.Lock()
+	_, kept := a.sb.want["worker.prod"]
+	n := len(a.sb.want)
+	a.sb.mu.Unlock()
+	if !kept || n != maxSandboxes {
+		t.Errorf("kept %d sandboxes, worker.prod among them: %v", n, kept)
+	}
+	dropped := a.droppedSandboxes()
+	if len(dropped) != 7 || slices.Contains(dropped, "worker.prod") {
+		t.Errorf("dropped %v", dropped)
+	}
+	a.setSandboxes(list[:3])
+	if d := a.droppedSandboxes(); len(d) != 0 {
+		t.Errorf("dropped with room: %v", d)
+	}
+}
+
+// Readings of one space hold at most maxSandboxReadsPerSpace slots, and a
+// round does not wait for the slowest: a broker that never answers delays
+// no other space's reading.
+func TestSandboxReadsFairPerSpace(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(t.Context())
+	var length atomic.Int64
+	length.Store(3)
+	good := fakeRedis(t, "pw", &length)
+	// A broker that accepts and never answers.
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var (
+		held   []net.Conn
+		heldMu sync.Mutex
+	)
+	go func() {
+		for {
+			c, err := l.Accept()
+			if err != nil {
+				return
+			}
+			heldMu.Lock()
+			held = append(held, c)
+			heldMu.Unlock()
+		}
+	}()
+	d := fake.New()
+	d.BridgeIPs = "10.120.0."
+	a, _, _ := sandboxAgent(t, d)
+	t.Cleanup(func() {
+		cancel()
+		_ = l.Close()
+		heldMu.Lock()
+		for _, c := range held {
+			_ = c.Close()
+		}
+		heldMu.Unlock()
+		a.sb.reads.Wait()
+	})
+	slow := &armadav1.QueueProbe{Type: "redis", Url: "redis://" + l.Addr().String(), Name: "l", UrlRef: "u@v1"}
+	var list []*armadav1.QueueSandbox
+	for i := range maxSandboxReads {
+		list = append(list, &armadav1.QueueSandbox{Job: "a" + strconv.Itoa(i) + ".evil", Probe: slow})
+	}
+	list = append(list, &armadav1.QueueSandbox{Job: "worker.prod", Probe: &armadav1.QueueProbe{Type: "redis", Url: "redis://:pw@" + good, Name: "l", UrlRef: "u@v1"}})
+	a.setSandboxes(list)
+
+	start := time.Now()
+	a.syncSandboxes(ctx) // returns without waiting for the slow readings
+	deadline := time.Now().Add(queueTimeout / 2)
+	for {
+		rep := a.sandboxReport(time.Now())
+		i := slices.IndexFunc(rep, func(q *armadav1.SandboxQueue) bool { return q.GetJob() == "worker.prod" })
+		if i >= 0 && rep[i].GetMeasured() && rep[i].GetLength() == 3 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("worker.prod not read while another space's broker stalls: %v", rep)
+		}
+		time.Sleep(10 * time.Millisecond)
+		a.syncSandboxes(ctx)
+	}
+	if waited := time.Since(start); waited >= queueTimeout {
+		t.Errorf("worker.prod read after %s", waited)
+	}
+	a.sb.mu.Lock()
+	evil := a.sb.spaces["evil"]
+	a.sb.mu.Unlock()
+	if evil > maxSandboxReadsPerSpace {
+		t.Errorf("the stalled space holds %d reading slots, at most %d", evil, maxSandboxReadsPerSpace)
 	}
 }

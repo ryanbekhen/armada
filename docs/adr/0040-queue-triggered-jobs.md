@@ -68,6 +68,12 @@ trigger:
   - Every leader picks the same node with no state stored.
   - Jobs spread over nodes.
   - A job moves only when its node stops fitting.
+  - A node reads at most 64 queues (`spec.MaxNodeQueueSandboxes`, what an
+    agent keeps): the leader skips a node that already has 64 in the pass.
+    It places the jobs one space at a time (`spec.FairOrder`: the first
+    job of every space, then the second, and so on), so the jobs of one
+    space, however many and whatever their names, cannot take every place
+    on a node from another space's.
   - Without such a node nothing is read, nothing runs, and the cluster
     records `QueueUnread` once.
 - **The assignment carries the sandbox.** `Assignment.queue_sandboxes`
@@ -81,7 +87,11 @@ trigger:
     the default route through the gateway, the plugins' firewall rules;
   - the namespace is pinned at `<run dir>/sandboxes/<job ID>`, and its
     address is the plugins' cached result for `sandbox-<job ID>`;
-  - it costs one namespace, one interface pair, and one address.
+  - it costs one namespace, one interface pair, and one address;
+  - an agent keeps at most 64. Given more (a leader of another release),
+    it keeps them one space at a time like the leader places them and
+    reports the others in `UsageReport.dropped_sandboxes`; the leader
+    records `QueueUnread` for those jobs.
 - **The sandbox is an endpoint of the job.** The agent adds its address to
   the node's own containers, as the job's ID, before anything is dialled
   from it: the firewall (ADR 0026), the internal DNS server, and the proxy's
@@ -111,9 +121,12 @@ trigger:
 
 - **Every `pollingInterval`** the agent reads each sandbox's queue, with
   the same limits as queue rules: 10 seconds per reading, at most eight at
-  once, lengths above 2^40 refused, TLS with the node's roots and never
+  once and two of one space's jobs, longest waiting first, lengths above
+  2^40 refused, TLS with the node's roots and never
   certificate paths from the URL. A log line names only the kind of
-  failure, once per change.
+  failure, once per change. A round starts the readings that are due and
+  does not wait for them, so a broker that never answers holds one slot
+  for 10 seconds and delays no other reading.
 - **Each usage report** carries every sandbox's address and, if recent (two
   intervals), its latest length with its age and a reading number.
 - **The leader keeps it in memory** with the node's sample (ADR 0016),

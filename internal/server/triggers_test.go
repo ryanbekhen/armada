@@ -3,6 +3,7 @@ package server
 import (
 	"bufio"
 	"context"
+	"fmt"
 	"net"
 	"net/netip"
 	"slices"
@@ -78,20 +79,20 @@ func TestProbeNode(t *testing.T) {
 	}
 	all := []store.Node{node("a"), node("b"), node("c"), node("d")}
 	on := map[string]bool{"a": true, "b": true, "c": true, "d": true}
-	first, ok := probeNode("mailer", all, rev, nil, on)
+	first, ok := probeNode("mailer", all, rev, nil, on, nil)
 	if !ok {
 		t.Fatal("no node")
 	}
 	// Every leader picks the same, whatever the order.
 	reversed := slices.Clone(all)
 	slices.Reverse(reversed)
-	if again, _ := probeNode("mailer", reversed, rev, nil, on); again != first {
+	if again, _ := probeNode("mailer", reversed, rev, nil, on, nil); again != first {
 		t.Errorf("reversed order picks %s, want %s", again, first)
 	}
 	// Jobs spread over nodes.
 	picked := map[string]bool{}
 	for i := range 40 {
-		n, _ := probeNode("job-"+strconv.Itoa(i), all, rev, nil, on)
+		n, _ := probeNode("job-"+strconv.Itoa(i), all, rev, nil, on, nil)
 		picked[n] = true
 	}
 	if len(picked) < 3 {
@@ -99,7 +100,7 @@ func TestProbeNode(t *testing.T) {
 	}
 	// It moves only when its node stops fitting.
 	others := slices.DeleteFunc(slices.Clone(all), func(n store.Node) bool { return n.ID == first })
-	moved, _ := probeNode("mailer", others, rev, nil, on)
+	moved, _ := probeNode("mailer", others, rev, nil, on, nil)
 	if moved == first || moved == "" {
 		t.Errorf("moved to %q", moved)
 	}
@@ -117,19 +118,73 @@ func TestProbeNode(t *testing.T) {
 				ex(&nodes[i], lost, conn)
 			}
 		}
-		if got, _ := probeNode("mailer", nodes, rev, lost, conn); got == first || got == "" {
+		if got, _ := probeNode("mailer", nodes, rev, lost, conn, nil); got == first || got == "" {
 			t.Errorf("%s: picked %q", name, got)
 		}
 	}
-	if got, ok := probeNode("mailer", all, rev, nil, nil); ok {
+	if got, ok := probeNode("mailer", all, rev, nil, nil, nil); ok {
 		t.Errorf("picked %s with no node keeping sandboxes", got)
 	}
 	// Placement holds: a job that requires a label reads from such a node.
 	req := store.Revision{Spec: &spec.App{Kind: spec.KindJob, Name: "mailer", Placement: &spec.Placement{Require: map[string]spec.LabelValues{"zone": {"x"}}}}}
 	labelled := slices.Clone(all)
 	labelled[2].Labels = map[string]string{"zone": "x"}
-	if got, _ := probeNode("mailer", labelled, req, nil, on); got != "c" {
+	if got, _ := probeNode("mailer", labelled, req, nil, on, nil); got != "c" {
 		t.Errorf("with placement: %s", got)
+	}
+}
+
+// The leader places no more sandboxes on a node than an agent keeps, and
+// places them one space at a time: jobs of one space that sort first cannot
+// take every place from another space's.
+func TestPlaceQueues(t *testing.T) {
+	t.Parallel()
+	node := func(id string) store.Node {
+		return store.Node{ID: id, State: store.NodeReady, Jobs: true, Subnet: "10.120.0.0/24"}
+	}
+	revs := &revisionCache{m: map[string]store.Revision{}}
+	var jobs []store.App
+	add := func(id string) {
+		sp, name, _ := spec.SplitAppID(id)
+		revs.m[id+"--r1"] = store.Revision{Spec: &spec.App{Kind: spec.KindJob, Name: name, Space: sp,
+			Trigger: &spec.Trigger{Queue: &spec.QueueTrigger{Type: spec.ScaleRedis, URLSecretRef: "u", List: "l", PerRun: 1}}}}
+		jobs = append(jobs, store.App{Name: id, ActiveRevision: id + "--r1"})
+	}
+	for i := range spec.MaxNodeQueueSandboxes + 8 {
+		add(fmt.Sprintf("a%02d.evil", i))
+	}
+	add("mailer")
+	add("worker.prod")
+	// A job without a queue trigger takes no place.
+	revs.m["cron--r1"] = store.Revision{Spec: &spec.App{Kind: spec.KindJob, Name: "cron"}}
+	jobs = append(jobs, store.App{Name: "cron", ActiveRevision: "cron--r1"})
+	slices.SortFunc(jobs, func(x, y store.App) int { return strings.Compare(x.Name, y.Name) })
+
+	s := &Server{}
+	count := func(placed map[string]string) map[string]int {
+		n := map[string]int{}
+		for _, node := range placed {
+			n[node]++
+		}
+		return n
+	}
+	rc := &reconcileRun{sandboxNodes: map[string]bool{"a": true}}
+	placed := s.placeQueues(t.Context(), rc, jobs, []store.Node{node("a")}, revs)
+	if placed["mailer"] != "a" || placed["worker.prod"] != "a" {
+		t.Errorf("other spaces' jobs: mailer on %q, worker.prod on %q", placed["mailer"], placed["worker.prod"])
+	}
+	if n := count(placed); n["a"] != spec.MaxNodeQueueSandboxes || n[""] != 10 {
+		t.Errorf("placed %v, want %d on the node and the rest nowhere", n, spec.MaxNodeQueueSandboxes)
+	}
+	if _, ok := placed["cron"]; ok {
+		t.Error("a job without a queue trigger was placed")
+	}
+	// With a second node every job fits, and neither node gets more than
+	// an agent keeps.
+	rc.sandboxNodes["b"] = true
+	placed = s.placeQueues(t.Context(), rc, jobs, []store.Node{node("a"), node("b")}, revs)
+	if n := count(placed); n[""] != 0 || n["a"] > spec.MaxNodeQueueSandboxes || n["b"] > spec.MaxNodeQueueSandboxes {
+		t.Errorf("placed %v", n)
 	}
 }
 
@@ -204,7 +259,8 @@ func triggerUnit(t *testing.T) (*cluster, func(sandboxNodes map[string]bool, los
 		rc := &reconcileRun{now: c.srv.now(), revs: &revs, lost: lost, sandboxNodes: sandboxNodes,
 			sandboxes: map[string][]*armadav1.QueueSandbox{}, triggered: map[string]bool{}}
 		runs, _ := c.store.ListJobRuns(c.ctx, "mailer")
-		return rc, c.srv.triggerJob(c.ctx, rc, job, runs, nodes, &revs)
+		rc.queueNodes = c.srv.placeQueues(c.ctx, rc, []store.App{job}, nodes, &revs)
+		return rc, c.srv.triggerJob(c.ctx, rc, job, runs, &revs)
 	}
 	return c, pass
 }
@@ -302,10 +358,25 @@ func TestTriggerDecision(t *testing.T) {
 	if rc, runs = pass(nil, nil); active(runs) != 0 || len(rc.sandboxes) != 0 {
 		t.Fatalf("no node keeping sandboxes: runs %+v, sandboxes %v", runs, rc.sandboxes)
 	}
+	// A node that says it dropped the job's sandbox (past what it keeps)
+	// does not read it: the job is unread there, and the condition says why.
+	c.srv.usage.set("n1", &armadav1.UsageReport{}, c.srv.now())
+	if _, runs = pass(on, nil); active(runs) != 0 {
+		t.Fatalf("runs without a reading: %+v", runs)
+	}
+	c.srv.usage.set("n1", &armadav1.UsageReport{DroppedSandboxes: []string{"mailer"}}, c.srv.now())
+	if _, runs = pass(on, nil); active(runs) != 0 {
+		t.Fatalf("runs from a node that dropped the sandbox: %+v", runs)
+	}
 	evs, _ := c.store.ListEvents(c.ctx, time.Time{})
 	var reasons []string
 	for _, e := range evs {
 		reasons = append(reasons, e.Reason)
+	}
+	if !slices.ContainsFunc(evs, func(e store.Event) bool {
+		return e.Reason == "QueueUnread" && strings.Contains(e.Message, "keeps no more queue sandboxes")
+	}) {
+		t.Errorf("no QueueUnread for a dropped sandbox: %v", evs)
 	}
 	if !slices.Contains(reasons, "QueueTriggered") || !slices.Contains(reasons, "QueueUnread") {
 		t.Errorf("events %v", reasons)
