@@ -596,7 +596,10 @@ cannot send.
 
 A domain serves one space: an app cannot use a domain that an app of
 another space uses, and a domain another space left behind needs a
-new TXT record.
+new TXT record. A domain's verification ends when the last app that
+names it is deleted, or with its space: a space created again under the
+same name, and an app deployed again with the domain, get a new token
+and must publish it again.
 
 ## Node labels and placement
 
