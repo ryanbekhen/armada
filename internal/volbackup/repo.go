@@ -183,15 +183,11 @@ func (r *Repo) Backup(ctx context.Context, dir, node string, now time.Time) (Sna
 		return Snapshot{}, Stats{}, err
 	}
 	defer root.Close()
-	walkErr := fs.WalkDir(root.FS(), ".", func(p string, d fs.DirEntry, err error) error {
+	walkErr := Walk(ctx, root, func(p string, fi fs.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
 		if err := up.failed(); err != nil {
-			return err
-		}
-		fi, err := root.Lstat(p)
-		if err != nil {
 			return err
 		}
 		mode := fi.Mode()
@@ -202,12 +198,13 @@ func (r *Repo) Backup(ctx context.Context, dir, node string, now time.Time) (Sna
 			e.Type = "d"
 		case mode&fs.ModeSymlink != 0:
 			e.Type = "l"
+			var err error
 			if e.Target, err = root.Readlink(p); err != nil {
-				return err
+				return EntryError(p, err)
 			}
 		case mode.IsRegular():
 			e.Type = "f"
-			f, err := root.Open(p)
+			f, err := OpenFile(root, p, fi)
 			if err != nil {
 				return err
 			}
@@ -219,7 +216,7 @@ func (r *Repo) Backup(ctx context.Context, dir, node string, now time.Time) (Sna
 					break
 				}
 				if err != nil {
-					return fmt.Errorf("read %s: %w", p, err)
+					return fmt.Errorf("read %q: %w", p, err)
 				}
 				id := r.k.chunkID(chunk)
 				e.Chunks = append(e.Chunks, id)
@@ -364,7 +361,7 @@ func (r *Repo) manifest(ctx context.Context, id string) (*manifest, error) {
 	key := r.root + snapshotsDir + id
 	sealed, err := r.obj.Get(ctx, key, maxManifest)
 	if errors.Is(err, ErrNotExist) {
-		return nil, fmt.Errorf("backup %s: %w", id, ErrNotExist)
+		return nil, fmt.Errorf("backup %q: %w", id, ErrNotExist)
 	}
 	if err != nil {
 		return nil, err

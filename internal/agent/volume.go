@@ -20,6 +20,7 @@ import (
 	"github.com/ryanbekhen/armada/internal/fsutil"
 	"github.com/ryanbekhen/armada/internal/runtime"
 	"github.com/ryanbekhen/armada/internal/spec"
+	"github.com/ryanbekhen/armada/internal/volbackup"
 )
 
 // Volumes (ADR 0023).
@@ -345,9 +346,15 @@ func (r *chunkReader) Read(p []byte) (int, error) {
 	return n, nil
 }
 
+// archiveHook, when set by a test, runs after a regular file was looked up
+// and before writeArchive opens it.
+var archiveHook func(p string)
+
 // writeArchive writes dir as a gzipped tar: "." for the directory itself,
 // then its contents with relative names. Links are stored, never followed;
-// sockets, devices, and pipes are left out.
+// sockets, devices, and pipes are left out. An entry that turns into
+// something else between its lookup and its open fails the archive
+// (volbackup.ErrChanged) instead of blocking on a pipe.
 func writeArchive(ctx context.Context, dir string, w io.Writer) error {
 	// Every lookup goes through a handle on the volume's directory: the
 	// app may keep running and swap an entry for a link while the walk
@@ -359,14 +366,7 @@ func writeArchive(ctx context.Context, dir string, w io.Writer) error {
 	defer root.Close()
 	zw := gzip.NewWriter(w)
 	tw := tar.NewWriter(zw)
-	err = fs.WalkDir(root.FS(), ".", func(p string, _ fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		fi, err := root.Lstat(p)
+	err = volbackup.Walk(ctx, root, func(p string, fi fs.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
@@ -376,8 +376,9 @@ func writeArchive(ctx context.Context, dir string, w io.Writer) error {
 		}
 		link := ""
 		if mode&fs.ModeSymlink != 0 {
+			var err error
 			if link, err = root.Readlink(p); err != nil {
-				return err
+				return volbackup.EntryError(p, err)
 			}
 		}
 		hdr, err := tar.FileInfoHeader(fi, link)
@@ -395,13 +396,20 @@ func writeArchive(ctx context.Context, dir string, w io.Writer) error {
 		if !mode.IsRegular() {
 			return nil
 		}
-		f, err := root.Open(p) // cannot resolve outside dir
+		if archiveHook != nil {
+			archiveHook(p)
+		}
+		// Opened without blocking and refused unless it is still the
+		// regular file just looked up: the app may have put a pipe there.
+		f, err := volbackup.OpenFile(root, p, fi)
 		if err != nil {
 			return err
 		}
 		defer f.Close()
-		_, err = io.CopyN(tw, f, hdr.Size)
-		return err
+		if _, err := io.CopyN(tw, f, hdr.Size); err != nil {
+			return volbackup.EntryError(p, err)
+		}
+		return nil
 	})
 	if err != nil {
 		return fmt.Errorf("archive volume: %w", err)
@@ -620,7 +628,7 @@ func archivePath(root, name string) (string, error) {
 		cur = filepath.Join(cur, p)
 		fi, err := os.Lstat(cur)
 		if err != nil || !fi.IsDir() {
-			return "", fmt.Errorf("archive entry %q: %s is not a directory", name, p)
+			return "", fmt.Errorf("archive entry %q: %q is not a directory", name, p)
 		}
 	}
 	return filepath.Join(cur, parts[len(parts)-1]), nil
@@ -669,11 +677,8 @@ func volumeSize(ctx context.Context, dir string) int64 {
 	}
 	defer root.Close()
 	var size int64
-	_ = fs.WalkDir(root.FS(), ".", func(_ string, d fs.DirEntry, err error) error {
-		if err != nil || ctx.Err() != nil {
-			return ctx.Err()
-		}
-		if fi, err := d.Info(); err == nil && fi.Mode().IsRegular() {
+	_ = volbackup.Walk(ctx, root, func(_ string, fi fs.FileInfo, err error) error {
+		if err == nil && fi.Mode().IsRegular() {
 			size += fi.Size()
 		}
 		return nil

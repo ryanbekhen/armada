@@ -96,8 +96,9 @@ to someone without it. Standard library primitives only (`crypto/aes`,
   node at a time. A failed backup is tried again after 5 minutes, or the
   interval when shorter.
 - The agent walks the volume (regular files, directories, and links;
-  sockets, devices, and pipes are left out, as `armada volume backup`
-  does), uploads the chunks the repository lacks, then writes the snapshot.
+  sockets, devices, and pipes are left out, and an entry the running app
+  replaces between its lookup and its open fails the backup, as
+  `armada volume backup` does), uploads the chunks the repository lacks, then writes the snapshot.
   Only after the snapshot is written does it apply `keep`: snapshots no rule
   keeps are deleted, then chunks no kept snapshot names and older than an
   hour (a backup still uploading is never cut short). A failed backup

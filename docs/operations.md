@@ -1371,6 +1371,10 @@ db   data    node2  /var/lib/postgresql/data  1.2GiB  12m ago      31 (1.9GiB)  
     failure is also a `VolumeBackupFailed` event.
   - A bucket that is full or refuses writes fails new backups and leaves
     the old ones as they are.
+  - A backup taken while the app runs fails when the app replaces a file
+    or directory just as it is read ("changed while it was read"); the
+    next one usually succeeds, and `backup.stop` (or `--stop` for
+    archives) avoids it.
 
   Archives from `armada volume backup` hold the app's data as it is:
   encrypt them like control plane backups. For example, from a machine
