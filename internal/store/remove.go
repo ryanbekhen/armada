@@ -61,6 +61,9 @@ func (s *Etcd) DeleteApp(ctx context.Context, app string) error {
 		t.deletePrefix(pfxRevs + app + "/")
 		t.deletePrefix(pfxSecrets + app + "/")
 		t.deletePrefix(pfxSecretSeq + app + "/")
-		return nil
+		// Domains only this app used go with it: a space that routes one
+		// later (the same space included, once recreated) proves it
+		// afresh with a new token.
+		return t.pruneDomains()
 	})
 }

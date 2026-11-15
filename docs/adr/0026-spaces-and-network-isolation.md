@@ -94,7 +94,11 @@ tools built on Armada's API, which call it with one identity of their own.
   administrator's: `placement.require` must stay within the scope's labels.
 - A domain serves one space: an app cannot name a domain that an app of
   another space uses, and a domain left behind by another space is
-  verified afresh with a new token.
+  verified afresh with a new token. A domain's record goes with the last
+  app that names it (`DeleteApp` prunes domains no live spec names) and
+  with its space (`DeleteSpace` deletes the space's domain records), so a
+  space created again under a deleted space's name, by anyone, proves its
+  domains afresh instead of inheriting their verification.
 - Exec, logs, and volume sessions are checked against the replica's
   space on every hop.
 - Events and the audit log record the space and the caller. Automation
