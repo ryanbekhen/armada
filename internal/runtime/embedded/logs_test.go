@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -223,5 +224,39 @@ func TestLogRateUnlimited(t *testing.T) {
 	}
 	if l.dropped != 0 {
 		t.Errorf("dropped %d bytes without a rate", l.dropped)
+	}
+}
+
+// A tail keeps at most maxTailBytes of output in memory, the newest, even
+// when more entries were asked for.
+func TestTailIsBoundedInBytes(t *testing.T) {
+	dir := t.TempDir()
+	l, err := openLogFile(filepath.Join(dir, "c.log"), runtime.LogMaxSize)
+	if err != nil {
+		t.Fatal(err)
+	}
+	line := strings.Repeat("a", 8<<10) + "\n"
+	n := (maxTailBytes + 2<<20) / len(line)
+	for i := range n {
+		if err := l.write("stdout", []byte(strconv.Itoa(i)+line)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_ = l.Close()
+	s, err := ReadLogs(context.Background(), dir, "c", runtime.LogOptions{Tail: 10000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	frames := readAll(t, s)
+	_ = s.Close()
+	size := 0
+	for _, f := range frames {
+		size += len(f.Data)
+	}
+	if size > maxTailBytes || size < maxTailBytes-2*len(line) {
+		t.Errorf("tail of %d bytes, budget %d", size, maxTailBytes)
+	}
+	if last := string(frames[len(frames)-1].Data); !strings.HasPrefix(last, strconv.Itoa(n-1)+"a") {
+		t.Errorf("tail does not end with the newest entry: %.12q", last)
 	}
 }

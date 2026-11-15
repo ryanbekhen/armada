@@ -535,6 +535,13 @@ func (s *Server) Logs(req *armadav1.LogsRequest, stream armadav1.AdminService_Lo
 		}
 		reps = only
 	}
+	// Each call holds a relay per replica and a stream on every node: bound
+	// them per caller and in total, like searches.
+	release, err := s.liveLogs.take(actor(ctx))
+	if err != nil {
+		return err
+	}
+	defer release()
 	tail := int32(defaultLogTail)
 	switch t := req.GetTail(); {
 	case t > 0:

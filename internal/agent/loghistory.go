@@ -23,6 +23,9 @@ const (
 	// maxSearches bounds the searches the node runs at once: each may
 	// hold its matching entries in memory.
 	maxSearches = 2
+	// maxLiveLogs bounds the live log streams (tails and follows) the node
+	// serves at once: each holds a log file and its tail in memory.
+	maxLiveLogs = 32
 )
 
 // logSettings holds the latest Assignment.logs.
