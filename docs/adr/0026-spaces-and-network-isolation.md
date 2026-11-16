@@ -161,7 +161,12 @@ Spaces build on the cluster network (ADR 0025) and its access rules:
   the private network. `armada space list` shows which spaces are
   isolated.
 - **Spoofing.** Containers run without `NET_ADMIN` and `NET_RAW` (ADR
-  0025), so a container cannot pose as another space's. Across nodes, in
+  0025), so a container cannot pose as another space's. A packet with a
+  source in a node's container subnet counts only when it arrives on that
+  node's bridge (or comes from the node itself): from anywhere else it is
+  dropped before routing (ADR 0025), so a machine on the private network
+  cannot pose as a container to the node's DNS server or internal
+  frontend. Across nodes, in
   the `plain` mode, the source of a packet is only as trustworthy as the
   private network (a machine on it can forge VXLAN packets, T57); the
   `wireguard` mode closes that gap.

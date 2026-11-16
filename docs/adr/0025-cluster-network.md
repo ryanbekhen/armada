@@ -84,8 +84,15 @@ The cluster CIDR is routed between nodes over one interface per node,
     container's, past the isolation of spaces. A chain in the `raw` table
     (`ARMADA-NET-PRE`, ahead of the plugins' own rules, which accept
     containers' packets) drops UDP from the container bridge to every
-    peer's tunnel port, and drops what leaves the tunnel with a source in
-    the node's own subnet or outside the cluster's range.
+    peer's tunnel port, and drops what leaves the tunnel with a source
+    outside the cluster's range.
+  - The node's own subnet is a source only on the container bridge, or for
+    the node itself over loopback: the same chain drops a packet with a
+    source in the node's subnet arriving on any other interface, from the
+    tunnel or forged by a machine on the private network that routes the
+    subnet to the node. The node's DNS server, its internal frontend, and
+    the isolation rules (ADR 0026) take such a source for one of the
+    node's containers, so it must not be forgeable from outside it.
   - Traffic between nodes is not encrypted. A machine on the private network
     can read it, and one that forges peer packets can inject traffic. That
     is the trust Armada already places in the private network today (T56).

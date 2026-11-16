@@ -29,9 +29,10 @@ import (
 const (
 	chainIn  = "ARMADA-NET-IN"
 	chainFwd = "ARMADA-NET-FWD"
-	// chainPre (raw table) drops forged tunnel traffic before anything
-	// else sees it: the container networking plugins accept containers'
-	// packets in FORWARD ahead of chainFwd.
+	// chainPre (raw table) drops forged tunnel traffic, and this node's
+	// container addresses arriving anywhere but on the bridge, before
+	// anything else sees it: the container networking plugins accept
+	// containers' packets in FORWARD ahead of chainFwd.
 	chainPre = "ARMADA-NET-PRE"
 )
 
@@ -300,11 +301,20 @@ func spoofRules(p plan) [][]string {
 	for _, pe := range p.peers {
 		rules = append(rules, []string{"-d", pe.ip.String() + "/32", "-i", embedded.BridgeName, "-p", "udp", "-m", "udp", "--dport", strconv.Itoa(port(p.mode)), "-j", "DROP"})
 	}
-	// What comes out of the tunnel is from another node's containers or
-	// that node itself (its tunnel address): never from this node's
-	// subnet, and never from outside the cluster's range.
+	sub := p.self.subnet.String()
 	return append(rules,
-		[]string{"-s", p.self.subnet.String(), "-i", Interface, "-j", "DROP"},
+		// This node's subnet arrives only from its own containers, on the
+		// bridge, or from the node itself (its gateway and tunnel
+		// addresses), over loopback. Anything else claiming it, from the
+		// tunnel or forged by a machine on the private network that routes
+		// the subnet to this node, is dropped: the DNS server, the internal
+		// frontend, and the isolation rules take an address in the subnet
+		// for one of this node's containers.
+		[]string{"-s", sub, "-i", "lo", "-j", "RETURN"},
+		[]string{"-s", sub, "!", "-i", embedded.BridgeName, "-j", "DROP"},
+		// What comes out of the tunnel is from another node's containers or
+		// that node itself (its tunnel address): never from outside the
+		// cluster's range.
 		[]string{"!", "-s", p.cidr.String(), "-i", Interface, "-j", "DROP"},
 	)
 }
