@@ -86,5 +86,8 @@ const (
 	BinShim       = "containerd-shim-runc-v2"
 	BinRunc       = "runc"
 	BinTini       = "tini"
-	DirCNI        = "cni"
+	// BinLogger is Armada's own log writer (logger/), built from source
+	// rather than pinned here; packs without it use `armadad runtime-log`.
+	BinLogger = "armada-log"
+	DirCNI    = "cni"
 )

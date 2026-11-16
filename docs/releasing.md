@@ -19,8 +19,9 @@ on a maintainer's machine.
    race tests, and govulncheck again, then GoReleaser
    (`.goreleaser.yaml`) builds with `CGO_ENABLED=0` and `-trimpath`
    `armadad` for `linux/amd64` and `linux/arm64` (after
-   `make runtime-bundle`, with the `bundle` tag, so it embeds the container
-   runtime; see ADR 0011) and the `armada` client for Linux and macOS
+   `make runtime-bundle`, which also builds `armada-log` from `logger/` with
+   the pinned Rust toolchain, with the `bundle` tag, so it embeds the
+   container runtime; see ADR 0011) and the `armada` client for Linux and macOS
    (ADR 0027), and publishes a **draft** release with:
    - `armada_<version>_linux_<arch>.tar.gz` (`armadad`, `armada`, LICENSE,
      README, SECURITY.md, systemd units),
@@ -80,7 +81,7 @@ release also ends with install and verification instructions (the
 - `main` is protected by a repository ruleset: no force pushes or deletion,
   linear history, changes only through pull requests (rebase or squash),
   and every CI job must pass (`lint`, `test`, `vuln`, both `build` jobs,
-  `haproxy`, `installer`, `release-config`, `commits`). A new required CI
+  `haproxy`, `installer`, `logger`, `release-config`, `commits`). A new required CI
   job must be added to the ruleset as well.
 - Release tags (`v*`) are protected by a second ruleset: only repository
   admins may create, move, or delete them. The `release` workflow also

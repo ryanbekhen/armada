@@ -12,7 +12,7 @@ LDFLAGS := -s -w \
 
 export CGO_ENABLED := 0
 
-.PHONY: all build build-bundle runtime-bundle test cover lint fmt vet vuln licenses licenses-save proto docs tidy check clean
+.PHONY: all build build-bundle logger runtime-bundle test cover lint fmt vet vuln licenses licenses-save proto docs tidy check clean
 
 all: check build
 
@@ -22,9 +22,18 @@ build:
 
 # Downloads the pinned containerd, runc, CNI plugins, and tini (ADR 0011),
 # checks their SHA-256, and packs them for embedding.
-runtime-bundle:
-	go run ./internal/runtime/embedded/mkbundle -arch amd64
-	go run ./internal/runtime/embedded/mkbundle -arch arm64
+# armada-log (logger/), the log writer every container's shim runs: Rust,
+# standard library only, static for both architectures with the linker
+# Rust ships (toolchain pinned in logger/rust-toolchain.toml).
+LOGGER_OUT = logger/target/$(1)-unknown-linux-musl/release/armada-log
+
+logger:
+	cd logger && cargo build --release --locked --target x86_64-unknown-linux-musl
+	cd logger && cargo build --release --locked --target aarch64-unknown-linux-musl
+
+runtime-bundle: logger
+	go run ./internal/runtime/embedded/mkbundle -arch amd64 -logger $(call LOGGER_OUT,x86_64)
+	go run ./internal/runtime/embedded/mkbundle -arch arm64 -logger $(call LOGGER_OUT,aarch64)
 
 # Linux binaries as releases are built: armadad with the runtime bundle
 # embedded, and the armada client.

@@ -25,7 +25,8 @@ app logs` searches it across the cluster. No database is added.
   container is created, the driver writes `<id>.meta` there (app ID,
   replica, revision, container name, and when it was created; 0600). System
   containers get none.
-- When a live log file is rotated out, `armadad runtime-log` moves it into
+- When a live log file is rotated out, the log writer (`armada-log`, or
+  `armadad runtime-log`; ADR 0011) moves it into
   history as `<id>.<unix nanoseconds>.log` instead of deleting it. When a
   container with a meta file is removed, its live files move there too.
 - The agent prunes history every minute (`runtime.LogPruner`): files older

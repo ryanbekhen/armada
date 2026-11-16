@@ -200,16 +200,30 @@ func (l *logFile) copyStream(stream string, r io.Reader) error {
 // dropped. It is what `armadad runtime-log` runs inside the shim's logging
 // process.
 func WriteLogs(dir, id string, stdout, stderr io.Reader) error {
+	return writeLogs(dir, id, stdout, stderr, logLimits{
+		maxSize: runtime.LogMaxSize, maxFiles: runtime.LogMaxFiles, rate: runtime.LogRate, burst: runtime.LogBurst,
+	})
+}
+
+// logLimits are WriteLogs' sizes and rates; armada-log (logger/) takes the
+// same as arguments, which tests use to compare the two.
+type logLimits struct {
+	maxSize     int64
+	maxFiles    int
+	rate, burst float64
+}
+
+func writeLogs(dir, id string, stdout, stderr io.Reader, lim logLimits) error {
 	path, err := LogPath(dir, id)
 	if err != nil {
 		return err
 	}
-	l, err := openLogFile(path, runtime.LogMaxSize)
+	l, err := openLogFile(path, lim.maxSize)
 	if err != nil {
 		return err
 	}
-	l.dir, l.id = dir, id
-	l.rate, l.burst = runtime.LogRate, runtime.LogBurst
+	l.dir, l.id, l.maxFiles = dir, id, lim.maxFiles
+	l.rate, l.burst = lim.rate, lim.burst
 	defer l.Close()
 	errs := make(chan error, 2)
 	go func() { errs <- l.copyStream("stdout", stdout) }()

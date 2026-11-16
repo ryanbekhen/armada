@@ -16,12 +16,15 @@ and code are all welcome.
 ## Build and test
 
 You need Go (the version in `go.mod`), `golangci-lint` v2, `govulncheck`,
-and `protoc` (only to change the API).
+`protoc` (only to change the API), and rustup (only for `make logger` and
+`make build-bundle`: the log writer `armada-log` in `logger/` is Rust, its
+toolchain pinned in `logger/rust-toolchain.toml`).
 
 ```bash
 make build         # ./bin/armada (client) and ./bin/armadad (daemon)
 make test          # unit tests with the race detector
 make check         # vet + lint + test + govulncheck: what CI runs
+make logger        # armada-log for amd64 and arm64 (cd logger && cargo test for its tests)
 make build-bundle  # a Linux armadad with the container runtime embedded
 make docs          # regenerate the CLI reference in docs/cli
 make proto         # regenerate api/armada/v1 after changing the .proto

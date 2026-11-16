@@ -40,7 +40,8 @@ SHA-256 in `internal/runtime/embedded/lock.go`:
 | CNI plugins `bridge`, `host-local`, `loopback`, `portmap`, `firewall` | Container networking |
 | tini (static) | PID 1 in every app container: reaps zombies and forwards signals |
 
-No `ctr` binary is bundled.
+No `ctr` binary is bundled. The pack also carries `armada-log`, Armada's
+own log writer (see Logs), built from `logger/` rather than downloaded.
 
 - `make runtime-bundle` downloads the pinned artifacts over HTTPS, refuses
   any whose SHA-256 differs from the lock, and packs them per
@@ -189,8 +190,18 @@ deploy, and the replicas it already runs must keep serving meanwhile:
 
 ### Logs
 
-The shim writes container output through a logging binary, Armada itself
-(`armadad runtime-log`, a hidden command), into
+The shim writes container output through a logging binary, one process
+per container that lives as long as the container's shim, so a restart of
+`armadad` never holds up a container's output. Release builds use
+`armada-log` from the runtime pack: a small Rust program (`logger/`,
+standard library only, static, toolchain pinned in
+`logger/rust-toolchain.toml`) that takes well under 1 MiB of memory per
+container, where a Go process takes about 5 MiB of its own and maps the
+whole `armadad` binary. Builds whose pack has no `armada-log` use
+`armadad runtime-log` (a hidden command), which stays the reference: CI
+compares the two byte for byte (`TestArmadaLogMatchesGo`). One difference:
+after a write error, such as a full disk, `armada-log` keeps reading and
+dropping the container's output instead of stopping. Both write
 `<data-dir>/logs/<container>.log` as JSON lines with the stream and a
 timestamp, rotated at 10 MB with 3 files kept. Each container may write
 1 MiB of output per second, with a burst of 4 MiB; output over that is
