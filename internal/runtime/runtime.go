@@ -417,7 +417,10 @@ type ExecOptions struct {
 // no-new-privileges, seccomp, limits, and namespaces. It is optional.
 type Execer interface {
 	// ExecApp runs opts.Cmd in a running app container and returns its exit
-	// code once it has ended and its output has been written.
+	// code once it has ended and its output has been written. When ctx
+	// ends while output may still be on its way, it returns ctx's error
+	// (with the exit code, if known), so a cut output is never taken for
+	// a whole one.
 	ExecApp(ctx context.Context, id string, opts ExecOptions) (exitCode int, err error)
 }
 

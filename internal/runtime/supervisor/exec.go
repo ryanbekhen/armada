@@ -20,6 +20,8 @@ import (
 	"github.com/containerd/containerd/v2/pkg/cio"
 	"github.com/containerd/errdefs"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
+
+	"github.com/ryanbekhen/armada/internal/runtime"
 )
 
 // execProcess is a process run in a container with `runc exec` in the
@@ -42,6 +44,7 @@ type execProcess struct {
 	started bool
 	runc    *os.Process // the runc exec process, once started
 	pty     console.Console
+	endCopy context.CancelFunc // stops copying the terminal's output
 	done    chan struct{}
 	code    int
 	err     error
@@ -159,9 +162,12 @@ func (p *execProcess) Start(ctx context.Context) error {
 	p.started = true
 	p.runc = cmd.Process
 	var copies sync.WaitGroup
+	var activity runtime.OutputActivity
+	copyCtx, endCopy := context.WithCancel(context.Background())
+	p.endCopy = endCopy
 	if p.pty != nil {
 		copies.Add(1)
-		go p.copyTerminal(cfg, &copies)
+		go p.copyTerminal(cfg, &copies, &activity)
 	}
 	go func() {
 		err := cmd.Wait()
@@ -173,9 +179,22 @@ func (p *execProcess) Start(ctx context.Context) error {
 		case err == nil:
 		}
 		if p.pty != nil {
+			// What runc wrote to the terminal before it exited may still
+			// be on its way to a slow reader: copy it until its end, which
+			// comes once nothing else holds the terminal, until no output
+			// has moved for terminalDrainGrace (something runc left
+			// behind holds the terminal), or until the caller stops
+			// waiting (killRunc).
+			copied := make(chan struct{})
+			go func() {
+				copies.Wait()
+				close(copied)
+			}()
+			_ = activity.WaitQuiet(copyCtx, copied, terminalDrainGrace)
 			_ = p.pty.Close()
 		}
 		copies.Wait()
+		endCopy()
 		p.mu.Lock()
 		p.code, p.err = code, err
 		p.mu.Unlock()
@@ -199,8 +218,12 @@ func (p *execProcess) Start(ctx context.Context) error {
 	return nil
 }
 
+// terminalDrainGrace is how long the terminal's output is still copied
+// after runc exited once no output has moved. A variable for tests.
+var terminalDrainGrace = 2 * time.Second
+
 // copyTerminal copies between the terminal and the caller's FIFOs.
-func (p *execProcess) copyTerminal(cfg cio.Config, wg *sync.WaitGroup) {
+func (p *execProcess) copyTerminal(cfg cio.Config, wg *sync.WaitGroup, activity *runtime.OutputActivity) {
 	defer wg.Done()
 	if cfg.Stdin != "" {
 		go func() {
@@ -221,7 +244,7 @@ func (p *execProcess) copyTerminal(cfg cio.Config, wg *sync.WaitGroup) {
 			return
 		}
 		defer out.Close()
-		_, _ = io.Copy(out, p.pty)
+		_, _ = io.Copy(activity.Wrap(out), p.pty)
 	}
 }
 
@@ -298,11 +321,15 @@ func (p *execProcess) Kill(_ context.Context, sig syscall.Signal, _ ...client.Ki
 }
 
 // killRunc ends the runc exec process, which closes its end of the
-// streams and lets Wait and Delete return.
+// streams and lets Wait and Delete return, and stops copying the
+// terminal's output.
 func (p *execProcess) killRunc() {
 	p.mu.Lock()
-	runc := p.runc
+	runc, endCopy := p.runc, p.endCopy
 	p.mu.Unlock()
+	if endCopy != nil {
+		endCopy()
+	}
 	if runc != nil {
 		// Once cmd.Wait reaped it this does nothing, and never reaches
 		// another process.

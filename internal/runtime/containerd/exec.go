@@ -65,9 +65,12 @@ func (d *Driver) ExecApp(ctx context.Context, id string, opts runtime.ExecOption
 	if opts.Stdin != nil {
 		stdin = &eofReader{r: opts.Stdin, eof: stdinDone}
 	}
-	streams := []cio.Opt{cio.WithStreams(stdin, opts.Stdout, opts.Stderr), cio.WithFIFODir(d.paths.FIFO())}
+	// Output moving after the process exited is still copied (drainIO).
+	var activity runtime.OutputActivity
+	stdout, stderr := activity.Wrap(opts.Stdout), activity.Wrap(opts.Stderr)
+	streams := []cio.Opt{cio.WithStreams(stdin, stdout, stderr), cio.WithFIFODir(d.paths.FIFO())}
 	if opts.TTY {
-		streams = []cio.Opt{cio.WithStreams(stdin, opts.Stdout, nil), cio.WithTerminal, cio.WithFIFODir(d.paths.FIFO())}
+		streams = []cio.Opt{cio.WithStreams(stdin, stdout, nil), cio.WithTerminal, cio.WithFIFODir(d.paths.FIFO())}
 	}
 	b := make([]byte, 6)
 	if _, err := rand.Read(b); err != nil {
@@ -137,42 +140,40 @@ func (d *Driver) ExecApp(ctx context.Context, id string, opts runtime.ExecOption
 		if err != nil {
 			return 0, err
 		}
-		drainIO(ctx, proc.IO())
+		if err := drainIO(ctx, proc.IO(), &activity); err != nil {
+			return int(code), fmt.Errorf("exec output cut short: %w", err)
+		}
 		return int(code), nil
 	case <-ctx.Done():
 		return 0, ctx.Err()
 	}
 }
 
-const (
-	// ioDrainGrace bounds how long ExecApp copies output after the
-	// process exited: a child it left in the background can hold the
-	// output open for as long as it lives.
-	ioDrainGrace = 2 * time.Second
-	// execCleanupTimeout bounds killing and removing the process once
-	// ExecApp is done with it.
-	execCleanupTimeout = 5 * time.Second
-)
+// ioDrainGrace is how long ExecApp keeps copying output after the
+// process exited once no output has moved: a child the process left in
+// the background can hold the output open for as long as it lives. Output
+// that keeps moving is copied until it ends or the caller's context does.
+// A variable for tests.
+var ioDrainGrace = 2 * time.Second
 
-// drainIO waits for the output still on its way after the process exited,
-// for at most ioDrainGrace and never past ctx, then stops copying. It
-// returns once nothing writes to the caller's writers anymore.
-func drainIO(ctx context.Context, pio cio.IO) {
+// execCleanupTimeout bounds killing and removing the process once ExecApp
+// is done with it.
+const execCleanupTimeout = 5 * time.Second
+
+// drainIO copies the output still on its way after the process exited:
+// until its end, or until no output has moved for ioDrainGrace, never past
+// ctx. It returns once nothing writes to the caller's writers anymore, with
+// ctx's error when ctx ended first, since output may then have been cut.
+func drainIO(ctx context.Context, pio cio.IO, activity *runtime.OutputActivity) error {
 	copied := make(chan struct{})
 	go func() {
 		pio.Wait()
 		close(copied)
 	}()
-	grace := time.NewTimer(ioDrainGrace)
-	defer grace.Stop()
-	select {
-	case <-copied:
-		return
-	case <-grace.C:
-	case <-ctx.Done():
-	}
+	err := activity.WaitQuiet(ctx, copied, ioDrainGrace)
 	pio.Cancel()
 	<-copied
+	return err
 }
 
 // eofReader closes eof once r has returned io.EOF.
