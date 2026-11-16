@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"log/slog"
 	"net/netip"
@@ -246,7 +247,7 @@ func newRuntimeCommand() *cobra.Command {
 	f := cmd.Flags()
 	f.StringVar(&dataDir, "data-dir", defaultDataDir, "Armada data directory")
 	f.StringVar(&binDir, "bin-dir", "", "use runtime binaries from this directory (builds without the bundle)")
-	cmd.AddCommand(newRuntimeResetCommand())
+	cmd.AddCommand(newRuntimeResetCommand(), newRuntimeMigrateCommand())
 	return cmd
 }
 
@@ -284,42 +285,9 @@ func newRuntimeResetCommand() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("container runtime: %w (%s)", err, runtimeHint())
 			}
-			all, err := rt.List(ctx, nil)
+			errs, err := removeContainers(ctx, rt, cmd.OutOrStdout())
 			if err != nil {
 				return err
-			}
-			// Only Armada's containers.
-			var cs []runtime.Container
-			for _, c := range all {
-				if c.Labels[runtime.LabelManaged] == "true" || c.Labels[runtime.LabelSystem] != "" {
-					cs = append(cs, c)
-				}
-			}
-			var errs []error
-			for _, c := range cs {
-				_ = rt.Stop(ctx, c.ID, 10*time.Second)
-				if err := rt.Remove(ctx, c.ID); err != nil && !errors.Is(err, runtime.ErrNotFound) {
-					errs = append(errs, fmt.Errorf("%s: %w", c.Name, err))
-				}
-			}
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Removed %d container(s).\n", len(cs)-len(errs))
-			if sb, ok := rt.(runtime.NetworkSandboxer); ok {
-				// Job queues are read from these (ADR 0040).
-				sandboxes, err := sb.ListSandboxes(ctx)
-				if err != nil {
-					errs = append(errs, fmt.Errorf("network sandboxes: %w", err))
-				}
-				removed := 0
-				for _, s := range sandboxes {
-					if err := sb.RemoveSandbox(ctx, s.ID); err != nil {
-						errs = append(errs, fmt.Errorf("network sandbox %s: %w", s.ID, err))
-						continue
-					}
-					removed++
-				}
-				if removed > 0 {
-					_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Removed %d network sandbox(es).\n", removed)
-				}
 			}
 			if ac.Network != "" {
 				if err := removeClusterNet(); err != nil {
@@ -356,4 +324,47 @@ func newRuntimeLogCommand() *cobra.Command {
 			return embedded.WriteLogs(dir, os.Getenv("CONTAINER_ID"), stdout, stderr)
 		},
 	}
+}
+
+// removeContainers stops and removes every container Armada runs on rt
+// (those with Armada's labels) and the network sandboxes job queues are
+// read from (ADR 0040), saying how many on w. It returns what failed, or
+// an error when the containers cannot be listed.
+func removeContainers(ctx context.Context, rt runtime.Driver, w io.Writer) ([]error, error) {
+	all, err := rt.List(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	var cs []runtime.Container
+	for _, c := range all {
+		if c.Labels[runtime.LabelManaged] == "true" || c.Labels[runtime.LabelSystem] != "" {
+			cs = append(cs, c)
+		}
+	}
+	var errs []error
+	for _, c := range cs {
+		_ = rt.Stop(ctx, c.ID, 10*time.Second)
+		if err := rt.Remove(ctx, c.ID); err != nil && !errors.Is(err, runtime.ErrNotFound) {
+			errs = append(errs, fmt.Errorf("%s: %w", c.Name, err))
+		}
+	}
+	_, _ = fmt.Fprintf(w, "Removed %d container(s).\n", len(cs)-len(errs))
+	if sb, ok := rt.(runtime.NetworkSandboxer); ok {
+		sandboxes, err := sb.ListSandboxes(ctx)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("network sandboxes: %w", err))
+		}
+		removed := 0
+		for _, s := range sandboxes {
+			if err := sb.RemoveSandbox(ctx, s.ID); err != nil {
+				errs = append(errs, fmt.Errorf("network sandbox %s: %w", s.ID, err))
+				continue
+			}
+			removed++
+		}
+		if removed > 0 {
+			_, _ = fmt.Fprintf(w, "Removed %d network sandbox(es).\n", removed)
+		}
+	}
+	return errs, nil
 }

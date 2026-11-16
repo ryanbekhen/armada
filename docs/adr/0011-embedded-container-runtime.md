@@ -20,9 +20,11 @@ rollouts, probes, and self-healing do not depend on how containers are run.
 
 Armada brings its own container runtime: a containerd instance that only
 Armada uses, started from binaries embedded in the Armada binary. It is
-the only runtime: nodes are Linux machines, every node runs containers
-through it, and `agent.json` records `"runtime": "embedded"` (an agent
-refuses any other value; such a node is removed and joined again). One
+the default runtime: nodes are Linux machines, and `agent.json` records
+`"runtime": "embedded"`. ADR 0046 adds an experimental runtime without
+containerd (`"runtime": "supervisor"`) built from the same pack and driver;
+an agent refuses any other value (such a node is removed and joined
+again). One
 runtime keeps every feature (the cluster network, exec, usage, volumes)
 to one implementation and one set of tests. For the same
 reason Armada is Linux only, its CLI included: containerd on Linux is the

@@ -19,6 +19,30 @@ Flags:
 | `--bin-dir string` | use runtime binaries from this directory (builds without the bundle) |
 | `--data-dir string` | Armada data directory (default `/var/lib/armada`) |
 
+## `armadad runtime migrate`
+
+migrate moves this node between the embedded containerd and the supervisor,
+which runs containers without containerd (ADR 0046). It removes every
+container Armada runs here from the current runtime and records the new one;
+the agent then starts its replicas on the new runtime, pulling their images
+again. First drain the node (armada node drain NODE) and stop its service
+(systemctl stop armada-server, or armada-agent); afterwards start the service
+and resume the node (armada node resume NODE).
+
+Moving to the supervisor stops containerd and leaves its data in
+<data-dir>/containerd, which can be removed once the node runs.
+
+```
+armadad runtime migrate --to embedded|supervisor [flags]
+```
+
+Flags:
+
+| Flag | Meaning |
+| --- | --- |
+| `--data-dir string` | Armada data directory (default `/var/lib/armada`) |
+| `--to string` | runtime to move to: embedded or supervisor |
+
 ## `armadad runtime reset`
 
 reset stops and removes all of Armada's containers on this node (those with

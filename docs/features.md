@@ -128,4 +128,7 @@ Everything Armada does. The [guides](guides/README.md) show each in use, and the
 Armada needs Linux machines (cloud instances, VMs, or bare metal) with a
 private network between them, and nothing else: `armadad` embeds its own
 container runtime (containerd, runc, CNI plugins) and its state store
-(etcd). The `armada` client needs no root and also runs on macOS.
+(etcd). Nodes can also run containers without containerd, on the
+experimental supervisor runtime, which holds less memory per node
+([operations guide](operations.md#running-containers-without-containerd-experimental)).
+The `armada` client needs no root and also runs on macOS.

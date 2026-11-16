@@ -698,6 +698,34 @@ needs a round trip between them.
 start `armadad agent` there. A second agent on a node refuses to start and says
 why: two would take turns replacing each other's connection to the control
 plane and fail each other's replicas.
+
+## Running containers without containerd (experimental)
+
+A node runs its containers on Armada's embedded containerd by default. With
+`--runtime supervisor` (on `armadad init`, `join`, or `server join`) it runs
+them without containerd (ADR 0046): the agent keeps the images itself, and
+one small `armada-shim` process per app supervises that app's containers on
+the node. Apps, specs, and commands are the same; the node holds about
+15 MiB less for containerd and about 4 MiB less per app.
+
+The setting is in `agent.json` (`"runtime"`). To move a node that already
+runs, drain it and stop its service, migrate, then start and resume it:
+
+```bash
+armada node drain NODE
+sudo systemctl stop armada-agent              # armada-server on a control plane server
+sudo armadad runtime migrate --to supervisor  # removes the node's containers, stops containerd
+sudo systemctl start armada-agent
+armada node resume NODE
+```
+
+The node pulls its images again. `--to embedded` moves it back the same way.
+Moving to the supervisor leaves containerd's data in
+`/var/lib/armada/containerd`; remove it once the node runs.
+
+Each `armada-shim` is a systemd unit of its own (`armada-shim-*`), so
+restarting the agent leaves it and its containers running. If one ends, its
+containers end with it and the agent starts them again.
 ## Deleting an app
 
 ```sh

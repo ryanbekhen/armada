@@ -1,6 +1,6 @@
 # 0046. Armada's own container supervisor
 
-- Status: Proposed
+- Status: Accepted (experimental)
 - Date: 2026-11-16
 
 ## Context
@@ -35,64 +35,75 @@ What containerd does for Armada today:
    output to `armada-log`, runs exec processes, and stops containers.
 4. Reports task state and cgroup statistics.
 
-## Decision (proposed)
+## Decision
 
-Replace containerd and its shim with two parts Armada owns, keeping runc,
-the CNI plugins, tini, and `armada-log`:
+Nodes can run containers without containerd, on the **supervisor**
+runtime, chosen per node (`--runtime supervisor` on `armadad init`, `join`,
+and `server join`, recorded as `"runtime"` in `agent.json`). It is
+experimental: the embedded containerd stays the default. runc, the CNI
+plugins, tini, and `armada-log` are the same on both.
 
-- **The agent keeps images and container records itself (Go).** Pulling
-  and unpacking move into the agent, through the registry and layer
-  libraries Armada already depends on, into a content store and overlayfs
-  layers under `<data-dir>/images`. Container records (spec, labels, root
-  filesystem, log directory) are files under `<data-dir>/containers/<id>`,
-  written atomically. Everything containerd's metadata held that Armada
-  reads (labels such as `armada.pulled-with/<key>`, the published port, the
-  role) moves there with the same meaning. Image pruning, digest checks
-  against credentials, and platform detection keep their current rules.
-- **`armada-shim` (Rust, standard library plus the minimum the kernel
-  interface needs) supervises containers.** One process per app per node
-  and runtime pack, like the shim it replaces. It is started by the agent,
-  detaches from it (own session, subreaper), creates and starts containers
-  with `runc create`/`runc start`, holds their output pipes and hands them
-  to `armada-log`, waits for exits and keeps the exit code, runs exec
-  processes with `runc exec`, and serves a small request protocol on a
-  root-only Unix socket in `/run/armada/shim/`. It never reads images or
-  registry credentials. When it exits, every container it supervises is
-  killed, the same as a shim today; the agent recreates them like any
-  crashed replica.
-- **Statistics are read from cgroup files directly** by the agent, as
-  containerd does today.
-- `runtime.Driver` stays the interface. The new implementation lives next
-  to the containerd one, and the conformance suite
-  (`go test -tags integration -run Conformance`) runs against both until
-  containerd is removed.
+- **The agent keeps images and container records itself (Go,
+  `internal/runtime/supervisor`).** Pulling and unpacking run in the agent
+  through containerd's own libraries, with no daemon: a content store, the
+  overlay snapshotter, and the layer applier under
+  `<data-dir>/supervisor/images`, at most two blobs fetched at once
+  (pulling three images peaks at a 10 MiB heap and leaves 3 MiB). Images
+  are recorded in `images.json` with their labels (`armada.pulled-with/<key>`
+  keeps its meaning); removing one removes the layers and blobs no other
+  image uses. Each container is an OCI bundle under
+  `<data-dir>/supervisor/containers/<id>`: its root filesystem mounted from
+  a snapshot, `config.json`, and `record.json` (labels, image, shim group),
+  written last.
+- **`armada-shim` (Rust, standard library only, `shim/`) supervises
+  containers.** One per app and runtime pack on a node (the group the spec
+  annotation names), started by the agent as a transient systemd unit
+  (`armada-shim-<hash>`): `armada-server` stops every process it started
+  when it restarts, a unit of its own does not. It is the child subreaper
+  of its containers, creates and starts them with `runc create`/`runc
+  start`, hands their output to `armada-log` as containerd's shim does,
+  keeps exit codes until delete, and answers one line per connection on a
+  0600 socket in `/run/armada/shim/` (`create`, `start`, `state`, `wait`,
+  `kill`, `kill all`, `delete`, `list`). It exits 10 seconds after its last
+  container is gone, removing its socket and state. It never reads images
+  or credentials. Before the agent starts a group's shim, containers a shim
+  that ended left in runc's state are killed and deleted, so they end with
+  their shim as on containerd, and the agent starts them again.
+- **The driver is shared.** `internal/runtime/containerd` reaches
+  containers, tasks, and images through a `backend` interface; the
+  supervisor offers containerd's client types (`Container`, `Task`,
+  `Process`, `Image`), so networking, host files, SELinux labels, ports,
+  logs, init containers, sidecars, and system containers are one code path.
+  Exec runs `runc exec` from the agent in the foreground (a pseudo-terminal
+  the agent holds for `-t`, so size changes reach the process); statistics
+  are read from the container's cgroup files. The conformance suite runs
+  against both.
+- **The runtime pack carries `armada-shim`.** On a supervisor node the
+  agent installs the pack itself at start, so an upgrade brings the new
+  shim and runc; `armadad runtime` installs it and exits instead of
+  starting containerd.
 
 ### Moving nodes
 
-A node changes runtime only by replacing its containers: the agent records
-`"runtime": "supervisor"` in `agent.json` only after it has drained and
-removed every containerd container on the node and started them again
-under the new runtime, one replica at a time, so an app with more than one
-replica keeps serving. Upgrading a release does not do this by itself;
-`armadad runtime migrate` does it, and `armadad doctor` says which runtime
-a node runs. Both runtimes ship in the same releases until every supported
-release has moved, then containerd leaves the runtime pack.
+A node changes runtime by replacing its containers: drain it, stop its
+service, run `armadad runtime migrate --to supervisor` (or `--to embedded`),
+which removes every container Armada runs there from the current runtime,
+records the new one, and stops containerd when leaving it; then start the
+service and resume the node, which pulls its images again. The command
+refuses while the agent runs. Upgrading a release never changes a node's
+runtime.
 
-### Work, in order
+### Measured
 
-1. `armada-shim` with runc, behind the conformance suite, in the lab only.
-2. Image store and container records in the agent; the driver for the new
-   runtime; adoption after an agent restart.
-3. Exec, statistics, sandboxes (ADR 0040), members (ADR 0038), system
-   containers (HAProxy).
-4. `armadad runtime migrate`, doctor, the operations guide; end to end on
-   real machines with every scenario of `test/e2e`.
-5. Containerd removed from the pack after a release in which every node
-   ran the new runtime.
+In a two-machine lab with the supervisor and no containerd process, the
+conformance suite and the end-to-end scenarios pass, and an app's
+`armada-shim` holds 0.2–0.3 MiB (0.07 MiB anonymous) where containerd's
+shim held 7.5–8.5 MiB (4 MiB) and containerd 47 MiB (15 MiB): about 30 MiB
+less held memory on a node with four apps, against the 20 MiB this work
+had to save.
 
-Each step is measured against the numbers above before the next starts.
-If the new runtime does not cut held memory per node by at least 20 MiB
-for four apps, the work stops at that step and containerd stays.
+Containerd leaves the runtime pack only after a release in which every
+node runs the supervisor.
 
 ## What stays out of scope
 
@@ -124,5 +135,5 @@ for four apps, the work stops at that step and containerd stays.
   own today, including its security fixes.
 - Two runtimes ship side by side for a while, and the conformance suite
   and end-to-end tests run against both.
-- `ctr` can no longer inspect a node's containers once it moved; `armada`
-  and `armadad doctor` are the interface.
+- `ctr` cannot inspect a supervisor node's containers; `armada` and
+  `armadad doctor` are the interface.
