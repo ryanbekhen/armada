@@ -10,6 +10,7 @@ import (
 	"compress/gzip"
 	"context"
 	"crypto/sha256"
+	"debug/elf"
 	"encoding/hex"
 	"errors"
 	"flag"
@@ -31,22 +32,35 @@ func main() {
 	arch := flag.String("arch", "amd64", "target architecture (amd64 or arm64)")
 	out := flag.String("out", "", "output file (default internal/runtime/embedded/bundle/linux_<arch>.pack)")
 	cache := flag.String("cache", ".cache/runtime", "download cache directory")
+	logger := flag.String("logger", "", "armada-log built for -arch (make logger)")
 	flag.Parse()
 	if *out == "" {
 		*out = filepath.Join("internal", "runtime", "embedded", "bundle", "linux_"+*arch+".pack")
 	}
-	if err := run(context.Background(), *arch, *out, *cache); err != nil {
+	if err := run(context.Background(), *arch, *out, *cache, *logger); err != nil {
 		fmt.Fprintln(os.Stderr, "mkbundle:", err)
 		os.Exit(1)
 	}
 }
 
-func run(ctx context.Context, arch, out, cache string) error {
+func run(ctx context.Context, arch, out, cache, logger string) error {
 	if arch != "amd64" && arch != "arm64" {
 		return fmt.Errorf("unsupported architecture %q", arch)
 	}
+	if logger == "" {
+		return errors.New("-logger is required: build it with make logger")
+	}
 	files := map[string][]byte{}
 	versions := map[string]string{}
+	b, err := os.ReadFile(logger) //nolint:gosec // build input named on the command line
+	if err != nil {
+		return fmt.Errorf("logger: %w", err)
+	}
+	if err := checkELF(b, arch); err != nil {
+		return fmt.Errorf("logger %s: %w", logger, err)
+	}
+	files[embedded.BinLogger] = b
+	versions[embedded.BinLogger] = "source"
 	for _, a := range embedded.Lock {
 		want := a.SHA256[arch]
 		if want == "" {
@@ -161,4 +175,18 @@ func members(archive []byte, want map[string]string) (map[string][]byte, error) 
 		}
 	}
 	return out, nil
+}
+
+// checkELF refuses a logger built for another architecture, so a pack can
+// never carry a binary its machines cannot run.
+func checkELF(b []byte, arch string) error {
+	f, err := elf.NewFile(bytes.NewReader(b))
+	if err != nil {
+		return err
+	}
+	want := map[string]elf.Machine{"amd64": elf.EM_X86_64, "arm64": elf.EM_AARCH64}[arch]
+	if f.Machine != want || f.Class != elf.ELFCLASS64 {
+		return fmt.Errorf("built for %v, not %s", f.Machine, arch)
+	}
+	return nil
 }

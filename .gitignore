@@ -12,3 +12,6 @@ coverage.out
 /internal/runtime/embedded/bundle/
 /.cache/
 /build/
+
+# armada-log build output (make logger).
+/logger/target/

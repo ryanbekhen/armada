@@ -350,9 +350,22 @@ func (d *Driver) runcOpts() *options.Options {
 	return &options.Options{BinaryName: filepath.Join(d.paths.Bin(), embedded.BinRunc)}
 }
 
-// logIO makes the shim pipe the container's output to `armadad runtime-log`.
+// logIO makes the shim pipe the container's output to the pack's
+// armada-log, or to `armadad runtime-log` when the pack has none
+// (development builds). Both take the same arguments and write the same
+// files; armada-log costs well under 1 MiB per container instead of about 5.
 func (d *Driver) logIO() cio.Creator {
-	return cio.BinaryIO(d.self, map[string]string{"runtime-log": d.paths.Logs()})
+	bin := d.self
+	if p := filepath.Join(d.paths.Bin(), embedded.BinLogger); regularFile(p) {
+		bin = p
+	}
+	return cio.BinaryIO(bin, map[string]string{"runtime-log": d.paths.Logs()})
+}
+
+// regularFile reports whether p resolves to a regular file.
+func regularFile(p string) bool {
+	fi, err := os.Stat(p)
+	return err == nil && fi.Mode().IsRegular()
 }
 
 // Run creates and starts an app container with Armada's security defaults.

@@ -46,6 +46,20 @@ SHA-256 into `internal/runtime/embedded/lock.go`, and build `armadad` with
 `make build-bundle`. The complete corresponding source of the LGPL
 libraries is at the addresses above.
 
+## Armada's log writer
+
+The runtime pack also carries `armada-log`, Armada's own log writer
+(`logger/`, Apache-2.0). It is written in Rust with no crates beyond the
+standard library and is linked statically with:
+
+- the **Rust standard library** and its runtime libraries, under MIT or
+  Apache-2.0 (Armada uses them under Apache-2.0), with LLVM's libunwind
+  under Apache-2.0 WITH LLVM-exception. Source:
+  <https://github.com/rust-lang/rust/tree/1.100.0/library>.
+- the **musl** C library that Rust ships for its `*-linux-musl` targets,
+  under the MIT license ([text](third_party/licenses/MIT-musl.txt)).
+  Source: <https://git.musl-libc.org/cgit/musl>.
+
 ## Downloaded at run time
 
 Nodes pull the HAProxy image (`haproxy:3.2-alpine`, pinned by digest in
