@@ -725,7 +725,10 @@ Moving to the supervisor leaves containerd's data in
 
 Each `armada-shim` is a systemd unit of its own (`armada-shim-*`), so
 restarting the agent leaves it and its containers running. If one ends, its
-containers end with it and the agent starts them again.
+containers end with it and the agent starts them again. A shim that is only
+slow to answer keeps its containers: the agent ends them only once the
+shim's unit is no longer active (`systemctl status 'armada-shim-*'`).
+
 ## Deleting an app
 
 ```sh

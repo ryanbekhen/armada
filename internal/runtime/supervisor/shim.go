@@ -13,6 +13,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
+	"syscall"
 	"time"
 )
 
@@ -28,6 +30,48 @@ type Shims struct {
 	Bin, Runc, Logger string
 	// Launch starts a shim; nil runs it with systemd-run.
 	Launch func(ctx context.Context, unit string, argv []string) error
+	// Active reports whether a shim's unit still runs; nil asks systemd.
+	Active func(ctx context.Context, unit string) (bool, error)
+
+	mu     sync.Mutex
+	groups map[string]*groupLock
+}
+
+// groupLock serializes starting and abandoning one group's shim; n counts
+// its holders and waiters, and it is dropped when none is left.
+type groupLock struct {
+	ch chan struct{}
+	n  int
+}
+
+// lock takes group's lock, or fails when ctx ends first. Other groups are
+// not held up.
+func (s *Shims) lock(ctx context.Context, group string) (func(), error) {
+	s.mu.Lock()
+	if s.groups == nil {
+		s.groups = map[string]*groupLock{}
+	}
+	l := s.groups[group]
+	if l == nil {
+		l = &groupLock{ch: make(chan struct{}, 1)}
+		s.groups[group] = l
+	}
+	l.n++
+	s.mu.Unlock()
+	release := func() {
+		s.mu.Lock()
+		if l.n--; l.n == 0 {
+			delete(s.groups, group)
+		}
+		s.mu.Unlock()
+	}
+	select {
+	case l.ch <- struct{}{}:
+		return func() { <-l.ch; release() }, nil
+	case <-ctx.Done():
+		release()
+		return nil, ctx.Err()
+	}
 }
 
 // Shim is one running armada-shim.
@@ -62,15 +106,71 @@ func (s *Shims) Get(group string) *Shim {
 	}
 }
 
-// Abandon ends the containers a shim that no longer answers left behind.
-func (s *Shims) Abandon(ctx context.Context, sh *Shim) error { return s.abandon(ctx, sh.Root) }
+// unitName is the transient systemd unit a group's shim runs as.
+func unitName(group string) string { return "armada-shim-" + shimName(group) }
 
-// For returns group's shim, starting it when it does not answer.
+// Abandon ends the containers a shim left behind once it is really gone,
+// and reports whether it was. A shim that is slow or busy is not gone: its
+// containers keep running, and the caller tries again later.
+func (s *Shims) Abandon(ctx context.Context, sh *Shim) (bool, error) {
+	unlock, err := s.lock(ctx, sh.Group)
+	if err != nil {
+		return false, err
+	}
+	defer unlock()
+	// Ask again under the lock: a shim may have been started meanwhile.
+	err = sh.probe(ctx)
+	if err == nil {
+		return false, nil
+	}
+	if gone, gerr := s.gone(ctx, sh, err); gerr != nil || !gone {
+		return false, gerr
+	}
+	return true, s.abandon(ctx, sh.Root)
+}
+
+// gone reports whether the shim a call failed to reach no longer runs:
+// nothing listens on its socket, or its unit is not active. A timeout or a
+// closed connection says nothing about the shim's containers.
+func (s *Shims) gone(ctx context.Context, sh *Shim, callErr error) (bool, error) {
+	var shimErr errShim
+	if errors.As(callErr, &shimErr) {
+		return false, nil
+	}
+	if errors.Is(callErr, syscall.ENOENT) || errors.Is(callErr, syscall.ECONNREFUSED) {
+		return true, nil
+	}
+	active := s.Active
+	if active == nil {
+		active = systemdActive
+	}
+	running, err := active(ctx, unitName(sh.Group))
+	if err != nil {
+		return false, fmt.Errorf("state of shim for %s: %w", sh.Group, err)
+	}
+	return !running, nil
+}
+
+// For returns group's shim, starting it when none runs. A shim that runs
+// but does not answer is an error, never replaced.
 func (s *Shims) For(ctx context.Context, group string) (*Shim, error) {
+	unlock, err := s.lock(ctx, group)
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
 	name := shimName(group)
 	sh := s.Get(group)
-	if _, err := sh.call(ctx, "list"); err == nil {
+	err = sh.probe(ctx)
+	if err == nil {
 		return sh, nil
+	}
+	gone, gerr := s.gone(ctx, sh, err)
+	if gerr != nil {
+		return nil, fmt.Errorf("shim for %s does not answer: %w; %w", group, err, gerr)
+	}
+	if !gone {
+		return nil, fmt.Errorf("shim for %s runs but does not answer: %w", group, err)
 	}
 	if err := os.MkdirAll(s.Dir, 0o700); err != nil {
 		return nil, err
@@ -86,7 +186,7 @@ func (s *Shims) For(ctx context.Context, group string) (*Shim, error) {
 	if launch == nil {
 		launch = systemdRun
 	}
-	if err := launch(ctx, "armada-shim-"+name, argv); err != nil {
+	if err := launch(ctx, unitName(group), argv); err != nil {
 		return nil, fmt.Errorf("start shim for %s: %w", group, err)
 	}
 	deadline := time.Now().Add(5 * time.Second)
@@ -132,6 +232,8 @@ func systemdRun(ctx context.Context, unit string, argv []string) error {
 		"--unit=" + unit, "--collect", "--quiet",
 		"--property=OOMScoreAdjust=-999",
 		"--property=LimitNOFILE=infinity",
+		"--property=LimitNPROC=infinity",
+		"--property=LimitCORE=infinity",
 		"--property=TasksMax=infinity",
 		"--",
 	}, argv...)
@@ -140,6 +242,32 @@ func systemdRun(ctx context.Context, unit string, argv []string) error {
 		return fmt.Errorf("systemd-run: %w: %s", err, strings.TrimSpace(string(out)))
 	}
 	return nil
+}
+
+// systemdActive reports whether unit is active (or starting, reloading, or
+// stopping): only a unit that is inactive, failed, or unknown has no shim.
+func systemdActive(ctx context.Context, unit string) (bool, error) {
+	out, err := exec.CommandContext(ctx, "systemctl", "show", "--property=ActiveState", "--value", "--", unit).Output() //nolint:gosec // the unit name is built from a hash
+	if err != nil {
+		return false, fmt.Errorf("systemctl show %s: %w", unit, err)
+	}
+	switch strings.TrimSpace(string(out)) {
+	case "", "inactive", "failed":
+		return false, nil
+	}
+	return true, nil
+}
+
+// probeTimeout bounds the list request that checks a shim answers before
+// it is started or abandoned.
+const probeTimeout = 10 * time.Second
+
+// probe checks the shim answers.
+func (sh *Shim) probe(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, probeTimeout)
+	defer cancel()
+	_, err := sh.call(ctx, "list")
+	return err
 }
 
 // errShim is an error the shim answered with.
