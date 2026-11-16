@@ -238,7 +238,11 @@ func (d *Driver) Pull(ctx context.Context, image string, auth *runtime.RegistryA
 			return runtime.Image{Ref: image, Platforms: d.localPlatforms(ctx, img)}, nil
 		}
 	}
-	img, err := d.ctr.Pull(ctx, ref, resolver)
+	wrap, err := d.proveContent(ctx, ref, key, resolver)
+	if err != nil {
+		return runtime.Image{}, pullError(image, auth != nil, err)
+	}
+	img, err := d.ctr.Pull(ctx, ref, resolver, wrap)
 	if err != nil {
 		// Tell an image built for other platforms from other failures.
 		want := nodePlatform()
