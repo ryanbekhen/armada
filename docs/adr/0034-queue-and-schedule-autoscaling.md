@@ -59,7 +59,8 @@ scale:
   with a queue rule, the ready replica on its node with the lowest ID.
   - The command has 10 seconds and may print at most 64 bytes. The time
     holds even when the command leaves a process behind that keeps its
-    output open: output is read for at most 2 seconds after it exits.
+    output open: after it exits, output is read until none has arrived
+    for 2 seconds, and never past the 10 seconds.
   - Anything other than a whole number between 0 and 2^40 is ignored, as is
     a non-zero exit. The previous reading then ages out.
   - The command's arguments and output never reach logs or events.

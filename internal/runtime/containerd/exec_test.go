@@ -106,6 +106,9 @@ func leftover(t *testing.T, path string) {
 // through a pipe until the end, as runc exec does in the foreground.
 func TestExecAppBoundedWithLeftChild(t *testing.T) {
 	const deadline = 2 * time.Second
+	// Shorter than the deadline, so a process that exited ends on the
+	// quiet output, not the deadline.
+	shortDrainGrace(t, 300*time.Millisecond)
 	for _, tc := range []struct {
 		name string
 		tty  bool
@@ -188,6 +191,119 @@ func TestExecAppReturnsAtOnce(t *testing.T) {
 		t.Errorf("ExecApp took %s", took)
 	}
 	if out.String() != "hello\n" {
+		t.Errorf("output %q", out.String())
+	}
+}
+
+// shortDrainGrace sets ioDrainGrace for one test.
+func shortDrainGrace(t *testing.T, d time.Duration) {
+	t.Helper()
+	old := ioDrainGrace
+	ioDrainGrace = d
+	t.Cleanup(func() { ioDrainGrace = old })
+}
+
+// slowWriter takes every write after a pause, like a slow client of
+// armada app exec.
+type slowWriter struct {
+	lockedBuffer
+	pause time.Duration
+}
+
+func (s *slowWriter) Write(p []byte) (int, error) {
+	time.Sleep(s.pause)
+	return s.lockedBuffer.Write(p)
+}
+
+// TestExecAppCopiesOutputStillFlowing: output still on its way when the
+// process exits is copied in full, however long past the grace it takes,
+// whether a slow reader takes it or a child the process left keeps writing.
+func TestExecAppCopiesOutputStillFlowing(t *testing.T) {
+	const grace = 200 * time.Millisecond
+	for _, tty := range []bool{false, true} {
+		t.Run("slow reader tty="+strconv.FormatBool(tty), func(t *testing.T) {
+			shortDrainGrace(t, grace)
+			// 256 KiB: more than the pipe, the terminal, and the copy
+			// buffer hold, so much of it is still to copy when the
+			// process exits.
+			d := supervisorExecDriver(t, "echo $$ > \"$PIDFILE\"\nhead -c 262144 /dev/zero | tr '\\0' x\nexit 0\n")
+			out := &slowWriter{pause: 150 * time.Millisecond}
+			start := time.Now()
+			code, err := d.ExecApp(context.Background(), "c1", runtime.ExecOptions{Cmd: []string{"big"}, TTY: tty, Stdout: out, Stderr: out})
+			if err != nil || code != 0 {
+				t.Fatalf("ExecApp = %d, %v", code, err)
+			}
+			if n := len(out.String()); n != 262144 {
+				t.Fatalf("copied %d bytes of 262144 in %s", n, time.Since(start))
+			}
+		})
+	}
+	t.Run("child keeps writing", func(t *testing.T) {
+		shortDrainGrace(t, grace)
+		left := filepath.Join(t.TempDir(), "left")
+		leftover(t, left)
+		// The child writes a line every 50ms for about a second after
+		// the process exited, then ends.
+		d := supervisorExecDriver(t, "LEFT="+left+"\necho $$ > \"$PIDFILE\"\n"+
+			"(i=0; while [ $i -lt 20 ]; do echo line$i; i=$((i+1)); sleep 0.05; done) &\necho $! > \"$LEFT\"\nexit 0\n")
+		out := &lockedBuffer{}
+		code, err := d.ExecApp(context.Background(), "c1", runtime.ExecOptions{Cmd: []string{"trickle"}, Stdout: out, Stderr: out})
+		if err != nil || code != 0 {
+			t.Fatalf("ExecApp = %d, %v", code, err)
+		}
+		if !strings.Contains(out.String(), "line19\n") {
+			t.Fatalf("output cut: %q", out.String())
+		}
+	})
+}
+
+// TestExecAppQuietLeftChildEnds: a child the process left holding the
+// output open, writing nothing, ends the copy once the output has been
+// quiet for the grace, with the process's exit code and all its output.
+func TestExecAppQuietLeftChildEnds(t *testing.T) {
+	const grace = 200 * time.Millisecond
+	shortDrainGrace(t, grace)
+	left := filepath.Join(t.TempDir(), "left")
+	leftover(t, left)
+	d := supervisorExecDriver(t, "LEFT="+left+"\necho $$ > \"$PIDFILE\"\nsleep 30 &\necho $! > \"$LEFT\"\necho 5\nexit 3\n")
+	out := &lockedBuffer{}
+	start := time.Now()
+	code, err := d.ExecApp(context.Background(), "c1", runtime.ExecOptions{Cmd: []string{"left"}, Stdout: out, Stderr: out})
+	took := time.Since(start)
+	if err != nil || code != 3 {
+		t.Fatalf("ExecApp = %d, %v; want 3", code, err)
+	}
+	if took < grace || took > grace+execCleanupTimeout/2 {
+		t.Errorf("ExecApp took %s; want about %s", took, grace)
+	}
+	if out.String() != "5\n" {
+		t.Errorf("output %q", out.String())
+	}
+}
+
+// TestExecAppDeadlineBoundsFlowingOutput: output that never stops moving
+// is copied only until the caller's deadline, which ExecApp reports, so a
+// cut is never taken for the whole output.
+func TestExecAppDeadlineBoundsFlowingOutput(t *testing.T) {
+	shortDrainGrace(t, 200*time.Millisecond)
+	left := filepath.Join(t.TempDir(), "left")
+	leftover(t, left)
+	d := supervisorExecDriver(t, "LEFT="+left+"\necho $$ > \"$PIDFILE\"\n"+
+		"(while :; do echo more; sleep 0.02; done) &\necho $! > \"$LEFT\"\nexit 0\n")
+	const deadline = time.Second
+	ctx, cancel := context.WithTimeout(context.Background(), deadline)
+	defer cancel()
+	out := &lockedBuffer{}
+	start := time.Now()
+	_, err := d.ExecApp(ctx, "c1", runtime.ExecOptions{Cmd: []string{"forever"}, Stdout: out, Stderr: out})
+	took := time.Since(start)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("ExecApp error = %v; want the deadline", err)
+	}
+	if took > deadline+execCleanupTimeout/2 {
+		t.Errorf("ExecApp took %s", took)
+	}
+	if !strings.Contains(out.String(), "more") {
 		t.Errorf("output %q", out.String())
 	}
 }
