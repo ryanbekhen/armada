@@ -335,6 +335,24 @@ func (r *runner) lifecycle(t *testing.T) {
 	if err := r.d.Remove(ctx, id); err != nil {
 		t.Fatalf("Remove of a running container: %v", err)
 	}
+
+	// Stop reaches the app through the container's init: it exits on its
+	// own terms, not by SIGKILL after the grace period. Kernels that stack
+	// the AppArmor profile under no_new_privileges refuse that signal
+	// unless the profile names the stacked label.
+	id, err = r.d.Run(ctx, r.spec("sh", "-c", "trap 'exit 3' TERM; while :; do sleep 1; done"))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	t.Cleanup(func() { _ = r.d.Remove(context.WithoutCancel(ctx), id) })
+	time.Sleep(time.Second) // the shell sets its trap first
+	start := time.Now()
+	if err := r.d.Stop(ctx, id, 20*time.Second); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+	if c := r.wait(ctx, t, id); c.ExitCode != 3 || time.Since(start) > 10*time.Second {
+		t.Errorf("graceful stop: exit code %d after %v, want 3 from the app's TERM handler", c.ExitCode, time.Since(start).Round(time.Millisecond))
+	}
 }
 
 // labels checks that List finds containers by all given labels, running
