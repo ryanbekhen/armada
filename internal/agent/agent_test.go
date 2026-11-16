@@ -854,6 +854,79 @@ func TestPruneImagesKeepsAssignedImages(t *testing.T) {
 	}
 }
 
+// After a reboot the node hands container addresses out again from the start
+// of its range: a replica being recreated is reported starting with no
+// address before any new container starts, so the server takes its old
+// address out of the proxies before another app's container can get it
+// (T21). A first start is still left out of the reports.
+func TestRecreatedReplicasLoseTheirAddressAtOnce(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	d := fake.New()
+	d.BridgeIPs = "10.120.0."
+	ok := func(context.Context, string, string) error { return nil }
+	a := New(Config{NodeID: "n1", PrivateIP: "10.0.0.2", Driver: d, Check: ok, Unpublished: true})
+	a.setDesired([]*armadav1.ReplicaSpec{replica("web-r1-a", "nginx:1", 8080), replica("web-r1-b", "nginx:1", 8080)}, nil)
+	report, err := a.Reconcile(ctx)
+	if err != nil || len(report.GetReplicas()) != 2 {
+		t.Fatalf("%v %v", report, err)
+	}
+	old := map[string]*armadav1.ReplicaState{}
+	for _, r := range report.GetReplicas() {
+		if r.GetAddress() == "" {
+			t.Fatalf("no address before the reboot: %v", r)
+		}
+		old[r.GetId()] = r
+	}
+
+	// The machine restarted: every container was left exited.
+	a.booted = time.Now().Add(2 * time.Second)
+	cs, _ := d.List(ctx, nil)
+	for _, c := range cs {
+		d.SetState(c.ID, runtime.StateExited, 255)
+	}
+	release := make(chan struct{})
+	d.RunHook = func(context.Context, runtime.ContainerSpec) { <-release }
+	stream := &reportStream{reports: make(chan *armadav1.ReplicaReport, 16)}
+	a.streamMu.Lock()
+	a.stream = stream
+	a.streamMu.Unlock()
+	// One more replica starts for the first time.
+	a.setDesired([]*armadav1.ReplicaSpec{replica("web-r1-a", "nginx:1", 8080), replica("web-r1-b", "nginx:1", 8080), replica("web-r1-c", "nginx:1", 8080)}, nil)
+	done := make(chan *armadav1.ReplicaReport)
+	go func() {
+		r, err := a.Reconcile(ctx)
+		if err != nil {
+			t.Error(err)
+		}
+		done <- r
+	}()
+	select {
+	case r := <-stream.reports:
+		if len(r.GetReplicas()) != 2 {
+			t.Fatalf("report while recreating: %v", r)
+		}
+		for _, st := range r.GetReplicas() {
+			if st.GetState() != store.ReplicaStarting || st.GetReady() || st.GetAddress() != "" || st.GetIp() != "" ||
+				st.GetContainerId() != old[st.GetId()].GetContainerId() || st.GetMessage() != "restarted: the machine restarted" {
+				t.Errorf("replica being recreated reported as %v", st)
+			}
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("no report before the containers were recreated")
+	}
+	close(release)
+	report = <-done
+	if len(report.GetReplicas()) != 3 {
+		t.Fatalf("after the starts: %v", report)
+	}
+	for _, st := range report.GetReplicas() {
+		if st.GetState() != store.ReplicaRunning || st.GetAddress() == "" || (old[st.GetId()] != nil && st.GetContainerId() == old[st.GetId()].GetContainerId()) {
+			t.Errorf("after the starts: %v", st)
+		}
+	}
+}
+
 func TestReconcileMachineRestarted(t *testing.T) {
 	t.Parallel()
 

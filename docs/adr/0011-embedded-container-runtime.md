@@ -147,7 +147,13 @@ deploy, and the replicas it already runs must keep serving meanwhile:
   A later deploy resolves a tag anew, so it still picks up a moved tag.
 - While it starts replicas, the agent reports the others every second, tells
   the firewall about new containers before reporting them, and applies proxy
-  changes. A replica still starting is left out of the report.
+  changes. A replica starting for the first time is left out of the report.
+  A replica whose container is being recreated (it crashed, failed its
+  liveness probe, changed spec, or the machine restarted) is reported
+  `starting` with no address before any start begins: its old address is
+  gone, and the node may hand it to another container (after a reboot it
+  hands addresses out again from the start of its range), so the server
+  takes it out of the proxies first.
 - A report lists every replica of the node; the server writes only those it
   says something new about, so one change costs one write.
 - Listing containers asks containerd for every task's state in one request,
