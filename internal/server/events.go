@@ -61,8 +61,9 @@ type eventRecorder struct {
 	mu     sync.Mutex
 	recent map[eventKey]recentEvent
 	// active holds conditions reported once until they clear (a lost
-	// node, an app that cannot be placed).
-	active map[string]bool
+	// node, an app that cannot be placed), with the event that started
+	// each.
+	active map[string]store.Event
 	subs   map[chan store.Event]struct{}
 	writes int
 	total  *prometheus.CounterVec
@@ -71,7 +72,7 @@ type eventRecorder struct {
 func newEventRecorder() *eventRecorder {
 	return &eventRecorder{
 		recent: map[eventKey]recentEvent{},
-		active: map[string]bool{},
+		active: map[string]store.Event{},
 		subs:   map[chan store.Event]struct{}{},
 		total: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "armada_events_total", Help: "Events the leader recorded, by kind and reason.",
@@ -147,10 +148,10 @@ func (s *Server) condition(ctx context.Context, key string, on bool, e store.Eve
 		return
 	}
 	r.mu.Lock()
-	was := r.active[key]
-	if on {
-		r.active[key] = true
-	} else {
+	_, was := r.active[key]
+	if on && !was {
+		r.active[key] = e
+	} else if !on {
 		delete(r.active, key)
 	}
 	r.mu.Unlock()
@@ -160,6 +161,27 @@ func (s *Server) condition(ctx context.Context, key string, on bool, e store.Eve
 	if !on && was && s.alerts != nil {
 		e.Last = s.now()
 		s.alerts.notify(noticeOf(e, alert.KindResolved))
+	}
+}
+
+// endAppConditions ends every condition an app or job started, once it is
+// deleted: nothing would clear them otherwise, and a later app of the same
+// name would never be told about the same condition.
+func (s *Server) endAppConditions(ctx context.Context, app string) {
+	r := s.events
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	ended := map[string]store.Event{}
+	for key, e := range r.active {
+		if e.App == app {
+			ended[key] = e
+		}
+	}
+	r.mu.Unlock()
+	for key, e := range ended {
+		s.condition(ctx, key, false, e)
 	}
 }
 

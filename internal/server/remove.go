@@ -46,6 +46,7 @@ func (s *Server) reconcileRemoval(ctx context.Context, rc *reconcileRun, app sto
 	if err := s.store.DeleteApp(ctx, app.Name); err != nil {
 		return nil, false, err
 	}
+	s.endAppConditions(ctx, app.Name)
 	s.log.Info("removed app", "app", app.Name)
 	s.record(ctx, store.Event{Kind: eventApp, Object: app.Name, App: app.Name, Reason: "Removed"})
 	return all, true, nil
