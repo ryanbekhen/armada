@@ -58,6 +58,11 @@ E2E_SUDO=${E2E_SUDO:-}                  # "sudo" when SSH-TARGET is not root
 E2E_REBOOT=${E2E_REBOOT:-1}             # 0 skips rebooting every machine at once
 E2E_BRIDGE_GW=${E2E_BRIDGE_GW:-} # armada0 address; read from each node if empty
 E2E_SERVER_FLAGS=${E2E_SERVER_FLAGS:-}
+# Container runtime of every machine: embedded (containerd) or supervisor
+# (no containerd, ADR 0046); empty uses the default.
+E2E_RUNTIME=${E2E_RUNTIME:-}
+RUNTIME_FLAG=
+if [ -n "$E2E_RUNTIME" ]; then RUNTIME_FLAG="--runtime $E2E_RUNTIME"; fi
 # A conformance test binary for the last machine's architecture
 # (go test -c -tags integration ./internal/runtime/containerd/); empty skips.
 E2E_CONFORMANCE=${E2E_CONFORMANCE:-}
@@ -274,9 +279,9 @@ join() {
 	printf '%s\n' "$_tok" | on "$1" 'umask 077; cat > /run/armada/e2e.token'
 	_tok=
 	if [ "$2" = server ]; then
-		_args="--name $(host "$1" 1)" _unit=armada-server
+		_args="--name $(host "$1" 1) $RUNTIME_FLAG" _unit=armada-server
 	else
-		_args="--node-name $(host "$1" 1)" _unit=armada-agent
+		_args="--node-name $(host "$1" 1) $RUNTIME_FLAG" _unit=armada-agent
 	fi
 	on "$1" "$_cmd $_args --private-ip $(host "$1" 3) --token-file /run/armada/e2e.token >/dev/null;
 		rc=\$?; rm -f /run/armada/e2e.token; [ \$rc -eq 0 ] && systemctl enable --now -q $_unit"
@@ -347,7 +352,7 @@ while [ "$i" -le "$SERVERS" ]; do
 	on "$i" "umask 077; echo $(q "ARMADA_SERVER_FLAGS=\"$FLAGS\"") > /etc/armada/server.env"
 	i=$((i + 1))
 done
-on 1 "armadad init --node-name $(host 1 1) --private-ip $(host 1 3) >/dev/null && systemctl enable --now -q armada-server"
+on 1 "armadad init --node-name $(host 1 1) --private-ip $(host 1 3) $RUNTIME_FLAG >/dev/null && systemctl enable --now -q armada-server"
 wait_for 120 "control plane answers" voting 1
 
 i=2

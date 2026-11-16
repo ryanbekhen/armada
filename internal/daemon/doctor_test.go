@@ -213,18 +213,36 @@ func TestRuntimeFlags(t *testing.T) {
 	}
 	// A node recorded with another runtime (an external driver) is refused.
 	for _, rt := range []string{"docker", "apple", "Other", "../x"} {
-		if err := (agentConfig{Runtime: rt}).checkRuntime(); err == nil || !strings.Contains(err.Error(), "embedded runtime") {
+		if err := (agentConfig{Runtime: rt}).checkRuntime(); err == nil || !strings.Contains(err.Error(), "does not know") {
 			t.Errorf("runtime %q: %v", rt, err)
 		}
 	}
 	if err := (agentConfig{}).checkRuntime(); err != nil {
 		t.Errorf("agent.json without a runtime refused: %v", err)
 	}
-	fs := pflag.NewFlagSet("t", pflag.ContinueOnError)
-	var rf runtimeFlags
-	rf.register(fs)
-	if err := fs.Parse([]string{"--runtime", "docker"}); err == nil {
-		t.Error("--runtime still accepted")
+	// --runtime picks containerd or the supervisor (ADR 0046), nothing else.
+	for rt, want := range map[string]string{"": runtimeEmbedded, "embedded": runtimeEmbedded, "supervisor": runtimeSupervisor, "docker": "", "apple": ""} {
+		fs := pflag.NewFlagSet("t", pflag.ContinueOnError)
+		var rf runtimeFlags
+		rf.register(fs)
+		if rt != "" {
+			if err := fs.Parse([]string{"--runtime", rt}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		rf.subnet = "10.121.0.0/24"
+		var ac agentConfig
+		err := rf.apply(&ac, ip)
+		switch {
+		case want == "" && err == nil:
+			t.Errorf("--runtime %s accepted", rt)
+		case want != "" && (err != nil || ac.Runtime != want):
+			t.Errorf("--runtime %q: %q, %v; want %q", rt, ac.Runtime, err, want)
+		case want != "":
+			if err := ac.checkRuntime(); err != nil {
+				t.Errorf("--runtime %q: recorded runtime refused: %v", rt, err)
+			}
+		}
 	}
 }
 
