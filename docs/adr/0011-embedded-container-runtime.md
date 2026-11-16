@@ -176,6 +176,13 @@ deploy, and the replicas it already runs must keep serving meanwhile:
   driver picks a free host port (20000–32767, below the kernel's ephemeral
   range), records it in a container label, and `portmap` adds the DNAT
   rule. Nothing is ever published on a wildcard or public address.
+- An app's containers on a node share one runc shim: the OCI spec carries
+  the `io.containerd.runc.v2.group` annotation `<app ID>@<runtime pack>`,
+  so each app costs one shim process per node instead of one per
+  container, and containers started after a runtime upgrade get a shim
+  from the new pack. A shared shim never serves two apps. If it dies,
+  containerd removes every container it served, and the agent starts
+  them again like any crashed replica.
 - `armadad doctor` checks cgroup v2, overlayfs, the `iptables` tooling the
   CNI plugins call, and that the node's container subnet does not overlap
   a host route.
