@@ -187,13 +187,14 @@ func (s *Store) GetImage(_ context.Context, name string) (client.Image, error) {
 	return &image{s: s, rec: rec}, nil
 }
 
-// Pull pulls and unpacks ref.
-func (s *Store) Pull(ctx context.Context, ref string, resolver remotes.Resolver) (client.Image, error) {
+// Pull pulls and unpacks ref; wrap, when set, wraps the handler that
+// fetches each descriptor.
+func (s *Store) Pull(ctx context.Context, ref string, resolver remotes.Resolver, wrap func(images.Handler) images.Handler) (client.Image, error) {
 	labels := map[string]string{}
 	if old, ok := s.Images.Get(ref); ok {
 		labels = maps.Clone(old.Labels)
 	}
-	rec, err := s.Images.Pull(ctx, ref, resolver, labels)
+	rec, err := s.Images.Pull(ctx, ref, resolver, labels, wrap)
 	if err != nil {
 		return nil, err
 	}

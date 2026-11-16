@@ -35,8 +35,9 @@ type backend interface {
 	Tasks(ctx context.Context) (map[string]*task.Process, error)
 
 	GetImage(ctx context.Context, name string) (client.Image, error)
-	// Pull fetches and unpacks ref for this node's platform.
-	Pull(ctx context.Context, ref string, resolver remotes.Resolver) (client.Image, error)
+	// Pull fetches and unpacks ref for this node's platform; wrap, when
+	// set, wraps the handler that fetches each descriptor.
+	Pull(ctx context.Context, ref string, resolver remotes.Resolver, wrap func(images.Handler) images.Handler) (client.Image, error)
 	SetImageLabel(ctx context.Context, name, key, value string) error
 	ListImages(ctx context.Context) ([]images.Image, error)
 	// DeleteImage removes an image; what only it used goes with it, at
@@ -96,8 +97,12 @@ func (b *containerdBackend) GetImage(ctx context.Context, name string) (client.I
 	return b.c.GetImage(ctx, name)
 }
 
-func (b *containerdBackend) Pull(ctx context.Context, ref string, resolver remotes.Resolver) (client.Image, error) {
-	return b.c.Pull(ctx, ref, client.WithPullUnpack, client.WithResolver(resolver))
+func (b *containerdBackend) Pull(ctx context.Context, ref string, resolver remotes.Resolver, wrap func(images.Handler) images.Handler) (client.Image, error) {
+	opts := []client.RemoteOpt{client.WithPullUnpack, client.WithResolver(resolver)}
+	if wrap != nil {
+		opts = append(opts, client.WithImageHandlerWrapper(wrap))
+	}
+	return b.c.Pull(ctx, ref, opts...)
 }
 
 func (b *containerdBackend) SetImageLabel(ctx context.Context, name, key, value string) error {

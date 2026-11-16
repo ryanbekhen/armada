@@ -117,8 +117,9 @@ func (s *Images) Get(name string) (Image, bool) {
 
 // Pull resolves ref with resolver, fetches the manifest for this node's
 // platform with its config and layers, unpacks the layers, and records the
-// image under ref with labels.
-func (s *Images) Pull(ctx context.Context, ref string, resolver remotes.Resolver, labels map[string]string) (Image, error) {
+// image under ref with labels. wrap, when set, wraps the handler that
+// fetches each descriptor and finds its children.
+func (s *Images) Pull(ctx context.Context, ref string, resolver remotes.Resolver, labels map[string]string, wrap func(images.Handler) images.Handler) (Image, error) {
 	name, desc, err := resolver.Resolve(ctx, ref)
 	if err != nil {
 		return Image{}, err
@@ -128,7 +129,11 @@ func (s *Images) Pull(ctx context.Context, ref string, resolver remotes.Resolver
 		return Image{}, err
 	}
 	children := images.LimitManifests(images.FilterPlatforms(images.ChildrenHandler(s.content), s.platform), s.platform, 1)
-	if err := images.Dispatch(ctx, images.Handlers(remotes.FetchHandler(s.content, fetcher), children), semaphore.NewWeighted(pullParallel), desc); err != nil {
+	var handler images.Handler = images.Handlers(remotes.FetchHandler(s.content, fetcher), children)
+	if wrap != nil {
+		handler = wrap(handler)
+	}
+	if err := images.Dispatch(ctx, handler, semaphore.NewWeighted(pullParallel), desc); err != nil {
 		return Image{}, fmt.Errorf("fetch: %w", err)
 	}
 	return s.unpack(ctx, ref, desc, labels)
