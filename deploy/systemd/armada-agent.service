@@ -16,6 +16,9 @@ UMask=0077
 Restart=always
 RestartSec=2
 LimitNOFILE=65536
+# Under memory pressure the kernel kills workloads (at 0) before the
+# process that runs the node; the container shims are at -999.
+OOMScoreAdjust=-500
 
 [Install]
 WantedBy=multi-user.target

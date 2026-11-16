@@ -49,6 +49,11 @@ func TestAppSpecDefaults(t *testing.T) {
 	if !s.Process.NoNewPrivileges {
 		t.Error("no-new-privileges not set")
 	}
+	// Not the shim's -999: under memory pressure the kernel must not kill
+	// armadad before a workload.
+	if s.Process.OOMScoreAdj == nil || *s.Process.OOMScoreAdj != 0 {
+		t.Errorf("OOM score adjustment %v", s.Process.OOMScoreAdj)
+	}
 	for _, c := range []string{"CAP_NET_RAW", "CAP_MKNOD", "CAP_AUDIT_WRITE", "CAP_SYS_ADMIN"} {
 		if slices.Contains(s.Process.Capabilities.Bounding, c) || slices.Contains(s.Process.Capabilities.Effective, c) {
 			t.Errorf("capability %s kept", c)

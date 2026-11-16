@@ -117,6 +117,10 @@ Armada's and visible in one place:
   container. Without explicit DNS servers the host's upstream resolvers are
   used (the systemd-resolved stub on 127.0.0.53 is not reachable from a
   container, so its upstream file is read instead).
+- App containers (and their init containers and sidecars) run at OOM
+  score adjustment 0 rather than the -999 they would inherit from their
+  shim, and the Armada services run at -500, so under memory pressure the
+  kernel kills workloads before the process that runs the node.
 - System containers (HAProxy) have their own code path: host network
   namespace, all capabilities dropped except the listed ones, read-only
   root filesystem, explicit bind mounts.
