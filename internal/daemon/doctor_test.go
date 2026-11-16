@@ -443,6 +443,39 @@ func TestDoctorRuntimePack(t *testing.T) {
 	}
 }
 
+// A supervisor node (ADR 0046) has no armada-runtime to point at: doctor
+// names the runtime and how its pack gets installed.
+func TestDoctorSupervisorRuntime(t *testing.T) {
+	t.Parallel()
+	detail := func(results []checkResult, name string) string {
+		for _, r := range results {
+			if r.Name == name {
+				return r.Detail
+			}
+		}
+		return ""
+	}
+	env := healthyEnv(t)
+	env.runtime = runtimeSupervisor
+	env.runtimePack = func() (string, string) { return "afeb4828bc91ef0a", "49086b78c834789e" }
+	results := runDoctor(context.Background(), env)
+	if got := detail(results, "runtime"); statusOf(results, "runtime") != checkOK || !strings.Contains(got, "supervisor") {
+		t.Errorf("runtime: %s %q", statusOf(results, "runtime"), got)
+	}
+	if got := detail(results, "runtime-pack"); statusOf(results, "runtime-pack") != checkWarn || strings.Contains(got, "armada-runtime") || !strings.Contains(got, "armada-shim") {
+		t.Errorf("runtime-pack: %q", got)
+	}
+	if statusOf(results, "bridge") == "" {
+		t.Error("no bridge check on a supervisor node")
+	}
+	d := fake.New()
+	d.PingErr = errors.New("armada-shim: no such file")
+	env.driver = d
+	if got := detail(runDoctor(context.Background(), env), "runtime"); strings.Contains(got, "systemctl start armada-runtime") {
+		t.Errorf("a supervisor node is told to start armada-runtime: %q", got)
+	}
+}
+
 func TestDoctorServerEnv(t *testing.T) {
 	t.Parallel()
 	env := healthyEnv(t)
