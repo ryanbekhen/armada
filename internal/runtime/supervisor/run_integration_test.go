@@ -38,7 +38,7 @@ func TestRunIntegration(t *testing.T) {
 	}
 	defer imgs.Close()
 	resolver := docker.NewResolver(docker.ResolverOptions{Hosts: config.ConfigureHosts(ctx, config.HostOptions{DefaultScheme: "https"})})
-	img, err := imgs.Pull(ctx, "docker.io/traefik/whoami:v1.10", resolver, nil)
+	img, err := imgs.Pull(ctx, "docker.io/traefik/whoami:v1.10", resolver, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
