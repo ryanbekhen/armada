@@ -28,7 +28,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 unsafe extern "C" {
     fn prctl(option: i32, arg2: u64, arg3: u64, arg4: u64, arg5: u64) -> i32;
@@ -110,6 +110,8 @@ struct Shim {
     root: PathBuf,
     reaped: Arc<Reaped>,
     containers: Mutex<HashMap<String, Container>>,
+    /// Requests in flight and when the last one began or ended.
+    busy: Mutex<(usize, Instant)>,
 }
 
 /// A container ID: what runc and the log directory accept, nothing else.
@@ -381,6 +383,43 @@ fn last_line(s: &str) -> &str {
     s.lines().last().unwrap_or(s)
 }
 
+/// How long a shim with no containers and no requests waits before it
+/// exits, as containerd's shim does once its last container is gone.
+const IDLE_EXIT: Duration = Duration::from_secs(10);
+
+/// Exits once the shim has had no containers and no requests for
+/// IDLE_EXIT, removing its socket and its state. The socket goes first, so the agent starts a new shim for
+/// the next container instead of reaching this one.
+fn exit_when_idle(shim: &Shim, socket: &Path, state: &Path) {
+    loop {
+        thread::sleep(Duration::from_secs(2));
+        let busy = shim.busy.lock().unwrap();
+        if busy.0 == 0
+            && busy.1.elapsed() >= IDLE_EXIT
+            && shim.containers.lock().unwrap().is_empty()
+        {
+            let _ = fs::remove_file(socket);
+            // runc keeps nothing for containers that were deleted.
+            let _ = fs::remove_dir_all(state);
+            std::process::exit(0);
+        }
+    }
+}
+
+impl Shim {
+    fn begin(&self) {
+        let mut b = self.busy.lock().unwrap();
+        b.0 += 1;
+        b.1 = Instant::now();
+    }
+
+    fn end(&self) {
+        let mut b = self.busy.lock().unwrap();
+        b.0 = b.0.saturating_sub(1);
+        b.1 = Instant::now();
+    }
+}
+
 fn serve_conn(shim: &Shim, stream: UnixStream) {
     let mut line = String::new();
     let mut r = BufReader::new(stream.take(4096));
@@ -420,13 +459,28 @@ fn run(args: &[String]) -> Result<(), String> {
         root,
         reaped,
         containers: Mutex::new(HashMap::new()),
+        busy: Mutex::new((0, Instant::now())),
     });
+    let idle = shim.clone();
+    let sock = PathBuf::from(socket);
+    let state_dir = PathBuf::from(state);
+    thread::Builder::new()
+        .stack_size(64 << 10)
+        .spawn(move || exit_when_idle(&idle, &sock, &state_dir))
+        .map_err(|e| e.to_string())?;
     for stream in listener.incoming() {
         let Ok(stream) = stream else { continue };
-        let shim = shim.clone();
-        let _ = thread::Builder::new()
-            .stack_size(256 << 10)
-            .spawn(move || serve_conn(&shim, stream));
+        shim.begin();
+        let spawned = thread::Builder::new().stack_size(256 << 10).spawn({
+            let shim = shim.clone();
+            move || {
+                serve_conn(&shim, stream);
+                shim.end();
+            }
+        });
+        if spawned.is_err() {
+            shim.end();
+        }
     }
     Ok(())
 }
