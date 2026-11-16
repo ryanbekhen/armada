@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"fmt"
-	"net"
 	"net/netip"
 	"os"
 	"path/filepath"
@@ -11,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/ryanbekhen/armada/internal/etcd"
+	"github.com/ryanbekhen/armada/internal/etcd/etcdtest"
 	"github.com/ryanbekhen/armada/internal/pki"
 )
 
@@ -38,9 +38,9 @@ func runTests(m *testing.M) int {
 		return 1
 	}
 	testEtcdDir = filepath.Join(dir, "etcd")
-	testMember, err = etcd.Start(context.Background(), etcd.Config{
+	testMember, err = etcdtest.Start(context.Background(), etcd.Config{
 		Dir: testEtcdDir, Name: "test", Addr: netip.MustParseAddr("127.0.0.1"),
-		ClientPort: freePort(), PeerPort: freePort(), CA: ca, UnsafeNoFsync: true,
+		CA: ca, UnsafeNoFsync: true,
 	})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -48,15 +48,6 @@ func runTests(m *testing.M) int {
 	}
 	defer testMember.Close()
 	return m.Run()
-}
-
-func freePort() int {
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		panic(err)
-	}
-	defer l.Close()
-	return l.Addr().(*net.TCPAddr).Port
 }
 
 func open(t *testing.T) *Etcd {
