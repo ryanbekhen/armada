@@ -36,6 +36,7 @@ require (
 	github.com/spf13/pflag v1.1.0
 	github.com/vishvananda/netlink v1.3.1
 	github.com/vishvananda/netns v0.0.5
+	go.etcd.io/bbolt v1.5.0
 	go.etcd.io/etcd/client/v3 v3.7.3
 	go.etcd.io/etcd/etcdutl/v3 v3.7.3
 	go.etcd.io/etcd/server/v3 v3.7.3
@@ -109,7 +110,6 @@ require (
 	github.com/xiang90/probing v0.0.0-20221125231312-a49e3df8f510 // indirect
 	github.com/zeebo/blake3 v0.2.4 // indirect
 	github.com/zeebo/xxh3 v1.1.0 // indirect
-	go.etcd.io/bbolt v1.5.0 // indirect
 	go.etcd.io/etcd/api/v3 v3.7.3 // indirect
 	go.etcd.io/etcd/client/pkg/v3 v3.7.3 // indirect
 	go.etcd.io/etcd/pkg/v3 v3.7.3 // indirect

@@ -128,7 +128,18 @@ Armada's and visible in one place:
   none (image labels `armada.pulled-with/<key>`, a hash of the registry,
   user, and password, or `anyone`); otherwise the registry is asked once
   whether these credentials may read the digest, so an app cannot run
-  another app's private image by naming its digest.
+  another app's private image by naming its digest. A pull under any name
+  uses a blob already on the node, or one another pull fetches at the same
+  time, only when an image pulled with the same credentials (or none)
+  holds it; otherwise its own registry must serve it again. Every layer
+  blob is fetched, also for layers already unpacked, and an image is kept
+  only once each layer blob is shown to decompress to the diff ID its
+  config names (the `containerd.io/uncompressed` label the unpacker sets,
+  else read once and labelled): unpacked layers are found by diff IDs
+  alone, so an image naming another image's diff IDs would otherwise get
+  its files. Registry requests are HTTPS only and never dial link-local,
+  unspecified, or multicast addresses; a machine whose environment names
+  an HTTPS proxy reaches registries through it.
 - Images do not pile up: every 10 minutes the agent removes images that no
   container uses (system containers and stopped job attempts included), that
   no replica of its assignment names by reference or digest, and that were

@@ -50,8 +50,12 @@ plugins, tini, and `armada-log` are the same on both.
   `<data-dir>/supervisor/images`, at most two blobs fetched at once
   (pulling three images peaks at a 10 MiB heap and leaves 3 MiB). Images
   are recorded in `images.json` with their labels (`armada.pulled-with/<key>`
-  keeps its meaning); removing one removes the layers and blobs no other
-  image uses. Each container is an OCI bundle under
+  keeps its meaning, and a name pulled again to another target starts
+  with none); a layer already unpacked is reused for a new image only
+  once its blob is shown to decompress to the image's diff ID, as with
+  containerd (ADR 0011). Removing an image removes the layers and blobs no
+  other image uses, once no pull is running (the last pull to end does
+  it otherwise). Each container is an OCI bundle under
   `<data-dir>/supervisor/containers/<id>`: its root filesystem mounted from
   a snapshot, `config.json`, and `record.json` (labels, image, shim group),
   written last.

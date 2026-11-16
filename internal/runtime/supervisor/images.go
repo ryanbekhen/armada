@@ -8,9 +8,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"time"
 
@@ -28,8 +30,11 @@ import (
 	clog "github.com/containerd/log"
 	"github.com/containerd/platforms"
 	"github.com/opencontainers/go-digest"
+	"github.com/opencontainers/image-spec/identity"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"golang.org/x/sync/semaphore"
+
+	"github.com/ryanbekhen/armada/internal/runtime/imagecheck"
 )
 
 // Images keeps a node's images without a daemon: blobs in a content store
@@ -42,8 +47,19 @@ type Images struct {
 	applier  diff.Applier
 	platform platforms.MatchComparer
 
+	// pulls is held shared by every pull from its first fetch until its
+	// record is written, and exclusively while unused layers and blobs
+	// are collected, so a collection never takes what a pull is using.
+	// A collection that would wait is left to the last pull to end
+	// (uncollected).
+	pulls       sync.RWMutex
+	uncollected bool
+
 	mu   sync.Mutex
 	recs map[string]Image
+	// verified holds layer blobs shown to decompress to a diff ID since
+	// the store was opened (the content store keeps no labels).
+	verified map[digest.Digest]digest.Digest
 }
 
 // Image is what the store records about a pulled image name.
@@ -90,6 +106,7 @@ func OpenImages(root string) (*Images, error) {
 		applier:  apply.NewFileSystemApplier(cs),
 		platform: platforms.Default(),
 		recs:     map[string]Image{},
+		verified: map[digest.Digest]digest.Digest{},
 	}
 	b, err := os.ReadFile(filepath.Join(root, recordsFile)) //nolint:gosec // under the agent's data directory
 	switch {
@@ -117,9 +134,17 @@ func (s *Images) Get(name string) (Image, bool) {
 
 // Pull resolves ref with resolver, fetches the manifest for this node's
 // platform with its config and layers, unpacks the layers, and records the
-// image under ref with labels. wrap, when set, wraps the handler that
-// fetches each descriptor and finds its children.
-func (s *Images) Pull(ctx context.Context, ref string, resolver remotes.Resolver, labels map[string]string, wrap func(images.Handler) images.Handler) (Image, error) {
+// image under ref. The record keeps the labels of the record it replaces
+// only when both name the same target. wrap, when set, wraps the handler
+// that fetches each descriptor and finds its children.
+func (s *Images) Pull(ctx context.Context, ref string, resolver remotes.Resolver, wrap func(images.Handler) images.Handler) (Image, error) {
+	s.pulls.RLock()
+	defer func() {
+		s.pulls.RUnlock()
+		if err := s.collectIdle(context.WithoutCancel(ctx)); err != nil {
+			slog.Warn("collect unused image layers", "err", err)
+		}
+	}()
 	name, desc, err := resolver.Resolve(ctx, ref)
 	if err != nil {
 		return Image{}, err
@@ -136,10 +161,10 @@ func (s *Images) Pull(ctx context.Context, ref string, resolver remotes.Resolver
 	if err := images.Dispatch(ctx, handler, semaphore.NewWeighted(pullParallel), desc); err != nil {
 		return Image{}, fmt.Errorf("fetch: %w", err)
 	}
-	return s.unpack(ctx, ref, desc, labels)
+	return s.unpack(ctx, ref, desc)
 }
 
-func (s *Images) unpack(ctx context.Context, name string, desc ocispec.Descriptor, labels map[string]string) (Image, error) {
+func (s *Images) unpack(ctx context.Context, name string, desc ocispec.Descriptor) (Image, error) {
 	manifest, err := images.Manifest(ctx, s.content, desc, s.platform)
 	if err != nil {
 		return Image{}, err
@@ -158,6 +183,18 @@ func (s *Images) unpack(ctx context.Context, name string, desc ocispec.Descripto
 			Blob: manifest.Layers[i],
 		}
 	}
+	// Unpacked layers are found by chain ID, from the config's diff IDs
+	// alone, and ApplyLayers skips one already there without reading its
+	// blob: first show that each such blob really is that layer.
+	chainIDs := identity.ChainIDs(slices.Clone(diffs))
+	for i := range layers {
+		if _, err := s.snap.Stat(ctx, chainIDs[i].String()); err != nil {
+			continue
+		}
+		if err := s.checkLayer(ctx, layers[i]); err != nil {
+			return Image{}, err
+		}
+	}
 	var chain digest.Digest
 	err = withImageUmask(func() (err error) {
 		chain, err = rootfs.ApplyLayers(ctx, layers, s.snap, s.applier)
@@ -166,8 +203,14 @@ func (s *Images) unpack(ctx context.Context, name string, desc ocispec.Descripto
 	if err != nil {
 		return Image{}, fmt.Errorf("unpack: %w", err)
 	}
+	s.mu.Lock()
+	for _, l := range layers {
+		// Applied layers were checked by the applier, the rest above.
+		s.verified[l.Blob.Digest] = l.Diff.Digest
+	}
+	s.mu.Unlock()
 	now := time.Now().UTC()
-	img := Image{Name: name, Target: desc, Config: manifest.Config, ChainID: chain, Labels: labels, Created: now, Updated: now}
+	img := Image{Name: name, Target: desc, Config: manifest.Config, ChainID: chain, Created: now, Updated: now}
 	if ps, err := images.Platforms(ctx, s.content, desc); err == nil {
 		for _, p := range ps {
 			img.Platforms = append(img.Platforms, p.OS+"/"+p.Architecture)
@@ -176,10 +219,28 @@ func (s *Images) unpack(ctx context.Context, name string, desc ocispec.Descripto
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if old, ok := s.recs[name]; ok && old.Target.Digest == desc.Digest {
-		img.Created = old.Created
+		// The labels record who may use this target (pulled-with).
+		img.Created, img.Labels = old.Created, maps.Clone(old.Labels)
 	}
 	s.recs[name] = img
 	return img, s.saveLocked()
+}
+
+// checkLayer checks that l's blob decompresses to its diff ID.
+func (s *Images) checkLayer(ctx context.Context, l rootfs.Layer) error {
+	s.mu.Lock()
+	ok := s.verified[l.Blob.Digest] == l.Diff.Digest
+	s.mu.Unlock()
+	if ok {
+		return nil
+	}
+	if err := imagecheck.Layer(ctx, s.content, l.Blob, l.Diff.Digest); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	s.verified[l.Blob.Digest] = l.Diff.Digest
+	s.mu.Unlock()
+	return nil
 }
 
 // saveLocked writes the records atomically.
@@ -256,14 +317,33 @@ func (r Image) metadata() images.Image {
 // snapshotter refuses to remove a parent.
 func (s *Images) Delete(ctx context.Context, name string) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if _, ok := s.recs[name]; !ok {
+		s.mu.Unlock()
 		return fmt.Errorf("image %s: %w", name, errdefs.ErrNotFound)
 	}
 	delete(s.recs, name)
-	if err := s.saveLocked(); err != nil {
+	err := s.saveLocked()
+	s.uncollected = true
+	s.mu.Unlock()
+	if err != nil {
 		return err
 	}
+	return s.collectIdle(ctx)
+}
+
+// collectIdle collects unused layers and blobs when a deletion left some
+// and no pull is running; otherwise the last running pull does it.
+func (s *Images) collectIdle(ctx context.Context) error {
+	if !s.pulls.TryLock() {
+		return nil
+	}
+	defer s.pulls.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.uncollected {
+		return nil
+	}
+	s.uncollected = false
 	return s.collectLocked(ctx)
 }
 

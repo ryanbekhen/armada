@@ -58,7 +58,7 @@ func TestImagesPullIntegration(t *testing.T) {
 	resolver := docker.NewResolver(docker.ResolverOptions{Hosts: config.ConfigureHosts(ctx, config.HostOptions{DefaultScheme: "https"})})
 	for _, ref := range strings.Split(refs, ",") {
 		start := time.Now()
-		img, err := s.Pull(ctx, ref, resolver, map[string]string{"armada.pulled-with/anyone": "1"}, nil)
+		img, err := s.Pull(ctx, ref, resolver, nil)
 		if err != nil {
 			t.Fatalf("%s: %v", ref, err)
 		}
