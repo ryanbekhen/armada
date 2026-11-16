@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/netip"
 	"os"
@@ -23,12 +24,23 @@ import (
 	"github.com/ryanbekhen/armada/internal/runtime/embedded"
 )
 
+// cniPlugins is the part of the plugin runner the network uses (a fake in
+// tests).
+type cniPlugins interface {
+	AddNetworkList(ctx context.Context, net *libcni.NetworkConfigList, rt *libcni.RuntimeConf) (cnitypes.Result, error)
+	DelNetworkList(ctx context.Context, net *libcni.NetworkConfigList, rt *libcni.RuntimeConf) error
+	GetNetworkListCachedResult(net *libcni.NetworkConfigList, rt *libcni.RuntimeConf) (cnitypes.Result, error)
+}
+
 type cniNetwork struct {
 	bridge   runtime.Bridge
 	mtu      int
-	cni      *libcni.CNIConfig
+	cni      cniPlugins
 	conf     *libcni.NetworkConfigList
 	netnsDir string
+	// forget deletes the connection tracking entries of an address the
+	// plugins gave back (forgetConnections; a fake in tests).
+	forget func(netip.Addr) error
 
 	mu    sync.Mutex
 	ready bool
@@ -53,6 +65,7 @@ func newNetwork(p embedded.Paths, subnet netip.Prefix, mtu int) (network, error)
 		cni:      libcni.NewCNIConfigWithCacheDir([]string{filepath.Join(p.Bin(), embedded.DirCNI)}, filepath.Join(p.CNI(), "cache"), nil),
 		conf:     conf,
 		netnsDir: p.NetNS(),
+		forget:   forgetConnections,
 	}, nil
 }
 
@@ -208,13 +221,79 @@ func (n *cniNetwork) Teardown(ctx context.Context, id, path string, pm *portMapp
 		// and NAT rules.
 		nsPath = ""
 	}
+	// The address, read before the plugins drop their cache with it.
+	addr := n.cachedAddr(id, nsPath, pm)
 	if err := n.cni.DelNetworkList(ctx, n.conf, n.runtimeConf(id, nsPath, pm)); err != nil {
 		return err
 	}
+	n.forgetAddr(id, addr)
 	if nsPath != "" {
 		if err := netns.LoadNetNS(nsPath).Remove(); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// cachedAddr returns the IPv4 address the plugins' cache holds for id, or
+// the zero address when there is none.
+func (n *cniNetwork) cachedAddr(id, path string, pm *portMapping) netip.Addr {
+	res, err := n.cni.GetNetworkListCachedResult(n.conf, n.runtimeConf(id, path, pm))
+	if err != nil || res == nil {
+		return netip.Addr{}
+	}
+	ip, err := resultIP(res)
+	if err != nil {
+		return netip.Addr{}
+	}
+	a, err := netip.ParseAddr(ip)
+	if err != nil || !a.Is4() {
+		return netip.Addr{}
+	}
+	return a
+}
+
+// forgetAddr deletes the connection tracking entries of an address the
+// plugins just gave back. The address can go to a container of another
+// space next, and an entry its peer keeps refreshing would hand that
+// peer's flow to the new owner past the isolation rules, which accept
+// established connections first (ADR 0026). With the entries gone, the
+// peer's next packet is new and checked again. A failure is logged, never
+// returned: the address is released either way.
+func (n *cniNetwork) forgetAddr(id string, addr netip.Addr) {
+	if !addr.IsValid() || n.forget == nil {
+		return
+	}
+	if err := n.forget(addr); err != nil {
+		slog.Warn("connection tracking entries of a released container address were not all deleted",
+			"container", id, "address", addr, "err", err)
+	}
+}
+
+// forgetConnections deletes every IPv4 connection tracking entry of the
+// host's network namespace whose original source or destination, or reply
+// source or destination, is addr (the reply side catches connections
+// DNAT'd to the container from a published port).
+func forgetConnections(addr netip.Addr) error {
+	filters, err := connFilters(addr)
+	if err != nil {
+		return err
+	}
+	_, err = netlink.ConntrackDeleteFilters(netlink.ConntrackTable, netlink.FAMILY_V4, filters...)
+	return err
+}
+
+// connFilters match an entry when any of its four addresses is addr.
+func connFilters(addr netip.Addr) ([]netlink.CustomConntrackFilter, error) {
+	ip := net.IP(addr.AsSlice())
+	types := []netlink.ConntrackFilterType{netlink.ConntrackOrigSrcIP, netlink.ConntrackOrigDstIP, netlink.ConntrackReplyAnyIP}
+	filters := make([]netlink.CustomConntrackFilter, 0, len(types))
+	for _, t := range types {
+		f := &netlink.ConntrackFilter{}
+		if err := f.AddIP(t, ip); err != nil {
+			return nil, err
+		}
+		filters = append(filters, f)
+	}
+	return filters, nil
 }
