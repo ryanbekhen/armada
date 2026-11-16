@@ -173,3 +173,22 @@ func TestContainerdConfig(t *testing.T) {
 		}
 	}
 }
+
+// InstalledPack names the pack Install pointed root/current at.
+func TestInstalledPack(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	if id := InstalledPack(root); id != "" {
+		t.Errorf("before Install: %q", id)
+	}
+	pack, err := Pack("amd64", nil, map[string][]byte{"runc": []byte("x")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := Install(root, pack); err != nil {
+		t.Fatal(err)
+	}
+	if id := InstalledPack(root); id != PackID(pack) || len(id) != 16 {
+		t.Errorf("InstalledPack = %q, PackID = %q", id, PackID(pack))
+	}
+}

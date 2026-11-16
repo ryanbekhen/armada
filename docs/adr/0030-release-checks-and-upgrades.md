@@ -36,8 +36,14 @@ the installer does (the cosign signature of the checksum file by this
 repository's release workflow for that tag when cosign is installed, made
 mandatory by `--require-signature`, then the archive's checksum), takes only
 the two binaries and the systemd units from the archive, replaces each file
-atomically, reloads systemd, and restarts whichever of `armada-server` and
-`armada-agent` runs. It refuses a release older than the running one,
+atomically, reloads systemd, and restarts `armada-runtime` when it runs, so
+the node uses the runtime pack (containerd, runc, `armada-log`; ADR 0011)
+the new `armadad` carries (its unit kills only containerd: containers and
+their shims keep running), then whichever of `armada-server` and
+`armada-agent` runs. Without that, a node kept the pack it extracted when
+the runtime last started, so runtime fixes in a release never reached it;
+`armadad doctor` warns (`runtime-pack`) when the running pack is not the
+binary's. It refuses a release older than the running one,
 because state migrations only go forward (ADR 0012).
 
 Armada's services restart only when `armadad upgrade` or the operator asks.

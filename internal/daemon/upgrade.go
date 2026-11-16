@@ -59,7 +59,7 @@ func newUpgradeCommand() *cobra.Command {
 		Short: "Upgrade this machine to the latest (or a given) release and restart its service",
 		Long: "upgrade downloads a release, verifies its checksum (and its signature when cosign is\n" +
 			"installed), replaces armadad and armada and the systemd units, and restarts\n" +
-			"armada-server or armada-agent. Upgrade servers first, one at a time, then the other\n" +
+			"armada-runtime (containers keep running) and armada-server or armada-agent. Upgrade servers first, one at a time, then the other\n" +
 			"nodes (docs/operations.md#upgrades). ARMADA_DOWNLOAD_BASE points at a mirror.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -164,6 +164,15 @@ func (u *upgrader) run(ctx context.Context, current, target string) error {
 
 	msg := fmt.Sprintf("Upgraded to %s (from %s)", target, current)
 	if u.restart {
+		// The runtime first, so it extracts the pack the new armadad
+		// carries (containerd, runc, armada-log; ADR 0011). Its unit kills
+		// only containerd: containers and their shims keep running.
+		if u.isActive(ctx, "armada-runtime") {
+			if err := u.systemctl(ctx, "restart", "armada-runtime"); err != nil {
+				return fmt.Errorf("installed %s, but restarting armada-runtime failed: %w", target, err)
+			}
+			msg += "; restarted armada-runtime"
+		}
 		for _, unit := range []string{"armada-server", "armada-agent"} {
 			if !u.isActive(ctx, unit) {
 				continue

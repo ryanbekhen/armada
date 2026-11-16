@@ -75,7 +75,7 @@ var releaseFiles = []tarFile{
 	{name: "armada-link", typ: tar.TypeSymlink},
 }
 
-func testUpgrader(t *testing.T, base string, active string) (*upgrader, *[]string, *bytes.Buffer) {
+func testUpgrader(t *testing.T, base string, active ...string) (*upgrader, *[]string, *bytes.Buffer) {
 	t.Helper()
 	bin, units := t.TempDir(), t.TempDir()
 	for _, b := range []string{"armadad", "armada"} {
@@ -91,7 +91,7 @@ func testUpgrader(t *testing.T, base string, active string) (*upgrader, *[]strin
 			calls = append(calls, strings.Join(args, " "))
 			return nil
 		},
-		isActive: func(_ context.Context, unit string) bool { return unit == active },
+		isActive: func(_ context.Context, unit string) bool { return slices.Contains(active, unit) },
 		out:      &out, warn: io.Discard,
 	}
 	return u, &calls, &out
@@ -104,6 +104,31 @@ func read(t *testing.T, p string) string {
 		t.Fatal(err)
 	}
 	return string(b)
+}
+
+// The runtime restarts before the service, so the node runs the runtime
+// pack the new armadad carries; containers keep running (ADR 0011).
+func TestUpgradeRestartsRuntime(t *testing.T) {
+	t.Parallel()
+	base := fakeRelease(t, "v0.2.0", releaseFiles, false)
+	u, calls, out := testUpgrader(t, base, "armada-runtime", "armada-server")
+	if err := u.run(context.Background(), "v0.1.0", "v0.2.0"); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(*calls, []string{"daemon-reload", "restart armada-runtime", "restart armada-server"}) {
+		t.Errorf("systemctl calls %v", *calls)
+	}
+	if !strings.Contains(out.String(), "restarted armada-runtime; restarted armada-server.") {
+		t.Errorf("output %q", out.String())
+	}
+	u, calls, _ = testUpgrader(t, base, "armada-runtime", "armada-server")
+	u.restart = false
+	if err := u.run(context.Background(), "v0.1.0", "v0.2.0"); err != nil {
+		t.Fatal(err)
+	}
+	if slices.Contains(*calls, "restart armada-runtime") {
+		t.Errorf("--no-restart restarted: %v", *calls)
+	}
 }
 
 func TestUpgrade(t *testing.T) {

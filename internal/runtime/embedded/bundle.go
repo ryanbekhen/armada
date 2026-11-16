@@ -94,8 +94,7 @@ func checkName(n string) error {
 // that keeps working across upgrades). Every file is checked against the
 // pack's manifest on every call.
 func Install(root string, pack []byte) (string, Manifest, error) {
-	sum := sha256.Sum256(pack)
-	id := hex.EncodeToString(sum[:8])
+	id := PackID(pack)
 	if err := os.MkdirAll(root, 0o700); err != nil {
 		return "", Manifest{}, err
 	}
@@ -148,6 +147,22 @@ func Install(root string, pack []byte) (string, Manifest, error) {
 		}
 	}
 	return filepath.Join(link, "bin"), m, nil
+}
+
+// PackID names a pack: the directory Install extracts it into.
+func PackID(pack []byte) string {
+	sum := sha256.Sum256(pack)
+	return hex.EncodeToString(sum[:8])
+}
+
+// InstalledPack returns the ID of the pack root/current points at ("dev"
+// for development binaries, "" when none was installed yet).
+func InstalledPack(root string) string {
+	id, err := os.Readlink(filepath.Join(root, "current"))
+	if err != nil {
+		return ""
+	}
+	return id
 }
 
 func readManifest(pack []byte) (Manifest, error) {

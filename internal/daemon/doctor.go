@@ -68,6 +68,9 @@ type doctorEnv struct {
 	// needrestart reports whether needrestart is installed and holds
 	// Armada's setting; nil skips the check.
 	needrestart func() (installed, set bool)
+	// runtimePack returns the pack the runtime runs and the one this binary
+	// carries ("" when it carries none); nil skips the check.
+	runtimePack func() (installed, bundled string)
 	// serverEnv reads /etc/armada/server.env; nil skips the check.
 	serverEnv   func() ([]byte, error)
 	now         func() time.Time
@@ -148,6 +151,7 @@ func hostDoctorEnv(dataDir string) doctorEnv {
 		readFile:    fsutil.ReadPrivateFile,
 		serverEnv:   func() ([]byte, error) { return os.ReadFile(serverEnvFile) },
 		needrestart: func() (bool, bool) { return needrestartState(needrestartDir) },
+		runtimePack: func() (string, string) { return runtimePacks(dataDir) },
 		now:         time.Now,
 		adminConfig: clientconfig.DefaultPath(),
 		clusterPort: []uint16{defaultPort, defaultPort + 1, haproxy.MetricsPort},
@@ -249,6 +253,18 @@ func runDoctor(ctx context.Context, env doctorEnv) []checkResult {
 			add("needrestart", checkOK, "needrestart leaves Armada's services alone")
 		default:
 			add("needrestart", checkWarn, "needrestart may restart armada-runtime and the other Armada services after package upgrades; sudo armadad upgrade (or install.sh) writes %s/%s to stop it", needrestartDir, needrestartFile)
+		}
+	}
+
+	if env.runtimePack != nil {
+		switch installed, bundled := env.runtimePack(); {
+		case bundled == "" || installed == "" || installed == "dev":
+			// A development build, or a runtime that never started: the
+			// runtime check covers that.
+		case installed != bundled:
+			add("runtime-pack", checkWarn, "armada-runtime runs pack %s, but this armadad carries %s (containerd, runc, armada-log): sudo systemctl restart armada-runtime (containers keep running)", installed, bundled)
+		default:
+			add("runtime-pack", checkOK, "armada-runtime runs the pack this armadad carries (%s)", bundled)
 		}
 	}
 
@@ -679,4 +695,13 @@ func clusterFlagsIn(env string) []string {
 		}
 	}
 	return found
+}
+
+// runtimePacks returns the pack extracted under dataDir and the one compiled
+// into this binary.
+func runtimePacks(dataDir string) (installed, bundled string) {
+	if b := embedded.Bundled(); b != nil {
+		bundled = embedded.PackID(b)
+	}
+	return embedded.InstalledPack(embedded.Paths{DataDir: dataDir}.Bundle()), bundled
 }
