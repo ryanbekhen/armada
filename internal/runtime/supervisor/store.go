@@ -63,16 +63,18 @@ func (s *Store) NewContainer(ctx context.Context, id string, img client.Image, l
 		return nil, fmt.Errorf("container %s: %w", id, errdefs.ErrAlreadyExists)
 	}
 	cc := &containers.Container{ID: id, Image: im.rec.Name, Labels: maps.Clone(labels), SnapshotKey: id, Snapshotter: snapshotterName}
-	// Spec opts that read the image (its configuration, its users) get it
-	// from the caller, which passes this store's image.
-	_, oclient := s.Images.OCI(im.rec)
-	spec, err := oci.GenerateSpec(ctx, oclient, cc, opts...)
-	if err != nil {
-		return nil, err
-	}
+	// The root filesystem first, as on containerd: spec opts read the
+	// image's users and groups from it. Opts that read the image's
+	// configuration get it from the caller, which passes this store's image.
 	rootfs, err := s.Images.Prepare(ctx, id, im.rec)
 	if err != nil {
 		return nil, fmt.Errorf("root filesystem: %w", err)
+	}
+	_, oclient := s.Images.OCI(im.rec)
+	spec, err := oci.GenerateSpec(ctx, oclient, cc, opts...)
+	if err != nil {
+		_ = s.Images.Release(context.WithoutCancel(ctx), id)
+		return nil, err
 	}
 	group := spec.Annotations[GroupAnnotation]
 	if group == "" {
