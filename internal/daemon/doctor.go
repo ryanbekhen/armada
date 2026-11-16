@@ -50,6 +50,9 @@ type doctorEnv struct {
 	euid      int
 	driver    runtime.Driver
 	driverErr error
+	// runtime is the node's container runtime from agent.json: embedded
+	// (containerd) or supervisor (ADR 0046).
+	runtime string
 	// runtimeHost checks what the embedded runtime needs from the host.
 	runtimeHost func(subnet netip.Prefix) []checkResult
 	// network checks the cluster network (ADR 0025); nil when the node is
@@ -138,6 +141,7 @@ func hostDoctorEnv(dataDir string) doctorEnv {
 		euid:        os.Geteuid(),
 		driver:      driver,
 		driverErr:   err,
+		runtime:     ac.Runtime,
 		runtimeHost: embeddedHostChecks,
 		network:     network,
 		subnet:      subnet,
@@ -261,8 +265,12 @@ func runDoctor(ctx context.Context, env doctorEnv) []checkResult {
 		case bundled == "" || installed == "" || installed == "dev":
 			// A development build, or a runtime that never started: the
 			// runtime check covers that.
+		case installed != bundled && env.runtime == runtimeSupervisor:
+			add("runtime-pack", checkWarn, "the installed runtime pack is %s, but this armadad carries %s (runc, armada-shim, armada-log): restart armada-server or armada-agent, which installs it (containers keep running)", installed, bundled)
 		case installed != bundled:
 			add("runtime-pack", checkWarn, "armada-runtime runs pack %s, but this armadad carries %s (containerd, runc, armada-log): sudo systemctl restart armada-runtime (containers keep running)", installed, bundled)
+		case env.runtime == runtimeSupervisor:
+			add("runtime-pack", checkOK, "the installed runtime pack is the one this armadad carries (%s)", bundled)
 		default:
 			add("runtime-pack", checkOK, "armada-runtime runs the pack this armadad carries (%s)", bundled)
 		}
@@ -308,6 +316,21 @@ func checkRuntime(ctx context.Context, env doctorEnv) []checkResult {
 	pingCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	err := env.driver.Ping(pingCtx)
 	cancel()
+	if env.runtime == runtimeSupervisor {
+		// No daemon to reach: the agent runs containers through armada-shim
+		// (ADR 0046).
+		switch {
+		case err != nil && env.euid != 0:
+			add("runtime", checkWarn, "cannot check the supervisor runtime without root: run sudo armadad doctor")
+			return out
+		case err != nil:
+			add("runtime", checkFail, "supervisor runtime: %v (%s)", err, runtimeHint(runtimeSupervisor))
+			return out
+		default:
+			add("runtime", checkOK, "supervisor runtime ready (armada-shim, no containerd)")
+		}
+		return append(out, bridgeCheck(ctx, env)...)
+	}
 	switch {
 	case err != nil && env.euid != 0:
 		// The socket is root's, and so is the data directory that tells
@@ -323,18 +346,23 @@ func checkRuntime(ctx context.Context, env doctorEnv) []checkResult {
 	default:
 		add("runtime", checkOK, "embedded runtime reachable")
 	}
-	if bi, ok := env.driver.(runtime.BridgeInspector); ok && runtime.HasBridge(env.driver) {
-		b, err := bi.Bridge(ctx)
-		switch {
-		case err != nil:
-			add("bridge", checkWarn, "cannot inspect the container bridge (internal ingress and DNS will be off): %v", err)
-		case !netutil.IsPrivate(b.Gateway):
-			add("bridge", checkFail, "container bridge gateway %s is not a private address", b.Gateway)
-		default:
-			add("bridge", checkOK, "gateway %s, subnet %s", b.Gateway, b.Subnet)
-		}
+	return append(out, bridgeCheck(ctx, env)...)
+}
+
+// bridgeCheck inspects the container bridge.
+func bridgeCheck(ctx context.Context, env doctorEnv) []checkResult {
+	bi, ok := env.driver.(runtime.BridgeInspector)
+	if !ok || !runtime.HasBridge(env.driver) {
+		return nil
 	}
-	return out
+	b, err := bi.Bridge(ctx)
+	switch {
+	case err != nil:
+		return []checkResult{{Name: "bridge", Status: checkWarn, Detail: fmt.Sprintf("cannot inspect the container bridge (internal ingress and DNS will be off): %v", err)}}
+	case !netutil.IsPrivate(b.Gateway):
+		return []checkResult{{Name: "bridge", Status: checkFail, Detail: fmt.Sprintf("container bridge gateway %s is not a private address", b.Gateway)}}
+	}
+	return []checkResult{{Name: "bridge", Status: checkOK, Detail: fmt.Sprintf("gateway %s, subnet %s", b.Gateway, b.Subnet)}}
 }
 
 // clusterNetChecks are the cluster network's checks on this host.

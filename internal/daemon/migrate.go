@@ -81,11 +81,7 @@ func (m runtimeMigrator) run(cmd *cobra.Command, to string) error {
 	err = rt.Ping(pctx)
 	cancel()
 	if err != nil {
-		hint := runtimeHint()
-		if from == runtimeSupervisor {
-			hint = "armadad doctor"
-		}
-		return fmt.Errorf("the current runtime (%s): %w (%s)", from, err, hint)
+		return fmt.Errorf("the current runtime (%s): %w (%s)", from, err, runtimeHint(from))
 	}
 	errs, err := removeContainers(ctx, rt, out)
 	if err != nil {

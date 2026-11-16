@@ -491,6 +491,8 @@ iso_matrix() { # iso_matrix WHEN
 	wait_for 60 "$1: in another space the name alone is not web.e2e-space" blocked caller.e2e-other web
 	wait_for 60 "$1: a space's app cannot reach a node's private IP" blocked caller.e2e-other "$(host "$N" 3)"
 }
+# e2e-space comes from the secrets scenario; create it when that did not run.
+cli space show e2e-space >/dev/null 2>&1 || cli space create e2e-space >/dev/null
 cli space create e2e-other >/dev/null
 iso_deploy web e2e-space 2
 iso_deploy other e2e-space 1

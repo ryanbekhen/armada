@@ -173,8 +173,13 @@ func installPack(p embedded.Paths) error {
 	return nil
 }
 
-// runtimeHint says how to start the node's runtime.
-func runtimeHint() string { return "systemctl start armada-runtime" }
+// runtimeHint says how to start or check the node's runtime.
+func runtimeHint(rt string) string {
+	if rt == runtimeSupervisor {
+		return "the runtime pack is installed by armada-server or armada-agent; check sudo armadad doctor"
+	}
+	return "systemctl start armada-runtime"
+}
 
 // runtimeWait bounds how long the agent waits for the runtime at start.
 var runtimeWait = 2 * time.Minute
@@ -283,7 +288,7 @@ func newRuntimeResetCommand() *cobra.Command {
 			err = rt.Ping(pctx)
 			cancel()
 			if err != nil {
-				return fmt.Errorf("container runtime: %w (%s)", err, runtimeHint())
+				return fmt.Errorf("container runtime: %w (%s)", err, runtimeHint(ac.Runtime))
 			}
 			errs, err := removeContainers(ctx, rt, cmd.OutOrStdout())
 			if err != nil {
