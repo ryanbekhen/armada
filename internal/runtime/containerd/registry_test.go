@@ -61,8 +61,16 @@ func TestRegistryClientRefusesPlainRedirects(t *testing.T) {
 	if resp.StatusCode != http.StatusOK || resp.Request.URL.Path != "/v2/ok" {
 		t.Errorf("HTTPS redirect: %d %s", resp.StatusCode, resp.Request.URL)
 	}
-	if c.Transport.(httpsOnly).next.(*http.Transport).Proxy != nil {
-		t.Error("the registry client uses an environment proxy")
+}
+
+// Machines that reach registries through an HTTPS proxy keep it.
+func TestRegistryClientKeepsProxy(t *testing.T) {
+	c := &http.Client{Transport: &http.Transport{Proxy: http.ProxyFromEnvironment}}
+	if err := guardRegistryClient(c); err != nil {
+		t.Fatal(err)
+	}
+	if c.Transport.(httpsOnly).next.(*http.Transport).Proxy == nil {
+		t.Error("the registry client dropped the environment proxy")
 	}
 }
 

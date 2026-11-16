@@ -28,9 +28,12 @@ var errPlainRegistry = errors.New("registry requests must use https")
 // registry's answers must not steer it elsewhere: every request, the
 // first, each redirect, and the token service's, is HTTPS (a redirect to
 // plain HTTP is refused, and the server needs a certificate the machine
-// trusts for the name it is reached by), no environment proxy is used,
-// and no connection is made to a link-local (cloud metadata), unspecified,
-// or multicast address, checked when dialling.
+// trusts for the name it is reached by), and no connection is made to a
+// link-local (cloud metadata), unspecified, or multicast address, checked
+// when dialling. A machine whose environment names an HTTPS proxy
+// (HTTPS_PROXY, NO_PROXY) reaches registries through it, tunnelled, so
+// the proxy, which the machine's operator runs, decides which addresses
+// it connects to.
 func newResolver(ctx context.Context, auth *runtime.RegistryAuth) remotes.Resolver {
 	return docker.NewResolver(docker.ResolverOptions{
 		Hosts: config.ConfigureHosts(ctx, config.HostOptions{
@@ -50,7 +53,6 @@ func guardRegistryClient(c *http.Client) error {
 		return fmt.Errorf("registry client: unexpected transport %T", c.Transport)
 	}
 	tr = tr.Clone()
-	tr.Proxy = nil
 	tr.DialContext = (&net.Dialer{
 		Timeout:   30 * time.Second,
 		KeepAlive: 30 * time.Second,
