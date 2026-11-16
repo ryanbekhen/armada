@@ -147,7 +147,11 @@ func (s *Images) unpack(ctx context.Context, name string, desc ocispec.Descripto
 			Blob: manifest.Layers[i],
 		}
 	}
-	chain, err := rootfs.ApplyLayers(ctx, layers, s.snap, s.applier)
+	var chain digest.Digest
+	err = withImageUmask(func() (err error) {
+		chain, err = rootfs.ApplyLayers(ctx, layers, s.snap, s.applier)
+		return err
+	})
 	if err != nil {
 		return Image{}, fmt.Errorf("unpack: %w", err)
 	}
@@ -183,7 +187,11 @@ func (s *Images) saveLocked() error {
 // Prepare makes a writable root filesystem for container key on top of
 // img's layers and returns its mounts.
 func (s *Images) Prepare(ctx context.Context, key string, img Image) ([]mount.Mount, error) {
-	m, err := s.snap.Prepare(ctx, key, img.ChainID.String())
+	var m []mount.Mount
+	err := withImageUmask(func() (err error) {
+		m, err = s.snap.Prepare(ctx, key, img.ChainID.String())
+		return err
+	})
 	if errdefs.IsAlreadyExists(err) {
 		return s.snap.Mounts(ctx, key)
 	}
