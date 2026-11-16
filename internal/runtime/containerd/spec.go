@@ -99,6 +99,7 @@ func appOpts(a appSpec) []oci.SpecOpts {
 		oci.WithRlimit(&specs.POSIXRlimit{Type: "RLIMIT_NOFILE", Hard: nofile, Soft: nofile}),
 		withInit,
 		withSELinux(a.selinux),
+		withOOMScoreAdj(appOOMScoreAdj),
 	}
 	if a.seccomp != nil {
 		opts = append(opts, a.seccomp)
@@ -123,6 +124,23 @@ func appOpts(a appSpec) []oci.SpecOpts {
 		opts = append(opts, oci.WithCPUShares(cpuShares(s.CPUReserveMillis)))
 	}
 	return opts
+}
+
+// appOOMScoreAdj is the OOM score adjustment of app containers and their
+// members. Without it they inherit their shim's (-999 on both runtimes,
+// which keeps the shims alive), so when a machine runs out of memory the
+// kernel would kill armadad, which runs at 0, before any workload.
+const appOOMScoreAdj = 0
+
+// withOOMScoreAdj sets the container process's OOM score adjustment.
+func withOOMScoreAdj(adj int) oci.SpecOpts {
+	return func(_ context.Context, _ oci.Client, _ *containers.Container, s *oci.Spec) error {
+		if s.Process == nil {
+			s.Process = &specs.Process{}
+		}
+		s.Process.OOMScoreAdj = &adj
+		return nil
+	}
 }
 
 // argsOpts sets the process arguments with the usual image semantics: an

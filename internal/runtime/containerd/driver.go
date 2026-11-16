@@ -159,19 +159,24 @@ func (d *Driver) ctx(ctx context.Context) context.Context {
 	return namespaces.WithNamespace(ctx, embedded.Namespace)
 }
 
-// Ping verifies containerd answers and the bridge exists. It also loads
-// Armada's AppArmor profile, so containers already running when the agent
-// starts (after an upgrade) get its current rules without waiting for a
-// new container; a failure there is only logged, and the next container
-// tries again.
+// Ping verifies containerd answers and the bridge exists.
 func (d *Driver) Ping(ctx context.Context) error {
 	if err := d.ctr.Ping(d.ctx(ctx)); err != nil {
 		return fmt.Errorf("container runtime: %w", err)
 	}
-	if err := loadAppArmorAtStart(); err != nil {
-		slog.Warn("apparmor profile not loaded yet", "err", err)
-	}
 	return d.net.Ensure(ctx)
+}
+
+// AgentStart loads Armada's AppArmor profile, so containers already
+// running when the agent starts (after an upgrade) get its current rules
+// without waiting for a new container; the next container tries again
+// after a failure. Doctor and other commands that ping the runtime leave
+// the loaded profile alone.
+func (d *Driver) AgentStart(context.Context) error {
+	if err := loadAppArmorAtStart(); err != nil {
+		return fmt.Errorf("apparmor profile not loaded yet: %w", err)
+	}
+	return nil
 }
 
 // Bridge reports the container network.

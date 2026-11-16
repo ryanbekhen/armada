@@ -439,6 +439,13 @@ func CanDial(d Driver) bool {
 	return ok
 }
 
+// AgentStarter is told when the agent starts, after Ping: it does what
+// only the agent should, never a command like doctor that also pings the
+// runtime. It is optional; an error is only logged.
+type AgentStarter interface {
+	AgentStart(ctx context.Context) error
+}
+
 // ImagePruner removes images nothing needs any more. It is optional.
 type ImagePruner interface {
 	// PruneImages removes every image that no container uses, that keep

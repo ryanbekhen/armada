@@ -328,6 +328,11 @@ func (a *Agent) Run(ctx context.Context) error {
 	if err := a.cfg.Driver.Ping(ctx); err != nil {
 		return fmt.Errorf("container runtime: %w", err)
 	}
+	if s, ok := a.cfg.Driver.(runtime.AgentStarter); ok {
+		if err := s.AgentStart(ctx); err != nil {
+			slog.Warn("container runtime start", "err", err)
+		}
+	}
 	go a.reconcileLoop(ctx)
 	go a.usageLoop(ctx)
 	go a.queueLoop(ctx)
