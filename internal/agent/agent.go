@@ -672,7 +672,13 @@ func (a *Agent) Reconcile(ctx context.Context) (*armadav1.ReplicaReport, error) 
 			ok = false
 		}
 		if !ok {
-			pending = append(pending, pendingStart{id: id, spec: spec, hash: hash})
+			p := pendingStart{id: id, spec: spec, hash: hash}
+			if old, had := byReplica[id]; had {
+				// Its container is gone, and with it the address the
+				// server may still route to.
+				p.replaced = old.ID
+			}
+			pending = append(pending, p)
 			continue
 		}
 		running = append(running, runningReplica{spec: spec, container: c})
@@ -709,6 +715,10 @@ type pendingStart struct {
 	id   string
 	spec *armadav1.ReplicaSpec
 	hash string
+	// replaced is the ID of the container this start replaces (it crashed,
+	// failed its liveness probe, changed spec, or the machine restarted),
+	// empty for a first start.
+	replaced string
 }
 
 // runningReplica is a replica with a container, whatever its state.
@@ -723,11 +733,22 @@ type runningReplica struct {
 // wait for it: the server only keeps a replica in the proxies while it
 // hears it is ready. So while starts run this keeps telling the server what
 // it knows, tells the firewall about new containers before the server hears
-// of them, and applies proxy changes. A replica still starting is left out
-// of the reports, and keeps the status the server has.
+// of them, and applies proxy changes. A replica starting for the first time
+// is left out of the reports, and keeps the status the server has. One whose
+// container is being recreated is reported starting, with no address, from
+// the first report on: its old container, and the address it had, are gone,
+// and the address may be handed to another container of the node (after a
+// reboot every address is handed out again from the start of the node's
+// range). The server must not keep sending its requests there (T21).
 func (a *Agent) startPending(ctx context.Context, pending []pendingStart, settled []*armadav1.ReplicaState, running []runningReplica) *armadav1.ReplicaReport {
+	started := map[string]bool{}
 	build := func() *armadav1.ReplicaReport {
 		r := &armadav1.ReplicaReport{Replicas: slices.Clone(settled)}
+		for _, p := range pending {
+			if p.replaced != "" && !started[p.id] {
+				r.Replicas = append(r.Replicas, a.recreating(p))
+			}
+		}
 		for _, x := range running {
 			// In this order: a verdict seen here is one state reports.
 			a.readiness(ctx, x.spec, x.container)
@@ -747,6 +768,9 @@ func (a *Agent) startPending(ctx context.Context, pending []pendingStart, settle
 		container runtime.Container
 		err       error
 	}
+	// The server hears which replicas lost their address before any new
+	// container can take one.
+	a.sendReport(build())
 	results := make(chan result, len(pending))
 	pull := newPullOnce(a.cfg.Driver)
 	limit := make(chan struct{}, maxConcurrentStarts)
@@ -772,6 +796,7 @@ func (a *Agent) startPending(ctx context.Context, pending []pendingStart, settle
 			a.applyNetworkNow(ctx)
 		}
 		for _, f := range finished {
+			started[f.start.id] = true
 			if f.err == nil {
 				running = append(running, runningReplica{spec: f.start.spec, container: f.container})
 				continue
@@ -788,7 +813,6 @@ func (a *Agent) startPending(ctx context.Context, pending []pendingStart, settle
 		finished = nil
 	}
 
-	a.sendReport(build())
 	t := time.NewTicker(startReportInterval)
 	defer t.Stop()
 	for left := len(pending); left > 0; {
@@ -804,6 +828,19 @@ func (a *Agent) startPending(ctx context.Context, pending []pendingStart, settle
 	}
 	absorb()
 	return build()
+}
+
+// recreating is the state of a replica whose container is being recreated:
+// starting, not ready, and with no address. It keeps the old container's ID,
+// so the server counts the restart once the new one is reported.
+func (a *Agent) recreating(p pendingStart) *armadav1.ReplicaState {
+	a.mu.Lock()
+	msg := a.notes[p.id]
+	a.mu.Unlock()
+	if msg == "" {
+		msg = "recreating its container"
+	}
+	return &armadav1.ReplicaState{Id: p.id, State: store.ReplicaStarting, ContainerId: p.replaced, Message: msg}
 }
 
 // pullOnce pulls each image once, for the replicas starting together: they
