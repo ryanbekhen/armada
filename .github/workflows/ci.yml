@@ -166,9 +166,10 @@ jobs:
           GOOS: darwin
           GOARCH: ${{ matrix.goarch }}
 
-  # armada-log (logger/): the Rust log writer release builds embed. Lint,
-  # unit tests, static builds for both architectures, and the comparison
-  # with the Go writer it must match byte for byte.
+  # armada-log (logger/) and armada-shim (shim/): the Rust programs
+  # release builds embed. Lint, unit tests, static builds for both
+  # architectures, and the comparison of armada-log with the Go writer it
+  # must match byte for byte.
   logger:
     needs: changes
     if: needs.changes.outputs.code == 'true'
@@ -189,7 +190,16 @@ jobs:
         working-directory: logger
       - run: cargo test --locked
         working-directory: logger
+      - run: rustup toolchain install
+        working-directory: shim
+      - run: cargo fmt --check
+        working-directory: shim
+      - run: cargo clippy --locked --all-targets -- -D warnings
+        working-directory: shim
+      - run: cargo test --locked
+        working-directory: shim
       - run: make logger
+      - run: make shim
       - run: go test -race -run 'TestArmadaLog|TestLoggerStandardLibraryOnly' -v ./internal/runtime/embedded/
         env:
           ARMADA_LOG_BIN: ${{ github.workspace }}/logger/target/x86_64-unknown-linux-musl/release/armada-log

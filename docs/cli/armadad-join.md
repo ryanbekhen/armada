@@ -24,5 +24,6 @@ Flags:
 | `--data-dir string` | directory for the node certificate (default `/var/lib/armada`) |
 | `--node-name string` | node name (default: hostname) |
 | `--private-ip string` | this node's private IP (default: the only private IPv4 address) |
+| `--runtime string` | container runtime: embedded (containerd), or supervisor (no containerd daemon; experimental, ADR 0046) (default `embedded`) |
 | `--token-file string` | file holding the join token (default: prompt or stdin) |
 

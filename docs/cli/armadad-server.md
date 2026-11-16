@@ -72,6 +72,7 @@ Flags:
 | `--name string` | server and node name (default: hostname) |
 | `--port int` | control plane port on the private IP (default `7443`) |
 | `--private-ip string` | this machine's private IP (default: the only private IPv4 address) |
+| `--runtime string` | container runtime: embedded (containerd), or supervisor (no containerd daemon; experimental, ADR 0046) (default `embedded`) |
 | `--token-file string` | file holding the server token (default: prompt or stdin) |
 | `--user-name string` | user named in the client configs written here (default: the user running it) |
 

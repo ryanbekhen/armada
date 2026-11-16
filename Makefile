@@ -12,7 +12,7 @@ LDFLAGS := -s -w \
 
 export CGO_ENABLED := 0
 
-.PHONY: all build build-bundle logger runtime-bundle test cover lint fmt vet vuln licenses licenses-save proto docs tidy check clean
+.PHONY: all build build-bundle logger shim runtime-bundle test cover lint fmt vet vuln licenses licenses-save proto docs tidy check clean
 
 all: check build
 
@@ -26,14 +26,21 @@ build:
 # standard library only, static for both architectures with the linker
 # Rust ships (toolchain pinned in logger/rust-toolchain.toml).
 LOGGER_OUT = logger/target/$(1)-unknown-linux-musl/release/armada-log
+# armada-shim (shim/), which supervises an app's containers without
+# containerd (ADR 0046): built the same way.
+SHIM_OUT = shim/target/$(1)-unknown-linux-musl/release/armada-shim
 
 logger:
 	cd logger && cargo build --release --locked --target x86_64-unknown-linux-musl
 	cd logger && cargo build --release --locked --target aarch64-unknown-linux-musl
 
-runtime-bundle: logger
-	go run ./internal/runtime/embedded/mkbundle -arch amd64 -logger $(call LOGGER_OUT,x86_64)
-	go run ./internal/runtime/embedded/mkbundle -arch arm64 -logger $(call LOGGER_OUT,aarch64)
+shim:
+	cd shim && cargo build --release --locked --target x86_64-unknown-linux-musl
+	cd shim && cargo build --release --locked --target aarch64-unknown-linux-musl
+
+runtime-bundle: logger shim
+	go run ./internal/runtime/embedded/mkbundle -arch amd64 -logger $(call LOGGER_OUT,x86_64) -shim $(call SHIM_OUT,x86_64)
+	go run ./internal/runtime/embedded/mkbundle -arch arm64 -logger $(call LOGGER_OUT,aarch64) -shim $(call SHIM_OUT,aarch64)
 
 # Linux binaries as releases are built: armadad with the runtime bundle
 # embedded, and the armada client.

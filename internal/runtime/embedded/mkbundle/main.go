@@ -33,17 +33,18 @@ func main() {
 	out := flag.String("out", "", "output file (default internal/runtime/embedded/bundle/linux_<arch>.pack)")
 	cache := flag.String("cache", ".cache/runtime", "download cache directory")
 	logger := flag.String("logger", "", "armada-log built for -arch (make logger)")
+	shim := flag.String("shim", "", "armada-shim built for -arch (make shim)")
 	flag.Parse()
 	if *out == "" {
 		*out = filepath.Join("internal", "runtime", "embedded", "bundle", "linux_"+*arch+".pack")
 	}
-	if err := run(context.Background(), *arch, *out, *cache, *logger); err != nil {
+	if err := run(context.Background(), *arch, *out, *cache, *logger, *shim); err != nil {
 		fmt.Fprintln(os.Stderr, "mkbundle:", err)
 		os.Exit(1)
 	}
 }
 
-func run(ctx context.Context, arch, out, cache, logger string) error {
+func run(ctx context.Context, arch, out, cache, logger, shim string) error {
 	if arch != "amd64" && arch != "arm64" {
 		return fmt.Errorf("unsupported architecture %q", arch)
 	}
@@ -61,6 +62,17 @@ func run(ctx context.Context, arch, out, cache, logger string) error {
 	}
 	files[embedded.BinLogger] = b
 	versions[embedded.BinLogger] = "source"
+	if shim == "" {
+		return errors.New("-shim is required: build it with make shim")
+	}
+	if b, err = os.ReadFile(shim); err != nil { //nolint:gosec // build input named on the command line
+		return fmt.Errorf("shim: %w", err)
+	}
+	if err := checkELF(b, arch); err != nil {
+		return fmt.Errorf("shim %s: %w", shim, err)
+	}
+	files[embedded.BinArmadaShim] = b
+	versions[embedded.BinArmadaShim] = "source"
 	for _, a := range embedded.Lock {
 		want := a.SHA256[arch]
 		if want == "" {
@@ -177,7 +189,7 @@ func members(archive []byte, want map[string]string) (map[string][]byte, error) 
 	return out, nil
 }
 
-// checkELF refuses a logger built for another architecture, so a pack can
+// checkELF refuses a program built for another architecture, so a pack can
 // never carry a binary its machines cannot run.
 func checkELF(b []byte, arch string) error {
 	f, err := elf.NewFile(bytes.NewReader(b))

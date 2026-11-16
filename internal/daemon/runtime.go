@@ -21,9 +21,13 @@ import (
 	"github.com/ryanbekhen/armada/internal/store"
 )
 
-// runtimeEmbedded is the container runtime (ADR 0011), recorded in
-// agent.json.
-const runtimeEmbedded = "embedded"
+// Container runtimes recorded in agent.json: the embedded containerd
+// (ADR 0011), or containers supervised by armada-shim without containerd
+// (ADR 0046, experimental).
+const (
+	runtimeEmbedded   = "embedded"
+	runtimeSupervisor = "supervisor"
+)
 
 // runDir holds the node's runtime state on tmpfs; tests replace it.
 var runDir = "/run/armada"
@@ -34,21 +38,24 @@ func runtimePaths(dataDir string) embedded.Paths {
 
 // checkRuntime refuses an agent.json naming another container runtime.
 func (c agentConfig) checkRuntime() error {
-	if c.Runtime == runtimeEmbedded || c.Runtime == "" {
+	switch c.Runtime {
+	case runtimeEmbedded, runtimeSupervisor, "":
 		return nil
 	}
-	return fmt.Errorf("%s names container runtime %q: Armada runs containers only on its embedded runtime (ADR 0011); remove the node and join it again", fileAgent, c.Runtime)
+	return fmt.Errorf("%s names container runtime %q, which this Armada does not know (%s or %s); remove the node and join it again", fileAgent, c.Runtime, runtimeEmbedded, runtimeSupervisor)
 }
 
 // runtimeFlags are shared by the commands that set up a node.
 type runtimeFlags struct {
-	subnet string
-	flags  *pflag.FlagSet
+	subnet  string
+	runtime string
+	flags   *pflag.FlagSet
 }
 
 func (r *runtimeFlags) register(f *pflag.FlagSet) {
 	r.flags = f
 	f.StringVar(&r.subnet, "container-subnet", embedded.DefaultSubnet.String(), "private IPv4 subnet for this node's containers (clusters without a cluster network; others give each node a subnet)")
+	f.StringVar(&r.runtime, "runtime", runtimeEmbedded, "container runtime: embedded (containerd), or supervisor (no containerd daemon; experimental, ADR 0046)")
 }
 
 // apply validates the flags and records them in c.
@@ -64,7 +71,15 @@ func (r runtimeFlags) apply(c *agentConfig, privateIP netip.Addr) error {
 	if b.Subnet.Contains(privateIP) {
 		return fmt.Errorf("--container-subnet %s contains the private IP %s; pick a subnet the network does not use", b.Subnet, privateIP)
 	}
-	c.Runtime, c.ContainerSubnet = runtimeEmbedded, b.Subnet.String()
+	switch r.runtime {
+	case "", runtimeEmbedded:
+		c.Runtime = runtimeEmbedded
+	case runtimeSupervisor:
+		c.Runtime = runtimeSupervisor
+	default:
+		return fmt.Errorf("invalid --runtime %q: use %s or %s", r.runtime, runtimeEmbedded, runtimeSupervisor)
+	}
+	c.ContainerSubnet = b.Subnet.String()
 	return nil
 }
 
@@ -125,7 +140,36 @@ var newDriver = func(dataDir string, ac *agentConfig) (runtime.Driver, error) {
 			return nil, fmt.Errorf("cluster network: %w", err)
 		}
 	}
-	return containerd.New(containerd.Config{Paths: runtimePaths(dataDir), Subnet: subnet, MTU: mtu})
+	cfg := containerd.Config{Paths: runtimePaths(dataDir), Subnet: subnet, MTU: mtu}
+	if ac.Runtime == runtimeSupervisor {
+		// No daemon to start: the agent installs the runtime pack itself,
+		// so an upgrade brings the new armada-shim and runc with it.
+		if err := installPack(cfg.Paths); err != nil {
+			return nil, err
+		}
+		cfg.Supervisor = true
+	}
+	return containerd.New(cfg)
+}
+
+// installPack extracts and verifies the embedded runtime pack, and makes
+// the directories the runtime writes to. Builds without a pack use what an
+// earlier `armadad runtime --bin-dir` installed.
+func installPack(p embedded.Paths) error {
+	if err := embedded.CheckHost(); err != nil {
+		return err
+	}
+	if pack := embedded.Bundled(); len(pack) > 0 {
+		if _, _, err := embedded.Install(p.Bundle(), pack); err != nil {
+			return fmt.Errorf("runtime pack: %w", err)
+		}
+	}
+	for _, d := range []string{p.Logs(), p.Containers(), p.CNI()} {
+		if err := os.MkdirAll(d, 0o700); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // runtimeHint says how to start the node's runtime.
@@ -181,6 +225,20 @@ func newRuntimeCommand() *cobra.Command {
 			}
 			if err := ac.checkRuntime(); err != nil {
 				return err
+			}
+			if ac.Runtime == runtimeSupervisor {
+				// No containerd here (ADR 0046): install the pack for the
+				// agent and exit.
+				if binDir != "" {
+					if err := embedded.UseBinDir(runtimePaths(dataDir).Bundle(), binDir); err != nil {
+						return err
+					}
+				}
+				if err := installPack(runtimePaths(dataDir)); err != nil {
+					return err
+				}
+				_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "this node runs containers without containerd (runtime: supervisor); the runtime pack is installed, nothing to run")
+				return nil
 			}
 			return embedded.Exec(runtimePaths(dataDir), embedded.Bundled(), binDir)
 		},
