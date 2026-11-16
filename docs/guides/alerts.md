@@ -219,6 +219,7 @@ or `armada app events`.
 | `MostUnreachable` | Most nodes stopped reporting at once; the leader holds back |
 | `ReconcileFailed` | The control plane could not converge an app |
 | `ProxyNotUpdated` | The ingress configuration could not be rebuilt; the last good one serves |
+| `AddressConflict` | Replicas of two apps claim one address (one of them stale); both stay out of the proxy until it clears |
 | `NotVerified` | A custom domain's DNS record is missing |
 | `QueueUnread` | No node can read the queue that starts a job, or its node keeps no more queues |
 | `LogExportFailing` | A node cannot send logs to the log store |
