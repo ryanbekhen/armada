@@ -43,6 +43,14 @@ func ensureAppArmorProfile() error {
 	return nil
 }
 
+// loadAppArmorAtStart loads the profile when the host supports AppArmor.
+func loadAppArmorAtStart() error {
+	if !aa.HostSupports() {
+		return nil
+	}
+	return ensureAppArmorProfile()
+}
+
 // apparmorOpt confines a container with Armada's AppArmor profile, which
 // the first container of the process loads (replacing a loaded one, so
 // running containers get the current rules too).
