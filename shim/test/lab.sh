@@ -13,7 +13,7 @@ s = socket.socket(socket.AF_UNIX); s.connect("/run/armada-proto.sock")
 s.sendall((" ".join(sys.argv[1:]) + "\n").encode()); print(s.makefile().readline().strip())
 EOF
 }
-mem() { awk '/^Pss:/{p=$2} /^Pss_Anon:/{a=$2} END{printf "pss=%dkB anon=%dkB", p, a}' /proc/$1/smaps_rollup; }
+mem() { awk '/^Pss:/{p=$2} /^Pss_Anon:/{a=$2} END{printf "pss=%dkB anon=%dkB", p, a}' /proc/"$1"/smaps_rollup; }
 
 src=$(dirname "$(find /run/armada/containerd -path '*task/armada/*hello-r*/config.json' | head -1)")
 echo "source bundle: $src"
@@ -46,12 +46,12 @@ echo "list: $(req list)"
 echo "log c1: $(head -c 300 $W/logs1/c1.log 2>/dev/null || ls -la $W/logs1)"
 echo
 echo "== memory"
-echo "armada-shim (3 containers): $(mem $SHIM)"
+echo "armada-shim (3 containers): $(mem "$SHIM")"
 for p in $(pgrep -f containerd-shim-runc-v2); do
-	echo "containerd shim pid $p ($(pgrep -P $p | wc -l) children): $(mem $p)"
+	echo "containerd shim pid $p ($(pgrep -P "$p" | wc -l) children): $(mem "$p")"
 done
 echo "containerd: $(mem $(pgrep -x containerd))"
-for p in $(pgrep -P $SHIM -x armada-log); do echo "armada-log $p: $(mem $p)"; done
+for p in $(pgrep -P "$SHIM" -x armada-log); do echo "armada-log $p: $(mem "$p")"; done
 echo
 echo "== stop and exit codes"
 echo "kill c2 TERM: $(req kill c2 15)"; sleep 1
@@ -65,7 +65,8 @@ echo "bad id: $(req create ../x /a /b)"
 for i in 1 2 3; do echo "delete c$i: $(req delete c$i)"; done
 echo "list: $(req list)"
 echo "runc list: $($BIN/runc --root $STATE/runc list -q | wc -l) containers left"
-echo "armada-log left: $(pgrep -P $SHIM -x armada-log | wc -l)"
-echo "zombies under shim: $(ps -o stat= --ppid $SHIM | grep -c Z || true)"
+echo "armada-log left: $(pgrep -P "$SHIM" -x armada-log | wc -l)"
+# shellcheck disable=SC2009 # the state of the shim's children, not a process search
+echo "zombies under shim: $(ps -o stat= --ppid "$SHIM" | grep -c Z || true)"
 echo "shim stderr: $(cat /root/shim.out)"
-kill $SHIM
+kill "$SHIM"
