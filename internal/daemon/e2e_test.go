@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ryanbekhen/armada/internal/alert"
 	"github.com/ryanbekhen/armada/internal/cli"
 	"github.com/ryanbekhen/armada/internal/fsutil"
 	"github.com/ryanbekhen/armada/internal/pki"
@@ -517,7 +518,14 @@ func TestEndToEnd(t *testing.T) {
 	// Alerts (ADR 0045): a channel from a URL file, a test notice, and the
 	// list, which never shows the URL.
 	var hooks atomic.Int32
-	hook := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { hooks.Add(1) }))
+	// Only test notices count: the channel also gets the warnings other
+	// steps of this test may raise meanwhile.
+	hook := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var n alert.Notice
+		if json.NewDecoder(r.Body).Decode(&n) == nil && n.Kind == alert.KindTest {
+			hooks.Add(1)
+		}
+	}))
 	defer hook.Close()
 	urlFile := filepath.Join(t.TempDir(), "hook-url")
 	if err := os.WriteFile(urlFile, []byte(hook.URL+"/secret-path\n"), 0o600); err != nil {
