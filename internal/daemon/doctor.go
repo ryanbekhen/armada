@@ -300,8 +300,8 @@ func runDoctor(ctx context.Context, env doctorEnv) []checkResult {
 // checkRuntime checks the container runtime and its bridge network.
 func checkRuntime(ctx context.Context, env doctorEnv) []checkResult {
 	var out []checkResult
-	add := func(name, status, format string, args ...any) {
-		out = append(out, checkResult{Name: name, Status: status, Detail: fmt.Sprintf(format, args...)})
+	add := func(status, format string, args ...any) {
+		out = append(out, checkResult{Name: "runtime", Status: status, Detail: fmt.Sprintf(format, args...)})
 	}
 	if env.runtimeHost != nil {
 		out = append(out, env.runtimeHost(env.subnet)...)
@@ -310,7 +310,7 @@ func checkRuntime(ctx context.Context, env doctorEnv) []checkResult {
 		out = append(out, env.network()...)
 	}
 	if env.driverErr != nil {
-		add("runtime", checkFail, "%v", env.driverErr)
+		add(checkFail, "%v", env.driverErr)
 		return out
 	}
 	pingCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
@@ -321,13 +321,13 @@ func checkRuntime(ctx context.Context, env doctorEnv) []checkResult {
 		// (ADR 0046).
 		switch {
 		case err != nil && env.euid != 0:
-			add("runtime", checkWarn, "cannot check the supervisor runtime without root: run sudo armadad doctor")
+			add(checkWarn, "cannot check the supervisor runtime without root: run sudo armadad doctor")
 			return out
 		case err != nil:
-			add("runtime", checkFail, "supervisor runtime: %v (%s)", err, runtimeHint(runtimeSupervisor))
+			add(checkFail, "supervisor runtime: %v (%s)", err, runtimeHint(runtimeSupervisor))
 			return out
 		default:
-			add("runtime", checkOK, "supervisor runtime ready (armada-shim, no containerd)")
+			add(checkOK, "supervisor runtime ready (armada-shim, no containerd)")
 		}
 		return append(out, bridgeCheck(ctx, env)...)
 	}
@@ -335,16 +335,16 @@ func checkRuntime(ctx context.Context, env doctorEnv) []checkResult {
 	case err != nil && env.euid != 0:
 		// The socket is root's, and so is the data directory that tells
 		// a set-up node from a fresh one: say nothing about the runtime.
-		add("runtime", checkWarn, "cannot reach the embedded runtime without root (its socket is root's only): run sudo armadad doctor")
+		add(checkWarn, "cannot reach the embedded runtime without root (its socket is root's only): run sudo armadad doctor")
 		return out
 	case err != nil && !env.initialized():
-		add("runtime", checkWarn, "embedded runtime not running yet; it starts with armada-server or armada-agent after init or join")
+		add(checkWarn, "embedded runtime not running yet; it starts with armada-server or armada-agent after init or join")
 		return out
 	case err != nil:
-		add("runtime", checkFail, "embedded runtime: %v (systemctl status armada-runtime)", err)
+		add(checkFail, "embedded runtime: %v (systemctl status armada-runtime)", err)
 		return out
 	default:
-		add("runtime", checkOK, "embedded runtime reachable")
+		add(checkOK, "embedded runtime reachable")
 	}
 	return append(out, bridgeCheck(ctx, env)...)
 }
