@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -109,4 +110,54 @@ func TestReadQueueErrors(t *testing.T) {
 			t.Errorf("%s: err = %v", name, err)
 		}
 	}
+}
+
+// One app's slow queue command does not hold back the readings of the
+// other apps on the node.
+func TestQueueSlowRuleHoldsNoOther(t *testing.T) {
+	t.Parallel()
+	a, d := probeAgent(t, newChecker())
+	release := make(chan struct{})
+	var once sync.Once
+	t.Cleanup(func() { once.Do(func() { close(release) }) })
+	d.ExecAppFunc = func(ctx context.Context, _ string, opts runtime.ExecOptions) (int, error) {
+		if opts.Cmd[0] == "slow" {
+			select {
+			case <-release:
+			case <-ctx.Done():
+			}
+			return 1, nil
+		}
+		_, _ = io.WriteString(opts.Stdout, "7\n")
+		return 0, nil
+	}
+	var specs []*armadav1.ReplicaSpec
+	for _, app := range []string{"aslow", "bfast"} {
+		s := replica(app+"-1", "busybox", 0)
+		s.App, s.Revision = app, app+"--r1"
+		s.Queues = []*armadav1.QueueProbe{{Type: "queue", Command: []string{app[1:]}}}
+		specs = append(specs, s)
+	}
+	a.setDesired(specs, nil)
+	deadline := time.Now().Add(5 * time.Second)
+	for len(a.queueTargets(context.Background())) != 2 && time.Now().Before(deadline) {
+		if _, err := a.Reconcile(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		a.measureQueues(context.Background())
+	}()
+	for time.Now().Before(deadline) {
+		if got := a.queues.fresh(time.Now(), time.Minute); len(got) == 1 && got[0].GetId() == "bfast-1" && got[0].GetLength() == 7 {
+			once.Do(func() { close(release) })
+			<-done
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("no reading of bfast while aslow's command ran: %v", a.queues.fresh(time.Now(), time.Minute))
 }

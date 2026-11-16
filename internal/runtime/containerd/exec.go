@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"time"
 
 	"github.com/containerd/containerd/v2/client"
 	"github.com/containerd/containerd/v2/pkg/cio"
@@ -77,7 +78,20 @@ func (d *Driver) ExecApp(ctx context.Context, id string, opts runtime.ExecOption
 		return 0, fmt.Errorf("exec: %w", err)
 	}
 	cleanup := context.WithoutCancel(ctx)
-	defer func() { _, _ = proc.Delete(cleanup, client.WithProcessKill) }()
+	defer func() {
+		// Bounded: a process the runtime cannot end at once must not
+		// hold the caller past its deadline (a command that left a child
+		// holding its output, for one).
+		dctx, cancel := context.WithTimeout(cleanup, execCleanupTimeout)
+		defer cancel()
+		_, _ = proc.Delete(dctx, client.WithProcessKill)
+		// Delete closes the streams unless it gave up early; either way
+		// nothing writes to the caller's writers once ExecApp returns.
+		pio := proc.IO()
+		pio.Cancel()
+		pio.Wait()
+		_ = pio.Close()
+	}()
 	exited, err := proc.Wait(ctx)
 	if err != nil {
 		return 0, err
@@ -123,11 +137,42 @@ func (d *Driver) ExecApp(ctx context.Context, id string, opts runtime.ExecOption
 		if err != nil {
 			return 0, err
 		}
-		proc.IO().Wait()
+		drainIO(ctx, proc.IO())
 		return int(code), nil
 	case <-ctx.Done():
 		return 0, ctx.Err()
 	}
+}
+
+const (
+	// ioDrainGrace bounds how long ExecApp copies output after the
+	// process exited: a child it left in the background can hold the
+	// output open for as long as it lives.
+	ioDrainGrace = 2 * time.Second
+	// execCleanupTimeout bounds killing and removing the process once
+	// ExecApp is done with it.
+	execCleanupTimeout = 5 * time.Second
+)
+
+// drainIO waits for the output still on its way after the process exited,
+// for at most ioDrainGrace and never past ctx, then stops copying. It
+// returns once nothing writes to the caller's writers anymore.
+func drainIO(ctx context.Context, pio cio.IO) {
+	copied := make(chan struct{})
+	go func() {
+		pio.Wait()
+		close(copied)
+	}()
+	grace := time.NewTimer(ioDrainGrace)
+	defer grace.Stop()
+	select {
+	case <-copied:
+		return
+	case <-grace.C:
+	case <-ctx.Done():
+	}
+	pio.Cancel()
+	<-copied
 }
 
 // eofReader closes eof once r has returned io.EOF.

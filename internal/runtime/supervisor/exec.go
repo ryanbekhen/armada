@@ -40,6 +40,7 @@ type execProcess struct {
 
 	mu      sync.Mutex
 	started bool
+	runc    *os.Process // the runc exec process, once started
 	pty     console.Console
 	done    chan struct{}
 	code    int
@@ -156,6 +157,7 @@ func (p *execProcess) Start(ctx context.Context) error {
 	// Only runc holds the streams now, so they end when it does.
 	closeAll(closeAfter)
 	p.started = true
+	p.runc = cmd.Process
 	var copies sync.WaitGroup
 	if p.pty != nil {
 		copies.Add(1)
@@ -269,6 +271,9 @@ func (p *execProcess) Wait(ctx context.Context) (<-chan client.ExitStatus, error
 	return ch, nil
 }
 
+// Kill signals the process. SIGKILL also ends runc: runc copies the
+// process's output until its end, which a child the process left in the
+// background can hold open for as long as it lives.
 func (p *execProcess) Kill(_ context.Context, sig syscall.Signal, _ ...client.KillOpts) error {
 	pid := p.Pid()
 	if pid == 0 {
@@ -279,13 +284,30 @@ func (p *execProcess) Kill(_ context.Context, sig syscall.Signal, _ ...client.Ki
 		return fmt.Errorf("exec %s: %w", p.id, errdefs.ErrNotFound)
 	default:
 	}
-	if err := syscall.Kill(int(pid), sig); err != nil {
+	err := syscall.Kill(int(pid), sig)
+	if sig == syscall.SIGKILL {
+		p.killRunc()
+	}
+	if err != nil {
 		if errors.Is(err, syscall.ESRCH) {
 			return fmt.Errorf("exec %s: %w", p.id, errdefs.ErrNotFound)
 		}
 		return err
 	}
 	return nil
+}
+
+// killRunc ends the runc exec process, which closes its end of the
+// streams and lets Wait and Delete return.
+func (p *execProcess) killRunc() {
+	p.mu.Lock()
+	runc := p.runc
+	p.mu.Unlock()
+	if runc != nil {
+		// Once cmd.Wait reaped it this does nothing, and never reaches
+		// another process.
+		_ = runc.Kill()
+	}
 }
 
 // CloseIO needs nothing: the caller's cio closes the input FIFO at the end
@@ -317,20 +339,29 @@ func (p *execProcess) Status(context.Context) (client.Status, error) {
 }
 
 // Delete waits for the process (opts such as WithProcessKill end it) and
-// closes its streams.
+// closes its streams. When ctx ends first, it ends runc and closes the
+// streams anyway, so nothing is left copying for the caller.
 func (p *execProcess) Delete(ctx context.Context, opts ...client.ProcessDeleteOpts) (*client.ExitStatus, error) {
+	var optErr error
 	for _, o := range opts {
-		if err := o(ctx, p); err != nil {
-			return nil, err
+		if optErr = o(ctx, p); optErr != nil {
+			break
 		}
 	}
 	p.mu.Lock()
 	started := p.started
 	p.mu.Unlock()
+	if optErr != nil {
+		if started {
+			p.abandon()
+		}
+		return nil, optErr
+	}
 	if started {
 		select {
 		case <-p.done:
 		case <-ctx.Done():
+			p.abandon()
 			return nil, ctx.Err()
 		}
 	}
@@ -342,4 +373,26 @@ func (p *execProcess) Delete(ctx context.Context, opts ...client.ProcessDeleteOp
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return client.NewExitStatus(uint32(max(p.code, 0)), time.Now(), nil), nil //nolint:gosec // an exit code
+}
+
+// abandonWait bounds how long abandon waits for runc to be reaped.
+const abandonWait = time.Second
+
+// abandon ends runc and stops copying to the caller's streams once the
+// caller stopped waiting for the process.
+func (p *execProcess) abandon() {
+	p.killRunc()
+	if p.io != nil {
+		p.io.Cancel()
+	}
+	t := time.NewTimer(abandonWait)
+	defer t.Stop()
+	select {
+	case <-p.done:
+	case <-t.C:
+	}
+	if p.io != nil {
+		p.io.Wait()
+		_ = p.io.Close()
+	}
 }

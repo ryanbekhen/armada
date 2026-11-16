@@ -31,6 +31,8 @@ const (
 	maxQueueLength = 1 << 40
 	// maxQueueApps bounds the queue commands one pass runs.
 	maxQueueApps = 32
+	// maxQueueReads bounds the queue rules read at once.
+	maxQueueReads = 4
 )
 
 // queueLengths holds the latest length read for each queue rule of the
@@ -117,15 +119,23 @@ func (a *Agent) measureQueues(ctx context.Context) {
 		rules[queueKey{t.app, t.probe.GetType()}] = true
 	}
 	a.queues.keep(rules)
+	// A few at once, so one slow rule does not hold back the others'.
+	sem := make(chan struct{}, maxQueueReads)
+	var wg sync.WaitGroup
 	for _, t := range targets {
-		n, err := a.readQueue(ctx, t.container, t.probe)
-		if err != nil {
-			// The command's arguments and the broker's URL stay out of logs.
-			a.log.Debug("queue rule", "app", t.app, "type", t.probe.GetType(), "replica", t.replica, "err", err)
-			continue
-		}
-		a.queues.set(queueKey{t.app, t.probe.GetType()}, queueLength{replica: t.replica, length: n, at: time.Now()})
+		sem <- struct{}{}
+		wg.Go(func() {
+			defer func() { <-sem }()
+			n, err := a.readQueue(ctx, t.container, t.probe)
+			if err != nil {
+				// The command's arguments and the broker's URL stay out of logs.
+				a.log.Debug("queue rule", "app", t.app, "type", t.probe.GetType(), "replica", t.replica, "err", err)
+				return
+			}
+			a.queues.set(queueKey{t.app, t.probe.GetType()}, queueLength{replica: t.replica, length: n, at: time.Now()})
+		})
 	}
+	wg.Wait()
 }
 
 // queueTargets picks, for every app with queue rules, the ready replica on
