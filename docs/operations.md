@@ -308,8 +308,11 @@ set). Only these ask GitHub; servers and agents never do.
    `armadad upgrade` downloads the release, checks its checksum (and its
    signature when [cosign](https://docs.sigstore.dev/cosign/system_config/installation/)
    is installed; `--require-signature` insists), replaces `armadad`,
-   `armada`, and the systemd units, and restarts `armada-server` (or
-   `armada-agent`). It refuses to go back to an older release. On a
+   `armada`, and the systemd units, and restarts `armada-runtime`, so the
+   node runs the containerd, runc, and `armada-log` the new release carries
+   (containers keep running), then `armada-server` (or `armada-agent`).
+   `--no-restart` restarts nothing; `armadad doctor` then warns
+   (`runtime-pack`) until `armada-runtime` is restarted. It refuses to go back to an older release. On a
    machine that cannot reach GitHub, set `ARMADA_DOWNLOAD_BASE` to a
    mirror of the release files (`https://` or `file://`).
 
@@ -330,10 +333,11 @@ set). Only these ask GitHub; servers and agents never do.
 3. **Every other node**, one at a time: `sudo armadad upgrade`.
 
    Containers keep running and keep serving; the restarted agent adopts
-   them, and `armada node list` shows the node's new version. The embedded
-   runtime (`armada-runtime.service`) picks up a new containerd from the
-   upgraded binary at its next restart (`sudo systemctl restart
-   armada-runtime`); restarting it also leaves containers running. Internal
+   them, and `armada node list` shows the node's new version. Restarting
+   the embedded runtime (`armada-runtime.service`) also leaves containers
+   running; containers started from then on use its new containerd shim
+   and log writer, and the ones already running keep theirs until they are
+   replaced. Internal
    names (`<app>.internal`) on that node do not resolve for the second or
    two it takes the agent to start its DNS server again.
 
@@ -351,7 +355,7 @@ set). Only these ask GitHub; servers and agents never do.
 
 Releases before `armadad upgrade` existed upgrade once with the installer
 instead: `sudo ARMADA_VERSION=v0.2.0 sh install.sh`, then `sudo systemctl
-restart armada-server` (or `armada-agent`). Upgrading from v0.1.0-alpha.1
+restart armada-runtime armada-server` (or `armada-agent`). Upgrading from v0.1.0-alpha.1
 also turns the machine commands (`init`, `join`, `doctor`, `backup`,
 `restore`, `runtime reset`) into `armadad` commands (ADR 0027).
 

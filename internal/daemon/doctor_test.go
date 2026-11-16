@@ -406,6 +406,25 @@ func TestDoctorRelease(t *testing.T) {
 	}
 }
 
+// After an upgrade, doctor says when armada-runtime still runs the pack
+// of the previous armadad.
+func TestDoctorRuntimePack(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct{ installed, bundled, want string }{
+		{"49086b78c834789e", "49086b78c834789e", checkOK},
+		{"afeb4828bc91ef0a", "49086b78c834789e", checkWarn},
+		{"dev", "49086b78c834789e", ""},
+		{"", "49086b78c834789e", ""},
+		{"afeb4828bc91ef0a", "", ""},
+	} {
+		env := healthyEnv(t)
+		env.runtimePack = func() (string, string) { return tc.installed, tc.bundled }
+		if got := statusOf(runDoctor(context.Background(), env), "runtime-pack"); got != tc.want {
+			t.Errorf("installed %q, bundled %q: %q, want %q", tc.installed, tc.bundled, got, tc.want)
+		}
+	}
+}
+
 func TestDoctorServerEnv(t *testing.T) {
 	t.Parallel()
 	env := healthyEnv(t)
