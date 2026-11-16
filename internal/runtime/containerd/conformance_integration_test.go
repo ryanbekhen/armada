@@ -11,6 +11,8 @@ import (
 	"slices"
 	"testing"
 
+	"golang.org/x/sys/unix"
+
 	"github.com/ryanbekhen/armada/internal/runtime/conformance"
 	"github.com/ryanbekhen/armada/internal/runtime/embedded"
 )
@@ -119,6 +121,10 @@ func TestIntegrationConformanceSupervisor(t *testing.T) {
 	if bin == "" || shim == "" || os.Geteuid() != 0 {
 		t.Skip("needs root, ARMADA_BIN, and ARMADA_SHIM_BIN")
 	}
+	// The agent's service runs with umask 0077; image content must not
+	// take it (a container's non-root users could not read its files).
+	old := unix.Umask(0o077)
+	t.Cleanup(func() { unix.Umask(old) })
 	cfg := nodeConfig(t, bin)
 	cfg.Supervisor, cfg.ShimBin = true, shim
 	d, err := New(cfg)
