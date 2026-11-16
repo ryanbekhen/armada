@@ -25,6 +25,7 @@ import (
 	"github.com/containerd/containerd/v2/plugins/content/local"
 	"github.com/containerd/containerd/v2/plugins/snapshots/overlay"
 	"github.com/containerd/errdefs"
+	clog "github.com/containerd/log"
 	"github.com/containerd/platforms"
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
@@ -69,7 +70,12 @@ func OpenImages(root string) (*Images, error) {
 	if err := os.MkdirAll(root, 0o700); err != nil {
 		return nil, err
 	}
+	// The store warns when the file system has no fsverity, which it uses
+	// only when present: keep that out of the agent's log.
+	level := clog.GetLevel()
+	_ = clog.SetLevel(clog.ErrorLevel)
 	cs, err := local.NewStore(filepath.Join(root, "content"))
+	_ = clog.SetLevel(level)
 	if err != nil {
 		return nil, fmt.Errorf("content store: %w", err)
 	}
