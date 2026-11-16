@@ -279,9 +279,19 @@ func forgetConnections(addr netip.Addr) error {
 	if err != nil {
 		return err
 	}
-	_, err = netlink.ConntrackDeleteFilters(netlink.ConntrackTable, netlink.FAMILY_V4, filters...)
-	return err
+	// A dump the kernel interrupts (the table changed while it was read,
+	// as it does on a busy node) may have missed entries: read it again.
+	for try := 1; ; try++ {
+		_, err = netlink.ConntrackDeleteFilters(netlink.ConntrackTable, netlink.FAMILY_V4, filters...)
+		if !errors.Is(err, netlink.ErrDumpInterrupted) || try == conntrackDumpTries {
+			return err
+		}
+	}
 }
+
+// conntrackDumpTries bounds how often forgetConnections reads the
+// connection table when the kernel interrupts the dump.
+const conntrackDumpTries = 5
 
 // connFilters match an entry when any of its four addresses is addr.
 func connFilters(addr netip.Addr) ([]netlink.CustomConntrackFilter, error) {

@@ -565,6 +565,7 @@ func (s *Server) DeleteJob(ctx context.Context, req *armadav1.DeleteJobRequest) 
 	if err := s.store.DeleteJob(ctx, req.GetJob(), actor(ctx)); err != nil {
 		return nil, storeErr(err)
 	}
+	s.endAppConditions(ctx, req.GetJob())
 	s.log.Info("job deleted", "job", req.GetJob(), "by", actor(ctx))
 	s.record(ctx, store.Event{Kind: eventJob, Object: req.GetJob(), App: req.GetJob(), Reason: "Deleted", Message: "by " + actor(ctx)})
 	s.Trigger()

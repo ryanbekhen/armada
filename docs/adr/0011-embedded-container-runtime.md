@@ -153,7 +153,12 @@ deploy, and the replicas it already runs must keep serving meanwhile:
   `starting` with no address before any start begins: its old address is
   gone, and the node may hand it to another container (after a reboot it
   hands addresses out again from the start of its range), so the server
-  takes it out of the proxies first.
+  usually takes it out of the proxies first. The report goes out before
+  any start, but nothing waits for every proxy to apply it: a start that
+  is quicker than the server's next pass can briefly leave the address
+  in a proxy. The server then sees two apps claim it and keeps it out of
+  both backends (`AddressConflict`), and the firewall and the internal
+  frontend's space check still decide what the new container accepts.
 - A report lists every replica of the node; the server writes only those it
   says something new about, so one change costs one write.
 - Listing containers asks containerd for every task's state in one request,
