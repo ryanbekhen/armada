@@ -43,9 +43,9 @@ SMTP. Nothing runs besides Armada, and agents are unchanged.
 
 - A channel gets the events whose reason needs a person (`alert.Warning`:
   `Lost`, `Crashed`, `OutOfMemory`, `Failed`, `Unschedulable`,
-  `MostUnreachable`, `ReconcileFailed`, `ProxyNotUpdated`, `NotVerified`,
-  `QueueUnread`, `LogExportFailing`, and the volume failures), unless it
-  names its own reasons (`--reason`, `all` for every one). `--space` keeps
+  `MostUnreachable`, `ReconcileFailed`, `ProxyNotUpdated`, `AddressConflict`,
+  `NotVerified`, `QueueUnread`, `LogExportFailing`, and the volume failures),
+  unless it names its own reasons (`--reason`, `all` for every one). `--space` keeps
   only events of those spaces' apps.
 - `Server.record` queues a notice for a new event; a repeat that the event
   history folds into an earlier event (same object and reason within 10

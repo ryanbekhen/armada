@@ -194,7 +194,9 @@ func (s *Server) buildProxy(ctx context.Context, apps []store.App, replicas []st
 	// should two ever claim one, the first keeps it rather than the whole
 	// configuration failing.
 	tcpTaken := map[string]string{}
+	clash := claimedTwice(replicas)
 	for _, app := range apps {
+		s.addressConflict(ctx, app.Name, perApp[app.Name], clash)
 		sp := app.Spec
 		if sp.Ingress == nil || sp.Ingress.Type == spec.IngressNone {
 			continue
@@ -210,7 +212,7 @@ func (s *Server) buildProxy(ctx context.Context, apps []store.App, replicas []st
 			// Plain TCP on the internal side only: no host, path, or HTTP
 			// check; each node prefers its own replicas.
 			cfg.Backends = append(cfg.Backends, proxy.Backend{Name: app.Name, LocalFirst: true,
-				Servers: s.proxyServers(app, replicas, func(r store.Replica) bool { return inProxy(app, r) })})
+				Servers: s.proxyServers(app, replicas, clash, func(r store.Replica) bool { return inProxy(app, r) })})
 			cfg.TCP = append(cfg.TCP, proxy.TCPRoute{Port: sp.Ingress.Port, Backend: app.Name, Allow: allowedCallers(app.Name, sp.Ingress.Allow)})
 			continue
 		}
@@ -233,7 +235,7 @@ func (s *Server) buildProxy(ctx context.Context, apps []store.App, replicas []st
 			be.CORS = &proxy.CORS{Origins: c.AllowOrigins, Methods: c.CORSMethods(), Headers: c.AllowHeaders, Expose: c.ExposeHeaders,
 				MaxAgeSeconds: int(c.MaxAge.D().Seconds()), Credentials: c.AllowCredentials}
 		}
-		be.Servers = s.proxyServers(app, replicas, func(r store.Replica) bool { return inProxy(app, r) })
+		be.Servers = s.proxyServers(app, replicas, clash, func(r store.Replica) bool { return inProxy(app, r) })
 		if splits {
 			weighServers(app, replicas, be.Servers)
 		}
@@ -256,7 +258,7 @@ func (s *Server) buildProxy(ctx context.Context, apps []store.App, replicas []st
 				}
 				name := spec.LabelHost(t.Label, app.Name)
 				lb := proxy.Backend{Name: name, HealthPath: be.HealthPath, TimeoutSeconds: be.TimeoutSeconds, IPAllow: be.IPAllow, IPDeny: be.IPDeny, Sticky: be.Sticky, CORS: be.CORS}
-				lb.Servers = s.proxyServers(app, replicas, func(r store.Replica) bool {
+				lb.Servers = s.proxyServers(app, replicas, clash, func(r store.Replica) bool {
 					return r.App == app.Name && r.Revision == t.Revision && r.State == store.ReplicaRunning && r.Ready && !r.Draining() && r.Address != ""
 				})
 				cfg.Backends = append(cfg.Backends, lb)
@@ -338,10 +340,10 @@ func (s *Server) labelURLs(ctx context.Context, app store.App, label string) []s
 }
 
 // proxyServers returns the servers of app's replicas that pass keep.
-func (s *Server) proxyServers(app store.App, replicas []store.Replica, keep func(store.Replica) bool) []proxy.Server {
+func (s *Server) proxyServers(app store.App, replicas []store.Replica, clash map[string]bool, keep func(store.Replica) bool) []proxy.Server {
 	var out []proxy.Server
 	for _, r := range replicas {
-		if !keep(r) {
+		if !keep(r) || clashes(r, clash) {
 			continue
 		}
 		// One bad address must not invalidate the configuration of the
@@ -353,6 +355,61 @@ func (s *Server) proxyServers(app store.App, replicas []store.Replica, keep func
 		out = append(out, proxy.Server{Name: r.ID, Address: r.Address})
 	}
 	return out
+}
+
+// claimedTwice returns the addresses and container IPs that replicas of more
+// than one app claim. One of them is stale: a container that is gone, whose
+// address the node handed to another app's container (after a reboot every
+// address is handed out again). Neither goes into the proxy until it is
+// clear, so one app's requests never reach another app (T21); the firewall
+// does the same with the IPs (networkEndpoints).
+func claimedTwice(replicas []store.Replica) map[string]bool {
+	owner := map[string]string{}
+	out := map[string]bool{}
+	claim := func(key, app string) {
+		if a, ok := owner[key]; ok && a != app {
+			out[key] = true
+		}
+		owner[key] = app
+	}
+	for _, r := range replicas {
+		if r.Done {
+			continue
+		}
+		if r.Address != "" {
+			claim("a/"+r.Address, r.App)
+		}
+		if r.IP != "" {
+			claim("i/"+r.IP, r.App)
+		}
+	}
+	return out
+}
+
+// clashes reports whether r claims an address or IP that another app's
+// replica claims too.
+func clashes(r store.Replica, clash map[string]bool) bool {
+	return (r.Address != "" && clash["a/"+r.Address]) || (r.IP != "" && clash["i/"+r.IP])
+}
+
+// addressConflict records, once until it clears, that an app's replicas
+// are out of the proxy because another app's replica claims their address.
+func (s *Server) addressConflict(ctx context.Context, app string, replicas []store.Replica, clash map[string]bool) {
+	var hit *store.Replica
+	if len(clash) > 0 {
+		for i, r := range replicas {
+			if !r.Done && clashes(r, clash) {
+				hit = &replicas[i]
+				break
+			}
+		}
+	}
+	e := store.Event{Kind: eventApp, Object: app, App: app, Reason: "AddressConflict"}
+	if hit != nil {
+		e.Node = hit.NodeID
+		e.Message = fmt.Sprintf("replica %s claims an address another app's replica claims too (one of them is stale); both stay out of the proxy until one reports a new address", hit.ID)
+	}
+	s.condition(ctx, "address-conflict/"+app, hit != nil, e)
 }
 
 // weighServers gives each server its revision's weight divided among the
