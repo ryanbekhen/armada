@@ -88,6 +88,25 @@ func TestEventDedupAndConditions(t *testing.T) {
 	if n != 2 {
 		t.Errorf("lost recorded %d times, want 2 (once per start)", n)
 	}
+	// A deleted app's conditions end with it, so an app of the same name
+	// is told again; other apps' stay.
+	conflict := store.Event{Kind: eventApp, Object: "web", App: "web", Reason: "AddressConflict"}
+	s.condition(ctx, "address-conflict/web", true, conflict)
+	s.condition(ctx, "address-conflict/api", true, store.Event{Kind: eventApp, Object: "api", App: "api", Reason: "AddressConflict"})
+	s.endAppConditions(ctx, "web")
+	s.condition(ctx, "address-conflict/web", true, conflict)
+	n = 0
+	for _, e := range listEvents(t, st) {
+		if e.Reason == "AddressConflict" && e.App == "web" {
+			n += e.Count
+		}
+	}
+	if n != 2 {
+		t.Errorf("a recreated app's conflict recorded %d times, want 2", n)
+	}
+	if _, ok := s.events.active["address-conflict/api"]; !ok {
+		t.Error("another app's condition ended")
+	}
 	if got := testutilCount(s, eventReplica, "Crashed"); got != 4 {
 		t.Errorf("armada_events_total = %v", got)
 	}

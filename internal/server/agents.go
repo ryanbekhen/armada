@@ -60,6 +60,26 @@ func (s *session) offerAssignment(a *armadav1.Assignment) {
 	}
 }
 
+// endWith queues a as the last message of a session that ends: messages
+// still queued are dropped to make room, since only a is worth sending.
+func (s *session) endWith(a *armadav1.Assignment) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	m := &armadav1.ServerMessage{Msg: &armadav1.ServerMessage_Assignment{Assignment: a}}
+	for {
+		select {
+		case s.send <- m:
+			s.last = a
+			return
+		default:
+		}
+		select {
+		case <-s.send:
+		default:
+		}
+	}
+}
+
 // flushSession sends the messages still queued on sess, without waiting
 // for more.
 func flushSession(stream armadav1.AgentService_ConnectServer, sess *session) {
