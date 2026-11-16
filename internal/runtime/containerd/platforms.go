@@ -53,7 +53,7 @@ func platformStrings(ps []ocispec.Platform) []string {
 // localPlatforms reads the platforms of a pulled image from the content
 // store; nil if they cannot be read.
 func (d *Driver) localPlatforms(ctx context.Context, img client.Image) []string {
-	ps, err := images.Platforms(ctx, d.client.ContentStore(), img.Target())
+	ps, err := images.Platforms(ctx, d.ctr.ContentStore(), img.Target())
 	if err != nil {
 		return nil
 	}

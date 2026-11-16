@@ -7,6 +7,7 @@ toolchain go1.27.4
 require (
 	github.com/caddyserver/certmagic v0.25.6
 	github.com/containerd/cgroups/v3 v3.1.3
+	github.com/containerd/console v1.0.5
 	github.com/containerd/containerd/api v1.12.0
 	github.com/containerd/containerd/v2 v2.4.2
 	github.com/containerd/errdefs v1.0.0

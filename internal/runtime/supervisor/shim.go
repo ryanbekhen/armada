@@ -51,14 +51,24 @@ func shimName(group string) string {
 	return "s" + hex.EncodeToString(sum[:8])
 }
 
-// For returns group's shim, starting it when it does not answer.
-func (s *Shims) For(ctx context.Context, group string) (*Shim, error) {
+// Get returns group's shim without starting it; its calls fail when it
+// does not run.
+func (s *Shims) Get(group string) *Shim {
 	name := shimName(group)
-	sh := &Shim{
+	return &Shim{
 		Group:  group,
 		Socket: filepath.Join(s.Dir, name+".sock"),
 		Root:   filepath.Join(s.Dir, name, "runc"),
 	}
+}
+
+// Abandon ends the containers a shim that no longer answers left behind.
+func (s *Shims) Abandon(ctx context.Context, sh *Shim) error { return s.abandon(ctx, sh.Root) }
+
+// For returns group's shim, starting it when it does not answer.
+func (s *Shims) For(ctx context.Context, group string) (*Shim, error) {
+	name := shimName(group)
+	sh := s.Get(group)
 	if _, err := sh.call(ctx, "list"); err == nil {
 		return sh, nil
 	}
@@ -150,11 +160,16 @@ func (sh *Shim) call(ctx context.Context, words ...string) (string, error) {
 		return "", err
 	}
 	defer c.Close()
-	deadline := time.Now().Add(2 * time.Minute)
-	if dl, ok := ctx.Deadline(); ok && dl.Before(deadline) {
-		deadline = dl
+	// A wait lasts as long as the container; anything else answers soon.
+	if words[0] != "wait" {
+		deadline := time.Now().Add(2 * time.Minute)
+		if dl, ok := ctx.Deadline(); ok && dl.Before(deadline) {
+			deadline = dl
+		}
+		_ = c.SetDeadline(deadline)
 	}
-	_ = c.SetDeadline(deadline)
+	stop := context.AfterFunc(ctx, func() { _ = c.Close() })
+	defer stop()
 	if _, err := fmt.Fprintln(c, strings.Join(words, " ")); err != nil {
 		return "", err
 	}
@@ -187,6 +202,21 @@ func (sh *Shim) Create(ctx context.Context, id, bundle, logDir string) (int, err
 // Start starts a created container.
 func (sh *Shim) Start(ctx context.Context, id string) error {
 	_, err := sh.call(ctx, "start", id)
+	return err
+}
+
+// Wait blocks until the container exits and returns its exit code.
+func (sh *Shim) Wait(ctx context.Context, id string) (int, error) {
+	out, err := sh.call(ctx, "wait", id)
+	if err != nil {
+		return 0, err
+	}
+	return strconv.Atoi(out)
+}
+
+// KillAll sends sig to every process in the container.
+func (sh *Shim) KillAll(ctx context.Context, id string, sig int) error {
+	_, err := sh.call(ctx, "kill", id, strconv.Itoa(sig), "all")
 	return err
 }
 

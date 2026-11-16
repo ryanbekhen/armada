@@ -21,17 +21,13 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/containerd/containerd/api/services/tasks/v1"
-	"github.com/containerd/containerd/api/types/runc/options"
 	"github.com/containerd/containerd/api/types/task"
 	"github.com/containerd/containerd/v2/client"
-	"github.com/containerd/containerd/v2/core/images"
 	"github.com/containerd/containerd/v2/core/remotes/docker"
 	"github.com/containerd/containerd/v2/core/remotes/docker/config"
 	"github.com/containerd/containerd/v2/pkg/cio"
 	"github.com/containerd/containerd/v2/pkg/namespaces"
 	"github.com/containerd/containerd/v2/pkg/oci"
-	"github.com/containerd/containerd/v2/plugins"
 	"github.com/containerd/errdefs"
 	"github.com/distribution/reference"
 
@@ -89,14 +85,19 @@ type Config struct {
 	// Self is the armada binary the shim runs to store container output;
 	// empty means the running executable.
 	Self string
+	// Supervisor runs containers without containerd, through the
+	// agent's own image store and armada-shim (ADR 0046).
+	Supervisor bool
+	// ShimBin overrides the pack's armada-shim (tests).
+	ShimBin string
 }
 
 // Driver runs containers on the embedded containerd.
 type Driver struct {
-	client *client.Client
-	paths  embedded.Paths
-	net    network
-	self   string
+	ctr   backend
+	paths embedded.Paths
+	net   network
+	self  string
 
 	mu sync.Mutex // serializes Run so host ports are not handed out twice
 	// sandboxMu serializes changes to network sandboxes (ADR 0040).
@@ -135,15 +136,23 @@ func New(cfg Config) (*Driver, error) {
 	if self, err = filepath.EvalSymlinks(self); err != nil {
 		return nil, err
 	}
+	d := &Driver{paths: cfg.Paths, net: n, self: self}
+	if cfg.Supervisor {
+		if d.ctr, err = newSupervisorBackend(cfg, d.logger()); err != nil {
+			return nil, err
+		}
+		return d, nil
+	}
 	c, err := client.New(cfg.Paths.Socket(), client.WithDefaultNamespace(embedded.Namespace), client.WithTimeout(5*time.Second))
 	if err != nil {
 		return nil, fmt.Errorf("connect to containerd: %w", err)
 	}
-	return &Driver{client: c, paths: cfg.Paths, net: n, self: self}, nil
+	d.ctr = newContainerdBackend(cfg.Paths, c)
+	return d, nil
 }
 
 // Close releases the connection.
-func (d *Driver) Close() error { return d.client.Close() }
+func (d *Driver) Close() error { return d.ctr.Close() }
 
 // CanMountVolumes implements runtime volume support (ADR 0023).
 func (d *Driver) CanMountVolumes() bool { return true }
@@ -154,8 +163,8 @@ func (d *Driver) ctx(ctx context.Context) context.Context {
 
 // Ping verifies containerd answers and the bridge exists.
 func (d *Driver) Ping(ctx context.Context) error {
-	if _, err := d.client.Version(d.ctx(ctx)); err != nil {
-		return fmt.Errorf("containerd at %s: %w", d.paths.Socket(), err)
+	if err := d.ctr.Ping(d.ctx(ctx)); err != nil {
+		return fmt.Errorf("container runtime: %w", err)
 	}
 	return d.net.Ensure(ctx)
 }
@@ -200,7 +209,7 @@ func (d *Driver) Pull(ctx context.Context, image string, auth *runtime.RegistryA
 		}),
 	})
 	if digested {
-		if img, err := d.client.GetImage(ctx, ref); err == nil {
+		if img, err := d.ctr.GetImage(ctx, ref); err == nil {
 			if !pulledWith(img.Labels(), key) {
 				_, _, err := resolver.Resolve(ctx, ref)
 				switch {
@@ -222,7 +231,7 @@ func (d *Driver) Pull(ctx context.Context, image string, auth *runtime.RegistryA
 			return runtime.Image{Ref: image, Platforms: d.localPlatforms(ctx, img)}, nil
 		}
 	}
-	img, err := d.client.Pull(ctx, ref, client.WithPullUnpack, client.WithResolver(resolver))
+	img, err := d.ctr.Pull(ctx, ref, resolver)
 	if err != nil {
 		// Tell an image built for other platforms from other failures.
 		want := nodePlatform()
@@ -277,7 +286,7 @@ func unrecorded(labels map[string]string) bool {
 
 func (d *Driver) markPulled(ctx context.Context, name, key string) error {
 	label := pullLabel + key
-	_, err := d.client.ImageService().Update(ctx, images.Image{Name: name, Labels: map[string]string{label: "1"}}, "labels."+label)
+	err := d.ctr.SetImageLabel(ctx, name, label, "1")
 	if err != nil {
 		return fmt.Errorf("image %s: record the pull: %w", name, err)
 	}
@@ -324,7 +333,7 @@ func (d *Driver) image(ctx context.Context, image string) (client.Image, error) 
 	if err != nil {
 		return nil, err
 	}
-	img, err := d.client.GetImage(ctx, ref)
+	img, err := d.ctr.GetImage(ctx, ref)
 	if err != nil {
 		return nil, fmt.Errorf("image %s: %w", image, err)
 	}
@@ -346,20 +355,21 @@ func newID(name string) (string, error) {
 	return id, nil
 }
 
-func (d *Driver) runcOpts() *options.Options {
-	return &options.Options{BinaryName: filepath.Join(d.paths.Bin(), embedded.BinRunc)}
-}
-
 // logIO makes the shim pipe the container's output to the pack's
 // armada-log, or to `armadad runtime-log` when the pack has none
 // (development builds). Both take the same arguments and write the same
 // files; armada-log costs well under 1 MiB per container instead of about 5.
 func (d *Driver) logIO() cio.Creator {
-	bin := d.self
+	return cio.BinaryIO(d.logger(), map[string]string{"runtime-log": d.paths.Logs()})
+}
+
+// logger is the program that stores container output: the pack's
+// armada-log, else this binary.
+func (d *Driver) logger() string {
 	if p := filepath.Join(d.paths.Bin(), embedded.BinLogger); regularFile(p) {
-		bin = p
+		return p
 	}
-	return cio.BinaryIO(bin, map[string]string{"runtime-log": d.paths.Logs()})
+	return d.self
 }
 
 // regularFile reports whether p resolves to a regular file.
@@ -495,7 +505,7 @@ func (d *Driver) Run(ctx context.Context, s runtime.ContainerSpec) (_ string, er
 		}, &undo, unlock)
 	}
 	labels[labelStarted] = time.Now().UTC().Format(time.RFC3339Nano)
-	return d.create(ctx, id, img, labels, opts, d.runcOpts(), &undo)
+	return d.create(ctx, id, img, labels, opts, &undo)
 }
 
 // newLabels returns fresh SELinux labels for a container (empty where
@@ -509,7 +519,7 @@ func (d *Driver) newLabels(ctx context.Context) (selinuxLabels, error) {
 	d.labelsMu.Lock()
 	defer d.labelsMu.Unlock()
 	if !d.labelsReserved {
-		cs, err := d.client.Containers(ctx)
+		cs, err := d.ctr.Containers(ctx)
 		if err != nil {
 			return selinuxLabels{}, fmt.Errorf("list containers: %w", err)
 		}
@@ -524,14 +534,8 @@ func (d *Driver) newLabels(ctx context.Context) (selinuxLabels, error) {
 }
 
 // create makes the container and starts its task; undo collects cleanups.
-func (d *Driver) create(ctx context.Context, id string, img client.Image, labels map[string]string, opts []oci.SpecOpts, rt *options.Options, undo *[]func()) (string, error) {
-	c, err := d.client.NewContainer(ctx, id,
-		client.WithImage(img),
-		client.WithNewSnapshot(id, img),
-		client.WithRuntime(plugins.RuntimeRuncV2, rt),
-		client.WithContainerLabels(labels),
-		client.WithNewSpec(opts...),
-	)
+func (d *Driver) create(ctx context.Context, id string, img client.Image, labels map[string]string, opts []oci.SpecOpts, undo *[]func()) (string, error) {
+	c, err := d.ctr.NewContainer(ctx, id, img, labels, opts)
 	if err != nil {
 		return "", fmt.Errorf("create container: %w", err)
 	}
@@ -553,7 +557,7 @@ func (d *Driver) create(ctx context.Context, id string, img client.Image, labels
 }
 
 func (d *Driver) usedPorts(ctx context.Context) (map[int]bool, error) {
-	cs, err := d.client.Containers(ctx)
+	cs, err := d.ctr.Containers(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -583,7 +587,7 @@ func notFound(err error) error {
 // or log shipper in front of it outlives it.
 func (d *Driver) Stop(ctx context.Context, id string, grace time.Duration) error {
 	ctx = d.ctx(ctx)
-	c, err := d.client.LoadContainer(ctx, id)
+	c, err := d.ctr.LoadContainer(ctx, id)
 	if err != nil {
 		return notFound(err)
 	}
@@ -651,7 +655,7 @@ func (d *Driver) stopContainer(ctx context.Context, c client.Container, grace ti
 // they live in its network namespace.
 func (d *Driver) Remove(ctx context.Context, id string) error {
 	ctx = d.ctx(ctx)
-	c, err := d.client.LoadContainer(ctx, id)
+	c, err := d.ctr.LoadContainer(ctx, id)
 	if err != nil {
 		return notFound(err)
 	}
@@ -715,7 +719,7 @@ func (d *Driver) removeContainer(ctx context.Context, c client.Container) error 
 // and Remove releasing again is harmless.
 func (d *Driver) ReleaseNetwork(ctx context.Context, id string) error {
 	ctx = d.ctx(ctx)
-	c, err := d.client.LoadContainer(ctx, id)
+	c, err := d.ctr.LoadContainer(ctx, id)
 	if err != nil {
 		return notFound(err)
 	}
@@ -744,18 +748,16 @@ func mappingFromLabels(l map[string]string) *portMapping {
 // List returns containers carrying all given labels.
 func (d *Driver) List(ctx context.Context, labels map[string]string) ([]runtime.Container, error) {
 	ctx = d.ctx(ctx)
-	cs, err := d.client.Containers(ctx)
+	cs, err := d.ctr.Containers(ctx)
 	if err != nil {
 		return nil, err
 	}
 	// One request for the state of every task, rather than two for each. A
 	// task the answer leaves out, as containerd does when it cannot reach its
 	// shim, is asked for by itself: only that can say it is gone.
-	known := map[string]*task.Process{}
-	if resp, err := d.client.TaskService().List(ctx, &tasks.ListTasksRequest{}); err == nil {
-		for _, t := range resp.GetTasks() {
-			known[t.GetID()] = t
-		}
+	known, err := d.ctr.Tasks(ctx)
+	if err != nil {
+		known = map[string]*task.Process{}
 	}
 	var out []runtime.Container
 	// Init containers and sidecars are listed with their replica's
@@ -802,7 +804,7 @@ func matches(have, want map[string]string) bool {
 // Inspect returns one container's state.
 func (d *Driver) Inspect(ctx context.Context, id string) (runtime.Container, error) {
 	ctx = d.ctx(ctx)
-	c, err := d.client.LoadContainer(ctx, id)
+	c, err := d.ctr.LoadContainer(ctx, id)
 	if err != nil {
 		return runtime.Container{}, notFound(err)
 	}
@@ -951,7 +953,7 @@ func (d *Driver) PruneImages(ctx context.Context, keep []string, grace time.Dura
 			digests[dg.Digest().String()] = true
 		}
 	}
-	cs, err := d.client.Containers(ctx)
+	cs, err := d.ctr.Containers(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -965,8 +967,7 @@ func (d *Driver) PruneImages(ctx context.Context, keep []string, grace time.Dura
 		}
 		names[info.Image] = true
 	}
-	is := d.client.ImageService()
-	imgs, err := is.List(ctx)
+	imgs, err := d.ctr.ListImages(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -984,13 +985,8 @@ func (d *Driver) PruneImages(ctx context.Context, keep []string, grace time.Dura
 	}
 	var removed []string
 	for i, name := range unused {
-		var opts []images.DeleteOpt
-		if i == len(unused)-1 {
-			// Content and snapshots go with containerd's garbage
-			// collection; the last removal waits for it to free them.
-			opts = append(opts, images.SynchronousDelete())
-		}
-		if err := is.Delete(ctx, name, opts...); err != nil && !errdefs.IsNotFound(err) {
+		// The last removal waits until the content and snapshots are freed.
+		if err := d.ctr.DeleteImage(ctx, name, i == len(unused)-1); err != nil && !errdefs.IsNotFound(err) {
 			return removed, fmt.Errorf("remove image %s: %w", name, err)
 		}
 		removed = append(removed, name)

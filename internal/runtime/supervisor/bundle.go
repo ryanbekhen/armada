@@ -110,7 +110,7 @@ func writeJSON(path string, v any) error {
 		return err
 	}
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil { //nolint:gosec // under the agent's data directory
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
 		return err
 	}
 	return os.Rename(tmp, path)

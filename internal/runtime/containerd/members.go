@@ -12,7 +12,6 @@ import (
 
 	"github.com/containerd/containerd/v2/client"
 	"github.com/containerd/containerd/v2/pkg/oci"
-	"github.com/containerd/containerd/v2/plugins"
 	"github.com/containerd/errdefs"
 
 	"github.com/ryanbekhen/armada/internal/runtime"
@@ -79,13 +78,7 @@ func (d *Driver) endStart(id string) {
 // the container records its port.
 func (d *Driver) runPod(ctx context.Context, id string, img client.Image, labels map[string]string, opts []oci.SpecOpts, env podEnv, undo *[]func(), unlock func()) (string, error) {
 	labels[labelStarted] = time.Now().UTC().Format(time.RFC3339Nano)
-	c, err := d.client.NewContainer(ctx, id,
-		client.WithImage(img),
-		client.WithNewSnapshot(id, img),
-		client.WithRuntime(plugins.RuntimeRuncV2, d.runcOpts()),
-		client.WithContainerLabels(labels),
-		client.WithNewSpec(opts...),
-	)
+	c, err := d.ctr.NewContainer(ctx, id, img, labels, opts)
 	if err != nil {
 		return "", fmt.Errorf("create container: %w", err)
 	}
@@ -179,7 +172,7 @@ func (d *Driver) CanRunMembers() bool { return true }
 
 // setStarted records when the replica's own container started.
 func (d *Driver) setStarted(ctx context.Context, id string) error {
-	c, err := d.client.LoadContainer(ctx, id)
+	c, err := d.ctr.LoadContainer(ctx, id)
 	if err != nil {
 		return err
 	}
@@ -232,13 +225,7 @@ func (d *Driver) startMember(ctx context.Context, pod string, m runtime.MemberSp
 			}
 		}
 	}()
-	c, err := d.client.NewContainer(ctx, mid,
-		client.WithImage(img),
-		client.WithNewSnapshot(mid, img),
-		client.WithRuntime(plugins.RuntimeRuncV2, d.runcOpts()),
-		client.WithContainerLabels(labels),
-		client.WithNewSpec(opts...),
-	)
+	c, err := d.ctr.NewContainer(ctx, mid, img, labels, opts)
 	if err != nil {
 		return nil, nil, fmt.Errorf("create container: %w", err)
 	}
@@ -262,7 +249,7 @@ func (d *Driver) startMember(ctx context.Context, pod string, m runtime.MemberSp
 // members returns the init containers and sidecars of the replica's
 // container pod.
 func (d *Driver) members(ctx context.Context, pod string) ([]client.Container, error) {
-	return d.client.Containers(ctx, "labels."+strconv.Quote(labelPod)+"=="+strconv.Quote(pod))
+	return d.ctr.Containers(ctx, "labels."+strconv.Quote(labelPod)+"=="+strconv.Quote(pod))
 }
 
 // describeMembers fills c.Members from the init containers and sidecars of

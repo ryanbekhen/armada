@@ -107,3 +107,23 @@ func nodeConfig(t *testing.T, bin string) Config {
 	}
 	return cfg
 }
+
+// TestIntegrationConformanceSupervisor runs the conformance suite against
+// the runtime without containerd (ADR 0046): the agent's own image store
+// and armada-shim, on an initialized node:
+//
+//	sudo ARMADA_BIN=/usr/local/bin/armadad ARMADA_SHIM_BIN=/root/armada-shim \
+//	  ARMADA_HOST_IP=10.0.0.5 go test -tags integration -run ConformanceSupervisor ./internal/runtime/containerd/
+func TestIntegrationConformanceSupervisor(t *testing.T) {
+	bin, shim := os.Getenv("ARMADA_BIN"), os.Getenv("ARMADA_SHIM_BIN")
+	if bin == "" || shim == "" || os.Geteuid() != 0 {
+		t.Skip("needs root, ARMADA_BIN, and ARMADA_SHIM_BIN")
+	}
+	cfg := nodeConfig(t, bin)
+	cfg.Supervisor, cfg.ShimBin = true, shim
+	d, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conformance.Run(t, d, conformance.Options{HostIP: os.Getenv("ARMADA_HOST_IP")})
+}

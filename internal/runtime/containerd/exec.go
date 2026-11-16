@@ -27,7 +27,7 @@ func (d *Driver) ExecApp(ctx context.Context, id string, opts runtime.ExecOption
 		return 0, err
 	}
 	ctx = d.ctx(ctx)
-	c, err := d.client.LoadContainer(ctx, id)
+	c, err := d.ctr.LoadContainer(ctx, id)
 	if err != nil {
 		return 0, notFound(err)
 	}

@@ -26,7 +26,7 @@ func (d *Driver) DialContainer(ctx context.Context, id, network, address string)
 	if err := checkDial(network, address); err != nil {
 		return nil, err
 	}
-	c, err := d.client.LoadContainer(d.ctx(ctx), id)
+	c, err := d.ctr.LoadContainer(d.ctx(ctx), id)
 	if err != nil {
 		return nil, notFound(err)
 	}
