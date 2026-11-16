@@ -70,9 +70,20 @@ plugins, tini, and `armada-log` are the same on both.
   0600 socket in `/run/armada/shim/` (`create`, `start`, `state`, `wait`,
   `kill`, `kill all`, `delete`, `list`). It exits 10 seconds after its last
   container is gone, removing its socket and state. It never reads images
-  or credentials. Before the agent starts a group's shim, containers a shim
-  that ended left in runc's state are killed and deleted, so they end with
-  their shim as on containerd, and the agent starts them again.
+  or credentials. It refuses a process ID of 0 or 1 from runc's pid file
+  (and deletes a container whose pid file it cannot read), and keeps at
+  most 4096 exit codes nobody asked for, never dropping a container's
+  own. The unit runs with the limits of `armada-runtime.service`
+  (`OOMScoreAdjust=-999`, `LimitNOFILE`, `LimitNPROC`, `LimitCORE`, and
+  `TasksMax` unlimited), which its containers inherit. Before the agent
+  starts a group's shim, containers a shim that ended left in runc's state
+  are killed and deleted, so they end with their shim as on containerd, and
+  the agent starts them again. A shim counts as ended only when nothing
+  listens on its socket or its unit is no longer active: one that is slow
+  or busy (a timeout, a closed connection) keeps its containers, and the
+  agent asks again on its next pass. Starting and abandoning a group's
+  shim are serialized per group, so two callers never start two shims or
+  abandon one that was just started.
 - **The driver is shared.** `internal/runtime/containerd` reaches
   containers, tasks, and images through a `backend` interface; the
   supervisor offers containerd's client types (`Container`, `Task`,
