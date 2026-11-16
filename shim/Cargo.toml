@@ -1,0 +1,19 @@
+[package]
+name = "armada-shim"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+description = "Supervises one app's containers on a node (ADR 0046, prototype)"
+publish = false
+
+# Standard library only. The few kernel calls std does not wrap (prctl,
+# waitpid, kill, dup2, fcntl) are declared against the C library std
+# already links.
+[dependencies]
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
