@@ -2,6 +2,7 @@ package dnsserver
 
 import (
 	"context"
+	"maps"
 	"net"
 	"net/netip"
 	"os"
@@ -258,11 +259,20 @@ func TestForwardingSharePerClient(t *testing.T) {
 	if r := askFrom(t, addr, "udp", "127.0.0.2", "example.com."); r.Rcode != dns.RcodeSuccess {
 		t.Errorf("after release: %s", dns.RcodeToString[r.Rcode])
 	}
-	// Counts return to zero once queries finish.
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if len(s.perClient) != 0 {
-		t.Errorf("counts left: %v", s.perClient)
+	// Counts return to zero once queries finish. A slot is released after
+	// the answer is written, so the client can see the answer first.
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		s.mu.Lock()
+		left := maps.Clone(s.perClient)
+		s.mu.Unlock()
+		if len(left) == 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("counts left: %v", left)
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 }
 
