@@ -219,6 +219,7 @@ func (d *Driver) startMember(ctx context.Context, pod string, m runtime.MemberSp
 	opts = append(opts, appOpts(appSpec{
 		spec: ms, netns: env.netns, files: env.files, tini: env.tini,
 		cgroup:   cgroupParent + "/" + mid,
+		group:    shimGroup(labels[runtime.LabelApp], env.tini),
 		seccomp:  seccompOpt(),
 		apparmor: apparmorOpt(),
 		selinux:  env.selinux,

@@ -3,6 +3,7 @@ package containerd
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 
 	"github.com/containerd/containerd/v2/core/containers"
 	"github.com/containerd/containerd/v2/pkg/oci"
@@ -23,6 +24,22 @@ func cpuShares(millis int64) uint64 {
 	return uint64(min(max(millis*1024/1000, 2), 262144))
 }
 
+// shimGroupAnnotation makes containerd's runc shim serve every container
+// with the same value from one process.
+const shimGroupAnnotation = "io.containerd.runc.v2.group"
+
+// shimGroup is the shim an app's containers share on a node: one per app,
+// and per runtime pack (tini's resolved directory names it), so containers
+// started after an upgrade get the new shim instead of joining one that
+// runs the old binary for as long as the app has a container on the node.
+// Containers with no app get a shim of their own.
+func shimGroup(app, tini string) string {
+	if app == "" {
+		return ""
+	}
+	return app + "@" + filepath.Base(filepath.Dir(filepath.Dir(tini)))
+}
+
 // nofile is the open-file limit of every container.
 const nofile = 1048576
 
@@ -33,6 +50,9 @@ type appSpec struct {
 	files  containerFiles
 	tini   string // host path of tini
 	cgroup string
+	// group names the shim the container shares (shimGroup); empty for
+	// a shim of its own.
+	group string
 	// apparmor applies an AppArmor profile when the host supports it.
 	apparmor oci.SpecOpts
 	seccomp  oci.SpecOpts
@@ -82,6 +102,9 @@ func appOpts(a appSpec) []oci.SpecOpts {
 	}
 	if a.seccomp != nil {
 		opts = append(opts, a.seccomp)
+	}
+	if a.group != "" {
+		opts = append(opts, oci.WithAnnotations(map[string]string{shimGroupAnnotation: a.group}))
 	}
 	if a.apparmor != nil {
 		opts = append(opts, a.apparmor)

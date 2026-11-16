@@ -469,6 +469,7 @@ func (d *Driver) Run(ctx context.Context, s runtime.ContainerSpec) (_ string, er
 	opts = append(opts, appOpts(appSpec{
 		spec: s, netns: netns, files: files, tini: tini,
 		cgroup:   cgroupParent + "/" + id,
+		group:    shimGroup(labels[runtime.LabelApp], tini),
 		seccomp:  seccompOpt(),
 		apparmor: apparmorOpt(),
 		selinux:  sl,

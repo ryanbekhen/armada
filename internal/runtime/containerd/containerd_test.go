@@ -165,6 +165,29 @@ func TestSELinuxLabels(t *testing.T) {
 	}
 }
 
+// An app's containers share one shim per runtime pack; other containers
+// keep a shim of their own.
+func TestShimGroup(t *testing.T) {
+	t.Parallel()
+	tini := "/var/lib/armada/runtime/afeb4828bc91ef0a/bin/tini"
+	if g := shimGroup("web.shop", tini); g != "web.shop@afeb4828bc91ef0a" {
+		t.Errorf("shimGroup = %q", g)
+	}
+	if g := shimGroup("web.shop", "/var/lib/armada/runtime/0123456789abcdef/bin/tini"); g == shimGroup("web.shop", tini) {
+		t.Error("a new runtime pack joins the old shim")
+	}
+	if g := shimGroup("", tini); g != "" {
+		t.Errorf("no app: %q", g)
+	}
+	s := genSpec(t, appOpts(appSpec{spec: runtime.ContainerSpec{Name: "web"}, group: "web@p"})...)
+	if s.Annotations[shimGroupAnnotation] != "web@p" {
+		t.Errorf("annotations %v", s.Annotations)
+	}
+	if s := genSpec(t, appOpts(appSpec{spec: runtime.ContainerSpec{Name: "web"}})...); s.Annotations[shimGroupAnnotation] != "" {
+		t.Errorf("ungrouped annotations %v", s.Annotations)
+	}
+}
+
 func TestArgsWithoutCommand(t *testing.T) {
 	ctx := namespaces.WithNamespace(context.Background(), "test")
 	if _, err := oci.GenerateSpecWithPlatform(ctx, nil, "linux/amd64", &containers.Container{ID: "x"}, withInit); err == nil {
