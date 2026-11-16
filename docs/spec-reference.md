@@ -147,6 +147,10 @@ An OCI image reference with an optional registry host, tag, and
 revision, the image is resolved to a digest and every replica of that
 revision runs exactly that digest, even if the tag moves later.
 
+Nodes reach registries over HTTPS only, with a certificate the machine
+trusts, directly (no proxy from the environment); a registry that
+redirects to plain HTTP or to a link-local address is refused.
+
 ### `command`, `args`
 
 Lists of strings (at most 256 entries of 4 KiB each). `command` replaces the
