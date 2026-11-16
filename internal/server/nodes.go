@@ -364,6 +364,10 @@ func (s *Server) RemoveNode(ctx context.Context, req *armadav1.RemoveNodeRequest
 	s.mu.Lock()
 	if sess := s.sessions[req.GetNode()]; sess != nil {
 		delete(s.sessions, req.GetNode())
+		// Its last assignment runs nothing, so the agent stops the
+		// replicas it ran before the session ends: its certificate is
+		// revoked and it never hears from the cluster again.
+		sess.offerAssignment(&armadav1.Assignment{})
 		close(sess.done)
 	}
 	s.mu.Unlock()

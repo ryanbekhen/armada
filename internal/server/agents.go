@@ -60,6 +60,21 @@ func (s *session) offerAssignment(a *armadav1.Assignment) {
 	}
 }
 
+// flushSession sends the messages still queued on sess, without waiting
+// for more.
+func flushSession(stream armadav1.AgentService_ConnectServer, sess *session) {
+	for {
+		select {
+		case m := <-sess.send:
+			if stream.Send(m) != nil {
+				return
+			}
+		default:
+			return
+		}
+	}
+}
+
 func (s *session) offer(m *armadav1.ServerMessage) bool {
 	select {
 	case s.send <- m:
@@ -187,6 +202,9 @@ func (s *Server) Connect(stream armadav1.AgentService_ConnectServer) error {
 					return
 				}
 			case <-sess.done:
+				// What was queued before the end still goes out: a removed
+				// node's last assignment stops its replicas.
+				flushSession(stream, sess)
 				errc <- status.Error(codes.Aborted, "replaced by a newer connection")
 				return
 			case <-ctx.Done():
