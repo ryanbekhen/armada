@@ -25,7 +25,7 @@ var _ runtime.StatsReader = (*Driver)(nil)
 // (ADR 0038): what it reserves covers them all.
 func (d *Driver) Stats(ctx context.Context, id string) (runtime.Stats, error) {
 	ctx = d.ctx(ctx)
-	c, err := d.client.LoadContainer(ctx, id)
+	c, err := d.ctr.LoadContainer(ctx, id)
 	if err != nil {
 		return runtime.Stats{}, notFound(err)
 	}

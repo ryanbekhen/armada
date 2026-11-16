@@ -59,7 +59,7 @@ func (d *Driver) RunSystem(ctx context.Context, s runtime.SystemSpec) (_ string,
 	}
 	opts := argsOpts(img, runtime.ContainerSpec{Cmd: s.Cmd})
 	opts = append(opts, systemOpts(s, cgroupParent+"/"+id, seccompOpt(), sl)...)
-	return d.create(ctx, id, img, labels, opts, d.runcOpts(), &undo)
+	return d.create(ctx, id, img, labels, opts, &undo)
 }
 
 // lockedBuffer collects output written from two goroutines.
@@ -83,7 +83,7 @@ func (l *lockedBuffer) String() string {
 // Exec runs cmd in a running container and returns its combined output.
 func (d *Driver) Exec(ctx context.Context, id string, cmd []string) (string, int, error) {
 	ctx = d.ctx(ctx)
-	c, err := d.client.LoadContainer(ctx, id)
+	c, err := d.ctr.LoadContainer(ctx, id)
 	if err != nil {
 		return "", 0, notFound(err)
 	}
@@ -143,7 +143,7 @@ func (d *Driver) Signal(ctx context.Context, id, signal string) error {
 		return fmt.Errorf("unsupported signal %q", signal)
 	}
 	ctx = d.ctx(ctx)
-	c, err := d.client.LoadContainer(ctx, id)
+	c, err := d.ctr.LoadContainer(ctx, id)
 	if err != nil {
 		return notFound(err)
 	}

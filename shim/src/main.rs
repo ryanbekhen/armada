@@ -9,7 +9,9 @@
 //!   create ID BUNDLE LOGDIR   create the container (not started)
 //!   start ID                  start it
 //!   state ID                  `ok created PID`, `ok running PID`, or `ok exited CODE`
-//!   kill ID SIGNAL            send a signal (number) to its process
+//!   kill ID SIGNAL [all]      send a signal (number) to its process, or with
+//!                             `all` to every process in it (runc kill --all)
+//!   wait ID                   wait until it exits: `ok CODE`
 //!   delete ID                 remove it (stopped first with SIGKILL)
 //!   list                      `ok ID STATE ...` for every container
 //!
@@ -289,6 +291,28 @@ impl Shim {
         Ok(String::new())
     }
 
+    fn signal_all(&self, id: &str, sig: &str) -> Result<String, String> {
+        let n: i32 = sig.parse().map_err(|_| "invalid signal".to_string())?;
+        if !(1..=64).contains(&n) {
+            return Err("invalid signal".into());
+        }
+        self.known(id)?;
+        self.runc_quiet(&["kill", "--all", id, sig])?;
+        Ok(String::new())
+    }
+
+    /// Blocks until the container's process was reaped, or the container
+    /// was deleted meanwhile.
+    fn wait(&self, id: &str) -> Result<String, String> {
+        loop {
+            let pid = self.known(id)?;
+            if let Some(code) = self.reaped.peek(pid) {
+                return Ok(code.to_string());
+            }
+            self.reaped.wait_a_while();
+        }
+    }
+
     fn delete(&self, id: &str) -> Result<String, String> {
         let pid = self.known(id)?;
         if self.reaped.peek(pid).is_none() {
@@ -320,6 +344,8 @@ impl Shim {
             ["start", id] => self.start(id),
             ["state", id] => self.state(id),
             ["kill", id, sig] => self.signal(id, sig),
+            ["kill", id, sig, "all"] => self.signal_all(id, sig),
+            ["wait", id] => self.wait(id),
             ["delete", id] => self.delete(id),
             ["list"] => Ok(self.list()),
             _ => Err("unknown request".into()),
@@ -333,6 +359,15 @@ impl Shim {
 }
 
 impl Reaped {
+    /// Waits for the next reaped child, or a second.
+    fn wait_a_while(&self) {
+        let exits = self.exits.lock().unwrap();
+        let _ = self
+            .cond
+            .wait_timeout(exits, Duration::from_secs(1))
+            .unwrap();
+    }
+
     /// Waits for pid to be reaped and leaves its exit code in place.
     fn wait_keep(&self, pid: i32) {
         let mut exits = self.exits.lock().unwrap();

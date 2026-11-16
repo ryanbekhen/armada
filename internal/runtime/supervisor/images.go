@@ -8,9 +8,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/containerd/containerd/v2/core/content"
 	"github.com/containerd/containerd/v2/core/diff"
@@ -52,6 +54,8 @@ type Image struct {
 	// Platforms the image offers, as "os/arch".
 	Platforms []string          `json:"platforms,omitempty"`
 	Labels    map[string]string `json:"labels,omitempty"`
+	Created   time.Time         `json:"created"`
+	Updated   time.Time         `json:"updated"`
 }
 
 const recordsFile = "images.json"
@@ -62,7 +66,7 @@ const pullParallel = 2
 
 // OpenImages opens (creating) the store under root for this node's platform.
 func OpenImages(root string) (*Images, error) {
-	if err := os.MkdirAll(root, 0o700); err != nil { //nolint:gosec // root is the agent's data directory
+	if err := os.MkdirAll(root, 0o700); err != nil {
 		return nil, err
 	}
 	cs, err := local.NewStore(filepath.Join(root, "content"))
@@ -147,7 +151,8 @@ func (s *Images) unpack(ctx context.Context, name string, desc ocispec.Descripto
 	if err != nil {
 		return Image{}, fmt.Errorf("unpack: %w", err)
 	}
-	img := Image{Name: name, Target: desc, Config: manifest.Config, ChainID: chain, Labels: labels}
+	now := time.Now().UTC()
+	img := Image{Name: name, Target: desc, Config: manifest.Config, ChainID: chain, Labels: labels, Created: now, Updated: now}
 	if ps, err := images.Platforms(ctx, s.content, desc); err == nil {
 		for _, p := range ps {
 			img.Platforms = append(img.Platforms, p.OS+"/"+p.Architecture)
@@ -155,6 +160,9 @@ func (s *Images) unpack(ctx context.Context, name string, desc ocispec.Descripto
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if old, ok := s.recs[name]; ok && old.Target.Digest == desc.Digest {
+		img.Created = old.Created
+	}
 	s.recs[name] = img
 	return img, s.saveLocked()
 }
@@ -166,10 +174,10 @@ func (s *Images) saveLocked() error {
 		return err
 	}
 	tmp := filepath.Join(s.root, recordsFile+".tmp")
-	if err := os.WriteFile(tmp, b, 0o600); err != nil { //nolint:gosec // under the agent's data directory
+	if err := os.WriteFile(tmp, b, 0o600); err != nil {
 		return err
 	}
-	return os.Rename(tmp, filepath.Join(s.root, recordsFile)) //nolint:gosec // under the agent's data directory
+	return os.Rename(tmp, filepath.Join(s.root, recordsFile))
 }
 
 // Prepare makes a writable root filesystem for container key on top of
@@ -188,4 +196,105 @@ func (s *Images) Release(ctx context.Context, key string) error {
 		return err
 	}
 	return nil
+}
+
+// List returns every image record.
+func (s *Images) List() []Image {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]Image, 0, len(s.recs))
+	for _, r := range s.recs {
+		out = append(out, r)
+	}
+	return out
+}
+
+// SetLabel sets one label of an image record.
+func (s *Images) SetLabel(name, key, value string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	r, ok := s.recs[name]
+	if !ok {
+		return fmt.Errorf("image %s: %w", name, errdefs.ErrNotFound)
+	}
+	r.Labels = maps.Clone(r.Labels)
+	if r.Labels == nil {
+		r.Labels = map[string]string{}
+	}
+	r.Labels[key] = value
+	r.Updated = time.Now().UTC()
+	s.recs[name] = r
+	return s.saveLocked()
+}
+
+// metadata describes a record the way containerd's image service does.
+func (r Image) metadata() images.Image {
+	return images.Image{Name: r.Name, Target: r.Target, Labels: maps.Clone(r.Labels), CreatedAt: r.Created, UpdatedAt: r.Updated}
+}
+
+// Delete forgets an image, then removes layers and blobs no remaining
+// image needs. Layers under a container's root filesystem stay: the
+// snapshotter refuses to remove a parent.
+func (s *Images) Delete(ctx context.Context, name string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.recs[name]; !ok {
+		return fmt.Errorf("image %s: %w", name, errdefs.ErrNotFound)
+	}
+	delete(s.recs, name)
+	if err := s.saveLocked(); err != nil {
+		return err
+	}
+	return s.collectLocked(ctx)
+}
+
+// collectLocked removes committed snapshots and blobs no record uses.
+func (s *Images) collectLocked(ctx context.Context) error {
+	keepChains := map[string]bool{}
+	keepBlobs := map[digest.Digest]bool{}
+	for _, r := range s.recs {
+		keepChains[r.ChainID.String()] = true
+		_ = images.Walk(ctx, images.HandlerFunc(func(ctx context.Context, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
+			keepBlobs[desc.Digest] = true
+			if _, err := s.content.Info(ctx, desc.Digest); err != nil {
+				return nil, images.ErrSkipDesc // not fetched: another platform's
+			}
+			return images.Children(ctx, s.content, desc)
+		}), r.Target)
+	}
+	// A kept chain keeps its parents.
+	parents := map[string]string{}
+	var committed []string
+	_ = s.snap.Walk(ctx, func(_ context.Context, info snapshots.Info) error {
+		parents[info.Name] = info.Parent
+		if info.Kind == snapshots.KindCommitted {
+			committed = append(committed, info.Name)
+		}
+		return nil
+	})
+	for c := range maps.Clone(keepChains) {
+		for p := parents[c]; p != ""; p = parents[p] {
+			keepChains[p] = true
+		}
+	}
+	// Remove leaves first: a parent goes once its children went.
+	for progress := true; progress; {
+		progress = false
+		for i, name := range committed {
+			if name == "" || keepChains[name] {
+				continue
+			}
+			if err := s.snap.Remove(ctx, name); err == nil {
+				committed[i], progress = "", true
+			}
+		}
+	}
+	return s.content.Walk(ctx, func(info content.Info) error {
+		if !keepBlobs[info.Digest] {
+			if err := s.content.Delete(ctx, info.Digest); err != nil && !errdefs.IsNotFound(err) {
+				return err
+			}
+		}
+		return nil
+	})
 }
