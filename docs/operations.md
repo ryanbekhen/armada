@@ -669,6 +669,11 @@ only new ones need room. If a rollout waits for a node, `armada app show`
 names what is short: scale another app down, lower its reservation, or add
 a node.
 
+`armadad server` and `armadad agent` run Go's garbage collector at
+`GOGC=50`, which keeps a few MiB less resident than Go's default for a few
+more short collections a minute. To change it, set `GOGC` in a systemd
+drop-in for `armada-server` or `armada-agent` (`Environment=GOGC=100`).
+
 Nodes keep only the images they need: every 10 minutes each agent removes
 images that no container uses and that no replica assigned to the node
 names, once they were pulled more than an hour ago. Rolling back to a

@@ -90,6 +90,7 @@ func newServerCommand() *cobra.Command {
 			"seconds if it fails. Add control plane nodes with `armadad server join`.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			tuneGC(os.Getenv)
 			log, err := newLogger(cmd.ErrOrStderr(), logFormat, verbose)
 			if err != nil {
 				return err
@@ -408,6 +409,7 @@ func newAgentCommand() *cobra.Command {
 		Short: "Run the node agent",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			tuneGC(os.Getenv)
 			log, err := newLogger(cmd.ErrOrStderr(), logFormat, verbose)
 			if err != nil {
 				return err
