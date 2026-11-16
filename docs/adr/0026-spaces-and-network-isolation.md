@@ -148,7 +148,12 @@ Spaces build on the cluster network (ADR 0025) and its access rules:
   A new container's address is known to its node's firewall as soon as it
   starts; until then, and for any address the node does not know, the
   node treats it as isolated. Connections opened before a rule changed
-  keep going until they end.
+  keep going until they end. An address goes back to the pool when its
+  container (or job attempt, or network sandbox) gives it up, and the next
+  container to get it may belong to another space; so the node deletes the
+  kernel's connection tracking entries of the address right after the
+  container networking plugins give it back, and a peer that kept a flow
+  to the old owner alive is checked again as new.
 
   These rules apply to every space. In `default` they apply once the
   administrator turns them on (`armada space set default
