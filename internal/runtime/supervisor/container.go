@@ -82,9 +82,11 @@ func (c *container) NewTask(ctx context.Context, _ cio.Creator, _ ...client.NewT
 	return &taskProc{c: c, sh: sh, pid: pid}, nil
 }
 
-// Task returns the container's task. A shim that does not answer took its
+// Task returns the container's task. A shim that is gone took its
 // containers with it: they are ended, and the task is not found, as on
-// containerd when a shim dies.
+// containerd when a shim dies. A shim that runs but does not answer in
+// time keeps its containers: the error is returned and the caller asks
+// again later.
 func (c *container) Task(ctx context.Context, _ cio.Attach) (client.Task, error) {
 	sh := c.s.Shims.Get(c.rec.Group)
 	st, err := sh.State(ctx, c.rec.ID)
@@ -98,8 +100,12 @@ func (c *container) Task(ctx context.Context, _ cio.Attach) (client.Task, error)
 	if errors.As(err, &shimErr) {
 		return nil, err
 	}
-	if aerr := c.s.Shims.Abandon(ctx, sh); aerr != nil {
-		return nil, fmt.Errorf("shim of %s: %w; ending its containers: %w", c.rec.ID, err, aerr)
+	gone, aerr := c.s.Shims.Abandon(ctx, sh)
+	switch {
+	case aerr != nil:
+		return nil, fmt.Errorf("shim of %s: %w; %w", c.rec.ID, err, aerr)
+	case !gone:
+		return nil, fmt.Errorf("shim of %s does not answer: %w", c.rec.ID, err)
 	}
 	return nil, fmt.Errorf("task %s (shim gone): %w", c.rec.ID, errdefs.ErrNotFound)
 }

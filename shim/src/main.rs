@@ -17,7 +17,7 @@
 //!
 //! Prototype: standard library only, Linux only.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::os::fd::{AsRawFd, OwnedFd};
@@ -43,10 +43,85 @@ const F_DUPFD_CLOEXEC: i32 = 1030;
 const SIGKILL: i32 = 9;
 const ECHILD: i32 = 10;
 
+/// How many exit statuses the shim keeps before it drops the oldest that
+/// nobody asked for. Containers' own are never dropped (they are pinned
+/// until the container is deleted), and runc and armada-log are taken as
+/// soon as they exit, so what piles up are processes that were reparented
+/// to the shim and that nobody waits for. A few thousand covers far more
+/// than one app's containers at once in a few hundred KiB at most.
+const MAX_EXITS: usize = 4096;
+
+/// How long an exit status is kept at least, so a caller that spawned a
+/// process and is about to wait for it never finds its status dropped.
+const EXIT_GRACE: Duration = Duration::from_secs(60);
+
+/// Exit statuses by PID, bounded by MAX_EXITS (see there).
+#[derive(Default)]
+struct Exits {
+    codes: HashMap<i32, (i32, Instant)>,
+    /// PIDs in the order they were reaped; entries whose status was taken
+    /// stay until they reach the front or the queue is compacted.
+    order: VecDeque<(i32, Instant)>,
+    /// Containers' PIDs, whose statuses are kept until they are forgotten.
+    pinned: HashSet<i32>,
+}
+
+impl Exits {
+    fn insert(&mut self, pid: i32, code: i32, now: Instant) {
+        self.codes.insert(pid, (code, now));
+        self.order.push_back((pid, now));
+        self.trim(now);
+    }
+
+    fn get(&self, pid: i32) -> Option<i32> {
+        self.codes.get(&pid).map(|(code, _)| *code)
+    }
+
+    fn remove(&mut self, pid: i32) -> Option<i32> {
+        self.codes.remove(&pid).map(|(code, _)| code)
+    }
+
+    /// Whether the order entry (pid, at) still stands for a kept status.
+    fn current(&self, pid: i32, at: Instant) -> bool {
+        self.codes.get(&pid).is_some_and(|(_, t)| *t == at)
+    }
+
+    /// Drops the oldest unpinned statuses past MAX_EXITS once they are
+    /// older than EXIT_GRACE.
+    fn trim(&mut self, now: Instant) {
+        if self.order.len() > 2 * MAX_EXITS {
+            let codes = &self.codes;
+            self.order
+                .retain(|(pid, at)| codes.get(pid).is_some_and(|(_, t)| t == at));
+        }
+        let mut kept = Vec::new();
+        while self.codes.len() > MAX_EXITS {
+            let Some(&(pid, at)) = self.order.front() else {
+                break;
+            };
+            if now.saturating_duration_since(at) < EXIT_GRACE {
+                break;
+            }
+            self.order.pop_front();
+            if !self.current(pid, at) {
+                continue;
+            }
+            if self.pinned.contains(&pid) {
+                kept.push((pid, at));
+            } else {
+                self.codes.remove(&pid);
+            }
+        }
+        for e in kept.into_iter().rev() {
+            self.order.push_front(e);
+        }
+    }
+}
+
 /// Exit statuses of reaped children, by PID, until someone takes them.
 #[derive(Default)]
 struct Reaped {
-    exits: Mutex<HashMap<i32, i32>>,
+    exits: Mutex<Exits>,
     cond: Condvar,
 }
 
@@ -57,7 +132,10 @@ impl Reaped {
             let mut status = 0;
             let pid = unsafe { waitpid(-1, &mut status, 0) };
             if pid > 0 {
-                self.exits.lock().unwrap().insert(pid, exit_code(status));
+                self.exits
+                    .lock()
+                    .unwrap()
+                    .insert(pid, exit_code(status), Instant::now());
                 self.cond.notify_all();
                 continue;
             }
@@ -71,7 +149,7 @@ impl Reaped {
     fn wait(&self, pid: i32) -> i32 {
         let mut exits = self.exits.lock().unwrap();
         loop {
-            if let Some(code) = exits.remove(&pid) {
+            if let Some(code) = exits.remove(pid) {
                 return code;
             }
             exits = self.cond.wait(exits).unwrap();
@@ -80,12 +158,33 @@ impl Reaped {
 
     /// The exit code of pid if it was reaped, without taking it.
     fn peek(&self, pid: i32) -> Option<i32> {
-        self.exits.lock().unwrap().get(&pid).copied()
+        self.exits.lock().unwrap().get(pid)
+    }
+
+    /// Keeps pid's exit status until it is forgotten (a container's).
+    fn pin(&self, pid: i32) {
+        self.exits.lock().unwrap().pinned.insert(pid);
     }
 
     fn forget(&self, pid: i32) {
-        self.exits.lock().unwrap().remove(&pid);
+        let mut exits = self.exits.lock().unwrap();
+        exits.pinned.remove(&pid);
+        exits.remove(pid);
     }
+}
+
+/// The container's PID from runc's pid file. 0, 1, and negative numbers
+/// are refused: a signal to them would reach the shim's process group,
+/// every process, or the host's init.
+fn parse_pid(s: &str) -> Result<i32, String> {
+    let pid: i32 = s
+        .trim()
+        .parse()
+        .map_err(|_| "pid file: not a number".to_string())?;
+    if pid <= 1 {
+        return Err(format!("pid file: invalid pid {pid}"));
+    }
+    Ok(pid)
 }
 
 /// The exit code the way a shell reports it: 128 + signal when killed.
@@ -227,12 +326,24 @@ impl Shim {
             self.reaped.wait(logger);
             return Err(e);
         }
-        let pid: i32 = fs::read_to_string(&pidfile)
-            .map_err(|e| format!("pid file: {e}"))?
-            .trim()
-            .parse()
-            .map_err(|_| "pid file: not a number".to_string())?;
+        let pid = fs::read_to_string(&pidfile)
+            .map_err(|e| format!("pid file: {e}"))
+            .and_then(|s| parse_pid(&s));
         let _ = fs::remove_file(&pidfile);
+        let pid = match pid {
+            Ok(pid) => pid,
+            Err(e) => {
+                // runc made the container: remove it, or it is left behind
+                // with no one to report it.
+                if self.runc_quiet(&["delete", "--force", id]).is_err() {
+                    // Its process may still hold the log pipes.
+                    unsafe { kill(logger, SIGKILL) };
+                }
+                self.reaped.wait(logger);
+                return Err(e);
+            }
+        };
+        self.reaped.pin(pid);
         self.containers.lock().unwrap().insert(
             id.to_string(),
             Container {
@@ -373,7 +484,7 @@ impl Reaped {
     /// Waits for pid to be reaped and leaves its exit code in place.
     fn wait_keep(&self, pid: i32) {
         let mut exits = self.exits.lock().unwrap();
-        while !exits.contains_key(&pid) {
+        while exits.get(pid).is_none() {
             exits = self.cond.wait(exits).unwrap();
         }
     }
@@ -523,5 +634,54 @@ mod tests {
         assert_eq!(exit_code(3 << 8), 3);
         assert_eq!(exit_code(9), 137);
         assert_eq!(exit_code(15), 143);
+    }
+
+    #[test]
+    fn pids() {
+        assert_eq!(parse_pid("4242\n"), Ok(4242));
+        assert_eq!(parse_pid("2"), Ok(2));
+        for bad in ["", "x", "1", "0", "-1", "-4242", "99999999999"] {
+            assert!(parse_pid(bad).is_err(), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn exits_bounded() {
+        let start = Instant::now();
+        let mut e = Exits::default();
+        e.pinned.insert(2);
+        let n = MAX_EXITS as i32 + 100;
+        for pid in 2..2 + n {
+            e.insert(pid, 0, start);
+        }
+        // Young statuses are all kept, even past the bound.
+        assert_eq!(e.codes.len(), n as usize);
+        // Once old, the oldest unpinned go first.
+        let later = start + EXIT_GRACE + Duration::from_secs(1);
+        e.insert(1_000_000, 7, later);
+        assert_eq!(e.codes.len(), MAX_EXITS);
+        assert_eq!(e.get(2), Some(0), "a pinned status was dropped");
+        assert_eq!(e.get(3), None);
+        assert_eq!(e.get(1_000_000), Some(7));
+        assert_eq!(e.get(1 + n), Some(0));
+        // Taken statuses do not keep the queue growing.
+        for pid in 0..10 * MAX_EXITS as i32 {
+            e.insert(2_000_000 + pid, 0, later);
+            e.remove(2_000_000 + pid);
+        }
+        assert!(e.order.len() <= 2 * MAX_EXITS + 1, "{}", e.order.len());
+        assert_eq!(e.get(2), Some(0));
+    }
+
+    #[test]
+    fn exits_forget_unpins() {
+        let start = Instant::now();
+        let r = Reaped::default();
+        r.pin(5);
+        r.exits.lock().unwrap().insert(5, 1, start);
+        assert_eq!(r.peek(5), Some(1));
+        r.forget(5);
+        assert_eq!(r.peek(5), None);
+        assert!(r.exits.lock().unwrap().pinned.is_empty());
     }
 }
