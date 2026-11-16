@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"io/fs"
-	"net"
 	"net/netip"
 	"path/filepath"
 	"slices"
@@ -12,25 +11,16 @@ import (
 	"time"
 
 	"github.com/ryanbekhen/armada/internal/etcd"
+	"github.com/ryanbekhen/armada/internal/etcd/etcdtest"
 	"github.com/ryanbekhen/armada/internal/pki"
 )
-
-func freePort(t *testing.T) int {
-	t.Helper()
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer l.Close()
-	return l.Addr().(*net.TCPAddr).Port
-}
 
 func newEtcdStorage(t *testing.T) *EtcdStorage {
 	t.Helper()
 	ca, _ := pki.NewCA("test")
-	m, err := etcd.Start(context.Background(), etcd.Config{
+	m, err := etcdtest.Start(context.Background(), etcd.Config{
 		Dir: filepath.Join(t.TempDir(), "etcd"), Name: "cp-1", Addr: netip.MustParseAddr("127.0.0.1"),
-		ClientPort: freePort(t), PeerPort: freePort(t), CA: ca, UnsafeNoFsync: true,
+		CA: ca, UnsafeNoFsync: true,
 	})
 	if err != nil {
 		t.Fatal(err)

@@ -6,7 +6,6 @@ package storetest
 import (
 	"context"
 	"fmt"
-	"net"
 	"net/netip"
 	"os"
 	"path/filepath"
@@ -14,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/ryanbekhen/armada/internal/etcd"
+	"github.com/ryanbekhen/armada/internal/etcd/etcdtest"
 	"github.com/ryanbekhen/armada/internal/pki"
 	"github.com/ryanbekhen/armada/internal/store"
 )
@@ -40,9 +40,9 @@ func run(m *testing.M) int {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
-	member, err = etcd.Start(context.Background(), etcd.Config{
+	member, err = etcdtest.Start(context.Background(), etcd.Config{
 		Dir: filepath.Join(dir, "etcd"), Name: "test", Addr: netip.MustParseAddr("127.0.0.1"),
-		ClientPort: freePort(), PeerPort: freePort(), CA: ca, UnsafeNoFsync: true,
+		CA: ca, UnsafeNoFsync: true,
 	})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -50,15 +50,6 @@ func run(m *testing.M) int {
 	}
 	defer member.Close()
 	return m.Run()
-}
-
-func freePort() int {
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		panic(err)
-	}
-	defer l.Close()
-	return l.Addr().(*net.TCPAddr).Port
 }
 
 // Open returns an empty store.

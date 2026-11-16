@@ -33,11 +33,20 @@ func freePort(t *testing.T) int {
 
 func startMember(t *testing.T, ca *pki.CA) (*Member, Config) {
 	t.Helper()
-	cfg := Config{
-		Dir: filepath.Join(t.TempDir(), "etcd"), Name: "cp-1", Addr: netip.MustParseAddr("127.0.0.1"),
-		ClientPort: freePort(t), PeerPort: freePort(t), CA: ca,
+	cfg := Config{Dir: filepath.Join(t.TempDir(), "etcd"), Name: "cp-1", Addr: netip.MustParseAddr("127.0.0.1"), CA: ca}
+	var m *Member
+	var err error
+	// A port another test took between the pick and the listen is tried
+	// again with new ones.
+	for range 5 {
+		cfg.ClientPort, cfg.PeerPort = freePort(t), freePort(t)
+		if m, err = Start(context.Background(), cfg); err == nil || !strings.Contains(err.Error(), "address already in use") {
+			break
+		}
+		if err := os.RemoveAll(cfg.Dir); err != nil {
+			t.Fatal(err)
+		}
 	}
-	m, err := Start(context.Background(), cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
