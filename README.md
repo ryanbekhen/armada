@@ -9,7 +9,7 @@
 
 <p align="center">
   <b>Turn a few Linux machines into a container platform.</b><br>
-  Apps with HTTPS, rolling updates, autoscaling, jobs, and volumes, from two binaries and nothing else to install.
+  Apps with HTTPS, rolling updates, autoscaling, jobs, and volumes, on machines you already have.
 </p>
 
 <p align="center">
