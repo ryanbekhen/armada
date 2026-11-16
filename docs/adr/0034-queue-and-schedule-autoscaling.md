@@ -57,11 +57,14 @@ scale:
     HTTP call the command makes.
 - **One replica per node.** Every 15 seconds the agent picks, for each app
   with a queue rule, the ready replica on its node with the lowest ID.
-  - The command has 10 seconds and may print at most 64 bytes.
+  - The command has 10 seconds and may print at most 64 bytes. The time
+    holds even when the command leaves a process behind that keeps its
+    output open: output is read for at most 2 seconds after it exits.
   - Anything other than a whole number between 0 and 2^40 is ignored, as is
     a non-zero exit. The previous reading then ages out.
   - The command's arguments and output never reach logs or events.
-  - The agent runs at most 32 queue commands per pass.
+  - The agent runs at most 32 queue commands per pass, 4 at a time, so a
+    slow rule does not delay the others.
 - **The reading travels with the usage report**, as `UsageReport.queues`
   (replica and length). The leader keeps it in memory with the node's
   sample (ADR 0016). It counts only for a replica assigned to that node, and
