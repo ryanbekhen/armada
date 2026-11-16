@@ -23,8 +23,6 @@ import (
 
 	"github.com/containerd/containerd/api/types/task"
 	"github.com/containerd/containerd/v2/client"
-	"github.com/containerd/containerd/v2/core/remotes/docker"
-	"github.com/containerd/containerd/v2/core/remotes/docker/config"
 	"github.com/containerd/containerd/v2/pkg/cio"
 	"github.com/containerd/containerd/v2/pkg/namespaces"
 	"github.com/containerd/containerd/v2/pkg/oci"
@@ -208,13 +206,7 @@ func (d *Driver) Pull(ctx context.Context, image string, auth *runtime.RegistryA
 		return runtime.Image{}, err
 	}
 	key := pullKey(ref, auth)
-	resolver := docker.NewResolver(docker.ResolverOptions{
-		Hosts: config.ConfigureHosts(ctx, config.HostOptions{
-			// Always TLS, also for registries on localhost.
-			DefaultScheme: "https",
-			Credentials:   credentials(auth),
-		}),
-	})
+	resolver := newResolver(ctx, auth)
 	if digested {
 		if img, err := d.ctr.GetImage(ctx, ref); err == nil {
 			if !pulledWith(img.Labels(), key) {
