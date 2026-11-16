@@ -208,7 +208,9 @@ func (d *Driver) Pull(ctx context.Context, image string, auth *runtime.RegistryA
 	key := pullKey(ref, auth)
 	resolver := newResolver(ctx, auth)
 	if digested {
-		if img, err := d.ctr.GetImage(ctx, ref); err == nil {
+		// An image whose layers cannot be shown to match its config (one
+		// unpacked before every layer blob was kept) is pulled again.
+		if img, err := d.ctr.GetImage(ctx, ref); err == nil && d.ctr.CheckLayers(ctx, img) == nil {
 			if !pulledWith(img.Labels(), key) {
 				_, _, err := resolver.Resolve(ctx, ref)
 				switch {
@@ -230,11 +232,11 @@ func (d *Driver) Pull(ctx context.Context, image string, auth *runtime.RegistryA
 			return runtime.Image{Ref: image, Platforms: d.localPlatforms(ctx, img)}, nil
 		}
 	}
-	wrap, err := d.proveContent(ctx, ref, key, resolver)
+	proving, wrap, err := d.proveContent(ctx, ref, key, resolver)
 	if err != nil {
 		return runtime.Image{}, pullError(image, auth != nil, err)
 	}
-	img, err := d.ctr.Pull(ctx, ref, resolver, wrap)
+	img, err := d.ctr.Pull(ctx, ref, proving, wrap)
 	if err != nil {
 		// Tell an image built for other platforms from other failures.
 		want := nodePlatform()

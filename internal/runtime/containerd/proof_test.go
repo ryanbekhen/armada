@@ -101,11 +101,11 @@ func TestPullProvesExistingContent(t *testing.T) {
 	d := &Driver{ctr: be}
 
 	pull := func(key string, r *registry) error {
-		wrap, err := d.proveContent(ctx, "registry.example/x", key, r)
+		proving, wrap, err := d.proveContent(ctx, "registry.example/x", key, r)
 		if err != nil {
 			return err
 		}
-		fetcher, _ := r.Fetcher(ctx, "")
+		fetcher, _ := proving.Fetcher(ctx, "")
 		h := wrap(images.Handlers(remotes.FetchHandler(cs, fetcher), images.ChildrenHandler(cs)))
 		return images.Dispatch(ctx, h, semaphore.NewWeighted(2), r.root)
 	}
@@ -162,5 +162,45 @@ func TestPullProvesExistingContent(t *testing.T) {
 	}
 	if n := public.fetches.Load(); n != 0 {
 		t.Errorf("a public image's blobs were fetched %d times", n)
+	}
+}
+
+// A blob another pull writes while this one runs (the fetch then finds it
+// and downloads nothing) is no more this pull's than one already there,
+// and blobs this pull downloads itself are not fetched twice.
+func TestPullProvesContentFetchedAlongside(t *testing.T) {
+	ctx := context.Background()
+	cs, err := local.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	private, blobs := manifest(t, []byte("private layer of space A"))
+	d := &Driver{ctr: &proofBackend{cs: cs}}
+	pull := func(r *registry, before images.Handler) error {
+		proving, wrap, err := d.proveContent(ctx, "registry.example/x", "other", r)
+		if err != nil {
+			return err
+		}
+		fetcher, _ := proving.Fetcher(ctx, "")
+		h := wrap(images.Handlers(before, remotes.FetchHandler(cs, fetcher), images.ChildrenHandler(cs)))
+		return images.Dispatch(ctx, h, semaphore.NewWeighted(2), r.root)
+	}
+	// Space A's pull commits each blob just before this pull's fetch
+	// would start.
+	alongside := images.HandlerFunc(func(ctx context.Context, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
+		b := blobs[desc.Digest]
+		return nil, content.WriteBlob(ctx, cs, desc.Digest.String()+"-a", bytes.NewReader(b), blob("", b))
+	})
+	if err := pull(&registry{root: private}, alongside); err == nil {
+		t.Fatal("a pull got blobs another pull fetched at the same time")
+	}
+
+	fresh, freshBlobs := manifest(t, []byte("a layer nobody has"))
+	r := &registry{root: fresh, blobs: freshBlobs}
+	if err := pull(r, images.HandlerFunc(func(context.Context, ocispec.Descriptor) ([]ocispec.Descriptor, error) { return nil, nil })); err != nil {
+		t.Fatal(err)
+	}
+	if n := r.fetches.Load(); n != 3 {
+		t.Errorf("a new image's 3 blobs took %d fetches", n)
 	}
 }

@@ -190,11 +190,7 @@ func (s *Store) GetImage(_ context.Context, name string) (client.Image, error) {
 // Pull pulls and unpacks ref; wrap, when set, wraps the handler that
 // fetches each descriptor.
 func (s *Store) Pull(ctx context.Context, ref string, resolver remotes.Resolver, wrap func(images.Handler) images.Handler) (client.Image, error) {
-	labels := map[string]string{}
-	if old, ok := s.Images.Get(ref); ok {
-		labels = maps.Clone(old.Labels)
-	}
-	rec, err := s.Images.Pull(ctx, ref, resolver, labels, wrap)
+	rec, err := s.Images.Pull(ctx, ref, resolver, wrap)
 	if err != nil {
 		return nil, err
 	}
@@ -205,6 +201,10 @@ func (s *Store) Pull(ctx context.Context, ref string, resolver remotes.Resolver,
 func (s *Store) SetImageLabel(_ context.Context, name, key, value string) error {
 	return s.Images.SetLabel(name, key, value)
 }
+
+// CheckLayers reports nil: Images.Pull records an image only once its
+// layers were checked.
+func (s *Store) CheckLayers(context.Context, client.Image) error { return nil }
 
 // ContentStore holds the images' blobs.
 func (s *Store) ContentStore() content.Store { return s.Images.content }

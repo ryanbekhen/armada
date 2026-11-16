@@ -2,6 +2,8 @@ package containerd
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"path/filepath"
 
 	"github.com/containerd/containerd/api/services/tasks/v1"
@@ -15,6 +17,7 @@ import (
 	"github.com/containerd/containerd/v2/plugins"
 
 	"github.com/ryanbekhen/armada/internal/runtime/embedded"
+	"github.com/ryanbekhen/armada/internal/runtime/imagecheck"
 	"github.com/ryanbekhen/armada/internal/runtime/supervisor"
 )
 
@@ -36,8 +39,14 @@ type backend interface {
 
 	GetImage(ctx context.Context, name string) (client.Image, error)
 	// Pull fetches and unpacks ref for this node's platform; wrap, when
-	// set, wraps the handler that fetches each descriptor.
+	// set, wraps the handler that fetches each descriptor. It fetches
+	// every layer blob, also of layers already unpacked, and returns an
+	// image only once each blob was shown to match its diff ID
+	// (imagecheck), since unpacked layers are found by diff IDs alone.
 	Pull(ctx context.Context, ref string, resolver remotes.Resolver, wrap func(images.Handler) images.Handler) (client.Image, error)
+	// CheckLayers reports whether a pulled image's layer blobs are known
+	// to match its diff IDs.
+	CheckLayers(ctx context.Context, img client.Image) error
 	SetImageLabel(ctx context.Context, name, key, value string) error
 	ListImages(ctx context.Context) ([]images.Image, error)
 	// DeleteImage removes an image; what only it used goes with it, at
@@ -98,11 +107,41 @@ func (b *containerdBackend) GetImage(ctx context.Context, name string) (client.I
 }
 
 func (b *containerdBackend) Pull(ctx context.Context, ref string, resolver remotes.Resolver, wrap func(images.Handler) images.Handler) (client.Image, error) {
-	opts := []client.RemoteOpt{client.WithPullUnpack, client.WithResolver(resolver)}
+	opts := []client.RemoteOpt{
+		client.WithPullUnpack, client.WithResolver(resolver),
+		client.WithUnpackOpts([]client.UnpackOpt{client.WithUnpackFetchAllContent()}),
+	}
 	if wrap != nil {
 		opts = append(opts, client.WithImageHandlerWrapper(wrap))
 	}
-	return b.c.Pull(ctx, ref, opts...)
+	img, err := b.c.Pull(ctx, ref, opts...)
+	if err != nil {
+		return nil, err
+	}
+	if err := b.CheckLayers(ctx, img); err != nil {
+		// Nothing may use what the unpacker found under these diff IDs.
+		if derr := b.DeleteImage(ctx, img.Name(), false); derr != nil {
+			return nil, errors.Join(err, fmt.Errorf("remove the image: %w", derr))
+		}
+		return nil, err
+	}
+	return img, nil
+}
+
+// CheckLayers checks img's layer blobs against its diff IDs; the
+// unpacker labels each blob it extracted, so only layers it found
+// already unpacked are read.
+func (b *containerdBackend) CheckLayers(ctx context.Context, img client.Image) error {
+	cs := b.c.ContentStore()
+	manifest, err := images.Manifest(ctx, cs, img.Target(), img.Platform())
+	if err != nil {
+		return err
+	}
+	diffIDs, err := images.RootFS(ctx, cs, manifest.Config)
+	if err != nil {
+		return err
+	}
+	return imagecheck.Layers(ctx, cs, manifest.Layers, diffIDs)
 }
 
 func (b *containerdBackend) SetImageLabel(ctx context.Context, name, key, value string) error {
