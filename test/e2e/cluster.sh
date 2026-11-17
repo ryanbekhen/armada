@@ -871,9 +871,10 @@ ok "only a listed load balancer may send a PROXY header"
 [ "$(ipr_code "$N" "$IP_B")" != 200 ] || fail "a listed load balancer got through without a PROXY header"
 ok "a listed load balancer must send the PROXY header"
 ipr_app "ipAllow: [192.0.2.77/32]"
-wait_for 60 "ipAllow judges the client a PROXY header names" ppx_is "200 192.0.2.77" "$N" 192.0.2.77
-[ "$(ppx "$N" 192.0.2.78 | cut -d' ' -f1)" = 403 ] || fail "a client outside ipAllow got in through the load balancer"
-ok "a client outside ipAllow is refused through the load balancer"
+# The new rules arrive with a rollout: wait until they refuse someone.
+wait_for 120 "a client outside ipAllow is refused through the load balancer" ppx_is "403 " "$N" 192.0.2.78
+[ "$(ppx "$N" 192.0.2.77)" = "200 192.0.2.77" ] || fail "the client a PROXY header names was refused by an ipAllow that lists it"
+ok "ipAllow judges the client a PROXY header names"
 ipr_app ""
 cli cluster set --proxy-protocol "''" >/dev/null
 wait_for 60 "without PROXY protocol sources, machine $N connects directly again" ipr_is 200 "$N" "$IP_B"
