@@ -312,6 +312,7 @@ func render(cfg proxy.Config, layout Layout, opts renderOptions) []byte {
 
 	w("frontend http")
 	w("    bind :80")
+	writeProxyProtocol(w, cfg.ProxyProtocol)
 	if cfg.ACMEAddress != "" {
 		w("    acl acme path_beg /.well-known/acme-challenge/")
 		if !cfg.PlainHTTP {
@@ -329,6 +330,7 @@ func render(cfg proxy.Config, layout Layout, opts renderOptions) []byte {
 
 	w("frontend https")
 	w("    bind :443 ssl crt %s/%s crt %s/%s/ alpn h2,http/1.1", containerConfDir, defaultCertFile, containerConfDir, certDir)
+	writeProxyProtocol(w, cfg.ProxyProtocol)
 	writePublicRoutes(w, cfg, rr, public, "https")
 	w("")
 
@@ -786,6 +788,18 @@ func (rr ruleRenderer) write(prefix string, rules []proxy.Rule) {
 	}
 }
 
+// writeProxyProtocol makes connections from the load balancers in sources
+// start with a PROXY protocol header (v1 or v2), read before TLS; its client
+// address then is the connection's source (src) for every rule after it.
+// Connections from anywhere else are read as they are, so a client cannot
+// name another address with a header of its own.
+func writeProxyProtocol(w func(string, ...any), sources []string) {
+	if len(sources) == 0 {
+		return
+	}
+	w("    tcp-request connection expect-proxy layer4 if { src %s }", strings.Join(sources, " "))
+}
+
 // writePublicRoutes writes the body of a public frontend whose clients
 // connect with scheme: the client address headers, then the routes.
 func writePublicRoutes(w func(string, ...any), cfg proxy.Config, rr ruleRenderer, public []proxy.Rule, scheme string) {
@@ -826,6 +840,7 @@ func hostForBind(ip string) string {
 func safeConfig(cfg proxy.Config, opts renderOptions) bool {
 	vals := []string{cfg.ACMEAddress, opts.PrivateIP, opts.InternalIP, opts.Subnet}
 	vals = append(vals, cfg.TrustedProxies...)
+	vals = append(vals, cfg.ProxyProtocol...)
 	for _, be := range cfg.Backends {
 		vals = append(vals, be.Name, be.HealthPath)
 		vals = append(vals, be.IPAllow...)

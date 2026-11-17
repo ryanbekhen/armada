@@ -23,6 +23,7 @@ import (
 const (
 	metaRootDomain     = "root_domain"
 	metaTrustedProxies = "trusted_proxies"
+	metaProxyProtocol  = "proxy_protocol"
 )
 
 // TXTPrefix is the label under which domain owners publish the verification
@@ -88,7 +89,17 @@ func allowedCallers(id string, names []string) []string {
 // no longer parses is an error rather than no proxies: taking them away would
 // change every app's client addresses.
 func (s *Server) trustedProxies(ctx context.Context) ([]string, error) {
-	v, err := s.store.GetMeta(ctx, metaTrustedProxies)
+	return s.metaPrefixes(ctx, metaTrustedProxies, proxy.ParseTrustedProxies)
+}
+
+// proxyProtocol returns the load balancers that send the PROXY protocol,
+// read like trustedProxies.
+func (s *Server) proxyProtocol(ctx context.Context) ([]string, error) {
+	return s.metaPrefixes(ctx, metaProxyProtocol, proxy.ParseProxyProtocol)
+}
+
+func (s *Server) metaPrefixes(ctx context.Context, key string, parse func([]string) ([]string, error)) ([]string, error) {
+	v, err := s.store.GetMeta(ctx, key)
 	if errors.Is(err, store.ErrNotFound) {
 		return nil, nil
 	}
@@ -98,7 +109,7 @@ func (s *Server) trustedProxies(ctx context.Context) ([]string, error) {
 	if v == "" {
 		return nil, nil
 	}
-	return proxy.ParseTrustedProxies(strings.Split(v, ","))
+	return parse(strings.Split(v, ","))
 }
 
 // legacyContainerSubnet is the bridge subnet of clusters without a cluster
@@ -123,16 +134,34 @@ func (s *Server) containerRanges(ctx context.Context) ([]netip.Prefix, error) {
 // never a trusted proxy and cannot claim a client address (T79).
 func (s *Server) proxyTrusted(ctx context.Context) ([]string, error) {
 	trusted, err := s.trustedProxies(ctx)
-	if err != nil || len(trusted) == 0 {
-		return trusted, err
+	if err != nil {
+		return nil, err
+	}
+	return s.withoutContainers(ctx, trusted, "trusted proxies")
+}
+
+// proxyPROXY returns the PROXY protocol sources the nodes' proxies get,
+// without the container ranges like proxyTrusted: a container that could
+// send the header could name any client.
+func (s *Server) proxyPROXY(ctx context.Context) ([]string, error) {
+	sources, err := s.proxyProtocol(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return s.withoutContainers(ctx, sources, "PROXY protocol sources")
+}
+
+func (s *Server) withoutContainers(ctx context.Context, prefixes []string, what string) ([]string, error) {
+	if len(prefixes) == 0 {
+		return prefixes, nil
 	}
 	ranges, err := s.containerRanges(ctx)
 	if err != nil {
 		return nil, err
 	}
-	out := proxy.ExcludePrefixes(trusted, ranges)
+	out := proxy.ExcludePrefixes(prefixes, ranges)
 	if len(out) > proxy.MaxTrustedProxies {
-		return nil, fmt.Errorf("the trusted proxies without the container addresses (%s) are more than %d prefixes; set narrower ones", joinPrefixes(ranges), proxy.MaxTrustedProxies)
+		return nil, fmt.Errorf("the %s without the container addresses (%s) are more than %d prefixes; set narrower ones", what, joinPrefixes(ranges), proxy.MaxTrustedProxies)
 	}
 	return out, nil
 }
@@ -141,17 +170,21 @@ func (s *Server) proxyTrusted(ctx context.Context) ([]string, error) {
 // containers, or that make too many prefixes once the container ranges are
 // taken out.
 func (s *Server) checkTrustedProxies(ctx context.Context, trusted []string) error {
+	return s.checkProxyPrefixes(ctx, trusted, "trusted proxy", "trusted proxies")
+}
+
+func (s *Server) checkProxyPrefixes(ctx context.Context, prefixes []string, one, many string) error {
 	ranges, err := s.containerRanges(ctx)
 	if err != nil {
 		return storeErr(err)
 	}
-	for _, t := range trusted {
+	for _, t := range prefixes {
 		if len(proxy.ExcludePrefixes([]string{t}, ranges)) == 0 {
-			return status.Errorf(codes.InvalidArgument, "trusted proxy %s holds only the cluster's container addresses (%s); a workload is never a trusted proxy", t, joinPrefixes(ranges))
+			return status.Errorf(codes.InvalidArgument, "%s %s holds only the cluster's container addresses (%s); a workload is never a %s", one, t, joinPrefixes(ranges), one)
 		}
 	}
-	if n := len(proxy.ExcludePrefixes(trusted, ranges)); n > proxy.MaxTrustedProxies {
-		return status.Errorf(codes.InvalidArgument, "the trusted proxies without the container addresses (%s) make %d prefixes, more than %d; set narrower ones", joinPrefixes(ranges), n, proxy.MaxTrustedProxies)
+	if n := len(proxy.ExcludePrefixes(prefixes, ranges)); n > proxy.MaxTrustedProxies {
+		return status.Errorf(codes.InvalidArgument, "the %s without the container addresses (%s) make %d prefixes, more than %d; set narrower ones", many, joinPrefixes(ranges), n, proxy.MaxTrustedProxies)
 	}
 	return nil
 }
@@ -178,11 +211,15 @@ func (s *Server) buildProxy(ctx context.Context, apps []store.App, replicas []st
 		}
 	}
 
+	sources, err := s.proxyPROXY(ctx)
+	if err != nil {
+		return nil, err
+	}
 	trusted, err := s.proxyTrusted(ctx)
 	if err != nil {
 		return nil, err
 	}
-	cfg := &proxy.Config{TrustedProxies: trusted, PlainHTTP: s.plainHTTP}
+	cfg := &proxy.Config{TrustedProxies: trusted, PlainHTTP: s.plainHTTP, ProxyProtocol: sources}
 	var certNames []string
 	wildcard := s.certs != nil && s.certs.SupportsWildcard() && root != ""
 	if wildcard {
@@ -494,12 +531,16 @@ func (s *Server) GetClusterConfig(ctx context.Context, _ *armadav1.GetClusterCon
 	if err != nil {
 		return nil, storeErr(err)
 	}
+	sources, err := s.proxyProtocol(ctx)
+	if err != nil {
+		return nil, storeErr(err)
+	}
 	set, err := LoadSettings(ctx, s.store)
 	if err != nil {
 		return nil, storeErr(err)
 	}
 	cc := &armadav1.ClusterConfig{
-		RootDomain: s.rootDomain(ctx), AcmeEmail: s.acmeEmail, TrustedProxies: trusted,
+		RootDomain: s.rootDomain(ctx), AcmeEmail: s.acmeEmail, TrustedProxies: trusted, ProxyProtocol: sources,
 		Tls: s.certs != nil, AcmeCa: s.acmeCA, DnsProvider: s.dnsProvider, DnsTokenSet: set.DNSToken != nil,
 		NodeLostTimeoutSeconds: int64(s.nodeLostTimeout / time.Second),
 	}
@@ -550,6 +591,23 @@ func (s *Server) SetClusterConfig(ctx context.Context, req *armadav1.SetClusterC
 			return nil, storeErr(err)
 		}
 		s.log.Info("trusted proxies changed", "trusted_proxies", list, "by", actor(ctx))
+	}
+	if req.GetSetProxyProtocol() {
+		sources, err := proxy.ParseProxyProtocol(req.GetConfig().GetProxyProtocol())
+		if err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "%v", err)
+		}
+		if err := s.checkProxyPrefixes(ctx, sources, "PROXY protocol source", "PROXY protocol sources"); err != nil {
+			return nil, err
+		}
+		list := strings.Join(sources, ",")
+		if err := s.store.SetMeta(ctx, metaProxyProtocol, list); err != nil {
+			return nil, storeErr(err)
+		}
+		if err := s.store.RecordAudit(ctx, actor(ctx), "cluster.proxy_protocol", "cluster", list); err != nil {
+			return nil, storeErr(err)
+		}
+		s.log.Info("PROXY protocol sources changed", "proxy_protocol", list, "by", actor(ctx))
 	}
 	if err := s.setLogSettings(ctx, req); err != nil {
 		return nil, err

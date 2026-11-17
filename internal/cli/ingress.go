@@ -49,7 +49,7 @@ func newClusterCommand(g *globals) *cobra.Command {
 	so = addOutput(show, false)
 	var (
 		root, email, acmeCA, dnsProvider, dnsToken string
-		trusted                                    []string
+		trusted, proxyProtocol                     []string
 		tlsOn                                      bool
 		metricsPort                                int
 		lostTimeout, logRetention                  time.Duration
@@ -68,6 +68,10 @@ func newClusterCommand(g *globals) *cobra.Command {
 			"headers they carry (X-Forwarded-For, CF-Connecting-IP, and the like). Every\n" +
 			"other request loses them, so a client cannot claim another address. The\n" +
 			"cluster's container addresses are never trusted, even inside a listed range.\n\n" +
+			"With --proxy-protocol, connections from these prefixes (TCP load balancers\n" +
+			"that hide the client's address) must start with a PROXY protocol header,\n" +
+			"whose client address then counts as the connection's own. Connections from\n" +
+			"anywhere else must not send one. Container addresses are never listed.\n\n" +
 			"Certificates, the DNS provider and its token, the metrics port, and the\n" +
 			"node-lost timeout apply within seconds: the leader restarts its control plane\n" +
 			"with them while apps keep serving; the command waits until it answers again.\n" +
@@ -84,15 +88,15 @@ func newClusterCommand(g *globals) *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ch := cmd.Flags().Changed
 			req := &armadav1.SetClusterConfigRequest{
-				Config: &armadav1.ClusterConfig{RootDomain: root, TrustedProxies: trusted, Tls: tlsOn, AcmeEmail: email, AcmeCa: acmeCA,
+				Config: &armadav1.ClusterConfig{RootDomain: root, TrustedProxies: trusted, ProxyProtocol: proxyProtocol, Tls: tlsOn, AcmeEmail: email, AcmeCa: acmeCA,
 					DnsProvider: dnsProvider, MetricsPort: int32(metricsPort), NodeLostTimeoutSeconds: int64(lostTimeout / time.Second)}, //nolint:gosec // the server bounds the port
-				SetRootDomain: ch("root-domain"), SetTrustedProxies: ch("trusted-proxies"), SetTls: ch("tls"),
+				SetRootDomain: ch("root-domain"), SetTrustedProxies: ch("trusted-proxies"), SetProxyProtocol: ch("proxy-protocol"), SetTls: ch("tls"),
 				SetAcmeEmail: ch("acme-email"), SetAcmeCa: ch("acme-ca"), SetDnsProvider: ch("dns-provider"),
 				SetMetricsPort: ch("metrics-port"), SetNodeLostTimeout: ch("node-lost-timeout"), SetDnsToken: ch("dns-token"),
 				SetLogRetention: ch("log-retention"), SetLogMaxBytes: ch("log-max-disk"),
 				SetLogExport: slices.ContainsFunc(logExportFlags, ch), SetLogToken: ch("log-token"),
 			}
-			if !slices.ContainsFunc([]string{"root-domain", "trusted-proxies", "tls", "acme-email", "acme-ca", "dns-provider", "dns-token", "metrics-port", "node-lost-timeout", "log-retention", "log-max-disk", "log-token"}, ch) && !req.SetLogExport {
+			if !slices.ContainsFunc([]string{"root-domain", "trusted-proxies", "proxy-protocol", "tls", "acme-email", "acme-ca", "dns-provider", "dns-token", "metrics-port", "node-lost-timeout", "log-retention", "log-max-disk", "log-token"}, ch) && !req.SetLogExport {
 				return errors.New("nothing to change; see armada cluster set --help")
 			}
 			req.Config.LogRetentionSeconds = int64(logRetention / time.Second)
@@ -157,6 +161,7 @@ func newClusterCommand(g *globals) *cobra.Command {
 	f := set.Flags()
 	f.StringVar(&root, "root-domain", "", "root domain for app URLs (empty to clear)")
 	f.StringSliceVar(&trusted, "trusted-proxies", nil, "address prefixes of proxies in front of the nodes, comma separated (empty to clear)")
+	f.StringSliceVar(&proxyProtocol, "proxy-protocol", nil, "address prefixes of TCP load balancers in front of the nodes that send the PROXY protocol, comma separated (empty to clear)")
 	f.BoolVar(&tlsOn, "tls", true, "obtain and renew certificates with ACME; false serves apps over plain HTTP on port 80 instead of redirecting to HTTPS")
 	f.StringVar(&email, "acme-email", "", "contact email for the ACME account")
 	f.StringVar(&acmeCA, "acme-ca", "", "ACME directory: letsencrypt, letsencrypt-staging, or an https:// URL")
@@ -315,8 +320,8 @@ func printClusterConfig(w io.Writer, cc *armadav1.ClusterConfig) error {
 			export += " (no token)"
 		}
 	}
-	_, err := fmt.Fprintf(w, "root domain:       %s\ntrusted proxies:   %s\ncertificates:      %s\nacme email:        %s\ndns provider:      %s (token %s)\nmetrics:           %s\nnode lost timeout: %s\nlog history:       %s\nlog export:        %s\n",
-		dash(cc.RootDomain), dash(strings.Join(cc.TrustedProxies, ",")), certs, dash(cc.AcmeEmail),
+	_, err := fmt.Fprintf(w, "root domain:       %s\ntrusted proxies:   %s\nproxy protocol:    %s\ncertificates:      %s\nacme email:        %s\ndns provider:      %s (token %s)\nmetrics:           %s\nnode lost timeout: %s\nlog history:       %s\nlog export:        %s\n",
+		dash(cc.RootDomain), dash(strings.Join(cc.TrustedProxies, ",")), dash(strings.Join(cc.ProxyProtocol, ",")), certs, dash(cc.AcmeEmail),
 		cmp.Or(cc.DnsProvider, "none"), token, metrics, time.Duration(cc.NodeLostTimeoutSeconds)*time.Second, logs, export)
 	return err
 }

@@ -757,6 +757,10 @@ message ClusterConfig {
   string log_export_user = 14;
   string log_export_tenant = 15;
   bool log_token_set = 16;
+  // Addresses of load balancers in front of the nodes that send the PROXY
+  // protocol, as prefixes: a connection from one of these starts with the
+  // client's address, which then counts as the connection's own.
+  repeated string proxy_protocol = 17;
 }
 
 message GetClusterConfigRequest {}
@@ -786,6 +790,7 @@ message SetClusterConfigRequest {
   // Never logged or returned.
   bool set_log_token = 15;
   bytes log_token = 16 [debug_redact = true];
+  bool set_proxy_protocol = 17;
 }
 
 message ListDomainsRequest {
@@ -1498,6 +1503,9 @@ message ProxyConfig {
   // The cluster obtains no certificates: port 80 serves the apps over plain
   // HTTP instead of redirecting to HTTPS.
   bool plain_http = 7;
+  // Prefixes of load balancers whose connections start with a PROXY
+  // protocol header; connections from anywhere else must not.
+  repeated string proxy_protocol = 8;
 }
 
 // ProxyTCPRoute sends connections to port on a node's bridge gateway from
