@@ -196,8 +196,8 @@ Armada terminates TLS on your nodes either way. If you proxy:
   keep such names "DNS only".
 - Set the zone's SSL/TLS mode to **Full (strict)** and use DNS-01 (above).
 - List Cloudflare's address ranges with `armada cluster set
-  --trusted-proxies`, so apps see the visitor's address in
-  `CF-Connecting-IP` and `X-Forwarded-For` (see
+  --trusted-proxies`, so apps see the visitor's address in `X-Real-IP`
+  (and `CF-Connecting-IP`; see
   [operations](operations.md#behind-a-proxy-or-cdn)).
 
 Other DNS providers need nothing but plain A records.

@@ -88,7 +88,7 @@ E2E_ONLY=isolation,rollout ARMADA_BIN=... sh test/e2e/cluster.sh hosts
 | `platforms` | 10 | image platforms |
 | `cpu` | 11 | CPU reservations, capacity |
 | `spread` | 12 | `placement.spreadBy` |
-| `ip-rules` | 15 | `ingress.ipAllow`/`ipDeny`, trusted proxies, client address headers |
+| `ip-rules` | 20 | `ingress.ipAllow`/`ipDeny`, trusted proxies, client address headers, `X-Real-IP` |
 | `sticky` | 16 | `ingress.sticky`, the proxy's cookie |
 | `cors` | 17 | `ingress.cors`, the proxy's preflight answers |
 | `sidecars` | 18 | init containers, sidecars, the shared network namespace |

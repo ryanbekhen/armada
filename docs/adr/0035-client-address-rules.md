@@ -67,10 +67,11 @@ ingress:
 ### The client's address
 
 HAProxy's public frontend works out one address per request, `txn.client`,
-and only when some app has rules:
+on every request:
 1. **First, address headers are removed** from any connection that is not
    from a trusted proxy (`armada cluster set --trusted-proxies`, as before):
-   `Forwarded`, `X-Forwarded-For`, `X-Real-IP`, and the CDN-specific ones.
+   `Forwarded`, `X-Forwarded-For`, and the CDN-specific ones. `X-Real-IP` is
+   removed from every request (point 8).
 2. **Not a trusted proxy:** the client is the connection's own address. No
    header counts.
 3. **A trusted proxy:** the client is the **last** address in
@@ -82,8 +83,8 @@ and only when some app has rules:
 5. **Fail closed:** a trusted proxy that sends no `X-Forwarded-For`, a last
    entry that is not an address, or a chain of only trusted proxies leaves
    the client unknown. Both `ipAllow` and `ipDeny` refuse an unknown client.
-6. **No other header counts.** `Forwarded`, `X-Real-IP`, and the CDN-specific
-   headers are left for the app.
+6. **No other header counts.** `Forwarded` and the CDN-specific headers are
+   left for the app.
 7. **A workload is never a trusted proxy.** Containers reach the public
    frontend on their node's addresses, from the cluster CIDR (or the default
    bridge subnet, `10.121.0.0/24`, on a cluster without a cluster network).
@@ -91,6 +92,12 @@ and only when some app has rules:
    reach the proxies (`proxy.ExcludePrefixes`), so a broad range such as
    `10.0.0.0/8` trusts the load balancers in it but no container. A prefix
    that holds only container addresses is refused.
+8. **Apps get it as `X-Real-IP`.** The frontend removes `X-Real-IP` from
+   every request, a trusted proxy's included, and sets it to `txn.client`
+   (`proxy.ClientIPHeader`), so an app reads one header instead of working
+   out `X-Forwarded-For` itself, and what it reads is the address the rules
+   judge. An unknown client (point 5) leaves no `X-Real-IP`. The internal
+   frontend sets none: its callers are containers.
 
 Each backend of the app (and its wake backend) starts with one
 `http-request deny deny_status 403` rule that tests `txn.client` against
@@ -126,8 +133,13 @@ applying.
   - For a firm limit, combine the rules with the CDN's own access controls.
 - **Proxies that write only another header are not supported.** Behind a
   proxy that does not write `X-Forwarded-For`, every client is unknown, and
-  apps with rules refuse everyone. Without rules, nothing changes.
+  apps with rules refuse everyone and get no `X-Real-IP`. Without rules,
+  nothing else changes.
 - **No per-path rules.** A path that needs different rules is a separate
   app.
-- **Cost.** The rules run once per request, in the backend that serves it,
-  and nothing changes for apps without rules.
+- **Cost.** Working out the address and setting `X-Real-IP` take a few
+  rules per request in the public frontend; the rules run once per request,
+  in the backend that serves it, and only for apps that have them.
+- **An `X-Real-IP` from a proxy in front is replaced.** A proxy that set it
+  to the client already gets the same value back; one that set it to
+  something else no longer reaches the app.

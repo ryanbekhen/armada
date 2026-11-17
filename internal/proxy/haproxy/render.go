@@ -329,9 +329,10 @@ func render(cfg proxy.Config, layout Layout, opts renderOptions) []byte {
 	for _, h := range proxy.ForwardedURLHeaders {
 		w("    http-request del-header %s", h)
 	}
-	if hasIPRules(cfg) {
-		writeClientAddress(w, cfg.TrustedProxies)
-	}
+	writeClientAddress(w, cfg.TrustedProxies)
+	// Apps read the client's address from one header the proxy sets itself.
+	w("    http-request del-header %s", proxy.ClientIPHeader)
+	w("    http-request set-header %s %%[var(txn.client)] if { var(txn.client) -m found }", proxy.ClientIPHeader)
 	w("    http-request set-var(txn.host) req.hdr(host),field(1,:),lower")
 	w("    http-request set-var(txn.path) path")
 
@@ -526,18 +527,9 @@ func writeCORS(w func(string, ...any), c *proxy.CORS) {
 // looked for behind (ADR 0035).
 const maxProxyHops = 4
 
-func hasIPRules(cfg proxy.Config) bool {
-	for _, b := range cfg.Backends {
-		if len(b.IPAllow) > 0 || len(b.IPDeny) > 0 {
-			return true
-		}
-	}
-	return false
-}
-
 // writeClientAddress sets txn.client, in the public frontend, to the address
-// the backends' client address rules judge (ADR 0035), and txn.ext to say
-// the request came from outside.
+// the backends' client address rules judge (ADR 0035) and ClientIPHeader
+// carries, and txn.ext to say the request came from outside.
 //
 // The connection's own address is the client, unless the connection comes
 // from a trusted proxy. Then it is the last address in X-Forwarded-For,

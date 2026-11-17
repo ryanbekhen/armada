@@ -95,13 +95,52 @@ func TestRenderClientAddress(t *testing.T) {
 		t.Errorf("no trusted proxies, yet X-Forwarded-For is read:\n%s", https)
 	}
 
-	// Without any rule, nothing changes.
+	// Without any rule, the address is still worked out for X-Real-IP,
+	// and no request is refused for it.
 	cfg = ipRulesConfig()
 	for i := range cfg.Backends {
 		cfg.Backends[i].IPAllow, cfg.Backends[i].IPDeny = nil, nil
 	}
-	if out := ipRendered(cfg); strings.Contains(out, "txn.client") {
+	out := ipRendered(cfg)
+	if !strings.Contains(out, "set-var(txn.client) src\n") {
+		t.Error("no client address worked out without client address rules")
+	}
+	if strings.Contains(out, "deny_status 403") {
 		t.Error("client address rules rendered with no app using them")
+	}
+}
+
+// Every app behind the public frontend gets the client's address in
+// X-Real-IP, set by the proxy from the address the rules judge: a value
+// the request carries, from a trusted proxy too, never reaches the app, and
+// an unknown address leaves no header. The internal frontend's callers are
+// containers, and get nothing.
+func TestRenderClientIPHeader(t *testing.T) {
+	t.Parallel()
+	for _, trusted := range [][]string{nil, {"173.245.48.0/20"}} {
+		cfg := ipRulesConfig()
+		cfg.TrustedProxies = trusted
+		https, internal := ipFrontends(ipRendered(cfg))
+		del := strings.Index(https, "http-request del-header X-Real-IP\n")
+		set := strings.Index(https, "http-request set-header X-Real-IP %[var(txn.client)] if { var(txn.client) -m found }\n")
+		last := strings.LastIndex(https, "set-var(txn.client)")
+		if last < 0 {
+			last = strings.LastIndex(https, "unset-var(txn.client)")
+		}
+		switch {
+		case del < 0 || set < 0:
+			t.Errorf("trusted %v: X-Real-IP is not replaced:\n%s", trusted, https)
+		case set < del:
+			t.Errorf("trusted %v: X-Real-IP is removed after it is set", trusted)
+		case set < last || del < last:
+			t.Errorf("trusted %v: X-Real-IP is set before the client address is known", trusted)
+		}
+		if strings.Contains(https, "del-header X-Real-IP unless") {
+			t.Errorf("trusted %v: a trusted proxy's X-Real-IP is kept", trusted)
+		}
+		if strings.Contains(internal, "X-Real-IP") {
+			t.Errorf("trusted %v: the internal frontend sets X-Real-IP", trusted)
+		}
 	}
 }
 

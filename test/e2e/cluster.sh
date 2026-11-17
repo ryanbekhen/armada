@@ -828,6 +828,31 @@ expect_code 403 "a trusted proxy naming garbage is refused" "$N" "$IP_B" "unknow
 cli cluster set --trusted-proxies "''" >/dev/null
 ipr_app ""
 wait_for 60 "without rules, machine 1 gets in again" ipr_is 200 1 "$IP_B"
+
+# X-Real-IP: the proxy's own word on the client, whatever the request says.
+# realip FROM TO [X-Forwarded-For]: the X-Real-IP the app saw (the image
+# echoes request headers), with the request claiming 192.0.2.66 in it.
+realip() {
+	_xff=""
+	[ -n "${3:-}" ] && _xff="-H 'X-Forwarded-For: $3'"
+	on "$1" "curl -sk --max-time 5 --resolve $IPR_HOST:443:$2 -H 'X-Real-IP: 192.0.2.66' $_xff https://$IPR_HOST/" |
+		sed -n 's/^X-Real-Ip: //p' | tr -d '\r'
+}
+realip_is() { [ "$(realip "$2" "$3" "${4:-}")" = "$1" ]; }
+expect_realip() { # WANT DESCRIPTION FROM TO [X-Forwarded-For]
+	_want=$1 _desc=$2
+	shift 2
+	_got=$(realip "$@")
+	[ "$_got" = "$_want" ] || fail "$_desc: X-Real-IP '$_got', want '$_want'"
+	ok "$_desc"
+}
+expect_realip "$IP_A" "X-Real-IP is machine 1's address, not what it claims" 1 "$IP_B" 192.0.2.10
+cli cluster set --trusted-proxies "$IP_T/32" >/dev/null
+wait_for 60 "through a trusted proxy, X-Real-IP is the address it appended" realip_is "$IP_A" "$N" "$IP_B" "$IP_A"
+expect_realip "$IP_A" "X-Real-IP ignores an address the client prepended" "$N" "$IP_B" "192.0.2.10, $IP_A"
+expect_realip "" "a trusted proxy that names no client leaves no X-Real-IP" "$N" "$IP_B"
+expect_realip "$IP_A" "an untrusted machine's X-Real-IP is its own address" 1 "$IP_B" "$IP_T"
+cli cluster set --trusted-proxies "''" >/dev/null
 cli app delete ipr --yes >/dev/null
 
 fi
