@@ -23,9 +23,8 @@ func TestRenderProxyProtocol(t *testing.T) {
 	t.Parallel()
 	const line = "    tcp-request connection expect-proxy layer4 if { src 10.0.0.0/24 2001:db8::/64 }"
 	for _, plain := range []bool{false, true} {
-		cfg := ipRulesConfig()
+		cfg := proxyProtocolConfig()
 		cfg.PlainHTTP = plain
-		cfg.ProxyProtocol = []string{"10.0.0.0/24", "2001:db8::/64"}
 		out := ipRendered(cfg)
 		for _, name := range []string{"http", "https"} {
 			fe := frontendOf(out, name)
