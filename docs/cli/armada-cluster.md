@@ -48,6 +48,11 @@ headers they carry (X-Forwarded-For, CF-Connecting-IP, and the like). Every
 other request loses them, so a client cannot claim another address. The
 cluster's container addresses are never trusted, even inside a listed range.
 
+With --proxy-protocol, connections from these prefixes (TCP load balancers
+that hide the client's address) must start with a PROXY protocol header,
+whose client address then counts as the connection's own. Connections from
+anywhere else must not send one. Container addresses are never listed.
+
 Certificates, the DNS provider and its token, the metrics port, and the
 node-lost timeout apply within seconds: the leader restarts its control plane
 with them while apps keep serving; the command waits until it answers again.
@@ -84,6 +89,7 @@ Flags:
 | `--log-token string` | file holding the log store's token, or - for stdin; an empty file removes it |
 | `--metrics-port int` | port of the Prometheus metrics endpoint on each server's private address; 0 turns it off |
 | `--node-lost-timeout duration` | how long a node may be unreachable before its replicas move to other nodes |
+| `--proxy-protocol strings` | address prefixes of TCP load balancers in front of the nodes that send the PROXY protocol, comma separated (empty to clear) |
 | `--root-domain string` | root domain for app URLs (empty to clear) |
 | `--tls` | obtain and renew certificates with ACME; false serves apps over plain HTTP on port 80 instead of redirecting to HTTPS (default `true`) |
 | `--trusted-proxies strings` | address prefixes of proxies in front of the nodes, comma separated (empty to clear) |

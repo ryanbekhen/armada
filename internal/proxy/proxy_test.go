@@ -131,7 +131,11 @@ func TestProtoRoundTrip(t *testing.T) {
 
 	c := validConfig(t)
 	c.PlainHTTP = true
+	c.ProxyProtocol = []string{"10.0.0.0/24"}
 	p := c.ToProto()
+	if len(p.GetProxyProtocol()) != 1 {
+		t.Error("ProxyProtocol lost on the wire")
+	}
 	if !p.GetPlainHttp() {
 		t.Error("PlainHTTP lost on the wire")
 	}
@@ -235,5 +239,30 @@ func TestExcludePrefixes(t *testing.T) {
 		if in != !cidr[0].Contains(addr) {
 			t.Errorf("%s: trusted = %v", a, in)
 		}
+	}
+}
+
+func TestParseProxyProtocol(t *testing.T) {
+	t.Parallel()
+	got, err := ParseProxyProtocol([]string{"10.0.0.7/24", "10.0.0.0/24", "2001:db8::1/64"})
+	if err != nil || !slices.Equal(got, []string{"10.0.0.0/24", "2001:db8::/64"}) {
+		t.Errorf("got %v, %v", got, err)
+	}
+	for _, bad := range []string{"0.0.0.0/0", "::/0", "10.0.0.1", "lb.example.org", "", "10.0.0.0/8 }", "10.0.0.0/8\n    bind :22"} {
+		_, err := ParseProxyProtocol([]string{bad})
+		if err == nil {
+			t.Errorf("%q accepted", bad)
+		} else if !strings.Contains(err.Error(), "PROXY protocol source") {
+			t.Errorf("%q: error does not name the setting: %v", bad, err)
+		}
+	}
+	if _, err := ParseProxyProtocol(slices.Repeat([]string{"10.0.0.0/24"}, MaxTrustedProxies+1)); err == nil {
+		t.Error("too many prefixes accepted")
+	}
+	if err := (Config{ProxyProtocol: []string{"::/0"}}).Validate(); err == nil {
+		t.Error("Validate accepted a PROXY protocol prefix matching every address")
+	}
+	if err := (Config{ProxyProtocol: []string{"10.0.0.0/8 } || { always_true"}}).Validate(); err == nil {
+		t.Error("Validate accepted a PROXY protocol prefix with HAProxy syntax")
 	}
 }

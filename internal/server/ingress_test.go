@@ -628,3 +628,61 @@ func TestIngressPlainHTTP(t *testing.T) {
 		}
 	}
 }
+
+// PROXY protocol sources are kept like trusted proxies: canonical, audited,
+// independent of the other settings, never the cluster's containers, and
+// sent to every node's proxy.
+func TestProxyProtocolSources(t *testing.T) {
+	t.Parallel()
+	c := newCluster(t)
+	if err := c.store.InitNetwork(c.ctx, store.Network{Mode: store.NetworkPlain, ClusterCIDR: netip.MustParsePrefix("10.120.0.0/16")}); err != nil {
+		t.Fatal(err)
+	}
+	set := func(p ...string) (*armadav1.ClusterConfig, error) {
+		return c.admin.SetClusterConfig(c.ctx, &armadav1.SetClusterConfigRequest{SetProxyProtocol: true, Config: &armadav1.ClusterConfig{ProxyProtocol: p}})
+	}
+	if _, err := c.admin.SetClusterConfig(c.ctx, &armadav1.SetClusterConfigRequest{SetTrustedProxies: true, Config: &armadav1.ClusterConfig{TrustedProxies: []string{"192.0.2.0/24"}}}); err != nil {
+		t.Fatal(err)
+	}
+	cc, err := set("10.0.0.9/24", "10.0.0.0/24", "10.0.0.0/8")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"10.0.0.0/24", "10.0.0.0/8"}
+	if !slices.Equal(cc.GetProxyProtocol(), want) || !slices.Equal(cc.GetTrustedProxies(), []string{"192.0.2.0/24"}) {
+		t.Errorf("config = %v / trusted %v", cc.GetProxyProtocol(), cc.GetTrustedProxies())
+	}
+	if events, _ := c.store.ListAudit(c.ctx, 10); len(events) < 1 || events[0].Action != "cluster.proxy_protocol" || events[0].Target != "cluster" {
+		t.Errorf("audit = %+v", events)
+	}
+	cfg, err := c.srv.buildProxy(c.ctx, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 10.0.0.0/8 holds the container range: the proxy never expects the
+	// header from a container, which could name any client.
+	for _, a := range []string{"10.0.0.5", "10.200.0.1", "10.120.0.2", "10.120.255.1"} {
+		listed := false
+		for _, s := range cfg.ProxyProtocol {
+			listed = listed || netip.MustParsePrefix(s).Contains(netip.MustParseAddr(a))
+		}
+		if listed != !strings.HasPrefix(a, "10.120.") {
+			t.Errorf("%s listed = %v (proxy config %v)", a, listed, cfg.ProxyProtocol)
+		}
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Error(err)
+	}
+	for _, bad := range [][]string{{"0.0.0.0/0"}, {"::/0"}, {"10.0.0.1"}, {"10.0.0.0/24 bind :22"}, {"10.120.0.0/16"}, {"10.120.3.4/32"}} {
+		if _, err := set(bad...); status.Code(err) != codes.InvalidArgument {
+			t.Errorf("%v: err = %v", bad, err)
+		}
+	}
+	cc, err = set()
+	if err != nil || len(cc.GetProxyProtocol()) != 0 {
+		t.Errorf("not cleared: %v, %v", cc.GetProxyProtocol(), err)
+	}
+	if cfg, _ := c.srv.buildProxy(c.ctx, nil, nil); len(cfg.ProxyProtocol) != 0 {
+		t.Errorf("proxy config after clearing = %v", cfg.ProxyProtocol)
+	}
+}

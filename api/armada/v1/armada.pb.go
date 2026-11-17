@@ -5366,8 +5366,12 @@ type ClusterConfig struct {
 	LogExportUser   string `protobuf:"bytes,14,opt,name=log_export_user,json=logExportUser,proto3" json:"log_export_user,omitempty"`
 	LogExportTenant string `protobuf:"bytes,15,opt,name=log_export_tenant,json=logExportTenant,proto3" json:"log_export_tenant,omitempty"`
 	LogTokenSet     bool   `protobuf:"varint,16,opt,name=log_token_set,json=logTokenSet,proto3" json:"log_token_set,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// Addresses of load balancers in front of the nodes that send the PROXY
+	// protocol, as prefixes: a connection from one of these starts with the
+	// client's address, which then counts as the connection's own.
+	ProxyProtocol []string `protobuf:"bytes,17,rep,name=proxy_protocol,json=proxyProtocol,proto3" json:"proxy_protocol,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ClusterConfig) Reset() {
@@ -5512,6 +5516,13 @@ func (x *ClusterConfig) GetLogTokenSet() bool {
 	return false
 }
 
+func (x *ClusterConfig) GetProxyProtocol() []string {
+	if x != nil {
+		return x.ProxyProtocol
+	}
+	return nil
+}
+
 type GetClusterConfigRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -5572,10 +5583,11 @@ type SetClusterConfigRequest struct {
 	SetLogExport bool `protobuf:"varint,14,opt,name=set_log_export,json=setLogExport,proto3" json:"set_log_export,omitempty"`
 	// The log endpoint's token, set when set_log_token; empty removes it.
 	// Never logged or returned.
-	SetLogToken   bool   `protobuf:"varint,15,opt,name=set_log_token,json=setLogToken,proto3" json:"set_log_token,omitempty"`
-	LogToken      []byte `protobuf:"bytes,16,opt,name=log_token,json=logToken,proto3" json:"log_token,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	SetLogToken      bool   `protobuf:"varint,15,opt,name=set_log_token,json=setLogToken,proto3" json:"set_log_token,omitempty"`
+	LogToken         []byte `protobuf:"bytes,16,opt,name=log_token,json=logToken,proto3" json:"log_token,omitempty"`
+	SetProxyProtocol bool   `protobuf:"varint,17,opt,name=set_proxy_protocol,json=setProxyProtocol,proto3" json:"set_proxy_protocol,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *SetClusterConfigRequest) Reset() {
@@ -5718,6 +5730,13 @@ func (x *SetClusterConfigRequest) GetLogToken() []byte {
 		return x.LogToken
 	}
 	return nil
+}
+
+func (x *SetClusterConfigRequest) GetSetProxyProtocol() bool {
+	if x != nil {
+		return x.SetProxyProtocol
+	}
+	return false
 }
 
 type ListDomainsRequest struct {
@@ -10376,7 +10395,10 @@ type ProxyConfig struct {
 	TcpRoutes []*ProxyTCPRoute `protobuf:"bytes,6,rep,name=tcp_routes,json=tcpRoutes,proto3" json:"tcp_routes,omitempty"`
 	// The cluster obtains no certificates: port 80 serves the apps over plain
 	// HTTP instead of redirecting to HTTPS.
-	PlainHttp     bool `protobuf:"varint,7,opt,name=plain_http,json=plainHttp,proto3" json:"plain_http,omitempty"`
+	PlainHttp bool `protobuf:"varint,7,opt,name=plain_http,json=plainHttp,proto3" json:"plain_http,omitempty"`
+	// Prefixes of load balancers whose connections start with a PROXY
+	// protocol header; connections from anywhere else must not.
+	ProxyProtocol []string `protobuf:"bytes,8,rep,name=proxy_protocol,json=proxyProtocol,proto3" json:"proxy_protocol,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -10458,6 +10480,13 @@ func (x *ProxyConfig) GetPlainHttp() bool {
 		return x.PlainHttp
 	}
 	return false
+}
+
+func (x *ProxyConfig) GetProxyProtocol() []string {
+	if x != nil {
+		return x.ProxyProtocol
+	}
+	return nil
 }
 
 // ProxyTCPRoute sends connections to port on a node's bridge gateway from
@@ -14445,7 +14474,7 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\x03app\x18\x01 \x01(\tR\x03app\x12\x1a\n" +
 	"\brevision\x18\x02 \x01(\tR\brevision\".\n" +
 	"\x10RollbackResponse\x12\x1a\n" +
-	"\brevision\x18\x01 \x01(\tR\brevision\"\xda\x04\n" +
+	"\brevision\x18\x01 \x01(\tR\brevision\"\x81\x05\n" +
 	"\rClusterConfig\x12\x1f\n" +
 	"\vroot_domain\x18\x01 \x01(\tR\n" +
 	"rootDomain\x12\x1d\n" +
@@ -14466,8 +14495,9 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\flog_endpoint\x18\r \x01(\tR\vlogEndpoint\x12&\n" +
 	"\x0flog_export_user\x18\x0e \x01(\tR\rlogExportUser\x12*\n" +
 	"\x11log_export_tenant\x18\x0f \x01(\tR\x0flogExportTenant\x12\"\n" +
-	"\rlog_token_set\x18\x10 \x01(\bR\vlogTokenSet\"\x19\n" +
-	"\x17GetClusterConfigRequest\"\x92\x05\n" +
+	"\rlog_token_set\x18\x10 \x01(\bR\vlogTokenSet\x12%\n" +
+	"\x0eproxy_protocol\x18\x11 \x03(\tR\rproxyProtocol\"\x19\n" +
+	"\x17GetClusterConfigRequest\"\xc0\x05\n" +
 	"\x17SetClusterConfigRequest\x120\n" +
 	"\x06config\x18\x01 \x01(\v2\x18.armada.v1.ClusterConfigR\x06config\x12&\n" +
 	"\x0fset_root_domain\x18\x02 \x01(\bR\rsetRootDomain\x12.\n" +
@@ -14485,7 +14515,8 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\x11set_log_max_bytes\x18\r \x01(\bR\x0esetLogMaxBytes\x12$\n" +
 	"\x0eset_log_export\x18\x0e \x01(\bR\fsetLogExport\x12\"\n" +
 	"\rset_log_token\x18\x0f \x01(\bR\vsetLogToken\x12 \n" +
-	"\tlog_token\x18\x10 \x01(\fB\x03\x80\x01\x01R\blogToken\"&\n" +
+	"\tlog_token\x18\x10 \x01(\fB\x03\x80\x01\x01R\blogToken\x12,\n" +
+	"\x12set_proxy_protocol\x18\x11 \x01(\bR\x10setProxyProtocol\"&\n" +
 	"\x12ListDomainsRequest\x12\x10\n" +
 	"\x03app\x18\x01 \x01(\tR\x03app\"B\n" +
 	"\x13ListDomainsResponse\x12+\n" +
@@ -14894,7 +14925,7 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"private_ip\x18\x02 \x01(\tR\tprivateIp\x12\x16\n" +
 	"\x06subnet\x18\x03 \x01(\tR\x06subnet\x12\x1d\n" +
 	"\n" +
-	"public_key\x18\x04 \x01(\tR\tpublicKey\"\xe6\x02\n" +
+	"public_key\x18\x04 \x01(\tR\tpublicKey\"\x8d\x03\n" +
 	"\vProxyConfig\x123\n" +
 	"\bbackends\x18\x01 \x03(\v2\x17.armada.v1.ProxyBackendR\bbackends\x12*\n" +
 	"\x05rules\x18\x02 \x03(\v2\x14.armada.v1.ProxyRuleR\x05rules\x12?\n" +
@@ -14904,7 +14935,8 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\n" +
 	"tcp_routes\x18\x06 \x03(\v2\x18.armada.v1.ProxyTCPRouteR\ttcpRoutes\x12\x1d\n" +
 	"\n" +
-	"plain_http\x18\a \x01(\bR\tplainHttp\"S\n" +
+	"plain_http\x18\a \x01(\bR\tplainHttp\x12%\n" +
+	"\x0eproxy_protocol\x18\b \x03(\tR\rproxyProtocol\"S\n" +
 	"\rProxyTCPRoute\x12\x12\n" +
 	"\x04port\x18\x01 \x01(\rR\x04port\x12\x18\n" +
 	"\abackend\x18\x02 \x01(\tR\abackend\x12\x14\n" +
