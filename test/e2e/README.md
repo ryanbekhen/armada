@@ -88,7 +88,7 @@ E2E_ONLY=isolation,rollout ARMADA_BIN=... sh test/e2e/cluster.sh hosts
 | `platforms` | 10 | image platforms |
 | `cpu` | 11 | CPU reservations, capacity |
 | `spread` | 12 | `placement.spreadBy` |
-| `ip-rules` | 20 | `ingress.ipAllow`/`ipDeny`, trusted proxies, client address headers, `X-Real-IP` |
+| `ip-rules` | 15 | `ingress.ipAllow`/`ipDeny`, trusted proxies, the PROXY protocol, client address headers, `X-Real-IP` |
 | `plain-http` | 15 (plain HTTP without certificates) | `--tls`, the proxy's port 80 frontend |
 | `sticky` | 16 | `ingress.sticky`, the proxy's cookie |
 | `cors` | 17 | `ingress.cors`, the proxy's preflight answers |
@@ -166,6 +166,10 @@ A release runs every scenario.
       - a trusted proxy in the chain is stepped over;
       - a proxy that names no valid client is refused.
     - `ipDeny` refuses one machine and lets the others in.
+    - PROXY protocol, with the last machine as a TCP load balancer: the
+      client its header names is `X-Real-IP` and what `ipAllow` judges; a
+      machine that is not listed cannot send the header, and a listed one
+      cannot connect without it.
     - Plain HTTP (`plain-http`): with certificates port 80 redirects; after
       `cluster set --tls=false` it serves the app with `X-Real-IP` and
       `X-Forwarded-Proto: http` set by the proxy, port 443 still serves, and

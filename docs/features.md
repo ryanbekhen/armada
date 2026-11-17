@@ -36,7 +36,9 @@ Everything Armada does. The [guides](guides/README.md) show each in use, and the
   another one in a header.
 - **The client's address in one header.** Every request an app gets from
   outside carries `X-Real-IP`, set by the proxy to the client's address
-  (behind a CDN, the visitor's), whatever the request said.
+  (behind a CDN, the visitor's), whatever the request said. Behind a TCP
+  load balancer that hides clients, the PROXY protocol from its addresses
+  (`cluster set --proxy-protocol`) gives the same.
 - **Local-first routing.** Each node sends requests to its own replicas
   while they are about as busy as the rest, and spreads the excess over every
   node, so most requests never cross the network.

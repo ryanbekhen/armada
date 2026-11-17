@@ -853,6 +853,30 @@ expect_realip "$IP_A" "X-Real-IP ignores an address the client prepended" "$N" "
 expect_realip "" "a trusted proxy that names no client leaves no X-Real-IP" "$N" "$IP_B"
 expect_realip "$IP_A" "an untrusted machine's X-Real-IP is its own address" 1 "$IP_B" "$IP_T"
 cli cluster set --trusted-proxies "''" >/dev/null
+# PROXY protocol: the last machine acts as a TCP load balancer that hides
+# its clients and names them in a PROXY header (curl --haproxy-clientip,
+# curl 8.2 or later).
+on "$N" "curl --help all | grep -q -- --haproxy-clientip" || fail "curl on machine $N lacks --haproxy-clientip (curl 8.2 or later)"
+# ppx FROM CLIENT: what the proxy on machine 2 answers machine FROM sending a
+# PROXY header that names CLIENT, as "<status> <X-Real-IP>".
+ppx() {
+	on "$1" "curl -sk -i --max-time 5 --haproxy-protocol --haproxy-clientip $2 --resolve $IPR_HOST:443:$IP_B https://$IPR_HOST/" |
+		tr -d '\r' | awk 'NR == 1 { code = $2 } /^X-Real-Ip: / { ip = $2 } END { print (code ? code : "000") " " ip }'
+}
+ppx_is() { [ "$(ppx "$2" "$3")" = "$1" ]; }
+cli cluster set --proxy-protocol "$IP_T/32" >/dev/null
+wait_for 60 "a load balancer's PROXY header names the client" ppx_is "200 192.0.2.77" "$N" 192.0.2.77
+[ "$(ppx 1 192.0.2.77 | cut -d' ' -f1)" != 200 ] || fail "a machine that is not a listed load balancer named a client with a PROXY header"
+ok "only a listed load balancer may send a PROXY header"
+[ "$(ipr_code "$N" "$IP_B")" != 200 ] || fail "a listed load balancer got through without a PROXY header"
+ok "a listed load balancer must send the PROXY header"
+ipr_app "ipAllow: [192.0.2.77/32]"
+wait_for 60 "ipAllow judges the client a PROXY header names" ppx_is "200 192.0.2.77" "$N" 192.0.2.77
+[ "$(ppx "$N" 192.0.2.78 | cut -d' ' -f1)" = 403 ] || fail "a client outside ipAllow got in through the load balancer"
+ok "a client outside ipAllow is refused through the load balancer"
+ipr_app ""
+cli cluster set --proxy-protocol "''" >/dev/null
+wait_for 60 "without PROXY protocol sources, machine $N connects directly again" ipr_is 200 "$N" "$IP_B"
 cli app delete ipr --yes >/dev/null
 
 fi

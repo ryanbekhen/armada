@@ -895,6 +895,26 @@ network whose agents use another `--container-subnet` than the default
 `10.121.0.0/24` should leave that subnet out of the list. The list is a cluster setting, audited, and applied with a
 proxy reload. Keep it current with the provider's published ranges.
 
+**A TCP load balancer** that forwards connections without looking at
+HTTP, and replaces the client's address with its own, hides the client
+from every header. If it can send the PROXY protocol (v1 or v2), turn that
+on in the load balancer and list its addresses:
+
+```bash
+armada cluster set --proxy-protocol 10.0.0.0/24
+armada cluster set --proxy-protocol ""     # off again
+```
+
+Connections from those ranges must then start with the PROXY header, on
+port 80 and 443 alike; the client it names counts as the connection's own
+address, for `X-Real-IP`, `X-Forwarded-For`, client address rules, and the
+trusted proxies above. Connections from anywhere else must not send one, so
+nobody else can name a client. List the load balancer's own addresses (the
+ones it connects to the nodes from), never a range clients connect from;
+container addresses are never listed, like trusted proxies. Turn it on in
+the load balancer and in Armada together: until both agree, connections
+from the load balancer fail.
+
 To stop clients going around the proxy altogether, limit ports 80 and 443 on
 the nodes to the same ranges in your firewall: HAProxy runs on the host's
 network, so firewall rules on the host apply to it.

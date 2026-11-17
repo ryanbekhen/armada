@@ -80,6 +80,10 @@ type Config struct {
 	// PlainHTTP serves the public routes over plain HTTP on port 80 instead
 	// of redirecting to HTTPS: the cluster obtains no certificates.
 	PlainHTTP bool
+	// ProxyProtocol are the prefixes of load balancers whose connections
+	// start with a PROXY protocol header naming the client; the client's
+	// address then counts as the connection's own. Only these may send it.
+	ProxyProtocol []string
 }
 
 // TCPRoute sends connections to Port on a node's bridge gateway from apps of
@@ -232,6 +236,7 @@ func FromProto(p *armadav1.ProxyConfig) Config {
 	c.ACMEAddress = p.GetAcmeChallengeAddress()
 	c.TrustedProxies = p.GetTrustedProxies()
 	c.PlainHTTP = p.GetPlainHttp()
+	c.ProxyProtocol = p.GetProxyProtocol()
 	for _, b := range p.GetBackends() {
 		be := Backend{Name: b.GetName(), HealthPath: b.GetHealthPath(), Wake: b.GetWake(), LocalFirst: b.GetLocalFirst(), TimeoutSeconds: int(min(b.GetTimeoutSeconds(), MaxTimeoutSeconds+1)),
 			IPAllow: b.GetIpAllow(), IPDeny: b.GetIpDeny(), Sticky: b.GetSticky()}
@@ -258,7 +263,7 @@ func FromProto(p *armadav1.ProxyConfig) Config {
 
 // ToProto converts to the wire format.
 func (c Config) ToProto() *armadav1.ProxyConfig {
-	p := &armadav1.ProxyConfig{AcmeChallengeAddress: c.ACMEAddress, TrustedProxies: c.TrustedProxies, PlainHttp: c.PlainHTTP}
+	p := &armadav1.ProxyConfig{AcmeChallengeAddress: c.ACMEAddress, TrustedProxies: c.TrustedProxies, PlainHttp: c.PlainHTTP, ProxyProtocol: c.ProxyProtocol}
 	for _, b := range c.Backends {
 		pb := &armadav1.ProxyBackend{Name: b.Name, HealthPath: b.HealthPath, Wake: b.Wake, LocalFirst: b.LocalFirst, TimeoutSeconds: uint32(max(min(b.TimeoutSeconds, MaxTimeoutSeconds), 0)),
 			IpAllow: b.IPAllow, IpDeny: b.IPDeny, Sticky: b.Sticky}
@@ -312,17 +317,27 @@ const (
 // that matches every address is refused: it would let any client claim any
 // address.
 func ParseTrustedProxies(prefixes []string) ([]string, error) {
+	return parseProxyPrefixes("trusted proxy", "trusted proxies", prefixes)
+}
+
+// ParseProxyProtocol checks the prefixes of load balancers that send the
+// PROXY protocol like ParseTrustedProxies: any of them may name any client.
+func ParseProxyProtocol(prefixes []string) ([]string, error) {
+	return parseProxyPrefixes("PROXY protocol source", "PROXY protocol sources", prefixes)
+}
+
+func parseProxyPrefixes(one, many string, prefixes []string) ([]string, error) {
 	if len(prefixes) > MaxTrustedProxies {
-		return nil, fmt.Errorf("at most %d trusted proxies", MaxTrustedProxies)
+		return nil, fmt.Errorf("at most %d %s", MaxTrustedProxies, many)
 	}
 	out := make([]string, 0, len(prefixes))
 	for _, s := range prefixes {
 		pfx, err := netip.ParsePrefix(s)
 		if err != nil {
-			return nil, fmt.Errorf("trusted proxy %q: want an address prefix such as 192.0.2.0/24", s)
+			return nil, fmt.Errorf("%s %q: want an address prefix such as 192.0.2.0/24", one, s)
 		}
 		if pfx.Bits() == 0 {
-			return nil, fmt.Errorf("trusted proxy %q matches every address", s)
+			return nil, fmt.Errorf("%s %q matches every address", one, s)
 		}
 		out = append(out, pfx.Masked().String())
 	}
@@ -452,6 +467,9 @@ func (c Config) Validate() error {
 		if err != nil || !netutil.IsPrivate(ap.Addr()) {
 			add("acme address %q must be a private ip:port", c.ACMEAddress)
 		}
+	}
+	if _, err := ParseProxyProtocol(c.ProxyProtocol); err != nil {
+		add("%v", err)
 	}
 	if _, err := ParseTrustedProxies(c.TrustedProxies); err != nil {
 		add("%v", err)

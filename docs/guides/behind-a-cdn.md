@@ -240,6 +240,19 @@ still get that header once its addresses are trusted, but `ipAllow` and
 `X-Real-IP`. Do not combine such a proxy
 with address rules.
 
+**A TCP load balancer** (a cloud load balancer in TCP mode, or your own on
+fixed addresses) that hides the client's address: turn on the PROXY
+protocol in the load balancer (v1 or v2), then list its addresses:
+
+```bash
+armada cluster set --proxy-protocol 10.0.0.5/32,10.0.0.6/32
+```
+
+Connections from those addresses must start with the PROXY header, and the
+client it names is what apps see in `X-Real-IP` and what `ipAllow` checks.
+Nobody else may send the header. Change both sides together: until they
+agree, connections from the load balancer fail.
+
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
@@ -252,6 +265,8 @@ with address rules.
 | `trusted proxy "0.0.0.0/0" matches every address` | Trusting everyone would let any client choose its address | List the proxy's ranges |
 | `at most 64 trusted proxies` | Too many prefixes | Merge ranges where the CDN allows it |
 | `trusted proxy ... holds only the cluster's container addresses` | The range is inside the cluster CIDR, where only containers are | List the proxy's own addresses |
+| Apps see only the TCP load balancer's address | It replaces the client's address and sends no PROXY header, or its addresses are not listed | Turn on the PROXY protocol in the load balancer and `armada cluster set --proxy-protocol` its addresses |
+| Every connection through the TCP load balancer fails | One side sends or expects the PROXY header and the other does not | Turn it on (or off) on both sides |
 | A name two levels deep fails in the browser through the CDN | The CDN's free certificate covers one level | Keep that name "DNS only" |
 
 ## Next steps

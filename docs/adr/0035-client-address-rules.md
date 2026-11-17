@@ -98,6 +98,18 @@ on every request:
    out `X-Forwarded-For` itself, and what it reads is the address the rules
    judge. An unknown client (point 5) leaves no `X-Real-IP`. The internal
    frontend sets none: its callers are containers.
+9. **TCP load balancers name clients with the PROXY protocol.** A load
+   balancer that forwards TCP and replaces the source address hides the
+   client from every header. The cluster setting `--proxy-protocol` lists
+   such load balancers (`ProxyConfig.proxy_protocol`, canonical prefixes,
+   no prefix matching every address, container ranges taken out like
+   trusted proxies). Both public frontends start with
+   `tcp-request connection expect-proxy layer4 if { src ... }`: a
+   connection from a listed address must begin with a PROXY header (v1 or
+   v2, read before TLS), and its client address becomes `src` for every
+   rule after it, so the points above apply to the client as if it had
+   connected directly. A connection from anywhere else is read as it is: a
+   PROXY header from it is not HTTP and is refused.
 
 Each backend of the app (and its wake backend) starts with one
 `http-request deny deny_status 403` rule that tests `txn.client` against
@@ -120,7 +132,9 @@ applying.
   reloaded, as for a new route. A node that cannot apply new configuration
   keeps serving with its last valid one (ADR 0004 and `ProxyNotUpdated`).
 - **HTTP on port 80** only redirects to HTTPS and serves ACME challenges,
-  so it reaches no app.
+  so it reaches no app, unless the cluster obtains no certificates: then it
+  routes with the same client address handling as port 443, so the rules
+  apply there alike.
 
 ## Consequences
 
@@ -134,7 +148,11 @@ applying.
 - **Proxies that write only another header are not supported.** Behind a
   proxy that does not write `X-Forwarded-For`, every client is unknown, and
   apps with rules refuse everyone and get no `X-Real-IP`. Without rules,
-  nothing else changes.
+  nothing else changes. Behind a TCP load balancer that neither keeps the
+  source address nor sends the PROXY protocol, every client is the load
+  balancer.
+- **A PROXY protocol source is trusted completely.** Whoever controls a
+  listed address names any client; list only load balancers you run.
 - **No per-path rules.** A path that needs different rules is a separate
   app.
 - **Cost.** Working out the address and setting `X-Real-IP` take a few
