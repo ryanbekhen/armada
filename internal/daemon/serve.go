@@ -224,6 +224,8 @@ func newServerCommand() *cobra.Command {
 				if err != nil {
 					return err
 				}
+				// Without certificates the apps are served over plain HTTP.
+				cfg.PlainHTTP = !tlsOn
 				if tlsOn {
 					cm, stop, err := newCertManager(member.Client(), certOpts)
 					if err != nil {

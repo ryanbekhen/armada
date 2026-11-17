@@ -19,7 +19,7 @@ set -eu
 # Scenarios that run after the cluster is built and the test app serves.
 # E2E_ONLY=isolation,rollout runs only those (empty: all); E2E_LIST=1 lists
 # them. test/e2e/README.md says which to pick for a change.
-SCENARIOS="listeners space-secret conntrack isolation load rollout agent-restart failover node-loss backup placement platforms cpu spread ip-rules sticky cors sidecars tcp queues queue-jobs volume-backups volume-failover nfs reboot"
+SCENARIOS="listeners space-secret conntrack isolation load rollout agent-restart failover node-loss backup placement platforms cpu spread ip-rules plain-http sticky cors sidecars tcp queues queue-jobs volume-backups volume-failover nfs reboot"
 E2E_ONLY=${E2E_ONLY:-}
 if [ "${E2E_LIST:-}" = 1 ]; then
 	echo "$SCENARIOS" | tr ' ' '\n'
@@ -855,6 +855,40 @@ expect_realip "$IP_A" "an untrusted machine's X-Real-IP is its own address" 1 "$
 cli cluster set --trusted-proxies "''" >/dev/null
 cli app delete ipr --yes >/dev/null
 
+fi
+
+if want plain-http; then
+log "without certificates, apps answer over plain HTTP on port 80"
+PH_HOST=plain.$E2E_DOMAIN
+IP_A=$(host 1 4) IP_B=$(host 2 4)
+# ph_code TO: the status machine 1 gets on port 80 of public IP TO.
+ph_code() { on 1 "curl -s -o /dev/null -w '%{http_code}' --max-time 5 --resolve $PH_HOST:80:$1 http://$PH_HOST/"; }
+ph_is() { [ "$(ph_code "$2")" = "$1" ]; }
+cat <<EOF | cli app update plain --file - --create-if-missing >/dev/null
+name: plain
+image: $V1
+ingress:
+  type: external
+  port: 80
+EOF
+wait_for 240 "with certificates, port 80 redirects to HTTPS" ph_is 301 "$IP_B"
+cli cluster set --tls=false >/dev/null
+wait_for 120 "without certificates, port 80 serves the app" ph_is 200 "$IP_B"
+# The image echoes request headers; the request claims another client and
+# HTTPS, and the proxy's own word replaces both.
+_ph=$(on 1 "curl -s --max-time 5 --resolve $PH_HOST:80:$IP_B -H 'X-Real-IP: 192.0.2.66' -H 'X-Forwarded-Proto: https' http://$PH_HOST/" | tr -d '\r')
+printf '%s\n' "$_ph" | grep -qx "X-Real-Ip: $IP_A" || fail "plain HTTP: X-Real-IP is not machine 1's address: $_ph"
+ok "plain HTTP sets X-Real-IP to the client's address"
+printf '%s\n' "$_ph" | grep -qx "X-Forwarded-Proto: http" || fail "plain HTTP: X-Forwarded-Proto is not http: $_ph"
+ok "plain HTTP says the request came over http"
+[ "$(on 1 "curl -sk -o /dev/null -w '%{http_code}' --max-time 5 --resolve $PH_HOST:443:$IP_B https://$PH_HOST/")" = 200 ] ||
+	fail "port 443 stopped serving without certificates"
+ok "port 443 still serves the app"
+cli app show plain | grep -q "http://$PH_HOST/" || fail "app show does not give the http:// URL"
+ok "app show gives the http:// URL"
+cli cluster set --tls=true >/dev/null
+wait_for 120 "with certificates again, port 80 redirects" ph_is 301 "$IP_B"
+cli app delete plain --yes >/dev/null
 fi
 
 if want sticky; then

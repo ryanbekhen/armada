@@ -85,7 +85,7 @@ Flags:
 | `--metrics-port int` | port of the Prometheus metrics endpoint on each server's private address; 0 turns it off |
 | `--node-lost-timeout duration` | how long a node may be unreachable before its replicas move to other nodes |
 | `--root-domain string` | root domain for app URLs (empty to clear) |
-| `--tls` | obtain and renew certificates with ACME (default `true`) |
+| `--tls` | obtain and renew certificates with ACME; false serves apps over plain HTTP on port 80 instead of redirecting to HTTPS (default `true`) |
 | `--trusted-proxies strings` | address prefixes of proxies in front of the nodes, comma separated (empty to clear) |
 
 ## `armada cluster show`

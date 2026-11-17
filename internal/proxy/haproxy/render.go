@@ -132,6 +132,9 @@ type pool struct {
 	remote map[string]bool
 	// sticky keeps clients on one server with a cookie (ADR 0036).
 	sticky bool
+	// plainHTTP leaves the sticky cookie without the secure attribute, so
+	// browsers send it back over plain HTTP.
+	plainHTTP bool
 	// cors is the backend's cross-origin policy (ADR 0037).
 	cors *proxy.CORS
 	// tcp makes the backend serve plain TCP connections (ADR 0039).
@@ -300,50 +303,33 @@ func render(cfg proxy.Config, layout Layout, opts renderOptions) []byte {
 		w("")
 	}
 
-	w("frontend http")
-	w("    bind :80")
-	if cfg.ACMEAddress != "" {
-		w("    acl acme path_beg /.well-known/acme-challenge/")
-		w("    http-request redirect scheme https code 301 unless acme")
-		w("    use_backend be_armada_acme if acme")
-	} else {
-		w("    http-request redirect scheme https code 301")
-	}
-	w("")
-
-	w("frontend https")
-	w("    bind :443 ssl crt %s/%s crt %s/%s/ alpn h2,http/1.1", containerConfDir, defaultCertFile, containerConfDir, certDir)
-	w("    http-request set-header X-Forwarded-Proto https")
-	// Only a trusted proxy may say who the client is. The proxy adds the
-	// connection's own address to X-Forwarded-For after these rules.
-	unless := ""
-	if len(cfg.TrustedProxies) > 0 {
-		w("    acl trusted_proxy src %s", strings.Join(cfg.TrustedProxies, " "))
-		unless = " unless trusted_proxy"
-	}
-	for _, h := range proxy.ClientAddressHeaders {
-		w("    http-request del-header %s%s", h, unless)
-	}
-	// Nobody may say which host or port the client asked for: the request
-	// was routed on its Host.
-	for _, h := range proxy.ForwardedURLHeaders {
-		w("    http-request del-header %s", h)
-	}
-	writeClientAddress(w, cfg.TrustedProxies)
-	// Apps read the client's address from one header the proxy sets itself.
-	w("    http-request del-header %s", proxy.ClientIPHeader)
-	w("    http-request set-header %s %%[var(txn.client)] if { var(txn.client) -m found }", proxy.ClientIPHeader)
-	w("    http-request set-var(txn.host) req.hdr(host),field(1,:),lower")
-	w("    http-request set-var(txn.path) path")
-
 	public, internal := splitRules(cfg)
 	backendsByName := map[string]proxy.Backend{}
 	for _, be := range cfg.Backends {
 		backendsByName[be.Name] = be
 	}
 	rr := ruleRenderer{w: w, backends: backendsByName}
-	rr.write(routesPublic, public)
-	w("    default_backend be_armada_notfound")
+
+	w("frontend http")
+	w("    bind :80")
+	if cfg.ACMEAddress != "" {
+		w("    acl acme path_beg /.well-known/acme-challenge/")
+		if !cfg.PlainHTTP {
+			w("    http-request redirect scheme https code 301 unless acme")
+		}
+		w("    use_backend be_armada_acme if acme")
+	} else if !cfg.PlainHTTP {
+		w("    http-request redirect scheme https code 301")
+	}
+	if cfg.PlainHTTP {
+		// No certificates: the apps answer on port 80 as they do on 443.
+		writePublicRoutes(w, cfg, rr, public, "http")
+	}
+	w("")
+
+	w("frontend https")
+	w("    bind :443 ssl crt %s/%s crt %s/%s/ alpn h2,http/1.1", containerConfDir, defaultCertFile, containerConfDir, certDir)
+	writePublicRoutes(w, cfg, rr, public, "https")
 	w("")
 
 	if opts.InternalIP != "" {
@@ -379,7 +365,9 @@ func render(cfg proxy.Config, layout Layout, opts renderOptions) []byte {
 		if tcp[be.Name] {
 			continue
 		}
-		writeBackend(w, backendPool(be, opts.node()), be.HealthPath, layout)
+		p := backendPool(be, opts.node())
+		p.plainHTTP = cfg.PlainHTTP
+		writeBackend(w, p, be.HealthPath, layout)
 		if be.Wake {
 			w("backend %s", wakeBackendName(be.Name))
 			// A refused client wakes nothing, and neither does a preflight.
@@ -600,7 +588,11 @@ func writeBackend(w func(string, ...any), p pool, healthPath string, layout Layo
 		// The cookie names the slot, which says nothing about the replica;
 		// a slot that is down or empty sends the client elsewhere
 		// (option redispatch), and the next answer sets a new cookie.
-		w("    cookie %s insert indirect nocache httponly secure attr \"SameSite=Lax\"", stickyCookie(p.name))
+		secure := " secure"
+		if p.plainHTTP {
+			secure = ""
+		}
+		w("    cookie %s insert indirect nocache httponly%s attr \"SameSite=Lax\"", stickyCookie(p.name), secure)
 		cookie = " cookie "
 	}
 	if healthPath != "" {
@@ -792,6 +784,35 @@ func (rr ruleRenderer) write(prefix string, rules []proxy.Rule) {
 	if len(viaMap) > 0 {
 		w("    use_backend %%[var(txn.route)] if { var(txn.route) -m beg be_ }")
 	}
+}
+
+// writePublicRoutes writes the body of a public frontend whose clients
+// connect with scheme: the client address headers, then the routes.
+func writePublicRoutes(w func(string, ...any), cfg proxy.Config, rr ruleRenderer, public []proxy.Rule, scheme string) {
+	w("    http-request set-header X-Forwarded-Proto %s", scheme)
+	// Only a trusted proxy may say who the client is. The proxy adds the
+	// connection's own address to X-Forwarded-For after these rules.
+	unless := ""
+	if len(cfg.TrustedProxies) > 0 {
+		w("    acl trusted_proxy src %s", strings.Join(cfg.TrustedProxies, " "))
+		unless = " unless trusted_proxy"
+	}
+	for _, h := range proxy.ClientAddressHeaders {
+		w("    http-request del-header %s%s", h, unless)
+	}
+	// Nobody may say which host or port the client asked for: the request
+	// was routed on its Host.
+	for _, h := range proxy.ForwardedURLHeaders {
+		w("    http-request del-header %s", h)
+	}
+	writeClientAddress(w, cfg.TrustedProxies)
+	// Apps read the client's address from one header the proxy sets itself.
+	w("    http-request del-header %s", proxy.ClientIPHeader)
+	w("    http-request set-header %s %%[var(txn.client)] if { var(txn.client) -m found }", proxy.ClientIPHeader)
+	w("    http-request set-var(txn.host) req.hdr(host),field(1,:),lower")
+	w("    http-request set-var(txn.path) path")
+	rr.write(routesPublic, public)
+	w("    default_backend be_armada_notfound")
 }
 
 func hostForBind(ip string) string {

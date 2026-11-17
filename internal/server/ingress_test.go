@@ -602,3 +602,29 @@ func TestLegacyContainerSubnet(t *testing.T) {
 		t.Errorf("legacyContainerSubnet = %s, embedded.DefaultSubnet = %s", legacyContainerSubnet, embedded.DefaultSubnet)
 	}
 }
+
+// Without certificates every node serves the apps over plain HTTP, and the
+// apps' URLs say so; with certificates nothing changes.
+func TestIngressPlainHTTP(t *testing.T) {
+	t.Parallel()
+	for _, plain := range []bool{true, false} {
+		c := newCluster(t, func(cfg *Config) { cfg.PlainHTTP = plain })
+		c.addNode("n1", "127.0.0.1")
+		if _, err := c.admin.SetClusterConfig(c.ctx, &armadav1.SetClusterConfigRequest{SetRootDomain: true, Config: &armadav1.ClusterConfig{RootDomain: "lab.test"}}); err != nil {
+			t.Fatal(err)
+		}
+		c.deploy(ipApp(""))
+		c.eventually("route on n1", func() bool {
+			cfg := c.proxyOn("n1")
+			return slices.Equal(hosts(cfg), []string{"web.lab.test"}) && cfg.PlainHTTP == plain
+		})
+		want := "https://web.lab.test/"
+		if plain {
+			want = "http://web.lab.test/"
+		}
+		st, err := c.admin.Status(c.ctx, &armadav1.StatusRequest{App: "web"})
+		if err != nil || !slices.Equal(st.Apps[0].Urls, []string{want}) {
+			t.Errorf("plain=%v: urls = %v, %v", plain, st.GetApps(), err)
+		}
+	}
+}

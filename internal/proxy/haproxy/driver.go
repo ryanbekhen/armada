@@ -646,12 +646,13 @@ func signature(cfg proxy.Config, layout Layout, opts renderOptions) string {
 	s := struct {
 		Opts     renderOptions
 		ACME     string
+		Plain    bool
 		Trusted  []string
 		Backends []be
 		Rules    []proxy.Rule
 		TCP      []proxy.TCPRoute
 		Certs    []string
-	}{Opts: opts, ACME: cfg.ACMEAddress, Trusted: cfg.TrustedProxies}
+	}{Opts: opts, ACME: cfg.ACMEAddress, Plain: cfg.PlainHTTP, Trusted: cfg.TrustedProxies}
 	s.TCP = slices.Clone(cfg.TCP)
 	slices.SortFunc(s.TCP, func(a, b proxy.TCPRoute) int {
 		return cmp.Or(cmp.Compare(a.Port, b.Port), strings.Compare(a.Backend, b.Backend))

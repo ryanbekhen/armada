@@ -17,7 +17,9 @@ Everything Armada does. The [guides](guides/README.md) show each in use, and the
   for canaries and previews.
 - **HTTPS by default.** HAProxy on every node, certificates from Let's
   Encrypt (HTTP-01, or DNS-01 with Cloudflare for the root domain and a wildcard), custom
-  domains after TXT ownership verification.
+  domains after TXT ownership verification. On a private network with no
+  domain, `cluster set --tls=false` serves apps over plain HTTP on port 80
+  under a root domain only your network resolves.
 - **Cluster settings in one place.** `armada cluster set` changes
   certificates, the DNS provider, metrics, and timeouts for every server at
   once, and they hold after a failover.

@@ -19,7 +19,7 @@ running cluster and ends with something that works.
 
 | Building | Guide |
 | --- | --- |
-| A website or API | [Deploy a web app](guides/deploy-a-web-app.md) · [A single-page app and its API](guides/spa-and-api.md) · [Behind a CDN or proxy](guides/behind-a-cdn.md) |
+| A website or API | [Deploy a web app](guides/deploy-a-web-app.md) · [A single-page app and its API](guides/spa-and-api.md) · [Behind a CDN or proxy](guides/behind-a-cdn.md) · [On a private network without a domain](guides/private-network.md) |
 | Staging and production | [Spec files and environments](guides/spec-files-and-environments.md) · [Canary releases and previews](guides/canary-releases.md) · [Deploy from CI](guides/ci-cd.md) |
 | Something with data | [An app with a PostgreSQL database](guides/app-with-a-database.md) · [Shared files over NFS](guides/shared-files-with-nfs.md) |
 | Several services | [Microservices](guides/microservices.md) · [Migrations and sidecars](guides/migrations-and-sidecars.md) · [A private registry](guides/private-registry.md) |
