@@ -111,7 +111,14 @@ func (c Config) TCPPorts() []int {
 
 // ClientAddressHeaders are the headers applications read a client's address
 // from, set by proxies. They are only believed from TrustedProxies.
-var ClientAddressHeaders = []string{"Forwarded", "X-Forwarded-For", "X-Real-IP", "CF-Connecting-IP", "True-Client-IP"}
+var ClientAddressHeaders = []string{"Forwarded", "X-Forwarded-For", "CF-Connecting-IP", "True-Client-IP"}
+
+// ClientIPHeader carries the client's address to every app behind the
+// public frontend: the address the client address rules judge (ADR 0035),
+// worked out from the connection and the trusted proxies. The proxy always
+// sets it itself, or removes it when the address is unknown; a value from
+// the request, a trusted proxy's included, never reaches an app.
+const ClientIPHeader = "X-Real-IP"
 
 // ForwardedURLHeaders are the headers applications build their own URLs
 // from (links in emails, redirects). The public frontend routed the request

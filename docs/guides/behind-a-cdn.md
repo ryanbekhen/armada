@@ -88,11 +88,11 @@ Two rules come from the CDN, not from Armada:
 ## 3. Trust the CDN's addresses
 
 Public ingress removes every header that names a client's address
-(`Forwarded`, `X-Forwarded-For`, `X-Real-IP`, `CF-Connecting-IP`,
-`True-Client-IP`) and adds the connection's own address to
-`X-Forwarded-For`. Behind a CDN, that address is the CDN's edge, so your
-apps would see only the CDN. List its address ranges, so requests from it
-keep those headers. `X-Forwarded-Host`, `-Port`, `-Prefix`, and `-Server` are
+(`Forwarded`, `X-Forwarded-For`, `CF-Connecting-IP`, `True-Client-IP`),
+adds the connection's own address to `X-Forwarded-For`, and sets
+`X-Real-IP` to the client it works out. Behind a CDN, that address is the
+CDN's edge, so your apps would see only the CDN. List its address ranges,
+so requests from it keep those headers and `X-Real-IP` names the visitor. `X-Forwarded-Host`, `-Port`, `-Prefix`, and `-Server` are
 removed from every request, the CDN's included, and `X-Forwarded-Proto` is
 always `https`: build your app's links from the `Host` header.
 
@@ -129,17 +129,20 @@ For a request from `192.0.2.44` through the edge `172.70.1.9`:
 
 | Header | Value | Use it? |
 | --- | --- | --- |
+| `X-Real-IP` | `192.0.2.44` | Yes, the simplest: Armada sets it itself on every request, whatever the request carried |
 | `CF-Connecting-IP` | `192.0.2.44` | Yes: the CDN set it, and only trusted proxies' headers survive |
 | `X-Forwarded-For` | `192.0.2.44, 172.70.1.9` | The entry **before the last** is the visitor; the last is the edge that connected to the node |
 
 Entries before the visitor's are whatever the client sent and mean
-nothing: never take the first entry of `X-Forwarded-For`. If your framework
+nothing: never take the first entry of `X-Forwarded-For`. Read `X-Real-IP`
+instead, and set your framework to take the client from it. If your framework
 works out the client from `X-Forwarded-For`, configure it for two proxies
 in front of the app (the CDN and Armada's), and check the result with the
 `whoami` app below.
 
-The internal frontend leaves these headers alone, so an app that calls
-another app through `<app>.internal` can pass its client's address on.
+The internal frontend leaves these headers alone and sets no `X-Real-IP`,
+so an app that calls another app through `<app>.internal` can pass its
+client's address on, and the called app must not treat it as proven.
 
 To see it for yourself, deploy an app that prints request headers and
 remove it after:
@@ -181,7 +184,8 @@ For each request, the proxy works out one client address:
    `403`.
 
 `CF-Connecting-IP`, `Forwarded`, and `X-Real-IP` are never read for the
-rules: only `X-Forwarded-For`, and only from trusted proxies.
+rules: only `X-Forwarded-For`, and only from trusted proxies. The address
+the rules check is the one apps get in `X-Real-IP`.
 
 The rules are only as strict as your trusted proxies. A CDN that other
 customers can point at your nodes, or that lets its users choose the
@@ -232,7 +236,8 @@ client is found by stepping over trusted addresses at the end of
 
 **A proxy that writes only its own header** (not `X-Forwarded-For`): apps
 still get that header once its addresses are trusted, but `ipAllow` and
-`ipDeny` cannot use it and refuse every client. Do not combine such a proxy
+`ipDeny` cannot use it and refuse every client, and apps get no
+`X-Real-IP`. Do not combine such a proxy
 with address rules.
 
 ## Troubleshooting

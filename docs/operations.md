@@ -858,11 +858,17 @@ See [`ingress`](spec-reference.md#ingress) for what clients should do.
 ### Behind a proxy or CDN
 
 Public ingress removes the headers that name a client's address
-(`Forwarded`, `X-Forwarded-For`, `X-Real-IP`, `CF-Connecting-IP`,
-`True-Client-IP`), then adds the connection's own address to
-`X-Forwarded-For`, so an app sees who really connected and nobody can claim
-another address. When a proxy or CDN sits in front of your nodes, list its
-address ranges so requests from it keep those headers:
+(`Forwarded`, `X-Forwarded-For`, `CF-Connecting-IP`, `True-Client-IP`),
+then adds the connection's own address to `X-Forwarded-For`, so an app sees
+who really connected and nobody can claim another address. It also sets
+**`X-Real-IP`** on every request to the client's address, worked out the
+same way as for [client address rules](#who-may-reach-an-app) (the
+connection, or behind trusted proxies the last address they appended),
+replacing whatever the request carried; apps should read that one header.
+A trusted proxy that names no valid client leaves no `X-Real-IP`. Calls
+through `<app>.internal` get none. When a proxy or CDN sits in front of
+your nodes, list its address ranges so requests from it keep those headers
+and `X-Real-IP` names the visitor:
 
 ```bash
 armada cluster set --trusted-proxies 192.0.2.0/24,198.51.100.0/24
@@ -931,6 +937,7 @@ armada app update admin --no-ip-rules                                       # ev
     appended. What a client writes before it does not count. A trusted
     proxy in that spot is stepped over, up to four in a row.
   - No other header (`Forwarded`, `X-Real-IP`, a CDN's own) is read.
+  - Apps get the same address in `X-Real-IP`.
 - **Fail closed.** A trusted proxy that sends no valid `X-Forwarded-For`
   gets `403` for apps with rules, in both modes.
 - **The rules are only as strict as your trusted proxies.** A shared CDN

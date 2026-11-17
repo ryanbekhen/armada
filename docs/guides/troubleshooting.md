@@ -269,7 +269,8 @@ proxy; the app's logs show nothing (the app never sees refused requests).
 
 The proxy checks the connection's own address, or, only when the
 connection comes from a trusted proxy, the **last** address in
-`X-Forwarded-For`. No other header counts.
+`X-Forwarded-For`. No other header counts. Apps get that same address in
+`X-Real-IP`, so logging it in the app shows what the rules see.
 
 | Cause | Fix |
 | --- | --- |
