@@ -10373,7 +10373,10 @@ type ProxyConfig struct {
 	// Prefixes whose requests keep their client address headers.
 	TrustedProxies []string `protobuf:"bytes,5,rep,name=trusted_proxies,json=trustedProxies,proto3" json:"trusted_proxies,omitempty"`
 	// Internal TCP listeners on the bridge gateway (ADR 0039).
-	TcpRoutes     []*ProxyTCPRoute `protobuf:"bytes,6,rep,name=tcp_routes,json=tcpRoutes,proto3" json:"tcp_routes,omitempty"`
+	TcpRoutes []*ProxyTCPRoute `protobuf:"bytes,6,rep,name=tcp_routes,json=tcpRoutes,proto3" json:"tcp_routes,omitempty"`
+	// The cluster obtains no certificates: port 80 serves the apps over plain
+	// HTTP instead of redirecting to HTTPS.
+	PlainHttp     bool `protobuf:"varint,7,opt,name=plain_http,json=plainHttp,proto3" json:"plain_http,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -10448,6 +10451,13 @@ func (x *ProxyConfig) GetTcpRoutes() []*ProxyTCPRoute {
 		return x.TcpRoutes
 	}
 	return nil
+}
+
+func (x *ProxyConfig) GetPlainHttp() bool {
+	if x != nil {
+		return x.PlainHttp
+	}
+	return false
 }
 
 // ProxyTCPRoute sends connections to port on a node's bridge gateway from
@@ -14884,7 +14894,7 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"private_ip\x18\x02 \x01(\tR\tprivateIp\x12\x16\n" +
 	"\x06subnet\x18\x03 \x01(\tR\x06subnet\x12\x1d\n" +
 	"\n" +
-	"public_key\x18\x04 \x01(\tR\tpublicKey\"\xc7\x02\n" +
+	"public_key\x18\x04 \x01(\tR\tpublicKey\"\xe6\x02\n" +
 	"\vProxyConfig\x123\n" +
 	"\bbackends\x18\x01 \x03(\v2\x17.armada.v1.ProxyBackendR\bbackends\x12*\n" +
 	"\x05rules\x18\x02 \x03(\v2\x14.armada.v1.ProxyRuleR\x05rules\x12?\n" +
@@ -14892,7 +14902,9 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\x16acme_challenge_address\x18\x04 \x01(\tR\x14acmeChallengeAddress\x12'\n" +
 	"\x0ftrusted_proxies\x18\x05 \x03(\tR\x0etrustedProxies\x127\n" +
 	"\n" +
-	"tcp_routes\x18\x06 \x03(\v2\x18.armada.v1.ProxyTCPRouteR\ttcpRoutes\"S\n" +
+	"tcp_routes\x18\x06 \x03(\v2\x18.armada.v1.ProxyTCPRouteR\ttcpRoutes\x12\x1d\n" +
+	"\n" +
+	"plain_http\x18\a \x01(\bR\tplainHttp\"S\n" +
 	"\rProxyTCPRoute\x12\x12\n" +
 	"\x04port\x18\x01 \x01(\rR\x04port\x12\x18\n" +
 	"\abackend\x18\x02 \x01(\tR\abackend\x12\x14\n" +

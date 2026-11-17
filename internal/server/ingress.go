@@ -182,7 +182,7 @@ func (s *Server) buildProxy(ctx context.Context, apps []store.App, replicas []st
 	if err != nil {
 		return nil, err
 	}
-	cfg := &proxy.Config{TrustedProxies: trusted}
+	cfg := &proxy.Config{TrustedProxies: trusted, PlainHTTP: s.plainHTTP}
 	var certNames []string
 	wildcard := s.certs != nil && s.certs.SupportsWildcard() && root != ""
 	if wildcard {
@@ -330,7 +330,7 @@ func (s *Server) labelURLs(ctx context.Context, app store.App, label string) []s
 		if root == "" || spec.ValidateDomain(name+"."+root) != nil {
 			return nil
 		}
-		prefix = "https://" + name + "." + root
+		prefix = s.publicScheme() + "://" + name + "." + root
 	}
 	var urls []string
 	for _, r := range appRoutes(app.Spec) {
@@ -774,11 +774,21 @@ func (s *Server) VerifyDomain(ctx context.Context, req *armadav1.VerifyDomainReq
 type urlSources struct {
 	root     string
 	verified map[string]bool
+	// scheme of public URLs: https, or http without certificates.
+	scheme string
+}
+
+// publicScheme is the scheme of external apps' URLs.
+func (s *Server) publicScheme() string {
+	if s.plainHTTP {
+		return "http"
+	}
+	return "https"
 }
 
 // urlSource reads the root domain and the verified domains.
 func (s *Server) urlSource(ctx context.Context) urlSources {
-	src := urlSources{root: s.rootDomain(ctx), verified: map[string]bool{}}
+	src := urlSources{root: s.rootDomain(ctx), verified: map[string]bool{}, scheme: s.publicScheme()}
 	if domains, err := s.store.ListDomains(ctx); err == nil {
 		for _, d := range domains {
 			src.verified[d.Name] = d.Verified
@@ -794,7 +804,7 @@ func (s *Server) appURLSource(ctx context.Context, app store.App) urlSources {
 	if in == nil || in.Type != spec.IngressExternal {
 		return urlSources{} // internal and private apps name no domains
 	}
-	src := urlSources{root: s.rootDomain(ctx), verified: map[string]bool{}}
+	src := urlSources{root: s.rootDomain(ctx), verified: map[string]bool{}, scheme: s.publicScheme()}
 	for _, name := range in.Domains {
 		if d, err := s.store.GetDomain(ctx, name); err == nil {
 			src.verified[d.Name] = d.Verified
@@ -818,10 +828,11 @@ func appURLsFrom(app store.App, src urlSources) []string {
 		}
 		return urls
 	}
+	scheme := cmp.Or(src.scheme, "https")
 	var urls []string
 	for _, h := range appHosts(app, src.root, src.verified) {
 		for _, r := range appRoutes(app.Spec) {
-			urls = append(urls, "https://"+h+r.Path)
+			urls = append(urls, scheme+"://"+h+r.Path)
 		}
 	}
 	return urls

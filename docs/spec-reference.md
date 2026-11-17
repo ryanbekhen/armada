@@ -214,7 +214,9 @@ a secret; there is no inline password field.
 
 Apps with `type: external` are reachable at `https://<name>.<root domain>`
 once a root domain is set with `armada cluster set --root-domain`, plus
-their verified custom domains. HTTP redirects to HTTPS.
+their verified custom domains. HTTP redirects to HTTPS, unless the cluster
+obtains no certificates (`armada cluster set --tls=false`): then apps also
+answer over plain HTTP on port 80, and their URLs start with `http://`.
 
 Limits on a connection through ingress:
 

@@ -45,6 +45,10 @@ type Config struct {
 	// Certs manages ACME certificates. Nil disables TLS certificate
 	// management (HAProxy then only serves its self-signed default).
 	Certs certs.Manager
+	// PlainHTTP is set when the cluster obtains no certificates: every
+	// node's proxy serves the apps over plain HTTP on port 80 too, and
+	// their URLs start with http://.
+	PlainHTTP bool
 	// ACMEAddr is the private ip:port where the server answers HTTP-01
 	// challenges forwarded by every node's HAProxy. Required with Certs.
 	ACMEAddr  string
@@ -160,6 +164,7 @@ type Server struct {
 
 	certs          certs.Manager
 	acmeAddr       string
+	plainHTTP      bool
 	acmeEmail      string
 	acmeCA         string
 	dnsProvider    string
@@ -375,6 +380,7 @@ func New(cfg Config) (*Server, error) {
 		jobRuns:   newJobRunsCounter(),
 
 		certs:          cfg.Certs,
+		plainHTTP:      cfg.PlainHTTP,
 		acmeAddr:       cfg.ACMEAddr,
 		opened:         newOpenedSecrets(),
 		acmeEmail:      cfg.ACMEEmail,

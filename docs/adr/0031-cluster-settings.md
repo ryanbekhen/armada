@@ -37,6 +37,14 @@ again, so the next command does not meet a closed listener. Other servers
 read the settings when they lead.
 The root domain and trusted proxies keep applying without a restart.
 
+**Without certificates.** `--tls=false` also changes what port 80 does:
+every node's proxy serves the apps there over plain HTTP, with the same
+routes and client address handling as port 443, instead of redirecting to
+HTTPS (the leader sets `ProxyConfig.plain_http`), and app URLs start with
+`http://`. A cluster on a private network with no public domain then works
+with a root domain only its network resolves. Port 443 keeps serving with
+the self-signed default certificate.
+
 **Precedence.** The cluster's value wins over a server's flag, and a flag
 over the default. The metrics setting is a port: each server listens on its
 own private address, unless its `--metrics-listen` names another one.

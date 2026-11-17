@@ -47,7 +47,7 @@ armada cluster set --root-domain apps.example.com --trusted-proxies 173.245.48.0
 
 | Setting | Flag of `armada cluster set` | Default |
 | --- | --- | --- |
-| Certificates on or off | `--tls` | on |
+| Certificates on or off (off: apps also answer over plain HTTP on port 80) | `--tls` | on |
 | ACME directory | `--acme-ca` | `letsencrypt` |
 | ACME account email | `--acme-email` | none |
 | DNS provider for the root domain (wildcard) | `--dns-provider cloudflare\|none` with `--dns-token FILE\|-` | none (HTTP-01) |
@@ -58,6 +58,18 @@ The DNS token is stored encrypted with the master key and never shown.
 Changing a setting makes the leader restart its control plane in the same
 process: apps keep serving, and the API and agents reconnect within a
 second or two. The root domain and trusted proxies apply without that.
+
+**Without certificates** (`armada cluster set --tls=false`), for machines
+on a private network with no public domain: port 80 serves the apps over
+plain HTTP instead of redirecting to HTTPS, with the same routing, client
+address rules, and `X-Real-IP` as port 443, and `X-Forwarded-Proto: http`.
+Port 443 keeps serving with a self-signed certificate, and app URLs start
+with `http://`. The root domain needs no TXT record, so a name only your
+network resolves works (`--root-domain lab.test`); see
+[Apps on a private network without a domain](guides/private-network.md).
+Sticky cookies lose their `secure` attribute so browsers send them over
+HTTP. Traffic is not encrypted: keep port 80 off the internet, or narrow it
+with `ingress.ipAllow`.
 
 `/etc/armada/server.env` keeps only what belongs to one machine
 (`--acme-listen`, `--join-listen`, `--metrics-listen` for another address,

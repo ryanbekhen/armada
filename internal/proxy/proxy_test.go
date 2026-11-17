@@ -130,7 +130,11 @@ func TestProtoRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	c := validConfig(t)
+	c.PlainHTTP = true
 	p := c.ToProto()
+	if !p.GetPlainHttp() {
+		t.Error("PlainHTTP lost on the wire")
+	}
 	back := FromProto(p)
 	if !proto.Equal(p, back.ToProto()) {
 		t.Error("proto round trip changed config")

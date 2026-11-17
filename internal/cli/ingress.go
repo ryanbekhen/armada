@@ -157,7 +157,7 @@ func newClusterCommand(g *globals) *cobra.Command {
 	f := set.Flags()
 	f.StringVar(&root, "root-domain", "", "root domain for app URLs (empty to clear)")
 	f.StringSliceVar(&trusted, "trusted-proxies", nil, "address prefixes of proxies in front of the nodes, comma separated (empty to clear)")
-	f.BoolVar(&tlsOn, "tls", true, "obtain and renew certificates with ACME")
+	f.BoolVar(&tlsOn, "tls", true, "obtain and renew certificates with ACME; false serves apps over plain HTTP on port 80 instead of redirecting to HTTPS")
 	f.StringVar(&email, "acme-email", "", "contact email for the ACME account")
 	f.StringVar(&acmeCA, "acme-ca", "", "ACME directory: letsencrypt, letsencrypt-staging, or an https:// URL")
 	f.StringVar(&dnsProvider, "dns-provider", "", "DNS provider for the root domain and the names under it, including a wildcard: cloudflare, or none")

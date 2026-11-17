@@ -1495,6 +1495,9 @@ message ProxyConfig {
   repeated string trusted_proxies = 5;
   // Internal TCP listeners on the bridge gateway (ADR 0039).
   repeated ProxyTCPRoute tcp_routes = 6;
+  // The cluster obtains no certificates: port 80 serves the apps over plain
+  // HTTP instead of redirecting to HTTPS.
+  bool plain_http = 7;
 }
 
 // ProxyTCPRoute sends connections to port on a node's bridge gateway from

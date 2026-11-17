@@ -77,6 +77,9 @@ type Config struct {
 	TrustedProxies []string
 	// TCP are the internal TCP listeners (ADR 0039).
 	TCP []TCPRoute
+	// PlainHTTP serves the public routes over plain HTTP on port 80 instead
+	// of redirecting to HTTPS: the cluster obtains no certificates.
+	PlainHTTP bool
 }
 
 // TCPRoute sends connections to Port on a node's bridge gateway from apps of
@@ -228,6 +231,7 @@ func FromProto(p *armadav1.ProxyConfig) Config {
 	}
 	c.ACMEAddress = p.GetAcmeChallengeAddress()
 	c.TrustedProxies = p.GetTrustedProxies()
+	c.PlainHTTP = p.GetPlainHttp()
 	for _, b := range p.GetBackends() {
 		be := Backend{Name: b.GetName(), HealthPath: b.GetHealthPath(), Wake: b.GetWake(), LocalFirst: b.GetLocalFirst(), TimeoutSeconds: int(min(b.GetTimeoutSeconds(), MaxTimeoutSeconds+1)),
 			IPAllow: b.GetIpAllow(), IPDeny: b.GetIpDeny(), Sticky: b.GetSticky()}
@@ -254,7 +258,7 @@ func FromProto(p *armadav1.ProxyConfig) Config {
 
 // ToProto converts to the wire format.
 func (c Config) ToProto() *armadav1.ProxyConfig {
-	p := &armadav1.ProxyConfig{AcmeChallengeAddress: c.ACMEAddress, TrustedProxies: c.TrustedProxies}
+	p := &armadav1.ProxyConfig{AcmeChallengeAddress: c.ACMEAddress, TrustedProxies: c.TrustedProxies, PlainHttp: c.PlainHTTP}
 	for _, b := range c.Backends {
 		pb := &armadav1.ProxyBackend{Name: b.Name, HealthPath: b.HealthPath, Wake: b.Wake, LocalFirst: b.LocalFirst, TimeoutSeconds: uint32(max(min(b.TimeoutSeconds, MaxTimeoutSeconds), 0)),
 			IpAllow: b.IPAllow, IpDeny: b.IPDeny, Sticky: b.Sticky}
