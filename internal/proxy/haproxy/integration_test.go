@@ -41,6 +41,9 @@ func TestIntegrationConfigValid(t *testing.T) {
 		"callers": {callersConfig(t), callersOptions()},
 		// Internal TCP listeners (ADR 0039).
 		"tcp": {tcpConfig(), callersOptions()},
+		// Client address rules and trusted proxies (ADR 0035), plain HTTP
+		// on port 80, and PROXY protocol sources on both public frontends.
+		"plain-proxy-protocol": {proxyProtocolConfig(), renderOptions{PrivateIP: "10.0.0.2", InternalIP: "172.17.0.1"}},
 	}
 	for name, c := range cases {
 		cfg, opts := c.cfg, c.opts
