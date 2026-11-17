@@ -8,6 +8,14 @@ import (
 	"github.com/ryanbekhen/armada/internal/proxy"
 )
 
+// proxyProtocolConfig is plainConfig with load balancers that send the
+// PROXY protocol.
+func proxyProtocolConfig() proxy.Config {
+	cfg := plainConfig()
+	cfg.ProxyProtocol = []string{"10.0.0.0/24", "2001:db8::/64"}
+	return cfg
+}
+
 // Load balancers that send the PROXY protocol: both public frontends read
 // the header from them first, before TLS and before any rule that looks at
 // the client's address; nothing else reads it.
