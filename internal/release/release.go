@@ -4,6 +4,7 @@
 package release
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -39,41 +40,53 @@ func IsRelease(v string) bool { return tagRe.MatchString(v) }
 // URL is the page of release tag.
 func URL(tag string) string { return "https://github.com/" + Repo + "/releases/tag/" + tag }
 
-// Latest returns the newest release: the latest stable one, else, while
-// there is none, the newest published pre-release by version, as install.sh
-// picks. The API does not list releases by version (alpha.10 came after
-// alpha.5), so the list is compared, not its first entry taken.
+// Latest returns the newest release: the newest stable one by version, else,
+// while there is none, the newest published pre-release, as install.sh
+// picks. One request lists the last 100 releases (drafts are not public);
+// the API does not list them by version (alpha.10 came after alpha.5), so
+// the list is compared, not its first entry taken.
 func Latest(ctx context.Context) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, CheckTimeout)
 	defer cancel()
-	var latest struct {
-		Tag string `json:"tag_name"`
+	var list []struct {
+		Tag   string `json:"tag_name"`
+		Draft bool   `json:"draft"`
 	}
-	switch err := getJSON(ctx, apiBase+"/repos/"+Repo+"/releases/latest", &latest); {
-	case err == nil:
-	case errors.Is(err, errNotFound):
-		var list []struct {
-			Tag   string `json:"tag_name"`
-			Draft bool   `json:"draft"`
-		}
-		if err := getJSON(ctx, apiBase+"/repos/"+Repo+"/releases?per_page=100", &list); err != nil {
-			return "", err
-		}
-		for _, r := range list {
-			if !r.Draft && IsRelease(r.Tag) && (latest.Tag == "" || Newer(r.Tag, latest.Tag)) {
-				latest.Tag = r.Tag
-			}
-		}
-	default:
+	if err := getJSON(ctx, apiBase+"/repos/"+Repo+"/releases?per_page=100", &list); err != nil {
 		return "", err
 	}
-	if !IsRelease(latest.Tag) {
-		return "", fmt.Errorf("no release found")
+	stable, newest := "", ""
+	for _, r := range list {
+		if r.Draft || !IsRelease(r.Tag) {
+			continue
+		}
+		if newest == "" || Newer(r.Tag, newest) {
+			newest = r.Tag
+		}
+		if !strings.Contains(r.Tag, "-") && (stable == "" || Newer(r.Tag, stable)) {
+			stable = r.Tag
+		}
 	}
-	return latest.Tag, nil
+	if tag := cmp.Or(stable, newest); tag != "" {
+		return tag, nil
+	}
+	return "", errors.New("look for the latest release: no release found")
 }
 
-var errNotFound = errors.New("not found")
+// RateLimitError says GitHub's limit for requests without credentials (60
+// an hour for one address, shared by every machine behind it) is reached.
+type RateLimitError struct {
+	// Reset is when requests are allowed again; zero when GitHub did not say.
+	Reset time.Time
+}
+
+func (e *RateLimitError) Error() string {
+	msg := "look for the latest release: GitHub's limit for requests from this address is reached"
+	if !e.Reset.IsZero() {
+		msg += " until " + e.Reset.Local().Format("15:04")
+	}
+	return msg
+}
 
 func getJSON(ctx context.Context, url string, v any) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
@@ -87,8 +100,13 @@ func getJSON(ctx context.Context, url string, v any) error {
 	}
 	defer resp.Body.Close()
 	switch {
-	case resp.StatusCode == http.StatusNotFound:
-		return errNotFound
+	case resp.StatusCode == http.StatusTooManyRequests,
+		resp.StatusCode == http.StatusForbidden && resp.Header.Get("X-RateLimit-Remaining") == "0":
+		e := &RateLimitError{}
+		if n, err := strconv.ParseInt(resp.Header.Get("X-RateLimit-Reset"), 10, 64); err == nil && n > 0 {
+			e.Reset = time.Unix(n, 0)
+		}
+		return e
 	case resp.StatusCode != http.StatusOK:
 		return fmt.Errorf("look for the latest release: %s", resp.Status)
 	}

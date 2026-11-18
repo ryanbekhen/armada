@@ -43,11 +43,13 @@ func StartNotice(ctx context.Context, current, cacheDir string, now time.Time) f
 	}
 	found := make(chan string, 1)
 	go func() {
-		tag, err := Latest(ctx)
+		// Through the cache armada version shares, so a notice and a
+		// version check in the same hour cost one request.
+		f, err := LatestCached(ctx, cacheDir, now)
 		if err != nil {
-			tag = ""
+			f.Tag = ""
 		}
-		found <- tag
+		found <- f.Tag
 	}()
 	return func(wait time.Duration) string {
 		select {
