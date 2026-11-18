@@ -18,7 +18,6 @@ service AdminService {
   rpc ClusterStatus(ClusterStatusRequest) returns (ClusterStatusResponse);
   // GetAppSpec returns the spec an app or job runs, as a file holds it.
   rpc GetAppSpec(GetAppSpecRequest) returns (GetAppSpecResponse);
-  rpc Scale(ScaleRequest) returns (ScaleResponse);
   // SetTraffic changes how an app in multiple revision mode splits
   // requests, until its next deploy (ADR 0022).
   rpc SetTraffic(SetTrafficRequest) returns (SetTrafficResponse);
@@ -1075,13 +1074,6 @@ message NodeTop {
   int64 conntrack_entries = 10;
   int64 conntrack_max = 11;
 }
-
-message ScaleRequest {
-  string app = 1;
-  int32 replicas = 2;
-}
-
-message ScaleResponse {}
 
 message SetTrafficRequest {
   string app = 1;

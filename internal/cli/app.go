@@ -3,7 +3,6 @@ package cli
 import (
 	"cmp"
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"strconv"
@@ -33,7 +32,6 @@ func newAppCommand(g *globals) *cobra.Command {
 		newAppUpdateCommand(g),
 		newAppListCommand(g),
 		newAppShowCommand(g),
-		newAppScaleCommand(g),
 		newAppRollbackCommand(g),
 		newAppTrafficCommand(g),
 		newLogsCommand(g, false),
@@ -56,7 +54,7 @@ func newAppCreateCommand(g *globals) *cobra.Command {
 			"cover what is changed often; the rest of the spec (custom probes, routes,\n" +
 			"secret files, volumes, init containers, sidecars, placement, traffic\n" +
 			"splitting) is written in a file.",
-		Example: "  armada app create hello --image traefik/whoami:v1.10 --port 80 --ingress external --replicas 2\n" +
+		Example: "  armada app create hello --image traefik/whoami:v1.10 --port 80 --ingress external --min 2\n" +
 			"  armada app create --file web.yaml --var TAG=1.4.2",
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error { return runCreate(cmd, g, args, &d) },
@@ -293,38 +291,6 @@ func printApp(out io.Writer, a *armadav1.AppStatus) error {
 		}
 	}
 	return tw.Flush()
-}
-
-func newAppScaleCommand(g *globals) *cobra.Command {
-	var n int
-	cmd := &cobra.Command{
-		Use:   "scale APP --replicas N",
-		Short: "Set the number of replicas until the next update (not for autoscaled apps)",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := g.qualify(args); err != nil {
-				return err
-			}
-			if !cmd.Flags().Changed("replicas") {
-				return errors.New("give --replicas N")
-			}
-			if n < 1 || n > spec.MaxReplicas {
-				return fmt.Errorf("--replicas must be between 1 and %d", spec.MaxReplicas)
-			}
-			client, conn, err := dialAdmin(g)
-			if err != nil {
-				return err
-			}
-			defer conn.Close()
-			if _, err := client.Scale(cmd.Context(), &armadav1.ScaleRequest{App: args[0], Replicas: int32(n)}); err != nil {
-				return RPCError(err)
-			}
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Scaled %s to %d replicas.\n", args[0], n)
-			return err
-		},
-	}
-	cmd.Flags().IntVar(&n, "replicas", 0, "number of replicas")
-	return cmd
 }
 
 // revisionName turns r3 into APP--r3; full names pass unchanged.

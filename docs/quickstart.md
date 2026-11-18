@@ -205,7 +205,7 @@ Other DNS providers need nothing but plain A records.
 ## 6. Create an app
 
 ```bash
-armada app create hello --image traefik/whoami:v1.10 --port 80 --ingress external --replicas 2
+armada app create hello --image traefik/whoami:v1.10 --port 80 --ingress external --min 2
 armada app show hello
 curl https://hello.apps.example.com    # add -k while on the staging CA
 ```
@@ -359,7 +359,7 @@ certificates of their own.
 | Apps | `armada app list` (every space: `-A`), `armada app show hello`, `armada cluster status` for the whole cluster |
 | Logs | `armada app logs hello -f` |
 | Shell in a replica | `armada app exec hello -it -- sh` (a single command: `armada app exec hello -- env`) |
-| Scale | `armada app scale hello --replicas 3` (until the next update; to keep it, `armada app update hello --replicas 3`) |
+| Scale | `armada app update hello --min 3` (a fixed 3); `--min 1 --max 5 --scale-cpu 70` scales with load |
 | Scale with load | `armada app update hello --min 2 --max 10 --scale-http 50` (or `--scale-cpu 70`, `--scale-memory 80`; see [spec reference](spec-reference.md#autoscaling)); `scale.min: 0` in the spec stops idle apps until the next request ([scale to zero](spec-reference.md#scale-to-zero)) |
 | Environment | `armada app update hello --env LOG_LEVEL=debug`, `--remove-env LOG_LEVEL` |
 | Secrets | `armada secret set hello api-key < key.txt`, or `armada secret import hello .env` for many (`API_KEY` becomes `api-key`), then `armada app update hello --secret-env API_KEY=api-key` (or `--env-from-secrets` for all of them) |

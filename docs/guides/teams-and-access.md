@@ -217,7 +217,7 @@ From Alice's computer:
 ```bash
 armada app list                       # shop's apps
 armada app list --space billing     # refused: user:alice may not see space billing
-armada app scale web --replicas 3     # allowed: deployer
+armada app update web --min 3        # allowed: deployer
 armada app exec web -- env            # refused: exec needs admin
 ```
 

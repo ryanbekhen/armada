@@ -156,7 +156,6 @@ func TestRoleOutOfScope(t *testing.T) {
 	ctx := c.ctx
 	for _, app := range []string{"web", "web.b", "ghost.b", "bad..id"} {
 		calls := map[string]func() error{
-			"Scale":         func() error { _, err := p.Scale(ctx, &armadav1.ScaleRequest{App: app, Replicas: 2}); return err },
 			"SetTraffic":    func() error { _, err := p.SetTraffic(ctx, &armadav1.SetTrafficRequest{App: app}); return err },
 			"ListRevisions": func() error { _, err := p.ListRevisions(ctx, &armadav1.ListRevisionsRequest{App: app}); return err },
 			"Rollback":      func() error { _, err := p.Rollback(ctx, &armadav1.RollbackRequest{App: app}); return err },
@@ -244,8 +243,8 @@ func TestRoleInScope(t *testing.T) {
 	c, p, _ := serviceCluster(t)
 	ctx := c.ctx
 
-	if _, err := p.Scale(ctx, &armadav1.ScaleRequest{App: "web.a", Replicas: 2}); err != nil {
-		t.Fatalf("scale its app: %v", err)
+	if code := secretCode(ctx, p, "web.a"); code == codes.PermissionDenied {
+		t.Fatalf("set a secret of its app: %v", code)
 	}
 	if _, err := p.Deploy(ctx, &armadav1.DeployRequest{Spec: []byte(webSpec("nginx:2", 1)), Space: "a"}); err != nil {
 		t.Fatalf("deploy into its space: %v", err)
@@ -425,9 +424,10 @@ func TestSpaceRoleLevels(t *testing.T) {
 			t.Errorf("%s spec in b: %v", name, err)
 		}
 	}
-	_, err := viewer.Scale(ctx, &armadav1.ScaleRequest{App: "web.a", Replicas: 2})
-	wantCode(t, "viewer scales", err, codes.PermissionDenied)
-	_, err = viewer.Deploy(ctx, &armadav1.DeployRequest{Spec: []byte(webSpec("nginx:2", 1)), Space: "a"})
+	if code := secretCode(ctx, viewer, "web.a"); code != codes.PermissionDenied {
+		t.Errorf("viewer sets a secret: %v", code)
+	}
+	_, err := viewer.Deploy(ctx, &armadav1.DeployRequest{Spec: []byte(webSpec("nginx:2", 1)), Space: "a"})
 	wantCode(t, "viewer deploys", err, codes.PermissionDenied)
 	if _, err := deployer.Deploy(ctx, &armadav1.DeployRequest{Spec: []byte(webSpec("nginx:2", 1)), Space: "a"}); err != nil {
 		t.Errorf("deployer deploys: %v", err)
@@ -452,8 +452,9 @@ func TestSpaceRoleLevels(t *testing.T) {
 	if err != nil || len(st.Apps) != 3 || len(st.Nodes) != 0 {
 		t.Errorf("cluster viewer status: %v %v", st, err)
 	}
-	_, err = everywhere.Scale(ctx, &armadav1.ScaleRequest{App: "web", Replicas: 2})
-	wantCode(t, "cluster viewer scales", err, codes.PermissionDenied)
+	if code := secretCode(ctx, everywhere, "web"); code != codes.PermissionDenied {
+		t.Errorf("cluster viewer sets a secret: %v", code)
+	}
 	_, err = everywhere.ClusterStatus(ctx, &armadav1.ClusterStatusRequest{})
 	wantCode(t, "cluster viewer, cluster status", err, codes.PermissionDenied)
 
@@ -469,14 +470,23 @@ func TestSpaceRoleLevels(t *testing.T) {
 	if _, err := c.admin.CreateAssignment(ctx, &armadav1.AssignmentRequest{Kind: "user", Name: "vera", Role: &armadav1.RoleAssignment{Role: "deployer", Space: "a"}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := viewer.Scale(ctx, &armadav1.ScaleRequest{App: "web.a", Replicas: 2}); err != nil {
-		t.Errorf("after deployer was given: %v", err)
+	if code := secretCode(ctx, viewer, "web.a"); code == codes.PermissionDenied {
+		t.Errorf("after deployer was given: %v", code)
 	}
 	if _, err := c.admin.DeleteAssignment(ctx, &armadav1.AssignmentRequest{Kind: "user", Name: "vera", Role: &armadav1.RoleAssignment{Role: "deployer", Space: "a"}}); err != nil {
 		t.Fatal(err)
 	}
-	_, err = viewer.Scale(ctx, &armadav1.ScaleRequest{App: "web.a", Replicas: 1})
-	wantCode(t, "after deployer was taken back", err, codes.PermissionDenied)
+	if code := secretCode(ctx, viewer, "web.a"); code != codes.PermissionDenied {
+		t.Errorf("after deployer was taken back: %v", code)
+	}
+}
+
+// secretCode is how setting a secret of app answers u: a change that needs
+// the deployer role. Only PermissionDenied means the role refused it; the
+// test clusters may have no master key, which refuses it later.
+func secretCode(ctx context.Context, u armadav1.AdminServiceClient, app string) codes.Code {
+	_, err := u.SetSecret(ctx, &armadav1.SetSecretRequest{App: app, Name: "pw", Value: []byte("x")})
+	return status.Code(err)
 }
 
 func TestUsers(t *testing.T) {

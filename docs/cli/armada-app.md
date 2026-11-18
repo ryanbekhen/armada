@@ -21,7 +21,6 @@ Also: `apps`.
 | [`armada app logs`](#armada-app-logs) | Print logs from an app's replicas |
 | [`armada app revision`](#armada-app-revision) | List and show an app's revisions |
 | [`armada app rollback`](#armada-app-rollback) | Roll an app back to an earlier revision |
-| [`armada app scale`](#armada-app-scale) | Set the number of replicas until the next update (not for autoscaled apps) |
 | [`armada app show`](#armada-app-show) | Show an app: its revision, replicas, and URLs |
 | [`armada app top`](#armada-app-top) | Show the CPU and memory apps and their replicas use |
 | [`armada app traffic`](#armada-app-traffic) | Split an app's requests between revisions until the next update |
@@ -42,7 +41,7 @@ armada app create NAME [flags] | --file FILE
 Examples:
 
 ```bash
-armada app create hello --image traefik/whoami:v1.10 --port 80 --ingress external --replicas 2
+armada app create hello --image traefik/whoami:v1.10 --port 80 --ingress external --min 2
 armada app create --file web.yaml --var TAG=1.4.2
 ```
 
@@ -64,9 +63,10 @@ Flags:
 | `--ingress string` | who reaches the app: external, internal, or none |
 | `--ip-allow stringArray` | RANGE[,name=NAME][,description=TEXT]: only clients from this address or prefix reach the app from outside (repeatable; replaces the list) |
 | `--ip-deny stringArray` | RANGE[,name=NAME][,description=TEXT]: clients from this address or prefix cannot reach the app from outside (repeatable; replaces the list) |
-| `--max int` | most replicas when autoscaling |
+| `--max int` | most replicas, with a --scale rule |
 | `--memory string` | memory limit, e.g. 256Mi |
-| `--min int` | fewest replicas when autoscaling |
+| `--min int` | replicas to run: a fixed count, or the fewest with a --scale rule |
+| `--no-autoscale` | stop autoscaling: drop the scale rules and run --min (or the current minimum) replicas |
 | `--no-cors` | remove the app's CORS policy |
 | `--no-dns` | custom domains get certificates through HTTP-01 again |
 | `--no-ip-rules` | let every client reach the app again |
@@ -76,7 +76,6 @@ Flags:
 | `--registry-user string` | user name for a private registry (the image's) |
 | `--remove-domain stringArray` | remove a custom domain (repeatable) |
 | `--remove-env stringArray` | remove an environment variable (repeatable) |
-| `--replicas int` | number of replicas |
 | `--scale-cpu int` | autoscale to this percent of reserved CPU |
 | `--scale-http int` | autoscale to this many concurrent requests per replica |
 | `--scale-memory int` | autoscale to this percent of the memory limit |
@@ -252,20 +251,6 @@ Flags:
 | `--to string` | the revision to return to (default: the one before the active one) |
 | `--wait` | wait until the rollout completes; fail if it is aborted |
 
-## `armada app scale`
-
-Set the number of replicas until the next update (not for autoscaled apps).
-
-```
-armada app scale APP --replicas N [flags]
-```
-
-Flags:
-
-| Flag | Meaning |
-| --- | --- |
-| `--replicas int` | number of replicas |
-
 ## `armada app show`
 
 Show an app: its revision, image, replicas, and URLs. -o yaml prints the spec
@@ -363,9 +348,10 @@ Flags:
 | `--ingress string` | who reaches the app: external, internal, or none |
 | `--ip-allow stringArray` | RANGE[,name=NAME][,description=TEXT]: only clients from this address or prefix reach the app from outside (repeatable; replaces the list) |
 | `--ip-deny stringArray` | RANGE[,name=NAME][,description=TEXT]: clients from this address or prefix cannot reach the app from outside (repeatable; replaces the list) |
-| `--max int` | most replicas when autoscaling |
+| `--max int` | most replicas, with a --scale rule |
 | `--memory string` | memory limit, e.g. 256Mi |
-| `--min int` | fewest replicas when autoscaling |
+| `--min int` | replicas to run: a fixed count, or the fewest with a --scale rule |
+| `--no-autoscale` | stop autoscaling: drop the scale rules and run --min (or the current minimum) replicas |
 | `--no-cors` | remove the app's CORS policy |
 | `--no-dns` | custom domains get certificates through HTTP-01 again |
 | `--no-ip-rules` | let every client reach the app again |
@@ -375,7 +361,6 @@ Flags:
 | `--registry-user string` | user name for a private registry (the image's) |
 | `--remove-domain stringArray` | remove a custom domain (repeatable) |
 | `--remove-env stringArray` | remove an environment variable (repeatable) |
-| `--replicas int` | number of replicas |
 | `--scale-cpu int` | autoscale to this percent of reserved CPU |
 | `--scale-http int` | autoscale to this many concurrent requests per replica |
 | `--scale-memory int` | autoscale to this percent of the memory limit |

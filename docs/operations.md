@@ -501,7 +501,7 @@ armada space delete staging            # only once it is empty
 A command works in the space `armada space use` saved in the client
 config, else in `default`; `--space` (or `ARMADA_SPACE`) names
 another for one command, and an app's ID, `NAME.SPACE`, names an app of
-any space: `armada app scale web.staging --replicas 3`. Events and
+any space: `armada app update web.staging --min 3`. Events and
 metrics show apps of other spaces by that ID, and so do their revisions
 (`web.staging--r1`) and replicas. Lists show the space's items, and
 every space's with `-A` (`--all-spaces`). Internal apps of a space are reached at
@@ -1099,10 +1099,9 @@ web-r1-q2k0d     node2  running  41m/250m   58Mi/256Mi
 An app with `scale.rules` scales itself between `scale.min` and
 `scale.max` ([ADR 0020](adr/0020-autoscaling.md); rules in the
 [spec reference](spec-reference.md#autoscaling)).
-`armada app scale` refuses such an app, since the autoscaler would undo
-it. Change the bounds instead: `armada app update web --min 3` keeps at
-least three running, and `armada app update web --replicas 3` stops
-autoscaling at a fixed count. A later `app update --file` sets the bounds
+Change the bounds with `armada app update web --min 3` (at least three
+running) or `--max`; `armada app update web --no-autoscale --min 3` stops
+autoscaling at a fixed count and removes the rules. A later `app update --file` sets the bounds
 the file names again.
 
 ```

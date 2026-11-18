@@ -112,9 +112,6 @@ func TestJobRunSucceeds(t *testing.T) {
 	}
 
 	// Jobs are not apps: no scaling, no rollback, no status.
-	if _, err := c.admin.Scale(c.ctx, &armadav1.ScaleRequest{App: "migrate", Replicas: 2}); status.Code(err) != codes.FailedPrecondition {
-		t.Errorf("scale a job: %v", err)
-	}
 	if _, err := c.admin.Status(c.ctx, &armadav1.StatusRequest{App: "migrate"}); status.Code(err) != codes.FailedPrecondition {
 		t.Errorf("status of a job: %v", err)
 	}

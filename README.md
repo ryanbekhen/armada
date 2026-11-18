@@ -47,7 +47,7 @@ sudo systemctl enable --now armada-server
 armada cluster set --acme-email you@example.com --root-domain apps.example.com
 
 # Deploy an app: two replicas behind HTTPS
-armada app create web --image traefik/whoami:v1.10 --port 80 --ingress external --replicas 2 --wait
+armada app create web --image traefik/whoami:v1.10 --port 80 --ingress external --min 2 --wait
 curl https://web.apps.example.com      # answers with the replica's name and the request
 ```
 

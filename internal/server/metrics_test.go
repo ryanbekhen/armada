@@ -165,9 +165,7 @@ func TestMetrics(t *testing.T) {
 
 	// A replica on its way out after a scale down is draining, not a new
 	// replica that is not ready yet.
-	if _, err := c.admin.Scale(c.ctx, &armadav1.ScaleRequest{App: "web", Replicas: 1}); err != nil {
-		t.Fatal(err)
-	}
+	c.setReplicas("web", 1)
 	c.eventually("a draining replica in metrics", func() bool {
 		_, b, err := scrape(issued.GetCert(), keyPEM)
 		body = b

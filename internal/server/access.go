@@ -54,7 +54,6 @@ var methodNeeds = map[string]need{
 	adminService + "Events":        needView,
 
 	adminService + "Deploy":       needDeploy,
-	adminService + "Scale":        needDeploy,
 	adminService + "Rollback":     needDeploy,
 	adminService + "SetTraffic":   needDeploy,
 	adminService + "SetSecret":    needDeploy,

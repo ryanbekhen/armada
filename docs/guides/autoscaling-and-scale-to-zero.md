@@ -296,13 +296,12 @@ caused them; the audit log names the actor `armada:autoscaler`. With the
   day. An app that scales up and down every few minutes needs a higher
   target or a higher `min`.
 
-## Changing the count by hand
+## Changing the count
 
-- `armada app scale` refuses an autoscaled app, because the autoscaler
-  would undo it. Change the bounds: `armada app update api --min 4` keeps
-  at least 4.
-- `armada app update api --replicas 3` stops autoscaling at a fixed count;
-  it removes the rules.
+- Change the bounds: `armada app update api --min 4` keeps at least 4,
+  and `--max 10` lets it grow to 10; the rules stay.
+- `armada app update api --no-autoscale --min 3` stops autoscaling at a
+  fixed count; it removes the rules.
 - A later `armada app update --file` sets the bounds and rules the file
   names again. An update keeps the current count within the new bounds.
 - After the control plane's leader changes, apps do not scale down for 5

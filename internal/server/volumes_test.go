@@ -101,8 +101,8 @@ func TestVolumeAppRecreatesOnItsNode(t *testing.T) {
 		t.Errorf("after cordon: %v", r)
 	}
 
-	// Scaling is refused.
-	if _, err := c.admin.Scale(c.ctx, &armadav1.ScaleRequest{App: "web", Replicas: 2}); status.Code(err) != codes.FailedPrecondition {
+	// More replicas are refused.
+	if err := c.store.SetReplicas(c.ctx, "web", 2, "admin:test"); !errors.Is(err, store.ErrPrecondition) {
 		t.Errorf("scale: %v", err)
 	}
 }
