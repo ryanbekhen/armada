@@ -217,6 +217,10 @@ once a root domain is set with `armada cluster set --root-domain`, plus
 their verified custom domains. HTTP redirects to HTTPS, unless the cluster
 obtains no certificates (`armada cluster set --tls=false`): then apps also
 answer over plain HTTP on port 80, and their URLs start with `http://`.
+A custom domain may name the app's own host under the root domain; it is
+served once. A custom domain that names another app's host under the root
+domain stays with that app: the app that lists it does not serve it and
+records a `RouteConflict` event until it is removed from `domains`.
 
 Limits on a connection through ingress:
 

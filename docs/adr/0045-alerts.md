@@ -44,6 +44,7 @@ SMTP. Nothing runs besides Armada, and agents are unchanged.
 - A channel gets the events whose reason needs a person (`alert.Warning`:
   `Lost`, `Crashed`, `OutOfMemory`, `Failed`, `Unschedulable`,
   `MostUnreachable`, `ReconcileFailed`, `ProxyNotUpdated`, `AddressConflict`,
+  `RouteConflict`,
   `NotVerified`, `QueueUnread`, `LogExportFailing`, and the volume failures),
   unless it names its own reasons (`--reason`, `all` for every one). `--space` keeps
   only events of those spaces' apps.

@@ -46,21 +46,87 @@ func (s *Server) rootDomain(ctx context.Context) string {
 }
 
 // appHosts returns the hostnames that route to an app: <app>.<root> and its
-// verified custom domains.
+// verified custom domains, each once (a custom domain may name <app>.<root>
+// itself).
 func appHosts(app store.App, root string, verified map[string]bool) []string {
 	var hosts []string
-	if root != "" {
-		h := app.Name + "." + root
-		if spec.ValidateDomain(h) == nil {
-			hosts = append(hosts, h)
-		}
+	if h := rootHost(app.Name, root); h != "" {
+		hosts = append(hosts, h)
 	}
 	for _, d := range app.Spec.Ingress.Domains {
-		if verified[d] {
+		if verified[d] && !slices.Contains(hosts, d) {
 			hosts = append(hosts, d)
 		}
 	}
 	return hosts
+}
+
+// rootHost is the host Armada gives a name under the root domain, or "" when
+// there is no root domain or the host would not be valid.
+func rootHost(name, root string) string {
+	if root == "" {
+		return ""
+	}
+	h := name + "." + root
+	if spec.ValidateDomain(h) != nil {
+		return ""
+	}
+	return h
+}
+
+// rootHosts maps every host under the root domain that an external app or
+// one of its labelled revisions is served at to its backend.
+func rootHosts(apps []store.App, root string) map[string]string {
+	hosts := map[string]string{}
+	for _, app := range apps {
+		in := app.Spec.Ingress
+		if in == nil || in.Type != spec.IngressExternal || in.TCP() {
+			continue
+		}
+		if h := rootHost(app.Name, root); h != "" {
+			hosts[h] = app.Name
+		}
+		if len(app.Traffic) == 0 || app.Rolling() {
+			continue
+		}
+		for _, t := range app.Traffic {
+			if t.Label == "" {
+				continue
+			}
+			name := spec.LabelHost(t.Label, app.Name)
+			if h := rootHost(name, root); h != "" {
+				hosts[h] = name
+			}
+		}
+	}
+	return hosts
+}
+
+// publicRoutes keeps one backend per public host and path while buildProxy
+// adds rules, so two apps that end up with the same route (a custom domain
+// naming another app's host under the root domain) leave one rule out
+// instead of making the whole configuration invalid for every app.
+type publicRoutes struct {
+	owner map[string]string // host+path -> backend
+	// root holds every host under the root domain that Armada gives an app
+	// or a labelled revision; it belongs to that backend whatever order
+	// the apps come in.
+	root map[string]string
+}
+
+// add reports whether r may be added. When the route is taken it returns
+// the backend that holds it: another app's, or r's own for a rule it
+// already has.
+func (p *publicRoutes) add(r proxy.Rule) (string, bool) {
+	if b, ok := p.root[r.Host]; ok && b != r.Backend {
+		return b, false
+	}
+	key := r.Host + r.PathPrefix
+	if b, ok := p.owner[key]; ok {
+		return b, false
+	}
+	p.owner[key] = r.Backend
+	return "", true
 }
 
 func appRoutes(sp *spec.App) []spec.Route {
@@ -232,6 +298,16 @@ func (s *Server) buildProxy(ctx context.Context, apps []store.App, replicas []st
 	// configuration failing.
 	tcpTaken := map[string]string{}
 	clash := claimedTwice(replicas)
+	routes := publicRoutes{owner: map[string]string{}, root: rootHosts(apps, root)}
+	// app -> the first of its public routes another app holds.
+	conflicts := map[string]string{}
+	public := func(app string, r proxy.Rule) bool {
+		owner, ok := routes.add(r)
+		if !ok && owner != r.Backend && conflicts[app] == "" {
+			conflicts[app] = fmt.Sprintf("%s%s is routed to app %s, so this app does not serve it; remove it from ingress.domains", r.Host, r.PathPrefix, owner)
+		}
+		return ok
+	}
 	for _, app := range apps {
 		s.addressConflict(ctx, app.Name, perApp[app.Name], clash)
 		sp := app.Spec
@@ -308,7 +384,9 @@ func (s *Server) buildProxy(ctx context.Context, apps []store.App, replicas []st
 					continue
 				}
 				for _, rt := range appRoutes(sp) {
-					cfg.Rules = append(cfg.Rules, proxy.Rule{Host: h, PathPrefix: rt.Path, StripPrefix: rt.StripPrefix, Backend: name})
+					if r := (proxy.Rule{Host: h, PathPrefix: rt.Path, StripPrefix: rt.StripPrefix, Backend: name}); public(app.Name, r) {
+						cfg.Rules = append(cfg.Rules, r)
+					}
 				}
 				if !wildcard {
 					certNames = append(certNames, h)
@@ -319,13 +397,22 @@ func (s *Server) buildProxy(ctx context.Context, apps []store.App, replicas []st
 			continue
 		}
 		for _, h := range appHosts(app, root, verified) {
+			served := false
 			for _, rt := range appRoutes(sp) {
-				cfg.Rules = append(cfg.Rules, proxy.Rule{Host: h, PathPrefix: rt.Path, StripPrefix: rt.StripPrefix, Backend: app.Name})
+				if r := (proxy.Rule{Host: h, PathPrefix: rt.Path, StripPrefix: rt.StripPrefix, Backend: app.Name}); public(app.Name, r) {
+					cfg.Rules = append(cfg.Rules, r)
+					served = true
+				}
 			}
-			if !wildcard || !underWildcard(h, root) {
+			if served && (!wildcard || !underWildcard(h, root)) {
 				certNames = append(certNames, h)
 			}
 		}
+	}
+	for _, app := range apps {
+		msg := conflicts[app.Name]
+		s.condition(ctx, "route-conflict/"+app.Name, msg != "",
+			store.Event{Kind: eventApp, Object: app.Name, App: app.Name, Reason: "RouteConflict", Message: msg})
 	}
 
 	if s.certs != nil {
