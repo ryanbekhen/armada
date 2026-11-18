@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -573,5 +574,43 @@ func TestScaleFlags(t *testing.T) {
 	}
 	if code, _, stderr := cli("app", "scale", "web"); code == 0 || !strings.Contains(stderr, `unknown command "scale" for "armada app"`) {
 		t.Errorf("app scale: %d %q", code, stderr)
+	}
+}
+
+// --idle-after sets how long an app that scales to zero waits; it needs a
+// minimum of 0, a later --min above 0 lets it go, and --no-autoscale with
+// it is refused.
+func TestIdleAfterFlag(t *testing.T) {
+	f := newFakeAdmin()
+	cfg := withFake(t, f)
+	cli := func(args ...string) (int, string, string) { return run(t, append(args, "--config", cfg)...) }
+	scale := func() *spec.Scale {
+		sp, err := spec.Parse([]byte(f.specs["api"]))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return sp.Scale
+	}
+	if code, _, stderr := cli("app", "create", "api", "--image", "nginx:1", "--port", "80", "--ingress", "external",
+		"--min", "0", "--max", "4", "--scale-http", "10", "--idle-after", "5m"); code != 0 {
+		t.Fatal(stderr)
+	}
+	if s := scale(); s.IdleAfter.D() != 5*time.Minute || *s.Min != 0 || len(s.Rules) != 1 {
+		t.Errorf("after create: %+v", s)
+	}
+	if code, _, stderr := cli("app", "update", "api", "--idle-after", "30m"); code != 0 || scale().IdleAfter.D() != 30*time.Minute || len(scale().Rules) != 1 {
+		t.Errorf("--idle-after alone: %d %q %+v", code, stderr, scale())
+	}
+	if code, _, stderr := cli("app", "update", "api", "--idle-after", "10s"); code == 0 || !strings.Contains(stderr, "idleAfter") {
+		t.Errorf("too short: %d %q", code, stderr)
+	}
+	if code, _, stderr := cli("app", "update", "api", "--min", "1"); code != 0 || scale().IdleAfter != 0 || *scale().Min != 1 {
+		t.Errorf("--min 1 keeps idleAfter: %d %q %+v", code, stderr, scale())
+	}
+	if code, _, stderr := cli("app", "update", "api", "--idle-after", "5m"); code == 0 || !strings.Contains(stderr, "scale.min: 0") {
+		t.Errorf("--idle-after with min 1: %d %q", code, stderr)
+	}
+	if code, _, stderr := cli("app", "update", "api", "--no-autoscale", "--idle-after", "5m"); code == 0 || !strings.Contains(stderr, "--no-autoscale") {
+		t.Errorf("--no-autoscale with --idle-after: %d %q", code, stderr)
 	}
 }

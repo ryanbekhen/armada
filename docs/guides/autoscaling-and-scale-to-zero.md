@@ -174,7 +174,7 @@ scale:
 - **`min: 0`** lets the app stop its last replica after `idleAfter` (here
   30 minutes, default 15m, 1m to 24h) without requests. It needs at least
   one rule and ingress, external or internal. Creating the app starts one
-  replica.
+  replica. Without a file: `armada app update api --idle-after 30m`.
 - **The schedule** keeps at least one replica from 08:00 to 18:00, Monday
   to Friday, Jakarta time: it starts the app when the window opens, and the
   app does not fall asleep during a long meeting. While its window is open,
@@ -291,7 +291,9 @@ caused them; the audit log names the actor `armada:autoscaler`. With the
   downstream service (a database's connection limit) can take. `armada node
   top` shows what nodes have left.
 - **`idleAfter`.** Longer than the usual gap between uses, so the app does
-  not fall asleep between two people using it.
+  not fall asleep between two people using it
+  (`armada app update api --idle-after 45m`). Any request counts, a health
+  check from outside too, so an app that something polls never sleeps.
 - After a change, watch `armada app show` and `armada app events` for a
   day. An app that scales up and down every few minutes needs a higher
   target or a higher `min`.

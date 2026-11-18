@@ -68,7 +68,7 @@ armada app update NAME --dns-token-secret SECRET | --no-dns   # custom domains g
 armada app create --file app.yaml --vars FILE --var NAME=VALUE   # ${NAME} in spec values (ADR 0029); envFrom: secrets turns every secret into a variable
 armada app list [-A] / app show APP [-o yaml]    # apps one line each (ListApps, paged) / one app; -o yaml exports its spec
 armada cluster status / cluster events [--node N] [--since D] [-f]   # bounded summary (ClusterStatus) / what the cluster did in the last day (ADR 0018)
-armada app update APP --min N | --min N --max M --scale-cpu P | --no-autoscale [--min N]   # replica count: --min alone is fixed, --max needs a --scale rule, --no-autoscale drops the rules (no app scale, no --replicas)
+armada app update APP --min N | --min N --max M --scale-cpu P [--idle-after D] | --no-autoscale [--min N]   # replica count: --min alone is fixed, --max needs a --scale rule, --no-autoscale drops the rules (no app scale, no --replicas)
 armada app rollback APP [--to REV] [--wait] / app revision list|show   # back to a revision
 armada app exec APP [--replica ID] [--container NAME] [-i] [-t] -- CMD   # run a command in a replica (ADR 0015), or in one of its sidecars (ADR 0038)
 armada app top [APP] [--spaces] / node top     # CPU and memory use of apps, replicas, nodes (ADR 0016); per space with volumes, requests, egress (ADR 0026)

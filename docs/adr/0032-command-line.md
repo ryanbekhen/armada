@@ -85,7 +85,7 @@ Flags cover what is changed often. The rest (custom probes, routes with
 | `--env K=V`, `--secret-env K=SECRET`, `--remove-env K` | `env` |
 | `--env-from-secrets[=false]` | `envFrom` |
 | `--command`, `--args` | `command`, `args` |
-| `--min N` (alone: a fixed count), `--max N --scale-cpu P \| --scale-memory P \| --scale-http N`, `--no-autoscale` | `scale` |
+| `--min N` (alone: a fixed count), `--max N --scale-cpu P \| --scale-memory P \| --scale-http N`, `--no-autoscale`, `--idle-after D` | `scale` |
 | `--cpu`, `--memory` | `resources` |
 | `--health-path P` | `probes.readiness.path` |
 | `--registry-user U --registry-secret S` | `registry` |

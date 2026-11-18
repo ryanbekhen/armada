@@ -80,6 +80,7 @@ spec the app runs. Everything else is written in a file.
 | `--min N` | `scale.min`: a fixed count without rules, the lower bound with them |
 | `--max N`, `--scale-cpu P`, `--scale-memory P`, `--scale-http N` | `scale.max` and one rule (`--max` needs a rule) |
 | `--no-autoscale` | removes `scale.rules`, so `scale.min` is a fixed count |
+| `--idle-after D` | `scale.idleAfter` (with `min: 0`; a later `--min` above 0 removes it) |
 | `--min N --max N` with one of `--scale-cpu P`, `--scale-memory P`, `--scale-http N` | `scale` with one rule |
 | `--cpu`, `--memory` | `resources` |
 | `--health-path P` | `probes.readiness.path` |
@@ -393,7 +394,7 @@ ingress:
 scale:
   min: 0
   max: 5
-  idleAfter: 30m      # default 15m, 1m to 24h
+  idleAfter: 30m      # default 15m, 1m to 24h; or --idle-after 30m
   rules:
     - type: http
       concurrent: 20
