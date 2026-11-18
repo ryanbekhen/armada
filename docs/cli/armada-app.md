@@ -59,6 +59,7 @@ Flags:
 | `--env-from-secrets` | give every secret of the app as a variable (database-url becomes DATABASE_URL) |
 | `-f`, `--file string` | spec file, or - for stdin |
 | `--health-path string` | HTTP path that answers when the app is ready (empty to clear) |
+| `--idle-after duration` | with --min 0: stop the last replica after this long without a request, 1m to 24h (0 for the default, 15m) |
 | `--image string` | container image |
 | `--ingress string` | who reaches the app: external, internal, or none |
 | `--ip-allow stringArray` | RANGE[,name=NAME][,description=TEXT]: only clients from this address or prefix reach the app from outside (repeatable; replaces the list) |
@@ -344,6 +345,7 @@ Flags:
 | `--env-from-secrets` | give every secret of the app as a variable (database-url becomes DATABASE_URL) |
 | `-f`, `--file string` | spec file, or - for stdin |
 | `--health-path string` | HTTP path that answers when the app is ready (empty to clear) |
+| `--idle-after duration` | with --min 0: stop the last replica after this long without a request, 1m to 24h (0 for the default, 15m) |
 | `--image string` | container image |
 | `--ingress string` | who reaches the app: external, internal, or none |
 | `--ip-allow stringArray` | RANGE[,name=NAME][,description=TEXT]: only clients from this address or prefix reach the app from outside (repeatable; replaces the list) |

@@ -46,6 +46,7 @@ type specFlags struct {
 	dnsSecret                        string
 	noDNS                            bool
 	noAutoscale                      bool
+	idleAfter                        time.Duration
 	minR, maxR                       int
 	scaleCPU, scaleMemory, scaleHTTP int
 	healthPath                       string
@@ -59,7 +60,7 @@ type specFlags struct {
 // Flags that change an app's spec, and a job's.
 var (
 	appSpecFlags = []string{"image", "command", "args", "env", "secret-env", "remove-env", "env-from-secrets", "cpu", "memory",
-		"registry-user", "registry-secret", "port", "ingress", "protocol", "domain", "remove-domain", "ip-allow", "ip-deny", "no-ip-rules", "sticky", "cors-origin", "no-cors", "dns-token-secret", "no-dns", "min", "max", "no-autoscale",
+		"registry-user", "registry-secret", "port", "ingress", "protocol", "domain", "remove-domain", "ip-allow", "ip-deny", "no-ip-rules", "sticky", "cors-origin", "no-cors", "dns-token-secret", "no-dns", "min", "max", "no-autoscale", "idle-after",
 		"scale-cpu", "scale-memory", "scale-http", "health-path"}
 	jobSpecFlags = []string{"image", "command", "args", "env", "secret-env", "remove-env", "env-from-secrets", "cpu", "memory",
 		"registry-user", "registry-secret", "schedule", "time-zone", "timeout", "retries", "concurrency", "tasks", "parallelism"}
@@ -111,6 +112,7 @@ func (f *specFlags) register(cmd *cobra.Command, job bool) {
 	fs.IntVar(&f.minR, "min", 0, "replicas to run: a fixed count, or the fewest with a --scale rule")
 	fs.IntVar(&f.maxR, "max", 0, "most replicas, with a --scale rule")
 	fs.BoolVar(&f.noAutoscale, "no-autoscale", false, "stop autoscaling: drop the scale rules and run --min (or the current minimum) replicas")
+	fs.DurationVar(&f.idleAfter, "idle-after", 0, "with --min 0: stop the last replica after this long without a request, 1m to 24h (0 for the default, 15m)")
 	fs.IntVar(&f.scaleCPU, "scale-cpu", 0, "autoscale to this percent of reserved CPU")
 	fs.IntVar(&f.scaleMemory, "scale-memory", 0, "autoscale to this percent of the memory limit")
 	fs.IntVar(&f.scaleHTTP, "scale-http", 0, "autoscale to this many concurrent requests per replica")
@@ -440,7 +442,7 @@ func (f *specFlags) applyScale(a *spec.App) error {
 	if len(rules) > 1 {
 		return errors.New("give one of --scale-cpu, --scale-memory, and --scale-http")
 	}
-	if !ch("min") && !ch("max") && len(rules) == 0 && !f.noAutoscale {
+	if !ch("min") && !ch("max") && len(rules) == 0 && !f.noAutoscale && !ch("idle-after") {
 		return nil
 	}
 	s := spec.Scale{}
@@ -458,11 +460,19 @@ func (f *specFlags) applyScale(a *spec.App) error {
 	if len(rules) > 0 {
 		s.Rules = rules
 	}
+	if ch("idle-after") {
+		s.IdleAfter = spec.Duration(f.idleAfter)
+	}
 	if f.noAutoscale {
-		if len(rules) > 0 || ch("max") {
+		if len(rules) > 0 || ch("max") || ch("idle-after") {
 			return errors.New("--no-autoscale runs a fixed count: give --min N alone, or leave it out to keep the current minimum")
 		}
-		s.Rules = nil
+		s.Rules, s.IdleAfter = nil, 0
+	}
+	if ch("min") && f.minR > 0 && !ch("idle-after") {
+		// idleAfter is about stopping the last replica, which only a
+		// minimum of 0 does.
+		s.IdleAfter = 0
 	}
 	if len(s.Rules) == 0 {
 		// A fixed count: --max bounds autoscaling only.
