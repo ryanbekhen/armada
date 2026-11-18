@@ -629,7 +629,7 @@ func (s *Server) GetClusterConfig(ctx context.Context, _ *armadav1.GetClusterCon
 	cc := &armadav1.ClusterConfig{
 		RootDomain: s.rootDomain(ctx), AcmeEmail: s.acmeEmail, TrustedProxies: trusted, ProxyProtocol: sources,
 		Tls: s.certs != nil, AcmeCa: s.acmeCA, DnsProvider: s.dnsProvider, DnsTokenSet: set.DNSToken != nil,
-		NodeLostTimeoutSeconds: int64(s.nodeLostTimeout / time.Second),
+		NodeLostTimeoutSeconds: int64(s.nodeLostTimeout / time.Second), DnsZones: dnsZonesProto(set),
 	}
 	if ap, err := netip.ParseAddrPort(s.metricsAddr); err == nil {
 		cc.MetricsPort = int32(ap.Port())
@@ -721,6 +721,8 @@ func (s *Server) setSettings(ctx context.Context, req *armadav1.SetClusterConfig
 	if !settings {
 		return false, nil
 	}
+	s.settingsMu.Lock()
+	defer s.settingsMu.Unlock()
 	set, err := LoadSettings(ctx, s.store)
 	if err != nil {
 		return false, storeErr(err)

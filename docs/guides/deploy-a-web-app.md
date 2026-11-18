@@ -156,6 +156,21 @@ certificate's `Obtained` event, or `Failed` with the reason.
 A domain belongs to one space. When you add it to an app of another
 space, that space has to verify it again with a new token.
 
+**When port 80 does not reach your nodes**, for example a CDN or load
+balancer in front that answers HTTP itself, or the name still points at
+an old server until a cut-over, let the cluster use the zone's DNS
+instead. A cluster-admin stores a Cloudflare token for the zone once,
+limited to that zone's DNS records:
+
+```bash
+printf '%s' "$EXAMPLE_COM_TOKEN" | armada cluster dns create example.com --token -
+```
+
+From then on every name in `example.com` gets its certificates through
+DNS-01 with that token, whichever Cloudflare account holds the zone.
+The TXT record above is still needed: it proves the domain is yours, the
+token only obtains certificates.
+
 ## 4. Update the image and watch the rollout
 
 Every change is a new revision, rolled out replica by replica:
@@ -389,6 +404,7 @@ if it had any, stay until `armada volume delete`.
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
+| `TLS no` long after `VERIFIED yes`, `Failed` events with HTTP-01 in the reason | Port 80 of the nodes does not answer the ACME CA for the domain | Open port 80, or store a token for the domain's zone: `armada cluster dns create <zone> --token -` |
 | `VERIFIED no`, `last check: TXT record ... not found` | The TXT record is missing, has another name, or has not propagated | Create `_armada-verify.<domain>` exactly as printed, wait for DNS, run `armada domain verify <domain>` |
 | `last check: ... does not contain the expected token` | The record holds another value, for example from an earlier attempt or another space | Copy the value `armada domain list` prints now |
 | `VERIFIED yes`, `TLS no` for more than a few minutes | The ACME CA cannot reach port 80 of the node the domain points to, or the domain does not point at your nodes | Check the `A` records and the firewall; `armada cluster events` shows the certificate's `Failed` event with the reason |

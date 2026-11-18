@@ -129,6 +129,20 @@ func resolveSettings(ctx context.Context, st store.Store, keys *secrets.Keyring,
 			return termSettings{}, err
 		}
 	}
+	// A zone whose token does not open is left out rather than stopping the
+	// control plane: its names fall back to the root domain's provider or
+	// HTTP-01.
+	for _, z := range set.DNSZones {
+		if keys == nil {
+			break
+		}
+		v, err := z.ZoneToken(keys)
+		if err != nil {
+			log.Error("DNS zone token cannot be opened; the zone is left out", "zone", z.Zone, "err", err)
+			continue
+		}
+		out.certs.zones = append(out.certs.zones, zoneCredentials{zone: z.Zone, provider: z.Provider, token: string(v.Bytes())})
+	}
 	// The metrics port is the cluster's; the address is this server's own,
 	// unless --metrics-listen names one.
 	if set.MetricsPort != nil && !given("metrics-listen") {

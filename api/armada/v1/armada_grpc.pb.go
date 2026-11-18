@@ -36,6 +36,8 @@ const (
 	AdminService_Logs_FullMethodName                     = "/armada.v1.AdminService/Logs"
 	AdminService_GetClusterConfig_FullMethodName         = "/armada.v1.AdminService/GetClusterConfig"
 	AdminService_SetClusterConfig_FullMethodName         = "/armada.v1.AdminService/SetClusterConfig"
+	AdminService_SetDNSZone_FullMethodName               = "/armada.v1.AdminService/SetDNSZone"
+	AdminService_DeleteDNSZone_FullMethodName            = "/armada.v1.AdminService/DeleteDNSZone"
 	AdminService_ListDomains_FullMethodName              = "/armada.v1.AdminService/ListDomains"
 	AdminService_VerifyDomain_FullMethodName             = "/armada.v1.AdminService/VerifyDomain"
 	AdminService_ListRevisions_FullMethodName            = "/armada.v1.AdminService/ListRevisions"
@@ -117,6 +119,11 @@ type AdminServiceClient interface {
 	Logs(ctx context.Context, in *LogsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[LogEntry], error)
 	GetClusterConfig(ctx context.Context, in *GetClusterConfigRequest, opts ...grpc.CallOption) (*ClusterConfig, error)
 	SetClusterConfig(ctx context.Context, in *SetClusterConfigRequest, opts ...grpc.CallOption) (*ClusterConfig, error)
+	// DNS zones whose names get certificates through DNS-01 with credentials
+	// of their own (ADR 0047). Cluster-admin only; the leader restarts its
+	// control plane with them, like the DNS provider.
+	SetDNSZone(ctx context.Context, in *SetDNSZoneRequest, opts ...grpc.CallOption) (*ClusterConfig, error)
+	DeleteDNSZone(ctx context.Context, in *DeleteDNSZoneRequest, opts ...grpc.CallOption) (*ClusterConfig, error)
 	ListDomains(ctx context.Context, in *ListDomainsRequest, opts ...grpc.CallOption) (*ListDomainsResponse, error)
 	VerifyDomain(ctx context.Context, in *VerifyDomainRequest, opts ...grpc.CallOption) (*Domain, error)
 	ListRevisions(ctx context.Context, in *ListRevisionsRequest, opts ...grpc.CallOption) (*ListRevisionsResponse, error)
@@ -396,6 +403,26 @@ func (c *adminServiceClient) SetClusterConfig(ctx context.Context, in *SetCluste
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ClusterConfig)
 	err := c.cc.Invoke(ctx, AdminService_SetClusterConfig_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) SetDNSZone(ctx context.Context, in *SetDNSZoneRequest, opts ...grpc.CallOption) (*ClusterConfig, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ClusterConfig)
+	err := c.cc.Invoke(ctx, AdminService_SetDNSZone_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) DeleteDNSZone(ctx context.Context, in *DeleteDNSZoneRequest, opts ...grpc.CallOption) (*ClusterConfig, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ClusterConfig)
+	err := c.cc.Invoke(ctx, AdminService_DeleteDNSZone_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -907,6 +934,11 @@ type AdminServiceServer interface {
 	Logs(*LogsRequest, grpc.ServerStreamingServer[LogEntry]) error
 	GetClusterConfig(context.Context, *GetClusterConfigRequest) (*ClusterConfig, error)
 	SetClusterConfig(context.Context, *SetClusterConfigRequest) (*ClusterConfig, error)
+	// DNS zones whose names get certificates through DNS-01 with credentials
+	// of their own (ADR 0047). Cluster-admin only; the leader restarts its
+	// control plane with them, like the DNS provider.
+	SetDNSZone(context.Context, *SetDNSZoneRequest) (*ClusterConfig, error)
+	DeleteDNSZone(context.Context, *DeleteDNSZoneRequest) (*ClusterConfig, error)
 	ListDomains(context.Context, *ListDomainsRequest) (*ListDomainsResponse, error)
 	VerifyDomain(context.Context, *VerifyDomainRequest) (*Domain, error)
 	ListRevisions(context.Context, *ListRevisionsRequest) (*ListRevisionsResponse, error)
@@ -1051,6 +1083,12 @@ func (UnimplementedAdminServiceServer) GetClusterConfig(context.Context, *GetClu
 }
 func (UnimplementedAdminServiceServer) SetClusterConfig(context.Context, *SetClusterConfigRequest) (*ClusterConfig, error) {
 	return nil, status.Error(codes.Unimplemented, "method SetClusterConfig not implemented")
+}
+func (UnimplementedAdminServiceServer) SetDNSZone(context.Context, *SetDNSZoneRequest) (*ClusterConfig, error) {
+	return nil, status.Error(codes.Unimplemented, "method SetDNSZone not implemented")
+}
+func (UnimplementedAdminServiceServer) DeleteDNSZone(context.Context, *DeleteDNSZoneRequest) (*ClusterConfig, error) {
+	return nil, status.Error(codes.Unimplemented, "method DeleteDNSZone not implemented")
 }
 func (UnimplementedAdminServiceServer) ListDomains(context.Context, *ListDomainsRequest) (*ListDomainsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListDomains not implemented")
@@ -1488,6 +1526,42 @@ func _AdminService_SetClusterConfig_Handler(srv interface{}, ctx context.Context
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(AdminServiceServer).SetClusterConfig(ctx, req.(*SetClusterConfigRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_SetDNSZone_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetDNSZoneRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).SetDNSZone(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminService_SetDNSZone_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).SetDNSZone(ctx, req.(*SetDNSZoneRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_DeleteDNSZone_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteDNSZoneRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).DeleteDNSZone(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminService_DeleteDNSZone_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).DeleteDNSZone(ctx, req.(*DeleteDNSZoneRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -2364,6 +2438,14 @@ var AdminService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SetClusterConfig",
 			Handler:    _AdminService_SetClusterConfig_Handler,
+		},
+		{
+			MethodName: "SetDNSZone",
+			Handler:    _AdminService_SetDNSZone_Handler,
+		},
+		{
+			MethodName: "DeleteDNSZone",
+			Handler:    _AdminService_DeleteDNSZone_Handler,
 		},
 		{
 			MethodName: "ListDomains",

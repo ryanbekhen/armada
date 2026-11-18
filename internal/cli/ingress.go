@@ -176,7 +176,7 @@ func newClusterCommand(g *globals) *cobra.Command {
 	f.StringVar(&logUser, "log-export-user", "", "user for basic authentication at the log store, with --log-token as the password (empty for a bearer token)")
 	f.StringVar(&logTenant, "log-export-tenant", "", "Loki tenant (X-Scope-OrgID), for a multi-tenant Loki")
 	f.StringVar(&logToken, "log-token", "", "file holding the log store's token, or - for stdin; an empty file removes it")
-	cmd.AddCommand(newClusterStatusCommand(g), show, set, newEventsCommand(g, eventsOfCluster))
+	cmd.AddCommand(newClusterStatusCommand(g), show, set, newDNSZoneCommand(g), newEventsCommand(g, eventsOfCluster))
 	return cmd
 }
 
@@ -320,9 +320,13 @@ func printClusterConfig(w io.Writer, cc *armadav1.ClusterConfig) error {
 			export += " (no token)"
 		}
 	}
-	_, err := fmt.Fprintf(w, "root domain:       %s\ntrusted proxies:   %s\nproxy protocol:    %s\ncertificates:      %s\nacme email:        %s\ndns provider:      %s (token %s)\nmetrics:           %s\nnode lost timeout: %s\nlog history:       %s\nlog export:        %s\n",
+	zones := make([]string, 0, len(cc.DnsZones))
+	for _, z := range cc.DnsZones {
+		zones = append(zones, z.Zone+" ("+z.Provider+")")
+	}
+	_, err := fmt.Fprintf(w, "root domain:       %s\ntrusted proxies:   %s\nproxy protocol:    %s\ncertificates:      %s\nacme email:        %s\ndns provider:      %s (token %s)\ndns zones:         %s\nmetrics:           %s\nnode lost timeout: %s\nlog history:       %s\nlog export:        %s\n",
 		dash(cc.RootDomain), dash(strings.Join(cc.TrustedProxies, ",")), dash(strings.Join(cc.ProxyProtocol, ",")), certs, dash(cc.AcmeEmail),
-		cmp.Or(cc.DnsProvider, "none"), token, metrics, time.Duration(cc.NodeLostTimeoutSeconds)*time.Second, logs, export)
+		cmp.Or(cc.DnsProvider, "none"), token, dash(strings.Join(zones, ", ")), metrics, time.Duration(cc.NodeLostTimeoutSeconds)*time.Second, logs, export)
 	return err
 }
 

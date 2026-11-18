@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -116,5 +117,55 @@ func TestResolveSettings(t *testing.T) {
 	}
 	if strings.Contains(logs.String(), "cf-secret") || strings.Contains(strings.Join(st.audit, "\n"), "cf-secret") || strings.Contains(st.meta["settings"], "cf-secret") {
 		t.Error("token in the clear in the log, the audit log, or the state")
+	}
+}
+
+// The leader opens every DNS zone's token (ADR 0047) and hands the zones to
+// the certificate manager; a zone whose token does not open is left out and
+// logged, never stopping the control plane.
+func TestResolveSettingsDNSZones(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	st := &metaStore{meta: map[string]string{}}
+	keys, err := secrets.NewKeyring(bytes.Repeat([]byte{7}, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var set server.Settings
+	for _, z := range []string{"eu.shop.net", "shop.net"} {
+		dz := server.DNSZone{Zone: z, Provider: "cloudflare"}
+		if err := set.SealZoneToken(keys, &dz, []byte("token-"+z)); err != nil {
+			t.Fatal(err)
+		}
+		set.DNSZones = append(set.DNSZones, dz)
+	}
+	// One sealed under another zone's name does not open.
+	broken := set.DNSZones[0]
+	broken.Zone = "broken.net"
+	set.DNSZones = append(set.DNSZones, broken)
+	if err := server.SaveSettings(ctx, st, set); err != nil {
+		t.Fatal(err)
+	}
+	var logs bytes.Buffer
+	fs, tf, metrics, lost := serverFlagSet(t)
+	ts, err := resolveSettings(ctx, st, keys, fs, *tf, *metrics, *lost, "10.0.0.1", slog.New(slog.NewTextHandler(&logs, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []zoneCredentials{{"eu.shop.net", "cloudflare", "token-eu.shop.net"}, {"shop.net", "cloudflare", "token-shop.net"}}
+	if !slices.Equal(ts.certs.zones, want) {
+		t.Errorf("zones = %v", ts.certs.zones)
+	}
+	if !strings.Contains(logs.String(), "zone=broken.net") || strings.Contains(logs.String(), "token-") {
+		t.Errorf("log = %s", logs.String())
+	}
+
+	ts.certs.enabled = true
+	opts, _, ok, err := certOptions(ts.certs, "", "10.0.0.1:7443", slog.New(slog.NewTextHandler(&logs, nil)), func(string, error) {})
+	if err != nil || !ok {
+		t.Fatal(ok, err)
+	}
+	if len(opts.Zones) != 2 || opts.Zones[0].Name != "eu.shop.net" || opts.Zones[1].Name != "shop.net" || opts.Zones[0].Provider == nil {
+		t.Errorf("certificate zones = %+v", opts.Zones)
 	}
 }

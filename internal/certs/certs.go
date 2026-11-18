@@ -50,11 +50,23 @@ type Options struct {
 	// for other names, because custom domains are rarely hosted at the same
 	// DNS provider.
 	DNSProvider certmagic.DNSProvider
+	// Zones enable DNS-01 for the names in each zone with that zone's own
+	// credentials (ADR 0047). The longest zone that holds a name wins, over
+	// the root domain too when equal; names in no zone use DNSProvider when
+	// they are under the root domain, else HTTP-01.
+	Zones []Zone
 	// OnObtained is called after a certificate is obtained or renewed.
 	OnObtained func(name string)
 	// OnFailed is called when obtaining or renewing a certificate failed;
 	// certmagic retries with backoff.
 	OnFailed func(name string, renewal bool, err error)
+}
+
+// Zone is a DNS zone whose names get certificates through DNS-01 with the
+// zone's own provider.
+type Zone struct {
+	Name     string
+	Provider certmagic.DNSProvider
 }
 
 func (o Options) onEvent(_ context.Context, event string, data map[string]any) error {
@@ -77,7 +89,10 @@ type ACME struct {
 	httpCfg    *certmagic.Config
 	httpIssuer *certmagic.ACMEIssuer
 	dnsCfg     *certmagic.Config
-	issuerKey  string
+	// zones are the DNS zones with credentials of their own, longest first,
+	// each with its config.
+	zones     []zoneCfg
+	issuerKey string
 
 	mu sync.Mutex
 	// managed maps each name to its obtain job, so a name that is dropped
@@ -88,10 +103,23 @@ type ACME struct {
 	root atomic.Pointer[string]
 }
 
+// zoneCfg is a zone and the certmagic config that solves DNS-01 in it.
+type zoneCfg struct {
+	name string
+	cfg  *certmagic.Config
+}
+
+// Which credentials a name's certificate is obtained with: viaHTTP for
+// HTTP-01, viaRoot for the cluster's DNS provider, else the zone's name.
+const (
+	viaHTTP = ""
+	viaRoot = "*root"
+)
+
 // managedName is a name's obtain job and the challenge it uses.
 type managedName struct {
 	cancel context.CancelFunc
-	dns    bool
+	via    string
 }
 
 var _ Manager = (*ACME)(nil)
@@ -107,8 +135,10 @@ func NewACME(opts Options) (*ACME, error) {
 	a := &ACME{storage: storage, managed: map[string]managedName{}}
 	a.cache = certmagic.NewCache(certmagic.CacheOptions{
 		GetConfigForCert: func(c certmagic.Certificate) (*certmagic.Config, error) {
-			if slices.ContainsFunc(c.Names, a.usesDNS) {
-				return a.dnsCfg, nil
+			for _, n := range c.Names {
+				if v := a.via(n); v != viaHTTP {
+					return a.config(v), nil
+				}
 			}
 			return a.httpCfg, nil
 		},
@@ -137,20 +167,62 @@ func NewACME(opts Options) (*ACME, error) {
 	if opts.DNSProvider != nil {
 		a.dnsCfg, _ = newCfg(opts.DNSProvider)
 	}
+	for _, z := range opts.Zones {
+		name := strings.ToLower(strings.TrimSuffix(z.Name, "."))
+		if name == "" || z.Provider == nil {
+			return nil, fmt.Errorf("certs: zone %q needs a name and a provider", z.Name)
+		}
+		cfg, _ := newCfg(z.Provider)
+		a.zones = append(a.zones, zoneCfg{name: name, cfg: cfg})
+	}
+	slices.SortStableFunc(a.zones, func(x, y zoneCfg) int { return len(y.name) - len(x.name) })
 	a.issuerKey = a.httpIssuer.IssuerKey()
 	return a, nil
 }
 
-// usesDNS reports whether a name gets its certificate through DNS-01.
-func (a *ACME) usesDNS(name string) bool {
-	if a.dnsCfg == nil {
-		return false
+// inZone reports whether name is zone or a name under it.
+func inZone(name, zone string) bool {
+	return zone != "" && (name == zone || strings.HasSuffix(name, "."+zone))
+}
+
+// via says which credentials name's certificate is obtained with: the
+// longest zone holding it (a wildcard counts as the name it covers), the
+// cluster's DNS provider for the root domain and the names under it and for
+// a wildcard in no zone, else HTTP-01. A zone wins over an equally long root
+// domain.
+func (a *ACME) via(name string) string {
+	bare := strings.TrimPrefix(name, "*.")
+	best, at := viaHTTP, -1
+	for _, z := range a.zones {
+		if inZone(bare, z.name) {
+			best, at = z.name, len(z.name)
+			break
+		}
 	}
-	if strings.HasPrefix(name, "*.") {
-		return true
+	if a.dnsCfg != nil {
+		if root := a.root.Load(); root != nil && inZone(bare, *root) && len(*root) > at {
+			best = viaRoot
+		} else if best == viaHTTP && strings.HasPrefix(name, "*.") {
+			best = viaRoot
+		}
 	}
-	root := a.root.Load()
-	return root != nil && *root != "" && (name == *root || strings.HasSuffix(name, "."+*root))
+	return best
+}
+
+// config is the certmagic config for credentials via picked.
+func (a *ACME) config(via string) *certmagic.Config {
+	switch via {
+	case viaHTTP:
+		return a.httpCfg
+	case viaRoot:
+		return a.dnsCfg
+	}
+	for _, z := range a.zones {
+		if z.name == via {
+			return z.cfg
+		}
+	}
+	return a.httpCfg
 }
 
 // Manage implements Manager.
@@ -158,17 +230,17 @@ func (a *ACME) Manage(ctx context.Context, names []string, root string) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	want := make(map[string]bool, len(names))
+	a.root.Store(&root)
 	for _, n := range names {
-		if strings.HasPrefix(n, "*.") && a.dnsCfg == nil {
+		if strings.HasPrefix(n, "*.") && a.via(n) == viaHTTP {
 			return fmt.Errorf("wildcard certificate %s needs a DNS provider", n)
 		}
 		want[n] = true
 	}
-	a.root.Store(&root)
 	var drop []certmagic.SubjectIssuer
 	for n, m := range a.managed {
 		// A name whose challenge changed starts over with the new one.
-		if !want[n] || m.dns != a.usesDNS(n) {
+		if !want[n] || m.via != a.via(n) {
 			m.cancel()
 			delete(a.managed, n)
 			drop = append(drop, certmagic.SubjectIssuer{Subject: n})
@@ -182,17 +254,13 @@ func (a *ACME) Manage(ctx context.Context, names []string, root string) error {
 		if _, ok := a.managed[n]; ok {
 			continue
 		}
-		dns := a.usesDNS(n)
-		cfg := a.httpCfg
-		if dns {
-			cfg = a.dnsCfg
-		}
+		via := a.via(n)
 		nctx, cancel := context.WithCancel(ctx)
-		if err := cfg.ManageAsync(nctx, []string{n}); err != nil {
+		if err := a.config(via).ManageAsync(nctx, []string{n}); err != nil {
 			cancel()
 			return err
 		}
-		a.managed[n] = managedName{cancel: cancel, dns: dns}
+		a.managed[n] = managedName{cancel: cancel, via: via}
 	}
 	return nil
 }

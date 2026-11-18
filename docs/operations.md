@@ -51,10 +51,31 @@ armada cluster set --root-domain apps.example.com --trusted-proxies 173.245.48.0
 | ACME directory | `--acme-ca` | `letsencrypt` |
 | ACME account email | `--acme-email` | none |
 | DNS provider for the root domain (wildcard) | `--dns-provider cloudflare\|none` with `--dns-token FILE\|-` | none (HTTP-01) |
+| DNS credentials of other zones | `armada cluster dns create ZONE --token FILE\|-` | none |
 | Metrics endpoint | `--metrics-port` (each server's private address) | off |
 | Node-lost timeout | `--node-lost-timeout` | 5m |
 
 The DNS token is stored encrypted with the master key and never shown.
+
+**DNS zones with credentials of their own**
+([ADR 0047](adr/0047-dns-zones.md)): a custom domain whose DNS is in
+another account, or that port 80 does not reach, gets its certificates
+through DNS-01 with its zone's token:
+
+```bash
+printf '%s' "$SHOP_TOKEN" | armada cluster dns create shop.example --token -
+armada cluster dns list
+armada cluster dns update shop.example --token token.txt
+armada cluster dns delete shop.example
+```
+
+Every name in the zone (the zone and the names under it) uses that token.
+The longest zone holding a name wins; the root domain's `--dns-provider`
+keeps the names under the root domain no longer zone holds, and every
+other name uses HTTP-01. Tokens are stored encrypted and never shown; give
+each one access to its own zone's DNS records only. A zone change restarts
+the leader's control plane like the settings above. Custom domains still
+need their TXT record.
 Changing a setting makes the leader restart its control plane in the same
 process: apps keep serving, and the API and agents reconnect within a
 second or two. The root domain and trusted proxies apply without that.

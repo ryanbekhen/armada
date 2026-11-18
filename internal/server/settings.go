@@ -47,6 +47,44 @@ type Settings struct {
 	MetricsPort     *int            `json:"metricsPort,omitempty"`
 	// NodeLostSeconds is the node-lost timeout; zero means unset.
 	NodeLostSeconds int64 `json:"nodeLostSeconds,omitempty"`
+	// DNSZones are zones whose names get certificates through DNS-01 with
+	// credentials of their own (ADR 0047), sorted by name.
+	DNSZones []DNSZone `json:"dnsZones,omitempty"`
+	// DNSZoneSeq numbers every zone token ever sealed, so a version is never
+	// used twice, also after a zone is deleted and created again.
+	DNSZoneSeq int `json:"dnsZoneSeq,omitempty"`
+}
+
+// DNSZone is a zone with its DNS provider and the provider's token, sealed
+// under the zone's name and Version.
+type DNSZone struct {
+	Zone     string          `json:"zone"`
+	Provider string          `json:"provider"`
+	Token    *secrets.Sealed `json:"token"`
+	Version  int             `json:"version"`
+}
+
+// zoneTokenName is the name a zone's token is sealed under.
+func zoneTokenName(zone string) string { return "dns-zone-" + zone }
+
+// SealZoneToken stores token as zone's token, under a version never used
+// before.
+func (s *Settings) SealZoneToken(keys *secrets.Keyring, z *DNSZone, token []byte) error {
+	sealed, err := keys.Seal(tokenScope, zoneTokenName(z.Zone), s.DNSZoneSeq+1, secrets.NewValue(token))
+	if err != nil {
+		return err
+	}
+	s.DNSZoneSeq++
+	z.Token, z.Version = &sealed, s.DNSZoneSeq
+	return nil
+}
+
+// ZoneToken opens a zone's token.
+func (z DNSZone) ZoneToken(keys *secrets.Keyring) (secrets.Value, error) {
+	if z.Token == nil {
+		return secrets.Value{}, fmt.Errorf("DNS zone %s has no token", z.Zone)
+	}
+	return keys.Open(*z.Token, tokenScope, zoneTokenName(z.Zone), z.Version)
 }
 
 // LoadSettings reads the cluster's settings; none stored yields zero.

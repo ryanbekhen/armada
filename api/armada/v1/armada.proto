@@ -35,6 +35,11 @@ service AdminService {
   rpc Logs(LogsRequest) returns (stream LogEntry);
   rpc GetClusterConfig(GetClusterConfigRequest) returns (ClusterConfig);
   rpc SetClusterConfig(SetClusterConfigRequest) returns (ClusterConfig);
+  // DNS zones whose names get certificates through DNS-01 with credentials
+  // of their own (ADR 0047). Cluster-admin only; the leader restarts its
+  // control plane with them, like the DNS provider.
+  rpc SetDNSZone(SetDNSZoneRequest) returns (ClusterConfig);
+  rpc DeleteDNSZone(DeleteDNSZoneRequest) returns (ClusterConfig);
   rpc ListDomains(ListDomainsRequest) returns (ListDomainsResponse);
   rpc VerifyDomain(VerifyDomainRequest) returns (Domain);
   rpc ListRevisions(ListRevisionsRequest) returns (ListRevisionsResponse);
@@ -761,6 +766,30 @@ message ClusterConfig {
   // protocol, as prefixes: a connection from one of these starts with the
   // client's address, which then counts as the connection's own.
   repeated string proxy_protocol = 17;
+  // DNS zones with credentials of their own (ADR 0047), never their tokens.
+  repeated DNSZone dns_zones = 18;
+}
+
+// A DNS zone whose names get certificates through DNS-01 with its own
+// provider and token.
+message DNSZone {
+  string zone = 1;
+  string provider = 2;
+}
+
+message SetDNSZoneRequest {
+  string zone = 1;
+  // cloudflare.
+  string provider = 2;
+  // The provider's API token; required.
+  bytes token = 3 [debug_redact = true];
+  // must_create refuses a zone that exists, must_exist one that does not.
+  bool must_create = 4;
+  bool must_exist = 5;
+}
+
+message DeleteDNSZoneRequest {
+  string zone = 1;
 }
 
 message GetClusterConfigRequest {}

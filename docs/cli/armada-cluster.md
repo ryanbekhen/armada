@@ -8,10 +8,123 @@ The cluster's status, settings, and events.
 
 | Command | What it does |
 | --- | --- |
+| [`armada cluster dns`](#armada-cluster-dns) | DNS zones whose certificates use credentials of their own |
 | [`armada cluster events`](#armada-cluster-events) | Show what the cluster did: crashes, rollouts, lost nodes |
 | [`armada cluster set`](#armada-cluster-set) | Change cluster settings, for every server at once |
 | [`armada cluster show`](#armada-cluster-show) | Show cluster settings |
 | [`armada cluster status`](#armada-cluster-status) | Summarize the cluster: nodes, apps, and what needs attention |
+
+## `armada cluster dns`
+
+DNS zones with credentials of their own (ADR 0047). Every certificate for a name
+in a zone (the zone itself or a name under it) is obtained through DNS-01 with
+that zone's provider and token, so a custom domain whose DNS lives in another
+account gets certificates without HTTP-01 reaching the nodes. The longest zone
+that holds a name wins, also over the root domain's --dns-provider; names in no
+zone keep using it under the root domain, and HTTP-01 elsewhere.
+
+Tokens are read from a file or stdin (--token -), stored encrypted, and never
+shown. Give each token access to its zone's DNS records only. A change applies
+within seconds: the leader restarts its control plane while apps keep serving,
+and the command waits until it answers again.
+
+| Command | What it does |
+| --- | --- |
+| [`armada cluster dns create`](#armada-cluster-dns-create) | Add a DNS zone with its provider's token |
+| [`armada cluster dns delete`](#armada-cluster-dns-delete) | Remove a DNS zone's credentials |
+| [`armada cluster dns list`](#armada-cluster-dns-list) | List DNS zones with credentials of their own |
+| [`armada cluster dns update`](#armada-cluster-dns-update) | Replace a DNS zone's provider and token |
+
+### `armada cluster dns create`
+
+DNS zones with credentials of their own (ADR 0047). Every certificate for a name
+in a zone (the zone itself or a name under it) is obtained through DNS-01 with
+that zone's provider and token, so a custom domain whose DNS lives in another
+account gets certificates without HTTP-01 reaching the nodes. The longest zone
+that holds a name wins, also over the root domain's --dns-provider; names in no
+zone keep using it under the root domain, and HTTP-01 elsewhere.
+
+Tokens are read from a file or stdin (--token -), stored encrypted, and never
+shown. Give each token access to its zone's DNS records only. A change applies
+within seconds: the leader restarts its control plane while apps keep serving,
+and the command waits until it answers again.
+
+```
+armada cluster dns create ZONE --token FILE [flags]
+```
+
+Examples:
+
+```bash
+printf '%s' "$TOKEN" | armada cluster dns create shop.example --token -
+armada cluster dns update shop.example --token token.txt
+```
+
+Flags:
+
+| Flag | Meaning |
+| --- | --- |
+| `--provider string` | the zone's DNS provider: cloudflare (default `cloudflare`) |
+| `--token string` | file holding the provider's API token, or - for stdin |
+
+### `armada cluster dns delete`
+
+Remove a DNS zone's credentials. Certificates already issued stay valid; their
+renewals use the root domain's provider for names under it, else HTTP-01.
+
+```
+armada cluster dns delete ZONE
+```
+
+Also: `rm`.
+
+### `armada cluster dns list`
+
+List DNS zones with credentials of their own.
+
+```
+armada cluster dns list [flags]
+```
+
+Also: `ls`.
+
+Flags:
+
+| Flag | Meaning |
+| --- | --- |
+| `-o`, `--output string` | output format: text or json (default `text`) |
+
+### `armada cluster dns update`
+
+DNS zones with credentials of their own (ADR 0047). Every certificate for a name
+in a zone (the zone itself or a name under it) is obtained through DNS-01 with
+that zone's provider and token, so a custom domain whose DNS lives in another
+account gets certificates without HTTP-01 reaching the nodes. The longest zone
+that holds a name wins, also over the root domain's --dns-provider; names in no
+zone keep using it under the root domain, and HTTP-01 elsewhere.
+
+Tokens are read from a file or stdin (--token -), stored encrypted, and never
+shown. Give each token access to its zone's DNS records only. A change applies
+within seconds: the leader restarts its control plane while apps keep serving,
+and the command waits until it answers again.
+
+```
+armada cluster dns update ZONE --token FILE [flags]
+```
+
+Examples:
+
+```bash
+printf '%s' "$TOKEN" | armada cluster dns create shop.example --token -
+armada cluster dns update shop.example --token token.txt
+```
+
+Flags:
+
+| Flag | Meaning |
+| --- | --- |
+| `--provider string` | the zone's DNS provider: cloudflare (default `cloudflare`) |
+| `--token string` | file holding the provider's API token, or - for stdin |
 
 ## `armada cluster events`
 

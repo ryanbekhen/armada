@@ -3,6 +3,7 @@ package certs
 import (
 	"context"
 	"errors"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -176,8 +177,8 @@ func TestRootDomainUsesDNSChallenge(t *testing.T) {
 	want := map[string]bool{"example.org": true, "shop.example.org": true, "a.b.example.org": true}
 	a.mu.Lock()
 	for _, n := range names {
-		if a.managed[n].dns != want[n] {
-			t.Errorf("%s: dns = %v, want %v", n, a.managed[n].dns, want[n])
+		if dns := a.managed[n].via == viaRoot; dns != want[n] {
+			t.Errorf("%s: dns = %v, want %v", n, dns, want[n])
 		}
 	}
 	a.mu.Unlock()
@@ -192,7 +193,7 @@ func TestRootDomainUsesDNSChallenge(t *testing.T) {
 		t.Errorf("managed = %d names, want %d", len(a.managed), len(names))
 	}
 	for _, n := range names {
-		if a.managed[n].dns {
+		if a.managed[n].via != viaHTTP {
 			t.Errorf("%s still uses DNS-01 with no root domain", n)
 		}
 	}
@@ -216,7 +217,92 @@ func TestNoProviderMeansHTTPChallenge(t *testing.T) {
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if a.managed["example.org"].dns {
+	if a.managed["example.org"].via != viaHTTP {
 		t.Error("example.org uses DNS-01 with no DNS provider")
 	}
+}
+
+// Zones with credentials of their own (ADR 0047): the longest zone that holds
+// a name wins, also over an equally long root domain; the root domain keeps
+// the cluster's provider for what no longer zone holds; names in no zone and
+// outside the root use HTTP-01; a wildcard counts as the name it covers.
+func TestZonesPickTheirOwnCredentials(t *testing.T) {
+	t.Parallel()
+	dir := tempDir(t)
+	a, err := NewACME(Options{Storage: &certmagic.FileStorage{Path: dir}, CA: "https://127.0.0.1:1/directory", DNSProvider: nopDNS{},
+		Zones: []Zone{{Name: "shop.net", Provider: nopDNS{}}, {Name: "Example.ORG.", Provider: nopDNS{}}, {Name: "eu.shop.net", Provider: nopDNS{}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	want := map[string]string{
+		"shop.net":             "shop.net",
+		"www.shop.net":         "shop.net",
+		"a.eu.shop.net":        "eu.shop.net",
+		"*.eu.shop.net":        "eu.shop.net",
+		"notshop.net":          viaHTTP,
+		"shop.net.evil.com":    viaHTTP,
+		"example.org":          "example.org",
+		"apps.example.org":     viaRoot,
+		"www.example.org":      "example.org",
+		"web.apps.example.org": viaRoot,
+		"*.apps.example.org":   viaRoot,
+		"custom.com":           viaHTTP,
+		"*.custom.com":         viaRoot,
+	}
+	names := slices.Sorted(maps.Keys(want))
+	if err := a.Manage(context.Background(), names, "apps.example.org"); err != nil {
+		t.Fatal(err)
+	}
+	a.mu.Lock()
+	for _, n := range names {
+		if got := a.managed[n].via; got != want[n] {
+			t.Errorf("%s: via %q, want %q", n, got, want[n])
+		}
+	}
+	a.mu.Unlock()
+
+	// A root domain equal to a zone leaves its names with the zone.
+	if err := a.Manage(context.Background(), []string{"x.example.org"}, "example.org"); err != nil {
+		t.Fatal(err)
+	}
+	a.mu.Lock()
+	if got := a.managed["x.example.org"].via; got != "example.org" {
+		t.Errorf("x.example.org with root example.org: via %q", got)
+	}
+	a.mu.Unlock()
+
+	// A zone without a provider is refused.
+	if _, err := NewACME(Options{Storage: &certmagic.FileStorage{Path: dir}, CA: "https://127.0.0.1:1/directory", Zones: []Zone{{Name: "a.com"}}}); err == nil {
+		t.Error("a zone without a provider was accepted")
+	}
+}
+
+// Without a cluster DNS provider, a wildcard in a zone still gets DNS-01 and
+// one outside every zone is refused.
+func TestZoneWildcardWithoutRootProvider(t *testing.T) {
+	t.Parallel()
+	a, err := NewACME(Options{Storage: &certmagic.FileStorage{Path: tempDir(t)}, CA: "https://127.0.0.1:1/directory", Zones: []Zone{{Name: "shop.net", Provider: nopDNS{}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	if err := a.Manage(context.Background(), []string{"*.shop.net"}, ""); err != nil {
+		t.Errorf("wildcard in a zone: %v", err)
+	}
+	if err := a.Manage(context.Background(), []string{"*.other.net"}, ""); err == nil {
+		t.Error("a wildcard outside every zone was accepted without a DNS provider")
+	}
+}
+
+// tempDir is a directory removed after the test, whatever certmagic's
+// background work leaves in it meanwhile.
+func tempDir(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "armada-certs-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	return dir
 }

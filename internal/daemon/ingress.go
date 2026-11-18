@@ -71,6 +71,13 @@ type certSettings struct {
 	email       string
 	dnsProvider string
 	token       string
+	// zones have DNS credentials of their own (ADR 0047).
+	zones []zoneCredentials
+}
+
+// zoneCredentials are a DNS zone's provider and opened token.
+type zoneCredentials struct {
+	zone, provider, token string
 }
 
 // certOptions returns the certificate manager options (without storage) and
@@ -114,6 +121,15 @@ func certOptions(cs certSettings, listenFlag, serverListen string, log *slog.Log
 		opts.DNSProvider = &cloudflare.Provider{APIToken: cs.token}
 	default:
 		return opts, "", false, fmt.Errorf("unsupported DNS provider %q (want cloudflare)", cs.dnsProvider)
+	}
+	for _, z := range cs.zones {
+		switch z.provider {
+		case "cloudflare":
+			opts.Zones = append(opts.Zones, certs.Zone{Name: z.zone, Provider: &cloudflare.Provider{APIToken: z.token}})
+		default:
+			// Its names fall back to the root domain's provider or HTTP-01.
+			log.Warn("DNS zone with an unsupported provider is left out", "zone", z.zone, "provider", z.provider)
+		}
 	}
 	return opts, listen, true, nil
 }

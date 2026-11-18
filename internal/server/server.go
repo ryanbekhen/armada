@@ -207,7 +207,9 @@ type Server struct {
 	pemMu sync.Mutex
 	pems  map[string][]byte
 
-	certMu        sync.Mutex
+	certMu sync.Mutex
+	// settingsMu serializes changes of the stored server settings.
+	settingsMu    sync.Mutex
 	lastCertNames []string
 	// lastProxy is the last proxy configuration that passed validation; a
 	// pass whose own does not still sends replicas with it.
