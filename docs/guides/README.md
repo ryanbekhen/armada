@@ -17,7 +17,8 @@ New to Armada? Read [Concepts](../concepts.md), then
 | [Autoscaling and scale to zero](autoscaling-and-scale-to-zero.md) | Scaling on requests, CPU, memory, or a schedule, and stopping idle apps |
 | [A single-page app and its API](spa-and-api.md) | CORS, sticky sessions, an IP allowlist for an admin panel, timeouts, probes |
 | [Behind a CDN or proxy](behind-a-cdn.md) | Trusted proxies, real client addresses, wildcard certificates over DNS-01 |
-| [Apps on a private network without a domain](private-network.md) | A lab or office cluster: plain HTTP under a name only your network resolves |
+| [Apps on a private network without a domain](private-network.md) | A lab, laptop VMs, or office cluster: names through sslip.io, `/etc/hosts`, a wildcard on a Mac or the network, or a domain you own with HTTPS |
+| [Your own image from your laptop](images-from-your-laptop.md) | Building for the nodes' architecture, pushing to a registry, and deploying it |
 
 ## Data and background work
 
