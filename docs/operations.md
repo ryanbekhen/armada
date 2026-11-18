@@ -810,8 +810,8 @@ Choose `wireguard` when you do not trust the private network (shared or
 provider-managed networks) or must encrypt traffic between machines. It
 costs CPU on every node that sends or receives traffic between nodes: on
 two vCPUs, about 2 Gbit/s between containers of two nodes against 14 Gbit/s
-in `plain`, and about half the throughput of a large upload. Requests that
-stay on their node (local-first routing) do not pay it. Where the kernel
+in `plain`, and about half the throughput of a large upload. Calls between
+apps that stay on their node (local-first routing) do not pay it. Where the kernel
 has no WireGuard, the agent runs it in userspace, which is markedly slower,
 and traffic between nodes pauses while that agent restarts; `armadad doctor`
 warns about it.
@@ -845,16 +845,17 @@ node (`--container-subnet`, default `10.121.0.0/24`).
 ## How requests reach replicas
 
 Every node's HAProxy serves the app's public domains and `<app>.internal`,
-and sends each request to one of the app's ready replicas. It prefers the
-replicas on its own node while they are about as busy as the app's other
-replicas, and spreads the rest over every replica
-([ADR 0024](adr/0024-local-first-routing.md)). At low load a request never
-leaves the node that received it; under load, and when the node has no
-replica up, the others take the excess. Apps that split traffic between
+and sends each request to one of the app's ready replicas
+([ADR 0024](adr/0024-local-first-routing.md)). Calls between apps
+(`<app>.internal`) prefer the replicas on the caller's node while they are
+about as busy as the others: at low load such a call never leaves the node,
+and under load, or with no replica up on the node, the others take the
+excess. Public requests take turns over every replica, wherever they
+arrive, and under load a node's own replicas take about a tenth more. Apps that split traffic between
 revisions are balanced over every replica by weight instead.
 
-So point public DNS at every node that should take traffic: a node that
-receives more requests keeps its replicas somewhat busier.
+Pointing public DNS at every node that should take traffic still spreads
+the work of the proxies themselves.
 
 An app that keeps sessions in a replica's memory can set `ingress.sticky:
 true` (`armada app update APP --sticky`): a cookie sends each client back to

@@ -310,7 +310,7 @@ func render(cfg proxy.Config, layout Layout, opts renderOptions) []byte {
 	}
 	rr := ruleRenderer{w: w, backends: backendsByName}
 
-	w("frontend http")
+	w("frontend %s", frontendHTTP)
 	w("    bind :80")
 	writeProxyProtocol(w, cfg.ProxyProtocol)
 	if cfg.ACMEAddress != "" {
@@ -328,7 +328,7 @@ func render(cfg proxy.Config, layout Layout, opts renderOptions) []byte {
 	}
 	w("")
 
-	w("frontend https")
+	w("frontend %s", frontendHTTPS)
 	w("    bind :443 ssl crt %s/%s crt %s/%s/ alpn h2,http/1.1", containerConfDir, defaultCertFile, containerConfDir, certDir)
 	writeProxyProtocol(w, cfg.ProxyProtocol)
 	writePublicRoutes(w, cfg, rr, public, "https")
@@ -557,6 +557,13 @@ func writeIPRules(w func(string, ...any), allow, deny []string) {
 }
 
 // writeBackend emits one slotted backend.
+// The public frontends' names: the local-first rule leaves their requests
+// to balancing.
+const (
+	frontendHTTP  = "http"
+	frontendHTTPS = "https"
+)
+
 func writeBackend(w func(string, ...any), p pool, healthPath string, layout Layout) {
 	servers := map[string]proxy.Server{}
 	for _, s := range p.servers {
@@ -574,11 +581,15 @@ func writeBackend(w func(string, ...any), p pool, healthPath string, layout Layo
 	}
 	if p.leastconn {
 		w("    balance leastconn")
-		// With no other request in progress, a replica on this node. A name
-		// the map does not have, or a server that is down, falls through to
-		// balancing.
+		// From apps of the cluster, with no other request in progress, a
+		// replica on this node: callers run on every node, so each keeps its
+		// calls local. Public requests arrive where DNS or a load balancer
+		// sends them, often one node, so they always balance: idle servers
+		// take turns, and under load a local one takes about a tenth more.
+		// A name the map does not have, or a server that is down, falls
+		// through to balancing.
 		w("    %s set-var(txn.lk) rand(%d)", rules, localChoices)
-		w("    use-server %%[str(%s),concat(/,txn.lk),map(%s/%s)] if { be_conn le 1 }", p.name, containerConfDir, localFile)
+		w("    use-server %%[str(%s),concat(/,txn.lk),map(%s/%s)] if { be_conn le 1 } !{ fe_name %s } !{ fe_name %s }", p.name, containerConfDir, localFile, frontendHTTP, frontendHTTPS)
 	} else if p.tcp {
 		// Connections last: the server with the fewest takes the next.
 		w("    balance leastconn")
