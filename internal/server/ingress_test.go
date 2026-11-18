@@ -697,7 +697,9 @@ func TestCustomDomainNamingARootHost(t *testing.T) {
 	txt := &fakeTXT{records: map[string][]string{}}
 	c := newCluster(t, func(cfg *Config) {
 		cfg.Resolver = txt
-		cfg.VerifyInterval = 50 * time.Millisecond
+		// Domains are verified below by hand; a busy background loop
+		// would only race the deploys.
+		cfg.VerifyInterval = time.Hour
 	})
 	c.addNode("n1", "127.0.0.1")
 	if _, err := c.admin.SetClusterConfig(c.ctx, &armadav1.SetClusterConfigRequest{SetRootDomain: true, Config: &armadav1.ClusterConfig{RootDomain: "lab.test"}}); err != nil {
@@ -712,7 +714,11 @@ func TestCustomDomainNamingARootHost(t *testing.T) {
 	}
 	for _, d := range ds.Domains {
 		txt.set(d.TxtName, d.TxtValue)
+		if v, err := c.admin.VerifyDomain(c.ctx, &armadav1.VerifyDomainRequest{Name: d.Name}); err != nil || !v.Verified {
+			t.Fatalf("VerifyDomain(%s) = %v, %v", d.Name, v, err)
+		}
 	}
+	c.srv.Trigger()
 
 	owner := func(cfg proxy.Config) map[string]string {
 		out := map[string]string{}
@@ -729,14 +735,18 @@ func TestCustomDomainNamingARootHost(t *testing.T) {
 	})
 
 	var reasons []string
-	for _, e := range listEvents(t, c.store) {
-		switch e.Reason {
-		case "RouteConflict":
-			reasons = append(reasons, e.App+": "+e.Message)
-		case "ProxyNotUpdated":
-			t.Errorf("proxy not updated: %s", e.Message)
+	c.eventually("web says why", func() bool {
+		reasons = nil
+		for _, e := range listEvents(t, c.store) {
+			switch e.Reason {
+			case "RouteConflict":
+				reasons = append(reasons, e.App+": "+e.Message)
+			case "ProxyNotUpdated":
+				t.Fatalf("proxy not updated: %s", e.Message)
+			}
 		}
-	}
+		return len(reasons) > 0
+	})
 	if len(reasons) != 1 || !strings.HasPrefix(reasons[0], "web: api.lab.test/ is routed to app api") {
 		t.Errorf("route conflicts = %q", reasons)
 	}
