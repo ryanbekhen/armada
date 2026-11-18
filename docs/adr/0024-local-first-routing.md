@@ -30,12 +30,28 @@ busy as the app's other replicas, and spreads the rest over every replica.
   on the node's private IP or, with the cluster network (ADR 0025), in the node's
   container subnet, and 10 otherwise. Under load a local replica takes at most
   about a tenth more than a replica elsewhere.
-- **Idle apps stay on the node.** Servers with no request in progress tie
-  whatever their weight, so the backend has one rule of its own: with no other
-  request in progress, `use-server` picks a local replica through the local map
-  (`local.map`: `<backend>/<n> <slot>`, four entries per backend taking the local
-  slots in turn, one chosen at random). As soon as that replica is busy the others
-  are idle, and they take the next request.
+- **Idle apps stay on the node, for calls between apps.** Servers with no
+  request in progress tie whatever their weight, so the backend has one rule of
+  its own: with no other request in progress, `use-server` picks a local
+  replica through the local map (`local.map`: `<backend>/<n> <slot>`, four
+  entries per backend taking the local slots in turn, one chosen at random). As
+  soon as that replica is busy the others are idle, and they take the next
+  request.
+  - The rule applies to the internal frontends only (`<app>.internal`, internal
+    TCP), not to the public `http` and `https` frontends
+    (`!{ fe_name http } !{ fe_name https }`). Callers of the cluster run on
+    every node, so each node's calls stay on it and the load still spreads.
+    Public requests arrive where DNS, a CDN, or a load balancer sends them,
+    often one node. For them the rule would send every request to that node's
+    replicas while the request rate stays low: a request that answers in a
+    millisecond rarely overlaps another, so the local replica looks idle until
+    its CPU is full, and the others idle. Measured on three lab nodes with four
+    replicas (two on the receiving node) and one client in a loop: every
+    request went to the receiving node's replicas with the rule, a quarter to
+    each replica without it. Idle public requests take turns over every
+    replica instead, and weighted least connections still favours local
+    replicas by about a tenth under load. The price is one hop between nodes
+    for most public requests at low load (about 0.16 ms in that lab).
   - A slot the map does not have, or a server that is down, falls through to
     balancing, so with no local replica up every request goes to the others.
   - Only the requests through this node's proxy count. Each proxy balances its
@@ -74,11 +90,14 @@ busy as the app's other replicas, and spreads the rest over every replica.
 
 ## Consequences
 
-- Requests stay on the node that received them unless its replicas are busier
-  than the others, which cuts latency and traffic between nodes.
+- Calls between apps stay on the node that received them unless its replicas
+  are busier than the others, which cuts latency and traffic between nodes.
+- Public requests spread over every replica whatever node receives them, so
+  autoscaling on CPU or memory, which averages the replicas, sees the load
+  where it is; under load a node's own replicas take somewhat more.
 - A request's cost does not grow with the apps of the cluster, and each replica
   is health checked once by each node's HAProxy, every 2 seconds.
 - Balance across nodes depends on how traffic arrives: a node receiving more
-  requests runs its replicas somewhat busier.
+  requests runs its replicas somewhat busier under load.
 - Least connections also balances long-lived requests, which balancing in turn
   does not.

@@ -41,9 +41,9 @@ Everything Armada does. The [guides](guides/README.md) show each in use, and the
   (behind a CDN, the visitor's), whatever the request said. Behind a TCP
   load balancer that hides clients, the PROXY protocol from its addresses
   (`cluster set --proxy-protocol`) gives the same.
-- **Local-first routing.** Each node sends requests to its own replicas
-  while they are about as busy as the rest, and spreads the excess over every
-  node, so most requests never cross the network.
+- **Local-first routing.** Calls between apps go to replicas on the caller's
+  node while they are about as busy as the rest, so most never cross the
+  network; public requests spread over every replica wherever they arrive.
 - **Cluster network.** Each node's containers get their own subnet of one
   private range, routed between nodes over a tunnel on the private
   network, so replicas are reached at their own address and see their
