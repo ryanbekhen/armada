@@ -488,3 +488,21 @@ func TestRedisCluster(t *testing.T) {
 		t.Error("the agent never authenticated")
 	}
 }
+
+// A wake replaces the message of the last evaluation, which said the app
+// was scaling to zero, until the next evaluation; an app never evaluated
+// has none to replace.
+func TestWakeReplacesTheZeroMessage(t *testing.T) {
+	t.Parallel()
+	as := &autoscaler{apps: map[string]*appScaling{
+		"web": {status: &armadav1.Autoscale{Min: 0, Max: 4, Message: "scaling to zero: no requests for 15m0s"}},
+	}}
+	as.note("web", "woken by a request at n1; starting")
+	if got := as.status("web"); got.GetMessage() != "woken by a request at n1; starting" || got.GetMax() != 4 {
+		t.Errorf("status = %v", got)
+	}
+	as.note("ghost", "x")
+	if as.status("ghost") != nil {
+		t.Error("a note made a status for an app never evaluated")
+	}
+}
