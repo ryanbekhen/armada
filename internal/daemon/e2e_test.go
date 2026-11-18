@@ -641,7 +641,9 @@ func TestEndToEnd(t *testing.T) {
 
 	testSpaces(t, d, cli, waitFor)
 	// Client address rules with names show in app show (ADR 0035).
-	if code, _, stderr := cli("app", "update", "web", "--ip-allow", "203.0.113.0/24,name=office,description=the VPN the admins use", "--ip-allow", "198.51.100.7"); code != 0 {
+	// The rules show once their revision serves; wait for the rollout, which
+	// takes longer on a busy machine than the poll below allows.
+	if code, _, stderr := cli("app", "update", "web", "--ip-allow", "203.0.113.0/24,name=office,description=the VPN the admins use", "--ip-allow", "198.51.100.7", "--wait", "--timeout", "2m"); code != 0 {
 		t.Fatalf("ip rules: %s", stderr)
 	}
 	waitFor("rules in app show", func() bool {
