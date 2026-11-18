@@ -137,7 +137,20 @@ type Ingress struct {
 	// Timeout is how long a request may wait for the app to answer; zero means
 	// a minute.
 	Timeout Duration `yaml:"timeout,omitempty" json:"timeout,omitempty"`
+	// DNS obtains the certificates of the custom domains through DNS-01
+	// with the app's own DNS provider token instead of HTTP-01 (ADR 0047).
+	DNS *IngressDNS `yaml:"dns,omitempty" json:"dns,omitempty"`
 }
+
+// IngressDNS names the DNS provider of an app's custom domains and the
+// app secret holding its API token.
+type IngressDNS struct {
+	Provider       string `yaml:"provider" json:"provider"`
+	TokenSecretRef string `yaml:"tokenSecretRef" json:"tokenSecretRef"`
+}
+
+// DNSProviderCloudflare is the only DNS provider for now.
+const DNSProviderCloudflare = "cloudflare"
 
 // TCP reports whether the app takes plain TCP connections (ADR 0039).
 func (in *Ingress) TCP() bool { return in != nil && in.Protocol == ProtocolTCP }

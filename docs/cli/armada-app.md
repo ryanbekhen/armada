@@ -54,6 +54,7 @@ Flags:
 | `--command stringArray` | command, replacing the image's entrypoint: one word per flag, kept as written (repeat it; "" clears) |
 | `--cors-origin stringArray` | origin browsers may call the app from, such as https://app.example.com, or * (repeatable; replaces the origins; methods, headers, and the rest in the spec file) |
 | `--cpu string` | CPU reserved and its limit, e.g. 250m or 1 |
+| `--dns-token-secret string` | app secret holding a Cloudflare API token: the custom domains get certificates through DNS-01 with it instead of HTTP-01 |
 | `--domain stringArray` | custom domain (repeatable) |
 | `--env stringArray` | environment variable NAME=VALUE (repeatable) |
 | `--env-from-secrets` | give every secret of the app as a variable (database-url becomes DATABASE_URL) |
@@ -67,6 +68,7 @@ Flags:
 | `--memory string` | memory limit, e.g. 256Mi |
 | `--min int` | fewest replicas when autoscaling |
 | `--no-cors` | remove the app's CORS policy |
+| `--no-dns` | custom domains get certificates through HTTP-01 again |
 | `--no-ip-rules` | let every client reach the app again |
 | `--port int` | port the app listens on |
 | `--protocol string` | http (default) or tcp: a tcp app is internal only, reached by apps of its space at <app>.internal:<port> |
@@ -351,6 +353,7 @@ Flags:
 | `--cpu string` | CPU reserved and its limit, e.g. 250m or 1 |
 | `--create-if-missing` | create the app when it does not exist |
 | `--diff` | print what would change and change nothing |
+| `--dns-token-secret string` | app secret holding a Cloudflare API token: the custom domains get certificates through DNS-01 with it instead of HTTP-01 |
 | `--domain stringArray` | custom domain (repeatable) |
 | `--env stringArray` | environment variable NAME=VALUE (repeatable) |
 | `--env-from-secrets` | give every secret of the app as a variable (database-url becomes DATABASE_URL) |
@@ -364,6 +367,7 @@ Flags:
 | `--memory string` | memory limit, e.g. 256Mi |
 | `--min int` | fewest replicas when autoscaling |
 | `--no-cors` | remove the app's CORS policy |
+| `--no-dns` | custom domains get certificates through HTTP-01 again |
 | `--no-ip-rules` | let every client reach the app again |
 | `--port int` | port the app listens on |
 | `--protocol string` | http (default) or tcp: a tcp app is internal only, reached by apps of its space at <app>.internal:<port> |

@@ -198,6 +198,13 @@ func TestParseRejects(t *testing.T) {
 		{"ip domain", ext + "  domains: [10.0.0.1]\n", "ingress.domains[0]", false},
 		{"domain injection", ext + "  domains: [\"a.com\\n  bind :8080\"]\n", "ingress.domains[0]", false},
 		{"domain with space", ext + "  domains: [\"a.com b.com\"]\n", "ingress.domains[0]", false},
+		{"dns without domains", ext + "  dns: {provider: cloudflare, tokenSecretRef: cf}\n", "ingress.dns", false},
+		{"dns unknown provider", ext + "  domains: [a.com]\n  dns: {provider: route66, tokenSecretRef: cf}\n", "ingress.dns.provider", false},
+		{"dns bad secret", ext + "  domains: [a.com]\n  dns: {provider: cloudflare, tokenSecretRef: \"CF Token\"}\n", "ingress.dns.tokenSecretRef", false},
+		{"dns no secret", ext + "  domains: [a.com]\n  dns: {provider: cloudflare}\n", "ingress.dns.tokenSecretRef", false},
+		{"dns internal", base + "ingress:\n  type: internal\n  port: 80\n  dns: {provider: cloudflare, tokenSecretRef: cf}\n", "ingress.dns", false},
+		{"dns none", base + "ingress:\n  type: none\n  dns: {provider: cloudflare, tokenSecretRef: cf}\n", "ingress", false},
+		{"dns unknown field", ext + "  domains: [a.com]\n  dns: {provider: cloudflare, tokenSecretRef: cf, zone: a.com}\n", "", false},
 		{"duplicate domain", ext + "  domains: [a.com, a.com]\n", "ingress.domains[1]", false},
 		{"route without slash", ext + "  routes:\n    - path: api\n", "ingress.routes[0].path", false},
 		{"route trailing slash", ext + "  routes:\n    - path: /api/\n", "ingress.routes[0].path", false},
@@ -785,5 +792,25 @@ func TestWithSecretEnv(t *testing.T) {
 	}
 	if len(a.Env) != 1 {
 		t.Error("WithSecretEnv changed the original")
+	}
+}
+
+// The DNS token of ingress.dns is pinned like every secret the spec names,
+// and never reaches the app through envFrom: only the control plane uses it.
+func TestIngressDNSSecret(t *testing.T) {
+	t.Parallel()
+	a, err := Parse([]byte("name: a\nimage: nginx:1\nenvFrom: secrets\ningress:\n  type: external\n  port: 80\n  domains: [a.com]\n  dns: {provider: cloudflare, tokenSecretRef: cf-token}\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(a.SecretRefs(), "cf-token") {
+		t.Errorf("refs = %v", a.SecretRefs())
+	}
+	got, err := a.WithSecretEnv([]string{"cf-token", "database-url"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Env) != 1 || got.Env[0].SecretRef != "database-url" {
+		t.Errorf("env = %+v", got.Env)
 	}
 }

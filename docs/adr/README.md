@@ -50,6 +50,7 @@ Every architectural decision that is hard to reverse is recorded here. Copy `000
 | [0044](0044-log-export.md) | Sending logs elsewhere | Accepted |
 | [0045](0045-alerts.md) | Alerts | Accepted |
 | [0046](0046-runtime-supervisor.md) | Armada's own container supervisor | Accepted (experimental) |
+| [0047](0047-dns-for-custom-domains.md) | DNS credentials for an app's custom domains | Accepted |
 
 Commands in records before 0032 carry the names of their time; ADR 0032
 lists the command line as it is now.

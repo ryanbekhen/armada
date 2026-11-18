@@ -349,8 +349,11 @@ func (v *validator) ingress(in *Ingress, self string) {
 		if len(in.IPAllow) > 0 || len(in.IPDeny) > 0 {
 			v.add("ingress", "ipAllow and ipDeny require type external: internal callers are chosen with allow")
 		}
+		if in.DNS != nil {
+			v.add("ingress.dns", "is for the certificates of custom domains, which require type external")
+		}
 	case IngressNone:
-		if in.Port != 0 || in.Protocol != "" || len(in.Domains) > 0 || len(in.Routes) > 0 || len(in.Allow) > 0 || len(in.IPAllow) > 0 || len(in.IPDeny) > 0 || in.Sticky || in.CORS != nil {
+		if in.Port != 0 || in.Protocol != "" || len(in.Domains) > 0 || len(in.Routes) > 0 || len(in.Allow) > 0 || len(in.IPAllow) > 0 || len(in.IPDeny) > 0 || in.Sticky || in.CORS != nil || in.DNS != nil {
 			v.add("ingress", "port, domains, routes, and allow require type external or internal")
 		}
 		return
@@ -378,6 +381,15 @@ func (v *validator) ingress(in *Ingress, self string) {
 			v.add(f, "duplicate domain %q", d)
 		}
 		seen[d] = true
+	}
+	if d := in.DNS; d != nil && in.Type == IngressExternal {
+		if d.Provider != DNSProviderCloudflare {
+			v.add("ingress.dns.provider", "must be %s", DNSProviderCloudflare)
+		}
+		v.secretName("ingress.dns.tokenSecretRef", d.TokenSecretRef)
+		if len(in.Domains) == 0 {
+			v.add("ingress.dns", "is for the certificates of custom domains; list them in ingress.domains (<app>.<root domain> uses the cluster's DNS provider)")
+		}
 	}
 	if len(in.IPAllow) > 0 && len(in.IPDeny) > 0 {
 		v.add("ingress", "set ipAllow or ipDeny, not both")

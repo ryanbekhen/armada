@@ -43,6 +43,8 @@ type specFlags struct {
 	sticky                           bool
 	corsOrigins                      []string
 	noCORS                           bool
+	dnsSecret                        string
+	noDNS                            bool
 	replicas, minR, maxR             int
 	scaleCPU, scaleMemory, scaleHTTP int
 	healthPath                       string
@@ -56,7 +58,7 @@ type specFlags struct {
 // Flags that change an app's spec, and a job's.
 var (
 	appSpecFlags = []string{"image", "command", "args", "env", "secret-env", "remove-env", "env-from-secrets", "cpu", "memory",
-		"registry-user", "registry-secret", "port", "ingress", "protocol", "domain", "remove-domain", "ip-allow", "ip-deny", "no-ip-rules", "sticky", "cors-origin", "no-cors", "replicas", "min", "max",
+		"registry-user", "registry-secret", "port", "ingress", "protocol", "domain", "remove-domain", "ip-allow", "ip-deny", "no-ip-rules", "sticky", "cors-origin", "no-cors", "dns-token-secret", "no-dns", "replicas", "min", "max",
 		"scale-cpu", "scale-memory", "scale-http", "health-path"}
 	jobSpecFlags = []string{"image", "command", "args", "env", "secret-env", "remove-env", "env-from-secrets", "cpu", "memory",
 		"registry-user", "registry-secret", "schedule", "time-zone", "timeout", "retries", "concurrency", "tasks", "parallelism"}
@@ -102,6 +104,9 @@ func (f *specFlags) register(cmd *cobra.Command, job bool) {
 	fs.StringArrayVar(&f.corsOrigins, "cors-origin", nil, "origin browsers may call the app from, such as https://app.example.com, or * (repeatable; replaces the origins; methods, headers, and the rest in the spec file)")
 	fs.BoolVar(&f.noCORS, "no-cors", false, "remove the app's CORS policy")
 	cmd.MarkFlagsMutuallyExclusive("cors-origin", "no-cors")
+	fs.StringVar(&f.dnsSecret, "dns-token-secret", "", "app secret holding a Cloudflare API token: the custom domains get certificates through DNS-01 with it instead of HTTP-01")
+	fs.BoolVar(&f.noDNS, "no-dns", false, "custom domains get certificates through HTTP-01 again")
+	cmd.MarkFlagsMutuallyExclusive("dns-token-secret", "no-dns")
 	fs.IntVar(&f.replicas, "replicas", 0, "number of replicas")
 	fs.IntVar(&f.minR, "min", 0, "fewest replicas when autoscaling")
 	fs.IntVar(&f.maxR, "max", 0, "most replicas when autoscaling")
@@ -313,7 +318,7 @@ func (f *specFlags) applyJob(a *spec.App) {
 
 func (f *specFlags) applyIngress(a *spec.App) error {
 	ch := f.fs.Changed
-	if !ch("ingress") && !ch("protocol") && !ch("port") && !ch("domain") && !ch("remove-domain") && !ch("ip-allow") && !ch("ip-deny") && !ch("no-ip-rules") && !ch("sticky") && !ch("cors-origin") && !ch("no-cors") {
+	if !ch("ingress") && !ch("protocol") && !ch("port") && !ch("domain") && !ch("remove-domain") && !ch("ip-allow") && !ch("ip-deny") && !ch("no-ip-rules") && !ch("sticky") && !ch("cors-origin") && !ch("no-cors") && !ch("dns-token-secret") && !ch("no-dns") {
 		return nil
 	}
 	in := spec.Ingress{Type: spec.IngressNone}
@@ -358,6 +363,12 @@ func (f *specFlags) applyIngress(a *spec.App) error {
 		}
 		c.AllowOrigins = slices.Clone(f.corsOrigins)
 		in.CORS = &c
+	}
+	switch {
+	case f.noDNS:
+		in.DNS = nil
+	case ch("dns-token-secret"):
+		in.DNS = &spec.IngressDNS{Provider: spec.DNSProviderCloudflare, TokenSecretRef: f.dnsSecret}
 	}
 	// Each list replaces the rules: who may reach an app is safer stated in
 	// full than pieced together.

@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"net/netip"
 	"slices"
 	"strings"
@@ -14,7 +15,9 @@ import (
 	"google.golang.org/grpc/status"
 
 	armadav1 "github.com/ryanbekhen/armada/api/armada/v1"
+	"github.com/ryanbekhen/armada/internal/certs"
 	"github.com/ryanbekhen/armada/internal/proxy"
+	"github.com/ryanbekhen/armada/internal/secrets"
 	"github.com/ryanbekhen/armada/internal/spec"
 	"github.com/ryanbekhen/armada/internal/store"
 )
@@ -59,6 +62,33 @@ func appHosts(app store.App, root string, verified map[string]bool) []string {
 		}
 	}
 	return hosts
+}
+
+// appDNS opens the DNS token an app's ingress.dns names, pinned by its
+// active revision (ADR 0047). When it cannot, the app records a
+// DNSTokenUnavailable condition and its custom domains use HTTP-01.
+func (s *Server) appDNS(ctx context.Context, revs *revisionCache, app store.App) *certs.DNS {
+	d := app.Spec.Ingress.DNS
+	var problem string
+	var out *certs.DNS
+	rev, err := revs.get(ctx, app.ActiveRevision)
+	if err == nil {
+		var vals map[string]secrets.Value
+		if vals, err = revs.secrets(ctx, rev); err == nil {
+			if v, ok := vals[d.TokenSecretRef]; ok && len(v.Bytes()) > 0 {
+				out = &certs.DNS{Provider: d.Provider, Token: strings.TrimSpace(string(v.Bytes()))}
+			} else {
+				problem = fmt.Sprintf("secret %s of ingress.dns is not set", d.TokenSecretRef)
+			}
+		}
+	}
+	if err != nil {
+		s.log.Warn("cannot open the DNS token of an app", "app", app.Name, "err", err)
+		problem = fmt.Sprintf("secret %s of ingress.dns cannot be read", d.TokenSecretRef)
+	}
+	s.condition(ctx, "dns-token/"+app.Name, problem != "", store.Event{Kind: eventApp, Object: app.Name, App: app.Name, Reason: "DNSTokenUnavailable",
+		Message: problem + "; certificates of its custom domains use HTTP-01"})
+	return out
 }
 
 // rootHost is the host Armada gives a name under the root domain, or "" when
@@ -293,6 +323,8 @@ func (s *Server) buildProxy(ctx context.Context, apps []store.App, replicas []st
 	}
 
 	perApp := byApp(replicas)
+	revs := &revisionCache{store: s.store, keys: s.keys, m: map[string]store.Revision{}, opened: s.opened}
+	dnsFor := map[string]certs.DNS{}
 	// space/port -> app: the store gives each a single app (ADR 0039);
 	// should two ever claim one, the first keeps it rather than the whole
 	// configuration failing.
@@ -396,6 +428,11 @@ func (s *Server) buildProxy(ctx context.Context, apps []store.App, replicas []st
 		if !external {
 			continue
 		}
+		// Custom domains with the app's own DNS token (ADR 0047).
+		var own *certs.DNS
+		if sp.Ingress.DNS != nil {
+			own = s.appDNS(ctx, revs, app)
+		}
 		for _, h := range appHosts(app, root, verified) {
 			served := false
 			for _, rt := range appRoutes(sp) {
@@ -406,6 +443,9 @@ func (s *Server) buildProxy(ctx context.Context, apps []store.App, replicas []st
 			}
 			if served && (!wildcard || !underWildcard(h, root)) {
 				certNames = append(certNames, h)
+				if _, taken := dnsFor[h]; own != nil && !taken && h != rootHost(app.Name, root) {
+					dnsFor[h] = *own
+				}
 			}
 		}
 	}
@@ -420,11 +460,16 @@ func (s *Server) buildProxy(ctx context.Context, apps []store.App, replicas []st
 		defer s.certMu.Unlock()
 		slices.Sort(certNames)
 		certNames = slices.Compact(certNames)
-		if !slices.Equal(certNames, s.lastCertNames) {
-			if err := s.certs.Manage(ctx, certNames, root); err != nil {
+		// The credentials count too: a new token starts its names over.
+		managed := slices.Clone(certNames)
+		for _, n := range slices.Sorted(maps.Keys(dnsFor)) {
+			managed = append(managed, n+"="+dnsFor[n].Key())
+		}
+		if !slices.Equal(managed, s.lastCertNames) {
+			if err := s.certs.Manage(ctx, certNames, root, dnsFor); err != nil {
 				s.log.Error("certificate management failed", "err", err)
 			} else {
-				s.lastCertNames = certNames
+				s.lastCertNames = managed
 			}
 		}
 		for _, n := range certNames {

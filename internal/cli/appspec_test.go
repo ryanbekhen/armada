@@ -499,3 +499,34 @@ func TestAppCORSFlags(t *testing.T) {
 		t.Errorf("bad origin: %d %q", code, stderr)
 	}
 }
+
+// --dns-token-secret sets ingress.dns (ADR 0047), another change keeps it,
+// --no-dns removes it, and it needs custom domains.
+func TestAppDNSFlags(t *testing.T) {
+	f := newFakeAdmin()
+	cfg := withFake(t, f)
+	cli := func(args ...string) (int, string, string) { return run(t, append(args, "--config", cfg)...) }
+	if code, _, stderr := cli("app", "create", "shop", "--image", "nginx:1", "--port", "80", "--ingress", "external",
+		"--domain", "shop.net", "--dns-token-secret", "cf-token"); code != 0 {
+		t.Fatal(stderr)
+	}
+	dns := func() *spec.IngressDNS {
+		sp, err := spec.Parse([]byte(f.specs["shop"]))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return sp.Ingress.DNS
+	}
+	if d := dns(); d == nil || *d != (spec.IngressDNS{Provider: "cloudflare", TokenSecretRef: "cf-token"}) {
+		t.Errorf("after create: %+v", d)
+	}
+	if code, _, stderr := cli("app", "update", "shop", "--image", "nginx:2"); code != 0 || dns() == nil {
+		t.Errorf("another change dropped ingress.dns: %s", stderr)
+	}
+	if code, _, stderr := cli("app", "update", "shop", "--no-dns"); code != 0 || dns() != nil {
+		t.Errorf("--no-dns: %s", stderr)
+	}
+	if code, _, stderr := cli("app", "create", "blog", "--image", "nginx:1", "--port", "80", "--ingress", "external", "--dns-token-secret", "cf-token"); code == 0 || !strings.Contains(stderr, "ingress.dns") {
+		t.Errorf("without domains: %d %q", code, stderr)
+	}
+}
