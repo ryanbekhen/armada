@@ -78,7 +78,7 @@ Flags cover what is changed often. The rest (custom probes, routes with
 | `--env K=V`, `--secret-env K=SECRET`, `--remove-env K` | `env` |
 | `--env-from-secrets[=false]` | `envFrom` |
 | `--command`, `--args` | `command`, `args` |
-| `--replicas N`, or `--min N --max N --scale-cpu P \| --scale-memory P \| --scale-http N` | `scale` |
+| `--replicas N` (with `--no-autoscale` when the app has scale rules, which it removes), or `--min N --max N --scale-cpu P \| --scale-memory P \| --scale-http N` | `scale` |
 | `--cpu`, `--memory` | `resources` |
 | `--health-path P` | `probes.readiness.path` |
 | `--registry-user U --registry-secret S` | `registry` |

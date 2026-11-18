@@ -67,6 +67,7 @@ Flags:
 | `--max int` | most replicas when autoscaling |
 | `--memory string` | memory limit, e.g. 256Mi |
 | `--min int` | fewest replicas when autoscaling |
+| `--no-autoscale` | with --replicas: stop autoscaling and drop the app's scale rules |
 | `--no-cors` | remove the app's CORS policy |
 | `--no-dns` | custom domains get certificates through HTTP-01 again |
 | `--no-ip-rules` | let every client reach the app again |
@@ -76,7 +77,7 @@ Flags:
 | `--registry-user string` | user name for a private registry (the image's) |
 | `--remove-domain stringArray` | remove a custom domain (repeatable) |
 | `--remove-env stringArray` | remove an environment variable (repeatable) |
-| `--replicas int` | number of replicas |
+| `--replicas int` | run a fixed number of replicas; an app that autoscales also needs --no-autoscale |
 | `--scale-cpu int` | autoscale to this percent of reserved CPU |
 | `--scale-http int` | autoscale to this many concurrent requests per replica |
 | `--scale-memory int` | autoscale to this percent of the memory limit |
@@ -366,6 +367,7 @@ Flags:
 | `--max int` | most replicas when autoscaling |
 | `--memory string` | memory limit, e.g. 256Mi |
 | `--min int` | fewest replicas when autoscaling |
+| `--no-autoscale` | with --replicas: stop autoscaling and drop the app's scale rules |
 | `--no-cors` | remove the app's CORS policy |
 | `--no-dns` | custom domains get certificates through HTTP-01 again |
 | `--no-ip-rules` | let every client reach the app again |
@@ -375,7 +377,7 @@ Flags:
 | `--registry-user string` | user name for a private registry (the image's) |
 | `--remove-domain stringArray` | remove a custom domain (repeatable) |
 | `--remove-env stringArray` | remove an environment variable (repeatable) |
-| `--replicas int` | number of replicas |
+| `--replicas int` | run a fixed number of replicas; an app that autoscales also needs --no-autoscale |
 | `--scale-cpu int` | autoscale to this percent of reserved CPU |
 | `--scale-http int` | autoscale to this many concurrent requests per replica |
 | `--scale-memory int` | autoscale to this percent of the memory limit |

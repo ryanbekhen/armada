@@ -530,3 +530,45 @@ func TestAppDNSFlags(t *testing.T) {
 		t.Errorf("without domains: %d %q", code, stderr)
 	}
 }
+
+// --replicas on an app that autoscales would drop the rules someone tuned:
+// it is refused, naming them, unless --no-autoscale says so; --min keeps
+// the rules; an app without rules takes --replicas as before.
+func TestReplicasKeepsAutoscaleUnlessTold(t *testing.T) {
+	f := newFakeAdmin()
+	cfg := withFake(t, f)
+	cli := func(args ...string) (int, string, string) { return run(t, append(args, "--config", cfg)...) }
+	scale := func() *spec.Scale {
+		sp, err := spec.Parse([]byte(f.specs["web"]))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return sp.Scale
+	}
+	if code, _, stderr := cli("app", "create", "web", "--image", "nginx:1", "--port", "80", "--ingress", "external", "--min", "1", "--max", "5", "--scale-cpu", "40"); code != 0 {
+		t.Fatal(stderr)
+	}
+	code, _, stderr := cli("app", "update", "web", "--replicas", "4")
+	if code == 0 || !strings.Contains(stderr, "web autoscales (1-5 replicas, cpu 40%)") || !strings.Contains(stderr, "--no-autoscale") {
+		t.Errorf("--replicas on an autoscaled app: %d %q", code, stderr)
+	}
+	if s := scale(); len(s.Rules) != 1 || *s.Max != 5 {
+		t.Errorf("refused update changed the spec: %+v", s)
+	}
+	if code, _, stderr := cli("app", "update", "web", "--min", "4"); code != 0 || len(scale().Rules) != 1 || *scale().Min != 4 || *scale().Max != 5 {
+		t.Errorf("--min: %d %q %+v", code, stderr, scale())
+	}
+	if code, _, stderr := cli("app", "update", "web", "--no-autoscale"); code == 0 || !strings.Contains(stderr, "goes with --replicas") {
+		t.Errorf("--no-autoscale alone: %d %q", code, stderr)
+	}
+	if code, _, stderr := cli("app", "update", "web", "--replicas", "4", "--no-autoscale"); code != 0 {
+		t.Fatalf("--no-autoscale: %q", stderr)
+	}
+	if s := scale(); len(s.Rules) != 0 || *s.Min != 4 || *s.Max != 4 {
+		t.Errorf("fixed count: %+v", s)
+	}
+	// A fixed count changes freely.
+	if code, _, stderr := cli("app", "update", "web", "--replicas", "2"); code != 0 || *scale().Min != 2 {
+		t.Errorf("--replicas on a fixed app: %d %q", code, stderr)
+	}
+}

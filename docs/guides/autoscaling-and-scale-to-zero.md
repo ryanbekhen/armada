@@ -301,8 +301,10 @@ caused them; the audit log names the actor `armada:autoscaler`. With the
 - `armada app scale` refuses an autoscaled app, because the autoscaler
   would undo it. Change the bounds: `armada app update api --min 4` keeps
   at least 4.
-- `armada app update api --replicas 3` stops autoscaling at a fixed count;
-  it removes the rules.
+- `armada app update api --replicas 3` is refused while the app
+  autoscales, so tuned rules are never dropped by accident. To stop
+  autoscaling at a fixed count, say so:
+  `armada app update api --replicas 3 --no-autoscale` removes the rules.
 - A later `armada app update --file` sets the bounds and rules the file
   names again. An update keeps the current count within the new bounds.
 - After the control plane's leader changes, apps do not scale down for 5

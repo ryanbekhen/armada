@@ -45,6 +45,7 @@ type specFlags struct {
 	noCORS                           bool
 	dnsSecret                        string
 	noDNS                            bool
+	noAutoscale                      bool
 	replicas, minR, maxR             int
 	scaleCPU, scaleMemory, scaleHTTP int
 	healthPath                       string
@@ -58,7 +59,7 @@ type specFlags struct {
 // Flags that change an app's spec, and a job's.
 var (
 	appSpecFlags = []string{"image", "command", "args", "env", "secret-env", "remove-env", "env-from-secrets", "cpu", "memory",
-		"registry-user", "registry-secret", "port", "ingress", "protocol", "domain", "remove-domain", "ip-allow", "ip-deny", "no-ip-rules", "sticky", "cors-origin", "no-cors", "dns-token-secret", "no-dns", "replicas", "min", "max",
+		"registry-user", "registry-secret", "port", "ingress", "protocol", "domain", "remove-domain", "ip-allow", "ip-deny", "no-ip-rules", "sticky", "cors-origin", "no-cors", "dns-token-secret", "no-dns", "replicas", "no-autoscale", "min", "max",
 		"scale-cpu", "scale-memory", "scale-http", "health-path"}
 	jobSpecFlags = []string{"image", "command", "args", "env", "secret-env", "remove-env", "env-from-secrets", "cpu", "memory",
 		"registry-user", "registry-secret", "schedule", "time-zone", "timeout", "retries", "concurrency", "tasks", "parallelism"}
@@ -107,7 +108,8 @@ func (f *specFlags) register(cmd *cobra.Command, job bool) {
 	fs.StringVar(&f.dnsSecret, "dns-token-secret", "", "app secret holding a Cloudflare API token: the custom domains get certificates through DNS-01 with it instead of HTTP-01")
 	fs.BoolVar(&f.noDNS, "no-dns", false, "custom domains get certificates through HTTP-01 again")
 	cmd.MarkFlagsMutuallyExclusive("dns-token-secret", "no-dns")
-	fs.IntVar(&f.replicas, "replicas", 0, "number of replicas")
+	fs.IntVar(&f.replicas, "replicas", 0, "run a fixed number of replicas; an app that autoscales also needs --no-autoscale")
+	fs.BoolVar(&f.noAutoscale, "no-autoscale", false, "with --replicas: stop autoscaling and drop the app's scale rules")
 	fs.IntVar(&f.minR, "min", 0, "fewest replicas when autoscaling")
 	fs.IntVar(&f.maxR, "max", 0, "most replicas when autoscaling")
 	fs.IntVar(&f.scaleCPU, "scale-cpu", 0, "autoscale to this percent of reserved CPU")
@@ -442,6 +444,12 @@ func (f *specFlags) applyScale(a *spec.App) error {
 		return errors.New("give one of --scale-cpu, --scale-memory, and --scale-http")
 	case ch("replicas") && auto:
 		return errors.New("--replicas sets a fixed count: leave out --min, --max, and the --scale flags")
+	case ch("no-autoscale") && !ch("replicas"):
+		return errors.New("--no-autoscale goes with --replicas N, the fixed count to run instead")
+	case ch("replicas") && a.Scale != nil && len(a.Scale.Rules) > 0 && !f.noAutoscale:
+		// Rules someone tuned are not dropped by a flag meant for a count.
+		return fmt.Errorf("%s autoscales (%s); --replicas would turn that off and drop its scale rules.\n"+
+			"Change the range with --min/--max, or add --no-autoscale to run a fixed %d replicas", a.Name, describeAutoscale(a.Scale), f.replicas)
 	case ch("replicas"):
 		n := f.replicas
 		a.Scale = &spec.Scale{Min: &n, Max: &n}
@@ -469,6 +477,31 @@ func (f *specFlags) applyScale(a *spec.App) error {
 	}
 	a.Scale = &s
 	return nil
+}
+
+// describeAutoscale says an autoscaled app's range and rules in a few words,
+// such as "1-5 replicas, cpu 40%".
+func describeAutoscale(s *spec.Scale) string {
+	lo := 1
+	if s.Min != nil {
+		lo = *s.Min
+	}
+	hi := lo
+	if s.Max != nil {
+		hi = *s.Max
+	}
+	parts := []string{fmt.Sprintf("%d-%d replicas", lo, hi)}
+	for _, r := range s.Rules {
+		switch r.Type {
+		case spec.ScaleCPU, spec.ScaleMemory:
+			parts = append(parts, fmt.Sprintf("%s %d%%", r.Type, r.Utilization))
+		case spec.ScaleHTTP:
+			parts = append(parts, fmt.Sprintf("http %d concurrent", r.Concurrent))
+		default:
+			parts = append(parts, r.Type)
+		}
+	}
+	return strings.Join(parts, ", ")
 }
 
 // deployFlags are what create and update share besides the spec flags.

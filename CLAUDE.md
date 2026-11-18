@@ -69,6 +69,7 @@ armada app create --file app.yaml --vars FILE --var NAME=VALUE   # ${NAME} in sp
 armada app list [-A] / app show APP [-o yaml]    # apps one line each (ListApps, paged) / one app; -o yaml exports its spec
 armada cluster status / cluster events [--node N] [--since D] [-f]   # bounded summary (ClusterStatus) / what the cluster did in the last day (ADR 0018)
 armada app scale APP --replicas N / app rollback APP [--to REV] [--wait] / app revision list|show   # until the next update / back to a revision
+armada app update APP --replicas N [--no-autoscale]   # fixed count; refused on an app with scale rules unless --no-autoscale (which drops them)
 armada app exec APP [--replica ID] [--container NAME] [-i] [-t] -- CMD   # run a command in a replica (ADR 0015), or in one of its sidecars (ADR 0038)
 armada app top [APP] [--spaces] / node top     # CPU and memory use of apps, replicas, nodes (ADR 0016); per space with volumes, requests, egress (ADR 0026)
 armada app events [APP] / app logs APP [-f] [--grep TEXT] [--timestamps] [--container NAME] [--since D --until D --limit N]   # events of the space's apps (ADR 0018) / replica logs, or an init container's or sidecar's (ADR 0038); --since searches every node's log history (ADR 0043)

@@ -77,7 +77,7 @@ spec the app runs. Everything else is written in a file.
 | `--env K=V`, `--secret-env K=SECRET`, `--remove-env K` | `env` |
 | `--env-from-secrets[=false]` | `envFrom` |
 | `--command`, `--args` (one word per flag, repeated: `--args --port --args 80`) | `command`, `args` |
-| `--replicas N` | `scale.min` and `scale.max` |
+| `--replicas N` | `scale.min` and `scale.max`; an app with scale rules also needs `--no-autoscale`, which removes them |
 | `--min N --max N` with one of `--scale-cpu P`, `--scale-memory P`, `--scale-http N` | `scale` with one rule |
 | `--cpu`, `--memory` | `resources` |
 | `--health-path P` | `probes.readiness.path` |
