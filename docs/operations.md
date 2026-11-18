@@ -306,7 +306,11 @@ servers first, one at a time, then the other nodes one at a time.
 servers, and the latest release; `armadad doctor` warns when its machine
 is behind; and `armada` says so on a terminal at most once a day. Set
 `ARMADA_NO_UPDATE_CHECK=1` to turn all of that off (it is off when `CI` is
-set). Only these ask GitHub; servers and agents never do.
+set). Only these ask GitHub, at most once an hour per user (the answer is
+kept in the user's cache); servers and agents never do. When GitHub's limit
+of 60 requests an hour for one address is reached, `armada version` shows
+the last release it found, and `sudo armadad upgrade --version vX.Y.Z`
+upgrades without asking.
 
 1. **Back up** (see above) and read the release notes.
 2. **Control plane servers**, one at a time (wait for `armada server list`

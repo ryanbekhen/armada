@@ -12,12 +12,18 @@ servers first, one at a time, then nodes.
 
 ## Decision
 
-**Finding out.** `internal/release` asks GitHub's API for the latest release:
-the latest stable one, else, while there is none, the newest published
-pre-release by version among the last 100 (the installer's rule; the API
-does not list releases in version order), within 3 seconds, believing only a tag
-shaped like a release. Versions compare by semantic versioning, with
-pre-releases before their release. It is asked by:
+**Finding out.** `internal/release` asks GitHub's API, in one request for
+the last 100 releases, for the latest release: the newest stable one by
+version, else, while there is none, the newest published pre-release (the
+installer's rule; the API does not list releases in version order), within
+3 seconds, believing only a tag shaped like a release. Versions compare by
+semantic versioning, with pre-releases before their release. GitHub allows
+60 requests an hour without credentials from one address, which every
+machine behind it shares, so an answer is kept for an hour in the user's
+cache (`armada/latest.json`) and reused; when a lookup fails, the last
+answer kept is shown, and nothing else (`RateLimitError` names the limit
+for `armadad upgrade`, which always asks and says to pass `--version`). It
+is asked by:
 
 - `armada version`, which also shows the servers' versions;
 - `armadad doctor`, whose `release` check warns when the machine is behind;

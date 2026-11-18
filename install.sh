@@ -55,8 +55,9 @@ need() { command -v "$1" >/dev/null 2>&1 || die "$1 is required"; }
 
 # newest reads release tags, one per line, and prints the newest by version
 # (numbers compare as numbers: alpha.10 after alpha.9). Other lines are
-# skipped. Used only among pre-releases, so a stable release's rank against
-# its own pre-releases does not arise.
+# skipped. Used among stable releases, or among pre-releases while there is
+# no stable one, so a stable release's rank against its own pre-releases
+# does not arise.
 newest() {
 	grep -E '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$' |
 		awk '{
@@ -64,6 +65,15 @@ newest() {
 			for (i = 1; i <= n; i++) key = key sprintf(f[i] ~ /^[0-9]+$/ ? "%012d." : "%s.", f[i])
 			print key " " $0
 		}' | LC_ALL=C sort | tail -n 1 | sed 's/.* //'
+}
+
+# latest_of reads release tags, one per line, and prints the newest stable
+# one, else, while there is none, the newest pre-release.
+latest_of() {
+	all=$(cat)
+	v=$(printf '%s\n' "$all" | grep -v -- - | newest || true)
+	[ -n "$v" ] || v=$(printf '%s\n' "$all" | newest || true)
+	printf '%s' "$v"
 }
 
 need curl
@@ -88,12 +98,13 @@ esac
 
 if [ "$VERSION" = latest ]; then
 	tags() { sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p'; }
-	VERSION=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null | tags | head -n 1 || true)
-	# releases/latest leaves out pre-releases; while there is no stable
-	# release, take the newest published one by version: the API does not
-	# list them in that order (alpha.10 came after alpha.5).
-	[ -n "$VERSION" ] ||
-		VERSION=$(curl -fsSL "https://api.github.com/repos/$REPO/releases?per_page=100" | tags | newest)
+	# One request (GitHub allows 60 an hour from one address): the newest
+	# stable release by version, else, while there is none, the newest
+	# pre-release. The API does not list them in that order (alpha.10 came
+	# after alpha.5), and drafts are not public.
+	LIST=$(curl -fsSL "https://api.github.com/repos/$REPO/releases?per_page=100") ||
+		die "could not list the releases (GitHub allows 60 requests an hour from one address); set ARMADA_VERSION=vX.Y.Z"
+	VERSION=$(printf '%s\n' "$LIST" | tags | latest_of)
 	[ -n "$VERSION" ] || die "could not determine the latest release"
 fi
 # The version ends up in URLs and file names: accept only a release tag.

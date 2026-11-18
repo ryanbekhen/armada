@@ -169,7 +169,16 @@ func latestRelease() func(context.Context) (string, error) {
 	if os.Getenv(release.DisableEnv) != "" {
 		return nil
 	}
-	return release.Latest
+	return func(ctx context.Context) (string, error) {
+		// Through the hour-long cache armada version uses; a failed lookup
+		// falls back to the last answer stored.
+		dir, _ := os.UserCacheDir()
+		f, err := release.LatestCached(ctx, dir, time.Now())
+		if f.Tag != "" {
+			return f.Tag, nil
+		}
+		return "", err
+	}
 }
 
 // printChecks writes one line per result and returns the number of failures.

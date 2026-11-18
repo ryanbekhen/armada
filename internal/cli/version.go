@@ -8,6 +8,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -63,10 +64,14 @@ func LatestLine(ctx context.Context, current string) []string {
 	if os.Getenv(release.DisableEnv) != "" {
 		return nil
 	}
-	tag, err := release.Latest(ctx)
+	// Through an hour-long cache: GitHub allows 60 requests an hour from one
+	// address. A lookup that fails falls back to the last answer stored.
+	dir, _ := os.UserCacheDir()
+	f, _ := release.LatestCached(ctx, dir, time.Now())
+	tag := f.Tag
 	switch {
-	case err != nil:
-		return []string{"latest: unknown (" + err.Error() + ")"}
+	case tag == "":
+		return []string{"latest: unknown"}
 	case release.Newer(tag, current):
 		return []string{"latest: " + tag + ", " + release.URL(tag)}
 	case release.IsRelease(current):
