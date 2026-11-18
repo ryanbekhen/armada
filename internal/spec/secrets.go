@@ -85,6 +85,9 @@ func (a *App) SecretRefs() []string {
 		refs = append(refs, q.URLSecretRef)
 	}
 	refs = append(refs, a.BackupSecretRefs()...)
+	if a.Ingress != nil && a.Ingress.DNS != nil {
+		refs = append(refs, a.Ingress.DNS.TokenSecretRef)
+	}
 	slices.Sort(refs)
 	return slices.Compact(refs)
 }
@@ -217,6 +220,10 @@ func (a *App) WithSecretEnv(secrets []string) (*App, error) {
 	// The bucket's credentials and the backup key never reach the app.
 	for _, s := range a.BackupSecretRefs() {
 		used[s] = true
+	}
+	// Nor does the DNS token, which only the control plane uses.
+	if a.Ingress != nil && a.Ingress.DNS != nil {
+		used[a.Ingress.DNS.TokenSecretRef] = true
 	}
 	set := map[string]bool{}
 	for _, e := range a.Env {

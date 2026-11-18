@@ -3,6 +3,7 @@ package certs
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -33,7 +34,7 @@ func TestWildcardNeedsDNSProvider(t *testing.T) {
 	if a.SupportsWildcard() {
 		t.Error("wildcard support without DNS provider")
 	}
-	if err := a.Manage(context.Background(), []string{"*.apps.example.org"}, ""); err == nil || !strings.Contains(err.Error(), "DNS provider") {
+	if err := a.Manage(context.Background(), []string{"*.apps.example.org"}, "", nil); err == nil || !strings.Contains(err.Error(), "DNS provider") {
 		t.Errorf("err = %v", err)
 	}
 
@@ -146,7 +147,7 @@ func TestManageDropsNames(t *testing.T) {
 		{nil, []string{}},
 	}
 	for i, st := range steps {
-		if err := a.Manage(ctx, st.names, ""); err != nil {
+		if err := a.Manage(ctx, st.names, "", nil); err != nil {
 			t.Fatalf("step %d: %v", i, err)
 		}
 		if got := a.managedNames(); !slices.Equal(got, st.want) {
@@ -170,20 +171,20 @@ func TestRootDomainUsesDNSChallenge(t *testing.T) {
 	}
 	defer a.Close()
 	names := []string{"example.org", "shop.example.org", "a.b.example.org", "notexample.org", "example.org.evil.net", "custom.net"}
-	if err := a.Manage(context.Background(), names, "example.org"); err != nil {
+	if err := a.Manage(context.Background(), names, "example.org", nil); err != nil {
 		t.Fatal(err)
 	}
 	want := map[string]bool{"example.org": true, "shop.example.org": true, "a.b.example.org": true}
 	a.mu.Lock()
 	for _, n := range names {
-		if a.managed[n].dns != want[n] {
-			t.Errorf("%s: dns = %v, want %v", n, a.managed[n].dns, want[n])
+		if dns := a.managed[n].via == viaRoot; dns != want[n] {
+			t.Errorf("%s: dns = %v, want %v", n, dns, want[n])
 		}
 	}
 	a.mu.Unlock()
 
 	// Without the root, its names go back to HTTP-01 and stay managed.
-	if err := a.Manage(context.Background(), names, ""); err != nil {
+	if err := a.Manage(context.Background(), names, "", nil); err != nil {
 		t.Fatal(err)
 	}
 	a.mu.Lock()
@@ -192,7 +193,7 @@ func TestRootDomainUsesDNSChallenge(t *testing.T) {
 		t.Errorf("managed = %d names, want %d", len(a.managed), len(names))
 	}
 	for _, n := range names {
-		if a.managed[n].dns {
+		if a.managed[n].via != viaHTTP {
 			t.Errorf("%s still uses DNS-01 with no root domain", n)
 		}
 	}
@@ -211,12 +212,80 @@ func TestNoProviderMeansHTTPChallenge(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer a.Close()
-	if err := a.Manage(context.Background(), []string{"example.org"}, "example.org"); err != nil {
+	if err := a.Manage(context.Background(), []string{"example.org"}, "example.org", nil); err != nil {
 		t.Fatal(err)
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if a.managed["example.org"].dns {
+	if a.managed["example.org"].via != viaHTTP {
 		t.Error("example.org uses DNS-01 with no DNS provider")
 	}
+}
+
+// An app's custom domains with DNS credentials of their own (ADR 0047) use
+// DNS-01 with them, before the root domain's provider; names sharing
+// credentials share one config; changed credentials start the name over;
+// a name whose provider cannot be made keeps HTTP-01 and the rest go on.
+func TestNamesWithTheirOwnDNS(t *testing.T) {
+	t.Parallel()
+	var made []string
+	a, err := NewACME(Options{Storage: &certmagic.FileStorage{Path: tempDir(t)}, CA: "https://127.0.0.1:1/directory", DNSProvider: nopDNS{},
+		NewProvider: func(d DNS) (certmagic.DNSProvider, error) {
+			if d.Provider != "cloudflare" {
+				return nil, fmt.Errorf("unsupported DNS provider %q", d.Provider)
+			}
+			made = append(made, d.Token)
+			return nopDNS{}, nil
+		}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	shop := DNS{Provider: "cloudflare", Token: "tok-shop"}
+	names := []string{"shop.net", "www.shop.net", "blog.apps.example.org", "web.apps.example.org", "other.net", "bad.net"}
+	dns := map[string]DNS{"shop.net": shop, "www.shop.net": shop, "blog.apps.example.org": {Provider: "cloudflare", Token: "tok-blog"}, "bad.net": {Provider: "route66", Token: "x"}}
+	err = a.Manage(context.Background(), names, "apps.example.org", dns)
+	if err == nil || !strings.Contains(err.Error(), "bad.net") || strings.Contains(err.Error(), "tok-") {
+		t.Errorf("Manage error = %v", err)
+	}
+	a.mu.Lock()
+	via := func(n string) string { return a.managed[n].via }
+	if via("shop.net") != shop.Key() || via("www.shop.net") != shop.Key() || via("blog.apps.example.org") == viaRoot ||
+		via("web.apps.example.org") != viaRoot || via("other.net") != viaHTTP || via("bad.net") != viaHTTP {
+		t.Errorf("via: %v", a.managed)
+	}
+	a.mu.Unlock()
+	if len(made) != 2 {
+		t.Errorf("providers made for %d credentials, want 2", len(made))
+	}
+
+	// New credentials for shop.net start it over with them; unchanged ones
+	// keep their config.
+	shop2 := DNS{Provider: "cloudflare", Token: "tok-shop-2"}
+	if err := a.Manage(context.Background(), []string{"shop.net", "www.shop.net"}, "apps.example.org", map[string]DNS{"shop.net": shop2, "www.shop.net": shop}); err != nil {
+		t.Fatal(err)
+	}
+	a.mu.Lock()
+	if a.managed["shop.net"].via != shop2.Key() || a.managed["www.shop.net"].via != shop.Key() {
+		t.Errorf("after the change: %v", a.managed)
+	}
+	a.mu.Unlock()
+	if len(made) != 3 {
+		t.Errorf("providers made = %d, want 3 (only the new token)", len(made))
+	}
+	if s := fmt.Sprint(shop) + fmt.Sprintf("%v %+v", shop, shop); strings.Contains(s, "tok-shop") {
+		t.Errorf("credentials print their token: %s", s)
+	}
+}
+
+// tempDir is a directory removed after the test, whatever certmagic's
+// background work leaves in it meanwhile.
+func tempDir(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "armada-certs-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	return dir
 }

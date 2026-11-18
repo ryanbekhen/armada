@@ -27,6 +27,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	armadav1 "github.com/ryanbekhen/armada/api/armada/v1"
+	"github.com/ryanbekhen/armada/internal/certs"
 	"github.com/ryanbekhen/armada/internal/pki"
 	"github.com/ryanbekhen/armada/internal/proxy"
 	"github.com/ryanbekhen/armada/internal/runtime/embedded"
@@ -65,14 +66,23 @@ type fakeCerts struct {
 	mu       sync.Mutex
 	wildcard bool
 	managed  []string
+	dns      map[string]certs.DNS
 	issued   map[string][]byte
 }
 
-func (f *fakeCerts) Manage(_ context.Context, names []string, _ string) error {
+func (f *fakeCerts) Manage(_ context.Context, names []string, _ string, dns map[string]certs.DNS) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.managed = slices.Clone(names)
+	f.dns = maps.Clone(dns)
 	return nil
+}
+
+// DNS returns the credentials of each name the last Manage was given.
+func (f *fakeCerts) DNS() map[string]certs.DNS {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return maps.Clone(f.dns)
 }
 
 func (f *fakeCerts) Certificate(_ context.Context, name string) ([]byte, bool) {
@@ -753,5 +763,78 @@ func TestCustomDomainNamingARootHost(t *testing.T) {
 	st, err := c.admin.Status(c.ctx, &armadav1.StatusRequest{App: "erp"})
 	if err != nil || !slices.Equal(st.Apps[0].Urls, []string{"https://erp.lab.test/"}) {
 		t.Errorf("erp urls = %v, %v", st.GetApps(), err)
+	}
+}
+
+// An app's ingress.dns (ADR 0047) hands its verified custom domains to the
+// certificate manager with the token its active revision pins, never the
+// app's host under the root domain, and never another app's token; a new
+// token reaches it after a deploy; a missing token secret is refused.
+func TestIngressDNSToken(t *testing.T) {
+	t.Parallel()
+	txt := &fakeTXT{records: map[string][]string{}}
+	fc := &fakeCerts{issued: map[string][]byte{}}
+	acme := freeAddr(t)
+	keys := withKeys(t)
+	c := newCluster(t, func(cfg *Config) {
+		keys(cfg)
+		cfg.Resolver = txt
+		cfg.Certs = fc
+		cfg.ACMEAddr = acme
+		cfg.VerifyInterval = time.Hour
+	})
+	c.addNode("n1", "127.0.0.1")
+	if _, err := c.admin.SetClusterConfig(c.ctx, &armadav1.SetClusterConfigRequest{SetRootDomain: true, Config: &armadav1.ClusterConfig{RootDomain: "lab.test"}}); err != nil {
+		t.Fatal(err)
+	}
+	secret := func(app, v string) {
+		t.Helper()
+		if _, err := c.admin.SetSecret(c.ctx, &armadav1.SetSecretRequest{App: app, Name: "cf-token", Value: []byte(v)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	secret("shop", "tok-shop-1\n")
+	c.deploy("name: shop\nimage: nginx:1\ningress:\n  type: external\n  port: 80\n  domains: [shop.net, www.shop.net]\n  dns: {provider: cloudflare, tokenSecretRef: cf-token}\n")
+	c.deploy("name: blog\nimage: nginx:1\ningress:\n  type: external\n  port: 80\n  domains: [blog.net]\n")
+	ds, err := c.admin.ListDomains(c.ctx, &armadav1.ListDomainsRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range ds.Domains {
+		txt.set(d.TxtName, d.TxtValue)
+		if v, err := c.admin.VerifyDomain(c.ctx, &armadav1.VerifyDomainRequest{Name: d.Name}); err != nil || !v.Verified {
+			t.Fatalf("VerifyDomain(%s) = %v, %v", d.Name, v, err)
+		}
+	}
+	c.srv.Trigger()
+	token := func(name string) string {
+		if d, ok := fc.DNS()[name]; ok {
+			return d.Provider + ":" + d.Token
+		}
+		return ""
+	}
+	c.eventually("shop's domains use its token", func() bool {
+		return token("shop.net") == "cloudflare:tok-shop-1" && token("www.shop.net") == "cloudflare:tok-shop-1"
+	})
+	if token("shop.lab.test") != "" || token("blog.net") != "" || token("blog.lab.test") != "" {
+		t.Errorf("credentials = %v", fc.DNS())
+	}
+	if m := fc.Managed(); !slices.Contains(m, "blog.net") || !slices.Contains(m, "shop.lab.test") {
+		t.Errorf("managed = %v", m)
+	}
+
+	// A new token reaches the certificates with the next revision.
+	secret("shop", "tok-shop-2")
+	c.deploy("name: shop\nimage: nginx:1\nenv: [{name: V, value: \"2\"}]\ningress:\n  type: external\n  port: 80\n  domains: [shop.net, www.shop.net]\n  dns: {provider: cloudflare, tokenSecretRef: cf-token}\n")
+	c.eventually("the new token", func() bool { return token("shop.net") == "cloudflare:tok-shop-2" })
+
+	// A token secret that does not exist is refused at deploy.
+	if _, err := c.admin.Deploy(c.ctx, &armadav1.DeployRequest{Spec: []byte("name: blog\nimage: nginx:1\ningress:\n  type: external\n  port: 80\n  domains: [blog.net]\n  dns: {provider: cloudflare, tokenSecretRef: cf-token}\n")}); err == nil {
+		t.Error("a deploy naming a missing token secret was accepted")
+	}
+	for _, e := range listEvents(t, c.store) {
+		if strings.Contains(e.Message, "tok-shop") {
+			t.Errorf("token in an event: %+v", e)
+		}
 	}
 }

@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/caddyserver/certmagic"
 	"github.com/libdns/cloudflare"
 	"github.com/spf13/cobra"
 	clientv3 "go.etcd.io/etcd/client/v3"
@@ -21,6 +22,7 @@ import (
 	"github.com/ryanbekhen/armada/internal/proxy"
 	"github.com/ryanbekhen/armada/internal/proxy/haproxy"
 	"github.com/ryanbekhen/armada/internal/runtime"
+	"github.com/ryanbekhen/armada/internal/spec"
 )
 
 const (
@@ -104,6 +106,13 @@ func certOptions(cs certSettings, listenFlag, serverListen string, log *slog.Log
 			}
 			onResult(name, err)
 		},
+	}
+	// An app's own DNS token for its custom domains (ADR 0047).
+	opts.NewProvider = func(d certs.DNS) (certmagic.DNSProvider, error) {
+		if d.Provider != spec.DNSProviderCloudflare {
+			return nil, fmt.Errorf("unsupported DNS provider %q (want cloudflare)", d.Provider)
+		}
+		return &cloudflare.Provider{APIToken: d.Token}, nil
 	}
 	switch cs.dnsProvider {
 	case "":

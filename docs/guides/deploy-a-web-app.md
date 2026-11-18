@@ -156,6 +156,34 @@ certificate's `Obtained` event, or `Failed` with the reason.
 A domain belongs to one space. When you add it to an app of another
 space, that space has to verify it again with a new token.
 
+**When port 80 does not reach your nodes**, for example a CDN or load
+balancer in front that answers HTTP itself, or the name still points at an
+old server until a cut-over, let the app use its domain's DNS instead. Make
+a Cloudflare API token that may edit the DNS of `example.com` only, store
+it as a secret of the app, and name it:
+
+```bash
+armada secret set shop cf-token < cf-token.txt
+armada app update shop --dns-token-secret cf-token
+```
+
+In a spec file that is:
+
+```yaml
+ingress:
+  type: external
+  port: 8080
+  domains: [shop.example.com]
+  dns:
+    provider: cloudflare
+    tokenSecretRef: cf-token
+```
+
+From the next revision on, the app's custom domains get their certificates
+through DNS-01 with that token. The TXT record above is still needed: it
+proves the domain is yours, the token only obtains certificates. The token
+never reaches the app's containers.
+
 ## 4. Update the image and watch the rollout
 
 Every change is a new revision, rolled out replica by replica:
@@ -389,6 +417,7 @@ if it had any, stay until `armada volume delete`.
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
+| `TLS no` long after `VERIFIED yes`, `Failed` events with HTTP-01 in the reason | Port 80 of the nodes does not answer the ACME CA for the domain | Open port 80, or give the app its domain's DNS token: `armada app update APP --dns-token-secret NAME` |
 | `VERIFIED no`, `last check: TXT record ... not found` | The TXT record is missing, has another name, or has not propagated | Create `_armada-verify.<domain>` exactly as printed, wait for DNS, run `armada domain verify <domain>` |
 | `last check: ... does not contain the expected token` | The record holds another value, for example from an earlier attempt or another space | Copy the value `armada domain list` prints now |
 | `VERIFIED yes`, `TLS no` for more than a few minutes | The ACME CA cannot reach port 80 of the node the domain points to, or the domain does not point at your nodes | Check the `A` records and the firewall; `armada cluster events` shows the certificate's `Failed` event with the reason |
