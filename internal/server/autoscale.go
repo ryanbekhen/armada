@@ -73,6 +73,16 @@ func (as *autoscaler) touch(app string, now time.Time) {
 	}
 }
 
+// note replaces the message of app's last evaluation until the next one,
+// for a change made outside an evaluation (a wake).
+func (as *autoscaler) note(app, msg string) {
+	as.mu.Lock()
+	defer as.mu.Unlock()
+	if st, ok := as.apps[app]; ok && st.status != nil {
+		st.status.Message = msg
+	}
+}
+
 // status returns the last evaluation of app, or nil.
 func (as *autoscaler) status(app string) *armadav1.Autoscale {
 	as.mu.Lock()
@@ -181,6 +191,8 @@ func (s *Server) wakeApp(ctx context.Context, nodeID, app string) {
 		return
 	}
 	s.log.Info("woke app", "app", app, "node", nodeID)
+	// Until the next evaluation, app show would still say it scales to zero.
+	s.scaler.note(app, "woken by a request at "+nodeID+"; starting")
 	s.record(ctx, store.Event{Kind: eventApp, Object: app, App: app, Node: nodeID, Reason: "Woken",
 		Message: "a request at " + nodeID + " started it from zero"})
 	s.Trigger()
