@@ -28,7 +28,7 @@ type fakeAdmin struct {
 	specs    map[string]string
 	revs     map[string]int
 	deploys  []*armadav1.DeployRequest
-	scales   []*armadav1.ScaleRequest
+	asked    []string // apps GetAppSpec was asked for
 	spaces   []string
 	apps     []*armadav1.AppSummary
 	pageSize int
@@ -44,6 +44,7 @@ func newFakeAdmin() *fakeAdmin {
 func (f *fakeAdmin) rev(id string) string { return id + "--r" + strconv.Itoa(f.revs[id]) }
 
 func (f *fakeAdmin) GetAppSpec(_ context.Context, req *armadav1.GetAppSpecRequest, _ ...grpc.CallOption) (*armadav1.GetAppSpecResponse, error) {
+	f.asked = append(f.asked, req.App)
 	s, ok := f.specs[req.App]
 	if !ok {
 		return nil, status.Errorf(codes.NotFound, "app %s: not found", req.App)
@@ -79,11 +80,6 @@ func (f *fakeAdmin) Deploy(_ context.Context, req *armadav1.DeployRequest, _ ...
 		f.revs[id]++
 	}
 	return &armadav1.DeployResponse{App: id, Revision: f.rev(id)}, nil
-}
-
-func (f *fakeAdmin) Scale(_ context.Context, req *armadav1.ScaleRequest, _ ...grpc.CallOption) (*armadav1.ScaleResponse, error) {
-	f.scales = append(f.scales, req)
-	return &armadav1.ScaleResponse{}, nil
 }
 
 func (f *fakeAdmin) ListSpaces(context.Context, *armadav1.ListSpacesRequest, ...grpc.CallOption) (*armadav1.ListSpacesResponse, error) {
@@ -135,7 +131,7 @@ func TestAppCreateAndUpdateFromFlags(t *testing.T) {
 	cli := func(args ...string) (int, string, string) { return run(t, append(args, "--config", cfg)...) }
 
 	code, out, stderr := cli("app", "create", "hello", "--image", "traefik/whoami:v1.10", "--port", "80", "--ingress", "external",
-		"--replicas", "2", "--env", "A=1", "--secret-env", "DB=db-url", "--health-path", "/healthz", "--memory", "128Mi")
+		"--min", "2", "--env", "A=1", "--secret-env", "DB=db-url", "--health-path", "/healthz", "--memory", "128Mi")
 	if code != 0 || out != "Created hello (revision hello--r1).\n" {
 		t.Fatalf("create: %d %q %q", code, out, stderr)
 	}
@@ -198,7 +194,7 @@ func TestAppCreateAndUpdateFromFlags(t *testing.T) {
 	for args, want := range map[string]string{
 		"app update ghost --image nginx:1":                               "does not exist",
 		"app update hello":                                               "nothing to change",
-		"app update hello --replicas 2 --min 1":                          "--replicas sets a fixed count",
+		"app update hello --replicas 2":                                  "unknown flag: --replicas",
 		"app update hello --min 1 --max 3 --scale-cpu 50 --scale-http 9": "give one of",
 		"app create hi --image nginx:1 --var A=1":                        "--vars and --var",
 		"app create hi --image nginx:1 --file x.yaml":                    "either --file or flags",
@@ -327,7 +323,7 @@ func TestSpaceUse(t *testing.T) {
 	f.spaces = append(f.spaces, "staging")
 	cfg := withFake(t, f)
 	cli := func(args ...string) (int, string, string) { return run(t, append(args, "--config", cfg)...) }
-	scaled := func() string { return f.scales[len(f.scales)-1].App }
+	scaled := func() string { return f.asked[len(f.asked)-1] }
 
 	if code, out, stderr := cli("space", "use", "staging"); code != 0 || out != "Using space staging.\n" {
 		t.Fatalf("space use: %d %q %q", code, out, stderr)
@@ -339,16 +335,16 @@ func TestSpaceUse(t *testing.T) {
 	if fi, _ := os.Stat(cfg); fi.Mode().Perm() != 0o600 {
 		t.Errorf("config mode = %v", fi.Mode())
 	}
-	cli("app", "scale", "web", "--replicas", "2")
+	cli("app", "show", "web", "-o", "yaml")
 	if scaled() != "web.staging" {
-		t.Errorf("scale in the used space named %s", scaled())
+		t.Errorf("show in the used space named %s", scaled())
 	}
-	cli("app", "scale", "web", "--replicas", "2", "--space", "default")
+	cli("app", "show", "web", "-o", "yaml", "--space", "default")
 	if scaled() != "web" {
 		t.Errorf("--space default named %s", scaled())
 	}
 	t.Setenv("ARMADA_SPACE", "prod")
-	cli("app", "scale", "web", "--replicas", "2")
+	cli("app", "show", "web", "-o", "yaml")
 	if scaled() != "web.prod" {
 		t.Errorf("ARMADA_SPACE named %s", scaled())
 	}
@@ -359,7 +355,7 @@ func TestSpaceUse(t *testing.T) {
 	if code, _, _ := cli("space", "use", "default"); code != 0 {
 		t.Fatal("space use default failed")
 	}
-	cli("app", "scale", "web", "--replicas", "2")
+	cli("app", "show", "web", "-o", "yaml")
 	if scaled() != "web" {
 		t.Errorf("after use default: %s", scaled())
 	}
@@ -528,5 +524,54 @@ func TestAppDNSFlags(t *testing.T) {
 	}
 	if code, _, stderr := cli("app", "create", "blog", "--image", "nginx:1", "--port", "80", "--ingress", "external", "--dns-token-secret", "cf-token"); code == 0 || !strings.Contains(stderr, "ingress.dns") {
 		t.Errorf("without domains: %d %q", code, stderr)
+	}
+}
+
+// --min alone runs a fixed count; with a --scale rule it bounds
+// autoscaling with --max; --min later keeps the rules; --max needs a rule;
+// --no-autoscale drops the rules on purpose and keeps the minimum.
+func TestScaleFlags(t *testing.T) {
+	f := newFakeAdmin()
+	cfg := withFake(t, f)
+	cli := func(args ...string) (int, string, string) { return run(t, append(args, "--config", cfg)...) }
+	scale := func() *spec.Scale {
+		sp, err := spec.Parse([]byte(f.specs["web"]))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return sp.Scale
+	}
+	if code, _, stderr := cli("app", "create", "web", "--image", "nginx:1", "--port", "80", "--ingress", "external", "--min", "3"); code != 0 {
+		t.Fatal(stderr)
+	}
+	if s := scale(); *s.Min != 3 || (s.Max != nil && *s.Max != 3) || len(s.Rules) != 0 {
+		t.Errorf("--min alone: %+v", s)
+	}
+	if code, _, stderr := cli("app", "update", "web", "--max", "5"); code == 0 || !strings.Contains(stderr, "--max bounds autoscaling") {
+		t.Errorf("--max without a rule: %d %q", code, stderr)
+	}
+	if code, _, stderr := cli("app", "update", "web", "--min", "1", "--max", "5", "--scale-cpu", "40"); code != 0 {
+		t.Fatal(stderr)
+	}
+	if code, _, stderr := cli("app", "update", "web", "--min", "2"); code != 0 {
+		t.Fatal(stderr)
+	}
+	if s := scale(); *s.Min != 2 || *s.Max != 5 || len(s.Rules) != 1 || s.Rules[0].Utilization != 40 {
+		t.Errorf("--min keeps the rules: %+v", s)
+	}
+	if code, _, stderr := cli("app", "update", "web", "--no-autoscale", "--max", "3"); code == 0 || !strings.Contains(stderr, "--no-autoscale runs a fixed count") {
+		t.Errorf("--no-autoscale with --max: %d %q", code, stderr)
+	}
+	if code, _, stderr := cli("app", "update", "web", "--no-autoscale"); code != 0 {
+		t.Fatal(stderr)
+	}
+	if s := scale(); *s.Min != 2 || (s.Max != nil && *s.Max != 2) || len(s.Rules) != 0 {
+		t.Errorf("--no-autoscale: %+v", s)
+	}
+	if code, _, stderr := cli("app", "update", "web", "--replicas", "4"); code == 0 || !strings.Contains(stderr, "unknown flag: --replicas") {
+		t.Errorf("--replicas: %d %q", code, stderr)
+	}
+	if code, _, stderr := cli("app", "scale", "web"); code == 0 || !strings.Contains(stderr, `unknown command "scale" for "armada app"`) {
+		t.Errorf("app scale: %d %q", code, stderr)
 	}
 }

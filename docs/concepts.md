@@ -37,7 +37,7 @@ You never "run a container". You describe what should exist, and Armada
 makes it so and keeps it so.
 
 ```bash
-armada app create web --image ghcr.io/acme/web:1.4.2 --replicas 3 ...
+armada app create web --image ghcr.io/acme/web:1.4.2 --min 3 ...
 ```
 
 This records *"web: 3 replicas of this image"*. The leader decides which

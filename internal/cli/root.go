@@ -165,6 +165,7 @@ func startNotice(ctx context.Context, args []string, stderr io.Writer) func(time
 // Run runs a command tree with args and returns the process exit code; a nil
 // stdin means os.Stdin. armadad runs its own tree through it.
 func Run(ctx context.Context, cmd *cobra.Command, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	refuseUnknownCommands(cmd)
 	cmd.SetArgs(args)
 	if stdin != nil {
 		cmd.SetIn(stdin)
@@ -181,4 +182,26 @@ func Run(ctx context.Context, cmd *cobra.Command, args []string, stdin io.Reader
 		return 1
 	}
 	return 0
+}
+
+// refuseUnknownCommands makes every noun without a verb of its own fail on
+// a verb it does not have, instead of printing its help and exiting 0: a
+// script calling a removed command must not take it for success.
+func refuseUnknownCommands(cmd *cobra.Command) {
+	for _, c := range cmd.Commands() {
+		refuseUnknownCommands(c)
+	}
+	if !cmd.HasSubCommands() || cmd.Run != nil || cmd.RunE != nil {
+		return
+	}
+	cmd.RunE = func(c *cobra.Command, args []string) error {
+		if len(args) == 0 {
+			return c.Help()
+		}
+		msg := fmt.Sprintf("unknown command %q for %q", args[0], c.CommandPath())
+		if s := c.SuggestionsFor(args[0]); len(s) > 0 {
+			msg += "; did you mean " + strings.Join(s, " or ") + "?"
+		}
+		return fmt.Errorf("%s (see %s --help)", msg, c.CommandPath())
+	}
 }

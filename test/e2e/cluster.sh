@@ -572,7 +572,7 @@ if [ "$SERVERS" -gt 1 ] && want failover; then
 	on "$_i" 'systemctl stop armada-server'
 	wait_for 60 "a new leader took over from $_old" new_leader "$_old"
 	REPLICAS=$((REPLICAS + 1))
-	cli app scale "$APP" --replicas "$REPLICAS" >/dev/null
+	cli app update "$APP" --min "$REPLICAS" >/dev/null
 	wait_for 180 "scaled to $REPLICAS through the new leader" serving
 	load_stop "leader stop"
 	on "$_i" 'systemctl start armada-server'

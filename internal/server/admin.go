@@ -126,23 +126,6 @@ func (s *Server) Deploy(ctx context.Context, req *armadav1.DeployRequest) (*arma
 	return &armadav1.DeployResponse{App: app.ID(), Revision: rev.Name}, nil
 }
 
-// Scale sets an app's desired replica count until its next deploy.
-func (s *Server) Scale(ctx context.Context, req *armadav1.ScaleRequest) (*armadav1.ScaleResponse, error) {
-	if err := accessFrom(ctx).app(req.GetApp()); err != nil {
-		return nil, err
-	}
-	n := int(req.GetReplicas())
-	if n < 1 || n > spec.MaxReplicas {
-		return nil, status.Errorf(codes.InvalidArgument, "replicas must be between 1 and %d", spec.MaxReplicas)
-	}
-	if err := s.store.SetReplicas(ctx, req.GetApp(), n, actor(ctx)); err != nil {
-		return nil, storeErr(err)
-	}
-	s.log.Info("scaled", "app", req.GetApp(), "replicas", n, "by", actor(ctx))
-	s.Trigger()
-	return &armadav1.ScaleResponse{}, nil
-}
-
 // SetTraffic changes how an app in multiple revision mode splits requests
 // until its next deploy (ADR 0022).
 func (s *Server) SetTraffic(ctx context.Context, req *armadav1.SetTrafficRequest) (*armadav1.SetTrafficResponse, error) {

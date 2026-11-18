@@ -57,7 +57,7 @@ func TestNFSVolumeAppSpreadsAcrossNodes(t *testing.T) {
 		a := c.app("web")
 		return a.ActiveRevision == "web--r2" && a.RolloutState == "" && len(c.running("web")) == 2
 	})
-	if _, err := c.admin.Scale(c.ctx, &armadav1.ScaleRequest{App: "web", Replicas: 1}); err != nil {
+	if err := c.store.SetReplicas(c.ctx, "web", 1, "admin:test"); err != nil {
 		t.Errorf("scaling an NFS app: %v", err)
 	}
 	_ = store.ErrNotFound

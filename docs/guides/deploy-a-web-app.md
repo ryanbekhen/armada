@@ -41,7 +41,7 @@ armada app create shop \
   --image ghcr.io/acme/shop:1.4.2 \
   --port 8080 \
   --ingress external \
-  --replicas 2 \
+  --min 2 \
   --health-path /healthz \
   --env LOG_LEVEL=info \
   --wait

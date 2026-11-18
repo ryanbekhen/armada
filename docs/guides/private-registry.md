@@ -56,7 +56,7 @@ the server is always the registry of `--image`:
 
 ```bash
 armada app create api --image ghcr.io/acme/api:1.4.2 --port 3000 --ingress external \
-  --registry-user acme-bot --registry-secret ghcr-token --replicas 2 --wait
+  --registry-user acme-bot --registry-secret ghcr-token --min 2 --wait
 ```
 
 Or in a spec file, which you keep in git:

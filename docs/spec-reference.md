@@ -77,7 +77,9 @@ spec the app runs. Everything else is written in a file.
 | `--env K=V`, `--secret-env K=SECRET`, `--remove-env K` | `env` |
 | `--env-from-secrets[=false]` | `envFrom` |
 | `--command`, `--args` (one word per flag, repeated: `--args --port --args 80`) | `command`, `args` |
-| `--replicas N` | `scale.min` and `scale.max` |
+| `--min N` | `scale.min`: a fixed count without rules, the lower bound with them |
+| `--max N`, `--scale-cpu P`, `--scale-memory P`, `--scale-http N` | `scale.max` and one rule (`--max` needs a rule) |
+| `--no-autoscale` | removes `scale.rules`, so `scale.min` is a fixed count |
 | `--min N --max N` with one of `--scale-cpu P`, `--scale-memory P`, `--scale-http N` | `scale` with one rule |
 | `--cpu`, `--memory` | `resources` |
 | `--health-path P` | `probes.readiness.path` |
@@ -292,8 +294,8 @@ ready; see [ADR 0005](adr/0005-rolling-updates.md).
 "Autoscaling" below). Replicas are spread across ready, not drained
 nodes that the app's `placement` allows (a rollout spreads the new
 revision the same way), and spread out again, one at a time, when a node
-joins, returns, or resumes. `armada app scale APP --replicas N` changes
-the count until the next update, without a new revision.
+joins, returns, or resumes. Changing `min` (`armada app update APP --min
+N`) is a new revision, rolled out like any other.
 
 #### Autoscaling
 
@@ -370,9 +372,10 @@ scale:
   - **Down:** it falls only after the load has stayed lower for 5 minutes.
   - **Hold:** changes within 10% of the target are ignored, and the count
     is frozen during a rollout.
-- **Updates and manual scaling.** An update keeps the current count
-  within the new bounds. `armada app scale` refuses an autoscaled app:
-  change `min` (`armada app update APP --min N`) instead.
+- **Updates.** An update keeps the current count within the new bounds.
+  To keep more running, raise `min` (`armada app update APP --min N`); to
+  stop autoscaling, `armada app update APP --no-autoscale` removes the
+  rules and runs `min`.
 - **What to watch.** `armada app show` shows each rule's current value
   against its target, and `armada app events APP` shows `ScaledUp` and
   `ScaledDown` with the reason.
@@ -518,8 +521,7 @@ revisions:
   each revision takes requests as its replicas become ready. Changing only
   `traffic` creates no new revision.
 - **Replicas.** Each revision runs `max(1, round(replicas × weight ÷ 100))`
-  replicas, where `replicas` is `scale.min`, `armada app scale`, or the
-  autoscaler's count.
+  replicas, where `replicas` is `scale.min` or the autoscaler's count.
 - **Changing weights.** `armada app traffic web web--r3=50 web--r4=50` (or
   `r3=50 r4=50`) changes the weights until the next update. A revision left
   out stops serving. `armada app rollback` refuses apps in multiple mode.

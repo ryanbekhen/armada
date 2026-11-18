@@ -23,14 +23,21 @@ revision`, `job run`).
 **Verbs.** `create` and `update` (apps and jobs, from flags or `--file`),
 `list` (one line per item), `show` (one item in detail), `set` (settings of
 something that exists), `delete`; and verbs whose meaning is plain where
-they fit: `scale`, `rollback`, `traffic`, `logs`, `exec`, `top`, `events`,
+they fit: `rollback`, `traffic`, `logs`, `exec`, `top`, `events`,
 `run`, `cancel`, `drain`, `resume`, `restrict`, `unrestrict`, `label`,
 `backup`, `restore`, `verify`, `renew`, `credentials`, `join-token`, `use`.
-`ls` and `rm` stay accepted for `list` and `delete`.
+`ls` and `rm` stay accepted for `list` and `delete`. A noun given a verb it
+does not have fails with an error, never with its help and exit code 0, so
+a script never takes a mistyped command for success.
+
+**Replica count.** It lives in the spec only (`scale`): `--min N` alone
+runs a fixed N, `--min`/`--max` with one `--scale-*` rule bound
+autoscaling, and `--no-autoscale` removes the rules on purpose, so no flag
+drops rules someone tuned as a side effect.
 
 ```
 armada
-├── app        create | update | list | show | scale | rollback | traffic | logs | exec | top | events | delete
+├── app        create | update | list | show | rollback | traffic | logs | exec | top | events | delete
 │   └── revision   list | show
 ├── job        create | update | list | show | run | logs | cancel | delete
 │   └── run        list
@@ -78,7 +85,7 @@ Flags cover what is changed often. The rest (custom probes, routes with
 | `--env K=V`, `--secret-env K=SECRET`, `--remove-env K` | `env` |
 | `--env-from-secrets[=false]` | `envFrom` |
 | `--command`, `--args` | `command`, `args` |
-| `--replicas N`, or `--min N --max N --scale-cpu P \| --scale-memory P \| --scale-http N` | `scale` |
+| `--min N` (alone: a fixed count), `--max N --scale-cpu P \| --scale-memory P \| --scale-http N`, `--no-autoscale` | `scale` |
 | `--cpu`, `--memory` | `resources` |
 | `--health-path P` | `probes.readiness.path` |
 | `--registry-user U --registry-secret S` | `registry` |

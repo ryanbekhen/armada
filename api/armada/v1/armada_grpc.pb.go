@@ -24,7 +24,6 @@ const (
 	AdminService_ListApps_FullMethodName                 = "/armada.v1.AdminService/ListApps"
 	AdminService_ClusterStatus_FullMethodName            = "/armada.v1.AdminService/ClusterStatus"
 	AdminService_GetAppSpec_FullMethodName               = "/armada.v1.AdminService/GetAppSpec"
-	AdminService_Scale_FullMethodName                    = "/armada.v1.AdminService/Scale"
 	AdminService_SetTraffic_FullMethodName               = "/armada.v1.AdminService/SetTraffic"
 	AdminService_ListVolumes_FullMethodName              = "/armada.v1.AdminService/ListVolumes"
 	AdminService_RemoveVolume_FullMethodName             = "/armada.v1.AdminService/RemoveVolume"
@@ -100,7 +99,6 @@ type AdminServiceClient interface {
 	ClusterStatus(ctx context.Context, in *ClusterStatusRequest, opts ...grpc.CallOption) (*ClusterStatusResponse, error)
 	// GetAppSpec returns the spec an app or job runs, as a file holds it.
 	GetAppSpec(ctx context.Context, in *GetAppSpecRequest, opts ...grpc.CallOption) (*GetAppSpecResponse, error)
-	Scale(ctx context.Context, in *ScaleRequest, opts ...grpc.CallOption) (*ScaleResponse, error)
 	// SetTraffic changes how an app in multiple revision mode splits
 	// requests, until its next deploy (ADR 0022).
 	SetTraffic(ctx context.Context, in *SetTrafficRequest, opts ...grpc.CallOption) (*SetTrafficResponse, error)
@@ -255,16 +253,6 @@ func (c *adminServiceClient) GetAppSpec(ctx context.Context, in *GetAppSpecReque
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(GetAppSpecResponse)
 	err := c.cc.Invoke(ctx, AdminService_GetAppSpec_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *adminServiceClient) Scale(ctx context.Context, in *ScaleRequest, opts ...grpc.CallOption) (*ScaleResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ScaleResponse)
-	err := c.cc.Invoke(ctx, AdminService_Scale_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -890,7 +878,6 @@ type AdminServiceServer interface {
 	ClusterStatus(context.Context, *ClusterStatusRequest) (*ClusterStatusResponse, error)
 	// GetAppSpec returns the spec an app or job runs, as a file holds it.
 	GetAppSpec(context.Context, *GetAppSpecRequest) (*GetAppSpecResponse, error)
-	Scale(context.Context, *ScaleRequest) (*ScaleResponse, error)
 	// SetTraffic changes how an app in multiple revision mode splits
 	// requests, until its next deploy (ADR 0022).
 	SetTraffic(context.Context, *SetTrafficRequest) (*SetTrafficResponse, error)
@@ -1015,9 +1002,6 @@ func (UnimplementedAdminServiceServer) ClusterStatus(context.Context, *ClusterSt
 }
 func (UnimplementedAdminServiceServer) GetAppSpec(context.Context, *GetAppSpecRequest) (*GetAppSpecResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetAppSpec not implemented")
-}
-func (UnimplementedAdminServiceServer) Scale(context.Context, *ScaleRequest) (*ScaleResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method Scale not implemented")
 }
 func (UnimplementedAdminServiceServer) SetTraffic(context.Context, *SetTrafficRequest) (*SetTrafficResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method SetTraffic not implemented")
@@ -1297,24 +1281,6 @@ func _AdminService_GetAppSpec_Handler(srv interface{}, ctx context.Context, dec 
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(AdminServiceServer).GetAppSpec(ctx, req.(*GetAppSpecRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _AdminService_Scale_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ScaleRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(AdminServiceServer).Scale(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: AdminService_Scale_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(AdminServiceServer).Scale(ctx, req.(*ScaleRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -2328,10 +2294,6 @@ var AdminService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetAppSpec",
 			Handler:    _AdminService_GetAppSpec_Handler,
-		},
-		{
-			MethodName: "Scale",
-			Handler:    _AdminService_Scale_Handler,
 		},
 		{
 			MethodName: "SetTraffic",

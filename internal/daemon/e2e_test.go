@@ -294,7 +294,7 @@ func TestEndToEnd(t *testing.T) {
 		t.Errorf("replica address = %q", a)
 	}
 
-	if code, out, stderr := cli("app", "scale", "web", "--replicas", "3"); code != 0 || out != "Scaled web to 3 replicas.\n" {
+	if code, out, stderr := cli("app", "update", "web", "--min", "3", "--wait", "--timeout", "1m"); code != 0 || !strings.Contains(out, "web--r2 is live (3/3 ready)") {
 		t.Fatalf("scale: %q %s", out, stderr)
 	}
 	waitFor("3/3 ready", func() bool {
@@ -579,10 +579,10 @@ func TestEndToEnd(t *testing.T) {
 	if code, out, _ := cli("app", "update", "web", "--file", spec, "--diff"); code != 0 || !regexp.MustCompile(`(?m)^\+ .*example\.org$`).MatchString(out) {
 		t.Errorf("app update --diff = %q", out)
 	}
-	if _, out, _ := cli("app", "show", "web"); !regexp.MustCompile(`Revision:\s+web--r1`).MatchString(out) {
+	if _, out, _ := cli("app", "show", "web"); !regexp.MustCompile(`Revision:\s+web--r2`).MatchString(out) {
 		t.Errorf("--diff changed the app: %q", out)
 	}
-	if code, out, stderr := cli("app", "update", "web", "--file", spec); code != 0 || out != "Updated web (revision web--r2).\n" {
+	if code, out, stderr := cli("app", "update", "web", "--file", spec); code != 0 || out != "Updated web (revision web--r3).\n" {
 		t.Fatalf("app update with domain: %q %s", out, stderr)
 	}
 	code, out, stderr = cli("domain", "list", "--app", "web")
@@ -596,23 +596,23 @@ func TestEndToEnd(t *testing.T) {
 		t.Errorf("invalid root domain accepted: %q", stderr)
 	}
 
-	// Rolling update: the domain deploy above is revision 2; wait for it.
+	// Rolling update: the domain deploy above is revision 3; wait for it.
 	code, out, stderr = cli("app", "update", "web", "--file", spec, "--wait", "--timeout", "1m")
-	if code != 0 || !strings.Contains(out, "web is unchanged (revision web--r2).") || !strings.Contains(out, "web--r2 is live (3/3 ready)") {
+	if code != 0 || !strings.Contains(out, "web is unchanged (revision web--r3).") || !strings.Contains(out, "web--r3 is live (3/3 ready)") {
 		t.Fatalf("app update --wait: code=%d out=%q err=%q", code, out, stderr)
 	}
 	code, out, _ = cli("app", "revision", "list", "web")
-	if code != 0 || !regexp.MustCompile(`web--r2\s+active\s`).MatchString(out) || !strings.Contains(out, "web--r1") {
+	if code != 0 || !regexp.MustCompile(`web--r3\s+active\s`).MatchString(out) || !strings.Contains(out, "web--r2") {
 		t.Errorf("revision list = %q", out)
 	}
 	if code, out, _ := cli("app", "revision", "show", "web--r1"); code != 0 || !regexp.MustCompile(`Image:\s+nginx:1.27`).MatchString(out) {
 		t.Errorf("revision show = %q", out)
 	}
 	code, out, stderr = cli("app", "rollback", "web", "--wait", "--timeout", "1m")
-	if code != 0 || !strings.Contains(out, "Rolling web back to web--r1.") || !strings.Contains(out, "web--r1 is live (3/3 ready)") {
+	if code != 0 || !strings.Contains(out, "Rolling web back to web--r2.") || !strings.Contains(out, "web--r2 is live (3/3 ready)") {
 		t.Fatalf("rollback --wait: code=%d out=%q err=%q", code, out, stderr)
 	}
-	if _, out, _ := cli("app", "show", "web"); !regexp.MustCompile(`Revision:\s+web--r1`).MatchString(out) || !strings.Contains(out, "3/3") {
+	if _, out, _ := cli("app", "show", "web"); !regexp.MustCompile(`Revision:\s+web--r2`).MatchString(out) || !strings.Contains(out, "3/3") {
 		t.Errorf("app show after rollback = %q", out)
 	}
 	if code, _, stderr := cli("app", "rollback", "web", "--to", "web--r99"); code == 0 || !strings.Contains(stderr, "not found") {
@@ -624,15 +624,15 @@ func TestEndToEnd(t *testing.T) {
 	testExport(t, cli)
 
 	// Errors from the server come back without gRPC noise.
-	code, _, stderr = cli("app", "scale", "ghost", "--replicas", "2")
+	code, _, stderr = cli("app", "show", "ghost")
 	if code == 0 || !strings.Contains(stderr, "app ghost: not found") || strings.Contains(stderr, "rpc error") {
-		t.Errorf("scale ghost: code=%d stderr=%q", code, stderr)
+		t.Errorf("show ghost: code=%d stderr=%q", code, stderr)
 	}
 	code, _, stderr = cli("app", "create", "--file", "-")
 	if code == 0 || !strings.Contains(stderr, "empty") {
 		t.Errorf("app create from empty stdin: code=%d stderr=%q", code, stderr)
 	}
-	for _, args := range [][]string{{"app", "scale", "web", "--replicas", "zero"}, {"app", "scale", "web", "--replicas", "0"}, {"app", "list", "-o", "yaml"},
+	for _, args := range [][]string{{"app", "update", "web", "--min", "zero"}, {"app", "update", "web", "--max", "5"}, {"app", "scale", "web"}, {"app", "list", "-o", "yaml"},
 		{"app", "create"}, {"app", "update", "web"}, {"app", "create", "x", "--image", "nginx:1", "--file", spec}} {
 		if code, _, _ := cli(args...); code == 0 {
 			t.Errorf("%v accepted", args)
@@ -659,10 +659,10 @@ func TestEndToEnd(t *testing.T) {
 func testExport(t *testing.T, cli func(...string) (int, string, string)) {
 	t.Helper()
 	if code, _, stderr := cli("app", "create", "hello", "--image", "traefik/whoami:v1.10", "--port", "80", "--ingress", "internal",
-		"--replicas", "2", "--env", "GREETING=hi", "--health-path", "/health"); code != 0 {
+		"--min", "2", "--env", "GREETING=hi", "--health-path", "/health"); code != 0 {
 		t.Fatalf("app create from flags: %s", stderr)
 	}
-	if code, _, stderr := cli("app", "update", "hello", "--replicas", "1"); code != 0 {
+	if code, _, stderr := cli("app", "update", "hello", "--min", "1"); code != 0 {
 		t.Fatalf("app update: %s", stderr)
 	}
 	code, exported, stderr := cli("app", "show", "hello", "-o", "yaml")
@@ -719,18 +719,18 @@ func testSpaces(t *testing.T, d *fake.Driver, cli func(...string) (int, string, 
 	})
 	// The default space's web is untouched, and listings follow --space.
 	_, out, _ = cli("app", "list", "--space", "staging")
-	if !regexp.MustCompile(`\nweb\s+1/1\s+ready\s+web\.staging--r1\s`).MatchString(out) || strings.Contains(out, "web--r1") {
+	if !regexp.MustCompile(`\nweb\s+1/1\s+ready\s+web\.staging--r1\s`).MatchString(out) || strings.Contains(out, "web--r2") {
 		t.Errorf("app list --space staging = %q", out)
 	}
 	_, out, _ = cli("app", "list", "--space", "default")
-	if strings.Contains(out, "web.staging") || !regexp.MustCompile(`\nweb\s+3/3\s+ready\s+web--r1\s`).MatchString(out) {
+	if strings.Contains(out, "web.staging") || !regexp.MustCompile(`\nweb\s+3/3\s+ready\s+web--r2\s`).MatchString(out) {
 		t.Errorf("app list --space default = %q", out)
 	}
 	_, out, _ = cli("app", "list", "-A")
 	if !regexp.MustCompile(`\ndefault\s+web\s+3/3`).MatchString(out) || !regexp.MustCompile(`\nstaging\s+web\s+1/1`).MatchString(out) {
 		t.Errorf("app list -A = %q", out)
 	}
-	if code, _, stderr := cli("app", "scale", "web.staging", "--replicas", "2"); code != 0 {
+	if code, _, stderr := cli("app", "update", "web.staging", "--min", "2"); code != 0 {
 		t.Fatalf("scale by ID: %s", stderr)
 	}
 	waitFor("web.staging 2/2", func() bool {
@@ -782,7 +782,7 @@ func testSpaces(t *testing.T, d *fake.Driver, cli func(...string) (int, string, 
 	tool := func(args ...string) (int, string, string) {
 		return run(t, append(args, "--config", toolConfig)...)
 	}
-	if code, _, stderr := tool("app", "scale", "web", "--replicas", "1", "--space", "staging"); code != 0 {
+	if code, _, stderr := tool("app", "update", "web", "--min", "1", "--space", "staging"); code != 0 {
 		t.Errorf("tool scales its app: %s", stderr)
 	}
 	_, out, _ = tool("app", "list", "-A")
@@ -790,11 +790,11 @@ func testSpaces(t *testing.T, d *fake.Driver, cli func(...string) (int, string, 
 		t.Errorf("tool app list shows more than its spaces: %q", out)
 	}
 	for _, args := range [][]string{
-		{"app", "scale", "web", "--replicas", "2"}, // the default space
-		{"app", "list"},             // the default space
-		{"node", "drain", "node-1"}, // the cluster
-		{"node", "join-token"},      // joining nodes
-		{"cluster", "status"},       // the cluster
+		{"app", "update", "web", "--min", "2"}, // the default space
+		{"app", "list"},                        // the default space
+		{"node", "drain", "node-1"},            // the cluster
+		{"node", "join-token"},                 // joining nodes
+		{"cluster", "status"},                  // the cluster
 		{"rbac", "assignment", "create", "--service", "portal", "--role", "cluster-admin"}, // its own roles
 		{"app", "logs", "web"},
 	} {
@@ -841,7 +841,7 @@ func testSpaces(t *testing.T, d *fake.Driver, cli func(...string) (int, string, 
 	if code, out, stderr := ana("app", "list", "-A"); code != 0 || !strings.Contains(out, "web") {
 		t.Errorf("viewer lists apps: code=%d out=%q err=%q", code, out, stderr)
 	}
-	if code, _, stderr := ana("app", "scale", "web", "--replicas", "2"); code == 0 || !strings.Contains(stderr, "no role that allows Scale") {
+	if code, _, stderr := ana("app", "update", "web", "--min", "2"); code == 0 || !strings.Contains(stderr, "no role that allows Deploy") {
 		t.Errorf("viewer scales: code=%d err=%q", code, stderr)
 	}
 	if _, out, _ := cli("rbac", "user", "list"); !regexp.MustCompile(`ana\s+viewer\s+active\s+user:ryan`).MatchString(out) ||
@@ -923,7 +923,7 @@ func TestCommandsWithoutConfig(t *testing.T) {
 	t.Parallel()
 
 	missing := filepath.Join(t.TempDir(), "nope")
-	for _, args := range [][]string{{"cluster", "status"}, {"app", "list"}, {"app", "scale", "a", "--replicas", "1"}, {"app", "logs", "a"}, {"app", "exec", "a", "--", "sh"},
+	for _, args := range [][]string{{"cluster", "status"}, {"app", "list"}, {"app", "update", "a", "--min", "1"}, {"app", "logs", "a"}, {"app", "exec", "a", "--", "sh"},
 		{"app", "top"}, {"cluster", "events"}, {"job", "ls"}, {"app", "create", "a", "--image", "nginx:1"}, {"metrics", "credentials", "p", "-o", filepath.Join(t.TempDir(), "m")}} {
 		code, _, stderr := run(t, append(args, "--config", missing)...)
 		if code == 0 || !strings.Contains(stderr, "armadad init") {

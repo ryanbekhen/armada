@@ -323,13 +323,9 @@ func TestDeployScaleRedeploy(t *testing.T) {
 		t.Errorf("limits = %+v", spec)
 	}
 
-	if _, err := c.admin.Scale(c.ctx, &armadav1.ScaleRequest{App: "web", Replicas: 4}); err != nil {
-		t.Fatal(err)
-	}
+	c.setReplicas("web", 4)
 	c.eventually("4 running replicas", func() bool { return len(c.running("web")) == 4 })
-	if _, err := c.admin.Scale(c.ctx, &armadav1.ScaleRequest{App: "web", Replicas: 1}); err != nil {
-		t.Fatal(err)
-	}
+	c.setReplicas("web", 1)
 	c.eventually("1 replica left", func() bool {
 		all, _ := d1.List(c.ctx, nil)
 		all2, _ := d2.List(c.ctx, nil)
@@ -457,9 +453,7 @@ func TestLogsFollowGrep(t *testing.T) {
 	if first == nil || string(first.Data) != "hello from n1\n" || first.Time == nil {
 		t.Fatalf("first entry %v", first)
 	}
-	if _, err := c.admin.Scale(c.ctx, &armadav1.ScaleRequest{App: "web", Replicas: 2}); err != nil {
-		t.Fatal(err)
-	}
+	c.setReplicas("web", 2)
 	deadline := time.After(10 * time.Second)
 	for {
 		select {
@@ -587,14 +581,6 @@ func TestDeployRejectsInvalidSpec(t *testing.T) {
 	_, err := c.admin.Deploy(c.ctx, &armadav1.DeployRequest{Spec: []byte("name: BAD\nimage: nginx\n")})
 	if status.Code(err) != codes.InvalidArgument || !strings.Contains(err.Error(), "name") {
 		t.Errorf("err = %v", err)
-	}
-	for _, req := range []*armadav1.ScaleRequest{{App: "web", Replicas: 0}, {App: "web", Replicas: 101}} {
-		if _, err := c.admin.Scale(c.ctx, req); status.Code(err) != codes.InvalidArgument {
-			t.Errorf("Scale(%v) = %v", req, err)
-		}
-	}
-	if _, err := c.admin.Scale(c.ctx, &armadav1.ScaleRequest{App: "ghost", Replicas: 2}); status.Code(err) != codes.NotFound {
-		t.Errorf("Scale(ghost) = %v", err)
 	}
 	if _, err := c.admin.Status(c.ctx, &armadav1.StatusRequest{App: "ghost"}); status.Code(err) != codes.NotFound {
 		t.Errorf("Status(ghost) = %v", err)
@@ -817,4 +803,14 @@ func TestShutdownWithConnectedAgent(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Error("agent stream still open after shutdown")
 	}
+}
+
+// setReplicas changes an app's count until its next deploy, as the
+// autoscaler does, and wakes the reconciler.
+func (c *cluster) setReplicas(app string, n int) {
+	c.t.Helper()
+	if err := c.store.SetReplicas(c.ctx, app, n, "admin:test"); err != nil {
+		c.t.Fatal(err)
+	}
+	c.srv.Trigger()
 }
