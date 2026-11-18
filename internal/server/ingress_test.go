@@ -11,6 +11,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"io"
+	"maps"
 	"math/big"
 	"net"
 	"net/http"
@@ -684,5 +685,63 @@ func TestProxyProtocolSources(t *testing.T) {
 	}
 	if cfg, _ := c.srv.buildProxy(c.ctx, nil, nil); len(cfg.ProxyProtocol) != 0 {
 		t.Errorf("proxy config after clearing = %v", cfg.ProxyProtocol)
+	}
+}
+
+// A custom domain that names a host Armada already gives an app under the
+// root domain, its own or another app's, never makes the configuration
+// invalid for every app: the app's own host is routed once, and another
+// app's host stays with that app while the one that claims it says why.
+func TestCustomDomainNamingARootHost(t *testing.T) {
+	t.Parallel()
+	txt := &fakeTXT{records: map[string][]string{}}
+	c := newCluster(t, func(cfg *Config) {
+		cfg.Resolver = txt
+		cfg.VerifyInterval = 50 * time.Millisecond
+	})
+	c.addNode("n1", "127.0.0.1")
+	if _, err := c.admin.SetClusterConfig(c.ctx, &armadav1.SetClusterConfigRequest{SetRootDomain: true, Config: &armadav1.ClusterConfig{RootDomain: "lab.test"}}); err != nil {
+		t.Fatal(err)
+	}
+	c.deploy("name: erp\nimage: nginx:1\ningress:\n  type: external\n  port: 80\n  domains: [erp.lab.test]\n")
+	c.deploy("name: api\nimage: nginx:1\ningress:\n  type: external\n  port: 80\n")
+	c.deploy("name: web\nimage: nginx:1\ningress:\n  type: external\n  port: 80\n  domains: [api.lab.test, www.example.org]\n")
+	ds, err := c.admin.ListDomains(c.ctx, &armadav1.ListDomainsRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range ds.Domains {
+		txt.set(d.TxtName, d.TxtValue)
+	}
+
+	owner := func(cfg proxy.Config) map[string]string {
+		out := map[string]string{}
+		for _, r := range cfg.Rules {
+			if !r.Internal {
+				out[r.Host+r.PathPrefix] += r.Backend
+			}
+		}
+		return out
+	}
+	want := map[string]string{"erp.lab.test/": "erp", "api.lab.test/": "api", "web.lab.test/": "web", "www.example.org/": "web"}
+	c.eventually("every verified host routed once", func() bool {
+		return maps.Equal(owner(c.proxyOn("n1")), want)
+	})
+
+	var reasons []string
+	for _, e := range listEvents(t, c.store) {
+		switch e.Reason {
+		case "RouteConflict":
+			reasons = append(reasons, e.App+": "+e.Message)
+		case "ProxyNotUpdated":
+			t.Errorf("proxy not updated: %s", e.Message)
+		}
+	}
+	if len(reasons) != 1 || !strings.HasPrefix(reasons[0], "web: api.lab.test/ is routed to app api") {
+		t.Errorf("route conflicts = %q", reasons)
+	}
+	st, err := c.admin.Status(c.ctx, &armadav1.StatusRequest{App: "erp"})
+	if err != nil || !slices.Equal(st.Apps[0].Urls, []string{"https://erp.lab.test/"}) {
+		t.Errorf("erp urls = %v, %v", st.GetApps(), err)
 	}
 }

@@ -220,6 +220,7 @@ or `armada app events`.
 | `ReconcileFailed` | The control plane could not converge an app |
 | `ProxyNotUpdated` | The ingress configuration could not be rebuilt; the last good one serves |
 | `AddressConflict` | Replicas of two apps claim one address (one of them stale); both stay out of the proxy until it clears |
+| `RouteConflict` | A custom domain names another app's host under the root domain; that app keeps it and this app does not serve it |
 | `NotVerified` | A custom domain's DNS record is missing |
 | `QueueUnread` | No node can read the queue that starts a job, or its node keeps no more queues |
 | `LogExportFailing` | A node cannot send logs to the log store |
