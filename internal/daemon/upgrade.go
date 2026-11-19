@@ -16,6 +16,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 
@@ -94,9 +95,12 @@ func newUpgradeCommand() *cobra.Command {
 			}
 			current := version.Get().Version
 			if target == "" {
+				u.stepf("Looking for the latest release ... ")
 				if target, err = release.Latest(cmd.Context()); err != nil {
+					u.stepf("failed\n")
 					return fmt.Errorf("%w; pass --version", err)
 				}
+				u.stepf("%s\n", target)
 			}
 			return u.run(cmd.Context(), current, target)
 		},
@@ -119,6 +123,7 @@ func (u *upgrader) run(ctx context.Context, current, target string) error {
 		return fmt.Errorf("%s is older than this %s; going back takes the backup from before the upgrade (docs/operations.md#rolling-back-an-upgrade)", target, current)
 	}
 
+	u.stepf("Upgrading this machine from %s to %s\n", current, target)
 	tmp, err := os.MkdirTemp("", "armada-upgrade-")
 	if err != nil {
 		return err
@@ -135,8 +140,10 @@ func (u *upgrader) run(ctx context.Context, current, target string) error {
 		return err
 	}
 	if err := verifyChecksum(filepath.Join(tmp, "checksums.txt"), filepath.Join(tmp, archive), archive); err != nil {
+		u.stepf("  checksum   FAILED\n")
 		return err
 	}
+	u.stepf("  checksum   OK (SHA-256 matches checksums.txt)\n")
 	files, err := extractRelease(filepath.Join(tmp, archive), filepath.Join(tmp, "x"))
 	if err != nil {
 		return err
@@ -152,6 +159,7 @@ func (u *upgrader) run(ctx context.Context, current, target string) error {
 		if err := installFile(files[bin], filepath.Join(u.binDir, bin), 0o755, nil); err != nil {
 			return err
 		}
+		u.stepf("  install    %s\n", filepath.Join(u.binDir, bin))
 	}
 	if err := u.installUnits(ctx, files); err != nil {
 		return err
@@ -168,7 +176,7 @@ func (u *upgrader) run(ctx context.Context, current, target string) error {
 		// carries (containerd, runc, armada-log; ADR 0011). Its unit kills
 		// only containerd: containers and their shims keep running.
 		if u.isActive(ctx, "armada-runtime") {
-			if err := u.systemctl(ctx, "restart", "armada-runtime"); err != nil {
+			if err := u.restartUnit(ctx, "armada-runtime", " (containers keep running)"); err != nil {
 				return fmt.Errorf("installed %s, but restarting armada-runtime failed: %w", target, err)
 			}
 			msg += "; restarted armada-runtime"
@@ -177,12 +185,14 @@ func (u *upgrader) run(ctx context.Context, current, target string) error {
 			if !u.isActive(ctx, unit) {
 				continue
 			}
-			if err := u.systemctl(ctx, "restart", unit); err != nil {
+			if err := u.restartUnit(ctx, unit, ""); err != nil {
 				return fmt.Errorf("installed %s, but restarting %s failed: %w", target, unit, err)
 			}
 			msg += "; restarted " + unit
 			break
 		}
+	} else {
+		u.stepf("  restart    skipped (--no-restart): restart armada-runtime and armada-server or armada-agent yourself\n")
 	}
 	_, err = fmt.Fprintln(u.out, msg+".")
 	return err
@@ -190,22 +200,35 @@ func (u *upgrader) run(ctx context.Context, current, target string) error {
 
 // fetch downloads base/tag/name to dst over HTTPS (or from a file:// mirror).
 func (u *upgrader) fetch(ctx context.Context, tag, name, dst string) error {
+	u.stepf("  download   %s ... ", name)
+	start := time.Now()
+	n, err := u.download(ctx, tag, name, dst)
+	if err != nil {
+		u.stepf("failed\n")
+		return err
+	}
+	u.stepf("%s in %s\n", sizeString(n), time.Since(start).Round(100*time.Millisecond))
+	return nil
+}
+
+// download copies base/tag/name to dst and returns its size.
+func (u *upgrader) download(ctx context.Context, tag, name, dst string) (int64, error) {
 	src, err := url.Parse(u.base + "/" + tag + "/" + name)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	var body io.ReadCloser
 	switch src.Scheme {
 	case "file":
 		if body, err = os.Open(src.Path); err != nil {
-			return fmt.Errorf("download %s: %w", name, err)
+			return 0, fmt.Errorf("download %s: %w", name, err)
 		}
 	case "https":
 		ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 		defer cancel()
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, src.String(), nil)
 		if err != nil {
-			return err
+			return 0, err
 		}
 		client := &http.Client{CheckRedirect: func(r *http.Request, _ []*http.Request) error {
 			if r.URL.Scheme != "https" {
@@ -215,20 +238,20 @@ func (u *upgrader) fetch(ctx context.Context, tag, name, dst string) error {
 		}}
 		resp, err := client.Do(req)
 		if err != nil {
-			return fmt.Errorf("download %s: %w", name, err)
+			return 0, fmt.Errorf("download %s: %w", name, err)
 		}
 		if resp.StatusCode != http.StatusOK {
 			_ = resp.Body.Close()
-			return fmt.Errorf("download %s: %s", name, resp.Status)
+			return 0, fmt.Errorf("download %s: %s", name, resp.Status)
 		}
 		body = resp.Body
 	default:
-		return fmt.Errorf("download base %q: want https:// or file://", u.base)
+		return 0, fmt.Errorf("download base %q: want https:// or file://", u.base)
 	}
 	defer func() { _ = body.Close() }()
 	f, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600) //nolint:gosec // our temporary directory
 	if err != nil {
-		return err
+		return 0, err
 	}
 	n, err := io.Copy(f, io.LimitReader(body, maxDownload+1))
 	if cerr := f.Close(); err == nil {
@@ -238,9 +261,9 @@ func (u *upgrader) fetch(ctx context.Context, tag, name, dst string) error {
 		err = errors.New("too large")
 	}
 	if err != nil {
-		return fmt.Errorf("download %s: %w", name, err)
+		return 0, fmt.Errorf("download %s: %w", name, err)
 	}
-	return nil
+	return n, nil
 }
 
 // verifySignature checks that the release workflow of this repository, for
@@ -251,6 +274,7 @@ func (u *upgrader) verifySignature(ctx context.Context, tag, dir string) error {
 			return errors.New("cosign is not installed and a signature is required")
 		}
 		_, _ = fmt.Fprintln(u.warn, "warning: cosign not found: checking the checksum only")
+		u.stepf("  signature  not checked: cosign is not installed\n")
 		return nil
 	}
 	bundle := filepath.Join(dir, "checksums.txt.sigstore.json")
@@ -261,8 +285,10 @@ func (u *upgrader) verifySignature(ctx context.Context, tag, dir string) error {
 	c := exec.CommandContext(ctx, u.cosign, "verify-blob", "--bundle", bundle, //nolint:gosec // cosign from PATH, fixed arguments
 		"--certificate-identity", identity, "--certificate-oidc-issuer", oidcIssuer, filepath.Join(dir, "checksums.txt"))
 	if out, err := c.CombinedOutput(); err != nil {
+		u.stepf("  signature  FAILED\n")
 		return fmt.Errorf("signature verification of checksums.txt FAILED; not installing: %s", strings.TrimSpace(string(out)))
 	}
+	u.stepf("  signature  verified with cosign (release workflow of %s, tag %s)\n", release.Repo, tag)
 	return nil
 }
 
@@ -364,7 +390,7 @@ func (u *upgrader) installUnits(ctx context.Context, files map[string]string) er
 	if fi, err := os.Stat(u.unitDir); err != nil || !fi.IsDir() {
 		return nil
 	}
-	changed := false
+	var units []string
 	for key, src := range files {
 		if !strings.HasSuffix(key, ".service") {
 			continue
@@ -375,12 +401,48 @@ func (u *upgrader) installUnits(ctx context.Context, files map[string]string) er
 		if err := installFile(src, filepath.Join(u.unitDir, key), 0o644, edit); err != nil {
 			return err
 		}
-		changed = true
+		units = append(units, filepath.Base(key))
 	}
-	if changed {
-		return u.systemctl(ctx, "daemon-reload")
+	if len(units) == 0 {
+		return nil
 	}
+	if err := u.systemctl(ctx, "daemon-reload"); err != nil {
+		return err
+	}
+	slices.Sort(units)
+	u.stepf("  install    systemd units %s (daemon reloaded)\n", strings.Join(units, ", "))
 	return nil
+}
+
+// restartUnit restarts unit and says how long it took; systemctl returns
+// once the service has started.
+func (u *upgrader) restartUnit(ctx context.Context, unit, note string) error {
+	u.stepf("  restart    %s%s ... ", unit, note)
+	start := time.Now()
+	if err := u.systemctl(ctx, "restart", unit); err != nil {
+		u.stepf("failed\n")
+		return err
+	}
+	if !u.isActive(ctx, unit) {
+		u.stepf("not running\n")
+		return fmt.Errorf("%s is not running after the restart; see journalctl -u %s", unit, unit)
+	}
+	u.stepf("running again after %s\n", time.Since(start).Round(100*time.Millisecond))
+	return nil
+}
+
+// stepf prints one step of the upgrade as it happens, so a slow download
+// or restart shows what it waits for.
+func (u *upgrader) stepf(format string, args ...any) {
+	_, _ = fmt.Fprintf(u.out, format, args...)
+}
+
+// sizeString is n in KiB or MiB for the progress lines.
+func sizeString(n int64) string {
+	if n >= 1<<20 {
+		return fmt.Sprintf("%.1f MiB", float64(n)/(1<<20))
+	}
+	return fmt.Sprintf("%.1f KiB", float64(n)/(1<<10))
 }
 
 // installFile replaces dst with src (changed by edit, if any) atomically.
