@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -121,13 +122,71 @@ func TestUpgradeRestartsRuntime(t *testing.T) {
 	if !strings.Contains(out.String(), "restarted armada-runtime; restarted armada-server.") {
 		t.Errorf("output %q", out.String())
 	}
-	u, calls, _ = testUpgrader(t, base, "armada-runtime", "armada-server")
+	u, calls, out = testUpgrader(t, base, "armada-runtime", "armada-server")
 	u.restart = false
 	if err := u.run(context.Background(), "v0.1.0", "v0.2.0"); err != nil {
 		t.Fatal(err)
 	}
 	if slices.Contains(*calls, "restart armada-runtime") {
 		t.Errorf("--no-restart restarted: %v", *calls)
+	}
+	if !strings.Contains(out.String(), "restart    skipped (--no-restart)") {
+		t.Errorf("--no-restart output %q", out.String())
+	}
+}
+
+// Every step prints as it happens, in order, so a person sees what the
+// upgrade does and where it stopped.
+func TestUpgradeShowsSteps(t *testing.T) {
+	t.Parallel()
+	base := fakeRelease(t, "v0.2.0", releaseFiles, false)
+	u, _, out := testUpgrader(t, base, "armada-runtime", "armada-server")
+	if err := u.run(context.Background(), "v0.1.0", "v0.2.0"); err != nil {
+		t.Fatal(err)
+	}
+	got := out.String()
+	at := 0
+	for _, step := range []string{
+		"Upgrading this machine from v0.1.0 to v0.2.0\n",
+		"  download   armada_0.2.0_linux_amd64.tar.gz ... ",
+		"  download   checksums.txt ... ",
+		"  checksum   OK",
+		"  install    " + filepath.Join(u.binDir, "armada") + "\n",
+		"  install    " + filepath.Join(u.binDir, "armadad") + "\n",
+		"  install    systemd units armada-agent.service, armada-server.service (daemon reloaded)\n",
+		"  restart    armada-runtime (containers keep running) ... running again after ",
+		"  restart    armada-server ... running again after ",
+		"Upgraded to v0.2.0 (from v0.1.0); restarted armada-runtime; restarted armada-server.\n",
+	} {
+		i := strings.Index(got[at:], step)
+		if i < 0 {
+			t.Fatalf("missing or out of order %q in:\n%s", step, got)
+		}
+		at += i + len(step)
+	}
+
+	// A step that fails says so on its own line before the error.
+	u, _, out = testUpgrader(t, base, "armada-server")
+	u.systemctl = func(_ context.Context, args ...string) error {
+		if args[0] == "restart" {
+			return errors.New("boom")
+		}
+		return nil
+	}
+	if err := u.run(context.Background(), "v0.1.0", "v0.2.0"); err == nil {
+		t.Fatal("a failed restart passed")
+	}
+	if !strings.Contains(out.String(), "  restart    armada-server ... failed\n") {
+		t.Errorf("failed restart output %q", out.String())
+	}
+
+	// A download that fails as well.
+	u, _, out = testUpgrader(t, base, "armada-server")
+	if err := u.run(context.Background(), "v0.1.0", "v0.3.0"); err == nil {
+		t.Fatal("a missing release passed")
+	}
+	if !strings.Contains(out.String(), "  download   armada_0.3.0_linux_amd64.tar.gz ... failed\n") {
+		t.Errorf("failed download output %q", out.String())
 	}
 }
 

@@ -327,7 +327,11 @@ upgrades without asking.
    `armada`, and the systemd units, and restarts `armada-runtime`, so the
    node runs the containerd, runc, and `armada-log` the new release carries
    (containers keep running), then `armada-server` (or `armada-agent`).
-   `--no-restart` restarts nothing; `armadad doctor` then warns
+   It prints each step as it happens (each download with its size and
+   time, the signature and checksum, every file installed, and each restart
+   with how long the service took to run again) and ends with
+   `Upgraded to vX (from vY)`; a step that fails says `failed` before the
+   error. `--no-restart` restarts nothing; `armadad doctor` then warns
    (`runtime-pack`) until `armada-runtime` is restarted. It refuses to go back to an older release. On a
    machine that cannot reach GitHub, set `ARMADA_DOWNLOAD_BASE` to a
    mirror of the release files (`https://` or `file://`).
