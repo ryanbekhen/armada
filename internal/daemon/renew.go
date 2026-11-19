@@ -2,10 +2,14 @@ package daemon
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"time"
 
+	"github.com/ryanbekhen/armada/internal/clientconfig"
 	"github.com/ryanbekhen/armada/internal/etcd"
 	"github.com/ryanbekhen/armada/internal/fsutil"
 	"github.com/ryanbekhen/armada/internal/pki"
@@ -25,21 +29,98 @@ type certRenewer struct {
 	// handshake; before the server loads it, only the file changes.
 	server *pki.ServerCert
 	member *etcd.Member
-	log    *slog.Logger
-	now    func() time.Time
+	// st and adminConfig, when set, renew the user certificate in the
+	// machine's shared admin config (renewAdmin).
+	st          store.Store
+	adminConfig string
+	log         *slog.Logger
+	now         func() time.Time
 }
 
 func (r *certRenewer) loop(ctx context.Context) {
 	t := time.NewTicker(certRenewInterval)
 	defer t.Stop()
+	r.renewAdmin(ctx)
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-t.C:
 			r.check()
+			r.renewAdmin(ctx)
 		}
 	}
+}
+
+// renewAdmin renews the user certificate in the machine's shared admin
+// config (/etc/armada/admin.config) once a third of its life is left, or
+// after it expired. That file is how the machine's cluster-admins (root and
+// the armada group) reach the cluster, and root here holds the CA anyway,
+// so renewing it gives nobody anything new; it only keeps the people who
+// run the machine from being locked out a year after init. The cluster
+// must still accept the certificate being replaced (store.RenewedUser): a
+// user deleted, or replaced with `armada rbac user credentials`, is not
+// brought back.
+func (r *certRenewer) renewAdmin(ctx context.Context) {
+	if r.st == nil || r.adminConfig == "" {
+		return
+	}
+	if _, err := os.Stat(r.adminConfig); err != nil {
+		return // no shared config on this machine
+	}
+	renewed, err := r.renewAdminConfig(ctx)
+	switch {
+	case err != nil:
+		r.log.Warn("admin config not renewed; renew it with `sudo armadad user renew`", "file", r.adminConfig, "err", err)
+	case !renewed.IsZero():
+		r.log.Info("admin config renewed", "file", r.adminConfig, "expires", renewed)
+	}
+}
+
+// renewAdminConfig renews the certificate in r.adminConfig when it is due
+// and returns its new expiry (zero when nothing was due).
+func (r *certRenewer) renewAdminConfig(ctx context.Context) (time.Time, error) {
+	cc, err := clientconfig.Load(r.adminConfig)
+	if err != nil {
+		return time.Time{}, err
+	}
+	old, err := pki.ParseCertPEM([]byte(cc.Cert))
+	if err != nil {
+		return time.Time{}, err
+	}
+	if !pki.RenewDue(old, r.now()) {
+		return time.Time{}, nil
+	}
+	if err := old.CheckSignatureFrom(r.ca.Cert); err != nil {
+		return time.Time{}, fmt.Errorf("its certificate is not from this cluster's CA: %w", err)
+	}
+	id, err := pki.IdentityFromCert(old)
+	ok := false
+	if err == nil {
+		id, ok = id.Principal()
+	}
+	if !ok || id.Kind != pki.KindUser {
+		return time.Time{}, errors.New("it holds no user certificate")
+	}
+	keyPEM, csr, err := pki.NewCSR(id)
+	if err != nil {
+		return time.Time{}, err
+	}
+	c, err := r.ca.SignUserCSR(csr, id.Name)
+	if err != nil {
+		return time.Time{}, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, time.Minute)
+	defer cancel()
+	if err := r.st.RenewedUser(ctx, id.Name, old.NotBefore, pki.SerialString(old), c.Serial); err != nil {
+		return time.Time{}, fmt.Errorf("the cluster no longer accepts the certificate of %s: %w", id, err)
+	}
+	cc.Cert, cc.Key, cc.CA = string(c.PEM), string(keyPEM), string(r.ca.CertPEM)
+	// SaveFile keeps a shared file's owner, group, and mode.
+	if err := cc.SaveFile(r.adminConfig); err != nil {
+		return time.Time{}, err
+	}
+	return c.NotAfter, nil
 }
 
 func (r *certRenewer) check() {

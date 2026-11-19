@@ -111,12 +111,14 @@ sudo armadad init
 ```
 
 This creates the cluster: its CA and certificates, the state, the key that
-encrypts secrets, and two copies of the admin config:
+encrypts secrets, and the admin config `/etc/armada/admin.config`, which
+root and members of the `armada` group read. The server renews the
+certificate in it, so it never expires.
 
-| File | For |
-| --- | --- |
-| `~/.armada/config` | You, the user who ran `sudo armadad init`: `armada` works without `sudo` |
-| `/etc/armada/admin.config` | root and members of the `armada` group |
+`init` adds you, the user who ran it with `sudo`, to the `armada` group.
+Group membership counts in sessions that start afterwards, so log out and
+in again, or run `newgrp armada` in this shell, and `armada` works without
+`sudo`. Until then, `sudo armada ...` works too.
 
 Two choices are fixed here and cannot change later:
 

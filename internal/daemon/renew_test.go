@@ -189,3 +189,94 @@ func TestCertRenewerRenewsExpiredNodeCertificate(t *testing.T) {
 		}
 	}
 }
+
+// renewedStore accepts or refuses a user's renewal like store.RenewedUser.
+type renewedStore struct {
+	store.Store
+	refuse  error
+	renewed []string // name + old serial
+}
+
+func (s *renewedStore) RenewedUser(_ context.Context, name string, _ time.Time, callerSerial, _ string) error {
+	if s.refuse != nil {
+		return s.refuse
+	}
+	s.renewed = append(s.renewed, name+" "+callerSerial)
+	return nil
+}
+
+// The server renews the machine's shared admin config while the cluster
+// still accepts the certificate in it, and only then.
+func TestCertRenewerRenewsAdminConfig(t *testing.T) {
+	t.Parallel()
+	discard := slog.New(slog.NewTextHandler(io.Discard, nil))
+	for name, tt := range map[string]struct {
+		kind    string
+		later   time.Duration // how long after issue the check runs
+		other   bool          // signed by another CA
+		refuse  error
+		renewed bool
+	}{
+		"fresh":         {kind: pki.KindUser, later: 0},
+		"due":           {kind: pki.KindUser, later: 250 * 24 * time.Hour, renewed: true},
+		"expired":       {kind: pki.KindUser, later: 400 * 24 * time.Hour, renewed: true},
+		"older release": {kind: pki.KindAdmin, later: 250 * 24 * time.Hour, renewed: true},
+		"user deleted":  {kind: pki.KindUser, later: 250 * 24 * time.Hour, refuse: store.ErrPrecondition},
+		"another CA":    {kind: pki.KindUser, later: 250 * 24 * time.Hour, other: true},
+	} {
+		dir, ca := serverDir(t, 365*24*time.Hour)
+		signer := ca
+		if tt.other {
+			signer, _ = pki.NewCA("other")
+		}
+		certPEM, keyPEM, err := signer.Issue(pki.IssueRequest{Identity: pki.Identity{Kind: tt.kind, Name: "devops"}, Client: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		path := filepath.Join(t.TempDir(), "admin.config")
+		cc := &clientconfig.Config{Servers: []string{"10.0.0.2:7443"}, CA: string(ca.CertPEM), Cert: string(certPEM), Key: string(keyPEM)}
+		if err := cc.SaveFile(path); err != nil {
+			t.Fatal(err)
+		}
+		before, _ := os.ReadFile(path)
+		st := &renewedStore{refuse: tt.refuse}
+		at := time.Now().Add(tt.later)
+		r := &certRenewer{dataDir: dir, ca: ca, st: st, adminConfig: path, log: discard, now: func() time.Time { return at }}
+		r.renewAdmin(context.Background())
+		after, _ := os.ReadFile(path)
+		if changed := !bytes.Equal(before, after); changed != tt.renewed {
+			t.Errorf("%s: file changed %v, want %v", name, changed, tt.renewed)
+		}
+		if !tt.renewed {
+			continue
+		}
+		old, _ := pki.ParseCertPEM(certPEM)
+		if len(st.renewed) != 1 || st.renewed[0] != "devops "+pki.SerialString(old) {
+			t.Errorf("%s: the cluster was told %v", name, st.renewed)
+		}
+		got, err := clientconfig.Load(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		c, _ := pki.ParseCertPEM([]byte(got.Cert))
+		if id, _ := pki.IdentityFromCert(c); id.String() != "user:devops" || time.Until(c.NotAfter) < 300*24*time.Hour || got.Key == string(keyPEM) || got.Servers[0] != "10.0.0.2:7443" {
+			t.Errorf("%s: config holds %v until %v", name, id, c.NotAfter)
+		}
+		if err := c.CheckSignatureFrom(ca.Cert); err != nil {
+			t.Errorf("%s: %v", name, err)
+		}
+		if _, err := tls.X509KeyPair([]byte(got.Cert), []byte(got.Key)); err != nil {
+			t.Errorf("%s: %v", name, err)
+		}
+		if fi, _ := os.Stat(path); fi.Mode().Perm() != 0o600 {
+			t.Errorf("%s: mode %v", name, fi.Mode())
+		}
+	}
+
+	// A machine without the file, or a renewer without a store, does nothing.
+	dir, ca := serverDir(t, time.Hour)
+	r := &certRenewer{dataDir: dir, ca: ca, st: &renewedStore{}, adminConfig: filepath.Join(t.TempDir(), "missing"), log: discard, now: time.Now}
+	r.renewAdmin(context.Background())
+	r = &certRenewer{dataDir: dir, ca: ca, adminConfig: filepath.Join(t.TempDir(), "missing"), log: discard, now: time.Now}
+	r.renewAdmin(context.Background())
+}

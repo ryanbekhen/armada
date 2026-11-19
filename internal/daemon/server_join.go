@@ -44,11 +44,12 @@ func newServerJoinCommand() *cobra.Command {
 			"token is as sensitive as they are. It is read from --token-file, a hidden\n" +
 			"prompt, or stdin; never from an argument. Afterwards, run `armadad server`.\n\n" +
 			"Like `armadad init`, it writes " + clientconfig.SystemPath + " for the machine's\n" +
-			"cluster-admins (group " + clientconfig.Group + ") and ~/.armada/config of the person running it\n" +
-			"through sudo, both with a certificate for --user-name signed by the cluster CA.\n" +
+			"cluster-admins (group " + clientconfig.Group + "), with a certificate for --user-name signed by\n" +
+			"the cluster CA that the server renews, and adds the person running it through\n" +
+			"sudo to the group.\n" +
 			"The certificate has the rights the cluster gives that user; a name the cluster\n" +
 			"has no record of is recorded as a cluster-admin, as the first user is (a leader\n" +
-			"too old to record it gets no configs written). Existing files stay.\n\n" +
+			"too old to record it gets no config written). An existing file stays.\n\n" +
 			"Run three control plane nodes to tolerate the loss of one; with two, losing\n" +
 			"either stops the control plane.",
 		Args: cobra.ExactArgs(1),
@@ -190,11 +191,23 @@ func newServerJoinCommand() *cobra.Command {
 			if err != nil {
 				_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "warning: client config: %v\n", err)
 			}
+			groupNote := ""
+			if person := sudoUser(); person != nil && clientUser != "" {
+				switch joined, err := joinAdminGroup(ctx, person); {
+				case err != nil:
+					_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "warning: add %s to the %s group yourself (sudo usermod -aG %s %s): %v\n", person.Username, clientconfig.Group, clientconfig.Group, person.Username, err)
+				case joined:
+					groupNote = adminGroupNote(person.Username)
+				}
+			}
 
 			out := cmd.OutOrStdout()
 			_, _ = fmt.Fprintf(out, "Joined as control plane node %s (%s).\n", name, ip)
 			for _, c := range configs {
 				_, _ = fmt.Fprintf(out, "Client config: %s\n", c)
+			}
+			if groupNote != "" {
+				_, _ = fmt.Fprintf(out, "%s.\n", groupNote)
 			}
 			if resp.NodeSubnet != "" {
 				_, _ = fmt.Fprintf(out, "Container subnet: %s.\n", resp.NodeSubnet)
@@ -216,7 +229,7 @@ func newServerJoinCommand() *cobra.Command {
 	f.StringVar(&dataDir, "data-dir", defaultDataDir, "directory for cluster state and keys")
 	f.IntVar(&port, "port", defaultPort, "control plane port on the private IP")
 	f.IntVar(&joinPort, "join-port", 0, "join listener port on the private IP (default: --port + 1)")
-	f.StringVar(&userName, "user-name", "", "user named in the client configs written here (default: the user running it)")
+	f.StringVar(&userName, "user-name", "", "user named in the client config written here (default: the user running it)")
 	_ = cmd.MarkFlagRequired("ca-hash")
 	return cmd
 }
@@ -271,8 +284,9 @@ func joinUserName(userName string) (string, error) {
 	return userName, nil
 }
 
-// joinedClientConfigs writes the machine's shared admin config and, run
-// through sudo, the person's own, each kept when it exists. The
+// joinedClientConfigs writes the machine's shared admin config, kept when
+// it exists; the person who ran the join reads it through the group
+// (joinAdminGroup). The
 // certificate names userName (joinUserName) and is signed with the CA the
 // cluster handed over, only once the leader recorded the name: the cluster
 // refuses certificates of names it has no record of.
@@ -284,7 +298,6 @@ func joinedClientConfigs(resp *armadav1.JoinServerResponse, servers []string, us
 		return nil, fmt.Errorf("the leader did not record user %s (it may run an older Armada), so no client config was written; "+
 			"once every server is upgraded, create the user with `armada rbac user create %s --role cluster-admin -o FILE`", userName, userName)
 	}
-	person := sudoUser()
 	ca, err := pki.LoadCA(resp.CaCert, resp.CaKey)
 	if err != nil {
 		return nil, err
@@ -300,15 +313,6 @@ func joinedClientConfigs(resp *armadav1.JoinServerResponse, servers []string, us
 			return written, err
 		}
 		written = append(written, clientconfig.SystemPath+" ("+userName+")")
-	}
-	if person != nil {
-		switch own, err := cc.SaveOwn(person); {
-		case err == nil:
-			written = append(written, own+" ("+userName+")")
-		case errors.Is(err, fs.ErrExist):
-		default:
-			return written, fmt.Errorf("%s's ~/.armada/config: %w", person.Username, err)
-		}
 	}
 	return written, nil
 }

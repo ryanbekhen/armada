@@ -48,11 +48,12 @@ token is as sensitive as they are. It is read from --token-file, a hidden
 prompt, or stdin; never from an argument. Afterwards, run `armadad server`.
 
 Like `armadad init`, it writes /etc/armada/admin.config for the machine's
-cluster-admins (group armada) and ~/.armada/config of the person running it
-through sudo, both with a certificate for --user-name signed by the cluster CA.
+cluster-admins (group armada), with a certificate for --user-name signed by
+the cluster CA that the server renews, and adds the person running it through
+sudo to the group.
 The certificate has the rights the cluster gives that user; a name the cluster
 has no record of is recorded as a cluster-admin, as the first user is (a leader
-too old to record it gets no configs written). Existing files stay.
+too old to record it gets no config written). An existing file stays.
 
 Run three control plane nodes to tolerate the loss of one; with two, losing
 either stops the control plane.
@@ -74,5 +75,5 @@ Flags:
 | `--private-ip string` | this machine's private IP (default: the only private IPv4 address) |
 | `--runtime string` | container runtime: embedded (containerd), or supervisor (no containerd daemon; experimental, ADR 0046) (default `embedded`) |
 | `--token-file string` | file holding the server token (default: prompt or stdin) |
-| `--user-name string` | user named in the client configs written here (default: the user running it) |
+| `--user-name string` | user named in the client config written here (default: the user running it) |
 
