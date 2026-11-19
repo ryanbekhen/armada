@@ -10,7 +10,7 @@ enough to start; more can join later as nodes or control plane servers.
 ## How it fits together
 
 ```
- your laptop (Linux or macOS)            Linux machines on a private network
+ your laptop (Linux, macOS, WSL 2)       Linux machines on a private network
  ┌────────────┐   mTLS, port 7443    ┌──────────────────────────────────────┐
  │  armada    │ ───────────────────▶ │ armadad server  (control plane)      │
  │  (client)  │   private IP only    │ armadad agent   (runs containers)    │
@@ -280,6 +280,13 @@ Install the client (on macOS the script installs only the client):
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ryanbekhen/armada/main/install.sh | sudo ARMADA_CLIENT_ONLY=1 sh
 ```
+
+On Windows, run the same command in a WSL 2 shell (for example Ubuntu from
+the Microsoft Store): there is no native Windows client, and the Linux one
+works there as it does on a Linux laptop, with its config in the WSL
+home directory (`~/.armada/config`) and the same VPN or SSH tunnel to the
+servers. To upgrade the client later, on any of them, run the same command
+again; it keeps `~/.armada/config`.
 
 Give yourself a certificate of your own. On a server where `armada` works:
 

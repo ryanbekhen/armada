@@ -372,7 +372,8 @@ upgrades without asking.
 
 4. **Your own computer:** reinstall the client with the
    [installer](quickstart.md#1-install) (`sudo ARMADA_CLIENT_ONLY=1 sh` on
-   Linux).
+   Linux and in WSL 2 on Windows). `armadad upgrade` already replaced the
+   client on the cluster's own machines.
 
 Releases before `armadad upgrade` existed upgrade once with the installer
 instead: `sudo ARMADA_VERSION=v0.2.0 sh install.sh`, then `sudo systemctl

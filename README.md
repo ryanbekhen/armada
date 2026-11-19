@@ -98,6 +98,7 @@ and installs or upgrades only: it never sets a machine up by itself.
 | A Linux machine of the cluster | `armadad` (runs the machine) and the `armada` client | `curl -fsSL https://raw.githubusercontent.com/ryanbekhen/armada/main/install.sh \| sudo sh` |
 | Your Linux laptop, a CI runner, any Linux machine that only manages the cluster | The `armada` client only | `curl -fsSL https://raw.githubusercontent.com/ryanbekhen/armada/main/install.sh \| sudo ARMADA_CLIENT_ONLY=1 sh` |
 | macOS (Intel or Apple silicon) | The `armada` client only (always on macOS) | `curl -fsSL https://raw.githubusercontent.com/ryanbekhen/armada/main/install.sh \| sudo sh` |
+| Windows 10 or 11 | The Linux `armada` client inside WSL 2 (there is no native Windows client) | In a WSL 2 shell (Ubuntu, for example): `curl -fsSL https://raw.githubusercontent.com/ryanbekhen/armada/main/install.sh \| sudo ARMADA_CLIENT_ONLY=1 sh` |
 
 Without root, install the client into your home directory instead:
 
@@ -154,7 +155,7 @@ Read the [full feature list](docs/features.md).
 - Linux machines (amd64 or arm64): cloud instances, VMs, or bare metal, with
   a private network between them and systemd.
 - A domain whose DNS you control, for HTTPS.
-- The `armada` client runs on Linux and macOS.
+- The `armada` client runs on Linux and macOS, and on Windows inside WSL 2.
 
 Armada is [tested on real machines](docs/tested-environments.md) before
 each release.
