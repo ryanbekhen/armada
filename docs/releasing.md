@@ -23,6 +23,9 @@ on a maintainer's machine.
    the pinned Rust toolchain, with the `bundle` tag, so it embeds the
    container runtime; see ADR 0011) and the `armada` client for Linux and macOS
    (ADR 0027), and publishes a **draft** release with:
+   - `armada-client_<version>_linux_<arch>.tar.gz` (the `armada` client
+     alone, for computers that only manage a cluster, LICENSE, README,
+     SECURITY.md),
    - `armada_<version>_linux_<arch>.tar.gz` (`armadad`, `armada`, LICENSE,
      README, SECURITY.md, systemd units),
    - `armada_<version>_darwin_<arch>.tar.gz` (the `armada` client, LICENSE,

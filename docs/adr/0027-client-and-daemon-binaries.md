@@ -44,9 +44,22 @@ cluster network. `internal/daemon` may use the client's exported helpers
 (`cli.Run`, `cli.RPCError`, `cli.ReadSecretValue`, `cli.NewVersionCommand`).
 Both print the same `version`.
 
-Releases carry one archive per Linux platform with both binaries and the
-units, and a client-only archive per macOS platform. `install.sh` installs
-both on Linux and only the client on macOS or with `ARMADA_CLIENT_ONLY=1`.
+`armadad` links the whole client (`internal/daemon` uses `internal/cli`), so
+on a machine of the cluster `armada` is a link to `armadad`, which runs
+`cli.Execute` when started by the name `armada` (`cmd/armadad`): the
+machine holds the client's code once. The separate `armada` binary is for
+computers that only manage the cluster, and it alone carries none of the
+daemon's code.
+
+Releases carry, per Linux platform, an archive with `armadad`, `armada`,
+and the units, and a client-only archive (`armada-client_<version>_linux_<arch>`,
+a few MB); per macOS platform, a client-only archive. `install.sh` installs
+`armadad` with `armada` linked to it on Linux, and only the client, from
+the client archive, on macOS or with `ARMADA_CLIENT_ONLY=1` (from the full
+archive for a release that has no client one). `armadad upgrade` installs
+`armadad` and makes `armada` the same link. The full archive keeps a
+separate `armada` for the upgraders of earlier releases, which install it
+as a file and refuse an archive without it.
 It only installs: creating or joining the cluster stays an `armadad`
 command the operator runs and configures. `armada token create` prints the
 install line pinned to the server's release, then the `armadad` command.

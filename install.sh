@@ -1,8 +1,9 @@
 #!/bin/sh
 # Armada installer: downloads a release, verifies it, and installs armadad
-# (the daemon), armada (the client), and the systemd units. On macOS, or with
-# ARMADA_CLIENT_ONLY=1, it installs the client only. It never runs anything it
-# has not verified.
+# (the daemon, which is also the armada client: armada is a link to it) and
+# the systemd units. On macOS, or with ARMADA_CLIENT_ONLY=1, it installs the
+# client only, from the smaller client archive. It never runs anything it has
+# not verified.
 #
 # It only installs (or upgrades): setting the machine up stays with you
 # (armadad init, join, or server join, then systemctl enable --now).
@@ -120,7 +121,14 @@ trap 'rm -rf -- "$TMP"' EXIT INT TERM
 fetch() { curl -fsSL --proto '=https,file' --retry 3 -o "$TMP/$1" "$BASE/$1"; }
 
 say "Downloading Armada $VERSION ($OS/$ARCH)..."
-fetch "$ARCHIVE" || die "download of $ARCHIVE failed"
+# The client alone on Linux comes from its own archive, a few MB instead of
+# the daemon's; releases from before it had none, so fall back to the full one.
+CLIENT_ARCHIVE="armada-client_${VERSION#v}_${OS}_${ARCH}.tar.gz"
+if [ "$CLIENT_ONLY" = 1 ] && [ "$OS" = linux ] && fetch "$CLIENT_ARCHIVE" 2>/dev/null; then
+	ARCHIVE="$CLIENT_ARCHIVE"
+else
+	fetch "$ARCHIVE" || die "download of $ARCHIVE failed"
+fi
 fetch checksums.txt || die "download of checksums.txt failed"
 
 # 1. Signature: the checksum file must be signed by this repository's release
@@ -156,7 +164,7 @@ say "Checksum verified."
 mkdir -p "$TMP/x"
 tar -xzf "$TMP/$ARCHIVE" -C "$TMP/x"
 BINS=armada
-[ "$CLIENT_ONLY" = 1 ] || BINS="armadad armada"
+[ "$CLIENT_ONLY" = 1 ] || BINS=armadad
 for bin in $BINS; do
 	[ -f "$TMP/x/$bin" ] || die "archive does not contain the $bin binary"
 done
@@ -167,6 +175,15 @@ for bin in $BINS; do
 	mv -f "$PREFIX/bin/$bin.new" "$PREFIX/bin/$bin"
 	say "Installed $PREFIX/bin/$bin"
 done
+
+if [ "$CLIENT_ONLY" != 1 ]; then
+	# armadad is also the client when run as armada: one binary on the
+	# machine instead of the client's code twice.
+	rm -f "$PREFIX/bin/armada.new"
+	ln -s armadad "$PREFIX/bin/armada.new"
+	mv -f "$PREFIX/bin/armada.new" "$PREFIX/bin/armada"
+	say "Installed $PREFIX/bin/armada -> armadad"
+fi
 
 if [ "$CLIENT_ONLY" = 1 ]; then
 	say "Next: keep the config a cluster-admin gives you as ~/.armada/config."
