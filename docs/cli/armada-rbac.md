@@ -188,6 +188,7 @@ Flags:
 | Flag | Meaning |
 | --- | --- |
 | `-o`, `--output string` | client config file to create |
+| `--ssh ssh -W` | reach the servers through this SSH host ([user@]host or a ~/.ssh/config alias): ssh -W to their private addresses, mTLS inside |
 
 ### `armada rbac service delete`
 
@@ -294,6 +295,7 @@ Examples:
 ```bash
 armada rbac user create ana -o ana.config --role deployer --space shop
 armada rbac user create ops -o ops.config --role cluster-admin
+armada rbac user create ops -o ops.config --role cluster-admin --ssh ops@bastion.example.com
 ```
 
 Flags:
@@ -303,6 +305,7 @@ Flags:
 | `--allow-label stringArray` | a node label KEY=VALUE its apps' placement may require (repeat for more) |
 | `-o`, `--output string` | client config file to create |
 | `--role string` | a first role: viewer, deployer, admin (with --space), space-creator, or cluster-admin |
+| `--ssh ssh -W` | reach the servers through this SSH host ([user@]host or a ~/.ssh/config alias): ssh -W to their private addresses, mTLS inside |
 
 ### `armada rbac user credentials`
 
@@ -319,6 +322,7 @@ Flags:
 | Flag | Meaning |
 | --- | --- |
 | `-o`, `--output string` | client config file to create |
+| `--ssh ssh -W` | reach the servers through this SSH host ([user@]host or a ~/.ssh/config alias): ssh -W to their private addresses, mTLS inside |
 
 ### `armada rbac user delete`
 

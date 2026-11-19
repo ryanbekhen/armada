@@ -448,7 +448,9 @@ armada rbac role list                          # the roles; role show ROLE lists
 Alice installs the client, keeps the file as `~/.armada/config` (mode
 `0600`), and runs `armada app list` from a computer that reaches a control
 plane server's private address on port 7443, directly, through a VPN, or
-through an SSH tunnel (see the
+through SSH: created with `--ssh alice@bastion.example.com`, her config
+runs `ssh -W` to the servers' private addresses for every command, with
+nothing to keep open (see the
 [quickstart](quickstart.md#9-use-armada-from-your-own-computer)). Roles
 apply to her next command, and to the streams she has open within
 seconds: `armada app logs -f`, `armada cluster events -f`, and

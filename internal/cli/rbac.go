@@ -108,13 +108,26 @@ func newFile(path string) error {
 }
 
 // writeCredentials writes a client config for key and the issued
-// certificate, with the servers of the caller's own config.
-func writeCredentials(cmd *cobra.Command, g *globals, out, who string, keyPEM []byte, resp *armadav1.IssueMetricsCertificateResponse) error {
+// certificate, with the servers of the caller's own config. With ssh, the
+// config reaches the servers through that SSH host, so it names the
+// servers' own addresses, as the cluster lists them, not the caller's
+// (which may be a tunnel on the caller's machine).
+func writeCredentials(cmd *cobra.Command, g *globals, client armadav1.AdminServiceClient, out, who, ssh string, keyPEM []byte, resp *armadav1.IssueMetricsCertificateResponse) error {
 	cc, err := clientconfig.Load(g.configPath)
 	if err != nil {
 		return err
 	}
-	c := &clientconfig.Config{Servers: cc.Servers, CA: string(resp.GetCaCert()), Cert: string(resp.GetCert()), Key: string(keyPEM)}
+	servers := cc.Servers
+	if ssh != "" {
+		list, err := client.ListServers(cmd.Context(), &armadav1.ListServersRequest{})
+		if err != nil {
+			return RPCError(err)
+		}
+		if servers = serverAddrs(list); len(servers) == 0 {
+			return errors.New("the cluster lists no server addresses")
+		}
+	}
+	c := &clientconfig.Config{Servers: servers, SSH: ssh, CA: string(resp.GetCaCert()), Cert: string(resp.GetCert()), Key: string(keyPEM)}
 	if err := c.SaveFile(out); err != nil {
 		return err
 	}
@@ -124,7 +137,7 @@ func writeCredentials(cmd *cobra.Command, g *globals, out, who string, keyPEM []
 }
 
 func newPrincipalCreateCommand(g *globals, kind string) *cobra.Command {
-	var out string
+	var out, ssh string
 	var role roleFlags
 	var labels labelFlags
 	cmd := &cobra.Command{
@@ -136,10 +149,16 @@ func newPrincipalCreateCommand(g *globals, kind string) *cobra.Command {
 			"--space for viewer, deployer, and admin); give more with\n" +
 			"`armada rbac assignment create`. A user with no role can only renew.",
 		Example: "  armada rbac user create ana -o ana.config --role deployer --space shop\n" +
-			"  armada rbac user create ops -o ops.config --role cluster-admin",
+			"  armada rbac user create ops -o ops.config --role cluster-admin\n" +
+			"  armada rbac user create ops -o ops.config --role cluster-admin --ssh ops@bastion.example.com",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := args[0]
+			if ssh != "" {
+				if err := clientconfig.CheckSSH(ssh); err != nil {
+					return err
+				}
+			}
 			allow, err := labels.allowances()
 			if err != nil {
 				return err
@@ -178,7 +197,7 @@ func newPrincipalCreateCommand(g *globals, kind string) *cobra.Command {
 			if err != nil {
 				return RPCError(err)
 			}
-			return writeCredentials(cmd, g, out, "user:"+name, keyPEM, resp)
+			return writeCredentials(cmd, g, client, out, "user:"+name, ssh, keyPEM, resp)
 		},
 	}
 	if kind == kindService {
@@ -192,6 +211,7 @@ func newPrincipalCreateCommand(g *globals, kind string) *cobra.Command {
 			"  armada rbac service create portal --role space-creator"
 	} else {
 		cmd.Flags().StringVarP(&out, "output", "o", "", "client config file to create")
+		cmd.Flags().StringVar(&ssh, "ssh", "", "reach the servers through this SSH host ([user@]host or a ~/.ssh/config alias): `ssh -W` to their private addresses, mTLS inside")
 	}
 	role.register(cmd, "a first role: viewer, deployer, admin (with --space), space-creator, or cluster-admin")
 	labels.register(cmd)
@@ -331,7 +351,7 @@ func newPrincipalShowCommand(g *globals, kind string) *cobra.Command {
 }
 
 func newPrincipalCredentialsCommand(g *globals, kind string) *cobra.Command {
-	var out string
+	var out, ssh string
 	cmd := &cobra.Command{
 		Use:   "credentials NAME -o FILE",
 		Short: "Write a new client config for a user, revoking their older certificates",
@@ -343,6 +363,11 @@ func newPrincipalCredentialsCommand(g *globals, kind string) *cobra.Command {
 			name := args[0]
 			if err := newFile(out); err != nil {
 				return err
+			}
+			if ssh != "" {
+				if err := clientconfig.CheckSSH(ssh); err != nil {
+					return err
+				}
 			}
 			pk := pki.KindUser
 			if kind == kindService {
@@ -367,7 +392,7 @@ func newPrincipalCredentialsCommand(g *globals, kind string) *cobra.Command {
 			if err != nil {
 				return RPCError(err)
 			}
-			return writeCredentials(cmd, g, out, kind+":"+name, keyPEM, resp)
+			return writeCredentials(cmd, g, client, out, kind+":"+name, ssh, keyPEM, resp)
 		},
 	}
 	if kind == kindService {
@@ -379,6 +404,7 @@ func newPrincipalCredentialsCommand(g *globals, kind string) *cobra.Command {
 			"until it renews or is deleted."
 	}
 	cmd.Flags().StringVarP(&out, "output", "o", "", "client config file to create")
+	cmd.Flags().StringVar(&ssh, "ssh", "", "reach the servers through this SSH host ([user@]host or a ~/.ssh/config alias): `ssh -W` to their private addresses, mTLS inside")
 	return cmd
 }
 
