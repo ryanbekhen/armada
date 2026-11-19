@@ -140,4 +140,5 @@ container runtime (containerd, runc, CNI plugins) and its state store
 (etcd). Nodes can also run containers without containerd, on the
 experimental supervisor runtime, which holds less memory per node
 ([operations guide](operations.md#running-containers-without-containerd-experimental)).
-The `armada` client needs no root and also runs on macOS.
+The `armada` client needs no root and also runs on macOS, and on Windows
+inside WSL 2.

@@ -81,7 +81,8 @@ joined it after the session started.
 ## Consequences
 
 - The client is about 15 MB and runs on an operator's workstation, Linux or
-  macOS, as long as it reaches the control plane's private address.
+  macOS (on Windows, the Linux client inside WSL 2), as long as it reaches
+  the control plane's private address.
 - Machine commands are visibly separate: `sudo armadad ...` on a machine,
   `armada ...` anywhere.
 - An upgrade from a release with one binary is the usual one (`install.sh`,
