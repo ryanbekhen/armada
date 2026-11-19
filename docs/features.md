@@ -141,4 +141,6 @@ container runtime (containerd, runc, CNI plugins) and its state store
 experimental supervisor runtime, which holds less memory per node
 ([operations guide](operations.md#running-containers-without-containerd-experimental)).
 The `armada` client needs no root and also runs on macOS, and on Windows
-inside WSL 2.
+inside WSL 2. From outside the private network it reaches the servers
+through an SSH host of your choice (`--ssh`, `ssh -W`), with no tunnel to
+keep open and no API port facing the public.

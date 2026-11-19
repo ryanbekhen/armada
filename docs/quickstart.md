@@ -304,8 +304,31 @@ install -m 0600 yourname.config ~/.armada/config
 ```
 
 `armada` now talks to the address in that file: a control plane server's
-**private** IP on port 7443. Your computer has to reach it, in one of two
+**private** IP on port 7443. Your computer has to reach it, in one of three
 ways.
+
+**Through SSH, with nothing to keep open** (the simplest when you can SSH
+to a machine on the private network, a server for example). Create the
+config with `--ssh` instead of the command above:
+
+```bash
+armada rbac user create yourname -o yourname.config --role cluster-admin --ssh you@203.0.113.10
+```
+
+Or add the line to a config you already have:
+
+```json
+"ssh": "you@203.0.113.10",
+```
+
+Every command then runs `ssh -W <server>:7443 you@203.0.113.10` for its
+connection, the way git reaches a remote, and closes it when done. It is
+your own `ssh`: your keys, agent, `~/.ssh/known_hosts`, and
+`~/.ssh/config` (a `Host` alias or `ProxyJump` works as the destination).
+SSH to that host once by hand first, so its host key is known. The API
+stays on the private IP, and mTLS runs end to end inside the SSH
+connection: the SSH host only relays bytes. When the leader changes, the
+next server in the list is reached through the same host.
 
 **Through a VPN into the private network** (WireGuard or any other). If
 your computer already reaches the private IPs, run `armada cluster status`
@@ -325,7 +348,7 @@ sudo ufw allow in on wg0 to any port 7443 proto tcp    # on the server
 Do not put the VPN address in the config: the API listens only on the
 private IP.
 
-**Through an SSH tunnel**, when there is no VPN:
+**Through an SSH tunnel you keep open yourself**, if you prefer:
 
 ```bash
 ssh -N -L 7443:10.0.0.2:7443 you@203.0.113.10    # keep it open; 10.0.0.2 is the private IP

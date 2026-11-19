@@ -21,6 +21,8 @@ import (
 
 	"github.com/ryanbekhen/armada/internal/alert"
 	"github.com/ryanbekhen/armada/internal/cli"
+	"github.com/ryanbekhen/armada/internal/clientconfig"
+	"github.com/ryanbekhen/armada/internal/clientconfig/sshtest"
 	"github.com/ryanbekhen/armada/internal/fsutil"
 	"github.com/ryanbekhen/armada/internal/pki"
 	"github.com/ryanbekhen/armada/internal/runtime"
@@ -846,6 +848,32 @@ func testSpaces(t *testing.T, d *fake.Driver, cli func(...string) (int, string, 
 	if code, _, stderr := ana("app", "update", "web", "--min", "2"); code == 0 || !strings.Contains(stderr, "no role that allows Deploy") {
 		t.Errorf("viewer scales: code=%d err=%q", code, stderr)
 	}
+
+	// A config that reaches the servers through an SSH host: it names the
+	// servers' own addresses and the host, and every call goes through
+	// `ssh -W` (the stand-in reaches only sshtest.Host).
+	samConfig := filepath.Join(t.TempDir(), "sam.json")
+	if code, out, stderr := cli("rbac", "user", "create", "sam", "-o", samConfig, "--role", "viewer", "--ssh", "ops@"+sshtest.Host); code != 0 || !strings.Contains(out, "for user:sam") {
+		t.Fatalf("user create --ssh: code=%d out=%q err=%q", code, out, stderr)
+	}
+	sam, err := clientconfig.Load(samConfig)
+	if err != nil || sam.SSH != "ops@"+sshtest.Host || len(sam.Servers) == 0 {
+		t.Fatalf("config through ssh: %+v, %v", sam, err)
+	}
+	if code, out, stderr := run(t, "app", "list", "-A", "--config", samConfig); code != 0 || !strings.Contains(out, "web") {
+		t.Errorf("through ssh: code=%d out=%q err=%q", code, out, stderr)
+	}
+	sam.SSH = "nowhere.invalid"
+	if err := sam.SaveFile(samConfig); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, stderr := run(t, "app", "list", "-A", "--config", samConfig); code == 0 || !strings.Contains(stderr, "Could not resolve hostname nowhere.invalid") {
+		t.Errorf("through a host ssh cannot reach: code=%d err=%q", code, stderr)
+	}
+	if code, _, stderr := cli("rbac", "user", "create", "sid", "-o", filepath.Join(t.TempDir(), "sid.json"), "--ssh", "-oProxyCommand=id"); code == 0 || !strings.Contains(stderr, "ssh destination") {
+		t.Errorf("--ssh with an option: code=%d err=%q", code, stderr)
+	}
+
 	if _, out, _ := cli("rbac", "user", "list"); !regexp.MustCompile(`ana\s+viewer\s+active\s+user:ryan`).MatchString(out) ||
 		!regexp.MustCompile(`ryan\s+cluster-admin\s+active \(you\)`).MatchString(out) {
 		t.Errorf("user list = %q", out)

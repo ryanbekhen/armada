@@ -35,6 +35,10 @@ type Config struct {
 	CA      string   `json:"ca"`
 	Cert    string   `json:"cert"`
 	Key     string   `json:"key"`
+	// SSH, when set, is an ssh(1) destination (an SSH host that reaches the
+	// servers' private addresses): every connection goes through
+	// `ssh -W ADDR SSH`, so the API stays private (CheckSSH).
+	SSH string `json:"ssh,omitempty"`
 	// Space is the space commands work in when they name none
 	// (`armada space use`, ADR 0032); empty means the default space.
 	Space string `json:"space,omitempty"`
@@ -80,6 +84,11 @@ func Load(path string) (*Config, error) {
 	}
 	if len(c.Servers) == 0 || c.CA == "" || c.Cert == "" || c.Key == "" {
 		return nil, fmt.Errorf("%s is incomplete", path)
+	}
+	if c.SSH != "" {
+		if err := CheckSSH(c.SSH); err != nil {
+			return nil, fmt.Errorf("%s: %w", path, err)
+		}
 	}
 	if c.Space == "" {
 		c.Space = c.Project
@@ -135,6 +144,14 @@ func (c *Config) Dial(opts ...grpc.DialOption) (*Conn, error) {
 	tlsCfg, err := pki.ClientTLS([]byte(c.CA), []byte(c.Cert), []byte(c.Key))
 	if err != nil {
 		return nil, err
+	}
+	if c.SSH != "" {
+		if err := CheckSSH(c.SSH); err != nil {
+			return nil, err
+		}
+		// Through SSH, only the config's servers: the machine's list is
+		// this computer's, not what the SSH host reaches.
+		return Dial(c.Servers, tlsCfg, append([]grpc.DialOption{grpc.WithContextDialer(sshDialer(c.SSH))}, opts...)...)
 	}
 	return Dial(withMachineServers(c.Servers), tlsCfg, opts...)
 }
