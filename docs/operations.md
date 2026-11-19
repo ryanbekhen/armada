@@ -324,8 +324,8 @@ upgrades without asking.
 
    `armadad upgrade` downloads the release, checks its checksum (and its
    signature when [cosign](https://docs.sigstore.dev/cosign/system_config/installation/)
-   is installed; `--require-signature` insists), replaces `armadad` (with
-   `armada` a link to it) and the systemd units, and restarts `armada-runtime`, so the
+   is installed; `--require-signature` insists), replaces `armadad`,
+   `armada`, and the systemd units, and restarts `armada-runtime`, so the
    node runs the containerd, runc, and `armada-log` the new release carries
    (containers keep running), then `armada-server` (or `armada-agent`).
    It prints each step as it happens (each download with its size and

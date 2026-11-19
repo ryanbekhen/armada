@@ -95,7 +95,7 @@ and installs or upgrades only: it never sets a machine up by itself.
 
 | Where | What gets installed | Command |
 | --- | --- | --- |
-| A Linux machine of the cluster | `armadad` (runs the machine), with `armada` as a link to it (`armadad` is also the client) | `curl -fsSL https://raw.githubusercontent.com/ryanbekhen/armada/main/install.sh \| sudo sh` |
+| A Linux machine of the cluster | `armadad` (runs the machine) and the `armada` client | `curl -fsSL https://raw.githubusercontent.com/ryanbekhen/armada/main/install.sh \| sudo sh` |
 | Your Linux laptop, a CI runner, any Linux machine that only manages the cluster | The `armada` client only (a download of a few MB) | `curl -fsSL https://raw.githubusercontent.com/ryanbekhen/armada/main/install.sh \| sudo ARMADA_CLIENT_ONLY=1 sh` |
 | macOS (Intel or Apple silicon) | The `armada` client only (always on macOS) | `curl -fsSL https://raw.githubusercontent.com/ryanbekhen/armada/main/install.sh \| sudo sh` |
 | Windows 10 or 11 | The Linux `armada` client inside WSL 2 (there is no native Windows client) | In a WSL 2 shell (Ubuntu, for example): `curl -fsSL https://raw.githubusercontent.com/ryanbekhen/armada/main/install.sh \| sudo ARMADA_CLIENT_ONLY=1 sh` |

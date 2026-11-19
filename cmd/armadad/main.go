@@ -1,7 +1,6 @@
 // Command armadad runs on every machine of an Armada cluster: the control
-// plane, the node agent, and the embedded container runtime. Run as armada
-// (the link install.sh and armadad upgrade make next to it), it is the
-// client, whose code it carries anyway, so a machine holds that code once.
+// plane, the node agent, and the embedded container runtime. The client is
+// the separate armada binary.
 package main
 
 import (
@@ -23,8 +22,10 @@ func main() {
 	os.Exit(code)
 }
 
-// command is the client when the binary was run by the name armada, and the
-// daemon otherwise.
+// command is the daemon, or the client when the binary was run by the name
+// armada: v0.1.0-alpha.35 installed armada as a link to armadad, and its
+// armadad upgrade still does so once more; the next upgrade puts the client
+// binary back. Remove this once no release that makes the link is supported.
 func command(argv0 string) func(context.Context, []string, io.Writer, io.Writer) int {
 	if filepath.Base(argv0) == "armada" {
 		return cli.Execute

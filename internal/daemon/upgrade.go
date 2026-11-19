@@ -10,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"net/http"
 	"net/url"
 	"os"
@@ -60,7 +59,7 @@ func newUpgradeCommand() *cobra.Command {
 		Use:   "upgrade [--version vX.Y.Z]",
 		Short: "Upgrade this machine to the latest (or a given) release and restart its service",
 		Long: "upgrade downloads a release, verifies its checksum (and its signature when cosign is\n" +
-			"installed), replaces armadad (armada is a link to it) and the systemd units, and restarts\n" +
+			"installed), replaces armadad and armada and the systemd units, and restarts\n" +
 			"armada-runtime (containers keep running) and armada-server or armada-agent. Upgrade servers first, one at a time, then the other\n" +
 			"nodes (docs/operations.md#upgrades). ARMADA_DOWNLOAD_BASE points at a mirror.",
 		Args: cobra.NoArgs,
@@ -149,22 +148,20 @@ func (u *upgrader) run(ctx context.Context, current, target string) error {
 	if err != nil {
 		return err
 	}
-	if _, ok := files["armadad"]; !ok {
-		return errors.New("the release has no armadad")
+	for _, bin := range []string{"armadad", "armada"} {
+		if _, ok := files[bin]; !ok {
+			return fmt.Errorf("the release has no %s", bin)
+		}
 	}
 
-	// Everything is verified: install armadad, then armada as a link to it
-	// (armadad is the client when run as armada), so the machine holds the
-	// client's code once. The release still carries a separate armada for
-	// the upgraders of earlier versions, which install it as a file.
-	if err := installFile(files["armadad"], filepath.Join(u.binDir, "armadad"), 0o755, nil); err != nil {
-		return err
+	// Everything is verified: install, armadad last. Each is its own file;
+	// the rename replaces a link an earlier release left as armada.
+	for _, bin := range []string{"armada", "armadad"} {
+		if err := installFile(files[bin], filepath.Join(u.binDir, bin), 0o755, nil); err != nil {
+			return err
+		}
+		u.stepf("  install    %s\n", filepath.Join(u.binDir, bin))
 	}
-	u.stepf("  install    %s\n", filepath.Join(u.binDir, "armadad"))
-	if err := linkClient(u.binDir); err != nil {
-		return err
-	}
-	u.stepf("  install    %s -> armadad\n", filepath.Join(u.binDir, "armada"))
 	if err := u.installUnits(ctx, files); err != nil {
 		return err
 	}
@@ -447,19 +444,6 @@ func sizeString(n int64) string {
 		return fmt.Sprintf("%.1f MiB", float64(n)/(1<<20))
 	}
 	return fmt.Sprintf("%.1f KiB", float64(n)/(1<<10))
-}
-
-// linkClient makes dir/armada a link to armadad next to it, replacing the
-// file or link there in one rename.
-func linkClient(dir string) error {
-	tmp := filepath.Join(dir, "armada.new")
-	if err := os.Remove(tmp); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return err
-	}
-	if err := os.Symlink("armadad", tmp); err != nil {
-		return err
-	}
-	return os.Rename(tmp, filepath.Join(dir, "armada"))
 }
 
 // installFile replaces dst with src (changed by edit, if any) atomically.
