@@ -137,6 +137,11 @@ func newServerCommand() *cobra.Command {
 			// renewal point, or past expiry, starts with a valid
 			// certificate.
 			certs := &certRenewer{dataDir: dataDir, ca: ca, member: member, log: log, now: time.Now}
+			// Only a server run as root from the default data directory
+			// owns the machine's shared admin config.
+			if os.Geteuid() == 0 && dataDir == defaultDataDir {
+				certs.st, certs.adminConfig = st, clientconfig.SystemPath
+			}
 			certs.check()
 			pem, err = readPrivate(dataDir, fileCACert, fileServerCert, fileServerKey)
 			if err != nil {

@@ -65,16 +65,16 @@ use sudo, and `server list` still prints. Without the group, `init` leaves
 the file 0600. `--config` or `ARMADA_CONFIG` still writes a private config
 wherever the operator wants.
 
-Joining a group counts only in login sessions that start afterwards, so the
-person who runs `sudo armadad init` would otherwise need `sudo` or a new
-login before `armada` works. `init` therefore also writes the config as
-`~/.armada/config` of that user (`SUDO_USER`, only when it matches
-`SUDO_UID` and is not root), with the first administrator certificate named
-after them. It creates the file with `O_EXCL` and the directory through
-`os.Root` on the home directory, so it never replaces a file or follows a
-link out of the home, and gives both to the user (0600 and 0700); a failure
-there only warns, since the cluster already exists. When the shared file
-cannot be read, the client says whether the account is outside the group or
+The shared file is the machine's one admin config. `init` and
+`server join`, run through sudo, add that user (`SUDO_USER`, only when it
+matches `SUDO_UID` and is not root) to the group with `usermod`, instead of
+copying the file into their home, and name the certificate after them.
+Joining a group counts only in login sessions that start afterwards, so
+they print that the user should log in again or run `newgrp armada`; a
+failure there only warns, since the cluster already exists. A copy would
+be a second file with the same certificate that expires on its own, while
+the server renews the shared one (ADR 0033). When the shared file cannot
+be read, the client says whether the account is outside the group or
 joined it after the session started.
 
 ## Consequences

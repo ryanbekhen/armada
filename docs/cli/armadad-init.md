@@ -5,7 +5,10 @@
 [All commands](armadad.md)
 
 init creates the cluster CA, server and node certificates, the state database,
-and an admin client config. Run it once on the first machine, then start `armadad server`.
+and the admin client config /etc/armada/admin.config (read by root and the armada
+group; the server renews its certificate). Run through sudo, it adds that user to
+the group: log in again or run `newgrp armada` to use armada without sudo.
+Run it once on the first machine, then start `armadad server`.
 
 ```
 armadad init [flags]

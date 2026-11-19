@@ -54,7 +54,10 @@ func newInitCommand(g *globals) *cobra.Command {
 		Use:   "init",
 		Short: "Initialize a new cluster on this machine",
 		Long: "init creates the cluster CA, server and node certificates, the state database,\n" +
-			"and an admin client config. Run it once on the first machine, then start `armadad server`.",
+			"and the admin client config " + clientconfig.SystemPath + " (read by root and the " + clientconfig.Group + "\n" +
+			"group; the server renews its certificate). Run through sudo, it adds that user to\n" +
+			"the group: log in again or run `newgrp " + clientconfig.Group + "` to use armada without sudo.\n" +
+			"Run it once on the first machine, then start `armadad server`.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ip, err := resolvePrivateIP(privateIP)
@@ -210,20 +213,20 @@ func newInitCommand(g *globals) *cobra.Command {
 
 			cc := &clientconfig.Config{Servers: []string{listen}, CA: string(ca.CertPEM), Cert: string(adminCert), Key: string(adminKey)}
 			configs := []string{g.configPath}
+			groupNote := ""
 			if g.configPath == clientconfig.SystemPath {
 				if _, err := cc.SaveShared(g.configPath); err != nil {
 					return err
 				}
-				// They use armada at once, with no group to join and no new
-				// login. The cluster exists by now: a failure here only warns.
+				// The person reads it through the group: one file, which the
+				// server renews, instead of a copy that expires on its own.
+				// The cluster exists by now: a failure here only warns.
 				if person != nil {
-					switch own, err := cc.SaveOwn(person); {
-					case err == nil:
-						configs = append([]string{own}, configs...)
-					case errors.Is(err, fs.ErrExist):
-						_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "warning: kept %s's existing ~/.armada/config\n", person.Username)
-					default:
-						_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s's ~/.armada/config: %v\n", person.Username, err)
+					switch joined, err := joinAdminGroup(ctx, person); {
+					case err != nil:
+						_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "warning: add %s to the %s group yourself (sudo usermod -aG %s %s): %v\n", person.Username, clientconfig.Group, clientconfig.Group, person.Username, err)
+					case joined:
+						groupNote = adminGroupNote(person.Username)
 					}
 				}
 			} else if err := cc.Save(g.configPath); err != nil {
@@ -236,6 +239,9 @@ func newInitCommand(g *globals) *cobra.Command {
 			_, _ = fmt.Fprintf(out, "  api:         %s\n", listen)
 			_, _ = fmt.Fprintf(out, "  network:     %s, %s\n", network.Mode, network.ClusterCIDR)
 			_, _ = fmt.Fprintf(out, "  user:        %s, cluster-admin (%s)\n", userName, strings.Join(configs, ", "))
+			if groupNote != "" {
+				_, _ = fmt.Fprintf(out, "               %s\n", groupNote)
+			}
 			_, _ = fmt.Fprintf(out, "  CA SHA-256:  %s\n\n", pki.Fingerprint(ca.Cert))
 			_, _ = fmt.Fprint(out, nextStep("server", dataDir))
 			_, _ = fmt.Fprintf(out, "Back up %s with `armadad backup`: without it, secrets are lost.\n", dataDir)

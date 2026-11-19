@@ -33,6 +33,14 @@ Access is granted by **roles** given to **principals**.
   cluster-admin unless it is on record: `armadad init`, `armadad user
   renew`, and `armadad server join` (through the leader, `JoinServerRequest.
   user_name`; a leader that does not record it gets no config written).
+  Each server renews the certificate in its own `/etc/armada/admin.config`
+  (`certRenewer.renewAdmin`, at start and every 12 hours, once a third of
+  its life is left or after it expired) with a new key, through the same
+  check and record as a user's own renewal (`RenewedUser`): a user who was
+  deleted or replaced stays out. Root on a server holds the CA and could
+  sign the certificate anyway, so this gives nobody new access; it keeps
+  the machine's cluster-admins from being locked out a year after `init`.
+  Every other user certificate is renewed by its holder.
   A certificate of a name with no record keeps full control only when it
   was issued before the keyspace moved to schema 14 (`meta/user-cutoff`,
   compared with NotBefore plus the CA's backdating), as such administrator

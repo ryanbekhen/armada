@@ -125,9 +125,10 @@ armada server list                     # waits for "voting"
 ```
 
 Like `armadad init`, the join writes `/etc/armada/admin.config` for the
-machine's cluster-admins (group `armada`) and the `~/.armada/config` of the
-person who ran it through sudo, unless they exist, so `armada` works on the
-new server at once. The certificate in them is for that person's user name
+machine's cluster-admins (group `armada`), unless it exists, and adds the
+person who ran it through sudo to the group (log in again, or run
+`newgrp armada`, before `armada` works without `sudo`). The certificate in
+it is for that person's user name
 (`--user-name` names another) and has the rights the cluster gives that
 user; a name the cluster has no record of is recorded as a cluster-admin
 by the leader first, like the first user. A leader of an older version
@@ -396,7 +397,8 @@ newer layout, instead of misreading it. To go back:
 | Node (`node.crt`) | 30 days | The agent renews it in the last third of its lifetime. A node off for more than 30 days must be removed and joined again; on a server, `armada-server` renews it at start if the node is still registered |
 | Server (`server.crt`) and etcd member | 1 year | Each server renews its own at start and every 12 hours once a third of the lifetime is left, with no restart; a server that was off past expiry renews them before it starts serving |
 | App certificates (Let's Encrypt) | 90 days | The leader renews them about 30 days before they expire |
-| User (`/etc/armada/admin.config`, `~/.armada/config`) | 1 year | By hand: `armada rbac user renew` in each file (with sudo for the shared one) before it expires |
+| User in `/etc/armada/admin.config` | 1 year | Each server renews the one in its own file at start and every 12 hours once a third of the lifetime is left, while the cluster still accepts that user |
+| User in `~/.armada/config` and other copies | 1 year | By hand: `armada rbac user renew` before it expires |
 | Metrics scraper | 1 year | By hand: `armada metrics credentials` again |
 | Service | 90 days | By hand: `armada rbac service renew` |
 
@@ -427,8 +429,8 @@ are tools such as a CI system or a self-service portal. Both hold roles:
 | `cluster-admin` | the cluster | everything: nodes, servers, cluster settings, tokens, metrics credentials, access control |
 
 `armadad init` creates the first user, named after the user who ran it
-with sudo, with `cluster-admin`, in both `/etc/armada/admin.config` and that
-user's `~/.armada/config`. `armada` reads the file `--config` names, else
+with sudo, with `cluster-admin`, in `/etc/armada/admin.config`, and adds
+that user to the `armada` group that reads it. `armada` reads the file `--config` names, else
 `$ARMADA_CONFIG`, else `~/.armada/config` when it exists, else
 `/etc/armada/admin.config`. Only `cluster-admin` manages access:
 
