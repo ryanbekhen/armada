@@ -151,8 +151,8 @@ func TestUpgradeShowsSteps(t *testing.T) {
 		"  download   armada_0.2.0_linux_amd64.tar.gz ... ",
 		"  download   checksums.txt ... ",
 		"  checksum   OK",
-		"  install    " + filepath.Join(u.binDir, "armada") + "\n",
 		"  install    " + filepath.Join(u.binDir, "armadad") + "\n",
+		"  install    " + filepath.Join(u.binDir, "armada") + " -> armadad\n",
 		"  install    systemd units armada-agent.service, armada-server.service (daemon reloaded)\n",
 		"  restart    armada-runtime (containers keep running) ... running again after ",
 		"  restart    armada-server ... running again after ",
@@ -197,13 +197,19 @@ func TestUpgrade(t *testing.T) {
 	if err := u.run(context.Background(), "v0.1.0", "v0.2.0"); err != nil {
 		t.Fatal(err)
 	}
-	for _, b := range []string{"armadad", "armada"} {
-		if got := read(t, filepath.Join(u.binDir, b)); got != "new "+b {
-			t.Errorf("%s = %q", b, got)
-		}
-		if fi, _ := os.Stat(filepath.Join(u.binDir, b)); fi.Mode().Perm() != 0o755 {
-			t.Errorf("%s mode %v", b, fi.Mode())
-		}
+	if got := read(t, filepath.Join(u.binDir, "armadad")); got != "new armadad" {
+		t.Errorf("armadad = %q", got)
+	}
+	if fi, _ := os.Stat(filepath.Join(u.binDir, "armadad")); fi.Mode().Perm() != 0o755 {
+		t.Errorf("armadad mode %v", fi.Mode())
+	}
+	// The file armada was is now a link to armadad, which is the client
+	// when run by that name; the release's own armada is not installed.
+	if dest, err := os.Readlink(filepath.Join(u.binDir, "armada")); err != nil || dest != "armadad" {
+		t.Errorf("armada: link to %q, %v", dest, err)
+	}
+	if got := read(t, filepath.Join(u.binDir, "armada")); got != "new armadad" {
+		t.Errorf("armada runs %q", got)
 	}
 	if got := read(t, filepath.Join(u.unitDir, "armada-agent.service")); got != "ExecStart="+filepath.Join(u.binDir, "armadad")+" agent\n" {
 		t.Errorf("unit = %q", got)
@@ -229,13 +235,13 @@ func TestUpgradeRefuses(t *testing.T) {
 		base, current, target, want string
 		requireSig                  bool
 	}{
-		"checksum":  {fakeRelease(t, "v0.2.0", releaseFiles, true), "v0.1.0", "v0.2.0", "checksum mismatch", false},
-		"downgrade": {fakeRelease(t, "v0.1.0", releaseFiles, false), "v0.2.0", "v0.1.0", "older", false},
-		"version":   {fakeRelease(t, "v0.2.0", releaseFiles, false), "v0.1.0", "v0.2.0; x", "invalid version", false},
-		"signature": {fakeRelease(t, "v0.2.0", releaseFiles, false), "v0.1.0", "v0.2.0", "cosign is not installed", true},
-		"no armada": {fakeRelease(t, "v0.2.0", releaseFiles[:1], false), "v0.1.0", "v0.2.0", "has no armada", false},
-		"missing":   {"file:///nonexistent", "v0.1.0", "v0.2.0", "download", false},
-		"scheme":    {"http://example.com", "v0.1.0", "v0.2.0", "want https", false},
+		"checksum":   {fakeRelease(t, "v0.2.0", releaseFiles, true), "v0.1.0", "v0.2.0", "checksum mismatch", false},
+		"downgrade":  {fakeRelease(t, "v0.1.0", releaseFiles, false), "v0.2.0", "v0.1.0", "older", false},
+		"version":    {fakeRelease(t, "v0.2.0", releaseFiles, false), "v0.1.0", "v0.2.0; x", "invalid version", false},
+		"signature":  {fakeRelease(t, "v0.2.0", releaseFiles, false), "v0.1.0", "v0.2.0", "cosign is not installed", true},
+		"no armadad": {fakeRelease(t, "v0.2.0", releaseFiles[1:], false), "v0.1.0", "v0.2.0", "has no armadad", false},
+		"missing":    {"file:///nonexistent", "v0.1.0", "v0.2.0", "download", false},
+		"scheme":     {"http://example.com", "v0.1.0", "v0.2.0", "want https", false},
 	} {
 		u, calls, _ := testUpgrader(t, tc.base, "armada-server")
 		u.requireSig = tc.requireSig
@@ -301,5 +307,28 @@ func TestInstallScriptNeedrestart(t *testing.T) {
 	body, _, ok2 := strings.Cut(rest, "\nNR\n")
 	if !ok || !ok2 || body+"\n" != needrestartConf {
 		t.Errorf("install.sh writes %q, armadad upgrade %q", body, needrestartConf)
+	}
+}
+
+// A release without a separate armada upgrades too, and an upgrade over a
+// machine whose armada is already a link keeps it one.
+func TestUpgradeWithoutClientFile(t *testing.T) {
+	t.Parallel()
+	base := fakeRelease(t, "v0.2.0", releaseFiles[:1], false)
+	u, _, _ := testUpgrader(t, base, "armada-server")
+	if err := os.Remove(filepath.Join(u.binDir, "armada")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("armadad", filepath.Join(u.binDir, "armada")); err != nil {
+		t.Fatal(err)
+	}
+	if err := u.run(context.Background(), "v0.1.0", "v0.2.0"); err != nil {
+		t.Fatal(err)
+	}
+	if dest, err := os.Readlink(filepath.Join(u.binDir, "armada")); err != nil || dest != "armadad" {
+		t.Errorf("armada: link to %q, %v", dest, err)
+	}
+	if _, err := os.Lstat(filepath.Join(u.binDir, "armada.new")); err == nil {
+		t.Error("armada.new left behind")
 	}
 }

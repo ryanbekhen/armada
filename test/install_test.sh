@@ -56,6 +56,9 @@ grep -q "$WORK/good/prefix/bin/armadad server" "$WORK/good/units/armada-server.s
 grep -q "$WORK/good/prefix/bin/armadad runtime" "$WORK/good/units/armada-runtime.service" ||
 	fail "runtime unit not installed"
 [ "$(stat -c %a "$WORK/good/prefix/bin/armadad")" = 755 ] || fail "binary mode"
+# armada is a link to armadad, which is the client when run by that name.
+[ "$(readlink "$WORK/good/prefix/bin/armada")" = armadad ] || fail "armada is not a link to armadad"
+grep -q "Installed $WORK/good/prefix/bin/armada -> armadad" "$WORK/good.log" || fail "link not reported"
 
 # needrestart leaves Armada's services alone: the same file armadad upgrade
 # writes (internal/daemon/needrestart.go), where needrestart is installed.
@@ -86,6 +89,29 @@ install_from "$WORK/good" client ARMADA_CLIENT_ONLY=1 || {
 [ ! -e "$WORK/client/prefix/bin/armadad" ] || fail "client-only: daemon installed"
 [ ! -e "$WORK/client/units/armada-server.service" ] || fail "client-only: units installed"
 [ ! -e "$WORK/client/needrestart/armada.conf" ] || fail "client-only: needrestart setting written"
+# A release from before the client archive: the client comes from the full one.
+[ ! -L "$WORK/client/prefix/bin/armada" ] || fail "client-only: armada is a link"
+grep -q "armada $VERSION (fake)" "$WORK/client/prefix/bin/armada" || fail "client-only: not the client from the full archive"
+
+# With a client archive, the client alone comes from it (a few MB, not the
+# daemon's archive), and replaces the link a full install left.
+CLIENT_ARCHIVE="armada-client_${VERSION#v}_linux_${ARCH}.tar.gz"
+mkdir -p "$WORK/withclient/src"
+cp -R "$WORK/good/$VERSION" "$WORK/withclient/"
+printf '#!/bin/sh\necho "armada %s (client archive)"\n' "$VERSION" >"$WORK/withclient/src/armada"
+chmod 755 "$WORK/withclient/src/armada"
+tar -czf "$WORK/withclient/$VERSION/$CLIENT_ARCHIVE" -C "$WORK/withclient/src" armada
+(cd "$WORK/withclient/$VERSION" && sha256sum "$ARCHIVE" "$CLIENT_ARCHIVE" >checksums.txt)
+install_from "$WORK/withclient" client2 ARMADA_CLIENT_ONLY=1 || {
+	cat "$WORK/client2.log"
+	fail "client-only install from the client archive failed"
+}
+grep -q "client archive" "$WORK/client2/prefix/bin/armada" || fail "client-only: did not use the client archive"
+install_from "$WORK/withclient" good || fail "full install over the earlier one failed"
+[ "$(readlink "$WORK/good/prefix/bin/armada")" = armadad ] || fail "full install: armada is not a link"
+install_from "$WORK/withclient" good ARMADA_CLIENT_ONLY=1 || fail "client-only over a full install failed"
+[ ! -L "$WORK/good/prefix/bin/armada" ] || fail "client-only over a full install: armada is still a link"
+grep -q "client archive" "$WORK/good/prefix/bin/armada" || fail "client-only over a full install: not the client"
 
 # An archive without the daemon is refused for a full install.
 mkdir -p "$WORK/nodaemon/$VERSION" "$WORK/nodaemon/src"

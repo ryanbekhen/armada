@@ -60,7 +60,9 @@ builds:
       - -X github.com/ryanbekhen/armada/internal/version.date={{ .CommitDate }}
 
 archives:
-  # Linux: both binaries and the systemd units.
+  # Linux: both binaries and the systemd units. armadad is also the client
+  # (install.sh and armadad upgrade link armada to it); the separate armada
+  # stays for the upgraders of earlier releases, which install it as a file.
   - id: armada
     ids: [armadad, armada-linux]
     formats: [tar.gz]
@@ -74,6 +76,20 @@ archives:
       - README.md
       - SECURITY.md
       - deploy/systemd/*
+  # Linux: the client only (ARMADA_CLIENT_ONLY=1), a few MB instead of the
+  # daemon's archive.
+  - id: armada-client-linux
+    ids: [armada-linux]
+    formats: [tar.gz]
+    name_template: "armada-client_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - THIRD_PARTY_NOTICES.md
+      - third_party/licenses/*
+      - src: build/licenses/**/*
+        dst: licenses/go
+      - README.md
+      - SECURITY.md
   # macOS: the client only.
   - id: armada-client
     ids: [armada-darwin]

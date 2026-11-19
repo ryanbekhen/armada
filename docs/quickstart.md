@@ -76,12 +76,14 @@ next steps. It:
   checksum, and, when [cosign](https://docs.sigstore.dev/cosign/system_config/installation/)
   is installed, that this repository's release workflow signed it
   (`ARMADA_REQUIRE_SIGNATURE=1` refuses to install without the signature);
-- installs `armadad`, `armada`, and the systemd units (not started);
+- installs `armadad`, `armada` as a link to it (`armadad` run as
+  `armada` is the client), and the systemd units (not started);
 - creates the `armada` group (see step 3).
 
 `ARMADA_VERSION=v0.1.0` pins a version. On macOS the script installs only
 the client; on a Linux computer that only needs the client, run it as
-`sudo ARMADA_CLIENT_ONLY=1 sh`.
+`sudo ARMADA_CLIENT_ONLY=1 sh`, which downloads only the client's own
+archive (a few MB).
 
 On RHEL, Oracle Linux, Rocky, and Alma, `sudo` does not search
 `/usr/local/bin` (the installer warns): install with `ARMADA_PREFIX=/usr`,
