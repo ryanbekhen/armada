@@ -2,9 +2,11 @@ package daemon
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os/exec"
 	"os/user"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -40,14 +42,49 @@ func adminGroupNote(name string) string {
 	return fmt.Sprintf("%s joined the %s group: log in again (or run `newgrp %s`) to use armada without sudo", name, clientconfig.Group, clientconfig.Group)
 }
 
+// groupCommand is the command that adds account name to group, by the
+// first tool the machine has: usermod (shadow-utils: Debian, Ubuntu, RHEL,
+// Rocky, Oracle Linux, Fedora, SUSE), gpasswd (also shadow-utils), or
+// BusyBox's addgroup (Alpine), the same families install.sh creates the
+// group with. look finds a tool; sudo's PATH may lack the sbin
+// directories, so they are tried too.
+func groupCommand(look func(string) (string, error), name, group string) ([]string, error) {
+	for _, c := range [][]string{
+		{"usermod", "-a", "-G", group, name},
+		{"gpasswd", "-a", name, group},
+		{"addgroup", name, group},
+	} {
+		if path, err := findTool(look, c[0]); err == nil {
+			return append([]string{path}, c[1:]...), nil
+		}
+	}
+	return nil, errors.New("found none of usermod, gpasswd, or addgroup")
+}
+
+func findTool(look func(string) (string, error), tool string) (string, error) {
+	if p, err := look(tool); err == nil {
+		return p, nil
+	}
+	for _, dir := range []string{"/usr/sbin", "/sbin", "/usr/bin", "/bin"} {
+		if p, err := look(filepath.Join(dir, tool)); err == nil {
+			return p, nil
+		}
+	}
+	return "", fmt.Errorf("%s not found", tool)
+}
+
 // Hooks for tests.
 var (
 	lookupGroup = user.LookupGroup
 	groupIDs    = func(u *user.User) ([]string, error) { return u.GroupIds() }
 	addToGroup  = func(ctx context.Context, name, group string) error {
-		out, err := exec.CommandContext(ctx, "usermod", "--append", "--groups", group, name).CombinedOutput() //nolint:gosec // an account sudo named and user.Lookup found, no shell
+		argv, err := groupCommand(exec.LookPath, name, group)
 		if err != nil {
-			return fmt.Errorf("usermod: %w: %s", err, strings.TrimSpace(string(out)))
+			return err
+		}
+		out, err := exec.CommandContext(ctx, argv[0], argv[1:]...).CombinedOutput() //nolint:gosec // a system tool; an account sudo named and user.Lookup found, no shell
+		if err != nil {
+			return fmt.Errorf("%s: %w: %s", filepath.Base(argv[0]), err, strings.TrimSpace(string(out)))
 		}
 		return nil
 	}

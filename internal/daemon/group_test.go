@@ -47,3 +47,34 @@ func TestJoinAdminGroup(t *testing.T) {
 		t.Error("a failed usermod passed")
 	}
 }
+
+// The group is joined with whichever tool the distribution has, found in
+// the sbin directories too when sudo's PATH lacks them.
+func TestGroupCommand(t *testing.T) {
+	t.Parallel()
+	has := func(paths ...string) func(string) (string, error) {
+		return func(p string) (string, error) {
+			for _, h := range paths {
+				if p == h || (!strings.Contains(p, "/") && strings.HasSuffix(h, "/"+p) && strings.HasPrefix(h, "/path/")) {
+					return h, nil
+				}
+			}
+			return "", errors.New("not found")
+		}
+	}
+	for name, tt := range map[string]struct {
+		look func(string) (string, error)
+		want string
+	}{
+		"shadow-utils in PATH":      {has("/path/usermod", "/path/gpasswd"), "/path/usermod -a -G armada devops"},
+		"shadow-utils outside PATH": {has("/usr/sbin/usermod"), "/usr/sbin/usermod -a -G armada devops"},
+		"gpasswd only":              {has("/usr/bin/gpasswd"), "/usr/bin/gpasswd -a devops armada"},
+		"busybox":                   {has("/usr/sbin/addgroup"), "/usr/sbin/addgroup devops armada"},
+		"nothing":                   {has(), ""},
+	} {
+		argv, err := groupCommand(tt.look, "devops", "armada")
+		if got := strings.Join(argv, " "); got != tt.want || (err == nil) != (tt.want != "") {
+			t.Errorf("%s: %q, %v; want %q", name, got, err, tt.want)
+		}
+	}
+}

@@ -67,7 +67,8 @@ wherever the operator wants.
 
 The shared file is the machine's one admin config. `init` and
 `server join`, run through sudo, add that user (`SUDO_USER`, only when it
-matches `SUDO_UID` and is not root) to the group with `usermod`, instead of
+matches `SUDO_UID` and is not root) to the group with the distribution's
+tool (`usermod`, else `gpasswd`, else BusyBox `addgroup`), instead of
 copying the file into their home, and name the certificate after them.
 Joining a group counts only in login sessions that start afterwards, so
 they print that the user should log in again or run `newgrp armada`; a
