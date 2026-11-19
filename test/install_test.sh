@@ -56,9 +56,9 @@ grep -q "$WORK/good/prefix/bin/armadad server" "$WORK/good/units/armada-server.s
 grep -q "$WORK/good/prefix/bin/armadad runtime" "$WORK/good/units/armada-runtime.service" ||
 	fail "runtime unit not installed"
 [ "$(stat -c %a "$WORK/good/prefix/bin/armadad")" = 755 ] || fail "binary mode"
-# armada is a link to armadad, which is the client when run by that name.
-[ "$(readlink "$WORK/good/prefix/bin/armada")" = armadad ] || fail "armada is not a link to armadad"
-grep -q "Installed $WORK/good/prefix/bin/armada -> armadad" "$WORK/good.log" || fail "link not reported"
+# armada and armadad are separate files.
+[ ! -L "$WORK/good/prefix/bin/armada" ] || fail "armada is a link"
+grep -q "armada $VERSION (fake)" "$WORK/good/prefix/bin/armada" || fail "armada is not the client"
 
 # needrestart leaves Armada's services alone: the same file armadad upgrade
 # writes (internal/daemon/needrestart.go), where needrestart is installed.
@@ -107,11 +107,14 @@ install_from "$WORK/withclient" client2 ARMADA_CLIENT_ONLY=1 || {
 	fail "client-only install from the client archive failed"
 }
 grep -q "client archive" "$WORK/client2/prefix/bin/armada" || fail "client-only: did not use the client archive"
-install_from "$WORK/withclient" good || fail "full install over the earlier one failed"
-[ "$(readlink "$WORK/good/prefix/bin/armada")" = armadad ] || fail "full install: armada is not a link"
-install_from "$WORK/withclient" good ARMADA_CLIENT_ONLY=1 || fail "client-only over a full install failed"
-[ ! -L "$WORK/good/prefix/bin/armada" ] || fail "client-only over a full install: armada is still a link"
-grep -q "client archive" "$WORK/good/prefix/bin/armada" || fail "client-only over a full install: not the client"
+
+# A full install over the link v0.1.0-alpha.35 left as armada puts the client
+# binary back.
+rm -f "$WORK/good/prefix/bin/armada"
+ln -s armadad "$WORK/good/prefix/bin/armada"
+install_from "$WORK/withclient" good || fail "full install over a link failed"
+[ ! -L "$WORK/good/prefix/bin/armada" ] || fail "full install: armada is still a link"
+grep -q "armada $VERSION (fake)" "$WORK/good/prefix/bin/armada" || fail "full install: armada is not the client"
 
 # An archive without the daemon is refused for a full install.
 mkdir -p "$WORK/nodaemon/$VERSION" "$WORK/nodaemon/src"

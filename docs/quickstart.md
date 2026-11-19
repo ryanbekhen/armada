@@ -76,8 +76,7 @@ next steps. It:
   checksum, and, when [cosign](https://docs.sigstore.dev/cosign/system_config/installation/)
   is installed, that this repository's release workflow signed it
   (`ARMADA_REQUIRE_SIGNATURE=1` refuses to install without the signature);
-- installs `armadad`, `armada` as a link to it (`armadad` run as
-  `armada` is the client), and the systemd units (not started);
+- installs `armadad`, `armada`, and the systemd units (not started);
 - creates the `armada` group (see step 3).
 
 `ARMADA_VERSION=v0.1.0` pins a version. On macOS the script installs only
