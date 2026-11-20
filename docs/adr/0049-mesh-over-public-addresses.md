@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed
+Accepted
 
 ## Context
 
@@ -26,12 +26,15 @@ the mesh Armada already keeps is what such machines lack.
 
 ## Decision
 
-A cluster may be created as a **mesh**: `armadad init --network wireguard
---mesh`. Its nodes reach each other only over the WireGuard mesh, whose
+A cluster may be created as a **mesh**: `armadad init --network mesh`, a
+third network mode beside `plain` and `wireguard`. Its nodes reach each other only over the WireGuard mesh, whose
 peers' endpoints are the nodes' public addresses, and everything between
 nodes (control plane API, etcd, HTTP-01 forwarding, metrics, container
-traffic) goes through it. Clusters created without `--mesh` keep working
-as today; the choice is made once at `init`, like the network mode.
+traffic) goes through it. Clusters in the `plain` and `wireguard` modes keep
+working as today; the mode is chosen once at `init`. One mode rather than
+a flag beside `wireguard` keeps the choice a single answer to one
+question, how the machines reach each other: a trusted private network
+(`plain`), an untrusted one (`wireguard`), or none (`mesh`).
 
 ### Addresses
 
