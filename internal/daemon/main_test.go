@@ -32,6 +32,13 @@ func TestMain(m *testing.M) {
 		}
 		return testNets.get(ac.NodeID), testKey(ac.NodeID), nil
 	}
+	// A mesh node's tunnel is recorded, not set up on the host.
+	upMesh = func(dataDir string, ac *agentConfig, cfg *armadav1.NetworkConfig, _ *slog.Logger) error {
+		if ac.Network == "mesh" {
+			meshUps.Store(dataDir, cfg)
+		}
+		return nil
+	}
 	// `armadad user renew` records the name in a stand-in for the state.
 	recordUser = func(_ context.Context, dataDir, name string) error {
 		recordedUsers.Store(dataDir+"/"+name, true)
@@ -39,6 +46,10 @@ func TestMain(m *testing.M) {
 	}
 	os.Exit(m.Run())
 }
+
+// meshUps holds the peer list each data dir's mesh tunnel came up with
+// (nil: from the node's own list).
+var meshUps sync.Map
 
 // recordedUsers holds dataDir/name of every user `armadad user renew`
 // recorded.

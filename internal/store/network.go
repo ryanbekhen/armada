@@ -207,6 +207,20 @@ func CheckMeshCIDR(p netip.Prefix) error {
 	return nil
 }
 
+// freeMeshAddress returns the lowest host address of mesh not in used,
+// leaving out the network and broadcast addresses.
+func freeMeshAddress(mesh netip.Prefix, used map[netip.Addr]bool) (netip.Addr, error) {
+	b := mesh.Addr().As4()
+	binary.BigEndian.PutUint32(b[:], binary.BigEndian.Uint32(b[:])|(uint32(1)<<(32-mesh.Bits())-1))
+	last := netip.AddrFrom4(b)
+	for a := mesh.Addr().Next(); a.IsValid() && a.Less(last); a = a.Next() {
+		if !used[a] {
+			return a, nil
+		}
+	}
+	return netip.Addr{}, fmt.Errorf("the mesh CIDR %s has no free address: %w", mesh, ErrPrecondition)
+}
+
 // freeSubnet returns the first /NodeSubnetBits of cidr not in used.
 func freeSubnet(cidr netip.Prefix, used map[string]bool) (netip.Prefix, error) {
 	count := uint32(1) << (NodeSubnetBits - cidr.Bits())

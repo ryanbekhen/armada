@@ -69,10 +69,11 @@ Flags:
 | `--ca-hash string` | cluster CA hash, sha256:... |
 | `--container-subnet string` | private IPv4 subnet for this node's containers (clusters without a cluster network; others give each node a subnet) (default `10.121.0.0/24`) |
 | `--data-dir string` | directory for cluster state and keys (default `/var/lib/armada`) |
+| `--endpoint string` | mesh clusters (a public ADDR): this machine's public IPv4 address, which other nodes send WireGuard packets to (default: the only public IPv4 address; behind one-to-one NAT, the mapped address) |
 | `--join-port int` | join listener port on the private IP (default: --port + 1) |
 | `--name string` | server and node name (default: hostname) |
 | `--port int` | control plane port on the private IP (default `7443`) |
-| `--private-ip string` | this machine's private IP (default: the only private IPv4 address) |
+| `--private-ip string` | this machine's private IP (default: the only private IPv4 address; not in a mesh cluster) |
 | `--runtime string` | container runtime: embedded (containerd), or supervisor (no containerd daemon; experimental, ADR 0046) (default `embedded`) |
 | `--token-file string` | file holding the server token (default: prompt or stdin) |
 | `--user-name string` | user named in the client config written here (default: the user running it) |

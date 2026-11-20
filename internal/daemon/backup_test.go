@@ -26,6 +26,9 @@ func TestBackupCoversDataDirLayout(t *testing.T) {
 	if backup.FileNetworkKey != fileNetworkKey || slices.Contains(all, fileNetworkKey) {
 		t.Errorf("network key %q != %q, or copied", backup.FileNetworkKey, fileNetworkKey)
 	}
+	if backup.FileMeshCache != fileMeshCache || slices.Contains(all, fileMeshCache) {
+		t.Errorf("mesh peer list %q != %q, or copied", backup.FileMeshCache, fileMeshCache)
+	}
 }
 
 func TestBackupRestoreCommands(t *testing.T) {

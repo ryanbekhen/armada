@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,7 +20,6 @@ import (
 	"github.com/ryanbekhen/armada/internal/cli"
 	"github.com/ryanbekhen/armada/internal/clientconfig"
 	"github.com/ryanbekhen/armada/internal/fsutil"
-	"github.com/ryanbekhen/armada/internal/netutil"
 	"github.com/ryanbekhen/armada/internal/pki"
 	"github.com/ryanbekhen/armada/internal/version"
 )
@@ -28,6 +28,7 @@ func newJoinCommand() *cobra.Command {
 	var (
 		rtFlags                                         runtimeFlags
 		tokenFile, caHash, privateIP, nodeName, dataDir string
+		endpoint                                        string
 	)
 	cmd := &cobra.Command{
 		Use:   "join ADDR --ca-hash sha256:HEX",
@@ -40,8 +41,9 @@ func newJoinCommand() *cobra.Command {
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			addr := args[0]
-			if err := netutil.CheckPrivateListen(addr); err != nil {
-				return fmt.Errorf("join address: %w", err)
+			ip, mesh, err := prepareJoin(cmd.Flags(), addr, privateIP, endpoint)
+			if err != nil {
+				return err
 			}
 			raw, err := cli.ReadSecretValue(cmd, tokenFile)
 			if err != nil {
@@ -52,10 +54,6 @@ func newJoinCommand() *cobra.Command {
 				return err
 			}
 			pin, err := pki.ParseCAHash(caHash)
-			if err != nil {
-				return err
-			}
-			ip, err := resolvePrivateIP(privateIP)
 			if err != nil {
 				return err
 			}
@@ -83,6 +81,9 @@ func newJoinCommand() *cobra.Command {
 					return err
 				}
 			}
+			if err := mesh.loadKey(dataDir); err != nil {
+				return err
+			}
 
 			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
 			defer cancel()
@@ -100,7 +101,8 @@ func newJoinCommand() *cobra.Command {
 				return err
 			}
 			resp, err := armadav1.NewJoinServiceClient(conn).Join(ctx, &armadav1.JoinRequest{
-				TokenId: tok.ID, TokenSecret: tok.Secret, NodeName: nodeName, PrivateIp: ip.String(), Csr: csr, Version: version.Get().Version,
+				TokenId: tok.ID, TokenSecret: tok.Secret, NodeName: nodeName, PrivateIp: ipString(ip), Csr: csr, Version: version.Get().Version,
+				NetworkKey: mesh.key, Endpoint: ipString(mesh.endpoint),
 			})
 			if err != nil {
 				return cli.RPCError(err)
@@ -112,6 +114,9 @@ func newJoinCommand() *cobra.Command {
 			}
 			servers, err := clientconfig.CheckServers(resp.Servers)
 			if err != nil {
+				return err
+			}
+			if ip, err = mesh.address(ip, resp.NetworkMode, resp.MeshIp); err != nil {
 				return err
 			}
 			note, err := rtFlags.useNodeSubnet(&ac, resp.NodeSubnet, resp.NetworkMode, ip)
@@ -130,6 +135,15 @@ func newJoinCommand() *cobra.Command {
 			ac.NodeID = nodeName
 			ac.PrivateIP = ip.String()
 			ac.Servers = servers
+			if mesh.on {
+				// The servers are at mesh addresses: the tunnel comes up
+				// with the cluster's peer list before the agent starts.
+				ac.Endpoint = mesh.endpoint.String()
+				ac.ClusterCIDR, ac.MeshCIDR = resp.GetNetwork().GetClusterCidr(), resp.GetNetwork().GetMeshCidr()
+				if err := upMesh(dataDir, &ac, resp.Network, slog.New(slog.DiscardHandler)); err != nil {
+					return fmt.Errorf("%w; fix it and run `armada node delete %s` on the cluster before trying again", err, nodeName)
+				}
+			}
 			if err := saveAgentConfig(dataDir, ac); err != nil {
 				return err
 			}
@@ -153,7 +167,8 @@ func newJoinCommand() *cobra.Command {
 	rtFlags.register(f)
 	f.StringVar(&tokenFile, "token-file", "", "file holding the join token (default: prompt or stdin)")
 	f.StringVar(&caHash, "ca-hash", "", "cluster CA hash, sha256:...")
-	f.StringVar(&privateIP, "private-ip", "", "this node's private IP (default: the only private IPv4 address)")
+	f.StringVar(&privateIP, "private-ip", "", "this node's private IP (default: the only private IPv4 address; not in a mesh cluster)")
+	f.StringVar(&endpoint, "endpoint", "", "mesh clusters (a public ADDR): this machine's public IPv4 address, which other nodes send WireGuard packets to (default: the only public IPv4 address; behind one-to-one NAT, the mapped address)")
 	f.StringVar(&nodeName, "node-name", "", "node name (default: hostname)")
 	f.StringVar(&dataDir, "data-dir", defaultDataDir, "directory for the node certificate")
 	_ = cmd.MarkFlagRequired("ca-hash")

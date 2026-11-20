@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -21,7 +22,6 @@ import (
 	"github.com/ryanbekhen/armada/internal/cli"
 	"github.com/ryanbekhen/armada/internal/clientconfig"
 	"github.com/ryanbekhen/armada/internal/fsutil"
-	"github.com/ryanbekhen/armada/internal/netutil"
 	"github.com/ryanbekhen/armada/internal/pki"
 	"github.com/ryanbekhen/armada/internal/secrets"
 	"github.com/ryanbekhen/armada/internal/version"
@@ -31,7 +31,7 @@ func newServerJoinCommand() *cobra.Command {
 	var (
 		rtFlags                                     runtimeFlags
 		tokenFile, caHash, privateIP, name, dataDir string
-		userName                                    string
+		userName, endpoint                          string
 		port, joinPort                              int
 	)
 	cmd := &cobra.Command{
@@ -55,8 +55,9 @@ func newServerJoinCommand() *cobra.Command {
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			addr := args[0]
-			if err := netutil.CheckPrivateListen(addr); err != nil {
-				return fmt.Errorf("join address: %w", err)
+			ip, mesh, err := prepareJoin(cmd.Flags(), addr, privateIP, endpoint)
+			if err != nil {
+				return err
 			}
 			if port < 1 || port > 65534 {
 				return fmt.Errorf("invalid --port %d", port)
@@ -76,10 +77,6 @@ func newServerJoinCommand() *cobra.Command {
 				return err
 			}
 			pin, err := pki.ParseCAHash(caHash)
-			if err != nil {
-				return err
-			}
-			ip, err := resolvePrivateIP(privateIP)
 			if err != nil {
 				return err
 			}
@@ -109,6 +106,9 @@ func newServerJoinCommand() *cobra.Command {
 					return err
 				}
 			}
+			if err := mesh.loadKey(dataDir); err != nil {
+				return err
+			}
 
 			ctx, cancel := context.WithTimeout(cmd.Context(), time.Minute)
 			defer cancel()
@@ -133,7 +133,8 @@ func newServerJoinCommand() *cobra.Command {
 			}
 			_, peerPort := etcdPorts(dataDir)
 			resp, err := armadav1.NewJoinServiceClient(conn).JoinServer(ctx, &armadav1.JoinServerRequest{
-				TokenId: tok.ID, TokenSecret: tok.Secret, Name: name, PrivateIp: ip.String(), NodeCsr: csr,
+				TokenId: tok.ID, TokenSecret: tok.Secret, Name: name, PrivateIp: ipString(ip), NodeCsr: csr,
+				NetworkKey: mesh.key, Endpoint: ipString(mesh.endpoint),
 				Version: version.Get().Version, ApiPort: int32(port), JoinPort: int32(joinPort), EtcdPeerPort: int32(peerPort), //nolint:gosec // ports validated above
 				UserName: clientUser,
 			})
@@ -146,6 +147,9 @@ func newServerJoinCommand() *cobra.Command {
 			servers, err := clientconfig.CheckServers(resp.Servers)
 			if err != nil {
 				return err
+			}
+			if ip, err = mesh.address(ip, resp.NetworkMode, resp.MeshIp); err != nil {
+				return fmt.Errorf("%w; run `armada server delete %s` on the cluster before trying again", err, name)
 			}
 			note, err := rtFlags.useNodeSubnet(&ac, resp.NodeSubnet, resp.NetworkMode, ip)
 			if err != nil {
@@ -178,6 +182,16 @@ func newServerJoinCommand() *cobra.Command {
 			ac.NodeID = name
 			ac.PrivateIP = ip.String()
 			ac.Servers = servers
+			if mesh.on {
+				// etcd and the API listen on the mesh address: the tunnel
+				// comes up with the cluster's peer list now, and again from
+				// it when `armadad server` starts.
+				ac.Endpoint = mesh.endpoint.String()
+				ac.ClusterCIDR, ac.MeshCIDR = resp.GetNetwork().GetClusterCidr(), resp.GetNetwork().GetMeshCidr()
+				if err := upMesh(dataDir, &ac, resp.Network, slog.New(slog.DiscardHandler)); err != nil {
+					return fmt.Errorf("%w; fix it and run `armada server delete %s` on the cluster before trying again", err, name)
+				}
+			}
 			if err := saveAgentConfig(dataDir, ac); err != nil {
 				return err
 			}
@@ -224,7 +238,8 @@ func newServerJoinCommand() *cobra.Command {
 	rtFlags.register(f)
 	f.StringVar(&tokenFile, "token-file", "", "file holding the server token (default: prompt or stdin)")
 	f.StringVar(&caHash, "ca-hash", "", "cluster CA hash, sha256:...")
-	f.StringVar(&privateIP, "private-ip", "", "this machine's private IP (default: the only private IPv4 address)")
+	f.StringVar(&privateIP, "private-ip", "", "this machine's private IP (default: the only private IPv4 address; not in a mesh cluster)")
+	f.StringVar(&endpoint, "endpoint", "", "mesh clusters (a public ADDR): this machine's public IPv4 address, which other nodes send WireGuard packets to (default: the only public IPv4 address; behind one-to-one NAT, the mapped address)")
 	f.StringVar(&name, "name", "", "server and node name (default: hostname)")
 	f.StringVar(&dataDir, "data-dir", defaultDataDir, "directory for cluster state and keys")
 	f.IntVar(&port, "port", defaultPort, "control plane port on the private IP")

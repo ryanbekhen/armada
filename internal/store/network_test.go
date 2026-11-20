@@ -234,3 +234,75 @@ func TestMeshNetwork(t *testing.T) {
 		t.Errorf("node %+v", n)
 	}
 }
+
+// Machines joining a mesh get the lowest free mesh address, and a key
+// another node holds is refused; open tokens are listed for the join
+// listener with the address they name (ADR 0049).
+func TestMeshJoinRecords(t *testing.T) {
+	t.Parallel()
+	s, ctx := open(t), context.Background()
+	if _, err := s.FreeMeshAddress(ctx); !errors.Is(err, ErrPrecondition) {
+		t.Errorf("free mesh address without a mesh = %v", err)
+	}
+	if err := s.InitNetwork(ctx, Network{Mode: NetworkMesh, ClusterCIDR: netip.MustParsePrefix("10.120.0.0/16"), MeshCIDR: netip.MustParsePrefix("10.121.0.0/30")}); err == nil {
+		t.Fatal("a /30 mesh accepted")
+	}
+	if err := s.InitNetwork(ctx, Network{Mode: NetworkMesh, ClusterCIDR: netip.MustParsePrefix("10.120.0.0/16"), MeshCIDR: netip.MustParsePrefix("10.121.0.0/24")}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpsertNode(ctx, Node{ID: "a", PrivateIP: "10.121.0.1", NetworkKey: "key-a", Endpoint: "203.0.113.1"}); err != nil {
+		t.Fatal(err)
+	}
+	if a, err := s.FreeMeshAddress(ctx); err != nil || a != "10.121.0.2" {
+		t.Fatalf("free = %q, %v", a, err)
+	}
+	exp := time.Now().Add(time.Hour)
+	for _, tok := range []JoinToken{{ID: "t1", SecretHash: "h", ExpiresAt: exp, From: "198.51.100.9"}, {ID: "t2", SecretHash: "h", ExpiresAt: exp}} {
+		if err := s.CreateJoinToken(ctx, tok); err != nil {
+			t.Fatal(err)
+		}
+	}
+	toks, err := s.OpenJoinTokens(ctx)
+	if err != nil || len(toks) != 2 {
+		t.Fatalf("open tokens %+v, %v", toks, err)
+	}
+	for _, tok := range toks {
+		if tok.SecretHash != "" || (tok.ID == "t1") != (tok.From == "198.51.100.9") {
+			t.Errorf("token %+v", tok)
+		}
+	}
+	if err := s.RedeemJoinToken(ctx, "t1", accept, Node{ID: "b", PrivateIP: "10.121.0.2", NetworkKey: "key-a", Endpoint: "203.0.113.2"}, issued("s1", exp)); !errors.Is(err, ErrConflict) {
+		t.Errorf("another node's key = %v", err)
+	}
+	if err := s.RedeemJoinToken(ctx, "t1", accept, Node{ID: "b", PrivateIP: "10.121.0.2", NetworkKey: "key-b", Endpoint: "203.0.113.2"}, issued("s1", exp)); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := s.GetNode(ctx, "b"); err != nil || n.NetworkKey != "key-b" || n.Endpoint != "203.0.113.2" || n.Subnet == "" {
+		t.Errorf("node b %+v, %v", n, err)
+	}
+	if toks, _ := s.OpenJoinTokens(ctx); len(toks) != 1 || toks[0].ID != "t2" {
+		t.Errorf("open after redeem %+v", toks)
+	}
+	if a, err := s.FreeMeshAddress(ctx); err != nil || a != "10.121.0.3" {
+		t.Errorf("free = %q, %v", a, err)
+	}
+}
+
+func TestFreeMeshAddress(t *testing.T) {
+	t.Parallel()
+	mesh := netip.MustParsePrefix("10.121.0.0/24")
+	used := map[netip.Addr]bool{}
+	for i := 1; i <= 254; i++ {
+		a, err := freeMeshAddress(mesh, used)
+		if err != nil {
+			t.Fatalf("after %d: %v", i-1, err)
+		}
+		if a.String() == "10.121.0.0" || a.String() == "10.121.0.255" {
+			t.Fatalf("network or broadcast address %s", a)
+		}
+		used[a] = true
+	}
+	if _, err := freeMeshAddress(mesh, used); !errors.Is(err, ErrPrecondition) {
+		t.Errorf("full mesh = %v", err)
+	}
+}

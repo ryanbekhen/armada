@@ -527,6 +527,9 @@ message CreateJoinTokenRequest {
   bool server = 2;
   // Labels the node gets when it joins with this token (ADR 0014).
   map<string, string> labels = 3;
+  // In a mesh cluster (ADR 0049), the only address the join listener
+  // answers for this token; empty: any.
+  string from = 4;
 }
 
 message CreateJoinTokenResponse {
@@ -604,6 +607,11 @@ message JoinServerRequest {
   // cluster-admin unless it is on record (user_recorded), since the cluster
   // refuses certificates of names it has no record of. Empty: none.
   string user_name = 10;
+  // In a mesh cluster (ADR 0049), the machine's WireGuard public key
+  // (base64) and public IPv4 address; private_ip is then empty and the
+  // leader gives the machine a mesh address.
+  string network_key = 11;
+  string endpoint = 12;
 }
 
 // JoinServerResponse carries every key a control plane node holds. Never
@@ -622,12 +630,17 @@ message JoinServerResponse {
   // The node's container subnet in the cluster network (ADR 0025); empty
   // when the cluster has none.
   string node_subnet = 9;
-  // The cluster network's mode, "plain" or "wireguard"; empty when the
-  // cluster has none.
+  // The cluster network's mode, "plain", "wireguard", or "mesh"; empty
+  // when the cluster has none.
   string network_mode = 10;
   // The request's user_name is on record. Older leaders leave it false,
   // and the joining machine then writes no client config.
   bool user_recorded = 11;
+  // In a mesh cluster (ADR 0049), the machine's mesh address and the
+  // cluster network with every node, to bring the tunnel up before the
+  // machine reaches the API or etcd at mesh addresses.
+  string mesh_ip = 12;
+  NetworkConfig network = 13;
 }
 
 message JoinRequest {
@@ -638,6 +651,9 @@ message JoinRequest {
   // PKCS#10 request for the node's key, generated on the node.
   bytes csr = 5;
   string version = 6;
+  // In a mesh cluster (ADR 0049), as in JoinServerRequest.
+  string network_key = 7;
+  string endpoint = 8;
 }
 
 message JoinResponse {
@@ -649,9 +665,12 @@ message JoinResponse {
   // The node's container subnet in the cluster network (ADR 0025); empty
   // when the cluster has none.
   string node_subnet = 5;
-  // The cluster network's mode, "plain" or "wireguard"; empty when the
-  // cluster has none.
+  // The cluster network's mode, "plain", "wireguard", or "mesh"; empty
+  // when the cluster has none.
   string network_mode = 6;
+  // In a mesh cluster (ADR 0049), as in JoinServerResponse.
+  string mesh_ip = 7;
+  NetworkConfig network = 8;
 }
 
 // Secret values are write-only: no RPC returns them to admins. Fields that

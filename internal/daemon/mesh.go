@@ -1,0 +1,191 @@
+package daemon
+
+import (
+	"errors"
+	"fmt"
+	"io/fs"
+	"log/slog"
+	"net/netip"
+	"os"
+	"path/filepath"
+
+	armadav1 "github.com/ryanbekhen/armada/api/armada/v1"
+	"github.com/ryanbekhen/armada/internal/clusternet"
+	"github.com/ryanbekhen/armada/internal/netutil"
+	"github.com/ryanbekhen/armada/internal/store"
+)
+
+// fileMeshCache is where a mesh node keeps the last peer list it applied
+// (ADR 0049); it is learned again from the control plane, so it is not
+// backed up.
+const fileMeshCache = "mesh.json"
+
+// defaultMeshCIDR is the default range of a mesh cluster's node addresses,
+// beside the default cluster CIDR and clear of the bridge subnet of nodes
+// without a cluster network (10.121.0.0/24).
+const defaultMeshCIDR = "10.122.0.0/16"
+
+// meshConfig is the clusternet configuration of a node of a cluster
+// network, with what the mesh mode needs.
+func meshConfig(dataDir string, ac *agentConfig, key clusternet.PrivateKey, log *slog.Logger) (clusternet.Config, error) {
+	ip, err := netip.ParseAddr(ac.PrivateIP)
+	if err != nil {
+		return clusternet.Config{}, fmt.Errorf("%s: private IP: %w", fileAgent, err)
+	}
+	cfg := clusternet.Config{Node: ac.NodeID, PrivateIP: ip, Key: key, Logger: log.With("component", "network")}
+	if ac.Network == store.NetworkMesh {
+		cfg.Endpoint = ac.endpoint()
+		cfg.MeshCache = filepath.Join(dataDir, fileMeshCache)
+	}
+	return cfg, nil
+}
+
+// upMesh brings a mesh node's tunnel up before etcd or the agent reach
+// mesh addresses (ADR 0049): from cfg (init's or the join answer's peer
+// list) or, when nil, the list the node last applied. Other nodes need
+// nothing. Tests replace it.
+var upMesh = func(dataDir string, ac *agentConfig, cfg *armadav1.NetworkConfig, log *slog.Logger) error {
+	if ac.Network != store.NetworkMesh {
+		return nil
+	}
+	key, err := clusternet.LoadOrCreateKey(filepath.Join(dataDir, fileNetworkKey))
+	if err != nil {
+		return fmt.Errorf("cluster network key: %w", err)
+	}
+	c, err := meshConfig(dataDir, ac, key, log)
+	if err != nil {
+		return err
+	}
+	if cfg == nil {
+		if _, err := os.Stat(c.MeshCache); errors.Is(err, fs.ErrNotExist) {
+			// No peer list (a restored or rebuilt node): come up alone, so
+			// etcd and the API can listen; the control plane sends the
+			// peers, and the node's new key, once it answers.
+			cfg = alone(ac, key.Public())
+		}
+	}
+	n, err := clusternet.New(c)
+	if err != nil {
+		return err
+	}
+	if err := n.Up(cfg); err != nil {
+		return fmt.Errorf("mesh: %w", err)
+	}
+	return nil
+}
+
+// alone is a mesh network with only this node in it.
+func alone(ac *agentConfig, key string) *armadav1.NetworkConfig {
+	return &armadav1.NetworkConfig{
+		Mode: store.NetworkMesh, ClusterCidr: ac.ClusterCIDR, MeshCidr: ac.MeshCIDR,
+		Peers: []*armadav1.NetworkPeer{{Node: ac.NodeID, PrivateIp: ac.PrivateIP, Subnet: ac.ContainerSubnet, PublicKey: key, Endpoint: ac.Endpoint}},
+	}
+}
+
+// resolveEndpoint returns a mesh node's endpoint: --endpoint, or the
+// machine's only public IPv4 address.
+func resolveEndpoint(flag string) (netip.Addr, error) {
+	if flag == "" {
+		return netutil.DetectEndpoint()
+	}
+	return netutil.CheckEndpoint(flag)
+}
+
+// meshJoinAddr reports whether a join address is a mesh cluster's: a join
+// listener on a public address exists only there (ADR 0049).
+func meshJoinAddr(addr string) (bool, error) {
+	ap, err := netip.ParseAddrPort(addr)
+	if err != nil || ap.Port() == 0 {
+		return false, fmt.Errorf("join address %q: want IP:PORT", addr)
+	}
+	if netutil.IsPrivate(ap.Addr()) {
+		return false, netutil.CheckPrivateListen(addr)
+	}
+	if _, err := netutil.CheckEndpoint(ap.Addr().Unmap().String()); err != nil {
+		return false, fmt.Errorf("join address: %w", err)
+	}
+	return true, nil
+}
+
+// meshJoinListen moves a mesh server's join listener from its mesh address
+// to its endpoint, on the same port.
+func meshJoinListen(joinAddr string, endpoint netip.Addr) (string, error) {
+	ap, err := netip.ParseAddrPort(joinAddr)
+	if err != nil {
+		return "", fmt.Errorf("join listener %q: %w", joinAddr, err)
+	}
+	if !endpoint.IsValid() {
+		return "", fmt.Errorf("%s: a mesh node needs its endpoint", fileAgent)
+	}
+	return netip.AddrPortFrom(endpoint, ap.Port()).String(), nil
+}
+
+// joinMesh is a machine's side of joining (ADR 0049): over a public join
+// address the cluster is a mesh, and the machine sends its WireGuard key
+// and endpoint instead of a private IP.
+type joinMesh struct {
+	on       bool
+	endpoint netip.Addr
+	key      string
+}
+
+// prepareJoin works out how a machine joins addr: its private IP, or in a
+// mesh its endpoint. ip is invalid for a mesh.
+func prepareJoin(cmd interface{ Changed(string) bool }, addr, privateIP, endpoint string) (netip.Addr, joinMesh, error) {
+	mesh, err := meshJoinAddr(addr)
+	if err != nil {
+		return netip.Addr{}, joinMesh{}, err
+	}
+	if !mesh {
+		if cmd.Changed("endpoint") {
+			return netip.Addr{}, joinMesh{}, errors.New("--endpoint is for mesh clusters, whose join address is public")
+		}
+		ip, err := resolvePrivateIP(privateIP)
+		return ip, joinMesh{}, err
+	}
+	if cmd.Changed("private-ip") {
+		return netip.Addr{}, joinMesh{}, errors.New("--private-ip does not apply to a mesh cluster: the cluster gives this machine a mesh address")
+	}
+	ep, err := resolveEndpoint(endpoint)
+	if err != nil {
+		return netip.Addr{}, joinMesh{}, err
+	}
+	return netip.Addr{}, joinMesh{on: true, endpoint: ep}, nil
+}
+
+// loadKey makes or reads the machine's WireGuard key for a mesh join.
+func (j *joinMesh) loadKey(dataDir string) error {
+	if !j.on {
+		return nil
+	}
+	key, err := clusternet.LoadOrCreateKey(filepath.Join(dataDir, fileNetworkKey))
+	if err != nil {
+		return fmt.Errorf("cluster network key: %w", err)
+	}
+	j.key = key.Public()
+	return nil
+}
+
+// address returns the machine's address from the join answer: its private
+// IP, or the mesh address the cluster gave it.
+func (j joinMesh) address(ip netip.Addr, mode, meshIP string) (netip.Addr, error) {
+	if j.on != (mode == store.NetworkMesh) {
+		return netip.Addr{}, fmt.Errorf("the cluster's network mode is %q, which does not match a join at this address", mode)
+	}
+	if !j.on {
+		return ip, nil
+	}
+	a, err := netutil.CheckNodeIP(meshIP)
+	if err != nil {
+		return netip.Addr{}, fmt.Errorf("mesh address from the cluster: %w", err)
+	}
+	return a, nil
+}
+
+// ipString is ip as text, or "" when it is unset (a mesh join).
+func ipString(ip netip.Addr) string {
+	if !ip.IsValid() {
+		return ""
+	}
+	return ip.String()
+}

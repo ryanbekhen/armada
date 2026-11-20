@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"net/netip"
 	"regexp"
 	"slices"
 	"strings"
@@ -22,13 +23,18 @@ func newJoinTokenCommand(g *globals, forServer bool) *cobra.Command {
 	var (
 		ttl    time.Duration
 		labels []string
+		from   string
 	)
 	cmd := &cobra.Command{
 		Use:   "join-token",
 		Short: "Create a single-use token that adds a node, and print the join command",
 		Long: "Create a single-use join token and print the command to run on the new node.\n\n" +
 			"The token is a credential: anyone holding it before it expires can add a node.\n" +
-			"Send it over a trusted channel. Only a hash is stored on the server.",
+			"Send it over a trusted channel. Only a hash is stored on the server.\n\n" +
+			"In a mesh cluster (armadad init --network mesh) the join listener faces the\n" +
+			"public on the leader's endpoint, open only while a token is unused and\n" +
+			"unexpired: tokens last 10 minutes by default and at most an hour, and --from\n" +
+			"makes the listener answer only the address the machine joins from.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			client, conn, err := dialAdmin(g)
@@ -36,7 +42,7 @@ func newJoinTokenCommand(g *globals, forServer bool) *cobra.Command {
 				return err
 			}
 			defer conn.Close()
-			req := &armadav1.CreateJoinTokenRequest{TtlSeconds: int64(ttl / time.Second), Server: forServer}
+			req := &armadav1.CreateJoinTokenRequest{TtlSeconds: int64(ttl / time.Second), Server: forServer, From: from}
 			for _, l := range labels {
 				k, v, err := parseLabel(l)
 				if err != nil {
@@ -57,7 +63,11 @@ func newJoinTokenCommand(g *globals, forServer bool) *cobra.Command {
 			}
 			out := cmd.OutOrStdout()
 			_, _ = fmt.Fprintf(out, "Token (works once, expires %s, shown once): %s\n\n", resp.ExpiresAt.AsTime().Local().Format(time.RFC3339), resp.Token)
-			_, _ = fmt.Fprintf(out, "On the new machine (same private network), install Armada if needed, then join\nand paste the token when asked:\n\n")
+			where := "same private network"
+			if ap, err := netip.ParseAddrPort(resp.JoinAddr); err == nil && !ap.Addr().IsPrivate() {
+				where = "a mesh cluster: the machine needs only a public IPv4 address"
+			}
+			_, _ = fmt.Fprintf(out, "On the new machine (%s), install Armada if needed, then join\nand paste the token when asked:\n\n", where)
 			_, _ = fmt.Fprintf(out, "  %s\n", installCommand(resp.GetVersion()))
 			if forServer {
 				_, _ = fmt.Fprintf(out, "  # copy /etc/armada/server.env from this server, if it has one\n")
@@ -70,11 +80,12 @@ func newJoinTokenCommand(g *globals, forServer bool) *cobra.Command {
 	if forServer {
 		cmd.Short = "Create a single-use token that adds a control plane server, and print the join command"
 		cmd.Long += "\n\nA server token hands the new server the cluster CA key and the secrets master\n" +
-			"key: it lasts 15 minutes by default and at most an hour."
-		cmd.Flags().DurationVar(&ttl, "ttl", 15*time.Minute, "token lifetime (1m to 1h)")
+			"key: it lasts 15 minutes by default (10 in a mesh cluster) and at most an hour."
+		cmd.Flags().DurationVar(&ttl, "ttl", 0, "token lifetime (1m to 1h; default 15m, 10m in a mesh cluster)")
 	} else {
-		cmd.Flags().DurationVar(&ttl, "ttl", time.Hour, "token lifetime (1m to 24h)")
+		cmd.Flags().DurationVar(&ttl, "ttl", 0, "token lifetime (1m to 24h, in a mesh cluster 1h; default 1h, 10m in a mesh cluster)")
 	}
+	cmd.Flags().StringVar(&from, "from", "", "mesh clusters: the IP address the machine joins from; the join listener answers no other")
 	cmd.Flags().StringArrayVar(&labels, "label", nil, "label KEY=VALUE for the node that joins with the token (repeatable)")
 	return cmd
 }

@@ -83,13 +83,17 @@ func CheckPrivateListen(hostport string) error {
 	return err
 }
 
-// DetectPrivateIP returns the machine's private, non-loopback IPv4 address,
-// skipping container and VM bridges. With several it picks none: the address
-// ends up in certificates and the state, so the operator chooses.
-func DetectPrivateIP() (netip.Addr, error) {
+// DetectEndpoint returns the machine's public IPv4 address, for a mesh
+// cluster's endpoint (ADR 0049), skipping container and VM bridges. With
+// none (behind one-to-one NAT) or several, the operator names it.
+func DetectEndpoint() (netip.Addr, error) {
+	return oneEndpoint(interfaceAddrs())
+}
+
+func interfaceAddrs() []ifaceAddr {
 	ifaces, err := net.Interfaces()
 	if err != nil {
-		return netip.Addr{}, err
+		return nil
 	}
 	var found []ifaceAddr
 	for _, iface := range ifaces {
@@ -104,7 +108,42 @@ func DetectPrivateIP() (netip.Addr, error) {
 			found = append(found, ifaceAddr{iface.Name, a})
 		}
 	}
-	return onePrivateIPv4(found)
+	return found
+}
+
+func oneEndpoint(found []ifaceAddr) (netip.Addr, error) {
+	var ips []netip.Addr
+	var names []string
+	for _, f := range found {
+		ipnet, ok := f.addr.(*net.IPNet)
+		if !ok {
+			continue
+		}
+		ip, ok := netip.AddrFromSlice(ipnet.IP)
+		if !ok {
+			continue
+		}
+		ip = ip.Unmap()
+		if _, err := CheckEndpoint(ip.String()); err != nil || IsPrivate(ip) {
+			continue
+		}
+		ips = append(ips, ip)
+		names = append(names, ip.String()+" on "+f.name)
+	}
+	switch len(ips) {
+	case 0:
+		return netip.Addr{}, errors.New("no public IPv4 address on this machine's interfaces; pass --endpoint (behind one-to-one NAT, the public address the provider maps to this machine)")
+	case 1:
+		return ips[0], nil
+	}
+	return netip.Addr{}, fmt.Errorf("several public addresses (%s); pass --endpoint", strings.Join(names, ", "))
+}
+
+// DetectPrivateIP returns the machine's private, non-loopback IPv4 address,
+// skipping container and VM bridges. With several it picks none: the address
+// ends up in certificates and the state, so the operator chooses.
+func DetectPrivateIP() (netip.Addr, error) {
+	return onePrivateIPv4(interfaceAddrs())
 }
 
 type ifaceAddr struct {

@@ -85,6 +85,9 @@ type doctorEnv struct {
 	dataDir     string
 	secretsDir  string
 	clusterPort []uint16
+	// endpoint is a mesh node's public address (ADR 0049), where the
+	// leader's join listener faces the public while a join token is open.
+	endpoint netip.Addr
 }
 
 func newDoctorCommand(g *globals) *cobra.Command {
@@ -159,6 +162,7 @@ func hostDoctorEnv(dataDir string) doctorEnv {
 		now:         time.Now,
 		adminConfig: clientconfig.DefaultPath(),
 		clusterPort: []uint16{defaultPort, defaultPort + 1, haproxy.MetricsPort},
+		endpoint:    ac.endpoint(),
 		latest:      latestRelease(),
 		version:     version.Get().Version,
 	}
@@ -544,6 +548,10 @@ func checkListeners(env doctorEnv) []checkResult {
 	var bad []string
 	for _, l := range ls {
 		for _, p := range env.clusterPort {
+			if p == defaultPort+1 && env.endpoint.IsValid() && l.Addr() == env.endpoint {
+				// A mesh leader's join listener, open while a join token is.
+				continue
+			}
 			if l.Port() == p && (l.Addr().IsUnspecified() || !netutil.IsPrivate(l.Addr())) {
 				bad = append(bad, l.String())
 			}

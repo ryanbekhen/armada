@@ -93,7 +93,7 @@ func (r runtimeFlags) useNodeSubnet(c *agentConfig, subnet, mode string, private
 	if subnet == "" {
 		return "", nil
 	}
-	if mode != store.NetworkPlain && mode != store.NetworkWireGuard {
+	if mode != store.NetworkPlain && mode != store.NetworkWireGuard && mode != store.NetworkMesh {
 		return "", fmt.Errorf("the control plane uses cluster network mode %q, which this Armada does not know; upgrade it", mode)
 	}
 	c.Network = mode

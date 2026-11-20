@@ -16,7 +16,9 @@ import (
 
 	"github.com/spf13/cobra"
 
+	armadav1 "github.com/ryanbekhen/armada/api/armada/v1"
 	"github.com/ryanbekhen/armada/internal/clientconfig"
+	"github.com/ryanbekhen/armada/internal/clusternet"
 	"github.com/ryanbekhen/armada/internal/fsutil"
 	"github.com/ryanbekhen/armada/internal/netutil"
 	"github.com/ryanbekhen/armada/internal/pki"
@@ -44,6 +46,8 @@ func newInitCommand(g *globals) *cobra.Command {
 		rtFlags   runtimeFlags
 		dataDir   string
 		privateIP string
+		endpoint  string
+		meshCIDR  string
 		nodeName  string
 		userName  string
 		port      int
@@ -60,9 +64,32 @@ func newInitCommand(g *globals) *cobra.Command {
 			"Run it once on the first machine, then start `armadad server`.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			ip, err := resolvePrivateIP(privateIP)
-			if err != nil {
-				return err
+			// A mesh cluster's first node takes the first mesh address and
+			// is reached at its public endpoint (ADR 0049).
+			var ip, ep netip.Addr
+			var err error
+			if mode == store.NetworkMesh {
+				if cmd.Flags().Changed("private-ip") {
+					return errors.New("--private-ip does not apply to the mesh mode: nodes get mesh addresses of --mesh-cidr")
+				}
+				if ep, err = resolveEndpoint(endpoint); err != nil {
+					return err
+				}
+				p, err := netip.ParsePrefix(meshCIDR)
+				if err != nil {
+					return fmt.Errorf("invalid --mesh-cidr: %w", err)
+				}
+				if err := store.CheckMeshCIDR(p); err != nil {
+					return fmt.Errorf("invalid --mesh-cidr: %w", err)
+				}
+				ip = p.Addr().Next()
+			} else {
+				if cmd.Flags().Changed("endpoint") || cmd.Flags().Changed("mesh-cidr") {
+					return errors.New("--endpoint and --mesh-cidr are for --network mesh")
+				}
+				if ip, err = resolvePrivateIP(privateIP); err != nil {
+					return err
+				}
 			}
 			var ac agentConfig
 			if err := rtFlags.apply(&ac, ip); err != nil {
@@ -74,6 +101,15 @@ func newInitCommand(g *globals) *cobra.Command {
 			network, err := clusterNetwork(cidr, mode, ip)
 			if err != nil {
 				return err
+			}
+			if mode == store.NetworkMesh {
+				network.MeshCIDR = netip.MustParsePrefix(meshCIDR)
+				if network.MeshCIDR.Overlaps(network.ClusterCIDR) {
+					return fmt.Errorf("--mesh-cidr %s overlaps --cluster-cidr %s", network.MeshCIDR, network.ClusterCIDR)
+				}
+				if network.ClusterCIDR.Contains(ep) || network.MeshCIDR.Contains(ep) {
+					return fmt.Errorf("the endpoint %s is inside the cluster's own ranges", ep)
+				}
 			}
 			if port < 1 || port > 65535 {
 				return fmt.Errorf("invalid --port %d", port)
@@ -165,6 +201,25 @@ func newInitCommand(g *globals) *cobra.Command {
 			}
 
 			ctx := cmd.Context()
+			var meshKey string
+			if mode == store.NetworkMesh {
+				// etcd listens on the mesh address: bring the tunnel up
+				// with this node alone, on the first node subnet, which the
+				// state gives the first node below.
+				ac.NodeID, ac.PrivateIP, ac.Endpoint, ac.Network = nodeName, ip.String(), ep.String(), store.NetworkMesh
+				ac.ClusterCIDR, ac.MeshCIDR = network.ClusterCIDR.String(), network.MeshCIDR.String()
+				key, err := clusternet.LoadOrCreateKey(filepath.Join(dataDir, fileNetworkKey))
+				if err != nil {
+					return fmt.Errorf("cluster network key: %w", err)
+				}
+				meshKey = key.Public()
+				if err := upMesh(dataDir, &ac, &armadav1.NetworkConfig{
+					Mode: store.NetworkMesh, ClusterCidr: network.ClusterCIDR.String(), MeshCidr: network.MeshCIDR.String(),
+					Peers: []*armadav1.NetworkPeer{{Node: nodeName, PrivateIp: ip.String(), Subnet: firstSubnet(network).String(), PublicKey: meshKey, Endpoint: ep.String()}},
+				}, slog.New(slog.DiscardHandler)); err != nil {
+					return err
+				}
+			}
 			st, member, err := openState(ctx, dataDir, slog.New(slog.DiscardHandler))
 			if err != nil {
 				return err
@@ -186,7 +241,11 @@ func newInitCommand(g *globals) *cobra.Command {
 			if err := st.InitNetwork(ctx, network); err != nil {
 				return err
 			}
-			if err := st.UpsertNode(ctx, store.Node{ID: nodeName, PrivateIP: ip.String()}); err != nil {
+			self := store.Node{ID: nodeName, PrivateIP: ip.String()}
+			if mode == store.NetworkMesh {
+				self.NetworkKey, self.Endpoint = meshKey, ep.String()
+			}
+			if err := st.UpsertNode(ctx, self); err != nil {
 				return err
 			}
 			node, err := st.GetNode(ctx, nodeName)
@@ -195,6 +254,9 @@ func newInitCommand(g *globals) *cobra.Command {
 			}
 			if _, err := rtFlags.useNodeSubnet(&ac, node.Subnet, network.Mode, ip); err != nil {
 				return err
+			}
+			if mode == store.NetworkMesh && node.Subnet != firstSubnet(network).String() {
+				return fmt.Errorf("the first node got subnet %s, not the one its tunnel came up with", node.Subnet)
 			}
 			ac.NodeID = nodeName
 			ac.PrivateIP = ip.String()
@@ -238,6 +300,9 @@ func newInitCommand(g *globals) *cobra.Command {
 			_, _ = fmt.Fprintf(out, "  node:        %s (%s), containers %s\n", nodeName, ip, node.Subnet)
 			_, _ = fmt.Fprintf(out, "  api:         %s\n", listen)
 			_, _ = fmt.Fprintf(out, "  network:     %s, %s\n", network.Mode, network.ClusterCIDR)
+			if mode == store.NetworkMesh {
+				_, _ = fmt.Fprintf(out, "  mesh:        %s at %s, endpoint %s (open UDP %d to every address)\n", network.MeshCIDR, ip, ep, clusternet.WireGuardPort)
+			}
 			_, _ = fmt.Fprintf(out, "  user:        %s, cluster-admin (%s)\n", userName, strings.Join(configs, ", "))
 			if groupNote != "" {
 				_, _ = fmt.Fprintf(out, "               %s\n", groupNote)
@@ -251,12 +316,14 @@ func newInitCommand(g *globals) *cobra.Command {
 	f := cmd.Flags()
 	rtFlags.register(f)
 	f.StringVar(&dataDir, "data-dir", defaultDataDir, "directory for cluster state and keys")
-	f.StringVar(&privateIP, "private-ip", "", "this node's private IP (default: the only private IPv4 address)")
+	f.StringVar(&privateIP, "private-ip", "", "this node's private IP (default: the only private IPv4 address; not with --network mesh)")
+	f.StringVar(&endpoint, "endpoint", "", "--network mesh: this machine's public IPv4 address, which other nodes send WireGuard packets to (default: the only public IPv4 address; behind one-to-one NAT, the mapped address)")
+	f.StringVar(&meshCIDR, "mesh-cidr", defaultMeshCIDR, "--network mesh: private IPv4 range of the nodes' mesh addresses (/8 to /24; set once)")
 	f.StringVar(&nodeName, "node-name", "", "node name (default: hostname)")
 	f.StringVar(&userName, "user-name", "", "name of the first user, who gets cluster-admin (default: the user running it)")
 	f.IntVar(&port, "port", defaultPort, "control plane port on the private IP")
 	f.StringVar(&cidr, "cluster-cidr", defaultClusterCIDR, "private IPv4 range for containers; each node gets a /24 of it (set once, /12 to /20)")
-	f.StringVar(&mode, "network", store.NetworkPlain, "how traffic between nodes' containers travels: plain (VXLAN, not encrypted) or wireguard (encrypted); set once")
+	f.StringVar(&mode, "network", store.NetworkPlain, "how traffic between nodes travels: plain (VXLAN over the private network, not encrypted), wireguard (encrypted, over the private network), or mesh (WireGuard between public addresses, no private network needed); set once")
 	return cmd
 }
 
@@ -267,8 +334,8 @@ const defaultClusterCIDR = "10.120.0.0/16"
 // clusterNetwork validates --cluster-cidr and --network for a cluster whose
 // first node has privateIP.
 func clusterNetwork(cidr, mode string, privateIP netip.Addr) (store.Network, error) {
-	if mode != store.NetworkPlain && mode != store.NetworkWireGuard {
-		return store.Network{}, fmt.Errorf("invalid --network %q: plain or wireguard", mode)
+	if mode != store.NetworkPlain && mode != store.NetworkWireGuard && mode != store.NetworkMesh {
+		return store.Network{}, fmt.Errorf("invalid --network %q: plain, wireguard, or mesh", mode)
 	}
 	p, err := netip.ParsePrefix(cidr)
 	if err != nil {
@@ -301,4 +368,9 @@ func resolvePrivateIP(flag string) (netip.Addr, error) {
 		return netutil.DetectPrivateIP()
 	}
 	return netutil.CheckPrivateIP(flag)
+}
+
+// firstSubnet is the node subnet the state gives a cluster's first node.
+func firstSubnet(n store.Network) netip.Prefix {
+	return netip.PrefixFrom(n.ClusterCIDR.Addr(), store.NodeSubnetBits)
 }

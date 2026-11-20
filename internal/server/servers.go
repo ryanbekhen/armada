@@ -16,7 +16,6 @@ import (
 
 	armadav1 "github.com/ryanbekhen/armada/api/armada/v1"
 	"github.com/ryanbekhen/armada/internal/etcd"
-	"github.com/ryanbekhen/armada/internal/netutil"
 	"github.com/ryanbekhen/armada/internal/pki"
 	"github.com/ryanbekhen/armada/internal/spec"
 	"github.com/ryanbekhen/armada/internal/store"
@@ -212,9 +211,9 @@ func (j *joinService) JoinServer(ctx context.Context, req *armadav1.JoinServerRe
 	if err := spec.ValidateName(name); err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "server name: %v", err)
 	}
-	ip, err := netutil.CheckNodeIP(req.GetPrivateIp())
+	ip, mesh, err := s.joiningAddress(ctx, req.GetPrivateIp(), req.GetNetworkKey(), req.GetEndpoint())
 	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "private IP: %v", err)
+		return nil, err
 	}
 	if len(req.GetNodeCsr()) == 0 || len(req.GetNodeCsr()) > maxCSRSize {
 		return nil, status.Error(codes.InvalidArgument, "missing or oversized CSR")
@@ -238,7 +237,7 @@ func (j *joinService) JoinServer(ctx context.Context, req *armadav1.JoinServerRe
 	srv := store.Server{Name: name, PrivateIP: ip.String(), APIAddr: apiAddr, JoinAddr: joinAddr}
 	err = s.store.RedeemServerToken(ctx, tok.ID,
 		func(hash string) bool { return pki.TokenSecretMatches(tok.Secret, hash) },
-		srv, store.Node{ID: name, PrivateIP: ip.String()},
+		srv, mesh.node(name, ip),
 		func() (store.NodeCert, error) {
 			var err error
 			nodeCert, err = s.ca.SignNodeCSR(req.GetNodeCsr(), name, s.nodeCertValidity)
@@ -316,11 +315,19 @@ func (j *joinService) JoinServer(ctx context.Context, req *armadav1.JoinServerRe
 		}
 	}
 	s.log.Info("server joined", "server", name, "private_ip", ip.String(), "subnet", n.Subnet, "token", tok.ID, "version", req.GetVersion(), "user_recorded", recorded)
-	s.Trigger()
-	return &armadav1.JoinServerResponse{
+	resp := &armadav1.JoinServerResponse{
 		CaCert: s.ca.CertPEM, CaKey: caKey, MasterKey: s.keys.Export().Bytes(),
 		ServerCert: srvCert, ServerKey: srvKey, NodeCert: nodeCert.PEM,
 		InitialCluster: initial, Servers: eps, NodeSubnet: n.Subnet, NetworkMode: mode,
 		UserRecorded: recorded,
-	}, nil
+	}
+	if mesh.on {
+		if resp.Network, err = s.meshNetwork(ctx); err != nil {
+			return nil, status.Error(codes.Internal, "read the cluster network")
+		}
+		resp.MeshIp = ip.String()
+	}
+	s.wakeJoin()
+	s.Trigger()
+	return resp, nil
 }

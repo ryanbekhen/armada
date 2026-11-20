@@ -102,6 +102,10 @@ type Config struct {
 	// JoinAddr (tests: no window in which another test takes the port).
 	JoinListener net.Listener
 	JoinTLS      *tls.Config
+	// JoinPublic is a mesh cluster's join listener (ADR 0049): JoinAddr is
+	// the leader's public endpoint, and the listener is open only while a
+	// join token is open, answering only the addresses tokens name.
+	JoinPublic bool
 	// APIAddr is the control plane address given to joining agents.
 	APIAddr string
 	// NodeCertValidity is the lifetime of issued node certificates
@@ -153,6 +157,8 @@ type Server struct {
 	joinTLS          *tls.Config
 	apiAddr          string
 	nodeCertValidity time.Duration
+	joinPublic       bool
+	joinGate         joinGate
 	joinLimit        *keyedLimiter
 	joinGlobal       *limiter
 	renewLimit       *keyedLimiter
@@ -273,7 +279,15 @@ func New(cfg Config) (*Server, error) {
 		if cfg.CA == nil || cfg.JoinTLS == nil || cfg.APIAddr == "" {
 			return nil, errors.New("server: joining needs CA, JoinTLS, and APIAddr")
 		}
-		if err := netutil.CheckPrivateListen(cfg.JoinAddr); err != nil {
+		if cfg.JoinPublic {
+			ap, err := netip.ParseAddrPort(cfg.JoinAddr)
+			if err != nil || ap.Port() == 0 {
+				return nil, fmt.Errorf("server: join listener: invalid address %q", cfg.JoinAddr)
+			}
+			if _, err := netutil.CheckEndpoint(ap.Addr().String()); err != nil {
+				return nil, fmt.Errorf("server: join listener: %w", err)
+			}
+		} else if err := netutil.CheckPrivateListen(cfg.JoinAddr); err != nil {
 			return nil, fmt.Errorf("server: join listener: %w", err)
 		}
 		if cfg.JoinTLS.ClientAuth != tls.NoClientCert {
@@ -345,6 +359,8 @@ func New(cfg Config) (*Server, error) {
 		joinTLS:          cfg.JoinTLS,
 		apiAddr:          cfg.APIAddr,
 		nodeCertValidity: cfg.NodeCertValidity,
+		joinPublic:       cfg.JoinPublic,
+		joinGate:         joinGate{wake: make(chan struct{}, 1)},
 		joinLimit:        newKeyedLimiter(joinBurst, joinRefill),
 		joinGlobal:       newLimiter(joinGlobalBurst, joinGlobalRef),
 		// Renewals: a burst for retries, then one per tenth of a lifetime.

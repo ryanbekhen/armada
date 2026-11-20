@@ -68,6 +68,10 @@ const (
 	// is not copied: it belongs to the node, and a restored node makes a
 	// new one, which its agent announces.
 	FileNetworkKey = "network.key"
+	// FileMeshCache is a mesh node's last peer list (ADR 0049). It is not
+	// copied: the control plane sends it again, and until then the node
+	// brings its tunnel up alone from FileAgent.
+	FileMeshCache = "mesh.json"
 	// etcdPrefix is where the control plane's records live in etcd.
 	etcdPrefix = "/armada/"
 
