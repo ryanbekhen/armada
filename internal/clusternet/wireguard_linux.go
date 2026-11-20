@@ -18,53 +18,63 @@ import (
 	"golang.zx2c4.com/wireguard/ipc"
 	"golang.zx2c4.com/wireguard/tun"
 	"golang.zx2c4.com/wireguard/wgctrl"
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
 
-// wireguard creates or repairs the WireGuard interface, its peers, and the
-// routes to their subnets.
-func (n *Net) wireguard(p plan, mtu int) error {
-	link, err := n.wgDevice(mtu, p.mode != ModeMesh)
+// wireguard creates or repairs the WireGuard interface name, its peers,
+// and the routes r asks for. Only the wireguard mode's own interface may
+// fall back to the userspace device: the mesh must be up before the agent,
+// and a switch's target interface is renamed when the switch is done
+// (ADR 0050), which the userspace device's control socket would not follow.
+func (n *Net) wireguard(p plan, mode, name string, mtu int, r routeSet) error {
+	link, err := n.wgDevice(name, mtu, mode == ModeWireGuard && name == Interface)
 	if err != nil {
 		return err
 	}
 	if err := setUp(link, p, mtu); err != nil {
 		return err
 	}
-	if err := n.wgPeers(p); err != nil {
+	if err := n.wgPeers(name, mode, p.peers); err != nil {
 		return err
 	}
-	return syncRoutes(link, p, false)
+	return syncRoutes(link, p, false, r)
 }
 
 // errNoKernelWireGuard is the mesh mode's refusal of the userspace device:
 // the mesh must be up before the agent that would hold it runs.
 var errNoKernelWireGuard = errors.New("the kernel has no WireGuard, which the mesh network mode needs (the userspace device lives inside the agent, and the mesh must be up before it starts); use a kernel with WireGuard (Linux 5.6 or later)")
 
-// wgDevice returns the WireGuard interface, creating it in the kernel, or,
-// when user allows it, in userspace inside the agent when the kernel has no
-// WireGuard.
-func (n *Net) wgDevice(mtu int, user bool) (netlink.Link, error) {
-	link, err := existing()
+// errSwitchNeedsKernel refuses a switch to the wireguard mode on a node
+// without the kernel's WireGuard (ADR 0050).
+var errSwitchNeedsKernel = errors.New("the kernel has no WireGuard, which switching a running cluster to the wireguard mode needs; use a kernel with WireGuard (Linux 5.6 or later), or remove this node first")
+
+// wgDevice returns the WireGuard interface name, creating it in the kernel,
+// or, when user allows it, in userspace inside the agent when the kernel
+// has no WireGuard.
+func (n *Net) wgDevice(name string, mtu int, user bool) (netlink.Link, error) {
+	link, err := linkNamed(name)
 	if err != nil {
 		return nil, err
 	}
 	if link != nil {
-		if _, ok := link.(*netlink.Wireguard); ok || n.user != nil {
+		if _, ok := link.(*netlink.Wireguard); ok || name == Interface && n.user != nil {
 			return link, nil
 		}
-		n.log.Info("replacing the cluster network interface", "interface", Interface)
-		if err := netlink.LinkDel(link); err != nil {
-			return nil, fmt.Errorf("remove %s: %w", Interface, err)
+		n.log.Info("replacing the cluster network interface", "interface", name)
+		if err := n.delLink(link); err != nil {
+			return nil, err
 		}
 	}
-	if n.user != nil {
+	if name == Interface && n.user != nil {
 		// The userspace device's interface went away: start it again.
 		n.user.close()
 		n.user = nil
 	}
-	err = netlink.LinkAdd(&netlink.Wireguard{LinkAttrs: netlink.LinkAttrs{Name: Interface, MTU: mtu}})
+	err = netlink.LinkAdd(&netlink.Wireguard{LinkAttrs: netlink.LinkAttrs{Name: name, MTU: mtu}})
 	switch {
 	case err == nil:
+	case errors.Is(err, unix.EOPNOTSUPP) && name == Next:
+		return nil, errSwitchNeedsKernel
 	case errors.Is(err, unix.EOPNOTSUPP) && !user:
 		return nil, errNoKernelWireGuard
 	case errors.Is(err, unix.EOPNOTSUPP):
@@ -75,9 +85,9 @@ func (n *Net) wgDevice(mtu int, user bool) (netlink.Link, error) {
 		n.user = u
 		n.log.Warn("the kernel has no WireGuard; it runs in userspace inside the agent, which is markedly slower")
 	default:
-		return nil, fmt.Errorf("create %s: %w", Interface, err)
+		return nil, fmt.Errorf("create %s: %w", name, err)
 	}
-	return netlink.LinkByName(Interface)
+	return netlink.LinkByName(name)
 }
 
 // userSocket is where the userspace device serves its control socket.
@@ -129,25 +139,26 @@ func (u *userDevice) close() {
 	u.dev.Close()
 }
 
-// wgPeers gives the device the node's key and port and one peer per other
-// node, allowed exactly that node's subnet. It changes only what differs,
-// so sessions survive every pass.
-func (n *Net) wgPeers(p plan) error {
+// wgPeers gives the device name the node's key and port and one peer per
+// other node with a key, allowed exactly that node's subnet. It changes
+// only what differs, so sessions survive every pass.
+func (n *Net) wgPeers(name, mode string, peers []peer) error {
 	c, err := wgctrl.New()
 	if err != nil {
 		return err
 	}
 	defer func() { _ = c.Close() }()
-	d, err := c.Device(Interface)
+	d, err := c.Device(name)
 	if err != nil {
-		return fmt.Errorf("read %s: %w", Interface, err)
+		return fmt.Errorf("read %s: %w", name, err)
 	}
-	cfg := peerChanges(d, n.cfg.Key.k, p.mode, p.peers, time.Now())
+	keyed := slices.DeleteFunc(slices.Clone(peers), func(pe peer) bool { return pe.key == wgtypes.Key{} })
+	cfg := peerChanges(d, n.cfg.Key.k, mode, keyed, time.Now())
 	if cfg == nil {
 		return nil
 	}
-	if err := c.ConfigureDevice(Interface, *cfg); err != nil {
-		return fmt.Errorf("configure %s: %w", Interface, err)
+	if err := c.ConfigureDevice(name, *cfg); err != nil {
+		return fmt.Errorf("configure %s: %w", name, err)
 	}
 	return nil
 }

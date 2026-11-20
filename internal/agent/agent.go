@@ -167,6 +167,15 @@ type Network interface {
 	Apply(ctx context.Context, cfg *armadav1.NetworkConfig, local map[netip.Addr]string) error
 }
 
+// NetworkSwitcher is a Network that switches between the plain and
+// wireguard modes while the cluster runs (ADR 0050), reporting how its side
+// of a switch goes.
+type NetworkSwitcher interface {
+	Network
+	// SwitchStatus is nil while no switch runs.
+	SwitchStatus() *armadav1.NetworkSwitchStatus
+}
+
 // InternalDNS is the node-local resolver the agent keeps in sync with the
 // proxy's internal routes.
 type InternalDNS interface {
@@ -385,6 +394,7 @@ func (a *Agent) session(ctx context.Context) (established bool, err error) {
 		Jobs: true, Volumes: a.mountsVolumes(), Containers: runtime.CanRunMembers(a.cfg.Driver), NetworkKey: a.cfg.NetworkKey, Endpoint: a.cfg.Endpoint,
 		CertificateRefs: true, QueueSandboxes: a.sandboxesOn(), HeldReplicas: true,
 		VolumeBackups: a.mountsVolumes(), Nfs: a.mountsNFS(), LogHistory: a.logHistoryOn(),
+		NetworkSwitch: a.switcher() != nil,
 	}}}
 	if err := stream.Send(hello); err != nil {
 		return false, err
@@ -1008,6 +1018,12 @@ func (a *Agent) setNetwork(cfg *armadav1.NetworkConfig) {
 	a.mu.Lock()
 	a.networkDesired = cfg
 	a.mu.Unlock()
+}
+
+// switcher returns the node's network when it can switch modes.
+func (a *Agent) switcher() NetworkSwitcher {
+	sw, _ := a.cfg.Network.(NetworkSwitcher)
+	return sw
 }
 
 // applyNetwork applies the cluster network before the proxy and the

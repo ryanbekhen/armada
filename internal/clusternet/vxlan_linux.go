@@ -14,52 +14,53 @@ import (
 // vni is the VXLAN network identifier of Armada's tunnel.
 const vni = 7027
 
-// vxlan creates or repairs the VXLAN interface and its peers.
-func (n *Net) vxlan(p plan, uplink netlink.Link, mtu int) error {
-	link, err := n.vxlanDevice(p, uplink, mtu)
+// vxlan creates or repairs the VXLAN interface name and its peers, with
+// the routes r asks for.
+func (n *Net) vxlan(p plan, name string, uplink netlink.Link, mtu int, r routeSet) error {
+	link, err := n.vxlanDevice(p, name, uplink, mtu)
 	if err != nil {
 		return err
 	}
 	if err := vxlanPeers(p, link); err != nil {
 		return err
 	}
-	return syncRoutes(link, p, true)
+	return syncRoutes(link, p, true, r)
 }
 
-func (n *Net) vxlanDevice(p plan, uplink netlink.Link, mtu int) (netlink.Link, error) {
+func (n *Net) vxlanDevice(p plan, name string, uplink netlink.Link, mtu int) (netlink.Link, error) {
 	want := &netlink.Vxlan{
-		LinkAttrs:    netlink.LinkAttrs{Name: Interface, MTU: mtu, HardwareAddr: vtepMAC(p.self.subnet)},
+		LinkAttrs:    netlink.LinkAttrs{Name: name, MTU: mtu, HardwareAddr: vtepMAC(p.self.subnet)},
 		VxlanId:      vni,
 		VtepDevIndex: uplink.Attrs().Index,
 		SrcAddr:      n.cfg.PrivateIP.AsSlice(),
 		Port:         VXLANPort,
 		Learning:     false,
 	}
-	link, err := existing()
+	link, err := linkNamed(name)
 	if err != nil {
 		return nil, err
 	}
 	if link != nil {
 		v, ok := link.(*netlink.Vxlan)
 		if !ok || v.VxlanId != want.VxlanId || v.Port != want.Port || v.Learning || v.VtepDevIndex != want.VtepDevIndex || !v.SrcAddr.Equal(want.SrcAddr) {
-			n.log.Info("replacing the cluster network interface", "interface", Interface)
-			if err := netlink.LinkDel(link); err != nil {
-				return nil, fmt.Errorf("remove %s: %w", Interface, err)
+			n.log.Info("replacing the cluster network interface", "interface", name)
+			if err := n.delLink(link); err != nil {
+				return nil, err
 			}
 			link = nil
 		}
 	}
 	if link == nil {
 		if err := netlink.LinkAdd(want); err != nil && !errors.Is(err, os.ErrExist) {
-			return nil, fmt.Errorf("create %s: %w", Interface, err)
+			return nil, fmt.Errorf("create %s: %w", name, err)
 		}
-		if link, err = netlink.LinkByName(Interface); err != nil {
+		if link, err = netlink.LinkByName(name); err != nil {
 			return nil, err
 		}
 	}
 	if link.Attrs().HardwareAddr.String() != want.HardwareAddr.String() {
 		if err := netlink.LinkSetHardwareAddr(link, want.HardwareAddr); err != nil {
-			return nil, fmt.Errorf("set address of %s: %w", Interface, err)
+			return nil, fmt.Errorf("set address of %s: %w", name, err)
 		}
 	}
 	return link, setUp(link, p, mtu)
