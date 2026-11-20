@@ -2,10 +2,10 @@
 
 `network.sh` measures how traffic between two nodes performs: container to
 container throughput, HTTP through HAProxy for different replica
-placements, and a large upload. It compares the cluster on the machines'
-private network with a prototype where the nodes reach each other over a
-WireGuard tunnel, to inform the design of Armada's cluster network. It runs
-from your workstation over SSH and does not run in CI.
+placements, and a large upload. It compares the cluster network's modes
+(ADR 0025) on the machines' private network, and a tunnel the script builds
+between them, over their private or public addresses. It runs from your
+workstation over SSH and does not run in CI.
 
 ## What you need
 
@@ -14,7 +14,7 @@ from your workstation over SSH and does not run in CI.
   them** (`/var/lib/armada`, `/etc/armada`, Armada's containers); it refuses
   to start on a machine that has some unless `BENCH_WIPE=yes`. Use machines
   you can throw away, not ones that serve anything.
-- `curl` on both machines. For the `wireguard` mode, `wireguard-tools` (`wg`)
+- `curl` on both machines. For the `tunnel` mode, `wireguard-tools` (`wg`)
   and either the kernel's WireGuard module or `wireguard-go`, and the UDP
   port `BENCH_WG_PORT` open between the machines (the script opens it in
   firewalld when that runs; a provider's firewall is up to you).
@@ -41,11 +41,11 @@ ARMADA_BIN=bin/armadad-linux-amd64 BENCH_WIPE=yes sh test/bench/network.sh hosts
 ```
 
 Machines without a private network between them (or in different
-providers) can still run the tunnel over their public addresses:
+providers) can still run the `tunnel` mode over their public addresses:
 
 ```bash
 ARMADA_BIN_AMD64=bin/armadad-linux-amd64 ARMADA_BIN_ARM64=bin/armadad-linux-arm64 \
-BENCH_MODES=wireguard BENCH_WG_UNDERLAY=public BENCH_WIPE=yes sh test/bench/network.sh hosts
+BENCH_MODES=tunnel BENCH_WG_UNDERLAY=public BENCH_WIPE=yes sh test/bench/network.sh hosts
 ```
 
 | Variable | Default | Meaning |
@@ -53,7 +53,7 @@ BENCH_MODES=wireguard BENCH_WG_UNDERLAY=public BENCH_WIPE=yes sh test/bench/netw
 | `ARMADA_BIN` | required unless both below are set | Binary for both machines |
 | `ARMADA_BIN_AMD64`, `ARMADA_BIN_ARM64` | `ARMADA_BIN` | Binary for machines of that architecture |
 | `BENCH_MODES` | `plain wireguard` | Modes to run, in order |
-| `BENCH_WG_UNDERLAY` | `private` | Addresses the tunnel runs over: `private` or `public` |
+| `BENCH_WG_UNDERLAY` | `private` | Addresses the `tunnel` mode runs over: `private` or `public` |
 | `BENCH_WG_PORT` | `51820` | UDP port of the tunnel |
 | `BENCH_WG_MTU` | `auto` | MTU of the tunnel interface; `auto` is the smaller underlay MTU of the two machines less 80 bytes |
 | `BENCH_WG_NET` | `10.99.0` | Tunnel addresses (`.1` for A, `.2` for B); must not clash with the machines' networks |
@@ -77,18 +77,23 @@ Machine A (the first line) runs the control plane, the clients, and the
 load; machine B is the node with the "remote" replicas. For each mode the
 script builds a two-node cluster:
 
-- `plain`: the nodes use the `PRIVATE-IP` column, as clusters do today.
-- `wireguard`: the script creates a WireGuard interface on each machine
-  (keys made on the machine, only public keys copied) and builds the cluster
-  with the tunnel addresses as the nodes' private IPs, so everything
-  between the nodes (the control plane, HAProxy to replicas, published
-  ports) goes through the tunnel. This is a prototype of the encryption and
-  encapsulation cost, not the final design.
+- `plain`: `armadad init --network plain` on the `PRIVATE-IP` column:
+  traffic between containers crosses a VXLAN tunnel, not encrypted.
+- `wireguard`: `armadad init --network wireguard` on the same addresses:
+  traffic between containers crosses Armada's WireGuard mesh. The mode
+  says when a node used the embedded userspace device instead of the
+  kernel's WireGuard.
+- `tunnel`: the script creates a WireGuard interface on each machine
+  (keys made on the machine, only public keys copied) and builds a `plain`
+  cluster with the tunnel addresses as the nodes' private IPs, so
+  everything between the nodes (the control plane included) goes through
+  the tunnel, over the private or the public addresses
+  (`BENCH_WG_UNDERLAY`).
 
 Then, with the CPU use of both machines sampled around each run:
 
 1. **Container to container**: `iperf3` from a container on A to one on B
-   through B's published port, with 1 and 4 streams, in both directions.
+   at the replica's address (its container address on a cluster network), with 1 and 4 streams, in both directions.
 2. **Upload**: a file of `BENCH_UPLOAD_MB` posted from A through A's
    HAProxy to a replica on B. A transfer that fails or stalls until the
    timeout points at an MTU problem on the path.
@@ -110,5 +115,5 @@ are the busy share of all CPUs of each machine during the run, including
 the load generator on A. Below the table, each machine's MTU towards the
 other node and on the container bridge: a path MTU smaller than the
 bridge's is the usual reason for transfers that stall or fail while small
-requests work. The mode names the tunnel's underlay, and says when a
+requests work. The `tunnel` mode names its underlay, and says when a
 machine used `wireguard-go` instead of the kernel's WireGuard.
