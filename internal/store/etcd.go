@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"net/netip"
 	"reflect"
 	"slices"
 	"sort"
@@ -461,6 +462,7 @@ type tokenRec struct {
 	UsedBy     string            `json:"usedBy"`
 	Server     bool              `json:"server,omitempty"`
 	Labels     map[string]string `json:"labels,omitempty"`
+	From       string            `json:"from,omitempty"`
 }
 
 type serverRec struct {
@@ -671,6 +673,7 @@ func (s *Etcd) UpsertNode(ctx context.Context, n Node) error {
 			if rec.Subnet, err = t.newNodeNetwork(n.PrivateIP); err != nil {
 				return err
 			}
+			rec.NetworkKey, rec.Endpoint = n.NetworkKey, n.Endpoint
 		}
 		if n.Labels != nil {
 			rec.Labels = n.Labels
@@ -945,7 +948,7 @@ func (s *Etcd) CreateJoinToken(ctx context.Context, tok JoinToken) error {
 			return fmt.Errorf("join token %s exists: %w", tok.ID, ErrConflict)
 		}
 		if err := t.put(pfxTokens+tok.ID, tokenRec{ID: tok.ID, SecretHash: tok.SecretHash, ExpiresAt: tok.ExpiresAt.UnixMilli(),
-			CreatedAt: now.UnixMilli(), CreatedBy: tok.CreatedBy, Server: tok.Server, Labels: tok.Labels}); err != nil {
+			CreatedAt: now.UnixMilli(), CreatedBy: tok.CreatedBy, Server: tok.Server, Labels: tok.Labels, From: tok.From}); err != nil {
 			return err
 		}
 		detail := "expires " + tok.ExpiresAt.UTC().Format("2006-01-02T15:04Z")
@@ -955,8 +958,55 @@ func (s *Etcd) CreateJoinToken(ctx context.Context, tok JoinToken) error {
 		if len(tok.Labels) > 0 {
 			detail += ", labels " + labelString(tok.Labels)
 		}
+		if tok.From != "" {
+			detail += ", from " + tok.From
+		}
 		return t.audit(now, tok.CreatedBy, "token.create", tok.ID, detail)
 	})
+}
+
+// OpenJoinTokens returns the unused, unexpired tokens. See Store.
+func (s *Etcd) OpenJoinTokens(ctx context.Context) ([]JoinToken, error) {
+	now := s.now().UnixMilli()
+	var out []JoinToken
+	err := s.view(ctx, func(t *etx) error {
+		out = nil
+		return listInto(t, pfxTokens, func(_ string, r tokenRec) error {
+			if r.UsedAt == 0 && r.ExpiresAt > now {
+				out = append(out, JoinToken{ID: r.ID, ExpiresAt: fromMS(r.ExpiresAt), CreatedAt: fromMS(r.CreatedAt),
+					CreatedBy: r.CreatedBy, Server: r.Server, Labels: r.Labels, From: r.From})
+			}
+			return nil
+		})
+	})
+	return out, err
+}
+
+// FreeMeshAddress returns the lowest free mesh address. See Store.
+func (s *Etcd) FreeMeshAddress(ctx context.Context) (string, error) {
+	var out string
+	err := s.view(ctx, func(t *etx) error {
+		n, ok, err := t.network()
+		if err != nil {
+			return err
+		}
+		if !ok || n.Mode != NetworkMesh {
+			return fmt.Errorf("the cluster is not a mesh: %w", ErrPrecondition)
+		}
+		used := map[netip.Addr]bool{}
+		if err := listInto(t, pfxNodes, func(_ string, r nodeRec) error {
+			if a, err := netip.ParseAddr(r.PrivateIP); err == nil {
+				used[a] = true
+			}
+			return nil
+		}); err != nil {
+			return err
+		}
+		a, err := freeMeshAddress(n.MeshCIDR, used)
+		out = a.String()
+		return err
+	})
+	return out, err
 }
 
 // RedeemJoinToken consumes a token and registers a node. See Store.
@@ -990,9 +1040,10 @@ func (s *Etcd) redeem(ctx context.Context, id string, check func(string) bool, s
 		}
 		// Only after the token checks out, so unauthenticated callers cannot
 		// probe which IPs are in use.
-		taken := false
+		taken, keyTaken := false, false
 		err = listInto(t, pfxNodes, func(_ string, other nodeRec) error {
 			taken = taken || other.PrivateIP == n.PrivateIP
+			keyTaken = keyTaken || n.NetworkKey != "" && other.NetworkKey == n.NetworkKey
 			return nil
 		})
 		if err != nil {
@@ -1000,6 +1051,9 @@ func (s *Etcd) redeem(ctx context.Context, id string, check func(string) bool, s
 		}
 		if taken {
 			return fmt.Errorf("private IP %s is already used by another node: %w", n.PrivateIP, ErrConflict)
+		}
+		if keyTaken {
+			return fmt.Errorf("the network key is already used by another node: %w", ErrConflict)
 		}
 		subnet, err := t.newNodeNetwork(n.PrivateIP)
 		if err != nil {
@@ -1026,7 +1080,8 @@ func (s *Etcd) redeem(ctx context.Context, id string, check func(string) bool, s
 		if n.State == "" {
 			n.State = NodeUnknown
 		}
-		if err := t.put(pfxNodes+n.ID, nodeRec{ID: n.ID, PrivateIP: n.PrivateIP, State: n.State, CreatedAt: now.UnixMilli(), Labels: tok.Labels, Subnet: subnet}); err != nil {
+		if err := t.put(pfxNodes+n.ID, nodeRec{ID: n.ID, PrivateIP: n.PrivateIP, State: n.State, CreatedAt: now.UnixMilli(), Labels: tok.Labels, Subnet: subnet,
+			NetworkKey: n.NetworkKey, Endpoint: n.Endpoint}); err != nil {
 			return err
 		}
 		if err := t.putCert(n.ID, cert, now); err != nil {

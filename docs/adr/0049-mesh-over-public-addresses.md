@@ -38,9 +38,10 @@ question, how the machines reach each other: a trusted private network
 
 ### Addresses
 
-- **Mesh range.** `init --mesh-cidr` (default `10.121.0.0/16`, distinct
-  from the default cluster CIDR, and refused when it overlaps the cluster
-  CIDR or the host's routes) is stored in `store.Network`. Each node gets
+- **Mesh range.** `init --mesh-cidr` (default `10.122.0.0/16`, distinct
+  from the default cluster CIDR and from the bridge subnet of nodes without
+  a cluster network, `10.121.0.0/24`, and refused when it overlaps the
+  cluster CIDR) is stored in `store.Network`. Each node gets
   one address of it (`/32`) from the leader, in the same transaction that
   gives it its container subnet.
 - **The node's address is its mesh address.** It takes the place of the
@@ -76,9 +77,10 @@ address:
   last one is redeemed, or when it expires: node and server tokens of a
   mesh cluster last 10 minutes by default and at most 1 hour. A token may
   name the address the machine joins from (`join-token --from IP`); the
-  listener then accepts connections only from the addresses of unexpired
-  tokens (a firewall rule on the port, removed with the listener), so the
-  port answers no one else even while it is open.
+  listener then closes a connection from any other address as soon as it
+  is accepted, before TLS, while every open token names one. The leader
+  looks at the tokens when one is created or redeemed and every 5 seconds;
+  closing lets a join in flight finish its answer.
   Everything else about it stays as today: server-only TLS whose CA the
   joining machine pins by hash, `JoinService` only, rate limits, bounded
   connections, idle and total time limits, and tokens stored as hashes.

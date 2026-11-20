@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/base64"
 	"log/slog"
 	"net"
 	"net/netip"
@@ -706,5 +707,159 @@ func TestJoinGivesNodeSubnet(t *testing.T) {
 	}
 	if n, _ := c.store.GetNode(c.ctx, "n1"); n.Subnet != resp.NodeSubnet {
 		t.Errorf("stored subnet = %q", n.Subnet)
+	}
+}
+
+// withMeshJoin gives a mesh cluster's leader its public join listener: the
+// test listens on loopback for the endpoint 203.0.113.1.
+func withMeshJoin(t *testing.T, l net.Listener) func(*Config) {
+	t.Helper()
+	_, port, _ := net.SplitHostPort(l.Addr().String())
+	return func(c *Config) {
+		c.JoinAddr, c.JoinListener, c.JoinPublic = net.JoinHostPort("203.0.113.1", port), l, true
+	}
+}
+
+func meshJoinClient(ctx context.Context, t *testing.T, addr, caHash string) (armadav1.JoinServiceClient, error) {
+	t.Helper()
+	pin, err := pki.ParseCAHash(caHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	ca, err := pki.FetchPinnedCA(fctx, addr, pin)
+	if err != nil {
+		return nil, err
+	}
+	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(credentials.NewTLS(pki.JoinClientTLS(ca))))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+	return armadav1.NewJoinServiceClient(conn), nil
+}
+
+// A mesh cluster's join listener faces the public only while a join token
+// is open; machines join with their key and endpoint and get a mesh
+// address and the peer list (ADR 0049).
+func TestMeshJoin(t *testing.T) {
+	t.Parallel()
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := newCluster(t, withMeshJoin(t, l))
+	if err := c.store.InitNetwork(c.ctx, store.Network{Mode: store.NetworkMesh, ClusterCIDR: netip.MustParsePrefix("10.120.0.0/16"), MeshCIDR: netip.MustParsePrefix("10.121.0.0/16")}); err != nil {
+		t.Fatal(err)
+	}
+	// Mesh tokens are short: 10 minutes unless asked, at most an hour.
+	if _, err := c.admin.CreateJoinToken(c.ctx, &armadav1.CreateJoinTokenRequest{TtlSeconds: 7200}); status.Code(err) != codes.InvalidArgument {
+		t.Errorf("2h mesh token = %v", err)
+	}
+	if _, err := c.admin.CreateJoinToken(c.ctx, &armadav1.CreateJoinTokenRequest{From: "203.0.113.9:22"}); status.Code(err) != codes.InvalidArgument {
+		t.Errorf("--from with a port = %v", err)
+	}
+	tok := c.token()
+	if !strings.HasPrefix(tok.JoinAddr, "203.0.113.1:") || time.Until(tok.ExpiresAt.AsTime()) > 10*time.Minute {
+		t.Errorf("token %v", tok)
+	}
+	var jc armadav1.JoinServiceClient
+	c.eventually("join listener open", func() bool {
+		jc, err = meshJoinClient(c.ctx, t, l.Addr().String(), tok.CaHash)
+		return err == nil
+	})
+	key := testKey(t)
+	for name, mod := range map[string]func(*armadav1.JoinRequest){
+		"private IP":   func(r *armadav1.JoinRequest) { r.PrivateIp = "10.0.0.5" },
+		"no key":       func(r *armadav1.JoinRequest) { r.NetworkKey = "" },
+		"bad endpoint": func(r *armadav1.JoinRequest) { r.Endpoint = "127.0.0.1" },
+	} {
+		req, _ := joinReq(t, tok.Token, "m1", "")
+		req.NetworkKey, req.Endpoint = key, "198.51.100.2"
+		mod(req)
+		if _, err := jc.Join(c.ctx, req); status.Code(err) != codes.InvalidArgument {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	req, _ := joinReq(t, tok.Token, "m1", "")
+	req.NetworkKey, req.Endpoint = key, "198.51.100.2"
+	resp, err := jc.Join(c.ctx, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.GetNetworkMode() != store.NetworkMesh || resp.GetMeshIp() != "10.121.0.1" || resp.GetNetwork().GetMeshCidr() != "10.121.0.0/16" {
+		t.Fatalf("join answer %v", resp)
+	}
+	peers := resp.GetNetwork().GetPeers()
+	if len(peers) != 1 || peers[0].GetNode() != "m1" || peers[0].GetEndpoint() != "198.51.100.2" || peers[0].GetPublicKey() != key || peers[0].GetSubnet() != resp.GetNodeSubnet() {
+		t.Errorf("peers %v", peers)
+	}
+	if n, err := c.store.GetNode(c.ctx, "m1"); err != nil || n.PrivateIP != "10.121.0.1" || n.Endpoint != "198.51.100.2" || n.NetworkKey != key {
+		t.Errorf("node %+v, %v", n, err)
+	}
+	// The only token is spent: the listener closes.
+	c.eventually("join listener closed", func() bool {
+		conn, err := net.DialTimeout("tcp", l.Addr().String(), time.Second)
+		if err == nil {
+			_ = conn.Close()
+		}
+		return err != nil
+	})
+	// A token naming an address lets only it in.
+	if _, err := c.admin.CreateJoinToken(c.ctx, &armadav1.CreateJoinTokenRequest{From: "198.51.100.9"}); err != nil {
+		t.Fatal(err)
+	}
+	c.eventually("sources from tokens", func() bool {
+		return c.srv.joinAllowed(netip.MustParseAddr("198.51.100.9")) && !c.srv.joinAllowed(netip.MustParseAddr("127.0.0.1"))
+	})
+}
+
+func testKey(t *testing.T) string {
+	t.Helper()
+	b := make([]byte, 32)
+	for i := range b {
+		b[i] = byte(i + 1)
+	}
+	return base64.StdEncoding.EncodeToString(b)
+}
+
+// Outside a mesh, the join listener is on the private network and tokens
+// name no address.
+func TestJoinFromNeedsMesh(t *testing.T) {
+	t.Parallel()
+	c := newCluster(t, withJoin(t))
+	if _, err := c.admin.CreateJoinToken(c.ctx, &armadav1.CreateJoinTokenRequest{From: "198.51.100.9"}); status.Code(err) != codes.InvalidArgument {
+		t.Errorf("--from outside a mesh = %v", err)
+	}
+}
+
+func TestSourceFilter(t *testing.T) {
+	t.Parallel()
+	if m := joinSources([]store.JoinToken{{From: "198.51.100.9"}, {From: ""}}); m != nil {
+		t.Errorf("a token naming no address must open the listener to all: %v", *m)
+	}
+	m := joinSources([]store.JoinToken{{From: "198.51.100.9"}, {From: "2001:db8::1"}})
+	if m == nil || !(*m)[netip.MustParseAddr("198.51.100.9")] || len(*m) != 2 {
+		t.Errorf("sources %v", m)
+	}
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := &sourceFilter{Listener: l, allow: func(a netip.Addr) bool { return false }}
+	defer f.Close()
+	go func() {
+		conn, err := net.Dial("tcp", l.Addr().String())
+		if err == nil {
+			defer conn.Close()
+			buf := make([]byte, 1)
+			_, _ = conn.Read(buf) // closed by the filter
+		}
+		_ = f.Close()
+	}()
+	if c, err := f.Accept(); err == nil {
+		_ = c.Close()
+		t.Error("refused source accepted")
 	}
 }

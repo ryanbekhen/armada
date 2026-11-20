@@ -21,10 +21,12 @@ Flags:
 | `--cluster-cidr string` | private IPv4 range for containers; each node gets a /24 of it (set once, /12 to /20) (default `10.120.0.0/16`) |
 | `--container-subnet string` | private IPv4 subnet for this node's containers (clusters without a cluster network; others give each node a subnet) (default `10.121.0.0/24`) |
 | `--data-dir string` | directory for cluster state and keys (default `/var/lib/armada`) |
-| `--network string` | how traffic between nodes' containers travels: plain (VXLAN, not encrypted) or wireguard (encrypted); set once (default `plain`) |
+| `--endpoint string` | --network mesh: this machine's public IPv4 address, which other nodes send WireGuard packets to (default: the only public IPv4 address; behind one-to-one NAT, the mapped address) |
+| `--mesh-cidr string` | --network mesh: private IPv4 range of the nodes' mesh addresses (/8 to /24; set once) (default `10.122.0.0/16`) |
+| `--network string` | how traffic between nodes travels: plain (VXLAN over the private network, not encrypted), wireguard (encrypted, over the private network), or mesh (WireGuard between public addresses, no private network needed); set once (default `plain`) |
 | `--node-name string` | node name (default: hostname) |
 | `--port int` | control plane port on the private IP (default `7443`) |
-| `--private-ip string` | this node's private IP (default: the only private IPv4 address) |
+| `--private-ip string` | this node's private IP (default: the only private IPv4 address; not with --network mesh) |
 | `--runtime string` | container runtime: embedded (containerd), or supervisor (no containerd daemon; experimental, ADR 0046) (default `embedded`) |
 | `--user-name string` | name of the first user, who gets cluster-admin (default: the user running it) |
 

@@ -70,6 +70,10 @@ type agentConfig struct {
 	// Endpoint is the node's public IPv4 address in a mesh cluster (ADR
 	// 0049), where PrivateIP is its mesh address.
 	Endpoint string `json:"endpoint,omitempty"`
+	// ClusterCIDR and MeshCIDR are a mesh cluster's ranges, so the node can
+	// bring its tunnel up alone when it has no peer list (a restore).
+	ClusterCIDR string `json:"clusterCidr,omitempty"`
+	MeshCIDR    string `json:"meshCidr,omitempty"`
 }
 
 // endpoint returns the node's mesh endpoint, or the zero address.

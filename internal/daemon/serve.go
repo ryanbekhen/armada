@@ -9,7 +9,6 @@ import (
 	"io/fs"
 	"log/slog"
 	"net"
-	"net/netip"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -120,6 +119,19 @@ func newServerCommand() *cobra.Command {
 				}
 			}
 			ctx := cmd.Context()
+			// A mesh server's etcd member and API listen on its mesh
+			// address, which exists once the tunnel is up (ADR 0049).
+			ac, err := loadAgentConfig(dataDir)
+			if errors.Is(err, fs.ErrNotExist) {
+				// Not initialized: openState says so.
+				ac, err = &agentConfig{}, nil
+			}
+			if err != nil {
+				return err
+			}
+			if err := upMesh(dataDir, ac, nil, log); err != nil {
+				return err
+			}
 			st, member, err := openState(ctx, dataDir, log)
 			if err != nil {
 				return err
@@ -173,6 +185,14 @@ func newServerCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			// A mesh cluster's machines join over the leader's public
+			// endpoint, while a join token is open (ADR 0049).
+			joinPublic := ac.Network == store.NetworkMesh && joinAddr != ""
+			if joinPublic {
+				if joinAddr, err = meshJoinListen(joinAddr, ac.endpoint()); err != nil {
+					return err
+				}
+			}
 			if metrics != "" {
 				if err := netutil.CheckPrivateListen(metrics); err != nil {
 					return fmt.Errorf("--metrics-listen: %w", err)
@@ -214,7 +234,7 @@ func newServerCommand() *cobra.Command {
 				cfg := server.Config{
 					Store: fenced, TLS: tlsCfg, Logger: log,
 					Secrets: keys,
-					CA:      ca, JoinAddr: joinAddr, JoinTLS: joinTLS, APIAddr: listen,
+					CA:      ca, JoinAddr: joinAddr, JoinTLS: joinTLS, JoinPublic: joinPublic, APIAddr: listen,
 					NodeLostTimeout:   ts.lostTimeout,
 					MetricsAddr:       ts.metrics,
 					OnSettingsChanged: restart,
@@ -454,6 +474,10 @@ func runAgent(ctx context.Context, dataDir string, servers []string, proxyKind, 
 	if _, err := netutil.CheckPrivateIP(ac.PrivateIP); err != nil {
 		return err
 	}
+	// A mesh node reaches the servers at mesh addresses (ADR 0049).
+	if err := upMesh(dataDir, ac, nil, log); err != nil {
+		return err
+	}
 	writeMachineServers(dataDir, ac.Servers, log)
 	creds, err := agent.LoadCredentials(dataDir, ac.NodeID)
 	if err != nil {
@@ -563,6 +587,7 @@ func runAgent(ctx context.Context, dataDir string, servers []string, proxyKind, 
 	}
 	if cnet != nil {
 		acfg.Network, acfg.NetworkKey, acfg.Unpublished = cnet, networkKey, unpublished
+		acfg.Endpoint = ac.Endpoint
 	}
 	a := agent.New(acfg)
 	g, ctx := errgroup.WithContext(ctx)
@@ -585,15 +610,15 @@ var newClusterNet = func(dataDir string, ac *agentConfig, log *slog.Logger) (age
 	if ac.Network == "" {
 		return nil, "", nil
 	}
-	ip, err := netip.ParseAddr(ac.PrivateIP)
-	if err != nil {
-		return nil, "", fmt.Errorf("%s: private IP: %w", fileAgent, err)
-	}
 	key, err := clusternet.LoadOrCreateKey(filepath.Join(dataDir, fileNetworkKey))
 	if err != nil {
 		return nil, "", fmt.Errorf("cluster network key: %w", err)
 	}
-	n, err := clusternet.New(clusternet.Config{Node: ac.NodeID, PrivateIP: ip, Key: key, Logger: log.With("component", "network")})
+	cfg, err := meshConfig(dataDir, ac, key, log)
+	if err != nil {
+		return nil, "", err
+	}
+	n, err := clusternet.New(cfg)
 	if err != nil {
 		return nil, "", err
 	}

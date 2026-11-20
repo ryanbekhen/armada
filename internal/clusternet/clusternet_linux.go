@@ -94,32 +94,41 @@ func (n *Net) Apply(_ context.Context, cfg *armadav1.NetworkConfig, local map[ne
 	return nil
 }
 
-// Up brings the mesh mode's tunnel up from the peer list Apply last kept in
-// Config.MeshCache, before the control plane can send one: the API and etcd
-// listen on mesh addresses (ADR 0049). It does nothing when there is no
-// list (a node that has not joined, or another mode) and leaves isolation
-// to the first Apply.
-func (n *Net) Up() error {
+// Up brings the mesh mode's tunnel up before the control plane can send a
+// peer list: the API and etcd listen on mesh addresses (ADR 0049). With
+// cfg (from init or the join answer) it uses that list and keeps it in
+// Config.MeshCache; without, the list Apply last kept, doing nothing when
+// there is none. Isolation waits for the first Apply.
+func (n *Net) Up(cfg *armadav1.NetworkConfig) error {
 	if n.cfg.MeshCache == "" {
-		return nil
+		return errors.New("the mesh mode needs a place to keep its peer list")
 	}
-	cfg, err := loadMeshCache(n.cfg.MeshCache)
-	if err != nil || cfg == nil {
-		return err
+	given := cfg != nil
+	if !given {
+		var err error
+		if cfg, err = loadMeshCache(n.cfg.MeshCache); err != nil || cfg == nil {
+			return err
+		}
 	}
 	p, err := n.plan(cfg)
 	if err != nil {
-		return fmt.Errorf("mesh peer list %s: %w", n.cfg.MeshCache, err)
+		return fmt.Errorf("mesh peer list: %w", err)
 	}
 	if p.mode != ModeMesh {
-		return nil
+		return fmt.Errorf("network mode %q is not the mesh", p.mode)
 	}
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	if err := n.firewall(p); err != nil {
 		return fmt.Errorf("firewall: %w", err)
 	}
-	return n.tunnel(p)
+	if err := n.tunnel(p); err != nil {
+		return err
+	}
+	if given {
+		return saveMeshCache(n.cfg.MeshCache, cfg)
+	}
+	return nil
 }
 
 // plan validates cfg for this node.

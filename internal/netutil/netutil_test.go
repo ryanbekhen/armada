@@ -117,6 +117,25 @@ func TestOnePrivateIPv4(t *testing.T) {
 	}
 }
 
+func TestOneEndpoint(t *testing.T) {
+	t.Parallel()
+	mk := func(name, s string) ifaceAddr {
+		_, n, _ := net.ParseCIDR(s)
+		n.IP = net.ParseIP(s[:strings.IndexByte(s, '/')])
+		return ifaceAddr{name, n}
+	}
+	got, err := oneEndpoint([]ifaceAddr{mk("eth0", "10.0.0.2/24"), mk("eth0", "2001:db8::1/64"), mk("eth1", "100.64.0.9/10"), mk("eth1", "203.0.113.7/24")})
+	if err != nil || got != netip.MustParseAddr("203.0.113.7") {
+		t.Errorf("one public address: %v, %v", got, err)
+	}
+	if _, err := oneEndpoint([]ifaceAddr{mk("eth0", "10.0.0.2/24")}); err == nil || !strings.Contains(err.Error(), "--endpoint") {
+		t.Errorf("private only (one-to-one NAT): %v", err)
+	}
+	if _, err := oneEndpoint([]ifaceAddr{mk("eth0", "203.0.113.7/24"), mk("eth1", "198.51.100.2/24")}); err == nil || !strings.Contains(err.Error(), "several public") {
+		t.Errorf("several: %v", err)
+	}
+}
+
 func TestDetectPrivateIPDoesNotReturnPublic(t *testing.T) {
 	t.Parallel()
 

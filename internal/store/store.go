@@ -120,6 +120,9 @@ type JoinToken struct {
 	Server bool
 	// Labels are given to the node that joins with the token.
 	Labels map[string]string
+	// From is the address the machine joins from, in a mesh cluster
+	// (ADR 0049): the join listener then answers only it. Empty = any.
+	From string
 }
 
 // Server is a control plane node.
@@ -388,6 +391,14 @@ type Store interface {
 
 	// CreateJoinToken stores a join token.
 	CreateJoinToken(ctx context.Context, t JoinToken) error
+	// OpenJoinTokens returns the tokens that are neither used nor expired,
+	// without their secret hashes: a mesh cluster's join listener is open
+	// only while there are some (ADR 0049).
+	OpenJoinTokens(ctx context.Context) ([]JoinToken, error)
+	// FreeMeshAddress returns the lowest address of the mesh CIDR no node
+	// holds, for a machine joining a mesh cluster; redeeming a token for an
+	// address another node took meanwhile fails with ErrConflict.
+	FreeMeshAddress(ctx context.Context) (string, error)
 	// RedeemJoinToken consumes token id for node n in one transaction: the
 	// token must exist, be unused and unexpired, and its secret must pass
 	// check; the node must not exist. issue is then called for the node's

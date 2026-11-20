@@ -537,3 +537,30 @@ func TestDoctorUFWWithBridgeRules(t *testing.T) {
 		t.Fatalf("firewall = %v, want ok", got)
 	}
 }
+
+// A mesh leader's join listener faces the public on its endpoint while a
+// join token is open (ADR 0049); nothing else of the cluster does.
+func TestDoctorMeshJoinListener(t *testing.T) {
+	t.Parallel()
+	e := healthyEnv(t)
+	e.endpoint = netip.MustParseAddr("203.0.113.5")
+	e.listeners = func() ([]netip.AddrPort, error) {
+		return []netip.AddrPort{netip.MustParseAddrPort("10.122.0.1:7443"), netip.MustParseAddrPort("203.0.113.5:7444")}, nil
+	}
+	if r := checkListeners(e); statusOf(r, "listeners") != checkOK {
+		t.Errorf("mesh join listener: %v", r)
+	}
+	e.listeners = func() ([]netip.AddrPort, error) {
+		return []netip.AddrPort{netip.MustParseAddrPort("203.0.113.5:7443")}, nil
+	}
+	if r := checkListeners(e); statusOf(r, "listeners") != checkFail {
+		t.Errorf("API on the endpoint: %v", r)
+	}
+	e.endpoint = netip.Addr{}
+	e.listeners = func() ([]netip.AddrPort, error) {
+		return []netip.AddrPort{netip.MustParseAddrPort("203.0.113.5:7444")}, nil
+	}
+	if r := checkListeners(e); statusOf(r, "listeners") != checkFail {
+		t.Errorf("public join listener outside a mesh: %v", r)
+	}
+}

@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"google.golang.org/grpc"
@@ -30,7 +32,13 @@ const (
 	maxTokenTTL     = 24 * time.Hour
 	// maxServerTokenTTL caps server tokens, which unlock the cluster keys.
 	maxServerTokenTTL = time.Hour
-	minTokenTTL       = time.Minute
+	// defaultServerTokenTTL is a server token's lifetime unless asked.
+	defaultServerTokenTTL = 15 * time.Minute
+	// A mesh cluster's tokens keep its join listener open on a public
+	// address (ADR 0049): short by default, at most an hour.
+	defaultMeshTokenTTL = 10 * time.Minute
+	maxMeshTokenTTL     = time.Hour
+	minTokenTTL         = time.Minute
 	// The join listener accepts unauthenticated connections, so it is
 	// rate limited per source address (a burst of joinBurst, then one
 	// attempt per joinRefill) and overall (joinGlobalBurst).
@@ -112,6 +120,10 @@ type joinService struct {
 }
 
 func (s *Server) serveJoin(ctx context.Context) error {
+	if s.joinPublic {
+		go s.gateJoin(ctx)
+		return nil
+	}
 	l := s.joinLis
 	if l == nil {
 		var err error
@@ -119,6 +131,127 @@ func (s *Server) serveJoin(ctx context.Context) error {
 			return fmt.Errorf("join listener: %w", err)
 		}
 	}
+	stop := s.startJoin(l)
+	go func() {
+		<-ctx.Done()
+		stop()
+	}()
+	s.log.Info("join listener", "addr", s.joinAddr)
+	return nil
+}
+
+// joinGateEvery is how often a mesh cluster's leader looks whether join
+// tokens expired, closing the join listener once none is open.
+const joinGateEvery = 5 * time.Second
+
+// joinGate is the state of a mesh cluster's join listener (ADR 0049).
+type joinGate struct {
+	// wake asks gateJoin to look at the tokens now (one was created or
+	// redeemed).
+	wake chan struct{}
+	// from holds the addresses open tokens name (map[netip.Addr]bool), or
+	// nil when one names none and any address may join.
+	from atomic.Pointer[map[netip.Addr]bool]
+}
+
+// wakeJoin makes a mesh cluster's leader look at its join tokens now.
+func (s *Server) wakeJoin() {
+	select {
+	case s.joinGate.wake <- struct{}{}:
+	default:
+	}
+}
+
+// gateJoin keeps a mesh cluster's join listener, on the leader's public
+// endpoint, open only while a join token is unused and unexpired, and
+// answering only the addresses those tokens name (ADR 0049).
+func (s *Server) gateJoin(ctx context.Context) {
+	var stop func()
+	t := time.NewTicker(joinGateEvery)
+	defer t.Stop()
+	for {
+		toks, err := s.store.OpenJoinTokens(ctx)
+		if err != nil {
+			if ctx.Err() == nil {
+				s.log.Warn("read join tokens", "err", err)
+			}
+		} else {
+			s.joinGate.from.Store(joinSources(toks))
+			switch {
+			case len(toks) > 0 && stop == nil:
+				l := s.joinLis
+				if l == nil {
+					l, err = net.Listen("tcp", s.joinAddr)
+				}
+				if err != nil {
+					s.log.Error("open the join listener", "addr", s.joinAddr, "err", err)
+				} else {
+					s.joinLis = nil
+					stop = s.startJoin(&sourceFilter{Listener: l, allow: s.joinAllowed})
+					s.log.Info("join listener open while a join token is", "addr", s.joinAddr)
+				}
+			case len(toks) == 0 && stop != nil:
+				stop()
+				stop = nil
+				s.log.Info("join listener closed: no open join token", "addr", s.joinAddr)
+			}
+		}
+		select {
+		case <-ctx.Done():
+			if stop != nil {
+				stop()
+			}
+			return
+		case <-t.C:
+		case <-s.joinGate.wake:
+		}
+	}
+}
+
+// joinSources returns the addresses open tokens name, or nil when any
+// token names none.
+func joinSources(toks []store.JoinToken) *map[netip.Addr]bool {
+	m := map[netip.Addr]bool{}
+	for _, t := range toks {
+		a, err := netip.ParseAddr(t.From)
+		if err != nil {
+			return nil
+		}
+		m[a] = true
+	}
+	return &m
+}
+
+// joinAllowed reports whether a connection from addr may reach a mesh
+// cluster's join listener.
+func (s *Server) joinAllowed(addr netip.Addr) bool {
+	m := s.joinGate.from.Load()
+	return m == nil || (*m)[addr.Unmap()]
+}
+
+// sourceFilter closes connections from addresses allow refuses as soon as
+// they are accepted, before TLS.
+type sourceFilter struct {
+	net.Listener
+	allow func(netip.Addr) bool
+}
+
+func (l *sourceFilter) Accept() (net.Conn, error) {
+	for {
+		c, err := l.Listener.Accept()
+		if err != nil {
+			return nil, err
+		}
+		ap, err := netip.ParseAddrPort(c.RemoteAddr().String())
+		if err == nil && l.allow(ap.Addr()) {
+			return c, nil
+		}
+		_ = c.Close()
+	}
+}
+
+// startJoin serves JoinService on l until the returned function is called.
+func (s *Server) startJoin(l net.Listener) func() {
 	// Anyone who reaches the address may connect: bound the connections
 	// before TLS, and close idle or old ones, so held connections cannot
 	// use up the server process's descriptors (the token buckets below
@@ -156,17 +289,29 @@ func (s *Server) serveJoin(ctx context.Context) error {
 	)
 	armadav1.RegisterJoinServiceServer(g, &joinService{s: s})
 	go func() {
-		<-ctx.Done()
-		g.Stop()
-	}()
-	go func() {
 		if err := g.Serve(lis); err != nil && !errors.Is(err, grpc.ErrServerStopped) {
 			s.log.Error("join listener stopped", "err", err)
 		}
 	}()
-	s.log.Info("join listener", "addr", s.joinAddr)
-	return nil
+	// Stopping lets a join in flight (the one that spent the last token)
+	// send its answer, for a few seconds at most.
+	return func() {
+		done := make(chan struct{})
+		go func() {
+			g.GracefulStop()
+			close(done)
+		}()
+		select {
+		case <-done:
+		case <-time.After(joinStopGrace):
+			g.Stop()
+		}
+	}
 }
+
+// joinStopGrace bounds how long closing the join listener waits for joins
+// in flight.
+const joinStopGrace = 5 * time.Second
 
 // Join registers a node presenting a valid join token and returns its
 // certificate. The token secret is never logged.
@@ -184,9 +329,9 @@ func (j *joinService) Join(ctx context.Context, req *armadav1.JoinRequest) (*arm
 	if err := spec.ValidateName(name); err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "node name: %v", err)
 	}
-	ip, err := netutil.CheckNodeIP(req.GetPrivateIp())
+	ip, mesh, err := s.joiningAddress(ctx, req.GetPrivateIp(), req.GetNetworkKey(), req.GetEndpoint())
 	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "private IP: %v", err)
+		return nil, err
 	}
 	if len(req.GetCsr()) == 0 || len(req.GetCsr()) > maxCSRSize {
 		return nil, status.Error(codes.InvalidArgument, "missing or oversized CSR")
@@ -195,7 +340,7 @@ func (j *joinService) Join(ctx context.Context, req *armadav1.JoinRequest) (*arm
 	var cert pki.NodeCert
 	err = s.store.RedeemJoinToken(ctx, tok.ID,
 		func(hash string) bool { return pki.TokenSecretMatches(tok.Secret, hash) },
-		store.Node{ID: name, PrivateIP: ip.String()},
+		mesh.node(name, ip),
 		func() (store.NodeCert, error) {
 			var err error
 			cert, err = s.ca.SignNodeCSR(req.GetCsr(), name, s.nodeCertValidity)
@@ -223,10 +368,76 @@ func (j *joinService) Join(ctx context.Context, req *armadav1.JoinRequest) (*arm
 	if err != nil {
 		return nil, status.Error(codes.Internal, "read the cluster network")
 	}
+	resp := &armadav1.JoinResponse{NodeCert: cert.PEM, CaCert: s.ca.CertPEM, Servers: eps, NodeSubnet: n.Subnet, NetworkMode: mode}
+	if mesh.on {
+		if resp.Network, err = s.meshNetwork(ctx); err != nil {
+			return nil, status.Error(codes.Internal, "read the cluster network")
+		}
+		resp.MeshIp = ip.String()
+	}
+	s.wakeJoin()
 	s.log.Info("node joined", "node", name, "private_ip", ip.String(), "subnet", n.Subnet, "token", tok.ID, "version", req.GetVersion())
 	s.record(ctx, store.Event{Kind: eventNode, Object: name, Node: name, Reason: "Joined", Message: "joined from " + ip.String()})
 	s.Trigger()
-	return &armadav1.JoinResponse{NodeCert: cert.PEM, CaCert: s.ca.CertPEM, Servers: eps, NodeSubnet: n.Subnet, NetworkMode: mode}, nil
+	return resp, nil
+}
+
+// joining is how a machine joins: in a mesh cluster with its WireGuard key
+// and endpoint (ADR 0049).
+type joining struct {
+	on            bool
+	key, endpoint string
+}
+
+// node is the record of the joining machine's node.
+func (j joining) node(name string, ip netip.Addr) store.Node {
+	return store.Node{ID: name, PrivateIP: ip.String(), NetworkKey: j.key, Endpoint: j.endpoint}
+}
+
+// joiningAddress checks the address a machine joins with: its private IP,
+// or in a mesh cluster its key and endpoint, for which it gets the lowest
+// free mesh address (redeeming the token refuses one another machine took
+// meanwhile).
+func (s *Server) joiningAddress(ctx context.Context, privateIP, key, endpoint string) (netip.Addr, joining, error) {
+	n, err := s.store.GetNetwork(ctx)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return netip.Addr{}, joining{}, status.Error(codes.Internal, "read the cluster network")
+	}
+	if err != nil || n.Mode != store.NetworkMesh {
+		ip, err := netutil.CheckNodeIP(privateIP)
+		if err != nil {
+			return netip.Addr{}, joining{}, status.Errorf(codes.InvalidArgument, "private IP: %v", err)
+		}
+		return ip, joining{}, nil
+	}
+	if privateIP != "" {
+		return netip.Addr{}, joining{}, status.Error(codes.InvalidArgument, "this cluster is a mesh: machines join with their endpoint, and get a mesh address")
+	}
+	if !validNetworkKey(key) {
+		return netip.Addr{}, joining{}, status.Error(codes.InvalidArgument, "a mesh cluster needs the machine's WireGuard public key")
+	}
+	if _, err := netutil.CheckEndpoint(endpoint); err != nil {
+		return netip.Addr{}, joining{}, status.Errorf(codes.InvalidArgument, "endpoint: %v", err)
+	}
+	a, err := s.store.FreeMeshAddress(ctx)
+	if err != nil {
+		return netip.Addr{}, joining{}, storeErr(err)
+	}
+	ip, err := netip.ParseAddr(a)
+	if err != nil {
+		return netip.Addr{}, joining{}, status.Error(codes.Internal, "mesh address")
+	}
+	return ip, joining{on: true, key: key, endpoint: endpoint}, nil
+}
+
+// meshNetwork is the cluster network a machine joining a mesh brings its
+// tunnel up with: every node, the new one included.
+func (s *Server) meshNetwork(ctx context.Context) (*armadav1.NetworkConfig, error) {
+	nodes, err := s.store.ListNodes(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return s.buildNetwork(ctx, nodes, nil)
 }
 
 // RenewCertificate issues a new certificate for the calling node.
@@ -262,11 +473,28 @@ func (s *Server) CreateJoinToken(ctx context.Context, req *armadav1.CreateJoinTo
 		return nil, status.Error(codes.FailedPrecondition, "joining is disabled on this server (no join listener)")
 	}
 	ttl := time.Duration(req.GetTtlSeconds()) * time.Second
-	if ttl == 0 {
-		ttl = defaultTokenTTL
+	def, most := defaultTokenTTL, maxTokenTTL
+	switch {
+	case s.joinPublic:
+		def, most = defaultMeshTokenTTL, maxMeshTokenTTL
+	case req.GetServer():
+		def = defaultServerTokenTTL
 	}
-	if ttl < minTokenTTL || ttl > maxTokenTTL {
-		return nil, status.Errorf(codes.InvalidArgument, "token lifetime must be between %s and %s", minTokenTTL, maxTokenTTL)
+	if ttl == 0 {
+		ttl = def
+	}
+	if ttl < minTokenTTL || ttl > most {
+		return nil, status.Errorf(codes.InvalidArgument, "token lifetime must be between %s and %s", minTokenTTL, most)
+	}
+	from := req.GetFrom()
+	if from != "" {
+		if !s.joinPublic {
+			return nil, status.Error(codes.InvalidArgument, "--from is for mesh clusters, whose join listener faces the public; this one listens on the private network")
+		}
+		a, err := netip.ParseAddr(from)
+		if err != nil || a.Zone() != "" || a.String() != from || !a.IsGlobalUnicast() {
+			return nil, status.Errorf(codes.InvalidArgument, "--from %q: want the unicast IP address the machine joins from", from)
+		}
 	}
 	if req.GetServer() {
 		if s.cluster == nil || s.keys == nil {
@@ -290,9 +518,10 @@ func (s *Server) CreateJoinToken(ctx context.Context, req *armadav1.CreateJoinTo
 		return nil, status.Error(codes.Internal, "generate token")
 	}
 	expires := s.now().Add(ttl)
-	if err := s.store.CreateJoinToken(ctx, store.JoinToken{ID: tok.ID, SecretHash: tok.SecretHash(), ExpiresAt: expires, CreatedBy: actor(ctx), Server: req.GetServer(), Labels: req.GetLabels()}); err != nil {
+	if err := s.store.CreateJoinToken(ctx, store.JoinToken{ID: tok.ID, SecretHash: tok.SecretHash(), ExpiresAt: expires, CreatedBy: actor(ctx), Server: req.GetServer(), Labels: req.GetLabels(), From: from}); err != nil {
 		return nil, storeErr(err)
 	}
+	s.wakeJoin()
 	s.log.Info("join token created", "token", tok.ID, "server", req.GetServer(), "expires", expires.UTC().Format(time.RFC3339), "by", actor(ctx))
 	return &armadav1.CreateJoinTokenResponse{
 		Token: tok.Reveal(), CaHash: pki.CAHash(s.ca.Cert), JoinAddr: s.joinAddr, ExpiresAt: timestamppb.New(expires),
