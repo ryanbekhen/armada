@@ -592,10 +592,7 @@ func (s *Server) CreateJoinToken(ctx context.Context, req *armadav1.CreateJoinTo
 			return nil, storeErr(err)
 		}
 		if req.GetSite() != leader {
-			switch {
-			case req.GetServer():
-				return nil, status.Error(codes.FailedPrecondition, "servers join in the leader's site: servers in other sites are not supported yet")
-			case s.joinSiteAddr == "":
+			if s.joinSiteAddr == "" {
 				return nil, status.Error(codes.FailedPrecondition, "machines of another site join over the leader's public address, and the leader has none: set it with `sudo armadad endpoint set IP` on the leader")
 			}
 			joinAddr, public = s.joinSiteAddr, true

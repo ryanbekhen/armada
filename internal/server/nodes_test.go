@@ -896,9 +896,6 @@ func TestSiteJoin(t *testing.T) {
 	if _, err := c.admin.CreateJoinToken(c.ctx, &armadav1.CreateJoinTokenRequest{Site: "office", TtlSeconds: 7200}); status.Code(err) != codes.InvalidArgument {
 		t.Errorf("2h token for another site = %v", err)
 	}
-	if _, err := c.admin.CreateJoinToken(c.ctx, &armadav1.CreateJoinTokenRequest{Site: "office", Server: true}); status.Code(err) != codes.FailedPrecondition {
-		t.Errorf("server token for another site = %v", err)
-	}
 	// A token of the leader's site keeps the private listener; nothing
 	// opens the public one.
 	first := c.token()
@@ -928,10 +925,6 @@ func TestSiteJoin(t *testing.T) {
 	req.NetworkKey, req.Endpoint = key, "198.51.100.2"
 	if _, err := jc.Join(c.ctx, req); status.Code(err) != codes.PermissionDenied {
 		t.Errorf("first-site token over the public address = %v", err)
-	}
-	srvReq := &armadav1.JoinServerRequest{TokenId: "x", TokenSecret: "y", Name: "s2"}
-	if _, err := jc.JoinServer(c.ctx, srvReq); status.Code(err) != codes.FailedPrecondition {
-		t.Errorf("server join over the public address = %v", err)
 	}
 	for name, mod := range map[string]func(*armadav1.JoinRequest){
 		"no key":       func(r *armadav1.JoinRequest) { r.NetworkKey = "" },

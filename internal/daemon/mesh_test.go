@@ -132,3 +132,14 @@ func TestMeshJoinListen(t *testing.T) {
 		t.Error("no endpoint accepted")
 	}
 }
+
+// server join takes --no-private-ip like join (ADR 0050), refused at a
+// private join address.
+func TestServerJoinNoPrivateIP(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	code, _, stderr := run(t, "server", "join", "10.0.0.1:7444", "--ca-hash", "sha256:00", "--no-private-ip", "--data-dir", filepath.Join(dir, "d"))
+	if code == 0 || !strings.Contains(stderr, "--no-private-ip is for joins over a public address") {
+		t.Errorf("server join --no-private-ip at a private address: %d %q", code, stderr)
+	}
+}

@@ -891,7 +891,13 @@ and brings up its tunnels to the other sites before its agent starts. The
 leader needs an endpoint for this, and every node with peers in another
 site needs one: allow UDP 51820 to every node from anywhere, which the
 nodes accept once a cluster has a second site. Node addresses must be
-unique across sites. Servers join only in the leader's site for now.
+unique across sites.
+
+A server joins another site the same way, with `armada server join-token
+--site office` and `armadad server join` on the machine: its etcd member
+and API listen on its node address, which the other servers reach over
+WireGuard. Every write waits for a majority of servers, so keep the
+servers in one site, or in sites close together.
 
 A machine with no private network (or whose private IP another node
 already holds: `armadad join --no-private-ip`) gets a mesh address instead,
