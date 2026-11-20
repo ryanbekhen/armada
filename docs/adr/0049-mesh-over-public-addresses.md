@@ -66,7 +66,13 @@ address:
 
 - In a mesh cluster the leader binds the join listener (7444) to its
   endpoint, and only while at least one join token is unexpired and
-  unused; when the last one expires or is redeemed the listener closes.
+  unused. Tokens are single use, so the listener closes as soon as the
+  last one is redeemed, or when it expires: node and server tokens of a
+  mesh cluster last 10 minutes by default and at most 1 hour. A token may
+  name the address the machine joins from (`join-token --from IP`); the
+  listener then accepts connections only from the addresses of unexpired
+  tokens (a firewall rule on the port, removed with the listener), so the
+  port answers no one else even while it is open.
   Everything else about it stays as today: server-only TLS whose CA the
   joining machine pins by hash, `JoinService` only, rate limits, bounded
   connections, idle and total time limits, and tokens stored as hashes.
