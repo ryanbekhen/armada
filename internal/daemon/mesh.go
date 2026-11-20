@@ -32,21 +32,28 @@ func meshConfig(dataDir string, ac *agentConfig, key clusternet.PrivateKey, log 
 	if err != nil {
 		return clusternet.Config{}, fmt.Errorf("%s: private IP: %w", fileAgent, err)
 	}
-	cfg := clusternet.Config{Node: ac.NodeID, PrivateIP: ip, Key: key, Logger: log.With("component", "network")}
+	cfg := clusternet.Config{Node: ac.NodeID, PrivateIP: ip, Key: key, Logger: log.With("component", "network"),
+		MeshCache: filepath.Join(dataDir, fileMeshCache)}
 	if ac.Network == store.NetworkMesh {
 		cfg.Endpoint = ac.endpoint()
-		cfg.MeshCache = filepath.Join(dataDir, fileMeshCache)
 	}
 	return cfg, nil
 }
 
 // upMesh brings a mesh node's tunnel up before etcd or the agent reach
 // mesh addresses (ADR 0049): from cfg (init's or the join answer's peer
-// list) or, when nil, the list the node last applied. Other nodes need
-// nothing. Tests replace it.
+// list) or, when nil, the list the node last applied. A node of another
+// cluster network brings its tunnels up from that list too when it keeps
+// one, which it does while peers are in other sites (ADR 0050): they reach
+// the control plane only through them. Tests replace it.
 var upMesh = func(dataDir string, ac *agentConfig, cfg *armadav1.NetworkConfig, log *slog.Logger) error {
-	if ac.Network != store.NetworkMesh {
+	switch {
+	case ac.Network == "":
 		return nil
+	case ac.Network != store.NetworkMesh:
+		if _, err := os.Stat(filepath.Join(dataDir, fileMeshCache)); cfg == nil && err != nil {
+			return nil
+		}
 	}
 	key, err := clusternet.LoadOrCreateKey(filepath.Join(dataDir, fileNetworkKey))
 	if err != nil {
@@ -56,7 +63,7 @@ var upMesh = func(dataDir string, ac *agentConfig, cfg *armadav1.NetworkConfig, 
 	if err != nil {
 		return err
 	}
-	if cfg == nil {
+	if cfg == nil && ac.Network == store.NetworkMesh {
 		if _, err := os.Stat(c.MeshCache); errors.Is(err, fs.ErrNotExist) {
 			// No peer list (a restored or rebuilt node): come up alone, so
 			// etcd and the API can listen; the control plane sends the
@@ -69,7 +76,13 @@ var upMesh = func(dataDir string, ac *agentConfig, cfg *armadav1.NetworkConfig, 
 		return err
 	}
 	if err := n.Up(cfg); err != nil {
-		return fmt.Errorf("mesh: %w", err)
+		if ac.Network != store.NetworkMesh {
+			// The private network still reaches this site's nodes; the
+			// agent applies the network again once connected.
+			log.Warn("bring the tunnels to other sites up", "err", err)
+			return nil
+		}
+		return fmt.Errorf("cluster network: %w", err)
 	}
 	return nil
 }

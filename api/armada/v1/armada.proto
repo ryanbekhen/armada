@@ -1572,8 +1572,13 @@ message NetworkPeer {
   // The node's WireGuard public key, base64; empty until it has announced
   // one.
   string public_key = 4;
-  // In the mesh mode, the public IPv4 address WireGuard packets go to.
+  // The public IPv4 address WireGuard packets go to: in the mesh mode for
+  // every peer, elsewhere for peers in another site (ADR 0050).
   string endpoint = 5;
+  // The node's site (ADR 0050); empty for the cluster's first. Peers in
+  // the same site use the cluster's mode over their private addresses,
+  // peers in other sites WireGuard between their endpoints.
+  string site = 6;
 }
 
 message ProxyConfig {

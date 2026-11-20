@@ -59,8 +59,9 @@ type Net struct {
 	// sw is this node's side of a switch between modes (ADR 0050).
 	sw switchState
 	// nextClean is set once the firewall rules of a finished switch's
-	// interface are known to be gone.
-	nextClean bool
+	// interface are known to be gone; siteClean, those of SiteInterface
+	// once no peer is in another site.
+	nextClean, siteClean bool
 }
 
 // New returns the node's cluster network. Nothing changes on the host until
@@ -97,16 +98,26 @@ func (n *Net) Apply(_ context.Context, cfg *armadav1.NetworkConfig, local map[ne
 	if err != nil {
 		return err
 	}
-	if p.mode == ModeMesh && n.cfg.MeshCache != "" {
+	switch {
+	case n.cfg.MeshCache == "":
+	case p.mode == ModeMesh || len(p.remote()) > 0:
+		// The tunnels to the mesh, or to other sites, come up from it
+		// before the control plane when the machine starts.
 		if err := saveMeshCache(n.cfg.MeshCache, cfg); err != nil {
-			n.log.Warn("keep the mesh's peer list", "err", err)
+			n.log.Warn("keep the peer list", "err", err)
+		}
+	default:
+		if err := RemoveMeshCache(n.cfg.MeshCache); err != nil {
+			n.log.Warn("remove the peer list", "err", err)
 		}
 	}
 	return nil
 }
 
-// Up brings the mesh mode's tunnel up before the control plane can send a
-// peer list: the API and etcd listen on mesh addresses (ADR 0049). With
+// Up brings the tunnels up before the control plane can send a peer list:
+// in the mesh mode the API and etcd listen on mesh addresses (ADR 0049),
+// and nodes of other sites reach the control plane only through them (ADR
+// 0050). With
 // cfg (from init or the join answer) it uses that list and keeps it in
 // Config.MeshCache; without, the list Apply last kept, doing nothing when
 // there is none. Isolation waits for the first Apply.
@@ -123,10 +134,7 @@ func (n *Net) Up(cfg *armadav1.NetworkConfig) error {
 	}
 	p, err := n.plan(cfg)
 	if err != nil {
-		return fmt.Errorf("mesh peer list: %w", err)
-	}
-	if p.mode != ModeMesh {
-		return fmt.Errorf("network mode %q is not the mesh", p.mode)
+		return fmt.Errorf("peer list: %w", err)
 	}
 	n.mu.Lock()
 	defer n.mu.Unlock()
@@ -177,13 +185,26 @@ func (n *Net) tunnel(p plan) error {
 		if err := n.finishSwitch(p.mode); err != nil {
 			return err
 		}
-		mtu, err := n.transport(p, p.mode, Interface, routesAll)
+		// A plain cluster reaches other sites over SiteInterface, set up
+		// first so a peer that moved site takes its routes along.
+		all := p
+		if p.mode == ModePlain {
+			if err := n.sites(p); err != nil {
+				return err
+			}
+			all = p.only(p.local())
+		} else if err := n.sites(p.only(nil)); err != nil {
+			// Interface carries every peer, on the same port.
+			return err
+		}
+		mtu, err := n.transport(all, p.mode, Interface, routesAll)
 		if err != nil {
 			return err
 		}
-		summary := fmt.Sprintf("%s %s %d", p.mode, p.self.subnet, len(p.peers))
+		remote := len(p.remote())
+		summary := fmt.Sprintf("%s %s %d %d", p.mode, p.self.subnet, len(p.peers), remote)
 		if summary != n.last {
-			n.log.Info("cluster network applied", "mode", p.mode, "subnet", p.self.subnet, "peers", len(p.peers), "mtu", mtu)
+			n.log.Info("cluster network applied", "mode", p.mode, "subnet", p.self.subnet, "peers", len(p.peers), "other_sites", remote, "mtu", mtu)
 			n.last = summary
 		}
 		return nil
@@ -202,12 +223,33 @@ func (n *Net) tunnel(p plan) error {
 	return err
 }
 
+// sites sets up SiteInterface for a plain cluster's peers in other sites
+// (ADR 0050), or removes it when there are none.
+func (n *Net) sites(p plan) error {
+	remote := p.remote()
+	if len(remote) == 0 {
+		link, err := linkNamed(SiteInterface)
+		if err != nil || link == nil {
+			return err
+		}
+		n.log.Info("no node in another site; removing their interface", "interface", SiteInterface)
+		return n.delLink(link)
+	}
+	_, err := n.transport(p.only(remote), ModeWireGuard, SiteInterface, routesAll)
+	return err
+}
+
 // transport sets up mode's transport on the interface name with the routes
 // r asks for, and returns its MTU.
 func (n *Net) transport(p plan, mode, name string, r routeSet) (int, error) {
 	uplink, uplinkMTU, err := uplinkFor(mode, n.cfg.PrivateIP, n.cfg.Endpoint)
 	if err != nil {
 		return 0, err
+	}
+	if encrypted(mode) {
+		// Packets to other sites leave by the route to their endpoints,
+		// whose interface may take less than the private network's.
+		uplinkMTU = min(uplinkMTU, remoteUplinkMTU(p.remote(), uplinkMTU))
 	}
 	mtu := TunnelMTU(mode, uplinkMTU)
 	if encrypted(mode) {
@@ -248,6 +290,28 @@ func (n *Net) finishSwitch(mode string) error {
 	}
 	n.log.Info("cluster network switched", "mode", mode)
 	return nil
+}
+
+// remoteUplinkMTU returns the smallest MTU of the interfaces the routes to
+// peers' endpoints leave by, or def when there are none.
+func remoteUplinkMTU(peers []peer, def int) int {
+	mtu := def
+	for _, pe := range peers {
+		routes, err := netlink.RouteGet(pe.endpoint.AsSlice())
+		if err != nil || len(routes) == 0 {
+			continue
+		}
+		link, err := netlink.LinkByIndex(routes[0].LinkIndex)
+		if err != nil {
+			continue
+		}
+		switch name := link.Attrs().Name; {
+		case name == Interface || name == Next || name == SiteInterface || name == "lo":
+		case link.Attrs().MTU >= MinUplinkMTU:
+			mtu = min(mtu, link.Attrs().MTU)
+		}
+	}
+	return mtu
 }
 
 // carries reports whether link is the transport of mode.
@@ -304,7 +368,7 @@ func uplinkFor(mode string, ip, endpoint netip.Addr) (netlink.Link, int, error) 
 		return nil, 0, err
 	}
 	mtu := link.Attrs().MTU
-	if name := link.Attrs().Name; name == Interface || name == Next || name == "lo" {
+	if name := link.Attrs().Name; name == Interface || name == Next || name == SiteInterface || name == "lo" {
 		return nil, 0, fmt.Errorf("the route towards the endpoint %s leaves by %s, not an uplink", endpoint, link.Attrs().Name)
 	}
 	if mtu < MinUplinkMTU {
@@ -403,8 +467,8 @@ func setUp(link netlink.Link, p plan, mtu int) error {
 }
 
 // syncRoutes installs a route to each peer's subnet through link, via the
-// peer's tunnel end when via is set, and in the mesh mode one to each peer's
-// mesh address, from this node's; it removes routes to nodes that left. With
+// peer's tunnel end when via is set, and in the mesh mode, or for a peer of
+// another site, one to each peer's node address, from this node's; it removes routes to nodes that left. With
 // routesProbe it installs only a route to each peer's tunnel end, and with
 // routesNone none.
 func syncRoutes(link netlink.Link, p plan, via bool, set routeSet) error {
@@ -423,7 +487,7 @@ func syncRoutes(link netlink.Link, p plan, via bool, set routeSet) error {
 			want[dst] = true
 			continue
 		}
-		if p.mode == ModeMesh {
+		if p.mode == ModeMesh || pe.remote {
 			dst := netip.PrefixFrom(pe.ip, 32)
 			r := &netlink.Route{LinkIndex: idx, Dst: prefixNet(dst), Scope: netlink.SCOPE_LINK, Src: p.self.ip.AsSlice()}
 			if err := netlink.RouteReplace(r); err != nil {
@@ -480,12 +544,18 @@ func (n *Net) firewall(p plan) error {
 	if err := ipt.chain("filter", chainIn); err != nil {
 		return err
 	}
+	remote := len(p.remote()) > 0
 	rules := [][]string{}
 	if p.mode == ModeMesh {
 		rules = append(rules, []string{"-j", "ACCEPT"})
 	} else {
-		for _, pe := range p.peers {
+		for _, pe := range p.local() {
 			rules = append(rules, []string{"-s", pe.ip.String() + "/32", "-d", n.cfg.PrivateIP.String() + "/32", "-j", "ACCEPT"})
+		}
+		if remote {
+			// Other sites' endpoints change, and WireGuard answers
+			// nothing that does not authenticate (ADR 0050).
+			rules = append(rules, []string{"-p", "udp", "-m", "udp", "--dport", strconv.Itoa(WireGuardPort), "-j", "ACCEPT"})
 		}
 		rules = append(rules, []string{"-j", "DROP"})
 	}
@@ -493,21 +563,27 @@ func (n *Net) firewall(p plan) error {
 		return err
 	}
 	jump := []string{"-p", "udp", "-m", "udp", "--dport", strconv.Itoa(port(p.mode)), "-j", chainIn}
-	if p.switching() {
+	if p.switching() || p.mode == ModePlain && remote {
 		jump = []string{"-p", "udp", "-m", "multiport", "--dports", strconv.Itoa(VXLANPort) + "," + strconv.Itoa(WireGuardPort), "-j", chainIn}
 	}
 	if err := ipt.only("INPUT", chainIn, jump...); err != nil {
 		return err
 	}
-	if p.mode == ModeMesh {
+	if p.mode == ModeMesh || remote {
 		if err := ipt.chain("filter", chainMesh); err != nil {
 			return err
 		}
 		if err := ipt.fill("filter", chainMesh, meshRules(p)); err != nil {
 			return err
 		}
-		if err := ipt.only("INPUT", chainMesh, "-i", Interface, "-j", chainMesh); err != nil {
+		if err := ipt.only("INPUT", chainMesh, "-i", wgInterface(p), "-j", chainMesh); err != nil {
 			return err
+		}
+	} else {
+		for _, r := range ipt.jumps("INPUT", chainMesh) {
+			if err := ipt.run(append([]string{"-D", "INPUT"}, r...)...); err != nil {
+				return err
+			}
 		}
 	}
 	if err := ipt.chain("filter", chainFwd); err != nil {
@@ -550,16 +626,36 @@ func (n *Net) firewall(p plan) error {
 		}
 		n.nextClean = true
 	}
+	if slices.Contains(tunnels(p), SiteInterface) {
+		n.siteClean = false
+	} else if !n.siteClean {
+		for ipt.run("-t", "nat", "-D", "POSTROUTING", "-o", SiteInterface, "-j", "RETURN") == nil {
+		}
+		n.siteClean = true
+	}
 	return nil
 }
 
 // tunnels are the interfaces packets between nodes come and go by: Next
-// too while a switch runs (ADR 0050).
+// too while a switch runs, and SiteInterface while a plain cluster's node
+// has peers in other sites (ADR 0050).
 func tunnels(p plan) []string {
-	if p.switching() {
+	switch {
+	case p.switching():
 		return []string{Interface, Next}
+	case p.mode == ModePlain && len(p.remote()) > 0:
+		return []string{Interface, SiteInterface}
 	}
 	return []string{Interface}
+}
+
+// wgInterface is the interface WireGuard peers' traffic comes out of:
+// SiteInterface in a plain cluster, Interface otherwise.
+func wgInterface(p plan) string {
+	if p.mode == ModePlain {
+		return SiteInterface
+	}
+	return Interface
 }
 
 // mssRules are ARMADA-NET-MSS's rules, written as iptables -S prints them.
@@ -596,13 +692,19 @@ func forwardRules(tunnels []string) [][]string {
 
 // meshRules are ARMADA-NET-MESH's rules: the mesh mode's peers reach this
 // node's mesh address (the API, etcd, HTTP-01 forwarding, metrics), as
-// machines on a private network reach a private IP. WireGuard allows each
-// peer only its own mesh address and subnet as sources.
+// machines on a private network reach a private IP, and so do peers of
+// other sites this node's private IP (ADR 0050). WireGuard allows each
+// peer only its own node address and subnet as sources.
 func meshRules(p plan) [][]string {
-	return [][]string{
-		{"-s", p.mesh.String(), "-d", p.self.ip.String() + "/32", "-j", "ACCEPT"},
-		{"-j", "RETURN"},
+	var rules [][]string
+	if p.mode == ModeMesh {
+		rules = append(rules, []string{"-s", p.mesh.String(), "-d", p.self.ip.String() + "/32", "-j", "ACCEPT"})
+	} else {
+		for _, pe := range p.remote() {
+			rules = append(rules, []string{"-s", pe.ip.String() + "/32", "-d", p.self.ip.String() + "/32", "-j", "ACCEPT"})
+		}
 	}
+	return append(rules, []string{"-j", "RETURN"})
 }
 
 // spoofRules are ARMADA-NET-PRE's rules, written as iptables -S prints them
@@ -619,12 +721,24 @@ func spoofRules(p plan) [][]string {
 		ports = append(ports, port(p.switchTo))
 	}
 	for _, pe := range p.peers {
-		to := pe.ip
-		if p.mode == ModeMesh {
-			to = pe.endpoint
+		to, peerPorts := pe.ip, ports
+		if p.mode == ModeMesh || pe.remote {
+			to, peerPorts = pe.endpoint, []int{WireGuardPort}
 		}
-		for _, port := range ports {
+		for _, port := range peerPorts {
 			rules = append(rules, []string{"-d", to.String() + "/32", "-i", embedded.BridgeName, "-p", "udp", "-m", "udp", "--dport", strconv.Itoa(port), "-j", "DROP"})
+		}
+	}
+	if p.mode != ModeMesh {
+		// A node of another site is reached only through WireGuard, which
+		// allows each peer only its own addresses: nothing else claims one
+		// (ADR 0050).
+		dev := wgInterface(p)
+		for _, pe := range p.remote() {
+			ip := pe.ip.String() + "/32"
+			rules = append(rules,
+				[]string{"-s", ip, "!", "-i", dev, "-j", "DROP"},
+				[]string{"-s", ip, "-i", dev, "-j", "RETURN"})
 		}
 	}
 	if p.mode == ModeMesh {
@@ -842,7 +956,7 @@ func kernelHas(module string) bool {
 // left the cluster.
 func Remove() error {
 	var errs []error
-	for _, name := range []string{Interface, Next} {
+	for _, name := range []string{Interface, Next, SiteInterface} {
 		if link, err := linkNamed(name); err == nil && link != nil {
 			if err := netlink.LinkDel(link); err != nil {
 				errs = append(errs, fmt.Errorf("remove %s: %w", name, err))
@@ -858,6 +972,7 @@ func Remove() error {
 		{"raw", "PREROUTING", "-j", chainPre},
 		{"nat", "POSTROUTING", "-o", Interface, "-j", "RETURN"},
 		{"nat", "POSTROUTING", "-o", Next, "-j", "RETURN"},
+		{"nat", "POSTROUTING", "-o", SiteInterface, "-j", "RETURN"},
 		{"mangle", "FORWARD", "-j", chainMSS},
 	} {
 		for ipt.run(append([]string{"-t", r[0], "-D", r[1]}, r[2:]...)...) == nil {
