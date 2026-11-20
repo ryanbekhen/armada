@@ -59,10 +59,11 @@ Create a single-use join token and print the command to run on the new node.
 The token is a credential: anyone holding it before it expires can add a node.
 Send it over a trusted channel. Only a hash is stored on the server.
 
-In a mesh cluster (armadad init --network mesh) the join listener faces the
-public on the leader's endpoint, open only while a token is unused and
-unexpired: tokens last 10 minutes by default and at most an hour, and --from
-makes the listener answer only the address the machine joins from.
+In a mesh cluster (armadad init --network mesh), and for a machine of another
+site than the leader's (--site, ADR 0050), the join listener faces the public
+on the leader's endpoint, open only while such a token is unused and
+unexpired: these tokens last 10 minutes by default and at most an hour, and
+--from makes the listener answer only the address the machine joins from.
 
 ```
 armada node join-token [flags]
@@ -72,10 +73,10 @@ Flags:
 
 | Flag | Meaning |
 | --- | --- |
-| `--from string` | mesh clusters: the IP address the machine joins from; the join listener answers no other |
+| `--from string` | joins over the leader's public address (mesh clusters, other sites): the IP address the machine joins from; the join listener answers no other |
 | `--label stringArray` | label KEY=VALUE for the node that joins with the token (repeatable) |
 | `--site string` | the site the machine joins (ADR 0050); default: the cluster's first site |
-| `--ttl duration` | token lifetime (1m to 24h, in a mesh cluster 1h; default 1h, 10m in a mesh cluster) |
+| `--ttl duration` | token lifetime (1m to 24h, joins over the leader's public address 1h; default 1h, 10m for those) |
 
 ## `armada node label`
 

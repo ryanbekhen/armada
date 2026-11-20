@@ -867,6 +867,32 @@ announces the public half; a node that announces another node's key is
 refused. To give a node a new key, remove `network.key` and restart its
 agent.
 
+### Sites
+
+A `plain` or `wireguard` cluster can take machines from more than one
+place, each with its own private network ([ADR 0050](adr/0050-sites.md)).
+Nodes in one site reach each other in the cluster's mode; nodes in
+different sites always reach each other over WireGuard between their
+endpoints (their public IPv4 addresses, `sudo armadad endpoint set IP` on a
+machine whose address is not on its interfaces). The cluster's first site
+has no name; give the others one:
+
+```bash
+armada node join-token --site office     # a machine joining from the office
+armada node site NODE office             # move a node; --clear for the first site
+```
+
+A machine of another site joins over the leader's endpoint, as in a
+`mesh` cluster: the join listener (TCP 7444) opens there only while a
+token for another site is unused and unexpired, those tokens last 10
+minutes by default and at most an hour, and `--from IP` limits the
+listener to the machine's address. The machine joins with its private IP
+and brings up its tunnels to the other sites before its agent starts. The
+leader needs an endpoint for this, and every node with peers in another
+site needs one: allow UDP 51820 to every node from anywhere, which the
+nodes accept once a cluster has a second site. Node addresses must be
+unique across sites. Servers join only in the leader's site for now.
+
 ### Switching between plain and wireguard
 
 A running cluster switches between `plain` and `wireguard` without

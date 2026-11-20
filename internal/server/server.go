@@ -106,6 +106,13 @@ type Config struct {
 	// the leader's public endpoint, and the listener is open only while a
 	// join token is open, answering only the addresses tokens name.
 	JoinPublic bool
+	// JoinSiteAddr is the leader's public endpoint and join port in a plain
+	// or wireguard cluster (ADR 0050): a second join listener, open only
+	// while a token for another site than the leader's is, answering only
+	// the addresses those tokens name. Empty when the leader has no
+	// endpoint. JoinSiteListener, if set, already listens for it (tests).
+	JoinSiteAddr     string
+	JoinSiteListener net.Listener
 	// APIAddr is the control plane address given to joining agents.
 	APIAddr string
 	// NodeCertValidity is the lifetime of issued node certificates
@@ -158,6 +165,8 @@ type Server struct {
 	apiAddr          string
 	nodeCertValidity time.Duration
 	joinPublic       bool
+	joinSiteAddr     string
+	joinSiteLis      net.Listener
 	joinGate         joinGate
 	joinLimit        *keyedLimiter
 	joinGlobal       *limiter
@@ -290,6 +299,18 @@ func New(cfg Config) (*Server, error) {
 		} else if err := netutil.CheckPrivateListen(cfg.JoinAddr); err != nil {
 			return nil, fmt.Errorf("server: join listener: %w", err)
 		}
+		if cfg.JoinSiteAddr != "" {
+			if cfg.JoinPublic {
+				return nil, errors.New("server: a mesh cluster's join listener is already public")
+			}
+			ap, err := netip.ParseAddrPort(cfg.JoinSiteAddr)
+			if err != nil || ap.Port() == 0 {
+				return nil, fmt.Errorf("server: site join listener: invalid address %q", cfg.JoinSiteAddr)
+			}
+			if _, err := netutil.CheckEndpoint(ap.Addr().String()); err != nil {
+				return nil, fmt.Errorf("server: site join listener: %w", err)
+			}
+		}
 		if cfg.JoinTLS.ClientAuth != tls.NoClientCert {
 			return nil, errors.New("server: the join listener must not request client certificates")
 		}
@@ -360,6 +381,8 @@ func New(cfg Config) (*Server, error) {
 		apiAddr:          cfg.APIAddr,
 		nodeCertValidity: cfg.NodeCertValidity,
 		joinPublic:       cfg.JoinPublic,
+		joinSiteAddr:     cfg.JoinSiteAddr,
+		joinSiteLis:      cfg.JoinSiteListener,
 		joinGate:         joinGate{wake: make(chan struct{}, 1)},
 		joinLimit:        newKeyedLimiter(joinBurst, joinRefill),
 		joinGlobal:       newLimiter(joinGlobalBurst, joinGlobalRef),
