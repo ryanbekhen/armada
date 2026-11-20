@@ -8,7 +8,9 @@
 #   NAME  SSH-TARGET  PRIVATE-IP  PUBLIC-IP
 #
 # Machine A (the first) runs the control plane and every client; machine B
-# (the second) joins as a node. For each mode in BENCH_MODES the script
+# (the second) joins as a node. For each mode in BENCH_MODES (plain and
+# wireguard: Armada's cluster network modes; tunnel: the nodes' private IPs
+# on a WireGuard tunnel the script builds) the script
 # builds a two-node cluster, measures container to container throughput,
 # HTTP through HAProxy for four replica placements, and a large upload,
 # then removes the cluster again. It prints a Markdown table and keeps the
@@ -48,9 +50,9 @@ for tool in ssh scp jq awk go; do
 done
 for m in $BENCH_MODES; do
 	case $m in
-	plain | wireguard) ;;
+	plain | wireguard | tunnel) ;;
 	*)
-		echo "bench: unknown mode $m (plain, wireguard)" >&2
+		echo "bench: unknown mode $m (plain, wireguard, tunnel)" >&2
 		exit 2
 		;;
 	esac
@@ -85,6 +87,8 @@ LABEL=
 GW=
 IP_A=
 IP_B=
+NETWORK=
+IPERF_HOST=
 
 log() { printf '\n==> %s\n' "$*"; }
 ok() { printf '    ok: %s\n' "$*"; }
@@ -130,7 +134,7 @@ placed() {
 		  and ([$live[] | select(.state == "running" and (.ready // false))] | length) == ($live | length)
 		  and ([$live[].nodeId] | sort | join(" ")) == ($nodes | split(" ") | sort | join(" "))'
 }
-address() { # address APP: the published address of the app's replica
+address() { # address APP: the address of the app's replica
 	cli app show "$1" -o json | jq -r '.replicas[0].address'
 }
 
@@ -201,9 +205,9 @@ while [ "$i" -le 2 ]; do
 	fi
 	on "$i" 'command -v curl >/dev/null' || fail "$(host "$i" 1) needs curl"
 	case " $BENCH_MODES " in
-	*" wireguard "*) on "$i" 'command -v wg >/dev/null && { modprobe wireguard 2>/dev/null; command -v wireguard-go >/dev/null ||
+	*" tunnel "*) on "$i" 'command -v wg >/dev/null && { modprobe wireguard 2>/dev/null; command -v wireguard-go >/dev/null ||
 		{ ip link add armada-bchk type wireguard && ip link del armada-bchk; }; }' ||
-		fail "$(host "$i" 1) needs wireguard-tools (wg) and the wireguard kernel module (or wireguard-go) for the wireguard mode" ;;
+		fail "$(host "$i" 1) needs wireguard-tools (wg) and the wireguard kernel module (or wireguard-go) for the tunnel mode" ;;
 	esac
 	i=$((i + 1))
 done
@@ -275,7 +279,7 @@ tunnel_up() {
 	done
 	tunnel_ok() { on 1 "ping -c 1 -W 2 $BENCH_WG_NET.2"; }
 	wait_for 30 "tunnel up over the $BENCH_WG_UNDERLAY addresses (MTU $_mtu)" tunnel_ok
-	LABEL="wireguard ($BENCH_WG_UNDERLAY"
+	LABEL="tunnel ($BENCH_WG_UNDERLAY"
 	for i in 1 2; do
 		if on "$i" 'test -f /run/armada/bench/kind'; then
 			LABEL="$LABEL, userspace on $(host "$i" 1)"
@@ -285,7 +289,7 @@ tunnel_up() {
 }
 
 # doctor N IP runs armadad doctor on machine N for the private IP the mode
-# uses (the tunnel's in the wireguard mode).
+# uses (the tunnel's in the tunnel mode).
 doctor() {
 	if ! on "$1" "armadad doctor --private-ip $2" >"$WORK/doctor" 2>&1 || grep -q FAIL "$WORK/doctor"; then
 		cat "$WORK/doctor" >&2
@@ -298,7 +302,7 @@ cluster_up() {
 	doctor 2 "$IP_B"
 	ok "armadad doctor passes on $A and $B"
 	on 1 "umask 077; echo 'ARMADA_SERVER_FLAGS=\"--tls=false\"' > /etc/armada/server.env"
-	on 1 "systemctl enable --now -q armada-runtime && armadad init --node-name $A --private-ip $IP_A >/dev/null &&
+	on 1 "systemctl enable --now -q armada-runtime && armadad init --node-name $A --private-ip $IP_A --network $NETWORK >/dev/null &&
 		systemctl enable --now -q armada-server"
 	wait_for 120 "control plane answers" nodes_one
 	cli node join-token >"$WORK/token"
@@ -397,11 +401,11 @@ EOF
 }
 
 iperf() { # iperf STREAMS [-R]: Gbit/s received
-	on 1 "armada app exec ipcli -- iperf3 -c $IP_B -p $IPERF_PORT -t $BENCH_IPERF_SECONDS -P $1 ${2:-} -J" >"$WORK/iperf.json"
+	on 1 "armada app exec ipcli -- iperf3 -c $IPERF_HOST -p $IPERF_PORT -t $BENCH_IPERF_SECONDS -P $1 ${2:-} -J" >"$WORK/iperf.json"
 	cp "$WORK/iperf.json" "$BENCH_OUT/$MODE-iperf-$1${2:-}.json"
 	IPERF=$(jq -r '.end.sum_received.bits_per_second / 1e9 * 100 | round / 100' "$WORK/iperf.json")
 }
-iperf_ready() { on 1 "armada app exec ipcli -- iperf3 -c $IP_B -p $IPERF_PORT -t 1" ; }
+iperf_ready() { on 1 "armada app exec ipcli -- iperf3 -c $IPERF_HOST -p $IPERF_PORT -t 1" ; }
 
 hey() { # hey CONCURRENCY NAME
 	on 1 "armada-bench-hey -z ${BENCH_DURATION}s -c $1 -host web.internal http://$GW/" >"$BENCH_OUT/$MODE-$2-c$1.txt"
@@ -433,18 +437,28 @@ printf '| Mode | Test | Result | CPU A | CPU B |\n| --- | --- | --- | --- | --- 
 
 for MODE in $BENCH_MODES; do
 	log "mode $MODE"
-	if [ "$MODE" = plain ]; then
-		IP_A=$(host 1 3) IP_B=$(host 2 3) LABEL=plain
-	else
+	if [ "$MODE" = tunnel ]; then
 		tunnel_up
-		IP_A=$BENCH_WG_NET.1 IP_B=$BENCH_WG_NET.2
+		IP_A=$BENCH_WG_NET.1 IP_B=$BENCH_WG_NET.2 NETWORK=plain
+	else
+		IP_A=$(host 1 3) IP_B=$(host 2 3) LABEL=$MODE NETWORK=$MODE
 	fi
 	cluster_up
+	if [ "$MODE" = wireguard ]; then
+		# The agent uses the kernel's WireGuard, else its embedded
+		# userspace device, which is markedly slower.
+		for i in 1 2; do
+			on "$i" 'ip -d link show armada-net | grep -q wireguard' || LABEL="$LABEL, userspace on $(host "$i" 1)"
+		done
+	fi
 
 	iperf_apps
 	wait_for 180 "iperf3 server on $B, client on $A" placed ipsrv "$B"
 	wait_for 120 "iperf3 client on $A" placed ipcli "$A"
+	# The replica's address: its container's on a cluster network, else
+	# the published port on B's private IP.
 	IPERF_PORT=$(address ipsrv)
+	IPERF_HOST=${IPERF_PORT%:*}
 	IPERF_PORT=${IPERF_PORT##*:}
 	wait_for 120 "iperf3 reaches $B" iperf_ready
 	# A path MTU below the container bridge's is the usual reason bulk
