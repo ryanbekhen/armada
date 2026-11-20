@@ -87,8 +87,13 @@ func newJoinTokenCommand(g *globals, forServer bool) *cobra.Command {
 	if forServer {
 		cmd.Short = "Create a single-use token that adds a control plane server, and print the join command"
 		cmd.Long += "\n\nA server token hands the new server the cluster CA key and the secrets master\n" +
-			"key: it lasts 15 minutes by default (10 in a mesh cluster) and at most an hour."
-		cmd.Flags().DurationVar(&ttl, "ttl", 0, "token lifetime (1m to 1h; default 15m, 10m in a mesh cluster)")
+			"key: it lasts 15 minutes by default (10 over the leader's public address) and\n" +
+			"at most an hour.\n\n" +
+			"A server may join another site than the leader's (--site): its etcd member and\n" +
+			"API are reached over WireGuard between the sites. Every write waits for a\n" +
+			"majority of servers, so keep the servers in one site, or in sites close\n" +
+			"together."
+		cmd.Flags().DurationVar(&ttl, "ttl", 0, "token lifetime (1m to 1h; default 15m, 10m over the leader's public address)")
 	} else {
 		cmd.Flags().DurationVar(&ttl, "ttl", 0, "token lifetime (1m to 24h, joins over the leader's public address 1h; default 1h, 10m for those)")
 	}

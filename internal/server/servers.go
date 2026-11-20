@@ -211,10 +211,14 @@ func (j *joinService) JoinServer(ctx context.Context, req *armadav1.JoinServerRe
 	if err := spec.ValidateName(name); err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "server name: %v", err)
 	}
-	if j.public && !s.joinPublic {
-		return nil, status.Error(codes.FailedPrecondition, "a server joins at the leader's private address: servers in another site than the leader's are not supported yet")
+	// A server of another site joins over the leader's endpoint like a node
+	// (ADR 0050): its etcd member and API listen on its node address, which
+	// the other servers reach over WireGuard between the sites.
+	away, err := j.fromAnotherSite(ctx, tok)
+	if err != nil {
+		return nil, err
 	}
-	ip, mesh, err := s.joiningAddress(ctx, req.GetPrivateIp(), req.GetNetworkKey(), req.GetEndpoint(), false)
+	ip, mesh, err := s.joiningAddress(ctx, req.GetPrivateIp(), req.GetNetworkKey(), req.GetEndpoint(), away)
 	if err != nil {
 		return nil, err
 	}
@@ -324,10 +328,15 @@ func (j *joinService) JoinServer(ctx context.Context, req *armadav1.JoinServerRe
 		InitialCluster: initial, Servers: eps, NodeSubnet: n.Subnet, NetworkMode: mode,
 		UserRecorded: recorded,
 	}
-	if mesh.on {
+	if mesh.on || mesh.away {
+		// The peer list: the machine brings its tunnels up with it before
+		// etcd starts, since the other servers are reached only through
+		// them.
 		if resp.Network, err = s.meshNetwork(ctx); err != nil {
 			return nil, status.Error(codes.Internal, "read the cluster network")
 		}
+	}
+	if mesh.on || mesh.meshed {
 		resp.MeshIp = ip.String()
 	}
 	s.wakeJoin()

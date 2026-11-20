@@ -45,7 +45,13 @@ unexpired: these tokens last 10 minutes by default and at most an hour, and
 --from makes the listener answer only the address the machine joins from.
 
 A server token hands the new server the cluster CA key and the secrets master
-key: it lasts 15 minutes by default (10 in a mesh cluster) and at most an hour.
+key: it lasts 15 minutes by default (10 over the leader's public address) and
+at most an hour.
+
+A server may join another site than the leader's (--site): its etcd member and
+API are reached over WireGuard between the sites. Every write waits for a
+majority of servers, so keep the servers in one site, or in sites close
+together.
 
 ```
 armada server join-token [flags]
@@ -58,7 +64,7 @@ Flags:
 | `--from string` | joins over the leader's public address (mesh clusters, other sites): the IP address the machine joins from; the join listener answers no other |
 | `--label stringArray` | label KEY=VALUE for the node that joins with the token (repeatable) |
 | `--site string` | the site the machine joins (ADR 0050); default: the cluster's first site |
-| `--ttl duration` | token lifetime (1m to 1h; default 15m, 10m in a mesh cluster) |
+| `--ttl duration` | token lifetime (1m to 1h; default 15m, 10m over the leader's public address) |
 
 ## `armada server list`
 

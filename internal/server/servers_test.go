@@ -1,8 +1,11 @@
 package server
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"errors"
+	"net"
 	"net/netip"
 	"strings"
 	"sync"
@@ -331,5 +334,90 @@ func TestNotLeaderIsUnavailable(t *testing.T) {
 	t.Parallel()
 	if code := status.Code(storeErr(store.ErrNotLeader)); code != codes.Unavailable {
 		t.Errorf("code = %v", code)
+	}
+}
+
+// A server of another site joins over the leader's endpoint like a node
+// (ADR 0050): with its key and endpoint, its etcd member at its node
+// address, and the peer list to bring its tunnels up with.
+func TestSiteServerJoin(t *testing.T) {
+	t.Parallel()
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fc := &fakeCluster{}
+	c := newCluster(t, withJoin(t), withHA(t, fc), withSiteJoin(t, l))
+	if err := c.store.InitNetwork(c.ctx, store.Network{Mode: store.NetworkPlain, ClusterCIDR: netip.MustParsePrefix("10.120.0.0/16")}); err != nil {
+		t.Fatal(err)
+	}
+	office, err := c.admin.CreateJoinToken(c.ctx, &armadav1.CreateJoinTokenRequest{Site: "office", Server: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(office.JoinAddr, "203.0.113.1:") || time.Until(office.ExpiresAt.AsTime()) > 10*time.Minute {
+		t.Errorf("server token for another site %v", office)
+	}
+	cloud, err := c.admin.CreateJoinToken(c.ctx, &armadav1.CreateJoinTokenRequest{Site: "cloud", Server: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var jc armadav1.JoinServiceClient
+	c.eventually("join listener open", func() bool {
+		jc, err = meshJoinClient(c.ctx, t, l.Addr().String(), office.CaHash)
+		return err == nil
+	})
+	// A leader's-site server token stays on the private listener.
+	first := c.serverToken()
+	key := testKey(t)
+	req := joinServerReq(t, first.Token, "cp-2", "10.1.0.5")
+	req.NetworkKey, req.Endpoint = key, "198.51.100.2"
+	if _, err := jc.JoinServer(c.ctx, req); status.Code(err) != codes.PermissionDenied {
+		t.Errorf("first-site server token over the public address = %v", err)
+	}
+	req = joinServerReq(t, office.Token, "cp-2", "10.1.0.5")
+	if _, err := jc.JoinServer(c.ctx, req); status.Code(err) != codes.InvalidArgument {
+		t.Errorf("server of another site without a key = %v", err)
+	}
+	req.NetworkKey, req.Endpoint = key, "198.51.100.2"
+	resp, err := jc.JoinServer(c.ctx, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.GetMeshIp() != "" || !strings.Contains(resp.GetInitialCluster(), "cp-2=https://10.1.0.5:2380") {
+		t.Errorf("join answer: mesh IP %q, initial cluster %q", resp.GetMeshIp(), resp.GetInitialCluster())
+	}
+	var self *armadav1.NetworkPeer
+	for _, p := range resp.GetNetwork().GetPeers() {
+		if p.GetNode() == "cp-2" {
+			self = p
+		}
+	}
+	if self == nil || self.GetSite() != "office" || self.GetPublicKey() != key || self.GetEndpoint() != "198.51.100.2" {
+		t.Errorf("peer list %v", resp.GetNetwork().GetPeers())
+	}
+	if n, err := c.store.GetNode(c.ctx, "cp-2"); err != nil || n.Site != "office" || n.Endpoint != "198.51.100.2" || n.PrivateIP != "10.1.0.5" {
+		t.Errorf("node %+v, %v", n, err)
+	}
+	// With no private network, the server's etcd member and API are at a
+	// mesh address.
+	req = joinServerReq(t, cloud.Token, "cp-3", "")
+	req.NetworkKey, req.Endpoint = base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{7}, 32)), "198.51.100.3"
+	if resp, err = jc.JoinServer(c.ctx, req); err != nil {
+		t.Fatal(err)
+	}
+	if resp.GetMeshIp() != "10.122.0.1" || !strings.Contains(resp.GetInitialCluster(), "cp-3=https://10.122.0.1:2380") || resp.GetNetwork().GetMeshCidr() != store.DefaultMeshCIDR {
+		t.Errorf("mesh server join answer: mesh IP %q, initial cluster %q, network %v", resp.GetMeshIp(), resp.GetInitialCluster(), resp.GetNetwork())
+	}
+	srvs, err := c.store.ListServers(c.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	apis := map[string]string{}
+	for _, s := range srvs {
+		apis[s.Name] = s.APIAddr
+	}
+	if apis["cp-2"] != "10.1.0.5:7443" || apis["cp-3"] != "10.122.0.1:7443" {
+		t.Errorf("servers %v", apis)
 	}
 }

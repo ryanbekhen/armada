@@ -33,6 +33,7 @@ func newServerJoinCommand() *cobra.Command {
 		tokenFile, caHash, privateIP, name, dataDir string
 		userName, endpoint                          string
 		port, joinPort                              int
+		noPrivateIP                                 bool
 	)
 	cmd := &cobra.Command{
 		Use:   "join ADDR --ca-hash sha256:HEX",
@@ -55,7 +56,7 @@ func newServerJoinCommand() *cobra.Command {
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			addr := args[0]
-			ip, mesh, err := prepareJoin(cmd.Flags(), addr, privateIP, endpoint, false)
+			ip, mesh, err := prepareJoin(cmd.Flags(), addr, privateIP, endpoint, noPrivateIP)
 			if err != nil {
 				return err
 			}
@@ -183,9 +184,11 @@ func newServerJoinCommand() *cobra.Command {
 			ac.PrivateIP = ip.String()
 			ac.Servers = servers
 			if mesh.on {
-				// etcd and the API listen on the mesh address: the tunnel
-				// comes up with the cluster's peer list now, and again from
-				// it when `armadad server` starts.
+				// etcd and the API listen on the node's address, which the
+				// other servers reach only through the tunnels in a mesh
+				// cluster or from another site (ADR 0050): they come up
+				// with the cluster's peer list now, and again from it when
+				// `armadad server` starts.
 				ac.Endpoint = mesh.endpoint.String()
 				ac.ClusterCIDR, ac.MeshCIDR = resp.GetNetwork().GetClusterCidr(), resp.GetNetwork().GetMeshCidr()
 				if err := upMesh(dataDir, &ac, resp.Network, slog.New(slog.DiscardHandler)); err != nil {
@@ -239,7 +242,8 @@ func newServerJoinCommand() *cobra.Command {
 	f.StringVar(&tokenFile, "token-file", "", "file holding the server token (default: prompt or stdin)")
 	f.StringVar(&caHash, "ca-hash", "", "cluster CA hash, sha256:...")
 	f.StringVar(&privateIP, "private-ip", "", "this machine's private IP (default: the only private IPv4 address; not in a mesh cluster)")
-	f.StringVar(&endpoint, "endpoint", "", "mesh clusters (a public ADDR): this machine's public IPv4 address, which other nodes send WireGuard packets to (default: the only public IPv4 address; behind one-to-one NAT, the mapped address)")
+	f.BoolVar(&noPrivateIP, "no-private-ip", false, "joining from another site: send no private IP, and get a mesh address the other nodes reach over WireGuard (the default when the machine has no private IPv4 address)")
+	f.StringVar(&endpoint, "endpoint", "", "joins over a public ADDR (mesh clusters, other sites): this machine's public IPv4 address, which other nodes send WireGuard packets to (default: the only public IPv4 address; behind one-to-one NAT, the mapped address)")
 	f.StringVar(&name, "name", "", "server and node name (default: hostname)")
 	f.StringVar(&dataDir, "data-dir", defaultDataDir, "directory for cluster state and keys")
 	f.IntVar(&port, "port", defaultPort, "control plane port on the private IP")
