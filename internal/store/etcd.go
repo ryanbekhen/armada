@@ -860,6 +860,13 @@ func (s *Etcd) SetNodeSite(ctx context.Context, id, site, actor string) error {
 		if n.Site == site {
 			return nil
 		}
+		var net networkRec
+		if _, err := t.get(keyNetwork, &net); err != nil {
+			return err
+		}
+		if net.Switch != nil {
+			return fmt.Errorf("the network is switching to %s; set sites once it is done: %w", net.Switch.To, ErrPrecondition)
+		}
 		n.Site = site
 		if err := t.put(pfxNodes+id, n); err != nil {
 			return err

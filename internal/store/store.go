@@ -382,7 +382,8 @@ type Store interface {
 	SetDefaultIsolation(ctx context.Context, on bool, actor string) error
 	// StartNetworkSwitch begins switching between the plain and wireguard
 	// modes (ADR 0050), or gives a switch up during its prepare step when
-	// to is the current mode; ErrConflict while another switch runs.
+	// to is the current mode; ErrConflict while another switch runs,
+	// ErrPrecondition while a node is in a site other than the first.
 	StartNetworkSwitch(ctx context.Context, to, actor string) error
 	// AdvanceNetworkSwitch takes a switch from step from to the next;
 	// ErrConflict when it is not at that step.
@@ -390,7 +391,8 @@ type Store interface {
 
 	UpsertNode(ctx context.Context, n Node) error
 	// SetNodeSite moves a node to another site (ADR 0050); "" is the
-	// cluster's first site. ErrPrecondition for an invalid name.
+	// cluster's first site. ErrPrecondition for an invalid name and while
+	// the network switches modes.
 	SetNodeSite(ctx context.Context, id, site, actor string) error
 	GetNode(ctx context.Context, id string) (Node, error)
 	ListNodes(ctx context.Context) ([]Node, error)

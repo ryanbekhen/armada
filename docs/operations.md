@@ -896,7 +896,10 @@ back. Every node must run an Armada that knows switches, and a switch to
 cluster set --network` with the current mode during the first step gives
 the switch up; once the routes move, it finishes. Each step is an event
 (`armada cluster events`). `mesh` clusters cannot switch: their nodes'
-addresses depend on the mode.
+addresses depend on the mode. A switch changes only how the first site's
+nodes reach each other, so it is refused while a node is in another site
+(`armada node site NODE --clear` first), and no node changes site while a
+switch runs.
 
 The tunnel takes its overhead from each packet: the bridge and containers
 get the MTU of the interface that holds the private IP less 50 or 80 (at
