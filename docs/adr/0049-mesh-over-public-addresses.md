@@ -61,6 +61,9 @@ question, how the machines reach each other: a trusted private network
   side sends.
 - A peer's allowed addresses are its mesh address and its container
   subnet, so the kernel drops anything else the peer sends.
+- The mesh needs the kernel's WireGuard (Linux 5.6 or later): the
+  userspace device of the `wireguard` mode lives inside the agent, and the
+  mesh must be up before the agent and etcd start.
 
 ### Joining
 

@@ -135,7 +135,7 @@ func hostDoctorEnv(dataDir string) doctorEnv {
 	driver, err := newDriver(dataDir, ac)
 	var network func() []checkResult
 	if ip, err := netip.ParseAddr(ac.PrivateIP); err == nil && ac.Network != "" {
-		network = func() []checkResult { return clusterNetChecks(ac.Network, ip) }
+		network = func() []checkResult { return clusterNetChecks(ac.Network, ip, ac.endpoint()) }
 	}
 	return doctorEnv{
 		euid:        os.Geteuid(),
@@ -375,10 +375,10 @@ func bridgeCheck(ctx context.Context, env doctorEnv) []checkResult {
 }
 
 // clusterNetChecks are the cluster network's checks on this host.
-func clusterNetChecks(mode string, ip netip.Addr) []checkResult {
+func clusterNetChecks(mode string, ip, endpoint netip.Addr) []checkResult {
 	levels := map[int]string{clusternet.CheckOK: checkOK, clusternet.CheckWarn: checkWarn, clusternet.CheckFail: checkFail}
 	var out []checkResult
-	for _, c := range clusternet.Diagnose(mode, ip) {
+	for _, c := range clusternet.Diagnose(mode, ip, endpoint) {
 		out = append(out, checkResult{Name: c.Name, Status: levels[c.Level], Detail: c.Detail})
 	}
 	return out

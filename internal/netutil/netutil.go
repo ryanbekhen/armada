@@ -44,6 +44,20 @@ func CheckPrivateIP(s string) (netip.Addr, error) {
 	return addr.Unmap(), nil
 }
 
+// CheckEndpoint validates a mesh node's endpoint (ADR 0049), the address
+// other nodes send WireGuard packets to: an IPv4 address in canonical form
+// that can carry unicast traffic between machines.
+func CheckEndpoint(s string) (netip.Addr, error) {
+	a, err := netip.ParseAddr(s)
+	if err != nil || !a.Is4() || a.String() != s {
+		return netip.Addr{}, fmt.Errorf("invalid endpoint %q: want an IPv4 address", s)
+	}
+	if !a.IsGlobalUnicast() || a.IsLoopback() || a == netip.AddrFrom4([4]byte{255, 255, 255, 255}) {
+		return netip.Addr{}, fmt.Errorf("endpoint %s is not a unicast address other machines can reach", a)
+	}
+	return a, nil
+}
+
 // CheckNodeIP validates the private IP a remote node registers with: private
 // and canonical like CheckPrivateIP, and additionally not loopback, so a
 // node cannot point other nodes' proxies at their own local services.

@@ -139,7 +139,7 @@ func TestPeerChanges(t *testing.T) {
 		{node: "c", ip: netip.MustParseAddr("10.0.0.3"), subnet: netip.MustParsePrefix("10.120.2.0/24"), key: kc},
 	}
 	// A new device gets the key, the port, and every peer.
-	cfg := peerChanges(&wgtypes.Device{}, priv, peers)
+	cfg := peerChanges(&wgtypes.Device{}, priv, ModeWireGuard, peers, time.Now())
 	if cfg == nil || cfg.PrivateKey == nil || *cfg.ListenPort != WireGuardPort || len(cfg.Peers) != 2 {
 		t.Fatalf("new device: %+v", cfg)
 	}
@@ -152,14 +152,14 @@ func TestPeerChanges(t *testing.T) {
 			AllowedIPs: []net.IPNet{*prefixNet(p.subnet)}, PersistentKeepaliveInterval: keepalive, LastHandshakeTime: time.Now()}
 	}
 	d := &wgtypes.Device{PrivateKey: priv, ListenPort: WireGuardPort, Peers: []wgtypes.Peer{asPeer(peers[0]), asPeer(peers[1])}}
-	if cfg := peerChanges(d, priv, peers); cfg != nil {
+	if cfg := peerChanges(d, priv, ModeWireGuard, peers, time.Now()); cfg != nil {
 		t.Errorf("matching device changed: %+v", cfg)
 	}
 	// A node that left is removed; a moved one is updated; others stay.
 	d.Peers = append(d.Peers, wgtypes.Peer{PublicKey: gone})
 	moved := peers[1]
 	moved.ip = netip.MustParseAddr("10.0.0.9")
-	cfg = peerChanges(d, priv, []peer{peers[0], moved})
+	cfg = peerChanges(d, priv, ModeWireGuard, []peer{peers[0], moved}, time.Now())
 	if cfg == nil || cfg.PrivateKey != nil || cfg.ListenPort != nil || len(cfg.Peers) != 2 {
 		t.Fatalf("changes %+v", cfg)
 	}

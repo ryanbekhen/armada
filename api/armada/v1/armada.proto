@@ -1235,6 +1235,9 @@ message Hello {
   bool nfs = 17;
   // The agent's runtime keeps a log history it can search (ADR 0043).
   bool log_history = 18;
+  // In a mesh cluster (ADR 0049), the address other nodes send WireGuard
+  // packets to: the node's public IPv4 address. Empty elsewhere.
+  string endpoint = 19;
 }
 
 message ReplicaReport {
@@ -1450,7 +1453,8 @@ message QueueSandbox {
 // NetworkConfig is how the cluster network routes node subnets between
 // nodes (ADR 0025). Identical for every node.
 message NetworkConfig {
-  // "plain" (VXLAN on the private network) or "wireguard".
+  // "plain" (VXLAN on the private network), "wireguard", or "mesh"
+  // (WireGuard over public addresses, ADR 0049).
   string mode = 1;
   string cluster_cidr = 2;
   // Every node with a subnet, the receiving node included.
@@ -1463,6 +1467,8 @@ message NetworkConfig {
   // The ports of internal TCP apps, which containers of isolated spaces
   // may connect to on their bridge gateway (ADR 0039).
   repeated uint32 tcp_ports = 6;
+  // The range of the nodes' mesh addresses, in the mesh mode (ADR 0049).
+  string mesh_cidr = 7;
 }
 
 message NetworkEndpoint {
@@ -1473,13 +1479,16 @@ message NetworkEndpoint {
 
 message NetworkPeer {
   string node = 1;
-  // The address the tunnel reaches the node at.
+  // The node's private IP: the address the tunnel reaches the node at, or
+  // in the mesh mode its mesh address, which the tunnel carries.
   string private_ip = 2;
   // The node's container subnet, a /24 of the cluster CIDR.
   string subnet = 3;
   // The node's WireGuard public key, base64; empty until it has announced
   // one.
   string public_key = 4;
+  // In the mesh mode, the public IPv4 address WireGuard packets go to.
+  string endpoint = 5;
 }
 
 message ProxyConfig {

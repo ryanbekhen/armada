@@ -24,13 +24,16 @@ func (s *Server) buildNetwork(ctx context.Context, nodes []store.Node, replicas 
 		return nil, err
 	}
 	cfg := &armadav1.NetworkConfig{Mode: n.Mode, ClusterCidr: n.ClusterCIDR.String(), IsolateDefault: n.IsolateDefault}
+	if n.MeshCIDR.IsValid() {
+		cfg.MeshCidr = n.MeshCIDR.String()
+	}
 	subnets := map[string]string{}
 	for _, node := range nodes {
 		if node.Subnet == "" {
 			continue
 		}
 		subnets[node.ID] = node.Subnet
-		cfg.Peers = append(cfg.Peers, &armadav1.NetworkPeer{Node: node.ID, PrivateIp: node.PrivateIP, Subnet: node.Subnet, PublicKey: node.NetworkKey})
+		cfg.Peers = append(cfg.Peers, &armadav1.NetworkPeer{Node: node.ID, PrivateIp: node.PrivateIP, Subnet: node.Subnet, PublicKey: node.NetworkKey, Endpoint: node.Endpoint})
 	}
 	cfg.Endpoints = networkEndpoints(replicas, subnets)
 	return cfg, nil

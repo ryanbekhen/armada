@@ -8634,7 +8634,10 @@ type Hello struct {
 	// The node mounts NFSv4 exports as volumes (ADR 0042).
 	Nfs bool `protobuf:"varint,17,opt,name=nfs,proto3" json:"nfs,omitempty"`
 	// The agent's runtime keeps a log history it can search (ADR 0043).
-	LogHistory    bool `protobuf:"varint,18,opt,name=log_history,json=logHistory,proto3" json:"log_history,omitempty"`
+	LogHistory bool `protobuf:"varint,18,opt,name=log_history,json=logHistory,proto3" json:"log_history,omitempty"`
+	// In a mesh cluster (ADR 0049), the address other nodes send WireGuard
+	// packets to: the node's public IPv4 address. Empty elsewhere.
+	Endpoint      string `protobuf:"bytes,19,opt,name=endpoint,proto3" json:"endpoint,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -8779,6 +8782,13 @@ func (x *Hello) GetLogHistory() bool {
 		return x.LogHistory
 	}
 	return false
+}
+
+func (x *Hello) GetEndpoint() string {
+	if x != nil {
+		return x.Endpoint
+	}
+	return ""
 }
 
 type ReplicaReport struct {
@@ -10080,7 +10090,8 @@ func (x *QueueSandbox) GetIntervalSeconds() int64 {
 // nodes (ADR 0025). Identical for every node.
 type NetworkConfig struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// "plain" (VXLAN on the private network) or "wireguard".
+	// "plain" (VXLAN on the private network), "wireguard", or "mesh"
+	// (WireGuard over public addresses, ADR 0049).
 	Mode        string `protobuf:"bytes,1,opt,name=mode,proto3" json:"mode,omitempty"`
 	ClusterCidr string `protobuf:"bytes,2,opt,name=cluster_cidr,json=clusterCidr,proto3" json:"cluster_cidr,omitempty"`
 	// Every node with a subnet, the receiving node included.
@@ -10092,7 +10103,9 @@ type NetworkConfig struct {
 	IsolateDefault bool `protobuf:"varint,5,opt,name=isolate_default,json=isolateDefault,proto3" json:"isolate_default,omitempty"`
 	// The ports of internal TCP apps, which containers of isolated spaces
 	// may connect to on their bridge gateway (ADR 0039).
-	TcpPorts      []uint32 `protobuf:"varint,6,rep,packed,name=tcp_ports,json=tcpPorts,proto3" json:"tcp_ports,omitempty"`
+	TcpPorts []uint32 `protobuf:"varint,6,rep,packed,name=tcp_ports,json=tcpPorts,proto3" json:"tcp_ports,omitempty"`
+	// The range of the nodes' mesh addresses, in the mesh mode (ADR 0049).
+	MeshCidr      string `protobuf:"bytes,7,opt,name=mesh_cidr,json=meshCidr,proto3" json:"mesh_cidr,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -10169,6 +10182,13 @@ func (x *NetworkConfig) GetTcpPorts() []uint32 {
 	return nil
 }
 
+func (x *NetworkConfig) GetMeshCidr() string {
+	if x != nil {
+		return x.MeshCidr
+	}
+	return ""
+}
+
 type NetworkEndpoint struct {
 	state   protoimpl.MessageState `protogen:"open.v1"`
 	Address string                 `protobuf:"bytes,1,opt,name=address,proto3" json:"address,omitempty"`
@@ -10225,13 +10245,16 @@ func (x *NetworkEndpoint) GetApp() string {
 type NetworkPeer struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Node  string                 `protobuf:"bytes,1,opt,name=node,proto3" json:"node,omitempty"`
-	// The address the tunnel reaches the node at.
+	// The node's private IP: the address the tunnel reaches the node at, or
+	// in the mesh mode its mesh address, which the tunnel carries.
 	PrivateIp string `protobuf:"bytes,2,opt,name=private_ip,json=privateIp,proto3" json:"private_ip,omitempty"`
 	// The node's container subnet, a /24 of the cluster CIDR.
 	Subnet string `protobuf:"bytes,3,opt,name=subnet,proto3" json:"subnet,omitempty"`
 	// The node's WireGuard public key, base64; empty until it has announced
 	// one.
-	PublicKey     string `protobuf:"bytes,4,opt,name=public_key,json=publicKey,proto3" json:"public_key,omitempty"`
+	PublicKey string `protobuf:"bytes,4,opt,name=public_key,json=publicKey,proto3" json:"public_key,omitempty"`
+	// In the mesh mode, the public IPv4 address WireGuard packets go to.
+	Endpoint      string `protobuf:"bytes,5,opt,name=endpoint,proto3" json:"endpoint,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -10290,6 +10313,13 @@ func (x *NetworkPeer) GetSubnet() string {
 func (x *NetworkPeer) GetPublicKey() string {
 	if x != nil {
 		return x.PublicKey
+	}
+	return ""
+}
+
+func (x *NetworkPeer) GetEndpoint() string {
+	if x != nil {
+		return x.Endpoint
 	}
 	return ""
 }
@@ -14674,7 +14704,7 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\x04wake\x18\x04 \x01(\v2\x0f.armada.v1.WakeH\x00R\x04wakeB\x05\n" +
 	"\x03msg\"\x18\n" +
 	"\x04Wake\x12\x10\n" +
-	"\x03app\x18\x01 \x01(\tR\x03app\"\x8f\x04\n" +
+	"\x03app\x18\x01 \x01(\tR\x03app\"\xab\x04\n" +
 	"\x05Hello\x12\x1d\n" +
 	"\n" +
 	"cpu_millis\x18\x01 \x01(\x03R\tcpuMillis\x12!\n" +
@@ -14698,7 +14728,8 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\x0evolume_backups\x18\x10 \x01(\bR\rvolumeBackups\x12\x10\n" +
 	"\x03nfs\x18\x11 \x01(\bR\x03nfs\x12\x1f\n" +
 	"\vlog_history\x18\x12 \x01(\bR\n" +
-	"logHistoryJ\x04\b\a\x10\bJ\x04\b\b\x10\tR\aruntimeR\x10min_memory_bytes\"D\n" +
+	"logHistory\x12\x1a\n" +
+	"\bendpoint\x18\x13 \x01(\tR\bendpointJ\x04\b\a\x10\bJ\x04\b\b\x10\tR\aruntimeR\x10min_memory_bytes\"D\n" +
 	"\rReplicaReport\x123\n" +
 	"\breplicas\x18\x01 \x03(\v2\x17.armada.v1.ReplicaStateR\breplicas\"\xb6\x02\n" +
 	"\fReplicaState\x12\x0e\n" +
@@ -14816,24 +14847,26 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\fQueueSandbox\x12\x10\n" +
 	"\x03job\x18\x01 \x01(\tR\x03job\x12+\n" +
 	"\x05probe\x18\x02 \x01(\v2\x15.armada.v1.QueueProbeR\x05probe\x12)\n" +
-	"\x10interval_seconds\x18\x03 \x01(\x03R\x0fintervalSeconds\"\xf4\x01\n" +
+	"\x10interval_seconds\x18\x03 \x01(\x03R\x0fintervalSeconds\"\x91\x02\n" +
 	"\rNetworkConfig\x12\x12\n" +
 	"\x04mode\x18\x01 \x01(\tR\x04mode\x12!\n" +
 	"\fcluster_cidr\x18\x02 \x01(\tR\vclusterCidr\x12,\n" +
 	"\x05peers\x18\x03 \x03(\v2\x16.armada.v1.NetworkPeerR\x05peers\x128\n" +
 	"\tendpoints\x18\x04 \x03(\v2\x1a.armada.v1.NetworkEndpointR\tendpoints\x12'\n" +
 	"\x0fisolate_default\x18\x05 \x01(\bR\x0eisolateDefault\x12\x1b\n" +
-	"\ttcp_ports\x18\x06 \x03(\rR\btcpPorts\"=\n" +
+	"\ttcp_ports\x18\x06 \x03(\rR\btcpPorts\x12\x1b\n" +
+	"\tmesh_cidr\x18\a \x01(\tR\bmeshCidr\"=\n" +
 	"\x0fNetworkEndpoint\x12\x18\n" +
 	"\aaddress\x18\x01 \x01(\tR\aaddress\x12\x10\n" +
-	"\x03app\x18\x02 \x01(\tR\x03app\"w\n" +
+	"\x03app\x18\x02 \x01(\tR\x03app\"\x93\x01\n" +
 	"\vNetworkPeer\x12\x12\n" +
 	"\x04node\x18\x01 \x01(\tR\x04node\x12\x1d\n" +
 	"\n" +
 	"private_ip\x18\x02 \x01(\tR\tprivateIp\x12\x16\n" +
 	"\x06subnet\x18\x03 \x01(\tR\x06subnet\x12\x1d\n" +
 	"\n" +
-	"public_key\x18\x04 \x01(\tR\tpublicKey\"\x8d\x03\n" +
+	"public_key\x18\x04 \x01(\tR\tpublicKey\x12\x1a\n" +
+	"\bendpoint\x18\x05 \x01(\tR\bendpoint\"\x8d\x03\n" +
 	"\vProxyConfig\x123\n" +
 	"\bbackends\x18\x01 \x03(\v2\x17.armada.v1.ProxyBackendR\bbackends\x12*\n" +
 	"\x05rules\x18\x02 \x03(\v2\x14.armada.v1.ProxyRuleR\x05rules\x12?\n" +

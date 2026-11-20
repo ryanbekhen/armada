@@ -88,6 +88,9 @@ type Node struct {
 	// NetworkKey is the node's WireGuard public key, base64, as its agent
 	// announced it (ADR 0025); empty until then.
 	NetworkKey string
+	// Endpoint is the node's public IPv4 address in a mesh cluster (ADR
+	// 0049), as its agent announced it; empty elsewhere and until then.
+	Endpoint string
 }
 
 // AllLabels returns the admin labels plus armada.os and armada.arch.
@@ -312,6 +315,8 @@ type NodeStatus struct {
 	// NetworkKey as the agent announces it; empty keeps the recorded one.
 	// A key another node holds is refused with ErrConflict.
 	NetworkKey string
+	// Endpoint as the agent announces it; empty keeps the recorded one.
+	Endpoint string
 }
 
 // Domain is a custom domain referenced by at least one app. Apps may only

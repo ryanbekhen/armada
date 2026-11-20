@@ -3,6 +3,7 @@ package clusternet
 import (
 	"net"
 	"net/netip"
+	"slices"
 	"time"
 
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
@@ -18,8 +19,12 @@ func prefixNet(p netip.Prefix) *net.IPNet {
 }
 
 // peerChanges returns the configuration that turns device d into one with
-// key and peers, or nil when it already is.
-func peerChanges(d *wgtypes.Device, key wgtypes.Key, peers []peer) *wgtypes.Config {
+// key and peers, or nil when it already is. In the mesh mode a peer is
+// reached at its endpoint and is also allowed its mesh address; an endpoint
+// WireGuard has moved (roaming, from the peer's authenticated packets) is
+// kept while its handshake is fresh at now, so a peer behind NAT or with a
+// changed address keeps working before the control plane hears of it.
+func peerChanges(d *wgtypes.Device, key wgtypes.Key, mode string, peers []peer, now time.Time) *wgtypes.Config {
 	var cfg wgtypes.Config
 	changed := false
 	if d.PrivateKey != key {
@@ -36,17 +41,27 @@ func peerChanges(d *wgtypes.Device, key wgtypes.Key, peers []peer) *wgtypes.Conf
 	want := map[wgtypes.Key]bool{}
 	for _, pe := range peers {
 		want[pe.key] = true
-		ep := &net.UDPAddr{IP: pe.ip.AsSlice(), Port: WireGuardPort}
-		allowed := *prefixNet(pe.subnet)
-		if h, ok := have[pe.key]; ok && h.Endpoint != nil && h.Endpoint.String() == ep.String() &&
-			len(h.AllowedIPs) == 1 && h.AllowedIPs[0].String() == allowed.String() && h.PersistentKeepaliveInterval == keepalive {
+		target, allowed := pe.ip, []net.IPNet{*prefixNet(pe.subnet)}
+		if mode == ModeMesh {
+			target = pe.endpoint
+			allowed = []net.IPNet{*prefixNet(netip.PrefixFrom(pe.ip, 32)), *prefixNet(pe.subnet)}
+		}
+		ep := &net.UDPAddr{IP: target.AsSlice(), Port: WireGuardPort}
+		h, ok := have[pe.key]
+		keep := ok && h.Endpoint != nil && (h.Endpoint.String() == ep.String() ||
+			mode == ModeMesh && !h.LastHandshakeTime.IsZero() && now.Sub(h.LastHandshakeTime) <= staleHandshake)
+		if keep && sameNets(h.AllowedIPs, allowed) && h.PersistentKeepaliveInterval == keepalive {
 			continue
 		}
 		ka := keepalive
-		cfg.Peers = append(cfg.Peers, wgtypes.PeerConfig{
-			PublicKey: pe.key, Endpoint: ep, ReplaceAllowedIPs: true, AllowedIPs: []net.IPNet{allowed},
+		pc := wgtypes.PeerConfig{
+			PublicKey: pe.key, Endpoint: ep, ReplaceAllowedIPs: true, AllowedIPs: allowed,
 			PersistentKeepaliveInterval: &ka,
-		})
+		}
+		if keep {
+			pc.Endpoint = nil
+		}
+		cfg.Peers = append(cfg.Peers, pc)
 	}
 	for k := range have {
 		if !want[k] {
@@ -57,4 +72,25 @@ func peerChanges(d *wgtypes.Device, key wgtypes.Key, peers []peer) *wgtypes.Conf
 		return nil
 	}
 	return &cfg
+}
+
+// staleHandshake is how old a peer's last handshake may be before doctor
+// reports it, and before the mesh mode stops trusting a roamed endpoint:
+// sessions are renewed every two minutes while they carry traffic, which
+// the keepalive provides.
+const staleHandshake = 3 * time.Minute
+
+// sameNets compares two lists of networks as sets: the kernel lists a
+// peer's allowed addresses in its own order.
+func sameNets(a, b []net.IPNet) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	as, bs := make([]string, len(a)), make([]string, len(b))
+	for i := range a {
+		as[i], bs[i] = a[i].String(), b[i].String()
+	}
+	slices.Sort(as)
+	slices.Sort(bs)
+	return slices.Equal(as, bs)
 }

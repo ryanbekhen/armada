@@ -191,3 +191,46 @@ func TestDefaultIsolation(t *testing.T) {
 		t.Errorf("%d audit events, want 2 (an unchanged setting is not recorded)", changes)
 	}
 }
+
+func TestMeshNetwork(t *testing.T) {
+	t.Parallel()
+	s, ctx := open(t), context.Background()
+	cidr, mesh := netip.MustParsePrefix("10.120.0.0/16"), netip.MustParsePrefix("10.121.0.0/16")
+	for name, n := range map[string]Network{
+		"no mesh CIDR":      {Mode: NetworkMesh, ClusterCIDR: cidr},
+		"public mesh CIDR":  {Mode: NetworkMesh, ClusterCIDR: cidr, MeshCIDR: netip.MustParsePrefix("203.0.113.0/24")},
+		"overlap":           {Mode: NetworkMesh, ClusterCIDR: cidr, MeshCIDR: netip.MustParsePrefix("10.0.0.0/8")},
+		"mesh CIDR in host": {Mode: NetworkMesh, ClusterCIDR: cidr, MeshCIDR: netip.MustParsePrefix("10.121.0.1/16")},
+		"mesh CIDR in wg":   {Mode: NetworkWireGuard, ClusterCIDR: cidr, MeshCIDR: mesh},
+	} {
+		if err := s.InitNetwork(ctx, n); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+	if err := s.InitNetwork(ctx, Network{Mode: NetworkMesh, ClusterCIDR: cidr, MeshCIDR: mesh}); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := s.GetNetwork(ctx); err != nil || n.Mode != NetworkMesh || n.MeshCIDR != mesh {
+		t.Fatalf("network %+v, %v", n, err)
+	}
+	// A node's address is a mesh address.
+	if err := s.UpsertNode(ctx, Node{ID: "n0", PrivateIP: "10.0.0.1"}); !errors.Is(err, ErrPrecondition) {
+		t.Errorf("address outside the mesh = %v", err)
+	}
+	if err := s.UpsertNode(ctx, Node{ID: "n1", PrivateIP: "10.121.0.1"}); err != nil {
+		t.Fatal(err)
+	}
+	// The agent announces its endpoint; an empty one keeps it.
+	if err := s.SetNodeStatus(ctx, "n1", NodeStatus{State: NodeReady, LastSeen: time.Now(), Endpoint: "203.0.113.1"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetNodeStatus(ctx, "n1", NodeStatus{State: NodeReady, LastSeen: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpsertNode(ctx, Node{ID: "n1", PrivateIP: "10.121.0.1", CPUMillis: 500}); err != nil {
+		t.Fatal(err)
+	}
+	if n, _ := s.GetNode(ctx, "n1"); n.Endpoint != "203.0.113.1" || n.Subnet == "" {
+		t.Errorf("node %+v", n)
+	}
+}
