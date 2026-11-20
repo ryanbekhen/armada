@@ -55,7 +55,7 @@ func newClusterCommand(g *globals) *cobra.Command {
 		lostTimeout, logRetention                  time.Duration
 		logMaxDisk                                 string
 		logExport, logEndpoint, logUser, logTenant string
-		logToken                                   string
+		logToken, network                          string
 	)
 	set := &cobra.Command{
 		Use:   "set",
@@ -83,7 +83,12 @@ func newClusterCommand(g *globals) *cobra.Command {
 			"--log-export loki|otlp with --log-endpoint sends every app's output from every\n" +
 			"node to that push URL as well (ADR 0044), from now on; none stops it.\n" +
 			"--log-token - reads a token from stdin, stored encrypted: a bearer token, or\n" +
-			"the password of --log-export-user. --log-export-tenant sets Loki's tenant.",
+			"the password of --log-export-user. --log-export-tenant sets Loki's tenant.\n\n" +
+			"--network wireguard (or plain) switches the cluster network's mode while\n" +
+			"everything runs (ADR 0050): every node brings the new transport up beside the\n" +
+			"current one, routes move once every node reaches every other over it, and the\n" +
+			"old one goes. armada cluster status shows how far it is and which nodes it\n" +
+			"waits for. Naming the current mode before the routes move gives the switch up.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ch := cmd.Flags().Changed
@@ -95,8 +100,10 @@ func newClusterCommand(g *globals) *cobra.Command {
 				SetMetricsPort: ch("metrics-port"), SetNodeLostTimeout: ch("node-lost-timeout"), SetDnsToken: ch("dns-token"),
 				SetLogRetention: ch("log-retention"), SetLogMaxBytes: ch("log-max-disk"),
 				SetLogExport: slices.ContainsFunc(logExportFlags, ch), SetLogToken: ch("log-token"),
+				SetNetwork: ch("network"),
 			}
-			if !slices.ContainsFunc([]string{"root-domain", "trusted-proxies", "proxy-protocol", "tls", "acme-email", "acme-ca", "dns-provider", "dns-token", "metrics-port", "node-lost-timeout", "log-retention", "log-max-disk", "log-token"}, ch) && !req.SetLogExport {
+			req.Config.Network = network
+			if !slices.ContainsFunc([]string{"root-domain", "trusted-proxies", "proxy-protocol", "tls", "acme-email", "acme-ca", "dns-provider", "dns-token", "metrics-port", "node-lost-timeout", "log-retention", "log-max-disk", "log-token", "network"}, ch) && !req.SetLogExport {
 				return errors.New("nothing to change; see armada cluster set --help")
 			}
 			req.Config.LogRetentionSeconds = int64(logRetention / time.Second)
@@ -176,6 +183,7 @@ func newClusterCommand(g *globals) *cobra.Command {
 	f.StringVar(&logUser, "log-export-user", "", "user for basic authentication at the log store, with --log-token as the password (empty for a bearer token)")
 	f.StringVar(&logTenant, "log-export-tenant", "", "Loki tenant (X-Scope-OrgID), for a multi-tenant Loki")
 	f.StringVar(&logToken, "log-token", "", "file holding the log store's token, or - for stdin; an empty file removes it")
+	f.StringVar(&network, "network", "", "switch the cluster network's mode while it runs: plain or wireguard")
 	cmd.AddCommand(newClusterStatusCommand(g), show, set, newEventsCommand(g, eventsOfCluster))
 	return cmd
 }
@@ -262,7 +270,36 @@ func printClusterStatus(out io.Writer, r *armadav1.ClusterStatusResponse) error 
 			_, _ = fmt.Fprintln(tw, n)
 		}
 	}
+	if sw := r.NetworkSwitch; sw != nil {
+		step := map[string]string{"prepare": "bringing it up beside " + sw.From, "move": "moving the routes to it"}[sw.Step]
+		_, _ = fmt.Fprintf(tw, "\nnetwork: switching from %s to %s, %s (since %s)\n", sw.From, sw.To, dash(step),
+			time.Unix(sw.SinceUnix, 0).Local().Format(time.DateTime))
+		if len(sw.Waiting) > 0 {
+			_, _ = fmt.Fprintln(tw, "NODE\tWAITING FOR")
+			for _, w := range sw.Waiting {
+				_, _ = fmt.Fprintf(tw, "%s\t%s\n", w.Node, switchWait(w))
+			}
+			if more := int(sw.WaitingTotal) - len(sw.Waiting); more > 0 {
+				_, _ = fmt.Fprintf(tw, "and %d more\n", more)
+			}
+		}
+	}
 	return tw.Flush()
+}
+
+// switchWait says what a network switch waits for on one node.
+func switchWait(w *armadav1.NodeSwitchWait) string {
+	switch {
+	case w.Unsupported:
+		return "an upgrade: its agent cannot switch the network"
+	case w.Disconnected:
+		return "the node to connect again (or to be lost)"
+	case w.Error != "":
+		return printable(w.Error)
+	case len(w.Unreached) > 0:
+		return "a path to " + strings.Join(w.Unreached, ", ")
+	}
+	return "its report"
 }
 
 // logExportFlags change the log export together (ADR 0044).
@@ -320,9 +357,13 @@ func printClusterConfig(w io.Writer, cc *armadav1.ClusterConfig) error {
 			export += " (no token)"
 		}
 	}
-	_, err := fmt.Fprintf(w, "root domain:       %s\ntrusted proxies:   %s\nproxy protocol:    %s\ncertificates:      %s\nacme email:        %s\ndns provider:      %s (token %s)\nmetrics:           %s\nnode lost timeout: %s\nlog history:       %s\nlog export:        %s\n",
+	network := cmp.Or(cc.Network, "none")
+	if cc.NetworkSwitchTo != "" {
+		network += ", switching to " + cc.NetworkSwitchTo + " (armada cluster status)"
+	}
+	_, err := fmt.Fprintf(w, "root domain:       %s\ntrusted proxies:   %s\nproxy protocol:    %s\ncertificates:      %s\nacme email:        %s\ndns provider:      %s (token %s)\nmetrics:           %s\nnode lost timeout: %s\nlog history:       %s\nlog export:        %s\nnetwork:           %s\n",
 		dash(cc.RootDomain), dash(strings.Join(cc.TrustedProxies, ",")), dash(strings.Join(cc.ProxyProtocol, ",")), certs, dash(cc.AcmeEmail),
-		cmp.Or(cc.DnsProvider, "none"), token, metrics, time.Duration(cc.NodeLostTimeoutSeconds)*time.Second, logs, export)
+		cmp.Or(cc.DnsProvider, "none"), token, metrics, time.Duration(cc.NodeLostTimeoutSeconds)*time.Second, logs, export, network)
 	return err
 }
 

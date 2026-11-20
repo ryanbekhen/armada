@@ -84,6 +84,9 @@ type nodeUsage struct {
 	// dropped are the jobs whose sandboxes the node said it does not keep,
 	// past what one node keeps (ADR 0040).
 	dropped map[string]bool
+	// netSwitch is the node's side of a switch of the network's mode
+	// (ADR 0050), bounded by cleanSwitchStatus.
+	netSwitch *armadav1.NetworkSwitchStatus
 }
 
 // sandboxReading is a job's network sandbox on a node, and the length of
@@ -122,8 +125,9 @@ func newUsageStore() *usageStore {
 // replicas belong to the node is only checked when the sample is read, so
 // a report costs no store access.
 //
-// It returns true when the report brings a new reading of a job's queue, so
-// that the leader reconciles at once rather than at its next pass.
+// It returns true when the report brings a new reading of a job's queue, or
+// a node newly ready for a step of a network switch, so that the leader
+// reconciles at once rather than at its next pass.
 func (u *usageStore) set(nodeID string, r *armadav1.UsageReport, at time.Time) bool {
 	if len(r.GetReplicas()) > maxUsageReplicas {
 		u.forget(nodeID)
@@ -184,6 +188,11 @@ func (u *usageStore) set(nodeID string, r *armadav1.UsageReport, at time.Time) b
 			fresh = true
 		}
 	}
+	netSwitch := cleanSwitchStatus(r.GetNetworkSwitch())
+	if prev := u.nodes[nodeID].netSwitch; netSwitch.GetReady() &&
+		(!prev.GetReady() || prev.GetTo() != netSwitch.GetTo() || prev.GetStep() != netSwitch.GetStep()) {
+		fresh = true
+	}
 	u.count(nodeID, r)
 	for _, id := range busy {
 		u.active[id] = at
@@ -202,6 +211,7 @@ func (u *usageStore) set(nodeID string, r *armadav1.UsageReport, at time.Time) b
 		queues:           queues,
 		sandboxes:        sandboxes,
 		dropped:          dropped,
+		netSwitch:        netSwitch,
 	}
 	u.mu.Unlock()
 	return fresh

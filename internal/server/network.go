@@ -27,6 +27,9 @@ func (s *Server) buildNetwork(ctx context.Context, nodes []store.Node, replicas 
 	if n.MeshCIDR.IsValid() {
 		cfg.MeshCidr = n.MeshCIDR.String()
 	}
+	if n.Switch != nil {
+		cfg.SwitchTo, cfg.SwitchStep = n.Switch.To, n.Switch.Step
+	}
 	subnets := map[string]string{}
 	for _, node := range nodes {
 		if node.Subnet == "" {

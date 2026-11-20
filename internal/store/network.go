@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/netip"
 	"strings"
+	"time"
 )
 
 // Network modes (ADR 0025).
@@ -35,7 +36,30 @@ type Network struct {
 	IsolateDefault bool
 	// MeshCIDR is the range of the nodes' mesh addresses in the mesh mode.
 	MeshCIDR netip.Prefix
+	// Switch is a switch to another mode under way (ADR 0050), nil while
+	// none runs.
+	Switch *NetworkSwitch
 }
+
+// NetworkSwitch is a switch of a running cluster between the plain and
+// wireguard modes (ADR 0050).
+type NetworkSwitch struct {
+	// To is the target mode.
+	To string
+	// Step is SwitchPrepare or SwitchMove.
+	Step string
+	// Since is when the step began.
+	Since time.Time
+}
+
+// Steps of a network switch (ADR 0050).
+const (
+	// SwitchPrepare: every node brings the target transport up beside the
+	// current one.
+	SwitchPrepare = "prepare"
+	// SwitchMove: every node routes over the target transport.
+	SwitchMove = "move"
+)
 
 // CheckClusterCIDR validates a cluster CIDR: a private IPv4 prefix from /12
 // to /20 in canonical form, so that it holds at least 16 node subnets.
@@ -58,6 +82,15 @@ type networkRec struct {
 	ClusterCIDR    string `json:"clusterCidr"`
 	IsolateDefault bool   `json:"isolateDefault,omitempty"`
 	MeshCIDR       string `json:"meshCidr,omitempty"`
+	// Switch is ignored by binaries that do not know it: their nodes stay
+	// on (or go back to) Mode.
+	Switch *networkSwitchRec `json:"switch,omitempty"`
+}
+
+type networkSwitchRec struct {
+	To    string    `json:"to"`
+	Step  string    `json:"step"`
+	Since time.Time `json:"since"`
 }
 
 const keyNetwork = "network"
@@ -73,6 +106,9 @@ func (t *etx) network() (Network, bool, error) {
 		return Network{}, false, fmt.Errorf("decode %s: cluster CIDR: %w", keyNetwork, err)
 	}
 	n := Network{Mode: r.Mode, ClusterCIDR: p, IsolateDefault: r.IsolateDefault}
+	if r.Switch != nil {
+		n.Switch = &NetworkSwitch{To: r.Switch.To, Step: r.Switch.Step, Since: r.Switch.Since}
+	}
 	if r.MeshCIDR != "" {
 		if n.MeshCIDR, err = netip.ParsePrefix(r.MeshCIDR); err != nil {
 			return Network{}, false, fmt.Errorf("decode %s: mesh CIDR: %w", keyNetwork, err)
@@ -156,6 +192,72 @@ func (s *Etcd) SetDefaultIsolation(ctx context.Context, on bool, actor string) e
 			return err
 		}
 		return t.audit(now, actor, "space.set", "default", fmt.Sprintf("network isolation %t", on))
+	})
+}
+
+// StartNetworkSwitch begins switching a running cluster to mode to (ADR
+// 0050): only between plain and wireguard, and only while no switch runs
+// (ErrConflict). Asking for the current mode during a switch's prepare step
+// gives the switch up; once its nodes move, it finishes.
+func (s *Etcd) StartNetworkSwitch(ctx context.Context, to, actor string) error {
+	if to != NetworkPlain && to != NetworkWireGuard {
+		return fmt.Errorf("a running cluster switches only to %s or %s, not %q: %w", NetworkPlain, NetworkWireGuard, to, ErrPrecondition)
+	}
+	now := s.now()
+	return s.tx(ctx, func(t *etx) error {
+		var r networkRec
+		ok, err := t.get(keyNetwork, &r)
+		if err != nil {
+			return err
+		}
+		switch {
+		case !ok:
+			return fmt.Errorf("the cluster has no cluster network to switch: %w", ErrPrecondition)
+		case r.Mode == NetworkMesh:
+			return fmt.Errorf("a mesh cluster cannot switch its network mode: its nodes' addresses depend on it: %w", ErrPrecondition)
+		case r.Switch != nil && to == r.Mode && r.Switch.Step == SwitchPrepare:
+			r.Switch = nil
+			if err := t.put(keyNetwork, r); err != nil {
+				return err
+			}
+			return t.audit(now, actor, "network.switch", "network", "gave up the switch to "+to+"; staying on "+r.Mode)
+		case r.Switch != nil:
+			return fmt.Errorf("the network is switching to %s (%s step): %w", r.Switch.To, r.Switch.Step, ErrConflict)
+		case to == r.Mode:
+			return nil
+		}
+		r.Switch = &networkSwitchRec{To: to, Step: SwitchPrepare, Since: now}
+		if err := t.put(keyNetwork, r); err != nil {
+			return err
+		}
+		return t.audit(now, actor, "network.switch", "network", "switching from "+r.Mode+" to "+to)
+	})
+}
+
+// AdvanceNetworkSwitch takes a switch to to from the step from to the next
+// (ADR 0050): prepare to move, and move to done, where the cluster's mode
+// becomes to. It returns ErrConflict when the switch is no longer at that
+// step, so a pass acting on what it read earlier changes nothing.
+func (s *Etcd) AdvanceNetworkSwitch(ctx context.Context, to, from string) error {
+	now := s.now()
+	return s.tx(ctx, func(t *etx) error {
+		var r networkRec
+		ok, err := t.get(keyNetwork, &r)
+		if err != nil {
+			return err
+		}
+		if !ok || r.Switch == nil || r.Switch.To != to || r.Switch.Step != from {
+			return fmt.Errorf("the network switch is not at %s %s: %w", to, from, ErrConflict)
+		}
+		switch from {
+		case SwitchPrepare:
+			r.Switch = &networkSwitchRec{To: to, Step: SwitchMove, Since: now}
+		case SwitchMove:
+			r.Mode, r.Switch = to, nil
+		default:
+			return fmt.Errorf("unknown switch step %q", from)
+		}
+		return t.put(keyNetwork, r)
 	})
 }
 

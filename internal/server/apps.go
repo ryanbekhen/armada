@@ -3,6 +3,7 @@ package server
 import (
 	"cmp"
 	"context"
+	"errors"
 	"slices"
 
 	"google.golang.org/grpc/codes"
@@ -163,6 +164,13 @@ func (s *Server) ClusterStatus(ctx context.Context, _ *armadav1.ClusterStatusReq
 		} else {
 			resp.NodesNotReady = append(resp.NodesNotReady, n.ID)
 		}
+	}
+	switch n, err := s.store.GetNetwork(ctx); {
+	case errors.Is(err, store.ErrNotFound):
+	case err != nil:
+		return nil, storeErr(err)
+	case n.Switch != nil:
+		resp.NetworkSwitch = s.switchProgress(n, nodes, s.now())
 	}
 	return resp, nil
 }

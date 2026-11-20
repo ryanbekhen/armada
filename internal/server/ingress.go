@@ -685,6 +685,16 @@ func (s *Server) GetClusterConfig(ctx context.Context, _ *armadav1.GetClusterCon
 	}
 	cc.LogRetentionSeconds, cc.LogMaxBytes = ls.RetentionSeconds, ls.MaxBytes
 	cc.LogExport, cc.LogEndpoint, cc.LogExportUser, cc.LogExportTenant, cc.LogTokenSet = ls.Export, ls.Endpoint, ls.User, ls.Tenant, ls.Token != nil
+	switch n, err := s.store.GetNetwork(ctx); {
+	case errors.Is(err, store.ErrNotFound):
+	case err != nil:
+		return nil, storeErr(err)
+	default:
+		cc.Network = n.Mode
+		if n.Switch != nil {
+			cc.NetworkSwitchTo = n.Switch.To
+		}
+	}
 	return cc, nil
 }
 
@@ -743,6 +753,11 @@ func (s *Server) SetClusterConfig(ctx context.Context, req *armadav1.SetClusterC
 	}
 	if err := s.setLogSettings(ctx, req); err != nil {
 		return nil, err
+	}
+	if req.GetSetNetwork() {
+		if err := s.setNetwork(ctx, req.GetConfig().GetNetwork()); err != nil {
+			return nil, err
+		}
 	}
 	changed, err := s.setSettings(ctx, req)
 	if err != nil {
