@@ -812,7 +812,8 @@ Container addresses are unique in the cluster, and the bridge's gateway
 Linux node routes the other nodes' subnets over its `armada-net` interface,
 so containers and nodes reach a container on any node at its own address,
 and a replica sees the caller's real address. `armadad init --network`
-chooses, once, how that traffic travels:
+chooses how that traffic travels; `plain` and `wireguard` can be switched
+later on a running cluster (below):
 
 | Mode | Tunnel | Port to allow between nodes | Overhead |
 | --- | --- | --- | --- |
@@ -861,10 +862,45 @@ announces the public half; a node that announces another node's key is
 refused. To give a node a new key, remove `network.key` and restart its
 agent.
 
+### Switching between plain and wireguard
+
+A running cluster switches between `plain` and `wireguard` without
+stopping traffic ([ADR 0050](adr/0050-sites.md)):
+
+```bash
+armada cluster set --network wireguard
+armada cluster status        # how far it is, and the nodes it waits for
+```
+
+Allow the new mode's port between the nodes first (UDP 51820 for
+`wireguard`, UDP 4789 for `plain`). The switch goes in three steps:
+
+1. Every node brings the new tunnel up beside the current one, on
+   `armada-next`, and checks that it reaches every other node through it.
+   `armada cluster status` names the nodes that do not reach some peer yet,
+   which usually means the port is closed in the provider's firewall.
+2. Once every node reaches every other, the routes move to the new tunnel.
+   The old one stays up until every node has moved.
+3. The old tunnel goes and `armada-next` becomes `armada-net`, which takes
+   the interface down for a moment.
+
+A switch waits for every node that is connected, and for a disconnected
+one until it counts as lost; a lost node takes the new mode when it comes
+back. Every node must run an Armada that knows switches, and a switch to
+`wireguard` needs the kernel's WireGuard on every node. Running `armada
+cluster set --network` with the current mode during the first step gives
+the switch up; once the routes move, it finishes. Each step is an event
+(`armada cluster events`). `mesh` clusters cannot switch: their nodes'
+addresses depend on the mode.
+
 The tunnel takes its overhead from each packet: the bridge and containers
 get the MTU of the interface that holds the private IP less 50 or 80 (at
 least 1280 is required). Containers created before the node joined the tunnel keep
-their old MTU until they are replaced. `armadad doctor` shows the MTU,
+their old MTU until they are replaced. After a switch to `wireguard`, the
+bridge and the containers keep VXLAN's larger MTU; containers created after
+the agent's next start get the new one. In every mode each node clamps the
+TCP segment size of connections leaving through the tunnel to its MTU, so
+TCP traffic is not affected. `armadad doctor` shows the MTU,
 whether `armada-net` is up and routes every other node, and in the
 `wireguard` mode whether every peer has a recent handshake. `armadad runtime
 reset` on a removed node takes the interface and its firewall rules off.
