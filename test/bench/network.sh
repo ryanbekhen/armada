@@ -89,6 +89,7 @@ IP_A=
 IP_B=
 NETWORK=
 IPERF_HOST=
+IPERF_CLI=
 
 log() { printf '\n==> %s\n' "$*"; }
 ok() { printf '    ok: %s\n' "$*"; }
@@ -134,8 +135,8 @@ placed() {
 		  and ([$live[] | select(.state == "running" and (.ready // false))] | length) == ($live | length)
 		  and ([$live[].nodeId] | sort | join(" ")) == ($nodes | split(" ") | sort | join(" "))'
 }
-address() { # address APP: the address of the app's replica
-	cli app show "$1" -o json | jq -r '.replicas[0].address'
+replica() { # replica APP NODE FIELD: a field of the app's replica on NODE
+	cli app show "$1" -o json | jq -r --arg n "$2" --arg f "$3" '[.replicas[] | select(.nodeId == $n)][0][$f]'
 }
 
 # cpu N prints "busy total" jiffies of machine N.
@@ -327,25 +328,21 @@ nodes_one() { nodes | jq -e '[.nodes[] | select(.state == "ready")] | length == 
 
 # Apps. Every image is multi-architecture; iperf3 and busybox's httpd come
 # from Alpine packages when the container starts.
+# One iperf3 app with a replica on each machine: the client runs in A's
+# replica and connects to B's, since only replicas of one app reach each
+# other directly (ADR 0026).
 iperf_apps() {
 	deploy <<EOF
-name: ipsrv
+name: iperf
 image: alpine:3.20
 command: ["sh", "-c", "apk add -q --no-cache iperf3 && exec iperf3 -s -p 5201"]
 ingress:
   type: internal
   port: 5201
+scale:
+  min: 2
 placement:
-  require:
-    bench: b
-EOF
-	deploy <<EOF
-name: ipcli
-image: alpine:3.20
-command: ["sh", "-c", "apk add -q --no-cache iperf3 && exec sleep 86400"]
-placement:
-  require:
-    bench: a
+  spreadBy: bench
 EOF
 	deploy <<EOF
 name: sink
@@ -401,11 +398,11 @@ EOF
 }
 
 iperf() { # iperf STREAMS [-R]: Gbit/s received
-	on 1 "armada app exec ipcli -- iperf3 -c $IPERF_HOST -p $IPERF_PORT -t $BENCH_IPERF_SECONDS -P $1 ${2:-} -J" >"$WORK/iperf.json"
+	on 1 "armada app exec iperf --replica $IPERF_CLI -- iperf3 -c $IPERF_HOST -p $IPERF_PORT -t $BENCH_IPERF_SECONDS -P $1 ${2:-} -J" >"$WORK/iperf.json"
 	cp "$WORK/iperf.json" "$BENCH_OUT/$MODE-iperf-$1${2:-}.json"
 	IPERF=$(jq -r '.end.sum_received.bits_per_second / 1e9 * 100 | round / 100' "$WORK/iperf.json")
 }
-iperf_ready() { on 1 "armada app exec ipcli -- iperf3 -c $IPERF_HOST -p $IPERF_PORT -t 1" ; }
+iperf_ready() { on 1 "armada app exec iperf --replica $IPERF_CLI -- iperf3 -c $IPERF_HOST -p $IPERF_PORT -t 1" ; }
 
 hey() { # hey CONCURRENCY NAME
 	on 1 "armada-bench-hey -z ${BENCH_DURATION}s -c $1 -host web.internal http://$GW/" >"$BENCH_OUT/$MODE-$2-c$1.txt"
@@ -453,11 +450,11 @@ for MODE in $BENCH_MODES; do
 	fi
 
 	iperf_apps
-	wait_for 180 "iperf3 server on $B, client on $A" placed ipsrv "$B"
-	wait_for 120 "iperf3 client on $A" placed ipcli "$A"
-	# The replica's address: its container's on a cluster network, else
+	wait_for 180 "iperf3 on $A and $B" placed iperf "$A $B"
+	IPERF_CLI=$(replica iperf "$A" id)
+	# B's replica's address: its container's on a cluster network, else
 	# the published port on B's private IP.
-	IPERF_PORT=$(address ipsrv)
+	IPERF_PORT=$(replica iperf "$B" address)
 	IPERF_HOST=${IPERF_PORT%:*}
 	IPERF_PORT=${IPERF_PORT##*:}
 	wait_for 120 "iperf3 reaches $B" iperf_ready
