@@ -19,8 +19,9 @@ func prefixNet(p netip.Prefix) *net.IPNet {
 }
 
 // peerChanges returns the configuration that turns device d into one with
-// key and peers, or nil when it already is. In the mesh mode a peer is
-// reached at its endpoint and is also allowed its mesh address; an endpoint
+// key and peers, or nil when it already is. In the mesh mode, and for a
+// peer of another site, a peer is reached at its endpoint and is also
+// allowed its node address; an endpoint
 // WireGuard has moved (roaming, from the peer's authenticated packets) is
 // kept while its handshake is fresh at now, so a peer behind NAT or with a
 // changed address keeps working before the control plane hears of it.
@@ -42,14 +43,17 @@ func peerChanges(d *wgtypes.Device, key wgtypes.Key, mode string, peers []peer, 
 	for _, pe := range peers {
 		want[pe.key] = true
 		target, allowed := pe.ip, []net.IPNet{*prefixNet(pe.subnet)}
-		if mode == ModeMesh {
+		// A mesh peer, or a peer of another site (ADR 0050), is reached at
+		// its public endpoint and also carries its node address.
+		public := mode == ModeMesh || pe.remote
+		if public {
 			target = pe.endpoint
 			allowed = []net.IPNet{*prefixNet(netip.PrefixFrom(pe.ip, 32)), *prefixNet(pe.subnet)}
 		}
 		ep := &net.UDPAddr{IP: target.AsSlice(), Port: WireGuardPort}
 		h, ok := have[pe.key]
 		keep := ok && h.Endpoint != nil && (h.Endpoint.String() == ep.String() ||
-			mode == ModeMesh && !h.LastHandshakeTime.IsZero() && now.Sub(h.LastHandshakeTime) <= staleHandshake)
+			public && !h.LastHandshakeTime.IsZero() && now.Sub(h.LastHandshakeTime) <= staleHandshake)
 		if keep && sameNets(h.AllowedIPs, allowed) && h.PersistentKeepaliveInterval == keepalive {
 			continue
 		}

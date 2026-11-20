@@ -10776,8 +10776,13 @@ type NetworkPeer struct {
 	// The node's WireGuard public key, base64; empty until it has announced
 	// one.
 	PublicKey string `protobuf:"bytes,4,opt,name=public_key,json=publicKey,proto3" json:"public_key,omitempty"`
-	// In the mesh mode, the public IPv4 address WireGuard packets go to.
-	Endpoint      string `protobuf:"bytes,5,opt,name=endpoint,proto3" json:"endpoint,omitempty"`
+	// The public IPv4 address WireGuard packets go to: in the mesh mode for
+	// every peer, elsewhere for peers in another site (ADR 0050).
+	Endpoint string `protobuf:"bytes,5,opt,name=endpoint,proto3" json:"endpoint,omitempty"`
+	// The node's site (ADR 0050); empty for the cluster's first. Peers in
+	// the same site use the cluster's mode over their private addresses,
+	// peers in other sites WireGuard between their endpoints.
+	Site          string `protobuf:"bytes,6,opt,name=site,proto3" json:"site,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -10843,6 +10848,13 @@ func (x *NetworkPeer) GetPublicKey() string {
 func (x *NetworkPeer) GetEndpoint() string {
 	if x != nil {
 		return x.Endpoint
+	}
+	return ""
+}
+
+func (x *NetworkPeer) GetSite() string {
+	if x != nil {
+		return x.Site
 	}
 	return ""
 }
@@ -15428,7 +15440,7 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"switchStep\"=\n" +
 	"\x0fNetworkEndpoint\x12\x18\n" +
 	"\aaddress\x18\x01 \x01(\tR\aaddress\x12\x10\n" +
-	"\x03app\x18\x02 \x01(\tR\x03app\"\x93\x01\n" +
+	"\x03app\x18\x02 \x01(\tR\x03app\"\xa7\x01\n" +
 	"\vNetworkPeer\x12\x12\n" +
 	"\x04node\x18\x01 \x01(\tR\x04node\x12\x1d\n" +
 	"\n" +
@@ -15436,7 +15448,8 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\x06subnet\x18\x03 \x01(\tR\x06subnet\x12\x1d\n" +
 	"\n" +
 	"public_key\x18\x04 \x01(\tR\tpublicKey\x12\x1a\n" +
-	"\bendpoint\x18\x05 \x01(\tR\bendpoint\"\x8d\x03\n" +
+	"\bendpoint\x18\x05 \x01(\tR\bendpoint\x12\x12\n" +
+	"\x04site\x18\x06 \x01(\tR\x04site\"\x8d\x03\n" +
 	"\vProxyConfig\x123\n" +
 	"\bbackends\x18\x01 \x03(\v2\x17.armada.v1.ProxyBackendR\bbackends\x12*\n" +
 	"\x05rules\x18\x02 \x03(\v2\x14.armada.v1.ProxyRuleR\x05rules\x12?\n" +

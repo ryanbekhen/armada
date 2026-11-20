@@ -25,6 +25,10 @@ import (
 const (
 	// Interface is the tunnel interface on every node.
 	Interface = "armada-net"
+	// SiteInterface carries a plain cluster's traffic to nodes of other
+	// sites, over WireGuard between their endpoints (ADR 0050); in the
+	// wireguard and mesh modes Interface carries every peer.
+	SiteInterface = "armada-wg"
 	// Next holds the target transport while the cluster switches between
 	// the plain and wireguard modes (ADR 0050); once the switch is done it
 	// takes Interface's place.
@@ -93,8 +97,14 @@ type peer struct {
 	ip     netip.Addr
 	subnet netip.Prefix
 	key    wgtypes.Key // zero until the node has announced one
-	// endpoint is the public address of the mesh mode.
+	// endpoint is the public address of the mesh mode, and of a peer in
+	// another site (ADR 0050).
 	endpoint netip.Addr
+	// site is the node's site, "" for the first (ADR 0050).
+	site string
+	// remote marks a peer in another site than this node: reached over
+	// WireGuard at its endpoint, and allowed its node address too.
+	remote bool
 }
 
 // plan is a validated network configuration.
@@ -174,8 +184,13 @@ func parse(cfg *armadav1.NetworkConfig, self string, selfIP netip.Addr) (plan, e
 			return plan{}, fmt.Errorf("peer %s: duplicate name, address, or subnet", pp.GetNode())
 		}
 		names[pp.GetNode()], ips[ip], subnets[sub] = true, true, true
-		pe := peer{node: pp.GetNode(), ip: ip, subnet: sub}
-		if p.mode == ModeMesh && pp.GetEndpoint() != "" {
+		pe := peer{node: pp.GetNode(), ip: ip, subnet: sub, site: pp.GetSite()}
+		if pe.site != "" {
+			if err := spec.CheckLabelValue(pe.site); err != nil {
+				return plan{}, fmt.Errorf("peer %s: site: %w", pp.GetNode(), err)
+			}
+		}
+		if pp.GetEndpoint() != "" {
 			ep, err := netutil.CheckEndpoint(pp.GetEndpoint())
 			if err != nil {
 				return plan{}, fmt.Errorf("peer %s: %w", pp.GetNode(), err)
@@ -202,22 +217,62 @@ func parse(cfg *armadav1.NetworkConfig, self string, selfIP netip.Addr) (plan, e
 			p.self, found = pe, true
 			continue
 		}
-		if encrypted(p.mode) && pe.key == (wgtypes.Key{}) {
-			// Not connected since it joined: it has no key to reach it by
-			// yet, and comes in with the next list. (Switching from plain,
-			// the VXLAN side keeps it; the WireGuard side skips it.)
-			continue
-		}
-		if p.mode == ModeMesh && !pe.endpoint.IsValid() {
-			// Nowhere to send its packets yet.
-			continue
-		}
 		p.peers = append(p.peers, pe)
 	}
 	if !found {
 		return plan{}, errors.New("this node is not in the cluster network's peer list")
 	}
+	// Peers of other sites are reached over WireGuard at their endpoints
+	// (ADR 0050); the mesh reaches every peer that way already.
+	kept := p.peers[:0]
+	for _, pe := range p.peers {
+		pe.remote = p.mode != ModeMesh && pe.site != p.self.site
+		wg := encrypted(p.mode) || pe.remote
+		switch {
+		case wg && pe.key == (wgtypes.Key{}):
+			// Not connected since it joined: it has no key to reach it by
+			// yet, and comes in with the next list. (Switching from plain,
+			// the VXLAN side keeps it; the WireGuard side skips it.)
+			continue
+		case (p.mode == ModeMesh || pe.remote) && !pe.endpoint.IsValid():
+			// Nowhere to send its packets yet.
+			continue
+		}
+		kept = append(kept, pe)
+	}
+	p.peers = kept
+	if p.switching() && len(p.remote()) > 0 {
+		return plan{}, errors.New("a cluster with more than one site cannot switch its network mode")
+	}
 	return p, nil
+}
+
+// local returns the peers in this node's site.
+func (p plan) local() []peer {
+	var out []peer
+	for _, pe := range p.peers {
+		if !pe.remote {
+			out = append(out, pe)
+		}
+	}
+	return out
+}
+
+// remote returns the peers in other sites (ADR 0050).
+func (p plan) remote() []peer {
+	var out []peer
+	for _, pe := range p.peers {
+		if pe.remote {
+			out = append(out, pe)
+		}
+	}
+	return out
+}
+
+// only returns p with only the given peers.
+func (p plan) only(peers []peer) plan {
+	p.peers = peers
+	return p
 }
 
 // parseSwitch validates a switch between modes (ADR 0050): only between

@@ -48,6 +48,10 @@ var errNoKernelWireGuard = errors.New("the kernel has no WireGuard, which the me
 // without the kernel's WireGuard (ADR 0050).
 var errSwitchNeedsKernel = errors.New("the kernel has no WireGuard, which switching a running cluster to the wireguard mode needs; use a kernel with WireGuard (Linux 5.6 or later), or remove this node first")
 
+// errSitesNeedKernel refuses other sites on a plain cluster's node without
+// the kernel's WireGuard (ADR 0050).
+var errSitesNeedKernel = errors.New("the kernel has no WireGuard, which reaching nodes of other sites needs; use a kernel with WireGuard (Linux 5.6 or later)")
+
 // wgDevice returns the WireGuard interface name, creating it in the kernel,
 // or, when user allows it, in userspace inside the agent when the kernel
 // has no WireGuard.
@@ -75,6 +79,8 @@ func (n *Net) wgDevice(name string, mtu int, user bool) (netlink.Link, error) {
 	case err == nil:
 	case errors.Is(err, unix.EOPNOTSUPP) && name == Next:
 		return nil, errSwitchNeedsKernel
+	case errors.Is(err, unix.EOPNOTSUPP) && name == SiteInterface:
+		return nil, errSitesNeedKernel
 	case errors.Is(err, unix.EOPNOTSUPP) && !user:
 		return nil, errNoKernelWireGuard
 	case errors.Is(err, unix.EOPNOTSUPP):
