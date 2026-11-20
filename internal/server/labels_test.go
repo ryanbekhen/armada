@@ -121,3 +121,67 @@ func TestHelloOSAndArch(t *testing.T) {
 		t.Errorf("invalid values stored: os %q arch %q", n.OS, n.Arch)
 	}
 }
+
+// A node's site comes from its join token or armada node site, and shows
+// as the armada.site label; admins cannot set the label itself (ADR 0050).
+func TestNodeSites(t *testing.T) {
+	t.Parallel()
+	c := newCluster(t, withJoin(t))
+	tok, err := c.admin.CreateJoinToken(c.ctx, &armadav1.CreateJoinTokenRequest{Site: "office"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req, keyPEM := joinReq(t, tok.Token, "n7", "10.0.0.17")
+	resp, err := c.joinClient(tok).Join(c.ctx, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.runJoinedAgent("n7", "10.0.0.17", resp, keyPEM)
+	site := func() (string, string) {
+		t.Helper()
+		st, err := c.admin.Status(c.ctx, &armadav1.StatusRequest{NodesOnly: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, n := range st.Nodes {
+			if n.Id == "n7" {
+				return n.Site, n.Labels["armada.site"]
+			}
+		}
+		t.Fatal("no node n7")
+		return "", ""
+	}
+	if s, l := site(); s != "office" || l != "office" {
+		t.Fatalf("joined: site %q, label %q", s, l)
+	}
+	if _, err := c.admin.SetNodeSite(c.ctx, &armadav1.SetNodeSiteRequest{Node: "n7", Site: "home"}); err != nil {
+		t.Fatal(err)
+	}
+	if s, l := site(); s != "home" || l != "home" {
+		t.Errorf("moved: site %q, label %q", s, l)
+	}
+	if _, err := c.admin.SetNodeSite(c.ctx, &armadav1.SetNodeSiteRequest{Node: "n7"}); err != nil {
+		t.Fatal(err)
+	}
+	if s, l := site(); s != "" || l != "" {
+		t.Errorf("first site: site %q, label %q", s, l)
+	}
+	// The agent's own reports never change it.
+	if n, _ := c.store.GetNode(c.ctx, "n7"); n.Site != "" {
+		t.Errorf("store site %q", n.Site)
+	}
+	for name, s := range map[string]string{"upper": "Office", "space": "a b", "slash": "a/b", "long": string(make([]byte, 64))} {
+		if _, err := c.admin.CreateJoinToken(c.ctx, &armadav1.CreateJoinTokenRequest{Site: s}); status.Code(err) != codes.InvalidArgument {
+			t.Errorf("token %s: %v, want InvalidArgument", name, err)
+		}
+		if _, err := c.admin.SetNodeSite(c.ctx, &armadav1.SetNodeSiteRequest{Node: "n7", Site: s}); status.Code(err) != codes.InvalidArgument {
+			t.Errorf("site %s: %v, want InvalidArgument", name, err)
+		}
+	}
+	if _, err := c.admin.SetNodeSite(c.ctx, &armadav1.SetNodeSiteRequest{Node: "ghost", Site: "x"}); status.Code(err) != codes.NotFound {
+		t.Errorf("unknown node: %v", err)
+	}
+	if _, err := c.admin.LabelNode(c.ctx, &armadav1.LabelNodeRequest{Node: "n7", Set: map[string]string{"armada.site": "x"}}); status.Code(err) != codes.InvalidArgument {
+		t.Errorf("label armada.site: %v", err)
+	}
+}

@@ -56,6 +56,7 @@ Flags:
 | --- | --- |
 | `--from string` | mesh clusters: the IP address the machine joins from; the join listener answers no other |
 | `--label stringArray` | label KEY=VALUE for the node that joins with the token (repeatable) |
+| `--site string` | the site the machine joins (ADR 0050); default: the cluster's first site |
 | `--ttl duration` | token lifetime (1m to 1h; default 15m, 10m in a mesh cluster) |
 
 ## `armada server list`

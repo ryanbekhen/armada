@@ -18,6 +18,7 @@ Also: `nodes`.
 | [`armada node restrict`](#armada-node-restrict) | Run only apps whose placement selects one of the node's labels |
 | [`armada node resume`](#armada-node-resume) | Let a drained node take replicas again |
 | [`armada node show`](#armada-node-show) | Show a node |
+| [`armada node site`](#armada-node-site) | Move a node to another site |
 | [`armada node top`](#armada-node-top) | Show the CPU and memory each node's replicas use and reserve |
 | [`armada node unrestrict`](#armada-node-unrestrict) | Let any app run on a restricted node again |
 
@@ -73,6 +74,7 @@ Flags:
 | --- | --- |
 | `--from string` | mesh clusters: the IP address the machine joins from; the join listener answers no other |
 | `--label stringArray` | label KEY=VALUE for the node that joins with the token (repeatable) |
+| `--site string` | the site the machine joins (ADR 0050); default: the cluster's first site |
 | `--ttl duration` | token lifetime (1m to 24h, in a mesh cluster 1h; default 1h, 10m in a mesh cluster) |
 
 ## `armada node label`
@@ -84,7 +86,7 @@ below the serving count.
 
 Keys are lowercase letters, digits, '.', '-', '_', and '/'; values the same
 without '/'. Keys starting with "armada." are set by Armada (armada.os,
-armada.arch) and cannot be changed.
+armada.arch, and armada.site from armada node site) and cannot be changed here.
 
 ```
 armada node label NODE KEY=VALUE... | KEY-...
@@ -142,6 +144,33 @@ Flags:
 | Flag | Meaning |
 | --- | --- |
 | `-o`, `--output string` | output format: text or json (default `text`) |
+
+## `armada node site`
+
+Move a node to another site (ADR 0050). Within a site, nodes reach each other
+over their private network in the cluster's mode; between sites, over
+WireGuard between their public addresses. --clear moves the node back to the
+cluster's first site, which has no name.
+
+A node carries its site as the label armada.site, so placement.require and
+spreadBy can name it. Nodes of the first site have no armada.site label.
+
+```
+armada node site NODE [SITE] | NODE --clear [flags]
+```
+
+Examples:
+
+```bash
+armada node site office-1 office
+armada node site office-1 --clear
+```
+
+Flags:
+
+| Flag | Meaning |
+| --- | --- |
+| `--clear` | move the node back to the cluster's first site |
 
 ## `armada node top`
 

@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"cmp"
+	"errors"
 	"fmt"
 	"net/netip"
 	"regexp"
@@ -24,6 +26,7 @@ func newJoinTokenCommand(g *globals, forServer bool) *cobra.Command {
 		ttl    time.Duration
 		labels []string
 		from   string
+		site   string
 	)
 	cmd := &cobra.Command{
 		Use:   "join-token",
@@ -42,7 +45,7 @@ func newJoinTokenCommand(g *globals, forServer bool) *cobra.Command {
 				return err
 			}
 			defer conn.Close()
-			req := &armadav1.CreateJoinTokenRequest{TtlSeconds: int64(ttl / time.Second), Server: forServer, From: from}
+			req := &armadav1.CreateJoinTokenRequest{TtlSeconds: int64(ttl / time.Second), Server: forServer, From: from, Site: site}
 			for _, l := range labels {
 				k, v, err := parseLabel(l)
 				if err != nil {
@@ -87,6 +90,7 @@ func newJoinTokenCommand(g *globals, forServer bool) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&from, "from", "", "mesh clusters: the IP address the machine joins from; the join listener answers no other")
 	cmd.Flags().StringArrayVar(&labels, "label", nil, "label KEY=VALUE for the node that joins with the token (repeatable)")
+	cmd.Flags().StringVar(&site, "site", "", "the site the machine joins (ADR 0050); default: the cluster's first site")
 	return cmd
 }
 
@@ -152,8 +156,8 @@ func newNodeCommand(g *globals) *cobra.Command {
 				exp = n.CertExpiresAt.AsTime().Local().Format(time.DateOnly)
 			}
 			tw := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
-			_, _ = fmt.Fprintf(tw, "Node:\t%s\nPrivate IP:\t%s\nState:\t%s\nReplicas:\t%d\nCPU:\t%.1f\nMemory:\t%s\nVersion:\t%s\nLast seen:\t%s\nCert expires:\t%s\nLabels:\t%s\n",
-				n.Id, n.PrivateIp, nodeState(n), replicas[n.Id], float64(n.CpuMillis)/1000, humanBytes(n.MemoryBytes), orDash(n.Version), seen, exp, orDash(formatLabels(n.Labels)))
+			_, _ = fmt.Fprintf(tw, "Node:\t%s\nPrivate IP:\t%s\nSite:\t%s\nState:\t%s\nReplicas:\t%d\nCPU:\t%.1f\nMemory:\t%s\nVersion:\t%s\nLast seen:\t%s\nCert expires:\t%s\nLabels:\t%s\n",
+				n.Id, n.PrivateIp, cmp.Or(n.Site, "(the first site)"), nodeState(n), replicas[n.Id], float64(n.CpuMillis)/1000, humanBytes(n.MemoryBytes), orDash(n.Version), seen, exp, orDash(formatLabels(n.Labels)))
 			return tw.Flush()
 		},
 	}
@@ -266,7 +270,7 @@ func newNodeCommand(g *globals) *cobra.Command {
 			"below the serving count.\n\n" +
 			"Keys are lowercase letters, digits, '.', '-', '_', and '/'; values the same\n" +
 			"without '/'. Keys starting with \"armada.\" are set by Armada (armada.os,\n" +
-			"armada.arch) and cannot be changed.",
+			"armada.arch, and armada.site from armada node site) and cannot be changed here.",
 		Example: "  armada node label raspi-1 region=sulawesi kind=raspi\n  armada node label raspi-1 kind-",
 		Args:    cobra.MinimumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -318,13 +322,56 @@ func newNodeCommand(g *globals) *cobra.Command {
 			},
 		}
 	}
-	cmd.AddCommand(list, show, newNodeTopCommand(g), label,
+	var clearSite bool
+	siteCmd := &cobra.Command{
+		Use:   "site NODE [SITE] | NODE --clear",
+		Short: "Move a node to another site",
+		Long: "Move a node to another site (ADR 0050). Within a site, nodes reach each other\n" +
+			"over their private network in the cluster's mode; between sites, over\n" +
+			"WireGuard between their public addresses. --clear moves the node back to the\n" +
+			"cluster's first site, which has no name.\n\n" +
+			"A node carries its site as the label armada.site, so placement.require and\n" +
+			"spreadBy can name it. Nodes of the first site have no armada.site label.",
+		Example: "  armada node site office-1 office\n  armada node site office-1 --clear",
+		Args:    cobra.RangeArgs(1, 2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			site := ""
+			switch {
+			case len(args) == 2 && clearSite:
+				return errors.New("give a SITE or --clear, not both")
+			case len(args) == 2:
+				site = args[1]
+			case !clearSite:
+				return errors.New("give a SITE, or --clear for the cluster's first site")
+			}
+			client, conn, err := dialAdmin(g)
+			if err != nil {
+				return err
+			}
+			defer conn.Close()
+			if _, err := client.SetNodeSite(cmd.Context(), &armadav1.SetNodeSiteRequest{Node: args[0], Site: site}); err != nil {
+				return RPCError(err)
+			}
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Node %s is in %s.\n", args[0], siteName(site))
+			return err
+		},
+	}
+	siteCmd.Flags().BoolVar(&clearSite, "clear", false, "move the node back to the cluster's first site")
+	cmd.AddCommand(list, show, newNodeTopCommand(g), label, siteCmd,
 		drain("drain", "Stop placing replicas on a node and move its replicas away", true),
 		drain("resume", "Let a drained node take replicas again", false),
 		restrict("restrict", "Run only apps whose placement selects one of the node's labels", true),
 		restrict("unrestrict", "Let any app run on a restricted node again", false),
 		newJoinTokenCommand(g, false), remove)
 	return cmd
+}
+
+// siteName names a site for people: the first has no name.
+func siteName(site string) string {
+	if site == "" {
+		return "the first site"
+	}
+	return "site " + site
 }
 
 // nodeStatus reads the nodes and how many replicas each runs.

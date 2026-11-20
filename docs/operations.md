@@ -660,7 +660,11 @@ armada node list                                         # LABELS column, "restr
 ```
 
 Every node also has `armada.os` and `armada.arch`, which its agent
-reports.
+reports, and nodes outside the cluster's first site have `armada.site`,
+the site an admin gave them (`armada node join-token --site`, `armada
+node site NODE SITE`; [ADR 0050](adr/0050-sites.md)). Nodes of the first
+site have no `armada.site`, so give every node a site to spread an app
+over sites with it.
 Label keys and values are yours to choose; Armada gives no name a meaning.
 Apps select nodes with `placement.require` and spread over a label's values
 with `placement.spreadBy` (see the

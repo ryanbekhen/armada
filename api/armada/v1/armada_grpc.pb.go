@@ -46,6 +46,7 @@ const (
 	AdminService_CordonNode_FullMethodName               = "/armada.v1.AdminService/CordonNode"
 	AdminService_LabelNode_FullMethodName                = "/armada.v1.AdminService/LabelNode"
 	AdminService_RestrictNode_FullMethodName             = "/armada.v1.AdminService/RestrictNode"
+	AdminService_SetNodeSite_FullMethodName              = "/armada.v1.AdminService/SetNodeSite"
 	AdminService_RemoveNode_FullMethodName               = "/armada.v1.AdminService/RemoveNode"
 	AdminService_ListServers_FullMethodName              = "/armada.v1.AdminService/ListServers"
 	AdminService_RemoveServer_FullMethodName             = "/armada.v1.AdminService/RemoveServer"
@@ -126,6 +127,7 @@ type AdminServiceClient interface {
 	CordonNode(ctx context.Context, in *CordonNodeRequest, opts ...grpc.CallOption) (*CordonNodeResponse, error)
 	LabelNode(ctx context.Context, in *LabelNodeRequest, opts ...grpc.CallOption) (*LabelNodeResponse, error)
 	RestrictNode(ctx context.Context, in *RestrictNodeRequest, opts ...grpc.CallOption) (*RestrictNodeResponse, error)
+	SetNodeSite(ctx context.Context, in *SetNodeSiteRequest, opts ...grpc.CallOption) (*SetNodeSiteResponse, error)
 	RemoveNode(ctx context.Context, in *RemoveNodeRequest, opts ...grpc.CallOption) (*RemoveNodeResponse, error)
 	ListServers(ctx context.Context, in *ListServersRequest, opts ...grpc.CallOption) (*ListServersResponse, error)
 	RemoveServer(ctx context.Context, in *RemoveServerRequest, opts ...grpc.CallOption) (*RemoveServerResponse, error)
@@ -494,6 +496,16 @@ func (c *adminServiceClient) RestrictNode(ctx context.Context, in *RestrictNodeR
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(RestrictNodeResponse)
 	err := c.cc.Invoke(ctx, AdminService_RestrictNode_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) SetNodeSite(ctx context.Context, in *SetNodeSiteRequest, opts ...grpc.CallOption) (*SetNodeSiteResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SetNodeSiteResponse)
+	err := c.cc.Invoke(ctx, AdminService_SetNodeSite_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -905,6 +917,7 @@ type AdminServiceServer interface {
 	CordonNode(context.Context, *CordonNodeRequest) (*CordonNodeResponse, error)
 	LabelNode(context.Context, *LabelNodeRequest) (*LabelNodeResponse, error)
 	RestrictNode(context.Context, *RestrictNodeRequest) (*RestrictNodeResponse, error)
+	SetNodeSite(context.Context, *SetNodeSiteRequest) (*SetNodeSiteResponse, error)
 	RemoveNode(context.Context, *RemoveNodeRequest) (*RemoveNodeResponse, error)
 	ListServers(context.Context, *ListServersRequest) (*ListServersResponse, error)
 	RemoveServer(context.Context, *RemoveServerRequest) (*RemoveServerResponse, error)
@@ -1068,6 +1081,9 @@ func (UnimplementedAdminServiceServer) LabelNode(context.Context, *LabelNodeRequ
 }
 func (UnimplementedAdminServiceServer) RestrictNode(context.Context, *RestrictNodeRequest) (*RestrictNodeResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method RestrictNode not implemented")
+}
+func (UnimplementedAdminServiceServer) SetNodeSite(context.Context, *SetNodeSiteRequest) (*SetNodeSiteResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SetNodeSite not implemented")
 }
 func (UnimplementedAdminServiceServer) RemoveNode(context.Context, *RemoveNodeRequest) (*RemoveNodeResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method RemoveNode not implemented")
@@ -1652,6 +1668,24 @@ func _AdminService_RestrictNode_Handler(srv interface{}, ctx context.Context, de
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(AdminServiceServer).RestrictNode(ctx, req.(*RestrictNodeRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_SetNodeSite_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetNodeSiteRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).SetNodeSite(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminService_SetNodeSite_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).SetNodeSite(ctx, req.(*SetNodeSiteRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -2370,6 +2404,10 @@ var AdminService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "RestrictNode",
 			Handler:    _AdminService_RestrictNode_Handler,
+		},
+		{
+			MethodName: "SetNodeSite",
+			Handler:    _AdminService_SetNodeSite_Handler,
 		},
 		{
 			MethodName: "RemoveNode",

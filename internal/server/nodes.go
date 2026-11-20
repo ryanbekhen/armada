@@ -1,6 +1,7 @@
 package server
 
 import (
+	"cmp"
 	"context"
 	"crypto/x509"
 	"errors"
@@ -513,12 +514,17 @@ func (s *Server) CreateJoinToken(ctx context.Context, req *armadav1.CreateJoinTo
 	if len(req.GetLabels()) > spec.MaxNodeLabels {
 		return nil, status.Errorf(codes.InvalidArgument, "at most %d labels", spec.MaxNodeLabels)
 	}
+	if site := req.GetSite(); site != "" {
+		if err := spec.CheckLabelValue(site); err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "site: %v", err)
+		}
+	}
 	tok, err := pki.NewJoinToken()
 	if err != nil {
 		return nil, status.Error(codes.Internal, "generate token")
 	}
 	expires := s.now().Add(ttl)
-	if err := s.store.CreateJoinToken(ctx, store.JoinToken{ID: tok.ID, SecretHash: tok.SecretHash(), ExpiresAt: expires, CreatedBy: actor(ctx), Server: req.GetServer(), Labels: req.GetLabels(), From: from}); err != nil {
+	if err := s.store.CreateJoinToken(ctx, store.JoinToken{ID: tok.ID, SecretHash: tok.SecretHash(), ExpiresAt: expires, CreatedBy: actor(ctx), Server: req.GetServer(), Labels: req.GetLabels(), From: from, Site: req.GetSite()}); err != nil {
 		return nil, storeErr(err)
 	}
 	s.wakeJoin()
@@ -571,6 +577,25 @@ func (s *Server) LabelNode(ctx context.Context, req *armadav1.LabelNodeRequest) 
 	s.log.Info("node labels", "node", req.GetNode(), "labels", len(labels), "by", actor(ctx))
 	s.Trigger()
 	return &armadav1.LabelNodeResponse{Labels: labels}, nil
+}
+
+// SetNodeSite moves a node to another site (ADR 0050). The site decides
+// how peers reach the node, so only admins set it; the node carries it as
+// the armada.site label for placement.
+func (s *Server) SetNodeSite(ctx context.Context, req *armadav1.SetNodeSiteRequest) (*armadav1.SetNodeSiteResponse, error) {
+	if site := req.GetSite(); site != "" {
+		if err := spec.CheckLabelValue(site); err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "site: %v", err)
+		}
+	}
+	if err := s.store.SetNodeSite(ctx, req.GetNode(), req.GetSite(), actor(ctx)); err != nil {
+		return nil, storeErr(err)
+	}
+	s.log.Info("node site", "node", req.GetNode(), "site", req.GetSite(), "by", actor(ctx))
+	s.record(ctx, store.Event{Kind: eventNode, Object: req.GetNode(), Node: req.GetNode(), Reason: "SiteChanged",
+		Message: "site " + cmp.Or(req.GetSite(), "(first site)") + " by " + actor(ctx)})
+	s.Trigger()
+	return &armadav1.SetNodeSiteResponse{}, nil
 }
 
 // RestrictNode makes a node restricted (only apps whose placement selects

@@ -91,9 +91,13 @@ type Node struct {
 	// Endpoint is the node's public IPv4 address in a mesh cluster (ADR
 	// 0049), as its agent announced it; empty elsewhere and until then.
 	Endpoint string
+	// Site is the node's site (ADR 0050), set by admins; empty for the
+	// cluster's first site.
+	Site string
 }
 
-// AllLabels returns the admin labels plus armada.os and armada.arch.
+// AllLabels returns the admin labels plus armada.os, armada.arch, and
+// armada.site.
 func (n Node) AllLabels() map[string]string {
 	out := make(map[string]string, len(n.Labels)+3)
 	for k, v := range n.Labels {
@@ -104,6 +108,9 @@ func (n Node) AllLabels() map[string]string {
 	}
 	if n.Arch != "" {
 		out[spec.LabelArch] = n.Arch
+	}
+	if n.Site != "" {
+		out[spec.LabelSite] = n.Site
 	}
 	return out
 }
@@ -123,6 +130,8 @@ type JoinToken struct {
 	// From is the address the machine joins from, in a mesh cluster
 	// (ADR 0049): the join listener then answers only it. Empty = any.
 	From string
+	// Site is the site the node joins (ADR 0050); empty for the first.
+	Site string
 }
 
 // Server is a control plane node.
@@ -380,6 +389,9 @@ type Store interface {
 	AdvanceNetworkSwitch(ctx context.Context, to, from string) error
 
 	UpsertNode(ctx context.Context, n Node) error
+	// SetNodeSite moves a node to another site (ADR 0050); "" is the
+	// cluster's first site. ErrPrecondition for an invalid name.
+	SetNodeSite(ctx context.Context, id, site, actor string) error
 	GetNode(ctx context.Context, id string) (Node, error)
 	ListNodes(ctx context.Context) ([]Node, error)
 	SetNodeStatus(ctx context.Context, id string, st NodeStatus) error
