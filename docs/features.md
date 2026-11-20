@@ -49,6 +49,11 @@ Everything Armada does. The [guides](guides/README.md) show each in use, and the
   network, so replicas are reached at their own address and see their
   caller's real one; `--network wireguard` encrypts it. Apps reach each
   other only through their internal names.
+- **Mesh clusters.** Machines with only a public address, at one provider
+  or several, form a cluster over a WireGuard mesh (`--network mesh`):
+  everything between them is encrypted, and only 80, 443, and the
+  WireGuard port face the internet, with the join port open only while a
+  join token is.
 - **Spaces.** Apps, jobs, secrets, domains, and volumes belong to a
   space, so `web` can run in `staging` and in `default` side by side.
   Each space resolves and reaches
