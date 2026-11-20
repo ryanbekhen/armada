@@ -55,6 +55,12 @@ Everything Armada does. The [guides](guides/README.md) show each in use, and the
   everything between them is encrypted, and only 80, 443, and the
   WireGuard port face the internet, with the join port open only while a
   join token is.
+- **Sites.** A cluster spans places with no private network between them,
+  such as two data centers or an office and a cloud provider: nodes in a
+  site use its private network, nodes in different sites reach each other
+  over WireGuard between their public addresses, machines with no private
+  network get a mesh address, servers may join from any site, and apps
+  stay in a site or spread over sites through the `armada.site` label.
 - **Spaces.** Apps, jobs, secrets, domains, and volumes belong to a
   space, so `web` can run in `staging` and in `default` side by side.
   Each space resolves and reaches

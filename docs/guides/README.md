@@ -36,6 +36,7 @@ New to Armada? Read [Concepts](../concepts.md), then
 | Guide | You will learn |
 | --- | --- |
 | [Machines without a private network](machines-without-a-private-network.md) | A cluster of machines with only public addresses, over a WireGuard mesh, with joins that open the port only while a token is valid |
+| [Machines in more than one site](more-than-one-site.md) | A cluster across data centers, an office, and a cloud provider: nodes and servers joining from another site, mesh addresses, apps kept in a site, and doctor's checks |
 | [A private registry](private-registry.md) | Pulling your images with registry credentials kept as secrets |
 | [Deploy from CI](ci-cd.md) | A service identity for your pipeline, deploys that fail the build on a bad rollout |
 | [Teams and access](teams-and-access.md) | Users, roles, and spaces for a team |
