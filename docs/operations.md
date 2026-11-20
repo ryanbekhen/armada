@@ -909,6 +909,13 @@ a private network of the cluster uses that range, pick another before then:
 armada cluster set --mesh-cidr 10.123.0.0/16
 ```
 
+`armadad doctor` on a node with peers in other sites checks their
+WireGuard handshakes (`network-sites` in a `plain` cluster), and warns
+(`sites`) when another site's node address lies inside one of the node's
+local networks: the node reaches that address through the tunnel, so a
+host on its local network at the same address becomes unreachable from it.
+Join such a node again with `--no-private-ip` to give it a mesh address.
+
 ### Switching between plain and wireguard
 
 A running cluster switches between `plain` and `wireguard` without

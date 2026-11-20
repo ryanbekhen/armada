@@ -931,8 +931,100 @@ func ContainerMTU(mode string, ip, endpoint netip.Addr) (int, error) {
 
 // Diagnose reports, for armadad doctor, whether the node's uplink leaves
 // room for the tunnel and whether the tunnel is up with its peers.
-func Diagnose(mode string, ip, endpoint netip.Addr) []Check {
-	return append(diagnoseTunnel(mode, ip, endpoint), diagnoseIsolation())
+func Diagnose(mode string, ip, endpoint netip.Addr, sites Sites) []Check {
+	out := diagnoseTunnel(mode, ip, endpoint)
+	if c, ok := diagnoseSites(sites, ip); ok {
+		out = append(out, c)
+	}
+	return append(out, diagnoseIsolation())
+}
+
+// Sites is what doctor needs to look at the node's peers in other sites:
+// the peer list the node keeps while it has one (Config.MeshCache) and its
+// own name.
+type Sites struct {
+	Cache string
+	Node  string
+}
+
+// diagnoseSites warns when a peer of another site has a node address inside
+// one of this machine's local networks (ADR 0050). ok is false while the
+// node keeps no peer list or has no peer in another site.
+func diagnoseSites(s Sites, ip netip.Addr) (Check, bool) {
+	c := Check{Name: "sites", Level: CheckOK}
+	if s.Cache == "" {
+		return c, false
+	}
+	cfg, err := loadMeshCache(s.Cache)
+	switch {
+	case err != nil:
+		c.Level, c.Detail = CheckWarn, fmt.Sprintf("read the peer list: %v", err)
+		return c, true
+	case cfg == nil:
+		return c, false
+	}
+	p, err := parse(cfg, s.Node, ip)
+	if err != nil {
+		c.Level, c.Detail = CheckWarn, fmt.Sprintf("the peer list in %s does not parse: %v; the agent writes it again once connected", s.Cache, err)
+		return c, true
+	}
+	remote := 0
+	for _, pe := range p.peers {
+		if pe.remote {
+			remote++
+		}
+	}
+	if remote == 0 {
+		return c, false
+	}
+	locals, err := localPrefixes()
+	if err != nil {
+		c.Level, c.Detail = CheckWarn, fmt.Sprintf("list this machine's addresses: %v", err)
+		return c, true
+	}
+	if bad := shadowed(p, locals); len(bad) > 0 {
+		c.Level = CheckWarn
+		c.Detail = fmt.Sprintf("%d node(s) of other sites have an address inside this machine's local networks: %s; this machine reaches those addresses through the tunnel, so a host on the local network at the same address is unreachable from it (join such a node again with --no-private-ip to give it a mesh address)", len(bad), strings.Join(bad, "; "))
+		return c, true
+	}
+	c.Detail = fmt.Sprintf("%d node(s) in other sites, none inside this machine's local networks", remote)
+	return c, true
+}
+
+// localPrefixes are the IPv4 networks on the machine's interfaces, leaving
+// out loopback and Armada's own.
+func localPrefixes() ([]localPrefix, error) {
+	links, err := netlink.LinkList()
+	if err != nil {
+		return nil, err
+	}
+	var out []localPrefix
+	for _, l := range links {
+		a := l.Attrs()
+		switch a.Name {
+		case Interface, Next, SiteInterface, embedded.BridgeName:
+			continue
+		}
+		if a.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		addrs, err := netlink.AddrList(l, netlink.FAMILY_V4)
+		if err != nil {
+			return nil, fmt.Errorf("addresses of %s: %w", a.Name, err)
+		}
+		for _, ad := range addrs {
+			if ad.IPNet == nil {
+				continue
+			}
+			ap, ok := netip.AddrFromSlice(ad.IP.To4())
+			if !ok {
+				continue
+			}
+			bits, _ := ad.Mask.Size()
+			out = append(out, localPrefix{dev: a.Name, prefix: netip.PrefixFrom(ap, bits)})
+		}
+	}
+	return out, nil
 }
 
 // diagnoseIsolation reports whether the tables that keep apps and spaces
@@ -1005,6 +1097,16 @@ func diagnoseTunnel(mode string, ip, endpoint netip.Addr) []Check {
 		}
 	}
 	add("network", CheckOK, "%s routes %d other node subnet(s) over VXLAN (UDP %d on %s, open it to the other nodes)", Interface, peers, VXLANPort, ip)
+	// Peers in other sites go over WireGuard on SiteInterface (ADR 0050),
+	// which exists only while there are some.
+	if wg, err := linkNamed(SiteInterface); err == nil && wg != nil {
+		for _, c := range diagnoseWireGuard(mode, ip, true) {
+			if c.Name == "network" {
+				c.Name = "network-sites"
+			}
+			out = append(out, c)
+		}
+	}
 	return out
 }
 
