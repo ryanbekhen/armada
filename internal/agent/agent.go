@@ -1059,15 +1059,18 @@ func (a *Agent) applyNetworkNow(ctx context.Context) {
 	if want == nil {
 		return
 	}
-	if local != nil && a.cfg.DNS != nil {
-		a.cfg.DNS.SetClients(local)
-	}
 	if cs, ok := a.cfg.Proxy.(proxy.ClientSetter); ok && local != nil {
 		if err := cs.SetClients(ctx, local); err != nil {
 			a.log.Warn("updating the proxy's callers failed", "err", err)
 		}
 	}
 	err := a.cfg.Network.Apply(ctx, want, local)
+	// The DNS server last: it holds a new container's first lookups until
+	// it learns the container (dnsserver awaitClient), and by then the
+	// proxy and the firewall know it too.
+	if local != nil && a.cfg.DNS != nil {
+		a.cfg.DNS.SetClients(local)
+	}
 	msg := ""
 	if err != nil {
 		msg = err.Error()
