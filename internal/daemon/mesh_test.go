@@ -63,13 +63,13 @@ func TestPrepareJoin(t *testing.T) {
 	t.Parallel()
 	// A public join address is a mesh cluster's or the leader's for
 	// another site; a private IP the machine finds goes along.
-	ip, mesh, err := prepareJoin(changed{}, "203.0.113.1:7444", "", "198.51.100.2")
+	ip, mesh, err := prepareJoin(changed{}, "203.0.113.1:7444", "", "198.51.100.2", false)
 	if err != nil || !mesh.on || mesh.endpoint != netip.MustParseAddr("198.51.100.2") {
 		t.Errorf("mesh join: %v %+v %v", ip, mesh, err)
 	}
 	// Over a public address, a machine of another site sends its private
 	// IP too (ADR 0050); a mesh does not use it.
-	ip, mesh, err = prepareJoin(changed{"private-ip": true}, "203.0.113.1:7444", "10.0.0.2", "198.51.100.2")
+	ip, mesh, err = prepareJoin(changed{"private-ip": true}, "203.0.113.1:7444", "10.0.0.2", "198.51.100.2", false)
 	if err != nil || ip != netip.MustParseAddr("10.0.0.2") || !mesh.on {
 		t.Errorf("site join: %v %+v %v", ip, mesh, err)
 	}
@@ -77,17 +77,34 @@ func TestPrepareJoin(t *testing.T) {
 		t.Errorf("site join answer: %v %v", a, err)
 	}
 	if _, err := mesh.address(netip.Addr{}, store.NetworkWireGuard, ""); err == nil {
-		t.Error("a site join without a private IP accepted")
+		t.Error("a site join with neither a private IP nor a mesh address accepted")
 	}
-	ip, mesh, err = prepareJoin(changed{"private-ip": true}, "10.0.0.1:7444", "10.0.0.2", "")
+	// Without a private IP, the cluster gives a mesh address (ADR 0050).
+	if a, err := mesh.address(netip.Addr{}, store.NetworkPlain, "10.122.0.1"); err != nil || a.String() != "10.122.0.1" {
+		t.Errorf("site join with a mesh address: %v %v", a, err)
+	}
+	if _, err := mesh.address(ip, store.NetworkPlain, "10.122.0.1"); err == nil {
+		t.Error("a mesh address accepted for a join with a private IP")
+	}
+	ip, mesh, err = prepareJoin(changed{}, "203.0.113.1:7444", "", "198.51.100.2", true)
+	if err != nil || ip.IsValid() || !mesh.on {
+		t.Errorf("--no-private-ip: %v %+v %v", ip, mesh, err)
+	}
+	if _, _, err := prepareJoin(changed{"private-ip": true}, "203.0.113.1:7444", "10.0.0.2", "198.51.100.2", true); err == nil {
+		t.Error("--private-ip with --no-private-ip accepted")
+	}
+	if _, _, err := prepareJoin(changed{}, "10.0.0.1:7444", "", "", true); err == nil {
+		t.Error("--no-private-ip accepted at a private address")
+	}
+	ip, mesh, err = prepareJoin(changed{"private-ip": true}, "10.0.0.1:7444", "10.0.0.2", "", false)
 	if err != nil || mesh.on || ip != netip.MustParseAddr("10.0.0.2") {
 		t.Errorf("private join: %v %+v %v", ip, mesh, err)
 	}
-	if _, _, err := prepareJoin(changed{"endpoint": true}, "10.0.0.1:7444", "10.0.0.2", "198.51.100.2"); err == nil {
+	if _, _, err := prepareJoin(changed{"endpoint": true}, "10.0.0.1:7444", "10.0.0.2", "198.51.100.2", false); err == nil {
 		t.Error("--endpoint accepted outside a mesh")
 	}
 	for _, addr := range []string{"203.0.113.1", "0.0.0.0:7444", "224.0.0.1:7444"} {
-		if _, _, err := prepareJoin(changed{}, addr, "10.0.0.2", "198.51.100.2"); err == nil {
+		if _, _, err := prepareJoin(changed{}, addr, "10.0.0.2", "198.51.100.2", false); err == nil {
 			t.Errorf("join address %s accepted", addr)
 		}
 	}

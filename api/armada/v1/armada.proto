@@ -797,6 +797,11 @@ message ClusterConfig {
   string network = 18;
   // The mode a switch under way goes to, empty while none runs.
   string network_switch_to = 19;
+  // The range of mesh addresses (ADR 0049, ADR 0050): a mesh cluster's,
+  // and a plain or wireguard cluster's machines with no private network
+  // take theirs from it; empty while none is recorded. set_mesh_cidr
+  // records another before any node holds one.
+  string mesh_cidr = 20;
 }
 
 message GetClusterConfigRequest {}
@@ -830,6 +835,7 @@ message SetClusterConfigRequest {
   // Switch the cluster network to config.network (ADR 0050); the current
   // mode gives up a switch still in its prepare step.
   bool set_network = 18;
+  bool set_mesh_cidr = 19;
 }
 
 message ListDomainsRequest {

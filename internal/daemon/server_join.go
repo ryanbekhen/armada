@@ -55,7 +55,7 @@ func newServerJoinCommand() *cobra.Command {
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			addr := args[0]
-			ip, mesh, err := prepareJoin(cmd.Flags(), addr, privateIP, endpoint)
+			ip, mesh, err := prepareJoin(cmd.Flags(), addr, privateIP, endpoint, false)
 			if err != nil {
 				return err
 			}

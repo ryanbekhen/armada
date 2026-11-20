@@ -431,3 +431,90 @@ func TestNetworkSwitchSites(t *testing.T) {
 		t.Errorf("unchanged site during a switch = %v", err)
 	}
 }
+
+// A plain or wireguard cluster gives machines with no private network mesh
+// addresses from a range recorded with the first of them (ADR 0050).
+func TestMeshAddressesOutsideMesh(t *testing.T) {
+	t.Parallel()
+	s, ctx := open(t), context.Background()
+	if _, err := s.FreeMeshAddress(ctx); !errors.Is(err, ErrPrecondition) {
+		t.Fatalf("FreeMeshAddress without a network = %v", err)
+	}
+	if err := s.InitNetwork(ctx, Network{Mode: NetworkPlain, ClusterCIDR: netip.MustParsePrefix("10.120.0.0/16")}); err != nil {
+		t.Fatal(err)
+	}
+	// A private network inside the default range: allowed until the
+	// range is recorded, and then in the way of recording it.
+	if err := s.UpsertNode(ctx, Node{ID: "a", PrivateIP: "10.122.0.1"}); err != nil {
+		t.Fatal(err)
+	}
+	a, err := s.FreeMeshAddress(ctx)
+	if err != nil || a != "10.122.0.2" {
+		t.Fatalf("FreeMeshAddress = %q, %v; want the default range past a's address", a, err)
+	}
+	if err := s.UpsertNode(ctx, Node{ID: "m", PrivateIP: a, MeshAddress: true}); !errors.Is(err, ErrPrecondition) || !strings.Contains(err.Error(), "--mesh-cidr") {
+		t.Fatalf("mesh address with a node in the range = %v", err)
+	}
+	for _, bad := range []string{"10.120.0.0/24", "10.122.0.0/16", "10.0.0.0/25", "8.8.0.0/16"} {
+		if err := s.SetMeshCIDR(ctx, netip.MustParsePrefix(bad), "user:a"); !errors.Is(err, ErrPrecondition) {
+			t.Errorf("SetMeshCIDR(%s) = %v, want ErrPrecondition", bad, err)
+		}
+	}
+	mesh := netip.MustParsePrefix("10.123.0.0/24")
+	if err := s.SetMeshCIDR(ctx, mesh, "user:a"); err != nil {
+		t.Fatal(err)
+	}
+	if n, _ := s.GetNetwork(ctx); n.MeshCIDR != mesh {
+		t.Fatalf("mesh CIDR = %v", n.MeshCIDR)
+	}
+	if a, err = s.FreeMeshAddress(ctx); err != nil || a != "10.123.0.1" {
+		t.Fatalf("FreeMeshAddress = %q, %v", a, err)
+	}
+	if err := s.UpsertNode(ctx, Node{ID: "m", PrivateIP: "10.0.0.9", MeshAddress: true}); !errors.Is(err, ErrPrecondition) {
+		t.Fatalf("mesh address outside the range = %v", err)
+	}
+	if err := s.UpsertNode(ctx, Node{ID: "m", PrivateIP: a, MeshAddress: true, Endpoint: "203.0.113.9"}); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := s.GetNode(ctx, "m"); err != nil || !n.MeshAddress {
+		t.Fatalf("node m = %+v, %v; want a mesh address", n, err)
+	}
+	// The range is taken now: no private IP in it, no other range.
+	if err := s.UpsertNode(ctx, Node{ID: "b", PrivateIP: "10.123.0.7"}); !errors.Is(err, ErrPrecondition) || !strings.Contains(err.Error(), "--no-private-ip") {
+		t.Errorf("private IP in the mesh range = %v", err)
+	}
+	if err := s.SetMeshCIDR(ctx, netip.MustParsePrefix("10.124.0.0/24"), "user:a"); !errors.Is(err, ErrPrecondition) {
+		t.Errorf("SetMeshCIDR with a mesh address held = %v", err)
+	}
+	if err := s.SetMeshCIDR(ctx, mesh, "user:a"); err != nil {
+		t.Errorf("SetMeshCIDR to the same range = %v", err)
+	}
+}
+
+// The first mesh address records the default range.
+func TestMeshAddressRecordsDefaultRange(t *testing.T) {
+	t.Parallel()
+	s, ctx := open(t), context.Background()
+	if err := s.InitNetwork(ctx, Network{Mode: NetworkWireGuard, ClusterCIDR: netip.MustParsePrefix("10.120.0.0/16")}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpsertNode(ctx, Node{ID: "m", PrivateIP: "10.122.0.1", MeshAddress: true}); err != nil {
+		t.Fatal(err)
+	}
+	if n, _ := s.GetNetwork(ctx); n.MeshCIDR.String() != DefaultMeshCIDR {
+		t.Fatalf("mesh CIDR = %v, want %s", n.MeshCIDR, DefaultMeshCIDR)
+	}
+	m := openMesh(t)
+	if err := m.SetMeshCIDR(ctx, netip.MustParsePrefix("10.124.0.0/24"), "user:a"); !errors.Is(err, ErrPrecondition) {
+		t.Errorf("SetMeshCIDR in a mesh cluster = %v", err)
+	}
+}
+
+func openMesh(t *testing.T) *Etcd {
+	t.Helper()
+	s := open(t)
+	if err := s.InitNetwork(context.Background(), Network{Mode: NetworkMesh, ClusterCIDR: netip.MustParsePrefix("10.120.0.0/16"), MeshCIDR: netip.MustParsePrefix("10.121.0.0/24")}); err != nil {
+		t.Fatal(err)
+	}
+	return s
+}

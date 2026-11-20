@@ -28,6 +28,7 @@ func newJoinCommand() *cobra.Command {
 	var (
 		rtFlags                                         runtimeFlags
 		tokenFile, caHash, privateIP, nodeName, dataDir string
+		noPrivateIP                                     bool
 		endpoint                                        string
 	)
 	cmd := &cobra.Command{
@@ -41,7 +42,7 @@ func newJoinCommand() *cobra.Command {
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			addr := args[0]
-			ip, mesh, err := prepareJoin(cmd.Flags(), addr, privateIP, endpoint)
+			ip, mesh, err := prepareJoin(cmd.Flags(), addr, privateIP, endpoint, noPrivateIP)
 			if err != nil {
 				return err
 			}
@@ -169,6 +170,7 @@ func newJoinCommand() *cobra.Command {
 	f.StringVar(&tokenFile, "token-file", "", "file holding the join token (default: prompt or stdin)")
 	f.StringVar(&caHash, "ca-hash", "", "cluster CA hash, sha256:...")
 	f.StringVar(&privateIP, "private-ip", "", "this node's private IP (default: the only private IPv4 address; a mesh cluster gives the node a mesh address instead)")
+	f.BoolVar(&noPrivateIP, "no-private-ip", false, "joining from another site: send no private IP, and get a mesh address the other nodes reach over WireGuard (the default when the machine has no private IPv4 address)")
 	f.StringVar(&endpoint, "endpoint", "", "joins over a public ADDR (mesh clusters, other sites): this machine's public IPv4 address, which other nodes send WireGuard packets to (default: the only public IPv4 address; behind one-to-one NAT, the mapped address)")
 	f.StringVar(&nodeName, "node-name", "", "node name (default: hostname)")
 	f.StringVar(&dataDir, "data-dir", defaultDataDir, "directory for the node certificate")

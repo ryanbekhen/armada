@@ -20,11 +20,6 @@ import (
 // backed up.
 const fileMeshCache = "mesh.json"
 
-// defaultMeshCIDR is the default range of a mesh cluster's node addresses,
-// beside the default cluster CIDR and clear of the bridge subnet of nodes
-// without a cluster network (10.121.0.0/24).
-const defaultMeshCIDR = "10.122.0.0/16"
-
 // meshConfig is the clusternet configuration of a node of a cluster
 // network, with what the mesh mode needs.
 func meshConfig(dataDir string, ac *agentConfig, key clusternet.PrivateKey, log *slog.Logger) (clusternet.Config, error) {
@@ -32,12 +27,10 @@ func meshConfig(dataDir string, ac *agentConfig, key clusternet.PrivateKey, log 
 	if err != nil {
 		return clusternet.Config{}, fmt.Errorf("%s: private IP: %w", fileAgent, err)
 	}
-	cfg := clusternet.Config{Node: ac.NodeID, PrivateIP: ip, Key: key, Logger: log.With("component", "network"),
-		MeshCache: filepath.Join(dataDir, fileMeshCache)}
-	if ac.Network == store.NetworkMesh {
-		cfg.Endpoint = ac.endpoint()
-	}
-	return cfg, nil
+	// The endpoint also finds the uplink of a node whose address is a mesh
+	// address in a plain or wireguard cluster (ADR 0050).
+	return clusternet.Config{Node: ac.NodeID, PrivateIP: ip, Key: key, Logger: log.With("component", "network"),
+		MeshCache: filepath.Join(dataDir, fileMeshCache), Endpoint: ac.endpoint()}, nil
 }
 
 // upMesh brings a mesh node's tunnel up before etcd or the agent reach
@@ -145,16 +138,22 @@ type joinMesh struct {
 }
 
 // prepareJoin works out how a machine joins addr: its private IP, or over
-// a public address its endpoint and, when it has one, its private IP. ip
-// is invalid when a public join finds none.
-func prepareJoin(cmd interface{ Changed(string) bool }, addr, privateIP, endpoint string) (netip.Addr, joinMesh, error) {
+// a public address its endpoint and, when it has one and noPrivateIP is
+// unset, its private IP. ip is invalid when a public join sends none.
+func prepareJoin(cmd interface{ Changed(string) bool }, addr, privateIP, endpoint string, noPrivateIP bool) (netip.Addr, joinMesh, error) {
 	public, err := meshJoinAddr(addr)
 	if err != nil {
 		return netip.Addr{}, joinMesh{}, err
 	}
+	if noPrivateIP && cmd.Changed("private-ip") {
+		return netip.Addr{}, joinMesh{}, errors.New("--private-ip and --no-private-ip exclude each other")
+	}
 	if !public {
 		if cmd.Changed("endpoint") {
 			return netip.Addr{}, joinMesh{}, errors.New("--endpoint is for joins over a public address (mesh clusters, and machines of another site than the leader's)")
+		}
+		if noPrivateIP {
+			return netip.Addr{}, joinMesh{}, errors.New("--no-private-ip is for joins over a public address: machines of another site than the leader's")
 		}
 		ip, err := resolvePrivateIP(privateIP)
 		return ip, joinMesh{}, err
@@ -164,12 +163,16 @@ func prepareJoin(cmd interface{ Changed(string) bool }, addr, privateIP, endpoin
 		return netip.Addr{}, joinMesh{}, err
 	}
 	var ip netip.Addr
-	if cmd.Changed("private-ip") {
+	switch {
+	case noPrivateIP:
+	case cmd.Changed("private-ip"):
 		if ip, err = resolvePrivateIP(privateIP); err != nil {
 			return netip.Addr{}, joinMesh{}, err
 		}
-	} else if found, err := resolvePrivateIP(""); err == nil {
-		ip = found
+	default:
+		if found, err := resolvePrivateIP(""); err == nil {
+			ip = found
+		}
 	}
 	return ip, joinMesh{on: true, endpoint: ep}, nil
 }
@@ -188,16 +191,20 @@ func (j *joinMesh) loadKey(dataDir string) error {
 }
 
 // address returns the machine's address from the join answer: its private
-// IP, or the mesh address a mesh cluster gave it.
+// IP, or the mesh address the cluster gave it: a mesh cluster's, or a plain
+// or wireguard cluster's for a machine that sent no private IP (ADR 0050).
 func (j joinMesh) address(ip netip.Addr, mode, meshIP string) (netip.Addr, error) {
 	if mode == store.NetworkMesh && !j.on {
 		return netip.Addr{}, fmt.Errorf("the cluster's network mode is %q, which does not match a join at this address", mode)
 	}
-	if mode != store.NetworkMesh {
+	if mode != store.NetworkMesh && meshIP == "" {
 		if !ip.IsValid() {
-			return netip.Addr{}, errors.New("this machine has no private IP, which a node of a plain or wireguard cluster joins with; pass --private-ip")
+			return netip.Addr{}, errors.New("the cluster gave this machine, which sent no private IP, no mesh address")
 		}
 		return ip, nil
+	}
+	if ip.IsValid() && mode != store.NetworkMesh {
+		return netip.Addr{}, fmt.Errorf("the cluster gave this machine a mesh address although it joined with its private IP %s", ip)
 	}
 	a, err := netutil.CheckNodeIP(meshIP)
 	if err != nil {

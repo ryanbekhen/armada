@@ -318,7 +318,7 @@ func newInitCommand(g *globals) *cobra.Command {
 	f.StringVar(&dataDir, "data-dir", defaultDataDir, "directory for cluster state and keys")
 	f.StringVar(&privateIP, "private-ip", "", "this node's private IP (default: the only private IPv4 address; not with --network mesh)")
 	f.StringVar(&endpoint, "endpoint", "", "--network mesh: this machine's public IPv4 address, which other nodes send WireGuard packets to (default: the only public IPv4 address; behind one-to-one NAT, the mapped address)")
-	f.StringVar(&meshCIDR, "mesh-cidr", defaultMeshCIDR, "--network mesh: private IPv4 range of the nodes' mesh addresses (/8 to /24; set once)")
+	f.StringVar(&meshCIDR, "mesh-cidr", store.DefaultMeshCIDR, "--network mesh: private IPv4 range of the nodes' mesh addresses (/8 to /24; set once)")
 	f.StringVar(&nodeName, "node-name", "", "node name (default: hostname)")
 	f.StringVar(&userName, "user-name", "", "name of the first user, who gets cluster-admin (default: the user running it)")
 	f.IntVar(&port, "port", defaultPort, "control plane port on the private IP")

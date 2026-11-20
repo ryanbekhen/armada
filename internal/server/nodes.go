@@ -419,7 +419,7 @@ func (j *joinService) Join(ctx context.Context, req *armadav1.JoinRequest) (*arm
 			return nil, status.Error(codes.Internal, "read the cluster network")
 		}
 	}
-	if mesh.on {
+	if mesh.on || mesh.meshed {
 		resp.MeshIp = ip.String()
 	}
 	s.wakeJoin()
@@ -430,10 +430,12 @@ func (j *joinService) Join(ctx context.Context, req *armadav1.JoinRequest) (*arm
 }
 
 // joining is how a machine joins: in a mesh cluster (on, ADR 0049) or from
-// another site (away, ADR 0050) with its WireGuard key and endpoint.
+// another site (away, ADR 0050) with its WireGuard key and endpoint; meshed
+// when a machine of another site has no private IP and gets a mesh
+// address.
 type joining struct {
-	on, away      bool
-	key, endpoint string
+	on, away, meshed bool
+	key, endpoint    string
 }
 
 // fromAnotherSite reports whether a join comes from another site than the
@@ -467,28 +469,26 @@ func (j *joinService) fromAnotherSite(ctx context.Context, tok pki.JoinToken) (b
 
 // node is the record of the joining machine's node.
 func (j joining) node(name string, ip netip.Addr) store.Node {
-	return store.Node{ID: name, PrivateIP: ip.String(), NetworkKey: j.key, Endpoint: j.endpoint}
+	return store.Node{ID: name, PrivateIP: ip.String(), NetworkKey: j.key, Endpoint: j.endpoint, MeshAddress: j.meshed}
 }
 
 // joiningAddress checks the address a machine joins with: its private IP,
 // or in a mesh cluster its key and endpoint, for which it gets the lowest
 // free mesh address (redeeming the token refuses one another machine took
 // meanwhile). A machine of another site (away) brings its key and
-// endpoint along with its private IP (ADR 0050).
+// endpoint along with its private IP, or without one gets a mesh address
+// too (ADR 0050).
 func (s *Server) joiningAddress(ctx context.Context, privateIP, key, endpoint string, away bool) (netip.Addr, joining, error) {
 	n, err := s.store.GetNetwork(ctx)
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return netip.Addr{}, joining{}, status.Error(codes.Internal, "read the cluster network")
 	}
 	if err != nil || n.Mode != store.NetworkMesh {
-		if away && privateIP == "" {
-			return netip.Addr{}, joining{}, status.Error(codes.InvalidArgument, "a node of a plain or wireguard cluster joins with its private IP, and this machine sent none: pass --private-ip")
-		}
-		ip, err := netutil.CheckNodeIP(privateIP)
-		if err != nil {
-			return netip.Addr{}, joining{}, status.Errorf(codes.InvalidArgument, "private IP: %v", err)
-		}
 		if !away {
+			ip, err := netutil.CheckNodeIP(privateIP)
+			if err != nil {
+				return netip.Addr{}, joining{}, status.Errorf(codes.InvalidArgument, "private IP: %v", err)
+			}
 			return ip, joining{}, nil
 		}
 		if !validNetworkKey(key) {
@@ -497,7 +497,19 @@ func (s *Server) joiningAddress(ctx context.Context, privateIP, key, endpoint st
 		if _, err := netutil.CheckEndpoint(endpoint); err != nil {
 			return netip.Addr{}, joining{}, status.Errorf(codes.InvalidArgument, "endpoint: %v", err)
 		}
-		return ip, joining{away: true, key: key, endpoint: endpoint}, nil
+		j := joining{away: true, key: key, endpoint: endpoint}
+		if privateIP != "" {
+			ip, err := netutil.CheckNodeIP(privateIP)
+			if err != nil {
+				return netip.Addr{}, joining{}, status.Errorf(codes.InvalidArgument, "private IP: %v", err)
+			}
+			return ip, j, nil
+		}
+		// No private network: a mesh address, reached over WireGuard by
+		// every other node (ADR 0050).
+		ip, err := s.freeMeshAddress(ctx)
+		j.meshed = true
+		return ip, j, err
 	}
 	// A mesh node's address is its mesh address; a private IP the machine
 	// detected is not used.
@@ -507,15 +519,21 @@ func (s *Server) joiningAddress(ctx context.Context, privateIP, key, endpoint st
 	if _, err := netutil.CheckEndpoint(endpoint); err != nil {
 		return netip.Addr{}, joining{}, status.Errorf(codes.InvalidArgument, "endpoint: %v", err)
 	}
+	ip, err := s.freeMeshAddress(ctx)
+	return ip, joining{on: true, key: key, endpoint: endpoint}, err
+}
+
+// freeMeshAddress is the lowest mesh address no node holds.
+func (s *Server) freeMeshAddress(ctx context.Context) (netip.Addr, error) {
 	a, err := s.store.FreeMeshAddress(ctx)
 	if err != nil {
-		return netip.Addr{}, joining{}, storeErr(err)
+		return netip.Addr{}, storeErr(err)
 	}
 	ip, err := netip.ParseAddr(a)
 	if err != nil {
-		return netip.Addr{}, joining{}, status.Error(codes.Internal, "mesh address")
+		return netip.Addr{}, status.Error(codes.Internal, "mesh address")
 	}
-	return ip, joining{on: true, key: key, endpoint: endpoint}, nil
+	return ip, nil
 }
 
 // meshNetwork is the cluster network a machine joining a mesh brings its

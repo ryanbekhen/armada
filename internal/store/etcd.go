@@ -446,6 +446,8 @@ type nodeRec struct {
 	Endpoint string `json:"endpoint,omitempty"`
 	// Site is the node's site (ADR 0050).
 	Site string `json:"site,omitempty"`
+	// MeshAddress marks a mesh address in a plain or wireguard cluster.
+	MeshAddress bool `json:"meshAddress,omitempty"`
 }
 
 type certRec struct {
@@ -643,7 +645,7 @@ func (t *etx) toNode(n nodeRec) (Node, error) {
 	out := Node{ID: n.ID, PrivateIP: n.PrivateIP, CPUMillis: n.CPUMillis, MemoryBytes: n.MemoryBytes, State: n.State,
 		LastSeen: fromMS(n.LastSeen), CreatedAt: fromMS(n.CreatedAt), Cordoned: n.Cordoned, Version: n.Version,
 		Labels: n.Labels, OS: n.OS, Arch: n.Arch, Restricted: n.Restricted,
-		Jobs: n.Jobs, Volumes: n.Volumes, Containers: n.Containers, NFS: n.NFS, Subnet: n.Subnet, NetworkKey: n.NetworkKey, Endpoint: n.Endpoint, Site: n.Site}
+		Jobs: n.Jobs, Volumes: n.Volumes, Containers: n.Containers, NFS: n.NFS, Subnet: n.Subnet, NetworkKey: n.NetworkKey, Endpoint: n.Endpoint, Site: n.Site, MeshAddress: n.MeshAddress}
 	var latest int64
 	err := listInto(t, pfxCerts+n.ID+"/", func(_ string, c certRec) error {
 		latest = max(latest, c.NotAfter)
@@ -673,9 +675,10 @@ func (s *Etcd) UpsertNode(ctx context.Context, n Node) error {
 			rec.CreatedAt, rec.Cordoned, rec.LegacyCerts, rec.Version = cur.CreatedAt, cur.Cordoned, cur.LegacyCerts, cur.Version
 			rec.Labels, rec.Restricted, rec.OS, rec.Arch = cur.Labels, cur.Restricted, cur.OS, cur.Arch
 			rec.Subnet, rec.NetworkKey, rec.Endpoint, rec.Site = cur.Subnet, cur.NetworkKey, cur.Endpoint, cur.Site
+			rec.MeshAddress = cur.MeshAddress
 		} else {
-			rec.Site = n.Site
-			if rec.Subnet, err = t.newNodeNetwork(n.PrivateIP); err != nil {
+			rec.Site, rec.MeshAddress = n.Site, n.MeshAddress
+			if rec.Subnet, err = t.newNodeNetwork(n.PrivateIP, n.MeshAddress); err != nil {
 				return err
 			}
 			rec.NetworkKey, rec.Endpoint = n.NetworkKey, n.Endpoint
@@ -1038,9 +1041,10 @@ func (s *Etcd) FreeMeshAddress(ctx context.Context) (string, error) {
 		if err != nil {
 			return err
 		}
-		if !ok || n.Mode != NetworkMesh {
-			return fmt.Errorf("the cluster is not a mesh: %w", ErrPrecondition)
+		if !ok {
+			return fmt.Errorf("the cluster has no cluster network: %w", ErrPrecondition)
 		}
+		mesh := n.meshRange()
 		used := map[netip.Addr]bool{}
 		if err := listInto(t, pfxNodes, func(_ string, r nodeRec) error {
 			if a, err := netip.ParseAddr(r.PrivateIP); err == nil {
@@ -1050,11 +1054,66 @@ func (s *Etcd) FreeMeshAddress(ctx context.Context) (string, error) {
 		}); err != nil {
 			return err
 		}
-		a, err := freeMeshAddress(n.MeshCIDR, used)
+		a, err := freeMeshAddress(mesh, used)
 		out = a.String()
 		return err
 	})
 	return out, err
+}
+
+// SetMeshCIDR records a plain or wireguard cluster's mesh range. See Store.
+func (s *Etcd) SetMeshCIDR(ctx context.Context, p netip.Prefix, actor string) error {
+	if err := CheckMeshCIDR(p); err != nil {
+		return fmt.Errorf("%w: %w", err, ErrPrecondition)
+	}
+	now := s.now()
+	return s.tx(ctx, func(t *etx) error {
+		var r networkRec
+		if ok, err := t.get(keyNetwork, &r); err != nil {
+			return err
+		} else if !ok {
+			return fmt.Errorf("the cluster has no cluster network: %w", ErrPrecondition)
+		}
+		if r.Mode == NetworkMesh {
+			return fmt.Errorf("a mesh cluster's range is set once, at init: %w", ErrPrecondition)
+		}
+		if r.MeshCIDR == p.String() {
+			return nil
+		}
+		if err := t.claimMeshRange(&r, p); err != nil {
+			return err
+		}
+		r.MeshCIDR = p.String()
+		if err := t.put(keyNetwork, r); err != nil {
+			return err
+		}
+		return t.audit(now, actor, "cluster.mesh-cidr", p.String(), "")
+	})
+}
+
+// claimMeshRange records p as r's mesh range (ADR 0050) once no node holds
+// a mesh address, p is clear of the cluster CIDR, and no node's address or
+// endpoint lies in it: a node of the range reaches only mesh addresses
+// there.
+func (t *etx) claimMeshRange(r *networkRec, p netip.Prefix) error {
+	cidr, err := netip.ParsePrefix(r.ClusterCIDR)
+	if err != nil {
+		return fmt.Errorf("decode %s: cluster CIDR: %w", keyNetwork, err)
+	}
+	if p.Overlaps(cidr) {
+		return fmt.Errorf("mesh CIDR %s overlaps the cluster CIDR %s: %w", p, cidr, ErrPrecondition)
+	}
+	return listInto(t, pfxNodes, func(_ string, n nodeRec) error {
+		if n.MeshAddress {
+			return fmt.Errorf("node %s already holds a mesh address of %s: %w", n.ID, r.MeshCIDR, ErrPrecondition)
+		}
+		for _, s := range []string{n.PrivateIP, n.Endpoint} {
+			if a, err := netip.ParseAddr(s); err == nil && p.Contains(a) {
+				return fmt.Errorf("node %s's address %s is inside the mesh CIDR %s; pick another range with armada cluster set --mesh-cidr: %w", n.ID, a, p, ErrPrecondition)
+			}
+		}
+		return nil
+	})
 }
 
 // RedeemJoinToken consumes a token and registers a node. See Store.
@@ -1103,7 +1162,7 @@ func (s *Etcd) redeem(ctx context.Context, id string, check func(string) bool, s
 		if keyTaken {
 			return fmt.Errorf("the network key is already used by another node: %w", ErrConflict)
 		}
-		subnet, err := t.newNodeNetwork(n.PrivateIP)
+		subnet, err := t.newNodeNetwork(n.PrivateIP, n.MeshAddress)
 		if err != nil {
 			return err
 		}
@@ -1129,7 +1188,7 @@ func (s *Etcd) redeem(ctx context.Context, id string, check func(string) bool, s
 			n.State = NodeUnknown
 		}
 		if err := t.put(pfxNodes+n.ID, nodeRec{ID: n.ID, PrivateIP: n.PrivateIP, State: n.State, CreatedAt: now.UnixMilli(), Labels: tok.Labels, Subnet: subnet,
-			NetworkKey: n.NetworkKey, Endpoint: n.Endpoint, Site: tok.Site}); err != nil {
+			NetworkKey: n.NetworkKey, Endpoint: n.Endpoint, Site: tok.Site, MeshAddress: n.MeshAddress}); err != nil {
 			return err
 		}
 		if err := t.putCert(n.ID, cert, now); err != nil {

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"log/slog"
@@ -911,6 +912,11 @@ func TestSiteJoin(t *testing.T) {
 	if !strings.HasPrefix(tok.JoinAddr, "203.0.113.1:") || time.Until(tok.ExpiresAt.AsTime()) > 10*time.Minute {
 		t.Errorf("token %v", tok)
 	}
+	// For a machine with no private network, below.
+	cloud, err := c.admin.CreateJoinToken(c.ctx, &armadav1.CreateJoinTokenRequest{Site: "cloud"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	var jc armadav1.JoinServiceClient
 	c.eventually("join listener open", func() bool {
 		jc, err = meshJoinClient(c.ctx, t, l.Addr().String(), tok.CaHash)
@@ -928,9 +934,8 @@ func TestSiteJoin(t *testing.T) {
 		t.Errorf("server join over the public address = %v", err)
 	}
 	for name, mod := range map[string]func(*armadav1.JoinRequest){
-		"no private IP": func(r *armadav1.JoinRequest) { r.PrivateIp = "" },
-		"no key":        func(r *armadav1.JoinRequest) { r.NetworkKey = "" },
-		"bad endpoint":  func(r *armadav1.JoinRequest) { r.Endpoint = "127.0.0.1" },
+		"no key":       func(r *armadav1.JoinRequest) { r.NetworkKey = "" },
+		"bad endpoint": func(r *armadav1.JoinRequest) { r.Endpoint = "127.0.0.1" },
 	} {
 		req, _ := joinReq(t, tok.Token, "w1", "10.0.0.5")
 		req.NetworkKey, req.Endpoint = key, "198.51.100.2"
@@ -957,8 +962,27 @@ func TestSiteJoin(t *testing.T) {
 	if self == nil || self.GetSite() != "office" || self.GetPublicKey() != key || self.GetEndpoint() != "198.51.100.2" || self.GetPrivateIp() != "10.0.0.5" {
 		t.Errorf("peer list %v", resp.GetNetwork().GetPeers())
 	}
-	if n, err := c.store.GetNode(c.ctx, "w1"); err != nil || n.Site != "office" || n.NetworkKey != key || n.Endpoint != "198.51.100.2" {
+	if n, err := c.store.GetNode(c.ctx, "w1"); err != nil || n.Site != "office" || n.NetworkKey != key || n.Endpoint != "198.51.100.2" || n.MeshAddress {
 		t.Errorf("node %+v, %v", n, err)
+	}
+	// A machine with no private network gets a mesh address, which records
+	// the cluster's mesh range (ADR 0050).
+	req, _ = joinReq(t, cloud.Token, "w3", "")
+	req.NetworkKey, req.Endpoint = base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{7}, 32)), "198.51.100.3"
+	if resp, err = jc.Join(c.ctx, req); err != nil {
+		t.Fatal(err)
+	}
+	if resp.GetMeshIp() != "10.122.0.1" || resp.GetNetwork().GetMeshCidr() != store.DefaultMeshCIDR {
+		t.Errorf("mesh join answer: mesh IP %q, network %v", resp.GetMeshIp(), resp.GetNetwork())
+	}
+	if n, err := c.store.GetNode(c.ctx, "w3"); err != nil || !n.MeshAddress || n.PrivateIP != "10.122.0.1" || n.Site != "cloud" {
+		t.Errorf("node %+v, %v", n, err)
+	}
+	if cc, err := c.admin.GetClusterConfig(c.ctx, &armadav1.GetClusterConfigRequest{}); err != nil || cc.GetMeshCidr() != store.DefaultMeshCIDR {
+		t.Errorf("cluster config %v, %v", cc, err)
+	}
+	if _, err := c.admin.SetClusterConfig(c.ctx, &armadav1.SetClusterConfigRequest{SetMeshCidr: true, Config: &armadav1.ClusterConfig{MeshCidr: "10.124.0.0/24"}}); status.Code(err) != codes.FailedPrecondition {
+		t.Errorf("mesh CIDR change with a mesh address held = %v", err)
 	}
 	c.eventually("join listener closed", func() bool {
 		conn, err := net.DialTimeout("tcp", l.Addr().String(), time.Second)
