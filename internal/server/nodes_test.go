@@ -720,6 +720,16 @@ func withMeshJoin(t *testing.T, l net.Listener) func(*Config) {
 	}
 }
 
+// withSiteJoin gives the leader a public endpoint for machines of other
+// sites (ADR 0050), on l.
+func withSiteJoin(t *testing.T, l net.Listener) func(*Config) {
+	t.Helper()
+	_, port, _ := net.SplitHostPort(l.Addr().String())
+	return func(c *Config) {
+		c.JoinSiteAddr, c.JoinSiteListener = net.JoinHostPort("203.0.113.1", port), l
+	}
+}
+
 func meshJoinClient(ctx context.Context, t *testing.T, addr, caHash string) (armadav1.JoinServiceClient, error) {
 	t.Helper()
 	pin, err := pki.ParseCAHash(caHash)
@@ -771,7 +781,6 @@ func TestMeshJoin(t *testing.T) {
 	})
 	key := testKey(t)
 	for name, mod := range map[string]func(*armadav1.JoinRequest){
-		"private IP":   func(r *armadav1.JoinRequest) { r.PrivateIp = "10.0.0.5" },
 		"no key":       func(r *armadav1.JoinRequest) { r.NetworkKey = "" },
 		"bad endpoint": func(r *armadav1.JoinRequest) { r.Endpoint = "127.0.0.1" },
 	} {
@@ -782,7 +791,8 @@ func TestMeshJoin(t *testing.T) {
 			t.Errorf("%s: %v", name, err)
 		}
 	}
-	req, _ := joinReq(t, tok.Token, "m1", "")
+	// A private IP the machine found is not its address in a mesh.
+	req, _ := joinReq(t, tok.Token, "m1", "10.0.0.5")
 	req.NetworkKey, req.Endpoint = key, "198.51.100.2"
 	resp, err := jc.Join(c.ctx, req)
 	if err != nil {
@@ -832,6 +842,10 @@ func TestJoinFromNeedsMesh(t *testing.T) {
 	if _, err := c.admin.CreateJoinToken(c.ctx, &armadav1.CreateJoinTokenRequest{From: "198.51.100.9"}); status.Code(err) != codes.InvalidArgument {
 		t.Errorf("--from outside a mesh = %v", err)
 	}
+	// Another site joins over the leader's endpoint, which this one lacks.
+	if _, err := c.admin.CreateJoinToken(c.ctx, &armadav1.CreateJoinTokenRequest{Site: "office"}); status.Code(err) != codes.FailedPrecondition {
+		t.Errorf("token for another site without an endpoint = %v", err)
+	}
 }
 
 func TestSourceFilter(t *testing.T) {
@@ -861,5 +875,101 @@ func TestSourceFilter(t *testing.T) {
 	if c, err := f.Accept(); err == nil {
 		_ = c.Close()
 		t.Error("refused source accepted")
+	}
+}
+
+// A plain or wireguard cluster's machines of another site join over the
+// leader's endpoint while a token for one is open, with their key and
+// endpoint, and get the peer list with their sites (ADR 0050).
+func TestSiteJoin(t *testing.T) {
+	t.Parallel()
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := newCluster(t, withJoin(t), withSiteJoin(t, l))
+	c.srv.joinLimit = newKeyedLimiter(100, time.Second) // this test makes many attempts
+	if err := c.store.InitNetwork(c.ctx, store.Network{Mode: store.NetworkPlain, ClusterCIDR: netip.MustParsePrefix("10.120.0.0/16")}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.admin.CreateJoinToken(c.ctx, &armadav1.CreateJoinTokenRequest{Site: "office", TtlSeconds: 7200}); status.Code(err) != codes.InvalidArgument {
+		t.Errorf("2h token for another site = %v", err)
+	}
+	if _, err := c.admin.CreateJoinToken(c.ctx, &armadav1.CreateJoinTokenRequest{Site: "office", Server: true}); status.Code(err) != codes.FailedPrecondition {
+		t.Errorf("server token for another site = %v", err)
+	}
+	// A token of the leader's site keeps the private listener; nothing
+	// opens the public one.
+	first := c.token()
+	if strings.HasPrefix(first.JoinAddr, "203.0.113.1:") {
+		t.Errorf("first-site token at %s", first.JoinAddr)
+	}
+	tok, err := c.admin.CreateJoinToken(c.ctx, &armadav1.CreateJoinTokenRequest{Site: "office"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(tok.JoinAddr, "203.0.113.1:") || time.Until(tok.ExpiresAt.AsTime()) > 10*time.Minute {
+		t.Errorf("token %v", tok)
+	}
+	var jc armadav1.JoinServiceClient
+	c.eventually("join listener open", func() bool {
+		jc, err = meshJoinClient(c.ctx, t, l.Addr().String(), tok.CaHash)
+		return err == nil
+	})
+	key := testKey(t)
+	// The leader's own site's token is not taken over the public address.
+	req, _ := joinReq(t, first.Token, "w1", "10.0.0.5")
+	req.NetworkKey, req.Endpoint = key, "198.51.100.2"
+	if _, err := jc.Join(c.ctx, req); status.Code(err) != codes.PermissionDenied {
+		t.Errorf("first-site token over the public address = %v", err)
+	}
+	srvReq := &armadav1.JoinServerRequest{TokenId: "x", TokenSecret: "y", Name: "s2"}
+	if _, err := jc.JoinServer(c.ctx, srvReq); status.Code(err) != codes.FailedPrecondition {
+		t.Errorf("server join over the public address = %v", err)
+	}
+	for name, mod := range map[string]func(*armadav1.JoinRequest){
+		"no private IP": func(r *armadav1.JoinRequest) { r.PrivateIp = "" },
+		"no key":        func(r *armadav1.JoinRequest) { r.NetworkKey = "" },
+		"bad endpoint":  func(r *armadav1.JoinRequest) { r.Endpoint = "127.0.0.1" },
+	} {
+		req, _ := joinReq(t, tok.Token, "w1", "10.0.0.5")
+		req.NetworkKey, req.Endpoint = key, "198.51.100.2"
+		mod(req)
+		if _, err := jc.Join(c.ctx, req); status.Code(err) != codes.InvalidArgument {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	req, _ = joinReq(t, tok.Token, "w1", "10.0.0.5")
+	req.NetworkKey, req.Endpoint = key, "198.51.100.2"
+	resp, err := jc.Join(c.ctx, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.GetNetworkMode() != store.NetworkPlain || resp.GetMeshIp() != "" {
+		t.Errorf("join answer %v", resp)
+	}
+	var self *armadav1.NetworkPeer
+	for _, p := range resp.GetNetwork().GetPeers() {
+		if p.GetNode() == "w1" {
+			self = p
+		}
+	}
+	if self == nil || self.GetSite() != "office" || self.GetPublicKey() != key || self.GetEndpoint() != "198.51.100.2" || self.GetPrivateIp() != "10.0.0.5" {
+		t.Errorf("peer list %v", resp.GetNetwork().GetPeers())
+	}
+	if n, err := c.store.GetNode(c.ctx, "w1"); err != nil || n.Site != "office" || n.NetworkKey != key || n.Endpoint != "198.51.100.2" {
+		t.Errorf("node %+v, %v", n, err)
+	}
+	c.eventually("join listener closed", func() bool {
+		conn, err := net.DialTimeout("tcp", l.Addr().String(), time.Second)
+		if err == nil {
+			_ = conn.Close()
+		}
+		return err != nil
+	})
+	// The first-site token still works at the private address.
+	req, _ = joinReq(t, first.Token, "w2", "10.0.0.6")
+	if _, err := c.joinClient(first).Join(c.ctx, req); err != nil {
+		t.Errorf("first-site join: %v", err)
 	}
 }

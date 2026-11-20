@@ -195,6 +195,14 @@ func newServerCommand() *cobra.Command {
 					return err
 				}
 			}
+			// Machines of another site join over the leader's endpoint,
+			// while a token for one is open (ADR 0050).
+			var joinSiteAddr string
+			if ep, perr := netip.ParseAddr(announcedEndpoint(ac, log)); !joinPublic && joinAddr != "" && perr == nil {
+				if joinSiteAddr, err = meshJoinListen(joinAddr, ep); err != nil {
+					return err
+				}
+			}
 			if metrics != "" {
 				if err := netutil.CheckPrivateListen(metrics); err != nil {
 					return fmt.Errorf("--metrics-listen: %w", err)
@@ -236,7 +244,7 @@ func newServerCommand() *cobra.Command {
 				cfg := server.Config{
 					Store: fenced, TLS: tlsCfg, Logger: log,
 					Secrets: keys,
-					CA:      ca, JoinAddr: joinAddr, JoinTLS: joinTLS, JoinPublic: joinPublic, APIAddr: listen,
+					CA:      ca, JoinAddr: joinAddr, JoinTLS: joinTLS, JoinPublic: joinPublic, JoinSiteAddr: joinSiteAddr, APIAddr: listen,
 					NodeLostTimeout:   ts.lostTimeout,
 					MetricsAddr:       ts.metrics,
 					OnSettingsChanged: restart,

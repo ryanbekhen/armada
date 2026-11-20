@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log/slog"
 	"net/netip"
 	"os"
 	"os/exec"
@@ -85,8 +86,9 @@ type doctorEnv struct {
 	dataDir     string
 	secretsDir  string
 	clusterPort []uint16
-	// endpoint is a mesh node's public address (ADR 0049), where the
-	// leader's join listener faces the public while a join token is open.
+	// endpoint is the node's public address (ADR 0049, ADR 0050), where
+	// the leader's join listener faces the public while a join token for
+	// it is open.
 	endpoint netip.Addr
 }
 
@@ -126,6 +128,13 @@ the host firewall. Exits non-zero if a check fails.`,
 	return cmd
 }
 
+// joinEndpoint is the address the leader's public join listener would use:
+// the endpoint the node announces.
+func joinEndpoint(ac *agentConfig) netip.Addr {
+	a, _ := netip.ParseAddr(announcedEndpoint(ac, slog.New(slog.DiscardHandler)))
+	return a
+}
+
 func hostDoctorEnv(dataDir string) doctorEnv {
 	ac := &agentConfig{}
 	if c, err := loadAgentConfig(dataDir); err == nil {
@@ -162,7 +171,7 @@ func hostDoctorEnv(dataDir string) doctorEnv {
 		now:         time.Now,
 		adminConfig: clientconfig.DefaultPath(),
 		clusterPort: []uint16{defaultPort, defaultPort + 1, haproxy.MetricsPort},
-		endpoint:    ac.endpoint(),
+		endpoint:    joinEndpoint(ac),
 		latest:      latestRelease(),
 		version:     version.Get().Version,
 	}
@@ -549,7 +558,8 @@ func checkListeners(env doctorEnv) []checkResult {
 	for _, l := range ls {
 		for _, p := range env.clusterPort {
 			if p == defaultPort+1 && env.endpoint.IsValid() && l.Addr() == env.endpoint {
-				// A mesh leader's join listener, open while a join token is.
+				// The leader's public join listener, open while a join
+				// token for it is (a mesh, or other sites).
 				continue
 			}
 			if l.Port() == p && (l.Addr().IsUnspecified() || !netutil.IsPrivate(l.Addr())) {

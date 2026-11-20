@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"net"
 	goruntime "runtime"
 	"testing"
 	"time"
@@ -126,13 +127,23 @@ func TestHelloOSAndArch(t *testing.T) {
 // as the armada.site label; admins cannot set the label itself (ADR 0050).
 func TestNodeSites(t *testing.T) {
 	t.Parallel()
-	c := newCluster(t, withJoin(t))
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := newCluster(t, withJoin(t), withSiteJoin(t, l))
 	tok, err := c.admin.CreateJoinToken(c.ctx, &armadav1.CreateJoinTokenRequest{Site: "office"})
 	if err != nil {
 		t.Fatal(err)
 	}
+	var jc armadav1.JoinServiceClient
+	c.eventually("site join listener open", func() bool {
+		jc, err = meshJoinClient(c.ctx, t, l.Addr().String(), tok.CaHash)
+		return err == nil
+	})
 	req, keyPEM := joinReq(t, tok.Token, "n7", "10.0.0.17")
-	resp, err := c.joinClient(tok).Join(c.ctx, req)
+	req.NetworkKey, req.Endpoint = testKey(t), "198.51.100.7"
+	resp, err := jc.Join(c.ctx, req)
 	if err != nil {
 		t.Fatal(err)
 	}

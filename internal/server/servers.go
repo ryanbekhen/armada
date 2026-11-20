@@ -211,7 +211,10 @@ func (j *joinService) JoinServer(ctx context.Context, req *armadav1.JoinServerRe
 	if err := spec.ValidateName(name); err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "server name: %v", err)
 	}
-	ip, mesh, err := s.joiningAddress(ctx, req.GetPrivateIp(), req.GetNetworkKey(), req.GetEndpoint())
+	if j.public && !s.joinPublic {
+		return nil, status.Error(codes.FailedPrecondition, "a server joins at the leader's private address: servers in another site than the leader's are not supported yet")
+	}
+	ip, mesh, err := s.joiningAddress(ctx, req.GetPrivateIp(), req.GetNetworkKey(), req.GetEndpoint(), false)
 	if err != nil {
 		return nil, err
 	}
