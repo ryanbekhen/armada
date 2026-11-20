@@ -54,6 +54,7 @@ func NewRootCommand() *cobra.Command {
 		newRuntimeCommand(),
 		newRuntimeLogCommand(),
 		newUpgradeCommand(),
+		newEndpointCommand(),
 	)
 	return cmd
 }

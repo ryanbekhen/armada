@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
+	"errors"
 	"log/slog"
 	"net/netip"
 	"os"
@@ -39,6 +40,9 @@ func TestMain(m *testing.M) {
 		}
 		return nil
 	}
+	// No machine's interfaces decide what a test node announces.
+	detectEndpoint = func() (netip.Addr, error) { return netip.Addr{}, errors.New("no public address in tests") }
+	restartService = func(context.Context) (string, error) { return "", nil }
 	// `armadad user renew` records the name in a stand-in for the state.
 	recordUser = func(_ context.Context, dataDir, name string) error {
 		recordedUsers.Store(dataDir+"/"+name, true)

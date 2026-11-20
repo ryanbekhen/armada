@@ -114,8 +114,12 @@ armada rbac user create alex --role cluster-admin -o alex.config --ssh admin@203
   ([operations](../operations.md#container-network)).
 - When a machine's public address changes, its peers follow it as soon as
   it sends a packet, which it does every 25 seconds. The cluster still
-  records the address it joined with, so give machines fixed addresses; a
-  machine whose address changes for good joins again.
+  records the address it joined with, so give machines fixed addresses.
+  When one changes for good, record the new one on that machine:
+
+  ```bash
+  sudo armadad endpoint set 203.0.113.20
+  ```
 - When every machine restarts at once, each brings its tunnel up from the
   last peer list it kept (`/var/lib/armada/mesh.json`) before etcd starts.
 - A machine restored from a backup comes up alone and gets its peers once

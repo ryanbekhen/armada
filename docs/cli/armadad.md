@@ -23,6 +23,7 @@ Every command takes these.
 | [`armadad agent`](armadad-agent.md) | Run the node agent |
 | [`armadad backup`](armadad-backup.md) | Back up the control plane (state, keys, certificates) |
 | [`armadad doctor`](armadad-doctor.md) | Check that this host is ready to run Armada safely |
+| [`armadad endpoint`](armadad-endpoint.md) | Show or set the public address other sites' nodes reach this machine at |
 | [`armadad init`](armadad-init.md) | Initialize a new cluster on this machine |
 | [`armadad join`](armadad-join.md) | Join this machine to a cluster as a node |
 | [`armadad restore`](armadad-restore.md) | Restore the control plane from a backup |

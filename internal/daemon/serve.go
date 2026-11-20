@@ -589,7 +589,7 @@ func runAgent(ctx context.Context, dataDir string, servers []string, proxyKind, 
 	}
 	if cnet != nil {
 		acfg.Network, acfg.NetworkKey, acfg.Unpublished = cnet, networkKey, unpublished
-		acfg.Endpoint = ac.Endpoint
+		acfg.Endpoint = announcedEndpoint(ac, log)
 	}
 	a := agent.New(acfg)
 	g, ctx := errgroup.WithContext(ctx)
