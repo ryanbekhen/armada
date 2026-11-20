@@ -847,7 +847,8 @@ The `mesh` mode is for machines with no private network between them
 node has a mesh address (from `--mesh-cidr`, default `10.122.0.0/16`) in
 place of a private IP, held only on `armada-net`, and an endpoint, its
 public IPv4 address (`--endpoint` on `init` and `join`, else the only one
-on its interfaces). The control plane API, etcd, HTTP-01 forwarding, and
+on its interfaces; `sudo armadad endpoint set IP` changes it later, for
+instance when the provider gives the machine a new address). The control plane API, etcd, HTTP-01 forwarding, and
 metrics listen on mesh addresses, so nothing but 80, 443, and UDP 51820
 faces the internet; packets for the mesh range that arrive anywhere but
 the tunnel are dropped. Machines join over the leader's endpoint: its
