@@ -68,6 +68,12 @@ node to that push URL as well (ADR 0044), from now on; none stops it.
 --log-token - reads a token from stdin, stored encrypted: a bearer token, or
 the password of --log-export-user. --log-export-tenant sets Loki's tenant.
 
+--network wireguard (or plain) switches the cluster network's mode while
+everything runs (ADR 0050): every node brings the new transport up beside the
+current one, routes move once every node reaches every other over it, and the
+old one goes. armada cluster status shows how far it is and which nodes it
+waits for. Naming the current mode before the routes move gives the switch up.
+
 ```
 armada cluster set [flags]
 ```
@@ -88,6 +94,7 @@ Flags:
 | `--log-retention duration` | how long each node keeps log history, e.g. 168h (0 for the default, 7 days) |
 | `--log-token string` | file holding the log store's token, or - for stdin; an empty file removes it |
 | `--metrics-port int` | port of the Prometheus metrics endpoint on each server's private address; 0 turns it off |
+| `--network string` | switch the cluster network's mode while it runs: plain or wireguard |
 | `--node-lost-timeout duration` | how long a node may be unreachable before its replicas move to other nodes |
 | `--proxy-protocol strings` | address prefixes of TCP load balancers in front of the nodes that send the PROXY protocol, comma separated (empty to clear) |
 | `--root-domain string` | root domain for app URLs (empty to clear) |

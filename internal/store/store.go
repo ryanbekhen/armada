@@ -371,6 +371,13 @@ type Store interface {
 	// SetDefaultIsolation turns network isolation of the default space on
 	// or off; ErrPrecondition without a cluster network.
 	SetDefaultIsolation(ctx context.Context, on bool, actor string) error
+	// StartNetworkSwitch begins switching between the plain and wireguard
+	// modes (ADR 0050), or gives a switch up during its prepare step when
+	// to is the current mode; ErrConflict while another switch runs.
+	StartNetworkSwitch(ctx context.Context, to, actor string) error
+	// AdvanceNetworkSwitch takes a switch from step from to the next;
+	// ErrConflict when it is not at that step.
+	AdvanceNetworkSwitch(ctx context.Context, to, from string) error
 
 	UpsertNode(ctx context.Context, n Node) error
 	GetNode(ctx context.Context, id string) (Node, error)

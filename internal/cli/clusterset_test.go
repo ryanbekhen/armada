@@ -45,3 +45,29 @@ func TestWaitForAPI(t *testing.T) {
 		t.Errorf("no answer = %v", err)
 	}
 }
+
+// cluster status shows a network switch and the nodes it waits for.
+func TestPrintClusterStatusSwitch(t *testing.T) {
+	t.Parallel()
+	var b strings.Builder
+	err := printClusterStatus(&b, &armadav1.ClusterStatusResponse{Nodes: 3, NodesReady: 3, NetworkSwitch: &armadav1.NetworkSwitchProgress{
+		From: "plain", To: "wireguard", Step: "prepare", SinceUnix: 1_700_000_000, WaitingTotal: 4,
+		Waiting: []*armadav1.NodeSwitchWait{
+			{Node: "n1", Unreached: []string{"n2", "n3"}},
+			{Node: "n2", Unsupported: true},
+			{Node: "n3", Error: "no WireGuard\x1b[2J"},
+		},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := b.String()
+	for _, want := range []string{"switching from plain to wireguard, bringing it up beside plain", "a path to n2, n3", "an upgrade", "no WireGuard", "and 1 more"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("%q missing:\n%s", want, out)
+		}
+	}
+	if strings.ContainsRune(out, 0x1b) {
+		t.Errorf("control character printed:\n%q", out)
+	}
+}

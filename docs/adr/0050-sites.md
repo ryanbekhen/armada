@@ -58,18 +58,23 @@ cluster. The leader records the switch in `store.Network`:
 It proceeds in steps, so traffic between nodes never stops:
 
 1. **Prepare.** Every agent brings up the target transport beside the
-   current one. Toward `wireguard`, the WireGuard device is configured with
-   every peer: keys already exist in both modes (ADR 0025, Keys). The
-   firewall opens the target's port to peers. Routes still use the current
-   transport. Each agent reports, in its `UsageReport`, which peers it
-   reaches on the target transport. For WireGuard, that means a handshake
-   within 3 minutes; the 25-second keepalive starts handshakes without
-   traffic.
+   current one, on a second interface, `armada-next`. Toward `wireguard`,
+   the WireGuard device is configured with every peer: keys already exist
+   in both modes (ADR 0025, Keys). The firewall opens the target's port to
+   peers. Routes still use the current transport, except a route to each
+   peer's tunnel address over `armada-next`. Every 5 seconds the agent
+   pings those addresses and counts a peer as reached only when its answer
+   comes in through `armada-next`. It reports, in its `UsageReport`, which
+   peers it does not reach yet.
 2. **Move.** Once every node that is not lost reaches every peer on the
    target transport, the leader records the move. Agents point each peer's
-   routes at the target transport and record the new mode.
-3. **Clean up.** Once every node reports the move, agents remove the old
-   transport and its firewall rules, and the switch is done.
+   routes at the target transport and report when they have. The current
+   transport stays up for peers that have not moved yet.
+3. **Clean up.** Once every node reports the move, the cluster's mode
+   becomes the target. Agents remove the old transport and its firewall
+   rules, and rename `armada-next` to `armada-net`, which takes the
+   interface down for a moment. Each agent records the new mode in
+   `agent.json`.
 
 A node that was lost during the switch applies the cluster's mode when it
 returns, and loses traffic to its peers for at most one reconcile pass.
@@ -81,18 +86,22 @@ How it is shown and when it is refused:
 - A second switch is refused while one runs.
 - A switch is refused while a node runs a version that does not announce it
   (`Hello.network_switch`).
+- A switch to `wireguard` needs the kernel's WireGuard on every node: the
+  userspace device's control socket would not follow the rename.
+- A server that does not know switches ignores one, so its nodes stay on
+  (or go back to) the cluster's mode if it becomes the leader.
 - `mesh` clusters are refused: their nodes' addresses depend on the mode.
 
 MTU:
 
 - WireGuard's MTU is 30 bytes smaller than VXLAN's.
-- After a switch to `wireguard`, containers created before it keep the
-  larger MTU until they are recreated.
-- In every mode, the agent clamps the MSS of TCP connections entering the
-  cluster network to the path MTU, so TCP is never affected.
+- After a switch to `wireguard`, the bridge and the containers keep the
+  larger MTU. Containers created after the agent's next start use the
+  tunnel's.
+- In every mode, the agent clamps the MSS of TCP connections leaving
+  through the tunnel to its MTU, so TCP is never affected.
 - Other protocols rely on the "fragmentation needed" message the node
   sends back.
-- `armadad doctor` names containers whose MTU is larger than the tunnel's.
 
 ### 2. Sites
 
