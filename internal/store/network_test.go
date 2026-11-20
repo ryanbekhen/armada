@@ -306,3 +306,93 @@ func TestFreeMeshAddress(t *testing.T) {
 		t.Errorf("full mesh = %v", err)
 	}
 }
+
+// A running cluster switches between plain and wireguard in two steps; it
+// can give a switch up only before the routes move (ADR 0050).
+func TestNetworkSwitch(t *testing.T) {
+	t.Parallel()
+	s, ctx := open(t), context.Background()
+	if err := s.StartNetworkSwitch(ctx, NetworkWireGuard, "user:a"); !errors.Is(err, ErrPrecondition) {
+		t.Fatalf("without a network = %v, want ErrPrecondition", err)
+	}
+	if err := s.InitNetwork(ctx, Network{Mode: NetworkPlain, ClusterCIDR: netip.MustParsePrefix("10.120.0.0/16")}); err != nil {
+		t.Fatal(err)
+	}
+	for _, to := range []string{NetworkMesh, "ipsec"} {
+		if err := s.StartNetworkSwitch(ctx, to, "user:a"); !errors.Is(err, ErrPrecondition) {
+			t.Errorf("to %s = %v, want ErrPrecondition", to, err)
+		}
+	}
+	// The current mode is no switch.
+	if err := s.StartNetworkSwitch(ctx, NetworkPlain, "user:a"); err != nil {
+		t.Fatal(err)
+	}
+	if n, _ := s.GetNetwork(ctx); n.Switch != nil {
+		t.Fatalf("switch %+v to the current mode", n.Switch)
+	}
+	sw := func() *NetworkSwitch {
+		t.Helper()
+		n, err := s.GetNetwork(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return n.Switch
+	}
+	if err := s.StartNetworkSwitch(ctx, NetworkWireGuard, "user:a"); err != nil {
+		t.Fatal(err)
+	}
+	if got := sw(); got == nil || got.To != NetworkWireGuard || got.Step != SwitchPrepare || got.Since.IsZero() {
+		t.Fatalf("switch = %+v", got)
+	}
+	if err := s.StartNetworkSwitch(ctx, NetworkWireGuard, "user:a"); !errors.Is(err, ErrConflict) {
+		t.Errorf("a second switch = %v, want ErrConflict", err)
+	}
+	// Given up while preparing.
+	if err := s.StartNetworkSwitch(ctx, NetworkPlain, "user:a"); err != nil || sw() != nil {
+		t.Fatalf("give up = %v, switch %+v", err, sw())
+	}
+	if err := s.StartNetworkSwitch(ctx, NetworkWireGuard, "user:a"); err != nil {
+		t.Fatal(err)
+	}
+	// Only from the step it is at.
+	if err := s.AdvanceNetworkSwitch(ctx, NetworkWireGuard, SwitchMove); !errors.Is(err, ErrConflict) {
+		t.Errorf("advance from the wrong step = %v", err)
+	}
+	if err := s.AdvanceNetworkSwitch(ctx, NetworkPlain, SwitchPrepare); !errors.Is(err, ErrConflict) {
+		t.Errorf("advance to the wrong mode = %v", err)
+	}
+	if err := s.AdvanceNetworkSwitch(ctx, NetworkWireGuard, SwitchPrepare); err != nil {
+		t.Fatal(err)
+	}
+	if got := sw(); got == nil || got.Step != SwitchMove {
+		t.Fatalf("after prepare: %+v", got)
+	}
+	// Once the routes move, the switch finishes.
+	if err := s.StartNetworkSwitch(ctx, NetworkPlain, "user:a"); !errors.Is(err, ErrConflict) {
+		t.Errorf("give up while moving = %v, want ErrConflict", err)
+	}
+	if err := s.AdvanceNetworkSwitch(ctx, NetworkWireGuard, SwitchMove); err != nil {
+		t.Fatal(err)
+	}
+	if n, _ := s.GetNetwork(ctx); n.Mode != NetworkWireGuard || n.Switch != nil || n.ClusterCIDR.String() != "10.120.0.0/16" {
+		t.Fatalf("after the switch: %+v", n)
+	}
+	audit, _ := s.ListAudit(ctx, 20)
+	n := 0
+	for _, e := range audit {
+		if e.Action == "network.switch" {
+			n++
+		}
+	}
+	if n != 3 {
+		t.Errorf("%d audit events, want 3 (two starts and a give-up)", n)
+	}
+
+	mesh := open(t)
+	if err := mesh.InitNetwork(ctx, Network{Mode: NetworkMesh, ClusterCIDR: netip.MustParsePrefix("10.120.0.0/16"), MeshCIDR: netip.MustParsePrefix("10.122.0.0/16")}); err != nil {
+		t.Fatal(err)
+	}
+	if err := mesh.StartNetworkSwitch(ctx, NetworkWireGuard, "user:a"); !errors.Is(err, ErrPrecondition) {
+		t.Errorf("mesh = %v, want ErrPrecondition", err)
+	}
+}

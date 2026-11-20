@@ -39,8 +39,11 @@ type session struct {
 	// logHistory: the agent searches its node's log history (Hello, ADR
 	// 0043).
 	logHistory bool
-	send       chan *armadav1.ServerMessage
-	done       chan struct{}
+	// netSwitch: the agent switches the network's mode while it runs
+	// (Hello, ADR 0050).
+	netSwitch bool
+	send      chan *armadav1.ServerMessage
+	done      chan struct{}
 
 	mu   sync.Mutex
 	last *armadav1.Assignment
@@ -137,7 +140,7 @@ func (s *Server) Connect(stream armadav1.AgentService_ConnectServer) error {
 		return status.Errorf(codes.FailedPrecondition, "agent reports private IP %q but node is registered with %q", hello.GetPrivateIp(), node.PrivateIP)
 	}
 
-	sess := &session{nodeID: node.ID, certRefs: hello.GetCertificateRefs(), sandboxes: hello.GetQueueSandboxes(), holds: hello.GetHeldReplicas(), backups: hello.GetVolumeBackups(), logHistory: hello.GetLogHistory(), send: make(chan *armadav1.ServerMessage, 64), done: make(chan struct{})}
+	sess := &session{nodeID: node.ID, certRefs: hello.GetCertificateRefs(), sandboxes: hello.GetQueueSandboxes(), holds: hello.GetHeldReplicas(), backups: hello.GetVolumeBackups(), logHistory: hello.GetLogHistory(), netSwitch: hello.GetNetworkSwitch(), send: make(chan *armadav1.ServerMessage, 64), done: make(chan struct{})}
 	s.mu.Lock()
 	if old := s.sessions[node.ID]; old != nil {
 		close(old.done)
@@ -251,7 +254,8 @@ func (s *Server) Connect(stream armadav1.AgentService_ConnectServer) error {
 			}
 			if u := m.GetUsage(); u != nil {
 				if s.usage.set(node.ID, u, s.now()) {
-					// A new length of a job's queue may start runs.
+					// A new length of a job's queue may start runs, and a
+					// node ready for a network switch's step move it on.
 					s.Trigger()
 				}
 				for _, e := range s.usage.outOfMemory(node.ID, u) {

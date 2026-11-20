@@ -779,6 +779,12 @@ message ClusterConfig {
   // protocol, as prefixes: a connection from one of these starts with the
   // client's address, which then counts as the connection's own.
   repeated string proxy_protocol = 17;
+  // The cluster network's mode (ADR 0025): plain, wireguard, or mesh;
+  // empty for a cluster without one. set_network switches a running
+  // cluster between plain and wireguard (ADR 0050).
+  string network = 18;
+  // The mode a switch under way goes to, empty while none runs.
+  string network_switch_to = 19;
 }
 
 message GetClusterConfigRequest {}
@@ -809,6 +815,9 @@ message SetClusterConfigRequest {
   bool set_log_token = 15;
   bytes log_token = 16 [debug_redact = true];
   bool set_proxy_protocol = 17;
+  // Switch the cluster network to config.network (ADR 0050); the current
+  // mode gives up a switch still in its prepare step.
+  bool set_network = 18;
 }
 
 message ListDomainsRequest {
@@ -898,6 +907,35 @@ message ClusterStatusResponse {
   int32 attention_total = 9;
   // Nodes that are not ready.
   repeated string nodes_not_ready = 10;
+  // A switch of the cluster network's mode under way (ADR 0050).
+  NetworkSwitchProgress network_switch = 11;
+}
+
+// NetworkSwitchProgress is how a switch between the plain and wireguard
+// modes goes (ADR 0050).
+message NetworkSwitchProgress {
+  string from = 1;
+  string to = 2;
+  // "prepare" or "move".
+  string step = 3;
+  // When the step began, in Unix seconds.
+  int64 since_unix = 4;
+  // The nodes the step waits for (at most 50), and how many there are.
+  repeated NodeSwitchWait waiting = 5;
+  int32 waiting_total = 6;
+}
+
+// NodeSwitchWait is a node a step of a network switch waits for.
+message NodeSwitchWait {
+  string node = 1;
+  // The node's agent does not switch modes: upgrade it.
+  bool unsupported = 2;
+  // The node is disconnected; the step waits until it is lost.
+  bool disconnected = 3;
+  // The peers it does not reach yet over the target transport.
+  repeated string unreached = 4;
+  // Why the node cannot take the step, as it reported.
+  string error = 5;
 }
 
 message GetAppSpecRequest {
