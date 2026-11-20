@@ -359,7 +359,7 @@ func (s *Server) Status(ctx context.Context, req *armadav1.StatusRequest) (*arma
 			state = nodeStateLost
 		}
 		ns := &armadav1.NodeStatus{Id: n.ID, PrivateIp: n.PrivateIP, State: state, CpuMillis: n.CPUMillis, MemoryBytes: n.MemoryBytes, Cordoned: n.Cordoned, Version: n.Version,
-			Labels: n.AllLabels(), Restricted: n.Restricted, Replicas: perNode[n.ID]}
+			Labels: n.AllLabels(), Restricted: n.Restricted, Replicas: perNode[n.ID], Site: n.Site}
 		// The node's record changes only with its status; its usage samples
 		// say when it was last heard, every few seconds.
 		lastSeen := n.LastSeen

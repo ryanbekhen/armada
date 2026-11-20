@@ -17,7 +17,10 @@ const (
 	ReservedLabelPrefix = "armada."
 	LabelOS             = ReservedLabelPrefix + "os"
 	LabelArch           = ReservedLabelPrefix + "arch"
-	maxLabelLen         = 63
+	// LabelSite is the node's site (ADR 0050), which admins set; the
+	// cluster's first site has none.
+	LabelSite   = ReservedLabelPrefix + "site"
+	maxLabelLen = 63
 	// MaxNodeLabels is how many admin labels a node may carry.
 	MaxNodeLabels = 32
 	// maxRequire bounds placement.require: keys and values per key.

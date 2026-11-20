@@ -45,6 +45,7 @@ service AdminService {
   rpc CordonNode(CordonNodeRequest) returns (CordonNodeResponse);
   rpc LabelNode(LabelNodeRequest) returns (LabelNodeResponse);
   rpc RestrictNode(RestrictNodeRequest) returns (RestrictNodeResponse);
+  rpc SetNodeSite(SetNodeSiteRequest) returns (SetNodeSiteResponse);
   rpc RemoveNode(RemoveNodeRequest) returns (RemoveNodeResponse);
   rpc ListServers(ListServersRequest) returns (ListServersResponse);
   rpc RemoveServer(RemoveServerRequest) returns (RemoveServerResponse);
@@ -530,6 +531,8 @@ message CreateJoinTokenRequest {
   // In a mesh cluster (ADR 0049), the only address the join listener
   // answers for this token; empty: any.
   string from = 4;
+  // The site the node joins (ADR 0050); empty for the cluster's first.
+  string site = 5;
 }
 
 message CreateJoinTokenResponse {
@@ -571,6 +574,15 @@ message RestrictNodeRequest {
 }
 
 message RestrictNodeResponse {}
+
+// SetNodeSiteRequest moves a node to another site (ADR 0050); an empty
+// site is the cluster's first.
+message SetNodeSiteRequest {
+  string node = 1;
+  string site = 2;
+}
+
+message SetNodeSiteResponse {}
 
 message RemoveNodeRequest {
   string node = 1;
@@ -1054,11 +1066,13 @@ message NodeStatus {
   google.protobuf.Timestamp cert_expires_at = 8;
   // Armada version its agent last reported.
   string version = 9;
-  // Admin labels plus armada.os and armada.arch.
+  // Admin labels plus armada.os, armada.arch, and armada.site.
   map<string, string> labels = 10;
   bool restricted = 11;
   // Replicas assigned to the node (not finished job attempts).
   int32 replicas = 12;
+  // The node's site (ADR 0050); empty for the cluster's first.
+  string site = 13;
 }
 
 message TopRequest {

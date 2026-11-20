@@ -282,3 +282,58 @@ func TestJoinTokenLabels(t *testing.T) {
 		t.Errorf("joined node labels = %v", n.Labels)
 	}
 }
+
+// A token's site goes to the node that joins with it; SetNodeSite moves a
+// node, audited only when it changes (ADR 0050).
+func TestNodeSite(t *testing.T) {
+	t.Parallel()
+	s, ctx := open(t), context.Background()
+	exp := time.Now().Add(time.Hour)
+	if err := s.CreateJoinToken(ctx, JoinToken{ID: "bad", SecretHash: "h", ExpiresAt: exp, Site: "Not Valid"}); !errors.Is(err, ErrPrecondition) {
+		t.Errorf("invalid site = %v", err)
+	}
+	if err := s.CreateJoinToken(ctx, JoinToken{ID: "tok1", SecretHash: "h", ExpiresAt: exp, CreatedBy: "admin:a", Site: "office"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RedeemJoinToken(ctx, "tok1", accept, Node{ID: "n9", PrivateIP: "10.0.0.9"}, issued("s9", exp)); err != nil {
+		t.Fatal(err)
+	}
+	n, _ := s.GetNode(ctx, "n9")
+	if n.Site != "office" || n.AllLabels()["armada.site"] != "office" {
+		t.Fatalf("joined node %+v", n)
+	}
+	// The agent's own upsert keeps it.
+	if err := s.UpsertNode(ctx, Node{ID: "n9", PrivateIP: "10.0.0.9", CPUMillis: 1000}); err != nil {
+		t.Fatal(err)
+	}
+	if n, _ := s.GetNode(ctx, "n9"); n.Site != "office" {
+		t.Errorf("after upsert: %q", n.Site)
+	}
+	for _, site := range []string{"home", "home", ""} {
+		if err := s.SetNodeSite(ctx, "n9", site, "admin:a"); err != nil {
+			t.Fatal(err)
+		}
+		if n, _ := s.GetNode(ctx, "n9"); n.Site != site {
+			t.Errorf("site %q, want %q", n.Site, site)
+		}
+	}
+	if n, _ := s.GetNode(ctx, "n9"); len(n.AllLabels()) != 0 {
+		t.Errorf("first site labels %v", n.AllLabels())
+	}
+	if err := s.SetNodeSite(ctx, "ghost", "x", "admin:a"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("unknown node = %v", err)
+	}
+	if err := s.SetNodeSite(ctx, "n9", "a/b", "admin:a"); !errors.Is(err, ErrPrecondition) {
+		t.Errorf("invalid site = %v", err)
+	}
+	audit, _ := s.ListAudit(ctx, 20)
+	moves := 0
+	for _, e := range audit {
+		if e.Action == "node.site" {
+			moves++
+		}
+	}
+	if moves != 2 {
+		t.Errorf("%d node.site audit events, want 2", moves)
+	}
+}

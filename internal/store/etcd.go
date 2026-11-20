@@ -1,6 +1,7 @@
 package store
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -443,6 +444,8 @@ type nodeRec struct {
 	NetworkKey string `json:"networkKey,omitempty"`
 	// Endpoint is the node's mesh endpoint (ADR 0049).
 	Endpoint string `json:"endpoint,omitempty"`
+	// Site is the node's site (ADR 0050).
+	Site string `json:"site,omitempty"`
 }
 
 type certRec struct {
@@ -463,6 +466,7 @@ type tokenRec struct {
 	Server     bool              `json:"server,omitempty"`
 	Labels     map[string]string `json:"labels,omitempty"`
 	From       string            `json:"from,omitempty"`
+	Site       string            `json:"site,omitempty"`
 }
 
 type serverRec struct {
@@ -639,7 +643,7 @@ func (t *etx) toNode(n nodeRec) (Node, error) {
 	out := Node{ID: n.ID, PrivateIP: n.PrivateIP, CPUMillis: n.CPUMillis, MemoryBytes: n.MemoryBytes, State: n.State,
 		LastSeen: fromMS(n.LastSeen), CreatedAt: fromMS(n.CreatedAt), Cordoned: n.Cordoned, Version: n.Version,
 		Labels: n.Labels, OS: n.OS, Arch: n.Arch, Restricted: n.Restricted,
-		Jobs: n.Jobs, Volumes: n.Volumes, Containers: n.Containers, NFS: n.NFS, Subnet: n.Subnet, NetworkKey: n.NetworkKey, Endpoint: n.Endpoint}
+		Jobs: n.Jobs, Volumes: n.Volumes, Containers: n.Containers, NFS: n.NFS, Subnet: n.Subnet, NetworkKey: n.NetworkKey, Endpoint: n.Endpoint, Site: n.Site}
 	var latest int64
 	err := listInto(t, pfxCerts+n.ID+"/", func(_ string, c certRec) error {
 		latest = max(latest, c.NotAfter)
@@ -668,8 +672,9 @@ func (s *Etcd) UpsertNode(ctx context.Context, n Node) error {
 		if ok {
 			rec.CreatedAt, rec.Cordoned, rec.LegacyCerts, rec.Version = cur.CreatedAt, cur.Cordoned, cur.LegacyCerts, cur.Version
 			rec.Labels, rec.Restricted, rec.OS, rec.Arch = cur.Labels, cur.Restricted, cur.OS, cur.Arch
-			rec.Subnet, rec.NetworkKey, rec.Endpoint = cur.Subnet, cur.NetworkKey, cur.Endpoint
+			rec.Subnet, rec.NetworkKey, rec.Endpoint, rec.Site = cur.Subnet, cur.NetworkKey, cur.Endpoint, cur.Site
 		} else {
+			rec.Site = n.Site
 			if rec.Subnet, err = t.newNodeNetwork(n.PrivateIP); err != nil {
 				return err
 			}
@@ -835,6 +840,34 @@ func (s *Etcd) SetNodeLabels(ctx context.Context, id string, set map[string]stri
 	return out, err
 }
 
+// SetNodeSite moves a node to another site (ADR 0050); "" is the cluster's
+// first site. See Store.
+func (s *Etcd) SetNodeSite(ctx context.Context, id, site, actor string) error {
+	if site != "" {
+		if err := spec.CheckLabelValue(site); err != nil {
+			return fmt.Errorf("site: %w: %w", err, ErrPrecondition)
+		}
+	}
+	now := s.now()
+	return s.tx(ctx, func(t *etx) error {
+		n, ok, err := t.node(id)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return notFoundf("node %s", id)
+		}
+		if n.Site == site {
+			return nil
+		}
+		n.Site = site
+		if err := t.put(pfxNodes+id, n); err != nil {
+			return err
+		}
+		return t.audit(now, actor, "node.site", id, cmp.Or(site, "(first site)"))
+	})
+}
+
 // SetNodeRestricted makes a node restricted or open. See Store.
 func (s *Etcd) SetNodeRestricted(ctx context.Context, id string, restricted bool, actor string) error {
 	now := s.now()
@@ -930,6 +963,11 @@ func (s *Etcd) RemoveNode(ctx context.Context, id string, force bool, actor stri
 
 // CreateJoinToken stores a join token. See Store.
 func (s *Etcd) CreateJoinToken(ctx context.Context, tok JoinToken) error {
+	if tok.Site != "" {
+		if err := spec.CheckLabelValue(tok.Site); err != nil {
+			return fmt.Errorf("site: %w: %w", err, ErrPrecondition)
+		}
+	}
 	now := s.now()
 	return s.tx(ctx, func(t *etx) error {
 		// Expired and used tokens are of no further use.
@@ -948,7 +986,7 @@ func (s *Etcd) CreateJoinToken(ctx context.Context, tok JoinToken) error {
 			return fmt.Errorf("join token %s exists: %w", tok.ID, ErrConflict)
 		}
 		if err := t.put(pfxTokens+tok.ID, tokenRec{ID: tok.ID, SecretHash: tok.SecretHash, ExpiresAt: tok.ExpiresAt.UnixMilli(),
-			CreatedAt: now.UnixMilli(), CreatedBy: tok.CreatedBy, Server: tok.Server, Labels: tok.Labels, From: tok.From}); err != nil {
+			CreatedAt: now.UnixMilli(), CreatedBy: tok.CreatedBy, Server: tok.Server, Labels: tok.Labels, From: tok.From, Site: tok.Site}); err != nil {
 			return err
 		}
 		detail := "expires " + tok.ExpiresAt.UTC().Format("2006-01-02T15:04Z")
@@ -960,6 +998,9 @@ func (s *Etcd) CreateJoinToken(ctx context.Context, tok JoinToken) error {
 		}
 		if tok.From != "" {
 			detail += ", from " + tok.From
+		}
+		if tok.Site != "" {
+			detail += ", site " + tok.Site
 		}
 		return t.audit(now, tok.CreatedBy, "token.create", tok.ID, detail)
 	})
@@ -974,7 +1015,7 @@ func (s *Etcd) OpenJoinTokens(ctx context.Context) ([]JoinToken, error) {
 		return listInto(t, pfxTokens, func(_ string, r tokenRec) error {
 			if r.UsedAt == 0 && r.ExpiresAt > now {
 				out = append(out, JoinToken{ID: r.ID, ExpiresAt: fromMS(r.ExpiresAt), CreatedAt: fromMS(r.CreatedAt),
-					CreatedBy: r.CreatedBy, Server: r.Server, Labels: r.Labels, From: r.From})
+					CreatedBy: r.CreatedBy, Server: r.Server, Labels: r.Labels, From: r.From, Site: r.Site})
 			}
 			return nil
 		})
@@ -1081,7 +1122,7 @@ func (s *Etcd) redeem(ctx context.Context, id string, check func(string) bool, s
 			n.State = NodeUnknown
 		}
 		if err := t.put(pfxNodes+n.ID, nodeRec{ID: n.ID, PrivateIP: n.PrivateIP, State: n.State, CreatedAt: now.UnixMilli(), Labels: tok.Labels, Subnet: subnet,
-			NetworkKey: n.NetworkKey, Endpoint: n.Endpoint}); err != nil {
+			NetworkKey: n.NetworkKey, Endpoint: n.Endpoint, Site: tok.Site}); err != nil {
 			return err
 		}
 		if err := t.putCert(n.ID, cert, now); err != nil {

@@ -140,8 +140,8 @@ placement:
 ```
 
 Without the allowance, `armada app create --file web.yaml` is refused with
-`user:alice may not require node label tier=shop`. `armada.os` and
-`armada.arch` are always allowed. `--clear-labels` takes every allowance
+`user:alice may not require node label tier=shop`. `armada.os`,
+`armada.arch`, and `armada.site` are always allowed. `--clear-labels` takes every allowance
 back.
 
 ## 6. Take access back
