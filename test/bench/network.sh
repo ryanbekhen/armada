@@ -344,6 +344,17 @@ scale:
 placement:
   spreadBy: bench
 EOF
+	# The HTTP load and the upload come from a container on A: the internal
+	# frontend answers only containers of the cluster (ADR 0026), not the
+	# machine itself.
+	deploy <<EOF
+name: client
+image: alpine:3.20
+command: ["sh", "-c", "apk add -q --no-cache curl && exec sleep 86400"]
+placement:
+  require:
+    bench: a
+EOF
 	deploy <<EOF
 name: sink
 image: alpine:3.20
@@ -405,7 +416,7 @@ iperf() { # iperf STREAMS [-R]: Gbit/s received
 iperf_ready() { on 1 "armada app exec iperf --replica $IPERF_CLI -- iperf3 -c $IPERF_HOST -p $IPERF_PORT -t 1" ; }
 
 hey() { # hey CONCURRENCY NAME
-	on 1 "armada-bench-hey -z ${BENCH_DURATION}s -c $1 -host web.internal http://$GW/" >"$BENCH_OUT/$MODE-$2-c$1.txt"
+	inside "/tmp/hey -z ${BENCH_DURATION}s -c $1 -host web.internal http://$GW/" >"$BENCH_OUT/$MODE-$2-c$1.txt"
 	_f=$BENCH_OUT/$MODE-$2-c$1.txt
 	HEY_RPS=$(awk '/Requests\/sec:/ { printf "%.0f", $2 }' "$_f")
 	HEY_P50=$(awk '/ 50%+ in / { printf "%.1f", $3 * 1000 }' "$_f")
@@ -415,15 +426,18 @@ hey() { # hey CONCURRENCY NAME
 	HEY_BAD=$((_total - ${_good:-0}))
 	[ "$_total" -gt 0 ] || fail "hey sent no requests (see $_f)"
 }
-web_ok() { on 1 "curl -fsS -m 5 -H 'Host: web.internal' http://$GW/"; }
-sink_ok() { on 1 "curl -fsS -m 5 -X POST --data x -H 'Host: sink.internal' http://$GW/cgi-bin/up"; }
+# inside CMD runs CMD in the client container on A.
+inside() { on 1 "armada app exec client -- $1"; }
+client_ok() { inside 'curl --version' >/dev/null; }
+web_ok() { inside "curl -fsS -m 5 -H 'Host: web.internal' http://$GW/"; }
+sink_ok() { inside "curl -fsS -m 5 -X POST --data x -H 'Host: sink.internal' http://$GW/cgi-bin/up"; }
 
 # The upload is a file, so it has a length (the sink cannot read chunked
 # bodies); a transfer that stalls until the timeout points at the MTU.
-upload_file() { on 1 "dd if=/dev/zero of=/var/tmp/armada-bench.upload bs=1M count=$BENCH_UPLOAD_MB 2>/dev/null"; }
+upload_file() { inside "dd if=/dev/zero of=/tmp/upload bs=1M count=$BENCH_UPLOAD_MB" 2>/dev/null; }
 upload() {
-	on 1 "curl -sS -o /dev/null -m 900 -X POST -H 'Content-Type: application/octet-stream' -H 'Host: sink.internal' \\
-		-T /var/tmp/armada-bench.upload -w '%{http_code} %{time_total} %{speed_upload}' http://$GW/cgi-bin/up" >"$WORK/upload" 2>&1 || true
+	inside "curl -sS -o /dev/null -m 900 -X POST -H 'Content-Type: application/octet-stream' -H 'Host: sink.internal' \\
+		-T /tmp/upload -w '%{http_code} %{time_total} %{speed_upload}' http://$GW/cgi-bin/up" >"$WORK/upload" 2>&1 || true
 	UPLOAD=$(awk '$1 == 200 { printf "%.0f MB/s, %.1f s", $3 / 1e6, $2; next } { printf "failed: %s", $0 }' "$WORK/upload")
 }
 
@@ -450,6 +464,9 @@ for MODE in $BENCH_MODES; do
 	fi
 
 	iperf_apps
+	wait_for 180 "client on $A" placed client "$A"
+	wait_for 120 "curl in the client" client_ok
+	on 1 "armada app exec -i client -- sh -c 'cat > /tmp/hey && chmod 755 /tmp/hey' < /usr/local/bin/armada-bench-hey"
 	wait_for 180 "iperf3 on $A and $B" placed iperf "$A $B"
 	IPERF_CLI=$(replica iperf "$A" id)
 	# B's replica's address: its container's on a cluster network, else
@@ -478,7 +495,7 @@ for MODE in $BENCH_MODES; do
 	wait_for 60 "sink.internal answers" sink_ok
 	upload_file
 	measure upload upload
-	on 1 'rm -f /var/tmp/armada-bench.upload'
+	inside 'rm -f /tmp/upload'
 	row "upload ${BENCH_UPLOAD_MB} MB A→B via HAProxy" "$UPLOAD"
 
 	log "$MODE: HTTP through HAProxy (hey)"

@@ -94,11 +94,11 @@ Then, with the CPU use of both machines sampled around each run:
 
 1. **Container to container**: `iperf3` from the replica of one app on A to its replica on B
    at the replica's address (its container address on a cluster network), with 1 and 4 streams, in both directions.
-2. **Upload**: a file of `BENCH_UPLOAD_MB` posted from A through A's
+2. **Upload**: a file of `BENCH_UPLOAD_MB` posted from a container on A through A's
    HAProxy to a replica on B. A transfer that fails or stalls until the
    timeout points at an MTU problem on the path.
-3. **HTTP through HAProxy**: `hey` on A sends requests to A's internal
-   frontend (`web.internal`, as a container on A would), once with one
+3. **HTTP through HAProxy**: `hey` in a container on A sends requests to A's internal
+   frontend (`web.internal`; the frontend answers only the cluster's containers), once with one
    request at a time and once with `BENCH_CONCURRENCY`, for four placements
    of the app (nginx answering `200`):
    - `remote`: one replica, on B: every request crosses to the other node.
