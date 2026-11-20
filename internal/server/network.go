@@ -36,7 +36,7 @@ func (s *Server) buildNetwork(ctx context.Context, nodes []store.Node, replicas 
 			continue
 		}
 		subnets[node.ID] = node.Subnet
-		cfg.Peers = append(cfg.Peers, &armadav1.NetworkPeer{Node: node.ID, PrivateIp: node.PrivateIP, Subnet: node.Subnet, PublicKey: node.NetworkKey, Endpoint: node.Endpoint})
+		cfg.Peers = append(cfg.Peers, &armadav1.NetworkPeer{Node: node.ID, PrivateIp: node.PrivateIP, Subnet: node.Subnet, PublicKey: node.NetworkKey, Endpoint: node.Endpoint, Site: node.Site})
 	}
 	cfg.Endpoints = networkEndpoints(replicas, subnets)
 	return cfg, nil

@@ -226,6 +226,18 @@ func (s *Etcd) StartNetworkSwitch(ctx context.Context, to, actor string) error {
 		case to == r.Mode:
 			return nil
 		}
+		var away []string
+		if err := listInto(t, pfxNodes, func(_ string, n nodeRec) error {
+			if n.Site != "" {
+				away = append(away, n.ID)
+			}
+			return nil
+		}); err != nil {
+			return err
+		}
+		if len(away) > 0 {
+			return fmt.Errorf("nodes in another site reach the others over WireGuard whatever the mode, and a switch moves only one site's: move them back first (armada node site NODE --clear): %s: %w", strings.Join(away, ", "), ErrPrecondition)
+		}
 		r.Switch = &networkSwitchRec{To: to, Step: SwitchPrepare, Since: now}
 		if err := t.put(keyNetwork, r); err != nil {
 			return err

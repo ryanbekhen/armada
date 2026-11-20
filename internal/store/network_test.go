@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/netip"
+	"strings"
 	"testing"
 	"time"
 )
@@ -394,5 +395,39 @@ func TestNetworkSwitch(t *testing.T) {
 	}
 	if err := mesh.StartNetworkSwitch(ctx, NetworkWireGuard, "user:a"); !errors.Is(err, ErrPrecondition) {
 		t.Errorf("mesh = %v, want ErrPrecondition", err)
+	}
+}
+
+// Sites and switches exclude each other (ADR 0050): a switch moves only the
+// first site's transport, so it waits for nodes elsewhere to come back, and
+// a node changes site only while no switch runs.
+func TestNetworkSwitchSites(t *testing.T) {
+	t.Parallel()
+	s, ctx := open(t), context.Background()
+	if err := s.InitNetwork(ctx, Network{Mode: NetworkPlain, ClusterCIDR: netip.MustParsePrefix("10.120.0.0/16")}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpsertNode(ctx, Node{ID: "far", PrivateIP: "10.0.0.9"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetNodeSite(ctx, "far", "office", "user:a"); err != nil {
+		t.Fatal(err)
+	}
+	err := s.StartNetworkSwitch(ctx, NetworkWireGuard, "user:a")
+	if !errors.Is(err, ErrPrecondition) || !strings.Contains(err.Error(), "far") {
+		t.Fatalf("switch with a node in another site = %v, want ErrPrecondition naming it", err)
+	}
+	if err := s.SetNodeSite(ctx, "far", "", "user:a"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.StartNetworkSwitch(ctx, NetworkWireGuard, "user:a"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetNodeSite(ctx, "far", "office", "user:a"); !errors.Is(err, ErrPrecondition) {
+		t.Errorf("site during a switch = %v, want ErrPrecondition", err)
+	}
+	// Setting the site a node already has changes nothing and passes.
+	if err := s.SetNodeSite(ctx, "far", "", "user:a"); err != nil {
+		t.Errorf("unchanged site during a switch = %v", err)
 	}
 }

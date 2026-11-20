@@ -7,6 +7,9 @@ import (
 	"strings"
 	"testing"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
 	armadav1 "github.com/ryanbekhen/armada/api/armada/v1"
 	"github.com/ryanbekhen/armada/internal/pki"
 	"github.com/ryanbekhen/armada/internal/store"
@@ -74,5 +77,50 @@ func TestMeshEndpoint(t *testing.T) {
 	}
 	if cfg.GetMode() != store.NetworkMesh || cfg.GetMeshCidr() != "10.121.0.0/16" || len(cfg.GetPeers()) != 1 || cfg.GetPeers()[0].GetEndpoint() != "203.0.113.2" || cfg.GetPeers()[0].GetPrivateIp() != "10.121.0.2" {
 		t.Errorf("network %v", cfg)
+	}
+}
+
+// Every peer carries its node's site (ADR 0050), and sites and switches
+// refuse each other through the API.
+func TestNetworkSites(t *testing.T) {
+	t.Parallel()
+	c := newCluster(t)
+	if err := c.store.InitNetwork(c.ctx, store.Network{Mode: store.NetworkPlain, ClusterCIDR: netip.MustParsePrefix("10.120.0.0/16")}); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"n1", "n2"} {
+		if err := c.store.UpsertNode(c.ctx, store.Node{ID: id, PrivateIP: "10.0.0." + id[1:]}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := c.admin.SetNodeSite(c.ctx, &armadav1.SetNodeSiteRequest{Node: "n2", Site: "office"}); err != nil {
+		t.Fatal(err)
+	}
+	nodes, err := c.store.ListNodes(c.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := c.srv.buildNetwork(c.ctx, nodes, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sites := map[string]string{}
+	for _, p := range cfg.GetPeers() {
+		sites[p.GetNode()] = p.GetSite()
+	}
+	if len(sites) != 2 || sites["n1"] != "" || sites["n2"] != "office" {
+		t.Fatalf("peer sites %v", sites)
+	}
+	if _, err := c.admin.SetClusterConfig(c.ctx, &armadav1.SetClusterConfigRequest{SetNetwork: true, Config: &armadav1.ClusterConfig{Network: store.NetworkWireGuard}}); status.Code(err) != codes.FailedPrecondition || !strings.Contains(err.Error(), "n2") {
+		t.Errorf("switch with n2 in another site: %v", err)
+	}
+	if _, err := c.admin.SetNodeSite(c.ctx, &armadav1.SetNodeSiteRequest{Node: "n2"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.admin.SetClusterConfig(c.ctx, &armadav1.SetClusterConfigRequest{SetNetwork: true, Config: &armadav1.ClusterConfig{Network: store.NetworkWireGuard}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.admin.SetNodeSite(c.ctx, &armadav1.SetNodeSiteRequest{Node: "n2", Site: "office"}); status.Code(err) != codes.FailedPrecondition {
+		t.Errorf("site during a switch: %v", err)
 	}
 }
