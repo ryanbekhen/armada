@@ -870,7 +870,7 @@ agent.
 ### Sites
 
 A `plain` or `wireguard` cluster can take machines from more than one
-place, each with its own private network ([ADR 0050](adr/0050-sites.md)).
+place, each with its own private network ([ADR 0050](adr/0050-sites.md); task guide: [Machines in more than one site](guides/more-than-one-site.md)).
 Nodes in one site reach each other in the cluster's mode; nodes in
 different sites always reach each other over WireGuard between their
 endpoints (their public IPv4 addresses, `sudo armadad endpoint set IP` on a
