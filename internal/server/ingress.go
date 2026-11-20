@@ -691,6 +691,9 @@ func (s *Server) GetClusterConfig(ctx context.Context, _ *armadav1.GetClusterCon
 		return nil, storeErr(err)
 	default:
 		cc.Network = n.Mode
+		if n.MeshCIDR.IsValid() {
+			cc.MeshCidr = n.MeshCIDR.String()
+		}
 		if n.Switch != nil {
 			cc.NetworkSwitchTo = n.Switch.To
 		}
@@ -758,6 +761,16 @@ func (s *Server) SetClusterConfig(ctx context.Context, req *armadav1.SetClusterC
 		if err := s.setNetwork(ctx, req.GetConfig().GetNetwork()); err != nil {
 			return nil, err
 		}
+	}
+	if req.GetSetMeshCidr() {
+		p, err := netip.ParsePrefix(req.GetConfig().GetMeshCidr())
+		if err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "mesh CIDR %q: want a prefix like %s", req.GetConfig().GetMeshCidr(), store.DefaultMeshCIDR)
+		}
+		if err := s.store.SetMeshCIDR(ctx, p, actor(ctx)); err != nil {
+			return nil, storeErr(err)
+		}
+		s.log.Info("mesh CIDR set", "mesh_cidr", p.String(), "by", actor(ctx))
 	}
 	changed, err := s.setSettings(ctx, req)
 	if err != nil {

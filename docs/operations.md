@@ -893,6 +893,16 @@ site needs one: allow UDP 51820 to every node from anywhere, which the
 nodes accept once a cluster has a second site. Node addresses must be
 unique across sites. Servers join only in the leader's site for now.
 
+A machine with no private network (or whose private IP another node
+already holds: `armadad join --no-private-ip`) gets a mesh address instead,
+and every other node, in its site or not, reaches it over WireGuard. Mesh
+addresses come from `10.122.0.0/16`, recorded with the first such node. If
+a private network of the cluster uses that range, pick another before then:
+
+```bash
+armada cluster set --mesh-cidr 10.123.0.0/16
+```
+
 ### Switching between plain and wireguard
 
 A running cluster switches between `plain` and `wireguard` without

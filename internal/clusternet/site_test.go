@@ -150,3 +150,44 @@ func joinRules(rules [][]string) []string {
 	}
 	return out
 }
+
+// A node with a mesh address in a plain or wireguard cluster has no private
+// network: it and every peer reach each other over WireGuard at their
+// endpoints, whatever their sites (ADR 0050).
+func TestParseMeshAddresses(t *testing.T) {
+	t.Parallel()
+	a := sitePeer(t, "a", "10.0.0.1", "10.120.0.0/24", "203.0.113.1", "")
+	b := sitePeer(t, "b", "10.0.0.2", "10.120.1.0/24", "203.0.113.2", "")
+	m := sitePeer(t, "m", "10.122.0.1", "10.120.2.0/24", "203.0.113.3", "cloud")
+	n := sitePeer(t, "n", "10.122.0.2", "10.120.3.0/24", "203.0.113.4", "cloud")
+	for _, mode := range []string{ModePlain, ModeWireGuard} {
+		cfg := &armadav1.NetworkConfig{Mode: mode, ClusterCidr: "10.120.0.0/16", MeshCidr: "10.122.0.0/16", Peers: []*armadav1.NetworkPeer{a, b, m, n}}
+		p, err := parse(cfg, "a", self)
+		if err != nil {
+			t.Fatalf("%s: %v", mode, err)
+		}
+		if p.meshed || len(p.local()) != 1 || len(p.remote()) != 2 {
+			t.Errorf("%s from a: local %+v, remote %+v", mode, p.local(), p.remote())
+		}
+		// m and n share a site but no private network.
+		p, err = parse(cfg, "m", netip.MustParseAddr("10.122.0.1"))
+		if err != nil {
+			t.Fatalf("%s from m: %v", mode, err)
+		}
+		if !p.meshed || len(p.local()) != 0 || len(p.remote()) != 3 {
+			t.Errorf("%s from m: meshed %v, local %+v, remote %+v", mode, p.meshed, p.local(), p.remote())
+		}
+	}
+	// Without a mesh range nothing is a mesh address; a bad range is
+	// refused.
+	cfg := &armadav1.NetworkConfig{Mode: ModePlain, ClusterCidr: "10.120.0.0/16", Peers: []*armadav1.NetworkPeer{a, b}}
+	if p, err := parse(cfg, "a", self); err != nil || p.meshed || p.mesh.IsValid() {
+		t.Errorf("no range: %+v, %v", p, err)
+	}
+	for _, bad := range []string{"10.120.0.0/24", "8.8.0.0/16", "nope"} {
+		cfg.MeshCidr = bad
+		if _, err := parse(cfg, "a", self); err == nil {
+			t.Errorf("mesh CIDR %q accepted", bad)
+		}
+	}
+}

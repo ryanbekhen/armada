@@ -5,6 +5,7 @@ package store
 import (
 	"context"
 	"errors"
+	"net/netip"
 	"time"
 
 	"github.com/ryanbekhen/armada/internal/secrets"
@@ -94,6 +95,11 @@ type Node struct {
 	// Site is the node's site (ADR 0050), set by admins; empty for the
 	// cluster's first site.
 	Site string
+	// MeshAddress marks a node of a plain or wireguard cluster that joined
+	// with no private network: its PrivateIP is an address of the
+	// cluster's mesh range, and it reaches every other node over WireGuard
+	// between endpoints (ADR 0050). Set when the node joins.
+	MeshAddress bool
 }
 
 // AllLabels returns the admin labels plus armada.os, armada.arch, and
@@ -417,9 +423,16 @@ type Store interface {
 	// only while there are some (ADR 0049).
 	OpenJoinTokens(ctx context.Context) ([]JoinToken, error)
 	// FreeMeshAddress returns the lowest address of the mesh CIDR no node
-	// holds, for a machine joining a mesh cluster; redeeming a token for an
-	// address another node took meanwhile fails with ErrConflict.
+	// holds, for a machine joining a mesh cluster, or one with no private
+	// network joining a plain or wireguard cluster (ADR 0050), whose mesh
+	// range is DefaultMeshCIDR until one is recorded; redeeming a token for
+	// an address another node took meanwhile fails with ErrConflict.
 	FreeMeshAddress(ctx context.Context) (string, error)
+	// SetMeshCIDR records the mesh range of a plain or wireguard cluster
+	// (ADR 0050) before any node holds a mesh address. It fails with
+	// ErrPrecondition in a mesh cluster, once a node holds one, or when the
+	// range overlaps the cluster CIDR or holds a node's address.
+	SetMeshCIDR(ctx context.Context, p netip.Prefix, actor string) error
 	// RedeemJoinToken consumes token id for node n in one transaction: the
 	// token must exist, be unused and unexpired, and its secret must pass
 	// check; the node must not exist. issue is then called for the node's

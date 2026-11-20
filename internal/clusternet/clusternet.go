@@ -102,8 +102,9 @@ type peer struct {
 	endpoint netip.Addr
 	// site is the node's site, "" for the first (ADR 0050).
 	site string
-	// remote marks a peer in another site than this node: reached over
-	// WireGuard at its endpoint, and allowed its node address too.
+	// remote marks a peer in another site than this node, or one of a pair
+	// with a mesh address: reached over WireGuard at its endpoint, and
+	// allowed its node address too.
 	remote bool
 }
 
@@ -111,8 +112,14 @@ type peer struct {
 type plan struct {
 	mode string
 	cidr netip.Prefix
-	// mesh is the range of the nodes' mesh addresses, in the mesh mode.
+	// mesh is the range of the nodes' mesh addresses: in the mesh mode, and
+	// in the others once a node without a private network holds one (ADR
+	// 0050).
 	mesh netip.Prefix
+	// meshed marks this node's address as a mesh address in a plain or
+	// wireguard cluster: it has no private network, holds the address on
+	// its WireGuard interface, and reaches every peer there (ADR 0050).
+	meshed bool
 	// switchTo and step describe a switch to another mode under way (ADR
 	// 0050); switchTo is empty while none runs.
 	switchTo string
@@ -139,7 +146,7 @@ func parse(cfg *armadav1.NetworkConfig, self string, selfIP netip.Addr) (plan, e
 		return plan{}, fmt.Errorf("invalid cluster CIDR %q", cfg.GetClusterCidr())
 	}
 	var mesh netip.Prefix
-	if cfg.GetMode() == ModeMesh {
+	if cfg.GetMode() == ModeMesh || cfg.GetMeshCidr() != "" {
 		if mesh, err = CheckMeshCIDR(cfg.GetMeshCidr()); err != nil {
 			return plan{}, err
 		}
@@ -223,10 +230,13 @@ func parse(cfg *armadav1.NetworkConfig, self string, selfIP netip.Addr) (plan, e
 		return plan{}, errors.New("this node is not in the cluster network's peer list")
 	}
 	// Peers of other sites are reached over WireGuard at their endpoints
-	// (ADR 0050); the mesh reaches every peer that way already.
+	// (ADR 0050); the mesh reaches every peer that way already. So is
+	// every pair one of whose nodes has a mesh address: it has no private
+	// network to reach the other by.
+	p.meshed = p.mode != ModeMesh && mesh.Contains(p.self.ip)
 	kept := p.peers[:0]
 	for _, pe := range p.peers {
-		pe.remote = p.mode != ModeMesh && pe.site != p.self.site
+		pe.remote = p.mode != ModeMesh && (pe.site != p.self.site || p.meshed || mesh.Contains(pe.ip))
 		wg := encrypted(p.mode) || pe.remote
 		switch {
 		case wg && pe.key == (wgtypes.Key{}):

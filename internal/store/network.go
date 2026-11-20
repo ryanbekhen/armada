@@ -23,6 +23,13 @@ const (
 	NetworkMesh = "mesh"
 )
 
+// DefaultMeshCIDR is the default range of mesh addresses: a mesh
+// cluster's (ADR 0049), and a plain or wireguard cluster's for machines
+// with no private network until another is recorded (ADR 0050). It lies
+// beside the default cluster CIDR and clear of the bridge subnet of nodes
+// without a cluster network (10.121.0.0/24).
+const DefaultMeshCIDR = "10.122.0.0/16"
+
 // NodeSubnetBits is the prefix length of each node's container subnet.
 const NodeSubnetBits = 24
 
@@ -34,7 +41,8 @@ type Network struct {
 	// IsolateDefault keeps the default space's containers away from the
 	// platform, as every other space's always are (ADR 0026).
 	IsolateDefault bool
-	// MeshCIDR is the range of the nodes' mesh addresses in the mesh mode.
+	// MeshCIDR is the range of the nodes' mesh addresses: in the mesh
+	// mode, and in the others once recorded (ADR 0050).
 	MeshCIDR netip.Prefix
 	// Switch is a switch to another mode under way (ADR 0050), nil while
 	// none runs.
@@ -273,20 +281,57 @@ func (s *Etcd) AdvanceNetworkSwitch(ctx context.Context, to, from string) error 
 	})
 }
 
+// meshRange is the range mesh addresses come from: the recorded one, else
+// DefaultMeshCIDR.
+func (n Network) meshRange() netip.Prefix {
+	if n.MeshCIDR.IsValid() {
+		return n.MeshCIDR
+	}
+	return netip.MustParsePrefix(DefaultMeshCIDR)
+}
+
 // newNodeNetwork checks a new node's private IP against the cluster network
 // and returns the subnet to give it: the lowest node subnet no other node
-// holds. It returns "" when the cluster has no network.
-func (t *etx) newNodeNetwork(privateIP string) (string, error) {
+// holds. It returns "" when the cluster has no network. A mesh address in
+// a plain or wireguard cluster (meshAddress, ADR 0050) records the mesh
+// range when none is yet; any other address must lie outside it.
+func (t *etx) newNodeNetwork(privateIP string, meshAddress bool) (string, error) {
 	n, ok, err := t.network()
 	if err != nil || !ok {
+		if err == nil && meshAddress {
+			err = fmt.Errorf("a mesh address needs a cluster network: %w", ErrPrecondition)
+		}
 		return "", err
 	}
 	ip, err := netip.ParseAddr(privateIP)
 	if err == nil && n.ClusterCIDR.Contains(ip) {
 		return "", fmt.Errorf("private IP %s is inside the cluster CIDR %s: %w", privateIP, n.ClusterCIDR, ErrPrecondition)
 	}
-	if n.Mode == NetworkMesh && (err != nil || !n.MeshCIDR.Contains(ip)) {
-		return "", fmt.Errorf("a mesh node's address %s must be in the mesh CIDR %s: %w", privateIP, n.MeshCIDR, ErrPrecondition)
+	switch {
+	case n.Mode == NetworkMesh:
+		if err != nil || !n.MeshCIDR.Contains(ip) {
+			return "", fmt.Errorf("a mesh node's address %s must be in the mesh CIDR %s: %w", privateIP, n.MeshCIDR, ErrPrecondition)
+		}
+	case meshAddress:
+		mesh := n.meshRange()
+		if err != nil || !mesh.Contains(ip) {
+			return "", fmt.Errorf("mesh address %s must be in the mesh CIDR %s: %w", privateIP, mesh, ErrPrecondition)
+		}
+		if !n.MeshCIDR.IsValid() {
+			var r networkRec
+			if _, err := t.get(keyNetwork, &r); err != nil {
+				return "", err
+			}
+			if err := t.claimMeshRange(&r, mesh); err != nil {
+				return "", err
+			}
+			r.MeshCIDR = mesh.String()
+			if err := t.put(keyNetwork, r); err != nil {
+				return "", err
+			}
+		}
+	case n.MeshCIDR.IsValid() && err == nil && n.MeshCIDR.Contains(ip):
+		return "", fmt.Errorf("private IP %s is inside the cluster's mesh CIDR %s, which machines with no private network take their addresses from; join with --no-private-ip: %w", privateIP, n.MeshCIDR, ErrPrecondition)
 	}
 	used := map[string]bool{}
 	err = listInto(t, pfxNodes, func(_ string, r nodeRec) error {

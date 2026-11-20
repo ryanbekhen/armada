@@ -74,6 +74,11 @@ current one, routes move once every node reaches every other over it, and the
 old one goes. armada cluster status shows how far it is and which nodes it
 waits for. Naming the current mode before the routes move gives the switch up.
 
+--mesh-cidr sets the range machines with no private network take their
+addresses from when they join from another site (ADR 0050; default
+10.122.0.0/16), before the first of them joins. It must not hold any node's
+address.
+
 ```
 armada cluster set [flags]
 ```
@@ -93,6 +98,7 @@ Flags:
 | `--log-max-disk string` | log history each node keeps at most, e.g. 5Gi (0 for the default: 10% of the disk, at most 5Gi) |
 | `--log-retention duration` | how long each node keeps log history, e.g. 168h (0 for the default, 7 days) |
 | `--log-token string` | file holding the log store's token, or - for stdin; an empty file removes it |
+| `--mesh-cidr string` | private IPv4 range of the addresses machines with no private network get, before the first joins (/8 to /24) |
 | `--metrics-port int` | port of the Prometheus metrics endpoint on each server's private address; 0 turns it off |
 | `--network string` | switch the cluster network's mode while it runs: plain or wireguard |
 | `--node-lost-timeout duration` | how long a node may be unreachable before its replicas move to other nodes |

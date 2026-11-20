@@ -5557,8 +5557,13 @@ type ClusterConfig struct {
 	Network string `protobuf:"bytes,18,opt,name=network,proto3" json:"network,omitempty"`
 	// The mode a switch under way goes to, empty while none runs.
 	NetworkSwitchTo string `protobuf:"bytes,19,opt,name=network_switch_to,json=networkSwitchTo,proto3" json:"network_switch_to,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// The range of mesh addresses (ADR 0049, ADR 0050): a mesh cluster's,
+	// and a plain or wireguard cluster's machines with no private network
+	// take theirs from it; empty while none is recorded. set_mesh_cidr
+	// records another before any node holds one.
+	MeshCidr      string `protobuf:"bytes,20,opt,name=mesh_cidr,json=meshCidr,proto3" json:"mesh_cidr,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ClusterConfig) Reset() {
@@ -5724,6 +5729,13 @@ func (x *ClusterConfig) GetNetworkSwitchTo() string {
 	return ""
 }
 
+func (x *ClusterConfig) GetMeshCidr() string {
+	if x != nil {
+		return x.MeshCidr
+	}
+	return ""
+}
+
 type GetClusterConfigRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -5790,6 +5802,7 @@ type SetClusterConfigRequest struct {
 	// Switch the cluster network to config.network (ADR 0050); the current
 	// mode gives up a switch still in its prepare step.
 	SetNetwork    bool `protobuf:"varint,18,opt,name=set_network,json=setNetwork,proto3" json:"set_network,omitempty"`
+	SetMeshCidr   bool `protobuf:"varint,19,opt,name=set_mesh_cidr,json=setMeshCidr,proto3" json:"set_mesh_cidr,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -5946,6 +5959,13 @@ func (x *SetClusterConfigRequest) GetSetProxyProtocol() bool {
 func (x *SetClusterConfigRequest) GetSetNetwork() bool {
 	if x != nil {
 		return x.SetNetwork
+	}
+	return false
+}
+
+func (x *SetClusterConfigRequest) GetSetMeshCidr() bool {
+	if x != nil {
+		return x.SetMeshCidr
 	}
 	return false
 }
@@ -14967,7 +14987,7 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\x03app\x18\x01 \x01(\tR\x03app\x12\x1a\n" +
 	"\brevision\x18\x02 \x01(\tR\brevision\".\n" +
 	"\x10RollbackResponse\x12\x1a\n" +
-	"\brevision\x18\x01 \x01(\tR\brevision\"\xc7\x05\n" +
+	"\brevision\x18\x01 \x01(\tR\brevision\"\xe4\x05\n" +
 	"\rClusterConfig\x12\x1f\n" +
 	"\vroot_domain\x18\x01 \x01(\tR\n" +
 	"rootDomain\x12\x1d\n" +
@@ -14991,8 +15011,9 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\rlog_token_set\x18\x10 \x01(\bR\vlogTokenSet\x12%\n" +
 	"\x0eproxy_protocol\x18\x11 \x03(\tR\rproxyProtocol\x12\x18\n" +
 	"\anetwork\x18\x12 \x01(\tR\anetwork\x12*\n" +
-	"\x11network_switch_to\x18\x13 \x01(\tR\x0fnetworkSwitchTo\"\x19\n" +
-	"\x17GetClusterConfigRequest\"\xe1\x05\n" +
+	"\x11network_switch_to\x18\x13 \x01(\tR\x0fnetworkSwitchTo\x12\x1b\n" +
+	"\tmesh_cidr\x18\x14 \x01(\tR\bmeshCidr\"\x19\n" +
+	"\x17GetClusterConfigRequest\"\x85\x06\n" +
 	"\x17SetClusterConfigRequest\x120\n" +
 	"\x06config\x18\x01 \x01(\v2\x18.armada.v1.ClusterConfigR\x06config\x12&\n" +
 	"\x0fset_root_domain\x18\x02 \x01(\bR\rsetRootDomain\x12.\n" +
@@ -15013,7 +15034,8 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\tlog_token\x18\x10 \x01(\fB\x03\x80\x01\x01R\blogToken\x12,\n" +
 	"\x12set_proxy_protocol\x18\x11 \x01(\bR\x10setProxyProtocol\x12\x1f\n" +
 	"\vset_network\x18\x12 \x01(\bR\n" +
-	"setNetwork\"&\n" +
+	"setNetwork\x12\"\n" +
+	"\rset_mesh_cidr\x18\x13 \x01(\bR\vsetMeshCidr\"&\n" +
 	"\x12ListDomainsRequest\x12\x10\n" +
 	"\x03app\x18\x01 \x01(\tR\x03app\"B\n" +
 	"\x13ListDomainsResponse\x12+\n" +

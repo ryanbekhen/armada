@@ -23,7 +23,8 @@ import (
 // wire: a and b share a private network, c has a private address of its
 // own in another site, and every node has a public address. In both modes
 // a and b reach each other in the cluster's mode and c over WireGuard at its
-// endpoint, containers and node addresses alike (ADR 0050). It needs root
+// endpoint, containers and node addresses alike (ADR 0050). Then c loses
+// its private network and joins with a mesh address. It needs root
 // and the kernel's VXLAN and WireGuard:
 //
 //	go test -c -tags integration ./internal/clusternet -o t && sudo ./t -test.run IntegrationSites -test.v
@@ -219,4 +220,29 @@ func TestIntegrationSites(t *testing.T) {
 	if err := ping(nodes[0], "10.120.1.1", "10.120.2.1"); err != nil {
 		t.Error(err)
 	}
+
+	// c has no private network: it holds a mesh address, which every
+	// node reaches over WireGuard at c's endpoint, in c's site or not.
+	c := nodes[2]
+	c.ip = netip.MustParseAddr("10.122.0.3")
+	if c.net, err = New(Config{Node: c.name, PrivateIP: c.ip, Endpoint: c.public.Addr(), Key: keys[c.name], MeshCache: filepath.Join(t.TempDir(), "mesh.json")}); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config(ModePlain, nil)
+	cfg.MeshCidr = "10.122.0.0/16"
+	apply(cfg)
+	reachAll("plain with a mesh address")
+	if got := kind(c, Interface); got != "" {
+		t.Errorf("plain: c keeps %s (%s) with a mesh address", Interface, got)
+	}
+	if got := kind(c, SiteInterface); got != "wireguard" {
+		t.Errorf("plain: c's %s is %q", SiteInterface, got)
+	}
+	if got := kind(nodes[0], Interface); got != "vxlan" {
+		t.Errorf("plain: a's %s is %q", Interface, got)
+	}
+	cfg = config(ModeWireGuard, nil)
+	cfg.MeshCidr = "10.122.0.0/16"
+	apply(cfg)
+	reachAll("wireguard with a mesh address")
 }

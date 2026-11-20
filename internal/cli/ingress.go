@@ -55,7 +55,7 @@ func newClusterCommand(g *globals) *cobra.Command {
 		lostTimeout, logRetention                  time.Duration
 		logMaxDisk                                 string
 		logExport, logEndpoint, logUser, logTenant string
-		logToken, network                          string
+		logToken, network, meshCIDR                string
 	)
 	set := &cobra.Command{
 		Use:   "set",
@@ -88,7 +88,11 @@ func newClusterCommand(g *globals) *cobra.Command {
 			"everything runs (ADR 0050): every node brings the new transport up beside the\n" +
 			"current one, routes move once every node reaches every other over it, and the\n" +
 			"old one goes. armada cluster status shows how far it is and which nodes it\n" +
-			"waits for. Naming the current mode before the routes move gives the switch up.",
+			"waits for. Naming the current mode before the routes move gives the switch up.\n\n" +
+			"--mesh-cidr sets the range machines with no private network take their\n" +
+			"addresses from when they join from another site (ADR 0050; default\n" +
+			"10.122.0.0/16), before the first of them joins. It must not hold any node's\n" +
+			"address.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ch := cmd.Flags().Changed
@@ -100,10 +104,10 @@ func newClusterCommand(g *globals) *cobra.Command {
 				SetMetricsPort: ch("metrics-port"), SetNodeLostTimeout: ch("node-lost-timeout"), SetDnsToken: ch("dns-token"),
 				SetLogRetention: ch("log-retention"), SetLogMaxBytes: ch("log-max-disk"),
 				SetLogExport: slices.ContainsFunc(logExportFlags, ch), SetLogToken: ch("log-token"),
-				SetNetwork: ch("network"),
+				SetNetwork: ch("network"), SetMeshCidr: ch("mesh-cidr"),
 			}
-			req.Config.Network = network
-			if !slices.ContainsFunc([]string{"root-domain", "trusted-proxies", "proxy-protocol", "tls", "acme-email", "acme-ca", "dns-provider", "dns-token", "metrics-port", "node-lost-timeout", "log-retention", "log-max-disk", "log-token", "network"}, ch) && !req.SetLogExport {
+			req.Config.Network, req.Config.MeshCidr = network, meshCIDR
+			if !slices.ContainsFunc([]string{"root-domain", "trusted-proxies", "proxy-protocol", "tls", "acme-email", "acme-ca", "dns-provider", "dns-token", "metrics-port", "node-lost-timeout", "log-retention", "log-max-disk", "log-token", "network", "mesh-cidr"}, ch) && !req.SetLogExport {
 				return errors.New("nothing to change; see armada cluster set --help")
 			}
 			req.Config.LogRetentionSeconds = int64(logRetention / time.Second)
@@ -184,6 +188,7 @@ func newClusterCommand(g *globals) *cobra.Command {
 	f.StringVar(&logTenant, "log-export-tenant", "", "Loki tenant (X-Scope-OrgID), for a multi-tenant Loki")
 	f.StringVar(&logToken, "log-token", "", "file holding the log store's token, or - for stdin; an empty file removes it")
 	f.StringVar(&network, "network", "", "switch the cluster network's mode while it runs: plain or wireguard")
+	f.StringVar(&meshCIDR, "mesh-cidr", "", "private IPv4 range of the addresses machines with no private network get, before the first joins (/8 to /24)")
 	cmd.AddCommand(newClusterStatusCommand(g), show, set, newEventsCommand(g, eventsOfCluster))
 	return cmd
 }
@@ -360,6 +365,9 @@ func printClusterConfig(w io.Writer, cc *armadav1.ClusterConfig) error {
 	network := cmp.Or(cc.Network, "none")
 	if cc.NetworkSwitchTo != "" {
 		network += ", switching to " + cc.NetworkSwitchTo + " (armada cluster status)"
+	}
+	if cc.MeshCidr != "" {
+		network += ", mesh addresses from " + cc.MeshCidr
 	}
 	_, err := fmt.Fprintf(w, "root domain:       %s\ntrusted proxies:   %s\nproxy protocol:    %s\ncertificates:      %s\nacme email:        %s\ndns provider:      %s (token %s)\nmetrics:           %s\nnode lost timeout: %s\nlog history:       %s\nlog export:        %s\nnetwork:           %s\n",
 		dash(cc.RootDomain), dash(strings.Join(cc.TrustedProxies, ",")), dash(strings.Join(cc.ProxyProtocol, ",")), certs, dash(cc.AcmeEmail),

@@ -192,6 +192,11 @@ func (n *Net) tunnel(p plan) error {
 			if err := n.sites(p); err != nil {
 				return err
 			}
+			if p.meshed {
+				// No private network to run VXLAN over: every peer is
+				// on SiteInterface.
+				return n.dropVXLAN(p)
+			}
 			all = p.only(p.local())
 		} else if err := n.sites(p.only(nil)); err != nil {
 			// Interface carries every peer, on the same port.
@@ -223,6 +228,21 @@ func (n *Net) tunnel(p plan) error {
 	return err
 }
 
+// dropVXLAN removes Interface from a plain cluster's node with a mesh
+// address (ADR 0050), whose peers are all on SiteInterface.
+func (n *Net) dropVXLAN(p plan) error {
+	summary := fmt.Sprintf("%s %s meshed %d", p.mode, p.self.subnet, len(p.peers))
+	if summary != n.last {
+		n.log.Info("cluster network applied", "mode", p.mode, "subnet", p.self.subnet, "peers", len(p.peers), "mesh_address", p.self.ip)
+		n.last = summary
+	}
+	link, err := linkNamed(Interface)
+	if err != nil || link == nil {
+		return err
+	}
+	return n.delLink(link)
+}
+
 // sites sets up SiteInterface for a plain cluster's peers in other sites
 // (ADR 0050), or removes it when there are none.
 func (n *Net) sites(p plan) error {
@@ -242,7 +262,7 @@ func (n *Net) sites(p plan) error {
 // transport sets up mode's transport on the interface name with the routes
 // r asks for, and returns its MTU.
 func (n *Net) transport(p plan, mode, name string, r routeSet) (int, error) {
-	uplink, uplinkMTU, err := uplinkFor(mode, n.cfg.PrivateIP, n.cfg.Endpoint)
+	uplink, uplinkMTU, _, err := uplinkFor(mode, n.cfg.PrivateIP, n.cfg.Endpoint)
 	if err != nil {
 		return 0, err
 	}
@@ -345,11 +365,34 @@ func (n *Net) delLink(link netlink.Link) error {
 // uplinkFor returns the interface the tunnel's packets leave by, and its
 // MTU: the one holding the private IP, or in the mesh mode (where the
 // private IP is on the tunnel itself) the one holding the endpoint, else,
-// behind one-to-one NAT, the one the route to the endpoint takes.
-func uplinkFor(mode string, ip, endpoint netip.Addr) (netlink.Link, int, error) {
+// behind one-to-one NAT, the one the route to the endpoint takes. A node
+// of a plain or wireguard cluster whose address is a mesh address (ADR
+// 0050), held by a tunnel interface or by none, finds it the same way and
+// reports meshed.
+func uplinkFor(mode string, ip, endpoint netip.Addr) (link netlink.Link, mtu int, meshed bool, err error) {
 	if mode != ModeMesh {
-		return UplinkOf(ip)
+		link, mtu, err := UplinkOf(ip)
+		if err == nil && !tunnelName(link.Attrs().Name) || !endpoint.IsValid() {
+			return link, mtu, false, err
+		}
+		if err == nil || errors.Is(err, errNoUplink) {
+			link, mtu, err := endpointUplink(endpoint)
+			return link, mtu, err == nil, err
+		}
+		return nil, 0, false, err
 	}
+	link, mtu, err = endpointUplink(endpoint)
+	return link, mtu, false, err
+}
+
+// tunnelName reports whether name is one of Armada's tunnel interfaces.
+func tunnelName(name string) bool {
+	return name == Interface || name == Next || name == SiteInterface
+}
+
+// endpointUplink returns the interface holding the endpoint, else the one
+// the route to it takes, and its MTU.
+func endpointUplink(endpoint netip.Addr) (netlink.Link, int, error) {
 	if !endpoint.IsValid() {
 		return nil, 0, errors.New("the mesh mode needs the node's endpoint")
 	}
@@ -421,8 +464,11 @@ func UplinkOf(ip netip.Addr) (netlink.Link, int, error) {
 			return link, mtu, nil
 		}
 	}
-	return nil, 0, fmt.Errorf("no interface holds the private IP %s", ip)
+	return nil, 0, fmt.Errorf("%w %s", errNoUplink, ip)
 }
+
+// errNoUplink: no interface holds the address.
+var errNoUplink = errors.New("no interface holds the private IP")
 
 // linkNamed returns the interface name, or nil when there is none.
 func linkNamed(name string) (netlink.Link, error) {
@@ -435,7 +481,8 @@ func linkNamed(name string) (netlink.Link, error) {
 }
 
 // setUp gives the tunnel interface its MTU and the node's tunnel address
-// (and in the mesh mode its mesh address), removes any other address, and
+// (and its mesh address, in the mesh mode or when it has one, ADR 0050),
+// removes any other address, and
 // brings it up.
 func setUp(link netlink.Link, p plan, mtu int) error {
 	if link.Attrs().MTU != mtu {
@@ -444,7 +491,7 @@ func setUp(link netlink.Link, p plan, mtu int) error {
 		}
 	}
 	addrs := []*netlink.Addr{{IPNet: &net.IPNet{IP: vtepAddr(p.self.subnet).AsSlice(), Mask: net.CIDRMask(32, 32)}}}
-	if p.mode == ModeMesh {
+	if p.mode == ModeMesh || p.meshed {
 		addrs = append(addrs, &netlink.Addr{IPNet: &net.IPNet{IP: p.self.ip.AsSlice(), Mask: net.CIDRMask(32, 32)}})
 	}
 	have, err := netlink.AddrList(link, netlink.FAMILY_V4)
@@ -740,6 +787,15 @@ func spoofRules(p plan) [][]string {
 				[]string{"-s", ip, "!", "-i", dev, "-j", "DROP"},
 				[]string{"-s", ip, "-i", dev, "-j", "RETURN"})
 		}
+		if p.mesh.IsValid() {
+			// Mesh addresses of nodes with no private network exist only
+			// on WireGuard, as in the mesh mode below.
+			mesh := p.mesh.String()
+			rules = append(rules,
+				[]string{"-d", mesh, "-i", "lo", "-j", "RETURN"},
+				[]string{"-d", mesh, "!", "-i", dev, "-j", "DROP"},
+				[]string{"-s", mesh, "!", "-i", dev, "-j", "DROP"})
+		}
 	}
 	if p.mode == ModeMesh {
 		mesh := p.mesh.String()
@@ -862,9 +918,13 @@ func (c iptablesCmd) only(chain, target string, rule ...string) error {
 // cluster network in mode whose private IP is ip (and, in the mesh mode,
 // whose endpoint is endpoint).
 func ContainerMTU(mode string, ip, endpoint netip.Addr) (int, error) {
-	_, mtu, err := uplinkFor(mode, ip, endpoint)
+	_, mtu, meshed, err := uplinkFor(mode, ip, endpoint)
 	if err != nil {
 		return 0, err
+	}
+	if meshed {
+		// Every packet to another node goes over WireGuard (ADR 0050).
+		mode = ModeWireGuard
 	}
 	return TunnelMTU(mode, mtu), nil
 }
@@ -898,17 +958,23 @@ func diagnoseTunnel(mode string, ip, endpoint netip.Addr) []Check {
 	add := func(name string, level int, format string, args ...any) {
 		out = append(out, Check{Name: name, Level: level, Detail: fmt.Sprintf(format, args...)})
 	}
-	uplink, mtu, err := uplinkFor(mode, ip, endpoint)
+	uplink, mtu, meshed, err := uplinkFor(mode, ip, endpoint)
 	if err != nil {
 		add("network-mtu", CheckFail, "%v", err)
 		return out
 	}
-	add("network-mtu", CheckOK, "%s has MTU %d; the tunnel and containers use %d", uplink.Attrs().Name, mtu, TunnelMTU(mode, mtu))
+	tunnelMode := mode
+	if meshed {
+		tunnelMode = ModeWireGuard
+	}
+	add("network-mtu", CheckOK, "%s has MTU %d; the tunnel and containers use %d", uplink.Attrs().Name, mtu, TunnelMTU(tunnelMode, mtu))
 	if next, err := linkNamed(Next); err == nil && next != nil {
 		add("network-switch", CheckWarn, "%s is up: the cluster network is switching modes (armada cluster status shows how far)", Next)
 	}
-	if encrypted(mode) {
-		return append(out, diagnoseWireGuard(mode, ip)...)
+	if encrypted(mode) || meshed {
+		// A node with a mesh address reaches every peer over WireGuard
+		// (ADR 0050).
+		return append(out, diagnoseWireGuard(mode, ip, meshed)...)
 	}
 	link, err := linkNamed(Interface)
 	switch {

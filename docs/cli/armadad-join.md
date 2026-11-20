@@ -23,6 +23,7 @@ Flags:
 | `--container-subnet string` | private IPv4 subnet for this node's containers (clusters without a cluster network; others give each node a subnet) (default `10.121.0.0/24`) |
 | `--data-dir string` | directory for the node certificate (default `/var/lib/armada`) |
 | `--endpoint string` | joins over a public ADDR (mesh clusters, other sites): this machine's public IPv4 address, which other nodes send WireGuard packets to (default: the only public IPv4 address; behind one-to-one NAT, the mapped address) |
+| `--no-private-ip` | joining from another site: send no private IP, and get a mesh address the other nodes reach over WireGuard (the default when the machine has no private IPv4 address) |
 | `--node-name string` | node name (default: hostname) |
 | `--private-ip string` | this node's private IP (default: the only private IPv4 address; a mesh cluster gives the node a mesh address instead) |
 | `--runtime string` | container runtime: embedded (containerd), or supervisor (no containerd daemon; experimental, ADR 0046) (default `embedded`) |

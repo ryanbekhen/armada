@@ -171,7 +171,11 @@ func (n *Net) wgPeers(name, mode string, peers []peer) error {
 
 // diagnoseWireGuard reports whether the kernel has WireGuard and whether
 // every peer has a recent handshake.
-func diagnoseWireGuard(mode string, ip netip.Addr) []Check {
+func diagnoseWireGuard(mode string, ip netip.Addr, meshed bool) []Check {
+	dev := Interface
+	if meshed && mode == ModePlain {
+		dev = SiteInterface
+	}
 	var out []Check
 	add := func(name string, level int, format string, args ...any) {
 		out = append(out, Check{Name: name, Level: level, Detail: fmt.Sprintf(format, args...)})
@@ -182,6 +186,9 @@ func diagnoseWireGuard(mode string, ip netip.Addr) []Check {
 	case mode == ModeMesh:
 		add("wireguard", CheckFail, "%v", errNoKernelWireGuard)
 		return out
+	case meshed:
+		add("wireguard", CheckFail, "%v", errSitesNeedKernel)
+		return out
 	default:
 		add("wireguard", CheckWarn, "the kernel has no WireGuard: the agent runs it in userspace, which is markedly slower; install a kernel with WireGuard")
 	}
@@ -191,9 +198,9 @@ func diagnoseWireGuard(mode string, ip netip.Addr) []Check {
 		return out
 	}
 	defer func() { _ = c.Close() }()
-	d, err := c.Device(Interface)
+	d, err := c.Device(dev)
 	if err != nil {
-		add("network", CheckWarn, "%s is not set up yet; the agent creates it once connected", Interface)
+		add("network", CheckWarn, "%s is not set up yet; the agent creates it once connected", dev)
 		return out
 	}
 	now := time.Now()
@@ -212,8 +219,8 @@ func diagnoseWireGuard(mode string, ip netip.Addr) []Check {
 		add("network", CheckFail, "%d of %d peer(s) have no recent handshake: %v; allow UDP %d between the nodes", len(stale), len(d.Peers), stale, WireGuardPort)
 		return out
 	}
-	if mode == ModeMesh {
-		add("network", CheckOK, "%s (%s) has a recent handshake with all %d peer(s) (UDP %d, open it to every address)", Interface, d.Type, len(d.Peers), WireGuardPort)
+	if mode == ModeMesh || meshed {
+		add("network", CheckOK, "%s (%s) has a recent handshake with all %d peer(s) (UDP %d, open it to every address)", dev, d.Type, len(d.Peers), WireGuardPort)
 		return out
 	}
 	add("network", CheckOK, "%s (%s) has a recent handshake with all %d peer(s) (UDP %d on %s, open it to the other nodes)", Interface, d.Type, len(d.Peers), WireGuardPort, ip)
