@@ -36,7 +36,7 @@ func (a *Agent) usageLoop(ctx context.Context) {
 	}
 	lr, _ := a.cfg.Proxy.(proxy.LoadReader)
 	vols := a.mountsVolumes()
-	if sr == nil && lr == nil && !vols && a.cfg.Conntrack == nil && !runtime.CanExec(a.cfg.Driver) && !a.sandboxesOn() && !a.exportsLogs() {
+	if sr == nil && lr == nil && !vols && a.cfg.Conntrack == nil && !runtime.CanExec(a.cfg.Driver) && !a.sandboxesOn() && !a.exportsLogs() && a.switcher() == nil {
 		return
 	}
 	warned := false
@@ -70,8 +70,11 @@ func (a *Agent) usageLoop(ctx context.Context) {
 		report.Sandboxes = a.sandboxReport(time.Now())
 		report.DroppedSandboxes = a.droppedSandboxes()
 		report.LogExport = a.export.v.Load()
+		if sw := a.switcher(); sw != nil {
+			report.NetworkSwitch = sw.SwitchStatus()
+		}
 		if sampled || report.LoadMeasured || report.VolumesMeasured || report.ConntrackMax > 0 || len(report.Queues) > 0 || len(report.Sandboxes) > 0 ||
-			len(report.DroppedSandboxes) > 0 || report.LogExport != nil {
+			len(report.DroppedSandboxes) > 0 || report.LogExport != nil || report.NetworkSwitch != nil {
 			a.sendUsage(report)
 		}
 	}

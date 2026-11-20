@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"net"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -18,6 +19,7 @@ import (
 	"syscall"
 	"time"
 
+	armadav1 "github.com/ryanbekhen/armada/api/armada/v1"
 	"github.com/ryanbekhen/armada/internal/clusternet"
 	"github.com/ryanbekhen/armada/internal/conntrack"
 	"github.com/ryanbekhen/armada/internal/version"
@@ -622,7 +624,43 @@ var newClusterNet = func(dataDir string, ac *agentConfig, log *slog.Logger) (age
 	if err != nil {
 		return nil, "", err
 	}
-	return n, key.Public(), nil
+	return &nodeNet{NetworkSwitcher: n, dataDir: dataDir, mode: ac.Network, log: log}, key.Public(), nil
+}
+
+// nodeNet records in agent.json the mode a switch of the cluster network
+// ends in (ADR 0050), so the node starts in it: the containers' MTU and
+// armadad doctor follow the mode recorded there.
+type nodeNet struct {
+	agent.NetworkSwitcher
+	dataDir string
+	log     *slog.Logger
+
+	mu   sync.Mutex
+	mode string // as agent.json records it
+}
+
+func (n *nodeNet) Apply(ctx context.Context, cfg *armadav1.NetworkConfig, local map[netip.Addr]string) error {
+	if err := n.NetworkSwitcher.Apply(ctx, cfg, local); err != nil {
+		return err
+	}
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if cfg.GetSwitchTo() != "" || cfg.GetMode() == n.mode || n.mode == store.NetworkMesh || cfg.GetMode() == store.NetworkMesh {
+		return nil
+	}
+	ac, err := loadAgentConfig(n.dataDir)
+	if err != nil {
+		n.log.Warn("record the cluster network's new mode", "err", err)
+		return nil
+	}
+	ac.Network = cfg.GetMode()
+	if err := saveAgentConfig(n.dataDir, *ac); err != nil {
+		n.log.Warn("record the cluster network's new mode", "err", err)
+		return nil
+	}
+	n.log.Info("the cluster network's mode changed; containers created after the agent's next start use its MTU", "mode", ac.Network)
+	n.mode = ac.Network
+	return nil
 }
 
 // resolvConf is the host resolver configuration; tests replace it.

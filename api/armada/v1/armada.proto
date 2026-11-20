@@ -1257,6 +1257,9 @@ message Hello {
   // In a mesh cluster (ADR 0049), the address other nodes send WireGuard
   // packets to: the node's public IPv4 address. Empty elsewhere.
   string endpoint = 19;
+  // The agent switches the cluster network between plain and wireguard
+  // while it runs (ADR 0050): a switch waits for every node to say so.
+  bool network_switch = 20;
 }
 
 message ReplicaReport {
@@ -1312,6 +1315,25 @@ message UsageReport {
   // Jobs of the assignment's queue sandboxes the node does not keep,
   // being past the sandboxes one node keeps (ADR 0040).
   repeated string dropped_sandboxes = 11;
+  // How the node's side of a switch of the cluster network's mode goes
+  // (ADR 0050); unset while none runs.
+  NetworkSwitchStatus network_switch = 12;
+}
+
+// NetworkSwitchStatus is a node's side of a switch between the plain and
+// wireguard modes (ADR 0050).
+message NetworkSwitchStatus {
+  // The step and target the status is for, as NetworkConfig named them.
+  string to = 1;
+  string step = 2;
+  // In "prepare": the node reaches every peer over the target transport.
+  // In "move": the node's routes use the target transport.
+  bool ready = 3;
+  // In "prepare", the peers the node does not reach yet over the target
+  // transport (at most 32, sorted).
+  repeated string unreached = 4;
+  // Why the node cannot take the step, when it cannot.
+  string error = 5;
 }
 
 // SandboxQueue is one job's network sandbox on the node and the length of
@@ -1488,6 +1510,12 @@ message NetworkConfig {
   repeated uint32 tcp_ports = 6;
   // The range of the nodes' mesh addresses, in the mesh mode (ADR 0049).
   string mesh_cidr = 7;
+  // While the cluster switches between plain and wireguard (ADR 0050): the
+  // target mode, and the step, "prepare" (bring the target transport up
+  // beside the current one) or "move" (route over the target transport).
+  // Once every node has moved, mode becomes the target and these clear.
+  string switch_to = 8;
+  string switch_step = 9;
 }
 
 message NetworkEndpoint {

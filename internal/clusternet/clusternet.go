@@ -25,6 +25,10 @@ import (
 const (
 	// Interface is the tunnel interface on every node.
 	Interface = "armada-net"
+	// Next holds the target transport while the cluster switches between
+	// the plain and wireguard modes (ADR 0050); once the switch is done it
+	// takes Interface's place.
+	Next = "armada-next"
 	// VXLANPort is the UDP port of the plain mode, on the private IP.
 	VXLANPort = 4789
 	// VXLANOverhead is what VXLAN adds to each packet over IPv4: outer IP,
@@ -49,6 +53,16 @@ const (
 	ModePlain     = "plain"
 	ModeWireGuard = "wireguard"
 	ModeMesh      = "mesh"
+)
+
+// Steps of a switch between the plain and wireguard modes (ADR 0050).
+const (
+	// SwitchPrepare brings the target transport up beside the current one,
+	// with the peers but without routes.
+	SwitchPrepare = "prepare"
+	// SwitchMove routes over the target transport, keeping the current one
+	// up for nodes that have not moved yet.
+	SwitchMove = "move"
 )
 
 // encrypted reports whether a mode runs over WireGuard.
@@ -88,9 +102,13 @@ type plan struct {
 	mode string
 	cidr netip.Prefix
 	// mesh is the range of the nodes' mesh addresses, in the mesh mode.
-	mesh  netip.Prefix
-	self  peer
-	peers []peer // every node but this one, in the order received
+	mesh netip.Prefix
+	// switchTo and step describe a switch to another mode under way (ADR
+	// 0050); switchTo is empty while none runs.
+	switchTo string
+	step     string
+	self     peer
+	peers    []peer // every node but this one, in the order received
 	// endpoints maps the cluster's container addresses to their app IDs.
 	endpoints map[netip.Addr]string
 	// isolateDefault isolates the default space like the others.
@@ -123,6 +141,9 @@ func parse(cfg *armadav1.NetworkConfig, self string, selfIP netip.Addr) (plan, e
 		return plan{}, fmt.Errorf("%d peers: at most %d", len(cfg.GetPeers()), maxPeers)
 	}
 	p := plan{mode: cfg.GetMode(), cidr: cidr, mesh: mesh, isolateDefault: cfg.GetIsolateDefault()}
+	if p.switchTo, p.step, err = parseSwitch(cfg); err != nil {
+		return plan{}, err
+	}
 	if p.endpoints, err = parseEndpoints(cfg.GetEndpoints(), cidr); err != nil {
 		return plan{}, err
 	}
@@ -183,7 +204,8 @@ func parse(cfg *armadav1.NetworkConfig, self string, selfIP netip.Addr) (plan, e
 		}
 		if encrypted(p.mode) && pe.key == (wgtypes.Key{}) {
 			// Not connected since it joined: it has no key to reach it by
-			// yet, and comes in with the next list.
+			// yet, and comes in with the next list. (Switching from plain,
+			// the VXLAN side keeps it; the WireGuard side skips it.)
 			continue
 		}
 		if p.mode == ModeMesh && !pe.endpoint.IsValid() {
@@ -197,6 +219,29 @@ func parse(cfg *armadav1.NetworkConfig, self string, selfIP netip.Addr) (plan, e
 	}
 	return p, nil
 }
+
+// parseSwitch validates a switch between modes (ADR 0050): only between
+// plain and wireguard, in one of the two steps.
+func parseSwitch(cfg *armadav1.NetworkConfig) (to, step string, err error) {
+	to, step = cfg.GetSwitchTo(), cfg.GetSwitchStep()
+	if to == "" {
+		if step != "" {
+			return "", "", fmt.Errorf("switch step %q without a target mode", step)
+		}
+		return "", "", nil
+	}
+	mode := cfg.GetMode()
+	if mode != ModePlain && mode != ModeWireGuard || to != ModePlain && to != ModeWireGuard || to == mode {
+		return "", "", fmt.Errorf("cannot switch the cluster network from %q to %q", mode, to)
+	}
+	if step != SwitchPrepare && step != SwitchMove {
+		return "", "", fmt.Errorf("unknown switch step %q", step)
+	}
+	return to, step, nil
+}
+
+// switching reports whether a switch between modes is under way.
+func (p plan) switching() bool { return p.switchTo != "" }
 
 // vtepAddr is the address of a node's end of the tunnel: its subnet's
 // network address, which the bridge never hands to a container.

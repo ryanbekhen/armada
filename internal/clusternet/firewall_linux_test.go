@@ -61,3 +61,60 @@ func TestForwardRulesRefuseSpoofing(t *testing.T) {
 		}
 	}
 }
+
+// While a switch runs (ADR 0050), both tunnels and both ports are guarded,
+// forwarded, and clamped; without one, the rules are those of one tunnel.
+func TestSwitchRules(t *testing.T) {
+	t.Parallel()
+	c := config(np("a", "10.0.0.1", "10.120.0.0/24"), np("b", "10.0.0.2", "10.120.1.0/24"))
+	p, err := parse(c, "a", self)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := forwardRules(tunnels(p)); len(got) != 5 || got[2][1] != Interface {
+		t.Errorf("one tunnel: %v", got)
+	}
+	if got := mssRules(tunnels(p)); len(got) != 1 {
+		t.Errorf("one tunnel: %v", got)
+	}
+	c.SwitchTo, c.SwitchStep = ModeWireGuard, SwitchPrepare
+	if p, err = parse(c, "a", self); err != nil {
+		t.Fatal(err)
+	}
+	join := func(rules [][]string) []string {
+		var out []string
+		for _, r := range rules {
+			out = append(out, strings.Join(r, " "))
+		}
+		return out
+	}
+	spoof := join(spoofRules(p))
+	for _, want := range []string{
+		"-d 10.0.0.2/32 -i armada0 -p udp -m udp --dport 4789 -j DROP",
+		"-d 10.0.0.2/32 -i armada0 -p udp -m udp --dport 51820 -j DROP",
+		"! -s 10.120.0.0/16 -i armada-net -j DROP",
+		"! -s 10.120.0.0/16 -i armada-next -j DROP",
+	} {
+		if !slices.Contains(spoof, want) {
+			t.Errorf("%q missing:\n%s", want, strings.Join(spoof, "\n"))
+		}
+	}
+	fwd := join(forwardRules(tunnels(p)))
+	for _, want := range []string{
+		"-i armada-next -o armada0 -j ACCEPT",
+		"-i armada0 -o armada-next -j ACCEPT",
+		"-i armada-net -j DROP",
+		"-i armada-next -j DROP",
+	} {
+		if !slices.Contains(fwd, want) {
+			t.Errorf("%q missing:\n%s", want, strings.Join(fwd, "\n"))
+		}
+	}
+	// Accepting into the bridge comes before any drop of the tunnels.
+	if slices.Index(fwd, "-i armada-next -o armada0 -j ACCEPT") > slices.Index(fwd, "-i armada-net -j DROP") {
+		t.Errorf("drop before accept:\n%s", strings.Join(fwd, "\n"))
+	}
+	if got := join(mssRules(tunnels(p))); !slices.Contains(got, "-o armada-next -p tcp -m tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu") {
+		t.Errorf("mss: %v", got)
+	}
+}
