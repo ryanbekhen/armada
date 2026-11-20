@@ -43,6 +43,12 @@ func upstream(t *testing.T) string {
 
 func start(t *testing.T, clients string, upstreams ...string) (*Server, string) {
 	t.Helper()
+	return startWith(t, Config{}, clients, upstreams...)
+}
+
+// startWith is start with the settings of base the tests choose.
+func startWith(t *testing.T, base Config, clients string, upstreams ...string) (*Server, string) {
+	t.Helper()
 	// The port is bound before anything is asked: a free port can be taken by
 	// another parallel test's server between freePort and the bind, and that
 	// server would answer in this one's place.
@@ -53,7 +59,9 @@ func start(t *testing.T, clients string, upstreams ...string) (*Server, string) 
 	for attempt := 0; ; attempt++ {
 		port = freePort(t)
 		var err error
-		if s, err = New(Config{Addr: netip.MustParseAddr("127.0.0.1"), Port: port, Clients: netip.MustParsePrefix(clients), Upstreams: upstreams}); err != nil {
+		cfg := base
+		cfg.Addr, cfg.Port, cfg.Clients, cfg.Upstreams = netip.MustParseAddr("127.0.0.1"), port, netip.MustParsePrefix(clients), upstreams
+		if s, err = New(cfg); err != nil {
 			t.Fatal(err)
 		}
 		if err = s.Listen(); err == nil {
@@ -351,5 +359,49 @@ func TestOwnSpaceOnly(t *testing.T) {
 	s.SetClients(map[netip.Addr]string{netip.MustParseAddr("127.0.0.9"): "api"})
 	if resolves("web.internal.") {
 		t.Error("unknown client resolved an internal name")
+	}
+}
+
+// A container's first lookups wait for the agent to tell the server its
+// address, so a container that calls an app at once does not fail;
+// an address the agent never names still resolves nothing (ADR 0026).
+func TestNewContainerWaitsToBeKnown(t *testing.T) {
+	t.Parallel()
+	s, addr := startWith(t, Config{UnknownWait: 300 * time.Millisecond}, "127.0.0.0/8")
+	s.SetNames([]string{"web"})
+	s.SetClients(map[netip.Addr]string{netip.MustParseAddr("127.0.0.6"): "api"})
+	done := make(chan *dns.Msg, 1)
+	go func() { done <- askFrom(t, addr, "udp", "127.0.0.7", "web.internal.") }()
+	time.Sleep(50 * time.Millisecond)
+	// Another container is learned first: the lookup keeps waiting.
+	s.SetClients(map[netip.Addr]string{netip.MustParseAddr("127.0.0.6"): "api", netip.MustParseAddr("127.0.0.8"): "api"})
+	time.Sleep(50 * time.Millisecond)
+	select {
+	case r := <-done:
+		t.Fatalf("answered before the container was known: %v", r)
+	default:
+	}
+	s.SetClients(map[netip.Addr]string{netip.MustParseAddr("127.0.0.6"): "api", netip.MustParseAddr("127.0.0.7"): "web"})
+	if r := <-done; r.Rcode != dns.RcodeSuccess || len(r.Answer) != 1 {
+		t.Errorf("new container's first lookup: %v", r)
+	}
+	// Never learned: NXDOMAIN once the wait is over.
+	begin := time.Now()
+	if r := askFrom(t, addr, "udp", "127.0.0.9", "web.internal."); r.Rcode != dns.RcodeNameError {
+		t.Errorf("unknown client: %v", r)
+	}
+	if took := time.Since(begin); took < 250*time.Millisecond {
+		t.Errorf("unknown client answered after %s, before the wait", took)
+	}
+	// Known clients and names outside .internal never wait.
+	begin = time.Now()
+	if r := askFrom(t, addr, "udp", "127.0.0.6", "web.internal."); r.Rcode != dns.RcodeSuccess || time.Since(begin) > 200*time.Millisecond {
+		t.Errorf("known client: %v after %s", r, time.Since(begin))
+	}
+	s.mu.Lock()
+	n := s.perClient[netip.MustParseAddr("127.0.0.9")]
+	s.mu.Unlock()
+	if n != 0 {
+		t.Errorf("waits left counted: %d", n)
 	}
 }

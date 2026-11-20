@@ -41,7 +41,11 @@ type Config struct {
 	Clients netip.Prefix
 	// Upstreams are ip:port resolvers for names outside .internal.
 	Upstreams []string
-	Logger    *slog.Logger
+	// UnknownWait is how long a lookup of an internal name from an
+	// address the client map does not hold waits for the map to learn it
+	// (default 3s; see awaitClient).
+	UnknownWait time.Duration
+	Logger      *slog.Logger
 }
 
 // Server is the node-local DNS server.
@@ -66,6 +70,8 @@ type Server struct {
 	mu        sync.Mutex
 	perClient map[netip.Addr]int
 	perConn   map[netip.Addr]int
+	// learned is closed, and replaced, whenever SetClients runs.
+	learned chan struct{}
 }
 
 const (
@@ -78,6 +84,9 @@ const (
 	// maxConnsPerClient bounds one client address's open TCP connections;
 	// further connections are closed at once.
 	maxConnsPerClient = 16
+	// defaultUnknownWait covers the time between a container's start and
+	// the agent telling the server its address (Config.UnknownWait).
+	defaultUnknownWait = 3 * time.Second
 )
 
 // New validates cfg. The listen address must be private.
@@ -90,6 +99,9 @@ func New(cfg Config) (*Server, error) {
 	}
 	if cfg.Port == 0 {
 		cfg.Port = 53
+	}
+	if cfg.UnknownWait == 0 {
+		cfg.UnknownWait = defaultUnknownWait
 	}
 	if cfg.Logger == nil {
 		cfg.Logger = slog.New(slog.DiscardHandler)
@@ -104,7 +116,7 @@ func New(cfg Config) (*Server, error) {
 	}
 	cfg.Upstreams = ups
 	s := &Server{cfg: cfg, log: cfg.Logger.With("component", "dns"), inflight: make(chan struct{}, maxInflight),
-		perClient: map[netip.Addr]int{}, perConn: map[netip.Addr]int{}}
+		perClient: map[netip.Addr]int{}, perConn: map[netip.Addr]int{}, learned: make(chan struct{})}
 	s.names.Store(&map[string]bool{})
 	return s, nil
 }
@@ -130,7 +142,54 @@ func (s *Server) SetClients(clients map[netip.Addr]string) {
 	for a, app := range clients {
 		m[a] = app
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.clients.Store(&m)
+	close(s.learned)
+	s.learned = make(chan struct{})
+}
+
+// awaitClient holds a lookup of an internal name from a container the
+// client map does not hold yet, until the map learns it or UnknownWait
+// passes. A container runs before the agent hears of its address, so its
+// first lookups would otherwise get NXDOMAIN and fail at once. Each client
+// holds at most maxInflightPerClient lookups; past that, and for the
+// server's own address, the answer comes at once.
+func (s *Server) awaitClient(client netip.Addr) {
+	if !client.IsValid() || client == s.cfg.Addr || s.known(client) {
+		return
+	}
+	if !s.take(s.perClient, client, maxInflightPerClient) {
+		return
+	}
+	defer s.release(s.perClient, client)
+	timeout := time.NewTimer(s.cfg.UnknownWait)
+	defer timeout.Stop()
+	for {
+		// The channel first: a SetClients after the check closes it.
+		s.mu.Lock()
+		learned := s.learned
+		s.mu.Unlock()
+		if s.known(client) {
+			return
+		}
+		select {
+		case <-learned:
+		case <-timeout.C:
+			return
+		}
+	}
+}
+
+// known reports whether the client map holds client; with no map, every
+// client is.
+func (s *Server) known(client netip.Addr) bool {
+	clients := s.clients.Load()
+	if clients == nil {
+		return true
+	}
+	_, ok := (*clients)[client]
+	return ok
 }
 
 // Listen opens the UDP and TCP sockets, so a caller learns about a busy
@@ -209,7 +268,9 @@ func (s *Server) ServeDNS(w dns.ResponseWriter, req *dns.Msg) {
 	q := req.Question[0]
 	name := strings.ToLower(q.Name)
 	if name == zone || strings.HasSuffix(name, "."+zone) {
-		_ = w.WriteMsg(s.answer(req, q, name, remoteIP(w.RemoteAddr())))
+		client := remoteIP(w.RemoteAddr())
+		s.awaitClient(client)
+		_ = w.WriteMsg(s.answer(req, q, name, client))
 		return
 	}
 	// The client's own share first, so a client past it never holds a
