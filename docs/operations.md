@@ -821,10 +821,13 @@ chooses, once, how that traffic travels:
 
 Choose `wireguard` when you do not trust the private network (shared or
 provider-managed networks) or must encrypt traffic between machines. It
-costs CPU on every node that sends or receives traffic between nodes: on
-two vCPUs, about 2 Gbit/s between containers of two nodes against 14 Gbit/s
-in `plain`, and about half the throughput of a large upload. Calls between
-apps that stay on their node (local-first routing) do not pay it. Where the kernel
+costs CPU on every node that sends or receives traffic between nodes:
+measured on two machines with two dedicated vCPUs each, about 2.3 Gbit/s
+between containers of two nodes against 3.4 Gbit/s in `plain`, 88 MB/s
+against 148 MB/s for a large upload through HAProxy, and about 30% fewer
+requests per second to a replica on the other node, with twice the CPU
+for the same transfer. Calls between apps that stay on their node
+(local-first routing) do not pay it. Where the kernel
 has no WireGuard, the agent runs it in userspace, which is markedly slower,
 and traffic between nodes pauses while that agent restarts; `armadad doctor`
 warns about it.

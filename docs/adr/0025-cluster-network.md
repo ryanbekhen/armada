@@ -35,6 +35,14 @@ the receiving node (local-first) do not pay it at all. A lab run with an
 underlay MTU of 1280 and a tunnel MTU of 1420 stalled every bulk transfer
 while small requests worked.
 
+Measured again once both modes existed (`test/bench`, two machines with
+two dedicated vCPUs each, private network MTU 1450): between containers of
+two nodes 3.4 Gbit/s in `plain` and 2.3 Gbit/s in `wireguard`, at about
+twice the CPU; a 1 GB upload through HAProxy at 148 and 88 MB/s; HTTP to a
+replica on the other node, one request at a time, 3145 and 2189 req/s.
+WireGuard over the machines' public addresses, with the control plane in
+the tunnel too, measured 1.9 Gbit/s, 93 MB/s, and 2030 req/s.
+
 ## Decision
 
 Containers get addresses that are unique in the cluster and routed between
