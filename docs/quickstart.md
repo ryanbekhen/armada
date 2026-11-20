@@ -31,6 +31,9 @@ enough to start; more can join later as nodes or control plane servers.
 
 - Linux machines (amd64 or arm64) with a **private network** between them
   (VPC, private networking, vSwitch, or a LAN), each with a private IP.
+  Machines with only a public address (no private network, or several
+  providers) form a mesh cluster instead: see
+  [Machines without a private network](guides/machines-without-a-private-network.md).
 - systemd, cgroup v2, overlayfs, and `iptables` (current distributions
   have them). Nothing else: Armada brings its own container runtime and
   leaves other container software on the host alone.
@@ -127,6 +130,8 @@ Two choices are fixed here and cannot change later:
   (default `10.120.0.0/16`). Pick another if your network uses it.
 - `--network wireguard`: encrypt traffic between nodes' containers
   (default: not encrypted, see [operations](operations.md#container-network)).
+  `--network mesh` is for machines without a private network
+  ([guide](guides/machines-without-a-private-network.md)).
 
 Note the **CA SHA-256** it prints; nodes check it when they join.
 

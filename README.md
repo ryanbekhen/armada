@@ -134,6 +134,7 @@ address (a VPN or an SSH tunnel): see
 | **Scale** | Autoscaling on requests, CPU, memory, queue length, or a schedule; scale to zero and back on the next request |
 | **Run** | Jobs and cron jobs, jobs started by a queue, init containers, sidecars, `exec` into replicas, logs with a searchable history, sent to Loki or OTLP |
 | **Data** | Volumes, scheduled encrypted backups to an S3-compatible bucket, failover to another node, NFS exports |
+| **Network** | Containers reachable at their own address on every node, isolation between apps and spaces, encryption between nodes, and clusters of machines with only public addresses over a WireGuard mesh |
 | **Operate** | Highly available control plane, self-healing, placement by labels, spaces, users and roles, events, alerts to Slack, Discord, Telegram, or email, Prometheus metrics, verified upgrades |
 
 Read the [full feature list](docs/features.md).
@@ -153,7 +154,8 @@ Read the [full feature list](docs/features.md).
 ## Requirements
 
 - Linux machines (amd64 or arm64): cloud instances, VMs, or bare metal, with
-  a private network between them and systemd.
+  systemd and a private network between them, or only public addresses,
+  joined over a WireGuard mesh ([guide](docs/guides/machines-without-a-private-network.md)).
 - A domain whose DNS you control, for HTTPS.
 - The `armada` client runs on Linux and macOS, and on Windows inside WSL 2.
 

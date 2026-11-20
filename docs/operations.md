@@ -818,6 +818,7 @@ chooses, once, how that traffic travels:
 | --- | --- | --- | --- |
 | `plain` (default) | VXLAN, not encrypted | UDP 4789 | 50 bytes |
 | `wireguard` | WireGuard, encrypted and authenticated | UDP 51820 | 80 bytes |
+| `mesh` | WireGuard between the nodes' public addresses, carrying everything between nodes | UDP 51820, from anywhere | 80 bytes |
 
 Choose `wireguard` when you do not trust the private network (shared or
 provider-managed networks) or must encrypt traffic between machines. It
@@ -834,7 +835,27 @@ warns about it.
 
 Allow the mode's port between the nodes in the provider firewall; Armada
 accepts it on each node only on the private IP and only from the other
-nodes. In the `wireguard` mode each node keeps its key in `network.key` in
+nodes (in the `mesh` mode, from anywhere).
+
+The `mesh` mode is for machines with no private network between them
+([guide](guides/machines-without-a-private-network.md), ADR 0049). Each
+node has a mesh address (from `--mesh-cidr`, default `10.122.0.0/16`) in
+place of a private IP, held only on `armada-net`, and an endpoint, its
+public IPv4 address (`--endpoint` on `init` and `join`, else the only one
+on its interfaces). The control plane API, etcd, HTTP-01 forwarding, and
+metrics listen on mesh addresses, so nothing but 80, 443, and UDP 51820
+faces the internet; packets for the mesh range that arrive anywhere but
+the tunnel are dropped. Machines join over the leader's endpoint: its
+join listener (TCP 7444) opens only while a join token is unused and
+unexpired, and closes once the last one is used. Mesh tokens last 10
+minutes by default and at most an hour, and `join-token --from IP`
+makes the listener close connections from any other address. Each node
+keeps the last peer list in `mesh.json` in the data directory and brings
+the tunnel up from it before etcd or the agent start, so a cluster comes
+back when every machine restarts at once; a node with no list (restored
+from a backup) comes up alone and gets its peers from the control plane.
+The mode needs the kernel's WireGuard (no userspace fallback), and is
+chosen only at `init`. In the `wireguard` mode each node keeps its key in `network.key` in
 the data directory (not in backups; a restored node makes a new one) and
 announces the public half; a node that announces another node's key is
 refused. To give a node a new key, remove `network.key` and restart its
