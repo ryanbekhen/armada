@@ -359,3 +359,32 @@ type Check struct {
 	Level  int
 	Detail string
 }
+
+// localPrefix is a network on one of the machine's own interfaces.
+type localPrefix struct {
+	dev    string
+	prefix netip.Prefix
+}
+
+// shadowed lists the peers of other sites whose node address lies in one of
+// the machine's local networks (ADR 0050): the route to the peer through
+// the tunnel hides a host at that address on the local network.
+func shadowed(p plan, locals []localPrefix) []string {
+	var out []string
+	for _, pe := range p.peers {
+		if !pe.remote {
+			continue
+		}
+		for _, l := range locals {
+			if l.prefix.Bits() < 32 && l.prefix.Contains(pe.ip) {
+				site := pe.site
+				if site == "" {
+					site = "the first site"
+				}
+				out = append(out, fmt.Sprintf("%s (%s) at %s is inside %s on %s", pe.node, site, pe.ip, l.prefix.Masked(), l.dev))
+				break
+			}
+		}
+	}
+	return out
+}

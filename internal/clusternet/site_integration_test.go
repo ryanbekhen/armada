@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/vishvananda/netlink"
@@ -202,6 +203,47 @@ func TestIntegrationSites(t *testing.T) {
 		if got := kind(n, SiteInterface); got != "wireguard" {
 			t.Errorf("%s: %s is %q, want wireguard", n.name, SiteInterface, got)
 		}
+	}
+	// Doctor: the site interface's handshakes, and no node of the other
+	// site inside a's local networks until a gets an address in c's.
+	a := nodes[0]
+	doctor := func() (handshakes, sites Check) {
+		t.Helper()
+		_ = a.in(t, func() error {
+			for _, c := range diagnoseTunnel(ModePlain, a.ip, netip.Addr{}) {
+				if c.Name == "network-sites" {
+					handshakes = c
+				}
+			}
+			sites, _ = diagnoseSites(Sites{Cache: a.net.cfg.MeshCache, Node: a.name}, a.ip)
+			return nil
+		})
+		return handshakes, sites
+	}
+	if hs, st := doctor(); hs.Level != CheckOK || st.Level != CheckOK {
+		t.Errorf("doctor on a: %+v, %+v", hs, st)
+	}
+	shadow := netip.MustParsePrefix("10.98.0.50/24")
+	if err := a.in(t, func() error {
+		eth, err := netlink.LinkByName("eth0")
+		if err != nil {
+			return err
+		}
+		return netlink.AddrAdd(eth, &netlink.Addr{IPNet: prefixNet(shadow)})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, st := doctor(); st.Level != CheckWarn || !strings.Contains(st.Detail, "c (far) at 10.98.0.3 is inside 10.98.0.0/24 on eth0") {
+		t.Errorf("doctor with c's network on a: %+v", st)
+	}
+	if err := a.in(t, func() error {
+		eth, err := netlink.LinkByName("eth0")
+		if err != nil {
+			return err
+		}
+		return netlink.AddrDel(eth, &netlink.Addr{IPNet: prefixNet(shadow)})
+	}); err != nil {
+		t.Fatal(err)
 	}
 
 	apply(config(ModeWireGuard, sites))

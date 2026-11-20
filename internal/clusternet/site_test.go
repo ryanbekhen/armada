@@ -191,3 +191,38 @@ func TestParseMeshAddresses(t *testing.T) {
 		}
 	}
 }
+
+// Doctor warns about nodes of other sites whose address is on one of this
+// machine's local networks (ADR 0050); peers of its own site and /32
+// addresses never count.
+func TestShadowed(t *testing.T) {
+	t.Parallel()
+	cfg := &armadav1.NetworkConfig{Mode: ModePlain, ClusterCidr: "10.120.0.0/16", Peers: []*armadav1.NetworkPeer{
+		sitePeer(t, "a", "10.0.0.1", "10.120.0.0/24", "203.0.113.1", ""),
+		sitePeer(t, "b", "10.0.0.2", "10.120.1.0/24", "", ""),
+		sitePeer(t, "c", "192.168.1.7", "10.120.2.0/24", "203.0.113.3", "office"),
+		sitePeer(t, "d", "10.9.0.4", "10.120.3.0/24", "203.0.113.4", "office"),
+	}}
+	p, err := parse(cfg, "a", self)
+	if err != nil {
+		t.Fatal(err)
+	}
+	locals := []localPrefix{
+		{dev: "eth0", prefix: netip.MustParsePrefix("10.0.0.1/24")},
+		{dev: "wlan0", prefix: netip.MustParsePrefix("192.168.1.20/24")},
+		{dev: "tun0", prefix: netip.MustParsePrefix("10.9.0.4/32")},
+	}
+	got := shadowed(p, locals)
+	if want := []string{"c (office) at 192.168.1.7 is inside 192.168.1.0/24 on wlan0"}; !slices.Equal(got, want) {
+		t.Errorf("shadowed = %q, want %q", got, want)
+	}
+	// Seen from the office, a lies in the office's 10.0.0.0/16.
+	p, err = parse(cfg, "c", netip.MustParseAddr("192.168.1.7"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got = shadowed(p, []localPrefix{{dev: "eth0", prefix: netip.MustParsePrefix("10.0.5.9/16")}})
+	if want := []string{"a (the first site) at 10.0.0.1 is inside 10.0.0.0/16 on eth0"}; !slices.Equal(got, want) {
+		t.Errorf("from the office: %q, want %q", got, want)
+	}
+}

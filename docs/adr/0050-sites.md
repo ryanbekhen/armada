@@ -149,9 +149,11 @@ sites:
 - Node addresses must be unique across the cluster. A joining node whose
   private IP another node holds is refused, and it can join with a mesh
   address instead (`join --no-private-ip`).
-- A node announces the prefixes of its interfaces (`Hello.local_prefixes`).
-  `doctor` warns when another site's node address lies inside one of them:
-  that host on the local network becomes unreachable from the node.
+- `doctor` compares the peer list the node keeps (`mesh.json`) with the
+  networks on its own interfaces, and warns when another site's node
+  address lies inside one of them: that host on the local network becomes
+  unreachable from the node. The check runs on the node itself, so nothing
+  about its local networks leaves it.
 - In a `mesh` cluster, a node may also announce its private address
   (`--private-ip`, or the only one detected) for peers in its own site.
 
