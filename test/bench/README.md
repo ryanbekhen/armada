@@ -92,7 +92,7 @@ script builds a two-node cluster:
 
 Then, with the CPU use of both machines sampled around each run:
 
-1. **Container to container**: `iperf3` from a container on A to one on B
+1. **Container to container**: `iperf3` from the replica of one app on A to its replica on B
    at the replica's address (its container address on a cluster network), with 1 and 4 streams, in both directions.
 2. **Upload**: a file of `BENCH_UPLOAD_MB` posted from A through A's
    HAProxy to a replica on B. A transfer that fails or stalls until the
