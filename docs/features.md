@@ -47,8 +47,9 @@ Everything Armada does. The [guides](guides/README.md) show each in use, and the
 - **Cluster network.** Each node's containers get their own subnet of one
   private range, routed between nodes over a tunnel on the private
   network, so replicas are reached at their own address and see their
-  caller's real one; `--network wireguard` encrypts it. Apps reach each
-  other only through their internal names.
+  caller's real one; `--network wireguard` encrypts it, and a running
+  cluster switches between the two without stopping traffic. Apps reach
+  each other only through their internal names.
 - **Mesh clusters.** Machines with only a public address, at one provider
   or several, form a cluster over a WireGuard mesh (`--network mesh`):
   everything between them is encrypted, and only 80, 443, and the
