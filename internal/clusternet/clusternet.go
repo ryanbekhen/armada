@@ -3,7 +3,9 @@
 // its private IP, with static forwarding entries for its peers and a route
 // for each peer's subnet; nothing is learned from the network. In the
 // wireguard mode the interface is a WireGuard device whose peers are the
-// other nodes, each allowed exactly its own subnet.
+// other nodes, each allowed exactly its own subnet. In the mesh mode (ADR
+// 0049) the WireGuard peers are reached at their public addresses, and each
+// node's private IP is a mesh address that only the tunnel carries.
 package clusternet
 
 import (
@@ -46,14 +48,25 @@ const (
 const (
 	ModePlain     = "plain"
 	ModeWireGuard = "wireguard"
+	ModeMesh      = "mesh"
 )
+
+// encrypted reports whether a mode runs over WireGuard.
+func encrypted(mode string) bool { return mode == ModeWireGuard || mode == ModeMesh }
 
 // Config describes the node.
 type Config struct {
 	// Node is the node's name; its own entry in the peer list is skipped.
 	Node string
-	// PrivateIP is where the tunnel listens and peers reach the node.
+	// PrivateIP is where the tunnel listens and peers reach the node; in
+	// the mesh mode, the node's mesh address.
 	PrivateIP netip.Addr
+	// Endpoint is the node's public address in the mesh mode: its interface
+	// (or, behind one-to-one NAT, the default route's) is the uplink.
+	Endpoint netip.Addr
+	// MeshCache is where the mesh mode keeps the last peer list it applied,
+	// so the tunnel comes up before the control plane (Up).
+	MeshCache string
 	// Key is the node's own key (LoadOrCreateKey); the wireguard mode needs
 	// it.
 	Key    PrivateKey
@@ -66,12 +79,16 @@ type peer struct {
 	ip     netip.Addr
 	subnet netip.Prefix
 	key    wgtypes.Key // zero until the node has announced one
+	// endpoint is the public address of the mesh mode.
+	endpoint netip.Addr
 }
 
 // plan is a validated network configuration.
 type plan struct {
-	mode  string
-	cidr  netip.Prefix
+	mode string
+	cidr netip.Prefix
+	// mesh is the range of the nodes' mesh addresses, in the mesh mode.
+	mesh  netip.Prefix
 	self  peer
 	peers []peer // every node but this one, in the order received
 	// endpoints maps the cluster's container addresses to their app IDs.
@@ -86,17 +103,26 @@ type plan struct {
 // with anything that ends up in routes or firewall rules: names, addresses
 // and subnets are checked here again.
 func parse(cfg *armadav1.NetworkConfig, self string, selfIP netip.Addr) (plan, error) {
-	if cfg.GetMode() != ModePlain && cfg.GetMode() != ModeWireGuard {
+	if cfg.GetMode() != ModePlain && cfg.GetMode() != ModeWireGuard && cfg.GetMode() != ModeMesh {
 		return plan{}, fmt.Errorf("cluster network mode %q is not supported by this agent", cfg.GetMode())
 	}
 	cidr, err := netip.ParsePrefix(cfg.GetClusterCidr())
 	if err != nil || !cidr.Addr().Is4() || cidr.Masked() != cidr || !cidr.Addr().IsPrivate() || cidr.Bits() < 8 || cidr.Bits() > subnetBits {
 		return plan{}, fmt.Errorf("invalid cluster CIDR %q", cfg.GetClusterCidr())
 	}
+	var mesh netip.Prefix
+	if cfg.GetMode() == ModeMesh {
+		if mesh, err = CheckMeshCIDR(cfg.GetMeshCidr()); err != nil {
+			return plan{}, err
+		}
+		if mesh.Overlaps(cidr) {
+			return plan{}, fmt.Errorf("mesh CIDR %s overlaps the cluster CIDR %s", mesh, cidr)
+		}
+	}
 	if len(cfg.GetPeers()) > maxPeers {
 		return plan{}, fmt.Errorf("%d peers: at most %d", len(cfg.GetPeers()), maxPeers)
 	}
-	p := plan{mode: cfg.GetMode(), cidr: cidr, isolateDefault: cfg.GetIsolateDefault()}
+	p := plan{mode: cfg.GetMode(), cidr: cidr, mesh: mesh, isolateDefault: cfg.GetIsolateDefault()}
 	if p.endpoints, err = parseEndpoints(cfg.GetEndpoints(), cidr); err != nil {
 		return plan{}, err
 	}
@@ -120,11 +146,24 @@ func parse(cfg *armadav1.NetworkConfig, self string, selfIP netip.Addr) (plan, e
 		if cidr.Contains(ip) {
 			return plan{}, fmt.Errorf("peer %s: private IP %s is inside the cluster CIDR", pp.GetNode(), ip)
 		}
+		if p.mode == ModeMesh && !mesh.Contains(ip) {
+			return plan{}, fmt.Errorf("peer %s: mesh address %s is outside the mesh CIDR %s", pp.GetNode(), ip, mesh)
+		}
 		if names[pp.GetNode()] || ips[ip] || subnets[sub] {
 			return plan{}, fmt.Errorf("peer %s: duplicate name, address, or subnet", pp.GetNode())
 		}
 		names[pp.GetNode()], ips[ip], subnets[sub] = true, true, true
 		pe := peer{node: pp.GetNode(), ip: ip, subnet: sub}
+		if p.mode == ModeMesh && pp.GetEndpoint() != "" {
+			ep, err := netutil.CheckEndpoint(pp.GetEndpoint())
+			if err != nil {
+				return plan{}, fmt.Errorf("peer %s: %w", pp.GetNode(), err)
+			}
+			if cidr.Contains(ep) || mesh.Contains(ep) {
+				return plan{}, fmt.Errorf("peer %s: endpoint %s is inside the cluster's own ranges", pp.GetNode(), ep)
+			}
+			pe.endpoint = ep
+		}
 		if pp.GetPublicKey() != "" {
 			k, err := wgtypes.ParseKey(pp.GetPublicKey())
 			if err != nil || k == (wgtypes.Key{}) {
@@ -142,9 +181,13 @@ func parse(cfg *armadav1.NetworkConfig, self string, selfIP netip.Addr) (plan, e
 			p.self, found = pe, true
 			continue
 		}
-		if p.mode == ModeWireGuard && pe.key == (wgtypes.Key{}) {
+		if encrypted(p.mode) && pe.key == (wgtypes.Key{}) {
 			// Not connected since it joined: it has no key to reach it by
 			// yet, and comes in with the next list.
+			continue
+		}
+		if p.mode == ModeMesh && !pe.endpoint.IsValid() {
+			// Nowhere to send its packets yet.
 			continue
 		}
 		p.peers = append(p.peers, pe)
@@ -170,10 +213,27 @@ func vtepMAC(subnet netip.Prefix) net.HardwareAddr {
 // TunnelMTU is the MTU for the tunnel, the bridge, and containers on a
 // node whose uplink has the given MTU.
 func TunnelMTU(mode string, uplink int) int {
-	if mode == ModeWireGuard {
+	if encrypted(mode) {
 		return uplink - WireGuardOverhead
 	}
 	return uplink - VXLANOverhead
+}
+
+// CheckMeshCIDR validates the range of a mesh cluster's node addresses: a
+// private IPv4 prefix from /8 to /24 in canonical form.
+func CheckMeshCIDR(s string) (netip.Prefix, error) {
+	p, err := netip.ParsePrefix(s)
+	switch {
+	case err != nil || !p.Addr().Is4():
+		return netip.Prefix{}, fmt.Errorf("invalid mesh CIDR %q: want an IPv4 prefix", s)
+	case p.Masked() != p:
+		return netip.Prefix{}, fmt.Errorf("mesh CIDR %s is not in canonical form (want %s)", p, p.Masked())
+	case p.Bits() < 8 || p.Bits() > 24:
+		return netip.Prefix{}, fmt.Errorf("mesh CIDR %s: the prefix must be from /8 to /24", p)
+	case !p.Addr().IsPrivate():
+		return netip.Prefix{}, fmt.Errorf("mesh CIDR %s is not a private range", p)
+	}
+	return p, nil
 }
 
 // Check levels of Diagnose.

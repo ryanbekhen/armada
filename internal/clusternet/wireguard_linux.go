@@ -20,15 +20,10 @@ import (
 	"golang.zx2c4.com/wireguard/wgctrl"
 )
 
-// staleHandshake is how old a peer's last handshake may be before doctor
-// reports it: sessions are renewed every two minutes while they carry
-// traffic, which the keepalive provides.
-const staleHandshake = 3 * time.Minute
-
 // wireguard creates or repairs the WireGuard interface, its peers, and the
 // routes to their subnets.
 func (n *Net) wireguard(p plan, mtu int) error {
-	link, err := n.wgDevice(mtu)
+	link, err := n.wgDevice(mtu, p.mode != ModeMesh)
 	if err != nil {
 		return err
 	}
@@ -41,9 +36,14 @@ func (n *Net) wireguard(p plan, mtu int) error {
 	return syncRoutes(link, p, false)
 }
 
-// wgDevice returns the WireGuard interface, creating it in the kernel, or
-// in userspace inside the agent when the kernel has no WireGuard.
-func (n *Net) wgDevice(mtu int) (netlink.Link, error) {
+// errNoKernelWireGuard is the mesh mode's refusal of the userspace device:
+// the mesh must be up before the agent that would hold it runs.
+var errNoKernelWireGuard = errors.New("the kernel has no WireGuard, which the mesh network mode needs (the userspace device lives inside the agent, and the mesh must be up before it starts); use a kernel with WireGuard (Linux 5.6 or later)")
+
+// wgDevice returns the WireGuard interface, creating it in the kernel, or,
+// when user allows it, in userspace inside the agent when the kernel has no
+// WireGuard.
+func (n *Net) wgDevice(mtu int, user bool) (netlink.Link, error) {
 	link, err := existing()
 	if err != nil {
 		return nil, err
@@ -65,6 +65,8 @@ func (n *Net) wgDevice(mtu int) (netlink.Link, error) {
 	err = netlink.LinkAdd(&netlink.Wireguard{LinkAttrs: netlink.LinkAttrs{Name: Interface, MTU: mtu}})
 	switch {
 	case err == nil:
+	case errors.Is(err, unix.EOPNOTSUPP) && !user:
+		return nil, errNoKernelWireGuard
 	case errors.Is(err, unix.EOPNOTSUPP):
 		u, err := startUserDevice(mtu, n.log)
 		if err != nil {
@@ -140,7 +142,7 @@ func (n *Net) wgPeers(p plan) error {
 	if err != nil {
 		return fmt.Errorf("read %s: %w", Interface, err)
 	}
-	cfg := peerChanges(d, n.cfg.Key.k, p.peers)
+	cfg := peerChanges(d, n.cfg.Key.k, p.mode, p.peers, time.Now())
 	if cfg == nil {
 		return nil
 	}
@@ -152,14 +154,18 @@ func (n *Net) wgPeers(p plan) error {
 
 // diagnoseWireGuard reports whether the kernel has WireGuard and whether
 // every peer has a recent handshake.
-func diagnoseWireGuard(ip netip.Addr) []Check {
+func diagnoseWireGuard(mode string, ip netip.Addr) []Check {
 	var out []Check
 	add := func(name string, level int, format string, args ...any) {
 		out = append(out, Check{Name: name, Level: level, Detail: fmt.Sprintf(format, args...)})
 	}
-	if kernelHas("wireguard") {
+	switch {
+	case kernelHas("wireguard"):
 		add("wireguard", CheckOK, "the kernel has WireGuard")
-	} else {
+	case mode == ModeMesh:
+		add("wireguard", CheckFail, "%v", errNoKernelWireGuard)
+		return out
+	default:
 		add("wireguard", CheckWarn, "the kernel has no WireGuard: the agent runs it in userspace, which is markedly slower; install a kernel with WireGuard")
 	}
 	c, err := wgctrl.New()
@@ -187,6 +193,10 @@ func diagnoseWireGuard(ip netip.Addr) []Check {
 	slices.Sort(stale)
 	if len(stale) > 0 {
 		add("network", CheckFail, "%d of %d peer(s) have no recent handshake: %v; allow UDP %d between the nodes", len(stale), len(d.Peers), stale, WireGuardPort)
+		return out
+	}
+	if mode == ModeMesh {
+		add("network", CheckOK, "%s (%s) has a recent handshake with all %d peer(s) (UDP %d, open it to every address)", Interface, d.Type, len(d.Peers), WireGuardPort)
 		return out
 	}
 	add("network", CheckOK, "%s (%s) has a recent handshake with all %d peer(s) (UDP %d on %s, open it to the other nodes)", Interface, d.Type, len(d.Peers), WireGuardPort, ip)

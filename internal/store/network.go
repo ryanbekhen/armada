@@ -16,6 +16,10 @@ const (
 	NetworkPlain = "plain"
 	// NetworkWireGuard routes it over WireGuard.
 	NetworkWireGuard = "wireguard"
+	// NetworkMesh routes it, and everything else between nodes, over
+	// WireGuard between the nodes' public addresses; each node's private IP
+	// is a mesh address (ADR 0049).
+	NetworkMesh = "mesh"
 )
 
 // NodeSubnetBits is the prefix length of each node's container subnet.
@@ -29,6 +33,8 @@ type Network struct {
 	// IsolateDefault keeps the default space's containers away from the
 	// platform, as every other space's always are (ADR 0026).
 	IsolateDefault bool
+	// MeshCIDR is the range of the nodes' mesh addresses in the mesh mode.
+	MeshCIDR netip.Prefix
 }
 
 // CheckClusterCIDR validates a cluster CIDR: a private IPv4 prefix from /12
@@ -51,6 +57,7 @@ type networkRec struct {
 	Mode           string `json:"mode"`
 	ClusterCIDR    string `json:"clusterCidr"`
 	IsolateDefault bool   `json:"isolateDefault,omitempty"`
+	MeshCIDR       string `json:"meshCidr,omitempty"`
 }
 
 const keyNetwork = "network"
@@ -65,7 +72,13 @@ func (t *etx) network() (Network, bool, error) {
 	if err != nil {
 		return Network{}, false, fmt.Errorf("decode %s: cluster CIDR: %w", keyNetwork, err)
 	}
-	return Network{Mode: r.Mode, ClusterCIDR: p, IsolateDefault: r.IsolateDefault}, true, nil
+	n := Network{Mode: r.Mode, ClusterCIDR: p, IsolateDefault: r.IsolateDefault}
+	if r.MeshCIDR != "" {
+		if n.MeshCIDR, err = netip.ParsePrefix(r.MeshCIDR); err != nil {
+			return Network{}, false, fmt.Errorf("decode %s: mesh CIDR: %w", keyNetwork, err)
+		}
+	}
+	return n, true, nil
 }
 
 // GetNetwork returns the cluster network, or ErrNotFound for a cluster
@@ -86,11 +99,24 @@ func (s *Etcd) GetNetwork(ctx context.Context) (Network, error) {
 // InitNetwork records the cluster network. It can be set only once, and
 // only before any node exists, so that every node gets a subnet.
 func (s *Etcd) InitNetwork(ctx context.Context, n Network) error {
-	if n.Mode != NetworkPlain && n.Mode != NetworkWireGuard {
+	if n.Mode != NetworkPlain && n.Mode != NetworkWireGuard && n.Mode != NetworkMesh {
 		return fmt.Errorf("unknown network mode %q", n.Mode)
 	}
 	if err := CheckClusterCIDR(n.ClusterCIDR); err != nil {
 		return err
+	}
+	rec := networkRec{Mode: n.Mode, ClusterCIDR: n.ClusterCIDR.String()}
+	switch {
+	case n.Mode != NetworkMesh && n.MeshCIDR.IsValid():
+		return fmt.Errorf("a mesh CIDR needs the mesh network mode")
+	case n.Mode == NetworkMesh:
+		if err := CheckMeshCIDR(n.MeshCIDR); err != nil {
+			return err
+		}
+		if n.MeshCIDR.Overlaps(n.ClusterCIDR) {
+			return fmt.Errorf("mesh CIDR %s overlaps the cluster CIDR %s", n.MeshCIDR, n.ClusterCIDR)
+		}
+		rec.MeshCIDR = n.MeshCIDR.String()
 	}
 	return s.tx(ctx, func(t *etx) error {
 		if _, ok, err := t.network(); err != nil {
@@ -105,7 +131,7 @@ func (s *Etcd) InitNetwork(ctx context.Context, n Network) error {
 		if len(nodes) > 0 {
 			return fmt.Errorf("the cluster already has nodes: %w", ErrPrecondition)
 		}
-		return t.put(keyNetwork, networkRec{Mode: n.Mode, ClusterCIDR: n.ClusterCIDR.String()})
+		return t.put(keyNetwork, rec)
 	})
 }
 
@@ -141,8 +167,12 @@ func (t *etx) newNodeNetwork(privateIP string) (string, error) {
 	if err != nil || !ok {
 		return "", err
 	}
-	if ip, err := netip.ParseAddr(privateIP); err == nil && n.ClusterCIDR.Contains(ip) {
+	ip, err := netip.ParseAddr(privateIP)
+	if err == nil && n.ClusterCIDR.Contains(ip) {
 		return "", fmt.Errorf("private IP %s is inside the cluster CIDR %s: %w", privateIP, n.ClusterCIDR, ErrPrecondition)
+	}
+	if n.Mode == NetworkMesh && (err != nil || !n.MeshCIDR.Contains(ip)) {
+		return "", fmt.Errorf("a mesh node's address %s must be in the mesh CIDR %s: %w", privateIP, n.MeshCIDR, ErrPrecondition)
 	}
 	used := map[string]bool{}
 	err = listInto(t, pfxNodes, func(_ string, r nodeRec) error {
@@ -159,6 +189,22 @@ func (t *etx) newNodeNetwork(privateIP string) (string, error) {
 		return "", err
 	}
 	return sub.String(), nil
+}
+
+// CheckMeshCIDR validates the range of a mesh cluster's node addresses: a
+// private IPv4 prefix from /8 to /24 in canonical form (ADR 0049).
+func CheckMeshCIDR(p netip.Prefix) error {
+	switch {
+	case !p.IsValid() || !p.Addr().Is4():
+		return errors.New("mesh CIDR must be an IPv4 prefix")
+	case p.Masked() != p:
+		return fmt.Errorf("mesh CIDR %s is not in canonical form (want %s)", p, p.Masked())
+	case p.Bits() < 8 || p.Bits() > 24:
+		return fmt.Errorf("mesh CIDR %s: the prefix must be from /8 to /24", p)
+	case !p.Addr().IsPrivate():
+		return fmt.Errorf("mesh CIDR %s is not a private range", p)
+	}
+	return nil
 }
 
 // freeSubnet returns the first /NodeSubnetBits of cidr not in used.

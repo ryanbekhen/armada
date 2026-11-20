@@ -18,6 +18,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	armadav1 "github.com/ryanbekhen/armada/api/armada/v1"
+	"github.com/ryanbekhen/armada/internal/netutil"
 	"github.com/ryanbekhen/armada/internal/spec"
 	"github.com/ryanbekhen/armada/internal/store"
 )
@@ -185,11 +186,16 @@ func (s *Server) Connect(stream armadav1.AgentService_ConnectServer) error {
 	if !validNetworkKey(hello.GetNetworkKey()) {
 		hello.NetworkKey = ""
 	}
+	// Where peers of a mesh cluster send this node's WireGuard packets
+	// (ADR 0049): a unicast IPv4 address, which agents check again.
+	if _, err := netutil.CheckEndpoint(hello.GetEndpoint()); err != nil {
+		hello.Endpoint = ""
+	}
 	if err := s.store.SetNodeStatus(ctx, node.ID, store.NodeStatus{
 		State: store.NodeReady, LastSeen: time.Now(), CPUMillis: hello.GetCpuMillis(), MemoryBytes: hello.GetMemoryBytes(),
 		Version: hello.GetVersion(), OS: hello.GetOs(), Arch: hello.GetArch(),
 		Jobs: hello.GetJobs(), Volumes: hello.GetVolumes(), Containers: hello.GetContainers(), NFS: hello.GetNfs(),
-		NetworkKey: hello.GetNetworkKey(),
+		NetworkKey: hello.GetNetworkKey(), Endpoint: hello.GetEndpoint(),
 	}); errors.Is(err, store.ErrConflict) {
 		s.log.Warn("agent announced another node's network key", "node", node.ID)
 		return status.Error(codes.FailedPrecondition, "the network key is already used by another node; remove "+fileNetworkKeyHint+" on this node and restart the agent")

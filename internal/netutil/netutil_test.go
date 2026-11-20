@@ -45,6 +45,20 @@ func TestCheckNodeIP(t *testing.T) {
 	}
 }
 
+func TestCheckEndpoint(t *testing.T) {
+	t.Parallel()
+	for _, s := range []string{"203.0.113.7", "10.0.0.2", "100.64.1.1"} {
+		if _, err := CheckEndpoint(s); err != nil {
+			t.Errorf("CheckEndpoint(%q) = %v", s, err)
+		}
+	}
+	for _, s := range []string{"", "127.0.0.1", "0.0.0.0", "255.255.255.255", "224.0.0.5", "169.254.169.254", "2001:db8::1", "203.0.113.7:51820", "203.000.113.7", " 203.0.113.7"} {
+		if _, err := CheckEndpoint(s); err == nil {
+			t.Errorf("CheckEndpoint(%q) accepted", s)
+		}
+	}
+}
+
 func TestVirtualInterface(t *testing.T) {
 	t.Parallel()
 	for _, n := range []string{"docker0", "br-1a2b", "veth12ab", "cni0", "virbr0", "wg0", "armada0"} {

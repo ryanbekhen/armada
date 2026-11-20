@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"time"
@@ -66,6 +67,15 @@ type agentConfig struct {
 	// Network is the cluster network's mode (ADR 0025), "plain"; empty in
 	// clusters without one.
 	Network string `json:"network,omitempty"`
+	// Endpoint is the node's public IPv4 address in a mesh cluster (ADR
+	// 0049), where PrivateIP is its mesh address.
+	Endpoint string `json:"endpoint,omitempty"`
+}
+
+// endpoint returns the node's mesh endpoint, or the zero address.
+func (c agentConfig) endpoint() netip.Addr {
+	a, _ := netip.ParseAddr(c.Endpoint)
+	return a
 }
 
 func saveAgentConfig(dataDir string, c agentConfig) error {
