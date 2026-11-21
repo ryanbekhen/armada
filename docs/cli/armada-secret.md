@@ -4,61 +4,101 @@
 
 [All commands](armada.md)
 
-Secrets are encrypted at rest and only decrypted for the nodes that run the app.
-Values are never shown again after they are set and are never accepted as
-command-line arguments, which would leak into shell history.
+A secret is a named set of keys in a space; every app and job of the space
+can use its keys (SECRET/KEY in a spec, or envFrom). The secret named after
+an app is that app's own: a spec's secretRef with no secret names its keys.
+
+Values are encrypted at rest, only decrypted for the nodes that run a replica
+that uses them, never shown again, and never accepted as command-line
+arguments, which would leak into shell history.
 
 Also: `secrets`.
 
 | Command | What it does |
 | --- | --- |
-| [`armada secret delete`](#armada-secret-delete) | Delete every version of a secret the app no longer uses |
-| [`armada secret import`](#armada-secret-import) | Set many secrets from a file of KEY=VALUE lines |
-| [`armada secret list`](#armada-secret-list) | List an app's secrets (names and versions only) |
-| [`armada secret set`](#armada-secret-set) | Set a secret from stdin, a hidden prompt, or --from-file |
+| [`armada secret create`](#armada-secret-create) | Create a secret with a key for each KEY=VALUE line of a file |
+| [`armada secret delete`](#armada-secret-delete) | Delete a secret with every key, once no app uses it |
+| [`armada secret list`](#armada-secret-list) | List the secrets of the space (names and key counts only) |
+| [`armada secret set`](#armada-secret-set) | Set a key from stdin, a hidden prompt, or --from-file; or many from --from-env-file |
+| [`armada secret show`](#armada-secret-show) | List a secret's keys, their versions, and the revisions that use them |
+| [`armada secret unset`](#armada-secret-unset) | Delete every version of a key no app uses |
 
-## `armada secret delete`
+Examples:
 
-Delete every version of a secret the app no longer uses.
+```bash
+armada secret create db --from-env-file db.env
+armada secret set db PASSWORD < password.txt
+armada secret list
+armada secret show db
+```
+
+## `armada secret create`
+
+Create a secret with a key for each KEY=VALUE line of a file (- reads stdin),
+keeping the keys as written. Blank lines and lines starting with # are
+skipped; a value is everything after the first =, kept exactly, quotes
+included. It refuses a secret that exists: change one with armada secret set.
 
 ```
-armada secret delete APP NAME
-```
-
-Also: `rm`.
-
-## `armada secret import`
-
-Set many secrets from a file of KEY=VALUE lines (- reads stdin).
-
-DATABASE_URL becomes the secret database-url. Blank lines and lines starting
-with # are skipped. A value is everything after the first =, kept exactly,
-quotes included. Nothing rolls out: running replicas keep the previous values
-until the app's next update. Run it for each app that needs the values.
-
-```
-armada secret import APP FILE
+armada secret create SECRET --from-env-file FILE [flags]
 ```
 
 Examples:
 
 ```bash
-armada secret import api .env
-# then in the spec:
+armada secret create db --from-env-file db.env
+# then in a spec:
+#   envFrom:
+#     - secret: db
 #   env:
 #     - name: DATABASE_URL
-#       secretRef: database-url
+#       secretRef: db/DATABASE_URL
 ```
+
+Flags:
+
+| Flag | Meaning |
+| --- | --- |
+| `--from-env-file string` | KEY=VALUE lines, one key each (- reads stdin) |
+
+## `armada secret delete`
+
+Delete a secret with every key, once no app uses it.
+
+```
+armada secret delete SECRET --yes [flags]
+```
+
+Also: `rm`.
+
+Examples:
+
+```bash
+armada secret delete old-db --yes
+```
+
+Flags:
+
+| Flag | Meaning |
+| --- | --- |
+| `--yes` | confirm deleting every key |
 
 ## `armada secret list`
 
-List an app's secrets (names and versions only).
+List the secrets of the space (names and key counts only).
 
 ```
-armada secret list APP [flags]
+armada secret list [flags]
 ```
 
 Also: `ls`.
+
+Examples:
+
+```bash
+armada secret list
+armada secret list -A
+```
 
 Flags:
 
@@ -68,22 +108,27 @@ Flags:
 
 ## `armada secret set`
 
-Set a secret from stdin, a hidden prompt, or --from-file.
+Set a key of a secret from stdin, a hidden prompt, or --from-file, creating
+the secret if it does not exist.
 
 From stdin, one trailing newline is removed (as added by echo); --from-file
-stores the file's bytes exactly. If the app's current revision uses the
-secret, a new revision with the new value is rolled out (see --no-rollout).
+stores the file's bytes exactly. Every app whose current revision uses the
+key rolls out with the new value (see --no-rollout).
+
+--from-env-file sets a key for each KEY=VALUE line, keeping the keys as
+written; nothing rolls out, so apps get the values with their next deploy.
 
 ```
-armada secret set APP NAME [flags]
+armada secret set SECRET KEY | SECRET --from-env-file FILE [flags]
 ```
 
 Examples:
 
 ```bash
-armada secret set web db-password < password.txt
-printf %s "$TOKEN" | armada secret set web api-token
-armada secret set web tls-key --from-file key.pem
+armada secret set db PASSWORD < password.txt
+printf %s "$TOKEN" | armada secret set api API_TOKEN
+armada secret set tls key --from-file key.pem
+armada secret set db --from-env-file db.env
 ```
 
 Flags:
@@ -91,8 +136,43 @@ Flags:
 | Flag | Meaning |
 | --- | --- |
 | `--allow-empty` | allow an empty value |
+| `--from-env-file string` | set a key for each KEY=VALUE line of this file (- reads stdin) |
 | `--from-file string` | read the value from this file instead of stdin |
-| `--no-rollout` | store the value without rolling out the app |
+| `--no-rollout` | store the value without rolling out the apps that use it |
 | `--timeout duration` | how long --wait waits (default `15m0s`) |
 | `--wait` | wait until the rollout completes; fail if it is aborted |
+
+## `armada secret show`
+
+List a secret's keys, their versions, and the revisions that use them.
+
+```
+armada secret show SECRET [flags]
+```
+
+Examples:
+
+```bash
+armada secret show db
+```
+
+Flags:
+
+| Flag | Meaning |
+| --- | --- |
+| `-o`, `--output string` | output format: text or json (default `text`) |
+
+## `armada secret unset`
+
+Delete every version of a key no app uses.
+
+```
+armada secret unset SECRET KEY
+```
+
+Examples:
+
+```bash
+armada secret unset db OLD_PASSWORD
+```
 

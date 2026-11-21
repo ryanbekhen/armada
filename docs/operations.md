@@ -571,7 +571,7 @@ armada space use staging               # commands now work in staging
 armada app create --file web.yaml
 armada app list                          # only the space's apps; -A for every space
 armada secret set web db-password < password.txt
-armada secret import web .env            # many at once: DATABASE_URL becomes database-url
+armada secret create db --from-env-file .env   # a secret the space's apps share
 armada app list --space default        # --space names another space for one command
 armada space list
 armada space use default

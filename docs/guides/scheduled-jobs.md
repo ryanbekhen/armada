@@ -192,11 +192,11 @@ armada job create reindex --image ghcr.io/acme/api:1.4.2 --command ./bin/reindex
 armada job run reindex --wait --timeout 2h
 armada job logs reindex
 armada job delete reindex
-armada secret delete reindex database-url
+armada secret delete reindex --yes
 ```
 
 `armada job delete` removes the job, its runs, and their logs, but keeps
-its secrets, hence the last line.
+its secret, hence the last line.
 
 A migration you run before every deploy can stay as a job. A deploy script
 stops if it fails:

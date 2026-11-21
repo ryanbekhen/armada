@@ -28,7 +28,7 @@ Every command takes these.
 | [`armada metrics`](armada-metrics.md) | Credentials for the Prometheus metrics endpoint |
 | [`armada node`](armada-node.md) | List, label, drain, and delete nodes |
 | [`armada rbac`](armada-rbac.md) | Manage users, services, and the roles they hold |
-| [`armada secret`](armada-secret.md) | Manage app secrets (values are write-only) |
+| [`armada secret`](armada-secret.md) | Keys and values the apps of a space share (values are write-only) |
 | [`armada server`](armada-server.md) | List, add, and delete control plane servers |
 | [`armada space`](armada-space.md) | Manage spaces |
 | [`armada version`](armada-version.md) | Print build information and the latest release |

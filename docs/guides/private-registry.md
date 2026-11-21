@@ -32,17 +32,17 @@ node that runs the app.
 
 ## 1. Store the registry password as a secret
 
-A secret belongs to one app, so name the app you are about to create.
-Read the token from a file or stdin, never from an argument:
+Put the token in the secret named after the app you are about to create,
+its own. Read the token from a file or stdin, never from an argument:
 
 ```bash
 armada space use shop
 printf '%s' "$GHCR_TOKEN" | armada secret set api ghcr-token
-armada secret list api
+armada secret show api
 ```
 
 ```
-NAME        VERSION  UPDATED              BY          USED BY
+KEY         VERSION  UPDATED              BY          USED BY
 ghcr-token  1        2026-11-11 10:02:11  user:alice  -
 ```
 

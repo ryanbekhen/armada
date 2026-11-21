@@ -74,9 +74,9 @@ Everything Armada does. The [guides](guides/README.md) show each in use, and the
   or `admin` in a space, `space-creator`, or `cluster-admin`
   (`armada rbac`). The audit log names them, and one person's access is
   taken back at once.
-- **Secrets.** Encrypted at rest, versioned, delivered as env vars or as
-  read-only files on tmpfs; `envFrom: secrets` turns all of an app's
-  secrets into variables.
+- **Secrets.** Named sets of keys a space's apps share, encrypted at rest,
+  versioned, delivered as env vars or as read-only files on tmpfs;
+  `envFrom` turns every key of a secret into variables.
 - **One spec, several environments.** `${NAME}` in a spec is filled in
   from `armada app create --file web.yaml --vars production.env --var TAG=...`.
 - **Logs and exec.** `armada app logs` streams a replica's output, rotated

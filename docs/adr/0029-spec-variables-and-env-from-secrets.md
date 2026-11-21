@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-11-10
+- Amended by: [0052](0052-flat-commands-and-space-secrets.md) (`envFrom` also lists secrets of the space)
 
 ## Context
 
