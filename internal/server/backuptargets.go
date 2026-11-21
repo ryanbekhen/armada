@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"net/netip"
+	"slices"
+	"strings"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -128,31 +130,32 @@ func pinnedValue(vals map[string]secrets.Value) func(string) ([]byte, bool, erro
 	}
 }
 
-// latestValue reads the latest version of an app's secret, the one a
-// deploy pins.
+// latestValue reads the latest version of a key the app with ID appID
+// references, the one a deploy pins.
 func (s *Server) latestValue(ctx context.Context, appID string) func(string) ([]byte, bool, error) {
-	var infos []store.SecretInfo
-	listed := false
-	return func(name string) ([]byte, bool, error) {
+	infos := map[string][]store.SecretInfo{}
+	return func(ref string) ([]byte, bool, error) {
 		if s.keys == nil {
 			return nil, false, nil
 		}
+		secret, key := spec.SecretSource(appID, ref)
+		list, listed := infos[secret]
 		if !listed {
 			var err error
-			if infos, err = s.store.ListSecrets(ctx, appID); err != nil && !errors.Is(err, store.ErrNotFound) {
+			if list, err = s.store.ListSecrets(ctx, secret); err != nil && !errors.Is(err, store.ErrNotFound) {
 				return nil, false, storeErr(err)
 			}
-			listed = true
+			infos[secret] = list
 		}
-		for _, in := range infos {
-			if in.Name != name {
+		for _, in := range list {
+			if in.Name != key {
 				continue
 			}
-			sealed, err := s.store.GetSecret(ctx, appID, name, in.Version)
+			sealed, err := s.store.GetSecret(ctx, secret, key, in.Version)
 			if err != nil {
 				return nil, false, storeErr(err)
 			}
-			v, err := s.keys.Open(sealed, appID, name, in.Version)
+			v, err := s.keys.Open(sealed, secret, key, in.Version)
 			if err != nil {
 				return nil, false, status.Error(codes.FailedPrecondition, "cannot read the app's backup secrets")
 			}
@@ -183,14 +186,39 @@ func (s *Server) checkRollbackBackups(ctx context.Context, appID, target string)
 	return s.checkBackupTargets(ctx, acc, appID, rev.Spec, pinnedValue(vals))
 }
 
-// checkSecretBackups runs checkBackupTargets when a secret change sets the
-// bucket URL of the revision the app is heading to: a later deploy or
-// rollout pins the new value.
-func (s *Server) checkSecretBackups(ctx context.Context, appID, name string, value []byte) error {
+// checkSecretBackups runs checkBackupTargets when a change to a secret's key
+// sets the bucket URL of the revision an app is heading to: a later deploy
+// or rollout pins the new value. Every app that uses the key is checked:
+// the secret's own app, and the apps whose revisions pin it (ADR 0052).
+func (s *Server) checkSecretBackups(ctx context.Context, secret, key string, value []byte) error {
 	acc := accessFrom(ctx)
 	if acc.admin() {
 		return nil
 	}
+	apps := []string{secret}
+	infos, err := s.store.ListSecrets(ctx, secret)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return storeErr(err)
+	}
+	for _, in := range infos {
+		if in.Name != key {
+			continue
+		}
+		for _, rn := range in.UsedBy {
+			if i := strings.LastIndex(rn, "--r"); i > 0 && !slices.Contains(apps, rn[:i]) {
+				apps = append(apps, rn[:i])
+			}
+		}
+	}
+	for _, appID := range apps {
+		if err := s.checkAppSecretBackups(ctx, acc, appID, secret, key, value); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Server) checkAppSecretBackups(ctx context.Context, acc access, appID, secret, key string, value []byte) error {
 	a, err := s.store.GetApp(ctx, appID)
 	if errors.Is(err, store.ErrNotFound) {
 		return nil
@@ -212,15 +240,19 @@ func (s *Server) checkSecretBackups(ctx context.Context, appID, name string, val
 	if rev.Spec == nil {
 		return nil
 	}
+	names := func(ref string) bool {
+		sid, k := spec.SecretSource(appID, ref)
+		return sid == secret && k == key
+	}
 	uses := false
 	for _, v := range rev.Spec.Volumes {
-		uses = uses || (v.Backup != nil && v.Backup.URLSecretRef == name)
+		uses = uses || (v.Backup != nil && names(v.Backup.URLSecretRef))
 	}
 	if !uses {
 		return nil
 	}
-	return s.checkBackupTargets(ctx, acc, appID, rev.Spec, func(n string) ([]byte, bool, error) {
-		if n == name {
+	return s.checkBackupTargets(ctx, acc, appID, rev.Spec, func(ref string) ([]byte, bool, error) {
+		if names(ref) {
 			return value, true, nil
 		}
 		return nil, false, nil

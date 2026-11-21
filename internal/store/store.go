@@ -365,7 +365,19 @@ type SecretInfo struct {
 	Version   int
 	UpdatedAt time.Time
 	UpdatedBy string
-	// UsedBy lists the app's revisions that pin some version of the secret.
+	// UsedBy lists the revisions that pin some version of the key: the
+	// secret's own app's first, newest first.
+	UsedBy []string
+}
+
+// SpaceSecret describes one secret of a space (ADR 0052), never its values.
+type SpaceSecret struct {
+	ID, Name  string
+	Keys      int
+	UpdatedAt time.Time
+	UpdatedBy string
+	// UsedBy lists the apps and jobs whose active or target revision uses
+	// one of its keys.
 	UsedBy []string
 }
 
@@ -636,19 +648,26 @@ type Store interface {
 	// RecordAudit logs a change that has no transaction of its own.
 	RecordAudit(ctx context.Context, actor, action, target, detail string) error
 
-	// SetSecret stores a new version of an app's secret. seal encrypts the
-	// value for the version number the store allocates. If rollout is set
-	// and the app's target revision references the secret, a new revision
-	// pinning the new version becomes the rollout target; its name is
+	// Secrets (ADR 0006, ADR 0052) are named by an ID like an app's
+	// (spec.AppID): a secret belongs to a space, holds keys, and the secret
+	// with an app's ID is that app's own.
+	//
+	// SetSecret stores a new version of a secret's key. seal encrypts the
+	// value for the version number the store allocates. If rollout is set,
+	// every app whose target revision uses the key gets a new revision
+	// pinning the new version as its rollout target; their names are
 	// returned.
-	SetSecret(ctx context.Context, app, name string, seal func(version int) (secrets.Sealed, error), rollout bool, actor string) (version int, revision string, err error)
-	// GetSecret returns one encrypted secret version.
-	GetSecret(ctx context.Context, app, name string, version int) (secrets.Sealed, error)
-	// ListSecrets describes an app's secrets, sorted by name.
-	ListSecrets(ctx context.Context, app string) ([]SecretInfo, error)
-	// DeleteSecret removes every version of a secret. It returns
-	// ErrPrecondition if the app's active or target revision uses it.
-	DeleteSecret(ctx context.Context, app, name, actor string) error
+	SetSecret(ctx context.Context, secret, key string, seal func(version int) (secrets.Sealed, error), rollout bool, actor string) (version int, revisions []string, err error)
+	// GetSecret returns one encrypted version of a key.
+	GetSecret(ctx context.Context, secret, key string, version int) (secrets.Sealed, error)
+	// ListSecrets describes the keys of a secret, sorted by name.
+	ListSecrets(ctx context.Context, secret string) ([]SecretInfo, error)
+	// ListSpaceSecrets describes the secrets of a space, sorted by name.
+	ListSpaceSecrets(ctx context.Context, space string) ([]SpaceSecret, error)
+	// DeleteSecret removes every version of a key, or with key "" of every
+	// key of the secret. It returns ErrPrecondition if an app's active or
+	// target revision uses one.
+	DeleteSecret(ctx context.Context, secret, key, actor string) error
 
 	ListDomains(ctx context.Context) ([]Domain, error)
 	GetDomain(ctx context.Context, name string) (Domain, error)

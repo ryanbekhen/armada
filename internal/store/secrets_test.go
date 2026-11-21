@@ -35,7 +35,13 @@ func setSecret(t *testing.T, s Store, k *secrets.Keyring, app, name, value strin
 	if err != nil {
 		t.Fatal(err)
 	}
-	return v, rev
+	if len(rev) > 1 {
+		t.Fatalf("rollouts %v, want at most one", rev)
+	}
+	if len(rev) == 0 {
+		return v, ""
+	}
+	return v, rev[0]
 }
 
 func secretSpec(t *testing.T, refs ...string) *spec.App {

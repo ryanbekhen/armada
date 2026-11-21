@@ -1402,21 +1402,25 @@ func (c *revisionCache) secrets(ctx context.Context, rev store.Revision) (map[st
 		return nil, fmt.Errorf("revision %s uses secrets, but no master key is loaded", rev.Name)
 	}
 	vals := make(map[string]secrets.Value, len(rev.Secrets))
-	for name, version := range rev.Secrets {
-		if v, ok := c.opened.get(rev.App, name, version); ok {
-			vals[name] = v
+	for ref, version := range rev.Secrets {
+		// A pin names a key of the app's own secret or, as SECRET/KEY, of
+		// another secret of its space (ADR 0052); values are keyed by the
+		// reference as the spec writes it.
+		secret, key := spec.SecretSource(rev.App, ref)
+		if v, ok := c.opened.get(secret, key, version); ok {
+			vals[ref] = v
 			continue
 		}
-		sealed, err := c.store.GetSecret(ctx, rev.App, name, version)
+		sealed, err := c.store.GetSecret(ctx, secret, key, version)
 		if err != nil {
 			return nil, err
 		}
-		v, err := c.keys.Open(sealed, rev.App, name, version)
+		v, err := c.keys.Open(sealed, secret, key, version)
 		if err != nil {
 			return nil, err
 		}
-		c.opened.put(rev.App, name, version, v)
-		vals[name] = v
+		c.opened.put(secret, key, version, v)
+		vals[ref] = v
 	}
 	if c.vals == nil {
 		c.vals = map[string]map[string]secrets.Value{}
@@ -1538,9 +1542,9 @@ func (o *openedSecrets) put(app, name string, version int, v secrets.Value) {
 	o.vals[k], o.used[k] = v, true
 }
 
-// forget drops every cached version of an app's secret. Versions are never
-// reused (the store continues after deleted ones); this keeps a deleted
-// value out of memory as soon as it is deleted.
+// forget drops every cached version of a secret's key, or with name "" of
+// every key. Versions are never reused (the store continues after deleted
+// ones); this keeps a deleted value out of memory as soon as it is deleted.
 func (o *openedSecrets) forget(app, name string) {
 	if o == nil {
 		return
@@ -1548,7 +1552,7 @@ func (o *openedSecrets) forget(app, name string) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	for k := range o.vals {
-		if k.app == app && k.name == name {
+		if k.app == app && (name == "" || k.name == name) {
 			delete(o.vals, k)
 			delete(o.used, k)
 		}

@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"strconv"
+	"strings"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -16,29 +17,29 @@ import (
 
 // Secret handlers never log, return, or audit secret values.
 
-// checkSecretTarget validates an app name and, unless listing, a secret
-// name.
-func checkSecretTarget(app, name string, listing bool) error {
-	if !spec.ValidAppID(app) {
-		return status.Errorf(codes.InvalidArgument, "invalid app %q: want NAME, or NAME.SPACE for an app of another space", app)
+// checkSecretTarget validates a secret's ID (an app's own, or NAME or
+// NAME.SPACE, ADR 0052) and, unless listing, a key name.
+func checkSecretTarget(secret, key string, listing bool) error {
+	if !spec.ValidAppID(secret) {
+		return status.Errorf(codes.InvalidArgument, "invalid secret %q: want NAME, or NAME.SPACE for a secret of another space", secret)
 	}
 	if listing {
 		return nil
 	}
-	if err := spec.ValidateSecretName(name); err != nil {
+	if err := spec.ValidateSecretKey(key); err != nil {
 		return status.Error(codes.InvalidArgument, err.Error())
 	}
 	return nil
 }
 
-// SetSecret stores a new version of an app secret, encrypted with the
-// master key, and optionally rolls the app out with it.
+// SetSecret stores a new version of a secret's key, encrypted with the
+// master key, and optionally rolls out every app that uses the key.
 func (s *Server) SetSecret(ctx context.Context, req *armadav1.SetSecretRequest) (*armadav1.SetSecretResponse, error) {
 	if err := accessFrom(ctx).app(req.GetApp()); err != nil {
 		return nil, err
 	}
-	app, name := req.GetApp(), req.GetName()
-	if err := checkSecretTarget(app, name, false); err != nil {
+	secret, key := req.GetApp(), req.GetName()
+	if err := checkSecretTarget(secret, key, false); err != nil {
 		return nil, err
 	}
 	if len(req.GetValue()) > secrets.MaxSize {
@@ -47,26 +48,31 @@ func (s *Server) SetSecret(ctx context.Context, req *armadav1.SetSecretRequest) 
 	if s.keys == nil {
 		return nil, status.Error(codes.FailedPrecondition, "secrets are disabled: the server has no master key")
 	}
-	if err := s.checkSecretBackups(ctx, app, name, req.GetValue()); err != nil {
+	if err := s.checkSecretBackups(ctx, secret, key, req.GetValue()); err != nil {
 		return nil, err
 	}
 	val := secrets.NewValue(req.GetValue())
-	version, rev, err := s.store.SetSecret(ctx, app, name, func(v int) (secrets.Sealed, error) {
-		return s.keys.Seal(app, name, v, val)
+	version, revs, err := s.store.SetSecret(ctx, secret, key, func(v int) (secrets.Sealed, error) {
+		return s.keys.Seal(secret, key, v, val)
 	}, req.GetRollout(), actor(ctx))
 	if err != nil {
-		s.log.Error("set secret failed", "app", app, "secret", name, "err", err)
+		s.log.Error("set secret failed", "secret", secret, "key", key, "err", err)
 		return nil, storeErr(err)
 	}
-	s.log.Info("secret set", "app", app, "secret", name, "version", version, "rollout", rev, "by", actor(ctx))
-	if rev != "" {
-		s.record(ctx, store.Event{Kind: eventRollout, Object: rev, App: app, Reason: "Started", Message: "rolling out " + rev + " for secret " + name + " version " + strconv.Itoa(version)})
+	s.log.Info("secret set", "secret", secret, "key", key, "version", version, "rollouts", revs, "by", actor(ctx))
+	resp := &armadav1.SetSecretResponse{Version: int32(version), Revisions: revs} //nolint:gosec // versions are small
+	for _, rev := range revs {
+		app := rev[:strings.LastIndex(rev, "--r")]
+		s.record(ctx, store.Event{Kind: eventRollout, Object: rev, App: app, Reason: "Started", Message: "rolling out " + rev + " for secret " + secret + " key " + key + " version " + strconv.Itoa(version)})
+	}
+	if len(revs) > 0 {
+		resp.Revision = revs[0]
 		s.Trigger()
 	}
-	return &armadav1.SetSecretResponse{Version: int32(version), Revision: rev}, nil //nolint:gosec // versions are small
+	return resp, nil
 }
 
-// ListSecrets lists an app's secrets without their values.
+// ListSecrets lists a secret's keys without their values.
 func (s *Server) ListSecrets(ctx context.Context, req *armadav1.ListSecretsRequest) (*armadav1.ListSecretsResponse, error) {
 	if err := accessFrom(ctx).app(req.GetApp()); err != nil {
 		return nil, err
@@ -88,19 +94,49 @@ func (s *Server) ListSecrets(ctx context.Context, req *armadav1.ListSecretsReque
 	return resp, nil
 }
 
-// DeleteSecret removes every version of a secret the app no longer uses.
+// ListSpaceSecrets lists the secrets of a space without their values.
+func (s *Server) ListSpaceSecrets(ctx context.Context, req *armadav1.ListSpaceSecretsRequest) (*armadav1.ListSpaceSecretsResponse, error) {
+	space := req.GetSpace()
+	if space == "" {
+		space = spec.DefaultSpace
+	}
+	if err := accessFrom(ctx).space(space); err != nil {
+		return nil, err
+	}
+	if !spec.ValidSpace(space) {
+		return nil, status.Errorf(codes.InvalidArgument, "invalid space %q", space)
+	}
+	list, err := s.store.ListSpaceSecrets(ctx, space)
+	if err != nil {
+		return nil, storeErr(err)
+	}
+	resp := &armadav1.ListSpaceSecretsResponse{}
+	for _, si := range list {
+		resp.Secrets = append(resp.Secrets, &armadav1.SpaceSecretInfo{
+			Name: si.Name, Keys: int32(si.Keys), //nolint:gosec // at most a few hundred keys
+			UpdatedAt: timestamppb.New(si.UpdatedAt), UpdatedBy: si.UpdatedBy, UsedBy: si.UsedBy,
+		})
+	}
+	return resp, nil
+}
+
+// DeleteSecret removes every version of a key no app uses, or with whole
+// every key of the secret.
 func (s *Server) DeleteSecret(ctx context.Context, req *armadav1.DeleteSecretRequest) (*armadav1.DeleteSecretResponse, error) {
 	if err := accessFrom(ctx).app(req.GetApp()); err != nil {
 		return nil, err
 	}
-	app, name := req.GetApp(), req.GetName()
-	if err := checkSecretTarget(app, name, false); err != nil {
+	secret, key := req.GetApp(), req.GetName()
+	if err := checkSecretTarget(secret, key, req.GetWhole()); err != nil {
 		return nil, err
 	}
-	if err := s.store.DeleteSecret(ctx, app, name, actor(ctx)); err != nil {
+	if req.GetWhole() && key != "" {
+		return nil, status.Error(codes.InvalidArgument, "deleting a whole secret names no key")
+	}
+	if err := s.store.DeleteSecret(ctx, secret, key, actor(ctx)); err != nil {
 		return nil, storeErr(err)
 	}
-	s.opened.forget(app, name)
-	s.log.Info("secret deleted", "app", app, "secret", name, "by", actor(ctx))
+	s.opened.forget(secret, key)
+	s.log.Info("secret deleted", "secret", secret, "key", key, "by", actor(ctx))
 	return &armadav1.DeleteSecretResponse{}, nil
 }

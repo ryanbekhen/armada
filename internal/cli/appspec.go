@@ -31,6 +31,7 @@ type specFlags struct {
 	command, args                []string
 	env, secretEnv, removeEnv    []string
 	envFromSecrets               bool
+	envFrom                      []string
 	cpu, memory                  string
 	registryUser, registrySecret string
 
@@ -59,10 +60,10 @@ type specFlags struct {
 
 // Flags that change an app's spec, and a job's.
 var (
-	appSpecFlags = []string{"image", "command", "args", "env", "secret-env", "remove-env", "env-from-secrets", "cpu", "memory",
+	appSpecFlags = []string{"image", "command", "args", "env", "secret-env", "remove-env", "env-from-secrets", "env-from", "cpu", "memory",
 		"registry-user", "registry-secret", "port", "ingress", "protocol", "domain", "remove-domain", "ip-allow", "ip-deny", "no-ip-rules", "sticky", "cors-origin", "no-cors", "dns-token-secret", "no-dns", "min", "max", "no-autoscale", "idle-after",
 		"scale-cpu", "scale-memory", "scale-http", "health-path"}
-	jobSpecFlags = []string{"image", "command", "args", "env", "secret-env", "remove-env", "env-from-secrets", "cpu", "memory",
+	jobSpecFlags = []string{"image", "command", "args", "env", "secret-env", "remove-env", "env-from-secrets", "env-from", "cpu", "memory",
 		"registry-user", "registry-secret", "schedule", "time-zone", "timeout", "retries", "concurrency", "tasks", "parallelism"}
 )
 
@@ -76,9 +77,10 @@ func (f *specFlags) register(cmd *cobra.Command, job bool) {
 	fs.StringArrayVar(&f.command, "command", nil, "command, replacing the image's entrypoint: one word per flag, kept as written (repeat it; \"\" clears)")
 	fs.StringArrayVar(&f.args, "args", nil, "argument of the command: one per flag, kept as written (repeat it; \"\" clears)")
 	fs.StringArrayVar(&f.env, "env", nil, "environment variable NAME=VALUE (repeatable)")
-	fs.StringArrayVar(&f.secretEnv, "secret-env", nil, "environment variable NAME=SECRET from a secret of the "+kindWord(job)+" (repeatable)")
+	fs.StringArrayVar(&f.secretEnv, "secret-env", nil, "environment variable from a secret: NAME=SECRET/KEY, or NAME=KEY of the "+kindWord(job)+"'s own secret (repeatable)")
 	fs.StringArrayVar(&f.removeEnv, "remove-env", nil, "remove an environment variable (repeatable)")
-	fs.BoolVar(&f.envFromSecrets, "env-from-secrets", false, "give every secret of the "+kindWord(job)+" as a variable (database-url becomes DATABASE_URL)")
+	fs.BoolVar(&f.envFromSecrets, "env-from-secrets", false, "give every key of the "+kindWord(job)+"'s own secret as a variable (database-url becomes DATABASE_URL)")
+	fs.StringArrayVar(&f.envFrom, "env-from", nil, "give every key of a secret of the space as a variable (repeatable; replaces the list; \"\" clears)")
 	fs.StringVar(&f.cpu, "cpu", "", "CPU reserved and its limit, e.g. 250m or 1")
 	fs.StringVar(&f.memory, "memory", "", "memory limit, e.g. 256Mi")
 	fs.StringVar(&f.registryUser, "registry-user", "", "user name for a private registry (the image's)")
@@ -205,10 +207,16 @@ func (f *specFlags) apply(a *spec.App) error {
 	if err := f.applyEnv(a); err != nil {
 		return err
 	}
+	if ch("env-from-secrets") && ch("env-from") {
+		return errors.New("--env-from-secrets and --env-from: use one (--env-from SECRET lists secrets of the space)")
+	}
 	if ch("env-from-secrets") {
-		a.EnvFrom = ""
-		if f.envFromSecrets {
-			a.EnvFrom = spec.EnvFromSecrets
+		a.EnvFrom = spec.EnvFrom{Own: f.envFromSecrets}
+	}
+	if ch("env-from") {
+		a.EnvFrom = spec.EnvFrom{}
+		for _, name := range nonEmpty(f.envFrom) {
+			a.EnvFrom.Secrets = append(a.EnvFrom.Secrets, spec.EnvFromSecret{Secret: name})
 		}
 	}
 	if ch("cpu") || ch("memory") {
@@ -284,7 +292,7 @@ func (f *specFlags) applyEnv(a *spec.App) error {
 	for _, kv := range f.secretEnv {
 		k, s, ok := strings.Cut(kv, "=")
 		if !ok || k == "" || s == "" {
-			return errors.New("--secret-env: want NAME=SECRET, the name of a secret (never its value)")
+			return errors.New("--secret-env: want NAME=SECRET/KEY or NAME=KEY, where a secret's key is (never its value)")
 		}
 		set(spec.EnvVar{Name: k, SecretRef: s})
 	}

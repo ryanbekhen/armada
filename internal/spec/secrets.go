@@ -1,10 +1,13 @@
 package spec
 
 import (
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"slices"
 	"strings"
+
+	"go.yaml.in/yaml/v3"
 )
 
 // MaxSecretNameLen bounds secret names.
@@ -113,9 +116,75 @@ func RegistryHost(image string) string {
 	return defaultRegistry
 }
 
-func (v *validator) secretName(field, name string) {
-	if err := ValidateSecretName(name); err != nil {
-		v.add(field, "%s", strings.TrimPrefix(err.Error(), "secret name "))
+// ValidateSecretKey checks the name of one key of a secret (ADR 0052): a
+// name like a secret's (database-url), which envFrom turns into
+// DATABASE_URL, or a variable name (DATABASE_URL), which it keeps.
+func ValidateSecretKey(key string) error {
+	switch {
+	case key == "":
+		return fmt.Errorf("key is required")
+	case len(key) > MaxSecretNameLen:
+		return fmt.Errorf("key must be at most %d characters", MaxSecretNameLen)
+	case !labelRe.MatchString(key) && !envNameRe.MatchString(key):
+		return fmt.Errorf("key %q must be lowercase letters, digits, and hyphens (database-url), or a variable name (DATABASE_URL)", key)
+	}
+	return nil
+}
+
+// SplitSecretRef splits a reference to a secret's key (ADR 0052): SECRET/KEY
+// names a key of a secret of the app's space; a reference with no slash
+// names a key of the secret with the app's own ID, and secret is "".
+func SplitSecretRef(ref string) (secret, key string) {
+	if s, k, ok := strings.Cut(ref, "/"); ok {
+		return s, k
+	}
+	return "", ref
+}
+
+// ValidateSecretRef checks a reference to a secret's key: KEY or SECRET/KEY.
+func ValidateSecretRef(ref string) error {
+	secret, key := SplitSecretRef(ref)
+	if strings.Count(ref, "/") > 1 {
+		return fmt.Errorf("%q must be KEY or SECRET/KEY", ref)
+	}
+	if strings.Contains(ref, "/") {
+		if err := ValidateSecretName(secret); err != nil {
+			return err
+		}
+	}
+	return ValidateSecretKey(key)
+}
+
+// SecretSource returns the ID of the secret ref names for the app or job
+// with ID appID, and the key: the secret with the app's own ID when ref
+// names no secret, else the named secret of the app's space.
+func SecretSource(appID, ref string) (secretID, key string) {
+	secret, key := SplitSecretRef(ref)
+	if secret == "" {
+		return appID, key
+	}
+	space, _, _ := SplitAppID(appID)
+	return AppID(space, secret), key
+}
+
+// UsesSpaceSecrets reports whether the spec names a secret other than its
+// own (a SECRET/KEY reference or a list under envFrom), which only servers
+// that know ADR 0052 may run.
+func (a *App) UsesSpaceSecrets() bool {
+	if len(a.EnvFrom.Secrets) > 0 {
+		return true
+	}
+	for _, r := range a.SecretRefs() {
+		if strings.Contains(r, "/") {
+			return true
+		}
+	}
+	return false
+}
+
+func (v *validator) secretName(field, ref string) {
+	if err := ValidateSecretRef(ref); err != nil {
+		v.add(field, "%s", strings.TrimPrefix(strings.TrimPrefix(err.Error(), "secret name "), "key "))
 	}
 }
 
@@ -191,39 +260,143 @@ func (v *validator) registry(r *Registry, image string) {
 	v.secretName("registry.passwordSecretRef", r.PasswordSecretRef)
 }
 
-// EnvFromSecrets is the envFrom value that turns every secret of the app
-// into a variable.
+// EnvFromSecrets is the envFrom value that turns every key of the app's own
+// secret into a variable.
 const EnvFromSecrets = "secrets"
 
-// SecretEnvName is the variable a secret becomes under envFrom: database-url
-// becomes DATABASE_URL, the reverse of `armada secret import`.
-func SecretEnvName(secret string) string {
-	return strings.ToUpper(strings.ReplaceAll(secret, "-", "_"))
+// maxEnvFrom bounds the secrets envFrom lists.
+const maxEnvFrom = 16
+
+// EnvFrom names the secrets whose every key becomes a variable when the app
+// is deployed: the word "secrets" (Own: the secret with the app's own ID),
+// or a list of the space's secrets (ADR 0052).
+type EnvFrom struct {
+	Own     bool
+	Secrets []EnvFromSecret
 }
 
-// WithSecretEnv returns a copy of a whose env also holds, for envFrom:
-// secrets, a variable for each of secrets. Variables the spec sets itself
-// win; secrets the spec uses for files or the registry, and names that are
-// reserved or not valid variable names, are left out. The copy is validated
-// again, so too many variables is an error.
-func (a *App) WithSecretEnv(secrets []string) (*App, error) {
-	if a.EnvFrom != EnvFromSecrets {
+// EnvFromSecret is one entry of envFrom's list.
+type EnvFromSecret struct {
+	Secret string `yaml:"secret" json:"secret"`
+}
+
+// IsZero reports an envFrom that adds nothing, so it is left out of specs.
+func (e EnvFrom) IsZero() bool { return !e.Own && len(e.Secrets) == 0 }
+
+// UnmarshalYAML reads "secrets" or a list of {secret: NAME}.
+func (e *EnvFrom) UnmarshalYAML(n *yaml.Node) error {
+	if n.Kind == yaml.ScalarNode {
+		if n.Value != EnvFromSecrets {
+			return fmt.Errorf("line %d: envFrom must be %q or a list of secrets (- secret: NAME)", n.Line, EnvFromSecrets)
+		}
+		*e = EnvFrom{Own: true}
+		return nil
+	}
+	var list []EnvFromSecret
+	if err := decodeStrict(n, &list); err != nil {
+		return err
+	}
+	*e = EnvFrom{Secrets: list}
+	return nil
+}
+
+// MarshalYAML writes the form the spec was written in.
+func (e EnvFrom) MarshalYAML() (any, error) {
+	if e.Own {
+		return EnvFromSecrets, nil
+	}
+	return e.Secrets, nil
+}
+
+// UnmarshalJSON reads what MarshalJSON writes.
+func (e *EnvFrom) UnmarshalJSON(b []byte) error {
+	var word string
+	if err := json.Unmarshal(b, &word); err == nil {
+		if word != EnvFromSecrets {
+			return fmt.Errorf("envFrom must be %q or a list of secrets", EnvFromSecrets)
+		}
+		*e = EnvFrom{Own: true}
+		return nil
+	}
+	var list []EnvFromSecret
+	if err := json.Unmarshal(b, &list); err != nil {
+		return err
+	}
+	*e = EnvFrom{Secrets: list}
+	return nil
+}
+
+// MarshalJSON writes "secrets" for the old form, so revisions stored before
+// ADR 0052 and the same spec written now are the same bytes.
+func (e EnvFrom) MarshalJSON() ([]byte, error) {
+	if e.Own {
+		return json.Marshal(EnvFromSecrets)
+	}
+	return json.Marshal(e.Secrets)
+}
+
+func (v *validator) envFrom(e EnvFrom) {
+	switch {
+	case e.Own && len(e.Secrets) > 0:
+		v.add("envFrom", "must be %q or a list of secrets, not both", EnvFromSecrets)
+	case len(e.Secrets) > maxEnvFrom:
+		v.add("envFrom", "must list at most %d secrets", maxEnvFrom)
+	}
+	seen := map[string]bool{}
+	for i, s := range e.Secrets {
+		f := fmt.Sprintf("envFrom[%d].secret", i)
+		if err := ValidateSecretName(s.Secret); err != nil {
+			v.add(f, "%s", strings.TrimPrefix(err.Error(), "secret name "))
+		} else if seen[s.Secret] {
+			v.add(f, "secret %q is listed twice", s.Secret)
+		}
+		seen[s.Secret] = true
+	}
+}
+
+// SecretEnvName is the variable a secret's key becomes under envFrom: a key
+// written like a secret name (database-url) becomes DATABASE_URL, the
+// reverse of `armada secret import`; any other key (DATABASE_URL) is kept.
+func SecretEnvName(key string) string {
+	if !labelRe.MatchString(key) {
+		return key
+	}
+	return strings.ToUpper(strings.ReplaceAll(key, "-", "_"))
+}
+
+// WithSecretEnv returns a copy of a whose env also holds a variable for
+// each key of the secrets envFrom names. keys maps a secret's name to its
+// keys, "" standing for the app's own secret (envFrom: secrets). Variables
+// the spec sets itself win, then secrets in the order envFrom lists them;
+// keys the spec uses for files, the registry, backups, or DNS, and names
+// that are reserved or not valid variable names, are left out. The copy is
+// validated again, so too many variables is an error.
+func (a *App) WithSecretEnv(keys map[string][]string) (*App, error) {
+	if a.EnvFrom.IsZero() {
 		return a, nil
+	}
+	// source names a key the same way whatever the reference's form.
+	source := func(ref string) string {
+		secret, key := SplitSecretRef(ref)
+		if secret == "" {
+			secret = a.Name
+		}
+		return secret + "/" + key
 	}
 	used := map[string]bool{}
 	for _, f := range a.SecretFiles {
-		used[f.SecretRef] = true
+		used[source(f.SecretRef)] = true
 	}
 	if a.Registry != nil {
-		used[a.Registry.PasswordSecretRef] = true
+		used[source(a.Registry.PasswordSecretRef)] = true
 	}
 	// The bucket's credentials and the backup key never reach the app.
 	for _, s := range a.BackupSecretRefs() {
-		used[s] = true
+		used[source(s)] = true
 	}
 	// Nor does the DNS token, which only the control plane uses.
 	if a.Ingress != nil && a.Ingress.DNS != nil {
-		used[a.Ingress.DNS.TokenSecretRef] = true
+		used[source(a.Ingress.DNS.TokenSecretRef)] = true
 	}
 	set := map[string]bool{}
 	for _, e := range a.Env {
@@ -232,14 +405,25 @@ func (a *App) WithSecretEnv(secrets []string) (*App, error) {
 	c := *a
 	c.Env = slices.Clone(a.Env)
 	c.EnvFromAdded = nil
-	for _, s := range slices.Sorted(slices.Values(secrets)) {
-		name := SecretEnvName(s)
-		if used[s] || set[name] || !envNameRe.MatchString(name) || name == "PORT" || strings.HasPrefix(name, reservedEnvPfx) {
-			continue
+	add := func(ref string) {
+		_, key := SplitSecretRef(ref)
+		name := SecretEnvName(key)
+		if used[source(ref)] || set[name] || !envNameRe.MatchString(name) || name == "PORT" || strings.HasPrefix(name, reservedEnvPfx) {
+			return
 		}
 		set[name] = true
-		c.Env = append(c.Env, EnvVar{Name: name, SecretRef: s})
+		c.Env = append(c.Env, EnvVar{Name: name, SecretRef: ref})
 		c.EnvFromAdded = append(c.EnvFromAdded, name)
+	}
+	if a.EnvFrom.Own {
+		for _, k := range slices.Sorted(slices.Values(keys[""])) {
+			add(k)
+		}
+	}
+	for _, s := range a.EnvFrom.Secrets {
+		for _, k := range slices.Sorted(slices.Values(keys[s.Secret])) {
+			add(s.Secret + "/" + k)
+		}
 	}
 	if err := c.Validate(); err != nil {
 		return nil, err

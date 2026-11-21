@@ -41,6 +41,7 @@ service AdminService {
   rpc SetSecret(SetSecretRequest) returns (SetSecretResponse);
   rpc ListSecrets(ListSecretsRequest) returns (ListSecretsResponse);
   rpc DeleteSecret(DeleteSecretRequest) returns (DeleteSecretResponse);
+  rpc ListSpaceSecrets(ListSpaceSecretsRequest) returns (ListSpaceSecretsResponse);
   rpc CreateJoinToken(CreateJoinTokenRequest) returns (CreateJoinTokenResponse);
   rpc CordonNode(CordonNodeRequest) returns (CordonNodeResponse);
   rpc LabelNode(LabelNodeRequest) returns (LabelNodeResponse);
@@ -711,19 +712,26 @@ message JoinResponse {
 // Secret values are write-only: no RPC returns them to admins. Fields that
 // carry plaintext are marked debug_redact for tools that honor it;
 // protobuf-go's String() does not, so never log messages holding secrets.
+//
+// A secret belongs to a space and holds keys (ADR 0052). The app fields of
+// the secret messages name a secret by an ID like an app's (NAME, or
+// NAME.SPACE in another space): the secret with an app's ID is that app's
+// own, and name is the key.
 message SetSecretRequest {
   string app = 1;
   string name = 2;
   bytes value = 3 [debug_redact = true];
-  // Roll the app out with the new value if its current revision uses the
-  // secret.
+  // Roll out every app whose current revision uses the key with the new
+  // value.
   bool rollout = 4;
 }
 
 message SetSecretResponse {
   int32 version = 1;
-  // New revision being rolled out, if any.
+  // The first new revision being rolled out, if any (older clients).
   string revision = 2;
+  // Every new revision being rolled out.
+  repeated string revisions = 3;
 }
 
 message ListSecretsRequest {
@@ -739,16 +747,37 @@ message SecretInfo {
   int32 version = 2;
   google.protobuf.Timestamp updated_at = 3;
   string updated_by = 4;
-  // Revisions of the app that pin some version of this secret.
+  // Revisions that pin some version of this key: the secret's own app's
+  // first, newest first.
   repeated string used_by = 5;
 }
 
 message DeleteSecretRequest {
   string app = 1;
   string name = 2;
+  // Delete every key of the secret; name must be empty.
+  bool whole = 3;
 }
 
 message DeleteSecretResponse {}
+
+message ListSpaceSecretsRequest {
+  string space = 1;
+}
+
+message ListSpaceSecretsResponse {
+  repeated SpaceSecretInfo secrets = 1;
+}
+
+// SpaceSecretInfo describes one secret of a space, never its values.
+message SpaceSecretInfo {
+  string name = 1;
+  int32 keys = 2;
+  google.protobuf.Timestamp updated_at = 3;
+  string updated_by = 4;
+  // Apps and jobs whose active or target revision uses one of its keys.
+  repeated string used_by = 5;
+}
 
 message ListRevisionsRequest {
   string app = 1;

@@ -623,6 +623,7 @@ func TestEndToEnd(t *testing.T) {
 
 	testSecrets(t, d, cli, config, dataDir, secretsDir, serverLog)
 	testEnvFrom(t, d, cli, config)
+	testSpaceSecrets(t, d, cli, config)
 	testExport(t, cli)
 
 	// Errors from the server come back without gRPC noise.

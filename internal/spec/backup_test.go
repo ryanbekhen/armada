@@ -89,7 +89,7 @@ func TestEnvFromLeavesBackupSecretsOut(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c, err := a.WithSecretEnv([]string{"backup-url", "backup-key", "password"})
+	c, err := a.WithSecretEnv(map[string][]string{"": {"backup-url", "backup-key", "password"}})
 	if err != nil {
 		t.Fatal(err)
 	}
