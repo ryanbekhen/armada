@@ -122,7 +122,7 @@ volumes:
 ## 3. Deploy it as a cluster-admin
 
 ```bash
-armada app create --file web.yaml --wait
+armada app deploy --file web.yaml --wait
 ```
 
 Adding an export to an app, or making an export writable, needs
@@ -192,7 +192,7 @@ Then roll out a new image and watch the replicas change one at a time
 while the files stay:
 
 ```bash
-armada app update web --image ghcr.io/acme/web:1.4.3 --wait
+armada app deploy web --image ghcr.io/acme/web:1.4.3 --wait
 armada app exec web -- ls /app/uploads
 ```
 

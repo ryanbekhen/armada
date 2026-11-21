@@ -37,7 +37,7 @@ exporters are needed for Armada's own state.
 ## 1. Turn the endpoint on
 
 ```bash
-armada cluster set --metrics-port 9443
+armada cluster update --metrics-port 9443
 ```
 
 Each server listens on its own private address at that port; `0` turns it

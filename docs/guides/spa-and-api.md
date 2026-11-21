@@ -61,7 +61,7 @@ resources:
 ```
 
 ```bash
-armada app create --file web.yaml --wait
+armada app deploy --file web.yaml --wait
 ```
 
 A static server needs little: a readiness probe on `/` and small
@@ -122,7 +122,7 @@ drain: 2m
 ```
 
 ```bash
-armada app create --file api.yaml --wait
+armada app deploy --file api.yaml --wait
 ```
 
 ### CORS
@@ -170,8 +170,8 @@ authentication, or `ipAllow` (below), for that. The origin list alone can
 be changed from the command line; the rest stays in the file:
 
 ```bash
-armada app update api --cors-origin https://app.example.com --cors-origin https://beta.example.com
-armada app update api --no-cors
+armada app deploy api --cors-origin https://app.example.com --cors-origin https://beta.example.com
+armada app deploy api --no-cors
 ```
 
 ### Probes
@@ -239,7 +239,7 @@ scale:
 ```
 
 ```bash
-armada app create --file admin.yaml --wait
+armada app deploy --file admin.yaml --wait
 armada app show admin
 ```
 
@@ -269,7 +269,7 @@ URLs:          https://admin.apps.example.com/
   root domain URL alike. Calls from other apps through `admin.internal` are
   not affected; `ingress.allow` chooses those.
 - **The address checked** is the connection's own. Behind a proxy or CDN,
-  list it with `armada cluster set --trusted-proxies` first, or every
+  list it with `armada cluster update --trusted-proxies` first, or every
   request comes from the CDN's addresses: see
   [behind-a-cdn.md](behind-a-cdn.md).
 
@@ -277,10 +277,10 @@ From the command line, each flag replaces the whole list, because who may
 reach an app is safer stated in full:
 
 ```bash
-armada app update admin \
+armada app deploy admin \
   --ip-allow '203.0.113.0/24,name=office,description=Jakarta office network' \
   --ip-allow '198.51.100.14,name=vpn,description=the VPN gateway staff use from home'
-armada app update admin --no-ip-rules     # everyone again
+armada app deploy admin --no-ip-rules     # everyone again
 ```
 
 The description comes last in a flag, so it may contain commas.
@@ -296,7 +296,7 @@ so an app that can keep sessions in a database or cache should do that
 instead and leave `sticky` off. Sticky apps do not get local-first routing.
 
 ```bash
-armada app update admin --sticky=false    # turn it off
+armada app deploy admin --sticky=false    # turn it off
 ```
 
 ## Check that it works
@@ -345,7 +345,7 @@ API any site may call with tokens but no cookies.
 everyone else in:
 
 ```bash
-armada app update api --ip-deny '198.51.100.7,name=scraper,description=ignores rate limits'
+armada app deploy api --ip-deny '198.51.100.7,name=scraper,description=ignores rate limits'
 ```
 
 ## Troubleshooting

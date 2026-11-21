@@ -8,7 +8,7 @@ preview. Use it for releases where a rolling update moves traffic too fast.
 **You will use:** [traffic splitting](../spec-reference.md#revisions)
 (`revisions.mode: multiple`, weights, labels),
 [`armada app traffic`](../cli/armada-app.md#armada-app-traffic),
-[`armada app revision`](../cli/armada-app.md#armada-app-revision),
+[`armada revision`](../cli/armada-revision.md),
 [events](../operations.md#events)
 
 **Before you start:**
@@ -55,7 +55,7 @@ scale:
 revisions:
   mode: multiple
   traffic:
-    - revision: web--r3   # what runs now (armada app revision list web)
+    - revision: web--r3   # what runs now (armada revision list web)
       weight: 90
     - revision: latest    # the revision this deploy creates
       weight: 10
@@ -63,7 +63,7 @@ revisions:
 ```
 
 ```bash
-armada app update web --file web.yaml --wait
+armada app deploy web --file web.yaml --wait
 ```
 
 ```
@@ -76,7 +76,7 @@ There is no rollout: the split applies at once, and `web--r4` takes its
 share as its replica becomes ready. Until then its share goes to `web--r3`.
 
 - **Weights** are percent and add up to 100. `revision` is a revision of
-  the app (`web--r3`, from `armada app revision list web`) or `latest`.
+  the app (`web--r3`, from `armada revision list web`) or `latest`.
   Up to 10 targets.
 - **Replicas.** Each revision runs `max(1, round(replicas × weight ÷ 100))`.
   With 4 replicas: `web--r3` runs 4 (3.6 rounded), `web--r4` runs 1, so 5
@@ -160,7 +160,7 @@ revisions:
 ```
 
 ```bash
-armada app update web --file web.yaml
+armada app deploy web --file web.yaml
 ```
 
 Each change is recorded as a `TrafficChanged` event and in the audit log.
@@ -181,7 +181,7 @@ Then finish the canary by going back to single mode. Remove `revisions`
 from `web.yaml` (or set `mode: single`), keep the new image, and deploy:
 
 ```bash
-armada app update web --file web.yaml --wait
+armada app deploy web --file web.yaml --wait
 ```
 
 This is an ordinary rolling update to a new revision, `web--r5`, with the
@@ -202,7 +202,7 @@ traffic` or the spec.
 
 To make it last, deploy the spec in single mode with the old image. To be
 sure you get exactly the image that ran before, even if its tag has moved
-since, pin the digest `armada app revision show web--r3` prints:
+since, pin the digest `armada revision show web--r3` prints:
 
 ```yaml
 image: ghcr.io/acme/web:2.0.4@sha256:4b1d...   # the full digest from revision show
@@ -239,7 +239,7 @@ revisions:
 ```
 
 ```bash
-armada app update web --file web.yaml --wait
+armada app deploy web --file web.yaml --wait
 curl https://preview--web.apps.example.com/   # the release candidate
 curl https://stable--web.apps.example.com/    # what users get
 ```
@@ -286,7 +286,7 @@ ingress:
 | `revisions.traffic[1].label: is required for weight 0` | A revision with weight 0 is reachable only through a label | Add a `label` |
 | `revisions.mode: multiple cannot be combined with scale.min: 0` | A sleeping app must have one revision to wake | Use `min: 1` or more during the canary |
 | `armada app rollback` refuses the app | Rollback does not apply to multiple mode | `armada app traffic web r3=100`, then deploy in single mode |
-| No label URL in `app show` | The cluster has no root domain | `armada cluster set --root-domain apps.example.com` |
+| No label URL in `app show` | The cluster has no root domain | `armada cluster update --root-domain apps.example.com` |
 | The canary's replicas stay unplaced | No room for the extra replicas | Free capacity or lower `scale.min` for the canary; `armada app show web` says which resource is short |
 | Routes or domains changed with the canary affect both revisions | Routes, domains, and the health check path come from the newest revision | Change them in a separate update, not together with a canary |
 | Weights went back after an update | `armada app traffic` lasts until the next update | Put lasting weights in the spec |

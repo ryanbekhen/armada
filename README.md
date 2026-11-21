@@ -44,17 +44,17 @@ curl -fsSL https://raw.githubusercontent.com/ryanbekhen/armada/main/install.sh |
 # On the first machine: create the cluster
 sudo armadad init
 sudo systemctl enable --now armada-server
-armada cluster set --acme-email you@example.com --root-domain apps.example.com
+armada cluster update --acme-email you@example.com --root-domain apps.example.com
 
 # Deploy an app: two replicas behind HTTPS
-armada app create web --image traefik/whoami:v1.10 --port 80 --ingress external --min 2 --wait
+armada app deploy web --image traefik/whoami:v1.10 --port 80 --ingress external --min 2 --wait
 curl https://web.apps.example.com      # answers with the replica's name and the request
 ```
 
 Ship a new version, watch it roll out, and go back if you need to:
 
 ```bash
-armada app update web --image traefik/whoami:v1.11 --wait
+armada app deploy web --image traefik/whoami:v1.11 --wait
 armada app rollback web                # back to v1.10
 ```
 
@@ -84,8 +84,8 @@ probes:
 ```
 
 ```bash
-armada app update web --file web.yaml --diff   # what would change
-armada app update web --file web.yaml --wait
+armada app deploy web --file web.yaml --diff   # what would change
+armada app deploy web --file web.yaml --wait
 ```
 
 ## Install

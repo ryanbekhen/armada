@@ -57,7 +57,7 @@ resources:
 ```
 
 ```bash
-armada job create --file nightly-report.yaml
+armada job deploy --file nightly-report.yaml
 ```
 
 What each field does:
@@ -100,14 +100,14 @@ Active runs:  0
 ```
 
 `armada job show nightly-report -o yaml` prints the spec it runs, ready for
-`armada job update --file`.
+`armada job deploy --file`.
 
 ## 3. Run it now and wait
 
 Do not wait until 02:00 to find out it works:
 
 ```
-$ armada job run nightly-report --wait
+$ armada job start nightly-report --wait
 Started run 1 of nightly-report.
 Run 1 of nightly-report succeeded.
 ```
@@ -117,12 +117,12 @@ the run succeeded. `--timeout` (default 15 minutes) bounds how long it
 waits; a run still going after that keeps going.
 
 A manual run counts like a scheduled one: with `concurrency: forbid`,
-`armada job run` is refused while a run is active.
+`armada job start` is refused while a run is active.
 
 ## 4. Runs and logs
 
 ```
-$ armada job run list nightly-report
+$ armada run list nightly-report
 RUN  STATE      TRIGGER   ATTEMPTS  NODE   STARTED  DURATION  EXIT  MESSAGE
 3    succeeded  schedule  2         node1  7h ago   4m        0     -
 2    failed     schedule  3         node2  1d ago   30m       -     timed out after 30m0s
@@ -145,10 +145,10 @@ armada job logs nightly-report -f         # follow a run in progress
 ## 5. Change it
 
 ```bash
-armada job update nightly-report --schedule "0 3 * * *"     # flags change only what they name
-armada job update nightly-report --image ghcr.io/acme/reports:2.4.1
-armada job update nightly-report --file nightly-report.yaml --diff   # what the file would change
-armada job update nightly-report --file nightly-report.yaml
+armada job deploy nightly-report --schedule "0 3 * * *"     # flags change only what they name
+armada job deploy nightly-report --image ghcr.io/acme/reports:2.4.1
+armada job deploy nightly-report --file nightly-report.yaml --diff   # what the file would change
+armada job deploy nightly-report --file nightly-report.yaml
 ```
 
 Changes apply to runs that start afterwards; a run in progress keeps its
@@ -187,9 +187,9 @@ migration, create a job without a schedule, run it, and wait:
 
 ```bash
 printf %s 'postgres://app:...@db.internal:5432/app' | armada secret set reindex database-url
-armada job create reindex --image ghcr.io/acme/api:1.4.2 --command ./bin/reindex \
+armada job deploy reindex --image ghcr.io/acme/api:1.4.2 --command ./bin/reindex \
   --secret-env DATABASE_URL=database-url --timeout 2h --memory 1Gi
-armada job run reindex --wait --timeout 2h
+armada job start reindex --wait --timeout 2h
 armada job logs reindex
 armada job delete reindex
 armada secret delete reindex --yes
@@ -202,9 +202,9 @@ A migration you run before every deploy can stay as a job. A deploy script
 stops if it fails:
 
 ```bash
-armada job update migrate --image ghcr.io/acme/api:1.4.3
-armada job run migrate --wait --timeout 10m
-armada app update api --image ghcr.io/acme/api:1.4.3 --wait
+armada job deploy migrate --image ghcr.io/acme/api:1.4.3
+armada job start migrate --wait --timeout 10m
+armada app deploy api --image ghcr.io/acme/api:1.4.3 --wait
 ```
 
 To run migrations as part of each replica's start instead, see
@@ -239,11 +239,11 @@ const customers = await db.query("SELECT id FROM customers WHERE id % $1 = $2", 
 
 A failed task is retried on its own; the others keep going. The run
 succeeds when all ten did, and fails once a task has no retries left (the
-rest are stopped). Flags do the same: `armada job update monthly-reports
+rest are stopped). Flags do the same: `armada job deploy monthly-reports
 --tasks 10 --parallelism 5`.
 
 ```bash
-armada job run show monthly-reports 4       # the run with each task's state
+armada run show monthly-reports 4       # the run with each task's state
 armada job logs monthly-reports --run 4 --task 7
 ```
 
@@ -267,10 +267,10 @@ armada job logs monthly-reports --run 4 --task 7
 
 ## Check that it works
 
-- `armada job run JOB --wait` succeeds.
+- `armada job start JOB --wait` succeeds.
 - `armada job list` shows the next run at the time you expect, in your
   time zone.
-- After the first scheduled run, `armada job run list JOB` shows it with
+- After the first scheduled run, `armada run list JOB` shows it with
   the trigger `schedule`.
 - Alert on jobs that stop succeeding. For a daily job, this fires after 25
   hours without a success:
@@ -289,11 +289,11 @@ armada job logs monthly-reports --run 4 --task 7
 | The job runs at the wrong hour | The schedule is read in UTC | Set `timeZone` |
 | Create refused: `@daily`, or `CRON_TZ=` in the schedule | Only five cron fields are accepted | Write `0 0 * * *` and use `timeZone` |
 | A run failed with `timed out after ...` | The attempt took longer than `timeout`, image pull included | Raise `timeout`, or make the work faster |
-| `armada job run` is refused | `concurrency: forbid` and a run is active | Wait, or `armada job cancel JOB` |
-| Scheduled runs are skipped | A run is still active under `forbid` | Look at `armada job run list`; lower the work per run, or use `replace` |
+| `armada job start` is refused | `concurrency: forbid` and a run is active | Wait, or `armada job cancel JOB` |
+| Scheduled runs are skipped | A run is still active under `forbid` | Look at `armada run list`; lower the work per run, or use `replace` |
 | A run stays pending, then fails at its timeout | No node allowed by placement has room for its resources | Check `armada app events JOB` and `armada node top` |
 | `armada job logs` has nothing for an old run | Logs are kept 24 hours | Ship logs elsewhere if you need them longer |
-| `armada job run --wait` says the run is gone | The run left the job's `history` before it was read | Raise `history` |
+| `armada job start --wait` says the run is gone | The run left the job's `history` before it was read | Raise `history` |
 
 ## Next steps
 

@@ -103,7 +103,7 @@ sidecars:
 ```
 
 ```bash
-armada app update api --file api.yaml --wait
+armada app deploy api --file api.yaml --wait
 ```
 
 Add `api` to the database's `allow` if it is not there: the pooler and the
@@ -160,7 +160,7 @@ long migration, or one you want to run exactly once and watch, use a job
 and run it before the deploy; the deploy only starts if it succeeded:
 
 ```bash
-armada job run migrate --wait --timeout 30m && armada app update api --image ghcr.io/acme/api:1.4.3 --wait
+armada job start migrate --wait --timeout 30m && armada app deploy api --image ghcr.io/acme/api:1.4.3 --wait
 ```
 
 See [Scheduled jobs](scheduled-jobs.md#one-off-tasks).

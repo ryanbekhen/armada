@@ -80,8 +80,8 @@ ingress:
 From the command line, the same:
 
 ```bash
-armada app update api --env-from shared
-armada app update worker --secret-env DB_URL=shared/DATABASE_URL
+armada app deploy api --env-from shared
+armada app deploy worker --secret-env DB_URL=shared/DATABASE_URL
 ```
 
 `armada secret list` shows the space's secrets and which apps use them:

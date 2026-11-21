@@ -75,7 +75,7 @@ resources:
 ```
 
 ```bash
-armada app create --file queue.yaml --wait
+armada app deploy --file queue.yaml --wait
 ```
 
 Apps of `shop` reach it at `queue.shop.internal:6379`. `allow` lists
@@ -116,7 +116,7 @@ scale:
 ```
 
 ```bash
-armada app create --file worker.yaml --wait
+armada app deploy --file worker.yaml --wait
 ```
 
 How it works:
@@ -252,7 +252,7 @@ resources:
 ```
 
 ```bash
-armada job create --file mailer.yaml
+armada job deploy --file mailer.yaml
 ```
 
 - **`perRun: 50`** is how many messages one run handles. Each reading
@@ -264,7 +264,7 @@ armada job create --file mailer.yaml
 - **`pollingInterval: 30s`**: a message waits up to one interval plus a
   container start before a run picks it up.
 - **`parallelism: 5`** bounds the runs at once, manual runs
-  (`armada job run mailer`) included.
+  (`armada job start mailer`) included.
 - **No `schedule` or `concurrency`**: a job starts on a clock or on a
   queue, not both, and `parallelism` replaces `concurrency`.
 - **Runs are at least once.** A run can, rarely, be attempted again; make
@@ -287,7 +287,7 @@ Active runs:  3
 ```
 
 ```
-$ armada job run list mailer
+$ armada run list mailer
 RUN  STATE      TRIGGER  ATTEMPTS  NODE   STARTED  DURATION  EXIT  MESSAGE
 44   running    queue    1         node1  20s ago  -         -     -
 43   running    queue    1         node3  20s ago  -         -     -
@@ -340,7 +340,7 @@ use a job.
 | `Queue: not read yet, from node2` for long | The sandbox cannot reach the broker, or the URL is wrong | Add the job to the broker's `allow`; read the agent's log on that node |
 | `Queue: not read: no node can` and a `QueueUnread` event | No connected node of the cluster network may run the job (placement, cordons), or each such node already reads 64 queues | Check the job's placement and the nodes; add a node for more queues |
 | Job create refused for `trigger` | No cluster network, or `schedule`/`concurrency` set with it | Remove those fields; triggers need `armadad init --network` |
-| `armada job run mailer` refused | `parallelism` runs are already active | Wait, or raise `parallelism` |
+| `armada job start mailer` refused | `parallelism` runs are already active | Wait, or raise `parallelism` |
 | A broker on the private network is unreachable from `shop` | Spaces other than `default` cannot reach the private network | Run the broker as an app of the space, or use `default` with its isolation off |
 | Replicas wait with an `Unschedulable` event as the queue grows | No node has room for another replica's reservation | Plan room for `max` replicas, lower `resources`, or add a node |
 

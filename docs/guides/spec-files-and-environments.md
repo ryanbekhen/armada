@@ -11,8 +11,8 @@ once an app has more than one place to run.
 (`armada secret set`, `--from-env-file`),
 [`envFrom: secrets`](../spec-reference.md#envfrom),
 [`secretFiles`](../spec-reference.md#secretfiles),
-[`armada app update`](../cli/armada-app.md#armada-app-update) with
-`--diff` and `--create-if-missing`
+[`armada app deploy`](../cli/armada-app.md#armada-app-deploy) with
+and `--diff`
 
 **Before you start:**
 
@@ -220,17 +220,17 @@ Look first. `--diff` prints what would change and changes nothing; for an
 app that does not exist yet, every line is new:
 
 ```bash
-armada app update api --space staging \
+armada app deploy api --space staging \
   --file deploy/api.yaml --vars deploy/staging.env --var TAG=1.4.2 --diff
 ```
 
-Then deploy. `--create-if-missing` creates the app the first time and
-updates it every time after, so the same command works for both:
+Then deploy. `app deploy` creates the app the first time and updates it
+every time after, so the same command works for both:
 
 ```bash
-armada app update api --space staging \
+armada app deploy api --space staging \
   --file deploy/api.yaml --vars deploy/staging.env --var TAG=1.4.2 \
-  --create-if-missing --wait
+  --wait
 ```
 
 ```
@@ -253,12 +253,12 @@ domains. Until it is verified, the app is reachable at
 ## 5. Promote the same image to production
 
 ```bash
-armada app update api --space production \
+armada app deploy api --space production \
   --file deploy/api.yaml --vars deploy/production.env --var TAG=1.4.2 --diff
 
-armada app update api --space production \
+armada app deploy api --space production \
   --file deploy/api.yaml --vars deploy/production.env --var TAG=1.4.2 \
-  --create-if-missing --wait
+  --wait
 ```
 
 The spec is the same file; only the variables and the secrets differ.
@@ -266,7 +266,7 @@ The spec is the same file; only the variables and the secrets differ.
 ## 6. Release the next version
 
 ```bash
-armada app update api --space staging \
+armada app deploy api --space staging \
   --file deploy/api.yaml --vars deploy/staging.env --var TAG=1.5.0 --diff
 ```
 
@@ -294,7 +294,7 @@ next deploy.
 
 Two ways to change an app behave differently:
 
-- **Flag updates** (`armada app update api --env FEATURE_X=on`) read the
+- **Flag updates** (`armada app deploy api --env FEATURE_X=on`) read the
   spec the app runs, change the fields the flags name, and send it back
   with the revision they read. If another change landed in between, the
   update is refused rather than undoing it:
@@ -358,7 +358,6 @@ Without them, the spec is taken as written.
 | --- | --- | --- |
 | `Error: the spec uses variables that are not set: TAG` | A variable has no value | Add it to the vars file or pass `--var TAG=...` |
 | `app api.staging references secrets that are not set: jwt-signing-key` | The spec names a secret the app does not have in this space | `armada secret set api jwt-signing-key --space staging` |
-| `api.production does not exist: create it with armada app create, or pass --create-if-missing` | First deploy to this space | Add `--create-if-missing` |
 | `domain api.example.com is used by space staging` | A domain belongs to one space | Use a different domain per environment |
 | The app does not see a new secret | `--from-env-file` does not roll out, and `envFrom` takes the list at deploy | Deploy again (the same file and tag is fine) |
 | `armada app list` shows nothing | You are in another space | `armada space list`, `--space NAME`, or `armada app list -A` |

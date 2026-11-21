@@ -13,7 +13,7 @@ learn when a database is better kept outside the cluster.
 [secrets](../cli/armada-secret.md),
 [volume backups](../spec-reference.md#volumesbackup) with
 `failover: restore`, and
-[`armada volume snapshot`](../cli/armada-volume.md#armada-volume-snapshot).
+[`armada snapshot`](../cli/armada-snapshot.md).
 
 **Before you start:**
 
@@ -120,7 +120,7 @@ volumes:
 ```
 
 ```bash
-armada app create --file db.yaml --wait
+armada app deploy --file db.yaml --wait
 ```
 
 Why each part matters:
@@ -181,7 +181,7 @@ scale:
 ```
 
 ```bash
-armada app create --file api.yaml --wait
+armada app deploy --file api.yaml --wait
 ```
 
 The API reaches the database at `db.shop.internal:5432`, the host in its
@@ -257,7 +257,7 @@ volumes:
 ```
 
 ```bash
-armada app update db --file db.yaml --wait
+armada app deploy db --file db.yaml --wait
 ```
 
 What these fields do:
@@ -272,7 +272,7 @@ What these fields do:
   copied, and a database restored from such a copy may not start. The cost
   is a short outage on every backup: the whole volume is read each time
   (only new chunks are uploaded), so the pause grows with the size of the
-  database. Time one with `armada volume snapshot create` (below) before
+  database. Time one with `armada snapshot create` (below) before
   choosing `every`.
 - **`failover: restore`**: see step 7.
 
@@ -296,7 +296,7 @@ db.shop  data    node2  /var/lib/postgresql/data  1.2Gi   12m ago      31 (1.9Gi
 together. `LAST BACKUP` ends in `, failing` while backups fail.
 
 ```
-$ armada volume snapshot list db data
+$ armada snapshot list db data
 ID                                    TIME                 AGE
 20261110T030000.412Z-5c0e9a1b         2026-11-10 10:00:00  1d
 20261111T010000.087Z-a41f77d0         2026-11-11 08:00:00  3h
@@ -308,7 +308,7 @@ Take one now, before a risky change such as a major upgrade or a large
 migration:
 
 ```
-$ armada volume snapshot create db data
+$ armada snapshot create db data
 Backed up volume data of db.shop as 20261111T041503.120Z-9f3a1c2e: 1287 files, 1.2Gi, 3.4Mi new; the bucket holds 32 backups in 1.9Gi.
 ```
 
@@ -365,7 +365,7 @@ production:
    printf %s 'https://READONLY_KEY:READONLY_SECRET@s3.example.com/acme-backups/armada?region=eu-central-1' \
      | armada secret set db backup-url
    armada secret set db backup-key --from-file backup-key.txt   # the same key, from where you keep it
-   armada app create --file db.yaml --wait
+   armada app deploy --file db.yaml --wait
    ```
 
    The app starts with an empty database, which creates the volume on a
@@ -374,7 +374,7 @@ production:
 3. Restore the newest production backup:
 
    ```bash
-   armada volume snapshot list db data
+   armada snapshot list db data
    armada volume restore db data --snapshot latest
    ```
 
@@ -412,7 +412,7 @@ that backup is gone.
   closed at once.
 - `armada volume list` shows a recent `LAST BACKUP` and a growing
   `BACKUPS` count.
-- `armada volume snapshot list db data` lists backups at the interval you
+- `armada snapshot list db data` lists backups at the interval you
   chose.
 
 ## Variations
