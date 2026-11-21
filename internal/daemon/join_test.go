@@ -163,7 +163,7 @@ func TestJoinEndToEnd(t *testing.T) {
 	if err := os.WriteFile(spec, []byte("name: web\nimage: nginx:1.27\nscale:\n  min: 2\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if code, _, stderr := cli("app", "create", "--file", spec, "--wait", "--timeout", "30s"); code != 0 {
+	if code, _, stderr := cli("app", "deploy", "--new", "--file", spec, "--wait", "--timeout", "30s"); code != 0 {
 		t.Fatalf("app create: %s", stderr)
 	}
 	waitFor("spread over both nodes", func() bool { return count(0) == 1 && count(1) == 1 })

@@ -3,7 +3,7 @@ package cli
 import "time"
 
 // SetPollIntervals sets how often commands that wait poll the control plane
-// (app create and update --wait, job run --wait, node delete) and returns a function that
+// (app deploy --wait, job start --wait, node delete) and returns a function that
 // restores them. armadad's tests drive these commands against a server they
 // run in process.
 func SetPollIntervals(wait, node time.Duration) (restore func()) {

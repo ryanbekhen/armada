@@ -17,7 +17,7 @@ On a cluster with a cluster network, containers reach other apps only
 through their internal names, resolve only their own space's names, and
 the containers of every space but default are kept away from the nodes,
 the private network, and the cloud's metadata service (network isolation;
-for default, turn it on with `armada space set default --network-isolation`).
+for default, turn it on with `armada space update default --network-isolation`).
 
 Also: `spaces`.
 
@@ -26,8 +26,8 @@ Also: `spaces`.
 | [`armada space create`](#armada-space-create) | Create a space |
 | [`armada space delete`](#armada-space-delete) | Delete an empty space |
 | [`armada space list`](#armada-space-list) | List spaces |
-| [`armada space set`](#armada-space-set) | Change a space's settings |
 | [`armada space show`](#armada-space-show) | Show a space's settings |
+| [`armada space update`](#armada-space-update) | Change a space's settings |
 | [`armada space use`](#armada-space-use) | Work in a space: commands without --space use it |
 
 ## `armada space create`
@@ -65,27 +65,6 @@ Flags:
 | --- | --- |
 | `-o`, `--output string` | output format: text or json (default `text`) |
 
-## `armada space set`
-
-Change a space's settings (cluster-admin only).
-
---network-isolation keeps the space's containers away from the nodes, the
-control plane, the private network, and the cloud's metadata service: they
-reach the internet, their node's DNS server, and internal and public
-ingress (ADR 0026). Every space but default always has it; turn it on for
-default once its apps no longer need the private network. It needs the
-cluster network.
-
-```
-armada space set NAME --network-isolation[=false] [flags]
-```
-
-Flags:
-
-| Flag | Meaning |
-| --- | --- |
-| `--network-isolation` | keep the space's containers away from the platform and the private network |
-
 ## `armada space show`
 
 Show a space's settings.
@@ -99,6 +78,27 @@ Flags:
 | Flag | Meaning |
 | --- | --- |
 | `-o`, `--output string` | output format: text or json (default `text`) |
+
+## `armada space update`
+
+Change a space's settings (cluster-admin only).
+
+--network-isolation keeps the space's containers away from the nodes, the
+control plane, the private network, and the cloud's metadata service: they
+reach the internet, their node's DNS server, and internal and public
+ingress (ADR 0026). Every space but default always has it; turn it on for
+default once its apps no longer need the private network. It needs the
+cluster network.
+
+```
+armada space update SPACE --network-isolation[=false] [flags]
+```
+
+Flags:
+
+| Flag | Meaning |
+| --- | --- |
+| `--network-isolation` | keep the space's containers away from the platform and the private network |
 
 ## `armada space use`
 

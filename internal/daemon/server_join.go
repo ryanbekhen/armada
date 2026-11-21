@@ -315,7 +315,7 @@ func joinedClientConfigs(resp *armadav1.JoinServerResponse, servers []string, us
 	}
 	if !resp.GetUserRecorded() {
 		return nil, fmt.Errorf("the leader did not record user %s (it may run an older Armada), so no client config was written; "+
-			"once every server is upgraded, create the user with `armada rbac user create %s --role cluster-admin -o FILE`", userName, userName)
+			"once every server is upgraded, create the user with `armada user create %s --role cluster-admin -o FILE`", userName, userName)
 	}
 	ca, err := pki.LoadCA(resp.CaCert, resp.CaKey)
 	if err != nil {

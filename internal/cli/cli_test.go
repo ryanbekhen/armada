@@ -153,8 +153,8 @@ func TestVolumeUsage(t *testing.T) {
 		"volume backup web data":                          "-o FILE",
 		"volume restore web data":                         "give an archive FILE or --snapshot",
 		"volume restore web data f.tgz --snapshot latest": "give an archive FILE or --snapshot",
-		"volume snapshot list web":                        "missing VOLUME",
-		"volume snapshot create web data extra":           "too many arguments: expected APP VOLUME, got 3",
+		"snapshot list web":                               "missing VOLUME",
+		"snapshot create web data extra":                  "too many arguments: expected APP VOLUME, got 3",
 		"volume ls a b":                                   "too many arguments: expected [APP], got 2",
 		"volume rm web":                                   "missing VOLUME",
 	} {
@@ -232,7 +232,7 @@ func TestArgumentErrors(t *testing.T) {
 		"app list x":       {"armada app list takes no arguments, got 1"},
 		"app list --bogus": {"unknown flag: --bogus", "armada app list --help"},
 		"node relay":       {"missing NODE"},
-		"job run show":     {"missing JOB RUN"},
+		"run show":         {"missing JOB RUN"},
 		"app traffic web":  {"missing REVISION=WEIGHT..."},
 	} {
 		code, _, stderr := run(t, strings.Fields(args)...)

@@ -367,7 +367,7 @@ func TestDoctorCertificates(t *testing.T) {
 		says          string
 	}{
 		"all valid":          {year, year, 0, checkOK, "server, user valid"},
-		"user expires soon":  {year, 10 * 24 * time.Hour, 0, checkWarn, "armada rbac user renew"},
+		"user expires soon":  {year, 10 * 24 * time.Hour, 0, checkWarn, "armada user renew"},
 		"user expired":       {year, -time.Hour, 0, checkFail, "user renew --data-dir"},
 		"server not renewed": {10 * 24 * time.Hour, year, 9 * 24 * time.Hour, checkWarn, "was not renewed"},
 		"server expired":     {-time.Hour, year, 0, checkFail, "restart armada-server"},

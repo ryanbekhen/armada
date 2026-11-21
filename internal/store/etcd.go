@@ -1186,7 +1186,7 @@ func (t *etx) claimMeshRange(r *networkRec, p netip.Prefix) error {
 		}
 		for _, s := range []string{n.PrivateIP, n.Endpoint} {
 			if a, err := netip.ParseAddr(s); err == nil && p.Contains(a) {
-				return fmt.Errorf("node %s's address %s is inside the mesh CIDR %s; pick another range with armada cluster set --mesh-cidr: %w", n.ID, a, p, ErrPrecondition)
+				return fmt.Errorf("node %s's address %s is inside the mesh CIDR %s; pick another range with armada cluster update --mesh-cidr: %w", n.ID, a, p, ErrPrecondition)
 			}
 		}
 		return nil
@@ -1504,7 +1504,7 @@ func (s *Etcd) DeployWith(ctx context.Context, sp *spec.App, actor string, opts 
 		}
 		switch {
 		case opts.MustCreate && exists:
-			return fmt.Errorf("%s exists; change it with update: %w", sp.ID(), ErrConflict)
+			return fmt.Errorf("%s exists; deploy it without --new to change it: %w", sp.ID(), ErrConflict)
 		case opts.MustExist && !exists:
 			return fmt.Errorf("app %s: %w", sp.ID(), ErrNotFound)
 		case opts.BaseRevision != "" && exists && a.TargetRevision != opts.BaseRevision:
@@ -1723,7 +1723,7 @@ func (t *etx) resolveTraffic(app, latest string, traffic []spec.TrafficTarget) (
 		seen[tt.Revision] = true
 		rev, err := t.revision(tt.Revision)
 		if errors.Is(err, ErrNotFound) || (err == nil && rev.App != app) {
-			return nil, fmt.Errorf("revisions.traffic: %s is not a revision of %s (see armada app revision list %s): %w", tt.Revision, app, app, ErrPrecondition)
+			return nil, fmt.Errorf("revisions.traffic: %s is not a revision of %s (see armada revision list %s): %w", tt.Revision, app, app, ErrPrecondition)
 		}
 		if err != nil {
 			return nil, err
@@ -2090,7 +2090,7 @@ func (s *Etcd) SetReplicas(ctx context.Context, app string, n int, actor string)
 			return fmt.Errorf("%s is a job; it runs one container per run: %w", app, ErrPrecondition)
 		} else if cur.Spec.Autoscaled() {
 			lo, hi := cur.Spec.ScaleBounds()
-			return fmt.Errorf("%s scales itself between %d and %d replicas: keep more running with `armada app update %s --min N`, or run a fixed count with `armada app update %s --no-autoscale --min N`: %w", app, lo, hi, app, app, ErrPrecondition)
+			return fmt.Errorf("%s scales itself between %d and %d replicas: keep more running with `armada app deploy %s --min N`, or run a fixed count with `armada app deploy %s --no-autoscale --min N`: %w", app, lo, hi, app, app, ErrPrecondition)
 		}
 		if tgt, err := t.revision(a.TargetRevision); err != nil {
 			return err

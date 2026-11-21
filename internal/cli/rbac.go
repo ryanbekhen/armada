@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	armadav1 "github.com/ryanbekhen/armada/api/armada/v1"
 	"github.com/ryanbekhen/armada/internal/clientconfig"
@@ -25,23 +27,17 @@ const (
 	kindService = "service"
 )
 
-func newRBACCommand(g *globals) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "rbac",
-		Short: "Manage users, services, and the roles they hold",
-		Long: "Users are people and services are tools such as a CI system. Each holds\n" +
-			"roles: viewer, deployer, or admin in a space (viewer also over the whole\n" +
-			"cluster), space-creator, or cluster-admin. Only cluster-admin manages\n" +
-			"access. `armada rbac role list` shows what each role allows.",
-	}
-	cmd.AddCommand(newPrincipalCommand(g, kindUser), newPrincipalCommand(g, kindService), newRoleCommand(g), newAssignmentCommand(g))
-	return cmd
-}
-
 func newPrincipalCommand(g *globals, kind string) *cobra.Command {
-	cmd := &cobra.Command{Use: kind, Short: "Manage users: people, each with a certificate of their own"}
+	cmd := &cobra.Command{Use: kind, Aliases: []string{kind + "s"}, Short: "People, each with a certificate of their own",
+		Long: "Users are people. Each has a certificate of their own and holds roles:\n" +
+			"viewer, deployer, or admin in a space (viewer also over the whole cluster),\n" +
+			"space-creator, or cluster-admin. Only cluster-admin manages access;\n" +
+			"`armada role list` shows the roles and who holds them."}
 	if kind == kindService {
-		cmd.Short = "Manage services: tools such as a CI system"
+		cmd.Short = "Programs such as a CI system, each with a certificate of their own"
+		cmd.Long = "Services are programs such as a CI system. Each has certificates of its own\n" +
+			"and holds roles like a user; `armada role list` shows the roles and who\n" +
+			"holds them."
 	}
 	cmd.AddCommand(newPrincipalCreateCommand(g, kind), newPrincipalListCommand(g, kind), newPrincipalShowCommand(g, kind),
 		newPrincipalCredentialsCommand(g, kind), newRenewOwnCommand(g, kind), newPrincipalUpdateCommand(g, kind),
@@ -147,10 +143,10 @@ func newPrincipalCreateCommand(g *globals, kind string) *cobra.Command {
 			"their own name (one year) for a key made here. Give them FILE privately; they\n" +
 			"keep it as ~/.armada/config, mode 0600. --role gives a first role (in\n" +
 			"--space for viewer, deployer, and admin); give more with\n" +
-			"`armada rbac assignment create`. A user with no role can only renew.",
-		Example: "  armada rbac user create ana -o ana.config --role deployer --space shop\n" +
-			"  armada rbac user create ops -o ops.config --role cluster-admin\n" +
-			"  armada rbac user create ops -o ops.config --role cluster-admin --ssh ops@bastion.example.com",
+			"`armada role grant`. A user with no role can only renew.",
+		Example: "  armada user create ana -o ana.config --role deployer --space shop\n" +
+			"  armada user create ops -o ops.config --role cluster-admin\n" +
+			"  armada user create ops -o ops.config --role cluster-admin --ssh ops@bastion.example.com",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := args[0]
@@ -185,7 +181,7 @@ func newPrincipalCreateCommand(g *globals, kind string) *cobra.Command {
 				if err != nil {
 					return RPCError(err)
 				}
-				_, err = fmt.Fprintf(cmd.OutOrStdout(), "Created service %s (%s). Give it a client config with `armada rbac service credentials %s -o FILE`.\n",
+				_, err = fmt.Fprintf(cmd.OutOrStdout(), "Created service %s (%s). Give it a client config with `armada service credentials %s -o FILE`.\n",
 					name, rolesText(p.GetRoles()), name)
 				return err
 			}
@@ -205,10 +201,10 @@ func newPrincipalCreateCommand(g *globals, kind string) *cobra.Command {
 		cmd.Short = "Create a service"
 		cmd.Long = "Create a service, a tool that uses the API, with a first role (in --space\n" +
 			"for viewer, deployer, and admin). Give it a client config with\n" +
-			"`armada rbac service credentials`, and more roles with\n" +
-			"`armada rbac assignment create`."
-		cmd.Example = "  armada rbac service create ci --role deployer --space shop\n" +
-			"  armada rbac service create portal --role space-creator"
+			"`armada service credentials`, and more roles with\n" +
+			"`armada role grant`."
+		cmd.Example = "  armada service create ci --role deployer --space shop\n" +
+			"  armada service create portal --role space-creator"
 	} else {
 		cmd.Flags().StringVarP(&out, "output", "o", "", "client config file to create")
 		cmd.Flags().StringVar(&ssh, "ssh", "", "reach the servers through this SSH host ([user@]host or a ~/.ssh/config alias): `ssh -W` to their private addresses, mTLS inside")
@@ -400,7 +396,7 @@ func newPrincipalCredentialsCommand(g *globals, kind string) *cobra.Command {
 		cmd.Long = "Make a key here and a certificate for service NAME (90 days), and write a\n" +
 			"client config to FILE (mode 0600). The tool uses it with `armada --config\n" +
 			"FILE`, or the API with its PEM fields, and renews it with\n" +
-			"`armada rbac service renew --config FILE`. Its other certificates stay valid\n" +
+			"`armada service renew --config FILE`. Its other certificates stay valid\n" +
 			"until it renews or is deleted."
 	}
 	cmd.Flags().StringVarP(&out, "output", "o", "", "client config file to create")
@@ -475,7 +471,7 @@ func newPrincipalUpdateCommand(g *globals, kind string) *cobra.Command {
 		Short: "Replace the node labels a " + kind + "'s apps may require",
 		Long: "Replace the node label values the apps a " + kind + " deploys may name in\n" +
 			"placement.require (armada.* labels are always allowed): restricted nodes\n" +
-			"can be kept for some spaces. Roles change with `armada rbac assignment`.",
+			"can be kept for some spaces. Roles change with `armada role grant` and `armada role revoke`.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if clear == (len(labels.values) > 0) {
@@ -533,13 +529,23 @@ func newPrincipalDeleteCommand(g *globals, kind string) *cobra.Command {
 }
 
 func newRoleCommand(g *globals) *cobra.Command {
-	cmd := &cobra.Command{Use: "role", Short: "Show the built-in roles"}
+	cmd := &cobra.Command{
+		Use:     "role",
+		Aliases: []string{"roles"},
+		Short:   "List the roles and who holds them; grant and revoke them",
+		Long: "Roles are built in: viewer, deployer, or admin in a space (viewer also over\n" +
+			"the whole cluster), space-creator, and cluster-admin. Users and services\n" +
+			"hold them; only cluster-admin grants and revokes them.",
+	}
 	var lo, so *outputFlag
 	list := &cobra.Command{
 		Use:     "list",
 		Aliases: []string{"ls"},
-		Short:   "List the roles and where each may be given",
-		Args:    cobra.NoArgs,
+		Short:   "List the roles, where each may be given, and who holds it",
+		Long: "List the roles, where each may be given, and who holds it: a user or\n" +
+			"service, with the space in parentheses for a role given in one.\n" +
+			"`armada role show ROLE` says what a role allows.",
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if err := lo.check(); err != nil {
 				return err
@@ -551,17 +557,30 @@ func newRoleCommand(g *globals) *cobra.Command {
 			if lo.json() {
 				return printJSON(cmd.OutOrStdout(), resp)
 			}
+			// Only cluster-admin lists who holds what; others see the roles.
+			holders, err := roleHolders(cmd, g)
+			if err != nil && status.Code(err) != codes.PermissionDenied {
+				return RPCError(err)
+			}
 			tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 4, 2, ' ', 0)
-			_, _ = fmt.Fprintln(tw, "ROLE\tGIVEN IN\tALLOWS")
+			if holders == nil {
+				_, _ = fmt.Fprintln(tw, "ROLE\tGIVEN IN")
+			} else {
+				_, _ = fmt.Fprintln(tw, "ROLE\tGIVEN IN\tHELD BY")
+			}
 			for _, r := range resp.GetRoles() {
-				_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\n", r.GetName(), roleScope(r), r.GetDescription())
+				if holders == nil {
+					_, _ = fmt.Fprintf(tw, "%s\t%s\n", r.GetName(), roleScope(r))
+					continue
+				}
+				_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\n", r.GetName(), roleScope(r), dash(strings.Join(holders[r.GetName()], ", ")))
 			}
 			return tw.Flush()
 		},
 	}
 	show := &cobra.Command{
 		Use:   "show ROLE",
-		Short: "Show a role and the API methods it allows",
+		Short: "Show what a role allows and the API methods it reaches",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := so.check(); err != nil {
@@ -573,7 +592,11 @@ func newRoleCommand(g *globals) *cobra.Command {
 			}
 			i := slices.IndexFunc(resp.GetRoles(), func(r *armadav1.RoleInfo) bool { return r.GetName() == args[0] })
 			if i < 0 {
-				return fmt.Errorf("unknown role %q", args[0])
+				names := make([]string, 0, len(resp.GetRoles()))
+				for _, r := range resp.GetRoles() {
+					names = append(names, r.GetName())
+				}
+				return fmt.Errorf("unknown role %q; the roles: %s", args[0], strings.Join(names, ", "))
 			}
 			r := resp.GetRoles()[i]
 			if so.json() {
@@ -586,8 +609,32 @@ func newRoleCommand(g *globals) *cobra.Command {
 		},
 	}
 	lo, so = addOutput(list, false), addOutput(show, false)
-	cmd.AddCommand(list, show)
+	cmd.AddCommand(list, show, newRoleChangeCommand(g, true), newRoleChangeCommand(g, false))
 	return cmd
+}
+
+// roleHolders lists who holds each role: "user ana (shop)", "service ci".
+func roleHolders(cmd *cobra.Command, g *globals) (map[string][]string, error) {
+	client, conn, err := dialAdmin(g)
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+	resp, err := client.ListPrincipals(cmd.Context(), &armadav1.ListPrincipalsRequest{})
+	if err != nil {
+		return nil, err
+	}
+	out := map[string][]string{}
+	for _, p := range resp.GetPrincipals() {
+		for _, r := range p.GetRoles() {
+			h := p.GetKind() + " " + p.GetName()
+			if r.GetSpace() != "" {
+				h += " (" + r.GetSpace() + ")"
+			}
+			out[r.GetRole()] = append(out[r.GetRole()], h)
+		}
+	}
+	return out, nil
 }
 
 func roleScope(r *armadav1.RoleInfo) string {
@@ -635,32 +682,23 @@ func (p *principalFlags) get(required bool) (kind, name string, err error) {
 	return "", "", nil
 }
 
-func newAssignmentCommand(g *globals) *cobra.Command {
-	cmd := &cobra.Command{Use: "assignment", Short: "Give roles to users and services, and take them back"}
-	cmd.AddCommand(newAssignmentChangeCommand(g, true), newAssignmentListCommand(g), newAssignmentChangeCommand(g, false))
-	return cmd
-}
-
-func newAssignmentChangeCommand(g *globals, create bool) *cobra.Command {
+func newRoleChangeCommand(g *globals, grant bool) *cobra.Command {
 	var who principalFlags
-	var role roleFlags
 	cmd := &cobra.Command{
-		Use:   "create (--user NAME | --service NAME) --role ROLE [--space P]",
+		Use:   "grant ROLE (--user NAME | --service NAME) [--space SPACE]",
 		Short: "Give a user or service a role",
 		Long: "Give a role: viewer (in --space, or without it over the whole cluster),\n" +
 			"deployer or admin (in --space; not in default), space-creator, or\n" +
 			"cluster-admin. It applies to the next call the user or service makes.",
-		Example: "  armada rbac assignment create --user ana --role deployer --space shop\n" +
-			"  armada rbac assignment create --service ci --role viewer",
-		Args: cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
+		Example: "  armada role grant deployer --user ana --space shop\n" +
+			"  armada role grant viewer --service ci",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
 			kind, name, err := who.get(true)
 			if err != nil {
 				return err
 			}
-			if role.role == "" {
-				return errors.New("give --role")
-			}
+			role := roleFlags{role: args[0]}
 			req := &armadav1.AssignmentRequest{Kind: kind, Name: name, Role: role.assignment(cmd, g)}
 			client, conn, err := dialAdmin(g)
 			if err != nil {
@@ -668,7 +706,7 @@ func newAssignmentChangeCommand(g *globals, create bool) *cobra.Command {
 			}
 			defer conn.Close()
 			call, verb := client.CreateAssignment, "Gave"
-			if !create {
+			if !grant {
 				call, verb = client.DeleteAssignment, "Took back"
 			}
 			p, err := call(cmd.Context(), req)
@@ -680,70 +718,12 @@ func newAssignmentChangeCommand(g *globals, create bool) *cobra.Command {
 			return err
 		},
 	}
-	if !create {
-		cmd.Use = "delete (--user NAME | --service NAME) --role ROLE [--space P]"
-		cmd.Aliases = []string{"rm"}
+	if !grant {
+		cmd.Use = "revoke ROLE (--user NAME | --service NAME) [--space SPACE]"
 		cmd.Short = "Take a role back from a user or service"
 		cmd.Long = "Take a role back. You cannot take cluster-admin from yourself."
-		cmd.Example = "  armada rbac assignment delete --user ana --role deployer --space shop"
+		cmd.Example = "  armada role revoke deployer --user ana --space shop"
 	}
 	who.register(cmd)
-	role.register(cmd, "the role")
-	return cmd
-}
-
-func newAssignmentListCommand(g *globals) *cobra.Command {
-	var who principalFlags
-	var o *outputFlag
-	cmd := &cobra.Command{
-		Use:     "list [--user NAME | --service NAME]",
-		Aliases: []string{"ls"},
-		Short:   "List who holds which role where",
-		Args:    cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			if err := o.check(); err != nil {
-				return err
-			}
-			kind, name, err := who.get(false)
-			if err != nil {
-				return err
-			}
-			resp, err := listPrincipals(cmd, g, kind)
-			if err != nil {
-				return err
-			}
-			type row struct{ kind, name, role, space string }
-			var rows []row
-			for _, p := range resp.GetPrincipals() {
-				if name != "" && p.GetName() != name {
-					continue
-				}
-				for _, r := range p.GetRoles() {
-					rows = append(rows, row{p.GetKind(), p.GetName(), r.GetRole(), r.GetSpace()})
-				}
-			}
-			if o.json() {
-				out := &armadav1.ListPrincipalsResponse{}
-				for _, p := range resp.GetPrincipals() {
-					if name == "" || p.GetName() == name {
-						out.Principals = append(out.Principals, &armadav1.Principal{Kind: p.GetKind(), Name: p.GetName(), Roles: p.GetRoles()})
-					}
-				}
-				return printJSON(cmd.OutOrStdout(), out)
-			}
-			tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 4, 2, ' ', 0)
-			_, _ = fmt.Fprintln(tw, "KIND\tNAME\tROLE\tSPACE")
-			for _, r := range rows {
-				space := r.space
-				if space == "" {
-					space = "(cluster)"
-				}
-				_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", r.kind, r.name, r.role, space)
-			}
-			return tw.Flush()
-		},
-	}
-	who.register(cmd)
-	o = addOutput(cmd, false)
 	return cmd
 }

@@ -118,7 +118,7 @@ func certOptions(cs certSettings, listenFlag, serverListen string, log *slog.Log
 	case "":
 	case "cloudflare":
 		if cs.token == "" {
-			return opts, "", false, errors.New("DNS provider cloudflare needs a token (armada cluster set --dns-token - < FILE)")
+			return opts, "", false, errors.New("DNS provider cloudflare needs a token (armada cluster update --dns-token - < FILE)")
 		}
 		opts.DNSProvider = &cloudflare.Provider{APIToken: cs.token}
 	default:

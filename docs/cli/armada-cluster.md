@@ -9,9 +9,9 @@ The cluster's status, settings, and events.
 | Command | What it does |
 | --- | --- |
 | [`armada cluster events`](#armada-cluster-events) | Show what the cluster did: crashes, rollouts, lost nodes |
-| [`armada cluster set`](#armada-cluster-set) | Change cluster settings, for every server at once |
 | [`armada cluster show`](#armada-cluster-show) | Show cluster settings |
 | [`armada cluster status`](#armada-cluster-status) | Summarize the cluster: nodes, apps, and what needs attention |
+| [`armada cluster update`](#armada-cluster-update) | Change cluster settings, for every server at once |
 
 ## `armada cluster events`
 
@@ -34,7 +34,36 @@ Flags:
 | `-o`, `--output string` | output format: text or json (one event per line) (default `text`) |
 | `--since duration` | how far back to start (at most 24h) (default `1h0m0s`) |
 
-## `armada cluster set`
+## `armada cluster show`
+
+Show cluster settings.
+
+```
+armada cluster show [flags]
+```
+
+Flags:
+
+| Flag | Meaning |
+| --- | --- |
+| `-o`, `--output string` | output format: text or json (default `text`) |
+
+## `armada cluster status`
+
+Summarize the cluster in one line, then list the apps that are not ready
+(at most 20) and the nodes that are not ready, if any.
+
+```
+armada cluster status [flags]
+```
+
+Flags:
+
+| Flag | Meaning |
+| --- | --- |
+| `-o`, `--output string` | output format: text or json (default `text`) |
+
+## `armada cluster update`
 
 Change cluster settings. They are kept in the cluster's state, so every server
 uses them, also after another one takes over as leader (ADR 0031).
@@ -90,7 +119,7 @@ first backup runs at once; armada cluster status shows the last one.
 --backup none turns them off; the bucket keeps what it holds.
 
 ```
-armada cluster set [flags]
+armada cluster update [flags]
 ```
 
 Flags:
@@ -123,33 +152,4 @@ Flags:
 | `--root-domain string` | root domain for app URLs (empty to clear) |
 | `--tls` | obtain and renew certificates with ACME; false serves apps over plain HTTP on port 80 instead of redirecting to HTTPS (default `true`) |
 | `--trusted-proxies strings` | address prefixes of proxies in front of the nodes, comma separated (empty to clear) |
-
-## `armada cluster show`
-
-Show cluster settings.
-
-```
-armada cluster show [flags]
-```
-
-Flags:
-
-| Flag | Meaning |
-| --- | --- |
-| `-o`, `--output string` | output format: text or json (default `text`) |
-
-## `armada cluster status`
-
-Summarize the cluster in one line, then list the apps that are not ready
-(at most 20) and the nodes that are not ready, if any.
-
-```
-armada cluster status [flags]
-```
-
-Flags:
-
-| Flag | Meaning |
-| --- | --- |
-| `-o`, `--output string` | output format: text or json (default `text`) |
 

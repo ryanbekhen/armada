@@ -605,5 +605,5 @@ func (s *Server) runReplica(ctx context.Context, job string, seq int64, task *in
 	if seq != 0 {
 		return "", status.Errorf(codes.NotFound, "run %d of %s not found (finished runs beyond the job's history are removed)", seq, job)
 	}
-	return "", status.Errorf(codes.FailedPrecondition, "%s has no runs yet; start one with `armada job run %s`", job, job)
+	return "", status.Errorf(codes.FailedPrecondition, "%s has no runs yet; start one with `armada job start %s`", job, job)
 }

@@ -18,7 +18,7 @@ import (
 	"github.com/ryanbekhen/armada/internal/spec"
 )
 
-// specFlags are the flags of app and job create and update that write a
+// specFlags are the flags of app deploy and job deploy that write a
 // spec (ADR 0032). A flag that is not given leaves its field alone.
 type specFlags struct {
 	job bool
@@ -493,12 +493,24 @@ func (f *specFlags) applyScale(a *spec.App) error {
 	return nil
 }
 
-// deployFlags are what create and update share besides the spec flags.
+// deployFlags are what deploy takes besides the spec flags.
 type deployFlags struct {
 	spec specFlags
 	wait waitFlags
-	// Update only.
-	diff, createIfMissing bool
+	// diff prints the change instead of making it; isNew refuses an app or
+	// job that exists.
+	diff, isNew bool
+}
+
+// runDeploy is app deploy and job deploy: create, or change what exists.
+func runDeploy(cmd *cobra.Command, g *globals, args []string, d *deployFlags) error {
+	if d.isNew {
+		if d.diff {
+			return errors.New("--new and --diff do not go together")
+		}
+		return runCreate(cmd, g, args, d)
+	}
+	return runUpdate(cmd, g, args, d)
 }
 
 // appTarget splits the ID of NAME into the space and name a spec has.
@@ -522,7 +534,7 @@ func createSpec(cmd *cobra.Command, f *specFlags, id, space string) ([]byte, *sp
 		if err != nil {
 			return nil, nil, err
 		}
-		if err := checkKind(sp, f.job, "create"); err != nil {
+		if err := checkKind(sp, f.job, "deploy"); err != nil {
 			return nil, nil, err
 		}
 		if id != "" {
@@ -563,7 +575,7 @@ func specData(a *spec.App, space string) ([]byte, *spec.App, error) {
 	return data, sp, nil
 }
 
-// runCreate is app create and job create.
+// runCreate is deploy --new.
 func runCreate(cmd *cobra.Command, g *globals, args []string, d *deployFlags) error {
 	if err := d.spec.check(); err != nil {
 		return err
@@ -601,7 +613,7 @@ func runCreate(cmd *cobra.Command, g *globals, args []string, d *deployFlags) er
 	return waitRollout(cmd.Context(), client, resp.App, resp.Revision, d.wait.timeout, cmd.OutOrStdout())
 }
 
-// runUpdate is app update and job update.
+// runUpdate is deploy without --new: it changes what exists, or creates it.
 func runUpdate(cmd *cobra.Command, g *globals, args []string, d *deployFlags) error {
 	f := &d.spec
 	if err := f.check(); err != nil {
@@ -675,11 +687,11 @@ func runUpdate(cmd *cobra.Command, g *globals, args []string, d *deployFlags) er
 			if a, err = spec.ParseIn(cur.Spec, space); err != nil {
 				return fmt.Errorf("the spec of %s: %w", id, err)
 			}
-			if err := checkKind(a, f.job, "update"); err != nil {
+			if err := checkKind(a, f.job, "deploy"); err != nil {
 				return err
 			}
 		}
-		if !exists && d.createIfMissing && !f.fs.Changed("image") {
+		if !exists && !f.fs.Changed("image") {
 			return fmt.Errorf("%s does not exist; creating it needs --image", id)
 		}
 		if err := f.apply(a); err != nil {
@@ -689,10 +701,6 @@ func runUpdate(cmd *cobra.Command, g *globals, args []string, d *deployFlags) er
 			return err
 		}
 	}
-	if !exists && !d.createIfMissing && !d.diff {
-		return notExist(id, f.job)
-	}
-
 	out := cmd.OutOrStdout()
 	if d.diff {
 		return printDiff(out, current, data)
@@ -722,7 +730,7 @@ func runUpdate(cmd *cobra.Command, g *globals, args []string, d *deployFlags) er
 }
 
 func notExist(id string, job bool) error {
-	return fmt.Errorf("%s does not exist: create it with armada %s create, or pass --create-if-missing", id, kindWord(job))
+	return fmt.Errorf("%s was deleted while this deploy ran; run armada %s deploy again to create it", id, kindWord(job))
 }
 
 // checkCurrentKind refuses to replace a job with an app or the other way
@@ -733,21 +741,17 @@ func checkCurrentKind(id string, current []byte, job bool) error {
 	if err != nil {
 		return nil // the server decides
 	}
-	return checkKind(sp, job, "update")
+	return checkKind(sp, job, "deploy")
 }
 
-// registerCreate and registerUpdate add the flags of create and update.
-func (d *deployFlags) registerCreate(cmd *cobra.Command, job bool) {
+// registerDeploy adds the flags of app deploy and job deploy.
+func (d *deployFlags) registerDeploy(cmd *cobra.Command, job bool) {
 	d.spec.register(cmd, job)
 	if !job {
 		d.wait.register(cmd)
 	}
-}
-
-func (d *deployFlags) registerUpdate(cmd *cobra.Command, job bool) {
-	d.registerCreate(cmd, job)
 	cmd.Flags().BoolVar(&d.diff, "diff", false, "print what would change and change nothing")
-	cmd.Flags().BoolVar(&d.createIfMissing, "create-if-missing", false, "create the "+kindWord(job)+" when it does not exist")
+	cmd.Flags().BoolVar(&d.isNew, "new", false, "refuse a "+kindWord(job)+" that exists")
 }
 
 // ipRuleFlags reads --ip-allow and --ip-deny values:

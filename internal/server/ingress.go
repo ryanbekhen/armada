@@ -866,7 +866,7 @@ func (s *Server) setSettings(ctx context.Context, req *armadav1.SetClusterConfig
 		what = append(what, "node_lost_timeout="+d.String())
 	}
 	if set.DNSProvider != "" && set.DNSToken == nil {
-		return false, status.Errorf(codes.FailedPrecondition, "DNS provider %s needs a token: armada cluster set --dns-token - < FILE", set.DNSProvider)
+		return false, status.Errorf(codes.FailedPrecondition, "DNS provider %s needs a token: armada cluster update --dns-token - < FILE", set.DNSProvider)
 	}
 	if err := SaveSettings(ctx, s.store, set); err != nil {
 		return false, storeErr(err)

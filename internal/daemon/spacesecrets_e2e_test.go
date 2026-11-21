@@ -33,7 +33,7 @@ func testSpaceSecrets(t *testing.T, d *fake.Driver, cli func(...string) (int, st
 		t.Errorf("create of an existing secret: code=%d err=%q", code, stderr)
 	}
 	for _, app := range []string{"reader-a", "reader-b"} {
-		if code, _, stderr := cli("app", "create", app, "--image", "nginx:1.27", "--ingress", "none", "--env-from", "shared-db", "--wait", "--timeout", "1m"); code != 0 {
+		if code, _, stderr := cli("app", "deploy", "--new", app, "--image", "nginx:1.27", "--ingress", "none", "--env-from", "shared-db", "--wait", "--timeout", "1m"); code != 0 {
 			t.Fatalf("create %s: %s", app, stderr)
 		}
 		ids := containersOf(d, app)
@@ -75,11 +75,5 @@ func testSpaceSecrets(t *testing.T, d *fake.Driver, cli func(...string) (int, st
 	}
 	if code, _, stderr := cli("secret", "delete", "shared-db"); code == 0 || !strings.Contains(stderr, "--yes") {
 		t.Errorf("delete without --yes: code=%d err=%q", code, stderr)
-	}
-
-	// The commands before ADR 0052 keep working, with a note on stderr.
-	code, out, stderr = cli("secret", "list", "shared-db")
-	if code != 0 || !strings.HasPrefix(out, "NAME") || !strings.Contains(stderr, `is now "armada secret show APP"`) || strings.Contains(out, "note:") {
-		t.Errorf("old secret list: code=%d out=%q err=%q", code, out, stderr)
 	}
 }

@@ -24,61 +24,48 @@ func newJobCommand(g *globals) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "job",
 		Aliases: []string{"jobs"},
-		Short:   "Create, run, and inspect jobs",
-		Long: "Jobs run a container to completion, on demand (`armada job run`) or on a\n" +
-			"schedule. Create one from flags or a spec file (kind: job).",
+		Short:   "Deploy, start, and inspect jobs",
+		Long: "Jobs run a container to completion, on demand (`armada job start`), on a\n" +
+			"schedule, or from a queue. Deploy one from flags or a spec file (kind: job).",
 	}
-	cmd.AddCommand(newJobCreateCommand(g), newJobUpdateCommand(g), newJobListCommand(g), newJobShowCommand(g),
-		newJobRunCommand(g), newLogsCommand(g, true), newJobCancelCommand(g), newJobDeleteCommand(g))
+	cmd.AddCommand(newJobDeployCommand(g), newJobListCommand(g), newJobShowCommand(g),
+		newJobStartCommand(g), newLogsCommand(g, true), newJobCancelCommand(g), newJobDeleteCommand(g))
 	return cmd
 }
 
-func newJobCreateCommand(g *globals) *cobra.Command {
+func newJobDeployCommand(g *globals) *cobra.Command {
 	var d deployFlags
 	cmd := &cobra.Command{
-		Use:   "create NAME [flags] | --file FILE",
-		Short: "Create a job from flags or a spec file",
-		Long: "Create a job from flags, or from a spec file (kind: job) with --file (- for\n" +
-			"stdin). It refuses a name that exists; change a job with `armada job update`.",
-		Example: "  armada job create migrate --image ghcr.io/acme/api:1.4 --command ./migrate --secret-env DATABASE_URL=database-url\n" +
-			"  armada job create report --image ghcr.io/acme/report:2 --schedule \"0 3 * * *\" --time-zone Asia/Jakarta",
+		Use:   "deploy JOB [flags] | --file FILE",
+		Short: "Create or change a job from flags or a spec file",
+		Long: "Create a job, or change one; new runs use the new revision. With flags, only\n" +
+			"what they name changes, and the deploy is refused when another change landed\n" +
+			"since the spec was read; a new job needs --image. With --file (kind: job, -\n" +
+			"for stdin), the file replaces the whole spec. --new refuses a job that\n" +
+			"exists; --diff prints what would change and changes nothing.",
+		Example: "  armada job deploy migrate --image ghcr.io/acme/api:1.4 --command ./migrate --secret-env DATABASE_URL=database-url\n" +
+			"  armada job deploy report --image ghcr.io/acme/report:2 --schedule \"0 3 * * *\" --time-zone Asia/Jakarta\n" +
+			"  armada job deploy --file migrate.yaml --diff",
 		Args: cobra.MaximumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error { return runCreate(cmd, g, args, &d) },
+		RunE: func(cmd *cobra.Command, args []string) error { return runDeploy(cmd, g, args, &d) },
 	}
-	d.registerCreate(cmd, true)
+	d.registerDeploy(cmd, true)
 	return cmd
 }
 
-func newJobUpdateCommand(g *globals) *cobra.Command {
-	var d deployFlags
-	cmd := &cobra.Command{
-		Use:   "update NAME [flags] | --file FILE",
-		Short: "Change a job: some fields with flags, or the whole spec with --file",
-		Long: "Change a job; new runs use the new revision. With flags, only what they name\n" +
-			"changes, and the update is refused when another change landed since the spec\n" +
-			"was read. With --file, the file replaces the whole spec. --diff prints what\n" +
-			"would change and changes nothing; --create-if-missing creates the job when it\n" +
-			"does not exist.",
-		Args: cobra.MaximumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error { return runUpdate(cmd, g, args, &d) },
-	}
-	d.registerUpdate(cmd, true)
-	return cmd
-}
-
-func newJobRunCommand(g *globals) *cobra.Command {
+func newJobStartCommand(g *globals) *cobra.Command {
 	var (
 		wait    bool
 		timeout time.Duration
 	)
 	cmd := &cobra.Command{
-		Use:   "run JOB",
-		Short: "Start a run of a job now; run list lists its runs",
-		Long: "Start a run of a job now.\n\n" +
+		Use:   "start JOB",
+		Short: "Start a run of a job now",
+		Long: "Start a run of a job now. `armada run list JOB` lists its runs.\n\n" +
 			"With --wait the command ends when the run does and fails unless the run\n" +
 			"succeeded, so a script can stop on a failed step such as a migration. A\n" +
 			"run still going after --timeout keeps going; cancel it with `armada job cancel`.",
-		Example: "  armada job run migrate --wait --timeout 5m\n  armada job run list migrate",
+		Example: "  armada job start migrate --wait --timeout 5m\n  armada run list migrate",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := g.qualify(args); err != nil {
@@ -103,6 +90,17 @@ func newJobRunCommand(g *globals) *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&wait, "wait", false, "wait until the run ends; fail unless it succeeded")
 	cmd.Flags().DurationVar(&timeout, "timeout", 15*time.Minute, "how long --wait waits")
+	return cmd
+}
+
+// newRunCommand is the noun of a job's runs.
+func newRunCommand(g *globals) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:     "run",
+		Aliases: []string{"runs"},
+		Short:   "List and show a job's runs",
+		Long:    "A run is one start of a job: now with `armada job start`, on its schedule, or\nfrom its queue. A run with tasks has one attempt per task.",
+	}
 	cmd.AddCommand(newJobRunListCommand(g), newJobRunShowCommand(g))
 	return cmd
 }

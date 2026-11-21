@@ -60,7 +60,7 @@ const (
 	// automatically (see NeedsRenewal).
 	NodeValidity = 30 * 24 * time.Hour
 	// ServiceValidity is the lifetime of service certificates; tools renew
-	// them with `armada rbac service renew`.
+	// them with `armada service renew`.
 	ServiceValidity = 90 * 24 * time.Hour
 	clockSkew       = ClockSkew
 )

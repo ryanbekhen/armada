@@ -19,32 +19,13 @@ Also: `alerts`.
 
 | Command | What it does |
 | --- | --- |
-| [`armada alert channel`](#armada-alert-channel) | Manage where notices go |
+| [`armada alert create`](#armada-alert-create) | Add an alert channel |
+| [`armada alert delete`](#armada-alert-delete) | Delete an alert channel |
+| [`armada alert list`](#armada-alert-list) | List alert channels and how sending went |
 | [`armada alert test`](#armada-alert-test) | Send a test notice to a channel now |
+| [`armada alert update`](#armada-alert-update) | Change an alert channel |
 
-## `armada alert channel`
-
-Alerts tell people about events that need them (ADR 0045): a node lost, a
-replica out of memory or crashing, a failed rollout, job, certificate, or
-backup, and the like. The leader sends a notice to every channel that wants
-the event, and a second one when a lasting condition, such as a lost node,
-is resolved. Repeats within 10 minutes are not sent again, and a channel gets
-at most 20 notices a minute; the rest are summed up in one.
-
-A channel is a JSON webhook, Slack, Discord, Telegram, or email (SMTP). Its
-URL, bot token, or password is read from a file or stdin (-), stored
-encrypted, and never shown. Only cluster admins manage channels.
-
-Also: `channels`.
-
-| Command | What it does |
-| --- | --- |
-| [`armada alert channel create`](#armada-alert-channel-create) | Add an alert channel |
-| [`armada alert channel delete`](#armada-alert-channel-delete) | Delete an alert channel |
-| [`armada alert channel list`](#armada-alert-channel-list) | List alert channels and how sending went |
-| [`armada alert channel update`](#armada-alert-channel-update) | Change an alert channel |
-
-### `armada alert channel create`
+## `armada alert create`
 
 Add an alert channel. Without --reason it gets the events that need a person;
 --reason names others (--reason all for every event). --space keeps only
@@ -61,15 +42,15 @@ URLs must be https://, or http:// to a private IP address. Email uses TLS on
 port 465 and STARTTLS on other ports (plain SMTP only to a private IP).
 
 ```
-armada alert channel create NAME --type TYPE [flags]
+armada alert create NAME --type TYPE [flags]
 ```
 
 Examples:
 
 ```bash
-armada alert channel create ops --type slack --url - < slack-webhook-url
-armada alert channel create oncall --type telegram --chat-id -1001234567890 --token - < bot-token
-armada alert channel create mail --type email --smtp-host smtp.example.com:587 \
+armada alert create ops --type slack --url - < slack-webhook-url
+armada alert create oncall --type telegram --chat-id -1001234567890 --token - < bot-token
+armada alert create mail --type email --smtp-host smtp.example.com:587 \
   --smtp-user alerts@example.com --password - --from alerts@example.com --to ops@example.com < smtp-password
 armada alert test ops
 ```
@@ -90,23 +71,23 @@ Flags:
 | `--type string` | webhook, slack, discord, telegram, or email |
 | `--url string` | file holding the webhook URL (webhook, slack, discord), or - for stdin |
 
-### `armada alert channel delete`
+## `armada alert delete`
 
 Delete an alert channel.
 
 ```
-armada alert channel delete NAME
+armada alert delete NAME
 ```
 
 Also: `rm`.
 
-### `armada alert channel list`
+## `armada alert list`
 
 List alert channels. SENT and FAILED count notices since the current leader
 started; LAST ERROR says why the last notice that failed did.
 
 ```
-armada alert channel list [flags]
+armada alert list [flags]
 ```
 
 Also: `ls`.
@@ -117,21 +98,30 @@ Flags:
 | --- | --- |
 | `-o`, `--output string` | output format: text or json (default `text`) |
 
-### `armada alert channel update`
+## `armada alert test`
+
+Send a test notice to a channel and wait for it, so a wrong URL, token,
+chat, or mail server shows at once.
+
+```
+armada alert test NAME
+```
+
+## `armada alert update`
 
 Change only the fields given; the type stays. An empty --space or --reason
 removes that filter, and --url, --token, or --password replaces the secret.
 
 ```
-armada alert channel update NAME [flags]
+armada alert update NAME [flags]
 ```
 
 Examples:
 
 ```bash
-armada alert channel update ops --space shop,billing --reason Crashed,OutOfMemory
-armada alert channel update ops --reason ''        # back to the default: warnings
-armada alert channel update ops --url - < new-webhook-url
+armada alert update ops --space shop,billing --reason Crashed,OutOfMemory
+armada alert update ops --reason ''        # back to the default: warnings
+armada alert update ops --url - < new-webhook-url
 ```
 
 Flags:
@@ -148,13 +138,4 @@ Flags:
 | `--to strings` | recipients, comma separated (at most 10) |
 | `--token string` | file holding the Telegram bot token, or - for stdin |
 | `--url string` | file holding the webhook URL (webhook, slack, discord), or - for stdin |
-
-## `armada alert test`
-
-Send a test notice to a channel and wait for it, so a wrong URL, token,
-chat, or mail server shows at once.
-
-```
-armada alert test NAME
-```
 

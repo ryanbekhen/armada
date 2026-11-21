@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -38,7 +37,7 @@ var readTerminalSecret = func(cmd *cobra.Command) ([]byte, error) {
 
 var errNotTerminal = errors.New("not a terminal")
 
-// Limits on a file for armada secret import.
+// Limits on an env file for armada secret set and create.
 const (
 	maxEnvKey     = 256
 	maxSecretFile = 16 << 20
@@ -61,7 +60,7 @@ func newSecretCommand(g *globals) *cobra.Command {
 			"  armada secret show db",
 	}
 	cmd.AddCommand(newSecretListCommand(g), newSecretShowCommand(g), newSecretCreateCommand(g), newSecretSetCommand(g),
-		newSecretUnsetCommand(g), newSecretDeleteCommand(g), newSecretImportCommand(g))
+		newSecretUnsetCommand(g), newSecretDeleteCommand(g))
 	return cmd
 }
 
@@ -205,7 +204,7 @@ func newSecretCreateCommand(g *globals) *cobra.Command {
 // setFromEnvFile sets a key of secret for each line of file, keys as
 // written; with create, only when the secret has no keys yet.
 func setFromEnvFile(cmd *cobra.Command, g *globals, secret, file string, create bool) error {
-	entries, err := readSecretFile(cmd, file, false)
+	entries, err := readSecretFile(cmd, file)
 	if err != nil {
 		return err
 	}
@@ -224,42 +223,11 @@ func setFromEnvFile(cmd *cobra.Command, g *globals, secret, file string, create 
 			return fmt.Errorf("secret %s exists; change its keys with armada secret set %s KEY, or --from-env-file", secret, secret)
 		}
 	}
-	return importSecrets(cmd.Context(), client, secret, entries, cmd.OutOrStdout())
+	return setKeys(cmd.Context(), client, secret, entries, cmd.OutOrStdout())
 }
 
-// newSecretImportCommand is the command before ADR 0052, kept working:
-// it turns DATABASE_URL into the key database-url.
-func newSecretImportCommand(g *globals) *cobra.Command {
-	return &cobra.Command{
-		Use:    "import APP FILE",
-		Short:  "Set many keys of an app's secret from a file of KEY=VALUE lines",
-		Hidden: true,
-		Long: "Set many keys of an app's secret from a file of KEY=VALUE lines (- reads\n" +
-			"stdin). DATABASE_URL becomes the key database-url. Nothing rolls out.",
-		Args: cobra.ExactArgs(2),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			moved(cmd, "armada secret import APP FILE", "armada secret set APP --from-env-file FILE (which keeps the keys as written)")
-			if err := g.qualify(args[:1]); err != nil {
-				return err
-			}
-			entries, err := readSecretFile(cmd, args[1], true)
-			if err != nil {
-				return err
-			}
-			defer clearEntries(entries)
-			client, conn, err := dialAdmin(g)
-			if err != nil {
-				return err
-			}
-			defer conn.Close()
-			return importSecrets(cmd.Context(), client, args[0], entries, cmd.OutOrStdout())
-		},
-	}
-}
-
-// readSecretFile reads KEY=VALUE lines from file (- is stdin); with
-// convert, DATABASE_URL becomes the key database-url, as before ADR 0052.
-func readSecretFile(cmd *cobra.Command, file string, convert bool) ([]secretEntry, error) {
+// readSecretFile reads KEY=VALUE lines from file (- is stdin).
+func readSecretFile(cmd *cobra.Command, file string) ([]secretEntry, error) {
 	in := cmd.InOrStdin()
 	if file != "-" {
 		f, err := os.Open(file) //nolint:gosec // the operator chooses the file
@@ -269,7 +237,7 @@ func readSecretFile(cmd *cobra.Command, file string, convert bool) ([]secretEntr
 		defer f.Close()
 		in = f
 	}
-	entries, err := parseSecretFile(in, convert)
+	entries, err := parseSecretFile(in)
 	if err != nil {
 		clearEntries(entries)
 		return nil, fmt.Errorf("%s: %w", file, err)
@@ -286,19 +254,16 @@ func clearEntries(entries []secretEntry) {
 	}
 }
 
-// secretEntry is one line of a file for armada secret import.
+// secretEntry is one line of an env file: a key as written and its value.
 type secretEntry struct {
-	key   string
 	name  string
 	value []byte
 }
 
-var envKeyRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
-
-// parseSecretFile reads KEY=VALUE lines; with convert, DATABASE_URL becomes
-// the key database-url. Errors name a line by its number and never quote it,
-// since a malformed line may well be a secret.
-func parseSecretFile(r io.Reader, convert bool) ([]secretEntry, error) {
+// parseSecretFile reads KEY=VALUE lines, keys kept as written. Errors name a
+// line by its number and never quote it, since a malformed line may well be
+// a secret.
+func parseSecretFile(r io.Reader) ([]secretEntry, error) {
 	sc := bufio.NewScanner(io.LimitReader(r, maxSecretFile+1))
 	sc.Buffer(make([]byte, 0, 64<<10), secrets.MaxSize+maxEnvKey+2)
 	var (
@@ -313,21 +278,15 @@ func parseSecretFile(r io.Reader, convert bool) ([]secretEntry, error) {
 			continue
 		}
 		key, value, ok := bytes.Cut(line, []byte("="))
-		if !ok || (convert && !envKeyRe.Match(key)) || (!convert && spec.ValidateSecretKey(string(key)) != nil) {
+		if !ok || spec.ValidateSecretKey(string(key)) != nil {
 			return nil, fmt.Errorf("line %d: want KEY=VALUE, KEY a variable name or lowercase letters, digits, and hyphens", n)
 		}
 		name := string(key)
-		if convert {
-			name = strings.ReplaceAll(strings.ToLower(name), "_", "-")
-		}
-		if err := spec.ValidateSecretKey(name); err != nil {
-			return nil, fmt.Errorf("line %d: %w", n, err)
-		}
 		if first, dup := byName[name]; dup {
 			return nil, fmt.Errorf("line %d: key %s was already set on line %d", n, name, first)
 		}
 		byName[name] = n
-		out = append(out, secretEntry{key: string(key), name: name, value: bytes.Clone(value)})
+		out = append(out, secretEntry{name: name, value: bytes.Clone(value)})
 	}
 	if err := sc.Err(); err != nil {
 		return nil, fmt.Errorf("a line is larger than %d bytes", secrets.MaxSize)
@@ -338,21 +297,17 @@ func parseSecretFile(r io.Reader, convert bool) ([]secretEntry, error) {
 	return out, nil
 }
 
-// importSecrets sets each key without a rollout. It stops at the first
+// setKeys sets each key without a rollout. It stops at the first
 // failure and says how far it got; running it again is harmless.
-func importSecrets(ctx context.Context, client armadav1.AdminServiceClient, secret string, entries []secretEntry, out io.Writer) error {
+func setKeys(ctx context.Context, client armadav1.AdminServiceClient, secret string, entries []secretEntry, out io.Writer) error {
 	for i, e := range entries {
 		resp, err := client.SetSecret(ctx, &armadav1.SetSecretRequest{App: secret, Name: e.name, Value: e.value})
 		if err != nil {
 			return fmt.Errorf("secret %s (%d of %d set before it): %w", e.name, i, len(entries), RPCError(err))
 		}
-		if e.name == e.key {
-			_, _ = fmt.Fprintf(out, "%s (version %d)\n", e.key, resp.GetVersion())
-		} else {
-			_, _ = fmt.Fprintf(out, "%s -> %s (version %d)\n", e.key, e.name, resp.GetVersion())
-		}
+		_, _ = fmt.Fprintf(out, "%s (version %d)\n", e.name, resp.GetVersion())
 	}
-	_, _ = fmt.Fprintf(out, "Set %d secrets of %s; running replicas get them with the app's next update.\n", len(entries), secret)
+	_, _ = fmt.Fprintf(out, "Set %d keys of %s; running replicas get them with each app's next deploy.\n", len(entries), secret)
 	return nil
 }
 
@@ -401,19 +356,10 @@ func newSecretListCommand(g *globals) *cobra.Command {
 		Short:   "List the secrets of the space (names and key counts only)",
 		Example: "  armada secret list\n" +
 			"  armada secret list -A",
-		// One argument is the command before ADR 0052: an app's keys.
-		Args: cobra.MaximumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			if err := o.check(); err != nil {
 				return err
-			}
-			if len(args) == 1 {
-				moved(cmd, "armada secret list APP", "armada secret show APP")
-				secret, err := g.secretID(args[0])
-				if err != nil {
-					return err
-				}
-				return showSecret(cmd, g, o, secret, "NAME")
 			}
 			client, conn, err := dialAdmin(g)
 			if err != nil {
@@ -485,16 +431,15 @@ func newSecretShowCommand(g *globals) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return showSecret(cmd, g, o, secret, "KEY")
+			return showSecret(cmd, g, o, secret)
 		},
 	}
 	o = addOutput(cmd, false)
 	return cmd
 }
 
-// showSecret prints a secret's keys; head names the first column (NAME
-// for the command before ADR 0052, whose output stays the same).
-func showSecret(cmd *cobra.Command, g *globals, o *outputFlag, secret, head string) error {
+// showSecret prints a secret's keys.
+func showSecret(cmd *cobra.Command, g *globals, o *outputFlag, secret string) error {
 	client, conn, err := dialAdmin(g)
 	if err != nil {
 		return err
@@ -507,11 +452,11 @@ func showSecret(cmd *cobra.Command, g *globals, o *outputFlag, secret, head stri
 	if o.json() {
 		return printJSON(cmd.OutOrStdout(), resp)
 	}
-	if len(resp.GetSecrets()) == 0 && head == "KEY" {
+	if len(resp.GetSecrets()) == 0 {
 		return fmt.Errorf("secret %s has no keys; armada secret list shows the space's secrets", secret)
 	}
 	tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 4, 2, ' ', 0)
-	_, _ = fmt.Fprintln(tw, head+"\tVERSION\tUPDATED\tBY\tUSED BY")
+	_, _ = fmt.Fprintln(tw, "KEY\tVERSION\tUPDATED\tBY\tUSED BY")
 	for _, s := range resp.Secrets {
 		used := usedBy(secret, s.UsedBy)
 		_, _ = fmt.Fprintf(tw, "%s\t%d\t%s\t%s\t%s\n", s.Name, s.Version,
@@ -559,13 +504,8 @@ func newSecretDeleteCommand(g *globals) *cobra.Command {
 		Aliases: []string{"rm"},
 		Short:   "Delete a secret with every key, once no app uses it",
 		Example: "  armada secret delete old-db --yes",
-		// Two arguments are the command before ADR 0052: one key.
-		Args: cobra.RangeArgs(1, 2),
+		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if len(args) == 2 {
-				moved(cmd, "armada secret delete APP NAME", "armada secret unset APP NAME")
-				return unsetKey(cmd, g, args[0], args[1])
-			}
 			secret, err := g.secretID(args[0])
 			if err != nil {
 				return err

@@ -45,7 +45,7 @@ func testSecrets(t *testing.T, d *fake.Driver, cli func(...string) (int, string,
 		"secretFiles:\n  - secretRef: tls-key\n    path: /run/secrets/tls.key\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if code, _, stderr := run("app", "create", "--file", spec); code == 0 || !strings.Contains(stderr, "db-pass, tls-key") || !strings.Contains(stderr, "armada secret set api") {
+	if code, _, stderr := run("app", "deploy", "--new", "--file", spec); code == 0 || !strings.Contains(stderr, "db-pass, tls-key") || !strings.Contains(stderr, "armada secret set api") {
 		t.Fatalf("create with unset secrets: code=%d stderr=%q", code, stderr)
 	}
 
@@ -75,7 +75,7 @@ func testSecrets(t *testing.T, d *fake.Driver, cli func(...string) (int, string,
 	if code, _, stderr := run("secret", "set", "api", "tls-key", "--from-file", keyFile); code != 0 {
 		t.Fatalf("secret set --from-file: %q", stderr)
 	}
-	if code, out, stderr := run("app", "create", "--file", spec, "--wait", "--timeout", "1m"); code != 0 {
+	if code, out, stderr := run("app", "deploy", "--new", "--file", spec, "--wait", "--timeout", "1m"); code != 0 {
 		t.Fatalf("create with secrets: code=%d out=%q err=%q", code, out, stderr)
 	}
 
@@ -111,17 +111,17 @@ func testSecrets(t *testing.T, d *fake.Driver, cli func(...string) (int, string,
 		t.Errorf("after rotation: env = %v, containers = %d", env, len(containersOf(d, "api")))
 	}
 
-	code, out, _ = run("secret", "list", "api")
+	code, out, _ = run("secret", "show", "api")
 	if code != 0 || !regexp.MustCompile(`db-pass\s+2\s+.*user:ryan\s+r1,r2\s*\n`).MatchString(out) || !strings.Contains(out, "tls-key") {
-		t.Errorf("secret list:\n%s", out)
+		t.Errorf("secret show:\n%s", out)
 	}
-	if code, _, stderr := run("secret", "delete", "api", "db-pass"); code == 0 || !strings.Contains(stderr, "used by revision api--r2") {
+	if code, _, stderr := run("secret", "unset", "api", "db-pass"); code == 0 || !strings.Contains(stderr, "used by revision api--r2") {
 		t.Errorf("delete of a secret in use: code=%d stderr=%q", code, stderr)
 	}
 	if code, out, _ := cliIn("x", "secret", "set", "api", "spare", "--no-rollout"); code != 0 || !strings.Contains(out, "version 1") {
 		t.Errorf("set unused secret: %q", out)
 	}
-	if code, _, stderr := run("secret", "rm", "api", "spare"); code != 0 {
+	if code, _, stderr := run("secret", "unset", "api", "spare"); code != 0 {
 		t.Errorf("rm unused secret: %q", stderr)
 	}
 

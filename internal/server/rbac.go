@@ -136,7 +136,7 @@ func (s *Server) IssueUserCertificate(ctx context.Context, req *armadav1.IssuePr
 		return nil, err
 	}
 	if err := notSelf(ctx, store.KindUser, name, "replace the certificate of"); err != nil {
-		return nil, status.Error(codes.InvalidArgument, "renew your own certificate with `armada rbac user renew`")
+		return nil, status.Error(codes.InvalidArgument, "renew your own certificate with `armada user renew`")
 	}
 	if _, err := s.store.GetPrincipal(ctx, store.KindUser, name); err != nil {
 		return nil, storeErr(err)
@@ -206,7 +206,7 @@ func (s *Server) issueService(ctx context.Context, name string, csr []byte, keep
 
 // RenewOwnCertificate gives the calling user or service a new certificate.
 // A service's other certificates are revoked, as a node's are; a user's
-// stay valid until they expire or `rbac user credentials` replaces them.
+// stay valid until they expire or `user credentials` replaces them.
 // User renewals are rate limited per name, and recorded in the same
 // transaction that checks the caller's certificate is still accepted.
 func (s *Server) RenewOwnCertificate(ctx context.Context, req *armadav1.RenewOwnCertificateRequest) (*armadav1.IssueMetricsCertificateResponse, error) {

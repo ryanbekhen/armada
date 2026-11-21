@@ -101,8 +101,9 @@ func NewRootCommand() *cobra.Command {
 		Use:   version.Name,
 		Short: "Manage apps on an Armada cluster",
 		Long: version.Name + " manages apps, jobs, and the cluster they run on. Every command is\n" +
-			"`armada <noun> <verb>`. It talks to the control plane with the credentials in\n" +
-			"--config and needs no root. Machines run `armadad`.",
+			"`armada NOUN VERB`, such as `armada app deploy` or `armada secret set`. It\n" +
+			"talks to the control plane with the credentials in --config and needs no\n" +
+			"root. Machines run `armadad`.",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		PersistentPreRunE: func(*cobra.Command, []string) error {
@@ -115,21 +116,24 @@ func NewRootCommand() *cobra.Command {
 	cmd.PersistentFlags().StringVar(&g.space, "space", os.Getenv("ARMADA_SPACE"), "space to work in")
 	cmd.PersistentFlags().BoolVarP(&g.allSpaces, "all-spaces", "A", false, "every space")
 
-	cmd.AddCommand(
-		newAppCommand(g),
-		newJobCommand(g),
-		newSecretCommand(g),
-		newDomainCommand(g),
-		newVolumeCommand(g),
-		newSpaceCommand(g),
-		newNodeCommand(g),
-		newServerCommand(g),
-		newClusterCommand(g),
-		newAlertCommand(g),
-		newRBACCommand(g),
-		newMetricsCommand(g),
-		NewVersionCommand(serverVersions(g)),
-	)
+	groups := []struct {
+		id, title string
+		cmds      []*cobra.Command
+	}{
+		{"apps", "Apps:", []*cobra.Command{newAppCommand(g), newRevisionCommand(g), newJobCommand(g), newRunCommand(g),
+			newSecretCommand(g), newVolumeCommand(g), newSnapshotCommand(g), newDomainCommand(g)}},
+		{"cluster", "Cluster:", []*cobra.Command{newClusterCommand(g), newNodeCommand(g), newServerCommand(g), newSpaceCommand(g)}},
+		{"access", "Access:", []*cobra.Command{newPrincipalCommand(g, kindUser), newPrincipalCommand(g, kindService), newRoleCommand(g)}},
+		{"monitoring", "Monitoring:", []*cobra.Command{newAlertCommand(g), newMetricsCommand(g), NewVersionCommand(serverVersions(g))}},
+	}
+	for _, gr := range groups {
+		cmd.AddGroup(&cobra.Group{ID: gr.id, Title: gr.title})
+		for _, c := range gr.cmds {
+			c.GroupID = gr.id
+			cmd.AddCommand(c)
+		}
+	}
+	cmd.SetHelpCommandGroupID("monitoring")
 	return cmd
 }
 

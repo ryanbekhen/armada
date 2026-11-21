@@ -51,7 +51,7 @@ func TestClusterSetBackup(t *testing.T) {
 	f := &settingsAdmin{cur: &armadav1.ClusterConfig{BackupEverySeconds: 3600, BackupTimeZone: "Asia/Jakarta"}}
 	cfg := withSettingsFake(t, f)
 	cli := func(args ...string) (int, string, string) {
-		return run(t, append(append([]string{"cluster", "set"}, args...), "--config", cfg)...)
+		return run(t, append(append([]string{"cluster", "update"}, args...), "--config", cfg)...)
 	}
 	dir := t.TempDir()
 	secret := func(name, v string, mode os.FileMode) string {

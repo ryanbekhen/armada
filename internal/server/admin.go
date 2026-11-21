@@ -302,7 +302,7 @@ func (s *Server) previousRevision(ctx context.Context, app store.App) (string, e
 
 // Status reports apps, replicas, and nodes. With an app it reports that app
 // alone, with no nodes, and reads only what the app's answer needs: `armada
-// app update --wait` asks every second.
+// app deploy --wait` asks every second.
 func (s *Server) Status(ctx context.Context, req *armadav1.StatusRequest) (*armadav1.StatusResponse, error) {
 	acc := accessFrom(ctx)
 	if req.GetApp() != "" {
@@ -395,7 +395,7 @@ func (s *Server) appStatus(ctx context.Context, acc access, name string) (*armad
 		return nil, storeErr(err)
 	}
 	if a.Spec.IsJob() {
-		return nil, status.Errorf(codes.FailedPrecondition, "%s is a job; see `armada job run list %s`", a.Name, a.Name)
+		return nil, status.Errorf(codes.FailedPrecondition, "%s is a job; see `armada run list %s`", a.Name, a.Name)
 	}
 	nodes, err := s.store.ListNodes(ctx)
 	if err != nil {
