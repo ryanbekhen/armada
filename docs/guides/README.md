@@ -26,6 +26,7 @@ New to Armada? Read [Concepts](../concepts.md), then
 | --- | --- |
 | [An app with a PostgreSQL database](app-with-a-database.md) | A database with a volume, internal TCP, backups to a bucket, failover, and a restore drill |
 | [Microservices](microservices.md) | Services that talk privately, narrowed callers, a shared cache, teams in spaces |
+| [Secrets shared by several apps](shared-secrets.md) | One secret for an API, its worker, and its jobs; change a value once |
 | [Workers that scale on a queue](background-workers.md) | Scaling on a Redis list or RabbitMQ queue, and jobs started by a queue |
 | [Scheduled jobs](scheduled-jobs.md) | Cron jobs with time zones, retries, history, and one-off tasks |
 | [Shared files over NFS](shared-files-with-nfs.md) | Uploads that every replica, on every node, sees |

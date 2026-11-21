@@ -56,7 +56,8 @@ Flags:
 | `--dns-token-secret string` | app secret holding a Cloudflare API token: the custom domains get certificates through DNS-01 with it instead of HTTP-01 |
 | `--domain stringArray` | custom domain (repeatable) |
 | `--env stringArray` | environment variable NAME=VALUE (repeatable) |
-| `--env-from-secrets` | give every secret of the app as a variable (database-url becomes DATABASE_URL) |
+| `--env-from stringArray` | give every key of a secret of the space as a variable (repeatable; replaces the list; "" clears) |
+| `--env-from-secrets` | give every key of the app's own secret as a variable (database-url becomes DATABASE_URL) |
 | `-f`, `--file string` | spec file, or - for stdin |
 | `--health-path string` | HTTP path that answers when the app is ready (empty to clear) |
 | `--idle-after duration` | with --min 0: stop the last replica after this long without a request, 1m to 24h (0 for the default, 15m) |
@@ -80,7 +81,7 @@ Flags:
 | `--scale-cpu int` | autoscale to this percent of reserved CPU |
 | `--scale-http int` | autoscale to this many concurrent requests per replica |
 | `--scale-memory int` | autoscale to this percent of the memory limit |
-| `--secret-env stringArray` | environment variable NAME=SECRET from a secret of the app (repeatable) |
+| `--secret-env stringArray` | environment variable from a secret: NAME=SECRET/KEY, or NAME=KEY of the app's own secret (repeatable) |
 | `--sticky` | keep each client on the replica that answered it first (--sticky=false to stop) |
 | `--timeout duration` | how long --wait waits (default `15m0s`) |
 | `--var stringArray` | with --file: NAME=VALUE for ${NAME} in the spec (repeatable; wins over --vars) |
@@ -342,7 +343,8 @@ Flags:
 | `--dns-token-secret string` | app secret holding a Cloudflare API token: the custom domains get certificates through DNS-01 with it instead of HTTP-01 |
 | `--domain stringArray` | custom domain (repeatable) |
 | `--env stringArray` | environment variable NAME=VALUE (repeatable) |
-| `--env-from-secrets` | give every secret of the app as a variable (database-url becomes DATABASE_URL) |
+| `--env-from stringArray` | give every key of a secret of the space as a variable (repeatable; replaces the list; "" clears) |
+| `--env-from-secrets` | give every key of the app's own secret as a variable (database-url becomes DATABASE_URL) |
 | `-f`, `--file string` | spec file, or - for stdin |
 | `--health-path string` | HTTP path that answers when the app is ready (empty to clear) |
 | `--idle-after duration` | with --min 0: stop the last replica after this long without a request, 1m to 24h (0 for the default, 15m) |
@@ -366,7 +368,7 @@ Flags:
 | `--scale-cpu int` | autoscale to this percent of reserved CPU |
 | `--scale-http int` | autoscale to this many concurrent requests per replica |
 | `--scale-memory int` | autoscale to this percent of the memory limit |
-| `--secret-env stringArray` | environment variable NAME=SECRET from a secret of the app (repeatable) |
+| `--secret-env stringArray` | environment variable from a secret: NAME=SECRET/KEY, or NAME=KEY of the app's own secret (repeatable) |
 | `--sticky` | keep each client on the replica that answered it first (--sticky=false to stop) |
 | `--timeout duration` | how long --wait waits (default `15m0s`) |
 | `--var stringArray` | with --file: NAME=VALUE for ${NAME} in the spec (repeatable; wins over --vars) |

@@ -8,7 +8,7 @@ once an app has more than one place to run.
 **You will use:** [spec variables](../spec-reference.md#variables)
 (`--vars`, `--var`), [spaces](../operations.md#spaces)
 (`--space`, `armada space use`), [secrets](../cli/armada-secret.md)
-(`armada secret set`, `armada secret import`),
+(`armada secret set`, `--from-env-file`),
 [`envFrom: secrets`](../spec-reference.md#envfrom),
 [`secretFiles`](../spec-reference.md#secretfiles),
 [`armada app update`](../cli/armada-app.md#armada-app-update) with
@@ -169,35 +169,37 @@ STRIPE_API_KEY=sk_test_51...
 ```
 
 ```bash
-armada secret import api staging.secrets.env --space staging
+armada secret set api --from-env-file staging.secrets.env --space staging
 armada secret set api jwt-signing-key --from-file jwt-staging.pem --space staging
-armada secret list api --space staging
+armada secret show api --space staging
 ```
 
 ```
-NAME             VERSION  UPDATED              BY        USED BY
-database-url     1        2026-11-10 09:12:04  user:you  -
+KEY              VERSION  UPDATED              BY        USED BY
+DATABASE_URL     1        2026-11-10 09:12:04  user:you  -
+REDIS_URL        1        2026-11-10 09:12:04  user:you  -
+STRIPE_API_KEY   1        2026-11-10 09:12:04  user:you  -
 jwt-signing-key  1        2026-11-10 09:12:09  user:you  -
-redis-url        1        2026-11-10 09:12:04  user:you  -
-stripe-api-key   1        2026-11-10 09:12:04  user:you  -
 ```
 
-- `secret import` turns `DATABASE_URL` into the secret `database-url`. A
-  value is everything after the first `=`, kept exactly, quotes included.
+- These are keys of the secret `api`, the one named after the app, which
+  its spec reads without naming a secret. `--from-env-file` sets a key for
+  each line, as written. A value is everything after the first `=`, kept
+  exactly, quotes included.
 - `secret set` reads the value from stdin, a hidden prompt, or
   `--from-file` (the file's bytes, exactly). Values are never accepted as
   arguments, because they would end up in your shell history.
-- Values are never shown again. `secret list` shows names and versions.
+- Values are never shown again. `secret show` lists keys and versions.
 
 Do the same for production with its own values and `--space production`.
 
 ### How the app gets them
 
-- **`envFrom: secrets`** gives the app every secret as a variable: its
-  name in capitals with `_` for `-`, so `database-url` becomes
-  `DATABASE_URL`. A variable that `env` sets itself wins, and secrets used
-  in `secretFiles` or `registry` are left out, so `jwt-signing-key` is not
-  also an environment variable.
+- **`envFrom: secrets`** gives the app every key of its own secret as a
+  variable: `DATABASE_URL` stays as it is, and a key written like
+  `jwt-signing-key` would become `JWT_SIGNING_KEY`. A variable that `env`
+  sets itself wins, and keys used in `secretFiles` or `registry` are left
+  out, so `jwt-signing-key` is not also an environment variable.
 - **`secretFiles`** mounts a secret read-only at a path, on tmpfs. Prefer
   files for keys and certificates: environment variables are visible to
   anyone with root on the node.
@@ -206,7 +208,7 @@ Do the same for production with its own values and `--space production`.
   ```yaml
   env:
     - name: DB_URL
-      secretRef: database-url
+      secretRef: DATABASE_URL
   ```
 
 A deploy pins the secret versions it uses, so a rollback brings back the
@@ -283,8 +285,7 @@ the app runs. When the only change is the tag, as here, nobody changed the
 app behind your back. Deploy without `--diff`, test, then run the same for
 production.
 
-A secret you changed with `secret import` reaches the app with this
-deploy. `secret set` on a secret the app already uses rolls the app out by
+A key you set with `--from-env-file` reaches the app with this deploy. `secret set` on a secret the app already uses rolls the app out by
 itself (`--no-rollout` stores it for the next deploy). A secret that is new
 since the last deploy becomes a variable through `envFrom` only with the
 next deploy.
@@ -359,7 +360,7 @@ Without them, the spec is taken as written.
 | `app api.staging references secrets that are not set: jwt-signing-key` | The spec names a secret the app does not have in this space | `armada secret set api jwt-signing-key --space staging` |
 | `api.production does not exist: create it with armada app create, or pass --create-if-missing` | First deploy to this space | Add `--create-if-missing` |
 | `domain api.example.com is used by space staging` | A domain belongs to one space | Use a different domain per environment |
-| The app does not see a new secret | `secret import` does not roll out, and `envFrom` takes the list at deploy | Deploy again (the same file and tag is fine) |
+| The app does not see a new secret | `--from-env-file` does not roll out, and `envFrom` takes the list at deploy | Deploy again (the same file and tag is fine) |
 | `armada app list` shows nothing | You are in another space | `armada space list`, `--space NAME`, or `armada app list -A` |
 | Replicas fail to start with a message about the secrets directory | The node's secrets directory is not on tmpfs, so `secretFiles` cannot be written | Run `armadad doctor` on that node and fix the `FAIL` |
 

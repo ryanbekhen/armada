@@ -19,8 +19,11 @@ env:
   - name: LOG_LEVEL
     value: info
   - name: DATABASE_URL
-    secretRef: database-url       # from `armada secret set web database-url`
-envFrom: secrets                  # optional: every other secret of the app as a variable
+    secretRef: db/DATABASE_URL    # key DATABASE_URL of the space's secret db
+  - name: API_TOKEN
+    secretRef: api-token          # no secret named: a key of the secret web, the app's own
+envFrom:                          # optional: every key of these secrets as a variable
+  - secret: mail
 secretFiles:
   - secretRef: tls-client-key
     path: /run/secrets/client.key # read-only file on tmpfs
@@ -74,8 +77,8 @@ spec the app runs. Everything else is written in a file.
 | `--port`, `--ingress external\|internal\|none` | `ingress.port`, `ingress.type` |
 | `--protocol http\|tcp` | `ingress.protocol` |
 | `--domain D` (repeatable), `--remove-domain D` | `ingress.domains` |
-| `--env K=V`, `--secret-env K=SECRET`, `--remove-env K` | `env` |
-| `--env-from-secrets[=false]` | `envFrom` |
+| `--env K=V`, `--secret-env K=SECRET/KEY` (or `K=KEY` of the app's own secret), `--remove-env K` | `env` |
+| `--env-from SECRET` (repeatable; replaces the list), `--env-from-secrets[=false]` (the app's own secret) | `envFrom` |
 | `--command`, `--args` (one word per flag, repeated: `--args --port --args 80`) | `command`, `args` |
 | `--min N` | `scale.min`: a fixed count without rules, the lower bound with them |
 | `--max N`, `--scale-cpu P`, `--scale-memory P`, `--scale-http N` | `scale.max` and one rule (`--max` needs a rule) |
@@ -87,7 +90,7 @@ spec the app runs. Everything else is written in a file.
 | `--registry-user U --registry-secret S` | `registry` (the server is the image's registry) |
 
 `armada job create` and `armada job update` take `--image`, `--command`,
-`--args`, `--env`, `--secret-env`, `--remove-env`, `--env-from-secrets`,
+`--args`, `--env`, `--secret-env`, `--remove-env`, `--env-from`, `--env-from-secrets`,
 `--cpu`, `--memory`, `--registry-user`, `--registry-secret`, and the job
 fields `--schedule`, `--time-zone`, `--timeout`, `--retries`, and
 `--concurrency`.
@@ -163,30 +166,58 @@ image's entrypoint, `args` its default arguments.
 
 Up to 512 variables. A name is `[A-Za-z_][A-Za-z0-9_]*` and must not start
 with `ARMADA_`; `PORT` is reserved too, Armada sets it to `ingress.port`. Each entry has either `value` (at most 32 KiB) or
-`secretRef`, the name of a secret of this app.
+`secretRef`, a key of a secret (see [Secret references](#secret-references)).
 
 Environment variables are visible to anyone with root on the node (in the
 container runtime's metadata). Prefer `secretFiles` for sensitive values.
 
+### Secret references
+
+A secret is a named set of keys in a space, shared by every app and job of
+the space ([ADR 0052](adr/0052-flat-commands-and-space-secrets.md)). Every
+field that names a secret (`env[].secretRef`, `secretFiles[].secretRef`,
+`registry.passwordSecretRef`, `urlSecretRef`, `keySecretRef`,
+`tokenSecretRef`) takes one of two forms:
+
+| Form | Names |
+| --- | --- |
+| `SECRET/KEY` (`db/DATABASE_URL`) | the key `KEY` of the secret `SECRET` of the app's space |
+| `KEY` (`database-url`) | the key `KEY` of the secret named after the app or job, its own |
+
+A key is a variable name (`DATABASE_URL`) or lowercase letters, digits, and
+hyphens (`database-url`). A secret of another space is never reachable.
+The revision pins the version of every key it uses, so a rollback brings
+back the values it ran with.
+
 ### `envFrom`
 
-`envFrom: secrets` gives the app every secret it has as a variable, so a
-file imported with `armada secret import web .env` needs no `env` list. A
-secret's variable is its name in capitals with `_` for `-`
-(`database-url` becomes `DATABASE_URL`). Left out:
+`envFrom` turns every key of some secrets into variables, so a secret made
+with `armada secret create db --from-env-file db.env` needs no `env` list:
 
-- variables `env` sets itself (they win);
-- secrets the spec uses in `secretFiles` or `registry`;
+```yaml
+envFrom:
+  - secret: db
+  - secret: mail
+```
+
+`envFrom: secrets` does the same for the app's own secret. A key written
+like `database-url` becomes `DATABASE_URL`; any other key is used as it is.
+Left out:
+
+- variables `env` sets itself (they win), then keys of a secret listed
+  earlier;
+- keys the spec uses in `secretFiles`, `registry`, backups, or `ingress.dns`;
 - names that are reserved (`PORT`, `ARMADA_...`) or not valid variable
-  names (a secret starting with a digit).
+  names (a key starting with a digit).
 
-The list is taken when you deploy and kept in the revision, like the secret
-versions: a secret set later reaches the app with its next deploy, and a
+At most 16 secrets. Every listed secret must have a key when you deploy.
+The list is taken when you deploy and kept in the revision, like the key
+versions: a key set later reaches the app with its next deploy, and a
 rollback brings back the variables of that revision.
 
 ### `secretFiles`
 
-Each entry mounts the secret `secretRef` read-only at `path`, an absolute
+Each entry mounts the key `secretRef` ([a reference](#secret-references)) read-only at `path`, an absolute
 path of letters, digits, `.`, `_`, `-`, and `/`. `/etc/hosts`,
 `/etc/hostname`, `/etc/resolv.conf` and anything under `/proc`, `/sys`, or
 `/dev` are refused. The node must have its secrets directory on tmpfs (see

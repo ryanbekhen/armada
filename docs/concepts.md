@@ -134,12 +134,23 @@ Every cluster has `default`; create others for environments or teams.
 
 ## Secrets
 
-Secrets belong to an app, are encrypted at rest, and have versions. A spec
-uses them by name, as an environment variable (`secretRef`) or a file
-(`secretFiles`); `envFrom: secrets` turns every secret of the app into a
-variable. Values never appear in output, logs, or events, and are read
-from stdin or a file, never from a command line. Changing a secret rolls
-the app out with the new version, unless you ask it not to.
+A **secret** is a named set of keys in a space, encrypted at rest, each
+key with its versions. Every app and job of the space can use it: a spec
+names a key as `SECRET/KEY`, as an environment variable (`secretRef`) or a
+file (`secretFiles`), and `envFrom` turns every key of a secret into a
+variable. The secret named after an app is that app's own, and a reference
+with no secret (`secretRef: database-url`) names one of its keys. A
+revision pins the version of every key it uses. Values never appear in
+output, logs, or events, and are read from stdin or a file, never from a
+command line. Changing a key rolls out every app that uses it, unless you
+ask it not to.
+
+```bash
+armada secret create db --from-env-file db.env   # DATABASE_URL=..., PASSWORD=...
+armada secret set db PASSWORD < password.txt
+armada secret list                               # the space's secrets and who uses them
+armada secret show db                            # keys, versions, revisions
+```
 
 ## Volumes
 

@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-10-31
+- Amended by: [0052](0052-flat-commands-and-space-secrets.md) (secrets belong to a space; an app's secrets are the keys of the secret named after it)
 
 ## Context
 

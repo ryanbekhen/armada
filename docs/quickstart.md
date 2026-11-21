@@ -400,7 +400,7 @@ certificates of their own.
 | Scale | `armada app update hello --min 3` (a fixed 3); `--min 1 --max 5 --scale-cpu 70` scales with load |
 | Scale with load | `armada app update hello --min 2 --max 10 --scale-http 50` (or `--scale-cpu 70`, `--scale-memory 80`; see [spec reference](spec-reference.md#autoscaling)); `scale.min: 0` in the spec stops idle apps until the next request ([scale to zero](spec-reference.md#scale-to-zero)) |
 | Environment | `armada app update hello --env LOG_LEVEL=debug`, `--remove-env LOG_LEVEL` |
-| Secrets | `armada secret set hello api-key < key.txt`, or `armada secret import hello .env` for many (`API_KEY` becomes `api-key`), then `armada app update hello --secret-env API_KEY=api-key` (or `--env-from-secrets` for all of them) |
+| Secrets | `armada secret set hello API_KEY < key.txt`, then `armada app update hello --secret-env API_KEY=hello/API_KEY`; or `armada secret create shared --from-env-file .env` and `armada app update hello --env-from shared` for every key, shared with the space's other apps |
 | Custom domain | `armada app update hello --domain www.example.com`, publish the TXT record `armada domain list` prints, run `armada domain verify www.example.com` |
 | Internal service | `--ingress internal`; other containers call `http://<app>.internal` |
 | Keep data | add `volumes` to the spec file (one replica, bound to its node; see [spec reference](spec-reference.md#volumes)); `armada volume list`, `armada volume backup hello data -o -` |

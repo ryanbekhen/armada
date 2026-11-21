@@ -53,7 +53,8 @@ Flags:
 | `--concurrency string` | when a run is due while one runs: forbid or replace |
 | `--cpu string` | CPU reserved and its limit, e.g. 250m or 1 |
 | `--env stringArray` | environment variable NAME=VALUE (repeatable) |
-| `--env-from-secrets` | give every secret of the job as a variable (database-url becomes DATABASE_URL) |
+| `--env-from stringArray` | give every key of a secret of the space as a variable (repeatable; replaces the list; "" clears) |
+| `--env-from-secrets` | give every key of the job's own secret as a variable (database-url becomes DATABASE_URL) |
 | `-f`, `--file string` | spec file, or - for stdin |
 | `--image string` | container image |
 | `--memory string` | memory limit, e.g. 256Mi |
@@ -63,7 +64,7 @@ Flags:
 | `--remove-env stringArray` | remove an environment variable (repeatable) |
 | `--retries int` | attempts after a failed one |
 | `--schedule string` | cron schedule that starts runs, e.g. "0 3 * * *" (empty to clear) |
-| `--secret-env stringArray` | environment variable NAME=SECRET from a secret of the job (repeatable) |
+| `--secret-env stringArray` | environment variable from a secret: NAME=SECRET/KEY, or NAME=KEY of the job's own secret (repeatable) |
 | `--tasks int` | split each run into this many tasks, each told its index in ARMADA_JOB_TASK (0 or 1 for one) |
 | `--time-zone string` | time zone of the schedule, e.g. Asia/Jakarta |
 | `--timeout duration` | how long one attempt may run |
@@ -217,7 +218,8 @@ Flags:
 | `--create-if-missing` | create the job when it does not exist |
 | `--diff` | print what would change and change nothing |
 | `--env stringArray` | environment variable NAME=VALUE (repeatable) |
-| `--env-from-secrets` | give every secret of the job as a variable (database-url becomes DATABASE_URL) |
+| `--env-from stringArray` | give every key of a secret of the space as a variable (repeatable; replaces the list; "" clears) |
+| `--env-from-secrets` | give every key of the job's own secret as a variable (database-url becomes DATABASE_URL) |
 | `-f`, `--file string` | spec file, or - for stdin |
 | `--image string` | container image |
 | `--memory string` | memory limit, e.g. 256Mi |
@@ -227,7 +229,7 @@ Flags:
 | `--remove-env stringArray` | remove an environment variable (repeatable) |
 | `--retries int` | attempts after a failed one |
 | `--schedule string` | cron schedule that starts runs, e.g. "0 3 * * *" (empty to clear) |
-| `--secret-env stringArray` | environment variable NAME=SECRET from a secret of the job (repeatable) |
+| `--secret-env stringArray` | environment variable from a secret: NAME=SECRET/KEY, or NAME=KEY of the job's own secret (repeatable) |
 | `--tasks int` | split each run into this many tasks, each told its index in ARMADA_JOB_TASK (0 or 1 for one) |
 | `--time-zone string` | time zone of the schedule, e.g. Asia/Jakarta |
 | `--timeout duration` | how long one attempt may run |
