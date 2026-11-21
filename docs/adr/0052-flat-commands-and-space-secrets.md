@@ -226,9 +226,10 @@ secretFiles:
     secretRef: tls/key
 ```
 
-Under `envFrom`, a key that is a valid variable name is used as it is; any
-other key becomes a variable as today (`database-url` becomes
-`DATABASE_URL`). Variables the spec sets in `env` win, as today.
+Under `envFrom`, a key written like today's secret names (lowercase,
+digits, hyphens) becomes a variable as today (`database-url` becomes
+`DATABASE_URL`); any other key is used as it is (`DATABASE_URL`). Variables
+the spec sets in `env` win, as today.
 
 A revision pins the version of every key it uses, as it pins secret
 versions today, so a rollback brings back the values it ran with. Setting
@@ -300,26 +301,28 @@ until 1.0; their removal is announced in the release notes of the
 pre-release before it.
 
 **Old clients and old servers keep working.** The API keeps `SetSecret`,
-`ListSecrets`, and `DeleteSecret` with today's meaning (an app's secret is
-a key of the secret named after it), so an older client works against a
-newer cluster. Secrets of a space come through new RPCs (`CreateSecret`,
-`SetSecretKey`, `UnsetSecretKey`, `ShowSecret`, `ListSpaceSecrets`,
-`DeleteSpaceSecret`); a newer client facing an older server gets
-`Unimplemented` and says the servers need upgrading first. The agent
-protocol does not change: the leader still sends each node the opened
-values.
+`ListSecrets`, and `DeleteSecret`; their `app` field names a secret by the
+same ID an app has (`NAME`, or `NAME.SPACE` in another space), so an app's
+secret is the secret with the app's ID and an older client works against a
+newer cluster unchanged. Two RPCs are new: `ListSpaceSecrets` lists a
+space's secrets, and `DeleteSecret` with `whole` deletes every key of one;
+a newer client facing an older server gets `Unimplemented` or a refusal
+and says the servers need upgrading first. The agent protocol does not
+change: the leader still sends each node the opened values.
 
-**A rolling upgrade keeps serving.** Secrets move under a new etcd schema
-(15) with a migration (ADR 0012) that runs once every server runs the new
-binary: each app's secrets, with every version and the last version
-number, become the keys of the secret named after it, and each revision's
-pins are rewritten to name them. Until it has run, the new RPCs answer
-`FailedPrecondition` and say which servers still run an older version;
-everything else keeps working as before. As with every schema change, a
-server never runs an older binary on a migrated keyspace; going back means
-restoring a backup taken before.
+**A rolling upgrade keeps serving.** Secrets are already stored under
+their app's ID, key by key (`secrets/<ID>/<key>/<version>`), which is
+exactly where the secret with that ID keeps its keys, and revisions already
+pin each reference by its text. So no record is rewritten. A new etcd
+schema (15, ADR 0012) only stops older servers from leading once every
+server runs the new binary, since they would read a `SECRET/KEY` pin as a
+key of the app's own secret. Until then, a deploy that references another
+secret or lists secrets under `envFrom` is refused with a message that says
+so; everything else keeps working as before. As with every schema change,
+a server never runs an older binary once the keyspace is at the new
+schema; going back means restoring a backup taken before.
 
-**Upgrading restarts nothing.** The migration changes no value, no
+**Upgrading restarts nothing.** The upgrade changes no value, no
 variable name, no file path, and no revision: what the leader sends each
 node for every replica is the same before and after it, so no agent sees a
 changed spec, no container is recreated, and no rollout starts. Revision
@@ -356,7 +359,7 @@ upgrade before the release.
 
 Each step is its own pull request, with its documents:
 
-1. Space secrets: schema 15, migration, new RPCs, `SECRET/KEY`
+1. Space secrets: schema 15, the two RPCs, `SECRET/KEY`
    references, `envFrom` list form, `secret` commands, and the upgrade
    test above.
 2. Flat commands: the new nouns and verbs, hidden old commands with
