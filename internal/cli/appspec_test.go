@@ -66,7 +66,7 @@ func (f *fakeAdmin) Deploy(_ context.Context, req *armadav1.DeployRequest, _ ...
 	_, exists := f.specs[id]
 	switch {
 	case req.MustCreate && exists:
-		return nil, status.Errorf(codes.AlreadyExists, "%s exists; change it with update", id)
+		return nil, status.Errorf(codes.AlreadyExists, "%s exists; deploy it without --new to change it", id)
 	case req.MustExist && !exists:
 		return nil, status.Errorf(codes.NotFound, "app %s: not found", id)
 	case req.BaseRevision != "" && exists && req.BaseRevision != f.rev(id):
@@ -131,7 +131,7 @@ func TestAppCreateAndUpdateFromFlags(t *testing.T) {
 	cfg := withFake(t, f)
 	cli := func(args ...string) (int, string, string) { return run(t, append(args, "--config", cfg)...) }
 
-	code, out, stderr := cli("app", "create", "hello", "--image", "traefik/whoami:v1.10", "--port", "80", "--ingress", "external",
+	code, out, stderr := cli("app", "deploy", "--new", "hello", "--image", "traefik/whoami:v1.10", "--port", "80", "--ingress", "external",
 		"--min", "2", "--env", "A=1", "--secret-env", "DB=db-url", "--health-path", "/healthz", "--memory", "128Mi")
 	if code != 0 || out != "Created hello (revision hello--r1).\n" {
 		t.Fatalf("create: %d %q %q", code, out, stderr)
@@ -139,12 +139,12 @@ func TestAppCreateAndUpdateFromFlags(t *testing.T) {
 	if d := f.deploys[0]; !d.MustCreate || d.MustExist || d.BaseRevision != "" {
 		t.Errorf("create sent %+v", d)
 	}
-	if code, _, stderr := cli("app", "create", "hello", "--image", "nginx:1"); code == 0 || !strings.Contains(stderr, "hello exists") {
+	if code, _, stderr := cli("app", "deploy", "--new", "hello", "--image", "nginx:1"); code == 0 || !strings.Contains(stderr, "hello exists") {
 		t.Errorf("create twice: %d %q", code, stderr)
 	}
 
 	// One flag changes one field; the rest stays.
-	code, out, stderr = cli("app", "update", "hello", "--image", "traefik/whoami:v1.11", "--port", "8080")
+	code, out, stderr = cli("app", "deploy", "hello", "--image", "traefik/whoami:v1.11", "--port", "8080")
 	if code != 0 || out != "Updated hello (revision hello--r2).\n" {
 		t.Fatalf("update: %d %q %q", code, out, stderr)
 	}
@@ -161,23 +161,23 @@ func TestAppCreateAndUpdateFromFlags(t *testing.T) {
 		sp.Probes.Readiness.Path != "/healthz" || sp.Probes.Readiness.Port != 8080 || sp.Resources.Memory != "128Mi" {
 		t.Errorf("after update:\n%s", f.specs["hello"])
 	}
-	if code, out, _ := cli("app", "update", "hello", "--image", "traefik/whoami:v1.11"); code != 0 || out != "hello is unchanged (revision hello--r2).\n" {
+	if code, out, _ := cli("app", "deploy", "hello", "--image", "traefik/whoami:v1.11"); code != 0 || out != "hello is unchanged (revision hello--r2).\n" {
 		t.Errorf("no-op update: %d %q", code, out)
 	}
 	// Each --args is one argument, kept as written: commas stay.
-	if code, _, stderr := cli("app", "update", "hello", "--args", "--hosts=a,b", "--args", "two words"); code != 0 {
+	if code, _, stderr := cli("app", "deploy", "hello", "--args", "--hosts=a,b", "--args", "two words"); code != 0 {
 		t.Fatalf("update args: %s", stderr)
 	}
 	if sp, _ := spec.Parse([]byte(f.specs["hello"])); len(sp.Args) != 2 || sp.Args[0] != "--hosts=a,b" || sp.Args[1] != "two words" {
 		t.Errorf("args: %q", sp.Args)
 	}
-	if code, _, _ := cli("app", "update", "hello", "--args", ""); code != 0 {
+	if code, _, _ := cli("app", "deploy", "hello", "--args", ""); code != 0 {
 		t.Fatal("clearing args failed")
 	}
 	if sp, _ := spec.Parse([]byte(f.specs["hello"])); len(sp.Args) != 0 {
 		t.Errorf("args not cleared: %q", sp.Args)
 	}
-	if code, _, _ := cli("app", "update", "hello", "--remove-env", "A", "--env", "C=3", "--min", "1", "--max", "4", "--scale-cpu", "70"); code != 0 {
+	if code, _, _ := cli("app", "deploy", "hello", "--remove-env", "A", "--env", "C=3", "--min", "1", "--max", "4", "--scale-cpu", "70"); code != 0 {
 		t.Fatal("update env and scale failed")
 	}
 	sp, _ = spec.Parse([]byte(f.specs["hello"]))
@@ -187,37 +187,38 @@ func TestAppCreateAndUpdateFromFlags(t *testing.T) {
 
 	// Another change landing in between is not lost.
 	f.beforeDeploy = func() { f.revs["hello"]++ }
-	if code, _, stderr := cli("app", "update", "hello", "--image", "nginx:1"); code == 0 || !strings.Contains(stderr, "changed since hello--r") {
+	if code, _, stderr := cli("app", "deploy", "hello", "--image", "nginx:1"); code == 0 || !strings.Contains(stderr, "changed since hello--r") {
 		t.Errorf("stale update: %d %q", code, stderr)
 	}
 	f.beforeDeploy = nil
 
 	for args, want := range map[string]string{
-		"app update ghost --image nginx:1":                               "does not exist",
-		"app update hello":                                               "nothing to change",
-		"app update hello --replicas 2":                                  "unknown flag: --replicas",
-		"app update hello --min 1 --max 3 --scale-cpu 50 --scale-http 9": "give one of",
-		"app create hi --image nginx:1 --var A=1":                        "--vars and --var",
-		"app create hi --image nginx:1 --file x.yaml":                    "either --file or flags",
-		"app create hi --port 80":                                        "--image is required",
-		"app update hello --env NOEQUALS":                                "--env: want NAME=VALUE",
-		"app update hello --remove-env NOPE":                             "no such variable",
-		"job update hello --retries 2":                                   "hello is an app, not a job",
+		"app deploy ghost --port 80":                                     "creating it needs --image",
+		"app deploy --new --diff hi --image nginx:1":                     "--new and --diff",
+		"app deploy hello":                                               "nothing to change",
+		"app deploy hello --replicas 2":                                  "unknown flag: --replicas",
+		"app deploy hello --min 1 --max 3 --scale-cpu 50 --scale-http 9": "give one of",
+		"app deploy --new hi --image nginx:1 --var A=1":                  "--vars and --var",
+		"app deploy --new hi --image nginx:1 --file x.yaml":              "either --file or flags",
+		"app deploy --new hi --port 80":                                  "--image is required",
+		"app deploy hello --env NOEQUALS":                                "--env: want NAME=VALUE",
+		"app deploy hello --remove-env NOPE":                             "no such variable",
+		"job deploy hello --retries 2":                                   "hello is an app, not a job",
 	} {
 		if code, _, stderr := cli(strings.Fields(args)...); code == 0 || !strings.Contains(stderr, want) {
 			t.Errorf("%s: %d %q, want %q", args, code, stderr, want)
 		}
 	}
-	if code, _, stderr := cli("app", "update", "hello", "--env", "TOKEN=s3cret-value", "--port", "0"); code == 0 || strings.Contains(stderr, "s3cret-value") {
+	if code, _, stderr := cli("app", "deploy", "hello", "--env", "TOKEN=s3cret-value", "--port", "0"); code == 0 || strings.Contains(stderr, "s3cret-value") {
 		t.Errorf("invalid update: %d %q", code, stderr)
 	}
 }
 
-func TestAppUpdateFileDiffAndCreateIfMissing(t *testing.T) {
+func TestAppDeployFileDiffAndCreate(t *testing.T) {
 	f := newFakeAdmin()
 	cfg := withFake(t, f)
 	cli := func(args ...string) (int, string, string) { return run(t, append(args, "--config", cfg)...) }
-	if code, _, stderr := cli("app", "create", "web", "--image", "nginx:1.27", "--port", "80", "--ingress", "internal", "--env", "A=1"); code != 0 {
+	if code, _, stderr := cli("app", "deploy", "--new", "web", "--image", "nginx:1.27", "--port", "80", "--ingress", "internal", "--env", "A=1"); code != 0 {
 		t.Fatal(stderr)
 	}
 	file := filepath.Join(t.TempDir(), "web.yaml")
@@ -227,16 +228,16 @@ func TestAppUpdateFileDiffAndCreateIfMissing(t *testing.T) {
 
 	// --diff prints the change and deploys nothing.
 	before := len(f.deploys)
-	code, out, stderr := cli("app", "update", "web", "--file", file, "--diff")
+	code, out, stderr := cli("app", "deploy", "web", "--file", file, "--diff")
 	if code != 0 || !strings.Contains(out, "- image: nginx:1.27\n") || !strings.Contains(out, "+ image: nginx:1.28\n") || !strings.Contains(out, "-   - name: A\n") || len(f.deploys) != before {
 		t.Errorf("--diff: %d %q %q", code, out, stderr)
 	}
-	if _, out, _ := cli("app", "update", "web", "--image", "nginx:1.27", "--diff"); out != "No changes.\n" {
+	if _, out, _ := cli("app", "deploy", "web", "--image", "nginx:1.27", "--diff"); out != "No changes.\n" {
 		t.Errorf("--diff without changes = %q", out)
 	}
 
 	// --file replaces the whole spec: A is gone.
-	if code, out, stderr := cli("app", "update", "web", "--file", file); code != 0 || out != "Updated web (revision web--r2).\n" {
+	if code, out, stderr := cli("app", "deploy", "web", "--file", file); code != 0 || out != "Updated web (revision web--r2).\n" {
 		t.Fatalf("update --file: %d %q %q", code, out, stderr)
 	}
 	if d := f.deploys[len(f.deploys)-1]; !d.MustExist || d.BaseRevision != "" {
@@ -245,25 +246,25 @@ func TestAppUpdateFileDiffAndCreateIfMissing(t *testing.T) {
 	if strings.Contains(f.specs["web"], "name: A") || !strings.Contains(f.specs["web"], "nginx:1.28") {
 		t.Errorf("after update --file:\n%s", f.specs["web"])
 	}
-	if code, _, stderr := cli("app", "update", "other", "--file", file); code == 0 || !strings.Contains(stderr, "names web, not other") {
+	if code, _, stderr := cli("app", "deploy", "other", "--file", file); code == 0 || !strings.Contains(stderr, "names web, not other") {
 		t.Errorf("update --file with another name: %d %q", code, stderr)
 	}
 
-	// --create-if-missing creates, from flags or a file.
-	if code, _, stderr := cli("app", "update", "api", "--image", "nginx:1"); code == 0 || !strings.Contains(stderr, "does not exist") {
-		t.Errorf("update of a missing app: %d %q", code, stderr)
-	}
-	if code, out, stderr := cli("app", "update", "api", "--image", "nginx:1", "--create-if-missing"); code != 0 || out != "Created api (revision api--r1).\n" {
-		t.Errorf("update --create-if-missing: %d %q %q", code, out, stderr)
+	// deploy creates what does not exist, from flags or a file.
+	if code, out, stderr := cli("app", "deploy", "api", "--image", "nginx:1"); code != 0 || out != "Created api (revision api--r1).\n" {
+		t.Errorf("deploy of a missing app: %d %q %q", code, out, stderr)
 	}
 	if d := f.deploys[len(f.deploys)-1]; !d.MustCreate {
-		t.Errorf("--create-if-missing sent %+v", d)
+		t.Errorf("deploy of a missing app sent %+v", d)
+	}
+	if code, _, stderr := cli("app", "deploy", "--new", "api", "--image", "nginx:1"); code == 0 || !strings.Contains(stderr, "exists") {
+		t.Errorf("deploy --new of an app that exists: %d %q", code, stderr)
 	}
 	other := filepath.Join(t.TempDir(), "worker.yaml")
 	if err := os.WriteFile(other, []byte("name: worker\nimage: busybox:1\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if code, out, stderr := cli("app", "update", "--file", other, "--create-if-missing"); code != 0 || out != "Created worker (revision worker--r1).\n" {
+	if code, out, stderr := cli("app", "deploy", "--file", other); code != 0 || out != "Created worker (revision worker--r1).\n" {
 		t.Errorf("update --file --create-if-missing: %d %q %q", code, out, stderr)
 	}
 
@@ -272,25 +273,25 @@ func TestAppUpdateFileDiffAndCreateIfMissing(t *testing.T) {
 	if err := os.WriteFile(job, []byte("kind: job\nname: report\nimage: busybox:1\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if code, _, stderr := cli("app", "create", "--file", job); code == 0 || !strings.Contains(stderr, "use armada job create") {
+	if code, _, stderr := cli("app", "deploy", "--new", "--file", job); code == 0 || !strings.Contains(stderr, "use armada job deploy") {
 		t.Errorf("app create with a job: %d %q", code, stderr)
 	}
-	if code, _, stderr := cli("job", "create", "--file", file); code == 0 || !strings.Contains(stderr, "use armada app create") {
+	if code, _, stderr := cli("job", "deploy", "--new", "--file", file); code == 0 || !strings.Contains(stderr, "use armada app deploy") {
 		t.Errorf("job create with an app: %d %q", code, stderr)
 	}
-	if code, out, stderr := cli("job", "create", "nightly", "--image", "busybox:1", "--schedule", "0 3 * * *", "--retries", "1"); code != 0 || out != "Created nightly (revision nightly--r1).\n" {
+	if code, out, stderr := cli("job", "deploy", "--new", "nightly", "--image", "busybox:1", "--schedule", "0 3 * * *", "--retries", "1"); code != 0 || out != "Created nightly (revision nightly--r1).\n" {
 		t.Errorf("job create from flags: %d %q %q", code, out, stderr)
 	}
 	if !strings.Contains(f.specs["nightly"], "kind: job") || !strings.Contains(f.specs["nightly"], "schedule: 0 3 * * *") {
 		t.Errorf("job spec:\n%s", f.specs["nightly"])
 	}
-	if code, _, stderr := cli("job", "update", "nightly", "--tasks", "10", "--parallelism", "3"); code != 0 {
-		t.Errorf("job update --tasks: %d %q", code, stderr)
+	if code, _, stderr := cli("job", "deploy", "nightly", "--tasks", "10", "--parallelism", "3"); code != 0 {
+		t.Errorf("job deploy --tasks: %d %q", code, stderr)
 	}
 	if !strings.Contains(f.specs["nightly"], "tasks: 10") || !strings.Contains(f.specs["nightly"], "parallelism: 3") {
 		t.Errorf("job spec with tasks:\n%s", f.specs["nightly"])
 	}
-	if code, _, stderr := cli("job", "update", "nightly", "--parallelism", "11"); code == 0 || !strings.Contains(stderr, "parallelism") {
+	if code, _, stderr := cli("job", "deploy", "nightly", "--parallelism", "11"); code == 0 || !strings.Contains(stderr, "parallelism") {
 		t.Errorf("parallelism over tasks: %d %q", code, stderr)
 	}
 }
@@ -397,7 +398,7 @@ func TestAppIPRuleFlags(t *testing.T) {
 	f := newFakeAdmin()
 	cfg := withFake(t, f)
 	cli := func(args ...string) (int, string, string) { return run(t, append(args, "--config", cfg)...) }
-	if code, _, stderr := cli("app", "create", "admin", "--image", "nginx:1", "--port", "80", "--ingress", "external",
+	if code, _, stderr := cli("app", "deploy", "--new", "admin", "--image", "nginx:1", "--port", "80", "--ingress", "external",
 		"--ip-allow", "203.0.113.0/24,name=office,description=the VPN, for admins", "--ip-allow", "2001:db8::/32,name=v6"); code != 0 {
 		t.Fatal(stderr)
 	}
@@ -411,31 +412,31 @@ func TestAppIPRuleFlags(t *testing.T) {
 	if in := ingress(); !slices.Equal(in.IPAllow, []spec.IPRule{{Name: "office", Range: "203.0.113.0/24", Description: "the VPN, for admins"}, {Range: "2001:db8::/32", Name: "v6"}}) || in.IPDeny != nil {
 		t.Errorf("after create: %+v", in)
 	}
-	if code, _, stderr := cli("app", "update", "admin", "--ip-deny", "198.51.100.7"); code != 0 {
+	if code, _, stderr := cli("app", "deploy", "admin", "--ip-deny", "198.51.100.7"); code != 0 {
 		t.Fatal(stderr)
 	}
 	if in := ingress(); in.IPAllow != nil || !slices.Equal(in.IPDeny, []spec.IPRule{{Range: "198.51.100.7"}}) {
 		t.Errorf("after --ip-deny: %+v", in)
 	}
 	// Other ingress changes keep the rules.
-	if code, _, stderr := cli("app", "update", "admin", "--domain", "admin.example.org"); code != 0 {
+	if code, _, stderr := cli("app", "deploy", "admin", "--domain", "admin.example.org"); code != 0 {
 		t.Fatal(stderr)
 	}
 	if in := ingress(); !slices.Equal(in.IPDeny, []spec.IPRule{{Range: "198.51.100.7"}}) {
 		t.Errorf("a domain change dropped the rules: %+v", in)
 	}
-	if code, _, stderr := cli("app", "update", "admin", "--no-ip-rules"); code != 0 {
+	if code, _, stderr := cli("app", "deploy", "admin", "--no-ip-rules"); code != 0 {
 		t.Fatal(stderr)
 	}
 	if in := ingress(); in.IPAllow != nil || in.IPDeny != nil {
 		t.Errorf("after --no-ip-rules: %+v", in)
 	}
 	for args, want := range map[string]string{
-		"app update admin --ip-allow 203.0.113.0/24 --ip-deny 198.51.100.7": "none of the others can be",
-		"app update admin --ip-allow 0.0.0.0/0":                             "matches every address",
-		"app update admin --ip-allow example.org":                           "not an IP address",
-		"app update admin --ip-allow 203.0.113.0/24,owner=me":               "want RANGE[,name=NAME][,description=TEXT]",
-		"app update admin --ip-allow 203.0.113.0/24,name=a,name=b":          "want RANGE[,name=NAME][,description=TEXT]",
+		"app deploy admin --ip-allow 203.0.113.0/24 --ip-deny 198.51.100.7": "none of the others can be",
+		"app deploy admin --ip-allow 0.0.0.0/0":                             "matches every address",
+		"app deploy admin --ip-allow example.org":                           "not an IP address",
+		"app deploy admin --ip-allow 203.0.113.0/24,owner=me":               "want RANGE[,name=NAME][,description=TEXT]",
+		"app deploy admin --ip-allow 203.0.113.0/24,name=a,name=b":          "want RANGE[,name=NAME][,description=TEXT]",
 	} {
 		if code, _, stderr := cli(strings.Fields(args)...); code == 0 || !strings.Contains(stderr, want) {
 			t.Errorf("%s: %d %q, want %q", args, code, stderr, want)
@@ -447,7 +448,7 @@ func TestAppStickyFlag(t *testing.T) {
 	f := newFakeAdmin()
 	cfg := withFake(t, f)
 	cli := func(args ...string) (int, string, string) { return run(t, append(args, "--config", cfg)...) }
-	if code, _, stderr := cli("app", "create", "shop", "--image", "nginx:1", "--port", "80", "--ingress", "external", "--sticky"); code != 0 {
+	if code, _, stderr := cli("app", "deploy", "--new", "shop", "--image", "nginx:1", "--port", "80", "--ingress", "external", "--sticky"); code != 0 {
 		t.Fatal(stderr)
 	}
 	sticky := func() bool {
@@ -460,10 +461,10 @@ func TestAppStickyFlag(t *testing.T) {
 	if !sticky() {
 		t.Error("--sticky not set")
 	}
-	if code, _, stderr := cli("app", "update", "shop", "--image", "nginx:2"); code != 0 || !sticky() {
+	if code, _, stderr := cli("app", "deploy", "shop", "--image", "nginx:2"); code != 0 || !sticky() {
 		t.Errorf("another change dropped sticky: %s", stderr)
 	}
-	if code, _, stderr := cli("app", "update", "shop", "--sticky=false"); code != 0 || sticky() {
+	if code, _, stderr := cli("app", "deploy", "shop", "--sticky=false"); code != 0 || sticky() {
 		t.Errorf("--sticky=false: %s", stderr)
 	}
 }
@@ -472,7 +473,7 @@ func TestAppCORSFlags(t *testing.T) {
 	f := newFakeAdmin()
 	cfg := withFake(t, f)
 	cli := func(args ...string) (int, string, string) { return run(t, append(args, "--config", cfg)...) }
-	if code, _, stderr := cli("app", "create", "api", "--image", "nginx:1", "--port", "80", "--ingress", "external",
+	if code, _, stderr := cli("app", "deploy", "--new", "api", "--image", "nginx:1", "--port", "80", "--ingress", "external",
 		"--cors-origin", "https://app.example.org", "--cors-origin", "http://localhost:3000"); code != 0 {
 		t.Fatal(stderr)
 	}
@@ -486,13 +487,13 @@ func TestAppCORSFlags(t *testing.T) {
 	if c := cors(); c == nil || !slices.Equal(c.AllowOrigins, []string{"https://app.example.org", "http://localhost:3000"}) {
 		t.Errorf("after create: %+v", c)
 	}
-	if code, _, stderr := cli("app", "update", "api", "--cors-origin", "*"); code != 0 || !slices.Equal(cors().AllowOrigins, []string{"*"}) {
+	if code, _, stderr := cli("app", "deploy", "api", "--cors-origin", "*"); code != 0 || !slices.Equal(cors().AllowOrigins, []string{"*"}) {
 		t.Errorf("--cors-origin *: %s", stderr)
 	}
-	if code, _, stderr := cli("app", "update", "api", "--no-cors"); code != 0 || cors() != nil {
+	if code, _, stderr := cli("app", "deploy", "api", "--no-cors"); code != 0 || cors() != nil {
 		t.Errorf("--no-cors: %s", stderr)
 	}
-	if code, _, stderr := cli("app", "update", "api", "--cors-origin", "https://a.example.org/path"); code == 0 || !strings.Contains(stderr, "is not an origin") {
+	if code, _, stderr := cli("app", "deploy", "api", "--cors-origin", "https://a.example.org/path"); code == 0 || !strings.Contains(stderr, "is not an origin") {
 		t.Errorf("bad origin: %d %q", code, stderr)
 	}
 }
@@ -503,7 +504,7 @@ func TestAppDNSFlags(t *testing.T) {
 	f := newFakeAdmin()
 	cfg := withFake(t, f)
 	cli := func(args ...string) (int, string, string) { return run(t, append(args, "--config", cfg)...) }
-	if code, _, stderr := cli("app", "create", "shop", "--image", "nginx:1", "--port", "80", "--ingress", "external",
+	if code, _, stderr := cli("app", "deploy", "--new", "shop", "--image", "nginx:1", "--port", "80", "--ingress", "external",
 		"--domain", "shop.net", "--dns-token-secret", "cf-token"); code != 0 {
 		t.Fatal(stderr)
 	}
@@ -517,13 +518,13 @@ func TestAppDNSFlags(t *testing.T) {
 	if d := dns(); d == nil || *d != (spec.IngressDNS{Provider: "cloudflare", TokenSecretRef: "cf-token"}) {
 		t.Errorf("after create: %+v", d)
 	}
-	if code, _, stderr := cli("app", "update", "shop", "--image", "nginx:2"); code != 0 || dns() == nil {
+	if code, _, stderr := cli("app", "deploy", "shop", "--image", "nginx:2"); code != 0 || dns() == nil {
 		t.Errorf("another change dropped ingress.dns: %s", stderr)
 	}
-	if code, _, stderr := cli("app", "update", "shop", "--no-dns"); code != 0 || dns() != nil {
+	if code, _, stderr := cli("app", "deploy", "shop", "--no-dns"); code != 0 || dns() != nil {
 		t.Errorf("--no-dns: %s", stderr)
 	}
-	if code, _, stderr := cli("app", "create", "blog", "--image", "nginx:1", "--port", "80", "--ingress", "external", "--dns-token-secret", "cf-token"); code == 0 || !strings.Contains(stderr, "ingress.dns") {
+	if code, _, stderr := cli("app", "deploy", "--new", "blog", "--image", "nginx:1", "--port", "80", "--ingress", "external", "--dns-token-secret", "cf-token"); code == 0 || !strings.Contains(stderr, "ingress.dns") {
 		t.Errorf("without domains: %d %q", code, stderr)
 	}
 }
@@ -542,34 +543,34 @@ func TestScaleFlags(t *testing.T) {
 		}
 		return sp.Scale
 	}
-	if code, _, stderr := cli("app", "create", "web", "--image", "nginx:1", "--port", "80", "--ingress", "external", "--min", "3"); code != 0 {
+	if code, _, stderr := cli("app", "deploy", "--new", "web", "--image", "nginx:1", "--port", "80", "--ingress", "external", "--min", "3"); code != 0 {
 		t.Fatal(stderr)
 	}
 	if s := scale(); *s.Min != 3 || (s.Max != nil && *s.Max != 3) || len(s.Rules) != 0 {
 		t.Errorf("--min alone: %+v", s)
 	}
-	if code, _, stderr := cli("app", "update", "web", "--max", "5"); code == 0 || !strings.Contains(stderr, "--max bounds autoscaling") {
+	if code, _, stderr := cli("app", "deploy", "web", "--max", "5"); code == 0 || !strings.Contains(stderr, "--max bounds autoscaling") {
 		t.Errorf("--max without a rule: %d %q", code, stderr)
 	}
-	if code, _, stderr := cli("app", "update", "web", "--min", "1", "--max", "5", "--scale-cpu", "40"); code != 0 {
+	if code, _, stderr := cli("app", "deploy", "web", "--min", "1", "--max", "5", "--scale-cpu", "40"); code != 0 {
 		t.Fatal(stderr)
 	}
-	if code, _, stderr := cli("app", "update", "web", "--min", "2"); code != 0 {
+	if code, _, stderr := cli("app", "deploy", "web", "--min", "2"); code != 0 {
 		t.Fatal(stderr)
 	}
 	if s := scale(); *s.Min != 2 || *s.Max != 5 || len(s.Rules) != 1 || s.Rules[0].Utilization != 40 {
 		t.Errorf("--min keeps the rules: %+v", s)
 	}
-	if code, _, stderr := cli("app", "update", "web", "--no-autoscale", "--max", "3"); code == 0 || !strings.Contains(stderr, "--no-autoscale runs a fixed count") {
+	if code, _, stderr := cli("app", "deploy", "web", "--no-autoscale", "--max", "3"); code == 0 || !strings.Contains(stderr, "--no-autoscale runs a fixed count") {
 		t.Errorf("--no-autoscale with --max: %d %q", code, stderr)
 	}
-	if code, _, stderr := cli("app", "update", "web", "--no-autoscale"); code != 0 {
+	if code, _, stderr := cli("app", "deploy", "web", "--no-autoscale"); code != 0 {
 		t.Fatal(stderr)
 	}
 	if s := scale(); *s.Min != 2 || (s.Max != nil && *s.Max != 2) || len(s.Rules) != 0 {
 		t.Errorf("--no-autoscale: %+v", s)
 	}
-	if code, _, stderr := cli("app", "update", "web", "--replicas", "4"); code == 0 || !strings.Contains(stderr, "unknown flag: --replicas") {
+	if code, _, stderr := cli("app", "deploy", "web", "--replicas", "4"); code == 0 || !strings.Contains(stderr, "unknown flag: --replicas") {
 		t.Errorf("--replicas: %d %q", code, stderr)
 	}
 	if code, _, stderr := cli("app", "scale", "web"); code == 0 || !strings.Contains(stderr, `unknown command "scale" for "armada app"`) {
@@ -591,26 +592,26 @@ func TestIdleAfterFlag(t *testing.T) {
 		}
 		return sp.Scale
 	}
-	if code, _, stderr := cli("app", "create", "api", "--image", "nginx:1", "--port", "80", "--ingress", "external",
+	if code, _, stderr := cli("app", "deploy", "--new", "api", "--image", "nginx:1", "--port", "80", "--ingress", "external",
 		"--min", "0", "--max", "4", "--scale-http", "10", "--idle-after", "5m"); code != 0 {
 		t.Fatal(stderr)
 	}
 	if s := scale(); s.IdleAfter.D() != 5*time.Minute || *s.Min != 0 || len(s.Rules) != 1 {
 		t.Errorf("after create: %+v", s)
 	}
-	if code, _, stderr := cli("app", "update", "api", "--idle-after", "30m"); code != 0 || scale().IdleAfter.D() != 30*time.Minute || len(scale().Rules) != 1 {
+	if code, _, stderr := cli("app", "deploy", "api", "--idle-after", "30m"); code != 0 || scale().IdleAfter.D() != 30*time.Minute || len(scale().Rules) != 1 {
 		t.Errorf("--idle-after alone: %d %q %+v", code, stderr, scale())
 	}
-	if code, _, stderr := cli("app", "update", "api", "--idle-after", "10s"); code == 0 || !strings.Contains(stderr, "idleAfter") {
+	if code, _, stderr := cli("app", "deploy", "api", "--idle-after", "10s"); code == 0 || !strings.Contains(stderr, "idleAfter") {
 		t.Errorf("too short: %d %q", code, stderr)
 	}
-	if code, _, stderr := cli("app", "update", "api", "--min", "1"); code != 0 || scale().IdleAfter != 0 || *scale().Min != 1 {
+	if code, _, stderr := cli("app", "deploy", "api", "--min", "1"); code != 0 || scale().IdleAfter != 0 || *scale().Min != 1 {
 		t.Errorf("--min 1 keeps idleAfter: %d %q %+v", code, stderr, scale())
 	}
-	if code, _, stderr := cli("app", "update", "api", "--idle-after", "5m"); code == 0 || !strings.Contains(stderr, "scale.min: 0") {
+	if code, _, stderr := cli("app", "deploy", "api", "--idle-after", "5m"); code == 0 || !strings.Contains(stderr, "scale.min: 0") {
 		t.Errorf("--idle-after with min 1: %d %q", code, stderr)
 	}
-	if code, _, stderr := cli("app", "update", "api", "--no-autoscale", "--idle-after", "5m"); code == 0 || !strings.Contains(stderr, "--no-autoscale") {
+	if code, _, stderr := cli("app", "deploy", "api", "--no-autoscale", "--idle-after", "5m"); code == 0 || !strings.Contains(stderr, "--no-autoscale") {
 		t.Errorf("--no-autoscale with --idle-after: %d %q", code, stderr)
 	}
 }

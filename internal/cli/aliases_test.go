@@ -2,6 +2,7 @@ package cli
 
 import (
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -39,10 +40,26 @@ func TestCommandAliases(t *testing.T) {
 	walk(NewRootCommand())
 
 	for _, args := range [][]string{{"nodes", "ls"}, {"servers", "ls"}, {"domains", "ls"}, {"secrets", "ls"}, {"node", "rm"}, {"server", "delete"},
-		{"apps", "ls"}, {"app", "revisions", "ls"}, {"job", "run", "ls"}, {"node", "join-token"}} {
+		{"apps", "ls"}, {"revision", "ls"}, {"run", "ls"}, {"node", "join-token"}} {
 		c, _, err := NewRootCommand().Find(args)
 		if err != nil || c.Name() == "armada" {
 			t.Errorf("armada %v does not resolve: %v", args, err)
+		}
+	}
+	// No noun holds nouns (ADR 0052): every command is NOUN VERB.
+	for _, noun := range NewRootCommand().Commands() {
+		for _, verb := range noun.Commands() {
+			if verb.HasSubCommands() {
+				t.Errorf("armada %s %s holds commands of its own", noun.Name(), verb.Name())
+			}
+		}
+	}
+	// The words before ADR 0052 are gone and fail, so a script notices.
+	for _, args := range []string{"app create web", "app update web", "app revision list web", "job create j", "job update j",
+		"job run j", "rbac user list", "alert channel list", "cluster set", "space set default", "volume snapshot list a v",
+		"secret import api f"} {
+		if code, _, stderr := run(t, strings.Fields(args)...); code != 1 || !strings.Contains(stderr, "unknown command") {
+			t.Errorf("armada %s: code=%d stderr=%q", args, code, stderr)
 		}
 	}
 	// The root holds only nouns and version.

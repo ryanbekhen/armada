@@ -5,44 +5,65 @@
 [All commands](armada.md)
 
 Apps are long-running containers with replicas, rolling updates, and
-ingress. Create one from flags or a spec file; `armada app show NAME -o yaml`
-prints the spec it runs, ready for `armada app create --file` or
-`armada app update --file` on any cluster.
+ingress. Deploy one from flags or a spec file; `armada app show NAME -o yaml`
+prints the spec it runs, ready for `armada app deploy --file` on any cluster.
 
 Also: `apps`.
 
 | Command | What it does |
 | --- | --- |
-| [`armada app create`](#armada-app-create) | Create an app from flags or a spec file |
 | [`armada app delete`](#armada-app-delete) | Stop an app's replicas and delete it with its revisions and secrets |
+| [`armada app deploy`](#armada-app-deploy) | Create or change an app from flags or a spec file |
 | [`armada app events`](#armada-app-events) | Show what happened to apps: crashes, rollouts, placement |
 | [`armada app exec`](#armada-app-exec) | Run a command in one of an app's replicas |
 | [`armada app list`](#armada-app-list) | List apps |
 | [`armada app logs`](#armada-app-logs) | Print logs from an app's replicas |
-| [`armada app revision`](#armada-app-revision) | List and show an app's revisions |
 | [`armada app rollback`](#armada-app-rollback) | Roll an app back to an earlier revision |
 | [`armada app show`](#armada-app-show) | Show an app: its revision, replicas, and URLs |
 | [`armada app top`](#armada-app-top) | Show the CPU and memory apps and their replicas use |
 | [`armada app traffic`](#armada-app-traffic) | Split an app's requests between revisions until the next update |
-| [`armada app update`](#armada-app-update) | Change an app: some fields with flags, or the whole spec with --file |
 
-## `armada app create`
+## `armada app delete`
 
-Create an app from flags, or from a spec file with --file (- for stdin).
-It refuses a name that exists; change an app with `armada app update`. Flags
-cover what is changed often; the rest of the spec (custom probes, routes,
-secret files, volumes, init containers, sidecars, placement, traffic
-splitting) is written in a file.
+Stops serving the app, drains its replicas, and deletes it with its revisions
+and secrets. This cannot be undone. Its volumes and their data stay until
+`armada volume delete`, and creating the same name again finds them.
 
 ```
-armada app create NAME [flags] | --file FILE
+armada app delete APP --yes [flags]
+```
+
+Also: `rm`.
+
+Flags:
+
+| Flag | Meaning |
+| --- | --- |
+| `--yes` | confirm deleting the app |
+
+## `armada app deploy`
+
+Create an app, or change one as a new revision rolled out like every change.
+
+With flags, only what they name changes in the spec the app runs, and the
+deploy is refused when another change landed since that spec was read; a new
+app needs --image. With --file (- for stdin), the file replaces the whole
+spec. --new refuses an app that exists; --diff prints what would change and
+changes nothing. Flags cover what is changed often; the rest of the spec
+(custom probes, routes, secret files, volumes, init containers, sidecars,
+placement, traffic splitting) is written in a file.
+
+```
+armada app deploy APP [flags] | --file FILE
 ```
 
 Examples:
 
 ```bash
-armada app create hello --image traefik/whoami:v1.10 --port 80 --ingress external --min 2
-armada app create --file web.yaml --var TAG=1.4.2
+armada app deploy hello --image traefik/whoami:v1.10 --port 80 --ingress external --min 2
+armada app deploy web --image ghcr.io/acme/web:1.4.3 --wait
+armada app deploy web --env LOG_LEVEL=debug --remove-env DEBUG
+armada app deploy --file web.yaml --var TAG=1.4.2 --diff
 ```
 
 Flags:
@@ -53,6 +74,7 @@ Flags:
 | `--command stringArray` | command, replacing the image's entrypoint: one word per flag, kept as written (repeat it; "" clears) |
 | `--cors-origin stringArray` | origin browsers may call the app from, such as https://app.example.com, or * (repeatable; replaces the origins; methods, headers, and the rest in the spec file) |
 | `--cpu string` | CPU reserved and its limit, e.g. 250m or 1 |
+| `--diff` | print what would change and change nothing |
 | `--dns-token-secret string` | app secret holding a Cloudflare API token: the custom domains get certificates through DNS-01 with it instead of HTTP-01 |
 | `--domain stringArray` | custom domain (repeatable) |
 | `--env stringArray` | environment variable NAME=VALUE (repeatable) |
@@ -68,6 +90,7 @@ Flags:
 | `--max int` | most replicas, with a --scale rule |
 | `--memory string` | memory limit, e.g. 256Mi |
 | `--min int` | replicas to run: a fixed count, or the fewest with a --scale rule |
+| `--new` | refuse a app that exists |
 | `--no-autoscale` | stop autoscaling: drop the scale rules and run --min (or the current minimum) replicas |
 | `--no-cors` | remove the app's CORS policy |
 | `--no-dns` | custom domains get certificates through HTTP-01 again |
@@ -87,24 +110,6 @@ Flags:
 | `--var stringArray` | with --file: NAME=VALUE for ${NAME} in the spec (repeatable; wins over --vars) |
 | `--vars string` | with --file: file of NAME=VALUE lines for ${NAME} in the spec |
 | `--wait` | wait until the rollout completes; fail if it is aborted |
-
-## `armada app delete`
-
-Stops serving the app, drains its replicas, and deletes it with its revisions
-and secrets. This cannot be undone. Its volumes and their data stay until
-`armada volume delete`, and creating the same name again finds them.
-
-```
-armada app delete APP --yes [flags]
-```
-
-Also: `rm`.
-
-Flags:
-
-| Flag | Meaning |
-| --- | --- |
-| `--yes` | confirm deleting the app |
 
 ## `armada app events`
 
@@ -191,47 +196,6 @@ Flags:
 | `--timestamps` | show when each line was written |
 | `--until string` | with --since: up to this long ago or this time (default now) |
 
-## `armada app revision`
-
-List and show an app's revisions.
-
-Also: `revisions`.
-
-| Command | What it does |
-| --- | --- |
-| [`armada app revision list`](#armada-app-revision-list) | List an app's revisions |
-| [`armada app revision show`](#armada-app-revision-show) | Show one revision of an app |
-
-### `armada app revision list`
-
-List an app's revisions.
-
-```
-armada app revision list APP [flags]
-```
-
-Also: `ls`.
-
-Flags:
-
-| Flag | Meaning |
-| --- | --- |
-| `-o`, `--output string` | output format: text or json (default `text`) |
-
-### `armada app revision show`
-
-Show one revision of an app. REVISION is its full name, such as web--r3.
-
-```
-armada app revision show REVISION [flags]
-```
-
-Flags:
-
-| Flag | Meaning |
-| --- | --- |
-| `-o`, `--output string` | output format: text or json (default `text`) |
-
 ## `armada app rollback`
 
 Roll an app back to an earlier revision with a rolling update.
@@ -307,71 +271,4 @@ Examples:
 armada app traffic web web--r3=90 web--r4=10
 armada app traffic web r4=100
 ```
-
-## `armada app update`
-
-Change an app as a new revision, rolled out like every change.
-
-With flags, only what they name changes in the spec the app runs, and the
-update is refused when another change landed since that spec was read.
-With --file, the file replaces the whole spec. --diff prints what would
-change and changes nothing; --create-if-missing creates the app when it
-does not exist.
-
-```
-armada app update NAME [flags] | --file FILE
-```
-
-Examples:
-
-```bash
-armada app update web --image ghcr.io/acme/web:1.4.3 --wait
-armada app update web --env LOG_LEVEL=debug --remove-env DEBUG
-armada app update web --file web.yaml --diff
-```
-
-Flags:
-
-| Flag | Meaning |
-| --- | --- |
-| `--args stringArray` | argument of the command: one per flag, kept as written (repeat it; "" clears) |
-| `--command stringArray` | command, replacing the image's entrypoint: one word per flag, kept as written (repeat it; "" clears) |
-| `--cors-origin stringArray` | origin browsers may call the app from, such as https://app.example.com, or * (repeatable; replaces the origins; methods, headers, and the rest in the spec file) |
-| `--cpu string` | CPU reserved and its limit, e.g. 250m or 1 |
-| `--create-if-missing` | create the app when it does not exist |
-| `--diff` | print what would change and change nothing |
-| `--dns-token-secret string` | app secret holding a Cloudflare API token: the custom domains get certificates through DNS-01 with it instead of HTTP-01 |
-| `--domain stringArray` | custom domain (repeatable) |
-| `--env stringArray` | environment variable NAME=VALUE (repeatable) |
-| `--env-from stringArray` | give every key of a secret of the space as a variable (repeatable; replaces the list; "" clears) |
-| `--env-from-secrets` | give every key of the app's own secret as a variable (database-url becomes DATABASE_URL) |
-| `-f`, `--file string` | spec file, or - for stdin |
-| `--health-path string` | HTTP path that answers when the app is ready (empty to clear) |
-| `--idle-after duration` | with --min 0: stop the last replica after this long without a request, 1m to 24h (0 for the default, 15m) |
-| `--image string` | container image |
-| `--ingress string` | who reaches the app: external, internal, or none |
-| `--ip-allow stringArray` | RANGE[,name=NAME][,description=TEXT]: only clients from this address or prefix reach the app from outside (repeatable; replaces the list) |
-| `--ip-deny stringArray` | RANGE[,name=NAME][,description=TEXT]: clients from this address or prefix cannot reach the app from outside (repeatable; replaces the list) |
-| `--max int` | most replicas, with a --scale rule |
-| `--memory string` | memory limit, e.g. 256Mi |
-| `--min int` | replicas to run: a fixed count, or the fewest with a --scale rule |
-| `--no-autoscale` | stop autoscaling: drop the scale rules and run --min (or the current minimum) replicas |
-| `--no-cors` | remove the app's CORS policy |
-| `--no-dns` | custom domains get certificates through HTTP-01 again |
-| `--no-ip-rules` | let every client reach the app again |
-| `--port int` | port the app listens on |
-| `--protocol string` | http (default) or tcp: a tcp app is internal only, reached by apps of its space at <app>.internal:<port> |
-| `--registry-secret string` | secret holding the private registry's password |
-| `--registry-user string` | user name for a private registry (the image's) |
-| `--remove-domain stringArray` | remove a custom domain (repeatable) |
-| `--remove-env stringArray` | remove an environment variable (repeatable) |
-| `--scale-cpu int` | autoscale to this percent of reserved CPU |
-| `--scale-http int` | autoscale to this many concurrent requests per replica |
-| `--scale-memory int` | autoscale to this percent of the memory limit |
-| `--secret-env stringArray` | environment variable from a secret: NAME=SECRET/KEY, or NAME=KEY of the app's own secret (repeatable) |
-| `--sticky` | keep each client on the replica that answered it first (--sticky=false to stop) |
-| `--timeout duration` | how long --wait waits (default `15m0s`) |
-| `--var stringArray` | with --file: NAME=VALUE for ${NAME} in the spec (repeatable; wins over --vars) |
-| `--vars string` | with --file: file of NAME=VALUE lines for ${NAME} in the spec |
-| `--wait` | wait until the rollout completes; fail if it is aborted |
 

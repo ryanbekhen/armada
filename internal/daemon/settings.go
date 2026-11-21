@@ -17,7 +17,7 @@ import (
 
 // clusterFlags are the armadad server flags that hold cluster-wide settings
 // (ADR 0031): any server can lead, so they must be the same everywhere, and
-// `armada cluster set` changes them for every server.
+// `armada cluster update` changes them for every server.
 var clusterFlags = []string{"tls", "acme-ca", "acme-email", "dns-provider", "dns-token-file", "metrics-listen", "node-lost-timeout"}
 
 // termSettings are what one term of the control plane uses.
@@ -40,7 +40,7 @@ func resolveSettings(ctx context.Context, st store.Store, keys *secrets.Keyring,
 	given := fl.Changed
 	adopted := []string{}
 	disagree := func(flag string) {
-		log.Warn("a flag in server.env differs from the cluster setting, which wins; change it with `armada cluster set`", "flag", "--"+flag)
+		log.Warn("a flag in server.env differs from the cluster setting, which wins; change it with `armada cluster update`", "flag", "--"+flag)
 	}
 
 	if set.TLS == nil && given("tls") {

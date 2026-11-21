@@ -255,7 +255,7 @@ func (s *Etcd) CreateUser(ctx context.Context, p Principal, actor string) (Princ
 			return err
 		}
 		if ok && !r.Removed {
-			return fmt.Errorf("user %s exists; give them a new certificate with `armada rbac user credentials`: %w", p.Name, ErrConflict)
+			return fmt.Errorf("user %s exists; give them a new certificate with `armada user credentials`: %w", p.Name, ErrConflict)
 		}
 		r = principalRec{Name: p.Name, Labels: p.Labels, CreatedAt: now.UnixMilli(), CreatedBy: actor, Since: p.Since.Unix(), SinceSerial: p.SinceSerial}
 		if p.SinceSerial != "" {

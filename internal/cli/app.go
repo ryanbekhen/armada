@@ -21,15 +21,13 @@ func newAppCommand(g *globals) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "app",
 		Aliases: []string{"apps"},
-		Short:   "Create, change, and inspect apps",
+		Short:   "Deploy, inspect, and roll back apps",
 		Long: "Apps are long-running containers with replicas, rolling updates, and\n" +
-			"ingress. Create one from flags or a spec file; `armada app show NAME -o yaml`\n" +
-			"prints the spec it runs, ready for `armada app create --file` or\n" +
-			"`armada app update --file` on any cluster.",
+			"ingress. Deploy one from flags or a spec file; `armada app show NAME -o yaml`\n" +
+			"prints the spec it runs, ready for `armada app deploy --file` on any cluster.",
 	}
 	cmd.AddCommand(
-		newAppCreateCommand(g),
-		newAppUpdateCommand(g),
+		newAppDeployCommand(g),
 		newAppListCommand(g),
 		newAppShowCommand(g),
 		newAppRollbackCommand(g),
@@ -39,48 +37,31 @@ func newAppCommand(g *globals) *cobra.Command {
 		newAppTopCommand(g),
 		newEventsCommand(g, eventsOfApps),
 		newAppDeleteCommand(g),
-		newRevisionCommand(g),
 	)
 	return cmd
 }
 
-func newAppCreateCommand(g *globals) *cobra.Command {
+func newAppDeployCommand(g *globals) *cobra.Command {
 	var d deployFlags
 	cmd := &cobra.Command{
-		Use:   "create NAME [flags] | --file FILE",
-		Short: "Create an app from flags or a spec file",
-		Long: "Create an app from flags, or from a spec file with --file (- for stdin).\n" +
-			"It refuses a name that exists; change an app with `armada app update`. Flags\n" +
-			"cover what is changed often; the rest of the spec (custom probes, routes,\n" +
-			"secret files, volumes, init containers, sidecars, placement, traffic\n" +
-			"splitting) is written in a file.",
-		Example: "  armada app create hello --image traefik/whoami:v1.10 --port 80 --ingress external --min 2\n" +
-			"  armada app create --file web.yaml --var TAG=1.4.2",
-		Args: cobra.MaximumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error { return runCreate(cmd, g, args, &d) },
-	}
-	d.registerCreate(cmd, false)
-	return cmd
-}
-
-func newAppUpdateCommand(g *globals) *cobra.Command {
-	var d deployFlags
-	cmd := &cobra.Command{
-		Use:   "update NAME [flags] | --file FILE",
-		Short: "Change an app: some fields with flags, or the whole spec with --file",
-		Long: "Change an app as a new revision, rolled out like every change.\n\n" +
+		Use:   "deploy APP [flags] | --file FILE",
+		Short: "Create or change an app from flags or a spec file",
+		Long: "Create an app, or change one as a new revision rolled out like every change.\n\n" +
 			"With flags, only what they name changes in the spec the app runs, and the\n" +
-			"update is refused when another change landed since that spec was read.\n" +
-			"With --file, the file replaces the whole spec. --diff prints what would\n" +
-			"change and changes nothing; --create-if-missing creates the app when it\n" +
-			"does not exist.",
-		Example: "  armada app update web --image ghcr.io/acme/web:1.4.3 --wait\n" +
-			"  armada app update web --env LOG_LEVEL=debug --remove-env DEBUG\n" +
-			"  armada app update web --file web.yaml --diff",
+			"deploy is refused when another change landed since that spec was read; a new\n" +
+			"app needs --image. With --file (- for stdin), the file replaces the whole\n" +
+			"spec. --new refuses an app that exists; --diff prints what would change and\n" +
+			"changes nothing. Flags cover what is changed often; the rest of the spec\n" +
+			"(custom probes, routes, secret files, volumes, init containers, sidecars,\n" +
+			"placement, traffic splitting) is written in a file.",
+		Example: "  armada app deploy hello --image traefik/whoami:v1.10 --port 80 --ingress external --min 2\n" +
+			"  armada app deploy web --image ghcr.io/acme/web:1.4.3 --wait\n" +
+			"  armada app deploy web --env LOG_LEVEL=debug --remove-env DEBUG\n" +
+			"  armada app deploy --file web.yaml --var TAG=1.4.2 --diff",
 		Args: cobra.MaximumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error { return runUpdate(cmd, g, args, &d) },
+		RunE: func(cmd *cobra.Command, args []string) error { return runDeploy(cmd, g, args, &d) },
 	}
-	d.registerUpdate(cmd, false)
+	d.registerDeploy(cmd, false)
 	return cmd
 }
 

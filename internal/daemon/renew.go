@@ -59,7 +59,7 @@ func (r *certRenewer) loop(ctx context.Context) {
 // so renewing it gives nobody anything new; it only keeps the people who
 // run the machine from being locked out a year after init. The cluster
 // must still accept the certificate being replaced (store.RenewedUser): a
-// user deleted, or replaced with `armada rbac user credentials`, is not
+// user deleted, or replaced with `armada user credentials`, is not
 // brought back.
 func (r *certRenewer) renewAdmin(ctx context.Context) {
 	if r.st == nil || r.adminConfig == "" {

@@ -302,7 +302,7 @@ func runDoctor(ctx context.Context, env doctorEnv) []checkResult {
 	if env.serverEnv != nil {
 		if b, err := env.serverEnv(); err == nil {
 			if flags := clusterFlagsIn(string(b)); len(flags) > 0 {
-				add("server-env", checkWarn, "%s sets %s: these are cluster settings now (ADR 0031), kept for every server; check `armada cluster show`, change them with `armada cluster set`, and remove them from the file", serverEnvFile, strings.Join(flags, ", "))
+				add("server-env", checkWarn, "%s sets %s: these are cluster settings now (ADR 0031), kept for every server; check `armada cluster show`, change them with `armada cluster update`, and remove them from the file", serverEnvFile, strings.Join(flags, ", "))
 			}
 		}
 	}

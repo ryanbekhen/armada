@@ -16,14 +16,14 @@ import (
 // (ADR 0051).
 var backupPlanFlags = []string{"backup-every", "backup-schedule", "backup-time-zone"}
 
-// backupFlags are the control plane backup flags of cluster set.
+// backupFlags are the control plane backup flags of cluster update.
 type backupFlags struct {
 	every                    time.Duration
 	schedule, keep, url, key string
 	off                      string
 }
 
-// backupRequest checks the backup flags of cluster set and puts the keep
+// backupRequest checks the backup flags of cluster update and puts the keep
 // policy, the URL, and the key into the request (the plan is filled once
 // the current settings are known).
 func backupRequest(cmd *cobra.Command, req *armadav1.SetClusterConfigRequest, f backupFlags) error {

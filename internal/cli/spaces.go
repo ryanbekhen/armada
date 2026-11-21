@@ -30,7 +30,7 @@ func newSpaceCommand(g *globals) *cobra.Command {
 			"through their internal names, resolve only their own space's names, and\n" +
 			"the containers of every space but default are kept away from the nodes,\n" +
 			"the private network, and the cloud's metadata service (network isolation;\n" +
-			"for default, turn it on with `armada space set default --network-isolation`).",
+			"for default, turn it on with `armada space update default --network-isolation`).",
 	}
 	cmd.AddCommand(
 		newSpaceCreateCommand(g),
@@ -86,7 +86,7 @@ func newSpaceCreateCommand(g *globals) *cobra.Command {
 func newSpaceSetCommand(g *globals) *cobra.Command {
 	var networkIsolation bool
 	cmd := &cobra.Command{
-		Use:   "set NAME --network-isolation[=false]",
+		Use:   "update SPACE --network-isolation[=false]",
 		Short: "Change a space's settings",
 		Long: "Change a space's settings (cluster-admin only).\n\n" +
 			"--network-isolation keeps the space's containers away from the nodes, the\n" +

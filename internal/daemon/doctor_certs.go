@@ -68,7 +68,7 @@ func checkCertificates(env doctorEnv) []checkResult {
 				case left <= 0:
 					problems = append(problems, checkResult{"certificates", checkFail, fmt.Sprintf("user certificate in %s expired on %s; on a server, renew it with `armadad user renew --data-dir %s`", env.adminConfig, day(c.NotAfter), env.dataDir)})
 				case left < adminWarnBefore:
-					problems = append(problems, checkResult{"certificates", checkWarn, fmt.Sprintf("user certificate in %s expires on %s; renew it with `armada rbac user renew`", env.adminConfig, day(c.NotAfter))})
+					problems = append(problems, checkResult{"certificates", checkWarn, fmt.Sprintf("user certificate in %s expires on %s; renew it with `armada user renew`", env.adminConfig, day(c.NotAfter))})
 				default:
 					good = append(good, "user")
 					note(c)

@@ -355,8 +355,8 @@ func (v *validator) envFrom(e EnvFrom) {
 }
 
 // SecretEnvName is the variable a secret's key becomes under envFrom: a key
-// written like a secret name (database-url) becomes DATABASE_URL, the
-// reverse of `armada secret import`; any other key (DATABASE_URL) is kept.
+// written like a secret name (database-url) becomes DATABASE_URL, as keys
+// were stored before ADR 0052; any other key (DATABASE_URL) is kept.
 func SecretEnvName(key string) string {
 	if !labelRe.MatchString(key) {
 		return key

@@ -157,7 +157,7 @@ row() { # row TEST RESULT
 	printf '| %s | %s | %s | %s | %s |\n' "$LABEL" "$1" "$2" "$CPU_A" "$CPU_B" | tee -a "$RESULTS"
 }
 
-deploy() { cli app update --file - --create-if-missing >/dev/null; }
+deploy() { cli app deploy --file - >/dev/null; }
 
 # wipe N removes Armada's cluster state, containers, and the tunnel from
 # machine N, leaving the binary and units installed.

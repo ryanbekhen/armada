@@ -61,7 +61,7 @@ func newClusterCommand(g *globals) *cobra.Command {
 		backupURL, backupKey, backupOff            string
 	)
 	set := &cobra.Command{
-		Use:   "set",
+		Use:   "update",
 		Short: "Change cluster settings, for every server at once",
 		Long: "Change cluster settings. They are kept in the cluster's state, so every server\n" +
 			"uses them, also after another one takes over as leader (ADR 0031).\n\n" +
@@ -122,7 +122,7 @@ func newClusterCommand(g *globals) *cobra.Command {
 			}
 			req.Config.Network, req.Config.MeshCidr = network, meshCIDR
 			if !slices.ContainsFunc([]string{"root-domain", "trusted-proxies", "proxy-protocol", "tls", "acme-email", "acme-ca", "dns-provider", "dns-token", "metrics-port", "node-lost-timeout", "log-retention", "log-max-disk", "log-token", "network", "mesh-cidr", "backup", "backup-keep", "backup-url", "backup-key"}, ch) && !req.SetLogExport && !req.SetBackupPlan {
-				return errors.New("nothing to change; see armada cluster set --help")
+				return errors.New("nothing to change; see armada cluster update --help")
 			}
 			req.Config.LogRetentionSeconds = int64(logRetention / time.Second)
 			if ch("log-max-disk") && logMaxDisk != "0" {
@@ -237,11 +237,11 @@ func newClusterCommand(g *globals) *cobra.Command {
 	return cmd
 }
 
-// restartingSettings are the flags of cluster set whose change makes the
+// restartingSettings are the flags of cluster update whose change makes the
 // leader restart its control plane (ADR 0031).
 var restartingSettings = []string{"tls", "acme-email", "acme-ca", "dns-provider", "dns-token", "metrics-port", "node-lost-timeout"}
 
-// settingsSettle is how long cluster set waits before asking whether the
+// settingsSettle is how long cluster update waits before asking whether the
 // API is back: the leader restarts 300 ms after answering. settingsWait
 // bounds the whole wait.
 var settingsSettle, settingsWait = time.Second, time.Minute

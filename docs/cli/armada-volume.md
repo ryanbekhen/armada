@@ -8,7 +8,7 @@ Volumes keep an app's data on the node that runs its replica (ADR 0023). They ar
 created with the app's first replica, stay on that node, and are kept until deleted
 with `armada volume delete`. `armadad backup` does not include their contents: back
 them up with `armada volume backup`, or to a bucket on a schedule (volumes[].backup,
-ADR 0041) with `armada volume snapshot` to list them and take one now.
+ADR 0041) with `armada snapshot` to list them and take one now.
 
 Also: `volumes`.
 
@@ -18,7 +18,6 @@ Also: `volumes`.
 | [`armada volume delete`](#armada-volume-delete) | Delete a volume and its data |
 | [`armada volume list`](#armada-volume-list) | List volumes, their node, and how much they hold |
 | [`armada volume restore`](#armada-volume-restore) | Replace a volume's contents with a backup |
-| [`armada volume snapshot`](#armada-volume-snapshot) | List a volume's backups in its bucket, or take one now |
 
 ## `armada volume backup`
 
@@ -79,7 +78,7 @@ Flags:
 
 Replaces a volume's contents with an archive from armada volume backup (FILE, or
 - for stdin), or with a backup from the volume's bucket (--snapshot, see
-armada volume snapshot list). The app's replica is stopped while the backup is
+armada snapshot list). The app's replica is stopped while the backup is
 written and started again afterwards; a broken backup leaves the volume as it was.
 
 With --node the volume is restored onto that node and bound to it, and the app
@@ -96,47 +95,4 @@ Flags:
 | --- | --- |
 | `--node string` | restore onto this node and bind the volume to it (when its node is lost) |
 | `--snapshot string` | restore this backup from the volume's bucket (an ID, or latest) |
-
-## `armada volume snapshot`
-
-Volumes whose spec has backup (volumes[].backup, ADR 0041) are backed up to a bucket
-on a schedule. These commands list those backups and take one now; restore one with
-`armada volume restore APP VOLUME --snapshot ID|latest`.
-
-Also: `snapshots`.
-
-| Command | What it does |
-| --- | --- |
-| [`armada volume snapshot create`](#armada-volume-snapshot-create) | Back a volume up to its bucket now |
-| [`armada volume snapshot list`](#armada-volume-snapshot-list) | List a volume's backups, oldest first |
-
-### `armada volume snapshot create`
-
-Back a volume up to its bucket now.
-
-```
-armada volume snapshot create APP VOLUME [flags]
-```
-
-Flags:
-
-| Flag | Meaning |
-| --- | --- |
-| `-o`, `--output string` | output format: text or json (default `text`) |
-
-### `armada volume snapshot list`
-
-List a volume's backups, oldest first.
-
-```
-armada volume snapshot list APP VOLUME [flags]
-```
-
-Also: `ls`.
-
-Flags:
-
-| Flag | Meaning |
-| --- | --- |
-| `-o`, `--output string` | output format: text or json (default `text`) |
 

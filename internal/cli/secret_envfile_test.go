@@ -14,22 +14,22 @@ import (
 
 func TestParseSecretFile(t *testing.T) {
 	t.Parallel()
-	got, err := parseSecretFile(strings.NewReader("# a comment\n\nDATABASE_URL=postgres://u:p@h/db?a=b\r\nEMPTY=\n  # indented comment\nQUOTED=\"kept\"\nFCM_KEY=-----BEGIN\\nx\\n=\n"), true)
+	got, err := parseSecretFile(strings.NewReader("# a comment\n\nDATABASE_URL=postgres://u:p@h/db?a=b\r\nEMPTY=\n  # indented comment\nquoted=\"kept\"\nfcm-key=-----BEGIN\\nx\\n=\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []struct{ key, name, value string }{
-		{"DATABASE_URL", "database-url", "postgres://u:p@h/db?a=b"},
-		{"EMPTY", "empty", ""},
-		{"QUOTED", "quoted", `"kept"`},
-		{"FCM_KEY", "fcm-key", `-----BEGIN\nx\n=`},
+	want := []struct{ name, value string }{
+		{"DATABASE_URL", "postgres://u:p@h/db?a=b"},
+		{"EMPTY", ""},
+		{"quoted", `"kept"`},
+		{"fcm-key", `-----BEGIN\nx\n=`},
 	}
 	if len(got) != len(want) {
 		t.Fatalf("got %d entries, want %d", len(got), len(want))
 	}
 	for i, w := range want {
-		if got[i].key != w.key || got[i].name != w.name || string(got[i].value) != w.value {
-			t.Errorf("entry %d = %s %s, want %s %s", i, got[i].key, got[i].name, w.key, w.name)
+		if got[i].name != w.name || string(got[i].value) != w.value {
+			t.Errorf("entry %d = %s, want %s", i, got[i].name, w.name)
 		}
 	}
 }
@@ -42,11 +42,11 @@ func TestParseSecretFileRefusesWithoutQuoting(t *testing.T) {
 	for name, in := range map[string]string{
 		"no equals":      "A=1\n" + secret + "\n",
 		"bad key":        "A=1\n" + secret + " x=1\n",
-		"lower dup":      "A_B=1\na-b=" + secret + "\n",
-		"same name":      "A_B=" + secret + "\na_b=2\n",
-		"bad secret key": "_A=" + secret + "\n",
+		"dup":            "A_B=1\nA_B=" + secret + "\n",
+		"same name":      "a-b=" + secret + "\na-b=2\n",
+		"bad secret key": "-a=" + secret + "\n",
 	} {
-		_, err := parseSecretFile(strings.NewReader(in), true)
+		_, err := parseSecretFile(strings.NewReader(in))
 		if err == nil {
 			t.Errorf("%s: accepted", name)
 			continue
@@ -58,7 +58,7 @@ func TestParseSecretFileRefusesWithoutQuoting(t *testing.T) {
 			t.Errorf("%s: error names no line: %v", name, err)
 		}
 	}
-	if _, err := parseSecretFile(strings.NewReader("A="+strings.Repeat("x", 70<<20)), true); err == nil {
+	if _, err := parseSecretFile(strings.NewReader("A=" + strings.Repeat("x", 70<<20))); err == nil {
 		t.Error("an oversized line was accepted")
 	}
 }
@@ -77,12 +77,12 @@ func (f *fakeSecrets) SetSecret(_ context.Context, r *armadav1.SetSecretRequest,
 	return &armadav1.SetSecretResponse{Version: 1}, nil
 }
 
-func TestImportSecrets(t *testing.T) {
+func TestSetKeys(t *testing.T) {
 	t.Parallel()
-	entries := []secretEntry{{key: "A", name: "a", value: []byte("value-one")}, {key: "B_C", name: "b-c", value: []byte("value-two")}}
+	entries := []secretEntry{{name: "a", value: []byte("value-one")}, {name: "b-c", value: []byte("value-two")}}
 	var out strings.Builder
 	f := &fakeSecrets{}
-	if err := importSecrets(context.Background(), f, "api", entries, &out); err != nil {
+	if err := setKeys(context.Background(), f, "api", entries, &out); err != nil {
 		t.Fatal(err)
 	}
 	if len(f.reqs) != 2 || f.reqs[1].GetApp() != "api" || f.reqs[1].GetName() != "b-c" || string(f.reqs[1].GetValue()) != "value-two" {
@@ -96,7 +96,7 @@ func TestImportSecrets(t *testing.T) {
 	if strings.Contains(out.String(), "value-") {
 		t.Errorf("output shows a value: %s", out.String())
 	}
-	err := importSecrets(context.Background(), &fakeSecrets{failAt: 1}, "api", entries, io.Discard)
+	err := setKeys(context.Background(), &fakeSecrets{failAt: 1}, "api", entries, io.Discard)
 	if err == nil || !strings.Contains(err.Error(), "b-c (1 of 2") || strings.Contains(err.Error(), "value-") {
 		t.Errorf("err = %v", err)
 	}

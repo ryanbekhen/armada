@@ -15,7 +15,7 @@ created with mode 0600; encrypt it before it leaves the machine, e.g.
   armadad backup -o - | age -r age1... > armada-$(date +%F).tar.gz.age
 
 To have the leader back the control plane up to a bucket on a schedule
-instead, see armada cluster set --backup-url (ADR 0051); armadad backup
+instead, see armada cluster update --backup-url (ADR 0051); armadad backup
 list shows what the bucket holds.
 
 ```
@@ -32,7 +32,7 @@ Flags:
 ## `armadad backup list`
 
 Lists the backups the leader keeps of the control plane in its bucket
-(armada cluster set --backup-url, ADR 0051), oldest first, with the server
+(armada cluster update --backup-url, ADR 0051), oldest first, with the server
 each was taken on: armadad restore --snapshot ID restores one onto a
 machine with that server's private IP. Both flags take a file (mode 0600)
 holding the URL or the key, or - for stdin (one of them).

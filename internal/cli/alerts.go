@@ -29,16 +29,10 @@ func newAlertCommand(g *globals) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "alert",
 		Aliases: []string{"alerts"},
-		Short:   "Send notices about events to Slack, Discord, Telegram, email, or a webhook",
+		Short:   "Where notices about events go: Slack, Discord, Telegram, email, or a webhook",
 		Long:    alertLong,
 	}
-	channel := &cobra.Command{
-		Use:     "channel",
-		Aliases: []string{"channels"},
-		Short:   "Manage where notices go",
-		Long:    alertLong,
-	}
-	channel.AddCommand(newAlertChannelCommand(g, true), newAlertChannelCommand(g, false), newAlertListCommand(g),
+	cmd.AddCommand(newAlertChannelCommand(g, true), newAlertChannelCommand(g, false), newAlertListCommand(g),
 		&cobra.Command{
 			Use:     "delete NAME",
 			Aliases: []string{"rm"},
@@ -75,7 +69,7 @@ func newAlertCommand(g *globals) *cobra.Command {
 			return err
 		},
 	}
-	cmd.AddCommand(channel, test)
+	cmd.AddCommand(test)
 	return cmd
 }
 
@@ -102,9 +96,9 @@ func newAlertChannelCommand(g *globals, create bool) *cobra.Command {
 			"  email     --smtp-host H:P --from A --to A,B [--smtp-user U --password -]\n\n" +
 			"URLs must be https://, or http:// to a private IP address. Email uses TLS on\n" +
 			"port 465 and STARTTLS on other ports (plain SMTP only to a private IP).",
-		Example: "  armada alert channel create ops --type slack --url - < slack-webhook-url\n" +
-			"  armada alert channel create oncall --type telegram --chat-id -1001234567890 --token - < bot-token\n" +
-			"  armada alert channel create mail --type email --smtp-host smtp.example.com:587 \\\n" +
+		Example: "  armada alert create ops --type slack --url - < slack-webhook-url\n" +
+			"  armada alert create oncall --type telegram --chat-id -1001234567890 --token - < bot-token\n" +
+			"  armada alert create mail --type email --smtp-host smtp.example.com:587 \\\n" +
 			"    --smtp-user alerts@example.com --password - --from alerts@example.com --to ops@example.com < smtp-password\n" +
 			"  armada alert test ops",
 		Args: cobra.ExactArgs(1),
@@ -113,9 +107,9 @@ func newAlertChannelCommand(g *globals, create bool) *cobra.Command {
 		cmd.Use, cmd.Short = "update NAME", "Change an alert channel"
 		cmd.Long = "Change only the fields given; the type stays. An empty --space or --reason\n" +
 			"removes that filter, and --url, --token, or --password replaces the secret."
-		cmd.Example = "  armada alert channel update ops --space shop,billing --reason Crashed,OutOfMemory\n" +
-			"  armada alert channel update ops --reason ''        # back to the default: warnings\n" +
-			"  armada alert channel update ops --url - < new-webhook-url"
+		cmd.Example = "  armada alert update ops --space shop,billing --reason Crashed,OutOfMemory\n" +
+			"  armada alert update ops --reason ''        # back to the default: warnings\n" +
+			"  armada alert update ops --url - < new-webhook-url"
 	}
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
 		ch := cmd.Flags().Changed
@@ -155,7 +149,7 @@ func newAlertChannelCommand(g *globals, create bool) *cobra.Command {
 			return err
 		}
 		if !req.SetSecret && !req.SetChatId && !req.SetSmtp && !req.SetFrom && !req.SetTo && !req.SetSpaces && !req.SetReasons {
-			return errors.New("nothing to change; see armada alert channel update --help")
+			return errors.New("nothing to change; see armada alert update --help")
 		}
 		if _, err := client.UpdateAlertChannel(cmd.Context(), req); err != nil {
 			return RPCError(err)

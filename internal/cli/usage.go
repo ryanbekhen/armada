@@ -115,7 +115,9 @@ func usage(c *cobra.Command) error {
 	if c.HasExample() {
 		p("\n\nExamples:\n%s", c.Example)
 	}
-	if c.HasAvailableSubCommands() {
+	if c.HasAvailableSubCommands() && len(c.Groups()) > 0 {
+		listGroups(w, c)
+	} else if c.HasAvailableSubCommands() {
 		p("\n\nAvailable Commands:")
 		listVerbs(w, c)
 	}
@@ -143,5 +145,21 @@ func listVerbs(w io.Writer, c *cobra.Command) {
 	}
 	for _, sub := range subs {
 		_, _ = fmt.Fprintf(w, "\n  %-*s  %s", width, verbLine(sub), sub.Short)
+	}
+}
+
+// listGroups lists the root's nouns under their groups (ADR 0052).
+func listGroups(w io.Writer, c *cobra.Command) {
+	width := 0
+	for _, sub := range c.Commands() {
+		width = max(width, len(sub.Name()))
+	}
+	for _, g := range c.Groups() {
+		_, _ = fmt.Fprintf(w, "\n\n%s", g.Title)
+		for _, sub := range c.Commands() {
+			if sub.GroupID == g.ID && (sub.IsAvailableCommand() || sub.Name() == "help") {
+				_, _ = fmt.Fprintf(w, "\n  %-*s  %s", width, sub.Name(), sub.Short)
+			}
+		}
 	}
 }

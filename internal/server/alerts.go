@@ -495,7 +495,7 @@ func (s *Server) changeAlertChannel(ctx context.Context, req *armadav1.AlertChan
 	i := slices.IndexFunc(ac.Channels, func(r alertRec) bool { return r.Name == name })
 	switch {
 	case create && i >= 0:
-		return nil, status.Errorf(codes.AlreadyExists, "alert channel %s exists; change it with armada alert channel update", name)
+		return nil, status.Errorf(codes.AlreadyExists, "alert channel %s exists; change it with armada alert update", name)
 	case create && len(ac.Channels) >= alert.MaxChannels:
 		return nil, status.Errorf(codes.ResourceExhausted, "at most %d alert channels", alert.MaxChannels)
 	case !create && i < 0:

@@ -4,21 +4,20 @@
 
 [All commands](armada.md)
 
-Jobs run a container to completion, on demand (`armada job run`) or on a
-schedule. Create one from flags or a spec file (kind: job).
+Jobs run a container to completion, on demand (`armada job start`), on a
+schedule, or from a queue. Deploy one from flags or a spec file (kind: job).
 
 Also: `jobs`.
 
 | Command | What it does |
 | --- | --- |
 | [`armada job cancel`](#armada-job-cancel) | Stop a job's pending and running runs |
-| [`armada job create`](#armada-job-create) | Create a job from flags or a spec file |
 | [`armada job delete`](#armada-job-delete) | Delete a job, stopping its runs and removing their records and logs |
+| [`armada job deploy`](#armada-job-deploy) | Create or change a job from flags or a spec file |
 | [`armada job list`](#armada-job-list) | List jobs with their schedule and latest run |
 | [`armada job logs`](#armada-job-logs) | Print the logs of a job's run |
-| [`armada job run`](#armada-job-run) | Start a run of a job now; run list lists its runs |
 | [`armada job show`](#armada-job-show) | Show a job: its schedule, revision, and latest run |
-| [`armada job update`](#armada-job-update) | Change a job: some fields with flags, or the whole spec with --file |
+| [`armada job start`](#armada-job-start) | Start a run of a job now |
 
 ## `armada job cancel`
 
@@ -28,20 +27,35 @@ Stop a job's pending and running runs.
 armada job cancel JOB
 ```
 
-## `armada job create`
+## `armada job delete`
 
-Create a job from flags, or from a spec file (kind: job) with --file (- for
-stdin). It refuses a name that exists; change a job with `armada job update`.
+Delete a job, stopping its runs and removing their records and logs. Its secrets are kept;
+delete them with `armada secret delete`.
 
 ```
-armada job create NAME [flags] | --file FILE
+armada job delete JOB
+```
+
+Also: `rm`.
+
+## `armada job deploy`
+
+Create a job, or change one; new runs use the new revision. With flags, only
+what they name changes, and the deploy is refused when another change landed
+since the spec was read; a new job needs --image. With --file (kind: job, -
+for stdin), the file replaces the whole spec. --new refuses a job that
+exists; --diff prints what would change and changes nothing.
+
+```
+armada job deploy JOB [flags] | --file FILE
 ```
 
 Examples:
 
 ```bash
-armada job create migrate --image ghcr.io/acme/api:1.4 --command ./migrate --secret-env DATABASE_URL=database-url
-armada job create report --image ghcr.io/acme/report:2 --schedule "0 3 * * *" --time-zone Asia/Jakarta
+armada job deploy migrate --image ghcr.io/acme/api:1.4 --command ./migrate --secret-env DATABASE_URL=database-url
+armada job deploy report --image ghcr.io/acme/report:2 --schedule "0 3 * * *" --time-zone Asia/Jakarta
+armada job deploy --file migrate.yaml --diff
 ```
 
 Flags:
@@ -52,12 +66,14 @@ Flags:
 | `--command stringArray` | command, replacing the image's entrypoint: one word per flag, kept as written (repeat it; "" clears) |
 | `--concurrency string` | when a run is due while one runs: forbid or replace |
 | `--cpu string` | CPU reserved and its limit, e.g. 250m or 1 |
+| `--diff` | print what would change and change nothing |
 | `--env stringArray` | environment variable NAME=VALUE (repeatable) |
 | `--env-from stringArray` | give every key of a secret of the space as a variable (repeatable; replaces the list; "" clears) |
 | `--env-from-secrets` | give every key of the job's own secret as a variable (database-url becomes DATABASE_URL) |
 | `-f`, `--file string` | spec file, or - for stdin |
 | `--image string` | container image |
 | `--memory string` | memory limit, e.g. 256Mi |
+| `--new` | refuse a job that exists |
 | `--parallelism int` | how many tasks of a run run at once (0 for all) |
 | `--registry-secret string` | secret holding the private registry's password |
 | `--registry-user string` | user name for a private registry (the image's) |
@@ -70,17 +86,6 @@ Flags:
 | `--timeout duration` | how long one attempt may run |
 | `--var stringArray` | with --file: NAME=VALUE for ${NAME} in the spec (repeatable; wins over --vars) |
 | `--vars string` | with --file: file of NAME=VALUE lines for ${NAME} in the spec |
-
-## `armada job delete`
-
-Delete a job, stopping its runs and removing their records and logs. Its secrets are kept;
-delete them with `armada secret delete`.
-
-```
-armada job delete JOB
-```
-
-Also: `rm`.
 
 ## `armada job list`
 
@@ -123,63 +128,6 @@ Flags:
 | `--timestamps` | show when each line was written |
 | `--until string` | with --since: up to this long ago or this time (default now) |
 
-## `armada job run`
-
-Start a run of a job now.
-
-With --wait the command ends when the run does and fails unless the run
-succeeded, so a script can stop on a failed step such as a migration. A
-run still going after --timeout keeps going; cancel it with `armada job cancel`.
-
-```
-armada job run JOB [flags]
-```
-
-Examples:
-
-```bash
-armada job run migrate --wait --timeout 5m
-armada job run list migrate
-```
-
-Flags:
-
-| Flag | Meaning |
-| --- | --- |
-| `--timeout duration` | how long --wait waits (default `15m0s`) |
-| `--wait` | wait until the run ends; fail unless it succeeded |
-
-### `armada job run list`
-
-List a job's runs, newest first. Finished runs beyond the job's history (5 by default)
-are removed; their logs are kept for 24 hours.
-
-```
-armada job run list JOB [flags]
-```
-
-Also: `ls`.
-
-Flags:
-
-| Flag | Meaning |
-| --- | --- |
-| `-o`, `--output string` | output format: text or json (default `text`) |
-
-### `armada job run show`
-
-Show a run of a job, with its tasks.
-
-```
-armada job run show JOB RUN [flags]
-```
-
-Flags:
-
-| Flag | Meaning |
-| --- | --- |
-| `-o`, `--output string` | output format: text or json (default `text`) |
-
 ## `armada job show`
 
 Show a job: its schedule, revision, and latest run. -o yaml prints the spec
@@ -195,44 +143,29 @@ Flags:
 | --- | --- |
 | `-o`, `--output string` | output format: text, json, or yaml (the spec, as a file holds it) (default `text`) |
 
-## `armada job update`
+## `armada job start`
 
-Change a job; new runs use the new revision. With flags, only what they name
-changes, and the update is refused when another change landed since the spec
-was read. With --file, the file replaces the whole spec. --diff prints what
-would change and changes nothing; --create-if-missing creates the job when it
-does not exist.
+Start a run of a job now. `armada run list JOB` lists its runs.
+
+With --wait the command ends when the run does and fails unless the run
+succeeded, so a script can stop on a failed step such as a migration. A
+run still going after --timeout keeps going; cancel it with `armada job cancel`.
 
 ```
-armada job update NAME [flags] | --file FILE
+armada job start JOB [flags]
+```
+
+Examples:
+
+```bash
+armada job start migrate --wait --timeout 5m
+armada run list migrate
 ```
 
 Flags:
 
 | Flag | Meaning |
 | --- | --- |
-| `--args stringArray` | argument of the command: one per flag, kept as written (repeat it; "" clears) |
-| `--command stringArray` | command, replacing the image's entrypoint: one word per flag, kept as written (repeat it; "" clears) |
-| `--concurrency string` | when a run is due while one runs: forbid or replace |
-| `--cpu string` | CPU reserved and its limit, e.g. 250m or 1 |
-| `--create-if-missing` | create the job when it does not exist |
-| `--diff` | print what would change and change nothing |
-| `--env stringArray` | environment variable NAME=VALUE (repeatable) |
-| `--env-from stringArray` | give every key of a secret of the space as a variable (repeatable; replaces the list; "" clears) |
-| `--env-from-secrets` | give every key of the job's own secret as a variable (database-url becomes DATABASE_URL) |
-| `-f`, `--file string` | spec file, or - for stdin |
-| `--image string` | container image |
-| `--memory string` | memory limit, e.g. 256Mi |
-| `--parallelism int` | how many tasks of a run run at once (0 for all) |
-| `--registry-secret string` | secret holding the private registry's password |
-| `--registry-user string` | user name for a private registry (the image's) |
-| `--remove-env stringArray` | remove an environment variable (repeatable) |
-| `--retries int` | attempts after a failed one |
-| `--schedule string` | cron schedule that starts runs, e.g. "0 3 * * *" (empty to clear) |
-| `--secret-env stringArray` | environment variable from a secret: NAME=SECRET/KEY, or NAME=KEY of the job's own secret (repeatable) |
-| `--tasks int` | split each run into this many tasks, each told its index in ARMADA_JOB_TASK (0 or 1 for one) |
-| `--time-zone string` | time zone of the schedule, e.g. Asia/Jakarta |
-| `--timeout duration` | how long one attempt may run |
-| `--var stringArray` | with --file: NAME=VALUE for ${NAME} in the spec (repeatable; wins over --vars) |
-| `--vars string` | with --file: file of NAME=VALUE lines for ${NAME} in the spec |
+| `--timeout duration` | how long --wait waits (default `15m0s`) |
+| `--wait` | wait until the run ends; fail unless it succeeded |
 

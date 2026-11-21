@@ -136,7 +136,7 @@ A release runs every scenario.
    requires the label runs only there; once the label is gone, `armada
    status` explains why that app has nowhere to go; reopening the node
    spreads the app back.
-10. Image platforms: `armada app revision list` lists every node architecture for
+10. Image platforms: `armada revision list` lists every node architecture for
    the test app; an image built only for amd64, and one built only for
    arm64, each run only on nodes of that architecture, or, when the
    cluster has none, nowhere, with `armada app show` naming the platform.
@@ -171,7 +171,7 @@ A release runs every scenario.
       machine that is not listed cannot send the header, and a listed one
       cannot connect without it.
     - Plain HTTP (`plain-http`): with certificates port 80 redirects; after
-      `cluster set --tls=false` it serves the app with `X-Real-IP` and
+      `cluster update --tls=false` it serves the app with `X-Real-IP` and
       `X-Forwarded-Proto: http` set by the proxy, port 443 still serves, and
       `app show` gives the `http://` URL; turning certificates back on
       restores the redirect.

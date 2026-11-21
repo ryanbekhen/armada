@@ -250,7 +250,7 @@ load_stop() {
 }
 
 deploy() { # deploy IMAGE: (re)deploys the test app with IMAGE
-	cat <<EOF | cli app update --file - --create-if-missing
+	cat <<EOF | cli app deploy --file -
 name: $APP
 image: $1
 env:
@@ -413,7 +413,7 @@ fi
 log "deploy $APP ($REPLICAS replicas) with a secret"
 SECRET=e2e-$(openssl rand -hex 16)
 printf '%s' "$SECRET" | cli secret set "$APP" e2e-secret >/dev/null
-cli cluster set --root-domain "$E2E_DOMAIN" >/dev/null
+cli cluster update --root-domain "$E2E_DOMAIN" >/dev/null
 deploy "$V1" >/dev/null
 wait_for 300 "$REPLICAS replicas serving $V1" serving "$V1"
 wait_for 60 "replicas spread evenly" even
@@ -427,9 +427,9 @@ if want space-secret; then
 log "a secret of an app in another space"
 cli space create e2e-space >/dev/null
 printf '%s' "$SECRET" | cli secret set e2e-app --space e2e-space e2e-secret --no-rollout >/dev/null
-[ "$(cli secret list e2e-app --space e2e-space | grep -c e2e-secret)" = 1 ] ||
-	fail "armada secret list does not show the secret of a space's app"
-cli secret delete e2e-app --space e2e-space e2e-secret >/dev/null
+[ "$(cli secret show e2e-app --space e2e-space | grep -c e2e-secret)" = 1 ] ||
+	fail "armada secret show does not show the secret of a space's app"
+cli secret unset e2e-app e2e-secret --space e2e-space >/dev/null
 ok "a space's app has secrets"
 i=1
 while [ "$i" -le "$N" ]; do
@@ -461,7 +461,7 @@ log "isolation between apps and spaces"
 # must not pass as blocked, so a blocked request has to show wget's own error.
 iso_deploy() { # iso_deploy NAME SPACE REPLICAS
 	printf 'name: %s\nimage: nginx:1-alpine\ningress:\n  type: internal\n  port: 80\nscale:\n  min: %s\n  max: %s\n' "$1" "$3" "$3" |
-		on "$CLI" "cat >/root/iso.yaml && armada app update --file /root/iso.yaml --create-if-missing --space $2" >/dev/null
+		on "$CLI" "cat >/root/iso.yaml && armada app deploy --file /root/iso.yaml --space $2" >/dev/null
 }
 iso_ready() { # iso_ready APP-ID COUNT
 	status | jq -e --arg app "$1" --argjson n "$2" '
@@ -572,7 +572,7 @@ if [ "$SERVERS" -gt 1 ] && want failover; then
 	on "$_i" 'systemctl stop armada-server'
 	wait_for 60 "a new leader took over from $_old" new_leader "$_old"
 	REPLICAS=$((REPLICAS + 1))
-	cli app update "$APP" --min "$REPLICAS" >/dev/null
+	cli app deploy "$APP" --min "$REPLICAS" >/dev/null
 	wait_for 180 "scaled to $REPLICAS through the new leader" serving
 	load_stop "leader stop"
 	on "$_i" 'systemctl start armada-server'
@@ -634,7 +634,7 @@ cli node restrict "$_node" >/dev/null
 wait_for 300 "$APP moved off restricted $_node" none_on "$_node"
 wait_for 180 "$APP serving without $_node" serving
 load_stop "restricting a node"
-cat <<EOF | cli app update --file - --create-if-missing >/dev/null
+cat <<EOF | cli app deploy --file - >/dev/null
 name: pinned
 image: $V1
 ingress:
@@ -661,7 +661,7 @@ log "image platforms"
 _archs=$(status | jq -r '[.nodes[].labels["armada.arch"]] | unique | .[]')
 _archlist=$(status | jq -r '[.nodes[].labels["armada.arch"]] | unique | join(", ")')
 hello_platforms() {
-	_line=$(cli app revision list "$APP" | awk 'NR > 1 && $2 == "active"')
+	_line=$(cli revision list "$APP" | awk 'NR > 1 && $2 == "active"')
 	for _a in $_archs; do
 		echo "$_line" | grep -q "linux/$_a" || return 1
 	done
@@ -680,13 +680,13 @@ unplaced() {
 		| ((.placementMessage // "") | contains($want))
 		  and ([.replicas[]? | select((.draining // false) | not) | select(.state == "running")] | length) == 0'
 }
-wait_for 30 "armada app revision list lists every node architecture ($_archlist) for $APP" hello_platforms
+wait_for 30 "armada revision list lists every node architecture ($_archlist) for $APP" hello_platforms
 for _a in amd64 arm64; do
 	case $_a in
 	amd64) _image=amd64/busybox:1.37 ;;
 	arm64) _image=arm64v8/busybox:1.37 ;;
 	esac
-	cat <<EOF | cli app update --file - --create-if-missing >/dev/null
+	cat <<EOF | cli app deploy --file - >/dev/null
 name: only-$_a
 image: $_image
 command: ["sleep", "3600"]
@@ -714,7 +714,7 @@ low_weight() {
 	[ -n "$_w" ] && [ "$_w" -lt 100 ]
 }
 wait_for 30 "$APP containers get a CPU weight from their reservation" low_weight
-cat <<EOF | cli app update --file - --create-if-missing >/dev/null
+cat <<EOF | cli app deploy --file - >/dev/null
 name: cpu-hog
 image: busybox:1.37
 command: ["sleep", "3600"]
@@ -744,7 +744,7 @@ while [ "$i" -le "$N" ]; do
 	cli node label "$(host "$i" 1)" "e2e.zone=$_zone" >/dev/null
 	i=$((i + 1))
 done
-cat <<EOF | cli app update --file - --create-if-missing >/dev/null
+cat <<EOF | cli app deploy --file - >/dev/null
 name: spread
 image: busybox:1.37
 command: ["sleep", "3600"]
@@ -789,7 +789,7 @@ expect_code() { # CODE DESCRIPTION FROM TO [X-Forwarded-For]
 	ok "$_desc"
 }
 ipr_app() {
-	cat <<EOF | cli app update ipr --file - --create-if-missing >/dev/null
+	cat <<EOF | cli app deploy ipr --file - >/dev/null
 name: ipr
 image: $V1
 ingress:
@@ -810,7 +810,7 @@ expect_code 403 "machine 2 claiming machine 1's address is refused" 2 "$IP_T" "$
 expect_code 200 "machine 1 claiming another address is judged by its own" 1 "$IP_B" 192.0.2.10
 
 # The last machine acts as a proxy in front of the cluster.
-cli cluster set --trusted-proxies "$IP_T/32" >/dev/null
+cli cluster update --trusted-proxies "$IP_T/32" >/dev/null
 wait_for 60 "through a trusted proxy, the address it appended counts" ipr_is 200 "$N" "$IP_B" "$IP_A"
 expect_code 403 "the client cannot prepend an address before the proxy's" "$N" "$IP_B" "$IP_A, 192.0.2.10"
 expect_code 200 "an address the client prepended is ignored" "$N" "$IP_B" "192.0.2.10, $IP_A"
@@ -825,7 +825,7 @@ expect_code 403 "a trusted proxy naming machine 1 is refused" "$N" "$IP_B" "$IP_
 expect_code 200 "a trusted proxy naming machine 2 gets in" "$N" "$IP_B" "$IP_B"
 expect_code 403 "a trusted proxy naming garbage is refused" "$N" "$IP_B" "unknown"
 
-cli cluster set --trusted-proxies "''" >/dev/null
+cli cluster update --trusted-proxies "''" >/dev/null
 ipr_app ""
 wait_for 60 "without rules, machine 1 gets in again" ipr_is 200 1 "$IP_B"
 
@@ -847,12 +847,12 @@ expect_realip() { # WANT DESCRIPTION FROM TO [X-Forwarded-For]
 	ok "$_desc"
 }
 expect_realip "$IP_A" "X-Real-IP is machine 1's address, not what it claims" 1 "$IP_B" 192.0.2.10
-cli cluster set --trusted-proxies "$IP_T/32" >/dev/null
+cli cluster update --trusted-proxies "$IP_T/32" >/dev/null
 wait_for 60 "through a trusted proxy, X-Real-IP is the address it appended" realip_is "$IP_A" "$N" "$IP_B" "$IP_A"
 expect_realip "$IP_A" "X-Real-IP ignores an address the client prepended" "$N" "$IP_B" "192.0.2.10, $IP_A"
 expect_realip "" "a trusted proxy that names no client leaves no X-Real-IP" "$N" "$IP_B"
 expect_realip "$IP_A" "an untrusted machine's X-Real-IP is its own address" 1 "$IP_B" "$IP_T"
-cli cluster set --trusted-proxies "''" >/dev/null
+cli cluster update --trusted-proxies "''" >/dev/null
 # PROXY protocol: the last machine acts as a TCP load balancer that hides
 # its clients and names them in a PROXY header (curl --haproxy-clientip,
 # curl 8.2 or later).
@@ -864,7 +864,7 @@ ppx() {
 		tr -d '\r' | awk 'NR == 1 { code = $2 } /^X-Real-Ip: / { ip = $2 } END { print (code ? code : "000") " " ip }'
 }
 ppx_is() { [ "$(ppx "$2" "$3")" = "$1" ]; }
-cli cluster set --proxy-protocol "$IP_T/32" >/dev/null
+cli cluster update --proxy-protocol "$IP_T/32" >/dev/null
 wait_for 60 "a load balancer's PROXY header names the client" ppx_is "200 192.0.2.77" "$N" 192.0.2.77
 [ "$(ppx 1 192.0.2.77 | cut -d' ' -f1)" != 200 ] || fail "a machine that is not a listed load balancer named a client with a PROXY header"
 ok "only a listed load balancer may send a PROXY header"
@@ -876,7 +876,7 @@ wait_for 120 "a client outside ipAllow is refused through the load balancer" ppx
 [ "$(ppx "$N" 192.0.2.77)" = "200 192.0.2.77" ] || fail "the client a PROXY header names was refused by an ipAllow that lists it"
 ok "ipAllow judges the client a PROXY header names"
 ipr_app ""
-cli cluster set --proxy-protocol "''" >/dev/null
+cli cluster update --proxy-protocol "''" >/dev/null
 wait_for 60 "without PROXY protocol sources, machine $N connects directly again" ipr_is 200 "$N" "$IP_B"
 cli app delete ipr --yes >/dev/null
 
@@ -889,7 +889,7 @@ IP_A=$(host 1 4) IP_B=$(host 2 4)
 # ph_code TO: the status machine 1 gets on port 80 of public IP TO.
 ph_code() { on 1 "curl -s -o /dev/null -w '%{http_code}' --max-time 5 --resolve $PH_HOST:80:$1 http://$PH_HOST/"; }
 ph_is() { [ "$(ph_code "$2")" = "$1" ]; }
-cat <<EOF | cli app update plain --file - --create-if-missing >/dev/null
+cat <<EOF | cli app deploy plain --file - >/dev/null
 name: plain
 image: $V1
 ingress:
@@ -897,7 +897,7 @@ ingress:
   port: 80
 EOF
 wait_for 240 "with certificates, port 80 redirects to HTTPS" ph_is 301 "$IP_B"
-cli cluster set --tls=false >/dev/null
+cli cluster update --tls=false >/dev/null
 wait_for 120 "without certificates, port 80 serves the app" ph_is 200 "$IP_B"
 # The image echoes request headers; the request claims another client and
 # HTTPS, and the proxy's own word replaces both.
@@ -911,7 +911,7 @@ ok "plain HTTP says the request came over http"
 ok "port 443 still serves the app"
 cli app show plain | grep -q "http://$PH_HOST/" || fail "app show does not give the http:// URL"
 ok "app show gives the http:// URL"
-cli cluster set --tls=true >/dev/null
+cli cluster update --tls=true >/dev/null
 wait_for 120 "with certificates again, port 80 redirects" ph_is 301 "$IP_B"
 cli app delete plain --yes >/dev/null
 fi
@@ -919,7 +919,7 @@ fi
 if want sticky; then
 log "a sticky app keeps each client on one replica"
 STICKY_HOST=sticky.$E2E_DOMAIN
-cat <<EOF | cli app update sticky --file - --create-if-missing >/dev/null
+cat <<EOF | cli app deploy sticky --file - >/dev/null
 name: sticky
 image: $V1
 ingress:
@@ -963,7 +963,7 @@ fi
 if want cors; then
 log "browsers on listed origins may call an app, others may not"
 CORS_HOST=cors.$E2E_DOMAIN
-cat <<EOF | cli app update cors --file - --create-if-missing >/dev/null
+cat <<EOF | cli app deploy cors --file - >/dev/null
 name: cors
 image: $V1
 ingress:
@@ -1008,7 +1008,7 @@ fi
 
 if want sidecars; then
 log "init containers run first, sidecars share the replica's localhost"
-cat <<EOF | cli app update side --file - --create-if-missing >/dev/null
+cat <<EOF | cli app deploy side --file - >/dev/null
 name: side
 image: $V1
 ingress:
@@ -1032,7 +1032,7 @@ ok "the init container ran and its logs are kept"
 side_local() { cli app exec side --container helper -- wget -qO- http://127.0.0.1:80/ 2>/dev/null | grep -q '^Hostname:'; }
 wait_for 60 "the sidecar reaches the app on 127.0.0.1" side_local
 
-cat <<'EOF' | cli app update side-fail --file - --create-if-missing >/dev/null
+cat <<'EOF' | cli app deploy side-fail --file - >/dev/null
 name: side-fail
 image: busybox:1.37
 command: ["sleep", "86400"]
@@ -1064,7 +1064,7 @@ tcp_app() { # tcp_app NAME SPACE SPEC-LINES...
 	shift 2
 	printf 'name: %s\nimage: busybox:1.37\n' "$_name" >"$WORK/tcp.yaml"
 	printf '%s\n' "$@" >>"$WORK/tcp.yaml"
-	on "$CLI" "cat >/root/tcp.yaml && armada app update --file /root/tcp.yaml --create-if-missing --space $_space" <"$WORK/tcp.yaml" >/dev/null
+	on "$CLI" "cat >/root/tcp.yaml && armada app deploy --file /root/tcp.yaml --space $_space" <"$WORK/tcp.yaml" >/dev/null
 }
 tcp_ready() { # tcp_ready APP-ID COUNT
 	status | jq -e --arg app "$1" --argjson n "$2" '
@@ -1132,7 +1132,7 @@ log "autoscaling on a Redis list, a RabbitMQ queue, a command, and a schedule"
 # connection made inside the replica's network namespace reaches it.
 QPASS=e2e-queue-$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')
 printf 'redis://:%s@127.0.0.1:6379/0' "$QPASS" | cli secret set e2e-redis redis-url >/dev/null
-cat <<EOF | cli app update e2e-redis --file - --create-if-missing >/dev/null
+cat <<EOF | cli app deploy e2e-redis --file - >/dev/null
 name: e2e-redis
 image: redis:7-alpine
 command: ["redis-server", "--requirepass", "$QPASS"]
@@ -1149,7 +1149,7 @@ scale:
 EOF
 # Guest may only log in from localhost, which the rule's connection is.
 printf 'amqp://guest:guest@127.0.0.1:5672/' | cli secret set e2e-rabbit amqp-url >/dev/null
-cat <<'EOF' | cli app update e2e-rabbit --file - --create-if-missing >/dev/null
+cat <<'EOF' | cli app deploy e2e-rabbit --file - >/dev/null
 name: e2e-rabbit
 image: rabbitmq:3-management-alpine
 ingress:
@@ -1165,7 +1165,7 @@ scale:
       queue: jobs
       length: 10
 EOF
-cat <<'EOF' | cli app update e2e-cmdq --file - --create-if-missing >/dev/null
+cat <<'EOF' | cli app deploy e2e-cmdq --file - >/dev/null
 name: e2e-cmdq
 image: busybox:1.37
 command: ["sleep", "86400"]
@@ -1270,7 +1270,7 @@ on 1 "echo 0 >/root/e2e-queue-length && setsid -f python3 /root/e2e-resp.py $QJ_
 qlen() { on 1 "echo $1 >/root/e2e-queue-length"; }
 qjob() { # qjob SPACE: create the job in SPACE
 	printf 'redis://:%s@%s:%s/0' "$QJ_PASS" "$QJ_IP" "$QJ_PORT" | cli secret set e2e-qjob redis-url --space "$1" >/dev/null
-	cat <<'EOF' | on "$CLI" "cat >/root/qjob.yaml && armada job update e2e-qjob --file /root/qjob.yaml --create-if-missing --space $1" >/dev/null
+	cat <<'EOF' | on "$CLI" "cat >/root/qjob.yaml && armada job deploy e2e-qjob --file /root/qjob.yaml --space $1" >/dev/null
 kind: job
 name: e2e-qjob
 image: busybox:1.37
@@ -1291,11 +1291,11 @@ qread() { # qread SPACE LENGTH: the job's queue was read with that length
 	cli job show e2e-qjob --space "$1" -o json | jq -e --argjson n "$2" '.trigger.measured == true and ((.trigger.length // "0") | tonumber) == $n' >/dev/null
 }
 qruns() { # qruns SPACE: how many runs the job has
-	cli job run list e2e-qjob --space "$1" -o json | jq '(.runs // []) | length'
+	cli run list e2e-qjob --space "$1" -o json | jq '(.runs // []) | length'
 }
 qcount() { [ "$(qruns "$1")" = "$2" ]; }
 qdone() { # qdone SPACE COUNT: COUNT runs, every one succeeded
-	cli job run list e2e-qjob --space "$1" -o json | jq -e --argjson n "$2" '(.runs // []) | length == $n and all(.[]; .state == "succeeded")' >/dev/null
+	cli run list e2e-qjob --space "$1" -o json | jq -e --argjson n "$2" '(.runs // []) | length == $n and all(.[]; .state == "succeeded")' >/dev/null
 }
 qjob default
 wait_for 120 "the job's empty queue is read from its sandbox" qread default 0
@@ -1334,8 +1334,8 @@ done
 ok "the broker's password is in no journal"
 cli job delete e2e-qjob >/dev/null
 cli job delete e2e-qjob --space e2e-qj >/dev/null
-cli secret delete e2e-qjob redis-url >/dev/null
-cli secret delete e2e-qjob redis-url --space e2e-qj >/dev/null
+cli secret unset e2e-qjob redis-url >/dev/null
+cli secret unset e2e-qjob redis-url --space e2e-qj >/dev/null
 cli space delete e2e-qj >/dev/null
 on 1 "pkill -f /root/e2e-resp.py; rm -f /root/e2e-resp.py /root/e2e-queue-length" || true
 _left() {
@@ -1355,7 +1355,7 @@ log "volumes back up to a bucket, deduplicated and encrypted, and restore from i
 # container's address on the cluster network.
 S3_USER=e2e$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')
 S3_PASS=$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')
-cat <<EOF | cli app update e2e-s3 --file - --create-if-missing >/dev/null
+cat <<EOF | cli app deploy e2e-s3 --file - >/dev/null
 name: e2e-s3
 image: versity/versitygw:v1.11.0
 args: ["--access", "$S3_USER", "--secret", "$S3_PASS", "--port", ":9000", "posix", "/tmp"]
@@ -1375,7 +1375,7 @@ od -An -N48 -tx1 /dev/urandom | tr -d ' \n' | cli secret set e2e-vol backup-key 
 # leave; other machines get the label once it runs there.
 VOL_NODE=$(host "$N" 1)
 cli node label "$VOL_NODE" e2e-vol=yes >/dev/null
-cat <<'EOF' | cli app update e2e-vol --file - --create-if-missing >/dev/null
+cat <<'EOF' | cli app deploy e2e-vol --file - >/dev/null
 name: e2e-vol
 image: busybox:1.37
 command: ["httpd", "-f", "-p", "80", "-h", "/data"]
@@ -1403,8 +1403,8 @@ vol_put "first"
 first_backup() { cli volume list e2e-vol | grep -q ' ago'; }
 wait_for 180 "the first backup ran by itself" first_backup
 vol_put "second"
-cli volume snapshot create e2e-vol data | grep -q 'Backed up volume data of e2e-vol' || fail "volume snapshot create"
-[ "$(cli volume snapshot list e2e-vol data -o json | jq '.snapshots | length')" = 2 ] || fail "two backups expected"
+cli snapshot create e2e-vol data | grep -q 'Backed up volume data of e2e-vol' || fail "snapshot create"
+[ "$(cli snapshot list e2e-vol data -o json | jq '.snapshots | length')" = 2 ] || fail "two backups expected"
 ok "backups on a schedule and on demand, listed from the bucket"
 # Nothing in the bucket shows the file's content or name.
 on 1 "curl -sf --aws-sigv4 aws:amz:us-east-1:s3 --user $S3_USER:$S3_PASS 'http://$S3/e2e-backups?list-type=2&prefix=cluster/'" >"$WORK/s3-list"
@@ -1439,7 +1439,7 @@ volumes:
     failover: restore
 EOF
 on "$CLI" 'cat > /root/e2e-vol2.yaml' <"$WORK/vol2.yaml"
-cli app update e2e-vol --file /root/e2e-vol2.yaml --wait >/dev/null || fail "rolling out a new image to an app with a volume"
+cli app deploy e2e-vol --file /root/e2e-vol2.yaml --wait >/dev/null || fail "rolling out a new image to an app with a volume"
 vol_v2() { status | jq -e '.apps[] | select(.name == "e2e-vol") | .image == "busybox:1.36" and (.rolloutState // "") == ""'; }
 wait_for 300 "the new image serves on the volume's node" vol_v2
 vol_running "$VOL_NODE" >/dev/null || fail "the app left its volume's node"
@@ -1457,7 +1457,7 @@ while [ "$i" -lt "$N" ]; do
 	i=$((i + 1))
 done
 vol_put "before the partition"
-cli volume snapshot create e2e-vol data >/dev/null || fail "backup before the partition"
+cli snapshot create e2e-vol data >/dev/null || fail "backup before the partition"
 OLD_ADDR=$(status | jq -r '[.apps[] | select(.name == "e2e-vol") | .replicas[]? | select(.state == "running")][0].address')
 # Cut the node off from the control plane only: its agent loses its session
 # while the machine stays up.
@@ -1494,7 +1494,7 @@ NFS_IP=$(host "$N" 3)
 on "$N" 'command -v exportfs >/dev/null || { apt-get update -q >/dev/null && DEBIAN_FRONTEND=noninteractive apt-get install -y -q nfs-kernel-server >/dev/null; }' || fail "installing an NFS server on $(host "$N" 1)"
 on "$N" "mkdir -p /etc/exports.d /srv/e2e-nfs && chmod 0777 /srv/e2e-nfs && echo '/srv/e2e-nfs *(rw,sync,no_subtree_check,no_root_squash)' > /etc/exports.d/e2e.exports && exportfs -ra" || fail "exporting /srv/e2e-nfs"
 on 1 'armadad doctor' | grep -q '^\[ok  *\] nfs ' || fail "doctor does not find an NFSv4 client on $(host 1 1)"
-cat <<EOF | cli app update e2e-nfs --file - --create-if-missing >/dev/null
+cat <<EOF | cli app deploy e2e-nfs --file - >/dev/null
 name: e2e-nfs
 image: busybox:1.37
 command: ["httpd", "-f", "-p", "80", "-h", "/shared"]

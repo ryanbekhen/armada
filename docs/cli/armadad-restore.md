@@ -10,7 +10,7 @@ before anything is written to the data directory. Stop any other control
 plane of this cluster first: two servers must never run at the same time.
 
 With --backup-url and --backup-key, the backup comes from the bucket the
-control plane backs itself up to (armada cluster set --backup-url, ADR 0051)
+control plane backs itself up to (armada cluster update --backup-url, ADR 0051)
 instead of an archive: --snapshot names one (armadad backup list), latest by
 default. Both flags take a file (mode 0600) holding the URL or the key, or
 - for stdin (one of them). The snapshot is checked exactly like an archive.

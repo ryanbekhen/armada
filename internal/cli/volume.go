@@ -27,9 +27,9 @@ func newVolumeCommand(g *globals) *cobra.Command {
 			"created with the app's first replica, stay on that node, and are kept until deleted\n" +
 			"with `armada volume delete`. `armadad backup` does not include their contents: back\n" +
 			"them up with `armada volume backup`, or to a bucket on a schedule (volumes[].backup,\n" +
-			"ADR 0041) with `armada volume snapshot` to list them and take one now.",
+			"ADR 0041) with `armada snapshot` to list them and take one now.",
 	}
-	cmd.AddCommand(newVolumeListCommand(g), newVolumeBackupCommand(g), newVolumeRestoreCommand(g), newVolumeDeleteCommand(g), newVolumeSnapshotCommand(g))
+	cmd.AddCommand(newVolumeListCommand(g), newVolumeBackupCommand(g), newVolumeRestoreCommand(g), newVolumeDeleteCommand(g))
 	return cmd
 }
 
@@ -216,7 +216,7 @@ func newVolumeRestoreCommand(g *globals) *cobra.Command {
 		Short: "Replace a volume's contents with a backup",
 		Long: `Replaces a volume's contents with an archive from armada volume backup (FILE, or
 - for stdin), or with a backup from the volume's bucket (--snapshot, see
-armada volume snapshot list). The app's replica is stopped while the backup is
+armada snapshot list). The app's replica is stopped while the backup is
 written and started again afterwards; a broken backup leaves the volume as it was.
 
 With --node the volume is restored onto that node and bound to it, and the app
@@ -294,7 +294,7 @@ for good; it is refused while that node is still connected.`,
 	return cmd
 }
 
-func newVolumeSnapshotCommand(g *globals) *cobra.Command {
+func newSnapshotCommand(g *globals) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "snapshot",
 		Aliases: []string{"snapshots"},

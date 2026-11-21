@@ -49,7 +49,7 @@ func newUserRenewCommand(g *globals) *cobra.Command {
 			"(--config, default ~/.armada/config, else /etc/armada/admin.config; another\n" +
 			"user's config stays theirs, a shared one stays shared).\n" +
 			"For a certificate that has already expired; while it is valid,\n" +
-			"`armada rbac user renew` does the same through the control plane.\n" +
+			"`armada user renew` does the same through the control plane.\n" +
 			"The user keeps the roles on record; a name the cluster has no record of\n" +
 			"is recorded first, with cluster-admin (the cluster refuses certificates\n" +
 			"of names it has no record of). It needs the cluster state: run it on a\n" +
