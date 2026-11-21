@@ -100,6 +100,12 @@ type Node struct {
 	// cluster's mesh range, and it reaches every other node over WireGuard
 	// between endpoints (ADR 0050). Set when the node joins.
 	MeshAddress bool
+	// BehindNAT marks a node with no endpoint that starts every connection
+	// to other sites (ADR 0050), as its agent announced it.
+	BehindNAT bool
+	// Relay marks an admin's choice of this node as its site's relay
+	// between nodes behind NAT (ADR 0050, armada node relay).
+	Relay bool
 }
 
 // AllLabels returns the admin labels plus armada.os, armada.arch, and
@@ -335,6 +341,9 @@ type NodeStatus struct {
 	NetworkKey string
 	// Endpoint as the agent announces it; empty keeps the recorded one.
 	Endpoint string
+	// BehindNAT as the agent announces it (ADR 0050): true clears the
+	// endpoint; false changes nothing unless an endpoint is announced.
+	BehindNAT bool
 }
 
 // Domain is a custom domain referenced by at least one app. Apps may only
@@ -400,6 +409,11 @@ type Store interface {
 	// cluster's first site. ErrPrecondition for an invalid name and while
 	// the network switches modes.
 	SetNodeSite(ctx context.Context, id, site, actor string) error
+	// SetNodeRelay makes a node its site's chosen relay (ADR 0050),
+	// dropping the choice of any other node of the site, or with on false
+	// drops the choice of the node's site. A node behind NAT cannot relay
+	// (ErrPrecondition).
+	SetNodeRelay(ctx context.Context, id string, on bool, actor string) error
 	GetNode(ctx context.Context, id string) (Node, error)
 	ListNodes(ctx context.Context) ([]Node, error)
 	SetNodeStatus(ctx context.Context, id string, st NodeStatus) error

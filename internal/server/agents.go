@@ -191,14 +191,14 @@ func (s *Server) Connect(stream armadav1.AgentService_ConnectServer) error {
 	}
 	// Where peers of a mesh cluster send this node's WireGuard packets
 	// (ADR 0049): a unicast IPv4 address, which agents check again.
-	if _, err := netutil.CheckEndpoint(hello.GetEndpoint()); err != nil {
+	if _, err := netutil.CheckEndpoint(hello.GetEndpoint()); err != nil || hello.GetBehindNat() {
 		hello.Endpoint = ""
 	}
 	if err := s.store.SetNodeStatus(ctx, node.ID, store.NodeStatus{
 		State: store.NodeReady, LastSeen: time.Now(), CPUMillis: hello.GetCpuMillis(), MemoryBytes: hello.GetMemoryBytes(),
 		Version: hello.GetVersion(), OS: hello.GetOs(), Arch: hello.GetArch(),
 		Jobs: hello.GetJobs(), Volumes: hello.GetVolumes(), Containers: hello.GetContainers(), NFS: hello.GetNfs(),
-		NetworkKey: hello.GetNetworkKey(), Endpoint: hello.GetEndpoint(),
+		NetworkKey: hello.GetNetworkKey(), Endpoint: hello.GetEndpoint(), BehindNAT: hello.GetBehindNat(),
 	}); errors.Is(err, store.ErrConflict) {
 		s.log.Warn("agent announced another node's network key", "node", node.ID)
 		return status.Error(codes.FailedPrecondition, "the network key is already used by another node; remove "+fileNetworkKeyHint+" on this node and restart the agent")

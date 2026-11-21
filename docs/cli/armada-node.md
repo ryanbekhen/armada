@@ -15,6 +15,7 @@ Also: `nodes`.
 | [`armada node join-token`](#armada-node-join-token) | Create a single-use token that adds a node, and print the join command |
 | [`armada node label`](#armada-node-label) | Set or remove a node's labels |
 | [`armada node list`](#armada-node-list) | List nodes |
+| [`armada node relay`](#armada-node-relay) | Choose the node that relays its site's traffic between nodes behind NAT |
 | [`armada node restrict`](#armada-node-restrict) | Run only apps whose placement selects one of the node's labels |
 | [`armada node resume`](#armada-node-resume) | Let a drained node take replicas again |
 | [`armada node show`](#armada-node-show) | Show a node |
@@ -115,6 +116,33 @@ Flags:
 | Flag | Meaning |
 | --- | --- |
 | `-o`, `--output string` | output format: text or json (default `text`) |
+
+## `armada node relay`
+
+Choose the node that relays its site's traffic between nodes behind NAT (ADR
+0050). Two nodes behind NAT in different sites cannot reach each other, so
+their traffic goes through the relay of one of their sites: a node of that
+site with a public address. The leader picks one itself; this command pins
+NODE as its site's relay while it is ready and not drained, and --clear lets
+the leader pick again. The relay carries that traffic, so choose a node with
+room for it.
+
+```
+armada node relay NODE [--clear] [flags]
+```
+
+Examples:
+
+```bash
+armada node relay cloud-1
+armada node relay cloud-1 --clear
+```
+
+Flags:
+
+| Flag | Meaning |
+| --- | --- |
+| `--clear` | let the leader pick the relay of the node's site again |
 
 ## `armada node restrict`
 

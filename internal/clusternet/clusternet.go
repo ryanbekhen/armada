@@ -12,8 +12,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net"
 	"net/netip"
+	"slices"
 
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
@@ -85,6 +87,10 @@ type Config struct {
 	// MeshCache is where the mesh mode keeps the last peer list it applied,
 	// so the tunnel comes up before the control plane (Up).
 	MeshCache string
+	// UplinkMTU, when set, is the largest packet the machine's line to
+	// other nodes carries, below its interface's MTU (PPPoE lines behind
+	// NAT, ADR 0050); tunnels and containers take their overhead from it.
+	UplinkMTU int
 	// Key is the node's own key (LoadOrCreateKey); the wireguard mode needs
 	// it.
 	Key    PrivateKey
@@ -106,6 +112,14 @@ type peer struct {
 	// with a mesh address: reached over WireGuard at its endpoint, and
 	// allowed its node address too.
 	remote bool
+	// nat marks a node behind NAT (ADR 0050): it has no endpoint, and a
+	// peer reaches it only once it has sent a packet; relay, its site's
+	// relay between nodes behind NAT.
+	nat, relay bool
+	// carried are the subnets of nodes behind NAT this node reaches
+	// through this peer, its relay (ADR 0050): WireGuard allows them on
+	// the relay's entry, and routes take them there.
+	carried []netip.Prefix
 }
 
 // plan is a validated network configuration.
@@ -126,6 +140,15 @@ type plan struct {
 	step     string
 	self     peer
 	peers    []peer // every node but this one, in the order received
+	// relayed are the peers this node reaches only through a relay (ADR
+	// 0050), listed in their relay's carried; they are not in peers.
+	relayed []peer
+	// unreachable are the nodes behind NAT this node, behind NAT too,
+	// cannot reach: their sites have no relay (ADR 0050).
+	unreachable []string
+	// relaying are the pairs of subnets this node, a relay, forwards
+	// between (ADR 0050).
+	relaying [][2]netip.Prefix
 	// endpoints maps the cluster's container addresses to their app IDs.
 	endpoints map[netip.Addr]string
 	// isolateDefault isolates the default space like the others.
@@ -191,13 +214,16 @@ func parse(cfg *armadav1.NetworkConfig, self string, selfIP netip.Addr) (plan, e
 			return plan{}, fmt.Errorf("peer %s: duplicate name, address, or subnet", pp.GetNode())
 		}
 		names[pp.GetNode()], ips[ip], subnets[sub] = true, true, true
-		pe := peer{node: pp.GetNode(), ip: ip, subnet: sub, site: pp.GetSite()}
+		pe := peer{node: pp.GetNode(), ip: ip, subnet: sub, site: pp.GetSite(), nat: pp.GetBehindNat(), relay: pp.GetRelay()}
+		if pe.nat && pe.relay {
+			return plan{}, fmt.Errorf("peer %s: a node behind NAT cannot relay", pp.GetNode())
+		}
 		if pe.site != "" {
 			if err := spec.CheckLabelValue(pe.site); err != nil {
 				return plan{}, fmt.Errorf("peer %s: site: %w", pp.GetNode(), err)
 			}
 		}
-		if pp.GetEndpoint() != "" {
+		if pp.GetEndpoint() != "" && !pe.nat {
 			ep, err := netutil.CheckEndpoint(pp.GetEndpoint())
 			if err != nil {
 				return plan{}, fmt.Errorf("peer %s: %w", pp.GetNode(), err)
@@ -244,17 +270,95 @@ func parse(cfg *armadav1.NetworkConfig, self string, selfIP netip.Addr) (plan, e
 			// yet, and comes in with the next list. (Switching from plain,
 			// the VXLAN side keeps it; the WireGuard side skips it.)
 			continue
-		case (p.mode == ModeMesh || pe.remote) && !pe.endpoint.IsValid():
-			// Nowhere to send its packets yet.
+		case (p.mode == ModeMesh || pe.remote) && !pe.endpoint.IsValid() && !pe.nat:
+			// Nowhere to send its packets yet. (A node behind NAT sends
+			// first, and WireGuard learns where it is.)
 			continue
 		}
 		kept = append(kept, pe)
 	}
 	p.peers = kept
+	p.relayThrough()
 	if p.switching() && len(p.remote()) > 0 {
 		return plan{}, errors.New("a cluster with more than one site cannot switch its network mode")
 	}
 	return p, nil
+}
+
+// public reports whether a pair is reached over WireGuard between
+// endpoints rather than over a private network: in the mesh mode, between
+// sites, and with a mesh address on either side (ADR 0050).
+func (p plan) public(a, b peer) bool {
+	return p.mode == ModeMesh || a.site != b.site || p.mesh.Contains(a.ip) || p.mesh.Contains(b.ip)
+}
+
+// pairRelay returns the relay of the pair a and b, two nodes behind NAT that
+// cannot reach each other (ADR 0050): the relay of the site of the two that
+// sorts first, else of the other, else (both sites behind NAT) of the site
+// that sorts first of all those with one. Both ends and the relay work it
+// out alike, so both directions take one path, which the relay's
+// connection tracking needs.
+func pairRelay(relays map[string]peer, a, b peer) (peer, bool) {
+	first, second := min(a.site, b.site), max(a.site, b.site)
+	if r, ok := relays[first]; ok {
+		return r, true
+	}
+	if r, ok := relays[second]; ok {
+		return r, true
+	}
+	if len(relays) == 0 {
+		return peer{}, false
+	}
+	return relays[slices.Min(slices.Collect(maps.Keys(relays)))], true
+}
+
+// relayThrough moves the peers behind NAT this node, itself behind NAT,
+// cannot reach directly into their relay's carried (ADR 0050), dropping
+// those with no relay, and lists the pairs this node relays between when
+// it is a relay.
+func (p *plan) relayThrough() {
+	relays := map[string]peer{}
+	for _, pe := range append([]peer{p.self}, p.peers...) {
+		// The leader picks relays with an endpoint and a key; the check
+		// keeps a relay this node could not reach out of the paths.
+		if pe.relay && pe.endpoint.IsValid() && pe.key != (wgtypes.Key{}) {
+			relays[pe.site] = pe
+		}
+	}
+	if p.self.nat {
+		carried := map[string][]netip.Prefix{}
+		kept := p.peers[:0]
+		for _, pe := range p.peers {
+			if !pe.nat || !p.public(p.self, pe) {
+				kept = append(kept, pe)
+				continue
+			}
+			if r, ok := pairRelay(relays, p.self, pe); ok {
+				carried[r.node] = append(carried[r.node], pe.subnet)
+				p.relayed = append(p.relayed, pe)
+			} else {
+				p.unreachable = append(p.unreachable, pe.node)
+			}
+		}
+		p.peers = kept
+		for i := range p.peers {
+			p.peers[i].carried = carried[p.peers[i].node]
+		}
+		return
+	}
+	if !p.self.relay {
+		return
+	}
+	for i, a := range p.peers {
+		for _, b := range p.peers[i+1:] {
+			if !a.nat || !b.nat || !p.public(a, b) {
+				continue
+			}
+			if r, ok := pairRelay(relays, a, b); ok && r.node == p.self.node {
+				p.relaying = append(p.relaying, [2]netip.Prefix{a.subnet, b.subnet})
+			}
+		}
+	}
 }
 
 // local returns the peers in this node's site.
@@ -345,6 +449,12 @@ func CheckMeshCIDR(s string) (netip.Prefix, error) {
 	}
 	return p, nil
 }
+
+// InternetProbe stands in for the endpoint of a node behind NAT (ADR 0050)
+// wherever the endpoint finds the uplink: the route to an address on the
+// internet is where its packets to other sites leave. Nothing is sent to
+// it, and it is never announced.
+var InternetProbe = netip.MustParseAddr("1.1.1.1")
 
 // Check levels of Diagnose.
 const (

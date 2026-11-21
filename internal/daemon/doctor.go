@@ -148,7 +148,7 @@ func hostDoctorEnv(dataDir string) doctorEnv {
 	var network func() []checkResult
 	if ip, err := netip.ParseAddr(ac.PrivateIP); err == nil && ac.Network != "" {
 		sites := clusternet.Sites{Cache: filepath.Join(dataDir, fileMeshCache), Node: ac.NodeID}
-		network = func() []checkResult { return clusterNetChecks(ac.Network, ip, ac.endpoint(), sites) }
+		network = func() []checkResult { return clusterNetChecks(ac.Network, ip, ac.uplinkEndpoint(), sites) }
 	}
 	return doctorEnv{
 		euid:        os.Geteuid(),

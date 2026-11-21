@@ -30,6 +30,7 @@ func newJoinCommand() *cobra.Command {
 		tokenFile, caHash, privateIP, nodeName, dataDir string
 		noPrivateIP                                     bool
 		endpoint                                        string
+		mtu                                             int
 	)
 	cmd := &cobra.Command{
 		Use:   "join ADDR --ca-hash sha256:HEX",
@@ -42,8 +43,11 @@ func newJoinCommand() *cobra.Command {
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			addr := args[0]
-			ip, mesh, err := prepareJoin(cmd.Flags(), addr, privateIP, endpoint, noPrivateIP)
+			ip, mesh, err := prepareJoin(cmd.Flags(), addr, privateIP, endpoint, noPrivateIP, false)
 			if err != nil {
+				return err
+			}
+			if err := checkUplinkMTU(mtu); err != nil {
 				return err
 			}
 			raw, err := cli.ReadSecretValue(cmd, tokenFile)
@@ -103,7 +107,7 @@ func newJoinCommand() *cobra.Command {
 			}
 			resp, err := armadav1.NewJoinServiceClient(conn).Join(ctx, &armadav1.JoinRequest{
 				TokenId: tok.ID, TokenSecret: tok.Secret, NodeName: nodeName, PrivateIp: ipString(ip), Csr: csr, Version: version.Get().Version,
-				NetworkKey: mesh.key, Endpoint: ipString(mesh.endpoint),
+				NetworkKey: mesh.key, Endpoint: ipString(mesh.endpoint), BehindNat: mesh.behindNAT,
 			})
 			if err != nil {
 				return cli.RPCError(err)
@@ -136,11 +140,12 @@ func newJoinCommand() *cobra.Command {
 			ac.NodeID = nodeName
 			ac.PrivateIP = ip.String()
 			ac.Servers = servers
+			ac.BehindNAT, ac.MTU = mesh.behindNAT, mtu
 			if mesh.on {
 				// The servers are at mesh addresses, or in another site:
 				// the tunnels come up with the cluster's peer list before
 				// the agent starts (ADR 0049, ADR 0050).
-				ac.Endpoint = mesh.endpoint.String()
+				ac.Endpoint = ipString(mesh.endpoint)
 				ac.ClusterCIDR, ac.MeshCIDR = resp.GetNetwork().GetClusterCidr(), resp.GetNetwork().GetMeshCidr()
 				if err := upMesh(dataDir, &ac, resp.Network, slog.New(slog.DiscardHandler)); err != nil {
 					return fmt.Errorf("%w; fix it and run `armada node delete %s` on the cluster before trying again", err, nodeName)
@@ -171,7 +176,8 @@ func newJoinCommand() *cobra.Command {
 	f.StringVar(&caHash, "ca-hash", "", "cluster CA hash, sha256:...")
 	f.StringVar(&privateIP, "private-ip", "", "this node's private IP (default: the only private IPv4 address; a mesh cluster gives the node a mesh address instead)")
 	f.BoolVar(&noPrivateIP, "no-private-ip", false, "joining from another site: send no private IP, and get a mesh address the other nodes reach over WireGuard (the default when the machine has no private IPv4 address)")
-	f.StringVar(&endpoint, "endpoint", "", "joins over a public ADDR (mesh clusters, other sites): this machine's public IPv4 address, which other nodes send WireGuard packets to (default: the only public IPv4 address; behind one-to-one NAT, the mapped address)")
+	f.StringVar(&endpoint, "endpoint", "", "joins over a public ADDR (mesh clusters, other sites): this machine's public IPv4 address, which other nodes send WireGuard packets to (default: the only public IPv4 address; behind one-to-one NAT, the mapped address); none: the machine is behind NAT and starts every connection to other sites")
+	f.IntVar(&mtu, "mtu", 0, "the largest packet this machine's line to other nodes carries, when it is below its interface's (a PPPoE line: 1492); tunnels and containers take their overhead from it")
 	f.StringVar(&nodeName, "node-name", "", "node name (default: hostname)")
 	f.StringVar(&dataDir, "data-dir", defaultDataDir, "directory for the node certificate")
 	_ = cmd.MarkFlagRequired("ca-hash")

@@ -914,6 +914,11 @@ func TestSiteJoin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// For a machine behind NAT, below.
+	home, err := c.admin.CreateJoinToken(c.ctx, &armadav1.CreateJoinTokenRequest{Site: "home"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	var jc armadav1.JoinServiceClient
 	c.eventually("join listener open", func() bool {
 		jc, err = meshJoinClient(c.ctx, t, l.Addr().String(), tok.CaHash)
@@ -976,6 +981,25 @@ func TestSiteJoin(t *testing.T) {
 	}
 	if _, err := c.admin.SetClusterConfig(c.ctx, &armadav1.SetClusterConfigRequest{SetMeshCidr: true, Config: &armadav1.ClusterConfig{MeshCidr: "10.124.0.0/24"}}); status.Code(err) != codes.FailedPrecondition {
 		t.Errorf("mesh CIDR change with a mesh address held = %v", err)
+	}
+	// A machine behind NAT sends no endpoint (ADR 0050); one that sends
+	// both is refused.
+	natKey := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{9}, 32))
+	req, _ = joinReq(t, home.Token, "w4", "192.168.1.4")
+	req.NetworkKey, req.Endpoint, req.BehindNat = natKey, "198.51.100.4", true
+	if _, err := jc.Join(c.ctx, req); status.Code(err) != codes.InvalidArgument {
+		t.Errorf("behind NAT with an endpoint = %v", err)
+	}
+	req, _ = joinReq(t, home.Token, "w4", "192.168.1.4")
+	req.NetworkKey, req.BehindNat = natKey, true
+	if resp, err = jc.Join(c.ctx, req); err != nil {
+		t.Fatal(err)
+	}
+	if resp.GetNetwork() == nil || resp.GetMeshIp() != "" {
+		t.Errorf("behind NAT join answer %v", resp)
+	}
+	if n, err := c.store.GetNode(c.ctx, "w4"); err != nil || !n.BehindNAT || n.Endpoint != "" || n.Site != "home" || n.NetworkKey != natKey {
+		t.Errorf("node behind NAT %+v, %v", n, err)
 	}
 	c.eventually("join listener closed", func() bool {
 		conn, err := net.DialTimeout("tcp", l.Addr().String(), time.Second)

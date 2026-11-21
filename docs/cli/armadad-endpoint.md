@@ -10,6 +10,10 @@ other sites, or from every node in a mesh cluster, are sent to (ADR 0049, ADR
 interfaces. Set it behind one-to-one NAT (the public address is on no
 interface), on a machine with several, or when its address changed for good.
 
+`set none` says the machine is behind NAT: it has no address others reach, and
+it starts every connection to other sites; nodes behind NAT in two sites reach
+each other through a relay (ADR 0050). Servers need an endpoint.
+
 | Command | What it does |
 | --- | --- |
 | [`armadad endpoint set`](#armadad-endpoint-set) | Set the endpoint and restart this machine's Armada service |
@@ -20,7 +24,7 @@ interface), on a machine with several, or when its address changed for good.
 Set the endpoint and restart this machine's Armada service.
 
 ```
-armadad endpoint set IP [flags]
+armadad endpoint set IP|none [flags]
 ```
 
 Flags:

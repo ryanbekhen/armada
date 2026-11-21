@@ -5,6 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/netip"
+	"os"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 
@@ -20,6 +23,9 @@ var detectEndpoint = netutil.DetectEndpoint
 // node of a cluster network, the only public IPv4 address on its
 // interfaces, found again at every start. Other sites' nodes reach it there.
 func announcedEndpoint(ac *agentConfig, log *slog.Logger) string {
+	if ac.BehindNAT {
+		return ""
+	}
 	if ac.Endpoint != "" || ac.Network == "" {
 		return ac.Endpoint
 	}
@@ -50,7 +56,10 @@ func newEndpointCommand() *cobra.Command {
 			"other sites, or from every node in a mesh cluster, are sent to (ADR 0049, ADR\n" +
 			"0050). Without one set, a node announces the only public IPv4 address on its\n" +
 			"interfaces. Set it behind one-to-one NAT (the public address is on no\n" +
-			"interface), on a machine with several, or when its address changed for good.",
+			"interface), on a machine with several, or when its address changed for good.\n\n" +
+			"`set none` says the machine is behind NAT: it has no address others reach, and\n" +
+			"it starts every connection to other sites; nodes behind NAT in two sites reach\n" +
+			"each other through a relay (ADR 0050). Servers need an endpoint.",
 	}
 	var dataDir string
 	show := &cobra.Command{
@@ -64,6 +73,8 @@ func newEndpointCommand() *cobra.Command {
 			}
 			out := cmd.OutOrStdout()
 			switch ep := announcedEndpoint(ac, slog.New(slog.DiscardHandler)); {
+			case ac.BehindNAT:
+				_, err = fmt.Fprintln(out, "none: behind NAT (set); this machine starts every connection to other sites")
 			case ac.Endpoint != "":
 				_, err = fmt.Fprintf(out, "%s (set)\n", ac.Endpoint)
 			case ep != "":
@@ -78,30 +89,44 @@ func newEndpointCommand() *cobra.Command {
 	}
 	var noRestart bool
 	set := &cobra.Command{
-		Use:   "set IP",
+		Use:   "set IP|none",
 		Short: "Set the endpoint and restart this machine's Armada service",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ep, err := netutil.CheckEndpoint(args[0])
-			if err != nil {
-				return err
+			nat := args[0] == endpointNone
+			var ep netip.Addr
+			if !nat {
+				var err error
+				if ep, err = netutil.CheckEndpoint(args[0]); err != nil {
+					return err
+				}
 			}
 			ac, err := loadAgentConfig(dataDir)
 			if err != nil {
 				return err
 			}
+			if nat {
+				if _, err := os.Stat(filepath.Join(dataDir, fileServerCert)); err == nil {
+					return errors.New("this machine is a control plane server, which needs an endpoint other sites reach it at")
+				}
+			}
 			if ac.Network == "" {
 				return errors.New("this cluster has no cluster network: its nodes reach each other only over the private network")
 			}
-			if ac.Network == store.NetworkMesh && ac.Endpoint == "" {
+			if ac.Network == store.NetworkMesh && ac.Endpoint == "" && !ac.BehindNAT {
 				return errors.New("agent.json records no endpoint for this mesh node; it is not a node of this Armada's mesh")
 			}
-			ac.Endpoint = ep.String()
+			out := cmd.OutOrStdout()
+			if nat {
+				ac.Endpoint, ac.BehindNAT = "", true
+				_, _ = fmt.Fprintln(out, "This machine is behind NAT: it announces no endpoint.")
+			} else {
+				ac.Endpoint, ac.BehindNAT = ep.String(), false
+				_, _ = fmt.Fprintf(out, "Endpoint set to %s.\n", ep)
+			}
 			if err := saveAgentConfig(dataDir, *ac); err != nil {
 				return err
 			}
-			out := cmd.OutOrStdout()
-			_, _ = fmt.Fprintf(out, "Endpoint set to %s.\n", ep)
 			if noRestart {
 				_, err = fmt.Fprintln(out, "Restart armada-server or armada-agent to announce it.")
 				return err

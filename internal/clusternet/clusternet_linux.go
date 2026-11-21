@@ -271,6 +271,9 @@ func (n *Net) transport(p plan, mode, name string, r routeSet) (int, error) {
 		// whose interface may take less than the private network's.
 		uplinkMTU = min(uplinkMTU, remoteUplinkMTU(p.remote(), uplinkMTU))
 	}
+	if n.cfg.UplinkMTU > 0 {
+		uplinkMTU = min(uplinkMTU, n.cfg.UplinkMTU)
+	}
 	mtu := TunnelMTU(mode, uplinkMTU)
 	if encrypted(mode) {
 		err = n.wireguard(p, mode, name, mtu, r)
@@ -542,14 +545,18 @@ func syncRoutes(link netlink.Link, p plan, via bool, set routeSet) error {
 			}
 			want[dst] = true
 		}
-		r := &netlink.Route{LinkIndex: idx, Dst: prefixNet(pe.subnet), Scope: netlink.SCOPE_LINK}
-		if via {
-			r.Scope, r.Gw, r.Flags = netlink.SCOPE_UNIVERSE, vtepAddr(pe.subnet).AsSlice(), int(netlink.FLAG_ONLINK)
+		// The peer's own subnet, and those of nodes behind NAT reached
+		// through it, a relay (ADR 0050).
+		for _, dst := range append([]netip.Prefix{pe.subnet}, pe.carried...) {
+			r := &netlink.Route{LinkIndex: idx, Dst: prefixNet(dst), Scope: netlink.SCOPE_LINK}
+			if via {
+				r.Scope, r.Gw, r.Flags = netlink.SCOPE_UNIVERSE, vtepAddr(pe.subnet).AsSlice(), int(netlink.FLAG_ONLINK)
+			}
+			if err := netlink.RouteReplace(r); err != nil {
+				return fmt.Errorf("route to %s (%s): %w", pe.node, dst, err)
+			}
+			want[dst] = true
 		}
-		if err := netlink.RouteReplace(r); err != nil {
-			return fmt.Errorf("route to %s (%s): %w", pe.node, pe.subnet, err)
-		}
-		want[pe.subnet] = true
 	}
 	routes, err := netlink.RouteList(link, netlink.FAMILY_V4)
 	if err != nil {
@@ -636,7 +643,7 @@ func (n *Net) firewall(p plan) error {
 	if err := ipt.chain("filter", chainFwd); err != nil {
 		return err
 	}
-	if err := ipt.fill("filter", chainFwd, forwardRules(tunnels(p))); err != nil {
+	if err := ipt.fill("filter", chainFwd, forwardRules(tunnels(p), p.relaying)); err != nil {
 		return err
 	}
 	if err := ipt.first("filter", "FORWARD", "-j", chainFwd); err != nil {
@@ -714,9 +721,21 @@ func mssRules(tunnels []string) [][]string {
 	return rules
 }
 
-// forwardRules are ARMADA-NET-FWD's rules for the tunnel interfaces.
-func forwardRules(tunnels []string) [][]string {
+// forwardRules are ARMADA-NET-FWD's rules for the tunnel interfaces. A
+// relay (ADR 0050) also forwards between the subnets of each pair of nodes
+// behind NAT it relays for, from any tunnel to any tunnel: a pair's ends
+// may be on the private network's transport or on WireGuard.
+func forwardRules(tunnels []string, relaying [][2]netip.Prefix) [][]string {
 	var rules [][]string
+	for _, pair := range relaying {
+		for _, in := range tunnels {
+			for _, out := range tunnels {
+				for _, dir := range [][2]netip.Prefix{pair, {pair[1], pair[0]}} {
+					rules = append(rules, []string{"-s", dir[0].String(), "-d", dir[1].String(), "-i", in, "-o", out, "-j", "ACCEPT"})
+				}
+			}
+		}
+	}
 	for _, name := range tunnels {
 		rules = append(rules,
 			[]string{"-i", name, "-o", embedded.BridgeName, "-j", "ACCEPT"},
@@ -771,6 +790,10 @@ func spoofRules(p plan) [][]string {
 		to, peerPorts := pe.ip, ports
 		if p.mode == ModeMesh || pe.remote {
 			to, peerPorts = pe.endpoint, []int{WireGuardPort}
+		}
+		if !to.IsValid() {
+			// Behind NAT (ADR 0050): no address of its own to send to.
+			continue
 		}
 		for _, port := range peerPorts {
 			rules = append(rules, []string{"-d", to.String() + "/32", "-i", embedded.BridgeName, "-p", "udp", "-m", "udp", "--dport", strconv.Itoa(port), "-j", "DROP"})
@@ -917,10 +940,13 @@ func (c iptablesCmd) only(chain, target string, rule ...string) error {
 // ContainerMTU is the MTU for the bridge and containers on a node of a
 // cluster network in mode whose private IP is ip (and, in the mesh mode,
 // whose endpoint is endpoint).
-func ContainerMTU(mode string, ip, endpoint netip.Addr) (int, error) {
+func ContainerMTU(mode string, ip, endpoint netip.Addr, uplinkMTU int) (int, error) {
 	_, mtu, meshed, err := uplinkFor(mode, ip, endpoint)
 	if err != nil {
 		return 0, err
+	}
+	if uplinkMTU > 0 {
+		mtu = min(mtu, uplinkMTU)
 	}
 	if meshed {
 		// Every packet to another node goes over WireGuard (ADR 0050).
@@ -934,6 +960,9 @@ func ContainerMTU(mode string, ip, endpoint netip.Addr) (int, error) {
 func Diagnose(mode string, ip, endpoint netip.Addr, sites Sites) []Check {
 	out := diagnoseTunnel(mode, ip, endpoint)
 	if c, ok := diagnoseSites(sites, ip); ok {
+		out = append(out, c)
+	}
+	if c, ok := diagnoseRelay(sites, ip); ok {
 		out = append(out, c)
 	}
 	return append(out, diagnoseIsolation())
@@ -988,6 +1017,44 @@ func diagnoseSites(s Sites, ip netip.Addr) (Check, bool) {
 		return c, true
 	}
 	c.Detail = fmt.Sprintf("%d node(s) in other sites, none inside this machine's local networks", remote)
+	return c, true
+}
+
+// diagnoseRelay reports how a node behind NAT reaches the nodes behind NAT
+// of other sites, and what a relay forwards (ADR 0050). ok is false when
+// neither applies.
+func diagnoseRelay(s Sites, ip netip.Addr) (Check, bool) {
+	c := Check{Name: "relay", Level: CheckOK}
+	if s.Cache == "" {
+		return c, false
+	}
+	cfg, err := loadMeshCache(s.Cache)
+	if err != nil || cfg == nil {
+		return c, false
+	}
+	p, err := parse(cfg, s.Node, ip)
+	if err != nil {
+		return c, false
+	}
+	switch {
+	case len(p.unreachable) > 0:
+		c.Level = CheckFail
+		c.Detail = fmt.Sprintf("this node is behind NAT and cannot reach %d node(s) behind NAT: %s; their sites and this one have no relay (a ready node with an endpoint)", len(p.unreachable), strings.Join(p.unreachable, ", "))
+	case len(p.relayed) > 0:
+		var via []string
+		for _, pe := range p.peers {
+			if len(pe.carried) > 0 {
+				via = append(via, fmt.Sprintf("%d through %s", len(pe.carried), pe.node))
+			}
+		}
+		c.Detail = fmt.Sprintf("this node is behind NAT and reaches %d node(s) behind NAT in other sites through relays: %s", len(p.relayed), strings.Join(via, ", "))
+	case p.self.nat:
+		c.Detail = "this node is behind NAT; it reaches every node of another site directly"
+	case p.self.relay:
+		c.Detail = fmt.Sprintf("this node relays its site's traffic between nodes behind NAT: %d pair(s)", len(p.relaying))
+	default:
+		return c, false
+	}
 	return c, true
 }
 

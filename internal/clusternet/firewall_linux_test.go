@@ -71,7 +71,7 @@ func TestSwitchRules(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := forwardRules(tunnels(p)); len(got) != 5 || got[2][1] != Interface {
+	if got := forwardRules(tunnels(p), nil); len(got) != 5 || got[2][1] != Interface {
 		t.Errorf("one tunnel: %v", got)
 	}
 	if got := mssRules(tunnels(p)); len(got) != 1 {
@@ -99,7 +99,7 @@ func TestSwitchRules(t *testing.T) {
 			t.Errorf("%q missing:\n%s", want, strings.Join(spoof, "\n"))
 		}
 	}
-	fwd := join(forwardRules(tunnels(p)))
+	fwd := join(forwardRules(tunnels(p), nil))
 	for _, want := range []string{
 		"-i armada-next -o armada0 -j ACCEPT",
 		"-i armada0 -o armada-next -j ACCEPT",
@@ -116,5 +116,25 @@ func TestSwitchRules(t *testing.T) {
 	}
 	if got := join(mssRules(tunnels(p))); !slices.Contains(got, "-o armada-next -p tcp -m tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu") {
 		t.Errorf("mss: %v", got)
+	}
+}
+
+// A relay forwards between the subnets of the pairs it relays for, both
+// ways and between any two tunnels, before the tunnels' drops (ADR 0050).
+func TestForwardRulesRelay(t *testing.T) {
+	t.Parallel()
+	pair := [2]netip.Prefix{netip.MustParsePrefix("10.120.1.0/24"), netip.MustParsePrefix("10.120.4.0/24")}
+	got := forwardRules([]string{Interface, SiteInterface}, [][2]netip.Prefix{pair})
+	if len(got) < 8 {
+		t.Fatalf("rules %v", got)
+	}
+	want := []string{"-s", "10.120.4.0/24", "-d", "10.120.1.0/24", "-i", Interface, "-o", SiteInterface, "-j", "ACCEPT"}
+	if !slices.ContainsFunc(got[:8], func(r []string) bool { return slices.Equal(r, want) }) {
+		t.Errorf("missing %v in %v", want, got[:8])
+	}
+	for _, r := range got[:8] {
+		if r[len(r)-1] != "ACCEPT" {
+			t.Errorf("relay rule %v", r)
+		}
 	}
 }

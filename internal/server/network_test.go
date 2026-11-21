@@ -3,10 +3,14 @@ package server
 import (
 	"context"
 	"encoding/base64"
+	"fmt"
+	"maps"
 	"net/netip"
 	"strings"
 	"testing"
+	"time"
 
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -122,5 +126,107 @@ func TestNetworkSites(t *testing.T) {
 	}
 	if _, err := c.admin.SetNodeSite(c.ctx, &armadav1.SetNodeSiteRequest{Node: "n2", Site: "office"}); status.Code(err) != codes.FailedPrecondition {
 		t.Errorf("site during a switch: %v", err)
+	}
+}
+
+// Sites with a node behind NAT get a relay: a ready node of the site with
+// an endpoint, the one an admin chose while it can relay, else the same
+// one every pass; nodes behind NAT cannot be chosen (ADR 0050).
+func TestNetworkRelays(t *testing.T) {
+	t.Parallel()
+	c := newCluster(t)
+	if err := c.store.InitNetwork(c.ctx, store.Network{Mode: store.NetworkPlain, ClusterCIDR: netip.MustParsePrefix("10.120.0.0/16")}); err != nil {
+		t.Fatal(err)
+	}
+	keys := map[string]string{}
+	for i, id := range []string{"a1", "a2", "a3", "nat", "b1"} {
+		if err := c.store.UpsertNode(c.ctx, store.Node{ID: id, PrivateIP: fmt.Sprintf("10.0.0.%d", i+1)}); err != nil {
+			t.Fatal(err)
+		}
+		k, err := wgtypes.GeneratePrivateKey()
+		if err != nil {
+			t.Fatal(err)
+		}
+		keys[id] = k.PublicKey().String()
+		st := store.NodeStatus{State: store.NodeReady, LastSeen: time.Now(), NetworkKey: keys[id], Endpoint: fmt.Sprintf("203.0.113.%d", i+1)}
+		if id == "nat" {
+			st.Endpoint, st.BehindNAT = "", true
+		}
+		if err := c.store.SetNodeStatus(c.ctx, id, st); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := c.admin.SetNodeSite(c.ctx, &armadav1.SetNodeSiteRequest{Node: "b1", Site: "far"}); err != nil {
+		t.Fatal(err)
+	}
+	relays := func() map[string]bool {
+		t.Helper()
+		nodes, err := c.store.ListNodes(c.ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cfg, err := c.srv.buildNetwork(c.ctx, nodes, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out := map[string]bool{}
+		for _, p := range cfg.GetPeers() {
+			if p.GetRelay() {
+				out[p.GetNode()] = true
+			}
+			if p.GetNode() == "nat" && (!p.GetBehindNat() || p.GetEndpoint() != "") {
+				t.Errorf("peer nat: %v", p)
+			}
+		}
+		return out
+	}
+	// One per site with a node that can relay: b1 in far, one of a1..a3
+	// in the first.
+	first := relays()
+	if len(first) != 2 || !first["b1"] || first["nat"] {
+		t.Fatalf("relays %v", first)
+	}
+	if again := relays(); !maps.Equal(first, again) {
+		t.Errorf("relay moved: %v, then %v", first, again)
+	}
+	// An admin's choice wins; a node behind NAT cannot be chosen.
+	if _, err := c.admin.SetNodeRelay(c.ctx, &armadav1.SetNodeRelayRequest{Node: "nat"}); status.Code(err) != codes.FailedPrecondition {
+		t.Errorf("relay behind NAT: %v", err)
+	}
+	pick := "a1"
+	if first["a1"] {
+		pick = "a2"
+	}
+	if _, err := c.admin.SetNodeRelay(c.ctx, &armadav1.SetNodeRelayRequest{Node: pick}); err != nil {
+		t.Fatal(err)
+	}
+	if r := relays(); len(r) != 2 || !r[pick] {
+		t.Errorf("chosen %s, relays %v", pick, r)
+	}
+	// A drained choice gives way, and comes back when resumed.
+	if err := c.store.SetNodeCordoned(c.ctx, pick, true, "admin:a"); err != nil {
+		t.Fatal(err)
+	}
+	if r := relays(); len(r) != 2 || r[pick] {
+		t.Errorf("drained %s, relays %v", pick, r)
+	}
+	if err := c.store.SetNodeCordoned(c.ctx, pick, false, "admin:a"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.admin.SetNodeRelay(c.ctx, &armadav1.SetNodeRelayRequest{Node: pick, Clear: true}); err != nil {
+		t.Fatal(err)
+	}
+	if r := relays(); !maps.Equal(r, first) {
+		t.Errorf("after clear %v, want %v", r, first)
+	}
+	// The status shows it.
+	st, err := c.admin.Status(c.ctx, &armadav1.StatusRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range st.GetNodes() {
+		if n.GetRelay() != first[n.GetId()] || n.GetBehindNat() != (n.GetId() == "nat") {
+			t.Errorf("status of %s: relay %v, behind NAT %v", n.GetId(), n.GetRelay(), n.GetBehindNat())
+		}
 	}
 }
