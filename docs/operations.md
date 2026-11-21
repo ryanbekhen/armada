@@ -53,11 +53,13 @@ armada cluster set --root-domain apps.example.com --trusted-proxies 173.245.48.0
 | DNS provider for the root domain (wildcard) | `--dns-provider cloudflare\|none` with `--dns-token FILE\|-` | none (HTTP-01) |
 | Metrics endpoint | `--metrics-port` (each server's private address) | off |
 | Node-lost timeout | `--node-lost-timeout` | 5m |
+| Control plane backups to a bucket ([below](#scheduled-backups-to-a-bucket)) | `--backup-url FILE\|-`, `--backup-key FILE\|-`, `--backup-every`/`--backup-schedule`, `--backup-keep`, `--backup none` | off |
 
 The DNS token is stored encrypted with the master key and never shown.
 Changing a setting makes the leader restart its control plane in the same
 process: apps keep serving, and the API and agents reconnect within a
-second or two. The root domain and trusted proxies apply without that.
+second or two. The root domain, trusted proxies, and backups apply without
+that.
 
 **Without certificates** (`armada cluster set --tls=false`), for machines
 on a private network with no public domain: port 80 serves the apps over
@@ -237,6 +239,65 @@ WantedBy=timers.target
 Copy the encrypted archives off the machine (object storage, another
 provider), and test a restore now and then.
 
+### Scheduled backups to a bucket
+
+Instead of a timer, the leader can back the control plane up to an
+S3-compatible bucket by itself ([ADR 0051](adr/0051-control-plane-backups.md)),
+encrypted and deduplicated like volume backups:
+
+```bash
+printf '%s' 'https://ACCESS_KEY:SECRET_KEY@s3.example.com/acme-backups/armada' > url.txt
+openssl rand -base64 48 | tr -d '\n' > key.txt     # keep a copy outside the cluster
+chmod 600 url.txt key.txt
+armada cluster set --backup-url url.txt --backup-key key.txt --backup-every 1h --backup-keep last=24,daily=7,weekly=4
+armada cluster status
+```
+
+```
+backups: to s3.example.com/acme-backups/armada/, last 2026-11-21 10:00:04 on cp-1 (24Mi, 1 kept, 9.8Mi stored), next 2026-11-21 11:00:04
+```
+
+- Each backup holds what `armadad backup` writes, taken on the server that
+  leads at the time, checked the same way before it is uploaded. Only
+  chunks the bucket does not hold yet are uploaded, sealed with keys
+  derived from `--backup-key`. They go under `_control-plane/` below the
+  URL's prefix, apart from volume backups.
+- `--backup-every` (5m to 168h), or `--backup-schedule "0 3 * * *"` with
+  `--backup-time-zone`. `--backup-keep` is a number of the latest backups,
+  or `last=N,hourly=N,daily=N,weekly=N,monthly=N`; older ones are deleted
+  after each backup.
+- The URL and the key are read from files (mode `0600`) or stdin (`-`, one
+  of them), stored encrypted with the master key, and never shown. The URL
+  is `https://`, or `http://` for a bucket on a private IP address. A new
+  URL or key starts a new series and backs up at once; a new key needs a
+  new URL (another prefix), since the old repository only opens with its
+  own key.
+- **The backups hold the CA key and the master key.** Whoever has the
+  bucket and the key controls the cluster; without the key the backups
+  cannot be read, so keep it outside the cluster too. Limit the access key
+  to this bucket; versioning or object lock keeps backups from someone who
+  holds it.
+- A failed backup is retried after five minutes (or `--backup-every`, if
+  shorter), shown by `armada cluster status`, and starts a
+  `ControlPlaneBackupFailed` event that alert channels receive; it clears
+  once a backup works. Metrics:
+  `armada_control_plane_backup_last_success_timestamp_seconds`,
+  `armada_control_plane_backup_last_size_bytes`,
+  `armada_control_plane_backup_failures_total`.
+- `armada cluster set --backup none` stops them; the bucket keeps what it
+  holds.
+
+List what the bucket holds from any machine with Armada installed:
+
+```bash
+sudo armadad backup list --backup-url url.txt --backup-key key.txt
+```
+
+```
+ID                             TAKEN                SERVER  SIZE
+20261121T030004.112Z-4f1c09ab  2026-11-21 10:00:04  cp-1    25165824 bytes
+```
+
 ## Restore
 
 A restore is for when the state is lost: a single server is gone, or a
@@ -258,7 +319,13 @@ is not supported in v0.1.
    ```bash
    age -d -i key.txt armada-2026-10-31.tar.gz.age | sudo armadad restore -
    # or: sudo armadad restore /root/armada-2026-10-31.tar.gz
+   # or, from the bucket (the latest backup, or --snapshot ID from armadad backup list):
+   sudo armadad restore --backup-url url.txt --backup-key key.txt
    ```
+
+   A backup from the bucket brings back the server it was taken on
+   (`armadad backup list` names it): restore it onto a machine with that
+   server's private IP.
 
    The archive is extracted into a temporary directory and checked before
    anything is moved into place: only known file names are accepted
@@ -1541,6 +1608,8 @@ scrape interval under 10 seconds costs nothing more, but shows nothing new.
 | `armada_volume_backup_last_success_timestamp_seconds` | `app`, `volume` | when the volume's last backup to its bucket worked ([ADR 0041](adr/0041-volume-backups.md)) |
 | `armada_volume_backup_stored_bytes`, `armada_volume_backup_snapshots` | `app`, `volume` | what the volume's repository held after that backup |
 | `armada_volume_backup_failing` | `app`, `volume` | 1 while the last backup failed |
+| `armada_control_plane_backup_last_success_timestamp_seconds`, `armada_control_plane_backup_last_size_bytes` | | when the control plane's last backup to its bucket worked, and the bytes of its files ([ADR 0051](adr/0051-control-plane-backups.md)) |
+| `armada_control_plane_backup_failures_total` | | backups of the control plane that failed since the leader's term began |
 
 Example alerts: `armada_app_replicas_ready < armada_app_replicas_desired`
 for 10 minutes, `armada_app_rollout{state="failed"} == 1`,

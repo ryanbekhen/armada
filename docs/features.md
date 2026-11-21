@@ -136,6 +136,11 @@ Everything Armada does. The [guides](guides/README.md) show each in use, and the
 - **Highly available control plane.** One server works; three survive the
   loss of any one. Servers elect a leader, agents and the CLI follow it,
   and certificates are not re-issued on failover.
+- **Control plane backups.** The leader backs the control plane up to an
+  S3-compatible bucket on a schedule, deduplicated and encrypted with a key
+  of yours, keeping the backups `--backup-keep` names; `armadad restore`
+  brings one back from the bucket, or from an archive `armadad backup`
+  wrote.
 - **Rolling upgrades.** `armada version` and `armadad doctor` say when a
   newer release is out, and `sudo armadad upgrade` installs it, verified,
   on a machine. Upgrade servers, then nodes, one at a time while
