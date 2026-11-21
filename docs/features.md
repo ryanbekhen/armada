@@ -61,6 +61,8 @@ Everything Armada does. The [guides](guides/README.md) show each in use, and the
   over WireGuard between their public addresses, machines with no private
   network get a mesh address, servers may join from any site, and apps
   stay in a site or spread over sites through the `armada.site` label.
+  Machines behind NAT join with no public address; two of them in
+  different sites reach each other through a relay the leader picks.
 - **Spaces.** Apps, jobs, secrets, domains, and volumes belong to a
   space, so `web` can run in `staging` and in `default` side by side.
   Each space resolves and reaches

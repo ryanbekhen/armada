@@ -210,8 +210,15 @@ sites:
 **Joining behind NAT.**
 
 - A node joins behind NAT with `--endpoint none`: it has no address
-  others can reach.
-- Servers need an endpoint, so `server join --endpoint none` is refused.
+  others can reach. Over the leader's private address it joins the
+  leader's site; over its public address, another site, like any machine
+  of another site.
+- A node already in the cluster goes behind NAT with `armadad endpoint set
+  none`, and back with `armadad endpoint set IP`.
+- The agent says so in `Hello.behind_nat`, and the node's record keeps it
+  (`Node.BehindNAT`), with no endpoint.
+- Servers need an endpoint, so `server join --endpoint none` and `endpoint
+  set none` on a server are refused.
 
 **Who connects to whom.**
 
@@ -227,23 +234,38 @@ sites:
 
 **Choosing the relay.**
 
-- The relay is a node with an endpoint. The leader picks one per site that
-  has nodes behind NAT, by rendezvous hash over eligible nodes with an
-  endpoint (ready, not cordoned), so the choice stays stable as nodes come
-  and go.
-- `armada node relay NODE` pins a choice; `--clear` drops it.
-- The relay of each site is sent in `Assignment.network`.
+- The relay is a node with an endpoint. Once any node is behind NAT, the
+  leader picks one per site among the site's nodes that can relay (a key
+  and an endpoint, not behind NAT, ready, not lost, not cordoned), by
+  rendezvous hash over the site and node names, so the choice stays stable
+  as nodes come and go.
+- `armada node relay NODE` pins a choice; `--clear` drops it. A pinned node
+  that cannot relay gives way to the hash until it can again. Moving a node
+  to another site, or behind NAT, drops its pin.
+- Every peer in `Assignment.network` says whether it is behind NAT and
+  whether it is its site's relay (`NetworkPeer.behind_nat`, `relay`).
+- A pair of nodes behind NAT that cannot reach each other uses the relay
+  of the pair's site that sorts first, else of the other, else (both sites
+  are behind NAT) of the first site, in sort order, that has one. Both ends
+  and the relay work this out from the same list, so both directions of a
+  connection cross the same relay, whose connection tracking and isolation
+  rules see the whole connection.
+- A pair with no relay at all is not reachable; doctor's `relay` check
+  fails and names the nodes.
 
 **Routing through the relay.**
 
 - With WireGuard's allowed addresses, no other protocol is needed. On a
-  node behind NAT, the relay's peer entry also allows the addresses and
-  subnets of every node the node cannot reach directly, and those nodes
-  have no peer entry of their own. On the relay, each such node's entry
-  stays as it is.
-- The relay forwards between peers on its WireGuard device. Its
-  `ARMADA-NET-FWD` accepts traffic from the device back into it, and
-  nothing else changes.
+  node behind NAT, the relay's peer entry also allows the subnets of every
+  node it reaches through that relay, and those nodes have no peer entry
+  of their own. Routes to those subnets lead to the relay: through
+  WireGuard, or, when the relay is in the node's own site of a `plain`
+  cluster, through its VXLAN tunnel end. Node addresses are not relayed:
+  nodes behind NAT are never servers, and only container traffic crosses
+  between them.
+- On the relay, each such node's entry stays as it is. The relay forwards
+  between the subnets of each pair it relays for, in both directions,
+  between any of its tunnel interfaces (`ARMADA-NET-FWD`), and only those.
 
 **What the relay sees.** The relay decrypts what it forwards and encrypts
 it again. It sees the traffic between the two nodes as any node sees its
@@ -259,18 +281,23 @@ threat model records it.
 - Connections from the internet reach replicas on nodes behind NAT through
   the proxies of public nodes, like any replica on another node.
 - Lines behind NAT often have a smaller MTU (PPPoE). A node's tunnel MTU
-  follows its own uplink as today, and `--mtu` on `join` sets a smaller one.
+  follows its own uplink as today, and `--mtu` on `join` names the largest
+  packet the machine's line carries when that is below its interface's
+  (agent.json `mtu`); tunnels and containers take their overhead from it.
   The MSS clamp of step 1 keeps TCP working across paths of different MTU.
+  A node behind NAT, which has no endpoint, finds its uplink by the route
+  to the internet.
 
 ### Diagnostics
 
-`armadad doctor` and `armada node show` report for every peer:
-- the transport and endpoint in use;
-- whether the peer is reached directly or through the relay;
-- the last handshake.
-
-A peer unreachable for 3 minutes raises `PeerUnreachable`, as ADR 0025
-planned.
+- `armadad doctor` checks the handshakes of every WireGuard peer, as for
+  sites, and its `relay` check says whether the node is behind NAT, how
+  many nodes it reaches through which relay, how many pairs a relay
+  forwards for, and fails for nodes no relay reaches.
+- `armada node list` marks nodes behind NAT and relays in their state
+  (`behind-nat`, `relay`); `armada node show` shows the endpoint (or that
+  the node is behind NAT) and whether it relays, and whether an admin
+  chose it.
 
 ## Consequences
 

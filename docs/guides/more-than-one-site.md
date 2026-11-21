@@ -12,7 +12,8 @@ the first site:
 
 - `c` in site `office`, with a private network of its own;
 - `d` in site `cloud`, with no private network at all, as a control
-  plane server.
+  plane server;
+- a machine behind NAT, at home or in an office.
 
 ## Before you start
 
@@ -116,7 +117,47 @@ armada node site a dc1
 armada node site b dc1
 ```
 
-## 4. Check it
+## 4. Add a machine behind NAT
+
+A machine at home or in an office usually has no public address anyone can
+reach: its router only lets connections out. It joins with `--endpoint
+none` and starts every connection itself:
+
+```bash
+armada node join-token --site home
+```
+
+On the machine:
+
+```bash
+sudo armadad join 203.0.113.10:7444 --ca-hash sha256:... --endpoint none
+sudo systemctl enable --now armada-agent
+```
+
+Add `--mtu 1492` on a PPPoE line, or the MTU of whatever smaller link its
+packets cross.
+
+- It reaches every node with a public address directly, and nodes of its
+  own site over their private network.
+- Two nodes behind NAT in different sites cannot reach each other, so
+  their traffic goes through a **relay**: a node with a public address
+  that the leader picks, in one of their sites or, when neither has one,
+  in another. The relay sees that traffic as any node sees its own.
+- It takes no public traffic: point DNS only at nodes with a public
+  address.
+
+```bash
+armada node list                 # STATE: ready,behind-nat / ready,relay
+armada node show d               # Relay: yes (picked by the leader)
+armada node relay d              # pin the relay of d's site
+armada node relay d --clear      # let the leader pick again
+```
+
+A node already in the cluster goes behind NAT with `sudo armadad endpoint
+set none`, and back with `sudo armadad endpoint set IP`. Servers always
+need a public address.
+
+## 5. Check it
 
 On any node:
 
@@ -131,6 +172,10 @@ sudo armadad doctor
   machine's local networks. If one does, a host at that address on the
   local network becomes unreachable from the node: join that node again
   with `--no-private-ip`.
+- `relay`, on a node behind NAT: which relay carries its traffic to nodes
+  behind NAT in other sites; on a relay, how many pairs it forwards for.
+  It fails when no relay can reach a node: give one of the sites a node
+  with a public address.
 
 ## Good to know
 
