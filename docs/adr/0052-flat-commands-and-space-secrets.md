@@ -236,6 +236,14 @@ a key changes no running replica until the app's next deploy, `app
 restart`, or `secret set --rollout`, which restarts every app of the space
 whose serving revision uses that key.
 
+There are no secrets private to one app. They would protect nothing the
+space does not: whoever may deploy in a space may deploy or exec into any
+of its apps, and so read any value an app receives. A replica only
+receives the keys its own spec names, so a compromised container of one
+app never sees keys only another app uses. Values that must stay apart
+belong in another space. The secret named after an app (below) serves as
+that app's own by convention.
+
 Access stays on the space: whoever may deploy in a space may create, set,
 and delete its secrets; whoever may view it sees secret names, keys, and
 versions, never values (ADR 0033).
