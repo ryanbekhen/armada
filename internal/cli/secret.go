@@ -9,6 +9,8 @@ import (
 	"io"
 	"os"
 	"regexp"
+	"slices"
+	"strconv"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -296,10 +298,7 @@ func newSecretListCommand(g *globals) *cobra.Command {
 			tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 4, 2, ' ', 0)
 			_, _ = fmt.Fprintln(tw, "NAME\tVERSION\tUPDATED\tBY\tUSED BY")
 			for _, s := range resp.Secrets {
-				used := "-"
-				if len(s.UsedBy) > 0 {
-					used = strings.Join(s.UsedBy, ",")
-				}
+				used := revisionRuns(args[0], s.UsedBy)
 				_, _ = fmt.Fprintf(tw, "%s\t%d\t%s\t%s\t%s\n", s.Name, s.Version,
 					s.UpdatedAt.AsTime().Local().Format(time.DateTime), s.UpdatedBy, used)
 			}
@@ -332,4 +331,40 @@ func newSecretDeleteCommand(g *globals) *cobra.Command {
 			return nil
 		},
 	}
+}
+
+// revisionRuns lists an app's revisions short, runs of consecutive ones as
+// one range: api--r20,api--r19,...,api--r11 is r11-r20. A name of another
+// form is listed as it is.
+func revisionRuns(app string, revisions []string) string {
+	if len(revisions) == 0 {
+		return "-"
+	}
+	var nums []int
+	for _, r := range revisions {
+		n, err := strconv.Atoi(strings.TrimPrefix(r, app+"--r"))
+		if err != nil || n < 1 || !strings.HasPrefix(r, app+"--r") {
+			return strings.Join(revisions, ",")
+		}
+		nums = append(nums, n)
+	}
+	slices.Sort(nums)
+	nums = slices.Compact(nums)
+	var parts []string
+	for i := 0; i < len(nums); {
+		j := i
+		for j+1 < len(nums) && nums[j+1] == nums[j]+1 {
+			j++
+		}
+		switch j {
+		case i:
+			parts = append(parts, fmt.Sprintf("r%d", nums[i]))
+		case i + 1:
+			parts = append(parts, fmt.Sprintf("r%d", nums[i]), fmt.Sprintf("r%d", nums[j]))
+		default:
+			parts = append(parts, fmt.Sprintf("r%d-r%d", nums[i], nums[j]))
+		}
+		i = j + 1
+	}
+	return strings.Join(parts, ",")
 }

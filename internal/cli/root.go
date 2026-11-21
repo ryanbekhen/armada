@@ -166,6 +166,7 @@ func startNotice(ctx context.Context, args []string, stderr io.Writer) func(time
 // stdin means os.Stdin. armadad runs its own tree through it.
 func Run(ctx context.Context, cmd *cobra.Command, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	refuseUnknownCommands(cmd)
+	explain(cmd)
 	cmd.SetArgs(args)
 	if stdin != nil {
 		cmd.SetIn(stdin)
