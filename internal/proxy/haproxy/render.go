@@ -465,6 +465,14 @@ func tcpFrontendName(port int) string { return "tcp_" + strconv.Itoa(port) }
 // while requests to it succeed.
 const remoteCheckInterval = "15s"
 
+// stickyValue is a sticky server's cookie value: a short hash of its
+// replica's name, so every node's proxy sends a client to the same replica
+// whatever slot it has there, and the value says nothing about the replica.
+func stickyValue(replica string) string {
+	sum := sha256.Sum256([]byte(replica))
+	return "r" + hex.EncodeToString(sum[:6])
+}
+
 // stickyCookie names a sticky backend's cookie: one per backend, so two
 // sticky apps on one host keep their own, and from a hash, so the name
 // says nothing about the app.
@@ -598,9 +606,10 @@ func writeBackend(w func(string, ...any), p pool, healthPath string, layout Layo
 	}
 	cookie := ""
 	if p.sticky {
-		// The cookie names the slot, which says nothing about the replica;
-		// a slot that is down or empty sends the client elsewhere
-		// (option redispatch), and the next answer sets a new cookie.
+		// Each server's cookie names its replica (stickyValue), the same
+		// on every node, whatever slot the replica has there; a replica
+		// that is down or gone sends the client elsewhere (option
+		// redispatch), and the next answer sets a new cookie.
 		secure := " secure"
 		if p.plainHTTP {
 			secure = ""
@@ -622,8 +631,8 @@ func writeBackend(w func(string, ...any), p pool, healthPath string, layout Layo
 	w("    default-server check inter 2s fastinter 1s fall 2 rise 2 observe layer4 error-limit 2 on-error fastinter")
 	for i, sname := range layout[p.name] {
 		c := ""
-		if cookie != "" {
-			c = cookie + slotName(i)
+		if _, ok := servers[sname]; ok && sname != "" && cookie != "" {
+			c = cookie + stickyValue(sname)
 		}
 		if p.remote[sname] {
 			c += " inter " + remoteCheckInterval

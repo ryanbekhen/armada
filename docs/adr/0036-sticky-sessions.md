@@ -18,8 +18,12 @@ its first request:
 - **How it works.** HAProxy sets a cookie on the response (`insert
   indirect nocache httponly secure`, `SameSite=Lax`) and routes requests
   that carry it to the same server.
-  - The cookie's value is the server slot's name (`s1`, `s2`), which says
-    nothing about the replica.
+  - The cookie's value is a short hash of the replica's name: the same on
+    every node, so a client whose requests arrive at different nodes stays
+    on one replica, and it says nothing about the replica. A server's
+    cookie is set when the proxy loads its configuration, so a change in a
+    sticky app's replicas reloads the proxy; an address change of the same
+    replica does not.
   - Its name is `armada_` and a short hash of the backend, so two sticky
     apps on one host keep their own, and the name does not give the app
     away.

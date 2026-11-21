@@ -629,7 +629,8 @@ func desiredServers(cfg proxy.Config, layout Layout, n node) map[string]slot {
 
 // signature captures everything that requires a reload: backends and their
 // slot counts, health checks, routing rules, the certificate set, and
-// node-specific settings. Server addresses are deliberately excluded.
+// node-specific settings, and which replica holds each slot of a sticky
+// backend. Server addresses are deliberately excluded.
 func signature(cfg proxy.Config, layout Layout, opts renderOptions) string {
 	type be struct {
 		Name, Health string
@@ -642,6 +643,9 @@ func signature(cfg proxy.Config, layout Layout, opts renderOptions) string {
 		IPAllow, IPDeny []string
 		Sticky          bool
 		CORS            *proxy.CORS
+		// A sticky server's cookie names its replica and is set only by a
+		// load: a slot taking another replica reloads.
+		Replicas []string
 	}
 	s := struct {
 		Opts     renderOptions
@@ -659,7 +663,11 @@ func signature(cfg proxy.Config, layout Layout, opts renderOptions) string {
 		return cmp.Or(cmp.Compare(a.Port, b.Port), strings.Compare(a.Backend, b.Backend))
 	})
 	for _, b := range cfg.Backends {
-		s.Backends = append(s.Backends, be{b.Name, b.HealthPath, len(layout[backendName(b.Name)]), b.Wake, b.LocalFirst, b.TimeoutSeconds, b.IPAllow, b.IPDeny, b.Sticky, b.CORS})
+		var replicas []string
+		if b.Sticky {
+			replicas = layout[backendName(b.Name)]
+		}
+		s.Backends = append(s.Backends, be{b.Name, b.HealthPath, len(layout[backendName(b.Name)]), b.Wake, b.LocalFirst, b.TimeoutSeconds, b.IPAllow, b.IPDeny, b.Sticky, b.CORS, replicas})
 	}
 	slices.SortFunc(s.Backends, func(a, b be) int { return strings.Compare(a.Name, b.Name) })
 	s.Rules = slices.Clone(cfg.Rules)
