@@ -864,8 +864,9 @@ The mode needs the kernel's WireGuard (no userspace fallback), and is
 chosen only at `init`. In the `wireguard` mode each node keeps its key in `network.key` in
 the data directory (not in backups; a restored node makes a new one) and
 announces the public half; a node that announces another node's key is
-refused. To give a node a new key, remove `network.key` and restart its
-agent.
+refused. To give a node a new key, run `armada node rotate-key NODE` (the
+node must be connected); its `NetworkKeyRotated` event says when the other
+nodes have it.
 
 ### Sites
 

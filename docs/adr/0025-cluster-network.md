@@ -172,10 +172,13 @@ exists only where a pair of nodes uses it.
   minutes. The static key only proves which node a peer is, as the node
   certificate does. Such a key leaks only together with root on the node,
   and the response then is `armada node remove`, which drops the peer from
-  every node within one configuration push. A later `armada node
-  rotate-key NODE` makes the agent generate a new pair; until then,
-  removing `network.key` and restarting the agent does the same. Each peer
-  then cuts over within seconds, with a short gap.
+  every node within one configuration push. `armada node rotate-key NODE`
+  makes the node's agent write a new `network.key` and announce the public
+  half on its stream (`NetworkKeyChanged`); the leader records it (refused
+  when another node holds it), audits the request, records
+  `NetworkKeyRotated`, and pushes the peer lists. Removing `network.key`
+  and restarting the agent does the same. Each peer then cuts over within
+  seconds, with a short gap.
 - **Not in backups.** The key belongs to the node, not to the control
   plane. After a restore, agents keep their keys and the leader rebuilds the
   peer lists from the node records.
