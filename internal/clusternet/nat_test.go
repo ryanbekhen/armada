@@ -225,3 +225,26 @@ func TestPeerChangesBehindNAT(t *testing.T) {
 		t.Errorf("changes %+v", c)
 	}
 }
+
+// A WireGuard peer is unreachable once it has had no handshake for 3
+// minutes, counted from when it was configured (ADR 0025).
+func TestStalePeers(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+	old, fresh, unknown := key(t), key(t), key(t)
+	recent := key(t)
+	since := map[wgtypes.Key]wgPeerSeen{
+		old:    {node: "b", since: now.Add(-time.Hour)},
+		fresh:  {node: "c", since: now.Add(-time.Minute)},
+		recent: {node: "a", since: now.Add(-time.Hour)},
+	}
+	devs := []*wgtypes.Device{{Peers: []wgtypes.Peer{
+		{PublicKey: old, LastHandshakeTime: now.Add(-4 * time.Minute)},
+		{PublicKey: fresh},
+		{PublicKey: unknown},
+		{PublicKey: recent, LastHandshakeTime: now.Add(-time.Minute)},
+	}}, {Peers: []wgtypes.Peer{{PublicKey: old}}}}
+	if got := stalePeers(devs, since, now); !slices.Equal(got, []string{"b"}) {
+		t.Errorf("stale %v, want [b]", got)
+	}
+}

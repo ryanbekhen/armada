@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"maps"
 	"net/netip"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -228,5 +229,45 @@ func TestNetworkRelays(t *testing.T) {
 		if n.GetRelay() != first[n.GetId()] || n.GetBehindNat() != (n.GetId() == "nat") {
 			t.Errorf("status of %s: relay %v, behind NAT %v", n.GetId(), n.GetRelay(), n.GetBehindNat())
 		}
+	}
+}
+
+// A node's report of WireGuard peers with no recent handshake raises one
+// PeerUnreachable event, with valid names only, until a report names none
+// (ADR 0025).
+func TestPeerUnreachable(t *testing.T) {
+	t.Parallel()
+	c := newCluster(t)
+	events := func() []store.Event {
+		t.Helper()
+		evs, err := c.store.ListEvents(c.ctx, time.Time{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []store.Event
+		for _, e := range evs {
+			if e.Reason == "PeerUnreachable" {
+				out = append(out, e)
+			}
+		}
+		return out
+	}
+	c.srv.peersChecked(c.ctx, "n1", &armadav1.UsageReport{})
+	c.srv.peersChecked(c.ctx, "n1", &armadav1.UsageReport{PeersChecked: true})
+	if len(events()) != 0 {
+		t.Fatal("an event without unreachable peers")
+	}
+	for range 2 {
+		c.srv.peersChecked(c.ctx, "n1", &armadav1.UsageReport{PeersChecked: true, UnreachablePeers: []string{"b", "Not A Name", "c"}})
+	}
+	evs := events()
+	if len(evs) != 1 || evs[0].Node != "n1" || !strings.HasSuffix(evs[0].Message, "with b, c") {
+		t.Fatalf("events %+v", evs)
+	}
+	// Cleared, then raised again: a second event.
+	c.srv.peersChecked(c.ctx, "n1", &armadav1.UsageReport{PeersChecked: true})
+	c.srv.peersChecked(c.ctx, "n1", &armadav1.UsageReport{PeersChecked: true, UnreachablePeers: []string{"b"}})
+	if got := checkedPeers(slices.Repeat([]string{"x"}, 40)); len(got) != maxUnreachablePeers {
+		t.Errorf("%d peers kept", len(got))
 	}
 }

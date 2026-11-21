@@ -264,6 +264,7 @@ func (s *Server) Connect(stream armadav1.AgentService_ConnectServer) error {
 				if u.GetVolumesMeasured() {
 					s.usage.setVolumes(node.ID, u, s.now())
 				}
+				s.peersChecked(ctx, node.ID, u)
 				le := u.GetLogExport()
 				s.condition(ctx, "log-export:"+node.ID, le.GetFailing(), store.Event{Kind: eventNode, Object: node.ID, Node: node.ID,
 					Reason: "LogExportFailing", Message: "sending logs failed: " + le.GetError()})
@@ -637,3 +638,32 @@ func inNodeSubnet(a netip.Addr, subnet string) bool {
 var versionRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9.+_-]{0,63}$`)
 
 func validVersion(v string) bool { return versionRe.MatchString(v) }
+
+// peersChecked keeps a PeerUnreachable condition on a node while its report
+// names WireGuard peers with no recent handshake (ADR 0025).
+func (s *Server) peersChecked(ctx context.Context, node string, u *armadav1.UsageReport) {
+	if !u.GetPeersChecked() {
+		return
+	}
+	peers := checkedPeers(u.GetUnreachablePeers())
+	s.condition(ctx, "peers:"+node, len(peers) > 0, store.Event{Kind: eventNode, Object: node, Node: node,
+		Reason: "PeerUnreachable", Message: "no WireGuard handshake for 3 minutes with " + strings.Join(peers, ", ")})
+}
+
+// maxUnreachablePeers bounds the peers a node's report names (ADR 0025).
+const maxUnreachablePeers = 32
+
+// checkedPeers keeps the valid node names of a report's unreachable peers,
+// at most maxUnreachablePeers.
+func checkedPeers(names []string) []string {
+	var out []string
+	for _, n := range names {
+		if len(out) == maxUnreachablePeers {
+			break
+		}
+		if spec.ValidateName(n) == nil {
+			out = append(out, n)
+		}
+	}
+	return out
+}

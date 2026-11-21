@@ -73,7 +73,10 @@ func (a *Agent) usageLoop(ctx context.Context) {
 		if sw := a.switcher(); sw != nil {
 			report.NetworkSwitch = sw.SwitchStatus()
 		}
-		if sampled || report.LoadMeasured || report.VolumesMeasured || report.ConntrackMax > 0 || len(report.Queues) > 0 || len(report.Sandboxes) > 0 ||
+		if pc, ok := a.cfg.Network.(PeerChecker); ok {
+			report.PeersChecked, report.UnreachablePeers = true, pc.UnreachablePeers()
+		}
+		if sampled || report.PeersChecked || report.LoadMeasured || report.VolumesMeasured || report.ConntrackMax > 0 || len(report.Queues) > 0 || len(report.Sandboxes) > 0 ||
 			len(report.DroppedSandboxes) > 0 || report.LogExport != nil || report.NetworkSwitch != nil {
 			a.sendUsage(report)
 		}
