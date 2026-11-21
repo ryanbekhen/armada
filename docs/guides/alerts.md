@@ -225,6 +225,7 @@ or `armada app events`.
 | `NotVerified` | A custom domain's DNS record is missing |
 | `QueueUnread` | No node can read the queue that starts a job, or its node keeps no more queues |
 | `LogExportFailing` | A node cannot send logs to the log store |
+| `PeerUnreachable` | A node has had no WireGuard handshake with another node for 3 minutes (UDP 51820 blocked, or the other node is down) |
 | `VolumeUnavailable`, `VolumesSplit`, `VolumeOnCordonedNode` | An app with a volume cannot run where its volume is |
 | `VolumeBackupFailed`, `VolumeBackupUnsupported` | Scheduled volume backups do not work |
 | `VolumeFailedOver`, `VolumeFailoverFailed` | A volume was restored on another node, or could not be |

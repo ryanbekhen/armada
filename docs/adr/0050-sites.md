@@ -298,6 +298,8 @@ threat model records it.
   (`behind-nat`, `relay`); `armada node show` shows the endpoint (or that
   the node is behind NAT) and whether it relays, and whether an admin
   chose it.
+- A peer with no handshake for 3 minutes raises `PeerUnreachable` on the
+  node that reports it, as ADR 0025 planned.
 
 ## Consequences
 
