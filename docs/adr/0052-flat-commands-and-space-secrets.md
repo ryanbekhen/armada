@@ -1,6 +1,6 @@
 # 0052. Flat commands and secrets owned by a space
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-21
 
 ## Context
