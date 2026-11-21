@@ -270,11 +270,13 @@ exists only where a pair of nodes uses it.
 
 ### Peers that cannot be reached
 
-- Agents report the last handshake per peer in `UsageReport`. The leader
-  keeps it in memory, as it does other usage.
-- A peer with no handshake for 3 minutes raises a `PeerUnreachable`
-  condition event (ADR 0018) for both nodes. `armada status` and the
-  metrics endpoint show it.
+- Agents report, in `UsageReport`, the WireGuard peers that have had no
+  handshake for 3 minutes, counted from when each was configured
+  (`peers_checked`, `unreachable_peers`, at most 32 names). VXLAN has no
+  handshake to tell, so `plain` peers within a site are not checked.
+- The leader raises a `PeerUnreachable` condition event (ADR 0018) for the
+  reporting node, naming the peers, which alert channels receive by default
+  (ADR 0045), and clears it once a report names none.
 - HAProxy health checks already mark the replicas behind a broken path as
   down, and local-first keeps requests on the node. Scheduling does not
   change, because the control plane can still reach both nodes. A node the
