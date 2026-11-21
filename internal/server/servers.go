@@ -218,7 +218,7 @@ func (j *joinService) JoinServer(ctx context.Context, req *armadav1.JoinServerRe
 	if err != nil {
 		return nil, err
 	}
-	ip, mesh, err := s.joiningAddress(ctx, req.GetPrivateIp(), req.GetNetworkKey(), req.GetEndpoint(), away)
+	ip, mesh, err := s.joiningAddress(ctx, req.GetPrivateIp(), req.GetNetworkKey(), req.GetEndpoint(), away, false)
 	if err != nil {
 		return nil, err
 	}

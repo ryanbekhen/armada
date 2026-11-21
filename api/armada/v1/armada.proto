@@ -46,6 +46,8 @@ service AdminService {
   rpc LabelNode(LabelNodeRequest) returns (LabelNodeResponse);
   rpc RestrictNode(RestrictNodeRequest) returns (RestrictNodeResponse);
   rpc SetNodeSite(SetNodeSiteRequest) returns (SetNodeSiteResponse);
+  // Choose the relay of a node's site (ADR 0050), or drop the choice.
+  rpc SetNodeRelay(SetNodeRelayRequest) returns (SetNodeRelayResponse);
   rpc RemoveNode(RemoveNodeRequest) returns (RemoveNodeResponse);
   rpc ListServers(ListServersRequest) returns (ListServersResponse);
   rpc RemoveServer(RemoveServerRequest) returns (RemoveServerResponse);
@@ -584,6 +586,16 @@ message SetNodeSiteRequest {
 
 message SetNodeSiteResponse {}
 
+// SetNodeRelayRequest makes a node the relay of its site (ADR 0050), or
+// with clear drops the choice of its site's relay, which the leader then
+// picks itself.
+message SetNodeRelayRequest {
+  string node = 1;
+  bool clear = 2;
+}
+
+message SetNodeRelayResponse {}
+
 message RemoveNodeRequest {
   string node = 1;
   // Delete the node's replicas instead of requiring it to be evacuated.
@@ -666,6 +678,9 @@ message JoinRequest {
   // In a mesh cluster (ADR 0049), as in JoinServerRequest.
   string network_key = 7;
   string endpoint = 8;
+  // The machine is behind NAT (ADR 0050): it sends its key but no
+  // endpoint, and starts every connection to other sites.
+  bool behind_nat = 9;
 }
 
 message JoinResponse {
@@ -1079,6 +1094,15 @@ message NodeStatus {
   int32 replicas = 12;
   // The node's site (ADR 0050); empty for the cluster's first.
   string site = 13;
+  // The node's public IPv4 address other sites reach it at (ADR 0050);
+  // empty when it has none.
+  string endpoint = 14;
+  // The node is behind NAT (ADR 0050).
+  bool behind_nat = 15;
+  // The node relays its site's traffic between nodes behind NAT (ADR
+  // 0050), and whether an admin chose it (armada node relay).
+  bool relay = 16;
+  bool relay_pinned = 17;
 }
 
 message TopRequest {
@@ -1318,6 +1342,9 @@ message Hello {
   // The agent switches the cluster network between plain and wireguard
   // while it runs (ADR 0050): a switch waits for every node to say so.
   bool network_switch = 20;
+  // The node is behind NAT (ADR 0050): it has no endpoint, and endpoint is
+  // empty. Agents that do not know it leave it false.
+  bool behind_nat = 21;
 }
 
 message ReplicaReport {
@@ -1599,6 +1626,13 @@ message NetworkPeer {
   // the same site use the cluster's mode over their private addresses,
   // peers in other sites WireGuard between their endpoints.
   string site = 6;
+  // The node is behind NAT (ADR 0050): it has no endpoint, starts every
+  // connection, and reaches a peer behind NAT in another site through a
+  // relay.
+  bool behind_nat = 7;
+  // The node relays its site's traffic to and from nodes behind NAT that
+  // cannot reach each other (ADR 0050); at most one per site.
+  bool relay = 8;
 }
 
 message ProxyConfig {

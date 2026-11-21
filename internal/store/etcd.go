@@ -448,6 +448,9 @@ type nodeRec struct {
 	Site string `json:"site,omitempty"`
 	// MeshAddress marks a mesh address in a plain or wireguard cluster.
 	MeshAddress bool `json:"meshAddress,omitempty"`
+	// BehindNAT and Relay (ADR 0050), as in Node.
+	BehindNAT bool `json:"behindNat,omitempty"`
+	Relay     bool `json:"relay,omitempty"`
 }
 
 type certRec struct {
@@ -645,7 +648,8 @@ func (t *etx) toNode(n nodeRec) (Node, error) {
 	out := Node{ID: n.ID, PrivateIP: n.PrivateIP, CPUMillis: n.CPUMillis, MemoryBytes: n.MemoryBytes, State: n.State,
 		LastSeen: fromMS(n.LastSeen), CreatedAt: fromMS(n.CreatedAt), Cordoned: n.Cordoned, Version: n.Version,
 		Labels: n.Labels, OS: n.OS, Arch: n.Arch, Restricted: n.Restricted,
-		Jobs: n.Jobs, Volumes: n.Volumes, Containers: n.Containers, NFS: n.NFS, Subnet: n.Subnet, NetworkKey: n.NetworkKey, Endpoint: n.Endpoint, Site: n.Site, MeshAddress: n.MeshAddress}
+		Jobs: n.Jobs, Volumes: n.Volumes, Containers: n.Containers, NFS: n.NFS, Subnet: n.Subnet, NetworkKey: n.NetworkKey, Endpoint: n.Endpoint, Site: n.Site, MeshAddress: n.MeshAddress,
+		BehindNAT: n.BehindNAT, Relay: n.Relay}
 	var latest int64
 	err := listInto(t, pfxCerts+n.ID+"/", func(_ string, c certRec) error {
 		latest = max(latest, c.NotAfter)
@@ -675,9 +679,9 @@ func (s *Etcd) UpsertNode(ctx context.Context, n Node) error {
 			rec.CreatedAt, rec.Cordoned, rec.LegacyCerts, rec.Version = cur.CreatedAt, cur.Cordoned, cur.LegacyCerts, cur.Version
 			rec.Labels, rec.Restricted, rec.OS, rec.Arch = cur.Labels, cur.Restricted, cur.OS, cur.Arch
 			rec.Subnet, rec.NetworkKey, rec.Endpoint, rec.Site = cur.Subnet, cur.NetworkKey, cur.Endpoint, cur.Site
-			rec.MeshAddress = cur.MeshAddress
+			rec.MeshAddress, rec.BehindNAT, rec.Relay = cur.MeshAddress, cur.BehindNAT, cur.Relay
 		} else {
-			rec.Site, rec.MeshAddress = n.Site, n.MeshAddress
+			rec.Site, rec.MeshAddress, rec.BehindNAT = n.Site, n.MeshAddress, n.BehindNAT
 			if rec.Subnet, err = t.newNodeNetwork(n.PrivateIP, n.MeshAddress); err != nil {
 				return err
 			}
@@ -761,8 +765,11 @@ func (s *Etcd) SetNodeStatus(ctx context.Context, id string, st NodeStatus) erro
 			}
 			n.NetworkKey = st.NetworkKey
 		}
-		if st.Endpoint != "" {
-			n.Endpoint = st.Endpoint
+		switch {
+		case st.BehindNAT:
+			n.Endpoint, n.BehindNAT, n.Relay = "", true, false
+		case st.Endpoint != "":
+			n.Endpoint, n.BehindNAT = st.Endpoint, false
 		}
 		// Every agent report says the node is alive. Writing that each time
 		// moves the commit key under every other transaction, so a report
@@ -870,11 +877,47 @@ func (s *Etcd) SetNodeSite(ctx context.Context, id, site, actor string) error {
 		if net.Switch != nil {
 			return fmt.Errorf("the network is switching to %s; set sites once it is done: %w", net.Switch.To, ErrPrecondition)
 		}
-		n.Site = site
+		// A chosen relay stays its old site's: the new site has its own.
+		n.Site, n.Relay = site, false
 		if err := t.put(pfxNodes+id, n); err != nil {
 			return err
 		}
 		return t.audit(now, actor, "node.site", id, cmp.Or(site, "(first site)"))
+	})
+}
+
+// SetNodeRelay makes a node its site's chosen relay, or drops the choice
+// (ADR 0050). See Store.
+func (s *Etcd) SetNodeRelay(ctx context.Context, id string, on bool, actor string) error {
+	now := s.now()
+	return s.tx(ctx, func(t *etx) error {
+		n, ok, err := t.node(id)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return notFoundf("node %s", id)
+		}
+		if on && n.BehindNAT {
+			return fmt.Errorf("node %s is behind NAT: a relay needs an endpoint: %w", id, ErrPrecondition)
+		}
+		changed := false
+		err = listInto(t, pfxNodes, func(_ string, r nodeRec) error {
+			want := on && r.ID == id
+			if r.Site != n.Site || r.Relay == want {
+				return nil
+			}
+			r.Relay, changed = want, true
+			return t.put(pfxNodes+r.ID, r)
+		})
+		if err != nil || !changed {
+			return err
+		}
+		site := cmp.Or(n.Site, "(first site)")
+		if on {
+			return t.audit(now, actor, "node.relay", id, site)
+		}
+		return t.audit(now, actor, "node.relay.clear", id, site)
 	})
 }
 
@@ -1188,7 +1231,7 @@ func (s *Etcd) redeem(ctx context.Context, id string, check func(string) bool, s
 			n.State = NodeUnknown
 		}
 		if err := t.put(pfxNodes+n.ID, nodeRec{ID: n.ID, PrivateIP: n.PrivateIP, State: n.State, CreatedAt: now.UnixMilli(), Labels: tok.Labels, Subnet: subnet,
-			NetworkKey: n.NetworkKey, Endpoint: n.Endpoint, Site: tok.Site, MeshAddress: n.MeshAddress}); err != nil {
+			NetworkKey: n.NetworkKey, Endpoint: n.Endpoint, Site: tok.Site, MeshAddress: n.MeshAddress, BehindNAT: n.BehindNAT}); err != nil {
 			return err
 		}
 		if err := t.putCert(n.ID, cert, now); err != nil {

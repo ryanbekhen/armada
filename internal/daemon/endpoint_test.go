@@ -4,6 +4,8 @@ import (
 	"context"
 	"log/slog"
 	"net/netip"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -74,6 +76,30 @@ func TestEndpointCommand(t *testing.T) {
 	if _, err := run("set", "203.0.113.10", "--no-restart"); err != nil || restarted != 1 {
 		t.Errorf("--no-restart: %v, restarted %d", err, restarted)
 	}
+
+	// Behind NAT (ADR 0050), and back; never on a server.
+	if _, err := run("set", "none", "--no-restart"); err != nil {
+		t.Fatal(err)
+	}
+	if ac, err := loadAgentConfig(dir); err != nil || !ac.BehindNAT || ac.Endpoint != "" {
+		t.Errorf("behind NAT: %+v, %v", ac, err)
+	}
+	if out, _ := run("show"); !strings.Contains(out, "behind NAT") {
+		t.Errorf("show = %q", out)
+	}
+	if _, err := run("set", "203.0.113.11", "--no-restart"); err != nil {
+		t.Fatal(err)
+	}
+	if ac, err := loadAgentConfig(dir); err != nil || ac.BehindNAT || ac.Endpoint != "203.0.113.11" {
+		t.Errorf("endpoint again: %+v, %v", ac, err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, fileServerCert), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run("set", "none", "--no-restart"); err == nil {
+		t.Error("a server behind NAT accepted")
+	}
+	_ = os.Remove(filepath.Join(dir, fileServerCert))
 
 	// A cluster without a cluster network has no use for one.
 	base.Network = ""

@@ -30,7 +30,7 @@ func meshConfig(dataDir string, ac *agentConfig, key clusternet.PrivateKey, log 
 	// The endpoint also finds the uplink of a node whose address is a mesh
 	// address in a plain or wireguard cluster (ADR 0050).
 	return clusternet.Config{Node: ac.NodeID, PrivateIP: ip, Key: key, Logger: log.With("component", "network"),
-		MeshCache: filepath.Join(dataDir, fileMeshCache), Endpoint: ac.endpoint()}, nil
+		MeshCache: filepath.Join(dataDir, fileMeshCache), Endpoint: ac.uplinkEndpoint(), UplinkMTU: ac.MTU}, nil
 }
 
 // upMesh brings a mesh node's tunnel up before etcd or the agent reach
@@ -135,20 +135,48 @@ type joinMesh struct {
 	on       bool
 	endpoint netip.Addr
 	key      string
+	// behindNAT: `--endpoint none`, the machine has no endpoint and starts
+	// every connection to other sites (ADR 0050).
+	behindNAT bool
+}
+
+// endpointNone is the --endpoint value of a machine behind NAT (ADR 0050).
+const endpointNone = "none"
+
+// checkUplinkMTU validates --mtu: 0 (the interface's own), or what IPv4
+// tunnels and their containers can work with.
+func checkUplinkMTU(mtu int) error {
+	if mtu != 0 && (mtu < clusternet.MinUplinkMTU || mtu > 9000) {
+		return fmt.Errorf("--mtu %d: want %d to 9000", mtu, clusternet.MinUplinkMTU)
+	}
+	return nil
 }
 
 // prepareJoin works out how a machine joins addr: its private IP, or over
 // a public address its endpoint and, when it has one and noPrivateIP is
 // unset, its private IP. ip is invalid when a public join sends none.
-func prepareJoin(cmd interface{ Changed(string) bool }, addr, privateIP, endpoint string, noPrivateIP bool) (netip.Addr, joinMesh, error) {
+// With `--endpoint none` the machine is behind NAT (ADR 0050), which
+// servers cannot be (server).
+func prepareJoin(cmd interface{ Changed(string) bool }, addr, privateIP, endpoint string, noPrivateIP, server bool) (netip.Addr, joinMesh, error) {
 	public, err := meshJoinAddr(addr)
 	if err != nil {
 		return netip.Addr{}, joinMesh{}, err
+	}
+	nat := endpoint == endpointNone
+	if nat && server {
+		return netip.Addr{}, joinMesh{}, errors.New("--endpoint none: a server needs an endpoint other sites reach it at; join it as a node instead")
 	}
 	if noPrivateIP && cmd.Changed("private-ip") {
 		return netip.Addr{}, joinMesh{}, errors.New("--private-ip and --no-private-ip exclude each other")
 	}
 	if !public {
+		if nat {
+			if noPrivateIP {
+				return netip.Addr{}, joinMesh{}, errors.New("--no-private-ip is for joins over a public address: machines of another site than the leader's")
+			}
+			ip, err := resolvePrivateIP(privateIP)
+			return ip, joinMesh{behindNAT: true}, err
+		}
 		if cmd.Changed("endpoint") {
 			return netip.Addr{}, joinMesh{}, errors.New("--endpoint is for joins over a public address (mesh clusters, and machines of another site than the leader's)")
 		}
@@ -158,9 +186,11 @@ func prepareJoin(cmd interface{ Changed(string) bool }, addr, privateIP, endpoin
 		ip, err := resolvePrivateIP(privateIP)
 		return ip, joinMesh{}, err
 	}
-	ep, err := resolveEndpoint(endpoint)
-	if err != nil {
-		return netip.Addr{}, joinMesh{}, err
+	var ep netip.Addr
+	if !nat {
+		if ep, err = resolveEndpoint(endpoint); err != nil {
+			return netip.Addr{}, joinMesh{}, err
+		}
 	}
 	var ip netip.Addr
 	switch {
@@ -174,7 +204,7 @@ func prepareJoin(cmd interface{ Changed(string) bool }, addr, privateIP, endpoin
 			ip = found
 		}
 	}
-	return ip, joinMesh{on: true, endpoint: ep}, nil
+	return ip, joinMesh{on: true, endpoint: ep, behindNAT: nat}, nil
 }
 
 // loadKey makes or reads the machine's WireGuard key for a mesh join.

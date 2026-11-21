@@ -12,6 +12,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/ryanbekhen/armada/internal/agent"
+	"github.com/ryanbekhen/armada/internal/clusternet"
 	"github.com/ryanbekhen/armada/internal/fsutil"
 )
 
@@ -74,12 +75,28 @@ type agentConfig struct {
 	// bring its tunnel up alone when it has no peer list (a restore).
 	ClusterCIDR string `json:"clusterCidr,omitempty"`
 	MeshCIDR    string `json:"meshCidr,omitempty"`
+	// BehindNAT marks a machine with no endpoint, which starts every
+	// connection to other sites (ADR 0050): `--endpoint none`.
+	BehindNAT bool `json:"behindNat,omitempty"`
+	// MTU, when set, is the largest packet the machine's line carries
+	// (`--mtu`): tunnels and containers take their overhead from it.
+	MTU int `json:"mtu,omitempty"`
 }
 
 // endpoint returns the node's mesh endpoint, or the zero address.
 func (c agentConfig) endpoint() netip.Addr {
 	a, _ := netip.ParseAddr(c.Endpoint)
 	return a
+}
+
+// uplinkEndpoint is the address whose route finds the node's uplink when
+// its own address does not (mesh addresses): its endpoint, or behind NAT
+// an address on the internet (ADR 0050).
+func (c agentConfig) uplinkEndpoint() netip.Addr {
+	if c.BehindNAT {
+		return clusternet.InternetProbe
+	}
+	return c.endpoint()
 }
 
 func saveAgentConfig(dataDir string, c agentConfig) error {

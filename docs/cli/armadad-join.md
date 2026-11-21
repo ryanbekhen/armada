@@ -22,7 +22,8 @@ Flags:
 | `--ca-hash string` | cluster CA hash, sha256:... |
 | `--container-subnet string` | private IPv4 subnet for this node's containers (clusters without a cluster network; others give each node a subnet) (default `10.121.0.0/24`) |
 | `--data-dir string` | directory for the node certificate (default `/var/lib/armada`) |
-| `--endpoint string` | joins over a public ADDR (mesh clusters, other sites): this machine's public IPv4 address, which other nodes send WireGuard packets to (default: the only public IPv4 address; behind one-to-one NAT, the mapped address) |
+| `--endpoint string` | joins over a public ADDR (mesh clusters, other sites): this machine's public IPv4 address, which other nodes send WireGuard packets to (default: the only public IPv4 address; behind one-to-one NAT, the mapped address); none: the machine is behind NAT and starts every connection to other sites |
+| `--mtu int` | the largest packet this machine's line to other nodes carries, when it is below its interface's (a PPPoE line: 1492); tunnels and containers take their overhead from it |
 | `--no-private-ip` | joining from another site: send no private IP, and get a mesh address the other nodes reach over WireGuard (the default when the machine has no private IPv4 address) |
 | `--node-name string` | node name (default: hostname) |
 | `--private-ip string` | this node's private IP (default: the only private IPv4 address; a mesh cluster gives the node a mesh address instead) |

@@ -337,3 +337,73 @@ func TestNodeSite(t *testing.T) {
 		t.Errorf("%d node.site audit events, want 2", moves)
 	}
 }
+
+// An agent behind NAT clears its endpoint and any choice of it as a relay;
+// one site has at most one chosen relay, which moving the node to another
+// site drops (ADR 0050).
+func TestNodeBehindNATAndRelay(t *testing.T) {
+	t.Parallel()
+	s, ctx := open(t), context.Background()
+	for _, id := range []string{"r1", "r2", "n1"} {
+		if err := s.UpsertNode(ctx, Node{ID: id, PrivateIP: "10.0.0." + map[string]string{"r1": "1", "r2": "2", "n1": "3"}[id]}); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.SetNodeStatus(ctx, id, NodeStatus{State: NodeReady, LastSeen: time.Now(), Endpoint: "203.0.113.9"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.SetNodeStatus(ctx, "n1", NodeStatus{State: NodeReady, LastSeen: time.Now(), BehindNAT: true}); err != nil {
+		t.Fatal(err)
+	}
+	if n, _ := s.GetNode(ctx, "n1"); !n.BehindNAT || n.Endpoint != "" {
+		t.Fatalf("n1 %+v", n)
+	}
+	// An older agent's report (no endpoint, not behind NAT) changes nothing.
+	if err := s.SetNodeStatus(ctx, "n1", NodeStatus{State: NodeReady, LastSeen: time.Now().Add(time.Minute)}); err != nil {
+		t.Fatal(err)
+	}
+	if n, _ := s.GetNode(ctx, "n1"); !n.BehindNAT {
+		t.Fatalf("n1 lost behind NAT: %+v", n)
+	}
+	if err := s.SetNodeRelay(ctx, "n1", true, "admin:a"); !errors.Is(err, ErrPrecondition) {
+		t.Errorf("relay behind NAT = %v", err)
+	}
+	for _, id := range []string{"r1", "r2"} {
+		if err := s.SetNodeRelay(ctx, id, true, "admin:a"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r1, _ := s.GetNode(ctx, "r1")
+	r2, _ := s.GetNode(ctx, "r2")
+	if r1.Relay || !r2.Relay {
+		t.Fatalf("chosen r1 %v, r2 %v", r1.Relay, r2.Relay)
+	}
+	if err := s.SetNodeSite(ctx, "r2", "far", "admin:a"); err != nil {
+		t.Fatal(err)
+	}
+	if r2, _ := s.GetNode(ctx, "r2"); r2.Relay {
+		t.Error("the choice moved with the node to another site")
+	}
+	if err := s.SetNodeRelay(ctx, "r1", true, "admin:a"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetNodeRelay(ctx, "r1", false, "admin:a"); err != nil {
+		t.Fatal(err)
+	}
+	if r1, _ := s.GetNode(ctx, "r1"); r1.Relay {
+		t.Error("clear left the choice")
+	}
+	// A node going behind NAT drops its choice.
+	if err := s.SetNodeRelay(ctx, "r1", true, "admin:a"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetNodeStatus(ctx, "r1", NodeStatus{State: NodeReady, LastSeen: time.Now(), BehindNAT: true}); err != nil {
+		t.Fatal(err)
+	}
+	if r1, _ := s.GetNode(ctx, "r1"); r1.Relay || !r1.BehindNAT {
+		t.Errorf("r1 behind NAT %+v", r1)
+	}
+	if err := s.SetNodeRelay(ctx, "ghost", true, "admin:a"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("unknown node = %v", err)
+	}
+}

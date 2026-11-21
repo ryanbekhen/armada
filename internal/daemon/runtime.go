@@ -137,7 +137,7 @@ var newDriver = func(dataDir string, ac *agentConfig) (runtime.Driver, error) {
 		if err != nil {
 			return nil, fmt.Errorf("%s: private IP: %w", fileAgent, err)
 		}
-		if mtu, err = clusternet.ContainerMTU(ac.Network, ip, ac.endpoint()); err != nil {
+		if mtu, err = clusternet.ContainerMTU(ac.Network, ip, ac.uplinkEndpoint(), ac.MTU); err != nil {
 			return nil, fmt.Errorf("cluster network: %w", err)
 		}
 	}

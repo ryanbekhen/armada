@@ -131,6 +131,9 @@ type Config struct {
 	// Endpoint is the node's public IPv4 address in a mesh cluster (ADR
 	// 0049), announced in Hello for the other nodes' WireGuard peers.
 	Endpoint string
+	// BehindNAT says the node has no endpoint and starts every connection
+	// to other sites (ADR 0050).
+	BehindNAT bool
 	// Unpublished makes replicas publish no port: the cluster network
 	// routes their own addresses, in the node's subnet, to every node, and
 	// replicas are reported at <container IP>:<port> (ADR 0025).
@@ -391,7 +394,7 @@ func (a *Agent) session(ctx context.Context) (established bool, err error) {
 	hello := &armadav1.AgentMessage{Msg: &armadav1.AgentMessage_Hello{Hello: &armadav1.Hello{
 		CpuMillis: a.cfg.CPUMillis, MemoryBytes: a.cfg.MemoryBytes, Version: version.Get().Version, PrivateIp: a.cfg.PrivateIP,
 		Os: cmp.Or(a.cfg.OS, goruntime.GOOS), Arch: cmp.Or(a.cfg.Arch, goruntime.GOARCH),
-		Jobs: true, Volumes: a.mountsVolumes(), Containers: runtime.CanRunMembers(a.cfg.Driver), NetworkKey: a.cfg.NetworkKey, Endpoint: a.cfg.Endpoint,
+		Jobs: true, Volumes: a.mountsVolumes(), Containers: runtime.CanRunMembers(a.cfg.Driver), NetworkKey: a.cfg.NetworkKey, Endpoint: a.cfg.Endpoint, BehindNat: a.cfg.BehindNAT,
 		CertificateRefs: true, QueueSandboxes: a.sandboxesOn(), HeldReplicas: true,
 		VolumeBackups: a.mountsVolumes(), Nfs: a.mountsNFS(), LogHistory: a.logHistoryOn(),
 		NetworkSwitch: a.switcher() != nil,

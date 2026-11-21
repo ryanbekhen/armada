@@ -130,7 +130,7 @@ func buildPolicy(p plan, local map[netip.Addr]string) policy {
 	}
 	pol.apps = slices.Sorted(maps.Keys(pol.members))
 	pol.nodes = append(pol.nodes, p.self.ip)
-	for _, pe := range p.peers {
+	for _, pe := range append(slices.Clone(p.peers), p.relayed...) {
 		pol.nodes = append(pol.nodes, pe.ip)
 	}
 	slices.SortFunc(pol.nodes, netip.Addr.Compare)

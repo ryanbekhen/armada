@@ -165,8 +165,8 @@ func newNodeCommand(g *globals) *cobra.Command {
 				exp = n.CertExpiresAt.AsTime().Local().Format(time.DateOnly)
 			}
 			tw := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
-			_, _ = fmt.Fprintf(tw, "Node:\t%s\nPrivate IP:\t%s\nSite:\t%s\nState:\t%s\nReplicas:\t%d\nCPU:\t%.1f\nMemory:\t%s\nVersion:\t%s\nLast seen:\t%s\nCert expires:\t%s\nLabels:\t%s\n",
-				n.Id, n.PrivateIp, cmp.Or(n.Site, "(the first site)"), nodeState(n), replicas[n.Id], float64(n.CpuMillis)/1000, humanBytes(n.MemoryBytes), orDash(n.Version), seen, exp, orDash(formatLabels(n.Labels)))
+			_, _ = fmt.Fprintf(tw, "Node:\t%s\nPrivate IP:\t%s\nSite:\t%s\nEndpoint:\t%s\nRelay:\t%s\nState:\t%s\nReplicas:\t%d\nCPU:\t%.1f\nMemory:\t%s\nVersion:\t%s\nLast seen:\t%s\nCert expires:\t%s\nLabels:\t%s\n",
+				n.Id, n.PrivateIp, cmp.Or(n.Site, "(the first site)"), nodeEndpoint(n), nodeRelay(n), nodeState(n), replicas[n.Id], float64(n.CpuMillis)/1000, humanBytes(n.MemoryBytes), orDash(n.Version), seen, exp, orDash(formatLabels(n.Labels)))
 			return tw.Flush()
 		},
 	}
@@ -366,7 +366,38 @@ func newNodeCommand(g *globals) *cobra.Command {
 		},
 	}
 	siteCmd.Flags().BoolVar(&clearSite, "clear", false, "move the node back to the cluster's first site")
-	cmd.AddCommand(list, show, newNodeTopCommand(g), label, siteCmd,
+	var clearRelay bool
+	relayCmd := &cobra.Command{
+		Use:   "relay NODE [--clear]",
+		Short: "Choose the node that relays its site's traffic between nodes behind NAT",
+		Long: "Choose the node that relays its site's traffic between nodes behind NAT (ADR\n" +
+			"0050). Two nodes behind NAT in different sites cannot reach each other, so\n" +
+			"their traffic goes through the relay of one of their sites: a node of that\n" +
+			"site with a public address. The leader picks one itself; this command pins\n" +
+			"NODE as its site's relay while it is ready and not drained, and --clear lets\n" +
+			"the leader pick again. The relay carries that traffic, so choose a node with\n" +
+			"room for it.",
+		Example: "  armada node relay cloud-1\n  armada node relay cloud-1 --clear",
+		Args:    cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			client, conn, err := dialAdmin(g)
+			if err != nil {
+				return err
+			}
+			defer conn.Close()
+			if _, err := client.SetNodeRelay(cmd.Context(), &armadav1.SetNodeRelayRequest{Node: args[0], Clear: clearRelay}); err != nil {
+				return RPCError(err)
+			}
+			if clearRelay {
+				_, err = fmt.Fprintf(cmd.OutOrStdout(), "The leader picks the relay of %s's site again.\n", args[0])
+				return err
+			}
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Node %s relays its site's traffic between nodes behind NAT.\n", args[0])
+			return err
+		},
+	}
+	relayCmd.Flags().BoolVar(&clearRelay, "clear", false, "let the leader pick the relay of the node's site again")
+	cmd.AddCommand(list, show, newNodeTopCommand(g), label, siteCmd, relayCmd,
 		drain("drain", "Stop placing replicas on a node and move its replicas away", true),
 		drain("resume", "Let a drained node take replicas again", false),
 		restrict("restrict", "Run only apps whose placement selects one of the node's labels", true),
@@ -409,7 +440,38 @@ func nodeState(n *armadav1.NodeStatus) string {
 	if n.Restricted {
 		s += ",restricted"
 	}
+	if n.BehindNat {
+		s += ",behind-nat"
+	}
+	if n.Relay {
+		s += ",relay"
+	}
 	return s
+}
+
+// nodeEndpoint says where other sites reach a node (ADR 0050).
+func nodeEndpoint(n *armadav1.NodeStatus) string {
+	switch {
+	case n.BehindNat:
+		return "none (behind NAT)"
+	case n.Endpoint == "":
+		return "-"
+	}
+	return n.Endpoint
+}
+
+// nodeRelay says whether a node relays its site's traffic between nodes
+// behind NAT (ADR 0050).
+func nodeRelay(n *armadav1.NodeStatus) string {
+	switch {
+	case n.Relay && n.RelayPinned:
+		return "yes (chosen)"
+	case n.Relay:
+		return "yes (picked by the leader)"
+	case n.RelayPinned:
+		return "chosen, but not ready to relay"
+	}
+	return "no"
 }
 
 // parseLabel splits KEY=VALUE and validates both parts.

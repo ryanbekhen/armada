@@ -372,7 +372,7 @@ func (j *joinService) Join(ctx context.Context, req *armadav1.JoinRequest) (*arm
 	if err != nil {
 		return nil, err
 	}
-	ip, mesh, err := s.joiningAddress(ctx, req.GetPrivateIp(), req.GetNetworkKey(), req.GetEndpoint(), away)
+	ip, mesh, err := s.joiningAddress(ctx, req.GetPrivateIp(), req.GetNetworkKey(), req.GetEndpoint(), away, req.GetBehindNat())
 	if err != nil {
 		return nil, err
 	}
@@ -436,6 +436,9 @@ func (j *joinService) Join(ctx context.Context, req *armadav1.JoinRequest) (*arm
 type joining struct {
 	on, away, meshed bool
 	key, endpoint    string
+	// behindNAT: the machine has no endpoint and starts every connection
+	// to other sites (ADR 0050).
+	behindNAT bool
 }
 
 // fromAnotherSite reports whether a join comes from another site than the
@@ -469,7 +472,7 @@ func (j *joinService) fromAnotherSite(ctx context.Context, tok pki.JoinToken) (b
 
 // node is the record of the joining machine's node.
 func (j joining) node(name string, ip netip.Addr) store.Node {
-	return store.Node{ID: name, PrivateIP: ip.String(), NetworkKey: j.key, Endpoint: j.endpoint, MeshAddress: j.meshed}
+	return store.Node{ID: name, PrivateIP: ip.String(), NetworkKey: j.key, Endpoint: j.endpoint, MeshAddress: j.meshed, BehindNAT: j.behindNAT}
 }
 
 // joiningAddress checks the address a machine joins with: its private IP,
@@ -477,8 +480,20 @@ func (j joining) node(name string, ip netip.Addr) store.Node {
 // free mesh address (redeeming the token refuses one another machine took
 // meanwhile). A machine of another site (away) brings its key and
 // endpoint along with its private IP, or without one gets a mesh address
-// too (ADR 0050).
-func (s *Server) joiningAddress(ctx context.Context, privateIP, key, endpoint string, away bool) (netip.Addr, joining, error) {
+// too (ADR 0050). A machine behind NAT (behindNAT) sends no endpoint.
+func (s *Server) joiningAddress(ctx context.Context, privateIP, key, endpoint string, away, behindNAT bool) (netip.Addr, joining, error) {
+	checkEndpoint := func() error {
+		if behindNAT {
+			if endpoint != "" {
+				return status.Error(codes.InvalidArgument, "a machine behind NAT sends no endpoint")
+			}
+			return nil
+		}
+		if _, err := netutil.CheckEndpoint(endpoint); err != nil {
+			return status.Errorf(codes.InvalidArgument, "endpoint: %v", err)
+		}
+		return nil
+	}
 	n, err := s.store.GetNetwork(ctx)
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return netip.Addr{}, joining{}, status.Error(codes.Internal, "read the cluster network")
@@ -489,15 +504,15 @@ func (s *Server) joiningAddress(ctx context.Context, privateIP, key, endpoint st
 			if err != nil {
 				return netip.Addr{}, joining{}, status.Errorf(codes.InvalidArgument, "private IP: %v", err)
 			}
-			return ip, joining{}, nil
+			return ip, joining{behindNAT: behindNAT}, nil
 		}
 		if !validNetworkKey(key) {
 			return netip.Addr{}, joining{}, status.Error(codes.InvalidArgument, "a machine of another site needs its WireGuard public key")
 		}
-		if _, err := netutil.CheckEndpoint(endpoint); err != nil {
-			return netip.Addr{}, joining{}, status.Errorf(codes.InvalidArgument, "endpoint: %v", err)
+		if err := checkEndpoint(); err != nil {
+			return netip.Addr{}, joining{}, err
 		}
-		j := joining{away: true, key: key, endpoint: endpoint}
+		j := joining{away: true, key: key, endpoint: endpoint, behindNAT: behindNAT}
 		if privateIP != "" {
 			ip, err := netutil.CheckNodeIP(privateIP)
 			if err != nil {
@@ -516,11 +531,11 @@ func (s *Server) joiningAddress(ctx context.Context, privateIP, key, endpoint st
 	if !validNetworkKey(key) {
 		return netip.Addr{}, joining{}, status.Error(codes.InvalidArgument, "a mesh cluster needs the machine's WireGuard public key")
 	}
-	if _, err := netutil.CheckEndpoint(endpoint); err != nil {
-		return netip.Addr{}, joining{}, status.Errorf(codes.InvalidArgument, "endpoint: %v", err)
+	if err := checkEndpoint(); err != nil {
+		return netip.Addr{}, joining{}, err
 	}
 	ip, err := s.freeMeshAddress(ctx)
-	return ip, joining{on: true, key: key, endpoint: endpoint}, err
+	return ip, joining{on: true, key: key, endpoint: endpoint, behindNAT: behindNAT}, err
 }
 
 // freeMeshAddress is the lowest mesh address no node holds.
@@ -697,6 +712,25 @@ func (s *Server) LabelNode(ctx context.Context, req *armadav1.LabelNodeRequest) 
 	s.log.Info("node labels", "node", req.GetNode(), "labels", len(labels), "by", actor(ctx))
 	s.Trigger()
 	return &armadav1.LabelNodeResponse{Labels: labels}, nil
+}
+
+// SetNodeRelay chooses a node as its site's relay between nodes behind NAT
+// (ADR 0050), or drops the choice so the leader picks one itself.
+func (s *Server) SetNodeRelay(ctx context.Context, req *armadav1.SetNodeRelayRequest) (*armadav1.SetNodeRelayResponse, error) {
+	if err := spec.ValidateName(req.GetNode()); err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "node: %v", err)
+	}
+	if err := s.store.SetNodeRelay(ctx, req.GetNode(), !req.GetClear(), actor(ctx)); err != nil {
+		return nil, storeErr(err)
+	}
+	reason, what := "RelayChosen", "chosen as its site's relay by "
+	if req.GetClear() {
+		reason, what = "RelayCleared", "its site's relay is picked by the leader again, by "
+	}
+	s.log.Info("node relay", "node", req.GetNode(), "clear", req.GetClear(), "by", actor(ctx))
+	s.record(ctx, store.Event{Kind: eventNode, Object: req.GetNode(), Node: req.GetNode(), Reason: reason, Message: what + actor(ctx)})
+	s.Trigger()
+	return &armadav1.SetNodeRelayResponse{}, nil
 }
 
 // SetNodeSite moves a node to another site (ADR 0050). The site decides

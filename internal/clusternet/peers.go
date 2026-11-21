@@ -50,17 +50,33 @@ func peerChanges(d *wgtypes.Device, key wgtypes.Key, mode string, peers []peer, 
 			target = pe.endpoint
 			allowed = []net.IPNet{*prefixNet(netip.PrefixFrom(pe.ip, 32)), *prefixNet(pe.subnet)}
 		}
-		ep := &net.UDPAddr{IP: target.AsSlice(), Port: WireGuardPort}
+		// A relay's entry also carries the nodes behind NAT reached
+		// through it (ADR 0050).
+		for _, c := range pe.carried {
+			allowed = append(allowed, *prefixNet(c))
+		}
 		h, ok := have[pe.key]
-		keep := ok && h.Endpoint != nil && (h.Endpoint.String() == ep.String() ||
-			public && !h.LastHandshakeTime.IsZero() && now.Sub(h.LastHandshakeTime) <= staleHandshake)
+		var ep *net.UDPAddr
+		var keep bool
+		if public && !target.IsValid() {
+			// A node behind NAT (ADR 0050): only WireGuard knows where it
+			// is, from its packets.
+			keep = ok
+		} else {
+			ep = &net.UDPAddr{IP: target.AsSlice(), Port: WireGuardPort}
+			keep = ok && h.Endpoint != nil && (h.Endpoint.String() == ep.String() ||
+				public && !h.LastHandshakeTime.IsZero() && now.Sub(h.LastHandshakeTime) <= staleHandshake)
+		}
 		if keep && sameNets(h.AllowedIPs, allowed) && h.PersistentKeepaliveInterval == keepalive {
 			continue
 		}
 		ka := keepalive
 		pc := wgtypes.PeerConfig{
-			PublicKey: pe.key, Endpoint: ep, ReplaceAllowedIPs: true, AllowedIPs: allowed,
+			PublicKey: pe.key, ReplaceAllowedIPs: true, AllowedIPs: allowed,
 			PersistentKeepaliveInterval: &ka,
+		}
+		if ep != nil {
+			pc.Endpoint = ep
 		}
 		if keep {
 			pc.Endpoint = nil
