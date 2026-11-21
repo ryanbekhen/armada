@@ -5,51 +5,86 @@ sets up the backups that let you recover, then walks through each kind of
 failure: a lost control plane server, a lost node with app data, and a lost
 cluster. It ends with a drill you can run before you need any of it.
 
-**You will use:** [`armadad backup`](../cli/armadad-backup.md) and
+**You will use:** [`armada cluster set --backup-url`](../cli/armada-cluster.md),
+[`armadad backup`](../cli/armadad-backup.md) and
 [`armadad restore`](../cli/armadad-restore.md),
 [scheduled volume backups](../spec-reference.md#volumesbackup) with
 `failover: restore`, [`armada volume`](../cli/armada-volume.md),
 [control plane servers](../operations.md#control-plane-one-server-or-three)
 **Before you start:** a running cluster ([quickstart](../quickstart.md)),
-root on a control plane server, an S3-compatible bucket for volume backups,
-and [age](https://age-encryption.org) (or another tool) to encrypt archives.
+root on a control plane server, and an S3-compatible bucket for the
+backups.
 
 ## The setup
 
 ```
-  control plane server(s)                          off the cluster
+  control plane (the leader)                       off the cluster
   +-------------------------------+
-  | /var/lib/armada               |  armadad backup  +------------------------+
-  |  state, master.key, CA, certs |----------------->| armada-*.tar.gz.age    |
-  +-------------------------------+   (daily timer)  | (encrypted, 0600)      |
-                                                     |                        |
-  node with a volume                                 |                        |
-  +-------------------------------+  backup.every    | bucket: chunks +       |
-  | /var/lib/armada/volumes/db/.. |----------------->| snapshots (encrypted)  |
+  | /var/lib/armada               |  --backup-every  +------------------------+
+  |  state, master.key, CA, certs |----------------->| bucket:                |
+  +-------------------------------+                  |  _control-plane/       |
+                                                     |  <app>/<volume>/       |
+  node with a volume                                 |  chunks + snapshots,   |
+  +-------------------------------+  backup.every    |  encrypted             |
+  | /var/lib/armada/volumes/db/.. |----------------->|                        |
   +-------------------------------+                  +------------------------+
 
-  kept somewhere else again: the age key, each volume's backup key,
-  the admin config, and your specs (in git)
+  kept somewhere else again: the control plane's backup key, each volume's
+  backup key, the admin config, and your specs (in git)
 ```
 
 ## 1. Know what to back up
 
 | What | Holds | How |
 | --- | --- | --- |
-| Control plane | apps, revisions, secrets (encrypted), nodes, domains, ACME certificates, the CA and master keys | `armadad backup` on any server, on a timer (step 2) |
+| Control plane | apps, revisions, secrets (encrypted), nodes, domains, ACME certificates, the CA and master keys | `armada cluster set --backup-url` (step 2), or `armadad backup` archives |
 | Volume contents | your apps' data on the nodes | `backup` in the volume's spec (step 3), or `armada volume backup` archives |
-| The keys to those backups | the age key for control plane archives, each volume's `keySecretRef` value | outside the cluster, for example in a password manager |
+| The keys to those backups | the control plane's `--backup-key`, each volume's `keySecretRef` value | outside the cluster, for example in a password manager |
 | An admin client config | a way back into the cluster | a copy of a `cluster-admin` config; it stays valid after a restore, since the CA is the same |
 | Specs | how each app is deployed | in git (see [spec files and environments](spec-files-and-environments.md)) |
 
-`armadad backup` does not hold volume contents, NFS exports, or the
+A control plane backup does not hold volume contents, NFS exports, or the
 container images; nodes pull images again.
 
-## 2. Back up the control plane every day
+## 2. Back up the control plane to the bucket
 
-The archive holds the CA key and the master key in plaintext: anyone with
-it controls the cluster and reads every secret. Encrypt it before it is
-written:
+The leader backs the control plane up by itself, encrypted with a key of
+yours, and keeps as many backups as you say:
+
+```bash
+printf '%s' 'https://ACCESS_KEY:SECRET_KEY@s3.example.com/acme-backups/armada' > cp-backup-url.txt
+openssl rand -base64 48 | tr -d '\n' > cp-backup-key.txt   # keep a copy outside the cluster
+chmod 600 cp-backup-url.txt cp-backup-key.txt
+armada cluster set --backup-url cp-backup-url.txt --backup-key cp-backup-key.txt \
+  --backup-every 1h --backup-keep last=24,daily=7,weekly=4
+armada cluster status
+```
+
+```
+nodes 3/3 ready · apps 12 · ready 12 · rolling out 0 · failing 0 · jobs 2
+
+backups: to s3.example.com/acme-backups/armada/, last 2026-11-21 10:00:04 on cp-1 (24Mi, 1 kept, 9.8Mi stored), next 2026-11-21 11:00:04
+```
+
+- The first backup runs at once, the next ones every hour, from whichever
+  server leads. Each uploads only what the bucket does not hold yet; the
+  state changes little between backups, so they take little room.
+- **The backups hold the CA key and the master key**, encrypted with your
+  key: whoever has the bucket and the key controls the cluster, and
+  without the key nobody can read them, you included. Keep the key (and
+  the URL) outside the cluster, where someone besides you can get to them.
+- A failure shows in `armada cluster status` and as a
+  `ControlPlaneBackupFailed` event, which reaches your [alert
+  channels](alerts.md); it is retried after five minutes.
+- Prefer a daily time to an interval? `armada cluster set --backup-schedule
+  "0 3 * * *" --backup-time-zone Europe/Berlin`.
+
+### Or: archives on a timer
+
+`armadad backup` writes the same backup as one archive, for a copy kept
+somewhere else again. The archive holds the CA key and the master key in
+plaintext: encrypt it before it is written, for example with
+[age](https://age-encryption.org):
 
 ```ini
 # /etc/systemd/system/armada-backup.service
@@ -232,12 +267,18 @@ certificate is issued for it):
    restored server must never run next to servers of the old cluster.
 2. Install Armada on the new machine ([quickstart](../quickstart.md)) and
    run `armadad doctor`.
-3. Restore into an empty data directory, and start it:
+3. Restore the latest backup from the bucket into an empty data
+   directory, and start it:
 
    ```bash
-   age -d -i key.txt armada-2026-11-10-0300.tar.gz.age | sudo armadad restore -
+   sudo armadad backup list --backup-url cp-backup-url.txt --backup-key cp-backup-key.txt   # which server each was taken on
+   sudo armadad restore --backup-url cp-backup-url.txt --backup-key cp-backup-key.txt      # or --snapshot ID
    sudo systemctl enable --now armada-server
    ```
+
+   A backup brings back the server it was taken on: give the machine that
+   server's private IP. From an archive instead:
+   `age -d -i key.txt armada-2026-11-10-0300.tar.gz.age | sudo armadad restore -`.
 
 4. Check, from a machine with your admin config:
 
@@ -257,8 +298,8 @@ why a daily backup, or one after each larger change, pays off.
 
 ### The whole cluster is lost
 
-With the control plane archive, restore the first server as above (same
-private IP), then join new nodes. Apps, secrets, and settings come back
+With the control plane's bucket (or an archive), restore the first server
+as above (same private IP), then join new nodes. Apps, secrets, and settings come back
 from the archive, and their replicas start on the new nodes once the old
 ones count as lost. Apps with volumes stay bound to their old nodes: with
 `failover: restore` they move by themselves; otherwise remove the old
@@ -270,7 +311,7 @@ armada volume snapshot list db data
 armada volume restore db data --snapshot latest --node node3
 ```
 
-Without any control plane archive, build a new cluster, deploy your specs
+Without any control plane backup, build a new cluster, deploy your specs
 from git, set every secret again (including each volume's `backup-url` and
 the same `backup-key`), and restore the volumes from their buckets. A
 volume's backups live under `<prefix>/<app>/<volume>/` in the bucket
@@ -289,15 +330,15 @@ redeploying.
 
 Run this every few months, and after upgrades:
 
-- [ ] `ls -l /var/backups/armada` shows today's archive, and a copy exists
-      off the machine.
-- [ ] The archive decrypts and restores: on a machine with Armada
-      installed that is not a control plane server, restore into a scratch
-      directory, then delete it (it holds the cluster's keys). `restore`
-      runs every check a real restore runs, and starts nothing.
+- [ ] `armada cluster status` shows a recent control plane backup and no
+      error.
+- [ ] The latest backup restores: on a machine with Armada installed that
+      is not a control plane server, restore into a scratch directory, then
+      delete it (it holds the cluster's keys). `restore` runs every check a
+      real restore runs, and starts nothing.
 
       ```bash
-      age -d -i key.txt armada-2026-11-10-0300.tar.gz.age | sudo armadad restore - --data-dir /var/tmp/armada-drill
+      sudo armadad restore --backup-url cp-backup-url.txt --backup-key cp-backup-key.txt --data-dir /var/tmp/armada-drill
       sudo rm -rf /var/tmp/armada-drill
       ```
 
@@ -310,7 +351,8 @@ Run this every few months, and after upgrades:
       ```bash
       armada volume backup db data -o - --space shop | armada volume restore db data - --space shop-drill
       ```
-- [ ] Every volume's backup key and the age key are where you expect,
+- [ ] The control plane's backup key, every volume's backup key, and any
+      age key are where you expect,
       outside the cluster, and someone besides you can get to them.
 - [ ] A spare `cluster-admin` config works: `armada --config spare.config
       cluster status`.
@@ -324,7 +366,9 @@ Run this every few months, and after upgrades:
 | Symptom | Cause | Fix |
 | --- | --- | --- |
 | `armadad restore` refuses to write | The data directory is not empty | Move it aside, or restore with `--data-dir` into an empty one |
-| `armadad restore` fails a check | The archive is damaged, from another version, or its master key does not match | Use another archive; nothing was changed |
+| `armadad restore` fails a check | The archive or backup is damaged, from another version, or its master key does not match | Use another backup (`armadad backup list`); nothing was changed |
+| `the backup key does not match` | `--backup-key` is not the key the backups were made with | Use the key from when they were made; a new key needs a new URL prefix |
+| `ControlPlaneBackupFailed` | The bucket refuses the leader's address or the access key, or is full | Read `armada cluster status`; fix the bucket or set a new URL with `--backup-url` |
 | Nodes do not reconnect after a restore | The new server has another private IP | Restore onto a machine with the old server's private IP |
 | `VolumeFailoverFailed: ...; trying again in 5m0s` | No backup yet, no node with room or allowed by placement, or the bucket refuses | Read the message; `armada volume snapshot list`; `armada node top` |
 | `VolumeBackupFailed` | The bucket refuses the node's address or the key, or is full | Check the URL secret and the bucket's policy; old backups stay as they were |

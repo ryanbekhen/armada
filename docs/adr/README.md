@@ -54,6 +54,7 @@ Every architectural decision that is hard to reverse is recorded here. Copy `000
 | [0048](0048-client-through-ssh.md) | The client reaches the control plane through SSH | Accepted |
 | [0049](0049-mesh-over-public-addresses.md) | A WireGuard mesh over public addresses | Accepted |
 | [0050](0050-sites.md) | Sites, switching the network mode, and nodes behind NAT | Accepted |
+| [0051](0051-control-plane-backups.md) | Scheduled control plane backups to object storage | Accepted |
 
 Commands in records before 0032 carry the names of their time; ADR 0032
 lists the command line as it is now.

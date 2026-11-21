@@ -133,6 +133,7 @@ https://10.0.0.5:9443/metrics,https://10.0.0.6:9443/metrics,https://10.0.0.7:944
 | `armada_node_conntrack_entries`, `armada_node_conntrack_max` | a full table drops new connections |
 | `armada_volume_backup_failing`, `armada_volume_backup_last_success_timestamp_seconds` | scheduled volume backups |
 | `armada_volume_used_bytes` | volume size (there is no quota) |
+| `armada_control_plane_backup_last_success_timestamp_seconds`, `armada_control_plane_backup_failures_total` | scheduled control plane backups |
 | `armada_job_last_success_timestamp_seconds`, `armada_job_runs_total{result}` | scheduled jobs that stopped succeeding |
 | `armada_events_total{kind,reason}` | everything else the cluster records, such as `certificate` / `Failed` |
 | `armada_server_leader`, `armada_agents_connected` | which server leads, and how many agents it hears from |
@@ -211,6 +212,11 @@ groups:
         expr: time() - armada_volume_backup_last_success_timestamp_seconds > 3 * 3600
         annotations:
           summary: "Volume {{ $labels.volume }} of {{ $labels.app }} has no backup newer than 3 hours"
+
+      - alert: ArmadaControlPlaneBackupStale
+        expr: time() - armada_control_plane_backup_last_success_timestamp_seconds > 3 * 3600
+        annotations:
+          summary: "The control plane has no backup newer than 3 hours (armada cluster status)"
 
       - alert: ArmadaJobNotSucceeding
         expr: time() - armada_job_last_success_timestamp_seconds > 25 * 3600
