@@ -42,8 +42,11 @@ type session struct {
 	// netSwitch: the agent switches the network's mode while it runs
 	// (Hello, ADR 0050).
 	netSwitch bool
-	send      chan *armadav1.ServerMessage
-	done      chan struct{}
+	// keyRotation: the agent replaces its WireGuard key when asked (Hello,
+	// ADR 0025).
+	keyRotation bool
+	send        chan *armadav1.ServerMessage
+	done        chan struct{}
 
 	mu   sync.Mutex
 	last *armadav1.Assignment
@@ -140,7 +143,7 @@ func (s *Server) Connect(stream armadav1.AgentService_ConnectServer) error {
 		return status.Errorf(codes.FailedPrecondition, "agent reports private IP %q but node is registered with %q", hello.GetPrivateIp(), node.PrivateIP)
 	}
 
-	sess := &session{nodeID: node.ID, certRefs: hello.GetCertificateRefs(), sandboxes: hello.GetQueueSandboxes(), holds: hello.GetHeldReplicas(), backups: hello.GetVolumeBackups(), logHistory: hello.GetLogHistory(), netSwitch: hello.GetNetworkSwitch(), send: make(chan *armadav1.ServerMessage, 64), done: make(chan struct{})}
+	sess := &session{nodeID: node.ID, certRefs: hello.GetCertificateRefs(), sandboxes: hello.GetQueueSandboxes(), holds: hello.GetHeldReplicas(), backups: hello.GetVolumeBackups(), logHistory: hello.GetLogHistory(), netSwitch: hello.GetNetworkSwitch(), keyRotation: hello.GetKeyRotation(), send: make(chan *armadav1.ServerMessage, 64), done: make(chan struct{})}
 	s.mu.Lock()
 	if old := s.sessions[node.ID]; old != nil {
 		close(old.done)
@@ -271,6 +274,9 @@ func (s *Server) Connect(stream armadav1.AgentService_ConnectServer) error {
 			}
 			if w := m.GetWake(); w != nil {
 				s.wakeApp(ctx, node.ID, w.GetApp())
+			}
+			if k := m.GetNetworkKey(); k != nil {
+				s.networkKeyChanged(ctx, node.ID, k.GetPublicKey())
 			}
 		}
 	}()
@@ -666,4 +672,25 @@ func checkedPeers(names []string) []string {
 		}
 	}
 	return out
+}
+
+// networkKeyChanged records the key a node made when asked to rotate it
+// (ADR 0025), well-formed and held by no other node, and pushes the peer
+// lists that carry it.
+func (s *Server) networkKeyChanged(ctx context.Context, node, key string) {
+	if !validNetworkKey(key) {
+		s.log.Warn("agent announced an invalid network key", "node", node)
+		return
+	}
+	switch err := s.store.SetNodeNetworkKey(ctx, node, key); {
+	case errors.Is(err, store.ErrConflict):
+		s.log.Warn("agent announced another node's network key", "node", node)
+		return
+	case err != nil:
+		s.log.Warn("record the new network key", "node", node, "err", err)
+		return
+	}
+	s.log.Info("network key rotated", "node", node)
+	s.record(ctx, store.Event{Kind: eventNode, Object: node, Node: node, Reason: "NetworkKeyRotated", Message: "the node has a new WireGuard key"})
+	s.Trigger()
 }

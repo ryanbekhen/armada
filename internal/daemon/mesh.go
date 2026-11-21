@@ -29,7 +29,7 @@ func meshConfig(dataDir string, ac *agentConfig, key clusternet.PrivateKey, log 
 	}
 	// The endpoint also finds the uplink of a node whose address is a mesh
 	// address in a plain or wireguard cluster (ADR 0050).
-	return clusternet.Config{Node: ac.NodeID, PrivateIP: ip, Key: key, Logger: log.With("component", "network"),
+	return clusternet.Config{Node: ac.NodeID, PrivateIP: ip, Key: key, KeyPath: filepath.Join(dataDir, fileNetworkKey), Logger: log.With("component", "network"),
 		MeshCache: filepath.Join(dataDir, fileMeshCache), Endpoint: ac.uplinkEndpoint(), UplinkMTU: ac.MTU}, nil
 }
 

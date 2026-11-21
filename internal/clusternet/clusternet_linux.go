@@ -1329,3 +1329,22 @@ func stalePeers(devs []*wgtypes.Device, since map[wgtypes.Key]wgPeerSeen, now ti
 	}
 	return out
 }
+
+// RotateKey replaces the node's WireGuard key with a new one in
+// Config.KeyPath and returns its public half (armada node rotate-key, ADR
+// 0025). The devices take it on the next Apply, which follows once the
+// control plane has the new public key.
+func (n *Net) RotateKey() (string, error) {
+	if n.cfg.KeyPath == "" {
+		return "", errors.New("the node's key file is unknown")
+	}
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	k, err := RotateKey(n.cfg.KeyPath)
+	if err != nil {
+		return "", err
+	}
+	n.cfg.Key = k
+	n.log.Info("made a new network key")
+	return k.Public(), nil
+}

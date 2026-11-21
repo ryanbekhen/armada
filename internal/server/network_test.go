@@ -16,6 +16,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	armadav1 "github.com/ryanbekhen/armada/api/armada/v1"
+	"github.com/ryanbekhen/armada/internal/agent"
 	"github.com/ryanbekhen/armada/internal/pki"
 	"github.com/ryanbekhen/armada/internal/store"
 )
@@ -269,5 +270,82 @@ func TestPeerUnreachable(t *testing.T) {
 	c.srv.peersChecked(c.ctx, "n1", &armadav1.UsageReport{PeersChecked: true, UnreachablePeers: []string{"b"}})
 	if got := checkedPeers(slices.Repeat([]string{"x"}, 40)); len(got) != maxUnreachablePeers {
 		t.Errorf("%d peers kept", len(got))
+	}
+}
+
+// rotatingNet is a cluster network whose key the agent can replace.
+type rotatingNet struct {
+	fakeNet
+	keys chan string
+}
+
+func (n *rotatingNet) RotateKey() (string, error) {
+	k, err := wgtypes.GeneratePrivateKey()
+	if err != nil {
+		return "", err
+	}
+	n.keys <- k.PublicKey().String()
+	return k.PublicKey().String(), nil
+}
+
+// armada node rotate-key: the agent makes a new key, announces it, and the
+// leader records it, pushes it to the other nodes, and says so (ADR 0025).
+// A node that cannot rotate, or is not connected, is refused.
+func TestRotateNodeKey(t *testing.T) {
+	t.Parallel()
+	c := newCluster(t)
+	if err := c.store.InitNetwork(c.ctx, store.Network{Mode: store.NetworkWireGuard, ClusterCIDR: netip.MustParsePrefix("10.120.0.0/16")}); err != nil {
+		t.Fatal(err)
+	}
+	nets := map[string]*rotatingNet{"n1": {keys: make(chan string, 1)}, "n2": {keys: make(chan string, 1)}}
+	c.agentConfig = func(id string, cfg *agent.Config) {
+		k, _ := wgtypes.GeneratePrivateKey()
+		cfg.Network, cfg.NetworkKey = nets[id], k.PublicKey().String()
+	}
+	c.addNode("n1", "10.0.0.11")
+	c.addNode("n2", "10.0.0.12")
+	before, _ := c.store.GetNode(c.ctx, "n1")
+	if before.NetworkKey == "" {
+		t.Fatal("n1 announced no key")
+	}
+	if _, err := c.admin.RotateNodeKey(c.ctx, &armadav1.RotateNodeKeyRequest{Node: "n1"}); err != nil {
+		t.Fatal(err)
+	}
+	var key string
+	select {
+	case key = <-nets["n1"].keys:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the agent made no key")
+	}
+	c.eventually("new key recorded and pushed to n2", func() bool {
+		n, _ := c.store.GetNode(c.ctx, "n1")
+		nets["n2"].mu.Lock()
+		defer nets["n2"].mu.Unlock()
+		for _, p := range nets["n2"].cfg.GetPeers() {
+			if p.GetNode() == "n1" {
+				return n.NetworkKey == key && p.GetPublicKey() == key
+			}
+		}
+		return false
+	})
+	c.eventually("event", func() bool {
+		evs, _ := c.store.ListEvents(c.ctx, time.Time{})
+		return slices.ContainsFunc(evs, func(e store.Event) bool { return e.Reason == "NetworkKeyRotated" && e.Node == "n1" })
+	})
+	audit, _ := c.store.ListAudit(c.ctx, 50)
+	if !slices.ContainsFunc(audit, func(e store.AuditEvent) bool { return e.Action == "node.rotate-key" && e.Target == "n1" }) {
+		t.Error("no audit entry")
+	}
+	// Another node's key is refused.
+	c.srv.networkKeyChanged(c.ctx, "n2", key)
+	if n2, _ := c.store.GetNode(c.ctx, "n2"); n2.NetworkKey == key {
+		t.Error("n2 took n1's key")
+	}
+	if _, err := c.admin.RotateNodeKey(c.ctx, &armadav1.RotateNodeKeyRequest{Node: "ghost"}); status.Code(err) != codes.NotFound {
+		t.Errorf("unknown node: %v", err)
+	}
+	c.stopAgent("n2")
+	if _, err := c.admin.RotateNodeKey(c.ctx, &armadav1.RotateNodeKeyRequest{Node: "n2"}); status.Code(err) != codes.Unavailable {
+		t.Errorf("disconnected node: %v", err)
 	}
 }
