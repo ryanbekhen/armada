@@ -8,6 +8,10 @@
 // input: only known file names are extracted, sizes are capped, every file
 // is checked against the manifest, and the result is verified before it
 // replaces anything.
+//
+// The same files, staged as plain files (Stage), are what the leader backs
+// up to a bucket (ADR 0051); RestoreSnapshot restores one with the checks
+// of an archive (Restorer).
 package backup
 
 import (
@@ -112,53 +116,128 @@ type Manifest struct {
 // Create writes a backup of dataDir to w, with a snapshot of the state taken
 // through c. The snapshot is consistent, so the server may keep running.
 func Create(ctx context.Context, dataDir string, c *clientv3.Client, w io.Writer) (Manifest, error) {
-	if err := fsutil.CheckPrivate(dataDir); err != nil {
+	st, err := prepare(ctx, dataDir, c)
+	if err != nil {
 		return Manifest{}, err
+	}
+	defer os.RemoveAll(st.tmp)
+
+	gz := gzip.NewWriter(w)
+	tw := tar.NewWriter(gz)
+	mb, err := json.MarshalIndent(st.m, "", "  ")
+	if err != nil {
+		return Manifest{}, err
+	}
+	if err := writeEntry(tw, manifestName, int64(len(mb)), strings.NewReader(string(mb))); err != nil {
+		return Manifest{}, err
+	}
+	for _, e := range st.files {
+		if err := copyEntry(tw, e.name, e.src, st.m.Files[e.name]); err != nil {
+			return Manifest{}, err
+		}
+	}
+	if err := tw.Close(); err != nil {
+		return Manifest{}, err
+	}
+	return st.m, gz.Close()
+}
+
+// Stage writes the files a backup of dataDir holds into a directory of
+// their own, as plain files: the manifest as manifest.json and every other
+// file under its name, all owner-only. It calls fn with that directory and
+// removes it afterwards. The control plane's scheduled backups (ADR 0051)
+// copy the directory into a bucket; a Restorer takes the same files back.
+func Stage(ctx context.Context, dataDir string, c *clientv3.Client, fn func(dir string, m Manifest) error) (Manifest, error) {
+	st, err := prepare(ctx, dataDir, c)
+	if err != nil {
+		return Manifest{}, err
+	}
+	defer os.RemoveAll(st.tmp)
+	dir := filepath.Join(st.tmp, "files")
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		return Manifest{}, err
+	}
+	mb, err := json.MarshalIndent(st.m, "", "  ")
+	if err != nil {
+		return Manifest{}, err
+	}
+	if err := os.WriteFile(filepath.Join(dir, manifestName), mb, 0o600); err != nil {
+		return Manifest{}, err
+	}
+	for _, e := range st.files {
+		if err := copyFile(filepath.Join(dir, e.name), e.src, st.m.Files[e.name]); err != nil {
+			return Manifest{}, err
+		}
+	}
+	if err := fn(dir, st.m); err != nil {
+		return Manifest{}, err
+	}
+	return st.m, nil
+}
+
+// staged is a backup before it is written out: its manifest, and where each
+// file is read from. tmp holds the state snapshot; the caller removes it.
+type staged struct {
+	m     Manifest
+	files []stagedFile
+	tmp   string
+}
+
+type stagedFile struct{ name, src string }
+
+// prepare takes a snapshot of the state into a temporary directory inside
+// dataDir, checks it the way a restore does, and hashes every file.
+func prepare(ctx context.Context, dataDir string, c *clientv3.Client) (_ *staged, err error) {
+	if err := fsutil.CheckPrivate(dataDir); err != nil {
+		return nil, err
 	}
 	for _, name := range Required[1:] {
 		if _, err := os.Stat(filepath.Join(dataDir, name)); err != nil {
-			return Manifest{}, fmt.Errorf("%s is not a control plane data directory: %w", dataDir, err)
+			return nil, fmt.Errorf("%s is not a control plane data directory: %w", dataDir, err)
 		}
 	}
 
 	tmp, err := os.MkdirTemp(dataDir, ".backup-")
 	if err != nil {
-		return Manifest{}, err
+		return nil, err
 	}
-	defer os.RemoveAll(tmp)
+	defer func() {
+		if err != nil {
+			_ = os.RemoveAll(tmp)
+		}
+	}()
 	snap := filepath.Join(tmp, FileState)
 	if err := writeSnapshot(ctx, c, snap); err != nil {
-		return Manifest{}, err
+		return nil, err
 	}
 	pem, err := readFiles(dataDir, FileCACert, FileCAKey, FileServerCert)
 	if err != nil {
-		return Manifest{}, err
+		return nil, err
 	}
 	ca, err := pki.LoadCA(pem[0], pem[1])
 	if err != nil {
-		return Manifest{}, err
+		return nil, err
 	}
 	name, err := serverName(pem[2])
 	if err != nil {
-		return Manifest{}, err
+		return nil, err
 	}
 	// The snapshot is checked the way a restore checks it, so a backup
 	// that cannot be restored fails now rather than when it is needed.
 	info, err := inspect(ctx, snap, ca, tmp, name)
 	if err != nil {
-		return Manifest{}, fmt.Errorf("verify snapshot: %w", err)
+		return nil, fmt.Errorf("verify snapshot: %w", err)
 	}
 
 	// Collect every file with its source path, then hash before writing so
 	// the manifest can come first.
-	type entry struct{ name, src string }
-	entries := []entry{{FileState, snap}}
+	files := []stagedFile{{FileState, snap}}
 	for _, name := range append(slices.Clone(Required[1:]), Optional...) {
 		src := filepath.Join(dataDir, name)
 		if _, err := os.Lstat(src); errors.Is(err, fs.ErrNotExist) {
 			continue
 		}
-		entries = append(entries, entry{name, src})
+		files = append(files, stagedFile{name, src})
 	}
 	m := Manifest{
 		Format:        format,
@@ -170,32 +249,14 @@ func Create(ctx context.Context, dataDir string, c *clientv3.Client, w io.Writer
 		Files:         map[string]string{},
 	}
 	m.CAFingerprint = pki.Fingerprint(ca.Cert)
-	for _, e := range entries {
+	for _, e := range files {
 		sum, err := hashFile(e.src)
 		if err != nil {
-			return Manifest{}, err
+			return nil, err
 		}
 		m.Files[e.name] = sum
 	}
-
-	gz := gzip.NewWriter(w)
-	tw := tar.NewWriter(gz)
-	mb, err := json.MarshalIndent(m, "", "  ")
-	if err != nil {
-		return Manifest{}, err
-	}
-	if err := writeEntry(tw, manifestName, int64(len(mb)), strings.NewReader(string(mb))); err != nil {
-		return Manifest{}, err
-	}
-	for _, e := range entries {
-		if err := copyEntry(tw, e.name, e.src, m.Files[e.name]); err != nil {
-			return Manifest{}, err
-		}
-	}
-	if err := tw.Close(); err != nil {
-		return Manifest{}, err
-	}
-	return m, gz.Close()
+	return &staged{m: m, files: files, tmp: tmp}, nil
 }
 
 func writeSnapshot(ctx context.Context, c *clientv3.Client, dst string) error {
@@ -331,6 +392,32 @@ func copyEntry(tw *tar.Writer, name, src, sum string) error {
 	return nil
 }
 
+// copyFile copies src to a new file dst (0600) and fails if it changed
+// since it was hashed.
+func copyFile(dst, src, sum string) error {
+	in, err := os.Open(src) //nolint:gosec // path inside the operator's data directory
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600) //nolint:gosec // inside a fresh temp dir
+	if err != nil {
+		return err
+	}
+	h := sha256.New()
+	_, err = io.Copy(io.MultiWriter(out, h), in)
+	if cerr := out.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		return err
+	}
+	if hex.EncodeToString(h.Sum(nil)) != sum {
+		return fmt.Errorf("%s changed while the backup was written; run it again", filepath.Base(dst))
+	}
+	return nil
+}
+
 func writeEntry(tw *tar.Writer, name string, size int64, r io.Reader) error {
 	if err := tw.WriteHeader(&tar.Header{
 		Name: name, Mode: 0o600, Size: size, Typeflag: tar.TypeReg,
@@ -347,34 +434,148 @@ func writeEntry(tw *tar.Writer, name string, size int64, r io.Reader) error {
 // by member (its address and ports; the rest comes from the archive).
 // Nothing is written to dataDir unless the whole archive verifies.
 func Restore(ctx context.Context, r io.Reader, dataDir string, member etcd.Config) (Manifest, error) {
+	rs, err := NewRestorer(dataDir)
+	if err != nil {
+		return Manifest{}, err
+	}
+	defer rs.Close()
+	gz, err := gzip.NewReader(r)
+	if err != nil {
+		return Manifest{}, fmt.Errorf("not a backup archive: %w", err)
+	}
+	defer gz.Close()
+	tr := tar.NewReader(gz)
+	for n := 0; ; n++ {
+		hdr, err := tr.Next()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return Manifest{}, fmt.Errorf("read archive: %w", err)
+		}
+		if n == 0 && (hdr.Name != manifestName || hdr.Typeflag != tar.TypeReg || hdr.Size > maxFileSize) {
+			return Manifest{}, errors.New("not an Armada backup: the manifest must come first")
+		}
+		if hdr.Typeflag != tar.TypeReg {
+			return Manifest{}, fmt.Errorf("unexpected entry %q: only regular files are allowed", hdr.Name)
+		}
+		if err := rs.Add(hdr.Name, hdr.Size, tr); err != nil {
+			return Manifest{}, err
+		}
+	}
+	return rs.Finish(ctx, member)
+}
+
+// A Restorer restores a backup handed to it file by file, as Stage wrote
+// it (the control plane's backups in a bucket, ADR 0051) or as an archive
+// holds it: Add each file, then Finish. It checks what it is given exactly
+// as Restore checks an archive, and nothing reaches the data directory
+// unless all of it verifies. Close removes what Finish did not use.
+type Restorer struct {
+	dataDir, tmp string
+	m            Manifest
+	sums         map[string]string
+	total        int64
+	n            int
+}
+
+// NewRestorer prepares a restore into dataDir, which must not exist or be
+// empty.
+func NewRestorer(dataDir string) (*Restorer, error) {
 	dataDir = filepath.Clean(dataDir)
 	if entries, err := os.ReadDir(dataDir); err == nil && len(entries) > 0 {
-		return Manifest{}, fmt.Errorf("%s is not empty; move it aside first (restore never overwrites a data directory)", dataDir)
+		return nil, fmt.Errorf("%s is not empty; move it aside first (restore never overwrites a data directory)", dataDir)
 	} else if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return Manifest{}, err
+		return nil, err
 	}
 	parent := filepath.Dir(dataDir)
 	if err := os.MkdirAll(parent, 0o755); err != nil { //nolint:gosec // e.g. /var/lib; the data directory itself is 0700
-		return Manifest{}, err
+		return nil, err
 	}
 	tmp, err := os.MkdirTemp(parent, "."+filepath.Base(dataDir)+".restore-")
 	if err != nil {
-		return Manifest{}, err
+		return nil, err
 	}
-	defer func() {
-		if tmp != "" {
-			_ = os.RemoveAll(tmp)
-		}
-	}()
 	if err := os.Chmod(tmp, 0o700); err != nil { //nolint:gosec // a directory: owner-only, needs the execute bit
-		return Manifest{}, err
+		_ = os.RemoveAll(tmp)
+		return nil, err
 	}
+	return &Restorer{dataDir: dataDir, tmp: tmp, sums: map[string]string{}}, nil
+}
 
-	m, sums, err := extract(r, tmp)
-	if err != nil {
-		return Manifest{}, err
+// Close removes the files of a restore that did not finish.
+func (rs *Restorer) Close() {
+	if rs.tmp != "" {
+		_ = os.RemoveAll(rs.tmp)
+		rs.tmp = ""
 	}
-	ca, err := verify(ctx, tmp, m, sums)
+}
+
+// Add takes one file of the backup: the manifest (manifest.json) or one of
+// the known files, size bytes read from r.
+func (rs *Restorer) Add(name string, size int64, r io.Reader) error {
+	if rs.tmp == "" {
+		return errors.New("the restore has ended")
+	}
+	if rs.n++; rs.n > maxEntries {
+		return errors.New("archive has too many entries")
+	}
+	if name == manifestName {
+		if rs.m.Format != 0 {
+			return fmt.Errorf("duplicate entry %q", name)
+		}
+		if size < 0 || size > maxFileSize {
+			return errors.New("not an Armada backup: the manifest is too large")
+		}
+		var m Manifest
+		dec := json.NewDecoder(io.LimitReader(r, size))
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&m); err != nil {
+			return fmt.Errorf("manifest: %w", err)
+		}
+		if m.Format != format {
+			return fmt.Errorf("backup format %d is not supported (want %d)", m.Format, format)
+		}
+		rs.m = m
+		return nil
+	}
+	if err := checkName(name); err != nil {
+		return err
+	}
+	if _, dup := rs.sums[name]; dup {
+		return fmt.Errorf("duplicate entry %q", name)
+	}
+	limit := int64(maxFileSize)
+	if name == FileState {
+		limit = maxStateSize
+	}
+	if size < 0 || size > limit {
+		return fmt.Errorf("%s is too large (%d bytes)", name, size)
+	}
+	if rs.total += size; rs.total > maxTotalSize {
+		return errors.New("archive is too large")
+	}
+	sum, err := writeFile(rs.tmp, name, r, size)
+	if err != nil {
+		return err
+	}
+	rs.sums[name] = sum
+	return nil
+}
+
+// Finish verifies the files, turns the snapshot into the data of the etcd
+// member described by member (its address and ports; the rest comes from
+// the backup), and moves everything into the data directory.
+func (rs *Restorer) Finish(ctx context.Context, member etcd.Config) (Manifest, error) {
+	if rs.tmp == "" {
+		return Manifest{}, errors.New("the restore has ended")
+	}
+	defer rs.Close()
+	if rs.m.Format == 0 {
+		return Manifest{}, errors.New("not an Armada backup: no manifest")
+	}
+	tmp, m := rs.tmp, rs.m
+	ca, err := verify(ctx, tmp, m, rs.sums)
 	if err != nil {
 		return Manifest{}, err
 	}
@@ -407,83 +608,14 @@ func Restore(ctx context.Context, r io.Reader, dataDir string, member etcd.Confi
 		return Manifest{}, err
 	}
 
-	if err := os.Remove(dataDir); err != nil && !errors.Is(err, fs.ErrNotExist) {
+	if err := os.Remove(rs.dataDir); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return Manifest{}, err
 	}
-	if err := os.Rename(tmp, dataDir); err != nil {
+	if err := os.Rename(tmp, rs.dataDir); err != nil {
 		return Manifest{}, err
 	}
-	tmp = ""
+	rs.tmp = ""
 	return m, nil
-}
-
-// extract unpacks the archive into dir and returns the manifest and the
-// SHA-256 of every file written.
-func extract(r io.Reader, dir string) (Manifest, map[string]string, error) {
-	gz, err := gzip.NewReader(r)
-	if err != nil {
-		return Manifest{}, nil, fmt.Errorf("not a backup archive: %w", err)
-	}
-	defer gz.Close()
-	tr := tar.NewReader(gz)
-
-	var m Manifest
-	sums := map[string]string{}
-	var total int64
-	for n := 0; ; n++ {
-		hdr, err := tr.Next()
-		if errors.Is(err, io.EOF) {
-			break
-		}
-		if err != nil {
-			return Manifest{}, nil, fmt.Errorf("read archive: %w", err)
-		}
-		if n >= maxEntries {
-			return Manifest{}, nil, errors.New("archive has too many entries")
-		}
-		if n == 0 {
-			if hdr.Name != manifestName || hdr.Typeflag != tar.TypeReg || hdr.Size > maxFileSize {
-				return Manifest{}, nil, errors.New("not an Armada backup: the manifest must come first")
-			}
-			dec := json.NewDecoder(io.LimitReader(tr, maxFileSize))
-			dec.DisallowUnknownFields()
-			if err := dec.Decode(&m); err != nil {
-				return Manifest{}, nil, fmt.Errorf("manifest: %w", err)
-			}
-			if m.Format != format {
-				return Manifest{}, nil, fmt.Errorf("backup format %d is not supported (want %d)", m.Format, format)
-			}
-			continue
-		}
-		if hdr.Typeflag != tar.TypeReg {
-			return Manifest{}, nil, fmt.Errorf("unexpected entry %q: only regular files are allowed", hdr.Name)
-		}
-		if err := checkName(hdr.Name); err != nil {
-			return Manifest{}, nil, err
-		}
-		if _, dup := sums[hdr.Name]; dup {
-			return Manifest{}, nil, fmt.Errorf("duplicate entry %q", hdr.Name)
-		}
-		limit := int64(maxFileSize)
-		if hdr.Name == FileState {
-			limit = maxStateSize
-		}
-		if hdr.Size < 0 || hdr.Size > limit {
-			return Manifest{}, nil, fmt.Errorf("%s is too large (%d bytes)", hdr.Name, hdr.Size)
-		}
-		if total += hdr.Size; total > maxTotalSize {
-			return Manifest{}, nil, errors.New("archive is too large")
-		}
-		sum, err := writeFile(dir, hdr.Name, tr, hdr.Size)
-		if err != nil {
-			return Manifest{}, nil, err
-		}
-		sums[hdr.Name] = sum
-	}
-	if m.Format == 0 {
-		return Manifest{}, nil, errors.New("not an Armada backup: no manifest")
-	}
-	return m, sums, nil
 }
 
 // checkName accepts only the known files.

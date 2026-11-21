@@ -98,6 +98,28 @@ func (b *VolumeBackup) Location() *time.Location {
 }
 
 func (v *validator) volumeBackup(field string, b *VolumeBackup) {
+	v.backupPlan(field, b)
+	v.secretName(field+".urlSecretRef", b.URLSecretRef)
+	v.secretName(field+".keySecretRef", b.KeySecretRef)
+	if b.URLSecretRef != "" && b.URLSecretRef == b.KeySecretRef {
+		v.add(field+".keySecretRef", "must be another secret than urlSecretRef")
+	}
+}
+
+// CheckBackupPlan checks when backups run (every, or schedule with
+// timeZone) and which are kept, the way a volume's backup is checked; the
+// secret references are not looked at. The control plane's backups (ADR
+// 0051) use it.
+func CheckBackupPlan(b *VolumeBackup) error {
+	var v validator
+	v.backupPlan("backup", b)
+	if len(v.errs) == 0 {
+		return nil
+	}
+	return v.errs[0]
+}
+
+func (v *validator) backupPlan(field string, b *VolumeBackup) {
 	switch {
 	case b.Every == 0 && b.Schedule == "":
 		v.add(field, "needs every or schedule")
@@ -133,10 +155,5 @@ func (v *validator) volumeBackup(field string, b *VolumeBackup) {
 	}
 	if total == 0 {
 		v.add(field+".keep", "must keep at least one backup")
-	}
-	v.secretName(field+".urlSecretRef", b.URLSecretRef)
-	v.secretName(field+".keySecretRef", b.KeySecretRef)
-	if b.URLSecretRef != "" && b.URLSecretRef == b.KeySecretRef {
-		v.add(field+".keySecretRef", "must be another secret than urlSecretRef")
 	}
 }

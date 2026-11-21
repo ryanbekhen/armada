@@ -47,6 +47,7 @@ const (
 	eventApp         = "app"
 	eventDomain      = "domain"
 	eventCertificate = "certificate"
+	eventCluster     = "cluster"
 )
 
 type eventKey struct{ kind, object, reason string }

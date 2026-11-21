@@ -802,6 +802,15 @@ message ClusterConfig {
   // take theirs from it; empty while none is recorded. set_mesh_cidr
   // records another before any node holds one.
   string mesh_cidr = 20;
+  // Backups of the control plane to a bucket (ADR 0051): every so many
+  // seconds, or on a schedule in a time zone, keeping what backup_keep
+  // says. backup_bucket names the bucket and prefix (never the URL's keys)
+  // and is empty while backups are off.
+  int64 backup_every_seconds = 21;
+  string backup_schedule = 22;
+  string backup_time_zone = 23;
+  BackupKeep backup_keep = 24;
+  string backup_bucket = 25;
 }
 
 message GetClusterConfigRequest {}
@@ -836,6 +845,19 @@ message SetClusterConfigRequest {
   // mode gives up a switch still in its prepare step.
   bool set_network = 18;
   bool set_mesh_cidr = 19;
+  // Control plane backups (ADR 0051). set_backup_plan replaces
+  // backup_every_seconds, backup_schedule, and backup_time_zone together;
+  // set_backup_keep replaces backup_keep. The bucket URL and the
+  // encryption key are set when set_backup_url and set_backup_key; never
+  // logged or returned. set_backup_off turns backups off and forgets the
+  // URL and the key; nothing else of the backups may be set with it.
+  bool set_backup_plan = 20;
+  bool set_backup_keep = 21;
+  bool set_backup_url = 22;
+  bytes backup_url = 23 [debug_redact = true];
+  bool set_backup_key = 24;
+  bytes backup_key = 25 [debug_redact = true];
+  bool set_backup_off = 26;
 }
 
 message ListDomainsRequest {
@@ -927,6 +949,28 @@ message ClusterStatusResponse {
   repeated string nodes_not_ready = 10;
   // A switch of the cluster network's mode under way (ADR 0050).
   NetworkSwitchProgress network_switch = 11;
+  // The control plane's backups (ADR 0051); unset while they are off.
+  ControlPlaneBackupStatus control_plane_backup = 12;
+}
+
+// ControlPlaneBackupStatus is how the control plane's backups to its bucket
+// go (ADR 0051).
+message ControlPlaneBackupStatus {
+  // The bucket and prefix, without the URL's keys.
+  string bucket = 1;
+  // The last backup that worked: when, its ID, the server it was taken
+  // on, the bytes of its files, and what the repository held after it.
+  google.protobuf.Timestamp last_at = 2;
+  string last_snapshot = 3;
+  string last_server = 4;
+  int64 last_size_bytes = 5;
+  int64 stored_bytes = 6;
+  int32 snapshots = 7;
+  // The last failure, when it came after the last success.
+  google.protobuf.Timestamp failed_at = 8;
+  string error = 9;
+  // When the next backup is due.
+  google.protobuf.Timestamp next_at = 10;
 }
 
 // NetworkSwitchProgress is how a switch between the plain and wireguard

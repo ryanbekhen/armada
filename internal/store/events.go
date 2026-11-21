@@ -18,7 +18,7 @@ type Event struct {
 	// Key identifies the stored event; set by PutEvent and ListEvents.
 	Key string
 	// Kind is what the event is about (replica, rollout, node, app,
-	// domain, certificate), Object its name; App and Node, when set, let
+	// domain, certificate, cluster), Object its name; App and Node, when set, let
 	// readers filter.
 	Kind, Object, App, Node string
 	Reason                  string
