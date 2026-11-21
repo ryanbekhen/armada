@@ -179,6 +179,15 @@ type NetworkSwitcher interface {
 	SwitchStatus() *armadav1.NetworkSwitchStatus
 }
 
+// PeerChecker is a Network that tells which of its WireGuard peers have
+// had no handshake for a while (ADR 0025), so the leader can say so.
+type PeerChecker interface {
+	Network
+	// UnreachablePeers returns their node names, sorted, at most 32; nil
+	// while it cannot tell (no WireGuard, or a switch runs).
+	UnreachablePeers() []string
+}
+
 // InternalDNS is the node-local resolver the agent keeps in sync with the
 // proxy's internal routes.
 type InternalDNS interface {

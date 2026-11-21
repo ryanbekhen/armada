@@ -567,7 +567,7 @@ func clean(s string, secret []byte) string {
 var warnings = map[string]bool{
 	"Crashed": true, "Failed": true, "Lost": true, "OutOfMemory": true, "Unschedulable": true,
 	"ReconcileFailed": true, "ProxyNotUpdated": true, "AddressConflict": true, "RouteConflict": true, "DNSTokenUnavailable": true, "MostUnreachable": true, "NotVerified": true,
-	"QueueUnread": true, "LogExportFailing": true,
+	"QueueUnread": true, "LogExportFailing": true, "PeerUnreachable": true,
 	"VolumeUnavailable": true, "VolumesSplit": true, "VolumeOnCordonedNode": true,
 	"VolumeBackupFailed": true, "VolumeBackupUnsupported": true, "VolumeFailedOver": true, "VolumeFailoverFailed": true,
 }

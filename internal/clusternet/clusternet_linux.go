@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net"
 	"net/netip"
 	"os"
@@ -17,9 +18,12 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/vishvananda/netlink"
 	"golang.zx2c4.com/wireguard/device"
+	"golang.zx2c4.com/wireguard/wgctrl"
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	armadav1 "github.com/ryanbekhen/armada/api/armada/v1"
 	"github.com/ryanbekhen/armada/internal/runtime/embedded"
@@ -58,6 +62,9 @@ type Net struct {
 	user *userDevice
 	// sw is this node's side of a switch between modes (ADR 0050).
 	sw switchState
+	// wgSince is when each WireGuard peer, by key, was first configured,
+	// so a peer just added is not reported unreachable (UnreachablePeers).
+	wgSince map[wgtypes.Key]wgPeerSeen
 	// nextClean is set once the firewall rules of a finished switch's
 	// interface are known to be gone; siteClean, those of SiteInterface
 	// once no peer is in another site.
@@ -98,6 +105,7 @@ func (n *Net) Apply(_ context.Context, cfg *armadav1.NetworkConfig, local map[ne
 	if err != nil {
 		return err
 	}
+	n.seePeers(p, time.Now())
 	switch {
 	case n.cfg.MeshCache == "":
 	case p.mode == ModeMesh || len(p.remote()) > 0:
@@ -1242,4 +1250,82 @@ func deviceLogger(log *slog.Logger) *device.Logger {
 		Verbosef: device.DiscardLogf,
 		Errorf:   func(format string, args ...any) { log.Warn("wireguard: " + fmt.Sprintf(format, args...)) },
 	}
+}
+
+// wgPeerSeen is a WireGuard peer's node and when it was first configured.
+type wgPeerSeen struct {
+	node  string
+	since time.Time
+}
+
+// seePeers records the WireGuard peers of p, keeping when each was first
+// seen: every peer in the wireguard and mesh modes, and those of other
+// sites (and relayed ones' relays) in plain.
+func (n *Net) seePeers(p plan, now time.Time) {
+	next := map[wgtypes.Key]wgPeerSeen{}
+	for _, pe := range p.peers {
+		if pe.key == (wgtypes.Key{}) || !encrypted(p.mode) && !pe.remote {
+			continue
+		}
+		seen, ok := n.wgSince[pe.key]
+		if !ok || seen.node != pe.node {
+			seen = wgPeerSeen{node: pe.node, since: now}
+		}
+		next[pe.key] = seen
+	}
+	n.wgSince = next
+}
+
+// UnreachablePeers returns the nodes whose WireGuard peer has had no
+// handshake for staleHandshake although it was configured longer ago
+// (ADR 0025), sorted, at most 32; nil while a switch runs or nothing is
+// on WireGuard.
+func (n *Net) UnreachablePeers() []string {
+	n.mu.Lock()
+	since := maps.Clone(n.wgSince)
+	switching := n.sw.to != ""
+	n.mu.Unlock()
+	if switching || len(since) == 0 {
+		return nil
+	}
+	c, err := wgctrl.New()
+	if err != nil {
+		return nil
+	}
+	defer func() { _ = c.Close() }()
+	return unreachable(c, since, time.Now())
+}
+
+// unreachable lists the peers of Interface and SiteInterface known in
+// since that are stale at now.
+func unreachable(c *wgctrl.Client, since map[wgtypes.Key]wgPeerSeen, now time.Time) []string {
+	var devs []*wgtypes.Device
+	for _, name := range []string{Interface, SiteInterface} {
+		if d, err := c.Device(name); err == nil {
+			devs = append(devs, d)
+		}
+	}
+	return stalePeers(devs, since, now)
+}
+
+// stalePeers is unreachable on devices already read.
+func stalePeers(devs []*wgtypes.Device, since map[wgtypes.Key]wgPeerSeen, now time.Time) []string {
+	var out []string
+	for _, d := range devs {
+		for _, pe := range d.Peers {
+			seen, ok := since[pe.PublicKey]
+			if !ok || now.Sub(seen.since) <= staleHandshake {
+				continue
+			}
+			if pe.LastHandshakeTime.IsZero() || now.Sub(pe.LastHandshakeTime) > staleHandshake {
+				out = append(out, seen.node)
+			}
+		}
+	}
+	slices.Sort(out)
+	out = slices.Compact(out)
+	if len(out) > 32 {
+		out = out[:32]
+	}
+	return out
 }

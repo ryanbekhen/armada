@@ -9575,8 +9575,12 @@ type UsageReport struct {
 	// How the node's side of a switch of the cluster network's mode goes
 	// (ADR 0050); unset while none runs.
 	NetworkSwitch *NetworkSwitchStatus `protobuf:"bytes,12,opt,name=network_switch,json=networkSwitch,proto3" json:"network_switch,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// Set when the node checked its WireGuard peers (ADR 0025): those with
+	// no handshake for 3 minutes, at most 32 node names, sorted.
+	PeersChecked     bool     `protobuf:"varint,13,opt,name=peers_checked,json=peersChecked,proto3" json:"peers_checked,omitempty"`
+	UnreachablePeers []string `protobuf:"bytes,14,rep,name=unreachable_peers,json=unreachablePeers,proto3" json:"unreachable_peers,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *UsageReport) Reset() {
@@ -9689,6 +9693,20 @@ func (x *UsageReport) GetDroppedSandboxes() []string {
 func (x *UsageReport) GetNetworkSwitch() *NetworkSwitchStatus {
 	if x != nil {
 		return x.NetworkSwitch
+	}
+	return nil
+}
+
+func (x *UsageReport) GetPeersChecked() bool {
+	if x != nil {
+		return x.PeersChecked
+	}
+	return false
+}
+
+func (x *UsageReport) GetUnreachablePeers() []string {
+	if x != nil {
+		return x.UnreachablePeers
 	}
 	return nil
 }
@@ -15520,7 +15538,7 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\bfinished\x18\t \x01(\bR\bfinished\x12\x1b\n" +
 	"\texit_code\x18\n" +
 	" \x01(\x05R\bexitCode\x12\x0e\n" +
-	"\x02ip\x18\v \x01(\tR\x02ip\"\xd8\x04\n" +
+	"\x02ip\x18\v \x01(\tR\x02ip\"\xaa\x05\n" +
 	"\vUsageReport\x123\n" +
 	"\breplicas\x18\x01 \x03(\v2\x17.armada.v1.ReplicaUsageR\breplicas\x12*\n" +
 	"\x04load\x18\x02 \x03(\v2\x16.armada.v1.ReplicaLoadR\x04load\x12#\n" +
@@ -15535,7 +15553,9 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"log_export\x18\n" +
 	" \x01(\v2\x1a.armada.v1.LogExportStatusR\tlogExport\x12+\n" +
 	"\x11dropped_sandboxes\x18\v \x03(\tR\x10droppedSandboxes\x12E\n" +
-	"\x0enetwork_switch\x18\f \x01(\v2\x1e.armada.v1.NetworkSwitchStatusR\rnetworkSwitch\"\x83\x01\n" +
+	"\x0enetwork_switch\x18\f \x01(\v2\x1e.armada.v1.NetworkSwitchStatusR\rnetworkSwitch\x12#\n" +
+	"\rpeers_checked\x18\r \x01(\bR\fpeersChecked\x12+\n" +
+	"\x11unreachable_peers\x18\x0e \x03(\tR\x10unreachablePeers\"\x83\x01\n" +
 	"\x13NetworkSwitchStatus\x12\x0e\n" +
 	"\x02to\x18\x01 \x01(\tR\x02to\x12\x12\n" +
 	"\x04step\x18\x02 \x01(\tR\x04step\x12\x14\n" +

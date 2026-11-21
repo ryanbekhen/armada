@@ -1403,6 +1403,10 @@ message UsageReport {
   // How the node's side of a switch of the cluster network's mode goes
   // (ADR 0050); unset while none runs.
   NetworkSwitchStatus network_switch = 12;
+  // Set when the node checked its WireGuard peers (ADR 0025): those with
+  // no handshake for 3 minutes, at most 32 node names, sorted.
+  bool peers_checked = 13;
+  repeated string unreachable_peers = 14;
 }
 
 // NetworkSwitchStatus is a node's side of a switch between the plain and
