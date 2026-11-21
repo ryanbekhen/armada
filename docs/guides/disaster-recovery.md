@@ -5,7 +5,7 @@ sets up the backups that let you recover, then walks through each kind of
 failure: a lost control plane server, a lost node with app data, and a lost
 cluster. It ends with a drill you can run before you need any of it.
 
-**You will use:** [`armada cluster set --backup-url`](../cli/armada-cluster.md),
+**You will use:** [`armada cluster update --backup-url`](../cli/armada-cluster.md),
 [`armadad backup`](../cli/armadad-backup.md) and
 [`armadad restore`](../cli/armadad-restore.md),
 [scheduled volume backups](../spec-reference.md#volumesbackup) with
@@ -37,7 +37,7 @@ backups.
 
 | What | Holds | How |
 | --- | --- | --- |
-| Control plane | apps, revisions, secrets (encrypted), nodes, domains, ACME certificates, the CA and master keys | `armada cluster set --backup-url` (step 2), or `armadad backup` archives |
+| Control plane | apps, revisions, secrets (encrypted), nodes, domains, ACME certificates, the CA and master keys | `armada cluster update --backup-url` (step 2), or `armadad backup` archives |
 | Volume contents | your apps' data on the nodes | `backup` in the volume's spec (step 3), or `armada volume backup` archives |
 | The keys to those backups | the control plane's `--backup-key`, each volume's `keySecretRef` value | outside the cluster, for example in a password manager |
 | An admin client config | a way back into the cluster | a copy of a `cluster-admin` config; it stays valid after a restore, since the CA is the same |
@@ -55,7 +55,7 @@ yours, and keeps as many backups as you say:
 printf '%s' 'https://ACCESS_KEY:SECRET_KEY@s3.example.com/acme-backups/armada' > cp-backup-url.txt
 openssl rand -base64 48 | tr -d '\n' > cp-backup-key.txt   # keep a copy outside the cluster
 chmod 600 cp-backup-url.txt cp-backup-key.txt
-armada cluster set --backup-url cp-backup-url.txt --backup-key cp-backup-key.txt \
+armada cluster update --backup-url cp-backup-url.txt --backup-key cp-backup-key.txt \
   --backup-every 1h --backup-keep last=24,daily=7,weekly=4
 armada cluster status
 ```
@@ -76,7 +76,7 @@ backups: to s3.example.com/acme-backups/armada/, last 2026-11-21 10:00:04 on cp-
 - A failure shows in `armada cluster status` and as a
   `ControlPlaneBackupFailed` event, which reaches your [alert
   channels](alerts.md); it is retried after five minutes.
-- Prefer a daily time to an interval? `armada cluster set --backup-schedule
+- Prefer a daily time to an interval? `armada cluster update --backup-schedule
   "0 3 * * *" --backup-time-zone Europe/Berlin`.
 
 ### Or: archives on a timer
@@ -158,11 +158,11 @@ printf '%s' "$POSTGRES_PASSWORD" | armada secret set db postgres-password
 printf '%s' 'https://ACCESS_KEY:SECRET_KEY@s3.example.com/acme-backups/armada' | armada secret set db backup-url
 openssl rand -base64 48 | tr -d '\n' > db-backup-key.txt   # keep a copy outside the cluster
 armada secret set db backup-key --from-file db-backup-key.txt
-armada app create --file db.yaml --wait
+armada app deploy --file db.yaml --wait
 ```
 
 ```bash
-armada volume snapshot create db data     # one now, instead of waiting for the first
+armada snapshot create db data     # one now, instead of waiting for the first
 armada volume list
 ```
 
@@ -191,7 +191,7 @@ db.shop  data    node2  /var/lib/postgresql/data  1.2GiB  1m ago       1 (410MiB
 ### A node without volumes is lost
 
 Nothing to do. After the node-lost timeout (5 minutes by default,
-`armada cluster set --node-lost-timeout`) its replicas start on other
+`armada cluster update --node-lost-timeout`) its replicas start on other
 nodes, and the old ones are removed once the new ones serve. Run at least
 two replicas of anything that must stay up, so a lost node costs capacity,
 not availability. When the machine is gone for good:
@@ -307,7 +307,7 @@ nodes and restore their volumes from the buckets:
 
 ```bash
 armada node delete node2 --force
-armada volume snapshot list db data
+armada snapshot list db data
 armada volume restore db data --snapshot latest --node node3
 ```
 
@@ -343,9 +343,9 @@ Run this every few months, and after upgrades:
       ```
 
 - [ ] `armada volume list` shows a recent `LAST BACKUP` for every volume (not `never` or `failing`),
-      and `armada volume snapshot list APP VOLUME` lists backups.
+      and `armada snapshot list APP VOLUME` lists backups.
 - [ ] A volume backup restores: create a copy of the app in a space of
-      its own (`armada app create --file db.yaml --space shop-drill`, with
+      its own (`armada app deploy --file db.yaml --space shop-drill`, with
       its secrets), copy the data into it, and check the data there:
 
       ```bash
@@ -370,11 +370,11 @@ Run this every few months, and after upgrades:
 | `the backup key does not match` | `--backup-key` is not the key the backups were made with | Use the key from when they were made; a new key needs a new URL prefix |
 | `ControlPlaneBackupFailed` | The bucket refuses the leader's address or the access key, or is full | Read `armada cluster status`; fix the bucket or set a new URL with `--backup-url` |
 | Nodes do not reconnect after a restore | The new server has another private IP | Restore onto a machine with the old server's private IP |
-| `VolumeFailoverFailed: ...; trying again in 5m0s` | No backup yet, no node with room or allowed by placement, or the bucket refuses | Read the message; `armada volume snapshot list`; `armada node top` |
+| `VolumeFailoverFailed: ...; trying again in 5m0s` | No backup yet, no node with room or allowed by placement, or the bucket refuses | Read the message; `armada snapshot list`; `armada node top` |
 | `VolumeBackupFailed` | The bucket refuses the node's address or the key, or is full | Check the URL secret and the bucket's policy; old backups stay as they were |
 | `armada volume restore --node` is refused | The old node is still connected | Wait until it is lost, or delete it with `armada node delete --force` if it is gone for good |
 | `armada volume restore --snapshot ... --node` is refused: the app may not run there | The node is not ready, or the app's placement or a restricted node leaves it out; the request would carry the bucket credentials and key | Pick a node the app may run on (`armada node list`) |
-| `armada volume snapshot list` is unavailable | The volume's node is away and no other connected node the app may run on backs volumes up | Wait for the node, or add a node the app's placement allows |
+| `armada snapshot list` is unavailable | The volume's node is away and no other connected node the app may run on backs volumes up | Wait for the node, or add a node the app's placement allows |
 
 More in [troubleshooting](troubleshooting.md).
 

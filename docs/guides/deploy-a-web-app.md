@@ -4,7 +4,7 @@ Take your own container image from nothing to an app on its own domain with
 HTTPS, then update it, watch the rollout, roll back, and keep its spec in
 git. This is the guide to follow for the first real app on a new cluster.
 
-**You will use:** [`armada app create`](../cli/armada-app.md#armada-app-create),
+**You will use:** [`armada app deploy`](../cli/armada-app.md#armada-app-deploy),
 [external ingress](../spec-reference.md#ingress),
 [custom domains](../cli/armada-domain.md),
 [readiness probes](../spec-reference.md#probes),
@@ -37,7 +37,7 @@ traffic.
 ## 1. Create the app
 
 ```bash
-armada app create shop \
+armada app deploy shop \
   --image ghcr.io/acme/shop:1.4.2 \
   --port 8080 \
   --ingress external \
@@ -100,7 +100,7 @@ curl https://shop.apps.example.com/    # add -k while the cluster uses the ACME 
 Add the domain to the app:
 
 ```bash
-armada app update shop --domain shop.example.com
+armada app deploy shop --domain shop.example.com
 ```
 
 The domain is not routed yet. Armada first wants proof that you own it.
@@ -164,7 +164,7 @@ it as a secret of the app, and name it:
 
 ```bash
 armada secret set shop cf-token < cf-token.txt
-armada app update shop --dns-token-secret cf-token
+armada app deploy shop --dns-token-secret cf-token
 ```
 
 In a spec file that is:
@@ -189,7 +189,7 @@ never reaches the app's containers.
 Every change is a new revision, rolled out replica by replica:
 
 ```bash
-armada app update shop --image ghcr.io/acme/shop:1.4.3 --wait
+armada app deploy shop --image ghcr.io/acme/shop:1.4.3 --wait
 ```
 
 ```
@@ -239,7 +239,7 @@ arguments.
 ## 6. Roll back
 
 ```bash
-armada app revision list shop
+armada revision list shop
 ```
 
 ```
@@ -343,7 +343,7 @@ drain: 30s
 See what an update would change, then apply it:
 
 ```bash
-armada app update shop --file shop.yaml --diff
+armada app deploy shop --file shop.yaml --diff
 ```
 
 ```
@@ -380,7 +380,7 @@ armada app update shop --file shop.yaml --diff
 file that are far apart.
 
 ```bash
-armada app update shop --file shop.yaml --wait
+armada app deploy shop --file shop.yaml --wait
 ```
 
 `--diff` changes nothing; it prints `No changes.` when the file matches.
@@ -390,7 +390,7 @@ undone unless it is in the file. Run `--diff` first, and make changes in the
 file from now on. `www.example.com` is new, so verify it as in step 3.
 
 The same file creates the app on another cluster with
-`armada app create --file shop.yaml`.
+`armada app deploy --file shop.yaml`.
 
 ## 8. Delete the app
 
@@ -417,15 +417,15 @@ if it had any, stay until `armada volume delete`.
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| `TLS no` long after `VERIFIED yes`, `Failed` events with HTTP-01 in the reason | Port 80 of the nodes does not answer the ACME CA for the domain | Open port 80, or give the app its domain's DNS token: `armada app update APP --dns-token-secret NAME` |
+| `TLS no` long after `VERIFIED yes`, `Failed` events with HTTP-01 in the reason | Port 80 of the nodes does not answer the ACME CA for the domain | Open port 80, or give the app its domain's DNS token: `armada app deploy APP --dns-token-secret NAME` |
 | `VERIFIED no`, `last check: TXT record ... not found` | The TXT record is missing, has another name, or has not propagated | Create `_armada-verify.<domain>` exactly as printed, wait for DNS, run `armada domain verify <domain>` |
 | `last check: ... does not contain the expected token` | The record holds another value, for example from an earlier attempt or another space | Copy the value `armada domain list` prints now |
 | `VERIFIED yes`, `TLS no` for more than a few minutes | The ACME CA cannot reach port 80 of the node the domain points to, or the domain does not point at your nodes | Check the `A` records and the firewall; `armada cluster events` shows the certificate's `Failed` event with the reason |
-| Browser warns about the certificate | The cluster uses `letsencrypt-staging` | `armada cluster set --acme-ca letsencrypt` once everything works |
+| Browser warns about the certificate | The cluster uses `letsencrypt-staging` | `armada cluster update --acme-ca letsencrypt` once everything works |
 | `--wait` ends with `rollout of ... failed` | New replicas never became ready: crash, wrong port, failing probe | `armada app show shop` (the replica's message), `armada app logs shop`, `armada app events shop`; the old revision keeps serving meanwhile |
 | Replicas stay `running (not ready)` | The readiness probe fails, or the app listens on another port than `--port` | `armada app exec shop -- wget -qO- localhost:8080/healthz` (if the image has `wget`), then fix the path or port |
 | `Placement:` line in `app show`, replicas not placed | No node has room for the replicas' CPU or memory, or none matches `placement` | Lower `resources`, add a node, or check `armada node top` |
-| `Error: shop exists; change it with update` | `app create` refuses an existing name | `armada app update shop ...` |
+| `Error: shop exists; deploy it without --new to change it` | `app deploy --new` refuses an existing name | Leave out `--new`: `armada app deploy shop ...` |
 | `Error: shop changed since shop--r3 (now shop--r4); run the command again` | Someone deployed between reading and writing the spec (flag updates only) | Run the command again; it starts from the new spec |
 
 ## Next steps

@@ -1,8 +1,8 @@
 # App spec reference
 
-A spec describes one app or job in YAML. `armada app create --file` and
-`armada app update --file` (for jobs, `armada job create --file` and
-`armada job update --file`) take one; `armada app create NAME` with flags
+A spec describes one app or job in YAML. `armada app deploy --file` and
+`armada app deploy --file` (for jobs, `armada job deploy --file` and
+`armada job deploy --file`) take one; `armada app deploy NAME` with flags
 writes one for you, and `armada app show NAME -o yaml` prints the spec an
 app runs, in this format. Parsing is strict: an unknown field is an error,
 and a field that exists in the format but is not implemented in this
@@ -67,9 +67,9 @@ sidecars:                         # optional: run beside the app, on its localho
 
 ## Flags
 
-`armada app create` and `armada app update` set these fields from flags;
-`update` changes only the fields its flags name and keeps the rest of the
-spec the app runs. Everything else is written in a file.
+`armada app deploy` sets these fields from flags; on an app that exists
+it changes only the fields its flags name and keeps the rest of the spec
+the app runs. Everything else is written in a file.
 
 | Flag | Field |
 | --- | --- |
@@ -89,7 +89,7 @@ spec the app runs. Everything else is written in a file.
 | `--health-path P` | `probes.readiness.path` |
 | `--registry-user U --registry-secret S` | `registry` (the server is the image's registry) |
 
-`armada job create` and `armada job update` take `--image`, `--command`,
+`armada job deploy` takes `--image`, `--command`,
 `--args`, `--env`, `--secret-env`, `--remove-env`, `--env-from`, `--env-from-secrets`,
 `--cpu`, `--memory`, `--registry-user`, `--registry-secret`, and the job
 fields `--schedule`, `--time-zone`, `--timeout`, `--retries`, and
@@ -97,8 +97,7 @@ fields `--schedule`, `--time-zone`, `--timeout`, `--retries`, and
 
 ## Variables
 
-A spec can hold `${NAME}` in any value, filled in by `create --file` and
-`update --file` from
+A spec can hold `${NAME}` in any value, filled in by `deploy --file` from
 `--var NAME=VALUE` or from a file of `NAME=VALUE` lines given with
 `--vars`, so one spec serves several environments:
 
@@ -117,7 +116,7 @@ scale:
 
 ```bash
 # production.env holds the lines DOMAIN=example.com and API_MAX=4
-armada app update api --file api.yaml --vars production.env --var TAG=sha-1a2b3c
+armada app deploy api --file api.yaml --vars production.env --var TAG=sha-1a2b3c
 ```
 
 - `--var` wins over `--vars`. A file may hold variables a spec does not
@@ -248,9 +247,9 @@ a secret; there is no inline password field.
 | `routes` | Up to 32 path prefixes (`/` or `/a/b`, URL-safe characters, no `.` or `..` segments). Without routes the app gets every path of its hosts. `stripPrefix: true` removes the prefix before the request reaches the app (not allowed for `/`). The longest matching prefix wins. |
 
 Apps with `type: external` are reachable at `https://<name>.<root domain>`
-once a root domain is set with `armada cluster set --root-domain`, plus
+once a root domain is set with `armada cluster update --root-domain`, plus
 their verified custom domains. HTTP redirects to HTTPS, unless the cluster
-obtains no certificates (`armada cluster set --tls=false`): then apps also
+obtains no certificates (`armada cluster update --tls=false`): then apps also
 answer over plain HTTP on port 80, and their URLs start with `http://`.
 A custom domain may name the app's own host under the root domain; it is
 served once. A custom domain that names another app's host under the root
@@ -326,7 +325,7 @@ ready; see [ADR 0005](adr/0005-rolling-updates.md).
 "Autoscaling" below). Replicas are spread across ready, not drained
 nodes that the app's `placement` allows (a rollout spreads the new
 revision the same way), and spread out again, one at a time, when a node
-joins, returns, or resumes. Changing `min` (`armada app update APP --min
+joins, returns, or resumes. Changing `min` (`armada app deploy APP --min
 N`) is a new revision, rolled out like any other.
 
 #### Autoscaling
@@ -405,8 +404,8 @@ scale:
   - **Hold:** changes within 10% of the target are ignored, and the count
     is frozen during a rollout.
 - **Updates.** An update keeps the current count within the new bounds.
-  To keep more running, raise `min` (`armada app update APP --min N`); to
-  stop autoscaling, `armada app update APP --no-autoscale` removes the
+  To keep more running, raise `min` (`armada app deploy APP --min N`); to
+  stop autoscaling, `armada app deploy APP --no-autoscale` removes the
   rules and runs `min`.
 - **What to watch.** `armada app show` shows each rule's current value
   against its target, and `armada app events APP` shows `ScaledUp` and
@@ -512,7 +511,7 @@ values. A placement needs `require`, `spreadBy`, or both.
 
 In a cluster that mixes architectures, Armada keeps each app on nodes its
 image is built for: the first node to pull the image reports its
-platforms (`armada app revision list` shows them), and from then on only nodes
+platforms (`armada revision list` shows them), and from then on only nodes
 with a matching `armada.os`/`armada.arch` get replicas. A replica that
 landed on another node before that fails fast and is replaced.
 
@@ -529,7 +528,7 @@ ingress:
 revisions:
   mode: multiple
   traffic:
-    - revision: web--r3   # an existing revision (armada app revision list web)
+    - revision: web--r3   # an existing revision (armada revision list web)
       weight: 90
     - revision: latest    # the revision this deploy creates
       weight: 10
@@ -758,7 +757,7 @@ sidecars:
 
 A spec of `kind: job` describes work that runs to completion
 ([ADR 0019](adr/0019-jobs.md)). Each run starts one container; it starts
-with `armada job run JOB`, on a schedule, or while a queue holds messages
+with `armada job start JOB`, on a schedule, or while a queue holds messages
 ([`trigger`](#trigger)).
 
 ```yaml
@@ -785,7 +784,7 @@ resources:
 | `timeZone` | `UTC` | IANA zone of the schedule, such as `Asia/Jakarta`; needs `schedule`. |
 | `timeout` | `1h` | How long one attempt may take from placement (pulling the image included), `1s` to `24h`; then it is stopped and counts as failed. |
 | `retries` | `0` | Further attempts after a failed one (non-zero exit, start failure, lost node, timeout), 0 to 10, after 10s, 20s, 40s, and so on up to 5 minutes. |
-| `concurrency` | `forbid` | What happens when a run is due while another is active: `forbid` skips the new one (and `armada job run` refuses); `replace` cancels the active run. |
+| `concurrency` | `forbid` | What happens when a run is due while another is active: `forbid` skips the new one (and `armada job start` refuses); `replace` cancels the active run. |
 | `history` | `5` | Finished runs kept, 1 to 50. The container of a finished run is kept 24 hours for `armada job logs`; its address is freed when it stops. |
 | `tasks` | `1` | Split each run into this many tasks, 1 to 100: one container each, told its index in `ARMADA_JOB_TASK` (0 to `tasks` − 1) and the count in `ARMADA_JOB_TASKS`, so each can take its share of the work. Each task has its own attempts and `retries`; the run succeeds when every task did, and fails as soon as one task has no retries left (the others are stopped). Not with `trigger`. |
 | `parallelism` | `tasks` | How many tasks of a run run at once, 1 to `tasks`; the next starts when one ends. |
@@ -798,7 +797,7 @@ resources:
   attempt ends when the job's container exits, a sidecar that exits earlier
   is not restarted, and the rest are stopped when the attempt ends.
 - A job and an app cannot share a name.
-- `armada job update` changes the job at once: runs that start afterwards use the new
+- `armada job deploy` changes the job at once: runs that start afterwards use the new
   spec, and a run in progress keeps its own.
 - If the control plane is down when a run is due, the run starts when it is
   back, as long as that is within an hour; otherwise it is skipped.
@@ -849,4 +848,4 @@ trigger:
   reaches exactly what the job's containers would, so the broker must be
   reachable from the job's space. Triggers need a cluster network
   (`armadad init --network`); without one the deploy is refused.
-- A run's trigger is `queue` in `armada job run list`.
+- A run's trigger is `queue` in `armada run list`.

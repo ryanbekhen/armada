@@ -5,7 +5,7 @@ laptop's images: every node pulls the image from a registry. This guide
 builds the image for the nodes' architecture, pushes it to a registry,
 and deploys it.
 
-**You will use:** [`armada app create`](../cli/armada-app.md#armada-app-create),
+**You will use:** [`armada app deploy`](../cli/armada-app.md#armada-app-deploy),
 [`armada secret set`](../cli/armada-secret.md#armada-secret-set),
 [`registry`](../spec-reference.md#registry)
 
@@ -53,7 +53,7 @@ deploys, and a tag per version keeps rollbacks and history readable.
 **A public image** needs nothing more:
 
 ```bash
-armada app create hello --image ghcr.io/acme/hello:1.0.0 --port 8080 --ingress external
+armada app deploy hello --image ghcr.io/acme/hello:1.0.0 --port 8080 --ingress external
 armada app show hello
 ```
 
@@ -65,7 +65,7 @@ registry user:
 
 ```bash
 printf '%s' "$GHCR_READ_TOKEN" | armada secret set hello ghcr-token
-armada app create hello --image ghcr.io/acme/hello:1.0.0 --port 8080 --ingress external \
+armada app deploy hello --image ghcr.io/acme/hello:1.0.0 --port 8080 --ingress external \
   --registry-user acme --registry-secret ghcr-token
 ```
 
@@ -76,7 +76,7 @@ go.
 
 ```bash
 docker buildx build --platform linux/amd64,linux/arm64 -t ghcr.io/acme/hello:1.0.1 --push .
-armada app update hello --image ghcr.io/acme/hello:1.0.1 --wait
+armada app deploy hello --image ghcr.io/acme/hello:1.0.1 --wait
 ```
 
 ## Check that it works
@@ -96,4 +96,4 @@ To open the app from your laptop without a domain, see
 | `pull …: the image does not exist, or it is private and the app has no registry credentials` | A typo in the name (registries answer a name that does not exist like a private one), the image was never pushed, or it is private | Compare the name with the registry's page letter by letter; push it; or add `--registry-user` and `--registry-secret` |
 | The same message with credentials given | The token cannot read the package, or the user does not match | Give the token read access to the package (`read:packages` on `ghcr.io`); `armada secret set` it again |
 | `no ready node can run the image, which is built for linux/arm64` | The image has no variant for the nodes' architecture | Build with `--platform linux/amd64,linux/arm64` (step 2) and deploy the new tag |
-| The app runs an older build after a push to the same tag | The revision pinned the digest the tag pointed to when it was deployed | Push a new tag and `armada app update --image` it |
+| The app runs an older build after a push to the same tag | The revision pinned the digest the tag pointed to when it was deployed | Push a new tag and `armada app deploy --image` it |

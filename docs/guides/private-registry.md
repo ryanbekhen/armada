@@ -7,7 +7,7 @@ app at it, and shows what Armada does with those credentials.
 **You will use:** [`registry`](../spec-reference.md#registry),
 [secrets](../cli/armada-secret.md#armada-secret-set),
 [init containers and sidecars](../spec-reference.md#initcontainers-sidecars),
-[revisions](../cli/armada-app.md#armada-app-revision-list)
+[revisions](../cli/armada-revision.md#armada-revision-list)
 **Before you start:** a running cluster ([quickstart](../quickstart.md)), a
 space you may deploy to (this guide uses `shop`), and a read-only token
 for your registry, such as a GitHub personal access token with
@@ -55,7 +55,7 @@ From flags, `--registry-user` and `--registry-secret` fill in `registry`;
 the server is always the registry of `--image`:
 
 ```bash
-armada app create api --image ghcr.io/acme/api:1.4.2 --port 3000 --ingress external \
+armada app deploy api --image ghcr.io/acme/api:1.4.2 --port 3000 --ingress external \
   --registry-user acme-bot --registry-secret ghcr-token --min 2 --wait
 ```
 
@@ -103,7 +103,7 @@ sidecars:
 
 ```bash
 printf '%s' "$DATABASE_URL" | armada secret set api database-url
-armada app create --file api.yaml --wait
+armada app deploy --file api.yaml --wait
 ```
 
 - `server` must be the registry the image names: `ghcr.io` for
@@ -126,7 +126,7 @@ armada app create --file api.yaml --wait
   An init container or sidecar from another registry must be public. An
   app has one `registry`, so keep the images a replica needs on one
   private registry.
-- **Jobs** take the same field, and `armada job create` takes the same
+- **Jobs** take the same field, and `armada job deploy` takes the same
   `--registry-user` and `--registry-secret` flags.
 
 ## 4. Know which image runs
@@ -136,7 +136,7 @@ and every replica of that revision runs exactly that digest, even if
 someone pushes the tag again later:
 
 ```bash
-armada app revision list api
+armada revision list api
 ```
 
 ```
@@ -181,16 +181,16 @@ resources:
 **A registry on its own port**, such as `registry.example.com:5000/acme/api:1.4.2`:
 the server is `registry.example.com:5000`.
 
-**Moving the app to another registry.** `armada app update api --image
+**Moving the app to another registry.** `armada app deploy api --image
 registry.example.com/acme/api:1.4.3` changes `registry.server` with it.
 Set the new registry's password first, then name it:
 
 ```bash
 printf '%s' "$NEW_TOKEN" | armada secret set api registry-token --no-rollout
-armada app update api --image registry.example.com/acme/api:1.4.3 --registry-secret registry-token --wait
+armada app deploy api --image registry.example.com/acme/api:1.4.3 --registry-secret registry-token --wait
 ```
 
-**A public image again.** `armada app update api --registry-user ""
+**A public image again.** `armada app deploy api --registry-user ""
 --registry-secret ""` removes `registry`.
 
 ## Rotating the token

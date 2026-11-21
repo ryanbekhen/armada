@@ -37,7 +37,7 @@ You never "run a container". You describe what should exist, and Armada
 makes it so and keeps it so.
 
 ```bash
-armada app create web --image ghcr.io/acme/web:1.4.2 --min 3 ...
+armada app deploy web --image ghcr.io/acme/web:1.4.2 --min 3 ...
 ```
 
 This records *"web: 3 replicas of this image"*. The leader decides which
@@ -60,7 +60,7 @@ ingress:
   port: 8080
 ```
 
-You can write the spec with flags (`armada app create`, `armada app update
+You can write the spec with flags (`armada app deploy web
 --image ...`) or as a file (`--file web.yaml`). Either way the result is
 the same spec, which `armada app show web -o yaml` prints. Keeping it in
 git is the usual way to work. The [spec reference](spec-reference.md) lists

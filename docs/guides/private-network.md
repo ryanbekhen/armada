@@ -5,9 +5,9 @@ VMs on a laptop, an office LAN, a VPN) and open apps from a browser there,
 with no public domain, no DNS provider, and no certificates. Apps answer
 over plain HTTP on port 80 under a name your computer resolves to a node.
 
-**You will use:** [`armada cluster set`](../cli/armada-cluster.md#armada-cluster-set)
+**You will use:** [`armada cluster update`](../cli/armada-cluster.md#armada-cluster-update)
 (`--root-domain`, `--tls`),
-[`armada app create`](../cli/armada-app.md#armada-app-create),
+[`armada app deploy`](../cli/armada-app.md#armada-app-deploy),
 [`ingress.ipAllow`](../operations.md#who-may-reach-an-app)
 
 **Before you start:**
@@ -41,7 +41,7 @@ routes every app.
 ## 1. An app
 
 ```bash
-armada app create hello --image traefik/whoami:v1.10 --port 80 --ingress external
+armada app deploy hello --image traefik/whoami:v1.10 --port 80 --ingress external
 ```
 
 ## 2. A root domain, no certificates
@@ -50,7 +50,7 @@ Pick one way to resolve names below, then set its root domain. Every
 external app is then served at `http://<app>.<root domain>`:
 
 ```bash
-armada cluster set --root-domain <root domain> --tls=false
+armada cluster update --root-domain <root domain> --tls=false
 armada app show hello      # URL: http://hello.<root domain>/
 ```
 
@@ -70,7 +70,7 @@ resolves to `192.168.122.11`. Put a node's address, with dashes, in the
 root domain:
 
 ```bash
-armada cluster set --root-domain 192-168-122-11.sslip.io --tls=false
+armada cluster update --root-domain 192-168-122-11.sslip.io --tls=false
 curl http://hello.192-168-122-11.sslip.io/
 ```
 
@@ -90,7 +90,7 @@ Pick a name that is not a real domain, such as `lab.test` or `home.arpa`
 (a single word such as `lab` is refused):
 
 ```bash
-armada cluster set --root-domain lab.test --tls=false
+armada cluster update --root-domain lab.test --tls=false
 ```
 
 Then, on the computer that opens the app (macOS and Linux alike):
@@ -109,7 +109,7 @@ in `/etc/resolver`. A local dnsmasq answers every name under `lab.test`
 with the node's address:
 
 ```bash
-armada cluster set --root-domain lab.test --tls=false
+armada cluster update --root-domain lab.test --tls=false
 
 # On the Mac:
 brew install dnsmasq
@@ -156,8 +156,8 @@ provider's API, not a request to the nodes.
    cluster's root domain and DNS provider:
 
    ```bash
-   armada cluster set --root-domain lab.example.com --tls=true --acme-email ops@example.com
-   printf '%s' "$CF_TOKEN" | armada cluster set --dns-provider cloudflare --dns-token -
+   armada cluster update --root-domain lab.example.com --tls=true --acme-email ops@example.com
+   printf '%s' "$CF_TOKEN" | armada cluster update --dns-provider cloudflare --dns-token -
    curl https://hello.lab.example.com/
    ```
 
@@ -172,7 +172,7 @@ answers there too: block it in the machine's or the provider's firewall, or
 let only your network in:
 
 ```bash
-armada app update hello --ip-allow 192.168.122.0/24 --ip-allow 10.8.0.0/24,name=vpn
+armada app deploy hello --ip-allow 192.168.122.0/24 --ip-allow 10.8.0.0/24,name=vpn
 ```
 
 Apps read the client's address from `X-Real-IP`, as on HTTPS.
@@ -189,7 +189,7 @@ curl -H 'Host: hello.<root domain>' http://192.168.122.11/   # the app, without 
 ## Moving to a public domain later
 
 ```bash
-armada cluster set --root-domain apps.example.com --tls=true --acme-email ops@example.com
+armada cluster update --root-domain apps.example.com --tls=true --acme-email ops@example.com
 ```
 
 Apps then get certificates, port 80 redirects to HTTPS again, and their
@@ -199,7 +199,7 @@ URLs start with `https://`. See [Deploy a web app](deploy-a-web-app.md).
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| `http://<app>.<root domain>` redirects to `https://` | Certificates are still on | `armada cluster set --tls=false`; `armada cluster show` shows the setting |
+| `http://<app>.<root domain>` redirects to `https://` | Certificates are still on | `armada cluster update --tls=false`; `armada cluster show` shows the setting |
 | `404` from every node | The name in `Host` is not `<app>.<root domain>`, or you opened the node's IP | Check `armada app show APP` for the URL, and open that name |
 | The name does not resolve | Nothing on your computer knows the root domain | Use A, or add the name as in B, C, or D |
 | An sslip.io name does not resolve, other sites do | The router or resolver refuses public names with private addresses | Use B, C, or D, or allow `sslip.io` in the router |

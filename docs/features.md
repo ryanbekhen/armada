@@ -3,10 +3,10 @@
 Everything Armada does. The [guides](guides/README.md) show each in use, and the [spec reference](spec-reference.md) and [CLI reference](cli/armada.md) list every field and flag.
 
 
-- **Flags or files.** `armada app create` and `armada app update` write a
-  spec from flags or take one from a file; `armada app show -o yaml`
-  exports it, and `update --diff` shows what a change would do. Every
-  command is `armada <noun> <verb>`.
+- **Flags or files.** `armada app deploy` writes a spec from flags or
+  takes one from a file; `armada app show -o yaml` exports it, and
+  `app deploy --diff` shows what a change would do. Every command is
+  `armada NOUN VERB`, the nouns grouped in `armada --help`.
 - **Desired state, reconciled.** The CLI writes what you want; the control
   plane and an agent on every node converge to it and keep it there.
 - **Rolling updates and rollback.** Revisions pin the image digest and the
@@ -20,9 +20,9 @@ Everything Armada does. The [guides](guides/README.md) show each in use, and the
   domains after TXT ownership verification. An app can bring the
   Cloudflare token of its own domains (`ingress.dns`), so they get
   certificates through DNS-01 too, whichever account holds them. On a private network with no
-  domain, `cluster set --tls=false` serves apps over plain HTTP on port 80
+  domain, `cluster update --tls=false` serves apps over plain HTTP on port 80
   under a root domain only your network resolves.
-- **Cluster settings in one place.** `armada cluster set` changes
+- **Cluster settings in one place.** `armada cluster update` changes
   certificates, the DNS provider, metrics, and timeouts for every server at
   once, and they hold after a failover.
 - **Internal services.** `ingress: internal` apps are reachable from any
@@ -40,7 +40,7 @@ Everything Armada does. The [guides](guides/README.md) show each in use, and the
   outside carries `X-Real-IP`, set by the proxy to the client's address
   (behind a CDN, the visitor's), whatever the request said. Behind a TCP
   load balancer that hides clients, the PROXY protocol from its addresses
-  (`cluster set --proxy-protocol`) gives the same.
+  (`cluster update --proxy-protocol`) gives the same.
 - **Local-first routing.** Calls between apps go to replicas on the caller's
   node while they are about as busy as the rest, so most never cross the
   network; public requests spread over every replica wherever they arrive.
@@ -72,13 +72,13 @@ Everything Armada does. The [guides](guides/README.md) show each in use, and the
 - **Access control.** People (users) and tools (services) each get a
   certificate under their own name and hold roles: `viewer`, `deployer`,
   or `admin` in a space, `space-creator`, or `cluster-admin`
-  (`armada rbac`). The audit log names them, and one person's access is
+  (`armada user`, `armada service`, `armada role`). The audit log names them, and one person's access is
   taken back at once.
 - **Secrets.** Named sets of keys a space's apps share, encrypted at rest,
   versioned, delivered as env vars or as read-only files on tmpfs;
   `envFrom` turns every key of a secret into variables.
 - **One spec, several environments.** `${NAME}` in a spec is filled in
-  from `armada app create --file web.yaml --vars production.env --var TAG=...`.
+  from `armada app deploy --file web.yaml --vars production.env --var TAG=...`.
 - **Logs and exec.** `armada app logs` streams a replica's output, rotated
   and rate limited on the node so no app can flood its disk, and `--since`
   searches each node's bounded log history, replicas that are gone

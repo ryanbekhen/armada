@@ -7,7 +7,7 @@ sending a header. Certificates come from DNS-01, with one wildcard
 certificate for every app. The worked example uses Cloudflare, the DNS
 provider Armada supports, with its proxy turned on.
 
-**You will use:** [`armada cluster set`](../cli/armada-cluster.md#armada-cluster-set)
+**You will use:** [`armada cluster update`](../cli/armada-cluster.md#armada-cluster-update)
 (`--trusted-proxies`, `--dns-provider`, `--dns-token`, `--root-domain`),
 [client address headers](../operations.md#behind-a-proxy-or-cdn),
 [`ingress.ipAllow`](../operations.md#who-may-reach-an-app),
@@ -46,8 +46,8 @@ through DNS records instead of HTTP-01 on port 80. Give the cluster the
 token from stdin, never on a command line:
 
 ```bash
-read -rs TOKEN && printf '%s' "$TOKEN" | armada cluster set --dns-provider cloudflare --dns-token -; unset TOKEN
-armada cluster set --root-domain example.com
+read -rs TOKEN && printf '%s' "$TOKEN" | armada cluster update --dns-provider cloudflare --dns-token -; unset TOKEN
+armada cluster update --root-domain example.com
 ```
 
 - The cluster keeps the token encrypted with its master key and never
@@ -64,7 +64,7 @@ armada cluster set --root-domain example.com
 - Custom domains outside the root domain keep HTTP-01, which needs the ACME
   CA to reach port 80 of your nodes through the CDN. Prefer names under the
   root domain.
-- `armada cluster set --dns-provider none` goes back to HTTP-01.
+- `armada cluster update --dns-provider none` goes back to HTTP-01.
 
 ## 2. Point DNS through the CDN
 
@@ -97,7 +97,7 @@ removed from every request, the CDN's included, and `X-Forwarded-Proto` is
 always `https`: build your app's links from the `Host` header.
 
 ```bash
-armada cluster set --trusted-proxies "$(
+armada cluster update --trusted-proxies "$(
   { curl -fsS https://www.cloudflare.com/ips-v4; echo; curl -fsS https://www.cloudflare.com/ips-v6; echo; } | grep . | paste -sd, -
 )"
 armada cluster show
@@ -121,7 +121,7 @@ node lost timeout: 5m0s
   reaches a node directly cannot claim an address.
 - The CDN publishes changes to its ranges. Run the command again when they
   change, for example from a monthly job of your own; it replaces the list.
-- `armada cluster set --trusted-proxies ""` trusts no proxy again.
+- `armada cluster update --trusted-proxies ""` trusts no proxy again.
 
 ## 4. What your apps see
 
@@ -148,7 +148,7 @@ To see it for yourself, deploy an app that prints request headers and
 remove it after:
 
 ```bash
-armada app create whoami --image traefik/whoami:v1.10 --port 80 --ingress external --wait
+armada app deploy whoami --image traefik/whoami:v1.10 --port 80 --ingress external --wait
 curl -s https://whoami.example.com/ | grep -i -e forwarded -e connecting
 armada app delete whoami --yes
 ```
@@ -223,7 +223,7 @@ fixed addresses, that writes `X-Forwarded-For` by appending the address it
 received the connection from:
 
 ```bash
-armada cluster set --trusted-proxies 10.0.0.5/32,10.0.0.6/32
+armada cluster update --trusted-proxies 10.0.0.5/32,10.0.0.6/32
 ```
 
 List the proxies' own addresses rather than a whole private range. A range
@@ -245,7 +245,7 @@ fixed addresses) that hides the client's address: turn on the PROXY
 protocol in the load balancer (v1 or v2), then list its addresses:
 
 ```bash
-armada cluster set --proxy-protocol 10.0.0.5/32,10.0.0.6/32
+armada cluster update --proxy-protocol 10.0.0.5/32,10.0.0.6/32
 ```
 
 Connections from those addresses must start with the PROXY header, and the
@@ -257,15 +257,15 @@ agree, connections from the load balancer fail.
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| Apps see only CDN addresses | The CDN's ranges are not trusted, so its headers are removed | `armada cluster set --trusted-proxies ...` as in step 3 |
+| Apps see only CDN addresses | The CDN's ranges are not trusted, so its headers are removed | `armada cluster update --trusted-proxies ...` as in step 3 |
 | Every client gets `403` from an app with `ipAllow` | The CDN's ranges are not trusted (the rule sees the edge), or a trusted proxy sends no valid `X-Forwarded-For` | Trust the ranges; check the proxy writes `X-Forwarded-For` |
 | Some visitors get `403` now and then | The CDN added ranges you do not trust yet | Refresh the list from the CDN |
-| Browser shows a CDN error about the origin certificate | Full (strict) mode and the node's certificate is from the staging CA, or not obtained yet | `armada cluster set --acme-ca letsencrypt`; check `armada cluster events` for certificate `Failed` |
+| Browser shows a CDN error about the origin certificate | Full (strict) mode and the node's certificate is from the staging CA, or not obtained yet | `armada cluster update --acme-ca letsencrypt`; check `armada cluster events` for certificate `Failed` |
 | Certificate `Failed` with a DNS error | The token lacks a permission or the zone | A token with `Zone / DNS / Edit` and `Zone / Zone / Read` for the zone; set it again from stdin |
 | `trusted proxy "0.0.0.0/0" matches every address` | Trusting everyone would let any client choose its address | List the proxy's ranges |
 | `at most 64 trusted proxies` | Too many prefixes | Merge ranges where the CDN allows it |
 | `trusted proxy ... holds only the cluster's container addresses` | The range is inside the cluster CIDR, where only containers are | List the proxy's own addresses |
-| Apps see only the TCP load balancer's address | It replaces the client's address and sends no PROXY header, or its addresses are not listed | Turn on the PROXY protocol in the load balancer and `armada cluster set --proxy-protocol` its addresses |
+| Apps see only the TCP load balancer's address | It replaces the client's address and sends no PROXY header, or its addresses are not listed | Turn on the PROXY protocol in the load balancer and `armada cluster update --proxy-protocol` its addresses |
 | Every connection through the TCP load balancer fails | One side sends or expects the PROXY header and the other does not | Turn it on (or off) on both sides |
 | A name two levels deep fails in the browser through the CDN | The CDN's free certificate covers one level | Keep that name "DNS only" |
 

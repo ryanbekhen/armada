@@ -102,7 +102,7 @@ config an SSH host, any machine of the cluster
 ([quickstart step 9](../quickstart.md#9-use-armada-from-your-own-computer)):
 
 ```bash
-armada rbac user create alex --role cluster-admin -o alex.config --ssh admin@203.0.113.10
+armada user create alex --role cluster-admin -o alex.config --ssh admin@203.0.113.10
 ```
 
 ## What to expect

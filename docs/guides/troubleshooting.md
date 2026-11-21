@@ -103,7 +103,7 @@ connections. See [`probes`](../spec-reference.md#probes).
 
 ## Rollout failed
 
-**You see:** `armada app update --wait` exits with `rollout of api--r8
+**You see:** `armada app deploy --wait` exits with `rollout of api--r8
 failed, api--r7 keeps serving: ...`; a `Failed` event of kind `rollout`;
 `Rollout: api--r8 failed, api--r7 kept serving: ...` in `armada app show`;
 `armada_app_rollout{state="failed"}` is 1.
@@ -143,7 +143,7 @@ has linux/amd64)`, then `Placement: waiting for a node: no ready node can
 run the image, which is built for linux/amd64`.
 
 The first node that pulls an image reports which platforms it has, and the
-app then runs only on nodes that match; `armada app revision list api`
+app then runs only on nodes that match; `armada revision list api`
 shows them (`PLATFORMS`). Build a multi-platform image, or keep the app on
 matching nodes with `placement.require: {armada.arch: amd64}`.
 
@@ -195,7 +195,7 @@ armada app events api
 **Fix:** raise the limit, which is also what the replica reserves:
 
 ```bash
-armada app update api --memory 1Gi --wait
+armada app deploy api --memory 1Gi --wait
 ```
 
 Or make the app use less (a smaller heap, fewer workers). Memory counts
@@ -211,7 +211,7 @@ Check, in this order:
 
 1. **Staging CA.** `armada cluster show`. With `letsencrypt-staging`,
    certificates are issued but not trusted. Switch when ready:
-   `armada cluster set --acme-ca letsencrypt`.
+   `armada cluster update --acme-ca letsencrypt`.
 2. **The domain is verified** (custom domains only, see the next section).
    Names under the root domain need no verification.
 3. **DNS points at your nodes.** The name must resolve to the public IPs of
@@ -224,7 +224,7 @@ Check, in this order:
 5. **DNS-01 with Cloudflare** (the root domain and names under it, when
    `--dns-provider cloudflare` is set): the token needs `Zone / DNS / Edit`
    and `Zone / Zone / Read` on the zone. Set it again from stdin with
-   `armada cluster set --dns-token -`.
+   `armada cluster update --dns-token -`.
 6. **Rate limits.** Repeated failures against Let's Encrypt production hit
    its rate limits. Test with `letsencrypt-staging` first.
 
@@ -275,7 +275,7 @@ connection comes from a trusted proxy, the **last** address in
 
 | Cause | Fix |
 | --- | --- |
-| A CDN or load balancer sits in front, and its ranges are not trusted, so every client looks like the CDN | `armada cluster set --trusted-proxies RANGE,...` with its published ranges |
+| A CDN or load balancer sits in front, and its ranges are not trusted, so every client looks like the CDN | `armada cluster update --trusted-proxies RANGE,...` with its published ranges |
 | A trusted proxy sends no valid `X-Forwarded-For` | Make the proxy append the client address; Armada fails closed |
 | The client's address changed (a new office IP, IPv6 instead of IPv4) | `armada app show APP` lists the rules; add the range with `--ip-allow` (each flag replaces the whole list) |
 
@@ -295,7 +295,7 @@ the headers to responses for listed origins only. Check:
 
 | Cause | Fix |
 | --- | --- |
-| The page's origin is not listed exactly (scheme, host, and port: `https://app.example.com`, `http://localhost:3000`) | `armada app update api --cors-origin https://app.example.com` (replaces the origins) |
+| The page's origin is not listed exactly (scheme, host, and port: `https://app.example.com`, `http://localhost:3000`) | `armada app deploy api --cors-origin https://app.example.com` (replaces the origins) |
 | The request uses a method outside `GET, HEAD, POST` | Add it to `allowMethods` in the spec |
 | The request sends a header the browser must ask about (`Authorization`, `Content-Type: application/json`) | Add it to `allowHeaders` |
 | The page sends cookies or credentials | `allowCredentials: true`, which does not work with `*` |
@@ -404,7 +404,7 @@ the caller.
 
 | Message | Fix |
 | --- | --- |
-| `user:alice may not see space billing` (or `deploy to`, `manage`) | Work in a space you hold a role in: `armada space use shop`; `armada rbac assignment list` (cluster-admin) |
+| `user:alice may not see space billing` (or `deploy to`, `manage`) | Work in a space you hold a role in: `armada space use shop`; `armada role list` (cluster-admin) |
 | `user:alice has no role that allows ...` | The method needs a higher role; see [teams and access](teams-and-access.md) |
 | `app api references secrets that are not set: ...` | `armada secret set api NAME` before you deploy |
 | `api changed since api--r7 (now api--r8); run the command again` | Another change landed while the command ran; flag updates refuse to overwrite it. Run it again |

@@ -38,7 +38,7 @@ server.
 - Slack and Discord show notices as plain text: text from a registry, a
   command, or a file name never becomes a mention or a link.
 - A notice that cannot be sent is tried three times over about 12 seconds.
-  `armada alert channel list` shows how sending went.
+  `armada alert list` shows how sending went.
 
 ## 1. Add a channel
 
@@ -54,7 +54,7 @@ history keeps that. It is stored encrypted and never shown again.
 2. Add it to Armada:
 
 ```bash
-armada alert channel create ops --type slack --url -
+armada alert create ops --type slack --url -
 # paste the URL, then Enter and Ctrl-D
 ```
 
@@ -65,7 +65,7 @@ armada alert channel create ops --type slack --url -
 2. Add it:
 
 ```bash
-armada alert channel create ops --type discord --url - < discord-webhook-url
+armada alert create ops --type discord --url - < discord-webhook-url
 ```
 
 Notices never ping anyone: `@everyone` in a message stays plain text.
@@ -83,7 +83,7 @@ Notices never ping anyone: `@everyone` in a message stays plain text.
 4. Add it:
 
 ```bash
-armada alert channel create oncall --type telegram --chat-id -1001234567890 --token - < bot-token
+armada alert create oncall --type telegram --chat-id -1001234567890 --token - < bot-token
 ```
 
 ### Email
@@ -94,7 +94,7 @@ TLS is only allowed to a private IP address, such as a relay inside your
 network.
 
 ```bash
-armada alert channel create mail --type email \
+armada alert create mail --type email \
   --smtp-host smtp.example.com:587 --smtp-user alerts@example.com --password - \
   --from alerts@example.com --to ops@example.com,cto@example.com < smtp-password
 ```
@@ -113,7 +113,7 @@ Anything that takes an HTTP POST: an incident tool, a chat bridge, a small
 script.
 
 ```bash
-armada alert channel create hook --type webhook --url - < hook-url
+armada alert create hook --type webhook --url - < hook-url
 ```
 
 Each notice is one JSON object:
@@ -162,16 +162,16 @@ Error: the test notice was not sent: channel answered 403: {"ok":false,"error_co
 
 ```bash
 # only events of the apps in these spaces (node and certificate events are left out then)
-armada alert channel update ops --space shop,billing
+armada alert update ops --space shop,billing
 
 # only these reasons, instead of the default
-armada alert channel update oncall --reason Lost,OutOfMemory,Crashed
+armada alert update oncall --reason Lost,OutOfMemory,Crashed
 
 # every event, deploys included (busy!)
-armada alert channel update audit --reason all
+armada alert update audit --reason all
 
 # back to the default
-armada alert channel update ops --space '' --reason ''
+armada alert update ops --space '' --reason ''
 ```
 
 A common setup: one channel per team with `--space`, plus one on-call
@@ -180,7 +180,7 @@ channel with the default reasons for everything.
 ## 4. See how sending goes
 
 ```bash
-armada alert channel list
+armada alert list
 ```
 
 ```
@@ -199,8 +199,8 @@ themselves stopped working.
 Change a secret, or remove a channel:
 
 ```bash
-armada alert channel update ops --url - < new-url
-armada alert channel delete ops
+armada alert update ops --url - < new-url
+armada alert delete ops
 ```
 
 ## What is sent
@@ -246,7 +246,7 @@ Any other reason can be named with `--reason`, such as `Deployed`,
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| `channel answered 404` (Slack, Discord) | The webhook was deleted or the URL is cut | Create a new webhook; `armada alert channel update NAME --url -` |
+| `channel answered 404` (Slack, Discord) | The webhook was deleted or the URL is cut | Create a new webhook; `armada alert update NAME --url -` |
 | `channel answered 400: chat not found` (Telegram) | Wrong chat ID, or the bot was never added to the chat | Add the bot, send it a message, read the ID from `getUpdates` again |
 | `channel answered 403` (Telegram) | The bot was removed, or cannot post in the channel | Add it again; in channels make it an admin |
 | `smtp: 535 ...` | Wrong user or password, or the provider needs an app password | Check the login; `--password -` to replace it |

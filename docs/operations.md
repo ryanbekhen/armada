@@ -34,18 +34,18 @@ all of them. Back up either way.
 Settings that every server must share, because any of them can lead, live
 in the cluster's state ([ADR 0031](adr/0031-cluster-settings.md)). Change
 them from any machine with admin credentials; they apply within seconds on
-every server, and stay after a failover. `armada cluster set` returns once
+every server, and stay after a failover. `armada cluster update` returns once
 the leader answers again with them:
 
 ```bash
 armada cluster show
-armada cluster set --acme-email ops@example.com --acme-ca letsencrypt
-printf '%s' "$TOKEN" | armada cluster set --dns-provider cloudflare --dns-token -
-armada cluster set --metrics-port 9443 --node-lost-timeout 5m
-armada cluster set --root-domain apps.example.com --trusted-proxies 173.245.48.0/20,...
+armada cluster update --acme-email ops@example.com --acme-ca letsencrypt
+printf '%s' "$TOKEN" | armada cluster update --dns-provider cloudflare --dns-token -
+armada cluster update --metrics-port 9443 --node-lost-timeout 5m
+armada cluster update --root-domain apps.example.com --trusted-proxies 173.245.48.0/20,...
 ```
 
-| Setting | Flag of `armada cluster set` | Default |
+| Setting | Flag of `armada cluster update` | Default |
 | --- | --- | --- |
 | Certificates on or off (off: apps also answer over plain HTTP on port 80) | `--tls` | on |
 | ACME directory | `--acme-ca` | `letsencrypt` |
@@ -61,7 +61,7 @@ process: apps keep serving, and the API and agents reconnect within a
 second or two. The root domain, trusted proxies, and backups apply without
 that.
 
-**Without certificates** (`armada cluster set --tls=false`), for machines
+**Without certificates** (`armada cluster update --tls=false`), for machines
 on a private network with no public domain: port 80 serves the apps over
 plain HTTP instead of redirecting to HTTPS, with the same routing, client
 address rules, and `X-Real-IP` as port 443, and `X-Forwarded-Proto: http`.
@@ -135,7 +135,7 @@ it is for that person's user name
 user; a name the cluster has no record of is recorded as a cluster-admin
 by the leader first, like the first user. A leader of an older version
 records nothing, so no config is written then; create the user with
-`armada rbac user create` once every server is upgraded.
+`armada user create` once every server is upgraded.
 
 On a machine without Armada, run the install line `armada server
 join-token` prints first. Nothing else to copy: the new server uses the
@@ -249,7 +249,7 @@ encrypted and deduplicated like volume backups:
 printf '%s' 'https://ACCESS_KEY:SECRET_KEY@s3.example.com/acme-backups/armada' > url.txt
 openssl rand -base64 48 | tr -d '\n' > key.txt     # keep a copy outside the cluster
 chmod 600 url.txt key.txt
-armada cluster set --backup-url url.txt --backup-key key.txt --backup-every 1h --backup-keep last=24,daily=7,weekly=4
+armada cluster update --backup-url url.txt --backup-key key.txt --backup-every 1h --backup-keep last=24,daily=7,weekly=4
 armada cluster status
 ```
 
@@ -284,7 +284,7 @@ backups: to s3.example.com/acme-backups/armada/, last 2026-11-21 10:00:04 on cp-
   `armada_control_plane_backup_last_success_timestamp_seconds`,
   `armada_control_plane_backup_last_size_bytes`,
   `armada_control_plane_backup_failures_total`.
-- `armada cluster set --backup none` stops them; the bucket keeps what it
+- `armada cluster update --backup none` stops them; the bucket keeps what it
   holds.
 
 List what the bucket holds from any machine with Armada installed:
@@ -362,7 +362,7 @@ Everything that changed after the backup is gone:
   make those changes again at once. A backup taken before the upgrade to
   the version with schema v14 does not tell later users apart; `restore`
   warns, and each user created after it must be deleted with
-  `armada rbac user delete NAME --yes` at once, then created again.
+  `armada user delete NAME --yes` at once, then created again.
 
 ## Upgrades
 
@@ -466,9 +466,9 @@ newer layout, instead of misreading it. To go back:
 | Server (`server.crt`) and etcd member | 1 year | Each server renews its own at start and every 12 hours once a third of the lifetime is left, with no restart; a server that was off past expiry renews them before it starts serving |
 | App certificates (Let's Encrypt) | 90 days | The leader renews them about 30 days before they expire |
 | User in `/etc/armada/admin.config` | 1 year | Each server renews the one in its own file at start and every 12 hours once a third of the lifetime is left, while the cluster still accepts that user |
-| User in `~/.armada/config` and other copies | 1 year | By hand: `armada rbac user renew` before it expires |
+| User in `~/.armada/config` and other copies | 1 year | By hand: `armada user renew` before it expires |
 | Metrics scraper | 1 year | By hand: `armada metrics credentials` again |
-| Service | 90 days | By hand: `armada rbac service renew` |
+| Service | 90 days | By hand: `armada service renew` |
 
 `armadad doctor` checks the certificates on its machine and the user
 certificate in the client config: it warns 30 days before the user
@@ -503,13 +503,13 @@ that user to the `armada` group that reads it. `armada` reads the file `--config
 `/etc/armada/admin.config`. Only `cluster-admin` manages access:
 
 ```bash
-armada rbac user create alice -o alice.config --role deployer --space shop   # hand it over privately; it holds her key
-armada rbac assignment create --user alice --role viewer                       # also see every space
-armada rbac assignment delete --user alice --role deployer --space shop
-armada rbac user list                          # users, their roles, who created them, you
-armada rbac user credentials alice -o new.config   # a lost key: her older certificates stop working
-armada rbac user delete alice --yes            # refuse every certificate of alice at once
-armada rbac role list                          # the roles; role show ROLE lists their API methods
+armada user create alice -o alice.config --role deployer --space shop   # hand it over privately; it holds her key
+armada role grant viewer --user alice                        # also see every space
+armada role revoke deployer --user alice  --space shop
+armada user list                          # users, their roles, who created them, you
+armada user credentials alice -o new.config   # a lost key: her older certificates stop working
+armada user delete alice --yes            # refuse every certificate of alice at once
+armada role list                          # the roles; role show ROLE lists their API methods
 ```
 
 Alice installs the client, keeps the file as `~/.armada/config` (mode
@@ -526,7 +526,7 @@ expires, or her role in the app's space is taken back. Only `viewer` can be give
 space, whose containers may reach the platform unless isolated; deploying
 there needs `cluster-admin`. Nobody can delete themselves or take their own
 `cluster-admin`, so one is always left. A user certificate lasts a year:
-its holder renews it with `armada rbac user renew` (see
+its holder renews it with `armada user renew` (see
 [certificates](#certificates)). Every user certificate names a user on
 record: `armadad init`, `armadad server join`, and `armadad user renew`
 record the name, with `cluster-admin`, before the CA on a server signs one
@@ -539,12 +539,12 @@ renewed. Never share one file between people.
 A service gets a client config of its own and renews it itself:
 
 ```bash
-armada rbac service create portal --role space-creator --allow-label tier=shared
-armada rbac assignment create --service portal --role admin --space staging
-armada rbac service credentials portal -o portal.json   # 0600; keep it with the tool
-armada --config portal.json app update web --file web.yaml --create-if-missing --space staging
-armada --config portal.json rbac service renew          # before the 90 days run out
-armada rbac service delete portal --yes                 # its certificates stop working at once
+armada service create portal --role space-creator --allow-label tier=shared
+armada role grant admin --service portal  --space staging
+armada service credentials portal -o portal.json   # 0600; keep it with the tool
+armada --config portal.json app deploy web --file web.yaml --space staging
+armada --config portal.json service renew          # before the 90 days run out
+armada service delete portal --yes                 # its certificates stop working at once
 ```
 
 Its certificates last 90 days; renewing revokes its others. `--allow-label
@@ -568,7 +568,7 @@ need to be unique within one (ADR 0026). Every cluster has the space
 ```bash
 armada space create staging
 armada space use staging               # commands now work in staging
-armada app create --file web.yaml
+armada app deploy --file web.yaml
 armada app list                          # only the space's apps; -A for every space
 armada secret set web db-password < password.txt
 armada secret create db --from-env-file .env   # a secret the space's apps share
@@ -581,7 +581,7 @@ armada space delete staging            # only once it is empty
 A command works in the space `armada space use` saved in the client
 config, else in `default`; `--space` (or `ARMADA_SPACE`) names
 another for one command, and an app's ID, `NAME.SPACE`, names an app of
-any space: `armada app update web.staging --min 3`. Events and
+any space: `armada app deploy web.staging --min 3`. Events and
 metrics show apps of other spaces by that ID, and so do their revisions
 (`web.staging--r1`) and replicas. Lists show the space's items, and
 every space's with `-A` (`--all-spaces`). Internal apps of a space are reached at
@@ -615,8 +615,8 @@ On a cluster with the cluster network (`armadad init --cluster-cidr`, ADR
 that use a database on the private network keep working:
 
 ```bash
-armada space set default --network-isolation        # once its apps no longer need the private network
-armada space set default --network-isolation=false
+armada space update default --network-isolation        # once its apps no longer need the private network
+armada space update default --network-isolation=false
 armada space list                                   # the NETWORK column
 ```
 
@@ -670,7 +670,7 @@ where each replica was created; replicas removed before the servers ran a
 release with these records are no longer found by a search:
 
 ```bash
-armada cluster set --log-retention 336h --log-max-disk 10Gi   # every node, no restart
+armada cluster update --log-retention 336h --log-max-disk 10Gi   # every node, no restart
 armada cluster show                                           # log history: ...
 ```
 
@@ -684,13 +684,13 @@ Every node can also send its apps' output to a log store
 URL, from the moment it is set:
 
 ```bash
-armada cluster set --log-export loki --log-endpoint https://logs.example.com/loki/api/v1/push \
+armada cluster update --log-export loki --log-endpoint https://logs.example.com/loki/api/v1/push \
   --log-export-user 123456 --log-token - < loki-token     # basic authentication
-armada cluster set --log-export otlp --log-endpoint https://otlp.example.com/v1/logs \
+armada cluster update --log-export otlp --log-endpoint https://otlp.example.com/v1/logs \
   --log-token - < otlp-token                               # bearer token
-armada cluster set --log-export loki --log-endpoint http://10.0.0.20:3100/loki/api/v1/push \
+armada cluster update --log-export loki --log-endpoint http://10.0.0.20:3100/loki/api/v1/push \
   --log-export-tenant platform                             # private address: http allowed
-armada cluster set --log-export none                       # stop and remove the token
+armada cluster update --log-export none                       # stop and remove the token
 ```
 
 The URL must be `https://`, or `http://` to a private IP address, with no
@@ -781,7 +781,7 @@ fails when the registry refuses or cannot be reached.
 
 Clusters may mix architectures (amd64 and arm64, say): each app stays on
 the nodes its image has a variant for, as reported by the first node that
-pulls it (`armada app revision list APP` shows the platforms). If no node
+pulls it (`armada revision list APP` shows the platforms). If no node
 can run an image, `armada app show` names the platforms it is built for.
 
 Nodes may be far apart: agents cope with latency. Keep the **control plane
@@ -974,7 +974,7 @@ addresses come from `10.122.0.0/16`, recorded with the first such node. If
 a private network of the cluster uses that range, pick another before then:
 
 ```bash
-armada cluster set --mesh-cidr 10.123.0.0/16
+armada cluster update --mesh-cidr 10.123.0.0/16
 ```
 
 `armadad doctor` on a node with peers in other sites checks their
@@ -990,7 +990,7 @@ A running cluster switches between `plain` and `wireguard` without
 stopping traffic ([ADR 0050](adr/0050-sites.md)):
 
 ```bash
-armada cluster set --network wireguard
+armada cluster update --network wireguard
 armada cluster status        # how far it is, and the nodes it waits for
 ```
 
@@ -1010,7 +1010,7 @@ A switch waits for every node that is connected, and for a disconnected
 one until it counts as lost; a lost node takes the new mode when it comes
 back. Every node must run an Armada that knows switches, and a switch to
 `wireguard` needs the kernel's WireGuard on every node. Running `armada
-cluster set --network` with the current mode during the first step gives
+cluster update --network` with the current mode during the first step gives
 the switch up; once the routes move, it finishes. Each step is an event
 (`armada cluster events`). `mesh` clusters cannot switch: their nodes'
 addresses depend on the mode. A switch changes only how the first site's
@@ -1056,7 +1056,7 @@ Pointing public DNS at every node that should take traffic still spreads
 the work of the proxies themselves.
 
 An app that keeps sessions in a replica's memory can set `ingress.sticky:
-true` (`armada app update APP --sticky`): a cookie sends each client back to
+true` (`armada app deploy APP --sticky`): a cookie sends each client back to
 the replica it reached first, on every node
 ([ADR 0036](adr/0036-sticky-sessions.md)). Such an app has no local-first
 routing. A client whose replica is gone moves to another one.
@@ -1082,8 +1082,8 @@ your nodes, list its address ranges so requests from it keep those headers
 and `X-Real-IP` names the visitor:
 
 ```bash
-armada cluster set --trusted-proxies 192.0.2.0/24,198.51.100.0/24
-armada cluster set --trusted-proxies ""    # no proxy trusted again
+armada cluster update --trusted-proxies 192.0.2.0/24,198.51.100.0/24
+armada cluster update --trusted-proxies ""    # no proxy trusted again
 ```
 
 Requests from anywhere else still lose them. A range that matches every
@@ -1100,8 +1100,8 @@ from every header. If it can send the PROXY protocol (v1 or v2), turn that
 on in the load balancer and list its addresses:
 
 ```bash
-armada cluster set --proxy-protocol 10.0.0.0/24
-armada cluster set --proxy-protocol ""     # off again
+armada cluster update --proxy-protocol 10.0.0.0/24
+armada cluster update --proxy-protocol ""     # off again
 ```
 
 Connections from those ranges must then start with the PROXY header, on
@@ -1128,8 +1128,8 @@ needs the API to allow it. `ingress.cors` does that in the proxy
 ([ADR 0037](adr/0037-cors.md)):
 
 ```bash
-armada app update api --cors-origin https://app.example.com --cors-origin http://localhost:3000
-armada app update api --no-cors
+armada app deploy api --cors-origin https://app.example.com --cors-origin http://localhost:3000
+armada app deploy api --no-cors
 ```
 
 Methods, headers, `maxAge`, and `allowCredentials` go in the spec file. The
@@ -1145,9 +1145,9 @@ client out: use `ipAllow` or the app's own authentication for that.
 ([ADR 0035](adr/0035-client-address-rules.md)):
 
 ```bash
-armada app update admin --ip-allow '203.0.113.0/24,name=office,description=the VPN the admins use' --ip-allow 2001:db8::/32   # replaces the list
-armada app update shop --ip-deny 198.51.100.7
-armada app update admin --no-ip-rules                                       # everyone again
+armada app deploy admin --ip-allow '203.0.113.0/24,name=office,description=the VPN the admins use' --ip-allow 2001:db8::/32   # replaces the list
+armada app deploy shop --ip-deny 198.51.100.7
+armada app deploy admin --no-ip-rules                                       # everyone again
 ```
 
 - **Names.** In the spec each rule can be `{range, name, description}`, so
@@ -1185,7 +1185,7 @@ A database, broker, or cache that other apps of its space use takes plain
 TCP through each node's proxy ([ADR 0039](adr/0039-internal-tcp-ingress.md)):
 
 ```bash
-armada app create db --image postgres:17 --port 5432 --ingress internal --protocol tcp --space shop
+armada app deploy db --image postgres:17 --port 5432 --ingress internal --protocol tcp --space shop
 # the apps of space shop connect to db.shop.internal:5432
 ```
 
@@ -1298,9 +1298,9 @@ web-r1-q2k0d     node2  running  41m/250m   58Mi/256Mi
 An app with `scale.rules` scales itself between `scale.min` and
 `scale.max` ([ADR 0020](adr/0020-autoscaling.md); rules in the
 [spec reference](spec-reference.md#autoscaling)).
-Change the bounds with `armada app update web --min 3` (at least three
-running) or `--max`; `armada app update web --no-autoscale --min 3` stops
-autoscaling at a fixed count and removes the rules. A later `app update --file` sets the bounds
+Change the bounds with `armada app deploy web --min 3` (at least three
+running) or `--max`; `armada app deploy web --no-autoscale --min 3` stops
+autoscaling at a fixed count and removes the rules. A later `app deploy --file` sets the bounds
 the file names again.
 
 ```
@@ -1314,7 +1314,7 @@ Autoscale:  2-10 replicas, http 41/50, cpu 38%/70%: steady: http 41 of 50 per re
 ...
 ```
 
-`armada app update web --min 2 --max 10 --scale-http 50` sets bounds and one
+`armada app deploy web --min 2 --max 10 --scale-http 50` sets bounds and one
 rule from the command line; more rules go in the spec file.
 
 - **Rules with no data.** A rule shows `-` while it has no data. CPU and
@@ -1360,7 +1360,7 @@ revisions ([ADR 0022](adr/0022-traffic-splitting.md); fields in the
 [spec reference](spec-reference.md#revisions)). A canary looks like this:
 
 ```bash
-armada app update web --file web.yaml   # traffic: web--r3 90, latest 10 (label canary)
+armada app deploy web --file web.yaml   # traffic: web--r3 90, latest 10 (label canary)
 armada app show web                     # the split, replicas per revision, the label's URL
 armada app traffic web r3=50 r4=50      # more traffic to the new revision
 armada app traffic web r4=100           # all of it; r3 drains and stops
@@ -1392,13 +1392,13 @@ Jobs run a container to completion, on demand, on a schedule, or from a queue
 [spec reference](spec-reference.md#jobs)):
 
 ```bash
-armada job create --file backup.yaml   # kind: job (or from flags: --image, --schedule, ...)
-armada job update db-backup --schedule "0 2 * * *"   # changes apply to the next runs
-armada job run db-backup               # start a run now
-armada job run db-backup --wait        # and wait: exits non-zero unless the run succeeded
+armada job deploy --file backup.yaml   # kind: job (or from flags: --image, --schedule, ...)
+armada job deploy db-backup --schedule "0 2 * * *"   # changes apply to the next runs
+armada job start db-backup               # start a run now
+armada job start db-backup --wait        # and wait: exits non-zero unless the run succeeded
 armada job list                        # schedule, latest run, next run
 armada job show db-backup              # one job; -o yaml prints its spec
-armada job run list db-backup          # runs, newest first
+armada run list db-backup          # runs, newest first
 armada job logs db-backup              # the newest run's output (--run N for another)
 armada job cancel db-backup            # stop the active run
 armada job delete db-backup            # delete the job, its runs, and their logs
@@ -1429,7 +1429,7 @@ holds messages ([ADR 0040](adr/0040-queue-triggered-jobs.md)):
 
 ```bash
 printf 'redis://:%s@redis-01:6379/0' "$PASSWORD" | armada secret set mailer redis-url
-armada job create --file mailer.yaml    # trigger.queue, perRun, parallelism
+armada job deploy --file mailer.yaml    # trigger.queue, perRun, parallelism
 armada job show mailer
 ```
 
@@ -1501,10 +1501,10 @@ certificate, or backup, to Slack, Discord, Telegram, email, or your own
 webhook ([ADR 0045](adr/0045-alerts.md)):
 
 ```bash
-armada alert channel create ops --type slack --url - < slack-webhook-url
+armada alert create ops --type slack --url - < slack-webhook-url
 armada alert test ops                                    # a test notice, now
-armada alert channel update ops --space shop             # only shop's apps
-armada alert channel list                                # sent, failed, last error
+armada alert update ops --space shop             # only shop's apps
+armada alert list                                # sent, failed, last error
 ```
 
 A lasting problem sends one notice when it starts and one when it is
@@ -1519,7 +1519,7 @@ once a port is set. Every server listens on its own private address, so
 the endpoint follows the leader:
 
 ```bash
-armada cluster set --metrics-port 9443     # 0 turns it off
+armada cluster update --metrics-port 9443     # 0 turns it off
 ```
 
 `--metrics-listen IP:PORT` in a server's `/etc/armada/server.env` still picks
@@ -1642,8 +1642,8 @@ Volumes keep an app's data on the node that runs its single replica
 
 ```bash
 armada volume list                                 # app, volume, node, path, size, last backup
-armada volume snapshot list db data                # backups in the volume's bucket (volumes[].backup)
-armada volume snapshot create db data              # back up to the bucket now
+armada snapshot list db data                # backups in the volume's bucket (volumes[].backup)
+armada snapshot create db data              # back up to the bucket now
 armada volume restore db data --snapshot latest    # replace the contents with a backup from the bucket
 armada volume backup db data -o db-data.tar.gz     # copy while the app runs
 armada volume backup db data -o db-data.tar.gz --stop   # consistent: stops the app meanwhile

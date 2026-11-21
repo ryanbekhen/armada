@@ -7,7 +7,7 @@ store. This guide covers all three, from the command line.
 
 **You will use:** [`armada app logs`](../cli/armada-app.md#armada-app-logs),
 [`armada job logs`](../cli/armada-job.md#armada-job-logs), and
-[`armada cluster set`](../cli/armada-cluster.md#armada-cluster-set)
+[`armada cluster update`](../cli/armada-cluster.md#armada-cluster-update)
 **Before you start:** a running cluster ([quickstart](../quickstart.md))
 with an app (here `api`), and `viewer` access to its space. Sending logs to
 a log store needs `cluster-admin`.
@@ -89,8 +89,8 @@ armada job logs backup --since 3d --grep failed
 ### Keep history longer, or smaller
 
 ```bash
-armada cluster set --log-retention 336h --log-max-disk 10Gi   # 14 days, at most 10 GiB per node
-armada cluster set --log-retention 0 --log-max-disk 0          # back to the defaults
+armada cluster update --log-retention 336h --log-max-disk 10Gi   # 14 days, at most 10 GiB per node
+armada cluster update --log-retention 0 --log-max-disk 0          # back to the defaults
 armada cluster show                                             # log history: ...
 ```
 
@@ -108,12 +108,12 @@ Collector or a hosted service that takes OTLP.
 
 ```bash
 # a hosted Loki with basic authentication: the user and token your provider gives you
-armada cluster set --log-export loki \
+armada cluster update --log-export loki \
   --log-endpoint https://logs.example.com/loki/api/v1/push \
   --log-export-user 123456 --log-token - < loki-token
 
 # your own Loki on the private network, multi-tenant
-armada cluster set --log-export loki \
+armada cluster update --log-export loki \
   --log-endpoint http://10.0.0.20:3100/loki/api/v1/push --log-export-tenant platform
 ```
 
@@ -136,7 +136,7 @@ This needs Loki 3 or later.
 ### OTLP
 
 ```bash
-armada cluster set --log-export otlp \
+armada cluster update --log-export otlp \
   --log-endpoint https://otlp.example.com/v1/logs --log-token - < otlp-token
 ```
 
@@ -162,9 +162,9 @@ Each replica's container is one resource: `service.name` (the app),
 Change one field, and the others stay:
 
 ```bash
-armada cluster set --log-export-tenant team-b
-armada cluster set --log-token - < new-token
-armada cluster set --log-export none          # stop sending; the token is removed
+armada cluster update --log-export-tenant team-b
+armada cluster update --log-token - < new-token
+armada cluster update --log-export none          # stop sending; the token is removed
 ```
 
 ## Check that it works
@@ -183,11 +183,11 @@ app writing them.
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| `--since` or the log store misses a replica | The replica's container was created before the nodes were upgraded | The next deploy recreates it; to do it now, change anything, such as `armada app update api --env RESTARTED_AT=$(date +%s)` |
+| `--since` or the log store misses a replica | The replica's container was created before the nodes were upgraded | The next deploy recreates it; to do it now, change anything, such as `armada app deploy api --env RESTARTED_AT=$(date +%s)` |
 | `[armada] node n2: searched the newest 1024 MiB of output on this node; narrow it ...` | A busy app; the node stopped reading | Narrow with `--until`, `--replica`, or `--grep` |
 | `[armada] node n2: did not answer` | The node is not connected | `armada node list`; its history is searched once it is back |
 | A line `[armada: dropped N bytes of output over the log rate limit ...]` | The app writes more than 1 MiB a second | Log less, or send fewer debug lines |
-| `LogExportFailing` events, `log endpoint answered 401` | Wrong token or user | `armada cluster set --log-token - < token` |
+| `LogExportFailing` events, `log endpoint answered 401` | Wrong token or user | `armada cluster update --log-token - < token` |
 | `log endpoint answered 400 ... structured metadata` | Loki older than 3, or structured metadata turned off | Upgrade Loki, or allow structured metadata |
 | `LogExportFailing`, `connection refused` or a timeout | The node cannot reach the endpoint | Check the node's outbound access to the endpoint |
 | `too many log searches are running` | Several searches with `--since` run at once (at most 4 on the cluster, 2 per person) | Wait for one to finish, or narrow it with `--until` or `--replica` |

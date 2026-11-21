@@ -1,7 +1,7 @@
 # 0052. Flat commands and secrets owned by a space
 
 - Status: Accepted
-- Date: 2026-11-21
+- Date: 2026-11-21 (amended the same day: the old commands are removed, not hidden)
 
 ## Context
 
@@ -23,9 +23,9 @@ a space that use the same database password each hold a copy, and
 changing the password means changing every copy. `armada secret import`
 has to run once per app.
 
-Clusters already run with today's commands, specs, and secrets. Nothing in
-this change may break them: commands and scripts keep working, specs keep
-their meaning, and a rolling upgrade keeps every app serving.
+Clusters already run with today's specs and secrets. Nothing in this
+change may break them: specs keep their meaning, older clients keep
+working, and a rolling upgrade keeps every app serving.
 
 ## Decision
 
@@ -261,24 +261,20 @@ after the app or job, so every spec written today keeps its meaning:
 | `secretRef: db-pass` (any of the fields above) | key `db-pass` of the secret `api` |
 | `envFrom: secrets` | every key of the secret `api` |
 | `armada secret set api db-pass` | the same words, the same key |
-| `armada secret import api .env` | sets keys of the secret `api` (`DATABASE_URL` still becomes `database-url`) |
 
 Every app name is a valid secret name, so every app has its secret name
 free. `app delete` deletes the secret named after the app only when no
 other app or job of the space uses it, and says so when it keeps it.
 
-**Old commands keep working.** Every command of today keeps its arguments,
-flags, output, and exit codes as a hidden command that prints one line to
-stderr, never to stdout:
+**Old commands are removed.** The client has one set of words: a command
+of before that has a new form fails with `unknown command` and exit code 1,
+so a script stops instead of doing something else. Scripts move to the new
+words when the client they run is upgraded:
 
-```text
-note: "armada app create" is now "armada app deploy --new"
-```
-
-| Today | From now on |
+| Before | Now |
 | --- | --- |
 | `app create NAME` | `app deploy NAME --new` |
-| `app update NAME` | `app deploy NAME` |
+| `app update NAME` (`--create-if-missing`) | `app deploy NAME` (creates the app when it does not exist) |
 | `app revision list APP` / `show REV` | `revision list APP` / `show REV` |
 | `job create` / `job update` | `job deploy` |
 | `job run JOB` | `job start JOB` |
@@ -289,16 +285,17 @@ note: "armada app create" is now "armada app deploy --new"
 | `volume snapshot list` / `create` | `snapshot list` / `create` |
 | `rbac user ...` / `rbac service ...` | `user ...` / `service ...` |
 | `rbac role list` / `show` | `role list` / `show` |
-| `rbac assignment create` / `delete` | `role grant` / `revoke` |
+| `rbac assignment create` / `delete` `--role ROLE` | `role grant` / `revoke ROLE` |
 | `rbac assignment list` | `role list` (shows who holds each role) |
 | `alert channel create\|update\|list\|delete` | `alert create\|update\|list\|delete` |
 | `cluster set` | `cluster update` |
 | `space set` | `space update` |
 
-`secret set APP NAME`, `secret delete SECRET` with one argument, and every
-other command not in the table keep their words. The hidden commands stay
-until 1.0; their removal is announced in the release notes of the
-pre-release before it.
+`secret set APP NAME`, `secret delete SECRET --yes`, and every other
+command not in the table keep their words. Removing the old commands
+changes nothing on a cluster: the API, the specs, and what runs stay as
+they are, so a client of before keeps working against an upgraded
+cluster until it is upgraded itself.
 
 **Old clients and old servers keep working.** The API keeps `SetSecret`,
 `ListSecrets`, and `DeleteSecret`; their `app` field names a secret by the
@@ -345,13 +342,14 @@ upgrade before the release.
 - Every command shows up in `armada --help`, under one of four groups.
 - Apps of a space share secrets; changing a password is one `secret set`
   and one restart per app, or one `secret set --rollout`.
-- Existing scripts and specs keep working without a change; scripts see
-  one more line on stderr until they move to the new words.
+- Existing specs keep working without a change. Scripts move to the new
+  words together with the client they run; an old word fails, it never
+  does something else.
 - Bare references keep meaning the app's own secret, so a space secret
   named like an app is that app's secret too. `secret show` lists which
   apps use each key, so this stays visible.
-- The client carries two sets of commands until 1.0. `TestCommandAliases`
-  checks that every hidden command maps to a visible one.
+- The client carries one set of commands. `TestCommandAliases` checks
+  that no noun holds nouns and that the old words fail.
 - ADR 0032's command list and ADR 0006's "per app" secrets are superseded
   by this record; both keep their other decisions.
 
@@ -362,9 +360,10 @@ Each step is its own pull request, with its documents:
 1. Space secrets: schema 15, the two RPCs, `SECRET/KEY`
    references, `envFrom` list form, `secret` commands, and the upgrade
    test above.
-2. Flat commands: the new nouns and verbs, hidden old commands with
-   their notes, grouped root help.
-3. Discoverable names: `replica list`, short replica names, `app exec`
-   defaults, errors that list choices, completion from the cluster.
-4. Help: examples first in every command; `make docs`, guides, and the
-   quickstart moved to the new words.
+2. Flat commands: the new nouns and verbs on the client, the old words
+   removed, grouped root help, and every guide, the quickstart, and the
+   end-to-end test moved to the new words.
+3. Discoverable names: `app restart` (a new revision on the server),
+   `replica list`, short replica names, `app exec` defaults, errors that
+   list choices, completion from the cluster.
+4. Help: examples first in every command.

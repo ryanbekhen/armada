@@ -7,7 +7,8 @@ how to take access back and see who did what.
 
 **You will use:** [spaces](../operations.md#spaces),
 [access control](../operations.md#access-control) (users, roles,
-assignments), [`armada rbac`](../cli/armada-rbac.md)
+assignments), [`armada user`](../cli/armada-user.md),
+[`armada service`](../cli/armada-service.md), [`armada role`](../cli/armada-role.md)
 **Before you start:** a running cluster ([quickstart](../quickstart.md)) and
 a client config with `cluster-admin` (the user `armadad init` created has
 it). Only `cluster-admin` manages access.
@@ -35,7 +36,7 @@ space it applies in.
 ## 1. Know the roles
 
 ```bash
-armada rbac role list
+armada role list
 ```
 
 | Role | Given in | Allows |
@@ -46,7 +47,7 @@ armada rbac role list
 | `space-creator` | the cluster | creating spaces (becoming `admin` of each) and deleting empty ones it is `admin` of |
 | `cluster-admin` | the cluster | everything: nodes, servers, cluster settings, tokens, metrics credentials, access control |
 
-`armada rbac role show deployer` lists the API methods a role allows. A
+`armada role show deployer` lists the API methods a role allows. A
 person's rights in a space are the most their assignments give there.
 
 Only `viewer` can be given in the `default` space: its containers may
@@ -57,7 +58,7 @@ reach the platform unless you isolate it, so deploying there needs
 
 ```bash
 armada space create shop
-armada rbac user create alice -o alice.config --role deployer --space shop
+armada user create alice -o alice.config --role deployer --space shop
 ```
 
 ```
@@ -94,11 +95,11 @@ need `cluster-admin` (`armada server list`, `armada cluster events
 ## 4. Give more roles
 
 ```bash
-armada rbac user create bob -o bob.config --role admin --space billing
-armada rbac assignment create --user bob --role viewer --space shop
-armada rbac user create carol -o carol.config --role viewer         # every space, read only
-armada rbac user create dana -o dana.config --role space-creator  # dana creates her own spaces
-armada rbac assignment list
+armada user create bob -o bob.config --role admin --space billing
+armada role grant viewer --user bob  --space shop
+armada user create carol -o carol.config --role viewer         # every space, read only
+armada user create dana -o dana.config --role space-creator  # dana creates her own spaces
+armada role list
 ```
 
 ```
@@ -124,7 +125,7 @@ without `cluster-admin` may only name labels you allow them:
 ```bash
 armada node label node-4 tier=shop
 armada node restrict node-4
-armada rbac user update alice --allow-label tier=shop
+armada user update alice --allow-label tier=shop
 ```
 
 ```yaml
@@ -139,7 +140,7 @@ placement:
     tier: shop
 ```
 
-Without the allowance, `armada app create --file web.yaml` is refused with
+Without the allowance, `armada app deploy --file web.yaml` is refused with
 `user:alice may not require node label tier=shop`. `armada.os`,
 `armada.arch`, and `armada.site` are always allowed. `--clear-labels` takes every allowance
 back.
@@ -148,11 +149,11 @@ back.
 
 | You want to | Run |
 | --- | --- |
-| Take one role away | `armada rbac assignment delete --user bob --role viewer --space shop` |
-| Replace a lost or leaked key | `armada rbac user credentials alice -o alice.config` (her older certificates stop working at once, including any the leaked key renewed) |
-| Remove a person | `armada rbac user delete alice --yes` (every certificate of `alice` is refused, on every server) |
+| Take one role away | `armada role revoke viewer --user bob  --space shop` |
+| Replace a lost or leaked key | `armada user credentials alice -o alice.config` (her older certificates stop working at once, including any the leaked key renewed) |
+| Remove a person | `armada user delete alice --yes` (every certificate of `alice` is refused, on every server) |
 
-A deleted user stays in `armada rbac user list` as `deleted`, so the name
+A deleted user stays in `armada user list` as `deleted`, so the name
 keeps its history. Nobody can delete themselves or take their own
 `cluster-admin`, so the cluster always keeps one.
 
@@ -162,7 +163,7 @@ running under the space.
 ## 7. See who did what
 
 ```bash
-armada rbac user list
+armada user list
 ```
 
 ```
@@ -180,7 +181,7 @@ ops    cluster-admin                        active (you)  -
   lists the audit log; the leader's log carries the same names
   (`journalctl -u armada-server`, look for `by=user:alice`; `armada server
   list` shows which server leads).
-- `armada secret list APP` names who set each secret (`BY`), and
+- `armada secret show SECRET` names who set each key (`BY`), and
   `armada space list` who created each space.
 - `armada app events` records removals with the caller, for example
   `Removing  by user:alice`.
@@ -192,7 +193,7 @@ A user certificate lasts a year. Each person renews their own before it
 expires:
 
 ```bash
-armada rbac user renew
+armada user renew
 ```
 
 ```
@@ -217,7 +218,7 @@ From Alice's computer:
 ```bash
 armada app list                       # shop's apps
 armada app list --space billing     # refused: user:alice may not see space billing
-armada app update web --min 3        # allowed: deployer
+armada app deploy web --min 3        # allowed: deployer
 armada app exec web -- env            # refused: exec needs admin
 ```
 
@@ -242,11 +243,12 @@ user's name, so prefer a certificate per person.
 | `user:alice may not deploy to space default` | No space chosen, so the command works in `default` | `armada space use shop`, or `--space shop` |
 | `user:alice has no role that allows ...` | The method needs a role she does not hold (exec, node commands) | Give the role, or run it yourself |
 | `... has mode 0644, want 0600` | The config file is readable by others | `chmod 600 ~/.armada/config` |
-| `armada rbac user renew` fails with an expired certificate | Expired certificates cannot renew themselves | `sudo armadad user renew --config FILE` on a server |
+| `armada user renew` fails with an expired certificate | Expired certificates cannot renew themselves | `sudo armadad user renew --config FILE` on a server |
 
 ## Next steps
 
 - [Deploy from CI](ci-cd.md): a service with its own role.
 - [Monitoring and alerts](monitoring-and-alerts.md): a metrics certificate that can only scrape.
 - [Spaces and network isolation](../operations.md#spaces).
-- [`armada rbac`](../cli/armada-rbac.md) reference.
+- [`armada user`](../cli/armada-user.md), [`armada service`](../cli/armada-service.md), and
+  [`armada role`](../cli/armada-role.md) reference.

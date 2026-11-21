@@ -140,13 +140,13 @@ Note the **CA SHA-256** it prints; nodes check it when they join.
 ```bash
 sudo systemctl enable --now armada-server
 armada cluster status    # give it a few seconds to start
-armada cluster set --acme-email you@example.com --acme-ca letsencrypt-staging
+armada cluster update --acme-email you@example.com --acme-ca letsencrypt-staging
 ```
 
 The first machine runs the control plane and an agent, so it also serves
-apps. `armada cluster set` keeps settings in the cluster, so every server
+apps. `armada cluster update` keeps settings in the cluster, so every server
 uses them, also those you add later; `armada cluster show` lists them.
-Once everything works, `armada cluster set --acme-ca letsencrypt` gets
+Once everything works, `armada cluster update --acme-ca letsencrypt` gets
 trusted certificates.
 
 **Back up now.** The data directory (`/var/lib/armada`) is the cluster:
@@ -170,7 +170,7 @@ need no DNS changes, then tell Armada:
 ```
 
 ```bash
-armada cluster set --root-domain apps.example.com
+armada cluster update --root-domain apps.example.com
 ```
 
 An A record per app works the same. You can also skip the root domain and
@@ -188,12 +188,12 @@ public IPs), and give it to the cluster from stdin, never on a command
 line:
 
 ```bash
-read -rs TOKEN && printf '%s' "$TOKEN" | armada cluster set --dns-provider cloudflare --dns-token -; unset TOKEN
+read -rs TOKEN && printf '%s' "$TOKEN" | armada cluster update --dns-provider cloudflare --dns-token -; unset TOKEN
 ```
 
 The cluster keeps the token encrypted and never shows it. The root domain
 and every name under it then use DNS-01; other custom domains keep
-HTTP-01. `armada cluster set --dns-provider none` goes back to HTTP-01.
+HTTP-01. `armada cluster update --dns-provider none` goes back to HTTP-01.
 
 ### Cloudflare proxy (orange cloud)
 
@@ -203,7 +203,7 @@ Armada terminates TLS on your nodes either way. If you proxy:
   Cloudflare's free certificate does not cover `hello.apps.example.com`;
   keep such names "DNS only".
 - Set the zone's SSL/TLS mode to **Full (strict)** and use DNS-01 (above).
-- List Cloudflare's address ranges with `armada cluster set
+- List Cloudflare's address ranges with `armada cluster update
   --trusted-proxies`, so apps see the visitor's address in `X-Real-IP`
   (and `CF-Connecting-IP`; see
   [operations](operations.md#behind-a-proxy-or-cdn)).
@@ -213,7 +213,7 @@ Other DNS providers need nothing but plain A records.
 ## 6. Create an app
 
 ```bash
-armada app create hello --image traefik/whoami:v1.10 --port 80 --ingress external --min 2
+armada app deploy hello --image traefik/whoami:v1.10 --port 80 --ingress external --min 2
 armada app show hello
 curl https://hello.apps.example.com    # add -k while on the staging CA
 ```
@@ -221,25 +221,25 @@ curl https://hello.apps.example.com    # add -k while on the staging CA
 Every change is a new revision, rolled out replica by replica:
 
 ```bash
-armada app update hello --env WHOAMI_NAME=hello --wait
-armada app revision list hello
+armada app deploy hello --env WHOAMI_NAME=hello --wait
+armada revision list hello
 armada app rollback hello          # back to the revision before
 ```
 
-`armada app update` with flags changes only what they name. To keep the
+`armada app deploy` with flags changes only what they name. To keep the
 spec in a file (in git, for example), export it once and work from the
 file; `--diff` shows what an update would change:
 
 ```bash
 armada app show hello -o yaml > hello.yaml
-armada app update hello --file hello.yaml --diff
-armada app update hello --file hello.yaml
+armada app deploy hello --file hello.yaml --diff
+armada app deploy hello --file hello.yaml
 ```
 
 The file holds everything flags cannot set, such as probes with their
 own timing, routes, secret files, and volumes. The
 [spec reference](spec-reference.md) lists every field, and the file
-creates the app on another cluster with `armada app create --file
+creates the app on another cluster with `armada app deploy --file
 hello.yaml`.
 
 ## 7. Add nodes
@@ -276,7 +276,7 @@ armada server list                                           # all "voting"
 ```
 
 Every server can become the leader, and each one uses the settings of
-`armada cluster set`: nothing to copy. A server token hands over the
+`armada cluster update`: nothing to copy. A server token hands over the
 cluster's keys: it works once and expires after 15 minutes. See [operations](operations.md#control-plane-one-server-or-three).
 
 ## 9. Use armada from your own computer
@@ -297,7 +297,7 @@ again; it keeps `~/.armada/config`.
 Give yourself a certificate of your own. On a server where `armada` works:
 
 ```bash
-armada rbac user create yourname -o yourname.config --role cluster-admin
+armada user create yourname -o yourname.config --role cluster-admin
 ```
 
 Copy the file to your computer privately (it is full control of the
@@ -317,7 +317,7 @@ to a machine on the private network, a server for example). Create the
 config with `--ssh` instead of the command above:
 
 ```bash
-armada rbac user create yourname -o yourname.config --role cluster-admin --ssh you@203.0.113.10
+armada user create yourname -o yourname.config --role cluster-admin --ssh you@203.0.113.10
 ```
 
 Or add the line to a config you already have:
@@ -373,12 +373,12 @@ with the role they need: `viewer`, `deployer`, or `admin` in a space, or
 take one person's access back without touching anyone else's:
 
 ```bash
-armada rbac user create alice -o alice.config --role deployer --space shop
-armada rbac user list                 # who has access, and which roles
-armada rbac user delete alice --yes   # refuse every certificate of alice at once
+armada user create alice -o alice.config --role deployer --space shop
+armada user list                 # who has access, and which roles
+armada user delete alice --yes   # refuse every certificate of alice at once
 ```
 
-Certificates last a year; each person renews their own with `armada rbac
+Certificates last a year; each person renews their own with `armada
 user renew`. Tools such as a CI system get a
 [service](operations.md#access-control) with its own client config and
 roles.
@@ -397,23 +397,23 @@ certificates of their own.
 | Apps | `armada app list` (every space: `-A`), `armada app show hello`, `armada cluster status` for the whole cluster |
 | Logs | `armada app logs hello -f` |
 | Shell in a replica | `armada app exec hello -it -- sh` (a single command: `armada app exec hello -- env`) |
-| Scale | `armada app update hello --min 3` (a fixed 3); `--min 1 --max 5 --scale-cpu 70` scales with load |
-| Scale with load | `armada app update hello --min 2 --max 10 --scale-http 50` (or `--scale-cpu 70`, `--scale-memory 80`; see [spec reference](spec-reference.md#autoscaling)); `scale.min: 0` in the spec stops idle apps until the next request ([scale to zero](spec-reference.md#scale-to-zero)) |
-| Environment | `armada app update hello --env LOG_LEVEL=debug`, `--remove-env LOG_LEVEL` |
-| Secrets | `armada secret set hello API_KEY < key.txt`, then `armada app update hello --secret-env API_KEY=hello/API_KEY`; or `armada secret create shared --from-env-file .env` and `armada app update hello --env-from shared` for every key, shared with the space's other apps |
-| Custom domain | `armada app update hello --domain www.example.com`, publish the TXT record `armada domain list` prints, run `armada domain verify www.example.com` |
+| Scale | `armada app deploy hello --min 3` (a fixed 3); `--min 1 --max 5 --scale-cpu 70` scales with load |
+| Scale with load | `armada app deploy hello --min 2 --max 10 --scale-http 50` (or `--scale-cpu 70`, `--scale-memory 80`; see [spec reference](spec-reference.md#autoscaling)); `scale.min: 0` in the spec stops idle apps until the next request ([scale to zero](spec-reference.md#scale-to-zero)) |
+| Environment | `armada app deploy hello --env LOG_LEVEL=debug`, `--remove-env LOG_LEVEL` |
+| Secrets | `armada secret set hello API_KEY < key.txt`, then `armada app deploy hello --secret-env API_KEY=hello/API_KEY`; or `armada secret create shared --from-env-file .env` and `armada app deploy hello --env-from shared` for every key, shared with the space's other apps |
+| Custom domain | `armada app deploy hello --domain www.example.com`, publish the TXT record `armada domain list` prints, run `armada domain verify www.example.com` |
 | Internal service | `--ingress internal`; other containers call `http://<app>.internal` |
 | Keep data | add `volumes` to the spec file (one replica, bound to its node; see [spec reference](spec-reference.md#volumes)); `armada volume list`, `armada volume backup hello data -o -` |
-| Run a job | `armada job create migrate --image IMAGE --command ./migrate`, then `armada job run migrate --wait` (or `--schedule "0 3 * * *"`); `armada job run list migrate`, `armada job logs migrate` (see [spec reference](spec-reference.md#jobs)) |
+| Run a job | `armada job deploy migrate --image IMAGE --command ./migrate`, then `armada job start migrate --wait` (or `--schedule "0 3 * * *"`); `armada run list migrate`, `armada job logs migrate` (see [spec reference](spec-reference.md#jobs)) |
 | Canary | `revisions.mode: multiple` with weights in the spec, then `armada app traffic hello r2=50 r3=50` (see [spec reference](spec-reference.md#revisions)) |
 | What happened | `armada app events hello` (the space's apps: `armada app events`; everything: `armada cluster events`; keep following: `-f`) |
 | CPU and memory use | `armada app top` (one app's replicas: `armada app top hello`; nodes: `armada node top`) |
 | Spaces | `armada space create staging`, `armada space use staging` (commands then work in it; `--space` names another) |
-| Prometheus metrics | `armada cluster set --metrics-port 9443` (each server's private address), then `armada metrics credentials prometheus` for the scraper (see [operations](operations.md#metrics)) |
+| Prometheus metrics | `armada cluster update --metrics-port 9443` (each server's private address), then `armada metrics credentials prometheus` for the scraper (see [operations](operations.md#metrics)) |
 | Maintenance | `armada node drain NODE` moves replicas away; `armada node resume NODE` (replicas spread back to it on their own) |
 | Choose nodes | `armada node label NODE region=sulawesi`, then `placement.require` in the spec; `armada node restrict NODE` keeps a node for apps that ask for it |
 | Delete a node | `armada node delete NODE` (revokes its certificate) |
-| Access | `armada rbac user create NAME -o FILE --role ROLE [--space P]`, `armada rbac assignment create --user NAME --role ROLE`, `armada rbac user list`, `armada rbac role list` (see [step 10](#10-give-others-access)) |
+| Access | `armada user create NAME -o FILE --role ROLE [--space P]`, `armada role grant ROLE`, --user NAME  `armada user list`, `armada role list` (see [step 10](#10-give-others-access)) |
 | Control plane servers | `armada server list`, `armada server delete NAME` |
 | Back up | `armadad backup -o -` (control plane; volumes: `armada volume backup`; see [operations](operations.md#backup)) |
 | Upgrade | `armada version` shows the latest release; `sudo armadad upgrade` on each machine, servers first, one at a time (see [operations](operations.md#upgrades)) |

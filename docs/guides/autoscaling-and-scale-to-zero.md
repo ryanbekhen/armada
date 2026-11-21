@@ -73,13 +73,13 @@ scale:
 ```
 
 ```bash
-armada app update api --file api.yaml --wait
+armada app deploy api --file api.yaml --wait
 ```
 
 The same from flags, without a file (one rule at most):
 
 ```bash
-armada app update api --min 2 --max 10 --scale-http 30
+armada app deploy api --min 2 --max 10 --scale-http 30
 ```
 
 With 2 replicas and 140 requests in progress in all (70 each), the rule
@@ -174,7 +174,7 @@ scale:
 - **`min: 0`** lets the app stop its last replica after `idleAfter` (here
   30 minutes, default 15m, 1m to 24h) without requests. It needs at least
   one rule and ingress, external or internal. Creating the app starts one
-  replica. Without a file: `armada app update api --idle-after 30m`.
+  replica. Without a file: `armada app deploy api --idle-after 30m`.
 - **The schedule** keeps at least one replica from 08:00 to 18:00, Monday
   to Friday, Jakarta time: it starts the app when the window opens, and the
   app does not fall asleep during a long meeting. While its window is open,
@@ -292,7 +292,7 @@ caused them; the audit log names the actor `armada:autoscaler`. With the
   top` shows what nodes have left.
 - **`idleAfter`.** Longer than the usual gap between uses, so the app does
   not fall asleep between two people using it
-  (`armada app update api --idle-after 45m`). Any request counts, a health
+  (`armada app deploy api --idle-after 45m`). Any request counts, a health
   check from outside too, so an app that something polls never sleeps.
 - After a change, watch `armada app show` and `armada app events` for a
   day. An app that scales up and down every few minutes needs a higher
@@ -300,11 +300,11 @@ caused them; the audit log names the actor `armada:autoscaler`. With the
 
 ## Changing the count
 
-- Change the bounds: `armada app update api --min 4` keeps at least 4,
+- Change the bounds: `armada app deploy api --min 4` keeps at least 4,
   and `--max 10` lets it grow to 10; the rules stay.
-- `armada app update api --no-autoscale --min 3` stops autoscaling at a
+- `armada app deploy api --no-autoscale --min 3` stops autoscaling at a
   fixed count; it removes the rules.
-- A later `armada app update --file` sets the bounds and rules the file
+- A later `armada app deploy --file` sets the bounds and rules the file
   names again. An update keeps the current count within the new bounds.
 - After the control plane's leader changes, apps do not scale down for 5
   minutes: the new leader watches the load first.

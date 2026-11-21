@@ -88,7 +88,7 @@ the range `10.122.0.0/16`). If a private network of the cluster uses
 that range, pick another before the first such machine joins:
 
 ```bash
-armada cluster set --mesh-cidr 10.123.0.0/16
+armada cluster update --mesh-cidr 10.123.0.0/16
 ```
 
 Every write to the cluster's state waits for a majority of servers. Keep

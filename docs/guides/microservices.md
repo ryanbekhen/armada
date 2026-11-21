@@ -18,7 +18,7 @@ apart by spaces.
   (`armadad init --cluster-cidr`, see the [quickstart](../quickstart.md)).
   Without it, internal names still work, but `allow`, TCP apps, and the
   isolation between apps and spaces do not.
-- A root domain for the public frontend (`armada cluster set --root-domain`).
+- A root domain for the public frontend (`armada cluster update --root-domain`).
 
 ## How services find each other
 
@@ -113,8 +113,8 @@ scale:
 ```
 
 ```bash
-armada app create --file users.yaml --wait
-armada app create --file orders.yaml --wait
+armada app deploy --file users.yaml --wait
+armada app deploy --file orders.yaml --wait
 ```
 
 `allow` lists up to 32 apps of the same space. The app's own replicas may
@@ -144,7 +144,7 @@ scale:
 ```
 
 ```bash
-armada app create --file web.yaml --wait
+armada app deploy --file web.yaml --wait
 armada app show web
 ```
 
@@ -183,7 +183,7 @@ Internal apps scale like public ones, and the proxy counts their requests
 too, so `http` autoscaling rules work for them:
 
 ```bash
-armada app update orders --min 2 --max 8 --scale-http 40
+armada app deploy orders --min 2 --max 8 --scale-http 40
 ```
 
 `min: 0` works as well: an internal app at zero wakes on the first request
@@ -225,7 +225,7 @@ resources:
 ```
 
 ```bash
-armada app create --file cache.yaml --wait
+armada app deploy --file cache.yaml --wait
 ```
 
 ```
@@ -239,8 +239,8 @@ Then give the callers the URL as a variable (each update rolls the app
 out):
 
 ```bash
-armada app update orders --secret-env REDIS_URL=redis-url
-armada app update users --secret-env REDIS_URL=redis-url
+armada app deploy orders --secret-env REDIS_URL=redis-url
+armada app deploy users --secret-env REDIS_URL=redis-url
 ```
 
 Things to know about TCP apps:
@@ -285,8 +285,8 @@ What spaces give you, on a cluster with the cluster network:
 - **Separate rights.** Give each team a role in its own space only:
 
   ```bash
-  armada rbac user create ana -o ana.config --role deployer --space shop
-  armada rbac user create budi -o budi.config --role deployer --space payments
+  armada user create ana -o ana.config --role deployer --space shop
+  armada user create budi -o budi.config --role deployer --space payments
   ```
 
   Ana deploys and reads logs in `shop`, and sees nothing of `payments`. See
