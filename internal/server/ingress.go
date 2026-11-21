@@ -685,6 +685,9 @@ func (s *Server) GetClusterConfig(ctx context.Context, _ *armadav1.GetClusterCon
 	}
 	cc.LogRetentionSeconds, cc.LogMaxBytes = ls.RetentionSeconds, ls.MaxBytes
 	cc.LogExport, cc.LogEndpoint, cc.LogExportUser, cc.LogExportTenant, cc.LogTokenSet = ls.Export, ls.Endpoint, ls.User, ls.Tenant, ls.Token != nil
+	if err := s.controlPlaneBackupConfig(ctx, cc); err != nil {
+		return nil, storeErr(err)
+	}
 	switch n, err := s.store.GetNetwork(ctx); {
 	case errors.Is(err, store.ErrNotFound):
 	case err != nil:
@@ -755,6 +758,9 @@ func (s *Server) SetClusterConfig(ctx context.Context, req *armadav1.SetClusterC
 		s.log.Info("PROXY protocol sources changed", "proxy_protocol", list, "by", actor(ctx))
 	}
 	if err := s.setLogSettings(ctx, req); err != nil {
+		return nil, err
+	}
+	if err := s.setControlPlaneBackup(ctx, req); err != nil {
 		return nil, err
 	}
 	if req.GetSetNetwork() {

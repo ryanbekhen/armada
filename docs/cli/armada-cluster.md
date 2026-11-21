@@ -79,6 +79,16 @@ addresses from when they join from another site (ADR 0050; default
 10.122.0.0/16), before the first of them joins. It must not hold any node's
 address.
 
+--backup-url and --backup-key turn on backups of the control plane to an
+S3-compatible bucket (ADR 0051), taken by the leader --backup-every D (5m to
+168h) or on --backup-schedule CRON in --backup-time-zone, deduplicated and
+encrypted with the key, keeping what --backup-keep says: a number of the
+latest, or last=N,hourly=N,daily=N,weekly=N,monthly=N. Both read a file (mode
+0600) or stdin (-, one of them): the URL is https://KEY:SECRET@host/bucket[/prefix]
+and the key at least 32 bytes. They are stored encrypted and never shown. The
+first backup runs at once; armada cluster status shows the last one.
+--backup none turns them off; the bucket keeps what it holds.
+
 ```
 armada cluster set [flags]
 ```
@@ -89,6 +99,13 @@ Flags:
 | --- | --- |
 | `--acme-ca string` | ACME directory: letsencrypt, letsencrypt-staging, or an https:// URL |
 | `--acme-email string` | contact email for the ACME account |
+| `--backup string` | none turns control plane backups off |
+| `--backup-every duration` | back the control plane up this often, e.g. 1h (5m to 168h) |
+| `--backup-keep string` | control plane backups to keep: a number of the latest, or last=N,hourly=N,daily=N,weekly=N,monthly=N |
+| `--backup-key string` | file holding the key control plane backups are encrypted with (at least 32 bytes), or - for stdin |
+| `--backup-schedule string` | back the control plane up on this cron schedule (five fields), instead of --backup-every |
+| `--backup-time-zone string` | time zone of --backup-schedule and of the hours, days, weeks, and months --backup-keep counts (default UTC) |
+| `--backup-url string` | file holding the bucket URL for control plane backups (https://KEY:SECRET@host/bucket[/prefix]), or - for stdin |
 | `--dns-provider string` | DNS provider for the root domain and the names under it, including a wildcard: cloudflare, or none |
 | `--dns-token string` | file holding the DNS provider's API token, or - for stdin; an empty file removes it |
 | `--log-endpoint string` | push URL of the log store, e.g. https://logs.example.com/loki/api/v1/push or https://otlp.example.com/v1/logs |

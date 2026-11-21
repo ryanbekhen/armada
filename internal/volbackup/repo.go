@@ -65,6 +65,11 @@ func Root(t Target, app, volume string) string {
 	return t.Prefix + app + "/" + volume + "/"
 }
 
+// ControlPlaneRoot is where the control plane's backups live in the bucket
+// (ADR 0051): beside the volumes' repositories, under a name no app ID can
+// take, since app IDs never hold an underscore.
+func ControlPlaneRoot(t Target) string { return t.Prefix + "_control-plane/" }
+
 // Open opens the repository at root, creating it when the bucket has none
 // there. A wrong key is an error that says so.
 func Open(ctx context.Context, obj Objects, root string, secret []byte) (*Repo, error) {
@@ -108,7 +113,7 @@ func Open(ctx context.Context, obj Objects, root string, secret []byte) (*Repo, 
 		return nil, err
 	}
 	if k.check != cfg.Check {
-		return nil, errors.New("the backup key does not match the one this volume's backups were made with")
+		return nil, errors.New("the backup key does not match the one this repository's backups were made with")
 	}
 	return &Repo{obj: obj, root: root, k: k}, nil
 }
@@ -141,10 +146,11 @@ type manifest struct {
 type Snapshot struct {
 	ID   string
 	Time time.Time
-	// Files and Bytes are known after a backup or when the snapshot was
-	// read.
+	// Files, Bytes, and Node (where it was taken) are known after a
+	// backup or when the snapshot was read.
 	Files int
 	Bytes int64
+	Node  string
 }
 
 // Stats says what a backup did.
@@ -261,7 +267,7 @@ func (r *Repo) Backup(ctx context.Context, dir, node string, now time.Time) (Sna
 		return Snapshot{}, st, err
 	}
 	st.Uploaded += int64(len(sealed))
-	return Snapshot{ID: id, Time: m.Time, Files: m.Files, Bytes: m.Bytes}, st, nil
+	return Snapshot{ID: id, Time: m.Time, Files: m.Files, Bytes: m.Bytes, Node: m.Node}, st, nil
 }
 
 func (r *Repo) chunkKey(id string) string { return r.root + chunksDir + id[:2] + "/" + id }
@@ -349,7 +355,7 @@ func (r *Repo) Latest(ctx context.Context) (string, error) {
 		return "", err
 	}
 	if len(s) == 0 {
-		return "", fmt.Errorf("the volume has no backups: %w", ErrNotExist)
+		return "", fmt.Errorf("there are no backups yet: %w", ErrNotExist)
 	}
 	return s[len(s)-1].ID, nil
 }
@@ -410,7 +416,16 @@ func (r *Repo) Restore(ctx context.Context, id string, write func(e Entry, conte
 			return Snapshot{}, err
 		}
 	}
-	return Snapshot{ID: id, Time: m.Time, Files: m.Files, Bytes: m.Bytes}, nil
+	return Snapshot{ID: id, Time: m.Time, Files: m.Files, Bytes: m.Bytes, Node: m.Node}, nil
+}
+
+// Info reads snapshot id's manifest: its time, size, and node.
+func (r *Repo) Info(ctx context.Context, id string) (Snapshot, error) {
+	m, err := r.manifest(ctx, id)
+	if err != nil {
+		return Snapshot{}, err
+	}
+	return Snapshot{ID: id, Time: m.Time, Files: m.Files, Bytes: m.Bytes, Node: m.Node}, nil
 }
 
 // chunkStream reads a file's chunks in order.

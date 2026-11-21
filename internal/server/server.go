@@ -27,6 +27,7 @@ import (
 	"github.com/ryanbekhen/armada/internal/pki"
 	"github.com/ryanbekhen/armada/internal/secrets"
 	"github.com/ryanbekhen/armada/internal/store"
+	"github.com/ryanbekhen/armada/internal/volbackup"
 )
 
 const defaultResync = 5 * time.Second
@@ -81,6 +82,12 @@ type Config struct {
 	// BackupInterval is how often volume backups are checked for being due
 	// (ADR 0041). Default 30s; tests shorten it.
 	BackupInterval time.Duration
+	// ControlPlaneBackup writes the files of a backup of this server's
+	// control plane for the scheduled backups to a bucket (ADR 0051). Nil
+	// disables them. ControlPlaneBuckets opens their bucket (tests; nil:
+	// S3).
+	ControlPlaneBackup  ControlPlaneBackup
+	ControlPlaneBuckets func(volbackup.Target) (volbackup.Objects, error)
 	// JobRetryBase is the delay before a job's first retry (ADR 0019); it
 	// doubles with each failed attempt. Default 10s; tests shorten it.
 	JobRetryBase time.Duration
@@ -211,8 +218,14 @@ type Server struct {
 	// backupInterval and backups run volume backups (ADR 0041).
 	backupInterval time.Duration
 	backups        *backupRuns
-	failovers      *failoverRuns
-	wakeLimit      *keyedLimiter
+	// cpBackup, cpBuckets, cpWake, and cpFailures run the control plane's
+	// backups to a bucket (ADR 0051).
+	cpBackup   ControlPlaneBackup
+	cpBuckets  func(volbackup.Target) (volbackup.Objects, error)
+	cpWake     chan struct{}
+	cpFailures prometheus.Counter
+	failovers  *failoverRuns
+	wakeLimit  *keyedLimiter
 
 	// clusterSize is the apps and nodes the last reconcile pass saw.
 	clusterSize atomic.Int64
@@ -359,13 +372,22 @@ func New(cfg Config) (*Server, error) {
 	if cfg.BackupInterval <= 0 {
 		cfg.BackupInterval = defaultBackupInterval
 	}
+	if cfg.ControlPlaneBuckets == nil {
+		cfg.ControlPlaneBuckets = volbackup.S3
+	}
 	s := &Server{
 		streamRecheck:     cfg.StreamRecheck,
 		autoscaleInterval: cfg.AutoscaleInterval,
 		scaler:            newAutoscaler(),
 		backupInterval:    cfg.BackupInterval,
 		backups:           newBackupRuns(),
-		failovers:         newFailoverRuns(),
+		cpBackup:          cfg.ControlPlaneBackup,
+		cpBuckets:         cfg.ControlPlaneBuckets,
+		cpWake:            make(chan struct{}, 1),
+		cpFailures: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "armada_control_plane_backup_failures_total", Help: "Backups of the control plane to its bucket that failed since this server became the leader (ADR 0051).",
+		}),
+		failovers: newFailoverRuns(),
 		// Wakes: a burst for several apps at once, then one a second.
 		wakeLimit:    newKeyedLimiter(20, time.Second),
 		jobRetryBase: cfg.JobRetryBase,
@@ -499,6 +521,7 @@ func (s *Server) Serve(ctx context.Context, lis net.Listener) error {
 	go s.reconcileLoop(ctx)
 	go s.autoscaleLoop(ctx)
 	go s.backupLoop(ctx)
+	go s.controlPlaneBackupLoop(ctx)
 	go s.placementLoop(ctx)
 	go func() {
 		<-ctx.Done()

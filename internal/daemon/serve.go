@@ -249,6 +249,12 @@ func newServerCommand() *cobra.Command {
 					MetricsAddr:       ts.metrics,
 					OnSettingsChanged: restart,
 					Name:              id.Name, Cluster: etcd.Cluster{C: member.Client()},
+					// The scheduled backups to a bucket (ADR 0051) hold
+					// what armadad backup writes.
+					ControlPlaneBackup: func(ctx context.Context, fn func(dir string) error) error {
+						_, err := backup.Stage(ctx, dataDir, member.Client(), func(dir string, _ backup.Manifest) error { return fn(dir) })
+						return err
+					},
 				}
 				if ts.metrics != "" {
 					if err := netutil.CheckPrivateListen(ts.metrics); err != nil {
