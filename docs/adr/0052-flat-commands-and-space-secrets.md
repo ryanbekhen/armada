@@ -304,6 +304,24 @@ everything else keeps working as before. As with every schema change, a
 server never runs an older binary on a migrated keyspace; going back means
 restoring a backup taken before.
 
+**Upgrading restarts nothing.** The migration changes no value, no
+variable name, no file path, and no revision: what the leader sends each
+node for every replica is the same before and after it, so no agent sees a
+changed spec, no container is recreated, and no rollout starts. Revision
+names stay, so rollbacks to revisions made before the upgrade work. Jobs
+started after it, and apps that scale to zero and wake after it, get the
+same values they would have before. Nothing moves into a shared secret by
+itself: putting the keys of several apps into one secret is a later,
+separate step a person takes, one app at a time.
+
+The upgrade test proves this: a cluster on the last release runs an app
+with `envFrom: secrets`, `env` and `secretFiles` references, a registry
+password, a job, an app that scales to zero, and a kept older revision;
+it is upgraded server by server under load, and the test fails on any
+change to a node's assignment, any container restart, any new revision, or
+any request that does not answer 200. The end-to-end lab runs the same
+upgrade before the release.
+
 ## Consequences
 
 - Every command shows up in `armada --help`, under one of four groups.
@@ -324,8 +342,8 @@ restoring a backup taken before.
 Each step is its own pull request, with its documents:
 
 1. Space secrets: schema 15, migration, new RPCs, `SECRET/KEY`
-   references, `envFrom` list form, `secret` commands, an upgrade test
-   from the last release.
+   references, `envFrom` list form, `secret` commands, and the upgrade
+   test above.
 2. Flat commands: the new nouns and verbs, hidden old commands with
    their notes, grouped root help.
 3. Discoverable names: `replica list`, short replica names, `app exec`
