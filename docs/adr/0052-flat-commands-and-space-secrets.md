@@ -197,6 +197,13 @@ armada secret unset db OLD_KEY
 armada secret delete db --yes                     # refused while a revision uses it
 ```
 
+A secret's name is unique within its space, as an app's is: the secret
+`auth` of the space `shop` and the secret `auth` of the space `blog` are two
+secrets with their own keys, values, and access, and neither space's apps
+can read the other's. A key's name is unique within its secret, so
+`auth/JWT_SECRET` and `mail/JWT_SECRET` are two keys. The store keys
+secrets by space and name, as it keys apps by their ID.
+
 Secret names follow the rules of today's secret names. A key is a
 variable name (`DATABASE_URL`) or a secret name of today (`database-url`),
 at most 63 characters, and a secret holds at most 512 keys.
