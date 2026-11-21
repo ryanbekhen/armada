@@ -733,6 +733,32 @@ func (s *Server) SetNodeRelay(ctx context.Context, req *armadav1.SetNodeRelayReq
 	return &armadav1.SetNodeRelayResponse{}, nil
 }
 
+// RotateNodeKey asks a connected node's agent for a new WireGuard key (ADR
+// 0025); the agent announces it, and every peer list follows.
+func (s *Server) RotateNodeKey(ctx context.Context, req *armadav1.RotateNodeKeyRequest) (*armadav1.RotateNodeKeyResponse, error) {
+	if err := spec.ValidateName(req.GetNode()); err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "node: %v", err)
+	}
+	if _, err := s.store.GetNode(ctx, req.GetNode()); err != nil {
+		return nil, storeErr(err)
+	}
+	sess := s.session(req.GetNode())
+	switch {
+	case sess == nil:
+		return nil, status.Errorf(codes.Unavailable, "node %s is not connected", req.GetNode())
+	case !sess.keyRotation:
+		return nil, status.Errorf(codes.FailedPrecondition, "node %s has no network key, or its agent cannot replace it: upgrade it, or remove network.key on it and restart its service", req.GetNode())
+	}
+	if !sess.offer(&armadav1.ServerMessage{Msg: &armadav1.ServerMessage_RotateNetworkKey{RotateNetworkKey: &armadav1.RotateNetworkKey{}}}) {
+		return nil, status.Errorf(codes.Unavailable, "node %s did not accept the request", req.GetNode())
+	}
+	if err := s.store.RecordAudit(ctx, actor(ctx), "node.rotate-key", req.GetNode(), ""); err != nil {
+		s.log.Warn("audit", "err", err)
+	}
+	s.log.Info("network key rotation", "node", req.GetNode(), "by", actor(ctx))
+	return &armadav1.RotateNodeKeyResponse{}, nil
+}
+
 // SetNodeSite moves a node to another site (ADR 0050). The site decides
 // how peers reach the node, so only admins set it; the node carries it as
 // the armada.site label for placement.

@@ -92,9 +92,10 @@ type Config struct {
 	// NAT, ADR 0050); tunnels and containers take their overhead from it.
 	UplinkMTU int
 	// Key is the node's own key (LoadOrCreateKey); the wireguard mode needs
-	// it.
-	Key    PrivateKey
-	Logger *slog.Logger
+	// it. KeyPath is its file, which RotateKey replaces.
+	Key     PrivateKey
+	KeyPath string
+	Logger  *slog.Logger
 }
 
 // peer is one other node.

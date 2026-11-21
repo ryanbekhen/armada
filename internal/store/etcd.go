@@ -921,6 +921,35 @@ func (s *Etcd) SetNodeRelay(ctx context.Context, id string, on bool, actor strin
 	})
 }
 
+// SetNodeNetworkKey records a node's new network key. See Store.
+func (s *Etcd) SetNodeNetworkKey(ctx context.Context, id, key string) error {
+	return s.tx(ctx, func(t *etx) error {
+		n, ok, err := t.node(id)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return notFoundf("node %s", id)
+		}
+		if n.NetworkKey == key {
+			return nil
+		}
+		taken := false
+		err = listInto(t, pfxNodes, func(_ string, r nodeRec) error {
+			taken = taken || (r.ID != id && r.NetworkKey == key)
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+		if taken {
+			return fmt.Errorf("node %s: network key already used by another node: %w", id, ErrConflict)
+		}
+		n.NetworkKey = key
+		return t.put(pfxNodes+id, n)
+	})
+}
+
 // SetNodeRestricted makes a node restricted or open. See Store.
 func (s *Etcd) SetNodeRestricted(ctx context.Context, id string, restricted bool, actor string) error {
 	now := s.now()

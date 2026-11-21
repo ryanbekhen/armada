@@ -48,6 +48,7 @@ const (
 	AdminService_RestrictNode_FullMethodName             = "/armada.v1.AdminService/RestrictNode"
 	AdminService_SetNodeSite_FullMethodName              = "/armada.v1.AdminService/SetNodeSite"
 	AdminService_SetNodeRelay_FullMethodName             = "/armada.v1.AdminService/SetNodeRelay"
+	AdminService_RotateNodeKey_FullMethodName            = "/armada.v1.AdminService/RotateNodeKey"
 	AdminService_RemoveNode_FullMethodName               = "/armada.v1.AdminService/RemoveNode"
 	AdminService_ListServers_FullMethodName              = "/armada.v1.AdminService/ListServers"
 	AdminService_RemoveServer_FullMethodName             = "/armada.v1.AdminService/RemoveServer"
@@ -131,6 +132,8 @@ type AdminServiceClient interface {
 	SetNodeSite(ctx context.Context, in *SetNodeSiteRequest, opts ...grpc.CallOption) (*SetNodeSiteResponse, error)
 	// Choose the relay of a node's site (ADR 0050), or drop the choice.
 	SetNodeRelay(ctx context.Context, in *SetNodeRelayRequest, opts ...grpc.CallOption) (*SetNodeRelayResponse, error)
+	// Give a node a new WireGuard key (ADR 0025).
+	RotateNodeKey(ctx context.Context, in *RotateNodeKeyRequest, opts ...grpc.CallOption) (*RotateNodeKeyResponse, error)
 	RemoveNode(ctx context.Context, in *RemoveNodeRequest, opts ...grpc.CallOption) (*RemoveNodeResponse, error)
 	ListServers(ctx context.Context, in *ListServersRequest, opts ...grpc.CallOption) (*ListServersResponse, error)
 	RemoveServer(ctx context.Context, in *RemoveServerRequest, opts ...grpc.CallOption) (*RemoveServerResponse, error)
@@ -519,6 +522,16 @@ func (c *adminServiceClient) SetNodeRelay(ctx context.Context, in *SetNodeRelayR
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(SetNodeRelayResponse)
 	err := c.cc.Invoke(ctx, AdminService_SetNodeRelay_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) RotateNodeKey(ctx context.Context, in *RotateNodeKeyRequest, opts ...grpc.CallOption) (*RotateNodeKeyResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RotateNodeKeyResponse)
+	err := c.cc.Invoke(ctx, AdminService_RotateNodeKey_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -933,6 +946,8 @@ type AdminServiceServer interface {
 	SetNodeSite(context.Context, *SetNodeSiteRequest) (*SetNodeSiteResponse, error)
 	// Choose the relay of a node's site (ADR 0050), or drop the choice.
 	SetNodeRelay(context.Context, *SetNodeRelayRequest) (*SetNodeRelayResponse, error)
+	// Give a node a new WireGuard key (ADR 0025).
+	RotateNodeKey(context.Context, *RotateNodeKeyRequest) (*RotateNodeKeyResponse, error)
 	RemoveNode(context.Context, *RemoveNodeRequest) (*RemoveNodeResponse, error)
 	ListServers(context.Context, *ListServersRequest) (*ListServersResponse, error)
 	RemoveServer(context.Context, *RemoveServerRequest) (*RemoveServerResponse, error)
@@ -1102,6 +1117,9 @@ func (UnimplementedAdminServiceServer) SetNodeSite(context.Context, *SetNodeSite
 }
 func (UnimplementedAdminServiceServer) SetNodeRelay(context.Context, *SetNodeRelayRequest) (*SetNodeRelayResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method SetNodeRelay not implemented")
+}
+func (UnimplementedAdminServiceServer) RotateNodeKey(context.Context, *RotateNodeKeyRequest) (*RotateNodeKeyResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RotateNodeKey not implemented")
 }
 func (UnimplementedAdminServiceServer) RemoveNode(context.Context, *RemoveNodeRequest) (*RemoveNodeResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method RemoveNode not implemented")
@@ -1722,6 +1740,24 @@ func _AdminService_SetNodeRelay_Handler(srv interface{}, ctx context.Context, de
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(AdminServiceServer).SetNodeRelay(ctx, req.(*SetNodeRelayRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_RotateNodeKey_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RotateNodeKeyRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).RotateNodeKey(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminService_RotateNodeKey_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).RotateNodeKey(ctx, req.(*RotateNodeKeyRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -2448,6 +2484,10 @@ var AdminService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SetNodeRelay",
 			Handler:    _AdminService_SetNodeRelay_Handler,
+		},
+		{
+			MethodName: "RotateNodeKey",
+			Handler:    _AdminService_RotateNodeKey_Handler,
 		},
 		{
 			MethodName: "RemoveNode",

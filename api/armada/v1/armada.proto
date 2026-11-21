@@ -48,6 +48,8 @@ service AdminService {
   rpc SetNodeSite(SetNodeSiteRequest) returns (SetNodeSiteResponse);
   // Choose the relay of a node's site (ADR 0050), or drop the choice.
   rpc SetNodeRelay(SetNodeRelayRequest) returns (SetNodeRelayResponse);
+  // Give a node a new WireGuard key (ADR 0025).
+  rpc RotateNodeKey(RotateNodeKeyRequest) returns (RotateNodeKeyResponse);
   rpc RemoveNode(RemoveNodeRequest) returns (RemoveNodeResponse);
   rpc ListServers(ListServersRequest) returns (ListServersResponse);
   rpc RemoveServer(RemoveServerRequest) returns (RemoveServerResponse);
@@ -595,6 +597,12 @@ message SetNodeRelayRequest {
 }
 
 message SetNodeRelayResponse {}
+
+message RotateNodeKeyRequest {
+  string node = 1;
+}
+
+message RotateNodeKeyResponse {}
 
 message RemoveNodeRequest {
   string node = 1;
@@ -1287,7 +1295,15 @@ message AgentMessage {
     ReplicaReport report = 2;
     UsageReport usage = 3;
     Wake wake = 4;
+    // The node made a new WireGuard key (RotateNetworkKey).
+    NetworkKeyChanged network_key = 5;
   }
+}
+
+// NetworkKeyChanged is the public half of the key a node made when asked to
+// rotate it (ADR 0025).
+message NetworkKeyChanged {
+  string public_key = 1;
 }
 
 // Wake asks the leader to start an app scaled to zero: a request for it
@@ -1345,6 +1361,8 @@ message Hello {
   // The node is behind NAT (ADR 0050): it has no endpoint, and endpoint is
   // empty. Agents that do not know it leave it false.
   bool behind_nat = 21;
+  // The agent replaces its WireGuard key when asked (RotateNetworkKey).
+  bool key_rotation = 22;
 }
 
 message ReplicaReport {
@@ -1483,8 +1501,13 @@ message ServerMessage {
     LogCancel log_cancel = 3;
     ExecRequest exec_request = 4;
     VolumeRequest volume_request = 5;
+    RotateNetworkKey rotate_network_key = 6;
   }
 }
+
+// RotateNetworkKey asks the agent to replace its node's WireGuard key and
+// announce the new public half (armada node rotate-key, ADR 0025).
+message RotateNetworkKey {}
 
 // VolumeRequest asks the agent to open a VolumeSession for a volume it
 // holds (ADR 0023).

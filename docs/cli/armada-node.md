@@ -18,6 +18,7 @@ Also: `nodes`.
 | [`armada node relay`](#armada-node-relay) | Choose the node that relays its site's traffic between nodes behind NAT |
 | [`armada node restrict`](#armada-node-restrict) | Run only apps whose placement selects one of the node's labels |
 | [`armada node resume`](#armada-node-resume) | Let a drained node take replicas again |
+| [`armada node rotate-key`](#armada-node-rotate-key) | Give a node a new WireGuard key |
 | [`armada node show`](#armada-node-show) | Show a node |
 | [`armada node site`](#armada-node-site) | Move a node to another site |
 | [`armada node top`](#armada-node-top) | Show the CPU and memory each node's replicas use and reserve |
@@ -158,6 +159,24 @@ Let a drained node take replicas again.
 
 ```
 armada node resume NODE
+```
+
+## `armada node rotate-key`
+
+Give a node a new WireGuard key (ADR 0025). The node's agent writes a new
+network.key and announces the public half; every other node takes it within
+seconds, with a short gap in the node's traffic to them. Do it when the key
+may have leaked, after you have dealt with how. The node must be connected.
+
+```
+armada node rotate-key NODE
+```
+
+Examples:
+
+```bash
+armada node rotate-key n2
+armada cluster events --node n2   # NetworkKeyRotated
 ```
 
 ## `armada node show`

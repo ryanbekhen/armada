@@ -188,6 +188,41 @@ type PeerChecker interface {
 	UnreachablePeers() []string
 }
 
+// KeyRotator is a Network whose WireGuard key can be replaced while it
+// runs (armada node rotate-key, ADR 0025).
+type KeyRotator interface {
+	Network
+	// RotateKey writes a new key and returns its public half.
+	RotateKey() (string, error)
+}
+
+// rotateNetworkKey replaces the node's WireGuard key and announces the new
+// public half on the stream; the next Hello carries it too.
+func (a *Agent) rotateNetworkKey() {
+	kr, ok := a.cfg.Network.(KeyRotator)
+	if !ok {
+		return
+	}
+	a.keyMu.Lock()
+	defer a.keyMu.Unlock()
+	pub, err := kr.RotateKey()
+	if err != nil {
+		a.log.Error("rotate the network key", "err", err)
+		return
+	}
+	a.mu.Lock()
+	a.networkKey = pub
+	a.mu.Unlock()
+	a.streamMu.Lock()
+	defer a.streamMu.Unlock()
+	if a.stream == nil {
+		return // the next Hello announces it
+	}
+	if err := a.stream.Send(&armadav1.AgentMessage{Msg: &armadav1.AgentMessage_NetworkKey{NetworkKey: &armadav1.NetworkKeyChanged{PublicKey: pub}}}); err != nil {
+		a.log.Warn("announce the new network key", "err", err)
+	}
+}
+
 // InternalDNS is the node-local resolver the agent keeps in sync with the
 // proxy's internal routes.
 type InternalDNS interface {
@@ -207,13 +242,18 @@ type Agent struct {
 	began  time.Time
 	booted time.Time // when the machine last booted; zero if unknown
 
-	mu        sync.Mutex
-	desired   map[string]*armadav1.ReplicaSpec // nil until the first assignment
-	servers   []string                         // last control plane list received
-	digests   map[string]string                // image ref -> pinned ref
-	platforms map[string][]string              // image ref -> its platforms
-	cancels   map[string]context.CancelFunc    // log request -> cancel
-	probes    map[string]*probeWorker          // replica -> probes of its container
+	// keyMu runs one key rotation at a time.
+	keyMu sync.Mutex
+	mu    sync.Mutex
+	// networkKey is the node's WireGuard public key, Config.NetworkKey
+	// until a rotation replaces it.
+	networkKey string
+	desired    map[string]*armadav1.ReplicaSpec // nil until the first assignment
+	servers    []string                         // last control plane list received
+	digests    map[string]string                // image ref -> pinned ref
+	platforms  map[string][]string              // image ref -> its platforms
+	cancels    map[string]context.CancelFunc    // log request -> cancel
+	probes     map[string]*probeWorker          // replica -> probes of its container
 	// restarts holds containers a failed probe asked to restart, with the
 	// reason; notes carries that reason to the replacement's status.
 	restarts map[string]string // container ID -> reason
@@ -400,10 +440,14 @@ func (a *Agent) session(ctx context.Context) (established bool, err error) {
 	if err != nil {
 		return false, err
 	}
+	a.mu.Lock()
+	networkKey := cmp.Or(a.networkKey, a.cfg.NetworkKey)
+	a.mu.Unlock()
+	_, rotates := a.cfg.Network.(KeyRotator)
 	hello := &armadav1.AgentMessage{Msg: &armadav1.AgentMessage_Hello{Hello: &armadav1.Hello{
 		CpuMillis: a.cfg.CPUMillis, MemoryBytes: a.cfg.MemoryBytes, Version: version.Get().Version, PrivateIp: a.cfg.PrivateIP,
 		Os: cmp.Or(a.cfg.OS, goruntime.GOOS), Arch: cmp.Or(a.cfg.Arch, goruntime.GOARCH),
-		Jobs: true, Volumes: a.mountsVolumes(), Containers: runtime.CanRunMembers(a.cfg.Driver), NetworkKey: a.cfg.NetworkKey, Endpoint: a.cfg.Endpoint, BehindNat: a.cfg.BehindNAT,
+		Jobs: true, Volumes: a.mountsVolumes(), Containers: runtime.CanRunMembers(a.cfg.Driver), NetworkKey: networkKey, Endpoint: a.cfg.Endpoint, BehindNat: a.cfg.BehindNAT, KeyRotation: rotates && networkKey != "",
 		CertificateRefs: true, QueueSandboxes: a.sandboxesOn(), HeldReplicas: true,
 		VolumeBackups: a.mountsVolumes(), Nfs: a.mountsNFS(), LogHistory: a.logHistoryOn(),
 		NetworkSwitch: a.switcher() != nil,
@@ -448,6 +492,8 @@ func (a *Agent) session(ctx context.Context) (established bool, err error) {
 			go a.serveExec(ctx, m.ExecRequest)
 		case *armadav1.ServerMessage_VolumeRequest:
 			go a.serveVolume(ctx, m.VolumeRequest)
+		case *armadav1.ServerMessage_RotateNetworkKey:
+			go a.rotateNetworkKey()
 		}
 	}
 }

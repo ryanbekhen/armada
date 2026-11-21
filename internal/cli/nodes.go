@@ -397,7 +397,29 @@ func newNodeCommand(g *globals) *cobra.Command {
 		},
 	}
 	relayCmd.Flags().BoolVar(&clearRelay, "clear", false, "let the leader pick the relay of the node's site again")
-	cmd.AddCommand(list, show, newNodeTopCommand(g), label, siteCmd, relayCmd,
+	rotateKey := &cobra.Command{
+		Use:   "rotate-key NODE",
+		Short: "Give a node a new WireGuard key",
+		Long: "Give a node a new WireGuard key (ADR 0025). The node's agent writes a new\n" +
+			"network.key and announces the public half; every other node takes it within\n" +
+			"seconds, with a short gap in the node's traffic to them. Do it when the key\n" +
+			"may have leaked, after you have dealt with how. The node must be connected.",
+		Example: "  armada node rotate-key n2\n  armada cluster events --node n2   # NetworkKeyRotated",
+		Args:    cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			client, conn, err := dialAdmin(g)
+			if err != nil {
+				return err
+			}
+			defer conn.Close()
+			if _, err := client.RotateNodeKey(cmd.Context(), &armadav1.RotateNodeKeyRequest{Node: args[0]}); err != nil {
+				return RPCError(err)
+			}
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Asked node %s for a new network key; its NetworkKeyRotated event says when the other nodes have it.\n", args[0])
+			return err
+		},
+	}
+	cmd.AddCommand(list, show, newNodeTopCommand(g), label, siteCmd, relayCmd, rotateKey,
 		drain("drain", "Stop placing replicas on a node and move its replicas away", true),
 		drain("resume", "Let a drained node take replicas again", false),
 		restrict("restrict", "Run only apps whose placement selects one of the node's labels", true),

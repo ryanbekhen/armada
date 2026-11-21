@@ -27,6 +27,19 @@ func (p PrivateKey) Public() string { return p.k.PublicKey().String() }
 // IsZero reports whether the key is unset.
 func (p PrivateKey) IsZero() bool { return p.k == wgtypes.Key{} }
 
+// RotateKey replaces the node's key at path with a new one, written
+// atomically, and returns it.
+func RotateKey(path string) (PrivateKey, error) {
+	k, err := wgtypes.GeneratePrivateKey()
+	if err != nil {
+		return PrivateKey{}, err
+	}
+	if err := fsutil.WriteFileAtomic(path, []byte(k.String()+"\n"), 0o600); err != nil {
+		return PrivateKey{}, err
+	}
+	return PrivateKey{k: k}, nil
+}
+
 // LoadOrCreateKey reads the node's key from path, a private file, or
 // generates one there the first time (ADR 0025).
 func LoadOrCreateKey(path string) (PrivateKey, error) {

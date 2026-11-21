@@ -414,6 +414,9 @@ type Store interface {
 	// drops the choice of the node's site. A node behind NAT cannot relay
 	// (ErrPrecondition).
 	SetNodeRelay(ctx context.Context, id string, on bool, actor string) error
+	// SetNodeNetworkKey records a node's new WireGuard public key after a
+	// rotation (ADR 0025); ErrConflict when another node holds it.
+	SetNodeNetworkKey(ctx context.Context, id, key string) error
 	GetNode(ctx context.Context, id string) (Node, error)
 	ListNodes(ctx context.Context) ([]Node, error)
 	SetNodeStatus(ctx context.Context, id string, st NodeStatus) error

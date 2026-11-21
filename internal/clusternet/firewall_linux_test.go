@@ -2,6 +2,8 @@ package clusternet
 
 import (
 	"net/netip"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -136,5 +138,34 @@ func TestForwardRulesRelay(t *testing.T) {
 		if r[len(r)-1] != "ACCEPT" {
 			t.Errorf("relay rule %v", r)
 		}
+	}
+}
+
+// RotateKey replaces network.key with a new private file and the key the
+// devices take on the next Apply.
+func TestNetRotateKey(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "network.key")
+	old, err := LoadOrCreateKey(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n, err := New(Config{Node: "a", PrivateIP: self, Key: old, KeyPath: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pub, err := n.RotateKey()
+	if err != nil || pub == old.Public() || n.cfg.Key.Public() != pub {
+		t.Fatalf("rotate: %q %v", pub, err)
+	}
+	again, err := LoadOrCreateKey(path)
+	if err != nil || again.Public() != pub {
+		t.Fatalf("file holds %v, %v", again.Public(), err)
+	}
+	if fi, err := os.Stat(path); err != nil || fi.Mode().Perm() != 0o600 {
+		t.Errorf("mode %v, %v", fi.Mode(), err)
+	}
+	if _, err := (&Net{}).RotateKey(); err == nil {
+		t.Error("rotation without a key file accepted")
 	}
 }
