@@ -50,7 +50,7 @@ func testSpaceSecrets(t *testing.T, d *fake.Driver, cli func(...string) (int, st
 		t.Errorf("secret list = %q", out)
 	}
 	code, out, _ = cli("secret", "show", "shared-db")
-	if code != 0 || !strings.Contains(out, "KEY") || !strings.Contains(out, "reader-a--r1") || !strings.Contains(out, "reader-b--r1") {
+	if code != 0 || !strings.Contains(out, "KEY") || !strings.Contains(out, "reader-a:r1,reader-b:r1") {
 		t.Errorf("secret show = %q", out)
 	}
 	if strings.Contains(out, "postgres://shared") {

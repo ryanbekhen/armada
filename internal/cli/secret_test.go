@@ -45,3 +45,18 @@ func TestRevisionRuns(t *testing.T) {
 		}
 	}
 }
+
+func TestUsedBy(t *testing.T) {
+	for _, c := range []struct {
+		revs []string
+		want string
+	}{
+		{nil, "-"},
+		{[]string{"api--r2", "api--r1"}, "r1,r2"},
+		{[]string{"api--r3", "worker--r5", "worker--r4", "worker--r3", "cron--r1"}, "r3,worker:r3-r5,cron:r1"},
+	} {
+		if got := usedBy("api", c.revs); got != c.want {
+			t.Errorf("usedBy(%v) = %q, want %q", c.revs, got, c.want)
+		}
+	}
+}

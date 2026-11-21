@@ -226,9 +226,9 @@ func TestInstallCommand(t *testing.T) {
 func TestArgumentErrors(t *testing.T) {
 	t.Parallel()
 	for args, want := range map[string][]string{
-		"secret ls":        {"missing APP", "Usage: armada secret list APP", "armada secret list --help"},
-		"secret set web":   {"missing NAME", "Usage: armada secret set APP NAME"},
-		"secret set a b c": {"too many arguments: expected APP NAME, got 3"},
+		"secret show":      {"missing SECRET", "Usage: armada secret show SECRET", "armada secret show --help"},
+		"secret set web":   {"missing KEY", "Usage: armada secret set SECRET KEY"},
+		"secret set a b c": {"too many arguments: expected SECRET KEY, got 3"},
 		"app list x":       {"armada app list takes no arguments, got 1"},
 		"app list --bogus": {"unknown flag: --bogus", "armada app list --help"},
 		"node relay":       {"missing NODE"},
@@ -253,7 +253,7 @@ func TestVerbsListedWithArguments(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("code=%d", code)
 	}
-	for _, w := range []string{"list APP ", "set APP NAME ", "delete APP NAME ", "import APP FILE "} {
+	for _, w := range []string{"show SECRET ", "set SECRET KEY ", "unset SECRET KEY ", "delete SECRET "} {
 		if !strings.Contains(stdout, w) {
 			t.Errorf("secret help lacks %q:\n%s", w, stdout)
 		}
