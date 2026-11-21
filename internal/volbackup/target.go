@@ -1,5 +1,5 @@
-// Package volbackup keeps deduplicated, encrypted backups of volumes in an
-// S3-compatible bucket (ADR 0041).
+// Package volbackup keeps deduplicated, encrypted backups of volumes (ADR
+// 0041) and of the control plane (ADR 0051) in an S3-compatible bucket.
 package volbackup
 
 import (

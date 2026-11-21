@@ -9,13 +9,22 @@ Restores a backup made with 'armadad backup' into an empty data directory
 before anything is written to the data directory. Stop any other control
 plane of this cluster first: two servers must never run at the same time.
 
+With --backup-url and --backup-key, the backup comes from the bucket the
+control plane backs itself up to (armada cluster set --backup-url, ADR 0051)
+instead of an archive: --snapshot names one (armadad backup list), latest by
+default. Both flags take a file (mode 0600) holding the URL or the key, or
+- for stdin (one of them). The snapshot is checked exactly like an archive.
+
 ```
-armadad restore FILE [flags]
+armadad restore FILE | --backup-url FILE --backup-key FILE [--snapshot ID|latest] [flags]
 ```
 
 Flags:
 
 | Flag | Meaning |
 | --- | --- |
+| `--backup-key string` | file holding the key the control plane's backups are encrypted with, or - for stdin |
+| `--backup-url string` | file holding the URL of the bucket the control plane backs itself up to, or - for stdin |
 | `--data-dir string` | data directory to restore into (must not exist or be empty) (default `/var/lib/armada`) |
+| `--snapshot string` | backup to restore from the bucket: an ID from armadad backup list, or latest (default `latest`) |
 

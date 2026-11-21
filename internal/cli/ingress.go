@@ -56,6 +56,9 @@ func newClusterCommand(g *globals) *cobra.Command {
 		logMaxDisk                                 string
 		logExport, logEndpoint, logUser, logTenant string
 		logToken, network, meshCIDR                string
+		backupEvery                                time.Duration
+		backupSchedule, backupTZ, backupKeep       string
+		backupURL, backupKey, backupOff            string
 	)
 	set := &cobra.Command{
 		Use:   "set",
@@ -92,7 +95,16 @@ func newClusterCommand(g *globals) *cobra.Command {
 			"--mesh-cidr sets the range machines with no private network take their\n" +
 			"addresses from when they join from another site (ADR 0050; default\n" +
 			"10.122.0.0/16), before the first of them joins. It must not hold any node's\n" +
-			"address.",
+			"address.\n\n" +
+			"--backup-url and --backup-key turn on backups of the control plane to an\n" +
+			"S3-compatible bucket (ADR 0051), taken by the leader --backup-every D (5m to\n" +
+			"168h) or on --backup-schedule CRON in --backup-time-zone, deduplicated and\n" +
+			"encrypted with the key, keeping what --backup-keep says: a number of the\n" +
+			"latest, or last=N,hourly=N,daily=N,weekly=N,monthly=N. Both read a file (mode\n" +
+			"0600) or stdin (-, one of them): the URL is https://KEY:SECRET@host/bucket[/prefix]\n" +
+			"and the key at least 32 bytes. They are stored encrypted and never shown. The\n" +
+			"first backup runs at once; armada cluster status shows the last one.\n" +
+			"--backup none turns them off; the bucket keeps what it holds.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ch := cmd.Flags().Changed
@@ -105,9 +117,11 @@ func newClusterCommand(g *globals) *cobra.Command {
 				SetLogRetention: ch("log-retention"), SetLogMaxBytes: ch("log-max-disk"),
 				SetLogExport: slices.ContainsFunc(logExportFlags, ch), SetLogToken: ch("log-token"),
 				SetNetwork: ch("network"), SetMeshCidr: ch("mesh-cidr"),
+				SetBackupPlan: slices.ContainsFunc(backupPlanFlags, ch), SetBackupKeep: ch("backup-keep"),
+				SetBackupUrl: ch("backup-url"), SetBackupKey: ch("backup-key"), SetBackupOff: ch("backup"),
 			}
 			req.Config.Network, req.Config.MeshCidr = network, meshCIDR
-			if !slices.ContainsFunc([]string{"root-domain", "trusted-proxies", "proxy-protocol", "tls", "acme-email", "acme-ca", "dns-provider", "dns-token", "metrics-port", "node-lost-timeout", "log-retention", "log-max-disk", "log-token", "network", "mesh-cidr"}, ch) && !req.SetLogExport {
+			if !slices.ContainsFunc([]string{"root-domain", "trusted-proxies", "proxy-protocol", "tls", "acme-email", "acme-ca", "dns-provider", "dns-token", "metrics-port", "node-lost-timeout", "log-retention", "log-max-disk", "log-token", "network", "mesh-cidr", "backup", "backup-keep", "backup-url", "backup-key"}, ch) && !req.SetLogExport && !req.SetBackupPlan {
 				return errors.New("nothing to change; see armada cluster set --help")
 			}
 			req.Config.LogRetentionSeconds = int64(logRetention / time.Second)
@@ -133,6 +147,9 @@ func newClusterCommand(g *globals) *cobra.Command {
 				}
 				req.LogToken = v
 			}
+			if err := backupRequest(cmd, req, backupFlags{every: backupEvery, schedule: backupSchedule, keep: backupKeep, url: backupURL, key: backupKey, off: backupOff}); err != nil {
+				return err
+			}
 			client, conn, err := dialAdmin(g)
 			if err != nil {
 				return err
@@ -154,6 +171,26 @@ func newClusterCommand(g *globals) *cobra.Command {
 				req.Config.LogEndpoint = pick("log-endpoint", logEndpoint, cur.LogEndpoint)
 				req.Config.LogExportUser = pick("log-export-user", logUser, cur.LogExportUser)
 				req.Config.LogExportTenant = pick("log-export-tenant", logTenant, cur.LogExportTenant)
+			}
+			if req.SetBackupPlan {
+				// Every, schedule, and time zone go together: keep the
+				// ones not given.
+				cur, err := client.GetClusterConfig(cmd.Context(), &armadav1.GetClusterConfigRequest{})
+				if err != nil {
+					return RPCError(err)
+				}
+				switch {
+				case ch("backup-every"):
+					req.Config.BackupEverySeconds = int64(backupEvery / time.Second)
+				case ch("backup-schedule"):
+					req.Config.BackupSchedule = backupSchedule
+				default:
+					req.Config.BackupEverySeconds, req.Config.BackupSchedule = cur.BackupEverySeconds, cur.BackupSchedule
+				}
+				req.Config.BackupTimeZone = cur.BackupTimeZone
+				if ch("backup-time-zone") {
+					req.Config.BackupTimeZone = backupTZ
+				}
 			}
 			cc, err := client.SetClusterConfig(cmd.Context(), req)
 			if err != nil {
@@ -189,6 +226,13 @@ func newClusterCommand(g *globals) *cobra.Command {
 	f.StringVar(&logToken, "log-token", "", "file holding the log store's token, or - for stdin; an empty file removes it")
 	f.StringVar(&network, "network", "", "switch the cluster network's mode while it runs: plain or wireguard")
 	f.StringVar(&meshCIDR, "mesh-cidr", "", "private IPv4 range of the addresses machines with no private network get, before the first joins (/8 to /24)")
+	f.DurationVar(&backupEvery, "backup-every", 0, "back the control plane up this often, e.g. 1h (5m to 168h)")
+	f.StringVar(&backupSchedule, "backup-schedule", "", "back the control plane up on this cron schedule (five fields), instead of --backup-every")
+	f.StringVar(&backupTZ, "backup-time-zone", "", "time zone of --backup-schedule and of the hours, days, weeks, and months --backup-keep counts (default UTC)")
+	f.StringVar(&backupKeep, "backup-keep", "", "control plane backups to keep: a number of the latest, or last=N,hourly=N,daily=N,weekly=N,monthly=N")
+	f.StringVar(&backupURL, "backup-url", "", "file holding the bucket URL for control plane backups (https://KEY:SECRET@host/bucket[/prefix]), or - for stdin")
+	f.StringVar(&backupKey, "backup-key", "", "file holding the key control plane backups are encrypted with (at least 32 bytes), or - for stdin")
+	f.StringVar(&backupOff, "backup", "", "none turns control plane backups off")
 	cmd.AddCommand(newClusterStatusCommand(g), show, set, newEventsCommand(g, eventsOfCluster))
 	return cmd
 }
@@ -274,6 +318,9 @@ func printClusterStatus(out io.Writer, r *armadav1.ClusterStatusResponse) error 
 		for _, n := range r.NodesNotReady {
 			_, _ = fmt.Fprintln(tw, n)
 		}
+	}
+	if b := r.ControlPlaneBackup; b != nil {
+		_, _ = fmt.Fprintf(tw, "\n%s\n", backupStatusLine(b))
 	}
 	if sw := r.NetworkSwitch; sw != nil {
 		step := map[string]string{"prepare": "bringing it up beside " + sw.From, "move": "moving the routes to it"}[sw.Step]
@@ -362,6 +409,10 @@ func printClusterConfig(w io.Writer, cc *armadav1.ClusterConfig) error {
 			export += " (no token)"
 		}
 	}
+	backups := "off"
+	if cc.BackupBucket != "" {
+		backups = "to " + cc.BackupBucket + ", " + backupWhen(cc) + ", keeping " + keepText(cc.BackupKeep)
+	}
 	network := cmp.Or(cc.Network, "none")
 	if cc.NetworkSwitchTo != "" {
 		network += ", switching to " + cc.NetworkSwitchTo + " (armada cluster status)"
@@ -369,9 +420,9 @@ func printClusterConfig(w io.Writer, cc *armadav1.ClusterConfig) error {
 	if cc.MeshCidr != "" {
 		network += ", mesh addresses from " + cc.MeshCidr
 	}
-	_, err := fmt.Fprintf(w, "root domain:       %s\ntrusted proxies:   %s\nproxy protocol:    %s\ncertificates:      %s\nacme email:        %s\ndns provider:      %s (token %s)\nmetrics:           %s\nnode lost timeout: %s\nlog history:       %s\nlog export:        %s\nnetwork:           %s\n",
+	_, err := fmt.Fprintf(w, "root domain:       %s\ntrusted proxies:   %s\nproxy protocol:    %s\ncertificates:      %s\nacme email:        %s\ndns provider:      %s (token %s)\nmetrics:           %s\nnode lost timeout: %s\nlog history:       %s\nlog export:        %s\nnetwork:           %s\nbackups:           %s\n",
 		dash(cc.RootDomain), dash(strings.Join(cc.TrustedProxies, ",")), dash(strings.Join(cc.ProxyProtocol, ",")), certs, dash(cc.AcmeEmail),
-		cmp.Or(cc.DnsProvider, "none"), token, metrics, time.Duration(cc.NodeLostTimeoutSeconds)*time.Second, logs, export, network)
+		cmp.Or(cc.DnsProvider, "none"), token, metrics, time.Duration(cc.NodeLostTimeoutSeconds)*time.Second, logs, export, network, backups)
 	return err
 }
 

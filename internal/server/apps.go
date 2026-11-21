@@ -172,6 +172,9 @@ func (s *Server) ClusterStatus(ctx context.Context, _ *armadav1.ClusterStatusReq
 	case n.Switch != nil:
 		resp.NetworkSwitch = s.switchProgress(n, nodes, s.now())
 	}
+	if resp.ControlPlaneBackup, err = s.controlPlaneBackupStatus(ctx); err != nil {
+		return nil, storeErr(err)
+	}
 	return resp, nil
 }
 

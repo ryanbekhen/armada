@@ -37,7 +37,7 @@ func (s *Server) serveMetrics(ctx context.Context) error {
 	reg.MustRegister(
 		collectors.NewGoCollector(),
 		s.reconcileSeconds, s.reconcileErrors, s.events.total, s.jobRuns,
-		s.alerts.sent, s.alerts.failed, s.alerts.dropped,
+		s.alerts.sent, s.alerts.failed, s.alerts.dropped, s.cpFailures,
 		&clusterCollector{s: s, every: s.metricsCache},
 	)
 	mux := http.NewServeMux()
@@ -220,6 +220,8 @@ var (
 	descReplicaState     = prometheus.NewDesc("armada_replica_state", "1 for a replica's current state (pending, pulling, starting, running, exited, failed, unknown).", []string{"app", "replica", "node", "state"}, nil)
 	descReplicaInfo      = prometheus.NewDesc("armada_replica_info", "1 for each replica, with its revision and the IP address it is reached at (empty until it has one).", []string{"app", "replica", "revision", "node", "ip"}, nil)
 	descReplicaDraining  = prometheus.NewDesc("armada_replica_draining", "1 while a replica is out of the proxy and being stopped (an older revision after a rollout, a scale down, or a move to another node), 0 otherwise.", []string{"app", "replica", "node"}, nil)
+	descCPBackupLast     = prometheus.NewDesc("armada_control_plane_backup_last_success_timestamp_seconds", "When the control plane's last backup to its bucket worked (ADR 0051); absent before the first.", nil, nil)
+	descCPBackupSize     = prometheus.NewDesc("armada_control_plane_backup_last_size_bytes", "Bytes of the files in the control plane's last backup.", nil, nil)
 	descScaledAt         = prometheus.NewDesc("armada_app_autoscale_last_scale_timestamp_seconds", "When the autoscaler last changed an app's replica count; absent until it does.", []string{"app"}, nil)
 )
 
@@ -235,6 +237,7 @@ func (c *clusterCollector) Describe(ch chan<- *prometheus.Desc) {
 		descSpaceReplicas, descSpaceCPU, descSpaceMemory, descSpaceCPURes, descSpaceMemRes,
 		descSpaceVolumes, descSpaceRequests, descSpaceEgress,
 		descRevisionInfo, descReplicaState, descReplicaInfo, descReplicaDraining, descScaledAt,
+		descCPBackupLast, descCPBackupSize,
 	} {
 		ch <- d
 	}
@@ -367,6 +370,10 @@ func (c *clusterCollector) gather() (out []prometheus.Metric, ok bool) {
 			}
 			gauge(descBackupFailing, failing, v.GetApp(), v.GetName())
 		}
+	}
+	if b, err := s.controlPlaneBackupStatus(ctx); err == nil && b.GetLastAt() != nil {
+		gauge(descCPBackupLast, float64(b.GetLastAt().AsTime().Unix()))
+		gauge(descCPBackupSize, float64(b.GetLastSizeBytes()))
 	}
 	for _, p := range top.GetSpaces() {
 		name := p.GetName()
