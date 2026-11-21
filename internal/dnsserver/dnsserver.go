@@ -45,7 +45,10 @@ type Config struct {
 	// address the client map does not hold waits for the map to learn it
 	// (default 3s; see awaitClient).
 	UnknownWait time.Duration
-	Logger      *slog.Logger
+	// StartWait is how long a lookup of an internal name waits for the
+	// first SetNames (default 10s; see awaitClient).
+	StartWait time.Duration
+	Logger    *slog.Logger
 }
 
 // Server is the node-local DNS server.
@@ -53,6 +56,9 @@ type Server struct {
 	cfg   Config
 	log   *slog.Logger
 	names atomic.Pointer[map[string]bool]
+	// named is set by the first SetNames: until then the server does not
+	// know which names exist.
+	named atomic.Bool
 	// clients maps the node's container addresses to their app IDs; nil
 	// answers every name to every client.
 	clients atomic.Pointer[map[netip.Addr]string]
@@ -70,7 +76,8 @@ type Server struct {
 	mu        sync.Mutex
 	perClient map[netip.Addr]int
 	perConn   map[netip.Addr]int
-	// learned is closed, and replaced, whenever SetClients runs.
+	// learned is closed, and replaced, whenever SetClients or SetNames
+	// runs.
 	learned chan struct{}
 }
 
@@ -87,6 +94,10 @@ const (
 	// defaultUnknownWait covers the time between a container's start and
 	// the agent telling the server its address (Config.UnknownWait).
 	defaultUnknownWait = 3 * time.Second
+	// defaultStartWait covers an agent's start until its first proxy
+	// configuration, which waits for the leader: when the leader itself
+	// restarts, an election comes first (Config.StartWait).
+	defaultStartWait = 10 * time.Second
 )
 
 // New validates cfg. The listen address must be private.
@@ -102,6 +113,9 @@ func New(cfg Config) (*Server, error) {
 	}
 	if cfg.UnknownWait == 0 {
 		cfg.UnknownWait = defaultUnknownWait
+	}
+	if cfg.StartWait == 0 {
+		cfg.StartWait = defaultStartWait
 	}
 	if cfg.Logger == nil {
 		cfg.Logger = slog.New(slog.DiscardHandler)
@@ -132,6 +146,11 @@ func (s *Server) SetNames(apps []string) {
 		m[a] = true
 	}
 	s.names.Store(&m)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.named.Store(true)
+	close(s.learned)
+	s.learned = make(chan struct{})
 }
 
 // SetClients maps the addresses of the node's containers to their app IDs.
@@ -149,28 +168,36 @@ func (s *Server) SetClients(clients map[netip.Addr]string) {
 	s.learned = make(chan struct{})
 }
 
-// awaitClient holds a lookup of an internal name from a container the
-// client map does not hold yet, until the map learns it or UnknownWait
-// passes. A container runs before the agent hears of its address, so its
-// first lookups would otherwise get NXDOMAIN and fail at once. Each client
-// holds at most maxInflightPerClient lookups; past that, and for the
-// server's own address, the answer comes at once.
+// awaitClient holds a lookup of an internal name until the server can
+// answer it: from a container the client map does not hold yet, until the
+// map learns it or UnknownWait passes (a container runs before the agent
+// hears of its address); and before the first SetNames, until it comes or
+// StartWait passes (an agent that just started, with its containers still
+// running, has not received its configuration yet). Either would otherwise
+// get NXDOMAIN and fail at once. Each client holds at most
+// maxInflightPerClient lookups; past that, and for the server's own
+// address, the answer comes at once.
 func (s *Server) awaitClient(client netip.Addr) {
-	if !client.IsValid() || client == s.cfg.Addr || s.known(client) {
+	if !client.IsValid() || client == s.cfg.Addr || s.answerable(client) {
 		return
 	}
 	if !s.take(s.perClient, client, maxInflightPerClient) {
 		return
 	}
 	defer s.release(s.perClient, client)
-	timeout := time.NewTimer(s.cfg.UnknownWait)
+	wait := s.cfg.UnknownWait
+	if !s.named.Load() {
+		wait = s.cfg.StartWait
+	}
+	timeout := time.NewTimer(wait)
 	defer timeout.Stop()
 	for {
-		// The channel first: a SetClients after the check closes it.
+		// The channel first: a SetClients or SetNames after the check
+		// closes it.
 		s.mu.Lock()
 		learned := s.learned
 		s.mu.Unlock()
-		if s.known(client) {
+		if s.answerable(client) {
 			return
 		}
 		select {
@@ -179,6 +206,11 @@ func (s *Server) awaitClient(client netip.Addr) {
 			return
 		}
 	}
+}
+
+// answerable reports whether the server knows the names and the client.
+func (s *Server) answerable(client netip.Addr) bool {
+	return s.named.Load() && s.known(client)
 }
 
 // known reports whether the client map holds client; with no map, every

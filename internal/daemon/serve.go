@@ -603,7 +603,15 @@ func runAgent(ctx context.Context, dataDir string, servers []string, proxyKind, 
 	g, ctx := errgroup.WithContext(ctx)
 	g.Go(func() error { return a.Run(ctx) })
 	if dns != nil {
-		g.Go(func() error { return dns.Run(ctx) })
+		// The DNS server outlives the agent and answers until the process
+		// exits: the containers keep running while armadad stops (a
+		// leader's control plane takes seconds) and the next one starts,
+		// and the names and callers it knows stay right for them.
+		go func() {
+			if err := dns.Run(context.WithoutCancel(ctx)); err != nil {
+				log.Warn("internal DNS stopped", "err", err)
+			}
+		}()
 	}
 	g.Go(func() error {
 		agent.RenewLoop(ctx, creds, conn, renewCheck, log.With("component", "agent"))

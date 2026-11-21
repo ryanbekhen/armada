@@ -405,3 +405,46 @@ func TestNewContainerWaitsToBeKnown(t *testing.T) {
 		t.Errorf("waits left counted: %d", n)
 	}
 }
+
+// An agent that just started has not received its configuration: lookups
+// of internal names wait for the first SetNames instead of failing.
+func TestLookupsWaitForFirstNames(t *testing.T) {
+	t.Parallel()
+	s, addr := startWith(t, Config{UnknownWait: 50 * time.Millisecond, StartWait: 2 * time.Second}, "127.0.0.0/8")
+	done := make(chan *dns.Msg, 1)
+	go func() { done <- askFrom(t, addr, "udp", "127.0.0.7", "web.internal.") }()
+	// Past UnknownWait: the start wait is the longer one.
+	time.Sleep(200 * time.Millisecond)
+	select {
+	case r := <-done:
+		t.Fatalf("answered before the first names: %v", r)
+	default:
+	}
+	s.SetClients(map[netip.Addr]string{netip.MustParseAddr("127.0.0.7"): "api"})
+	time.Sleep(50 * time.Millisecond)
+	select {
+	case r := <-done:
+		t.Fatalf("answered with clients but no names: %v", r)
+	default:
+	}
+	s.SetNames([]string{"web"})
+	if r := <-done; r.Rcode != dns.RcodeSuccess || len(r.Answer) != 1 {
+		t.Errorf("lookup held for the first names: %v", r)
+	}
+
+	// Never configured: NXDOMAIN once StartWait is over.
+	s2, addr2 := startWith(t, Config{StartWait: 300 * time.Millisecond}, "127.0.0.0/8")
+	begin := time.Now()
+	if r := askFrom(t, addr2, "udp", "127.0.0.7", "web.internal."); r.Rcode != dns.RcodeNameError {
+		t.Errorf("unconfigured server: %v", r)
+	}
+	if took := time.Since(begin); took < 250*time.Millisecond {
+		t.Errorf("answered after %s, before the start wait", took)
+	}
+	s2.mu.Lock()
+	n := s2.perClient[netip.MustParseAddr("127.0.0.7")]
+	s2.mu.Unlock()
+	if n != 0 {
+		t.Errorf("waits left counted: %d", n)
+	}
+}
