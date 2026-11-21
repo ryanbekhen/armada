@@ -110,7 +110,7 @@ func TestContainersInvalid(t *testing.T) {
 		"bad image":         {side("name: proxy\n    image: 'Bad Image'\n"), "sidecars[0].image"},
 		"reserved env":      {side("name: proxy\n    image: envoy\n    env:\n      - name: ARMADA_X\n        value: y\n"), "sidecars[0].env[0].name"},
 		"port env":          {side("name: proxy\n    image: envoy\n    env:\n      - name: PORT\n        value: \"1\"\n"), "sidecars[0].env[0].name"},
-		"bad secret":        {side("name: proxy\n    image: envoy\n    env:\n      - name: X\n        secretRef: Bad_Name\n"), "sidecars[0].env[0].secretRef"},
+		"bad secret":        {side("name: proxy\n    image: envoy\n    env:\n      - name: X\n        secretRef: bad.name\n"), "sidecars[0].env[0].secretRef"},
 		"value and secret":  {side("name: proxy\n    image: envoy\n    env:\n      - name: X\n        value: a\n        secretRef: b\n"), "sidecars[0].env[0]"},
 		"bad memory":        {side("name: proxy\n    image: envoy\n    resources:\n      memory: 1Ki\n"), "sidecars[0].resources.memory"},
 		"bad cpu":           {side("name: proxy\n    image: envoy\n    resources:\n      cpu: lots\n"), "sidecars[0].resources.cpu"},

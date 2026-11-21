@@ -55,7 +55,7 @@ func TestQueueTriggerValidation(t *testing.T) {
 		"tasks":         {triggerJob + "tasks: 2\n" + redis, "tasks"},
 		"command type":  {triggerJob + "trigger:\n  queue:\n    type: queue\n    perRun: 1\n", "trigger.queue.type"},
 		"no secret":     {triggerJob + "trigger:\n  queue:\n    type: redis\n    list: jobs\n    perRun: 1\n", "trigger.queue.urlSecretRef"},
-		"bad secret":    {triggerJob + "trigger:\n  queue:\n    type: redis\n    urlSecretRef: Bad_Name\n    list: jobs\n    perRun: 1\n", "trigger.queue.urlSecretRef"},
+		"bad secret":    {triggerJob + "trigger:\n  queue:\n    type: redis\n    urlSecretRef: bad.name\n    list: jobs\n    perRun: 1\n", "trigger.queue.urlSecretRef"},
 		"no list":       {triggerJob + "trigger:\n  queue:\n    type: redis\n    urlSecretRef: u\n    perRun: 1\n", "trigger.queue.list"},
 		"queue on redis": {triggerJob + "trigger:\n  queue:\n    type: redis\n    urlSecretRef: u\n    list: a\n    queue: b\n    perRun: 1\n",
 			"trigger.queue.queue"},

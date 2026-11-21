@@ -62,11 +62,16 @@ const (
 	// secretseq/<app>/<name> keeps the last version of a deleted secret,
 	// so a secret set again never reuses a version number.
 	pfxSecretSeq = "secretseq/"
-	pfxDomains   = "domains/"
-	pfxAudit     = "audit/" // audit/<id, 20 digits>
-	pfxServers   = "servers/"
-	pfxRuns      = "runs/"    // runs/<job>/<seq, 10 digits>
-	pfxVolumes   = "volumes/" // volumes/<app>/<name>
+	// secretusers/<secret ID>/<app ID> names an app or job that pins keys
+	// of a secret other than its own (ADR 0052), so pruning, deleting, and
+	// listing a secret's users read only those apps' revisions. Entries of
+	// apps that no longer pin the secret are dropped when found.
+	pfxSecretUsers = "secretusers/"
+	pfxDomains     = "domains/"
+	pfxAudit       = "audit/" // audit/<id, 20 digits>
+	pfxServers     = "servers/"
+	pfxRuns        = "runs/"    // runs/<job>/<seq, 10 digits>
+	pfxVolumes     = "volumes/" // volumes/<app>/<name>
 	// Apps are keyed by their ID (spec.AppID): the name in the default
 	// space, <name>.<space> in others (ADR 0026). Spaces live under
 	// pfxSpaces (spaces.go).
@@ -78,7 +83,7 @@ const (
 	// migrations when records change incompatibly. Records under servers/
 	// and meta/ are read and written by every server, whatever its schema,
 	// so they only ever gain optional fields.
-	etcdSchema = 14
+	etcdSchema = 15
 
 	maxTxnRetries = 100
 	// auditKeep is how many audit events are retained.
@@ -1505,6 +1510,11 @@ func (s *Etcd) DeployWith(ctx context.Context, sp *spec.App, actor string, opts 
 		case opts.BaseRevision != "" && exists && a.TargetRevision != opts.BaseRevision:
 			return fmt.Errorf("%s changed since %s (now %s); run the command again: %w", sp.ID(), opts.BaseRevision, a.TargetRevision, ErrPrecondition)
 		}
+		if sp.UsesSpaceSecrets() {
+			if err := t.needSchema(15, "secrets of the space (SECRET/KEY references and envFrom lists)"); err != nil {
+				return err
+			}
+		}
 		full, err := t.secretEnv(sp)
 		if err != nil {
 			return err
@@ -1515,18 +1525,32 @@ func (s *Etcd) DeployWith(ctx context.Context, sp *spec.App, actor string, opts 
 	return rev, created, err
 }
 
-// secretEnv resolves envFrom: secrets against the secrets the app has now.
-// Only a deploy does: rollbacks and secret rollouts keep a revision's
-// variables, so a secret set later reaches the app with its next deploy.
+// secretEnv resolves envFrom against the keys the secrets have now. Only a
+// deploy does: rollbacks and secret rollouts keep a revision's variables,
+// so a key set later reaches the app with its next deploy.
 func (t *etx) secretEnv(sp *spec.App) (*spec.App, error) {
-	if sp.EnvFrom != spec.EnvFromSecrets {
+	if sp.EnvFrom.IsZero() {
 		return sp, nil
 	}
-	latest, err := t.latestVersions(sp.ID())
-	if err != nil {
-		return nil, err
+	keys := map[string][]string{}
+	if sp.EnvFrom.Own {
+		latest, err := t.latestVersions(sp.ID())
+		if err != nil {
+			return nil, err
+		}
+		keys[""] = slices.Collect(maps.Keys(latest))
 	}
-	full, err := sp.WithSecretEnv(slices.Collect(maps.Keys(latest)))
+	for _, e := range sp.EnvFrom.Secrets {
+		latest, err := t.latestVersions(spec.AppID(sp.Space, e.Secret))
+		if err != nil {
+			return nil, err
+		}
+		if len(latest) == 0 {
+			return nil, fmt.Errorf("envFrom names the secret %s, which has no keys (create it with `armada secret create %s`): %w", e.Secret, e.Secret, ErrPrecondition)
+		}
+		keys[e.Secret] = slices.Collect(maps.Keys(latest))
+	}
+	full, err := sp.WithSecretEnv(keys)
 	if err != nil {
 		return nil, fmt.Errorf("envFrom: %w: %w", err, ErrPrecondition)
 	}
@@ -1552,6 +1576,9 @@ func (s *Etcd) deploy(t *etx, sp *spec.App, replicas int, actor, action string) 
 	}
 	pins, err := t.pinSecrets(sp)
 	if err != nil {
+		return Revision{}, false, err
+	}
+	if err := t.noteSecretUsers(sp.ID(), pins); err != nil {
 		return Revision{}, false, err
 	}
 	now := s.now()
@@ -2650,70 +2677,175 @@ func splitSecretKey(key, app string) (string, int, bool) {
 	return name, v, err == nil
 }
 
-// pinSecrets resolves the latest version of every secret sp references.
+// pinSecrets resolves the latest version of every key sp references: a
+// reference with no secret names a key of the secret with the app's own ID,
+// SECRET/KEY a key of a secret of its space (ADR 0052). Pins are keyed by
+// the reference as written.
 func (t *etx) pinSecrets(sp *spec.App) (map[string]int, error) {
-	latest, err := t.latestVersions(sp.ID())
-	if err != nil {
-		return nil, err
-	}
+	id := sp.ID()
+	latest := map[string]map[string]int{}
 	pins := map[string]int{}
 	var missing []string
-	for _, name := range sp.SecretRefs() {
-		v, ok := latest[name]
+	own := true
+	for _, ref := range sp.SecretRefs() {
+		sid, key := spec.SecretSource(id, ref)
+		l, ok := latest[sid]
 		if !ok {
-			missing = append(missing, name)
+			var err error
+			if l, err = t.latestVersions(sid); err != nil {
+				return nil, err
+			}
+			latest[sid] = l
+		}
+		v, ok := l[key]
+		if !ok {
+			missing = append(missing, ref)
+			own = own && sid == id
 			continue
 		}
-		pins[name] = v
+		pins[ref] = v
 	}
 	if len(missing) > 0 {
 		cmd := "armada secret set " + sp.Name + " NAME"
-		if sp.ID() != sp.Name {
+		if !own {
+			cmd = "armada secret set SECRET KEY"
+		}
+		if id != sp.Name {
 			cmd += " --space " + sp.Space
 		}
 		return nil, fmt.Errorf("app %s references secrets that are not set: %s (set them with `%s`): %w",
-			sp.ID(), strings.Join(missing, ", "), cmd, ErrPrecondition)
+			id, strings.Join(missing, ", "), cmd, ErrPrecondition)
 	}
 	return pins, nil
 }
 
-// checkPins verifies that every secret version rev pins still exists.
-func (t *etx) checkPins(rev Revision) error {
-	for _, name := range slices.Sorted(maps.Keys(rev.Secrets)) {
-		_, ok, err := t.getRaw(secretKey(rev.App, name, rev.Secrets[name]))
-		if err != nil {
-			return err
+// noteSecretUsers records app as a user of every other secret pins name.
+func (t *etx) noteSecretUsers(app string, pins map[string]int) error {
+	for _, ref := range slices.Sorted(maps.Keys(pins)) {
+		sid, _ := spec.SecretSource(app, ref)
+		if sid == app {
+			continue
 		}
-		if !ok {
-			return fmt.Errorf("revision %s uses secret %s version %d, which was deleted: %w", rev.Name, name, rev.Secrets[name], ErrPrecondition)
+		k := pfxSecretUsers + sid + "/" + app
+		if _, ok, err := t.getRaw(k); err != nil || ok {
+			if err != nil {
+				return err
+			}
+			continue
+		}
+		if err := t.put(k, true); err != nil {
+			return err
 		}
 	}
 	return nil
 }
 
-// pruneSecrets deletes secret versions that are neither the latest nor
-// pinned by a retained revision of app.
-func (t *etx) pruneSecrets(app string) error {
-	pinned := map[string]bool{}
-	err := listInto(t, pfxRevs+app+"/", func(_ string, r revRec) error {
-		for name, v := range r.Secrets {
-			pinned[secretKey(app, name, v)] = true
+// checkPins verifies that every secret version rev pins still exists.
+func (t *etx) checkPins(rev Revision) error {
+	for _, ref := range slices.Sorted(maps.Keys(rev.Secrets)) {
+		sid, key := spec.SecretSource(rev.App, ref)
+		_, ok, err := t.getRaw(secretKey(sid, key, rev.Secrets[ref]))
+		if err != nil {
+			return err
 		}
-		return nil
-	})
+		if !ok {
+			return fmt.Errorf("revision %s uses secret %s version %d, which was deleted: %w", rev.Name, ref, rev.Secrets[ref], ErrPrecondition)
+		}
+	}
+	return nil
+}
+
+// secretPin is one pin of a kept revision on a key of a secret.
+type secretPin struct {
+	app     string
+	rev     revRec
+	key     string
+	version int
+}
+
+// secretPins returns every pin of a kept revision on a key of the secret
+// with ID secret: the revisions of the app with that ID, and of the apps
+// secretusers/ names. With clean, index entries of apps that pin none of
+// its keys any more are deleted.
+func (t *etx) secretPins(secret string, clean bool) ([]secretPin, error) {
+	apps := []string{secret}
+	users, err := t.list(pfxSecretUsers + secret + "/")
+	if err != nil {
+		return nil, err
+	}
+	for _, e := range users {
+		apps = append(apps, strings.TrimPrefix(e.key, pfxSecretUsers+secret+"/"))
+	}
+	var out []secretPin
+	for i, app := range apps {
+		found := false
+		err := listInto(t, pfxRevs+app+"/", func(_ string, r revRec) error {
+			for _, ref := range slices.Sorted(maps.Keys(r.Secrets)) {
+				if sid, key := spec.SecretSource(app, ref); sid == secret {
+					out = append(out, secretPin{app: app, rev: r, key: key, version: r.Secrets[ref]})
+					found = true
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			return nil, err
+		}
+		if i > 0 && !found && clean {
+			t.delete(pfxSecretUsers + secret + "/" + app)
+		}
+	}
+	return out, nil
+}
+
+// servingPins returns the pins of secretPins held by an app's active or
+// target revision: those a secret's keys may not be deleted under.
+func (t *etx) servingPins(secret string) ([]secretPin, error) {
+	pins, err := t.secretPins(secret, false)
+	if err != nil {
+		return nil, err
+	}
+	apps := map[string]appRec{}
+	var out []secretPin
+	for _, p := range pins {
+		a, seen := apps[p.app]
+		if !seen {
+			var ok bool
+			if a, ok, err = t.app(p.app); err != nil {
+				return nil, err
+			} else if !ok {
+				continue
+			}
+			apps[p.app] = a
+		}
+		if p.rev.Name == a.ActiveRevision || p.rev.Name == a.TargetRevision {
+			out = append(out, p)
+		}
+	}
+	return out, nil
+}
+
+// pruneSecrets deletes versions of the secret with ID secret that are
+// neither the latest of their key nor pinned by a kept revision of any app.
+func (t *etx) pruneSecrets(secret string) error {
+	pins, err := t.secretPins(secret, true)
 	if err != nil {
 		return err
 	}
-	latest, err := t.latestVersions(app)
+	pinned := map[string]bool{}
+	for _, p := range pins {
+		pinned[secretKey(secret, p.key, p.version)] = true
+	}
+	latest, err := t.latestVersions(secret)
 	if err != nil {
 		return err
 	}
-	kvs, err := t.list(pfxSecrets + app + "/")
+	kvs, err := t.list(pfxSecrets + secret + "/")
 	if err != nil {
 		return err
 	}
 	for _, e := range kvs {
-		name, v, ok := splitSecretKey(e.key, app)
+		name, v, ok := splitSecretKey(e.key, secret)
 		if ok && v < latest[name] && !pinned[e.key] {
 			t.delete(e.key)
 		}
@@ -2721,77 +2853,111 @@ func (t *etx) pruneSecrets(app string) error {
 	return nil
 }
 
+// needSchema refuses what only servers at schema v or later may run, while
+// the keyspace is older: some server still runs an older version.
+func (t *etx) needSchema(v int, what string) error {
+	var cur int
+	if _, err := t.get(keySchema, &cur); err != nil {
+		return err
+	}
+	if cur < v {
+		return fmt.Errorf("%s need every control plane server on this version first (armada server list shows them): %w", what, ErrPrecondition)
+	}
+	return nil
+}
+
 // SetSecret stores a new secret version. See Store.
-func (s *Etcd) SetSecret(ctx context.Context, app, name string, seal func(int) (secrets.Sealed, error), rollout bool, actor string) (int, string, error) {
+func (s *Etcd) SetSecret(ctx context.Context, secret, key string, seal func(int) (secrets.Sealed, error), rollout bool, actor string) (int, []string, error) {
 	now := s.now()
 	var version int
-	var revision string
-	space, _, ok := spec.SplitAppID(app)
+	var revisions []string
+	space, _, ok := spec.SplitAppID(secret)
 	if !ok {
-		return 0, "", fmt.Errorf("invalid app %q", app)
+		return 0, nil, fmt.Errorf("invalid secret %q", secret)
 	}
 	err := s.tx(ctx, func(t *etx) error {
-		revision = ""
+		revisions = nil
 		if err := t.spaceExists(space); err != nil {
 			return err
 		}
-		latest, err := t.latestVersions(app)
+		latest, err := t.latestVersions(secret)
 		if err != nil {
 			return err
 		}
 		var floor int
-		if _, err := t.get(pfxSecretSeq+app+"/"+name, &floor); err != nil {
+		if _, err := t.get(pfxSecretSeq+secret+"/"+key, &floor); err != nil {
 			return err
 		}
-		version = max(latest[name], floor) + 1
+		version = max(latest[key], floor) + 1
 		sealed, err := seal(version)
 		if err != nil {
 			return err
 		}
-		if err := t.put(secretKey(app, name, version), secretRec{KeyID: sealed.KeyID, WrappedKey: sealed.WrappedKey, Ciphertext: sealed.Ciphertext,
+		if err := t.put(secretKey(secret, key, version), secretRec{KeyID: sealed.KeyID, WrappedKey: sealed.WrappedKey, Ciphertext: sealed.Ciphertext,
 			CreatedAt: now.UnixMilli(), CreatedBy: actor}); err != nil {
 			return err
 		}
-		if err := t.audit(now, actor, "secret.set", app, name+" v"+strconv.Itoa(version)); err != nil {
+		if err := t.audit(now, actor, "secret.set", secret, key+" v"+strconv.Itoa(version)); err != nil {
 			return err
 		}
 		if rollout {
-			a, ok, err := t.app(app)
-			if err != nil {
+			if revisions, err = s.rolloutSecret(t, secret, key, actor); err != nil {
 				return err
 			}
-			if ok {
-				rev, err := t.revision(a.TargetRevision)
-				if err != nil {
-					return err
-				}
-				if slices.Contains(rev.Spec.SecretRefs(), name) {
-					next, created, err := s.deploy(t, rev.Spec, a.Replicas, actor, "secret.rollout")
-					if err != nil {
-						return err
-					}
-					if created {
-						revision = next.Name
-					}
-				}
-			}
 		}
-		return t.pruneSecrets(app)
+		return t.pruneSecrets(secret)
 	})
-	return version, revision, err
+	return version, revisions, err
+}
+
+// rolloutSecret deploys again, with the latest values, every app whose
+// target revision uses key of secret, and returns the new revisions.
+func (s *Etcd) rolloutSecret(t *etx, secret, key, actor string) ([]string, error) {
+	pins, err := t.secretPins(secret, false)
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	done := map[string]bool{}
+	for _, p := range pins {
+		if p.key != key || done[p.app] {
+			continue
+		}
+		a, ok, err := t.app(p.app)
+		if err != nil {
+			return nil, err
+		}
+		if !ok || a.Removing || p.rev.Name != a.TargetRevision {
+			continue
+		}
+		done[p.app] = true
+		rev, err := t.revision(a.TargetRevision)
+		if err != nil {
+			return nil, err
+		}
+		next, created, err := s.deploy(t, rev.Spec, a.Replicas, actor, "secret.rollout")
+		if err != nil {
+			return nil, err
+		}
+		if created {
+			out = append(out, next.Name)
+		}
+	}
+	slices.Sort(out)
+	return out, nil
 }
 
 // GetSecret returns one encrypted secret version. See Store.
-func (s *Etcd) GetSecret(ctx context.Context, app, name string, version int) (secrets.Sealed, error) {
+func (s *Etcd) GetSecret(ctx context.Context, secret, key string, version int) (secrets.Sealed, error) {
 	var out secrets.Sealed
 	err := s.view(ctx, func(t *etx) error {
 		var r secretRec
-		ok, err := t.get(secretKey(app, name, version), &r)
+		ok, err := t.get(secretKey(secret, key, version), &r)
 		if err != nil {
 			return err
 		}
 		if !ok {
-			return notFoundf("secret %s/%s v%d", app, name, version)
+			return notFoundf("secret %s/%s v%d", secret, key, version)
 		}
 		out = secrets.Sealed{KeyID: r.KeyID, WrappedKey: r.WrappedKey, Ciphertext: r.Ciphertext}
 		return nil
@@ -2799,31 +2965,43 @@ func (s *Etcd) GetSecret(ctx context.Context, app, name string, version int) (se
 	return out, err
 }
 
-// ListSecrets describes an app's secrets. See Store.
-func (s *Etcd) ListSecrets(ctx context.Context, app string) ([]SecretInfo, error) {
+// ListSecrets describes the keys of a secret. See Store.
+func (s *Etcd) ListSecrets(ctx context.Context, secret string) ([]SecretInfo, error) {
 	var out []SecretInfo
 	err := s.view(ctx, func(t *etx) error {
 		out = nil
-		latest, err := t.latestVersions(app)
+		latest, err := t.latestVersions(secret)
 		if err != nil {
 			return err
 		}
-		for _, name := range slices.Sorted(maps.Keys(latest)) {
+		for _, key := range slices.Sorted(maps.Keys(latest)) {
 			var r secretRec
-			if _, err := t.get(secretKey(app, name, latest[name]), &r); err != nil {
+			if _, err := t.get(secretKey(secret, key, latest[key]), &r); err != nil {
 				return err
 			}
-			out = append(out, SecretInfo{App: app, Name: name, Version: latest[name], UpdatedAt: fromMS(r.CreatedAt), UpdatedBy: r.CreatedBy})
+			out = append(out, SecretInfo{App: secret, Name: key, Version: latest[key], UpdatedAt: fromMS(r.CreatedAt), UpdatedBy: r.CreatedBy})
 		}
-		var revs []revRec
-		if err := listInto(t, pfxRevs+app+"/", func(_ string, r revRec) error { revs = append(revs, r); return nil }); err != nil {
+		pins, err := t.secretPins(secret, false)
+		if err != nil {
 			return err
 		}
-		slices.Reverse(revs) // newest first
-		for _, r := range revs {
+		// Newest revision first, the secret's own app before others.
+		slices.SortStableFunc(pins, func(a, b secretPin) int {
+			if a.app != b.app {
+				if a.app == secret {
+					return -1
+				}
+				if b.app == secret {
+					return 1
+				}
+				return strings.Compare(a.app, b.app)
+			}
+			return b.rev.Seq - a.rev.Seq
+		})
+		for _, p := range pins {
 			for i := range out {
-				if _, ok := r.Secrets[out[i].Name]; ok {
-					out[i].UsedBy = append(out[i].UsedBy, r.Name)
+				if out[i].Name == p.key && !slices.Contains(out[i].UsedBy, p.rev.Name) {
+					out[i].UsedBy = append(out[i].UsedBy, p.rev.Name)
 				}
 			}
 		}
@@ -2832,46 +3010,110 @@ func (s *Etcd) ListSecrets(ctx context.Context, app string) ([]SecretInfo, error
 	return out, err
 }
 
-// DeleteSecret removes a secret. See Store.
-func (s *Etcd) DeleteSecret(ctx context.Context, app, name, actor string) error {
-	now := s.now()
-	return s.tx(ctx, func(t *etx) error {
-		a, ok, err := t.app(app)
+// ListSpaceSecrets describes the secrets of a space. See Store.
+func (s *Etcd) ListSpaceSecrets(ctx context.Context, space string) ([]SpaceSecret, error) {
+	var out []SpaceSecret
+	err := s.view(ctx, func(t *etx) error {
+		out = nil
+		if err := t.spaceExists(space); err != nil {
+			return err
+		}
+		kvs, err := t.list(pfxSecrets)
 		if err != nil {
 			return err
 		}
-		if ok {
-			for _, revName := range slices.Compact([]string{a.ActiveRevision, a.TargetRevision}) {
-				rev, err := t.revision(revName)
-				if err != nil {
-					return err
-				}
-				if _, ok := rev.Secrets[name]; ok {
-					return fmt.Errorf("secret %s is used by revision %s; deploy a spec without it first: %w", name, revName, ErrPrecondition)
-				}
+		byID := map[string]*SpaceSecret{}
+		keys := map[string]map[string]bool{}
+		for _, e := range kvs {
+			id, rest, _ := strings.Cut(strings.TrimPrefix(e.key, pfxSecrets), "/")
+			if sp, name, ok := spec.SplitAppID(id); !ok || sp != space || !strings.Contains(rest, "/") {
+				continue
+			} else if byID[id] == nil {
+				byID[id] = &SpaceSecret{ID: id, Name: name}
+				keys[id] = map[string]bool{}
+			}
+			key, _, _ := strings.Cut(rest, "/")
+			keys[id][key] = true
+			var r secretRec
+			if err := json.Unmarshal(e.val, &r); err != nil {
+				return fmt.Errorf("decode %s: %w", e.key, err)
+			}
+			if at := fromMS(r.CreatedAt); at.After(byID[id].UpdatedAt) {
+				byID[id].UpdatedAt, byID[id].UpdatedBy = at, r.CreatedBy
 			}
 		}
-		kvs, err := t.list(pfxSecrets + app + "/" + name + "/")
+		for _, id := range slices.Sorted(maps.Keys(byID)) {
+			sec := byID[id]
+			sec.Keys = len(keys[id])
+			pins, err := t.servingPins(id)
+			if err != nil {
+				return err
+			}
+			for _, p := range pins {
+				if !slices.Contains(sec.UsedBy, p.app) {
+					sec.UsedBy = append(sec.UsedBy, p.app)
+				}
+			}
+			slices.Sort(sec.UsedBy)
+			out = append(out, *sec)
+		}
+		return nil
+	})
+	return out, err
+}
+
+// DeleteSecret removes a key of a secret, or with key "" every key. See
+// Store.
+func (s *Etcd) DeleteSecret(ctx context.Context, secret, key, actor string) error {
+	now := s.now()
+	return s.tx(ctx, func(t *etx) error {
+		pins, err := t.servingPins(secret)
+		if err != nil {
+			return err
+		}
+		for _, p := range pins {
+			if key == "" || p.key == key {
+				what := "secret " + key
+				if key == "" {
+					what = "key " + p.key + " of secret " + secret
+				}
+				return fmt.Errorf("%s is used by revision %s; deploy a spec without it first: %w", what, p.rev.Name, ErrPrecondition)
+			}
+		}
+		prefix := pfxSecrets + secret + "/"
+		if key != "" {
+			prefix += key + "/"
+		}
+		kvs, err := t.list(prefix)
 		if err != nil {
 			return err
 		}
 		if len(kvs) == 0 {
-			return notFoundf("secret %s/%s", app, name)
-		}
-		last := 0
-		for _, e := range kvs {
-			if _, v, ok := splitSecretKey(e.key, app); ok {
-				last = max(last, v)
+			if key == "" {
+				return notFoundf("secret %s", secret)
 			}
-			t.delete(e.key)
+			return notFoundf("secret %s/%s", secret, key)
 		}
+		last := map[string]int{}
+		for _, e := range kvs {
+			if k, v, ok := splitSecretKey(e.key, secret); ok {
+				last[k] = max(last[k], v)
+			}
+		}
+		t.deletePrefix(prefix)
 		// A version number names one value forever: the next set
 		// continues after the deleted ones (revisions and the leader's
 		// cache of opened secrets rely on it).
-		if err := t.put(pfxSecretSeq+app+"/"+name, last); err != nil {
-			return err
+		for _, k := range slices.Sorted(maps.Keys(last)) {
+			if err := t.put(pfxSecretSeq+secret+"/"+k, last[k]); err != nil {
+				return err
+			}
 		}
-		return t.audit(now, actor, "secret.delete", app, name)
+		if key == "" {
+			t.deletePrefix(pfxSecretUsers + secret + "/")
+			return t.audit(now, actor, "secret.delete", secret, "")
+		}
+		return t.audit(now, actor, "secret.delete", secret, key)
 	})
 }
 
@@ -2946,6 +3188,12 @@ var migrations = []migration{
 	// the state lost (a restore from an older backup) is refused. Servers
 	// that would accept such a certificate can no longer lead.
 	migrateUsers,
+	// 14 -> 15: secrets belong to a space (ADR 0052): a revision may pin
+	// SECRET/KEY, a key of another secret of its space, and secretusers/
+	// names the apps that do. Nothing to rewrite (an app's secrets already
+	// are the keys of the secret with its ID); servers that would read
+	// such a pin as a key of the app's own secret can no longer lead.
+	func(*etx) error { return nil },
 }
 
 // StoredSchema returns the schema the keyspace is written in.

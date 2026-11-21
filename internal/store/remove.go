@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"slices"
 )
 
 // MarkAppRemoving marks app for removal. See Store.
@@ -57,10 +58,20 @@ func (s *Etcd) DeleteApp(ctx context.Context, app string) error {
 		}
 		// One operation each, however many revisions and secret versions:
 		// a transaction has a bounded number of them.
+		// The secret with the app's ID goes with it, unless another app or
+		// job of the space still uses its keys (ADR 0052).
+		pins, err := t.secretPins(app, true)
+		if err != nil {
+			return err
+		}
+		shared := slices.ContainsFunc(pins, func(p secretPin) bool { return p.app != app })
 		t.delete(pfxApps + app)
 		t.deletePrefix(pfxRevs + app + "/")
-		t.deletePrefix(pfxSecrets + app + "/")
-		t.deletePrefix(pfxSecretSeq + app + "/")
+		if !shared {
+			t.deletePrefix(pfxSecrets + app + "/")
+			t.deletePrefix(pfxSecretSeq + app + "/")
+			t.deletePrefix(pfxSecretUsers + app + "/")
+		}
 		// Domains only this app used go with it: a space that routes one
 		// later (the same space included, once recreated) proves it
 		// afresh with a new token.

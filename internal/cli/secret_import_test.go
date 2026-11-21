@@ -14,7 +14,7 @@ import (
 
 func TestParseSecretFile(t *testing.T) {
 	t.Parallel()
-	got, err := parseSecretFile(strings.NewReader("# a comment\n\nDATABASE_URL=postgres://u:p@h/db?a=b\r\nEMPTY=\n  # indented comment\nQUOTED=\"kept\"\nFCM_KEY=-----BEGIN\\nx\\n=\n"))
+	got, err := parseSecretFile(strings.NewReader("# a comment\n\nDATABASE_URL=postgres://u:p@h/db?a=b\r\nEMPTY=\n  # indented comment\nQUOTED=\"kept\"\nFCM_KEY=-----BEGIN\\nx\\n=\n"), true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +46,7 @@ func TestParseSecretFileRefusesWithoutQuoting(t *testing.T) {
 		"same name":      "A_B=" + secret + "\na_b=2\n",
 		"bad secret key": "_A=" + secret + "\n",
 	} {
-		_, err := parseSecretFile(strings.NewReader(in))
+		_, err := parseSecretFile(strings.NewReader(in), true)
 		if err == nil {
 			t.Errorf("%s: accepted", name)
 			continue
@@ -58,7 +58,7 @@ func TestParseSecretFileRefusesWithoutQuoting(t *testing.T) {
 			t.Errorf("%s: error names no line: %v", name, err)
 		}
 	}
-	if _, err := parseSecretFile(strings.NewReader("A=" + strings.Repeat("x", 70<<20))); err == nil {
+	if _, err := parseSecretFile(strings.NewReader("A="+strings.Repeat("x", 70<<20)), true); err == nil {
 		t.Error("an oversized line was accepted")
 	}
 }

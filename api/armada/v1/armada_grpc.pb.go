@@ -42,6 +42,7 @@ const (
 	AdminService_SetSecret_FullMethodName                = "/armada.v1.AdminService/SetSecret"
 	AdminService_ListSecrets_FullMethodName              = "/armada.v1.AdminService/ListSecrets"
 	AdminService_DeleteSecret_FullMethodName             = "/armada.v1.AdminService/DeleteSecret"
+	AdminService_ListSpaceSecrets_FullMethodName         = "/armada.v1.AdminService/ListSpaceSecrets"
 	AdminService_CreateJoinToken_FullMethodName          = "/armada.v1.AdminService/CreateJoinToken"
 	AdminService_CordonNode_FullMethodName               = "/armada.v1.AdminService/CordonNode"
 	AdminService_LabelNode_FullMethodName                = "/armada.v1.AdminService/LabelNode"
@@ -125,6 +126,7 @@ type AdminServiceClient interface {
 	SetSecret(ctx context.Context, in *SetSecretRequest, opts ...grpc.CallOption) (*SetSecretResponse, error)
 	ListSecrets(ctx context.Context, in *ListSecretsRequest, opts ...grpc.CallOption) (*ListSecretsResponse, error)
 	DeleteSecret(ctx context.Context, in *DeleteSecretRequest, opts ...grpc.CallOption) (*DeleteSecretResponse, error)
+	ListSpaceSecrets(ctx context.Context, in *ListSpaceSecretsRequest, opts ...grpc.CallOption) (*ListSpaceSecretsResponse, error)
 	CreateJoinToken(ctx context.Context, in *CreateJoinTokenRequest, opts ...grpc.CallOption) (*CreateJoinTokenResponse, error)
 	CordonNode(ctx context.Context, in *CordonNodeRequest, opts ...grpc.CallOption) (*CordonNodeResponse, error)
 	LabelNode(ctx context.Context, in *LabelNodeRequest, opts ...grpc.CallOption) (*LabelNodeResponse, error)
@@ -462,6 +464,16 @@ func (c *adminServiceClient) DeleteSecret(ctx context.Context, in *DeleteSecretR
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(DeleteSecretResponse)
 	err := c.cc.Invoke(ctx, AdminService_DeleteSecret_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) ListSpaceSecrets(ctx context.Context, in *ListSpaceSecretsRequest, opts ...grpc.CallOption) (*ListSpaceSecretsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListSpaceSecretsResponse)
+	err := c.cc.Invoke(ctx, AdminService_ListSpaceSecrets_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -939,6 +951,7 @@ type AdminServiceServer interface {
 	SetSecret(context.Context, *SetSecretRequest) (*SetSecretResponse, error)
 	ListSecrets(context.Context, *ListSecretsRequest) (*ListSecretsResponse, error)
 	DeleteSecret(context.Context, *DeleteSecretRequest) (*DeleteSecretResponse, error)
+	ListSpaceSecrets(context.Context, *ListSpaceSecretsRequest) (*ListSpaceSecretsResponse, error)
 	CreateJoinToken(context.Context, *CreateJoinTokenRequest) (*CreateJoinTokenResponse, error)
 	CordonNode(context.Context, *CordonNodeRequest) (*CordonNodeResponse, error)
 	LabelNode(context.Context, *LabelNodeRequest) (*LabelNodeResponse, error)
@@ -1099,6 +1112,9 @@ func (UnimplementedAdminServiceServer) ListSecrets(context.Context, *ListSecrets
 }
 func (UnimplementedAdminServiceServer) DeleteSecret(context.Context, *DeleteSecretRequest) (*DeleteSecretResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method DeleteSecret not implemented")
+}
+func (UnimplementedAdminServiceServer) ListSpaceSecrets(context.Context, *ListSpaceSecretsRequest) (*ListSpaceSecretsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListSpaceSecrets not implemented")
 }
 func (UnimplementedAdminServiceServer) CreateJoinToken(context.Context, *CreateJoinTokenRequest) (*CreateJoinTokenResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method CreateJoinToken not implemented")
@@ -1632,6 +1648,24 @@ func _AdminService_DeleteSecret_Handler(srv interface{}, ctx context.Context, de
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(AdminServiceServer).DeleteSecret(ctx, req.(*DeleteSecretRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_ListSpaceSecrets_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListSpaceSecretsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).ListSpaceSecrets(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminService_ListSpaceSecrets_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).ListSpaceSecrets(ctx, req.(*ListSpaceSecretsRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -2460,6 +2494,10 @@ var AdminService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "DeleteSecret",
 			Handler:    _AdminService_DeleteSecret_Handler,
+		},
+		{
+			MethodName: "ListSpaceSecrets",
+			Handler:    _AdminService_ListSpaceSecrets_Handler,
 		},
 		{
 			MethodName: "CreateJoinToken",

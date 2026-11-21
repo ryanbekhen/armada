@@ -169,7 +169,14 @@ func TestParseRejects(t *testing.T) {
 		{"reserved env", base + "env:\n  - name: ARMADA_APP\n    value: x\n", "env[0].name", false},
 		{"reserved PORT", base + "env:\n  - name: PORT\n    value: x\n", "env[0].name", false},
 		{"duplicate env", base + "env:\n  - name: A\n    value: x\n  - name: A\n    value: y\n", "env[1].name", false},
-		{"bad secretRef", base + "env:\n  - name: DB\n    secretRef: Db_Pass\n", "env[0].secretRef", false},
+		{"bad secretRef", base + "env:\n  - name: DB\n    secretRef: db.pass\n", "env[0].secretRef", false},
+		{"secretRef two slashes", base + "env:\n  - name: DB\n    secretRef: a/b/c\n", "env[0].secretRef", false},
+		{"secretRef bad secret", base + "env:\n  - name: DB\n    secretRef: Db/url\n", "env[0].secretRef", false},
+		{"secretRef no key", base + "env:\n  - name: DB\n    secretRef: db/\n", "env[0].secretRef", false},
+		{"envFrom unknown word", base + "envFrom: all\n", "", false},
+		{"envFrom bad secret", base + "envFrom:\n  - secret: Db\n", "envFrom[0].secret", false},
+		{"envFrom twice", base + "envFrom:\n  - secret: db\n  - secret: db\n", "envFrom[1].secret", false},
+		{"envFrom unknown field", base + "envFrom:\n  - secret: db\n    prefix: X_\n", "", false},
 		{"value and secretRef", base + "env:\n  - name: DB\n    value: x\n    secretRef: db\n", "env[0]", false},
 		{"secret file relative", base + "secretFiles:\n  - secretRef: k\n    path: run/k\n", "secretFiles[0].path", false},
 		{"secret file dotdot", base + "secretFiles:\n  - secretRef: k\n    path: /run/../etc/shadow\n", "secretFiles[0].path", false},
@@ -779,11 +786,11 @@ func TestWithSecretEnv(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, err := a.WithSecretEnv([]string{"redis-url"}); err != nil || len(got.Env) != 1 {
+	if got, err := a.WithSecretEnv(map[string][]string{"": {"redis-url"}}); err != nil || len(got.Env) != 1 {
 		t.Errorf("without envFrom: %v %v", got, err)
 	}
-	a.EnvFrom = EnvFromSecrets
-	got, err := a.WithSecretEnv([]string{"tls-key", "database-url", "redis-url", "port", "armada-token", "9lives"})
+	a.EnvFrom = EnvFrom{Own: true}
+	got, err := a.WithSecretEnv(map[string][]string{"": {"tls-key", "database-url", "redis-url", "port", "armada-token", "9lives"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -806,7 +813,7 @@ func TestIngressDNSSecret(t *testing.T) {
 	if !slices.Contains(a.SecretRefs(), "cf-token") {
 		t.Errorf("refs = %v", a.SecretRefs())
 	}
-	got, err := a.WithSecretEnv([]string{"cf-token", "database-url"})
+	got, err := a.WithSecretEnv(map[string][]string{"": {"cf-token", "database-url"}})
 	if err != nil {
 		t.Fatal(err)
 	}

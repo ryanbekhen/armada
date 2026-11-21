@@ -45,7 +45,7 @@ placement:
 	if err != nil {
 		t.Fatal(err)
 	}
-	withSecrets, err := a.WithSecretEnv([]string{"redis-url", "database-url"})
+	withSecrets, err := a.WithSecretEnv(map[string][]string{"": {"redis-url", "database-url"}})
 	if err != nil {
 		t.Fatal(err)
 	}

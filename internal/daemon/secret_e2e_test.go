@@ -56,7 +56,7 @@ func testSecrets(t *testing.T, d *fake.Driver, cli func(...string) (int, string,
 	if code, _, stderr := cliIn("", "secret", "set", "api", "db-pass"); code == 0 || !strings.Contains(stderr, "empty") {
 		t.Errorf("empty secret: code=%d stderr=%q", code, stderr)
 	}
-	if code, _, stderr := cliIn("x", "secret", "set", "api", "Bad_Name"); code == 0 || !strings.Contains(stderr, "secret name") {
+	if code, _, stderr := cliIn("x", "secret", "set", "api", "bad.name"); code == 0 || !strings.Contains(stderr, "key") {
 		t.Errorf("bad secret name: code=%d stderr=%q", code, stderr)
 	}
 	big := strings.Repeat("x", secrets.MaxSize+1)

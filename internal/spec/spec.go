@@ -56,9 +56,10 @@ type App struct {
 	Command    []string `yaml:"command,omitempty" json:"command,omitempty"`
 	Args       []string `yaml:"args,omitempty" json:"args,omitempty"`
 	Env        []EnvVar `yaml:"env,omitempty" json:"env,omitempty"`
-	// EnvFrom "secrets" gives the app every secret of its own as a variable
-	// (database-url becomes DATABASE_URL), resolved when it is deployed.
-	EnvFrom string `yaml:"envFrom,omitempty" json:"envFrom,omitempty"`
+	// EnvFrom gives the app every key of its own secret ("secrets") or of
+	// the listed secrets of its space as a variable (database-url becomes
+	// DATABASE_URL), resolved when it is deployed (ADR 0029, ADR 0052).
+	EnvFrom EnvFrom `yaml:"envFrom,omitempty" json:"envFrom,omitzero"`
 	// EnvFromAdded names the variables envFrom added when the app was
 	// deployed, so an exported spec leaves them out (ADR 0032).
 	EnvFromAdded []string `yaml:"-" json:"envFromAdded,omitempty"`
