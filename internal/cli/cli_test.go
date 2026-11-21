@@ -66,7 +66,7 @@ func TestVersionRejectsBadInput(t *testing.T) {
 		wantErr string
 	}{
 		{"unknown output format", []string{"version", "-o", "yaml"}, `unsupported output format "yaml"`},
-		{"positional argument", []string{"version", "extra"}, `unknown command "extra"`},
+		{"positional argument", []string{"version", "extra"}, "armada version takes no arguments, got 1"},
 		{"unknown flag", []string{"version", "--nope"}, "unknown flag: --nope"},
 	}
 
@@ -153,10 +153,10 @@ func TestVolumeUsage(t *testing.T) {
 		"volume backup web data":                          "-o FILE",
 		"volume restore web data":                         "give an archive FILE or --snapshot",
 		"volume restore web data f.tgz --snapshot latest": "give an archive FILE or --snapshot",
-		"volume snapshot list web":                        "accepts 2 arg",
-		"volume snapshot create web data extra":           "accepts 2 arg",
-		"volume ls a b":                                   "accepts at most 1 arg",
-		"volume rm web":                                   "accepts 2 arg",
+		"volume snapshot list web":                        "missing VOLUME",
+		"volume snapshot create web data extra":           "too many arguments: expected APP VOLUME, got 3",
+		"volume ls a b":                                   "too many arguments: expected [APP], got 2",
+		"volume rm web":                                   "missing VOLUME",
 	} {
 		code, _, stderr := run(t, strings.Fields(args)...)
 		if code != 1 || !strings.Contains(stderr, want) {
@@ -220,5 +220,45 @@ func TestInstallCommand(t *testing.T) {
 		if got := installCommand(v); strings.Contains(got, "ARMADA_VERSION") {
 			t.Errorf("version %q pinned: %q", v, got)
 		}
+	}
+}
+
+func TestArgumentErrors(t *testing.T) {
+	t.Parallel()
+	for args, want := range map[string][]string{
+		"secret ls":        {"missing APP", "Usage: armada secret list APP", "armada secret list --help"},
+		"secret set web":   {"missing NAME", "Usage: armada secret set APP NAME"},
+		"secret set a b c": {"too many arguments: expected APP NAME, got 3"},
+		"app list x":       {"armada app list takes no arguments, got 1"},
+		"app list --bogus": {"unknown flag: --bogus", "armada app list --help"},
+		"node relay":       {"missing NODE"},
+		"job run show":     {"missing JOB RUN"},
+		"app traffic web":  {"missing REVISION=WEIGHT..."},
+	} {
+		code, _, stderr := run(t, strings.Fields(args)...)
+		for _, w := range want {
+			if code != 1 || !strings.Contains(stderr, w) {
+				t.Errorf("%q: code=%d stderr=%q, want %q", args, code, stderr, w)
+			}
+		}
+		if strings.Contains(stderr, "arg(s)") || strings.Contains(stderr, "s3cr3t") {
+			t.Errorf("%q: cobra's message left in %q", args, stderr)
+		}
+	}
+}
+
+func TestVerbsListedWithArguments(t *testing.T) {
+	t.Parallel()
+	code, stdout, _ := run(t, "secret")
+	if code != 0 {
+		t.Fatalf("code=%d", code)
+	}
+	for _, w := range []string{"list APP ", "set APP NAME ", "delete APP NAME ", "import APP FILE "} {
+		if !strings.Contains(stdout, w) {
+			t.Errorf("secret help lacks %q:\n%s", w, stdout)
+		}
+	}
+	if strings.Contains(stdout, "armada secret [flags]") {
+		t.Errorf("a noun shows a usage line of its own:\n%s", stdout)
 	}
 }
