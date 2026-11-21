@@ -14,13 +14,14 @@ import (
 )
 
 // serverLine is a replica slot in the configuration. Its address and weight
-// change through the Runtime API, so they say nothing about the structure.
-var serverLine = regexp.MustCompile(`(?m)^    server (s[0-9]+) .*$`)
+// change through the Runtime API, so they say nothing about the structure;
+// its sticky cookie does not (ADR 0036).
+var serverLine = regexp.MustCompile(`(?m)^    server (s[0-9]+) .*?(?:( cookie \S+).*)?$`)
 
 // sameStructure reports whether two configurations differ only in what the
 // Runtime API can change.
 func sameStructure(a, b []byte) bool {
-	return bytes.Equal(serverLine.ReplaceAll(a, []byte("    server $1")), serverLine.ReplaceAll(b, []byte("    server $1")))
+	return bytes.Equal(serverLine.ReplaceAll(a, []byte("    server $1$2")), serverLine.ReplaceAll(b, []byte("    server $1$2")))
 }
 
 // liveConfig prepares a new agent to take over a running proxy. It returns the
