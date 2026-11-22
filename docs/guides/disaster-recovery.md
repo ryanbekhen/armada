@@ -251,8 +251,9 @@ armada server join-token              # then join a new machine, as in the opera
 ```
 
 Remove the dead server first, so the cluster never counts a member that
-will not come back. If the old machine still exists, wipe its data
-directory: it holds the CA key and the master key. See
+will not come back. If the old machine still exists,
+[wipe it](../operations.md#wiping-a-machine): its data directory holds the
+CA key and the master key. See
 [adding a server](../operations.md#adding-a-server).
 
 ### The only server, or a majority of servers, is lost
@@ -288,8 +289,15 @@ certificate is issued for it):
    armada server list      # former servers show "not a member"
    ```
 
-5. Delete the former servers with `armada server delete`, wipe their data
-   directories, and join them (or new machines) again as servers.
+5. Delete each former server and its node (the node keeps the name
+   otherwise), [wipe the machine](../operations.md#wiping-a-machine), and
+   join it (or a new machine) again as a server; set its node labels again:
+
+   ```bash
+   armada server delete cp-2
+   armada node delete cp-2 --force
+   armada server join-token
+   ```
 
 Everything that changed after the backup is gone: deploy those apps and set
 those secrets again, join nodes that joined since, and delete nodes you had

@@ -164,10 +164,26 @@ armada node delete NAME                       # its agent, if you no longer want
 ```
 
 The leader cannot remove itself: stop it first, and run the command once
-another server leads. Then **wipe the removed server's data directory**: it
+another server leads. Then **[wipe the removed server](#wiping-a-machine)**: it
 still holds the CA key and the master key. Remove a dead server before
 adding its replacement, so the cluster never counts a member that will not
 come back.
+
+### Wiping a machine
+
+Before a removed server or node joins again, or leaves for good, wipe what
+Armada left on it:
+
+```bash
+sudo systemctl disable --now armada-server armada-agent
+sudo armadad runtime reset                       # removes Armada's containers
+sudo systemctl disable --now armada-runtime      # nodes on containerd only
+sudo umount -R /var/lib/armada/volumes           # the agent mounts it onto itself
+sudo rm -rf /var/lib/armada
+```
+
+On a node on containerd, `runtime reset` needs `armada-runtime` running:
+start it first if it was stopped.
 
 ## What is in the data directory
 
@@ -341,9 +357,15 @@ is not supported in v0.1.
 5. Check: `armada node list` and `armada cluster status`. Agents reconnect on their
    own within seconds.
 6. With several servers before: the restored server forms a cluster of one.
-   `armada server list` shows the others as `not a member`; delete them with
-   `armada server delete`, wipe their data directories, and join them again
-   as new servers.
+   `armada server list` shows the others as `not a member`. Delete each
+   one, and its node, which keeps the name otherwise; then
+   [wipe the machine](#wiping-a-machine) and join it again as a new server
+   (with `armada server join-token`), and set its node labels again:
+
+   ```bash
+   armada server delete server2
+   armada node delete server2 --force
+   ```
 
 Everything that changed after the backup is gone:
 
@@ -1797,4 +1819,4 @@ sudo systemctl disable --now armada-runtime
 sudo ip link delete armada0
 ```
 
-and delete its data directory.
+and delete its data directory ([wiping a machine](#wiping-a-machine)).
