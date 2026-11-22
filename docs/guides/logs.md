@@ -183,7 +183,7 @@ app writing them.
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| `--since` or the log store misses a replica | The replica's container was created before the nodes were upgraded | The next deploy recreates it; to do it now, change anything, such as `armada app deploy api --env RESTARTED_AT=$(date +%s)` |
+| `--since` or the log store misses a replica | The replica's container was created before the nodes were upgraded | The next deploy recreates it; to do it now, `armada app restart api` |
 | `[armada] node n2: searched the newest 1024 MiB of output on this node; narrow it ...` | A busy app; the node stopped reading | Narrow with `--until`, `--replica`, or `--grep` |
 | `[armada] node n2: did not answer` | The node is not connected | `armada node list`; its history is searched once it is back |
 | A line `[armada: dropped N bytes of output over the log rate limit ...]` | The app writes more than 1 MiB a second | Log less, or send fewer debug lines |

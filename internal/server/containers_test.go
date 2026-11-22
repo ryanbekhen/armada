@@ -128,8 +128,41 @@ func TestContainersInCluster(t *testing.T) {
 	if out, err := logs("log"); err != nil || strings.Contains(out, "[armada]") {
 		t.Errorf("sidecar logs %q %v", out, err)
 	}
-	if out, err := logs("ghost"); err != nil || !strings.Contains(out, "has no container ghost") {
-		t.Errorf("unknown container logs %q %v", out, err)
+	// An unknown container is refused with the replica's containers named
+	// (ADR 0052).
+	if _, err := logs("ghost"); status.Code(err) != codes.NotFound || !strings.Contains(err.Error(), `web has no container "ghost"; its containers: app, log, migrate`) {
+		t.Errorf("unknown container logs: %v", err)
+	}
+	if _, err := logs("migrate"); err != nil {
+		t.Errorf("init container logs: %v", err)
+	}
+
+	// Status names each replica's containers.
+	rs := c.running("web")
+	if len(rs) != 1 || !slices.Equal(rs[0].Containers, []string{"app", "log"}) || !slices.Equal(rs[0].InitContainers, []string{"migrate"}) {
+		t.Fatalf("replica containers %v", rs)
+	}
+	// Exec takes the short name replica list prints, and running
+	// containers only.
+	short := rs[0].Id[strings.LastIndex(rs[0].Id, "-")+1:]
+	if r := execCmd(c, c.admin, &armadav1.ExecStart{App: "web", Replica: short, Container: "log", Cmd: []string{"true"}}, ""); r.err != nil || r.replica != rs[0].Id {
+		t.Errorf("exec by short name = %+v", r)
+	}
+	for name, tc := range map[string]struct {
+		start *armadav1.ExecStart
+		code  codes.Code
+		msg   string
+	}{
+		"unknown container": {&armadav1.ExecStart{App: "web", Container: "logs", Cmd: []string{"sh"}}, codes.NotFound, `web has no container "logs"; its containers: app, log`},
+		"init container":    {&armadav1.ExecStart{App: "web", Container: "migrate", Cmd: []string{"sh"}}, codes.FailedPrecondition, "armada app logs web --container migrate"},
+		"unknown replica":   {&armadav1.ExecStart{App: "web", Replica: "zzzzz", Cmd: []string{"sh"}}, codes.NotFound, `web has no replica "zzzzz"; its replicas: ` + short},
+	} {
+		if r := execCmd(c, c.admin, tc.start, ""); status.Code(r.err) != tc.code || !strings.Contains(r.err.Error(), tc.msg) {
+			t.Errorf("%s: %v, want %s %q", name, r.err, tc.code, tc.msg)
+		}
+	}
+	if _, err := c.admin.Logs(c.ctx, &armadav1.LogsRequest{App: "web", Replica: short}); err != nil {
+		t.Errorf("logs by short name: %v", err)
 	}
 	if _, err := logs("Bad Name"); status.Code(err) != codes.InvalidArgument {
 		t.Errorf("bad container name: %v", err)

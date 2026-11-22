@@ -207,8 +207,8 @@ pins the new version. Two things to keep in mind:
   removed it (every node removes images that no container uses and that
   were pulled more than an hour ago). Revoke
   an old token only once you no longer need to roll back past the rotation.
-- `--no-rollout` stores the new version without a rollout; the next deploy
-  picks it up.
+- `--no-rollout` stores the new version without a rollout; the next deploy,
+  or `armada app restart APP`, picks it up.
 
 ## Troubleshooting
 

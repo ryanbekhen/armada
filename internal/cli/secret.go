@@ -453,7 +453,7 @@ func showSecret(cmd *cobra.Command, g *globals, o *outputFlag, secret string) er
 		return printJSON(cmd.OutOrStdout(), resp)
 	}
 	if len(resp.GetSecrets()) == 0 {
-		return fmt.Errorf("secret %s has no keys; armada secret list shows the space's secrets", secret)
+		return noSecret(cmd.Context(), client, secret)
 	}
 	tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 4, 2, ' ', 0)
 	_, _ = fmt.Fprintln(tw, "KEY\tVERSION\tUPDATED\tBY\tUSED BY")
@@ -593,4 +593,18 @@ func revisionRuns(app string, revisions []string) string {
 		i = j + 1
 	}
 	return strings.Join(parts, ",")
+}
+
+// noSecret says a secret has no keys, and names the secrets its space has.
+func noSecret(ctx context.Context, client armadav1.AdminServiceClient, secret string) error {
+	space, name, _ := spec.SplitAppID(secret)
+	list, err := client.ListSpaceSecrets(ctx, &armadav1.ListSpaceSecretsRequest{Space: space})
+	if err != nil || len(list.GetSecrets()) == 0 {
+		return fmt.Errorf("space %s has no secret %q; create one with armada secret create %s --from-env-file FILE", space, name, name)
+	}
+	names := make([]string, 0, len(list.Secrets))
+	for _, s := range list.Secrets {
+		names = append(names, s.Name)
+	}
+	return fmt.Errorf("space %s has no secret %q; its secrets: %s", space, name, choiceList(names))
 }

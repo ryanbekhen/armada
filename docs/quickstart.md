@@ -396,7 +396,9 @@ certificates of their own.
 | --- | --- |
 | Apps | `armada app list` (every space: `-A`), `armada app show hello`, `armada cluster status` for the whole cluster |
 | Logs | `armada app logs hello -f` |
-| Shell in a replica | `armada app exec hello -it -- sh` (a single command: `armada app exec hello -- env`) |
+| Shell in a replica | `armada app exec hello` (a single command: `armada app exec hello -- env`; the replicas: `armada replica list hello`) |
+| Replace every replica | `armada app restart hello` (also picks up changed secrets) |
+| Tab completion of names | `armada completion bash --help` (or `zsh`, `fish`) |
 | Scale | `armada app deploy hello --min 3` (a fixed 3); `--min 1 --max 5 --scale-cpu 70` scales with load |
 | Scale with load | `armada app deploy hello --min 2 --max 10 --scale-http 50` (or `--scale-cpu 70`, `--scale-memory 80`; see [spec reference](spec-reference.md#autoscaling)); `scale.min: 0` in the spec stops idle apps until the next request ([scale to zero](spec-reference.md#scale-to-zero)) |
 | Environment | `armada app deploy hello --env LOG_LEVEL=debug`, `--remove-env LOG_LEVEL` |

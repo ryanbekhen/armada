@@ -286,7 +286,8 @@ app behind your back. Deploy without `--diff`, test, then run the same for
 production.
 
 A key you set with `--from-env-file` reaches the app with this deploy. `secret set` on a secret the app already uses rolls the app out by
-itself (`--no-rollout` stores it for the next deploy). A secret that is new
+itself (`--no-rollout` stores it for the next deploy or `armada app
+restart`). A secret that is new
 since the last deploy becomes a variable through `envFrom` only with the
 next deploy.
 
@@ -359,7 +360,8 @@ Without them, the spec is taken as written.
 | `Error: the spec uses variables that are not set: TAG` | A variable has no value | Add it to the vars file or pass `--var TAG=...` |
 | `app api.staging references secrets that are not set: jwt-signing-key` | The spec names a secret the app does not have in this space | `armada secret set api jwt-signing-key --space staging` |
 | `domain api.example.com is used by space staging` | A domain belongs to one space | Use a different domain per environment |
-| The app does not see a new secret | `--from-env-file` does not roll out, and `envFrom` takes the list at deploy | Deploy again (the same file and tag is fine) |
+| The app does not see a new value | `--from-env-file` and `--no-rollout` do not roll out | `armada app restart APP` |
+| The app does not see a new key through `envFrom` | `envFrom` takes the list of keys at deploy | Deploy again (the same file and tag is fine) |
 | `armada app list` shows nothing | You are in another space | `armada space list`, `--space NAME`, or `armada app list -A` |
 | Replicas fail to start with a message about the secrets directory | The node's secrets directory is not on tmpfs, so `secretFiles` cannot be written | Run `armadad doctor` on that node and fix the `FAIL` |
 

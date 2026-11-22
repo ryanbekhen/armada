@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"os/exec"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -111,8 +112,9 @@ func TestHelp(t *testing.T) {
 			t.Errorf("help output missing %q:\n%s", want, stdout)
 		}
 	}
-	if strings.Contains(stdout, "completion ") {
-		t.Errorf("completion command should be hidden from help:\n%s", stdout)
+	// The completion command is named in the text, not listed as a noun.
+	if regexp.MustCompile(`(?m)^\s+completion\s`).MatchString(stdout) || !strings.Contains(stdout, "armada completion bash --help") {
+		t.Errorf("completion command should be named in the text and hidden from the list:\n%s", stdout)
 	}
 }
 

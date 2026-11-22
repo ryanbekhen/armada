@@ -223,11 +223,12 @@ armada app events shop -f
 ```bash
 armada app logs shop                 # the last 100 lines of each replica, prefixed with its ID
 armada app logs shop -f              # keep streaming
-armada app logs shop --replica shop-r3-8xk2p --tail 500
+armada replica list shop             # the replicas, by short name, with their nodes and containers
+armada app logs shop --replica 8xk2p --tail 500
 armada app logs shop -f --grep error # only errors, as they happen
 armada app logs shop --since 2h      # the last two hours, replicas that are gone included
 armada app exec shop -- env          # one command in a ready replica
-armada app exec shop -it -- sh       # a shell, if the image has one
+armada app exec shop                 # a shell, if the image has one
 ```
 
 `exec` runs with the container's own user and security settings, and what

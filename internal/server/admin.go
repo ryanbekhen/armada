@@ -226,6 +226,40 @@ func (s *Server) Rollback(ctx context.Context, req *armadav1.RollbackRequest) (*
 	return &armadav1.RollbackResponse{Revision: rev.Name}, nil
 }
 
+// RestartApp makes a new revision of an app's spec with the latest secret
+// values and rolls it out (ADR 0052): the way an app picks up a changed
+// secret, or starts every replica afresh.
+func (s *Server) RestartApp(ctx context.Context, req *armadav1.RestartAppRequest) (*armadav1.RestartAppResponse, error) {
+	acc := accessFrom(ctx)
+	if err := acc.app(req.GetApp()); err != nil {
+		return nil, err
+	}
+	app, err := s.store.GetApp(ctx, req.GetApp())
+	if err != nil {
+		return nil, storeErr(err)
+	}
+	// The stored spec serves again, with the secrets' latest values: the
+	// checks of a rollback, and of a deploy for the values.
+	if err := s.checkStoredRevision(ctx, acc, app.Name, app.TargetRevision); err != nil {
+		return nil, err
+	}
+	target, err := s.store.GetRevision(ctx, app.TargetRevision)
+	if err != nil {
+		return nil, storeErr(err)
+	}
+	if err := s.checkBackupTargets(ctx, acc, app.Name, target.Spec, s.latestValue(ctx, app.Name)); err != nil {
+		return nil, err
+	}
+	rev, err := s.store.RestartApp(ctx, app.Name, actor(ctx))
+	if err != nil {
+		return nil, storeErr(err)
+	}
+	s.log.Info("restart", "app", app.Name, "revision", rev.Name, "by", actor(ctx))
+	s.record(ctx, store.Event{Kind: eventRollout, Object: rev.Name, App: app.Name, Reason: "Restarted", Message: "restarting as " + rev.Name})
+	s.Trigger()
+	return &armadav1.RestartAppResponse{Revision: rev.Name}, nil
+}
+
 // checkStoredRevision runs Deploy's placement and NFS checks on the stored
 // spec of revision name of app, which a non-cluster-admin makes serve
 // again (a rollback, or traffic): it cannot bring back an NFS export, a
@@ -349,7 +383,7 @@ func (s *Server) Status(ctx context.Context, req *armadav1.StatusRequest) (*arma
 			if a.Spec.IsJob() {
 				continue // `armada job list`
 			}
-			resp.Apps = append(resp.Apps, s.appStatusProto(ctx, a, byApp[a.Name], placementMessage(ctx, revs, sched, all, a), src))
+			resp.Apps = append(resp.Apps, s.appStatusProto(ctx, a, byApp[a.Name], revs, placementMessage(ctx, revs, sched, all, a), src))
 		}
 	}
 
@@ -416,12 +450,12 @@ func (s *Server) appStatus(ctx context.Context, acc access, name string) (*armad
 			return nil, storeErr(err)
 		}
 	}
-	as := s.appStatusProto(ctx, a, own, placementMessage(ctx, revs, sched, all, a), s.appURLSource(ctx, a))
+	as := s.appStatusProto(ctx, a, own, revs, placementMessage(ctx, revs, sched, all, a), s.appURLSource(ctx, a))
 	return &armadav1.StatusResponse{Apps: []*armadav1.AppStatus{as}}, nil
 }
 
 // appStatusProto describes app with its replicas.
-func (s *Server) appStatusProto(ctx context.Context, a store.App, reps []store.Replica, placement string, src urlSources) *armadav1.AppStatus {
+func (s *Server) appStatusProto(ctx context.Context, a store.App, reps []store.Replica, revs *revisionCache, placement string, src urlSources) *armadav1.AppStatus {
 	as := &armadav1.AppStatus{
 		Name: a.Name, Image: a.Spec.Image, ActiveRevision: a.ActiveRevision,
 		DesiredReplicas:  int32(a.Replicas), //nolint:gosec // bounded by spec.MaxReplicas
@@ -457,13 +491,17 @@ func (s *Server) appStatusProto(ctx context.Context, a store.App, reps []store.R
 		as.Autoscale.LastScaledAt = optionalTime(a.ScaledAt)
 	}
 	for _, r := range reps {
-		as.Replicas = append(as.Replicas, &armadav1.ReplicaStatus{
+		rs := &armadav1.ReplicaStatus{
 			Id: r.ID, Revision: r.Revision, NodeId: r.NodeID, State: r.State,
 			Message: r.Message, Address: r.Address, UpdatedAt: timestamppb.New(r.UpdatedAt),
 			Ready: r.Ready, Draining: r.Draining(),
 			Restarts: int32(min(r.Restarts, math.MaxInt32)), LastRestart: r.LastRestart, //nolint:gosec // bounded by min
 			CreatedAt: optionalTime(r.CreatedAt), LastRestartAt: optionalTime(r.LastRestartAt),
-		})
+		}
+		if rev, err := revs.get(ctx, r.Revision); err == nil {
+			rs.Containers, rs.InitContainers = specContainers(rev.Spec)
+		}
+		as.Replicas = append(as.Replicas, rs)
 	}
 	return as
 }
@@ -491,6 +529,16 @@ func (s *Server) Logs(req *armadav1.LogsRequest, stream armadav1.AdminService_Lo
 	if !search && (req.GetUntil() != nil || req.GetLimit() != 0) {
 		return status.Error(codes.InvalidArgument, "--until and --limit search the log history: give --since too")
 	}
+	if req.GetReplica() != "" {
+		// A replica's short name (armada replica list), or its ID; the log
+		// history also holds replicas that are gone, by ID.
+		switch r, err := findReplica(app.Name, reps, req.GetReplica()); {
+		case err == nil:
+			req.Replica = r.ID
+		case !search:
+			return err
+		}
+	}
 	switch {
 	case req.GetRun() != 0 && !app.Spec.IsJob():
 		return status.Errorf(codes.InvalidArgument, "%s is an app; --run is for jobs", app.Name)
@@ -516,9 +564,26 @@ func (s *Server) Logs(req *armadav1.LogsRequest, stream armadav1.AdminService_Lo
 			}
 		}
 		if len(only) == 0 {
-			return status.Errorf(codes.NotFound, "replica %s not found in app %s", req.GetReplica(), req.GetApp())
+			if _, err := findReplica(app.Name, reps, req.GetReplica()); err != nil {
+				return err
+			}
 		}
 		reps = only
+	}
+	if !search && !app.Spec.IsJob() {
+		// Containers of the replicas being read; a job's are its spec's.
+		var revs []string
+		for _, r := range reps {
+			if !slices.Contains(revs, r.Revision) {
+				revs = append(revs, r.Revision)
+			}
+		}
+		if len(revs) == 0 {
+			revs = []string{app.TargetRevision}
+		}
+		if err := s.checkContainer(ctx, app.Name, req.GetContainer(), revs, false); err != nil {
+			return err
+		}
 	}
 	// Each call holds a relay per replica and a stream on every node: bound
 	// them per caller and in total, like searches.
