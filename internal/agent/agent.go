@@ -59,7 +59,7 @@ const (
 	// sessionAnswer is how long the agent waits for the server's first
 	// message on a new session.
 	sessionAnswer = 10 * time.Second
-	failoverRetry  = time.Second
+	failoverRetry = time.Second
 
 	// Stopped containers are recreated with exponential backoff, like a
 	// crash loop: crashBackoff, doubling up to maxCrashBackoff. The count
@@ -448,7 +448,7 @@ func reconnectWait(accepted bool, backoff time.Duration, lost, now time.Time) (t
 		// The servers are choosing a new leader: ask again every second,
 		// so this node's proxy learns the new leader's changes as soon as
 		// it serves rather than after a long backoff.
-		return failoverRetry + time.Duration(rand.Int64N(int64(failoverRetry/4))), backoff, lost
+		return failoverRetry + time.Duration(rand.Int64N(int64(failoverRetry/4))), backoff, lost //nolint:gosec // jitter, not a secret
 	}
 	return backoff, min(backoff*2, maxBackoff), lost
 }
