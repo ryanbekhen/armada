@@ -185,9 +185,10 @@ func Dial(addrs []string, tlsCfg *tls.Config, opts ...grpc.DialOption) (*Conn, e
 	r := manual.NewBuilderWithScheme("armada")
 	r.InitialState(state(addrs))
 	backoff := grpcbackoff.DefaultConfig
-	// Fail over within seconds: an election takes about as long as the
-	// leader lease, and agents should not wait minutes after it.
-	backoff.MaxDelay = 5 * time.Second
+	// Fail over within a second of the new leader serving: an election
+	// takes about as long as the leader lease, and an agent away from the
+	// leader leaves its node's proxy on an old configuration.
+	backoff.MaxDelay = time.Second
 	conn, err := grpc.NewClient(r.Scheme()+":///control-plane", append([]grpc.DialOption{
 		grpc.WithResolvers(r),
 		grpc.WithTransportCredentials(credentials.NewTLS(tlsCfg)),

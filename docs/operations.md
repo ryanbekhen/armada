@@ -417,7 +417,9 @@ upgrades without asking.
    While a server restarts, apps keep serving: every node's HAProxy and
    containers keep running. With one server, deploys and other changes are
    unavailable for those seconds; with three, another server leads in the
-   meantime. Agents reconnect on their own.
+   meantime. Agents reconnect on their own: every second for two minutes
+   after losing the leader, so each node's proxy has the new leader's
+   configuration within about a second of it serving.
 
 3. **Every other node**, one at a time: `sudo armadad upgrade`.
 

@@ -32,7 +32,7 @@ func (s *Server) reconcileRemoval(ctx context.Context, rc *reconcileRun, app sto
 			continue
 		}
 		if r.Draining() {
-			all, err = s.finishDrain(ctx, rc, all, r)
+			all, err = s.finishDrain(ctx, rc, all, r, true)
 		} else {
 			all, err = s.retire(ctx, rc, all, r)
 		}

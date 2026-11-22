@@ -247,7 +247,10 @@ type Server struct {
 	// configuration; GetCertificates hands out only these.
 	servedCerts map[string]bool
 
-	now              func() time.Time
+	now func() time.Time
+	// termStart is when this server started leading: drains a previous
+	// leader began are counted from here (finishDrain).
+	termStart        time.Time
 	streamRecheck    time.Duration
 	drainTimeout     time.Duration
 	warmup           time.Duration
@@ -452,6 +455,7 @@ func New(cfg Config) (*Server, error) {
 		verifyInterval: cfg.VerifyInterval,
 
 		now:              cfg.Now,
+		termStart:        cfg.Now(),
 		drainTimeout:     cfg.DrainTimeout,
 		warmup:           cfg.Warmup,
 		progressDeadline: cfg.ProgressDeadline,

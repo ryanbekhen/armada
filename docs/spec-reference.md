@@ -277,6 +277,13 @@ removed app) keeps serving the requests it already has before it is stopped:
 longest request the app serves. A request that gets nothing back for 60 seconds
 still ends with `504` whatever `drain` says. Not for jobs.
 
+A replica can stay longer than `drain`, never shorter: while a node is
+disconnected (restarting, upgrading, or cut off, but not lost yet), its proxy
+still routes by the configuration it had, so a drained replica waits up to a
+minute more for it; and after a change of leaders, the new leader counts the
+drain again from its own start. Apps with volumes do not wait: their next
+replica starts only once this one is gone.
+
 ### `probes`
 
 `startup`, `readiness`, and `liveness`, each with:

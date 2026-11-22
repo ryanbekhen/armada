@@ -4,6 +4,7 @@ package agent
 
 import (
 	"maps"
+	"math/rand/v2"
 	"net/http"
 	"net/netip"
 	"strings"
@@ -50,6 +51,15 @@ const (
 	maxBackoff          = 30 * time.Second
 	// reconnectDelay is the pause after a session the server had accepted.
 	reconnectDelay = 100 * time.Millisecond
+	// For failoverWindow after a session ends, the agent tries again every
+	// failoverRetry (plus up to a quarter of it, so nodes spread out):
+	// electing a new leader takes seconds, and the node's proxy keeps the
+	// old configuration until the agent is back.
+	failoverWindow = 2 * time.Minute
+	// sessionAnswer is how long the agent waits for the server's first
+	// message on a new session.
+	sessionAnswer = 10 * time.Second
+	failoverRetry  = time.Second
 
 	// Stopped containers are recreated with exponential backoff, like a
 	// crash loop: crashBackoff, doubling up to maxCrashBackoff. The count
@@ -407,20 +417,15 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 
 	backoff := time.Second
+	var lost time.Time // when the last accepted session ended
 	for {
 		start := time.Now()
 		established, err := a.session(ctx)
 		if ctx.Err() != nil {
 			return nil
 		}
-		wait := backoff
-		// A session the server accepted (e.g. one ended by a certificate
-		// renewal) is not a failure to back off from: reconnect quickly.
-		if established || time.Since(start) > time.Minute {
-			wait, backoff = reconnectDelay, time.Second
-		} else {
-			backoff = min(backoff*2, maxBackoff)
-		}
+		var wait time.Duration
+		wait, backoff, lost = reconnectWait(established || time.Since(start) > time.Minute, backoff, lost, time.Now())
 		a.log.Warn("disconnected from server", "err", err, "retry_in", wait)
 		select {
 		case <-ctx.Done():
@@ -428,6 +433,24 @@ func (a *Agent) Run(ctx context.Context) error {
 		case <-time.After(wait):
 		}
 	}
+}
+
+// reconnectWait is how long the agent waits before connecting again, and
+// its backoff and the time the last accepted session ended afterwards.
+func reconnectWait(accepted bool, backoff time.Duration, lost, now time.Time) (time.Duration, time.Duration, time.Time) {
+	switch {
+	case accepted:
+		// A session the server accepted (e.g. one ended by a certificate
+		// renewal, or by its leader stopping) is not a failure to back
+		// off from: reconnect quickly.
+		return reconnectDelay, time.Second, now
+	case now.Sub(lost) < failoverWindow:
+		// The servers are choosing a new leader: ask again every second,
+		// so this node's proxy learns the new leader's changes as soon as
+		// it serves rather than after a long backoff.
+		return failoverRetry + time.Duration(rand.Int64N(int64(failoverRetry/4))), backoff, lost
+	}
+	return backoff, min(backoff*2, maxBackoff), lost
 }
 
 // session runs one stream; established reports whether the server
@@ -455,6 +478,20 @@ func (a *Agent) session(ctx context.Context) (established bool, err error) {
 	if err := stream.Send(hello); err != nil {
 		return false, err
 	}
+	// A server answers a hello at once; one that does not (a stream that
+	// never finished connecting, a server that stopped leading) is given
+	// up on, so the agent finds the leader again.
+	answered := make(chan struct{})
+	go func() {
+		t := time.NewTimer(sessionAnswer)
+		defer t.Stop()
+		select {
+		case <-answered:
+		case <-ctx.Done():
+		case <-t.C:
+			cancel()
+		}
+	}()
 	a.streamMu.Lock()
 	a.stream, a.lastSent = stream, nil
 	a.streamMu.Unlock()
@@ -471,6 +508,7 @@ func (a *Agent) session(ctx context.Context) (established bool, err error) {
 		}
 		if !established {
 			established = true
+			close(answered)
 			a.setContact(true)
 			defer a.setContact(false)
 			a.log.Info("connected to server")
@@ -636,6 +674,7 @@ func (a *Agent) Reconcile(ctx context.Context) (*armadav1.ReplicaReport, error) 
 	}
 
 	byReplica := map[string]runtime.Container{}
+	var strays []runtime.Container
 	for _, c := range containers {
 		id := c.Labels[runtime.LabelReplica]
 		_, want := desired[id]
@@ -643,11 +682,21 @@ func (a *Agent) Reconcile(ctx context.Context) (*armadav1.ReplicaReport, error) 
 		// An init container or sidecar listed by itself has lost its
 		// replica's container (ADR 0038): it is removed like a stray.
 		if !want || dup || c.Labels[runtime.LabelRole] != "" {
-			a.log.Info("removing container", "container", c.Name, "replica", id)
-			a.remove(ctx, c.ID)
+			strays = append(strays, c)
 			continue
 		}
 		byReplica[id] = c
+	}
+	if len(strays) > 0 {
+		// The proxy first: an agent back after a while (a restart, a
+		// change of leaders) may hold a configuration that still routes to
+		// these replicas, and a request sent to a removed container waits
+		// for its connect timeout.
+		a.applyProxy(ctx)
+	}
+	for _, c := range strays {
+		a.log.Info("removing container", "container", c.Name, "replica", c.Labels[runtime.LabelReplica])
+		a.remove(ctx, c.ID)
 	}
 
 	// Replicas in a state of their own, those whose container exists, and
