@@ -149,6 +149,7 @@ Read the [full feature list](docs/features.md).
 | **[CLI reference](docs/cli/armada.md)** | Every `armada` and `armadad` command and flag |
 | **[Spec reference](docs/spec-reference.md)** | Every field of an app or job spec |
 | **[Operations guide](docs/operations.md)** | Running a cluster day to day: upgrades, backups, nodes, networking, monitoring |
+| **[Compatibility](docs/compatibility.md)** | What stays stable across releases, and how deprecations are announced |
 | **[Security](docs/threat-model.md)** | The threat model, and how to [report a vulnerability](SECURITY.md) |
 
 ## Requirements
