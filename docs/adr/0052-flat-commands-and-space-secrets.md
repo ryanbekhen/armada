@@ -123,10 +123,10 @@ shows, and the help says which command lists it:
 ```text
 $ armada replica list api
 REPLICA  NODE    STATE    REVISION  CONTAINERS
-k3p9     app-01  running  r12       app, log-ship
-x7q2     app-02  running  r12       app, log-ship
+k3p9x    app-01  running  r12       app, log-ship
+x7q2a    app-02  running  r12       app, log-ship
 
-$ armada app exec api --replica k3p9 --container log-ship
+$ armada app exec api --replica k3p9x --container log-ship
 ```
 
 `--replica` takes the short name `replica list` prints (the end of the
@@ -367,3 +367,33 @@ Each step is its own pull request, with its documents:
    `replica list`, short replica names, `app exec` defaults, errors that
    list choices, completion from the cluster.
 4. Help: examples first in every command.
+
+How step 3 was built:
+
+- `app restart` is the `RestartApp` RPC (deployer, audited as
+  `app.restart`, event `Restarted`): a new revision of the target spec with
+  every secret it uses at its latest version, made even when nothing
+  changed, so every replica is replaced through a rolling update. Jobs
+  (each run already starts with the latest values) and apps that split
+  traffic are refused.
+- The server resolves names: `--replica` in exec and logs takes a short
+  name (the replica ID after its last hyphen) or the full ID, and two
+  replicas with the same short name need the full ID. `--container` is
+  checked against the replica's revision, so a wrong name lists the
+  containers; exec refuses an init container and points to its logs.
+  `Status` names each replica's containers and init containers, which
+  `replica list` shows.
+- `app exec` without a command runs `/bin/sh`; `-i` and `-t` default to
+  whether standard input (and output, for `-t`) is a terminal.
+- Errors that list choices name at most 20, and a verb people try that
+  Armada has not got (`app scale`, `secret get`, ...) prints the command
+  to use instead.
+- Completion takes each argument's kind from its placeholder in the
+  command's Use line (`APP`, `SECRET`, `KEY`, `NODE`, `NAME` by noun, and
+  so on) and the flags that name something (`--replica`, `--container`,
+  `--to`, `--space`, `--node`, ...), and asks the cluster with the user's
+  own credentials for at most 5 seconds; nothing is offered when it
+  cannot answer. `armada completion` stays out of the root's list of
+  nouns.
+- An older server refuses `app restart`, shows no containers to
+  `replica list`, and takes only full replica IDs.

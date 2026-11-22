@@ -323,13 +323,18 @@ func TestEndToEnd(t *testing.T) {
 	if code, _, stderr := run(t, "app", "exec", "web", "-t", "--config", config, "--", "sh"); code != 1 || !strings.Contains(stderr, "needs a terminal") {
 		t.Errorf("exec -t without a terminal: code=%d err=%q", code, stderr)
 	}
-	// --container reaches the replica's agent, which knows its sidecars
-	// (ADR 0038); web has none.
-	if code, _, stderr := run(t, "app", "exec", "web", "--container", "log", "--config", config, "--", "sh"); code != 1 || !strings.Contains(stderr, "no running sidecar log") {
+	// --container names one of the replica's containers (ADR 0038); web
+	// has only its own, which the error names (ADR 0052).
+	if code, _, stderr := run(t, "app", "exec", "web", "--container", "log", "--config", config, "--", "sh"); code != 1 || !strings.Contains(stderr, `web has no container "log"; its containers: app`) {
 		t.Errorf("exec --container: code=%d err=%q", code, stderr)
 	}
-	if code, out, stderr := cli("app", "logs", "web", "--container", "log"); code != 0 || !strings.Contains(out+stderr, "has no container log") {
+	if code, out, stderr := cli("app", "logs", "web", "--container", "log"); code != 1 || !strings.Contains(out+stderr, `web has no container "log"; its containers: app`) {
 		t.Errorf("logs --container: code=%d out=%q err=%q", code, out, stderr)
+	}
+	// Without a command exec opens a shell; without a terminal it gets no
+	// input and no terminal of its own.
+	if code, out, stderr := run(t, "app", "exec", "web", "--config", config); code != 0 || out != "" || stderr != "/bin/sh" {
+		t.Errorf("exec with no command: code=%d out=%q err=%q", code, out, stderr)
 	}
 	if code, _, stderr := run(t, "app", "exec", "ghost", "--config", config, "--", "sh"); code != 1 || !strings.Contains(stderr, "not found") {
 		t.Errorf("exec in a missing app: code=%d err=%q", code, stderr)

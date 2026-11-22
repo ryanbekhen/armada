@@ -1559,6 +1559,12 @@ func (t *etx) secretEnv(sp *spec.App) (*spec.App, error) {
 
 // deploy implements Deploy inside t. replicas is the desired count to set.
 func (s *Etcd) deploy(t *etx, sp *spec.App, replicas int, actor, action string) (Revision, bool, error) {
+	return s.deployRevision(t, sp, replicas, actor, action, false)
+}
+
+// deployRevision is deploy; force makes a new revision even when sp and its
+// secret versions are those of the app's target or active revision.
+func (s *Etcd) deployRevision(t *etx, sp *spec.App, replicas int, actor, action string, force bool) (Revision, bool, error) {
 	// Traffic is not part of a revision: changing only the weights moves
 	// traffic without a new revision (ADR 0022).
 	var traffic []spec.TrafficTarget
@@ -1587,7 +1593,7 @@ func (s *Etcd) deploy(t *etx, sp *spec.App, replicas int, actor, action string) 
 	if err := t.spaceExists(sp.Space); err != nil {
 		return Revision{}, false, err
 	}
-	same := func(r Revision) bool { return sameRevision(r, body, pins) }
+	same := func(r Revision) bool { return !force && sameRevision(r, body, pins) }
 	a, exists, err := t.app(id)
 	if err != nil {
 		return Revision{}, false, err
@@ -1896,6 +1902,37 @@ func (s *Etcd) Rollback(ctx context.Context, app, revision, actor string) (Revis
 			return err
 		}
 		return t.audit(now, actor, "rollback", app, revision)
+	})
+	return rev, err
+}
+
+// RestartApp makes a new revision of app's target spec with the latest
+// version of every secret it uses and rolls it out. See Store.
+func (s *Etcd) RestartApp(ctx context.Context, app, actor string) (Revision, error) {
+	var rev Revision
+	err := s.tx(ctx, func(t *etx) error {
+		a, ok, err := t.app(app)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return notFoundf("app %s", app)
+		}
+		if a.Removing {
+			return fmt.Errorf("%s is being removed: %w", app, ErrPrecondition)
+		}
+		cur, err := t.revision(a.TargetRevision)
+		if err != nil {
+			return err
+		}
+		if cur.Spec.IsJob() {
+			return fmt.Errorf("%s is a job; each run starts with the latest secrets (armada job start %s): %w", app, app, ErrPrecondition)
+		}
+		if len(a.Traffic) > 0 || cur.Spec.MultipleRevisions() {
+			return fmt.Errorf("%s splits traffic between revisions; deploy its spec to make a new revision: %w", app, ErrPrecondition)
+		}
+		rev, _, err = s.deployRevision(t, cur.Spec, a.Replicas, actor, "app.restart", true)
+		return err
 	})
 	return rev, err
 }

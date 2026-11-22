@@ -15,9 +15,10 @@ Also: `apps`.
 | [`armada app delete`](#armada-app-delete) | Stop an app's replicas and delete it with its revisions and secrets |
 | [`armada app deploy`](#armada-app-deploy) | Create or change an app from flags or a spec file |
 | [`armada app events`](#armada-app-events) | Show what happened to apps: crashes, rollouts, placement |
-| [`armada app exec`](#armada-app-exec) | Run a command in one of an app's replicas |
+| [`armada app exec`](#armada-app-exec) | Run a command, or a shell, in one of an app's replicas |
 | [`armada app list`](#armada-app-list) | List apps |
 | [`armada app logs`](#armada-app-logs) | Print logs from an app's replicas |
+| [`armada app restart`](#armada-app-restart) | Replace every replica of an app, with the latest secret values |
 | [`armada app rollback`](#armada-app-rollback) | Roll an app back to an earlier revision |
 | [`armada app show`](#armada-app-show) | Show an app: its revision, replicas, and URLs |
 | [`armada app top`](#armada-app-top) | Show the CPU and memory apps and their replicas use |
@@ -134,19 +135,30 @@ Flags:
 ## `armada app exec`
 
 Run a command in one of an app's replicas and exit with its exit code.
+Without a command it opens a shell (/bin/sh).
 
-Without --replica, Armada picks a running, ready replica of the serving
-revision. -i passes standard input; -t allocates a terminal, so
-"armada app exec web -it -- sh" opens a shell. The command runs with the
-container's own user and security settings. --container NAME runs it in
-one of the replica's sidecars instead.
+Runs in a ready replica of the serving revision unless --replica picks one;
+`armada replica list APP` shows the replicas and their containers. --container
+runs it in one of the replica's sidecars instead of the app's own container.
+When standard input is a terminal the command gets it and a terminal of its
+own; -i and -t (or -i=false, -t=false) say otherwise. The command runs with
+the container's own user and security settings.
 
 Exec is for diagnosis: changes made inside a container are lost when its
 replica is replaced. Each session is recorded in the audit log with the
 command's name, not its arguments.
 
 ```
-armada app exec APP [--replica ID] [--container NAME] [-i] [-t] -- COMMAND [ARG...] [flags]
+armada app exec APP [--replica R] [--container C] [-- COMMAND...] [flags]
+```
+
+Examples:
+
+```bash
+armada app exec api                        # a shell in one of api's replicas
+armada app exec api -- env                 # run one command
+armada app exec api --container log-ship   # a shell in a sidecar
+armada app exec api --replica k3p9x -- ps  # in one replica (armada replica list api)
 ```
 
 Flags:
@@ -154,9 +166,9 @@ Flags:
 | Flag | Meaning |
 | --- | --- |
 | `--container string` | run in this sidecar instead of the app's own container |
-| `--replica string` | run in this replica |
-| `-i`, `--stdin` | pass standard input to the command |
-| `-t`, `--tty` | allocate a terminal |
+| `--replica string` | run in this replica: its short name from armada replica list, or its ID |
+| `-i`, `--stdin` | pass standard input to the command (default: when it is a terminal) |
+| `-t`, `--tty` | allocate a terminal (default: when standard input and output are terminals) |
 
 ## `armada app list`
 
@@ -190,11 +202,39 @@ Flags:
 | `-f`, `--follow` | stream new log lines, also from replicas that start later |
 | `--grep string` | only lines containing this text, ignoring case (plain text, not a pattern); also while following |
 | `--limit int` | with --since: the newest lines to show (default 500, at most 5000) |
-| `--replica string` | only show this replica |
+| `--replica string` | only show this replica: its short name from armada replica list, or its ID |
 | `--since string` | search the log history from this long ago (2h, 3d) or this time (RFC 3339), across every node, including replicas that are gone |
 | `--tail int` | lines per replica to show (default `100`) |
 | `--timestamps` | show when each line was written |
 | `--until string` | with --since: up to this long ago or this time (default now) |
+
+## `armada app restart`
+
+Make a new revision of the app's spec with the latest value of every
+secret it uses, and roll it out like any change: replicas are replaced
+one at a time, so the app keeps serving. This is how an app picks up a
+secret changed with `armada secret set`, or starts afresh.
+
+Jobs start every run with the latest values, and apps that split
+traffic between revisions take a new revision from `armada app deploy`.
+
+```
+armada app restart APP [flags]
+```
+
+Examples:
+
+```bash
+armada app restart api          # new revision, rolled out
+armada app restart api --wait   # and wait until it serves
+```
+
+Flags:
+
+| Flag | Meaning |
+| --- | --- |
+| `--timeout duration` | how long --wait waits (default `15m0s`) |
+| `--wait` | wait until the rollout completes; fail if it is aborted |
 
 ## `armada app rollback`
 

@@ -143,7 +143,8 @@ with no secret (`secretRef: database-url`) names one of its keys. A
 revision pins the version of every key it uses. Values never appear in
 output, logs, or events, and are read from stdin or a file, never from a
 command line. Changing a key rolls out every app that uses it, unless you
-ask it not to.
+ask it not to; `armada app restart APP` rolls an app out with the latest
+values at any time.
 
 ```bash
 armada secret create db --from-env-file db.env   # DATABASE_URL=..., PASSWORD=...
@@ -189,7 +190,7 @@ it.
 ## Seeing what happens
 
 - `armada app show APP`: the app, its revisions, and each replica's state.
-- `armada app logs APP`, `armada app exec APP -- sh`: a replica's output, a
+- `armada app logs APP`, `armada app exec APP`: a replica's output, a
   shell in it.
 - `armada cluster events`: what the cluster did and why: crashes, rollouts,
   lost nodes, moved replicas, certificates.

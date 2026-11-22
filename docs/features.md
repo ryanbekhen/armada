@@ -6,7 +6,12 @@ Everything Armada does. The [guides](guides/README.md) show each in use, and the
 - **Flags or files.** `armada app deploy` writes a spec from flags or
   takes one from a file; `armada app show -o yaml` exports it, and
   `app deploy --diff` shows what a change would do. Every command is
-  `armada NOUN VERB`, the nouns grouped in `armada --help`.
+  `armada NOUN VERB`, the nouns grouped in `armada --help`. Names are easy
+  to find: Tab completes apps, replicas, containers, secrets, keys, nodes,
+  and the rest from the cluster (`armada completion bash|zsh|fish`),
+  `armada replica list` names replicas the short way `--replica` takes
+  them, and an error over a wrong name lists the right ones.
+  `armada app restart` replaces every replica with the latest secret values.
 - **Desired state, reconciled.** The CLI writes what you want; the control
   plane and an agent on every node converge to it and keep it there.
 - **Rolling updates and rollback.** Revisions pin the image digest and the
@@ -85,7 +90,7 @@ Everything Armada does. The [guides](guides/README.md) show each in use, and the
   included, by time and text; `-f --grep` follows only matching lines,
   from new replicas too; every node can also send all output to Loki
   or an OTLP endpoint, labelled by app, space, replica, revision, and node;
-  `armada app exec web -it -- sh` opens a shell in one, with the container's
+  `armada app exec web` opens a shell in one, with the container's
   own security settings, and every session is audited.
 - **Usage.** `armada app top` and `armada node top` show the CPU and
   memory each app, replica, and node uses next to what it reserves, sampled every 10 seconds, and per

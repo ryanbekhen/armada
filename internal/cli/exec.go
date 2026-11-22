@@ -16,6 +16,9 @@ import (
 	"github.com/ryanbekhen/armada/internal/runtime"
 )
 
+// defaultShell is what exec runs without a command.
+const defaultShell = "/bin/sh"
+
 // exitCodeError ends the CLI with a command's exit code and no message.
 type exitCodeError int
 
@@ -28,22 +31,39 @@ func newAppExecCommand(g *globals) *cobra.Command {
 		stdin, tty bool
 	)
 	cmd := &cobra.Command{
-		Use:   "exec APP [--replica ID] [--container NAME] [-i] [-t] -- COMMAND [ARG...]",
-		Short: "Run a command in one of an app's replicas",
+		Use:   "exec APP [--replica R] [--container C] [-- COMMAND...]",
+		Short: "Run a command, or a shell, in one of an app's replicas",
 		Long: `Run a command in one of an app's replicas and exit with its exit code.
+Without a command it opens a shell (/bin/sh).
 
-Without --replica, Armada picks a running, ready replica of the serving
-revision. -i passes standard input; -t allocates a terminal, so
-"armada app exec web -it -- sh" opens a shell. The command runs with the
-container's own user and security settings. --container NAME runs it in
-one of the replica's sidecars instead.
+Runs in a ready replica of the serving revision unless --replica picks one;
+` + "`armada replica list APP`" + ` shows the replicas and their containers. --container
+runs it in one of the replica's sidecars instead of the app's own container.
+When standard input is a terminal the command gets it and a terminal of its
+own; -i and -t (or -i=false, -t=false) say otherwise. The command runs with
+the container's own user and security settings.
 
 Exec is for diagnosis: changes made inside a container are lost when its
 replica is replaced. Each session is recorded in the audit log with the
 command's name, not its arguments.`,
+		Example: `  armada app exec api                        # a shell in one of api's replicas
+  armada app exec api -- env                 # run one command
+  armada app exec api --container log-ship   # a shell in a sidecar
+  armada app exec api --replica k3p9x -- ps  # in one replica (armada replica list api)`,
 		Args: func(cmd *cobra.Command, args []string) error {
-			if cmd.ArgsLenAtDash() != 1 || len(args) < 2 {
-				return errors.New("usage: armada app exec APP [flags] -- COMMAND [ARG...]")
+			switch dash := cmd.ArgsLenAtDash(); {
+			case len(args) == 0:
+				return argError(cmd, args)
+			case dash == -1 && len(args) > 1:
+				// Never repeat the command: its arguments may hold a secret.
+				return errors.New("put -- before the command: armada app exec APP -- COMMAND")
+			case dash > 1:
+				return errors.New("give one app before --")
+			case dash == 0:
+				return errors.New("missing APP before --")
+			}
+			if len(args) == 1 {
+				return nil
 			}
 			return runtime.CheckExecCommand(args[1:])
 		},
@@ -51,15 +71,29 @@ command's name, not its arguments.`,
 			if err := g.qualify(args); err != nil {
 				return err
 			}
+			command := args[1:]
+			if len(command) == 0 {
+				command = []string{defaultShell}
+			}
 			in := cmd.InOrStdin()
+			inFile, inOK := in.(*os.File)
+			outFile, outOK := cmd.OutOrStdout().(*os.File)
+			inTerm := inOK && term.IsTerminal(int(inFile.Fd()))
+			outTerm := outOK && term.IsTerminal(int(outFile.Fd()))
+			// A person at a terminal gets an interactive session unless a
+			// flag says otherwise (ADR 0052).
+			if !cmd.Flags().Changed("stdin") {
+				stdin = inTerm
+			}
+			if !cmd.Flags().Changed("tty") {
+				tty = inTerm && outTerm
+			}
 			var fd int
 			if tty {
-				f, ok := in.(*os.File)
-				out, ok2 := cmd.OutOrStdout().(*os.File)
-				if !ok || !ok2 || !term.IsTerminal(int(f.Fd())) || !term.IsTerminal(int(out.Fd())) {
+				if !inTerm || !outTerm {
 					return errors.New("-t needs a terminal on standard input and output; leave it out to run without one")
 				}
-				fd = int(f.Fd())
+				fd = int(inFile.Fd())
 			}
 			client, conn, err := dialAdmin(g)
 			if err != nil {
@@ -79,7 +113,7 @@ command's name, not its arguments.`,
 			input := func(in *armadav1.ExecInput) error {
 				return send(&armadav1.ExecClientMessage{Msg: &armadav1.ExecClientMessage_Input{Input: in}})
 			}
-			start := &armadav1.ExecStart{App: args[0], Replica: replica, Cmd: args[1:], Tty: tty, Stdin: stdin, Container: ctr}
+			start := &armadav1.ExecStart{App: args[0], Replica: replica, Cmd: command, Tty: tty, Stdin: stdin, Container: ctr}
 			if tty {
 				if cols, rows, err := term.GetSize(fd); err == nil {
 					start.Size = &armadav1.TermSize{Rows: uint32(max(rows, 0)), Cols: uint32(max(cols, 0))} //nolint:gosec // non-negative
@@ -157,9 +191,9 @@ command's name, not its arguments.`,
 		},
 	}
 	f := cmd.Flags()
-	f.StringVar(&replica, "replica", "", "run in this replica")
+	f.StringVar(&replica, "replica", "", "run in this replica: its short name from armada replica list, or its ID")
 	f.StringVar(&ctr, "container", "", "run in this sidecar instead of the app's own container")
-	f.BoolVarP(&stdin, "stdin", "i", false, "pass standard input to the command")
-	f.BoolVarP(&tty, "tty", "t", false, "allocate a terminal")
+	f.BoolVarP(&stdin, "stdin", "i", false, "pass standard input to the command (default: when it is a terminal)")
+	f.BoolVarP(&tty, "tty", "t", false, "allocate a terminal (default: when standard input and output are terminals)")
 	return cmd
 }
