@@ -52,7 +52,7 @@ func (s *Server) reconcileVolumeApp(ctx context.Context, rc *reconcileRun, app *
 		}
 		switch {
 		case r.Draining():
-			if all, err2 = s.finishDrain(ctx, rc, all, r); err2 != nil {
+			if all, err2 = s.finishDrain(ctx, rc, all, r, false); err2 != nil {
 				return nil, err2
 			}
 			if slices.ContainsFunc(all, func(o store.Replica) bool { return o.ID == r.ID }) {

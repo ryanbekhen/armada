@@ -167,6 +167,9 @@ type reconcileRun struct {
 	wake time.Duration
 	// lost holds the nodes whose replicas are being rescheduled.
 	lost map[string]bool
+	// away is true while a node is disconnected but not lost yet: its
+	// proxy still routes by the configuration it had (finishDrain).
+	away bool
 	revs *revisionCache
 	// current is the latest view of the pass's replicas.
 	current *replicaView
@@ -199,6 +202,7 @@ func (s *Server) lostNodes(ctx context.Context, rc *reconcileRun, nodes []store.
 		case nodeLost(n, rc.now, s.nodeLostTimeout):
 			lost[n.ID] = true
 		case !n.LastSeen.IsZero():
+			rc.away = true
 			rc.wakeAt(n.LastSeen.Add(s.nodeLostTimeout))
 		}
 	}
@@ -357,7 +361,7 @@ func (s *Server) reconcileRevision(ctx context.Context, rc *reconcileRun, app *s
 		}
 		switch {
 		case r.Draining():
-			if all, err = s.finishDrain(ctx, rc, all, r); err != nil {
+			if all, err = s.finishDrain(ctx, rc, all, r, true); err != nil {
 				return nil, err
 			}
 		case r.Revision == app.TargetRevision:
@@ -894,14 +898,31 @@ func (s *Server) retire(ctx context.Context, rc *reconcileRun, all []store.Repli
 }
 
 // finishDrain removes a draining replica once its drain timeout has passed.
-func (s *Server) finishDrain(ctx context.Context, rc *reconcileRun, all []store.Replica, r store.Replica) ([]store.Replica, error) {
-	due := r.DrainingSince.Add(s.drainFor(ctx, rc, r))
+// A drain a previous leader began is counted from this leader's start: a
+// node whose agent was away during the change of leaders still routes to r
+// until it reconnects and gets a configuration without it, and removing r
+// before then would send its requests to an address nobody answers.
+//
+// With hold, a drained replica also stays for up to awayHold while a node
+// is away (disconnected, not lost yet): that node's proxy still routes to
+// it, and a node that restarts or upgrades is usually back within that.
+// Apps with volumes do not hold: their next replica waits for this one.
+func (s *Server) finishDrain(ctx context.Context, rc *reconcileRun, all []store.Replica, r store.Replica, hold bool) ([]store.Replica, error) {
+	due := later(r.DrainingSince, s.termStart).Add(s.drainFor(ctx, rc, r))
 	if rc.now.Before(due) {
 		rc.wakeAt(due)
 		return all, nil
 	}
+	if held := due.Add(awayHold); hold && rc.away && rc.now.Before(held) {
+		rc.wakeAt(held)
+		return all, nil
+	}
 	return without(all, r.ID), s.deleteReplica(ctx, r)
 }
+
+// awayHold bounds how long a drained replica waits for nodes that are
+// away (finishDrain).
+const awayHold = time.Minute
 
 // drainFor returns how long r drains: its revision's setting, else the default.
 func (s *Server) drainFor(ctx context.Context, rc *reconcileRun, r store.Replica) time.Duration {
@@ -920,6 +941,14 @@ func (s *Server) deleteReplica(ctx context.Context, r store.Replica) error {
 	}
 	s.record(ctx, store.Event{Kind: eventReplica, Object: r.ID, App: r.App, Node: r.NodeID, Reason: "Removed"})
 	return nil
+}
+
+// later returns the later of two times.
+func later(a, b time.Time) time.Time {
+	if b.After(a) {
+		return b
+	}
+	return a
 }
 
 func replace(rs []store.Replica, r store.Replica) []store.Replica {
