@@ -27,6 +27,6 @@ Flags:
 | `--no-private-ip` | joining from another site: send no private IP, and get a mesh address the other nodes reach over WireGuard (the default when the machine has no private IPv4 address) |
 | `--node-name string` | node name (default: hostname) |
 | `--private-ip string` | this node's private IP (default: the only private IPv4 address; a mesh cluster gives the node a mesh address instead) |
-| `--runtime string` | container runtime: embedded (containerd), or supervisor (no containerd daemon; experimental, ADR 0046) (default `embedded`) |
+| `--runtime string` | container runtime: supervisor (no containerd daemon, ADR 0046), or embedded (containerd) (default `supervisor`) |
 | `--token-file string` | file holding the join token (default: prompt or stdin) |
 

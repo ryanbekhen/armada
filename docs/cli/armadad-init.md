@@ -27,6 +27,6 @@ Flags:
 | `--node-name string` | node name (default: hostname) |
 | `--port int` | control plane port on the private IP (default `7443`) |
 | `--private-ip string` | this node's private IP (default: the only private IPv4 address; not with --network mesh) |
-| `--runtime string` | container runtime: embedded (containerd), or supervisor (no containerd daemon; experimental, ADR 0046) (default `embedded`) |
+| `--runtime string` | container runtime: supervisor (no containerd daemon, ADR 0046), or embedded (containerd) (default `supervisor`) |
 | `--user-name string` | name of the first user, who gets cluster-admin (default: the user running it) |
 

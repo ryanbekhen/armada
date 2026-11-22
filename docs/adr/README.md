@@ -49,7 +49,7 @@ Every architectural decision that is hard to reverse is recorded here. Copy `000
 | [0043](0043-log-history.md) | Log history | Accepted |
 | [0044](0044-log-export.md) | Sending logs elsewhere | Accepted |
 | [0045](0045-alerts.md) | Alerts | Accepted |
-| [0046](0046-runtime-supervisor.md) | Armada's own container supervisor | Accepted (experimental) |
+| [0046](0046-runtime-supervisor.md) | Armada's own container supervisor | Accepted |
 | [0047](0047-dns-for-custom-domains.md) | DNS credentials for an app's custom domains | Accepted |
 | [0048](0048-client-through-ssh.md) | The client reaches the control plane through SSH | Accepted |
 | [0049](0049-mesh-over-public-addresses.md) | A WireGuard mesh over public addresses | Accepted |

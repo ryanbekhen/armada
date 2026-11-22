@@ -1,6 +1,6 @@
 # 0046. Armada's own container supervisor
 
-- Status: Accepted (experimental)
+- Status: Accepted
 - Date: 2026-11-16
 
 ## Context
@@ -39,9 +39,16 @@ What containerd does for Armada today:
 
 Nodes can run containers without containerd, on the **supervisor**
 runtime, chosen per node (`--runtime supervisor` on `armadad init`, `join`,
-and `server join`, recorded as `"runtime"` in `agent.json`). It is
-experimental: the embedded containerd stays the default. runc, the CNI
+and `server join`, recorded as `"runtime"` in `agent.json`). runc, the CNI
 plugins, tini, and `armada-log` are the same on both.
+
+It started as an experiment beside containerd. Since 2026-11-22 it is the
+default: `init` and `join` set up the supervisor unless `--runtime embedded`
+is given. Nodes set up before keep the runtime their `agent.json` names (one
+with no `"runtime"` runs containerd), since upgrading never changes a node's
+runtime; `armadad doctor` warns on a node still on containerd and names the
+command that moves it. containerd is removed from the runtime pack in a
+later release, once every node has had a release to move.
 
 - **The agent keeps images and container records itself (Go,
   `internal/runtime/supervisor`).** Pulling and unpacking run in the agent
@@ -148,7 +155,8 @@ node runs the supervisor.
 
 - Armada owns image pulling and unpacking, which containerd's maintainers
   own today, including its security fixes.
-- Two runtimes ship side by side for a while, and the conformance suite
-  and end-to-end tests run against both.
+- Two runtimes ship side by side until containerd is removed, and the
+  conformance suite and end-to-end tests run against both; the end-to-end
+  test uses the supervisor unless `E2E_RUNTIME=embedded`.
 - `ctr` cannot inspect a supervisor node's containers; `armada` and
   `armadad doctor` are the interface.

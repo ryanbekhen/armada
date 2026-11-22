@@ -178,7 +178,7 @@ come back.
 | `ca.crt`, `ca.key` | Cluster CA: signs node, admin, and server certificates, and lets each server renew its own | Every node must join again; every admin config is invalid |
 | `server.crt`, `server.key` | Control plane TLS identity | Re-issuable from the CA |
 | `node.crt`, `node.key`, `agent.json` | Identity of the agent on the control plane node, and its container runtime | The node must join again |
-| `runtime/`, `containerd/`, `containers/`, `logs/` | The embedded runtime: extracted binaries, images, per-container files, container output | Recreated: the binaries are extracted again, images pulled again, and the agent recreates its containers |
+| `runtime/`, `supervisor/`, `containerd/`, `containers/`, `logs/` | The container runtime: extracted binaries, images and containers (`supervisor/`, or `containerd/` on a containerd node), per-container files, container output | Recreated: the binaries are extracted again, images pulled again, and the agent recreates its containers |
 | `volumes/` | App volumes held by this node (on every node, not only servers) | The apps' data, unless backed up with `armada volume backup` |
 
 `armadad backup` includes all of these except the runtime directories and volumes (the state as an etcd snapshot; the
@@ -393,8 +393,9 @@ upgrades without asking.
    signature when [cosign](https://docs.sigstore.dev/cosign/system_config/installation/)
    is installed; `--require-signature` insists), replaces `armadad`,
    `armada`, and the systemd units, and restarts `armada-runtime`, so the
-   node runs the containerd, runc, and `armada-log` the new release carries
-   (containers keep running), then `armada-server` (or `armada-agent`).
+   node runs the runc, `armada-shim`, and `armada-log` (and, on a containerd
+   node, the containerd) the new release carries (containers keep
+   running), then `armada-server` (or `armada-agent`).
    It prints each step as it happens (each download with its size and
    time, the signature and checksum, every file installed, and each restart
    with how long the service took to run again) and ends with
@@ -795,17 +796,21 @@ start `armadad agent` there. A second agent on a node refuses to start and says
 why: two would take turns replacing each other's connection to the control
 plane and fail each other's replicas.
 
-## Running containers without containerd (experimental)
+## Container runtimes
 
-A node runs its containers on Armada's embedded containerd by default. With
-`--runtime supervisor` (on `armadad init`, `join`, or `server join`) it runs
-them without containerd (ADR 0046): the agent keeps the images itself, and
-one small `armada-shim` process per app supervises that app's containers on
-the node. Apps, specs, and commands are the same; the node holds about
-15 MiB less for containerd and about 4 MiB less per app.
+A node runs its containers on the supervisor runtime by default (ADR 0046):
+the agent keeps the images itself, and one small `armada-shim` process per
+app supervises that app's containers on the node, with no containerd daemon.
+`--runtime embedded` (on `armadad init`, `join`, or `server join`) sets a
+node up on Armada's embedded containerd instead. Apps, specs, and commands
+are the same on both; a supervisor node holds about 15 MiB less for
+containerd and about 4 MiB less per app.
 
-The setting is in `agent.json` (`"runtime"`). To move a node that already
-runs, drain it and stop its service, migrate, then start and resume it:
+The setting is in `agent.json` (`"runtime"`), and upgrading never changes
+it: nodes set up before the supervisor became the default stay on
+containerd, and `armadad doctor` warns on them. containerd is removed in a
+later release, so move them. Drain the node and stop its service, migrate,
+then start and resume it:
 
 ```bash
 armada node drain NODE
@@ -815,9 +820,14 @@ sudo systemctl start armada-agent
 armada node resume NODE
 ```
 
-The node pulls its images again. `--to embedded` moves it back the same way.
-Moving to the supervisor leaves containerd's data in
-`/var/lib/armada/containerd`; remove it once the node runs.
+The node pulls its images again. Draining moves the apps' replicas, but
+the node's own proxy is removed with its other containers until the agent
+starts it again, usually under a minute: when public traffic reaches the
+node directly (a DNS record or a load balancer naming it), take it out
+first and put it back once `curl --resolve` to the node answers. Move one
+node at a time. `--to embedded` moves a node back the same way. Moving to
+the supervisor leaves containerd's data in `/var/lib/armada/containerd`;
+remove it once the node runs.
 
 Each `armada-shim` is a systemd unit of its own (`armada-shim-*`), so
 restarting the agent leaves it and its containers running. If one ends, its
