@@ -65,6 +65,9 @@ func (s *Server) Exec(stream armadav1.AdminService_ExecServer) error {
 	if err != nil {
 		return err
 	}
+	if err := s.checkContainer(ctx, app.Name, start.GetContainer(), []string{r.Revision}, true); err != nil {
+		return err
+	}
 	sess := s.session(r.NodeID)
 	if sess == nil {
 		return status.Errorf(codes.Unavailable, "node %s is not connected", r.NodeID)
@@ -229,16 +232,15 @@ func (s *Server) execReplica(ctx context.Context, app store.App, replica string)
 	if err != nil {
 		return store.Replica{}, storeErr(err)
 	}
-	for _, r := range reps {
-		if replica != "" && r.ID == replica {
-			if r.State != store.ReplicaRunning {
-				return store.Replica{}, status.Errorf(codes.FailedPrecondition, "replica %s is %s, not running", r.ID, r.State)
-			}
-			return r, nil
-		}
-	}
 	if replica != "" {
-		return store.Replica{}, status.Errorf(codes.NotFound, "replica %s not found in app %s", replica, app.Name)
+		r, err := findReplica(app.Name, reps, replica)
+		if err != nil {
+			return store.Replica{}, err
+		}
+		if r.State != store.ReplicaRunning {
+			return store.Replica{}, status.Errorf(codes.FailedPrecondition, "replica %s is %s, not running", shortReplica(r.ID), r.State)
+		}
+		return r, nil
 	}
 	for _, r := range reps {
 		if r.Revision == app.ActiveRevision && r.State == store.ReplicaRunning && r.Ready && r.DrainingSince.IsZero() {

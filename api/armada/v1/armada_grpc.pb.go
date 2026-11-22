@@ -39,6 +39,7 @@ const (
 	AdminService_VerifyDomain_FullMethodName             = "/armada.v1.AdminService/VerifyDomain"
 	AdminService_ListRevisions_FullMethodName            = "/armada.v1.AdminService/ListRevisions"
 	AdminService_Rollback_FullMethodName                 = "/armada.v1.AdminService/Rollback"
+	AdminService_RestartApp_FullMethodName               = "/armada.v1.AdminService/RestartApp"
 	AdminService_SetSecret_FullMethodName                = "/armada.v1.AdminService/SetSecret"
 	AdminService_ListSecrets_FullMethodName              = "/armada.v1.AdminService/ListSecrets"
 	AdminService_DeleteSecret_FullMethodName             = "/armada.v1.AdminService/DeleteSecret"
@@ -123,6 +124,9 @@ type AdminServiceClient interface {
 	VerifyDomain(ctx context.Context, in *VerifyDomainRequest, opts ...grpc.CallOption) (*Domain, error)
 	ListRevisions(ctx context.Context, in *ListRevisionsRequest, opts ...grpc.CallOption) (*ListRevisionsResponse, error)
 	Rollback(ctx context.Context, in *RollbackRequest, opts ...grpc.CallOption) (*RollbackResponse, error)
+	// RestartApp makes a new revision of the app's spec with the latest
+	// secret values and rolls it out (ADR 0052).
+	RestartApp(ctx context.Context, in *RestartAppRequest, opts ...grpc.CallOption) (*RestartAppResponse, error)
 	SetSecret(ctx context.Context, in *SetSecretRequest, opts ...grpc.CallOption) (*SetSecretResponse, error)
 	ListSecrets(ctx context.Context, in *ListSecretsRequest, opts ...grpc.CallOption) (*ListSecretsResponse, error)
 	DeleteSecret(ctx context.Context, in *DeleteSecretRequest, opts ...grpc.CallOption) (*DeleteSecretResponse, error)
@@ -434,6 +438,16 @@ func (c *adminServiceClient) Rollback(ctx context.Context, in *RollbackRequest, 
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(RollbackResponse)
 	err := c.cc.Invoke(ctx, AdminService_Rollback_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) RestartApp(ctx context.Context, in *RestartAppRequest, opts ...grpc.CallOption) (*RestartAppResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RestartAppResponse)
+	err := c.cc.Invoke(ctx, AdminService_RestartApp_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -948,6 +962,9 @@ type AdminServiceServer interface {
 	VerifyDomain(context.Context, *VerifyDomainRequest) (*Domain, error)
 	ListRevisions(context.Context, *ListRevisionsRequest) (*ListRevisionsResponse, error)
 	Rollback(context.Context, *RollbackRequest) (*RollbackResponse, error)
+	// RestartApp makes a new revision of the app's spec with the latest
+	// secret values and rolls it out (ADR 0052).
+	RestartApp(context.Context, *RestartAppRequest) (*RestartAppResponse, error)
 	SetSecret(context.Context, *SetSecretRequest) (*SetSecretResponse, error)
 	ListSecrets(context.Context, *ListSecretsRequest) (*ListSecretsResponse, error)
 	DeleteSecret(context.Context, *DeleteSecretRequest) (*DeleteSecretResponse, error)
@@ -1103,6 +1120,9 @@ func (UnimplementedAdminServiceServer) ListRevisions(context.Context, *ListRevis
 }
 func (UnimplementedAdminServiceServer) Rollback(context.Context, *RollbackRequest) (*RollbackResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Rollback not implemented")
+}
+func (UnimplementedAdminServiceServer) RestartApp(context.Context, *RestartAppRequest) (*RestartAppResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RestartApp not implemented")
 }
 func (UnimplementedAdminServiceServer) SetSecret(context.Context, *SetSecretRequest) (*SetSecretResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method SetSecret not implemented")
@@ -1594,6 +1614,24 @@ func _AdminService_Rollback_Handler(srv interface{}, ctx context.Context, dec fu
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(AdminServiceServer).Rollback(ctx, req.(*RollbackRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_RestartApp_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RestartAppRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).RestartApp(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminService_RestartApp_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).RestartApp(ctx, req.(*RestartAppRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -2482,6 +2520,10 @@ var AdminService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Rollback",
 			Handler:    _AdminService_Rollback_Handler,
+		},
+		{
+			MethodName: "RestartApp",
+			Handler:    _AdminService_RestartApp_Handler,
 		},
 		{
 			MethodName: "SetSecret",

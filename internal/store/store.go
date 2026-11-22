@@ -556,6 +556,11 @@ type Store interface {
 	// Rollback makes an existing revision of app the rollout target (or
 	// cancels the rollout if it is the active revision).
 	Rollback(ctx context.Context, app, revision, actor string) (Revision, error)
+	// RestartApp makes a new revision of app's target spec, with the
+	// latest version of every secret it uses, and makes it the rollout
+	// target, so every replica is replaced (ADR 0052). Jobs and apps that
+	// split traffic are refused (ErrPrecondition).
+	RestartApp(ctx context.Context, app, actor string) (Revision, error)
 	// CompleteRollout makes revision active if it is still the target.
 	CompleteRollout(ctx context.Context, app, revision string) error
 	// FailRollout aborts the rollout to revision, if it is still the target,

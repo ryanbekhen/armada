@@ -30,6 +30,7 @@ func newAppCommand(g *globals) *cobra.Command {
 		newAppDeployCommand(g),
 		newAppListCommand(g),
 		newAppShowCommand(g),
+		newAppRestartCommand(g),
 		newAppRollbackCommand(g),
 		newAppTrafficCommand(g),
 		newLogsCommand(g, false),
@@ -323,6 +324,46 @@ func newAppRollbackCommand(g *globals) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&to, "to", "", "the revision to return to (default: the one before the active one)")
+	w.register(cmd)
+	return cmd
+}
+
+func newAppRestartCommand(g *globals) *cobra.Command {
+	var w waitFlags
+	cmd := &cobra.Command{
+		Use:   "restart APP",
+		Short: "Replace every replica of an app, with the latest secret values",
+		Long: "Make a new revision of the app's spec with the latest value of every\n" +
+			"secret it uses, and roll it out like any change: replicas are replaced\n" +
+			"one at a time, so the app keeps serving. This is how an app picks up a\n" +
+			"secret changed with `armada secret set`, or starts afresh.\n\n" +
+			"Jobs start every run with the latest values, and apps that split\n" +
+			"traffic between revisions take a new revision from `armada app deploy`.",
+		Example: "  armada app restart api          # new revision, rolled out\n" +
+			"  armada app restart api --wait   # and wait until it serves",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := g.qualify(args); err != nil {
+				return err
+			}
+			client, conn, err := dialAdmin(g)
+			if err != nil {
+				return err
+			}
+			defer conn.Close()
+			resp, err := client.RestartApp(cmd.Context(), &armadav1.RestartAppRequest{App: args[0]})
+			if err != nil {
+				return RPCError(err)
+			}
+			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Restarting %s as %s.\n", args[0], resp.Revision); err != nil {
+				return err
+			}
+			if !w.wait {
+				return nil
+			}
+			return waitRollout(cmd.Context(), client, args[0], resp.Revision, w.timeout, cmd.OutOrStdout())
+		},
+	}
 	w.register(cmd)
 	return cmd
 }

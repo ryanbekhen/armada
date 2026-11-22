@@ -38,6 +38,9 @@ service AdminService {
   rpc VerifyDomain(VerifyDomainRequest) returns (Domain);
   rpc ListRevisions(ListRevisionsRequest) returns (ListRevisionsResponse);
   rpc Rollback(RollbackRequest) returns (RollbackResponse);
+  // RestartApp makes a new revision of the app's spec with the latest
+  // secret values and rolls it out (ADR 0052).
+  rpc RestartApp(RestartAppRequest) returns (RestartAppResponse);
   rpc SetSecret(SetSecretRequest) returns (SetSecretResponse);
   rpc ListSecrets(ListSecretsRequest) returns (ListSecretsResponse);
   rpc DeleteSecret(DeleteSecretRequest) returns (DeleteSecretResponse);
@@ -799,6 +802,15 @@ message RevisionInfo {
   repeated string platforms = 7;
 }
 
+message RestartAppRequest {
+  string app = 1;
+}
+
+message RestartAppResponse {
+  // The new revision being rolled out.
+  string revision = 1;
+}
+
 message RollbackRequest {
   string app = 1;
   // Optional; defaults to the revision before the active one.
@@ -1155,6 +1167,10 @@ message ReplicaStatus {
   int32 restarts = 11;
   google.protobuf.Timestamp last_restart_at = 12;
   string last_restart = 13;
+  // The replica's containers from its revision's spec: "app" and its
+  // sidecars, then its init containers (ADR 0038).
+  repeated string containers = 14;
+  repeated string init_containers = 15;
 }
 
 message NodeStatus {

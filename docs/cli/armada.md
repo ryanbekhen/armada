@@ -5,7 +5,8 @@
 armada manages apps, jobs, and the cluster they run on. Every command is
 `armada NOUN VERB`, such as `armada app deploy` or `armada secret set`. It
 talks to the control plane with the credentials in --config and needs no
-root. Machines run `armadad`.
+root. Machines run `armadad`. Tab completes names from the cluster:
+see `armada completion bash --help` (or zsh, fish).
 
 ## Global flags
 
@@ -28,6 +29,7 @@ Every command takes these.
 | [`armada job`](armada-job.md) | Deploy, start, and inspect jobs |
 | [`armada metrics`](armada-metrics.md) | Credentials for the Prometheus metrics endpoint |
 | [`armada node`](armada-node.md) | List, label, drain, and delete nodes |
+| [`armada replica`](armada-replica.md) | List the replicas of apps |
 | [`armada revision`](armada-revision.md) | List and show an app's revisions |
 | [`armada role`](armada-role.md) | List the roles and who holds them; grant and revoke them |
 | [`armada run`](armada-run.md) | List and show a job's runs |

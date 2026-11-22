@@ -224,7 +224,7 @@ func newLogsCommand(g *globals, job bool) *cobra.Command {
 		f.Int64Var(&run, "run", 0, "the run to show (default: the newest)")
 		f.IntVar(&task, "task", 0, "the task to show, for a job with tasks (default: the latest attempt of any task)")
 	} else {
-		f.StringVar(&replica, "replica", "", "only show this replica")
+		f.StringVar(&replica, "replica", "", "only show this replica: its short name from armada replica list, or its ID")
 	}
 	return cmd
 }

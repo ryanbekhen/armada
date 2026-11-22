@@ -103,7 +103,8 @@ func NewRootCommand() *cobra.Command {
 		Long: version.Name + " manages apps, jobs, and the cluster they run on. Every command is\n" +
 			"`armada NOUN VERB`, such as `armada app deploy` or `armada secret set`. It\n" +
 			"talks to the control plane with the credentials in --config and needs no\n" +
-			"root. Machines run `armadad`.",
+			"root. Machines run `armadad`. Tab completes names from the cluster:\n" +
+			"see `armada completion bash --help` (or zsh, fish).",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		PersistentPreRunE: func(*cobra.Command, []string) error {
@@ -120,7 +121,7 @@ func NewRootCommand() *cobra.Command {
 		id, title string
 		cmds      []*cobra.Command
 	}{
-		{"apps", "Apps:", []*cobra.Command{newAppCommand(g), newRevisionCommand(g), newJobCommand(g), newRunCommand(g),
+		{"apps", "Apps:", []*cobra.Command{newAppCommand(g), newRevisionCommand(g), newReplicaCommand(g), newJobCommand(g), newRunCommand(g),
 			newSecretCommand(g), newVolumeCommand(g), newSnapshotCommand(g), newDomainCommand(g)}},
 		{"cluster", "Cluster:", []*cobra.Command{newClusterCommand(g), newNodeCommand(g), newServerCommand(g), newSpaceCommand(g)}},
 		{"access", "Access:", []*cobra.Command{newPrincipalCommand(g, kindUser), newPrincipalCommand(g, kindService), newRoleCommand(g)}},
@@ -134,6 +135,7 @@ func NewRootCommand() *cobra.Command {
 		}
 	}
 	cmd.SetHelpCommandGroupID("monitoring")
+	completeFromCluster(cmd, g)
 	return cmd
 }
 
@@ -207,6 +209,25 @@ func refuseUnknownCommands(cmd *cobra.Command) {
 		if s := c.SuggestionsFor(args[0]); len(s) > 0 {
 			msg += "; did you mean " + strings.Join(s, " or ") + "?"
 		}
-		return fmt.Errorf("%s (see %s --help)", msg, c.CommandPath())
+		msg = fmt.Sprintf("%s (see %s --help)", msg, c.CommandPath())
+		if hint, ok := verbHints[c.Name()+" "+args[0]]; ok {
+			msg += "\n" + hint
+		}
+		return errors.New(msg)
 	}
+}
+
+// verbHints say what to type for verbs people try that Armada has not got
+// (or no longer has, ADR 0052).
+var verbHints = map[string]string{
+	"app scale":     "The replica count is part of the spec: armada app deploy APP --min N",
+	"app create":    "armada app deploy APP creates an app (--new refuses one that exists)",
+	"app update":    "armada app deploy APP changes an app",
+	"app revision":  "armada revision list APP",
+	"app replica":   "armada replica list APP",
+	"job create":    "armada job deploy JOB creates a job",
+	"job update":    "armada job deploy JOB changes a job",
+	"job run":       "armada job start JOB",
+	"secret import": "armada secret create SECRET --from-env-file FILE, or secret set SECRET --from-env-file FILE",
+	"secret get":    "Armada never prints a secret's value; armada secret show SECRET lists its keys",
 }

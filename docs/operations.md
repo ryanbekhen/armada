@@ -1219,14 +1219,18 @@ armada app deploy db --image postgres:17 --port 5432 --ingress internal --protoc
 command's exit code ([ADR 0015](adr/0015-exec.md)):
 
 ```bash
-armada app exec web -it -- sh                     # interactive shell
+armada app exec web                               # a shell (/bin/sh)
 armada app exec web -- cat /etc/resolv.conf       # one command, stdout and stderr kept apart
 armada app exec web -i -- sh -c 'cat > /tmp/x' < x # pass standard input
-armada app exec web --replica web-r1-5muie -- env # a specific replica (armada app show lists them)
+armada app exec web --replica 5muie -- env        # a specific replica (armada replica list web)
 ```
 
 - Without `--replica`, Armada picks a running, ready replica of the
-  serving revision.
+  serving revision. `--replica` takes the short name `armada replica list`
+  prints (the end of the replica ID) or the full ID.
+- From a terminal, the command gets standard input and a terminal of its
+  own; `-i=false` or `-t=false` turns either off, and without a terminal
+  `-i` passes standard input.
 - `--container NAME` runs the command in one of the replica's sidecars
   instead of the app's own container
   ([ADR 0038](adr/0038-init-containers-and-sidecars.md)). Init containers
