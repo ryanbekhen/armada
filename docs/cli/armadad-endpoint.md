@@ -27,6 +27,13 @@ Set the endpoint and restart this machine's Armada service.
 armadad endpoint set IP|none [flags]
 ```
 
+Examples:
+
+```bash
+sudo armadad endpoint set 203.0.113.7    # the public address other sites reach this machine at
+sudo armadad endpoint set none           # behind NAT
+```
+
 Flags:
 
 | Flag | Meaning |
@@ -39,5 +46,11 @@ Show the endpoint this machine announces.
 
 ```
 armadad endpoint show
+```
+
+Examples:
+
+```bash
+sudo armadad endpoint show
 ```
 

@@ -10,6 +10,13 @@ Print build information and the latest release.
 armada version [flags]
 ```
 
+Examples:
+
+```bash
+armada version             # this client, the servers, and the latest release
+armada version -o json
+```
+
 Flags:
 
 | Flag | Meaning |

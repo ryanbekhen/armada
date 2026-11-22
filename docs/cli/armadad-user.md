@@ -27,6 +27,12 @@ server whose control plane is running or can start.
 armadad user renew [flags]
 ```
 
+Examples:
+
+```bash
+sudo armadad user renew    # an expired certificate in /etc/armada/admin.config
+```
+
 Flags:
 
 | Flag | Meaning |

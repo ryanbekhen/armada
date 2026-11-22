@@ -57,6 +57,12 @@ until it renews or is deleted.
 armada service credentials NAME -o FILE [flags]
 ```
 
+Examples:
+
+```bash
+armada service credentials ci -o ci.config   # another certificate; the others keep working
+```
+
 Flags:
 
 | Flag | Meaning |
@@ -75,6 +81,12 @@ armada service delete NAME --yes [flags]
 
 Also: `rm`.
 
+Examples:
+
+```bash
+armada service delete ci --yes
+```
+
 Flags:
 
 | Flag | Meaning |
@@ -90,6 +102,12 @@ armada service list [flags]
 ```
 
 Also: `ls`.
+
+Examples:
+
+```bash
+armada service list
+```
 
 Flags:
 
@@ -107,12 +125,24 @@ certificate of the service is revoked; the one in the file is replaced.
 armada service renew --config FILE
 ```
 
+Examples:
+
+```bash
+armada service renew --config ci.config
+```
+
 ## `armada service show`
 
 Show a service's roles and allowed node labels.
 
 ```
 armada service show NAME [flags]
+```
+
+Examples:
+
+```bash
+armada service show ci
 ```
 
 Flags:
@@ -129,6 +159,13 @@ can be kept for some spaces. Roles change with `armada role grant` and `armada r
 
 ```
 armada service update NAME (--allow-label KEY=VALUE... | --clear-labels) [flags]
+```
+
+Examples:
+
+```bash
+armada service update ci --allow-label team=web
+armada service update ci --clear-labels
 ```
 
 Flags:

@@ -13,6 +13,14 @@ nodes (docs/operations.md#upgrades). ARMADA_DOWNLOAD_BASE points at a mirror.
 armadad upgrade [--version vX.Y.Z] [flags]
 ```
 
+Examples:
+
+```bash
+sudo armadad upgrade                       # the latest release; servers first, one at a time
+sudo armadad upgrade --version v0.1.0-alpha.40
+sudo armadad upgrade --no-restart          # install only; restart the services later
+```
+
 Flags:
 
 | Flag | Meaning |

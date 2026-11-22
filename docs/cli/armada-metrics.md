@@ -25,6 +25,13 @@ Keep the key with the scraper only.
 armada metrics credentials NAME [flags]
 ```
 
+Examples:
+
+```bash
+armada metrics credentials prometheus                    # ca.pem, cert.pem, key.pem in armada-metrics-prometheus
+armada metrics credentials prometheus -o /etc/prometheus/armada
+```
+
 Flags:
 
 | Flag | Meaning |
@@ -43,6 +50,12 @@ armada metrics list [flags]
 
 Also: `ls`.
 
+Examples:
+
+```bash
+armada metrics list
+```
+
 Flags:
 
 | Flag | Meaning |
@@ -57,6 +70,12 @@ credentials NAME issues a new one.
 
 ```
 armada metrics revoke NAME --yes [flags]
+```
+
+Examples:
+
+```bash
+armada metrics revoke prometheus --yes
 ```
 
 Flags:

@@ -16,6 +16,13 @@ armadad server [flags]
 
 Also: `servers`.
 
+Examples:
+
+```bash
+sudo systemctl enable --now armada-server   # how it normally runs, after init or server join
+sudo armadad server -v                      # in the foreground, with debug logs
+```
+
 Flags:
 
 | Flag | Meaning |
@@ -60,6 +67,13 @@ either stops the control plane.
 
 ```
 armadad server join ADDR --ca-hash sha256:HEX [flags]
+```
+
+Examples:
+
+```bash
+sudo armadad server join 10.0.0.2:7444 --ca-hash sha256:3f1c...   # from armada server join-token
+sudo armadad server join 10.0.0.2:7444 --ca-hash sha256:3f1c... --name server2
 ```
 
 Flags:

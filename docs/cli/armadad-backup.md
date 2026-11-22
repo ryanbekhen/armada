@@ -22,6 +22,13 @@ list shows what the bucket holds.
 armadad backup -o FILE [flags]
 ```
 
+Examples:
+
+```bash
+sudo armadad backup -o cp-$(date +%F).tar     # the control plane, on a server
+sudo armadad backup list --backup-url url.txt --backup-key key.txt
+```
+
 Flags:
 
 | Flag | Meaning |
@@ -39,6 +46,12 @@ holding the URL or the key, or - for stdin (one of them).
 
 ```
 armadad backup list --backup-url FILE --backup-key FILE [flags]
+```
+
+Examples:
+
+```bash
+sudo armadad backup list --backup-url url.txt --backup-key key.txt
 ```
 
 Flags:

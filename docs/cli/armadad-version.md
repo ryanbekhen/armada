@@ -10,6 +10,12 @@ Print build information and the latest release.
 armadad version [flags]
 ```
 
+Examples:
+
+```bash
+armadad version
+```
+
 Flags:
 
 | Flag | Meaning |

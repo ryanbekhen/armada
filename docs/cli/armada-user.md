@@ -60,6 +60,13 @@ working: use it when a key is lost or leaked.
 armada user credentials NAME -o FILE [flags]
 ```
 
+Examples:
+
+```bash
+armada user credentials alice -o alice.config     # a new certificate; older ones stop working
+armada user credentials alice -o alice.config --ssh bastion.example.com
+```
+
 Flags:
 
 | Flag | Meaning |
@@ -78,6 +85,12 @@ armada user delete NAME --yes [flags]
 
 Also: `rm`.
 
+Examples:
+
+```bash
+armada user delete alice --yes
+```
+
 Flags:
 
 | Flag | Meaning |
@@ -93,6 +106,12 @@ armada user list [flags]
 ```
 
 Also: `ls`.
+
+Examples:
+
+```bash
+armada user list
+```
 
 Flags:
 
@@ -113,12 +132,24 @@ has expired, run `armadad user renew` as root on a server.
 armada user renew
 ```
 
+Examples:
+
+```bash
+armada user renew    # before the certificate in your config expires
+```
+
 ## `armada user show`
 
 Show a user's roles and allowed node labels.
 
 ```
 armada user show NAME [flags]
+```
+
+Examples:
+
+```bash
+armada user show alice
 ```
 
 Flags:
@@ -135,6 +166,13 @@ can be kept for some spaces. Roles change with `armada role grant` and `armada r
 
 ```
 armada user update NAME (--allow-label KEY=VALUE... | --clear-labels) [flags]
+```
+
+Examples:
+
+```bash
+armada user update alice --allow-label team=web
+armada user update alice --clear-labels
 ```
 
 Flags:

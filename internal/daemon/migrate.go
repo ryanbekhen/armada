@@ -23,7 +23,7 @@ func newRuntimeMigrateCommand() *cobra.Command {
 	var dataDir, to string
 	cmd := &cobra.Command{
 		Use:   "migrate --to embedded|supervisor",
-		Short: "Move this node to another container runtime (ADR 0046, experimental)",
+		Short: "Move this node to another container runtime (ADR 0046)",
 		Long: "migrate moves this node between the embedded containerd and the supervisor,\n" +
 			"which runs containers without containerd (ADR 0046). It removes every\n" +
 			"container Armada runs here from the current runtime and records the new one;\n" +

@@ -23,6 +23,13 @@ armada domain list [flags]
 
 Also: `ls`.
 
+Examples:
+
+```bash
+armada domain list               # every custom domain, with its TXT record
+armada domain list --app web
+```
+
 Flags:
 
 | Flag | Meaning |
@@ -36,6 +43,12 @@ Check a domain's TXT record now.
 
 ```
 armada domain verify DOMAIN [flags]
+```
+
+Examples:
+
+```bash
+armada domain verify www.example.com
 ```
 
 Flags:

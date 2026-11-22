@@ -397,3 +397,9 @@ How step 3 was built:
   nouns.
 - An older server refuses `app restart`, shows no containers to
   `replica list`, and takes only full replica IDs.
+
+How step 4 was built: help (`armada` and `armadad` alike) prints the usage
+line, the examples, the description, then verbs and flags. Commands keep
+their examples next to them or in one map per binary (`examples.go`), and
+a test fails on a runnable command with none, more than four, or one that
+names a command, flag, or argument count that does not exist.

@@ -25,6 +25,12 @@ armada run list JOB [flags]
 
 Also: `ls`.
 
+Examples:
+
+```bash
+armada run list migrate
+```
+
 Flags:
 
 | Flag | Meaning |
@@ -37,6 +43,12 @@ Show a run of a job, with its tasks.
 
 ```
 armada run show JOB RUN [flags]
+```
+
+Examples:
+
+```bash
+armada run show migrate 12   # one run, with its tasks
 ```
 
 Flags:

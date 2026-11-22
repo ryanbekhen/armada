@@ -19,6 +19,14 @@ default. Both flags take a file (mode 0600) holding the URL or the key, or
 armadad restore FILE | --backup-url FILE --backup-key FILE [--snapshot ID|latest] [flags]
 ```
 
+Examples:
+
+```bash
+sudo armadad restore cp-2026-11-22.tar                               # from an archive
+sudo armadad restore --backup-url url.txt --backup-key key.txt         # the latest in the bucket
+sudo armadad restore --backup-url url.txt --backup-key key.txt --snapshot 20261122T030000.000Z-1a2b3c4d
+```
+
 Flags:
 
 | Flag | Meaning |

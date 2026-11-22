@@ -14,6 +14,14 @@ Run it once on the first machine, then start `armadad server`.
 armadad init [flags]
 ```
 
+Examples:
+
+```bash
+sudo armadad init                                  # a cluster on this machine, its first server
+sudo armadad init --network wireguard              # containers' traffic between nodes encrypted
+sudo armadad init --runtime embedded               # containers on containerd instead of the supervisor
+```
+
 Flags:
 
 | Flag | Meaning |

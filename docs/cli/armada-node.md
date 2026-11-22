@@ -39,6 +39,13 @@ armada node delete NODE [flags]
 
 Also: `rm`.
 
+Examples:
+
+```bash
+armada node delete node1           # moves its replicas away first
+armada node delete node1 --force   # a machine that is gone for good
+```
+
 Flags:
 
 | Flag | Meaning |
@@ -52,6 +59,12 @@ Stop placing replicas on a node and move its replicas away.
 
 ```
 armada node drain NODE
+```
+
+Examples:
+
+```bash
+armada node drain node1    # before maintenance; armada node resume node1 after
 ```
 
 ## `armada node join-token`
@@ -69,6 +82,14 @@ unexpired: these tokens last 10 minutes by default and at most an hour, and
 
 ```
 armada node join-token [flags]
+```
+
+Examples:
+
+```bash
+armada node join-token                       # prints the armadad join command
+armada node join-token --label disk=ssd      # the node joins with a label
+armada node join-token --ttl 30m
 ```
 
 Flags:
@@ -112,6 +133,12 @@ armada node list [flags]
 
 Also: `ls`.
 
+Examples:
+
+```bash
+armada node list
+```
+
 Flags:
 
 | Flag | Meaning |
@@ -153,12 +180,24 @@ Run only apps whose placement selects one of the node's labels.
 armada node restrict NODE
 ```
 
+Examples:
+
+```bash
+armada node restrict node1   # only apps whose placement selects its labels
+```
+
 ## `armada node resume`
 
 Let a drained node take replicas again.
 
 ```
 armada node resume NODE
+```
+
+Examples:
+
+```bash
+armada node resume node1
 ```
 
 ## `armada node rotate-key`
@@ -185,6 +224,12 @@ Show a node.
 
 ```
 armada node show NODE [flags]
+```
+
+Examples:
+
+```bash
+armada node show node1
 ```
 
 Flags:
@@ -228,6 +273,12 @@ Show the CPU and memory each node's replicas use and reserve.
 armada node top [flags]
 ```
 
+Examples:
+
+```bash
+armada node top     # CPU and memory used and reserved per node
+```
+
 Flags:
 
 | Flag | Meaning |
@@ -240,5 +291,11 @@ Let any app run on a restricted node again.
 
 ```
 armada node unrestrict NODE
+```
+
+Examples:
+
+```bash
+armada node unrestrict node1
 ```
 

@@ -29,8 +29,8 @@ func NewRootCommand() *cobra.Command {
 		Use:   Name,
 		Short: "Run and set up an Armada machine",
 		Long: Name + " runs on every machine of an Armada cluster: the control plane\n" +
-			"(`armadad server`), the node agent (`armadad agent`), and the embedded\n" +
-			"container runtime (`armadad runtime`), each under systemd. It also sets a\n" +
+			"(`armadad server`), the node agent (`armadad agent`), and, on nodes set up\n" +
+			"on containerd, the embedded runtime (`armadad runtime`), each under systemd. It also sets a\n" +
 			"machine up (init, join) and inspects it (doctor). It runs as root.\n" +
 			"Manage apps with `armada`.",
 		SilenceUsage:  true,
@@ -56,6 +56,7 @@ func NewRootCommand() *cobra.Command {
 		newUpgradeCommand(),
 		newEndpointCommand(),
 	)
+	addExamples(cmd)
 	return cmd
 }
 
