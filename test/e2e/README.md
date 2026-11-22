@@ -56,7 +56,8 @@ E2E_ACME_EMAIL=you@example.org sh test/e2e/cluster.sh hosts
 | `E2E_REBOOT` | `1` | `0` skips rebooting every machine at once |
 | `E2E_BRIDGE_GW` | read from each node | Container bridge address (each node has its own container subnet) |
 | `E2E_SERVER_FLAGS` | empty | Extra `armadad server` flags |
-| `E2E_CONFORMANCE` | empty | Driver conformance test binary for the last machine's architecture, built with `GOOS=linux go test -c -tags integration -o bin/conformance ./internal/runtime/containerd/`; runs the suite on that node's embedded runtime once the cluster is ready |
+| `E2E_RUNTIME` | empty (the supervisor) | Container runtime of every machine: `supervisor` or `embedded` (containerd, for nodes set up before the supervisor became the default); run both before releases |
+| `E2E_CONFORMANCE` | empty | Driver conformance test binary for the last machine's architecture, built with `GOOS=linux go test -c -tags integration -o bin/conformance ./internal/runtime/containerd/`; runs the suite on that node's runtime once the cluster is ready |
 
 The script stops at the first failure and prints `armada server list`,
 `armada cluster status`, and `armada app list -A`. A full run on four small machines takes about 10 minutes
@@ -107,7 +108,7 @@ A release runs every scenario.
 
 1. `armadad doctor` passes on every machine; the cluster forms with three
    voting servers and every node ready. With `E2E_CONFORMANCE`, the driver
-   conformance suite passes on the last node's embedded runtime, next to
+   conformance suite passes on the last node's runtime, next to
    its running agent.
 2. Nothing but SSH and HAProxy (80/443) listens outside the private,
    loopback, and bridge addresses.

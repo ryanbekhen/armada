@@ -37,6 +37,7 @@ func healthyEnv(t *testing.T) doctorEnv {
 	return doctorEnv{
 		euid:       0,
 		driver:     d,
+		runtime:    runtimeSupervisor,
 		detectIP:   func() (netip.Addr, error) { return netip.MustParseAddr("10.0.0.2"), nil },
 		statFile:   os.Stat,
 		checkTmpfs: func(string) error { return nil },
@@ -136,7 +137,13 @@ func TestDoctorFindsProblems(t *testing.T) {
 func TestDoctorRuntimeDown(t *testing.T) {
 	t.Parallel()
 	env := healthyEnv(t)
+	env.runtime = "" // agent.json written before the supervisor: containerd
 	d := fake.New()
+	// A node still on containerd works and is told how to move (ADR 0046).
+	results0 := runDoctor(context.Background(), env)
+	if statusOf(results0, "runtime") != checkWarn || !strings.Contains(detailOf(results0, "runtime"), "runtime migrate --to supervisor") {
+		t.Errorf("embedded node: %s %q", statusOf(results0, "runtime"), detailOf(results0, "runtime"))
+	}
 	d.PingErr = errors.New("connection refused")
 	env.driver = d
 	// The embedded runtime only runs once the node is set up.
@@ -146,8 +153,8 @@ func TestDoctorRuntimeDown(t *testing.T) {
 	}
 	env.dataDir = t.TempDir()
 	results := runDoctor(context.Background(), env)
-	if got := statusOf(results, "runtime"); got != checkWarn {
-		t.Errorf("fresh node, embedded runtime down = %q", got)
+	if got := statusOf(results, "runtime"); got != checkWarn || !strings.Contains(detailOf(results, "runtime"), "supervisor runtime") {
+		t.Errorf("fresh node, no runtime yet = %q %q", got, detailOf(results, "runtime"))
 	}
 	if statusOf(results, "cgroup") != checkOK {
 		t.Error("host checks not run")
@@ -196,11 +203,12 @@ func TestRuntimeFlags(t *testing.T) {
 	t.Parallel()
 	ip := netip.MustParseAddr("10.0.0.6")
 	var ac agentConfig
-	if err := (runtimeFlags{subnet: "10.121.0.0/24"}).apply(&ac, ip); err != nil || ac.Runtime != runtimeEmbedded || ac.ContainerSubnet != "10.121.0.0/24" {
+	// With no --runtime a new node runs the supervisor (ADR 0046).
+	if err := (runtimeFlags{subnet: "10.121.0.0/24"}).apply(&ac, ip); err != nil || ac.Runtime != runtimeSupervisor || ac.ContainerSubnet != "10.121.0.0/24" {
 		t.Errorf("%+v %v", ac, err)
 	}
 	if err := ac.checkRuntime(); err != nil {
-		t.Errorf("embedded node refused: %v", err)
+		t.Errorf("supervisor node refused: %v", err)
 	}
 	for _, bad := range []runtimeFlags{
 		{subnet: "10.0.0.0/16"}, // holds the private IP
@@ -221,7 +229,7 @@ func TestRuntimeFlags(t *testing.T) {
 		t.Errorf("agent.json without a runtime refused: %v", err)
 	}
 	// --runtime picks containerd or the supervisor (ADR 0046), nothing else.
-	for rt, want := range map[string]string{"": runtimeEmbedded, "embedded": runtimeEmbedded, "supervisor": runtimeSupervisor, "docker": "", "apple": ""} {
+	for rt, want := range map[string]string{"": runtimeSupervisor, "embedded": runtimeEmbedded, "supervisor": runtimeSupervisor, "docker": "", "apple": ""} {
 		fs := pflag.NewFlagSet("t", pflag.ContinueOnError)
 		var rf runtimeFlags
 		rf.register(fs)
@@ -295,6 +303,7 @@ func TestExistingAncestor(t *testing.T) {
 func TestDoctorRuntimeUnreachable(t *testing.T) {
 	t.Parallel()
 	env := healthyEnv(t)
+	env.runtime = runtimeEmbedded
 	env.driver = failingPing{fake.New()}
 	results := runDoctor(context.Background(), env)
 	found := false

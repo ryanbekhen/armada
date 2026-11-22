@@ -361,13 +361,15 @@ func checkRuntime(ctx context.Context, env doctorEnv) []checkResult {
 		add(checkWarn, "cannot reach the embedded runtime without root (its socket is root's only): run sudo armadad doctor")
 		return out
 	case err != nil && !env.initialized():
-		add(checkWarn, "embedded runtime not running yet; it starts with armada-server or armada-agent after init or join")
+		add(checkWarn, "no container runtime yet: init or join sets up the %s runtime (or containerd with --runtime %s)", defaultRuntime, runtimeEmbedded)
 		return out
 	case err != nil:
 		add(checkFail, "embedded runtime: %v (systemctl status armada-runtime)", err)
 		return out
 	default:
-		add(checkOK, "embedded runtime reachable")
+		// containerd is no longer the default (ADR 0046) and goes away in
+		// a later release: point to the move while the node still works.
+		add(checkWarn, "embedded runtime (containerd) reachable; new nodes run the supervisor runtime, and containerd will be removed in a later release: move this node with armadad runtime migrate --to supervisor (drain it and stop its service first; see the operations guide)")
 	}
 	return append(out, bridgeCheck(ctx, env)...)
 }

@@ -58,8 +58,8 @@ E2E_SUDO=${E2E_SUDO:-}                  # "sudo" when SSH-TARGET is not root
 E2E_REBOOT=${E2E_REBOOT:-1}             # 0 skips rebooting every machine at once
 E2E_BRIDGE_GW=${E2E_BRIDGE_GW:-} # armada0 address; read from each node if empty
 E2E_SERVER_FLAGS=${E2E_SERVER_FLAGS:-}
-# Container runtime of every machine: embedded (containerd) or supervisor
-# (no containerd, ADR 0046); empty uses the default.
+# Container runtime of every machine: supervisor (no containerd, ADR 0046)
+# or embedded (containerd); empty uses the default, the supervisor.
 E2E_RUNTIME=${E2E_RUNTIME:-}
 RUNTIME_FLAG=
 if [ -n "$E2E_RUNTIME" ]; then RUNTIME_FLAG="--runtime $E2E_RUNTIME"; fi
@@ -369,12 +369,19 @@ done
 wait_for 180 "all $N nodes ready" nodes_ready
 
 if [ -n "$E2E_CONFORMANCE" ]; then
-	log "conformance suite on the embedded runtime of $(host "$N" 1)"
+	# The node's own runtime: the supervisor (with the pack's armada-shim)
+	# unless it was set up on containerd.
+	if on "$N" "grep -q '\"runtime\": *\"embedded\"' /var/lib/armada/agent.json"; then
+		_suite='Conformance$' _shim=
+	else
+		_suite=ConformanceSupervisor _shim="ARMADA_SHIM_BIN=/var/lib/armada/runtime/current/bin/armada-shim"
+	fi
+	log "conformance suite ($_suite) on the runtime of $(host "$N" 1)"
 	# shellcheck disable=SC2086
 	scp -q $E2E_SSH_OPTS -o BatchMode=yes "$E2E_CONFORMANCE" "$(host "$N" 2):/tmp/conformance.e2e"
-	if ! on "$N" "chmod 0755 /tmp/conformance.e2e && ARMADA_BIN=/usr/local/bin/armadad ARMADA_HOST_IP=$(host "$N" 3) \
+	if ! on "$N" "chmod 0755 /tmp/conformance.e2e && ARMADA_BIN=/usr/local/bin/armadad ARMADA_HOST_IP=$(host "$N" 3) $_shim \
 		ARMADA_SUBNET=\$(sed -n 's/.*\"containerSubnet\": *\"\([^\"]*\)\".*/\1/p' /var/lib/armada/agent.json) \
-		/tmp/conformance.e2e -test.run Conformance -test.v; _rc=\$?; rm -f /tmp/conformance.e2e; exit \$_rc" >"$WORK/conformance" 2>&1; then
+		/tmp/conformance.e2e -test.run '$_suite' -test.v; _rc=\$?; rm -f /tmp/conformance.e2e; exit \$_rc" >"$WORK/conformance" 2>&1; then
 		cat "$WORK/conformance" >&2
 		fail "conformance suite"
 	fi

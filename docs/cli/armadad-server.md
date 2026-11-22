@@ -75,7 +75,7 @@ Flags:
 | `--no-private-ip` | joining from another site: send no private IP, and get a mesh address the other nodes reach over WireGuard (the default when the machine has no private IPv4 address) |
 | `--port int` | control plane port on the private IP (default `7443`) |
 | `--private-ip string` | this machine's private IP (default: the only private IPv4 address; not in a mesh cluster) |
-| `--runtime string` | container runtime: embedded (containerd), or supervisor (no containerd daemon; experimental, ADR 0046) (default `embedded`) |
+| `--runtime string` | container runtime: supervisor (no containerd daemon, ADR 0046), or embedded (containerd) (default `supervisor`) |
 | `--token-file string` | file holding the server token (default: prompt or stdin) |
 | `--user-name string` | user named in the client config written here (default: the user running it) |
 

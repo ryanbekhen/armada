@@ -28,6 +28,10 @@ import (
 const (
 	runtimeEmbedded   = "embedded"
 	runtimeSupervisor = "supervisor"
+	// defaultRuntime is what init and join record when --runtime is not
+	// given (ADR 0046). An agent.json without a runtime was written before
+	// the supervisor existed and stays on containerd.
+	defaultRuntime = runtimeSupervisor
 )
 
 // runDir holds the node's runtime state on tmpfs; tests replace it.
@@ -56,7 +60,7 @@ type runtimeFlags struct {
 func (r *runtimeFlags) register(f *pflag.FlagSet) {
 	r.flags = f
 	f.StringVar(&r.subnet, "container-subnet", embedded.DefaultSubnet.String(), "private IPv4 subnet for this node's containers (clusters without a cluster network; others give each node a subnet)")
-	f.StringVar(&r.runtime, "runtime", runtimeEmbedded, "container runtime: embedded (containerd), or supervisor (no containerd daemon; experimental, ADR 0046)")
+	f.StringVar(&r.runtime, "runtime", defaultRuntime, "container runtime: supervisor (no containerd daemon, ADR 0046), or embedded (containerd)")
 }
 
 // apply validates the flags and records them in c.
@@ -73,12 +77,12 @@ func (r runtimeFlags) apply(c *agentConfig, privateIP netip.Addr) error {
 		return fmt.Errorf("--container-subnet %s contains the private IP %s; pick a subnet the network does not use", b.Subnet, privateIP)
 	}
 	switch r.runtime {
-	case "", runtimeEmbedded:
-		c.Runtime = runtimeEmbedded
-	case runtimeSupervisor:
-		c.Runtime = runtimeSupervisor
+	case "":
+		c.Runtime = defaultRuntime
+	case runtimeEmbedded, runtimeSupervisor:
+		c.Runtime = r.runtime
 	default:
-		return fmt.Errorf("invalid --runtime %q: use %s or %s", r.runtime, runtimeEmbedded, runtimeSupervisor)
+		return fmt.Errorf("invalid --runtime %q: use %s or %s", r.runtime, runtimeSupervisor, runtimeEmbedded)
 	}
 	c.ContainerSubnet = b.Subnet.String()
 	return nil

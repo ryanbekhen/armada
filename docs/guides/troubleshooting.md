@@ -357,7 +357,8 @@ sudo armadad doctor
 | The agent cannot reach a server on port 7443 over the private network | Check the provider firewall between the node and the servers |
 | The node certificate expired (`CERT EXPIRES` in `armada node list`): a node off for more than 30 days | `armada node delete NODE`, then join it again |
 | The clock is off (`clock` in doctor) | Turn on NTP |
-| The embedded runtime is down (`runtime` in doctor) | `systemctl status armada-runtime` |
+| The supervisor runtime fails (`runtime` in doctor) | `systemctl status armada-server` (or `armada-agent`), which installs the runtime pack, and `systemctl status 'armada-shim-*'` |
+| The embedded runtime (containerd) is down (`runtime` in doctor) | `systemctl status armada-runtime`; then move the node to the supervisor ([operations guide](../operations.md#container-runtimes)) |
 
 A `MostUnreachable` event (`... nodes lost and ... ready: not moving their
 replicas (is the control plane cut off?)`) means more than half the nodes
