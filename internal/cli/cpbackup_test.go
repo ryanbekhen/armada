@@ -129,14 +129,14 @@ func TestPrintBackups(t *testing.T) {
 	b.Reset()
 	now := time.Now()
 	err := printClusterStatus(&b, &armadav1.ClusterStatusResponse{ControlPlaneBackup: &armadav1.ControlPlaneBackupStatus{
-		Bucket: "s3.example.com/bucket/", LastAt: timestamppb.New(now.Add(-time.Hour)), LastServer: "s1", LastSizeBytes: 2 << 20,
+		Bucket: "s3.example.com/bucket/", LastAt: timestamppb.New(now.Add(-time.Hour)), LastServer: "s1", LastSizeBytes: 991182,
 		Snapshots: 3, StoredBytes: 5 << 20, FailedAt: timestamppb.New(now), Error: "bucket said no\x1b[2J", NextAt: timestamppb.New(now.Add(5 * time.Minute)),
 	}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	out := b.String()
-	for _, want := range []string{"backups: to s3.example.com/bucket/, last ", " on s1 (2Mi, 3 kept, 5Mi stored), next ", "backup failed at ", "bucket said no"} {
+	for _, want := range []string{"backups: to s3.example.com/bucket/, last ", " on s1 (968.0Ki, 3 kept, 5.0Mi stored), next ", "backup failed at ", "bucket said no"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("%q missing:\n%s", want, out)
 		}

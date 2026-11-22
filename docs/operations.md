@@ -254,7 +254,7 @@ armada cluster status
 ```
 
 ```
-backups: to s3.example.com/acme-backups/armada/, last 2026-11-21 10:00:04 on cp-1 (24Mi, 1 kept, 9.8Mi stored), next 2026-11-21 11:00:04
+backups: to s3.example.com/acme-backups/armada/, last 2026-11-21 10:00:04 on cp-1 (24.0Mi, 1 kept, 9.8Mi stored), next 2026-11-21 11:00:04
 ```
 
 - Each backup holds what `armadad backup` writes, taken on the server that

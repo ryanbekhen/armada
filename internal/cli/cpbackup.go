@@ -128,7 +128,7 @@ func backupStatusLine(b *armadav1.ControlPlaneBackupStatus) string {
 	at := func(t interface{ AsTime() time.Time }) string { return t.AsTime().Local().Format(time.DateTime) }
 	line := "backups: to " + b.Bucket
 	if b.LastAt != nil {
-		line += fmt.Sprintf(", last %s on %s (%s, %d kept, %s stored)", at(b.LastAt), dash(b.LastServer), humanBytes(b.LastSizeBytes), b.Snapshots, humanBytes(b.StoredBytes))
+		line += fmt.Sprintf(", last %s on %s (%s, %d kept, %s stored)", at(b.LastAt), dash(b.LastServer), diskBytes(b.LastSizeBytes), b.Snapshots, diskBytes(b.StoredBytes))
 	} else {
 		line += ", none yet"
 	}
