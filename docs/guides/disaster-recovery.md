@@ -63,7 +63,7 @@ armada cluster status
 ```
 nodes 3/3 ready · apps 12 · ready 12 · rolling out 0 · failing 0 · jobs 2
 
-backups: to s3.example.com/acme-backups/armada/, last 2026-11-21 10:00:04 on cp-1 (24Mi, 1 kept, 9.8Mi stored), next 2026-11-21 11:00:04
+backups: to s3.example.com/acme-backups/armada/, last 2026-11-21 10:00:04 on cp-1 (24.0Mi, 1 kept, 9.8Mi stored), next 2026-11-21 11:00:04
 ```
 
 - The first backup runs at once, the next ones every hour, from whichever
