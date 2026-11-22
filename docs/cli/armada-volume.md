@@ -34,6 +34,13 @@ own data.
 armada volume backup APP VOLUME -o FILE [flags]
 ```
 
+Examples:
+
+```bash
+armada volume backup db data -o data.tar.gz          # while the app runs
+armada volume backup db data -o data.tar.gz --stop   # with the app paused, for a consistent copy
+```
+
 Flags:
 
 | Flag | Meaning |
@@ -52,6 +59,12 @@ armada volume delete APP VOLUME --yes [flags]
 
 Also: `rm`.
 
+Examples:
+
+```bash
+armada volume delete db data --yes
+```
+
 Flags:
 
 | Flag | Meaning |
@@ -67,6 +80,13 @@ armada volume list [APP] [flags]
 ```
 
 Also: `ls`.
+
+Examples:
+
+```bash
+armada volume list           # every volume of the space
+armada volume list db        # one app's
+```
 
 Flags:
 
@@ -87,6 +107,14 @@ for good; it is refused while that node is still connected.
 
 ```
 armada volume restore APP VOLUME FILE | --snapshot ID|latest [flags]
+```
+
+Examples:
+
+```bash
+armada volume restore db data data.tar.gz          # from an archive
+armada volume restore db data --snapshot latest    # from the volume's bucket
+armada volume restore db data --snapshot latest --node node2   # onto another node
 ```
 
 Flags:

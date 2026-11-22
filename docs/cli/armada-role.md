@@ -53,6 +53,12 @@ armada role list [flags]
 
 Also: `ls`.
 
+Examples:
+
+```bash
+armada role list    # the roles and who holds each
+```
+
 Flags:
 
 | Flag | Meaning |
@@ -86,6 +92,12 @@ Show what a role allows and the API methods it reaches.
 
 ```
 armada role show ROLE [flags]
+```
+
+Examples:
+
+```bash
+armada role show deployer
 ```
 
 Flags:

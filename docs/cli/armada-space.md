@@ -38,6 +38,12 @@ Create a space.
 armada space create NAME
 ```
 
+Examples:
+
+```bash
+armada space create shop
+```
+
 ## `armada space delete`
 
 Delete a space. It must be empty: delete its apps, jobs, secrets, and
@@ -49,6 +55,12 @@ armada space delete NAME
 
 Also: `rm`.
 
+Examples:
+
+```bash
+armada space delete shop   # once its apps, jobs, and volumes are gone
+```
+
 ## `armada space list`
 
 List spaces.
@@ -58,6 +70,12 @@ armada space list [flags]
 ```
 
 Also: `ls`.
+
+Examples:
+
+```bash
+armada space list
+```
 
 Flags:
 
@@ -71,6 +89,12 @@ Show a space's settings.
 
 ```
 armada space show NAME [flags]
+```
+
+Examples:
+
+```bash
+armada space show shop
 ```
 
 Flags:
@@ -94,6 +118,12 @@ cluster network.
 armada space update SPACE --network-isolation[=false] [flags]
 ```
 
+Examples:
+
+```bash
+armada space update default --network-isolation
+```
+
 Flags:
 
 | Flag | Meaning |
@@ -108,5 +138,12 @@ goes back to the default space.
 
 ```
 armada space use NAME
+```
+
+Examples:
+
+```bash
+armada space use shop      # later commands work in shop
+armada space use default
 ```
 

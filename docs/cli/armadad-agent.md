@@ -10,6 +10,13 @@ Run the node agent.
 armadad agent [flags]
 ```
 
+Examples:
+
+```bash
+sudo systemctl enable --now armada-agent    # how it normally runs, after join
+sudo armadad agent -v                       # in the foreground, with debug logs
+```
+
 Flags:
 
 | Flag | Meaning |

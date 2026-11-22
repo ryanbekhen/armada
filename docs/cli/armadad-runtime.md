@@ -12,6 +12,13 @@ nothing on nodes that are not initialized yet.
 armadad runtime [flags]
 ```
 
+Examples:
+
+```bash
+sudo systemctl status armada-runtime   # started by systemd on containerd nodes
+sudo armadad runtime reset             # remove every container Armada runs here
+```
+
 Flags:
 
 | Flag | Meaning |
@@ -36,6 +43,13 @@ Moving to the supervisor stops containerd and leaves its data in
 armadad runtime migrate --to embedded|supervisor [flags]
 ```
 
+Examples:
+
+```bash
+sudo armadad runtime migrate --to supervisor   # drain the node and stop its service first
+sudo armadad runtime migrate --to embedded
+```
+
 Flags:
 
 | Flag | Meaning |
@@ -53,6 +67,12 @@ or it starts its replicas again.
 
 ```
 armadad runtime reset [flags]
+```
+
+Examples:
+
+```bash
+sudo systemctl stop armada-agent && sudo armadad runtime reset
 ```
 
 Flags:

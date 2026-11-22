@@ -81,6 +81,12 @@ armada alert delete NAME
 
 Also: `rm`.
 
+Examples:
+
+```bash
+armada alert delete ops
+```
+
 ## `armada alert list`
 
 List alert channels. SENT and FAILED count notices since the current leader
@@ -91,6 +97,12 @@ armada alert list [flags]
 ```
 
 Also: `ls`.
+
+Examples:
+
+```bash
+armada alert list
+```
 
 Flags:
 
@@ -105,6 +117,12 @@ chat, or mail server shows at once.
 
 ```
 armada alert test NAME
+```
+
+Examples:
+
+```bash
+armada alert test ops    # send a test notice now
 ```
 
 ## `armada alert update`

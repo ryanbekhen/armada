@@ -13,6 +13,13 @@ the host firewall. Exits non-zero if a check fails.
 armadad doctor [flags]
 ```
 
+Examples:
+
+```bash
+sudo armadad doctor                          # before init or join, and when something is off
+sudo armadad doctor --private-ip 10.0.0.5
+```
+
 Flags:
 
 | Flag | Meaning |

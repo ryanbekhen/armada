@@ -23,6 +23,12 @@ Back a volume up to its bucket now.
 armada snapshot create APP VOLUME [flags]
 ```
 
+Examples:
+
+```bash
+armada snapshot create db data   # a backup to its bucket now
+```
+
 Flags:
 
 | Flag | Meaning |
@@ -38,6 +44,12 @@ armada snapshot list APP VOLUME [flags]
 ```
 
 Also: `ls`.
+
+Examples:
+
+```bash
+armada snapshot list db data
+```
 
 Flags:
 

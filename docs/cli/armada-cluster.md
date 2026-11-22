@@ -25,6 +25,13 @@ counted rather than shown again.
 armada cluster events [flags]
 ```
 
+Examples:
+
+```bash
+armada cluster events                   # the last day
+armada cluster events --node node1 -f   # one node, as it happens
+```
+
 Flags:
 
 | Flag | Meaning |
@@ -42,6 +49,12 @@ Show cluster settings.
 armada cluster show [flags]
 ```
 
+Examples:
+
+```bash
+armada cluster show
+```
+
 Flags:
 
 | Flag | Meaning |
@@ -55,6 +68,13 @@ Summarize the cluster in one line, then list the apps that are not ready
 
 ```
 armada cluster status [flags]
+```
+
+Examples:
+
+```bash
+armada cluster status       # nodes, apps, and what needs attention
+armada cluster status -o json
 ```
 
 Flags:
@@ -120,6 +140,15 @@ first backup runs at once; armada cluster status shows the last one.
 
 ```
 armada cluster update [flags]
+```
+
+Examples:
+
+```bash
+armada cluster update --root-domain apps.example.com
+armada cluster update --acme-email ops@example.com
+armada cluster update --trusted-proxies 173.245.48.0/20,103.21.244.0/22
+armada cluster update --log-retention 336h --log-max-disk 2Gi
 ```
 
 Flags:

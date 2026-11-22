@@ -31,6 +31,12 @@ armada server delete NAME
 
 Also: `rm`.
 
+Examples:
+
+```bash
+armada server delete server3
+```
+
 ## `armada server join-token`
 
 Create a single-use join token and print the command to run on the new node.
@@ -57,6 +63,13 @@ together.
 armada server join-token [flags]
 ```
 
+Examples:
+
+```bash
+armada server join-token          # prints the armadad server join command
+armada server join-token --ttl 30m
+```
+
 Flags:
 
 | Flag | Meaning |
@@ -75,6 +88,12 @@ armada server list [flags]
 ```
 
 Also: `ls`.
+
+Examples:
+
+```bash
+armada server list    # and update the client config with them
+```
 
 Flags:
 

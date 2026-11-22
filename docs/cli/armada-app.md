@@ -36,6 +36,12 @@ armada app delete APP --yes [flags]
 
 Also: `rm`.
 
+Examples:
+
+```bash
+armada app delete api --yes   # drain its replicas, then delete it
+```
+
 Flags:
 
 | Flag | Meaning |
@@ -124,6 +130,14 @@ shown again.
 armada app events [APP] [flags]
 ```
 
+Examples:
+
+```bash
+armada app events              # what happened to the space's apps
+armada app events api -f       # one app, as it happens
+armada app events --since 2h
+```
+
 Flags:
 
 | Flag | Meaning |
@@ -180,6 +194,14 @@ armada app list [flags]
 
 Also: `ls`.
 
+Examples:
+
+```bash
+armada app list            # the apps of the space
+armada app list -A         # of every space
+armada app list -o json
+```
+
 Flags:
 
 | Flag | Meaning |
@@ -192,6 +214,15 @@ Print logs from an app's replicas.
 
 ```
 armada app logs APP [flags]
+```
+
+Examples:
+
+```bash
+armada app logs api                     # the last 100 lines of each replica
+armada app logs api -f --grep error     # follow, only lines with "error"
+armada app logs api --since 2h          # search the history, replicas that are gone included
+armada app logs api --replica k3p9x --container log-ship
 ```
 
 Flags:
@@ -249,6 +280,14 @@ REVISION is a full name (web--r3) or its number (r3).
 armada app rollback APP [--to REVISION] [flags]
 ```
 
+Examples:
+
+```bash
+armada app rollback api              # to the revision before the active one
+armada app rollback api --to r11     # to one revision (armada revision list api)
+armada app rollback api --wait       # and wait until it serves
+```
+
 Flags:
 
 | Flag | Meaning |
@@ -264,6 +303,13 @@ it runs as a file holds it, ready for create --file or update --file.
 
 ```
 armada app show APP [flags]
+```
+
+Examples:
+
+```bash
+armada app show api             # revision, replicas, URLs
+armada app show api -o yaml     # the spec it runs, for app deploy --file
 ```
 
 Flags:
@@ -284,6 +330,14 @@ CPU is shown as used/reserved and memory as used/limit; "-" means no recent samp
 
 ```
 armada app top [APP] [flags]
+```
+
+Examples:
+
+```bash
+armada app top              # every app of the space
+armada app top api          # one app, per replica
+armada app top --spaces     # per space, with volumes, requests, and egress
 ```
 
 Flags:

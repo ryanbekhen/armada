@@ -23,6 +23,12 @@ armada revision list APP [flags]
 
 Also: `ls`.
 
+Examples:
+
+```bash
+armada revision list api
+```
+
 Flags:
 
 | Flag | Meaning |
@@ -35,6 +41,13 @@ Show one revision of an app. REVISION is its full name, such as web--r3.
 
 ```
 armada revision show REVISION [flags]
+```
+
+Examples:
+
+```bash
+armada revision show api--r12          # image digest, platforms, secret versions
+armada revision show api--r12 -o json
 ```
 
 Flags:

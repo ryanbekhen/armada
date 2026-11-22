@@ -136,6 +136,7 @@ func NewRootCommand() *cobra.Command {
 	}
 	cmd.SetHelpCommandGroupID("monitoring")
 	completeFromCluster(cmd, g)
+	addExamples(cmd)
 	return cmd
 }
 

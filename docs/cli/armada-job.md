@@ -27,6 +27,12 @@ Stop a job's pending and running runs.
 armada job cancel JOB
 ```
 
+Examples:
+
+```bash
+armada job cancel migrate   # stop its pending and running runs
+```
+
 ## `armada job delete`
 
 Delete a job, stopping its runs and removing their records and logs. Its secrets are kept;
@@ -37,6 +43,12 @@ armada job delete JOB
 ```
 
 Also: `rm`.
+
+Examples:
+
+```bash
+armada job delete migrate
+```
 
 ## `armada job deploy`
 
@@ -97,6 +109,13 @@ armada job list [flags]
 
 Also: `ls`.
 
+Examples:
+
+```bash
+armada job list
+armada job list -o json
+```
+
 Flags:
 
 | Flag | Meaning |
@@ -111,6 +130,14 @@ kept for 24 hours; --since searches the log history of every run (ADR 0043).
 
 ```
 armada job logs JOB [flags]
+```
+
+Examples:
+
+```bash
+armada job logs migrate               # the newest run
+armada job logs migrate --run 12      # one run (armada run list migrate)
+armada job logs migrate -f
 ```
 
 Flags:
@@ -135,6 +162,12 @@ it runs as a file holds it, ready for create --file or update --file.
 
 ```
 armada job show JOB [flags]
+```
+
+Examples:
+
+```bash
+armada job show migrate     # schedule, revision, latest run
 ```
 
 Flags:

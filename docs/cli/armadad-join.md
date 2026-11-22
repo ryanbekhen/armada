@@ -15,6 +15,13 @@ an argument, which would leak into shell history.
 armadad join ADDR --ca-hash sha256:HEX [flags]
 ```
 
+Examples:
+
+```bash
+sudo armadad join 10.0.0.2:7444 --ca-hash sha256:3f1c...   # from armada node join-token; paste the token
+sudo armadad join 10.0.0.2:7444 --ca-hash sha256:3f1c... --token-file /root/token
+```
+
 Flags:
 
 | Flag | Meaning |

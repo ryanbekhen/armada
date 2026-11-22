@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"io"
@@ -16,6 +17,7 @@ import (
 // each verb takes (`list APP`), not only its name.
 func explain(root *cobra.Command) {
 	root.SetUsageFunc(usage)
+	root.SetHelpFunc(help)
 	root.SetFlagErrorFunc(func(c *cobra.Command, err error) error {
 		return fmt.Errorf("%w\nRun '%s --help' for its flags", err, c.CommandPath())
 	})
@@ -100,7 +102,19 @@ func verbLine(c *cobra.Command) string {
 
 // usage is cobra's default usage with each verb listed with its arguments.
 func usage(c *cobra.Command) error {
-	w := c.OutOrStderr()
+	writeHelp(c.OutOrStderr(), c, false)
+	return nil
+}
+
+// help is a command's help (ADR 0052): its usage line and examples first,
+// then what it does, then its verbs and flags.
+func help(c *cobra.Command, _ []string) {
+	writeHelp(c.OutOrStdout(), c, true)
+}
+
+// writeHelp writes usage, and with describe the command's description
+// after its examples.
+func writeHelp(w io.Writer, c *cobra.Command, describe bool) {
 	p := func(format string, a ...any) { _, _ = fmt.Fprintf(w, format, a...) }
 	p("Usage:")
 	if c.Runnable() && !c.HasAvailableSubCommands() {
@@ -114,6 +128,11 @@ func usage(c *cobra.Command) error {
 	}
 	if c.HasExample() {
 		p("\n\nExamples:\n%s", c.Example)
+	}
+	if describe {
+		if d := strings.TrimSpace(cmp.Or(c.Long, c.Short)); d != "" {
+			p("\n\n%s", d)
+		}
 	}
 	if c.HasAvailableSubCommands() && len(c.Groups()) > 0 {
 		listGroups(w, c)
@@ -131,7 +150,6 @@ func usage(c *cobra.Command) error {
 		p("\n\nUse \"%s [command] --help\" for more information about a command.", c.CommandPath())
 	}
 	p("\n")
-	return nil
 }
 
 func listVerbs(w io.Writer, c *cobra.Command) {
