@@ -42,6 +42,9 @@ All guides: [guides/](guides/README.md).
   networking, and what happens when something fails.
 - **[Tested environments](tested-environments.md)**: where Armada has been
   tested end to end.
+- **[Compatibility](compatibility.md)**: what stays the same across
+  releases, versions side by side during an upgrade, and how deprecations
+  are announced.
 - **[Releasing](releasing.md)**: how releases are built, signed, and
   verified.
 

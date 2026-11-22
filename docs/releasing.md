@@ -38,6 +38,8 @@ on a maintainer's machine.
 5. Review the draft and publish it.
 
 Tags with a pre-release suffix (`v0.1.0-rc.1`) are marked as pre-releases.
+What a release may change is in [compatibility.md](compatibility.md): a
+release that deprecates or removes something says so in its notes.
 
 ## Commit messages and release notes
 

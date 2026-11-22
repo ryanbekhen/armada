@@ -180,6 +180,7 @@ Every change updates, in the same commit or pull request, every document it make
 - `docs/cli/`: run `make docs` whenever a command, flag, or help text changes (generated; never edit by hand).
 - `docs/guides/`: the guides that use the changed feature (task recipes; every command and spec in them must stay valid), `docs/concepts.md` for changes to the core ideas, and `docs/README.md` (the documentation home) for new pages.
 - `CLAUDE.md`: Status, Commands, Architecture in brief, and these conventions.
+- `docs/compatibility.md`: what is stable and what is deprecated; a change to anything it calls stable needs a deprecation there first.
 - `docs/`: quickstart, operations guide, spec reference, `threat-model.md` for anything that changes the attack surface or a mitigation, and `docs/adr/` for design decisions (a new ADR, or an update to the one the change supersedes, plus the index in `docs/adr/README.md`).
 - CLI help text and error messages that describe the changed behaviour.
 
