@@ -29,11 +29,15 @@ import (
 // and the kernel's VXLAN and WireGuard:
 //
 //	go test -c -tags integration ./internal/clusternet -o t && sudo ./t -test.run IntegrationSites -test.v
+//
+// With ARMADA_NET_IMPL=rust ARMADA_NODE_BIN=<armada-node> the nodes run
+// armada-node's cluster network instead (netimpl_integration_test.go).
 func TestIntegrationSites(t *testing.T) {
 	type node struct {
 		*switchNode
 		private, public netip.Prefix
 		site            string
+		cache           string // its mesh.json
 	}
 	nodes := []*node{
 		{switchNode: &switchNode{name: "a", subnet: netip.MustParsePrefix("10.120.1.0/24")}, private: netip.MustParsePrefix("10.99.0.1/24"), public: netip.MustParsePrefix("203.0.113.1/24")},
@@ -133,9 +137,8 @@ func TestIntegrationSites(t *testing.T) {
 		}); err != nil {
 			t.Fatal(err)
 		}
-		if n.net, err = New(Config{Node: n.name, PrivateIP: n.ip, Key: keys[n.name], MeshCache: filepath.Join(t.TempDir(), "mesh.json")}); err != nil {
-			t.Fatal(err)
-		}
+		n.cache = filepath.Join(t.TempDir(), "mesh.json")
+		n.net = newNetImpl(t, Config{Node: n.name, PrivateIP: n.ip, Key: keys[n.name], MeshCache: n.cache})
 	}
 	config := func(mode string, sites map[string]string) *armadav1.NetworkConfig {
 		cfg := &armadav1.NetworkConfig{Mode: mode, ClusterCidr: "10.120.0.0/16"}
@@ -215,7 +218,7 @@ func TestIntegrationSites(t *testing.T) {
 					handshakes = c
 				}
 			}
-			sites, _ = diagnoseSites(Sites{Cache: a.net.cfg.MeshCache, Node: a.name}, a.ip)
+			sites, _ = diagnoseSites(Sites{Cache: a.cache, Node: a.name}, a.ip)
 			return nil
 		})
 		return handshakes, sites
@@ -267,9 +270,8 @@ func TestIntegrationSites(t *testing.T) {
 	// node reaches over WireGuard at c's endpoint, in c's site or not.
 	c := nodes[2]
 	c.ip = netip.MustParseAddr("10.122.0.3")
-	if c.net, err = New(Config{Node: c.name, PrivateIP: c.ip, Endpoint: c.public.Addr(), Key: keys[c.name], MeshCache: filepath.Join(t.TempDir(), "mesh.json")}); err != nil {
-		t.Fatal(err)
-	}
+	c.cache = filepath.Join(t.TempDir(), "mesh.json")
+	c.net = newNetImpl(t, Config{Node: c.name, PrivateIP: c.ip, Endpoint: c.public.Addr(), Key: keys[c.name], MeshCache: c.cache})
 	cfg := config(ModePlain, nil)
 	cfg.MeshCidr = "10.122.0.0/16"
 	apply(cfg)

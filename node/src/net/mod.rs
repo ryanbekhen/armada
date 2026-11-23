@@ -1,7 +1,10 @@
-//! The cluster network (ADR 0054 step 3, first part): the pure logic of
-//! internal/clusternet, which stays the reference (compared by a Go test on
-//! the package's test cases and random configurations). Nothing here
-//! touches the kernel yet: the commands plan, and a later step applies.
+//! The cluster network (ADR 0054 step 3): internal/clusternet in Rust,
+//! which stays the reference. The pure logic (plan, policy, rules, peer
+//! changes) is compared by a Go test on the package's test cases and random
+//! configurations; the firewall and the kernel side (apply.rs: interfaces,
+//! addresses, routes, neighbour and forwarding entries, kernel WireGuard)
+//! by the netlink messages Go's libraries send and, as root, by the
+//! integration tests in network namespaces.
 //!
 //!   armada-node net plan             stdin: a request (below); stdout: the plan
 //!   armada-node net key PATH         network.key: load or create; prints the public key
@@ -10,6 +13,9 @@
 //!   armada-node net cache load PATH  prints the kept NetworkConfig, or null
 //!   armada-node net firewall ...     the nftables isolation tables and the
 //!                                    iptables chains (firewall.rs)
+//!   armada-node net apply|up|remove  Net.Apply, Net.Up, and Remove (apply.rs)
+//!   armada-node net netlink ...      the netlink messages and readings the
+//!                                    parity tests compare (nlcheck.rs)
 //!
 //! A plan request is one JSON object as Go's encoding/json writes it:
 //! Config (a NetworkConfig in protojson), Node and PrivateIP (this node),
@@ -23,16 +29,22 @@
 //! and what each transport (interface) carries.
 
 pub mod addr;
+pub mod apply;
 pub mod config;
 pub mod firewall;
 pub mod iptables;
 pub mod kernel;
 pub mod key;
 pub mod mesh;
+pub mod netlink;
 pub mod nft;
+pub mod nlcheck;
 pub mod plan;
 pub mod policy;
+pub mod probe;
+pub mod rtnl;
 pub mod rules;
+pub mod wgnl;
 pub mod wireguard;
 
 use addr::{Addr, Prefix};
