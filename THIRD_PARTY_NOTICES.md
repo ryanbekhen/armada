@@ -74,22 +74,37 @@ license and notice files in `licenses/rust/`, written by
 
 | Crate | License |
 | --- | --- |
+| adler2 | 0BSD, MIT, or Apache-2.0 (used under MIT) |
 | block-buffer, cpufeatures, crypto-common, digest, sha2 (RustCrypto) | MIT or Apache-2.0 |
 | cfg-if, libc | MIT or Apache-2.0 |
+| crc32fast, flate2 | MIT or Apache-2.0 |
 | curve25519-dalek, x25519-dalek, subtle (dalek-cryptography) | BSD-3-Clause |
 | generic-array | MIT |
+| getrandom, once_cell, zeroize | MIT or Apache-2.0 |
 | itoa, serde, serde_core, serde_json | MIT or Apache-2.0 |
 | memchr | MIT or Unlicense (used under MIT) |
+| miniz_oxide | MIT, Zlib, or Apache-2.0 (used under MIT) |
 | rand_core | MIT or Apache-2.0 |
+| ring | Apache-2.0 and ISC |
+| rustls | Apache-2.0, ISC, or MIT (used under Apache-2.0) |
+| rustls-pki-types | MIT or Apache-2.0 |
+| rustls-webpki, untrusted | ISC |
+| ruzstd, simd-adler32, twox-hash | MIT |
 | typenum | MIT or Apache-2.0 |
 | zmij | MIT |
 
-Used only while building, not linked: curve25519-dalek-derive,
-proc-macro2, quote, rustc_version, semver, serde_derive, syn,
-version_check (MIT or Apache-2.0), and unicode-ident (MIT or Apache-2.0,
-with Unicode data under Unicode-3.0). fiat-crypto (MIT, Apache-2.0, or
-BSD-1-Clause; used under MIT) is in the lock file as an optional backend
-of curve25519-dalek that Armada's builds do not select.
+Used only while building, not linked: cc, curve25519-dalek-derive,
+find-msvc-tools, proc-macro2, quote, rustc_version, semver, serde_derive,
+shlex, syn, version_check (MIT or Apache-2.0), and unicode-ident (MIT or
+Apache-2.0, with Unicode data under Unicode-3.0). ring's C and assembly
+are compiled with clang into `armada-node`. fiat-crypto (MIT, Apache-2.0,
+or BSD-1-Clause; used under MIT) is in the lock file as an optional
+backend of curve25519-dalek that Armada's builds do not select, and so
+are, for other operating systems only, wasi (Apache-2.0 with the LLVM
+exception, Apache-2.0, or MIT) and windows-sys, windows-targets,
+windows_aarch64_gnullvm, windows_aarch64_msvc, windows_i686_gnu,
+windows_i686_gnullvm, windows_i686_msvc, windows_x86_64_gnu,
+windows_x86_64_gnullvm, windows_x86_64_msvc (MIT or Apache-2.0).
 
 ## Downloaded at run time
 
