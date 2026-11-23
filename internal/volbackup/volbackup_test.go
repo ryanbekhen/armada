@@ -294,7 +294,7 @@ func TestChunkBoundariesFollowContent(t *testing.T) {
 	}
 	data := randomBytes(t, 20<<20)
 	cut := func(b []byte) []string {
-		c := newChunker(bytes.NewReader(b), &k.gear)
+		c := newChunker(bytes.NewReader(b), &k.gear, make([]byte, maxChunk))
 		var ids []string
 		for {
 			chunk, err := c.next()

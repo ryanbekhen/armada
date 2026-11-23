@@ -99,6 +99,13 @@ to someone without it. Standard library primitives only (`crypto/aes`,
   sockets, devices, and pipes are left out, and an entry the running app
   replaces between its lookup and its open fails the backup, as
   `armada volume backup` does), uploads the chunks the repository lacks, then writes the snapshot.
+  Chunks are cut one file after another through one buffer, compressed
+  and sealed on up to 4 goroutines (one CPU fewer than the machine has),
+  and written up to 32 at once within 64 MiB: a bucket answers each write
+  after a round trip, and every small file is an object of its own. On a
+  tree of 15,600 files (231 MiB) behind a bucket answering in 20 ms, a
+  backup takes 10 s; 1 GiB of logs backs up at about 590 MiB/s, which the
+  sequential cutting and naming of chunks bounds, not compression.
   Only after the snapshot is written does it apply `keep`: snapshots no rule
   keeps are deleted, then chunks no kept snapshot names and older than an
   hour (a backup still uploading is never cut short). A failed backup
@@ -122,7 +129,9 @@ to someone without it. Standard library primitives only (`crypto/aes`,
 - `armada volume restore APP VOL --snapshot ID|latest [--node N]` restores
   one on the volume's node (or binds the volume to `N`, refused while the
   old node is connected, as with an archive). The agent downloads and
-  checks every chunk (the seal and its name), writes into a sibling
+  checks every chunk (the seal and its name), reading up to 32 ahead of
+  the file being written within 64 MiB (a chunk counts as its file's
+  size, up to 8 MiB), and writes into a sibling
   directory, and swaps it in only when everything was written, with the
   app stopped, as with an archive.
 - Repository operations go to the volume's node. When it is not connected,
