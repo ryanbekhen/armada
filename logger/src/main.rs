@@ -12,8 +12,13 @@
 //! write error it keeps reading and dropping the output, so a full disk
 //! never blocks the container. A Go test compares both byte for byte.
 //!
+//! `armada-log search` reads the log history for a search instead
+//! (src/search.rs).
+//!
 //! It exists because a Go process costs about 5 MiB of private memory per
 //! container; this one costs well under 1 MiB.
+
+mod search;
 
 use std::fmt::Write as _;
 use std::fs::{self, DirBuilder, File, OpenOptions};
@@ -409,6 +414,9 @@ fn parse_args(args: &[String]) -> Result<(String, Limits), String> {
 
 fn run() -> Result<(), String> {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.first().map(String::as_str) == Some("search") {
+        return search::run(&args[1..]);
+    }
     let (dir, limits) = parse_args(&args)?;
     let id = std::env::var("CONTAINER_ID").unwrap_or_default();
     if !valid_id(&id) {

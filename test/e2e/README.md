@@ -82,7 +82,7 @@ E2E_ONLY=isolation,rollout ARMADA_BIN=... sh test/e2e/cluster.sh hosts
 | `isolation` | 4 | the cluster network (VXLAN, WireGuard, netlink), nftables, internal DNS (armada-dns), HAProxy's internal frontend |
 | `load` | 5 (steady load) | the path from clients to the nodes |
 | `rollout` | 5 (rolling update and rollback) | rollouts, readiness, draining, the proxy's live updates |
-| `agent-restart` | 5 (agent restart) | the agent, adopting containers and a running proxy, certificates, armada-dns outliving armadad |
+| `agent-restart` | 5 (agent restart) | the agent, adopting containers and a running proxy, certificates, armada-dns outliving armadad, log history search |
 | `failover` | 6 | the control plane, etcd, elections |
 | `node-loss` | 7 | self-healing, rebalancing |
 | `backup` | 8 | `armadad backup` |

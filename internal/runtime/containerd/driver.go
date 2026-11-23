@@ -927,7 +927,11 @@ func (d *Driver) logMeta(id string, labels map[string]string) {
 
 // SearchLogs searches the node's log history and live logs (ADR 0043).
 func (d *Driver) SearchLogs(ctx context.Context, q runtime.LogQuery) ([]runtime.LogRecord, string, error) {
-	return embedded.SearchLogs(ctx, d.paths.Logs(), q)
+	bin := filepath.Join(d.paths.Bin(), embedded.BinLogger)
+	if !regularFile(bin) {
+		bin = ""
+	}
+	return embedded.SearchLogsWith(ctx, bin, d.paths.Logs(), q)
 }
 
 // PruneLogs bounds the node's log history (ADR 0043).
