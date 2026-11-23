@@ -57,7 +57,7 @@ E2E_ACME_EMAIL=you@example.org sh test/e2e/cluster.sh hosts
 | `E2E_BRIDGE_GW` | read from each node | Container bridge address (each node has its own container subnet) |
 | `E2E_SERVER_FLAGS` | empty | Extra `armadad server` flags |
 | `E2E_RUNTIME` | empty (the supervisor) | Container runtime of every machine: `supervisor` or `embedded` (containerd, for nodes set up before the supervisor became the default); run both before releases |
-| `E2E_NET_AGENT` | empty (Go) | `rust`: once the cluster is up, each machine in turn gets `"netAgent": "rust"` in its `agent.json` and its service restarted, so its cluster network (tunnels, routes, firewall, isolation, switch probes, unreachable peers, key rotation, and doctor's network checks) runs through the runtime pack's `armada-node` (ADR 0054); the run fails if Go had to stand in for it anywhere. Pair it with `E2E_ONLY=network-key,isolation,tcp,queue-jobs,agent-restart,reboot` for the network scenarios |
+| `E2E_NET_AGENT` | `rust` | the cluster network runs through the runtime pack's `armada-node` on every machine (ADR 0054): the run checks each machine applies it so, runs doctor's network checks through it, and fails if Go had to stand in anywhere. `go`: once the cluster is up, each machine in turn gets `"netAgent": "go"` in its `agent.json` and its service restarted, so Go's own code runs it (the fallback, while it remains) |
 | `E2E_CONFORMANCE` | empty | Driver conformance test binary for the last machine's architecture, built with `GOOS=linux go test -c -tags integration -o bin/conformance ./internal/runtime/containerd/`; runs the suite on that node's runtime once the cluster is ready |
 
 The script stops at the first failure and prints `armada server list`,

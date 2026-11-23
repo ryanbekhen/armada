@@ -1094,26 +1094,26 @@ node (`--container-subnet`, default `10.121.0.0/24`).
 
 ### The cluster network in armada-node
 
-The node agent is moving to Rust (ADR 0054), and its cluster network is
-ready to try on a node before it becomes the default: with
-`"netAgent": "rust"` in the node's `/var/lib/armada/agent.json`, the agent
-sets up the tunnels, routes, firewall rules, and isolation tables through
-the runtime pack's `armada-node`, and `armadad doctor` and `armadad
-runtime reset` use it too. Anything else, or no such field, keeps the
-agent's own code. Nothing about the network changes: both set up the same
-interfaces and rules. The setting is experimental, and goes away once
-armada-node is the default. Restart the node's service after the change:
-
-```bash
-sudo sed -i '1s/^{$/{\n  "netAgent": "rust",/' /var/lib/armada/agent.json
-sudo systemctl restart armada-agent           # armada-server on a control plane server
-journalctl -u armada-agent | grep armada-node # "armada-node applies the cluster network"
-```
+The node agent is moving to Rust (ADR 0054). Every node sets up its
+cluster network (the tunnels, routes, firewall rules, and isolation
+tables) through the runtime pack's `armada-node`, and `armadad doctor`
+and `armadad runtime reset` use it too; the interfaces and rules are the
+same the agent's own code sets up.
 
 When armada-node fails a pass, the agent does that pass itself and logs
 `armada-node failed; Go did it instead` with the reason, once for each new
 reason. A node whose kernel has no WireGuard runs it in userspace inside
-the agent as before. Remove the line (and restart) to go back.
+the agent as before.
+
+While the agent's own code remains, a node can be kept on it with
+`"netAgent": "go"` in its `/var/lib/armada/agent.json`, then a restart of
+its service (remove the line, and restart, to go back):
+
+```bash
+sudo sed -i '1s/^{$/{\n  "netAgent": "go",/' /var/lib/armada/agent.json
+sudo systemctl restart armada-agent           # armada-server on a control plane server
+journalctl -u armada-agent | grep armada-node # nothing new after the restart
+```
 
 ## How requests reach replicas
 
