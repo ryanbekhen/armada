@@ -58,8 +58,13 @@ func apparmorOpt() oci.SpecOpts {
 	if !aa.HostSupports() {
 		return nil
 	}
+	return withAppArmor(ensureAppArmorProfile)
+}
+
+// withAppArmor sets Armada's profile on the process once load succeeds.
+func withAppArmor(load func() error) oci.SpecOpts {
 	return func(_ context.Context, _ oci.Client, _ *containers.Container, s *oci.Spec) error {
-		if err := ensureAppArmorProfile(); err != nil {
+		if err := load(); err != nil {
 			return err
 		}
 		if s.Process == nil {
