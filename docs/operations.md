@@ -937,7 +937,8 @@ for the same transfer. Calls between apps that stay on their node
 (local-first routing) do not pay it. Where the kernel
 has no WireGuard, the agent runs it in userspace, which is markedly slower,
 and traffic between nodes pauses while that agent restarts; `armadad doctor`
-warns about it.
+warns about it, and the leader keeps a `WireGuardUserspace` event on the
+node (an alert warning) until it runs on a kernel with WireGuard.
 
 Allow the mode's port between the nodes in the provider firewall; Armada
 accepts it on each node only on the private IP and only from the other

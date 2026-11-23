@@ -10266,8 +10266,11 @@ type UsageReport struct {
 	// no handshake for 3 minutes, at most 32 node names, sorted.
 	PeersChecked     bool     `protobuf:"varint,13,opt,name=peers_checked,json=peersChecked,proto3" json:"peers_checked,omitempty"`
 	UnreachablePeers []string `protobuf:"bytes,14,rep,name=unreachable_peers,json=unreachablePeers,proto3" json:"unreachable_peers,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// Set with peers_checked while the node's WireGuard runs in userspace
+	// inside the agent because the kernel has none (ADR 0025).
+	WireguardUserspace bool `protobuf:"varint,15,opt,name=wireguard_userspace,json=wireguardUserspace,proto3" json:"wireguard_userspace,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *UsageReport) Reset() {
@@ -10396,6 +10399,13 @@ func (x *UsageReport) GetUnreachablePeers() []string {
 		return x.UnreachablePeers
 	}
 	return nil
+}
+
+func (x *UsageReport) GetWireguardUserspace() bool {
+	if x != nil {
+		return x.WireguardUserspace
+	}
+	return false
 }
 
 // NetworkSwitchStatus is a node's side of a switch between the plain and
@@ -16339,7 +16349,7 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\bfinished\x18\t \x01(\bR\bfinished\x12\x1b\n" +
 	"\texit_code\x18\n" +
 	" \x01(\x05R\bexitCode\x12\x0e\n" +
-	"\x02ip\x18\v \x01(\tR\x02ip\"\xaa\x05\n" +
+	"\x02ip\x18\v \x01(\tR\x02ip\"\xdb\x05\n" +
 	"\vUsageReport\x123\n" +
 	"\breplicas\x18\x01 \x03(\v2\x17.armada.v1.ReplicaUsageR\breplicas\x12*\n" +
 	"\x04load\x18\x02 \x03(\v2\x16.armada.v1.ReplicaLoadR\x04load\x12#\n" +
@@ -16356,7 +16366,8 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\x11dropped_sandboxes\x18\v \x03(\tR\x10droppedSandboxes\x12E\n" +
 	"\x0enetwork_switch\x18\f \x01(\v2\x1e.armada.v1.NetworkSwitchStatusR\rnetworkSwitch\x12#\n" +
 	"\rpeers_checked\x18\r \x01(\bR\fpeersChecked\x12+\n" +
-	"\x11unreachable_peers\x18\x0e \x03(\tR\x10unreachablePeers\"\x83\x01\n" +
+	"\x11unreachable_peers\x18\x0e \x03(\tR\x10unreachablePeers\x12/\n" +
+	"\x13wireguard_userspace\x18\x0f \x01(\bR\x12wireguardUserspace\"\x83\x01\n" +
 	"\x13NetworkSwitchStatus\x12\x0e\n" +
 	"\x02to\x18\x01 \x01(\tR\x02to\x12\x12\n" +
 	"\x04step\x18\x02 \x01(\tR\x04step\x12\x14\n" +

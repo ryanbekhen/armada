@@ -73,13 +73,25 @@ func (a *Agent) usageLoop(ctx context.Context) {
 		if sw := a.switcher(); sw != nil {
 			report.NetworkSwitch = sw.SwitchStatus()
 		}
-		if pc, ok := a.cfg.Network.(PeerChecker); ok {
-			report.PeersChecked, report.UnreachablePeers = true, pc.UnreachablePeers()
-		}
+		a.reportPeers(report)
 		if sampled || report.PeersChecked || report.LoadMeasured || report.VolumesMeasured || report.ConntrackMax > 0 || len(report.Queues) > 0 || len(report.Sandboxes) > 0 ||
 			len(report.DroppedSandboxes) > 0 || report.LogExport != nil || report.NetworkSwitch != nil {
 			a.sendUsage(report)
 		}
+	}
+}
+
+// reportPeers adds what the node's network knows about its WireGuard to
+// report (ADR 0025): peers with no recent handshake, and whether WireGuard
+// runs in userspace.
+func (a *Agent) reportPeers(report *armadav1.UsageReport) {
+	pc, ok := a.cfg.Network.(PeerChecker)
+	if !ok {
+		return
+	}
+	report.PeersChecked, report.UnreachablePeers = true, pc.UnreachablePeers()
+	if wr, ok := a.cfg.Network.(WireGuardReporter); ok {
+		report.WireguardUserspace = wr.WireGuardUserspace()
 	}
 }
 
