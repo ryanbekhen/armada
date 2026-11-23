@@ -47,6 +47,7 @@ mod platform;
 mod pull;
 mod reference;
 mod registry;
+mod snapshot;
 mod store;
 mod tar;
 mod unpack;
@@ -54,6 +55,15 @@ mod unpack;
 use super::{read_stdin, write_out};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
+
+pub use store::now_rfc3339;
+
+/// The store under root, for the container commands (../container).
+pub fn open_store(root: &Path) -> Result<store::Store, String> {
+    store::Store::open(root)
+}
+
+pub use snapshot::{keys as snapshot_keys, prepare, release};
 
 fn error_json(e: &str) -> Vec<u8> {
     serde_json::to_vec(&serde_json::json!({ "error": e })).unwrap_or_default()

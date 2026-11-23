@@ -87,6 +87,25 @@ type agentConfig struct {
 	// 0054), with Go's code doing a pass armada-node fails. Set by hand (or
 	// the end-to-end tests' E2E_NET_AGENT=go) while Go's code remains.
 	NetAgent string `json:"netAgent,omitempty"`
+	// RuntimeAgent "rust" lets the runtime pack's armada-node do the
+	// supervisor runtime's work below the driver (ADR 0054 step 4): images
+	// in its own store, containers' root filesystems, bundles, and shim
+	// requests. Anything else, or nothing, keeps Go's code. Set by hand
+	// while it is being tried; supervisor nodes only.
+	RuntimeAgent string `json:"runtimeAgent,omitempty"`
+}
+
+// runtimeAgentRust is agentConfig.RuntimeAgent's value that hands the
+// supervisor runtime to armada-node.
+const runtimeAgentRust = "rust"
+
+// runtimeProgram returns armada-node for the supervisor runtime, or ""
+// when the node keeps Go's code (RuntimeAgent) or the pack has none.
+func (c agentConfig) runtimeProgram(dataDir string) string {
+	if c.RuntimeAgent != runtimeAgentRust || c.Runtime != runtimeSupervisor {
+		return ""
+	}
+	return packProgram(dataDir, embedded.BinNode)()
 }
 
 // netAgentGo is agentConfig.NetAgent's value that keeps Go's code.

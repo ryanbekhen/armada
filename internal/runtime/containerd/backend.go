@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
+	"os"
 	"path/filepath"
 
 	"github.com/containerd/containerd/api/services/tasks/v1"
@@ -167,24 +169,55 @@ func (b *containerdBackend) ContentStore() content.Store { return b.c.ContentSto
 
 // newSupervisorBackend opens the agent's own store (ADR 0046): images and
 // container bundles under <data dir>/supervisor, shims under <run
-// dir>/shim, all programs from the runtime pack.
+// dir>/shim, all programs from the runtime pack. With cfg.NodeBin, images
+// live in armada-node's store (<data dir>/node/images) and armada-node
+// does the store's work (ADR 0054); Go's image store is opened only when
+// it exists, to release the root filesystems of containers Go made. When
+// cfg.NodeBin names no program, the node stays on Go's code.
 func newSupervisorBackend(cfg Config, logger string) (*supervisor.Store, error) {
 	root := filepath.Join(cfg.Paths.DataDir, "supervisor")
-	imgs, err := supervisor.OpenImages(filepath.Join(root, "images"))
-	if err != nil {
-		return nil, err
-	}
 	shim := cfg.ShimBin
 	if shim == "" {
 		shim = filepath.Join(cfg.Paths.Bin(), embedded.BinArmadaShim)
 	}
-	return &supervisor.Store{
-		Images:  imgs,
+	st := &supervisor.Store{
 		Bundles: supervisor.Bundles{Dir: filepath.Join(root, "containers")},
 		Shims: &supervisor.Shims{
 			Dir: filepath.Join(cfg.Paths.RunDir, "shim"), Bin: shim,
 			Runc: filepath.Join(cfg.Paths.Bin(), embedded.BinRunc), Logger: logger,
 		},
-		Logs: cfg.Paths.Logs(),
-	}, nil
+		Logs:       cfg.Paths.Logs(),
+		NodeImages: filepath.Join(cfg.Paths.DataDir, "node", "images"),
+	}
+	if cfg.NodeBin != "" {
+		n, err := openNative(cfg.NodeBin, st.NodeImages)
+		if err == nil {
+			st.Native, st.Shims.Native = n, n
+			if _, err := os.Stat(filepath.Join(root, "images")); err == nil {
+				if st.Images, err = supervisor.OpenImages(filepath.Join(root, "images")); err != nil {
+					slog.Warn("Go's image store: containers Go made keep their root filesystems until it opens", "err", err)
+				}
+			}
+			return st, nil
+		}
+		slog.Warn("armada-node cannot run containers; Go runs them", "err", err)
+	}
+	imgs, err := supervisor.OpenImages(filepath.Join(root, "images"))
+	if err != nil {
+		return nil, err
+	}
+	st.Images = imgs
+	return st, nil
+}
+
+// openNative opens armada-node's store when bin is a program.
+func openNative(bin, images string) (*supervisor.Native, error) {
+	fi, err := os.Stat(bin)
+	if err != nil {
+		return nil, err
+	}
+	if !fi.Mode().IsRegular() {
+		return nil, fmt.Errorf("%s is not a program", bin)
+	}
+	return supervisor.OpenNative(bin, images)
 }

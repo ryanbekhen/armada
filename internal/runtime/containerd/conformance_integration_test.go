@@ -116,6 +116,10 @@ func nodeConfig(t *testing.T, bin string) Config {
 //
 //	sudo ARMADA_BIN=/usr/local/bin/armadad ARMADA_SHIM_BIN=/root/armada-shim \
 //	  ARMADA_HOST_IP=10.0.0.5 go test -tags integration -run ConformanceSupervisor ./internal/runtime/containerd/
+//
+// With ARMADA_RUNTIME_AGENT=rust and ARMADA_NODE_BIN naming armada-node,
+// the same cases run with armada-node doing the store's work (ADR 0054:
+// images in its store, root filesystems, bundles, and shim requests).
 func TestIntegrationConformanceSupervisor(t *testing.T) {
 	bin, shim := os.Getenv("ARMADA_BIN"), os.Getenv("ARMADA_SHIM_BIN")
 	if bin == "" || shim == "" || os.Geteuid() != 0 {
@@ -127,9 +131,17 @@ func TestIntegrationConformanceSupervisor(t *testing.T) {
 	t.Cleanup(func() { unix.Umask(old) })
 	cfg := nodeConfig(t, bin)
 	cfg.Supervisor, cfg.ShimBin = true, shim
+	if os.Getenv("ARMADA_RUNTIME_AGENT") == "rust" {
+		if cfg.NodeBin = os.Getenv("ARMADA_NODE_BIN"); cfg.NodeBin == "" {
+			t.Fatal("ARMADA_RUNTIME_AGENT=rust needs ARMADA_NODE_BIN")
+		}
+	}
 	d, err := New(cfg)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if (d.native != nil) != (cfg.NodeBin != "") {
+		t.Fatalf("armada-node runs containers: %v, want %v", d.native != nil, cfg.NodeBin != "")
 	}
 	conformance.Run(t, d, conformance.Options{HostIP: os.Getenv("ARMADA_HOST_IP")})
 }

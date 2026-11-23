@@ -32,6 +32,7 @@ import (
 	"github.com/ryanbekhen/armada/internal/netutil"
 	"github.com/ryanbekhen/armada/internal/runtime"
 	"github.com/ryanbekhen/armada/internal/runtime/embedded"
+	"github.com/ryanbekhen/armada/internal/runtime/supervisor"
 )
 
 // Labels the driver keeps on containers for its own bookkeeping.
@@ -88,14 +89,22 @@ type Config struct {
 	Supervisor bool
 	// ShimBin overrides the pack's armada-shim (tests).
 	ShimBin string
+	// NodeBin, with Supervisor, is the runtime pack's armada-node, which
+	// then pulls images into its own store and does the supervisor's work
+	// below the driver (ADR 0054: agent.json "runtimeAgent": "rust"). A
+	// path with no program keeps Go's code.
+	NodeBin string
 }
 
 // Driver runs containers on the embedded containerd.
 type Driver struct {
-	ctr   backend
-	paths embedded.Paths
-	net   network
-	self  string
+	ctr backend
+	// native is armada-node, which pulls and prunes images, when the
+	// supervisor runs through it.
+	native *supervisor.Native
+	paths  embedded.Paths
+	net    network
+	self   string
 
 	mu sync.Mutex // serializes Run so host ports are not handed out twice
 	// sandboxMu serializes changes to network sandboxes (ADR 0040).
@@ -136,9 +145,11 @@ func New(cfg Config) (*Driver, error) {
 	}
 	d := &Driver{paths: cfg.Paths, net: n, self: self}
 	if cfg.Supervisor {
-		if d.ctr, err = newSupervisorBackend(cfg, d.logger()); err != nil {
+		st, err := newSupervisorBackend(cfg, d.logger())
+		if err != nil {
 			return nil, err
 		}
+		d.ctr, d.native = st, st.Native
 		return d, nil
 	}
 	c, err := client.New(cfg.Paths.Socket(), client.WithDefaultNamespace(embedded.Namespace), client.WithTimeout(5*time.Second))
@@ -206,6 +217,10 @@ func normalize(image string) (ref, familiar string, digested bool, err error) {
 // image by naming its digest.
 func (d *Driver) Pull(ctx context.Context, image string, auth *runtime.RegistryAuth) (runtime.Image, error) {
 	ctx = d.ctx(ctx)
+	if d.native != nil {
+		// armada-node keeps every rule above (TestArmadaNodePull*).
+		return d.native.Pull(ctx, image, auth)
+	}
 	ref, familiar, digested, err := normalize(image)
 	if err != nil {
 		return runtime.Image{}, err
@@ -982,6 +997,7 @@ func (d *Driver) PruneImages(ctx context.Context, keep []string, grace time.Dura
 	if err != nil {
 		return nil, err
 	}
+	var inUse []string
 	for _, c := range cs {
 		info, err := c.Info(ctx, client.WithoutRefreshedMetadata)
 		if errdefs.IsNotFound(err) {
@@ -991,6 +1007,10 @@ func (d *Driver) PruneImages(ctx context.Context, keep []string, grace time.Dura
 			return nil, err
 		}
 		names[info.Image] = true
+		inUse = append(inUse, info.Image)
+	}
+	if d.native != nil {
+		return d.native.Prune(ctx, keep, inUse, grace)
 	}
 	imgs, err := d.ctr.ListImages(ctx)
 	if err != nil {

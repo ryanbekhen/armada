@@ -32,6 +32,13 @@ type Shims struct {
 	Launch func(ctx context.Context, unit string, argv []string) error
 	// Active reports whether a shim's unit still runs; nil asks systemd.
 	Active func(ctx context.Context, unit string) (bool, error)
+	// SystemdRun and Systemctl name the programs systemd is reached
+	// through, "systemd-run" and "systemctl" when empty (tests name
+	// stand-ins; armada-node is handed the same).
+	SystemdRun, Systemctl string
+	// Native, when set, sends every request through armada-node (ADR
+	// 0054), Go's code doing a call it fails.
+	Native *Native
 
 	mu     sync.Mutex
 	groups map[string]*groupLock
@@ -80,6 +87,8 @@ type Shim struct {
 	Socket string
 	// Root is runc's state directory for the shim's containers.
 	Root string
+
+	shims *Shims
 }
 
 // TaskState is what a shim reports about a container.
@@ -103,6 +112,7 @@ func (s *Shims) Get(group string) *Shim {
 		Group:  group,
 		Socket: filepath.Join(s.Dir, name+".sock"),
 		Root:   filepath.Join(s.Dir, name, "runc"),
+		shims:  s,
 	}
 }
 
@@ -118,6 +128,12 @@ func (s *Shims) Abandon(ctx context.Context, sh *Shim) (bool, error) {
 		return false, err
 	}
 	defer unlock()
+	if s.Native != nil {
+		gone, err := s.Native.abandon(ctx, s.request(ctx, sh.Group, nil))
+		if !s.Native.fallback("shim abandon", err) {
+			return gone, err
+		}
+	}
 	// Ask again under the lock: a shim may have been started meanwhile.
 	err = sh.probe(ctx)
 	if err == nil {
@@ -142,7 +158,9 @@ func (s *Shims) gone(ctx context.Context, sh *Shim, callErr error) (bool, error)
 	}
 	active := s.Active
 	if active == nil {
-		active = systemdActive
+		active = func(ctx context.Context, unit string) (bool, error) {
+			return systemdActive(ctx, s.Systemctl, unit)
+		}
 	}
 	running, err := active(ctx, unitName(sh.Group))
 	if err != nil {
@@ -159,6 +177,15 @@ func (s *Shims) For(ctx context.Context, group string) (*Shim, error) {
 		return nil, err
 	}
 	defer unlock()
+	if s.Native != nil {
+		err := s.Native.run(ctx, s.request(ctx, group, nil), nil, "runtime", "shim", "start")
+		if !s.Native.fallback("shim start", err) {
+			if err != nil {
+				return nil, err
+			}
+			return s.Get(group), nil
+		}
+	}
 	name := shimName(group)
 	sh := s.Get(group)
 	err = sh.probe(ctx)
@@ -184,7 +211,9 @@ func (s *Shims) For(ctx context.Context, group string) (*Shim, error) {
 	argv := []string{s.Bin, "serve", sh.Socket, filepath.Join(s.Dir, name), s.Runc, s.Logger}
 	launch := s.Launch
 	if launch == nil {
-		launch = systemdRun
+		launch = func(ctx context.Context, unit string, argv []string) error {
+			return systemdRun(ctx, s.SystemdRun, unit, argv)
+		}
 	}
 	if err := launch(ctx, unitName(group), argv); err != nil {
 		return nil, fmt.Errorf("start shim for %s: %w", group, err)
@@ -227,7 +256,10 @@ func (s *Shims) abandon(ctx context.Context, root string) error {
 // systemdRun starts argv as a transient service. Stopping the unit ends
 // the shim and the log writers it started; containers live in cgroups of
 // their own under /armada.
-func systemdRun(ctx context.Context, unit string, argv []string) error {
+func systemdRun(ctx context.Context, prog, unit string, argv []string) error {
+	if prog == "" {
+		prog = "systemd-run"
+	}
 	args := append([]string{
 		"--unit=" + unit, "--collect", "--quiet",
 		"--property=OOMScoreAdjust=-999",
@@ -237,7 +269,7 @@ func systemdRun(ctx context.Context, unit string, argv []string) error {
 		"--property=TasksMax=infinity",
 		"--",
 	}, argv...)
-	out, err := exec.CommandContext(ctx, "systemd-run", args...).CombinedOutput() //nolint:gosec // argv names the pack's programs and paths the agent built
+	out, err := exec.CommandContext(ctx, prog, args...).CombinedOutput() //nolint:gosec // argv names the pack's programs and paths the agent built
 	if err != nil {
 		return fmt.Errorf("systemd-run: %w: %s", err, strings.TrimSpace(string(out)))
 	}
@@ -246,8 +278,11 @@ func systemdRun(ctx context.Context, unit string, argv []string) error {
 
 // systemdActive reports whether unit is active (or starting, reloading, or
 // stopping): only a unit that is inactive, failed, or unknown has no shim.
-func systemdActive(ctx context.Context, unit string) (bool, error) {
-	out, err := exec.CommandContext(ctx, "systemctl", "show", "--property=ActiveState", "--value", "--", unit).Output() //nolint:gosec // the unit name is built from a hash
+func systemdActive(ctx context.Context, prog, unit string) (bool, error) {
+	if prog == "" {
+		prog = "systemctl"
+	}
+	out, err := exec.CommandContext(ctx, prog, "show", "--property=ActiveState", "--value", "--", unit).Output() //nolint:gosec // the unit name is built from a hash
 	if err != nil {
 		return false, fmt.Errorf("systemctl show %s: %w", unit, err)
 	}
@@ -275,8 +310,29 @@ type errShim string
 
 func (e errShim) Error() string { return string(e) }
 
-// call sends one request and reads the answer's words after "ok".
+// request is what armada-node's shim commands read for group.
+func (s *Shims) request(ctx context.Context, group string, words []string) shimRequest {
+	return shimRequest{
+		Dir: s.Dir, Bin: s.Bin, Runc: s.Runc, Logger: s.Logger, Group: group,
+		SystemdRun: s.SystemdRun, Systemctl: s.Systemctl, TimeoutMs: timeoutMs(ctx), Words: words,
+	}
+}
+
+// call sends one request and reads the answer's words after "ok", through
+// armada-node when the shims use it.
 func (sh *Shim) call(ctx context.Context, words ...string) (string, error) {
+	if sh.shims != nil && sh.shims.Native != nil && len(words) > 0 {
+		n := sh.shims.Native
+		out, err := n.shimCall(ctx, sh.shims.request(ctx, sh.Group, words))
+		if !n.fallback("shim call", err) {
+			return out, err
+		}
+	}
+	return sh.callGo(ctx, words...)
+}
+
+// callGo is call in Go.
+func (sh *Shim) callGo(ctx context.Context, words ...string) (string, error) {
 	for _, w := range words {
 		if w == "" || strings.ContainsAny(w, " \t\r\n") {
 			return "", fmt.Errorf("invalid shim argument %q", w)

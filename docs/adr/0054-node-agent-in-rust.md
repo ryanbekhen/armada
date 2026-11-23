@@ -114,7 +114,31 @@ program.
    lower directories in overlay's order, and `runtime prune` also removes
    layers no kept image needs. On the Go side, `supervisor.ConvertImages`
    converts a supervisor store into this layout (below); nothing calls it
-   yet.
+   yet. Fourth part: the container lifecycle under the Go driver, opt-in
+   per node with `"runtimeAgent": "rust"` in `agent.json` (supervisor
+   nodes only; never the default in this part). The driver keeps
+   everything above its backend: it builds each container's spec, runs
+   its network, logs, and exec, and reads its statistics. armada-node
+   pulls and prunes images (`runtime pull`, `prune`), makes and removes
+   containers' root filesystems on its layers (`runtime prepare`,
+   `release`: `active/<container ID>/` with `fs/`, `work/`, and
+   `snapshot.json` naming the layers, made and mounted as the overlay
+   snapshotter makes them, and kept from collection while they stand),
+   writes, lists, relabels, and removes bundles (`runtime bundle`: the
+   files and bytes `supervisor.Bundles` writes, under the same
+   directory), and sends every request to `armada-shim`, starting and
+   abandoning shims as `supervisor.Shims` does (`runtime shim`: the same
+   unit, `systemd-run` arguments and limits, and rules for when a shim is
+   gone). Bundles, records, shim sockets, and runc's state are Go's, so a
+   node switches either way and adopts the containers the other made;
+   each side removes the other's root filesystem of a container it
+   deletes. Go does a bundle or shim call armada-node fails; image and
+   root filesystem calls have no Go fallback, since the stores differ,
+   and a node whose pack has no armada-node stays on Go's code. Images
+   on a node that opts in are pulled again into armada-node's store
+   (`ConvertImages` runs with the release that makes it the default), and
+   Go's image store is opened beside it only to release the root
+   filesystems of containers Go made.
 
 ### The runtime's move: image store and migration
 
