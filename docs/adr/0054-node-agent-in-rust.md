@@ -93,6 +93,11 @@ program.
    containerd runtime move to the supervisor first (`armadad runtime
    migrate`); the Rust agent supports the supervisor only. Images already
    on a node are kept where the format allows, pulled again otherwise.
+   First part: `armada-node runtime spec` builds a container's OCI
+   runtime spec as the Go driver does (containerd's default spec, the
+   driver's options, the image's users and groups, seccomp, AppArmor),
+   and `armada-node runtime check` applies `CheckContainerSpec`; no node
+   uses them yet.
 5. **Sessions and readings.** Exec, volume archives and backups (the
    repository format of ADR 0041, which the Go control plane also writes),
    NFS mounts, queue lengths, usage, and connection tracking.

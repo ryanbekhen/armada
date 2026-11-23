@@ -5,10 +5,12 @@
 //!   armada-node proxy render   HAProxy's configuration (src/proxy)
 //!   armada-node net ...        the cluster network's plan, key, peer list, firewall, tunnels,
 //!                              and routes (src/net)
+//!   armada-node runtime ...    containers' OCI runtime specs and their checks (src/runtime)
 
 mod names;
 mod net;
 mod proxy;
+mod runtime;
 
 use std::process::ExitCode;
 
@@ -32,8 +34,12 @@ fn run() -> Result<(), String> {
         ["net", "unreachable"] => net::apply::unreachable_command(),
         ["net", "diagnose"] => net::diagnose::command(),
         ["net", "netlink", op] => net::nlcheck::command(op),
+        ["runtime", "spec"] => runtime::spec_command(),
+        ["runtime", "check"] => runtime::check_command(),
+        ["runtime", "seccomp"] => runtime::seccomp_command(),
+        ["runtime", "apparmor", name] => runtime::apparmor_command(name),
         _ => Err(format!(
-            "unknown command {args:?}; try: proxy render, net plan, net key [rotate] PATH, net cache save|load PATH, net firewall nft|iptables|apply|remove, net apply|up|remove, net probe, net unreachable, net diagnose, net netlink encode|show|wg-parse"
+            "unknown command {args:?}; try: proxy render, net plan, net key [rotate] PATH, net cache save|load PATH, net firewall nft|iptables|apply|remove, net apply|up|remove, net probe, net unreachable, net diagnose, net netlink encode|show|wg-parse, runtime spec|check|seccomp, runtime apparmor NAME"
         )),
     }
 }

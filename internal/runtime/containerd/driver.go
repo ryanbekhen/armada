@@ -498,15 +498,14 @@ func (d *Driver) Run(ctx context.Context, s runtime.ContainerSpec) (_ string, er
 		return "", fmt.Errorf("label tini: %w", err)
 	}
 
-	opts := argsOpts(img, s)
-	opts = append(opts, appOpts(appSpec{
+	opts := appSpecOpts(img, appSpec{
 		spec: s, netns: netns, files: files, tini: tini,
 		cgroup:   cgroupParent + "/" + id,
 		group:    shimGroup(labels[runtime.LabelApp], tini),
 		seccomp:  seccompOpt(),
 		apparmor: apparmorOpt(),
 		selinux:  sl,
-	})...)
+	})
 	if len(s.Init) > 0 || len(s.Sidecars) > 0 {
 		// Its init containers and sidecars share its network namespace,
 		// host files, and SELinux label (ADR 0038).

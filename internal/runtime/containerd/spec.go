@@ -59,6 +59,18 @@ type appSpec struct {
 	selinux  selinuxLabels
 }
 
+// appSpecOpts are every option of an app container's spec (or an init
+// container's or sidecar's), in order: the image's configuration and
+// command, then appOpts.
+func appSpecOpts(img oci.Image, a appSpec) []oci.SpecOpts {
+	return append(argsOpts(img, a.spec), appOpts(a)...)
+}
+
+// systemSpecOpts are every option of a system container's spec, in order.
+func systemSpecOpts(img oci.Image, s runtime.SystemSpec, cgroup string, seccomp oci.SpecOpts, sl selinuxLabels) []oci.SpecOpts {
+	return append(argsOpts(img, runtime.ContainerSpec{Cmd: s.Cmd}), systemOpts(s, cgroup, seccomp, sl)...)
+}
+
 // appOpts are applied after the image configuration. They enforce Armada's
 // container defaults: dropped capabilities, no-new-privileges, seccomp,
 // resource limits, and an init process.

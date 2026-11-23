@@ -180,6 +180,17 @@ func (d *Driver) setStarted(ctx context.Context, id string) error {
 	return err
 }
 
+// memberContainerSpec is the spec an init container or sidecar runs from:
+// its own image, command, environment, limits, files, and volumes, and the
+// replica's host name, since they are one machine on the network.
+func memberContainerSpec(replica runtime.ContainerSpec, m runtime.MemberSpec) runtime.ContainerSpec {
+	return runtime.ContainerSpec{
+		Name: replica.Name, Image: m.Image, Entrypoint: m.Entrypoint, Cmd: m.Cmd, Env: m.Env,
+		MemoryBytes: m.MemoryBytes, NanoCPUs: m.NanoCPUs, CPUReserveMillis: m.CPUReserveMillis, PidsLimit: m.PidsLimit,
+		Files: m.Files, Volumes: m.Volumes,
+	}
+}
+
 // startMember creates and starts an init container or sidecar of the
 // replica's container pod, in its network namespace, and returns its task
 // with the channel its exit arrives on.
@@ -202,21 +213,14 @@ func (d *Driver) startMember(ctx context.Context, pod string, m runtime.MemberSp
 	labels[labelName] = m.Name
 	labels[labelPod] = pod
 	labels[labelStarted] = time.Now().UTC().Format(time.RFC3339Nano)
-	// The replica's host name: they are one machine on the network.
-	ms := runtime.ContainerSpec{
-		Name: env.spec.Name, Image: m.Image, Entrypoint: m.Entrypoint, Cmd: m.Cmd, Env: m.Env,
-		MemoryBytes: m.MemoryBytes, NanoCPUs: m.NanoCPUs, CPUReserveMillis: m.CPUReserveMillis, PidsLimit: m.PidsLimit,
-		Files: m.Files, Volumes: m.Volumes,
-	}
-	opts := argsOpts(img, ms)
-	opts = append(opts, appOpts(appSpec{
-		spec: ms, netns: env.netns, files: env.files, tini: env.tini,
+	opts := appSpecOpts(img, appSpec{
+		spec: memberContainerSpec(env.spec, m), netns: env.netns, files: env.files, tini: env.tini,
 		cgroup:   cgroupParent + "/" + mid,
 		group:    shimGroup(labels[runtime.LabelApp], env.tini),
 		seccomp:  seccompOpt(),
 		apparmor: apparmorOpt(),
 		selinux:  env.selinux,
-	})...)
+	})
 	var undo []func()
 	defer func() {
 		if err != nil {
