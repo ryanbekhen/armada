@@ -288,8 +288,8 @@ func (d *Driver) Apply(ctx context.Context, cfg proxy.Config) error {
 		if _, err := d.load(ctx); err != nil {
 			d.log.Debug("read proxy load before a reload", "err", err)
 		}
-		if err := d.cfg.Engine.Reload(ctx); err != nil {
-			return fmt.Errorf("reload haproxy: %w", err)
+		if err := d.reload(ctx); err != nil {
+			return err
 		}
 		d.commit(sig, layout, cfg)
 		d.held = heldTCP(content)
@@ -332,7 +332,7 @@ func (d *Driver) Apply(ctx context.Context, cfg proxy.Config) error {
 			// Otherwise the running proxy would keep the old one, and the
 			// file no longer looks changed, until it expires.
 			d.log.Warn("live certificate update failed; reloading", "cert", name, "err", err)
-			if err := d.cfg.Engine.Reload(ctx); err != nil {
+			if err := d.reload(ctx); err != nil {
 				return fmt.Errorf("reload haproxy for certificate %s: %w", name, err)
 			}
 			break
@@ -340,6 +340,49 @@ func (d *Driver) Apply(ctx context.Context, cfg proxy.Config) error {
 	}
 	d.layout = layout
 	return nil
+}
+
+// reloadWait bounds how long a reload waits for the new process to answer
+// the Runtime API; reloadPoll is how often it asks.
+var (
+	reloadWait = 10 * time.Second
+	reloadPoll = 50 * time.Millisecond
+)
+
+// reload makes HAProxy read its configuration again and returns once the
+// new process answers the Runtime API. The signal returns at once, and until
+// the new process takes the socket over the outgoing one answers it: a live
+// change sent then reaches the outgoing process only and is lost, leaving
+// the new one on the servers of the file it read. When no new process
+// answers in time, the next Apply reloads again.
+func (d *Driver) reload(ctx context.Context) error {
+	old := ""
+	if info, err := d.cfg.API.Command(ctx, "show info"); err == nil {
+		old = workerPID(info)
+	}
+	if err := d.cfg.Engine.Reload(ctx); err != nil {
+		return fmt.Errorf("reload haproxy: %w", err)
+	}
+	if old == "" {
+		return nil // nothing to tell the processes apart by
+	}
+	deadline := time.Now().Add(reloadWait)
+	for {
+		info, err := d.cfg.API.Command(ctx, "show info")
+		if pid := workerPID(info); err == nil && pid != "" && pid != old {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			d.sig = "" // the next Apply reloads again
+			return fmt.Errorf("reload haproxy: the new process did not answer within %s", reloadWait)
+		}
+		select {
+		case <-ctx.Done():
+			d.sig = ""
+			return ctx.Err()
+		case <-time.After(reloadPoll):
+		}
+	}
 }
 
 // removeOldRoutes deletes route maps the live configuration does not use.

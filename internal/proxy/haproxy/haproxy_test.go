@@ -1418,3 +1418,79 @@ func TestBackendTimeout(t *testing.T) {
 		t.Error("the signature does not see the timeout")
 	}
 }
+
+// A reload returns once the new process answers the Runtime API, so live
+// changes after it reach that process; when none answers in time, the next
+// Apply reloads again.
+func TestReloadWaitsForTheNewProcess(t *testing.T) {
+	ctx := context.Background()
+	d, e, a, _ := newDriver(t)
+	cfg := sampleConfig(t)
+	if err := d.Apply(ctx, cfg); err != nil {
+		t.Fatal(err)
+	}
+	// The outgoing process (pid 40) answers for a few requests after the
+	// signal, then the new one (41).
+	var (
+		mu      sync.Mutex
+		asked   int
+		swapped bool
+	)
+	pid := func() string {
+		mu.Lock()
+		defer mu.Unlock()
+		e.mu.Lock()
+		reloads := e.reloads
+		e.mu.Unlock()
+		if reloads == 0 {
+			return "40"
+		}
+		if asked++; asked > 3 || swapped {
+			swapped = true
+			return "41"
+		}
+		return "40"
+	}
+	a.reply = func(cmd string) string {
+		if strings.HasPrefix(cmd, "show info") {
+			return "Name: HAProxy\nPid: " + pid() + "\n"
+		}
+		if strings.HasPrefix(cmd, "prepare map") {
+			return "New version created: 7"
+		}
+		return ""
+	}
+	oldPoll := reloadPoll
+	reloadPoll = time.Millisecond
+	t.Cleanup(func() { reloadPoll = oldPoll })
+
+	cfg.Backends = append(cfg.Backends, proxy.Backend{Name: "new", Servers: []proxy.Server{{Name: "new-r1-a", Address: "10.0.0.3:31000"}}})
+	if err := d.Apply(ctx, cfg); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	if !swapped || asked < 4 {
+		t.Errorf("Apply returned before the new process answered (asked %d)", asked)
+	}
+	mu.Unlock()
+
+	// No new process: the reload fails, and the next Apply reloads again.
+	oldWait := reloadWait
+	reloadWait = 20 * time.Millisecond
+	t.Cleanup(func() { reloadWait = oldWait })
+	a.reply = func(cmd string) string {
+		if strings.HasPrefix(cmd, "show info") {
+			return "Pid: 41\n"
+		}
+		return ""
+	}
+	cfg.Backends = append(cfg.Backends, proxy.Backend{Name: "newer", Servers: []proxy.Server{{Name: "newer-r1-a", Address: "10.0.0.3:31001"}}})
+	if err := d.Apply(ctx, cfg); err == nil || !strings.Contains(err.Error(), "did not answer") {
+		t.Fatalf("Apply with no new process: %v", err)
+	}
+	before := e.reloads
+	_ = d.Apply(ctx, cfg)
+	if e.reloads != before+1 {
+		t.Errorf("the next Apply did not reload again: %d reloads, want %d", e.reloads, before+1)
+	}
+}
