@@ -17,6 +17,7 @@ import (
 
 	armadav1 "github.com/ryanbekhen/armada/api/armada/v1"
 	"github.com/ryanbekhen/armada/internal/agent"
+	"github.com/ryanbekhen/armada/internal/alert"
 	"github.com/ryanbekhen/armada/internal/pki"
 	"github.com/ryanbekhen/armada/internal/store"
 )
@@ -347,5 +348,42 @@ func TestRotateNodeKey(t *testing.T) {
 	c.stopAgent("n2")
 	if _, err := c.admin.RotateNodeKey(c.ctx, &armadav1.RotateNodeKeyRequest{Node: "n2"}); status.Code(err) != codes.Unavailable {
 		t.Errorf("disconnected node: %v", err)
+	}
+}
+
+// A node whose WireGuard runs in userspace raises one WireGuardUserspace
+// event, a warning for alerts, until a report says it no longer does; a
+// report that checked nothing changes nothing (ADR 0025).
+func TestWireGuardUserspace(t *testing.T) {
+	t.Parallel()
+	c := newCluster(t)
+	events := func() []store.Event {
+		t.Helper()
+		evs, err := c.store.ListEvents(c.ctx, time.Time{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []store.Event
+		for _, e := range evs {
+			if e.Reason == "WireGuardUserspace" {
+				out = append(out, e)
+			}
+		}
+		return out
+	}
+	c.srv.peersChecked(c.ctx, "n1", &armadav1.UsageReport{WireguardUserspace: true})
+	c.srv.peersChecked(c.ctx, "n1", &armadav1.UsageReport{PeersChecked: true})
+	if len(events()) != 0 {
+		t.Fatal("an event without userspace WireGuard")
+	}
+	for range 2 {
+		c.srv.peersChecked(c.ctx, "n1", &armadav1.UsageReport{PeersChecked: true, WireguardUserspace: true})
+	}
+	evs := events()
+	if len(evs) != 1 || evs[0].Node != "n1" || evs[0].Kind != eventNode || !strings.Contains(evs[0].Message, "Linux 5.6") {
+		t.Fatalf("events %+v", evs)
+	}
+	if !alert.Warning("WireGuardUserspace") {
+		t.Error("WireGuardUserspace is not an alert warning")
 	}
 }

@@ -646,7 +646,8 @@ var versionRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9.+_-]{0,63}$`)
 func validVersion(v string) bool { return versionRe.MatchString(v) }
 
 // peersChecked keeps a PeerUnreachable condition on a node while its report
-// names WireGuard peers with no recent handshake (ADR 0025).
+// names WireGuard peers with no recent handshake, and a WireGuardUserspace
+// one while its WireGuard runs in userspace (ADR 0025).
 func (s *Server) peersChecked(ctx context.Context, node string, u *armadav1.UsageReport) {
 	if !u.GetPeersChecked() {
 		return
@@ -654,7 +655,13 @@ func (s *Server) peersChecked(ctx context.Context, node string, u *armadav1.Usag
 	peers := checkedPeers(u.GetUnreachablePeers())
 	s.condition(ctx, "peers:"+node, len(peers) > 0, store.Event{Kind: eventNode, Object: node, Node: node,
 		Reason: "PeerUnreachable", Message: "no WireGuard handshake for 3 minutes with " + strings.Join(peers, ", ")})
+	s.condition(ctx, "wireguard-userspace:"+node, u.GetWireguardUserspace(), store.Event{Kind: eventNode, Object: node, Node: node,
+		Reason: "WireGuardUserspace", Message: wireguardUserspaceMessage})
 }
+
+// wireguardUserspaceMessage says why a node's traffic to other nodes is
+// slow when its kernel has no WireGuard (ADR 0025).
+const wireguardUserspaceMessage = "the kernel has no WireGuard: traffic to other nodes is encrypted in userspace inside the agent, markedly slower and with more CPU; use a kernel with WireGuard (Linux 5.6 or later) and restart armada-server or armada-agent"
 
 // maxUnreachablePeers bounds the peers a node's report names (ADR 0025).
 const maxUnreachablePeers = 32

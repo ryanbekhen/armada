@@ -1276,6 +1276,14 @@ func (n *Net) seePeers(p plan, now time.Time) {
 	n.wgSince = next
 }
 
+// WireGuardUserspace reports whether the node's WireGuard runs in userspace
+// inside the agent, because the kernel has none (ADR 0025).
+func (n *Net) WireGuardUserspace() bool {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return n.user != nil
+}
+
 // UnreachablePeers returns the nodes whose WireGuard peer has had no
 // handshake for staleHandshake although it was configured longer ago
 // (ADR 0025), sorted, at most 32; nil while a switch runs or nothing is

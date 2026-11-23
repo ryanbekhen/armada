@@ -198,6 +198,16 @@ type PeerChecker interface {
 	UnreachablePeers() []string
 }
 
+// WireGuardReporter is a Network that tells whether its WireGuard runs in
+// userspace inside the agent because the kernel has none (ADR 0025), which
+// is markedly slower, so the leader can say so.
+type WireGuardReporter interface {
+	Network
+	// WireGuardUserspace is true while the userspace device carries the
+	// node's WireGuard traffic.
+	WireGuardUserspace() bool
+}
+
 // KeyRotator is a Network whose WireGuard key can be replaced while it
 // runs (armada node rotate-key, ADR 0025).
 type KeyRotator interface {

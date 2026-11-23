@@ -213,3 +213,35 @@ func TestSampleLoadSendsBusyReplicas(t *testing.T) {
 		t.Errorf("too many busy replicas: measured=%v entries=%d", r.LoadMeasured, len(r.Load))
 	}
 }
+
+// wgNet is a network that knows its WireGuard peers and whether WireGuard
+// runs in userspace.
+type wgNet struct {
+	recordingNet
+	userspace bool
+}
+
+func (*wgNet) UnreachablePeers() []string { return []string{"n2"} }
+func (n *wgNet) WireGuardUserspace() bool { return n.userspace }
+
+// The usage report carries the peers with no recent handshake and whether
+// WireGuard runs in userspace (ADR 0025); a network that checks no peers
+// reports neither.
+func TestReportPeers(t *testing.T) {
+	t.Parallel()
+	a, _ := newAgent(t)
+	a.cfg.Network = &recordingNet{}
+	r := &armadav1.UsageReport{}
+	a.reportPeers(r)
+	if r.GetPeersChecked() || r.GetWireguardUserspace() {
+		t.Errorf("plain network: %v", r)
+	}
+	for _, userspace := range []bool{false, true} {
+		a.cfg.Network = &wgNet{userspace: userspace}
+		r = &armadav1.UsageReport{}
+		a.reportPeers(r)
+		if !r.GetPeersChecked() || len(r.GetUnreachablePeers()) != 1 || r.GetWireguardUserspace() != userspace {
+			t.Errorf("userspace %v: %v", userspace, r)
+		}
+	}
+}
