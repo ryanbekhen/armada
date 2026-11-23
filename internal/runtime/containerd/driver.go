@@ -927,11 +927,16 @@ func (d *Driver) logMeta(id string, labels map[string]string) {
 
 // SearchLogs searches the node's log history and live logs (ADR 0043).
 func (d *Driver) SearchLogs(ctx context.Context, q runtime.LogQuery) ([]runtime.LogRecord, string, error) {
+	return embedded.SearchLogsWith(ctx, d.packLogger(), d.paths.Logs(), q)
+}
+
+// packLogger is the runtime pack's armada-log, or "" when it has none.
+func (d *Driver) packLogger() string {
 	bin := filepath.Join(d.paths.Bin(), embedded.BinLogger)
 	if !regularFile(bin) {
-		bin = ""
+		return ""
 	}
-	return embedded.SearchLogsWith(ctx, bin, d.paths.Logs(), q)
+	return bin
 }
 
 // PruneLogs bounds the node's log history (ADR 0043).
@@ -942,6 +947,13 @@ func (d *Driver) PruneLogs(_ context.Context, retention time.Duration, maxBytes 
 // TailLogs reads app output not yet sent to target (ADR 0044).
 func (d *Driver) TailLogs(ctx context.Context, target string, maxBytes int64) (runtime.LogTail, error) {
 	return embedded.TailLogs(ctx, d.paths.Logs(), target, maxBytes, time.Now())
+}
+
+// TailLogsEncoded reads app output not yet sent to target and renders it
+// as enc's requests with the pack's armada-log (ADR 0044); without it the
+// tail has records.
+func (d *Driver) TailLogsEncoded(ctx context.Context, target string, maxBytes int64, enc runtime.LogEncoding) (runtime.LogTail, error) {
+	return embedded.TailLogsWith(ctx, d.packLogger(), d.paths.Logs(), target, maxBytes, time.Now(), &enc)
 }
 
 // Logs returns the container's stored output.

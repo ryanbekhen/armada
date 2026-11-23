@@ -353,7 +353,31 @@ type LogPruner interface {
 // the next tail starts after it.
 type LogTail struct {
 	Records []LogRecord
-	Commit  func() error
+	// Bodies, from an EncodingLogTailer, are the output already rendered
+	// as requests in the LogEncoding's format, in order; Size is the bytes
+	// of output they carry. Records is empty then.
+	Bodies [][]byte
+	Size   int64
+	Commit func() error
+}
+
+// LogEncoding is how an EncodingLogTailer renders output: as requests in
+// Format (loki or otlp) for Node, split as logexport.Batches splits them.
+type LogEncoding struct {
+	Format       string
+	Node         string
+	BatchRecords int
+	BatchBytes   int
+	// Split gives an app ID's space and name; output of an ID it refuses
+	// is read but not sent.
+	Split func(appID string) (space, name string, ok bool)
+}
+
+// EncodingLogTailer is a LogTailer that can also render what it reads
+// (ADR 0044). Its tail has Bodies, or Records when it could not render
+// them.
+type EncodingLogTailer interface {
+	TailLogsEncoded(ctx context.Context, target string, maxBytes int64, enc LogEncoding) (LogTail, error)
 }
 
 // LogTailer reads app containers' output written since the last committed

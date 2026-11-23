@@ -13,11 +13,13 @@
 //! never blocks the container. A Go test compares both byte for byte.
 //!
 //! `armada-log search` reads the log history for a search instead
-//! (src/search.rs).
+//! (src/search.rs), and `armada-log export` renders new output as the
+//! requests armadad sends to the cluster's log store (src/export.rs).
 //!
 //! It exists because a Go process costs about 5 MiB of private memory per
 //! container; this one costs well under 1 MiB.
 
+mod export;
 mod search;
 
 use std::fmt::Write as _;
@@ -237,6 +239,13 @@ fn json_string(out: &mut Vec<u8>, s: &[u8]) {
     out.push(b'"');
     let mut i = 0;
     while i < s.len() {
+        // The run that needs no escape, copied at once.
+        let run = json_safe(&s[i..]);
+        out.extend_from_slice(&s[i..i + run]);
+        i += run;
+        if i == s.len() {
+            break;
+        }
         let b = s[i];
         if b < 0x80 {
             match b {
@@ -276,6 +285,34 @@ fn json_string(out: &mut Vec<u8>, s: &[u8]) {
         i += n;
     }
     out.push(b'"');
+}
+
+/// How many bytes at the start of s json_string copies as they are: ASCII
+/// from 0x20 that is not `"`, `\`, `<`, `>`, or `&`; eight bytes at a time.
+fn json_safe(s: &[u8]) -> usize {
+    const LO: u64 = 0x0101_0101_0101_0101;
+    const HI: u64 = 0x8080_8080_8080_8080;
+    let zero = |w: u64| w.wrapping_sub(LO) & !w & HI;
+    let mut i = 0;
+    while i + 8 <= s.len() {
+        let w = u64::from_le_bytes(s[i..i + 8].try_into().unwrap());
+        // The first flagged byte is exact; later ones may be false.
+        let found = (w & HI)
+            | (w.wrapping_sub(LO * 0x20) & !w & HI)
+            | zero(w ^ (LO * b'"' as u64))
+            | zero(w ^ (LO * b'\\' as u64))
+            | zero(w ^ (LO * b'<' as u64))
+            | zero(w ^ (LO * b'>' as u64))
+            | zero(w ^ (LO * b'&' as u64));
+        if found != 0 {
+            return i + (found.trailing_zeros() / 8) as usize;
+        }
+        i += 8;
+    }
+    i + s[i..]
+        .iter()
+        .position(|&c| !(0x20..0x80).contains(&c) || matches!(c, b'"' | b'\\' | b'<' | b'>' | b'&'))
+        .unwrap_or(s.len() - i)
 }
 
 /// Formats t in UTC like Go's time.RFC3339Nano (trailing zeros of the
@@ -414,8 +451,10 @@ fn parse_args(args: &[String]) -> Result<(String, Limits), String> {
 
 fn run() -> Result<(), String> {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    if args.first().map(String::as_str) == Some("search") {
-        return search::run(&args[1..]);
+    match args.first().map(String::as_str) {
+        Some("search") => return search::run(&args[1..]),
+        Some("export") => return export::run(&args[1..]),
+        _ => {}
     }
     let (dir, limits) = parse_args(&args)?;
     let id = std::env::var("CONTAINER_ID").unwrap_or_default();
@@ -471,6 +510,22 @@ fn main() -> ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn json_safe_finds_every_byte() {
+        for at in 0..20 {
+            for b in 0..=255u8 {
+                let mut v = vec![b'a'; 20];
+                v[at] = b;
+                let want = if !(0x20..0x80).contains(&b) || b"\"\\<>&".contains(&b) {
+                    at
+                } else {
+                    20
+                };
+                assert_eq!(json_safe(&v), want, "byte {b:#x} at {at}");
+            }
+        }
+    }
     use std::time::Duration;
 
     fn json(s: &[u8]) -> String {

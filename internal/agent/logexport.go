@@ -128,9 +128,30 @@ func (a *Agent) exportFailed(msg string, last *string) {
 // exportOnce sends one round of new output and reports whether more may be
 // waiting.
 func (a *Agent) exportOnce(ctx context.Context, lt runtime.LogTailer, client *logexport.Client, target string) (bool, error) {
-	tail, err := lt.TailLogs(ctx, target, exportTailBytes)
+	var tail runtime.LogTail
+	var err error
+	if et, ok := lt.(runtime.EncodingLogTailer); ok {
+		tail, err = et.TailLogsEncoded(ctx, target, exportTailBytes, runtime.LogEncoding{
+			Format: client.Format(), Node: a.cfg.NodeID,
+			BatchRecords: exportBatchRecords, BatchBytes: exportBatchBytes, Split: spec.SplitAppID,
+		})
+	} else {
+		tail, err = lt.TailLogs(ctx, target, exportTailBytes)
+	}
 	if err != nil {
 		return false, err
+	}
+	if tail.Bodies != nil {
+		// Read and rendered by the runtime (armada-log).
+		for _, b := range tail.Bodies {
+			if err := client.PushBody(ctx, b); err != nil {
+				return false, err
+			}
+		}
+		if err := tail.Commit(); err != nil {
+			return false, err
+		}
+		return tail.Size >= exportTailBytes/2, nil
 	}
 	recs := make([]logexport.Record, 0, len(tail.Records))
 	size := 0

@@ -249,7 +249,7 @@ fn tail_time(line: &[u8]) -> Option<i128> {
 }
 
 /// The index of the first line break in b, eight bytes at a time.
-fn newline(b: &[u8]) -> Option<usize> {
+pub(crate) fn newline(b: &[u8]) -> Option<usize> {
     const LO: u64 = 0x0101_0101_0101_0101;
     const HI: u64 = 0x8080_8080_8080_8080;
     const NL: u64 = LO * b'\n' as u64;
@@ -277,23 +277,25 @@ fn trim(found: &mut Vec<Found>, limit: usize) {
 /// A JSON string in a line: the bytes between its quotes, and whether it
 /// has escapes.
 #[derive(Clone, Copy)]
-struct Span {
-    start: usize,
-    end: usize,
+pub(crate) struct Span {
+    pub(crate) start: usize,
+    pub(crate) end: usize,
     escaped: bool,
 }
 
-struct Entry {
-    log: Option<Span>,
-    time: Option<Span>,
+pub(crate) struct Entry {
+    pub(crate) log: Option<Span>,
+    pub(crate) stream: Option<Span>,
+    pub(crate) time: Option<Span>,
 }
 
 /// Reads a line as a JSON object of string (or null) values, as Go's
 /// logEntry decodes it: the last `log` and `time` win, other keys are
 /// skipped; anything else fails the line.
-fn entry(b: &[u8]) -> Option<Entry> {
+pub(crate) fn entry(b: &[u8]) -> Option<Entry> {
     let mut e = Entry {
         log: None,
+        stream: None,
         time: None,
     };
     let mut i = skip_ws(b, 0);
@@ -325,6 +327,8 @@ fn entry(b: &[u8]) -> Option<Entry> {
             e.log = value;
         } else if k.eq_ignore_ascii_case(b"time") {
             e.time = value;
+        } else if k.eq_ignore_ascii_case(b"stream") {
+            e.stream = value;
         }
         i = skip_ws(b, i);
         match b.get(i) {
@@ -419,7 +423,7 @@ fn backslash(b: &[u8]) -> usize {
 }
 
 /// The bytes of a string, its escapes decoded into buf when it has any.
-fn decoded<'a>(line: &'a [u8], s: Span, buf: &'a mut Vec<u8>) -> Option<&'a [u8]> {
+pub(crate) fn decoded<'a>(line: &'a [u8], s: Span, buf: &'a mut Vec<u8>) -> Option<&'a [u8]> {
     let raw = &line[s.start..s.end];
     if !s.escaped {
         return Some(raw);
@@ -528,7 +532,7 @@ fn find2(hay: &[u8], a: u8, b: u8) -> Option<usize> {
 
 /// Nanoseconds since the epoch of an RFC 3339 time as Go's time.Time
 /// encodes it (`2006-01-02T15:04:05.999999999Z07:00`).
-fn parse_time(s: &[u8]) -> Option<i128> {
+pub(crate) fn parse_time(s: &[u8]) -> Option<i128> {
     let num = |a: usize, b: usize| -> Option<i64> {
         let d = s.get(a..b)?;
         d.iter()
