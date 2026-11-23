@@ -3,7 +3,7 @@
 //!   <root>/content/blobs/<alg>/<hex>   every blob, read-only, by digest
 //!   <root>/content/ingest/             downloads until their digest matches
 //!   <root>/index.json                  image records and verified layers
-//!   <root>/layers/<chain ID hex>/      unpacked layers (snapshots, later)
+//!   <root>/layers/<chain ID hex>/      unpacked layers (layers.rs)
 //!   <root>/pull.lock, index.lock       see Store::pulls and Store::update
 //!
 //! The content layout is the one the supervisor runtime's content store
@@ -101,12 +101,22 @@ impl Store {
             root.to_path_buf(),
             root.join("content/blobs"),
             root.join("content/ingest"),
+            root.join("layers"),
         ] {
             mkdir(&d).map_err(|e| format!("image store {}: {e}", d.display()))?;
         }
         Ok(Store {
             root: root.to_path_buf(),
         })
+    }
+
+    pub fn layers_root(&self) -> PathBuf {
+        self.root.join("layers")
+    }
+
+    /// The directory of a chain's unpacked layer.
+    pub fn layer_dir(&self, chain: &Digest) -> PathBuf {
+        self.layers_root().join(chain.hex())
     }
 
     pub fn blob_path(&self, d: &Digest) -> PathBuf {
@@ -325,12 +335,17 @@ impl Store {
         })
     }
 
-    /// Removes blobs no record keeps, and downloads left behind; only
-    /// while no pull runs (the pull lock held exclusively).
+    /// Removes blobs and unpacked layers no record keeps, and downloads
+    /// left behind; only while no pull runs (the pull lock held
+    /// exclusively).
     pub fn collect(&self, _held: &Lock) -> Result<(), String> {
         self.update(|idx| {
             let mut keep = std::collections::BTreeSet::new();
+            let mut chains = std::collections::BTreeSet::new();
             for r in idx.images.values() {
+                for c in super::digest::chain_ids(&r.diff_ids) {
+                    chains.insert(c.hex().to_string());
+                }
                 let mut stack = vec![r.target.clone()];
                 while let Some(d) = stack.pop() {
                     if !keep.insert(d.digest.to_string()) || !self.has(&d.digest) {
@@ -353,6 +368,7 @@ impl Store {
                     let _ = fs::remove_file(e.path());
                 }
             }
+            super::layers::collect(self, &chains);
             idx.verified.retain(|blob, _| keep.contains(blob));
             idx.uncollected = false;
             Ok(())
