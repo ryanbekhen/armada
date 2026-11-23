@@ -6,7 +6,7 @@ use serde::de::{self, Deserializer, Visitor};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
-fn nullable<'de, D, T>(d: D) -> Result<T, D::Error>
+pub(crate) fn nullable<'de, D, T>(d: D) -> Result<T, D::Error>
 where
     D: Deserializer<'de>,
     T: Default + Deserialize<'de>,

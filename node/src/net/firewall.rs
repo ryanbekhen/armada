@@ -80,7 +80,7 @@ impl PolicyJson {
         }
     }
 
-    fn policy(&self) -> Result<Policy, String> {
+    pub fn policy(&self) -> Result<Policy, String> {
         let prefix = |s: &str| Prefix::parse(s).ok_or_else(|| format!("invalid prefix {s:?}"));
         let mut members = BTreeMap::new();
         for m in &self.members {

@@ -27,7 +27,7 @@ type switchNode struct {
 	ns     netns.NsHandle
 	ip     netip.Addr
 	subnet netip.Prefix
-	net    *Net
+	net    netImpl
 }
 
 // in runs fn in the node's network namespace.
@@ -53,10 +53,13 @@ func (n *switchNode) in(t *testing.T, fn func() error) error {
 
 // TestIntegrationSwitch switches two nodes from plain to wireguard and back
 // (ADR 0050), checking that their subnets reach each other at every step,
-// and gives up a switch in its prepare step. It needs root and the kernel's
-// VXLAN and WireGuard:
+// gives up a switch in its prepare step, and removes the network. It needs
+// root and the kernel's VXLAN and WireGuard:
 //
 //	go test -c -tags integration ./internal/clusternet -o t && sudo ./t -test.run IntegrationSwitch -test.v
+//
+// With ARMADA_NET_IMPL=rust ARMADA_NODE_BIN=<armada-node> the nodes run
+// armada-node's cluster network instead (netimpl_integration_test.go).
 func TestIntegrationSwitch(t *testing.T) {
 	runtime.LockOSThread()
 	orig, err := netns.Get()
@@ -124,9 +127,7 @@ func TestIntegrationSwitch(t *testing.T) {
 		}); err != nil {
 			t.Fatal(err)
 		}
-		if n.net, err = New(Config{Node: n.name, PrivateIP: n.ip, Key: key}); err != nil {
-			t.Fatal(err)
-		}
+		n.net = newNetImpl(t, Config{Node: n.name, PrivateIP: n.ip, Key: key})
 	}
 
 	config := func(mode, to, step string) *armadav1.NetworkConfig {
@@ -228,6 +229,16 @@ func TestIntegrationSwitch(t *testing.T) {
 		}
 		if got := kind(n, Next); got != "" {
 			t.Fatalf("%s: %s is left after a switch was given up (%s)", n.name, Next, got)
+		}
+	}
+
+	// A node that leaves takes the network off.
+	for _, n := range nodes {
+		if err := n.in(t, removeNet); err != nil {
+			t.Fatalf("%s: remove: %v", n.name, err)
+		}
+		if got := kind(n, Interface); got != "" {
+			t.Fatalf("%s: %s is left after Remove (%s)", n.name, Interface, got)
 		}
 	}
 }
