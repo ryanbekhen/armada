@@ -61,7 +61,8 @@ Flags:
 
 reset stops and removes all of Armada's containers on this node (those with
 Armada's labels), the network sandboxes job queues are read from,
-and the cluster network's interface and firewall rules.
+the node's resolver (armada-dns), and the cluster network's interface
+and firewall rules.
 Use it after `armada node delete`, with the agent (or server) stopped first,
 or it starts its replicas again.
 

@@ -176,7 +176,7 @@ Armada left on it:
 
 ```bash
 sudo systemctl disable --now armada-server armada-agent
-sudo armadad runtime reset                       # removes Armada's containers
+sudo armadad runtime reset                       # removes Armada's containers and stops armada-dns
 sudo systemctl disable --now armada-runtime      # nodes on containerd only
 sudo umount -R /var/lib/armada/volumes           # the agent mounts it onto itself
 sudo rm -rf /var/lib/armada
@@ -450,9 +450,10 @@ upgrades without asking.
    the embedded runtime (`armada-runtime.service`) also leaves containers
    running; containers started from then on use its new containerd shim
    and log writer, and the ones already running keep theirs until they are
-   replaced. Internal
-   names (`<app>.internal`) on that node do not resolve for the second or
-   two it takes the agent to start its DNS server again.
+   replaced. The node's resolver (`armada-dns`, below) keeps answering
+   containers' lookups through the restart; a release with a new
+   `armada-dns` starts it beside the old one, which hands over what it
+   knows and stops, so no lookup goes unanswered.
 
    On Debian and Ubuntu, needrestart restarts services after package
    upgrades, and after `armadad upgrade` it counts `armada-runtime` among
@@ -858,6 +859,22 @@ restarting the agent leaves it and its containers running. If one ends, its
 containers end with it and the agent starts them again. A shim that is only
 slow to answer keeps its containers: the agent ends them only once the
 shim's unit is no longer active (`systemctl status 'armada-shim-*'`).
+
+### The node's resolver
+
+Containers resolve names through their node's resolver on the bridge
+gateway: it answers `<app>.internal` for apps of the container's own space
+and forwards every other name to the machine's resolvers (ADR 0007,
+ADR 0026). It is `armada-dns`, a program from the runtime pack in a systemd
+unit of its own (`armada-dns-*`, ADR 0053), so it keeps answering while
+`armadad` restarts; the agent tells it the apps and the node's containers
+and starts it again if it stops. Builds without the runtime pack run the
+resolver inside `armadad` instead.
+
+```bash
+systemctl status 'armada-dns-*'
+journalctl -u 'armada-dns-*'
+```
 
 ## Deleting an app
 

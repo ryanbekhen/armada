@@ -79,10 +79,10 @@ E2E_ONLY=isolation,rollout ARMADA_BIN=... sh test/e2e/cluster.sh hosts
 | `space-secret` | 3 (a space's secret) | secrets, spaces |
 | `conntrack` | the connection tracking limit | connection tracking, usage reports |
 | `network-key` | `armada node rotate-key` on a node: a new key file and a `NetworkKeyRotated` event | node keys, the agent's network (`nodeNet`), WireGuard |
-| `isolation` | 4 | the cluster network (VXLAN, WireGuard, netlink), nftables, internal DNS, HAProxy's internal frontend |
+| `isolation` | 4 | the cluster network (VXLAN, WireGuard, netlink), nftables, internal DNS (armada-dns), HAProxy's internal frontend |
 | `load` | 5 (steady load) | the path from clients to the nodes |
 | `rollout` | 5 (rolling update and rollback) | rollouts, readiness, draining, the proxy's live updates |
-| `agent-restart` | 5 (agent restart) | the agent, adopting containers and a running proxy, certificates |
+| `agent-restart` | 5 (agent restart) | the agent, adopting containers and a running proxy, certificates, armada-dns outliving armadad |
 | `failover` | 6 | the control plane, etcd, elections |
 | `node-loss` | 7 | self-healing, rebalancing |
 | `backup` | 8 | `armadad backup` |

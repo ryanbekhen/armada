@@ -41,11 +41,18 @@ func TestLoggerStandardLibraryOnly(t *testing.T) {
 	if n := strings.Count(string(b), "[[package]]"); n != 1 {
 		t.Errorf("shim/Cargo.lock lists %d packages; armada-shim uses the Rust standard library only", n)
 	}
+	b, err = os.ReadFile("../../../dns/Cargo.lock")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(string(b), "[[package]]"); n != 1 {
+		t.Errorf("dns/Cargo.lock lists %d packages; armada-dns uses the Rust standard library only", n)
+	}
 	notices, err := os.ReadFile("../../../THIRD_PARTY_NOTICES.md")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"armada-log", "armada-shim", "musl", "Rust standard library"} {
+	for _, want := range []string{"armada-log", "armada-shim", "armada-dns", "musl", "Rust standard library"} {
 		if !strings.Contains(string(notices), want) {
 			t.Errorf("THIRD_PARTY_NOTICES.md does not mention %q", want)
 		}

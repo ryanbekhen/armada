@@ -402,6 +402,18 @@ it out. If `armada app exec web -- wget -qO- http://api.internal/` gets a
 404, check that both apps are in the same space and that `allow` lists
 the caller.
 
+When no name resolves in a container (`nslookup api.internal` or any
+outside name times out), check the node's resolver, `armada-dns`:
+
+```bash
+systemctl status 'armada-dns-*'
+journalctl -u 'armada-dns-*' -n 50
+```
+
+The agent starts it and starts it again when it stops; if no unit runs,
+restart the agent (`armada-agent`, or `armada-server` on a server) and look
+for `armada-dns did not start` in its journal.
+
 ## Commands are refused
 
 | Message | Fix |

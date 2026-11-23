@@ -56,6 +56,7 @@ Every architectural decision that is hard to reverse is recorded here. Copy `000
 | [0050](0050-sites.md) | Sites, switching the network mode, and nodes behind NAT | Accepted |
 | [0051](0051-control-plane-backups.md) | Scheduled control plane backups to object storage | Accepted |
 | [0052](0052-flat-commands-and-space-secrets.md) | Flat commands and secrets owned by a space | Accepted |
+| [0053](0053-node-resolver-in-rust.md) | The node's resolver runs as armada-dns | Accepted |
 
 Commands in records before 0032 carry the names of their time; ADR 0032
 lists the command line as it is now.

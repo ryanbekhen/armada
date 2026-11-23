@@ -16,6 +16,7 @@ import (
 	"github.com/spf13/pflag"
 
 	"github.com/ryanbekhen/armada/internal/clusternet"
+	"github.com/ryanbekhen/armada/internal/dnsserver"
 	"github.com/ryanbekhen/armada/internal/runtime"
 	"github.com/ryanbekhen/armada/internal/runtime/containerd"
 	"github.com/ryanbekhen/armada/internal/runtime/embedded"
@@ -264,6 +265,9 @@ func newRuntimeCommand() *cobra.Command {
 // it.
 var removeClusterNet = clusternet.Remove
 
+// stopDNS stops the node's armada-dns (ADR 0053); tests replace it.
+var stopDNS = dnsserver.StopUnits
+
 func newRuntimeResetCommand() *cobra.Command {
 	var dataDir string
 	cmd := &cobra.Command{
@@ -271,7 +275,8 @@ func newRuntimeResetCommand() *cobra.Command {
 		Short: "Remove every container Armada runs on this node",
 		Long: "reset stops and removes all of Armada's containers on this node (those with\n" +
 			"Armada's labels), the network sandboxes job queues are read from,\n" +
-			"and the cluster network's interface and firewall rules.\n" +
+			"the node's resolver (armada-dns), and the cluster network's interface\n" +
+			"and firewall rules.\n" +
 			"Use it after `armada node delete`, with the agent (or server) stopped first,\n" +
 			"or it starts its replicas again.",
 		Args: cobra.NoArgs,
@@ -297,6 +302,9 @@ func newRuntimeResetCommand() *cobra.Command {
 			errs, err := removeContainers(ctx, rt, cmd.OutOrStdout())
 			if err != nil {
 				return err
+			}
+			if err := stopDNS(ctx); err != nil {
+				errs = append(errs, fmt.Errorf("armada-dns: %w", err))
 			}
 			if ac.Network != "" {
 				if err := removeClusterNet(); err != nil {

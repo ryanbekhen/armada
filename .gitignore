@@ -16,3 +16,4 @@ coverage.out
 # armada-log build output (make logger).
 /logger/target/
 /shim/target/
+/dns/target/

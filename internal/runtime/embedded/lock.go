@@ -92,5 +92,9 @@ const (
 	// BinArmadaShim supervises containers without containerd (shim/,
 	// ADR 0046), built from source like armada-log.
 	BinArmadaShim = "armada-shim"
-	DirCNI        = "cni"
+	// BinDNS is the node-local resolver of containers (dns/, ADR 0053),
+	// built from source like armada-log; agents of packs without it run
+	// the resolver in armadad.
+	BinDNS = "armada-dns"
+	DirCNI = "cni"
 )

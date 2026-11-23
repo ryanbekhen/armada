@@ -166,10 +166,11 @@ jobs:
           GOOS: darwin
           GOARCH: ${{ matrix.goarch }}
 
-  # armada-log (logger/) and armada-shim (shim/): the Rust programs
-  # release builds embed. Lint, unit tests, static builds for both
-  # architectures, and the comparison of armada-log with the Go writer it
-  # must match byte for byte.
+  # armada-log (logger/), armada-shim (shim/), and armada-dns (dns/): the
+  # Rust programs release builds embed. Lint, unit tests, static builds for
+  # both architectures, the comparison of armada-log with the Go writer it
+  # must match byte for byte, and armada-dns against the Go resolver's
+  # tests.
   logger:
     needs: changes
     if: needs.changes.outputs.code == 'true'
@@ -198,11 +199,24 @@ jobs:
         working-directory: shim
       - run: cargo test --locked
         working-directory: shim
+      - run: rustup toolchain install
+        working-directory: dns
+      - run: cargo fmt --check
+        working-directory: dns
+      - run: cargo clippy --locked --all-targets -- -D warnings
+        working-directory: dns
+      - run: cargo test --locked
+        working-directory: dns
       - run: make logger
       - run: make shim
+      - run: make dns
       - run: go test -race -run 'TestArmadaLog|TestLoggerStandardLibraryOnly' -v ./internal/runtime/embedded/
         env:
           ARMADA_LOG_BIN: ${{ github.workspace }}/logger/target/x86_64-unknown-linux-musl/release/armada-log
+      # armada-dns answers what the Go resolver's tests ask (ADR 0053).
+      - run: go test -race -run 'TestProcess|TestStartProcess' -v ./internal/dnsserver/
+        env:
+          ARMADA_DNS_BIN: ${{ github.workspace }}/dns/target/x86_64-unknown-linux-musl/release/armada-dns
 
   installer:
     needs: changes

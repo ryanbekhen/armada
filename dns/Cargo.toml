@@ -1,0 +1,19 @@
+[package]
+name = "armada-dns"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+description = "The node-local resolver of Armada's containers (ADR 0053)"
+publish = false
+
+# Standard library only: no dependencies to vet, license, or update. The
+# socket calls std does not wrap (SO_REUSEPORT before bind) are declared
+# against the C library std already links.
+[dependencies]
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

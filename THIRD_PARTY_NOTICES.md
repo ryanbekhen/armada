@@ -46,12 +46,13 @@ SHA-256 into `internal/runtime/embedded/lock.go`, and build `armadad` with
 `make build-bundle`. The complete corresponding source of the LGPL
 libraries is at the addresses above.
 
-## Armada's log writer and supervisor
+## Armada's log writer, supervisor, and resolver
 
 The runtime pack also carries `armada-log`, Armada's own log writer
-(`logger/`, Apache-2.0), and `armada-shim`, which supervises containers
-without containerd (`shim/`, Apache-2.0). Both are written in Rust with no
-crates beyond the standard library and are linked statically with:
+(`logger/`, Apache-2.0), `armada-shim`, which supervises containers
+without containerd (`shim/`, Apache-2.0), and `armada-dns`, the node-local
+resolver of containers (`dns/`, Apache-2.0). All three are written in Rust
+with no crates beyond the standard library and are linked statically with:
 
 - the **Rust standard library** and its runtime libraries, under MIT or
   Apache-2.0 (Armada uses them under Apache-2.0), with LLVM's libunwind

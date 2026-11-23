@@ -34,17 +34,18 @@ func main() {
 	cache := flag.String("cache", ".cache/runtime", "download cache directory")
 	logger := flag.String("logger", "", "armada-log built for -arch (make logger)")
 	shim := flag.String("shim", "", "armada-shim built for -arch (make shim)")
+	dns := flag.String("dns", "", "armada-dns built for -arch (make dns)")
 	flag.Parse()
 	if *out == "" {
 		*out = filepath.Join("internal", "runtime", "embedded", "bundle", "linux_"+*arch+".pack")
 	}
-	if err := run(context.Background(), *arch, *out, *cache, *logger, *shim); err != nil {
+	if err := run(context.Background(), *arch, *out, *cache, *logger, *shim, *dns); err != nil {
 		fmt.Fprintln(os.Stderr, "mkbundle:", err)
 		os.Exit(1)
 	}
 }
 
-func run(ctx context.Context, arch, out, cache, logger, shim string) error {
+func run(ctx context.Context, arch, out, cache, logger, shim, dns string) error {
 	if arch != "amd64" && arch != "arm64" {
 		return fmt.Errorf("unsupported architecture %q", arch)
 	}
@@ -73,6 +74,17 @@ func run(ctx context.Context, arch, out, cache, logger, shim string) error {
 	}
 	files[embedded.BinArmadaShim] = b
 	versions[embedded.BinArmadaShim] = "source"
+	if dns == "" {
+		return errors.New("-dns is required: build it with make dns")
+	}
+	if b, err = os.ReadFile(dns); err != nil { //nolint:gosec // build input named on the command line
+		return fmt.Errorf("dns: %w", err)
+	}
+	if err := checkELF(b, arch); err != nil {
+		return fmt.Errorf("dns %s: %w", dns, err)
+	}
+	files[embedded.BinDNS] = b
+	versions[embedded.BinDNS] = "source"
 	for _, a := range embedded.Lock {
 		want := a.SHA256[arch]
 		if want == "" {
