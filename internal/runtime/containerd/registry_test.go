@@ -1,11 +1,18 @@
 package containerd
 
 import (
+	"context"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
+
+	"github.com/containerd/containerd/v2/core/remotes"
+	"github.com/opencontainers/go-digest"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
 // A registry cannot steer the agent to a plain-HTTP address with a
@@ -90,5 +97,46 @@ func TestRegistryDialControl(t *testing.T) {
 		if (err == nil) != ok {
 			t.Errorf("%s: %v", addr, err)
 		}
+	}
+}
+
+// fetchRecorder is a resolver whose fetchers record what they are asked.
+type fetchRecorder struct {
+	remotes.Resolver
+	got []ocispec.Descriptor
+}
+
+func (r *fetchRecorder) Fetcher(context.Context, string) (remotes.Fetcher, error) { return r, nil }
+
+func (r *fetchRecorder) Fetch(_ context.Context, desc ocispec.Descriptor) (io.ReadCloser, error) {
+	r.got = append(r.got, desc)
+	return io.NopCloser(strings.NewReader("")), nil
+}
+
+// A layer's other URLs ("foreign layers") would be fetched with a client
+// outside the registry's rules (plain HTTP, any address): they are dropped,
+// so every blob comes from the registry.
+func TestResolverIgnoresForeignURLs(t *testing.T) {
+	ctx := context.Background()
+	if _, ok := newResolver(ctx, nil).(registryOnly); !ok {
+		t.Fatalf("newResolver returns %T, want registryOnly", newResolver(ctx, nil))
+	}
+	rec := &fetchRecorder{}
+	f, err := registryOnly{rec}.Fetcher(ctx, "registry.example/app:1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	desc := ocispec.Descriptor{MediaType: ocispec.MediaTypeImageLayerGzip, Digest: digest.Digest("sha256:" + strings.Repeat("a", 64)), Size: 1,
+		URLs: []string{"http://169.254.169.254/latest/meta-data/", "http://10.0.0.1/"}}
+	rc, err := f.Fetch(ctx, desc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = rc.Close()
+	if len(rec.got) != 1 || len(rec.got[0].URLs) != 0 || rec.got[0].Digest != desc.Digest {
+		t.Fatalf("fetched %+v", rec.got)
+	}
+	if len(desc.URLs) != 2 {
+		t.Error("the caller's descriptor changed")
 	}
 }
