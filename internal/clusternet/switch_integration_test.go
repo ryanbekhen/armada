@@ -216,6 +216,14 @@ func TestIntegrationSwitch(t *testing.T) {
 			if n.net.SwitchStatus() != nil {
 				t.Fatalf("%s: a switch status is left", n.name)
 			}
+			// The peers have had their handshakes, however long ago they
+			// were configured.
+			age(n.net, 4*time.Minute)
+			var unreachable []string
+			_ = n.in(t, func() error { unreachable = n.net.UnreachablePeers(); return nil })
+			if unreachable != nil {
+				t.Fatalf("%s: unreachable peers %v after the switch to %s", n.name, unreachable, sw.to)
+			}
 		}
 	}
 

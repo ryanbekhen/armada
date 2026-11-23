@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/vishvananda/netlink"
 	"github.com/vishvananda/netns"
@@ -213,18 +214,29 @@ func TestIntegrationSites(t *testing.T) {
 	doctor := func() (handshakes, sites Check) {
 		t.Helper()
 		_ = a.in(t, func() error {
-			for _, c := range diagnoseTunnel(ModePlain, a.ip, netip.Addr{}) {
-				if c.Name == "network-sites" {
+			for _, c := range diagnoseImpl(t, ModePlain, a.ip, netip.Addr{}, Sites{Cache: a.cache, Node: a.name}) {
+				switch c.Name {
+				case "network-sites":
 					handshakes = c
+				case "sites":
+					sites = c
 				}
 			}
-			sites, _ = diagnoseSites(Sites{Cache: a.cache, Node: a.name}, a.ip)
 			return nil
 		})
 		return handshakes, sites
 	}
 	if hs, st := doctor(); hs.Level != CheckOK || st.Level != CheckOK {
 		t.Errorf("doctor on a: %+v, %+v", hs, st)
+	}
+	// Every peer has a handshake, however long ago it was configured.
+	for _, n := range nodes {
+		age(n.net, 4*time.Minute)
+		var got []string
+		_ = n.in(t, func() error { got = n.net.UnreachablePeers(); return nil })
+		if got != nil {
+			t.Errorf("%s: unreachable peers %v with every handshake done", n.name, got)
+		}
 	}
 	shadow := netip.MustParsePrefix("10.98.0.50/24")
 	if err := a.in(t, func() error {

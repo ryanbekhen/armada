@@ -148,7 +148,14 @@ func hostDoctorEnv(dataDir string) doctorEnv {
 	var network func() []checkResult
 	if ip, err := netip.ParseAddr(ac.PrivateIP); err == nil && ac.Network != "" {
 		sites := clusternet.Sites{Cache: filepath.Join(dataDir, fileMeshCache), Node: ac.NodeID}
-		network = func() []checkResult { return clusterNetChecks(ac.Network, ip, ac.uplinkEndpoint(), sites) }
+		program := ac.netProgram(dataDir)
+		network = func() []checkResult {
+			bin := ""
+			if program != nil {
+				bin = program()
+			}
+			return clusterNetChecks(bin, ac.Network, ip, ac.uplinkEndpoint(), sites)
+		}
 	}
 	return doctorEnv{
 		euid:        os.Geteuid(),
@@ -390,11 +397,12 @@ func bridgeCheck(ctx context.Context, env doctorEnv) []checkResult {
 	return []checkResult{{Name: "bridge", Status: checkOK, Detail: fmt.Sprintf("gateway %s, subnet %s", b.Gateway, b.Subnet)}}
 }
 
-// clusterNetChecks are the cluster network's checks on this host.
-func clusterNetChecks(mode string, ip, endpoint netip.Addr, sites clusternet.Sites) []checkResult {
+// clusterNetChecks are the cluster network's checks on this host, through
+// armada-node when bin names it (agent.json netAgent, ADR 0054).
+func clusterNetChecks(bin, mode string, ip, endpoint netip.Addr, sites clusternet.Sites) []checkResult {
 	levels := map[int]string{clusternet.CheckOK: checkOK, clusternet.CheckWarn: checkWarn, clusternet.CheckFail: checkFail}
 	var out []checkResult
-	for _, c := range clusternet.Diagnose(mode, ip, endpoint, sites) {
+	for _, c := range clusternet.DiagnoseWith(bin, mode, ip, endpoint, sites) {
 		out = append(out, checkResult{Name: c.Name, Status: levels[c.Level], Detail: c.Detail})
 	}
 	return out

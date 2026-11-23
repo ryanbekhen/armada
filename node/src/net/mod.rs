@@ -14,6 +14,9 @@
 //!   armada-node net firewall ...     the nftables isolation tables and the
 //!                                    iptables chains (firewall.rs)
 //!   armada-node net apply|up|remove  Net.Apply, Net.Up, and Remove (apply.rs)
+//!   armada-node net probe            a switch's probe, beside the agent (probe.rs)
+//!   armada-node net unreachable      UnreachablePeers (apply.rs)
+//!   armada-node net diagnose         armadad doctor's checks (diagnose.rs)
 //!   armada-node net netlink ...      the netlink messages and readings the
 //!                                    parity tests compare (nlcheck.rs)
 //!
@@ -31,6 +34,7 @@
 pub mod addr;
 pub mod apply;
 pub mod config;
+pub mod diagnose;
 pub mod firewall;
 pub mod iptables;
 pub mod kernel;

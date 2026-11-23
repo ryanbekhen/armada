@@ -189,6 +189,35 @@ impl Socket {
         }
     }
 
+    /// The kernel's answer to a GETTABLE message as an error number, 0
+    /// when the table exists (doctor's hasIsolation, which words the error
+    /// as Go's netlink library does).
+    pub fn table_errno(&self, get: &Msg) -> Result<(), i32> {
+        self.send(std::slice::from_ref(get), 1)
+            .map_err(|_| libc::EIO)?;
+        let mut buf = vec![0u8; 1 << 16];
+        loop {
+            let answers = self
+                .receive(&mut buf)
+                .map_err(|e| e.raw_os_error().unwrap_or(libc::EIO))?;
+            for (ty, seq, data) in answers {
+                if seq != 1 {
+                    continue;
+                }
+                if ty != NLMSG_ERROR {
+                    return Ok(());
+                }
+                if data.len() < 4 {
+                    return Err(libc::EIO);
+                }
+                return match -i32::from_ne_bytes(data[0..4].try_into().unwrap_or_default()) {
+                    0 => Ok(()),
+                    errno => Err(errno),
+                };
+            }
+        }
+    }
+
     /// Whether a table exists, by its GETTABLE message (hasIsolation).
     pub fn has_table(&self, get: &Msg) -> Result<bool, String> {
         self.send(std::slice::from_ref(get), 1)?;

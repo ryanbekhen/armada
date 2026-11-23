@@ -52,7 +52,7 @@ func TestRuntimeReset(t *testing.T) {
 	// A node of a cluster network also takes the tunnel off the host.
 	removed := 0
 	origRemove := removeClusterNet
-	removeClusterNet = func() error { removed++; return nil }
+	removeClusterNet = func(string) error { removed++; return nil }
 	t.Cleanup(func() { removeClusterNet = origRemove })
 	if removed != 0 || strings.Contains(out.String(), "cluster network") {
 		t.Error("cluster network removed on a node without one")

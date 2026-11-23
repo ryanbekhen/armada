@@ -96,6 +96,12 @@ type Config struct {
 	Key     PrivateKey
 	KeyPath string
 	Logger  *slog.Logger
+	// Program returns the runtime pack's armada-node when the node runs
+	// the cluster network through it (agent.json netAgent, ADR 0054), else
+	// "" (nil: never). Apply, Up, UnreachablePeers, RotateKey, and the
+	// probe of a switch then run it; when it fails, or the pass needs the
+	// userspace WireGuard device, Go's own code does that pass.
+	Program func() string
 }
 
 // peer is one other node.

@@ -19,7 +19,14 @@
 //! userspace device), and State: what Go's Net keeps between passes
 //! (Previous: the isolation policy last applied, Clean, Switch, Since,
 //! Last). The answer: {error, needsUserspace, state, switch (the
-//! SwitchStatus, or null), done (what changed), log}.
+//! SwitchStatus, or null), probe, done (what changed), log}.
+//!
+//! The probe of a switch's prepare step runs beside the agent, as Go's
+//! does: a pass that starts one marks the switch state probing and answers
+//! with probe (the addresses to ping); the caller runs `armada-node net
+//! probe` with it in the background (probe.rs), records who answered in the
+//! state, and clears probing probeEvery after the start, which lets the
+//! next pass start another.
 
 use super::addr::{Addr, Prefix};
 use super::config::NetworkConfig;
@@ -42,7 +49,7 @@ use super::{mesh, probe, read_stdin, write_stdout};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 /// The VXLAN network identifier of Armada's tunnel.
 pub const VNI: u32 = 7027;
@@ -50,9 +57,6 @@ pub const VNI: u32 = 7027;
 pub const MIN_UPLINK_MTU: i64 = 1280;
 /// Where the userspace WireGuard device serves its control socket.
 pub const USER_SOCKET: &str = "/var/run/wireguard/armada-net.sock";
-/// probeEvery and probeWait, in milliseconds.
-const PROBE_EVERY: i64 = 5000;
-const PROBE_WAIT: u64 = 2000;
 const MAX_UNREACHED: usize = 32;
 
 /// Why a pass stopped: an error as Go words it, or the userspace device
@@ -70,7 +74,7 @@ impl From<String> for Fail {
 }
 
 impl Fail {
-    fn text(&self) -> String {
+    pub fn text(&self) -> String {
         match self {
             Fail::Err(s) => s.clone(),
             Fail::Userspace => {
@@ -107,8 +111,8 @@ pub struct SwitchState {
     pub peers: Vec<String>,
     pub reached: Vec<String>,
     pub probed: bool,
-    /// When the last probe started, Unix milliseconds (0: none yet).
-    pub probe_at: i64,
+    /// A probe runs (or ran less than probeEvery ago): the caller clears it.
+    pub probing: bool,
     pub moved: bool,
 }
 
@@ -165,6 +169,13 @@ pub struct SwitchStatus {
     pub error: String,
 }
 
+/// One line for the caller's log, at Go's level for it.
+#[derive(Serialize, Debug, Clone, PartialEq, Eq)]
+pub struct LogLine {
+    pub level: &'static str,
+    pub msg: String,
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct Answer {
@@ -172,8 +183,9 @@ struct Answer {
     needs_userspace: bool,
     state: State,
     switch: Option<SwitchStatus>,
+    probe: Option<probe::Request>,
     done: Vec<String>,
-    log: Vec<String>,
+    log: Vec<LogLine>,
 }
 
 fn now_ms() -> i64 {
@@ -217,8 +229,10 @@ pub struct Net {
     key: Key,
     pub st: State,
     pub done: Vec<String>,
-    pub log: Vec<String>,
-    rt: Handle,
+    pub log: Vec<LogLine>,
+    /// The probe this pass starts, for the caller to run.
+    pub probe: Option<probe::Request>,
+    pub rt: Handle,
 }
 
 impl Net {
@@ -235,22 +249,38 @@ impl Net {
                     }
                 )
             })?;
+        let mut n = Net::bare(ip, Addr::parse(&req.endpoint))?;
+        n.node = req.node.clone();
+        n.mesh_cache = req.mesh_cache.clone();
+        n.uplink_mtu = req.uplink_mtu;
+        n.key = Key::parse(&req.key).unwrap_or_default();
+        n.st = st;
+        Ok(n)
+    }
+
+    /// A Net that only reads the machine's interfaces (diagnose.rs).
+    pub fn bare(ip: Addr, endpoint: Option<Addr>) -> Result<Net, String> {
         Ok(Net {
-            node: req.node.clone(),
+            node: String::new(),
             ip,
-            endpoint: Addr::parse(&req.endpoint),
-            mesh_cache: req.mesh_cache.clone(),
-            uplink_mtu: req.uplink_mtu,
-            key: Key::parse(&req.key).unwrap_or_default(),
-            st,
+            endpoint,
+            mesh_cache: String::new(),
+            uplink_mtu: 0,
+            key: Key::default(),
+            st: State::default(),
             done: Vec::new(),
             log: Vec::new(),
+            probe: None,
             rt: Handle::open().map_err(|e| e.to_string())?,
         })
     }
 
-    fn info(&mut self, s: String) {
-        self.log.push(s);
+    fn info(&mut self, msg: String) {
+        self.log.push(LogLine { level: "info", msg });
+    }
+
+    fn warn(&mut self, msg: String) {
+        self.log.push(LogLine { level: "warn", msg });
     }
 
     fn did(&mut self, s: String) {
@@ -312,7 +342,7 @@ impl Net {
                     self.did("isolation updated".into());
                     return Ok(());
                 }
-                Err(e) => self.info(format!("update the isolation rules; rebuilding them: {e}")),
+                Err(e) => self.warn(format!("update the isolation rules; rebuilding them: {e}")),
             }
         }
         let tx = nft::isolate(pol, 1).transaction();
@@ -341,10 +371,10 @@ impl Net {
         let path = self.mesh_cache.clone();
         if p.mode == MODE_MESH || p.has_remote() {
             if let Err(e) = mesh::save(Path::new(&path), cfg) {
-                self.info(format!("keep the peer list: {e}"));
+                self.warn(format!("keep the peer list: {e}"));
             }
         } else if let Err(e) = remove_mesh_cache(&path) {
-            self.info(format!("remove the peer list: {e}"));
+            self.warn(format!("remove the peer list: {e}"));
         }
         Ok(())
     }
@@ -563,7 +593,7 @@ impl Net {
     }
 
     /// uplinkFor: the uplink, its MTU, and whether the node is meshed.
-    fn uplink_for(&mut self, mode: &str) -> Res<(Link, i64, bool)> {
+    pub fn uplink_for(&mut self, mode: &str) -> Res<(Link, i64, bool)> {
         if mode != MODE_MESH {
             let ip = self.ip.clone();
             let res = self.uplink_of(&ip);
@@ -901,8 +931,8 @@ impl Net {
         Ok(())
     }
 
-    /// Net.track, with the probe run here and now: the next pass reads its
-    /// result, where Go's probe runs beside the agent.
+    /// Net.track: in the prepare step, a pass that finds no probe running
+    /// starts one, which the caller runs in the background (probe.rs).
     fn track(&mut self, p: &Plan, err: Option<&Fail>) {
         if !p.switching() {
             self.st.switch = SwitchState::default();
@@ -922,22 +952,11 @@ impl Net {
             sw.moved = err.is_none();
             return;
         }
-        let now = now_ms();
-        if err.is_some() || (sw.probe_at != 0 && now - sw.probe_at < PROBE_EVERY) {
+        if err.is_some() || sw.probing {
             return;
         }
-        sw.probe_at = now;
-        let from = rules::vtep_addr(p.self_.subnet());
-        match probe::ping(&from, &p.peers, Duration::from_millis(PROBE_WAIT)) {
-            Ok(reached) => {
-                self.st.switch.reached = reached.into_keys().collect();
-            }
-            Err(e) => {
-                self.st.switch.reached = Vec::new();
-                self.info(format!("probe the cluster network's target transport: {e}"));
-            }
-        }
-        self.st.switch.probed = true;
+        sw.probing = true;
+        self.probe = Some(probe::Request::of(p));
     }
 
     /// Net.seePeers.
@@ -977,9 +996,9 @@ fn carries(link: &Link, mode: &str) -> bool {
     }
 }
 
-const ERR_NO_KERNEL_WIREGUARD: &str = "the kernel has no WireGuard, which the mesh network mode needs (the userspace device lives inside the agent, and the mesh must be up before it starts); use a kernel with WireGuard (Linux 5.6 or later)";
-const ERR_SWITCH_NEEDS_KERNEL: &str = "the kernel has no WireGuard, which switching a running cluster to the wireguard mode needs; use a kernel with WireGuard (Linux 5.6 or later), or remove this node first";
-const ERR_SITES_NEED_KERNEL: &str = "the kernel has no WireGuard, which reaching nodes of other sites needs; use a kernel with WireGuard (Linux 5.6 or later)";
+pub const ERR_NO_KERNEL_WIREGUARD: &str = "the kernel has no WireGuard, which the mesh network mode needs (the userspace device lives inside the agent, and the mesh must be up before it starts); use a kernel with WireGuard (Linux 5.6 or later)";
+pub const ERR_SWITCH_NEEDS_KERNEL: &str = "the kernel has no WireGuard, which switching a running cluster to the wireguard mode needs; use a kernel with WireGuard (Linux 5.6 or later), or remove this node first";
+pub const ERR_SITES_NEED_KERNEL: &str = "the kernel has no WireGuard, which reaching nodes of other sites needs; use a kernel with WireGuard (Linux 5.6 or later)";
 
 /// RemoveMeshCache.
 fn remove_mesh_cache(path: &str) -> Result<(), String> {
@@ -1062,6 +1081,7 @@ pub fn command(op: &str) -> Result<(), String> {
         needs_userspace: false,
         state: State::default(),
         switch: None,
+        probe: None,
         done: Vec::new(),
         log: Vec::new(),
     };
@@ -1092,6 +1112,8 @@ pub fn command(op: &str) -> Result<(), String> {
         answer.error = f.text();
     }
     answer.switch = switch_status(&net.st.switch);
+    // A pass that failed starts no probe (track), so none is left here.
+    answer.probe = net.probe;
     answer.state = net.st;
     answer.done = net.done;
     answer.log = net.log;
@@ -1112,6 +1134,61 @@ fn finish(answer: Answer) -> Result<(), String> {
 /// armada-node net remove.
 pub fn remove_command() -> Result<(), String> {
     remove()
+}
+
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "PascalCase", default)]
+struct UnreachableRequest {
+    #[serde(deserialize_with = "super::config::nullable")]
+    since: Vec<SeenState>,
+}
+
+#[derive(Serialize)]
+struct UnreachableAnswer {
+    peers: Option<Vec<String>>,
+}
+
+/// UnreachablePeers on the kernel's devices: the peers of Interface and
+/// SiteInterface known in since that are stale now; null when since is
+/// empty. The caller asks only while no switch runs and the kernel holds
+/// the devices (the userspace device is the Go agent's).
+pub fn unreachable(since: &[SeenState], now: i64) -> Option<Vec<String>> {
+    if since.is_empty() {
+        return None;
+    }
+    let seen: HashMap<Key, wireguard::Seen> = since
+        .iter()
+        .filter_map(|s| {
+            Key::parse(&s.key).map(|k| {
+                (
+                    k,
+                    wireguard::Seen {
+                        node: s.node.clone(),
+                        since: s.since,
+                    },
+                )
+            })
+        })
+        .collect();
+    let mut devices = Vec::new();
+    if let Ok(mut c) = wgnl::Client::open() {
+        for name in [INTERFACE, SITE_INTERFACE] {
+            if let Ok(d) = c.device(name) {
+                devices.push(d.peers);
+            }
+        }
+    }
+    Some(wireguard::stale_peers(&devices, &seen, now))
+}
+
+/// armada-node net unreachable.
+pub fn unreachable_command() -> Result<(), String> {
+    let req: UnreachableRequest =
+        serde_json::from_slice(&read_stdin()?).map_err(|e| e.to_string())?;
+    let out = UnreachableAnswer {
+        peers: unreachable(&req.since, now_ms() / 1000),
+    };
+    write_stdout(&serde_json::to_vec(&out).map_err(|e| e.to_string())?)
 }
 
 #[cfg(test)]
