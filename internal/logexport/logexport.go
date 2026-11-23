@@ -294,6 +294,15 @@ func (c *Client) Push(ctx context.Context, recs []Record) error {
 	if err != nil {
 		return err
 	}
+	return c.PushBody(ctx, body)
+}
+
+// Format is the format the client sends.
+func (c *Client) Format() string { return c.cfg.Format }
+
+// PushBody sends a request already rendered in the client's format, as
+// Encode renders it. Errors never carry the token.
+func (c *Client) PushBody(ctx context.Context, body []byte) error {
 	var gz bytes.Buffer
 	w := gzip.NewWriter(&gz)
 	if _, err := w.Write(body); err != nil {
