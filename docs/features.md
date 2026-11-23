@@ -36,7 +36,9 @@ Everything Armada does. The [guides](guides/README.md) show each in use, and the
   Databases, brokers, and caches take plain TCP with `protocol: tcp`: the
   apps of their space connect to `<app>:<port>`, balanced and
   health checked by each node's proxy, which listens for them only on the
-  container bridge.
+  container bridge. Each node's resolver, `armada-dns`, answers these names
+  and forwards the rest; it runs apart from `armadad`, so names keep
+  resolving while Armada restarts or upgrades.
 - **Client address rules.** `ingress.ipAllow` lets only chosen addresses
   reach an external app, and `ipDeny` keeps some out. Behind a CDN, only
   the address a trusted proxy appended counts, so a client cannot claim

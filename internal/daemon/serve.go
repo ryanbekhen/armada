@@ -39,6 +39,7 @@ import (
 	"github.com/ryanbekhen/armada/internal/pki"
 	"github.com/ryanbekhen/armada/internal/proxy/haproxy"
 	"github.com/ryanbekhen/armada/internal/runtime"
+	"github.com/ryanbekhen/armada/internal/runtime/embedded"
 	"github.com/ryanbekhen/armada/internal/secrets"
 	"github.com/ryanbekhen/armada/internal/server"
 	"github.com/ryanbekhen/armada/internal/store"
@@ -556,10 +557,10 @@ func runAgent(ctx context.Context, dataDir string, servers []string, proxyKind, 
 	if err := waitRuntime(ctx, rt, log); err != nil {
 		return err
 	}
-	var dns *dnsserver.Server
+	var dns nodeDNS
 	var internalIP string
 	if proxyKind != "none" && internalDNS {
-		if dns = startInternalDNS(ctx, rt, log); dns != nil {
+		if dns = startInternalDNS(ctx, rt, dataDir, log); dns != nil {
 			internalIP = dns.Address()
 		}
 	}
@@ -609,10 +610,11 @@ func runAgent(ctx context.Context, dataDir string, servers []string, proxyKind, 
 	g, ctx := errgroup.WithContext(ctx)
 	g.Go(func() error { return a.Run(ctx) })
 	if dns != nil {
-		// The DNS server outlives the agent and answers until the process
-		// exits: the containers keep running while armadad stops (a
-		// leader's control plane takes seconds) and the next one starts,
-		// and the names and callers it knows stay right for them.
+		// The resolver outlives the agent: armada-dns runs in a unit of its
+		// own and answers while armadad restarts (ADR 0053), and the
+		// resolver inside armadad answers until the process exits. The
+		// containers keep running meanwhile, and the names and callers it
+		// knows stay right for them.
 		go func() {
 			if err := dns.Run(context.WithoutCancel(ctx)); err != nil {
 				log.Warn("internal DNS stopped", "err", err)
@@ -712,11 +714,22 @@ var resolvConf = "/etc/resolv.conf"
 // 0 is the agent's default (tests shorten it).
 var usageInterval time.Duration
 
+// nodeDNS is the node-local resolver the agent keeps in step: armada-dns
+// (dnsserver.Process), or the resolver inside armadad (dnsserver.Server).
+type nodeDNS interface {
+	agent.InternalDNS
+	Run(ctx context.Context) error
+}
+
+// dnsLauncher runs armada-dns; nil is systemd (tests replace it).
+var dnsLauncher dnsserver.Launcher
+
 // startInternalDNS prepares the node-local resolver on the container bridge
-// gateway. Internal ingress is optional: if anything is missing it logs why
-// and returns nil, and containers keep the engine's default DNS.
-func startInternalDNS(ctx context.Context, rt runtime.Driver, log *slog.Logger) *dnsserver.Server {
-	disabled := func(reason string, err error) *dnsserver.Server {
+// gateway: armada-dns from the runtime pack (ADR 0053), else the resolver
+// inside armadad. Internal ingress is optional: if anything is missing it
+// logs why and returns nil, and containers keep the engine's default DNS.
+func startInternalDNS(ctx context.Context, rt runtime.Driver, dataDir string, log *slog.Logger) nodeDNS {
+	disabled := func(reason string, err error) nodeDNS {
 		log.Warn("internal ingress and DNS disabled on this node", "reason", reason, "err", err)
 		return nil
 	}
@@ -733,6 +746,22 @@ func startInternalDNS(ctx context.Context, rt runtime.Driver, log *slog.Logger) 
 	ups, err := dnsserver.HostUpstreams(resolvConf)
 	if err != nil {
 		return disabled("no upstream resolvers for other names", err)
+	}
+	if bin, err := filepath.EvalSymlinks(filepath.Join(runtimePaths(dataDir).Bin(), embedded.BinDNS)); err == nil {
+		p, err := dnsserver.StartProcess(ctx, dnsserver.ProcessConfig{
+			Bin: bin, Addr: br.Gateway, Clients: br.Subnet, Upstreams: ups,
+			Dir: filepath.Join(runDir, "dns"), Launcher: dnsLauncher, Logger: log,
+		})
+		if err == nil {
+			return p
+		}
+		log.Warn("armada-dns did not start; the resolver runs inside armadad", "err", err)
+		if dnsLauncher == nil {
+			// Free the port for it.
+			if err := dnsserver.StopUnits(ctx); err != nil {
+				log.Warn("cannot stop armada-dns", "err", err)
+			}
+		}
 	}
 	dns, err := dnsserver.New(dnsserver.Config{Addr: br.Gateway, Clients: br.Subnet, Upstreams: ups, Logger: log})
 	if err != nil {

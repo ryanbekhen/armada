@@ -447,6 +447,12 @@ done
 ok "the secret value is in no journal"
 
 fi
+# dns_pid I: the process of armada-dns on machine I, empty when none runs.
+dns_pid() {
+	# shellcheck disable=SC2016 # expanded on the node
+	on "$1" 'u=$(systemctl list-units --plain --no-legend --state=active "armada-dns-*" | awk "{print \$1; exit}")
+		[ -z "$u" ] || systemctl show -p MainPID --value "$u"' 2>/dev/null
+}
 if want conntrack; then
 log "connection tracking"
 # The agent raises the limit once the kernel module is loaded (ADR 0025).
@@ -478,6 +484,16 @@ wait_for 30 "the leader recorded the new key of $_kn" key_recorded
 fi
 if want isolation; then
 log "isolation between apps and spaces"
+# Every node resolves names through armada-dns (ADR 0053), a unit of its
+# own beside armadad.
+dns_everywhere() {
+	i=1
+	while [ "$i" -le "$N" ]; do
+		[ -n "$(dns_pid "$i")" ] || return 1
+		i=$((i + 1))
+	done
+}
+wait_for 60 "every node runs armada-dns" dns_everywhere
 # Each replica answers on port 80 and has wget. A check that cannot run at all
 # must not pass as blocked, so a blocked request has to show wget's own error.
 iso_deploy() { # iso_deploy NAME SPACE REPLICAS
@@ -575,6 +591,7 @@ wait_for 300 "$APP spread evenly before the restart" even_settled
 _before=$(replica_ids)
 _unit=armada-agent
 [ "$N" -gt "$SERVERS" ] || _unit=armada-server
+_dns_before=$(dns_pid "$N")
 load_start
 on "$N" "systemctl restart $_unit"
 sleep 10
@@ -582,6 +599,10 @@ wait_for 120 "$APP serving after restarting $_unit on $(host "$N" 1)" serving
 load_stop "agent restart"
 [ "$(replica_ids)" = "$_before" ] || fail "replicas were replaced instead of adopted"
 ok "no replica was replaced"
+# The node's resolver is not part of armadad (ADR 0053): the same process
+# answered containers through the restart.
+[ -n "$_dns_before" ] && [ "$(dns_pid "$N")" = "$_dns_before" ] || fail "armada-dns was restarted with $_unit"
+ok "armada-dns kept running through the restart"
 
 fi
 if [ "$SERVERS" -gt 1 ] && want failover; then

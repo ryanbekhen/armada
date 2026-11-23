@@ -34,6 +34,10 @@ func TestRuntimeReset(t *testing.T) {
 	orig := newDriver
 	newDriver = func(string, *agentConfig) (runtime.Driver, error) { return d, nil }
 	t.Cleanup(func() { newDriver = orig })
+	stopped := 0
+	origStop := stopDNS
+	stopDNS = func(context.Context) error { stopped++; return nil }
+	t.Cleanup(func() { stopDNS = origStop })
 
 	var out, errOut strings.Builder
 	if code := Execute(ctx, []string{"runtime", "reset", "--data-dir", dir}, &out, &errOut); code != 0 {
@@ -41,6 +45,9 @@ func TestRuntimeReset(t *testing.T) {
 	}
 	if cs, _ := d.List(ctx, nil); len(cs) != 1 || cs[0].Name != "someone-else" || !strings.Contains(out.String(), "Removed 2") {
 		t.Errorf("left %v; output %q", cs, out.String())
+	}
+	if stopped != 1 {
+		t.Errorf("armada-dns stopped %d times", stopped)
 	}
 	// A node of a cluster network also takes the tunnel off the host.
 	removed := 0
