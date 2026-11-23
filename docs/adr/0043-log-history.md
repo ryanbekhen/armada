@@ -49,7 +49,14 @@ app logs` searches it across the cluster. No database is added.
   sends them oldest first with their time and replica. A node reads at
   most `maxSearchBytes` (1 GiB) per search, and stops after 30 seconds;
   either way it says so in a final notice. It runs at most 2 searches at
-  once and answers more with a notice.
+  once and answers more with a notice. The agent picks the files; the
+  runtime pack's `armada-log search` reads them (`logger/src/search.rs`,
+  standard library only), deciding most lines outside the window from
+  the time at their end, and armadad's own reader does when the pack has
+  none, the grep is not ASCII, or the program fails. A Go test compares
+  both on the same files. Measured on 256 MiB of one app's output: the
+  whole file in 0.3–0.5 s instead of 2.3 s, and the last minutes of it in
+  0.1–0.15 s instead of 2 s.
 - The leader merges the answers by time and sends the newest `limit`
   (default 500, at most 5000). With `--follow`, it then streams live
   output as before. It runs at most 4 searches at once, 2 per caller

@@ -6,13 +6,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
 	"syscall"
 	"time"
+	"unicode/utf8"
 
 	"github.com/ryanbekhen/armada/internal/runtime"
 )
@@ -246,7 +249,7 @@ func (s *searchState) trim() {
 // the context ran out.
 func (s *searchState) scanFile(ctx context.Context, path string, m LogMeta) bool {
 	if ctx.Err() != nil {
-		s.notice = "the search took too long; narrow it with --since, --until, or --replica"
+		s.notice = noticeTimeout()
 		return false
 	}
 	fi, err := os.Stat(path)
@@ -258,7 +261,7 @@ func (s *searchState) scanFile(ctx context.Context, path string, m LogMeta) bool
 		return true
 	}
 	if s.read+fi.Size() > s.q.MaxBytes {
-		s.notice = fmt.Sprintf("searched the newest %d MiB of output on this node; narrow it with --since, --until, or --replica", s.q.MaxBytes>>20)
+		s.notice = noticeBudget(s.q.MaxBytes)
 		return false
 	}
 	f, err := os.Open(path) //nolint:gosec // paths come from validated container IDs
@@ -276,6 +279,14 @@ func (s *searchState) scanFile(ctx context.Context, path string, m LogMeta) bool
 // read newest first, so a search cut short by its budget keeps the latest
 // output.
 func SearchLogs(ctx context.Context, dir string, q runtime.LogQuery) ([]runtime.LogRecord, string, error) {
+	return SearchLogsWith(ctx, "", dir, q)
+}
+
+// SearchLogsWith is SearchLogs reading the files with `armada-log search`
+// at bin (logger/src/search.rs), which reads them many times faster; with
+// no bin, a grep that is not ASCII, or a program that fails (an older
+// armada-log), it reads them itself.
+func SearchLogsWith(ctx context.Context, bin, dir string, q runtime.LogQuery) ([]runtime.LogRecord, string, error) {
 	if q.Limit <= 0 {
 		return nil, "", nil
 	}
@@ -319,6 +330,18 @@ func SearchLogs(ctx context.Context, dir string, q runtime.LogQuery) ([]runtime.
 			srcs = append(srcs, source{files[i].path, m})
 		}
 	}
+	if bin != "" && isASCII(q.Grep) {
+		paths := make([]string, len(srcs))
+		metas := make([]LogMeta, len(srcs))
+		for i, src := range srcs {
+			paths[i], metas[i] = src.path, src.meta
+		}
+		out, notice, err := searchWith(ctx, bin, paths, metas, q)
+		if err == nil {
+			return out, notice, nil
+		}
+		searchFellBack(err)
+	}
 	for _, src := range srcs {
 		if !s.scanFile(ctx, src.path, src.meta) {
 			break
@@ -326,4 +349,93 @@ func SearchLogs(ctx context.Context, dir string, q runtime.LogQuery) ([]runtime.
 	}
 	s.trim()
 	return s.out, s.notice, nil
+}
+
+// searchFellBack hears why armada-log search was not used; tests make it
+// fail.
+var searchFellBack = func(error) {}
+
+func isASCII(s string) bool {
+	for i := range len(s) {
+		if s[i] >= utf8.RuneSelf {
+			return false
+		}
+	}
+	return true
+}
+
+// Notices of a search cut short, the same from both readers.
+func noticeTimeout() string {
+	return "the search took too long; narrow it with --since, --until, or --replica"
+}
+
+func noticeBudget(maxBytes int64) string {
+	return fmt.Sprintf("searched the newest %d MiB of output on this node; narrow it with --since, --until, or --replica", maxBytes>>20)
+}
+
+// maxSearchOutput bounds what armada-log search may print: the kept
+// entries are at most twice runtime's 5000-entry limit of 16 KiB lines.
+const maxSearchOutput = 256 << 20
+
+// searchWith runs `armada-log search` over paths (newest first) and turns
+// the entries it kept into records.
+func searchWith(ctx context.Context, bin string, paths []string, metas []LogMeta, q runtime.LogQuery) ([]runtime.LogRecord, string, error) {
+	args := []string{"search", "--limit", strconv.Itoa(q.Limit), "--max-bytes", strconv.FormatInt(q.MaxBytes, 10)}
+	if !q.Since.IsZero() {
+		args = append(args, "--since", strconv.FormatInt(q.Since.UnixNano(), 10))
+	}
+	if !q.Until.IsZero() {
+		args = append(args, "--until", strconv.FormatInt(q.Until.UnixNano(), 10))
+	}
+	if q.Grep != "" {
+		args = append(args, "--grep", q.Grep)
+	}
+	if d, ok := ctx.Deadline(); ok {
+		args = append(args, "--deadline-ms", strconv.FormatInt(max(time.Until(d).Milliseconds(), 0), 10))
+	}
+	cmd := exec.CommandContext(ctx, bin, args...) //nolint:gosec // the runtime pack's armada-log with arguments built here
+	cmd.Stdin = strings.NewReader(strings.Join(paths, "\n") + "\n")
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, "", err
+	}
+	if err := cmd.Start(); err != nil {
+		return nil, "", err
+	}
+	b, readErr := io.ReadAll(io.LimitReader(stdout, maxSearchOutput))
+	if err := cmd.Wait(); err != nil {
+		return nil, "", fmt.Errorf("armada-log search: %w", err)
+	}
+	if readErr != nil {
+		return nil, "", readErr
+	}
+	lines := strings.Split(strings.TrimSuffix(string(b), "\n"), "\n")
+	end := strings.Fields(lines[len(lines)-1])
+	if len(end) != 3 || end[0] != "end" {
+		return nil, "", errors.New("armada-log search: no end line")
+	}
+	var out []runtime.LogRecord
+	for _, line := range lines[:len(lines)-1] {
+		idx, raw, ok := strings.Cut(line, " ")
+		i, err := strconv.Atoi(idx)
+		if !ok || err != nil || i < 0 || i >= len(metas) {
+			return nil, "", fmt.Errorf("armada-log search: bad line %.40q", line)
+		}
+		var e logEntry
+		if json.Unmarshal([]byte(raw), &e) != nil {
+			continue
+		}
+		st := runtime.Stdout
+		if e.Stream == "stderr" {
+			st = runtime.Stderr
+		}
+		out = append(out, runtime.LogRecord{Time: e.Time, Stream: st, Data: []byte(e.Log), Replica: metas[i].Replica, Container: metas[i].Container})
+	}
+	switch end[1] {
+	case "budget":
+		return out, noticeBudget(q.MaxBytes), nil
+	case "timeout":
+		return out, noticeTimeout(), nil
+	}
+	return out, "", nil
 }

@@ -603,6 +603,10 @@ ok "no replica was replaced"
 # answered containers through the restart.
 [ -n "$_dns_before" ] && [ "$(dns_pid "$N")" = "$_dns_before" ] || fail "armada-dns was restarted with $_unit"
 ok "armada-dns kept running through the restart"
+# Log history (ADR 0043): a search reads every node's files (armada-log
+# search), ignoring case. whoami writes to stderr, which the client keeps.
+history_found() { cli app logs "$APP" --since 1h --grep STARTING 2>&1 | grep -q "Starting up"; }
+wait_for 30 "armada app logs --since finds $APP starting in the log history" history_found
 
 fi
 if [ "$SERVERS" -gt 1 ] && want failover; then
