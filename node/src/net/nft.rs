@@ -65,6 +65,10 @@ const NFT_MSG_NEWSET: u16 = 9;
 const NFT_MSG_DELSET: u16 = 11;
 const NFT_MSG_NEWSETELEM: u16 = 12;
 const NFT_MSG_DELSETELEM: u16 = 14;
+/// How many elements one message carries: netlink attribute lengths are 16
+/// bits, so a message with every element of a large set would overflow
+/// them (maxSetElements in Go).
+const MAX_SET_ELEMENTS: usize = 256;
 
 // Set key types (nftables' datatype magic numbers) and flags.
 const TYPE_IPADDR: (u32, u32) = (7, 4);
@@ -580,8 +584,16 @@ impl Batch {
         self.push(NFT_MSG_DELSET, NLM_F_REQUEST | NLM_F_ACK, family, d);
     }
 
-    /// makeElemList in a NEWSETELEM or DELSETELEM message.
+    /// makeElemList in NEWSETELEM or DELSETELEM messages of at most
+    /// MAX_SET_ELEMENTS each (addElements and deleteElements in Go).
     fn elements(&mut self, msg: u16, set: &Set, elems: &[Elem]) {
+        for chunk in elems.chunks(MAX_SET_ELEMENTS) {
+            self.element_message(msg, set, chunk);
+        }
+    }
+
+    /// One NEWSETELEM or DELSETELEM message.
+    fn element_message(&mut self, msg: u16, set: &Set, elems: &[Elem]) {
         let mut list = Vec::new();
         for (i, e) in elems.iter().enumerate() {
             let mut item = Vec::new();
