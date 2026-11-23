@@ -166,7 +166,7 @@ func buildTable(c *nftables.Conn, t *nftables.Table, pol policy) error {
 			targets = append(targets, jumpElement(a, ch.Name))
 		}
 	}
-	if err := c.AddSet(dst, targets); err != nil {
+	if err := addSet(c, dst, targets); err != nil {
 		return err
 	}
 
@@ -203,11 +203,11 @@ func buildTable(c *nftables.Conn, t *nftables.Table, pol policy) error {
 	}
 
 	open := &nftables.Set{Table: t, Name: "open", KeyType: nftables.TypeIPAddr}
-	if err := c.AddSet(open, addrElements(pol.open)); err != nil {
+	if err := addSet(c, open, addrElements(pol.open)); err != nil {
 		return err
 	}
 	nodes := &nftables.Set{Table: t, Name: "nodes", KeyType: nftables.TypeIPAddr}
-	if err := c.AddSet(nodes, addrElements(pol.nodes)); err != nil {
+	if err := addSet(c, nodes, addrElements(pol.nodes)); err != nil {
 		return err
 	}
 	// Containers of this node that are isolated: in the node subnet and not
@@ -230,7 +230,7 @@ func buildTable(c *nftables.Conn, t *nftables.Table, pol policy) error {
 	// proxy. A program listening on every address of the node is not
 	// reached through them.
 	tcp := &nftables.Set{Table: t, Name: "tcp", KeyType: nftables.TypeInetService}
-	if err := c.AddSet(tcp, portElements(pol.tcpPorts)); err != nil {
+	if err := addSet(c, tcp, portElements(pol.tcpPorts)); err != nil {
 		return err
 	}
 	if len(pol.tcpPorts) > 0 {
@@ -291,7 +291,7 @@ func addAppChain(c *nftables.Conn, t *nftables.Table, app string, members []neti
 	bridge := t.Family == nftables.TableFamilyBridge
 	setName, chainName := appNames(app)
 	set := &nftables.Set{Table: t, Name: setName, KeyType: nftables.TypeIPAddr}
-	if err := c.AddSet(set, addrElements(members)); err != nil {
+	if err := addSet(c, set, addrElements(members)); err != nil {
 		return nil, err
 	}
 	ch := c.AddChain(&nftables.Chain{Name: chainName, Table: t})
@@ -351,7 +351,7 @@ func updateTable(c *nftables.Conn, t *nftables.Table, old, pol policy) error {
 		}
 	}
 	if len(gone) > 0 {
-		if err := c.SetDeleteElements(dst, gone); err != nil {
+		if err := deleteElements(c, dst, gone); err != nil {
 			return err
 		}
 	}
@@ -385,7 +385,7 @@ func updateTable(c *nftables.Conn, t *nftables.Table, old, pol policy) error {
 		}
 	}
 	if len(come) > 0 {
-		if err := c.SetAddElements(dst, come); err != nil {
+		if err := addElements(c, dst, come); err != nil {
 			return err
 		}
 	}
@@ -409,12 +409,12 @@ func updateTable(c *nftables.Conn, t *nftables.Table, old, pol policy) error {
 		}
 	}
 	if len(closed) > 0 {
-		if err := c.SetDeleteElements(tcp, portElements(closed)); err != nil {
+		if err := deleteElements(c, tcp, portElements(closed)); err != nil {
 			return err
 		}
 	}
 	if len(opened) > 0 {
-		return c.SetAddElements(tcp, portElements(opened))
+		return addElements(c, tcp, portElements(opened))
 	}
 	return nil
 }
@@ -433,12 +433,12 @@ func changeElements(c *nftables.Conn, set *nftables.Set, have, want []netip.Addr
 		}
 	}
 	if len(gone) > 0 {
-		if err := c.SetDeleteElements(set, addrElements(gone)); err != nil {
+		if err := deleteElements(c, set, addrElements(gone)); err != nil {
 			return err
 		}
 	}
 	if len(come) > 0 {
-		return c.SetAddElements(set, addrElements(come))
+		return addElements(c, set, addrElements(come))
 	}
 	return nil
 }
@@ -540,4 +540,38 @@ func ctState(bits uint32, invert bool) []expr.Any {
 // opened before a rule changed keeps going until it ends).
 func notNewConn() []expr.Any {
 	return ctState(expr.CtStateBitESTABLISHED|expr.CtStateBitRELATED, false)
+}
+
+// maxSetElements is how many elements one netlink message carries. Its
+// attributes' lengths are 16 bits, so a message with every element of a
+// large set overflows them: the kernel then refuses the batch, or reads
+// fewer elements than were sent (about 1,000 verdict map elements fit).
+const maxSetElements = 256
+
+// addSet adds s, then its elements in messages of at most maxSetElements.
+func addSet(c *nftables.Conn, s *nftables.Set, vals []nftables.SetElement) error {
+	if err := c.AddSet(s, nil); err != nil {
+		return err
+	}
+	return addElements(c, s, vals)
+}
+
+// addElements adds vals to s, at most maxSetElements per message.
+func addElements(c *nftables.Conn, s *nftables.Set, vals []nftables.SetElement) error {
+	for chunk := range slices.Chunk(vals, maxSetElements) {
+		if err := c.SetAddElements(s, chunk); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// deleteElements removes vals from s, at most maxSetElements per message.
+func deleteElements(c *nftables.Conn, s *nftables.Set, vals []nftables.SetElement) error {
+	for chunk := range slices.Chunk(vals, maxSetElements) {
+		if err := c.SetDeleteElements(s, chunk); err != nil {
+			return err
+		}
+	}
+	return nil
 }

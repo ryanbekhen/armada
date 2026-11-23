@@ -114,7 +114,7 @@ func randomPolicy(r *rand.Rand) policy {
 //	go test -c -tags integration ./internal/clusternet -o t
 //	ip netns add t; ip netns exec t ./t -test.run IsolationUpdate
 func TestIsolationUpdateMatchesRebuild(t *testing.T) {
-	r := rand.New(rand.NewPCG(7, 27)) //nolint:gosec // a repeatable test
+	r := rand.New(rand.NewPCG(7, 27))
 	cur := randomPolicy(r)
 	if err := isolate(cur); err != nil {
 		t.Fatal(err)
@@ -180,4 +180,91 @@ func TestIsolationUpdateTime(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Logf("update, one app gone at 1000: %s", time.Since(start))
+}
+
+// largePolicy has n container addresses over the cluster CIDR in apps of
+// about perApp replicas, and many open containers.
+func largePolicy(n, shift, perApp int) policy {
+	cidr := netip.MustParsePrefix("10.96.0.0/11")
+	pol := policy{cidr: cidr, subnet: netip.MustParsePrefix("10.96.0.0/24"), gateway: netip.MustParseAddr("10.96.0.1"), members: map[string][]netip.Addr{}}
+	base := cidr.Addr().As4()
+	for i := range n {
+		v := uint32(base[0])<<24 | uint32(base[1])<<16 | uint32(base[2])<<8 | uint32(base[3])
+		v += uint32(300 + i + shift)
+		addr := netip.AddrFrom4([4]byte{byte(v >> 24), byte(v >> 16), byte(v >> 8), byte(v)})
+		app := fmt.Sprintf("app%d", i/perApp)
+		pol.members[app] = append(pol.members[app], addr)
+	}
+	pol.apps = slices.Sorted(maps.Keys(pol.members))
+	for i := 2; i < 250; i++ {
+		pol.open = append(pol.open, netip.AddrFrom4([4]byte{10, 96, 0, byte(i)}))
+	}
+	for i := range 2000 {
+		pol.nodes = append(pol.nodes, netip.AddrFrom4([4]byte{10, 1, byte(i / 250), byte(1 + i%250)}))
+	}
+	return pol
+}
+
+// elements counts the elements of every set and map in the ip table.
+func elements(t *testing.T) map[string]int {
+	t.Helper()
+	out, err := exec.Command("nft", "-j", "list", "table", "ip", isolationTable).Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Nftables []map[string]struct {
+			Name string `json:"name"`
+			Elem []any  `json:"elem"`
+		} `json:"nftables"`
+	}
+	if err := json.Unmarshal(out, &doc); err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]int{}
+	for _, item := range doc.Nftables {
+		for _, kind := range []string{"set", "map"} {
+			if s, ok := item[kind]; ok {
+				got[s.Name] = len(s.Elem)
+			}
+		}
+	}
+	return got
+}
+
+// Sets and maps of any size reach the kernel whole: one netlink message
+// carries only so many elements (maxSetElements).
+func TestIsolationLargeSets(t *testing.T) {
+	t.Cleanup(func() { _ = removeIsolation() })
+	check := func(pol policy) {
+		t.Helper()
+		got := elements(t)
+		total := 0
+		for _, app := range pol.apps {
+			total += len(pol.members[app])
+			if set, _ := appNames(app); got[set] != len(pol.members[app]) {
+				t.Fatalf("set of %s holds %d of %d addresses", app, got[set], len(pol.members[app]))
+			}
+		}
+		if got["dst"] != total || got["open"] != len(pol.open) || got["nodes"] != len(pol.nodes) {
+			t.Fatalf("dst %d of %d, open %d of %d, nodes %d of %d", got["dst"], total, got["open"], len(pol.open), got["nodes"], len(pol.nodes))
+		}
+	}
+	for _, n := range []int{1500, 6000, 20000} {
+		pol := largePolicy(n, 0, 400)
+		if err := isolate(pol); err != nil {
+			t.Fatalf("%d addresses: %v", n, err)
+		}
+		check(pol)
+	}
+	// In place: thousands of addresses leave and come.
+	old := largePolicy(20000, 0, 400)
+	pol := largePolicy(20000, 5000, 400)
+	if !sameFrame(old, pol) {
+		t.Fatal("not the same frame")
+	}
+	if err := updateIsolation(old, pol); err != nil {
+		t.Fatal(err)
+	}
+	check(pol)
 }
