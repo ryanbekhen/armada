@@ -18,6 +18,9 @@ func (f *fakeSwitcher) Apply(context.Context, *armadav1.NetworkConfig, map[netip
 }
 
 func (*fakeSwitcher) SwitchStatus() *armadav1.NetworkSwitchStatus { return nil }
+func (*fakeSwitcher) UnreachablePeers() []string                  { return nil }
+func (*fakeSwitcher) RotateKey() (string, error)                  { return "", nil }
+func (*fakeSwitcher) WireGuardUserspace() bool                    { return false }
 
 // A switch of the cluster network's mode (ADR 0050) ends in agent.json once
 // it is done, not while it runs.
@@ -26,7 +29,7 @@ func TestNodeNetRecordsSwitchedMode(t *testing.T) {
 	if err := saveAgentConfig(dir, agentConfig{NodeID: "n1", PrivateIP: "10.0.0.1", Servers: []string{"10.0.0.1:7443"}, Runtime: runtimeEmbedded, Network: store.NetworkPlain}); err != nil {
 		t.Fatal(err)
 	}
-	n := &nodeNet{NetworkSwitcher: &fakeSwitcher{}, dataDir: dir, mode: store.NetworkPlain, log: slog.New(slog.DiscardHandler)}
+	n := &nodeNet{clusterNet: &fakeSwitcher{}, dataDir: dir, mode: store.NetworkPlain, log: slog.New(slog.DiscardHandler)}
 	mode := func() string {
 		t.Helper()
 		ac, err := loadAgentConfig(dir)
