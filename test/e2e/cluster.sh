@@ -19,7 +19,7 @@ set -eu
 # Scenarios that run after the cluster is built and the test app serves.
 # E2E_ONLY=isolation,rollout runs only those (empty: all); E2E_LIST=1 lists
 # them. test/e2e/README.md says which to pick for a change.
-SCENARIOS="listeners space-secret conntrack isolation load rollout agent-restart failover node-loss backup placement platforms cpu spread ip-rules plain-http sticky cors sidecars tcp queues queue-jobs volume-backups volume-failover nfs reboot"
+SCENARIOS="listeners space-secret conntrack network-key isolation load rollout agent-restart failover node-loss backup placement platforms cpu spread ip-rules plain-http sticky cors sidecars tcp queues queue-jobs volume-backups volume-failover nfs reboot"
 E2E_ONLY=${E2E_ONLY:-}
 if [ "${E2E_LIST:-}" = 1 ]; then
 	echo "$SCENARIOS" | tr ' ' '\n'
@@ -460,6 +460,20 @@ conntrack_raised() {
 	done
 }
 wait_for 60 "every node raised its connection tracking limit" conntrack_raised
+
+fi
+if want network-key; then
+log "network key rotation"
+# Every agent offers its WireGuard key for rotation (ADR 0025), on a plain
+# network too: the node writes a new key and the leader records it. Only a
+# hash of the key file leaves the node.
+_kn=$(host 2 1)
+_key_before=$(on 2 'sha256sum </var/lib/armada/network.key')
+cli node rotate-key "$_kn" >/dev/null || fail "armada node rotate-key $_kn was refused"
+key_changed() { [ "$(on 2 'sha256sum </var/lib/armada/network.key')" != "$_key_before" ]; }
+wait_for 30 "$_kn wrote a new network key" key_changed
+key_recorded() { cli cluster events --node "$_kn" | grep -q NetworkKeyRotated; }
+wait_for 30 "the leader recorded the new key of $_kn" key_recorded
 
 fi
 if want isolation; then

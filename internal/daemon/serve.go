@@ -646,14 +646,34 @@ var newClusterNet = func(dataDir string, ac *agentConfig, log *slog.Logger) (age
 	if err != nil {
 		return nil, "", err
 	}
-	return &nodeNet{NetworkSwitcher: n, dataDir: dataDir, mode: ac.Network, log: log}, key.Public(), nil
+	return &nodeNet{clusterNet: n, dataDir: dataDir, mode: ac.Network, log: log}, key.Public(), nil
 }
+
+// clusterNet is what the agent gets from clusternet.Net. nodeNet embeds it,
+// so every optional interface the agent looks for on its Network must be
+// listed here: a method missing from it is hidden from the agent, which
+// then never offers the feature (key rotation, unreachable peers, userspace
+// WireGuard).
+type clusterNet interface {
+	agent.NetworkSwitcher
+	UnreachablePeers() []string
+	RotateKey() (string, error)
+	WireGuardUserspace() bool
+}
+
+var (
+	_ clusterNet              = (*clusternet.Net)(nil)
+	_ agent.NetworkSwitcher   = (*nodeNet)(nil)
+	_ agent.PeerChecker       = (*nodeNet)(nil)
+	_ agent.KeyRotator        = (*nodeNet)(nil)
+	_ agent.WireGuardReporter = (*nodeNet)(nil)
+)
 
 // nodeNet records in agent.json the mode a switch of the cluster network
 // ends in (ADR 0050), so the node starts in it: the containers' MTU and
 // armadad doctor follow the mode recorded there.
 type nodeNet struct {
-	agent.NetworkSwitcher
+	clusterNet
 	dataDir string
 	log     *slog.Logger
 
@@ -662,7 +682,7 @@ type nodeNet struct {
 }
 
 func (n *nodeNet) Apply(ctx context.Context, cfg *armadav1.NetworkConfig, local map[netip.Addr]string) error {
-	if err := n.NetworkSwitcher.Apply(ctx, cfg, local); err != nil {
+	if err := n.clusterNet.Apply(ctx, cfg, local); err != nil {
 		return err
 	}
 	n.mu.Lock()
