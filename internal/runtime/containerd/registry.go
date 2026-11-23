@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/netip"
@@ -13,6 +14,7 @@ import (
 	"github.com/containerd/containerd/v2/core/remotes"
 	"github.com/containerd/containerd/v2/core/remotes/docker"
 	"github.com/containerd/containerd/v2/core/remotes/docker/config"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 
 	"github.com/ryanbekhen/armada/internal/runtime"
 )
@@ -35,14 +37,38 @@ var errPlainRegistry = errors.New("registry requests must use https")
 // the proxy, which the machine's operator runs, decides which addresses
 // it connects to.
 func newResolver(ctx context.Context, auth *runtime.RegistryAuth) remotes.Resolver {
-	return docker.NewResolver(docker.ResolverOptions{
+	return registryOnly{docker.NewResolver(docker.ResolverOptions{
 		Hosts: config.ConfigureHosts(ctx, config.HostOptions{
 			// Always TLS, also for registries on localhost.
 			DefaultScheme: "https",
 			Credentials:   credentials(auth),
 			UpdateClient:  guardRegistryClient,
 		}),
-	})
+	})}
+}
+
+// registryOnly fetches every blob from the registry. A descriptor may list
+// other URLs for its content ("foreign layers"), which the fetcher would
+// try first with a client of its own: plain HTTP, any address, the
+// environment's proxy, none of guardRegistryClient's rules. An image could
+// then make every node that pulls it send requests to the cloud's metadata
+// service or the private network. Those URLs are dropped.
+type registryOnly struct{ remotes.Resolver }
+
+func (r registryOnly) Fetcher(ctx context.Context, ref string) (remotes.Fetcher, error) {
+	f, err := r.Resolver.Fetcher(ctx, ref)
+	if err != nil {
+		return nil, err
+	}
+	return noForeignURLs{f}, nil
+}
+
+// noForeignURLs fetches a descriptor's content from the registry only.
+type noForeignURLs struct{ remotes.Fetcher }
+
+func (f noForeignURLs) Fetch(ctx context.Context, desc ocispec.Descriptor) (io.ReadCloser, error) {
+	desc.URLs = nil
+	return f.Fetcher.Fetch(ctx, desc)
 }
 
 // guardRegistryClient applies newResolver's rules to a registry client;
