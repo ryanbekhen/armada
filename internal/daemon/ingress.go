@@ -22,6 +22,7 @@ import (
 	"github.com/ryanbekhen/armada/internal/proxy"
 	"github.com/ryanbekhen/armada/internal/proxy/haproxy"
 	"github.com/ryanbekhen/armada/internal/runtime"
+	"github.com/ryanbekhen/armada/internal/runtime/embedded"
 	"github.com/ryanbekhen/armada/internal/spec"
 )
 
@@ -205,6 +206,7 @@ func newProxy(kind, dataDir, privateIP, internalIP, subnet string, rt runtime.Dr
 		InternalIP: internalIP,
 		Subnet:     subnet,
 		Engine:     &haproxy.ContainerEngine{Runtime: rt, System: sys, Dir: dir, StartWait: proxyStartWait},
+		Renderer:   packProgram(dataDir, embedded.BinNode),
 		Logger:     log,
 	})
 }

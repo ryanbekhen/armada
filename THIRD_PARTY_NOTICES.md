@@ -62,6 +62,30 @@ with no crates beyond the standard library and are linked statically with:
   under the MIT license ([text](third_party/licenses/MIT-musl.txt)).
   Source: <https://git.musl-libc.org/cgit/musl>.
 
+## armada-node
+
+The runtime pack also carries `armada-node` (`node/`, Apache-2.0), the
+node agent moving to Rust (ADR 0054). It is linked statically with the
+Rust standard library and musl, as above, and with these crates from
+<https://crates.io>; `cargo deny check licenses` (`node/deny.toml`) keeps
+them to the licenses Armada allows. Release archives carry each crate's
+license and notice files in `licenses/rust/`, written by
+`scripts/rust-licenses.sh`.
+
+| Crate | License |
+| --- | --- |
+| block-buffer, cpufeatures, crypto-common, digest, sha2 (RustCrypto) | MIT or Apache-2.0 |
+| cfg-if, libc | MIT or Apache-2.0 |
+| generic-array | MIT |
+| itoa, serde, serde_core, serde_json | MIT or Apache-2.0 |
+| memchr | MIT or Unlicense (used under MIT) |
+| typenum | MIT or Apache-2.0 |
+| zmij | MIT |
+
+Used only while building, not linked: proc-macro2, quote, serde_derive,
+syn, version_check (MIT or Apache-2.0), and unicode-ident (MIT or
+Apache-2.0, with Unicode data under Unicode-3.0).
+
 ## Downloaded at run time
 
 Nodes pull the HAProxy image (`haproxy:3.2-alpine`, pinned by digest in

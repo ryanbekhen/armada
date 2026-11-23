@@ -73,6 +73,8 @@ archives:
       - third_party/licenses/*
       - src: build/licenses/**/*
         dst: licenses/go
+      - src: build/licenses-rust/**/*
+        dst: licenses/rust
       - README.md
       - SECURITY.md
       - deploy/systemd/*
@@ -88,6 +90,8 @@ archives:
       - third_party/licenses/*
       - src: build/licenses/**/*
         dst: licenses/go
+      - src: build/licenses-rust/**/*
+        dst: licenses/rust
       - README.md
       - SECURITY.md
   # macOS: the client only.
@@ -101,6 +105,8 @@ archives:
       - third_party/licenses/*
       - src: build/licenses/**/*
         dst: licenses/go
+      - src: build/licenses-rust/**/*
+        dst: licenses/rust
       - README.md
       - SECURITY.md
 

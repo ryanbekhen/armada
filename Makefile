@@ -12,7 +12,7 @@ LDFLAGS := -s -w \
 
 export CGO_ENABLED := 0
 
-.PHONY: all build build-bundle logger shim dns runtime-bundle test cover lint fmt vet vuln licenses licenses-save proto docs tidy check clean
+.PHONY: all build build-bundle logger shim dns node runtime-bundle test cover lint fmt vet vuln licenses licenses-save proto docs tidy check clean
 
 all: check build
 
@@ -32,6 +32,9 @@ SHIM_OUT = shim/target/$(1)-unknown-linux-musl/release/armada-shim
 # armada-dns (dns/), the node-local resolver of containers (ADR 0053):
 # built the same way.
 DNS_OUT = dns/target/$(1)-unknown-linux-musl/release/armada-dns
+# armada-node (node/), the node agent moving to Rust (ADR 0054): built the
+# same way, with crates (cargo deny checks their licenses).
+NODE_OUT = node/target/$(1)-unknown-linux-musl/release/armada-node
 
 logger:
 	cd logger && cargo build --release --locked --target x86_64-unknown-linux-musl
@@ -45,9 +48,13 @@ dns:
 	cd dns && cargo build --release --locked --target x86_64-unknown-linux-musl
 	cd dns && cargo build --release --locked --target aarch64-unknown-linux-musl
 
-runtime-bundle: logger shim dns
-	go run ./internal/runtime/embedded/mkbundle -arch amd64 -logger $(call LOGGER_OUT,x86_64) -shim $(call SHIM_OUT,x86_64) -dns $(call DNS_OUT,x86_64)
-	go run ./internal/runtime/embedded/mkbundle -arch arm64 -logger $(call LOGGER_OUT,aarch64) -shim $(call SHIM_OUT,aarch64) -dns $(call DNS_OUT,aarch64)
+node:
+	cd node && cargo build --release --locked --target x86_64-unknown-linux-musl
+	cd node && cargo build --release --locked --target aarch64-unknown-linux-musl
+
+runtime-bundle: logger shim dns node
+	go run ./internal/runtime/embedded/mkbundle -arch amd64 -logger $(call LOGGER_OUT,x86_64) -shim $(call SHIM_OUT,x86_64) -dns $(call DNS_OUT,x86_64) -node $(call NODE_OUT,x86_64)
+	go run ./internal/runtime/embedded/mkbundle -arch arm64 -logger $(call LOGGER_OUT,aarch64) -shim $(call SHIM_OUT,aarch64) -dns $(call DNS_OUT,aarch64) -node $(call NODE_OUT,aarch64)
 
 # Linux binaries as releases are built: armadad with the runtime bundle
 # embedded, and the armada client.
@@ -105,3 +112,4 @@ licenses: ## fail when a Go module under a license outside ALLOWED_LICENSES is a
 licenses-save: ## copy every Go module's license and notice files into build/licenses (release archives)
 	rm -rf build/licenses
 	$(GO_LICENSES) save ./cmd/... --save_path=build/licenses 2>/dev/null
+	sh scripts/rust-licenses.sh build/licenses-rust
