@@ -43,6 +43,65 @@ pub fn space_of(id: &str) -> Option<&str> {
     valid_name(name).then_some(space)
 }
 
+/// spec.ValidAppID.
+pub fn valid_app_id(id: &str) -> bool {
+    space_of(id).is_some()
+}
+
+/// spec.ValidateName's error, or None.
+pub fn validate_name(s: &str) -> Option<String> {
+    if s.is_empty() {
+        Some("name: is required".into())
+    } else if s.len() > 63 {
+        Some("name: must be at most 63 characters".into())
+    } else if !valid_name(s) {
+        Some(
+            "name: must be lowercase letters, digits, and single hyphens, starting with a letter and not ending with a hyphen"
+                .into(),
+        )
+    } else {
+        None
+    }
+}
+
+/// The longest label value (spec.maxLabelLen).
+const MAX_LABEL_LEN: usize = 63;
+
+/// spec.CheckLabelValue's error, or None: `^[a-z0-9]([a-z0-9._-]*[a-z0-9])?$`.
+pub fn check_label_value(v: &str) -> Option<String> {
+    let b = v.as_bytes();
+    let end = |c: u8| c.is_ascii_lowercase() || c.is_ascii_digit();
+    let ok = !b.is_empty()
+        && end(b[0])
+        && end(b[b.len() - 1])
+        && b.iter().all(|&c| end(c) || matches!(c, b'.' | b'_' | b'-'));
+    if v.is_empty() {
+        Some("label value is empty".into())
+    } else if v.len() > MAX_LABEL_LEN {
+        Some(format!(
+            "label value {} is longer than {MAX_LABEL_LEN} characters",
+            crate::net::addr::quote(v)
+        ))
+    } else if !ok {
+        Some(format!(
+            "label value {} must be lowercase letters, digits, '.', '-', or '_', starting and ending with a letter or digit",
+            crate::net::addr::quote(v)
+        ))
+    } else {
+        None
+    }
+}
+
+/// spec.ReservedTCPPorts.
+const RESERVED_TCP_PORTS: [u64; 12] = [
+    22, 53, 80, 443, 2379, 2380, 4789, 7443, 7444, 7480, 8404, 51820,
+];
+
+/// Whether spec.CheckTCPPort accepts port.
+pub fn tcp_port_ok(port: u64) -> bool {
+    (1..=65535).contains(&port) && !RESERVED_TCP_PORTS.contains(&port)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

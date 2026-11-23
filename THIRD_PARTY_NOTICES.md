@@ -76,15 +76,20 @@ license and notice files in `licenses/rust/`, written by
 | --- | --- |
 | block-buffer, cpufeatures, crypto-common, digest, sha2 (RustCrypto) | MIT or Apache-2.0 |
 | cfg-if, libc | MIT or Apache-2.0 |
+| curve25519-dalek, x25519-dalek, subtle (dalek-cryptography) | BSD-3-Clause |
 | generic-array | MIT |
 | itoa, serde, serde_core, serde_json | MIT or Apache-2.0 |
 | memchr | MIT or Unlicense (used under MIT) |
+| rand_core | MIT or Apache-2.0 |
 | typenum | MIT or Apache-2.0 |
 | zmij | MIT |
 
-Used only while building, not linked: proc-macro2, quote, serde_derive,
-syn, version_check (MIT or Apache-2.0), and unicode-ident (MIT or
-Apache-2.0, with Unicode data under Unicode-3.0).
+Used only while building, not linked: curve25519-dalek-derive,
+proc-macro2, quote, rustc_version, semver, serde_derive, syn,
+version_check (MIT or Apache-2.0), and unicode-ident (MIT or Apache-2.0,
+with Unicode data under Unicode-3.0). fiat-crypto (MIT, Apache-2.0, or
+BSD-1-Clause; used under MIT) is in the lock file as an optional backend
+of curve25519-dalek that Armada's builds do not select.
 
 ## Downloaded at run time
 
