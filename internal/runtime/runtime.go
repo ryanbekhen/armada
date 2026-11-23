@@ -522,6 +522,14 @@ type StatsReader interface {
 	Stats(ctx context.Context, id string) (Stats, error)
 }
 
+// StatsBatcher samples many containers in one round, as Stats samples
+// each: the result and error of ids[i] at index i. It is optional; the
+// agent uses it, when a StatsReader has it, for its sample of every
+// replica.
+type StatsBatcher interface {
+	StatsBatch(ctx context.Context, ids []string) ([]Stats, []error)
+}
+
 // CanStats reports whether d samples what containers use, like
 // CanRunSystem.
 func CanStats(d Driver) bool {

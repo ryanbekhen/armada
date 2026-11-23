@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -13,9 +14,16 @@ import (
 	"github.com/containerd/typeurl/v2"
 
 	"github.com/ryanbekhen/armada/internal/runtime"
+	"github.com/ryanbekhen/armada/internal/runtime/supervisor"
 )
 
-var _ runtime.StatsReader = (*Driver)(nil)
+var (
+	_ runtime.StatsReader  = (*Driver)(nil)
+	_ runtime.StatsBatcher = (*Driver)(nil)
+)
+
+// procRoot is where procfs is mounted (tests name a fixture).
+var procRoot = "/proc"
 
 // Stats samples a container's cgroup (v2, which Armada requires) through
 // its task's metrics. Memory is the cgroup's usage without inactive page
@@ -24,6 +32,39 @@ var _ runtime.StatsReader = (*Driver)(nil)
 // A replica's container counts its init containers and sidecars too
 // (ADR 0038): what it reserves covers them all.
 func (d *Driver) Stats(ctx context.Context, id string) (runtime.Stats, error) {
+	if d.native != nil {
+		st, errs := d.StatsBatch(ctx, []string{id})
+		return st[0], errs[0]
+	}
+	return d.statsGo(ctx, id)
+}
+
+// StatsBatch samples ids as Stats samples each. On a node whose
+// supervisor runtime runs through armada-node (ADR 0054), one call to it
+// samples them all; Go samples those it leaves to Go, and every one when
+// the call fails.
+func (d *Driver) StatsBatch(ctx context.Context, ids []string) ([]runtime.Stats, []error) {
+	out, errs := make([]runtime.Stats, len(ids)), make([]error, len(ids))
+	var res []supervisor.StatResult
+	ok := false
+	if st, isStore := d.ctr.(*supervisor.Store); isStore && d.native != nil && len(ids) > 0 {
+		res, ok = st.NativeStats(d.ctx(ctx), ids, procRoot)
+	}
+	for i, id := range ids {
+		switch {
+		case ok && res[i].NotFound:
+			errs[i] = runtime.ErrNotFound
+		case ok && !res[i].Redo:
+			out[i] = res[i].Stats
+		default:
+			out[i], errs[i] = d.statsGo(ctx, id)
+		}
+	}
+	return out, errs
+}
+
+// statsGo is Stats in Go.
+func (d *Driver) statsGo(ctx context.Context, id string) (runtime.Stats, error) {
 	ctx = d.ctx(ctx)
 	c, err := d.ctr.LoadContainer(ctx, id)
 	if err != nil {
@@ -60,7 +101,7 @@ func (d *Driver) taskStats(ctx context.Context, c client.Container) (runtime.Sta
 	st := statsFromCgroup(cg)
 	// The counters are the network namespace's, which outlives what the
 	// container does inside it; without them the rest of the sample stands.
-	if b, err := os.ReadFile(fmt.Sprintf("/proc/%d/net/dev", t.Pid())); err == nil {
+	if b, err := os.ReadFile(filepath.Join(procRoot, strconv.FormatUint(uint64(t.Pid()), 10), "net", "dev")); err == nil { //nolint:gosec // procfs and a process ID
 		st.EgressBytes = egressFromNetDev(string(b))
 		st.NetworkLost = !hasInterface(string(b))
 	}

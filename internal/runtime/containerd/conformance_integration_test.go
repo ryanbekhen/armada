@@ -144,4 +144,14 @@ func TestIntegrationConformanceSupervisor(t *testing.T) {
 		t.Fatalf("armada-node runs containers: %v, want %v", d.native != nil, cfg.NodeBin != "")
 	}
 	conformance.Run(t, d, conformance.Options{HostIP: os.Getenv("ARMADA_HOST_IP")})
+	if d.native != nil {
+		// Samples of containers and dials from them and from sandboxes
+		// went through armada-node (ADR 0054 step 4, fifth part), with
+		// Go standing in nowhere.
+		for _, op := range []string{"stats", "dial"} {
+			if n := d.native.StoodIn(op); n > 0 {
+				t.Errorf("Go did %q %d times instead of armada-node", op, n)
+			}
+		}
+	}
 }

@@ -138,7 +138,29 @@ program.
    on a node that opts in are pulled again into armada-node's store
    (`ConvertImages` runs with the release that makes it the default), and
    Go's image store is opened beside it only to release the root
-   filesystems of containers Go made.
+   filesystems of containers Go made. Fifth part, on the same opt-in:
+   statistics and dials from containers. The agent samples every
+   replica of a round in one call (`runtime.StatsBatcher`; `armada-node
+   runtime stats`): for each container its record, its shim's state, its
+   cgroup v2 files, and `/proc/PID/net/dev`, a replica's init containers
+   and sidecars added, with the numbers Go computes. A container Go would
+   answer with an error, or whose shim Go would find gone (and then end
+   its containers), is answered "redo" and sampled by Go, so errors and
+   what is done about a gone shim stay Go's. Queue readers dial from a
+   container's or a sandbox's network namespace through `armada-node
+   runtime dial`: Go checks the address and picks the socket's family as
+   its dialer does, keeping zones, service names, and a family the
+   network does not take; armada-node, single-threaded, switches into the
+   namespace (not when it already is in it), makes and connects the
+   socket with Go's options, and sends it back over `SCM_RIGHTS` on a
+   Unix socket the agent passes as descriptor 3; the agent wraps it with
+   `net.FileConn`, which sets what its dialer sets (no delay, keepalive),
+   and rebuilds a failure as its dialer words it (`net.OpError` with the
+   system call and errno). Go dials or samples itself when armada-node
+   fails. Exec stays in Go for now: `runc exec` runs in the foreground
+   from the agent with its streams and terminal, and moving it means
+   handing those across processes with the same draining rules; it
+   comes in a part of its own.
 
 ### The runtime's move: image store and migration
 

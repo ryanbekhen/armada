@@ -17,6 +17,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/ryanbekhen/armada/internal/runtime"
+	"github.com/ryanbekhen/armada/internal/runtime/supervisor"
 )
 
 var _ runtime.NetworkSandboxer = (*Driver)(nil)
@@ -133,6 +134,11 @@ func (d *Driver) DialSandbox(ctx context.Context, id, network, address string) (
 	path := d.sandboxPath(id)
 	if !isNetNS(path) {
 		return nil, fmt.Errorf("sandbox %s: %w", id, runtime.ErrNotFound)
+	}
+	if st, ok := d.ctr.(*supervisor.Store); ok && d.native != nil {
+		if conn, handled, err := st.NativeDial(ctx, "", path, "", network, address); handled {
+			return conn, err
+		}
 	}
 	target, err := netns.GetFromPath(path)
 	if err != nil {

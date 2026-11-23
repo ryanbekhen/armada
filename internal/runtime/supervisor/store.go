@@ -47,8 +47,19 @@ type Store struct {
 	// containers armada-node made Go removes with them (a node that went
 	// back to Go's code).
 	NodeImages string
+	// CgroupRoot is where cgroup v2 is mounted; empty is /sys/fs/cgroup
+	// (tests name a fixture).
+	CgroupRoot string
 
 	mu sync.Mutex // serializes record changes
+}
+
+// cgroupRoot is where the containers' cgroups are read.
+func (s *Store) cgroupRoot() string {
+	if s.CgroupRoot != "" {
+		return s.CgroupRoot
+	}
+	return cgroupRoot
 }
 
 // Close releases the image store.
