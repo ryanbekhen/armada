@@ -230,7 +230,7 @@ jobs:
       - run: go test -race -run 'TestProcess|TestStartProcess' -v ./internal/dnsserver/
         env:
           ARMADA_DNS_BIN: ${{ github.workspace }}/dns/target/x86_64-unknown-linux-musl/release/armada-dns
-      - run: go test -race -run 'TestArmadaNode|TestRenderFallsBack' -v ./internal/proxy/haproxy/
+      - run: go test -race -run 'TestArmadaNode|TestRenderFallsBack' -v ./internal/proxy/haproxy/ ./internal/clusternet/
         env:
           ARMADA_NODE_BIN: ${{ github.workspace }}/node/target/x86_64-unknown-linux-musl/release/armada-node
 

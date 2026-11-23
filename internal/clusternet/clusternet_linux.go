@@ -532,39 +532,18 @@ func setUp(link netlink.Link, p plan, mtu int) error {
 func syncRoutes(link netlink.Link, p plan, via bool, set routeSet) error {
 	idx := link.Attrs().Index
 	want := map[netip.Prefix]bool{}
-	for _, pe := range p.peers {
-		if set == routesNone {
-			break
+	for _, w := range wantRoutes(p, via, set) {
+		r := &netlink.Route{LinkIndex: idx, Dst: prefixNet(w.dst), Scope: netlink.SCOPE_LINK}
+		if w.src.IsValid() {
+			r.Src = w.src.AsSlice()
 		}
-		if set == routesProbe {
-			dst := netip.PrefixFrom(vtepAddr(pe.subnet), 32)
-			r := &netlink.Route{LinkIndex: idx, Dst: prefixNet(dst), Scope: netlink.SCOPE_LINK}
-			if err := netlink.RouteReplace(r); err != nil {
-				return fmt.Errorf("route to %s (%s): %w", pe.node, dst, err)
-			}
-			want[dst] = true
-			continue
+		if w.via.IsValid() {
+			r.Scope, r.Gw, r.Flags = netlink.SCOPE_UNIVERSE, w.via.AsSlice(), int(netlink.FLAG_ONLINK)
 		}
-		if p.mode == ModeMesh || pe.remote {
-			dst := netip.PrefixFrom(pe.ip, 32)
-			r := &netlink.Route{LinkIndex: idx, Dst: prefixNet(dst), Scope: netlink.SCOPE_LINK, Src: p.self.ip.AsSlice()}
-			if err := netlink.RouteReplace(r); err != nil {
-				return fmt.Errorf("route to %s (%s): %w", pe.node, pe.ip, err)
-			}
-			want[dst] = true
+		if err := netlink.RouteReplace(r); err != nil {
+			return fmt.Errorf("route to %s (%s): %w", w.node, w.what, err)
 		}
-		// The peer's own subnet, and those of nodes behind NAT reached
-		// through it, a relay (ADR 0050).
-		for _, dst := range append([]netip.Prefix{pe.subnet}, pe.carried...) {
-			r := &netlink.Route{LinkIndex: idx, Dst: prefixNet(dst), Scope: netlink.SCOPE_LINK}
-			if via {
-				r.Scope, r.Gw, r.Flags = netlink.SCOPE_UNIVERSE, vtepAddr(pe.subnet).AsSlice(), int(netlink.FLAG_ONLINK)
-			}
-			if err := netlink.RouteReplace(r); err != nil {
-				return fmt.Errorf("route to %s (%s): %w", pe.node, dst, err)
-			}
-			want[dst] = true
-		}
+		want[w.dst] = true
 	}
 	routes, err := netlink.RouteList(link, netlink.FAMILY_V4)
 	if err != nil {
@@ -583,6 +562,45 @@ func syncRoutes(link netlink.Link, p plan, via bool, set routeSet) error {
 		}
 	}
 	return nil
+}
+
+// wantedRoute is one route syncRoutes installs.
+type wantedRoute struct {
+	node string
+	dst  netip.Prefix
+	// via is the peer's tunnel end, on link (VXLAN); src, this node's
+	// address for a route to a peer's node address.
+	via, src netip.Addr
+	// what is the destination as errors name it.
+	what string
+}
+
+// wantRoutes are the routes syncRoutes installs, in order.
+func wantRoutes(p plan, via bool, set routeSet) []wantedRoute {
+	var out []wantedRoute
+	if set == routesNone {
+		return out
+	}
+	for _, pe := range p.peers {
+		if set == routesProbe {
+			dst := netip.PrefixFrom(vtepAddr(pe.subnet), 32)
+			out = append(out, wantedRoute{node: pe.node, dst: dst, what: dst.String()})
+			continue
+		}
+		if p.mode == ModeMesh || pe.remote {
+			out = append(out, wantedRoute{node: pe.node, dst: netip.PrefixFrom(pe.ip, 32), src: p.self.ip, what: pe.ip.String()})
+		}
+		// The peer's own subnet, and those of nodes behind NAT reached
+		// through it, a relay (ADR 0050).
+		for _, dst := range append([]netip.Prefix{pe.subnet}, pe.carried...) {
+			w := wantedRoute{node: pe.node, dst: dst, what: dst.String()}
+			if via {
+				w.via = vtepAddr(pe.subnet)
+			}
+			out = append(out, w)
+		}
+	}
+	return out
 }
 
 // port is the tunnel's UDP port in a mode.
@@ -607,28 +625,10 @@ func (n *Net) firewall(p plan) error {
 		return err
 	}
 	remote := len(p.remote()) > 0
-	rules := [][]string{}
-	if p.mode == ModeMesh {
-		rules = append(rules, []string{"-j", "ACCEPT"})
-	} else {
-		for _, pe := range p.local() {
-			rules = append(rules, []string{"-s", pe.ip.String() + "/32", "-d", n.cfg.PrivateIP.String() + "/32", "-j", "ACCEPT"})
-		}
-		if remote {
-			// Other sites' endpoints change, and WireGuard answers
-			// nothing that does not authenticate (ADR 0050).
-			rules = append(rules, []string{"-p", "udp", "-m", "udp", "--dport", strconv.Itoa(WireGuardPort), "-j", "ACCEPT"})
-		}
-		rules = append(rules, []string{"-j", "DROP"})
-	}
-	if err := ipt.fill("filter", chainIn, rules); err != nil {
+	if err := ipt.fill("filter", chainIn, inputRules(p, n.cfg.PrivateIP)); err != nil {
 		return err
 	}
-	jump := []string{"-p", "udp", "-m", "udp", "--dport", strconv.Itoa(port(p.mode)), "-j", chainIn}
-	if p.switching() || p.mode == ModePlain && remote {
-		jump = []string{"-p", "udp", "-m", "multiport", "--dports", strconv.Itoa(VXLANPort) + "," + strconv.Itoa(WireGuardPort), "-j", chainIn}
-	}
-	if err := ipt.only("INPUT", chainIn, jump...); err != nil {
+	if err := ipt.only("INPUT", chainIn, inputJump(p)...); err != nil {
 		return err
 	}
 	if p.mode == ModeMesh || remote {
@@ -696,6 +696,32 @@ func (n *Net) firewall(p plan) error {
 		n.siteClean = true
 	}
 	return nil
+}
+
+// inputRules are ARMADA-NET-IN's rules for a node at privateIP.
+func inputRules(p plan, privateIP netip.Addr) [][]string {
+	if p.mode == ModeMesh {
+		return [][]string{{"-j", "ACCEPT"}}
+	}
+	rules := [][]string{}
+	for _, pe := range p.local() {
+		rules = append(rules, []string{"-s", pe.ip.String() + "/32", "-d", privateIP.String() + "/32", "-j", "ACCEPT"})
+	}
+	if len(p.remote()) > 0 {
+		// Other sites' endpoints change, and WireGuard answers
+		// nothing that does not authenticate (ADR 0050).
+		rules = append(rules, []string{"-p", "udp", "-m", "udp", "--dport", strconv.Itoa(WireGuardPort), "-j", "ACCEPT"})
+	}
+	return append(rules, []string{"-j", "DROP"})
+}
+
+// inputJump is the INPUT rule that sends the tunnels' port (or both ports)
+// to ARMADA-NET-IN.
+func inputJump(p plan) []string {
+	if p.switching() || p.mode == ModePlain && len(p.remote()) > 0 {
+		return []string{"-p", "udp", "-m", "multiport", "--dports", strconv.Itoa(VXLANPort) + "," + strconv.Itoa(WireGuardPort), "-j", chainIn}
+	}
+	return []string{"-p", "udp", "-m", "udp", "--dport", strconv.Itoa(port(p.mode)), "-j", chainIn}
 }
 
 // tunnels are the interfaces packets between nodes come and go by: Next
@@ -1044,6 +1070,12 @@ func diagnoseRelay(s Sites, ip netip.Addr) (Check, bool) {
 	if err != nil {
 		return c, false
 	}
+	return relayCheck(p)
+}
+
+// relayCheck is what diagnoseRelay says of a parsed peer list.
+func relayCheck(p plan) (Check, bool) {
+	c := Check{Name: "relay", Level: CheckOK}
 	switch {
 	case len(p.unreachable) > 0:
 		c.Level = CheckFail

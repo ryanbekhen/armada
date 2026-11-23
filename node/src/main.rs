@@ -3,8 +3,10 @@
 //! against the Go code it replaces:
 //!
 //!   armada-node proxy render   HAProxy's configuration (src/proxy)
+//!   armada-node net ...        the cluster network's plan, key, and peer list (src/net)
 
 mod names;
+mod net;
 mod proxy;
 
 use std::process::ExitCode;
@@ -18,7 +20,13 @@ fn run() -> Result<(), String> {
         .as_slice()
     {
         ["proxy", "render"] => proxy::render_command(),
-        _ => Err(format!("unknown command {args:?}; try: proxy render")),
+        ["net", "plan"] => net::plan_command(),
+        ["net", "key", path] => net::key_command(path, false),
+        ["net", "key", "rotate", path] => net::key_command(path, true),
+        ["net", "cache", op, path] => net::cache_command(op, path),
+        _ => Err(format!(
+            "unknown command {args:?}; try: proxy render, net plan, net key [rotate] PATH, net cache save|load PATH"
+        )),
     }
 }
 
