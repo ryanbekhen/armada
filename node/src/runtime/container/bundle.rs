@@ -1,0 +1,398 @@
+//! Containers' OCI bundles as internal/runtime/supervisor's Bundles keeps
+//! them, under DIR/<id>: config.json, the root filesystem mounted at
+//! rootfs, and record.json, written last, so a bundle without a record is
+//! one that was never finished. The files are the bytes Go writes, so a
+//! node can switch between Go's runtime and this one and adopt the
+//! containers either made.
+
+use super::errno_text;
+use super::mount::{Mount, mount_all, unmount_all};
+use crate::runtime::spec::to_go_json;
+use serde::de::{Deserializer, MapAccess, Visitor};
+use serde::{Deserialize, Serialize};
+use serde_json::value::RawValue;
+use std::collections::BTreeMap;
+use std::fs;
+use std::io::{self, Write};
+use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+use std::path::{Path, PathBuf};
+
+const CONFIG: &str = "config.json";
+const RECORD: &str = "record.json";
+const ROOTFS: &str = "rootfs";
+
+/// The annotation naming the shim a container shares (GroupAnnotation).
+pub const GROUP_ANNOTATION: &str = "io.containerd.runc.v2.group";
+
+/// supervisor.Record, written as Go writes it.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct Record {
+    pub id: String,
+    pub image: String,
+    #[serde(
+        default,
+        skip_serializing_if = "BTreeMap::is_empty",
+        deserialize_with = "crate::runtime::nullable"
+    )]
+    pub labels: BTreeMap<String, String>,
+    pub group: String,
+    pub created: String,
+}
+
+fn os_err(op: &str, p: &Path, e: &io::Error) -> String {
+    format!(
+        "{op} {}: {}",
+        p.display(),
+        errno_text(e.raw_os_error().unwrap_or(libc::EIO))
+    )
+}
+
+/// writeJSON: to path.tmp (0600), then renamed over path.
+fn write_file(path: &Path, data: &[u8]) -> Result<(), String> {
+    let tmp = PathBuf::from(format!("{}.tmp", path.display()));
+    let mut f = fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(0o600)
+        .open(&tmp)
+        .map_err(|e| os_err("open", &tmp, &e))?;
+    f.write_all(data).map_err(|e| os_err("write", &tmp, &e))?;
+    drop(f);
+    fs::rename(&tmp, path).map_err(|e| {
+        format!(
+            "rename {} {}: {}",
+            tmp.display(),
+            path.display(),
+            errno_text(e.raw_os_error().unwrap_or(libc::EIO))
+        )
+    })
+}
+
+/// os.ReadFile: the error names the step that failed (open or read).
+fn read_file(p: &Path) -> Result<Vec<u8>, (io::Error, &'static str)> {
+    let mut f = fs::File::open(p).map_err(|e| (e, "open"))?;
+    let mut b = Vec::new();
+    io::Read::read_to_end(&mut f, &mut b).map_err(|e| (e, "read"))?;
+    Ok(b)
+}
+
+/// A JSON object's members in their order, values as written.
+struct Members(Vec<(String, Box<RawValue>)>);
+
+impl<'de> Deserialize<'de> for Members {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        struct V;
+        impl<'de> Visitor<'de> for V {
+            type Value = Members;
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str("an OCI runtime spec")
+            }
+            fn visit_map<A: MapAccess<'de>>(self, mut m: A) -> Result<Members, A::Error> {
+                let mut out = Vec::new();
+                while let Some(k) = m.next_key::<String>()? {
+                    out.push((k, m.next_value::<Box<RawValue>>()?));
+                }
+                Ok(Members(out))
+            }
+        }
+        d.deserialize_map(V)
+    }
+}
+
+#[derive(Deserialize, Default)]
+struct Root {
+    #[serde(default)]
+    readonly: bool,
+}
+
+#[derive(Deserialize, Default)]
+struct Annotations {
+    #[serde(default, deserialize_with = "crate::runtime::nullable")]
+    annotations: BTreeMap<String, String>,
+}
+
+/// The spec as Bundles.Create writes it: Go's json.Marshal of a
+/// specs.Spec, its root replaced by {"path": "rootfs"} (keeping
+/// readonly), in the place the struct gives root (after process).
+pub fn bundle_spec(spec: &RawValue) -> Result<(Vec<u8>, String), String> {
+    let Members(mut members) =
+        serde_json::from_str(spec.get()).map_err(|e| format!("spec: {e}"))?;
+    let readonly = members
+        .iter()
+        .find(|(k, _)| k == "root")
+        .and_then(|(_, v)| serde_json::from_str::<Option<Root>>(v.get()).ok().flatten())
+        .unwrap_or_default()
+        .readonly;
+    let root = if readonly {
+        r#"{"path":"rootfs","readonly":true}"#
+    } else {
+        r#"{"path":"rootfs"}"#
+    };
+    let root = RawValue::from_string(root.to_string()).map_err(|e| e.to_string())?;
+    match members.iter().position(|(k, _)| k == "root") {
+        Some(i) => members[i].1 = root,
+        None => {
+            let at = members
+                .iter()
+                .rposition(|(k, _)| k == "ociVersion" || k == "process")
+                .map_or(0, |i| i + 1);
+            members.insert(at, ("root".into(), root));
+        }
+    }
+    let group = serde_json::from_str::<Annotations>(spec.get())
+        .map(|a| {
+            a.annotations
+                .get(GROUP_ANNOTATION)
+                .cloned()
+                .unwrap_or_default()
+        })
+        .unwrap_or_default();
+    let mut out = vec![b'{'];
+    for (i, (k, v)) in members.iter().enumerate() {
+        if i > 0 {
+            out.push(b',');
+        }
+        out.extend(to_go_json(k));
+        out.push(b':');
+        out.extend(v.get().as_bytes());
+    }
+    out.push(b'}');
+    Ok((out, group))
+}
+
+#[derive(Deserialize)]
+pub struct CreateRequest {
+    pub dir: String,
+    pub id: String,
+    pub image: String,
+    #[serde(default, deserialize_with = "crate::runtime::nullable")]
+    pub labels: BTreeMap<String, String>,
+    pub spec: Box<RawValue>,
+    #[serde(default, deserialize_with = "crate::runtime::nullable")]
+    pub mounts: Vec<Mount>,
+}
+
+/// A bundle directory's name is a container ID: no separator, not "."
+/// or "..".
+fn valid_id(id: &str) -> Result<(), String> {
+    if id.is_empty() || id == "." || id == ".." || id.contains('/') || id.contains('\0') {
+        return Err(format!(
+            "invalid container ID {}",
+            crate::net::addr::quote(id)
+        ));
+    }
+    Ok(())
+}
+
+/// NewContainer's refusal and Bundles.Create: the rootfs directory, the
+/// root filesystem mounted on it, config.json, then record.json.
+pub fn create(r: &CreateRequest) -> Result<Record, String> {
+    valid_id(&r.id)?;
+    let dir = Path::new(&r.dir).join(&r.id);
+    if fs::metadata(&dir).is_ok() {
+        return Err(format!("container {}: already exists", r.id));
+    }
+    let (config, group) = bundle_spec(&r.spec)?;
+    let rootfs = dir.join(ROOTFS);
+    fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(&rootfs)
+        .map_err(|e| os_err("mkdir", &rootfs, &e))?;
+    mount_all(&r.mounts, &rootfs).map_err(|e| format!("mount root filesystem: {e}"))?;
+    write_file(&dir.join(CONFIG), &config)?;
+    let rec = Record {
+        id: r.id.clone(),
+        image: r.image.clone(),
+        labels: r.labels.clone(),
+        group: if group.is_empty() {
+            r.id.clone()
+        } else {
+            group
+        },
+        created: crate::runtime::image::now_rfc3339(),
+    };
+    write_file(&dir.join(RECORD), &to_go_json(&rec))?;
+    Ok(rec)
+}
+
+/// Bundles.Remove: the root filesystem unmounted, the bundle removed.
+pub fn remove(dir: &str, id: &str) -> Result<(), String> {
+    valid_id(id)?;
+    let dir = Path::new(dir).join(id);
+    if let Err((text, errno)) = unmount_all(&dir.join(ROOTFS))
+        && errno != libc::ENOENT
+    {
+        return Err(format!("unmount root filesystem: {text}"));
+    }
+    match fs::remove_dir_all(&dir) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(os_err("unlinkat", &dir, &e)),
+    }
+}
+
+/// time.Time's UnmarshalJSON: RFC 3339 strictly, with Z or a numeric
+/// offset, every field in its range.
+fn rfc3339(s: &str) -> bool {
+    let b = s.as_bytes();
+    let num = |r: std::ops::Range<usize>| -> Option<u32> {
+        let x = b.get(r)?;
+        if !x.iter().all(u8::is_ascii_digit) {
+            return None;
+        }
+        std::str::from_utf8(x).ok()?.parse().ok()
+    };
+    let (Some(y), Some(mo), Some(d), Some(h), Some(mi), Some(se)) = (
+        num(0..4),
+        num(5..7),
+        num(8..10),
+        num(11..13),
+        num(14..16),
+        num(17..19),
+    ) else {
+        return false;
+    };
+    if b.len() < 20
+        || b[4] != b'-'
+        || b[7] != b'-'
+        || b[10] != b'T'
+        || b[13] != b':'
+        || b[16] != b':'
+    {
+        return false;
+    }
+    let leap = y % 4 == 0 && (y % 100 != 0 || y % 400 == 0);
+    let days = match mo {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 if leap => 29,
+        2 => 28,
+        _ => return false,
+    };
+    if d == 0 || d > days || h > 23 || mi > 59 || se > 59 {
+        return false;
+    }
+    let mut rest = &b[19..];
+    if let Some(frac) = rest.strip_prefix(b".") {
+        let n = frac.iter().take_while(|c| c.is_ascii_digit()).count();
+        if n == 0 || n > 9 {
+            return false;
+        }
+        rest = &frac[n..];
+    }
+    match rest {
+        b"Z" => true,
+        [sign, h1, h2, b':', m1, m2] if *sign == b'+' || *sign == b'-' => {
+            let digits = [h1, h2, m1, m2].iter().all(|c| c.is_ascii_digit());
+            let hh = (h1 - b'0') * 10 + h2.wrapping_sub(b'0');
+            let mm = (m1 - b'0') * 10 + m2.wrapping_sub(b'0');
+            digits && hh < 24 && mm < 60
+        }
+        _ => false,
+    }
+}
+
+/// Bundles.Records: every finished bundle's record, by directory name; a
+/// record that does not parse, or names another ID, is left out.
+pub fn records(dir: &str) -> Result<Vec<Record>, String> {
+    let dir = Path::new(dir);
+    let mut names: Vec<String> = match fs::read_dir(dir) {
+        Ok(rd) => rd
+            .map(|e| e.map(|e| e.file_name().to_string_lossy().into_owned()))
+            .collect::<Result<_, _>>()
+            .map_err(|e| os_err("readdirent", dir, &e))?,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(os_err("open", dir, &e)),
+    };
+    names.sort();
+    let mut out = Vec::new();
+    for n in names {
+        let p = dir.join(&n).join(RECORD);
+        let data = match read_file(&p) {
+            Ok(d) => d,
+            Err((e, _)) if e.kind() == io::ErrorKind::NotFound => continue,
+            Err((e, op)) => return Err(os_err(op, &p, &e)),
+        };
+        match serde_json::from_slice::<Record>(&data) {
+            Ok(r) if r.id == n && rfc3339(&r.created) => out.push(r),
+            _ => {}
+        }
+    }
+    Ok(out)
+}
+
+/// container.SetLabels: labels merged into the record, which is written
+/// again.
+pub fn set_labels(
+    dir: &str,
+    id: &str,
+    labels: &BTreeMap<String, String>,
+) -> Result<Record, String> {
+    valid_id(id)?;
+    let p = Path::new(dir).join(id).join(RECORD);
+    let data = read_file(&p).map_err(|(e, op)| os_err(op, &p, &e))?;
+    let mut rec: Record =
+        serde_json::from_slice(&data).map_err(|e| format!("{}: {e}", p.display()))?;
+    for (k, v) in labels {
+        rec.labels.insert(k.clone(), v.clone());
+    }
+    write_file(&p, &to_go_json(&rec))?;
+    Ok(rec)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn raw(s: &str) -> Box<RawValue> {
+        RawValue::from_string(s.to_string()).unwrap()
+    }
+
+    #[test]
+    fn root_replaced_in_place() {
+        let (b, g) = bundle_spec(&raw(
+            r#"{"ociVersion":"1.2.1","process":{"cwd":"/"},"root":{"path":"/x","readonly":true},"annotations":{"io.containerd.runc.v2.group":"web"},"linux":{}}"#,
+        ))
+        .unwrap();
+        assert_eq!(
+            String::from_utf8(b).unwrap(),
+            r#"{"ociVersion":"1.2.1","process":{"cwd":"/"},"root":{"path":"rootfs","readonly":true},"annotations":{"io.containerd.runc.v2.group":"web"},"linux":{}}"#
+        );
+        assert_eq!(g, "web");
+        let (b, g) = bundle_spec(&raw(r#"{"ociVersion":"1.2.1","hostname":"h"}"#)).unwrap();
+        assert_eq!(
+            String::from_utf8(b).unwrap(),
+            r#"{"ociVersion":"1.2.1","root":{"path":"rootfs"},"hostname":"h"}"#
+        );
+        assert_eq!(g, "");
+        let (b, _) = bundle_spec(&raw(r#"{"ociVersion":"1","process":{},"root":null}"#)).unwrap();
+        assert_eq!(
+            String::from_utf8(b).unwrap(),
+            r#"{"ociVersion":"1","process":{},"root":{"path":"rootfs"}}"#
+        );
+    }
+
+    #[test]
+    fn times_as_go() {
+        assert!(rfc3339("2026-11-23T08:00:00Z"));
+        assert!(rfc3339("2026-11-23T08:00:00.123456789Z"));
+        assert!(rfc3339("2026-11-23T08:00:00.5+07:00"));
+        assert!(rfc3339("2024-02-29T00:00:00-00:30"));
+        assert!(!rfc3339("2026-02-29T00:00:00Z"));
+        assert!(!rfc3339("2026-11-23 08:00:00Z"));
+        assert!(!rfc3339("2026-11-23T08:00:00"));
+        assert!(!rfc3339("2026-11-23T08:00:00.Z"));
+        assert!(!rfc3339("2026-11-23T24:00:00Z"));
+        assert!(!rfc3339("yesterday"));
+    }
+
+    #[test]
+    fn ids_are_names() {
+        assert!(valid_id("web-r1-3f2a").is_ok());
+        assert!(valid_id("..").is_err());
+        assert!(valid_id("a/b").is_err());
+        assert!(valid_id("").is_err());
+    }
+}

@@ -49,9 +49,19 @@ func (c *container) Labels(context.Context) (map[string]string, error) {
 }
 
 // SetLabels merges labels into the record.
-func (c *container) SetLabels(_ context.Context, labels map[string]string) (map[string]string, error) {
+func (c *container) SetLabels(ctx context.Context, labels map[string]string) (map[string]string, error) {
 	c.s.mu.Lock()
 	defer c.s.mu.Unlock()
+	if n := c.s.Native; n != nil {
+		rec, err := n.SetLabels(ctx, c.s.Bundles.Dir, c.rec.ID, labels)
+		if !n.fallback("bundle labels", err) {
+			if err != nil {
+				return nil, err
+			}
+			c.rec = rec
+			return maps.Clone(c.rec.Labels), nil
+		}
+	}
 	if c.rec.Labels == nil {
 		c.rec.Labels = map[string]string{}
 	}
@@ -104,6 +114,18 @@ func (c *container) Task(ctx context.Context, _ cio.Attach) (client.Task, error)
 	switch {
 	case aerr != nil:
 		return nil, fmt.Errorf("shim of %s: %w; %w", c.rec.ID, err, aerr)
+	case !gone && (errors.Is(err, syscall.ENOENT) || errors.Is(err, syscall.ECONNREFUSED)):
+		// Nothing listened, and now a shim answers: Shims.For started it
+		// while Abandon waited for the group's lock (a container of the
+		// group getting its task). Ask that shim.
+		st, err := sh.State(ctx, c.rec.ID)
+		switch {
+		case err == nil:
+			return &taskProc{c: c, sh: sh, pid: st.Pid}, nil
+		case NotFound(err):
+			return nil, fmt.Errorf("task %s: %w", c.rec.ID, errdefs.ErrNotFound)
+		}
+		return nil, fmt.Errorf("shim of %s does not answer: %w", c.rec.ID, err)
 	case !gone:
 		return nil, fmt.Errorf("shim of %s does not answer: %w", c.rec.ID, err)
 	}
@@ -114,10 +136,10 @@ func (c *container) Task(ctx context.Context, _ cio.Attach) (client.Task, error)
 // task must be gone; opts (containerd's) are not used: the snapshot always
 // goes.
 func (c *container) Delete(ctx context.Context, _ ...client.DeleteOpts) error {
-	if err := c.s.Bundles.Remove(c.rec.ID); err != nil {
+	if err := c.s.removeBundle(ctx, c.rec.ID); err != nil {
 		return err
 	}
-	return c.s.Images.Release(context.WithoutCancel(ctx), c.rec.ID)
+	return c.s.release(context.WithoutCancel(ctx), c.rec.ID)
 }
 
 func (c *container) Extensions(context.Context) (map[string]typeurl.Any, error) {
@@ -288,24 +310,24 @@ func (i *image) IsUnpacked(context.Context, string) (bool, error)          { ret
 func (i *image) Config(context.Context) (ocispec.Descriptor, error) {
 	return i.rec.Config, nil
 }
-func (i *image) ContentStore() content.Store       { return i.s.Images.content }
+func (i *image) ContentStore() content.Store       { return i.s.contentStore() }
 func (i *image) Metadata() images.Image            { return i.rec.metadata() }
-func (i *image) Platform() platforms.MatchComparer { return i.s.Images.platform }
+func (i *image) Platform() platforms.MatchComparer { return i.s.platform() }
 
 func (i *image) RootFS(ctx context.Context) ([]digest.Digest, error) {
-	return images.RootFS(ctx, i.s.Images.content, i.rec.Config)
+	return images.RootFS(ctx, i.s.contentStore(), i.rec.Config)
 }
 
 func (i *image) Size(ctx context.Context) (int64, error) {
 	img := images.Image{Target: i.rec.Target}
-	return img.Size(ctx, i.s.Images.content, i.s.Images.platform)
+	return img.Size(ctx, i.s.contentStore(), i.s.platform())
 }
 
 func (i *image) Usage(ctx context.Context, _ ...client.UsageOpt) (int64, error) { return i.Size(ctx) }
 
 func (i *image) Spec(ctx context.Context) (ocispec.Image, error) {
 	var out ocispec.Image
-	b, err := content.ReadBlob(ctx, i.s.Images.content, i.rec.Config)
+	b, err := content.ReadBlob(ctx, i.s.contentStore(), i.rec.Config)
 	if err != nil {
 		return out, err
 	}

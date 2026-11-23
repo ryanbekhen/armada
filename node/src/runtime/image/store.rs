@@ -4,6 +4,8 @@
 //!   <root>/content/ingest/             downloads until their digest matches
 //!   <root>/index.json                  image records and verified layers
 //!   <root>/layers/<chain ID hex>/      unpacked layers (layers.rs)
+//!   <root>/active/<key>/               containers' root filesystems
+//!                                      (snapshot.rs)
 //!   <root>/pull.lock, index.lock       see Store::pulls and Store::update
 //!
 //! The content layout is the one the supervisor runtime's content store
@@ -108,6 +110,10 @@ impl Store {
         Ok(Store {
             root: root.to_path_buf(),
         })
+    }
+
+    pub fn root(&self) -> &Path {
+        &self.root
     }
 
     pub fn layers_root(&self) -> PathBuf {
@@ -368,7 +374,13 @@ impl Store {
                     let _ = fs::remove_file(e.path());
                 }
             }
-            super::layers::collect(self, &chains);
+            // Layers under a container's root filesystem stay, as the
+            // snapshotter refuses to remove a parent.
+            let active = super::snapshot::in_use(self);
+            if !active.contains("*") {
+                chains.extend(active);
+                super::layers::collect(self, &chains);
+            }
             idx.verified.retain(|blob, _| keep.contains(blob));
             idx.uncollected = false;
             Ok(())

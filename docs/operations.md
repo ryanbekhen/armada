@@ -1115,6 +1115,28 @@ sudo systemctl restart armada-agent           # armada-server on a control plane
 journalctl -u armada-agent | grep armada-node # nothing new after the restart
 ```
 
+### Containers in armada-node (trial)
+
+On a node that runs the supervisor runtime, armada-node can also keep the
+node's images and run its containers' root filesystems, bundles, and
+`armada-shim` requests, while the agent keeps building each container and
+running its network, logs, and `armada app exec`. It is off unless
+`"runtimeAgent": "rust"` is in the node's `/var/lib/armada/agent.json`.
+Drain the node first: images are pulled again into armada-node's store
+(`/var/lib/armada/node/images`) as its replicas come back.
+
+```bash
+armada node drain NODE
+sudo sed -i '1s/^{$/{\n  "runtimeAgent": "rust",/' /var/lib/armada/agent.json
+sudo systemctl restart armada-agent           # armada-server on a control plane server
+armada node resume NODE
+```
+
+Remove the line and restart the service to go back. When armada-node
+fails to write a bundle or reach a shim, the agent does it itself and logs
+`armada-node failed; Go did it instead`; a pack without armada-node keeps
+the node on the agent's own code.
+
 ## How requests reach replicas
 
 Every node's HAProxy serves the app's public domains and `<app>.internal`,

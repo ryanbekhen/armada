@@ -21,6 +21,7 @@
 
 mod apparmor;
 mod check;
+pub mod container;
 mod gopath;
 pub mod image;
 mod oci;

@@ -167,6 +167,9 @@ var newDriver = func(dataDir string, ac *agentConfig) (runtime.Driver, error) {
 			return nil, err
 		}
 		cfg.Supervisor = true
+		if cfg.NodeBin = ac.runtimeProgram(dataDir); cfg.NodeBin == "" && ac.RuntimeAgent == runtimeAgentRust {
+			slog.Warn("agent.json asks armada-node to run containers, but the runtime pack has none; Go runs them")
+		}
 	}
 	return containerd.New(cfg)
 }

@@ -48,6 +48,17 @@ pub fn errno_text(e: i32) -> String {
         libc::ENXIO => "no such device or address".into(),
         libc::ENOMEM => "cannot allocate memory".into(),
         libc::EMFILE => "too many open files".into(),
+        libc::ECONNREFUSED => "connection refused".into(),
+        libc::ECONNRESET => "connection reset by peer".into(),
+        libc::EPIPE => "broken pipe".into(),
+        libc::EBUSY => "device or resource busy".into(),
+        libc::EEXIST => "file exists".into(),
+        libc::ENOTEMPTY => "directory not empty".into(),
+        libc::EROFS => "read-only file system".into(),
+        libc::ENOSPC => "no space left on device".into(),
+        libc::ENODEV => "no such device".into(),
+        libc::EBADF => "bad file descriptor".into(),
+        libc::ETIMEDOUT => "connection timed out".into(),
         _ => format!("errno {e}"),
     }
 }
