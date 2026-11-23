@@ -274,9 +274,9 @@ func newRuntimeCommand() *cobra.Command {
 	return cmd
 }
 
-// removeClusterNet takes the cluster network off the node; tests replace
-// it.
-var removeClusterNet = clusternet.Remove
+// removeClusterNet takes the cluster network off the node, through
+// armada-node when bin names it; tests replace it.
+var removeClusterNet = clusternet.RemoveWith
 
 // stopDNS stops the node's armada-dns (ADR 0053); tests replace it.
 var stopDNS = dnsserver.StopUnits
@@ -320,7 +320,11 @@ func newRuntimeResetCommand() *cobra.Command {
 				errs = append(errs, fmt.Errorf("armada-dns: %w", err))
 			}
 			if ac.Network != "" {
-				if err := removeClusterNet(); err != nil {
+				bin := ""
+				if find := ac.netProgram(dataDir); find != nil {
+					bin = find()
+				}
+				if err := removeClusterNet(bin); err != nil {
 					errs = append(errs, fmt.Errorf("cluster network: %w", err))
 				} else {
 					_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Removed the cluster network interface %s and its firewall rules.\n", clusternet.Interface)

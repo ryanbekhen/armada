@@ -66,6 +66,16 @@ if [ -n "$E2E_RUNTIME" ]; then RUNTIME_FLAG="--runtime $E2E_RUNTIME"; fi
 # A conformance test binary for the last machine's architecture
 # (go test -c -tags integration ./internal/runtime/containerd/); empty skips.
 E2E_CONFORMANCE=${E2E_CONFORMANCE:-}
+# rust runs every machine's cluster network through armada-node (agent.json
+# netAgent, ADR 0054) once the cluster is up; empty keeps Go's.
+E2E_NET_AGENT=${E2E_NET_AGENT:-}
+case $E2E_NET_AGENT in
+'' | rust) ;;
+*)
+	echo "e2e: E2E_NET_AGENT is '$E2E_NET_AGENT'; want rust or nothing" >&2
+	exit 2
+	;;
+esac
 
 case $E2E_ACME_CA in
 letsencrypt | *acme-v02.api.letsencrypt.org*)
@@ -367,6 +377,41 @@ while [ "$i" -le "$N" ]; do
 	i=$((i + 1))
 done
 wait_for 180 "all $N nodes ready" nodes_ready
+
+if [ "$E2E_NET_AGENT" = rust ]; then
+	# agent.json netAgent "rust" on each machine in turn, its service
+	# restarted: its agent then applies the cluster network through the
+	# runtime pack's armada-node, and doctor checks it through armada-node.
+	# Go stands in when armada-node fails, which the run reports as a
+	# failure at the end.
+	log "every machine runs its cluster network through armada-node"
+	# shellcheck disable=SC2016 # expanded on the machine
+	_set_rust='f=/var/lib/armada/agent.json
+if ! grep -q "\"netAgent\"" "$f"; then
+	sed -i "1s/^{\$/{\n  \"netAgent\": \"rust\",/" "$f"
+fi
+grep -q "\"netAgent\": *\"rust\"" "$f"'
+	i=1
+	while [ "$i" -le "$N" ]; do
+		on "$i" 'test -x /var/lib/armada/runtime/current/bin/armada-node' ||
+			fail "$(host "$i" 1) has no armada-node in its runtime pack"
+		on "$i" "$_set_rust" || fail "setting netAgent in agent.json on $(host "$i" 1)"
+		_unit=armada-agent
+		[ "$i" -gt "$SERVERS" ] || _unit=armada-server
+		_since=$(on "$i" 'date "+%Y-%m-%d %H:%M:%S"')
+		on "$i" "systemctl restart $_unit"
+		[ "$i" -gt "$SERVERS" ] || wait_for 180 "control plane has $SERVERS voting members" voting "$SERVERS"
+		wait_for 180 "all $N nodes ready" nodes_ready
+		rust_applies() { on "$1" "journalctl -u $2 --since '$3' --no-pager | grep -q 'armada-node applies the cluster network'"; }
+		wait_for 120 "$(host "$i" 1) applies its cluster network with armada-node" rust_applies "$i" "$_unit" "$_since"
+		if ! on "$i" 'armadad doctor' >"$WORK/doctor" 2>&1; then :; fi
+		if grep -E '^\[FAIL\] (network|network-mtu|network-sites|network-switch|wireguard|sites|relay|isolation) ' "$WORK/doctor" >&2; then
+			fail "armadad doctor's network checks through armada-node on $(host "$i" 1)"
+		fi
+		i=$((i + 1))
+	done
+	NET_AGENT_SINCE=$(on 1 'date "+%Y-%m-%d %H:%M:%S"')
+fi
 
 if [ -n "$E2E_CONFORMANCE" ]; then
 	# The node's own runtime: the supervisor (with the pack's armada-shim)
@@ -1591,6 +1636,18 @@ if [ "$E2E_REBOOT" = 1 ] && want reboot; then
 	wait_for 300 "all $N nodes ready" nodes_ready
 	wait_for 300 "$APP serving" serving
 	wait_for 120 "https://$URL_HOST answers 200 on every public IP" all_https_ok
+fi
+
+if [ "$E2E_NET_AGENT" = rust ]; then
+	# Go did a pass of the cluster network only where armada-node failed.
+	i=1
+	while [ "$i" -le "$N" ]; do
+		if on "$i" "journalctl -u armada-agent -u armada-server --since '$NET_AGENT_SINCE' --no-pager | grep 'armada-node failed'" >&2; then
+			fail "armada-node failed on $(host "$i" 1) and Go stood in (above)"
+		fi
+		i=$((i + 1))
+	done
+	ok "armada-node did every pass of the cluster network"
 fi
 
 log "passed in $((($(date +%s) - STARTED) / 60)) minutes (scenarios: ${E2E_ONLY:-all})"

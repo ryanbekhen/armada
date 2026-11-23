@@ -69,6 +69,10 @@ type Net struct {
 	// interface are known to be gone; siteClean, those of SiteInterface
 	// once no peer is in another site.
 	nextClean, siteClean bool
+	// prog is what passes through armada-node keep (program_linux.go).
+	prog programRun
+	// goApply is Go's own pass of Apply; tests replace it.
+	goApply func(cfg *armadav1.NetworkConfig, local map[netip.Addr]string) error
 }
 
 // New returns the node's cluster network. Nothing changes on the host until
@@ -81,19 +85,31 @@ func New(cfg Config) (*Net, error) {
 	if log == nil {
 		log = slog.New(slog.DiscardHandler)
 	}
-	return &Net{cfg: cfg, log: log}, nil
+	n := &Net{cfg: cfg, log: log}
+	n.goApply = n.applyGo
+	return n, nil
 }
 
 // Apply makes the tunnel, routes, and firewall rules match cfg. The
 // firewall comes first, so the tunnel never accepts packets from anyone but
-// the current peers.
-func (n *Net) Apply(_ context.Context, cfg *armadav1.NetworkConfig, local map[netip.Addr]string) error {
+// the current peers. With Config.Program, armada-node does the pass, and Go
+// only when it fails.
+func (n *Net) Apply(ctx context.Context, cfg *armadav1.NetworkConfig, local map[netip.Addr]string) error {
+	if done, err := n.viaProgram(ctx, "apply", cfg, local); done {
+		return err
+	}
+	return n.goApply(cfg, local)
+}
+
+// applyGo is Apply in Go.
+func (n *Net) applyGo(cfg *armadav1.NetworkConfig, local map[netip.Addr]string) error {
 	p, err := n.plan(cfg)
 	if err != nil {
 		return err
 	}
 	n.mu.Lock()
 	defer n.mu.Unlock()
+	n.takeOver()
 	if err := n.firewall(p); err != nil {
 		return fmt.Errorf("firewall: %w", err)
 	}
@@ -130,6 +146,9 @@ func (n *Net) Apply(_ context.Context, cfg *armadav1.NetworkConfig, local map[ne
 // Config.MeshCache; without, the list Apply last kept, doing nothing when
 // there is none. Isolation waits for the first Apply.
 func (n *Net) Up(cfg *armadav1.NetworkConfig) error {
+	if done, err := n.viaProgram(context.Background(), "up", cfg, nil); done {
+		return err
+	}
 	if n.cfg.MeshCache == "" {
 		return errors.New("the mesh mode needs a place to keep its peer list")
 	}
@@ -146,6 +165,7 @@ func (n *Net) Up(cfg *armadav1.NetworkConfig) error {
 	}
 	n.mu.Lock()
 	defer n.mu.Unlock()
+	n.takeOver()
 	if err := n.firewall(p); err != nil {
 		return fmt.Errorf("firewall: %w", err)
 	}
@@ -1368,9 +1388,13 @@ func (n *Net) UnreachablePeers() []string {
 	n.mu.Lock()
 	since := maps.Clone(n.wgSince)
 	switching := n.sw.to != ""
+	user := n.user != nil
 	n.mu.Unlock()
 	if switching || len(since) == 0 {
 		return nil
+	}
+	if peers, done := n.unreachableViaProgram(since, user); done {
+		return peers
 	}
 	c, err := wgctrl.New()
 	if err != nil {
@@ -1424,6 +1448,9 @@ func (n *Net) RotateKey() (string, error) {
 	}
 	n.mu.Lock()
 	defer n.mu.Unlock()
+	if pub, done, err := n.rotateViaProgram(); done {
+		return pub, err
+	}
 	k, err := RotateKey(n.cfg.KeyPath)
 	if err != nil {
 		return "", err

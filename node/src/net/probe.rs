@@ -2,14 +2,86 @@
 //! echo request from this node's tunnel address to every peer's, which the
 //! prepare step routes over Next, counting the peers whose reply came in
 //! through Next within the wait.
+//!
+//!   armada-node net probe   stdin: what `net apply` answered as probe
+//!                           ({from, peers: [{node, address}]});
+//!                           stdout: {reached: [node, ...], error}
+//!
+//! It returns within probeWait (two seconds) of sending, so the caller runs
+//! it beside the agent as Go runs its probe: a pass never waits for it.
 
 use super::addr::Addr;
-use super::plan::{NEXT, Peer};
+use super::plan::{NEXT, Plan};
 use super::rules::vtep_addr;
+use super::{read_stdin, write_stdout};
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::io;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 use std::time::{Duration, Instant};
+
+/// probeWait: how long a probe waits for the answers.
+pub const PROBE_WAIT: Duration = Duration::from_secs(2);
+
+/// One peer to ping: its node and tunnel address.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Target {
+    pub node: String,
+    pub address: String,
+}
+
+/// A probe to run: from this node's tunnel address, to every peer's.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Request {
+    pub from: String,
+    pub peers: Vec<Target>,
+}
+
+impl Request {
+    /// The probe of plan p's prepare step.
+    pub fn of(p: &Plan) -> Request {
+        Request {
+            from: vtep_addr(p.self_.subnet()).to_string(),
+            peers: p
+                .peers
+                .iter()
+                .map(|pe| Target {
+                    node: pe.node.clone(),
+                    address: vtep_addr(pe.subnet()).to_string(),
+                })
+                .collect(),
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct Answer {
+    reached: Vec<String>,
+    error: String,
+}
+
+/// armada-node net probe.
+pub fn command() -> Result<(), String> {
+    let req: Request = serde_json::from_slice(&read_stdin()?).map_err(|e| e.to_string())?;
+    let mut targets = Vec::new();
+    for t in &req.peers {
+        let a =
+            Addr::parse(&t.address).ok_or_else(|| format!("invalid address {:?}", t.address))?;
+        targets.push((t.node.clone(), a));
+    }
+    let from = Addr::parse(&req.from).ok_or_else(|| format!("invalid address {:?}", req.from))?;
+    let (reached, error) = match ping(&from, &targets, PROBE_WAIT) {
+        Ok(r) => (r, String::new()),
+        Err((r, e)) => (r, e),
+    };
+    let out = Answer {
+        reached: reached.into_keys().collect(),
+        error,
+    };
+    write_stdout(&serde_json::to_vec(&out).map_err(|e| e.to_string())?)
+}
 
 const ICMP_ECHO: u8 = 8;
 const ICMP_ECHO_REPLY: u8 = 0;
@@ -68,20 +140,35 @@ fn sockaddr(ip: [u8; 4]) -> libc::sockaddr_in {
     sa
 }
 
-/// ping: the peers whose echo reply came in through Next within wait.
-pub fn ping(from: &Addr, peers: &[Peer], wait: Duration) -> Result<BTreeMap<String, bool>, String> {
+type Reached = BTreeMap<String, bool>;
+
+fn fail(r: &Reached, e: String) -> Result<Reached, (Reached, String)> {
+    Err((r.clone(), e))
+}
+
+/// ping: the peers whose echo reply came in through Next within wait. On
+/// an error it returns, as Go's ping does, who answered before it.
+pub fn ping(
+    from: &Addr,
+    peers: &[(String, Addr)],
+    wait: Duration,
+) -> Result<Reached, (Reached, String)> {
     let mut reached = BTreeMap::new();
     if peers.is_empty() {
         return Ok(reached);
     }
-    let name = std::ffi::CString::new(NEXT).map_err(|e| e.to_string())?;
+
+    let name = std::ffi::CString::new(NEXT).map_err(|e| (reached.clone(), e.to_string()))?;
     // SAFETY: name is a valid C string.
     let next = unsafe { libc::if_nametoindex(name.as_ptr()) };
     if next == 0 {
-        return Err(format!("route ip+net: no such network interface {NEXT}"));
+        return fail(
+            &reached,
+            format!("route ip+net: no such network interface {NEXT}"),
+        );
     }
     let Addr::V4(self_ip) = from else {
-        return Err(format!("open an ICMP socket: {from} is not IPv4"));
+        return fail(&reached, format!("open an ICMP socket: {from} is not IPv4"));
     };
     // SAFETY: plain system calls on a descriptor this function owns.
     let fd = unsafe {
@@ -91,10 +178,10 @@ pub fn ping(from: &Addr, peers: &[Peer], wait: Duration) -> Result<BTreeMap<Stri
             libc::IPPROTO_ICMP,
         );
         if fd < 0 {
-            return Err(format!(
-                "open an ICMP socket: {}",
-                io::Error::last_os_error()
-            ));
+            return fail(
+                &reached,
+                format!("open an ICMP socket: {}", io::Error::last_os_error()),
+            );
         }
         OwnedFd::from_raw_fd(fd)
     };
@@ -109,10 +196,10 @@ pub fn ping(from: &Addr, peers: &[Peer], wait: Duration) -> Result<BTreeMap<Stri
             size_of::<libc::sockaddr_in>() as libc::socklen_t,
         ) < 0
         {
-            return Err(format!(
-                "open an ICMP socket: {}",
-                io::Error::last_os_error()
-            ));
+            return fail(
+                &reached,
+                format!("open an ICMP socket: {}", io::Error::last_os_error()),
+            );
         }
         if libc::setsockopt(
             raw,
@@ -122,16 +209,16 @@ pub fn ping(from: &Addr, peers: &[Peer], wait: Duration) -> Result<BTreeMap<Stri
             size_of::<libc::c_int>() as libc::socklen_t,
         ) < 0
         {
-            return Err(io::Error::last_os_error().to_string());
+            return fail(&reached, io::Error::last_os_error().to_string());
         }
     }
     let id = random_id();
     let mut by_addr = BTreeMap::new();
-    for (i, pe) in peers.iter().enumerate() {
-        let Addr::V4(to) = vtep_addr(pe.subnet()) else {
+    for (i, (node, to)) in peers.iter().enumerate() {
+        let Addr::V4(to) = *to else {
             continue;
         };
-        by_addr.insert(to, pe.node.clone());
+        by_addr.insert(to, node.clone());
         let b = echo(id, i as u16);
         let dst = sockaddr(to);
         // SAFETY: b and dst are valid for their lengths; a failed send is
@@ -186,7 +273,7 @@ pub fn ping(from: &Addr, peers: &[Peer], wait: Duration) -> Result<BTreeMap<Stri
                 if matches!(e.raw_os_error(), Some(libc::EAGAIN) | Some(libc::EINTR)) {
                     continue;
                 }
-                return Err(e.to_string());
+                return fail(&reached, e.to_string());
             }
             let mut ifindex = 0;
             let mut cm = libc::CMSG_FIRSTHDR(&raw const mh);

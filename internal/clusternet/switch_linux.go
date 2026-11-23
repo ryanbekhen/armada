@@ -66,32 +66,38 @@ func (n *Net) track(p plan, err error) {
 	case p.step == SwitchMove:
 		n.sw.moved = err == nil
 	case err == nil && !n.sw.probing:
-		n.sw.probing = true
-		// The probe runs in the caller's network namespace, which a
-		// goroutine's thread is not bound to (tests run nodes in
-		// namespaces of their own).
-		ns, err := netns.Get()
-		if err != nil {
-			n.sw.probing = false
-			n.sw.err = fmt.Sprintf("probe the target transport: %v", err)
-			return
-		}
-		go n.probe(p, ns)
+		n.startProbe(p.switchTo, p.step, func() (map[string]bool, error) {
+			return ping(vtepAddr(p.self.subnet), p.peers, probeWait)
+		})
 	}
+}
+
+// startProbe starts a probe of the switch to to in its step, which runs
+// ping beside the agent. n.mu is held.
+func (n *Net) startProbe(to, step string, ping func() (map[string]bool, error)) {
+	n.sw.probing = true
+	// The probe runs in the caller's network namespace, which a
+	// goroutine's thread is not bound to (tests run nodes in namespaces
+	// of their own).
+	ns, err := netns.Get()
+	if err != nil {
+		n.sw.probing = false
+		n.sw.err = fmt.Sprintf("probe the target transport: %v", err)
+		return
+	}
+	go n.probe(to, step, ns, ping)
 }
 
 // probe pings every peer's tunnel address over Next from the network
 // namespace ns and records who answered through it, then waits before the
 // next probe may start.
-func (n *Net) probe(p plan, ns netns.NsHandle) {
-	reached, err := inNamespace(ns, func() (map[string]bool, error) {
-		return ping(vtepAddr(p.self.subnet), p.peers, probeWait)
-	})
+func (n *Net) probe(to, step string, ns netns.NsHandle, ping func() (map[string]bool, error)) {
+	reached, err := inNamespace(ns, ping)
 	if err != nil {
 		n.log.Warn("probe the cluster network's target transport", "err", err)
 	}
 	n.mu.Lock()
-	if n.sw.to == p.switchTo && n.sw.step == p.step {
+	if n.sw.to == to && n.sw.step == step {
 		n.sw.reached, n.sw.probed = reached, true
 	}
 	n.mu.Unlock()

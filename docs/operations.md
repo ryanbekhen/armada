@@ -1092,6 +1092,29 @@ replaced. Clusters created
 by an Armada without the cluster network keep one bridge subnet on every
 node (`--container-subnet`, default `10.121.0.0/24`).
 
+### The cluster network in armada-node
+
+The node agent is moving to Rust (ADR 0054), and its cluster network is
+ready to try on a node before it becomes the default: with
+`"netAgent": "rust"` in the node's `/var/lib/armada/agent.json`, the agent
+sets up the tunnels, routes, firewall rules, and isolation tables through
+the runtime pack's `armada-node`, and `armadad doctor` and `armadad
+runtime reset` use it too. Anything else, or no such field, keeps the
+agent's own code. Nothing about the network changes: both set up the same
+interfaces and rules. The setting is experimental, and goes away once
+armada-node is the default. Restart the node's service after the change:
+
+```bash
+sudo sed -i '1s/^{$/{\n  "netAgent": "rust",/' /var/lib/armada/agent.json
+sudo systemctl restart armada-agent           # armada-server on a control plane server
+journalctl -u armada-agent | grep armada-node # "armada-node applies the cluster network"
+```
+
+When armada-node fails a pass, the agent does that pass itself and logs
+`armada-node failed; Go did it instead` with the reason, once for each new
+reason. A node whose kernel has no WireGuard runs it in userspace inside
+the agent as before. Remove the line (and restart) to go back.
+
 ## How requests reach replicas
 
 Every node's HAProxy serves the app's public domains and `<app>.internal`,

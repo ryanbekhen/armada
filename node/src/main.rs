@@ -28,9 +28,12 @@ fn run() -> Result<(), String> {
         ["net", "firewall", op] => net::firewall::command(op),
         ["net", op @ ("apply" | "up")] => net::apply::command(op),
         ["net", "remove"] => net::apply::remove_command(),
+        ["net", "probe"] => net::probe::command(),
+        ["net", "unreachable"] => net::apply::unreachable_command(),
+        ["net", "diagnose"] => net::diagnose::command(),
         ["net", "netlink", op] => net::nlcheck::command(op),
         _ => Err(format!(
-            "unknown command {args:?}; try: proxy render, net plan, net key [rotate] PATH, net cache save|load PATH, net firewall nft|iptables|apply|remove, net apply|up|remove, net netlink encode|show|wg-parse"
+            "unknown command {args:?}; try: proxy render, net plan, net key [rotate] PATH, net cache save|load PATH, net firewall nft|iptables|apply|remove, net apply|up|remove, net probe, net unreachable, net diagnose, net netlink encode|show|wg-parse"
         )),
     }
 }

@@ -17,6 +17,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/vishvananda/netlink"
 	"github.com/vishvananda/netns"
@@ -31,7 +32,8 @@ import (
 // the same node with the same key, and after every pass compares what the
 // kernel holds: interfaces, addresses, routes, neighbour and forwarding
 // entries, WireGuard devices (handshakes and counters masked), nftables,
-// and iptables, plus the kept peer list and each pass's error. It ends
+// and iptables, plus the kept peer list, each pass's error, the switch
+// status, the peers UnreachablePeers names, and doctor's checks. It ends
 // with Remove on both. It needs root, the kernel's VXLAN and WireGuard,
 // and ip, bridge, wg, nft, and iptables-save:
 //
@@ -194,10 +196,15 @@ func TestIntegrationNetParity(t *testing.T) {
 			t.Fatalf("%s: the passes end differently:\n Go:          %q\n armada-node: %q", p.name, errs["go"], errs["rust"])
 		}
 		if r, ok := impls["rust"].(*rustNet); ok {
-			t.Logf("%s: armada-node did %q", p.name, r.done)
+			t.Logf("%s: armada-node did %q", p.name, r.done())
 		}
 		compareKernels(t, p.name, sides)
 		compareCaches(t, p.name, cache)
+		mode := ModePlain
+		if p.cfg != nil {
+			mode = p.cfg.GetMode()
+		}
+		compareReadings(t, p.name, bin, sides, impls, mode, nodeCfg("go"), cache)
 	}
 
 	// The mesh mode: a node whose private IP is its mesh address.
@@ -240,6 +247,9 @@ func TestIntegrationNetParity(t *testing.T) {
 		}
 		compareKernels(t, step, sides)
 		compareCaches(t, step, cache)
+		mcfg := nodeCfg("go")
+		mcfg.PrivateIP = netip.MustParseAddr("10.122.0.1")
+		compareReadings(t, step, bin, sides, impls, ModeMesh, mcfg, cache)
 	}
 
 	// A node that leaves.
@@ -254,6 +264,58 @@ func TestIntegrationNetParity(t *testing.T) {
 		}
 	}
 	compareKernels(t, "removed", sides)
+}
+
+// compareReadings fails the test when the two sides tell differently of
+// the network they hold: the switch status, the peers with no recent
+// handshake (with every peer configured long enough ago), and doctor's
+// checks, Go's against armada-node's.
+func compareReadings(t *testing.T, when, bin string, sides map[string]*switchNode, impls map[string]netImpl, mode string, cfg Config, cache map[string]string) {
+	t.Helper()
+	// A probe a pass started ends within probeWait: wait for it on both
+	// sides, so the statuses compare what each probe found.
+	for _, impl := range impls {
+		deadline := time.Now().Add(2 * probeEvery)
+		for probeRunning(impl) && time.Now().Before(deadline) {
+			time.Sleep(100 * time.Millisecond)
+		}
+	}
+	got := map[string]string{}
+	for side, s := range sides {
+		age(impls[side], 4*time.Minute)
+		var checks []Check
+		var unreachable []string
+		_ = s.in(t, func() error {
+			unreachable = impls[side].UnreachablePeers()
+			sites := Sites{Cache: cache[side], Node: cfg.Node}
+			if side == "rust" {
+				var ok bool
+				if checks, ok = diagnoseVia(bin, mode, cfg.PrivateIP, cfg.Endpoint, sites); !ok {
+					t.Errorf("%s: armada-node net diagnose failed", when)
+				}
+			} else {
+				checks = Diagnose(mode, cfg.PrivateIP, cfg.Endpoint, sites)
+			}
+			return nil
+		})
+		b, _ := json.Marshal(map[string]any{"switch": impls[side].SwitchStatus(), "unreachable": unreachable, "checks": checks})
+		got[side] = string(b)
+	}
+	if got["go"] != got["rust"] {
+		t.Errorf("%s: the readings differ:\n Go:          %s\n armada-node: %s", when, got["go"], got["rust"])
+	}
+}
+
+// probeRunning reports whether the first probe of a prepare step has not
+// ended yet.
+func probeRunning(n netImpl) bool {
+	net := netOf(n)
+	if net == nil {
+		return false
+	}
+	net.mu.Lock()
+	defer net.mu.Unlock()
+	return net.sw.step == SwitchPrepare && net.sw.probing && !net.sw.probed
 }
 
 // compareKernels fails the test when the two namespaces hold different

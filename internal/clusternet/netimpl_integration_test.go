@@ -3,37 +3,37 @@
 package clusternet
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
-	"errors"
-	"fmt"
 	"net/netip"
 	"os"
-	"os/exec"
-	"strings"
 	"testing"
-
-	"google.golang.org/protobuf/encoding/protojson"
+	"time"
 
 	armadav1 "github.com/ryanbekhen/armada/api/armada/v1"
 )
 
 // netImpl is the cluster network one node of the integration tests runs:
-// this package's Net, or, with ARMADA_NET_IMPL=rust, armada-node's (ADR
-// 0054), which ARMADA_NODE_BIN names. Each method runs on a thread in the
-// node's network namespace (switchNode.in), which armada-node inherits.
+// this package's Net in Go, or, with ARMADA_NET_IMPL=rust, the same Net
+// running armada-node (ADR 0054), which ARMADA_NODE_BIN names, as a node
+// with agent.json netAgent "rust" does, but with no fallback to Go, so
+// armada-node's own errors fail the test. Each method runs on a thread in
+// the node's network namespace (switchNode.in), which armada-node
+// inherits.
 type netImpl interface {
 	Apply(ctx context.Context, cfg *armadav1.NetworkConfig, local map[netip.Addr]string) error
 	Up(cfg *armadav1.NetworkConfig) error
 	SwitchStatus() *armadav1.NetworkSwitchStatus
+	UnreachablePeers() []string
 }
+
+// rustImpl reports whether the tests run armada-node.
+func rustImpl() bool { return os.Getenv("ARMADA_NET_IMPL") == "rust" }
 
 // newNetImpl returns the node's cluster network in the implementation
 // ARMADA_NET_IMPL picks.
 func newNetImpl(t *testing.T, cfg Config) netImpl {
 	t.Helper()
-	if os.Getenv("ARMADA_NET_IMPL") != "rust" {
+	if !rustImpl() {
 		n, err := New(cfg)
 		if err != nil {
 			t.Fatal(err)
@@ -43,123 +43,85 @@ func newNetImpl(t *testing.T, cfg Config) netImpl {
 	return newRustNet(t, cfg)
 }
 
+// rustNet is a Net that runs armada-node for everything it can, with no
+// fallback to Go.
+type rustNet struct {
+	*Net
+}
+
 func newRustNet(t *testing.T, cfg Config) *rustNet {
 	t.Helper()
 	bin := os.Getenv("ARMADA_NODE_BIN")
 	if bin == "" {
 		t.Fatal("ARMADA_NET_IMPL=rust needs ARMADA_NODE_BIN (make node)")
 	}
-	return &rustNet{t: t, bin: bin, cfg: cfg, state: json.RawMessage("null")}
-}
-
-// rustNet runs armada-node net apply and net up, keeping between passes
-// the state Go's Net keeps in memory.
-type rustNet struct {
-	t     *testing.T
-	bin   string
-	cfg   Config
-	state json.RawMessage
-	sw    *armadav1.NetworkSwitchStatus
-	// done is what the last pass changed.
-	done []string
-}
-
-// rustAnswer is what armada-node net apply and net up print.
-type rustAnswer struct {
-	Error          string          `json:"error"`
-	NeedsUserspace bool            `json:"needsUserspace"`
-	State          json.RawMessage `json:"state"`
-	Switch         *struct {
-		To        string   `json:"to"`
-		Step      string   `json:"step"`
-		Ready     bool     `json:"ready"`
-		Unreached []string `json:"unreached"`
-		Error     string   `json:"error"`
-	} `json:"switch"`
-	Done []string `json:"done"`
-	Log  []string `json:"log"`
-}
-
-// errNeedsUserspace: armada-node leaves the userspace WireGuard device to
-// the Go agent.
-var errNeedsUserspace = errors.New("armada-node: the pass needs the userspace WireGuard device")
-
-func (r *rustNet) run(op string, cfg *armadav1.NetworkConfig, local map[netip.Addr]string) error {
-	config := json.RawMessage("null")
-	if cfg != nil {
-		b, err := protojson.Marshal(cfg)
-		if err != nil {
-			return err
-		}
-		config = b
-	}
-	key, endpoint := "", ""
-	if !r.cfg.Key.IsZero() {
-		key = r.cfg.Key.k.String()
-	}
-	if r.cfg.Endpoint.IsValid() {
-		endpoint = r.cfg.Endpoint.String()
-	}
-	in, err := json.Marshal(map[string]any{"Config": config, "Node": r.cfg.Node, "PrivateIP": r.cfg.PrivateIP.String(),
-		"Endpoint": endpoint, "MeshCache": r.cfg.MeshCache, "UplinkMTU": r.cfg.UplinkMTU, "Key": key, "Local": local,
-		"State": r.state})
+	cfg.Program = func() string { return bin }
+	n, err := New(cfg)
 	if err != nil {
-		return err
+		t.Fatal(err)
 	}
-	// Run on this (locked) thread, so the program starts in its network
-	// namespace.
-	cmd := exec.Command(r.bin, "net", op)
-	cmd.Stdin = bytes.NewReader(in)
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	out, runErr := cmd.Output()
-	var a rustAnswer
-	if err := json.Unmarshal(out, &a); err != nil {
-		return fmt.Errorf("armada-node net %s: %w: %s", op, runErr, strings.TrimSpace(stderr.String()))
-	}
-	r.state, r.done = a.State, a.Done
-	r.sw = nil
-	if a.Switch != nil {
-		r.sw = &armadav1.NetworkSwitchStatus{To: a.Switch.To, Step: a.Switch.Step, Ready: a.Switch.Ready, Unreached: a.Switch.Unreached, Error: a.Switch.Error}
-	}
-	for _, l := range a.Log {
-		r.t.Logf("armada-node %s: %s", r.cfg.Node, l)
-	}
-	switch {
-	case a.NeedsUserspace:
-		return errNeedsUserspace
-	case a.Error != "":
-		return errors.New(a.Error)
+	n.prog.noFallback = true
+	return &rustNet{Net: n}
+}
+
+// done is what armada-node's last pass changed.
+func (r *rustNet) done() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.prog.done
+}
+
+// netOf is the Net of an implementation.
+func netOf(n netImpl) *Net {
+	switch x := n.(type) {
+	case *Net:
+		return x
+	case *rustNet:
+		return x.Net
 	}
 	return nil
 }
 
-func (r *rustNet) Apply(_ context.Context, cfg *armadav1.NetworkConfig, local map[netip.Addr]string) error {
-	return r.run("apply", cfg, local)
-}
-
-func (r *rustNet) Up(cfg *armadav1.NetworkConfig) error {
-	return r.run("up", cfg, nil)
-}
-
-func (r *rustNet) SwitchStatus() *armadav1.NetworkSwitchStatus {
-	return r.sw
+// age moves back when n first configured each WireGuard peer, so
+// UnreachablePeers counts every peer without a recent handshake.
+func age(n netImpl, by time.Duration) {
+	net := netOf(n)
+	if net == nil {
+		return
+	}
+	net.mu.Lock()
+	defer net.mu.Unlock()
+	for k, s := range net.wgSince {
+		s.since = s.since.Add(-by)
+		net.wgSince[k] = s
+	}
 }
 
 // removeNet takes the cluster network off the node in the implementation
 // ARMADA_NET_IMPL picks (Remove, or armada-node net remove), on a thread in
 // the node's namespace.
 func removeNet() error {
-	if os.Getenv("ARMADA_NET_IMPL") != "rust" {
+	if !rustImpl() {
 		return Remove()
 	}
 	return removeRust(os.Getenv("ARMADA_NODE_BIN"))
 }
 
 func removeRust(bin string) error {
-	out, err := exec.Command(bin, "net", "remove").CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("armada-node net remove: %w: %s", err, strings.TrimSpace(string(out)))
+	_, err := runProgram(context.Background(), bin, nil, "net", "remove")
+	return err
+}
+
+// diagnoseImpl is doctor's checks in the implementation ARMADA_NET_IMPL
+// picks, armada-node's with no fallback to Go.
+func diagnoseImpl(t *testing.T, mode string, ip, endpoint netip.Addr, sites Sites) []Check {
+	t.Helper()
+	if !rustImpl() {
+		return Diagnose(mode, ip, endpoint, sites)
 	}
-	return nil
+	out, ok := diagnoseVia(os.Getenv("ARMADA_NODE_BIN"), mode, ip, endpoint, sites)
+	if !ok {
+		t.Fatal("armada-node net diagnose failed")
+	}
+	return out
 }

@@ -14,6 +14,7 @@ import (
 	"github.com/ryanbekhen/armada/internal/agent"
 	"github.com/ryanbekhen/armada/internal/clusternet"
 	"github.com/ryanbekhen/armada/internal/fsutil"
+	"github.com/ryanbekhen/armada/internal/runtime/embedded"
 )
 
 // Data directory layout. Every file holding key material is mode 0600 and
@@ -81,6 +82,24 @@ type agentConfig struct {
 	// MTU, when set, is the largest packet the machine's line carries
 	// (`--mtu`): tunnels and containers take their overhead from it.
 	MTU int `json:"mtu,omitempty"`
+	// NetAgent "rust" runs the cluster network through the runtime pack's
+	// armada-node (ADR 0054), with Go's own code doing a pass armada-node
+	// fails; anything else, or nothing, is Go's. Set by hand (or the
+	// end-to-end tests' E2E_NET_AGENT) until it is the default.
+	NetAgent string `json:"netAgent,omitempty"`
+}
+
+// netAgentRust is agentConfig.NetAgent's value for armada-node.
+const netAgentRust = "rust"
+
+// netProgram returns the function that finds armada-node for the cluster
+// network: nil unless the node opted in (NetAgent), else the runtime
+// pack's armada-node while it is there.
+func (c agentConfig) netProgram(dataDir string) func() string {
+	if c.NetAgent != netAgentRust {
+		return nil
+	}
+	return packProgram(dataDir, embedded.BinNode)
 }
 
 // endpoint returns the node's mesh endpoint, or the zero address.
