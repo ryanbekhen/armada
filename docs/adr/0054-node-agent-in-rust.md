@@ -97,7 +97,85 @@ program.
    runtime spec as the Go driver does (containerd's default spec, the
    driver's options, the image's users and groups, seccomp, AppArmor),
    and `armada-node runtime check` applies `CheckContainerSpec`; no node
-   uses them yet.
+   uses them yet. Second part: `armada-node runtime pull`, `images`, and
+   `prune` pull images into the Rust runtime's image store (below) as the
+   Go driver pulls them; no node uses them yet, and layers are not
+   unpacked until the third part (snapshots), which also brings the
+   conversion of the stores below.
+
+### The runtime's move: image store and migration
+
+The Rust runtime owns its own store. Every node, once upgraded, has its
+images in that store and its containers run by the Rust runtime; no node
+is left on Go's runtime, and moving does not pull every image again.
+
+**The image store** lives under `<data dir>/node/images/`:
+
+- `content/blobs/<algorithm>/<hex>`: every blob (indexes, manifests,
+  configs, layers) as a plain read-only file named by its digest, the
+  layout of the content store the supervisor runtime keeps today, so
+  moving a blob is a hard link or a rename on the same file system, never
+  a copy. A download goes to `content/ingest/` first and is renamed into
+  place only once its size and digest match.
+- `index.json`: one record per image name (the normalized reference):
+  the target the name resolved to, the manifest chosen for the node's
+  platform, its config, layers, diff IDs, and chain ID, the platforms the
+  image offers, labels (`armada.pulled-with/<key>`, which say whose
+  credentials the registry let read the image), and when it was pulled
+  and last changed; beside the records, the layer blobs shown to
+  decompress to a diff ID, so a layer is checked once per node. It is
+  written whole to a temporary file and renamed.
+- `layers/<chain ID hex>/`: one unpacked layer per chain ID, the
+  directories overlay mounts name as lower directories (third part).
+- `pull.lock` and `index.lock`: a pull holds the first shared from its
+  first fetch to its record, a collection of unused blobs and layers holds
+  it exclusively (a collection that would wait is left to the last pull
+  to end); the second guards each change of `index.json`, so separate
+  `armada-node` processes share the store safely.
+
+Pulls keep every rule of the Go driver: HTTPS only (redirects and token
+services included), at most 10 redirects, no connection to a link-local,
+unspecified, multicast, or broadcast address, an HTTPS proxy only when the
+environment names one, credentials only to the registry they were given
+for, the platform chosen as Go chooses it, every blob checked against its
+digest, every layer checked to decompress to its diff ID, a blob this
+pull did not download used only when an image pulled with the same
+credentials holds it, and a digest-pinned image on the node reused only
+under the same credentials (or once the registry answered for them).
+
+**Migration on upgrade.** The release that makes the Rust runtime a
+node's runtime converts the node while Go still ships:
+
+1. Before the runtime starts, `armadad` (Go) reads the supervisor store
+   (`<data dir>/supervisor/images`: the content store, the overlay
+   snapshotter's `metadata.db`, and `images.json`) and writes the Rust
+   layout: blobs hard-linked into `content/`, each record converted with
+   its labels, committed snapshots renamed to `layers/<chain ID hex>/`
+   (same file system; a running container's overlay mount keeps the
+   directories it was mounted with, since the kernel holds them, not their
+   paths, until the container is recreated), and the index written last.
+2. It verifies the result: every blob's digest, every record's manifest,
+   config, and layers present, every chain ID's directory present. An
+   image that cannot be converted (a blob or layer missing, a record that
+   does not parse) is left out and pulled again when a replica needs it;
+   nothing else is pulled again.
+3. The old store is collected once no container uses it: running
+   containers keep their root filesystems (their active snapshots) where
+   they are; each one goes with its container, and the rest of
+   `<data dir>/supervisor/images` goes with the last.
+4. Nodes still on the containerd runtime are moved to the supervisor
+   first, automatically and one node at a time: the leader drains the
+   node (its replicas start elsewhere first), the node runs `armadad
+   runtime migrate`, and the replicas come back, since every container on
+   such a node has to be recreated. A cluster with one node waits for its
+   operator.
+5. Each node reports where it stands (containerd, converting, converted,
+   images left to pull again), shown per node by `armada cluster status`
+   and on the machine by `armadad doctor`.
+
+Go's runtime code is removed only once every node of a cluster reports
+converted; a node that has not is refused by a release without it
+(`armadad upgrade` and `armadad doctor` say why).
 5. **Sessions and readings.** Exec, volume archives and backups (the
    repository format of ADR 0041, which the Go control plane also writes),
    NFS mounts, queue lengths, usage, and connection tracking.

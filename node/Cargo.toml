@@ -9,7 +9,12 @@ publish = false
 # Crates under the licenses of ADR 0054 only, checked from Cargo.lock in CI
 # (cargo deny, deny.toml) and listed in THIRD_PARTY_NOTICES.md.
 [dependencies]
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 libc = "0.2"
+ruzstd = { version = "0.8", default-features = false, features = ["std", "hash"] }
+# TLS for registries with the ring provider (its C and assembly are built
+# with clang for both targets, see .cargo/config.toml).
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"

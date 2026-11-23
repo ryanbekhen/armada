@@ -1,5 +1,6 @@
-# Static binaries linked with the linker Rust ships, so no C cross
-# toolchain is needed for either architecture.
+# Static binaries linked with the linker Rust ships. The one crate with C
+# and assembly (ring, rustls' cryptography) is compiled with clang, which
+# targets both architectures by itself, so no C cross toolchain is needed.
 [target.x86_64-unknown-linux-musl]
 linker = "rust-lld"
 rustflags = ["-C", "target-feature=+crt-static"]
@@ -7,3 +8,7 @@ rustflags = ["-C", "target-feature=+crt-static"]
 [target.aarch64-unknown-linux-musl]
 linker = "rust-lld"
 rustflags = ["-C", "target-feature=+crt-static"]
+
+[env]
+CC_x86_64_unknown_linux_musl = "clang"
+CC_aarch64_unknown_linux_musl = "clang"

@@ -121,6 +121,10 @@ func OpenImages(root string) (*Images, error) {
 	return s, nil
 }
 
+// UseApplier replaces what applies layers: for tests that run without the
+// privileges mounting a layer needs. Nodes never call it.
+func (s *Images) UseApplier(a diff.Applier) { s.applier = a }
+
 // Close releases the snapshotter's metadata.
 func (s *Images) Close() error { return s.snap.Close() }
 

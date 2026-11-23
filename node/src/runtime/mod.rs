@@ -16,11 +16,13 @@
 //!
 //! Go's TestArmadaNodeSpecMatchesGo, TestArmadaNodeCheckMatchesGo,
 //! TestArmadaNodeSeccompMatchesGo, and TestArmadaNodeAppArmorMatchesGo
-//! (internal/runtime/containerd) compare them with Go.
+//! (internal/runtime/containerd) compare them with Go. Image pulls and the
+//! image store are in image/ (runtime pull, images, prune).
 
 mod apparmor;
 mod check;
 mod gopath;
+pub mod image;
 mod oci;
 mod seccomp;
 mod spec;

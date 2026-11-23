@@ -2,6 +2,8 @@ package containerd
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"io"
@@ -21,6 +23,11 @@ import (
 
 // maxRegistryRedirects bounds the redirects one registry request follows.
 const maxRegistryRedirects = 10
+
+// testRegistryRoots, when set (by tests only), are the roots registry
+// clients trust instead of the machine's, so tests can run registries of
+// their own. Nodes never set it.
+var testRegistryRoots *x509.CertPool
 
 // errPlainRegistry refuses a registry request that is not HTTPS.
 var errPlainRegistry = errors.New("registry requests must use https")
@@ -79,6 +86,14 @@ func guardRegistryClient(c *http.Client) error {
 		return fmt.Errorf("registry client: unexpected transport %T", c.Transport)
 	}
 	tr = tr.Clone()
+	if testRegistryRoots != nil {
+		cfg := &tls.Config{MinVersion: tls.VersionTLS12}
+		if tr.TLSClientConfig != nil {
+			cfg = tr.TLSClientConfig.Clone()
+		}
+		cfg.RootCAs = testRegistryRoots
+		tr.TLSClientConfig = cfg
+	}
 	tr.DialContext = (&net.Dialer{
 		Timeout:   30 * time.Second,
 		KeepAlive: 30 * time.Second,
