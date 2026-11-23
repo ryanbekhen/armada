@@ -1,6 +1,6 @@
 # 0054. The node agent moves to Rust
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-23
 
 ## Context
