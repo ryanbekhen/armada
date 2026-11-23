@@ -23,8 +23,10 @@ type chunker struct {
 	eof  bool
 }
 
-func newChunker(r io.Reader, gear *[256]uint64) *chunker {
-	return &chunker{r: r, gear: gear, buf: make([]byte, maxChunk)}
+// newChunker reads r through buf, which holds maxChunk bytes and can be
+// used again once the chunker is done.
+func newChunker(r io.Reader, gear *[256]uint64, buf []byte) *chunker {
+	return &chunker{r: r, gear: gear, buf: buf[:maxChunk]}
 }
 
 // next returns the next chunk, valid until the following call, or io.EOF.

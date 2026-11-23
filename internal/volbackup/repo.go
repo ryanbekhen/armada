@@ -13,12 +13,15 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/klauspost/compress/zstd"
+	"golang.org/x/sync/semaphore"
 
 	"github.com/ryanbekhen/armada/internal/spec"
 )
@@ -38,8 +41,18 @@ const (
 	chunkGrace = time.Hour
 	// snapshotTime starts a snapshot's ID, so IDs sort by time.
 	snapshotTime = "20060102T150405.000Z"
-	// uploads is how many chunks are written at once.
-	uploads = 4
+	// uploads is how many objects are written at once, holding at most
+	// uploadBytes: a bucket answers each after a round trip, and small
+	// files make many small objects.
+	uploads     = 32
+	uploadBytes = 64 << 20
+	// maxPackers bounds the chunks compressed and sealed at once.
+	maxPackers = 4
+	// fetches is how many chunks a restore reads at once, holding at most
+	// fetchBytes ahead; decoders bounds those decompressed at once.
+	fetches    = 32
+	fetchBytes = 64 << 20
+	decoders   = 4
 )
 
 var (
@@ -175,13 +188,20 @@ func (r *Repo) Backup(ctx context.Context, dir, node string, now time.Time) (Sna
 	if err != nil {
 		return Snapshot{}, Stats{}, err
 	}
-	enc, err := zstd.NewWriter(nil, zstd.WithEncoderLevel(zstd.SpeedDefault), zstd.WithEncoderConcurrency(1))
+	enc, err := newEncoder()
 	if err != nil {
 		return Snapshot{}, Stats{}, err
 	}
 	defer enc.Close()
 
 	up := newUploader(ctx, r)
+	pk, err := newPacker(up, packers())
+	if err != nil {
+		return Snapshot{}, Stats{}, err
+	}
+	// One buffer for every file's chunks: most files are far smaller than
+	// a chunk.
+	buf := make([]byte, maxChunk)
 	var st Stats
 	m := manifest{Version: repoVersion, Time: now.UTC(), Node: node}
 	root, err := os.OpenRoot(dir)
@@ -215,7 +235,7 @@ func (r *Repo) Backup(ctx context.Context, dir, node string, now time.Time) (Sna
 				return err
 			}
 			defer f.Close()
-			c := newChunker(f, &r.k.gear)
+			c := newChunker(f, &r.k.gear, buf)
 			for {
 				chunk, err := c.next()
 				if errors.Is(err, io.EOF) {
@@ -231,10 +251,8 @@ func (r *Repo) Backup(ctx context.Context, dir, node string, now time.Time) (Sna
 					continue
 				}
 				have[id] = true
-				sealed := r.k.seal(r.chunkKey(id), enc.EncodeAll(chunk, nil))
 				st.NewBytes += int64(len(chunk))
-				st.Uploaded += int64(len(sealed))
-				if err := up.put(r.chunkKey(id), sealed); err != nil {
+				if err := pk.add(r.chunkKey(id), chunk); err != nil {
 					return err
 				}
 			}
@@ -246,6 +264,7 @@ func (r *Repo) Backup(ctx context.Context, dir, node string, now time.Time) (Sna
 		m.Entries = append(m.Entries, e)
 		return nil
 	})
+	st.Uploaded = pk.close()
 	if err := up.wait(); walkErr == nil {
 		walkErr = err
 	}
@@ -272,11 +291,80 @@ func (r *Repo) Backup(ctx context.Context, dir, node string, now time.Time) (Sna
 
 func (r *Repo) chunkKey(id string) string { return r.root + chunksDir + id[:2] + "/" + id }
 
-// uploader writes chunks a few at a time and keeps the first error.
+// newEncoder makes a zstd encoder for chunks and manifests.
+func newEncoder() (*zstd.Encoder, error) {
+	return zstd.NewWriter(nil, zstd.WithEncoderLevel(zstd.SpeedDefault), zstd.WithEncoderConcurrency(1))
+}
+
+// packers is how many chunks a backup compresses and seals at once: up to
+// maxPackers, leaving a CPU to the node's apps.
+func packers() int { return max(1, min(runtime.GOMAXPROCS(0)-1, maxPackers)) }
+
+// packer compresses and seals chunks on a few goroutines, each with its
+// own encoder, and hands them to the uploader. Chunks are named by their
+// content, so the order they are written in does not matter.
+type packer struct {
+	up       *uploader
+	jobs     chan packJob
+	wg       sync.WaitGroup
+	uploaded atomic.Int64
+}
+
+type packJob struct {
+	key   string
+	chunk []byte
+}
+
+func newPacker(up *uploader, n int) (*packer, error) {
+	p := &packer{up: up, jobs: make(chan packJob)}
+	for range n {
+		enc, err := newEncoder()
+		if err != nil {
+			p.close()
+			return nil, err
+		}
+		p.wg.Go(func() {
+			defer enc.Close()
+			for j := range p.jobs {
+				if up.failed() != nil {
+					continue // the backup fails; let add return
+				}
+				sealed := up.r.k.seal(j.key, enc.EncodeAll(j.chunk, nil))
+				p.uploaded.Add(int64(len(sealed)))
+				_ = up.put(j.key, sealed) // a failure is kept by the uploader
+			}
+		})
+	}
+	return p, nil
+}
+
+// add hands a chunk over, waiting while every packer is busy.
+func (p *packer) add(key string, chunk []byte) error {
+	select {
+	case p.jobs <- packJob{key, chunk}:
+		return nil
+	case <-p.up.ctx.Done():
+		if err := p.up.failed(); err != nil {
+			return err
+		}
+		return p.up.ctx.Err()
+	}
+}
+
+// close waits for the chunks handed over and returns the bytes sealed.
+func (p *packer) close() int64 {
+	close(p.jobs)
+	p.wg.Wait()
+	return p.uploaded.Load()
+}
+
+// uploader writes objects many at a time, within uploadBytes, and keeps
+// the first error.
 type uploader struct {
 	ctx  context.Context
 	r    *Repo
-	sem  chan struct{}
+	sem  *semaphore.Weighted
+	n    chan struct{}
 	wg   sync.WaitGroup
 	mu   sync.Mutex
 	err  error
@@ -285,7 +373,7 @@ type uploader struct {
 
 func newUploader(ctx context.Context, r *Repo) *uploader {
 	ctx, cancel := context.WithCancel(ctx)
-	return &uploader{ctx: ctx, r: r, sem: make(chan struct{}, uploads), stop: cancel}
+	return &uploader{ctx: ctx, r: r, sem: semaphore.NewWeighted(uploadBytes), n: make(chan struct{}, uploads), stop: cancel}
 }
 
 func (u *uploader) failed() error {
@@ -295,16 +383,27 @@ func (u *uploader) failed() error {
 }
 
 func (u *uploader) put(key string, data []byte) error {
+	size := min(int64(len(data)), uploadBytes)
+	if err := u.sem.Acquire(u.ctx, size); err != nil {
+		if err := u.failed(); err != nil {
+			return err
+		}
+		return u.ctx.Err()
+	}
 	select {
-	case u.sem <- struct{}{}:
+	case u.n <- struct{}{}:
 	case <-u.ctx.Done():
+		u.sem.Release(size)
 		if err := u.failed(); err != nil {
 			return err
 		}
 		return u.ctx.Err()
 	}
 	u.wg.Go(func() {
-		defer func() { <-u.sem }()
+		defer func() {
+			<-u.n
+			u.sem.Release(size)
+		}()
 		if err := u.r.obj.Put(u.ctx, key, data); err != nil {
 			u.mu.Lock()
 			if u.err == nil {
@@ -399,21 +498,37 @@ func (r *Repo) Restore(ctx context.Context, id string, write func(e Entry, conte
 	if err != nil {
 		return Snapshot{}, err
 	}
-	dec, err := zstd.NewReader(nil, zstd.WithDecoderMaxMemory(maxChunk), zstd.WithDecoderConcurrency(1))
+	var ids []chunkRef
+	for _, e := range m.Entries {
+		if e.Type == "f" {
+			// No chunk is larger than its file.
+			size := max(min(e.Size, maxChunk), 0) + 1<<10
+			for _, id := range e.Chunks {
+				ids = append(ids, chunkRef{id, size})
+			}
+		}
+	}
+	f, err := r.fetchAhead(ctx, ids)
 	if err != nil {
 		return Snapshot{}, err
 	}
-	defer dec.Close()
+	defer f.stop()
 	for _, e := range m.Entries {
 		if err := ctx.Err(); err != nil {
 			return Snapshot{}, err
 		}
 		var content io.Reader
+		var cs *chunkStream
 		if e.Type == "f" {
-			content = &chunkStream{ctx: ctx, r: r, dec: dec, ids: e.Chunks}
+			cs = &chunkStream{ctx: ctx, f: f, left: len(e.Chunks)}
+			content = cs
 		}
 		if err := write(e, content); err != nil {
 			return Snapshot{}, err
+		}
+		if cs != nil {
+			// Chunks write did not read are read ahead all the same.
+			cs.skip()
 		}
 	}
 	return Snapshot{ID: id, Time: m.Time, Files: m.Files, Bytes: m.Bytes, Node: m.Node}, nil
@@ -428,46 +543,157 @@ func (r *Repo) Info(ctx context.Context, id string) (Snapshot, error) {
 	return Snapshot{ID: id, Time: m.Time, Files: m.Files, Bytes: m.Bytes, Node: m.Node}, nil
 }
 
+// fetcher reads a restore's chunks ahead, many at a time within
+// fetchBytes, and hands them over in order.
+type fetcher struct {
+	order  chan fetchSlot
+	sem    *semaphore.Weighted
+	cancel context.CancelFunc
+	wg     sync.WaitGroup
+}
+
+// chunkRef is a chunk to read and the most it can take.
+type chunkRef struct {
+	id   string
+	size int64
+}
+
+type fetchSlot struct {
+	out  chan fetched
+	size int64
+}
+
+type fetched struct {
+	plain []byte
+	err   error
+}
+
+type fetchJob struct {
+	id  string
+	out chan fetched
+}
+
+// fetchAhead starts reading ids in order.
+func (r *Repo) fetchAhead(ctx context.Context, ids []chunkRef) (*fetcher, error) {
+	dec, err := zstd.NewReader(nil, zstd.WithDecoderMaxMemory(maxChunk), zstd.WithDecoderConcurrency(decoders))
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	f := &fetcher{order: make(chan fetchSlot, fetches), sem: semaphore.NewWeighted(fetchBytes), cancel: cancel}
+	jobs := make(chan fetchJob)
+	var workers sync.WaitGroup
+	for range fetches {
+		workers.Go(func() {
+			for j := range jobs {
+				plain, err := r.fetchChunk(ctx, dec, j.id)
+				j.out <- fetched{plain, err}
+			}
+		})
+	}
+	f.wg.Go(func() {
+		defer func() {
+			close(jobs)
+			workers.Wait()
+			dec.Close()
+		}()
+		for _, c := range ids {
+			size := min(c.size, fetchBytes)
+			if f.sem.Acquire(ctx, size) != nil {
+				return
+			}
+			slot := fetchSlot{make(chan fetched, 1), size}
+			select {
+			case f.order <- slot:
+			case <-ctx.Done():
+				return
+			}
+			select {
+			case jobs <- fetchJob{c.id, slot.out}:
+			case <-ctx.Done():
+				return
+			}
+		}
+	})
+	return f, nil
+}
+
+// next returns the next chunk in order.
+func (f *fetcher) next(ctx context.Context) ([]byte, error) {
+	select {
+	case slot := <-f.order:
+		select {
+		case got := <-slot.out:
+			f.sem.Release(slot.size)
+			return got.plain, got.err
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+func (f *fetcher) stop() {
+	f.cancel()
+	f.wg.Wait()
+}
+
+// fetchChunk reads, opens, and checks chunk id.
+func (r *Repo) fetchChunk(ctx context.Context, dec *zstd.Decoder, id string) ([]byte, error) {
+	if !chunkRe.MatchString(id) {
+		return nil, errSealed
+	}
+	key := r.chunkKey(id)
+	sealed, err := r.obj.Get(ctx, key, maxSealedChunk)
+	if errors.Is(err, ErrNotExist) {
+		return nil, fmt.Errorf("a chunk of the backup is missing from the bucket")
+	}
+	if err != nil {
+		return nil, err
+	}
+	z, err := r.k.open(key, sealed)
+	if err != nil {
+		return nil, err
+	}
+	plain, err := dec.DecodeAll(z, nil)
+	if err != nil || len(plain) > maxChunk || r.k.chunkID(plain) != id {
+		return nil, errSealed
+	}
+	return plain, nil
+}
+
 // chunkStream reads a file's chunks in order.
 type chunkStream struct {
-	ctx context.Context
-	r   *Repo
-	dec *zstd.Decoder
-	ids []string
-	buf []byte
+	ctx  context.Context
+	f    *fetcher
+	left int
+	buf  []byte
 }
 
 func (c *chunkStream) Read(p []byte) (int, error) {
 	for len(c.buf) == 0 {
-		if len(c.ids) == 0 {
+		if c.left == 0 {
 			return 0, io.EOF
 		}
-		id := c.ids[0]
-		c.ids = c.ids[1:]
-		if !chunkRe.MatchString(id) {
-			return 0, errSealed
-		}
-		key := c.r.chunkKey(id)
-		sealed, err := c.r.obj.Get(c.ctx, key, maxSealedChunk)
-		if errors.Is(err, ErrNotExist) {
-			return 0, fmt.Errorf("a chunk of the backup is missing from the bucket")
-		}
+		c.left--
+		plain, err := c.f.next(c.ctx)
 		if err != nil {
+			c.left = 0
 			return 0, err
-		}
-		z, err := c.r.k.open(key, sealed)
-		if err != nil {
-			return 0, err
-		}
-		plain, err := c.dec.DecodeAll(z, nil)
-		if err != nil || len(plain) > maxChunk || c.r.k.chunkID(plain) != id {
-			return 0, errSealed
 		}
 		c.buf = plain
 	}
 	n := copy(p, c.buf)
 	c.buf = c.buf[n:]
 	return n, nil
+}
+
+// skip passes the file's chunks that were not read.
+func (c *chunkStream) skip() {
+	for ; c.left > 0; c.left-- {
+		_, _ = c.f.next(c.ctx)
+	}
 }
 
 // Usage is what a repository holds.
