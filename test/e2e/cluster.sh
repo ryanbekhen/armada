@@ -66,13 +66,14 @@ if [ -n "$E2E_RUNTIME" ]; then RUNTIME_FLAG="--runtime $E2E_RUNTIME"; fi
 # A conformance test binary for the last machine's architecture
 # (go test -c -tags integration ./internal/runtime/containerd/); empty skips.
 E2E_CONFORMANCE=${E2E_CONFORMANCE:-}
-# rust runs every machine's cluster network through armada-node (agent.json
-# netAgent, ADR 0054) once the cluster is up; empty keeps Go's.
-E2E_NET_AGENT=${E2E_NET_AGENT:-}
+# Every machine's cluster network runs through armada-node (ADR 0054); go
+# moves every machine to Go's code (agent.json netAgent) once the cluster
+# is up.
+E2E_NET_AGENT=${E2E_NET_AGENT:-rust}
 case $E2E_NET_AGENT in
-'' | rust) ;;
+rust | go) ;;
 *)
-	echo "e2e: E2E_NET_AGENT is '$E2E_NET_AGENT'; want rust or nothing" >&2
+	echo "e2e: E2E_NET_AGENT is '$E2E_NET_AGENT'; want rust (the default) or go" >&2
 	exit 2
 	;;
 esac
@@ -379,31 +380,19 @@ done
 wait_for 180 "all $N nodes ready" nodes_ready
 
 if [ "$E2E_NET_AGENT" = rust ]; then
-	# agent.json netAgent "rust" on each machine in turn, its service
-	# restarted: its agent then applies the cluster network through the
-	# runtime pack's armada-node, and doctor checks it through armada-node.
-	# Go stands in when armada-node fails, which the run reports as a
-	# failure at the end.
+	# The default: each machine's agent applies the cluster network through
+	# the runtime pack's armada-node, and doctor checks it through it. Go
+	# stands in when armada-node fails, which the run reports as a failure
+	# at the end.
 	log "every machine runs its cluster network through armada-node"
-	# shellcheck disable=SC2016 # expanded on the machine
-	_set_rust='f=/var/lib/armada/agent.json
-if ! grep -q "\"netAgent\"" "$f"; then
-	sed -i "1s/^{\$/{\n  \"netAgent\": \"rust\",/" "$f"
-fi
-grep -q "\"netAgent\": *\"rust\"" "$f"'
 	i=1
 	while [ "$i" -le "$N" ]; do
 		on "$i" 'test -x /var/lib/armada/runtime/current/bin/armada-node' ||
 			fail "$(host "$i" 1) has no armada-node in its runtime pack"
-		on "$i" "$_set_rust" || fail "setting netAgent in agent.json on $(host "$i" 1)"
 		_unit=armada-agent
 		[ "$i" -gt "$SERVERS" ] || _unit=armada-server
-		_since=$(on "$i" 'date "+%Y-%m-%d %H:%M:%S"')
-		on "$i" "systemctl restart $_unit"
-		[ "$i" -gt "$SERVERS" ] || wait_for 180 "control plane has $SERVERS voting members" voting "$SERVERS"
-		wait_for 180 "all $N nodes ready" nodes_ready
-		rust_applies() { on "$1" "journalctl -u $2 --since '$3' --no-pager | grep -q 'armada-node applies the cluster network'"; }
-		wait_for 120 "$(host "$i" 1) applies its cluster network with armada-node" rust_applies "$i" "$_unit" "$_since"
+		rust_applies() { on "$1" "journalctl -u $2 --no-pager | grep -q 'armada-node applies the cluster network'"; }
+		wait_for 120 "$(host "$i" 1) applies its cluster network with armada-node" rust_applies "$i" "$_unit"
 		if ! on "$i" 'armadad doctor' >"$WORK/doctor" 2>&1; then :; fi
 		if grep -E '^\[FAIL\] (network|network-mtu|network-sites|network-switch|wireguard|sites|relay|isolation) ' "$WORK/doctor" >&2; then
 			fail "armadad doctor's network checks through armada-node on $(host "$i" 1)"
@@ -411,6 +400,27 @@ grep -q "\"netAgent\": *\"rust\"" "$f"'
 		i=$((i + 1))
 	done
 	NET_AGENT_SINCE=$(on 1 'date "+%Y-%m-%d %H:%M:%S"')
+else
+	# agent.json netAgent "go" on each machine in turn, its service
+	# restarted: Go's own code runs its cluster network.
+	log "every machine runs its cluster network in Go"
+	# shellcheck disable=SC2016 # expanded on the machine
+	_set_go='f=/var/lib/armada/agent.json
+if ! grep -q "\"netAgent\"" "$f"; then
+	sed -i "1s/^{\$/{\n  \"netAgent\": \"go\",/" "$f"
+fi
+grep -q "\"netAgent\": *\"go\"" "$f"'
+	i=1
+	while [ "$i" -le "$N" ]; do
+		on "$i" "$_set_go" || fail "setting netAgent in agent.json on $(host "$i" 1)"
+		_unit=armada-agent
+		[ "$i" -gt "$SERVERS" ] || _unit=armada-server
+		on "$i" "systemctl restart $_unit"
+		[ "$i" -gt "$SERVERS" ] || wait_for 180 "control plane has $SERVERS voting members" voting "$SERVERS"
+		wait_for 180 "all $N nodes ready" nodes_ready
+		i=$((i + 1))
+	done
+	ok "every machine keeps its cluster network in Go"
 fi
 
 if [ -n "$E2E_CONFORMANCE" ]; then

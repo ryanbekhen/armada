@@ -78,15 +78,15 @@ program.
    nftables isolation, and the iptables chains, behind the agent's
    `Network` interface. `network.key` and `mesh.json` keep their formats.
    The integration tests in network namespaces run against both.
-   Status: built, and opt-in per node with `"netAgent": "rust"` in
-   `agent.json`: the Go agent then runs `armada-node net` for its passes,
+   Status: the default since the lab end-to-end tests passed with it on
+   every machine; `"netAgent": "go"` in `agent.json` keeps a node on Go's
+   code while it remains. The Go agent runs `armada-node net` for its passes,
    the switch probe (beside the agent, as Go's runs), unreachable peers,
    key rotation, `armadad doctor`'s network checks, and `armadad runtime
    reset`, handing it the state Go keeps between passes and taking it
    back, and does a pass itself when armada-node fails. The userspace
    WireGuard device stays in Go for now: a pass that needs it is Go's.
-   It becomes the default once the lab end-to-end tests pass with it on
-   every machine (`E2E_NET_AGENT=rust`).
+   Go's code is removed after a release in which no node fell back to it.
 4. **The container runtime.** The supervisor runtime in Rust: image
    pulls and layers, OCI bundles, `runc` and `armada-shim`, CNI, and
    cgroup statistics, behind the `runtime.Driver` interface. Nodes on the

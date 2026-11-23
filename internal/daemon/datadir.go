@@ -82,21 +82,21 @@ type agentConfig struct {
 	// MTU, when set, is the largest packet the machine's line carries
 	// (`--mtu`): tunnels and containers take their overhead from it.
 	MTU int `json:"mtu,omitempty"`
-	// NetAgent "rust" runs the cluster network through the runtime pack's
-	// armada-node (ADR 0054), with Go's own code doing a pass armada-node
-	// fails; anything else, or nothing, is Go's. Set by hand (or the
-	// end-to-end tests' E2E_NET_AGENT) until it is the default.
+	// NetAgent "go" keeps the cluster network in Go's own code; anything
+	// else, or nothing, runs it through the runtime pack's armada-node (ADR
+	// 0054), with Go's code doing a pass armada-node fails. Set by hand (or
+	// the end-to-end tests' E2E_NET_AGENT=go) while Go's code remains.
 	NetAgent string `json:"netAgent,omitempty"`
 }
 
-// netAgentRust is agentConfig.NetAgent's value for armada-node.
-const netAgentRust = "rust"
+// netAgentGo is agentConfig.NetAgent's value that keeps Go's code.
+const netAgentGo = "go"
 
 // netProgram returns the function that finds armada-node for the cluster
-// network: nil unless the node opted in (NetAgent), else the runtime
-// pack's armada-node while it is there.
+// network: the runtime pack's armada-node while it is there, or nil when
+// the node keeps Go's code (NetAgent).
 func (c agentConfig) netProgram(dataDir string) func() string {
-	if c.NetAgent != netAgentRust {
+	if c.NetAgent == netAgentGo {
 		return nil
 	}
 	return packProgram(dataDir, embedded.BinNode)
