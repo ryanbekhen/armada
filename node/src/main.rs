@@ -6,8 +6,8 @@
 //!   armada-node net ...        the cluster network's plan, key, peer list, firewall, tunnels,
 //!                              and routes (src/net)
 //!   armada-node runtime ...    containers' OCI runtime specs and their checks, image pulls and
-//!                              the image store, containers' root filesystems, bundles, and
-//!                              shims (src/runtime)
+//!                              the image store, containers' root filesystems, bundles,
+//!                              shims, statistics, and dials from containers (src/runtime)
 
 mod names;
 mod net;
@@ -50,11 +50,13 @@ fn run() -> Result<(), String> {
         ["runtime", "snapshots", root] => runtime::container::snapshots_command(root),
         ["runtime", "bundle", rest @ ..] => runtime::container::bundle_command(rest),
         ["runtime", "shim", op] => runtime::container::shim_command(op),
+        ["runtime", "stats"] => runtime::container::stats_command(),
+        ["runtime", "dial"] => runtime::container::dial_command(),
         ["runtime", "reference"] => runtime::image::reference_command(),
         ["runtime", "platforms"] => runtime::image::platforms_command(),
         ["runtime", "proxy", url] => runtime::image::proxy_command(url),
         _ => Err(format!(
-            "unknown command {args:?}; try: proxy render, net plan, net key [rotate] PATH, net cache save|load PATH, net firewall nft|iptables|apply|remove, net apply|up|remove, net probe, net unreachable, net diagnose, net netlink encode|show|wg-parse, runtime spec|check|seccomp, runtime apparmor NAME, runtime pull ROOT [--extra-ca FILE], runtime images|prune ROOT, runtime mounts ROOT IMAGE, runtime apply DIR [--media-type MT] [--lower DIR]..., runtime prepare ROOT, runtime release ROOT KEY, runtime snapshots ROOT, runtime bundle create|remove|records|labels, runtime shim call|start|abandon, runtime reference|platforms, runtime proxy URL"
+            "unknown command {args:?}; try: proxy render, net plan, net key [rotate] PATH, net cache save|load PATH, net firewall nft|iptables|apply|remove, net apply|up|remove, net probe, net unreachable, net diagnose, net netlink encode|show|wg-parse, runtime spec|check|seccomp, runtime apparmor NAME, runtime pull ROOT [--extra-ca FILE], runtime images|prune ROOT, runtime mounts ROOT IMAGE, runtime apply DIR [--media-type MT] [--lower DIR]..., runtime prepare ROOT, runtime release ROOT KEY, runtime snapshots ROOT, runtime bundle create|remove|records|labels, runtime shim call|start|abandon, runtime stats, runtime dial, runtime reference|platforms, runtime proxy URL"
         )),
     }
 }

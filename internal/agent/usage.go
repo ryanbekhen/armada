@@ -131,6 +131,25 @@ func (a *Agent) restartLostNetwork(replica, container string) {
 	a.Trigger()
 }
 
+// sampleAll samples every container cs names: in one round when the
+// runtime samples many at once (runtime.StatsBatcher), else one by one.
+func sampleAll(ctx context.Context, sr runtime.StatsReader, cs []runtime.Container) ([]runtime.Stats, []error) {
+	ids := make([]string, len(cs))
+	for i, c := range cs {
+		ids[i] = c.ID
+	}
+	if b, ok := sr.(runtime.StatsBatcher); ok && len(ids) > 0 {
+		if stats, errs := b.StatsBatch(ctx, ids); len(stats) == len(ids) && len(errs) == len(ids) {
+			return stats, errs
+		}
+	}
+	stats, errs := make([]runtime.Stats, len(ids)), make([]error, len(ids))
+	for i, id := range ids {
+		stats[i], errs[i] = sr.Stats(ctx, id)
+	}
+	return stats, errs
+}
+
 func (a *Agent) sampleUsage(ctx context.Context, sr runtime.StatsReader, prev map[string]usageSample) (*armadav1.UsageReport, map[string]usageSample) {
 	cs, err := a.cfg.Driver.List(ctx, map[string]string{runtime.LabelManaged: "true"})
 	if err != nil {
@@ -139,12 +158,17 @@ func (a *Agent) sampleUsage(ctx context.Context, sr runtime.StatsReader, prev ma
 	}
 	next := make(map[string]usageSample, len(cs))
 	report := &armadav1.UsageReport{}
+	var sampled []runtime.Container
 	for _, c := range cs {
-		id := c.Labels[runtime.LabelReplica]
-		if id == "" || c.Labels[runtime.LabelSystem] != "" || c.State != runtime.StateRunning {
+		if c.Labels[runtime.LabelReplica] == "" || c.Labels[runtime.LabelSystem] != "" || c.State != runtime.StateRunning {
 			continue
 		}
-		st, err := sr.Stats(ctx, c.ID)
+		sampled = append(sampled, c)
+	}
+	stats, errs := sampleAll(ctx, sr, sampled)
+	for i, c := range sampled {
+		id := c.Labels[runtime.LabelReplica]
+		st, err := stats[i], errs[i]
 		if err != nil {
 			a.log.Debug("sample container", "replica", id, "err", err)
 			continue

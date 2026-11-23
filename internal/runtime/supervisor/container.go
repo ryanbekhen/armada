@@ -278,7 +278,7 @@ func (t *taskProc) Metrics(ctx context.Context) (*types.Metric, error) {
 	if spec.Linux == nil || spec.Linux.CgroupsPath == "" {
 		return nil, errors.New("the container has no cgroup")
 	}
-	st, err := readCgroup(filepath.Join(cgroupRoot, filepath.Clean("/"+spec.Linux.CgroupsPath)))
+	st, err := readCgroup(filepath.Join(t.c.s.cgroupRoot(), filepath.Clean("/"+spec.Linux.CgroupsPath)))
 	if err != nil {
 		return nil, err
 	}

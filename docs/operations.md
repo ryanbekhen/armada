@@ -1119,8 +1119,10 @@ journalctl -u armada-agent | grep armada-node # nothing new after the restart
 
 On a node that runs the supervisor runtime, armada-node can also keep the
 node's images and run its containers' root filesystems, bundles, and
-`armada-shim` requests, while the agent keeps building each container and
-running its network, logs, and `armada app exec`. It is off unless
+`armada-shim` requests, sample what the replicas use (once per round for
+all of them), and open the connections queue rules read from, while the
+agent keeps building each container and running its network, logs, and
+`armada app exec`. It is off unless
 `"runtimeAgent": "rust"` is in the node's `/var/lib/armada/agent.json`.
 Drain the node first: images are pulled again into armada-node's store
 (`/var/lib/armada/node/images`) as its replicas come back.
@@ -1133,7 +1135,8 @@ armada node resume NODE
 ```
 
 Remove the line and restart the service to go back. When armada-node
-fails to write a bundle or reach a shim, the agent does it itself and logs
+fails to write a bundle, reach a shim, sample the replicas, or open a
+connection, the agent does it itself and logs
 `armada-node failed; Go did it instead`; a pack without armada-node keeps
 the node on the agent's own code.
 

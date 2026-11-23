@@ -8,11 +8,14 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"path/filepath"
 	goruntime "runtime"
+	"strconv"
 
 	"github.com/vishvananda/netns"
 
 	"github.com/ryanbekhen/armada/internal/runtime"
+	"github.com/ryanbekhen/armada/internal/runtime/supervisor"
 )
 
 var _ runtime.ContainerDialer = (*Driver)(nil)
@@ -26,6 +29,11 @@ func (d *Driver) DialContainer(ctx context.Context, id, network, address string)
 	if err := checkDial(network, address); err != nil {
 		return nil, err
 	}
+	if st, ok := d.ctr.(*supervisor.Store); ok && d.native != nil {
+		if conn, handled, err := st.NativeDial(d.ctx(ctx), id, "", procRoot, network, address); handled {
+			return conn, err
+		}
+	}
 	c, err := d.ctr.LoadContainer(d.ctx(ctx), id)
 	if err != nil {
 		return nil, notFound(err)
@@ -34,7 +42,7 @@ func (d *Driver) DialContainer(ctx context.Context, id, network, address string)
 	if err != nil {
 		return nil, notFound(err)
 	}
-	target, err := netns.GetFromPid(int(t.Pid()))
+	target, err := netns.GetFromPath(filepath.Join(procRoot, strconv.FormatUint(uint64(t.Pid()), 10), "ns", "net"))
 	if err != nil {
 		return nil, fmt.Errorf("container network namespace: %w", err)
 	}

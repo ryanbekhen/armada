@@ -84,6 +84,9 @@ func Run(t *testing.T, d runtime.Driver, opts Options) {
 		t.Run("Stats", func(t *testing.T) { r.stats(t, sr) })
 		t.Run("StatsEgress", func(t *testing.T) { r.statsEgress(t, sr) })
 	}
+	if dl, ok := d.(runtime.ContainerDialer); ok && runtime.CanDial(d) {
+		t.Run("DialContainer", func(t *testing.T) { r.dialContainer(t, dl) })
+	}
 	if runtime.CanMountVolumes(d) {
 		t.Run("Volumes", r.volumes)
 	}
@@ -606,6 +609,63 @@ func (r *runner) stats(t *testing.T, sr runtime.StatsReader) {
 
 	if _, err := sr.Stats(ctx, "armada-conformance-missing"); err == nil {
 		t.Error("Stats of a missing container succeeded")
+	}
+}
+
+// dialContainer checks that a socket dialled from a container has the
+// container's address (ADR 0034: queue rules read from the replica's
+// network namespace), that names are refused, and that a missing
+// container is an error. Only UDP is dialled, which sends nothing. With
+// runtime.StatsBatcher, a round of samples gives each container's own
+// and an error for a missing one.
+func (r *runner) dialContainer(t *testing.T, dl runtime.ContainerDialer) {
+	ctx, cancel := r.ctx()
+	defer cancel()
+	id, err := r.d.Run(ctx, r.spec("sleep", "300"))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	var c runtime.Container
+	deadline := time.Now().Add(20 * time.Second)
+	for {
+		if c, err = r.d.Inspect(ctx, id); err != nil {
+			t.Fatalf("Inspect: %v", err)
+		}
+		if (c.State == runtime.StateRunning && c.IP != "") || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	ip, err := netip.ParseAddr(c.IP)
+	if err != nil {
+		t.Fatalf("container address %q: %v", c.IP, err)
+	}
+	target := "1.1.1.1"
+	if bi, ok := r.d.(runtime.BridgeInspector); ok {
+		if b, err := bi.Bridge(ctx); err == nil {
+			target = b.Gateway.String()
+		}
+	}
+	conn, err := dl.DialContainer(ctx, id, "udp", net.JoinHostPort(target, "53"))
+	if err != nil {
+		t.Fatalf("DialContainer: %v", err)
+	}
+	local, _ := netip.ParseAddrPort(conn.LocalAddr().String())
+	_ = conn.Close()
+	if local.Addr() != ip {
+		t.Errorf("a socket dialled from the container has address %s, want %s", local.Addr(), ip)
+	}
+	if _, err := dl.DialContainer(ctx, id, "tcp", "example.org:80"); err == nil {
+		t.Error("DialContainer dialled a name")
+	}
+	if _, err := dl.DialContainer(ctx, "armada-conformance-missing", "udp", net.JoinHostPort(target, "53")); err == nil {
+		t.Error("DialContainer from a missing container succeeded")
+	}
+	if b, ok := r.d.(runtime.StatsBatcher); ok {
+		stats, errs := b.StatsBatch(ctx, []string{id, "armada-conformance-missing"})
+		if len(stats) != 2 || len(errs) != 2 || errs[0] != nil || stats[0].MemoryBytes <= 0 || errs[1] == nil {
+			t.Errorf("StatsBatch = %+v, %v; want a sample and an error", stats, errs)
+		}
 	}
 }
 

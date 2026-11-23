@@ -53,6 +53,8 @@ type Native struct {
 
 	mu   sync.Mutex
 	errs map[string]string
+	// stood counts, per call, the times Go did one armada-node did not.
+	stood map[string]int
 }
 
 // OpenNative opens armada-node's image store under images for reading.
@@ -91,6 +93,12 @@ const programGrace = 2 * time.Second
 // A cancelled caller kills it at once; one whose deadline passes, after
 // programGrace.
 func (n *Native) exec(ctx context.Context, bounded bool, stdin any, args ...string) ([]byte, error) {
+	return n.execFiles(ctx, bounded, stdin, nil, args...)
+}
+
+// execFiles is exec with extra files the program gets from descriptor 3
+// on.
+func (n *Native) execFiles(ctx context.Context, bounded bool, stdin any, extra []*os.File, args ...string) ([]byte, error) {
 	in, err := json.Marshal(stdin)
 	if err != nil {
 		return nil, err
@@ -114,6 +122,7 @@ func (n *Native) exec(ctx context.Context, bounded bool, stdin any, args ...stri
 	}
 	cmd := exec.CommandContext(run, n.Bin, args...) //nolint:gosec // the runtime pack's armada-node
 	cmd.Stdin = bytes.NewReader(in)
+	cmd.ExtraFiles = extra
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
@@ -172,6 +181,9 @@ func (n *Native) fallback(op string, err error) bool {
 	}
 	prev, seen := n.errs[op]
 	n.errs[op] = msg
+	if failed {
+		n.standIn(op)
+	}
 	switch {
 	case !failed && seen && prev != "":
 		slog.Info("armada-node works again", "op", op)
@@ -179,6 +191,22 @@ func (n *Native) fallback(op string, err error) bool {
 		slog.Warn("armada-node failed; Go did it instead", "op", op, "err", err)
 	}
 	return failed
+}
+
+// standIn counts a call Go did instead of armada-node; n.mu is held.
+func (n *Native) standIn(op string) {
+	if n.stood == nil {
+		n.stood = map[string]int{}
+	}
+	n.stood[op]++
+}
+
+// StoodIn is how many times Go did op instead of armada-node: a call it
+// failed, or a container it left to Go ("stats", "dial").
+func (n *Native) StoodIn(op string) int {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return n.stood[op]
 }
 
 // note logs a failure of a call Go cannot do instead.

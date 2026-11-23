@@ -26,13 +26,26 @@
 //!       {"shim": TEXT} (the shim's own error), or {"error", "errno"};
 //!       start: {} or {"error"}; abandon: {"gone"} or {"error"}
 //!       (shim.rs)
+//!   armada-node runtime stats
+//!       stdin: {"dir", "shimDir", "cgroupRoot", "proc", "ids",
+//!       "timeoutMs"}; stdout: {"stats": [{"cpu", "memory", "egress",
+//!       "networkLost", "oomKills"} | {"notFound": true} | {"redo"}]},
+//!       one per ID: what Driver.Stats samples of each (stats.rs)
+//!   armada-node runtime dial
+//!       stdin: {"dir", "shimDir", "id", "proc"} or {"netns"}, with
+//!       {"kind", "ip", "family", "port", "v6only", "timeoutMs"}; fd 3: a
+//!       Unix socket the connected socket is sent on (SCM_RIGHTS);
+//!       stdout: {"connected"}, {"notFound"}, {"redo"}, {"netns": ERRNO},
+//!       {"setns": ERRNO}, {"op", "errno"}, or {"timeout"} (dial.rs)
 //!
 //! Go's TestArmadaNode*MatchesGo tests (internal/runtime/supervisor)
 //! compare them with Go's Bundles, Shims, and the overlay snapshotter.
 
 pub mod bundle;
+pub mod dial;
 pub mod mount;
 pub mod shim;
+pub mod stats;
 
 use super::{read_stdin, spec::to_go_json, write_out};
 use serde::Deserialize;
@@ -145,4 +158,26 @@ pub fn shim_command(op: &str) -> Result<(), String> {
         },
         _ => Err("usage: runtime shim call|start|abandon".into()),
     }
+}
+
+/// armada-node runtime stats.
+pub fn stats_command() -> Result<(), String> {
+    let r: stats::StatsRequest =
+        serde_json::from_slice(&read_stdin()?).map_err(|e| format!("read request: {e}"))?;
+    let samples = stats::stats(&r)?;
+    let out: Vec<_> = samples.iter().map(stats::sample_json).collect();
+    json_out(&serde_json::json!({ "stats": out }))
+}
+
+/// armada-node runtime dial: the connection goes back on fd 3.
+pub fn dial_command() -> Result<(), String> {
+    let r: dial::DialRequest =
+        serde_json::from_slice(&read_stdin()?).map_err(|e| format!("read request: {e}"))?;
+    let o = dial::dial(&r);
+    if let dial::Outcome::Connected(fd) = o {
+        // SAFETY: the connected socket dial returned, owned here.
+        let fd = unsafe { <std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(fd) };
+        dial::send_fd(3, std::os::fd::AsRawFd::as_raw_fd(&fd))?;
+    }
+    json_out(&dial::outcome_json(&o))
 }

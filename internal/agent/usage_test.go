@@ -245,3 +245,49 @@ func TestReportPeers(t *testing.T) {
 		}
 	}
 }
+
+// statsOnly samples one container at a time; batched also samples a
+// round at once (runtime.StatsBatcher), as a node on armada-node does.
+type statsOnly struct{ calls []string }
+
+func (s *statsOnly) Stats(_ context.Context, id string) (runtime.Stats, error) {
+	s.calls = append(s.calls, id)
+	if id == "bad" {
+		return runtime.Stats{}, runtime.ErrNotFound
+	}
+	return runtime.Stats{CPU: time.Duration(len(id))}, nil
+}
+
+type batched struct {
+	statsOnly
+	rounds [][]string
+}
+
+func (b *batched) StatsBatch(ctx context.Context, ids []string) ([]runtime.Stats, []error) {
+	b.rounds = append(b.rounds, ids)
+	out, errs := make([]runtime.Stats, len(ids)), make([]error, len(ids))
+	for i, id := range ids {
+		out[i], errs[i] = b.Stats(ctx, id)
+	}
+	return out, errs
+}
+
+func TestSampleAllBatches(t *testing.T) {
+	t.Parallel()
+	cs := []runtime.Container{{ID: "a"}, {ID: "bad"}, {ID: "ccc"}}
+	one := &statsOnly{}
+	st1, errs1 := sampleAll(context.Background(), one, cs)
+	b := &batched{}
+	st2, errs2 := sampleAll(context.Background(), b, cs)
+	if len(b.rounds) != 1 || len(b.rounds[0]) != 3 || len(one.calls) != 3 {
+		t.Fatalf("rounds %v, single calls %v", b.rounds, one.calls)
+	}
+	for i := range cs {
+		if st1[i] != st2[i] || (errs1[i] == nil) != (errs2[i] == nil) {
+			t.Errorf("%s: %+v %v vs %+v %v", cs[i].ID, st1[i], errs1[i], st2[i], errs2[i])
+		}
+	}
+	if st2[2].CPU != 3 || errs2[1] == nil {
+		t.Errorf("samples %+v %v", st2, errs2)
+	}
+}
