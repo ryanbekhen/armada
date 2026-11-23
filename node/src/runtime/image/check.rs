@@ -128,6 +128,141 @@ fn window_size(h: &[u8]) -> Option<u64> {
     Some(if fcs_len == 2 { v + 256 } else { v })
 }
 
+/// A layer blob read as containerd's applier reads it: its media type
+/// decides whether it is decompressed (images.DiffCompression), and a
+/// compressed one is told apart by its magic numbers (DecompressStream).
+pub fn layer_reader<'a, R: Read + 'a>(
+    r: R,
+    media_type: &str,
+) -> Result<Box<dyn Read + 'a>, String> {
+    if !diff_compressed(media_type)? {
+        return Ok(Box::new(r));
+    }
+    let mut r = BufReader::with_capacity(64 << 10, r);
+    let head = r.fill_buf().map_err(|e| e.to_string())?.to_vec();
+    Ok(match detect(&head[..head.len().min(10)]) {
+        Compression::None => Box::new(r),
+        Compression::Gzip => Box::new(flate2::bufread::MultiGzDecoder::new(r)),
+        Compression::Zstd => Box::new(ZstdReader {
+            src: Shared(std::rc::Rc::new(std::cell::RefCell::new(r))),
+            frame: None,
+            done: false,
+        }),
+    })
+}
+
+/// images.DiffCompression: whether the applier decompresses a layer of
+/// this media type; an error for one it has no processor for.
+fn diff_compressed(mt: &str) -> Result<bool, String> {
+    let (base, mut ext): (&str, Vec<&str>) = match mt.split_once('+') {
+        Some((b, e)) => (b, e.splitn(50, '+').collect()),
+        None => (mt, Vec::new()),
+    };
+    ext.sort_unstable();
+    match base {
+        "application/vnd.docker.image.rootfs.diff.tar"
+        | "application/vnd.docker.image.rootfs.foreign.diff.tar"
+        | "application/vnd.docker.image.rootfs.diff.tar.gzip"
+        | "application/vnd.docker.image.rootfs.foreign.diff.tar.gzip"
+        | "application/vnd.docker.image.rootfs.diff.tar.zstd" => Ok(ext.is_empty()),
+        "application/vnd.oci.image.layer.v1.tar"
+        | "application/vnd.oci.image.layer.nondistributable.v1.tar" => {
+            Ok(matches!(ext.last(), Some(&"gzip") | Some(&"zstd")))
+        }
+        _ => Err(format!(
+            "failed to get stream processor for {mt}: no processor for media-type"
+        )),
+    }
+}
+
+/// A BufRead shared between the zstd reader and the frame it decodes.
+struct Shared<R>(std::rc::Rc<std::cell::RefCell<R>>);
+
+impl<R> Clone for Shared<R> {
+    fn clone(&self) -> Self {
+        Shared(self.0.clone())
+    }
+}
+
+impl<R: BufRead> Read for Shared<R> {
+    fn read(&mut self, b: &mut [u8]) -> io::Result<usize> {
+        self.0.borrow_mut().read(b)
+    }
+}
+
+type Frame<R> = ruzstd::decoding::StreamingDecoder<Shared<R>, ruzstd::decoding::FrameDecoder>;
+
+/// Every frame of a zstd stream as one reader, as zstd() reads it.
+struct ZstdReader<R: BufRead> {
+    src: Shared<R>,
+    frame: Option<Frame<R>>,
+    done: bool,
+}
+
+fn zerr(m: String) -> io::Error {
+    io::Error::other(m)
+}
+
+impl<R: BufRead> Read for ZstdReader<R> {
+    fn read(&mut self, b: &mut [u8]) -> io::Result<usize> {
+        use ruzstd::decoding::errors::{FrameDecoderError, ReadFrameHeaderError};
+        loop {
+            if self.done || b.is_empty() {
+                return Ok(0);
+            }
+            if let Some(f) = &mut self.frame {
+                let n = f.read(b).map_err(|e| zerr(format!("zstd: {e}")))?;
+                if n > 0 {
+                    return Ok(n);
+                }
+                let d = &f.decoder;
+                if !d.is_finished() {
+                    return Err(zerr("zstd: unexpected end of frame".into()));
+                }
+                if let (Some(want), Some(got)) =
+                    (d.get_checksum_from_data(), d.get_calculated_checksum())
+                    && want != got
+                {
+                    return Err(zerr("zstd: frame checksum mismatch".into()));
+                }
+                self.frame = None;
+                continue;
+            }
+            {
+                let mut src = self.src.0.borrow_mut();
+                let head = src.fill_buf()?;
+                if head.is_empty() {
+                    self.done = true;
+                    return Ok(0);
+                }
+                if let Some(w) = window_size(head)
+                    && w > ZSTD_MAX_WINDOW
+                {
+                    return Err(zerr(format!(
+                        "zstd: window size {w} exceeded the limit {ZSTD_MAX_WINDOW}"
+                    )));
+                }
+            }
+            match ruzstd::decoding::StreamingDecoder::new(self.src.clone()) {
+                Ok(d) => self.frame = Some(d),
+                Err(FrameDecoderError::ReadFrameHeaderError(ReadFrameHeaderError::SkipFrame {
+                    length,
+                    ..
+                })) => {
+                    let n = io::copy(
+                        &mut self.src.clone().take(u64::from(length)),
+                        &mut io::sink(),
+                    )?;
+                    if n != u64::from(length) {
+                        return Err(zerr("zstd: skippable frame ended early".into()));
+                    }
+                }
+                Err(e) => return Err(zerr(format!("zstd: {e}"))),
+            }
+        }
+    }
+}
+
 /// imagecheck.Layer for a blob read from r.
 pub fn layer(r: impl Read, blob: &Digest, diff_id: &Digest) -> Result<(), String> {
     let got = uncompressed(r, diff_id).map_err(|e| format!("layer {blob}: {e}"))?;
@@ -177,6 +312,52 @@ mod tests {
         let n = bad.len();
         bad[n - 6] ^= 0xff;
         assert!(layer(&bad[..], &blob, &id).is_err());
+    }
+
+    #[test]
+    fn reads_layers_as_the_applier() {
+        let tar = b"my layer tar".to_vec();
+        let mut z = Vec::new();
+        ruzstd::encoding::compress(
+            &tar[..],
+            &mut z,
+            ruzstd::encoding::CompressionLevel::Fastest,
+        );
+        let mut two = vec![0x50, 0x2a, 0x4d, 0x18, 3, 0, 0, 0, 1, 2, 3];
+        two.extend(&z);
+        two.extend(&z);
+        let read = |b: &[u8], mt: &str| {
+            let mut out = Vec::new();
+            layer_reader(b, mt).unwrap().read_to_end(&mut out).unwrap();
+            out
+        };
+        let oci = "application/vnd.oci.image.layer.v1.tar";
+        assert_eq!(
+            read(&two, &format!("{oci}+zstd")),
+            [&tar[..], &tar[..]].concat()
+        );
+        assert_eq!(read(&gz(&tar), &format!("{oci}+gzip")), tar);
+        // Uncompressed media types are read as they are.
+        assert_eq!(read(&gz(&tar), oci), gz(&tar));
+        assert_eq!(
+            read(&tar, "application/vnd.docker.image.rootfs.diff.tar.gzip"),
+            tar
+        );
+        assert_eq!(
+            read(&gz(&tar), "application/vnd.docker.image.rootfs.diff.tar"),
+            tar
+        );
+        assert!(layer_reader(&tar[..], "text/plain").is_err());
+        let mut bad = z.clone();
+        let n = bad.len();
+        bad[n - 1] ^= 0xff;
+        let mut out = Vec::new();
+        assert!(
+            layer_reader(&bad[..], &format!("{oci}+zstd"))
+                .unwrap()
+                .read_to_end(&mut out)
+                .is_err()
+        );
     }
 
     #[test]

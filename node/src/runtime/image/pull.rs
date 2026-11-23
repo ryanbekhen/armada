@@ -6,7 +6,6 @@
 //! the image with who pulled it, and tell an image built for other
 //! platforms from other failures (PlatformError).
 
-use super::check;
 use super::digest::{Digest, chain_ids};
 use super::platform::{Matcher, Platform, node_platform, normalize, platform_strings};
 use super::reference::{PULL_ANYONE, PULL_LABEL, RegistryAuth, parse_docker_ref, pull_key};
@@ -598,8 +597,8 @@ fn image_platforms(store: &Store, top: &Descriptor) -> Result<Vec<String>, Strin
     Ok(out)
 }
 
-/// unpack, without unpacking yet: the chosen manifest, its config's diff
-/// IDs, every layer checked against its diff ID, and the record.
+/// unpack: the chosen manifest, its config's diff IDs, its layers
+/// unpacked (each checked against its diff ID), and the record.
 fn record(
     store: &Store,
     name: &str,
@@ -619,17 +618,7 @@ fn record(
         ));
     }
     let verified: Index = store.index()?;
-    let mut newly: Vec<(String, Digest)> = Vec::new();
-    for (blob, diff) in manifest.layers.iter().zip(&diffs) {
-        if verified.verified.get(&blob.digest.to_string()) == Some(diff) {
-            continue;
-        }
-        let f = store
-            .open_blob(&blob.digest)
-            .map_err(|e| format!("layer {}: {e}", blob.digest))?;
-        check::layer(f, &blob.digest, diff)?;
-        newly.push((blob.digest.to_string(), diff.clone()));
-    }
+    let newly = super::layers::unpack_chain(store, &manifest.layers, &diffs, &verified.verified)?;
     let chain = chain_ids(&diffs)
         .last()
         .map(|d| d.to_string())

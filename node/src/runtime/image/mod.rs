@@ -1,8 +1,10 @@
-//! Image pulls and the image store (ADR 0054 step 4, second part; not used
-//! by nodes yet): what internal/runtime/containerd (registry.go, proof.go,
-//! platforms.go, Driver.Pull) and internal/runtime/supervisor/images.go do
-//! for a pull, into the store of store.rs. Layers are checked, not
-//! unpacked: snapshots come with the third part.
+//! Image pulls and the image store (ADR 0054 step 4, second and third
+//! parts; not used by nodes yet): what internal/runtime/containerd
+//! (registry.go, proof.go, platforms.go, Driver.Pull) and
+//! internal/runtime/supervisor/images.go do for a pull, into the store of
+//! store.rs, with every layer unpacked under layers/ as containerd's
+//! applier unpacks it for the overlay snapshotter (layers.rs, unpack.rs,
+//! tar.rs).
 //!
 //!   armada-node runtime pull ROOT [--extra-ca FILE]
 //!       stdin: {"image": REF, "auth": {"Username", "Password",
@@ -16,6 +18,14 @@
 //!   armada-node runtime prune ROOT
 //!       stdin: {"keep": [REF], "inUse": [NAME], "graceSeconds": N};
 //!       stdout: {"removed": [NAME]} (PruneImages)
+//!       Unpacked layers no kept image needs are removed with the blobs.
+//!   armada-node runtime mounts ROOT IMAGE
+//!       stdout: {"lowerdirs": [DIR]}, the image's unpacked layers as
+//!       overlay's lowerdir option names them (top first), or {"error"}
+//!   armada-node runtime apply DIR [--media-type MT] [--lower DIR]...
+//!       stdin: a layer blob; applies it to DIR as the applier does (with
+//!       lower directories: as an overlay upper directory, closest
+//!       first); stdout: {"diffID"} or {"error"}. For the parity tests.
 //!   armada-node runtime reference
 //!       stdin: [{"image", "auth"}]; stdout: per entry {"ref", "familiar",
 //!       "digested", "pullKey"} or {"error"} (normalize, pullKey)
@@ -32,11 +42,14 @@
 mod check;
 mod digest;
 mod http;
+mod layers;
 mod platform;
 mod pull;
 mod reference;
 mod registry;
 mod store;
+mod tar;
+mod unpack;
 
 use super::{read_stdin, write_out};
 use serde::{Deserialize, Serialize};
@@ -92,6 +105,83 @@ pub fn prune_command(root: &str) -> Result<(), String> {
                 .map_err(|e| e.to_string())?,
         ),
         Err(e) => write_out(&error_json(&e)),
+    }
+}
+
+/// armada-node runtime mounts ROOT IMAGE.
+pub fn mounts_command(root: &str, image: &str) -> Result<(), String> {
+    let store = store::Store::open(Path::new(root))?;
+    let out = (|| {
+        let idx = store.index()?;
+        let rec = idx
+            .images
+            .get(image)
+            .or_else(|| {
+                reference::parse_docker_ref(image)
+                    .ok()
+                    .and_then(|r| idx.images.get(&r.to_string()))
+            })
+            .ok_or_else(|| format!("image {image}: not found"))?;
+        let dirs = layers::lower_dirs(&store, &rec.diff_ids);
+        if let Some(d) = dirs.iter().find(|d| !d.is_dir()) {
+            return Err(format!(
+                "image {image}: layer {} is not unpacked",
+                d.display()
+            ));
+        }
+        let dirs: Vec<String> = dirs.iter().map(|d| d.display().to_string()).collect();
+        Ok(serde_json::json!({ "lowerdirs": dirs }))
+    })();
+    match out {
+        Ok(v) => write_out(&serde_json::to_vec(&v).map_err(|e| e.to_string())?),
+        Err(e) => write_out(&error_json(&e)),
+    }
+}
+
+/// armada-node runtime apply DIR [--media-type MT] [--lower DIR]...
+pub fn apply_command(args: &[&str]) -> Result<(), String> {
+    let usage = "usage: runtime apply DIR [--media-type MT] [--lower DIR]...";
+    let (dir, mut rest) = args.split_first().ok_or(usage)?;
+    let mut media_type = "application/vnd.oci.image.layer.v1.tar+gzip".to_string();
+    let mut lowers: Vec<Vec<u8>> = Vec::new();
+    while let [flag, value, more @ ..] = rest {
+        match *flag {
+            "--media-type" => media_type = value.to_string(),
+            "--lower" => lowers.push(value.as_bytes().to_vec()),
+            _ => return Err(usage.into()),
+        }
+        rest = more;
+    }
+    if !rest.is_empty() {
+        return Err(usage.into());
+    }
+    let out = (|| {
+        let r = check::layer_reader(std::io::stdin().lock(), &media_type)?;
+        let mut h = digest::Algorithm::Sha256.hasher();
+        let mut tee = HashRead { r, h: &mut h };
+        unpack::apply(dir.as_bytes(), &mut tee, &lowers)?;
+        std::io::copy(&mut tee, &mut std::io::sink()).map_err(|e| e.to_string())?;
+        Ok::<_, String>(h.finish())
+    })();
+    match out {
+        Ok(d) => write_out(
+            &serde_json::to_vec(&serde_json::json!({ "diffID": d.to_string() }))
+                .map_err(|e| e.to_string())?,
+        ),
+        Err(e) => write_out(&error_json(&e)),
+    }
+}
+
+struct HashRead<'a, R> {
+    r: R,
+    h: &'a mut digest::Hasher,
+}
+
+impl<R: std::io::Read> std::io::Read for HashRead<'_, R> {
+    fn read(&mut self, b: &mut [u8]) -> std::io::Result<usize> {
+        let n = self.r.read(b)?;
+        self.h.update(&b[..n]);
+        Ok(n)
     }
 }
 

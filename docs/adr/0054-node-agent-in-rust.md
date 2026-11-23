@@ -99,9 +99,22 @@ program.
    and `armada-node runtime check` applies `CheckContainerSpec`; no node
    uses them yet. Second part: `armada-node runtime pull`, `images`, and
    `prune` pull images into the Rust runtime's image store (below) as the
-   Go driver pulls them; no node uses them yet, and layers are not
-   unpacked until the third part (snapshots), which also brings the
-   conversion of the stores below.
+   Go driver pulls them; no node uses them yet. Third part: a pull
+   unpacks every layer into `layers/<chain ID hex>/` as containerd's
+   applier unpacks it for the overlay snapshotter (the first layer of a
+   chain as a plain directory where whiteouts remove what they name,
+   every later one as an overlay upper directory over its parents, where
+   whiteouts become character devices 0/0, opaque markers the
+   `trusted.overlay.opaque` attribute, and implicitly created
+   directories take their parents' owner, mode, times, and attributes);
+   names are resolved within the layer's directory as Go resolves them,
+   and every change goes through a descriptor of its parent directory
+   opened beneath that directory with no symbolic link followed, so no
+   entry writes outside it. `armada-node runtime mounts` names an image's
+   lower directories in overlay's order, and `runtime prune` also removes
+   layers no kept image needs. On the Go side, `supervisor.ConvertImages`
+   converts a supervisor store into this layout (below); nothing calls it
+   yet.
 
 ### The runtime's move: image store and migration
 
@@ -126,7 +139,11 @@ is left on Go's runtime, and moving does not pull every image again.
   decompress to a diff ID, so a layer is checked once per node. It is
   written whole to a temporary file and renamed.
 - `layers/<chain ID hex>/`: one unpacked layer per chain ID, the
-  directories overlay mounts name as lower directories (third part).
+  directories overlay mounts name as lower directories (third part). A
+  layer is unpacked into a directory of its own under `layers/` and
+  renamed into place once it is complete and its uncompressed digest
+  matches its diff ID; a chain whose directory exists is kept, its layer
+  blob checked against its diff ID instead.
 - `pull.lock` and `index.lock`: a pull holds the first shared from its
   first fetch to its record, a collection of unused blobs and layers holds
   it exclusively (a collection that would wait is left to the last pull
@@ -158,7 +175,10 @@ node's runtime converts the node while Go still ships:
    config, and layers present, every chain ID's directory present. An
    image that cannot be converted (a blob or layer missing, a record that
    does not parse) is left out and pulled again when a replica needs it;
-   nothing else is pulled again.
+   nothing else is pulled again. Records already in the Rust store are
+   kept, and what a left-out image brought along goes with the Rust
+   store's next collection. `supervisor.ConvertImages` does steps 1 and
+   2 and returns what it converted and what it left out, and why.
 3. The old store is collected once no container uses it: running
    containers keep their root filesystems (their active snapshots) where
    they are; each one goes with its container, and the rest of
