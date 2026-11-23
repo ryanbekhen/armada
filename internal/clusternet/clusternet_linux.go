@@ -433,20 +433,20 @@ func endpointUplink(endpoint netip.Addr) (netlink.Link, int, error) {
 
 // isolate applies pol unless it is what the tables already hold.
 func (n *Net) isolate(pol policy) error {
-	if n.isolated != nil && reflect.DeepEqual(*n.isolated, pol) {
-		if ok, err := hasIsolation(); err == nil && ok {
+	has := func() bool {
+		ok, err := hasIsolation()
+		return err == nil && ok
+	}
+	switch isolationAction(n.isolated, pol, has) {
+	case isolationKeep:
+		return nil
+	case isolationUpdate:
+		err := updateIsolation(*n.isolated, pol)
+		if err == nil {
+			n.isolated = &pol
 			return nil
 		}
-	}
-	if n.isolated != nil && sameFrame(*n.isolated, pol) {
-		if ok, err := hasIsolation(); err == nil && ok {
-			err := updateIsolation(*n.isolated, pol)
-			if err == nil {
-				n.isolated = &pol
-				return nil
-			}
-			n.log.Warn("update the isolation rules; rebuilding them", "err", err)
-		}
+		n.log.Warn("update the isolation rules; rebuilding them", "err", err)
 	}
 	if err := isolate(pol); err != nil {
 		n.isolated = nil
@@ -454,6 +454,25 @@ func (n *Net) isolate(pol policy) error {
 	}
 	n.isolated = &pol
 	return nil
+}
+
+// What Net.isolate does with a policy.
+const (
+	isolationKeep    = "keep"    // the tables already hold it
+	isolationUpdate  = "update"  // change them in place, rebuilding them when that fails
+	isolationRebuild = "rebuild" // build them again
+)
+
+// isolationAction is Net.isolate's choice for pol after prev, with has
+// reporting whether the tables exist (asked only when it matters).
+func isolationAction(prev *policy, pol policy, has func() bool) string {
+	if prev != nil && reflect.DeepEqual(*prev, pol) && has() {
+		return isolationKeep
+	}
+	if prev != nil && sameFrame(*prev, pol) && has() {
+		return isolationUpdate
+	}
+	return isolationRebuild
 }
 
 // UplinkOf returns the interface that holds ip and its MTU.
@@ -890,12 +909,30 @@ func spoofRules(p plan) [][]string {
 }
 
 // iptablesCmd runs the iptables tool the container networking plugins use.
-type iptablesCmd struct{ bin string }
+type iptablesCmd struct {
+	bin string
+	// fake stands for the tool in tests: it gets the arguments the tool
+	// would and returns its output.
+	fake func(args []string) ([]byte, error)
+}
 
 var iptables = iptablesCmd{bin: "iptables"}
 
+// exec runs the tool with args, returning its standard output, or with
+// combined its standard output and error together.
+func (c iptablesCmd) exec(combined bool, args ...string) ([]byte, error) {
+	if c.fake != nil {
+		return c.fake(args)
+	}
+	cmd := exec.Command(c.bin, args...) //nolint:gosec // fixed tool; arguments are validated addresses and constants
+	if combined {
+		return cmd.CombinedOutput()
+	}
+	return cmd.Output()
+}
+
 func (c iptablesCmd) run(args ...string) error {
-	out, err := exec.Command(c.bin, append([]string{"-w", "5"}, args...)...).CombinedOutput() //nolint:gosec // fixed tool; arguments are validated addresses and constants
+	out, err := c.exec(true, append([]string{"-w", "5"}, args...)...)
 	if err != nil {
 		return fmt.Errorf("iptables %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
 	}
@@ -912,7 +949,7 @@ func (c iptablesCmd) chain(table, name string) error {
 
 // fill replaces a chain's rules, unless they already match.
 func (c iptablesCmd) fill(table, name string, rules [][]string) error {
-	out, err := exec.Command(c.bin, "-w", "5", "-t", table, "-S", name).Output() //nolint:gosec // see run
+	out, err := c.exec(false, "-w", "5", "-t", table, "-S", name)
 	if err == nil {
 		want := []string{"-N " + name}
 		for _, r := range rules {
@@ -945,7 +982,7 @@ func (c iptablesCmd) first(table, chain string, rule ...string) error {
 // jumps returns the rules of a built-in filter chain that jump to target,
 // as arguments for -D.
 func (c iptablesCmd) jumps(chain, target string) [][]string {
-	out, err := exec.Command(c.bin, "-w", "5", "-S", chain).Output() //nolint:gosec // see run
+	out, err := c.exec(false, "-w", "5", "-S", chain)
 	if err != nil {
 		return nil
 	}
@@ -1241,7 +1278,18 @@ func Remove() error {
 	if err := removeIsolation(); err != nil {
 		errs = append(errs, fmt.Errorf("remove the isolation tables: %w", err))
 	}
-	ipt := iptables
+	errs = append(errs, removeFirewall(iptables)...)
+	// The control socket a userspace WireGuard device leaves behind.
+	if err := os.Remove(userSocket); err != nil && !errors.Is(err, os.ErrNotExist) {
+		errs = append(errs, err)
+	}
+	return errors.Join(errs...)
+}
+
+// removeFirewall removes the iptables rules and chains of the cluster
+// network, returning what failed (nil entries included).
+func removeFirewall(ipt iptablesCmd) []error {
+	var errs []error
 	for _, r := range [][]string{
 		{"filter", "FORWARD", "-j", chainFwd},
 		{"raw", "PREROUTING", "-j", chainPre},
@@ -1269,11 +1317,7 @@ func Remove() error {
 	if ipt.run("-t", "mangle", "-L", chainMSS, "-n") == nil {
 		errs = append(errs, ipt.run("-t", "mangle", "-F", chainMSS), ipt.run("-t", "mangle", "-X", chainMSS))
 	}
-	// The control socket a userspace WireGuard device leaves behind.
-	if err := os.Remove(userSocket); err != nil && !errors.Is(err, os.ErrNotExist) {
-		errs = append(errs, err)
-	}
-	return errors.Join(errs...)
+	return errs
 }
 
 // deviceLogger sends the userspace WireGuard device's errors to the log.

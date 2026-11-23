@@ -3,7 +3,7 @@
 //! against the Go code it replaces:
 //!
 //!   armada-node proxy render   HAProxy's configuration (src/proxy)
-//!   armada-node net ...        the cluster network's plan, key, and peer list (src/net)
+//!   armada-node net ...        the cluster network's plan, key, peer list, and firewall (src/net)
 
 mod names;
 mod net;
@@ -24,8 +24,9 @@ fn run() -> Result<(), String> {
         ["net", "key", path] => net::key_command(path, false),
         ["net", "key", "rotate", path] => net::key_command(path, true),
         ["net", "cache", op, path] => net::cache_command(op, path),
+        ["net", "firewall", op] => net::firewall::command(op),
         _ => Err(format!(
-            "unknown command {args:?}; try: proxy render, net plan, net key [rotate] PATH, net cache save|load PATH"
+            "unknown command {args:?}; try: proxy render, net plan, net key [rotate] PATH, net cache save|load PATH, net firewall nft|iptables|apply|remove"
         )),
     }
 }

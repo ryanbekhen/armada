@@ -6,6 +6,7 @@ use super::plan::{Plan, container_addr};
 use crate::names;
 use std::collections::{BTreeMap, HashMap};
 
+#[derive(Clone, PartialEq, Debug)]
 pub struct Policy {
     pub cidr: Prefix,
     pub subnet: Prefix,
