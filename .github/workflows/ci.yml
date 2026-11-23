@@ -169,8 +169,9 @@ jobs:
   # armada-log (logger/), armada-shim (shim/), and armada-dns (dns/): the
   # Rust programs release builds embed. Lint, unit tests, static builds for
   # both architectures, the comparison of armada-log with the Go writer it
-  # must match byte for byte, and armada-dns against the Go resolver's
-  # tests.
+  # must match byte for byte, armada-dns against the Go resolver's tests,
+  # and armada-node (ADR 0054): its crates' licenses, and HAProxy
+  # configurations it must render as the Go renderer does.
   logger:
     needs: changes
     if: needs.changes.outputs.code == 'true'
@@ -207,9 +208,21 @@ jobs:
         working-directory: dns
       - run: cargo test --locked
         working-directory: dns
+      - run: rustup toolchain install
+        working-directory: node
+      - run: cargo fmt --check
+        working-directory: node
+      - run: cargo clippy --locked --all-targets -- -D warnings
+        working-directory: node
+      - run: cargo test --locked
+        working-directory: node
+      - run: cargo install cargo-deny --locked --version 0.22.0
+      - run: cargo deny --locked check licenses
+        working-directory: node
       - run: make logger
       - run: make shim
       - run: make dns
+      - run: make node
       - run: go test -race -run 'TestArmadaLog|TestLoggerStandardLibraryOnly' -v ./internal/runtime/embedded/
         env:
           ARMADA_LOG_BIN: ${{ github.workspace }}/logger/target/x86_64-unknown-linux-musl/release/armada-log
@@ -217,6 +230,9 @@ jobs:
       - run: go test -race -run 'TestProcess|TestStartProcess' -v ./internal/dnsserver/
         env:
           ARMADA_DNS_BIN: ${{ github.workspace }}/dns/target/x86_64-unknown-linux-musl/release/armada-dns
+      - run: go test -race -run 'TestArmadaNode|TestRenderFallsBack' -v ./internal/proxy/haproxy/
+        env:
+          ARMADA_NODE_BIN: ${{ github.workspace }}/node/target/x86_64-unknown-linux-musl/release/armada-node
 
   installer:
     needs: changes

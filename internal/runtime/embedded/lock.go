@@ -96,5 +96,9 @@ const (
 	// built from source like armada-log; agents of packs without it run
 	// the resolver in armadad.
 	BinDNS = "armada-dns"
-	DirCNI = "cni"
+	// BinNode is the node agent moving to Rust (node/, ADR 0054), built
+	// from source like armada-log; the Go agent hands it work and does the
+	// work itself when the pack has none.
+	BinNode = "armada-node"
+	DirCNI  = "cni"
 )

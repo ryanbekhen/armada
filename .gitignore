@@ -17,3 +17,4 @@ coverage.out
 /logger/target/
 /shim/target/
 /dns/target/
+/node/target/

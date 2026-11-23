@@ -861,7 +861,10 @@ wait_for 60 "through a trusted proxy, the address it appended counts" ipr_is 200
 expect_code 403 "the client cannot prepend an address before the proxy's" "$N" "$IP_B" "$IP_A, 192.0.2.10"
 expect_code 200 "an address the client prepended is ignored" "$N" "$IP_B" "192.0.2.10, $IP_A"
 expect_code 200 "a trusted proxy in the chain is stepped over" "$N" "$IP_B" "$IP_A, $IP_T"
-expect_code 403 "an untrusted machine still cannot claim an address" 2 "$IP_B" "$IP_A"
+# Machine 2 is untrusted only when the proxy is another machine.
+if [ "$N" -ge 3 ]; then
+	expect_code 403 "an untrusted machine still cannot claim an address" 2 "$IP_B" "$IP_A"
+fi
 
 ipr_app "ipDeny: [$IP_A/32]"
 wait_for 60 "closed to machine 1, machine 1 is refused" ipr_is 403 1 "$IP_B"

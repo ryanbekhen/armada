@@ -52,7 +52,22 @@ func TestLoggerStandardLibraryOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"armada-log", "armada-shim", "armada-dns", "musl", "Rust standard library"} {
+	// armada-node may use crates (ADR 0054): every one in its lock file is
+	// named in the notices.
+	b, err = os.ReadFile("../../../node/Cargo.lock")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		name, ok := strings.CutPrefix(line, "name = ")
+		if name = strings.Trim(name, `"`); !ok || name == "armada-node" {
+			continue
+		}
+		if !strings.Contains(string(notices), name) {
+			t.Errorf("THIRD_PARTY_NOTICES.md does not name the crate %s (node/Cargo.lock)", name)
+		}
+	}
+	for _, want := range []string{"armada-log", "armada-shim", "armada-dns", "armada-node", "musl", "Rust standard library"} {
 		if !strings.Contains(string(notices), want) {
 			t.Errorf("THIRD_PARTY_NOTICES.md does not mention %q", want)
 		}

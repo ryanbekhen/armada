@@ -38,6 +38,19 @@ const (
 // runDir holds the node's runtime state on tmpfs; tests replace it.
 var runDir = "/run/armada"
 
+// packProgram returns a function that finds name in the node's runtime
+// pack: its path while it is a regular file there, else "" (no pack yet, or
+// one from before the program).
+func packProgram(dataDir, name string) func() string {
+	return func() string {
+		p := filepath.Join(runtimePaths(dataDir).Bin(), name)
+		if fi, err := os.Stat(p); err == nil && fi.Mode().IsRegular() {
+			return p
+		}
+		return ""
+	}
+}
+
 func runtimePaths(dataDir string) embedded.Paths {
 	return embedded.Paths{DataDir: dataDir, RunDir: runDir}
 }

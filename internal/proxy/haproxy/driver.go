@@ -61,7 +61,10 @@ type Config struct {
 	// Listeners returns the TCP sockets listening on the node; it defaults
 	// to reading /proc/net (ADR 0039).
 	Listeners func() ([]netip.AddrPort, error)
-	Logger    *slog.Logger
+	// Renderer returns the runtime pack's armada-node, which renders the
+	// configuration (ADR 0054), or "" to render it in Go.
+	Renderer func() string
+	Logger   *slog.Logger
 }
 
 // Driver is the HAProxy proxy.Driver.
@@ -69,11 +72,13 @@ type Driver struct {
 	cfg Config
 	log *slog.Logger
 
-	mu       sync.Mutex
-	sig      string
-	layout   Layout
-	applied  map[string]slot   // "backend/slot" -> what it serves; zero for a free slot
-	certHash map[string]string // file name -> sha256 of PEM
+	mu  sync.Mutex
+	sig string
+	// renderErr is why armada-node last failed to render, "" once it works.
+	renderErr string
+	layout    Layout
+	applied   map[string]slot   // "backend/slot" -> what it serves; zero for a free slot
+	certHash  map[string]string // file name -> sha256 of PEM
 	// clients is the content of the clients map HAProxy last loaded or
 	// was given through the Runtime API.
 	clients []byte
@@ -207,7 +212,18 @@ func (d *Driver) Apply(ctx context.Context, cfg proxy.Config) error {
 	live, adopted := d.liveConfig(ctx, cfg, opts)
 	layout := assignLayout(d.layout, cfg, opts.node())
 	sig := signature(cfg, layout, opts)
-	content := render(cfg, layout, opts)
+	bin := ""
+	if d.cfg.Renderer != nil {
+		bin = d.cfg.Renderer()
+	}
+	out, nerr := renderWith(ctx, bin, cfg, layout, opts)
+	if msg := errText(nerr); msg != d.renderErr {
+		if nerr != nil {
+			d.log.Warn("armada-node could not render the proxy configuration; Go rendered it", "err", nerr)
+		}
+		d.renderErr = msg
+	}
+	content := out.config
 	if content == nil {
 		return errors.New("refusing proxy config: an interpolated value is not a single token")
 	}
@@ -227,14 +243,13 @@ func (d *Driver) Apply(ctx context.Context, cfg proxy.Config) error {
 		d.held = heldTCP(content)
 		d.log.Info("kept the running haproxy")
 	}
-	routes := routeFiles(cfg, opts)
-	for name, b := range routes {
+	for name, b := range out.routes {
 		if err := fsutil.WriteFileAtomic(filepath.Join(etcDir(d.cfg.Dir), name), b, 0o600); err != nil {
 			return err
 		}
 	}
 
-	local := localMap(cfg, layout, opts.node())
+	local := out.local
 	if !bytes.Equal(local, d.local) {
 		if err := fsutil.WriteFileAtomic(filepath.Join(etcDir(d.cfg.Dir), localFile), local, 0o600); err != nil {
 			return err
@@ -258,7 +273,7 @@ func (d *Driver) Apply(ctx context.Context, cfg proxy.Config) error {
 		d.commit(sig, layout, cfg)
 		d.held = heldTCP(content)
 		d.local = local
-		d.removeOldRoutes(routes)
+		d.removeOldRoutes(out.routes)
 		d.log.Info("haproxy started")
 		return nil
 	}
@@ -279,7 +294,7 @@ func (d *Driver) Apply(ctx context.Context, cfg proxy.Config) error {
 		d.commit(sig, layout, cfg)
 		d.held = heldTCP(content)
 		d.local = local
-		d.removeOldRoutes(routes)
+		d.removeOldRoutes(out.routes)
 		d.log.Info("haproxy reloaded")
 		return nil
 	}
@@ -719,4 +734,11 @@ func selfSignedPEM() ([]byte, error) {
 	}
 	out := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
 	return append(out, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER})...), nil
+}
+
+func errText(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
 }
