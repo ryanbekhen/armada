@@ -8,6 +8,8 @@
 //!   armada-node net key rotate PATH  network.key: a new key; prints its public key
 //!   armada-node net cache save PATH  stdin: a NetworkConfig (protojson); keeps mesh.json
 //!   armada-node net cache load PATH  prints the kept NetworkConfig, or null
+//!   armada-node net firewall ...     the nftables isolation tables and the
+//!                                    iptables chains (firewall.rs)
 //!
 //! A plan request is one JSON object as Go's encoding/json writes it:
 //! Config (a NetworkConfig in protojson), Node and PrivateIP (this node),
@@ -22,8 +24,12 @@
 
 pub mod addr;
 pub mod config;
+pub mod firewall;
+pub mod iptables;
+pub mod kernel;
 pub mod key;
 pub mod mesh;
+pub mod nft;
 pub mod plan;
 pub mod policy;
 pub mod rules;

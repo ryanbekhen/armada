@@ -61,6 +61,12 @@ func isolate(pol policy) error {
 	if err != nil {
 		return err
 	}
+	return isolateOn(c, pol)
+}
+
+// isolateOn is isolate on c, which tests give a connection that keeps the
+// messages instead of sending them.
+func isolateOn(c *nftables.Conn, pol policy) error {
 	for _, fam := range []nftables.TableFamily{nftables.TableFamilyIPv4, nftables.TableFamilyBridge} {
 		t := &nftables.Table{Name: isolationTable, Family: fam}
 		// Adding first makes the delete succeed when there is no table.
@@ -100,6 +106,11 @@ func removeIsolation() error {
 	if err != nil {
 		return err
 	}
+	return removeIsolationOn(c)
+}
+
+// removeIsolationOn is removeIsolation on c (see isolateOn).
+func removeIsolationOn(c *nftables.Conn) error {
 	for _, fam := range []nftables.TableFamily{nftables.TableFamilyIPv4, nftables.TableFamilyBridge} {
 		t := &nftables.Table{Name: isolationTable, Family: fam}
 		c.AddTable(t)
@@ -309,6 +320,11 @@ func updateIsolation(old, pol policy) error {
 	if err != nil {
 		return err
 	}
+	return updateIsolationOn(c, old, pol)
+}
+
+// updateIsolationOn is updateIsolation on c (see isolateOn).
+func updateIsolationOn(c *nftables.Conn, old, pol policy) error {
 	for _, fam := range []nftables.TableFamily{nftables.TableFamilyIPv4, nftables.TableFamilyBridge} {
 		t := &nftables.Table{Name: isolationTable, Family: fam}
 		if err := updateTable(c, t, old, pol); err != nil {
