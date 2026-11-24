@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"maps"
 	"os"
 	"path/filepath"
@@ -114,11 +115,29 @@ func (n *Native) exec(ctx context.Context, bounded bool, stdin any, args ...stri
 // execFiles is exec with extra files the program gets from descriptor 3
 // on.
 func (n *Native) execFiles(ctx context.Context, bounded bool, stdin any, extra []*os.File, args ...string) ([]byte, error) {
-	o := nodeprog.RunOptions{ExtraFiles: extra, Fail: asProgramError}
+	o := nodeprog.RunOptions{ExtraFiles: extra, Fail: asProgramError, Warnings: func(msg string) {
+		// Warnings of a call that succeeded (an extended attribute a
+		// layer's file system refused, unused blobs not collected).
+		logWarnings(args, msg)
+	}}
 	if bounded {
 		o.Limit = programLimit
 	}
 	return nodeprog.Run(ctx, n.Bin, o, stdin, args...)
+}
+
+// warningLimit bounds what is logged of a call's warnings.
+const warningLimit = 4 << 10
+
+// logWarnings logs what armada-node wrote on stderr for a call that
+// succeeded: the call's first two words, and the text bounded and made
+// valid UTF-8.
+func logWarnings(args []string, msg string) {
+	if len(msg) > warningLimit {
+		msg = msg[:warningLimit] + "..."
+	}
+	call := strings.Join(args[:min(len(args), 2)], " ")
+	slog.Warn("armada-node warned", "call", call, "warnings", strings.ToValidUTF8(msg, "�"))
 }
 
 // run runs a call and reads its answer into out: {"error": TEXT} is that

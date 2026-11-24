@@ -7,13 +7,24 @@
 //! directories a layer creates implicitly take their parents' owner,
 //! mode, times, and attributes.
 //!
-//! Names are resolved as Go resolves them: every entry stays inside the
-//! layer's directory, "../" and absolute names are taken from its root,
-//! and symbolic links are followed only within it. On top of that, every
-//! change is made through a descriptor of its parent directory opened
-//! with openat2 beneath the root and with no symbolic link followed, so a
-//! name that would leave the directory is an error, never a write
-//! elsewhere.
+//! Names are resolved as Go resolves them: absolute names are taken from
+//! the layer's root, and symbolic links are followed only within it. On
+//! top of that, every change is made through a descriptor of its parent
+//! directory opened with openat2 beneath the root and with no symbolic
+//! link followed, so a name that would leave the directory is an error,
+//! never a write elsewhere.
+//!
+//! Where containerd's applier was found wrong while porting, this does
+//! what is right instead: an entry name or hard link target that climbs
+//! out with "../" fails the layer (containerd clamps it into the root,
+//! writing somewhere the image did not name); a hard link takes nothing
+//! from its entry's header (containerd applies the link's owner, mode,
+//! attributes, and times to the file it links to); a PAX global header is
+//! skipped before its name is looked at (containerd removed what the
+//! name named); and an extended attribute the file system refuses is
+//! reported on stderr, which the agent logs, rather than dropped
+//! silently. Sparse files are refused, as their expanded size is not
+//! bounded by the layer's bytes.
 
 use super::tar::{self, Header, Time};
 use std::collections::HashSet;
@@ -91,9 +102,9 @@ fn show(p: &[u8]) -> String {
     String::from_utf8_lossy(p).into_owned()
 }
 
-/// Go's %q of a path, close enough for messages.
+/// Go's %q of a path.
 fn quote(p: &[u8]) -> String {
-    format!("{:?}", show(p))
+    crate::volume::quote(p)
 }
 
 // --- errors as Go words them -------------------------------------------
@@ -692,6 +703,25 @@ struct Apply<'a> {
     parents: &'a [Vec<u8>],
     unpacked: HashSet<Vec<u8>>,
     opaque: HashSet<Vec<u8>>,
+    /// Warnings written so far (at most MAX_WARNINGS lines per layer).
+    warned: std::cell::Cell<usize>,
+}
+
+/// The warnings a layer writes to stderr at most, then one line saying
+/// how many more there were.
+const MAX_WARNINGS: usize = 16;
+
+/// Whether a clean name climbs out of the directory it is taken from.
+fn climbs_out(clean_name: &[u8]) -> bool {
+    clean_name == b".." || clean_name.starts_with(b"../")
+}
+
+/// The error of a name that climbs out of the layer's directory.
+fn outside(what: &str, name: &[u8]) -> String {
+    format!(
+        "{what} {} leaves the layer's directory: invalid archive",
+        crate::volume::quote(name)
+    )
 }
 
 /// archive.Apply with the options apply() gives it: overlay whiteouts and
@@ -705,53 +735,89 @@ pub fn apply(root_dir: &[u8], r: &mut dyn Read, parents: &[Vec<u8>]) -> Result<(
         parents,
         unpacked: HashSet::new(),
         opaque: HashSet::new(),
+        warned: std::cell::Cell::new(0),
     };
-    let mut tr = tar::Reader::new(r);
-    let mut dirs: Vec<Header> = Vec::new();
-    while let Some(mut h) = tr.next().map_err(|e| e.to_string())? {
-        h.name = clean(&h.name);
-        let (pp, b) = split(&h.name);
-        let ppath = root_path(&a.rootp, pp).map_err(|e| format!("failed to get root path: {e}"))?;
-        let path = join(&ppath, &join(b"/", b));
-        if path == a.rootp {
-            continue;
+    let res = a.apply_all(r);
+    let n = a.warned.get();
+    if n > MAX_WARNINGS {
+        eprintln!(
+            "armada-node: {} more extended attributes ignored in this layer",
+            n - MAX_WARNINGS
+        );
+    }
+    res
+}
+
+impl Apply<'_> {
+    /// A warning on stderr, which the agent logs: at most MAX_WARNINGS
+    /// lines per layer.
+    fn warn(&self, msg: String) {
+        let n = self.warned.get() + 1;
+        self.warned.set(n);
+        if n <= MAX_WARNINGS {
+            eprintln!("armada-node: {msg}");
         }
-        if ppath != a.rootp {
-            let parent = if b.is_empty() {
-                dir(&path)
+    }
+
+    fn apply_all(&mut self, r: &mut dyn Read) -> Result<(), String> {
+        let root = self.root;
+        let a = self;
+        let parents = a.parents;
+        let mut tr = tar::Reader::new(r);
+        let mut dirs: Vec<Header> = Vec::new();
+        while let Some(mut h) = tr.next().map_err(|e| e.to_string())? {
+            if h.typeflag == tar::TYPE_XGLOBAL {
+                // Records for the archive, not an entry: nothing to write.
+                continue;
+            }
+            h.name = clean(&h.name);
+            if climbs_out(&h.name) {
+                return Err(outside("entry", &h.name));
+            }
+            let (pp, b) = split(&h.name);
+            let ppath =
+                root_path(&a.rootp, pp).map_err(|e| format!("failed to get root path: {e}"))?;
+            let path = join(&ppath, &join(b"/", b));
+            if path == a.rootp {
+                continue;
+            }
+            if ppath != a.rootp {
+                let parent = if b.is_empty() {
+                    dir(&path)
+                } else {
+                    ppath.clone()
+                };
+                a.mkparent(&parent)?;
+            }
+            validate_whiteout(&path)?;
+            let write = if parents.is_empty() {
+                a.remove_whiteout(&path)
             } else {
-                ppath.clone()
-            };
-            a.mkparent(&parent)?;
+                a.overlay_whiteout(&h, &path)
+            }
+            .map_err(|e| format!("failed to convert whiteout file {}: {e}", quote(&h.name)))?;
+            if !write {
+                continue;
+            }
+            if let Ok(st) = root.lstat(&path)
+                && (!is_dir(&st) || h.typeflag != tar::TYPE_DIR)
+            {
+                root.remove_all(&path)
+                    .map_err(|e| path_err("unlinkat", &path, &e))?;
+            }
+            a.create(&path, &h, &mut tr)?;
+            if h.typeflag == tar::TYPE_DIR {
+                dirs.push(h);
+            }
+            a.unpacked.insert(path);
         }
-        validate_whiteout(&path)?;
-        let write = if parents.is_empty() {
-            a.remove_whiteout(&path)
-        } else {
-            a.overlay_whiteout(&h, &path)
+        for h in &dirs {
+            let p = root_path(&a.rootp, &h.name).map_err(|e| e.to_string())?;
+            chtimes(root, &p, h)?;
         }
-        .map_err(|e| format!("failed to convert whiteout file {}: {e}", quote(&h.name)))?;
-        if !write {
-            continue;
-        }
-        if let Ok(st) = root.lstat(&path)
-            && (!is_dir(&st) || h.typeflag != tar::TYPE_DIR)
-        {
-            root.remove_all(&path)
-                .map_err(|e| path_err("unlinkat", &path, &e))?;
-        }
-        a.create(&path, &h, &mut tr)?;
-        if h.typeflag == tar::TYPE_DIR {
-            dirs.push(h);
-        }
-        a.unpacked.insert(path);
+        // What follows the archive is read by the caller, for the digest.
+        Ok(())
     }
-    for h in &dirs {
-        let p = root_path(&a.rootp, &h.name).map_err(|e| e.to_string())?;
-        chtimes(&root, &p, h)?;
-    }
-    // What follows the archive is read by the caller, for the digest.
-    Ok(())
 }
 
 fn validate_whiteout(path: &[u8]) -> Result<(), String> {
@@ -956,7 +1022,14 @@ impl Apply<'_> {
             };
             match self.root.lsetxattr(dst, &n, &v, libc::XATTR_CREATE) {
                 Ok(()) => {}
-                Err(e) if matches!(errno(&e), libc::ENOTSUP | libc::ENODATA | libc::EEXIST) => {}
+                Err(e) if matches!(errno(&e), libc::ENODATA | libc::EEXIST) => {}
+                Err(e) if errno(&e) == libc::ENOTSUP => self.warn(format!(
+                    "extended attribute {} of {} not copied to {}: {}",
+                    quote(&n),
+                    show(src),
+                    show(dst),
+                    errno_text(&e)
+                )),
                 Err(e) => {
                     return Err(format!(
                         "failed to set xattr {} on {}: {}",
@@ -1025,6 +1098,9 @@ impl Apply<'_> {
                 self.root.link(&target, path).map_err(|e| {
                     format!("link {} {}: {}", show(&target), show(path), errno_text(&e))
                 })?;
+                // A hard link is the file it links to: its own header's
+                // owner, mode, attributes, and times are not applied to it.
+                return Ok(());
             }
             tar::TYPE_SYMLINK => {
                 self.root.symlink(&h.linkname, path).map_err(|e| {
@@ -1055,6 +1131,8 @@ impl Apply<'_> {
             }
             if let Err(e) = self.root.lsetxattr(path, k, v, 0) {
                 let n = errno(&e);
+                // user.* on anything but files and directories, which the
+                // kernel never allows: nothing to report.
                 if n == libc::EPERM
                     && k.starts_with(b"user.")
                     && self
@@ -1065,6 +1143,12 @@ impl Apply<'_> {
                     continue;
                 }
                 if n == libc::ENOTSUP {
+                    self.warn(format!(
+                        "extended attribute {} of {} ignored: {}",
+                        quote(k),
+                        quote(&h.name),
+                        errno_text(&e)
+                    ));
                     continue;
                 }
                 return Err(format!(
@@ -1088,9 +1172,12 @@ impl Apply<'_> {
     }
 }
 
-/// hardlinkRootPath: a link's target resolved within root, the root
-/// itself when it would leave it.
+/// hardlinkRootPath: a link's target resolved within root; a target that
+/// climbs out with "../" is refused (containerd took the root itself).
 fn hardlink_root_path(root: &[u8], linkname: &[u8]) -> Result<Vec<u8>, String> {
+    if climbs_out(&clean(linkname)) {
+        return Err(outside("hard link target", linkname));
+    }
     let (pp, b) = split(linkname);
     let pp = root_path(root, pp).map_err(|e| e.to_string())?;
     let t = join(&pp, b);
@@ -1137,25 +1224,46 @@ mod tests {
         let root = base.join("root");
         std::fs::create_dir_all(&root).unwrap();
         let a = tar::test_archive(&[
-            ("../escape", tar::TYPE_REG, "", "up"),
             ("/abs", tar::TYPE_REG, "", "abs"),
             ("out", tar::TYPE_SYMLINK, "/outside", ""),
             ("out/file", tar::TYPE_REG, "", "through"),
             ("up", tar::TYPE_SYMLINK, "../..", ""),
             ("up/file2", tar::TYPE_REG, "", "through"),
-            ("h", tar::TYPE_LINK, "../../abs", ""),
+            ("h", tar::TYPE_LINK, "/abs", ""),
             ("gone", tar::TYPE_REG, "", "x"),
             (".wh.gone", tar::TYPE_REG, "", ""),
         ]);
         apply(root.as_os_str().as_bytes(), &mut &a[..], &[]).unwrap();
         let read = |p: &str| std::fs::read_to_string(root.join(p)).unwrap();
-        assert_eq!(read("escape"), "up");
         assert_eq!(read("abs"), "abs");
         assert_eq!(read("outside/file"), "through");
         assert_eq!(read("file2"), "through");
         assert_eq!(read("h"), "abs");
         assert!(!root.join("gone").exists());
-        assert!(!base.join("escape").exists());
+        // Names and hard link targets that climb out are refused, never
+        // taken from the root.
+        for (entries, want) in [
+            (
+                vec![("../escape", tar::TYPE_REG, "", "up")],
+                "entry \"../escape\" leaves the layer's directory: invalid archive",
+            ),
+            (
+                vec![("a/../../b", tar::TYPE_REG, "", "up")],
+                "entry \"../b\" leaves the layer's directory: invalid archive",
+            ),
+            (
+                vec![("h2", tar::TYPE_LINK, "../../abs", "")],
+                "hard link target \"../../abs\" leaves the layer's directory: invalid archive",
+            ),
+        ] {
+            let a = tar::test_archive(&entries);
+            assert_eq!(
+                apply(root.as_os_str().as_bytes(), &mut &a[..], &[]).unwrap_err(),
+                want
+            );
+        }
+        assert!(!base.join("escape").exists() && !root.join("escape").exists());
+        assert!(!base.join("b").exists() && !root.join("b").exists());
         assert_eq!(
             std::fs::metadata(root.join("abs"))
                 .unwrap()
@@ -1178,6 +1286,40 @@ mod tests {
             // Without the privilege to make whiteouts.
             Err(e) => assert!(e.contains("not permitted"), "{e}"),
         }
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn hard_links_and_global_headers_touch_nothing_else() {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        let base = std::env::temp_dir().join(format!("armada-node-links-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let root = base.join("root");
+        std::fs::create_dir_all(&root).unwrap();
+        // A hard link entry with a mode and time of its own leaves the
+        // file it links to as it was.
+        let mut a = tar::test_archive(&[("f", tar::TYPE_REG, "", "data")]);
+        a.truncate(a.len() - 1024);
+        let mut link = tar::tests::header("l", tar::TYPE_LINK, 0);
+        link[100..108].copy_from_slice(b"0004777\0");
+        link[136..148].copy_from_slice(b"00000000077\0");
+        link[157..158].copy_from_slice(b"f");
+        tar::tests::set_checksum(&mut link);
+        a.extend(link);
+        // A global header naming a file of the layer.
+        let recs = "12 comment=\n";
+        let mut g = tar::tests::header("f", tar::TYPE_XGLOBAL, recs.len());
+        tar::tests::set_checksum(&mut g);
+        a.extend(g);
+        a.extend(recs.as_bytes());
+        tar::tests::pad(&mut a);
+        a.extend([0u8; 1024]);
+        apply(root.as_os_str().as_bytes(), &mut &a[..], &[]).unwrap();
+        let m = std::fs::metadata(root.join("f")).unwrap();
+        assert_eq!(m.permissions().mode() & 0o7777, 0o644);
+        assert_eq!(m.mtime(), 1);
+        assert_eq!(m.nlink(), 2);
+        assert_eq!(std::fs::read(root.join("f")).unwrap(), b"data");
         let _ = std::fs::remove_dir_all(&base);
     }
 

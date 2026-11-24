@@ -128,16 +128,17 @@ pub(crate) fn window_size(h: &[u8]) -> Option<u64> {
     Some(if fcs_len == 2 { v + 256 } else { v })
 }
 
-/// A layer blob read as containerd's applier reads it: its media type
-/// decides whether it is decompressed (images.DiffCompression), and a
-/// compressed one is told apart by its magic numbers (DecompressStream).
+/// A layer blob read for unpacking: its media type must be a layer's
+/// (images.DiffCompression), and its magic numbers alone decide whether
+/// and how it is decompressed (DecompressStream), as `uncompressed` reads
+/// it to check its diff ID. containerd lets the media type decide, so a
+/// compressed blob under an uncompressed type was checked as one tar and
+/// unpacked as another; here both read the same bytes.
 pub fn layer_reader<'a, R: Read + 'a>(
     r: R,
     media_type: &str,
 ) -> Result<Box<dyn Read + 'a>, String> {
-    if !diff_compressed(media_type)? {
-        return Ok(Box::new(r));
-    }
+    diff_compressed(media_type)?;
     let mut r = BufReader::with_capacity(64 << 10, r);
     let head = r.fill_buf().map_err(|e| e.to_string())?.to_vec();
     Ok(match detect(&head[..head.len().min(10)]) {
@@ -337,8 +338,10 @@ mod tests {
             [&tar[..], &tar[..]].concat()
         );
         assert_eq!(read(&gz(&tar), &format!("{oci}+gzip")), tar);
-        // Uncompressed media types are read as they are.
-        assert_eq!(read(&gz(&tar), oci), gz(&tar));
+        // The bytes decide, whatever the layer type says (as the diff ID
+        // check reads them).
+        assert_eq!(read(&gz(&tar), oci), tar);
+        assert_eq!(read(&tar, oci), tar);
         assert_eq!(
             read(&tar, "application/vnd.docker.image.rootfs.diff.tar.gzip"),
             tar

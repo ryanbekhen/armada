@@ -921,7 +921,7 @@ pub fn test_archive(entries: &[(&str, u8, &str, &str)]) -> Vec<u8> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     pub fn header(name: &str, flag: u8, size: usize) -> [u8; BLOCK] {
@@ -972,7 +972,7 @@ mod tests {
         assert!(r.next().unwrap().is_none());
     }
 
-    fn set_checksum(b: &mut [u8; BLOCK]) {
+    pub fn set_checksum(b: &mut [u8; BLOCK]) {
         b[148..156].copy_from_slice(b"        ");
         let (u, _) = checksum(b);
         b[148..156].copy_from_slice(format!("{u:06o}\0 ").as_bytes());

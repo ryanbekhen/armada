@@ -99,6 +99,9 @@ type RunOptions struct {
 	// Fail makes the error a failure of the program is returned as; nil
 	// for Error.
 	Fail func(error) error
+	// Warnings, when set, gets what the program wrote on stderr in a call
+	// that succeeded.
+	Warnings func(msg string)
 }
 
 func (o RunOptions) fail(err error) error {
@@ -161,6 +164,9 @@ func Run(ctx context.Context, bin string, o RunOptions, stdin any, args ...strin
 			err = fmt.Errorf("%w: %s", err, msg)
 		}
 		return nil, o.fail(err)
+	}
+	if msg := strings.TrimSpace(stderr.String()); msg != "" && o.Warnings != nil {
+		o.Warnings(msg)
 	}
 	return out, nil
 }
