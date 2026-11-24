@@ -33,7 +33,8 @@
 //! Before its first write to the bucket or the volume, a call prints
 //! "touched" on a line of its own: a call that fails without an answer
 //! before that line changed nothing, so the agent does it with Go's code.
-//! --extra-ca and ARMADA_NODE_TEST_BUCKET_ADDR (s3.rs) are for tests.
+//! --extra-ca and ARMADA_NODE_TEST_BUCKET_ADDR (s3.rs) are for tests, and
+//! only in builds with test hooks (src/hooks.rs).
 
 mod chunker;
 mod gotime;
@@ -127,7 +128,7 @@ fn unbase64(s: &str) -> Option<Vec<u8>> {
 pub fn command(op: &str, args: &[&str]) -> Result<(), String> {
     let extra_ca = match args {
         [] => None,
-        ["--extra-ca", f] => Some(*f),
+        ["--extra-ca", f] => crate::hooks::extra_ca(f)?,
         _ => return Err(format!("unknown arguments {args:?}; try: --extra-ca FILE")),
     };
     let stdin = std::io::stdin();

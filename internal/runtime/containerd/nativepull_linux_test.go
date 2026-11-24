@@ -405,8 +405,20 @@ func goPull(t *testing.T, dir, image string, auth *runtime.RegistryAuth) pullRes
 	return pullResult{ref: img.Ref, platforms: img.Platforms}
 }
 
+// withTestHooks skips a test whose armada-node lacks the test hooks:
+// --extra-ca, which trusts the test registries' CA, is only in builds
+// made with make node-test-hooks.
+func withTestHooks(t *testing.T, bin string) {
+	t.Helper()
+	out, err := exec.Command(bin, "test-hooks").Output() //nolint:noctx // the test's armada-node
+	if err != nil || !strings.Contains(string(out), `"testHooks":true`) {
+		t.Skip("ARMADA_NODE_BIN has no test hooks (--extra-ca): build it with make node-test-hooks")
+	}
+}
+
 func rustPull(t *testing.T, bin, dir, ca, image string, auth *runtime.RegistryAuth, env ...string) pullResult {
 	t.Helper()
+	withTestHooks(t, bin)
 	req := map[string]any{"image": image}
 	if auth != nil {
 		req["auth"] = map[string]string{"Username": auth.Username, "Password": auth.Password, "ServerAddress": auth.ServerAddress}
