@@ -724,6 +724,10 @@ func TestArmadaNodeShimStartMatchesGo(t *testing.T) {
 				// Go's connection ends at its deadline by a close or a
 				// timeout, whichever comes first.
 				g.err = strings.ReplaceAll(g.err, "use of closed network connection", "i/o timeout")
+				// A program the deadline kills reads as killed or as the
+				// deadline, depending on which os/exec saw first.
+				g.err = strings.ReplaceAll(g.err, "signal: killed", "context deadline exceeded")
+				r.err = strings.ReplaceAll(r.err, "signal: killed", "context deadline exceeded")
 			}
 			if g != r {
 				t.Errorf("go:\n%+v\narmada-node:\n%+v", g, r)
