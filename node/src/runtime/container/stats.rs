@@ -267,13 +267,17 @@ fn sample(r: &StatsRequest, recs: &[Record], id: &str, deadline: Option<Instant>
 /// cannot be listed (Go's LoadContainer fails on each).
 pub fn stats(r: &StatsRequest) -> Result<Vec<Sample>, String> {
     let deadline = (r.timeout_ms > 0).then(|| Instant::now() + Duration::from_millis(r.timeout_ms));
-    let recs = match bundle::records(&r.dir) {
-        Ok(recs) => recs,
+    let (recs, skipped) = match bundle::records(&r.dir) {
+        Ok(v) => v,
         Err(e) => return Ok(r.ids.iter().map(|_| Sample::Redo(e.clone())).collect()),
     };
+    // A container whose record could not be read is left to Go, alone.
     Ok(r.ids
         .iter()
-        .map(|id| sample(r, &recs, id, deadline))
+        .map(|id| match skipped.iter().find(|s| &s.id == id) {
+            Some(s) => Sample::Redo(s.error.clone()),
+            None => sample(r, &recs, id, deadline),
+        })
         .collect())
 }
 

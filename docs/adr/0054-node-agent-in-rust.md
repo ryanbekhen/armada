@@ -147,7 +147,11 @@ program.
    directory), and sends every request to `armada-shim`, starting and
    abandoning shims as `supervisor.Shims` does (`runtime shim`: the same
    unit, `systemd-run` arguments and limits, and rules for when a shim is
-   gone). Bundles, records, shim sockets, and runc's state are Go's, so a
+   gone; its probe of a shim gets ten seconds of its own, so a caller
+   short of time is told so rather than a live shim being taken for a
+   silent one, as Go's probe of the caller's time could; and a bundle
+   record that cannot be read is left out of a listing and reported,
+   where Go's listing fails whole). Bundles, records, shim sockets, and runc's state are Go's, so a
    node switches either way and adopts the containers the other made;
    each side removes the other's root filesystem of a container it
    deletes. Go does a bundle or shim call armada-node fails; image and

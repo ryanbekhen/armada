@@ -80,6 +80,8 @@ impl CallError {
 
 const CALL_LIMIT: Duration = Duration::from_secs(120);
 const PROBE_TIMEOUT: Duration = Duration::from_secs(10);
+/// How long a probe goes on past the caller's time.
+const PROBE_PAST_DEADLINE: Duration = Duration::from_secs(1);
 
 fn io_text(e: &io::Error) -> String {
     match e.raw_os_error() {
@@ -348,8 +350,16 @@ impl Request {
         }
     }
 
+    /// Whether the shim answers, within the probe's own ten seconds: a
+    /// caller short of time must never make a live shim look silent
+    /// (Go's probe takes the caller's deadline). It gives up at most a
+    /// second past the caller's time (within the grace Go gives this
+    /// program), and a caller whose time ran out meanwhile gets that,
+    /// not the probe's outcome.
     fn probe(&self) -> Result<(), CallError> {
-        let t = self.left().map_or(PROBE_TIMEOUT, |t| t.min(PROBE_TIMEOUT));
+        let t = self.left().map_or(PROBE_TIMEOUT, |l| {
+            (l + PROBE_PAST_DEADLINE).min(PROBE_TIMEOUT)
+        });
         call(&self.socket(), &["list".to_string()], Some(t)).map(|_| ())
     }
 
@@ -456,6 +466,7 @@ impl Request {
         let _l = self.lock()?;
         let err = match self.probe() {
             Ok(()) => return Ok(()),
+            Err(_) if self.expired() => return Err(DEADLINE.into()),
             Err(e) => e,
         };
         let gone = self
@@ -509,6 +520,7 @@ impl Request {
         };
         let err = match self.probe() {
             Ok(()) => return (false, None),
+            Err(_) if self.expired() => return (false, Some(DEADLINE.into())),
             Err(e) => e,
         };
         match self.gone(&err) {
@@ -532,6 +544,37 @@ mod tests {
             unit_name("web"),
             format!("armada-shim-{}", shim_name("web"))
         );
+    }
+
+    #[test]
+    fn probes_on_its_own_time() {
+        use std::io::{BufRead, BufReader};
+        let dir = std::env::temp_dir().join(format!("armada-shim-probe-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let r = Request {
+            dir: dir.display().to_string(),
+            group: "web".into(),
+            // A caller with almost no time left.
+            deadline: Some(Instant::now() + Duration::from_millis(1)),
+            ..Default::default()
+        };
+        // A shim that answers after 100 ms.
+        let l = std::os::unix::net::UnixListener::bind(r.socket()).unwrap();
+        let t = std::thread::spawn(move || {
+            let (c, _) = l.accept().unwrap();
+            let mut line = String::new();
+            BufReader::new(&c).read_line(&mut line).unwrap();
+            std::thread::sleep(Duration::from_millis(100));
+            (&c).write_all(b"ok\n").unwrap();
+        });
+        assert_eq!(r.probe(), Ok(()));
+        t.join().unwrap();
+        // Its time ran out meanwhile: the caller hears that, and nothing
+        // is abandoned.
+        let _ = fs::remove_file(r.socket());
+        assert_eq!(r.abandon(), (false, Some(DEADLINE.to_string())));
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

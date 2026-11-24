@@ -57,6 +57,9 @@ type Native struct {
 	// mu is held by callers around standIn and count; tally keeps its own
 	// lock, so it guards nothing else.
 	mu sync.Mutex
+	// skipped holds the bundle records a listing left out, by ID, with
+	// why, so each is logged once while it stays bad (under mu).
+	skipped map[string]string
 }
 
 // OpenNative opens armada-node's image store under images for reading.
@@ -229,11 +232,41 @@ func (n *Native) RemoveBundle(ctx context.Context, dir, id string) error {
 	return n.run(ctx, nil, nil, "runtime", "bundle", "remove", dir, id)
 }
 
-// Records lists the finished bundles' records under dir.
+// skippedRecord is a bundle record armada-node left out of a listing.
+type skippedRecord struct {
+	ID    string `json:"id"`
+	Error string `json:"error"`
+}
+
+// Records lists the finished bundles' records under dir. A record that
+// cannot be read or parsed is left out of the list and logged (once
+// while it stays so), rather than failing the listing: one bad bundle
+// must not hide every container from the agent.
 func (n *Native) Records(ctx context.Context, dir string) ([]Record, error) {
-	var out struct{ Records []Record }
+	var out struct {
+		Records []Record
+		Skipped []skippedRecord
+	}
 	err := n.run(ctx, nil, &out, "runtime", "bundle", "records", dir)
+	if err == nil {
+		n.noteSkipped(out.Skipped)
+	}
 	return out.Records, err
+}
+
+// noteSkipped logs each newly skipped record once, and forgets the ones
+// no longer skipped.
+func (n *Native) noteSkipped(skipped []skippedRecord) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	now := make(map[string]string, len(skipped))
+	for _, s := range skipped {
+		now[s.ID] = s.Error
+		if n.skipped[s.ID] != s.Error {
+			slog.Warn("container record left out", "container", s.ID, "err", strings.ToValidUTF8(s.Error, "�"))
+		}
+	}
+	n.skipped = now
 }
 
 // SetLabels merges labels into container id's record.

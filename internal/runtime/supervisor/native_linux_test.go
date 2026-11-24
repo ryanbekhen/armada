@@ -209,16 +209,26 @@ func TestArmadaNodeBundleMatchesGo(t *testing.T) {
 	if recs, err := n.Records(ctx, filepath.Join(rustDir, "missing")); err != nil || len(recs) != 0 {
 		t.Errorf("records of a missing directory: %v, %v", recs, err)
 	}
-	// A record that cannot be read fails both.
+	// A record that cannot be read: Go's code fails the whole listing
+	// (the known difference); armada-node leaves it out and lists the
+	// others, naming it among the skipped ones.
 	for _, d := range []string{goDir, rustDir} {
 		if err := os.MkdirAll(filepath.Join(d, "zdir", bundleRecord), 0o700); err != nil {
 			t.Fatal(err)
 		}
 	}
 	_, gerr := gb.Records()
-	_, rerr := n.Records(ctx, rustDir)
-	if strings.ReplaceAll(errText(gerr), goDir, "D") != strings.ReplaceAll(errText(rerr), rustDir, "D") || gerr == nil {
-		t.Errorf("unreadable record: go %v, armada-node %v", gerr, rerr)
+	t.Logf("unreadable record: Go's code gives %v (known difference)", gerr)
+	recs, rerr := n.Records(ctx, rustDir)
+	if rerr != nil || len(recs) != len(rustRecs) {
+		t.Errorf("unreadable record: armada-node %d records, %v; want %d", len(recs), rerr, len(rustRecs))
+	}
+	n.mu.Lock()
+	why := n.skipped["zdir"]
+	_, broken := n.skipped["broken"]
+	n.mu.Unlock()
+	if !strings.Contains(why, "is a directory") || !broken {
+		t.Errorf("skipped records: %v", n.skipped)
 	}
 	for _, d := range []string{goDir, rustDir} {
 		_ = os.RemoveAll(filepath.Join(d, "zdir"))
@@ -694,21 +704,25 @@ func TestArmadaNodeShimStartMatchesGo(t *testing.T) {
 		// prefix: compare only the error's start (a timeout's own words
 		// depend on which of two deadlines fired first).
 		prefix bool
+		// rust is armada-node's error where Go's code is wrong (Go's is
+		// logged): its probe takes its own time, so a caller whose time
+		// runs out hears that, never that a shim does not answer.
+		rust string
 	}{
-		{"start fresh", noSetup, forShim(10 * time.Second), false},
-		{"start after a shim's containers", withRoot, forShim(10 * time.Second), false},
-		{"start over a stale socket", stale, forShim(10 * time.Second), false},
-		{"keep an answering shim", answering, forShim(10 * time.Second), false},
-		{"hangs and active", silent("active", true), forShim(300 * time.Millisecond), true},
-		{"closes and active", silent("active", false), forShim(10 * time.Second), false},
-		{"closes and inactive", silent("inactive", false), forShim(10 * time.Second), false},
-		{"closes and unknown", silent("", false), forShim(10 * time.Second), false},
-		{"runc delete fails", failDelete, forShim(10 * time.Second), false},
-		{"abandon a gone shim", withRoot, abandon(10 * time.Second), false},
-		{"abandon an answering shim", answering, abandon(10 * time.Second), false},
-		{"abandon a closing active shim", silent("activating", false), abandon(10 * time.Second), false},
-		{"abandon a closing failed shim", silent("failed", false), abandon(10 * time.Second), false},
-		{"abandon a hanging shim", silent("failed", true), abandon(300 * time.Millisecond), true},
+		{"start fresh", noSetup, forShim(10 * time.Second), false, ""},
+		{"start after a shim's containers", withRoot, forShim(10 * time.Second), false, ""},
+		{"start over a stale socket", stale, forShim(10 * time.Second), false, ""},
+		{"keep an answering shim", answering, forShim(10 * time.Second), false, ""},
+		{"hangs and active", silent("active", true), forShim(300 * time.Millisecond), true, "context deadline exceeded"},
+		{"closes and active", silent("active", false), forShim(10 * time.Second), false, ""},
+		{"closes and inactive", silent("inactive", false), forShim(10 * time.Second), false, ""},
+		{"closes and unknown", silent("", false), forShim(10 * time.Second), false, ""},
+		{"runc delete fails", failDelete, forShim(10 * time.Second), false, ""},
+		{"abandon a gone shim", withRoot, abandon(10 * time.Second), false, ""},
+		{"abandon an answering shim", answering, abandon(10 * time.Second), false, ""},
+		{"abandon a closing active shim", silent("activating", false), abandon(10 * time.Second), false, ""},
+		{"abandon a closing failed shim", silent("failed", false), abandon(10 * time.Second), false, ""},
+		{"abandon a hanging shim", silent("failed", true), abandon(300 * time.Millisecond), true, "context deadline exceeded"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -728,6 +742,13 @@ func TestArmadaNodeShimStartMatchesGo(t *testing.T) {
 				// deadline, depending on which os/exec saw first.
 				g.err = strings.ReplaceAll(g.err, "signal: killed", "context deadline exceeded")
 				r.err = strings.ReplaceAll(r.err, "signal: killed", "context deadline exceeded")
+			}
+			if c.rust != "" {
+				t.Logf("Go's code gives %+v (known difference)", g)
+				if r.err != c.rust || r.gone || r.launched {
+					t.Errorf("armada-node: %+v, want err %q, nothing abandoned or launched", r, c.rust)
+				}
+				return
 			}
 			if g != r {
 				t.Errorf("go:\n%+v\narmada-node:\n%+v", g, r)
