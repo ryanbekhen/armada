@@ -854,11 +854,13 @@ how (ADR 0054):
    last) and drains it like a cordon: the node takes no new replicas, and
    its replicas start on other nodes and serve there before they leave it.
    Job attempts running there are left to end.
-2. Once nothing is left on it, the node removes every container Armada
-   runs there, its proxy's too, records the supervisor in `agent.json`,
-   stops containerd, and restarts its service (`armada-agent`, or
-   `armada-server` on a control plane server), which comes back on the
-   supervisor runtime and pulls its images again.
+2. Once nothing is left on it, the node first pulls its proxy's image
+   for the supervisor runtime while its proxy still serves, then removes
+   every container Armada runs there, its proxy's too, records the
+   supervisor in `agent.json`, stops containerd, and restarts its service
+   (`armada-agent`, or `armada-server` on a control plane server), which
+   comes back on the supervisor runtime, starts its proxy from the image
+   it pulled, and pulls other images again as replicas need them.
 3. Once the node reports the supervisor runtime, it takes replicas again,
    and the next node moves.
 
@@ -870,10 +872,14 @@ sudo armadad doctor     # on a containerd node: what the cluster will do with it
 
 While a node moves, connections to its own public address fail from the
 moment its proxy goes until the agent starts it again on the supervisor,
-usually under a minute: the node holds no replicas by then, so requests
-that arrive through other nodes are not affected, but a DNS record or a
-load balancer that sends clients to every node's address should
-health-check the nodes (or leave the moving node out). Moving a control
+usually seconds: the service's restart, the agent's first assignment from
+the leader (on a control plane server after its control plane's restart,
+on the leader's own machine after an election), and the proxy's start
+from the image pulled before (when that pull failed, the restarted agent
+pulls the image first, which adds its time). The node holds no replicas
+by then, so requests that arrive through other nodes are not affected,
+but a DNS record or a load balancer that sends clients to every node's
+address should health-check the nodes (or leave the moving node out). Moving a control
 plane server restarts its control plane too: a cluster of three servers
 keeps working, and the leader's own machine moves last, after which
 another server leads (one election). A cluster with a single server has

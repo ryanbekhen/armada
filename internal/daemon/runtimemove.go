@@ -18,6 +18,8 @@ import (
 	armadav1 "github.com/ryanbekhen/armada/api/armada/v1"
 	"github.com/ryanbekhen/armada/internal/fsutil"
 	"github.com/ryanbekhen/armada/internal/runtime"
+	"github.com/ryanbekhen/armada/internal/runtime/containerd"
+	"github.com/ryanbekhen/armada/internal/runtime/supervisor"
 )
 
 // Units the running agent restarts after the leader moved its node: the
@@ -37,7 +39,8 @@ const fileRuntimeMove = "runtime-move.json"
 // does what `armadad runtime migrate --to supervisor` does with the agent's
 // own runtime and data directory, which the agent already holds, then
 // restarts the node's service, which starts again on the supervisor runtime
-// (and armada-node). Tests replace systemctl and exit.
+// (and armada-node). Before that, prepare pulls the proxy's image into
+// armada-node's store. Tests replace systemctl, exit, and pull.
 type nodeMove struct {
 	dataDir string
 	// mu guards ac against the agent's other writer of agent.json (the
@@ -49,6 +52,68 @@ type nodeMove struct {
 	systemctl func(ctx context.Context, args ...string) error
 	exit      func(code int)
 	log       *slog.Logger
+	// images are pulled into armada-node's store before the move removes
+	// anything (prepare): the node's proxy image, which the restarted
+	// agent needs first.
+	images []string
+	// pull pulls one image with armada-node bin into the store the
+	// supervisor runtime opens after the restart; nil is pullIntoNode.
+	pull func(ctx context.Context, bin, image string) error
+}
+
+// prePullTimeout bounds prepare's pulls, inside the agent's
+// moveRuntimeTimeout: one that takes longer is left to the restarted
+// agent, which pulls what it misses.
+const prePullTimeout = 5 * time.Minute
+
+// prepare pulls m.images into armada-node's image store while containerd
+// still runs every container, the node's HAProxy included, so the agent
+// that starts on the supervisor runtime finds its proxy's image there and
+// starts the proxy without a registry fetch (ADR 0054, "The runtime's
+// move"). Nothing is pulled when the node will not run containers through
+// armada-node (runtimeAgent "go", or a pack without it). A failure is only
+// logged: the move goes on, and the restarted agent pulls the image itself.
+func (m nodeMove) prepare(ctx context.Context, to string) {
+	if to != runtimeSupervisor || len(m.images) == 0 {
+		return
+	}
+	m.mu.Lock()
+	next := *m.ac
+	m.mu.Unlock()
+	next.Runtime = to
+	bin := next.runtimeProgram(m.dataDir)
+	if bin == "" {
+		m.log.Info("this node will not run containers through armada-node; its proxy's image is pulled after the restart")
+		return
+	}
+	pull := m.pull
+	if pull == nil {
+		pull = func(ctx context.Context, bin, image string) error { return pullIntoNode(ctx, m.dataDir, bin, image) }
+	}
+	ctx, cancel := context.WithTimeout(ctx, prePullTimeout)
+	defer cancel()
+	for _, image := range m.images {
+		start := time.Now()
+		if err := pull(ctx, bin, image); err != nil {
+			m.log.Warn("could not pull an image before moving to the supervisor runtime; the restarted agent pulls it", "image", image, "err", err)
+			continue
+		}
+		m.log.Info("pulled an image before moving to the supervisor runtime", "image", image, "took", time.Since(start).Round(time.Millisecond))
+	}
+}
+
+// pullIntoNode pulls image with no credentials into armada-node's store
+// under dataDir as the supervisor runtime's Driver.Pull does
+// (supervisor.Native.Pull, the same program and arguments), so the
+// restarted agent's pull of the same digest-pinned reference finds the
+// record pulled by anyone and asks no registry.
+func pullIntoNode(ctx context.Context, dataDir, bin, image string) error {
+	n, err := supervisor.OpenNative(bin, filepath.Join(dataDir, containerd.NodeDir, "images"))
+	if err != nil {
+		return err
+	}
+	_, err = n.Pull(ctx, image, nil)
+	return err
 }
 
 // run removes every container, records the supervisor in agent.json, and

@@ -19,7 +19,9 @@ const moveRuntimeTimeout = 10 * time.Minute
 
 // moveRuntime moves the node to the runtime the leader names (ADR 0054,
 // "The runtime's move", step 4), once nothing of the node's assignment
-// runs: Config.MoveRuntime removes every container (the node's proxy too),
+// runs: Config.PrepareRuntimeMove first readies what the node needs right
+// after its restart (its proxy's image) while everything still runs, then
+// Config.MoveRuntime removes every container (the node's proxy too),
 // records the runtime, and restarts the node's service, which ends this
 // process. Why it did not is reported with the node's runtime until the
 // next request. One move runs at a time; a request while one runs, or
@@ -41,9 +43,27 @@ func (a *Agent) moveRuntime(ctx context.Context, m *armadav1.MoveRuntime) {
 func (a *Agent) tryMoveRuntime(ctx context.Context, to string) error {
 	ctx, cancel := context.WithTimeout(ctx, moveRuntimeTimeout)
 	defer cancel()
+	if a.cfg.PrepareRuntimeMove != nil {
+		// Checked first, so a node that cannot move does no work for it.
+		// The preparation runs outside reconcileMu: the node's proxy keeps
+		// following the cluster meanwhile.
+		if err := a.movable(); err != nil {
+			return err
+		}
+		a.cfg.PrepareRuntimeMove(ctx, to)
+	}
 	// No replica starts while the containers go.
 	a.reconcileMu.Lock()
 	defer a.reconcileMu.Unlock()
+	if err := a.movable(); err != nil {
+		return err
+	}
+	a.log.Warn("moving this node to the supervisor runtime: removing its containers, its proxy's too, and restarting the service", "to", to)
+	return a.cfg.MoveRuntime(ctx, to)
+}
+
+// movable says why the node cannot move to another runtime now, or nil.
+func (a *Agent) movable() error {
 	a.mu.Lock()
 	left, assigned := movableLeft(a.desired)
 	a.mu.Unlock()
@@ -59,8 +79,7 @@ func (a *Agent) tryMoveRuntime(ctx context.Context, to string) error {
 	case a.volumeOps.Load() > 0:
 		return fmt.Errorf("a volume operation runs on this node")
 	}
-	a.log.Warn("moving this node to the supervisor runtime: removing its containers, its proxy's too, and restarting the service", "to", to)
-	return a.cfg.MoveRuntime(ctx, to)
+	return nil
 }
 
 // movableLeft returns the replicas of an assignment that keep a node from

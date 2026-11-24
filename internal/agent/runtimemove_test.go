@@ -3,6 +3,8 @@ package agent
 import (
 	"context"
 	"errors"
+	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -81,6 +83,52 @@ func TestMoveRuntime(t *testing.T) {
 	a.setRuntimeMovePlan(nil)
 	if len(plans) != 2 || plans[0].GetState() != "queued" || plans[1] != nil {
 		t.Errorf("plans %v", plans)
+	}
+}
+
+// PrepareRuntimeMove runs before MoveRuntime, while the node's containers
+// still run and outside reconcileMu, and only when the node may move.
+func TestMoveRuntimePreparesFirst(t *testing.T) {
+	t.Parallel()
+	var steps []string
+	d := fake.New()
+	ctx := context.Background()
+	if _, err := d.Run(ctx, runtime.ContainerSpec{Name: "armada-haproxy", Image: "haproxy"}); err != nil {
+		t.Fatal(err)
+	}
+	var a *Agent
+	a = New(Config{NodeID: "n1", Driver: d, CPUMillis: 1000, MemoryBytes: 1 << 30,
+		PrepareRuntimeMove: func(ctx context.Context, to string) {
+			if !a.reconcileMu.TryLock() {
+				t.Error("prepared under reconcileMu")
+			} else {
+				a.reconcileMu.Unlock()
+			}
+			if _, ok := ctx.Deadline(); !ok {
+				t.Error("prepared without a deadline")
+			}
+			cs, _ := d.List(ctx, nil)
+			steps = append(steps, fmt.Sprintf("prepare %s with %d containers", to, len(cs)))
+		},
+		MoveRuntime: func(ctx context.Context, to string) error {
+			cs, _ := d.List(ctx, nil)
+			for _, c := range cs {
+				_ = d.Remove(ctx, c.ID)
+			}
+			steps = append(steps, "move "+to)
+			return nil
+		},
+	})
+	ask := func() { a.moveRuntime(ctx, &armadav1.MoveRuntime{To: "supervisor"}) }
+	a.setDesired([]*armadav1.ReplicaSpec{{Id: "web-r1-a"}}, nil)
+	ask()
+	if len(steps) != 0 {
+		t.Fatalf("prepared a node that cannot move: %v", steps)
+	}
+	a.setDesired(nil, nil)
+	ask()
+	if want := []string{"prepare supervisor with 1 containers", "move supervisor"}; !slices.Equal(steps, want) {
+		t.Errorf("steps %q, want %q", steps, want)
 	}
 }
 

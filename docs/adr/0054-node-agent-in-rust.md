@@ -398,8 +398,27 @@ How step 4 is built (the leader moves containerd nodes):
   refuses when it has no assignment yet, when a replica other than a
   finished job attempt is assigned, or while a volume operation runs; the
   refusal, or the move's own error, goes in `RuntimeStatus.move_error` of
-  its next usage reports, which the leader shows. Otherwise the daemon's
-  hook (`nodeMove`, `internal/daemon/runtimemove.go`) does what `armadad
+  its next usage reports, which the leader shows. Otherwise, before taking
+  `reconcileMu` (so the node's proxy keeps following the cluster), the
+  agent runs `Config.PrepareRuntimeMove` (`nodeMove.prepare`): while
+  containerd still runs everything, the node's HAProxy included, the
+  pack's armada-node pulls the pinned HAProxy image (`haproxy.Image`, by
+  digest, no credentials) into armada-node's store
+  (`<data dir>/node/images`) with the same call the supervisor runtime's
+  `Driver.Pull` makes (`pullIntoNode` → `supervisor.Native.Pull`,
+  `runtime pull ROOT`), bounded by `prePullTimeout` (5 minutes) within the
+  move's `moveRuntimeTimeout` (10 minutes). The restarted agent's pull of that digest-pinned
+  reference then finds a record pulled by anyone and asks no registry
+  (the pulled-with rule), and nothing at the agent's start touches that
+  store on a node with no Go image store (`MoveImages` only writes its
+  record), so the node's own address is down only for the restart, the
+  first assignment, and the proxy's start. Nothing is pulled when the
+  node will not run containers through armada-node (`runtimeAgent: "go"`,
+  a pack without it) or runs no proxy; a failed pull is logged and the
+  move goes on, the restarted agent pulling the image itself. Replicas'
+  images are not pulled ahead: none is assigned by then, and they come
+  back through rebalancing. Then, under `reconcileMu` and checked again,
+  the daemon's hook (`nodeMove`, `internal/daemon/runtimemove.go`) does what `armadad
   runtime migrate --to supervisor` does (`migrateRuntime`, shared with the
   command): every container and network sandbox Armada runs, the node's
   HAProxy included, is removed from containerd, `agent.json` records
