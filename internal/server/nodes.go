@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -732,17 +733,25 @@ func (s *Server) SetNodeRelay(ctx context.Context, req *armadav1.SetNodeRelayReq
 	if err := spec.ValidateName(req.GetNode()); err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "node: %v", err)
 	}
-	if err := s.store.SetNodeRelay(ctx, req.GetNode(), !req.GetClear(), actor(ctx)); err != nil {
+	replaced, err := s.store.SetNodeRelay(ctx, req.GetNode(), !req.GetClear(), actor(ctx))
+	if err != nil {
 		return nil, storeErr(err)
 	}
-	reason, what := "RelayChosen", "chosen as its site's relay by "
+	reason, what := "RelayChosen", "chosen as its site's relay by "+actor(ctx)
 	if req.GetClear() {
-		reason, what = "RelayCleared", "its site's relay is picked by the leader again, by "
+		reason, what = "RelayCleared", "its site's relay is picked by the leader again, by "+actor(ctx)
+	} else if len(replaced) > 0 {
+		what += ", in place of node " + strings.Join(replaced, ", ")
 	}
-	s.log.Info("node relay", "node", req.GetNode(), "clear", req.GetClear(), "by", actor(ctx))
-	s.record(ctx, store.Event{Kind: eventNode, Object: req.GetNode(), Node: req.GetNode(), Reason: reason, Message: what + actor(ctx)})
+	s.log.Info("node relay", "node", req.GetNode(), "clear", req.GetClear(), "replaced", replaced, "by", actor(ctx))
+	s.record(ctx, store.Event{Kind: eventNode, Object: req.GetNode(), Node: req.GetNode(), Reason: reason, Message: what})
+	// A site has one chosen relay: the node whose choice this took hears
+	// of it too, rather than losing it silently.
+	for _, id := range replaced {
+		s.record(ctx, store.Event{Kind: eventNode, Object: id, Node: id, Reason: "RelayCleared", Message: "its site's relay is now node " + req.GetNode() + ", chosen by " + actor(ctx)})
+	}
 	s.Trigger()
-	return &armadav1.SetNodeRelayResponse{}, nil
+	return &armadav1.SetNodeRelayResponse{Replaced: replaced}, nil
 }
 
 // RotateNodeKey asks a connected node's agent for a new WireGuard key (ADR

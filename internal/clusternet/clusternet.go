@@ -199,6 +199,7 @@ func parse(cfg *armadav1.NetworkConfig, self string, selfIP netip.Addr) (plan, e
 	}
 	ips, subnets, names, keys := map[netip.Addr]bool{}, map[netip.Prefix]bool{}, map[string]bool{}, map[wgtypes.Key]bool{}
 	found := false
+	relays := map[string]string{} // site → its relay
 	for _, pp := range cfg.GetPeers() {
 		if err := spec.ValidateName(pp.GetNode()); err != nil {
 			return plan{}, fmt.Errorf("peer name %q: %w", pp.GetNode(), err)
@@ -228,6 +229,15 @@ func parse(cfg *armadav1.NetworkConfig, self string, selfIP netip.Addr) (plan, e
 		pe := peer{node: pp.GetNode(), ip: ip, subnet: sub, site: pp.GetSite(), nat: pp.GetBehindNat(), relay: pp.GetRelay()}
 		if pe.nat && pe.relay {
 			return plan{}, fmt.Errorf("peer %s: a node behind NAT cannot relay", pp.GetNode())
+		}
+		if pe.relay {
+			// A site has one relay, so every node takes the same path
+			// (ADR 0050); a list with two would leave the choice to the
+			// order of peers.
+			if other, ok := relays[pe.site]; ok {
+				return plan{}, fmt.Errorf("peers %s and %s both relay site %q: a site has one relay", other, pe.node, pe.site)
+			}
+			relays[pe.site] = pe.node
 		}
 		if pe.site != "" {
 			if err := spec.CheckLabelValue(pe.site); err != nil {

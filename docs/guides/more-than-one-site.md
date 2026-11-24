@@ -149,7 +149,7 @@ packets cross.
 ```bash
 armada node list                 # STATE: ready,behind-nat / ready,relay
 armada node show d               # Relay: yes (picked by the leader)
-armada node relay d              # pin the relay of d's site
+armada node relay d              # pin the relay of d's site (one per site: moves a pin from another node)
 armada node relay d --clear      # let the leader pick again
 ```
 

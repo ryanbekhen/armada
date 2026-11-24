@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -365,12 +366,17 @@ func TestNodeBehindNATAndRelay(t *testing.T) {
 	if n, _ := s.GetNode(ctx, "n1"); !n.BehindNAT {
 		t.Fatalf("n1 lost behind NAT: %+v", n)
 	}
-	if err := s.SetNodeRelay(ctx, "n1", true, "admin:a"); !errors.Is(err, ErrPrecondition) {
+	if _, err := s.SetNodeRelay(ctx, "n1", true, "admin:a"); !errors.Is(err, ErrPrecondition) {
 		t.Errorf("relay behind NAT = %v", err)
 	}
-	for _, id := range []string{"r1", "r2"} {
-		if err := s.SetNodeRelay(ctx, id, true, "admin:a"); err != nil {
+	// One chosen relay per site: choosing r2 takes r1's choice, and says so.
+	for _, c := range [][2]string{{"r1", ""}, {"r2", "r1"}, {"r2", ""}} {
+		replaced, err := s.SetNodeRelay(ctx, c[0], true, "admin:a")
+		if err != nil {
 			t.Fatal(err)
+		}
+		if strings.Join(replaced, ",") != c[1] {
+			t.Errorf("choosing %s replaced %v, want %q", c[0], replaced, c[1])
 		}
 	}
 	r1, _ := s.GetNode(ctx, "r1")
@@ -384,17 +390,17 @@ func TestNodeBehindNATAndRelay(t *testing.T) {
 	if r2, _ := s.GetNode(ctx, "r2"); r2.Relay {
 		t.Error("the choice moved with the node to another site")
 	}
-	if err := s.SetNodeRelay(ctx, "r1", true, "admin:a"); err != nil {
+	if _, err := s.SetNodeRelay(ctx, "r1", true, "admin:a"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.SetNodeRelay(ctx, "r1", false, "admin:a"); err != nil {
+	if _, err := s.SetNodeRelay(ctx, "r1", false, "admin:a"); err != nil {
 		t.Fatal(err)
 	}
 	if r1, _ := s.GetNode(ctx, "r1"); r1.Relay {
 		t.Error("clear left the choice")
 	}
 	// A node going behind NAT drops its choice.
-	if err := s.SetNodeRelay(ctx, "r1", true, "admin:a"); err != nil {
+	if _, err := s.SetNodeRelay(ctx, "r1", true, "admin:a"); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.SetNodeStatus(ctx, "r1", NodeStatus{State: NodeReady, LastSeen: time.Now(), BehindNAT: true}); err != nil {
@@ -403,7 +409,7 @@ func TestNodeBehindNATAndRelay(t *testing.T) {
 	if r1, _ := s.GetNode(ctx, "r1"); r1.Relay || !r1.BehindNAT {
 		t.Errorf("r1 behind NAT %+v", r1)
 	}
-	if err := s.SetNodeRelay(ctx, "ghost", true, "admin:a"); !errors.Is(err, ErrNotFound) {
+	if _, err := s.SetNodeRelay(ctx, "ghost", true, "admin:a"); !errors.Is(err, ErrNotFound) {
 		t.Errorf("unknown node = %v", err)
 	}
 }

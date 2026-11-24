@@ -152,8 +152,9 @@ Choose the node that relays its site's traffic between nodes behind NAT (ADR
 their traffic goes through the relay of one of their sites: a node of that
 site with a public address. The leader picks one itself; this command pins
 NODE as its site's relay while it is ready and not drained, and --clear lets
-the leader pick again. The relay carries that traffic, so choose a node with
-room for it.
+the leader pick again. A site has one chosen relay: choosing another node of
+the site moves the choice to it, and the output names the node that had it.
+The relay carries that traffic, so choose a node with room for it.
 
 ```
 armada node relay NODE [--clear] [flags]
