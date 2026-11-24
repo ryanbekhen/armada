@@ -11,8 +11,13 @@ cargo metadata --format-version 1 --locked --manifest-path node/Cargo.toml |
 		dir=$(dirname "$manifest")
 		mkdir -p "$out/$name"
 		found=0
-		for f in "$dir"/LICENSE* "$dir"/LICENCE* "$dir"/COPYING* "$dir"/NOTICE* "$dir"/UNLICENSE*; do
+		# Names in any case: some crates ship license-mit, for one.
+		for f in "$dir"/*; do
 			[ -f "$f" ] || continue
+			case $(basename "$f" | tr '[:lower:]' '[:upper:]') in
+			LICENSE* | LICENCE* | COPYING* | NOTICE* | UNLICENSE*) ;;
+			*) continue ;;
+			esac
 			cp "$f" "$out/$name/"
 			found=1
 		done
