@@ -189,7 +189,9 @@ func TestArmadaNodeQueueRedisMatchesGo(t *testing.T) {
 	rec := &recorder{}
 	lists := map[string]int64{"mail:outbox": 340, "a hash": -1, "big": 1 << 41}
 	open := listen(t, fakeRedis(nil, lists, "", rec))
-	secured := listen(t, fakeRedis(map[string]string{"": "s3cret", "worker": "w-pass"}, lists, "", rec))
+	// "reader" stands for an ACL user marked nopass, which takes the empty
+	// password a URL with a user alone sends.
+	secured := listen(t, fakeRedis(map[string]string{"": "s3cret", "worker": "w-pass", "reader": ""}, lists, "", rec))
 	_, openPort, _ := net.SplitHostPort(open)
 	closed, _ := net.Listen("tcp", "127.0.0.1:0")
 	refused := closed.Addr().String()
@@ -212,6 +214,8 @@ func TestArmadaNodeQueueRedisMatchesGo(t *testing.T) {
 		{"acl user", "redis", "redis://worker:w-pass@redis-01", "mail:outbox", secured},
 		{"escaped password", "redis", "redis://worker:w%2Dpass@redis-01", "mail:outbox", secured},
 		{"user without password", "redis", "redis://worker@redis-01", "mail:outbox", secured},
+		{"nopass user", "redis", "redis://reader@redis-01", "mail:outbox", secured},
+		{"empty user", "redis", "redis://@redis-01", "mail:outbox", open},
 		{"wrong password", "redis", "redis://:wrong-s3cret@redis-01", "mail:outbox", secured},
 		{"no password", "redis", "redis://redis-01", "mail:outbox", secured},
 		{"empty password", "redis", "redis://:@redis-01", "mail:outbox", secured},
@@ -482,7 +486,7 @@ func TestArmadaNodeQueueRabbitMQMatchesGo(t *testing.T) {
 	rec := &recorder{}
 	broker := func(mod func(*amqpBroker)) string {
 		b := &amqpBroker{
-			users:  map[string]string{"guest": "guest", "worker": "s3cret", "bob": "guest"},
+			users:  map[string]string{"guest": "guest", "worker": "s3cret", "bob": "guest", "carol": ""},
 			vhosts: map[string]bool{"/": true, "prod": true, "/prod": true},
 			queues: map[string]uint32{"jobs": 42, "empty": 0, "huge": 1<<32 - 1},
 			refuse: "close", vhostRefuse: "close",
@@ -499,7 +503,9 @@ func TestArmadaNodeQueueRabbitMQMatchesGo(t *testing.T) {
 		{"jobs", "rabbitmq", "amqp://worker:s3cret@mq/", "jobs", plain},
 		{"by address", "rabbitmq", "amqp://worker:s3cret@127.0.0.1:" + plainPort + "/", "jobs", ""},
 		{"default credentials", "rabbitmq", "amqp://mq", "empty", plain},
+		// A user alone logs in with an empty password, never "guest".
 		{"user without password", "rabbitmq", "amqp://bob@mq", "jobs", plain},
+		{"user with an empty password", "rabbitmq", "amqp://carol@mq", "jobs", plain},
 		{"vhost", "rabbitmq", "amqp://worker:s3cret@mq/prod", "jobs", plain},
 		{"escaped vhost", "rabbitmq", "amqp://worker:s3cret@mq/%2Fprod", "jobs", plain},
 		{"huge", "rabbitmq", "amqp://worker:s3cret@mq/", "huge", plain},
@@ -514,7 +520,6 @@ func TestArmadaNodeQueueRabbitMQMatchesGo(t *testing.T) {
 		{"no shared mechanism", "rabbitmq", "amqp://worker:s3cret@mq/", "jobs", broker(func(b *amqpBroker) { b.mechanisms = "SCRAM-SHA-256" })},
 		{"dropped at credentials", "rabbitmq", "amqp://worker:bad@mq/", "jobs", broker(func(b *amqpBroker) { b.refuse = "drop" })},
 		{"dropped at vhost", "rabbitmq", "amqp://worker:s3cret@mq/other", "jobs", broker(func(b *amqpBroker) { b.vhostRefuse = "drop" })},
-		{"vhost refused 403", "rabbitmq", "amqp://worker:s3cret@mq/other", "jobs", broker(func(b *amqpBroker) { b.vhostRefuse = "close403" })},
 		{"closed at start", "rabbitmq", "amqp://worker:s3cret@mq/", "jobs", broker(func(b *amqpBroker) { b.start = "close" })},
 		{"not a broker", "rabbitmq", "amqp://worker:s3cret@mq/", "jobs", broker(func(b *amqpBroker) { b.start = "garbage" })},
 		{"start too big", "rabbitmq", "amqp://worker:s3cret@mq/", "jobs", broker(func(b *amqpBroker) { b.start = "big" })},
@@ -527,12 +532,24 @@ func TestArmadaNodeQueueRabbitMQMatchesGo(t *testing.T) {
 	closed, _ := net.Listen("tcp", "127.0.0.1:0")
 	cases = append(cases, queueCase{"refused", "rabbitmq", "amqp://user:s3cret@mq:5672/", "q", closed.Addr().String()})
 	_ = closed.Close()
-	for _, bad := range []string{"redis://h", "amqp://h/ x", "amqp://h:99999999999/", "amqp://h/?heartbeat=x", "amqp://h/?channel_max=70000", "amqp://h/?connection_timeout=x", "amqp://h%zz/", "amqp://u@s@h/x\x7f"} {
+	for _, bad := range []string{"amqp://", "amqp:///vhost", "amqps://u:p@:5671/", "redis://h", "amqp://h/ x", "amqp://h:99999999999/", "amqp://h/?heartbeat=x", "amqp://h/?channel_max=70000", "amqp://h/?connection_timeout=x", "amqp://h%zz/", "amqp://u@s@h/x\x7f"} {
 		cases = append(cases, queueCase{"URL " + strconv.Quote(bad), "rabbitmq", bad, "q", plain})
 	}
 	compareReadings(t, s, own, rec, cases)
 	if n := s.Native.StoodIn("queue rabbitmq"); n != 0 {
 		t.Errorf("Go stood in %d times", n)
+	}
+
+	// A known difference: a broker closing Connection.Open with 403 is
+	// the virtual host's refusal to armada-node, which knows the step it
+	// was at; amqp091-go reports a 403 at any step alike, so queuelen
+	// calls it refused credentials.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	vhost403 := broker(func(b *amqpBroker) { b.vhostRefuse = "close403" })
+	_, _, err := s.NativeQueue(ctx, "", own, "", runtime.QueueRead{Type: "rabbitmq", URL: "amqp://worker:s3cret@mq/other", Name: "jobs", Addresses: []netip.AddrPort{netip.MustParseAddrPort(vhost403)}})
+	if errText(err) != "the broker refused the URL's virtual host" {
+		t.Errorf("vhost refused 403: %v", err)
 	}
 }
 

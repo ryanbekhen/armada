@@ -5,10 +5,18 @@
 //! amqp091-go reports as which error, which queuelen turns into its own
 //! texts. Only the frames this needs are encoded; every frame read is
 //! checked as amqp091-go's reader checks it.
+//!
+//! Where amqp091-go reads a URL or a failure wrongly, queuelen and this
+//! port read it as the URL and the broker say: a URL with no host is not
+//! valid (never localhost), a user without a password logs in with an
+//! empty password (never "guest"), an auth_mechanism neither knows is the
+//! URL's mistake, a broker offering none of the mechanisms says so, and
+//! any refusal of Connection.Open is the virtual host's (530 NOT_ALLOWED
+//! or a hang-up after the credentials were taken).
 
 use super::{
-    Answer, Dialer, ERR_AUTH, ERR_DIAL, ERR_MISSING, ERR_REPLY, ERR_TIMEOUT, ERR_URL, MAX_LENGTH,
-    Stream, url,
+    Answer, Dialer, ERR_AUTH, ERR_DIAL, ERR_MECHANISM, ERR_MISSING, ERR_NO_MECHANISM, ERR_REPLY,
+    ERR_TIMEOUT, ERR_URL, ERR_VHOST, MAX_LENGTH, Stream, url,
 };
 use crate::gostr;
 
@@ -40,7 +48,11 @@ struct Uri {
     channel_max: u16,
 }
 
-/// amqp091.ParseURI; None for every URL it refuses.
+/// amqp091.ParseURI, with what queuelen reads differently: a URL with
+/// no host is refused (ParseURI dials localhost), and a URL with a user
+/// but no password logs in with an empty password (ParseURI keeps the
+/// default "guest", logging in with a password the URL never named).
+/// None for every URL it refuses.
 fn parse_uri(raw: &str) -> Option<Uri> {
     if raw.contains(' ') {
         return None;
@@ -51,11 +63,10 @@ fn parse_uri(raw: &str) -> Option<Uri> {
         "amqps" => (true, 5671),
         _ => return None,
     };
-    let host = if u.hostname().is_empty() {
-        b"localhost".to_vec()
-    } else {
-        u.hostname().to_vec()
-    };
+    if u.hostname().is_empty() {
+        return None;
+    }
+    let host = u.hostname().to_vec();
     let port = if u.port().is_empty() {
         default_port
     } else {
@@ -64,19 +75,13 @@ fn parse_uri(raw: &str) -> Option<Uri> {
     let (mut username, mut password) = (b"guest".to_vec(), b"guest".to_vec());
     if let Some((name, pass)) = &u.user {
         username = name.clone();
-        if let Some(p) = pass {
-            password = p.clone();
-        }
+        password = pass.clone().unwrap_or_default();
     }
     let mut vhost = b"/".to_vec();
     let path = &u.path;
     if !path.is_empty() {
         if path.starts_with(b"/") {
-            if u.host.is_empty() && path.starts_with(b"///") {
-                if path.len() > 3 {
-                    vhost = path[3..].to_vec();
-                }
-            } else if path.len() > 1 {
+            if path.len() > 1 {
                 vhost = path[1..].to_vec();
             }
         } else {
@@ -122,7 +127,7 @@ struct Auth {
 }
 
 /// setSASL: the mechanisms the client offers, in order; None for a name
-/// it does not know (DialConfig fails before dialling).
+/// it does not know (refused as the URL's mistake before dialling).
 fn sasl(uri: &Uri) -> Option<Vec<Auth>> {
     let plain = || {
         let mut r = vec![0u8];
@@ -449,7 +454,7 @@ fn open(c: &mut Conn, uri: &Uri, auths: &[Auth]) -> Result<(), &'static str> {
         .iter()
         .find(|a| server.contains(&a.mechanism.as_bytes()))
     else {
-        return Err(ERR_AUTH); // ErrSASL
+        return Err(ERR_NO_MECHANISM); // ErrSASL
     };
     let mut ok = client_properties();
     shortstr(&mut ok, auth.mechanism.as_bytes()).map_err(|_| ERR_AUTH)?;
@@ -487,13 +492,16 @@ fn open(c: &mut Conn, uri: &Uri, auths: &[Auth]) -> Result<(), &'static str> {
     tune_ok.extend((beat as u16).to_be_bytes());
     c.send(&method_frame(0, 10, 31, &tune_ok))
         .map_err(|_| ERR_DIAL)?;
-    // Connection.Open: a failure without the broker's word is ErrVhost,
-    // which is AccessRefused too.
+    // Connection.Open: the credentials were taken, so any refusal here is
+    // the virtual host's (RabbitMQ closes with 530 NOT_ALLOWED for a vhost
+    // the user may not use or a connection limit; a broker may also hang
+    // up without a word).
     let mut o = Vec::new();
-    shortstr(&mut o, &uri.vhost).map_err(|_| ERR_AUTH)?;
+    shortstr(&mut o, &uri.vhost).map_err(|_| ERR_VHOST)?;
     o.extend([0, 0]);
-    c.send(&method_frame(0, 10, 40, &o)).map_err(after_start)?;
-    c.expect(0, 10, 41).map_err(after_start)?;
+    c.send(&method_frame(0, 10, 40, &o))
+        .map_err(|_| ERR_VHOST)?;
+    c.expect(0, 10, 41).map_err(|_| ERR_VHOST)?;
     Ok(())
 }
 
@@ -532,7 +540,7 @@ pub fn queue_length(d: &mut Dialer, raw: &str, queue: &str) -> Answer {
         Answer::Error(if d.timed_out() { ERR_TIMEOUT } else { e })
     };
     let Some(auths) = sasl(&uri) else {
-        return answer(d, ERR_DIAL);
+        return Answer::Error(ERR_MECHANISM);
     };
     let conn = match d.dial(&uri.host, uri.port.to_string().as_bytes()) {
         Ok(c) => c,
@@ -579,14 +587,29 @@ mod tests {
         assert_eq!(u.host, b"mq.local");
         assert_eq!(u.port, 5673);
         assert_eq!(u.username, b"bob");
-        assert_eq!(u.password, b"guest");
+        // A user without a password logs in with an empty one, never the
+        // default "guest".
+        assert_eq!(u.password, b"");
         assert_eq!(u.vhost, b"/prod");
         assert_eq!(u.heartbeat, Some(5));
         assert_eq!(u.channel_max, 9);
-        let u = parse_uri("amqp://").unwrap();
-        assert_eq!((u.host.as_slice(), u.port), (&b"localhost"[..], 5672));
+        let u = parse_uri("amqp://mq").unwrap();
+        assert_eq!((u.host.as_slice(), u.port), (&b"mq"[..], 5672));
+        assert_eq!(
+            (u.username.as_slice(), u.password.as_slice()),
+            (&b"guest"[..], &b"guest"[..])
+        );
         assert_eq!(u.vhost, b"/");
+        let u = parse_uri("amqp://bob:@mq").unwrap();
+        assert_eq!(
+            (u.username.as_slice(), u.password.as_slice()),
+            (&b"bob"[..], &b""[..])
+        );
         for bad in [
+            // No host: never localhost, which would be the replica itself.
+            "amqp://",
+            "amqp:///vhost",
+            "amqps://u:p@:5671/",
             "redis://h",
             "amqp://h/ x",
             "amqp://h:99999999999/",

@@ -61,6 +61,7 @@ type sandboxState struct {
 	next     time.Time // the next reading is due
 	busy     bool      // a reading runs
 	failed   string    // the last failure, logged once
+	reason   string    // queuelen.Reason of the latest reading's failure, for the leader
 }
 
 // sandboxesOn reports whether the node reads job queues from network
@@ -270,12 +271,14 @@ func (a *Agent) readSandboxes(ctx context.Context, want map[string]*armadav1.Que
 					a.log.Warn("job queue not read", "job", j.id, "type", j.probe.GetType(), "err", err)
 					st.failed = msg
 				}
+				st.reason = queuelen.Reason(err)
 				return
 			}
 			if st.failed != "" {
 				a.log.Info("job queue read again", "job", j.id)
 				st.failed = ""
 			}
+			st.reason = ""
 			st.measured, st.length, st.at = true, n, time.Now()
 			st.reading++
 		})
@@ -343,7 +346,7 @@ func (a *Agent) sandboxReport(now time.Time) []*armadav1.SandboxQueue {
 		if st.ip == "" || w == nil {
 			continue
 		}
-		q := &armadav1.SandboxQueue{Job: id, Ip: st.ip}
+		q := &armadav1.SandboxQueue{Job: id, Ip: st.ip, Error: st.reason}
 		// A reading counts for two intervals; then the leader goes without.
 		if age := now.Sub(st.at); st.measured && age <= 2*a.sandboxInterval(w)+sandboxTick {
 			q.Measured, q.Length, q.AgeMillis, q.Reading = true, st.length, max(0, age.Milliseconds()), st.reading

@@ -1643,6 +1643,9 @@ message SandboxQueue {
   // Counts the sandbox's readings since the agent started: a new number is
   // a new reading.
   int64 reading = 6;
+  // Set while the latest reading failed: why, as one of internal/queuelen's
+  // fixed texts (queuelen.Reason), never the URL or what the broker sent.
+  string error = 7;
 }
 
 message QueueLength {

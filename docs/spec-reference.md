@@ -359,8 +359,8 @@ scale:
 | `cpu` | `utilization` (1–100) | percent of `resources.cpu` (default 100m) |
 | `memory` | `utilization` (1–100) | percent of `resources.memory` (default 256Mi) |
 | `queue` | `command`, `length` (1–1000000000) | a command run in one ready replica every 15 seconds that prints the queue's length; the app needs ⌈length ÷ `length`⌉ replicas; needs `min` of at least 1 |
-| `redis` | `urlSecretRef`, `list`, `length` | the length (`LLEN`) of a Redis list, read every 15 seconds from one ready replica's network; the URL (`redis://` or `rediss://`, with its password) is in the app's secret; needs `min` of at least 1 |
-| `rabbitmq` | `urlSecretRef`, `queue`, `length` | the messages ready in a RabbitMQ queue (AMQP 0-9-1), read the same way; the URL is `amqp://` or `amqps://`; needs `min` of at least 1 |
+| `redis` | `urlSecretRef`, `list`, `length` | the length (`LLEN`) of a Redis list, read every 15 seconds from one ready replica's network; the URL (`redis://` or `rediss://`, with its password; a user without a password sends `AUTH user ""`) is in the app's secret; needs `min` of at least 1 |
+| `rabbitmq` | `urlSecretRef`, `queue`, `length` | the messages ready in a RabbitMQ queue (AMQP 0-9-1), read the same way; the URL is `amqp://` or `amqps://` and names its host; a user without a password logs in with an empty password (never `guest`); `auth_mechanism` may be `PLAIN`, `AMQPLAIN`, or `EXTERNAL`; needs `min` of at least 1 |
 | `schedule` | `schedule`, `timeZone`, `duration` (1m–168h), `replicas` (1–`max`) | at least `replicas` from each fire of `schedule` (five cron fields, as for jobs) for `duration` |
 
 ```yaml

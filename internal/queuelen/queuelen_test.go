@@ -103,7 +103,7 @@ func TestRedisListLength(t *testing.T) {
 	}
 
 	cmds = nil
-	secured := fakeRedis(t, map[string]string{"": "s3cret", "worker": "w-pass"}, lists, &cmds)
+	secured := fakeRedis(t, map[string]string{"": "s3cret", "worker": "w-pass", "reader": ""}, lists, &cmds)
 	if n, err := RedisListLength(ctx, secured, "redis://:s3cret@redis-01:6379/0", "mail:outbox"); err != nil || n != 340 {
 		t.Errorf("password: %d %v", n, err)
 	}
@@ -115,6 +115,19 @@ func TestRedisListLength(t *testing.T) {
 	}
 	if _, err := RedisListLength(ctx, secured, "redis://redis-01", "mail:outbox"); !errors.Is(err, errReply) {
 		t.Errorf("no password: %v", err)
+	}
+	// A user alone authenticates as that user with an empty password: a
+	// nopass user reads, any other is refused, and neither reads as the
+	// default user.
+	cmds = nil
+	if n, err := RedisListLength(ctx, secured, "redis://reader@redis-01", "mail:outbox"); err != nil || n != 340 {
+		t.Errorf("nopass user: %d %v", n, err)
+	}
+	if _, err := RedisListLength(ctx, secured, "redis://worker@redis-01", "mail:outbox"); !errors.Is(err, errAuth) {
+		t.Errorf("user without password: %v", err)
+	}
+	if got := strings.Join(cmds, "|"); got != "AUTH reader |LLEN mail:outbox|AUTH worker " {
+		t.Errorf("commands %q", got)
 	}
 
 	for _, bad := range []string{"http://redis-01", "redis://", "redis://h/x", "redis://h/-1", "::"} {
@@ -169,6 +182,19 @@ func TestRabbitMQErrors(t *testing.T) {
 	if _, err := RabbitMQQueueLength(ctx, refuse, "amqp://user:s3cret@mq:5672/", "q"); !errors.Is(err, errDial) || strings.Contains(err.Error(), "s3cret") {
 		t.Errorf("unreachable: %v", err)
 	}
+	// No host is not localhost; an unknown mechanism is the URL's mistake,
+	// found before dialling.
+	for _, bad := range []string{"amqp://", "amqp:///vhost", "amqps://u:p@:5671/"} {
+		if _, err := RabbitMQQueueLength(ctx, refuse, bad, "q"); !errors.Is(err, errURL) {
+			t.Errorf("%q: %v", bad, err)
+		}
+		if _, _, err := Broker("rabbitmq", bad); !errors.Is(err, errURL) {
+			t.Errorf("Broker(%q): %v", bad, err)
+		}
+	}
+	if _, err := RabbitMQQueueLength(ctx, refuse, "amqp://u:p@mq/?auth_mechanism=CRAM", "q"); !errors.Is(err, errMechanism) {
+		t.Errorf("unknown mechanism: %v", err)
+	}
 	// A server that is not RabbitMQ.
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -189,5 +215,42 @@ func TestRabbitMQErrors(t *testing.T) {
 	}
 	if _, err := RabbitMQQueueLength(ctx, dial, "amqp://user:s3cret@mq/", "q"); err == nil || strings.Contains(err.Error(), "s3cret") {
 		t.Errorf("not a broker: %v", err)
+	}
+}
+
+// A user without a password logs in with an empty one, never "guest".
+func TestRabbitURI(t *testing.T) {
+	t.Parallel()
+	for raw, want := range map[string]string{
+		"amqp://mq":             "guest:guest",
+		"amqp://bob@mq":         "bob:",
+		"amqp://bob:@mq":        "bob:",
+		"amqp://bob:pw@mq/prod": "bob:pw",
+	} {
+		uri, sasl, err := rabbitURI(raw)
+		if err != nil || len(sasl) != 1 {
+			t.Fatalf("%q: %v %v", raw, sasl, err)
+		}
+		p := sasl[0].(interface{ Response() string }).Response()
+		if got := uri.Username + ":" + uri.Password; got != want || p != "\x00"+strings.Replace(want, ":", "\x00", 1) {
+			t.Errorf("%q: %q, response %q", raw, got, p)
+		}
+	}
+}
+
+// Reason passes the reading's own texts and hides anything else.
+func TestReason(t *testing.T) {
+	t.Parallel()
+	if got := Reason(fmt.Errorf("wrapped: %w", errVhost)); got != errVhost.Error() {
+		t.Errorf("vhost: %q", got)
+	}
+	if got := Reason(FromText(errMechanism.Error())); got != errMechanism.Error() {
+		t.Errorf("mechanism: %q", got)
+	}
+	if got := Reason(errors.New("dial amqp://u:s3cret@h")); strings.Contains(got, "s3cret") {
+		t.Errorf("other: %q", got)
+	}
+	if Reason(nil) != "" {
+		t.Error("nil")
 	}
 }

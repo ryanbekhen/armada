@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"log/slog"
 	"net"
 	"net/netip"
 	"os"
@@ -38,8 +39,9 @@ const (
 // queueLengths holds the latest length read for each queue rule of the
 // apps on the node, by the replica it was read from (ADR 0034).
 type queueLengths struct {
-	mu sync.Mutex
-	m  map[queueKey]queueLength // latest reading
+	mu     sync.Mutex
+	m      map[queueKey]queueLength // latest reading
+	failed map[queueKey]string      // the last failure of a rule, logged once
 }
 
 // queueKey names one queue rule: an app has at most one of each type.
@@ -60,6 +62,30 @@ func (q *queueLengths) set(k queueKey, l queueLength) {
 	q.m[k] = l
 }
 
+// fail notes why rule k was not read; it reports whether that is new (not
+// the rule's last failure), so the log says it once.
+func (q *queueLengths) fail(k queueKey, why string) bool {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if q.failed == nil {
+		q.failed = map[queueKey]string{}
+	}
+	if q.failed[k] == why {
+		return false
+	}
+	q.failed[k] = why
+	return true
+}
+
+// recovered forgets rule k's failure; it reports whether there was one.
+func (q *queueLengths) recovered(k queueKey) bool {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	_, had := q.failed[k]
+	delete(q.failed, k)
+	return had
+}
+
 // keep drops readings of rules no app on the node has anymore.
 func (q *queueLengths) keep(rules map[queueKey]bool) {
 	q.mu.Lock()
@@ -67,6 +93,11 @@ func (q *queueLengths) keep(rules map[queueKey]bool) {
 	for k := range q.m {
 		if !rules[k] {
 			delete(q.m, k)
+		}
+	}
+	for k := range q.failed {
+		if !rules[k] {
+			delete(q.failed, k)
 		}
 	}
 }
@@ -126,13 +157,24 @@ func (a *Agent) measureQueues(ctx context.Context) {
 		sem <- struct{}{}
 		wg.Go(func() {
 			defer func() { <-sem }()
+			k := queueKey{t.app, t.probe.GetType()}
 			n, err := a.readQueue(ctx, t.container, t.probe)
 			if err != nil {
-				// The command's arguments and the broker's URL stay out of logs.
-				a.log.Debug("queue rule", "app", t.app, "type", t.probe.GetType(), "replica", t.replica, "err", err)
+				// The command's arguments and the broker's URL stay out of
+				// logs: the errors name only the kind of failure (refused
+				// credentials, a refused virtual host, an unknown
+				// mechanism, ...). Each failure is a warning once.
+				level := slog.LevelDebug
+				if a.queues.fail(k, err.Error()) {
+					level = slog.LevelWarn
+				}
+				a.log.Log(ctx, level, "queue rule not read", "app", t.app, "type", t.probe.GetType(), "replica", t.replica, "err", err)
 				return
 			}
-			a.queues.set(queueKey{t.app, t.probe.GetType()}, queueLength{replica: t.replica, length: n, at: time.Now()})
+			if a.queues.recovered(k) {
+				a.log.Info("queue rule read again", "app", t.app, "type", t.probe.GetType())
+			}
+			a.queues.set(k, queueLength{replica: t.replica, length: n, at: time.Now()})
 		})
 	}
 	wg.Wait()

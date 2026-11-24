@@ -38,6 +38,13 @@ var (
 	errAuth    = errors.New("the broker refused the URL's credentials")
 	errReply   = errors.New("the broker answered something unexpected")
 	errMissing = errors.New("the queue does not exist")
+	// errVhost: the broker took the credentials but refused to open the
+	// URL's virtual host (no access, or a connection limit).
+	errVhost = errors.New("the broker refused the URL's virtual host")
+	// errMechanism: the URL's auth_mechanism names one no reader knows.
+	errMechanism = errors.New("the URL names an authentication mechanism other than PLAIN, AMQPLAIN, or EXTERNAL")
+	// errNoMechanism: the broker offers none of the URL's mechanisms.
+	errNoMechanism = errors.New("the broker offers none of the URL's authentication mechanisms")
 )
 
 // RedisListLength returns LLEN of list on the server rawURL names:
@@ -74,13 +81,7 @@ func RedisListLength(ctx context.Context, dial Dialer, rawURL, list string) (int
 		}
 		return readReply(r)
 	}
-	// redis://:password@host authenticates as the default user,
-	// redis://user:password@host as user (ACLs).
-	if pass, ok := u.User.Password(); ok {
-		args := []string{"AUTH", pass}
-		if name := u.User.Username(); name != "" {
-			args = []string{"AUTH", name, pass}
-		}
+	if args := redisAuth(u.User); args != nil {
 		if kind, _, err := call(args...); err != nil || kind != '+' {
 			return 0, errAuth
 		}
@@ -102,6 +103,30 @@ func RedisListLength(ctx context.Context, dial Dialer, rawURL, list string) (int
 		return 0, errReply
 	}
 	return n, nil
+}
+
+// redisAuth is the AUTH command a Redis URL's user info asks for, or nil:
+// redis://:password@host authenticates as the default user,
+// redis://user:password@host as user (ACLs), and redis://user@host as user
+// with an empty password, as the command-line client and the common client
+// libraries do for a user given alone (an ACL user marked nopass takes any
+// password; any other is refused, rather than reading the list as the
+// default user).
+func redisAuth(u *url.Userinfo) []string {
+	if u == nil {
+		return nil
+	}
+	name := u.Username()
+	if pass, ok := u.Password(); ok {
+		if name == "" {
+			return []string{"AUTH", pass}
+		}
+		return []string{"AUTH", name, pass}
+	}
+	if name != "" {
+		return []string{"AUTH", name, ""}
+	}
+	return nil
 }
 
 // redisURL checks a Redis URL as RedisListLength does before dialling:
@@ -137,9 +162,9 @@ func Broker(kind, rawURL string) (host, port string, err error) {
 		}
 		return u.Hostname(), port, nil
 	case "rabbitmq":
-		uri, err := amqp.ParseURI(rawURL)
+		uri, _, err := rabbitURI(rawURL)
 		if err != nil {
-			return "", "", errURL
+			return "", "", err
 		}
 		return uri.Host, strconv.Itoa(uri.Port), nil
 	}
@@ -152,11 +177,26 @@ var ErrUnreachable = errDial
 // errTimeout is RabbitMQQueueLength's error once its context ends.
 var errTimeout = errors.New("timed out")
 
+// Reason is err's text when it is one of the reading's own errors, which
+// never hold the URL or anything the broker sent, and a fixed text
+// otherwise: what a node may report to the leader about a failed reading.
+func Reason(err error) string {
+	if err == nil {
+		return ""
+	}
+	for _, e := range []error{errURL, errDial, errAuth, errReply, errMissing, errTimeout, errVhost, errMechanism, errNoMechanism} {
+		if errors.Is(err, e) {
+			return e.Error()
+		}
+	}
+	return "the queue could not be read"
+}
+
 // FromText returns the reading's error whose text s is (armada-node
 // answers with these texts), so errors.Is finds it; another text is a new
 // error.
 func FromText(s string) error {
-	for _, e := range []error{errURL, errDial, errAuth, errReply, errMissing, errTimeout} {
+	for _, e := range []error{errURL, errDial, errAuth, errReply, errMissing, errTimeout, errVhost, errMechanism, errNoMechanism} {
 		if e.Error() == s {
 			return e
 		}
@@ -181,11 +221,12 @@ func readReply(r *bufio.Reader) (byte, string, error) {
 // RabbitMQQueueLength returns the messages ready in queue on the broker
 // rawURL names: amqp://user:password@host[:port]/[vhost], or amqps://.
 func RabbitMQQueueLength(ctx context.Context, dial Dialer, rawURL, queue string) (int64, error) {
-	uri, err := amqp.ParseURI(rawURL)
+	uri, sasl, err := rabbitURI(rawURL)
 	if err != nil {
-		return 0, errURL
+		return 0, err
 	}
 	cfg := amqp.Config{
+		SASL: sasl,
 		Dial: func(network, addr string) (net.Conn, error) {
 			c, err := dial(ctx, network, addr)
 			if err != nil {
@@ -209,12 +250,7 @@ func RabbitMQQueueLength(ctx context.Context, dial Dialer, rawURL, queue string)
 	go func() {
 		conn, err := amqp.DialConfig(rawURL, cfg)
 		if err != nil {
-			var ae *amqp.Error
-			if errors.As(err, &ae) && ae.Code == amqp.AccessRefused {
-				done <- result{err: errAuth}
-				return
-			}
-			done <- result{err: errDial}
+			done <- result{err: dialError(err)}
 			return
 		}
 		defer conn.Close()
@@ -241,6 +277,63 @@ func RabbitMQQueueLength(ctx context.Context, dial Dialer, rawURL, queue string)
 	case <-ctx.Done():
 		return 0, errTimeout
 	}
+}
+
+// rabbitURI reads a RabbitMQ URL as amqp.ParseURI does, except where
+// ParseURI reads it wrongly: a URL with no host is not valid (ParseURI
+// dials localhost, the replica itself), and a user without a password logs
+// in with an empty password (ParseURI keeps the default "guest", a
+// password the URL never named). It returns the SASL mechanisms to offer,
+// in the URL's order; an unknown auth_mechanism is errMechanism.
+func rabbitURI(rawURL string) (amqp.URI, []amqp.Authentication, error) {
+	uri, err := amqp.ParseURI(rawURL)
+	if err != nil {
+		return amqp.URI{}, nil, errURL
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil || u.Hostname() == "" {
+		return amqp.URI{}, nil, errURL
+	}
+	if u.User != nil {
+		if _, ok := u.User.Password(); !ok {
+			uri.Password = ""
+		}
+	}
+	plain := &amqp.PlainAuth{Username: uri.Username, Password: uri.Password}
+	if uri.AuthMechanism == nil {
+		return uri, []amqp.Authentication{plain}, nil
+	}
+	var sasl []amqp.Authentication
+	for _, m := range uri.AuthMechanism {
+		switch strings.ToUpper(m) {
+		case "PLAIN":
+			sasl = append(sasl, plain)
+		case "AMQPLAIN":
+			sasl = append(sasl, &amqp.AMQPlainAuth{Username: uri.Username, Password: uri.Password})
+		case "EXTERNAL":
+			sasl = append(sasl, &amqp.ExternalAuth{})
+		default:
+			return amqp.URI{}, nil, errMechanism
+		}
+	}
+	return uri, sasl, nil
+}
+
+// dialError is the reading's error for amqp.DialConfig's: refused
+// credentials, no shared mechanism, a refused virtual host (RabbitMQ
+// closes Connection.Open with 530 NOT_ALLOWED; amqp091-go reports a
+// hang-up there as ErrVhost), or a broker it could not reach or talk to.
+func dialError(err error) error {
+	var ae *amqp.Error
+	switch {
+	case errors.Is(err, amqp.ErrSASL):
+		return errNoMechanism
+	case errors.Is(err, amqp.ErrVhost), errors.As(err, &ae) && ae.Server && ae.Code == amqp.NotAllowed:
+		return errVhost
+	case errors.As(err, &ae) && ae.Code == amqp.AccessRefused:
+		return errAuth
+	}
+	return errDial
 }
 
 // Timeout is how long one reading may take.

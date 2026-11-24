@@ -1,6 +1,7 @@
 //! queuelen.RedisListLength: LLEN of a list on the server a URL names,
 //! redis://[user[:password]@]host[:port][/db] or rediss:// for TLS, over
-//! the minimal RESP the commands need, with bounded replies.
+//! the minimal RESP the commands need, with bounded replies. A user given
+//! without a password authenticates with an empty password (see auth).
 
 use super::{Answer, Dialer, ERR_AUTH, ERR_DIAL, ERR_REPLY, ERR_URL, MAX_LENGTH, Stream, url};
 use crate::gostr;
@@ -85,6 +86,23 @@ fn parse(raw: &str) -> Option<(url::Url, Vec<u8>, i64)> {
     Some((u, port, db))
 }
 
+/// The AUTH command the URL's user info asks for, if any:
+/// redis://:password@host authenticates as the default user,
+/// redis://user:password@host as user (ACLs), and redis://user@host as
+/// user with an empty password, as the command-line client and the common
+/// client libraries do for a user given alone (an ACL user marked nopass
+/// takes any password; any other user is refused, and the reading says the
+/// credentials were refused instead of reading the list as the default
+/// user).
+fn auth(u: &url::Url) -> Option<Vec<&[u8]>> {
+    match &u.user {
+        Some((name, Some(pass))) if name.is_empty() => Some(vec![b"AUTH", pass]),
+        Some((name, Some(pass))) => Some(vec![b"AUTH", name, pass]),
+        Some((name, None)) if !name.is_empty() => Some(vec![b"AUTH", name, b""]),
+        _ => None,
+    }
+}
+
 /// RedisListLength.
 pub fn list_length(d: &mut Dialer, raw: &str, list: &str) -> Answer {
     let Some((u, port, db)) = parse(raw) else {
@@ -104,14 +122,7 @@ pub fn list_length(d: &mut Dialer, raw: &str, list: &str) -> Answer {
     };
     let s = s.as_mut();
     let mut replies = Replies { buf: Vec::new() };
-    // redis://:password@host authenticates as the default user,
-    // redis://user:password@host as user (ACLs).
-    if let Some((name, Some(pass))) = &u.user {
-        let args: Vec<&[u8]> = if name.is_empty() {
-            vec![b"AUTH", pass]
-        } else {
-            vec![b"AUTH", name, pass]
-        };
+    if let Some(args) = auth(&u) {
         match call(s, &mut replies, &args) {
             Ok((b'+', _)) => {}
             _ => return Answer::Error(ERR_AUTH),
@@ -153,5 +164,25 @@ mod tests {
         ] {
             assert!(parse(bad).is_none(), "{bad}");
         }
+    }
+
+    #[test]
+    fn auth_from_user_info() {
+        let args = |raw: &str| {
+            let (u, _, _) = parse(raw).unwrap();
+            auth(&u).map(|a| {
+                a.iter()
+                    .map(|x| String::from_utf8_lossy(x).into_owned())
+                    .collect::<Vec<_>>()
+            })
+        };
+        assert_eq!(args("redis://h"), None);
+        assert_eq!(args("redis://@h"), None);
+        assert_eq!(args("redis://:pw@h").unwrap(), ["AUTH", "pw"]);
+        assert_eq!(args("redis://:@h").unwrap(), ["AUTH", ""]);
+        assert_eq!(args("redis://u:pw@h").unwrap(), ["AUTH", "u", "pw"]);
+        // A user alone: the user with an empty password, never the default
+        // user without AUTH.
+        assert_eq!(args("redis://u@h").unwrap(), ["AUTH", "u", ""]);
     }
 }
