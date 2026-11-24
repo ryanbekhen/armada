@@ -115,13 +115,17 @@ func TestTop(t *testing.T) {
 		}
 	}
 
-	// A node that disconnects is no longer measured.
+	// A node that disconnects is no longer measured, once the leader
+	// has seen its session end.
 	c.stopAgent("n1")
-	for _, n := range top("").GetNodes() {
-		if n.GetId() == "n1" && n.GetMeasured() {
-			t.Errorf("disconnected node measured: %v", n)
+	c.eventually("disconnected node unmeasured", func() bool {
+		for _, n := range top("").GetNodes() {
+			if n.GetId() == "n1" && n.GetMeasured() {
+				return false
+			}
 		}
-	}
+		return true
+	})
 }
 
 func TestUsageStore(t *testing.T) {
