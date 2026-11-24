@@ -563,7 +563,14 @@ func TestArmadaNodeVolumeRestoreMatchesGo(t *testing.T) {
 		if gmsg != rmsg {
 			t.Errorf("%s: errors differ:\n go   %s\n rust %s", tc.name, gmsg, rmsg)
 		}
-		if gtree != rtree {
+		// An archive without "." leaves the volume's directory with the
+		// time the restore made it, which differs between the two runs.
+		gtree, rtree = rootTimeless(gtree), rootTimeless(rtree)
+		if os.Geteuid() == 0 && gtree != rtree && withoutSpecialBits(gtree) == withoutSpecialBits(rtree) {
+			// A known difference: as root armada-node keeps setuid,
+			// setgid, and sticky bits, which Go's restore drops.
+			t.Logf("%s: Go's code drops setuid/setgid/sticky bits (known difference)", tc.name)
+		} else if gtree != rtree {
 			t.Errorf("%s: volumes differ:\n go:\n%s rust:\n%s", tc.name, gtree, rtree)
 		}
 		if gleft != rleft {
@@ -632,4 +639,54 @@ func TestNativeVolumeFallsBackToGo(t *testing.T) {
 	if _, err := os.Stat(dst); err == nil {
 		t.Error("Go restored after armada-node took the stream")
 	}
+}
+
+// withoutSpecialBits drops the setuid (u), setgid (g), and sticky (t)
+// letters fs.FileMode.String puts before the permissions of each line of
+// a tree, so trees that differ only in those bits compare equal.
+func withoutSpecialBits(tree string) string {
+	lines := strings.Split(tree, "\n")
+	for i, l := range lines {
+		q := strings.LastIndex(l, "\" ")
+		if q < 0 || q+2 > len(l) {
+			continue
+		}
+		rest := l[q+2:]
+		end := strings.IndexByte(rest, ' ')
+		if end < 0 {
+			continue
+		}
+		mode := rest[:end]
+		perm := len(mode) - 9
+		if perm < 0 {
+			continue
+		}
+		prefix := strings.Map(func(r rune) rune {
+			if r == 'u' || r == 'g' || r == 't' {
+				return -1
+			}
+			return r
+		}, mode[:perm])
+		if prefix == "" {
+			prefix = "-"
+		}
+		lines[i] = l[:q+2] + prefix + mode[perm:] + rest[end:]
+	}
+	return strings.Join(lines, "\n")
+}
+
+// rootTimeless blanks the time of the tree's "." line.
+func rootTimeless(tree string) string {
+	lines := strings.Split(tree, "\n")
+	for i, l := range lines {
+		if !strings.HasPrefix(l, "\".\" ") {
+			continue
+		}
+		f := strings.Fields(l)
+		if len(f) >= 5 {
+			f[4] = "T"
+			lines[i] = strings.Join(f, " ")
+		}
+	}
+	return strings.Join(lines, "\n")
 }
