@@ -550,6 +550,8 @@ func runAgent(ctx context.Context, dataDir string, servers []string, proxyKind, 
 	if err := checkProxyKind(proxyKind); err != nil {
 		return err
 	}
+	// Only the agent moves images between the runtime's stores.
+	ac.agent = true
 	rt, err := newDriver(dataDir, ac)
 	if err != nil {
 		return err

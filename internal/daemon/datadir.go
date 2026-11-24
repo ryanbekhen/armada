@@ -87,22 +87,28 @@ type agentConfig struct {
 	// 0054), with Go's code doing a pass armada-node fails. Set by hand (or
 	// the end-to-end tests' E2E_NET_AGENT=go) while Go's code remains.
 	NetAgent string `json:"netAgent,omitempty"`
-	// RuntimeAgent "rust" lets the runtime pack's armada-node do the
-	// supervisor runtime's work below the driver (ADR 0054 step 4): images
-	// in its own store, containers' root filesystems, bundles, and shim
-	// requests. Anything else, or nothing, keeps Go's code. Set by hand
-	// while it is being tried; supervisor nodes only.
+	// RuntimeAgent "go" keeps the supervisor runtime's work below the
+	// driver in Go's own code; anything else, or nothing, hands it to the
+	// runtime pack's armada-node (ADR 0054 step 4): images in its own
+	// store, containers' root filesystems, bundles, shim requests,
+	// statistics, dials, and exec. Supervisor nodes only; set by hand
+	// (or the end-to-end tests' E2E_RUNTIME_AGENT=go) while Go's code
+	// remains.
 	RuntimeAgent string `json:"runtimeAgent,omitempty"`
+
+	// agent is set by the agent's own start: its runtime moves images
+	// between Go's store and armada-node's (containerd.Config.Agent).
+	agent bool
 }
 
-// runtimeAgentRust is agentConfig.RuntimeAgent's value that hands the
-// supervisor runtime to armada-node.
-const runtimeAgentRust = "rust"
+// runtimeAgentGo is agentConfig.RuntimeAgent's value that keeps Go's code.
+const runtimeAgentGo = "go"
 
 // runtimeProgram returns armada-node for the supervisor runtime, or ""
-// when the node keeps Go's code (RuntimeAgent) or the pack has none.
+// when the node keeps Go's code (RuntimeAgent), runs containerd, or the
+// pack has no armada-node.
 func (c agentConfig) runtimeProgram(dataDir string) string {
-	if c.RuntimeAgent != runtimeAgentRust || c.Runtime != runtimeSupervisor {
+	if c.RuntimeAgent == runtimeAgentGo || c.Runtime != runtimeSupervisor {
 		return ""
 	}
 	return packProgram(dataDir, embedded.BinNode)()

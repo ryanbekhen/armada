@@ -54,6 +54,9 @@ type doctorEnv struct {
 	// runtime is the node's container runtime from agent.json: embedded
 	// (containerd) or supervisor (ADR 0046).
 	runtime string
+	// runtimeAgent is agent.json's runtimeAgent: "go" keeps the supervisor
+	// runtime on Go's code (ADR 0054).
+	runtimeAgent string
 	// runtimeHost checks what the embedded runtime needs from the host.
 	runtimeHost func(subnet netip.Prefix) []checkResult
 	// network checks the cluster network (ADR 0025); nil when the node is
@@ -158,30 +161,31 @@ func hostDoctorEnv(dataDir string) doctorEnv {
 		}
 	}
 	return doctorEnv{
-		euid:        os.Geteuid(),
-		driver:      driver,
-		driverErr:   err,
-		runtime:     ac.Runtime,
-		runtimeHost: embeddedHostChecks,
-		network:     network,
-		subnet:      subnet,
-		detectIP:    netutil.DetectPrivateIP,
-		statFile:    os.Stat,
-		checkTmpfs:  checkTmpfs,
-		listeners:   procListeners,
-		ntpSynced:   timedatectlSynced,
-		ufwStatus:   ufwStatus,
-		nfs:         agent.NFSSupported,
-		readFile:    fsutil.ReadPrivateFile,
-		serverEnv:   func() ([]byte, error) { return os.ReadFile(serverEnvFile) },
-		needrestart: func() (bool, bool) { return needrestartState(needrestartDir) },
-		runtimePack: func() (string, string) { return runtimePacks(dataDir) },
-		now:         time.Now,
-		adminConfig: clientconfig.DefaultPath(),
-		clusterPort: []uint16{defaultPort, defaultPort + 1, haproxy.MetricsPort},
-		endpoint:    joinEndpoint(ac),
-		latest:      latestRelease(),
-		version:     version.Get().Version,
+		euid:         os.Geteuid(),
+		driver:       driver,
+		driverErr:    err,
+		runtime:      ac.Runtime,
+		runtimeAgent: ac.RuntimeAgent,
+		runtimeHost:  embeddedHostChecks,
+		network:      network,
+		subnet:       subnet,
+		detectIP:     netutil.DetectPrivateIP,
+		statFile:     os.Stat,
+		checkTmpfs:   checkTmpfs,
+		listeners:    procListeners,
+		ntpSynced:    timedatectlSynced,
+		ufwStatus:    ufwStatus,
+		nfs:          agent.NFSSupported,
+		readFile:     fsutil.ReadPrivateFile,
+		serverEnv:    func() ([]byte, error) { return os.ReadFile(serverEnvFile) },
+		needrestart:  func() (bool, bool) { return needrestartState(needrestartDir) },
+		runtimePack:  func() (string, string) { return runtimePacks(dataDir) },
+		now:          time.Now,
+		adminConfig:  clientconfig.DefaultPath(),
+		clusterPort:  []uint16{defaultPort, defaultPort + 1, haproxy.MetricsPort},
+		endpoint:     joinEndpoint(ac),
+		latest:       latestRelease(),
+		version:      version.Get().Version,
 	}
 }
 
@@ -359,6 +363,7 @@ func checkRuntime(ctx context.Context, env doctorEnv) []checkResult {
 		default:
 			add(checkOK, "supervisor runtime ready (armada-shim, no containerd)")
 		}
+		out = append(out, runtimeAgentCheck(env)...)
 		return append(out, bridgeCheck(ctx, env)...)
 	}
 	switch {
@@ -378,7 +383,44 @@ func checkRuntime(ctx context.Context, env doctorEnv) []checkResult {
 		// a later release: point to the move while the node still works.
 		add(checkWarn, "embedded runtime (containerd) reachable; new nodes run the supervisor runtime, and containerd will be removed in a later release: move this node with armadad runtime migrate --to supervisor (drain it and stop its service first; see the operations guide)")
 	}
+	out = append(out, runtimeAgentCheck(env)...)
 	return append(out, bridgeCheck(ctx, env)...)
+}
+
+// runtimeAgentCheck says whose code runs the node's containers and how
+// its move to armada-node goes (ADR 0054, "The runtime's move").
+func runtimeAgentCheck(env doctorEnv) []checkResult {
+	ar, ok := env.driver.(runtime.AgentReporter)
+	if !ok {
+		return nil
+	}
+	var out []checkResult
+	add := func(status, format string, args ...any) {
+		out = append(out, checkResult{Name: "runtime-agent", Status: status, Detail: fmt.Sprintf(format, args...)})
+	}
+	st := ar.RuntimeAgent()
+	switch {
+	case st.Agent == "":
+		return nil
+	case st.Agent == runtime.AgentContainerd:
+		add(checkWarn, "containers run on containerd, which armada-node does not replace: move this node to the supervisor runtime first (armadad runtime migrate --to supervisor; see the operations guide)")
+	case st.Agent == runtime.AgentSupervisorGo && env.runtimeAgent == runtimeAgentGo:
+		add(checkWarn, "agent.json sets \"runtimeAgent\": \"go\": Go's runtime code runs containers, and goes away in a later release; remove the field and restart armada-server or armada-agent to run them through armada-node (its images are converted, not pulled again)")
+	case st.Agent == runtime.AgentSupervisorGo:
+		add(checkWarn, "the runtime pack has no armada-node, so Go's runtime code runs containers: install a release build of armadad (sudo armadad upgrade)")
+	case st.Error != "":
+		add(checkWarn, "armada-node runs containers, but converting Go's image store failed (%s); images are pulled again when needed, and the next start of armada-server or armada-agent tries again", st.Error)
+	case !st.Converted:
+		add(checkWarn, "armada-node runs containers, but Go's image store is not converted yet: the agent converts it when it starts (restart armada-server or armada-agent)")
+	case st.GoImages:
+		add(checkOK, "armada-node runs containers; Go's image store stays until the last container made from it is replaced")
+	default:
+		add(checkOK, "armada-node runs containers")
+	}
+	if st.ImagesToPull > 0 {
+		add(checkWarn, "%d images were left out of the conversion to armada-node's store and are not pulled again yet; each is pulled when a replica needs it (the agent's log names them and why)", st.ImagesToPull)
+	}
+	return out
 }
 
 // bridgeCheck inspects the container bridge.

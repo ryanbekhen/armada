@@ -91,9 +91,14 @@ type Config struct {
 	ShimBin string
 	// NodeBin, with Supervisor, is the runtime pack's armada-node, which
 	// then pulls images into its own store and does the supervisor's work
-	// below the driver (ADR 0054: agent.json "runtimeAgent": "rust"). A
-	// path with no program keeps Go's code.
+	// below the driver (ADR 0054; the default, agent.json "runtimeAgent":
+	// "go" opts out). A path with no program keeps Go's code.
 	NodeBin string
+	// Agent is set by the node's agent alone, never by commands like
+	// doctor that open the runtime beside it: with Supervisor, it moves
+	// images between Go's store and armada-node's before opening them
+	// (ADR 0054, "The runtime's move").
+	Agent bool
 }
 
 // Driver runs containers on the embedded containerd.
@@ -121,7 +126,23 @@ var (
 	_ runtime.Driver          = (*Driver)(nil)
 	_ runtime.SystemRunner    = (*Driver)(nil)
 	_ runtime.BridgeInspector = (*Driver)(nil)
+	_ runtime.AgentReporter   = (*Driver)(nil)
 )
+
+// RuntimeAgent says how the node runs containers (ADR 0054): containerd,
+// or the supervisor runtime through Go's code or armada-node, with how
+// the move of its images goes.
+func (d *Driver) RuntimeAgent() runtime.AgentStatus {
+	st, ok := d.ctr.(*supervisor.Store)
+	switch {
+	case !ok:
+		return runtime.AgentStatus{Agent: runtime.AgentContainerd}
+	case st.Native == nil:
+		return runtime.AgentStatus{Agent: runtime.AgentSupervisorGo}
+	}
+	m := st.MoveStatus()
+	return runtime.AgentStatus{Agent: runtime.AgentSupervisorRust, GoImages: m.GoImages, Converted: m.Converted, ImagesToPull: m.ToPull, Error: m.Err}
+}
 
 // New connects to the embedded containerd. It does not wait for it to be
 // up; Ping does.

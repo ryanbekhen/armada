@@ -68,6 +68,11 @@ const (
 	// DirNFS holds the mount points of NFS volumes (ADR 0042); their data
 	// is on the NFS server.
 	DirNFS = "nfs"
+	// DirNode is armada-node's directory (ADR 0054): its image store
+	// (images/) and the record that the supervisor runtime's images were
+	// converted into it (converted.json). It is not copied: images are
+	// pulled again, and a restored node has no image store to convert.
+	DirNode = "node"
 	// FileNetworkKey is the node's own cluster network key (ADR 0025). It
 	// is not copied: it belongs to the node, and a restored node makes a
 	// new one, which its agent announces.

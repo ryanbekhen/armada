@@ -36,7 +36,8 @@ func (a *Agent) usageLoop(ctx context.Context) {
 	}
 	lr, _ := a.cfg.Proxy.(proxy.LoadReader)
 	vols := a.mountsVolumes()
-	if sr == nil && lr == nil && !vols && a.cfg.Conntrack == nil && !runtime.CanExec(a.cfg.Driver) && !a.sandboxesOn() && !a.exportsLogs() && a.switcher() == nil {
+	ar, _ := a.cfg.Driver.(runtime.AgentReporter)
+	if sr == nil && lr == nil && !vols && a.cfg.Conntrack == nil && !runtime.CanExec(a.cfg.Driver) && !a.sandboxesOn() && !a.exportsLogs() && a.switcher() == nil && ar == nil {
 		return
 	}
 	warned := false
@@ -74,10 +75,26 @@ func (a *Agent) usageLoop(ctx context.Context) {
 			report.NetworkSwitch = sw.SwitchStatus()
 		}
 		a.reportPeers(report)
-		if sampled || report.PeersChecked || report.LoadMeasured || report.VolumesMeasured || report.ConntrackMax > 0 || len(report.Queues) > 0 || len(report.Sandboxes) > 0 ||
+		if ar != nil {
+			report.Runtime = runtimeStatus(ar.RuntimeAgent())
+		}
+		if sampled || report.Runtime != nil || report.PeersChecked || report.LoadMeasured || report.VolumesMeasured || report.ConntrackMax > 0 || len(report.Queues) > 0 || len(report.Sandboxes) > 0 ||
 			len(report.DroppedSandboxes) > 0 || report.LogExport != nil || report.NetworkSwitch != nil {
 			a.sendUsage(report)
 		}
+	}
+}
+
+// runtimeStatus is how the node runs containers, as the leader reads it
+// (ADR 0054).
+func runtimeStatus(s runtime.AgentStatus) *armadav1.RuntimeStatus {
+	if s.Agent == "" {
+		return nil
+	}
+	return &armadav1.RuntimeStatus{
+		Agent: s.Agent, Converting: s.Converting(),
+		ImagesToPull: int32(min(s.ImagesToPull, 1<<20)), //nolint:gosec // bounded
+		Error:        s.Error,
 	}
 }
 

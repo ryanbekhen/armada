@@ -87,6 +87,9 @@ type nodeUsage struct {
 	// netSwitch is the node's side of a switch of the network's mode
 	// (ADR 0050), bounded by cleanSwitchStatus.
 	netSwitch *armadav1.NetworkSwitchStatus
+	// runtime is how the node runs containers (ADR 0054), bounded by
+	// cleanRuntimeStatus; nil from older agents.
+	runtime *armadav1.RuntimeStatus
 }
 
 // sandboxReading is a job's network sandbox on a node, and the length of
@@ -212,6 +215,7 @@ func (u *usageStore) set(nodeID string, r *armadav1.UsageReport, at time.Time) b
 		sandboxes:        sandboxes,
 		dropped:          dropped,
 		netSwitch:        netSwitch,
+		runtime:          cleanRuntimeStatus(r.GetRuntime()),
 	}
 	u.mu.Unlock()
 	return fresh

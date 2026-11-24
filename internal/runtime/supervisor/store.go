@@ -34,7 +34,9 @@ const snapshotterName = "overlayfs"
 // same on either runtime.
 type Store struct {
 	// Images is Go's image store. With Native it may be nil, and is used
-	// only to release the root filesystems of containers Go made.
+	// only to release the root filesystems of containers Go made; once
+	// Moved records it converted, it goes with the last of them
+	// (CollectGo).
 	Images  *Images
 	Bundles Bundles
 	Shims   *Shims
@@ -47,11 +49,19 @@ type Store struct {
 	// containers armada-node made Go removes with them (a node that went
 	// back to Go's code).
 	NodeImages string
+	// Moved, with Native, is the record (MovedFile) that Go's image store
+	// was converted into armada-node's; MoveErr is why the conversion at
+	// the agent's start failed, if it did.
+	Moved   string
+	MoveErr error
 	// CgroupRoot is where cgroup v2 is mounted; empty is /sys/fs/cgroup
 	// (tests name a fixture).
 	CgroupRoot string
 
 	mu sync.Mutex // serializes record changes
+	// goMu guards Images while armada-node runs the store, which
+	// CollectGo closes and clears.
+	goMu sync.Mutex
 }
 
 // cgroupRoot is where the containers' cgroups are read.
@@ -64,6 +74,8 @@ func (s *Store) cgroupRoot() string {
 
 // Close releases the image store.
 func (s *Store) Close() error {
+	s.goMu.Lock()
+	defer s.goMu.Unlock()
 	if s.Images == nil {
 		return nil
 	}
@@ -187,9 +199,16 @@ func (s *Store) release(ctx context.Context, id string) error {
 			return err
 		}
 	}
-	if s.Images != nil {
-		return s.Images.Release(ctx, id)
+	s.goMu.Lock()
+	defer s.goMu.Unlock()
+	if s.Images == nil {
+		return nil
 	}
+	if err := s.Images.Release(ctx, id); err != nil {
+		return err
+	}
+	// The last container on Go's converted store takes it along.
+	s.collectGoLocked(ctx)
 	return nil
 }
 

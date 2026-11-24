@@ -6,8 +6,79 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/ryanbekhen/armada/internal/runtime"
 	"github.com/ryanbekhen/armada/internal/runtime/embedded"
+	"github.com/ryanbekhen/armada/internal/runtime/supervisor"
 )
+
+// The agent's start moves images between the stores (ADR 0054, "The
+// runtime's move"); doctor's opening of the runtime never does. With
+// armada-node, Go's store is converted and, with no container on it,
+// removed; the record says so. Back on Go's code, the record goes.
+func TestSupervisorBackendMovesImages(t *testing.T) {
+	paths := embedded.Paths{DataDir: t.TempDir(), RunDir: t.TempDir()}
+	bin := filepath.Join(t.TempDir(), "armada-node")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	goImages := filepath.Join(paths.DataDir, "supervisor", "images")
+	moved := filepath.Join(paths.DataDir, NodeDir, supervisor.MovedFile)
+	imgs, err := supervisor.OpenImages(goImages)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := imgs.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Doctor: nothing moves.
+	st, err := newSupervisorBackend(Config{Paths: paths, Supervisor: true, NodeBin: bin}, "/pack/armada-log")
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := &Driver{ctr: st, native: st.Native}
+	if got := d.RuntimeAgent(); got.Agent != runtime.AgentSupervisorRust || !got.GoImages || got.Converted || !got.Converting() {
+		t.Errorf("doctor's view before the move %+v", got)
+	}
+	_ = st.Close()
+	if _, err := os.Stat(moved); !os.IsNotExist(err) {
+		t.Fatalf("doctor converted: %v", err)
+	}
+
+	// The agent: converted, and Go's store goes.
+	st, err = newSupervisorBackend(Config{Paths: paths, Supervisor: true, NodeBin: bin, Agent: true}, "/pack/armada-log")
+	if err != nil {
+		t.Fatal(err)
+	}
+	d = &Driver{ctr: st, native: st.Native}
+	if got := d.RuntimeAgent(); got.Agent != runtime.AgentSupervisorRust || got.GoImages || !got.Converted || got.Converting() {
+		t.Errorf("after the move %+v", got)
+	}
+	_ = st.Close()
+	if _, err := os.Stat(goImages); !os.IsNotExist(err) {
+		t.Errorf("Go's store stayed: %v", err)
+	}
+	if rec, ok, err := supervisor.ReadMoveState(moved); err != nil || !ok || !rec.Collected {
+		t.Errorf("record %+v %v %v", rec, ok, err)
+	}
+
+	// Back to Go's code: the record goes, so a later move converts again.
+	st, err = newSupervisorBackend(Config{Paths: paths, Supervisor: true, Agent: true}, "/pack/armada-log")
+	if err != nil {
+		t.Fatal(err)
+	}
+	d = &Driver{ctr: st, native: st.Native}
+	if got := d.RuntimeAgent(); got.Agent != runtime.AgentSupervisorGo || got.Converting() {
+		t.Errorf("on Go's code %+v", got)
+	}
+	_ = st.Close()
+	if _, err := os.Stat(moved); !os.IsNotExist(err) {
+		t.Errorf("the record stayed: %v", err)
+	}
+	if got := (&Driver{}).RuntimeAgent(); got.Agent != runtime.AgentContainerd {
+		t.Errorf("containerd %+v", got)
+	}
+}
 
 // A supervisor node hands its store to armada-node only when NodeBin names
 // a program; without one it stays on Go's store. Go's own image store is
