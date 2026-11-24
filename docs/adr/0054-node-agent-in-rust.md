@@ -659,7 +659,20 @@ Removing Go's runtime code comes next.
    said "spawned" (logged once per distinct failure, counted with
    `StoodIn`), so no byte of the caller's has moved; after that a
    failure is the call's. Nothing armada-node answers names the
-   arguments or the environment.
+   arguments or the environment. Where Go's process was found wrong
+   while porting, armada-node does what is right (the parity tests name
+   each difference): runc gets `PR_SET_PDEATHSIG`, so an armada-node
+   killed mid-session leaves no runc running; a kill before runc wrote
+   the pid ends runc (Go answers NotFound and the caller's cleanup waits
+   its five seconds), as does the start's ten seconds running out; only
+   a process's own pid is ever signalled (never 0, 1, or a value past
+   what a pid holds, which Go's conversion to int made a process group
+   or every process: fixed in Go too); a copy of the output waits for
+   input before it reads, so bytes read as a grace runs out are still
+   delivered; and runc starts with no signal blocked (Go's start took the
+   forking thread's mask, now cleared too). The exec into system
+   containers is bounded by the caller's context on both sides: the
+   process is killed when it ends.
 6. **The agent.** The `Connect` session, `Hello`, reconciliation,
    probes, fencing, held replicas, jobs, init containers and sidecars,
    secret files, wake, certificates, and `agent.json`, in Rust. When and

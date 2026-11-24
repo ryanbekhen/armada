@@ -10,6 +10,7 @@ import (
 	"sync"
 	"syscall"
 
+	"github.com/containerd/containerd/v2/client"
 	"github.com/containerd/containerd/v2/pkg/cio"
 
 	"github.com/ryanbekhen/armada/internal/runtime"
@@ -81,6 +82,8 @@ func (l *lockedBuffer) String() string {
 }
 
 // Exec runs cmd in a running container and returns its combined output.
+// The caller's context bounds it: once it ends, the process is killed
+// (within execCleanupTimeout) and Exec returns the context's error.
 func (d *Driver) Exec(ctx context.Context, id string, cmd []string) (string, int, error) {
 	ctx = d.ctx(ctx)
 	c, err := d.ctr.LoadContainer(ctx, id)
@@ -106,8 +109,9 @@ func (d *Driver) Exec(ctx context.Context, id string, cmd []string) (string, int
 	execID := "exec-" + hex.EncodeToString(b)
 	if st, ok := d.ctr.(*supervisor.Store); ok {
 		// armada-node runs the session (ADR 0054 step 5): the output to
-		// its end and no kill, as below.
-		code, handled, err := st.NativeExec(ctx, t, supervisor.ExecSession{ID: execID, Process: &p, Stdout: &buf, Stderr: &buf})
+		// its end within the caller's context, and the kill once that
+		// ends, as below.
+		code, handled, err := st.NativeExec(ctx, t, supervisor.ExecSession{ID: execID, Process: &p, Stdout: &buf, Stderr: &buf, CleanupTimeout: execCleanupTimeout})
 		if handled {
 			if err != nil {
 				return "", 0, err
@@ -120,7 +124,18 @@ func (d *Driver) Exec(ctx context.Context, id string, cmd []string) (string, int
 	if err != nil {
 		return "", 0, fmt.Errorf("exec: %w", err)
 	}
-	defer func() { _, _ = proc.Delete(context.WithoutCancel(ctx)) }()
+	defer func() {
+		// Bounded, and killing what is left: a process the caller gave
+		// up on must not run on, nor hold Exec past the caller's
+		// deadline.
+		dctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), execCleanupTimeout)
+		defer cancel()
+		_, _ = proc.Delete(dctx, client.WithProcessKill)
+		pio := proc.IO()
+		pio.Cancel()
+		pio.Wait()
+		_ = pio.Close()
+	}()
 	exited, err := proc.Wait(ctx)
 	if err != nil {
 		return "", 0, err
@@ -138,7 +153,16 @@ func (d *Driver) Exec(ctx context.Context, id string, cmd []string) (string, int
 	case <-ctx.Done():
 		return "", 0, ctx.Err()
 	}
-	proc.IO().Wait()
+	copied := make(chan struct{})
+	go func() {
+		proc.IO().Wait()
+		close(copied)
+	}()
+	select {
+	case <-copied:
+	case <-ctx.Done():
+		return "", 0, fmt.Errorf("exec output cut short: %w", ctx.Err())
+	}
 	return buf.String(), int(code), nil
 }
 

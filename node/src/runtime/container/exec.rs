@@ -325,21 +325,36 @@ impl Output {
         self.state.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    /// Writes b whole to dst unless the output stopped; false ends the
-    /// copy.
-    fn write(&self, dst: &mut File, b: &[u8]) -> bool {
-        {
-            let mut s = self.lock();
-            if s.stopped {
-                return false;
-            }
-            s.writing += 1;
+    /// A read and its write begin, unless the output stopped: what is
+    /// read from here on is written before stop returns.
+    fn begin(&self) -> bool {
+        let mut s = self.lock();
+        if s.stopped {
+            return false;
         }
-        let ok = dst.write_all(b).is_ok();
+        s.writing += 1;
+        true
+    }
+
+    /// The read and write begun last ended (n bytes moved).
+    fn end(&self, n: usize) {
         let mut s = self.lock();
         s.writing -= 1;
-        s.last = Some(Instant::now());
+        if n > 0 {
+            s.last = Some(Instant::now());
+        }
         self.changed.notify_all();
+    }
+
+    /// Writes b whole to dst unless the output stopped; false ends the
+    /// copy.
+    #[cfg(test)]
+    fn write(&self, dst: &mut File, b: &[u8]) -> bool {
+        if !self.begin() {
+            return false;
+        }
+        let ok = dst.write_all(b).is_ok();
+        self.end(b.len());
         ok
     }
 
@@ -356,8 +371,9 @@ impl Output {
         last.elapsed()
     }
 
-    /// Stops the output and waits for a write in progress to end (the
-    /// write a copy Go cancels still finishes).
+    /// Stops the output and waits for a read and write in progress to
+    /// end, so what was read is delivered (the write a copy Go cancels
+    /// still finishes).
     fn stop(&self) {
         let mut s = self.lock();
         s.stopped = true;
@@ -415,6 +431,13 @@ fn exec_pid(dir: &str) -> u32 {
         .map_or(0, |n| n as u32)
 }
 
+/// A pid kill may signal: a process's own (above 1 and within pid_t),
+/// never 0 or a negative value (a process group, or every process) nor
+/// init.
+fn signallable(pid: u32) -> Option<libc::pid_t> {
+    libc::pid_t::try_from(pid).ok().filter(|p| *p > 1)
+}
+
 /// runc, reaped once: a kill after that reaches no other process.
 struct Runc {
     pid: libc::pid_t,
@@ -468,19 +491,46 @@ impl Runc {
     }
 }
 
-/// Reads src to its end (or an error) and writes it out, counting.
-fn copy_out(mut src: impl Read, mut dst: File, out: Arc<Output>, tx: Sender<Event>) {
+/// Reads src (descriptor fd) to its end (or an error) and writes it out,
+/// counting. It waits for input before beginning a read, so a read never
+/// blocks once begun and the output's stop waits for what it read to be
+/// written: bytes read as the grace runs out are still delivered.
+fn copy_out(
+    mut src: impl Read,
+    fd: std::os::fd::RawFd,
+    mut dst: File,
+    out: Arc<Output>,
+    tx: Sender<Event>,
+) {
     let mut buf = vec![0u8; 32 * 1024];
     loop {
-        match src.read(&mut buf) {
-            Ok(0) => break,
-            Ok(n) => {
-                if !out.write(&mut dst, &buf[..n]) {
-                    break;
-                }
+        let mut p = libc::pollfd {
+            fd,
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        // SAFETY: poll of one descriptor this copy reads.
+        let r = unsafe { libc::poll(&mut p, 1, -1) };
+        if r < 0 {
+            if std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted {
+                continue;
             }
-            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
-            Err(_) => break,
+            break;
+        }
+        if p.revents & libc::POLLNVAL != 0 || !out.begin() {
+            break;
+        }
+        let (n, ok) = loop {
+            match src.read(&mut buf) {
+                Ok(0) => break (0, false),
+                Ok(n) => break (n, dst.write_all(&buf[..n]).is_ok()),
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+                Err(_) => break (0, false),
+            }
+        };
+        out.end(n);
+        if !ok {
+            break;
         }
     }
     drop(dst);
@@ -658,6 +708,25 @@ fn start(r: ExecRequest, ctl: UnixStream, mut ans: Answers, fds: [Option<File>; 
             .stdout(piped(stdout.is_some()))
             .stderr(piped(stderr.is_some()));
     }
+    // runc dies with this process: an armada-node killed or crashed
+    // leaves no runc running with nothing to copy its output or reap it.
+    // (The main thread forks it and lives until the process exits, which
+    // is what the signal is tied to.) std starts it with no signal
+    // blocked.
+    // SAFETY: getpid cannot fail.
+    let parent = unsafe { libc::getpid() };
+    // SAFETY: only async-signal-safe calls between fork and exec.
+    unsafe {
+        cmd.pre_exec(move || {
+            if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL, 0, 0, 0) != 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            if libc::getppid() != parent {
+                return Err(std::io::Error::from_raw_os_error(libc::ESRCH));
+            }
+            Ok(())
+        });
+    }
     let mut child = match cmd.spawn() {
         Ok(c) => c,
         Err(e) => {
@@ -681,21 +750,28 @@ fn start(r: ExecRequest, ctl: UnixStream, mut ans: Answers, fds: [Option<File>; 
         if let Some(dst) = stdout {
             let (m, o, t) = (Arc::clone(master), Arc::clone(&out), tx.clone());
             copies += 1;
-            std::thread::spawn(move || copy_out(&*m, dst, o, t));
+            let fd = m.as_raw_fd();
+            std::thread::spawn(move || copy_out(&*m, fd, dst, o, t));
         }
     } else {
         if let (Some(src), Some(dst)) = (stdin, child.stdin.take()) {
             std::thread::spawn(move || copy_in(src, dst, false));
         }
-        let sources: [Option<Box<dyn Read + Send>>; 2] = [
-            child.stdout.take().map(|s| Box::new(s) as _),
-            child.stderr.take().map(|s| Box::new(s) as _),
+        let sources: [Option<(std::os::fd::RawFd, Box<dyn Read + Send>)>; 2] = [
+            child
+                .stdout
+                .take()
+                .map(|s| (s.as_raw_fd(), Box::new(s) as _)),
+            child
+                .stderr
+                .take()
+                .map(|s| (s.as_raw_fd(), Box::new(s) as _)),
         ];
         for (dst, src) in [stdout, stderr].into_iter().zip(sources) {
-            if let (Some(dst), Some(src)) = (dst, src) {
+            if let (Some(dst), Some((fd, src))) = (dst, src) {
                 let (o, t) = (Arc::clone(&out), tx.clone());
                 copies += 1;
-                std::thread::spawn(move || copy_out(src, dst, o, t));
+                std::thread::spawn(move || copy_out(src, fd, dst, o, t));
             }
         }
     }
@@ -835,7 +911,11 @@ impl Session {
                 // Start's loop: after each wait the deadline, then the
                 // pid file.
                 if now > self.start_deadline {
+                    // Start's error: runc, which never started the
+                    // process, is ended too, so the session ends now
+                    // rather than when the caller's cleanup gives up.
                     self.start_answer("notStarted");
+                    self.kill_runc();
                 } else if exec_pid(&self.r.dir) != 0 {
                     self.start_answer("started");
                 } else {
@@ -922,17 +1002,17 @@ impl Session {
     }
 
     /// execProcess.Kill with SIGKILL: the process runc started, then runc
-    /// and the copy of the terminal's output. Nothing once done or before
-    /// runc wrote the pid (Go's NotFound).
+    /// and the copy of the terminal's output. Nothing once done. Before
+    /// runc wrote the pid, runc alone is ended, so a start that never
+    /// comes does not hold the caller's cleanup (Go's code answers
+    /// NotFound and waits).
     fn kill(&mut self) {
-        let pid = exec_pid(&self.r.dir);
-        if pid == 0 || self.done {
+        if self.done {
             return;
         }
-        // Go's syscall.Kill takes an int, so a pid past 2^31 would signal
-        // a process group there; here only a positive pid is signalled.
-        if let Ok(p) = libc::pid_t::try_from(pid) {
-            // SAFETY: kill with a positive pid.
+        if let Some(p) = signallable(exec_pid(&self.r.dir)) {
+            // SAFETY: kill of a process's own pid (not a group, init, or
+            // every process).
             unsafe { libc::kill(p, libc::SIGKILL) };
         }
         self.kill_runc();
@@ -1065,6 +1145,51 @@ mod tests {
         assert!(!q.due(&out));
         std::thread::sleep(grace);
         assert!(q.due(&out));
+    }
+
+    #[test]
+    fn signals_only_a_process_s_own_pid() {
+        for (pid, want) in [
+            (0, None),
+            (1, None),
+            (2, Some(2)),
+            (2_147_483_647, Some(2_147_483_647)),
+            (2_147_483_648, None),
+            (u32::MAX, None),
+        ] {
+            assert_eq!(signallable(pid), want, "{pid}");
+        }
+    }
+
+    #[test]
+    fn delivers_what_it_read_before_the_stop() {
+        // A copy that read bytes as the output stops still writes them:
+        // stop waits for it.
+        let (r, mut w) = std::io::pipe().unwrap();
+        let (dr, dw) = std::io::pipe().unwrap();
+        let out = Arc::new(Output::new());
+        let (tx, rx) = mpsc::channel();
+        let fd = r.as_raw_fd();
+        let o = Arc::clone(&out);
+        let dst = File::from(std::os::fd::OwnedFd::from(dw));
+        let t = std::thread::spawn(move || copy_out(r, fd, dst, o, tx));
+        w.write_all(b"last words").unwrap();
+        // Wait until the copy took them, then stop at once.
+        let start = Instant::now();
+        while out.lock().last.is_none() && out.lock().writing == 0 {
+            assert!(start.elapsed() < Duration::from_secs(5));
+            std::thread::yield_now();
+        }
+        out.stop();
+        drop(w);
+        t.join().unwrap();
+        assert!(matches!(rx.recv().unwrap(), Event::CopyDone));
+        let mut got = Vec::new();
+        let mut dr = dr;
+        dr.read_to_end(&mut got).unwrap();
+        assert_eq!(got, b"last words");
+        // Stopped: nothing more is read.
+        assert!(!out.begin());
     }
 
     #[test]

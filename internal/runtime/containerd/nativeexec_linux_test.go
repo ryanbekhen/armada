@@ -218,7 +218,7 @@ func TestArmadaNodeExecMatchesGo(t *testing.T) {
 			goRes, goTook := run(nil)
 			before := n.Ran("exec")
 			nodeRes, nodeTook := run(n)
-			if goRes, nodeRes := withoutSigBlk(goRes), withoutSigBlk(nodeRes); !reflect.DeepEqual(goRes, nodeRes) {
+			if goRes, nodeRes := unblocked(t, goRes), unblocked(t, nodeRes); !reflect.DeepEqual(goRes, nodeRes) {
 				t.Errorf("armada-node differs from Go:\n%s", resultDiff(nodeRes, goRes))
 			}
 			if got := n.Ran("exec") - before; got != 1 {
@@ -295,7 +295,7 @@ func TestNativeExecFallsBackToGo(t *testing.T) {
 	opts := func() runtime.ExecOptions {
 		return runtime.ExecOptions{Cmd: []string{"x"}, Stdin: strings.NewReader("in\n")}
 	}
-	want := withoutSigBlk(runExec(context.Background(), t, nil, spec, body, opts(), false))
+	want := unblocked(t, runExec(context.Background(), t, nil, spec, body, opts(), false))
 	if want.Code != 4 || want.Stdout != "out:in\n" || want.Stderr != "err\n" {
 		t.Fatalf("Go: %+v", want)
 	}
@@ -309,7 +309,7 @@ func TestNativeExecFallsBackToGo(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			n := &supervisor.Native{Bin: tc.bin}
-			got := withoutSigBlk(runExec(context.Background(), t, n, spec, body, opts(), false))
+			got := unblocked(t, runExec(context.Background(), t, n, spec, body, opts(), false))
 			if !reflect.DeepEqual(got, want) {
 				t.Errorf("with armada-node %s, differs from Go:\n%s", tc.name, resultDiff(got, want))
 			}
@@ -320,16 +320,23 @@ func TestNativeExecFallsBackToGo(t *testing.T) {
 	}
 }
 
-// withoutSigBlk drops the blocked signal mask from a record. Go's runc
-// keeps the mask of the OS thread that forked it: some of the runtime's
-// threads have every signal blocked, so the line differs between two
-// runs of the same code (armada-node's runc starts with none blocked).
-func withoutSigBlk(r execResult) execResult {
+// unblocked checks that runc started with no signal blocked and drops
+// the line from the record. A child keeps the signal mask of the thread
+// that forked it, and some of the Go runtime's threads block every
+// signal, so Go's runc started with whatever its thread had until
+// startUnmasked; armada-node's starts with none (Rust's std), and both
+// are checked, every run.
+func unblocked(t *testing.T, r execResult) execResult {
+	t.Helper()
 	var keep []string
 	for _, l := range strings.Split(r.Record, "\n") {
-		if !strings.HasPrefix(l, "SigBlk:") {
-			keep = append(keep, l)
+		if strings.HasPrefix(l, "SigBlk:") {
+			if strings.TrimSpace(strings.TrimPrefix(l, "SigBlk:")) != "0000000000000000" {
+				t.Errorf("runc started with signals blocked: %s", l)
+			}
+			continue
 		}
+		keep = append(keep, l)
 	}
 	r.Record = strings.Join(keep, "\n")
 	return r
@@ -513,7 +520,11 @@ func sessionCases() []sessionCase {
 			body: pid + "echo started\nexec sleep 30\n",
 		},
 		{
-			name: "deadline before the start", timeout: 300 * time.Millisecond, within: 500 * time.Millisecond,
+			// No pid ever comes. Go's cleanup cannot kill a process it
+			// has no pid for (NotFound) and waits its five seconds for
+			// the end; armada-node ends runc on the cleanup's kill, so
+			// the call ends at the caller's deadline.
+			name: "deadline before the start", timeout: 300 * time.Millisecond, nodeAtMost: 1500 * time.Millisecond,
 			body: "sleep 30\n",
 		},
 		{
@@ -578,9 +589,88 @@ func TestArmadaNodeExecSessionMatchesGo(t *testing.T) {
 	}
 }
 
+// TestArmadaNodeExecRuncEndsWithIt: runc dies with the armada-node that
+// started it (PR_SET_PDEATHSIG), so an armada-node killed mid-session
+// leaves no runc running with nothing to reap it.
+func TestArmadaNodeExecRuncEndsWithIt(t *testing.T) {
+	n := nativeFor(t)
+	dir := t.TempDir()
+	runcAt, parentAt := filepath.Join(dir, "runc"), filepath.Join(dir, "parent")
+	d := execDriverOn(t, "echo $$ > \""+runcAt+".tmp\"\nmv \""+runcAt+".tmp\" \""+runcAt+"\"\necho $PPID > \""+parentAt+"\"\necho $$ > \"$PIDFILE\"\nexec sleep 30\n", specs.Spec{Process: &specs.Process{Cwd: "/"}}, n)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		_, err := d.ExecApp(ctx, "c1", runtime.ExecOptions{Cmd: []string{"x"}})
+		done <- err
+	}()
+	readPid := func(p string) int {
+		for range 500 {
+			if b, err := os.ReadFile(p); err == nil {
+				if pid, err := strconv.Atoi(strings.TrimSpace(string(b))); err == nil {
+					return pid
+				}
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		t.Fatalf("%s never came", p)
+		return 0
+	}
+	runc, parent := readPid(runcAt), readPid(parentAt)
+	if err := syscall.Kill(parent, syscall.SIGKILL); err != nil {
+		t.Fatalf("kill armada-node (%d): %v", parent, err)
+	}
+	for range 200 {
+		if syscall.Kill(runc, 0) != nil {
+			if err := <-done; err == nil {
+				t.Error("ExecApp succeeded with armada-node killed")
+			}
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	_ = syscall.Kill(runc, syscall.SIGKILL)
+	t.Errorf("runc (pid %d) outlived armada-node", runc)
+}
+
+// TestArmadaNodeExecSystemBounded: the driver's Exec of a system
+// container ends at the caller's deadline with the process killed, through
+// armada-node and through Go alike, rather than waiting for a command that
+// never ends.
+func TestArmadaNodeExecSystemBounded(t *testing.T) {
+	n := nativeFor(t)
+	for _, native := range []*supervisor.Native{nil, n} {
+		dir := t.TempDir()
+		pidAt := filepath.Join(dir, "pid")
+		d := execDriverOn(t, "echo $$ > \""+pidAt+"\"\necho $$ > \"$PIDFILE\"\nexec sleep 30\n", specs.Spec{Process: &specs.Process{Cwd: "/"}}, native)
+		ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+		start := time.Now()
+		_, _, err := d.Exec(ctx, "c1", []string{"x"})
+		took := time.Since(start)
+		cancel()
+		if !errors.Is(err, context.DeadlineExceeded) || took > 2*time.Second {
+			t.Errorf("native=%v: Exec: %v after %s", native != nil, err, took)
+		}
+		b, _ := os.ReadFile(pidAt)
+		pid, _ := strconv.Atoi(strings.TrimSpace(string(b)))
+		gone := false
+		for range 300 {
+			if pid > 1 && syscall.Kill(pid, 0) != nil {
+				gone = true
+				break
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+		if !gone {
+			_ = syscall.Kill(pid, syscall.SIGKILL)
+			t.Errorf("native=%v: the process (pid %d) runs on", native != nil, pid)
+		}
+	}
+}
+
 // TestArmadaNodeExecSessionSystem: the driver's Exec (system containers:
-// output of both streams in one buffer, copied to its end, no kill)
-// gives the same through armada-node as through Go.
+// output of both streams in one buffer, copied to its end) gives the same
+// through armada-node as through Go.
 func TestArmadaNodeExecSessionSystem(t *testing.T) {
 	n := nativeFor(t)
 	body := "echo $$ > \"$PIDFILE\"\necho out\nsleep 0.1\necho err >&2\nexit 2\n"
