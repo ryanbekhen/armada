@@ -41,13 +41,12 @@ type ExecSession struct {
 	Resize <-chan runtime.TermSize
 	// DrainGrace is ExecApp's ioDrainGrace: after the process exited its
 	// output is copied while it moves, never past the caller's context
-	// ("exec output cut short"). 0 copies it to its end whatever the
-	// context, as the driver's Exec does.
+	// ("exec output cut short"). 0 copies it to its end, within the
+	// caller's context too, as the driver's Exec does.
 	DrainGrace time.Duration
 	// CleanupTimeout bounds the kill (client.WithProcessKill) of a
 	// process the call left running before the session is abandoned. 0
-	// kills nothing and waits for the process, as the driver's Exec
-	// does.
+	// kills nothing and waits for the process.
 	CleanupTimeout time.Duration
 }
 
@@ -433,11 +432,9 @@ func (s *session) run(ctx context.Context, x ExecSession) (code int, handled boo
 		}
 	}
 	// The drain, done by armada-node; then the copies to the caller's
-	// writers reach the end armada-node closes.
+	// writers reach the end armada-node closes. Never past the caller's
+	// context.
 	drainCtx := ctx
-	if x.DrainGrace <= 0 {
-		drainCtx = context.WithoutCancel(ctx)
-	}
 	for {
 		a, ok, cerr := s.next(drainCtx)
 		if cerr != nil {

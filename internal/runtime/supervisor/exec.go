@@ -6,9 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
+	goruntime "runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -20,6 +22,7 @@ import (
 	"github.com/containerd/containerd/v2/pkg/cio"
 	"github.com/containerd/errdefs"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
+	"golang.org/x/sys/unix"
 
 	"github.com/ryanbekhen/armada/internal/runtime"
 )
@@ -223,10 +226,26 @@ func (p *execProcess) startRunc(_ context.Context, stdio [3]*os.File) (*exec.Cmd
 	}
 	cmd := exec.Command(p.t.c.s.Shims.Runc, append(args, p.t.c.rec.ID)...) //nolint:gosec // the pack's runc
 	p.wire(cmd, stdio)
-	if err := cmd.Start(); err != nil {
+	if err := startUnmasked(cmd); err != nil {
 		return nil, fmt.Errorf("runc exec: %w", err)
 	}
 	return cmd, nil
+}
+
+// startUnmasked starts cmd with no signal blocked. A child keeps the
+// signal mask of the thread that forked it, and some of the runtime's
+// threads block every signal, so runc (and the process it starts) could
+// otherwise ignore the signals that end it. The fork happens on this
+// goroutine's thread, locked and given an empty mask for the start.
+func startUnmasked(cmd *exec.Cmd) error {
+	goruntime.LockOSThread()
+	defer goruntime.UnlockOSThread()
+	var empty, old unix.Sigset_t
+	if err := unix.PthreadSigmask(unix.SIG_SETMASK, &empty, &old); err != nil {
+		return cmd.Start()
+	}
+	defer func() { _ = unix.PthreadSigmask(unix.SIG_SETMASK, &old, nil) }()
+	return cmd.Start()
 }
 
 // wire gives cmd runc's standard streams; with a terminal, the terminal
@@ -334,6 +353,11 @@ func (p *execProcess) Kill(_ context.Context, sig syscall.Signal, _ ...client.Ki
 	case <-p.done:
 		return fmt.Errorf("exec %s: %w", p.id, errdefs.ErrNotFound)
 	default:
+	}
+	// Only a process's own pid is signalled: 0, 1, and values past what
+	// a pid holds would reach a process group, init, or every process.
+	if pid <= 1 || pid > math.MaxInt32 {
+		return fmt.Errorf("exec %s: pid %d: %w", p.id, pid, errdefs.ErrNotFound)
 	}
 	err := syscall.Kill(int(pid), sig)
 	if sig == syscall.SIGKILL {
