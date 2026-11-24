@@ -4,10 +4,12 @@ package volbackup
 
 import (
 	"errors"
+	"maps"
 	"net"
 	"net/netip"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -111,7 +113,9 @@ func ParseTarget(raw string) (Target, error) {
 		return Target{}, errTarget("prefix too long")
 	}
 	q := u.Query()
-	for k := range q {
+	// The first unknown parameter in byte order, so the error is the same
+	// every time (a map has no order).
+	for _, k := range slices.Sorted(maps.Keys(q)) {
 		if k != "region" {
 			return Target{}, errTarget("unknown parameter " + strings.ToValidUTF8(k[:min(len(k), 32)], "?") + "; only region is known")
 		}

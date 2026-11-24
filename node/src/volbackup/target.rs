@@ -121,8 +121,8 @@ fn to_valid_utf8(b: &[u8]) -> String {
     out
 }
 
-/// ParseTarget. Go names one unknown parameter from a map, so which one
-/// it names varies when there are several; this names the first.
+/// ParseTarget. With several unknown parameters, the first in byte order
+/// is named (Go's code sorts them the same way).
 pub fn parse(raw: &str) -> Result<Target, String> {
     let raw = std::str::from_utf8(crate::gostr::trim_space(raw.as_bytes())).unwrap_or(raw);
     if raw.len() > 2048 {
@@ -196,7 +196,12 @@ pub fn parse(raw: &str) -> Result<Target, String> {
         return Err(err_target("prefix too long"));
     }
     let q = u.query();
-    if let Some((k, _)) = q.iter().find(|(k, _)| k != b"region") {
+    // The first unknown parameter in byte order, whatever the URL's order.
+    if let Some((k, _)) = q
+        .iter()
+        .filter(|(k, _)| k != b"region")
+        .min_by(|a, b| a.0.cmp(&b.0))
+    {
         let cut = &k[..k.len().min(32)];
         return Err(err_target(&format!(
             "unknown parameter {}; only region is known",
@@ -292,6 +297,10 @@ mod tests {
                 "unknown parameter x; only region is known",
             ),
             ("https://k:s@h/bk1?region=EU", "invalid region"),
+            (
+                "https://k:s@h/bk1?zz=1&region=eu&b=2&a=3",
+                "unknown parameter a; only region is known",
+            ),
             (
                 "https://k:s@h/bk1#f",
                 "must be https://KEY:SECRET@host/bucket",
