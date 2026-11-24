@@ -598,7 +598,18 @@ Removing Go's runtime code comes next.
    (HMAC-SHA-256 of the plaintext) for the same content, chunks and
    manifests compressed with zstd and sealed with AES-256-GCM under
    their object's name, and manifests as Go's encoding/json writes them;
-   either side reads, restores, and prunes what the other wrote. The
+   either side reads, restores, and prunes what the other wrote.
+   armada-node's manifests also keep what Go's lose, in fields Go's
+   reader ignores: a path or link target that is not UTF-8 as its bytes
+   (`pb`, `lb`, base64; Go's `p` and `l` replace such bytes with
+   U+FFFD), a time past 2262 as seconds and nanoseconds (`ms`, `mn`; Go's
+   `mt` wraps), and setuid and setgid in `m` (restored when the agent
+   runs as root). It writes 32 chunks at once and reads 32 ahead within
+   64 MiB, as Go does; it compresses at the one zstd level its pure-Rust
+   encoder implements (about zstd's level 1; Go uses its default), which
+   only changes the size of what is stored. A URL naming several unknown
+   parameters is refused naming the first in byte order, on both sides.
+   The
    bucket is reached by a client of its own: path-style requests signed
    with Signature Version 4 from the URL's static keys, Content-MD5 on
    writes, ListObjectsV2, the bucket's region asked once when the URL

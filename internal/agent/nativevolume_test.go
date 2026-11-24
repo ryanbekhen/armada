@@ -143,7 +143,10 @@ func parityTree(t *testing.T) string {
 	file("setuid", []byte("u"), 0o4755, at(1_600_000_000, 0))
 	file("setgid", []byte("g"), 0o2750, at(1_600_000_000, 0))
 	file("old", []byte("o"), 0o600, at(-10, 250_000_000))
-	file("future", []byte("f"), 0o600, time.Date(2300, 1, 2, 3, 4, 5, 0, time.UTC))
+	file("future", []byte("f"), 0o600, time.Unix(0, 0))
+	// os.Chtimes wraps a time past 2262 (UnixNano): set it whole.
+	future := time.Date(2300, 1, 2, 3, 4, 5, 0, time.UTC).Unix()
+	mustDo(t, syscall.UtimesNano(filepath.Join(vol, "future"), []syscall.Timespec{{Sec: future}, {Sec: future}}))
 	split := strings.Repeat("d", 60) + "/" + strings.Repeat("y", 60)
 	mk(strings.Repeat("d", 60), 0o755)
 	file(split, []byte("split"), 0o644, at(1_600_000_000, 0))

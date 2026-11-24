@@ -9,12 +9,25 @@
 //! and hands entries to the volume's restore; a prune deletes the
 //! snapshots the policy does not keep, then the chunks no kept snapshot
 //! names that are older than an hour.
+//!
+//! A manifest entry holds more than Go's where Go's loses something, in
+//! fields Go's reader ignores (encoding/json skips unknown fields), so Go
+//! still restores every snapshot: `pb` and `lb` the path's and link's
+//! bytes (standard base64) when they are not UTF-8 (`p` and `l` then hold
+//! them with U+FFFD, as Go writes them); `ms` and `mn` the time's seconds
+//! and nanoseconds when it is past what `mt`'s 64-bit nanoseconds hold
+//! (2262; `mt` then wraps as Go's UnixNano does); and setuid and setgid
+//! in `m` as fs.FileMode's bits (ModeSetuid 1<<23, ModeSetgid 1<<22),
+//! restored when the agent runs as root. Chunks and manifests are
+//! compressed at ruzstd's Fastest level, the only one it implements
+//! (Go writes SpeedDefault; either reads both).
 
 use super::chunker::{Chunker, MAX_CHUNK};
 use super::gotime::{self, Instant, Keep, Zone};
 use super::keys::{ERR_SEALED, Keys, hex, random, unhex};
 use super::s3::{Bucket, Conn, Error as S3Error};
 use super::touch;
+use crate::runtime::image::http::base64;
 use crate::volume::restore::{self, Entry as RestoreEntry, Writer};
 use crate::volume::walk::{self, EntryError, Root};
 use crate::volume::{errno, quote, show};
@@ -34,12 +47,16 @@ const MAX_SEALED_CHUNK: usize = MAX_CHUNK + MAX_CHUNK / 8 + 1024;
 /// chunkGrace, in seconds.
 const CHUNK_GRACE: i64 = 3600;
 /// uploads, uploadBytes: objects written at once and what they hold.
-const UPLOADS: usize = 16;
+const UPLOADS: usize = 32;
 const UPLOAD_BYTES: usize = 64 << 20;
 const MAX_PACKERS: usize = 4;
 /// fetches, fetchBytes: chunks a restore reads at once and ahead.
-const FETCHES: usize = 16;
+const FETCHES: usize = 32;
 const FETCH_BYTES: usize = 64 << 20;
+/// fs.FileMode's setuid, setgid, and sticky bits.
+const MODE_SETUID: u32 = 1 << 23;
+const MODE_SETGID: u32 = 1 << 22;
+const MODE_STICKY: u32 = 1 << 20;
 
 /// ^[0-9a-f]{64}$
 fn chunk_name(s: &str) -> bool {
@@ -203,14 +220,50 @@ fn zstd(b: &[u8]) -> Vec<u8> {
 #[serde(default)]
 struct ManifestEntry {
     p: Option<String>,
+    /// The path's bytes when they are not UTF-8.
+    pb: Option<String>,
     t: Option<String>,
     m: Option<u32>,
     u: Option<i64>,
     g: Option<i64>,
     mt: Option<i64>,
+    /// The time's seconds and nanoseconds when mt cannot hold it.
+    ms: Option<i64>,
+    mn: Option<i64>,
     s: Option<i64>,
     l: Option<String>,
+    /// The link's bytes when they are not UTF-8.
+    lb: Option<String>,
     c: Option<Vec<String>>,
+}
+
+impl ManifestEntry {
+    /// The path's bytes: pb's when it has them, else p's.
+    fn path(&self) -> Result<Vec<u8>, String> {
+        raw_or(&self.pb, &self.p)
+    }
+
+    fn link(&self) -> Result<Vec<u8>, String> {
+        raw_or(&self.lb, &self.l)
+    }
+
+    /// The time in nanoseconds since the epoch, whole past 2262.
+    fn time(&self) -> i128 {
+        match self.ms {
+            Some(s) => {
+                i128::from(s) * 1_000_000_000
+                    + i128::from(self.mn.unwrap_or(0).rem_euclid(1_000_000_000))
+            }
+            None => i128::from(self.mt.unwrap_or(0)),
+        }
+    }
+}
+
+fn raw_or(raw: &Option<String>, text: &Option<String>) -> Result<Vec<u8>, String> {
+    match raw {
+        Some(b) => super::unbase64(b).ok_or_else(|| ERR_SEALED.to_string()),
+        None => Ok(text.clone().unwrap_or_default().into_bytes()),
+    }
 }
 
 #[derive(serde::Deserialize, Default)]
@@ -252,7 +305,8 @@ struct Entry {
     m: u32,
     u: u32,
     g: u32,
-    mt: i64,
+    /// Nanoseconds since the epoch.
+    mt: i128,
     s: i64,
     l: Vec<u8>,
     c: Vec<String>,
@@ -276,16 +330,30 @@ fn manifest_json(time: Instant, node: &str, files: i64, bytes: i64, entries: &[E
         o.push(if i == 0 { '[' } else { ',' });
         o.push_str("{\"p\":");
         gotime::json_string(&mut o, &e.p);
+        if std::str::from_utf8(&e.p).is_err() {
+            o.push_str(&format!(",\"pb\":\"{}\"", base64(&e.p)));
+        }
+        // time.UnixNano wraps past 2262; ms and mn then hold the time.
         o.push_str(&format!(
             ",\"t\":\"{}\",\"m\":{},\"u\":{},\"g\":{},\"mt\":{}",
-            e.t as char, e.m, e.u, e.g, e.mt
+            e.t as char, e.m, e.u, e.g, e.mt as i64
         ));
+        if i64::try_from(e.mt).is_err() {
+            o.push_str(&format!(
+                ",\"ms\":{},\"mn\":{}",
+                e.mt.div_euclid(1_000_000_000),
+                e.mt.rem_euclid(1_000_000_000)
+            ));
+        }
         if e.s != 0 {
             o.push_str(&format!(",\"s\":{}", e.s));
         }
         if !e.l.is_empty() {
             o.push_str(",\"l\":");
             gotime::json_string(&mut o, &e.l);
+            if std::str::from_utf8(&e.l).is_err() {
+                o.push_str(&format!(",\"lb\":\"{}\"", base64(&e.l)));
+            }
         }
         if !e.c.is_empty() {
             o.push_str(",\"c\":[");
@@ -555,17 +623,17 @@ impl Repo {
             if let Some(e) = shared.failed() {
                 return Err(Failure::from(e));
             }
-            let sticky = if st_.mode & 0o1000 != 0 { 1 << 20 } else { 0 };
+            let bit = |unix: u32, go: u32| if st_.mode & unix != 0 { go } else { 0 };
             let mut e = Entry {
                 p: p.to_vec(),
                 t: b'd',
-                m: (st_.mode & 0o777) | sticky,
+                m: (st_.mode & 0o777)
+                    | bit(0o1000, MODE_STICKY)
+                    | bit(0o2000, MODE_SETGID)
+                    | bit(0o4000, MODE_SETUID),
                 u: st_.uid,
                 g: st_.gid,
-                mt: st_
-                    .mtime
-                    .wrapping_mul(1_000_000_000)
-                    .wrapping_add(st_.mtime_nsec),
+                mt: i128::from(st_.mtime) * 1_000_000_000 + i128::from(st_.mtime_nsec),
                 s: 0,
                 l: Vec::new(),
                 c: Vec::new(),
@@ -689,21 +757,26 @@ impl Repo {
                 if super::stopped() {
                     return Err("context canceled".to_string());
                 }
-                let p = e.p.clone().unwrap_or_default();
+                let p = e.path()?;
                 clean_path(&p)?;
                 let typ = match e.t.as_deref() {
                     Some(t) if t.len() == 1 => t.as_bytes()[0],
                     _ => 0,
                 };
                 let mode = e.m.unwrap_or(0);
+                let bit = |go: u32, unix: u32| if mode & go != 0 { unix } else { 0 };
                 let re = RestoreEntry {
-                    name: p.clone().into_bytes(),
+                    name: p,
                     typ,
-                    mode: (mode & 0o777) | if mode & (1 << 20) != 0 { 0o1000 } else { 0 },
+                    // The writer keeps setuid and setgid only as root.
+                    mode: (mode & 0o777)
+                        | bit(MODE_STICKY, 0o1000)
+                        | bit(MODE_SETGID, 0o2000)
+                        | bit(MODE_SETUID, 0o4000),
                     uid: e.u.unwrap_or(0),
                     gid: e.g.unwrap_or(0),
-                    mtime: Some(i128::from(e.mt.unwrap_or(0))),
-                    link: e.l.clone().unwrap_or_default().into_bytes(),
+                    mtime: Some(e.time()),
+                    link: e.link()?,
                     size: e.s.unwrap_or(0),
                 };
                 let n = if typ == b'f' {
@@ -789,24 +862,21 @@ fn entry_failure(e: EntryError) -> Failure {
     }
 }
 
-/// CleanPath.
-fn clean_path(p: &str) -> Result<(), String> {
-    if p == "." {
+/// CleanPath, of the path's bytes.
+fn clean_path(p: &[u8]) -> Result<(), String> {
+    if p == b"." {
         return Ok(());
     }
-    let clean = crate::runtime::image::unpack::clean(p.as_bytes());
+    let clean = crate::runtime::image::unpack::clean(p);
     if p.is_empty()
         || p.len() > 4096
-        || p.contains('\0')
-        || p.starts_with('/')
-        || clean != p.as_bytes()
-        || p == ".."
-        || p.starts_with("../")
+        || p.contains(&0)
+        || p.starts_with(b"/")
+        || clean != p
+        || p == b".."
+        || p.starts_with(b"../")
     {
-        return Err(format!(
-            "backup entry {} is outside the volume",
-            quote(p.as_bytes())
-        ));
+        return Err(format!("backup entry {} is outside the volume", quote(p)));
     }
     Ok(())
 }
@@ -1018,12 +1088,52 @@ mod tests {
         assert!(!snapshot_name("20231114T221320.123Z-0A1b2c3d"));
         assert!(chunk_name(&"a".repeat(64)));
         assert_eq!(base("a/b/"), "b");
-        assert!(clean_path("a/b").is_ok());
+        assert!(clean_path(b"a/b").is_ok());
+        assert!(clean_path(b"a\xff/b").is_ok());
         assert_eq!(
-            clean_path("a/../b").unwrap_err(),
+            clean_path(b"a/../b").unwrap_err(),
             "backup entry \"a/../b\" is outside the volume"
         );
-        assert!(clean_path("/a").is_err());
+        assert!(clean_path(b"/a").is_err());
+    }
+
+    #[test]
+    fn keeps_what_go_loses() {
+        // 2300-01-01: past what 64 bits of nanoseconds hold.
+        let future = 10_413_792_000i128 * 1_000_000_000 + 7;
+        let e = Entry {
+            p: b"bad\xff".to_vec(),
+            t: b'l',
+            m: 0o755 | MODE_SETUID | MODE_SETGID,
+            u: 1,
+            g: 2,
+            mt: future,
+            s: 0,
+            l: b"to\xfe".to_vec(),
+            c: Vec::new(),
+        };
+        let json = manifest_json(Instant { sec: 0, nsec: 0 }, "n1", 0, 0, &[e]);
+        assert!(
+            json.contains(&format!(
+                "{{\"p\":\"bad\\ufffd\",\"pb\":\"YmFk/w==\",\"t\":\"l\",\"m\":{},\"u\":1,\"g\":2,\"mt\":{},\"ms\":10413792000,\"mn\":7,\"l\":\"to\\ufffd\",\"lb\":\"dG/+\"}}",
+                0o755 | MODE_SETUID | MODE_SETGID,
+                future as i64
+            )),
+            "{json}"
+        );
+        let m: Manifest = serde_json::from_str(&json).unwrap();
+        let e = &m.entries.unwrap()[0];
+        assert_eq!(e.path().unwrap(), b"bad\xff");
+        assert_eq!(e.link().unwrap(), b"to\xfe");
+        assert_eq!(e.time(), future);
+        // What Go writes: no extra fields.
+        let m: Manifest =
+            serde_json::from_str(r#"{"entries":[{"p":"a�","t":"f","m":420,"mt":-5}]}"#).unwrap();
+        let e = &m.entries.unwrap()[0];
+        assert_eq!(e.path().unwrap(), "a\u{fffd}".as_bytes());
+        assert_eq!(e.time(), -5);
+        let m: Manifest = serde_json::from_str(r#"{"entries":[{"pb":"%%"}]}"#).unwrap();
+        assert!(m.entries.unwrap()[0].path().is_err());
     }
 
     #[test]

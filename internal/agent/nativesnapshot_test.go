@@ -379,9 +379,13 @@ func bigFile(t *testing.T, dir string, n int) {
 }
 
 // TestArmadaNodeSnapshotRoundTrip backs a volume up with each, then has
-// each restore both snapshots: the four volumes are the same, and the
-// second backup found every chunk the first wrote (the same boundaries and
-// names for the same content and key).
+// each restore both snapshots, and the second backup found every chunk
+// the first wrote (the same boundaries and names for the same content and
+// key). armada-node's manifest also keeps what Go's loses, in fields Go's
+// reader ignores: armada-node restoring its own snapshot gives the volume
+// as it was (a name that is not UTF-8, a time past 2262); the other three
+// restores are the same volume with Go's losses (U+FFFD in the name, the
+// time wrapped), so Go still restores armada-node's snapshots.
 func TestArmadaNodeSnapshotRoundTrip(t *testing.T) {
 	bin := hooksBin(t)
 	for _, tlsOn := range []bool{true, false} {
@@ -435,6 +439,16 @@ func TestArmadaNodeSnapshotRoundTrip(t *testing.T) {
 					}
 					trees[who.name+" restores "+id] = treeOf(t, dst)
 				}
+			}
+			own := trees["rust restores "+rs.ID]
+			delete(trees, "rust restores "+rs.ID)
+			for _, want := range []string{fmt.Sprintf("%q", "bad\xff\xfe"), `"big-chunks"`, `"future" -rw------- `} {
+				if !strings.Contains(own, want) {
+					t.Errorf("armada-node's restore of its own snapshot lacks %s:\n%s", want, own)
+				}
+			}
+			if future := time.Date(2300, 1, 2, 3, 4, 5, 0, time.UTC).Unix(); !strings.Contains(own, fmt.Sprintf(" %d.000000000", future)) {
+				t.Errorf("armada-node's restore of its own snapshot lost the time past 2262:\n%s", own)
 			}
 			var first string
 			for name, tree := range trees {
@@ -658,6 +672,7 @@ func TestArmadaNodeSnapshotTargetMatchesGo(t *testing.T) {
 		"https://k:s@h/bk1/a%20b",
 		"https://k:s@h/bk1/" + strings.Repeat("p", 300),
 		"https://k:s@h/bk1?x=1",
+		"https://k:s@h/bk1?zz=1&region=eu&b=2&a=3",
 		"https://k:s@h/bk1?" + strings.Repeat("é", 20) + "=1",
 		"https://k:s@h/bk1?region=EU",
 		"https://k:s@h/bk1?region=",
