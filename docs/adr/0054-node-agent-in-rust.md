@@ -86,6 +86,12 @@ program.
    reset`, handing it the state Go keeps between passes and taking it
    back, and does a pass itself when armada-node fails. The userspace
    WireGuard device stays in Go for now: a pass that needs it is Go's.
+   The nftables messages are the ones Go's library would send, but on
+   the socket a transaction asks only for the acknowledgement of its last
+   message and for no echoes (the kernel reports every failure anyway):
+   Go's way, an answer to every message, overflowed the socket with
+   thousands of apps (ENOBUFS) and failed the whole transaction. Go's
+   fallback still asks for every answer.
    Go's code is removed after a release in which no node fell back to it.
 4. **The container runtime.** The supervisor runtime in Rust: image
    pulls and layers, OCI bundles, `runc` and `armada-shim`, CNI, and
