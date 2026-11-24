@@ -15,7 +15,9 @@
 //! layers, else overlay with workdir, upperdir, lowerdir (the top layer
 //! first), userxattr when the kernel needs it, and index=off where the
 //! overlay module has the parameter. A collection keeps every layer an
-//! active snapshot names.
+//! active snapshot names, and every layer held under held/ for a
+//! container moved from Go's store whose chain one names (its overlay
+//! may still mount Go's directory of that layer).
 
 use super::digest::chain_ids;
 use super::reference;

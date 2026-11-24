@@ -337,18 +337,37 @@ How steps 1 to 3 and 5 are built (the seventh part of step 4 above):
   again, and a record without `collected` repeats the root filesystems
   and the removal at the next start. A container whose layer is in
   neither store keeps Go's store (named in the record and the log).
+- A layer armada-node's store had already (an image it pulled itself, or
+  recorded there before the move) does not move: `snapshot.json` names
+  armada-node's own directory, while the running container's overlay
+  still has Go's directory of that layer as its lower directory. No
+  directory a mounted overlay uses is ever removed: before Go's store
+  goes, `holdLayers` renames each committed snapshot directory of Go's
+  store whose chain an `active/*/snapshot.json` names (every one when a
+  record cannot be read) to `held/<chain ID hex>.<n>` in armada-node's
+  store and marks its index `uncollected`; armada-node's collection
+  removes a held directory only once no active snapshot names its chain
+  (the containers on it were unmounted and released) and keeps the index
+  marked while one is left, so the next prune looks again. As a last
+  check, the removal is refused while `/proc/self/mountinfo` shows an
+  overlay whose `lowerdir`, `upperdir`, or `workdir` names a directory
+  still under Go's store (overlay options keep the paths a mount was
+  made with, so directories renamed away since do not show).
 - Go's store is opened only when it is left, to release the root
   filesystems of containers Go made. After each release, and at the
-  agent's start, it is removed whole once the record exists and no
-  bundle has its root filesystem in it (a moved one is under `active/`;
-  `Store.CollectGo`).
+  agent's start, it is removed whole, its layers held as above, once the
+  record exists and no bundle has its root filesystem in it (a moved one
+  is under `active/`; `Store.CollectGo`).
 - A node sent back to Go's code (`"runtimeAgent": "go"`) runs
   `supervisor.RevertImages` at the agent's start. With Go's store gone
   (the usual case), nothing comes back: Go pulls into a new store, the
   containers made before keep running from armada-node's store, and Go
   removes their root filesystems with them (`Store.NodeImages`). With
   Go's store still there, every committed snapshot whose directory left
-  gets it back from `layers/`, every active snapshot of Go's metadata
+  gets it back from `held/` first, else from `layers/` unless only
+  armada-node's own containers stand on that layer (Go's store would
+  remove it with its images while their overlays mount it; Go forgets
+  that image and pulls it again), every active snapshot of Go's metadata
   whose directory is under `active/` is renamed back (its
   `snapshot.json` removed), armada-node's records of images whose layers
   left are dropped (a later move converts them again), snapshots whose

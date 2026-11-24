@@ -186,6 +186,30 @@ pub fn remove_tree(p: &Path) {
     let _ = fs::remove_dir_all(p);
 }
 
+/// Removes every entry under held/ (`<chain ID hex>.<n>`: a layer of Go's
+/// store a container moved into this store may still mount, ADR 0054
+/// "The runtime's move") whose chain no active snapshot names (active is
+/// snapshot::in_use; "*" keeps them all). Returns whether any is left.
+pub fn collect_held(store: &Store, active: &std::collections::BTreeSet<String>) -> bool {
+    let Ok(rd) = fs::read_dir(store.root().join("held")) else {
+        return false;
+    };
+    let mut left = false;
+    for e in rd.flatten() {
+        let name = e.file_name().to_string_lossy().into_owned();
+        let chain = name.split('.').next().unwrap_or_default();
+        if active.contains("*") || active.contains(chain) {
+            left = true;
+            continue;
+        }
+        remove_tree(&e.path());
+        if fs::symlink_metadata(e.path()).is_ok() {
+            left = true;
+        }
+    }
+    left
+}
+
 /// Removes every entry under layers/ that is not one of keep (chain ID
 /// hexes): unused layers, and unpacks a crashed pull left behind. Only
 /// while no pull runs.

@@ -103,7 +103,11 @@ func writeMoveState(path string, st MoveState) error {
 //     stands on an active snapshot of Go's store moves into armada-node's
 //     layout (moveActive), running or not: no container restarts.
 //  3. The record is written; once no container's root filesystem is left
-//     in Go's store, the store is removed and the record says so.
+//     in Go's store, the store is removed and the record says so. Go's
+//     layers a moved container's overlay still mounts (armada-node's
+//     store had the layer already, so they stayed in Go's) are first
+//     held in armada-node's store (holdLayers), and a directory a
+//     mounted overlay still names refuses the removal (removeGoStore).
 //
 // Every step can run again after a crash and finds what it did: the
 // record is written only after step 1 ran to its end, a moved root
@@ -151,8 +155,8 @@ func MoveImages(ctx context.Context, src, dst, bundles, statePath string) (st Mo
 	if err := writeMoveState(statePath, st); err != nil || len(left) > 0 {
 		return st, sum, err
 	}
-	if err := os.RemoveAll(src); err != nil {
-		return st, sum, fmt.Errorf("remove Go's image store: %w", err)
+	if err := removeGoStore(ctx, src, dst); err != nil {
+		return st, sum, err
 	}
 	st.Collected = true
 	return st, sum, writeMoveState(statePath, st)
@@ -177,7 +181,9 @@ func validKey(key string) bool {
 // made it for that container ID (active/<ID>/ with fs/, work/, and
 // snapshot.json naming the image and its layers, the top first), so its
 // release removes it like its own. The snapshot's layers not in dst yet
-// move to layers/<chain ID hex> first. Each root filesystem moves with one
+// move to layers/<chain ID hex> first; a layer dst has already stays in
+// Go's store, where the container's overlay still mounts it, until
+// removeGoStore holds it in dst. Each root filesystem moves with one
 // rename of its snapshot's directory on the same file system: a running
 // container's overlay mount keeps the directories the kernel holds, and
 // the bundle's mount point, by which it is unmounted, does not move. It
@@ -267,7 +273,9 @@ func moveActive(ctx context.Context, src, dst, bundles string) (moved, layers in
 // neither store in use. Where Go's store is still there (a container's
 // root filesystem could not move, or the move was cut short), every
 // unpacked layer and container root filesystem the move took from it to
-// armada-node's store under dst goes back where Go's snapshotter keeps it,
+// armada-node's store under dst goes back where Go's snapshotter keeps it
+// (a held layer first; a layer only armada-node's own containers stand on
+// stays, so Go never removes what their overlays mount),
 // armada-node's records of those images are dropped (a later move
 // converts them again), and layers found in neither store are forgotten
 // with the images on them (Go pulls those again). Where it is gone (the
@@ -304,6 +312,23 @@ func RevertImages(ctx context.Context, src, dst, statePath string) (int, error) 
 			back++
 		}
 	}
+	// A layer Go's containers stand on comes back; one only armada-node's
+	// containers (made after the move) stand on stays with them, as Go's
+	// store would remove it with its images while their overlays still
+	// mount it, and Go pulls it again.
+	goNeeds := map[string]bool{}
+	for _, sn := range all {
+		if sn.kind != snapshots.KindActive {
+			continue
+		}
+		for p := sn.parent; p != "" && !goNeeds[p]; p = all[p].parent {
+			goNeeds[p] = true
+		}
+	}
+	named, allNamed, err := activeParents(dst)
+	if err != nil {
+		return back, err
+	}
 	var missing []string
 	for _, name := range slices.Sorted(maps.Keys(snaps)) {
 		fs := snaps[name]
@@ -311,8 +336,16 @@ func RevertImages(ctx context.Context, src, dst, statePath string) (int, error) 
 			continue
 		}
 		if d, err := digest.Parse(name); err == nil {
+			// Go's own directory, held for a moved container, first.
+			if held := heldFor(dst, d.Encoded()); len(held) > 0 {
+				if err := os.Rename(held[0], fs); err != nil {
+					return back, fmt.Errorf("layer %s: %w", name, err)
+				}
+				back++
+				continue
+			}
 			from := filepath.Join(dst, "layers", d.Encoded())
-			if _, err := os.Lstat(from); err == nil {
+			if _, err := os.Lstat(from); err == nil && (goNeeds[name] || (!allNamed && !named[d.Encoded()])) {
 				if err := os.Rename(from, fs); err != nil {
 					return back, fmt.Errorf("layer %s: %w", name, err)
 				}
@@ -397,6 +430,25 @@ func forgetLayers(ctx context.Context, src string, missing []string) error {
 // one of whose layers is not unpacked there, marking the store for a
 // collection.
 func dropUnpacked(dst string) error {
+	return updateNodeIndex(dst, func(idx *nodeIndex) bool {
+		changed := false
+		for name, rec := range idx.Images {
+			for _, ch := range identity.ChainIDs(slices.Clone(rec.DiffIDs)) {
+				if _, err := os.Lstat(filepath.Join(dst, "layers", ch.Encoded())); err != nil {
+					delete(idx.Images, name)
+					changed, idx.Uncollected = true, true
+					break
+				}
+			}
+		}
+		return changed
+	})
+}
+
+// updateNodeIndex changes armada-node's index under dst through change,
+// holding armada-node's locks, and writes it when change reports a
+// change. A store with no index is left alone.
+func updateNodeIndex(dst string, change func(*nodeIndex) bool) error {
 	for _, name := range []string{"pull.lock", "index.lock"} {
 		unlock, err := lockFile(filepath.Join(dst, name))
 		if err != nil {
@@ -419,17 +471,7 @@ func dropUnpacked(dst string) error {
 	if idx.Version > nodeIndexVersion {
 		return fmt.Errorf("index.json: version %d is newer than %d", idx.Version, nodeIndexVersion)
 	}
-	changed := false
-	for name, rec := range idx.Images {
-		for _, ch := range identity.ChainIDs(slices.Clone(rec.DiffIDs)) {
-			if _, err := os.Lstat(filepath.Join(dst, "layers", ch.Encoded())); err != nil {
-				delete(idx.Images, name)
-				changed, idx.Uncollected = true, true
-				break
-			}
-		}
-	}
-	if !changed {
+	if !change(&idx) {
 		return nil
 	}
 	out, err := json.Marshal(idx)
@@ -492,8 +534,10 @@ func (s *Store) collectGoLocked(ctx context.Context) {
 		slog.Warn("Go's image store: close", "err", err)
 	}
 	s.Images = nil
-	if err := os.RemoveAll(root); err != nil {
-		slog.Warn("Go's image store could not be removed", "dir", root, "err", err)
+	// The layers of containers moved into armada-node's store stay
+	// there while their overlays are mounted (holdLayers).
+	if err := removeGoStore(ctx, root, s.Native.Images); err != nil {
+		slog.Warn("Go's image store could not be removed; the next start tries again", "dir", root, "err", err)
 		return
 	}
 	st.Collected = true

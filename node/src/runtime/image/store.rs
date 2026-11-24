@@ -377,12 +377,16 @@ impl Store {
             // Layers under a container's root filesystem stay, as the
             // snapshotter refuses to remove a parent.
             let active = super::snapshot::in_use(self);
+            // Layers held for containers moved from Go's store stay while
+            // an active snapshot names their chain (their overlays may
+            // still mount them); the store stays marked until they go.
+            let held = super::layers::collect_held(self, &active);
             if !active.contains("*") {
                 chains.extend(active);
                 super::layers::collect(self, &chains);
             }
             idx.verified.retain(|blob, _| keep.contains(blob));
-            idx.uncollected = false;
+            idx.uncollected = held;
             Ok(())
         })
     }
@@ -502,6 +506,42 @@ mod tests {
         s.write(&desc, &mut &b[..]).unwrap();
         assert!(s.has(&desc.digest));
         assert_eq!(fs::read_dir(dir.join("content/ingest")).unwrap().count(), 0);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// A layer held for a container moved from Go's store stays while an
+    /// active snapshot names its chain, keeping the store marked for a
+    /// collection, and goes with the next collection after.
+    #[test]
+    fn collect_keeps_held_layers_while_named() {
+        let dir = std::env::temp_dir().join(format!("armada-node-held-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let s = Store::open(&dir).unwrap();
+        let (a, b) = ("a".repeat(64), "b".repeat(64));
+        let active = dir.join("active/c1");
+        fs::create_dir_all(&active).unwrap();
+        fs::write(
+            active.join("snapshot.json"),
+            format!(r#"{{"image":"x","parents":["{a}"]}}"#),
+        )
+        .unwrap();
+        for h in [format!("{a}.0"), format!("{a}.1"), format!("{b}.0")] {
+            fs::create_dir_all(dir.join("held").join(h).join("usr")).unwrap();
+        }
+        let collect = || {
+            let l = s.try_pulls_exclusive().unwrap().unwrap();
+            s.collect(&l).unwrap();
+        };
+        collect();
+        assert!(dir.join("held").join(format!("{a}.0/usr")).exists());
+        assert!(dir.join("held").join(format!("{a}.1")).exists());
+        assert!(!dir.join("held").join(format!("{b}.0")).exists());
+        assert!(s.index().unwrap().uncollected);
+
+        fs::remove_dir_all(&active).unwrap();
+        collect();
+        assert_eq!(fs::read_dir(dir.join("held")).unwrap().count(), 0);
+        assert!(!s.index().unwrap().uncollected);
         let _ = fs::remove_dir_all(&dir);
     }
 }
