@@ -56,7 +56,10 @@ func fullProcess() *specs.Process {
 // process spec, its modes, its descriptors and where they lead, its
 // session and terminal, signals, umask, directory, environment, and the
 // terminal's size into $C.
-const recordRunc = `FDS=$(ls /proc/$$/fd | sort -n | tr '\n' ' ')
+const recordRunc = `SIGS=
+while read -r k v; do case $k in SigBlk:|SigIgn:) SIGS="$SIGS$k	$v
+";; esac; done < /proc/$$/status
+FDS=$(ls /proc/$$/fd | sort -n | tr '\n' ' ')
 LINKS=$(for i in 0 1 2; do printf 'fd%s %s; ' $i "$(readlink /proc/$$/fd/$i | sed 's/:\[.*//; s,^/dev/pts/[0-9]*$,pts,')"; done)
 {
 echo "argv $ARGV"
@@ -66,7 +69,7 @@ echo "fds $FDS"
 echo "links $LINKS"
 set -- $(cat /proc/$$/stat)
 echo "session $([ "$6" = $$ ] && echo leader || echo member) tty $([ "$7" != 0 ] && echo yes || echo no)"
-grep -E '^Sig(Blk|Ign)' /proc/$$/status
+printf %s "$SIGS"
 echo "umask $(umask) cwd $(pwd)"
 if [ -t 0 ]; then echo "size $(stty size)"; fi
 echo "env $(env | sort | grep -v '^_=' | sha256sum)"
