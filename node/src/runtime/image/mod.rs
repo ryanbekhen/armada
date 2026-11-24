@@ -11,8 +11,8 @@
 //!       "ServerAddress"} | null}; stdout: {"ref", "platforms"} as
 //!       runtime.Image, or {"error": TEXT[, "platform": {"image", "want",
 //!       "have"}]} (runtime.PlatformError). --extra-ca trusts a PEM file's
-//!       certificates besides the machine's roots: for tests only, nodes
-//!       never pass it.
+//!       certificates besides the machine's roots: for tests only, and
+//!       refused by release builds (src/hooks.rs).
 //!   armada-node runtime images ROOT
 //!       stdout: the store's image records, sorted by name
 //!   armada-node runtime prune ROOT
@@ -73,7 +73,7 @@ fn error_json(e: &str) -> Vec<u8> {
 pub fn pull_command(args: &[&str]) -> Result<(), String> {
     let (root, extra_ca) = match args {
         [root] => (*root, None),
-        [root, "--extra-ca", f] => (*root, Some(*f)),
+        [root, "--extra-ca", f] => (*root, crate::hooks::extra_ca(f)?),
         _ => return Err("usage: runtime pull ROOT [--extra-ca FILE]".into()),
     };
     let req: pull::PullRequest =

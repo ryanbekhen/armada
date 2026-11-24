@@ -25,6 +25,17 @@ pub fn var(name: &str) -> Option<String> {
     var_os(name).and_then(|v| v.into_string().ok())
 }
 
+/// `--extra-ca FILE`, the CA the parity tests' registries and buckets are
+/// signed with: an option only of builds with test hooks, so nothing can
+/// make a release build trust another CA.
+pub fn extra_ca(file: &str) -> Result<Option<&str>, String> {
+    if ENABLED {
+        Ok(Some(file))
+    } else {
+        Err("--extra-ca is only in builds with test hooks (make node-test-hooks)".into())
+    }
+}
+
 pub fn command() -> Result<(), String> {
     println!("{}", serde_json::json!({ "testHooks": ENABLED }));
     Ok(())
