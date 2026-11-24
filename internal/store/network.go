@@ -304,7 +304,11 @@ func (t *etx) newNodeNetwork(privateIP string, meshAddress bool) (string, error)
 		return "", err
 	}
 	ip, err := netip.ParseAddr(privateIP)
-	if err == nil && n.ClusterCIDR.Contains(ip) {
+	if err != nil || !ip.Is4() {
+		// Its tunnels, routes, and firewall rules are IPv4 only (ADR 0025).
+		return "", fmt.Errorf("private IP %q is not an IPv4 address; the cluster network carries IPv4 only: %w", privateIP, ErrPrecondition)
+	}
+	if n.ClusterCIDR.Contains(ip) {
 		return "", fmt.Errorf("private IP %s is inside the cluster CIDR %s: %w", privateIP, n.ClusterCIDR, ErrPrecondition)
 	}
 	switch {

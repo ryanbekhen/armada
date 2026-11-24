@@ -57,6 +57,7 @@ func TestParseRefuses(t *testing.T) {
 		"bad name":           config(a, np("B;rm", "10.0.0.2", "10.120.1.0/24")),
 		"public peer":        config(a, np("b", "1.1.1.1", "10.120.1.0/24")),
 		"loopback peer":      config(a, np("b", "127.0.0.1", "10.120.1.0/24")),
+		"IPv6 peer":          config(a, np("b", "fd00::2", "10.120.1.0/24")),
 		"peer in CIDR":       config(a, np("b", "10.120.9.9", "10.120.1.0/24")),
 		"subnet outside":     config(a, np("b", "10.0.0.2", "10.121.1.0/24")),
 		"subnet too large":   config(a, np("b", "10.0.0.2", "10.120.0.0/23")),

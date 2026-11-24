@@ -80,6 +80,13 @@ func TestNodeSubnets(t *testing.T) {
 	if err := s.RedeemJoinToken(ctx, "t3", accept, Node{ID: "n3", PrivateIP: "10.120.9.9"}, issued("s3", exp)); !errors.Is(err, ErrPrecondition) {
 		t.Errorf("private IP in the cluster CIDR = %v", err)
 	}
+	// The cluster network is IPv4 only: an IPv6 address is refused.
+	if err := s.RedeemJoinToken(ctx, "t3", accept, Node{ID: "n3", PrivateIP: "fd00::3"}, issued("s3", exp)); !errors.Is(err, ErrPrecondition) || !strings.Contains(err.Error(), "IPv4 only") {
+		t.Errorf("IPv6 private IP = %v", err)
+	}
+	if err := s.UpsertNode(ctx, Node{ID: "n9", PrivateIP: "fd00::9"}); !errors.Is(err, ErrPrecondition) {
+		t.Errorf("IPv6 private IP through UpsertNode = %v", err)
+	}
 
 	// A removed node's subnet is given to the next node.
 	if err := s.RemoveNode(ctx, "n1", true, "admin:a"); err != nil {

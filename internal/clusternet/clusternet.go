@@ -207,6 +207,10 @@ func parse(cfg *armadav1.NetworkConfig, self string, selfIP netip.Addr) (plan, e
 		if err != nil {
 			return plan{}, fmt.Errorf("peer %s: %w", pp.GetNode(), err)
 		}
+		if !ip.Is4() {
+			// The tunnels, routes, and firewall rules are IPv4 only.
+			return plan{}, fmt.Errorf("peer %s: private IP %s is not an IPv4 address; the cluster network carries IPv4 only", pp.GetNode(), ip)
+		}
 		sub, err := netip.ParsePrefix(pp.GetSubnet())
 		if err != nil || sub.Bits() != subnetBits || sub.Masked() != sub || !cidr.Contains(sub.Addr()) {
 			return plan{}, fmt.Errorf("peer %s: subnet %q is not a /%d of %s", pp.GetNode(), pp.GetSubnet(), subnetBits, cidr)

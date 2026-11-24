@@ -498,11 +498,23 @@ func (s *Server) joiningAddress(ctx context.Context, privateIP, key, endpoint st
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return netip.Addr{}, joining{}, status.Error(codes.Internal, "read the cluster network")
 	}
+	// A cluster network carries IPv4 only (ADR 0025): a node's address
+	// must be one. Clusters from before it keep whatever they had.
+	nodeIP := func(privateIP string) (netip.Addr, error) {
+		ip, err := netutil.CheckNodeIP(privateIP)
+		if err != nil {
+			return netip.Addr{}, status.Errorf(codes.InvalidArgument, "private IP: %v", err)
+		}
+		if n.ClusterCIDR.IsValid() && !ip.Is4() {
+			return netip.Addr{}, status.Errorf(codes.InvalidArgument, "private IP %s is not an IPv4 address; the cluster network carries IPv4 only: join with the machine's private IPv4 address (--private-ip)", ip)
+		}
+		return ip, nil
+	}
 	if err != nil || n.Mode != store.NetworkMesh {
 		if !away {
-			ip, err := netutil.CheckNodeIP(privateIP)
+			ip, err := nodeIP(privateIP)
 			if err != nil {
-				return netip.Addr{}, joining{}, status.Errorf(codes.InvalidArgument, "private IP: %v", err)
+				return netip.Addr{}, joining{}, err
 			}
 			return ip, joining{behindNAT: behindNAT}, nil
 		}
@@ -514,9 +526,9 @@ func (s *Server) joiningAddress(ctx context.Context, privateIP, key, endpoint st
 		}
 		j := joining{away: true, key: key, endpoint: endpoint, behindNAT: behindNAT}
 		if privateIP != "" {
-			ip, err := netutil.CheckNodeIP(privateIP)
+			ip, err := nodeIP(privateIP)
 			if err != nil {
-				return netip.Addr{}, joining{}, status.Errorf(codes.InvalidArgument, "private IP: %v", err)
+				return netip.Addr{}, joining{}, err
 			}
 			return ip, j, nil
 		}

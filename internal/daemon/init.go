@@ -90,6 +90,10 @@ func newInitCommand(g *globals) *cobra.Command {
 				if ip, err = resolvePrivateIP(privateIP); err != nil {
 					return err
 				}
+				if !ip.Is4() {
+					// Every new cluster has a cluster network, which is IPv4 only.
+					return fmt.Errorf("--private-ip %s is not an IPv4 address: the cluster network carries IPv4 only", ip)
+				}
 			}
 			var ac agentConfig
 			if err := rtFlags.apply(&ac, ip); err != nil {
