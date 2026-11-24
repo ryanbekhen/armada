@@ -289,7 +289,7 @@ func TestNativeExecFallsBackToGo(t *testing.T) {
 	opts := func() runtime.ExecOptions {
 		return runtime.ExecOptions{Cmd: []string{"x"}, Stdin: strings.NewReader("in\n")}
 	}
-	want := runExec(context.Background(), t, nil, spec, body, opts(), false)
+	want := withoutSigBlk(runExec(context.Background(), t, nil, spec, body, opts(), false))
 	if want.Code != 4 || want.Stdout != "out:in\n" || want.Stderr != "err\n" {
 		t.Fatalf("Go: %+v", want)
 	}
@@ -303,7 +303,7 @@ func TestNativeExecFallsBackToGo(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			n := &supervisor.Native{Bin: tc.bin}
-			got := runExec(context.Background(), t, n, spec, body, opts(), false)
+			got := withoutSigBlk(runExec(context.Background(), t, n, spec, body, opts(), false))
 			if !reflect.DeepEqual(got, want) {
 				t.Errorf("with armada-node %s, differs from Go:\n%s", tc.name, resultDiff(got, want))
 			}
@@ -312,6 +312,21 @@ func TestNativeExecFallsBackToGo(t *testing.T) {
 			}
 		})
 	}
+}
+
+// withoutSigBlk drops the blocked signal mask from a record. Both sides of
+// the fallback test are Go's start, whose child keeps the mask of the OS
+// thread that forked it: some of the runtime's threads have every signal
+// blocked, so the line differs between two runs of the same code.
+func withoutSigBlk(r execResult) execResult {
+	var keep []string
+	for _, l := range strings.Split(r.Record, "\n") {
+		if !strings.HasPrefix(l, "SigBlk:") {
+			keep = append(keep, l)
+		}
+	}
+	r.Record = strings.Join(keep, "\n")
+	return r
 }
 
 // resultDiff names what differs between two results, line by line for
