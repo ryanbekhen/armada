@@ -124,7 +124,12 @@ func newEndpointCommand() *cobra.Command {
 				ac.Endpoint, ac.BehindNAT = ep.String(), false
 				_, _ = fmt.Fprintf(out, "Endpoint set to %s.\n", ep)
 			}
-			if err := saveAgentConfig(dataDir, *ac); err != nil {
+			// Only these fields, in agent.json as it is now: the running
+			// agent may have saved its control plane list meanwhile.
+			if _, err := updateAgentConfig(dataDir, func(c *agentConfig) error {
+				c.Endpoint, c.BehindNAT = ac.Endpoint, ac.BehindNAT
+				return nil
+			}); err != nil {
 				return err
 			}
 			if noRestart {

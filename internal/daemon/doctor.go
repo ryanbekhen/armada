@@ -57,6 +57,10 @@ type doctorEnv struct {
 	// runtimeAgent is agent.json's runtimeAgent: "go" keeps the supervisor
 	// runtime on Go's code (ADR 0054).
 	runtimeAgent string
+	// movePlan reads what the leader last said about moving this
+	// containerd node to the supervisor runtime (ADR 0054); nil or false:
+	// nothing yet.
+	movePlan func() (runtimeMoveNote, bool)
 	// runtimeHost checks what the embedded runtime needs from the host.
 	runtimeHost func(subnet netip.Prefix) []checkResult
 	// network checks the cluster network (ADR 0025); nil when the node is
@@ -166,6 +170,7 @@ func hostDoctorEnv(dataDir string) doctorEnv {
 		driverErr:    err,
 		runtime:      ac.Runtime,
 		runtimeAgent: ac.RuntimeAgent,
+		movePlan:     func() (runtimeMoveNote, bool) { return readRuntimeMovePlan(fsutil.ReadPrivateFile, dataDir) },
 		runtimeHost:  embeddedHostChecks,
 		network:      network,
 		subnet:       subnet,
@@ -381,7 +386,7 @@ func checkRuntime(ctx context.Context, env doctorEnv) []checkResult {
 	default:
 		// containerd is no longer the default (ADR 0046) and goes away in
 		// a later release: point to the move while the node still works.
-		add(checkWarn, "embedded runtime (containerd) reachable; new nodes run the supervisor runtime, and containerd will be removed in a later release: move this node with armadad runtime migrate --to supervisor (drain it and stop its service first; see the operations guide)")
+		add(checkWarn, "embedded runtime (containerd) reachable; new nodes run the supervisor runtime, and containerd will be removed in a later release: the cluster's leader moves this node to it (runtime-agent says when), or move it by hand with armadad runtime migrate --to supervisor (drain it and stop its service first; see the operations guide)")
 	}
 	out = append(out, runtimeAgentCheck(env)...)
 	return append(out, bridgeCheck(ctx, env)...)
@@ -403,7 +408,7 @@ func runtimeAgentCheck(env doctorEnv) []checkResult {
 	case st.Agent == "":
 		return nil
 	case st.Agent == runtime.AgentContainerd:
-		add(checkWarn, "containers run on containerd, which armada-node does not replace: move this node to the supervisor runtime first (armadad runtime migrate --to supervisor; see the operations guide)")
+		add(checkWarn, "containers run on containerd, which armada-node does not replace: %s", containerdMove(env))
 	case st.Agent == runtime.AgentSupervisorGo && env.runtimeAgent == runtimeAgentGo:
 		add(checkWarn, "agent.json sets \"runtimeAgent\": \"go\": Go's runtime code runs containers, and goes away in a later release; remove the field and restart armada-server or armada-agent to run them through armada-node (its images are converted, not pulled again)")
 	case st.Agent == runtime.AgentSupervisorGo:
@@ -421,6 +426,36 @@ func runtimeAgentCheck(env doctorEnv) []checkResult {
 		add(checkWarn, "%d images were left out of the conversion to armada-node's store and are not pulled again yet; each is pulled when a replica needs it (the agent's log names them and why)", st.ImagesToPull)
 	}
 	return out
+}
+
+// byHand is how an operator moves a containerd node.
+const byHand = "drain it (armada node drain NODE), stop its service, run armadad runtime migrate --to supervisor, start it, and resume it (see the operations guide)"
+
+// containerdMove says what the cluster's leader plans for this containerd
+// node (ADR 0054, "The runtime's move", step 4), from what it last sent.
+func containerdMove(env doctorEnv) string {
+	var n runtimeMoveNote
+	ok := false
+	if env.movePlan != nil {
+		n, ok = env.movePlan()
+	}
+	reason := ""
+	if n.Reason != "" {
+		reason = " (" + n.Reason + ")"
+	}
+	switch {
+	case !ok:
+		return "the cluster's leader moves this node to the supervisor runtime by itself, one node at a time (armada cluster status shows where it stands), once its agent and the leader run this release; or " + byHand
+	case n.State == "moving":
+		return "the cluster's leader is moving this node to the supervisor runtime now: its replicas start on other nodes, then the node removes its containers and restarts its service (armada cluster status)"
+	case n.State == "queued":
+		return "the cluster's leader moves this node to the supervisor runtime when its turn comes" + reason
+	case n.State == "off":
+		return "the cluster's automatic move is turned off (armada cluster update --runtime-move=true turns it on); or " + byHand
+	case n.Operator:
+		return "the cluster's leader does not move this node by itself" + reason + ": " + byHand
+	}
+	return "the cluster's leader moves this node to the supervisor runtime once it can" + reason
 }
 
 // bridgeCheck inspects the container bridge.

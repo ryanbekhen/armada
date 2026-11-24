@@ -570,7 +570,7 @@ var warnings = map[string]bool{
 	"QueueUnread": true, "LogExportFailing": true, "PeerUnreachable": true, "WireGuardUserspace": true,
 	"VolumeUnavailable": true, "VolumesSplit": true, "VolumeOnCordonedNode": true,
 	"VolumeBackupFailed": true, "VolumeBackupUnsupported": true, "VolumeFailedOver": true, "VolumeFailoverFailed": true,
-	"ControlPlaneBackupFailed": true,
+	"ControlPlaneBackupFailed": true, "RuntimeMoveGivenUp": true,
 }
 
 // Warning reports whether reason needs a person.

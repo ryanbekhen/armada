@@ -190,7 +190,8 @@ program.
    whenever the pack has it; `"runtimeAgent": "go"` in `agent.json`
    keeps Go's code while it remains (any other value, or none, is
    armada-node; containerd nodes are not affected). The agent's start
-   moves the images (steps 1 to 3 and 5 below, step 4 not yet), and
+   moves the images (steps 1 to 3 and 5 below; the leader moves
+   containerd nodes, step 4), and
    `ConvertImages` no longer counts a record already in armada-node's
    store as left out.
 
@@ -343,8 +344,132 @@ How steps 1 to 3 and 5 are built (the seventh part of step 4 above):
   nothing of Go's store left and no image to pull again. `armadad
   doctor`'s `runtime-agent` check says the same on the machine.
 
-Step 4 (moving containerd nodes to the supervisor automatically) and
-removing Go's runtime code come next.
+How step 4 is built (the leader moves containerd nodes):
+
+- **Who moves, and when.** Only the leader, from its reconcile pass
+  (`advanceRuntimeMove`, `internal/server/runtimemove.go`), and only nodes
+  whose agent reported `containerd` in its latest usage report and
+  announced `Hello.runtime_move` (an agent whose runtime is containerd
+  sets `agent.Config.MoveRuntime`; older agents are never asked and wait
+  for their operator: "upgrade it"). One node moves at a time, and none
+  starts while a node is away or lost or a network switch runs (the
+  status names the reason, `held`). Workers go first, then servers, the
+  leader's own machine last (`moveOrder`: by `store.Server.PrivateIP`, the
+  leader by its name); by name within each. A move that ends starts the
+  next one only in the next pass, which sees the moved node take replicas
+  again.
+- **Nodes that wait for their operator.** The cluster's only node that
+  takes replicas (a cluster of one node, or every other node cordoned):
+  draining it would stop everything. A node holding local volumes (ADR
+  0023: an app with volumes runs only on its volume's node, so draining
+  never moves it, and the move would stop the app until its containers come
+  back): it is skipped, not moved with downtime; the operator moves it by
+  hand (or moves the volume first with `armada volume restore --node`).
+  These say so in `armada cluster status` and the node's doctor. Nodes that
+  wait for the move to come round: those the other nodes have no room for
+  (`roomFor` places each of the node's replicas, job attempts aside, on the
+  other eligible nodes with `pickNodeBy`, as the scheduler would), those
+  not ready or not connected, and those whose last move was given up (for
+  `Config.RuntimeMoveBackoff`, an hour).
+- **The record.** Meta key `runtime-move` (`runtimeMoveRec`): `off` (the
+  setting), the move under way (`node`, `step`, `since`, `stepSince`, Unix
+  milliseconds), and `givenUp` (node → when and why). The pass and
+  `SetClusterConfig` change it under `Server.moveMu`; only the leader
+  writes it, through its fenced store. A new leader reads it and carries on
+  from the step its predecessor reached.
+- **Draining.** The node under move is marked cordoned in the pass's copy
+  of the nodes (`cordonMoving`, right after `ListNodes`), never in its
+  record: every scheduling path sees a cordoned node, so no replica is
+  placed there and its replicas are replaced elsewhere and retired without
+  dropping below the serving count (the normal cordon path), while an
+  admin's cordon in the record stays as it is and the move never has to
+  lift one. Job attempts are not moved: the step waits for them to end.
+  The step ends when no replica but finished job attempts is left on the
+  node (`migrating`), or after `Config.RuntimeDrainLimit` (15 minutes),
+  when the move is given up. Turning the move off in this step ends it,
+  and the node takes replicas again.
+- **Migrating.** Once the record says `migrating`, the leader sends the
+  node `ServerMessage.move_runtime` (`MoveRuntime{to: "supervisor"}`) on
+  its session after the pass's assignments, so the agent holds the
+  assignment without the replicas first, and again every 30 seconds and on
+  every new session until the node moves (`askToMove`; memory only, so a
+  new leader asks again). The agent (`internal/agent/runtimemove.go`)
+  runs one move at a time: under `reconcileMu`, so nothing starts, it
+  refuses when it has no assignment yet, when a replica other than a
+  finished job attempt is assigned, or while a volume operation runs; the
+  refusal, or the move's own error, goes in `RuntimeStatus.move_error` of
+  its next usage reports, which the leader shows. Otherwise the daemon's
+  hook (`nodeMove`, `internal/daemon/runtimemove.go`) does what `armadad
+  runtime migrate --to supervisor` does (`migrateRuntime`, shared with the
+  command): every container and network sandbox Armada runs, the node's
+  HAProxy included, is removed from containerd, `agent.json` records
+  `runtime: supervisor`, containerd's unit stops, and the node's own unit
+  restarts (`systemctl --no-block restart armada-server` on a server
+  machine, `armada-agent` elsewhere). Only the runtime field changes, in
+  `agent.json` as it is on disk then (`updateAgentConfig`: read, change,
+  write, in order within the process), never the copy the agent started
+  with: every writer of a running node's `agent.json` (the control plane
+  list, the network's mode, the runtime, `armadad endpoint set`) changes
+  only its own fields that way. systemctl ended by systemd's stop of the
+  unit (SIGTERM or SIGKILL) is the restart itself; any other failure makes
+  the process exit, and the unit's `Restart=always` starts it again. The data
+  containerd left in `<data dir>/containerd` stays, as with the command.
+  The agent that starts runs containers on the supervisor runtime through
+  armada-node (the seventh part of step 4) and reports `supervisor-rust`.
+- **Done or given up.** The move is done when the node reports either
+  supervisor runtime (`RuntimeMoveDone`; the node takes replicas again,
+  and rebalancing brings replicas back to it), also when an operator moved
+  it by hand meanwhile. It is given up when the node does not report the
+  supervisor within `Config.RuntimeMigrateLimit` (10 minutes) of the step,
+  with the node's own `move_error` as the reason when it gave one, or when
+  the node is removed. A given-up node takes replicas again at once, stays
+  on containerd, and is tried again after the backoff; the condition
+  `RuntimeMoveGivenUp` (an alert warning) says why until it moves. The move
+  never leaves a node out of service: the cordon is the record's, and it
+  ends with the move.
+- **Events.** `RuntimeMoveStarted`, `RuntimeMoveDraining` (when the node
+  holds replicas), `RuntimeMoveMigrating`, `RuntimeMoveDone`, and
+  `RuntimeMoveGivenUp`, each about the node.
+- **Server machines.** A server's agent runs inside `armada-server`, so
+  moving the machine restarts its control plane: its etcd member, and on
+  the leader's machine the leadership, which costs one election (there is
+  no handover; the leader's machine moves last, and the new leader carries
+  on from the record, waiting for the old one's report). A server
+  machine's agent starts with `agent.json`'s control plane list followed by
+  every server's API address the state records (`knownServers`), so it
+  finds the new leader even when its saved list names only its own
+  machine, whose standby control plane serves no API. One machine moves
+  at a time, so a cluster of three servers keeps its quorum; one of two
+  servers loses it for the seconds a server restarts, as with any restart,
+  and a cluster's single server leaves the API down for those seconds while
+  containers on other nodes keep running and serving.
+- **The ingress gap.** The node's HAProxy is one of the containers removed
+  in the migrating step and is started again once the agent runs on the
+  supervisor runtime, its image pulled into armada-node's store. Until
+  then, connections to that node's public address fail. The node holds no
+  replicas by then, so traffic arriving through the other nodes is not
+  affected; a load balancer or DNS record that sends clients to every
+  node's address should health-check the nodes (operations guide).
+- **Setting.** `armada cluster update --runtime-move=false` turns the move
+  off (`SetClusterConfigRequest.set_runtime_move` with
+  `ClusterConfig.runtime_move_off`, cluster-admin only like every cluster
+  setting, audited as `cluster.runtime_move`), `=true` on again; on is the
+  default. `armada cluster show` prints it.
+- **Status.** `ClusterStatusResponse.runtime_move` (`RuntimeMoveStatus`:
+  off, the node, step, and times of the move under way, the node's
+  `move_error`, the cluster's `held` reason, and the waiting containerd
+  nodes with their reason and whether they wait for their operator, at
+  most 20), worked out by each pass and kept in memory
+  (`Server.moveSeen`); unset when no node runs on containerd and none
+  moves. Each containerd node whose agent announced the capability gets
+  its own plan in `Assignment.runtime_move` (`RuntimeMovePlan`: queued,
+  moving, waiting with the reason and whether it waits for its operator,
+  or off); the agent writes it to `<data dir>/runtime-move.json` (0600,
+  not backed up), and doctor's `runtime-agent` check on a containerd node
+  says what the cluster will do with the node and why, and how to move it
+  by hand.
+
+Removing Go's runtime code comes next.
 5. **Sessions and readings.** Exec, volume archives and backups (the
    repository format of ADR 0041, which the Go control plane also writes),
    NFS mounts, queue lengths, usage, and connection tracking.

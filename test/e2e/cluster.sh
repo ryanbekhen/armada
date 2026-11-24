@@ -19,7 +19,7 @@ set -eu
 # Scenarios that run after the cluster is built and the test app serves.
 # E2E_ONLY=isolation,rollout runs only those (empty: all); E2E_LIST=1 lists
 # them. test/e2e/README.md says which to pick for a change.
-SCENARIOS="listeners space-secret conntrack network-key isolation load rollout agent-restart failover node-loss backup placement platforms cpu spread ip-rules plain-http sticky cors sidecars tcp queues queue-jobs volume-backups volume-failover nfs runtime-move reboot"
+SCENARIOS="listeners space-secret conntrack network-key isolation load rollout agent-restart failover node-loss backup placement platforms cpu spread ip-rules plain-http sticky cors sidecars tcp queues queue-jobs volume-backups volume-failover nfs runtime-move runtime-containerd-move reboot"
 E2E_ONLY=${E2E_ONLY:-}
 if [ "${E2E_LIST:-}" = 1 ]; then
 	echo "$SCENARIOS" | tr ' ' '\n'
@@ -376,6 +376,13 @@ while [ "$i" -le "$SERVERS" ]; do
 done
 on 1 "armadad init --node-name $(host 1 1) --private-ip $(host 1 3) $RUNTIME_FLAG >/dev/null && systemctl enable --now -q armada-server"
 wait_for 120 "control plane answers" voting 1
+if [ "$E2E_RUNTIME" = embedded ]; then
+	# The leader would move every containerd node to the supervisor runtime
+	# as soon as it joins (ADR 0054); the run keeps them on containerd until
+	# runtime-containerd-move turns the move on again.
+	cli cluster update --runtime-move=false >/dev/null
+	ok "the automatic move of containerd nodes is off"
+fi
 
 i=2
 while [ "$i" -le "$N" ]; do
@@ -1775,6 +1782,106 @@ EOF
 		fail "armadad doctor's runtime-agent check is not ok on $_name"
 	cli app delete e2e-move --yes >/dev/null
 	cli node label "$_name" e2e-move- >/dev/null
+fi
+
+if want runtime-containerd-move && [ "$E2E_RUNTIME" = embedded ]; then
+	# The leader's move of containerd nodes to the supervisor runtime (ADR
+	# 0054, step 4): turned on, it drains one node at a time, the node
+	# removes its containers and restarts its service on the supervisor,
+	# and armada-node runs its containers from then on. The test app keeps
+	# serving: requests to a node's public IP may fail only while that
+	# node's own proxy is gone, from its RuntimeMoveMigrating event until
+	# the first 200 from it after its RuntimeMoveDone event (at most
+	# MOVE_GAP seconds); every other request must return 200.
+	[ "$N" -ge 3 ] || fail "runtime-containerd-move needs at least three machines"
+	log "the leader moves every containerd node to the supervisor runtime, one at a time"
+	MOVE_GAP=${E2E_MOVE_GAP:-180}
+	wait_for 300 "$APP serving" serving
+	i=1
+	while [ "$i" -le "$N" ]; do
+		node_runtime "$(host "$i" 1)" containerd >/dev/null || fail "$(host "$i" 1) does not run on containerd"
+		i=$((i + 1))
+	done
+	_moved_since=$(date +%s)
+	: >"$WORK/move-load"
+	rm -f "$WORK/move-load.stop"
+	(
+		# shellcheck disable=SC2086 # split into one IP per argument
+		set -- $PUBLIC_IPS
+		while [ ! -f "$WORK/move-load.stop" ]; do
+			for ip in "$@"; do
+				code=$(curl -sk -o /dev/null -w '%{http_code}' --max-time 5 --resolve "$URL_HOST:443:$ip" "https://$URL_HOST/" || true)
+				echo "$code $ip $(date +%s)" >>"$WORK/move-load"
+			done
+		done
+	) &
+	LOAD_PID=$!
+	cli cluster update --runtime-move=true >/dev/null
+	all_supervisor() {
+		_j=1
+		while [ "$_j" -le "$N" ]; do
+			node_runtime "$(host "$_j" 1)" supervisor-rust || return 1
+			_j=$((_j + 1))
+		done
+		cli cluster status -o json | jq -e '.runtimeMove == null' >/dev/null
+	}
+	wait_for $((N * 900)) "every node moved to the supervisor runtime through armada-node" all_supervisor
+	wait_for 120 "cluster status counts every node on armada-node" all_moved
+	wait_for 300 "$APP serving" serving
+	wait_for 120 "https://$URL_HOST answers 200 on every public IP" all_https_ok
+	sleep 5
+	touch "$WORK/move-load.stop"
+	wait "$LOAD_PID" || true
+	LOAD_PID=
+
+	# The move's events, oldest first: NODE REASON EPOCH.
+	cli cluster events --since 3h -o json |
+		jq -r 'select(.reason | startswith("RuntimeMove")) | "\(.node) \(.reason) \(.last | sub("\\.[0-9]+"; "") | fromdateiso8601)"' |
+		awk -v since="$_moved_since" '$3 >= since - 5' >"$WORK/move-events"
+	sed 's/^/      /' "$WORK/move-events"
+	if grep -q RuntimeMoveGivenUp "$WORK/move-events"; then fail "a move was given up (above)"; fi
+	# One at a time: each node's move starts after the one before it is done.
+	awk '$2 == "RuntimeMoveStarted" { if (open != "") bad = bad " " $1 " started while " open " moved"; open = $1 }
+		$2 == "RuntimeMoveDone" { if ($1 == open) open = ""; done++ }
+		END { if (bad != "" || open != "") { print "overlap:" bad " open:" open; exit 1 } }' "$WORK/move-events" ||
+		fail "moves overlapped"
+	[ "$(grep -c ' RuntimeMoveDone ' "$WORK/move-events")" -eq "$N" ] || fail "$(grep -c ' RuntimeMoveDone ' "$WORK/move-events") of $N moves done"
+	ok "$N moves, one after another"
+
+	# The window each node's public IP may fail in: IP FROM TO.
+	: >"$WORK/move-windows"
+	i=1
+	while [ "$i" -le "$N" ]; do
+		_from=$(awk -v n="$(host "$i" 1)" '$1 == n && $2 == "RuntimeMoveMigrating" { print $3 - 5; exit }' "$WORK/move-events")
+		_done=$(awk -v n="$(host "$i" 1)" '$1 == n && $2 == "RuntimeMoveDone" { print $3; exit }' "$WORK/move-events")
+		if [ -z "$_from" ] || [ -z "$_done" ]; then fail "no RuntimeMoveMigrating and RuntimeMoveDone events for $(host "$i" 1)"; fi
+		_to=$(awk -v ip="$(host "$i" 4)" -v d="$_done" '$1 == 200 && $2 == ip && $3 >= d { print $3; exit }' "$WORK/move-load")
+		[ -n "$_to" ] || fail "$(host "$i" 1)'s public IP never answered 200 again after its move"
+		[ $((_to - _done)) -le "$MOVE_GAP" ] || fail "$(host "$i" 1)'s proxy came back $((_to - _done))s after its move was done (more than ${MOVE_GAP}s)"
+		echo "$(host "$i" 4) $_from $_to" >>"$WORK/move-windows"
+		ok "$(host "$i" 1): its own IP answered again $((_to - _from - 5))s after its containers went"
+		i=$((i + 1))
+	done
+	_total=$(wc -l <"$WORK/move-load" | tr -d ' ')
+	_gap=$(awk 'NR == FNR { from[$1] = $2; to[$1] = $3; next } $1 != 200 && ($2 in from) && $3 >= from[$2] && $3 <= to[$2]' \
+		"$WORK/move-windows" "$WORK/move-load" | wc -l | tr -d ' ')
+	awk 'NR == FNR { from[$1] = $2; to[$1] = $3; next } $1 != 200 && !(($2 in from) && $3 >= from[$2] && $3 <= to[$2])' \
+		"$WORK/move-windows" "$WORK/move-load" >"$WORK/move-bad"
+	if [ -s "$WORK/move-bad" ]; then
+		awk '{ print $1, $2 }' "$WORK/move-bad" | sort | uniq -c | sed 's/^/      /' >&2
+		fail "$(wc -l <"$WORK/move-bad" | tr -d ' ') of $_total requests did not return 200 outside the moving node's own gap"
+	fi
+	ok "$_total requests: all 200 but $_gap to a moving node's own IP while its proxy was gone"
+	i=1
+	while [ "$i" -le "$N" ]; do
+		on "$i" 'armadad doctor' 2>&1 | grep -q '^\[ok  *\] runtime-agent ' ||
+			fail "armadad doctor's runtime-agent check is not ok on $(host "$i" 1)"
+		on "$i" 'grep -q "\"runtime\": *\"supervisor\"" /var/lib/armada/agent.json' ||
+			fail "agent.json on $(host "$i" 1) does not record the supervisor"
+		i=$((i + 1))
+	done
+	wait_for 120 "control plane has $SERVERS voting members" voting "$SERVERS"
+	ok "every node runs on the supervisor runtime, the app served throughout"
 fi
 
 if [ "$E2E_REBOOT" = 1 ] && want reboot; then

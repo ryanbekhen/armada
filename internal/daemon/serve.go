@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"cmp"
 	"context"
 	stdtls "crypto/tls"
 	"errors"
@@ -12,6 +13,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -329,8 +331,9 @@ func newServerCommand() *cobra.Command {
 			})
 			if withAgent {
 				certs.renewNode(ctx, st)
+				known := knownServers(ctx, st, dataDir, log)
 				g.Go(func() error {
-					return runAgent(ctx, dataDir, nil, proxyKind, secretsDir, internalDNS, log)
+					return runAgent(ctx, dataDir, known, proxyKind, secretsDir, internalDNS, unitServer, log)
 				})
 			}
 			return g.Wait()
@@ -458,7 +461,7 @@ func newAgentCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return runAgent(cmd.Context(), dataDir, servers, proxyKind, secretsDir, internalDNS, log)
+			return runAgent(cmd.Context(), dataDir, servers, proxyKind, secretsDir, internalDNS, unitAgent, log)
 		},
 	}
 	f := cmd.Flags()
@@ -472,7 +475,9 @@ func newAgentCommand() *cobra.Command {
 	return cmd
 }
 
-func runAgent(ctx context.Context, dataDir string, servers []string, proxyKind, secretsDir string, internalDNS bool, log *slog.Logger) error {
+// unit is the systemd unit the agent runs in, restarted after the leader
+// moved the node to the supervisor runtime (ADR 0054).
+func runAgent(ctx context.Context, dataDir string, servers []string, proxyKind, secretsDir string, internalDNS bool, unit string, log *slog.Logger) error {
 	unlock, err := lockDataDir(dataDir)
 	if err != nil {
 		return err
@@ -511,6 +516,9 @@ func runAgent(ctx context.Context, dataDir string, servers []string, proxyKind, 
 		connMu  sync.Mutex
 		current *clientconfig.Conn
 		addrs   = ac.Servers
+		// acMu guards ac between its writers: the control plane list and
+		// the move to the supervisor runtime.
+		acMu sync.Mutex
 	)
 	conn, err := agent.NewServerConn(func() (*grpc.ClientConn, error) {
 		connMu.Lock()
@@ -537,9 +545,16 @@ func runAgent(ctx context.Context, dataDir string, servers []string, proxyKind, 
 		addrs = list
 		current.SetServers(list)
 		connMu.Unlock()
-		next := *ac
-		next.Servers = list
-		if err := saveAgentConfig(dataDir, next); err != nil {
+		// Only the list changes, in agent.json as it is now (ac is what the
+		// agent started with).
+		acMu.Lock()
+		ac.Servers = slices.Clone(list)
+		_, err := updateAgentConfig(dataDir, func(c *agentConfig) error {
+			c.Servers = list
+			return nil
+		})
+		acMu.Unlock()
+		if err != nil {
 			log.Warn("save control plane list", "err", err)
 			return
 		}
@@ -608,6 +623,19 @@ func runAgent(ctx context.Context, dataDir string, servers []string, proxyKind, 
 		acfg.Network, acfg.NetworkKey, acfg.Unpublished = cnet, networkKey, unpublished
 		acfg.Endpoint, acfg.BehindNAT = announcedEndpoint(ac, log), ac.BehindNAT
 	}
+	if cmp.Or(ac.Runtime, runtimeEmbedded) == runtimeEmbedded {
+		// The leader moves containerd nodes to the supervisor runtime one
+		// at a time (ADR 0054, "The runtime's move", step 4).
+		mv := nodeMove{dataDir: dataDir, mu: &acMu, ac: ac, rt: rt, unit: unit, systemctl: systemctl, exit: os.Exit, log: log}
+		acfg.MoveRuntime = mv.run
+		acfg.OnRuntimeMove = func(p *armadav1.RuntimeMovePlan) {
+			if err := saveRuntimeMovePlan(dataDir, p); err != nil {
+				log.Warn("save the leader's plan for this node's runtime", "err", err)
+			}
+		}
+	} else {
+		_ = saveRuntimeMovePlan(dataDir, nil)
+	}
 	a := agent.New(acfg)
 	g, ctx := errgroup.WithContext(ctx)
 	g.Go(func() error { return a.Run(ctx) })
@@ -628,6 +656,36 @@ func runAgent(ctx context.Context, dataDir string, servers []string, proxyKind, 
 		return nil
 	})
 	return g.Wait()
+}
+
+// knownServers is the control plane list a server machine's agent starts
+// with: agent.json's, then every server's API address the state records,
+// so the agent finds the leader even when agent.json names only this
+// machine (a standby answers no API). nil, and agent.json's list alone,
+// when either cannot be read.
+func knownServers(ctx context.Context, st store.Store, dataDir string, log *slog.Logger) []string {
+	ac, err := loadAgentConfig(dataDir)
+	if err != nil {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	servers, err := st.ListServers(ctx)
+	if err != nil {
+		log.Warn("read the control plane's servers for this machine's agent; it starts with agent.json's list", "err", err)
+		return nil
+	}
+	list := slices.Clone(ac.Servers)
+	for _, sv := range servers {
+		if sv.APIAddr != "" && !slices.Contains(list, sv.APIAddr) {
+			list = append(list, sv.APIAddr)
+		}
+	}
+	if _, err := clientconfig.CheckServers(list); err != nil {
+		log.Warn("the control plane's servers are not a valid list; the agent starts with agent.json's", "err", err)
+		return nil
+	}
+	return list
 }
 
 // newClusterNet returns the node's side of the cluster network (ADR 0025),
@@ -694,13 +752,11 @@ func (n *nodeNet) Apply(ctx context.Context, cfg *armadav1.NetworkConfig, local 
 	if cfg.GetSwitchTo() != "" || cfg.GetMode() == n.mode || n.mode == store.NetworkMesh || cfg.GetMode() == store.NetworkMesh {
 		return nil
 	}
-	ac, err := loadAgentConfig(n.dataDir)
-	if err != nil {
-		n.log.Warn("record the cluster network's new mode", "err", err)
+	ac, err := updateAgentConfig(n.dataDir, func(c *agentConfig) error {
+		c.Network = cfg.GetMode()
 		return nil
-	}
-	ac.Network = cfg.GetMode()
-	if err := saveAgentConfig(n.dataDir, *ac); err != nil {
+	})
+	if err != nil {
 		n.log.Warn("record the cluster network's new mode", "err", err)
 		return nil
 	}

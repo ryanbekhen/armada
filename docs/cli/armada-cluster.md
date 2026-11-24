@@ -138,6 +138,12 @@ and the key at least 32 bytes. They are stored encrypted and never shown. The
 first backup runs at once; armada cluster status shows the last one.
 --backup none turns them off; the bucket keeps what it holds.
 
+--runtime-move=false stops the leader from moving nodes that still run
+containers on containerd to the supervisor runtime (ADR 0054); it moves them
+one at a time by default, draining each first. A node already asked to move
+finishes; one being drained takes replicas again. armada cluster status shows
+the move and why a node waits.
+
 ```
 armada cluster update [flags]
 ```
@@ -179,6 +185,7 @@ Flags:
 | `--node-lost-timeout duration` | how long a node may be unreachable before its replicas move to other nodes |
 | `--proxy-protocol strings` | address prefixes of TCP load balancers in front of the nodes that send the PROXY protocol, comma separated (empty to clear) |
 | `--root-domain string` | root domain for app URLs (empty to clear) |
+| `--runtime-move` | move nodes still on containerd to the supervisor runtime, one at a time; false stops it (default `true`) |
 | `--tls` | obtain and renew certificates with ACME; false serves apps over plain HTTP on port 80 instead of redirecting to HTTPS (default `true`) |
 | `--trusted-proxies strings` | address prefixes of proxies in front of the nodes, comma separated (empty to clear) |
 

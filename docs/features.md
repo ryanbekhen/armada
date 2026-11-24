@@ -164,7 +164,8 @@ Armada needs Linux machines (cloud instances, VMs, or bare metal) with a
 private network between them, and nothing else: `armadad` embeds its own
 container runtime (runc, CNI plugins, and Armada's own supervisor, with no
 containerd daemon, which holds less memory per node; containerd is still
-there for nodes set up before it became the default) and its state store
+there for nodes set up before it became the default, and the leader moves
+those to the supervisor by itself, one node at a time) and its state store
 (etcd)
 ([operations guide](operations.md#container-runtimes)).
 The `armada` client needs no root and also runs on macOS, and on Windows

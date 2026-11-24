@@ -50,7 +50,7 @@ func newClusterCommand(g *globals) *cobra.Command {
 	var (
 		root, email, acmeCA, dnsProvider, dnsToken string
 		trusted, proxyProtocol                     []string
-		tlsOn                                      bool
+		tlsOn, runtimeMove                         bool
 		metricsPort                                int
 		lostTimeout, logRetention                  time.Duration
 		logMaxDisk                                 string
@@ -104,7 +104,12 @@ func newClusterCommand(g *globals) *cobra.Command {
 			"0600) or stdin (-, one of them): the URL is https://KEY:SECRET@host/bucket[/prefix]\n" +
 			"and the key at least 32 bytes. They are stored encrypted and never shown. The\n" +
 			"first backup runs at once; armada cluster status shows the last one.\n" +
-			"--backup none turns them off; the bucket keeps what it holds.",
+			"--backup none turns them off; the bucket keeps what it holds.\n\n" +
+			"--runtime-move=false stops the leader from moving nodes that still run\n" +
+			"containers on containerd to the supervisor runtime (ADR 0054); it moves them\n" +
+			"one at a time by default, draining each first. A node already asked to move\n" +
+			"finishes; one being drained takes replicas again. armada cluster status shows\n" +
+			"the move and why a node waits.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ch := cmd.Flags().Changed
@@ -119,9 +124,10 @@ func newClusterCommand(g *globals) *cobra.Command {
 				SetNetwork: ch("network"), SetMeshCidr: ch("mesh-cidr"),
 				SetBackupPlan: slices.ContainsFunc(backupPlanFlags, ch), SetBackupKeep: ch("backup-keep"),
 				SetBackupUrl: ch("backup-url"), SetBackupKey: ch("backup-key"), SetBackupOff: ch("backup"),
+				SetRuntimeMove: ch("runtime-move"),
 			}
-			req.Config.Network, req.Config.MeshCidr = network, meshCIDR
-			if !slices.ContainsFunc([]string{"root-domain", "trusted-proxies", "proxy-protocol", "tls", "acme-email", "acme-ca", "dns-provider", "dns-token", "metrics-port", "node-lost-timeout", "log-retention", "log-max-disk", "log-token", "network", "mesh-cidr", "backup", "backup-keep", "backup-url", "backup-key"}, ch) && !req.SetLogExport && !req.SetBackupPlan {
+			req.Config.Network, req.Config.MeshCidr, req.Config.RuntimeMoveOff = network, meshCIDR, !runtimeMove
+			if !slices.ContainsFunc([]string{"root-domain", "trusted-proxies", "proxy-protocol", "tls", "acme-email", "acme-ca", "dns-provider", "dns-token", "metrics-port", "node-lost-timeout", "log-retention", "log-max-disk", "log-token", "network", "mesh-cidr", "backup", "backup-keep", "backup-url", "backup-key", "runtime-move"}, ch) && !req.SetLogExport && !req.SetBackupPlan {
 				return errors.New("nothing to change; see armada cluster update --help")
 			}
 			req.Config.LogRetentionSeconds = int64(logRetention / time.Second)
@@ -196,6 +202,10 @@ func newClusterCommand(g *globals) *cobra.Command {
 			if err != nil {
 				return RPCError(err)
 			}
+			if req.SetRuntimeMove && cc.RuntimeMoveOff != req.Config.RuntimeMoveOff {
+				// A leader of an older release ignores the field.
+				return errors.New("the leader did not take --runtime-move: it runs an older release; upgrade the servers first")
+			}
 			if slices.ContainsFunc(restartingSettings, ch) {
 				// The leader restarts its control plane with them right
 				// after answering; the next command would find no API.
@@ -233,6 +243,7 @@ func newClusterCommand(g *globals) *cobra.Command {
 	f.StringVar(&backupURL, "backup-url", "", "file holding the bucket URL for control plane backups (https://KEY:SECRET@host/bucket[/prefix]), or - for stdin")
 	f.StringVar(&backupKey, "backup-key", "", "file holding the key control plane backups are encrypted with (at least 32 bytes), or - for stdin")
 	f.StringVar(&backupOff, "backup", "", "none turns control plane backups off")
+	f.BoolVar(&runtimeMove, "runtime-move", true, "move nodes still on containerd to the supervisor runtime, one at a time; false stops it")
 	cmd.AddCommand(newClusterStatusCommand(g), show, set, newEventsCommand(g, eventsOfCluster))
 	return cmd
 }
@@ -325,6 +336,9 @@ func printClusterStatus(out io.Writer, r *armadav1.ClusterStatusResponse) error 
 	if rt := r.Runtime; rt != nil && rt.Nodes > 0 {
 		_, _ = fmt.Fprintf(tw, "\n%s\n", runtimeLine(rt))
 	}
+	if mv := r.RuntimeMove; mv != nil {
+		printRuntimeMove(tw, mv)
+	}
 	if sw := r.NetworkSwitch; sw != nil {
 		step := map[string]string{"prepare": "bringing it up beside " + sw.From, "move": "moving the routes to it"}[sw.Step]
 		_, _ = fmt.Fprintf(tw, "\nnetwork: switching from %s to %s, %s (since %s)\n", sw.From, sw.To, dash(step),
@@ -356,6 +370,45 @@ func runtimeLine(p *armadav1.RuntimeProgress) string {
 		line += "; " + strings.Join(others, ", ")
 	}
 	return line
+}
+
+// printRuntimeMove says where the leader's move of containerd nodes to the
+// supervisor runtime stands (ADR 0054).
+func printRuntimeMove(w io.Writer, mv *armadav1.RuntimeMoveStatus) {
+	step := map[string]string{
+		"draining":  "its replicas start on other nodes",
+		"migrating": "it removes its containers and restarts its service on the supervisor runtime",
+	}
+	if mv.Node == "" && !mv.Off && mv.Held == "" && len(mv.Waiting) == 0 {
+		return
+	}
+	_, _ = fmt.Fprintln(w)
+	switch {
+	case mv.Node != "":
+		_, _ = fmt.Fprintf(w, "runtime move: moving %s to the supervisor runtime, %s (since %s; started %s)\n", mv.Node, cmp.Or(step[mv.Step], mv.Step),
+			time.Unix(mv.StepSinceUnix, 0).Local().Format(time.DateTime), time.Unix(mv.SinceUnix, 0).Local().Format(time.DateTime))
+		if mv.Error != "" {
+			_, _ = fmt.Fprintf(w, "  the node said: %s\n", printable(mv.Error))
+		}
+	case mv.Off:
+		_, _ = fmt.Fprintln(w, "runtime move: off (armada cluster update --runtime-move=true turns it on)")
+	case mv.Held != "":
+		_, _ = fmt.Fprintf(w, "runtime move: waiting, %s\n", printable(mv.Held))
+	}
+	if len(mv.Waiting) == 0 {
+		return
+	}
+	_, _ = fmt.Fprintln(w, "NODE ON CONTAINERD\tWAITS FOR")
+	for _, wt := range mv.Waiting {
+		who := ""
+		if wt.Operator {
+			who = "its operator: "
+		}
+		_, _ = fmt.Fprintf(w, "%s\t%s%s\n", wt.Node, who, printable(wt.Reason))
+	}
+	if more := int(mv.WaitingTotal) - len(mv.Waiting); more > 0 {
+		_, _ = fmt.Fprintf(w, "and %d more\n", more)
+	}
 }
 
 // runtimeWhere says where one node stands in the move to armada-node.
@@ -458,9 +511,13 @@ func printClusterConfig(w io.Writer, cc *armadav1.ClusterConfig) error {
 	if cc.MeshCidr != "" {
 		network += ", mesh addresses from " + cc.MeshCidr
 	}
-	_, err := fmt.Fprintf(w, "root domain:       %s\ntrusted proxies:   %s\nproxy protocol:    %s\ncertificates:      %s\nacme email:        %s\ndns provider:      %s (token %s)\nmetrics:           %s\nnode lost timeout: %s\nlog history:       %s\nlog export:        %s\nnetwork:           %s\nbackups:           %s\n",
+	move := "on: containerd nodes move to the supervisor runtime one at a time"
+	if cc.RuntimeMoveOff {
+		move = "off"
+	}
+	_, err := fmt.Fprintf(w, "root domain:       %s\ntrusted proxies:   %s\nproxy protocol:    %s\ncertificates:      %s\nacme email:        %s\ndns provider:      %s (token %s)\nmetrics:           %s\nnode lost timeout: %s\nlog history:       %s\nlog export:        %s\nnetwork:           %s\nbackups:           %s\nruntime move:      %s\n",
 		dash(cc.RootDomain), dash(strings.Join(cc.TrustedProxies, ",")), dash(strings.Join(cc.ProxyProtocol, ",")), certs, dash(cc.AcmeEmail),
-		cmp.Or(cc.DnsProvider, "none"), token, metrics, time.Duration(cc.NodeLostTimeoutSeconds)*time.Second, logs, export, network, backups)
+		cmp.Or(cc.DnsProvider, "none"), token, metrics, time.Duration(cc.NodeLostTimeoutSeconds)*time.Second, logs, export, network, backups, move)
 	return err
 }
 

@@ -86,9 +86,17 @@ A cluster is upgraded one machine at a time, so versions mix for a while
   agent converts the node's image store at its start without pulling
   images again or stopping containers
   ([operations guide](operations.md#containers-in-armada-node)).
-- No setting changes. The container runtime, the network mode, spaces,
-  roles, secrets, and specs stay as they were; new defaults apply to what
-  is created after the upgrade.
+  One exception, announced with the containerd runtime's deprecation
+  below: once the leader and a node run a release that knows how, the
+  leader moves the node from containerd to the supervisor runtime by
+  itself, one node at a time, draining each first so its apps keep
+  serving elsewhere
+  ([operations guide](operations.md#container-runtimes)). To keep nodes
+  on containerd, run `armada cluster update --runtime-move=false` right
+  after the servers run that release, before the other nodes.
+- No setting changes. The container runtime (but for the move above), the
+  network mode, spaces, roles, secrets, and specs stay as they were; new
+  defaults apply to what is created after the upgrade.
 - No downgrade. A binary refuses state written by a newer release instead
   of misreading it. The way back is the backup taken before the upgrade
   (`armadad backup`, or the scheduled one in the bucket).
@@ -115,7 +123,10 @@ Deprecated now:
   supervisor runtime ([ADR 0046](adr/0046-runtime-supervisor.md)), and
   `armadad doctor` warns on nodes still on containerd, with the command
   that moves them ([operations guide](operations.md#container-runtimes)).
-  containerd leaves the runtime pack in a later release.
+  The leader moves them to the supervisor runtime by itself, one node at a
+  time, unless `armada cluster update --runtime-move=false` turns that
+  off; a cluster's only node and nodes holding volumes wait for their
+  operator. containerd leaves the runtime pack in a later release.
 - **Go's code for the supervisor runtime** (`"runtimeAgent": "go"` in
   `agent.json`). Supervisor nodes run their containers through
   `armada-node` ([ADR 0054](adr/0054-node-agent-in-rust.md)), and

@@ -490,7 +490,11 @@ func nodeRuntime(st *armadav1.RuntimeStatus) string {
 	var out string
 	switch st.Agent {
 	case "containerd":
-		return "containerd (armadad runtime migrate --to supervisor moves it)"
+		out := "containerd (the leader moves it to the supervisor runtime; armada cluster status)"
+		if st.MoveError != "" {
+			out += "; it did not move: " + printable(st.MoveError)
+		}
+		return out
 	case "supervisor-go":
 		return "supervisor, Go's code (agent.json runtimeAgent \"go\")"
 	case "supervisor-rust":

@@ -54,6 +54,13 @@ func (s *Server) Reconcile(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	// The node being moved to the supervisor runtime is drained like a
+	// cordoned one (ADR 0054).
+	move, err := s.loadRuntimeMove(ctx)
+	if err != nil {
+		return err
+	}
+	cordonMoving(move, nodes)
 	replicas, err := s.store.ListReplicas(ctx, store.ReplicaFilter{})
 	if err != nil {
 		return err
@@ -119,6 +126,10 @@ func (s *Server) Reconcile(ctx context.Context) error {
 	if err := s.advanceSwitch(ctx, &rc, nodes); err != nil {
 		return err
 	}
+	movePlans, askMove, err := s.advanceRuntimeMove(ctx, &rc, nodes, replicas, &revs)
+	if err != nil {
+		return err
+	}
 	network, err := s.buildNetwork(ctx, nodes, slices.Concat(replicas, rc.sandboxAddrs))
 	if err != nil {
 		return err
@@ -126,7 +137,15 @@ func (s *Server) Reconcile(ctx context.Context) error {
 	if network != nil {
 		network.TcpPorts = tcpPorts(pxp)
 	}
-	return s.pushAssignments(ctx, replicas, &revs, pxp, pxRefs, eps, network, rc.sandboxes)
+	if err := s.pushAssignments(ctx, replicas, &revs, pxp, pxRefs, eps, network, rc.sandboxes, movePlans); err != nil {
+		return err
+	}
+	if askMove != "" {
+		// After the node's assignment without its replicas, on the same
+		// stream (ADR 0054).
+		s.askToMove(askMove, rc.now)
+	}
+	return nil
 }
 
 // proxyConfig builds the pass's proxy configuration. When it cannot, the
@@ -1174,7 +1193,7 @@ func pickNodeBy(nodes []store.Node, use placedUse, spread []store.Replica, sprea
 	return best.node, true
 }
 
-func (s *Server) pushAssignments(ctx context.Context, replicas []store.Replica, revs *revisionCache, px, pxRefs *armadav1.ProxyConfig, servers []string, network *armadav1.NetworkConfig, sandboxes map[string][]*armadav1.QueueSandbox) error {
+func (s *Server) pushAssignments(ctx context.Context, replicas []store.Replica, revs *revisionCache, px, pxRefs *armadav1.ProxyConfig, servers []string, network *armadav1.NetworkConfig, sandboxes map[string][]*armadav1.QueueSandbox, movePlans map[string]*armadav1.RuntimeMovePlan) error {
 	byNode := map[string][]store.Replica{}
 	for _, r := range replicas {
 		byNode[r.NodeID] = append(byNode[r.NodeID], r)
@@ -1194,6 +1213,9 @@ func (s *Server) pushAssignments(ctx context.Context, replicas []store.Replica, 
 
 	for _, sess := range sessions {
 		a := &armadav1.Assignment{Proxy: px, Servers: servers, Network: network, QueueSandboxes: sandboxes[sess.nodeID], Logs: logs}
+		if sess.runtimeMove {
+			a.RuntimeMove = movePlans[sess.nodeID]
+		}
 		if sess.certRefs {
 			a.Proxy = pxRefs
 		}

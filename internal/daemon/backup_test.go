@@ -36,6 +36,9 @@ func TestBackupCoversDataDirLayout(t *testing.T) {
 	if backup.FileMeshCache != fileMeshCache || slices.Contains(all, fileMeshCache) {
 		t.Errorf("mesh peer list %q != %q, or copied", backup.FileMeshCache, fileMeshCache)
 	}
+	if backup.FileRuntimeMove != fileRuntimeMove || slices.Contains(all, fileRuntimeMove) {
+		t.Errorf("runtime move note %q != %q, or copied", backup.FileRuntimeMove, fileRuntimeMove)
+	}
 }
 
 func TestBackupRestoreCommands(t *testing.T) {

@@ -81,6 +81,10 @@ const (
 	// copied: the control plane sends it again, and until then the node
 	// brings its tunnel up alone from FileAgent.
 	FileMeshCache = "mesh.json"
+	// FileRuntimeMove is what the leader last said about moving a
+	// containerd node to the supervisor runtime (ADR 0054), for doctor. It
+	// is not copied: the leader sends it again.
+	FileRuntimeMove = "runtime-move.json"
 	// etcdPrefix is where the control plane's records live in etcd.
 	etcdPrefix = "/armada/"
 

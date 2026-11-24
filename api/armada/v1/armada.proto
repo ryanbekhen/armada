@@ -875,6 +875,10 @@ message ClusterConfig {
   string backup_time_zone = 23;
   BackupKeep backup_keep = 24;
   string backup_bucket = 25;
+  // The leader does not move nodes from containerd to the supervisor
+  // runtime by itself (ADR 0054, "The runtime's move", step 4); unset, it
+  // does, one node at a time.
+  bool runtime_move_off = 26;
 }
 
 message GetClusterConfigRequest {}
@@ -922,6 +926,9 @@ message SetClusterConfigRequest {
   bool set_backup_key = 24;
   bytes backup_key = 25 [debug_redact = true];
   bool set_backup_off = 26;
+  // Turn the automatic move of containerd nodes on or off
+  // (config.runtime_move_off, ADR 0054).
+  bool set_runtime_move = 27;
 }
 
 message ListDomainsRequest {
@@ -1017,6 +1024,42 @@ message ClusterStatusResponse {
   ControlPlaneBackupStatus control_plane_backup = 12;
   // Where the nodes' move to armada-node stands (ADR 0054).
   RuntimeProgress runtime = 13;
+  // The leader's move of containerd nodes to the supervisor runtime (ADR
+  // 0054); unset while no node runs on containerd and none moves.
+  RuntimeMoveStatus runtime_move = 14;
+}
+
+// RuntimeMoveStatus is where the leader's move of containerd nodes to the
+// supervisor runtime stands (ADR 0054, "The runtime's move", step 4).
+message RuntimeMoveStatus {
+  // The move is turned off (armada cluster update --runtime-move=false).
+  bool off = 1;
+  // The node being moved, its step ("draining": its replicas start on
+  // other nodes; "migrating": the node removes its containers, records the
+  // supervisor runtime, and restarts its service), when the move and the
+  // step began, and why the node could not take the step, if it said.
+  string node = 2;
+  string step = 3;
+  int64 since_unix = 4;
+  int64 step_since_unix = 5;
+  string error = 6;
+  // Why no node is moved now although some run on containerd, when the
+  // reason is the cluster's (a network switch runs, a node is away).
+  string held = 7;
+  // The containerd nodes not being moved, at most 20, sorted, and how many
+  // there are.
+  repeated RuntimeMoveWait waiting = 8;
+  int32 waiting_total = 9;
+}
+
+// RuntimeMoveWait is a containerd node the leader does not move now, and
+// why. operator: it waits for a person (the cluster's only node, local
+// volumes, an agent too old to move itself); otherwise it is moved once the
+// reason passes.
+message RuntimeMoveWait {
+  string node = 1;
+  string reason = 2;
+  bool operator = 3;
 }
 
 // ControlPlaneBackupStatus is how the control plane's backups to its bucket
@@ -1457,6 +1500,9 @@ message Hello {
   bool behind_nat = 21;
   // The agent replaces its WireGuard key when asked (RotateNetworkKey).
   bool key_rotation = 22;
+  // The agent moves its node from containerd to the supervisor runtime
+  // when asked (MoveRuntime, ADR 0054).
+  bool runtime_move = 23;
 }
 
 message ReplicaReport {
@@ -1543,6 +1589,9 @@ message RuntimeStatus {
   int32 images_to_pull = 3;
   // Why converting Go's image store failed at the agent's start.
   string error = 4;
+  // containerd: why the node did not move to the supervisor runtime when
+  // the leader last asked it to (MoveRuntime); empty otherwise.
+  string move_error = 5;
 }
 
 // RuntimeProgress is where the cluster's move to armada-node stands (ADR
@@ -1638,7 +1687,18 @@ message ServerMessage {
     ExecRequest exec_request = 4;
     VolumeRequest volume_request = 5;
     RotateNetworkKey rotate_network_key = 6;
+    MoveRuntime move_runtime = 7;
   }
+}
+
+// MoveRuntime asks the agent of a containerd node with no replicas left to
+// move it to the supervisor runtime (ADR 0054, "The runtime's move", step
+// 4): remove every container Armada runs there, record the supervisor in
+// agent.json, and restart its service. Sent only to agents that announced
+// Hello.runtime_move.
+message MoveRuntime {
+  // The runtime to move to: "supervisor".
+  string to = 1;
 }
 
 // RotateNetworkKey asks the agent to replace its node's WireGuard key and
@@ -1725,6 +1785,20 @@ message Assignment {
   repeated QueueSandbox queue_sandboxes = 5;
   // How much log history the node keeps (ADR 0043).
   LogSettings logs = 6;
+  // What the leader plans for this containerd node's move to the
+  // supervisor runtime (ADR 0054), for armadad doctor; unset on other
+  // nodes and for agents that did not announce Hello.runtime_move.
+  RuntimeMovePlan runtime_move = 7;
+}
+
+// RuntimeMovePlan is what the leader plans for one containerd node.
+message RuntimeMovePlan {
+  // "queued": moved when its turn comes; "moving": being moved now;
+  // "waiting": not moved now (reason says why; operator says whether it
+  // waits for a person); "off": the automatic move is turned off.
+  string state = 1;
+  string reason = 2;
+  bool operator = 3;
 }
 
 // QueueSandbox asks the node to keep a network sandbox for a job, wired into

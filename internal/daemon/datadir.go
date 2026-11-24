@@ -7,6 +7,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"golang.org/x/sys/unix"
@@ -149,6 +150,30 @@ func saveAgentConfig(dataDir string, c agentConfig) error {
 		return err
 	}
 	return fsutil.WriteFileAtomic(filepath.Join(dataDir, fileAgent), append(b, '\n'), 0o600)
+}
+
+// agentConfigMu orders the changes this process makes to agent.json.
+var agentConfigMu sync.Mutex
+
+// updateAgentConfig changes agent.json as it is on disk now: it reads the
+// file, lets change set the fields it owns, and writes the result, so a
+// writer never puts back an older copy of fields another one changed since
+// (the control plane list, the network's mode, the runtime). It returns
+// what it wrote.
+func updateAgentConfig(dataDir string, change func(*agentConfig) error) (*agentConfig, error) {
+	agentConfigMu.Lock()
+	defer agentConfigMu.Unlock()
+	c, err := loadAgentConfig(dataDir)
+	if err != nil {
+		return nil, err
+	}
+	if err := change(c); err != nil {
+		return nil, err
+	}
+	if err := saveAgentConfig(dataDir, *c); err != nil {
+		return nil, err
+	}
+	return c, nil
 }
 
 func loadAgentConfig(dataDir string) (*agentConfig, error) {

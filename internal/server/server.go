@@ -3,6 +3,7 @@
 package server
 
 import (
+	"cmp"
 	"context"
 	"crypto/rand"
 	"crypto/tls"
@@ -91,6 +92,13 @@ type Config struct {
 	// JobRetryBase is the delay before a job's first retry (ADR 0019); it
 	// doubles with each failed attempt. Default 10s; tests shorten it.
 	JobRetryBase time.Duration
+	// RuntimeDrainLimit, RuntimeMigrateLimit, and RuntimeMoveBackoff bound
+	// the steps of moving a containerd node to the supervisor runtime and
+	// the wait before a node whose move was given up is tried again (ADR
+	// 0054; defaults 15m, 10m, 1h). Tests shorten them.
+	RuntimeDrainLimit   time.Duration
+	RuntimeMigrateLimit time.Duration
+	RuntimeMoveBackoff  time.Duration
 	// Now returns the current time (default time.Now); tests replace it.
 	Now func() time.Time
 
@@ -271,6 +279,14 @@ type Server struct {
 	wakeMu    sync.Mutex
 	wakeTimer *time.Timer
 	wakeAt    time.Time
+
+	// moveMu guards the runtime move's record (ADR 0054) between the
+	// reconcile pass and SetClusterConfig, and moveAsked; moveSeen is the
+	// last pass's view of the move for ClusterStatus.
+	moveMu     sync.Mutex
+	moveAsked  moveAsk
+	moveLimits moveLimits
+	moveSeen   atomic.Pointer[armadav1.RuntimeMoveStatus]
 }
 
 // New builds a Server. TLS must require and verify client certificates.
@@ -372,6 +388,9 @@ func New(cfg Config) (*Server, error) {
 	if cfg.AutoscaleInterval <= 0 {
 		cfg.AutoscaleInterval = defaultAutoscaleInterval
 	}
+	cfg.RuntimeDrainLimit = cmp.Or(cfg.RuntimeDrainLimit, runtimeDrainLimit)
+	cfg.RuntimeMigrateLimit = cmp.Or(cfg.RuntimeMigrateLimit, runtimeMigrateLimit)
+	cfg.RuntimeMoveBackoff = cmp.Or(cfg.RuntimeMoveBackoff, runtimeMoveBackoff)
 	if cfg.BackupInterval <= 0 {
 		cfg.BackupInterval = defaultBackupInterval
 	}
@@ -394,6 +413,7 @@ func New(cfg Config) (*Server, error) {
 		// Wakes: a burst for several apps at once, then one a second.
 		wakeLimit:    newKeyedLimiter(20, time.Second),
 		jobRetryBase: cfg.JobRetryBase,
+		moveLimits:   moveLimits{drain: cfg.RuntimeDrainLimit, migrate: cfg.RuntimeMigrateLimit, backoff: cfg.RuntimeMoveBackoff},
 		store:        cfg.Store,
 		keys:         cfg.Secrets,
 		name:         cfg.Name,

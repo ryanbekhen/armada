@@ -45,6 +45,53 @@ func TestPrintClusterStatusRuntime(t *testing.T) {
 	}
 }
 
+// cluster status shows the leader's move of containerd nodes: the node and
+// its step, what it said, and the nodes that wait and for whom (ADR 0054).
+func TestPrintClusterStatusRuntimeMove(t *testing.T) {
+	t.Parallel()
+	var b strings.Builder
+	err := printClusterStatus(&b, &armadav1.ClusterStatusResponse{RuntimeMove: &armadav1.RuntimeMoveStatus{
+		Node: "lab2", Step: "draining", SinceUnix: 1, StepSinceUnix: 1, Error: "replicas are still assigned\x1b[2J",
+		Waiting: []*armadav1.RuntimeMoveWait{
+			{Node: "lab3", Reason: "holds volumes of db", Operator: true},
+			{Node: "lab4", Reason: "the other nodes have no room for a replica of web"},
+		},
+		WaitingTotal: 3,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := b.String()
+	for _, want := range []string{
+		"runtime move: moving lab2 to the supervisor runtime, its replicas start on other nodes",
+		"the node said: replicas are still assigned",
+		"lab3", "its operator: holds volumes of db",
+		"lab4", "the other nodes have no room for a replica of web",
+		"and 1 more",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("want %q in:\n%s", want, out)
+		}
+	}
+	if strings.ContainsRune(out, 0x1b) {
+		t.Errorf("control characters:\n%q", out)
+	}
+	b.Reset()
+	if err := printClusterStatus(&b, &armadav1.ClusterStatusResponse{RuntimeMove: &armadav1.RuntimeMoveStatus{Off: true, Held: "turned off"}}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(b.String(), "runtime move: off") {
+		t.Errorf("off:\n%s", b.String())
+	}
+	b.Reset()
+	if err := printClusterConfig(&b, &armadav1.ClusterConfig{RuntimeMoveOff: true}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(b.String(), "runtime move:      off\n") {
+		t.Errorf("cluster show:\n%s", b.String())
+	}
+}
+
 // node show says how the node runs containers.
 func TestNodeRuntime(t *testing.T) {
 	t.Parallel()
@@ -53,7 +100,8 @@ func TestNodeRuntime(t *testing.T) {
 		want string
 	}{
 		{nil, "-"},
-		{&armadav1.RuntimeStatus{Agent: "containerd"}, "containerd (armadad runtime migrate --to supervisor moves it)"},
+		{&armadav1.RuntimeStatus{Agent: "containerd"}, "containerd (the leader moves it to the supervisor runtime; armada cluster status)"},
+		{&armadav1.RuntimeStatus{Agent: "containerd", MoveError: "replicas are still assigned\x1b[2J"}, "containerd (the leader moves it to the supervisor runtime; armada cluster status); it did not move: replicas are still assigned"},
 		{&armadav1.RuntimeStatus{Agent: "supervisor-go"}, `supervisor, Go's code (agent.json runtimeAgent "go")`},
 		{&armadav1.RuntimeStatus{Agent: "supervisor-rust"}, "supervisor, armada-node"},
 		{&armadav1.RuntimeStatus{Agent: "supervisor-rust", Converting: true, ImagesToPull: 4}, "supervisor, armada-node; Go's image store still holds containers made before the move; 4 images to pull again"},

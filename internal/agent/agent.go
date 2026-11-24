@@ -166,6 +166,16 @@ type Config struct {
 	// OnServers receives them whenever the server sends a different list.
 	Servers   []string
 	OnServers func(servers []string)
+	// MoveRuntime moves a containerd node to the runtime the leader names
+	// (ADR 0054, "The runtime's move", step 4): it removes every
+	// container, records the runtime in agent.json, and restarts the
+	// node's service. The agent calls it only with no replica assigned
+	// and nothing starting. Nil: the node does not move itself (not on
+	// containerd), and Hello says so.
+	MoveRuntime func(ctx context.Context, to string) error
+	// OnRuntimeMove receives what the leader plans for the node's move,
+	// nil for nothing, whenever it changes (for armadad doctor).
+	OnRuntimeMove func(*armadav1.RuntimeMovePlan)
 }
 
 // Network sets up the cluster network on the node (ADR 0025).
@@ -336,6 +346,13 @@ type Agent struct {
 	logs logSettings
 	// export is how sending logs elsewhere goes (ADR 0044).
 	export exportStatus
+	// moving is set while the node moves to another runtime, and after it
+	// did until the service restarts; moveErr says why the last request
+	// did not move it (ADR 0054). movePlan is the leader's last plan.
+	moving      atomic.Bool
+	moveErr     atomic.Value
+	movePlan    *armadav1.RuntimeMovePlan
+	movePlanSet bool
 }
 
 // New returns an Agent.
@@ -483,7 +500,7 @@ func (a *Agent) session(ctx context.Context) (established bool, err error) {
 		Jobs: true, Volumes: a.mountsVolumes(), Containers: runtime.CanRunMembers(a.cfg.Driver), NetworkKey: networkKey, Endpoint: a.cfg.Endpoint, BehindNat: a.cfg.BehindNAT, KeyRotation: rotates && networkKey != "",
 		CertificateRefs: true, QueueSandboxes: a.sandboxesOn(), HeldReplicas: true,
 		VolumeBackups: a.mountsVolumes(), Nfs: a.mountsNFS(), LogHistory: a.logHistoryOn(),
-		NetworkSwitch: a.switcher() != nil,
+		NetworkSwitch: a.switcher() != nil, RuntimeMove: a.cfg.MoveRuntime != nil,
 	}}}
 	if err := stream.Send(hello); err != nil {
 		return false, err
@@ -529,6 +546,7 @@ func (a *Agent) session(ctx context.Context) (established bool, err error) {
 			a.setDesired(m.Assignment.GetReplicas(), m.Assignment.GetProxy())
 			a.setServers(m.Assignment.GetServers())
 			a.setLogSettings(m.Assignment.GetLogs())
+			a.setRuntimeMovePlan(m.Assignment.GetRuntimeMove())
 			if a.sandboxesOn() {
 				a.setSandboxes(m.Assignment.GetQueueSandboxes())
 			}
@@ -542,6 +560,8 @@ func (a *Agent) session(ctx context.Context) (established bool, err error) {
 			go a.serveVolume(ctx, m.VolumeRequest)
 		case *armadav1.ServerMessage_RotateNetworkKey:
 			go a.rotateNetworkKey()
+		case *armadav1.ServerMessage_MoveRuntime:
+			go a.moveRuntime(ctx, m.MoveRuntime)
 		}
 	}
 }
