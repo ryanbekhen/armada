@@ -14,10 +14,13 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	armadav1 "github.com/ryanbekhen/armada/api/armada/v1"
 	"github.com/ryanbekhen/armada/internal/fsutil"
+	"github.com/ryanbekhen/armada/internal/proxy/haproxy"
 	"github.com/ryanbekhen/armada/internal/runtime"
+	"github.com/ryanbekhen/armada/internal/runtime/embedded"
 	"github.com/ryanbekhen/armada/internal/runtime/fake"
 	"github.com/ryanbekhen/armada/internal/store"
 )
@@ -169,6 +172,101 @@ func TestNodeMoveKeepsNewerAgentConfig(t *testing.T) {
 	want.Runtime = runtimeEmbedded
 	if !reflect.DeepEqual(*got, want) {
 		t.Errorf("agent.json after migrate\n got %+v\nwant %+v", *got, want)
+	}
+}
+
+// Before the move removes anything, the node pulls its proxy's image with
+// the pack's armada-node into armada-node's store, by the pinned digest and
+// with no credentials, as the restarted agent's Driver.Pull will; a failed
+// pull is only logged, and a node that will not run containers through
+// armada-node pulls nothing.
+func TestNodeMovePrepare(t *testing.T) {
+	dir := t.TempDir()
+	ac := &agentConfig{NodeID: "n1", Runtime: runtimeEmbedded}
+	type pulled struct{ bin, image string }
+	var (
+		pulls []pulled
+		fail  error
+	)
+	m := nodeMove{dataDir: dir, mu: &sync.Mutex{}, ac: ac, log: slog.New(slog.DiscardHandler),
+		images: []string{haproxy.Image},
+		pull: func(ctx context.Context, bin, image string) error {
+			if dl, ok := ctx.Deadline(); !ok || time.Until(dl) > prePullTimeout {
+				t.Errorf("pull deadline %v (%v)", dl, ok)
+			}
+			pulls = append(pulls, pulled{bin, image})
+			return fail
+		},
+	}
+	ctx := context.Background()
+
+	// No armada-node in the pack yet: nothing to pull with.
+	m.prepare(ctx, runtimeSupervisor)
+	if len(pulls) != 0 {
+		t.Fatalf("pulled without armada-node: %v", pulls)
+	}
+	bin := filepath.Join(runtimePaths(dir).Bin(), embedded.BinNode)
+	if err := os.MkdirAll(filepath.Dir(bin), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	m.prepare(ctx, runtimeEmbedded)
+	if len(pulls) != 0 {
+		t.Fatalf("pulled for a move to containerd: %v", pulls)
+	}
+	m.prepare(ctx, runtimeSupervisor)
+	if want := []pulled{{bin, haproxy.Image}}; !slices.Equal(pulls, want) {
+		t.Fatalf("pulls %v, want %v", pulls, want)
+	}
+	// A failed pull is logged, and the move goes on.
+	fail = errors.New("registry unreachable")
+	m.prepare(ctx, runtimeSupervisor)
+	if len(pulls) != 2 {
+		t.Errorf("pulls %v", pulls)
+	}
+	// Go's code after the restart opens Go's store: nothing pulled.
+	ac.RuntimeAgent = runtimeAgentGo
+	m.prepare(ctx, runtimeSupervisor)
+	if len(pulls) != 2 {
+		t.Errorf("pulled for Go's code: %v", pulls)
+	}
+	// --proxy none: no image.
+	ac.RuntimeAgent, m.images = "", nil
+	m.prepare(ctx, runtimeSupervisor)
+	if len(pulls) != 2 {
+		t.Errorf("pulled with no proxy: %v", pulls)
+	}
+}
+
+// pullIntoNode runs armada-node runtime pull on the store the supervisor
+// runtime opens (<data dir>/node/images) with the reference alone: no
+// credentials, so the record is one anyone may use.
+func TestPullIntoNode(t *testing.T) {
+	dir := t.TempDir()
+	out := filepath.Join(dir, "call")
+	bin := filepath.Join(dir, "armada-node")
+	script := "#!/bin/sh\necho \"$@\" >" + out + "\ncat >>" + out + "\necho '{\"ref\":\"x\"}'\n"
+	if err := os.WriteFile(bin, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := pullIntoNode(context.Background(), dir, bin, haproxy.Image); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "runtime pull " + filepath.Join(dir, "node", "images") + "\n" + `{"image":"` + haproxy.Image + `"}`
+	if string(got) != want {
+		t.Errorf("armada-node got\n%s\nwant\n%s", got, want)
+	}
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\necho '{\"error\":\"pull haproxy: refused\"}'\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := pullIntoNode(context.Background(), dir, bin, haproxy.Image); err == nil || !strings.Contains(err.Error(), "refused") {
+		t.Errorf("failed pull: %v", err)
 	}
 }
 

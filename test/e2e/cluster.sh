@@ -1792,10 +1792,14 @@ if want runtime-containerd-move && [ "$E2E_RUNTIME" = embedded ]; then
 	# serving: requests to a node's public IP may fail only while that
 	# node's own proxy is gone, from its RuntimeMoveMigrating event until
 	# the first 200 from it after its RuntimeMoveDone event (at most
-	# MOVE_GAP seconds); every other request must return 200.
+	# MOVE_GAP seconds); every other request must return 200. The node
+	# pulls its proxy's image into armada-node's store before it removes
+	# anything, so its own IP fails for at most MOVE_OUTAGE seconds, from
+	# its first failed request in that window to its first 200.
 	[ "$N" -ge 3 ] || fail "runtime-containerd-move needs at least three machines"
 	log "the leader moves every containerd node to the supervisor runtime, one at a time"
-	MOVE_GAP=${E2E_MOVE_GAP:-180}
+	MOVE_GAP=${E2E_MOVE_GAP:-60}
+	MOVE_OUTAGE=${E2E_MOVE_OUTAGE:-30}
 	wait_for 300 "$APP serving" serving
 	i=1
 	while [ "$i" -le "$N" ]; do
@@ -1859,7 +1863,14 @@ if want runtime-containerd-move && [ "$E2E_RUNTIME" = embedded ]; then
 		[ -n "$_to" ] || fail "$(host "$i" 1)'s public IP never answered 200 again after its move"
 		[ $((_to - _done)) -le "$MOVE_GAP" ] || fail "$(host "$i" 1)'s proxy came back $((_to - _done))s after its move was done (more than ${MOVE_GAP}s)"
 		echo "$(host "$i" 4) $_from $_to" >>"$WORK/move-windows"
-		ok "$(host "$i" 1): its own IP answered again $((_to - _from - 5))s after its containers went"
+		# The proxy's own outage: from the first failed request in the
+		# window (none: no outage seen) to the first 200 after it.
+		_fail=$(awk -v ip="$(host "$i" 4)" -v f="$_from" -v t="$_to" '$1 != 200 && $2 == ip && $3 >= f && $3 <= t { print $3; exit }' "$WORK/move-load")
+		_out=$((_to - ${_fail:-$_to}))
+		[ "$_out" -le "$MOVE_OUTAGE" ] || fail "$(host "$i" 1)'s own IP failed for ${_out}s during its move (more than ${MOVE_OUTAGE}s)"
+		on "$i" "journalctl -u armada-agent -u armada-server --since '@$_moved_since' --no-pager | grep -q 'pulled an image before moving to the supervisor runtime'" ||
+			fail "$(host "$i" 1) did not pull its proxy's image before its move"
+		ok "$(host "$i" 1): its own IP failed for ${_out}s, $((_to - _from - 5))s from RuntimeMoveMigrating to its first 200"
 		i=$((i + 1))
 	done
 	_total=$(wc -l <"$WORK/move-load" | tr -d ' ')

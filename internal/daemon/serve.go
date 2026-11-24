@@ -627,7 +627,12 @@ func runAgent(ctx context.Context, dataDir string, servers []string, proxyKind, 
 		// The leader moves containerd nodes to the supervisor runtime one
 		// at a time (ADR 0054, "The runtime's move", step 4).
 		mv := nodeMove{dataDir: dataDir, mu: &acMu, ac: ac, rt: rt, unit: unit, systemctl: systemctl, exit: os.Exit, log: log}
-		acfg.MoveRuntime = mv.run
+		if px != nil {
+			// The image the restarted agent's proxy starts from, pulled
+			// while this one still serves.
+			mv.images = []string{haproxy.Image}
+		}
+		acfg.MoveRuntime, acfg.PrepareRuntimeMove = mv.run, mv.prepare
 		acfg.OnRuntimeMove = func(p *armadav1.RuntimeMovePlan) {
 			if err := saveRuntimeMovePlan(dataDir, p); err != nil {
 				log.Warn("save the leader's plan for this node's runtime", "err", err)

@@ -173,6 +173,12 @@ type Config struct {
 	// and nothing starting. Nil: the node does not move itself (not on
 	// containerd), and Hello says so.
 	MoveRuntime func(ctx context.Context, to string) error
+	// PrepareRuntimeMove runs before MoveRuntime, once the node may move,
+	// outside reconcileMu and while every container still runs: it readies
+	// what the node needs right after its restart on the new runtime (the
+	// proxy's image), so the node's own proxy is gone for less time. It
+	// only logs what fails; the move goes on. Nil: nothing to prepare.
+	PrepareRuntimeMove func(ctx context.Context, to string)
 	// OnRuntimeMove receives what the leader plans for the node's move,
 	// nil for nothing, whenever it changes (for armadad doctor).
 	OnRuntimeMove func(*armadav1.RuntimeMovePlan)
