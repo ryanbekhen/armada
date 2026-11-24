@@ -39,7 +39,7 @@
 //! Go's TestArmadaNode*MatchesGo tests (internal/runtime/containerd)
 //! compare them with Go against registries in the test process.
 
-mod check;
+pub(crate) mod check;
 mod digest;
 pub(crate) mod http;
 mod layers;

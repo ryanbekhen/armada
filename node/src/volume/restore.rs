@@ -79,7 +79,7 @@ pub struct Free {
 pub type Space = fn(&[u8]) -> Option<Free>;
 
 /// fsSpace, or the test hook's numbers.
-fn restore_space() -> Space {
+pub(crate) fn restore_space() -> Space {
     match std::env::var("ARMADA_NODE_TEST_VOLUME_SPACE") {
         Ok(v) if v == "unknown" => |_| None,
         Ok(_) => |_| {

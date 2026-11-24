@@ -37,10 +37,10 @@
 //! free space a restore sees (restoreSpace).
 
 mod archive;
-mod errno;
+pub(crate) mod errno;
 mod gzip;
-mod restore;
-mod walk;
+pub(crate) mod restore;
+pub(crate) mod walk;
 
 use std::fs::File;
 use std::io::Write;
@@ -51,8 +51,12 @@ pub fn command(args: &[&str]) -> Result<(), String> {
         ["archive", dir] => archive::command(dir),
         ["restore", dir] => restore::command(dir),
         ["size", dirs @ ..] if !dirs.is_empty() => size_command(dirs),
+        [
+            op @ ("snapshot" | "snapshots" | "restore-snapshot" | "prune" | "target"),
+            rest @ ..,
+        ] => crate::volbackup::command(op, rest),
         _ => Err(format!(
-            "unknown volume command {args:?}; try: volume archive DIR, volume restore DIR, volume size DIR..."
+            "unknown volume command {args:?}; try: volume archive DIR, volume restore DIR, volume size DIR..., volume snapshot|snapshots|restore-snapshot|prune [--extra-ca FILE], volume target"
         )),
     }
 }

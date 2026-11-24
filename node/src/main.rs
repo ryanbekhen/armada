@@ -13,6 +13,8 @@
 //!   armada-node nfs ...        NFS volumes' mounts (src/nfs.rs)
 //!   armada-node queue ...      queue lengths read from a container's network namespace
 //!                              (src/queue)
+//!   armada-node volume ...     volume archives, restores, and sizes (src/volume), and
+//!                              backups to S3-compatible buckets (src/volbackup)
 
 mod conntrack;
 mod gostr;
@@ -22,6 +24,7 @@ mod nfs;
 mod proxy;
 mod queue;
 mod runtime;
+mod volbackup;
 mod volume;
 
 use std::process::ExitCode;

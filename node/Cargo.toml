@@ -11,6 +11,9 @@ publish = false
 [dependencies]
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 libc = "0.2"
+# Keys, HMAC, AES-GCM, and digests of volume backups (src/volbackup); the
+# same crate rustls uses.
+ring = { version = "0.17", default-features = false, features = ["alloc"] }
 ruzstd = { version = "0.8", default-features = false, features = ["std", "hash"] }
 # TLS for registries with the ring provider (its C and assembly are built
 # with clang for both targets, see .cargo/config.toml).

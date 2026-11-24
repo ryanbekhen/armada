@@ -749,9 +749,9 @@ fn op(method: &str) -> String {
     }
 }
 
-type Head = (u16, String, Vec<(String, String)>);
+pub(crate) type Head = (u16, String, Vec<(String, String)>);
 
-fn read_head<R: BufRead>(r: &mut R) -> Result<Head, Error> {
+pub(crate) fn read_head<R: BufRead>(r: &mut R) -> Result<Head, Error> {
     let mut total = 0usize;
     let mut line = String::new();
     let mut read_line = |line: &mut String| -> Result<(), Error> {

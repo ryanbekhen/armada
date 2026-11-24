@@ -550,9 +550,36 @@ Removing Go's runtime code comes next.
    when armada-node fails before the stream is touched: an archive before
    it wrote a byte, a restore before Go handed it one (it says "ready"
    first), and a size; past that, the bytes cannot be had again and the
-   failure is the call's. The S3 snapshot repository stays Go's for now.
-   Usage sampling (`runtime stats`) moved with step 4; exec's sessions
-   and the S3 snapshot repository of volume backups are the next parts.
+   failure is the call's.
+   Last part: volume backups to S3-compatible buckets (ADR 0041), on the
+   same knob as archives. `armada-node volume snapshot`, `prune`,
+   `snapshots`, and `restore-snapshot` do what volbackup's Backup, Prune,
+   Snapshots, and Restore do, in the same repository: the same `config`,
+   keys derived with HKDF-SHA-256 salted with the repository's ID, the
+   same keyed gear table and so the same chunk boundaries and names
+   (HMAC-SHA-256 of the plaintext) for the same content, chunks and
+   manifests compressed with zstd and sealed with AES-256-GCM under
+   their object's name, and manifests as Go's encoding/json writes them;
+   either side reads, restores, and prunes what the other wrote. The
+   bucket is reached by a client of its own: path-style requests signed
+   with Signature Version 4 from the URL's static keys, Content-MD5 on
+   writes, ListObjectsV2, the bucket's region asked once when the URL
+   names none, the retries of the Go client, plain HTTP only for the
+   private addresses ParseTarget allows, TLS with the machine's roots
+   otherwise, never a proxy from the environment, and every address
+   dialled refused when it reaches the node itself. The request, with
+   the URL and the key, is read on stdin, never from the command line,
+   and no answer or log line repeats them. The agent keeps the
+   per-volume lock, the pause and resume of the app, and the session; a
+   restore names the snapshot it will restore (`latest` resolved) before
+   the agent pauses the app, then waits for it. The keep policy's time
+   zone reaches armada-node as Go's offsets from UTC and the times they
+   start (1900 to 2300), so no zone database is read. armada-node says
+   "touched" before its first write to the bucket or the volume; Go does
+   a call itself when armada-node failed before that, never after. The
+   control plane's backups (ADR 0051) stay with the control plane, in
+   Go. Usage sampling (`runtime stats`) moved with step 4; exec's
+   sessions are the next part.
 6. **The agent.** `armada-node agent`: the `Connect` session, `Hello`,
    reconciliation, probes, fencing, held replicas, jobs, init containers
    and sidecars, secret files, wake, certificates, and `agent.json`.
