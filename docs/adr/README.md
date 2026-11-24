@@ -58,7 +58,7 @@ Every architectural decision that is hard to reverse is recorded here. Copy `000
 | [0052](0052-flat-commands-and-space-secrets.md) | Flat commands and secrets owned by a space | Accepted |
 | [0053](0053-node-resolver-in-rust.md) | The node's resolver runs as armada-dns | Accepted |
 | [0054](0054-node-agent-in-rust.md) | The node agent moves to Rust | Accepted |
-| [0055](0055-control-plane-and-client-in-rust.md) | Armada's own code moves to Rust in one release | Proposed |
+| [0055](0055-control-plane-and-client-in-rust.md) | Armada's own code moves to Rust in one release | Accepted |
 
 Commands in records before 0032 carry the names of their time; ADR 0032
 lists the command line as it is now.
