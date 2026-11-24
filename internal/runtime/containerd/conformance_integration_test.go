@@ -119,7 +119,8 @@ func nodeConfig(t *testing.T, bin string) Config {
 //
 // With ARMADA_RUNTIME_AGENT=rust and ARMADA_NODE_BIN naming armada-node,
 // the same cases run with armada-node doing the store's work (ADR 0054:
-// images in its store, root filesystems, bundles, and shim requests).
+// images in its store, root filesystems, bundles, shim requests,
+// statistics, dials, and starting runc exec).
 func TestIntegrationConformanceSupervisor(t *testing.T) {
 	bin, shim := os.Getenv("ARMADA_BIN"), os.Getenv("ARMADA_SHIM_BIN")
 	if bin == "" || shim == "" || os.Geteuid() != 0 {
@@ -146,12 +147,16 @@ func TestIntegrationConformanceSupervisor(t *testing.T) {
 	conformance.Run(t, d, conformance.Options{HostIP: os.Getenv("ARMADA_HOST_IP")})
 	if d.native != nil {
 		// Samples of containers and dials from them and from sandboxes
-		// went through armada-node (ADR 0054 step 4, fifth part), with
-		// Go standing in nowhere.
-		for _, op := range []string{"stats", "dial"} {
+		// (ADR 0054 step 4, fifth part), and every exec, command probe,
+		// and system exec (sixth part) went through armada-node, with Go
+		// standing in nowhere.
+		for _, op := range []string{"stats", "dial", "exec"} {
 			if n := d.native.StoodIn(op); n > 0 {
 				t.Errorf("Go did %q %d times instead of armada-node", op, n)
 			}
+		}
+		if d.native.Ran("exec") == 0 {
+			t.Error("no exec went through armada-node")
 		}
 	}
 }

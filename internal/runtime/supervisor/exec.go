@@ -44,6 +44,7 @@ type execProcess struct {
 	started bool
 	runc    *os.Process // the runc exec process, once started
 	pty     console.Console
+	ptyMu   sync.Mutex         // Resize and closing the terminal
 	endCopy context.CancelFunc // stops copying the terminal's output
 	done    chan struct{}
 	code    int
@@ -90,24 +91,7 @@ func (p *execProcess) Start(ctx context.Context) error {
 	if p.started {
 		return fmt.Errorf("exec %s: %w", p.id, errdefs.ErrAlreadyExists)
 	}
-	if err := os.MkdirAll(p.dir, 0o700); err != nil {
-		return err
-	}
-	// The process spec holds the container's environment: written 0600
-	// on tmpfs and removed when the process ends.
-	b, err := json.Marshal(p.spec)
-	if err != nil {
-		return err
-	}
-	spec := filepath.Join(p.dir, "process.json")
-	if err := os.WriteFile(spec, b, 0o600); err != nil {
-		return err
-	}
-	args := []string{"--root", p.t.sh.Root, "exec", "--process", spec, "--pid-file", filepath.Join(p.dir, "pid")}
-	if p.spec.Terminal {
-		args = append(args, "--tty")
-	}
-	cmd := exec.Command(p.t.c.s.Shims.Runc, append(args, p.t.c.rec.ID)...) //nolint:gosec // the pack's runc
+	var stdio [3]*os.File // runc's standard streams
 	var closeAfter []io.Closer
 	cfg := p.io.Config()
 	if p.spec.Terminal {
@@ -123,21 +107,14 @@ func (p *execProcess) Start(ctx context.Context) error {
 		if s := p.spec.ConsoleSize; s != nil {
 			_ = pty.Resize(console.WinSize{Height: uint16(min(s.Height, 1<<16-1)), Width: uint16(min(s.Width, 1<<16-1))})
 		}
-		cmd.Stdin, cmd.Stdout, cmd.Stderr = slave, slave, slave
-		// runc's controlling terminal, so a size change reaches it.
-		cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setctty: true, Ctty: 0}
+		stdio = [3]*os.File{slave, slave, slave}
 		closeAfter = append(closeAfter, slave)
 		p.pty = pty
 	} else {
-		for _, s := range []struct {
+		for i, s := range []struct {
 			path string
-			set  func(*os.File)
 			out  bool
-		}{
-			{cfg.Stdin, func(f *os.File) { cmd.Stdin = f }, false},
-			{cfg.Stdout, func(f *os.File) { cmd.Stdout = f }, true},
-			{cfg.Stderr, func(f *os.File) { cmd.Stderr = f }, true},
-		} {
+		}{{cfg.Stdin, false}, {cfg.Stdout, true}, {cfg.Stderr, true}} {
 			if s.path == "" {
 				continue
 			}
@@ -146,16 +123,17 @@ func (p *execProcess) Start(ctx context.Context) error {
 				closeAll(closeAfter)
 				return err
 			}
-			s.set(f)
+			stdio[i] = f
 			closeAfter = append(closeAfter, f)
 		}
 	}
-	if err := cmd.Start(); err != nil {
+	cmd, err := p.startRunc(ctx, stdio)
+	if err != nil {
 		closeAll(closeAfter)
 		if p.pty != nil {
 			_ = p.pty.Close()
 		}
-		return fmt.Errorf("runc exec: %w", err)
+		return err
 	}
 	// Only runc holds the streams now, so they end when it does.
 	closeAll(closeAfter)
@@ -191,13 +169,16 @@ func (p *execProcess) Start(ctx context.Context) error {
 				close(copied)
 			}()
 			_ = activity.WaitQuiet(copyCtx, copied, terminalDrainGrace)
+			p.ptyMu.Lock()
 			_ = p.pty.Close()
+			p.ptyMu.Unlock()
 		}
 		copies.Wait()
 		endCopy()
-		p.mu.Lock()
+		// Read only after done is closed. Not under mu: Start holds it
+		// while it waits for the process to start, and must see done
+		// when runc exits before that.
 		p.code, p.err = code, err
-		p.mu.Unlock()
 		_ = os.RemoveAll(p.dir)
 		close(p.done)
 	}()
@@ -216,6 +197,62 @@ func (p *execProcess) Start(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// startRunc starts runc exec with stdio as its standard streams: through
+// armada-node when the node runs containers with it (nativeexec.go),
+// else, or when armada-node failed before runc ran, here.
+func (p *execProcess) startRunc(ctx context.Context, stdio [3]*os.File) (*exec.Cmd, error) {
+	if n := p.t.c.s.Native; n != nil {
+		cmd, handled, err := n.startExec(ctx, nativeExec{
+			Bundle: p.t.c.s.Bundles.Path(p.t.c.rec.ID), Dir: p.dir, Root: p.t.sh.Root,
+			Runc: p.t.c.s.Shims.Runc, ID: p.t.c.rec.ID,
+			Args: p.spec.Args, Terminal: p.spec.Terminal, ConsoleSize: p.spec.ConsoleSize,
+		}, func(cmd *exec.Cmd) { p.wire(cmd, stdio) })
+		if handled {
+			return cmd, err
+		}
+	}
+	if err := os.MkdirAll(p.dir, 0o700); err != nil {
+		return nil, err
+	}
+	// The process spec holds the container's environment: written 0600
+	// on tmpfs and removed when the process ends.
+	b, err := json.Marshal(p.spec)
+	if err != nil {
+		return nil, err
+	}
+	spec := filepath.Join(p.dir, "process.json")
+	if err := os.WriteFile(spec, b, 0o600); err != nil {
+		return nil, err
+	}
+	args := []string{"--root", p.t.sh.Root, "exec", "--process", spec, "--pid-file", filepath.Join(p.dir, "pid")}
+	if p.spec.Terminal {
+		args = append(args, "--tty")
+	}
+	cmd := exec.Command(p.t.c.s.Shims.Runc, append(args, p.t.c.rec.ID)...) //nolint:gosec // the pack's runc
+	p.wire(cmd, stdio)
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("runc exec: %w", err)
+	}
+	return cmd, nil
+}
+
+// wire gives cmd runc's standard streams; with a terminal, the terminal
+// is its controlling terminal, so a size change reaches it.
+func (p *execProcess) wire(cmd *exec.Cmd, stdio [3]*os.File) {
+	if stdio[0] != nil {
+		cmd.Stdin = stdio[0]
+	}
+	if stdio[1] != nil {
+		cmd.Stdout = stdio[1]
+	}
+	if stdio[2] != nil {
+		cmd.Stderr = stdio[2]
+	}
+	if p.spec.Terminal {
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setctty: true, Ctty: 0}
+	}
 }
 
 // terminalDrainGrace is how long the terminal's output is still copied
@@ -345,6 +382,10 @@ func (p *execProcess) Resize(_ context.Context, w, h uint32) error {
 	if p.pty == nil {
 		return fmt.Errorf("exec %s has no terminal: %w", p.id, errdefs.ErrFailedPrecondition)
 	}
+	// Not while the terminal is being closed: its descriptor's number
+	// could already name another file.
+	p.ptyMu.Lock()
+	defer p.ptyMu.Unlock()
 	return p.pty.Resize(console.WinSize{Height: uint16(min(h, 1<<16-1)), Width: uint16(min(w, 1<<16-1))})
 }
 

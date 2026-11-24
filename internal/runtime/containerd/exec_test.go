@@ -27,6 +27,14 @@ import (
 // is the --pid-file it was given.
 func supervisorExecDriver(t *testing.T, body string) *Driver {
 	t.Helper()
+	return execDriverOn(t, body, specs.Spec{Process: &specs.Process{Args: []string{"/app"}, Cwd: "/"}}, nil)
+}
+
+// execDriverOn is supervisorExecDriver with c1's spec, and with native
+// (when set) starting runc exec (ADR 0054 step 4, sixth part). The fake
+// runc also gets $ARGV (its arguments) and $PROCESS (--process).
+func execDriverOn(t *testing.T, body string, spec specs.Spec, native *supervisor.Native) *Driver {
+	t.Helper()
 	dir := t.TempDir()
 	// Unix socket paths are short: keep the shim directory near the root.
 	shimDir, err := os.MkdirTemp("", "armada-exec")
@@ -35,20 +43,20 @@ func supervisorExecDriver(t *testing.T, body string) *Driver {
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(shimDir) })
 	runc := filepath.Join(dir, "runc")
-	script := "#!/bin/sh\nset -u\nwhile [ $# -gt 0 ]; do case \"$1\" in --pid-file) PIDFILE=$2; shift;; esac; shift; done\n" + body
+	script := "#!/bin/sh\nset -u\nARGV=\"$*\"\nwhile [ $# -gt 0 ]; do case \"$1\" in --pid-file) PIDFILE=$2; shift;; --process) PROCESS=$2; shift;; esac; shift; done\n" + body
 	if err := os.WriteFile(runc, []byte(script), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	s := &supervisor.Store{
 		Bundles: supervisor.Bundles{Dir: filepath.Join(dir, "containers")},
 		Shims:   &supervisor.Shims{Dir: shimDir, Runc: runc},
+		Native:  native,
 	}
 	rec := supervisor.Record{ID: "c1", Group: "web@pack", Labels: map[string]string{runtime.LabelManaged: "true"}}
 	bundle := s.Bundles.Path(rec.ID)
 	if err := os.MkdirAll(bundle, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	spec := specs.Spec{Process: &specs.Process{Args: []string{"/app"}, Cwd: "/"}}
 	for name, v := range map[string]any{"config.json": spec, "record.json": rec} {
 		b, err := json.Marshal(v)
 		if err != nil {

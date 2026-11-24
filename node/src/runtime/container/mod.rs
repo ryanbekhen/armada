@@ -1,8 +1,10 @@
 //! The supervisor runtime's container lifecycle (ADR 0054 step 4, fourth
 //! part): what internal/runtime/supervisor does below the driver for a
-//! container, on the image store of ../image. The Go driver still builds
-//! each container's spec and runs its network, logs, and exec; it hands
-//! the rest to these commands when agent.json says "runtimeAgent": "rust".
+//! container, on the image store of ../image, and since the fifth and
+//! sixth parts statistics, dials, and starting runc exec. The Go driver
+//! still builds each container's spec and runs its network and logs; it
+//! hands the rest to these commands when agent.json says "runtimeAgent":
+//! "rust".
 //!
 //!   armada-node runtime prepare ROOT
 //!       stdin: {"key", "image"}; stdout: {"mounts": [mount.Mount]}, the
@@ -37,12 +39,19 @@
 //!       Unix socket the connected socket is sent on (SCM_RIGHTS);
 //!       stdout: {"connected"}, {"notFound"}, {"redo"}, {"netns": ERRNO},
 //!       {"setns": ERRNO}, {"op", "errno"}, or {"timeout"} (dial.rs)
+//!   armada-node runtime exec
+//!       fd 3: {"bundle", "dir", "root", "runc", "id", "args", "terminal",
+//!       "consoleSize"}; writes process.json as execProcess.Start does,
+//!       then becomes `runc exec` on the standard streams and terminal it
+//!       was given; fd 4 (closed on exec): "exec\n", then {"execErrno"}
+//!       when runc could not be run; or {"redo"} or {"error"} (exec.rs)
 //!
 //! Go's TestArmadaNode*MatchesGo tests (internal/runtime/supervisor)
 //! compare them with Go's Bundles, Shims, and the overlay snapshotter.
 
 pub mod bundle;
 pub mod dial;
+pub mod exec;
 pub mod mount;
 pub mod shim;
 pub mod stats;
