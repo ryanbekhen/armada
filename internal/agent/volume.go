@@ -243,7 +243,7 @@ func (a *Agent) serveVolume(ctx context.Context, req *armadav1.VolumeRequest) {
 		if err := send(&armadav1.VolumeData{}); err != nil { // attaches the session
 			return
 		}
-		finish(writeArchive(ctx, dir, &chunkWriter{send: send}))
+		finish(a.archiveVolume(ctx, dir, &chunkWriter{send: send}))
 	case armadav1.VolumeRequest_OP_RESTORE:
 		if err := a.pause(ctx, req.GetApp()); err != nil {
 			finish(err)
@@ -253,7 +253,7 @@ func (a *Agent) serveVolume(ctx context.Context, req *armadav1.VolumeRequest) {
 		if err := send(&armadav1.VolumeData{}); err != nil {
 			return
 		}
-		finish(restoreArchive(dir, &chunkReader{recv: stream.Recv}))
+		finish(a.restoreVolume(dir, &chunkReader{recv: stream.Recv}))
 	case armadav1.VolumeRequest_OP_SNAPSHOT, armadav1.VolumeRequest_OP_SNAPSHOTS, armadav1.VolumeRequest_OP_RESTORE_SNAPSHOT:
 		if err := send(&armadav1.VolumeData{}); err != nil { // attaches the session
 			return
@@ -649,6 +649,7 @@ func (a *Agent) measureVolumes(ctx context.Context) []*armadav1.VolumeUsage {
 		return nil
 	}
 	var out []*armadav1.VolumeUsage
+	var dirs []string
 	for _, app := range apps {
 		if !app.IsDir() || !spec.ValidAppID(app.Name()) {
 			continue
@@ -661,9 +662,12 @@ func (a *Agent) measureVolumes(ctx context.Context) []*armadav1.VolumeUsage {
 			if !v.IsDir() || !spec.ValidName(v.Name()) {
 				continue // leftovers of a restore, among others
 			}
-			size := volumeSize(ctx, filepath.Join(root, app.Name(), v.Name()))
-			out = append(out, &armadav1.VolumeUsage{App: app.Name(), Volume: v.Name(), Bytes: size})
+			dirs = append(dirs, filepath.Join(root, app.Name(), v.Name()))
+			out = append(out, &armadav1.VolumeUsage{App: app.Name(), Volume: v.Name()})
 		}
+	}
+	for i, size := range a.volumeSizes(ctx, dirs) {
+		out[i].Bytes = size
 	}
 	return out
 }

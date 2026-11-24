@@ -153,6 +153,10 @@ type Config struct {
 	// VolumesDir holds persistent volumes (ADR 0023); empty: the node
 	// mounts none.
 	VolumesDir string
+	// VolumeProgram finds armada-node, which archives, restores, and
+	// measures volumes (ADR 0054 step 5): its path, or "" for Go's code.
+	// Nil: Go's code.
+	VolumeProgram func() string
 	// SecretsDir is a private directory on tmpfs for secret files. Empty
 	// means replicas with secret files fail to start on this node.
 	SecretsDir string
@@ -277,6 +281,9 @@ type Agent struct {
 	log    *slog.Logger
 	began  time.Time
 	booted time.Time // when the machine last booted; zero if unknown
+
+	// volNative runs volume archives through armada-node.
+	volNative volumeNative
 
 	// keyMu runs one key rotation at a time.
 	keyMu sync.Mutex
