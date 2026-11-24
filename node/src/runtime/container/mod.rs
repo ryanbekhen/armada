@@ -19,7 +19,8 @@
 //!       stdout: {"record": Record} or {"error"} (bundle.rs)
 //!   armada-node runtime bundle remove DIR ID
 //!   armada-node runtime bundle records DIR
-//!       stdout: {"records": [Record]}
+//!       stdout: {"records": [Record], "skipped": [{"id", "error"}]}: a
+//!       record that cannot be read or parsed is named in skipped
 //!   armada-node runtime bundle labels DIR ID
 //!       stdin: {"labels"}; stdout: {"record": Record}
 //!   armada-node runtime shim call|start|abandon
@@ -130,7 +131,7 @@ pub fn bundle_command(args: &[&str]) -> Result<(), String> {
             Err(e) => error_out(&e),
         },
         ["records", dir] => match bundle::records(dir) {
-            Ok(r) => json_out(&serde_json::json!({ "records": r })),
+            Ok((r, skipped)) => json_out(&serde_json::json!({ "records": r, "skipped": skipped })),
             Err(e) => error_out(&e),
         },
         ["labels", dir, id] => {

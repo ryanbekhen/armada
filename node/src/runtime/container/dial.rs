@@ -259,7 +259,10 @@ pub fn enter_target(r: &DialRequest, deadline: Option<Instant>) -> Result<(), Ou
     let path = if r.id.is_empty() {
         r.netns.clone()
     } else {
-        let recs = bundle::records(&r.dir).map_err(Outcome::Redo)?;
+        let (recs, skipped) = bundle::records(&r.dir).map_err(Outcome::Redo)?;
+        if let Some(s) = skipped.iter().find(|s| s.id == r.id) {
+            return Err(Outcome::Redo(s.error.clone()));
+        }
         let Some(rec) = recs.iter().find(|x| x.id == r.id) else {
             return Err(Outcome::NotFound);
         };
@@ -330,5 +333,20 @@ pub fn outcome_json(o: &Outcome) -> serde_json::Value {
         Outcome::Setns(e) => serde_json::json!({ "setns": e }),
         Outcome::Op(op, e) => serde_json::json!({ "op": op, "errno": e }),
         Outcome::Timeout => serde_json::json!({ "timeout": true }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The namespace the thread is already in is not entered again:
+    /// setns needs CAP_SYS_ADMIN even for one's own namespace, so a dial
+    /// from it works without the privilege (Go's dial always enters).
+    #[test]
+    fn stays_in_its_own_namespace() {
+        let own = open_ns("/proc/thread-self/ns/net").unwrap();
+        assert_eq!(enter(&own), Ok(()));
+        assert!(open_ns("/proc/nonexistent/ns/net").is_err());
     }
 }

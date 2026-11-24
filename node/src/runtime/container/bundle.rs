@@ -294,33 +294,56 @@ fn rfc3339(s: &str) -> bool {
     }
 }
 
-/// Bundles.Records: every finished bundle's record, by directory name; a
-/// record that does not parse, or names another ID, is left out.
-pub fn records(dir: &str) -> Result<Vec<Record>, String> {
+/// A record left out of a listing: its directory's name and why.
+#[derive(serde::Serialize, Debug, PartialEq)]
+pub struct Skipped {
+    pub id: String,
+    pub error: String,
+}
+
+/// Bundles.Records: every finished bundle's record, by directory name. A
+/// record that cannot be read, does not parse, or names another ID is
+/// left out and named in the second list, so one bad bundle never hides
+/// every container (Go's code fails the whole listing when a record
+/// cannot be read).
+pub fn records(dir: &str) -> Result<(Vec<Record>, Vec<Skipped>), String> {
     let dir = Path::new(dir);
     let mut names: Vec<String> = match fs::read_dir(dir) {
         Ok(rd) => rd
             .map(|e| e.map(|e| e.file_name().to_string_lossy().into_owned()))
             .collect::<Result<_, _>>()
             .map_err(|e| os_err("readdirent", dir, &e))?,
-        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok((Vec::new(), Vec::new())),
         Err(e) => return Err(os_err("open", dir, &e)),
     };
     names.sort();
     let mut out = Vec::new();
+    let mut skipped = Vec::new();
     for n in names {
         let p = dir.join(&n).join(RECORD);
         let data = match read_file(&p) {
             Ok(d) => d,
             Err((e, _)) if e.kind() == io::ErrorKind::NotFound => continue,
-            Err((e, op)) => return Err(os_err(op, &p, &e)),
+            Err((e, op)) => {
+                skipped.push(Skipped {
+                    id: n,
+                    error: os_err(op, &p, &e),
+                });
+                continue;
+            }
         };
-        match serde_json::from_slice::<Record>(&data) {
-            Ok(r) if r.id == n && rfc3339(&r.created) => out.push(r),
-            _ => {}
-        }
+        let why = match serde_json::from_slice::<Record>(&data) {
+            Ok(r) if r.id == n && rfc3339(&r.created) => {
+                out.push(r);
+                continue;
+            }
+            Ok(r) if r.id != n => format!("{}: names container {:?}", p.display(), r.id),
+            Ok(_) => format!("{}: no valid creation time", p.display()),
+            Err(e) => format!("{}: {e}", p.display()),
+        };
+        skipped.push(Skipped { id: n, error: why });
     }
-    Ok(out)
+    Ok((out, skipped))
 }
 
 /// container.SetLabels: labels merged into the record, which is written
@@ -386,6 +409,42 @@ mod tests {
         assert!(!rfc3339("2026-11-23T08:00:00.Z"));
         assert!(!rfc3339("2026-11-23T24:00:00Z"));
         assert!(!rfc3339("yesterday"));
+    }
+
+    #[test]
+    fn records_skip_bad_ones() {
+        let dir = std::env::temp_dir().join(format!("armada-records-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let rec = |id: &str| {
+            format!(r#"{{"id":"{id}","image":"i","group":"g","created":"2026-11-23T08:00:00Z"}}"#)
+        };
+        for (id, body) in [
+            ("a", Some(rec("a"))),
+            ("b", None), // record.json a directory: unreadable
+            ("c", Some("{".to_string())),
+            ("d", Some(rec("other"))),
+            ("e", Some(rec("e"))),
+        ] {
+            fs::create_dir_all(dir.join(id)).unwrap();
+            match body {
+                Some(b) => fs::write(dir.join(id).join(RECORD), b).unwrap(),
+                None => fs::create_dir(dir.join(id).join(RECORD)).unwrap(),
+            }
+        }
+        // Unfinished: no record yet.
+        fs::create_dir_all(dir.join("f")).unwrap();
+        let (recs, skipped) = records(dir.to_str().unwrap()).unwrap();
+        let ids: Vec<&str> = recs.iter().map(|r| r.id.as_str()).collect();
+        assert_eq!(ids, ["a", "e"]);
+        let names: Vec<&str> = skipped.iter().map(|s| s.id.as_str()).collect();
+        assert_eq!(names, ["b", "c", "d"]);
+        assert!(
+            skipped[0].error.contains("is a directory"),
+            "{:?}",
+            skipped[0]
+        );
+        assert!(skipped[2].error.contains("names container \"other\""));
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
