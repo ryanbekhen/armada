@@ -128,8 +128,10 @@ func (s *Store) NewContainer(ctx context.Context, id string, img client.Image, l
 	}
 	rec := Record{ID: id, Image: im.rec.Name, Labels: cc.Labels, Group: group, Created: time.Now().UTC()}
 	if _, err := s.Bundles.Create(rec, spec, rootfs); err != nil {
-		_ = s.Bundles.Remove(id)
-		_ = s.Images.Release(context.WithoutCancel(ctx), id)
+		// The root filesystem goes only once its bundle is unmounted.
+		if s.Bundles.Remove(id) == nil {
+			_ = s.Images.Release(context.WithoutCancel(ctx), id)
+		}
 		return nil, err
 	}
 	return &container{s: s, rec: rec}, nil
@@ -158,8 +160,10 @@ func (s *Store) newNativeContainer(ctx context.Context, cc *containers.Container
 		_, err = s.Bundles.Create(rec, spec, rootfs)
 	}
 	if err != nil {
-		_ = s.removeBundle(context.WithoutCancel(ctx), id)
-		_ = s.Native.Release(context.WithoutCancel(ctx), id)
+		// The root filesystem goes only once its bundle is unmounted.
+		if s.removeBundle(context.WithoutCancel(ctx), id) == nil {
+			_ = s.Native.Release(context.WithoutCancel(ctx), id)
+		}
 		return nil, err
 	}
 	return &container{s: s, rec: rec}, nil
