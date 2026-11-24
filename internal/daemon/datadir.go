@@ -15,7 +15,6 @@ import (
 	"github.com/ryanbekhen/armada/internal/agent"
 	"github.com/ryanbekhen/armada/internal/clusternet"
 	"github.com/ryanbekhen/armada/internal/fsutil"
-	"github.com/ryanbekhen/armada/internal/runtime/embedded"
 )
 
 // Data directory layout. Every file holding key material is mode 0600 and
@@ -118,7 +117,7 @@ func (c agentConfig) runtimeProgram(dataDir string) string {
 	if c.RuntimeAgent == runtimeAgentGo || c.Runtime != runtimeSupervisor {
 		return ""
 	}
-	return packProgram(dataDir, embedded.BinNode)()
+	return packProgram(dataDir)()
 }
 
 // volumeAgentGo is agentConfig.VolumeAgent's value that keeps Go's code.
@@ -131,7 +130,7 @@ func (c agentConfig) volumeProgram(dataDir string) func() string {
 	if c.VolumeAgent == volumeAgentGo {
 		return nil
 	}
-	return packProgram(dataDir, embedded.BinNode)
+	return packProgram(dataDir)
 }
 
 // netAgentGo is agentConfig.NetAgent's value that keeps Go's code.
@@ -144,7 +143,7 @@ func (c agentConfig) netProgram(dataDir string) func() string {
 	if c.NetAgent == netAgentGo {
 		return nil
 	}
-	return packProgram(dataDir, embedded.BinNode)
+	return packProgram(dataDir)
 }
 
 // endpoint returns the node's mesh endpoint, or the zero address.
