@@ -185,7 +185,7 @@ func makeTar(t *testing.T, es []entry) []byte {
 	tw := tar.NewWriter(&buf)
 	for _, e := range es {
 		h := e.Header
-		if h.Uid == 0 && h.Gid == 0 && !e.rootOwned() {
+		if h.Uid == 0 && h.Gid == 0 && !e.rootOwned() && h.Typeflag != tar.TypeXGlobalHeader {
 			h.Uid, h.Gid = os.Getuid(), os.Getgid()
 		}
 		if h.Typeflag == tar.TypeReg {
@@ -219,6 +219,27 @@ func compress(t *testing.T, b []byte, mt string) []byte {
 }
 
 // node is what the comparison reads of one entry of a tree.
+// checkKnownTree checks what armada-node left for a case where it does
+// what containerd's applier did not.
+func checkKnownTree(t *testing.T, name, dir string) {
+	t.Helper()
+	tree := treeOf(t, dir)
+	want := map[string]func(map[string]node) bool{
+		// The file keeps its own mode and time; the link is the file.
+		"hardlink header": func(n map[string]node) bool {
+			f, l := n["f"], n["l"]
+			return f.Perm == 0o644 && f.Mtime == past.UnixNano() && l.ino == f.ino && l.Perm == 0o644
+		},
+		// The file the global header's name named is still there.
+		"global header": func(n map[string]node) bool { return n["f"].Size == 1 },
+		// The gzip inside was read.
+		"gzip under a plain type": func(n map[string]node) bool { return n["d"].Size == 1 },
+	}[name]
+	if want != nil && !want(tree) {
+		t.Errorf("%s: armada-node's layer: %+v", name, tree)
+	}
+}
+
 type node struct {
 	Type   fs.FileMode
 	Perm   uint32
@@ -364,6 +385,11 @@ type unpackCase struct {
 	gzip bool
 	// truncate cuts every layer's blob in half.
 	truncate bool
+	// rust is what armada-node does where containerd's applier was
+	// found wrong (Go's result is only logged): "applied", or a text
+	// its error holds for the layer at index rustLayer.
+	rust      string
+	rustLayer int
 }
 
 const ociGzip = ocispec.MediaTypeImageLayerGzip
@@ -432,7 +458,9 @@ func unpackCases() []unpackCase {
 				dirEntry("usr/", 0o711),
 			},
 		}},
-		{name: "traversal", mt: ociGzip, layers: [][]entry{
+		// containerd clamps names that climb out into the layer's root;
+		// armada-node refuses the layer.
+		{name: "traversal", mt: ociGzip, rust: `entry "../escape" leaves the layer's directory`, layers: [][]entry{
 			{
 				file("x", 0o644, "x"),
 				file("../escape", 0o644, "dotdot"),
@@ -457,8 +485,35 @@ func unpackCases() []unpackCase {
 				file("out/more", 0o644, "more"),
 			},
 		}},
-		{name: "hardlink outside", mt: ociGzip, layers: [][]entry{{hardlink("h", "../../../etc/hostname")}}},
-		{name: "hardlink to a directory", mt: ociGzip, layers: [][]entry{{hardlink("h", "../..")}}},
+		{name: "traversal resolved within", mt: ociGzip, layers: [][]entry{
+			{
+				file("x", 0o644, "x"),
+				file("/abs", 0o644, "absolute"),
+				symlink("out", "/outside-of-the-layer"),
+				file("out/file", 0o644, "through an absolute link"),
+				symlink("up", "../../.."),
+				file("up/file2", 0o644, "through a relative link"),
+				symlink("sl", "/etc/passwd"),
+				hardlink("h", "sl"),
+				hardlink("h2", "/etc/../x"),
+				symlink("s", "/etc/hostname"),
+				file("s", 0o644, "replaces the link"),
+				dirEntry("/", 0o700),
+			},
+			{
+				symlink("up2", "../../../.."),
+				file("up2/x", 0o644, "x"),
+				file("out/more", 0o644, "more"),
+			},
+		}},
+		{name: "hardlink outside", mt: ociGzip, rust: `hard link target "../../../etc/hostname" leaves the layer's directory`, layers: [][]entry{{hardlink("h", "../../../etc/hostname")}}},
+		{name: "hardlink to a directory", mt: ociGzip, rust: `hard link target "../.." leaves the layer's directory`, layers: [][]entry{{hardlink("h", "../..")}}},
+		// A hard link's own header changes nothing of the file it links
+		// to; containerd applied the link's mode and time to it.
+		{name: "hardlink header", mt: ociGzip, rust: "applied", layers: [][]entry{{file("f", 0o644, "f"), {Header: tar.Header{Typeflag: tar.TypeLink, Name: "l", Linkname: "f", Mode: 0o4777, ModTime: time.Unix(77, 0)}}}}},
+		// A global header is not an entry; containerd removed what its
+		// name named.
+		{name: "global header", mt: ociGzip, rust: "applied", layers: [][]entry{{file("f", 0o644, "f"), {Header: tar.Header{Typeflag: tar.TypeXGlobalHeader, Name: "f", PAXRecords: map[string]string{"comment": "x"}}}}}},
 		{name: "whiteout of the parent", mt: ociGzip, layers: [][]entry{{file("d/.wh..", 0o644, "")}}},
 		{name: "empty whiteout", mt: ociGzip, layers: [][]entry{{file(".wh.", 0o644, "")}}},
 		{name: "symlink loop", mt: ociGzip, layers: [][]entry{{symlink("loop", "loop"), file("loop/x", 0o644, "x")}}},
@@ -472,7 +527,9 @@ func unpackCases() []unpackCase {
 		{name: "plain", mt: ocispec.MediaTypeImageLayer, layers: [][]entry{{file("p", 0o644, "plain")}}},
 		{name: "docker gzip", mt: images.MediaTypeDockerSchema2LayerGzip, layers: [][]entry{{file("d", 0o644, "docker")}}},
 		{name: "docker plain holding gzip", mt: images.MediaTypeDockerSchema2Layer, gzip: true, layers: [][]entry{{file("d", 0o644, "docker")}}},
-		{name: "gzip under a plain type", mt: ocispec.MediaTypeImageLayer, gzip: true, layers: [][]entry{{file("d", 0o644, "x")}}},
+		// The bytes decide how a blob is read, as its diff ID is
+		// checked; containerd read it as a tar and failed.
+		{name: "gzip under a plain type", mt: ocispec.MediaTypeImageLayer, gzip: true, rust: "applied", layers: [][]entry{{file("d", 0o644, "x")}}},
 		{name: "truncated", mt: ociGzip, truncate: true, layers: [][]entry{{file("big", 0o644, strings.Repeat("x", 4096))}}},
 		{name: "owners", root: true, mt: ociGzip, layers: [][]entry{
 			{owned("root", 0, 0), owned("other", 1234, 5678), dirEntry("d/", 0o755)},
@@ -526,6 +583,23 @@ func TestArmadaNodeUnpackMatchesGo(t *testing.T) {
 				desc := ocispec.Descriptor{MediaType: c.mt, Digest: digest.FromBytes(blob), Size: int64(len(blob))}
 				gd, gerr := applyLayer(context.Background(), blobProvider{blob}, desc, gdir, goLowers)
 				rd, rerr := rustApply(t, bin, rdir, rustLowers, blob, c.mt)
+				if c.rust != "" && (c.rust == "applied" || i == c.rustLayer) {
+					// A known difference: armada-node's outcome checked,
+					// containerd's logged.
+					t.Logf("layer %d: containerd's applier gives %v (known difference)", i, gerr)
+					switch {
+					case c.rust == "applied" && rerr != "":
+						t.Fatalf("layer %d: armada-node refused: %s", i, rerr)
+					case c.rust != "applied" && !strings.Contains(rerr, c.rust):
+						t.Fatalf("layer %d: armada-node %q, want an error holding %q", i, rerr, c.rust)
+					}
+					if rerr != "" {
+						break
+					}
+					checkKnownTree(t, c.name, rdir)
+					rustLowers = append([]string{rdir}, rustLowers...)
+					continue
+				}
 				if (gerr != nil) != (rerr != "") {
 					t.Fatalf("layer %d: Go %v, armada-node %q", i, gerr, rerr)
 				}

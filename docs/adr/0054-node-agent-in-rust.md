@@ -116,7 +116,19 @@ program.
    names are resolved within the layer's directory as Go resolves them,
    and every change goes through a descriptor of its parent directory
    opened beneath that directory with no symbolic link followed, so no
-   entry writes outside it. `armada-node runtime mounts` names an image's
+   entry writes outside it. Where containerd's applier was found wrong
+   while porting, armada-node does what is right (the parity test names
+   each difference): a name or hard link target that climbs out with
+   `../` fails the layer instead of being clamped into its root; a hard
+   link takes nothing from its own header (containerd applied its owner,
+   mode, attributes, and times to the file it links to); a PAX global
+   header is skipped before its name is used (containerd removed the
+   entry it named); a blob's magic numbers decide how it is decompressed,
+   as its diff ID is checked (containerd let an uncompressed media type
+   read a gzip blob as a tar); and an extended attribute the file system
+   refuses is reported on stderr, which the agent logs, not dropped
+   silently. Sparse files stay refused in layers: their expanded size is
+   not bounded by the layer's bytes. `armada-node runtime mounts` names an image's
    lower directories in overlay's order, and `runtime prune` also removes
    layers no kept image needs. On the Go side, `supervisor.ConvertImages`
    converts a supervisor store into this layout (below); nothing calls it
