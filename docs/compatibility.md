@@ -81,7 +81,11 @@ A cluster is upgraded one machine at a time, so versions mix for a while
   restarts Armada's own services; containers keep running and are adopted
   by the new agent. A change that needs containers recreated (a new
   runtime, a new network mode) is a separate step a person takes, one
-  node or app at a time.
+  node or app at a time. An upgrade may move work between Armada's own
+  programs on a machine: supervisor nodes move to `armada-node`, whose
+  agent converts the node's image store at its start without pulling
+  images again or stopping containers
+  ([operations guide](operations.md#containers-in-armada-node)).
 - No setting changes. The container runtime, the network mode, spaces,
   roles, secrets, and specs stay as they were; new defaults apply to what
   is created after the upgrade.
@@ -112,6 +116,11 @@ Deprecated now:
   `armadad doctor` warns on nodes still on containerd, with the command
   that moves them ([operations guide](operations.md#container-runtimes)).
   containerd leaves the runtime pack in a later release.
+- **Go's code for the supervisor runtime** (`"runtimeAgent": "go"` in
+  `agent.json`). Supervisor nodes run their containers through
+  `armada-node` ([ADR 0054](adr/0054-node-agent-in-rust.md)), and
+  `armadad doctor` warns on a node kept on Go's code. It is removed once
+  every node of a cluster has moved.
 
 ## Platforms
 

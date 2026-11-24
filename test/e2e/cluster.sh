@@ -19,7 +19,7 @@ set -eu
 # Scenarios that run after the cluster is built and the test app serves.
 # E2E_ONLY=isolation,rollout runs only those (empty: all); E2E_LIST=1 lists
 # them. test/e2e/README.md says which to pick for a change.
-SCENARIOS="listeners space-secret conntrack network-key isolation load rollout agent-restart failover node-loss backup placement platforms cpu spread ip-rules plain-http sticky cors sidecars tcp queues queue-jobs volume-backups volume-failover nfs reboot"
+SCENARIOS="listeners space-secret conntrack network-key isolation load rollout agent-restart failover node-loss backup placement platforms cpu spread ip-rules plain-http sticky cors sidecars tcp queues queue-jobs volume-backups volume-failover nfs runtime-move reboot"
 E2E_ONLY=${E2E_ONLY:-}
 if [ "${E2E_LIST:-}" = 1 ]; then
 	echo "$SCENARIOS" | tr ' ' '\n'
@@ -74,6 +74,17 @@ case $E2E_NET_AGENT in
 rust | go) ;;
 *)
 	echo "e2e: E2E_NET_AGENT is '$E2E_NET_AGENT'; want rust (the default) or go" >&2
+	exit 2
+	;;
+esac
+# Supervisor machines run containers through armada-node (ADR 0054); go
+# moves every machine to Go's code (agent.json runtimeAgent) once the
+# cluster is up.
+E2E_RUNTIME_AGENT=${E2E_RUNTIME_AGENT:-rust}
+case $E2E_RUNTIME_AGENT in
+rust | go) ;;
+*)
+	echo "e2e: E2E_RUNTIME_AGENT is '$E2E_RUNTIME_AGENT'; want rust (the default) or go" >&2
 	exit 2
 	;;
 esac
@@ -421,6 +432,54 @@ grep -q "\"netAgent\": *\"go\"" "$f"'
 		i=$((i + 1))
 	done
 	ok "every machine keeps its cluster network in Go"
+fi
+
+# node_runtime NAME AGENT: NAME's agent reports it runs containers so
+# (containerd, supervisor-go, or supervisor-rust).
+node_runtime() { status | jq -e --arg node "$1" --arg agent "$2" '.nodes[] | select(.id == $node) | .runtime.agent == $agent'; }
+# all_moved: cluster status counts every node on armada-node.
+all_moved() { cli cluster status | grep -q "^runtime: $N of $N nodes on armada-node\$"; }
+# set_runtime_go N: agent.json runtimeAgent "go" on machine N.
+set_runtime_go() {
+	# shellcheck disable=SC2016 # expanded on the machine
+	on "$1" 'f=/var/lib/armada/agent.json
+if ! grep -q "\"runtimeAgent\"" "$f"; then
+	sed -i "1s/^{\$/{\n  \"runtimeAgent\": \"go\",/" "$f"
+fi
+grep -q "\"runtimeAgent\": *\"go\"" "$f"'
+}
+if [ "$E2E_RUNTIME" = embedded ]; then
+	log "every machine reports containers on containerd"
+	i=1
+	while [ "$i" -le "$N" ]; do
+		wait_for 60 "$(host "$i" 1) reports containerd" node_runtime "$(host "$i" 1)" containerd
+		i=$((i + 1))
+	done
+elif [ "$E2E_RUNTIME_AGENT" = rust ]; then
+	# The default: armada-node runs the supervisor runtime, and a fresh
+	# machine has no Go image store to convert.
+	log "every machine runs containers through armada-node"
+	i=1
+	while [ "$i" -le "$N" ]; do
+		wait_for 60 "$(host "$i" 1) reports armada-node" node_runtime "$(host "$i" 1)" supervisor-rust
+		on "$i" 'armadad doctor' 2>&1 | grep -q '^\[ok  *\] runtime-agent ' ||
+			fail "armadad doctor's runtime-agent check is not ok on $(host "$i" 1)"
+		i=$((i + 1))
+	done
+	wait_for 60 "cluster status counts every node on armada-node" all_moved
+else
+	log "every machine runs containers through Go's code"
+	i=1
+	while [ "$i" -le "$N" ]; do
+		set_runtime_go "$i" || fail "setting runtimeAgent in agent.json on $(host "$i" 1)"
+		_unit=armada-agent
+		[ "$i" -gt "$SERVERS" ] || _unit=armada-server
+		on "$i" "systemctl restart $_unit"
+		[ "$i" -gt "$SERVERS" ] || wait_for 180 "control plane has $SERVERS voting members" voting "$SERVERS"
+		wait_for 180 "all $N nodes ready" nodes_ready
+		wait_for 60 "$(host "$i" 1) reports Go's code" node_runtime "$(host "$i" 1)" supervisor-go
+		i=$((i + 1))
+	done
 fi
 
 if [ -n "$E2E_CONFORMANCE" ]; then
@@ -1627,6 +1686,95 @@ ok "replicas on different nodes share the export"
 cli app delete e2e-nfs --yes >/dev/null
 nfs_unmounted() { ! on "$N" 'grep -q " nfs4 " /proc/mounts' && ! on 1 'grep -q "/var/lib/armada/nfs" /proc/mounts'; }
 wait_for 120 "the export is unmounted once no replica uses it" nfs_unmounted
+fi
+
+if want runtime-move && [ "$E2E_RUNTIME" != embedded ] && [ "$E2E_RUNTIME_AGENT" = rust ]; then
+	# What an upgrade from a release whose supervisor runtime ran on Go's
+	# code does (ADR 0054, "The runtime's move"): the last machine runs on
+	# Go's code and makes a container from an image no other scenario uses
+	# in Go's image store, then goes back to armada-node, whose agent start
+	# converts the images (no pull again), moves the root filesystems of the
+	# containers that exist (no restart), and removes Go's store at once.
+	log "a machine moves from Go's image store to armada-node's without pulling again"
+	_name=$(host "$N" 1)
+	_unit=armada-agent
+	[ "$N" -gt "$SERVERS" ] || _unit=armada-server
+	set_runtime_go "$N" || fail "setting runtimeAgent in agent.json on $_name"
+	on "$N" "systemctl restart $_unit"
+	wait_for 180 "all $N nodes ready" nodes_ready
+	wait_for 60 "$_name reports Go's code" node_runtime "$_name" supervisor-go
+	cli node label "$_name" e2e-move=yes >/dev/null
+	cat <<'EOF' | cli app deploy e2e-move --file - >/dev/null
+name: e2e-move
+image: busybox:1.36
+command: ["sleep", "86400"]
+ingress:
+  type: none
+placement:
+  require:
+    e2e-move: ["yes"]
+EOF
+	move_running() { status | jq -e '[.apps[] | select(.name == "e2e-move") | .replicas[]? | select(.state == "running")] | length == 1'; }
+	wait_for 300 "e2e-move runs on $_name through Go's code" move_running
+	move_replica() { status | jq -r '[.apps[] | select(.name == "e2e-move") | .replicas[]? | select(.state == "running") | .id] | join(" ")'; }
+	_move_before=$(move_replica)
+	cli app exec e2e-move -- sh -c "$(q 'echo before > /moved')" || fail "writing into e2e-move's root filesystem"
+	on "$N" 'cat /var/lib/armada/supervisor/images/images.json' >"$WORK/go-images.json" ||
+		fail "Go's image store on $_name has no images"
+	jq -e 'keys | any(contains("busybox:1.36"))' "$WORK/go-images.json" >/dev/null ||
+		fail "Go's image store on $_name lacks busybox:1.36: $(jq -c keys "$WORK/go-images.json")"
+	# What armada-node's store recorded before: kept as it is, not converted.
+	on "$N" 'cat /var/lib/armada/node/images/index.json 2>/dev/null || echo "{\"images\": {}}"' >"$WORK/node-before.json"
+
+	_since=$(on "$N" 'date "+%Y-%m-%d %H:%M:%S"')
+	# Empty is the default, armada-node (and keeps agent.json valid).
+	on "$N" "sed -i 's/\"runtimeAgent\": *\"go\"/\"runtimeAgent\": \"\"/' /var/lib/armada/agent.json"
+	on "$N" "systemctl restart $_unit"
+	wait_for 180 "all $N nodes ready" nodes_ready
+	wait_for 60 "$_name reports armada-node" node_runtime "$_name" supervisor-rust
+	on "$N" "journalctl -u $_unit --since '$_since' --no-pager" >"$WORK/move.log"
+	grep "converted Go's image store into armada-node's" "$WORK/move.log" | grep -q ' skipped=0 ' ||
+		fail "no conversion with nothing left out on $_name: $(grep -i "image store" "$WORK/move.log")"
+	on "$N" 'cat /var/lib/armada/node/converted.json' >"$WORK/converted.json" || fail "no converted.json on $_name"
+	jq -e '.converted > 0 and ((.skipped // {}) | length) == 0' "$WORK/converted.json" >/dev/null ||
+		fail "converted.json on $_name: $(cat "$WORK/converted.json")"
+	ok "$_name converted $(jq -r .converted "$WORK/converted.json") images, $(jq -r .layers "$WORK/converted.json") layers and $(jq -r '.containers // 0' "$WORK/converted.json") root filesystems moved, none left out"
+	# Right after the start, before any container is replaced: Go's store
+	# is gone, the node counts as moved, and the containers made before
+	# (e2e-move, made by Go's code) still run, read, and write.
+	jq -e '.collected == true and (.containers // 0) > 0 and ((.containersLeft // {}) | length) == 0' "$WORK/converted.json" >/dev/null ||
+		fail "converted.json on $_name: $(cat "$WORK/converted.json")"
+	on "$N" 'test ! -e /var/lib/armada/supervisor/images' || fail "Go's image store is still on $_name"
+	wait_for 60 "cluster status counts every node on armada-node, $_name too" all_moved
+	[ "$(move_replica)" = "$_move_before" ] || fail "e2e-move's replica was replaced by the move"
+	[ "$(cli app exec e2e-move -- cat /moved)" = before ] || fail "e2e-move lost what it wrote before the move"
+	cli app exec e2e-move -- sh -c "$(q 'echo after > /after')" || fail "e2e-move cannot write after the move"
+	on "$N" 'grep -qx after /var/lib/armada/node/images/active/*/fs/after' ||
+		fail "e2e-move's write is not in its root filesystem's new place on $_name"
+	wait_for 60 "$APP serving" serving
+	wait_for 60 "https://$URL_HOST answers 200 on every public IP" all_https_ok
+	ok "containers made before the move keep running on $_name"
+	# Each image armada-node's store did not have keeps the record Go made
+	# when it pulled it (converted, not pulled again), also once armada-node
+	# recreated the replica.
+	same_records() {
+		on "$N" 'cat /var/lib/armada/node/images/index.json' >"$WORK/node-index.json" &&
+			jq -e --slurpfile node "$WORK/node-index.json" --slurpfile before "$WORK/node-before.json" '
+				[to_entries[] | select($before[0].images[.key] == null)] as $new
+				| ($new | any(.key | contains("busybox:1.36")))
+				  and ($new | all(.value.created == $node[0].images[.key].created))' "$WORK/go-images.json" >/dev/null
+	}
+	same_records || fail "armada-node's records on $_name are not the converted ones"
+	cli app restart e2e-move --wait >/dev/null
+	cli app restart "$APP" --wait >/dev/null
+	wait_for 300 "e2e-move runs again, recreated by armada-node" move_running
+	wait_for 300 "$APP serving" serving
+	same_records || fail "armada-node pulled an image again on $_name"
+	ok "armada-node runs $_name's containers from the converted images"
+	on "$N" 'armadad doctor' 2>&1 | grep -q '^\[ok  *\] runtime-agent ' ||
+		fail "armadad doctor's runtime-agent check is not ok on $_name"
+	cli app delete e2e-move --yes >/dev/null
+	cli node label "$_name" e2e-move- >/dev/null
 fi
 
 if [ "$E2E_REBOOT" = 1 ] && want reboot; then

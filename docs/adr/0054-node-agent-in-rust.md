@@ -185,7 +185,14 @@ program.
    or a directory that cannot be read or written) is redone by Go on the
    same streams, the failures of armada-node logged once per distinct
    error and counted (`StoodIn("exec")`). Nothing armada-node answers
-   names the command's arguments or the environment.
+   names the command's arguments or the environment. Seventh part: the
+   default. A supervisor node runs its containers through armada-node
+   whenever the pack has it; `"runtimeAgent": "go"` in `agent.json`
+   keeps Go's code while it remains (any other value, or none, is
+   armada-node; containerd nodes are not affected). The agent's start
+   moves the images (steps 1 to 3 and 5 below, step 4 not yet), and
+   `ConvertImages` no longer counts a record already in armada-node's
+   store as left out.
 
 ### The runtime's move: image store and migration
 
@@ -242,6 +249,10 @@ node's runtime converts the node while Go still ships:
    (same file system; a running container's overlay mount keeps the
    directories it was mounted with, since the kernel holds them, not their
    paths, until the container is recreated), and the index written last.
+   The root filesystem of every container that exists (its active
+   snapshot, running or not) moves too, renamed into armada-node's
+   `active/<container ID>/` with the `snapshot.json` its prepare writes,
+   so no container restarts.
 2. It verifies the result: every blob's digest, every record's manifest,
    config, and layers present, every chain ID's directory present. An
    image that cannot be converted (a blob or layer missing, a record that
@@ -250,10 +261,9 @@ node's runtime converts the node while Go still ships:
    kept, and what a left-out image brought along goes with the Rust
    store's next collection. `supervisor.ConvertImages` does steps 1 and
    2 and returns what it converted and what it left out, and why.
-3. The old store is collected once no container uses it: running
-   containers keep their root filesystems (their active snapshots) where
-   they are; each one goes with its container, and the rest of
-   `<data dir>/supervisor/images` goes with the last.
+3. The old store is removed once no container uses it, which after step 1
+   is at once: a container whose root filesystem could not move keeps it
+   until the container goes.
 4. Nodes still on the containerd runtime are moved to the supervisor
    first, automatically and one node at a time: the leader drains the
    node (its replicas start elsewhere first), the node runs `armadad
@@ -267,6 +277,74 @@ node's runtime converts the node while Go still ships:
 Go's runtime code is removed only once every node of a cluster reports
 converted; a node that has not is refused by a release without it
 (`armadad upgrade` and `armadad doctor` say why).
+
+How steps 1 to 3 and 5 are built (the seventh part of step 4 above):
+
+- Only the agent's start moves images (`containerd.Config.Agent`), never
+  a command that opens the runtime beside a running agent, such as
+  doctor. With armada-node, `supervisor.MoveImages` runs before either
+  store is opened: `ConvertImages`, then the root filesystems
+  (`moveActive`), then `<data dir>/node/converted.json` (0600: when,
+  images converted, images left out with why, layers and root
+  filesystems moved, containers left with why, and whether Go's store is
+  gone), then the removal of Go's store, then the record again with
+  `collected`. A node with no Go store gets a record at once. A
+  conversion that fails is logged, the node runs on armada-node anyway
+  (images it needs are pulled), and the next start tries again.
+  `<data dir>/node` is not in `armadad backup`.
+- `moveActive` takes every bundle (`<data dir>/supervisor/containers`)
+  whose container ID is an active snapshot in Go's overlay snapshotter.
+  Its layers not in `layers/` yet move there from their committed
+  snapshots; `snapshot.json` (`{"image", "parents"}`: the bundle's image
+  and the chain ID hexes, the top first) is written into the snapshot's
+  directory; the directory (`fs/`, `work/`) is renamed to
+  `active/<container ID>/`, the key armada-node's prepare and release
+  use for that container. A running container's overlay mount holds its
+  upper, work, and lower directories, not their paths, so it reads and
+  writes on through the renames; nothing else names them: the bundle's
+  `config.json` names its `rootfs` mount point, which does not move, and
+  `bundle remove` unmounts by it, after which armada-node's `release`
+  removes the directory like one it prepared (it keeps the layers a
+  `snapshot.json` names from collection). Crash safety needs no journal:
+  every step is found done by looking (a layer in `layers/`, a snapshot
+  directory gone from Go's store and present under `active/`), a
+  `snapshot.json` written before a rename that did not happen is written
+  again, and a record without `collected` repeats the root filesystems
+  and the removal at the next start. A container whose layer is in
+  neither store keeps Go's store (named in the record and the log).
+- Go's store is opened only when it is left, to release the root
+  filesystems of containers Go made. After each release, and at the
+  agent's start, it is removed whole once the record exists and no
+  bundle has its root filesystem in it (a moved one is under `active/`;
+  `Store.CollectGo`).
+- A node sent back to Go's code (`"runtimeAgent": "go"`) runs
+  `supervisor.RevertImages` at the agent's start. With Go's store gone
+  (the usual case), nothing comes back: Go pulls into a new store, the
+  containers made before keep running from armada-node's store, and Go
+  removes their root filesystems with them (`Store.NodeImages`). With
+  Go's store still there, every committed snapshot whose directory left
+  gets it back from `layers/`, every active snapshot of Go's metadata
+  whose directory is under `active/` is renamed back (its
+  `snapshot.json` removed), armada-node's records of images whose layers
+  left are dropped (a later move converts them again), snapshots whose
+  layers are in neither store are removed with the records of the images
+  on them (Go pulls those again). The record is removed either way.
+- Each agent reports how its node runs containers in every usage report
+  (`UsageReport.runtime`, `RuntimeStatus`: `containerd`,
+  `supervisor-go`, or `supervisor-rust`, whether anything of Go's store
+  is left, images left out and not pulled again yet, and a conversion's
+  error), read by the runtime through `runtime.AgentReporter`; older
+  agents send none. The leader keeps the latest in memory with the
+  node's usage (bounded: unknown runtimes dropped, errors cut and
+  cleaned), shows it in `NodeStatus.runtime` (`armada node show`) and
+  sums it in `ClusterStatusResponse.runtime` (`armada cluster status`:
+  `runtime: 3 of 4 nodes on armada-node; lab4 on containerd`, at most 20
+  others named). A node counts as moved once it runs on armada-node with
+  nothing of Go's store left and no image to pull again. `armadad
+  doctor`'s `runtime-agent` check says the same on the machine.
+
+Step 4 (moving containerd nodes to the supervisor automatically) and
+removing Go's runtime code come next.
 5. **Sessions and readings.** Exec, volume archives and backups (the
    repository format of ADR 0041, which the Go control plane also writes),
    NFS mounts, queue lengths, usage, and connection tracking.

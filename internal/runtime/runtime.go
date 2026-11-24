@@ -473,6 +473,47 @@ type AgentStarter interface {
 	AgentStart(ctx context.Context) error
 }
 
+// The runtimes and whose code runs them, as AgentStatus.Agent names them
+// (ADR 0054).
+const (
+	// AgentContainerd is the embedded containerd (ADR 0011).
+	AgentContainerd = "containerd"
+	// AgentSupervisorGo is the supervisor runtime through Go's code.
+	AgentSupervisorGo = "supervisor-go"
+	// AgentSupervisorRust is the supervisor runtime through the runtime
+	// pack's armada-node.
+	AgentSupervisorRust = "supervisor-rust"
+)
+
+// AgentStatus is how a node runs containers, and how its move to
+// armada-node goes (ADR 0054, "The runtime's move").
+type AgentStatus struct {
+	Agent string
+	// GoImages: Go's image store is still on the node beside
+	// armada-node's (AgentSupervisorRust).
+	GoImages bool
+	// Converted: Go's image store was converted into armada-node's, or
+	// there was none (AgentSupervisorRust).
+	Converted bool
+	// ImagesToPull counts the images the conversion left out that
+	// armada-node has not pulled again yet.
+	ImagesToPull int
+	// Error says why converting Go's image store failed at the agent's
+	// start.
+	Error string
+}
+
+// Converting reports whether anything of Go's runtime is left on an
+// AgentSupervisorRust node: its image store not converted, or still there.
+func (s AgentStatus) Converting() bool {
+	return s.Agent == AgentSupervisorRust && (s.GoImages || !s.Converted || s.Error != "")
+}
+
+// AgentReporter says how the node runs containers. It is optional.
+type AgentReporter interface {
+	RuntimeAgent() AgentStatus
+}
+
 // ImagePruner removes images nothing needs any more. It is optional.
 type ImagePruner interface {
 	// PruneImages removes every image that no container uses, that keep

@@ -322,6 +322,9 @@ func printClusterStatus(out io.Writer, r *armadav1.ClusterStatusResponse) error 
 	if b := r.ControlPlaneBackup; b != nil {
 		_, _ = fmt.Fprintf(tw, "\n%s\n", backupStatusLine(b))
 	}
+	if rt := r.Runtime; rt != nil && rt.Nodes > 0 {
+		_, _ = fmt.Fprintf(tw, "\n%s\n", runtimeLine(rt))
+	}
 	if sw := r.NetworkSwitch; sw != nil {
 		step := map[string]string{"prepare": "bringing it up beside " + sw.From, "move": "moving the routes to it"}[sw.Step]
 		_, _ = fmt.Fprintf(tw, "\nnetwork: switching from %s to %s, %s (since %s)\n", sw.From, sw.To, dash(step),
@@ -337,6 +340,41 @@ func printClusterStatus(out io.Writer, r *armadav1.ClusterStatusResponse) error 
 		}
 	}
 	return tw.Flush()
+}
+
+// runtimeLine says where the nodes' move to armada-node stands (ADR 0054).
+func runtimeLine(p *armadav1.RuntimeProgress) string {
+	line := fmt.Sprintf("runtime: %d of %d nodes on armada-node", p.Moved, p.Nodes)
+	var others []string
+	for _, o := range p.Others {
+		others = append(others, o.Node+" "+runtimeWhere(o.Status))
+	}
+	if more := int(p.OthersTotal) - len(p.Others); more > 0 {
+		others = append(others, fmt.Sprintf("and %d more", more))
+	}
+	if len(others) > 0 {
+		line += "; " + strings.Join(others, ", ")
+	}
+	return line
+}
+
+// runtimeWhere says where one node stands in the move to armada-node.
+func runtimeWhere(st *armadav1.RuntimeStatus) string {
+	switch {
+	case st == nil:
+		return "not reporting"
+	case st.Agent == "containerd":
+		return "on containerd"
+	case st.Agent == "supervisor-go":
+		return "on Go's runtime code"
+	case st.Error != "":
+		return "converting its images failed"
+	case st.Converting:
+		return "converting"
+	case st.ImagesToPull > 0:
+		return fmt.Sprintf("with %d images to pull again", st.ImagesToPull)
+	}
+	return "on armada-node"
 }
 
 // switchWait says what a network switch waits for on one node.

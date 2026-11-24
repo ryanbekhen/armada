@@ -165,6 +165,9 @@ func (s *Server) ClusterStatus(ctx context.Context, _ *armadav1.ClusterStatusReq
 			resp.NodesNotReady = append(resp.NodesNotReady, n.ID)
 		}
 	}
+	if len(nodes) > 0 {
+		resp.Runtime = s.runtimeProgress(nodes, s.now())
+	}
 	switch n, err := s.store.GetNetwork(ctx); {
 	case errors.Is(err, store.ErrNotFound):
 	case err != nil:

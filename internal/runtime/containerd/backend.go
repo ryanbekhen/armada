@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 
 	"github.com/containerd/containerd/api/services/tasks/v1"
 	"github.com/containerd/containerd/api/types/runc/options"
@@ -167,6 +169,10 @@ func (b *containerdBackend) DeleteImage(ctx context.Context, name string, wait b
 
 func (b *containerdBackend) ContentStore() content.Store { return b.c.ContentStore() }
 
+// NodeDir is armada-node's directory under the data directory: its image
+// store (images) and supervisor.MovedFile.
+const NodeDir = "node"
+
 // newSupervisorBackend opens the agent's own store (ADR 0046): images and
 // container bundles under <data dir>/supervisor, shims under <run
 // dir>/shim, all programs from the runtime pack. With cfg.NodeBin, images
@@ -174,8 +180,16 @@ func (b *containerdBackend) ContentStore() content.Store { return b.c.ContentSto
 // does the store's work (ADR 0054); Go's image store is opened only when
 // it exists, to release the root filesystems of containers Go made. When
 // cfg.NodeBin names no program, the node stays on Go's code.
+//
+// For the agent (cfg.Agent) it also moves the images between the stores
+// before opening them (ADR 0054, "The runtime's move"): with armada-node,
+// Go's store is converted into armada-node's once, and removed as soon as
+// no container uses it; with Go's code on a node armada-node ran, the
+// layers the conversion moved go back to Go's store.
 func newSupervisorBackend(cfg Config, logger string) (*supervisor.Store, error) {
 	root := filepath.Join(cfg.Paths.DataDir, "supervisor")
+	goImages := filepath.Join(root, "images")
+	moved := filepath.Join(cfg.Paths.DataDir, NodeDir, supervisor.MovedFile)
 	shim := cfg.ShimBin
 	if shim == "" {
 		shim = filepath.Join(cfg.Paths.Bin(), embedded.BinArmadaShim)
@@ -187,27 +201,68 @@ func newSupervisorBackend(cfg Config, logger string) (*supervisor.Store, error) 
 			Runc: filepath.Join(cfg.Paths.Bin(), embedded.BinRunc), Logger: logger,
 		},
 		Logs:       cfg.Paths.Logs(),
-		NodeImages: filepath.Join(cfg.Paths.DataDir, "node", "images"),
+		NodeImages: filepath.Join(cfg.Paths.DataDir, NodeDir, "images"),
 	}
 	if cfg.NodeBin != "" {
 		n, err := openNative(cfg.NodeBin, st.NodeImages)
 		if err == nil {
-			st.Native, st.Shims.Native = n, n
-			if _, err := os.Stat(filepath.Join(root, "images")); err == nil {
-				if st.Images, err = supervisor.OpenImages(filepath.Join(root, "images")); err != nil {
+			st.Native, st.Shims.Native, st.Moved = n, n, moved
+			if cfg.Agent {
+				st.MoveErr = moveImages(goImages, st.NodeImages, st.Bundles.Dir, moved)
+			}
+			if _, err := os.Stat(goImages); err == nil {
+				if st.Images, err = supervisor.OpenImages(goImages); err != nil {
 					slog.Warn("Go's image store: containers Go made keep their root filesystems until it opens", "err", err)
+				} else if cfg.Agent {
+					st.CollectGo(context.Background())
 				}
 			}
 			return st, nil
 		}
 		slog.Warn("armada-node cannot run containers; Go runs them", "err", err)
 	}
-	imgs, err := supervisor.OpenImages(filepath.Join(root, "images"))
+	if cfg.Agent {
+		if _, err := os.Stat(st.NodeImages); err == nil {
+			switch back, err := supervisor.RevertImages(context.Background(), goImages, st.NodeImages, moved); {
+			case err != nil:
+				slog.Warn("Go's image store could not take its layers back from armada-node's; Go pulls the images it misses again", "err", err)
+			case back > 0:
+				slog.Info("Go's image store took its layers back from armada-node's", "layers", back)
+			}
+		}
+	}
+	imgs, err := supervisor.OpenImages(goImages)
 	if err != nil {
 		return nil, err
 	}
 	st.Images = imgs
 	return st, nil
+}
+
+// moveImages converts Go's image store into armada-node's at the agent's
+// start, once, and logs what it did. Images it leaves out are pulled
+// again when a replica needs them.
+func moveImages(goImages, nodeImages, bundles, moved string) error {
+	before, had, _ := supervisor.ReadMoveState(moved)
+	st, sum, err := supervisor.MoveImages(context.Background(), goImages, nodeImages, bundles, moved)
+	if err != nil {
+		slog.Warn("Go's image store could not be converted into armada-node's; armada-node pulls the images it needs, and the next start tries again", "err", err)
+		return err
+	}
+	if sum != nil {
+		slog.Info("converted Go's image store into armada-node's", "converted", len(sum.Converted), "kept", len(sum.Kept), "skipped", len(st.Skipped),
+			"layers", st.Layers, "containers", st.Containers, "containersLeft", len(st.ContainersLeft))
+		for _, name := range slices.Sorted(maps.Keys(st.Skipped)) {
+			slog.Warn("image left out of the conversion; armada-node pulls it again when a replica needs it", "image", name, "reason", st.Skipped[name])
+		}
+	}
+	for _, id := range slices.Sorted(maps.Keys(st.ContainersLeft)) {
+		slog.Warn("container's root filesystem stays in Go's image store until the container goes", "container", id, "reason", st.ContainersLeft[id])
+	}
+	if st.Collected && !before.Collected && (had || sum != nil) {
+		slog.Info("Go's image store removed: no container's root filesystem is left in it", "containers", st.Containers)
+	}
+	return nil
 }
 
 // openNative opens armada-node's store when bin is a program.

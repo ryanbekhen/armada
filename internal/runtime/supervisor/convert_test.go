@@ -127,7 +127,7 @@ func TestConvertImages(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(sum.Converted) != 0 || sum.Skipped[a.Name] == "" {
+	if len(sum.Converted) != 0 || !slices.Equal(sum.Kept, []string{a.Name}) || sum.Skipped[a.Name] != "" {
 		t.Errorf("second conversion %+v", sum)
 	}
 }

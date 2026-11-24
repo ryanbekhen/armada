@@ -1015,6 +1015,8 @@ message ClusterStatusResponse {
   NetworkSwitchProgress network_switch = 11;
   // The control plane's backups (ADR 0051); unset while they are off.
   ControlPlaneBackupStatus control_plane_backup = 12;
+  // Where the nodes' move to armada-node stands (ADR 0054).
+  RuntimeProgress runtime = 13;
 }
 
 // ControlPlaneBackupStatus is how the control plane's backups to its bucket
@@ -1200,6 +1202,9 @@ message NodeStatus {
   // 0050), and whether an admin chose it (armada node relay).
   bool relay = 16;
   bool relay_pinned = 17;
+  // How the node runs containers, from its latest report (ADR 0054);
+  // unset without a recent one.
+  RuntimeStatus runtime = 18;
 }
 
 message TopRequest {
@@ -1517,6 +1522,45 @@ message UsageReport {
   // Set with peers_checked while the node's WireGuard runs in userspace
   // inside the agent because the kernel has none (ADR 0025).
   bool wireguard_userspace = 15;
+  // How the node runs containers (ADR 0054); older agents leave it unset.
+  RuntimeStatus runtime = 16;
+}
+
+// RuntimeStatus is how a node runs containers (ADR 0054, "The runtime's
+// move"): its runtime, whose code runs it, and how its move to the
+// runtime pack's armada-node goes.
+message RuntimeStatus {
+  // "containerd" (the embedded containerd), "supervisor-go" (the
+  // supervisor runtime through Go's code), or "supervisor-rust" (the
+  // supervisor runtime through armada-node).
+  string agent = 1;
+  // supervisor-rust: Go's former image store is still on the node, not
+  // converted yet, or holding the root filesystems of containers made
+  // before the move (it goes with the last of them).
+  bool converting = 2;
+  // supervisor-rust: images the conversion left out that armada-node has
+  // not pulled again yet; each is pulled when a replica needs it.
+  int32 images_to_pull = 3;
+  // Why converting Go's image store failed at the agent's start.
+  string error = 4;
+}
+
+// RuntimeProgress is where the cluster's move to armada-node stands (ADR
+// 0054): how many nodes run containers through it with nothing left of
+// Go's image store, and the others.
+message RuntimeProgress {
+  int32 nodes = 1;
+  int32 moved = 2;
+  // The nodes not moved yet, or with images to pull again (at most 20,
+  // sorted), and how many there are. A node with no recent report (not
+  // connected, or an agent older than the report) has no status.
+  repeated NodeRuntime others = 3;
+  int32 others_total = 4;
+}
+
+message NodeRuntime {
+  string node = 1;
+  RuntimeStatus status = 2;
 }
 
 // NetworkSwitchStatus is a node's side of a switch between the plain and

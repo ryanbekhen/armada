@@ -425,7 +425,11 @@ upgrades without asking.
    error. `--no-restart` restarts nothing; `armadad doctor` then warns
    (`runtime-pack`) until `armada-runtime` is restarted. It refuses to go back to an older release. On a
    machine that cannot reach GitHub, set `ARMADA_DOWNLOAD_BASE` to a
-   mirror of the release files (`https://` or `file://`).
+   mirror of the release files (`https://` or `file://`). On a supervisor
+   node whose containers Go's code ran, the restarted agent first converts
+   the image store for `armada-node` (no image is pulled again; see
+   [Containers in armada-node](#containers-in-armada-node));
+   `armada cluster status` shows how far the cluster got.
 
    When a release changes the layout of the state (the release notes say
    so), upgraded servers stand by and the servers still on the old version
@@ -1115,32 +1119,69 @@ sudo systemctl restart armada-agent           # armada-server on a control plane
 journalctl -u armada-agent | grep armada-node # nothing new after the restart
 ```
 
-### Containers in armada-node (trial)
+### Containers in armada-node
 
-On a node that runs the supervisor runtime, armada-node can also keep the
-node's images and run its containers' root filesystems, bundles, and
-`armada-shim` requests, sample what the replicas use (once per round for
-all of them), open the connections queue rules read from, and start the
-processes `armada app exec`, command probes, and queue commands run in
-containers, while the agent keeps building each container, running its
-network and logs, and carrying the input and output of every exec. It is
-off unless
-`"runtimeAgent": "rust"` is in the node's `/var/lib/armada/agent.json`.
-Drain the node first: images are pulled again into armada-node's store
-(`/var/lib/armada/node/images`) as its replicas come back.
+On a node that runs the supervisor runtime, armada-node keeps the node's
+images (`/var/lib/armada/node/images`) and runs its containers' root
+filesystems, bundles, and `armada-shim` requests, samples what the
+replicas use (once per round for all of them), opens the connections
+queue rules read from, and starts the processes `armada app exec`,
+command probes, and queue commands run in containers. The agent keeps
+building each container, running its network and logs, and carrying the
+input and output of every exec. When armada-node fails to write a bundle,
+reach a shim, sample the replicas, open a connection, or start an exec,
+the agent does it itself and logs `armada-node failed; Go did it
+instead`. Nodes on containerd are not affected: move them to the
+supervisor first (`armadad runtime migrate --to supervisor`, above).
+
+**Upgrading** a supervisor node from a release whose agent ran its
+containers needs nothing more than the upgrade. When the agent starts, it
+moves the node's image store (`/var/lib/armada/supervisor/images`) into
+armada-node's before it starts anything: blobs are linked and unpacked
+layers moved on the same file system, so no image is pulled again, and
+the root filesystem of every container on the node (the proxy's
+included, running or not) moves as it is, so no container restarts and
+nothing they wrote is lost. The old store is then removed, and the node
+counts as moved at once. The agent logs the result (`converted Go's image
+store into armada-node's`, with how many images were converted and left
+out and how many root filesystems moved) and records it in
+`/var/lib/armada/node/converted.json`. An image it cannot convert (a blob
+or layer missing) is logged with the reason and pulled again when a
+replica needs it; a container whose root filesystem cannot move (its
+layer is gone) is logged too and keeps the old store until it is
+replaced. A move cut short (a crash, a power cut) runs again at the next
+start and picks up where it stopped.
+
+Where the cluster stands:
 
 ```bash
-armada node drain NODE
-sudo sed -i '1s/^{$/{\n  "runtimeAgent": "rust",/' /var/lib/armada/agent.json
-sudo systemctl restart armada-agent           # armada-server on a control plane server
-armada node resume NODE
+armada cluster status      # runtime: 3 of 4 nodes on armada-node; lab4 on containerd
+armada node show NODE      # Runtime: supervisor, armada-node (or what is left)
+sudo armadad doctor        # runtime-agent: ok, or what to do
 ```
 
-Remove the line and restart the service to go back. When armada-node
-fails to write a bundle, reach a shim, sample the replicas, open a
-connection, or start an exec, the agent does it itself and logs
-`armada-node failed; Go did it instead`; a pack without armada-node keeps
-the node on the agent's own code.
+A node is counted once nothing of the old store is left and no image left
+out of the conversion is still to be pulled again. `armadad doctor`'s
+`runtime-agent` check warns on containerd nodes, on a node kept on the
+agent's own code, on a conversion that has not run or failed, and while
+images left out are not pulled again.
+
+While the agent's own code remains, a node can be kept on it with
+`"runtimeAgent": "go"` in its `/var/lib/armada/agent.json`, then a restart
+of its service:
+
+```bash
+sudo sed -i '1s/^{$/{\n  "runtimeAgent": "go",/' /var/lib/armada/agent.json
+sudo systemctl restart armada-agent           # armada-server on a control plane server
+```
+
+Going back works after a move too. Once the old store is gone (the usual
+case), the agent's own code starts a new one and pulls the images it
+needs as replicas are replaced; the containers made before keep running
+from armada-node's store, and their root filesystems are removed with
+them. While the old store is still there, the agent's own code takes the
+layers and root filesystems the move took from it back at its start.
+Removing the line and restarting moves the node again.
 
 ## How requests reach replicas
 

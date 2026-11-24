@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/ryanbekhen/armada/internal/backup"
+	"github.com/ryanbekhen/armada/internal/runtime/containerd"
 	"github.com/ryanbekhen/armada/internal/volbackup"
 )
 
@@ -28,6 +29,9 @@ func TestBackupCoversDataDirLayout(t *testing.T) {
 	}
 	if backup.FileNetworkKey != fileNetworkKey || slices.Contains(all, fileNetworkKey) {
 		t.Errorf("network key %q != %q, or copied", backup.FileNetworkKey, fileNetworkKey)
+	}
+	if backup.DirNode != containerd.NodeDir || slices.Contains(all, backup.DirNode) {
+		t.Errorf("armada-node's directory %q, or copied", backup.DirNode)
 	}
 	if backup.FileMeshCache != fileMeshCache || slices.Contains(all, fileMeshCache) {
 		t.Errorf("mesh peer list %q != %q, or copied", backup.FileMeshCache, fileMeshCache)

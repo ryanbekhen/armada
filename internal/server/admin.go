@@ -399,8 +399,11 @@ func (s *Server) Status(ctx context.Context, req *armadav1.StatusRequest) (*arma
 		// The node's record changes only with its status; its usage samples
 		// say when it was last heard, every few seconds.
 		lastSeen := n.LastSeen
-		if sample, ok := s.usage.node(n.ID, s.now()); ok && sample.at.After(lastSeen) {
-			lastSeen = sample.at
+		if sample, ok := s.usage.node(n.ID, s.now()); ok {
+			if sample.at.After(lastSeen) {
+				lastSeen = sample.at
+			}
+			ns.Runtime = sample.runtime
 		}
 		if !lastSeen.IsZero() {
 			ns.LastSeen = timestamppb.New(lastSeen)

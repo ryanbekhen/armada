@@ -25,9 +25,8 @@ import (
 )
 
 // The conversion of a node's images from the supervisor runtime's store
-// to the store armada-node keeps (ADR 0054, "The runtime's move"). It is
-// not called yet: the release that makes armada-node a node's runtime
-// runs it before the runtime starts.
+// to the store armada-node keeps (ADR 0054, "The runtime's move"). The
+// agent runs it before the runtime starts, through MoveImages (move.go).
 
 // nodeIndexVersion is the version of armada-node's index.json written.
 const nodeIndexVersion = 1
@@ -36,6 +35,9 @@ const nodeIndexVersion = 1
 type ConvertSummary struct {
 	// Converted lists the image names now in armada-node's store.
 	Converted []string
+	// Kept lists the image names armada-node's store already recorded
+	// (an earlier conversion, or a pull), left as they are.
+	Kept []string
 	// Skipped names each image left out, and why; it is pulled again
 	// when a replica needs it.
 	Skipped map[string]string
@@ -137,7 +139,7 @@ func ConvertImages(ctx context.Context, src, dst string) (ConvertSummary, error)
 	sort.Strings(names)
 	for _, name := range names {
 		if _, ok := idx.Images[name]; ok {
-			sum.Skipped[name] = "armada-node's store already records it"
+			sum.Kept = append(sum.Kept, name)
 			continue
 		}
 		rec, moved, err := c.convert(recs[name])
@@ -205,12 +207,21 @@ func lockFile(path string) (func(), error) {
 	}, nil
 }
 
-// committedSnapshots maps each committed snapshot's name (a chain ID) to
-// its directory, read from the overlay snapshotter's metadata.
-func committedSnapshots(ctx context.Context, root string) (map[string]string, error) {
+// goSnapshot is one snapshot of the overlay snapshotter: its directory
+// (<root>/snapshots/<id>, holding fs and, when active, work), kind, and
+// parent's name.
+type goSnapshot struct {
+	dir    string
+	kind   snapshots.Kind
+	parent string
+}
+
+// readSnapshots reads every snapshot of the overlay snapshotter under
+// root from its metadata, read-only; none when it has no metadata.
+func readSnapshots(ctx context.Context, root string) (map[string]goSnapshot, error) {
 	db := filepath.Join(root, "metadata.db")
 	if _, err := os.Stat(db); errors.Is(err, os.ErrNotExist) {
-		return map[string]string{}, nil
+		return map[string]goSnapshot{}, nil
 	}
 	ms, err := storage.NewMetaStore(db, func(o *bolt.Options) error {
 		o.ReadOnly = true
@@ -221,28 +232,42 @@ func committedSnapshots(ctx context.Context, root string) (map[string]string, er
 		return nil, err
 	}
 	defer func() { _ = ms.Close() }()
-	out := map[string]string{}
+	out := map[string]goSnapshot{}
 	err = ms.WithTransaction(ctx, false, func(ctx context.Context) error {
-		var names []string
+		var infos []snapshots.Info
 		if err := storage.WalkInfo(ctx, func(_ context.Context, info snapshots.Info) error {
-			if info.Kind == snapshots.KindCommitted {
-				names = append(names, info.Name)
-			}
+			infos = append(infos, info)
 			return nil
 		}); err != nil {
 			return err
 		}
-		for _, n := range names {
-			id, _, _, err := storage.GetInfo(ctx, n)
+		for _, info := range infos {
+			id, _, _, err := storage.GetInfo(ctx, info.Name)
 			if err != nil {
 				return err
 			}
-			out[n] = filepath.Join(root, "snapshots", id, "fs")
+			out[info.Name] = goSnapshot{dir: filepath.Join(root, "snapshots", id), kind: info.Kind, parent: info.Parent}
 		}
 		return nil
 	})
 	if err != nil {
 		return nil, fmt.Errorf("snapshots: %w", err)
+	}
+	return out, nil
+}
+
+// committedSnapshots maps each committed snapshot's name (a chain ID) to
+// its directory, read from the overlay snapshotter's metadata.
+func committedSnapshots(ctx context.Context, root string) (map[string]string, error) {
+	all, err := readSnapshots(ctx, root)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]string{}
+	for name, sn := range all {
+		if sn.kind == snapshots.KindCommitted {
+			out[name] = filepath.Join(sn.dir, "fs")
+		}
 	}
 	return out, nil
 }

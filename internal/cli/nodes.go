@@ -165,8 +165,8 @@ func newNodeCommand(g *globals) *cobra.Command {
 				exp = n.CertExpiresAt.AsTime().Local().Format(time.DateOnly)
 			}
 			tw := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
-			_, _ = fmt.Fprintf(tw, "Node:\t%s\nPrivate IP:\t%s\nSite:\t%s\nEndpoint:\t%s\nRelay:\t%s\nState:\t%s\nReplicas:\t%d\nCPU:\t%.1f\nMemory:\t%s\nVersion:\t%s\nLast seen:\t%s\nCert expires:\t%s\nLabels:\t%s\n",
-				n.Id, n.PrivateIp, cmp.Or(n.Site, "(the first site)"), nodeEndpoint(n), nodeRelay(n), nodeState(n), replicas[n.Id], float64(n.CpuMillis)/1000, humanBytes(n.MemoryBytes), orDash(n.Version), seen, exp, orDash(formatLabels(n.Labels)))
+			_, _ = fmt.Fprintf(tw, "Node:\t%s\nPrivate IP:\t%s\nSite:\t%s\nEndpoint:\t%s\nRelay:\t%s\nState:\t%s\nReplicas:\t%d\nCPU:\t%.1f\nMemory:\t%s\nVersion:\t%s\nRuntime:\t%s\nLast seen:\t%s\nCert expires:\t%s\nLabels:\t%s\n",
+				n.Id, n.PrivateIp, cmp.Or(n.Site, "(the first site)"), nodeEndpoint(n), nodeRelay(n), nodeState(n), replicas[n.Id], float64(n.CpuMillis)/1000, humanBytes(n.MemoryBytes), orDash(n.Version), nodeRuntime(n.Runtime), seen, exp, orDash(formatLabels(n.Labels)))
 			return tw.Flush()
 		},
 	}
@@ -480,6 +480,34 @@ func nodeEndpoint(n *armadav1.NodeStatus) string {
 		return "-"
 	}
 	return n.Endpoint
+}
+
+// nodeRuntime says how a node runs containers (ADR 0054).
+func nodeRuntime(st *armadav1.RuntimeStatus) string {
+	if st == nil {
+		return "-"
+	}
+	var out string
+	switch st.Agent {
+	case "containerd":
+		return "containerd (armadad runtime migrate --to supervisor moves it)"
+	case "supervisor-go":
+		return "supervisor, Go's code (agent.json runtimeAgent \"go\")"
+	case "supervisor-rust":
+		out = "supervisor, armada-node"
+	default:
+		return printable(st.Agent)
+	}
+	switch {
+	case st.Error != "":
+		out += "; converting Go's image store failed: " + printable(st.Error)
+	case st.Converting:
+		out += "; Go's image store still holds containers made before the move"
+	}
+	if st.ImagesToPull > 0 {
+		out += fmt.Sprintf("; %d images to pull again", st.ImagesToPull)
+	}
+	return out
 }
 
 // nodeRelay says whether a node relays its site's traffic between nodes

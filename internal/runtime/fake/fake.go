@@ -25,6 +25,8 @@ type Driver struct {
 	specs      map[string]runtime.ContainerSpec
 	seq        int
 	nextPort   int
+	// runtimeAgent is what RuntimeAgent says.
+	runtimeAgent runtime.AgentStatus
 
 	// PullErr, if set, is returned by Pull for matching images.
 	PullErr map[string]error
@@ -337,6 +339,21 @@ func (d *Driver) CanStats() bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	return !d.NoStats
+}
+
+// SetRuntimeAgent sets what RuntimeAgent says (ADR 0054); unset, it says
+// nothing.
+func (d *Driver) SetRuntimeAgent(s runtime.AgentStatus) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.runtimeAgent = s
+}
+
+// RuntimeAgent implements runtime.AgentReporter.
+func (d *Driver) RuntimeAgent() runtime.AgentStatus {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.runtimeAgent
 }
 
 // SetUsage sets what Stats returns for a replica's container.
