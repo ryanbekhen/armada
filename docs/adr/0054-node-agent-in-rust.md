@@ -492,6 +492,33 @@ Removing Go's runtime code comes next.
 5. **Sessions and readings.** Exec, volume archives and backups (the
    repository format of ADR 0041, which the Go control plane also writes),
    NFS mounts, queue lengths, usage, and connection tracking.
+   Second part: volume archives, the default on every node whose pack
+   has armada-node (`"volumeAgent": "go"` in `agent.json` keeps Go's
+   code while it remains). `armada-node volume archive DIR` writes a
+   volume as the gzipped tar the agent sends (the tar Go's archive/tar
+   writes for the same tree, byte for byte: USTAR while every field fits,
+   PAX records otherwise, times rounded to the second; the gzip around it
+   is the Rust library's, so the compressed bytes differ), walking it as
+   `volbackup.Walk` does: every lookup beneath the volume's directory
+   (openat2 `RESOLVE_BENEATH`, as Go's `os.Root` resolves), every entry
+   opened without blocking and refused unless it is the entry just looked
+   up, errors naming the entry quoted. `armada-node volume restore DIR`
+   reads a gzipped tar and restores it as `restoreArchive` does, with the
+   same refusals, the reserve of free space, and the swap of a new
+   directory on success; Go's gzip and tar readers are followed where
+   they decide what is accepted (a gzip trailer is checked only when a
+   read reaches it, which a restore that stops at the tar's end never
+   does). `armada-node volume size DIR...` measures volumes for usage
+   reports in one call. The agent keeps the volume session, the pause and
+   resume of the app, and the 64 KiB messages: it copies the program's
+   output to the session and the session's data to its input. A failure
+   of the session is handed to the restore on descriptor 4 before its
+   input ends, so the restore fails where Go's reader would have, rather
+   than taking an early end for the archive's end. Go does a call itself
+   when armada-node fails before the stream is touched: an archive before
+   it wrote a byte, a restore before Go handed it one (it says "ready"
+   first), and a size; past that, the bytes cannot be had again and the
+   failure is the call's. The S3 snapshot repository stays Go's for now.
 6. **The agent.** `armada-node agent`: the `Connect` session, `Hello`,
    reconciliation, probes, fencing, held replicas, jobs, init containers
    and sidecars, secret files, wake, certificates, and `agent.json`.

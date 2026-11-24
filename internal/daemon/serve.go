@@ -610,6 +610,8 @@ func runAgent(ctx context.Context, dataDir string, servers []string, proxyKind, 
 		Servers:    ac.Servers,
 		OnServers:  onServers,
 
+		VolumeProgram: ac.volumeProgram(dataDir),
+
 		UsageInterval: usageInterval,
 		Conntrack:     conntrack.New(),
 	}

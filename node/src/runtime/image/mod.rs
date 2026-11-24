@@ -49,8 +49,8 @@ mod reference;
 mod registry;
 mod snapshot;
 mod store;
-mod tar;
-mod unpack;
+pub(crate) mod tar;
+pub(crate) mod unpack;
 
 use super::{read_stdin, write_out};
 use serde::{Deserialize, Serialize};

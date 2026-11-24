@@ -1259,6 +1259,26 @@ them. While the old store is still there, the agent's own code takes the
 layers and root filesystems the move took from it back at its start.
 Removing the line and restarting moves the node again.
 
+### Volume archives in armada-node
+
+`armada volume backup` and `armada volume restore` archives, and the
+volume sizes nodes report every minute, are made by the runtime pack's
+`armada-node` on every node; the archives are the same as before, and the
+agent still carries them between the node and the client. When
+armada-node fails before any of an archive has been sent or read, the
+agent does the backup, restore, or measure itself and logs `armada-node
+failed; Go did it instead`; once part of an archive went through, the
+operation fails with the reason, and can be run again.
+
+While the agent's own code remains, a node can be kept on it with
+`"volumeAgent": "go"` in its `/var/lib/armada/agent.json`, then a restart
+of its service:
+
+```bash
+sudo sed -i '1s/^{$/{\n  "volumeAgent": "go",/' /var/lib/armada/agent.json
+sudo systemctl restart armada-agent           # armada-server on a control plane server
+```
+
 ## How requests reach replicas
 
 Every node's HAProxy serves the app's public domains and `<app>.internal`,

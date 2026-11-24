@@ -96,6 +96,12 @@ type agentConfig struct {
 	// (or the end-to-end tests' E2E_RUNTIME_AGENT=go) while Go's code
 	// remains.
 	RuntimeAgent string `json:"runtimeAgent,omitempty"`
+	// VolumeAgent "go" keeps volume archives, restores, and sizes in Go's
+	// own code; anything else, or nothing, runs them through the runtime
+	// pack's armada-node (ADR 0054 step 5), with Go's code doing a call
+	// armada-node fails before the session's stream is touched. Set by
+	// hand while Go's code remains.
+	VolumeAgent string `json:"volumeAgent,omitempty"`
 
 	// agent is set by the agent's own start: its runtime moves images
 	// between Go's store and armada-node's (containerd.Config.Agent).
@@ -113,6 +119,19 @@ func (c agentConfig) runtimeProgram(dataDir string) string {
 		return ""
 	}
 	return packProgram(dataDir, embedded.BinNode)()
+}
+
+// volumeAgentGo is agentConfig.VolumeAgent's value that keeps Go's code.
+const volumeAgentGo = "go"
+
+// volumeProgram returns the function that finds armada-node for volume
+// archives: the runtime pack's armada-node while it is there, or nil when
+// the node keeps Go's code (VolumeAgent).
+func (c agentConfig) volumeProgram(dataDir string) func() string {
+	if c.VolumeAgent == volumeAgentGo {
+		return nil
+	}
+	return packProgram(dataDir, embedded.BinNode)
 }
 
 // netAgentGo is agentConfig.NetAgent's value that keeps Go's code.
