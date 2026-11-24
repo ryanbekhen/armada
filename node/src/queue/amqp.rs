@@ -580,6 +580,100 @@ pub fn queue_length(d: &mut Dialer, raw: &str, queue: &str) -> Answer {
 mod tests {
     use super::*;
 
+    /// A broker stand-in over TLS: the handshake, a passive declare of
+    /// "jobs" holding 42 messages, and the credentials it takes.
+    fn broker(s: &mut dyn Stream) {
+        let read = |s: &mut dyn Stream| -> Option<(u16, u16, u16, Vec<u8>)> {
+            let mut head = [0u8; 7];
+            s.read_exact(&mut head).ok()?;
+            let size = u32::from_be_bytes([head[3], head[4], head[5], head[6]]) as usize;
+            let mut p = vec![0u8; size + 1];
+            s.read_exact(&mut p).ok()?;
+            let ch = u16::from_be_bytes([head[1], head[2]]);
+            let class = u16::from_be_bytes([p[0], p[1]]);
+            let method = u16::from_be_bytes([p[2], p[3]]);
+            Some((ch, class, method, p[4..size].to_vec()))
+        };
+        let mut header = [0u8; 8];
+        if s.read_exact(&mut header).is_err() || &header != b"AMQP\x00\x00\x09\x01" {
+            return;
+        }
+        let mut start = vec![0, 9];
+        longstr(&mut start, b"");
+        longstr(&mut start, b"PLAIN");
+        longstr(&mut start, b"en_US");
+        s.write_all(&method_frame(0, 10, 10, &start)).unwrap();
+        let Some((_, 10, 11, ok)) = read(s) else {
+            return;
+        };
+        if !ok.windows(14).any(|w| w == b"\0worker\0s3cret") {
+            let mut close = 403u16.to_be_bytes().to_vec();
+            let _ = shortstr(&mut close, b"ACCESS_REFUSED");
+            close.extend([0, 0, 0, 0]);
+            let _ = s.write_all(&method_frame(0, 10, 50, &close));
+            return;
+        }
+        s.write_all(&method_frame(0, 10, 30, &[0, 0, 0, 2, 0, 0, 0, 0]))
+            .unwrap();
+        let Some((_, 10, 31, _)) = read(s) else {
+            return;
+        };
+        let Some((_, 10, 40, _)) = read(s) else {
+            return;
+        };
+        s.write_all(&method_frame(0, 10, 41, &[0])).unwrap();
+        let Some((1, 20, 10, _)) = read(s) else {
+            return;
+        };
+        s.write_all(&method_frame(1, 20, 11, &[0, 0, 0, 0]))
+            .unwrap();
+        let Some((1, 50, 10, _)) = read(s) else {
+            return;
+        };
+        let mut ok = Vec::new();
+        let _ = shortstr(&mut ok, b"jobs");
+        ok.extend(42u32.to_be_bytes());
+        ok.extend(0u32.to_be_bytes());
+        s.write_all(&method_frame(1, 50, 11, &ok)).unwrap();
+        if let Some((0, 10, 50, _)) = read(s) {
+            let _ = s.write_all(&method_frame(0, 10, 51, &[]));
+        }
+    }
+
+    /// amqps:// reads through TLS verified against the machine's roots
+    /// (here the test CA), the whole handshake inside the session.
+    #[test]
+    fn amqps_reads_over_tls() {
+        use crate::queue::tests::{read_from, serve_tls, trust_test_ca};
+        trust_test_ca();
+        let port = serve_tls(broker);
+        let url = format!("amqps://worker:s3cret@mq.test:{port}/");
+        assert_eq!(
+            read_from("rabbitmq", &url, "jobs", port),
+            Answer::Length(42)
+        );
+        let port = serve_tls(broker);
+        let url = format!("amqps://worker:wrong@mq.test:{port}/");
+        assert_eq!(
+            read_from("rabbitmq", &url, "jobs", port),
+            Answer::Error(ERR_AUTH)
+        );
+        // An IP address is checked against the certificate's addresses.
+        let port = serve_tls(broker);
+        let url = format!("amqps://worker:s3cret@127.0.0.1:{port}/");
+        assert_eq!(
+            read_from("rabbitmq", &url, "jobs", port),
+            Answer::Length(42)
+        );
+        // The certificate does not name this host.
+        let port = serve_tls(broker);
+        let url = format!("amqps://worker:s3cret@other.test:{port}/");
+        assert_eq!(
+            read_from("rabbitmq", &url, "jobs", port),
+            Answer::Error(ERR_DIAL)
+        );
+    }
+
     #[test]
     fn uris_as_go() {
         let u = parse_uri("amqps://bob@mq.local:5673/%2Fprod?heartbeat=5&channel_max=9").unwrap();
