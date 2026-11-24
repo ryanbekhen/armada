@@ -177,9 +177,8 @@ program.
    terminal and its size changes, the drain of output after the process
    ends, and cleanup are the agent's own code on the same process, and
    runc gets the same streams, descriptors, session, signal mask, and
-   environment as when Go starts it. Moving the copying and draining as
-   well would mean handing the streams back and forth with nothing
-   gained until the agent's session itself moves. A runc that cannot be
+   environment as when Go starts it. (Step 5's last part replaced this
+   start with the whole session in armada-node.) A runc that cannot be
    run is answered with its errno and becomes Go's error for it; a
    failure before that (no answer, an unreadable answer, a `config.json`
    or a directory that cannot be read or written) is redone by Go on the
@@ -551,7 +550,7 @@ Removing Go's runtime code comes next.
    it wrote a byte, a restore before Go handed it one (it says "ready"
    first), and a size; past that, the bytes cannot be had again and the
    failure is the call's.
-   Last part: volume backups to S3-compatible buckets (ADR 0041), on the
+   Third part: volume backups to S3-compatible buckets (ADR 0041), on the
    same knob as archives. `armada-node volume snapshot`, `prune`,
    `snapshots`, and `restore-snapshot` do what volbackup's Backup, Prune,
    Snapshots, and Restore do, in the same repository: the same `config`,
@@ -578,8 +577,39 @@ Removing Go's runtime code comes next.
    "touched" before its first write to the bucket or the volume; Go does
    a call itself when armada-node failed before that, never after. The
    control plane's backups (ADR 0051) stay with the control plane, in
-   Go. Usage sampling (`runtime stats`) moved with step 4; exec's
-   sessions are the next part.
+   Go. Usage sampling (`runtime stats`) moved with step 4.
+   Last part: exec's sessions, on the runtime's knob, for every exec
+   the driver runs (`armada app exec`, command probes, `queue` rules,
+   and the exec into system containers). The agent keeps the gRPC
+   session, auditing, its limits, and the caller's context; it hands
+   `armada-node runtime exec` the request on descriptor 3 (never on the
+   command line), a control socket on descriptor 4, and a pipe for each
+   stream the caller has (input on 5, output on 6, error output on 7).
+   armada-node writes `process.json` as before, starts `runc exec`
+   with Go's arguments on pipes of its own or on a pseudo-terminal it
+   makes as Go does (runc's controlling terminal in a session of its
+   own, sized before the start), and says "spawned". From then on it
+   does what Go's process and drain did: it copies the caller's input
+   to runc (its end closes runc's pipe, or is an end-of-transmission
+   character on a terminal) and runc's output to the agent's pipes,
+   which are the output's activity; it reads the pid file as the
+   start's wait does (ten seconds at most), changes the terminal's size
+   and kills the process and runc when the agent asks, waits for runc
+   (a signal as 128 plus its number), keeps copying a terminal's output
+   while it moves (two seconds of quiet end it, even while a child
+   holds the terminal), removes the exec's directory, says "exit" with
+   the code, keeps copying the output while it moves (the drain's grace)
+   and says "drained". The agent keeps the timers that belong to the
+   caller and words the outcome as before: the context's error before
+   the exit, "exec output cut short" with the exit code when the context
+   ends during the drain, the cleanup's kill and its five seconds, and
+   closing the control socket, which armada-node reads as giving up:
+   runc killed, nothing more copied. Go runs the session itself, with
+   its own process and FIFOs, only when armada-node failed before it
+   said "spawned" (logged once per distinct failure, counted with
+   `StoodIn`), so no byte of the caller's has moved; after that a
+   failure is the call's. Nothing armada-node answers names the
+   arguments or the environment.
 6. **The agent.** `armada-node agent`: the `Connect` session, `Hello`,
    reconciliation, probes, fencing, held replicas, jobs, init containers
    and sidecars, secret files, wake, certificates, and `agent.json`.

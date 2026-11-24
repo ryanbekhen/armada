@@ -1,32 +1,44 @@
-//! Starting `runc exec` for a process in a container, as the supervisor
-//! runtime's execProcess.Start does (internal/runtime/supervisor/exec.go):
-//! the process spec is the container's own (its config.json) with the
-//! arguments, terminal, and console size ExecApp sets, written 0600 as
-//! process.json in a directory of its own, and runc runs with the same
-//! arguments. This process then becomes runc (execve), so the Go agent
-//! that started it, with the standard streams and controlling terminal
-//! runc gets, waits for, signals, and reads runc itself as it does when it
-//! starts runc: exit codes, kills, the terminal and its size changes, and
-//! draining stay Go's code on the same process.
+//! An exec's session in a container (ADR 0054 step 5, last part): what
+//! the supervisor runtime's execProcess (internal/runtime/supervisor/
+//! exec.go) and the driver's drain (ExecApp's drainIO, internal/runtime/
+//! containerd/exec.go) do in Go. The process spec is the container's own
+//! (its config.json) with the arguments, terminal, and console size the
+//! exec sets, written 0600 as process.json in a directory of its own;
+//! runc exec runs with Go's arguments on a pseudo-terminal (its
+//! controlling terminal, in a session of its own) or on pipes, and this
+//! process copies between them and the agent's streams, waits for runc,
+//! keeps copying the output after it ended while the output moves (the
+//! terminal's grace, then the drain's), and removes the directory.
 //!
-//! The request comes on descriptor 3 (it holds the command's arguments,
-//! so it is never on the command line), the answer goes to descriptor 4,
-//! which closes on exec: `exec\n` alone is a start, `exec\n` followed by
-//! `{"execErrno"}` an exec of runc that failed (Go's start error),
-//! `{"redo"}` a failure Go words itself by doing the start, and
-//! `{"error"}` armada-node failing. Nothing is written to the standard
-//! streams, which are the caller's, and neither arguments nor the
-//! environment appear in any answer.
+//! Descriptors from the agent: 3 the request (it holds the command's
+//! arguments, so it is never on the command line), 4 the control socket,
+//! 5 the caller's input, 6 its output, 7 its error output (each only when
+//! the caller has one). The control socket carries one JSON object per
+//! line. From here: {"spawned"} once runc runs (every failure after it is
+//! the call's), {"execErrno"} for a runc that could not be run (Go's
+//! start error), {"redo"} for a failure Go words itself by doing the
+//! session, {"error"} for armada-node failing; then {"started"} or
+//! {"notStarted"} (execProcess.Start's nil or its ten-second error),
+//! {"exit"} once done, and {"drained"} at the output's end. From the
+//! agent: {"resize": {"width", "height"}}, {"kill": true} (the cleanup's
+//! SIGKILL), and {"abandon": true}, which the socket's end also means.
+//! Nothing but the exec's output reaches the caller's streams, and
+//! neither arguments nor the environment appear in any answer.
 
 use super::super::spec::to_go_json;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use std::fs::File;
-use std::io::{Read, Write};
-use std::os::fd::FromRawFd;
+use std::io::{BufRead, BufReader, Read, Write};
+use std::os::fd::{AsRawFd, FromRawFd};
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+use std::os::unix::net::UnixStream;
 use std::os::unix::process::CommandExt;
 use std::path::Path;
+use std::process::Stdio;
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
+use std::sync::{Arc, Condvar, Mutex};
+use std::time::{Duration, Instant};
 
 /// What `runtime exec` reads on descriptor 3.
 #[derive(Deserialize, Default)]
@@ -42,6 +54,17 @@ pub struct ExecRequest {
     pub terminal: bool,
     #[serde(rename = "consoleSize")]
     pub console_size: Option<ConsoleBox>,
+    /// Which of the caller's streams the agent passed (5, 6, 7).
+    pub stdin: bool,
+    pub stdout: bool,
+    pub stderr: bool,
+    /// The drain's grace (ExecApp's ioDrainGrace); 0 copies the output
+    /// to its end (the driver's Exec of system containers).
+    #[serde(rename = "drainGraceMs")]
+    pub drain_grace_ms: u64,
+    /// execProcess's terminalDrainGrace.
+    #[serde(rename = "terminalDrainGraceMs")]
+    pub terminal_drain_grace_ms: u64,
 }
 
 /// specs.Box.
@@ -240,44 +263,333 @@ pub fn prepare(r: &ExecRequest) -> Prepared {
     Prepared::Ready
 }
 
-fn answer(to: &mut File, v: serde_json::Value) {
-    let _ = to.write_all(&to_go_json(&v));
+/// What the agent asks for on the control socket, one JSON object per
+/// line: a size change of the terminal, the kill of the exec's cleanup
+/// (execProcess.Kill with SIGKILL), or the end of the session
+/// (execProcess.abandon; also the socket's end).
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct Control {
+    resize: Option<Size>,
+    kill: bool,
+    abandon: bool,
 }
 
-/// armada-node runtime exec: becomes runc, or answers why not and exits.
+#[derive(Deserialize, Default, Clone, Copy)]
+#[serde(default)]
+struct Size {
+    width: u32,
+    height: u32,
+}
+
+/// What the main loop waits for.
+enum Event {
+    /// runc ended, with its exit code (128 plus a signal's number).
+    Exited(i32),
+    /// One of the output copies ended (its source's end, or a write
+    /// that failed or was refused).
+    CopyDone,
+    Control(Control),
+    /// The agent closed the control socket.
+    ControlEnd,
+}
+
+/// The exec's output: writes to the agent's pipes count as activity, as
+/// runtime.OutputActivity counts writes to the caller's writers, and once
+/// stopped nothing more is written (the caller's cio cancelled, or the
+/// terminal closed).
+struct Output {
+    state: Mutex<OutputState>,
+    changed: Condvar,
+}
+
+struct OutputState {
+    writing: usize,
+    last: Option<Instant>,
+    stopped: bool,
+}
+
+impl Output {
+    fn new() -> Self {
+        Output {
+            state: Mutex::new(OutputState {
+                writing: 0,
+                last: None,
+                stopped: false,
+            }),
+            changed: Condvar::new(),
+        }
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, OutputState> {
+        self.state.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Writes b whole to dst unless the output stopped; false ends the
+    /// copy.
+    fn write(&self, dst: &mut File, b: &[u8]) -> bool {
+        {
+            let mut s = self.lock();
+            if s.stopped {
+                return false;
+            }
+            s.writing += 1;
+        }
+        let ok = dst.write_all(b).is_ok();
+        let mut s = self.lock();
+        s.writing -= 1;
+        s.last = Some(Instant::now());
+        self.changed.notify_all();
+        ok
+    }
+
+    /// OutputActivity.quietFor.
+    fn quiet_for(&self, start: Instant) -> Duration {
+        let s = self.lock();
+        if s.writing > 0 {
+            return Duration::ZERO;
+        }
+        let last = match s.last {
+            Some(l) if l > start => l,
+            _ => start,
+        };
+        last.elapsed()
+    }
+
+    /// Stops the output and waits for a write in progress to end (the
+    /// write a copy Go cancels still finishes).
+    fn stop(&self) {
+        let mut s = self.lock();
+        s.stopped = true;
+        while s.writing > 0 {
+            s = self.changed.wait(s).unwrap_or_else(|e| e.into_inner());
+        }
+    }
+}
+
+/// OutputActivity.WaitQuiet's timer: due once no output has moved for
+/// grace, counted from the start at the earliest, checking at least
+/// every grace/4 while output moves.
+struct Quiet {
+    start: Instant,
+    grace: Duration,
+    check: Instant,
+}
+
+impl Quiet {
+    fn new(grace: Duration) -> Self {
+        let start = Instant::now();
+        Quiet {
+            start,
+            grace,
+            check: start + grace,
+        }
+    }
+
+    /// At its check time: true when quiet for the grace, else the next
+    /// check is set.
+    fn due(&mut self, out: &Output) -> bool {
+        let quiet = out.quiet_for(self.start);
+        if quiet >= self.grace {
+            return true;
+        }
+        self.check = Instant::now() + (self.grace - quiet).max(self.grace / 4);
+        false
+    }
+}
+
+/// How long the process may take to start (execProcess.Start).
+const START_LIMIT: Duration = Duration::from_secs(10);
+/// How often the pid file is read while it starts.
+const START_POLL: Duration = Duration::from_millis(10);
+
+/// The pid runc wrote, else 0 (execProcess.Pid).
+fn exec_pid(dir: &str) -> u32 {
+    let Ok(b) = std::fs::read(Path::new(dir).join("pid")) else {
+        return 0;
+    };
+    let t = crate::gostr::trim_space(&b);
+    std::str::from_utf8(t)
+        .ok()
+        .and_then(|s| crate::gostr::parse_uint(s, 32).ok())
+        .map_or(0, |n| n as u32)
+}
+
+/// runc, reaped once: a kill after that reaches no other process.
+struct Runc {
+    pid: libc::pid_t,
+    reaped: Mutex<bool>,
+}
+
+impl Runc {
+    fn kill(&self) {
+        let reaped = self.reaped.lock().unwrap_or_else(|e| e.into_inner());
+        if !*reaped {
+            // SAFETY: a child not reaped yet, so the pid is still runc's.
+            unsafe { libc::kill(self.pid, libc::SIGKILL) };
+        }
+    }
+
+    /// Waits for runc to end without reaping it, then reaps it under the
+    /// lock kill takes. The code is exitCode's: 128 plus a signal's
+    /// number, else the exit status.
+    fn wait(&self) -> i32 {
+        loop {
+            // SAFETY: waitid with WNOWAIT on this process's child, into a
+            // zeroed local.
+            let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
+            let r = unsafe {
+                libc::waitid(
+                    libc::P_PID,
+                    self.pid as libc::id_t,
+                    &mut info,
+                    libc::WEXITED | libc::WNOWAIT,
+                )
+            };
+            if r == 0 || std::io::Error::last_os_error().raw_os_error() != Some(libc::EINTR) {
+                break;
+            }
+        }
+        let mut reaped = self.reaped.lock().unwrap_or_else(|e| e.into_inner());
+        let mut status = 0;
+        loop {
+            // SAFETY: waitpid on this process's child.
+            let r = unsafe { libc::waitpid(self.pid, &mut status, 0) };
+            if r >= 0 || std::io::Error::last_os_error().raw_os_error() != Some(libc::EINTR) {
+                break;
+            }
+        }
+        *reaped = true;
+        if libc::WIFSIGNALED(status) {
+            128 + libc::WTERMSIG(status)
+        } else {
+            libc::WEXITSTATUS(status)
+        }
+    }
+}
+
+/// Reads src to its end (or an error) and writes it out, counting.
+fn copy_out(mut src: impl Read, mut dst: File, out: Arc<Output>, tx: Sender<Event>) {
+    let mut buf = vec![0u8; 32 * 1024];
+    loop {
+        match src.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => {
+                if !out.write(&mut dst, &buf[..n]) {
+                    break;
+                }
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(_) => break,
+        }
+    }
+    drop(dst);
+    let _ = tx.send(Event::CopyDone);
+}
+
+/// Copies the caller's input to runc's, then ends it: the pipe closed, or
+/// on a terminal an end-of-transmission character, as a terminal sends
+/// for Ctrl-D (written even after a failed copy, as Go writes it).
+fn copy_in(mut src: File, mut dst: impl Write, eot: bool) {
+    let _ = std::io::copy(&mut src, &mut dst);
+    if eot {
+        let _ = dst.write_all(&[4]);
+    }
+}
+
+/// A pseudo-terminal as console.NewPty makes it: /dev/ptmx opened
+/// without becoming the controlling terminal, unlocked, and its other end
+/// opened the same way.
+fn open_pty() -> std::io::Result<(File, File)> {
+    // SAFETY: open of a constant path; the descriptor is owned below.
+    let fd = unsafe {
+        libc::open(
+            c"/dev/ptmx".as_ptr(),
+            libc::O_RDWR | libc::O_NOCTTY | libc::O_CLOEXEC,
+        )
+    };
+    if fd < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    // SAFETY: a descriptor just opened.
+    let master = unsafe { File::from_raw_fd(fd) };
+    let mut unlock: libc::c_int = 0;
+    let mut n: libc::c_uint = 0;
+    // SAFETY: ioctls on the master with pointers to locals.
+    if unsafe { libc::ioctl(fd, libc::TIOCSPTLCK, &mut unlock) } != 0
+        || unsafe { libc::ioctl(fd, libc::TIOCGPTN, &mut n) } != 0
+    {
+        return Err(std::io::Error::last_os_error());
+    }
+    let slave = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .custom_flags(libc::O_NOCTTY)
+        .open(format!("/dev/pts/{n}"))?;
+    Ok((master, slave))
+}
+
+/// console's Resize: each side at most 65535.
+fn resize(pty: &File, s: Size) {
+    let ws = libc::winsize {
+        ws_row: s.height.min(65535) as u16,
+        ws_col: s.width.min(65535) as u16,
+        ws_xpixel: 0,
+        ws_ypixel: 0,
+    };
+    // SAFETY: TIOCSWINSZ on the master with a pointer to a local.
+    unsafe { libc::ioctl(pty.as_raw_fd(), libc::TIOCSWINSZ, &ws) };
+}
+
+/// The session's answers to the agent, one JSON object per line.
+struct Answers(UnixStream);
+
+impl Answers {
+    fn send(&mut self, v: serde_json::Value) {
+        let mut b = to_go_json(&v);
+        b.push(b'\n');
+        let _ = self.0.write_all(&b);
+    }
+}
+
+/// Takes descriptor fd when the agent passed it, closed on exec.
+fn take_fd(fd: i32) -> Option<File> {
+    // SAFETY: F_SETFD on a descriptor number; EBADF when it is not open.
+    if unsafe { libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC) } != 0 {
+        return None;
+    }
+    // SAFETY: an open descriptor the agent passed, owned from here.
+    Some(unsafe { File::from_raw_fd(fd) })
+}
+
+/// armada-node runtime exec: runs the exec's session (execProcess and
+/// ExecApp's drain in Go) and exits.
 pub fn exec_command() -> ! {
     // A panic's message could carry what it was handling: a fixed text
-    // goes to the answer, nothing to the caller's streams.
+    // goes to the agent, nothing to the caller's streams.
     std::panic::set_hook(Box::new(|_| {
-        // SAFETY: descriptor 4 is the answer pipe; written, never closed.
+        // SAFETY: descriptor 4 is the control socket; written, never
+        // closed here.
         let mut f = std::mem::ManuallyDrop::new(unsafe { File::from_raw_fd(4) });
-        let _ = f.write_all(br#"{"error":"armada-node panicked"}"#);
+        let _ = f.write_all(b"{\"error\":\"armada-node panicked\"}\n");
     }));
     let mut buf = Vec::new();
-    {
-        // SAFETY: descriptor 3 is the request pipe the agent passed, owned
-        // and closed here.
-        let mut req = unsafe { File::from_raw_fd(3) };
+    if let Some(mut req) = take_fd(3) {
         let _ = req.read_to_end(&mut buf);
     }
-    // SAFETY: descriptor 4 is the answer pipe the agent passed.
-    let mut ans = unsafe { File::from_raw_fd(4) };
-    // Closed when this process becomes runc, so the agent reads the end.
-    // SAFETY: F_SETFD on a descriptor this process holds.
-    if unsafe { libc::fcntl(4, libc::F_SETFD, libc::FD_CLOEXEC) } != 0 {
-        answer(
-            &mut ans,
-            serde_json::json!({ "error": "set close-on-exec on the answer" }),
-        );
+    let Some(ctl) = take_fd(4) else {
         std::process::exit(1);
-    }
+    };
+    let ctl = UnixStream::from(std::os::fd::OwnedFd::from(ctl));
+    let streams = [take_fd(5), take_fd(6), take_fd(7)];
+    let Ok(answers) = ctl.try_clone() else {
+        std::process::exit(1);
+    };
+    let mut ans = Answers(answers);
     let r: ExecRequest = match serde_json::from_slice(&buf) {
         Ok(r) => r,
         Err(_) => {
-            answer(
-                &mut ans,
-                serde_json::json!({ "error": "unreadable request" }),
-            );
+            ans.send(serde_json::json!({ "error": "unreadable request" }));
             std::process::exit(1);
         }
     };
@@ -285,24 +597,367 @@ pub fn exec_command() -> ! {
     match prepare(&r) {
         Prepared::Ready => {}
         Prepared::Redo(e) => {
-            answer(&mut ans, serde_json::json!({ "redo": e }));
+            ans.send(serde_json::json!({ "redo": e }));
             std::process::exit(1);
         }
         Prepared::Error(e) => {
-            answer(&mut ans, serde_json::json!({ "error": e }));
+            ans.send(serde_json::json!({ "error": e }));
             std::process::exit(1);
         }
     }
-    let _ = ans.write_all(b"exec\n");
-    // The streams, the controlling terminal, the environment, and the
-    // working directory are this process's, which the agent set up as for
-    // runc.
-    let err = std::process::Command::new(&r.runc)
-        .args(runc_args(&r))
-        .exec();
-    let errno = err.raw_os_error().unwrap_or(libc::EINVAL);
-    answer(&mut ans, serde_json::json!({ "execErrno": errno }));
-    std::process::exit(1);
+    start(r, ctl, ans, streams)
+}
+
+/// Starts runc on its streams and the copies between them and the
+/// agent's, then runs the session.
+fn start(r: ExecRequest, ctl: UnixStream, mut ans: Answers, fds: [Option<File>; 3]) -> ! {
+    let [stdin, stdout, stderr] = fds;
+    let stdin = stdin.filter(|_| r.stdin);
+    let stdout = stdout.filter(|_| r.stdout);
+    let stderr = stderr.filter(|_| r.stderr && !r.terminal);
+    let mut cmd = std::process::Command::new(&r.runc);
+    cmd.args(runc_args(&r));
+    let mut pty = None;
+    if r.terminal {
+        let (master, slave) = match open_pty() {
+            Ok(p) => p,
+            Err(e) => {
+                ans.send(serde_json::json!({ "redo": format!("open a terminal: {e}") }));
+                std::process::exit(1);
+            }
+        };
+        if let Some(s) = r.console_size {
+            resize(
+                &master,
+                Size {
+                    width: s.width.min(u64::from(u32::MAX)) as u32,
+                    height: s.height.min(u64::from(u32::MAX)) as u32,
+                },
+            );
+        }
+        let (Ok(a), Ok(b)) = (slave.try_clone(), slave.try_clone()) else {
+            ans.send(serde_json::json!({ "redo": "duplicate the terminal" }));
+            std::process::exit(1);
+        };
+        cmd.stdin(a).stdout(b).stderr(slave);
+        // runc's own session with the terminal as its controlling
+        // terminal, as Go's Setsid and Setctty give it.
+        // SAFETY: only async-signal-safe calls between fork and exec.
+        unsafe {
+            cmd.pre_exec(|| {
+                if libc::setsid() < 0 || libc::ioctl(0, libc::TIOCSCTTY, 1) != 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+        pty = Some(Arc::new(master));
+    } else {
+        let piped = |on: bool| if on { Stdio::piped() } else { Stdio::null() };
+        cmd.stdin(piped(stdin.is_some()))
+            .stdout(piped(stdout.is_some()))
+            .stderr(piped(stderr.is_some()));
+    }
+    let mut child = match cmd.spawn() {
+        Ok(c) => c,
+        Err(e) => {
+            let errno = e.raw_os_error().unwrap_or(libc::EINVAL);
+            ans.send(serde_json::json!({ "execErrno": errno }));
+            std::process::exit(1);
+        }
+    };
+    // Only runc holds the terminal's other end now.
+    drop(cmd);
+    ans.send(serde_json::json!({ "spawned": true }));
+
+    let (tx, rx) = mpsc::channel();
+    let out = Arc::new(Output::new());
+    let mut copies = 0;
+    if let Some(master) = &pty {
+        if let Some(src) = stdin {
+            let m = Arc::clone(master);
+            std::thread::spawn(move || copy_in(src, &*m, true));
+        }
+        if let Some(dst) = stdout {
+            let (m, o, t) = (Arc::clone(master), Arc::clone(&out), tx.clone());
+            copies += 1;
+            std::thread::spawn(move || copy_out(&*m, dst, o, t));
+        }
+    } else {
+        if let (Some(src), Some(dst)) = (stdin, child.stdin.take()) {
+            std::thread::spawn(move || copy_in(src, dst, false));
+        }
+        let sources: [Option<Box<dyn Read + Send>>; 2] = [
+            child.stdout.take().map(|s| Box::new(s) as _),
+            child.stderr.take().map(|s| Box::new(s) as _),
+        ];
+        for (dst, src) in [stdout, stderr].into_iter().zip(sources) {
+            if let (Some(dst), Some(src)) = (dst, src) {
+                let (o, t) = (Arc::clone(&out), tx.clone());
+                copies += 1;
+                std::thread::spawn(move || copy_out(src, dst, o, t));
+            }
+        }
+    }
+    let runc = Arc::new(Runc {
+        pid: child.id() as libc::pid_t,
+        reaped: Mutex::new(false),
+    });
+    drop(child);
+    {
+        let (runc, tx) = (Arc::clone(&runc), tx.clone());
+        std::thread::spawn(move || {
+            let code = runc.wait();
+            let _ = tx.send(Event::Exited(code));
+        });
+    }
+    {
+        let tx = tx.clone();
+        std::thread::spawn(move || {
+            let mut lines = BufReader::new(ctl);
+            let mut line = Vec::new();
+            loop {
+                line.clear();
+                match lines.read_until(b'\n', &mut line) {
+                    Ok(0) | Err(_) => break,
+                    Ok(_) => {
+                        if let Ok(c) = serde_json::from_slice::<Control>(&line) {
+                            let _ = tx.send(Event::Control(c));
+                        }
+                    }
+                }
+            }
+            let _ = tx.send(Event::ControlEnd);
+        });
+    }
+    drop(tx);
+    let now = Instant::now();
+    Session {
+        r,
+        ans,
+        out,
+        runc,
+        pty,
+        copies,
+        started: false,
+        start_deadline: now + START_LIMIT,
+        next_poll: now,
+        code: 0,
+        done: false,
+        end_copy: false,
+        pty_closed: false,
+        terminal_drain: None,
+        drain: None,
+        abandoned: false,
+    }
+    .run(rx)
+}
+
+/// The session's state: execProcess's (started, done, the terminal and
+/// its drain, killRunc's end of the copy) and ExecApp's drain.
+struct Session {
+    r: ExecRequest,
+    ans: Answers,
+    out: Arc<Output>,
+    runc: Arc<Runc>,
+    pty: Option<Arc<File>>,
+    /// Output copies still running.
+    copies: usize,
+    started: bool,
+    start_deadline: Instant,
+    next_poll: Instant,
+    code: i32,
+    done: bool,
+    end_copy: bool,
+    pty_closed: bool,
+    terminal_drain: Option<Quiet>,
+    /// ExecApp's drain once done; None with no grace (to the end).
+    drain: Option<Quiet>,
+    abandoned: bool,
+}
+
+impl Session {
+    fn run(mut self, rx: Receiver<Event>) -> ! {
+        if exec_pid(&self.r.dir) != 0 {
+            self.start_answer("started");
+        } else {
+            self.next_poll = Instant::now() + START_POLL;
+        }
+        loop {
+            let wake = [
+                (!self.started).then_some(self.next_poll),
+                self.terminal_drain.as_ref().map(|q| q.check),
+                self.drain.as_ref().map(|q| q.check),
+            ]
+            .into_iter()
+            .flatten()
+            .min();
+            let ev = match wake {
+                Some(at) => match rx.recv_timeout(at.saturating_duration_since(Instant::now())) {
+                    Ok(ev) => Some(ev),
+                    Err(RecvTimeoutError::Timeout) => None,
+                    Err(RecvTimeoutError::Disconnected) => std::process::exit(1),
+                },
+                None => match rx.recv() {
+                    Ok(ev) => Some(ev),
+                    Err(_) => std::process::exit(1),
+                },
+            };
+            match ev {
+                Some(Event::Exited(code)) => self.exited(code),
+                Some(Event::CopyDone) => {
+                    self.copies = self.copies.saturating_sub(1);
+                    if self.copies == 0 {
+                        if self.terminal_drain.take().is_some() {
+                            self.close_pty();
+                            self.finish();
+                        } else if self.done {
+                            self.drained();
+                        }
+                    }
+                }
+                Some(Event::Control(c)) => {
+                    if let (Some(s), Some(p), false) = (c.resize, &self.pty, self.pty_closed) {
+                        resize(p, s);
+                    }
+                    if c.kill {
+                        self.kill();
+                    }
+                    if c.abandon {
+                        self.abandon();
+                    }
+                }
+                Some(Event::ControlEnd) => self.abandon(),
+                None => {}
+            }
+            let now = Instant::now();
+            if !self.started && now >= self.next_poll {
+                // Start's loop: after each wait the deadline, then the
+                // pid file.
+                if now > self.start_deadline {
+                    self.start_answer("notStarted");
+                } else if exec_pid(&self.r.dir) != 0 {
+                    self.start_answer("started");
+                } else {
+                    self.next_poll = now + START_POLL;
+                }
+            }
+            if self.terminal_drain.as_ref().is_some_and(|q| now >= q.check) {
+                let mut q = self.terminal_drain.take().expect("checked");
+                if q.due(&self.out) {
+                    self.close_pty();
+                    self.finish();
+                } else {
+                    self.terminal_drain = Some(q);
+                }
+            }
+            if let Some(q) = self.drain.as_mut().filter(|q| now >= q.check)
+                && q.due(&self.out)
+            {
+                self.drained();
+            }
+        }
+    }
+
+    /// What Start returned: nil ("started") or its timeout ("notStarted").
+    fn start_answer(&mut self, what: &str) {
+        self.started = true;
+        self.ans.send(serde_json::json!({ what: true }));
+    }
+
+    fn exited(&mut self, code: i32) {
+        self.code = code;
+        if self.pty.is_some() && self.copies > 0 && !self.end_copy {
+            // What runc wrote to the terminal before it exited may still
+            // be on its way: copied until its end, until no output has
+            // moved for the grace (something runc left holds the
+            // terminal), or until a kill ends the copy.
+            self.terminal_drain = Some(Quiet::new(Duration::from_millis(
+                self.r.terminal_drain_grace_ms,
+            )));
+        } else {
+            self.close_pty();
+            self.finish();
+        }
+    }
+
+    /// Closing the terminal: no more of its output is copied, and its
+    /// size no longer changes. It closes when this process exits.
+    fn close_pty(&mut self) {
+        if self.pty.is_some() && !self.pty_closed {
+            self.pty_closed = true;
+            self.out.stop();
+            self.copies = 0;
+        }
+    }
+
+    /// execProcess's done: the directory removed and the exit code sent,
+    /// then ExecApp's drain.
+    fn finish(&mut self) {
+        if self.done {
+            return;
+        }
+        self.done = true;
+        let _ = std::fs::remove_dir_all(&self.r.dir);
+        if !self.started {
+            self.start_answer("started");
+        }
+        self.ans.send(serde_json::json!({ "exit": self.code }));
+        if self.abandoned {
+            std::process::exit(0);
+        }
+        if self.copies == 0 {
+            self.drained();
+        }
+        if self.r.drain_grace_ms > 0 {
+            self.drain = Some(Quiet::new(Duration::from_millis(self.r.drain_grace_ms)));
+        }
+    }
+
+    /// The output's end: nothing more is written, and the session ends.
+    fn drained(&mut self) -> ! {
+        self.out.stop();
+        self.ans.send(serde_json::json!({ "drained": true }));
+        std::process::exit(0);
+    }
+
+    /// execProcess.Kill with SIGKILL: the process runc started, then runc
+    /// and the copy of the terminal's output. Nothing once done or before
+    /// runc wrote the pid (Go's NotFound).
+    fn kill(&mut self) {
+        let pid = exec_pid(&self.r.dir);
+        if pid == 0 || self.done {
+            return;
+        }
+        // Go's syscall.Kill takes an int, so a pid past 2^31 would signal
+        // a process group there; here only a positive pid is signalled.
+        if let Ok(p) = libc::pid_t::try_from(pid) {
+            // SAFETY: kill with a positive pid.
+            unsafe { libc::kill(p, libc::SIGKILL) };
+        }
+        self.kill_runc();
+    }
+
+    /// killRunc: runc killed, and the terminal's copy ended.
+    fn kill_runc(&mut self) {
+        self.end_copy = true;
+        self.runc.kill();
+        if self.terminal_drain.take().is_some() {
+            self.close_pty();
+            self.finish();
+        }
+    }
+
+    /// execProcess.abandon: runc killed and nothing more copied; the
+    /// session ends once runc is reaped and its directory removed.
+    fn abandon(&mut self) {
+        self.abandoned = true;
+        self.out.stop();
+        if self.done {
+            std::process::exit(0);
+        }
+        self.kill_runc();
+    }
 }
 
 #[cfg(test)]
@@ -322,6 +977,7 @@ mod tests {
                 height: h,
                 width: w,
             }),
+            ..Default::default()
         }
     }
 
@@ -364,5 +1020,75 @@ mod tests {
             ]
         );
         assert_eq!(runc_args(&req(&["x"], false, None)).len(), 8);
+    }
+
+    #[test]
+    fn pid_file_as_go_reads_it() {
+        let dir = std::env::temp_dir().join(format!("armada-exec-pid-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let d = dir.to_str().unwrap();
+        assert_eq!(exec_pid(d), 0);
+        for (text, want) in [
+            (" 42\n", 42),
+            ("+42", 0),
+            ("4294967295", 4294967295),
+            ("4294967296", 0),
+            ("x", 0),
+            ("", 0),
+        ] {
+            std::fs::write(dir.join("pid"), text).unwrap();
+            assert_eq!(exec_pid(d), want, "{text:?}");
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn quiet_waits_for_the_grace_after_the_last_write() {
+        let out = Output::new();
+        let grace = Duration::from_millis(40);
+        let mut q = Quiet::new(grace);
+        assert!(!q.due(&out), "not quiet before the grace");
+        std::thread::sleep(grace);
+        assert!(q.due(&out));
+        // A write in progress is never quiet; one that ended counts from
+        // its end, checked again at least every grace/4.
+        let mut q = Quiet::new(grace);
+        out.lock().writing = 1;
+        std::thread::sleep(grace);
+        assert!(!q.due(&out));
+        assert!(q.check >= Instant::now() + grace / 4 - Duration::from_millis(5));
+        {
+            let mut s = out.lock();
+            s.writing = 0;
+            s.last = Some(Instant::now());
+        }
+        assert!(!q.due(&out));
+        std::thread::sleep(grace);
+        assert!(q.due(&out));
+    }
+
+    #[test]
+    fn stopped_output_takes_no_writes() {
+        let out = Output::new();
+        let mut f = std::fs::OpenOptions::new()
+            .write(true)
+            .open("/dev/null")
+            .unwrap();
+        assert!(out.write(&mut f, b"x"));
+        out.stop();
+        assert!(!out.write(&mut f, b"x"));
+    }
+
+    #[test]
+    fn control_lines() {
+        let c: Control =
+            serde_json::from_str(r#"{"resize":{"width":80,"height":24},"other":1}"#).unwrap();
+        let s = c.resize.unwrap();
+        assert_eq!(
+            (s.width, s.height, c.kill, c.abandon),
+            (80, 24, false, false)
+        );
+        let c: Control = serde_json::from_str(r#"{"kill":true}"#).unwrap();
+        assert!(c.kill && c.resize.is_none());
     }
 }

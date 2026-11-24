@@ -1,6 +1,6 @@
 //! Volume backups to an S3-compatible bucket (ADR 0041) as the Go agent
 //! makes and reads them (internal/volbackup, internal/agent/backup.go;
-//! ADR 0054 step 5, last part): deduplicated, encrypted snapshots in a
+//! ADR 0054 step 5, third part): deduplicated, encrypted snapshots in a
 //! repository per volume, in Go's format, so either side reads what the
 //! other wrote. The agent keeps the volume session, the per-volume lock,
 //! and the pause and resume of the app; it runs these with the request on

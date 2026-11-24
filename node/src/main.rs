@@ -7,7 +7,7 @@
 //!                              and routes (src/net)
 //!   armada-node runtime ...    containers' OCI runtime specs and their checks, image pulls and
 //!                              the image store, containers' root filesystems, bundles,
-//!                              shims, statistics, dials from containers, and runc exec
+//!                              shims, statistics, dials from containers, and exec sessions
 //!                              (src/runtime)
 //!   armada-node conntrack ...  the connection tracking table's limit and use (src/conntrack.rs)
 //!   armada-node nfs ...        NFS volumes' mounts (src/nfs.rs)

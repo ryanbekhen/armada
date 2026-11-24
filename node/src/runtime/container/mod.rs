@@ -1,7 +1,7 @@
 //! The supervisor runtime's container lifecycle (ADR 0054 step 4, fourth
 //! part): what internal/runtime/supervisor does below the driver for a
 //! container, on the image store of ../image, and since the fifth and
-//! sixth parts statistics, dials, and starting runc exec. The Go driver
+//! sixth parts statistics, dials, and exec sessions. The Go driver
 //! still builds each container's spec and runs its network and logs; it
 //! hands the rest to these commands when agent.json says "runtimeAgent":
 //! "rust".
@@ -41,10 +41,15 @@
 //!       {"setns": ERRNO}, {"op", "errno"}, or {"timeout"} (dial.rs)
 //!   armada-node runtime exec
 //!       fd 3: {"bundle", "dir", "root", "runc", "id", "args", "terminal",
-//!       "consoleSize"}; writes process.json as execProcess.Start does,
-//!       then becomes `runc exec` on the standard streams and terminal it
-//!       was given; fd 4 (closed on exec): "exec\n", then {"execErrno"}
-//!       when runc could not be run; or {"redo"} or {"error"} (exec.rs)
+//!       "consoleSize", "stdin", "stdout", "stderr", "drainGraceMs",
+//!       "terminalDrainGraceMs"}; fd 4: a control socket (JSON lines);
+//!       fds 5, 6, 7: the caller's input, output, and error output. Runs
+//!       the exec's session (ADR 0054 step 5, last part): writes
+//!       process.json as execProcess.Start does, starts `runc exec` on
+//!       pipes or a terminal, copies, waits, and drains; answers
+//!       {"spawned"} (or {"execErrno"}, {"redo"}, {"error"}), then
+//!       {"started"} or {"notStarted"}, {"exit"}, {"drained"}; reads
+//!       {"resize"}, {"kill"}, {"abandon"} (exec.rs)
 //!
 //! Go's TestArmadaNode*MatchesGo tests (internal/runtime/supervisor)
 //! compare them with Go's Bundles, Shims, and the overlay snapshotter.

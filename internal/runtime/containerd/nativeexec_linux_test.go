@@ -21,9 +21,10 @@ import (
 )
 
 // The parity tests of armada-node's runtime exec (ADR 0054 step 4, sixth
-// part): ExecApp on the supervisor backend with Go starting runc exec and
-// with armada-node starting it, against a fake runc that records what it
-// was given. Neither needs root.
+// part, and step 5, its last part: the session): ExecApp and Exec on the
+// supervisor backend with Go running the exec and with armada-node
+// running it, against a fake runc that records what it was given. None
+// needs root.
 
 // fullProcess is a container's process spec with every field specs-go
 // knows that a Linux container can have.
@@ -82,6 +83,9 @@ type execResult struct {
 var (
 	execID   = regexp.MustCompile(`exec-[0-9a-f]{12}`)
 	fifoDirs = regexp.MustCompile(`fifo/[0-9]+/`)
+	// A stream runc gets: the caller's FIFO when Go runs the session, a
+	// pipe of armada-node's when it does; both are a pipe to runc.
+	fifoLink = regexp.MustCompile(`(fd[0-2]) \S*/fifo/[0-9]+/exec-[0-9a-f]{12}-std(in|out|err);`)
 )
 
 // runExec runs ExecApp with opts on a driver whose fake runc is body
@@ -107,6 +111,7 @@ func runExec(ctx context.Context, t *testing.T, native *supervisor.Native, spec 
 	b, _ := os.ReadFile(rec)
 	r.Record = string(b)
 	name := func(s string) string {
+		s = fifoLink.ReplaceAllString(s, "$1 pipe;")
 		s = strings.ReplaceAll(s, d.paths.DataDir, "DIR")
 		s = strings.ReplaceAll(s, st.Shims.Dir, "SHIMS")
 		return fifoDirs.ReplaceAllString(execID.ReplaceAllString(s, "exec-ID"), "fifo/N/")
@@ -126,7 +131,8 @@ func nativeFor(t *testing.T) *supervisor.Native {
 
 // TestArmadaNodeExecMatchesGo: armada-node starts runc exec as Go does,
 // so the caller and runc see the same: runc's arguments, the process spec
-// (bytes, modes), standard streams and no other descriptors, the
+// (bytes, modes), standard streams (pipes: the caller's FIFOs from Go,
+// armada-node's own pipes from it) and no other descriptors, the
 // terminal as runc's controlling terminal with its size and a resize,
 // signals, environment, exit codes (runc's own and a signal's), the end
 // of the caller's deadline (runc killed), and runc that cannot be run.
@@ -212,7 +218,7 @@ func TestArmadaNodeExecMatchesGo(t *testing.T) {
 			goRes, goTook := run(nil)
 			before := n.Ran("exec")
 			nodeRes, nodeTook := run(n)
-			if !reflect.DeepEqual(goRes, nodeRes) {
+			if goRes, nodeRes := withoutSigBlk(goRes), withoutSigBlk(nodeRes); !reflect.DeepEqual(goRes, nodeRes) {
 				t.Errorf("armada-node differs from Go:\n%s", resultDiff(nodeRes, goRes))
 			}
 			if got := n.Ran("exec") - before; got != 1 {
@@ -273,8 +279,8 @@ func TestArmadaNodeExecKillsRunc(t *testing.T) {
 }
 
 // TestNativeExecFallsBackToGo: when armada-node does not run, fails
-// before it becomes runc, or leaves the start to Go, Go starts runc
-// itself on the same streams, and the caller sees what Go alone gives.
+// before runc runs, or leaves the session to Go, Go runs it on the
+// caller's untouched streams, and the caller sees what Go alone gives.
 func TestNativeExecFallsBackToGo(t *testing.T) {
 	dir := t.TempDir()
 	stand := func(name, body string) string {
@@ -314,10 +320,10 @@ func TestNativeExecFallsBackToGo(t *testing.T) {
 	}
 }
 
-// withoutSigBlk drops the blocked signal mask from a record. Both sides of
-// the fallback test are Go's start, whose child keeps the mask of the OS
-// thread that forked it: some of the runtime's threads have every signal
-// blocked, so the line differs between two runs of the same code.
+// withoutSigBlk drops the blocked signal mask from a record. Go's runc
+// keeps the mask of the OS thread that forked it: some of the runtime's
+// threads have every signal blocked, so the line differs between two
+// runs of the same code (armada-node's runc starts with none blocked).
 func withoutSigBlk(r execResult) execResult {
 	var keep []string
 	for _, l := range strings.Split(r.Record, "\n") {
@@ -351,4 +357,301 @@ func resultDiff(got, want execResult) string {
 		}
 	}
 	return b.String()
+}
+
+// sessionResult is what the caller of ExecApp sees.
+type sessionResult struct {
+	Code           int
+	Err            string
+	Stdout, Stderr string
+}
+
+// sessionCase is one exec run through Go's session and armada-node's.
+type sessionCase struct {
+	name string
+	// body is the fake runc's script; $LEFT names a file for the PID of
+	// a background child it leaves (killed when the test ends).
+	body    string
+	tty     bool
+	stdin   *string
+	size    runtime.TermSize
+	resize  []runtime.TermSize
+	timeout time.Duration
+	// drain sets ioDrainGrace; slow makes the caller take each write
+	// after a pause; noOutput passes no writers (a command probe).
+	drain    time.Duration
+	slow     time.Duration
+	noOutput bool
+	// check compares the two results instead of equality (output whose
+	// length depends on timing).
+	check func(t *testing.T, goRes, nodeRes sessionResult)
+	// within is how far apart the two durations may be (default 1s).
+	within time.Duration
+	// nodeAtMost, when set, replaces the comparison of durations: Go
+	// takes longer (see the case), armada-node at most this long.
+	nodeAtMost time.Duration
+}
+
+// runSession runs tc's exec on a fresh driver, through native when set.
+func runSession(t *testing.T, native *supervisor.Native, tc sessionCase) (sessionResult, time.Duration) {
+	t.Helper()
+	left := filepath.Join(t.TempDir(), "left")
+	leftover(t, left)
+	d := execDriverOn(t, "LEFT="+left+"\n"+tc.body, specs.Spec{Process: &specs.Process{Cwd: "/", Env: []string{"A=1"}}}, native)
+	ctx, cancel := context.Background(), context.CancelFunc(func() {})
+	if tc.timeout > 0 {
+		ctx, cancel = context.WithTimeout(ctx, tc.timeout)
+	}
+	defer cancel()
+	out, errOut := &slowWriter{pause: tc.slow}, &slowWriter{pause: tc.slow}
+	opts := runtime.ExecOptions{Cmd: []string{"sh", "-c", "x"}, TTY: tc.tty, Size: tc.size}
+	if !tc.noOutput {
+		opts.Stdout, opts.Stderr = out, errOut
+		if tc.tty {
+			opts.Stderr = nil
+		}
+	}
+	if tc.stdin != nil {
+		opts.Stdin = strings.NewReader(*tc.stdin)
+	}
+	if len(tc.resize) > 0 {
+		ch := make(chan runtime.TermSize, len(tc.resize))
+		for _, s := range tc.resize {
+			ch <- s
+		}
+		opts.Resize = ch
+	}
+	start := time.Now()
+	code, err := d.ExecApp(ctx, "c1", opts)
+	took := time.Since(start)
+	return sessionResult{Code: code, Err: errText(err), Stdout: out.String(), Stderr: errOut.String()}, took
+}
+
+func str(s string) *string { return &s }
+
+// awaitChild waits until the background child ignores SIGHUP (it made
+// $LEFT.r), so runc, the terminal's session leader, ending first does not
+// end it.
+const awaitChild = "while [ ! -e \"$LEFT.r\" ]; do sleep 0.01; done\n"
+
+// sessionCases are the sessions both sides run. Bodies write the pid file
+// first unless the case is about runc ending before it.
+func sessionCases() []sessionCase {
+	const pid = "echo $$ > \"$PIDFILE\"\n"
+	cutShort := func(t *testing.T, goRes, nodeRes sessionResult) {
+		t.Helper()
+		for _, r := range []sessionResult{goRes, nodeRes} {
+			if r.Code != 0 || r.Err != "exec output cut short: context deadline exceeded" || !strings.HasPrefix(r.Stdout, "more\n") {
+				t.Errorf("got code %d err %q stdout %.40q", r.Code, r.Err, r.Stdout)
+			}
+		}
+	}
+	return []sessionCase{
+		{
+			name: "large output on both streams",
+			body: pid + "head -c 300000 /dev/zero | tr '\\0' o\nhead -c 200000 /dev/zero | tr '\\0' e >&2\nexit 0\n",
+		},
+		{
+			name: "interleaved lines",
+			body: pid + "i=0; while [ $i -lt 300 ]; do echo out$i; echo err$i >&2; i=$((i+1)); done\nexit 1\n",
+		},
+		{
+			name: "slow reader", slow: 100 * time.Millisecond, drain: 200 * time.Millisecond, within: 3 * time.Second,
+			body: pid + "head -c 262144 /dev/zero | tr '\\0' x\nexit 0\n",
+		},
+		{
+			name: "slow reader on a terminal", tty: true, slow: 100 * time.Millisecond, drain: 200 * time.Millisecond, within: 3 * time.Second,
+			body: pid + "head -c 262144 /dev/zero | tr '\\0' x\nexit 0\n",
+		},
+		{name: "exit 0", body: pid + "exit 0\n"},
+		{name: "exit 3", body: pid + "echo a\nexit 3\n"},
+		{name: "exit 255", body: pid + "exit 255\n"},
+		{name: "runc ends on SIGTERM", body: pid + "kill -TERM $$\n"},
+		{name: "runc ends on SIGKILL", body: pid + "kill -KILL $$\n"},
+		{name: "runc ends before the process", body: "echo 'container not running' >&2\nexit 1\n"},
+		{
+			name: "stdin to the end", stdin: str("one\ntwo\nthree\n"),
+			body: pid + "read x\necho \"first:$x\"\ncat\necho err >&2\nexit 2\n",
+		},
+		{
+			name: "stdin closed at once", stdin: str(""),
+			body: pid + "read x || echo eof\ncat\necho done\n",
+		},
+		{name: "no stdin", body: pid + "read x || echo eof\n"},
+		{name: "no writers", noOutput: true, stdin: str("x\n"), body: pid + "cat\necho lost\necho lost >&2\nexit 5\n"},
+		{
+			name: "terminal with stdin", tty: true, stdin: str("abc\ndef\n"),
+			body: pid + "read x\necho \"got:$x\"\ncat\necho end\nexit 2\n",
+		},
+		{
+			name: "terminal with a size and resizes", tty: true, size: runtime.TermSize{Rows: 33, Cols: 101},
+			resize: []runtime.TermSize{{Rows: 0, Cols: 5}, {Rows: 40, Cols: 120}},
+			body:   pid + "echo \"first $(stty size)\"\nfor i in $(seq 100); do s=$(stty size); [ \"$s\" = \"40 120\" ] && break; sleep 0.05; done\necho \"resized $s\"\nexit 7\n",
+		},
+		{
+			name: "terminal output after runc exited", tty: true,
+			body: pid + "(trap '' HUP; : > \"$LEFT.r\"; sleep 0.3; echo late) &\necho $! > \"$LEFT\"\n" + awaitChild + "echo early\nexit 0\n",
+		},
+		{
+			name: "child holds the output open", drain: 300 * time.Millisecond, within: 500 * time.Millisecond,
+			body: pid + "sleep 30 &\necho $! > \"$LEFT\"\necho 5\nexit 3\n",
+		},
+		{
+			// Go closes the terminal after its grace, but its read in
+			// progress goes on until the child ends (closing the console
+			// does not end it), so Go waits for the child; armada-node
+			// ends the copy after the grace, as Go means to.
+			name: "child holds the terminal open", tty: true, nodeAtMost: 3 * time.Second,
+			body: pid + "(trap '' HUP; : > \"$LEFT.r\"; exec sleep 4) &\necho $! > \"$LEFT\"\n" + awaitChild + "echo 5\nexit 3\n",
+		},
+		{
+			name: "child keeps writing", drain: 200 * time.Millisecond,
+			body: pid + "(i=0; while [ $i -lt 20 ]; do echo line$i; i=$((i+1)); sleep 0.05; done) &\necho $! > \"$LEFT\"\nexit 0\n",
+		},
+		{
+			name: "deadline before the exit", timeout: 500 * time.Millisecond, within: 500 * time.Millisecond,
+			body: pid + "echo started\nexec sleep 30\n",
+		},
+		{
+			name: "deadline before the start", timeout: 300 * time.Millisecond, within: 500 * time.Millisecond,
+			body: "sleep 30\n",
+		},
+		{
+			name: "deadline while draining", timeout: time.Second, drain: 200 * time.Millisecond, check: cutShort,
+			body: pid + "(while :; do echo more; sleep 0.02; done) &\necho $! > \"$LEFT\"\nexit 0\n",
+		},
+		{
+			name: "runc copies until the end", timeout: 2 * time.Second, drain: 300 * time.Millisecond,
+			body: pipeRunc,
+		},
+		{
+			name: "runc copies to a terminal until the end", tty: true, timeout: 2 * time.Second,
+			body: pipeRunc,
+		},
+	}
+}
+
+// TestArmadaNodeExecSessionMatchesGo: the caller of ExecApp sees the same
+// from armada-node's session as from Go's: the bytes of each stream in
+// order (large, interleaved, through a slow reader), exit codes (runc's,
+// a signal's as 128 plus its number), runc ending before the process
+// starts, input to its end and closed early (a terminal's end of
+// transmission), terminals with a first size and resizes, output a
+// child of the process keeps writing or holding open after it ended (the
+// drains' graces), the caller's deadline before the start, before the
+// exit, and while draining ("exec output cut short"), and about the same
+// time taken.
+func TestArmadaNodeExecSessionMatchesGo(t *testing.T) {
+	n := nativeFor(t)
+	for _, tc := range sessionCases() {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.drain > 0 {
+				shortDrainGrace(t, tc.drain)
+			}
+			goRes, goTook := runSession(t, nil, tc)
+			before, stood := n.Ran("exec"), n.StoodIn("exec")
+			nodeRes, nodeTook := runSession(t, n, tc)
+			if tc.check != nil {
+				tc.check(t, goRes, nodeRes)
+			} else if goRes != nodeRes {
+				t.Errorf("armada-node differs from Go:\ngot  code %d err %q stdout %.200q stderr %.200q\nwant code %d err %q stdout %.200q stderr %.200q",
+					nodeRes.Code, nodeRes.Err, nodeRes.Stdout, nodeRes.Stderr, goRes.Code, goRes.Err, goRes.Stdout, goRes.Stderr)
+			}
+			if got := n.Ran("exec") - before; got != 1 {
+				t.Errorf("armada-node ran %d sessions, want 1", got)
+			}
+			if got := n.StoodIn("exec") - stood; got != 0 {
+				t.Errorf("Go stood in %d times", got)
+			}
+			within := tc.within
+			if within == 0 {
+				within = time.Second
+			}
+			if tc.nodeAtMost > 0 {
+				if nodeTook > tc.nodeAtMost || goTook < nodeTook {
+					t.Errorf("armada-node took %s, Go %s", nodeTook, goTook)
+				}
+			} else if d := nodeTook - goTook; d > within || d < -within {
+				t.Errorf("armada-node took %s, Go %s", nodeTook, goTook)
+			}
+		})
+	}
+}
+
+// TestArmadaNodeExecSessionSystem: the driver's Exec (system containers:
+// output of both streams in one buffer, copied to its end, no kill)
+// gives the same through armada-node as through Go.
+func TestArmadaNodeExecSessionSystem(t *testing.T) {
+	n := nativeFor(t)
+	body := "echo $$ > \"$PIDFILE\"\necho out\nsleep 0.1\necho err >&2\nexit 2\n"
+	run := func(native *supervisor.Native) (string, int, string) {
+		d := execDriverOn(t, body, specs.Spec{Process: &specs.Process{Cwd: "/"}}, native)
+		out, code, err := d.Exec(context.Background(), "c1", []string{"x"})
+		return out, code, errText(err)
+	}
+	gOut, gCode, gErr := run(nil)
+	before := n.Ran("exec")
+	nOut, nCode, nErr := run(n)
+	if gOut != nOut || gCode != nCode || gErr != nErr {
+		t.Errorf("armada-node: %q %d %q; Go: %q %d %q", nOut, nCode, nErr, gOut, gCode, gErr)
+	}
+	if gOut != "out\nerr\n" || gCode != 2 {
+		t.Errorf("Go: %q %d", gOut, gCode)
+	}
+	if n.Ran("exec")-before != 1 {
+		t.Error("the system exec did not go through armada-node")
+	}
+}
+
+// TestNativeExecSessionFailsAfterSpawn: once armada-node said runc runs,
+// its failure is the call's: Go does not run the exec again, and the
+// caller's input is not replayed.
+func TestNativeExecSessionFailsAfterSpawn(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "spawned")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\nprintf '{\"spawned\":true}\\n' >&4\nexit 1\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	n := &supervisor.Native{Bin: bin}
+	ran := filepath.Join(dir, "ran")
+	d := execDriverOn(t, "touch \""+ran+"\"\necho $$ > \"$PIDFILE\"\n", specs.Spec{Process: &specs.Process{Cwd: "/"}}, n)
+	out := &lockedBuffer{}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	code, err := d.ExecApp(ctx, "c1", runtime.ExecOptions{Cmd: []string{"x"}, Stdin: strings.NewReader("in\n"), Stdout: out, Stderr: out})
+	if code != 0 || errText(err) != "exec: armada-node: ended the exec session" {
+		t.Errorf("ExecApp = %d, %v", code, err)
+	}
+	if _, err := os.Stat(ran); err == nil {
+		t.Error("Go ran the exec again")
+	}
+	if n.StoodIn("exec") != 0 || n.Ran("exec") != 1 {
+		t.Errorf("stood in %d, ran %d; want 0, 1", n.StoodIn("exec"), n.Ran("exec"))
+	}
+}
+
+// TestArmadaNodeExecSessionAbandoned: a caller whose deadline passes while
+// the process holds out is answered at the deadline, and armada-node's
+// session ends with runc killed and its exec directory removed, as Go's
+// cleanup leaves it.
+func TestArmadaNodeExecSessionAbandoned(t *testing.T) {
+	n := nativeFor(t)
+	d := execDriverOn(t, "echo $$ > \"$PIDFILE\"\ntrap '' TERM\nexec sleep 30\n", specs.Spec{Process: &specs.Process{Cwd: "/"}}, n)
+	st := d.ctr.(*supervisor.Store)
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	_, err := d.ExecApp(ctx, "c1", runtime.ExecOptions{Cmd: []string{"x"}})
+	if !errors.Is(err, context.DeadlineExceeded) || time.Since(start) > 2*time.Second {
+		t.Fatalf("ExecApp: %v after %s", err, time.Since(start))
+	}
+	shimRun := filepath.Dir(st.Shims.Get("web@pack").Root)
+	for range 100 {
+		m, _ := filepath.Glob(filepath.Join(shimRun, "exec-c1-*"))
+		if len(m) == 0 {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Error("the exec directory is left")
 }

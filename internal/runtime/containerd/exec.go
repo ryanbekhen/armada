@@ -15,6 +15,7 @@ import (
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 
 	"github.com/ryanbekhen/armada/internal/runtime"
+	"github.com/ryanbekhen/armada/internal/runtime/supervisor"
 )
 
 var _ runtime.Execer = (*Driver)(nil)
@@ -58,6 +59,26 @@ func (d *Driver) ExecApp(ctx context.Context, id string, opts runtime.ExecOption
 		p.ConsoleSize = &specs.Box{Height: uint(opts.Size.Rows), Width: uint(opts.Size.Cols)}
 	}
 
+	b := make([]byte, 6)
+	if _, err := rand.Read(b); err != nil {
+		return 0, err
+	}
+	execID := "exec-" + hex.EncodeToString(b)
+	if st, ok := d.ctr.(*supervisor.Store); ok {
+		// armada-node runs the whole session (ADR 0054 step 5): the same
+		// streams, drain, texts, and cleanup as below.
+		x := supervisor.ExecSession{
+			ID: execID, Process: &p, Stdin: opts.Stdin, Stdout: opts.Stdout, Stderr: opts.Stderr,
+			DrainGrace: ioDrainGrace, CleanupTimeout: execCleanupTimeout,
+		}
+		if opts.TTY {
+			x.Stderr, x.Size, x.Resize = nil, opts.Size, opts.Resize
+		}
+		if code, handled, err := st.NativeExec(ctx, t, x); handled {
+			return code, err
+		}
+	}
+
 	// Standard input: EOF from opts.Stdin closes the process's input, which
 	// the fifo alone does not.
 	var stdin io.Reader
@@ -72,11 +93,7 @@ func (d *Driver) ExecApp(ctx context.Context, id string, opts runtime.ExecOption
 	if opts.TTY {
 		streams = []cio.Opt{cio.WithStreams(stdin, stdout, nil), cio.WithTerminal, cio.WithFIFODir(d.paths.FIFO())}
 	}
-	b := make([]byte, 6)
-	if _, err := rand.Read(b); err != nil {
-		return 0, err
-	}
-	proc, err := t.Exec(ctx, "exec-"+hex.EncodeToString(b), &p, cio.NewCreator(streams...))
+	proc, err := t.Exec(ctx, execID, &p, cio.NewCreator(streams...))
 	if err != nil {
 		return 0, fmt.Errorf("exec: %w", err)
 	}
