@@ -59,6 +59,7 @@ E2E_ACME_EMAIL=you@example.org sh test/e2e/cluster.sh hosts
 | `E2E_RUNTIME` | empty (the supervisor) | Container runtime of every machine: `supervisor` or `embedded` (containerd, for nodes set up before the supervisor became the default); run both before releases |
 | `E2E_NET_AGENT` | `rust` | the cluster network runs through the runtime pack's `armada-node` on every machine (ADR 0054): the run checks each machine applies it so, runs doctor's network checks through it, and fails if Go had to stand in anywhere. `go`: once the cluster is up, each machine in turn gets `"netAgent": "go"` in its `agent.json` and its service restarted, so Go's own code runs it (the fallback, while it remains) |
 | `E2E_RUNTIME_AGENT` | `rust` | supervisor machines run containers through the runtime pack's `armada-node` (ADR 0054): the run checks every machine reports it (`armada node list -o json`, `.runtime.agent`), that doctor's `runtime-agent` check is ok, and that `armada cluster status` counts every node on armada-node (with `E2E_RUNTIME=embedded`, that every machine reports containerd instead). `go`: once the cluster is up, each machine in turn gets `"runtimeAgent": "go"` in its `agent.json` and its service restarted, and must report Go's code |
+| `E2E_MOVE_GAP` | `180` | `runtime-containerd-move`: the most seconds a moved node's own public IP may go on failing after its `RuntimeMoveDone` event (its proxy is pulled and started again on the supervisor runtime) |
 | `E2E_CONFORMANCE` | empty | Driver conformance test binary for the last machine's architecture, built with `GOOS=linux go test -c -tags integration -o bin/conformance ./internal/runtime/containerd/`; runs the suite on that node's runtime once the cluster is ready |
 
 The script stops at the first failure and prints `armada server list`,
@@ -104,6 +105,7 @@ E2E_ONLY=isolation,rollout ARMADA_BIN=... sh test/e2e/cluster.sh hosts
 | `volume-failover` | 22 (4 machines or more) | `failover: restore`, fencing of a node cut off from the control plane |
 | `nfs` | 23 | NFS volumes: mounting with the kernel client, sharing between nodes, unmounting |
 | `runtime-move` | 24 (supervisor through armada-node only) | the move from Go's image store to armada-node's: conversion at the agent's start, `converted.json`, removal of Go's store, the runtime report in `node list`, `cluster status`, and doctor |
+| `runtime-containerd-move` | 25 (`E2E_RUNTIME=embedded` and 3 machines or more only) | the leader's move of containerd nodes to the supervisor runtime: draining one node at a time, `MoveRuntime`, the agent's migration and restart, `cluster status`, doctor |
 | `reboot` | 13 | start-up order, units, state after a crash |
 
 A release runs every scenario.
@@ -248,3 +250,20 @@ A release runs every scenario.
     installs one release on every machine and has no step that upgrades
     from an older one, and the proxy's container in this run was made by
     armada-node (an upgrade moves one Go made the same way).
+25. The leader's move of containerd nodes (ADR 0054, step 4; only with
+    `E2E_RUNTIME=embedded` and three machines or more; runs after 24,
+    before 13). An embedded run turns the move off right after `armadad
+    init` (`cluster update --runtime-move=false`), so every scenario before
+    this one runs on containerd. Turned on again, the leader moves every
+    node: `RuntimeMoveStarted`, `RuntimeMoveMigrating`, and
+    `RuntimeMoveDone` for each, one move after another and none given up;
+    every node then reports armada-node, `agent.json` records the
+    supervisor, `armada cluster status` counts every node on armada-node,
+    doctor's `runtime-agent` check is ok, and the control plane has every
+    voting member. Requests round robin over every public IP all return
+    200, except those to a moving node's own IP from its
+    `RuntimeMoveMigrating` event until it answers 200 again (its proxy is
+    removed with its containers; at most `E2E_MOVE_GAP` seconds after its
+    `RuntimeMoveDone` event). Run it with
+    `E2E_RUNTIME=embedded E2E_ONLY=runtime-containerd-move`; it leaves every
+    machine on the supervisor runtime, so later scenarios run there.

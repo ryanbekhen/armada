@@ -472,6 +472,14 @@ upgrades without asking.
    Linux and in WSL 2 on Windows). `armadad upgrade` already replaced the
    client on the cluster's own machines.
 
+Once the servers and a node on containerd run a release that knows how,
+the leader moves that node to the supervisor runtime by itself, one node
+at a time ([Container runtimes](#container-runtimes)). To keep containerd
+nodes where they are, run `armada cluster update --runtime-move=false`
+(with the new client) right after the servers are upgraded, before the
+other nodes: the leader moves server machines last, and the command fails
+while the leader runs an older release.
+
 Releases before `armadad upgrade` existed upgrade once with the installer
 instead: `sudo ARMADA_VERSION=v0.2.0 sh install.sh`, then `sudo systemctl
 restart armada-runtime armada-server` (or `armada-agent`). Upgrading from v0.1.0-alpha.1
@@ -835,11 +843,72 @@ node up on Armada's embedded containerd instead. Apps, specs, and commands
 are the same on both; a supervisor node holds about 15 MiB less for
 containerd and about 4 MiB less per app.
 
-The setting is in `agent.json` (`"runtime"`), and upgrading never changes
-it: nodes set up before the supervisor became the default stay on
-containerd, and `armadad doctor` warns on them. containerd is removed in a
-later release, so move them. Drain the node and stop its service, migrate,
-then start and resume it:
+The setting is in `agent.json` (`"runtime"`). Nodes set up before the
+supervisor became the default run containerd, which is removed in a later
+release, so the cluster's leader moves them to the supervisor by itself,
+one node at a time, once the leader and the node run a release that knows
+how (ADR 0054):
+
+1. It picks a containerd node the other nodes have room for (machines that
+   run no control plane first, then servers, the leader's own machine
+   last) and drains it like a cordon: the node takes no new replicas, and
+   its replicas start on other nodes and serve there before they leave it.
+   Job attempts running there are left to end.
+2. Once nothing is left on it, the node removes every container Armada
+   runs there, its proxy's too, records the supervisor in `agent.json`,
+   stops containerd, and restarts its service (`armada-agent`, or
+   `armada-server` on a control plane server), which comes back on the
+   supervisor runtime and pulls its images again.
+3. Once the node reports the supervisor runtime, it takes replicas again,
+   and the next node moves.
+
+```bash
+armada cluster status   # runtime move: moving lab2 to the supervisor runtime, ...
+armada cluster events   # RuntimeMoveStarted, RuntimeMoveDraining, RuntimeMoveMigrating, RuntimeMoveDone
+sudo armadad doctor     # on a containerd node: what the cluster will do with it, and why
+```
+
+While a node moves, connections to its own public address fail from the
+moment its proxy goes until the agent starts it again on the supervisor,
+usually under a minute: the node holds no replicas by then, so requests
+that arrive through other nodes are not affected, but a DNS record or a
+load balancer that sends clients to every node's address should
+health-check the nodes (or leave the moving node out). Moving a control
+plane server restarts its control plane too: a cluster of three servers
+keeps working, and the leader's own machine moves last, after which
+another server leads (one election). A cluster with a single server has
+no API for the seconds its server restarts; containers keep running and
+serving on the other nodes.
+
+A step that takes too long gives the move up: draining for 15 minutes
+(replicas that cannot start elsewhere, a job attempt that runs on), or the
+node not back on the supervisor 10 minutes after it was asked. The node
+then takes replicas again, stays on containerd, and is tried again an hour
+later; `RuntimeMoveGivenUp` (an [alert](guides/alerts.md) warning) says
+why, and `armada node show NODE` shows what the node said. Nothing starts
+while a node is away or lost, or while the cluster network switches its
+mode.
+
+Some nodes wait for their operator, and `armada cluster status` and the
+node's doctor say so:
+
+- **A cluster's only node** (or a node every other node of which is
+  cordoned): draining it would stop everything.
+- **A node holding volumes**: an app with volumes runs only on its
+  volume's node, so draining never moves it and the move would stop the
+  app. Move the node by hand in a quiet moment (below): the app stops
+  until the node runs again, and its volume stays where it is.
+- **A node whose agent is older** than the move: upgrade it.
+
+To keep containerd nodes where they are, turn the move off; a node already
+told to move finishes, one being drained takes replicas again:
+
+```bash
+armada cluster update --runtime-move=false   # and --runtime-move=true to turn it on again
+```
+
+To move a node by hand, drain it and stop its service, migrate, then start
+and resume it:
 
 ```bash
 armada node drain NODE
@@ -854,9 +923,10 @@ the node's own proxy is removed with its other containers until the agent
 starts it again, usually under a minute: when public traffic reaches the
 node directly (a DNS record or a load balancer naming it), take it out
 first and put it back once `curl --resolve` to the node answers. Move one
-node at a time. `--to embedded` moves a node back the same way. Moving to
-the supervisor leaves containerd's data in `/var/lib/armada/containerd`;
-remove it once the node runs.
+node at a time. `--to embedded` moves a node back the same way (turn the
+automatic move off first, or the leader moves it again). Moving to the
+supervisor, by hand or by the leader, leaves containerd's data in
+`/var/lib/armada/containerd`; remove it once the node runs.
 
 Each `armada-shim` is a systemd unit of its own (`armada-shim-*`), so
 restarting the agent leaves it and its containers running. If one ends, its
@@ -1131,8 +1201,8 @@ building each container, running its network and logs, and carrying the
 input and output of every exec. When armada-node fails to write a bundle,
 reach a shim, sample the replicas, open a connection, or start an exec,
 the agent does it itself and logs `armada-node failed; Go did it
-instead`. Nodes on containerd are not affected: move them to the
-supervisor first (`armadad runtime migrate --to supervisor`, above).
+instead`. Nodes on containerd are not affected: the leader moves them to
+the supervisor first ([Container runtimes](#container-runtimes), above).
 
 **Upgrading** a supervisor node from a release whose agent ran its
 containers needs nothing more than the upgrade. When the agent starts, it

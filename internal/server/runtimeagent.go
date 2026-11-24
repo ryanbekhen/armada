@@ -20,7 +20,13 @@ const maxImagesToPull = 1 << 20
 // containers: a runtime the leader does not know is dropped.
 func cleanRuntimeStatus(st *armadav1.RuntimeStatus) *armadav1.RuntimeStatus {
 	switch st.GetAgent() {
-	case runtime.AgentContainerd, runtime.AgentSupervisorGo:
+	case runtime.AgentContainerd:
+		out := &armadav1.RuntimeStatus{Agent: st.GetAgent()}
+		if e := st.GetMoveError(); e != "" {
+			out.MoveError = cleanMessage(e)
+		}
+		return out
+	case runtime.AgentSupervisorGo:
 		return &armadav1.RuntimeStatus{Agent: st.GetAgent()}
 	case runtime.AgentSupervisorRust:
 	default:

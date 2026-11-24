@@ -39,6 +39,11 @@ and resume the node (armada node resume NODE).
 Moving to the supervisor stops containerd and leaves its data in
 <data-dir>/containerd, which can be removed once the node runs.
 
+The cluster's leader moves containerd nodes to the supervisor by itself, one
+at a time (ADR 0054; armada cluster status shows it). Run this for a node it
+does not move: a cluster's only node, a node holding volumes, or any node
+while the move is turned off (armada cluster update --runtime-move=false).
+
 ```
 armadad runtime migrate --to embedded|supervisor [flags]
 ```

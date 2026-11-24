@@ -76,7 +76,7 @@ func (a *Agent) usageLoop(ctx context.Context) {
 		}
 		a.reportPeers(report)
 		if ar != nil {
-			report.Runtime = runtimeStatus(ar.RuntimeAgent())
+			report.Runtime = a.withMoveError(runtimeStatus(ar.RuntimeAgent()))
 		}
 		if sampled || report.Runtime != nil || report.PeersChecked || report.LoadMeasured || report.VolumesMeasured || report.ConntrackMax > 0 || len(report.Queues) > 0 || len(report.Sandboxes) > 0 ||
 			len(report.DroppedSandboxes) > 0 || report.LogExport != nil || report.NetworkSwitch != nil {

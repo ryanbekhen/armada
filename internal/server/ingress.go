@@ -688,6 +688,11 @@ func (s *Server) GetClusterConfig(ctx context.Context, _ *armadav1.GetClusterCon
 	if err := s.controlPlaneBackupConfig(ctx, cc); err != nil {
 		return nil, storeErr(err)
 	}
+	move, err := s.loadRuntimeMove(ctx)
+	if err != nil {
+		return nil, storeErr(err)
+	}
+	cc.RuntimeMoveOff = move.Off
 	switch n, err := s.store.GetNetwork(ctx); {
 	case errors.Is(err, store.ErrNotFound):
 	case err != nil:
@@ -765,6 +770,11 @@ func (s *Server) SetClusterConfig(ctx context.Context, req *armadav1.SetClusterC
 	}
 	if req.GetSetNetwork() {
 		if err := s.setNetwork(ctx, req.GetConfig().GetNetwork()); err != nil {
+			return nil, err
+		}
+	}
+	if req.GetSetRuntimeMove() {
+		if err := s.setRuntimeMove(ctx, !req.GetConfig().GetRuntimeMoveOff()); err != nil {
 			return nil, err
 		}
 	}

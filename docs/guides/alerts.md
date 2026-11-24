@@ -231,6 +231,7 @@ or `armada app events`.
 | `VolumeBackupFailed`, `VolumeBackupUnsupported` | Scheduled volume backups do not work |
 | `VolumeFailedOver`, `VolumeFailoverFailed` | A volume was restored on another node, or could not be |
 | `ControlPlaneBackupFailed` | The control plane could not be backed up to its bucket |
+| `RuntimeMoveGivenUp` | The leader gave up moving a containerd node to the supervisor runtime (a step took too long); the node stays on containerd and is tried again an hour later |
 
 Any other reason can be named with `--reason`, such as `Deployed`,
 `Scheduled`, `Restarted`, `NotReady`, `RolledBack` (someone ran `armada app rollback`), or `Joined`.
