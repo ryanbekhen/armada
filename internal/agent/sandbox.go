@@ -304,6 +304,14 @@ func (a *Agent) readSandbox(ctx context.Context, id string, p *armadav1.QueuePro
 	dial := a.namespaceDialer(func(ctx context.Context, network, address string) (net.Conn, error) {
 		return sb.DialSandbox(ctx, id, network, address)
 	})
+	if qr, ok := a.cfg.Driver.(runtime.QueueReader); ok && (p.GetType() == spec.ScaleRedis || p.GetType() == spec.ScaleRabbitMQ) {
+		n, handled, err := a.nativeQueue(ctx, p, dial, func(q runtime.QueueRead) (int64, bool, error) {
+			return qr.ReadSandboxQueue(ctx, id, q)
+		})
+		if handled {
+			return n, err
+		}
+	}
 	switch p.GetType() {
 	case spec.ScaleRedis:
 		return queuelen.RedisListLength(ctx, dial, p.GetUrl(), p.GetName())

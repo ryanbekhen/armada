@@ -10,6 +10,7 @@ import (
 
 	armadav1 "github.com/ryanbekhen/armada/api/armada/v1"
 	"github.com/ryanbekhen/armada/internal/fsutil"
+	"github.com/ryanbekhen/armada/internal/nodeprog"
 	"github.com/ryanbekhen/armada/internal/runtime"
 	"github.com/ryanbekhen/armada/internal/spec"
 )
@@ -73,14 +74,14 @@ func (a *Agent) prepareNFS(ctx context.Context, app string, v *armadav1.VolumeSp
 		return runtime.VolumeMount{}, err
 	}
 	want := nfsSource(n.GetServer(), n.GetPath())
-	have, mounted, err := mountedSource(target)
+	have, mounted, readOnly, err := a.nfsMounted(ctx, target, want)
 	if err != nil {
 		return runtime.VolumeMount{}, err
 	}
-	if mounted && (have != want || mountedReadOnly(target) != n.GetReadOnly()) {
+	if mounted && (have != want || readOnly != n.GetReadOnly()) {
 		// The spec moved to another export: replicas still on the old one
 		// keep it through their own bind mounts.
-		if err := unmountNFS(target); err != nil {
+		if err := a.unmountNFS(ctx, target); err != nil {
 			return runtime.VolumeMount{}, err
 		}
 		mounted = false
@@ -90,7 +91,7 @@ func (a *Agent) prepareNFS(ctx context.Context, app string, v *armadav1.VolumeSp
 		defer cancel()
 		mount := a.cfg.MountNFS
 		if mount == nil {
-			mount = mountNFS
+			mount = a.mountNFS
 		}
 		if err := mount(ctx, n.GetServer(), n.GetPath(), target, n.GetReadOnly()); err != nil {
 			return runtime.VolumeMount{}, fmt.Errorf("mount NFS export %s: %w", want, err)
@@ -139,8 +140,8 @@ func (a *Agent) cleanNFS(desired map[string]*armadav1.ReplicaSpec) {
 				continue
 			}
 			unlock := a.nfsMounts.lock(target)
-			if _, mounted, err := mountedSource(target); err == nil && mounted {
-				if err := unmountNFS(target); err != nil {
+			if _, mounted, _, err := a.nfsMounted(context.Background(), target, ""); err == nil && mounted {
+				if err := a.unmountNFS(context.Background(), target); err != nil {
 					a.log.Warn("unmount NFS volume", "dir", target, "err", err)
 					unlock()
 					continue
@@ -152,4 +153,68 @@ func (a *Agent) cleanNFS(desired map[string]*armadav1.ReplicaSpec) {
 		}
 		_ = os.Remove(dir)
 	}
+}
+
+// nfsRequest is what `armada-node nfs` reads.
+type nfsRequest struct {
+	Server    string `json:"server,omitempty"`
+	Path      string `json:"path,omitempty"`
+	Target    string `json:"target"`
+	ReadOnly  bool   `json:"readOnly,omitempty"`
+	TimeoutMs int64  `json:"timeoutMs,omitempty"`
+	// Export is the source whose mount's read-only flag is asked: the
+	// file system of another source is never looked at (a server that
+	// does not answer would hold the call).
+	Export string `json:"export,omitempty"`
+	// Mountinfo replaces /proc/self/mountinfo (tests).
+	Mountinfo string `json:"mountinfo,omitempty"`
+}
+
+// nfsMounted reports the NFS source mounted on target and, when it is
+// want, whether the mount is read-only: armada-node's `nfs source`, else
+// Go's code.
+func (a *Agent) nfsMounted(ctx context.Context, target, want string) (source string, mounted, readOnly bool, err error) {
+	if p := a.cfg.Node; p != nil {
+		var out struct {
+			Source   string `json:"source"`
+			Mounted  bool   `json:"mounted"`
+			ReadOnly bool   `json:"readOnly"`
+		}
+		err := p.Call(ctx, nfsRequest{Target: target, Export: want}, &out, "nfs", "source")
+		if !p.Fallback("nfs source", err) {
+			return out.Source, out.Mounted, out.ReadOnly, err
+		}
+	}
+	source, mounted, err = mountedSource(target)
+	if err != nil || !mounted || source != want {
+		return source, mounted, false, err
+	}
+	return source, true, mountedReadOnly(target), nil
+}
+
+// unmountNFS detaches target: armada-node's `nfs unmount`, else Go's code.
+func (a *Agent) unmountNFS(ctx context.Context, target string) error {
+	if p := a.cfg.Node; p != nil {
+		err := p.Call(ctx, nfsRequest{Target: target}, nil, "nfs", "unmount")
+		if !p.Fallback("nfs unmount", err) {
+			return err
+		}
+	}
+	return unmountNFS(target)
+}
+
+// mountNFS mounts server:export on target: armada-node's `nfs mount`,
+// which checks the export again, else Go's code.
+func (a *Agent) mountNFS(ctx context.Context, server, export, target string, readOnly bool) error {
+	if p := a.cfg.Node; p != nil {
+		req := nfsRequest{Server: server, Path: export, Target: target, ReadOnly: readOnly, TimeoutMs: nodeprog.TimeoutMs(ctx)}
+		err := p.Call(ctx, req, nil, "nfs", "mount")
+		if cerr := ctx.Err(); cerr != nil && err != nil {
+			return fmt.Errorf("the server did not answer: %w", cerr)
+		}
+		if !p.Fallback("nfs mount", err) {
+			return err
+		}
+	}
+	return mountNFS(ctx, server, export, target, readOnly)
 }

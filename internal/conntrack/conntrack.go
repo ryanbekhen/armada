@@ -5,6 +5,7 @@
 package conntrack
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -12,8 +13,11 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"golang.org/x/sys/unix"
+
+	"github.com/ryanbekhen/armada/internal/nodeprog"
 )
 
 const (
@@ -34,6 +38,38 @@ const (
 type Table struct {
 	dir    string
 	memory int64
+	// fixed is a memory size given by the caller (At), sent to
+	// armada-node; otherwise the program asks the kernel itself.
+	fixed bool
+	prog  *nodeprog.Program
+}
+
+// WithProgram has armada-node read and raise the table (ADR 0054 step 5,
+// `armada-node conntrack read|raise`), Go's code doing a call it fails;
+// nil keeps Go's code.
+func (t *Table) WithProgram(p *nodeprog.Program) *Table {
+	t.prog = p
+	return t
+}
+
+// Program is the armada-node the table runs, or nil.
+func (t *Table) Program() *nodeprog.Program { return t.prog }
+
+// programTimeout bounds one call to armada-node.
+const programTimeout = 10 * time.Second
+
+// request is what `armada-node conntrack` reads.
+type request struct {
+	Dir    string `json:"dir"`
+	Memory *int64 `json:"memory,omitempty"`
+}
+
+func (t *Table) request() request {
+	r := request{Dir: t.dir}
+	if t.fixed {
+		r.Memory = &t.memory
+	}
+	return r
 }
 
 // New returns the table of this machine.
@@ -46,7 +82,7 @@ func New() *Table {
 }
 
 // At returns a table kept in dir, for tests.
-func At(dir string, memory int64) *Table { return &Table{dir: dir, memory: memory} }
+func At(dir string, memory int64) *Table { return &Table{dir: dir, memory: memory, fixed: true} }
 
 // Target is the limit a node with memory bytes should have at least.
 func Target(memory int64) int64 { return min(Minimum, max(0, memory)/memoryPerEntry) }
@@ -55,6 +91,23 @@ func Target(memory int64) int64 { return min(Minimum, max(0, memory)/memoryPerEn
 // while the kernel module is not loaded, which is not a problem: nothing is
 // tracked then.
 func (t *Table) Read() (entries, limit int64, ok bool) {
+	if t.prog != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), programTimeout)
+		defer cancel()
+		var out struct {
+			Entries, Limit int64
+			OK             bool `json:"ok"`
+		}
+		err := t.prog.Call(ctx, t.request(), &out, "conntrack", "read")
+		if !t.prog.Fallback("conntrack read", err) {
+			return out.Entries, out.Limit, out.OK
+		}
+	}
+	return t.goRead()
+}
+
+// goRead is Read in Go.
+func (t *Table) goRead() (entries, limit int64, ok bool) {
 	entries, err := t.read(fileCount)
 	if err != nil {
 		return 0, 0, false
@@ -71,6 +124,20 @@ func (t *Table) Read() (entries, limit int64, ok bool) {
 // changed anything. The kernel module may load after the agent starts, so
 // callers repeat this; with no module it does nothing.
 func (t *Table) Raise() (previous int64, err error) {
+	if t.prog != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), programTimeout)
+		defer cancel()
+		var out struct{ Previous int64 }
+		err := t.prog.Call(ctx, t.request(), &out, "conntrack", "raise")
+		if !t.prog.Fallback("conntrack raise", err) {
+			return out.Previous, err
+		}
+	}
+	return t.goRaise()
+}
+
+// goRaise is Raise in Go.
+func (t *Table) goRaise() (previous int64, err error) {
 	limit, err := t.read(fileMax)
 	if errors.Is(err, fs.ErrNotExist) {
 		return 0, nil
