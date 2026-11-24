@@ -18,6 +18,7 @@ import (
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 	"golang.org/x/sys/unix"
 
+	"github.com/ryanbekhen/armada/internal/nodeprog"
 	"github.com/ryanbekhen/armada/internal/runtime"
 )
 
@@ -256,6 +257,7 @@ func (n *Native) session(ctx context.Context, req nativeExec, x ExecSession) (co
 	}
 	cmd := exec.Command(n.Bin, "runtime", "exec") //nolint:gosec // the runtime pack's armada-node
 	cmd.ExtraFiles = extra
+	cmd.Env = nodeprog.Env()
 	if err := cmd.Start(); err != nil {
 		return fail(err)
 	}

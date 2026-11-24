@@ -29,8 +29,9 @@
 //! up. A kernel without openat2 fails the call before any output, so the
 //! agent does it.
 //!
-//! Two variables are test hooks, set only by Go's parity tests
-//! (nativevolume_test.go): ARMADA_NODE_TEST_VOLUME_HOOK=ENTRY:fifo|truncate
+//! Two variables are test hooks, set only by Go's parity tests and read only
+//! by builds with test hooks (src/hooks.rs; nativevolume_test.go):
+//! ARMADA_NODE_TEST_VOLUME_HOOK=ENTRY:fifo|truncate
 //! replaces or empties the regular file ENTRY of the volume being archived
 //! between its lookup and its open (archiveHook), and
 //! ARMADA_NODE_TEST_VOLUME_SPACE=BYTES,TOTAL,INODES,TOTAL|unknown is the
@@ -146,9 +147,15 @@ fn printable(c: char) -> bool {
         || u >= 0xf0000)
 }
 
-/// A path in an os.PathError's text: Go prints its bytes as they are.
+/// A path in an os.PathError's text: as it is when it is UTF-8, else
+/// quoted as `%q` quotes it. Go prints the bytes as they are, which makes
+/// a text the agent cannot send (protobuf strings are UTF-8); this keeps
+/// every byte readable instead.
 pub(crate) fn show(p: &[u8]) -> String {
-    String::from_utf8_lossy(p).into_owned()
+    match std::str::from_utf8(p) {
+        Ok(s) => s.to_string(),
+        Err(_) => quote(p),
+    }
 }
 
 /// An os.PathError's text.

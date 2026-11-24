@@ -7,12 +7,14 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -20,17 +22,20 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ryanbekhen/armada/internal/nodeprog"
 	"github.com/ryanbekhen/armada/internal/volbackup"
 )
 
 // The parity tests compare armada-node volume archive|restore|size (ADR
 // 0054 step 5) with Go's writeArchive, restoreArchive, and volumeSize:
 //
-//	ARMADA_NODE_BIN=$PWD/node/target/x86_64-unknown-linux-musl/release/armada-node \
+//	make node-test-hooks && ARMADA_NODE_BIN=$PWD/node/target/test-hooks/x86_64-unknown-linux-musl/release/armada-node \
 //	  go test -run 'TestArmadaNodeVolume' ./internal/agent/
 //
-// The gzip streams differ (Go's compress/gzip and flate2 compress
-// differently), so archives are compared as the tar bytes inside them.
+// The tests that set armada-node's ARMADA_NODE_TEST_* hooks skip with a
+// release build, which ignores them. The gzip streams differ (Go's
+// compress/gzip and flate2 compress differently), so archives are
+// compared as the tar bytes inside them.
 
 func nodeBin(t *testing.T) string {
 	t.Helper()
@@ -39,6 +44,40 @@ func nodeBin(t *testing.T) string {
 		t.Skip("ARMADA_NODE_BIN is not set")
 	}
 	return bin
+}
+
+// hooksBin is nodeBin for tests that set armada-node's test hooks: a
+// build without them (make node) skips them.
+func hooksBin(t *testing.T) string {
+	t.Helper()
+	bin := nodeBin(t)
+	out, err := exec.Command(bin, "test-hooks").Output() //nolint:noctx // the test's armada-node
+	var ans struct {
+		TestHooks bool `json:"testHooks"`
+	}
+	if err != nil || json.Unmarshal(out, &ans) != nil || !ans.TestHooks {
+		t.Skip("ARMADA_NODE_BIN has no test hooks: build it with make node-test-hooks")
+	}
+	return bin
+}
+
+// A release build of armada-node ignores the test hooks, and the agent
+// leaves them out of armada-node's environment either way.
+func TestArmadaNodeIgnoresTestHooks(t *testing.T) {
+	bin := nodeBin(t)
+	t.Setenv("ARMADA_NODE_TEST_VOLUME_SPACE", "1,1,1,1")
+	in := gz(t, rawTar(t, tarEntry{tar.Header{Name: "f", Typeflag: tar.TypeReg, Mode: 0o600, Uid: os.Getuid(), Gid: os.Getgid()}, "x"}))
+	dst := filepath.Join(t.TempDir(), "app", "data")
+	// The variable set above is left out of armada-node's environment
+	// (with or without hooks): the restore sees the real free space.
+	if _, err := nativeRestore(bin, nil, dst, bytes.NewReader(in)); err != nil {
+		t.Fatalf("restore with the hook in the agent's environment: %v", err)
+	}
+	for _, kv := range nodeprog.Env() {
+		if strings.HasPrefix(kv, "ARMADA_NODE_TEST_") {
+			t.Errorf("armada-node's environment holds %s", kv)
+		}
+	}
 }
 
 func gunzip(t *testing.T, b []byte) []byte {
@@ -136,7 +175,7 @@ func TestArmadaNodeVolumeArchiveMatchesGo(t *testing.T) {
 	vol := parityTree(t)
 	var goBuf, rsBuf bytes.Buffer
 	mustDo(t, writeArchive(context.Background(), vol, &goBuf))
-	wrote, err := nativeArchive(context.Background(), bin, vol, &rsBuf)
+	wrote, err := nativeArchive(context.Background(), bin, nil, vol, &rsBuf)
 	if err != nil || !wrote {
 		t.Fatalf("armada-node: wrote=%v err=%v", wrote, err)
 	}
@@ -162,7 +201,7 @@ func TestArmadaNodeVolumeArchiveMatchesGo(t *testing.T) {
 	// A volume that does not exist.
 	missing := filepath.Join(t.TempDir(), "gone")
 	gerr := writeArchive(context.Background(), missing, io.Discard)
-	_, rerr := nativeArchive(context.Background(), bin, missing, io.Discard)
+	_, rerr := nativeArchive(context.Background(), bin, nil, missing, io.Discard)
 	if gerr == nil || rerr == nil || gerr.Error() != rerr.Error() {
 		t.Errorf("missing volume:\n go   %v\n rust %v", gerr, rerr)
 	}
@@ -171,7 +210,7 @@ func TestArmadaNodeVolumeArchiveMatchesGo(t *testing.T) {
 // An entry that changes between its lookup and its open fails both the
 // same way. Not parallel: archiveHook is the package's.
 func TestArmadaNodeVolumeArchiveRefusesAsGo(t *testing.T) {
-	bin := nodeBin(t)
+	bin := hooksBin(t)
 	for _, tc := range []struct{ name, action string }{
 		{"f\x1b]0;title\x07", "fifo"},
 		{"plain", "fifo"},
@@ -183,8 +222,8 @@ func TestArmadaNodeVolumeArchiveRefusesAsGo(t *testing.T) {
 			mustDo(t, os.WriteFile(p, []byte("some content"), 0o600))
 			mustDo(t, os.WriteFile(filepath.Join(vol, "a"), []byte("first"), 0o600))
 			if native {
-				t.Setenv("ARMADA_NODE_TEST_VOLUME_HOOK", tc.name+":"+tc.action)
-				_, err := nativeArchive(context.Background(), bin, vol, io.Discard)
+				hook := []string{"ARMADA_NODE_TEST_VOLUME_HOOK=" + tc.name + ":" + tc.action}
+				_, err := nativeArchive(context.Background(), bin, hook, vol, io.Discard)
 				return err
 			}
 			archiveHook = func(e string) {
@@ -215,7 +254,7 @@ func TestArmadaNodeVolumeArchiveRefusesAsGo(t *testing.T) {
 func TestArmadaNodeVolumeSizeMatchesGo(t *testing.T) {
 	bin := nodeBin(t)
 	dirs := []string{parityTree(t), t.TempDir(), filepath.Join(t.TempDir(), "gone")}
-	got, err := nativeSizes(context.Background(), bin, dirs)
+	got, err := nativeSizes(context.Background(), bin, nil, dirs)
 	mustDo(t, err)
 	for i, d := range dirs {
 		if want := volumeSize(context.Background(), d); got[i] != want {
@@ -269,6 +308,42 @@ func rawTar(t *testing.T, entries ...tarEntry) []byte {
 	return buf.Bytes()
 }
 
+// tarBlock is a USTAR header block as GNU tar writes it.
+func tarBlock(name string, flag byte, mode, size, uid, gid int) []byte {
+	b := make([]byte, 512)
+	copy(b, name)
+	copy(b[100:], fmt.Sprintf("%07o\x00", mode))
+	copy(b[108:], fmt.Sprintf("%07o\x00", uid))
+	copy(b[116:], fmt.Sprintf("%07o\x00", gid))
+	copy(b[124:], fmt.Sprintf("%011o\x00", size))
+	copy(b[136:], fmt.Sprintf("%011o\x00", 1_600_000_000))
+	b[156] = flag
+	copy(b[257:], "ustar\x0000")
+	copy(b[148:], "        ")
+	sum := 0
+	for _, c := range b {
+		sum += int(c)
+	}
+	copy(b[148:], fmt.Sprintf("%06o\x00 ", sum))
+	return b
+}
+
+// sparseTar is an archive holding a PAX 1.0 sparse file "s" of 10 bytes
+// with "abc" at 2.
+func sparseTar(t *testing.T, uid, gid int) []byte {
+	t.Helper()
+	pad := func(b []byte) []byte { return append(b, make([]byte, (512-len(b)%512)%512)...) }
+	recs := "22 GNU.sparse.major=1\n22 GNU.sparse.minor=0\n21 GNU.sparse.name=s\n26 GNU.sparse.realsize=10\n"
+	var a []byte
+	a = append(a, tarBlock("./", '5', 0o750, 0, uid, gid)...)
+	a = append(a, tarBlock("PaxHeaders/s", 'x', 0o640, len(recs), uid, gid)...)
+	a = append(a, pad([]byte(recs))...)
+	data := append(pad([]byte("1\n2\n3\n")), "abc"...)
+	a = append(a, tarBlock("GNUSparseFile.0/s", '0', 0o640, len(data), uid, gid)...)
+	a = append(a, pad(data)...)
+	return append(a, make([]byte, 1024)...)
+}
+
 type tarEntry struct {
 	h    tar.Header
 	body string
@@ -313,9 +388,12 @@ var restoreSuffix = regexp.MustCompile(`\.(restore|old)-[0-9a-f]{12}`)
 
 // TestArmadaNodeVolumeRestoreMatchesGo restores the same archives with
 // both and compares the errors (paths and random suffixes aside) and the
-// volumes left. Not parallel: restoreSpace is the package's.
+// volumes left. Where armada-node was made right and Go's code (the
+// fallback, to be removed) was not, the case names what armada-node
+// gives, and Go's old result is only logged. Not parallel: restoreSpace
+// is the package's.
 func TestArmadaNodeVolumeRestoreMatchesGo(t *testing.T) {
-	bin := nodeBin(t)
+	bin := hooksBin(t)
 	uid, gid := os.Getuid(), os.Getgid()
 	reg := func(name, body string) tarEntry {
 		return tarEntry{tar.Header{Name: name, Typeflag: tar.TypeReg, Mode: 0o640, Uid: uid, Gid: gid}, body}
@@ -346,16 +424,34 @@ func TestArmadaNodeVolumeRestoreMatchesGo(t *testing.T) {
 	badCRC[len(badCRC)-8] ^= 0xff
 	trailing := append(append([]byte(nil), gzFull...), "garbage after the archive"...)
 	noEnd := full[:len(full)-1024]
+	padded := append(append([]byte(nil), full...), make([]byte, 8192)...)
+	dataAfter := append(append([]byte(nil), full...), "more"...)
+	// A PAX 1.0 sparse file of 10 bytes holding "abc" at 2, as GNU tar
+	// writes one (Go's writer leaves GNU.sparse records out).
+	sparse := sparseTar(t, uid, gid)
+	future := rawTar(t, tarEntry{tar.Header{Name: "future", Typeflag: tar.TypeReg, Mode: 0o600, Uid: uid, Gid: gid, Format: tar.FormatPAX,
+		ModTime: time.Date(2300, 1, 2, 3, 4, 5, 0, time.UTC), Size: 1}, "f"})
 
 	cases := []struct {
 		name  string
 		in    []byte
 		space *fsFree
 		fail  int // the session fails after this many bytes (0: never)
+		// rust is what armada-node answers where it differs from Go's
+		// code on purpose ("ok" for no error); its volume is checked by
+		// tree when set.
+		rust, tree string
 	}{
 		{name: "full", in: gzFull},
-		{name: "bad crc", in: badCRC},
-		{name: "trailing data", in: trailing},
+		// Go stops reading at the tar's end blocks, so it never checks
+		// the gzip trailer or what follows.
+		{name: "bad crc", in: badCRC, rust: "read archive: gzip: invalid checksum"},
+		{name: "trailing data", in: trailing, rust: "read archive: gzip: invalid header"},
+		{name: "data after the end blocks", in: gz(t, dataAfter), rust: "read archive: data after the archive's end"},
+		{name: "zeros after the end blocks", in: gz(t, padded)},
+		{name: "sparse", in: gz(t, sparse)},
+		// Go wraps a time past 2262 (UnixNano).
+		{name: "past 2262", in: gz(t, future), rust: "ok", tree: `"future" -rw------- UID:GID 1 10413889445.000000000`},
 		{name: "no end blocks", in: gz(t, noEnd)},
 		{name: "cut in a file", in: gz(t, full)[:len(gzFull)/2]},
 		{name: "not gzip", in: []byte("nope, this is not a gzip stream")},
@@ -372,17 +468,25 @@ func TestArmadaNodeVolumeRestoreMatchesGo(t *testing.T) {
 		{name: "file twice", in: gz(t, rawTar(t, reg("a", "x"), reg("a", "y")))},
 		{name: "dir over file", in: gz(t, rawTar(t, reg("a", "x"), dir("a/", 0o755)))},
 		{name: "link over file", in: gz(t, rawTar(t, reg("a", "x"), link("a", "b")))},
-		{name: "empty name", in: gz(t, rawTar(t, tarEntry{tar.Header{Name: "", Typeflag: tar.TypeReg, Mode: 0o600, Size: 1, Format: tar.FormatPAX, PAXRecords: map[string]string{"comment": "x"}}, "x"}))},
+		// Go writes the file over the volume's own directory and fails.
+		{name: "empty name", in: gz(t, rawTar(t, tarEntry{tar.Header{Name: "", Typeflag: tar.TypeReg, Mode: 0o600, Size: 1, Format: tar.FormatPAX, PAXRecords: map[string]string{"comment": "x"}}, "x"})), rust: `archive entry "" has no name`},
+		{name: "file as the volume", in: gz(t, rawTar(t, reg(".", "x"))), rust: `archive entry "." names the volume itself, which only a directory can`},
 		{name: "global header", in: gz(t, rawTar(t, tarEntry{tar.Header{Name: "g", Typeflag: tar.TypeXGlobalHeader, PAXRecords: map[string]string{"comment": "x"}}, ""}))},
 		{name: "negative size", in: gz(t, rawTar(t, tarEntry{tar.Header{Name: "d/", Typeflag: tar.TypeDir, Mode: 0o755, Size: -1}, ""}))},
 		{name: "owner", in: gz(t, rawTar(t, tarEntry{tar.Header{Name: "root", Typeflag: tar.TypeReg, Mode: 0o600, Uid: 0, Gid: 0, Size: 1}, "r"}))},
-		{name: "read-only dir", in: gz(t, rawTar(t, dir("ro/", 0o555), reg("ro/f", "x")))},
+		// Go sets the directory's mode before its entries, so a
+		// directory with no write permission refuses them (as root too
+		// on a file system that checks it).
+		{name: "read-only dir", in: gz(t, rawTar(t, dir("ro/", 0o555), reg("ro/f", "x"))), rust: "ok", tree: `"ro/f" -rw-r----- UID:GID 1 1600000000.000000000`},
 		{name: "space", in: gzFull, space: &fsFree{Bytes: 1<<30 + 100, TotalBytes: 10 << 30, Inodes: 1000, TotalInodes: 10000}},
 		{name: "inodes", in: gzFull, space: &fsFree{Bytes: 100 << 30, TotalBytes: 200 << 30, Inodes: 500, TotalInodes: 10000}},
 		{name: "space fits", in: gzFull, space: &fsFree{Bytes: 100 << 30, TotalBytes: 200 << 30, Inodes: 9000, TotalInodes: 10000}},
 		{name: "session fails in the header", in: gzFull, fail: 5},
 		{name: "session fails in a file", in: gzFull, fail: len(gzFull) / 2},
-		{name: "session fails at the end", in: gzFull, fail: len(gzFull)},
+		// Go stops at the tar's end and never reads the session's error;
+		// armada-node reads the stream to its end, so a session that
+		// failed is the restore's failure.
+		{name: "session fails at the end", in: gzFull, fail: len(gzFull), rust: "read archive: receive archive: the session ended"},
 	}
 	norm := func(s, dst string) string {
 		return restoreSuffix.ReplaceAllString(strings.ReplaceAll(s, dst, "VOL"), ".$1-X")
@@ -405,8 +509,7 @@ func TestArmadaNodeVolumeRestoreMatchesGo(t *testing.T) {
 				if tc.space != nil {
 					env = fmt.Sprintf("%d,%d,%d,%d", tc.space.Bytes, tc.space.TotalBytes, tc.space.Inodes, tc.space.TotalInodes)
 				}
-				t.Setenv("ARMADA_NODE_TEST_VOLUME_SPACE", env)
-				_, err = nativeRestore(bin, dst, r)
+				_, err = nativeRestore(bin, []string{"ARMADA_NODE_TEST_VOLUME_SPACE=" + env}, dst, r)
 			} else {
 				restoreSpace = func(string) (fsFree, bool) {
 					if tc.space == nil {
@@ -439,6 +542,21 @@ func TestArmadaNodeVolumeRestoreMatchesGo(t *testing.T) {
 		gmsg, gtree, gleft := run(false)
 		rmsg, rtree, rleft := run(true)
 		t.Logf("%s: %s", tc.name, gmsg)
+		if tc.rust != "" {
+			// A known difference: armada-node's answer, Go's logged.
+			t.Logf("%s: Go's code gives %s (known difference)", tc.name, gmsg)
+			if rmsg != tc.rust {
+				t.Errorf("%s: armada-node: %s, want %s", tc.name, rmsg, tc.rust)
+			}
+			ids := strings.NewReplacer(fmt.Sprintf(" %d:%d", uid, gid), " UID:GID")
+			if tc.tree != "" && !strings.Contains(ids.Replace(rtree), tc.tree) {
+				t.Errorf("%s: armada-node's volume lacks %s:\n%s", tc.name, tc.tree, rtree)
+			}
+			if rleft != "data" {
+				t.Errorf("%s: next to the volume: %s", tc.name, rleft)
+			}
+			continue
+		}
 		if gmsg != rmsg {
 			t.Errorf("%s: errors differ:\n go   %s\n rust %s", tc.name, gmsg, rmsg)
 		}

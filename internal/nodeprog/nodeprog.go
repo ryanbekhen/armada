@@ -23,6 +23,23 @@ import (
 	"time"
 )
 
+// TestHookPrefix starts the variables a build of armada-node with test
+// hooks reads (node/src/hooks.rs). Release builds ignore them; Env leaves
+// them out of what a node passes armada-node anyway.
+const TestHookPrefix = "ARMADA_NODE_TEST_"
+
+// Env is the agent's environment for armada-node: every variable but the
+// test hooks, then extra (tests name their hooks there).
+func Env(extra ...string) []string {
+	var env []string
+	for _, kv := range os.Environ() {
+		if !strings.HasPrefix(kv, TestHookPrefix) {
+			env = append(env, kv)
+		}
+	}
+	return append(env, extra...)
+}
+
 // Program is armada-node, with what it failed and what Go did instead.
 type Program struct {
 	// Bin is the runtime pack's armada-node.
@@ -123,6 +140,7 @@ func Run(ctx context.Context, bin string, o RunOptions, stdin any, args ...strin
 	cmd.Stdin = bytes.NewReader(in)
 	cmd.ExtraFiles = o.ExtraFiles
 	cmd.WaitDelay = o.WaitDelay
+	cmd.Env = Env()
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()

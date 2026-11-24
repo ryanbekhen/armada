@@ -1,15 +1,21 @@
 //! restoreArchive: a gzipped tar from stdin into a new directory next to
 //! the volume, swapped in only when every entry was restored. Entries may
-//! only be directories, regular files, and links, with relative names that
-//! stay inside the volume; no entry is written through a link, setuid and
-//! setgid bits are left out, and an entry is refused when writing it would
-//! leave less than the reserve free (restoreReserve). Paths are used as
+//! only be directories, regular files (sparse ones expanded), and links,
+//! with relative names that stay inside the volume; no entry is written
+//! through a link, setuid and setgid bits are kept only when the agent
+//! runs as root (the sticky bit always), and an entry is refused when
+//! writing it would leave less than the reserve free (restoreReserve).
+//! Directories get their modes and times once every entry is written,
+//! deepest first, so a read-only directory still takes its entries. The
+//! whole stream is read: what follows the tar's end blocks may only be
+//! zeros, and the gzip trailer (CRC-32 and length) of every member is
+//! checked, so a damaged or extended archive is refused. Paths are used as
 //! Go uses them: the new directory is private (0700, under the volumes'
 //! root-owned 0700 directory), so nothing else changes it meanwhile.
 
 use super::gzip;
 use super::{answer_file, cstr, errno, last_errno, path_err, quote, send_answer, show};
-use crate::runtime::image::tar::{self, TYPE_DIR, TYPE_REG, TYPE_SYMLINK};
+use crate::runtime::image::tar::{self, TYPE_DIR, TYPE_GNU_SPARSE, TYPE_REG, TYPE_SYMLINK};
 use std::fs::File;
 use std::io::{self, BufReader, Read, Write};
 
@@ -78,12 +84,12 @@ pub struct Free {
 
 pub type Space = fn(&[u8]) -> Option<Free>;
 
-/// fsSpace, or the test hook's numbers.
+/// fsSpace, or the test hook's numbers (builds with test hooks only).
 pub(crate) fn restore_space() -> Space {
-    match std::env::var("ARMADA_NODE_TEST_VOLUME_SPACE") {
-        Ok(v) if v == "unknown" => |_| None,
-        Ok(_) => |_| {
-            let v = std::env::var("ARMADA_NODE_TEST_VOLUME_SPACE").ok()?;
+    match crate::hooks::var("ARMADA_NODE_TEST_VOLUME_SPACE") {
+        Some(v) if v == "unknown" => |_| None,
+        Some(_) => |_| {
+            let v = crate::hooks::var("ARMADA_NODE_TEST_VOLUME_SPACE")?;
             let n: Vec<u64> = v.split(',').filter_map(|s| s.parse().ok()).collect();
             (n.len() == 4).then(|| Free {
                 bytes: n[0],
@@ -92,7 +98,7 @@ pub(crate) fn restore_space() -> Space {
                 total_inodes: n[3],
             })
         },
-        Err(_) => fs_space,
+        None => fs_space,
     }
 }
 
@@ -116,17 +122,17 @@ fn fs_space(p: &[u8]) -> Option<Free> {
 /// restoreArchive.
 pub fn restore(dir: &[u8], input: impl io::BufRead, space: Space) -> Result<(), String> {
     let gz = gzip::Reader::new(input).map_err(|e| format!("read archive: {}", gzip::text(&e)))?;
-    let mut tr = tar::Reader::new(gz);
+    let mut tr = tar::Reader::new(gz).sparse(true);
     replace_dir(dir, space, |w| {
         loop {
             let h = match tr.next() {
                 Ok(Some(h)) => h,
-                Ok(None) => return Ok(()),
+                Ok(None) => return check_end(tr.get_mut()),
                 Err(e) => return Err(format!("read archive: {}", tar_text(&e))),
             };
             let typ = match h.typeflag {
                 TYPE_DIR => b'd',
-                TYPE_REG => b'f',
+                TYPE_REG | TYPE_GNU_SPARSE => b'f',
                 TYPE_SYMLINK => b'l',
                 _ => {
                     return Err(format!(
@@ -135,15 +141,10 @@ pub fn restore(dir: &[u8], input: impl io::BufRead, space: Space) -> Result<(), 
                     ));
                 }
             };
-            // headerFileInfo.Mode: the permission bits and sticky are kept.
-            let mut mode = (h.mode as u32) & 0o777;
-            if h.mode & 0o1000 != 0 {
-                mode |= 0o1000;
-            }
             let e = Entry {
                 name: h.name.clone(),
                 typ,
-                mode,
+                mode: (h.mode & 0o7777) as u32,
                 uid: h.uid,
                 gid: h.gid,
                 mtime: h.mtime,
@@ -153,6 +154,31 @@ pub fn restore(dir: &[u8], input: impl io::BufRead, space: Space) -> Result<(), 
             w.write(&e, &mut tr)?;
         }
     })
+}
+
+/// The padding after the tar's end blocks a restore reads at most: tar
+/// writers pad to a record (10 KiB by default), never more than this.
+const MAX_PADDING: u64 = 1 << 20;
+
+/// What follows the tar's end: zeros only, up to the end of the gzip
+/// stream, whose every member's trailer is checked on the way and after
+/// whose last member nothing may follow.
+fn check_end(r: &mut impl Read) -> Result<(), String> {
+    let mut buf = vec![0u8; 32 << 10];
+    let mut seen: u64 = 0;
+    loop {
+        match r.read(&mut buf) {
+            Ok(0) => return Ok(()),
+            Ok(n) => {
+                seen += n as u64;
+                if buf[..n].iter().any(|c| *c != 0) || seen > MAX_PADDING {
+                    return Err("read archive: data after the archive's end".into());
+                }
+            }
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+            Err(e) => return Err(format!("read archive: {}", gzip::text(&e))),
+        }
+    }
 }
 
 fn tar_text(e: &tar::Error) -> String {
@@ -166,7 +192,7 @@ fn tar_text(e: &tar::Error) -> String {
 pub struct Entry {
     pub name: Vec<u8>,
     pub typ: u8,
-    /// Permission and sticky bits.
+    /// Permission, setuid, setgid, and sticky bits.
     pub mode: u32,
     pub uid: i64,
     pub gid: i64,
@@ -178,8 +204,11 @@ pub struct Entry {
 /// entryWriter.
 pub struct Writer {
     root: Vec<u8>,
-    dirs: Vec<(Vec<u8>, tar::Time)>,
+    /// Directories written: their modes and times are set last.
+    dirs: Vec<(Vec<u8>, u32, tar::Time)>,
     space: Space,
+    /// The mode bits chmod keeps: setuid and setgid only for root.
+    keep: u32,
 }
 
 fn random_suffix() -> String {
@@ -315,16 +344,17 @@ pub fn replace_dir(
     mkdir_private(&parent(dir))?;
     let tmp = [dir, b".restore-", random_suffix().as_bytes()].concat();
     mkdir(&tmp, 0o700).map_err(|e| path_err("mkdir", &tmp, e))?;
+    // SAFETY: geteuid cannot fail.
+    let root_user = unsafe { libc::geteuid() } == 0;
     let mut w = Writer {
         root: tmp.clone(),
         dirs: Vec::new(),
         space,
+        keep: if root_user { 0o7777 } else { 0o1777 },
     };
     let res = (|| {
         fill(&mut w)?;
-        for (p, t) in w.dirs.iter().rev() {
-            let _ = chtimes(p, *t);
-        }
+        w.finish_dirs()?;
         let old = [dir, b".old-", random_suffix().as_bytes()].concat();
         let (cd, co) = (
             cstr(dir).map_err(errno::text)?,
@@ -365,21 +395,17 @@ fn reserve(f: &Free) -> (u64, u64) {
     ((f.total_bytes / 20).max(1 << 30), f.total_inodes / 20)
 }
 
-/// os.Chtimes(p, t, t): the zero time leaves a time alone.
+/// os.Chtimes(p, t, t): the zero time leaves a time alone. A time past
+/// what 64 bits of nanoseconds hold (2262) is set whole, not wrapped as
+/// Go's UnixNano wraps it.
 fn chtimes(p: &[u8], t: tar::Time) -> Result<(), i32> {
     const ZERO_SECS: i128 = -62_135_596_800;
     let ts = match t {
         Some(n) if n != ZERO_SECS * 1_000_000_000 => {
-            // time.UnixNano (wrapping, as Go's), then NsecToTimespec.
-            let nsec = n as i64;
-            let (mut sec, mut ns) = (nsec / 1_000_000_000, nsec % 1_000_000_000);
-            if ns < 0 {
-                ns += 1_000_000_000;
-                sec -= 1;
-            }
+            let sec = n.div_euclid(1_000_000_000);
             libc::timespec {
-                tv_sec: sec,
-                tv_nsec: ns,
+                tv_sec: i64::try_from(sec).unwrap_or(if sec < 0 { i64::MIN } else { i64::MAX }),
+                tv_nsec: n.rem_euclid(1_000_000_000) as i64,
             }
         }
         _ => libc::timespec {
@@ -401,15 +427,18 @@ fn join(a: &[u8], b: &[u8]) -> Vec<u8> {
     crate::runtime::image::unpack::join(a, b)
 }
 
-/// archivePath.
+/// archivePath: "." (or "./") names the volume itself; an empty name
+/// names nothing and is refused.
 fn archive_path(root: &[u8], name: &[u8]) -> Result<Vec<u8>, String> {
+    if name.is_empty() {
+        return Err("archive entry \"\" has no name".into());
+    }
     let trimmed = name.strip_suffix(b"/").unwrap_or(name);
     let clean = crate::runtime::image::unpack::clean(trimmed);
     if clean == b"." {
         return Ok(root.to_vec());
     }
-    if name.is_empty()
-        || clean.first() == Some(&b'/')
+    if clean.first() == Some(&b'/')
         || clean == b".."
         || clean.starts_with(b"../")
         || name.contains(&0)
@@ -459,11 +488,41 @@ impl Writer {
         Ok(())
     }
 
+    /// Every directory's mode, then its times, deepest first (a later
+    /// entry of the same directory wins), so a directory that takes no
+    /// writes still took its entries.
+    fn finish_dirs(&mut self) -> Result<(), String> {
+        let mut seen = std::collections::HashSet::new();
+        let mut dirs: Vec<&(Vec<u8>, u32, tar::Time)> = self
+            .dirs
+            .iter()
+            .rev()
+            .filter(|d| seen.insert(d.0.clone()))
+            .collect();
+        let depth = |p: &[u8]| p.iter().filter(|c| **c == b'/').count();
+        dirs.sort_by_key(|d| std::cmp::Reverse(depth(&d.0)));
+        for (p, mode, t) in dirs {
+            let c = cstr(p).map_err(errno::text)?;
+            // SAFETY: chmod with a valid C string.
+            if unsafe { libc::chmod(c.as_ptr(), *mode) } < 0 {
+                return Err(path_err("chmod", p, last_errno()));
+            }
+            let _ = chtimes(p, *t);
+        }
+        Ok(())
+    }
+
     /// write.
     pub fn write(&mut self, e: &Entry, content: &mut impl Read) -> Result<(), String> {
         let target = archive_path(&self.root, &e.name)?;
-        self.room(e)?;
         let q = quote(&e.name);
+        if target == self.root && e.typ != b'd' {
+            return Err(format!(
+                "archive entry {q} names the volume itself, which only a directory can"
+            ));
+        }
+        self.room(e)?;
+        let mode = e.mode & self.keep;
         match e.typ {
             b'd' => {
                 if target != self.root
@@ -476,7 +535,7 @@ impl Writer {
                     Ok(st) if is_dir(&st) => {}
                     _ => return Err(format!("archive entry {q} is not a directory")),
                 }
-                self.dirs.push((target.clone(), e.mtime));
+                self.dirs.push((target.clone(), mode, e.mtime));
             }
             b'f' => {
                 let c = cstr(&target)
@@ -549,9 +608,10 @@ impl Writer {
                 path_err("lchown", &target, last_errno())
             ));
         }
-        if e.typ != b'l' {
+        if e.typ == b'f' {
+            // After the owner, which clears setuid and setgid.
             // SAFETY: chmod with a valid C string.
-            if unsafe { libc::chmod(c.as_ptr(), e.mode) } < 0 {
+            if unsafe { libc::chmod(c.as_ptr(), mode) } < 0 {
                 return Err(path_err("chmod", &target, last_errno()));
             }
         }
@@ -618,6 +678,162 @@ mod tests {
         let mut e = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
         e.write_all(b).unwrap();
         e.finish().unwrap()
+    }
+
+    /// An archive Go's writer would make of entries (name, type, mode,
+    /// mtime, body), owned by the user running the tests.
+    fn archive(entries: &[(&str, u8, i64, i64, &str)]) -> Vec<u8> {
+        let mut tw = super::super::archive::TarWriter::new(Vec::new());
+        let (uid, gid) = unsafe { (i64::from(libc::getuid()), i64::from(libc::getgid())) };
+        for (name, typeflag, mode, mtime, body) in entries {
+            let h = super::super::archive::Hdr {
+                name: name.as_bytes().to_vec(),
+                link: Vec::new(),
+                typeflag: *typeflag,
+                mode: *mode,
+                uid,
+                gid,
+                size: body.len() as i64,
+                mtime: *mtime,
+            };
+            tw.write_header(&h).unwrap();
+            tw.write_content(body.as_bytes()).unwrap();
+        }
+        tw.close().unwrap();
+        tw.w
+    }
+
+    #[test]
+    fn checks_the_whole_stream() {
+        let dir = tmp("stream");
+        let a = gz(&archive(&[("f", b'0', 0o600, 1, "hello")]));
+        let mut bad = a.clone();
+        let n = bad.len();
+        bad[n - 8] ^= 0xff;
+        assert_eq!(
+            restore(&dir, &bad[..], |_| None).unwrap_err(),
+            "read archive: gzip: invalid checksum"
+        );
+        let mut extra = a.clone();
+        extra.extend_from_slice(b"garbage after the archive");
+        assert_eq!(
+            restore(&dir, &extra[..], |_| None).unwrap_err(),
+            "read archive: gzip: invalid header"
+        );
+        // Data after the tar's end blocks, inside the gzip stream.
+        let mut raw = archive(&[("f", b'0', 0o600, 1, "hello")]);
+        raw.extend_from_slice(b"more");
+        assert_eq!(
+            restore(&dir, &gz(&raw)[..], |_| None).unwrap_err(),
+            "read archive: data after the archive's end"
+        );
+        // Zeros after the end are a tar writer's padding.
+        let mut raw = archive(&[("f", b'0', 0o600, 1, "hello")]);
+        raw.extend_from_slice(&[0u8; 8192]);
+        restore(&dir, &gz(&raw)[..], |_| None).unwrap();
+        // Two gzip members are one stream.
+        let raw = archive(&[("f", b'0', 0o600, 1, "hello")]);
+        let mut two = gz(&raw[..1024]);
+        two.extend(gz(&raw[1024..]));
+        restore(&dir, &two[..], |_| None).unwrap();
+        let _ = std::fs::remove_dir_all(
+            std::path::Path::new(std::ffi::OsStr::from_bytes(&dir))
+                .parent()
+                .unwrap()
+                .parent()
+                .unwrap(),
+        );
+    }
+
+    #[test]
+    fn names_modes_and_times() {
+        let dir = tmp("names");
+        let p = std::path::PathBuf::from(std::ffi::OsStr::from_bytes(&dir));
+        // An empty name, and a file naming the volume itself.
+        for (name, want) in [
+            ("", "archive entry \"\" has no name"),
+            (
+                "./",
+                "archive entry \"./\" names the volume itself, which only a directory can",
+            ),
+        ] {
+            let mut raw = archive(&[("x", b'0', 0o600, 1, "")]);
+            // The name of the only entry, rewritten with its checksum.
+            raw[..100].fill(0);
+            raw[..name.len()].copy_from_slice(name.as_bytes());
+            raw[148..156].copy_from_slice(b"        ");
+            let sum: u32 = raw[..512].iter().map(|c| u32::from(*c)).sum();
+            raw[148..156].copy_from_slice(format!("{sum:06o}\0 ").as_bytes());
+            assert_eq!(restore(&dir, &gz(&raw)[..], |_| None).unwrap_err(), want);
+        }
+        // A read-only directory takes its entries; its mode and time are
+        // set last; setuid and setgid are kept only for root; a time past
+        // 2262 is not wrapped.
+        let future = 10_413_792_000; // 2300-01-01
+        let a = archive(&[
+            ("ro/", b'5', 0o555, 1_600_000_000, ""),
+            ("ro/f", b'0', 0o4755, future, "x"),
+            ("ro/sub/", b'5', 0o500, 1_600_000_001, ""),
+            ("ro/sub/g", b'0', 0o2644, 1, "y"),
+        ]);
+        restore(&dir, &gz(&a)[..], |_| None).unwrap();
+        use std::os::unix::fs::MetadataExt;
+        let m = |q: &str| std::fs::symlink_metadata(p.join(q)).unwrap();
+        let special = if unsafe { libc::geteuid() } == 0 {
+            0o6000
+        } else {
+            0
+        };
+        assert_eq!(m("ro").mode() & 0o7777, 0o555);
+        assert_eq!(m("ro").mtime(), 1_600_000_000);
+        assert_eq!(m("ro/sub").mode() & 0o7777, 0o500);
+        assert_eq!(m("ro/sub").mtime(), 1_600_000_001);
+        assert_eq!(m("ro/f").mode() & 0o7777, 0o755 | (special & 0o4000));
+        assert_eq!(m("ro/sub/g").mode() & 0o7777, 0o644 | (special & 0o2000));
+        assert_eq!(m("ro/f").mtime(), future);
+        for d in ["ro/sub", "ro"] {
+            std::fs::set_permissions(
+                p.join(d),
+                std::os::unix::fs::PermissionsExt::from_mode(0o700),
+            )
+            .unwrap();
+        }
+        let _ = std::fs::remove_dir_all(p.parent().unwrap().parent().unwrap());
+    }
+
+    #[test]
+    fn restores_sparse_files() {
+        let dir = tmp("sparse");
+        let p = std::path::PathBuf::from(std::ffi::OsStr::from_bytes(&dir));
+        // A PAX 1.0 sparse file of 10 bytes holding "abc" at 2.
+        let mut raw = Vec::new();
+        let recs = "22 GNU.sparse.major=1\n22 GNU.sparse.minor=0\n21 GNU.sparse.name=s\n26 GNU.sparse.realsize=10\n";
+        let mut tw = super::super::archive::TarWriter::new(Vec::new());
+        let (uid, gid) = unsafe { (i64::from(libc::getuid()), i64::from(libc::getgid())) };
+        let hdr = |name: &str, typeflag: u8, size: usize| super::super::archive::Hdr {
+            name: name.as_bytes().to_vec(),
+            link: Vec::new(),
+            typeflag,
+            mode: 0o640,
+            uid,
+            gid,
+            size: size as i64,
+            mtime: 1,
+        };
+        tw.write_header(&hdr("PaxHeaders/s", b'x', recs.len()))
+            .unwrap();
+        tw.write_content(recs.as_bytes()).unwrap();
+        let mut map = b"1\n2\n3\n".to_vec();
+        map.resize(512, 0);
+        tw.write_header(&hdr("GNUSparseFile.0/s", b'0', 515))
+            .unwrap();
+        tw.write_content(&map).unwrap();
+        tw.write_content(b"abc").unwrap();
+        tw.close().unwrap();
+        raw.extend(tw.w);
+        restore(&dir, &gz(&raw)[..], |_| None).unwrap();
+        assert_eq!(std::fs::read(p.join("s")).unwrap(), b"\0\0abc\0\0\0\0\0");
+        let _ = std::fs::remove_dir_all(p.parent().unwrap().parent().unwrap());
     }
 
     #[test]

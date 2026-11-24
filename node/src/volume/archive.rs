@@ -378,7 +378,8 @@ impl<W: Write> TarWriter<W> {
     }
 }
 
-/// The test hook (ARMADA_NODE_TEST_VOLUME_HOOK=ENTRY:fifo|truncate).
+/// The test hook (ARMADA_NODE_TEST_VOLUME_HOOK=ENTRY:fifo|truncate), read
+/// only by builds with test hooks.
 struct Hook {
     dir: String,
     entry: Vec<u8>,
@@ -387,7 +388,7 @@ struct Hook {
 
 impl Hook {
     fn from_env(dir: &str) -> Hook {
-        let v = std::env::var_os("ARMADA_NODE_TEST_VOLUME_HOOK").unwrap_or_default();
+        let v = crate::hooks::var_os("ARMADA_NODE_TEST_VOLUME_HOOK").unwrap_or_default();
         let v = std::os::unix::ffi::OsStrExt::as_bytes(v.as_os_str()).to_vec();
         let (entry, action) = match v.iter().rposition(|c| *c == b':') {
             Some(i) => (

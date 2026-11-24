@@ -2,8 +2,12 @@
 //! containerd's applier reads a layer with it: the same headers (V7,
 //! USTAR, PAX, GNU, STAR), the same PAX records and GNU long names, the
 //! same numbers (octal and base-256), and the same errors where an
-//! archive is malformed. GNU sparse files, which no image builder writes,
-//! are refused rather than read.
+//! archive is malformed. GNU sparse files (the old GNU format and PAX
+//! 0.0, 0.1, and 1.0) are expanded as Go's reader expands them when the
+//! reader is made with `sparse(true)` (volume restores, which check the
+//! room an entry's full size takes before writing it); otherwise they are
+//! refused, since their expanded size is not bounded by the archive's
+//! bytes and no image builder writes them (layers).
 
 use std::collections::BTreeMap;
 use std::io::{self, Read};
@@ -24,6 +28,12 @@ pub const TYPE_GNU_LONGLINK: u8 = b'K';
 
 const BLOCK: usize = 512;
 const MAX_SPECIAL_FILE: usize = 1 << 20;
+/// The most a PAX 1.0 sparse map may take (Go reads it whole, bounded only
+/// by the entry's data).
+const MAX_SPARSE_MAP: usize = 16 << 20;
+const ERR_SPARSE_REFUSED: &str = "archive/tar: sparse files are not supported";
+const ERR_MISS_DATA: &str = "archive/tar: sparse file references non-existent data";
+const ERR_UNREF_DATA: &str = "archive/tar: sparse file contains unreferenced data";
 const PAX_XATTR: &str = "SCHILY.xattr.";
 
 /// A time as Go's time.Time holds it: nanoseconds since the epoch, or
@@ -50,6 +60,8 @@ pub struct Header {
     pub devminor: i64,
     /// Every PAX record of the entry (PAXRecords), keys as written.
     pub pax: BTreeMap<Vec<u8>, Vec<u8>>,
+    /// A sparse file the reader expands: `size` is its full size.
+    pub sparse: bool,
 }
 
 impl Header {
@@ -96,6 +108,83 @@ pub struct Reader<R: Read> {
     remaining: u64,
     pad: u64,
     failed: bool,
+    /// Whether sparse files are expanded (else refused).
+    sparse_ok: bool,
+    /// The current entry's map, when it is a sparse file.
+    sparse: Option<Sparse>,
+    /// The last header block read, and whether it was in GNU's format.
+    raw: [u8; BLOCK],
+    raw_gnu: bool,
+}
+
+/// A sparse file being read: its data fragments (offset, length) in
+/// order, its full size, and where the reader is in it.
+struct Sparse {
+    frags: Vec<(i64, i64)>,
+    size: i64,
+    pos: i64,
+    idx: usize,
+}
+
+/// validateSparseEntries.
+fn valid_sparse(sp: &[(i64, i64)], size: i64) -> bool {
+    if size < 0 {
+        return false;
+    }
+    let mut pre_end = 0i64;
+    for &(off, len) in sp {
+        if off < 0 || len < 0 || off > i64::MAX - len || off + len > size || pre_end > off {
+            return false;
+        }
+        pre_end = off + len;
+    }
+    true
+}
+
+/// readGNUSparseMap0x1: the map in GNU.sparse.map, with as many entries as
+/// GNU.sparse.numblocks says.
+fn sparse_map_0x1(pax: &BTreeMap<Vec<u8>, Vec<u8>>) -> Result<Vec<(i64, i64)>, Error> {
+    let rec = |k: &[u8]| pax.get(k).map_or(&b""[..], |v| v.as_slice());
+    let n = parse_int(rec(b"GNU.sparse.numblocks")).ok_or(ERR_HEADER)?;
+    if n < 0 || n.checked_mul(2).is_none() {
+        return Err(ERR_HEADER);
+    }
+    let map = rec(b"GNU.sparse.map");
+    let parts: Vec<&[u8]> = if map.is_empty() {
+        Vec::new()
+    } else {
+        map.split(|c| *c == b',').collect()
+    };
+    if parts.len() as i64 != 2 * n {
+        return Err(ERR_HEADER);
+    }
+    parts
+        .chunks(2)
+        .map(|p| match (parse_int(p[0]), parse_int(p[1])) {
+            (Some(o), Some(l)) => Ok((o, l)),
+            _ => Err(ERR_HEADER),
+        })
+        .collect()
+}
+
+/// A PAX 1.0 sparse map being read: its blocks, where the next token
+/// starts, and the newlines not taken yet.
+struct SparseMap {
+    buf: Vec<u8>,
+    at: usize,
+    newlines: usize,
+}
+
+impl SparseMap {
+    /// nextToken: up to the next newline.
+    fn token(&mut self) -> Vec<u8> {
+        self.newlines = self.newlines.saturating_sub(1);
+        let rest = &self.buf[self.at..];
+        let end = rest.iter().position(|c| *c == b'\n').unwrap_or(rest.len());
+        let t = rest[..end].to_vec();
+        self.at = (self.at + end + 1).min(self.buf.len());
+        t
+    }
 }
 
 /// io.ReadFull: Ok(false) for a clean EOF before any byte.
@@ -334,7 +423,23 @@ impl<R: Read> Reader<R> {
             remaining: 0,
             pad: 0,
             failed: false,
+            sparse_ok: false,
+            sparse: None,
+            raw: [0u8; BLOCK],
+            raw_gnu: false,
         }
+    }
+
+    /// Whether sparse files are expanded as Go's reader expands them
+    /// (true) or refused (false, the default).
+    pub fn sparse(mut self, ok: bool) -> Self {
+        self.sparse_ok = ok;
+        self
+    }
+
+    /// The reader the archive comes from, for what follows its end.
+    pub fn get_mut(&mut self) -> &mut R {
+        &mut self.r
     }
 
     /// Next: the next entry, or None at the end of the archive.
@@ -381,6 +486,7 @@ impl<R: Read> Reader<R> {
         let mut pax: Option<BTreeMap<Vec<u8>, Vec<u8>>> = None;
         let mut long_name: Vec<u8> = Vec::new();
         let mut long_link: Vec<u8> = Vec::new();
+        self.sparse = None;
         loop {
             discard(&mut self.r, self.remaining)?;
             self.remaining = 0;
@@ -446,21 +552,200 @@ impl<R: Read> Reader<R> {
                         };
                     }
                     self.set_entry(&h)?;
-                    let sparse_pax = [
-                        b"GNU.sparse.major".as_slice(),
-                        b"GNU.sparse.minor",
-                        b"GNU.sparse.map",
-                        b"GNU.sparse.numblocks",
-                    ]
-                    .iter()
-                    .any(|k| h.pax.get(*k).is_some_and(|v| !v.is_empty()));
-                    if h.typeflag == TYPE_GNU_SPARSE || sparse_pax {
-                        return Err(Error::Header("archive/tar: sparse files are not supported"));
-                    }
+                    self.handle_sparse(&mut h)?;
                     return Ok(Some(h));
                 }
             }
         }
+    }
+
+    /// handleSparseFile: the entry's sparse map read (old GNU headers or
+    /// GNU's PAX records), its full size set, and its data expanded on
+    /// read; refused when this reader does not expand sparse files.
+    fn handle_sparse(&mut self, h: &mut Header) -> Result<(), Error> {
+        let spd = if h.typeflag == TYPE_GNU_SPARSE {
+            if !self.sparse_ok {
+                return Err(Error::Header(ERR_SPARSE_REFUSED));
+            }
+            self.old_gnu_sparse_map(h)?
+        } else {
+            let rec = |k: &[u8]| h.pax.get(k).cloned().unwrap_or_default();
+            let (major, minor) = (rec(b"GNU.sparse.major"), rec(b"GNU.sparse.minor"));
+            let is1x0 = match (major.as_slice(), minor.as_slice()) {
+                (b"0", b"0" | b"1") => false,
+                (b"1", b"0") => true,
+                (b"", b"") if !rec(b"GNU.sparse.map").is_empty() => false,
+                // An unknown version, or no sparse file: a plain entry, as
+                // Go reads it.
+                _ => return Ok(()),
+            };
+            if !self.sparse_ok {
+                return Err(Error::Header(ERR_SPARSE_REFUSED));
+            }
+            let name = rec(b"GNU.sparse.name");
+            if !name.is_empty() {
+                h.name = name;
+            }
+            let mut size = rec(b"GNU.sparse.size");
+            if size.is_empty() {
+                size = rec(b"GNU.sparse.realsize");
+            }
+            if !size.is_empty() {
+                h.size = parse_int(&size).ok_or(ERR_HEADER)?;
+            }
+            if is1x0 {
+                self.sparse_map_1x0()?
+            } else {
+                sparse_map_0x1(&h.pax)?
+            }
+        };
+        if is_header_only(h.typeflag) || !valid_sparse(&spd, h.size) {
+            return Err(ERR_HEADER);
+        }
+        h.sparse = true;
+        self.sparse = Some(Sparse {
+            frags: spd.into_iter().filter(|(_, l)| *l > 0).collect(),
+            size: h.size,
+            pos: 0,
+            idx: 0,
+        });
+        Ok(())
+    }
+
+    /// readOldGNUSparseMap: the map in the GNU header and its extension
+    /// blocks, which come before the entry's data.
+    fn old_gnu_sparse_map(&mut self, h: &mut Header) -> Result<Vec<(i64, i64)>, Error> {
+        if !self.raw_gnu {
+            return Err(ERR_HEADER);
+        }
+        let mut p = Parser::default();
+        let mut blk = self.raw;
+        h.size = p.numeric(&blk[483..495]);
+        if p.err {
+            return Err(ERR_HEADER);
+        }
+        let mut spd = Vec::new();
+        let (mut at, mut count, mut ext) = (386usize, 4usize, 482usize);
+        loop {
+            for i in 0..count {
+                let e = at + i * 24;
+                if blk[e] == 0 {
+                    break;
+                }
+                let off = p.numeric(&blk[e..e + 12]);
+                let len = p.numeric(&blk[e + 12..e + 24]);
+                if p.err {
+                    return Err(ERR_HEADER);
+                }
+                spd.push((off, len));
+            }
+            if blk[ext] == 0 {
+                return Ok(spd);
+            }
+            if spd.len() > MAX_SPARSE_MAP / 24 {
+                return Err(ERR_HEADER);
+            }
+            if !read_full(&mut self.r, &mut blk)? {
+                return Err(Error::Io(io::ErrorKind::UnexpectedEof.into()));
+            }
+            (at, count, ext) = (0, 21, 504);
+        }
+    }
+
+    /// readGNUSparseMap1x0: the map at the start of the entry's data,
+    /// newline-separated decimal numbers padded to a block.
+    fn sparse_map_1x0(&mut self) -> Result<Vec<(i64, i64)>, Error> {
+        let mut m = SparseMap {
+            buf: Vec::new(),
+            at: 0,
+            newlines: 0,
+        };
+        self.feed_map(&mut m, 1)?;
+        let n = parse_int(&m.token()).ok_or(ERR_HEADER)?;
+        if n < 0 || n.checked_mul(2).is_none() {
+            return Err(ERR_HEADER);
+        }
+        let n = usize::try_from(n).map_err(|_| ERR_HEADER)?;
+        if n > MAX_SPARSE_MAP {
+            return Err(ERR_HEADER);
+        }
+        self.feed_map(&mut m, 2 * n)?;
+        let mut spd = Vec::with_capacity(n);
+        for _ in 0..n {
+            match (parse_int(&m.token()), parse_int(&m.token())) {
+                (Some(o), Some(l)) => spd.push((o, l)),
+                _ => return Err(ERR_HEADER),
+            }
+        }
+        Ok(spd)
+    }
+
+    /// feedTokens: blocks of the entry's data until the map holds n
+    /// newlines.
+    fn feed_map(&mut self, m: &mut SparseMap, n: usize) -> Result<(), Error> {
+        while m.newlines < n {
+            if m.buf.len() >= MAX_SPARSE_MAP {
+                return Err(ERR_HEADER);
+            }
+            if self.remaining < BLOCK as u64 {
+                return Err(Error::Io(io::ErrorKind::UnexpectedEof.into()));
+            }
+            let mut blk = [0u8; BLOCK];
+            if !read_full(&mut self.r, &mut blk)? {
+                return Err(Error::Io(io::ErrorKind::UnexpectedEof.into()));
+            }
+            self.remaining -= BLOCK as u64;
+            m.newlines += blk.iter().filter(|c| **c == b'\n').count();
+            m.buf.extend_from_slice(&blk);
+        }
+        Ok(())
+    }
+
+    /// A read of a sparse file: zeros in its holes, the archive's bytes
+    /// in its data, and an error when the two do not add up.
+    fn read_sparse(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let Some(sp) = self.sparse.as_mut() else {
+            return Ok(0);
+        };
+        if sp.pos >= sp.size {
+            if self.remaining > 0 {
+                self.failed = true;
+                return Err(io::Error::other(ERR_UNREF_DATA));
+            }
+            return Ok(0);
+        }
+        if buf.is_empty() {
+            return Ok(0);
+        }
+        while sp.idx < sp.frags.len() && sp.frags[sp.idx].0 + sp.frags[sp.idx].1 <= sp.pos {
+            sp.idx += 1;
+        }
+        let left = |end: i64, pos: i64| usize::try_from(end - pos).unwrap_or(usize::MAX);
+        if sp.idx >= sp.frags.len() || sp.frags[sp.idx].0 > sp.pos {
+            // A hole, up to the next fragment or the end.
+            let end = sp.frags.get(sp.idx).map_or(sp.size, |f| f.0);
+            let n = buf.len().min(left(end, sp.pos));
+            buf[..n].fill(0);
+            sp.pos += n as i64;
+            return Ok(n);
+        }
+        let end = sp.frags[sp.idx].0 + sp.frags[sp.idx].1;
+        if self.remaining == 0 {
+            self.failed = true;
+            return Err(io::Error::other(ERR_MISS_DATA));
+        }
+        let n = buf
+            .len()
+            .min(left(end, sp.pos))
+            .min(self.remaining.min(usize::MAX as u64) as usize);
+        let k = self.r.read(&mut buf[..n])?;
+        if k == 0 {
+            self.failed = true;
+            return Err(io::ErrorKind::UnexpectedEof.into());
+        }
+        self.remaining -= k as u64;
+        sp.pos += k as i64;
+        Ok(k)
     }
 
     fn parse_pax(&mut self) -> Result<BTreeMap<Vec<u8>, Vec<u8>>, Error> {
@@ -511,6 +796,8 @@ impl<R: Read> Reader<R> {
         if format == Format::Unknown {
             return Err(ERR_HEADER);
         }
+        self.raw = b;
+        self.raw_gnu = format == Format::Gnu;
         let mut p = Parser::default();
         let mut h = Header {
             typeflag: b[156],
@@ -591,6 +878,9 @@ fn merge_pax(h: &mut Header, recs: &BTreeMap<Vec<u8>, Vec<u8>>) -> Result<(), Er
 
 impl<R: Read> Read for Reader<R> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        if self.sparse.is_some() {
+            return self.read_sparse(buf);
+        }
         if self.remaining == 0 {
             return Ok(0);
         }
@@ -680,6 +970,88 @@ mod tests {
         let h = r.next().unwrap().unwrap();
         assert_eq!(h.typeflag, TYPE_DIR);
         assert!(r.next().unwrap().is_none());
+    }
+
+    fn set_checksum(b: &mut [u8; BLOCK]) {
+        b[148..156].copy_from_slice(b"        ");
+        let (u, _) = checksum(b);
+        b[148..156].copy_from_slice(format!("{u:06o}\0 ").as_bytes());
+    }
+
+    /// A PAX 1.0 sparse file "s" of 10 bytes holding "abc" at 2.
+    fn pax_sparse(map: &str, data: &str) -> Vec<u8> {
+        let mut a = Vec::new();
+        let recs = "22 GNU.sparse.major=1\n22 GNU.sparse.minor=0\n21 GNU.sparse.name=s\n26 GNU.sparse.realsize=10\n";
+        a.extend(header("PaxHeaders/x", TYPE_XHEADER, recs.len()));
+        a.extend(recs.as_bytes());
+        pad(&mut a);
+        let mut m = map.as_bytes().to_vec();
+        pad(&mut m);
+        a.extend(header("GNUSparseFile.0/s", TYPE_REG, m.len() + data.len()));
+        a.extend(&m);
+        a.extend(data.as_bytes());
+        pad(&mut a);
+        a.extend([0u8; 2 * BLOCK]);
+        a
+    }
+
+    #[test]
+    fn expands_sparse_files_when_asked() {
+        let a = pax_sparse("1\n2\n3\n", "abc");
+        let mut r = Reader::new(&a[..]).sparse(true);
+        let h = r.next().unwrap().unwrap();
+        assert_eq!((h.name.as_slice(), h.size, h.sparse), (&b"s"[..], 10, true));
+        let mut v = Vec::new();
+        r.read_to_end(&mut v).unwrap();
+        assert_eq!(v, b"\0\0abc\0\0\0\0\0");
+        assert!(r.next().unwrap().is_none());
+        // Layers refuse them.
+        assert_eq!(
+            Reader::new(&a[..]).next().unwrap_err().to_string(),
+            ERR_SPARSE_REFUSED
+        );
+        // Data the map does not name, and a map naming data that is not
+        // there.
+        let a2 = pax_sparse("1\n2\n3\n", "abcd");
+        let mut r = Reader::new(&a2[..]).sparse(true);
+        r.next().unwrap();
+        assert_eq!(
+            r.read_to_end(&mut Vec::new()).unwrap_err().to_string(),
+            ERR_UNREF_DATA
+        );
+        let a3 = pax_sparse("1\n2\n3\n", "ab");
+        let mut r = Reader::new(&a3[..]).sparse(true);
+        r.next().unwrap();
+        assert_eq!(
+            r.read_to_end(&mut Vec::new()).unwrap_err().to_string(),
+            ERR_MISS_DATA
+        );
+        // A fragment past the full size.
+        assert!(
+            Reader::new(&pax_sparse("1\n9\n3\n", "abc")[..])
+                .sparse(true)
+                .next()
+                .is_err()
+        );
+
+        // The old GNU format: the map in the header.
+        let mut b = header("g", TYPE_GNU_SPARSE, 3);
+        b[257..265].copy_from_slice(b"ustar  \0");
+        b[386..398].copy_from_slice(b"00000000002\0");
+        b[398..410].copy_from_slice(b"00000000003\0");
+        b[483..495].copy_from_slice(b"00000000012\0");
+        set_checksum(&mut b);
+        let mut a = b.to_vec();
+        a.extend(b"xyz");
+        pad(&mut a);
+        a.extend([0u8; 2 * BLOCK]);
+        let mut r = Reader::new(&a[..]).sparse(true);
+        let h = r.next().unwrap().unwrap();
+        assert_eq!((h.typeflag, h.size, h.sparse), (TYPE_GNU_SPARSE, 10, true));
+        let mut v = Vec::new();
+        r.read_to_end(&mut v).unwrap();
+        assert_eq!(v, b"\0\0xyz\0\0\0\0\0");
+        assert!(Reader::new(&a[..]).next().is_err());
     }
 
     #[test]

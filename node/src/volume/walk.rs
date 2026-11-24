@@ -216,27 +216,47 @@ impl Root {
 
     /// openSame: p opened for reading without blocking (a directory with
     /// O_DIRECTORY), refused with Changed unless it is the entry st
-    /// describes.
+    /// describes. The entry is first only looked up (O_PATH) and checked,
+    /// then that very inode is opened through /proc/self/fd, so an entry
+    /// swapped for a device or a pipe is never opened: opening one can
+    /// block, or act on the device.
     pub fn open_same(&self, p: &[u8], st: &Stat, dir: bool) -> Result<OwnedFd, Fail> {
-        let mut flags = libc::O_RDONLY | libc::O_NONBLOCK;
+        let mut flags = libc::O_PATH;
         if dir {
             flags |= libc::O_DIRECTORY;
         }
-        let fd = self.beneath(p, flags).map_err(|e| match e {
+        let path = self.beneath(p, flags).map_err(|e| match e {
             libc::ENOTDIR | libc::ELOOP => Fail::Changed,
             e => escapes("openat", e),
         })?;
         // SAFETY: a zeroed stat filled by fstat.
         let mut ost: libc::stat = unsafe { std::mem::zeroed() };
         // SAFETY: as above, on a descriptor owned here.
-        if unsafe { libc::fstat(fd.as_raw_fd(), &mut ost) } < 0 {
+        if unsafe { libc::fstat(path.as_raw_fd(), &mut ost) } < 0 {
             return Err(Fail::Op("stat", last_errno()));
         }
         let o = Stat::from(&ost);
-        if o.kind() != st.kind() || o.dev != st.dev || o.ino != st.ino {
+        if o.kind() != st.kind()
+            || o.dev != st.dev
+            || o.ino != st.ino
+            || !(o.is_dir() || o.is_reg())
+        {
             return Err(Fail::Changed);
         }
-        Ok(fd)
+        let mut rflags = libc::O_RDONLY | libc::O_NONBLOCK | libc::O_CLOEXEC;
+        if dir {
+            rflags |= libc::O_DIRECTORY;
+        }
+        let proc = cstr(format!("/proc/self/fd/{}", path.as_raw_fd()).as_bytes())
+            .map_err(|e| Fail::Op("openat", e))?;
+        // SAFETY: open of a NUL-terminated path; the descriptor is owned
+        // below.
+        let fd = unsafe { libc::open(proc.as_ptr(), rflags) };
+        if fd < 0 {
+            return Err(Fail::Op("openat", last_errno()));
+        }
+        // SAFETY: fd was just opened and is owned here.
+        Ok(unsafe { OwnedFd::from_raw_fd(fd) })
     }
 }
 
@@ -396,6 +416,24 @@ mod tests {
         std::fs::create_dir(d.join("f")).unwrap();
         let e = root.open_same(b"f", &st, false).unwrap_err();
         assert!(matches!(e, Fail::Changed));
+        // A file swapped for a pipe: refused, never opened. The lookup's
+        // own Stat of the pipe (as if it had been one all along) is
+        // refused too, since only files and directories are read.
+        std::fs::write(d.join("p"), b"x").unwrap();
+        let st = root.lstat(b"p").unwrap();
+        std::fs::remove_file(d.join("p")).unwrap();
+        let c = std::ffi::CString::new(d.join("p").as_os_str().as_bytes()).unwrap();
+        assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0);
+        assert!(matches!(
+            root.open_same(b"p", &st, false).unwrap_err(),
+            Fail::Changed
+        ));
+        let pst = root.lstat(b"p").unwrap();
+        assert!(matches!(
+            root.open_same(b"p", &pst, false).unwrap_err(),
+            Fail::Changed
+        ));
+        let st = root.lstat(b"f").unwrap();
         // A directory swapped for a link that leaves the volume.
         std::fs::remove_dir(d.join("f")).unwrap();
         std::os::unix::fs::symlink("/", d.join("f")).unwrap();
