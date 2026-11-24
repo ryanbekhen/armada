@@ -482,7 +482,9 @@ func (s *Server) reconcileRevision(ctx context.Context, rc *reconcileRun, app *s
 	}
 
 	// Retire old replicas while enough others serve. Unhealthy ones go
-	// first because they serve nothing anyway.
+	// first because they serve nothing anyway. An old replica serves once
+	// it is in the proxies (working), warmed up or not: the warm-up only
+	// holds back new ones.
 	newServing := 0
 	for _, r := range current {
 		if serving(r) {
@@ -491,12 +493,12 @@ func (s *Server) reconcileRevision(ctx context.Context, rc *reconcileRun, app *s
 	}
 	oldServing := 0
 	for _, r := range old {
-		if serving(r) {
+		if working(r) {
 			oldServing++
 		}
 	}
 	slices.SortStableFunc(old, func(a, b store.Replica) int {
-		if sa, sb := serving(a), serving(b); sa != sb {
+		if sa, sb := working(a), working(b); sa != sb {
 			if sa {
 				return 1
 			}
@@ -506,7 +508,7 @@ func (s *Server) reconcileRevision(ctx context.Context, rc *reconcileRun, app *s
 	})
 	for _, r := range old {
 		lose := 0
-		if serving(r) {
+		if working(r) {
 			lose = 1
 		}
 		// One that serves nothing goes at once, whatever the new replicas
