@@ -422,10 +422,11 @@ type Store interface {
 	// the network switches modes.
 	SetNodeSite(ctx context.Context, id, site, actor string) error
 	// SetNodeRelay makes a node its site's chosen relay (ADR 0050),
-	// dropping the choice of any other node of the site, or with on false
-	// drops the choice of the node's site. A node behind NAT cannot relay
-	// (ErrPrecondition).
-	SetNodeRelay(ctx context.Context, id string, on bool, actor string) error
+	// dropping the choice of any other node of the site, whose IDs it
+	// returns (a site has one chosen relay, so at most one), or with on
+	// false drops the choice of the node's site. A node behind NAT cannot
+	// relay (ErrPrecondition).
+	SetNodeRelay(ctx context.Context, id string, on bool, actor string) (replaced []string, err error)
 	// SetNodeNetworkKey records a node's new WireGuard public key after a
 	// rotation (ADR 0025); ErrConflict when another node holds it.
 	SetNodeNetworkKey(ctx context.Context, id, key string) error

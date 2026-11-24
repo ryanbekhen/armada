@@ -4330,7 +4330,10 @@ func (x *SetNodeRelayRequest) GetClear() bool {
 }
 
 type SetNodeRelayResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The nodes of the site whose choice as its relay this one took (a site
+	// has one chosen relay, so at most one).
+	Replaced      []string `protobuf:"bytes,1,rep,name=replaced,proto3" json:"replaced,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4363,6 +4366,13 @@ func (x *SetNodeRelayResponse) ProtoReflect() protoreflect.Message {
 // Deprecated: Use SetNodeRelayResponse.ProtoReflect.Descriptor instead.
 func (*SetNodeRelayResponse) Descriptor() ([]byte, []int) {
 	return file_armada_v1_armada_proto_rawDescGZIP(), []int{73}
+}
+
+func (x *SetNodeRelayResponse) GetReplaced() []string {
+	if x != nil {
+		return x.Replaced
+	}
+	return nil
 }
 
 type RotateNodeKeyRequest struct {
@@ -16445,8 +16455,9 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\x13SetNodeSiteResponse\"?\n" +
 	"\x13SetNodeRelayRequest\x12\x12\n" +
 	"\x04node\x18\x01 \x01(\tR\x04node\x12\x14\n" +
-	"\x05clear\x18\x02 \x01(\bR\x05clear\"\x16\n" +
-	"\x14SetNodeRelayResponse\"*\n" +
+	"\x05clear\x18\x02 \x01(\bR\x05clear\"2\n" +
+	"\x14SetNodeRelayResponse\x12\x1a\n" +
+	"\breplaced\x18\x01 \x03(\tR\breplaced\"*\n" +
 	"\x14RotateNodeKeyRequest\x12\x12\n" +
 	"\x04node\x18\x01 \x01(\tR\x04node\"\x17\n" +
 	"\x15RotateNodeKeyResponse\"=\n" +

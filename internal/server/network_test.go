@@ -206,6 +206,27 @@ func TestNetworkRelays(t *testing.T) {
 	if r := relays(); len(r) != 2 || !r[pick] {
 		t.Errorf("chosen %s, relays %v", pick, r)
 	}
+	// One choice per site: choosing another node of the site moves it,
+	// names the node that had it, and tells that node's history.
+	other := "a3"
+	resp, err := c.admin.SetNodeRelay(c.ctx, &armadav1.SetNodeRelayRequest{Node: other})
+	if err != nil || !slices.Equal(resp.GetReplaced(), []string{pick}) {
+		t.Fatalf("choosing %s: %v, %v", other, resp, err)
+	}
+	if r := relays(); len(r) != 2 || !r[other] {
+		t.Errorf("chosen %s, relays %v", other, r)
+	}
+	evs, _ := c.store.ListEvents(c.ctx, time.Time{})
+	if !slices.ContainsFunc(evs, func(e store.Event) bool {
+		return e.Object == pick && e.Reason == "RelayCleared" && strings.Contains(e.Message, "now node "+other)
+	}) || !slices.ContainsFunc(evs, func(e store.Event) bool {
+		return e.Object == other && e.Reason == "RelayChosen" && strings.Contains(e.Message, "in place of node "+pick)
+	}) {
+		t.Errorf("events %v", evs)
+	}
+	if _, err := c.admin.SetNodeRelay(c.ctx, &armadav1.SetNodeRelayRequest{Node: pick}); err != nil {
+		t.Fatal(err)
+	}
 	// A drained choice gives way, and comes back when resumed.
 	if err := c.store.SetNodeCordoned(c.ctx, pick, true, "admin:a"); err != nil {
 		t.Fatal(err)

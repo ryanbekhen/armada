@@ -600,7 +600,11 @@ message SetNodeRelayRequest {
   bool clear = 2;
 }
 
-message SetNodeRelayResponse {}
+message SetNodeRelayResponse {
+  // The nodes of the site whose choice as its relay this one took (a site
+  // has one chosen relay, so at most one).
+  repeated string replaced = 1;
+}
 
 message RotateNodeKeyRequest {
   string node = 1;

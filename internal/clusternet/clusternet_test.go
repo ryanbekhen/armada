@@ -44,6 +44,25 @@ func TestParse(t *testing.T) {
 	}
 }
 
+// A site has one relay: a peer list naming two is refused, whatever their
+// order, rather than leaving the path to the order of peers.
+func TestParseOneRelayPerSite(t *testing.T) {
+	t.Parallel()
+	relay := func(node, ip, subnet, site string) *armadav1.NetworkPeer {
+		p := np(node, ip, subnet)
+		p.Relay, p.Site, p.Endpoint = true, site, "203.0.113."+ip[len(ip)-1:]
+		return p
+	}
+	a := np("a", "10.0.0.1", "10.120.0.0/24")
+	if _, err := parse(config(a, relay("b", "10.0.0.2", "10.120.1.0/24", "east"), relay("c", "10.0.0.3", "10.120.2.0/24", "west")), "a", self); err != nil {
+		t.Errorf("a relay per site: %v", err)
+	}
+	_, err := parse(config(a, relay("b", "10.0.0.2", "10.120.1.0/24", "east"), relay("c", "10.0.0.3", "10.120.2.0/24", "east")), "a", self)
+	if err == nil || err.Error() != `peers b and c both relay site "east": a site has one relay` {
+		t.Errorf("two relays in a site: %v", err)
+	}
+}
+
 func TestParseRefuses(t *testing.T) {
 	t.Parallel()
 	a := np("a", "10.0.0.1", "10.120.0.0/24")

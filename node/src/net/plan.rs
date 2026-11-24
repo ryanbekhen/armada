@@ -411,6 +411,7 @@ pub fn parse(cfg: &NetworkConfig, self_name: &str, self_ip: &Option<Addr>) -> Re
         HashSet::new(),
     );
     let mut found = false;
+    let mut relays: HashMap<String, String> = HashMap::new(); // site → its relay
     for pp in &cfg.peers {
         let node = &pp.node;
         if let Some(e) = names::validate_name(node) {
@@ -460,6 +461,18 @@ pub fn parse(cfg: &NetworkConfig, self_name: &str, self_ip: &Option<Addr>) -> Re
         };
         if pe.nat && pe.relay {
             return Err(format!("peer {node}: a node behind NAT cannot relay"));
+        }
+        if pe.relay {
+            // A site has one relay, so every node takes the same path (ADR
+            // 0050); a list with two would leave the choice to the order
+            // of peers.
+            if let Some(other) = relays.get(&pe.site) {
+                return Err(format!(
+                    "peers {other} and {node} both relay site {}: a site has one relay",
+                    quote(&pe.site)
+                ));
+            }
+            relays.insert(pe.site.clone(), node.clone());
         }
         if !pe.site.is_empty()
             && let Some(e) = names::check_label_value(&pe.site)
@@ -639,6 +652,34 @@ mod tests {
         assert_eq!(p.self_.subnet().to_string(), "10.120.0.0/24");
         assert_eq!(p.peers.len(), 2);
         assert_eq!(p.peers[1].node, "c");
+    }
+
+    #[test]
+    fn one_relay_per_site() {
+        let relay = |node: &str, ip: &str, subnet: &str, site: &str| NetworkPeer {
+            relay: true,
+            site: site.into(),
+            endpoint: format!("203.0.113.{}", &ip[ip.len() - 1..]),
+            ..np(node, ip, subnet)
+        };
+        let ip = Addr::parse("10.0.0.1");
+        let a = np("a", "10.0.0.1", "10.120.0.0/24");
+        // One relay in each of two sites is fine.
+        let ok = config(vec![
+            a.clone(),
+            relay("b", "10.0.0.2", "10.120.1.0/24", "east"),
+            relay("c", "10.0.0.3", "10.120.2.0/24", "west"),
+        ]);
+        assert!(parse(&ok, "a", &ip).is_ok());
+        let two = config(vec![
+            a,
+            relay("b", "10.0.0.2", "10.120.1.0/24", "east"),
+            relay("c", "10.0.0.3", "10.120.2.0/24", "east"),
+        ]);
+        assert_eq!(
+            parse(&two, "a", &ip).unwrap_err(),
+            "peers b and c both relay site \"east\": a site has one relay"
+        );
     }
 
     #[test]

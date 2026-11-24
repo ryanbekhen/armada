@@ -242,6 +242,11 @@ sites:
 - `armada node relay NODE` pins a choice; `--clear` drops it. A pinned node
   that cannot relay gives way to the hash until it can again. Moving a node
   to another site, or behind NAT, drops its pin.
+- A site has one relay. Pinning another node of the site moves the pin:
+  the command names the node that had it, and the leader records
+  `RelayChosen` for the new one and `RelayCleared` for the old. Agents
+  refuse a peer list that marks two relays in one site (the path would
+  otherwise depend on the order of peers), so a leader never sends one.
 - Every peer in `Assignment.network` says whether it is behind NAT and
   whether it is its site's relay (`NetworkPeer.behind_nat`, `relay`).
 - A pair of nodes behind NAT that cannot reach each other uses the relay

@@ -127,9 +127,11 @@ func (s *Server) siteRelays(nodes []store.Node) map[string]string {
 		}
 		h := sha256.Sum256([]byte(n.Site + "\x00" + n.ID))
 		switch {
-		case pinned[n.Site]:
-		case n.Relay:
+		case n.Relay && (!pinned[n.Site] || n.ID < out[n.Site]):
+			// The store keeps one choice per site; were there more, the
+			// lowest ID would win whatever the order of nodes.
 			out[n.Site], pinned[n.Site] = n.ID, true
+		case pinned[n.Site]:
 		case best[n.Site] == nil || bytes.Compare(h[:], best[n.Site]) > 0:
 			out[n.Site], best[n.Site] = n.ID, h[:]
 		}

@@ -893,9 +893,11 @@ func (s *Etcd) SetNodeSite(ctx context.Context, id, site, actor string) error {
 
 // SetNodeRelay makes a node its site's chosen relay, or drops the choice
 // (ADR 0050). See Store.
-func (s *Etcd) SetNodeRelay(ctx context.Context, id string, on bool, actor string) error {
+func (s *Etcd) SetNodeRelay(ctx context.Context, id string, on bool, actor string) ([]string, error) {
 	now := s.now()
-	return s.tx(ctx, func(t *etx) error {
+	var replaced []string
+	err := s.tx(ctx, func(t *etx) error {
+		replaced = nil
 		n, ok, err := t.node(id)
 		if err != nil {
 			return err
@@ -912,6 +914,9 @@ func (s *Etcd) SetNodeRelay(ctx context.Context, id string, on bool, actor strin
 			if r.Site != n.Site || r.Relay == want {
 				return nil
 			}
+			if on && r.ID != id {
+				replaced = append(replaced, r.ID)
+			}
 			r.Relay, changed = want, true
 			return t.put(pfxNodes+r.ID, r)
 		})
@@ -920,10 +925,17 @@ func (s *Etcd) SetNodeRelay(ctx context.Context, id string, on bool, actor strin
 		}
 		site := cmp.Or(n.Site, "(first site)")
 		if on {
+			if len(replaced) > 0 {
+				site += " in place of " + strings.Join(replaced, ", ")
+			}
 			return t.audit(now, actor, "node.relay", id, site)
 		}
 		return t.audit(now, actor, "node.relay.clear", id, site)
 	})
+	if err != nil {
+		return nil, err
+	}
+	return replaced, nil
 }
 
 // SetNodeNetworkKey records a node's new network key. See Store.

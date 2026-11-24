@@ -375,8 +375,9 @@ func newNodeCommand(g *globals) *cobra.Command {
 			"their traffic goes through the relay of one of their sites: a node of that\n" +
 			"site with a public address. The leader picks one itself; this command pins\n" +
 			"NODE as its site's relay while it is ready and not drained, and --clear lets\n" +
-			"the leader pick again. The relay carries that traffic, so choose a node with\n" +
-			"room for it.",
+			"the leader pick again. A site has one chosen relay: choosing another node of\n" +
+			"the site moves the choice to it, and the output names the node that had it.\n" +
+			"The relay carries that traffic, so choose a node with room for it.",
 		Example: "  armada node relay cloud-1\n  armada node relay cloud-1 --clear",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -385,11 +386,16 @@ func newNodeCommand(g *globals) *cobra.Command {
 				return err
 			}
 			defer conn.Close()
-			if _, err := client.SetNodeRelay(cmd.Context(), &armadav1.SetNodeRelayRequest{Node: args[0], Clear: clearRelay}); err != nil {
+			resp, err := client.SetNodeRelay(cmd.Context(), &armadav1.SetNodeRelayRequest{Node: args[0], Clear: clearRelay})
+			if err != nil {
 				return RPCError(err)
 			}
 			if clearRelay {
 				_, err = fmt.Fprintf(cmd.OutOrStdout(), "The leader picks the relay of %s's site again.\n", args[0])
+				return err
+			}
+			if r := resp.GetReplaced(); len(r) > 0 {
+				_, err = fmt.Fprintf(cmd.OutOrStdout(), "Node %s relays its site's traffic between nodes behind NAT, in place of %s.\n", args[0], strings.Join(r, ", "))
 				return err
 			}
 			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Node %s relays its site's traffic between nodes behind NAT.\n", args[0])
