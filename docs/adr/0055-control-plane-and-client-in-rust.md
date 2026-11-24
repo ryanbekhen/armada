@@ -1,6 +1,6 @@
 # 0055. Armada's own code moves to Rust in one release
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-24
 
 ## Context

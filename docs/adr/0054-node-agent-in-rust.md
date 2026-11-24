@@ -276,7 +276,7 @@ node's runtime converts the node while Go still ships:
 
 Go's runtime code is removed only once every node of a cluster reports
 converted; a node that has not is refused by a release without it
-(`armadad upgrade` and `armadad doctor` say why). ADR 0055 (proposed)
+(`armadad upgrade` and `armadad doctor` say why). ADR 0055
 narrows this: the release without Go's code converts a node still on Go's
 supervisor store itself at the agent's start, and refuses only nodes on
 containerd.
@@ -616,7 +616,7 @@ Removing Go's runtime code comes next.
 6. **The agent.** The `Connect` session, `Hello`, reconciliation,
    probes, fencing, held replicas, jobs, init containers and sidecars,
    secret files, wake, certificates, and `agent.json`, in Rust. When and
-   how it ships is ADR 0055 (proposed): in the same release as the
+   how it ships is ADR 0055: in the same release as the
    control plane and the client, as `armadad agent` linking armada-node's
    code, run from `armada-agent.service` on every machine (on server
    machines a unit next to the control plane and etcd), with Go's agent
@@ -625,7 +625,7 @@ Removing Go's runtime code comes next.
 
 Each step that touches the node is tested end to end in the lab before it
 is merged, and the Go code it replaces is removed only once the Rust code
-has run as the default for a release. ADR 0055 (proposed) replaces that
+has run as the default for a release. ADR 0055 replaces that
 timing for everything still in Go: it all moves, and the Go code is
 removed, in one release, gated by parity tests against the Go code and a
 lab upgrade from a Go cluster under load.
@@ -633,7 +633,7 @@ lab upgrade from a Go cluster under load.
 ### Not decided here
 
 Moving the control plane (`armadad server` and its reconcilers), the
-machine commands, and the `armada` client to Rust is ADR 0055 (proposed),
+machine commands, and the `armada` client to Rust is ADR 0055,
 with etcd kept: the official etcd release, pinned in the runtime pack and
 run as a unit of its own on the same data directory. Replacing etcd with
 a store of Armada's own changes how the cluster stores its state, which
