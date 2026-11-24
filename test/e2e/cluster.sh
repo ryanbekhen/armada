@@ -1587,6 +1587,19 @@ cli volume restore e2e-vol data --snapshot latest >/dev/null || fail "restore fr
 vol_second() { [ "$(vol_get)" = second ]; }
 wait_for 120 "the volume holds the latest backup again" vol_second
 
+# An archive of the volume (armada-node writes and restores it unless the
+# node's agent.json says volumeAgent "go"), and its size in the list.
+cli volume backup e2e-vol data -o /root/e2e-vol.tar.gz >/dev/null || fail "volume backup to an archive"
+on "$CLI" "tar -tzf /root/e2e-vol.tar.gz" | grep -q 'notes.txt' || fail "the archive does not hold the volume's file"
+vol_put "after the archive"
+cli volume restore e2e-vol data /root/e2e-vol.tar.gz >/dev/null || fail "volume restore from an archive"
+wait_for 120 "the volume holds the archive's contents" vol_second
+vol_sized() { cli volume list e2e-vol -o json | jq -e '.volumes[0].usedBytes | tonumber > 0' >/dev/null; }
+wait_for 120 "the volume's size is measured" vol_sized
+on "$N" "journalctl -u armada-agent -u armada-server --no-pager | grep -q 'armada-node failed'" &&
+	fail "armada-node failed on $VOL_NODE and Go stood in"
+ok "archive backup and restore of a volume, and its size, on $VOL_NODE"
+
 # Pull first: a deploy keeps the old replica until the new image is on the node.
 cat <<'EOF' >"$WORK/vol2.yaml"
 name: e2e-vol
