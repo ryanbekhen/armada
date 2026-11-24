@@ -40,6 +40,10 @@ pub const ERR_AUTH: &str = "the broker refused the URL's credentials";
 pub const ERR_REPLY: &str = "the broker answered something unexpected";
 pub const ERR_MISSING: &str = "the queue does not exist";
 pub const ERR_TIMEOUT: &str = "timed out";
+pub const ERR_VHOST: &str = "the broker refused the URL's virtual host";
+pub const ERR_MECHANISM: &str =
+    "the URL names an authentication mechanism other than PLAIN, AMQPLAIN, or EXTERNAL";
+pub const ERR_NO_MECHANISM: &str = "the broker offers none of the URL's authentication mechanisms";
 
 #[derive(Deserialize, Default)]
 #[serde(default)]

@@ -156,7 +156,7 @@ func TestSandboxLifecycle(t *testing.T) {
 	a.syncSandboxes(ctx)
 	a.sb.reads.Wait()
 	rep = a.sandboxReport(time.Now())
-	if len(rep) != 1 || rep[0].GetLength() != 120 || rep[0].GetReading() != 2 {
+	if len(rep) != 1 || rep[0].GetLength() != 120 || rep[0].GetReading() != 2 || rep[0].GetError() != "" {
 		t.Fatalf("second reading: %v", rep)
 	}
 	// A reading ages out of reports; the sandbox's address stays.
@@ -177,7 +177,7 @@ func TestSandboxLifecycle(t *testing.T) {
 	time.Sleep(5 * time.Millisecond)
 	a.syncSandboxes(ctx)
 	a.sb.reads.Wait()
-	if rep := a.sandboxReport(time.Now()); len(rep) != 1 || rep[0].GetMeasured() {
+	if rep := a.sandboxReport(time.Now()); len(rep) != 1 || rep[0].GetMeasured() || rep[0].GetError() != "the broker refused the URL's credentials" {
 		t.Errorf("a refused reading, or the length of the old URL, reported: %v", rep)
 	}
 	if out := logs.String(); !strings.Contains(out, "job queue not read") || strings.Contains(out, "wrong-pw") || strings.Contains(out, "s3cret-pw") {

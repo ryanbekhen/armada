@@ -368,7 +368,20 @@ func TestTriggerDecision(t *testing.T) {
 	if _, runs = pass(on, nil); active(runs) != 0 {
 		t.Fatalf("runs from a node that dropped the sandbox: %+v", runs)
 	}
+	// A node that cannot read the queue says why, in one of queuelen's
+	// fixed texts; any other text becomes a fixed one.
+	c.srv.usage.set("n1", &armadav1.UsageReport{Sandboxes: []*armadav1.SandboxQueue{{Job: "mailer", Ip: "10.120.0.9", Error: "the broker refused the URL's virtual host"}}}, c.srv.now())
+	pass(on, nil)
+	c.srv.usage.set("n2", &armadav1.UsageReport{Sandboxes: []*armadav1.SandboxQueue{{Job: "mailer", Ip: "10.120.0.9", Error: "amqp://u:pw@h refused"}}}, c.srv.now())
+	if r, _ := c.srv.queueReading("mailer", "n2", time.Minute, c.srv.now()); r.failed != "the queue could not be read" {
+		t.Errorf("an agent's own text kept: %q", r.failed)
+	}
 	evs, _ := c.store.ListEvents(c.ctx, time.Time{})
+	if !slices.ContainsFunc(evs, func(e store.Event) bool {
+		return e.Reason == "QueueReadFailed" && e.Message == "node n1 cannot read the queue: the broker refused the URL's virtual host"
+	}) {
+		t.Errorf("no QueueReadFailed naming the node's reason: %v", evs)
+	}
 	var reasons []string
 	for _, e := range evs {
 		reasons = append(reasons, e.Reason)

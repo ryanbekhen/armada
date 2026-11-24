@@ -10975,7 +10975,10 @@ type SandboxQueue struct {
 	AgeMillis int64 `protobuf:"varint,5,opt,name=age_millis,json=ageMillis,proto3" json:"age_millis,omitempty"`
 	// Counts the sandbox's readings since the agent started: a new number is
 	// a new reading.
-	Reading       int64 `protobuf:"varint,6,opt,name=reading,proto3" json:"reading,omitempty"`
+	Reading int64 `protobuf:"varint,6,opt,name=reading,proto3" json:"reading,omitempty"`
+	// Set while the latest reading failed: why, as one of internal/queuelen's
+	// fixed texts (queuelen.Reason), never the URL or what the broker sent.
+	Error         string `protobuf:"bytes,7,opt,name=error,proto3" json:"error,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -11050,6 +11053,13 @@ func (x *SandboxQueue) GetReading() int64 {
 		return x.Reading
 	}
 	return 0
+}
+
+func (x *SandboxQueue) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
 }
 
 type QueueLength struct {
@@ -17021,7 +17031,7 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\x04step\x18\x02 \x01(\tR\x04step\x12\x14\n" +
 	"\x05ready\x18\x03 \x01(\bR\x05ready\x12\x1c\n" +
 	"\tunreached\x18\x04 \x03(\tR\tunreached\x12\x14\n" +
-	"\x05error\x18\x05 \x01(\tR\x05error\"\x9d\x01\n" +
+	"\x05error\x18\x05 \x01(\tR\x05error\"\xb3\x01\n" +
 	"\fSandboxQueue\x12\x10\n" +
 	"\x03job\x18\x01 \x01(\tR\x03job\x12\x0e\n" +
 	"\x02ip\x18\x02 \x01(\tR\x02ip\x12\x1a\n" +
@@ -17029,7 +17039,8 @@ const file_armada_v1_armada_proto_rawDesc = "" +
 	"\x06length\x18\x04 \x01(\x03R\x06length\x12\x1d\n" +
 	"\n" +
 	"age_millis\x18\x05 \x01(\x03R\tageMillis\x12\x18\n" +
-	"\areading\x18\x06 \x01(\x03R\areading\"I\n" +
+	"\areading\x18\x06 \x01(\x03R\areading\x12\x14\n" +
+	"\x05error\x18\a \x01(\tR\x05error\"I\n" +
 	"\vQueueLength\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x16\n" +
 	"\x06length\x18\x02 \x01(\x03R\x06length\x12\x12\n" +

@@ -224,6 +224,7 @@ or `armada app events`.
 | `DNSTokenUnavailable` | The leader cannot read the DNS token an app names in `ingress.dns`; its custom domains use HTTP-01 |
 | `NotVerified` | A custom domain's DNS record is missing |
 | `QueueUnread` | No node can read the queue that starts a job, or its node keeps no more queues |
+| `QueueReadFailed` | The node that reads a job's queue cannot read it; the event says why (refused credentials, a refused virtual host, an unknown authentication mechanism, a broker out of reach, ...), never the URL |
 | `LogExportFailing` | A node cannot send logs to the log store |
 | `PeerUnreachable` | A node has had no WireGuard handshake with another node for 3 minutes (UDP 51820 blocked, or the other node is down) |
 | `WireGuardUserspace` | A node's kernel has no WireGuard, so its traffic to other nodes is encrypted in userspace inside the agent: markedly slower |

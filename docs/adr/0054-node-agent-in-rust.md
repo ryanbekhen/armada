@@ -512,7 +512,17 @@ Removing Go's runtime code comes next.
      or a RabbitMQ queue's ready messages (an AMQP 0-9-1 handshake and a
      passive Queue.Declare, written by hand as amqp091-go speaks it: the
      same URL rules, mechanisms, negotiated limits, and the same failure
-     reported as the same error), over TLS with the machine's roots for
+     reported as the same error, except where amqp091-go reads a URL or a
+     failure wrongly, which `internal/queuelen` now reads as armada-node
+     does: a URL with no host is not valid (never localhost), a user
+     without a password logs in with an empty password (never "guest"),
+     an unknown `auth_mechanism` is the URL's mistake and a broker
+     offering none of the URL's mechanisms says so, and a refused
+     Connection.Open is the virtual host's; the one difference left is a
+     broker closing Connection.Open with 403, which only armada-node can
+     tell from refused credentials. A Redis URL with a user and no
+     password authenticates as that user with an empty password, as the
+     common clients do, on both sides), over TLS with the machine's roots for
      `rediss://` and `amqps://`, from inside the replica's or the job
      sandbox's network namespace as `runtime dial` enters it. The URL,
      which holds the broker's credentials, comes on stdin with the
@@ -522,7 +532,10 @@ Removing Go's runtime code comes next.
      nameserver as before, and its addresses are passed along;
      armada-node leaves a reading to Go only for a name with no
      addresses, an address with a zone, or a shim that is gone. `queue`
-     rules stay an exec.
+     rules stay an exec. Why a reading failed (a fixed text, never the
+     URL) is logged by the agent once per change and, for a job's queue
+     trigger, reported to the leader (`SandboxQueue.error`), which records
+     `QueueReadFailed` while it lasts.
    Second part: volume archives, the default on every node whose pack
    has armada-node (`"volumeAgent": "go"` in `agent.json` keeps Go's
    code while it remains). `armada-node volume archive DIR` writes a

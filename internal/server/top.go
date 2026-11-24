@@ -12,6 +12,7 @@ import (
 
 	armadav1 "github.com/ryanbekhen/armada/api/armada/v1"
 	"github.com/ryanbekhen/armada/internal/proxy"
+	"github.com/ryanbekhen/armada/internal/queuelen"
 	"github.com/ryanbekhen/armada/internal/spec"
 	"github.com/ryanbekhen/armada/internal/store"
 )
@@ -100,6 +101,9 @@ type sandboxReading struct {
 	length   int64
 	at       time.Time // when the length was read
 	reading  int64     // the agent's count of readings
+	// failed is why the latest reading failed: one of queuelen's fixed
+	// texts (another text from the agent becomes a fixed one), or "".
+	failed string
 }
 
 // Bounds on what a report says about network sandboxes.
@@ -223,6 +227,16 @@ func (u *usageStore) set(nodeID string, r *armadav1.UsageReport, at time.Time) b
 
 // sandboxReadings bounds what a report says about the node's sandboxes.
 // Which jobs the node may read is checked when a reading is used.
+// sandboxFailure is what the leader keeps of a node's word on why a
+// queue reading failed: one of queuelen's fixed texts, never the agent's
+// own text, or "" when it did not fail.
+func sandboxFailure(text string) string {
+	if text == "" {
+		return ""
+	}
+	return queuelen.Reason(queuelen.FromText(text))
+}
+
 func sandboxReadings(list []*armadav1.SandboxQueue, at time.Time) map[string]sandboxReading {
 	if len(list) == 0 || len(list) > maxSandboxReports {
 		return nil
@@ -232,7 +246,7 @@ func sandboxReadings(list []*armadav1.SandboxQueue, at time.Time) map[string]san
 		if !spec.ValidAppID(q.GetJob()) || len(q.GetIp()) > 64 {
 			continue
 		}
-		s := sandboxReading{ip: q.GetIp()}
+		s := sandboxReading{ip: q.GetIp(), failed: sandboxFailure(q.GetError())}
 		if q.GetMeasured() {
 			age := time.Duration(max(0, min(q.GetAgeMillis(), maxSandboxAge.Milliseconds()))) * time.Millisecond
 			s.measured, s.length, s.at, s.reading = true, max(0, min(q.GetLength(), maxQueueLength)), at.Add(-age), q.GetReading()

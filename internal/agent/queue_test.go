@@ -161,3 +161,25 @@ func TestQueueSlowRuleHoldsNoOther(t *testing.T) {
 	}
 	t.Fatalf("no reading of bfast while aslow's command ran: %v", a.queues.fresh(time.Now(), time.Minute))
 }
+
+// A rule's failure is new once per distinct text, so the log warns once,
+// and a reading after it is a recovery; rules gone take their failures.
+func TestQueueFailuresOnce(t *testing.T) {
+	t.Parallel()
+	var q queueLengths
+	k := queueKey{"worker", "rabbitmq"}
+	if !q.fail(k, "the broker refused the URL's virtual host") || q.fail(k, "the broker refused the URL's virtual host") {
+		t.Error("the same failure was new twice, or not at first")
+	}
+	if !q.fail(k, "timed out") {
+		t.Error("another failure was not new")
+	}
+	if !q.recovered(k) || q.recovered(k) {
+		t.Error("recovery")
+	}
+	q.fail(k, "timed out")
+	q.keep(nil)
+	if !q.fail(k, "timed out") {
+		t.Error("a rule gone kept its failure")
+	}
+}

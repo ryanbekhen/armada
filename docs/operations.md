@@ -1704,8 +1704,16 @@ Queue:        120 waiting, read 12s ago from node2
 - The broker must be reachable from the job's space, as from its
   containers: in an isolated space, not on a node's own address or outside
   the cluster's private ranges. `Queue: not read yet` that lasts means the
-  sandbox cannot reach it, or the URL is wrong; the agent's log on that
-  node names the kind of failure (never the URL).
+  sandbox cannot reach it, or the URL is wrong; the cluster records a
+  `QueueReadFailed` event naming the node and the kind of failure (refused
+  credentials, a refused virtual host, an authentication mechanism the
+  URL names but no reader supports or the broker does not offer, a broker
+  out of reach, ...; never the URL), and the agent's log on that node says
+  the same.
+- In a URL, a user without a password logs in with an empty password:
+  `amqp://worker@mq/` is the user `worker` with no password, not the
+  default `guest`, and `redis://worker@redis/` sends `AUTH worker ""` (an
+  ACL user marked `nopass` takes it). A URL must name its host.
 - `Queue: not read: no node can` means no connected node of the cluster
   network may run the job (placement, cordons), or every such node already
   reads 64 queues; the cluster records a `QueueUnread` event. Nodes take

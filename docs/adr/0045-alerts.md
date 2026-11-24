@@ -45,7 +45,7 @@ SMTP. Nothing runs besides Armada, and agents are unchanged.
   `Lost`, `Crashed`, `OutOfMemory`, `Failed`, `Unschedulable`,
   `MostUnreachable`, `ReconcileFailed`, `ProxyNotUpdated`, `AddressConflict`,
   `RouteConflict`, `DNSTokenUnavailable`,
-  `NotVerified`, `QueueUnread`, `LogExportFailing`, and the volume failures),
+  `NotVerified`, `QueueUnread`, `QueueReadFailed`, `LogExportFailing`, and the volume failures),
   unless it names its own reasons (`--reason`, `all` for every one). `--space` keeps
   only events of those spaces' apps.
 - `Server.record` queues a notice for a new event; a repeat that the event

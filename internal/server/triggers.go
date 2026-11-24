@@ -171,6 +171,7 @@ func (s *Server) triggerJob(ctx context.Context, rc *reconcileRun, job store.App
 	s.triggers.nodes[job.Name] = node
 	s.triggers.mu.Unlock()
 	if node == "" {
+		s.condition(ctx, "job-queue-read:"+job.Name, false, store.Event{Kind: eventJob, Object: job.Name, App: job.Name, Reason: "QueueReadFailed"})
 		return runs
 	}
 	vals, err := revs.secrets(ctx, rev)
@@ -190,6 +191,10 @@ func (s *Server) triggerJob(ctx context.Context, rc *reconcileRun, job store.App
 		IntervalSeconds: int64(every / time.Second),
 	})
 	r, fresh := s.queueReading(job.Name, node, every, rc.now)
+	// The node's own word on why it cannot read the queue: a fixed text
+	// (queuelen.Reason), never the URL or what the broker sent.
+	s.condition(ctx, "job-queue-read:"+job.Name, r.failed != "", store.Event{Kind: eventJob, Object: job.Name, App: job.Name, Reason: "QueueReadFailed",
+		Message: "node " + node + " cannot read the queue: " + r.failed})
 	if r.ip != "" {
 		// The firewalls of every node know the sandbox as the job's.
 		rc.sandboxAddrs = append(rc.sandboxAddrs, store.Replica{ID: "sandbox:" + job.Name, App: job.Name, NodeID: node, IP: r.ip})
