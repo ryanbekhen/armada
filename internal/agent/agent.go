@@ -159,7 +159,8 @@ type Config struct {
 	// mounts none.
 	VolumesDir string
 	// VolumeProgram finds armada-node, which archives, restores, and
-	// measures volumes (ADR 0054 step 5): its path, or "" for Go's code.
+	// measures volumes and backs them up to and restores them from their
+	// buckets (ADR 0054 step 5): its path, or "" for Go's code.
 	// Nil: Go's code.
 	VolumeProgram func() string
 	// SecretsDir is a private directory on tmpfs for secret files. Empty

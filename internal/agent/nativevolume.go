@@ -60,6 +60,10 @@ type volumeNative struct {
 	errs  map[string]string
 	stood map[string]int
 	ran   map[string]int
+	// extraCA and env reach tests' buckets (armada-node's --extra-ca and
+	// ARMADA_NODE_TEST_BUCKET_ADDR); nodes never set them.
+	extraCA string
+	env     []string
 }
 
 // program is armada-node's path, or "" for Go's code.
@@ -104,7 +108,8 @@ func (n *volumeNative) fallback(log *slog.Logger, op string, err error, redo boo
 	return failed && redo
 }
 
-// StoodIn is how many calls of op ("archive", "restore", "size") Go did
+// StoodIn is how many calls of op ("archive", "restore", "size",
+// "snapshot", "prune", "snapshots", "restore-snapshot") Go did
 // after armada-node failed them; Ran, how many armada-node did.
 func (n *volumeNative) StoodIn(op string) int {
 	n.mu.Lock()

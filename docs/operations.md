@@ -1261,7 +1261,7 @@ them. While the old store is still there, the agent's own code takes the
 layers and root filesystems the move took from it back at its start.
 Removing the line and restarting moves the node again.
 
-### Volume archives in armada-node
+### Volume archives and backups in armada-node
 
 `armada volume backup` and `armada volume restore` archives, and the
 volume sizes nodes report every minute, are made by the runtime pack's
@@ -1271,6 +1271,17 @@ armada-node fails before any of an archive has been sent or read, the
 agent does the backup, restore, or measure itself and logs `armada-node
 failed; Go did it instead`; once part of an archive went through, the
 operation fails with the reason, and can be run again.
+
+Volume backups to a bucket (`volumes[].backup`, `armada snapshot create`,
+`armada snapshot list`, `armada volume restore --snapshot`) are made,
+listed, pruned, and restored by `armada-node` the same way. The bucket
+holds the same repository as before: backups made by either can be
+listed and restored by the other, and nothing in the bucket changes. When
+armada-node fails before it wrote anything to the bucket or the volume,
+the agent does the operation itself and logs `armada-node failed; Go did
+it instead`; after that, the operation fails with the reason. The control
+plane's own backups (`cluster update --backup-url`) are made by the
+leader as before.
 
 While the agent's own code remains, a node can be kept on it with
 `"volumeAgent": "go"` in its `/var/lib/armada/agent.json`, then a restart

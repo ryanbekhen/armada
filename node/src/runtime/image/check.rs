@@ -103,7 +103,7 @@ fn zstd<R: BufRead>(r: &mut R, out: &mut impl io::Write) -> Result<(), String> {
 
 /// The window a zstd frame header asks for, when the bytes at hand show
 /// it (RFC 8878 3.1.1.1).
-fn window_size(h: &[u8]) -> Option<u64> {
+pub(crate) fn window_size(h: &[u8]) -> Option<u64> {
     if h.len() < 6 || h[..4] != ZSTD_MAGIC {
         return None;
     }
