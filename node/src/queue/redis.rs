@@ -166,6 +166,61 @@ mod tests {
         }
     }
 
+    /// rediss:// reads through TLS verified against the machine's roots
+    /// (here the test CA): the server's name checked, AUTH and LLEN sent
+    /// inside the session; a server the roots do not vouch for is out of
+    /// reach.
+    #[test]
+    fn rediss_reads_over_tls() {
+        use crate::queue::tests::{read_from, serve_tls, trust_test_ca};
+        use std::io::{BufRead, BufReader};
+        let serve = |s: &mut dyn Stream| {
+            let mut r = BufReader::new(s);
+            let mut seen = Vec::new();
+            loop {
+                let mut line = String::new();
+                if r.read_line(&mut line).unwrap_or(0) == 0 {
+                    return;
+                }
+                let n: usize = line[1..].trim().parse().unwrap();
+                let mut args = Vec::new();
+                for _ in 0..n {
+                    let (mut len, mut arg) = (String::new(), String::new());
+                    r.read_line(&mut len).unwrap();
+                    r.read_line(&mut arg).unwrap();
+                    args.push(arg.trim_end().to_string());
+                }
+                seen.push(args.join(" "));
+                let reply: &[u8] = match args[0].as_str() {
+                    "AUTH" if args == ["AUTH", "worker", "s3cret"] => b"+OK\r\n",
+                    "AUTH" => b"-WRONGPASS\r\n",
+                    _ if seen[0] != "AUTH worker s3cret" => b"-NOAUTH\r\n",
+                    _ => b":7\r\n",
+                };
+                r.get_mut().write_all(reply).unwrap();
+            }
+        };
+        trust_test_ca();
+        let port = serve_tls(serve);
+        let url = format!("rediss://worker:s3cret@mq.test:{port}");
+        assert_eq!(read_from("redis", &url, "jobs", port), Answer::Length(7));
+        // The certificate does not name this host.
+        let port = serve_tls(serve);
+        let url = format!("rediss://worker:s3cret@other.test:{port}");
+        assert_eq!(
+            read_from("redis", &url, "jobs", port),
+            Answer::Error(ERR_DIAL)
+        );
+        // Roots without the test CA.
+        crate::queue::tests::TEST_ROOTS.with(|r| r.borrow_mut().clear());
+        let port = serve_tls(serve);
+        let url = format!("rediss://worker:s3cret@mq.test:{port}");
+        assert_eq!(
+            read_from("redis", &url, "jobs", port),
+            Answer::Error(ERR_DIAL)
+        );
+    }
+
     #[test]
     fn auth_from_user_info() {
         let args = |raw: &str| {

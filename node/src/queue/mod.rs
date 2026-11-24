@@ -201,6 +201,9 @@ pub fn tls(conn: Conn, server_name: &[u8]) -> Option<Box<dyn Stream>> {
     use std::sync::Arc;
     let mut roots = rustls::RootCertStore::empty();
     crate::runtime::image::http::system_roots(&mut roots);
+    // Unit tests trust their own CA; no build but `cargo test` has this.
+    #[cfg(test)]
+    tests::TEST_ROOTS.with(|r| roots.add_parsable_certificates(r.borrow().iter().cloned()));
     let provider = Arc::new(rustls::crypto::ring::default_provider());
     let config = rustls::ClientConfig::builder_with_provider(provider)
         .with_safe_default_protocol_versions()
@@ -256,4 +259,115 @@ pub fn command(kind: &str) -> Result<(), String> {
         Answer::Redo(why) => serde_json::json!({ "redo": why }),
     };
     crate::runtime::write_out(&crate::runtime::spec::to_go_json(&out))
+}
+
+#[cfg(test)]
+pub(crate) mod tests {
+    //! A TLS stand-in for brokers: the test CA below signs a
+    //! certificate for mq.test and 127.0.0.1, which `tls` trusts only in
+    //! unit tests (TEST_ROOTS is compiled into nothing else), so the
+    //! amqps:// and rediss:// paths are read through end to end.
+
+    use super::*;
+    use rustls::pki_types::pem::PemObject;
+    use rustls::pki_types::{CertificateDer, PrivateKeyDer};
+    use std::cell::RefCell;
+    use std::net::TcpListener;
+    use std::sync::Arc;
+
+    // A throwaway CA and the server certificate it signed (ECDSA P-256,
+    // valid until 2126), made with openssl for these tests only: nothing
+    // outside them trusts the CA, so the key is no secret.
+    const CA: &[u8] = b"\
+-----BEGIN CERTIFICATE-----
+MIIBsDCCAVWgAwIBAgIUMrVeJ/wt/uSIVNAxLBuR62ZYarYwCgYIKoZIzj0EAwIw
+JDEiMCAGA1UEAwwZYXJtYWRhLW5vZGUgcXVldWUgdGVzdCBDQTAgFw0yNjExMjQx
+MTIwNTJaGA8yMTI2MTAzMTExMjA1MlowJDEiMCAGA1UEAwwZYXJtYWRhLW5vZGUg
+cXVldWUgdGVzdCBDQTBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABA2kUlclBOvx
+LZmuhUfxQ5Q5p6gxpf4nsA6I4lVqyrNZNo0kGs9dhauwv5/P097piU9rDqSOOEMI
+VviPebB106SjYzBhMB0GA1UdDgQWBBQuGbk5u7TsTpk99rAoX70L8BZ+HDAfBgNV
+HSMEGDAWgBQuGbk5u7TsTpk99rAoX70L8BZ+HDAPBgNVHRMBAf8EBTADAQH/MA4G
+A1UdDwEB/wQEAwICBDAKBggqhkjOPQQDAgNJADBGAiEApW2XLS6xW78bFNvdK2op
+W++Tzbh9oazOvj3616I1+OQCIQCKveSXwmvcOJ/F1GUcsyR+BCbPCB5ehVd/hY12
+fyJMZg==
+-----END CERTIFICATE-----
+";
+    const CERT: &[u8] = b"\
+-----BEGIN CERTIFICATE-----
+MIIByTCCAW6gAwIBAgIUf5w7G8ZFxz7rnZ9OwDy5hbXJtX8wCgYIKoZIzj0EAwIw
+JDEiMCAGA1UEAwwZYXJtYWRhLW5vZGUgcXVldWUgdGVzdCBDQTAgFw0yNjExMjQx
+MTIwNTJaGA8yMTI2MTAzMTExMjA1MlowEjEQMA4GA1UEAwwHbXEudGVzdDBZMBMG
+ByqGSM49AgEGCCqGSM49AwEHA0IABLqKPCfk6uZMq9Zgx7BA8ciqU4fWuaGiIms/
+Fv+MlvghuqAPkqWjvZRx/TpuEUnOuA8fNzEKWZcAL48iJWeYIl+jgY0wgYowGAYD
+VR0RBBEwD4IHbXEudGVzdIcEfwAAATAJBgNVHRMEAjAAMA4GA1UdDwEB/wQEAwIH
+gDATBgNVHSUEDDAKBggrBgEFBQcDATAdBgNVHQ4EFgQUUkbWRvl69kTli7XljUSs
++H1DkagwHwYDVR0jBBgwFoAULhm5Obu07E6ZPfawKF+9C/AWfhwwCgYIKoZIzj0E
+AwIDSQAwRgIhAJY1EW9n00PBvcDtuctaxsLkJcrugyqRADQeZZ4bqWqQAiEAtFoy
+37p2LH0hkjHK/hSkc93P68iPjber0gwUWzJ6+qo=
+-----END CERTIFICATE-----
+";
+    const KEY: &[u8] = b"\
+-----BEGIN PRIVATE KEY-----
+MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgmA4AC7wLCWNl9ber
+FjRSWvZc3L4Gsnf/mIXPcBb1zemhRANCAAS6ijwn5OrmTKvWYMewQPHIqlOH1rmh
+oiJrPxb/jJb4IbqgD5Klo72Ucf06bhFJzrgPHzcxClmXAC+PIiVnmCJf
+-----END PRIVATE KEY-----
+";
+
+    thread_local! {
+        pub static TEST_ROOTS: RefCell<Vec<CertificateDer<'static>>> = const { RefCell::new(Vec::new()) };
+    }
+
+    /// Trusts the test CA in this thread.
+    pub fn trust_test_ca() {
+        let ca: Vec<_> = CertificateDer::pem_slice_iter(CA)
+            .map(Result::unwrap)
+            .collect();
+        TEST_ROOTS.with(|r| *r.borrow_mut() = ca);
+    }
+
+    /// Serves one TLS connection on 127.0.0.1 with the test certificate,
+    /// handing the stream to serve; returns the port.
+    pub fn serve_tls<F>(serve: F) -> u16
+    where
+        F: FnOnce(&mut dyn Stream) + Send + 'static,
+    {
+        let certs: Vec<_> = CertificateDer::pem_slice_iter(CERT)
+            .map(Result::unwrap)
+            .collect();
+        let key = PrivateKeyDer::from_pem_slice(KEY).unwrap();
+        let provider = Arc::new(rustls::crypto::ring::default_provider());
+        let config = rustls::ServerConfig::builder_with_provider(provider)
+            .with_safe_default_protocol_versions()
+            .unwrap()
+            .with_no_client_auth()
+            .with_single_cert(certs, key)
+            .unwrap();
+        let l = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = l.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            let Ok((tcp, _)) = l.accept() else { return };
+            let _ = tcp.set_read_timeout(Some(Duration::from_secs(10)));
+            let c = rustls::ServerConnection::new(Arc::new(config)).unwrap();
+            let mut s = rustls::StreamOwned::new(c, tcp);
+            serve(&mut s);
+            s.conn.send_close_notify();
+            let _ = s.flush();
+        });
+        port
+    }
+
+    /// Reads one reading of kind through a broker at 127.0.0.1:port named
+    /// as the URL names it, from this process's own network namespace.
+    pub fn read_from(kind: &str, url: &str, name: &str, port: u16) -> Answer {
+        let r = Request {
+            url: url.into(),
+            name: name.into(),
+            addresses: vec![format!("127.0.0.1:{port}")],
+            timeout_ms: 10_000,
+            netns: format!("/proc/{}/ns/net", std::process::id()),
+            ..Default::default()
+        };
+        read(kind, &r)
+    }
 }
