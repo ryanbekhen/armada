@@ -189,7 +189,33 @@ func (a *Agent) nfsMounted(ctx context.Context, target, want string) (source str
 	if err != nil || !mounted || source != want {
 		return source, mounted, false, err
 	}
-	return source, true, mountedReadOnly(target), nil
+	ro, err := mountedReadOnlyWithin(ctx, target, nfsStatTimeout)
+	return source, true, ro, err
+}
+
+// nfsStatTimeout bounds mountedReadOnly: statfs on a hard NFS mount whose
+// server is gone waits for it without end.
+const nfsStatTimeout = 10 * time.Second
+
+// mountedReadOnlyWithin is mountedReadOnly bounded by limit and ctx; a
+// statfs that does not end in time is left behind on its goroutine, and
+// the mount is reported as not answering.
+func mountedReadOnlyWithin(ctx context.Context, target string, limit time.Duration) (bool, error) {
+	return within(ctx, limit, target, func() bool { return mountedReadOnly(target) })
+}
+
+// within runs f on a goroutine of its own and waits for it at most limit.
+func within(ctx context.Context, limit time.Duration, target string, f func() bool) (bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, limit)
+	defer cancel()
+	done := make(chan bool, 1)
+	go func() { done <- f() }()
+	select {
+	case v := <-done:
+		return v, nil
+	case <-ctx.Done():
+		return false, errors.New("the NFS mount on " + target + " does not answer")
+	}
 }
 
 // unmountNFS detaches target: armada-node's `nfs unmount`, else Go's code.

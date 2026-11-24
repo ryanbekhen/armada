@@ -506,6 +506,12 @@ Removing Go's runtime code comes next.
      is on, bounded by the start's two minutes); `nfs source` reads
      `/proc/self/mountinfo` for what is mounted on a volume's mount
      point and whether it is read-only, and `nfs unmount` detaches it.
+     Two readings differ from the Go code they replaced, which was fixed
+     alike: a mountinfo escape is decoded only as the kernel writes it (a
+     backslash and three octal digits; anything else is kept, never half
+     decoded), and the read-only flag's statfs is bounded (10 seconds,
+     then "does not answer"), since a hard mount whose server is gone
+     never returns.
      The agent keeps deciding what to mount and where.
    - Queue lengths: `armada-node queue redis|rabbitmq` reads a Redis
      list's length (RESP, AUTH and SELECT, replies of at most 512 bytes)

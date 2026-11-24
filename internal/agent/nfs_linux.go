@@ -127,19 +127,20 @@ func mountedReadOnly(target string) bool {
 }
 
 // unescapeMount undoes mountinfo's octal escapes of spaces and the like.
+// The kernel writes each as a backslash and exactly three octal digits, so
+// only that form is decoded; anything else stays as written.
 func unescapeMount(s string) string {
 	if !strings.Contains(s, `\`) {
 		return s
 	}
+	octal := func(c byte) bool { return c >= '0' && c <= '7' }
 	var b strings.Builder
 	for i := 0; i < len(s); i++ {
-		if s[i] == '\\' && i+3 < len(s) {
-			var c byte
-			if _, err := fmt.Sscanf(s[i+1:i+4], "%03o", &c); err == nil {
-				b.WriteByte(c)
-				i += 3
-				continue
-			}
+		// At most \377: the first digit 0 to 3.
+		if s[i] == '\\' && i+4 <= len(s) && s[i+1] >= '0' && s[i+1] <= '3' && octal(s[i+2]) && octal(s[i+3]) {
+			b.WriteByte((s[i+1]-'0')<<6 | (s[i+2]-'0')<<3 | (s[i+3] - '0'))
+			i += 3
+			continue
 		}
 		b.WriteByte(s[i])
 	}

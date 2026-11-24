@@ -294,27 +294,27 @@ fn unmount(target: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// unescapeMount: mountinfo's octal escapes undone as Go's Sscanf("%03o")
-/// reads them (up to three octal digits, at most 255).
+/// unescapeMount: mountinfo's octal escapes undone. The kernel writes
+/// every escape as a backslash and exactly three octal digits (`\040`
+/// for a space), so only that form is decoded; anything else (a
+/// backslash before fewer digits, a value past 255, a backslash at the
+/// end) is kept as it is, never half decoded.
 pub fn unescape_mount(s: &[u8]) -> Vec<u8> {
     if !s.contains(&b'\\') {
         return s.to_vec();
     }
+    let octal = |c: u8| (b'0'..=b'7').contains(&c).then(|| u32::from(c - b'0'));
     let mut out = Vec::with_capacity(s.len());
     let mut i = 0;
     while i < s.len() {
-        if s[i] == b'\\' && i + 3 < s.len() {
-            let digits: Vec<u8> = s[i + 1..i + 4]
-                .iter()
-                .take_while(|c| (b'0'..=b'7').contains(c))
-                .copied()
-                .collect();
-            let v = digits.iter().fold(0u32, |v, d| v * 8 + u32::from(d - b'0'));
-            if !digits.is_empty() && v <= 255 {
-                out.push(v as u8);
-                i += 4;
-                continue;
-            }
+        if s[i] == b'\\'
+            && let Some(d) = s.get(i + 1..i + 4)
+            && let (Some(a), Some(b), Some(c)) = (octal(d[0]), octal(d[1]), octal(d[2]))
+            && a * 64 + b * 8 + c <= 255
+        {
+            out.push((a * 64 + b * 8 + c) as u8);
+            i += 4;
+            continue;
         }
         out.push(s[i]);
         i += 1;
@@ -360,15 +360,37 @@ pub fn mounted_source(info: &[u8], target: &str) -> (String, bool, Option<String
     (source, found, None)
 }
 
-/// mountedReadOnly.
-fn mounted_read_only(target: &str) -> bool {
-    let Ok(c) = CString::new(target) else {
-        return false;
-    };
-    read_only(&c)
+/// How long the read-only flag of a mounted export may take: statfs on
+/// a hard NFS mount whose server is gone waits for it without end.
+const STAT_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// What `within` answers when f did not end in time.
+fn not_answering(target: &str) -> String {
+    format!("the NFS mount on {target} does not answer")
 }
 
-fn source(r: &Request) -> serde_json::Value {
+/// Runs f on a thread of its own and waits for it at most limit; None
+/// when it did not end in time (the thread is left behind, and the
+/// process leaves once it answered).
+fn within<T: Send + 'static>(limit: Duration, f: impl FnOnce() -> T + Send + 'static) -> Option<T> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(f());
+    });
+    rx.recv_timeout(limit).ok()
+}
+
+/// mountedReadOnly, bounded by STAT_TIMEOUT.
+fn mounted_read_only(target: &str) -> Result<bool, String> {
+    let Ok(c) = CString::new(target) else {
+        return Ok(false);
+    };
+    within(STAT_TIMEOUT, move || read_only(&c)).ok_or_else(|| not_answering(target))
+}
+
+/// nfs source's answer; the flag says a statfs did not end in time, so
+/// the process must leave without waiting for its thread.
+fn source(r: &Request) -> (serde_json::Value, bool) {
     let path = if r.mountinfo.is_empty() {
         "/proc/self/mountinfo"
     } else {
@@ -376,15 +398,28 @@ fn source(r: &Request) -> serde_json::Value {
     };
     let info = match read_mountinfo(path) {
         Ok(b) => b,
-        Err(e) => return serde_json::json!({ "error": e }),
+        Err(e) => return (serde_json::json!({ "error": e }), false),
     };
     match mounted_source(&info, &r.target) {
-        (_, _, Some(e)) => serde_json::json!({ "error": e }),
-        (source, mounted, None) => serde_json::json!({
-            "source": source,
-            "mounted": mounted,
-            "readOnly": mounted && source == r.export && mounted_read_only(&r.target),
-        }),
+        (_, _, Some(e)) => (serde_json::json!({ "error": e }), false),
+        (source, mounted, None) => {
+            let read_only = if mounted && source == r.export {
+                match mounted_read_only(&r.target) {
+                    Ok(ro) => ro,
+                    Err(e) => return (serde_json::json!({ "error": e }), true),
+                }
+            } else {
+                false
+            };
+            (
+                serde_json::json!({
+                    "source": source,
+                    "mounted": mounted,
+                    "readOnly": read_only,
+                }),
+                false,
+            )
+        }
     }
 }
 
@@ -406,10 +441,15 @@ pub fn command(op: &str) -> Result<(), String> {
         Ok(()) => serde_json::json!({}),
         Err(e) => serde_json::json!({ "error": e }),
     };
+    let mut hung = false;
     let out = match op {
         "mount" => result(mount(&r)),
         "unmount" => result(unmount(&r.target)),
-        "source" => source(&r),
+        "source" => {
+            let (v, h) = source(&r);
+            hung = h;
+            v
+        }
         "plan" => {
             let mut calls = Vec::new();
             let mut errnos = r.errnos.iter();
@@ -433,9 +473,9 @@ pub fn command(op: &str) -> Result<(), String> {
         }
     };
     crate::runtime::write_out(&crate::runtime::spec::to_go_json(&out))?;
-    if op == "mount" {
-        // A mount the server never answered may still hold a thread:
-        // the answer is out, so leave at once.
+    if op == "mount" || hung {
+        // A mount or statfs the server never answered may still hold a
+        // thread: the answer is out, so leave at once.
         // SAFETY: _exit ends the process without running destructors.
         unsafe { libc::_exit(0) };
     }
@@ -459,8 +499,30 @@ mod tests {
             mounted_source(info, "/data/nfs/web/oth er"),
             (String::new(), false, None)
         );
-        assert_eq!(unescape_mount(b"a\\04x"), b"a\x04");
+        assert_eq!(unescape_mount(b"a\\040b\\134c"), b"a b\\c");
+        // Only a backslash and three octal digits is an escape: a shorter
+        // or larger one, or a backslash at the end, stays as written.
+        assert_eq!(unescape_mount(b"a\\04x"), b"a\\04x");
+        assert_eq!(unescape_mount(b"a\\04"), b"a\\04");
+        assert_eq!(unescape_mount(b"a\\7"), b"a\\7");
+        assert_eq!(unescape_mount(b"a\\"), b"a\\");
         assert_eq!(unescape_mount(b"a\\777b"), b"a\\777b");
+        assert_eq!(unescape_mount(b"a\\08b"), b"a\\08b");
+        assert_eq!(unescape_mount(b"\\\\040"), b"\\ ");
+    }
+
+    #[test]
+    fn statfs_is_bounded() {
+        assert_eq!(within(Duration::from_secs(5), || 7), Some(7));
+        let start = Instant::now();
+        let hung = within(Duration::from_millis(50), || {
+            std::thread::sleep(Duration::from_secs(3600));
+        });
+        assert!(hung.is_none() && start.elapsed() < Duration::from_secs(5));
+        assert_eq!(
+            not_answering("/var/lib/armada/nfs/web/files"),
+            "the NFS mount on /var/lib/armada/nfs/web/files does not answer"
+        );
     }
 
     #[test]
