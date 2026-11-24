@@ -1776,12 +1776,14 @@ EOF
 	ok "containers made before the move keep running on $_name"
 	# Each image armada-node's store did not have keeps the record Go made
 	# when it pulled it (converted, not pulled again), also once armada-node
-	# recreated the replica.
+	# recreated the replica; busybox:1.36 may already be in armada-node's
+	# store from an earlier scenario (kept, its layers held for e2e-move).
 	same_records() {
 		on "$N" 'cat /var/lib/armada/node/images/index.json' >"$WORK/node-index.json" &&
 			jq -e --slurpfile node "$WORK/node-index.json" --slurpfile before "$WORK/node-before.json" '
 				[to_entries[] | select($before[0].images[.key] == null)] as $new
-				| ($new | any(.key | contains("busybox:1.36")))
+				| (($new | any(.key | contains("busybox:1.36")))
+				   or ($before[0].images // {} | keys | any(contains("busybox:1.36"))))
 				  and ($new | all(.value.created == $node[0].images[.key].created))' "$WORK/go-images.json" >/dev/null
 	}
 	same_records || fail "armada-node's records on $_name are not the converted ones"
