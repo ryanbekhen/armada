@@ -69,7 +69,13 @@ published on the private IP any more.
   cluster CIDR overlaps a route or address on the host (the tunnel's own
   routes excepted). `armadad doctor` reports the same, and `armadad join`
   checks it before the node joins.
-- IPv6 is out of scope.
+- IPv6 is out of scope, for the containers and for the nodes alike: a
+  node of a cluster with a cluster network has a private IPv4 address.
+  `armadad init` refuses an IPv6 `--private-ip`, the leader refuses a
+  join with one (`InvalidArgument`) and the store a new node record with
+  one, and agents refuse a peer list naming one, since the tunnels,
+  routes, and firewall rules are IPv4 only. Clusters from before the
+  cluster network keep the addresses they have.
 
 ### Transport
 

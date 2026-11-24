@@ -417,6 +417,12 @@ pub fn parse(cfg: &NetworkConfig, self_name: &str, self_ip: &Option<Addr>) -> Re
             return Err(format!("peer name {}: {e}", quote(node)));
         }
         let ip = check_node_ip(&pp.private_ip).map_err(|e| format!("peer {node}: {e}"))?;
+        if !ip.is4() {
+            // The tunnels, routes, and firewall rules are IPv4 only.
+            return Err(format!(
+                "peer {node}: private IP {ip} is not an IPv4 address; the cluster network carries IPv4 only"
+            ));
+        }
         let sub = match Prefix::parse(&pp.subnet) {
             Some(s) if s.bits == SUBNET_BITS && s.masked() == s && cidr.contains(&s.addr) => s,
             _ => {
@@ -657,6 +663,10 @@ mod tests {
                 "peer b: subnet \"10.120.1.5/24\" is not a /24 of 10.120.0.0/16",
             ),
             (np("a", "10.0.0.2", "10.120.1.0/24"), "peer a: duplicate"),
+            (
+                np("b", "fd00::2", "10.120.1.0/24"),
+                "peer b: private IP fd00::2 is not an IPv4 address; the cluster network carries IPv4 only",
+            ),
         ] {
             let err = parse(&config(vec![a.clone(), peer]), "a", &ip).unwrap_err();
             assert!(err.starts_with(want), "{err}");

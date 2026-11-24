@@ -698,6 +698,11 @@ func TestJoinGivesNodeSubnet(t *testing.T) {
 	if _, err := jc.Join(c.ctx, inside); err == nil || !strings.Contains(err.Error(), "cluster CIDR") {
 		t.Errorf("private IP inside the cluster CIDR = %v", err)
 	}
+	// The cluster network carries IPv4 only.
+	v6, _ := joinReq(t, tok.Token, "n1", "fd00::11")
+	if _, err := jc.Join(c.ctx, v6); status.Code(err) != codes.InvalidArgument || !strings.Contains(err.Error(), "IPv4 only") {
+		t.Errorf("IPv6 private IP = %v", err)
+	}
 	req, _ := joinReq(t, tok.Token, "n1", "10.0.0.11")
 	resp, err := jc.Join(c.ctx, req)
 	if err != nil {
