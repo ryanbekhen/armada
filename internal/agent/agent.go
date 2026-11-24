@@ -33,6 +33,7 @@ import (
 
 	armadav1 "github.com/ryanbekhen/armada/api/armada/v1"
 	"github.com/ryanbekhen/armada/internal/conntrack"
+	"github.com/ryanbekhen/armada/internal/nodeprog"
 	"github.com/ryanbekhen/armada/internal/proxy"
 	"github.com/ryanbekhen/armada/internal/runtime"
 	"github.com/ryanbekhen/armada/internal/store"
@@ -117,6 +118,10 @@ type Config struct {
 	NFSDir string
 	// MountNFS mounts an export (tests); nil: the kernel's NFSv4 client.
 	MountNFS func(ctx context.Context, server, export, target string, readOnly bool) error
+	// Node is the runtime pack's armada-node, which mounts, reads, and
+	// unmounts NFS exports (ADR 0054 step 5), Go's code doing a call it
+	// fails; nil keeps Go's code.
+	Node *nodeprog.Program
 	// Buckets opens a volume's backup bucket (ADR 0041); nil: S3.
 	Buckets func(volbackup.Target) (volbackup.Objects, error)
 	// WakeSocket is where the proxy sends requests for apps with no replica

@@ -24,6 +24,7 @@ import (
 	armadav1 "github.com/ryanbekhen/armada/api/armada/v1"
 	"github.com/ryanbekhen/armada/internal/clusternet"
 	"github.com/ryanbekhen/armada/internal/conntrack"
+	"github.com/ryanbekhen/armada/internal/nodeprog"
 	"github.com/ryanbekhen/armada/internal/version"
 
 	"google.golang.org/grpc"
@@ -596,6 +597,10 @@ func runAgent(ctx context.Context, dataDir string, servers []string, proxyKind, 
 	if err != nil {
 		return err
 	}
+	// The node's readings go through armada-node with the runtime's work
+	// (ADR 0054 step 5): runtimeAgent "go", containerd, or a pack without
+	// it keep Go's code.
+	readings := nodeprog.New(ac.runtimeProgram(dataDir))
 	acfg := agent.Config{
 		NodeID:     ac.NodeID,
 		PrivateIP:  ac.PrivateIP,
@@ -611,7 +616,8 @@ func runAgent(ctx context.Context, dataDir string, servers []string, proxyKind, 
 		OnServers:  onServers,
 
 		UsageInterval: usageInterval,
-		Conntrack:     conntrack.New(),
+		Conntrack:     conntrack.New().WithProgram(readings),
+		Node:          readings,
 	}
 	if px != nil {
 		acfg.WakeSocket = haproxy.WakeSocket(filepath.Join(dataDir, dirHAProxy))

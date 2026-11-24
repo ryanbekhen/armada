@@ -492,6 +492,40 @@ Removing Go's runtime code comes next.
 5. **Sessions and readings.** Exec, volume archives and backups (the
    repository format of ADR 0041, which the Go control plane also writes),
    NFS mounts, queue lengths, usage, and connection tracking.
+   First part, the readings, on the runtime's knob (a supervisor node
+   whose pack has armada-node, unless `"runtimeAgent": "go"`; containerd
+   nodes keep Go's code), with Go doing a call armada-node fails (logged
+   once per distinct failure, counted with `StoodIn`):
+   - Connection tracking: `armada-node conntrack read|raise` reads the
+     table's use and limit and raises the limit to the node's target,
+     never lowering it, as `internal/conntrack` does (same files, same
+     error texts). `armadad doctor` still reads it in Go.
+   - NFS mounts: `armada-node nfs mount` checks the export's server and
+     path again and mounts it as the agent does (`nfs4`, nosuid and
+     nodev, read-only when asked, hard over TCP, 4.2 then 4.1 then 4.0
+     on `EPROTONOSUPPORT` or `EINVAL`, the SELinux context when SELinux
+     is on, bounded by the start's two minutes); `nfs source` reads
+     `/proc/self/mountinfo` for what is mounted on a volume's mount
+     point and whether it is read-only, and `nfs unmount` detaches it.
+     The agent keeps deciding what to mount and where.
+   - Queue lengths: `armada-node queue redis|rabbitmq` reads a Redis
+     list's length (RESP, AUTH and SELECT, replies of at most 512 bytes)
+     or a RabbitMQ queue's ready messages (an AMQP 0-9-1 handshake and a
+     passive Queue.Declare, written by hand as amqp091-go speaks it: the
+     same URL rules, mechanisms, negotiated limits, and the same failure
+     reported as the same error), over TLS with the machine's roots for
+     `rediss://` and `amqps://`, from inside the replica's or the job
+     sandbox's network namespace as `runtime dial` enters it. The URL,
+     which holds the broker's credentials, comes on stdin with the
+     reading, never on the command line, and no answer repeats it or
+     anything the broker sent. A broker named by a name is resolved by
+     Go first, from the same namespace through the containers'
+     nameserver as before, and its addresses are passed along;
+     armada-node leaves a reading to Go only for a name with no
+     addresses, an address with a zone, or a shim that is gone. `queue`
+     rules stay an exec.
+   Usage sampling (`runtime stats`) moved with step 4; exec's sessions
+   and volume archives and backups are the next parts.
 6. **The agent.** `armada-node agent`: the `Connect` session, `Hello`,
    reconciliation, probes, fencing, held replicas, jobs, init containers
    and sidecars, secret files, wake, certificates, and `agent.json`.

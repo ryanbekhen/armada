@@ -181,3 +181,17 @@ func newPinnedNetNS(path string) error {
 	}
 	return nil
 }
+
+// ReadSandboxQueue reads a queue's length from the sandbox's namespace, as
+// ReadQueue does from a container's.
+func (d *Driver) ReadSandboxQueue(ctx context.Context, id string, q runtime.QueueRead) (int64, bool, error) {
+	st, ok := d.ctr.(*supervisor.Store)
+	if !ok || d.native == nil || runtime.CheckSandboxID(id) != nil {
+		return 0, false, nil
+	}
+	path := d.sandboxPath(id)
+	if !isNetNS(path) {
+		return 0, false, nil
+	}
+	return st.NativeQueue(ctx, "", path, "", q)
+}

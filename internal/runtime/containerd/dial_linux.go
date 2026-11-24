@@ -115,3 +115,17 @@ func dialIn(ctx context.Context, target netns.NsHandle, network, address string)
 		return nil, ctx.Err()
 	}
 }
+
+var _ runtime.QueueReader = (*Driver)(nil)
+
+// ReadQueue reads a queue's length from the network namespace of the
+// running container id through armada-node (ADR 0054 step 5); handled is
+// false on nodes that keep Go's code, or when armada-node leaves the
+// reading to Go, which reads it through DialContainer.
+func (d *Driver) ReadQueue(ctx context.Context, id string, q runtime.QueueRead) (int64, bool, error) {
+	st, ok := d.ctr.(*supervisor.Store)
+	if !ok || d.native == nil {
+		return 0, false, nil
+	}
+	return st.NativeQueue(d.ctx(ctx), id, "", procRoot, q)
+}

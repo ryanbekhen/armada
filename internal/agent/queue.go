@@ -221,10 +221,20 @@ func (a *Agent) readQueue(ctx context.Context, container string, p *armadav1.Que
 	ctx, cancel := context.WithTimeout(ctx, queueTimeout)
 	defer cancel()
 	switch p.GetType() {
-	case spec.ScaleRedis:
-		return queuelen.RedisListLength(ctx, a.containerDialer(container), p.GetUrl(), p.GetName())
-	case spec.ScaleRabbitMQ:
-		return queuelen.RabbitMQQueueLength(ctx, a.containerDialer(container), p.GetUrl(), p.GetName())
+	case spec.ScaleRedis, spec.ScaleRabbitMQ:
+		dial := a.containerDialer(container)
+		if qr, ok := a.cfg.Driver.(runtime.QueueReader); ok {
+			n, handled, err := a.nativeQueue(ctx, p, dial, func(q runtime.QueueRead) (int64, bool, error) {
+				return qr.ReadQueue(ctx, container, q)
+			})
+			if handled {
+				return n, err
+			}
+		}
+		if p.GetType() == spec.ScaleRedis {
+			return queuelen.RedisListLength(ctx, dial, p.GetUrl(), p.GetName())
+		}
+		return queuelen.RabbitMQQueueLength(ctx, dial, p.GetUrl(), p.GetName())
 	case spec.ScaleQueue:
 		return a.runQueueCommand(ctx, container, p.GetCommand())
 	}
@@ -272,6 +282,50 @@ func (a *Agent) containerDialer(container string) queuelen.Dialer {
 	})
 }
 
+// nativeQueue reads a Redis or RabbitMQ rule through the runtime's
+// QueueReader (armada-node, ADR 0054 step 5): a broker the URL names by a
+// name is resolved first, from the namespace dial reaches, as
+// namespaceDialer resolves it, and armada-node dials its addresses in
+// order. handled is false when queuelen must read it.
+func (a *Agent) nativeQueue(ctx context.Context, p *armadav1.QueueProbe, dial queuelen.Dialer, read func(runtime.QueueRead) (int64, bool, error)) (int64, bool, error) {
+	q := runtime.QueueRead{Type: p.GetType(), URL: p.GetUrl(), Name: p.GetName()}
+	if host, port, err := queuelen.Broker(q.Type, q.URL); err == nil {
+		if _, perr := netip.ParseAddr(host); perr != nil {
+			// queuelen fails to dial a name that does not resolve, or a
+			// port no address takes.
+			ips, err := a.resolveIn(ctx, dial, host)
+			if err != nil {
+				return 0, true, queuelen.ErrUnreachable
+			}
+			pn, err := strconv.ParseUint(port, 10, 16)
+			if err != nil {
+				return 0, true, queuelen.ErrUnreachable
+			}
+			for _, ip := range ips {
+				q.Addresses = append(q.Addresses, netip.AddrPortFrom(ip.Unmap(), uint16(pn)))
+			}
+		}
+	}
+	return read(q)
+}
+
+// resolveIn resolves host through the nameserver containers use, dialled
+// with dial from one network namespace.
+func (a *Agent) resolveIn(ctx context.Context, dial queuelen.Dialer, host string) ([]netip.Addr, error) {
+	ns := a.containerNameserver()
+	if ns == "" {
+		return nil, errors.New("no nameserver to resolve the broker's name")
+	}
+	r := &net.Resolver{PreferGo: true, Dial: func(ctx context.Context, nw, _ string) (net.Conn, error) {
+		return dial(ctx, nw, ns)
+	}}
+	ips, err := r.LookupNetIP(ctx, "ip", host)
+	if err != nil || len(ips) == 0 {
+		return nil, errors.New("cannot resolve the broker's name from the namespace")
+	}
+	return ips, nil
+}
+
 // namespaceDialer dials through dial, which dials IP addresses from one
 // network namespace, and resolves names from there too, through the
 // nameserver containers use.
@@ -284,16 +338,9 @@ func (a *Agent) namespaceDialer(dial queuelen.Dialer) queuelen.Dialer {
 		if _, err := netip.ParseAddr(host); err == nil {
 			return dial(ctx, network, address)
 		}
-		ns := a.containerNameserver()
-		if ns == "" {
-			return nil, errors.New("no nameserver to resolve the broker's name")
-		}
-		r := &net.Resolver{PreferGo: true, Dial: func(ctx context.Context, nw, _ string) (net.Conn, error) {
-			return dial(ctx, nw, ns)
-		}}
-		ips, err := r.LookupNetIP(ctx, "ip", host)
-		if err != nil || len(ips) == 0 {
-			return nil, errors.New("cannot resolve the broker's name from the namespace")
+		ips, err := a.resolveIn(ctx, dial, host)
+		if err != nil {
+			return nil, err
 		}
 		var last error
 		for _, ip := range ips {

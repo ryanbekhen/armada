@@ -43,19 +43,9 @@ var (
 // RedisListLength returns LLEN of list on the server rawURL names:
 // redis://[user[:password]@]host[:port][/db], or rediss:// for TLS.
 func RedisListLength(ctx context.Context, dial Dialer, rawURL, list string) (int64, error) {
-	u, err := url.Parse(rawURL)
-	if err != nil || (u.Scheme != "redis" && u.Scheme != "rediss") || u.Hostname() == "" || u.Opaque != "" {
-		return 0, errURL
-	}
-	db := 0
-	if p := strings.TrimPrefix(u.Path, "/"); p != "" {
-		if db, err = strconv.Atoi(p); err != nil || db < 0 || db > 1<<16 {
-			return 0, errURL
-		}
-	}
-	port := u.Port()
-	if port == "" {
-		port = "6379"
+	u, db, port, err := redisURL(rawURL)
+	if err != nil {
+		return 0, err
 	}
 	conn, err := dial(ctx, "tcp", net.JoinHostPort(u.Hostname(), port))
 	if err != nil {
@@ -112,6 +102,66 @@ func RedisListLength(ctx context.Context, dial Dialer, rawURL, list string) (int
 		return 0, errReply
 	}
 	return n, nil
+}
+
+// redisURL checks a Redis URL as RedisListLength does before dialling:
+// the URL, its database, and the port it dials.
+func redisURL(rawURL string) (*url.URL, int, string, error) {
+	u, err := url.Parse(rawURL)
+	if err != nil || (u.Scheme != "redis" && u.Scheme != "rediss") || u.Hostname() == "" || u.Opaque != "" {
+		return nil, 0, "", errURL
+	}
+	db := 0
+	if p := strings.TrimPrefix(u.Path, "/"); p != "" {
+		if db, err = strconv.Atoi(p); err != nil || db < 0 || db > 1<<16 {
+			return nil, 0, "", errURL
+		}
+	}
+	port := u.Port()
+	if port == "" {
+		port = "6379"
+	}
+	return u, db, port, nil
+}
+
+// Broker returns the host and port the reading of kind ("redis" or
+// "rabbitmq") dials for rawURL, so a caller can resolve a name before
+// handing the reading to armada-node (ADR 0054 step 5). Its error is the
+// one the reading gives for the URL.
+func Broker(kind, rawURL string) (host, port string, err error) {
+	switch kind {
+	case "redis":
+		u, _, port, err := redisURL(rawURL)
+		if err != nil {
+			return "", "", err
+		}
+		return u.Hostname(), port, nil
+	case "rabbitmq":
+		uri, err := amqp.ParseURI(rawURL)
+		if err != nil {
+			return "", "", errURL
+		}
+		return uri.Host, strconv.Itoa(uri.Port), nil
+	}
+	return "", "", errURL
+}
+
+// ErrUnreachable is the reading's error for a broker it cannot dial.
+var ErrUnreachable = errDial
+
+// errTimeout is RabbitMQQueueLength's error once its context ends.
+var errTimeout = errors.New("timed out")
+
+// FromText returns the reading's error whose text s is (armada-node
+// answers with these texts), so errors.Is finds it; another text is a new
+// error.
+func FromText(s string) error {
+	for _, e := range []error{errURL, errDial, errAuth, errReply, errMissing, errTimeout} {
+		if e.Error() == s {
+			return e
+		}
+	}
+	return errors.New(s)
 }
 
 // readReply reads one simple reply (+, -, :) and skips nothing else: the
@@ -189,7 +239,7 @@ func RabbitMQQueueLength(ctx context.Context, dial Dialer, rawURL, queue string)
 	case r := <-done:
 		return r.n, r.err
 	case <-ctx.Done():
-		return 0, errors.New("timed out")
+		return 0, errTimeout
 	}
 }
 
