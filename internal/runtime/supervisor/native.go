@@ -1,15 +1,12 @@
 package supervisor
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"maps"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -26,6 +23,7 @@ import (
 	"github.com/opencontainers/go-digest"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 
+	"github.com/ryanbekhen/armada/internal/nodeprog"
 	"github.com/ryanbekhen/armada/internal/runtime"
 )
 
@@ -52,12 +50,12 @@ type Native struct {
 
 	content content.Store
 
-	mu   sync.Mutex
-	errs map[string]string
-	// stood counts, per call, the times Go did one armada-node did not.
-	stood map[string]int
-	// ran counts, per call, the times armada-node did one ("exec").
-	ran map[string]int
+	// tally keeps what armada-node failed, what Go did instead, and what
+	// armada-node did ("exec"), as the agent's other calls do (nodeprog).
+	tally nodeprog.Tally
+	// mu is held by callers around standIn and count; tally keeps its own
+	// lock, so it guards nothing else.
+	mu sync.Mutex
 }
 
 // OpenNative opens armada-node's image store under images for reading.
@@ -82,6 +80,20 @@ type programError struct{ err error }
 func (e programError) Error() string { return "armada-node: " + e.err.Error() }
 func (e programError) Unwrap() error { return e.err }
 
+// As makes it nodeprog's Error too, which nodeprog.Tally counts as
+// armada-node's failure.
+func (e programError) As(target any) bool {
+	if t, ok := target.(*nodeprog.Error); ok {
+		*t = nodeprog.Error{Err: e.err}
+		return true
+	}
+	return false
+}
+
+// asProgramError is a program failure nodeprog.Run returns as this
+// package's own.
+func asProgramError(err error) error { return programError{err} }
+
 // programLimit bounds every call but a shim's wait, which lasts as long
 // as its container.
 const programLimit = 5 * time.Minute
@@ -90,7 +102,7 @@ const programLimit = 5 * time.Minute
 // deadline: the deadline travels in the request (timeoutMs), and the
 // program answers with what Go's code answers once its time is up rather
 // than being killed first.
-const programGrace = 2 * time.Second
+const programGrace = nodeprog.Grace
 
 // exec runs armada-node with args and stdin (JSON), returning its output.
 // A cancelled caller kills it at once; one whose deadline passes, after
@@ -102,46 +114,11 @@ func (n *Native) exec(ctx context.Context, bounded bool, stdin any, args ...stri
 // execFiles is exec with extra files the program gets from descriptor 3
 // on.
 func (n *Native) execFiles(ctx context.Context, bounded bool, stdin any, extra []*os.File, args ...string) ([]byte, error) {
-	in, err := json.Marshal(stdin)
-	if err != nil {
-		return nil, err
-	}
-	run := ctx
-	if dl, ok := ctx.Deadline(); ok {
-		var cancel context.CancelFunc
-		run, cancel = context.WithDeadline(context.WithoutCancel(ctx), dl.Add(programGrace))
-		defer cancel()
-		stop := context.AfterFunc(ctx, func() {
-			if errors.Is(ctx.Err(), context.Canceled) {
-				cancel()
-			}
-		})
-		defer stop()
-	}
+	o := nodeprog.RunOptions{ExtraFiles: extra, Fail: asProgramError}
 	if bounded {
-		var cancel context.CancelFunc
-		run, cancel = context.WithTimeout(run, programLimit)
-		defer cancel()
+		o.Limit = programLimit
 	}
-	cmd := exec.CommandContext(run, n.Bin, args...) //nolint:gosec // the runtime pack's armada-node
-	cmd.Stdin = bytes.NewReader(in)
-	cmd.ExtraFiles = extra
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	out, err := cmd.Output()
-	if err != nil {
-		if run.Err() != nil {
-			if cerr := ctx.Err(); cerr != nil {
-				return nil, cerr
-			}
-			return nil, run.Err()
-		}
-		if msg := strings.TrimSpace(stderr.String()); msg != "" {
-			err = fmt.Errorf("%w: %s", err, msg)
-		}
-		return nil, programError{err}
-	}
-	return out, nil
+	return nodeprog.Run(ctx, n.Bin, o, stdin, args...)
 }
 
 // run runs a call and reads its answer into out: {"error": TEXT} is that
@@ -151,98 +128,28 @@ func (n *Native) run(ctx context.Context, stdin, out any, args ...string) error 
 	if err != nil {
 		return err
 	}
-	var answer struct {
-		Error *string `json:"error"`
-	}
-	if err := json.Unmarshal(b, &answer); err != nil {
-		return programError{fmt.Errorf("unreadable answer: %w", err)}
-	}
-	if answer.Error != nil {
-		return errors.New(*answer.Error)
-	}
-	if out != nil {
-		if err := json.Unmarshal(b, out); err != nil {
-			return programError{fmt.Errorf("unreadable answer: %w", err)}
-		}
-	}
-	return nil
+	return nodeprog.Answer(b, out, asProgramError)
 }
 
 // fallback reports whether Go must do a call armada-node failed (op names
 // it), logging each distinct failure once.
-func (n *Native) fallback(op string, err error) bool {
-	var perr programError
-	failed := errors.As(err, &perr)
-	msg := ""
-	if failed {
-		msg = err.Error()
-	}
-	n.mu.Lock()
-	defer n.mu.Unlock()
-	if n.errs == nil {
-		n.errs = map[string]string{}
-	}
-	prev, seen := n.errs[op]
-	n.errs[op] = msg
-	if failed {
-		n.standIn(op)
-	}
-	switch {
-	case !failed && seen && prev != "":
-		slog.Info("armada-node works again", "op", op)
-	case failed && (!seen || prev != msg):
-		slog.Warn("armada-node failed; Go did it instead", "op", op, "err", err)
-	}
-	return failed
-}
+func (n *Native) fallback(op string, err error) bool { return n.tally.Fallback(op, err) }
 
-// standIn counts a call Go did instead of armada-node; n.mu is held.
-func (n *Native) standIn(op string) {
-	if n.stood == nil {
-		n.stood = map[string]int{}
-	}
-	n.stood[op]++
-}
+// standIn counts a call Go did instead of armada-node.
+func (n *Native) standIn(op string) { n.tally.StandIn(op) }
 
 // StoodIn is how many times Go did op instead of armada-node: a call it
 // failed, or a container it left to Go ("stats", "dial").
-func (n *Native) StoodIn(op string) int {
-	n.mu.Lock()
-	defer n.mu.Unlock()
-	return n.stood[op]
-}
+func (n *Native) StoodIn(op string) int { return n.tally.StoodIn(op) }
 
-// count counts a call armada-node did; n.mu is held.
-func (n *Native) count(op string) {
-	if n.ran == nil {
-		n.ran = map[string]int{}
-	}
-	n.ran[op]++
-}
+// count counts a call armada-node did.
+func (n *Native) count(op string) { n.tally.Count(op) }
 
 // Ran is how many times armada-node did op ("exec": it started runc).
-func (n *Native) Ran(op string) int {
-	n.mu.Lock()
-	defer n.mu.Unlock()
-	return n.ran[op]
-}
+func (n *Native) Ran(op string) int { return n.tally.Ran(op) }
 
 // note logs a failure of a call Go cannot do instead.
-func (n *Native) note(op string, err error) {
-	var perr programError
-	if !errors.As(err, &perr) {
-		return
-	}
-	n.mu.Lock()
-	defer n.mu.Unlock()
-	if n.errs == nil {
-		n.errs = map[string]string{}
-	}
-	if n.errs[op] != err.Error() {
-		slog.Warn("armada-node failed", "op", op, "err", err)
-	}
-	n.errs[op] = err.Error()
-}
+func (n *Native) note(op string, err error) { n.tally.Note(op, err) }
 
 // Prepare makes container key's root filesystem on image's layers (the
 // one it has when it exists) and returns its mounts.

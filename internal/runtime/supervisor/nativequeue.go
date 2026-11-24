@@ -77,9 +77,7 @@ func (s *Store) NativeQueue(ctx context.Context, id, netnsPath, procRoot string,
 		return 0, true, queuelen.FromText(*a.Error)
 	case a.Redo != nil:
 		nat.fallback(op, nil)
-		nat.mu.Lock()
 		nat.standIn(op)
-		nat.mu.Unlock()
 		return 0, false, nil
 	}
 	nat.fallback(op, programError{fmt.Errorf("unreadable answer: %s", b)})
