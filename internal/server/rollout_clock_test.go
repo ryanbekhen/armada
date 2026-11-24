@@ -389,3 +389,50 @@ func TestOneAppFailingKeepsTheRest(t *testing.T) {
 		t.Errorf("replicas %v", got)
 	}
 }
+
+// An update that comes while the old replicas are still within their own
+// warm-up keeps them: they are in the proxies and serve, so they stay until
+// the new revision does (before, they went at once as if they served
+// nothing, and an app updated right after its first deploy had no replica
+// in the proxies until the new ones were ready).
+func TestUpdateKeepsOldReplicasWarmingUp(t *testing.T) {
+	t.Parallel()
+	c := newClockServer(t)
+	if _, _, err := c.st.Deploy(c.ctx, mustSpec(t, "name: web\nimage: nginx:1\ningress:\n  type: external\n  port: 80\n"), "t"); err != nil {
+		t.Fatal(err)
+	}
+	c.reconcile()
+	v1 := c.only("web--r1")
+	c.ready(v1)
+	c.advance(time.Second) // ready, in the proxies, still warming up
+
+	if _, _, err := c.st.Deploy(c.ctx, mustSpec(t, "name: web\nimage: nginx:2\ningress:\n  type: external\n  port: 80\n"), "t"); err != nil {
+		t.Fatal(err)
+	}
+	c.advance(time.Second)
+	v2 := c.only("web--r2")
+	r1 := c.only("web--r1")
+	if r1.Draining() {
+		t.Fatal("the old replica drained before the new one serves")
+	}
+	if !inProxy(c.app(), r1) {
+		t.Fatal("the old replica left the proxies before the new one serves")
+	}
+	c.advance(10 * time.Second)
+	if c.only("web--r1").Draining() {
+		t.Fatal("the old replica drained while the new one is not ready")
+	}
+
+	c.ready(v2)
+	c.advance(3*time.Second - time.Millisecond)
+	if c.only("web--r1").Draining() {
+		t.Fatal("the old replica drained during the new replica's warm-up")
+	}
+	c.advance(time.Millisecond)
+	if !c.only("web--r1").Draining() {
+		t.Fatal("the old replica kept after the new one serves")
+	}
+	if a := c.app(); a.ActiveRevision != "web--r2" || a.Rolling() {
+		t.Errorf("rollout not complete: %+v", a)
+	}
+}
