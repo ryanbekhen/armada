@@ -148,7 +148,7 @@ func TestIntegrationConformanceSupervisor(t *testing.T) {
 	if d.native != nil {
 		// Samples of containers and dials from them and from sandboxes
 		// (ADR 0054 step 4, fifth part), and every exec, command probe,
-		// and system exec (sixth part) went through armada-node, with Go
+		// and system exec (sixth part; whole sessions since step 5) went through armada-node, with Go
 		// standing in nowhere.
 		for _, op := range []string{"stats", "dial", "exec"} {
 			if n := d.native.StoodIn(op); n > 0 {

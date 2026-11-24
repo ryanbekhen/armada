@@ -17,7 +17,7 @@ import (
 	"github.com/ryanbekhen/armada/internal/volbackup"
 )
 
-// Volume backups through armada-node (ADR 0054 step 5, last part):
+// Volume backups through armada-node (ADR 0054 step 5, third part):
 // armada-node volume snapshot|prune|snapshots|restore-snapshot does what
 // volbackup's Backup, Prune, Snapshots, and Restore do, in the same
 // repository format, with the request (the bucket's URL and the key

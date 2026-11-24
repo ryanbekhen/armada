@@ -199,20 +199,11 @@ func (p *execProcess) Start(ctx context.Context) error {
 	return nil
 }
 
-// startRunc starts runc exec with stdio as its standard streams: through
-// armada-node when the node runs containers with it (nativeexec.go),
-// else, or when armada-node failed before runc ran, here.
-func (p *execProcess) startRunc(ctx context.Context, stdio [3]*os.File) (*exec.Cmd, error) {
-	if n := p.t.c.s.Native; n != nil {
-		cmd, handled, err := n.startExec(ctx, nativeExec{
-			Bundle: p.t.c.s.Bundles.Path(p.t.c.rec.ID), Dir: p.dir, Root: p.t.sh.Root,
-			Runc: p.t.c.s.Shims.Runc, ID: p.t.c.rec.ID,
-			Args: p.spec.Args, Terminal: p.spec.Terminal, ConsoleSize: p.spec.ConsoleSize,
-		}, func(cmd *exec.Cmd) { p.wire(cmd, stdio) })
-		if handled {
-			return cmd, err
-		}
-	}
+// startRunc starts runc exec with stdio as its standard streams. On a
+// node whose containers run through armada-node, the driver hands the
+// whole session to it (NativeExec), and this runs only when armada-node
+// failed before runc ran.
+func (p *execProcess) startRunc(_ context.Context, stdio [3]*os.File) (*exec.Cmd, error) {
 	if err := os.MkdirAll(p.dir, 0o700); err != nil {
 		return nil, err
 	}

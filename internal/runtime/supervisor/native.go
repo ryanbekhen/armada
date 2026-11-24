@@ -34,7 +34,7 @@ import (
 // read from, armada-node's store under Images), containers' root
 // filesystems on its unpacked layers, OCI bundles, and the requests to
 // armada-shim; later parts added statistics, dials from containers, and
-// starting runc exec (nativeexec.go). The driver still builds every
+// exec sessions (nativeexec.go). The driver still builds every
 // container's spec and runs its network and logs.
 //
 // The files are those Go keeps (Bundles, the shims' sockets and runc

@@ -13,6 +13,7 @@ import (
 	"github.com/containerd/containerd/v2/pkg/cio"
 
 	"github.com/ryanbekhen/armada/internal/runtime"
+	"github.com/ryanbekhen/armada/internal/runtime/supervisor"
 )
 
 // RunSystem creates and starts an infrastructure container.
@@ -102,7 +103,19 @@ func (d *Driver) Exec(ctx context.Context, id string, cmd []string) (string, int
 	if _, err := rand.Read(b); err != nil {
 		return "", 0, err
 	}
-	proc, err := t.Exec(ctx, "exec-"+hex.EncodeToString(b), &p,
+	execID := "exec-" + hex.EncodeToString(b)
+	if st, ok := d.ctr.(*supervisor.Store); ok {
+		// armada-node runs the session (ADR 0054 step 5): the output to
+		// its end and no kill, as below.
+		code, handled, err := st.NativeExec(ctx, t, supervisor.ExecSession{ID: execID, Process: &p, Stdout: &buf, Stderr: &buf})
+		if handled {
+			if err != nil {
+				return "", 0, err
+			}
+			return buf.String(), code, nil
+		}
+	}
+	proc, err := t.Exec(ctx, execID, &p,
 		cio.NewCreator(cio.WithStreams(nil, &buf, &buf), cio.WithFIFODir(d.paths.FIFO())))
 	if err != nil {
 		return "", 0, fmt.Errorf("exec: %w", err)
