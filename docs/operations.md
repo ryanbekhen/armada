@@ -1200,14 +1200,16 @@ journalctl -u armada-agent | grep armada-node # nothing new after the restart
 On a node that runs the supervisor runtime, armada-node keeps the node's
 images (`/var/lib/armada/node/images`) and runs its containers' root
 filesystems, bundles, and `armada-shim` requests, samples what the
-replicas use (once per round for all of them), opens the connections
-queue rules read from, and starts the processes `armada app exec`,
-command probes, and queue commands run in containers. The agent keeps
-building each container, running its network and logs, and carrying the
-input and output of every exec. When armada-node fails to write a bundle,
-reach a shim, sample the replicas, open a connection, or start an exec,
-the agent does it itself and logs `armada-node failed; Go did it
-instead`. Nodes on containerd are not affected: the leader moves them to
+replicas use (once per round for all of them), reads the Redis and
+RabbitMQ queues queue rules and queue-triggered jobs count, from inside
+the replica's or the job's network namespace, starts the processes
+`armada app exec`, command probes, and queue commands run in containers,
+mounts and unmounts NFS volumes, and keeps the connection tracking limit
+raised. The agent keeps building each container, running its network and
+logs, carrying the input and output of every exec, and resolving a
+broker's name. When armada-node fails to write a bundle, reach a shim,
+sample the replicas, read a queue, mount an export, or start an exec, the
+agent does it itself and logs `armada-node failed; Go did it instead`. Nodes on containerd are not affected: the leader moves them to
 the supervisor first ([Container runtimes](#container-runtimes), above).
 
 **Upgrading** a supervisor node from a release whose agent ran its

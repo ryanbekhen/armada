@@ -170,7 +170,7 @@ fn writable(fd: RawFd, deadline: Option<Instant>) -> Result<bool, i32> {
 
 /// The dial itself, in the namespace: what Go's sysSocket, its default
 /// socket options, and netFD.connect do.
-fn connect(r: &DialRequest, deadline: Option<Instant>) -> Outcome {
+pub fn connect(r: &DialRequest, deadline: Option<Instant>) -> Outcome {
     let Some((sa, len)) = sockaddr(r) else {
         return Outcome::Redo(format!("address {} of family {}", r.ip, r.family));
     };
@@ -253,32 +253,32 @@ fn connect(r: &DialRequest, deadline: Option<Instant>) -> Outcome {
     }
 }
 
+/// Switches into the network namespace the request names: the
+/// container's (found through its bundle and shim) or a pinned one.
+pub fn enter_target(r: &DialRequest, deadline: Option<Instant>) -> Result<(), Outcome> {
+    let path = if r.id.is_empty() {
+        r.netns.clone()
+    } else {
+        let recs = bundle::records(&r.dir).map_err(Outcome::Redo)?;
+        let Some(rec) = recs.iter().find(|x| x.id == r.id) else {
+            return Err(Outcome::NotFound);
+        };
+        match locate(&r.shim_dir, rec, deadline) {
+            Located::Task(pid) => format!("{}/{pid}/ns/net", r.proc.trim_end_matches('/')),
+            Located::NotFound => return Err(Outcome::NotFound),
+            Located::Redo(why) => return Err(Outcome::Redo(why)),
+        }
+    };
+    let ns = open_ns(&path).map_err(Outcome::Netns)?;
+    enter(&ns).map_err(Outcome::Setns)
+}
+
 /// Dials as DialContainer (a request with an ID) or DialSandbox (with a
 /// namespace's path) do once Go checked the address.
 pub fn dial(r: &DialRequest) -> Outcome {
     let deadline = (r.timeout_ms > 0).then(|| Instant::now() + Duration::from_millis(r.timeout_ms));
-    let path = if r.id.is_empty() {
-        r.netns.clone()
-    } else {
-        let recs = match bundle::records(&r.dir) {
-            Ok(recs) => recs,
-            Err(e) => return Outcome::Redo(e),
-        };
-        let Some(rec) = recs.iter().find(|x| x.id == r.id) else {
-            return Outcome::NotFound;
-        };
-        match locate(&r.shim_dir, rec, deadline) {
-            Located::Task(pid) => format!("{}/{pid}/ns/net", r.proc.trim_end_matches('/')),
-            Located::NotFound => return Outcome::NotFound,
-            Located::Redo(why) => return Outcome::Redo(why),
-        }
-    };
-    let ns = match open_ns(&path) {
-        Ok(ns) => ns,
-        Err(e) => return Outcome::Netns(e),
-    };
-    if let Err(e) = enter(&ns) {
-        return Outcome::Setns(e);
+    if let Err(o) = enter_target(r, deadline) {
+        return o;
     }
     connect(r, deadline)
 }

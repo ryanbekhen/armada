@@ -39,6 +39,12 @@ func nfsSupported() bool {
 // nosuid and nodev, hard, over TCP, trying 4.2, then 4.1, then 4.0. It
 // needs no helper program.
 func mountNFS(ctx context.Context, server, export, target string, readOnly bool) error {
+	return mountNFSWith(ctx, server, export, target, readOnly, selinux.GetEnabled(), unix.Mount)
+}
+
+// mountNFSWith is mountNFS with SELinux's state and the mount call given
+// (tests compare the calls with armada-node's).
+func mountNFSWith(ctx context.Context, server, export, target string, readOnly, selinuxOn bool, sysMount func(source, target, fstype string, flags uintptr, data string) error) error {
 	flags := uintptr(unix.MS_NOSUID | unix.MS_NODEV)
 	if readOnly {
 		flags |= unix.MS_RDONLY
@@ -46,11 +52,11 @@ func mountNFS(ctx context.Context, server, export, target string, readOnly bool)
 	var last error
 	for _, vers := range []string{"4.2", "4.1", "4.0"} {
 		opts := "vers=" + vers + ",proto=tcp,hard,timeo=600,retrans=2,addr=" + server
-		if selinux.GetEnabled() {
+		if selinuxOn {
 			opts += `,context="` + nfsContext + `"`
 		}
 		done := make(chan error, 1)
-		go func() { done <- unix.Mount(nfsSource(server, export), target, "nfs4", flags, opts) }()
+		go func() { done <- sysMount(nfsSource(server, export), target, "nfs4", flags, opts) }()
 		select {
 		case err := <-done:
 			if err == nil {
@@ -79,7 +85,13 @@ func unmountNFS(target string) error {
 
 // mountedSource reads /proc/self/mountinfo for the NFS mount on target.
 func mountedSource(target string) (string, bool, error) {
-	f, err := os.Open("/proc/self/mountinfo")
+	return mountedSourceIn("/proc/self/mountinfo", target)
+}
+
+// mountedSourceIn reads the mountinfo file at path for the NFS mount on
+// target.
+func mountedSourceIn(path, target string) (string, bool, error) {
+	f, err := os.Open(path) //nolint:gosec // /proc/self/mountinfo, or a test's file
 	if err != nil {
 		return "", false, err
 	}

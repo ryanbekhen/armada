@@ -9,10 +9,18 @@
 //!                              the image store, containers' root filesystems, bundles,
 //!                              shims, statistics, dials from containers, and runc exec
 //!                              (src/runtime)
+//!   armada-node conntrack ...  the connection tracking table's limit and use (src/conntrack.rs)
+//!   armada-node nfs ...        NFS volumes' mounts (src/nfs.rs)
+//!   armada-node queue ...      queue lengths read from a container's network namespace
+//!                              (src/queue)
 
+mod conntrack;
+mod gostr;
 mod names;
 mod net;
+mod nfs;
 mod proxy;
+mod queue;
 mod runtime;
 mod volume;
 
@@ -55,12 +63,15 @@ fn run() -> Result<(), String> {
         ["runtime", "stats"] => runtime::container::stats_command(),
         ["runtime", "dial"] => runtime::container::dial_command(),
         ["runtime", "exec"] => runtime::container::exec::exec_command(),
+        ["conntrack", op] => conntrack::command(op),
+        ["nfs", op] => nfs::command(op),
+        ["queue", kind] => queue::command(kind),
         ["runtime", "reference"] => runtime::image::reference_command(),
         ["runtime", "platforms"] => runtime::image::platforms_command(),
         ["runtime", "proxy", url] => runtime::image::proxy_command(url),
         ["volume", rest @ ..] => volume::command(rest),
         _ => Err(format!(
-            "unknown command {args:?}; try: proxy render, net plan, net key [rotate] PATH, net cache save|load PATH, net firewall nft|iptables|apply|remove, net apply|up|remove, net probe, net unreachable, net diagnose, net netlink encode|show|wg-parse, runtime spec|check|seccomp, runtime apparmor NAME, runtime pull ROOT [--extra-ca FILE], runtime images|prune ROOT, runtime mounts ROOT IMAGE, runtime apply DIR [--media-type MT] [--lower DIR]..., runtime prepare ROOT, runtime release ROOT KEY, runtime snapshots ROOT, runtime bundle create|remove|records|labels, runtime shim call|start|abandon, runtime stats, runtime dial, runtime exec, runtime reference|platforms, runtime proxy URL"
+            "unknown command {args:?}; try: proxy render, net plan, net key [rotate] PATH, net cache save|load PATH, net firewall nft|iptables|apply|remove, net apply|up|remove, net probe, net unreachable, net diagnose, net netlink encode|show|wg-parse, runtime spec|check|seccomp, runtime apparmor NAME, runtime pull ROOT [--extra-ca FILE], runtime images|prune ROOT, runtime mounts ROOT IMAGE, runtime apply DIR [--media-type MT] [--lower DIR]..., runtime prepare ROOT, runtime release ROOT KEY, runtime snapshots ROOT, runtime bundle create|remove|records|labels, runtime shim call|start|abandon, runtime stats, runtime dial, runtime exec, runtime reference|platforms, runtime proxy URL, conntrack read|raise, nfs mount|unmount|source|plan, queue redis|rabbitmq"
         )),
     }
 }

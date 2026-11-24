@@ -22,11 +22,11 @@
 mod apparmor;
 mod check;
 pub mod container;
-mod gopath;
+pub(crate) mod gopath;
 pub mod image;
 mod oci;
 mod seccomp;
-mod spec;
+pub(crate) mod spec;
 mod user;
 
 use serde::de::{self, Deserializer, MapAccess, Visitor};
@@ -415,7 +415,7 @@ struct ErrorOut {
     error: String,
 }
 
-fn read_stdin() -> Result<Vec<u8>, String> {
+pub(crate) fn read_stdin() -> Result<Vec<u8>, String> {
     let mut input = Vec::new();
     std::io::stdin()
         .read_to_end(&mut input)
@@ -423,7 +423,7 @@ fn read_stdin() -> Result<Vec<u8>, String> {
     Ok(input)
 }
 
-fn write_out(b: &[u8]) -> Result<(), String> {
+pub(crate) fn write_out(b: &[u8]) -> Result<(), String> {
     let mut out = std::io::stdout().lock();
     out.write_all(b)
         .and_then(|()| out.flush())

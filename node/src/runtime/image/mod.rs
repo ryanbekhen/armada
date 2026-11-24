@@ -41,7 +41,7 @@
 
 mod check;
 mod digest;
-mod http;
+pub(crate) mod http;
 mod layers;
 mod platform;
 mod pull;

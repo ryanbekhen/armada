@@ -446,7 +446,7 @@ fn in_cidr(ip: IpAddr, net: IpAddr, bits: u8) -> bool {
 }
 
 /// The roots Go's crypto/x509 loads on Linux.
-fn system_roots(store: &mut rustls::RootCertStore) {
+pub(crate) fn system_roots(store: &mut rustls::RootCertStore) {
     use rustls::pki_types::CertificateDer;
     use rustls::pki_types::pem::PemObject;
     let add_pem = |store: &mut rustls::RootCertStore, b: &[u8]| {

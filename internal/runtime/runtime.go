@@ -457,6 +457,34 @@ type ContainerDialer interface {
 	DialContainer(ctx context.Context, id, network, address string) (net.Conn, error)
 }
 
+// QueueRead is one reading of a queue's length (ADR 0034): a Redis list or
+// a RabbitMQ queue. URL holds the broker's credentials, so the type never
+// prints it.
+type QueueRead struct {
+	// Type is "redis" or "rabbitmq".
+	Type string
+	URL  string
+	Name string
+	// Addresses are the broker's addresses when the URL names it by a
+	// name, resolved from the same namespace, tried in order.
+	Addresses []netip.AddrPort
+}
+
+// String names the reading without its URL.
+func (q QueueRead) String() string { return "queue " + q.Type + " " + q.Name }
+
+// LogValue logs the reading without its URL.
+func (q QueueRead) LogValue() slog.Value { return slog.StringValue(q.String()) }
+
+// QueueReader reads queue lengths from inside a container's or a
+// sandbox's network namespace by itself (armada-node, ADR 0054 step 5),
+// with queuelen's answers and errors. It is optional; handled is false
+// when the caller must read it with queuelen through the runtime's dials.
+type QueueReader interface {
+	ReadQueue(ctx context.Context, container string, q QueueRead) (n int64, handled bool, err error)
+	ReadSandboxQueue(ctx context.Context, sandbox string, q QueueRead) (n int64, handled bool, err error)
+}
+
 // CanDial reports whether d dials from containers, like CanExec.
 func CanDial(d Driver) bool {
 	if c, ok := d.(interface{ CanDial() bool }); ok {
