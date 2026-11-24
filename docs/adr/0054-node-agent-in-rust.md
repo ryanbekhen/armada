@@ -157,10 +157,35 @@ program.
    `net.FileConn`, which sets what its dialer sets (no delay, keepalive),
    and rebuilds a failure as its dialer words it (`net.OpError` with the
    system call and errno). Go dials or samples itself when armada-node
-   fails. Exec stays in Go for now: `runc exec` runs in the foreground
-   from the agent with its streams and terminal, and moving it means
-   handing those across processes with the same draining rules; it
-   comes in a part of its own.
+   fails. Sixth part, on the same opt-in: exec. `armada app exec`,
+   command probes, `queue` rules, and the exec into system containers
+   start `runc exec` through `armada-node runtime exec`, which then
+   becomes runc. The agent makes the streams as before (the caller's
+   FIFOs, or a pseudo-terminal whose other end it keeps) and starts
+   armada-node with them as its standard streams and, with a terminal,
+   as its controlling terminal in a session of its own; the request
+   (the container's bundle, the exec's directory, runc and its root, and
+   the arguments, terminal, and size the exec sets) comes on descriptor
+   3, never on the command line. armada-node reads the container's
+   process spec from its `config.json`, writes `process.json` as Go
+   writes it (the container's process with those three fields replaced,
+   the other fields kept as their bytes, json.Marshal's field order and
+   omissions; 0600 in a 0700 directory), writes `exec` on descriptor 4,
+   which closes on exec, and replaces itself with `runc exec` and Go's
+   arguments. From then on the process the agent started is runc, so
+   waiting, exit codes (a signal as 128 plus its number), kills, the
+   terminal and its size changes, the drain of output after the process
+   ends, and cleanup are the agent's own code on the same process, and
+   runc gets the same streams, descriptors, session, signal mask, and
+   environment as when Go starts it. Moving the copying and draining as
+   well would mean handing the streams back and forth with nothing
+   gained until the agent's session itself moves. A runc that cannot be
+   run is answered with its errno and becomes Go's error for it; a
+   failure before that (no answer, an unreadable answer, a `config.json`
+   or a directory that cannot be read or written) is redone by Go on the
+   same streams, the failures of armada-node logged once per distinct
+   error and counted (`StoodIn("exec")`). Nothing armada-node answers
+   names the command's arguments or the environment.
 
 ### The runtime's move: image store and migration
 

@@ -33,8 +33,9 @@ import (
 // armada-node (ADR 0054 step 4, fourth part): images (pulled into, and
 // read from, armada-node's store under Images), containers' root
 // filesystems on its unpacked layers, OCI bundles, and the requests to
-// armada-shim. The driver still builds every container's spec and runs
-// its network, logs, and exec.
+// armada-shim; later parts added statistics, dials from containers, and
+// starting runc exec (nativeexec.go). The driver still builds every
+// container's spec and runs its network and logs.
 //
 // The files are those Go keeps (Bundles, the shims' sockets and runc
 // state), so a node can switch between Go and armada-node either way and
@@ -55,6 +56,8 @@ type Native struct {
 	errs map[string]string
 	// stood counts, per call, the times Go did one armada-node did not.
 	stood map[string]int
+	// ran counts, per call, the times armada-node did one ("exec").
+	ran map[string]int
 }
 
 // OpenNative opens armada-node's image store under images for reading.
@@ -207,6 +210,21 @@ func (n *Native) StoodIn(op string) int {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	return n.stood[op]
+}
+
+// count counts a call armada-node did; n.mu is held.
+func (n *Native) count(op string) {
+	if n.ran == nil {
+		n.ran = map[string]int{}
+	}
+	n.ran[op]++
+}
+
+// Ran is how many times armada-node did op ("exec": it started runc).
+func (n *Native) Ran(op string) int {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return n.ran[op]
 }
 
 // note logs a failure of a call Go cannot do instead.
