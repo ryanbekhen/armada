@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"maps"
 	"os"
@@ -198,7 +199,15 @@ func removeNodeSnapshot(images, key string) error {
 	if key == "" || key == "." || key == ".." || strings.ContainsAny(key, "/\x00") || strings.HasPrefix(key, ".") {
 		return nil
 	}
-	return os.RemoveAll(filepath.Join(images, "active", key))
+	root, err := os.OpenRoot(filepath.Join(images, "active"))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	defer func() { _ = root.Close() }()
+	return root.RemoveAll(key)
 }
 
 // nativeCreate is what `runtime bundle create` reads.
