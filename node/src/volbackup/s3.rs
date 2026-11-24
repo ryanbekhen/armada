@@ -35,7 +35,7 @@ const MAX_ANSWER: usize = 32 << 20;
 
 /// ARMADA_NODE_TEST_BUCKET_ADDR=IP:PORT: tests' bucket, dialled in place
 /// of the endpoint and without the nodeOnly refusal (Go's tests set
-/// Target.loopback).
+/// Target.loopback); read only by builds with test hooks.
 const TEST_ADDR: &str = "ARMADA_NODE_TEST_BUCKET_ADDR";
 
 #[derive(Debug)]
@@ -98,8 +98,8 @@ impl Bucket {
         } else {
             None
         };
-        let test_addr = match std::env::var(TEST_ADDR) {
-            Ok(a) if !a.is_empty() => Some(
+        let test_addr = match crate::hooks::var(TEST_ADDR) {
+            Some(a) if !a.is_empty() => Some(
                 a.parse::<SocketAddr>()
                     .map_err(|_| format!("{TEST_ADDR}: not IP:PORT"))?,
             ),

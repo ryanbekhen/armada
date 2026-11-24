@@ -561,13 +561,24 @@ Removing Go's runtime code comes next.
    `volbackup.Walk` does: every lookup beneath the volume's directory
    (openat2 `RESOLVE_BENEATH`, as Go's `os.Root` resolves), every entry
    opened without blocking and refused unless it is the entry just looked
-   up, errors naming the entry quoted. `armada-node volume restore DIR`
-   reads a gzipped tar and restores it as `restoreArchive` does, with the
-   same refusals, the reserve of free space, and the swap of a new
-   directory on success; Go's gzip and tar readers are followed where
-   they decide what is accepted (a gzip trailer is checked only when a
-   read reaches it, which a restore that stops at the tar's end never
-   does). `armada-node volume size DIR...` measures volumes for usage
+   up, errors naming the entry quoted; an entry is only looked up
+   (`O_PATH`) and checked before that very inode is opened, so an entry
+   swapped for a device or a pipe is never opened. `armada-node volume
+   restore DIR` reads a gzipped tar and restores it as `restoreArchive`
+   does, with the same refusals, the reserve of free space, and the swap
+   of a new directory on success, and where Go's code was found wrong
+   while porting, armada-node does what is right instead (Go's code is
+   the fallback, to be removed; the parity test names each difference):
+   the whole stream is read, so every gzip trailer (CRC-32 and length) is
+   checked and anything after the tar's end but zeros, or after the last
+   gzip member, is refused (Go stops at the tar's end); directories get
+   their modes and times once every entry is written, deepest first, so
+   a read-only directory still takes its entries; an empty name is
+   refused and only a directory may name the volume itself; setuid and
+   setgid bits are kept when the agent runs as root; GNU sparse files are
+   expanded (the space check sees their full size); times past 2262 are
+   not wrapped; and a path that is not UTF-8 is quoted in an error, so
+   every error can be sent. `armada-node volume size DIR...` measures volumes for usage
    reports in one call. The agent keeps the volume session, the pause and
    resume of the app, and the 64 KiB messages: it copies the program's
    output to the session and the session's data to its input. A failure

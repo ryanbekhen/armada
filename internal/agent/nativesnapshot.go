@@ -8,12 +8,12 @@ import (
 	"errors"
 	"io"
 	"math"
-	"os"
 	"os/exec"
 	"strings"
 	"time"
 
 	armadav1 "github.com/ryanbekhen/armada/api/armada/v1"
+	"github.com/ryanbekhen/armada/internal/nodeprog"
 	"github.com/ryanbekhen/armada/internal/volbackup"
 )
 
@@ -113,9 +113,7 @@ func (a *Agent) startSnapshotCall(ctx context.Context, bin, op string, req snaps
 	}
 	c := &nativeCall{}
 	c.cmd = exec.CommandContext(ctx, bin, args...) //nolint:gosec // the runtime pack's armada-node
-	if len(a.volNative.env) > 0 {
-		c.cmd.Env = append(os.Environ(), a.volNative.env...)
-	}
+	c.cmd.Env = nodeprog.Env(a.volNative.env...)
 	c.cmd.Stderr = &c.stderr
 	stdin, err := c.cmd.StdinPipe()
 	if err != nil {

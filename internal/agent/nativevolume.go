@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/ryanbekhen/armada/internal/nodeprog"
 	"github.com/ryanbekhen/armada/internal/volbackup"
 )
 
@@ -60,8 +61,10 @@ type volumeNative struct {
 	errs  map[string]string
 	stood map[string]int
 	ran   map[string]int
-	// extraCA and env reach tests' buckets (armada-node's --extra-ca and
-	// ARMADA_NODE_TEST_BUCKET_ADDR); nodes never set them.
+	// extraCA and env are tests' (armada-node's --extra-ca, and the
+	// ARMADA_NODE_TEST_* hooks a build with test hooks reads); nodes never
+	// set them, and every call leaves the hooks out of the environment it
+	// passes on (nodeprog.Env).
 	extraCA string
 	env     []string
 }
@@ -126,7 +129,7 @@ func (n *volumeNative) Ran(op string) int {
 // archiveVolume writes dir's archive to w (writeArchive).
 func (a *Agent) archiveVolume(ctx context.Context, dir string, w io.Writer) error {
 	if bin := a.volumeProgram(); bin != "" {
-		wrote, err := nativeArchive(ctx, bin, dir, w)
+		wrote, err := nativeArchive(ctx, bin, a.volNative.env, dir, w)
 		if !a.volNative.fallback(a.log, "archive", err, !wrote) {
 			if errors.As(err, new(volumeProgramError)) {
 				err = fmt.Errorf("archive volume: %w", err)
@@ -141,7 +144,7 @@ func (a *Agent) archiveVolume(ctx context.Context, dir string, w io.Writer) erro
 // (restoreArchive).
 func (a *Agent) restoreVolume(dir string, r io.Reader) error {
 	if bin := a.volumeProgram(); bin != "" {
-		fed, err := nativeRestore(bin, dir, r)
+		fed, err := nativeRestore(bin, a.volNative.env, dir, r)
 		if !a.volNative.fallback(a.log, "restore", err, !fed) {
 			return err
 		}
@@ -152,7 +155,7 @@ func (a *Agent) restoreVolume(dir string, r io.Reader) error {
 // volumeSizes measures every dir (volumeSize).
 func (a *Agent) volumeSizes(ctx context.Context, dirs []string) []int64 {
 	if bin := a.volumeProgram(); bin != "" && len(dirs) > 0 {
-		sizes, err := nativeSizes(ctx, bin, dirs)
+		sizes, err := nativeSizes(ctx, bin, a.volNative.env, dirs)
 		a.volNative.fallback(a.log, "size", err, true)
 		if err == nil {
 			return sizes
@@ -186,7 +189,8 @@ func readAnswer(r io.Reader) []byte {
 }
 
 // programFailed words a call armada-node failed: its exit, its last
-// stderr line, and what was missing.
+// stderr line, and what was missing. The text is made valid UTF-8, so the
+// agent can always send it.
 func programFailed(what string, werr error, stderr *bytes.Buffer) error {
 	msg := what
 	if werr != nil {
@@ -195,12 +199,12 @@ func programFailed(what string, werr error, stderr *bytes.Buffer) error {
 	if s := strings.TrimSpace(stderr.String()); s != "" {
 		msg += ": " + s
 	}
-	return volumeProgramError{errors.New(msg)}
+	return volumeProgramError{errors.New(strings.ToValidUTF8(msg, "�"))}
 }
 
 // nativeArchive runs armada-node volume archive DIR, copying its stdout
-// to w; wrote says whether any byte reached w.
-func nativeArchive(ctx context.Context, bin, dir string, w io.Writer) (wrote bool, err error) {
+// to w; wrote says whether any byte reached w. env is tests' hooks.
+func nativeArchive(ctx context.Context, bin string, env []string, dir string, w io.Writer) (wrote bool, err error) {
 	ar, aw, err := os.Pipe()
 	if err != nil {
 		return false, volumeProgramError{err}
@@ -208,6 +212,7 @@ func nativeArchive(ctx context.Context, bin, dir string, w io.Writer) (wrote boo
 	defer ar.Close()
 	cmd := exec.CommandContext(ctx, bin, "volume", "archive", dir) //nolint:gosec // the runtime pack's armada-node
 	cmd.ExtraFiles = []*os.File{aw}
+	cmd.Env = nodeprog.Env(env...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.StdoutPipe()
@@ -261,8 +266,8 @@ func nativeArchive(ctx context.Context, bin, dir string, w io.Writer) (wrote boo
 }
 
 // nativeRestore runs armada-node volume restore DIR, handing it r once it
-// is ready; fed says whether any byte of r was read.
-func nativeRestore(bin, dir string, r io.Reader) (fed bool, err error) {
+// is ready; fed says whether any byte of r was read. env is tests' hooks.
+func nativeRestore(bin string, env []string, dir string, r io.Reader) (fed bool, err error) {
 	ar, aw, err := os.Pipe()
 	if err != nil {
 		return false, volumeProgramError{err}
@@ -278,6 +283,7 @@ func nativeRestore(bin, dir string, r io.Reader) (fed bool, err error) {
 	// an error (written on descriptor 4).
 	cmd := exec.Command(bin, "volume", "restore", dir) //nolint:gosec,noctx // the runtime pack's armada-node
 	cmd.ExtraFiles = []*os.File{aw, br}
+	cmd.Env = nodeprog.Env(env...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	stdin, err := cmd.StdinPipe()
@@ -341,8 +347,9 @@ func nativeRestore(bin, dir string, r io.Reader) (fed bool, err error) {
 }
 
 // nativeSizes runs armada-node volume size DIR....
-func nativeSizes(ctx context.Context, bin string, dirs []string) ([]int64, error) {
+func nativeSizes(ctx context.Context, bin string, env, dirs []string) ([]int64, error) {
 	cmd := exec.CommandContext(ctx, bin, append([]string{"volume", "size"}, dirs...)...) //nolint:gosec // the runtime pack's armada-node
+	cmd.Env = nodeprog.Env(env...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()

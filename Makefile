@@ -12,7 +12,7 @@ LDFLAGS := -s -w \
 
 export CGO_ENABLED := 0
 
-.PHONY: all build build-bundle logger shim dns node runtime-bundle test cover lint fmt vet vuln licenses licenses-save proto docs tidy check clean
+.PHONY: all build build-bundle logger shim dns node node-test-hooks runtime-bundle test cover lint fmt vet vuln licenses licenses-save proto docs tidy check clean
 
 all: check build
 
@@ -51,6 +51,11 @@ dns:
 node:
 	cd node && cargo build --release --locked --target x86_64-unknown-linux-musl
 	cd node && cargo build --release --locked --target aarch64-unknown-linux-musl
+
+# armada-node reading the ARMADA_NODE_TEST_* hooks Go's parity tests set
+# (node/src/hooks.rs), built apart from the release binary and never packed.
+node-test-hooks:
+	cd node && cargo build --release --locked --features test-hooks --target x86_64-unknown-linux-musl --target-dir target/test-hooks
 
 runtime-bundle: logger shim dns node
 	go run ./internal/runtime/embedded/mkbundle -arch amd64 -logger $(call LOGGER_OUT,x86_64) -shim $(call SHIM_OUT,x86_64) -dns $(call DNS_OUT,x86_64) -node $(call NODE_OUT,x86_64)

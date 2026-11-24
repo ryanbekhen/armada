@@ -233,6 +233,15 @@ jobs:
       - run: go test -race -run 'TestArmadaNode|TestRenderFallsBack' -v ./internal/proxy/haproxy/ ./internal/clusternet/ ./internal/runtime/ ./internal/runtime/containerd/
         env:
           ARMADA_NODE_BIN: ${{ github.workspace }}/node/target/x86_64-unknown-linux-musl/release/armada-node
+      # Volume archives and backups set armada-node's test hooks, which
+      # only a test build reads (node/src/hooks.rs); the release build
+      # above ignores them.
+      - run: cargo clippy --locked --all-targets --features test-hooks -- -D warnings
+        working-directory: node
+      - run: make node-test-hooks
+      - run: go test -race -run 'TestArmadaNodeVolume|TestArmadaNodeSnapshot|TestArmadaNodeIgnoresTestHooks' -v ./internal/agent/
+        env:
+          ARMADA_NODE_BIN: ${{ github.workspace }}/node/target/test-hooks/x86_64-unknown-linux-musl/release/armada-node
 
   installer:
     needs: changes

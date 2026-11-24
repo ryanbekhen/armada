@@ -23,6 +23,11 @@ serde_json = { version = "1", features = ["raw_value"] }
 sha2 = "0.10"
 x25519-dalek = { version = "3", default-features = false, features = ["static_secrets"] }
 
+[features]
+# The ARMADA_NODE_TEST_* hooks of Go's parity tests (src/hooks.rs): only in
+# `make node-test-hooks`, never in release builds.
+test-hooks = []
+
 [profile.release]
 opt-level = 3
 lto = true

@@ -45,7 +45,7 @@ import (
 // every request's AWS signature checked); Go reaches the same objects
 // through volbackup.Objects:
 //
-//	ARMADA_NODE_BIN=$PWD/node/target/x86_64-unknown-linux-musl/release/armada-node \
+//	make node-test-hooks && ARMADA_NODE_BIN=$PWD/node/target/test-hooks/x86_64-unknown-linux-musl/release/armada-node \
 //	  go test -run 'TestArmadaNodeSnapshot|TestNativeSnapshot' ./internal/agent/
 
 const (
@@ -383,7 +383,7 @@ func bigFile(t *testing.T, dir string, n int) {
 // second backup found every chunk the first wrote (the same boundaries and
 // names for the same content and key).
 func TestArmadaNodeSnapshotRoundTrip(t *testing.T) {
-	bin := nodeBin(t)
+	bin := hooksBin(t)
 	for _, tlsOn := range []bool{true, false} {
 		t.Run(fmt.Sprintf("tls=%v", tlsOn), func(t *testing.T) {
 			f := newFakeBucket(t, tlsOn)
@@ -465,7 +465,7 @@ func TestArmadaNodeSnapshotRoundTrip(t *testing.T) {
 // TestArmadaNodeSnapshotPruneMatchesGo prunes the same repository with
 // each, in a zone with summer time, and compares what is left.
 func TestArmadaNodeSnapshotPruneMatchesGo(t *testing.T) {
-	bin := nodeBin(t)
+	bin := hooksBin(t)
 	if _, err := time.LoadLocation("America/New_York"); err != nil {
 		t.Skip("no time zone data")
 	}
@@ -521,7 +521,7 @@ func TestArmadaNodeSnapshotPruneMatchesGo(t *testing.T) {
 // TestArmadaNodeSnapshotRefusesAsGo has both meet the same broken
 // repositories and requests.
 func TestArmadaNodeSnapshotRefusesAsGo(t *testing.T) {
-	bin := nodeBin(t)
+	bin := hooksBin(t)
 	ctx := context.Background()
 	vol := filepath.Join(t.TempDir(), "v")
 	mustDo(t, os.MkdirAll(vol, 0o700))
