@@ -276,7 +276,10 @@ node's runtime converts the node while Go still ships:
 
 Go's runtime code is removed only once every node of a cluster reports
 converted; a node that has not is refused by a release without it
-(`armadad upgrade` and `armadad doctor` say why).
+(`armadad upgrade` and `armadad doctor` say why). ADR 0055 (proposed)
+narrows this: the release without Go's code converts a node still on Go's
+supervisor store itself at the agent's start, and refuses only nodes on
+containerd.
 
 How steps 1 to 3 and 5 are built (the seventh part of step 4 above):
 
@@ -610,30 +613,38 @@ Removing Go's runtime code comes next.
    `StoodIn`), so no byte of the caller's has moved; after that a
    failure is the call's. Nothing armada-node answers names the
    arguments or the environment.
-6. **The agent.** `armada-node agent`: the `Connect` session, `Hello`,
-   reconciliation, probes, fencing, held replicas, jobs, init containers
-   and sidecars, secret files, wake, certificates, and `agent.json`.
-   Nodes run it from `armada-agent.service`; `armadad server` runs it as a
-   unit of its own next to the control plane, like `armada-dns`. It is
-   chosen per node (`agent.json`) until it has run one release as the
-   default, then the Go agent is removed.
+6. **The agent.** The `Connect` session, `Hello`, reconciliation,
+   probes, fencing, held replicas, jobs, init containers and sidecars,
+   secret files, wake, certificates, and `agent.json`, in Rust. When and
+   how it ships is ADR 0055 (proposed): in the same release as the
+   control plane and the client, as `armadad agent` linking armada-node's
+   code, run from `armada-agent.service` on every machine (on server
+   machines a unit next to the control plane and etcd), with Go's agent
+   removed in that release rather than a release after it became the
+   default.
 
 Each step that touches the node is tested end to end in the lab before it
 is merged, and the Go code it replaces is removed only once the Rust code
-has run as the default for a release.
+has run as the default for a release. ADR 0055 (proposed) replaces that
+timing for everything still in Go: it all moves, and the Go code is
+removed, in one release, gated by parity tests against the Go code and a
+lab upgrade from a Go cluster under load.
 
 ### Not decided here
 
-The control plane (`armadad server`, its reconcilers, and the embedded
-etcd) stays in Go. Moving it is a separate decision, made after the node
-agent has moved: replacing etcd changes how the cluster stores its state,
-which needs its own design and a path for every existing cluster. The
-`armada` client is another separate step.
+Moving the control plane (`armadad server` and its reconcilers), the
+machine commands, and the `armada` client to Rust is ADR 0055 (proposed),
+with etcd kept: the official etcd release, pinned in the runtime pack and
+run as a unit of its own on the same data directory. Replacing etcd with
+a store of Armada's own changes how the cluster stores its state, which
+needs its own design and a path for every existing cluster; it is not
+decided here or there.
 
 ## Consequences
 
 - Every node stops running a garbage collector once step 6 is done;
-  servers still run one for the control plane.
+  with ADR 0055 the control plane does too, and the pinned etcd is the
+  one Go program left on server machines.
 - During the move a node may run Go and Rust for the same work; each
   step's fallback to Go keeps a node working when the Rust part fails,
   until the Go part is removed.
@@ -641,7 +652,7 @@ which needs its own design and a path for every existing cluster. The
   licenses are checked like Go modules, and their notices ship with every
   release.
 - Contributors need Rust for the node and Go for the control plane and the
-  client until those move too.
+  client until those move too (ADR 0055).
 - New features for the node during the move are written once, in the
   language of the part they touch; parts that have moved are not changed
   in Go any more.
