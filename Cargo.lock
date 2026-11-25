@@ -68,20 +68,27 @@ dependencies = [
 name = "armada-daemon"
 version = "0.1.0"
 dependencies = [
+ "armada-agent",
  "armada-client",
  "armada-fsutil",
  "armada-node",
  "armada-pki",
+ "armada-proto",
  "armada-secrets",
+ "armada-server",
  "armada-spec",
  "armada-store",
  "flate2",
+ "hyper-util",
  "libc",
  "rustls",
  "rustls-pki-types",
  "serde_json",
  "sha2",
  "tokio",
+ "tokio-rustls",
+ "tonic",
+ "tower",
 ]
 
 [[package]]

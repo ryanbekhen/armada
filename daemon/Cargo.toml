@@ -10,23 +10,33 @@ description = "armadad in Rust: the machine commands of Go's internal/daemon (AD
 # command framework and version as Go's daemon imports internal/cli, never
 # the other way round.
 [dependencies]
+# The node's agent (armadad agent) and the tunnels of a mesh node.
+armada-agent = { path = "../agent" }
 armada-client = { path = "../client" }
 armada-fsutil = { path = "../fsutil" }
 # The control plane's backups in their bucket (ADR 0051) through the
 # repository volume backups use, and the readers of a restore's archive.
 armada-node = { path = "../node" }
 armada-pki = { path = "../pki" }
+armada-proto = { path = "../proto" }
 armada-secrets = { path = "../secrets" }
+# The control plane (armadad server) and the JoinService of joins.
+armada-server = { path = "../server" }
 armada-spec = { path = "../spec" }
 # The cluster's state for backup, restore, and user renew.
 armada-store = { path = "../store" }
 flate2.workspace = true
+# The join listener's connections (joinclient.rs).
+hyper-util.workspace = true
 libc.workspace = true
 rustls.workspace = true
 rustls-pki-types.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 tokio.workspace = true
+tonic.workspace = true
+tokio-rustls.workspace = true
+tower.workspace = true
 
 [features]
 # The runtime pack compiled in (Go's build tag bundle): the pack

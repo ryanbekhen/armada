@@ -264,6 +264,34 @@ impl Client {
         Ok(())
     }
 
+    /// Cluster.MemberAdd as a learner: the added member's ID.
+    pub async fn member_add_learner(&self, peer_urls: Vec<String>) -> Result<u64> {
+        let r = ClusterClient::new(self.ch.clone())
+            .member_add(pb::MemberAddRequest {
+                peer_ur_ls: peer_urls,
+                is_learner: true,
+            })
+            .await?
+            .into_inner();
+        Ok(r.member.map(|m| m.id).unwrap_or_default())
+    }
+
+    /// Cluster.MemberPromote.
+    pub async fn member_promote(&self, id: u64) -> Result<()> {
+        ClusterClient::new(self.ch.clone())
+            .member_promote(pb::MemberPromoteRequest { id })
+            .await?;
+        Ok(())
+    }
+
+    /// Cluster.MemberRemove.
+    pub async fn member_remove(&self, id: u64) -> Result<()> {
+        ClusterClient::new(self.ch.clone())
+            .member_remove(pb::MemberRemoveRequest { id })
+            .await?;
+        Ok(())
+    }
+
     /// Grants a lease of ttl seconds.
     pub async fn grant(&self, ttl: i64) -> Result<i64> {
         let r = LeaseClient::new(self.ch.clone())

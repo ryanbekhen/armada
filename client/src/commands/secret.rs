@@ -330,7 +330,7 @@ fn set_keys(
 }
 
 /// ReadSecretValue: a file, a hidden prompt, or piped stdin.
-fn read_secret_value(ctx: &mut Ctx<'_>, from_file: &str) -> Result<Vec<u8>> {
+pub fn read_secret_value(ctx: &mut Ctx<'_>, from_file: &str) -> Result<Vec<u8>> {
     if !from_file.is_empty() {
         let f = std::fs::File::open(from_file)
             .map_err(|e| Error::Msg(path_error("open", from_file, &e)))?;
