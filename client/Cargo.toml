@@ -1,0 +1,34 @@
+[package]
+name = "armada-client"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The armada client: commands that talk to the control plane's API, as Go's internal/cli does (ADR 0055)"
+
+# The client is its own program (ADR 0027, ADR 0055): it never links what a
+# machine runs (armada-server, armada-store, armada-node, etcd), as Go's
+# TestClientDependencies keeps internal/cli apart; tests/dependencies.rs
+# checks this list.
+[dependencies]
+armada-fsutil = { path = "../fsutil" }
+armada-proto = { path = "../proto" }
+armada-spec = { path = "../spec" }
+hyper-util.workspace = true
+libc.workspace = true
+rustls.workspace = true
+rustls-pki-types.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tokio-rustls.workspace = true
+tonic = { workspace = true, features = ["channel"] }
+tower.workspace = true
+
+[lib]
+name = "armada_client"
+path = "src/lib.rs"
+
+[[bin]]
+name = "armada"
+path = "src/main.rs"
