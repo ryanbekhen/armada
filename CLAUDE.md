@@ -21,7 +21,7 @@ Module path: `github.com/ryanbekhen/armada`. The toolchain is pinned with `toolc
 Keep this section up to date.
 
 ```bash
-make check          # vet + lint + test + govulncheck (same as CI)
+make check          # vet + lint + test + govulncheck (CI runs vet, lint, govulncheck, and compiles every Go test but runs only the Rust parity tests while the code moves to Rust, ADR 0055: job test; run make test locally when changing Go)
 make build          # build ./bin/armada (client) and ./bin/armadad (daemon)
 make test           # go test ./... -race
 make lint           # golangci-lint run (v2.15.0+)
