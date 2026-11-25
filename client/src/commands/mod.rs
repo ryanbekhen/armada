@@ -49,6 +49,7 @@ pub fn root() -> Tree {
         Flag::bool("all-spaces", Some('A'), false, "every space"),
     ];
     let mut t = Tree::new(root);
+    t.verb_hints = verb_hint;
     t.groups = vec![
         Group {
             id: "apps",

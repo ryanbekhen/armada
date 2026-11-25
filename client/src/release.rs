@@ -270,7 +270,7 @@ pub fn start_notice(current: &str) -> Box<dyn FnOnce(Duration) -> String> {
 }
 
 /// Latest: the newest stable release, else the newest pre-release.
-fn latest() -> Result<String, String> {
+pub fn latest() -> Result<String, String> {
     let body = get(API_HOST, &format!("/repos/{REPO}/releases?per_page=100"))?;
     let list: Vec<serde_json::Value> =
         serde_json::from_slice(&body).map_err(|e| format!("look for the latest release: {e}"))?;
@@ -308,7 +308,7 @@ const ROOT_FILES: [&str; 6] = [
     "/etc/ssl/cert.pem",
 ];
 
-fn roots() -> RootCertStore {
+pub fn roots() -> RootCertStore {
     let mut store = RootCertStore::empty();
     let mut files: Vec<String> = Vec::new();
     if let Ok(f) = std::env::var("SSL_CERT_FILE")

@@ -87,6 +87,9 @@ pub struct Node {
     pub required: Vec<&'static str>,
     pub exclusive: Vec<Vec<&'static str>>,
     pub special: Special,
+    /// FParseErrWhitelist.UnknownFlags: flags it does not know are
+    /// skipped (armadad etcd, which systemd passes the server's flags).
+    pub unknown_flags: bool,
     pub parent: Option<usize>,
     pub children: Vec<usize>,
     pub removed: bool,
@@ -113,6 +116,7 @@ impl Node {
             required: Vec::new(),
             exclusive: Vec::new(),
             special: Special::None,
+            unknown_flags: false,
             parent: None,
             children: Vec::new(),
             removed: false,
@@ -179,6 +183,9 @@ pub struct Group {
 pub struct Tree {
     pub nodes: Vec<Node>,
     pub groups: Vec<Group>,
+    /// verbHints: what to type for a verb a noun has not got, by
+    /// "NOUN VERB" (the client's; armadad has none).
+    pub verb_hints: fn(&str) -> Option<&'static str>,
 }
 
 impl Tree {
@@ -186,7 +193,13 @@ impl Tree {
         Tree {
             nodes: vec![root],
             groups: Vec::new(),
+            verb_hints: |_| None,
         }
+    }
+
+    /// The program's name: the root's (armada, or armadad).
+    pub fn program(&self) -> &str {
+        self.nodes[0].name()
     }
 
     /// AddCommand.
@@ -284,7 +297,9 @@ impl Tree {
                 f.required = true;
             }
         }
-        FlagSet::new(flags)
+        let mut fs = FlagSet::new(flags);
+        fs.ignore_unknown = self.nodes[i].unknown_flags;
+        fs
     }
 
     /// UseLine.
@@ -931,7 +946,7 @@ fn refuse_unknown(ctx: &mut Ctx<'_>, args: &[String]) -> Result {
     }
     msg = format!("{msg} (see {path} --help)");
     let key = format!("{} {}", tree.node(ctx.cmd).name(), args[0]);
-    if let Some(hint) = crate::commands::verb_hint(&key) {
+    if let Some(hint) = (tree.verb_hints)(&key) {
         msg.push('\n');
         msg.push_str(hint);
     }
@@ -969,17 +984,13 @@ fn help_command(ctx: &mut Ctx<'_>, args: &[String]) {
     ctx.print(&h);
 }
 
-const COMPLETION_LONG: &str =
-    "Generate the autocompletion script for armada for the specified shell.
-See each sub-command's help for details on how to use the generated script.
-";
-
 /// The help command, the hidden completion command, and __complete when it
 /// runs, as ExecuteC adds them.
 fn add_builtins(tree: &mut Tree, args: &[String]) {
-    let mut help = Node::new("help [command]", "Help about any command").long(
-        "Help provides help for any command in the application.\nSimply type armada help [path to command] for full details.",
-    );
+    let name = tree.program().to_string();
+    let mut help = Node::new("help [command]", "Help about any command").long(&format!(
+        "Help provides help for any command in the application.\nSimply type {name} help [path to command] for full details."
+    ));
     help.special = Special::Help;
     help.explain = false;
     help.group = "monitoring".to_string();
@@ -1004,7 +1015,11 @@ fn add_builtins(tree: &mut Tree, args: &[String]) {
         "completion",
         "Generate the autocompletion script for the specified shell",
     )
-    .long(COMPLETION_LONG)
+    .long(&format!(
+        "Generate the autocompletion script for {name} for the specified shell.
+See each sub-command's help for details on how to use the generated script.
+"
+    ))
     .args(Args::No);
     completion.hidden = true;
     completion.explain = false;
@@ -1015,7 +1030,7 @@ fn add_builtins(tree: &mut Tree, args: &[String]) {
             shell.name,
             &format!("Generate the autocompletion script for {}", shell.name),
         )
-        .long(shell.long)
+        .long(&complete::for_program(shell.long, &name))
         .args(Args::No)
         .run(complete::script)
         .flag(Flag::bool(

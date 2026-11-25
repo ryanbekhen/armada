@@ -59,6 +59,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "armada-daemon"
+version = "0.1.0"
+dependencies = [
+ "armada-client",
+ "armada-fsutil",
+ "armada-pki",
+ "armada-spec",
+ "flate2",
+ "libc",
+ "rustls",
+ "rustls-pki-types",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "armada-fsutil"
 version = "0.1.0"
 
