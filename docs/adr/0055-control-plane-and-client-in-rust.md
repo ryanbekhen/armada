@@ -485,7 +485,7 @@ Go and every new Rust part is exercised only by its parity tests.
     session, Hello, reconcile, probes, fencing, held replicas, jobs, init
     containers and sidecars, secret files, wake, certificates, exec,
     volume, and log sessions, usage reports, the runtime move, proxy and
-    network passes, and the conversion of Go's image store. In four
+    network passes, and the conversion of Go's image store. In five
     parts: 16a, the loop over a runtime trait (session, Hello, reconcile,
     probes, fencing, held replicas, jobs, members, secret files, usage
     samples); 16b, the proxy and network passes over seams of their own
@@ -495,8 +495,10 @@ Go and every new Rust part is exercised only by its parity tests.
     left (exec, log, and volume sessions, queue readings and sandboxes,
     NFS, log export and prune, and the usage reports' volumes,
     connection tracking, queues, sandboxes, and export); 16d, the
-    supervisor runtime, the HAProxy driver, the cluster network, and the
-    resolver's client behind those seams over armada-node's library.
+    HAProxy driver, the cluster network, and the resolver's client
+    behind those seams over armada-node's library; 16e, the supervisor
+    runtime behind the runtime trait, with the system containers
+    HAProxy's engine runs on.
 17. **The client.** Every command, output, completion, the SSH dialer,
     configuration files, and the release notice, with the client parity
     tests.
