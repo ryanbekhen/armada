@@ -52,6 +52,13 @@ Two Armada binaries, as before (ADR 0027), both written in Rust:
   and darwin/arm64): every client command, with the same names, flags,
   help, output, exit codes, completion, and configuration files.
 
+They are two separate programs, each built as its own binary and installed
+as its own file. Neither is a link to the other, and neither picks its role
+from the name it was started under: the Go `armadad`'s fallback that runs
+the client when started as `armada` (left for the links of
+v0.1.0-alpha.35) is not carried over. An `armada` left as a link by that
+release is replaced by a file at the upgrade, as `armadad upgrade` does today.
+
 The runtime pack keeps runc, the CNI plugins, tini, `armada-log`,
 `armada-shim`, `armada-dns`, and `armada-node`, and gains the official
 etcd release's `etcd` and `etcdutl`, pinned and checked in the lock as
