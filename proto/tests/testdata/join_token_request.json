@@ -1,0 +1,10 @@
+{
+  "ttlSeconds": "600",
+  "labels": {
+    "Disk": "ssd",
+    "armada.site": "east",
+    "gpu": "1",
+    "zone": "b"
+  },
+  "site": "east"
+}

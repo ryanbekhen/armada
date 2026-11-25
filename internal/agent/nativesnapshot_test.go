@@ -45,7 +45,7 @@ import (
 // every request's AWS signature checked); Go reaches the same objects
 // through volbackup.Objects:
 //
-//	make node-test-hooks && ARMADA_NODE_BIN=$PWD/node/target/test-hooks/x86_64-unknown-linux-musl/release/armada-node \
+//	make node-test-hooks && ARMADA_NODE_BIN=$PWD/target/test-hooks/x86_64-unknown-linux-musl/release/armada-node \
 //	  go test -run 'TestArmadaNodeSnapshot|TestNativeSnapshot' ./internal/agent/
 
 const (

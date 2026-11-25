@@ -1,18 +1,22 @@
 #!/bin/sh
-# Copies the license and notice files of every crate armada-node (node/)
-# uses into OUT/<crate>-<version>/, for release archives (licenses/rust).
+# Copies the license and notice files of every crate the Cargo workspace
+# (Cargo.toml: armada-node, armada-proto) uses into OUT/<crate>-<version>/,
+# for release archives (licenses/rust). A crate published without its
+# license file (pbjson, tonic-prost) gets the one from its repository,
+# kept in third_party/licenses/rust/<crate>/.
 set -eu
 out=${1:?usage: rust-licenses.sh OUT}
 rm -rf "$out"
 mkdir -p "$out"
-cargo metadata --format-version 1 --locked --manifest-path node/Cargo.toml |
-	jq -r '.packages[] | select(.source != null) | "\(.name)-\(.version) \(.manifest_path)"' |
-	while read -r name manifest; do
+cargo metadata --format-version 1 --locked --manifest-path Cargo.toml |
+	jq -r '.packages[] | select(.source != null) | "\(.name) \(.version) \(.manifest_path)"' |
+	while read -r crate version manifest; do
+		name=$crate-$version
 		dir=$(dirname "$manifest")
 		mkdir -p "$out/$name"
 		found=0
 		# Names in any case: some crates ship license-mit, for one.
-		for f in "$dir"/*; do
+		for f in "$dir"/* "third_party/licenses/rust/$crate"/*; do
 			[ -f "$f" ] || continue
 			case $(basename "$f" | tr '[:lower:]' '[:upper:]') in
 			LICENSE* | LICENCE* | COPYING* | NOTICE* | UNLICENSE*) ;;

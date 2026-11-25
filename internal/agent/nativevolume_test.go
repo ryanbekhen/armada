@@ -29,7 +29,7 @@ import (
 // The parity tests compare armada-node volume archive|restore|size (ADR
 // 0054 step 5) with Go's writeArchive, restoreArchive, and volumeSize:
 //
-//	make node-test-hooks && ARMADA_NODE_BIN=$PWD/node/target/test-hooks/x86_64-unknown-linux-musl/release/armada-node \
+//	make node-test-hooks && ARMADA_NODE_BIN=$PWD/target/test-hooks/x86_64-unknown-linux-musl/release/armada-node \
 //	  go test -run 'TestArmadaNodeVolume' ./internal/agent/
 //
 // The tests that set armada-node's ARMADA_NODE_TEST_* hooks skip with a
