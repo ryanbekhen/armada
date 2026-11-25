@@ -8,9 +8,11 @@
 //! the apps (`jobs`, `triggers`); the autoscaler (11) runs on its own
 //! loop (`autoscale`), and a pass tells the usage store whose replicas
 //! are whose. Apps with local volumes (12) are reconciled by `volumes`.
-//! The proxy configuration (14), and the cluster network and the runtime
-//! move (13) are left out until their pull requests. Go's server runs the
-//! same parts in the scenario parity tests (`coreParts`).
+//! A network switch moves on, the runtime move takes its step, and every
+//! assignment carries the cluster network (13: `network`,
+//! `runtimemove`). The proxy configuration (14) is left out until its
+//! pull request. Go's server runs the same parts in the scenario parity
+//! tests (`coreParts`).
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::atomic::{AtomicI64, Ordering as AtomicOrdering};
@@ -128,8 +130,7 @@ pub(crate) struct Run<'a> {
     pub sandboxes: HashMap<String, Vec<QueueSandbox>>,
     pub triggered: HashSet<String>,
     /// The sandboxes' addresses, as replicas of their jobs, for the
-    /// cluster network's endpoints (pull request 13).
-    #[allow(dead_code)]
+    /// cluster network's endpoints.
     pub sandbox_addrs: Vec<Replica>,
 }
 
@@ -329,7 +330,11 @@ impl Server {
 
     async fn pass(&self) -> Result<()> {
         let mut apps = self.store().list_apps().await?;
-        let nodes = self.store().list_nodes().await?;
+        let mut nodes = self.store().list_nodes().await?;
+        // The node being moved to the supervisor runtime is drained like a
+        // cordoned one (ADR 0054).
+        let moving = self.load_runtime_move().await?;
+        crate::runtimemove::cordon_moving(&moving, &mut nodes);
         let replicas = self.store().list_replicas(&Default::default()).await?;
         self.0.usage.set_owners(&replicas);
         let mut revs = Revisions::new(self);
@@ -392,9 +397,30 @@ impl Server {
             .lock()
             .unwrap_or_else(|p| p.into_inner()) = Some((eps.clone(), tokio::time::Instant::now()));
         let all = std::mem::take(&mut rc.all);
+        let now = rc.now.clone();
+        self.advance_switch(&now, &nodes).await?;
+        let (move_plans, ask_move) = self.advance_runtime_move(&mut rc, &nodes, &all).await?;
+        let addrs = std::mem::take(&mut rc.sandbox_addrs);
+        let with_sandboxes: Vec<&Replica> = all.iter().chain(addrs.iter()).collect();
+        // No ports of internal TCP apps until the proxy configuration is
+        // ported (pull request 14).
+        let network = self.build_network(&nodes, &with_sandboxes).await?;
         let sandboxes = std::mem::take(&mut rc.sandboxes);
-        self.push_assignments(&all, &mut rc.revs, &eps, &sandboxes)
-            .await
+        self.push_assignments(
+            &all,
+            &mut rc.revs,
+            &eps,
+            network.as_ref(),
+            &sandboxes,
+            &move_plans,
+        )
+        .await?;
+        if !ask_move.is_empty() {
+            // After the node's assignment without its replicas, on the
+            // same stream (ADR 0054).
+            self.ask_to_move(&ask_move, &now).await;
+        }
+        Ok(())
     }
 
     /// wakeAfter: a reconcile after d nanoseconds unless one is due sooner.

@@ -76,6 +76,11 @@ type parityConfig struct {
 	drain, warmup, progress time.Duration
 	// plainHTTP is a cluster without certificates (http URLs).
 	plainHTTP bool
+	// meshJoin makes the join listener a mesh cluster's public one (ADR
+	// 0049), and siteJoin gives the leader a public endpoint for machines
+	// of other sites (ADR 0050): each listens on the loopback address and
+	// is named after 203.0.113.1.
+	meshJoin, siteJoin bool
 }
 
 // serverUnderTest is one control plane a scenario drives.
@@ -83,6 +88,11 @@ type serverUnderTest interface {
 	kind() string
 	api() string
 	join() string
+	// joinLocal and siteJoinLocal are where the join listener and the
+	// listener for other sites listen; join and siteJoin what tokens name.
+	joinLocal() string
+	siteJoin() string
+	siteJoinLocal() string
 	// reconcile runs one pass now.
 	reconcile(t *testing.T)
 	// autoscale runs one evaluation of the autoscaler now.
@@ -263,6 +273,9 @@ func newScenario(t *testing.T, kind string, cfg parityConfig, fx *parityFixtures
 	if sc.sut.join() != "" {
 		sc.alias(sc.sut.join(), "<join>")
 	}
+	if sc.sut.siteJoin() != "" {
+		sc.alias(sc.sut.siteJoin(), "<site-join>")
+	}
 	if cfg.cluster {
 		if err := st.UpsertServer(ctx, store.Server{Name: "cp-1", PrivateIP: "10.0.0.1", APIAddr: sc.sut.api(), MemberID: 100}); err != nil {
 			t.Fatal(err)
@@ -274,12 +287,14 @@ func newScenario(t *testing.T, kind string, cfg parityConfig, fx *parityFixtures
 
 // goServer is Go's control plane in process, running coreParts.
 type goServer struct {
-	srv     *Server
-	addr    string
-	joinAt  string
-	cancel  context.CancelFunc
-	done    chan struct{}
-	changed atomic.Int32
+	srv    *Server
+	addr   string
+	joinAt string
+	// joinLis, siteAt, and siteLis: see serverUnderTest.
+	joinLis, siteAt, siteLis string
+	cancel                   context.CancelFunc
+	done                     chan struct{}
+	changed                  atomic.Int32
 }
 
 func startGoServer(sc *scenario) *goServer {
@@ -312,7 +327,23 @@ func startGoServer(sc *scenario) *goServer {
 			t.Fatal(err)
 		}
 		g.joinAt = jl.Addr().String()
+		g.joinLis = g.joinAt
+		if sc.cfg.meshJoin {
+			_, port, _ := net.SplitHostPort(g.joinLis)
+			g.joinAt = net.JoinHostPort("203.0.113.1", port)
+			cfg.JoinPublic = true
+		}
 		cfg.JoinAddr, cfg.JoinListener = g.joinAt, jl
+	}
+	if sc.cfg.siteJoin {
+		sl, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		g.siteLis = sl.Addr().String()
+		_, port, _ := net.SplitHostPort(g.siteLis)
+		g.siteAt = net.JoinHostPort("203.0.113.1", port)
+		cfg.JoinSiteAddr, cfg.JoinSiteListener = g.siteAt, sl
 	}
 	if sc.cfg.cluster {
 		cfg.Cluster = sc.fc
@@ -337,11 +368,14 @@ func startGoServer(sc *scenario) *goServer {
 	return g
 }
 
-func (g *goServer) kind() string         { return "go" }
-func (g *goServer) api() string          { return g.addr }
-func (g *goServer) join() string         { return g.joinAt }
-func (g *goServer) settingsChanged() int { return int(g.changed.Load()) }
-func (g *goServer) stop()                { g.cancel(); <-g.done }
+func (g *goServer) kind() string          { return "go" }
+func (g *goServer) api() string           { return g.addr }
+func (g *goServer) join() string          { return g.joinAt }
+func (g *goServer) joinLocal() string     { return g.joinLis }
+func (g *goServer) siteJoin() string      { return g.siteAt }
+func (g *goServer) siteJoinLocal() string { return g.siteLis }
+func (g *goServer) settingsChanged() int  { return int(g.changed.Load()) }
+func (g *goServer) stop()                 { g.cancel(); <-g.done }
 func (g *goServer) reconcile(t *testing.T) {
 	t.Helper()
 	if err := g.srv.Reconcile(context.Background()); err != nil {
@@ -377,18 +411,20 @@ func (g *goServer) backups(t *testing.T) {
 
 // rustServer is armada-server-parity, the Rust control plane as a program.
 type rustServer struct {
-	t       *testing.T
-	cmd     *exec.Cmd
-	in      io.WriteCloser
-	addr    string
-	joinAt  string
-	changed atomic.Int32
-	mu      sync.Mutex
-	next    int64
-	waiting map[int64]chan map[string]any
-	ready   chan map[string]any
-	sc      *scenario
-	exited  chan struct{}
+	t      *testing.T
+	cmd    *exec.Cmd
+	in     io.WriteCloser
+	addr   string
+	joinAt string
+	// joinLis, siteAt, and siteLis: see serverUnderTest.
+	joinLis, siteAt, siteLis string
+	changed                  atomic.Int32
+	mu                       sync.Mutex
+	next                     int64
+	waiting                  map[int64]chan map[string]any
+	ready                    chan map[string]any
+	sc                       *scenario
+	exited                   chan struct{}
 }
 
 func startRustServer(sc *scenario) *rustServer {
@@ -409,6 +445,7 @@ func startRustServer(sc *scenario) *rustServer {
 		"drainTimeoutMs": sc.cfg.drain.Milliseconds(), "warmupMs": sc.cfg.warmup.Milliseconds(),
 		"progressDeadlineMs": sc.cfg.progress.Milliseconds(), "plainHttp": sc.cfg.plainHTTP,
 		"manualPasses": true, "predictableIds": true,
+		"meshJoin": sc.cfg.meshJoin, "siteJoin": sc.cfg.siteJoin,
 	}
 	if sc.cfg.masterKey {
 		conf["masterKey"] = base64.StdEncoding.EncodeToString(fx.masterKey)
@@ -435,6 +472,9 @@ func startRustServer(sc *scenario) *rustServer {
 	case m := <-r.ready:
 		r.addr, _ = m["api"].(string)
 		r.joinAt, _ = m["join"].(string)
+		r.joinLis, _ = m["joinLocal"].(string)
+		r.siteAt, _ = m["siteJoin"].(string)
+		r.siteLis, _ = m["siteJoinLocal"].(string)
 	case <-r.exited:
 		t.Fatal("armada-server-parity exited before it was ready")
 	case <-time.After(30 * time.Second):
@@ -561,10 +601,13 @@ func (r *rustServer) do(req map[string]any) map[string]any {
 	}
 }
 
-func (r *rustServer) kind() string         { return "rust" }
-func (r *rustServer) api() string          { return r.addr }
-func (r *rustServer) join() string         { return r.joinAt }
-func (r *rustServer) settingsChanged() int { return int(r.changed.Load()) }
+func (r *rustServer) kind() string          { return "rust" }
+func (r *rustServer) api() string           { return r.addr }
+func (r *rustServer) join() string          { return r.joinAt }
+func (r *rustServer) joinLocal() string     { return r.joinLis }
+func (r *rustServer) siteJoin() string      { return r.siteAt }
+func (r *rustServer) siteJoinLocal() string { return r.siteLis }
+func (r *rustServer) settingsChanged() int  { return int(r.changed.Load()) }
 func (r *rustServer) reconcile(t *testing.T) {
 	t.Helper()
 	if m := r.do(map[string]any{"op": "reconcile"}); m["error"] != "" && m["error"] != nil {
