@@ -71,7 +71,7 @@ member (the `armada-node` program and the library the agent links);
 shared crates hold the protocol (`proto`), specs (`spec`), the CA and
 certificates (`pki`), secret encryption (`secrets`), files with strict
 permissions (`fsutil`), the store (`store`),
-the control plane (`server`), the agent (`agent`), the client (`cli`),
+the control plane (`server`), the agent (`agent`), the client (`client`),
 and the machine commands (`daemon`). `armada-log`, `armada-shim`, and
 `armada-dns` stay standard-library-only programs outside the workspace's
 dependencies, checked as before.
@@ -104,7 +104,7 @@ listed in `THIRD_PARTY_NOTICES.md`.
 | JSON | serde, serde_json | MIT OR Apache-2.0 |
 | YAML | no crate: go-yaml v3's reader, scanner, parser, and emitter ported (from libyaml), with its resolver, composer, and encoder; Armada's own decoder into spec types | MIT, Apache-2.0 (the ported code) |
 | Time zones | jiff (TZif data from the machine's zoneinfo first, as Go reads it, then its bundled time zone database) | Unlicense OR MIT (used under MIT) |
-| Command line parsing | clap (parsing only; help, errors, and completion are Armada's) | MIT OR Apache-2.0 |
+| Command line parsing | no crate: pflag's and cobra's parsing, help, errors, suggestions, and completion ported (`client/src/cli`), since the client's texts must stay as they are | Apache-2.0, BSD-3-Clause (the ported code) |
 | Compression | flate2 (Rust backend), ruzstd | MIT OR Apache-2.0, MIT |
 | etcd's API | etcd's own `.proto` files (Apache-2.0), vendored and generated with tonic-build | Apache-2.0 |
 

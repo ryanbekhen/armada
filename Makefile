@@ -12,7 +12,7 @@ LDFLAGS := -s -w \
 
 export CGO_ENABLED := 0
 
-.PHONY: all build build-bundle logger shim dns node node-test-hooks pki-parity store-parity server-parity rust-check runtime-bundle test cover lint fmt vet vuln licenses licenses-save proto docs tidy check clean
+.PHONY: all build build-bundle logger shim dns node node-test-hooks pki-parity store-parity server-parity client-parity rust-check runtime-bundle test cover lint fmt vet vuln licenses licenses-save proto docs tidy check clean
 
 all: check build
 
@@ -78,6 +78,13 @@ store-parity:
 # release.
 server-parity:
 	cargo build --locked -p armada-server --features parity
+
+# The client parity tests (ADR 0055, pull request 17): Go's armada in
+# process and the Rust one (client/, target/debug/armada) on the same
+# command lines against one recorded AdminService.
+client-parity:
+	cargo build --locked -p armada-client
+	ARMADA_CLIENT_BIN=$(CURDIR)/target/debug/armada go test -count=1 -run TestClientParity ./internal/cli/
 
 # The Cargo workspace's checks (ADR 0055; CI job logger): format, lints,
 # tests, crate licenses, and every member built for both release targets.
