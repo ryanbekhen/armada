@@ -13,8 +13,11 @@
 //! of apps and secrets (`apps`, `secret_api`); with jobs (pull request
 //! 10): cron schedules, retries, tasks, queue triggers with the usage
 //! reports' sandboxes that feed them, and the AdminService methods of jobs
-//! (`jobs`, `triggers`, `usage`). Scaling, volumes, the cluster network,
-//! ingress, and watching follow in their own pull requests; their
+//! (`jobs`, `triggers`, `usage`); with scaling (pull request 11): the
+//! autoscaler's evaluations of http, cpu, memory, queue, and schedule
+//! rules, scale to zero and wakes, and the usage samples they read
+//! (`autoscale`, `usage`). Volumes, the cluster network, ingress, and
+//! watching follow in their own pull requests; their
 //! AdminService methods answer `Unimplemented` until then
 //! ([`admin::LATER`]).
 
@@ -23,6 +26,7 @@ mod admin;
 pub mod agents;
 mod apps;
 mod assign;
+mod autoscale;
 pub mod cluster;
 pub mod conn;
 mod events;
@@ -139,8 +143,11 @@ pub struct Config {
     /// The delay before a job's first retry, doubling up to five minutes;
     /// zero uses ten seconds.
     pub job_retry_base: Duration,
-    /// Passes run only when [`Server::reconcile`] is called (the scenario
-    /// parity tests, which drive every pass): the loop only promotes
+    /// How often the autoscaler evaluates apps; zero uses 15 seconds.
+    pub autoscale_interval: Duration,
+    /// Passes run only when [`Server::reconcile`] is called, and the
+    /// autoscaler evaluates only when [`Server::autoscale`] is (the
+    /// scenario parity tests, which drive both): the loop only promotes
     /// learners.
     pub manual_passes: bool,
     /// Makes the random part of new replica IDs (tests make them
@@ -182,6 +189,7 @@ impl Config {
             warmup: Duration::ZERO,
             progress_deadline: Duration::ZERO,
             job_retry_base: Duration::ZERO,
+            autoscale_interval: Duration::ZERO,
             manual_passes: false,
             new_id: None,
             log: log::Logger::discard(),
@@ -222,6 +230,7 @@ pub(crate) struct Inner {
     pub warmup: Duration,
     pub progress_deadline: Duration,
     pub job_retry_base: Duration,
+    pub autoscale_interval: Duration,
     pub manual_passes: bool,
     pub new_id: Arc<dyn Fn(usize) -> String + Send + Sync>,
     /// When this server started leading: drains a previous leader began
@@ -248,6 +257,10 @@ pub(crate) struct Inner {
     pub usage: usage::Usage,
     /// Which node reads each queue-triggered job's queue (memory only).
     pub triggers: triggers::QueueTriggers,
+    /// What the autoscaler remembers between evaluations (memory only).
+    pub scaler: autoscale::Autoscaler,
+    /// Wakes per node (ADR 0021), on the server's clock.
+    pub wake_limit: limiter::ClockKeyed,
     /// The next pass a wake-up asked for, and its timer.
     pub wake: Mutex<Option<(tokio::time::Instant, tokio::task::AbortHandle)>>,
 }
@@ -314,6 +327,10 @@ impl Server {
             warmup: nonzero(cfg.warmup, reconcile::DEFAULT_WARMUP),
             progress_deadline: nonzero(cfg.progress_deadline, reconcile::DEFAULT_PROGRESS_DEADLINE),
             job_retry_base: nonzero(cfg.job_retry_base, jobs::DEFAULT_JOB_RETRY_BASE),
+            autoscale_interval: nonzero(
+                cfg.autoscale_interval,
+                autoscale::DEFAULT_AUTOSCALE_INTERVAL,
+            ),
             manual_passes: cfg.manual_passes,
             new_id: cfg.new_id.unwrap_or_else(|| Arc::new(random_id)),
             term_start,
@@ -341,6 +358,8 @@ impl Server {
             memory: Mutex::new(reconcile::Memory::default()),
             usage: usage::Usage::default(),
             triggers: triggers::QueueTriggers::default(),
+            scaler: autoscale::Autoscaler::default(),
+            wake_limit: limiter::ClockKeyed::new(autoscale::WAKE_BURST, autoscale::WAKE_REFILL),
             wake: Mutex::new(None),
         })))
     }
@@ -375,6 +394,11 @@ impl Server {
             let s = self.clone();
             let sd = shutdown.clone();
             tokio::spawn(async move { s.reconcile_loop(sd).await });
+        }
+        if !self.0.manual_passes {
+            let s = self.clone();
+            let sd = shutdown.clone();
+            tokio::spawn(async move { s.autoscale_loop(sd).await });
         }
         let addr = lis.local_addr().map(|a| a.to_string()).unwrap_or_default();
         self.0.log.info("listening", &[("addr", addr)]);

@@ -1,17 +1,25 @@
 //! What the leader keeps of agents' usage reports (Go's usageStore in
-//! top.go), in memory only: so far the part queue triggers read (ADR
-//! 0040), each node's network sandboxes with the latest length of each
-//! job's queue and the jobs whose sandboxes it dropped. Replica samples,
-//! proxy load, queue rules' lengths, volumes, and the space counters come
-//! with scaling and watching (pull requests 11 and 15 of ADR 0055).
+//! top.go), in memory only: each node's replica samples (CPU and memory,
+//! ADR 0016), its proxy's load per replica (ADR 0020), the queue lengths
+//! its queue rules read (ADR 0034), its network sandboxes with the latest
+//! length of each job's queue and the jobs whose sandboxes it dropped (ADR
+//! 0040); when a proxy last reported a request for each replica (ADR
+//! 0021); and which app and node each replica belongs to, from the latest
+//! pass, for the events of processes killed at the memory limit. The
+//! space counters, volume sizes, connection tracking, and the network
+//! switch's and runtime's reports come with volumes, the cluster network,
+//! and watching (pull requests 12, 13, and 15 of ADR 0055).
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 
 use armada_proto::armada::v1::{SandboxQueue, UsageReport};
 use armada_spec::gotime::Time;
-use armada_spec::validate::valid_app_id;
+use armada_spec::validate::{split_app_id, valid_app_id};
+use armada_spec::{MAX_IDLE_AFTER, SCALE_QUEUE};
+use armada_store::{Event, Replica};
 
+use crate::events::{REPLICA, event};
 use crate::reconcile::sub;
 
 const SECOND: i64 = 1_000_000_000;
@@ -21,6 +29,23 @@ pub(crate) const USAGE_MAX_AGE: i64 = 35 * SECOND;
 const MAX_USAGE_REPLICAS: usize = 1024;
 /// maxQueueLength bounds a reported queue length.
 const MAX_QUEUE_LENGTH: i64 = 1 << 40;
+/// maxReplicaIDLen bounds a replica ID in a report.
+const MAX_REPLICA_ID_LEN: usize = 128;
+/// maxInFlight bounds one node's count of requests in progress for a
+/// replica.
+const MAX_IN_FLIGHT: i64 = 1_000_000;
+/// proxy.MaxLoadEntries: a report with more load entries leaves the load
+/// unmeasured.
+const MAX_LOAD_ENTRIES: usize = 20_000;
+/// maxActive bounds the last request times kept.
+const MAX_ACTIVE: usize = 8192;
+/// maxNodeCPUMillis and maxNodeMemory bound a replica's sample.
+const MAX_NODE_CPU_MILLIS: i64 = 1024 * 1000;
+const MAX_NODE_MEMORY: i64 = 16 << 40;
+/// maxOOMEvents and maxOOMReport bound what a report says about processes
+/// killed at the memory limit.
+const MAX_OOM_EVENTS: usize = 8;
+const MAX_OOM_REPORT: i64 = 1 << 20;
 /// maxSandboxReports and maxSandboxAge bound what a report says about
 /// network sandboxes.
 const MAX_SANDBOX_REPORTS: usize = 256;
@@ -54,18 +79,50 @@ pub(crate) struct SandboxReading {
     pub failed: String,
 }
 
+/// A replica's sample: millicores and bytes.
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct ReplicaUsage {
+    pub cpu: i64,
+    pub mem: i64,
+}
+
 /// One node's latest sample.
 #[derive(Clone, Debug)]
 pub(crate) struct NodeUsage {
     pub at: Time,
+    pub replicas: HashMap<String, ReplicaUsage>,
+    /// The requests in progress at the node's proxy per replica, for any
+    /// replica, if load_measured (ADR 0020).
+    pub load: HashMap<String, i64>,
+    pub load_measured: bool,
+    /// The length each queue rule read, by the replica it was read from
+    /// and the rule's type (ADR 0034).
+    pub queues: HashMap<(String, String), i64>,
     pub sandboxes: HashMap<String, SandboxReading>,
     pub dropped: HashSet<String>,
+}
+
+/// Which app and node a replica belongs to (Go's replicaOwner).
+#[derive(Clone, Debug)]
+struct Owner {
+    app: String,
+    node: String,
+}
+
+#[derive(Default)]
+struct State {
+    nodes: HashMap<String, NodeUsage>,
+    /// When a proxy last reported a request for each replica (ADR 0021),
+    /// kept across reports so none is missed between evaluations.
+    active: HashMap<String, Time>,
+    /// The owners of replicas from the latest pass.
+    owners: HashMap<String, Owner>,
 }
 
 /// The latest sample of each node.
 #[derive(Default)]
 pub(crate) struct Usage {
-    nodes: Mutex<HashMap<String, NodeUsage>>,
+    st: Mutex<State>,
 }
 
 /// sandboxFailure: queuelen.Reason(queuelen.FromText(text)): a fixed text
@@ -108,19 +165,65 @@ fn sandbox_readings(list: &[SandboxQueue], at: &Time) -> HashMap<String, Sandbox
     out
 }
 
+fn valid_report_id(id: &str) -> bool {
+    !id.is_empty() && id.len() <= MAX_REPLICA_ID_LEN
+}
+
 impl Usage {
-    fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<String, NodeUsage>> {
-        self.nodes.lock().unwrap_or_else(|p| p.into_inner())
+    fn lock(&self) -> std::sync::MutexGuard<'_, State> {
+        self.st.lock().unwrap_or_else(|p| p.into_inner())
     }
 
     /// set replaces node's sample. Reports are untrusted: values are
-    /// bounded, and a report with too many replicas is dropped. It returns
-    /// true when the report brings a new reading of a job's queue, so the
-    /// leader reconciles at once.
+    /// bounded, and a report with too many replicas is dropped. Which
+    /// replicas belong to the node is only checked when the sample is
+    /// read, so a report costs no store access. It returns true when the
+    /// report brings a new reading of a job's queue, so the leader
+    /// reconciles at once.
     pub(crate) fn set(&self, node: &str, r: &UsageReport, at: Time) -> bool {
         if r.replicas.len() > MAX_USAGE_REPLICAS {
             self.forget(node);
             return false;
+        }
+        // Load covers every replica the node's proxy routes to, across the
+        // cluster: too much of it makes the load unmeasured, not the node.
+        let measured = r.load_measured && r.load.len() <= MAX_LOAD_ENTRIES;
+        let mut reps = HashMap::new();
+        for ru in &r.replicas {
+            if valid_report_id(&ru.id) {
+                reps.insert(
+                    ru.id.clone(),
+                    ReplicaUsage {
+                        cpu: ru.cpu_millis.clamp(0, MAX_NODE_CPU_MILLIS),
+                        mem: ru.memory_bytes.clamp(0, MAX_NODE_MEMORY),
+                    },
+                );
+            }
+        }
+        let mut load = HashMap::new();
+        let mut busy = Vec::new();
+        if measured {
+            for l in &r.load {
+                if valid_report_id(&l.id) {
+                    load.insert(l.id.clone(), l.in_flight.clamp(0, MAX_IN_FLIGHT));
+                    if l.in_flight > 0 || l.requests > 0 {
+                        busy.push(l.id.clone());
+                    }
+                }
+            }
+        }
+        let mut queues = HashMap::new();
+        if !r.queues.is_empty() && r.queues.len() <= MAX_USAGE_REPLICAS {
+            for l in &r.queues {
+                if valid_report_id(&l.id) && l.r#type.len() <= 16 {
+                    let typ = if l.r#type.is_empty() {
+                        SCALE_QUEUE.to_string()
+                    } else {
+                        l.r#type.clone()
+                    };
+                    queues.insert((l.id.clone(), typ), l.length.clamp(0, MAX_QUEUE_LENGTH));
+                }
+            }
         }
         let sandboxes = sandbox_readings(&r.sandboxes, &at);
         let mut dropped = HashSet::new();
@@ -131,18 +234,37 @@ impl Usage {
                 }
             }
         }
-        let mut m = self.lock();
+        let mut st = self.lock();
         let mut fresh = false;
         for (job, s) in &sandboxes {
-            let prev = m.get(node).and_then(|n| n.sandboxes.get(job));
+            let prev = st.nodes.get(node).and_then(|n| n.sandboxes.get(job));
             if s.measured && prev.is_none_or(|p| !p.measured || p.reading != s.reading) {
                 fresh = true;
             }
         }
-        m.insert(
+        for id in busy {
+            st.active.insert(id, at.clone());
+        }
+        if st.active.len() > MAX_ACTIVE {
+            let ids: Vec<String> = st.active.keys().cloned().collect();
+            for id in ids {
+                let old = st
+                    .active
+                    .get(&id)
+                    .is_some_and(|t| sub(&at, t) > MAX_IDLE_AFTER);
+                if old || st.active.len() > MAX_ACTIVE {
+                    st.active.remove(&id);
+                }
+            }
+        }
+        st.nodes.insert(
             node.to_string(),
             NodeUsage {
                 at,
+                replicas: reps,
+                load,
+                load_measured: measured,
+                queues,
                 sandboxes,
                 dropped,
             },
@@ -150,15 +272,64 @@ impl Usage {
         fresh
     }
 
+    /// outOfMemory: an event for each replica of node whose processes the
+    /// kernel killed at the memory limit since the previous report, at
+    /// most eight. The container lives on when that was not its main
+    /// process, so nothing else would show it.
+    pub(crate) fn out_of_memory(&self, node: &str, r: &UsageReport) -> Vec<Event> {
+        let st = self.lock();
+        let mut out = Vec::new();
+        for ru in &r.replicas {
+            if ru.oom_kills <= 0 || out.len() == MAX_OOM_EVENTS {
+                continue;
+            }
+            if let Some(o) = st.owners.get(&ru.id)
+                && o.node == node
+            {
+                let mut e = event(
+                    REPLICA,
+                    &ru.id,
+                    node,
+                    "OutOfMemory",
+                    &format!(
+                        "processes killed at the memory limit: {}",
+                        ru.oom_kills.min(MAX_OOM_REPORT)
+                    ),
+                );
+                e.app = o.app.clone();
+                out.push(e);
+            }
+        }
+        out
+    }
+
+    /// setOwners: replaces what reports are counted against, from a pass's
+    /// replicas.
+    pub(crate) fn set_owners(&self, reps: &[Replica]) {
+        let mut owners = HashMap::with_capacity(reps.len());
+        for r in reps {
+            if split_app_id(&r.app).is_some() {
+                owners.insert(
+                    r.id.clone(),
+                    Owner {
+                        app: r.app.clone(),
+                        node: r.node_id.clone(),
+                    },
+                );
+            }
+        }
+        self.lock().owners = owners;
+    }
+
     /// Drops node's sample (its session ended).
     pub(crate) fn forget(&self, node: &str) {
-        self.lock().remove(node);
+        self.lock().nodes.remove(node);
     }
 
     /// node's sample if it is recent.
     pub(crate) fn node(&self, node: &str, now: &Time) -> Option<NodeUsage> {
-        let m = self.lock();
-        let n = m.get(node)?;
+        let st = self.lock();
+        let n = st.nodes.get(node)?;
         if sub(now, &n.at) > USAGE_MAX_AGE {
             return None;
         }
@@ -171,11 +342,45 @@ impl Usage {
         self.node(node, now)
             .is_some_and(|n| n.dropped.contains(job))
     }
+
+    /// lastActive: when a proxy last reported a request for any of ids;
+    /// the zero time when none did.
+    pub(crate) fn last_active<'a>(&self, ids: impl IntoIterator<Item = &'a str>) -> Time {
+        let st = self.lock();
+        let mut last = Time::zero();
+        for id in ids {
+            if let Some(t) = st.active.get(id)
+                && t.after(&last)
+            {
+                last = t.clone();
+            }
+        }
+        last
+    }
+
+    /// load: the requests in progress per replica summed over every node
+    /// whose proxy was read recently; false if no node's proxy was.
+    pub(crate) fn load(&self, now: &Time) -> (HashMap<String, i64>, bool) {
+        let st = self.lock();
+        let mut out: HashMap<String, i64> = HashMap::new();
+        let mut ok = false;
+        for n in st.nodes.values() {
+            if !n.load_measured || sub(now, &n.at) > USAGE_MAX_AGE {
+                continue;
+            }
+            ok = true;
+            for (id, v) in &n.load {
+                *out.entry(id.clone()).or_default() += v;
+            }
+        }
+        (out, ok)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use armada_proto::armada::v1::ReplicaLoad;
 
     #[test]
     fn failures_are_fixed_texts() {
@@ -235,5 +440,56 @@ mod tests {
         assert!(u.set("n1", &rep(2), at.clone()));
         assert!(u.node("n1", &at.add(USAGE_MAX_AGE)).is_some());
         assert!(u.node("n1", &at.add(USAGE_MAX_AGE + 1)).is_none());
+    }
+
+    fn load(entries: &[(&str, i64, i64)]) -> UsageReport {
+        UsageReport {
+            load_measured: true,
+            load: entries
+                .iter()
+                .map(|(id, in_flight, requests)| ReplicaLoad {
+                    id: id.to_string(),
+                    in_flight: *in_flight,
+                    requests: *requests,
+                })
+                .collect(),
+            ..Default::default()
+        }
+    }
+
+    // Go's TestUsageLastActive.
+    #[test]
+    fn last_active_survives_quiet_reports() {
+        let u = Usage::default();
+        let t0 = Time::zero().add(1000 * SECOND);
+        u.set("n1", &load(&[("a", 0, 3), ("b", 0, 0)]), t0.clone());
+        u.set(
+            "n1",
+            &load(&[("a", 0, 0), ("b", 0, 0)]),
+            t0.add(10 * SECOND),
+        );
+        let got = u.last_active(["a", "b"]);
+        assert_eq!((got.unix, got.nsec), (t0.unix, t0.nsec));
+        u.set("n2", &load(&[("b", 1, 0)]), t0.add(20 * SECOND));
+        let got = u.last_active(["a", "b"]);
+        assert_eq!(got.unix, t0.unix + 20);
+        assert!(u.last_active(["c"]).is_zero());
+    }
+
+    #[test]
+    fn load_sums_fresh_nodes() {
+        let u = Usage::default();
+        let t0 = Time::zero().add(1000 * SECOND);
+        u.set("n1", &load(&[("a", 3, 0), ("b", -4, 0)]), t0.clone());
+        u.set("n2", &load(&[("a", 2_000_000, 0)]), t0.add(40 * SECOND));
+        let (m, ok) = u.load(&t0.add(40 * SECOND));
+        assert!(ok);
+        assert_eq!(m["a"], MAX_IN_FLIGHT);
+        assert!(!m.contains_key("b"));
+        let (m, ok) = u.load(&t0.add(10 * SECOND));
+        assert!(ok);
+        assert_eq!(m["a"], MAX_IN_FLIGHT + 3);
+        assert_eq!(m["b"], 0);
+        assert!(!u.load(&t0.add(100 * SECOND)).1);
     }
 }

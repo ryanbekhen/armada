@@ -340,6 +340,42 @@ impl Time {
         }
         s
     }
+
+    /// Format("Mon 15:04 MST"): the weekday, the clock, and the zone's
+    /// abbreviation, as the autoscaler names when a schedule window closes.
+    pub fn day_clock_zone(&self) -> String {
+        const DAYS: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+        let c = self.civil();
+        format!(
+            "{} {:02}:{:02} {}",
+            DAYS[c.weekday as usize],
+            c.hour,
+            c.minute,
+            self.loc.abbreviation(self.unix)
+        )
+    }
+}
+
+impl Location {
+    /// The zone's abbreviation at a Unix time ("UTC", "WIB", "+07"); Go
+    /// writes the offset as -0700 where a zone has none.
+    pub fn abbreviation(&self, unix: i64) -> String {
+        let Some(tz) = &self.tz else {
+            return "UTC".to_string();
+        };
+        let ts = Timestamp::from_second(unix).unwrap_or(if unix < 0 {
+            Timestamp::MIN
+        } else {
+            Timestamp::MAX
+        });
+        let a = tz.to_offset_info(ts).abbreviation().to_string();
+        if !a.is_empty() {
+            return a;
+        }
+        let off = self.offset(unix);
+        let (sign, v) = if off < 0 { ('-', -off) } else { ('+', off) };
+        format!("{sign}{:02}{:02}", v / 3600, v % 3600 / 60)
+    }
 }
 
 /// Reads an RFC 3339 time with an optional fraction ("2026-03-29T01:30:00Z"
@@ -372,5 +408,18 @@ mod tests {
         assert_eq!(t.rfc3339_nano(), "2026-03-08T01:30:00-05:00");
         assert!(load_location("america/new_york").is_none());
         assert!(load_location("../etc").is_none());
+    }
+
+    #[test]
+    fn day_clock_zone() {
+        let t = Time::date(2026, 11, 11, 18, 5, 0, 0, &Location::utc());
+        assert_eq!(t.day_clock_zone(), "Wed 18:05 UTC");
+        let Some(jkt) = load_location("Asia/Jakarta") else {
+            return;
+        };
+        assert_eq!(t.in_loc(&jkt).day_clock_zone(), "Thu 01:05 WIB");
+        if let Some(ny) = load_location("America/New_York") {
+            assert_eq!(t.in_loc(&ny).day_clock_zone(), "Wed 13:05 EST");
+        }
     }
 }

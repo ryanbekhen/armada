@@ -9,7 +9,8 @@
 //! program answers `{"ready": {"api", "join"}}` once it serves, on the
 //! addresses it bound. Later lines are requests, each answered with
 //! `{"id", "error"?}`: `now` (ms) sets the test clock, `reconcile` runs a
-//! pass, `stop` ends the server. The server asks the test for the etcd
+//! pass, `autoscale` an evaluation of the autoscaler (which, with
+//! `manualPasses`, never runs on its own), `stop` ends the server. The server asks the test for the etcd
 //! membership with `{"call", "cluster", ...}` lines, answered by
 //! `{"op": "answer", "call", "value"?, "error"?}`, and tells it with
 //! `{"event": "settingsChanged"}` that the cluster's settings changed.
@@ -321,6 +322,22 @@ async fn main() {
                         None => "no server".to_string(),
                         Some(srv) => srv
                             .reconcile()
+                            .await
+                            .err()
+                            .map(|e| e.to_string())
+                            .unwrap_or_default(),
+                    };
+                    emit(&out, json!({"id": id, "error": err})).await;
+                });
+            }
+            "autoscale" => {
+                let srv = current.lock().unwrap_or_else(|p| p.into_inner()).clone();
+                let out = out.clone();
+                tokio::spawn(async move {
+                    let err = match srv {
+                        None => "no server".to_string(),
+                        Some(srv) => srv
+                            .autoscale()
                             .await
                             .err()
                             .map(|e| e.to_string())

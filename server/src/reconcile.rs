@@ -5,8 +5,9 @@
 //! apps, then every connected node's assignment.
 //!
 //! Jobs and their queue triggers (pull request 10 of ADR 0055) run after
-//! the apps (`jobs`, `triggers`). Apps with local volumes (12), the
-//! autoscaler (11), the proxy configuration (14), and the cluster network
+//! the apps (`jobs`, `triggers`); the autoscaler (11) runs on its own
+//! loop (`autoscale`), and a pass tells the usage store whose replicas
+//! are whose. Apps with local volumes (12), the proxy configuration (14), and the cluster network
 //! and the runtime move (13) are left out until their pull requests: the
 //! replicas of an app with local volumes are kept as the store holds them
 //! and assigned as they are. Go's server runs the same parts in the
@@ -325,6 +326,7 @@ impl Server {
         let mut apps = self.store().list_apps().await?;
         let nodes = self.store().list_nodes().await?;
         let replicas = self.store().list_replicas(&Default::default()).await?;
+        self.0.usage.set_owners(&replicas);
         let mut revs = Revisions::new(self);
         revs.preload(&apps, &replicas).await;
         let servers = self.store().list_servers().await?;

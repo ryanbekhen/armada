@@ -4,6 +4,8 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
+use armada_spec::gotime::Time;
+
 /// maxLimiterKeys: a keyed limiter that holds this many keys starts over,
 /// which only ever makes it more lenient.
 const MAX_KEYS: usize = 4096;
@@ -70,6 +72,45 @@ impl Keyed {
             }
         };
         b.allow(now)
+    }
+}
+
+/// A token bucket per key read on the server's clock (Go's keyedLimiter
+/// given s.now(): the wake limit). As Go's, a new bucket starts full at
+/// the wall clock's time, and refills only once the given time passes it.
+pub struct ClockKeyed {
+    burst: f64,
+    refill_nanos: f64,
+    buckets: Mutex<HashMap<String, (f64, Time)>>,
+}
+
+impl ClockKeyed {
+    pub fn new(burst: u32, refill: Duration) -> ClockKeyed {
+        ClockKeyed {
+            burst: f64::from(burst),
+            refill_nanos: refill.as_nanos() as f64,
+            buckets: Mutex::new(HashMap::new()),
+        }
+    }
+
+    pub fn allow(&self, key: &str, now: &Time) -> bool {
+        let mut m = self.buckets.lock().unwrap_or_else(|p| p.into_inner());
+        if !m.contains_key(key) && m.len() >= MAX_KEYS {
+            m.clear();
+        }
+        let b = m
+            .entry(key.to_string())
+            .or_insert_with(|| (self.burst, armada_store::gojson::now()));
+        if now.after(&b.1) {
+            let d = crate::reconcile::sub(now, &b.1) as f64;
+            b.0 = (b.0 + d / self.refill_nanos).min(self.burst);
+            b.1 = now.clone();
+        }
+        if b.0 < 1.0 {
+            return false;
+        }
+        b.0 -= 1.0;
+        true
     }
 }
 

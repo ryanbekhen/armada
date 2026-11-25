@@ -7,8 +7,9 @@
 //! come with volumes (pull request 12 of ADR 0055): an app whose volumes
 //! back up passes when the caller is a cluster-admin, and answers
 //! `Unimplemented` otherwise. Node status leaves out the usage samples
-//! (the last sample's time and runtime) until watching (15), and an
-//! autoscaled app shows its bounds until the autoscaler (11) evaluates it.
+//! (the last sample's time and runtime) until watching (15); an
+//! autoscaled app shows the autoscaler's last evaluation, or its bounds
+//! until the first.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
@@ -1012,15 +1013,17 @@ impl Server {
             }
         }
         if sp.autoscaled() {
-            // The autoscaler's own status comes with pull request 11.
-            let (lo, hi) = sp.scale_bounds();
-            st.autoscale = Some(Autoscale {
-                min: lo as i32,
-                max: hi as i32,
-                message: "waiting for the first evaluation".to_string(),
-                last_scaled_at: optional_time(&x.scaled_at),
-                ..Default::default()
+            let mut a = self.autoscale_status(&x.name).unwrap_or_else(|| {
+                let (lo, hi) = sp.scale_bounds();
+                Autoscale {
+                    min: lo as i32,
+                    max: hi as i32,
+                    message: "waiting for the first evaluation".to_string(),
+                    ..Default::default()
+                }
             });
+            a.last_scaled_at = optional_time(&x.scaled_at);
+            st.autoscale = Some(a);
         }
         for r in reps {
             let mut rs = ReplicaStatus {
