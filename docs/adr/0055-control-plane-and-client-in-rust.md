@@ -516,9 +516,13 @@ Go and every new Rust part is exercised only by its parity tests.
     implements 16c's runtime calls (exec sessions, logs, dials, queues,
     sandboxes), and moves the volume and connection tracking seams in
     process (NFS mounts stay a process). The conversion of Go's image
-    store, which reads containerd's metadata database, moved to a third
-    pull request; until it lands the Rust runtime refuses a node whose Go
-    image store was never converted, and runs one Go's agent converted.
+    store moved to a third pull request: the agent's start converts the
+    store, moves the root filesystems of the containers on it, and
+    removes it once none is left (at the start and after every release),
+    as Go's agent does, reading the overlay snapshotter's metadata
+    database with a read-only reader of the bbolt format of its own and
+    never writing it. Going back to Go's code on a node the Rust agent
+    moved stays Go's agent's work, as it is today.
 17. **The client.** Every command, output, completion, the SSH dialer,
     configuration files, and the release notice, with the client parity
     tests.

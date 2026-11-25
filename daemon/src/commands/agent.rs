@@ -517,6 +517,9 @@ async fn run_agent(
     );
     scfg.subnet = ac.container_subnet.clone();
     scfg.mtu = mtu as u32;
+    // Only the agent's start moves Go's image store (Go's
+    // containerd.Config.Agent); doctor, reset, and migrate never do.
+    scfg.agent = true;
     let rt = Arc::new(Supervisor::new(scfg)?);
     let mut dns: Option<Arc<DnsProcess>> = None;
     let mut internal_ip = String::new();
