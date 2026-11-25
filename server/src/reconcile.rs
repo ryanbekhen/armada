@@ -4,17 +4,19 @@
 //! placement (ADR 0014), traffic splitting (ADR 0022), and the removal of
 //! apps, then every connected node's assignment.
 //!
-//! Jobs (pull request 10 of ADR 0055), apps with local volumes (12), the
+//! Jobs and their queue triggers (pull request 10 of ADR 0055) run after
+//! the apps (`jobs`, `triggers`). Apps with local volumes (12), the
 //! autoscaler (11), the proxy configuration (14), and the cluster network
-//! and the runtime move (13) are left out until their pull requests: a
-//! job's replicas and those of an app with local volumes are kept as the
-//! store holds them and assigned as they are. Go's server runs the same
-//! parts in the scenario parity tests (`coreParts`).
+//! and the runtime move (13) are left out until their pull requests: the
+//! replicas of an app with local volumes are kept as the store holds them
+//! and assigned as they are. Go's server runs the same parts in the
+//! scenario parity tests (`coreParts`).
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::atomic::{AtomicI64, Ordering as AtomicOrdering};
 use std::time::Duration;
 
+use armada_proto::armada::v1::QueueSandbox;
 use armada_spec::go::format_duration;
 use armada_spec::gotime::Time;
 use armada_spec::{App as Spec, INGRESS_NONE, Placement, TrafficTarget};
@@ -116,6 +118,19 @@ pub(crate) struct Run<'a> {
     generation: u64,
     view: Option<(u64, View)>,
     undo: Vec<Undo>,
+
+    /// Queue triggers (ADR 0040): the connected nodes that keep network
+    /// sandboxes, the node that reads each queue-triggered job's queue (""
+    /// for none), what each node is asked to read, and the jobs with a
+    /// queue trigger.
+    pub sandbox_nodes: HashSet<String>,
+    pub queue_nodes: HashMap<String, String>,
+    pub sandboxes: HashMap<String, Vec<QueueSandbox>>,
+    pub triggered: HashSet<String>,
+    /// The sandboxes' addresses, as replicas of their jobs, for the
+    /// cluster network's endpoints (pull request 13).
+    #[allow(dead_code)]
+    pub sandbox_addrs: Vec<Replica>,
 }
 
 impl<'a> Run<'a> {
@@ -130,6 +145,11 @@ impl<'a> Run<'a> {
             generation: 0,
             view: None,
             undo: Vec::new(),
+            sandbox_nodes: HashSet::new(),
+            queue_nodes: HashMap::new(),
+            sandboxes: HashMap::new(),
+            triggered: HashSet::new(),
+            sandbox_addrs: Vec::new(),
         }
     }
 
@@ -144,7 +164,7 @@ impl<'a> Run<'a> {
         }
     }
 
-    fn replace(&mut self, r: &Replica) {
+    pub(crate) fn replace(&mut self, r: &Replica) {
         if let Some(i) = self.all.iter().position(|x| x.id == r.id) {
             let old = std::mem::replace(&mut self.all[i], r.clone());
             self.undo.push(Undo::Replaced(i, old));
@@ -152,7 +172,7 @@ impl<'a> Run<'a> {
         self.generation += 1;
     }
 
-    fn without(&mut self, id: &str) {
+    pub(crate) fn without(&mut self, id: &str) {
         while let Some(i) = self.all.iter().position(|x| x.id == id) {
             let old = self.all.remove(i);
             self.undo.push(Undo::Removed(i, old));
@@ -160,7 +180,7 @@ impl<'a> Run<'a> {
         self.generation += 1;
     }
 
-    fn push(&mut self, r: Replica) {
+    pub(crate) fn push(&mut self, r: Replica) {
         self.all.push(r);
         self.undo.push(Undo::Pushed);
         self.generation += 1;
@@ -314,10 +334,12 @@ impl Server {
             std::sync::atomic::Ordering::Relaxed,
         );
         let mut rc = Run::new(self.now(), revs, replicas);
+        rc.sandbox_nodes = self.sandbox_nodes();
         rc.lost = self.lost_nodes(&mut rc, &nodes).await;
+        let mut jobs = Vec::new();
         for app in &mut apps {
             if app.spec.as_ref().is_some_and(|s| s.is_job()) {
-                // Jobs: pull request 10.
+                jobs.push(app.clone());
                 continue;
             }
             let res = if app.removing {
@@ -351,6 +373,7 @@ impl Server {
                 Ok(()) => rc.commit(),
             }
         }
+        self.reconcile_jobs(&mut rc, &jobs, &nodes).await?;
         let wake = rc.wake.load(AtomicOrdering::Relaxed);
         if wake > 0 {
             self.wake_after(wake);
@@ -362,7 +385,9 @@ impl Server {
             .lock()
             .unwrap_or_else(|p| p.into_inner()) = Some((eps.clone(), tokio::time::Instant::now()));
         let all = std::mem::take(&mut rc.all);
-        self.push_assignments(&all, &mut rc.revs, &eps).await
+        let sandboxes = std::mem::take(&mut rc.sandboxes);
+        self.push_assignments(&all, &mut rc.revs, &eps, &sandboxes)
+            .await
     }
 
     /// wakeAfter: a reconcile after d nanoseconds unless one is due sooner.

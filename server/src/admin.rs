@@ -32,7 +32,7 @@ fn unimplemented(method: &str) -> Status {
 
 /// The methods that answer `Unimplemented` in this pull request: the
 /// service, the method, and the pull request of ADR 0055 that ports it
-/// (10 jobs, 12 volumes, 14 ingress and certificates, 15 watching).
+/// (12 volumes, 14 ingress and certificates, 15 watching).
 pub const LATER: &[(&str, &str, u8)] = &[
     ("Admin", "ClusterStatus", 15),
     ("Admin", "ListVolumes", 12),
@@ -55,11 +55,6 @@ pub const LATER: &[(&str, &str, u8)] = &[
     ("Admin", "ListAlertChannels", 15),
     ("Admin", "DeleteAlertChannel", 15),
     ("Admin", "TestAlertChannel", 15),
-    ("Admin", "RunJob", 10),
-    ("Admin", "ListJobs", 10),
-    ("Admin", "ListJobRuns", 10),
-    ("Admin", "CancelJob", 10),
-    ("Admin", "DeleteJob", 10),
     ("Agent", "PushLogs", 15),
     ("Agent", "ExecSession", 15),
     ("Agent", "VolumeSession", 12),
@@ -616,36 +611,51 @@ impl AdminService for Api {
         &self,
         request: Request<RunJobRequest>,
     ) -> Result<Response<RunJobResponse>, Status> {
-        let _ = request;
-        Err(unimplemented("RunJob"))
+        let a = auth(&request)?;
+        self.0
+            .run_job(&a, request.into_inner())
+            .await
+            .map(Response::new)
     }
     async fn list_jobs(
         &self,
         request: Request<ListJobsRequest>,
     ) -> Result<Response<ListJobsResponse>, Status> {
-        let _ = request;
-        Err(unimplemented("ListJobs"))
+        let a = auth(&request)?;
+        self.0
+            .list_jobs(&a, request.into_inner())
+            .await
+            .map(Response::new)
     }
     async fn list_job_runs(
         &self,
         request: Request<ListJobRunsRequest>,
     ) -> Result<Response<ListJobRunsResponse>, Status> {
-        let _ = request;
-        Err(unimplemented("ListJobRuns"))
+        let a = auth(&request)?;
+        self.0
+            .list_job_runs(&a, request.into_inner())
+            .await
+            .map(Response::new)
     }
     async fn cancel_job(
         &self,
         request: Request<CancelJobRequest>,
     ) -> Result<Response<CancelJobResponse>, Status> {
-        let _ = request;
-        Err(unimplemented("CancelJob"))
+        let a = auth(&request)?;
+        self.0
+            .cancel_job(&a, request.into_inner())
+            .await
+            .map(Response::new)
     }
     async fn delete_job(
         &self,
         request: Request<DeleteJobRequest>,
     ) -> Result<Response<DeleteJobResponse>, Status> {
-        let _ = request;
-        Err(unimplemented("DeleteJob"))
+        let a = auth(&request)?;
+        self.0
+            .delete_job(&a, request.into_inner())
+            .await
+            .map(Response::new)
     }
     async fn remove_app(
         &self,

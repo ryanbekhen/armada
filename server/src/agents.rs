@@ -1,9 +1,10 @@
 //! Sessions with agents (Go's agents.go): the Connect stream, the Hello
 //! that opens it, the queue of messages each session sends, and the
 //! reports agents send back, checked as untrusted input before they reach
-//! the store. Usage samples (the usage store, out-of-memory events,
-//! volume sizes, queue readings) and wake requests come with watching and
-//! scaling (pull requests 15 and 11); the conditions a usage report starts
+//! the store. Of usage samples, the network sandboxes' queue readings are
+//! kept (`usage`, for queue triggers); the rest of the usage store,
+//! out-of-memory events, volume sizes, and wake requests come with
+//! watching and scaling (pull requests 15 and 11); the conditions a usage report starts
 //! (unreachable peers, WireGuard in userspace, a failing log export) are
 //! recorded here.
 
@@ -568,6 +569,7 @@ impl Server {
         if !current {
             return;
         }
+        self.0.usage.forget(&node.id);
         let _ = self
             .store()
             .set_node_status(
@@ -596,6 +598,10 @@ impl Server {
         match m.msg {
             Some(AgentMsg::Report(r)) => self.apply_report(node, &r).await,
             Some(AgentMsg::Usage(u)) => {
+                if self.0.usage.set(&node.id, &u, self.now()) {
+                    // A new length of a job's queue may start runs.
+                    self.trigger();
+                }
                 self.peers_checked(&node.id, &u).await;
                 let le = u.log_export.unwrap_or_default();
                 let mut e = event(
