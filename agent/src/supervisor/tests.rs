@@ -71,6 +71,12 @@ pub struct FakeHost {
     pub rootfs: PathBuf,
     pub calls: Mutex<Vec<String>>,
     n: AtomicUsize,
+    /// SELinux on, with a policy whose container types the kernel knows
+    /// unless their type is in unknown_types.
+    pub selinux: std::sync::atomic::AtomicBool,
+    pub unknown_types: Mutex<Vec<String>>,
+    /// Files' labels as set.
+    pub file_labels: Mutex<BTreeMap<PathBuf, String>>,
 }
 
 impl FakeHost {
@@ -79,6 +85,9 @@ impl FakeHost {
             rootfs,
             calls: Mutex::new(Vec::new()),
             n: AtomicUsize::new(0),
+            selinux: std::sync::atomic::AtomicBool::new(false),
+            unknown_types: Mutex::new(Vec::new()),
+            file_labels: Mutex::new(BTreeMap::new()),
         }
     }
 
@@ -112,6 +121,22 @@ impl Host for FakeHost {
         ));
         Ok(())
     }
+    fn new_pinned_netns(&self, path: &Path) -> Result<(), String> {
+        fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(path)
+            .and_then(|mut f| f.write_all(b"netns"))
+            .map_err(|e| super::os_err("open", path, &e))?;
+        self.note(format!(
+            "pinned {}",
+            path.file_name().unwrap().to_string_lossy()
+        ));
+        Ok(())
+    }
+    fn is_netns(&self, path: &Path) -> bool {
+        fs::read(path).is_ok_and(|b| b == b"netns")
+    }
     fn ensure_bridge(&self, b: &cni::Bridge, mtu: u32) -> Result<(), String> {
         self.note(format!("bridge {}/{} mtu {mtu}", b.gateway, b.subnet.bits));
         Ok(())
@@ -140,7 +165,46 @@ impl Host for FakeHost {
         unreachable!()
     }
     fn selinux_enabled(&self) -> bool {
-        false
+        self.selinux.load(Ordering::SeqCst)
+    }
+    fn selinux_contexts(&self) -> Option<Vec<u8>> {
+        Some(
+            b"process = \"system_u:system_r:container_t:s0\"\nfile = \"system_u:object_r:container_file_t:s0\"\nro_file=\"system_u:object_r:container_ro_file_t:s0\"\n"
+                .to_vec(),
+        )
+    }
+    fn selinux_check_context(&self, label: &str) -> Result<(), String> {
+        let t = label.split(':').nth(2).unwrap_or_default();
+        if self.unknown_types.lock().unwrap().iter().any(|u| u == t) {
+            return Err("write /sys/fs/selinux/context: invalid argument".into());
+        }
+        Ok(())
+    }
+    fn lfile_label(&self, p: &Path) -> std::io::Result<String> {
+        fs::symlink_metadata(p)?;
+        Ok(self
+            .file_labels
+            .lock()
+            .unwrap()
+            .get(p)
+            .cloned()
+            .unwrap_or_default())
+    }
+    fn lset_file_label(&self, p: &Path, label: &str) -> std::io::Result<()> {
+        fs::symlink_metadata(p)?;
+        self.file_labels
+            .lock()
+            .unwrap()
+            .insert(p.to_path_buf(), label.to_string());
+        Ok(())
+    }
+    fn set_file_label(&self, p: &Path, label: &str) -> std::io::Result<()> {
+        let p = fs::canonicalize(p)?;
+        self.file_labels
+            .lock()
+            .unwrap()
+            .insert(p, label.to_string());
+        Ok(())
     }
     fn port_free(&self, _ip: &str, _port: u16) -> bool {
         true

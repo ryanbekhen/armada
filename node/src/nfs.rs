@@ -145,7 +145,8 @@ fn read_only(c: &CString) -> bool {
     unsafe { libc::statvfs(c.as_ptr(), &mut st) == 0 && (st.f_flag & libc::ST_RDONLY) != 0 }
 }
 
-fn selinux_mount() -> String {
+/// getSelinuxMountPoint: where selinuxfs is mounted read-write, or "".
+pub fn selinux_mount() -> String {
     if verify_selinuxfs(SELINUXFS_MOUNT) {
         return SELINUXFS_MOUNT.into();
     }

@@ -18,11 +18,11 @@ pub mod conntrack;
 pub mod dns;
 mod exec;
 pub mod logexport;
-mod logs;
+pub mod logs;
 pub mod nfs;
 pub mod nodeprog;
 pub mod queue;
-mod sandbox;
+pub mod sandbox;
 pub mod volume;
 
 use std::collections::HashMap;

@@ -210,3 +210,144 @@ async fn containers_as_go() {
     }
     let _ = fs::remove_dir_all(&dir);
 }
+
+/// Writes (or appends) the files logs.json describes, with their times.
+fn write_log_files(dir: &Path, files: &Value, append: bool) {
+    for f in files.as_array().into_iter().flatten() {
+        let p = dir.join(f["path"].as_str().unwrap());
+        fs::create_dir_all(p.parent().unwrap()).unwrap();
+        let mut w = fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .append(append)
+            .truncate(!append)
+            .open(&p)
+            .unwrap();
+        w.write_all(f["data"].as_str().unwrap().as_bytes()).unwrap();
+        let t = std::time::UNIX_EPOCH + Duration::from_secs(f["mod"].as_u64().unwrap());
+        w.set_times(fs::FileTimes::new().set_modified(t).set_accessed(t))
+            .unwrap();
+    }
+}
+
+fn records_json(recs: &[crate::side::LogRecord]) -> Value {
+    Value::Array(
+        recs.iter()
+            .map(|r| {
+                let mut o = json!({
+                    "time": time_text(Some(r.time)),
+                    "stderr": r.stderr,
+                    "data": String::from_utf8_lossy(&r.data),
+                    "replica": r.replica,
+                    "container": r.container,
+                });
+                if !r.app.is_empty() {
+                    o["app"] = json!(r.app);
+                }
+                if !r.revision.is_empty() {
+                    o["revision"] = json!(r.revision);
+                }
+                o
+            })
+            .collect(),
+    )
+}
+
+fn regular_files(dir: &Path) -> Vec<(PathBuf, fs::Metadata)> {
+    let mut out = Vec::new();
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        for e in fs::read_dir(&d).unwrap() {
+            let e = e.unwrap();
+            let md = fs::symlink_metadata(e.path()).unwrap();
+            if md.is_dir() {
+                stack.push(e.path());
+            } else if md.is_file() {
+                out.push((e.path(), md));
+            }
+        }
+    }
+    out
+}
+
+/// export.json with each inode replaced by its file's name (rsState).
+fn state_text(dir: &Path) -> String {
+    use std::os::unix::fs::MetadataExt;
+    let Ok(mut s) = fs::read_to_string(dir.join("history/export.json")) else {
+        return String::new();
+    };
+    let v: Value = serde_json::from_str(&s).unwrap();
+    for (p, md) in regular_files(dir) {
+        let rel = p.strip_prefix(dir).unwrap().display().to_string();
+        if v["files"]
+            .as_object()
+            .is_some_and(|f| f.values().any(|c| c["ino"].as_u64() == Some(md.ino())))
+        {
+            s = s.replace(
+                &format!("\"ino\":{}", md.ino()),
+                &format!("\"ino\":{rel:?}"),
+            );
+        }
+    }
+    s
+}
+
+fn time_of(v: &Value) -> Option<std::time::SystemTime> {
+    v.as_str().filter(|s| !s.is_empty()).and_then(parse_time)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn logs_as_go() {
+    let want = golden("logs.json");
+    let dir = root("logs");
+    write_log_files(&dir, &want["files"], false);
+    for s in want["searches"].as_array().unwrap() {
+        let q = crate::side::LogQuery {
+            app: s["app"].as_str().unwrap().into(),
+            replica: s["replica"].as_str().unwrap().into(),
+            container: s["container"].as_str().unwrap().into(),
+            since: time_of(&s["since"]).unwrap_or_else(history::zero_time),
+            until: time_of(&s["until"]),
+            grep: s["grep"].as_str().unwrap().into(),
+            limit: s["limit"].as_i64().unwrap(),
+            max_bytes: s["maxBytes"].as_i64().unwrap(),
+        };
+        let (recs, notice) = history::search_logs(&dir, None, &q, Duration::from_secs(30))
+            .await
+            .unwrap();
+        assert_eq!(records_json(&recs), s["records"], "{s}");
+        assert_eq!(notice, s["notice"].as_str().unwrap(), "{s}");
+    }
+    for t in want["tails"].as_array().unwrap() {
+        write_log_files(&dir, &t["append"], true);
+        let tail = history::tail_logs(
+            &dir,
+            None,
+            t["target"].as_str().unwrap(),
+            t["maxBytes"].as_i64().unwrap(),
+            time_of(&t["now"]).unwrap(),
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(records_json(&tail.records), t["records"], "{t}");
+        (tail.commit.unwrap())().await.unwrap();
+        assert_eq!(state_text(&dir), t["state"].as_str().unwrap());
+    }
+    for p in want["prunes"].as_array().unwrap() {
+        history::prune_logs(
+            &dir,
+            Duration::from_secs(p["retention"].as_u64().unwrap()),
+            p["maxBytes"].as_i64().unwrap(),
+            time_of(&p["now"]).unwrap(),
+        )
+        .unwrap();
+        let mut left: Vec<String> = regular_files(&dir)
+            .into_iter()
+            .map(|(p, _)| p.strip_prefix(&dir).unwrap().display().to_string())
+            .collect();
+        left.sort();
+        assert_eq!(json!(left), p["left"]);
+    }
+    let _ = fs::remove_dir_all(&dir);
+}

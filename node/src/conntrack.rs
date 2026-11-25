@@ -36,7 +36,7 @@ pub fn target(memory: i64) -> i64 {
 }
 
 /// The machine's memory as conntrack.New reads it, 0 when sysinfo fails.
-fn machine_memory() -> i64 {
+pub fn machine_memory() -> i64 {
     // SAFETY: an all-zero sysinfo is valid and the kernel fills it.
     let mut si: libc::sysinfo = unsafe { std::mem::zeroed() };
     // SAFETY: a pointer to a sysinfo.

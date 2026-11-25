@@ -42,6 +42,11 @@ pub mod hooks;
 #[path = "volume/mod.rs"]
 pub mod volume;
 
+// The connection tracking table's numbers, which the Rust agent reads
+// and raises in process.
+#[allow(dead_code)]
+pub mod conntrack;
+
 // SELinux's state (selinux_enabled), which the Rust agent reads too.
 #[allow(dead_code)]
 pub mod nfs;

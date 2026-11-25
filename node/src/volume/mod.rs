@@ -37,11 +37,11 @@
 //! ARMADA_NODE_TEST_VOLUME_SPACE=BYTES,TOTAL,INODES,TOTAL|unknown is the
 //! free space a restore sees (restoreSpace).
 
-mod archive;
+pub mod archive;
 pub(crate) mod errno;
 pub mod gzip;
-pub(crate) mod restore;
-pub(crate) mod walk;
+pub mod restore;
+pub mod walk;
 
 use std::fs::File;
 use std::io::Write;

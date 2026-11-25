@@ -75,6 +75,38 @@ impl Conntrack for NodeConntrack {
     }
 }
 
+/// The table through armada-node's code in process (ADR 0055, item 16e).
+pub struct LibConntrack {
+    pub dir: String,
+    /// The machine's memory the target follows; None: read from sysinfo.
+    pub memory: Option<i64>,
+}
+
+impl Conntrack for LibConntrack {
+    fn raise(&self) -> BoxFut<'_, Result<i64, String>> {
+        let (dir, memory) = (self.dir.clone(), self.memory);
+        Box::pin(async move {
+            tokio::task::spawn_blocking(move || {
+                let m = memory.unwrap_or_else(armada_node::conntrack::machine_memory);
+                armada_node::conntrack::raise(&dir, m)
+            })
+            .await
+            .map_err(|e| e.to_string())?
+        })
+    }
+
+    fn read(&self) -> BoxFut<'_, Option<(i64, i64)>> {
+        let dir = self.dir.clone();
+        Box::pin(async move {
+            let (entries, limit, ok) =
+                tokio::task::spawn_blocking(move || armada_node::conntrack::read_table(&dir))
+                    .await
+                    .ok()?;
+            ok.then_some((entries, limit))
+        })
+    }
+}
+
 impl<R: Runtime> Inner<R> {
     /// Keeps the limit raised and adds the table's use to report
     /// (sampleConntrack); a failure to raise is a warning once.

@@ -603,6 +603,303 @@ impl Volumes for NodeVolumes {
     }
 }
 
+/// Volumes through armada-node's code in process (ADR 0055, item 16e):
+/// the archives, restores, sizes, and the snapshot repository the
+/// program runs, called as a library on blocking threads.
+pub struct LibVolumes;
+
+/// Writes an archive to the session in VOLUME_CHUNK pieces.
+struct ChunkWriter<'a> {
+    out: &'a mpsc::Sender<Vec<u8>>,
+    buf: Vec<u8>,
+    ended: bool,
+}
+
+impl ChunkWriter<'_> {
+    fn send(&mut self) -> std::io::Result<()> {
+        if self.buf.is_empty() {
+            return Ok(());
+        }
+        let b = std::mem::replace(&mut self.buf, Vec::with_capacity(VOLUME_CHUNK));
+        if self.out.blocking_send(b).is_err() {
+            self.ended = true;
+            return Err(std::io::Error::other("the session ended"));
+        }
+        Ok(())
+    }
+}
+
+impl Write for ChunkWriter<'_> {
+    fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+        let n = b.len().min(VOLUME_CHUNK - self.buf.len());
+        self.buf.extend_from_slice(&b[..n]);
+        if self.buf.len() == VOLUME_CHUNK {
+            self.send()?;
+        }
+        Ok(n)
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.send()
+    }
+}
+
+/// The session's data as a reader: an Err item is the session's
+/// failure, returned on this and every later read (Feed).
+struct SessionReader {
+    input: mpsc::Receiver<Result<Vec<u8>, String>>,
+    cur: Vec<u8>,
+    pos: usize,
+    failed: Option<String>,
+}
+
+impl Read for SessionReader {
+    fn read(&mut self, b: &mut [u8]) -> std::io::Result<usize> {
+        loop {
+            if let Some(t) = &self.failed {
+                return Err(std::io::Error::other(t.clone()));
+            }
+            if self.pos < self.cur.len() {
+                let n = b.len().min(self.cur.len() - self.pos);
+                b[..n].copy_from_slice(&self.cur[self.pos..self.pos + n]);
+                self.pos += n;
+                return Ok(n);
+            }
+            match self.input.blocking_recv() {
+                None => return Ok(0),
+                Some(Ok(d)) => {
+                    self.cur = d;
+                    self.pos = 0;
+                }
+                Some(Err(e)) => self.failed = Some(e),
+            }
+        }
+    }
+}
+
+fn lib_snapshot(s: &armada_node::volbackup::repo::Snapshot) -> Snapshot {
+    Snapshot {
+        id: s.id.clone(),
+        time: nanos_time(s.time.nanos()),
+        files: s.files,
+        bytes: s.bytes,
+        node: s.node.clone(),
+    }
+}
+
+fn nanos_time(n: i128) -> SystemTime {
+    if n >= 0 {
+        SystemTime::UNIX_EPOCH + Duration::from_nanos(n as u64)
+    } else {
+        SystemTime::UNIX_EPOCH - Duration::from_nanos((-n) as u64)
+    }
+}
+
+/// The volume's repository in its bucket, as the program opens it.
+fn open_repo(req: &SnapshotRequest) -> Result<armada_node::volbackup::repo::Repo, String> {
+    use armada_node::volbackup::{repo, s3, target};
+    let t = target::parse(&req.url)?;
+    let bucket = s3::Bucket::new(t.clone(), None)?;
+    repo::Repo::open(
+        &bucket,
+        &repo::root(&t.prefix, &req.app, &req.volume),
+        &req.key,
+    )
+}
+
+/// A kernel without openat2 cannot walk a volume safely.
+fn probe(dir: &str) -> Result<(), String> {
+    match armada_node::volume::walk::Root::open(dir.as_bytes()) {
+        Ok(root) => root.probe(),
+        Err(_) => Ok(()),
+    }
+}
+
+/// Sets a restore's stop when the call is dropped.
+struct StopOnDrop(Arc<AtomicBool>);
+
+impl Drop for StopOnDrop {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::SeqCst);
+    }
+}
+
+impl Volumes for LibVolumes {
+    fn archive<'a>(
+        &'a self,
+        dir: &'a str,
+        out: mpsc::Sender<Vec<u8>>,
+    ) -> BoxFut<'a, Result<(), String>> {
+        let dir = dir.to_string();
+        Box::pin(async move {
+            blocking(move || {
+                let mut w = ChunkWriter {
+                    out: &out,
+                    buf: Vec::with_capacity(VOLUME_CHUNK),
+                    ended: false,
+                };
+                let res = armada_node::volume::archive::write_to(&dir, &mut w);
+                if w.ended {
+                    return Err("archive volume: the session ended".to_string());
+                }
+                match res {
+                    Ok(()) => Ok(()),
+                    Err(armada_node::volume::archive::WriteError::Entry { text, .. }) => Err(text),
+                    Err(armada_node::volume::archive::WriteError::Out(e)) => {
+                        Err(format!("write archive: {e}"))
+                    }
+                }
+            })
+            .await?
+        })
+    }
+
+    fn restore<'a>(
+        &'a self,
+        dir: &'a str,
+        input: mpsc::Receiver<Result<Vec<u8>, String>>,
+    ) -> BoxFut<'a, Result<(), String>> {
+        let dir = dir.to_string();
+        Box::pin(async move {
+            blocking(move || {
+                let r = BufReader::with_capacity(
+                    64 << 10,
+                    SessionReader {
+                        input,
+                        cur: Vec::new(),
+                        pos: 0,
+                        failed: None,
+                    },
+                );
+                armada_node::volume::restore::restore(
+                    dir.as_bytes(),
+                    r,
+                    armada_node::volume::restore::restore_space(),
+                )
+            })
+            .await?
+        })
+    }
+
+    fn sizes(&self, dirs: Vec<String>) -> BoxFut<'_, Result<Vec<i64>, String>> {
+        Box::pin(async move {
+            blocking(move || {
+                dirs.iter()
+                    .map(|d| armada_node::volume::walk::size(d.as_bytes()))
+                    .collect()
+            })
+            .await?
+        })
+    }
+
+    fn snapshot(
+        &self,
+        req: SnapshotRequest,
+    ) -> BoxFut<'_, Result<(Snapshot, BackupStats), String>> {
+        Box::pin(async move {
+            blocking(move || {
+                probe(&req.dir)?;
+                let mut repo = open_repo(&req)?;
+                let now = armada_node::volbackup::gotime::Instant::from_nanos(i128::from(req.now));
+                match repo.backup(req.dir.as_bytes(), &req.node, now) {
+                    Ok((s, st)) => Ok((
+                        lib_snapshot(&s),
+                        BackupStats {
+                            new_bytes: st.new_bytes,
+                            uploaded: st.uploaded,
+                        },
+                    )),
+                    Err(f) => Err(f.text),
+                }
+            })
+            .await?
+        })
+    }
+
+    fn prune(&self, req: SnapshotRequest) -> BoxFut<'_, (Usage, Result<(), String>)> {
+        Box::pin(async move {
+            let r = blocking(move || {
+                let mut repo = match open_repo(&req) {
+                    Ok(r) => r,
+                    Err(e) => return (Usage::default(), Err(e)),
+                };
+                let k = req.keep.unwrap_or_default();
+                let keep = armada_node::volbackup::gotime::Keep {
+                    last: k.last,
+                    hourly: k.hourly,
+                    daily: k.daily,
+                    weekly: k.weekly,
+                    monthly: k.monthly,
+                };
+                let zone: Vec<(i64, i64)> = if req.zone.is_empty() {
+                    vec![(i64::MIN, 0)]
+                } else {
+                    req.zone.iter().map(|z| (z[0], z[1])).collect()
+                };
+                let now = armada_node::volbackup::gotime::Instant::from_nanos(i128::from(req.now));
+                let (u, err) = repo.prune(&keep, &zone, now);
+                let u = Usage {
+                    snapshots: u.snapshots,
+                    stored: u.stored,
+                    deleted_snapshots: u.deleted_snapshots,
+                    deleted_chunks: u.deleted_chunks,
+                };
+                (u, err.map_or(Ok(()), Err))
+            })
+            .await;
+            r.unwrap_or_else(|e| (Usage::default(), Err(e)))
+        })
+    }
+
+    fn snapshots(&self, req: SnapshotRequest) -> BoxFut<'_, Result<Vec<Snapshot>, String>> {
+        Box::pin(async move {
+            blocking(move || {
+                let s = open_repo(&req)?.snapshots()?;
+                Ok(s.iter()
+                    .map(|(id, t)| Snapshot {
+                        id: id.clone(),
+                        time: nanos_time(t.nanos()),
+                        files: 0,
+                        bytes: 0,
+                        node: String::new(),
+                    })
+                    .collect())
+            })
+            .await?
+        })
+    }
+
+    fn restore_snapshot(
+        &self,
+        req: SnapshotRequest,
+        pause: PauseFn,
+    ) -> BoxFut<'_, Result<Snapshot, String>> {
+        Box::pin(async move {
+            let (repo, id, dir) = blocking(move || -> Result<_, String> {
+                probe(&req.dir)?;
+                let mut repo = open_repo(&req)?;
+                let id = if req.snapshot == "latest" {
+                    repo.latest()?
+                } else {
+                    req.snapshot.clone()
+                };
+                Ok((repo, id, req.dir))
+            })
+            .await??;
+            pause().await?;
+            let stop = Arc::new(AtomicBool::new(false));
+            let _guard = StopOnDrop(stop.clone());
+            blocking(move || {
+                armada_node::volbackup::with_stop(stop, || {
+                    let mut repo = repo;
+                    armada_node::volbackup::repo::restore_into(&mut repo, dir.as_bytes(), &id)
+                        .map(|s| lib_snapshot(&s))
+                })
+            })
+            .await?
+        })
+    }
+}
+
 /// The zone as armada-node counts days in it (Go's zoneTable): each
 /// offset from UTC and when it starts (Unix seconds), the first also
 /// before. Go walks the zone with Time.ZoneBounds from 1900 towards 2300,
@@ -1312,5 +1609,98 @@ mod tests {
             r#"{"url":"https://k:s@h/b","key":"MDEyMw==","app":"web","volume":"data"}"#
         );
         assert_eq!(format!("{r:?}"), "volume data of web");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn archives_restores_and_measures_in_process() {
+        let root = std::env::temp_dir().join(format!("armada-libvol-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let (src, dst) = (root.join("src"), root.join("dst"));
+        std::fs::create_dir_all(src.join("sub")).unwrap();
+        std::fs::create_dir_all(&dst).unwrap();
+        for p in [&root, &dst] {
+            std::fs::set_permissions(p, std::os::unix::fs::PermissionsExt::from_mode(0o700))
+                .unwrap();
+        }
+        std::fs::write(src.join("a"), vec![7u8; 200_000]).unwrap();
+        std::fs::write(src.join("sub/b"), b"bee").unwrap();
+        let v = LibVolumes;
+        let (tx, mut rx) = mpsc::channel::<Vec<u8>>(4);
+        let s = src.display().to_string();
+        let collect = tokio::spawn(async move {
+            let mut all = Vec::new();
+            while let Some(b) = rx.recv().await {
+                assert!(b.len() <= VOLUME_CHUNK);
+                all.extend(b);
+            }
+            all
+        });
+        v.archive(&s, tx).await.unwrap();
+        let data = collect.await.unwrap();
+        assert_eq!(&data[..2], &[0x1f, 0x8b]);
+
+        let (tx, rx) = mpsc::channel(4);
+        tokio::spawn(async move {
+            for c in data.chunks(1000) {
+                tx.send(Ok(c.to_vec())).await.unwrap();
+            }
+        });
+        let d = dst.display().to_string();
+        v.restore(&d, rx).await.unwrap();
+        assert_eq!(std::fs::read(dst.join("sub/b")).unwrap(), b"bee");
+        assert_eq!(std::fs::read(dst.join("a")).unwrap().len(), 200_000);
+        assert_eq!(
+            v.sizes(vec![s.clone(), d.clone()]).await.unwrap(),
+            vec![200_003, 200_003]
+        );
+
+        // A session that fails makes the restore fail with its error and
+        // leaves the volume as it was.
+        let (tx, rx) = mpsc::channel(4);
+        tx.send(Ok(vec![0x1f, 0x8b])).await.unwrap();
+        tx.send(Err("the session ended".into())).await.unwrap();
+        drop(tx);
+        let e = v.restore(&d, rx).await.unwrap_err();
+        assert!(e.contains("the session ended"), "{e}");
+        assert_eq!(std::fs::read(dst.join("sub/b")).unwrap(), b"bee");
+
+        // A missing directory, and a bucket URL refused as ParseTarget
+        // refuses it.
+        let e = v
+            .archive(&root.join("nope").display().to_string(), mpsc::channel(1).0)
+            .await
+            .unwrap_err();
+        assert!(e.starts_with("archive volume: open "), "{e}");
+        let req = SnapshotRequest {
+            url: "ftp://k:s@h/b".into(),
+            key: b"0123".to_vec(),
+            app: "web".into(),
+            volume: "data".into(),
+            ..Default::default()
+        };
+        let want = armada_node::volbackup::target::parse("ftp://k:s@h/b").unwrap_err();
+        assert_eq!(v.snapshots(req.clone()).await.unwrap_err(), want);
+        assert_eq!(v.prune(req).await.1.unwrap_err(), want);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test]
+    async fn connection_tracking_in_process() {
+        use super::super::conntrack::{Conntrack, LibConntrack};
+        let dir = std::env::temp_dir().join(format!("armada-libct-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let t = LibConntrack {
+            dir: dir.display().to_string(),
+            memory: Some(64 << 30),
+        };
+        assert_eq!(t.read().await, None);
+        assert_eq!(t.raise().await.unwrap(), 0);
+        std::fs::write(dir.join("nf_conntrack_max"), "65536\n").unwrap();
+        std::fs::write(dir.join("nf_conntrack_count"), "12\n").unwrap();
+        assert_eq!(t.raise().await.unwrap(), 65536);
+        assert_eq!(t.read().await, Some((12, 262_144)));
+        assert_eq!(t.raise().await.unwrap(), 0);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

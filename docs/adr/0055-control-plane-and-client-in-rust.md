@@ -515,7 +515,10 @@ Go and every new Rust part is exercised only by its parity tests.
     for SELinux, converts Go's image store at the agent's start,
     implements 16c's runtime calls (exec sessions, logs, dials, queues,
     sandboxes), and moves the volume and connection tracking seams in
-    process (NFS mounts stay a process).
+    process (NFS mounts stay a process). The conversion of Go's image
+    store, which reads containerd's metadata database, moved to a third
+    pull request; until it lands the Rust runtime refuses a node whose Go
+    image store was never converted, and runs one Go's agent converted.
 17. **The client.** Every command, output, completion, the SSH dialer,
     configuration files, and the release notice, with the client parity
     tests.
