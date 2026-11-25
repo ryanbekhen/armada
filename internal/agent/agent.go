@@ -555,14 +555,7 @@ func (a *Agent) session(ctx context.Context) (established bool, err error) {
 		}
 		switch m := msg.Msg.(type) {
 		case *armadav1.ServerMessage_Assignment:
-			a.setNetwork(m.Assignment.GetNetwork())
-			a.setDesired(m.Assignment.GetReplicas(), m.Assignment.GetProxy())
-			a.setServers(m.Assignment.GetServers())
-			a.setLogSettings(m.Assignment.GetLogs())
-			a.setRuntimeMovePlan(m.Assignment.GetRuntimeMove())
-			if a.sandboxesOn() {
-				a.setSandboxes(m.Assignment.GetQueueSandboxes())
-			}
+			a.assign(m.Assignment)
 		case *armadav1.ServerMessage_LogRequest:
 			go a.serveLogs(ctx, m.LogRequest)
 		case *armadav1.ServerMessage_LogCancel:
@@ -576,6 +569,18 @@ func (a *Agent) session(ctx context.Context) (established bool, err error) {
 		case *armadav1.ServerMessage_MoveRuntime:
 			go a.moveRuntime(ctx, m.MoveRuntime)
 		}
+	}
+}
+
+// assign takes an assignment from the server.
+func (a *Agent) assign(as *armadav1.Assignment) {
+	a.setNetwork(as.GetNetwork())
+	a.setDesired(as.GetReplicas(), as.GetProxy())
+	a.setServers(as.GetServers())
+	a.setLogSettings(as.GetLogs())
+	a.setRuntimeMovePlan(as.GetRuntimeMove())
+	if a.sandboxesOn() {
+		a.setSandboxes(as.GetQueueSandboxes())
 	}
 }
 

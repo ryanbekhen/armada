@@ -14,6 +14,10 @@ armada-spec = { path = "../spec" }
 # The session: tonic's channel over a TLS 1.3 connection made here
 # (rustls with ring, the node certificate presented on every handshake).
 hyper-util.workspace = true
+# The wake socket (wake.rs): HTTP/1.1 from the node's proxy, forwarded to
+# the replica that woke up.
+http-body-util = "0.1"
+hyper = { version = "1", default-features = false, features = ["http1", "server", "client"] }
 libc.workspace = true
 prost.workspace = true
 rustls.workspace = true

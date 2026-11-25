@@ -11,7 +11,6 @@ import (
 	"io"
 	"io/fs"
 	"maps"
-	"net/netip"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -27,6 +26,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	armadav1 "github.com/ryanbekhen/armada/api/armada/v1"
+	"github.com/ryanbekhen/armada/internal/proxy"
 	"github.com/ryanbekhen/armada/internal/runtime"
 )
 
@@ -271,6 +271,9 @@ type pfake struct {
 	execCodes map[string]int
 	// pullHold, while set, holds every pull until it is closed.
 	pullHold chan struct{}
+	// in is what the proxy, network, resolver, certificate, and runtime
+	// move fakes answer (parity_ingress_test.go).
+	in ingress
 }
 
 func newPfake(clock *testClock) *pfake {
@@ -279,7 +282,7 @@ func newPfake(clock *testClock) *pfake {
 		pod: map[string]string{}, gen: map[string]int{}, norm: func(s string) string { return s },
 		pullErr: map[string]error{}, runErr: map[string]string{}, digests: map[string]string{}, platforms: map[string][]string{},
 		initExits: map[string]int{}, usage: map[string]runtime.Stats{}, checks: map[string]string{}, failed: map[string]int{},
-		execCodes: map[string]int{},
+		execCodes: map[string]int{}, in: ingress{certs: map[string][]byte{}, load: map[string]proxy.ServerLoad{}},
 	}
 }
 
@@ -639,6 +642,8 @@ type rustCall struct {
 	Addr    string            `json:"addr"`
 	Path    string            `json:"path"`
 	Timeout int64             `json:"timeoutMs"`
+	// Raw is the whole call, for the fakes of parity_ingress_test.go.
+	Raw json.RawMessage `json:"-"`
 }
 
 type rustAuth struct {
@@ -698,7 +703,8 @@ func (f *pfake) answer(c rustCall) (any, error) {
 		s := f.RuntimeAgent()
 		return map[string]any{"agent": s.Agent, "goImages": s.GoImages, "converted": s.Converted, "imagesToPull": s.ImagesToPull, "error": s.Error}, nil
 	}
-	return nil, fmt.Errorf("unknown call %q", c.Method)
+	res, _, err := f.answerIngress(c.Method, c.Raw)
+	return res, err
 }
 
 // parityOpts is how a scenario's node is set up.
@@ -711,6 +717,10 @@ type parityOpts struct {
 	bridge                        string
 	crashBase                     time.Duration
 	boot                          time.Time
+	// The node's proxy, cluster network (with networkKey), and runtime
+	// move hooks (parity_ingress_test.go).
+	proxy, network, move bool
+	networkKey           string
 }
 
 func defaultOpts() parityOpts {
@@ -726,6 +736,8 @@ type agentUnderTest interface {
 	prune()
 	sample() *armadav1.UsageReport
 	hello() *armadav1.Hello
+	rotate()
+	move(to string)
 	setNow(time.Time)
 	stop()
 }
@@ -737,11 +749,13 @@ type goAgent struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 	prev   map[string]usageSample
+	totals map[string]int64
 }
 
-func (g *goAgent) assign(a *armadav1.Assignment) {
-	g.a.setDesired(a.GetReplicas(), a.GetProxy())
-	g.a.setServers(a.GetServers())
+func (g *goAgent) assign(a *armadav1.Assignment) { g.a.assign(a) }
+func (g *goAgent) rotate()                       { g.a.rotateNetworkKey() }
+func (g *goAgent) move(to string) {
+	g.a.moveRuntime(g.ctx, &armadav1.MoveRuntime{To: to})
 }
 
 func (g *goAgent) reconcile() (*armadav1.ReplicaReport, string) {
@@ -770,19 +784,19 @@ func (g *goAgent) sample() *armadav1.UsageReport {
 			report.Replicas, sampled = r.Replicas, true
 		}
 	}
+	if lr, ok := g.a.cfg.Proxy.(proxy.LoadReader); ok {
+		g.totals = g.a.sampleLoad(g.ctx, lr, report, g.totals)
+	}
+	if sw := g.a.switcher(); sw != nil {
+		report.NetworkSwitch = sw.SwitchStatus()
+	}
+	g.a.reportPeers(report)
 	report.Runtime = g.a.withMoveError(runtimeStatus(g.f.RuntimeAgent()))
-	if !sampled && report.Runtime == nil {
+	if !sampled && report.Runtime == nil && !report.PeersChecked && !report.LoadMeasured && report.NetworkSwitch == nil {
 		return nil
 	}
 	return report
 }
-
-// stubDNS is the node's resolver: only its address is used here.
-type stubDNS string
-
-func (d stubDNS) Address() string                { return string(d) }
-func (stubDNS) SetNames([]string)                {}
-func (stubDNS) SetClients(map[netip.Addr]string) {}
 
 // rustAgent is the Rust agent's parity program.
 type rustAgent struct {
@@ -826,6 +840,7 @@ func startRust(t *testing.T, f *pfake) *rustAgent {
 			if _, ok := m["call"]; ok {
 				var c rustCall
 				_ = json.Unmarshal(line, &c)
+				c.Raw = line
 				go r.reply(c)
 				continue
 			}
@@ -918,6 +933,8 @@ func (r *rustAgent) reconcile() (*armadav1.ReplicaReport, string) {
 func (r *rustAgent) contact(up bool) { r.request("contact", map[string]any{"up": up}) }
 func (r *rustAgent) fence()          { r.request("fence", nil) }
 func (r *rustAgent) prune()          { r.request("prune", nil) }
+func (r *rustAgent) rotate()         { r.request("rotate", nil) }
+func (r *rustAgent) move(to string)  { r.request("move", map[string]any{"to": to}) }
 func (r *rustAgent) setNow(t time.Time) {
 	r.request("now", map[string]any{"ns": t.UnixNano()})
 }
@@ -1102,7 +1119,9 @@ func newParityRun(t *testing.T, opts parityOpts, rust bool) *parityRun {
 			"bootNs": opts.boot.UnixNano(), "nowNs": parityT0.UnixNano(), "crashBaseNs": int64(opts.crashBase),
 			"unpublished": opts.unpublished, "volumesDir": p.volumes, "secretsDir": p.secrets, "dns": opts.dns,
 			"os": "linux", "arch": "amd64",
-			"caps": map[string]any{"members": opts.members, "volumes": opts.volumes, "exec": opts.exec, "stats": opts.stats},
+			"caps": map[string]any{"members": opts.members, "volumes": opts.volumes, "exec": opts.exec, "stats": opts.stats,
+				"proxy": opts.proxy, "network": opts.network, "move": opts.move},
+			"networkKey": opts.networkKey,
 		}})
 		p.a = r
 		return p
@@ -1112,9 +1131,7 @@ func newParityRun(t *testing.T, opts parityOpts, rust bool) *parityRun {
 		BootTime: opts.boot, Unpublished: opts.unpublished, VolumesDir: p.volumes, SecretsDir: p.secrets,
 		OS: "linux", Arch: "amd64", ImagePrune: -1, UsageInterval: time.Hour,
 	}
-	if opts.dns != "" {
-		cfg.DNS = stubDNS(opts.dns)
-	}
+	withIngress(&cfg, f, opts)
 	a := New(cfg)
 	a.now, a.began, a.crashBase = clk.Now, clk.Now(), opts.crashBase
 	ctx, cancel := context.WithCancel(context.Background())

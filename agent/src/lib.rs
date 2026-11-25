@@ -9,10 +9,14 @@
 //! samples. Its parity tests (`internal/agent/parity_test.go`) drive it
 //! and Go's agent through the same scenarios against one fake runtime.
 //!
-//! Left for the second part: the proxy and network passes, the wake
-//! socket, exec, log, and volume sessions, queue readings and sandboxes,
-//! NFS, proxy certificates by reference, log export, the runtime move,
-//! and the supervisor runtime over armada-node's library.
+//! The second part (16b) adds the proxy and network passes over seams of
+//! their own ([`proxy::Proxy`], [`network::Network`],
+//! [`proxy::InternalDns`], [`proxy::CertificateSource`]), the wake socket,
+//! key rotation, the runtime move, and the usage reports' load, switch,
+//! and peers. Left for later parts: exec, log, and volume sessions, queue
+//! readings and sandboxes, NFS, log export and prune (16c), and the
+//! supervisor runtime and the seams' real implementations over
+//! armada-node's library (16d).
 
 pub mod agent;
 pub mod boot;
@@ -25,11 +29,15 @@ mod files;
 pub mod hold;
 mod job;
 pub mod log;
+pub mod network;
 mod probe;
+pub mod proxy;
 pub mod runtime;
+pub mod runtimemove;
 pub mod session;
 pub mod spec;
 pub mod usage;
+pub mod wake;
 
 pub use agent::{Agent, Config};
 pub use files::NO_SECRETS_DIR;
