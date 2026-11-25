@@ -135,7 +135,6 @@ pub(crate) struct GivenUp {
 #[derive(Default)]
 pub(crate) struct MoveState {
     asked: Option<(Weak<Session>, Time)>,
-    #[allow(dead_code)]
     pub seen: Option<RuntimeMoveStatus>,
 }
 

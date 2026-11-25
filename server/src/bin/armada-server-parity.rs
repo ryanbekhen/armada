@@ -22,7 +22,10 @@
 //! locks, `stop` ends the server. With `certs` the server gets a
 //! certificate manager that reads certmagic's storage in etcd under
 //! `acmePrefix` (the certificates of the CA `acmeDirectory`) and records what it
-//! is asked to manage. The server asks the test for the etcd
+//! is asked to manage. With `metricsAddr` the server serves the metrics
+//! endpoint there, keeping a gathering `metricsCacheNs`; with
+//! `telegramApi` its Telegram channels post to that address. The server
+//! asks the test for the etcd
 //! membership with `{"call", "cluster", ...}` lines, answered by
 //! `{"op": "answer", "call", "value"?, "error"?}`, and tells it with
 //! `{"event": "settingsChanged"}` that the cluster's settings changed.
@@ -270,6 +273,11 @@ impl Setup {
             cfg.new_id = Some(Arc::new(move |n| {
                 predictable_id(next.fetch_add(1, Ordering::SeqCst) + 1, n)
             }));
+        }
+        cfg.metrics_cache = Duration::from_nanos(i(c, "metricsCacheNs").max(0) as u64);
+        let telegram = s(c, "telegramApi");
+        if !telegram.is_empty() {
+            cfg.alert_endpoints.telegram_api = telegram;
         }
         cfg.log = self.log.clone();
         cfg

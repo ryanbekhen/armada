@@ -114,7 +114,7 @@ pub(crate) type Use = HashMap<String, Placed>;
 /// missing from it reserves nothing (it could not be read).
 pub(crate) type Reserved = HashMap<String, Res>;
 
-fn reserved_of(r: &Replica, res: &Reserved) -> Res {
+pub(crate) fn reserved_of(r: &Replica, res: &Reserved) -> Res {
     if r.done {
         return Res::default();
     }

@@ -309,7 +309,7 @@ type serverParts int
 const (
 	// allParts is the whole control plane.
 	allParts serverParts = iota
-	// coreParts is what ADR 0055's pull requests 8 to 14 ported: terms,
+	// coreParts is what ADR 0055's pull requests 8 to 15 ported: terms,
 	// sessions with agents, the assignments of the replicas the store
 	// holds, scheduling, placement, rollouts, drains, evacuation,
 	// self-healing, rebalancing, the removal of apps, traffic splits,
@@ -318,11 +318,13 @@ const (
 	// store whose replicas are whose), volumes: apps with local volumes,
 	// their failover, and the backup loop, and the cluster network in
 	// every assignment (its switches, sites, relays, and endpoints, the
-	// sandboxes' addresses among them) with the runtime move, and the
-	// proxy configuration with its certificates (the ports of internal
-	// TCP apps in the network). The other background loops (the domain
-	// verification loop among them) do not run. Each later pull request
-	// moves its part into it.
+	// sandboxes' addresses among them) with the runtime move, the proxy
+	// configuration with its certificates (the ports of internal TCP apps
+	// in the network), and watching's first part: alert channels and
+	// their notices, the metrics endpoint, Top, and ClusterStatus. The
+	// domain verification loop, the control plane backup loop, and the
+	// loop that prunes log placements do not run; the last two come with
+	// watching's second part, which makes coreParts allParts.
 	coreParts
 )
 
@@ -580,11 +582,11 @@ func (s *Server) Serve(ctx context.Context, lis net.Listener) error {
 		go s.autoscaleLoop(ctx)
 		go s.backupLoop(ctx)
 	}
+	s.alerts.start(ctx, s.alertHTTP)
+	if err := s.loadAlerts(ctx); err != nil {
+		s.log.Warn("alert channels: load", "err", err)
+	}
 	if s.parts == allParts {
-		s.alerts.start(ctx, s.alertHTTP)
-		if err := s.loadAlerts(ctx); err != nil {
-			s.log.Warn("alert channels: load", "err", err)
-		}
 		go s.verifyLoop(ctx)
 		go s.controlPlaneBackupLoop(ctx)
 		go s.placementLoop(ctx)

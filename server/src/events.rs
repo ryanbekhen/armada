@@ -1,7 +1,7 @@
 //! Event history (ADR 0018; Go's events.go): the leader records what it
-//! sees happen, folding repeats, and streams it to `armada cluster events`.
-//! Alerts (ADR 0045) and the event counter of the metrics endpoint come
-//! with watching (pull request 15 of ADR 0055).
+//! sees happen, folding repeats, and streams it to `armada cluster events`,
+//! counts it on the metrics endpoint, and tells the alert channels that
+//! want it (ADR 0045) about new events and conditions that ended.
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::atomic::Ordering;
@@ -152,6 +152,11 @@ impl Server {
         // reconciler.
         s.subs.retain(|ch| ch.try_send(e.clone()).is_ok());
         drop(s);
+        self.0.metrics.event(&e.kind, &e.reason);
+        if replace.is_empty() {
+            // A repeat within the dedup window was already told.
+            self.alert(&e, crate::alert::KIND_EVENT);
+        }
         if trim && let Err(err) = self.store().trim_events(self.event_keep()).await {
             self.0.log.warn("trim events", &[("err", err.to_string())]);
         }
@@ -160,7 +165,7 @@ impl Server {
     /// Records e when the condition named key starts, and nothing while it
     /// lasts; on false ends it.
     pub(crate) async fn condition(&self, key: &str, on: bool, e: Event) {
-        let start = {
+        let (start, ended) = {
             let mut s = self.0.events.st.lock().await;
             let was = s.active.contains_key(key);
             if on && !was {
@@ -168,10 +173,14 @@ impl Server {
             } else if !on {
                 s.active.remove(key);
             }
-            on && !was
+            (on && !was, !on && was)
         };
         if start {
             self.record(e).await;
+        } else if ended {
+            let mut e = e;
+            e.last = self.now();
+            self.alert(&e, crate::alert::KIND_RESOLVED);
         }
     }
 

@@ -31,14 +31,21 @@
 //! custom domains and their TXT proof, certmagic's storage in etcd
 //! (`ingress`, [`certs`]), and obtaining and renewing certificates with
 //! ACME, HTTP-01 answered on the ACME responder and DNS-01 through
-//! Cloudflare ([`acme`]). Watching follows in pull request 15; its
-//! AdminService methods answer `Unimplemented` until then
+//! Cloudflare ([`acme`]); with the first part of watching (pull request
+//! 15): ClusterStatus, Top with the usage counted per space, alert
+//! channels and their notices ([`alert`], `alerts`), the metrics endpoint
+//! and the metrics credentials ([`metrics`]), and the control plane
+//! backups' status (`cpbackup`). Log search and live logs, exec, log
+//! export settings, and the control plane backups' loop follow in its
+//! second part; their methods answer `Unimplemented` until then
 //! ([`admin::LATER`]).
 
 pub mod access;
 pub mod acme;
 mod admin;
 pub mod agents;
+pub mod alert;
+mod alerts;
 mod apps;
 mod assign;
 mod autoscale;
@@ -46,6 +53,7 @@ mod backups;
 pub mod certs;
 pub mod cluster;
 pub mod conn;
+mod cpbackup;
 mod events;
 mod failover;
 mod grpc;
@@ -56,6 +64,7 @@ mod join;
 pub mod lifecycle;
 mod limiter;
 pub mod log;
+pub mod metrics;
 mod netutil;
 mod network;
 mod nodes;
@@ -68,7 +77,9 @@ mod secret_api;
 mod servers;
 mod settings;
 mod spaces;
+mod status;
 pub mod tls;
+mod top;
 mod triggers;
 mod usage;
 mod volumes;
@@ -196,6 +207,11 @@ pub struct Config {
     /// Makes the random part of new replica IDs (tests make them
     /// predictable); none uses random letters and digits.
     pub new_id: Option<Arc<dyn Fn(usize) -> String + Send + Sync>>,
+    /// How long metrics gathered for one scrape answer the next ones; zero
+    /// uses ten seconds.
+    pub metrics_cache: Duration,
+    /// Where alert channels' requests go (tests name a stand-in Bot API).
+    pub alert_endpoints: alert::Endpoints,
     pub log: log::Logger,
 }
 
@@ -244,6 +260,8 @@ impl Config {
             runtime_move_backoff: Duration::ZERO,
             manual_passes: false,
             new_id: None,
+            metrics_cache: Duration::ZERO,
+            alert_endpoints: alert::Endpoints::default(),
             log: log::Logger::discard(),
         }
     }
@@ -344,6 +362,10 @@ pub(crate) struct Inner {
     pub moves: tokio::sync::Mutex<runtimemove::MoveState>,
     /// The next pass a wake-up asked for, and its timer.
     pub wake: Mutex<Option<(tokio::time::Instant, tokio::task::AbortHandle)>>,
+    /// Alert channels' workers (ADR 0045).
+    pub alerts: alerts::Alerter,
+    /// The counters and the cluster's metrics of the metrics endpoint.
+    pub metrics: metrics::Metrics,
 }
 
 impl Server {
@@ -381,6 +403,17 @@ impl Server {
             if port == 0 {
                 return Err("server: ACME responder needs a fixed port".to_string());
             }
+        }
+        if !cfg.metrics_addr.is_empty() {
+            // CheckPrivateListen.
+            let Some((ip, _, _)) = ingress::parse_addr_port(&cfg.metrics_addr) else {
+                return Err(format!(
+                    "server: metrics listener: listen address {} must be ip:port",
+                    armada_spec::go::quote(&cfg.metrics_addr)
+                ));
+            };
+            netutil::check_private_ip(&ip.string())
+                .map_err(|e| format!("server: metrics listener: {e}"))?;
         }
         let clock = cfg
             .clock
@@ -479,6 +512,8 @@ impl Server {
             failovers: failover::FailoverRuns::default(),
             moves: tokio::sync::Mutex::new(runtimemove::MoveState::default()),
             wake: Mutex::new(None),
+            alerts: alerts::Alerter::new(cfg.alert_endpoints),
+            metrics: metrics::Metrics::new(cfg.metrics_cache),
         })))
     }
 
@@ -536,6 +571,23 @@ impl Server {
         }
         if !self.0.join_addr.is_empty() {
             self.serve_join(shutdown.clone()).await?;
+        }
+        if !self.0.metrics_addr.is_empty() {
+            self.serve_metrics(shutdown.clone()).await?;
+        }
+        self.0.alerts.start();
+        if let Err(e) = self.load_alerts().await {
+            self.0
+                .log
+                .warn("alert channels: load", &[("err", e.to_string())]);
+        }
+        {
+            let s = self.clone();
+            let mut sd = shutdown.clone();
+            tokio::spawn(async move {
+                crate::stopped(&mut sd).await;
+                s.0.alerts.stop();
+            });
         }
         {
             let s = self.clone();
@@ -597,7 +649,12 @@ impl Server {
             let res = if self.0.manual_passes {
                 Ok(())
             } else {
-                self.reconcile().await
+                let start = std::time::Instant::now();
+                let res = self.reconcile().await;
+                self.0
+                    .metrics
+                    .reconciled(start.elapsed(), res.is_err() && !*shutdown.borrow());
+                res
             };
             if let Err(e) = res
                 && !*shutdown.borrow()

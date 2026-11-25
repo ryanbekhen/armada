@@ -2,8 +2,9 @@
 //! schedules runs from cron fires, starts runs for queues (`triggers`),
 //! places and watches each attempt, retries with backoff, runs the tasks
 //! of runs with several, and prunes old runs; and the AdminService methods
-//! of jobs. The counter of ended runs on the metrics endpoint comes with
-//! watching (pull request 15 of ADR 0055), as do job logs.
+//! of jobs, with the counter of ended runs on the metrics endpoint. Job
+//! logs come with the second part of watching (pull request 15 of ADR
+//! 0055).
 
 use std::collections::HashMap;
 
@@ -331,6 +332,7 @@ impl Server {
                     *r = c.clone();
                 }
             }
+            self.0.metrics.job_run(&c.job, RUN_CANCELLED);
             self.record(run_event(c, "Cancelled", why)).await;
         }
         runs
@@ -507,6 +509,7 @@ impl Server {
         r.message = msg.to_string();
         r.finished_at = self.now();
         self.store().update_job_run(r).await?;
+        self.0.metrics.job_run(&r.job, state);
         let reason = if state == RUN_SUCCEEDED {
             "Succeeded"
         } else {
@@ -898,6 +901,15 @@ impl Server {
         a: &Auth,
         _req: ListJobsRequest,
     ) -> std::result::Result<ListJobsResponse, Status> {
+        self.jobs_and_runs(a).await.map(|(resp, _)| resp)
+    }
+
+    /// listJobs: the jobs the caller sees, with every job's runs (one
+    /// read).
+    pub(crate) async fn jobs_and_runs(
+        &self,
+        a: &Auth,
+    ) -> std::result::Result<(ListJobsResponse, HashMap<String, Vec<JobRun>>), Status> {
         let apps = self.store().list_apps().await.map_err(|e| store_err(&e))?;
         let runs = self
             .store()
@@ -936,7 +948,7 @@ impl Server {
             info.trigger = self.job_trigger(app);
             resp.jobs.push(info);
         }
-        Ok(resp)
+        Ok((resp, by_job))
     }
 
     /// ListJobRuns lists a job's runs, newest first.
