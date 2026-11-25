@@ -195,9 +195,13 @@ impl<R: Runtime> Agent<R> {
                 .warn("container runtime start", &[("err", e.to_string())]);
         }
         *lock(&inner.cert_source) = Some(conn.clone());
+        *lock(&inner.side.conn) = Some(conn.clone());
         let mut loops = JoinSet::new();
         loops.spawn(inner.clone().reconcile_loop());
         loops.spawn(inner.clone().usage_loop());
+        loops.spawn(inner.clone().queue_loop());
+        loops.spawn(inner.clone().sandbox_loop());
+        loops.spawn(inner.clone().log_export_loop());
         if !inner.cfg.wake_socket.is_empty() {
             loops.spawn(inner.clone().serve_wake(inner.cfg.wake_socket.clone()));
         }
@@ -277,12 +281,10 @@ impl<R: Runtime> Inner<R> {
             key_rotation: self.cfg.network.as_ref().is_some_and(|n| n.rotates_keys())
                 && !network_key.is_empty(),
             certificate_refs: true,
-            // Queue sandboxes and NFS need the parts of a later pull
-            // request: announced as a Go agent without them does.
-            queue_sandboxes: false,
+            queue_sandboxes: self.sandboxes_on(),
             held_replicas: true,
             volume_backups: self.mounts_volumes(),
-            nfs: false,
+            nfs: self.mounts_nfs(),
             log_history: self.rt.has_log_history(),
             network_switch: self.switcher().is_some(),
             runtime_move: self.cfg.move_runtime.is_some(),
@@ -348,12 +350,21 @@ impl<R: Runtime> Inner<R> {
         (true, err)
     }
 
-    /// One message from the server. Log, exec, and volume sessions come
-    /// with a later part.
+    /// One message from the server.
     fn handle(self: &Arc<Self>, msg: pb::ServerMessage) {
         use pb::server_message::Msg;
         match msg.msg {
             Some(Msg::Assignment(a)) => self.assign(&a),
+            Some(Msg::LogRequest(r)) => {
+                tokio::spawn(self.clone().serve_logs(r));
+            }
+            Some(Msg::LogCancel(c)) => self.cancel_logs(&c.request_id),
+            Some(Msg::ExecRequest(r)) => {
+                tokio::spawn(self.clone().serve_exec(r));
+            }
+            Some(Msg::VolumeRequest(r)) => {
+                tokio::spawn(self.clone().serve_volume(r));
+            }
             Some(Msg::RotateNetworkKey(_)) => {
                 let me = self.clone();
                 tokio::spawn(async move { me.rotate_network_key().await });
@@ -370,6 +381,7 @@ impl<R: Runtime> Inner<R> {
         let every = self.cfg.resync;
         let mut t = tokio::time::interval_at(tokio::time::Instant::now() + every, every);
         let mut last_prune = tokio::time::Instant::now();
+        let mut last_log_prune: Option<tokio::time::Instant> = None;
         loop {
             tokio::select! {
                 _ = t.tick() => {}
@@ -390,6 +402,10 @@ impl<R: Runtime> Inner<R> {
             {
                 last_prune = tokio::time::Instant::now();
                 self.prune_images().await;
+            }
+            if last_log_prune.is_none_or(|l| l.elapsed() >= self.cfg.side.log_prune) {
+                last_log_prune = Some(tokio::time::Instant::now());
+                self.prune_logs().await;
             }
         }
     }

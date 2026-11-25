@@ -334,6 +334,121 @@ pub trait Runtime: Send + Sync + 'static {
     fn tails_logs(&self) -> bool {
         false
     }
+
+    // The sessions and loops beside the reconcile pass (ADR 0055 item 16,
+    // third part): exec, logs, queues, and sandboxes. Their types are in
+    // crate::side.
+
+    /// Runs a command in a running app container (or sidecar) with its
+    /// streams (runtime.Execer's ExecApp): input until its channel ends,
+    /// output in the order written, resizes of a terminal. It returns the
+    /// exit code once the command ended and its output was sent.
+    fn exec_session(
+        &self,
+        _id: &str,
+        _opts: crate::side::ExecOptions,
+    ) -> impl Future<Output = Result<i64>> + Send {
+        async { Err(Error::other("this runtime runs no commands")) }
+    }
+    /// A container's output (Driver.Logs): frames until the channel ends.
+    fn logs(
+        &self,
+        _id: &str,
+        _opts: &crate::side::LogOptions,
+    ) -> impl Future<Output = Result<crate::side::LogFrames>> + Send {
+        async { Err(Error::other("this runtime keeps no logs")) }
+    }
+    /// Searches the log history (runtime.LogSearcher): the newest matching
+    /// entries, oldest first, and a notice when it stopped early.
+    fn search_logs(
+        &self,
+        _q: &crate::side::LogQuery,
+    ) -> impl Future<Output = Result<(Vec<crate::side::LogRecord>, String)>> + Send {
+        async { Err(Error::other("this node keeps no log history")) }
+    }
+    /// Whether it bounds its log history (runtime.LogPruner).
+    fn prunes_logs(&self) -> bool {
+        false
+    }
+    fn prune_logs(
+        &self,
+        _retention: Duration,
+        _max_bytes: i64,
+    ) -> impl Future<Output = Result<()>> + Send {
+        async { Ok(()) }
+    }
+    /// Whether tail_logs renders requests itself
+    /// (runtime.EncodingLogTailer).
+    fn encodes_logs(&self) -> bool {
+        false
+    }
+    /// Output written since the last committed tail for target, at most
+    /// about max_bytes (runtime.LogTailer); rendered as requests when enc
+    /// is given and the runtime encodes.
+    fn tail_logs(
+        &self,
+        _target: &str,
+        _max_bytes: i64,
+        _enc: Option<&crate::side::LogEncoding>,
+    ) -> impl Future<Output = Result<crate::side::LogTail>> + Send {
+        async { Err(Error::other("this runtime tails no logs")) }
+    }
+    /// Whether it dials from containers (runtime.CanDial).
+    fn can_dial(&self) -> bool {
+        false
+    }
+    /// A socket connected to address (an IP and port) from the network
+    /// namespace of the running container id (runtime.ContainerDialer).
+    fn dial_container(
+        &self,
+        _id: &str,
+        _network: &str,
+        _address: &str,
+    ) -> impl Future<Output = Result<std::os::fd::OwnedFd>> + Send {
+        async {
+            Err(Error::other(
+                "this node's runtime cannot dial from containers",
+            ))
+        }
+    }
+    /// Reads a Redis or RabbitMQ queue's length from the container's
+    /// network namespace (runtime.QueueReader); errors are queuelen's
+    /// texts.
+    fn read_queue(
+        &self,
+        _container: &str,
+        _q: &crate::side::QueueRead,
+    ) -> impl Future<Output = Result<i64>> + Send {
+        async { Err(Error::other(crate::side::queue::ERR_DIAL)) }
+    }
+    /// Network sandboxes for job queues (runtime.NetworkSandboxer).
+    fn ensure_sandbox(
+        &self,
+        _id: &str,
+    ) -> impl Future<Output = Result<crate::side::Sandbox>> + Send {
+        async { Err(Error::other("this runtime keeps no network sandboxes")) }
+    }
+    fn remove_sandbox(&self, _id: &str) -> impl Future<Output = Result<()>> + Send {
+        async { Ok(()) }
+    }
+    fn list_sandboxes(&self) -> impl Future<Output = Result<Vec<crate::side::Sandbox>>> + Send {
+        async { Ok(Vec::new()) }
+    }
+    fn dial_sandbox(
+        &self,
+        _id: &str,
+        _network: &str,
+        _address: &str,
+    ) -> impl Future<Output = Result<std::os::fd::OwnedFd>> + Send {
+        async { Err(Error::other("this runtime keeps no network sandboxes")) }
+    }
+    fn read_sandbox_queue(
+        &self,
+        _id: &str,
+        _q: &crate::side::QueueRead,
+    ) -> impl Future<Output = Result<i64>> + Send {
+        async { Err(Error::other(crate::side::queue::ERR_DIAL)) }
+    }
 }
 
 /// Whether a container in `state` has stopped.

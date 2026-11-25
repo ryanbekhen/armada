@@ -8,8 +8,12 @@ description = "The node agent's loop, a port of Go's internal/agent (ADR 0055): 
 
 [dependencies]
 armada-fsutil = { path = "../fsutil" }
-# The cluster network and HAProxy's configuration in process (16d).
+# The cluster network and HAProxy's configuration in process (16d), the
+# broker URLs of queue readings (net/url), the machine's roots, and the
+# HTTP pieces of the log export (16c).
 armada-node = { path = "../node" }
+# The log export's gzipped requests.
+flate2.workspace = true
 armada-pki = { path = "../pki" }
 armada-proto = { path = "../proto" }
 armada-spec = { path = "../spec" }

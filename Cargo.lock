@@ -23,6 +23,7 @@ dependencies = [
  "armada-pki",
  "armada-proto",
  "armada-spec",
+ "flate2",
  "http-body-util",
  "hyper",
  "hyper-util",

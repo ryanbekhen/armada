@@ -22,6 +22,14 @@ use armada_agent::runtime::{
 };
 use armada_agent::runtimemove::{MoveFn, PlanFn, PrepareFn};
 use armada_agent::session::{ServerConn, reconnect_wait};
+use armada_agent::side::conntrack::NodeConntrack;
+use armada_agent::side::logexport::ExportState;
+use armada_agent::side::nfs::NodeNfs;
+use armada_agent::side::volume::NodeVolumes;
+use armada_agent::side::{
+    CommitFn, ExecOptions, LogEncoding, LogFrame, LogFrames, LogOptions, LogQuery, LogRecord,
+    LogTail, QueueRead, Sandbox, SideConfig,
+};
 use armada_agent::usage::UsageState;
 use armada_agent::{Agent, Config};
 use armada_proto::armada::v1 as pb;
@@ -151,6 +159,29 @@ struct Caps {
     volumes: bool,
     exec: bool,
     stats: bool,
+    logs: bool,
+    encodes: bool,
+    sandbox: bool,
+}
+
+fn bytes_of(v: &Value) -> Vec<u8> {
+    v.as_str().unwrap_or("").as_bytes().to_vec()
+}
+
+fn record(v: &Value) -> LogRecord {
+    LogRecord {
+        time: time(&v["timeNs"]).unwrap_or(SystemTime::UNIX_EPOCH),
+        stderr: v["stderr"].as_bool().unwrap_or(false),
+        data: bytes_of(&v["data"]),
+        replica: s(&v["replica"]),
+        container: s(&v["container"]),
+        app: s(&v["app"]),
+        revision: s(&v["revision"]),
+    }
+}
+
+fn ns(t: SystemTime) -> i64 {
+    unix_nanos(t) as i64
 }
 
 /// The runtime whose calls the test answers.
@@ -267,6 +298,202 @@ impl Runtime for Remote {
                 .await
                 .map(|v| strings(&v)),
         )
+    }
+
+    fn has_log_history(&self) -> bool {
+        self.caps.logs
+    }
+
+    fn prunes_logs(&self) -> bool {
+        self.caps.logs
+    }
+
+    fn tails_logs(&self) -> bool {
+        self.caps.logs
+    }
+
+    fn encodes_logs(&self) -> bool {
+        self.caps.encodes
+    }
+
+    fn can_sandbox(&self) -> bool {
+        self.caps.sandbox
+    }
+
+    async fn exec_session(&self, id: &str, mut opts: ExecOptions) -> Result<i64> {
+        let mut stdin = Value::Null;
+        if let Some(mut rx) = opts.stdin.take() {
+            let mut b = Vec::new();
+            while let Some(x) = rx.recv().await {
+                b.extend(x);
+            }
+            stdin = json!(String::from_utf8_lossy(&b));
+        }
+        let v = self
+            .wire
+            .call(
+                "execSession",
+                json!({"id": id, "cmd": opts.cmd, "tty": opts.tty, "rows": opts.size.rows,
+                    "cols": opts.size.cols, "stdin": stdin}),
+            )
+            .await?;
+        if let Some(out) = &opts.output {
+            for (k, stdout) in [("stdout", true), ("stderr", false)] {
+                let b = bytes_of(&v[k]);
+                if !b.is_empty() {
+                    let _ = out.send((stdout, b)).await;
+                }
+            }
+        }
+        Ok(int(&v["code"]))
+    }
+
+    async fn logs(&self, id: &str, o: &LogOptions) -> Result<LogFrames> {
+        let v = self
+            .wire
+            .call(
+                "logs",
+                json!({"id": id, "follow": o.follow, "tail": o.tail, "grep": o.grep}),
+            )
+            .await?;
+        let frames = v.as_array().cloned().unwrap_or_default();
+        let (tx, rx) = tokio::sync::mpsc::channel(frames.len() + 1);
+        for f in frames {
+            let _ = tx
+                .send(Ok(LogFrame {
+                    stderr: f["stderr"].as_bool().unwrap_or(false),
+                    data: bytes_of(&f["data"]),
+                    time: time(&f["timeNs"]),
+                }))
+                .await;
+        }
+        Ok(rx)
+    }
+
+    async fn search_logs(&self, q: &LogQuery) -> Result<(Vec<LogRecord>, String)> {
+        let v = self
+            .wire
+            .call(
+                "searchLogs",
+                json!({"app": q.app, "replica": q.replica, "container": q.container,
+                    "sinceNs": ns(q.since), "untilNs": q.until.map(ns).unwrap_or(0),
+                    "grep": q.grep, "limit": q.limit, "maxBytes": q.max_bytes}),
+            )
+            .await?;
+        let recs = v["records"]
+            .as_array()
+            .map(|a| a.iter().map(record).collect())
+            .unwrap_or_default();
+        Ok((recs, s(&v["notice"])))
+    }
+
+    async fn prune_logs(&self, retention: Duration, max_bytes: i64) -> Result<()> {
+        self.wire
+            .call(
+                "pruneLogs",
+                json!({"retentionMs": retention.as_millis() as i64, "maxBytes": max_bytes}),
+            )
+            .await
+            .map(|_| ())
+    }
+
+    async fn tail_logs(
+        &self,
+        target: &str,
+        max_bytes: i64,
+        enc: Option<&LogEncoding>,
+    ) -> Result<LogTail> {
+        let w = self.wire.clone();
+        let t = target.to_string();
+        let commit: CommitFn = Box::new(move || {
+            Box::pin(async move { w.call("commitLogs", json!({"target": t})).await.map(|_| ()) })
+        });
+        if let Some(e) = enc {
+            let v = self
+                .wire
+                .call(
+                    "tailLogsEncoded",
+                    json!({"target": target, "maxBytes": max_bytes, "format": e.format, "node": e.node,
+                        "batchRecords": e.batch_records, "batchBytes": e.batch_bytes}),
+                )
+                .await?;
+            return Ok(LogTail {
+                bodies: Some(
+                    v["bodies"]
+                        .as_array()
+                        .map(|a| a.iter().map(bytes_of).collect())
+                        .unwrap_or_default(),
+                ),
+                size: int(&v["size"]),
+                commit: Some(commit),
+                ..LogTail::default()
+            });
+        }
+        let v = self
+            .wire
+            .call("tailLogs", json!({"target": target, "maxBytes": max_bytes}))
+            .await?;
+        Ok(LogTail {
+            records: v["records"]
+                .as_array()
+                .map(|a| a.iter().map(record).collect())
+                .unwrap_or_default(),
+            commit: Some(commit),
+            ..LogTail::default()
+        })
+    }
+
+    async fn read_queue(&self, container: &str, q: &QueueRead) -> Result<i64> {
+        let v = self
+            .wire
+            .call(
+                "readQueue",
+                json!({"id": container, "type": q.kind, "name": q.name, "url": q.url,
+                    "addresses": q.addresses.iter().map(|a| a.to_string()).collect::<Vec<_>>()}),
+            )
+            .await?;
+        Ok(int(&v))
+    }
+
+    async fn ensure_sandbox(&self, id: &str) -> Result<Sandbox> {
+        let v = self.wire.call("ensureSandbox", json!({"id": id})).await?;
+        Ok(Sandbox {
+            id: s(&v["id"]),
+            ip: s(&v["ip"]),
+        })
+    }
+
+    async fn remove_sandbox(&self, id: &str) -> Result<()> {
+        self.wire
+            .call("removeSandbox", json!({"id": id}))
+            .await
+            .map(|_| ())
+    }
+
+    async fn list_sandboxes(&self) -> Result<Vec<Sandbox>> {
+        let v = self.wire.call("listSandboxes", json!({})).await?;
+        Ok(v.as_array()
+            .map(|a| {
+                a.iter()
+                    .map(|x| Sandbox {
+                        id: s(&x["id"]),
+                        ip: s(&x["ip"]),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default())
+    }
+
+    async fn read_sandbox_queue(&self, id: &str, q: &QueueRead) -> Result<i64> {
+        let v = self
+            .wire
+            .call(
+                "readSandboxQueue",
+                json!({"id": id, "type": q.kind, "name": q.name, "url": q.url,
+                    "addresses": q.addresses.iter().map(|a| a.to_string()).collect::<Vec<_>>()}),
+            )
+            .await?;
+        Ok(int(&v))
     }
 
     async fn runtime_agent(&self) -> Option<AgentStatus> {
@@ -483,6 +710,36 @@ struct Under {
     agent: Agent<Remote>,
     clock: Arc<TestClock>,
     samples: Mutex<UsageState>,
+    export: tokio::sync::Mutex<ExportState>,
+}
+
+/// The sessions' and loops' part of the configuration: the fake
+/// armada-node behind every program seam.
+fn side_config(c: &Value) -> SideConfig {
+    let bin = s(&c["nodeBin"]);
+    let ms = |k: &str, d: u64| Duration::from_millis(c[k].as_u64().unwrap_or(d));
+    let mut side = SideConfig {
+        queue_interval: ms("queueMs", 15_000),
+        sandbox_interval: c["sandboxMs"].as_u64().map(Duration::from_millis),
+        volume_interval: Duration::ZERO,
+        nfs_dir: s(&c["nfsDir"]),
+        ..SideConfig::default()
+    };
+    if !bin.is_empty() {
+        side.volumes = Some(Arc::new(NodeVolumes { bin: bin.clone() }));
+        side.nfs = Some(Arc::new(NodeNfs {
+            bin: bin.clone(),
+            supported: Some(true),
+        }));
+        if !s(&c["conntrackDir"]).is_empty() {
+            side.conntrack = Some(Arc::new(NodeConntrack {
+                bin,
+                dir: s(&c["conntrackDir"]),
+                memory: c["conntrackMemory"].as_i64(),
+            }));
+        }
+    }
+    side
 }
 
 static UNDER: OnceLock<Under> = OnceLock::new();
@@ -584,6 +841,7 @@ async fn handle(wire: Arc<Wire>, req: Value) -> std::result::Result<Value, Strin
                     })
                 })),
                 clock: clock.clone(),
+                side: side_config(c),
                 ..Config::default()
             };
             let caps = Caps {
@@ -591,6 +849,9 @@ async fn handle(wire: Arc<Wire>, req: Value) -> std::result::Result<Value, Strin
                 volumes: c["caps"]["volumes"].as_bool().unwrap_or(false),
                 exec: c["caps"]["exec"].as_bool().unwrap_or(false),
                 stats: c["caps"]["stats"].as_bool().unwrap_or(false),
+                logs: on("logs"),
+                encodes: on("encodes"),
+                sandbox: on("sandbox"),
             };
             let agent = Agent::new(cfg, Remote { wire, caps });
             if let Some(n) = c["crashBaseNs"].as_u64() {
@@ -601,6 +862,7 @@ async fn handle(wire: Arc<Wire>, req: Value) -> std::result::Result<Value, Strin
                     agent,
                     clock,
                     samples: Mutex::new(UsageState::default()),
+                    export: tokio::sync::Mutex::new(ExportState::default()),
                 })
                 .map_err(|_| "configured twice".to_string())?;
             Ok(json!({}))
@@ -657,6 +919,60 @@ async fn handle(wire: Arc<Wire>, req: Value) -> std::result::Result<Value, Strin
             Ok(json!({"usage": r.as_ref().map(proto_json)}))
         }
         "hello" => Ok(json!({"hello": proto_json(&under()?.agent.hello())})),
+        "connect" => {
+            let creds = armada_agent::creds::Credentials::load(
+                Path::new(&s(&req["dataDir"])),
+                &s(&req["node"]),
+            )?;
+            let conn = ServerConn::new(Arc::new(creds), strings(&req["servers"]))?;
+            under()?.agent.set_connection(Arc::new(conn));
+            Ok(json!({}))
+        }
+        "exec" => {
+            let r = serde_json::from_value(req["request"].clone()).map_err(|e| e.to_string())?;
+            under()?.agent.serve_exec(r).await;
+            Ok(json!({}))
+        }
+        "logs" => {
+            let r = serde_json::from_value(req["request"].clone()).map_err(|e| e.to_string())?;
+            under()?.agent.serve_logs(r).await;
+            Ok(json!({}))
+        }
+        "cancelLogs" => {
+            under()?.agent.cancel_logs(&s(&req["requestId"]));
+            Ok(json!({}))
+        }
+        "volume" => {
+            let r = serde_json::from_value(req["request"].clone()).map_err(|e| e.to_string())?;
+            under()?.agent.serve_volume(r).await;
+            Ok(json!({}))
+        }
+        "pruneLogs" => {
+            under()?.agent.prune_logs().await;
+            Ok(json!({}))
+        }
+        "queues" => {
+            under()?.agent.measure_queues().await;
+            Ok(json!({}))
+        }
+        "sandboxes" => {
+            let u = under()?;
+            u.agent.sync_sandboxes().await;
+            while !u.agent.sandbox_reads_idle() {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+            Ok(json!({}))
+        }
+        "export" => {
+            let u = under()?;
+            let mut st = u.export.lock().await;
+            let wait = u.agent.export_round(&mut st).await;
+            Ok(json!({"waitMs": wait.as_millis() as i64}))
+        }
+        "cleanNfs" => {
+            under()?.agent.clean_nfs().await;
+            Ok(json!({}))
+        }
         "hash" => {
             let spec: pb::ReplicaSpec =
                 serde_json::from_value(req["spec"].clone()).map_err(|e| e.to_string())?;
