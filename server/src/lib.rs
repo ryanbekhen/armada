@@ -6,14 +6,19 @@
 //! server ([`Server`]: the API with access control and stream checks,
 //! joins, sessions with agents, and the assignments of the replicas the
 //! store holds), the terms themselves ([`lifecycle`]), and the renewal of
-//! the server's own certificates ([`renew`]). Scheduling, rollouts, jobs,
-//! scaling, volumes, the cluster network, ingress, and watching follow in
-//! their own pull requests; their AdminService methods answer
-//! `Unimplemented` until then ([`admin::LATER`]).
+//! the server's own certificates ([`renew`]); with placement and rollouts
+//! (pull request 9): the reconcile pass's scheduling, placement, rollouts,
+//! drains, evacuation, self-healing, rebalancing, removal of apps, and
+//! traffic splits (`reconcile`, `schedule`), and the AdminService methods
+//! of apps and secrets (`apps`, `secret_api`). Jobs, scaling, volumes, the
+//! cluster network, ingress, and watching follow in their own pull
+//! requests; their AdminService methods answer `Unimplemented` until then
+//! ([`admin::LATER`]).
 
 pub mod access;
 mod admin;
 pub mod agents;
+mod apps;
 mod assign;
 pub mod cluster;
 pub mod conn;
@@ -27,7 +32,10 @@ pub mod log;
 mod netutil;
 mod nodes;
 mod rbac;
+mod reconcile;
 pub mod renew;
+mod schedule;
+mod secret_api;
 mod servers;
 mod settings;
 mod spaces;
@@ -35,7 +43,7 @@ pub mod tls;
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::atomic::AtomicI64;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -113,6 +121,22 @@ pub struct Config {
     pub acme_ca: String,
     pub dns_provider: String,
     pub metrics_addr: String,
+    /// The cluster obtains no certificates: external apps' URLs are http.
+    pub plain_http: bool,
+    /// Rollout timing; zero values use the defaults: how long a replica
+    /// keeps running after leaving the proxies, how long a new replica
+    /// serves before old ones go, and how long a rollout may go without a
+    /// new replica serving.
+    pub drain_timeout: Duration,
+    pub warmup: Duration,
+    pub progress_deadline: Duration,
+    /// Passes run only when [`Server::reconcile`] is called (the scenario
+    /// parity tests, which drive every pass): the loop only promotes
+    /// learners.
+    pub manual_passes: bool,
+    /// Makes the random part of new replica IDs (tests make them
+    /// predictable); none uses random letters and digits.
+    pub new_id: Option<Arc<dyn Fn(usize) -> String + Send + Sync>>,
     pub log: log::Logger,
 }
 
@@ -144,6 +168,12 @@ impl Config {
             acme_ca: String::new(),
             dns_provider: String::new(),
             metrics_addr: String::new(),
+            plain_http: false,
+            drain_timeout: Duration::ZERO,
+            warmup: Duration::ZERO,
+            progress_deadline: Duration::ZERO,
+            manual_passes: false,
+            new_id: None,
             log: log::Logger::discard(),
         }
     }
@@ -177,6 +207,15 @@ pub(crate) struct Inner {
     pub acme_ca: String,
     pub dns_provider: String,
     pub metrics_addr: String,
+    pub plain_http: bool,
+    pub drain_timeout: Duration,
+    pub warmup: Duration,
+    pub progress_deadline: Duration,
+    pub manual_passes: bool,
+    pub new_id: Arc<dyn Fn(usize) -> String + Send + Sync>,
+    /// When this server started leading: drains a previous leader began
+    /// are counted from then.
+    pub term_start: Time,
     pub log: log::Logger,
 
     pub trigger: Notify,
@@ -191,6 +230,11 @@ pub(crate) struct Inner {
     pub opened: assign::Opened,
     pub learned: agents::Learned,
     pub cluster_size: AtomicI64,
+    /// One pass at a time.
+    pub pass: tokio::sync::Mutex<()>,
+    pub memory: Mutex<reconcile::Memory>,
+    /// The next pass a wake-up asked for, and its timer.
+    pub wake: Mutex<Option<(tokio::time::Instant, tokio::task::AbortHandle)>>,
 }
 
 impl Server {
@@ -225,6 +269,7 @@ impl Server {
         } else {
             cfg.node_cert_validity
         };
+        let term_start = clock();
         Ok(Server(Arc::new(Inner {
             store: cfg.store,
             keys: cfg.keys,
@@ -249,6 +294,13 @@ impl Server {
             acme_ca: cfg.acme_ca,
             dns_provider: cfg.dns_provider,
             metrics_addr: cfg.metrics_addr,
+            plain_http: cfg.plain_http,
+            drain_timeout: nonzero(cfg.drain_timeout, reconcile::DEFAULT_DRAIN_TIMEOUT),
+            warmup: nonzero(cfg.warmup, reconcile::DEFAULT_WARMUP),
+            progress_deadline: nonzero(cfg.progress_deadline, reconcile::DEFAULT_PROGRESS_DEADLINE),
+            manual_passes: cfg.manual_passes,
+            new_id: cfg.new_id.unwrap_or_else(|| Arc::new(random_id)),
+            term_start,
             log: cfg.log.with("component", "server"),
             trigger: Notify::new(),
             sessions: Mutex::new(HashMap::new()),
@@ -269,6 +321,9 @@ impl Server {
             opened: assign::Opened::default(),
             learned: agents::Learned::default(),
             cluster_size: AtomicI64::new(0),
+            pass: tokio::sync::Mutex::new(()),
+            memory: Mutex::new(reconcile::Memory::default()),
+            wake: Mutex::new(None),
         })))
     }
 
@@ -344,7 +399,12 @@ impl Server {
 
     async fn reconcile_loop(&self, mut shutdown: watch::Receiver<bool>) {
         loop {
-            if let Err(e) = self.reconcile().await
+            let res = if self.0.manual_passes {
+                Ok(())
+            } else {
+                self.reconcile().await
+            };
+            if let Err(e) = res
                 && !*shutdown.borrow()
             {
                 self.0
@@ -359,34 +419,24 @@ impl Server {
             }
         }
     }
-
-    /// The core of a reconcile pass (Go's Reconcile, the parts of this
-    /// pull request): the API addresses, and every connected node's
-    /// assignment of the replicas the store holds.
-    pub async fn reconcile(&self) -> Result<(), armada_store::Error> {
-        let apps = self.store().list_app_ids().await?;
-        let nodes = self.store().list_nodes().await?;
-        let replicas = self
-            .store()
-            .list_replicas(&armada_store::ReplicaFilter::default())
-            .await?;
-        self.0
-            .cluster_size
-            .store((apps.len() + nodes.len()) as i64, Ordering::Relaxed);
-        let eps = self.endpoints().await?;
-        *self
-            .0
-            .endpoints_seen
-            .lock()
-            .unwrap_or_else(|p| p.into_inner()) = Some((eps.clone(), tokio::time::Instant::now()));
-        let res = self.push_assignments(&replicas, &eps).await;
-        self.0.opened.sweep();
-        res
-    }
 }
 
 fn nonzero(d: Duration, def: Duration) -> Duration {
     if d.is_zero() { def } else { d }
+}
+
+const ID_ALPHABET: &[u8] = b"abcdefghijklmnopqrstuvwxyz0123456789";
+
+/// randomID: n random characters from [a-z0-9].
+pub fn random_id(n: usize) -> String {
+    use ring::rand::SecureRandom;
+    let mut b = vec![0u8; n];
+    ring::rand::SystemRandom::new()
+        .fill(&mut b)
+        .expect("the system's random source");
+    b.iter()
+        .map(|x| ID_ALPHABET[usize::from(*x) % ID_ALPHABET.len()] as char)
+        .collect()
 }
 
 /// Go's storeErr: the gRPC status of a store error.

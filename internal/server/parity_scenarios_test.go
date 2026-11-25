@@ -38,7 +38,9 @@ var parityPorted = map[string]bool{
 	"DeleteSpace": true, "UpdateSpace": true, "CreateUser": true, "IssueUserCertificate": true,
 	"CreateService": true, "IssueServiceCertificate": true, "ListPrincipals": true, "UpdatePrincipal": true,
 	"DeletePrincipal": true, "CreateAssignment": true, "DeleteAssignment": true, "ListRoles": true,
-	"RenewOwnCertificate": true, "Events": true,
+	"RenewOwnCertificate": true, "Events": true, "Deploy": true, "Status": true, "ListApps": true,
+	"GetAppSpec": true, "SetTraffic": true, "ListRevisions": true, "Rollback": true, "RestartApp": true,
+	"SetSecret": true, "ListSecrets": true, "DeleteSecret": true, "ListSpaceSecrets": true, "RemoveApp": true,
 }
 
 // callAny calls a method of the API with an empty request, as any client
@@ -653,8 +655,8 @@ sidecars:
     image: registry.example.com/logs:1
     args: [-v]
 scale:
-  min: 2
-  max: 2
+  min: 3
+  max: 3
 `
 
 func TestParityAssignments(t *testing.T) {
@@ -705,11 +707,13 @@ func TestParityAssignments(t *testing.T) {
 		if err := sc.st.SetMeta(ctx, "logs", string(b)); err != nil {
 			t.Fatal(err)
 		}
-		n1, err := sc.connectAgent("n1", sc.nodeAgent("n1"), &armadav1.Hello{PrivateIp: "10.0.0.11", HeldReplicas: true})
+		// Both nodes run init containers and sidecars, so the pass keeps the
+		// replicas where they are (three of three).
+		n1, err := sc.connectAgent("n1", sc.nodeAgent("n1"), &armadav1.Hello{PrivateIp: "10.0.0.11", HeldReplicas: true, Containers: true})
 		if err != nil {
 			t.Fatal(err)
 		}
-		n2, err := sc.connectAgent("n2", sc.nodeAgent("n2"), &armadav1.Hello{PrivateIp: "10.0.0.12"})
+		n2, err := sc.connectAgent("n2", sc.nodeAgent("n2"), &armadav1.Hello{PrivateIp: "10.0.0.12", Containers: true})
 		if err != nil {
 			t.Fatal(err)
 		}

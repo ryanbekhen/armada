@@ -3,7 +3,9 @@
 //!
 //! The first line on stdin is the configuration (JSON): the etcd member
 //! (endpoint, dir) and the store's prefix, the CA, the server certificate,
-//! the master key, the test clock's start, and the server's settings. The
+//! the master key, the test clock's start, and the server's settings
+//! (with `manualPasses`, a pass runs only on a `reconcile` request; with
+//! `predictableIds`, replica IDs count up as the Go side's do). The
 //! program answers `{"ready": {"api", "join"}}` once it serves, on the
 //! addresses it bound. Later lines are requests, each answered with
 //! `{"id", "error"?}`: `now` (ms) sets the test clock, `reconcile` runs a
@@ -154,6 +156,7 @@ struct Setup {
     cert: Arc<ServerCert>,
     keys: Option<Arc<Keyring>>,
     clock: Arc<AtomicI64>,
+    ids: Arc<AtomicU64>,
     cluster: Option<Arc<dyn Cluster>>,
     out: Out,
     log: Logger,
@@ -187,9 +190,33 @@ impl Setup {
         cfg.acme_ca = s(c, "acmeCa");
         cfg.dns_provider = s(c, "dnsProvider");
         cfg.metrics_addr = s(c, "metricsAddr");
+        cfg.plain_http = b(c, "plainHttp");
+        cfg.drain_timeout = ms(c, "drainTimeoutMs");
+        cfg.warmup = ms(c, "warmupMs");
+        cfg.progress_deadline = ms(c, "progressDeadlineMs");
+        cfg.manual_passes = b(c, "manualPasses");
+        if b(c, "predictableIds") {
+            let next = self.ids.clone();
+            cfg.new_id = Some(Arc::new(move |n| {
+                predictable_id(next.fetch_add(1, Ordering::SeqCst) + 1, n)
+            }));
+        }
         cfg.log = self.log.clone();
         cfg
     }
+}
+
+/// The test's predictable replica IDs: the count of IDs made so far, in
+/// base 36 over the alphabet of random IDs (Go's parityID).
+fn predictable_id(k: u64, n: usize) -> String {
+    const ALPHABET: &[u8] = b"abcdefghijklmnopqrstuvwxyz0123456789";
+    let mut out = vec![b'a'; n];
+    let mut k = k;
+    for c in out.iter_mut().rev() {
+        *c = ALPHABET[(k % 36) as usize];
+        k /= 36;
+    }
+    String::from_utf8(out).unwrap_or_default()
 }
 
 #[tokio::main]
@@ -250,6 +277,7 @@ async fn main() {
         cert,
         keys,
         clock: clock.clone(),
+        ids: Arc::default(),
         cluster,
         out: out.clone(),
         log,

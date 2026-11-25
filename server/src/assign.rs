@@ -5,16 +5,17 @@
 //! the cluster network and the runtime move (13), and queue sandboxes (10)
 //! are left out until their pull requests.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::Mutex;
 
 use armada_proto::armada::v1::*;
 use armada_secrets::Value;
 use armada_spec::validate::secret_source;
 use armada_spec::{App as Spec, DEFAULT_PIDS, INGRESS_NONE, SCALE_RABBITMQ, SCALE_REDIS};
-use armada_store::{Kind, Replica, Revision};
+use armada_store::{App, Kind, Replica, Revision};
 
 use crate::Server;
+use crate::schedule::{Res, Reserved, reservation};
 use crate::settings::{META_LOGS, log_settings_proto, read_meta};
 
 /// The secret versions the leader decrypted, kept across passes; versions
@@ -48,6 +49,15 @@ impl Opened {
         st.used.insert(k, true);
     }
 
+    /// Drops every cached version of a secret's key, or with name "" of
+    /// every key (Go's forget).
+    pub fn forget(&self, app: &str, name: &str) {
+        let mut st = self.st.lock().unwrap_or_else(|p| p.into_inner());
+        let gone = |k: &(String, String, i64)| k.0 == app && (name.is_empty() || k.1 == name);
+        st.vals.retain(|k, _| !gone(k));
+        st.used.retain(|k, _| !gone(k));
+    }
+
     /// Drops what no lookup since the last sweep used.
     pub fn sweep(&self) {
         let mut st = self.st.lock().unwrap_or_else(|p| p.into_inner());
@@ -57,14 +67,47 @@ impl Opened {
 }
 
 /// The revisions and secrets one pass reads (Go's revisionCache).
-struct Revisions<'a> {
+pub(crate) struct Revisions<'a> {
     srv: &'a Server,
     m: HashMap<String, Revision>,
     vals: HashMap<String, BTreeMap<String, Value>>,
+    /// What a replica of each revision reserves.
+    res: HashMap<String, Res>,
 }
 
-impl Revisions<'_> {
-    async fn get(&mut self, name: &str) -> Result<Revision, armada_store::Error> {
+impl<'a> Revisions<'a> {
+    pub(crate) fn new(srv: &'a Server) -> Revisions<'a> {
+        Revisions {
+            srv,
+            m: HashMap::new(),
+            vals: HashMap::new(),
+            res: HashMap::new(),
+        }
+    }
+
+    /// preload: reads the revisions a pass over apps and replicas needs at
+    /// once. A failure costs nothing but speed.
+    pub(crate) async fn preload(&mut self, apps: &[App], replicas: &[Replica]) {
+        let mut seen = BTreeSet::new();
+        let mut names = Vec::new();
+        let mut add = |n: &str| {
+            if !n.is_empty() && seen.insert(n.to_string()) {
+                names.push(n.to_string());
+            }
+        };
+        for a in apps {
+            add(&a.active_revision);
+            add(&a.target_revision);
+        }
+        for r in replicas {
+            add(&r.revision);
+        }
+        if let Ok(m) = self.srv.store().get_revisions(&names).await {
+            self.m.extend(m);
+        }
+    }
+
+    pub(crate) async fn get(&mut self, name: &str) -> Result<Revision, armada_store::Error> {
         if let Some(r) = self.m.get(name) {
             return Ok(r.clone());
         }
@@ -73,8 +116,29 @@ impl Revisions<'_> {
         Ok(r)
     }
 
+    /// What each revision of replicas reserves (Go's reserved): a revision
+    /// that cannot be read reserves nothing.
+    pub(crate) async fn reserved(&mut self, replicas: &[Replica]) -> Reserved {
+        let mut out = Reserved::new();
+        for r in replicas {
+            if r.done || out.contains_key(&r.revision) {
+                continue;
+            }
+            if let Some(x) = self.res.get(&r.revision) {
+                out.insert(r.revision.clone(), *x);
+                continue;
+            }
+            if let Ok(rev) = self.get(&r.revision).await {
+                let x = reservation(&rev);
+                self.res.insert(r.revision.clone(), x);
+                out.insert(r.revision.clone(), x);
+            }
+        }
+        out
+    }
+
     /// Decrypts the secret versions rev pins.
-    async fn secrets(
+    pub(crate) async fn secrets(
         &mut self,
         rev: &Revision,
     ) -> Result<BTreeMap<String, Value>, armada_store::Error> {
@@ -322,6 +386,7 @@ impl Server {
     pub(crate) async fn push_assignments(
         &self,
         replicas: &[Replica],
+        revs: &mut Revisions<'_>,
         servers: &[String],
     ) -> Result<(), armada_store::Error> {
         let mut by_node: HashMap<&str, Vec<&Replica>> = HashMap::new();
@@ -330,22 +395,6 @@ impl Server {
         }
         let ls = read_meta(self.store(), META_LOGS).await?;
         let logs = log_settings_proto(ls.as_ref(), self.0.keys.as_ref(), &self.0.log);
-        let mut revs = Revisions {
-            srv: self,
-            m: HashMap::new(),
-            vals: HashMap::new(),
-        };
-        let names: Vec<String> = {
-            let mut seen = std::collections::BTreeSet::new();
-            replicas
-                .iter()
-                .filter(|r| seen.insert(r.revision.clone()))
-                .map(|r| r.revision.clone())
-                .collect()
-        };
-        if let Ok(m) = self.store().get_revisions(&names).await {
-            revs.m.extend(m);
-        }
         for sess in self.sessions() {
             let mut a = Assignment {
                 servers: servers.to_vec(),

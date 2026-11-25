@@ -46,9 +46,6 @@ const DefaultNodeLostTimeout = 5 * time.Minute
 // Reconcile brings scheduled replicas in line with each app's desired state
 // and pushes per-node assignments to connected agents.
 func (s *Server) Reconcile(ctx context.Context) error {
-	if s.parts == coreParts {
-		return s.reconcileCore(ctx)
-	}
 	apps, err := s.store.ListApps(ctx)
 	if err != nil {
 		return err
@@ -57,18 +54,22 @@ func (s *Server) Reconcile(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	// The node being moved to the supervisor runtime is drained like a
-	// cordoned one (ADR 0054).
-	move, err := s.loadRuntimeMove(ctx)
-	if err != nil {
-		return err
+	if s.parts == allParts {
+		// The node being moved to the supervisor runtime is drained like a
+		// cordoned one (ADR 0054).
+		move, err := s.loadRuntimeMove(ctx)
+		if err != nil {
+			return err
+		}
+		cordonMoving(move, nodes)
 	}
-	cordonMoving(move, nodes)
 	replicas, err := s.store.ListReplicas(ctx, store.ReplicaFilter{})
 	if err != nil {
 		return err
 	}
-	s.usage.setOwners(replicas, s.now())
+	if s.parts == allParts {
+		s.usage.setOwners(replicas, s.now())
+	}
 	revs := revisionCache{store: s.store, keys: s.keys, m: map[string]store.Revision{}, opened: s.opened}
 	defer s.opened.sweep()
 	revs.preload(ctx, apps, replicas)
@@ -86,7 +87,9 @@ func (s *Server) Reconcile(ctx context.Context) error {
 	removed := map[string]bool{}
 	for i, app := range apps {
 		if app.Spec.IsJob() {
-			jobs = append(jobs, app)
+			if s.parts == allParts {
+				jobs = append(jobs, app)
+			}
 			continue
 		}
 		var next []store.Replica
@@ -115,6 +118,14 @@ func (s *Server) Reconcile(ctx context.Context) error {
 	}
 	if rc.wake > 0 {
 		s.wakeAfter(rc.wake)
+	}
+	if s.parts == coreParts {
+		eps, err := s.endpoints(ctx)
+		if err != nil {
+			return err
+		}
+		s.endpointsSeen.Store(&seenEndpoints{addrs: eps, at: time.Now()})
+		return s.pushAssignments(ctx, replicas, &revs, nil, nil, eps, nil, nil, nil)
 	}
 	apps = slices.DeleteFunc(apps, func(a store.App) bool { return removed[a.Name] })
 	pxp, pxRefs, err := s.proxyConfig(ctx, apps, replicas)
@@ -149,35 +160,6 @@ func (s *Server) Reconcile(ctx context.Context) error {
 		s.askToMove(askMove, rc.now)
 	}
 	return nil
-}
-
-// reconcileCore is the part of a pass the Rust control plane does so far
-// (coreParts, ADR 0055): the API addresses, and every connected node's
-// assignment of the replicas the store holds, with no proxy, network,
-// queue sandboxes, or runtime move.
-func (s *Server) reconcileCore(ctx context.Context) error {
-	ids, err := s.store.ListAppIDs(ctx)
-	if err != nil {
-		return err
-	}
-	nodes, err := s.store.ListNodes(ctx)
-	if err != nil {
-		return err
-	}
-	replicas, err := s.store.ListReplicas(ctx, store.ReplicaFilter{})
-	if err != nil {
-		return err
-	}
-	s.clusterSize.Store(int64(len(ids) + len(nodes)))
-	eps, err := s.endpoints(ctx)
-	if err != nil {
-		return err
-	}
-	s.endpointsSeen.Store(&seenEndpoints{addrs: eps, at: time.Now()})
-	revs := revisionCache{store: s.store, keys: s.keys, m: map[string]store.Revision{}, opened: s.opened}
-	defer s.opened.sweep()
-	revs.preload(ctx, nil, replicas)
-	return s.pushAssignments(ctx, replicas, &revs, nil, nil, eps, nil, nil, nil)
 }
 
 // proxyConfig builds the pass's proxy configuration. When it cannot, the
@@ -364,6 +346,10 @@ func (s *Server) reconcileApp(ctx context.Context, rc *reconcileRun, app *store.
 		return nil, err
 	}
 	if target.Spec.HasLocalVolumes() {
+		if s.parts == coreParts {
+			// Not ported to the Rust control plane yet (ADR 0055).
+			return all, nil
+		}
 		return s.reconcileVolumeApp(ctx, rc, app, target, nodes, all, revs)
 	}
 	if len(app.Traffic) == 0 || app.Rolling() {
@@ -1091,7 +1077,7 @@ func placementAllows(n store.Node, rev store.Revision) bool {
 // placeReplica records a new replica of target on node.
 func (s *Server) placeReplica(ctx context.Context, app *store.App, target store.Revision, node string) (store.Replica, error) {
 	r := store.Replica{
-		ID:       fmt.Sprintf("%s-r%d-%s", app.Name, target.Seq, randomID(5)),
+		ID:       fmt.Sprintf("%s-r%d-%s", app.Name, target.Seq, s.newID(5)),
 		App:      app.Name,
 		Revision: target.Name,
 		NodeID:   node,

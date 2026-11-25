@@ -50,7 +50,10 @@ import (
 //
 // Go's server runs coreParts: what the Rust server does so far. Each pull
 // request of ADR 0055 that ports more widens both, and moves more of this
-// package's scenarios onto the harness.
+// package's scenarios onto the harness. Neither server runs a pass on its
+// own (manualPasses): the scenario runs every pass, so both pass at the
+// same steps, and replica IDs are predictable (parityIDs) so both name
+// and order their replicas alike.
 
 // parityConfig is how a scenario's control plane is set up.
 type parityConfig struct {
@@ -67,6 +70,10 @@ type parityConfig struct {
 	// nodeLost and nodeCertValidity replace the defaults.
 	nodeLost         time.Duration
 	nodeCertValidity time.Duration
+	// drain, warmup, and progress replace the rollout timing's defaults.
+	drain, warmup, progress time.Duration
+	// plainHTTP is a cluster without certificates (http URLs).
+	plainHTTP bool
 }
 
 // serverUnderTest is one control plane a scenario drives.
@@ -162,6 +169,17 @@ func runParity(t *testing.T, cfg parityConfig, body func(sc *scenario)) {
 		})
 		if !ok {
 			return
+		}
+	}
+	if dir := os.Getenv("ARMADA_PARITY_DUMP"); dir != "" && len(logs) > 0 {
+		// Go's transcript, to read what a scenario records.
+		var b strings.Builder
+		for _, e := range logs[0] {
+			fmt.Fprintf(&b, "%s: %s\n", e.label, e.value)
+		}
+		name := strings.ReplaceAll(t.Name(), "/", "_") + ".txt"
+		if err := os.WriteFile(dir+"/"+name, []byte(b.String()), 0o600); err != nil {
+			t.Error(err)
 		}
 	}
 	if len(logs) == 2 {
@@ -262,6 +280,7 @@ func startGoServer(sc *scenario) *goServer {
 	cfg := Config{Store: sc.st, TLS: tlsCfg, Resync: time.Hour, Resolver: noTXT{}, StreamRecheck: testStreamRecheck,
 		CA: fx.ca, JoinTLS: joinTLS, APIAddr: g.addr, Now: sc.clock.now, Name: "cp-1",
 		NodeLostTimeout: sc.cfg.nodeLost, NodeCertValidity: sc.cfg.nodeCertValidity,
+		DrainTimeout: sc.cfg.drain, Warmup: sc.cfg.warmup, ProgressDeadline: sc.cfg.progress, PlainHTTP: sc.cfg.plainHTTP,
 		OnSettingsChanged: func() { g.changed.Add(1) }}
 	if sc.cfg.masterKey {
 		cfg.Secrets = fx.keys
@@ -282,6 +301,8 @@ func startGoServer(sc *scenario) *goServer {
 		t.Fatal(err)
 	}
 	srv.parts = coreParts
+	srv.manualPasses = true
+	srv.newID = parityIDs()
 	if sc.cfg.joinBurst > 0 {
 		srv.joinLimit = newKeyedLimiter(sc.cfg.joinBurst, joinRefill)
 	}
@@ -337,7 +358,10 @@ func startRustServer(sc *scenario) *rustServer {
 		"nodeLostSeconds":         int64(sc.cfg.nodeLost / time.Second),
 		"nodeCertValiditySeconds": int64(sc.cfg.nodeCertValidity / time.Second),
 		"cluster":                 sc.cfg.cluster, "joinBurst": sc.cfg.joinBurst,
-		"verbose": os.Getenv("ARMADA_SERVER_VERBOSE") != "",
+		"verbose":        os.Getenv("ARMADA_SERVER_VERBOSE") != "",
+		"drainTimeoutMs": sc.cfg.drain.Milliseconds(), "warmupMs": sc.cfg.warmup.Milliseconds(),
+		"progressDeadlineMs": sc.cfg.progress.Milliseconds(), "plainHttp": sc.cfg.plainHTTP,
+		"manualPasses": true, "predictableIds": true,
 	}
 	if sc.cfg.masterKey {
 		conf["masterKey"] = base64.StdEncoding.EncodeToString(fx.masterKey)
@@ -370,6 +394,22 @@ func startRustServer(sc *scenario) *rustServer {
 		t.Fatal("armada-server-parity did not get ready")
 	}
 	return r
+}
+
+// parityIDs makes the random part of replica IDs predictable: the count of
+// IDs made so far, in base 36 over randomID's alphabet (armada-server-parity
+// makes the same).
+func parityIDs() func(int) string {
+	var next atomic.Uint64
+	return func(n int) string {
+		k := next.Add(1)
+		b := make([]byte, n)
+		for i := n - 1; i >= 0; i-- {
+			b[i] = idAlphabet[k%36]
+			k /= 36
+		}
+		return string(b)
+	}
 }
 
 func mustKeyPEM(t *testing.T, ca *pki.CA) string {
