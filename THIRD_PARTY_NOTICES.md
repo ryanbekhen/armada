@@ -309,6 +309,17 @@ channel). The test program of Go's agent parity tests
 (`armada-agent-parity`, the `parity` feature) is never built for a
 release.
 
+## armada-daemon
+
+`armada-daemon` (`daemon/`, Apache-2.0) is `armadad` in Rust (ADR 0055),
+a program of its own. No release ships it yet; it uses only crates named
+above (armada-client's command framework, armada-pki, armada-spec,
+armada-fsutil, flate2, libc, rustls, rustls-pki-types, serde_json, and
+sha2). Its shell completion scripts are armada-client's (above) with
+armadad's name, as cobra v1.10.2 writes them for armadad. Built with the
+`bundle` feature it carries the runtime pack, whose programs are listed
+under "The embedded container runtime" above.
+
 ## Downloaded at run time
 
 Nodes pull the HAProxy image (`haproxy:3.2-alpine`, pinned by digest in

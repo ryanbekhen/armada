@@ -1,0 +1,38 @@
+[package]
+name = "armada-daemon"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "armadad in Rust: the machine commands of Go's internal/daemon (ADR 0055)"
+
+# armadad is its own program (ADR 0027, ADR 0055): it links the client's
+# command framework and version as Go's daemon imports internal/cli, never
+# the other way round.
+[dependencies]
+armada-client = { path = "../client" }
+armada-fsutil = { path = "../fsutil" }
+armada-pki = { path = "../pki" }
+armada-spec = { path = "../spec" }
+flate2.workspace = true
+libc.workspace = true
+rustls.workspace = true
+rustls-pki-types.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+
+[features]
+# The runtime pack compiled in (Go's build tag bundle): the pack
+# `make runtime-bundle` writes for the target, or ARMADA_RUNTIME_PACK.
+bundle = []
+# The ARMADA_DAEMON_TEST_* hooks of Go's daemon parity tests (src/hooks.rs):
+# only in `make daemon-parity`, never in release builds.
+test-hooks = []
+
+[lib]
+name = "armada_daemon"
+path = "src/lib.rs"
+
+[[bin]]
+name = "armadad"
+path = "src/main.rs"
