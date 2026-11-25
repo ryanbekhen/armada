@@ -198,6 +198,59 @@ fn one_endpoint(found: &[IfaceAddr]) -> Result<Ipv4Addr, String> {
     }
 }
 
+/// netutil.DetectPrivateIP: the machine's only private IPv4 address, or,
+/// in the parity tests, one of ARMADA_DAEMON_TEST_PRIVATE_IPS (a
+/// comma-separated list standing for the interfaces' addresses).
+pub fn detect_private_ip() -> Result<IpAddr, String> {
+    if let Some(v) = crate::hooks::get("PRIVATE_IPS") {
+        let found: Vec<IfaceAddr> = v
+            .split(',')
+            .filter_map(|s| s.parse().ok())
+            .map(|ip| IfaceAddr {
+                name: "eth0".into(),
+                ip,
+            })
+            .collect();
+        return one_private_ipv4(&found);
+    }
+    one_private_ipv4(&interface_addrs(true))
+}
+
+fn one_private_ipv4(found: &[IfaceAddr]) -> Result<IpAddr, String> {
+    let mut ips = Vec::new();
+    let mut names = Vec::new();
+    for f in found {
+        let ip = unmap(&f.ip);
+        if !ip.is_ipv4() || ip.is_loopback() || !is_private(&ip) {
+            continue;
+        }
+        ips.push(ip);
+        names.push(format!("{ip} on {}", f.name));
+    }
+    match ips.len() {
+        0 => Err("no private IPv4 address found; pass --private-ip".to_string()),
+        1 => Ok(ips[0]),
+        _ => Err(format!(
+            "several private addresses ({}); pass --private-ip",
+            names.join(", ")
+        )),
+    }
+}
+
+/// netutil.CheckNodeIP: a private address that is not loopback.
+pub fn check_node_ip(s: &str) -> Result<IpAddr, String> {
+    let a = check_private_ip(s)?;
+    if a.is_loopback() {
+        return Err(format!("{s}: a node IP must not be a loopback address"));
+    }
+    Ok(a)
+}
+
+/// netutil.CheckPrivateListen.
+pub fn check_private_listen(s: &str) -> Result<(), String> {
+    armada_client::config::check_private_listen(s)
+}
+
 /// The private addresses of the machine's interfaces (etcd's hostAddrs).
 pub fn private_host_addrs() -> Vec<IpAddr> {
     interface_addrs(false)

@@ -1199,6 +1199,24 @@ pub fn unreachable_command() -> Result<(), String> {
     write_stdout(&serde_json::to_vec(&out).map_err(|e| e.to_string())?)
 }
 
+/// clusternet.ContainerMTU: the MTU of a node's bridge and containers,
+/// whose packets to other nodes take the tunnel's overhead (the agent
+/// sets the runtime up with it).
+// The library's (armadad agent), not the program's.
+#[allow(dead_code)]
+pub fn container_mtu(mode: &str, ip: &str, endpoint: &str, uplink_mtu: i64) -> Result<i64, String> {
+    let ip = Addr::parse(ip).ok_or_else(|| format!("invalid IP address {ip:?}"))?;
+    let mut n = Net::bare(ip, Addr::parse(endpoint))?;
+    let (_, mut mtu, meshed) = n.uplink_for(mode).map_err(|e| e.text())?;
+    if uplink_mtu > 0 {
+        mtu = mtu.min(uplink_mtu);
+    }
+    // Every packet to another node of a meshed one goes over WireGuard
+    // (ADR 0050).
+    let mode = if meshed { MODE_WIREGUARD } else { mode };
+    Ok(plan::tunnel_mtu(mode, mtu))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
