@@ -79,6 +79,10 @@ jobs:
           version: v2.15.0
           install-mode: goinstall # build with the go.mod toolchain
 
+  # Go stays the reference while the code moves to Rust (ADR 0055): every
+  # package and test still compiles and passes vet, and the Rust crates
+  # are checked against Go's code by the parity tests below. Go's own unit
+  # tests are not run here any more.
   test:
     needs: changes
     if: needs.changes.outputs.code == 'true'
@@ -90,9 +94,61 @@ jobs:
       - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: go.mod
+      # Crates, cargo-deny, and build output kept between runs (keyed by
+      # the lock and the toolchain), so a run builds only what changed.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            ~/.cargo/bin/cargo-deny
+            target
+            logger/target
+            shim/target
+            dns/target
+          key: rust-test-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', '*/Cargo.lock') }}
+          restore-keys: rust-test-
       - run: go vet ./...
-      - run: go test -race -coverprofile=coverage.out ./...
-      - run: go tool cover -func=coverage.out | tail -1
+      - run: go test -run '^$' ./...
+      - run: rustup toolchain install
+      # Volume archives, backups, and pulls set armada-node's test hooks
+      # or pass --extra-ca, which only a test build has (node/src/hooks.rs);
+      # release builds (job logger) ignore the hooks and refuse --extra-ca.
+      - run: cargo clippy --locked -p armada-node --all-targets --features test-hooks -- -D warnings
+      - run: make node-test-hooks
+      - run: go test -race -run 'TestArmadaNodeVolume|TestArmadaNodeSnapshot|TestArmadaNodeIgnoresTestHooks|TestArmadaNodePull|TestArmadaNodeProxy|TestArmadaNodeConvert' -v ./internal/agent/ ./internal/runtime/containerd/
+        env:
+          ARMADA_NODE_BIN: ${{ github.workspace }}/target/test-hooks/x86_64-unknown-linux-musl/release/armada-node
+      # The CA, certificates, and secrets in Rust (ADR 0055) issue, sign,
+      # seal, open, and refuse what Go's code does, each accepting what the
+      # other wrote; their test programs are built only for this.
+      - run: cargo clippy --locked -p armada-pki -p armada-secrets --all-targets --features armada-pki/parity,armada-secrets/parity -- -D warnings
+      - run: make pki-parity
+      - run: go test -race -run 'TestArmadaPKI|TestArmadaSecrets' -v ./internal/pki/ ./internal/secrets/
+        env:
+          ARMADA_PKI_BIN: ${{ github.workspace }}/target/debug/armada-pki-parity
+          ARMADA_SECRETS_BIN: ${{ github.workspace }}/target/debug/armada-secrets-parity
+      # The store in Rust (ADR 0055) runs the same operations as Go's on one
+      # etcd member (the package's own, in process): the same answers and
+      # keyspaces, each side's records read back by the other, concurrent
+      # writers, fencing, and one election; its test program is built only
+      # for this.
+      - run: cargo clippy --locked -p armada-store --all-targets --features parity -- -D warnings
+      - run: make store-parity
+      - run: go test -race -run 'TestArmadaStore' -v ./internal/store/
+        env:
+          ARMADA_STORE_BIN: ${{ github.workspace }}/target/debug/armada-store-parity
+      # The control plane's core in Rust (ADR 0055) is driven through the
+      # same scenarios as Go's server (the package's etcd member, a test
+      # clock, fake agents): the same answers, assignments, events, and
+      # keyspaces after every step; its test program is built only for
+      # this.
+      - run: cargo clippy --locked -p armada-server --all-targets --features parity -- -D warnings
+      - run: make server-parity
+      - run: go test -race -run 'TestParity|TestArmadaServer' -v ./internal/server/
+        env:
+          ARMADA_SERVER_BIN: ${{ github.workspace }}/target/debug/armada-server-parity
 
   # Validates the rendered HAProxy configuration with the pinned image.
   haproxy:
@@ -184,6 +240,21 @@ jobs:
       - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: go.mod
+      # Crates, cargo-deny, and build output kept between runs (keyed by
+      # the lock and the toolchain), so a run builds only what changed.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            ~/.cargo/bin/cargo-deny
+            target
+            logger/target
+            shim/target
+            dns/target
+          key: rust-logger-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', '*/Cargo.lock') }}
+          restore-keys: rust-logger-
       # rustup is on the runner; the toolchain comes from rust-toolchain.toml.
       - run: rustup toolchain install
         working-directory: logger
@@ -220,8 +291,7 @@ jobs:
       - run: make logger
       - run: make shim
       - run: make dns
-      - run: make node
-      # Every member builds for both release targets (armada-proto has no
+      # Every member (armada-node included) builds for both release targets (armada-proto has no
       # program yet).
       - run: cargo build --release --locked --workspace --target x86_64-unknown-linux-musl
       - run: cargo build --release --locked --workspace --target aarch64-unknown-linux-musl
@@ -246,43 +316,6 @@ jobs:
       - run: go test -race -run 'TestArmadaSpec' -v ./internal/spec/
         env:
           ARMADA_SPEC_BIN: ${{ github.workspace }}/target/x86_64-unknown-linux-musl/release/armada-spec-check
-      # Volume archives, backups, and pulls set armada-node's test hooks
-      # or pass --extra-ca, which only a test build has (node/src/hooks.rs);
-      # the release build above ignores the hooks and refuses --extra-ca.
-      - run: cargo clippy --locked -p armada-node --all-targets --features test-hooks -- -D warnings
-      - run: make node-test-hooks
-      - run: go test -race -run 'TestArmadaNodeVolume|TestArmadaNodeSnapshot|TestArmadaNodeIgnoresTestHooks|TestArmadaNodePull|TestArmadaNodeProxy|TestArmadaNodeConvert' -v ./internal/agent/ ./internal/runtime/containerd/
-        env:
-          ARMADA_NODE_BIN: ${{ github.workspace }}/target/test-hooks/x86_64-unknown-linux-musl/release/armada-node
-      # The CA, certificates, and secrets in Rust (ADR 0055) issue, sign,
-      # seal, open, and refuse what Go's code does, each accepting what the
-      # other wrote; their test programs are built only for this.
-      - run: cargo clippy --locked -p armada-pki -p armada-secrets --all-targets --features armada-pki/parity,armada-secrets/parity -- -D warnings
-      - run: make pki-parity
-      - run: go test -race -run 'TestArmadaPKI|TestArmadaSecrets' -v ./internal/pki/ ./internal/secrets/
-        env:
-          ARMADA_PKI_BIN: ${{ github.workspace }}/target/debug/armada-pki-parity
-          ARMADA_SECRETS_BIN: ${{ github.workspace }}/target/debug/armada-secrets-parity
-      # The store in Rust (ADR 0055) runs the same operations as Go's on one
-      # etcd member (the package's own, in process): the same answers and
-      # keyspaces, each side's records read back by the other, concurrent
-      # writers, fencing, and one election; its test program is built only
-      # for this.
-      - run: cargo clippy --locked -p armada-store --all-targets --features parity -- -D warnings
-      - run: make store-parity
-      - run: go test -race -run 'TestArmadaStore' -v ./internal/store/
-        env:
-          ARMADA_STORE_BIN: ${{ github.workspace }}/target/debug/armada-store-parity
-      # The control plane's core in Rust (ADR 0055) is driven through the
-      # same scenarios as Go's server (the package's etcd member, a test
-      # clock, fake agents): the same answers, assignments, events, and
-      # keyspaces after every step; its test program is built only for
-      # this.
-      - run: cargo clippy --locked -p armada-server --all-targets --features parity -- -D warnings
-      - run: make server-parity
-      - run: go test -race -run 'TestParity|TestArmadaServer' -v ./internal/server/
-        env:
-          ARMADA_SERVER_BIN: ${{ github.workspace }}/target/debug/armada-server-parity
 
   installer:
     needs: changes
