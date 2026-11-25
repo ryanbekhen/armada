@@ -18,7 +18,7 @@ CI) fails when a module under any other license is added.
 
 ## The embedded container runtime
 
-Linux release builds of `armadad` embed these programs (ADR 0011), exactly
+Linux release builds of `armadad` embed these programs (ADR 0011, ADR 0055), exactly
 as their projects release them; `internal/runtime/embedded/lock.go` pins
 each by version and SHA-256.
 
@@ -28,6 +28,19 @@ each by version and SHA-256.
 | runc | 1.5.2 | Apache-2.0 | <https://github.com/opencontainers/runc/tree/v1.5.2> |
 | cni-plugins | 1.9.1 | Apache-2.0 | <https://github.com/containernetworking/plugins/tree/v1.9.1> |
 | tini | 0.19.0 | MIT ([text](third_party/licenses/MIT-tini.txt)) | <https://github.com/krallin/tini/tree/v0.19.0> |
+| etcd | 3.7.4 | Apache-2.0 | <https://github.com/etcd-io/etcd/tree/v3.7.4> |
+
+From etcd's release the pack takes `etcd` and `etcdutl` (ADR 0055). They
+are Go programs, linked statically by etcd's release build with the Go
+standard library (BSD-3-Clause) and Go modules under Apache-2.0, MIT,
+BSD-2-Clause, BSD-3-Clause, and ISC; `go version -m` lists them. armadad
+links the same modules (some at other versions, under the same licenses),
+so their license files are in `licenses/go/`, except for ten modules only
+etcd's command line uses
+(clipperhouse/displaywidth, clipperhouse/uax29, fatih/color,
+mattn/go-colorable, mattn/go-isatty, mattn/go-runewidth, olekukonko/cat,
+olekukonko/errors, olekukonko/ll, olekukonko/tablewriter), all MIT, whose
+texts are in [MIT-etcd-modules.txt](third_party/licenses/MIT-etcd-modules.txt).
 
 These binaries are statically linked by their projects with libraries
 under the [GNU Lesser General Public License 2.1](third_party/licenses/LGPL-2.1.txt):

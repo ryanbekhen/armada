@@ -112,7 +112,7 @@ func run(ctx context.Context, arch, out, cache, logger, shim, dns, node string) 
 			files[a.Name] = b
 			continue
 		}
-		got, err := members(b, a.Files)
+		got, err := members(b, a.FilesFor(arch))
 		if err != nil {
 			return fmt.Errorf("%s: %w", a.Name, err)
 		}

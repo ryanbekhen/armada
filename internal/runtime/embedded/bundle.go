@@ -15,10 +15,16 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"golang.org/x/sys/unix"
 )
 
 // manifestName is the first entry of a pack: the SHA-256 of every file.
 const manifestName = "MANIFEST.json"
+
+// installLock, under an install root, is held while Install runs. Its
+// name starts with a dot, so Install never takes it for an old pack.
+const installLock = ".install.lock"
 
 // Limits for a pack, far above what the pinned artifacts need.
 const (
@@ -100,6 +106,16 @@ func Install(root string, pack []byte) (string, Manifest, error) {
 	}
 	if err := os.Chmod(root, 0o700); err != nil { //nolint:gosec // a directory
 		return "", Manifest{}, err
+	}
+	// armadad etcd and the agent install the same pack at the same start
+	// (ADR 0055): one at a time.
+	lock, err := os.OpenFile(filepath.Join(root, installLock), os.O_RDWR|os.O_CREATE, 0o600) //nolint:gosec // under root, made 0700 above
+	if err != nil {
+		return "", Manifest{}, err
+	}
+	defer lock.Close()
+	if err := unix.Flock(int(lock.Fd()), unix.LOCK_EX); err != nil {
+		return "", Manifest{}, fmt.Errorf("lock %s: %w", lock.Name(), err)
 	}
 	m, err := readManifest(pack)
 	if err != nil {

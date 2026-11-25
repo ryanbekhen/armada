@@ -182,7 +182,7 @@ if [ "$CLIENT_ONLY" = 1 ]; then
 fi
 
 if [ -n "$SYSTEMD_DIR" ] && [ -d "$SYSTEMD_DIR" ]; then
-	for unit in armada-server.service armada-agent.service armada-runtime.service; do
+	for unit in armada-server.service armada-agent.service armada-runtime.service armada-etcd.service; do
 		[ -f "$TMP/x/deploy/systemd/$unit" ] || continue
 		sed "s#/usr/local/bin/armadad#$PREFIX/bin/armadad#" "$TMP/x/deploy/systemd/$unit" >"$TMP/$unit"
 		install -m 0644 "$TMP/$unit" "$SYSTEMD_DIR/$unit"

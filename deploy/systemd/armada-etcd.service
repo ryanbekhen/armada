@@ -1,0 +1,27 @@
+[Unit]
+Description=Armada control plane state (this server's etcd member)
+Documentation=https://github.com/ryanbekhen/armada
+After=network-online.target
+Wants=network-online.target
+# Runs the pinned etcd of the runtime pack on the member armada-server
+# otherwise embeds (ADR 0055). For now only lab servers use it, with
+# ARMADA_SERVER_FLAGS="--etcd-member unit"; it refuses to start while
+# armada-server runs the member itself.
+
+[Service]
+Type=simple
+# The server's flags: armadad etcd reads --data-dir and ignores the rest.
+EnvironmentFile=-/etc/armada/server.env
+ExecStart=/usr/local/bin/armadad etcd --data-dir /var/lib/armada $ARMADA_SERVER_FLAGS
+UMask=0077
+Restart=always
+RestartSec=2
+LimitNOFILE=65536
+# etcd closes its write-ahead log on SIGTERM; give a busy member time.
+TimeoutStopSec=60
+# Under memory pressure the kernel kills workloads (at 0) before the
+# control plane's state.
+OOMScoreAdjust=-500
+
+[Install]
+WantedBy=multi-user.target

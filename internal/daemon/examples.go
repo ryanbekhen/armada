@@ -31,6 +31,8 @@ var examples = map[string]string{
   sudo armadad runtime reset             # remove every container Armada runs here`,
 	"armadad runtime migrate": `  sudo armadad runtime migrate --to supervisor   # drain the node and stop its service first
   sudo armadad runtime migrate --to embedded`,
+	"armadad etcd": `  sudo systemctl status armada-etcd                 # started by systemd on lab servers (ADR 0055)
+  sudo armadad etcd --bin-dir /opt/etcd-v3.7.4       # a build without the runtime pack`,
 	"armadad runtime reset": `  sudo systemctl stop armada-agent && sudo armadad runtime reset`,
 	"armadad endpoint show": `  sudo armadad endpoint show`,
 	"armadad endpoint set": `  sudo armadad endpoint set 203.0.113.7    # the public address other sites reach this machine at

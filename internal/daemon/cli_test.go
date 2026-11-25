@@ -13,7 +13,7 @@ import (
 
 // daemonCommands are the top-level commands of armadad; tests send every
 // other command to the armada client.
-var daemonCommands = []string{"version", "init", "agent", "join", "doctor", "backup", "restore", "runtime", "runtime-log", "upgrade"}
+var daemonCommands = []string{"version", "init", "agent", "join", "doctor", "backup", "restore", "runtime", "runtime-log", "etcd", "upgrade"}
 
 // isDaemon reports whether args name an armadad command: one of
 // daemonCommands, `server` but for its list, join-token, and delete, and

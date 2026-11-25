@@ -133,6 +133,15 @@ func TestUpgradeRestartsRuntime(t *testing.T) {
 	if !strings.Contains(out.String(), "restart    skipped (--no-restart)") {
 		t.Errorf("--no-restart output %q", out.String())
 	}
+	// A lab server running its etcd member from the pack (ADR 0055)
+	// restarts it before the server.
+	u, calls, _ = testUpgrader(t, base, "armada-etcd", "armada-server")
+	if err := u.run(context.Background(), "v0.1.0", "v0.2.0"); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(*calls, []string{"daemon-reload", "restart armada-etcd", "restart armada-server"}) {
+		t.Errorf("systemctl calls with armada-etcd %v", *calls)
+	}
 }
 
 // Every step prints as it happens, in order, so a person sees what the

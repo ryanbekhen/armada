@@ -90,8 +90,9 @@ func serverIP(certPEM []byte) (netip.Addr, error) {
 }
 
 // openState starts this node's etcd member and opens the cluster state.
-// Closing the member stops it.
-func openState(ctx context.Context, dataDir string, log *slog.Logger) (*store.Etcd, *etcd.Member, error) {
+// Closing the member stops it. With unit, armada-etcd.service runs the
+// member (`armadad etcd`, ADR 0055) and openState connects to it instead.
+func openState(ctx context.Context, dataDir string, unit bool, log *slog.Logger) (*store.Etcd, *etcd.Member, error) {
 	if _, err := os.Stat(filepath.Join(dataDir, fileServerCert)); errors.Is(err, fs.ErrNotExist) {
 		return nil, nil, fmt.Errorf("%s is not initialized; run `armadad init`", dataDir)
 	}
@@ -99,7 +100,11 @@ func openState(ctx context.Context, dataDir string, log *slog.Logger) (*store.Et
 	if err != nil {
 		return nil, nil, err
 	}
-	m, err := startMember(ctx, cfg, dataDir, log)
+	start := etcd.Start
+	if unit {
+		start = etcd.Connect
+	}
+	m, err := startMember(ctx, cfg, dataDir, start, log)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -113,9 +118,10 @@ func openState(ctx context.Context, dataDir string, log *slog.Logger) (*store.Et
 
 // startMember starts the member and, on a server that joined, waits until
 // the leader promoted it to a voting member: a learner cannot serve the
-// store.
-func startMember(ctx context.Context, cfg etcd.Config, dataDir string, log *slog.Logger) (*etcd.Member, error) {
-	m, err := etcd.Start(ctx, cfg)
+// store. start is etcd.Start, or etcd.Connect for a member
+// armada-etcd.service runs.
+func startMember(ctx context.Context, cfg etcd.Config, dataDir string, start func(context.Context, etcd.Config) (*etcd.Member, error), log *slog.Logger) (*etcd.Member, error) {
+	m, err := start(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -147,7 +153,7 @@ func stateClient(ctx context.Context, dataDir string) (*clientv3.Client, func() 
 	if c, err := etcd.Dial(ctx, cfg); err == nil {
 		return c, c.Close, nil
 	}
-	m, err := startMember(ctx, cfg, dataDir, nil)
+	m, err := startMember(ctx, cfg, dataDir, etcd.Start, nil)
 	if err != nil {
 		return nil, nil, fmt.Errorf("the server's state is not reachable (is it starting?): %w", err)
 	}
