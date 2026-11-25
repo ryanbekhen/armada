@@ -256,6 +256,21 @@ v3.7.4, under the [Apache License 2.0](proto/vendor/etcd/LICENSE)), so Go
 and Rust servers campaign in one election. Source:
 <https://github.com/etcd-io/etcd/tree/v3.7.4/client/v3/concurrency>.
 
+## armada-server
+
+`armada-server` (`server/`, Apache-2.0) is the control plane in Rust
+(ADR 0055): one leadership term's API with access control, joins,
+sessions with agents, and assignments. No released program links it yet;
+besides the crates of armada-store (above) and armada-fsutil, it is
+built with tonic's server, which adds this crate:
+
+| Crate | License |
+| --- | --- |
+| httpdate | MIT or Apache-2.0 |
+
+The test program of Go's scenario parity tests (`armada-server-parity`,
+the `parity` feature) is never built for a release.
+
 ## Downloaded at run time
 
 Nodes pull the HAProxy image (`haproxy:3.2-alpine`, pinned by digest in

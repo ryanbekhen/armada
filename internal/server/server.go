@@ -287,7 +287,26 @@ type Server struct {
 	moveAsked  moveAsk
 	moveLimits moveLimits
 	moveSeen   atomic.Pointer[armadav1.RuntimeMoveStatus]
+
+	// parts is what a reconcile pass and a term's loops do: everything,
+	// or for the scenario parity tests of the Rust control plane (ADR
+	// 0055) only what the Rust server does so far (parity_test.go).
+	parts serverParts
 }
+
+// serverParts names how much of the control plane a server runs.
+type serverParts int
+
+const (
+	// allParts is the whole control plane.
+	allParts serverParts = iota
+	// coreParts is the core of ADR 0055's pull request 8: terms, sessions
+	// with agents, and the assignments of the replicas the store holds,
+	// with no scheduling, rollouts, jobs, scaling, volumes, network,
+	// ingress, or background loops. Each later pull request moves its
+	// part into it.
+	coreParts
+)
 
 // New builds a Server. TLS must require and verify client certificates.
 func New(cfg Config) (*Server, error) {
@@ -537,16 +556,18 @@ func (s *Server) Serve(ctx context.Context, lis net.Listener) error {
 			return err
 		}
 	}
-	s.alerts.start(ctx, s.alertHTTP)
-	if err := s.loadAlerts(ctx); err != nil {
-		s.log.Warn("alert channels: load", "err", err)
-	}
-	go s.verifyLoop(ctx)
 	go s.reconcileLoop(ctx)
-	go s.autoscaleLoop(ctx)
-	go s.backupLoop(ctx)
-	go s.controlPlaneBackupLoop(ctx)
-	go s.placementLoop(ctx)
+	if s.parts == allParts {
+		s.alerts.start(ctx, s.alertHTTP)
+		if err := s.loadAlerts(ctx); err != nil {
+			s.log.Warn("alert channels: load", "err", err)
+		}
+		go s.verifyLoop(ctx)
+		go s.autoscaleLoop(ctx)
+		go s.backupLoop(ctx)
+		go s.controlPlaneBackupLoop(ctx)
+		go s.placementLoop(ctx)
+	}
 	go func() {
 		<-ctx.Done()
 		// Agent streams are long-lived and never finish on their own, so a
