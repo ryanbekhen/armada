@@ -153,6 +153,9 @@ jobs:
       # recorded AdminService beside Go's client: the same output, exit
       # codes, requests, and config files.
       - run: make client-parity
+      # armadad in Rust (daemon/) runs every daemon parity case beside Go's
+      # armadad: the same output, exit codes, and files left behind.
+      - run: make daemon-parity
       # The node agent's loop in Rust (ADR 0055) is driven through the
       # same scenarios as Go's agent against one fake runtime the test
       # answers for both (a test clock, an mTLS control plane for the

@@ -502,7 +502,16 @@ Go and every new Rust part is exercised only by its parity tests.
     tests.
 18. **The machine commands.** `init`, `join`, `server join`, `doctor`,
     `backup`, `restore`, `upgrade` (rollback included), `runtime`,
-    `endpoint`, `user`, and the rest.
+    `endpoint`, `user`, and the rest. In two parts: first `armadad`'s
+    whole command tree (`daemon/`) on the client's command framework,
+    which it links as Go's daemon runs the client's `cli.Run`, with the
+    commands that need neither the cluster's state nor the container
+    runtime's driver (`version`, `endpoint`, `etcd`, `upgrade`, `runtime`)
+    and the runtime pack compiled in; then the commands that do (`doctor`,
+    `backup`, `restore`, `user renew`, `runtime reset` and `migrate`) with
+    `init`, `join`, `server join`, `server`, and `agent`. Each is checked
+    by a daemon parity harness that runs Go's armadad and the Rust one on
+    the same command lines and case directories.
 19. **The switch.** The release builds `armadad` and `armada` from Rust;
     units for etcd and the agent on server machines; the lab upgrade from
     v0.1.0-alpha.41 and the full end-to-end run pass.

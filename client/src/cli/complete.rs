@@ -107,16 +107,46 @@ to your powershell profile.
     },
 ];
 
+/// A text cobra writes for armada as it writes it for another program
+/// (armadad): the name, and the environment variables made of it.
+pub fn for_program(text: &str, program: &str) -> String {
+    if program == "armada" {
+        return text.to_string();
+    }
+    let upper = program.to_uppercase().replace('-', "_");
+    // Each script's first line pads the name to 36 columns.
+    let mut text = text.to_string();
+    let mut heads = Vec::new();
+    for shell in [
+        "bash completion V2",
+        "zsh completion",
+        "fish completion",
+        "powershell completion",
+    ] {
+        let head = format!("# {shell} for {:<36} -*- shell-script -*-", "armada");
+        if text.contains(&head) {
+            text = text.replace(&head, "\u{0}");
+            heads.push(format!("# {shell} for {program:<36} -*- shell-script -*-"));
+        }
+    }
+    let mut text = text
+        .replace("armada", program)
+        .replace("ARMADA_", &format!("{upper}_"));
+    for own in heads {
+        text = text.replacen('\u{0}', &own, 1);
+    }
+    text
+}
+
 /// The run of `armada completion SHELL`.
 pub fn script(ctx: &mut Ctx<'_>, _: &[String]) -> Result {
     let name = ctx.tree.node(ctx.cmd).name().to_string();
     let shell = SHELLS.iter().find(|s| s.name == name).expect("a shell");
+    let script = for_program(shell.script, ctx.tree.program());
     let text = if ctx.bool("no-descriptions") {
-        shell
-            .script
-            .replacen(" __complete ", " __completeNoDesc ", 1)
+        script.replacen(" __complete ", " __completeNoDesc ", 1)
     } else {
-        shell.script.to_string()
+        script
     };
     ctx.print(&text);
     Ok(())
@@ -265,14 +295,12 @@ pub fn run(ctx: &mut Ctx<'_>, args: &[String]) {
     );
 }
 
-fn ctx_called_no_desc(_ctx: &Ctx<'_>, _args: &[String]) -> bool {
+fn ctx_called_no_desc(ctx: &Ctx<'_>, _args: &[String]) -> bool {
     if CALLED_NO_DESC.with(|c| c.get()) {
         return true;
     }
-    for k in [
-        "ARMADA_COMPLETION_DESCRIPTIONS",
-        "COBRA_COMPLETION_DESCRIPTIONS",
-    ] {
+    let own = for_program("ARMADA_COMPLETION_DESCRIPTIONS", ctx.tree.program());
+    for k in [own.as_str(), "COBRA_COMPLETION_DESCRIPTIONS"] {
         if let Ok(v) = std::env::var(k)
             && !v.is_empty()
         {
@@ -366,7 +394,7 @@ fn completions(ctx: &mut Ctx<'_>, args: &[String]) -> (Vec<String>, i32, Option<
         }
     }
     let name_completions = |f: &Flag, to: &str| -> Vec<String> {
-        if hidden.contains(&f.name) {
+        if f.hidden || hidden.contains(&f.name) {
             return Vec::new();
         }
         let mut out = Vec::new();

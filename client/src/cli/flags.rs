@@ -232,6 +232,12 @@ impl Flag {
         Flag::new(name, shorthand, usage, Value::StrSlice(Vec::new()))
     }
 
+    /// MarkHidden: left out of help and completion.
+    pub fn hide(mut self) -> Flag {
+        self.hidden = true;
+        self
+    }
+
     /// NoOptDefVal: what the flag is set to when given without a value.
     pub fn no_opt_def_val(&self) -> &'static str {
         match self.value {
@@ -403,6 +409,8 @@ pub struct FlagSet {
     pub args: Vec<String>,
     /// How many arguments came before "--", or -1.
     pub args_len_at_dash: i64,
+    /// ParseErrorsWhitelist.UnknownFlags: unknown flags are skipped.
+    pub ignore_unknown: bool,
 }
 
 impl FlagSet {
@@ -411,6 +419,7 @@ impl FlagSet {
             flags,
             args: Vec::new(),
             args_len_at_dash: -1,
+            ignore_unknown: false,
         }
     }
 
@@ -480,6 +489,12 @@ impl FlagSet {
             if name == "help" {
                 return Err(ParseError::Help);
             }
+            if self.ignore_unknown {
+                if value.is_none() {
+                    strip_unknown_flag_value(args);
+                }
+                return Ok(());
+            }
             return Err(ParseError::Text(format!("unknown flag: --{name}")));
         };
         let value = match value {
@@ -507,6 +522,16 @@ impl FlagSet {
             let Some(i) = self.shorthand_index(c) else {
                 if c == 'h' {
                     return Err(ParseError::Help);
+                }
+                if self.ignore_unknown {
+                    // '-f=v' ends the group; '-f' or '-fxyz' strips a
+                    // value that follows and goes on with the rest.
+                    if rest.len() > 1 && rest.starts_with('=') {
+                        return Ok(());
+                    }
+                    strip_unknown_flag_value(args);
+                    shorthands = rest;
+                    continue;
                 }
                 return Err(ParseError::Text(format!(
                     "unknown shorthand flag: {} in -{shorthands}",
@@ -552,12 +577,13 @@ impl FlagSet {
         })
     }
 
-    /// FlagUsages of the flags filter keeps, sorted by name.
+    /// FlagUsages of the flags filter keeps, sorted by name (hidden ones
+    /// left out).
     pub fn usages(&self, filter: impl Fn(&Flag) -> bool) -> String {
         let mut lines = Vec::new();
         let mut maxlen = 0;
         for f in self.sorted() {
-            if !filter(f) {
+            if f.hidden || !filter(f) {
                 continue;
             }
             let mut line = match f.shorthand {
@@ -591,6 +617,16 @@ impl FlagSet {
             out.push_str(&format!("{} {} {}\n", &line[..sidx], spacing, usage));
         }
         out
+    }
+}
+
+/// stripUnknownFlagValue: the value after an unknown flag, unless it is
+/// another flag. `args` holds what is left, last first.
+fn strip_unknown_flag_value(args: &mut Vec<String>) {
+    if let Some(next) = args.last()
+        && !next.starts_with('-')
+    {
+        args.pop();
     }
 }
 

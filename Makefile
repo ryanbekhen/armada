@@ -12,7 +12,7 @@ LDFLAGS := -s -w \
 
 export CGO_ENABLED := 0
 
-.PHONY: all build build-bundle logger shim dns node node-test-hooks pki-parity store-parity server-parity client-parity agent-parity rust-check runtime-bundle test cover lint fmt vet vuln licenses licenses-save proto docs docs-rust tidy check clean
+.PHONY: all build build-bundle logger shim dns node node-test-hooks pki-parity store-parity server-parity client-parity daemon-parity agent-parity rust-check runtime-bundle test cover lint fmt vet vuln licenses licenses-save proto docs docs-rust tidy check clean
 
 all: check build
 
@@ -86,6 +86,14 @@ client-parity:
 	cargo build --locked -p armada-client
 	ARMADA_CLIENT_BIN=$(CURDIR)/target/debug/armada go test -count=1 -run TestClientParity ./internal/cli/
 
+# The daemon parity tests (ADR 0055, pull request 18): Go's armadad in
+# process and the Rust one (daemon/ with its test hooks,
+# target/debug/armadad) on the same command lines, case directories, and
+# stand-ins for systemctl, cosign, and etcd.
+daemon-parity:
+	cargo build --locked -p armada-daemon --features test-hooks
+	ARMADA_DAEMON_BIN=$(CURDIR)/target/debug/armadad go test -count=1 -run TestDaemonParity ./internal/daemon/
+
 # The node agent Go's agent parity tests run (ADR 0055):
 # target/debug/armada-agent-parity (ARMADA_AGENT_BIN). Never part of a
 # release.
@@ -104,6 +112,7 @@ rust-check:
 	cargo clippy --locked -p armada-store --all-targets --features parity -- -D warnings
 	cargo clippy --locked -p armada-server --all-targets --features parity -- -D warnings
 	cargo clippy --locked -p armada-agent --all-targets --features parity -- -D warnings
+	cargo clippy --locked -p armada-daemon --all-targets --features test-hooks -- -D warnings
 	cargo test --locked --workspace
 	cargo deny --locked check licenses
 	cargo build --release --locked --workspace --target x86_64-unknown-linux-musl
