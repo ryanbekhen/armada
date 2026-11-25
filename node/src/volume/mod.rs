@@ -39,7 +39,7 @@
 
 mod archive;
 pub(crate) mod errno;
-mod gzip;
+pub mod gzip;
 pub(crate) mod restore;
 pub(crate) mod walk;
 

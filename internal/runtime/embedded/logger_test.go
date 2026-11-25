@@ -25,6 +25,33 @@ func TestArmadaLogMatchesGo(t *testing.T) {
 	if bin == "" {
 		t.Skip("ARMADA_LOG_BIN is not set (make logger, then point it at logger/target/<triple>/release/armada-log)")
 	}
+	compareLoggers(t, func(t *testing.T, dir, id, stdout, stderr string, lim logLimits) {
+		runArmadaLog(t, bin, dir, id, stdout, stderr, lim)
+	})
+}
+
+// `armadad runtime-log` in Rust (ADR 0055, pull request 18b) must store
+// exactly what WriteLogs stores too. ARMADA_DAEMON_BIN is a build of
+// daemon/ with its test hooks (`make daemon-parity`), which takes the
+// limits from ARMADA_DAEMON_TEST_LOG_LIMITS as writeLogs takes them here.
+func TestRuntimeLogMatchesGo(t *testing.T) {
+	bin := os.Getenv("ARMADA_DAEMON_BIN")
+	if bin == "" {
+		t.Skip("ARMADA_DAEMON_BIN is not set (make daemon-parity builds target/debug/armadad with its test hooks)")
+	}
+	compareLoggers(t, func(t *testing.T, dir, id, stdout, stderr string, lim logLimits) {
+		runLogger(t, bin, []string{"runtime-log", dir}, []string{
+			"CONTAINER_ID=" + id,
+			fmt.Sprintf("ARMADA_DAEMON_TEST_LOG_LIMITS=%d,%d,%s,%s", lim.maxSize, lim.maxFiles,
+				strconv.FormatFloat(lim.rate, 'f', 0, 64), strconv.FormatFloat(lim.burst, 'f', 0, 64)),
+		}, stdout, stderr)
+	})
+}
+
+// compareLoggers runs WriteLogs and another logger (run) on the same
+// output and compares every file byte for byte, timestamps aside.
+func compareLoggers(t *testing.T, run func(t *testing.T, dir, id, stdout, stderr string, lim logLimits)) {
+	t.Helper()
 	long := strings.Repeat("x", 40000) + "\n"
 	cases := []struct {
 		name           string
@@ -82,7 +109,7 @@ func TestArmadaLogMatchesGo(t *testing.T) {
 			if err := writeLogs(goDir, id, strings.NewReader(c.stdout), strings.NewReader(c.stderr), c.lim); err != nil {
 				t.Fatal(err)
 			}
-			runArmadaLog(t, bin, rustDir, id, c.stdout, c.stderr, c.lim)
+			run(t, rustDir, id, c.stdout, c.stderr, c.lim)
 			goFiles, rustFiles := logFiles(t, goDir, start), logFiles(t, rustDir, start)
 			if !slices.EqualFunc(goFiles, rustFiles, func(a, b logFileContent) bool { return a.name == b.name && a.body == b.body }) {
 				t.Errorf("go:\n%s\nrust:\n%s", describe(goFiles), describe(rustFiles))
@@ -103,6 +130,16 @@ func numbered(n int) string {
 // fd 5 closed once ready, the container ID in the environment.
 func runArmadaLog(t *testing.T, bin, dir, id, stdout, stderr string, lim logLimits) {
 	t.Helper()
+	args := []string{"runtime-log", dir,
+		"max-size", strconv.FormatInt(lim.maxSize, 10), "max-files", strconv.Itoa(lim.maxFiles),
+		"rate", strconv.FormatFloat(lim.rate, 'f', 0, 64), "burst", strconv.FormatFloat(lim.burst, 'f', 0, 64)}
+	runLogger(t, bin, args, []string{"CONTAINER_ID=" + id, "CONTAINER_NAMESPACE=armada"}, stdout, stderr)
+}
+
+// runLogger runs a logger with args and env as the shim does: output on
+// fds 3 and 4, fd 5 closed once ready.
+func runLogger(t *testing.T, bin string, args, env []string, stdout, stderr string) {
+	t.Helper()
 	outR, outW, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
@@ -115,11 +152,8 @@ func runArmadaLog(t *testing.T, bin, dir, id, stdout, stderr string, lim logLimi
 	if err != nil {
 		t.Fatal(err)
 	}
-	args := []string{"runtime-log", dir,
-		"max-size", strconv.FormatInt(lim.maxSize, 10), "max-files", strconv.Itoa(lim.maxFiles),
-		"rate", strconv.FormatFloat(lim.rate, 'f', 0, 64), "burst", strconv.FormatFloat(lim.burst, 'f', 0, 64)}
 	cmd := exec.Command(bin, args...)
-	cmd.Env = []string{"CONTAINER_ID=" + id, "CONTAINER_NAMESPACE=armada"}
+	cmd.Env = env
 	cmd.ExtraFiles = []*os.File{outR, errR, readyW}
 	var logged bytes.Buffer
 	cmd.Stderr = &logged

@@ -4,17 +4,22 @@
 //! as Go's daemon runs cli.Run). This first part (18a) has the commands
 //! that need neither the running server or agent, nor the cluster's state,
 //! nor the container runtime's driver: version, endpoint, etcd, upgrade,
-//! and runtime; the others say they come with 18b.
+//! and runtime. The second (18b) adds those that need the cluster's state
+//! but not the running server or agent: backup, backup list, restore,
+//! user renew, and runtime-log; the others say they come later in 18b.
 
 pub mod agentconfig;
+pub mod backup;
 pub mod commands;
 pub mod download;
 pub mod etcdmember;
 pub mod gofs;
 pub mod gopath;
 pub mod hooks;
+pub mod manifest;
 pub mod netutil;
 pub mod pack;
+pub mod state;
 pub mod systemd;
 pub mod tar;
 pub mod tree;

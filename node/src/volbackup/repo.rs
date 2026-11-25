@@ -118,6 +118,21 @@ pub struct Snapshot {
     pub node: String,
 }
 
+/// An entry of a snapshot as Go's Entry names it: its path as written
+/// ("/"-separated, "." the volume), its type ("d", "f", or "l"), and a
+/// file's size. armadad restores the control plane's backups through it.
+#[allow(dead_code)]
+pub struct Item {
+    pub path: String,
+    pub typ: String,
+    pub size: i64,
+}
+
+/// What restore_entries hands each entry to, with a file's content.
+pub type ItemWriter<'a> = dyn FnMut(&Item, Option<&mut dyn Read>) -> Result<(), String> + 'a;
+
+type EntryWriter<'a> = dyn FnMut(&ManifestEntry, Option<&mut dyn Read>) -> Result<(), String> + 'a;
+
 /// Stats.
 #[derive(Default)]
 pub struct Stats {
@@ -739,6 +754,57 @@ impl Repo {
 
     /// Restore of snapshot id into the restore's writer.
     pub fn restore(&mut self, id: &str, w: &mut Writer) -> Result<Snapshot, String> {
+        self.restore_each(id, &mut |e, content| {
+            let p = e.path()?;
+            clean_path(&p)?;
+            let typ = match e.t.as_deref() {
+                Some(t) if t.len() == 1 => t.as_bytes()[0],
+                _ => 0,
+            };
+            let mode = e.m.unwrap_or(0);
+            let bit = |go: u32, unix: u32| if mode & go != 0 { unix } else { 0 };
+            let re = RestoreEntry {
+                name: p,
+                typ,
+                // The writer keeps setuid and setgid only as root.
+                mode: (mode & 0o777)
+                    | bit(MODE_STICKY, 0o1000)
+                    | bit(MODE_SETGID, 0o2000)
+                    | bit(MODE_SETUID, 0o4000),
+                uid: e.u.unwrap_or(0),
+                gid: e.g.unwrap_or(0),
+                mtime: Some(e.time()),
+                link: e.link()?,
+                size: e.s.unwrap_or(0),
+            };
+            match content {
+                Some(mut c) => w.write(&re, &mut c),
+                None => w.write(&re, &mut io::empty()),
+            }
+        })
+    }
+
+    /// Restore of snapshot id handed entry by entry, parents first, to
+    /// write with the content of files (Go's Repo.Restore): every chunk is
+    /// checked against its name, and chunks write leaves unread are read
+    /// all the same.
+    #[allow(dead_code)]
+    pub fn restore_entries(
+        &mut self,
+        id: &str,
+        write: &mut ItemWriter<'_>,
+    ) -> Result<Snapshot, String> {
+        self.restore_each(id, &mut |e, content| {
+            let item = Item {
+                path: e.p.clone().unwrap_or_default(),
+                typ: e.t.clone().unwrap_or_default(),
+                size: e.s.unwrap_or(0),
+            };
+            write(&item, content)
+        })
+    }
+
+    fn restore_each(&mut self, id: &str, write: &mut EntryWriter<'_>) -> Result<Snapshot, String> {
         let m = self.manifest(id)?;
         let snap = m.snapshot(id)?;
         let entries = m.entries.unwrap_or_default();
@@ -757,29 +823,8 @@ impl Repo {
                 if super::stopped() {
                     return Err("context canceled".to_string());
                 }
-                let p = e.path()?;
-                clean_path(&p)?;
-                let typ = match e.t.as_deref() {
-                    Some(t) if t.len() == 1 => t.as_bytes()[0],
-                    _ => 0,
-                };
-                let mode = e.m.unwrap_or(0);
-                let bit = |go: u32, unix: u32| if mode & go != 0 { unix } else { 0 };
-                let re = RestoreEntry {
-                    name: p,
-                    typ,
-                    // The writer keeps setuid and setgid only as root.
-                    mode: (mode & 0o777)
-                        | bit(MODE_STICKY, 0o1000)
-                        | bit(MODE_SETGID, 0o2000)
-                        | bit(MODE_SETUID, 0o4000),
-                    uid: e.u.unwrap_or(0),
-                    gid: e.g.unwrap_or(0),
-                    mtime: Some(e.time()),
-                    link: e.link()?,
-                    size: e.s.unwrap_or(0),
-                };
-                let n = if typ == b'f' {
+                let file = e.t.as_deref() == Some("f");
+                let n = if file {
                     e.c.as_ref().map_or(0, Vec::len)
                 } else {
                     0
@@ -790,7 +835,11 @@ impl Repo {
                     buf: Vec::new(),
                     at: 0,
                 };
-                let r = w.write(&re, &mut cs);
+                let r = if file {
+                    write(e, Some(&mut cs))
+                } else {
+                    write(e, None)
+                };
                 cs.skip();
                 r?;
             }
@@ -798,6 +847,12 @@ impl Repo {
         })();
         f.stop();
         res.map(|()| snap)
+    }
+
+    /// Info: snapshot id's time, size, and node, from its manifest.
+    #[allow(dead_code)]
+    pub fn info(&mut self, id: &str) -> Result<Snapshot, String> {
+        self.manifest(id)?.snapshot(id)
     }
 
     /// Prune.
