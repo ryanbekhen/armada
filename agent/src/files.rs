@@ -120,7 +120,7 @@ impl<R: Runtime> Inner<R> {
 
     /// Where volume `name` of `app` lives; both names are checked so a path
     /// from the server never leaves the volumes directory.
-    fn volume_dir(&self, app: &str, name: &str) -> Result<PathBuf, String> {
+    pub(crate) fn volume_dir(&self, app: &str, name: &str) -> Result<PathBuf, String> {
         if self.cfg.volumes_dir.is_empty() {
             return Err("this node has no volume directory".to_string());
         }
@@ -135,9 +135,11 @@ impl<R: Runtime> Inner<R> {
     }
 
     /// Creates a replica's volume directories on first use and returns
-    /// their mounts. NFS exports (ADR 0042) come with a later part: this
-    /// agent mounts none, as a Go agent without an NFS directory.
-    pub(crate) fn prepare_volumes(&self, s: &pb::ReplicaSpec) -> Result<Vec<VolumeMount>, String> {
+    /// their mounts; NFS exports (ADR 0042) are mounted once per node.
+    pub(crate) async fn prepare_volumes(
+        &self,
+        s: &pb::ReplicaSpec,
+    ) -> Result<Vec<VolumeMount>, String> {
         if s.volumes.is_empty() {
             return Ok(Vec::new());
         }
@@ -147,10 +149,12 @@ impl<R: Runtime> Inner<R> {
         let mut out = Vec::with_capacity(s.volumes.len());
         for v in &s.volumes {
             if v.nfs.is_some() {
-                return Err(format!(
-                    "volume {}: this node does not mount NFS volumes",
-                    v.name
-                ));
+                let m = self
+                    .prepare_nfs(&s.app, v)
+                    .await
+                    .map_err(|e| format!("volume {}: {e}", v.name))?;
+                out.push(m);
+                continue;
             }
             let dir = self.volume_dir(&s.app, &v.name)?;
             armada_spec::validate::validate_volume_path(&v.path)

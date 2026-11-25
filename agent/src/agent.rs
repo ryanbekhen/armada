@@ -116,6 +116,8 @@ pub struct Config {
     /// The agent's version in Hello.
     pub version: String,
     pub clock: Arc<dyn Clock>,
+    /// The sessions and loops beside the reconcile pass (16c).
+    pub side: crate::side::SideConfig,
 }
 
 impl Default for Config {
@@ -151,6 +153,7 @@ impl Default for Config {
             behind_nat: false,
             version: env!("CARGO_PKG_VERSION").to_string(),
             clock: Arc::new(SystemClock),
+            side: crate::side::SideConfig::default(),
         }
     }
 }
@@ -240,6 +243,8 @@ pub(crate) struct Inner<R: Runtime> {
     pub volume_ops: AtomicI32,
     /// Requests held for apps scaled to zero (ADR 0021).
     pub wakes: crate::wake::Waker,
+    /// What the sessions and loops beside the pass keep (16c).
+    pub side: crate::side::Side,
 }
 
 /// The node agent: reconciles the node's containers with the replicas the
@@ -341,6 +346,7 @@ impl<R: Runtime> Agent<R> {
                 move_err: Mutex::new(String::new()),
                 volume_ops: AtomicI32::new(0),
                 wakes: crate::wake::Waker::default(),
+                side: crate::side::Side::default(),
             }),
         }
     }
@@ -427,7 +433,11 @@ impl<R: Runtime> Inner<R> {
         self.set_network(a.network.as_ref());
         self.set_desired(&a.replicas, a.proxy.as_ref());
         self.set_servers(&a.servers);
+        self.set_log_settings(a.logs.as_ref());
         self.set_runtime_move_plan(a.runtime_move.as_ref());
+        if self.sandboxes_on() {
+            self.set_sandboxes(&a.queue_sandboxes);
+        }
     }
 
     pub(crate) fn set_desired(&self, replicas: &[pb::ReplicaSpec], px: Option<&pb::ProxyConfig>) {
@@ -691,6 +701,7 @@ impl<R: Runtime> Inner<R> {
         let report = self.start_pending(pending, settled, running).await;
         self.forget_holds(&desired);
         self.clean_secret_files(&desired);
+        self.clean_nfs(&desired).await;
         {
             let mut st = lock(&self.st);
             let gone: Vec<String> = st
@@ -1009,7 +1020,7 @@ impl<R: Runtime> Inner<R> {
             }
         }
         cs.files = self.write_secret_files(s).map_err(Error::Other)?;
-        cs.volumes = self.prepare_volumes(s).map_err(Error::Other)?;
+        cs.volumes = self.prepare_volumes(s).await.map_err(Error::Other)?;
         crate::containers::with_member_mounts(s, &mut cs).map_err(Error::Other)?;
         let id = self.rt.run(&cs).await?;
         let c = self.rt.inspect(&id).await?;

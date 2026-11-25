@@ -494,11 +494,15 @@ Go and every new Rust part is exercised only by its parity tests.
     usage reports' load, switch, and peers; 16c, the sessions and loops
     left (exec, log, and volume sessions, queue readings and sandboxes,
     NFS, log export and prune, and the usage reports' volumes,
-    connection tracking, queues, sandboxes, and export); 16d, the
-    HAProxy driver, the cluster network, and the resolver's client
-    behind those seams over armada-node's library; 16e, the supervisor
-    runtime behind the runtime trait, with the system containers
-    HAProxy's engine runs on.
+    connection tracking, queues, sandboxes, and export; volume archives
+    and backups, NFS mounts, and connection tracking behind seams of their
+    own, whose first implementations run `armada-node` as a process with
+    the protocols Go's agent uses); 16d, the HAProxy driver, the cluster
+    network, and the resolver's client behind those seams over
+    armada-node's library; 16e, the supervisor runtime behind the runtime
+    trait, with the system containers HAProxy's engine runs on, and the
+    volume and connection tracking seams moved in process (NFS mounts
+    stay a process).
 17. **The client.** Every command, output, completion, the SSH dialer,
     configuration files, and the release notice, with the client parity
     tests.

@@ -68,53 +68,66 @@ func (a *Agent) logExportLoop(ctx context.Context) {
 	if !ok {
 		return
 	}
-	var (
-		client  *logexport.Client
-		current logexport.Config
-		wait    = a.cfg.LogExport
-		fails   int
-		lastErr string
-	)
+	var st exportLoopState
+	wait := a.cfg.LogExport
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-time.After(wait):
 		}
-		wait = a.cfg.LogExport
-		cfg, target, on := a.exportConfig()
-		if !on {
-			client, current, fails, lastErr = nil, logexport.Config{}, 0, ""
-			a.export.v.Store(nil)
-			continue
-		}
-		if client == nil || !sameExport(cfg, current) {
-			c, err := logexport.NewClient(cfg, a.cfg.LogExportClient)
-			if err != nil {
-				a.exportFailed(err.Error(), &lastErr)
-				continue
-			}
-			client, current, fails = c, cfg, 0
-		}
-		more, err := a.exportOnce(ctx, lt, client, target)
-		if err != nil {
-			if ctx.Err() != nil {
-				return
-			}
-			fails++
-			wait = min(a.cfg.LogExport<<min(fails, 6), exportBackoffMax)
-			a.exportFailed(err.Error(), &lastErr)
-			continue
-		}
-		if fails > 0 || lastErr != "" {
-			a.log.Info("log export: sending again")
-		}
-		fails, lastErr = 0, ""
-		a.export.v.Store(&armadav1.LogExportStatus{})
-		if more {
-			wait = 0
+		var stop bool
+		if wait, stop = a.exportRound(ctx, lt, &st); stop {
+			return
 		}
 	}
+}
+
+// exportLoopState is what logExportLoop keeps between rounds.
+type exportLoopState struct {
+	client  *logexport.Client
+	current logexport.Config
+	fails   int
+	lastErr string
+}
+
+// exportRound is one round of logExportLoop: the wait before the next, or
+// stop once ctx ended a round. The Rust agent's parity tests run rounds
+// one at a time.
+func (a *Agent) exportRound(ctx context.Context, lt runtime.LogTailer, st *exportLoopState) (time.Duration, bool) {
+	wait := a.cfg.LogExport
+	cfg, target, on := a.exportConfig()
+	if !on {
+		*st = exportLoopState{}
+		a.export.v.Store(nil)
+		return wait, false
+	}
+	if st.client == nil || !sameExport(cfg, st.current) {
+		c, err := logexport.NewClient(cfg, a.cfg.LogExportClient)
+		if err != nil {
+			a.exportFailed(err.Error(), &st.lastErr)
+			return wait, false
+		}
+		st.client, st.current, st.fails = c, cfg, 0
+	}
+	more, err := a.exportOnce(ctx, lt, st.client, target)
+	if err != nil {
+		if ctx.Err() != nil {
+			return 0, true
+		}
+		st.fails++
+		a.exportFailed(err.Error(), &st.lastErr)
+		return min(a.cfg.LogExport<<min(st.fails, 6), exportBackoffMax), false
+	}
+	if st.fails > 0 || st.lastErr != "" {
+		a.log.Info("log export: sending again")
+	}
+	st.fails, st.lastErr = 0, ""
+	a.export.v.Store(&armadav1.LogExportStatus{})
+	if more {
+		return 0, false
+	}
+	return wait, false
 }
 
 func (a *Agent) exportFailed(msg string, last *string) {

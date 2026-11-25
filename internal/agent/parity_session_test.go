@@ -260,7 +260,7 @@ func runSession(t *testing.T, rust bool) []string {
 		t.Cleanup(r.stop)
 		r.request("config", map[string]any{"config": map[string]any{
 			"nodeId": "n1", "privateIp": "10.0.0.2", "cpuMillis": 2000, "memoryBytes": 1 << 30, "nowNs": parityT0.UnixNano(),
-			"os": "linux", "arch": "amd64", "caps": map[string]any{"members": true, "exec": true, "stats": true},
+			"os": "linux", "arch": "amd64", "caps": map[string]any{"members": true, "exec": true, "stats": true, "logs": true},
 		}})
 		r.request("run", map[string]any{"dataDir": dir, "node": "n1", "servers": []string{lis.Addr().String()}})
 	} else {

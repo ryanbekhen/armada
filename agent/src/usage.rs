@@ -176,6 +176,7 @@ impl<R: Runtime> Inner<R> {
             let prev = std::mem::take(&mut state.totals);
             state.totals = self.sample_load(px.as_ref(), &mut report, prev).await;
         }
+        self.side_usage(&mut report).await;
         if let Some(sw) = self.switcher() {
             report.network_switch = sw.switch_status().await;
         }
@@ -187,6 +188,12 @@ impl<R: Runtime> Inner<R> {
             || report.runtime.is_some()
             || report.peers_checked
             || report.load_measured
+            || report.volumes_measured
+            || report.conntrack_max > 0
+            || !report.queues.is_empty()
+            || !report.sandboxes.is_empty()
+            || !report.dropped_sandboxes.is_empty()
+            || report.log_export.is_some()
             || report.network_switch.is_some())
         .then_some(report)
     }
@@ -213,6 +220,7 @@ impl<R: Runtime> Inner<R> {
                 &[],
             );
         }
+        self.sample_conntrack(&mut pb::UsageReport::default()).await;
         let every = self.cfg.usage_interval;
         let mut t = tokio::time::interval_at(tokio::time::Instant::now() + every, every);
         let mut state = UsageState::default();

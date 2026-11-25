@@ -271,6 +271,10 @@ type pfake struct {
 	execCodes map[string]int
 	// pullHold, while set, holds every pull until it is closed.
 	pullHold chan struct{}
+	// side is what the sessions and loops get (parity_side_test.go);
+	// sandbox says the runtime keeps network sandboxes.
+	side    side
+	sandbox bool
 	// in is what the proxy, network, resolver, certificate, and runtime
 	// move fakes answer (parity_ingress_test.go).
 	in ingress
@@ -492,8 +496,8 @@ func (f *pfake) Inspect(_ context.Context, id string) (runtime.Container, error)
 	return f.with(c), nil
 }
 
-func (f *pfake) Logs(context.Context, string, runtime.LogOptions) (runtime.LogStream, error) {
-	return nil, errors.New("no logs in the parity tests")
+func (f *pfake) Logs(_ context.Context, id string, o runtime.LogOptions) (runtime.LogStream, error) {
+	return f.logs(id, o)
 }
 
 func (f *pfake) CanRunMembers() bool   { return !f.noMembers }
@@ -503,7 +507,10 @@ func (f *pfake) CanStats() bool        { return !f.noStats }
 
 // ExecApp answers probe commands from execCodes; they are not recorded,
 // since probes run on their own timers.
-func (f *pfake) ExecApp(ctx context.Context, _ string, opts runtime.ExecOptions) (int, error) {
+func (f *pfake) ExecApp(ctx context.Context, id string, opts runtime.ExecOptions) (int, error) {
+	if opts.Stdout != nil && opts.Stdout != io.Discard {
+		return f.execSession(id, opts) // an exec session or a queue command
+	}
 	f.mu.Lock()
 	code := f.execCodes[opts.Cmd[0]]
 	f.mu.Unlock()
@@ -703,6 +710,9 @@ func (f *pfake) answer(c rustCall) (any, error) {
 		s := f.RuntimeAgent()
 		return map[string]any{"agent": s.Agent, "goImages": s.GoImages, "converted": s.Converted, "imagesToPull": s.ImagesToPull, "error": s.Error}, nil
 	}
+	if res, ok, err := f.answerSide(c.Method, c.Raw); ok {
+		return res, err
+	}
 	res, _, err := f.answerIngress(c.Method, c.Raw)
 	return res, err
 }
@@ -721,6 +731,10 @@ type parityOpts struct {
 	// move hooks (parity_ingress_test.go).
 	proxy, network, move bool
 	networkKey           string
+	// side sets up the sessions' harness (parity_side_test.go): a control
+	// plane for exec, log, and volume sessions, a fake armada-node, and a
+	// log endpoint; sandbox and encodes are what the runtime offers too.
+	side, sandbox, encodes bool
 }
 
 func defaultOpts() parityOpts {
@@ -750,6 +764,8 @@ type goAgent struct {
 	cancel context.CancelFunc
 	prev   map[string]usageSample
 	totals map[string]int64
+	warned bool
+	export exportLoopState
 }
 
 func (g *goAgent) assign(a *armadav1.Assignment) { g.a.assign(a) }
@@ -787,12 +803,22 @@ func (g *goAgent) sample() *armadav1.UsageReport {
 	if lr, ok := g.a.cfg.Proxy.(proxy.LoadReader); ok {
 		g.totals = g.a.sampleLoad(g.ctx, lr, report, g.totals)
 	}
+	if g.a.mountsVolumes() && g.a.cfg.VolumeProgram != nil {
+		report.Volumes, report.VolumesMeasured = g.a.measureVolumes(g.ctx), true
+	}
+	g.a.sampleConntrack(report, &g.warned)
+	report.Queues = g.a.queues.fresh(time.Now(), 2*g.a.cfg.QueueInterval)
+	report.Sandboxes = g.a.sandboxReport(time.Now())
+	report.DroppedSandboxes = g.a.droppedSandboxes()
+	report.LogExport = g.a.export.v.Load()
 	if sw := g.a.switcher(); sw != nil {
 		report.NetworkSwitch = sw.SwitchStatus()
 	}
 	g.a.reportPeers(report)
 	report.Runtime = g.a.withMoveError(runtimeStatus(g.f.RuntimeAgent()))
-	if !sampled && report.Runtime == nil && !report.PeersChecked && !report.LoadMeasured && report.NetworkSwitch == nil {
+	if !sampled && report.Runtime == nil && !report.PeersChecked && !report.LoadMeasured && report.NetworkSwitch == nil &&
+		!report.VolumesMeasured && report.ConntrackMax == 0 && len(report.Queues) == 0 && len(report.Sandboxes) == 0 &&
+		len(report.DroppedSandboxes) == 0 && report.LogExport == nil {
 		return nil
 	}
 	return report
@@ -966,6 +992,7 @@ func (r *rustAgent) stop() {
 
 // parityRun is one run of a scenario against one agent.
 type parityRun struct {
+	sh      *sideHarness
 	t       *testing.T
 	f       *pfake
 	clk     *testClock
@@ -1000,6 +1027,9 @@ func (p *parityRun) normalize(s string) string {
 	}
 	if p.volumes != "" {
 		s = strings.ReplaceAll(s, p.volumes, "$VOLUMES")
+	}
+	if p.sh != nil {
+		s = strings.ReplaceAll(s, p.sh.root, "$ROOT")
 	}
 	return s
 }
@@ -1112,17 +1142,30 @@ func newParityRun(t *testing.T, opts parityOpts, rust bool) *parityRun {
 		p.volumes = t.TempDir()
 	}
 	f.norm = p.normalize
+	f.sandbox = opts.sandbox
+	if opts.side {
+		p.sh = newSideHarness(t, f)
+		p.volumes = filepath.Join(p.sh.root, "volumes")
+	}
 	if rust {
 		r := startRust(t, f)
-		r.request("config", map[string]any{"config": map[string]any{
+		config := map[string]any{
 			"nodeId": "n1", "privateIp": "10.0.0.2", "cpuMillis": 2000, "memoryBytes": 1 << 30,
 			"bootNs": opts.boot.UnixNano(), "nowNs": parityT0.UnixNano(), "crashBaseNs": int64(opts.crashBase),
 			"unpublished": opts.unpublished, "volumesDir": p.volumes, "secretsDir": p.secrets, "dns": opts.dns,
 			"os": "linux", "arch": "amd64",
 			"caps": map[string]any{"members": opts.members, "volumes": opts.volumes, "exec": opts.exec, "stats": opts.stats,
-				"proxy": opts.proxy, "network": opts.network, "move": opts.move},
+				"proxy": opts.proxy, "network": opts.network, "move": opts.move,
+				"logs": true, "encodes": opts.encodes, "sandbox": opts.sandbox},
 			"networkKey": opts.networkKey,
-		}})
+		}
+		if p.sh != nil {
+			maps.Copy(config, p.sh.rustConfig())
+		}
+		r.request("config", map[string]any{"config": config})
+		if p.sh != nil {
+			r.request("connect", p.sh.connect())
+		}
 		p.a = r
 		return p
 	}
@@ -1132,7 +1175,16 @@ func newParityRun(t *testing.T, opts parityOpts, rust bool) *parityRun {
 		OS: "linux", Arch: "amd64", ImagePrune: -1, UsageInterval: time.Hour,
 	}
 	withIngress(&cfg, f, opts)
+	if opts.encodes {
+		cfg.Driver = pfakeEncoding{f}
+	}
+	if p.sh != nil {
+		p.sh.goConfig(t, &cfg)
+	}
 	a := New(cfg)
+	if p.sh != nil {
+		p.sh.agent = a
+	}
 	a.now, a.began, a.crashBase = clk.Now, clk.Now(), opts.crashBase
 	ctx, cancel := context.WithCancel(context.Background())
 	p.a = &goAgent{a: a, f: f, ctx: ctx, cancel: cancel}

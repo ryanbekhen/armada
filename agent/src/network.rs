@@ -155,6 +155,7 @@ impl<R: Runtime> Inner<R> {
             }
             local.insert(ip, app.to_string());
         }
+        self.local_sandboxes(&mut local).await;
         Ok(local)
     }
 
