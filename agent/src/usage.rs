@@ -1,8 +1,9 @@
 //! Usage reports (ADR 0016, Go's usage.go): what the node's replicas use,
 //! sampled every interval, a container whose network interface stayed
-//! gone over two samples recreated, and how the node runs containers. The
-//! proxy's load, volumes, connection tracking, queues, sandboxes, log
-//! export, the network switch, and peers come with a later part.
+//! gone over two samples recreated, how the node runs containers, the
+//! proxy's load, the network switch, and WireGuard peers. Volumes,
+//! connection tracking, queues, sandboxes, and log export come with a later
+//! part.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -33,6 +34,14 @@ pub struct UsageSample {
 /// The samples of the last round, by replica.
 pub type Samples = HashMap<String, UsageSample>;
 
+/// What the usage loop keeps between rounds: the replicas' samples and the
+/// proxy's request totals.
+#[derive(Default)]
+pub struct UsageState {
+    pub samples: Samples,
+    pub totals: HashMap<String, i64>,
+}
+
 /// How the node runs containers, as the leader reads it (ADR 0054).
 pub fn runtime_status(s: &AgentStatus) -> Option<pb::RuntimeStatus> {
     if s.agent.is_empty() {
@@ -54,10 +63,10 @@ impl<R: Runtime> Agent<R> {
         self.inner.sample_usage(prev).await
     }
 
-    /// One usage report as the loop sends it (the part of 16a), None when
-    /// it has nothing to say.
-    pub async fn usage_report(&self, prev: &mut Samples) -> Option<pb::UsageReport> {
-        self.inner.usage_report(prev).await
+    /// One usage report as the loop sends it, None when it has nothing to
+    /// say.
+    pub async fn usage_report(&self, state: &mut UsageState) -> Option<pb::UsageReport> {
+        self.inner.usage_report(state).await
     }
 }
 
@@ -152,21 +161,34 @@ impl<R: Runtime> Inner<R> {
         (Some(report), next)
     }
 
-    pub(crate) async fn usage_report(&self, prev: &mut Samples) -> Option<pb::UsageReport> {
+    pub(crate) async fn usage_report(&self, state: &mut UsageState) -> Option<pb::UsageReport> {
         let mut report = pb::UsageReport::default();
         let mut sampled = false;
         if self.rt.can_stats() {
-            let (r, next) = self.sample_usage(std::mem::take(prev)).await;
-            *prev = next;
+            let (r, next) = self.sample_usage(std::mem::take(&mut state.samples)).await;
+            state.samples = next;
             if let Some(r) = r {
                 report.replicas = r.replicas;
                 sampled = true;
             }
         }
-        if let Some(s) = self.rt.runtime_agent().await {
-            report.runtime = runtime_status(&s);
+        if let Some(px) = self.cfg.proxy.clone().filter(|p| p.reads_load()) {
+            let prev = std::mem::take(&mut state.totals);
+            state.totals = self.sample_load(px.as_ref(), &mut report, prev).await;
         }
-        (sampled || report.runtime.is_some()).then_some(report)
+        if let Some(sw) = self.switcher() {
+            report.network_switch = sw.switch_status().await;
+        }
+        self.report_peers(&mut report).await;
+        if let Some(s) = self.rt.runtime_agent().await {
+            report.runtime = self.with_move_error(runtime_status(&s));
+        }
+        (sampled
+            || report.runtime.is_some()
+            || report.peers_checked
+            || report.load_measured
+            || report.network_switch.is_some())
+        .then_some(report)
     }
 
     /// Sends a usage report on the session, if one is open.
@@ -193,10 +215,10 @@ impl<R: Runtime> Inner<R> {
         }
         let every = self.cfg.usage_interval;
         let mut t = tokio::time::interval_at(tokio::time::Instant::now() + every, every);
-        let mut prev = Samples::new();
+        let mut state = UsageState::default();
         loop {
             t.tick().await;
-            if let Some(r) = self.usage_report(&mut prev).await {
+            if let Some(r) = self.usage_report(&mut state).await {
                 self.send_usage(r);
             }
         }

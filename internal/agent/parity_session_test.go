@@ -37,6 +37,10 @@ func TestAgentParityHello(t *testing.T) {
 		"default":               nil,
 		"no members or volumes": func(o *parityOpts) { o.members, o.volumes = false, false },
 		"no volume directory":   func(o *parityOpts) { o.volumesDir = false },
+		"network with a key, proxy, and move": func(o *parityOpts) {
+			o.network, o.networkKey, o.proxy, o.move = true, "key-0", true, true
+		},
+		"network without a key": func(o *parityOpts) { o.network = true },
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
