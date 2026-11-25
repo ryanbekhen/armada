@@ -53,7 +53,8 @@ import (
 // package's scenarios onto the harness. Neither server runs a pass on its
 // own (manualPasses): the scenario runs every pass, so both pass at the
 // same steps, and replica IDs are predictable (parityIDs) so both name
-// and order their replicas alike.
+// and order their replicas alike. Neither evaluates autoscaled apps on its
+// own either: the scenario runs every evaluation (autoscale).
 
 // parityConfig is how a scenario's control plane is set up.
 type parityConfig struct {
@@ -83,6 +84,8 @@ type serverUnderTest interface {
 	join() string
 	// reconcile runs one pass now.
 	reconcile(t *testing.T)
+	// autoscale runs one evaluation of the autoscaler now.
+	autoscale(t *testing.T)
 	// settingsChanged counts OnSettingsChanged calls.
 	settingsChanged() int
 	stop()
@@ -145,6 +148,8 @@ type scenario struct {
 	log     []parityEntry
 	aliases [][2]string
 	seen    map[string]map[string]string
+	// marks counts the replica messages barrier sent.
+	marks int
 }
 
 func serverBin() string { return os.Getenv("ARMADA_SERVER_BIN") }
@@ -325,6 +330,12 @@ func (g *goServer) reconcile(t *testing.T) {
 	t.Helper()
 	if err := g.srv.Reconcile(context.Background()); err != nil {
 		t.Fatalf("reconcile: %v", err)
+	}
+}
+func (g *goServer) autoscale(t *testing.T) {
+	t.Helper()
+	if err := g.srv.autoscale(context.Background()); err != nil {
+		t.Fatalf("autoscale: %v", err)
 	}
 }
 
@@ -522,6 +533,13 @@ func (r *rustServer) reconcile(t *testing.T) {
 	t.Helper()
 	if m := r.do(map[string]any{"op": "reconcile"}); m["error"] != "" && m["error"] != nil {
 		t.Fatalf("reconcile: %v", m["error"])
+	}
+}
+
+func (r *rustServer) autoscale(t *testing.T) {
+	t.Helper()
+	if m := r.do(map[string]any{"op": "autoscale"}); m["error"] != "" && m["error"] != nil {
+		t.Fatalf("autoscale: %v", m["error"])
 	}
 }
 

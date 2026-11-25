@@ -1,10 +1,12 @@
 //! Sessions with agents (Go's agents.go): the Connect stream, the Hello
 //! that opens it, the queue of messages each session sends, and the
 //! reports agents send back, checked as untrusted input before they reach
-//! the store. Of usage samples, the network sandboxes' queue readings are
-//! kept (`usage`, for queue triggers); the rest of the usage store,
-//! out-of-memory events, volume sizes, and wake requests come with
-//! watching and scaling (pull requests 15 and 11); the conditions a usage report starts
+//! the store. Usage samples go to the usage store (`usage`: replica
+//! samples, proxy load, queue lengths, and sandboxes' readings) with an
+//! event for each replica whose processes were killed at the memory
+//! limit, and wake requests to the autoscaler (`autoscale`); volume sizes
+//! and the rest of the usage store come with volumes, the cluster
+//! network, and watching (pull requests 12, 13, and 15); the conditions a usage report starts
 //! (unreachable peers, WireGuard in userspace, a failing log export) are
 //! recorded here.
 
@@ -602,6 +604,9 @@ impl Server {
                     // A new length of a job's queue may start runs.
                     self.trigger();
                 }
+                for e in self.0.usage.out_of_memory(&node.id, &u) {
+                    self.record(e).await;
+                }
                 self.peers_checked(&node.id, &u).await;
                 let le = u.log_export.unwrap_or_default();
                 let mut e = event(
@@ -615,6 +620,7 @@ impl Server {
                 self.condition(&format!("log-export:{}", node.id), le.failing, e)
                     .await;
             }
+            Some(AgentMsg::Wake(w)) => self.wake_app(&node.id, &w.app).await,
             Some(AgentMsg::NetworkKey(k)) => {
                 self.network_key_changed(&node.id, &k.public_key).await
             }

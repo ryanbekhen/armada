@@ -67,9 +67,7 @@ func (s *Server) Reconcile(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if s.parts == allParts {
-		s.usage.setOwners(replicas, s.now())
-	}
+	s.usage.setOwners(replicas, s.now())
 	revs := revisionCache{store: s.store, keys: s.keys, m: map[string]store.Revision{}, opened: s.opened}
 	defer s.opened.sweep()
 	revs.preload(ctx, apps, replicas)
