@@ -223,6 +223,39 @@ Go's code does:
   net/netip's addresses and prefixes, under the BSD-3-Clause license
   ([text](third_party/licenses/BSD-3-Clause-Go.txt)).
 
+## armada-store
+
+`armada-store` (`store/`, Apache-2.0) keeps the cluster state in etcd in
+Rust (ADR 0055): the client of an etcd member, the transactions, every
+record, and the election and lock recipes. No released program links it
+yet; besides armada-proto, armada-spec, armada-pki, armada-secrets, ring,
+rustls, rustls-pki-types, serde, serde_json, tokio, tokio-stream, and
+tonic (above), it is built with these crates:
+
+| Crate | License |
+| --- | --- |
+| atomic-waker, equivalent, fnv, hashbrown, indexmap | Apache-2.0 or MIT (used under MIT) |
+| futures-channel, futures-task, futures-util | MIT or Apache-2.0 |
+| h2, hyper, hyper-util | MIT |
+| httparse, smallvec, socket2 | MIT or Apache-2.0 |
+| hyper-timeout | MIT or Apache-2.0 |
+| mio, slab | MIT |
+| tokio-rustls | MIT or Apache-2.0 |
+| tower | MIT |
+| try-lock, want | MIT |
+
+Used only while building, not linked: tokio-macros (MIT). In the lock
+file for other operating systems only: windows-link and windows-sys
+0.61 (MIT or Apache-2.0). The test program of Go's parity tests
+(`armada-store-parity`, the `parity` feature) is never built for a
+release.
+
+Its election and lock (`store/src/election.rs`) follow the recipes of
+etcd's `concurrency` package (`go.etcd.io/etcd/client/v3/concurrency`,
+v3.7.4, under the [Apache License 2.0](proto/vendor/etcd/LICENSE)), so Go
+and Rust servers campaign in one election. Source:
+<https://github.com/etcd-io/etcd/tree/v3.7.4/client/v3/concurrency>.
+
 ## Downloaded at run time
 
 Nodes pull the HAProxy image (`haproxy:3.2-alpine`, pinned by digest in

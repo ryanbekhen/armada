@@ -171,8 +171,8 @@ jobs:
   # both architectures, the comparison of armada-log with the Go writer it
   # must match byte for byte, armada-dns against the Go resolver's tests,
   # and the Cargo workspace at the root (ADR 0055: armada-node of ADR 0054
-  # and armada-proto): its crates' licenses, its members built for both
-  # architectures, and armada-node's parity tests against the Go code.
+  # and the crates of ADR 0055): its crates' licenses, its members built
+  # for both architectures, and the parity tests against the Go code.
   logger:
     needs: changes
     if: needs.changes.outputs.code == 'true'
@@ -263,6 +263,16 @@ jobs:
         env:
           ARMADA_PKI_BIN: ${{ github.workspace }}/target/debug/armada-pki-parity
           ARMADA_SECRETS_BIN: ${{ github.workspace }}/target/debug/armada-secrets-parity
+      # The store in Rust (ADR 0055) runs the same operations as Go's on one
+      # etcd member (the package's own, in process): the same answers and
+      # keyspaces, each side's records read back by the other, concurrent
+      # writers, fencing, and one election; its test program is built only
+      # for this.
+      - run: cargo clippy --locked -p armada-store --all-targets --features parity -- -D warnings
+      - run: make store-parity
+      - run: go test -race -run 'TestArmadaStore' -v ./internal/store/
+        env:
+          ARMADA_STORE_BIN: ${{ github.workspace }}/target/debug/armada-store-parity
 
   installer:
     needs: changes

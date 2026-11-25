@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -86,7 +85,7 @@ func (s *Etcd) PutEvent(ctx context.Context, e Event, replace string) (string, e
 	if err != nil {
 		return "", err
 	}
-	key := fmt.Sprintf("%s%020d-%s", pfxEvents, e.Last.UnixNano(), randomSuffix())
+	key := fmt.Sprintf("%s%020d-%s", pfxEvents, e.Last.UnixNano(), s.randomSuffix())
 	ops := []clientv3.Op{clientv3.OpPut(s.prefix+key, string(b), clientv3.WithLease(lease))}
 	if replace != "" && replace != key {
 		ops = append(ops, clientv3.OpDelete(s.prefix+replace))
@@ -141,8 +140,8 @@ func (s *Etcd) TrimEvents(ctx context.Context, keep int) error {
 	return err
 }
 
-func randomSuffix() string {
+func (s *Etcd) randomSuffix() string {
 	b := make([]byte, 4)
-	_, _ = rand.Read(b)
+	s.random(b)
 	return hex.EncodeToString(b)
 }
