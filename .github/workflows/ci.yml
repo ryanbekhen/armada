@@ -149,6 +149,10 @@ jobs:
       - run: go test -race -run 'TestParity|TestArmadaServer' -v ./internal/server/
         env:
           ARMADA_SERVER_BIN: ${{ github.workspace }}/target/debug/armada-server-parity
+      # armada in Rust (client/) runs every client parity case against a
+      # recorded AdminService beside Go's client: the same output, exit
+      # codes, requests, and config files.
+      - run: make client-parity
 
   # Validates the rendered HAProxy configuration with the pinned image.
   haproxy:
