@@ -72,7 +72,9 @@ store-parity:
 	cargo build --locked -p armada-store --features parity
 
 # The control plane Go's scenario parity tests run (ADR 0055):
-# target/debug/armada-server-parity (ARMADA_SERVER_BIN). Never part of a
+# target/debug/armada-server-parity (ARMADA_SERVER_BIN), and its ACME
+# manager for internal/certs' Pebble test,
+# target/debug/armada-acme-parity (ARMADA_ACME_BIN). Never part of a
 # release.
 server-parity:
 	cargo build --locked -p armada-server --features parity

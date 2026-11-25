@@ -77,6 +77,7 @@ dependencies = [
  "armada-secrets",
  "armada-spec",
  "armada-store",
+ "rcgen",
  "ring",
  "rustls",
  "rustls-pki-types",
@@ -87,6 +88,7 @@ dependencies = [
  "tokio-stream",
  "tonic",
  "tower",
+ "x509-parser",
 ]
 
 [[package]]
