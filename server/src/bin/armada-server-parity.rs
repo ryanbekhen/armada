@@ -14,7 +14,15 @@
 //! `{"id", "error"?}`: `now` (ms) sets the test clock, `reconcile` runs a
 //! pass, `autoscale` an evaluation of the autoscaler, `backups` a round of
 //! the backup loop answered once its backups ended (neither runs on its
-//! own with `manualPasses`), `stop` ends the server. The server asks the test for the etcd
+//! own with `manualPasses`), `managed` answers what the certificate
+//! manager was last asked to manage, `certEvent` tells the server a
+//! certificate was obtained or failed, `txt` sets the TXT records the
+//! server resolves, `storeCert`/`loadCert` write and read a certificate
+//! in certmagic's storage, `lock`/`unlock` take and release one of its
+//! locks, `stop` ends the server. With `certs` the server gets a
+//! certificate manager that reads certmagic's storage in etcd under
+//! `acmePrefix` (the certificates of the CA `acmeDirectory`) and records what it
+//! is asked to manage. The server asks the test for the etcd
 //! membership with `{"call", "cluster", ...}` lines, answered by
 //! `{"op": "answer", "call", "value"?, "error"?}`, and tells it with
 //! `{"event": "settingsChanged"}` that the cluster's settings changed.
@@ -34,6 +42,7 @@ use std::time::Duration;
 use armada_pki::Ca;
 use armada_pki::encoding::base64_decode;
 use armada_secrets::Keyring;
+use armada_server::certs::{Certs, Dns, EtcdStorage, TxtResolver, issuer_key, load_bundle};
 use armada_server::cluster::{Cluster, MemberInfo};
 use armada_server::{Config, Server, lifecycle, log::Logger, tls::ServerCert};
 use armada_store::{Client, Etcd};
@@ -153,6 +162,55 @@ impl Cluster for RemoteCluster {
     }
 }
 
+/// The certificate manager of the scenarios: certificates from
+/// certmagic's storage, and what it was last asked to manage.
+struct ParityCerts {
+    storage: Arc<EtcdStorage>,
+    issuer: String,
+    wildcard: bool,
+    last: Mutex<Value>,
+}
+
+#[async_trait]
+impl Certs for ParityCerts {
+    async fn manage(
+        &self,
+        names: &[String],
+        root: &str,
+        dns: &std::collections::BTreeMap<String, Dns>,
+    ) -> Result<(), String> {
+        let keys: serde_json::Map<String, Value> = dns
+            .iter()
+            .map(|(n, d)| (n.clone(), json!(d.key())))
+            .collect();
+        *self.last.lock().unwrap_or_else(|p| p.into_inner()) =
+            json!({"names": names, "root": root, "dns": keys});
+        Ok(())
+    }
+    async fn certificate(&self, name: &str) -> Option<Vec<u8>> {
+        load_bundle(&self.storage, &self.issuer, name).await
+    }
+    fn supports_wildcard(&self) -> bool {
+        self.wildcard
+    }
+}
+
+/// The TXT records the scenarios publish.
+#[derive(Default)]
+struct ParityTxt(Mutex<HashMap<String, Vec<String>>>);
+
+#[async_trait]
+impl TxtResolver for ParityTxt {
+    async fn lookup_txt(&self, name: &str) -> Result<Vec<String>, String> {
+        self.0
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .get(name)
+            .cloned()
+            .ok_or_else(|| "no such host".to_string())
+    }
+}
+
 struct Setup {
     cfg: Value,
     client: Client,
@@ -163,6 +221,8 @@ struct Setup {
     clock: Arc<AtomicI64>,
     ids: Arc<AtomicU64>,
     cluster: Option<Arc<dyn Cluster>>,
+    certs: Option<Arc<ParityCerts>>,
+    txt: Arc<ParityTxt>,
     out: Out,
     log: Logger,
 }
@@ -196,6 +256,11 @@ impl Setup {
         cfg.dns_provider = s(c, "dnsProvider");
         cfg.metrics_addr = s(c, "metricsAddr");
         cfg.plain_http = b(c, "plainHttp");
+        if let Some(certs) = &self.certs {
+            cfg.certs = Some(certs.clone() as Arc<dyn Certs>);
+            cfg.acme_addr = s(c, "acmeAddr");
+        }
+        cfg.resolver = Some(self.txt.clone() as Arc<dyn TxtResolver>);
         cfg.drain_timeout = ms(c, "drainTimeoutMs");
         cfg.warmup = ms(c, "warmupMs");
         cfg.progress_deadline = ms(c, "progressDeadlineMs");
@@ -274,7 +339,23 @@ async fn main() {
             waiting: waiting.clone(),
         }) as Arc<dyn Cluster>
     });
+    let prefix = match s(&cfg, "acmePrefix") {
+        p if p.is_empty() => "/armada-acme/".to_string(),
+        p => p,
+    };
+    let storage = Arc::new(EtcdStorage::new(client.clone(), &prefix).expect("the ACME storage"));
+    let certs = b(&cfg, "certs").then(|| {
+        Arc::new(ParityCerts {
+            storage: storage.clone(),
+            issuer: issuer_key(&s(&cfg, "acmeDirectory")),
+            wildcard: b(&cfg, "wildcard"),
+            last: Mutex::new(Value::Null),
+        })
+    });
+    let txt = Arc::new(ParityTxt::default());
     let setup = Arc::new(Setup {
+        certs: certs.clone(),
+        txt: txt.clone(),
         cfg: cfg.clone(),
         client,
         store,
@@ -367,6 +448,85 @@ async fn main() {
                         },
                     };
                     emit(&out, json!({"id": id, "error": err})).await;
+                });
+            }
+            "managed" => {
+                let v = certs
+                    .as_ref()
+                    .map(|c| c.last.lock().unwrap_or_else(|p| p.into_inner()).clone())
+                    .unwrap_or(Value::Null);
+                emit(&out, json!({"id": id, "value": v})).await;
+            }
+            "certEvent" => {
+                let srv = current.lock().unwrap_or_else(|p| p.into_inner()).clone();
+                if let Some(srv) = srv {
+                    let msg = s(&req, "message");
+                    srv.certificate_event(&s(&req, "name"), (!msg.is_empty()).then_some(msg))
+                        .await;
+                }
+                emit(&out, json!({"id": id})).await;
+            }
+            "txt" => {
+                let values = req
+                    .get("values")
+                    .and_then(Value::as_array)
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(|v| v.as_str().map(str::to_string))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                txt.0
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .insert(s(&req, "name"), values);
+                emit(&out, json!({"id": id})).await;
+            }
+            "storeCert" | "loadCert" | "lock" | "unlock" => {
+                let storage = storage.clone();
+                let out = out.clone();
+                let issuer = issuer_key(&s(&cfg, "acmeDirectory"));
+                tokio::spawn(async move {
+                    let name = s(&req, "name");
+                    let res = match s(&req, "op").as_str() {
+                        "storeCert" => {
+                            let crt = storage
+                                .store(
+                                    &armada_server::certs::site_cert(&issuer, &name),
+                                    s(&req, "cert").as_bytes(),
+                                )
+                                .await;
+                            match crt {
+                                Err(e) => Err(e.to_string()),
+                                Ok(()) => storage
+                                    .store(
+                                        &armada_server::certs::site_private_key(&issuer, &name),
+                                        s(&req, "key").as_bytes(),
+                                    )
+                                    .await
+                                    .map(|_| Value::Null)
+                                    .map_err(|e| e.to_string()),
+                            }
+                        }
+                        "loadCert" => Ok(load_bundle(&storage, &issuer, &name)
+                            .await
+                            .map(|b| json!(String::from_utf8_lossy(&b)))
+                            .unwrap_or(Value::Null)),
+                        "lock" => storage
+                            .lock(&name)
+                            .await
+                            .map(|_| Value::Null)
+                            .map_err(|e| e.to_string()),
+                        _ => storage
+                            .unlock(&name)
+                            .await
+                            .map(|_| Value::Null)
+                            .map_err(|e| e.to_string()),
+                    };
+                    match res {
+                        Ok(v) => emit(&out, json!({"id": id, "value": v})).await,
+                        Err(e) => emit(&out, json!({"id": id, "error": e})).await,
+                    }
                 });
             }
             "stop" => {

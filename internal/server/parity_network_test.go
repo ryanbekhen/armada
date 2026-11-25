@@ -27,7 +27,7 @@ import (
 // list (mesh clusters and other sites), key rotation and the conditions
 // of usage reports, and the move of containerd nodes to the supervisor
 // runtime. The ports of internal TCP apps come with the proxy
-// configuration (pull request 14): neither server sends any yet.
+// configuration (parity_ingress_test.go).
 
 // parityKey is a WireGuard public key made of n.
 func parityKey(n int) string {

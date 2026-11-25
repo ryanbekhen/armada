@@ -21,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/caddyserver/certmagic"
 	clientv3 "go.etcd.io/etcd/client/v3"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -29,6 +30,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	armadav1 "github.com/ryanbekhen/armada/api/armada/v1"
+	"github.com/ryanbekhen/armada/internal/certs"
 	"github.com/ryanbekhen/armada/internal/etcd"
 	"github.com/ryanbekhen/armada/internal/pki"
 	"github.com/ryanbekhen/armada/internal/secrets"
@@ -81,6 +83,11 @@ type parityConfig struct {
 	// of other sites (ADR 0050): each listens on the loopback address and
 	// is named after 203.0.113.1.
 	meshJoin, siteJoin bool
+	// certs gives the server a certificate manager (parityCerts) that
+	// reads certificates from certmagic's storage in etcd, as the ACME
+	// manager does, and records what it is asked to manage; wildcard
+	// makes it support wildcards (a DNS provider).
+	certs, wildcard bool
 }
 
 // serverUnderTest is one control plane a scenario drives.
@@ -102,6 +109,12 @@ type serverUnderTest interface {
 	backups(t *testing.T)
 	// settingsChanged counts OnSettingsChanged calls.
 	settingsChanged() int
+	// managed is what the certificate manager was last asked to manage:
+	// the names, the root domain, and each name's DNS credentials by key.
+	managed() map[string]any
+	// certEvent tells the server a certificate was obtained (msg "") or
+	// that obtaining it failed.
+	certEvent(name, msg string)
 	stop()
 }
 
@@ -113,6 +126,12 @@ type parityFixtures struct {
 	keys            *secrets.Keyring
 	masterKey       []byte
 	start           time.Time
+	// bundles are certificates (a chain and a key) the scenarios store
+	// as certmagic would.
+	bundles [2][2][]byte
+	// acmeAddr is the HTTP-01 responder's address the proxies are given
+	// (Go's server listens on it).
+	acmeAddr string
 }
 
 func newParityFixtures(t *testing.T) *parityFixtures {
@@ -133,8 +152,16 @@ func newParityFixtures(t *testing.T) *parityFixtures {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &parityFixtures{ca: ca, certPEM: certPEM, keyPEM: keyPEM, keys: keys, masterKey: key,
-		start: time.Date(2026, 11, 20, 10, 0, 0, 0, time.UTC)}
+	fx := &parityFixtures{ca: ca, certPEM: certPEM, keyPEM: keyPEM, keys: keys, masterKey: key,
+		start: time.Date(2026, 11, 20, 10, 0, 0, 0, time.UTC), acmeAddr: freeAddr(t)}
+	for i := range fx.bundles {
+		c, k, err := ca.Issue(pki.IssueRequest{Identity: pki.Identity{Kind: pki.KindServer, Name: fmt.Sprintf("site-%d", i)}, DNSNames: []string{"example.org"}, Server: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		fx.bundles[i] = [2][]byte{c, k}
+	}
+	return fx
 }
 
 // parityClock is a scenario's test clock.
@@ -164,6 +191,8 @@ type scenario struct {
 	seen    map[string]map[string]string
 	// marks counts the replica messages barrier sent.
 	marks int
+	// txt holds the TXT records both servers resolve.
+	txt *fakeTXT
 }
 
 func serverBin() string { return os.Getenv("ARMADA_SERVER_BIN") }
@@ -253,7 +282,8 @@ func newScenario(t *testing.T, kind string, cfg parityConfig, fx *parityFixtures
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	st, pfx := storetest.OpenNamed(t)
-	sc := &scenario{t: t, ctx: ctx, cfg: cfg, fx: fx, st: st, pfx: pfx, clock: &parityClock{}, seen: map[string]map[string]string{}}
+	sc := &scenario{t: t, ctx: ctx, cfg: cfg, fx: fx, st: st, pfx: pfx, clock: &parityClock{}, seen: map[string]map[string]string{},
+		txt: &fakeTXT{records: map[string][]string{}}}
 	sc.clock.ms.Store(fx.start.UnixMilli())
 	st.SetNow(sc.clock.now)
 	if err := st.KnowUser(ctx, "ryan"); err != nil {
@@ -270,6 +300,7 @@ func newScenario(t *testing.T, kind string, cfg parityConfig, fx *parityFixtures
 	}
 	t.Cleanup(sc.sut.stop)
 	sc.alias(sc.sut.api(), "<api>")
+	sc.alias(fx.acmeAddr, "<acme>")
 	if sc.sut.join() != "" {
 		sc.alias(sc.sut.join(), "<join>")
 	}
@@ -295,6 +326,7 @@ type goServer struct {
 	cancel                   context.CancelFunc
 	done                     chan struct{}
 	changed                  atomic.Int32
+	certs                    *parityCerts
 }
 
 func startGoServer(sc *scenario) *goServer {
@@ -313,7 +345,7 @@ func startGoServer(sc *scenario) *goServer {
 		t.Fatal(err)
 	}
 	g := &goServer{addr: lis.Addr().String(), done: make(chan struct{})}
-	cfg := Config{Store: sc.st, TLS: tlsCfg, Resync: time.Hour, Resolver: noTXT{}, StreamRecheck: testStreamRecheck,
+	cfg := Config{Store: sc.st, TLS: tlsCfg, Resync: time.Hour, Resolver: sc.txt, StreamRecheck: testStreamRecheck,
 		CA: fx.ca, JoinTLS: joinTLS, APIAddr: g.addr, Now: sc.clock.now, Name: "cp-1",
 		NodeLostTimeout: sc.cfg.nodeLost, NodeCertValidity: sc.cfg.nodeCertValidity,
 		DrainTimeout: sc.cfg.drain, Warmup: sc.cfg.warmup, ProgressDeadline: sc.cfg.progress, PlainHTTP: sc.cfg.plainHTTP,
@@ -348,6 +380,14 @@ func startGoServer(sc *scenario) *goServer {
 	if sc.cfg.cluster {
 		cfg.Cluster = sc.fc
 	}
+	if sc.cfg.certs {
+		storage, err := certs.NewEtcdStorage(storetest.Client(), sc.acmePrefix())
+		if err != nil {
+			t.Fatal(err)
+		}
+		g.certs = &parityCerts{storage: storage, issuer: (&certmagic.ACMEIssuer{CA: parityACMECA}).IssuerKey(), wildcard: sc.cfg.wildcard}
+		cfg.Certs, cfg.ACMEAddr = g.certs, fx.acmeAddr
+	}
 	srv, err := New(cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -368,14 +408,22 @@ func startGoServer(sc *scenario) *goServer {
 	return g
 }
 
-func (g *goServer) kind() string          { return "go" }
-func (g *goServer) api() string           { return g.addr }
-func (g *goServer) join() string          { return g.joinAt }
-func (g *goServer) joinLocal() string     { return g.joinLis }
-func (g *goServer) siteJoin() string      { return g.siteAt }
-func (g *goServer) siteJoinLocal() string { return g.siteLis }
-func (g *goServer) settingsChanged() int  { return int(g.changed.Load()) }
-func (g *goServer) stop()                 { g.cancel(); <-g.done }
+func (g *goServer) kind() string            { return "go" }
+func (g *goServer) api() string             { return g.addr }
+func (g *goServer) join() string            { return g.joinAt }
+func (g *goServer) joinLocal() string       { return g.joinLis }
+func (g *goServer) siteJoin() string        { return g.siteAt }
+func (g *goServer) siteJoinLocal() string   { return g.siteLis }
+func (g *goServer) settingsChanged() int    { return int(g.changed.Load()) }
+func (g *goServer) stop()                   { g.cancel(); <-g.done }
+func (g *goServer) managed() map[string]any { return g.certs.last() }
+func (g *goServer) certEvent(name, msg string) {
+	var err error
+	if msg != "" {
+		err = errors.New(msg)
+	}
+	g.srv.CertificateEvent(name, err)
+}
 func (g *goServer) reconcile(t *testing.T) {
 	t.Helper()
 	if err := g.srv.Reconcile(context.Background()); err != nil {
@@ -446,6 +494,8 @@ func startRustServer(sc *scenario) *rustServer {
 		"progressDeadlineMs": sc.cfg.progress.Milliseconds(), "plainHttp": sc.cfg.plainHTTP,
 		"manualPasses": true, "predictableIds": true,
 		"meshJoin": sc.cfg.meshJoin, "siteJoin": sc.cfg.siteJoin,
+		"certs": sc.cfg.certs, "wildcard": sc.cfg.wildcard, "tls": sc.cfg.certs,
+		"acmePrefix": sc.acmePrefix(), "acmeDirectory": parityACMECA, "acmeAddr": fx.acmeAddr,
 	}
 	if sc.cfg.masterKey {
 		conf["masterKey"] = base64.StdEncoding.EncodeToString(fx.masterKey)
@@ -630,6 +680,15 @@ func (r *rustServer) backups(t *testing.T) {
 }
 
 func (r *rustServer) setNow(ms int64) { r.do(map[string]any{"op": "now", "ms": ms}) }
+
+func (r *rustServer) managed() map[string]any {
+	m, _ := r.do(map[string]any{"op": "managed"})["value"].(map[string]any)
+	return m
+}
+
+func (r *rustServer) certEvent(name, msg string) {
+	r.do(map[string]any{"op": "certEvent", "name": name, "message": msg})
+}
 
 func (r *rustServer) stop() {
 	done := make(chan struct{})

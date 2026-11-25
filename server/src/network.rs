@@ -5,9 +5,7 @@
 //! between plain and wireguard, step by step as the nodes report them.
 //!
 //! The ports of internal TCP apps (`NetworkConfig.tcp_ports`) come from
-//! the proxy configuration, which pull request 14 of ADR 0055 ports: until
-//! then the pass sends none, as Go's server does in the scoped mode the
-//! parity tests run (`coreParts`, which builds no proxy configuration).
+//! the pass's proxy configuration (`ingress`).
 
 use std::collections::{BTreeMap, HashMap};
 
