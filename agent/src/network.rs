@@ -3,8 +3,9 @@
 //! cluster network applied before the proxy, the node's containers handed
 //! to the proxy, the firewall, and the resolver in that order, the
 //! WireGuard key replaced on request, and what the network tells the
-//! leader. armada-node's network code behind [`Network`] comes with the
-//! supervisor runtime (ADR 0055, item 16c); the parity tests use a fake.
+//! leader. armada-node's network code behind [`Network`] is
+//! [`crate::clusternet::ClusterNet`] (ADR 0055, item 16d); the parity
+//! tests use a fake.
 
 use std::net::IpAddr;
 use std::sync::Arc;

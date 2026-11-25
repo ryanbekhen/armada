@@ -9,7 +9,7 @@
 //! file as `file NAME LENGTH` and LENGTH bytes (haproxy.cfg, the route maps,
 //! local.map), or `unsafe` when a value is not a single token, then `end`.
 
-mod render;
+pub mod render;
 
 use serde::{Deserialize, Deserializer};
 use std::collections::HashMap;

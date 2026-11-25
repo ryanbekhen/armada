@@ -19,6 +19,7 @@ name = "armada-agent"
 version = "0.1.0"
 dependencies = [
  "armada-fsutil",
+ "armada-node",
  "armada-pki",
  "armada-proto",
  "armada-spec",
@@ -27,11 +28,13 @@ dependencies = [
  "hyper-util",
  "libc",
  "prost",
+ "rcgen",
  "rustls",
  "rustls-pki-types",
  "serde",
  "serde_json",
  "sha2",
+ "time",
  "tokio",
  "tokio-rustls",
  "tokio-stream",
