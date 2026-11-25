@@ -1,0 +1,61 @@
+{
+  "id": "web.shop-r3-a1b2c3",
+  "app": "web.shop",
+  "revision": "web.shop-r3",
+  "image": "registry.example.com/web@sha256:abababababababababababababababababababababababababababababababab",
+  "command": [
+    "/bin/web",
+    "--listen",
+    ":8080"
+  ],
+  "env": [
+    {
+      "name": "PORT",
+      "value": "8080"
+    },
+    {
+      "name": "GREETING",
+      "value": "héllo <world> & \"you\"\n"
+    },
+    {
+      "name": "DATABASE_URL",
+      "ref": "db/url@3"
+    }
+  ],
+  "port": 8080,
+  "memoryBytes": "268435456",
+  "nanoCpus": "-1",
+  "pidsLimit": "1099511627776",
+  "startup": {
+    "path": "/healthz",
+    "port": 8080,
+    "periodMs": "1000",
+    "failureThreshold": 30
+  },
+  "liveness": {
+    "timeoutMs": "5000",
+    "command": [
+      "pg_isready"
+    ]
+  },
+  "secretFiles": [
+    {
+      "path": "/run/secrets/key",
+      "data": "AAEC/v8=",
+      "ref": "key@1"
+    }
+  ],
+  "job": {
+    "job": "web.shop",
+    "run": "9007199254740993"
+  },
+  "volumes": [
+    {
+      "name": "data",
+      "path": "/data",
+      "owner": "1000:1000"
+    }
+  ],
+  "hold": true,
+  "fenceAfterSeconds": "30"
+}

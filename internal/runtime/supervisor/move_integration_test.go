@@ -26,7 +26,7 @@ import (
 // collection removes it.
 //
 //	make node && go test -c -tags integration ./internal/runtime/supervisor -o mt
-//	sudo ARMADA_NODE_BIN=$PWD/node/target/x86_64-unknown-linux-musl/release/armada-node ./mt -test.run IntegrationMoveMountedRootfs -test.v
+//	sudo ARMADA_NODE_BIN=$PWD/target/x86_64-unknown-linux-musl/release/armada-node ./mt -test.run IntegrationMoveMountedRootfs -test.v
 func TestIntegrationMoveMountedRootfs(t *testing.T) {
 	bin := os.Getenv("ARMADA_NODE_BIN")
 	if bin == "" || os.Geteuid() != 0 {

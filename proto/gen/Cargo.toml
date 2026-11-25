@@ -1,0 +1,19 @@
+# Writes armada-proto's generated code (`make proto`). Outside the
+# workspace, with its own Cargo.lock: it runs on a developer's machine and
+# is never linked into a program (see ../../Cargo.toml). The generators are
+# pinned to the releases of the runtime crates the workspace pins (prost
+# 0.14.6, tonic 0.14.9, pbjson 0.9.0); change them together.
+[package]
+name = "armada-proto-gen"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+
+[dependencies]
+pbjson-build = "=0.9.0"
+prost-build = "=0.14.6"
+tonic-prost-build = "=0.14.9"
+
+# A workspace of its own (see the top of this file).
+[workspace]

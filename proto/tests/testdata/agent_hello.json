@@ -1,0 +1,13 @@
+{
+  "hello": {
+    "cpuMillis": "4000",
+    "memoryBytes": "8589934592",
+    "version": "v0.1.0-alpha.41",
+    "privateIp": "10.0.0.2",
+    "os": "linux",
+    "arch": "arm64",
+    "jobs": true,
+    "networkKey": "zUiUUFo68E2u1IYbL+/4fuSeNfPVSTmKuhjVqJzBAzk=",
+    "runtimeMove": true
+  }
+}

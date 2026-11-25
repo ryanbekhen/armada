@@ -387,7 +387,7 @@ mod tests {
     /// Tens of thousands of apps in one transaction fit the socket (the
     /// kernel used to answer each message, overflowing it). Needs root and
     /// a network namespace of its own, which the test never leaves:
-    ///   cd node && cargo test --no-run
+    ///   cargo test -p armada-node --no-run
     ///   sudo unshare -n env ARMADA_NODE_NETNS_TEST=1 \
     ///     target/debug/deps/armada_node-<hash> many_apps_in_one_transaction
     #[test]
