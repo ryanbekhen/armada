@@ -8,8 +8,8 @@
 //! pass, for the events of processes killed at the memory limit; and each
 //! node's volume sizes (ADR 0023); its connection tracking table, its side
 //! of a switch of the network's mode (ADR 0050), and how it runs
-//! containers (ADR 0054). The space counters come with watching (pull
-//! request 15 of ADR 0055).
+//! containers (ADR 0054); and the requests and egress counted per space
+//! since the first pass (ADR 0026).
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
@@ -125,12 +125,25 @@ pub(crate) struct NodeUsage {
     pub runtime: Option<RuntimeStatus>,
 }
 
-/// Which app and node a replica belongs to (Go's replicaOwner).
+/// Which space, app, and node a replica belongs to (Go's replicaOwner).
 #[derive(Clone, Debug)]
 struct Owner {
+    space: String,
     app: String,
     node: String,
 }
+
+/// A space's counters (Go's spaceTotals).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct SpaceTotals {
+    pub requests: i64,
+    pub egress: i64,
+}
+
+/// maxReportRequests and maxReportEgress bound what one report adds to a
+/// space's counters for one replica.
+const MAX_REPORT_REQUESTS: i64 = 1 << 30;
+const MAX_REPORT_EGRESS: i64 = 1 << 40;
 
 #[derive(Default)]
 struct State {
@@ -143,6 +156,9 @@ struct State {
     /// Each node's latest volume measurement (ADR 0023): when, and the
     /// bytes by "app/name".
     volumes: HashMap<String, (Time, HashMap<String, i64>)>,
+    /// Requests and egress per space since `since` (the first pass).
+    totals: HashMap<String, SpaceTotals>,
+    since: Option<Time>,
 }
 
 /// The latest sample of each node.
@@ -189,6 +205,35 @@ fn sandbox_readings(list: &[SandboxQueue], at: &Time) -> HashMap<String, Sandbox
         out.insert(q.job.clone(), s);
     }
     out
+}
+
+/// count adds a report to the space counters. Egress counts only from a
+/// replica's own node; requests from every node's proxy, like the load of
+/// ADR 0020.
+fn count(st: &mut State, node: &str, r: &UsageReport) {
+    for ru in &r.replicas {
+        if let Some(o) = st.owners.get(&ru.id)
+            && o.node == node
+        {
+            let space = o.space.clone();
+            let t = st.totals.entry(space).or_default();
+            t.egress = t
+                .egress
+                .saturating_add(ru.egress_bytes.clamp(0, MAX_REPORT_EGRESS));
+        }
+    }
+    if !r.load_measured {
+        return;
+    }
+    for l in &r.load {
+        if let Some(o) = st.owners.get(&l.id) {
+            let space = o.space.clone();
+            let t = st.totals.entry(space).or_default();
+            t.requests = t
+                .requests
+                .saturating_add(l.requests.clamp(0, MAX_REPORT_REQUESTS));
+        }
+    }
 }
 
 fn valid_report_id(id: &str) -> bool {
@@ -276,6 +321,7 @@ impl Usage {
         {
             fresh = true;
         }
+        count(&mut st, node, r);
         for id in busy {
             st.active.insert(id, at.clone());
         }
@@ -343,20 +389,40 @@ impl Usage {
 
     /// setOwners: replaces what reports are counted against, from a pass's
     /// replicas.
-    pub(crate) fn set_owners(&self, reps: &[Replica]) {
+    /// Counting starts with the first call.
+    pub(crate) fn set_owners(&self, reps: &[Replica], now: &Time) {
         let mut owners = HashMap::with_capacity(reps.len());
         for r in reps {
-            if split_app_id(&r.app).is_some() {
+            if let Some((space, _)) = split_app_id(&r.app) {
                 owners.insert(
                     r.id.clone(),
                     Owner {
+                        space: space.to_string(),
                         app: r.app.clone(),
                         node: r.node_id.clone(),
                     },
                 );
             }
         }
-        self.lock().owners = owners;
+        let mut st = self.lock();
+        st.owners = owners;
+        if st.since.is_none() {
+            st.since = Some(now.clone());
+        }
+    }
+
+    /// spaceTotals: a space's counters and when counting began.
+    pub(crate) fn space_totals(&self, space: &str) -> (SpaceTotals, Option<Time>) {
+        let st = self.lock();
+        (
+            st.totals.get(space).copied().unwrap_or_default(),
+            st.since.clone(),
+        )
+    }
+
+    /// forgetSpace drops a removed space's counters.
+    pub(crate) fn forget_space(&self, space: &str) {
+        self.lock().totals.remove(space);
     }
 
     /// Drops node's sample (its session ended).

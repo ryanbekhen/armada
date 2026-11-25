@@ -469,7 +469,12 @@ Go and every new Rust part is exercised only by its parity tests.
     answer for each other's certificates. OCSP stapling is not carried
     over: the proxies get the chain and the key only.
 15. **Watching.** Events, alerts, metrics, log search and export
-    settings, usage, `Top`, cluster status, control plane backups.
+    settings, usage, `Top`, cluster status, control plane backups. In two
+    parts: cluster status, `Top` and usage, alerts, and the metrics
+    endpoint first, then log search and live logs, exec, the log export
+    settings, and the control plane backups' loop. The metrics endpoint
+    exports every `armada_*` metric as the Go server does; Go's own
+    runtime metrics (`go_*`) are not carried over.
 16. **The agent.** The agent's loop (ADR 0054 step 6) as `armadad agent`:
     session, Hello, reconcile, probes, fencing, held replicas, jobs, init
     containers and sidecars, secret files, wake, certificates, exec,

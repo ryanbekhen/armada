@@ -180,6 +180,7 @@ impl Server {
             .delete_space(&req.name, &a.actor())
             .await
             .map_err(|e| store_err(&e))?;
+        self.0.usage.forget_space(&req.name);
         self.0.log.info(
             "space removed",
             &[("space", req.name.clone()), ("by", a.actor())],

@@ -32,20 +32,10 @@ fn unimplemented(method: &str) -> Status {
 
 /// The methods that answer `Unimplemented` in this pull request: the
 /// service, the method, and the pull request of ADR 0055 that ports it
-/// (15 watching).
+/// (15, the second part of watching: logs and exec).
 pub const LATER: &[(&str, &str, u8)] = &[
-    ("Admin", "ClusterStatus", 15),
     ("Admin", "Logs", 15),
     ("Admin", "Exec", 15),
-    ("Admin", "Top", 15),
-    ("Admin", "IssueMetricsCertificate", 15),
-    ("Admin", "ListMetricsCredentials", 15),
-    ("Admin", "RevokeMetricsCredentials", 15),
-    ("Admin", "CreateAlertChannel", 15),
-    ("Admin", "UpdateAlertChannel", 15),
-    ("Admin", "ListAlertChannels", 15),
-    ("Admin", "DeleteAlertChannel", 15),
-    ("Admin", "TestAlertChannel", 15),
     ("Agent", "PushLogs", 15),
     ("Agent", "ExecSession", 15),
 ];
@@ -86,8 +76,11 @@ impl AdminService for Api {
         &self,
         request: Request<ClusterStatusRequest>,
     ) -> Result<Response<ClusterStatusResponse>, Status> {
-        let _ = request;
-        Err(unimplemented("ClusterStatus"))
+        let a = auth(&request)?;
+        self.0
+            .cluster_status(&a, request.into_inner())
+            .await
+            .map(Response::new)
     }
     async fn get_app_spec(
         &self,
@@ -550,29 +543,41 @@ impl AdminService for Api {
         Err(unimplemented("Exec"))
     }
     async fn top(&self, request: Request<TopRequest>) -> Result<Response<TopResponse>, Status> {
-        let _ = request;
-        Err(unimplemented("Top"))
+        let a = auth(&request)?;
+        self.0
+            .top(&a, request.into_inner())
+            .await
+            .map(Response::new)
     }
     async fn issue_metrics_certificate(
         &self,
         request: Request<IssueMetricsCertificateRequest>,
     ) -> Result<Response<IssueMetricsCertificateResponse>, Status> {
-        let _ = request;
-        Err(unimplemented("IssueMetricsCertificate"))
+        let a = auth(&request)?;
+        self.0
+            .issue_metrics_certificate(&a, request.into_inner())
+            .await
+            .map(Response::new)
     }
     async fn list_metrics_credentials(
         &self,
         request: Request<ListMetricsCredentialsRequest>,
     ) -> Result<Response<ListMetricsCredentialsResponse>, Status> {
-        let _ = request;
-        Err(unimplemented("ListMetricsCredentials"))
+        let a = auth(&request)?;
+        self.0
+            .list_metrics_credentials(&a, request.into_inner())
+            .await
+            .map(Response::new)
     }
     async fn revoke_metrics_credentials(
         &self,
         request: Request<RevokeMetricsCredentialsRequest>,
     ) -> Result<Response<RevokeMetricsCredentialsResponse>, Status> {
-        let _ = request;
-        Err(unimplemented("RevokeMetricsCredentials"))
+        let a = auth(&request)?;
+        self.0
+            .revoke_metrics_credentials(&a, request.into_inner())
+            .await
+            .map(Response::new)
     }
     type EventsStream = Out<EventInfo>;
     async fn events(
@@ -585,36 +590,51 @@ impl AdminService for Api {
         &self,
         request: Request<AlertChannelRequest>,
     ) -> Result<Response<AlertChannel>, Status> {
-        let _ = request;
-        Err(unimplemented("CreateAlertChannel"))
+        let a = auth(&request)?;
+        self.0
+            .create_alert_channel(&a, request.into_inner())
+            .await
+            .map(Response::new)
     }
     async fn update_alert_channel(
         &self,
         request: Request<AlertChannelRequest>,
     ) -> Result<Response<AlertChannel>, Status> {
-        let _ = request;
-        Err(unimplemented("UpdateAlertChannel"))
+        let a = auth(&request)?;
+        self.0
+            .update_alert_channel(&a, request.into_inner())
+            .await
+            .map(Response::new)
     }
     async fn list_alert_channels(
         &self,
         request: Request<ListAlertChannelsRequest>,
     ) -> Result<Response<ListAlertChannelsResponse>, Status> {
-        let _ = request;
-        Err(unimplemented("ListAlertChannels"))
+        let a = auth(&request)?;
+        self.0
+            .list_alert_channels(&a, request.into_inner())
+            .await
+            .map(Response::new)
     }
     async fn delete_alert_channel(
         &self,
         request: Request<DeleteAlertChannelRequest>,
     ) -> Result<Response<DeleteAlertChannelResponse>, Status> {
-        let _ = request;
-        Err(unimplemented("DeleteAlertChannel"))
+        let a = auth(&request)?;
+        self.0
+            .delete_alert_channel(&a, request.into_inner())
+            .await
+            .map(Response::new)
     }
     async fn test_alert_channel(
         &self,
         request: Request<TestAlertChannelRequest>,
     ) -> Result<Response<TestAlertChannelResponse>, Status> {
-        let _ = request;
-        Err(unimplemented("TestAlertChannel"))
+        let a = auth(&request)?;
+        self.0
+            .test_alert_channel(&a, request.into_inner())
+            .await
+            .map(Response::new)
     }
     async fn run_job(
         &self,

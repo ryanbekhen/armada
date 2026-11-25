@@ -335,7 +335,7 @@ impl Server {
         let moving = self.load_runtime_move().await?;
         crate::runtimemove::cordon_moving(&moving, &mut nodes);
         let replicas = self.store().list_replicas(&Default::default()).await?;
-        self.0.usage.set_owners(&replicas);
+        self.0.usage.set_owners(&replicas, &self.now());
         let mut revs = Revisions::new(self);
         revs.preload(&apps, &replicas).await;
         let servers = self.store().list_servers().await?;

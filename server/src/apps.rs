@@ -31,10 +31,10 @@ use crate::{Server, store_err};
 
 /// Bounds and states of the app listings (ADR 0032).
 const MAX_APPS_PAGE: usize = 500;
-const APP_READY: &str = "ready";
-const APP_PROGRESS: &str = "progressing";
-const APP_FAILING: &str = "failing";
-const APP_IDLE: &str = "idle";
+pub(crate) const APP_READY: &str = "ready";
+pub(crate) const APP_PROGRESS: &str = "progressing";
+pub(crate) const APP_FAILING: &str = "failing";
+pub(crate) const APP_IDLE: &str = "idle";
 const JOB: &str = "job";
 /// nodeStateLost is shown for nodes whose replicas are being rescheduled.
 const NODE_STATE_LOST: &str = "lost";
@@ -693,7 +693,7 @@ impl Server {
     }
 
     /// appSummaries: a summary of each app (not job) the caller sees.
-    async fn app_summaries(
+    pub(crate) async fn app_summaries(
         &self,
         a: &Auth,
         keep: impl Fn(&App) -> bool,
@@ -877,6 +877,16 @@ impl Server {
                 n.state.clone()
             };
             let relay = relays.get(&n.site);
+            // The node's record changes only with its status; its usage
+            // samples say when it was last heard, every few seconds.
+            let mut last_seen = n.last_seen.clone();
+            let mut runtime = None;
+            if let Some(sample) = self.0.usage.node(&n.id, &now) {
+                if sample.at.after(&last_seen) {
+                    last_seen = sample.at.clone();
+                }
+                runtime = sample.runtime.clone();
+            }
             resp.nodes.push(NodeStatus {
                 id: n.id.clone(),
                 private_ip: n.private_ip.clone(),
@@ -893,9 +903,9 @@ impl Server {
                 behind_nat: n.behind_nat,
                 relay: relay.is_some_and(|r| *r == n.id && !r.is_empty()),
                 relay_pinned: n.relay,
-                last_seen: optional_time(&n.last_seen),
+                last_seen: optional_time(&last_seen),
                 cert_expires_at: optional_time(&n.cert_not_after),
-                runtime: None,
+                runtime,
             });
         }
         if !a.acc.admin() {

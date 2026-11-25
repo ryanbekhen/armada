@@ -57,7 +57,9 @@ import (
 // same steps, and replica IDs are predictable (parityIDs) so both name
 // and order their replicas alike. Neither evaluates autoscaled apps nor
 // starts volume backups on its own either: the scenario runs every
-// evaluation (autoscale) and every round of backups (backups).
+// evaluation (autoscale) and every round of backups (backups). Alert
+// channels deliver to stand-ins the scenario starts (alertSinks), and the
+// metrics endpoint gathers again whenever the test clock moved.
 
 // parityConfig is how a scenario's control plane is set up.
 type parityConfig struct {
@@ -88,6 +90,10 @@ type parityConfig struct {
 	// manager does, and records what it is asked to manage; wildcard
 	// makes it support wildcards (a DNS provider).
 	certs, wildcard bool
+	// metrics opens the metrics listener (sc.metricsAddr), gathering
+	// again whenever the test clock moved; alerts starts the stand-ins of
+	// alert channels (sc.sinks), the Telegram Bot API's among them.
+	metrics, alerts bool
 }
 
 // serverUnderTest is one control plane a scenario drives.
@@ -193,6 +199,10 @@ type scenario struct {
 	marks int
 	// txt holds the TXT records both servers resolve.
 	txt *fakeTXT
+	// metricsAddr is the metrics listener's address (parityConfig.metrics).
+	metricsAddr string
+	// sinks are the stand-ins of alert channels (parityConfig.alerts).
+	sinks *alertSinks
 }
 
 func serverBin() string { return os.Getenv("ARMADA_SERVER_BIN") }
@@ -292,6 +302,12 @@ func newScenario(t *testing.T, kind string, cfg parityConfig, fx *parityFixtures
 	if cfg.cluster {
 		sc.fc = &fakeCluster{members: []etcd.MemberInfo{{ID: 100, Name: "cp-1"}}}
 	}
+	if cfg.metrics {
+		sc.metricsAddr = freeAddr(t)
+	}
+	if cfg.alerts {
+		sc.sinks = newAlertSinks(t)
+	}
 	switch kind {
 	case "go":
 		sc.sut = startGoServer(sc)
@@ -352,6 +368,12 @@ func startGoServer(sc *scenario) *goServer {
 		OnSettingsChanged: func() { g.changed.Add(1) }}
 	if sc.cfg.masterKey {
 		cfg.Secrets = fx.keys
+	}
+	if sc.metricsAddr != "" {
+		cfg.MetricsAddr, cfg.MetricsCache = sc.metricsAddr, time.Nanosecond
+	}
+	if sc.sinks != nil {
+		cfg.AlertHTTP = sc.sinks.client()
 	}
 	if sc.cfg.join {
 		jl, err := net.Listen("tcp", "127.0.0.1:0")
@@ -499,6 +521,12 @@ func startRustServer(sc *scenario) *rustServer {
 	}
 	if sc.cfg.masterKey {
 		conf["masterKey"] = base64.StdEncoding.EncodeToString(fx.masterKey)
+	}
+	if sc.metricsAddr != "" {
+		conf["metricsAddr"], conf["metricsCacheNs"] = sc.metricsAddr, 1
+	}
+	if sc.sinks != nil {
+		conf["telegramApi"] = sc.sinks.telegramAPI()
 	}
 	r := &rustServer{t: t, waiting: map[int64]chan map[string]any{}, ready: make(chan map[string]any, 1), sc: sc, exited: make(chan struct{})}
 	r.cmd = exec.Command(serverBin())

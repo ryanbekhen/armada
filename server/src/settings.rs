@@ -57,7 +57,7 @@ impl SealedJson {
         }
     }
 
-    fn of(s: &Sealed) -> SealedJson {
+    pub(crate) fn of(s: &Sealed) -> SealedJson {
         SealedJson {
             key_id: s.key_id.clone(),
             wrapped_key: s.wrapped_key.clone(),

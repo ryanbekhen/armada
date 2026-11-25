@@ -5,11 +5,10 @@
 //! samples, proxy load, queue lengths, and sandboxes' readings) with an
 //! event for each replica whose processes were killed at the memory
 //! limit, volume sizes, and wake requests to the autoscaler
-//! (`autoscale`), and the network switch's and runtime's reports; the
-//! space counters come with watching (pull request 15); the conditions a
-//! usage report starts
-//! (unreachable peers, WireGuard in userspace, a failing log export) are
-//! recorded here.
+//! (`autoscale`), the network switch's and runtime's reports, and the
+//! requests and egress counted per space; the conditions a usage report
+//! starts (unreachable peers, WireGuard in userspace, a failing log
+//! export) are recorded here.
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
