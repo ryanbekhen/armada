@@ -32,15 +32,9 @@ fn unimplemented(method: &str) -> Status {
 
 /// The methods that answer `Unimplemented` in this pull request: the
 /// service, the method, and the pull request of ADR 0055 that ports it
-/// (9 placement and rollouts, 10 jobs, 12 volumes, 14 ingress and
-/// certificates, 15 watching).
+/// (10 jobs, 12 volumes, 14 ingress and certificates, 15 watching).
 pub const LATER: &[(&str, &str, u8)] = &[
-    ("Admin", "Deploy", 9),
-    ("Admin", "Status", 9),
-    ("Admin", "ListApps", 9),
     ("Admin", "ClusterStatus", 15),
-    ("Admin", "GetAppSpec", 9),
-    ("Admin", "SetTraffic", 9),
     ("Admin", "ListVolumes", 12),
     ("Admin", "RemoveVolume", 12),
     ("Admin", "BackupVolume", 12),
@@ -51,13 +45,6 @@ pub const LATER: &[(&str, &str, u8)] = &[
     ("Admin", "Logs", 15),
     ("Admin", "ListDomains", 14),
     ("Admin", "VerifyDomain", 14),
-    ("Admin", "ListRevisions", 9),
-    ("Admin", "Rollback", 9),
-    ("Admin", "RestartApp", 9),
-    ("Admin", "SetSecret", 9),
-    ("Admin", "ListSecrets", 9),
-    ("Admin", "DeleteSecret", 9),
-    ("Admin", "ListSpaceSecrets", 9),
     ("Admin", "Exec", 15),
     ("Admin", "Top", 15),
     ("Admin", "IssueMetricsCertificate", 15),
@@ -73,7 +60,6 @@ pub const LATER: &[(&str, &str, u8)] = &[
     ("Admin", "ListJobRuns", 10),
     ("Admin", "CancelJob", 10),
     ("Admin", "DeleteJob", 10),
-    ("Admin", "RemoveApp", 9),
     ("Agent", "PushLogs", 15),
     ("Agent", "ExecSession", 15),
     ("Agent", "VolumeSession", 12),
@@ -86,22 +72,31 @@ impl AdminService for Api {
         &self,
         request: Request<DeployRequest>,
     ) -> Result<Response<DeployResponse>, Status> {
-        let _ = request;
-        Err(unimplemented("Deploy"))
+        let a = auth(&request)?;
+        self.0
+            .deploy(&a, request.into_inner())
+            .await
+            .map(Response::new)
     }
     async fn status(
         &self,
         request: Request<StatusRequest>,
     ) -> Result<Response<StatusResponse>, Status> {
-        let _ = request;
-        Err(unimplemented("Status"))
+        let a = auth(&request)?;
+        self.0
+            .status(&a, request.into_inner())
+            .await
+            .map(Response::new)
     }
     async fn list_apps(
         &self,
         request: Request<ListAppsRequest>,
     ) -> Result<Response<ListAppsResponse>, Status> {
-        let _ = request;
-        Err(unimplemented("ListApps"))
+        let a = auth(&request)?;
+        self.0
+            .list_apps(&a, request.into_inner())
+            .await
+            .map(Response::new)
     }
     async fn cluster_status(
         &self,
@@ -114,15 +109,21 @@ impl AdminService for Api {
         &self,
         request: Request<GetAppSpecRequest>,
     ) -> Result<Response<GetAppSpecResponse>, Status> {
-        let _ = request;
-        Err(unimplemented("GetAppSpec"))
+        let a = auth(&request)?;
+        self.0
+            .get_app_spec(&a, request.into_inner())
+            .await
+            .map(Response::new)
     }
     async fn set_traffic(
         &self,
         request: Request<SetTrafficRequest>,
     ) -> Result<Response<SetTrafficResponse>, Status> {
-        let _ = request;
-        Err(unimplemented("SetTraffic"))
+        let a = auth(&request)?;
+        self.0
+            .set_traffic(&a, request.into_inner())
+            .await
+            .map(Response::new)
     }
     async fn list_volumes(
         &self,
@@ -220,50 +221,71 @@ impl AdminService for Api {
         &self,
         request: Request<ListRevisionsRequest>,
     ) -> Result<Response<ListRevisionsResponse>, Status> {
-        let _ = request;
-        Err(unimplemented("ListRevisions"))
+        let a = auth(&request)?;
+        self.0
+            .list_revisions(&a, request.into_inner())
+            .await
+            .map(Response::new)
     }
     async fn rollback(
         &self,
         request: Request<RollbackRequest>,
     ) -> Result<Response<RollbackResponse>, Status> {
-        let _ = request;
-        Err(unimplemented("Rollback"))
+        let a = auth(&request)?;
+        self.0
+            .rollback(&a, request.into_inner())
+            .await
+            .map(Response::new)
     }
     async fn restart_app(
         &self,
         request: Request<RestartAppRequest>,
     ) -> Result<Response<RestartAppResponse>, Status> {
-        let _ = request;
-        Err(unimplemented("RestartApp"))
+        let a = auth(&request)?;
+        self.0
+            .restart_app(&a, request.into_inner())
+            .await
+            .map(Response::new)
     }
     async fn set_secret(
         &self,
         request: Request<SetSecretRequest>,
     ) -> Result<Response<SetSecretResponse>, Status> {
-        let _ = request;
-        Err(unimplemented("SetSecret"))
+        let a = auth(&request)?;
+        self.0
+            .set_secret(&a, request.into_inner())
+            .await
+            .map(Response::new)
     }
     async fn list_secrets(
         &self,
         request: Request<ListSecretsRequest>,
     ) -> Result<Response<ListSecretsResponse>, Status> {
-        let _ = request;
-        Err(unimplemented("ListSecrets"))
+        let a = auth(&request)?;
+        self.0
+            .list_secrets(&a, request.into_inner())
+            .await
+            .map(Response::new)
     }
     async fn delete_secret(
         &self,
         request: Request<DeleteSecretRequest>,
     ) -> Result<Response<DeleteSecretResponse>, Status> {
-        let _ = request;
-        Err(unimplemented("DeleteSecret"))
+        let a = auth(&request)?;
+        self.0
+            .delete_secret(&a, request.into_inner())
+            .await
+            .map(Response::new)
     }
     async fn list_space_secrets(
         &self,
         request: Request<ListSpaceSecretsRequest>,
     ) -> Result<Response<ListSpaceSecretsResponse>, Status> {
-        let _ = request;
-        Err(unimplemented("ListSpaceSecrets"))
+        let a = auth(&request)?;
+        self.0
+            .list_space_secrets(&a, request.into_inner())
+            .await
+            .map(Response::new)
     }
     async fn create_join_token(
         &self,
@@ -629,8 +651,11 @@ impl AdminService for Api {
         &self,
         request: Request<RemoveAppRequest>,
     ) -> Result<Response<RemoveAppResponse>, Status> {
-        let _ = request;
-        Err(unimplemented("RemoveApp"))
+        let a = auth(&request)?;
+        self.0
+            .remove_app(&a, request.into_inner())
+            .await
+            .map(Response::new)
     }
 }
 

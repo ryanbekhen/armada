@@ -175,6 +175,22 @@ impl Server {
         }
     }
 
+    /// Ends every condition an app or job started, once it is deleted
+    /// (Go's endAppConditions).
+    pub(crate) async fn end_app_conditions(&self, app: &str) {
+        let ended: Vec<(String, Event)> = {
+            let s = self.0.events.st.lock().await;
+            s.active
+                .iter()
+                .filter(|(_, e)| e.app == app)
+                .map(|(k, e)| (k.clone(), e.clone()))
+                .collect()
+        };
+        for (key, e) in ended {
+            self.condition(&key, false, e).await;
+        }
+    }
+
     fn event_keep(&self) -> i64 {
         (PER_OBJECT * self.0.cluster_size.load(Ordering::Relaxed)).clamp(KEEP, MAX_KEEP)
     }

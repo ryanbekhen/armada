@@ -292,6 +292,13 @@ type Server struct {
 	// or for the scenario parity tests of the Rust control plane (ADR
 	// 0055) only what the Rust server does so far (parity_test.go).
 	parts serverParts
+	// manualPasses keeps the reconcile loop from running passes (it still
+	// promotes learners): the scenario parity tests run every pass
+	// themselves, so both servers pass at the same steps.
+	manualPasses bool
+	// newID makes the random part of new replica IDs (randomID; the
+	// parity tests make them predictable).
+	newID func(int) string
 }
 
 // serverParts names how much of the control plane a server runs.
@@ -300,11 +307,14 @@ type serverParts int
 const (
 	// allParts is the whole control plane.
 	allParts serverParts = iota
-	// coreParts is the core of ADR 0055's pull request 8: terms, sessions
-	// with agents, and the assignments of the replicas the store holds,
-	// with no scheduling, rollouts, jobs, scaling, volumes, network,
-	// ingress, or background loops. Each later pull request moves its
-	// part into it.
+	// coreParts is what ADR 0055's pull requests 8 and 9 ported: terms,
+	// sessions with agents, the assignments of the replicas the store
+	// holds, scheduling, placement, rollouts, drains, evacuation,
+	// self-healing, rebalancing, the removal of apps, and traffic splits.
+	// A pass leaves jobs and the replicas of apps with local volumes as
+	// the store holds them, and has no proxy, network, queue sandboxes,
+	// or runtime move; the autoscaler and the other background loops do
+	// not run. Each later pull request moves its part into it.
 	coreParts
 )
 
@@ -502,6 +512,7 @@ func New(cfg Config) (*Server, error) {
 		progress:         map[string]rolloutProgress{},
 		rebalanceAfter:   map[string]time.Time{},
 		failedSince:      map[string]time.Time{},
+		newID:            randomID,
 	}
 	s.grpc = grpc.NewServer(
 		grpc.Creds(credentials.NewTLS(cfg.TLS)),
@@ -604,12 +615,14 @@ func (s *Server) reconcileLoop(ctx context.Context) {
 	t := time.NewTicker(s.resync)
 	defer t.Stop()
 	for {
-		start := time.Now()
-		err := s.Reconcile(ctx)
-		s.reconcileSeconds.Observe(time.Since(start).Seconds())
-		if err != nil && ctx.Err() == nil {
-			s.reconcileErrors.Inc()
-			s.log.Error("reconcile failed", "err", err)
+		if !s.manualPasses {
+			start := time.Now()
+			err := s.Reconcile(ctx)
+			s.reconcileSeconds.Observe(time.Since(start).Seconds())
+			if err != nil && ctx.Err() == nil {
+				s.reconcileErrors.Inc()
+				s.log.Error("reconcile failed", "err", err)
+			}
 		}
 		s.promoteLearners(ctx)
 		select {
