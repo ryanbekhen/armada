@@ -504,7 +504,7 @@ fn fetch_verified(reg: &Registry, desc: &Descriptor) -> Result<(), registry::Err
 }
 
 /// images.Manifest: the manifest of desc for this node's platform.
-fn select_manifest(
+pub(crate) fn select_manifest(
     store: &Store,
     top: &Descriptor,
     m: &Matcher,

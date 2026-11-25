@@ -41,6 +41,10 @@
 
 pub mod check;
 pub mod digest;
+// The move of Go's image store, for the Rust agent only: the program
+// never converts.
+#[allow(dead_code, unused_imports)]
+pub mod gostore;
 pub mod http;
 mod layers;
 mod platform;

@@ -112,6 +112,14 @@ impl Store {
         })
     }
 
+    /// The store under root as it is, creating nothing: for reading a
+    /// store of the same layout (Go's content store while converting it).
+    pub fn at(root: &Path) -> Store {
+        Store {
+            root: root.to_path_buf(),
+        }
+    }
+
     pub fn root(&self) -> &Path {
         &self.root
     }
@@ -249,13 +257,21 @@ impl Store {
         self.lock("pull.lock", libc::LOCK_EX | libc::LOCK_NB)
     }
 
+    /// Takes the store's lock name (pull.lock, index.lock) exclusively,
+    /// waiting for it: no pull, collection, or index change runs while it
+    /// is held. Index changes under it go through write_index.
+    pub fn lock_exclusive(&self, name: &str) -> Result<Lock, String> {
+        Ok(self.lock(name, libc::LOCK_EX)?.expect("blocking lock"))
+    }
+
     /// The index as it is now.
     pub fn index(&self) -> Result<Index, String> {
         let _l = self.lock("index.lock", libc::LOCK_SH)?;
         self.read_index()
     }
 
-    fn read_index(&self) -> Result<Index, String> {
+    /// The index without its lock: for a caller holding index.lock.
+    pub fn read_index(&self) -> Result<Index, String> {
         match fs::read(self.root.join(INDEX_FILE)) {
             Ok(b) => {
                 let idx: Index =
@@ -281,6 +297,13 @@ impl Store {
         let _l = self.lock("index.lock", libc::LOCK_EX)?;
         let mut idx = self.read_index()?;
         let out = f(&mut idx)?;
+        self.write_index(&mut idx)?;
+        Ok(out)
+    }
+
+    /// Writes idx atomically (synced, then renamed) without taking
+    /// index.lock: for a caller holding it.
+    pub fn write_index(&self, idx: &mut Index) -> Result<(), String> {
         idx.version = INDEX_VERSION;
         let b = serde_json::to_vec(&idx).map_err(|e| e.to_string())?;
         let tmp = self.root.join(format!("{INDEX_FILE}.tmp"));
@@ -294,8 +317,7 @@ impl Store {
         file.write_all(&b)
             .and_then(|()| file.sync_all())
             .map_err(|e| format!("{INDEX_FILE}: {e}"))?;
-        fs::rename(&tmp, self.root.join(INDEX_FILE)).map_err(|e| format!("{INDEX_FILE}: {e}"))?;
-        Ok(out)
+        fs::rename(&tmp, self.root.join(INDEX_FILE)).map_err(|e| format!("{INDEX_FILE}: {e}"))
     }
 
     /// The digests of every blob under the store.
