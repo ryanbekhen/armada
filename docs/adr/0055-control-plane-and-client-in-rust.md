@@ -500,9 +500,16 @@ Go and every new Rust part is exercised only by its parity tests.
     the protocols Go's agent uses); 16d, the HAProxy driver, the cluster
     network, and the resolver's client behind those seams over
     armada-node's library; 16e, the supervisor runtime behind the runtime
-    trait, with the system containers HAProxy's engine runs on, and the
-    volume and connection tracking seams moved in process (NFS mounts
-    stay a process).
+    trait, with the system containers HAProxy's engine runs on. 16e lands
+    in two pull requests: the first runs containers (pulls, root
+    filesystems, specs, bundles, shims, the CNI plugins as libcni runs
+    them, logs, init containers and sidecars, stats, exec, prunes, and
+    system containers), and refuses to start on a machine with SELinux on
+    rather than run containers unlabelled; the second labels containers
+    for SELinux, converts Go's image store at the agent's start,
+    implements 16c's runtime calls (exec sessions, logs, dials, queues,
+    sandboxes), and moves the volume and connection tracking seams in
+    process (NFS mounts stay a process).
 17. **The client.** Every command, output, completion, the SSH dialer,
     configuration files, and the release notice, with the client parity
     tests.

@@ -1,0 +1,76 @@
+{
+  "calls": [
+    {
+      "head": "bridge ADD web-r1-0a0b0c0d ROOT/run/netns/cni-fake-0 eth0 ROOT/data/runtime/current/bin/cni ",
+      "input": "{\"bridge\":\"armada0\",\"cniVersion\":\"1.0.0\",\"hairpinMode\":true,\"ipMasq\":true,\"ipam\":{\"dataDir\":\"ROOT/run/cni/ipam\",\"ranges\":[[{\"gateway\":\"10.121.0.1\",\"subnet\":\"10.121.0.0/24\"}]],\"routes\":[{\"dst\":\"0.0.0.0/0\"}],\"type\":\"host-local\"},\"isGateway\":true,\"mtu\":1450,\"name\":\"armada\",\"type\":\"bridge\"}"
+    },
+    {
+      "head": "portmap ADD web-r1-0a0b0c0d ROOT/run/netns/cni-fake-0 eth0 ROOT/data/runtime/current/bin/cni ",
+      "input": "{\"capabilities\":{\"portMappings\":true},\"cniVersion\":\"1.0.0\",\"name\":\"armada\",\"prevResult\":{\"cniVersion\":\"1.0.0\",\"interfaces\":[{\"mac\":\"02:41:0a:79:00:01\",\"name\":\"armada0\"},{\"mac\":\"aa:bb:cc:dd:ee:ff\",\"name\":\"veth1\"},{\"mac\":\"0a:58:0a:79:00:05\",\"name\":\"eth0\",\"sandbox\":\"ROOT/run/netns/cni-fake-0\"}],\"ips\":[{\"address\":\"10.121.0.5/24\",\"gateway\":\"10.121.0.1\",\"interface\":2}],\"routes\":[{\"dst\":\"0.0.0.0/0\"}]},\"runtimeConfig\":{\"portMappings\":[{\"containerPort\":8080,\"hostIP\":\"10.0.0.5\",\"hostPort\":20001,\"protocol\":\"tcp\"}]},\"snat\":true,\"type\":\"portmap\"}"
+    },
+    {
+      "head": "firewall ADD web-r1-0a0b0c0d ROOT/run/netns/cni-fake-0 eth0 ROOT/data/runtime/current/bin/cni ",
+      "input": "{\"cniVersion\":\"1.0.0\",\"name\":\"armada\",\"prevResult\":{\"cniVersion\":\"1.0.0\",\"interfaces\":[{\"mac\":\"02:41:0a:79:00:01\",\"name\":\"armada0\"},{\"mac\":\"aa:bb:cc:dd:ee:ff\",\"name\":\"veth1\"},{\"mac\":\"0a:58:0a:79:00:05\",\"name\":\"eth0\",\"sandbox\":\"ROOT/run/netns/cni-fake-0\"}],\"ips\":[{\"address\":\"10.121.0.5/24\",\"gateway\":\"10.121.0.1\",\"interface\":2}],\"routes\":[{\"dst\":\"0.0.0.0/0\"}]},\"type\":\"firewall\"}"
+    },
+    {
+      "head": "loopback ADD web-r1-0a0b0c0d ROOT/run/netns/cni-fake-0 eth0 ROOT/data/runtime/current/bin/cni ",
+      "input": "{\"cniVersion\":\"1.0.0\",\"name\":\"armada\",\"prevResult\":{\"cniVersion\":\"1.0.0\",\"interfaces\":[{\"mac\":\"02:41:0a:79:00:01\",\"name\":\"armada0\"},{\"mac\":\"aa:bb:cc:dd:ee:ff\",\"name\":\"veth1\"},{\"mac\":\"0a:58:0a:79:00:05\",\"name\":\"eth0\",\"sandbox\":\"ROOT/run/netns/cni-fake-0\"}],\"ips\":[{\"address\":\"10.121.0.5/24\",\"gateway\":\"10.121.0.1\",\"interface\":2}],\"routes\":[{\"dst\":\"0.0.0.0/0\"}]},\"type\":\"loopback\"}"
+    },
+    {
+      "head": "loopback DEL web-r1-0a0b0c0d  eth0 ROOT/data/runtime/current/bin/cni ",
+      "input": "{\"cniVersion\":\"1.0.0\",\"name\":\"armada\",\"prevResult\":{\"cniVersion\":\"1.0.0\",\"interfaces\":[{\"mac\":\"02:41:0a:79:00:01\",\"name\":\"armada0\"},{\"mac\":\"aa:bb:cc:dd:ee:ff\",\"name\":\"veth1\"},{\"mac\":\"0a:58:0a:79:00:05\",\"name\":\"eth0\",\"sandbox\":\"ROOT/run/netns/cni-fake-0\"}],\"ips\":[{\"address\":\"10.121.0.5/24\",\"gateway\":\"10.121.0.1\",\"interface\":2}],\"routes\":[{\"dst\":\"0.0.0.0/0\"}]},\"type\":\"loopback\"}"
+    },
+    {
+      "head": "firewall DEL web-r1-0a0b0c0d  eth0 ROOT/data/runtime/current/bin/cni ",
+      "input": "{\"cniVersion\":\"1.0.0\",\"name\":\"armada\",\"prevResult\":{\"cniVersion\":\"1.0.0\",\"interfaces\":[{\"mac\":\"02:41:0a:79:00:01\",\"name\":\"armada0\"},{\"mac\":\"aa:bb:cc:dd:ee:ff\",\"name\":\"veth1\"},{\"mac\":\"0a:58:0a:79:00:05\",\"name\":\"eth0\",\"sandbox\":\"ROOT/run/netns/cni-fake-0\"}],\"ips\":[{\"address\":\"10.121.0.5/24\",\"gateway\":\"10.121.0.1\",\"interface\":2}],\"routes\":[{\"dst\":\"0.0.0.0/0\"}]},\"type\":\"firewall\"}"
+    },
+    {
+      "head": "portmap DEL web-r1-0a0b0c0d  eth0 ROOT/data/runtime/current/bin/cni ",
+      "input": "{\"capabilities\":{\"portMappings\":true},\"cniVersion\":\"1.0.0\",\"name\":\"armada\",\"prevResult\":{\"cniVersion\":\"1.0.0\",\"interfaces\":[{\"mac\":\"02:41:0a:79:00:01\",\"name\":\"armada0\"},{\"mac\":\"aa:bb:cc:dd:ee:ff\",\"name\":\"veth1\"},{\"mac\":\"0a:58:0a:79:00:05\",\"name\":\"eth0\",\"sandbox\":\"ROOT/run/netns/cni-fake-0\"}],\"ips\":[{\"address\":\"10.121.0.5/24\",\"gateway\":\"10.121.0.1\",\"interface\":2}],\"routes\":[{\"dst\":\"0.0.0.0/0\"}]},\"runtimeConfig\":{\"portMappings\":[{\"containerPort\":8080,\"hostIP\":\"10.0.0.5\",\"hostPort\":20001,\"protocol\":\"tcp\"}]},\"snat\":true,\"type\":\"portmap\"}"
+    },
+    {
+      "head": "bridge DEL web-r1-0a0b0c0d  eth0 ROOT/data/runtime/current/bin/cni ",
+      "input": "{\"bridge\":\"armada0\",\"cniVersion\":\"1.0.0\",\"hairpinMode\":true,\"ipMasq\":true,\"ipam\":{\"dataDir\":\"ROOT/run/cni/ipam\",\"ranges\":[[{\"gateway\":\"10.121.0.1\",\"subnet\":\"10.121.0.0/24\"}]],\"routes\":[{\"dst\":\"0.0.0.0/0\"}],\"type\":\"host-local\"},\"isGateway\":true,\"mtu\":1450,\"name\":\"armada\",\"prevResult\":{\"cniVersion\":\"1.0.0\",\"interfaces\":[{\"mac\":\"02:41:0a:79:00:01\",\"name\":\"armada0\"},{\"mac\":\"aa:bb:cc:dd:ee:ff\",\"name\":\"veth1\"},{\"mac\":\"0a:58:0a:79:00:05\",\"name\":\"eth0\",\"sandbox\":\"ROOT/run/netns/cni-fake-0\"}],\"ips\":[{\"address\":\"10.121.0.5/24\",\"gateway\":\"10.121.0.1\",\"interface\":2}],\"routes\":[{\"dst\":\"0.0.0.0/0\"}]},\"type\":\"bridge\"}"
+    },
+    {
+      "head": "bridge ADD sandbox-q1 ROOT/sandboxes/q1 eth0 ROOT/data/runtime/current/bin/cni ",
+      "input": "{\"bridge\":\"armada0\",\"cniVersion\":\"1.0.0\",\"hairpinMode\":true,\"ipMasq\":true,\"ipam\":{\"dataDir\":\"ROOT/run/cni/ipam\",\"ranges\":[[{\"gateway\":\"10.121.0.1\",\"subnet\":\"10.121.0.0/24\"}]],\"routes\":[{\"dst\":\"0.0.0.0/0\"}],\"type\":\"host-local\"},\"isGateway\":true,\"mtu\":1450,\"name\":\"armada\",\"type\":\"bridge\"}"
+    },
+    {
+      "head": "portmap ADD sandbox-q1 ROOT/sandboxes/q1 eth0 ROOT/data/runtime/current/bin/cni ",
+      "input": "{\"capabilities\":{\"portMappings\":true},\"cniVersion\":\"1.0.0\",\"name\":\"armada\",\"prevResult\":{\"cniVersion\":\"1.0.0\",\"interfaces\":[{\"mac\":\"02:41:0a:79:00:01\",\"name\":\"armada0\"},{\"mac\":\"aa:bb:cc:dd:ee:ff\",\"name\":\"veth1\"},{\"mac\":\"0a:58:0a:79:00:05\",\"name\":\"eth0\",\"sandbox\":\"ROOT/sandboxes/q1\"}],\"ips\":[{\"address\":\"10.121.0.5/24\",\"gateway\":\"10.121.0.1\",\"interface\":2}],\"routes\":[{\"dst\":\"0.0.0.0/0\"}]},\"snat\":true,\"type\":\"portmap\"}"
+    },
+    {
+      "head": "firewall ADD sandbox-q1 ROOT/sandboxes/q1 eth0 ROOT/data/runtime/current/bin/cni ",
+      "input": "{\"cniVersion\":\"1.0.0\",\"name\":\"armada\",\"prevResult\":{\"cniVersion\":\"1.0.0\",\"interfaces\":[{\"mac\":\"02:41:0a:79:00:01\",\"name\":\"armada0\"},{\"mac\":\"aa:bb:cc:dd:ee:ff\",\"name\":\"veth1\"},{\"mac\":\"0a:58:0a:79:00:05\",\"name\":\"eth0\",\"sandbox\":\"ROOT/sandboxes/q1\"}],\"ips\":[{\"address\":\"10.121.0.5/24\",\"gateway\":\"10.121.0.1\",\"interface\":2}],\"routes\":[{\"dst\":\"0.0.0.0/0\"}]},\"type\":\"firewall\"}"
+    },
+    {
+      "head": "loopback ADD sandbox-q1 ROOT/sandboxes/q1 eth0 ROOT/data/runtime/current/bin/cni ",
+      "input": "{\"cniVersion\":\"1.0.0\",\"name\":\"armada\",\"prevResult\":{\"cniVersion\":\"1.0.0\",\"interfaces\":[{\"mac\":\"02:41:0a:79:00:01\",\"name\":\"armada0\"},{\"mac\":\"aa:bb:cc:dd:ee:ff\",\"name\":\"veth1\"},{\"mac\":\"0a:58:0a:79:00:05\",\"name\":\"eth0\",\"sandbox\":\"ROOT/sandboxes/q1\"}],\"ips\":[{\"address\":\"10.121.0.5/24\",\"gateway\":\"10.121.0.1\",\"interface\":2}],\"routes\":[{\"dst\":\"0.0.0.0/0\"}]},\"type\":\"loopback\"}"
+    },
+    {
+      "head": "loopback DEL sandbox-q1  eth0 ROOT/data/runtime/current/bin/cni ",
+      "input": "{\"cniVersion\":\"1.0.0\",\"name\":\"armada\",\"prevResult\":{\"cniVersion\":\"1.0.0\",\"interfaces\":[{\"mac\":\"02:41:0a:79:00:01\",\"name\":\"armada0\"},{\"mac\":\"aa:bb:cc:dd:ee:ff\",\"name\":\"veth1\"},{\"mac\":\"0a:58:0a:79:00:05\",\"name\":\"eth0\",\"sandbox\":\"ROOT/sandboxes/q1\"}],\"ips\":[{\"address\":\"10.121.0.5/24\",\"gateway\":\"10.121.0.1\",\"interface\":2}],\"routes\":[{\"dst\":\"0.0.0.0/0\"}]},\"type\":\"loopback\"}"
+    },
+    {
+      "head": "firewall DEL sandbox-q1  eth0 ROOT/data/runtime/current/bin/cni ",
+      "input": "{\"cniVersion\":\"1.0.0\",\"name\":\"armada\",\"prevResult\":{\"cniVersion\":\"1.0.0\",\"interfaces\":[{\"mac\":\"02:41:0a:79:00:01\",\"name\":\"armada0\"},{\"mac\":\"aa:bb:cc:dd:ee:ff\",\"name\":\"veth1\"},{\"mac\":\"0a:58:0a:79:00:05\",\"name\":\"eth0\",\"sandbox\":\"ROOT/sandboxes/q1\"}],\"ips\":[{\"address\":\"10.121.0.5/24\",\"gateway\":\"10.121.0.1\",\"interface\":2}],\"routes\":[{\"dst\":\"0.0.0.0/0\"}]},\"type\":\"firewall\"}"
+    },
+    {
+      "head": "portmap DEL sandbox-q1  eth0 ROOT/data/runtime/current/bin/cni ",
+      "input": "{\"capabilities\":{\"portMappings\":true},\"cniVersion\":\"1.0.0\",\"name\":\"armada\",\"prevResult\":{\"cniVersion\":\"1.0.0\",\"interfaces\":[{\"mac\":\"02:41:0a:79:00:01\",\"name\":\"armada0\"},{\"mac\":\"aa:bb:cc:dd:ee:ff\",\"name\":\"veth1\"},{\"mac\":\"0a:58:0a:79:00:05\",\"name\":\"eth0\",\"sandbox\":\"ROOT/sandboxes/q1\"}],\"ips\":[{\"address\":\"10.121.0.5/24\",\"gateway\":\"10.121.0.1\",\"interface\":2}],\"routes\":[{\"dst\":\"0.0.0.0/0\"}]},\"snat\":true,\"type\":\"portmap\"}"
+    },
+    {
+      "head": "bridge DEL sandbox-q1  eth0 ROOT/data/runtime/current/bin/cni ",
+      "input": "{\"bridge\":\"armada0\",\"cniVersion\":\"1.0.0\",\"hairpinMode\":true,\"ipMasq\":true,\"ipam\":{\"dataDir\":\"ROOT/run/cni/ipam\",\"ranges\":[[{\"gateway\":\"10.121.0.1\",\"subnet\":\"10.121.0.0/24\"}]],\"routes\":[{\"dst\":\"0.0.0.0/0\"}],\"type\":\"host-local\"},\"isGateway\":true,\"mtu\":1450,\"name\":\"armada\",\"prevResult\":{\"cniVersion\":\"1.0.0\",\"interfaces\":[{\"mac\":\"02:41:0a:79:00:01\",\"name\":\"armada0\"},{\"mac\":\"aa:bb:cc:dd:ee:ff\",\"name\":\"veth1\"},{\"mac\":\"0a:58:0a:79:00:05\",\"name\":\"eth0\",\"sandbox\":\"ROOT/sandboxes/q1\"}],\"ips\":[{\"address\":\"10.121.0.5/24\",\"gateway\":\"10.121.0.1\",\"interface\":2}],\"routes\":[{\"dst\":\"0.0.0.0/0\"}]},\"type\":\"bridge\"}"
+    }
+  ],
+  "cache": "{\"kind\":\"cniCacheV1\",\"containerId\":\"web-r1-0a0b0c0d\",\"config\":\"eyJjbmlWZXJzaW9uIjoiMS4wLjAiLCJuYW1lIjoiYXJtYWRhIiwicGx1Z2lucyI6W3siYnJpZGdlIjoiYXJtYWRhMCIsImhhaXJwaW5Nb2RlIjp0cnVlLCJpcE1hc3EiOnRydWUsImlwYW0iOnsiZGF0YURpciI6IlJPT1QvcnVuL2NuaS9pcGFtIiwicmFuZ2VzIjpbW3siZ2F0ZXdheSI6IjEwLjEyMS4wLjEiLCJzdWJuZXQiOiIxMC4xMjEuMC4wLzI0In1dXSwicm91dGVzIjpbeyJkc3QiOiIwLjAuMC4wLzAifV0sInR5cGUiOiJob3N0LWxvY2FsIn0sImlzR2F0ZXdheSI6dHJ1ZSwibXR1IjoxNDUwLCJ0eXBlIjoiYnJpZGdlIn0seyJjYXBhYmlsaXRpZXMiOnsicG9ydE1hcHBpbmdzIjp0cnVlfSwic25hdCI6dHJ1ZSwidHlwZSI6InBvcnRtYXAifSx7InR5cGUiOiJmaXJld2FsbCJ9LHsidHlwZSI6Imxvb3BiYWNrIn1dfQ==\",\"ifName\":\"eth0\",\"networkName\":\"armada\",\"netns\":\"ROOT/run/netns/cni-fake-0\",\"capabilityArgs\":{\"portMappings\":[{\"containerPort\":8080,\"hostIP\":\"10.0.0.5\",\"hostPort\":20001,\"protocol\":\"tcp\"}]},\"result\":{\"cniVersion\":\"1.0.0\",\"interfaces\":[{\"mac\":\"02:41:0a:79:00:01\",\"name\":\"armada0\"},{\"mac\":\"aa:bb:cc:dd:ee:ff\",\"name\":\"veth1\"},{\"mac\":\"0a:58:0a:79:00:05\",\"name\":\"eth0\",\"sandbox\":\"ROOT/run/netns/cni-fake-0\"}],\"ips\":[{\"address\":\"10.121.0.5/24\",\"gateway\":\"10.121.0.1\",\"interface\":2}],\"routes\":[{\"dst\":\"0.0.0.0/0\"}]}}",
+  "cacheAt": "{\"kind\":\"cniCacheV1\",\"containerId\":\"sandbox-q1\",\"config\":\"eyJjbmlWZXJzaW9uIjoiMS4wLjAiLCJuYW1lIjoiYXJtYWRhIiwicGx1Z2lucyI6W3siYnJpZGdlIjoiYXJtYWRhMCIsImhhaXJwaW5Nb2RlIjp0cnVlLCJpcE1hc3EiOnRydWUsImlwYW0iOnsiZGF0YURpciI6IlJPT1QvcnVuL2NuaS9pcGFtIiwicmFuZ2VzIjpbW3siZ2F0ZXdheSI6IjEwLjEyMS4wLjEiLCJzdWJuZXQiOiIxMC4xMjEuMC4wLzI0In1dXSwicm91dGVzIjpbeyJkc3QiOiIwLjAuMC4wLzAifV0sInR5cGUiOiJob3N0LWxvY2FsIn0sImlzR2F0ZXdheSI6dHJ1ZSwibXR1IjoxNDUwLCJ0eXBlIjoiYnJpZGdlIn0seyJjYXBhYmlsaXRpZXMiOnsicG9ydE1hcHBpbmdzIjp0cnVlfSwic25hdCI6dHJ1ZSwidHlwZSI6InBvcnRtYXAifSx7InR5cGUiOiJmaXJld2FsbCJ9LHsidHlwZSI6Imxvb3BiYWNrIn1dfQ==\",\"ifName\":\"eth0\",\"networkName\":\"armada\",\"netns\":\"ROOT/sandboxes/q1\",\"result\":{\"cniVersion\":\"1.0.0\",\"interfaces\":[{\"mac\":\"02:41:0a:79:00:01\",\"name\":\"armada0\"},{\"mac\":\"aa:bb:cc:dd:ee:ff\",\"name\":\"veth1\"},{\"mac\":\"0a:58:0a:79:00:05\",\"name\":\"eth0\",\"sandbox\":\"ROOT/sandboxes/q1\"}],\"ips\":[{\"address\":\"10.121.0.5/24\",\"gateway\":\"10.121.0.1\",\"interface\":2}],\"routes\":[{\"dst\":\"0.0.0.0/0\"}]}}",
+  "address": "10.121.0.5",
+  "forgot": [
+    "10.121.0.5",
+    "10.121.0.5"
+  ],
+  "released": true
+}

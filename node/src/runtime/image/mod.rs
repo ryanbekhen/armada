@@ -39,18 +39,18 @@
 //! Go's TestArmadaNode*MatchesGo tests (internal/runtime/containerd)
 //! compare them with Go against registries in the test process.
 
-pub(crate) mod check;
-mod digest;
-pub(crate) mod http;
+pub mod check;
+pub mod digest;
+pub mod http;
 mod layers;
 mod platform;
-mod pull;
-mod reference;
+pub mod pull;
+pub mod reference;
 mod registry;
-mod snapshot;
-mod store;
-pub(crate) mod tar;
-pub(crate) mod unpack;
+pub mod snapshot;
+pub mod store;
+pub mod tar;
+pub mod unpack;
 
 use super::{read_stdin, write_out};
 use serde::{Deserialize, Serialize};

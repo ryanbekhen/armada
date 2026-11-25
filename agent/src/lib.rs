@@ -20,8 +20,11 @@
 //! (16d) adds the seams' real drivers over armada-node's library: HAProxy
 //! ([`haproxy::Driver`]), the cluster network
 //! ([`clusternet::ClusterNet`]), and armada-dns
-//! ([`dnsprocess::DnsProcess`]). Left for the last part: the supervisor
-//! runtime (16e).
+//! ([`dnsprocess::DnsProcess`]). The fifth part (16e) adds the supervisor
+//! runtime ([`supervisor::Supervisor`]) behind the runtime trait and
+//! HAProxy's system containers; SELinux labels, the conversion of Go's
+//! image store, 16c's runtime calls, and the volume and connection
+//! tracking seams moved in process come in its second pull request.
 
 pub mod agent;
 pub mod boot;
@@ -45,6 +48,7 @@ pub mod runtimemove;
 pub mod session;
 pub mod side;
 pub mod spec;
+pub mod supervisor;
 pub mod usage;
 pub mod wake;
 

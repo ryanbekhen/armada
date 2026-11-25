@@ -269,6 +269,14 @@ pub fn add_vxlan(name: &str, mtu: u32, mac: &[u8], v: &Vxlan) -> Msg {
     add_link(name, mtu, mac, "vxlan", Some(d))
 }
 
+/// LinkAdd(&netlink.Bridge{...}) as the container bridge is made: its
+/// name alone.
+// The Rust agent's, through the library; the program makes no bridge.
+#[allow(dead_code)]
+pub fn add_bridge(name: &str) -> Msg {
+    add_link(name, 0, &[], "bridge", None)
+}
+
 /// LinkAdd(&netlink.Wireguard{...}).
 pub fn add_wireguard(name: &str, mtu: u32) -> Msg {
     add_link(name, mtu, &[], "wireguard", None)

@@ -188,6 +188,15 @@ fn valid_id(id: &str) -> Result<(), String> {
 /// NewContainer's refusal and Bundles.Create: the rootfs directory, the
 /// root filesystem mounted on it, config.json, then record.json.
 pub fn create(r: &CreateRequest) -> Result<Record, String> {
+    create_with(r, &mount_all)
+}
+
+/// A mount of a bundle's root filesystem: mount_all, or a stand-in in the
+/// tests of a caller that runs without root (the Rust agent's).
+pub type MountFn<'a> = &'a dyn Fn(&[Mount], &Path) -> Result<(), String>;
+
+/// create, the root filesystem mounted by mount.
+pub fn create_with(r: &CreateRequest, mount: MountFn) -> Result<Record, String> {
     valid_id(&r.id)?;
     let dir = Path::new(&r.dir).join(&r.id);
     if fs::metadata(&dir).is_ok() {
@@ -200,7 +209,7 @@ pub fn create(r: &CreateRequest) -> Result<Record, String> {
         .mode(0o700)
         .create(&rootfs)
         .map_err(|e| os_err("mkdir", &rootfs, &e))?;
-    mount_all(&r.mounts, &rootfs).map_err(|e| format!("mount root filesystem: {e}"))?;
+    mount(&r.mounts, &rootfs).map_err(|e| format!("mount root filesystem: {e}"))?;
     write_file(&dir.join(CONFIG), &config)?;
     let rec = Record {
         id: r.id.clone(),
@@ -219,9 +228,17 @@ pub fn create(r: &CreateRequest) -> Result<Record, String> {
 
 /// Bundles.Remove: the root filesystem unmounted, the bundle removed.
 pub fn remove(dir: &str, id: &str) -> Result<(), String> {
+    remove_with(dir, id, &unmount_all)
+}
+
+/// An unmount of a bundle's root filesystem: unmount_all, or a stand-in.
+pub type UnmountFn<'a> = &'a dyn Fn(&Path) -> Result<(), (String, i32)>;
+
+/// remove, the root filesystem unmounted by unmount.
+pub fn remove_with(dir: &str, id: &str, unmount: UnmountFn) -> Result<(), String> {
     valid_id(id)?;
     let dir = Path::new(dir).join(id);
-    if let Err((text, errno)) = unmount_all(&dir.join(ROOTFS))
+    if let Err((text, errno)) = unmount(&dir.join(ROOTFS))
         && errno != libc::ENOENT
     {
         return Err(format!("unmount root filesystem: {text}"));
