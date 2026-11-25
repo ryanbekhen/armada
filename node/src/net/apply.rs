@@ -139,23 +139,24 @@ pub struct State {
     pub last: String,
 }
 
+/// A request of net apply and net up.
 #[derive(Deserialize, Default)]
 #[serde(rename_all = "PascalCase", default)]
-struct Request {
-    config: Option<NetworkConfig>,
-    node: String,
+pub struct Request {
+    pub config: Option<NetworkConfig>,
+    pub node: String,
     #[serde(rename = "PrivateIP")]
-    private_ip: String,
-    endpoint: String,
-    mesh_cache: String,
+    pub private_ip: String,
+    pub endpoint: String,
+    pub mesh_cache: String,
     #[serde(rename = "UplinkMTU")]
-    uplink_mtu: i64,
-    key: String,
-    local: Option<HashMap<String, String>>,
-    userspace: bool,
+    pub uplink_mtu: i64,
+    pub key: String,
+    pub local: Option<HashMap<String, String>>,
+    pub userspace: bool,
     // Go sends null before the first pass.
     #[serde(deserialize_with = "super::config::nullable")]
-    state: State,
+    pub state: State,
 }
 
 /// SwitchStatus, as protojson writes a NetworkSwitchStatus.
@@ -176,16 +177,17 @@ pub struct LogLine {
     pub msg: String,
 }
 
+/// What net apply and net up answer.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct Answer {
-    error: String,
-    needs_userspace: bool,
-    state: State,
-    switch: Option<SwitchStatus>,
-    probe: Option<probe::Request>,
-    done: Vec<String>,
-    log: Vec<LogLine>,
+pub struct Answer {
+    pub error: String,
+    pub needs_userspace: bool,
+    pub state: State,
+    pub switch: Option<SwitchStatus>,
+    pub probe: Option<probe::Request>,
+    pub done: Vec<String>,
+    pub log: Vec<LogLine>,
 }
 
 fn now_ms() -> i64 {
@@ -1074,7 +1076,13 @@ pub fn remove() -> Result<(), String> {
 
 /// armada-node net apply | up.
 pub fn command(op: &str) -> Result<(), String> {
-    let mut req: Request = serde_json::from_slice(&read_stdin()?).map_err(|e| e.to_string())?;
+    let req: Request = serde_json::from_slice(&read_stdin()?).map_err(|e| e.to_string())?;
+    finish(pass(op, req))
+}
+
+/// One pass of net apply (op "apply") or net up ("up"), in process: the
+/// Rust agent calls it with what the Go agent sends the program.
+pub fn pass(op: &str, mut req: Request) -> Answer {
     let state = std::mem::take(&mut req.state);
     let mut answer = Answer {
         error: String::new(),
@@ -1089,7 +1097,7 @@ pub fn command(op: &str) -> Result<(), String> {
         Ok(n) => n,
         Err(e) => {
             answer.error = e;
-            return finish(answer);
+            return answer;
         }
     };
     let res = if req.userspace {
@@ -1117,7 +1125,7 @@ pub fn command(op: &str) -> Result<(), String> {
     answer.state = net.st;
     answer.done = net.done;
     answer.log = net.log;
-    finish(answer)
+    answer
 }
 
 fn finish(answer: Answer) -> Result<(), String> {

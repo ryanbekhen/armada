@@ -13,19 +13,24 @@
 //! their own ([`proxy::Proxy`], [`network::Network`],
 //! [`proxy::InternalDns`], [`proxy::CertificateSource`]), the wake socket,
 //! key rotation, the runtime move, and the usage reports' load, switch,
-//! and peers. Left for later parts: exec, log, and volume sessions, queue
-//! readings and sandboxes, NFS, log export and prune (16c), and the
-//! supervisor runtime and the seams' real implementations over
-//! armada-node's library (16d).
+//! and peers. The fourth part (16d) adds the seams' real drivers over
+//! armada-node's library: HAProxy ([`haproxy::Driver`]), the cluster
+//! network ([`clusternet::ClusterNet`]), and armada-dns
+//! ([`dnsprocess::DnsProcess`]). Left for later parts: exec, log, and
+//! volume sessions, queue readings and sandboxes, NFS, log export and
+//! prune (16c), and the supervisor runtime (16e).
 
 pub mod agent;
 pub mod boot;
 pub mod check;
 pub mod clock;
+pub mod clusternet;
 mod containers;
 pub mod creds;
+pub mod dnsprocess;
 pub mod fence;
 mod files;
+pub mod haproxy;
 pub mod hold;
 mod job;
 pub mod log;

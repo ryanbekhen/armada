@@ -8,6 +8,8 @@ description = "The node agent's loop, a port of Go's internal/agent (ADR 0055): 
 
 [dependencies]
 armada-fsutil = { path = "../fsutil" }
+# The cluster network and HAProxy's configuration in process (16d).
+armada-node = { path = "../node" }
 armada-pki = { path = "../pki" }
 armada-proto = { path = "../proto" }
 armada-spec = { path = "../spec" }
@@ -20,22 +22,29 @@ http-body-util = "0.1"
 hyper = { version = "1", default-features = false, features = ["http1", "server", "client"] }
 libc.workspace = true
 prost.workspace = true
+# HAProxy's default certificate (haproxy/mod.rs), as armada-pki signs.
+rcgen.workspace = true
 rustls.workspace = true
 rustls-pki-types.workspace = true
-# The parity program's requests and answers.
-serde = { workspace = true, optional = true }
-serde_json = { workspace = true, optional = true }
+# armada-node's requests and answers, and the parity program's.
+serde.workspace = true
+serde_json.workspace = true
 sha2.workspace = true
+time.workspace = true
 tokio.workspace = true
 tokio-rustls.workspace = true
 tokio-stream.workspace = true
 tonic = { workspace = true, features = ["channel"] }
 tower.workspace = true
 
+[dev-dependencies]
+# Paused clocks in the tests of the drivers' waits.
+tokio = { workspace = true, features = ["test-util"] }
+
 [features]
 # The program Go's agent parity tests drive (src/bin/armada-agent-parity.rs,
 # ARMADA_AGENT_BIN): never part of a release.
-parity = ["dep:serde", "dep:serde_json"]
+parity = []
 
 [[bin]]
 name = "armada-agent-parity"

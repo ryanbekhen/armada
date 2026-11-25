@@ -102,11 +102,11 @@ impl Options {
         }
     }
 
-    fn checks_callers(&self) -> bool {
+    pub fn checks_callers(&self) -> bool {
         !self.subnet.is_empty()
     }
 
-    fn serves_tcp(&self) -> bool {
+    pub fn serves_tcp(&self) -> bool {
         !self.internal_ip.is_empty() && self.checks_callers()
     }
 }
@@ -160,7 +160,8 @@ impl Node {
     }
 }
 
-fn backend_name(app: &str) -> String {
+/// backendName: the HAProxy backend of an app.
+pub fn backend_name(app: &str) -> String {
     format!("be_{app}")
 }
 
@@ -168,7 +169,8 @@ fn wake_backend_name(app: &str) -> String {
     format!("wk_{app}")
 }
 
-fn slot_name(i: usize) -> String {
+/// slotName: the server of slot i.
+pub fn slot_name(i: usize) -> String {
     format!("s{}", i + 1)
 }
 
@@ -252,6 +254,26 @@ fn backend_pool<'a>(be: &'a Backend, n: &Node) -> Pool<'a> {
         };
     }
     p
+}
+
+/// pools as the driver reads them: each backend's HAProxy name and its
+/// servers with the weights rendered on the node (local-first weighs
+/// them by where they are). The agent's driver uses it, the program not.
+#[allow(dead_code)]
+pub fn pools(cfg: &Config, n: &Node) -> Vec<(String, Vec<Server>)> {
+    cfg.backends
+        .iter()
+        .map(|be| {
+            let p = backend_pool(be, n);
+            (p.name, p.servers)
+        })
+        .collect()
+}
+
+/// slotCount: the slots a backend of n servers gets (the agent's driver).
+#[allow(dead_code)]
+pub fn slot_count(n: usize) -> usize {
+    if n <= 10 { 10 } else { n.div_ceil(10) * 10 }
 }
 
 fn sorted_backends(cfg: &Config) -> Vec<&Backend> {

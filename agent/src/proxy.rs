@@ -2,8 +2,9 @@
 //! load part of usage.go): the node's ingress configuration handed to a
 //! [`Proxy`], its certificates fetched by reference, the names the node's
 //! resolver answers, and the requests in progress per replica. The HAProxy
-//! driver behind the trait comes with the supervisor runtime (ADR 0055,
-//! item 16c); the parity tests implement it with a fake.
+//! driver behind the trait is [`crate::haproxy::Driver`] and the resolver
+//! [`crate::dnsprocess::DnsProcess`] (ADR 0055, item 16d); the parity
+//! tests implement them with fakes.
 
 use std::collections::{BTreeMap, HashMap};
 use std::future::Future;
