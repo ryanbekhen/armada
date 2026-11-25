@@ -80,11 +80,48 @@ pub async fn run(
     stdin: &Value,
     timeout: Option<Duration>,
 ) -> Result<Vec<u8>, String> {
+    run_files(bin, args, stdin, timeout, Vec::new()).await
+}
+
+/// run, with files given to the program as descriptors 3 and up.
+pub async fn run_files(
+    bin: &str,
+    args: &[&str],
+    stdin: &Value,
+    timeout: Option<Duration>,
+    files: Vec<std::os::fd::OwnedFd>,
+) -> Result<Vec<u8>, String> {
+    use std::os::fd::AsRawFd;
+    use std::os::unix::process::CommandExt;
     let mut cmd = command(bin, args);
+    if !files.is_empty() {
+        let fds: Vec<i32> = files.iter().map(|f| f.as_raw_fd()).collect();
+        // SAFETY: only fcntl and dup2 between fork and exec, no
+        // allocation.
+        unsafe {
+            cmd.pre_exec(move || {
+                let mut moved = [0i32; 8];
+                for (i, fd) in fds.iter().enumerate().take(moved.len()) {
+                    let n = libc::fcntl(*fd, libc::F_DUPFD_CLOEXEC, 64);
+                    if n < 0 {
+                        return Err(std::io::Error::last_os_error());
+                    }
+                    moved[i] = n;
+                }
+                for (i, n) in moved.iter().take(fds.len()).enumerate() {
+                    if libc::dup2(*n, 3 + i as i32) < 0 {
+                        return Err(std::io::Error::last_os_error());
+                    }
+                }
+                Ok(())
+            });
+        }
+    }
     cmd.stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     let mut child = cmd.spawn().map_err(|e| failed(&e.to_string()))?;
+    drop(files);
     let guard = KillGuard::new(&child);
     let done = guard.done();
     let input = format!("{stdin}");

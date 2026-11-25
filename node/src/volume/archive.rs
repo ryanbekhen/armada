@@ -30,23 +30,61 @@ pub fn command(dir: &str) -> Result<(), String> {
     root.probe()?;
     let hook = Hook::from_env(dir);
     let out = io::BufWriter::with_capacity(64 << 10, io::stdout().lock());
+    match write_root(&root, out, &hook) {
+        Ok(()) => send_answer(&mut answer, &serde_json::json!({})),
+        Err(WriteError::Entry { text, changed }) => send_answer(
+            &mut answer,
+            &serde_json::json!({ "error": text, "changed": changed }),
+        ),
+        Err(WriteError::Out(e)) => Err(format!("write archive: {e}")),
+    }
+}
+
+/// Why an archive failed.
+#[derive(Debug)]
+pub enum WriteError {
+    /// An entry's error, worded "archive volume: ...", and whether it
+    /// changed under the walk (volbackup.ErrChanged).
+    Entry { text: String, changed: bool },
+    /// The writer failed.
+    Out(io::Error),
+}
+
+/// writeArchive of dir to w, the library's call: what `volume archive`
+/// writes on stdout.
+#[allow(dead_code)] // the library's (the Rust agent's)
+pub fn write_to<W: Write>(dir: &str, w: W) -> Result<(), WriteError> {
+    let root = Root::open(dir.as_bytes()).map_err(|e| WriteError::Entry {
+        text: format!(
+            "archive volume: {}",
+            super::path_err("open", dir.as_bytes(), e)
+        ),
+        changed: false,
+    })?;
+    root.probe().map_err(|e| WriteError::Entry {
+        text: format!("archive volume: {e}"),
+        changed: false,
+    })?;
+    write_root(&root, w, &Hook::none(dir))
+}
+
+fn write_root<W: Write>(root: &Root, out: W, hook: &Hook) -> Result<(), WriteError> {
     let gz = flate2::write::GzEncoder::new(out, flate2::Compression::default());
     let mut tw = TarWriter::new(gz);
-    match archive(&root, &mut tw, &hook) {
+    match archive(root, &mut tw, hook) {
         Ok(()) => {}
         Err(Failure::Entry(e)) => {
             // As Go, an archive that failed is not ended: the gzip stream
             // stays unfinished.
             std::mem::forget(tw);
-            let text = format!("archive volume: {}", e.text());
-            return send_answer(
-                &mut answer,
-                &serde_json::json!({ "error": text, "changed": e.changed() }),
-            );
+            return Err(WriteError::Entry {
+                text: format!("archive volume: {}", e.text()),
+                changed: e.changed(),
+            });
         }
         Err(Failure::Out(e)) => {
             std::mem::forget(tw);
-            return Err(format!("write archive: {e}"));
+            return Err(WriteError::Out(e));
         }
     }
     let finish = || -> io::Result<()> {
@@ -54,8 +92,7 @@ pub fn command(dir: &str) -> Result<(), String> {
         let mut out = tw.w.finish()?;
         out.flush()
     };
-    finish().map_err(|e| format!("write archive: {e}"))?;
-    send_answer(&mut answer, &serde_json::json!({}))
+    finish().map_err(WriteError::Out)
 }
 
 enum Failure {
@@ -387,6 +424,16 @@ struct Hook {
 }
 
 impl Hook {
+    /// No hook: what the library's callers get.
+    #[allow(dead_code)]
+    fn none(dir: &str) -> Hook {
+        Hook {
+            dir: dir.to_string(),
+            entry: Vec::new(),
+            action: String::new(),
+        }
+    }
+
     fn from_env(dir: &str) -> Hook {
         let v = crate::hooks::var_os("ARMADA_NODE_TEST_VOLUME_HOOK").unwrap_or_default();
         let v = std::os::unix::ffi::OsStrExt::as_bytes(v.as_os_str()).to_vec();

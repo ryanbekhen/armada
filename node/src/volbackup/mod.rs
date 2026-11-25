@@ -54,9 +54,31 @@ static STOPPED: AtomicBool = AtomicBool::new(false);
 /// through the library, has stdout of its own.
 static PROGRAM: AtomicBool = AtomicBool::new(false);
 
-/// Whether the agent gave up on a restore (closed stdin).
+thread_local! {
+    /// A library call's own stop (with_stop).
+    static STOP: std::cell::RefCell<Option<std::sync::Arc<AtomicBool>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Whether the agent gave up on a restore (closed stdin), or a library
+/// caller set this thread's stop.
 pub(crate) fn stopped() -> bool {
     STOPPED.load(Ordering::SeqCst)
+        || STOP.with(|s| {
+            s.borrow()
+                .as_ref()
+                .is_some_and(|f| f.load(Ordering::SeqCst))
+        })
+}
+
+/// Runs f with stop as what stopped() reads on this thread: a library
+/// caller's way to stop a restore between entries.
+#[allow(dead_code)] // the library's (the Rust agent's)
+pub fn with_stop<T>(stop: std::sync::Arc<AtomicBool>, f: impl FnOnce() -> T) -> T {
+    STOP.with(|s| *s.borrow_mut() = Some(stop));
+    let out = f();
+    STOP.with(|s| *s.borrow_mut() = None);
+    out
 }
 
 /// Says once, before the first write to the bucket or the volume, that

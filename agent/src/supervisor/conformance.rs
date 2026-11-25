@@ -80,6 +80,49 @@ async fn conformance_supervisor_rust() {
     assert_eq!(rt.exec_app(&id, &["false".to_string()]).await.unwrap(), 1);
     let st = rt.stats(&id).await.unwrap();
     assert!(st.memory_bytes > 0 && !st.network_lost, "{st:?}");
+
+    // An exec session with its streams; the output in the log; a dial
+    // from the container's namespace (refused: nothing listens there).
+    let (in_tx, in_rx) = tokio::sync::mpsc::channel(1);
+    let (out_tx, mut out_rx) = tokio::sync::mpsc::channel(16);
+    in_tx.send(b"hello\n".to_vec()).await.unwrap();
+    drop(in_tx);
+    let opts = crate::side::ExecOptions {
+        cmd: vec!["sh".into(), "-c".into(), "cat; echo err >&2; exit 3".into()],
+        stdin: Some(in_rx),
+        output: Some(out_tx),
+        ..Default::default()
+    };
+    assert_eq!(rt.exec_session(&id, opts).await.unwrap(), 3);
+    let mut got = Vec::new();
+    while let Ok(o) = out_rx.try_recv() {
+        got.push(o);
+    }
+    got.sort();
+    assert_eq!(
+        got,
+        vec![(false, b"err\n".to_vec()), (true, b"hello\n".to_vec())]
+    );
+    let mut frames = rt
+        .logs(&id, &crate::side::LogOptions::default())
+        .await
+        .unwrap();
+    while frames.recv().await.is_some() {}
+    let e = rt
+        .dial_container(&id, "tcp", "127.0.0.1:1")
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(e.contains("connection refused"), "{e}");
+
+    // A sandbox: pinned, addressed on the bridge, removed.
+    let sb = rt.ensure_sandbox("conformance").await.unwrap();
+    let ip: std::net::Ipv4Addr = sb.ip.parse().unwrap();
+    assert!(rt.bridge().subnet.contains(ip), "{ip}");
+    assert_eq!(rt.list_sandboxes().await.unwrap(), vec![sb]);
+    rt.remove_sandbox("conformance").await.unwrap();
+    assert!(rt.list_sandboxes().await.unwrap().is_empty());
+
     rt.stop(&id, Duration::from_secs(5)).await.unwrap();
     assert_eq!(rt.inspect(&id).await.unwrap().state, STATE_EXITED);
     assert_eq!(rt.release_network(&id).await, Some(Ok(())));

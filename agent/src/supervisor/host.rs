@@ -25,6 +25,11 @@ pub trait Host: Send + Sync + 'static {
     fn new_netns(&self, dir: &Path) -> Result<String, String>;
     /// Unmounts and removes a namespace; one that is gone is no error.
     fn remove_netns(&self, path: &str) -> Result<(), String>;
+    /// A new network namespace pinned with a bind mount on path, which
+    /// must not exist (newPinnedNetNS); the file is gone on failure.
+    fn new_pinned_netns(&self, path: &Path) -> Result<(), String>;
+    /// Whether path is a pinned network namespace (isNetNS).
+    fn is_netns(&self, path: &Path) -> bool;
     /// The bridge with the gateway's address, its fixed hardware address,
     /// the MTU (0 leaves it), IPv6 off, and up.
     fn ensure_bridge(&self, b: &Bridge, mtu: u32) -> Result<(), String>;
@@ -49,6 +54,17 @@ pub trait Host: Send + Sync + 'static {
     fn load_apparmor(&self, name: &str, text: &str) -> Result<(), String>;
     /// selinux.GetEnabled.
     fn selinux_enabled(&self) -> bool;
+    /// The policy's container contexts (go-selinux's lxc_contexts); None
+    /// when there are none to read.
+    fn selinux_contexts(&self) -> Option<Vec<u8>>;
+    /// selinux.SecurityCheckContext: whether the kernel knows label.
+    fn selinux_check_context(&self, label: &str) -> Result<(), String>;
+    /// A file's label, its symbolic links not followed (lgetxattr).
+    fn lfile_label(&self, p: &Path) -> std::io::Result<String>;
+    /// Sets a file's label, its symbolic links not followed (lsetxattr).
+    fn lset_file_label(&self, p: &Path, label: &str) -> std::io::Result<()>;
+    /// Sets a file's label, following symbolic links (setxattr).
+    fn set_file_label(&self, p: &Path, label: &str) -> std::io::Result<()>;
     /// Whether nothing on the host listens on ip:port.
     fn port_free(&self, ip: &str, port: u16) -> bool;
     /// The host's resolver configuration for containers.
@@ -179,6 +195,50 @@ impl Host for LinuxHost {
             return Err(format!("failed to setup netns: {e}"));
         }
         Ok(p)
+    }
+
+    fn new_pinned_netns(&self, path: &Path) -> Result<(), String> {
+        fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(path)
+            .map_err(|e| super::os_err("open", path, &e))?;
+        let target = path.display().to_string();
+        let made = std::thread::spawn(move || -> Result<(), String> {
+            // The thread enters the namespace and ends with it.
+            // SAFETY: plain system calls on this thread alone.
+            if unsafe { libc::unshare(libc::CLONE_NEWNET) } < 0 {
+                return Err(errno_text(&std::io::Error::last_os_error()));
+            }
+            // SAFETY: plain system calls.
+            let (pid, tid) = unsafe { (libc::getpid(), libc::gettid()) };
+            sys_mount(
+                &format!("/proc/{pid}/task/{tid}/ns/net"),
+                &target,
+                libc::MS_BIND,
+            )
+            .map_err(|e| errno_text(&e))
+        })
+        .join()
+        .map_err(|_| "the namespace thread panicked".to_string())
+        .and_then(|r| r);
+        if made.is_err() {
+            let _ = fs::remove_file(path);
+        }
+        made
+    }
+
+    fn is_netns(&self, path: &Path) -> bool {
+        use std::os::unix::ffi::OsStrExt;
+        let Ok(c) = CString::new(path.as_os_str().as_bytes()) else {
+            return false;
+        };
+        // SAFETY: an all-zero statfs is valid and statfs fills it.
+        let mut st: libc::statfs = unsafe { std::mem::zeroed() };
+        // SAFETY: a NUL-terminated path and a statfs.
+        unsafe { libc::statfs(c.as_ptr(), &mut st) == 0 && st.f_type as i64 == NSFS_MAGIC }
     }
 
     fn remove_netns(&self, path: &str) -> Result<(), String> {
@@ -344,6 +404,72 @@ impl Host for LinuxHost {
         armada_node::nfs::selinux_enabled()
     }
 
+    fn selinux_contexts(&self) -> Option<Vec<u8>> {
+        if let Ok(b) = fs::read("/usr/share/containers/selinux/contexts") {
+            return Some(b);
+        }
+        // policyRoot: /etc/selinux/ and the config's SELINUXTYPE.
+        let ty = fs::read("/etc/selinux/config")
+            .ok()
+            .and_then(|b| selinux_config(&b, "SELINUXTYPE"))
+            .unwrap_or_default();
+        fs::read(
+            Path::new("/etc/selinux")
+                .join(ty)
+                .join("contexts")
+                .join("lxc_contexts"),
+        )
+        .ok()
+    }
+
+    fn selinux_check_context(&self, label: &str) -> Result<(), String> {
+        let p = Path::new(&armada_node::nfs::selinux_mount()).join("context");
+        fs::OpenOptions::new()
+            .write(true)
+            .truncate(true)
+            .open(&p)
+            .and_then(|mut f| f.write_all(label.as_bytes()))
+            .map_err(|e| super::os_err("write", &p, &e))
+    }
+
+    fn lfile_label(&self, p: &Path) -> std::io::Result<String> {
+        let c = path_c(p)?;
+        let name = CString::new(super::selinux::XATTR)?;
+        let mut buf = vec![0u8; 128];
+        loop {
+            // SAFETY: valid C strings and a buffer of its length.
+            let n = unsafe {
+                libc::lgetxattr(
+                    c.as_ptr(),
+                    name.as_ptr(),
+                    buf.as_mut_ptr().cast(),
+                    buf.len(),
+                )
+            };
+            if n >= 0 {
+                buf.truncate(n as usize);
+                if buf.last() == Some(&0) {
+                    buf.pop();
+                }
+                return Ok(String::from_utf8_lossy(&buf).into_owned());
+            }
+            let e = std::io::Error::last_os_error();
+            match e.raw_os_error() {
+                Some(libc::EINTR) => {}
+                Some(libc::ERANGE) => buf.resize(buf.len() * 2, 0),
+                _ => return Err(e),
+            }
+        }
+    }
+
+    fn lset_file_label(&self, p: &Path, label: &str) -> std::io::Result<()> {
+        set_xattr(p, label, true)
+    }
+
+    fn set_file_label(&self, p: &Path, label: &str) -> std::io::Result<()> {
+        set_xattr(p, label, false)
+    }
+
     fn port_free(&self, ip: &str, port: u16) -> bool {
         std::net::TcpListener::bind(format!("{}:{port}", bracket(ip))).is_ok()
     }
@@ -355,6 +481,64 @@ impl Host for LinuxHost {
         )
     }
 }
+
+/// readConfig: the value of key in /etc/selinux/config, quotes trimmed.
+pub fn selinux_config(b: &[u8], key: &str) -> Option<String> {
+    b.split(|&c| c == b'\n').find_map(|l| {
+        let l = l.trim_ascii();
+        if l.is_empty() || l[0] == b';' || l[0] == b'#' {
+            return None;
+        }
+        let i = l.iter().position(|&c| c == b'=')?;
+        (&l[..i] == key.as_bytes()).then(|| {
+            let v = String::from_utf8_lossy(&l[i + 1..]).into_owned();
+            v.trim_matches('"').to_string()
+        })
+    })
+}
+
+fn path_c(p: &Path) -> std::io::Result<CString> {
+    use std::os::unix::ffi::OsStrExt;
+    CString::new(p.as_os_str().as_bytes()).map_err(std::io::Error::other)
+}
+
+/// lsetxattr (or setxattr) of a label, retried on EINTR.
+fn set_xattr(p: &Path, label: &str, nofollow: bool) -> std::io::Result<()> {
+    let c = path_c(p)?;
+    let name = CString::new(super::selinux::XATTR)?;
+    loop {
+        // SAFETY: valid C strings and a value of its length.
+        let r = unsafe {
+            if nofollow {
+                libc::lsetxattr(
+                    c.as_ptr(),
+                    name.as_ptr(),
+                    label.as_ptr().cast(),
+                    label.len(),
+                    0,
+                )
+            } else {
+                libc::setxattr(
+                    c.as_ptr(),
+                    name.as_ptr(),
+                    label.as_ptr().cast(),
+                    label.len(),
+                    0,
+                )
+            }
+        };
+        if r == 0 {
+            return Ok(());
+        }
+        let e = std::io::Error::last_os_error();
+        if e.raw_os_error() != Some(libc::EINTR) {
+            return Err(e);
+        }
+    }
+}
+
+/// The nsfs file system's magic number.
+const NSFS_MAGIC: i64 = 0x6e73_6673;
 
 fn bracket(ip: &str) -> String {
     if ip.contains(':') {

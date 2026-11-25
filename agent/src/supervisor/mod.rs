@@ -21,13 +21,18 @@ pub mod cni;
 mod conformance;
 pub mod exec;
 pub mod files;
+pub mod history;
 pub mod host;
 pub mod logs;
+pub mod native;
 #[cfg(test)]
 mod parity;
+pub mod selinux;
 pub mod shim;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_rest;
 
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
@@ -74,6 +79,40 @@ const KIND_SYSTEM: &str = "system";
 const KIND_MEMBER: &str = "member";
 /// Bounds the reason a start was given up, kept in a label.
 const MAX_FAILED: usize = 512;
+
+/// The record, in <data dir>/node, that Go's image store was converted
+/// into armada-node's (supervisor.MovedFile), and its newest version.
+const MOVED_FILE: &str = "converted.json";
+const MOVE_STATE_VERSION: i64 = 1;
+
+/// The part of MoveState the status reads.
+#[derive(serde::Deserialize, Default)]
+struct MoveState {
+    #[serde(default)]
+    version: i64,
+    #[serde(default)]
+    skipped: BTreeMap<String, String>,
+    #[serde(default)]
+    collected: bool,
+}
+
+/// ReadMoveState: None when there is no record.
+fn read_move_state(p: &Path) -> Result<Option<MoveState>, String> {
+    let b = match fs::read(p) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(os_err("open", p, &e)),
+        Ok(b) => b,
+    };
+    let st: MoveState = serde_json::from_slice(&b).map_err(|e| format!("{}: {e}", p.display()))?;
+    if st.version > MOVE_STATE_VERSION {
+        return Err(format!(
+            "{}: version {} is newer than {MOVE_STATE_VERSION}",
+            p.display(),
+            st.version
+        ));
+    }
+    Ok(Some(st))
+}
 
 /// Groups Armada's containers in the cgroup v2 hierarchy.
 const CGROUP_PARENT: &str = "/armada";
@@ -146,6 +185,10 @@ struct Inner {
     starts: Mutex<HashMap<String, Arc<Start>>>,
     /// Records a listing left out, logged once while they stay so.
     skipped: Mutex<BTreeMap<String, String>>,
+    /// go-selinux's state: the categories handed out.
+    selinux: selinux::Selinux,
+    /// Sandboxes are made, removed, and listed one at a time.
+    sandboxes: tokio::sync::Mutex<()>,
 }
 
 /// A replica's bring-up in progress.
@@ -300,6 +343,13 @@ fn private_ip(s: &str) -> bool {
     u.is_private() || u.is_loopback() || cgnat
 }
 
+fn labels_of(l: &selinux::Labels) -> armada_node::runtime::Labels {
+    armada_node::runtime::Labels {
+        process: l.process.clone(),
+        mount: l.mount.clone(),
+    }
+}
+
 fn label<'a>(l: &'a BTreeMap<String, String>, k: &str) -> &'a str {
     l.get(k).map(String::as_str).unwrap_or("")
 }
@@ -369,8 +419,9 @@ enum Kind {
         netns: String,
         files: files::ContainerFiles,
         tini: String,
+        selinux: selinux::Labels,
     },
-    System(Box<SystemSpec>),
+    System(Box<SystemSpec>, selinux::Labels),
 }
 
 /// What a replica's containers share (podEnv).
@@ -380,6 +431,7 @@ struct Pod {
     netns: String,
     files: files::ContainerFiles,
     tini: String,
+    selinux: selinux::Labels,
     images: BTreeMap<String, ImageRecord>,
 }
 
@@ -388,6 +440,7 @@ struct Pod {
 struct Undo(Vec<UndoStep>);
 
 enum UndoStep {
+    Label(String),
     Network(String, String, Option<cni::PortMapping>),
     Files(String),
     Container(Record),
@@ -494,6 +547,8 @@ impl Supervisor {
                 apparmor: Mutex::new(false),
                 starts: Mutex::new(HashMap::new()),
                 skipped: Mutex::new(BTreeMap::new()),
+                selinux: selinux::Selinux::new(cfg.host.clone()),
+                sandboxes: tokio::sync::Mutex::new(()),
                 cfg,
             }),
         })
@@ -597,6 +652,176 @@ impl Inner {
             .ok_or_else(|| format!("image {image}: image {name}: not found"))
     }
 
+    /// A container's task as a dial's or reading's target.
+    fn target<'a>(&'a self, id: &'a str, proc: &'a Path) -> native::Target<'a> {
+        native::Target::Container {
+            dir: &self.bundles,
+            shim_dir: &self.shims.dir,
+            id,
+            proc,
+        }
+    }
+
+    fn sandbox_path(&self, id: &str) -> PathBuf {
+        native::sandbox_path(&self.cfg.run_dir, id)
+    }
+
+    fn is_netns(&self, p: &Path) -> bool {
+        self.cfg.host.is_netns(p)
+    }
+
+    /// EnsureSandbox: a network namespace pinned at <run dir>/sandboxes/
+    /// <id>, attached by the plugins as sandbox-<id>; an existing one as
+    /// it is, one half made made again.
+    async fn ensure_sandbox(&self, id: &str) -> Result<crate::side::Sandbox, Error> {
+        native::check_sandbox_id(id)?;
+        let _g = self.sandboxes.lock().await;
+        self.net.ensure().await.map_err(other)?;
+        let (path, cid) = (
+            self.sandbox_path(id),
+            format!("{}{id}", native::SANDBOX_PREFIX),
+        );
+        if self.is_netns(&path)
+            && let Ok(ip) = self.net.address(&cid)
+        {
+            return Ok(crate::side::Sandbox { id: id.into(), ip });
+        }
+        self.teardown_sandbox(id)
+            .await
+            .map_err(|e| other(format!("sandbox network: {e}")))?;
+        let dir = self.cfg.run_dir.join("sandboxes");
+        {
+            use std::os::unix::fs::DirBuilderExt;
+            fs::DirBuilder::new()
+                .recursive(true)
+                .mode(0o700)
+                .create(&dir)
+                .map_err(|e| other(os_err("mkdir", &dir, &e)))?;
+        }
+        let (host, p) = (self.cfg.host.clone(), path.clone());
+        self.blocking(move || host.new_pinned_netns(&p))
+            .await?
+            .map_err(|e| other(format!("sandbox namespace: {e}")))?;
+        let ps = path.display().to_string();
+        match self.net.setup_at(&cid, &ps).await {
+            Ok(ip) => Ok(crate::side::Sandbox { id: id.into(), ip }),
+            Err(e) => {
+                let _ = self.net.teardown(&cid, &ps, None).await;
+                Err(other(format!("sandbox network: {e}")))
+            }
+        }
+    }
+
+    /// teardownSandbox: an unpinned file goes first, then what the plugins
+    /// gave the sandbox and its namespace.
+    async fn teardown_sandbox(&self, id: &str) -> Result<(), String> {
+        let path = self.sandbox_path(id);
+        if !self.is_netns(&path)
+            && let Err(e) = fs::remove_file(&path)
+            && e.kind() != std::io::ErrorKind::NotFound
+        {
+            return Err(os_err("remove", &path, &e));
+        }
+        self.net
+            .teardown(
+                &format!("{}{id}", native::SANDBOX_PREFIX),
+                &path.display().to_string(),
+                None,
+            )
+            .await
+    }
+
+    async fn remove_sandbox(&self, id: &str) -> Result<(), Error> {
+        native::check_sandbox_id(id)?;
+        let _g = self.sandboxes.lock().await;
+        self.teardown_sandbox(id)
+            .await
+            .map_err(|e| other(format!("sandbox network: {e}")))
+    }
+
+    /// ListSandboxes: every pinned one with its address; one whose
+    /// address is unknown without.
+    async fn list_sandboxes(&self) -> Result<Vec<crate::side::Sandbox>, Error> {
+        let _g = self.sandboxes.lock().await;
+        let dir = self.cfg.run_dir.join("sandboxes");
+        let rd = match fs::read_dir(&dir) {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(e) => return Err(other(os_err("open", &dir, &e))),
+            Ok(r) => r,
+        };
+        let mut out = Vec::new();
+        for e in rd.flatten() {
+            let id = e.file_name().to_string_lossy().into_owned();
+            if !crate::side::sandbox::check_sandbox_id(&id) {
+                continue;
+            }
+            let mut s = crate::side::Sandbox {
+                id: id.clone(),
+                ip: String::new(),
+            };
+            if self.is_netns(&self.sandbox_path(&id)) {
+                s.ip = self
+                    .net
+                    .address(&format!("{}{id}", native::SANDBOX_PREFIX))
+                    .unwrap_or_default();
+            }
+            out.push(s);
+        }
+        out.sort_by(|a, b| a.id.cmp(&b.id));
+        Ok(out)
+    }
+
+    /// Go's image store (<data dir>/supervisor/images), which the Go
+    /// agent opens when it exists.
+    fn go_images(&self) -> PathBuf {
+        self.cfg.data_dir.join("supervisor").join("images")
+    }
+
+    /// The record of the move of Go's image store (MovedFile).
+    fn moved_file(&self) -> PathBuf {
+        self.cfg.data_dir.join("node").join(MOVED_FILE)
+    }
+
+    /// Go's store when it is there and the Go agent never converted it
+    /// (no record): its images and the root filesystems of its containers
+    /// are not in armada-node's store.
+    fn go_store_unconverted(&self) -> Option<PathBuf> {
+        let g = self.go_images();
+        (g.exists() && !self.moved_file().exists()).then_some(g)
+    }
+
+    /// Store.MoveStatus as Driver.RuntimeAgent reports it: Go's store
+    /// left, the conversion recorded, and the images it left out that no
+    /// replica pulled again yet.
+    fn move_status(&self) -> AgentStatus {
+        let go_images = self.go_images().exists();
+        let mut st = AgentStatus {
+            agent: runtime::AGENT_SUPERVISOR_RUST.into(),
+            go_images,
+            ..Default::default()
+        };
+        let read = read_move_state(&self.moved_file());
+        st.converted = matches!(read, Ok(Some(_))) || (!go_images && read.is_ok());
+        if let Ok(Some(m)) = read
+            && !m.collected
+            && !m.skipped.is_empty()
+            && let Ok(idx) = self.store().and_then(|s| s.index())
+        {
+            st.images_to_pull = m
+                .skipped
+                .keys()
+                .filter(|n| !idx.images.contains_key(*n))
+                .count() as i64;
+        }
+        st
+    }
+
+    /// The pack's armada-log, None when it has none (packLogger).
+    fn pack_logger(&self) -> Option<PathBuf> {
+        let p = self.bin.join("armada-log");
+        fs::metadata(&p).is_ok_and(|m| m.is_file()).then_some(p)
+    }
+
     fn tini(&self) -> Result<String, String> {
         let p = self.bin.join("tini");
         fs::canonicalize(&p)
@@ -650,7 +875,9 @@ impl Inner {
                 netns,
                 files,
                 tini,
+                selinux,
             } => {
+                r.selinux = labels_of(selinux);
                 r.spec = node_spec(spec);
                 r.member = member.as_ref().map(|m| {
                     node_spec(&ContainerSpec {
@@ -669,7 +896,8 @@ impl Inner {
                 r.tini = tini.clone();
                 r.apparmor = self.apparmor()?.unwrap_or_default().to_string();
             }
-            Kind::System(s) => {
+            Kind::System(s, selinux) => {
+                r.selinux = labels_of(selinux);
                 r.system = Some(armada_node::runtime::SystemSpec {
                     name: s.name.clone(),
                     image: s.image.clone(),
@@ -761,6 +989,74 @@ impl Inner {
         bundle::remove_with(&self.bundles.display().to_string(), id, &|t: &Path| {
             host.unmount_all(t)
         })
+    }
+
+    /// newLabels: fresh SELinux labels for a container, empty where
+    /// containers are not confined. The first call reserves the
+    /// categories of the containers that exist, which an agent adopts
+    /// after a restart.
+    async fn new_labels(self: &Arc<Self>) -> Result<selinux::Labels, String> {
+        let me = self.clone();
+        let state = self
+            .blocking(move || me.selinux.state())
+            .await
+            .map_err(|e| e.to_string())?;
+        if state != selinux::State::Confined {
+            return Ok(selinux::Labels::default());
+        }
+        let mut reserved = self.selinux.reserved.lock().await;
+        if !*reserved {
+            let recs = self
+                .records()
+                .await
+                .map_err(|e| format!("list containers: {e}"))?;
+            for r in recs {
+                if let Ok(b) = fs::read(self.bundle_dir(&r.id).join("config.json")) {
+                    self.selinux.reserve(&selinux::process_label(&b));
+                }
+            }
+            *reserved = true;
+        }
+        drop(reserved);
+        let me = self.clone();
+        self.blocking(move || me.selinux.new_labels())
+            .await
+            .map_err(|e| e.to_string())
+    }
+
+    /// The files an app container gets relabelled for it: its container
+    /// files, its file mounts, and its volumes (each start: a new
+    /// container gets new categories; shared ones keep a label every
+    /// container may use), and tini, which every container may read.
+    async fn label_files(
+        self: &Arc<Self>,
+        id: &str,
+        s: &ContainerSpec,
+        tini: &str,
+        sl: &selinux::Labels,
+    ) -> Result<(), String> {
+        if sl.mount.is_empty() {
+            return Ok(());
+        }
+        let me = self.clone();
+        let (id, s, tini, sl) = (id.to_string(), s.clone(), tini.to_string(), sl.clone());
+        self.blocking(move || {
+            let se = &me.selinux;
+            se.relabel(&me.containers().join(&id), &sl)
+                .map_err(|e| format!("label container files: {e}"))?;
+            for f in &s.files {
+                se.relabel(Path::new(&f.source), &sl)
+                    .map_err(|e| format!("label {}: {e}", f.target))?;
+            }
+            for v in s.volumes.iter().filter(|v| !v.shared) {
+                se.relabel(Path::new(&v.source), &sl)
+                    .map_err(|e| format!("label volume {}: {e}", v.target))?;
+            }
+            se.relabel_shared(Path::new(&tini), &sl)
+                .map_err(|e| format!("label tini: {e}"))
+        })
+        .await
+        .map_err(|e| e.to_string())?
     }
 
     /// container.Delete: the bundle, then the root filesystem.
@@ -898,6 +1194,7 @@ impl Inner {
                 UndoStep::Container(rec) => {
                     let _ = self.delete_container(&rec.id).await;
                 }
+                UndoStep::Label(p) => self.selinux.release(&p),
                 UndoStep::Files(id) => {
                     let _ = fs::remove_dir_all(self.containers().join(id));
                 }
@@ -980,8 +1277,10 @@ impl Inner {
             None
         };
         let mut undo = Undo::default();
+        let sl = self.new_labels().await?;
+        undo.0.push(UndoStep::Label(sl.process.clone()));
         let res = self
-            .run_locked(s, &id, &img, images, tini, &mut ports, &mut undo)
+            .run_locked(s, &id, &img, images, tini, sl, &mut ports, &mut undo)
             .await;
         if res.is_err() {
             self.undo(undo).await;
@@ -997,6 +1296,7 @@ impl Inner {
         img: &ImageRecord,
         images: BTreeMap<String, ImageRecord>,
         tini: String,
+        sl: selinux::Labels,
         ports: &mut Option<tokio::sync::MutexGuard<'_, ()>>,
         undo: &mut Undo,
     ) -> Result<String, String> {
@@ -1043,12 +1343,14 @@ impl Inner {
             &host_resolv,
         )?;
         undo.0.push(UndoStep::Files(id.into()));
+        self.label_files(id, s, &tini, &sl).await?;
         let kind = Kind::App {
             spec: Box::new(s.clone()),
             member: None,
             netns: netns.clone(),
             files: files.clone(),
             tini: tini.clone(),
+            selinux: sl.clone(),
         };
         if !s.init.is_empty() || !s.sidecars.is_empty() {
             let pod = Pod {
@@ -1056,6 +1358,7 @@ impl Inner {
                 netns,
                 files,
                 tini,
+                selinux: sl,
                 images,
             };
             return self.run_pod(id, img, labels, &kind, pod, undo, ports).await;
@@ -1207,6 +1510,7 @@ impl Inner {
             netns: pod.netns.clone(),
             files: pod.files.clone(),
             tini: pod.tini.clone(),
+            selinux: pod.selinux.clone(),
         };
         let mut undo = Undo::default();
         let res = async {
@@ -1488,7 +1792,13 @@ impl Inner {
                 .await
                 .map_err(|e| other(format!("container network: {e}")))?;
         }
+        let spec = fs::read(self.bundle_dir(id).join("config.json")).unwrap_or_default();
         self.delete_container(id).await.map_err(other)?;
+        // An init container or sidecar has its replica's label, which the
+        // replica's container gives back.
+        if label(&rec.labels, LABEL_KIND) != KIND_MEMBER {
+            self.selinux.release(&selinux::process_label(&spec));
+        }
         let mut errs = Vec::new();
         match fs::remove_dir_all(self.containers().join(id)) {
             Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
@@ -1632,6 +1942,41 @@ impl Inner {
             .map_err(other)
     }
 
+    /// Where an exec of rec keeps process.json and its pid file:
+    /// exec-<container ID>-exec-<12 hex> beside the shim's runc root.
+    fn exec_dir(&self, rec: &Record) -> PathBuf {
+        self.shims
+            .dir
+            .join(armada_node::runtime::container::shim::shim_name(&rec.group))
+            .join(format!("exec-{}-exec-{}", rec.id, random_hex(6)))
+    }
+
+    /// ExecApp's session: the container loaded, never a system one, its
+    /// task running, then armada-node runs the whole session.
+    async fn exec_session(&self, id: &str, opts: crate::side::ExecOptions) -> Result<i64, Error> {
+        check_exec_command(&opts.cmd).map_err(other)?;
+        let rec = self.load(id).await?;
+        if !label(&rec.labels, LABEL_SYSTEM).is_empty() {
+            return Err(other(format!("container {id} is a system container")));
+        }
+        if self.task(&rec).await.map_err(other)?.is_none() {
+            return Err(Error::NotFound);
+        }
+        let req = exec::SessionRequest {
+            bundle: self.bundle_dir(&rec.id).display().to_string(),
+            dir: self.exec_dir(&rec).display().to_string(),
+            root: self.shims.root(&rec.group).display().to_string(),
+            runc: self.shims.runc.clone(),
+            id: rec.id.clone(),
+            args: opts.cmd.clone(),
+            tty: opts.tty,
+            size: opts.size,
+        };
+        exec::session(&self.bin.join("armada-node"), req, opts)
+            .await
+            .map_err(other)
+    }
+
     /// A command in a running container through armada-node runtime exec.
     async fn exec(
         &self,
@@ -1643,11 +1988,7 @@ impl Inner {
         if self.task(rec).await.map_err(other)?.is_none() {
             return Err(Error::NotFound);
         }
-        let dir = self
-            .shims
-            .dir
-            .join(armada_node::runtime::container::shim::shim_name(&rec.group))
-            .join(format!("exec-{}-exec-{}", rec.id, random_hex(6)));
+        let dir = self.exec_dir(rec);
         let node = self.bin.join("armada-node");
         let (bundle, dir, root, runc, id, args) = (
             self.bundle_dir(&rec.id).display().to_string(),
@@ -1691,15 +2032,29 @@ impl Inner {
         labels.insert(LABEL_KIND.into(), KIND_SYSTEM.into());
         labels.insert(LABEL_NAME.into(), s.name.clone());
         let mut undo = Undo::default();
-        let res = self
-            .create(
+        let res = async {
+            let sl = self.new_labels().await.map_err(|e| e.to_string())?;
+            undo.0.push(UndoStep::Label(sl.process.clone()));
+            // The mounted directories belong to this container; the host
+            // files keep their labels.
+            for m in &s.mounts {
+                let (src, sel) = (PathBuf::from(&m.source), sl.clone());
+                let me = self.clone();
+                self.blocking(move || me.selinux.relabel(&src, &sel))
+                    .await
+                    .map_err(|e| e.to_string())?
+                    .map_err(|e| format!("label {}: {e}", m.source))?;
+            }
+            self.create(
                 &id,
                 &img,
                 &labels,
-                &Kind::System(Box::new(s.clone())),
+                &Kind::System(Box::new(s.clone()), sl),
                 &mut undo,
             )
-            .await;
+            .await
+        }
+        .await;
         if res.is_err() {
             self.undo(undo).await;
         }
@@ -1747,10 +2102,19 @@ impl Runtime for Supervisor {
                 )));
             }
         }
-        if i.cfg.host.selinux_enabled() {
-            return Err(other(
-                "container runtime: SELinux is on, and this agent does not label containers yet: run the Go agent on this machine",
-            ));
+        let unconverted = {
+            let i = i.clone();
+            i.blocking({
+                let i = i.clone();
+                move || i.go_store_unconverted()
+            })
+            .await?
+        };
+        if let Some(dir) = unconverted {
+            return Err(other(format!(
+                "container runtime: Go's image store in {} was not converted into armada-node's, which this agent does not do: start the Go agent on this machine once (it converts the store at its start)",
+                dir.display()
+            )));
         }
         i.net.ensure().await.map_err(other)
     }
@@ -1815,6 +2179,168 @@ impl Runtime for Supervisor {
         true
     }
 
+    async fn exec_session(&self, id: &str, opts: crate::side::ExecOptions) -> runtime::Result<i64> {
+        self.inner.exec_session(id, opts).await
+    }
+
+    fn has_log_history(&self) -> bool {
+        true
+    }
+
+    fn can_dial(&self) -> bool {
+        true
+    }
+
+    fn can_sandbox(&self) -> bool {
+        true
+    }
+
+    async fn dial_container(
+        &self,
+        id: &str,
+        network: &str,
+        address: &str,
+    ) -> runtime::Result<std::os::fd::OwnedFd> {
+        let i = &self.inner;
+        let proc = i.proc_root();
+        native::dial(
+            &i.bin.join("armada-node"),
+            i.target(id, &proc),
+            network,
+            address,
+        )
+        .await
+    }
+
+    async fn read_queue(
+        &self,
+        container: &str,
+        q: &crate::side::QueueRead,
+    ) -> runtime::Result<i64> {
+        let i = &self.inner;
+        let proc = i.proc_root();
+        native::read_queue(
+            &i.bin.join("armada-node"),
+            i.target(container, &proc),
+            q,
+            crate::side::queue::QUEUE_TIMEOUT,
+        )
+        .await
+    }
+
+    async fn ensure_sandbox(&self, id: &str) -> runtime::Result<crate::side::Sandbox> {
+        self.inner.ensure_sandbox(id).await
+    }
+
+    async fn remove_sandbox(&self, id: &str) -> runtime::Result<()> {
+        self.inner.remove_sandbox(id).await
+    }
+
+    async fn list_sandboxes(&self) -> runtime::Result<Vec<crate::side::Sandbox>> {
+        self.inner.list_sandboxes().await
+    }
+
+    async fn dial_sandbox(
+        &self,
+        id: &str,
+        network: &str,
+        address: &str,
+    ) -> runtime::Result<std::os::fd::OwnedFd> {
+        native::check_sandbox_id(id)?;
+        native::check_dial(network, address).map_err(other)?;
+        let i = &self.inner;
+        let path = i.sandbox_path(id);
+        if !i.is_netns(&path) {
+            return Err(other(format!("sandbox {id}: not found")));
+        }
+        native::dial(
+            &i.bin.join("armada-node"),
+            native::Target::Netns(&path),
+            network,
+            address,
+        )
+        .await
+    }
+
+    async fn read_sandbox_queue(
+        &self,
+        id: &str,
+        q: &crate::side::QueueRead,
+    ) -> runtime::Result<i64> {
+        let i = &self.inner;
+        let path = i.sandbox_path(id);
+        if !crate::side::sandbox::check_sandbox_id(id) || !i.is_netns(&path) {
+            return Err(other(crate::side::queue::ERR_DIAL));
+        }
+        native::read_queue(
+            &i.bin.join("armada-node"),
+            native::Target::Netns(&path),
+            q,
+            crate::side::queue::QUEUE_TIMEOUT,
+        )
+        .await
+    }
+
+    fn tails_logs(&self) -> bool {
+        true
+    }
+
+    fn prunes_logs(&self) -> bool {
+        true
+    }
+
+    fn encodes_logs(&self) -> bool {
+        true
+    }
+
+    async fn logs(
+        &self,
+        id: &str,
+        opts: &crate::side::LogOptions,
+    ) -> runtime::Result<crate::side::LogFrames> {
+        history::read_logs(&self.inner.logs(), id, opts)
+    }
+
+    async fn search_logs(
+        &self,
+        q: &crate::side::LogQuery,
+    ) -> runtime::Result<(Vec<crate::side::LogRecord>, String)> {
+        let i = &self.inner;
+        history::search_logs(
+            &i.logs(),
+            i.pack_logger(),
+            q,
+            crate::side::logs::SEARCH_TIMEOUT,
+        )
+        .await
+    }
+
+    async fn prune_logs(&self, retention: Duration, max_bytes: i64) -> runtime::Result<()> {
+        let dir = self.inner.logs();
+        self.inner
+            .blocking(move || history::prune_logs(&dir, retention, max_bytes, SystemTime::now()))
+            .await?
+            .map_err(other)
+    }
+
+    async fn tail_logs(
+        &self,
+        target: &str,
+        max_bytes: i64,
+        enc: Option<&crate::side::LogEncoding>,
+    ) -> runtime::Result<crate::side::LogTail> {
+        let i = &self.inner;
+        history::tail_logs(
+            &i.logs(),
+            i.pack_logger(),
+            target,
+            max_bytes,
+            SystemTime::now(),
+            enc,
+        )
+        .await
+    }
+
     async fn stats(&self, id: &str) -> runtime::Result<Stats> {
         self.inner
             .stats_batch(&[id.to_string()])
@@ -1843,14 +2369,13 @@ impl Runtime for Supervisor {
     }
 
     async fn runtime_agent(&self) -> Option<AgentStatus> {
-        let d = &self.inner.cfg.data_dir;
-        Some(AgentStatus {
-            agent: runtime::AGENT_SUPERVISOR_RUST.into(),
-            go_images: d.join("supervisor").join("images").exists(),
-            converted: d.join("node").join("converted.json").exists(),
-            images_to_pull: 0,
-            error: String::new(),
+        let i = self.inner.clone();
+        i.blocking({
+            let i = i.clone();
+            move || i.move_status()
         })
+        .await
+        .ok()
     }
 }
 
