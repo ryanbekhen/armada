@@ -12,7 +12,7 @@ LDFLAGS := -s -w \
 
 export CGO_ENABLED := 0
 
-.PHONY: all build build-bundle logger shim dns node node-test-hooks pki-parity store-parity server-parity client-parity agent-parity rust-check runtime-bundle test cover lint fmt vet vuln licenses licenses-save proto docs tidy check clean
+.PHONY: all build build-bundle logger shim dns node node-test-hooks pki-parity store-parity server-parity client-parity agent-parity rust-check runtime-bundle test cover lint fmt vet vuln licenses licenses-save proto docs docs-rust tidy check clean
 
 all: check build
 
@@ -141,6 +141,11 @@ vuln:
 
 docs: ## regenerate the command line reference in docs/cli
 	go test ./internal/clidoc -run TestReferenceIsCurrent -update -count=1
+
+# armada's pages of docs/cli written from the Rust client (ADR 0055); `cargo
+# test -p armada-client --test clidoc` checks they equal Go's.
+docs-rust:
+	ARMADA_CLIDOC_UPDATE=1 cargo test --locked -p armada-client --test clidoc
 
 # Go's code next to the protos, then armada-proto's (proto/src/gen, ADR
 # 0055) with the generators proto/gen pins (its own Cargo.lock): Armada's

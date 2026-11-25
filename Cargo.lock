@@ -42,6 +42,7 @@ name = "armada-client"
 version = "0.1.0"
 dependencies = [
  "armada-fsutil",
+ "armada-pki",
  "armada-proto",
  "armada-spec",
  "hyper-util",
@@ -52,6 +53,7 @@ dependencies = [
  "serde_json",
  "tokio",
  "tokio-rustls",
+ "tokio-stream",
  "tonic",
  "tower",
 ]

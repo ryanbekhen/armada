@@ -4,6 +4,7 @@
 //! help (`writeHelp`), suggestions, nouns that refuse unknown verbs, the
 //! `help` command, and the hidden `completion` and `__complete` commands.
 
+pub mod clidoc;
 pub mod complete;
 pub mod flags;
 pub mod tabwriter;
@@ -49,6 +50,8 @@ pub enum Args {
     Exact(usize),
     Min(usize),
     Max(usize),
+    /// cobra.RangeArgs.
+    Range(usize, usize),
     Custom(fn(&Ctx<'_>, &[String]) -> std::result::Result<(), ArgError>),
 }
 
@@ -523,7 +526,7 @@ impl<'a> Ctx<'a> {
 
     pub fn strs(&self, name: &str) -> Vec<String> {
         match self.flags.lookup(name).map(|f| &f.value) {
-            Some(Value::StrArray(v)) => v.clone(),
+            Some(Value::StrArray(v) | Value::StrSlice(v)) => v.clone(),
             _ => Vec::new(),
         }
     }
@@ -546,6 +549,12 @@ impl<'a> Ctx<'a> {
     /// worker on it).
     pub fn runtime(&self) -> &tokio::runtime::Runtime {
         &self.rt
+    }
+
+    /// The runtime with the command's stdin and stdout, for a call that
+    /// streams one while the runtime runs it.
+    pub fn split(&mut self) -> (&tokio::runtime::Runtime, &mut dyn Read, &mut dyn Write) {
+        (&self.rt, &mut *self.stdin, &mut *self.out)
     }
 
     /// Writes to stdout, ignoring errors as Go's commands mostly do.
@@ -591,6 +600,9 @@ fn check_args(ctx: &Ctx<'_>, args: &[String]) -> std::result::Result<(), ArgErro
         Args::Max(k) if len > k => Err(ArgError::Cobra(format!(
             "accepts at most {k} arg(s), received {len}"
         ))),
+        Args::Range(a, b) if len < a || len > b => Err(ArgError::Cobra(format!(
+            "accepts between {a} and {b} arg(s), received {len}"
+        ))),
         Args::Custom(f) => f(ctx, args),
         _ => Ok(()),
     }
@@ -629,7 +641,7 @@ fn is_arg_word(f: &str) -> bool {
 }
 
 /// argError: which arguments are missing, or how many are too many.
-fn arg_error(tree: &Tree, i: usize, args: &[String]) -> String {
+pub fn arg_error(tree: &Tree, i: usize, args: &[String]) -> String {
     let words = arg_words(tree.node(i));
     let mut required = Vec::new();
     let mut variadic = false;
@@ -888,9 +900,15 @@ pub(crate) fn globals_from(fs: &FlagSet) -> Globals {
         Some(Value::Str(v)) => v.clone(),
         _ => String::new(),
     };
+    // A command's own --space of another kind (alert's list of spaces)
+    // hides the root's, which keeps its default.
+    let space = match fs.lookup("space").map(|f| &f.value) {
+        Some(Value::Str(v)) => v.clone(),
+        _ => std::env::var("ARMADA_SPACE").unwrap_or_default(),
+    };
     Globals {
         config_path: s("config"),
-        space: s("space"),
+        space,
         all_spaces: matches!(
             fs.lookup("all-spaces").map(|f| &f.value),
             Some(Value::Bool(true))

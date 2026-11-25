@@ -5,8 +5,10 @@
 //! complete.go, ADR 0052).
 
 use armada_proto::armada::v1::{
-    ListAppsRequest, ListJobRunsRequest, ListJobsRequest, ListRevisionsRequest, ListSecretsRequest,
-    ListSpaceSecretsRequest, ListSpacesRequest,
+    ListAlertChannelsRequest, ListAppsRequest, ListDomainsRequest, ListJobRunsRequest,
+    ListJobsRequest, ListMetricsCredentialsRequest, ListPrincipalsRequest, ListRevisionsRequest,
+    ListRolesRequest, ListSecretsRequest, ListSpaceSecretsRequest, ListSpacesRequest,
+    ListVolumesRequest, ReplicaStatus, StatusRequest,
 };
 use armada_spec as spec;
 
@@ -157,8 +159,16 @@ enum Kind {
     RevisionIds,
     Weights,
     Spaces,
-    /// A kind of 17b's commands (nodes, roles, users, ...): nothing yet.
-    Later,
+    Replicas,
+    Containers,
+    Volumes,
+    Nodes,
+    Roles,
+    Users,
+    Services,
+    Alerts,
+    Metrics,
+    Domains,
 }
 
 /// placeholderKind.
@@ -174,11 +184,17 @@ fn placeholder_kind(noun: &str, verb: &str, word: &str) -> Option<Kind> {
         "REVISION" => Kind::Revisions,
         "REVISION=WEIGHT" => Kind::Weights,
         "SPACE" => Kind::Spaces,
-        "NODE" | "ROLE" | "VOLUME" | "DOMAIN" => Kind::Later,
+        "NODE" => Kind::Nodes,
+        "ROLE" => Kind::Roles,
+        "VOLUME" => Kind::Volumes,
+        "DOMAIN" => Kind::Domains,
         "NAME" if verb == "create" => return None,
         "NAME" => match noun {
             "space" => Kind::Spaces,
-            "user" | "service" | "alert" | "metrics" => Kind::Later,
+            "user" => Kind::Users,
+            "service" => Kind::Services,
+            "alert" => Kind::Alerts,
+            "metrics" => Kind::Metrics,
             _ => return None,
         },
         _ => return None,
@@ -214,8 +230,12 @@ fn flag_kind(tree: &Tree, i: usize, flag: &Flag) -> Option<Kind> {
     let parent = tree.node(i).parent.map(|p| tree.node(p).name());
     match flag.name.as_str() {
         "space" => Some(Kind::Spaces),
-        "node" | "role" | "user" | "service" => Some(Kind::Later),
-        "replica" | "container" if parent == Some("app") => Some(Kind::Later),
+        "node" => Some(Kind::Nodes),
+        "role" => Some(Kind::Roles),
+        "user" => Some(Kind::Users),
+        "service" => Some(Kind::Services),
+        "replica" if parent == Some("app") => Some(Kind::Replicas),
+        "container" if parent == Some("app") => Some(Kind::Containers),
         "to" if parent == Some("app") => Some(Kind::Revisions),
         "run" if parent == Some("job") => Some(Kind::Runs),
         _ => None,
@@ -384,7 +404,7 @@ fn completions(ctx: &mut Ctx<'_>, args: &[String]) -> (Vec<String>, i32, Option<
         comps = required(&to_complete);
         if comps.is_empty() {
             for f in &ordered {
-                let multiple = matches!(f.value, Value::StrArray(_));
+                let multiple = matches!(f.value, Value::StrArray(_) | Value::StrSlice(_));
                 if !f.changed || multiple {
                     comps.extend(name_completions(f, &to_complete));
                 }
@@ -777,6 +797,130 @@ async fn names(g: G, admin: &mut Admin, kind: Kind, args: &[String]) -> Vec<Stri
             };
             resp.spaces.into_iter().map(|s| s.name).collect()
         }
-        Kind::Later => Vec::new(),
+        Kind::Replicas => replicas(&g, admin, args)
+            .await
+            .iter()
+            .map(|r| crate::commands::replica::short_replica(&r.id).to_string())
+            .collect(),
+        Kind::Containers => {
+            let mut out = Vec::new();
+            for r in replicas(&g, admin, args).await {
+                out.extend(r.containers);
+                out.extend(r.init_containers);
+            }
+            out
+        }
+        Kind::Volumes => {
+            let Some(a) = args.first() else {
+                return Vec::new();
+            };
+            let req = ListVolumesRequest { app: g.id(a) };
+            let Ok(resp) = admin
+                .call(|mut c| async move { c.list_volumes(req).await })
+                .await
+            else {
+                return Vec::new();
+            };
+            resp.volumes.into_iter().map(|v| v.name).collect()
+        }
+        Kind::Nodes => {
+            let req = StatusRequest {
+                nodes_only: true,
+                ..Default::default()
+            };
+            let Ok(resp) = admin.call(|mut c| async move { c.status(req).await }).await else {
+                return Vec::new();
+            };
+            resp.nodes.into_iter().map(|n| n.id).collect()
+        }
+        Kind::Roles => {
+            let Ok(resp) = admin
+                .call(|mut c| async move { c.list_roles(ListRolesRequest::default()).await })
+                .await
+            else {
+                return Vec::new();
+            };
+            resp.roles.into_iter().map(|r| r.name).collect()
+        }
+        Kind::Users | Kind::Services => {
+            let kind = if kind == Kind::Users {
+                "user"
+            } else {
+                "service"
+            };
+            let req = ListPrincipalsRequest {
+                kind: kind.to_string(),
+            };
+            let Ok(resp) = admin
+                .call(|mut c| async move { c.list_principals(req).await })
+                .await
+            else {
+                return Vec::new();
+            };
+            resp.principals
+                .into_iter()
+                .filter(|p| !p.removed)
+                .map(|p| p.name)
+                .collect()
+        }
+        Kind::Alerts => {
+            let Ok(resp) = admin
+                .call(|mut c| async move {
+                    c.list_alert_channels(ListAlertChannelsRequest::default())
+                        .await
+                })
+                .await
+            else {
+                return Vec::new();
+            };
+            resp.channels.into_iter().map(|a| a.name).collect()
+        }
+        Kind::Metrics => {
+            let Ok(resp) = admin
+                .call(|mut c| async move {
+                    c.list_metrics_credentials(ListMetricsCredentialsRequest::default())
+                        .await
+                })
+                .await
+            else {
+                return Vec::new();
+            };
+            resp.credentials.into_iter().map(|m| m.name).collect()
+        }
+        Kind::Domains => {
+            let Ok(resp) = admin
+                .call(|mut c| async move { c.list_domains(ListDomainsRequest::default()).await })
+                .await
+            else {
+                return Vec::new();
+            };
+            resp.domains.into_iter().map(|d| d.name).collect()
+        }
     }
+}
+
+/// replicas: the replicas of the app in args[0].
+async fn replicas(g: &G, admin: &mut Admin, args: &[String]) -> Vec<ReplicaStatus> {
+    let Some(a) = args.first() else {
+        return Vec::new();
+    };
+    let id = g.id(a);
+    if id.is_empty() {
+        return Vec::new();
+    }
+    let req = StatusRequest {
+        app: id,
+        ..Default::default()
+    };
+    let Ok(resp) = admin.call(|mut c| async move { c.status(req).await }).await else {
+        return Vec::new();
+    };
+    if resp.apps.len() != 1 {
+        return Vec::new();
+    }
+    resp.apps
+        .into_iter()
+        .next()
+        .map(|a| a.replicas)
+        .unwrap_or_default()
 }

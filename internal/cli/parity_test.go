@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"crypto/x509"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -52,19 +54,19 @@ import (
 // Rust client has (examples.go and each command's Example), and every such
 // command's help.
 
-// parityNouns are the nouns the Rust client has (ADR 0055, pull request
-// 17a); the verbs of laterVerbs come with the other nouns in 17b.
-var (
-	parityNouns = []string{"app", "revision", "replica", "job", "run", "secret", "space", "version", "completion", "help"}
-	laterVerbs  = []string{"armada app logs", "armada app exec", "armada app top", "armada app events", "armada job logs"}
-)
-
-// answer is a scripted reply to one call.
+// answer is a scripted reply to one call. A streaming call sends stream
+// in order, then ends with code and text (a client stream answers msg); a
+// nil entry of an Exec stream waits until the client closes its input.
 type answer struct {
 	msg     proto.Message
 	code    codes.Code
 	text    string
 	servers string // the armada-servers header
+	stream  []proto.Message
+}
+
+func streamAnswer(code codes.Code, text string, msgs ...proto.Message) []answer {
+	return []answer{{stream: msgs, code: code, text: text}}
 }
 
 func okAnswer(m proto.Message) []answer { return []answer{{msg: m}} }
@@ -112,6 +114,124 @@ func (f *scriptedAdmin) unary(ctx context.Context, req any, info *grpc.UnaryServ
 	return a.msg, nil
 }
 
+// next takes the next answer for method, recording the request.
+func (f *scriptedAdmin) next(method, req string) (answer, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, call{method, req})
+	as := f.script[method]
+	if len(as) == 0 {
+		return answer{}, false
+	}
+	a := as[0]
+	if len(as) > 1 {
+		f.script[method] = as[1:]
+	}
+	return a, true
+}
+
+func (f *scriptedAdmin) record(method, req string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, call{method, req})
+}
+
+// streamed answers the streaming methods: Logs, Events, and BackupVolume
+// send their scripted messages; RestoreVolume records the archive (its
+// bytes in one, however the client cut them); Exec records the start and
+// the input (stdin in one) and sends its messages.
+func (f *scriptedAdmin) streamed(_ any, ss grpc.ServerStream, info *grpc.StreamServerInfo, _ grpc.StreamHandler) error {
+	method := path.Base(info.FullMethod)
+	marshal := func(m proto.Message) string {
+		b, _ := protojson.MarshalOptions{}.Marshal(m)
+		return string(b)
+	}
+	var a answer
+	var ok bool
+	switch method {
+	case "Logs", "Events", "BackupVolume":
+		req := map[string]proto.Message{"Logs": &armadav1.LogsRequest{}, "Events": &armadav1.EventsRequest{}, "BackupVolume": &armadav1.BackupVolumeRequest{}}[method]
+		if err := ss.RecvMsg(req); err != nil {
+			return err
+		}
+		a, ok = f.next(method, marshal(req))
+	case "RestoreVolume":
+		var start string
+		var data []byte
+		for {
+			m := &armadav1.RestoreVolumeMessage{}
+			if err := ss.RecvMsg(m); errors.Is(err, io.EOF) {
+				break
+			} else if err != nil {
+				return err
+			}
+			if st := m.GetStart(); st != nil {
+				start = marshal(st)
+			}
+			data = append(data, m.GetData()...)
+		}
+		a, ok = f.next(method, fmt.Sprintf("%s %q", start, data))
+		if ok && a.code == codes.OK {
+			return ss.SendMsg(a.msg)
+		}
+	case "Exec":
+		m := &armadav1.ExecClientMessage{}
+		if err := ss.RecvMsg(m); err != nil {
+			return err
+		}
+		a, ok = f.next(method, marshal(m))
+		if !ok {
+			break
+		}
+		for _, out := range a.stream {
+			if out != nil {
+				if err := ss.SendMsg(out); err != nil {
+					return err
+				}
+				continue
+			}
+			var stdin []byte
+			var rest []string
+			for {
+				in := &armadav1.ExecClientMessage{}
+				if err := ss.RecvMsg(in); err != nil {
+					rest = append(rest, "end")
+					break
+				}
+				if b := in.GetInput().GetStdin(); b != nil {
+					stdin = append(stdin, b...)
+					continue
+				}
+				if in.GetInput().GetCloseStdin() {
+					rest = append(rest, "close")
+					break
+				}
+				rest = append(rest, marshal(in))
+			}
+			f.record("ExecInput", fmt.Sprintf("%q %v", stdin, rest))
+		}
+		if a.code != codes.OK {
+			return status.Error(a.code, a.text)
+		}
+		return nil
+	default:
+		f.record(method, "")
+		return status.Errorf(codes.Unimplemented, "no answer scripted for %s", method)
+	}
+	if !ok {
+		return status.Errorf(codes.Unimplemented, "no answer scripted for %s", method)
+	}
+	for _, out := range a.stream {
+		if err := ss.SendMsg(out); err != nil {
+			return err
+		}
+	}
+	if a.code != codes.OK {
+		return status.Error(a.code, a.text)
+	}
+	return nil
+}
+
 // parityCase is one command line run by both clients.
 type parityCase struct {
 	name    string
@@ -132,6 +252,7 @@ type parityResult struct {
 	Stdout, Stderr string
 	Calls          []call
 	Config         string
+	Files          []string
 }
 
 type harness struct {
@@ -166,7 +287,7 @@ func newHarness(t *testing.T) *harness {
 		t.Fatal(err)
 	}
 	f := &scriptedAdmin{}
-	s := grpc.NewServer(grpc.Creds(credentials.NewTLS(tlsCfg)), grpc.UnaryInterceptor(f.unary))
+	s := grpc.NewServer(grpc.Creds(credentials.NewTLS(tlsCfg)), grpc.UnaryInterceptor(f.unary), grpc.StreamInterceptor(f.streamed))
 	armadav1.RegisterAdminServiceServer(s, armadav1.UnimplementedAdminServiceServer{})
 	go func() { _ = s.Serve(lis) }()
 	t.Cleanup(s.Stop)
@@ -223,7 +344,10 @@ func (h *harness) configPath(dir string) string {
 // prepare writes the case's files and config afresh.
 func (h *harness) prepare(t *testing.T, dir string, c parityCase) {
 	t.Helper()
-	_ = os.RemoveAll(filepath.Join(dir, "home"))
+	entries, _ := os.ReadDir(dir)
+	for _, e := range entries {
+		_ = os.RemoveAll(filepath.Join(dir, e.Name()))
+	}
 	if err := os.MkdirAll(filepath.Join(dir, "home", ".armada"), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -257,14 +381,88 @@ func (h *harness) prepare(t *testing.T, dir string, c parityCase) {
 	}
 }
 
-func (h *harness) collect(dir string, r *parityResult) {
+func (h *harness) collect(dir string, c parityCase, r *parityResult) {
 	h.fake.mu.Lock()
 	r.Calls = slices.Clone(h.fake.calls)
 	h.fake.mu.Unlock()
+	for i := range r.Calls {
+		r.Calls[i].Request = normalizeRequest(r.Calls[i].Request)
+	}
 	if b, err := os.ReadFile(h.configPath(dir)); err == nil {
 		fi, _ := os.Stat(h.configPath(dir))
-		r.Config = fmt.Sprintf("%04o\n%s", fi.Mode().Perm(), b)
+		r.Config = fmt.Sprintf("%04o\n%s", fi.Mode().Perm(), privateKeys(string(b)))
 	}
+	// Every other file and directory the command left, with its mode.
+	_ = filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
+		rel, _ := filepath.Rel(dir, p)
+		switch {
+		case err != nil || rel == "." || p == h.configPath(dir):
+			return nil
+		case rel == "cache":
+			return filepath.SkipDir
+		}
+		if _, given := c.files[rel]; given {
+			return nil
+		}
+		fi, err := d.Info()
+		if err != nil {
+			return nil
+		}
+		entry := fmt.Sprintf("%s %04o", rel, fi.Mode().Perm())
+		if fi.Mode().IsRegular() {
+			b, _ := os.ReadFile(p)
+			entry += "\n" + privateKeys(string(b))
+		}
+		r.Files = append(r.Files, entry)
+		return nil
+	})
+}
+
+// privateKey is a PEM private key, as written or inside a JSON string.
+var privateKey = regexp.MustCompile(`-----BEGIN ([A-Z ]*PRIVATE KEY)-----(\\n|\n)[A-Za-z0-9+/=\\\n]*-----END [A-Z ]*PRIVATE KEY-----`)
+
+// privateKeys replaces the keys a command made, which differ from run to
+// run, with their kind.
+func privateKeys(s string) string {
+	return privateKey.ReplaceAllString(s, "<$1>")
+}
+
+// sinceNow is a timestamp in a request, worked out from the time the
+// command ran.
+var sinceNow = regexp.MustCompile(`"(since|until)":"([0-9TZ:.+-]+)"`)
+
+// normalizeRequest makes requests comparable: a CSR, made with a key of the
+// run's own, becomes what it asks for once its signature checks, and times
+// a request works out from now become how long ago they are.
+func normalizeRequest(req string) string {
+	req = sinceNow.ReplaceAllStringFunc(req, func(m string) string {
+		parts := sinceNow.FindStringSubmatch(m)
+		t, err := time.Parse(time.RFC3339Nano, parts[2])
+		if err != nil || time.Since(t) > 30*24*time.Hour {
+			return m
+		}
+		return fmt.Sprintf("%q:%q", parts[1], "now-"+time.Since(t).Round(time.Minute).String())
+	})
+	var v map[string]any
+	if json.Unmarshal([]byte(req), &v) != nil {
+		return req
+	}
+	s, ok := v["csr"].(string)
+	if !ok {
+		return req
+	}
+	der, err := base64.StdEncoding.DecodeString(s)
+	if err != nil {
+		return req
+	}
+	csr, err := x509.ParseCertificateRequest(der)
+	if err != nil || csr.CheckSignature() != nil {
+		v["csr"] = "invalid CSR"
+	} else {
+		v["csr"] = fmt.Sprintf("CSR of %s, %s", csr.Subject.CommonName, csr.PublicKeyAlgorithm)
+	}
+	b, _ := json.Marshal(v)
+	return string(b)
 }
 
 func (h *harness) runGo(t *testing.T, dir string, c parityCase) parityResult {
@@ -292,7 +490,7 @@ func (h *harness) runGo(t *testing.T, dir string, c parityCase) parityResult {
 	os.Stderr = stderr
 	_ = w0.Close()
 	r := parityResult{Code: code, Stdout: out.String(), Stderr: string(<-direct) + errb.String()}
-	h.collect(dir, &r)
+	h.collect(dir, c, &r)
 	return r
 }
 
@@ -319,7 +517,7 @@ func (h *harness) runRust(t *testing.T, dir string, c parityCase) parityResult {
 		t.Fatalf("run %s: %v", h.bin, err)
 	}
 	r := parityResult{Code: code, Stdout: out.String(), Stderr: errb.String()}
-	h.collect(dir, &r)
+	h.collect(dir, c, &r)
 	return r
 }
 
@@ -336,11 +534,24 @@ var sinceTime = regexp.MustCompile(`\b([0-9]+[hms])+ ago\b`)
 func normalize(s string) any {
 	s = toolchain.ReplaceAllString(s, "TOOLCHAIN")
 	s = sinceTime.ReplaceAllString(s, "DURATION ago")
-	var v any
-	if d := json.NewDecoder(strings.NewReader(s)); d.Decode(&v) == nil && !d.More() {
-		return v
+	var vs []any
+	d := json.NewDecoder(strings.NewReader(s))
+	for {
+		var v any
+		if err := d.Decode(&v); errors.Is(err, io.EOF) {
+			break
+		} else if err != nil {
+			return s
+		}
+		vs = append(vs, v)
 	}
-	return s
+	switch len(vs) {
+	case 0:
+		return s
+	case 1:
+		return vs[0]
+	}
+	return vs
 }
 
 func compareResults(t *testing.T, goRes, rust parityResult) {
@@ -360,6 +571,9 @@ func compareResults(t *testing.T, goRes, rust parityResult) {
 	if goRes.Config != rust.Config {
 		t.Errorf("client config differs:\n--- Go\n%s\n--- Rust\n%s", goRes.Config, rust.Config)
 	}
+	if !reflect.DeepEqual(goRes.Files, rust.Files) {
+		t.Errorf("files written differ:\n--- Go\n%s\n--- Rust\n%s", strings.Join(goRes.Files, "\n"), strings.Join(rust.Files, "\n"))
+	}
 }
 
 func TestClientParity(t *testing.T) {
@@ -368,6 +582,7 @@ func TestClientParity(t *testing.T) {
 	time.Local = time.UTC
 	t.Cleanup(func() { time.Local = old })
 	cases := parityCases(h)
+	cases = append(cases, moreCases(h)...)
 	cases = append(cases, exampleCases(t)...)
 	cases = append(cases, helpCases()...)
 	names := map[string]bool{}
@@ -380,6 +595,9 @@ func TestClientParity(t *testing.T) {
 			dir := t.TempDir()
 			t.Chdir(dir)
 			goRes := h.runGo(t, dir, c)
+			if os.Getenv("ARMADA_PARITY_VERBOSE") != "" {
+				t.Logf("Go: exit %d\n--- stdout\n%s--- stderr\n%s--- requests\n%v\n--- files\n%s", goRes.Code, goRes.Stdout, goRes.Stderr, goRes.Calls, strings.Join(goRes.Files, "\n"))
+			}
 			if h.bin == "" {
 				return
 			}
@@ -489,7 +707,7 @@ func spaces() *armadav1.ListSpacesResponse {
 
 // defaultAnswers lets every command of the examples run to its end.
 func defaultAnswers() map[string][]answer {
-	return map[string][]answer{
+	a := map[string][]answer{
 		"ListApps": okAnswer(&armadav1.ListAppsResponse{Apps: []*armadav1.AppSummary{
 			{Name: "web", Image: "ghcr.io/acme/web:1.4.2", Revision: "web--r1", Ready: 0, Desired: 2, State: "progressing", TargetRevision: "web--r2", TargetImage: "ghcr.io/acme/web:1.4.3", Url: "https://web.apps.example.com"},
 			{Name: "api.shop", Image: "ghcr.io/acme/api:2", Revision: "api--r3", Ready: 2, Desired: 2, State: "ready"},
@@ -517,6 +735,8 @@ func defaultAnswers() map[string][]answer {
 		"ListServers":      okAnswer(&armadav1.ListServersResponse{Servers: []*armadav1.ServerInfo{{Name: "s1", Version: "v0.1.0-alpha.41"}, {Name: "s2"}, {Name: "s3", Version: "v0.1.0-alpha.41"}}}),
 		"ListSpaceSecrets": okAnswer(&armadav1.ListSpaceSecretsResponse{Secrets: []*armadav1.SpaceSecretInfo{{Name: "db", Keys: 2, UpdatedAt: timestamppb.New(time.Date(2026, 11, 20, 1, 2, 3, 0, time.UTC)), UpdatedBy: "ada", UsedBy: []string{"web", "worker"}}, {Name: "api", Keys: 1}}}),
 	}
+	maps.Copy(a, moreAnswers())
+	return a
 }
 
 // with returns the default answers with some replaced.
@@ -526,18 +746,10 @@ func with(over map[string][]answer) map[string][]answer {
 	return a
 }
 
-// rustCommand reports whether the Rust client has the command at path.
+// rustCommand reports whether the Rust client has the command at path:
+// every one since pull request 17b.
 func rustCommand(path string) bool {
-	words := strings.Fields(path)
-	if len(words) < 2 || !slices.Contains(parityNouns, words[1]) {
-		return false
-	}
-	for _, l := range laterVerbs {
-		if path == l || strings.HasPrefix(path, l+" ") {
-			return false
-		}
-	}
-	return true
+	return len(strings.Fields(path)) >= 2
 }
 
 // exampleCases runs every example line of every command the Rust client

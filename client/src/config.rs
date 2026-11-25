@@ -405,6 +405,96 @@ impl Config {
     }
 }
 
+impl Config {
+    /// Save: SaveFile, making the file's directory (0700) when the file
+    /// does not exist yet.
+    pub fn save(&self, path: &str) -> Result<(), String> {
+        if fs::metadata(path).is_err() {
+            let dir = Path::new(path)
+                .parent()
+                .filter(|d| !d.as_os_str().is_empty())
+                .unwrap_or(Path::new("."));
+            armada_fsutil::mkdir_private(dir).map_err(|e| e.to_string())?;
+        }
+        self.save_file(path)
+    }
+}
+
+/// netip.ParseAddrPort's errors, for CheckPrivateListen.
+fn addr_port_error(s: &str) -> Option<String> {
+    let Some(i) = s.rfind(':') else {
+        return Some("not an ip:port".to_string());
+    };
+    let (mut ip, port) = (&s[..i], &s[i + 1..]);
+    if ip.is_empty() {
+        return Some("no IP".to_string());
+    }
+    if port.is_empty() {
+        return Some("no port".to_string());
+    }
+    let mut v6 = false;
+    if ip.starts_with('[') {
+        if ip.len() < 2 || !ip.ends_with(']') {
+            return Some("missing ]".to_string());
+        }
+        ip = &ip[1..ip.len() - 1];
+        v6 = true;
+    }
+    if !port.bytes().all(|c| c.is_ascii_digit()) || port.parse::<u16>().is_err() {
+        return Some(format!(
+            "invalid port {} parsing {}",
+            go::quote(port),
+            go::quote(s)
+        ));
+    }
+    let Some(a) = go::parse_addr(ip) else {
+        return Some(format!("ParseAddr({}): unable to parse IP", go::quote(ip)));
+    };
+    if v6 && a.is4 {
+        return Some(format!(
+            "invalid ip:port {}, square brackets can only be used with IPv6 addresses",
+            go::quote(s)
+        ));
+    }
+    if !v6 && !a.is4 {
+        return Some(format!(
+            "invalid ip:port {}, IPv6 addresses must be surrounded by square brackets",
+            go::quote(s)
+        ));
+    }
+    None
+}
+
+/// netutil.CheckPrivateListen with its errors.
+pub fn check_private_listen(s: &str) -> Result<(), String> {
+    if let Some(e) = addr_port_error(s) {
+        return Err(format!(
+            "listen address {} must be ip:port: {e}",
+            go::quote(s)
+        ));
+    }
+    let (a, _) =
+        parse_addr_port(s).ok_or_else(|| format!("invalid IP address {}", go::quote(s)))?;
+    let text = a.string();
+    if !a.zone.is_empty() {
+        return Err(format!("invalid IP address {}", go::quote(&text)));
+    }
+    let u = a.unmap();
+    if u.string() != text {
+        return Err(format!(
+            "IP address {} is not in canonical form (want {})",
+            go::quote(&text),
+            u.string()
+        ));
+    }
+    if !private_listen(s) {
+        return Err(format!(
+            "{text}: address is not private; internal services must bind to a private (VPC) or loopback address"
+        ));
+    }
+    Ok(())
+}
+
 /// CheckSSH: an ssh(1) destination that never reads as an option:
 /// `^(ssh://)?([A-Za-z0-9._][A-Za-z0-9._-]*@)?[A-Za-z0-9._\[][A-Za-z0-9._:\[\]-]*$`.
 pub fn check_ssh(dest: &str) -> Result<(), String> {

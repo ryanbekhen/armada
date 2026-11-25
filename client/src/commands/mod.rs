@@ -1,14 +1,18 @@
 //! The armada command tree (Go's NewRootCommand) and what its commands
 //! share: the space they work in, output formats, and the texts tables use.
 
+pub mod access;
 pub mod app;
+pub mod cluster;
 pub mod deploy;
 pub mod jobs;
-pub mod later;
+pub mod node;
 pub mod replica;
 pub mod secret;
 pub mod space;
+pub mod streams;
 pub mod version;
+pub mod volume;
 
 use armada_spec as spec;
 use armada_spec::go;
@@ -74,19 +78,27 @@ pub fn root() -> Tree {
                 jobs::add_job,
                 jobs::add_run,
                 secret::add,
-                later::volume,
-                later::snapshot,
-                later::domain,
+                volume::add_volume,
+                volume::add_snapshot,
+                cluster::add_domain,
             ],
         ),
         (
             "cluster",
-            vec![later::cluster, later::node, later::server, space::add],
+            vec![
+                cluster::add_cluster,
+                node::add_node,
+                node::add_server,
+                space::add,
+            ],
         ),
-        ("access", vec![later::user, later::service, later::role]),
+        (
+            "access",
+            vec![access::add_user, access::add_service, access::add_role],
+        ),
         (
             "monitoring",
-            vec![later::alert, later::metrics, version::add],
+            vec![access::add_alert, access::add_metrics, version::add],
         ),
     ];
     for (id, adds) in groups {
@@ -387,4 +399,158 @@ pub fn choice_list(names: &[String]) -> String {
 /// The text of a message for a table: printable, else "-".
 pub fn dash_printable(s: &str) -> String {
     dash(&printable(s))
+}
+
+/// A protobuf timestamp as a time.Time, in the local zone or UTC
+/// (AsTime().Local() or AsTime()); none reads as the Unix epoch.
+pub fn go_time(
+    t: Option<&armada_proto::google::protobuf::Timestamp>,
+    local: bool,
+) -> spec::gotime::Time {
+    let (unix, nsec) = t.map_or((0, 0), |t| (t.seconds, i64::from(t.nanos)));
+    let loc = if local {
+        spec::gotime::load_location("Local").unwrap_or_else(spec::gotime::Location::utc)
+    } else {
+        spec::gotime::Location::utc()
+    };
+    spec::gotime::Time { unix, nsec, loc }
+}
+
+/// The timestamp of Unix seconds.
+pub fn unix_ts(seconds: i64) -> armada_proto::google::protobuf::Timestamp {
+    armada_proto::google::protobuf::Timestamp { seconds, nanos: 0 }
+}
+
+/// Z07:00 of a layout: Z for UTC, else the offset.
+fn zone_colon(t: &spec::gotime::Time) -> String {
+    let off = t.loc.offset(t.unix);
+    if off == 0 {
+        return "Z".to_string();
+    }
+    let (sign, a) = if off < 0 { ('-', -off) } else { ('+', off) };
+    format!("{sign}{:02}:{:02}", a / 3600, a % 3600 / 60)
+}
+
+/// Format(time.RFC3339).
+pub fn rfc3339(t: &spec::gotime::Time) -> String {
+    let c = t.civil();
+    format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}{}",
+        c.year,
+        c.month,
+        c.day,
+        c.hour,
+        c.minute,
+        c.second,
+        zone_colon(t)
+    )
+}
+
+/// Format("2006-01-02T15:04:05.000Z07:00").
+pub fn rfc3339_millis(t: &spec::gotime::Time) -> String {
+    let c = t.civil();
+    format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}.{:03}{}",
+        c.year,
+        c.month,
+        c.day,
+        c.hour,
+        c.minute,
+        c.second,
+        t.nsec / 1_000_000,
+        zone_colon(t)
+    )
+}
+
+/// Format(time.DateOnly).
+pub fn date_only(t: &spec::gotime::Time) -> String {
+    let c = t.civil();
+    format!("{:04}-{:02}-{:02}", c.year, c.month, c.day)
+}
+
+const MONTHS: [&str; 12] = [
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
+
+/// Format("Jan 02 15:04:05").
+pub fn month_day_clock(t: &spec::gotime::Time) -> String {
+    let c = t.civil();
+    format!(
+        "{} {:02} {:02}:{:02}:{:02}",
+        MONTHS[(c.month - 1).clamp(0, 11) as usize],
+        c.day,
+        c.hour,
+        c.minute,
+        c.second
+    )
+}
+
+/// Format("15:04:05").
+pub fn clock(t: &spec::gotime::Time) -> String {
+    let c = t.civil();
+    format!("{:02}:{:02}:{:02}", c.hour, c.minute, c.second)
+}
+
+/// humanBytes: 512Mi, 1.5Gi, or "-" for none.
+pub fn human_bytes(b: i64) -> String {
+    if b <= 0 {
+        return "-".to_string();
+    }
+    if b >= 1 << 30 {
+        return format!("{:.1}Gi", b as f64 / f64::from(1u32 << 30));
+    }
+    format!("{}Mi", b >> 20)
+}
+
+/// usedBytes: memory in use, where 0 is a value rather than unknown.
+pub fn used_bytes(b: i64) -> String {
+    if b <= 0 {
+        return "0Mi".to_string();
+    }
+    human_bytes(b)
+}
+
+/// diskBytes: 512B, 4.0Ki, 1.2Gi.
+pub fn disk_bytes(b: i64) -> String {
+    const UNIT: f64 = 1024.0;
+    if b < 1024 {
+        return format!("{b}B");
+    }
+    let mut v = b as f64 / UNIT;
+    let mut i = 0;
+    while v >= UNIT && i < 4 {
+        v /= UNIT;
+        i += 1;
+    }
+    format!("{v:.1}{}i", ["K", "M", "G", "T", "P"][i])
+}
+
+/// The text of an error reading or writing a file, as Go's os package
+/// words it.
+pub fn path_error(op: &str, path: &str, e: &std::io::Error) -> String {
+    format!("{op} {path}: {}", armada_fsutil::errno_text(e))
+}
+
+/// readTokenArg and readSecretArg: a file (mode 0600), or "-" for at most
+/// 64 KiB of stdin; trimmed.
+pub fn read_token_arg(ctx: &mut Ctx<'_>, flag: &str, arg: &str) -> Result<Vec<u8>> {
+    let b = if arg == "-" {
+        let mut b = Vec::new();
+        std::io::Read::read_to_end(&mut std::io::Read::take(&mut *ctx.stdin, 64 << 10), &mut b)
+            .map_err(|e| Error::Msg(format!("{flag}: {}", armada_fsutil::errno_text(&e))))?;
+        b
+    } else {
+        armada_fsutil::read_private_file(std::path::Path::new(arg))
+            .map_err(|e| Error::Msg(format!("{flag}: {e}")))?
+    };
+    let space = |c: &u8| matches!(c, b'\t' | b'\n' | 0x0b | 0x0c | b'\r' | b' ');
+    let start = b.iter().position(|c| !space(c)).unwrap_or(b.len());
+    let end = b.iter().rposition(|c| !space(c)).map_or(start, |i| i + 1);
+    Ok(b[start..end].to_vec())
+}
+
+/// Whether file descriptor fd is a terminal (term.IsTerminal).
+pub fn is_terminal(fd: i32) -> bool {
+    // SAFETY: isatty only reads the descriptor's state.
+    unsafe { libc::isatty(fd) == 1 }
 }

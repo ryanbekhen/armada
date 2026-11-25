@@ -275,19 +275,23 @@ the `parity` feature) is never built for a release.
 
 `armada-client` (`client/`, Apache-2.0) is the `armada` client in Rust
 (ADR 0055), a program of its own. No release ships it yet; it is built
-with armada-proto, armada-spec, armada-fsutil, libc, and crates of
-armada-store (above): hyper-util, rustls, rustls-pki-types, serde,
-serde_json, tokio, tokio-rustls, tonic, and tower, with what they bring.
-It adds no crate of its own.
+with armada-proto, armada-spec, armada-fsutil, armada-pki (its keys and
+certificate requests: ring, rcgen, time, x509-parser, above), libc, and
+crates of armada-store (above): hyper-util, rustls, rustls-pki-types,
+serde, serde_json, tokio, tokio-rustls, tokio-stream, tonic, and tower,
+with what they bring. It adds no crate of its own.
 
 Its command framework (`client/src/cli/`) ports the parts of
 github.com/spf13/pflag v1.1.0 (BSD-3-Clause, Copyright (c) 2012 Alex
 Ogier and The Go Authors), github.com/spf13/cobra v1.10.2 (Apache-2.0),
-and Go's text/tabwriter (BSD-3-Clause, The Go Authors) the client's
-commands use, so their parsing, errors, help, and tables read as before.
+and Go's text/tabwriter and encoding/csv's reader of one record (both
+BSD-3-Clause, The Go Authors) the client's commands use, so their
+parsing, errors, help, and tables read as before; `client/src/term.rs`
+ports golang.org/x/term's raw mode (BSD-3-Clause, The Go Authors).
 Sources: <https://github.com/spf13/pflag/tree/v1.1.0>,
-<https://github.com/spf13/cobra/tree/v1.10.2>, and
-<https://go.dev/src/text/tabwriter/>.
+<https://github.com/spf13/cobra/tree/v1.10.2>,
+<https://go.dev/src/text/tabwriter/>, <https://go.dev/src/encoding/csv/>,
+and <https://cs.opensource.google/go/x/term>.
 
 The shell completion scripts it prints (`client/src/cli/completion/`) are
 the ones github.com/spf13/cobra v1.10.2 generates for armada, under the
