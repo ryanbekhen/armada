@@ -1,0 +1,28 @@
+[package]
+name = "armada-pki"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The cluster's certificate authority, a port of Go's internal/pki (ADR 0055)"
+
+[dependencies]
+armada-fsutil = { path = "../fsutil" }
+# Issuing certificates and reading requests.
+rcgen.workspace = true
+# Keys, signatures, digests, and randomness.
+ring.workspace = true
+# Certificates' validity periods (rcgen's type).
+time.workspace = true
+# Reading certificates and checking their signatures (on ring).
+x509-parser.workspace = true
+serde_json = { workspace = true, optional = true }
+
+[features]
+# The program Go's parity tests drive (src/bin/armada-pki-parity.rs,
+# ARMADA_PKI_BIN): never part of a release.
+parity = ["dep:serde_json"]
+
+[[bin]]
+name = "armada-pki-parity"
+required-features = ["parity"]

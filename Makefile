@@ -12,7 +12,7 @@ LDFLAGS := -s -w \
 
 export CGO_ENABLED := 0
 
-.PHONY: all build build-bundle logger shim dns node node-test-hooks rust-check runtime-bundle test cover lint fmt vet vuln licenses licenses-save proto docs tidy check clean
+.PHONY: all build build-bundle logger shim dns node node-test-hooks pki-parity rust-check runtime-bundle test cover lint fmt vet vuln licenses licenses-save proto docs tidy check clean
 
 all: check build
 
@@ -58,6 +58,13 @@ node:
 node-test-hooks:
 	cargo build --release --locked -p armada-node --features test-hooks --target x86_64-unknown-linux-musl --target-dir target/test-hooks
 
+# The programs Go's parity tests of the CA, certificates, and secrets run
+# (ADR 0055): target/debug/armada-pki-parity (ARMADA_PKI_BIN) and
+# target/debug/armada-secrets-parity (ARMADA_SECRETS_BIN). Never part of a
+# release.
+pki-parity:
+	cargo build --locked -p armada-pki -p armada-secrets --features armada-pki/parity,armada-secrets/parity
+
 # The Cargo workspace's checks (ADR 0055; CI job logger): format, lints,
 # tests, crate licenses, and every member built for both release targets.
 # proto/gen, outside it, gets its format and lints checked too; armada-log,
@@ -66,6 +73,7 @@ rust-check:
 	cargo fmt --all --check
 	cargo clippy --locked --workspace --all-targets -- -D warnings
 	cargo clippy --locked -p armada-node --all-targets --features test-hooks -- -D warnings
+	cargo clippy --locked -p armada-pki -p armada-secrets --all-targets --features armada-pki/parity,armada-secrets/parity -- -D warnings
 	cargo test --locked --workspace
 	cargo deny --locked check licenses
 	cargo build --release --locked --workspace --target x86_64-unknown-linux-musl

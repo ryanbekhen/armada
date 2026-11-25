@@ -248,6 +248,15 @@ jobs:
       - run: go test -race -run 'TestArmadaNodeVolume|TestArmadaNodeSnapshot|TestArmadaNodeIgnoresTestHooks|TestArmadaNodePull|TestArmadaNodeProxy|TestArmadaNodeConvert' -v ./internal/agent/ ./internal/runtime/containerd/
         env:
           ARMADA_NODE_BIN: ${{ github.workspace }}/target/test-hooks/x86_64-unknown-linux-musl/release/armada-node
+      # The CA, certificates, and secrets in Rust (ADR 0055) issue, sign,
+      # seal, open, and refuse what Go's code does, each accepting what the
+      # other wrote; their test programs are built only for this.
+      - run: cargo clippy --locked -p armada-pki -p armada-secrets --all-targets --features armada-pki/parity,armada-secrets/parity -- -D warnings
+      - run: make pki-parity
+      - run: go test -race -run 'TestArmadaPKI|TestArmadaSecrets' -v ./internal/pki/ ./internal/secrets/
+        env:
+          ARMADA_PKI_BIN: ${{ github.workspace }}/target/debug/armada-pki-parity
+          ARMADA_SECRETS_BIN: ${{ github.workspace }}/target/debug/armada-secrets-parity
 
   installer:
     needs: changes
