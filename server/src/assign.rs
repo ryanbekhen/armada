@@ -1,9 +1,10 @@
 //! Assignments (Go's pushAssignments and replicaSpec in reconciler.go):
 //! what each connected node runs, built from the store's replicas and the
 //! secret versions their revisions pin, opened only while the assignment
-//! is built and never logged. The proxy configuration (pull request 14),
-//! the cluster network and the runtime move (13), and queue sandboxes (10)
-//! are left out until their pull requests.
+//! is built and never logged, with the queue sandboxes each node keeps
+//! (ADR 0040). The proxy configuration (pull request 14), and the cluster
+//! network and the runtime move (13) are left out until their pull
+//! requests.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::Mutex;
@@ -388,6 +389,7 @@ impl Server {
         replicas: &[Replica],
         revs: &mut Revisions<'_>,
         servers: &[String],
+        sandboxes: &HashMap<String, Vec<QueueSandbox>>,
     ) -> Result<(), armada_store::Error> {
         let mut by_node: HashMap<&str, Vec<&Replica>> = HashMap::new();
         for r in replicas {
@@ -399,6 +401,7 @@ impl Server {
             let mut a = Assignment {
                 servers: servers.to_vec(),
                 logs: Some(logs.clone()),
+                queue_sandboxes: sandboxes.get(&sess.node_id).cloned().unwrap_or_default(),
                 ..Default::default()
             };
             for r in by_node.get(sess.node_id.as_str()).into_iter().flatten() {

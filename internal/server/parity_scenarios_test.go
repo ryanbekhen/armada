@@ -41,6 +41,7 @@ var parityPorted = map[string]bool{
 	"RenewOwnCertificate": true, "Events": true, "Deploy": true, "Status": true, "ListApps": true,
 	"GetAppSpec": true, "SetTraffic": true, "ListRevisions": true, "Rollback": true, "RestartApp": true,
 	"SetSecret": true, "ListSecrets": true, "DeleteSecret": true, "ListSpaceSecrets": true, "RemoveApp": true,
+	"RunJob": true, "ListJobs": true, "ListJobRuns": true, "CancelJob": true, "DeleteJob": true,
 }
 
 // callAny calls a method of the API with an empty request, as any client

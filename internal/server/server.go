@@ -307,14 +307,16 @@ type serverParts int
 const (
 	// allParts is the whole control plane.
 	allParts serverParts = iota
-	// coreParts is what ADR 0055's pull requests 8 and 9 ported: terms,
+	// coreParts is what ADR 0055's pull requests 8 to 10 ported: terms,
 	// sessions with agents, the assignments of the replicas the store
 	// holds, scheduling, placement, rollouts, drains, evacuation,
-	// self-healing, rebalancing, the removal of apps, and traffic splits.
-	// A pass leaves jobs and the replicas of apps with local volumes as
-	// the store holds them, and has no proxy, network, queue sandboxes,
-	// or runtime move; the autoscaler and the other background loops do
-	// not run. Each later pull request moves its part into it.
+	// self-healing, rebalancing, the removal of apps, traffic splits, and
+	// jobs with their tasks and queue triggers (queue sandboxes in the
+	// assignments). A pass leaves the replicas of apps with local volumes
+	// as the store holds them, and has no proxy, network (so no sandbox
+	// addresses among its endpoints), or runtime move; the autoscaler and
+	// the other background loops do not run. Each later pull request moves
+	// its part into it.
 	coreParts
 )
 

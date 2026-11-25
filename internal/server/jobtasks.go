@@ -124,7 +124,7 @@ func (s *Server) reconcileTasks(ctx context.Context, rc *reconcileRun, job store
 			all = without(all, t.Replica)
 		}
 		rep := store.Replica{
-			ID:       fmt.Sprintf("%s-j%d-t%d-%s", job.Name, r.Seq, t.Index, randomID(5)),
+			ID:       fmt.Sprintf("%s-j%d-t%d-%s", job.Name, r.Seq, t.Index, s.newID(5)),
 			App:      job.Name,
 			Revision: rev.Name,
 			NodeID:   node.ID,

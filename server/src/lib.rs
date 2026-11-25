@@ -10,9 +10,12 @@
 //! (pull request 9): the reconcile pass's scheduling, placement, rollouts,
 //! drains, evacuation, self-healing, rebalancing, removal of apps, and
 //! traffic splits (`reconcile`, `schedule`), and the AdminService methods
-//! of apps and secrets (`apps`, `secret_api`). Jobs, scaling, volumes, the
-//! cluster network, ingress, and watching follow in their own pull
-//! requests; their AdminService methods answer `Unimplemented` until then
+//! of apps and secrets (`apps`, `secret_api`); with jobs (pull request
+//! 10): cron schedules, retries, tasks, queue triggers with the usage
+//! reports' sandboxes that feed them, and the AdminService methods of jobs
+//! (`jobs`, `triggers`, `usage`). Scaling, volumes, the cluster network,
+//! ingress, and watching follow in their own pull requests; their
+//! AdminService methods answer `Unimplemented` until then
 //! ([`admin::LATER`]).
 
 pub mod access;
@@ -25,6 +28,7 @@ pub mod conn;
 mod events;
 mod grpc;
 pub mod guard;
+mod jobs;
 mod join;
 pub mod lifecycle;
 mod limiter;
@@ -40,6 +44,8 @@ mod servers;
 mod settings;
 mod spaces;
 pub mod tls;
+mod triggers;
+mod usage;
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -130,6 +136,9 @@ pub struct Config {
     pub drain_timeout: Duration,
     pub warmup: Duration,
     pub progress_deadline: Duration,
+    /// The delay before a job's first retry, doubling up to five minutes;
+    /// zero uses ten seconds.
+    pub job_retry_base: Duration,
     /// Passes run only when [`Server::reconcile`] is called (the scenario
     /// parity tests, which drive every pass): the loop only promotes
     /// learners.
@@ -172,6 +181,7 @@ impl Config {
             drain_timeout: Duration::ZERO,
             warmup: Duration::ZERO,
             progress_deadline: Duration::ZERO,
+            job_retry_base: Duration::ZERO,
             manual_passes: false,
             new_id: None,
             log: log::Logger::discard(),
@@ -211,6 +221,7 @@ pub(crate) struct Inner {
     pub drain_timeout: Duration,
     pub warmup: Duration,
     pub progress_deadline: Duration,
+    pub job_retry_base: Duration,
     pub manual_passes: bool,
     pub new_id: Arc<dyn Fn(usize) -> String + Send + Sync>,
     /// When this server started leading: drains a previous leader began
@@ -233,6 +244,10 @@ pub(crate) struct Inner {
     /// One pass at a time.
     pub pass: tokio::sync::Mutex<()>,
     pub memory: Mutex<reconcile::Memory>,
+    /// The latest usage sample of each node (memory only).
+    pub usage: usage::Usage,
+    /// Which node reads each queue-triggered job's queue (memory only).
+    pub triggers: triggers::QueueTriggers,
     /// The next pass a wake-up asked for, and its timer.
     pub wake: Mutex<Option<(tokio::time::Instant, tokio::task::AbortHandle)>>,
 }
@@ -298,6 +313,7 @@ impl Server {
             drain_timeout: nonzero(cfg.drain_timeout, reconcile::DEFAULT_DRAIN_TIMEOUT),
             warmup: nonzero(cfg.warmup, reconcile::DEFAULT_WARMUP),
             progress_deadline: nonzero(cfg.progress_deadline, reconcile::DEFAULT_PROGRESS_DEADLINE),
+            job_retry_base: nonzero(cfg.job_retry_base, jobs::DEFAULT_JOB_RETRY_BASE),
             manual_passes: cfg.manual_passes,
             new_id: cfg.new_id.unwrap_or_else(|| Arc::new(random_id)),
             term_start,
@@ -323,6 +339,8 @@ impl Server {
             cluster_size: AtomicI64::new(0),
             pass: tokio::sync::Mutex::new(()),
             memory: Mutex::new(reconcile::Memory::default()),
+            usage: usage::Usage::default(),
+            triggers: triggers::QueueTriggers::default(),
             wake: Mutex::new(None),
         })))
     }

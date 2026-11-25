@@ -22,7 +22,7 @@ import (
 // goes through agents' reports.
 
 // node records a ready node with capacity, labels, and what its agent
-// runs (Containers, Volumes, NFS).
+// runs (Containers, Volumes, NFS, Jobs).
 func (sc *scenario) node(id, ip string, cpu, mem int64, labels map[string]string, caps ...string) {
 	sc.t.Helper()
 	if err := sc.st.UpsertNode(sc.ctx, store.Node{ID: id, PrivateIP: ip, State: store.NodeReady, CPUMillis: cpu, MemoryBytes: mem, Labels: labels}); err != nil {
@@ -30,7 +30,8 @@ func (sc *scenario) node(id, ip string, cpu, mem int64, labels map[string]string
 	}
 	if len(caps) > 0 {
 		st := store.NodeStatus{State: store.NodeReady, LastSeen: sc.clock.now(), CPUMillis: cpu, MemoryBytes: mem,
-			Containers: slices.Contains(caps, "containers"), Volumes: slices.Contains(caps, "volumes"), NFS: slices.Contains(caps, "nfs")}
+			Containers: slices.Contains(caps, "containers"), Volumes: slices.Contains(caps, "volumes"), NFS: slices.Contains(caps, "nfs"),
+			Jobs: slices.Contains(caps, "jobs")}
 		if err := sc.st.SetNodeStatus(sc.ctx, id, st); err != nil {
 			sc.t.Fatal(err)
 		}

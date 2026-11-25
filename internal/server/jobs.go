@@ -220,7 +220,7 @@ func (s *Server) startAttempt(ctx context.Context, rc *reconcileRun, job store.A
 		all = without(all, r.Replica)
 	}
 	rep := store.Replica{
-		ID:       fmt.Sprintf("%s-j%d-%s", job.Name, r.Seq, randomID(5)),
+		ID:       fmt.Sprintf("%s-j%d-%s", job.Name, r.Seq, s.newID(5)),
 		App:      job.Name,
 		Revision: rev.Name,
 		NodeID:   node.ID,

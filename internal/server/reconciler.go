@@ -87,9 +87,7 @@ func (s *Server) Reconcile(ctx context.Context) error {
 	removed := map[string]bool{}
 	for i, app := range apps {
 		if app.Spec.IsJob() {
-			if s.parts == allParts {
-				jobs = append(jobs, app)
-			}
+			jobs = append(jobs, app)
 			continue
 		}
 		var next []store.Replica
@@ -125,7 +123,7 @@ func (s *Server) Reconcile(ctx context.Context) error {
 			return err
 		}
 		s.endpointsSeen.Store(&seenEndpoints{addrs: eps, at: time.Now()})
-		return s.pushAssignments(ctx, replicas, &revs, nil, nil, eps, nil, nil, nil)
+		return s.pushAssignments(ctx, replicas, &revs, nil, nil, eps, nil, rc.sandboxes, nil)
 	}
 	apps = slices.DeleteFunc(apps, func(a store.App) bool { return removed[a.Name] })
 	pxp, pxRefs, err := s.proxyConfig(ctx, apps, replicas)
