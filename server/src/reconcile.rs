@@ -7,11 +7,10 @@
 //! Jobs and their queue triggers (pull request 10 of ADR 0055) run after
 //! the apps (`jobs`, `triggers`); the autoscaler (11) runs on its own
 //! loop (`autoscale`), and a pass tells the usage store whose replicas
-//! are whose. Apps with local volumes (12), the proxy configuration (14), and the cluster network
-//! and the runtime move (13) are left out until their pull requests: the
-//! replicas of an app with local volumes are kept as the store holds them
-//! and assigned as they are. Go's server runs the same parts in the
-//! scenario parity tests (`coreParts`).
+//! are whose. Apps with local volumes (12) are reconciled by `volumes`.
+//! The proxy configuration (14), and the cluster network and the runtime
+//! move (13) are left out until their pull requests. Go's server runs the
+//! same parts in the scenario parity tests (`coreParts`).
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::atomic::{AtomicI64, Ordering as AtomicOrdering};
@@ -236,7 +235,7 @@ pub(crate) fn node_lost(n: &Node, now: &Time, timeout: i64) -> bool {
 }
 
 /// publishesPort.
-fn publishes_port(sp: &Spec) -> bool {
+pub(crate) fn publishes_port(sp: &Spec) -> bool {
     sp.ingress.as_ref().is_some_and(|i| i.typ != INGRESS_NONE)
 }
 
@@ -283,10 +282,16 @@ fn without(rs: &mut Vec<Replica>, id: &str) {
 
 /// Whether each revision of a reconcile publishes a port (unknown: it
 /// does, so an address is required).
-struct Publishes(HashMap<String, bool>);
+pub(crate) struct Publishes(HashMap<String, bool>);
 
 impl Publishes {
-    fn of(&self, r: &Replica) -> bool {
+    /// What reconcileVolumeApp's serving reads: every replica as the
+    /// target revision publishes (its current replicas are all of it).
+    pub(crate) fn of_all(rev: String, publishes: bool) -> Publishes {
+        Publishes(HashMap::from([(rev, publishes)]))
+    }
+
+    pub(crate) fn of(&self, r: &Replica) -> bool {
         self.0.get(&r.revision).copied().unwrap_or(true)
     }
 }
@@ -298,7 +303,7 @@ impl Server {
 
     /// serving: r takes traffic and has done so long enough for every
     /// proxy to have picked it up.
-    fn serving(&self, rc: &Run<'_>, r: &Replica, publishes: bool) -> bool {
+    pub(crate) fn serving(&self, rc: &Run<'_>, r: &Replica, publishes: bool) -> bool {
         if r.state != REPLICA_RUNNING
             || !r.ready
             || r.draining()
@@ -471,8 +476,7 @@ impl Server {
     async fn reconcile_app(&self, rc: &mut Run<'_>, app: &mut App, nodes: &[Node]) -> Result<()> {
         let target = rc.revs.get(&app.target_revision).await?;
         if target.spec().has_local_volumes() {
-            // Apps with local volumes: pull request 12.
-            return Ok(());
+            return self.reconcile_volume_app(rc, app, &target, nodes).await;
         }
         if app.traffic.is_empty() || app.rolling() {
             return self.reconcile_revision(rc, app, nodes, None).await;
@@ -694,31 +698,37 @@ impl Server {
         }
 
         if left.is_empty() && new_serving >= app.replicas && current.len() as i64 == app.replicas {
-            self.store()
-                .complete_rollout(&app.name, &app.target_revision)
-                .await?;
-            self.0.log.info(
-                "rollout complete",
-                &[
-                    ("app", app.name.clone()),
-                    ("revision", app.target_revision.clone()),
-                ],
-            );
-            self.record(app_event(
-                ROLLOUT,
-                &app.target_revision,
-                &app.name,
-                "Completed",
-                &format!("{} serves", app.target_revision),
-            ))
-            .await;
-            app.active_revision = app.target_revision.clone();
-            app.rollout_state = ROLLOUT_NONE.to_string();
-            if let Ok(r) = rc.revs.get(&app.target_revision).await {
-                app.spec = r.spec;
-            }
-            self.forget_progress(&app.name);
+            self.complete(rc, app).await?;
         }
+        Ok(())
+    }
+
+    /// Completes app's rollout: its target serves.
+    pub(crate) async fn complete(&self, rc: &mut Run<'_>, app: &mut App) -> Result<()> {
+        self.store()
+            .complete_rollout(&app.name, &app.target_revision)
+            .await?;
+        self.0.log.info(
+            "rollout complete",
+            &[
+                ("app", app.name.clone()),
+                ("revision", app.target_revision.clone()),
+            ],
+        );
+        self.record(app_event(
+            ROLLOUT,
+            &app.target_revision,
+            &app.name,
+            "Completed",
+            &format!("{} serves", app.target_revision),
+        ))
+        .await;
+        app.active_revision = app.target_revision.clone();
+        app.rollout_state = ROLLOUT_NONE.to_string();
+        if let Ok(r) = rc.revs.get(&app.target_revision).await {
+            app.spec = r.spec;
+        }
+        self.forget_progress(&app.name);
         Ok(())
     }
 
@@ -904,7 +914,7 @@ impl Server {
 
     /// checkRollout: records a rollout's progress and aborts it once no new
     /// replica became serving within the progress deadline.
-    async fn check_rollout(
+    pub(crate) async fn check_rollout(
         &self,
         rc: &mut Run<'_>,
         app: &mut App,
@@ -985,7 +995,7 @@ impl Server {
 
     /// retire: takes r out of service, draining it first when it may be
     /// receiving traffic.
-    async fn retire(&self, rc: &mut Run<'_>, r: &Replica) -> Result<()> {
+    pub(crate) async fn retire(&self, rc: &mut Run<'_>, r: &Replica) -> Result<()> {
         if !r.ready || r.address.is_empty() || r.state != REPLICA_RUNNING {
             rc.without(&r.id);
             return self.delete_replica(r).await;
@@ -1006,7 +1016,12 @@ impl Server {
     /// finishDrain: removes a draining replica once its drain timeout
     /// passed, counted from this leader's start for drains a previous one
     /// began; with hold, it also waits up to awayHold while a node is away.
-    async fn finish_drain(&self, rc: &mut Run<'_>, r: &Replica, hold: bool) -> Result<()> {
+    pub(crate) async fn finish_drain(
+        &self,
+        rc: &mut Run<'_>,
+        r: &Replica,
+        hold: bool,
+    ) -> Result<()> {
         let due = later(&r.draining_since, &self.0.term_start).add(self.drain_for(rc, r).await);
         if rc.now.before(&due) {
             rc.wake_at(&due);

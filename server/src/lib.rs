@@ -16,8 +16,12 @@
 //! (`jobs`, `triggers`, `usage`); with scaling (pull request 11): the
 //! autoscaler's evaluations of http, cpu, memory, queue, and schedule
 //! rules, scale to zero and wakes, and the usage samples they read
-//! (`autoscale`, `usage`). Volumes, the cluster network, ingress, and
-//! watching follow in their own pull requests; their
+//! (`autoscale`, `usage`); with volumes (pull request 12): apps with
+//! local volumes recreated on their node with held replicas, the volume
+//! methods through agents' volume sessions, the volume sizes of usage
+//! reports, scheduled backups and their methods, the checks of backup
+//! buckets, and failover (`volumes`, `backups`, `failover`). The cluster
+//! network, ingress, and watching follow in their own pull requests; their
 //! AdminService methods answer `Unimplemented` until then
 //! ([`admin::LATER`]).
 
@@ -27,9 +31,11 @@ pub mod agents;
 mod apps;
 mod assign;
 mod autoscale;
+mod backups;
 pub mod cluster;
 pub mod conn;
 mod events;
+mod failover;
 mod grpc;
 pub mod guard;
 mod jobs;
@@ -50,6 +56,7 @@ mod spaces;
 pub mod tls;
 mod triggers;
 mod usage;
+mod volumes;
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -145,10 +152,12 @@ pub struct Config {
     pub job_retry_base: Duration,
     /// How often the autoscaler evaluates apps; zero uses 15 seconds.
     pub autoscale_interval: Duration,
+    /// How often due volume backups are started; zero uses 30 seconds.
+    pub backup_interval: Duration,
     /// Passes run only when [`Server::reconcile`] is called, and the
     /// autoscaler evaluates only when [`Server::autoscale`] is (the
-    /// scenario parity tests, which drive both): the loop only promotes
-    /// learners.
+    /// scenario parity tests, which drive both, and the backups with
+    /// [`Server::schedule_backups`]): the loop only promotes learners.
     pub manual_passes: bool,
     /// Makes the random part of new replica IDs (tests make them
     /// predictable); none uses random letters and digits.
@@ -190,6 +199,7 @@ impl Config {
             progress_deadline: Duration::ZERO,
             job_retry_base: Duration::ZERO,
             autoscale_interval: Duration::ZERO,
+            backup_interval: Duration::ZERO,
             manual_passes: false,
             new_id: None,
             log: log::Logger::discard(),
@@ -231,6 +241,7 @@ pub(crate) struct Inner {
     pub progress_deadline: Duration,
     pub job_retry_base: Duration,
     pub autoscale_interval: Duration,
+    pub backup_interval: Duration,
     pub manual_passes: bool,
     pub new_id: Arc<dyn Fn(usize) -> String + Send + Sync>,
     /// When this server started leading: drains a previous leader began
@@ -261,6 +272,12 @@ pub(crate) struct Inner {
     pub scaler: autoscale::Autoscaler,
     /// Wakes per node (ADR 0021), on the server's clock.
     pub wake_limit: limiter::ClockKeyed,
+    /// Volume requests waiting for their agents' sessions.
+    pub volumes: volumes::VolumeRouter,
+    /// The volume backups in flight (memory only).
+    pub backups: backups::BackupRuns,
+    /// Failovers in progress and their retries (memory only).
+    pub failovers: failover::FailoverRuns,
     /// The next pass a wake-up asked for, and its timer.
     pub wake: Mutex<Option<(tokio::time::Instant, tokio::task::AbortHandle)>>,
 }
@@ -331,6 +348,7 @@ impl Server {
                 cfg.autoscale_interval,
                 autoscale::DEFAULT_AUTOSCALE_INTERVAL,
             ),
+            backup_interval: nonzero(cfg.backup_interval, backups::DEFAULT_BACKUP_INTERVAL),
             manual_passes: cfg.manual_passes,
             new_id: cfg.new_id.unwrap_or_else(|| Arc::new(random_id)),
             term_start,
@@ -360,6 +378,9 @@ impl Server {
             triggers: triggers::QueueTriggers::default(),
             scaler: autoscale::Autoscaler::default(),
             wake_limit: limiter::ClockKeyed::new(autoscale::WAKE_BURST, autoscale::WAKE_REFILL),
+            volumes: volumes::VolumeRouter::default(),
+            backups: backups::BackupRuns::default(),
+            failovers: failover::FailoverRuns::default(),
             wake: Mutex::new(None),
         })))
     }
@@ -399,6 +420,9 @@ impl Server {
             let s = self.clone();
             let sd = shutdown.clone();
             tokio::spawn(async move { s.autoscale_loop(sd).await });
+            let s = self.clone();
+            let sd = shutdown.clone();
+            tokio::spawn(async move { s.backup_loop(sd).await });
         }
         let addr = lis.local_addr().map(|a| a.to_string()).unwrap_or_default();
         self.0.log.info("listening", &[("addr", addr)]);

@@ -102,7 +102,7 @@ func (s *Server) reconcileVolumeApp(ctx context.Context, rc *reconcileRun, app *
 		case len(current) == 0 && known && !rc.lost[pinned] && pn.State == store.NodeReady && placementAllows(pn, target):
 			if node, ok := pickNode([]store.Node{pn}, all, nil, "", reservation(target), revs.reserved(ctx)); ok {
 				r := store.Replica{
-					ID:       fmt.Sprintf("%s-r%d-%s", app.Name, target.Seq, randomID(5)),
+					ID:       fmt.Sprintf("%s-r%d-%s", app.Name, target.Seq, s.newID(5)),
 					App:      app.Name,
 					Revision: target.Name,
 					NodeID:   node.ID,
@@ -189,7 +189,7 @@ func (s *Server) reconcileVolumeApp(ctx context.Context, rc *reconcileRun, app *
 			unplaced = true
 		} else {
 			r := store.Replica{
-				ID:       fmt.Sprintf("%s-r%d-%s", app.Name, target.Seq, randomID(5)),
+				ID:       fmt.Sprintf("%s-r%d-%s", app.Name, target.Seq, s.newID(5)),
 				App:      app.Name,
 				Revision: target.Name,
 				NodeID:   node.ID,

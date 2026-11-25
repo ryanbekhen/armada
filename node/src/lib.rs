@@ -1,0 +1,20 @@
+//! The parts of armada-node other crates of the workspace reuse (ADR
+//! 0055): the control plane (armada-server) reads volume backup URLs with
+//! the same ParseTarget the node uses, so their checks and texts agree.
+//! The program (main.rs) compiles these files as its own modules too.
+
+pub mod gostr;
+
+pub mod net {
+    pub mod addr;
+}
+
+pub mod queue {
+    // Go's url.Parse fails with no detail: the callers word the error.
+    #[allow(clippy::result_unit_err)]
+    pub mod url;
+}
+
+pub mod volbackup {
+    pub mod target;
+}

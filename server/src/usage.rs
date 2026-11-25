@@ -5,17 +5,17 @@
 //! length of each job's queue and the jobs whose sandboxes it dropped (ADR
 //! 0040); when a proxy last reported a request for each replica (ADR
 //! 0021); and which app and node each replica belongs to, from the latest
-//! pass, for the events of processes killed at the memory limit. The
-//! space counters, volume sizes, connection tracking, and the network
-//! switch's and runtime's reports come with volumes, the cluster network,
-//! and watching (pull requests 12, 13, and 15 of ADR 0055).
+//! pass, for the events of processes killed at the memory limit; and each
+//! node's volume sizes (ADR 0023). The space counters, connection
+//! tracking, and the network switch's and runtime's reports come with the
+//! cluster network and watching (pull requests 13 and 15 of ADR 0055).
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 
 use armada_proto::armada::v1::{SandboxQueue, UsageReport};
 use armada_spec::gotime::Time;
-use armada_spec::validate::{split_app_id, valid_app_id};
+use armada_spec::validate::{split_app_id, valid_app_id, valid_name};
 use armada_spec::{MAX_IDLE_AFTER, SCALE_QUEUE};
 use armada_store::{Event, Replica};
 
@@ -50,6 +50,13 @@ const MAX_OOM_REPORT: i64 = 1 << 20;
 /// network sandboxes.
 const MAX_SANDBOX_REPORTS: usize = 256;
 const MAX_SANDBOX_AGE_MS: i64 = 3_600_000;
+/// volumeUsageMaxAge: how long a node's volume measurement counts, a few
+/// of its agent's one-minute measurements.
+const VOLUME_USAGE_MAX_AGE: i64 = 210 * SECOND;
+/// maxVolumeReports bounds the volumes of one report: a node with more is
+/// unmeasured.
+const MAX_VOLUME_REPORTS: usize = 1024;
+const MAX_VOLUME_BYTES: i64 = 1 << 50;
 
 /// queuelen's fixed texts, in the order Reason tries them.
 const QUEUE_REASONS: &[&str] = &[
@@ -117,6 +124,9 @@ struct State {
     active: HashMap<String, Time>,
     /// The owners of replicas from the latest pass.
     owners: HashMap<String, Owner>,
+    /// Each node's latest volume measurement (ADR 0023): when, and the
+    /// bytes by "app/name".
+    volumes: HashMap<String, (Time, HashMap<String, i64>)>,
 }
 
 /// The latest sample of each node.
@@ -323,7 +333,39 @@ impl Usage {
 
     /// Drops node's sample (its session ended).
     pub(crate) fn forget(&self, node: &str) {
-        self.lock().nodes.remove(node);
+        let mut st = self.lock();
+        st.nodes.remove(node);
+        st.volumes.remove(node);
+    }
+
+    /// setVolumes keeps node's volume measurement. Like other usage it is
+    /// untrusted: values are bounded, and names are checked.
+    pub(crate) fn set_volumes(&self, node: &str, r: &UsageReport, at: Time) {
+        let mut st = self.lock();
+        if r.volumes.len() > MAX_VOLUME_REPORTS {
+            st.volumes.remove(node);
+            return;
+        }
+        let mut m = HashMap::with_capacity(r.volumes.len());
+        for v in &r.volumes {
+            if valid_app_id(&v.app) && valid_name(&v.volume) {
+                m.insert(
+                    format!("{}/{}", v.app, v.volume),
+                    v.bytes.clamp(0, MAX_VOLUME_BYTES),
+                );
+            }
+        }
+        st.volumes.insert(node.to_string(), (at, m));
+    }
+
+    /// volume: the latest size of a volume measured on node.
+    pub(crate) fn volume(&self, node: &str, app: &str, name: &str, now: &Time) -> Option<i64> {
+        let st = self.lock();
+        let (at, m) = st.volumes.get(node)?;
+        if sub(now, at) > VOLUME_USAGE_MAX_AGE {
+            return None;
+        }
+        m.get(&format!("{app}/{name}")).copied()
     }
 
     /// node's sample if it is recent.

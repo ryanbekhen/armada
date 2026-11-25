@@ -53,8 +53,9 @@ import (
 // package's scenarios onto the harness. Neither server runs a pass on its
 // own (manualPasses): the scenario runs every pass, so both pass at the
 // same steps, and replica IDs are predictable (parityIDs) so both name
-// and order their replicas alike. Neither evaluates autoscaled apps on its
-// own either: the scenario runs every evaluation (autoscale).
+// and order their replicas alike. Neither evaluates autoscaled apps nor
+// starts volume backups on its own either: the scenario runs every
+// evaluation (autoscale) and every round of backups (backups).
 
 // parityConfig is how a scenario's control plane is set up.
 type parityConfig struct {
@@ -86,6 +87,9 @@ type serverUnderTest interface {
 	reconcile(t *testing.T)
 	// autoscale runs one evaluation of the autoscaler now.
 	autoscale(t *testing.T)
+	// backups runs one round of the backup loop now and waits for the
+	// backups it started.
+	backups(t *testing.T)
 	// settingsChanged counts OnSettingsChanged calls.
 	settingsChanged() int
 	stop()
@@ -167,6 +171,18 @@ func runParity(t *testing.T, cfg parityConfig, body func(sc *scenario)) {
 	for _, kind := range kinds {
 		ok := t.Run(kind, func(t *testing.T) {
 			sc := newScenario(t, kind, cfg, fx)
+			if dir := os.Getenv("ARMADA_PARITY_DUMP"); dir != "" {
+				// Each run's transcript, also of a run that failed.
+				t.Cleanup(func() {
+					var b strings.Builder
+					sc.mu.Lock()
+					for _, e := range sc.log {
+						fmt.Fprintf(&b, "%s: %s\n", e.label, e.value)
+					}
+					sc.mu.Unlock()
+					_ = os.WriteFile(dir+"/"+strings.ReplaceAll(t.Name(), "/", "_")+".txt", []byte(b.String()), 0o600)
+				})
+			}
 			body(sc)
 			sc.mu.Lock()
 			logs = append(logs, sc.log)
@@ -336,6 +352,26 @@ func (g *goServer) autoscale(t *testing.T) {
 	t.Helper()
 	if err := g.srv.autoscale(context.Background()); err != nil {
 		t.Fatalf("autoscale: %v", err)
+	}
+}
+func (g *goServer) backups(t *testing.T) {
+	t.Helper()
+	if err := g.srv.scheduleBackups(context.Background()); err != nil {
+		t.Fatalf("backups: %v", err)
+	}
+	// Each backup it started holds its volume until it ends.
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		g.srv.backups.mu.Lock()
+		n := len(g.srv.backups.volumes)
+		g.srv.backups.mu.Unlock()
+		if n == 0 {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("backups did not end")
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 }
 
@@ -540,6 +576,13 @@ func (r *rustServer) autoscale(t *testing.T) {
 	t.Helper()
 	if m := r.do(map[string]any{"op": "autoscale"}); m["error"] != "" && m["error"] != nil {
 		t.Fatalf("autoscale: %v", m["error"])
+	}
+}
+
+func (r *rustServer) backups(t *testing.T) {
+	t.Helper()
+	if m := r.do(map[string]any{"op": "backups"}); m["error"] != "" && m["error"] != nil {
+		t.Fatalf("backups: %v", m["error"])
 	}
 }
 
@@ -942,6 +985,9 @@ type parityAgent struct {
 	errc   chan error
 	last   *armadav1.Assignment
 	others []*armadav1.ServerMessage
+	// volume serves the volume requests the server sends, when set
+	// (parity_volumes_test.go).
+	volume atomic.Pointer[func(*armadav1.VolumeRequest)]
 }
 
 // connectAgent connects node id as its agent with hello and waits until
@@ -971,6 +1017,12 @@ func (sc *scenario) connectAgent(id string, client armadav1.AgentServiceClient, 
 				a.errc <- err
 				close(a.msgs)
 				return
+			}
+			if vr := m.GetVolumeRequest(); vr != nil {
+				if h := a.volume.Load(); h != nil {
+					go (*h)(vr)
+					continue
+				}
 			}
 			a.msgs <- m
 		}

@@ -3,10 +3,8 @@
 //! rollbacks, restarts, removal, and what `armada app list|show` and
 //! `armada node list` read.
 //!
-//! The checks of volume backup buckets (Go's checkBackupTargets, ADR 0041)
-//! come with volumes (pull request 12 of ADR 0055): an app whose volumes
-//! back up passes when the caller is a cluster-admin, and answers
-//! `Unimplemented` otherwise. Node status leaves out the usage samples
+//! Deploys, rollbacks, and restarts check volume backup buckets
+//! (`backups`, Go's checkBackupTargets, ADR 0041). Node status leaves out the usage samples
 //! (the last sample's time and runtime) until watching (15); an
 //! autoscaled app shows the autoscaler's last evaluation, or its bounds
 //! until the first.
@@ -24,6 +22,7 @@ use armada_store::{App, DeployOptions, Kind, Node, Replica, ReplicaFilter};
 use tonic::{Code, Status};
 
 use crate::assign::Revisions;
+use crate::backups::UrlSource;
 use crate::events::timestamp;
 use crate::grpc::Auth;
 use crate::reconcile::{APP, ROLLOUT, app_event, nanos, node_lost, traffic_shares};
@@ -154,19 +153,6 @@ fn spec_containers(sp: &Spec) -> (Vec<String>, Vec<String>) {
     (running, inits)
 }
 
-fn has_backups(sp: &Spec) -> bool {
-    sp.volumes.iter().any(|v| v.backup.is_some())
-}
-
-/// The answer of the checks of volume backup buckets until volumes are
-/// ported (pull request 12 of ADR 0055).
-pub(crate) fn backups_later() -> Status {
-    Status::new(
-        Code::Unimplemented,
-        "checking volume backup buckets is not ported to this server yet",
-    )
-}
-
 impl Server {
     fn public_scheme(&self) -> &'static str {
         if self.0.plain_http { "http" } else { "https" }
@@ -279,14 +265,6 @@ impl Server {
         Ok(())
     }
 
-    /// checkBackupTargets, until volumes are ported.
-    pub(crate) fn check_backup_targets(&self, a: &Auth, sp: &Spec) -> Result<(), Status> {
-        if a.acc.admin() || !has_backups(sp) {
-            return Ok(());
-        }
-        Err(backups_later())
-    }
-
     /// checkStoredRevision: Deploy's placement and NFS checks on the
     /// stored spec of a revision a non-cluster-admin makes serve again.
     async fn check_stored_revision(&self, a: &Auth, app: &str, name: &str) -> Result<(), Status> {
@@ -349,7 +327,16 @@ impl Server {
             self.check_traffic_revisions(a, &app.id(), &r.traffic)
                 .await?;
         }
-        self.check_backup_targets(a, &app)?;
+        self.check_backup_targets(
+            &a.acc,
+            &app.id(),
+            &app,
+            &mut UrlSource::Latest {
+                app: &app.id(),
+                infos: Default::default(),
+            },
+        )
+        .await?;
         if Ingress::tcp(app.ingress.as_ref()) {
             match self.store().get_network().await {
                 Err(e) if e.kind == Kind::NotFound => {
@@ -567,17 +554,8 @@ impl Server {
             req.revision.clone()
         };
         self.check_stored_revision(a, &app.name, &target).await?;
-        // checkRollbackBackups, until volumes are ported.
-        if !a.acc.admin() {
-            let rev = self
-                .store()
-                .get_revision(&target)
-                .await
-                .map_err(|e| store_err(&e))?;
-            if rev.app == app.name && rev.spec.as_deref().is_some_and(has_backups) {
-                return Err(backups_later());
-            }
-        }
+        self.check_rollback_backups(&a.acc, &app.name, &target)
+            .await?;
         let rev = self
             .store()
             .rollback(&app.name, &target, &a.actor())
@@ -623,7 +601,16 @@ impl Server {
             .get_revision(&app.target_revision)
             .await
             .map_err(|e| store_err(&e))?;
-        self.check_backup_targets(a, target.spec())?;
+        self.check_backup_targets(
+            &a.acc,
+            &app.name,
+            target.spec(),
+            &mut UrlSource::Latest {
+                app: &app.name,
+                infos: Default::default(),
+            },
+        )
+        .await?;
         let rev = self
             .store()
             .restart_app(&app.name, &a.actor())

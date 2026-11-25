@@ -3,13 +3,9 @@
 
 use armada_proto::armada::v1::*;
 use armada_secrets::{MAX_SIZE, Value};
-use armada_spec::validate::{
-    DEFAULT_SPACE, secret_source, valid_app_id, valid_space, validate_secret_key,
-};
-use armada_store::Kind;
+use armada_spec::validate::{DEFAULT_SPACE, valid_app_id, valid_space, validate_secret_key};
 use tonic::{Code, Status};
 
-use crate::apps::backups_later;
 use crate::events::timestamp;
 use crate::grpc::Auth;
 use crate::reconcile::{ROLLOUT, app_event};
@@ -33,62 +29,6 @@ fn check_secret_target(secret: &str, key: &str, listing: bool) -> Result<(), Sta
 }
 
 impl Server {
-    /// checkSecretBackups: a change to a key that sets the bucket URL of
-    /// the revision an app is heading to. The bucket's check itself comes
-    /// with volumes (pull request 12 of ADR 0055).
-    async fn check_secret_backups(&self, a: &Auth, secret: &str, key: &str) -> Result<(), Status> {
-        if a.acc.admin() {
-            return Ok(());
-        }
-        let mut apps = vec![secret.to_string()];
-        let infos = match self.store().list_secrets(secret).await {
-            Err(e) if e.kind == Kind::NotFound => Vec::new(),
-            Err(e) => return Err(store_err(&e)),
-            Ok(v) => v,
-        };
-        for info in infos.iter().filter(|i| i.name == key) {
-            for rn in &info.used_by {
-                if let Some(i) = rn.rfind("--r")
-                    && i > 0
-                    && !apps.iter().any(|x| x == &rn[..i])
-                {
-                    apps.push(rn[..i].to_string());
-                }
-            }
-        }
-        for app in apps {
-            let x = match self.store().get_app(&app).await {
-                Err(e) if e.kind == Kind::NotFound => continue,
-                Err(e) => return Err(store_err(&e)),
-                Ok(x) => x,
-            };
-            let rn = if x.target_revision.is_empty() {
-                x.active_revision.clone()
-            } else {
-                x.target_revision.clone()
-            };
-            if rn.is_empty() {
-                continue;
-            }
-            let rev = self
-                .store()
-                .get_revision(&rn)
-                .await
-                .map_err(|e| store_err(&e))?;
-            let Some(sp) = &rev.spec else { continue };
-            let uses = sp.volumes.iter().any(|v| {
-                v.backup.as_ref().is_some_and(|b| {
-                    let (sid, k) = secret_source(&app, &b.url_secret_ref);
-                    sid == secret && k == key
-                })
-            });
-            if uses {
-                return Err(backups_later());
-            }
-        }
-        Ok(())
-    }
-
     /// SetSecret stores a new version of a secret's key, encrypted with
     /// the master key, and optionally rolls out every app using the key.
     pub(crate) async fn set_secret(
@@ -114,7 +54,8 @@ impl Server {
                 "secrets are disabled: the server has no master key",
             ));
         };
-        self.check_secret_backups(a, &secret, &key).await?;
+        self.check_secret_backups(&a.acc, &secret, &key, &req.value)
+            .await?;
         let val = Value::new(&req.value);
         let seal = |v: i64| {
             keys.seal(&secret, &key, v, &val)

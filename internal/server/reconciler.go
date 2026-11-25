@@ -342,10 +342,6 @@ func (s *Server) reconcileApp(ctx context.Context, rc *reconcileRun, app *store.
 		return nil, err
 	}
 	if target.Spec.HasLocalVolumes() {
-		if s.parts == coreParts {
-			// Not ported to the Rust control plane yet (ADR 0055).
-			return all, nil
-		}
 		return s.reconcileVolumeApp(ctx, rc, app, target, nodes, all, revs)
 	}
 	if len(app.Traffic) == 0 || app.Rolling() {
