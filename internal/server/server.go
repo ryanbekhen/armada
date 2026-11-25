@@ -288,45 +288,18 @@ type Server struct {
 	moveLimits moveLimits
 	moveSeen   atomic.Pointer[armadav1.RuntimeMoveStatus]
 
-	// parts is what a reconcile pass and a term's loops do: everything,
-	// or for the scenario parity tests of the Rust control plane (ADR
-	// 0055) only what the Rust server does so far (parity_test.go).
-	parts serverParts
 	// manualPasses keeps the reconcile loop from running passes (it still
-	// promotes learners), the autoscaler from evaluating, and the backup
-	// loop from starting backups: the scenario parity tests run every
-	// pass, evaluation, and round of backups themselves, so both servers
-	// act at the same steps.
+	// promotes learners), and the autoscaler, the backup loops, the
+	// domain verification loop, and the pruning of placements from
+	// running at all: the scenario parity tests of the Rust control plane
+	// (ADR 0055, parity_test.go) run every pass, evaluation, round of
+	// backups, and pruning themselves, so both servers act at the same
+	// steps.
 	manualPasses bool
 	// newID makes the random part of new replica IDs (randomID; the
 	// parity tests make them predictable).
 	newID func(int) string
 }
-
-// serverParts names how much of the control plane a server runs.
-type serverParts int
-
-const (
-	// allParts is the whole control plane.
-	allParts serverParts = iota
-	// coreParts is what ADR 0055's pull requests 8 to 15 ported: terms,
-	// sessions with agents, the assignments of the replicas the store
-	// holds, scheduling, placement, rollouts, drains, evacuation,
-	// self-healing, rebalancing, the removal of apps, traffic splits,
-	// jobs with their tasks and queue triggers (queue sandboxes in the
-	// assignments), the autoscaler with wakes (a pass tells the usage
-	// store whose replicas are whose), volumes: apps with local volumes,
-	// their failover, and the backup loop, and the cluster network in
-	// every assignment (its switches, sites, relays, and endpoints, the
-	// sandboxes' addresses among them) with the runtime move, the proxy
-	// configuration with its certificates (the ports of internal TCP apps
-	// in the network), and watching's first part: alert channels and
-	// their notices, the metrics endpoint, Top, and ClusterStatus. The
-	// domain verification loop, the control plane backup loop, and the
-	// loop that prunes log placements do not run; the last two come with
-	// watching's second part, which makes coreParts allParts.
-	coreParts
-)
 
 // New builds a Server. TLS must require and verify client certificates.
 func New(cfg Config) (*Server, error) {
@@ -581,15 +554,13 @@ func (s *Server) Serve(ctx context.Context, lis net.Listener) error {
 	if !s.manualPasses {
 		go s.autoscaleLoop(ctx)
 		go s.backupLoop(ctx)
+		go s.verifyLoop(ctx)
+		go s.controlPlaneBackupLoop(ctx)
+		go s.placementLoop(ctx)
 	}
 	s.alerts.start(ctx, s.alertHTTP)
 	if err := s.loadAlerts(ctx); err != nil {
 		s.log.Warn("alert channels: load", "err", err)
-	}
-	if s.parts == allParts {
-		go s.verifyLoop(ctx)
-		go s.controlPlaneBackupLoop(ctx)
-		go s.placementLoop(ctx)
 	}
 	go func() {
 		<-ctx.Done()

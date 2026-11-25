@@ -474,7 +474,13 @@ Go and every new Rust part is exercised only by its parity tests.
     endpoint first, then log search and live logs, exec, the log export
     settings, and the control plane backups' loop. The metrics endpoint
     exports every `armada_*` metric as the Go server does; Go's own
-    runtime metrics (`go_*`) are not carried over.
+    runtime metrics (`go_*`) are not carried over. The control plane
+    backups write the volume backups' repository format through
+    armada-node's own code (its library), so a Go server and a Rust
+    server back up to and restore from one bucket; what a backup holds is
+    still staged by the daemon. With the second part every method of both
+    services is ported and the scenario harness runs Go's whole control
+    plane (no part of it is left out any more).
 16. **The agent.** The agent's loop (ADR 0054 step 6) as `armadad agent`:
     session, Hello, reconcile, probes, fencing, held replicas, jobs, init
     containers and sidecars, secret files, wake, certificates, exec,

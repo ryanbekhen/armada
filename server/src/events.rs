@@ -237,7 +237,7 @@ impl Server {
     }
 
     /// When each space other than default was created.
-    async fn spaces_created(&self) -> Result<BTreeMap<String, Time>, Status> {
+    pub(crate) async fn spaces_created(&self) -> Result<BTreeMap<String, Time>, Status> {
         let sps = self
             .store()
             .list_spaces()
@@ -411,7 +411,7 @@ impl Server {
 
 /// Whether t, a time in app's history, is from before its space was
 /// created.
-fn before_space(created: &BTreeMap<String, Time>, app: &str, t: &Time) -> bool {
+pub(crate) fn before_space(created: &BTreeMap<String, Time>, app: &str, t: &Time) -> bool {
     let Some((space, _)) = split_app_id(app) else {
         return false;
     };

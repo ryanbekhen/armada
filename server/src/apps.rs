@@ -146,7 +146,7 @@ fn app_urls(app: &App, src: &UrlSources) -> Vec<String> {
 }
 
 /// specContainers: "app" and its sidecars, then its init containers.
-fn spec_containers(sp: &Spec) -> (Vec<String>, Vec<String>) {
+pub(crate) fn spec_containers(sp: &Spec) -> (Vec<String>, Vec<String>) {
     let mut running = vec![MAIN_CONTAINER.to_string()];
     running.extend(sp.sidecars.iter().map(|c| c.name.clone()));
     let inits = sp.init_containers.iter().map(|c| c.name.clone()).collect();

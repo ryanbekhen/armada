@@ -37,11 +37,11 @@
 //! only in builds with test hooks (src/hooks.rs).
 
 mod chunker;
-mod gotime;
+pub mod gotime;
 mod keys;
-mod repo;
-mod s3;
-mod target;
+pub mod repo;
+pub mod s3;
+pub mod target;
 
 use gotime::{Instant, Keep};
 use std::io::{BufRead, Write};
@@ -49,6 +49,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 static TOUCHED: AtomicBool = AtomicBool::new(false);
 static STOPPED: AtomicBool = AtomicBool::new(false);
+/// Whether the program runs a call (`command`): only then does a call say
+/// "touched" on stdout. The control plane, which links the repository
+/// through the library, has stdout of its own.
+static PROGRAM: AtomicBool = AtomicBool::new(false);
 
 /// Whether the agent gave up on a restore (closed stdin).
 pub(crate) fn stopped() -> bool {
@@ -58,7 +62,7 @@ pub(crate) fn stopped() -> bool {
 /// Says once, before the first write to the bucket or the volume, that
 /// the call changed something.
 pub(crate) fn touch() {
-    if !TOUCHED.swap(true, Ordering::SeqCst) {
+    if PROGRAM.load(Ordering::SeqCst) && !TOUCHED.swap(true, Ordering::SeqCst) {
         let mut out = std::io::stdout().lock();
         let _ = out.write_all(b"touched\n");
         let _ = out.flush();
@@ -126,6 +130,7 @@ fn unbase64(s: &str) -> Option<Vec<u8>> {
 }
 
 pub fn command(op: &str, args: &[&str]) -> Result<(), String> {
+    PROGRAM.store(true, Ordering::SeqCst);
     let extra_ca = match args {
         [] => None,
         ["--extra-ca", f] => crate::hooks::extra_ca(f)?,

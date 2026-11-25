@@ -43,7 +43,7 @@ const ATTACH_TIMEOUT: Duration = Duration::from_secs(10);
 /// How long a request waits for room in a session's queue (Go's offer).
 const OFFER_TIMEOUT: Duration = Duration::from_secs(5);
 
-type Check = Box<dyn Fn(&Access) -> std::result::Result<(), Status> + Send + Sync>;
+pub(crate) type Check = Box<dyn Fn(&Access) -> std::result::Result<(), Status> + Send + Sync>;
 
 /// An agent's session for a volume request, as the router hands it over.
 struct Attached {
@@ -682,7 +682,7 @@ impl Server {
 
     /// A stream's guard for a principal (Go's streamGuard), and its first
     /// check.
-    fn stream_guard(
+    pub(crate) fn stream_guard(
         &self,
         a: &Auth,
         method: &str,
