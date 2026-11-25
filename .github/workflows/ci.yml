@@ -286,7 +286,11 @@ jobs:
       - run: cargo fmt --all --check
       - run: cargo clippy --locked --workspace --all-targets -- -D warnings
       - run: cargo test --locked --workspace
-      - run: cargo install cargo-deny --locked --version 0.22.0
+      # The cache may restore cargo-deny already; install it only when the
+      # pinned version is missing.
+      - run: |
+          cargo deny --version 2>/dev/null | grep -qx 'cargo-deny 0.22.0' ||
+            cargo install cargo-deny --locked --force --version 0.22.0
       - run: cargo deny --locked check licenses
       - run: make logger
       - run: make shim
