@@ -20,10 +20,14 @@
 //! local volumes recreated on their node with held replicas, the volume
 //! methods through agents' volume sessions, the volume sizes of usage
 //! reports, scheduled backups and their methods, the checks of backup
-//! buckets, and failover (`volumes`, `backups`, `failover`). The cluster
-//! network, ingress, and watching follow in their own pull requests; their
-//! AdminService methods answer `Unimplemented` until then
-//! ([`admin::LATER`]).
+//! buckets, and failover (`volumes`, `backups`, `failover`); with the
+//! network and the runtime move (pull request 13): the cluster network in
+//! every assignment with its peers, sites, relays, and the endpoints the
+//! firewalls keep apart, switches of its mode, the peer lists of joins
+//! over the leader's public address, and the move of containerd nodes to
+//! the supervisor runtime (`network`, `runtimemove`). Ingress and watching
+//! follow in their own pull requests; their AdminService methods answer
+//! `Unimplemented` until then ([`admin::LATER`]).
 
 pub mod access;
 mod admin;
@@ -44,10 +48,12 @@ pub mod lifecycle;
 mod limiter;
 pub mod log;
 mod netutil;
+mod network;
 mod nodes;
 mod rbac;
 mod reconcile;
 pub mod renew;
+mod runtimemove;
 mod schedule;
 mod secret_api;
 mod servers;
@@ -116,6 +122,8 @@ pub struct Config {
     pub join_public: bool,
     /// The leader's public endpoint for machines of other sites (ADR 0050).
     pub join_site_addr: String,
+    /// The listener already listening for join_site_addr (tests).
+    pub join_site_listener: Option<std::net::TcpListener>,
     /// Closes idle join connections sooner than 15 seconds (tests).
     pub join_idle: Duration,
     /// Replaces the join listener's burst per source address (tests).
@@ -154,6 +162,12 @@ pub struct Config {
     pub autoscale_interval: Duration,
     /// How often due volume backups are started; zero uses 30 seconds.
     pub backup_interval: Duration,
+    /// How long a runtime move's draining and migrating steps may take,
+    /// and how long a node whose move was given up waits (ADR 0054); zero
+    /// uses 15 minutes, 10 minutes, and an hour.
+    pub runtime_drain_limit: Duration,
+    pub runtime_migrate_limit: Duration,
+    pub runtime_move_backoff: Duration,
     /// Passes run only when [`Server::reconcile`] is called, and the
     /// autoscaler evaluates only when [`Server::autoscale`] is (the
     /// scenario parity tests, which drive both, and the backups with
@@ -179,6 +193,7 @@ impl Config {
             join_listener: None,
             join_public: false,
             join_site_addr: String::new(),
+            join_site_listener: None,
             join_idle: Duration::ZERO,
             join_burst: 0,
             node_cert_validity: Duration::ZERO,
@@ -200,6 +215,9 @@ impl Config {
             job_retry_base: Duration::ZERO,
             autoscale_interval: Duration::ZERO,
             backup_interval: Duration::ZERO,
+            runtime_drain_limit: Duration::ZERO,
+            runtime_migrate_limit: Duration::ZERO,
+            runtime_move_backoff: Duration::ZERO,
             manual_passes: false,
             new_id: None,
             log: log::Logger::discard(),
@@ -222,6 +240,7 @@ pub(crate) struct Inner {
     pub join_listener: Mutex<Option<std::net::TcpListener>>,
     pub join_public: bool,
     pub join_site_addr: String,
+    pub join_site_listener: Mutex<Option<std::net::TcpListener>>,
     pub join_idle: Duration,
     pub node_cert_validity: Duration,
     pub resync: Duration,
@@ -242,6 +261,9 @@ pub(crate) struct Inner {
     pub job_retry_base: Duration,
     pub autoscale_interval: Duration,
     pub backup_interval: Duration,
+    pub runtime_drain_limit: Duration,
+    pub runtime_migrate_limit: Duration,
+    pub runtime_move_backoff: Duration,
     pub manual_passes: bool,
     pub new_id: Arc<dyn Fn(usize) -> String + Send + Sync>,
     /// When this server started leading: drains a previous leader began
@@ -278,6 +300,9 @@ pub(crate) struct Inner {
     pub backups: backups::BackupRuns,
     /// Failovers in progress and their retries (memory only).
     pub failovers: failover::FailoverRuns,
+    /// The runtime move's lock between the pass and SetClusterConfig, with
+    /// what it keeps in memory (Go's moveMu, moveAsked, moveSeen).
+    pub moves: tokio::sync::Mutex<runtimemove::MoveState>,
     /// The next pass a wake-up asked for, and its timer.
     pub wake: Mutex<Option<(tokio::time::Instant, tokio::task::AbortHandle)>>,
 }
@@ -326,6 +351,7 @@ impl Server {
             join_listener: Mutex::new(cfg.join_listener),
             join_public: cfg.join_public,
             join_site_addr: cfg.join_site_addr,
+            join_site_listener: Mutex::new(cfg.join_site_listener),
             join_idle: cfg.join_idle,
             node_cert_validity: validity,
             resync: nonzero(cfg.resync, DEFAULT_RESYNC),
@@ -349,6 +375,15 @@ impl Server {
                 autoscale::DEFAULT_AUTOSCALE_INTERVAL,
             ),
             backup_interval: nonzero(cfg.backup_interval, backups::DEFAULT_BACKUP_INTERVAL),
+            runtime_drain_limit: nonzero(cfg.runtime_drain_limit, runtimemove::DEFAULT_DRAIN_LIMIT),
+            runtime_migrate_limit: nonzero(
+                cfg.runtime_migrate_limit,
+                runtimemove::DEFAULT_MIGRATE_LIMIT,
+            ),
+            runtime_move_backoff: nonzero(
+                cfg.runtime_move_backoff,
+                runtimemove::DEFAULT_MOVE_BACKOFF,
+            ),
             manual_passes: cfg.manual_passes,
             new_id: cfg.new_id.unwrap_or_else(|| Arc::new(random_id)),
             term_start,
@@ -381,6 +416,7 @@ impl Server {
             volumes: volumes::VolumeRouter::default(),
             backups: backups::BackupRuns::default(),
             failovers: failover::FailoverRuns::default(),
+            moves: tokio::sync::Mutex::new(runtimemove::MoveState::default()),
             wake: Mutex::new(None),
         })))
     }

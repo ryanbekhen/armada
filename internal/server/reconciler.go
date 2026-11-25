@@ -54,15 +54,13 @@ func (s *Server) Reconcile(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if s.parts == allParts {
-		// The node being moved to the supervisor runtime is drained like a
-		// cordoned one (ADR 0054).
-		move, err := s.loadRuntimeMove(ctx)
-		if err != nil {
-			return err
-		}
-		cordonMoving(move, nodes)
+	// The node being moved to the supervisor runtime is drained like a
+	// cordoned one (ADR 0054).
+	move, err := s.loadRuntimeMove(ctx)
+	if err != nil {
+		return err
 	}
+	cordonMoving(move, nodes)
 	replicas, err := s.store.ListReplicas(ctx, store.ReplicaFilter{})
 	if err != nil {
 		return err
@@ -115,18 +113,12 @@ func (s *Server) Reconcile(ctx context.Context) error {
 	if rc.wake > 0 {
 		s.wakeAfter(rc.wake)
 	}
-	if s.parts == coreParts {
-		eps, err := s.endpoints(ctx)
-		if err != nil {
+	var pxp, pxRefs *armadav1.ProxyConfig
+	if s.parts == allParts {
+		apps = slices.DeleteFunc(apps, func(a store.App) bool { return removed[a.Name] })
+		if pxp, pxRefs, err = s.proxyConfig(ctx, apps, replicas); err != nil {
 			return err
 		}
-		s.endpointsSeen.Store(&seenEndpoints{addrs: eps, at: time.Now()})
-		return s.pushAssignments(ctx, replicas, &revs, nil, nil, eps, nil, rc.sandboxes, nil)
-	}
-	apps = slices.DeleteFunc(apps, func(a store.App) bool { return removed[a.Name] })
-	pxp, pxRefs, err := s.proxyConfig(ctx, apps, replicas)
-	if err != nil {
-		return err
 	}
 	eps, err := s.endpoints(ctx)
 	if err != nil {

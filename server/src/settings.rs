@@ -2,8 +2,9 @@
 //! cluster configuration RPCs. SetClusterConfig sets the root domain and
 //! the server settings here; the settings of later pull requests (trusted
 //! proxies and PROXY protocol 14, log history and export and control plane
-//! backups 15, the network mode, mesh range, and runtime move 13) answer
-//! `Unimplemented` before anything changes.
+//! backups 15) answer `Unimplemented` before anything changes; the network
+//! mode, the mesh range, and the runtime move are set too (pull request
+//! 13).
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -388,10 +389,6 @@ impl Server {
                     || req.set_backup_off,
                 15,
             ),
-            (
-                req.set_network || req.set_mesh_cidr || req.set_runtime_move,
-                13,
-            ),
         ];
         if later.iter().any(|(set, _)| *set) {
             return Err(Status::new(
@@ -421,6 +418,32 @@ impl Server {
             self.0.log.info(
                 "root domain changed",
                 &[("root_domain", root), ("by", a.actor())],
+            );
+        }
+        if req.set_network {
+            self.set_network(a, &c.network).await?;
+        }
+        if req.set_runtime_move {
+            self.set_runtime_move(a, !c.runtime_move_off).await?;
+        }
+        if req.set_mesh_cidr {
+            let Some(p) = armada_spec::go::parse_prefix(&c.mesh_cidr) else {
+                return Err(Status::new(
+                    Code::InvalidArgument,
+                    format!(
+                        "mesh CIDR {}: want a prefix like {}",
+                        armada_spec::go::quote(&c.mesh_cidr),
+                        armada_store::network::DEFAULT_MESH_CIDR
+                    ),
+                ));
+            };
+            self.store()
+                .set_mesh_cidr(&Some(p.clone()), &a.actor())
+                .await
+                .map_err(|e| store_err(&e))?;
+            self.0.log.info(
+                "mesh CIDR set",
+                &[("mesh_cidr", p.string()), ("by", a.actor())],
             );
         }
         let changed = self.set_settings(a, &req, &c).await?;

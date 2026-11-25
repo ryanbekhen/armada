@@ -6,21 +6,24 @@
 //! 0040); when a proxy last reported a request for each replica (ADR
 //! 0021); and which app and node each replica belongs to, from the latest
 //! pass, for the events of processes killed at the memory limit; and each
-//! node's volume sizes (ADR 0023). The space counters, connection
-//! tracking, and the network switch's and runtime's reports come with the
-//! cluster network and watching (pull requests 13 and 15 of ADR 0055).
+//! node's volume sizes (ADR 0023); its connection tracking table, its side
+//! of a switch of the network's mode (ADR 0050), and how it runs
+//! containers (ADR 0054). The space counters come with watching (pull
+//! request 15 of ADR 0055).
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 
-use armada_proto::armada::v1::{SandboxQueue, UsageReport};
+use armada_proto::armada::v1::{NetworkSwitchStatus, RuntimeStatus, SandboxQueue, UsageReport};
 use armada_spec::gotime::Time;
 use armada_spec::validate::{split_app_id, valid_app_id, valid_name};
 use armada_spec::{MAX_IDLE_AFTER, SCALE_QUEUE};
 use armada_store::{Event, Replica};
 
 use crate::events::{REPLICA, event};
+use crate::network::clean_switch_status;
 use crate::reconcile::sub;
+use crate::runtimemove::clean_runtime_status;
 
 const SECOND: i64 = 1_000_000_000;
 /// usageMaxAge: how long a node's sample counts.
@@ -57,6 +60,8 @@ const VOLUME_USAGE_MAX_AGE: i64 = 210 * SECOND;
 /// unmeasured.
 const MAX_VOLUME_REPORTS: usize = 1024;
 const MAX_VOLUME_BYTES: i64 = 1 << 50;
+/// maxConntrack bounds a node's reported connection tracking numbers.
+const MAX_CONNTRACK: i64 = 1 << 32;
 
 /// queuelen's fixed texts, in the order Reason tries them.
 const QUEUE_REASONS: &[&str] = &[
@@ -107,6 +112,17 @@ pub(crate) struct NodeUsage {
     pub queues: HashMap<(String, String), i64>,
     pub sandboxes: HashMap<String, SandboxReading>,
     pub dropped: HashSet<String>,
+    /// The node's connection tracking table (ADR 0025); max 0 when unknown.
+    #[allow(dead_code)]
+    pub conntrack_entries: i64,
+    #[allow(dead_code)]
+    pub conntrack_max: i64,
+    /// The node's side of a switch of the network's mode (ADR 0050),
+    /// bounded by clean_switch_status.
+    pub net_switch: Option<NetworkSwitchStatus>,
+    /// How the node runs containers (ADR 0054), bounded by
+    /// clean_runtime_status.
+    pub runtime: Option<RuntimeStatus>,
 }
 
 /// Which app and node a replica belongs to (Go's replicaOwner).
@@ -188,8 +204,8 @@ impl Usage {
     /// bounded, and a report with too many replicas is dropped. Which
     /// replicas belong to the node is only checked when the sample is
     /// read, so a report costs no store access. It returns true when the
-    /// report brings a new reading of a job's queue, so the leader
-    /// reconciles at once.
+    /// report brings a new reading of a job's queue, or a node newly ready
+    /// for a step of a network switch, so the leader reconciles at once.
     pub(crate) fn set(&self, node: &str, r: &UsageReport, at: Time) -> bool {
         if r.replicas.len() > MAX_USAGE_REPLICAS {
             self.forget(node);
@@ -252,6 +268,14 @@ impl Usage {
                 fresh = true;
             }
         }
+        let net_switch = clean_switch_status(r.network_switch.as_ref());
+        let prev = st.nodes.get(node).and_then(|n| n.net_switch.as_ref());
+        if let Some(ns) = &net_switch
+            && ns.ready
+            && prev.is_none_or(|p| !p.ready || p.to != ns.to || p.step != ns.step)
+        {
+            fresh = true;
+        }
         for id in busy {
             st.active.insert(id, at.clone());
         }
@@ -277,6 +301,10 @@ impl Usage {
                 queues,
                 sandboxes,
                 dropped,
+                conntrack_entries: r.conntrack_entries.clamp(0, MAX_CONNTRACK),
+                conntrack_max: r.conntrack_max.clamp(0, MAX_CONNTRACK),
+                net_switch,
+                runtime: clean_runtime_status(r.runtime.as_ref()),
             },
         );
         fresh
@@ -376,6 +404,19 @@ impl Usage {
             return None;
         }
         Some(n.clone())
+    }
+
+    /// switchStatus: the latest side of a network switch node reported.
+    pub(crate) fn switch_status(&self, node: &str) -> Option<NetworkSwitchStatus> {
+        self.lock()
+            .nodes
+            .get(node)
+            .and_then(|n| n.net_switch.clone())
+    }
+
+    /// runtimeOf: the latest RuntimeStatus node reported, if recent.
+    pub(crate) fn runtime_of(&self, node: &str, now: &Time) -> Option<RuntimeStatus> {
+        self.node(node, now).and_then(|n| n.runtime)
     }
 
     /// droppedSandbox: node's recent sample says it does not keep job's

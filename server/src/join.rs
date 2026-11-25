@@ -227,13 +227,13 @@ impl Server {
                         .lock()
                         .unwrap_or_else(|p| p.into_inner()) = join_sources(&toks);
                     if !toks.is_empty() && stop.is_none() {
-                        let l = match self
-                            .0
-                            .join_listener
-                            .lock()
-                            .unwrap_or_else(|p| p.into_inner())
-                            .take()
-                        {
+                        let held = if other_sites {
+                            &self.0.join_site_listener
+                        } else {
+                            &self.0.join_listener
+                        };
+                        let taken = held.lock().unwrap_or_else(|p| p.into_inner()).take();
+                        let l = match taken {
                             Some(l) => l
                                 .set_nonblocking(true)
                                 .and_then(|_| TcpListener::from_std(l)),
@@ -756,15 +756,6 @@ impl JoinApi {
     }
 }
 
-/// The peer list a machine joining a mesh or from another site brings its
-/// tunnels up with comes with the cluster network (pull request 13).
-fn needs_network() -> Status {
-    Status::new(
-        Code::Unimplemented,
-        "joining over the leader's public address needs the cluster network's peer list, which this server does not build yet",
-    )
-}
-
 fn redeem_err(e: armada_store::Error) -> Status {
     match e.kind {
         Kind::NotFound => Status::new(Code::Unauthenticated, "invalid join token"),
@@ -802,9 +793,6 @@ impl JoinService for JoinApi {
                 Code::InvalidArgument,
                 "missing or oversized CSR",
             ));
-        }
-        if mesh.on || mesh.away {
-            return Err(needs_network());
         }
         let ca =
             s.0.ca
@@ -879,6 +867,14 @@ impl JoinService for JoinApi {
             network_mode: mode,
             ..Default::default()
         };
+        if mesh.on || mesh.away {
+            // The machine reaches the servers only through its tunnels: it
+            // brings them up with the peer list before its agent starts.
+            resp.network = s
+                .mesh_network()
+                .await
+                .map_err(|_| Status::new(Code::Internal, "read the cluster network"))?;
+        }
         if mesh.on || mesh.meshed {
             resp.mesh_ip = ip.clone();
         }
@@ -956,9 +952,6 @@ impl JoinService for JoinApi {
                     format!("invalid port {p}"),
                 ));
             }
-        }
-        if mesh.on || mesh.away {
-            return Err(needs_network());
         }
         let ip_addr = ip_of(&parse_addr(&ip).expect("a checked address"));
         let host = SocketAddr::new(ip_addr, 0);
@@ -1144,6 +1137,15 @@ impl JoinService for JoinApi {
             user_recorded: recorded,
             ..Default::default()
         };
+        if mesh.on || mesh.away {
+            // The peer list: the machine brings its tunnels up with it
+            // before etcd starts, since the other servers are reached only
+            // through them.
+            resp.network = s
+                .mesh_network()
+                .await
+                .map_err(|_| Status::new(Code::Internal, "read the cluster network"))?;
+        }
         if mesh.on || mesh.meshed {
             resp.mesh_ip = ip;
         }

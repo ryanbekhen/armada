@@ -5,8 +5,9 @@
 //! samples, proxy load, queue lengths, and sandboxes' readings) with an
 //! event for each replica whose processes were killed at the memory
 //! limit, volume sizes, and wake requests to the autoscaler
-//! (`autoscale`); the rest of the usage store comes with the cluster
-//! network and watching (pull requests 13 and 15); the conditions a usage report starts
+//! (`autoscale`), and the network switch's and runtime's reports; the
+//! space counters come with watching (pull request 15); the conditions a
+//! usage report starts
 //! (unreachable peers, WireGuard in userspace, a failing log export) are
 //! recorded here.
 
@@ -111,6 +112,18 @@ impl Session {
         });
         q.last = Some(a);
         self.ready.notify_one();
+    }
+
+    /// Queues m when there is room, without waiting (Go's send with a
+    /// default case).
+    pub fn try_offer(&self, m: ServerMessage) -> bool {
+        let mut q = self.q.lock().unwrap_or_else(|p| p.into_inner());
+        if q.msgs.len() >= QUEUE {
+            return false;
+        }
+        q.msgs.push_back(m);
+        self.ready.notify_one();
+        true
     }
 
     /// Queues m, waiting for room at most timeout; false once the session

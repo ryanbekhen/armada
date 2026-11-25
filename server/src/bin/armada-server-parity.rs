@@ -6,8 +6,11 @@
 //! the master key, the test clock's start, and the server's settings
 //! (with `manualPasses`, a pass runs only on a `reconcile` request; with
 //! `predictableIds`, replica IDs count up as the Go side's do). The
-//! program answers `{"ready": {"api", "join"}}` once it serves, on the
-//! addresses it bound. Later lines are requests, each answered with
+//! program answers `{"ready": {"api", "join", "joinLocal", "siteJoin",
+//! "siteJoinLocal"}}` once it serves, on the addresses it bound (with
+//! `meshJoin` the join listener, and with `siteJoin` the listener for
+//! other sites, are named after a public address and listen on the
+//! loopback one). Later lines are requests, each answered with
 //! `{"id", "error"?}`: `now` (ms) sets the test clock, `reconcile` runs a
 //! pass, `autoscale` an evaluation of the autoscaler, `backups` a round of
 //! the backup loop answered once its backups ended (neither runs on its
@@ -402,6 +405,29 @@ async fn serve(
         .map(|a| a.to_string())
         .unwrap_or_default();
     let mut cfg = setup.config(setup.store.clone(), &api, join);
+    // A mesh cluster's join listener (ADR 0049), or the leader's endpoint
+    // for machines of other sites (ADR 0050): listening on the loopback
+    // address, named after a public one.
+    let public = |port: &str| format!("203.0.113.1:{port}");
+    let port_of = |a: &str| {
+        a.rsplit_once(':')
+            .map(|(_, p)| p.to_string())
+            .unwrap_or_default()
+    };
+    let mut join_public = join_addr.clone();
+    if b(&setup.cfg, "meshJoin") {
+        join_public = public(&port_of(&join_addr));
+        cfg.join_addr = join_public.clone();
+        cfg.join_public = true;
+    }
+    let (mut site, mut site_local) = (String::new(), String::new());
+    if b(&setup.cfg, "siteJoin") {
+        let l = std::net::TcpListener::bind("127.0.0.1:0").expect("listen for other sites");
+        site_local = l.local_addr().map(|a| a.to_string()).unwrap_or_default();
+        site = public(&port_of(&site_local));
+        cfg.join_site_addr = site.clone();
+        cfg.join_site_listener = Some(l);
+    }
     let out = setup.out.clone();
     cfg.on_settings_changed = Some(Arc::new(move || {
         let out = out.clone();
@@ -411,7 +437,7 @@ async fn serve(
     *current.lock().unwrap_or_else(|p| p.into_inner()) = Some(srv.clone());
     emit(
         &setup.out,
-        json!({"ready": {"api": api, "join": join_addr}}),
+        json!({"ready": {"api": api, "join": join_public, "joinLocal": join_addr, "siteJoin": site, "siteJoinLocal": site_local}}),
     )
     .await;
     if let Err(e) = srv.serve(lis, stop).await {
