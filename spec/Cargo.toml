@@ -1,0 +1,19 @@
+[package]
+name = "armada-spec"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Armada's app and job specs: strict YAML, defaults, validation, export, and variables, as internal/spec reads and writes them (ADR 0055)"
+
+[dependencies]
+# Time zones of schedules and backups: the machine's zoneinfo files first,
+# as Go's time.LoadLocation reads them, then jiff's bundled database.
+jiff.workspace = true
+serde_json.workspace = true
+
+# Go's parity tests (internal/spec/nativespec_test.go) drive the crate
+# through this program; it is never packed.
+[[bin]]
+name = "armada-spec-check"
+path = "src/bin/armada-spec-check.rs"
