@@ -1,0 +1,400 @@
+{
+  "files": {
+    "api-r1-dddd0005/config.json": "{\"ociVersion\":\"1.3.0\",\"process\":{\"user\":{\"uid\":0,\"gid\":0},\"args\":[\"/app\"],\"cwd\":\"/\"},\"root\":{\"path\":\"rootfs\"}}",
+    "api-r1-dddd0005/record.json": "{\"id\":\"api-r1-dddd0005\",\"image\":\"docker.io/library/api:2\",\"labels\":{\"armada.app\":\"api\",\"armada.managed\":\"true\",\"armada.runtime/failed\":\"sidecar log: create container: no\",\"armada.runtime/kind\":\"app\",\"armada.runtime/name\":\"api-r1\",\"armada.runtime/started\":\"not a time\"},\"group\":\"api@p\",\"created\":\"2026-11-20T10:00:00.123456Z\"}",
+    "armada-haproxy-eeee0006/config.json": "{\"ociVersion\":\"1.3.0\",\"process\":{\"user\":{\"uid\":0,\"gid\":0},\"args\":[\"/app\"],\"cwd\":\"/\"},\"root\":{\"path\":\"rootfs\"}}",
+    "armada-haproxy-eeee0006/record.json": "{\"id\":\"armada-haproxy-eeee0006\",\"image\":\"docker.io/library/haproxy:3\",\"labels\":{\"armada.managed\":\"true\",\"armada.runtime/host-ip\":\"8.8.8.8\",\"armada.runtime/host-port\":\"80\",\"armada.runtime/kind\":\"system\",\"armada.runtime/name\":\"armada-haproxy\",\"armada.system\":\"haproxy\"},\"group\":\"armada-haproxy-eeee0006\",\"created\":\"2026-11-20T10:00:00.123456Z\"}",
+    "armada-migrate-bbbb0002/config.json": "{\"ociVersion\":\"1.3.0\",\"process\":{\"user\":{\"uid\":0,\"gid\":0},\"args\":[\"/app\"],\"cwd\":\"/\"},\"root\":{\"path\":\"rootfs\"}}",
+    "armada-migrate-bbbb0002/record.json": "{\"id\":\"armada-migrate-bbbb0002\",\"image\":\"docker.io/library/web:1\",\"labels\":{\"armada.app\":\"web\",\"armada.container\":\"migrate\",\"armada.managed\":\"true\",\"armada.role\":\"init\",\"armada.runtime/kind\":\"member\",\"armada.runtime/name\":\"migrate\",\"armada.runtime/pod\":\"web-r1-aaaa0001\",\"armada.runtime/started\":\"2026-11-20T10:00:01.123456Z\"},\"group\":\"web@p\",\"created\":\"2026-11-20T10:00:00.123456Z\"}",
+    "armada-proxy-cccc0004/config.json": "{\"ociVersion\":\"1.3.0\",\"process\":{\"user\":{\"uid\":0,\"gid\":0},\"args\":[\"/app\"],\"cwd\":\"/\"},\"root\":{\"path\":\"rootfs\"}}",
+    "armada-proxy-cccc0004/record.json": "{\"id\":\"armada-proxy-cccc0004\",\"image\":\"docker.io/library/side:1\",\"labels\":{\"armada.app\":\"web\",\"armada.container\":\"proxy\",\"armada.managed\":\"true\",\"armada.role\":\"sidecar\",\"armada.runtime/kind\":\"member\",\"armada.runtime/name\":\"proxy\",\"armada.runtime/pod\":\"web-r1-aaaa0001\",\"armada.runtime/started\":\"2026-11-20T10:00:03.123456Z\"},\"group\":\"web@p\",\"created\":\"2026-11-20T10:00:00.123456Z\"}",
+    "armada-seed-bbbb0003/config.json": "{\"ociVersion\":\"1.3.0\",\"process\":{\"user\":{\"uid\":0,\"gid\":0},\"args\":[\"/app\"],\"cwd\":\"/\"},\"root\":{\"path\":\"rootfs\"}}",
+    "armada-seed-bbbb0003/record.json": "{\"id\":\"armada-seed-bbbb0003\",\"image\":\"docker.io/library/web:1\",\"labels\":{\"armada.app\":\"web\",\"armada.container\":\"seed\",\"armada.managed\":\"true\",\"armada.role\":\"init\",\"armada.runtime/kind\":\"member\",\"armada.runtime/name\":\"seed\",\"armada.runtime/pod\":\"web-r1-aaaa0001\",\"armada.runtime/started\":\"2026-11-20T10:00:02.123456Z\"},\"group\":\"web@p\",\"created\":\"2026-11-20T10:00:00.123456Z\"}",
+    "armada-x-ffff0007/config.json": "{\"ociVersion\":\"1.3.0\",\"process\":{\"user\":{\"uid\":0,\"gid\":0},\"args\":[\"/app\"],\"cwd\":\"/\"},\"root\":{\"path\":\"rootfs\"}}",
+    "armada-x-ffff0007/record.json": "{\"id\":\"armada-x-ffff0007\",\"image\":\"docker.io/library/web:1\",\"labels\":{\"armada.container\":\"x\",\"armada.managed\":\"true\",\"armada.role\":\"sidecar\",\"armada.runtime/kind\":\"member\",\"armada.runtime/name\":\"x\",\"armada.runtime/pod\":\"gone-1111\"},\"group\":\"armada-x-ffff0007\",\"created\":\"2026-11-20T10:00:00.123456Z\"}",
+    "stray/record.json": "{\"id\":\"other\",\"image\":\"x\",\"group\":\"g\",\"created\":\"2026-11-20T10:00:00Z\"}",
+    "web-r1-aaaa0001/config.json": "{\"ociVersion\":\"1.3.0\",\"process\":{\"user\":{\"uid\":0,\"gid\":0},\"args\":[\"/app\"],\"cwd\":\"/\"},\"root\":{\"path\":\"rootfs\"}}",
+    "web-r1-aaaa0001/record.json": "{\"id\":\"web-r1-aaaa0001\",\"image\":\"docker.io/library/web:1\",\"labels\":{\"armada.app\":\"web\",\"armada.managed\":\"true\",\"armada.replica\":\"web-r1\",\"armada.runtime/host-ip\":\"10.0.0.5\",\"armada.runtime/host-port\":\"20001\",\"armada.runtime/ip\":\"10.121.0.5\",\"armada.runtime/kind\":\"app\",\"armada.runtime/name\":\"web-r1\",\"armada.runtime/netns\":\"/run/armada/netns/cni-x\",\"armada.runtime/port\":\"8080\",\"armada.runtime/started\":\"2026-11-20T10:00:05.123456Z\"},\"group\":\"web@p\",\"created\":\"2026-11-20T10:00:00.123456Z\"}",
+    "web-r2-aaaa0008/config.json": "{\"ociVersion\":\"1.3.0\",\"process\":{\"user\":{\"uid\":0,\"gid\":0},\"args\":[\"/app\"],\"cwd\":\"/\"},\"root\":{\"path\":\"rootfs\"}}",
+    "web-r2-aaaa0008/record.json": "{\"id\":\"web-r2-aaaa0008\",\"image\":\"docker.io/library/web:1\",\"labels\":{\"armada.app\":\"web\",\"armada.managed\":\"true\",\"armada.runtime/kind\":\"app\",\"armada.runtime/name\":\"\"},\"group\":\"web@p\",\"created\":\"2026-11-20T10:00:00.123456Z\"}"
+  },
+  "shims": {
+    "armada-haproxy-eeee0006": {
+      "list": "ok armada-haproxy-eeee0006 running:50",
+      "state armada-haproxy-eeee0006": "ok running 50"
+    },
+    "armada-x-ffff0007": {
+      "list": "ok",
+      "state armada-x-ffff0007": "err container armada-x-ffff0007 not found"
+    },
+    "web@p": {
+      "list": "ok web-r1-aaaa0001 running:41 armada-migrate-bbbb0002 exited:0 armada-seed-bbbb0003 exited:0 armada-proxy-cccc0004 running:43 web-r2-aaaa0008 created:44",
+      "state armada-migrate-bbbb0002": "ok exited 0",
+      "state armada-proxy-cccc0004": "ok running 43",
+      "state armada-seed-bbbb0003": "ok exited 0",
+      "state web-r1-aaaa0001": "ok running 41",
+      "state web-r2-aaaa0008": "ok created 44"
+    }
+  },
+  "list": [
+    {
+      "id": "api-r1-dddd0005",
+      "name": "api-r1",
+      "image": "docker.io/library/api:2",
+      "labels": {
+        "armada.app": "api",
+        "armada.managed": "true"
+      },
+      "state": "exited",
+      "exitCode": 255,
+      "hostIP": "",
+      "hostPort": 0,
+      "ip": "",
+      "startedAt": "",
+      "startError": "sidecar log: create container: no",
+      "members": []
+    },
+    {
+      "id": "armada-haproxy-eeee0006",
+      "name": "armada-haproxy",
+      "image": "docker.io/library/haproxy:3",
+      "labels": {
+        "armada.managed": "true",
+        "armada.system": "haproxy"
+      },
+      "state": "running",
+      "exitCode": 0,
+      "hostIP": "",
+      "hostPort": 0,
+      "ip": "",
+      "startedAt": "",
+      "startError": "",
+      "members": []
+    },
+    {
+      "id": "armada-x-ffff0007",
+      "name": "x",
+      "image": "docker.io/library/web:1",
+      "labels": {
+        "armada.container": "x",
+        "armada.managed": "true",
+        "armada.role": "sidecar"
+      },
+      "state": "exited",
+      "exitCode": 255,
+      "hostIP": "",
+      "hostPort": 0,
+      "ip": "",
+      "startedAt": "",
+      "startError": "",
+      "members": []
+    },
+    {
+      "id": "web-r1-aaaa0001",
+      "name": "web-r1",
+      "image": "docker.io/library/web:1",
+      "labels": {
+        "armada.app": "web",
+        "armada.managed": "true",
+        "armada.replica": "web-r1"
+      },
+      "state": "running",
+      "exitCode": 0,
+      "hostIP": "10.0.0.5",
+      "hostPort": 20001,
+      "ip": "10.121.0.5",
+      "startedAt": "2026-11-20T10:00:05.123456Z",
+      "startError": "",
+      "members": [
+        {
+          "id": "armada-migrate-bbbb0002",
+          "name": "migrate",
+          "role": "init",
+          "state": "exited",
+          "exitCode": 0,
+          "startedAt": "2026-11-20T10:00:01.123456Z"
+        },
+        {
+          "id": "armada-seed-bbbb0003",
+          "name": "seed",
+          "role": "init",
+          "state": "exited",
+          "exitCode": 0,
+          "startedAt": "2026-11-20T10:00:02.123456Z"
+        },
+        {
+          "id": "armada-proxy-cccc0004",
+          "name": "proxy",
+          "role": "sidecar",
+          "state": "running",
+          "exitCode": 0,
+          "startedAt": "2026-11-20T10:00:03.123456Z"
+        }
+      ]
+    },
+    {
+      "id": "web-r2-aaaa0008",
+      "name": "web-r2-aaaa0008",
+      "image": "docker.io/library/web:1",
+      "labels": {
+        "armada.app": "web",
+        "armada.managed": "true"
+      },
+      "state": "created",
+      "exitCode": 0,
+      "hostIP": "",
+      "hostPort": 0,
+      "ip": "",
+      "startedAt": "",
+      "startError": "",
+      "members": []
+    }
+  ],
+  "web": [
+    {
+      "id": "web-r1-aaaa0001",
+      "name": "web-r1",
+      "image": "docker.io/library/web:1",
+      "labels": {
+        "armada.app": "web",
+        "armada.managed": "true",
+        "armada.replica": "web-r1"
+      },
+      "state": "running",
+      "exitCode": 0,
+      "hostIP": "10.0.0.5",
+      "hostPort": 20001,
+      "ip": "10.121.0.5",
+      "startedAt": "2026-11-20T10:00:05.123456Z",
+      "startError": "",
+      "members": [
+        {
+          "id": "armada-migrate-bbbb0002",
+          "name": "migrate",
+          "role": "init",
+          "state": "exited",
+          "exitCode": 0,
+          "startedAt": "2026-11-20T10:00:01.123456Z"
+        },
+        {
+          "id": "armada-seed-bbbb0003",
+          "name": "seed",
+          "role": "init",
+          "state": "exited",
+          "exitCode": 0,
+          "startedAt": "2026-11-20T10:00:02.123456Z"
+        },
+        {
+          "id": "armada-proxy-cccc0004",
+          "name": "proxy",
+          "role": "sidecar",
+          "state": "running",
+          "exitCode": 0,
+          "startedAt": "2026-11-20T10:00:03.123456Z"
+        }
+      ]
+    },
+    {
+      "id": "web-r2-aaaa0008",
+      "name": "web-r2-aaaa0008",
+      "image": "docker.io/library/web:1",
+      "labels": {
+        "armada.app": "web",
+        "armada.managed": "true"
+      },
+      "state": "created",
+      "exitCode": 0,
+      "hostIP": "",
+      "hostPort": 0,
+      "ip": "",
+      "startedAt": "",
+      "startError": "",
+      "members": []
+    }
+  ],
+  "inspect": {
+    "api-r1-dddd0005": {
+      "id": "api-r1-dddd0005",
+      "name": "api-r1",
+      "image": "docker.io/library/api:2",
+      "labels": {
+        "armada.app": "api",
+        "armada.managed": "true"
+      },
+      "state": "exited",
+      "exitCode": 255,
+      "hostIP": "",
+      "hostPort": 0,
+      "ip": "",
+      "startedAt": "",
+      "startError": "sidecar log: create container: no",
+      "members": []
+    },
+    "armada-haproxy-eeee0006": {
+      "id": "armada-haproxy-eeee0006",
+      "name": "armada-haproxy",
+      "image": "docker.io/library/haproxy:3",
+      "labels": {
+        "armada.managed": "true",
+        "armada.system": "haproxy"
+      },
+      "state": "running",
+      "exitCode": 0,
+      "hostIP": "",
+      "hostPort": 0,
+      "ip": "",
+      "startedAt": "",
+      "startError": "",
+      "members": []
+    },
+    "armada-migrate-bbbb0002": {
+      "id": "armada-migrate-bbbb0002",
+      "name": "migrate",
+      "image": "docker.io/library/web:1",
+      "labels": {
+        "armada.app": "web",
+        "armada.container": "migrate",
+        "armada.managed": "true",
+        "armada.role": "init"
+      },
+      "state": "exited",
+      "exitCode": 0,
+      "hostIP": "",
+      "hostPort": 0,
+      "ip": "",
+      "startedAt": "2026-11-20T10:00:01.123456Z",
+      "startError": "",
+      "members": []
+    },
+    "armada-proxy-cccc0004": {
+      "id": "armada-proxy-cccc0004",
+      "name": "proxy",
+      "image": "docker.io/library/side:1",
+      "labels": {
+        "armada.app": "web",
+        "armada.container": "proxy",
+        "armada.managed": "true",
+        "armada.role": "sidecar"
+      },
+      "state": "running",
+      "exitCode": 0,
+      "hostIP": "",
+      "hostPort": 0,
+      "ip": "",
+      "startedAt": "2026-11-20T10:00:03.123456Z",
+      "startError": "",
+      "members": []
+    },
+    "armada-seed-bbbb0003": {
+      "id": "armada-seed-bbbb0003",
+      "name": "seed",
+      "image": "docker.io/library/web:1",
+      "labels": {
+        "armada.app": "web",
+        "armada.container": "seed",
+        "armada.managed": "true",
+        "armada.role": "init"
+      },
+      "state": "exited",
+      "exitCode": 0,
+      "hostIP": "",
+      "hostPort": 0,
+      "ip": "",
+      "startedAt": "2026-11-20T10:00:02.123456Z",
+      "startError": "",
+      "members": []
+    },
+    "armada-x-ffff0007": {
+      "id": "armada-x-ffff0007",
+      "name": "x",
+      "image": "docker.io/library/web:1",
+      "labels": {
+        "armada.container": "x",
+        "armada.managed": "true",
+        "armada.role": "sidecar"
+      },
+      "state": "exited",
+      "exitCode": 255,
+      "hostIP": "",
+      "hostPort": 0,
+      "ip": "",
+      "startedAt": "",
+      "startError": "",
+      "members": []
+    },
+    "nope": {
+      "id": "",
+      "name": "",
+      "image": "",
+      "labels": null,
+      "state": "not found",
+      "exitCode": 0,
+      "hostIP": "",
+      "hostPort": 0,
+      "ip": "",
+      "startedAt": "",
+      "startError": "",
+      "members": null
+    },
+    "web-r1-aaaa0001": {
+      "id": "web-r1-aaaa0001",
+      "name": "web-r1",
+      "image": "docker.io/library/web:1",
+      "labels": {
+        "armada.app": "web",
+        "armada.managed": "true",
+        "armada.replica": "web-r1"
+      },
+      "state": "running",
+      "exitCode": 0,
+      "hostIP": "10.0.0.5",
+      "hostPort": 20001,
+      "ip": "10.121.0.5",
+      "startedAt": "2026-11-20T10:00:05.123456Z",
+      "startError": "",
+      "members": [
+        {
+          "id": "armada-migrate-bbbb0002",
+          "name": "migrate",
+          "role": "init",
+          "state": "exited",
+          "exitCode": 0,
+          "startedAt": "2026-11-20T10:00:01.123456Z"
+        },
+        {
+          "id": "armada-seed-bbbb0003",
+          "name": "seed",
+          "role": "init",
+          "state": "exited",
+          "exitCode": 0,
+          "startedAt": "2026-11-20T10:00:02.123456Z"
+        },
+        {
+          "id": "armada-proxy-cccc0004",
+          "name": "proxy",
+          "role": "sidecar",
+          "state": "running",
+          "exitCode": 0,
+          "startedAt": "2026-11-20T10:00:03.123456Z"
+        }
+      ]
+    },
+    "web-r2-aaaa0008": {
+      "id": "web-r2-aaaa0008",
+      "name": "web-r2-aaaa0008",
+      "image": "docker.io/library/web:1",
+      "labels": {
+        "armada.app": "web",
+        "armada.managed": "true"
+      },
+      "state": "created",
+      "exitCode": 0,
+      "hostIP": "",
+      "hostPort": 0,
+      "ip": "",
+      "startedAt": "",
+      "startError": "",
+      "members": []
+    }
+  }
+}

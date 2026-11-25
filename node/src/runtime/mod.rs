@@ -19,14 +19,14 @@
 //! (internal/runtime/containerd) compare them with Go. Image pulls and the
 //! image store are in image/ (runtime pull, images, prune).
 
-mod apparmor;
-mod check;
+pub mod apparmor;
+pub mod check;
 pub mod container;
 pub(crate) mod gopath;
 pub mod image;
 mod oci;
 mod seccomp;
-pub(crate) mod spec;
+pub mod spec;
 mod user;
 
 use serde::de::{self, Deserializer, MapAccess, Visitor};
@@ -372,6 +372,13 @@ fn member_container_spec(replica: &ContainerSpec, m: &MemberSpec) -> ContainerSp
         volumes: m.volumes.clone(),
         ..Default::default()
     }
+}
+
+/// hostname: a valid hostname for a container's name (the Rust agent's
+/// /etc/hostname and /etc/hosts use it as the spec does).
+#[allow(dead_code)]
+pub fn container_hostname(name: &str) -> String {
+    oci::hostname(name)
 }
 
 /// Go's GOARCH name for this program's architecture.

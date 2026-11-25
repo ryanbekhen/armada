@@ -1,0 +1,67 @@
+{
+  "resolv": [
+    {
+      "host": "nameserver 127.0.0.53\r\nsearch a.example b.example\noptions edns0 trust-ad\nsearch c.example .\n",
+      "dns": null,
+      "search": [
+        "internal"
+      ],
+      "want": "nameserver 8.8.8.8\nnameserver 8.8.4.4\nsearch internal c.example\noptions edns0 trust-ad\n"
+    },
+    {
+      "host": "nameserver 10.0.0.2\nnameserver ::1\nnameserver fe80::1%eth0\nnameserver ::ffff:127.0.0.1\n",
+      "dns": null,
+      "search": null,
+      "want": "nameserver 10.0.0.2\nnameserver fe80::1%eth0\n"
+    },
+    {
+      "host": "",
+      "dns": [
+        "10.121.0.1"
+      ],
+      "search": [
+        "a",
+        "b",
+        "a",
+        "c",
+        "d",
+        "e",
+        "f",
+        "g"
+      ],
+      "want": "nameserver 10.121.0.1\nsearch a b c d e f\n"
+    },
+    {
+      "host": "options ndots:2\nsearch x.example\n  search\tTAB.example  \nnameserver 10.9.9.9 extra\n",
+      "dns": [
+        "10.121.0.1"
+      ],
+      "search": [
+        "space.internal",
+        "internal"
+      ],
+      "want": "nameserver 10.121.0.1\nsearch space.internal internal TAB.example\noptions ndots:2\n"
+    },
+    {
+      "host": "# nameserver 10.1.1.1\nnameserver\nnameserver 1.1.1.1\nsearch .\n",
+      "dns": null,
+      "search": null,
+      "want": "nameserver 1.1.1.1\n"
+    }
+  ],
+  "hosts": {
+    "": "127.0.0.1\tlocalhost\n::1\tlocalhost ip6-localhost ip6-loopback\n",
+    "_web_r1.": "127.0.0.1\tlocalhost\n::1\tlocalhost ip6-localhost ip6-loopback\n10.121.0.7\tweb-r1\n",
+    "a.b-": "127.0.0.1\tlocalhost\n::1\tlocalhost ip6-localhost ip6-loopback\n10.121.0.7\ta.b\n",
+    "api.space-r2": "127.0.0.1\tlocalhost\n::1\tlocalhost ip6-localhost ip6-loopback\n10.121.0.7\tapi.space-r2\n",
+    "web-r1": "127.0.0.1\tlocalhost\n::1\tlocalhost ip6-localhost ip6-loopback\n10.121.0.7\tweb-r1\n",
+    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.y": "127.0.0.1\tlocalhost\n::1\tlocalhost ip6-localhost ip6-loopback\n10.121.0.7\txxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n"
+  },
+  "hostnames": {
+    "_web_r1.": "web-r1",
+    "a.b-": "a.b",
+    "api.space-r2": "api.space-r2",
+    "web-r1": "web-r1",
+    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.y": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  }
+}

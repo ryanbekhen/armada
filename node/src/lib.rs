@@ -6,8 +6,9 @@
 //! back the control plane up to a bucket with the repository volume
 //! backups use (`volbackup`). The Rust agent (armada-agent) runs the
 //! cluster network (`net`) and renders HAProxy's configuration (`proxy`)
-//! in process. The program (main.rs) compiles these files as its own
-//! modules too.
+//! in process, and the supervisor runtime's pulls, bundles, specs,
+//! shims, and statistics (`runtime`). The program (main.rs) compiles
+//! these files as its own modules too.
 
 pub mod gostr;
 
@@ -41,17 +42,16 @@ pub mod hooks;
 #[path = "volume/mod.rs"]
 pub mod volume;
 
-// What the program alone names lints there, not here.
+// SELinux's state (selinux_enabled), which the Rust agent reads too.
+#[allow(dead_code)]
+pub mod nfs;
+
+// What the program alone names lints there, not here. The Rust agent
+// runs the supervisor runtime (ADR 0055, item 16e) on the same code:
+// pulls, root filesystems, bundles, shims, specs, and statistics in
+// process.
 #[allow(dead_code, clippy::should_implement_trait)]
-pub mod runtime {
-    pub mod image {
-        pub mod check;
-        pub mod digest;
-        // The library uses part of what the program does with it.
-        pub mod http;
-        pub mod tar;
-        pub mod unpack;
-    }
-}
+#[path = "runtime/mod.rs"]
+pub mod runtime;
 
 pub use runtime::image::http;

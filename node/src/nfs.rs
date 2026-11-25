@@ -103,7 +103,7 @@ pub fn nfs_source(server: &str, path: &str) -> String {
 
 /// selinux.GetEnabled (go-selinux): an selinuxfs mounted read-write, and
 /// this thread's label other than "kernel".
-fn selinux_enabled() -> bool {
+pub fn selinux_enabled() -> bool {
     if selinux_mount().is_empty() {
         return false;
     }
