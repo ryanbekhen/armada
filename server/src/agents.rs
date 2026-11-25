@@ -4,9 +4,9 @@
 //! the store. Usage samples go to the usage store (`usage`: replica
 //! samples, proxy load, queue lengths, and sandboxes' readings) with an
 //! event for each replica whose processes were killed at the memory
-//! limit, and wake requests to the autoscaler (`autoscale`); volume sizes
-//! and the rest of the usage store come with volumes, the cluster
-//! network, and watching (pull requests 12, 13, and 15); the conditions a usage report starts
+//! limit, volume sizes, and wake requests to the autoscaler
+//! (`autoscale`); the rest of the usage store comes with the cluster
+//! network and watching (pull requests 13 and 15); the conditions a usage report starts
 //! (unreachable peers, WireGuard in userspace, a failing log export) are
 //! recorded here.
 
@@ -606,6 +606,9 @@ impl Server {
                 }
                 for e in self.0.usage.out_of_memory(&node.id, &u) {
                     self.record(e).await;
+                }
+                if u.volumes_measured {
+                    self.0.usage.set_volumes(&node.id, &u, self.now());
                 }
                 self.peers_checked(&node.id, &u).await;
                 let le = u.log_export.unwrap_or_default();

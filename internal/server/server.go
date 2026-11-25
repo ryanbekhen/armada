@@ -293,9 +293,10 @@ type Server struct {
 	// 0055) only what the Rust server does so far (parity_test.go).
 	parts serverParts
 	// manualPasses keeps the reconcile loop from running passes (it still
-	// promotes learners) and the autoscaler from evaluating: the scenario
-	// parity tests run every pass and evaluation themselves, so both
-	// servers act at the same steps.
+	// promotes learners), the autoscaler from evaluating, and the backup
+	// loop from starting backups: the scenario parity tests run every
+	// pass, evaluation, and round of backups themselves, so both servers
+	// act at the same steps.
 	manualPasses bool
 	// newID makes the random part of new replica IDs (randomID; the
 	// parity tests make them predictable).
@@ -308,14 +309,14 @@ type serverParts int
 const (
 	// allParts is the whole control plane.
 	allParts serverParts = iota
-	// coreParts is what ADR 0055's pull requests 8 to 11 ported: terms,
+	// coreParts is what ADR 0055's pull requests 8 to 12 ported: terms,
 	// sessions with agents, the assignments of the replicas the store
 	// holds, scheduling, placement, rollouts, drains, evacuation,
 	// self-healing, rebalancing, the removal of apps, traffic splits,
 	// jobs with their tasks and queue triggers (queue sandboxes in the
-	// assignments), and the autoscaler with wakes (a pass tells the usage
-	// store whose replicas are whose). A pass leaves the replicas of apps
-	// with local volumes as the store holds them, and has no proxy,
+	// assignments), the autoscaler with wakes (a pass tells the usage
+	// store whose replicas are whose), and volumes: apps with local
+	// volumes, their failover, and the backup loop. A pass has no proxy,
 	// network (so no sandbox addresses among its endpoints), or runtime
 	// move; the other background loops do not run. Each later pull
 	// request moves its part into it.
@@ -574,6 +575,7 @@ func (s *Server) Serve(ctx context.Context, lis net.Listener) error {
 	go s.reconcileLoop(ctx)
 	if !s.manualPasses {
 		go s.autoscaleLoop(ctx)
+		go s.backupLoop(ctx)
 	}
 	if s.parts == allParts {
 		s.alerts.start(ctx, s.alertHTTP)
@@ -581,7 +583,6 @@ func (s *Server) Serve(ctx context.Context, lis net.Listener) error {
 			s.log.Warn("alert channels: load", "err", err)
 		}
 		go s.verifyLoop(ctx)
-		go s.backupLoop(ctx)
 		go s.controlPlaneBackupLoop(ctx)
 		go s.placementLoop(ctx)
 	}

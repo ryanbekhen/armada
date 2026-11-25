@@ -32,16 +32,9 @@ fn unimplemented(method: &str) -> Status {
 
 /// The methods that answer `Unimplemented` in this pull request: the
 /// service, the method, and the pull request of ADR 0055 that ports it
-/// (12 volumes, 14 ingress and certificates, 15 watching).
+/// (14 ingress and certificates, 15 watching).
 pub const LATER: &[(&str, &str, u8)] = &[
     ("Admin", "ClusterStatus", 15),
-    ("Admin", "ListVolumes", 12),
-    ("Admin", "RemoveVolume", 12),
-    ("Admin", "BackupVolume", 12),
-    ("Admin", "RestoreVolume", 12),
-    ("Admin", "ListVolumeSnapshots", 12),
-    ("Admin", "CreateVolumeSnapshot", 12),
-    ("Admin", "RestoreVolumeSnapshot", 12),
     ("Admin", "Logs", 15),
     ("Admin", "ListDomains", 14),
     ("Admin", "VerifyDomain", 14),
@@ -57,7 +50,6 @@ pub const LATER: &[(&str, &str, u8)] = &[
     ("Admin", "TestAlertChannel", 15),
     ("Agent", "PushLogs", 15),
     ("Agent", "ExecSession", 15),
-    ("Agent", "VolumeSession", 12),
     ("Agent", "GetCertificates", 14),
 ];
 
@@ -124,51 +116,65 @@ impl AdminService for Api {
         &self,
         request: Request<ListVolumesRequest>,
     ) -> Result<Response<ListVolumesResponse>, Status> {
-        let _ = request;
-        Err(unimplemented("ListVolumes"))
+        let a = auth(&request)?;
+        self.0
+            .list_volumes(&a, request.into_inner())
+            .await
+            .map(Response::new)
     }
     async fn remove_volume(
         &self,
         request: Request<RemoveVolumeRequest>,
     ) -> Result<Response<RemoveVolumeResponse>, Status> {
-        let _ = request;
-        Err(unimplemented("RemoveVolume"))
+        let a = auth(&request)?;
+        self.0
+            .remove_volume(&a, request.into_inner())
+            .await
+            .map(Response::new)
     }
     type BackupVolumeStream = Out<VolumeData>;
     async fn backup_volume(
         &self,
         request: Request<BackupVolumeRequest>,
     ) -> Result<Response<Self::BackupVolumeStream>, Status> {
-        let _ = request;
-        Err(unimplemented("BackupVolume"))
+        let a = auth(&request)?;
+        self.0.backup_volume(&a, request.into_inner()).await
     }
     async fn restore_volume(
         &self,
         request: Request<tonic::Streaming<RestoreVolumeMessage>>,
     ) -> Result<Response<RestoreVolumeResponse>, Status> {
-        let _ = request;
-        Err(unimplemented("RestoreVolume"))
+        self.0.restore_volume(request).await.map(Response::new)
     }
     async fn list_volume_snapshots(
         &self,
         request: Request<ListVolumeSnapshotsRequest>,
     ) -> Result<Response<ListVolumeSnapshotsResponse>, Status> {
-        let _ = request;
-        Err(unimplemented("ListVolumeSnapshots"))
+        let a = auth(&request)?;
+        self.0
+            .list_volume_snapshots(&a, request.into_inner())
+            .await
+            .map(Response::new)
     }
     async fn create_volume_snapshot(
         &self,
         request: Request<CreateVolumeSnapshotRequest>,
     ) -> Result<Response<CreateVolumeSnapshotResponse>, Status> {
-        let _ = request;
-        Err(unimplemented("CreateVolumeSnapshot"))
+        let a = auth(&request)?;
+        self.0
+            .create_volume_snapshot(&a, request.into_inner())
+            .await
+            .map(Response::new)
     }
     async fn restore_volume_snapshot(
         &self,
         request: Request<RestoreVolumeSnapshotRequest>,
     ) -> Result<Response<RestoreVolumeResponse>, Status> {
-        let _ = request;
-        Err(unimplemented("RestoreVolumeSnapshot"))
+        let a = auth(&request)?;
+        self.0
+            .restore_volume_snapshot(&a, request.into_inner())
+            .await
+            .map(Response::new)
     }
     type LogsStream = Out<LogEntry>;
     async fn logs(
@@ -698,8 +704,7 @@ impl AgentService for Api {
         &self,
         request: Request<tonic::Streaming<VolumeData>>,
     ) -> Result<Response<Self::VolumeSessionStream>, Status> {
-        let _ = request;
-        Err(unimplemented("VolumeSession"))
+        self.0.volume_session(request).await
     }
     async fn renew_certificate(
         &self,
