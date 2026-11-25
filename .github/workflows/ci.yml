@@ -240,6 +240,12 @@ jobs:
       - run: go test -race -run 'TestArmadaNode|TestRenderFallsBack' -v ./internal/proxy/haproxy/ ./internal/clusternet/ ./internal/runtime/ ./internal/runtime/containerd/
         env:
           ARMADA_NODE_BIN: ${{ github.workspace }}/target/x86_64-unknown-linux-musl/release/armada-node
+      # The spec crate parses, checks, exports, and substitutes as
+      # internal/spec does (ADR 0055); its test program, built above with
+      # the workspace, is never packed.
+      - run: go test -race -run 'TestArmadaSpec' -v ./internal/spec/
+        env:
+          ARMADA_SPEC_BIN: ${{ github.workspace }}/target/x86_64-unknown-linux-musl/release/armada-spec-check
       # Volume archives, backups, and pulls set armada-node's test hooks
       # or pass --extra-ca, which only a test build has (node/src/hooks.rs);
       # the release build above ignores the hooks and refuses --extra-ca.

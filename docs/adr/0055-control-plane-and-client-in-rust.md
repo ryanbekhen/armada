@@ -94,8 +94,8 @@ listed in `THIRD_PARTY_NOTICES.md`.
 | Certificates and requests | rcgen (issuing, CSR parsing), x509-parser (reading) | MIT OR Apache-2.0 |
 | ACME | instant-acme on ring | Apache-2.0 |
 | JSON | serde, serde_json | MIT OR Apache-2.0 |
-| YAML | saphyr-parser (events only; Armada's own decoder and emitter) | MIT OR Apache-2.0 |
-| Time zones | jiff with its bundled time zone database | Unlicense OR MIT (used under MIT) |
+| YAML | no crate: go-yaml v3's reader, scanner, parser, and emitter ported (from libyaml), with its resolver, composer, and encoder; Armada's own decoder into spec types | MIT, Apache-2.0 (the ported code) |
+| Time zones | jiff (TZif data from the machine's zoneinfo first, as Go reads it, then its bundled time zone database) | Unlicense OR MIT (used under MIT) |
 | Command line parsing | clap (parsing only; help, errors, and completion are Armada's) | MIT OR Apache-2.0 |
 | Compression | flate2 (Rust backend), ruzstd | MIT OR Apache-2.0, MIT |
 | etcd's API | etcd's own `.proto` files (Apache-2.0), vendored and generated with tonic-build | Apache-2.0 |
@@ -130,13 +130,21 @@ Why these:
   account, and locks under `/armada-acme/` in the layout the Go code
   writes today, so a Rust leader serves and renews certificates a Go
   leader obtained, and the other way round.
-- **YAML by hand on an event parser.** Specs are parsed strictly and
-  `spec.Substitute` works on a node tree with the resolution rules of the
-  YAML library the Go code uses (which scalars are strings, numbers,
-  booleans, and null, and when a plain scalar re-resolves its tag). No
-  Rust YAML deserializer has those rules, so the decoder into spec types
-  and the emitter for `-o yaml` are Armada's, on a maintained event
-  parser, and checked against Go on the spec corpus and by fuzzing.
+- **YAML ported from the library the Go code uses.** Specs are parsed
+  strictly and `spec.Substitute` works on a node tree with the resolution
+  rules of go-yaml v3 (which scalars are strings, numbers, booleans, and
+  null, and when a plain scalar re-resolves its tag). No Rust YAML
+  deserializer has those rules. An event parser (saphyr-parser was the
+  first choice) does not keep anchor names, which `Substitute` writes
+  back, accepts and refuses other documents than libyaml does, and words
+  its errors otherwise, while a spec must fail with the same text and
+  line as before. So go-yaml's reader, scanner, parser, and emitter (its
+  port of libyaml, MIT) and its resolver, composer, and node encoder
+  (Apache-2.0) are ported to `spec/src/yaml` with their behaviour and
+  texts, and the decoder into spec types (with go-yaml's type errors,
+  aliases, merge keys, duplicate keys, and strict fields) and the writer
+  of `-o yaml` are Armada's. All of it is checked against Go on the spec
+  corpus and on mutated specs (PR 5's parity tests).
 - **Written by hand, as `armada-node` does:** the SMTP client of alerts
   (EHLO, STARTTLS, AUTH PLAIN only over TLS, the checks of ADR 0045), the
   Cloudflare DNS calls, the Prometheus text format of the metrics
@@ -508,6 +516,8 @@ another release is the owner's call, not a cut made along the way.
 - **aws-lc-rs.** See "Dependencies".
 - **A serde YAML deserializer.** None has the resolution rules specs are
   parsed with today; a spec that parsed before must parse the same way.
+- **An event parser crate (saphyr-parser).** See "Dependencies": it loses
+  anchor names, and its acceptance and error texts are not libyaml's.
 
 ## Consequences
 

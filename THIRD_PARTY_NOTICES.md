@@ -82,7 +82,7 @@ node agent moving to Rust (ADR 0054). It is linked statically with the
 Rust standard library and musl, as above, and with these crates from
 <https://crates.io>. `armada-node` is a member of the Cargo workspace at
 the repository's root (ADR 0055), whose one `Cargo.lock` holds every crate
-of this section and the next; `cargo deny check licenses` (`deny.toml`)
+of this section and the next two; `cargo deny check licenses` (`deny.toml`)
 keeps them to the licenses Armada allows. Release archives carry each
 crate's license and notice files in `licenses/rust/`, written by
 `scripts/rust-licenses.sh` (from `third_party/licenses/rust/` for a crate
@@ -159,6 +159,37 @@ with a `Cargo.lock` of its own: it writes `proto/src/gen` on a
 developer's machine and is never built into anything Armada distributes.
 Besides crates under the licenses above, prost-build brings foldhash
 (Zlib) into it through petgraph.
+
+## armada-spec
+
+`armada-spec` (`spec/`, Apache-2.0) reads, checks, and writes app and job
+specs in Rust (ADR 0055). No released program links it yet; besides
+serde_json (above), it is built with these crates:
+
+| Crate | License |
+| --- | --- |
+| jiff, jiff-core | Unlicense or MIT (used under MIT) |
+| jiff-tzdb | Unlicense or MIT (used under MIT); the time zone database it embeds is in the public domain |
+
+In the lock file but not built by Armada: jiff-static (Unlicense or MIT),
+log (MIT or Apache-2.0), and, for targets without pointer-sized atomics,
+portable-atomic and portable-atomic-util (Apache-2.0 or MIT).
+
+It also holds code ported from Go, so specs parse, fail, and print as
+Go's code does:
+
+- go-yaml v3 (`go.yaml.in/yaml/v3`, `spec/src/yaml`): its reader,
+  scanner, parser, and emitter, ported from libyaml and under the MIT
+  license, and its resolver, node composer, and encoder, under the Apache
+  License 2.0 with Canonical's notice
+  ([text](third_party/licenses/MIT-Apache-2.0-go-yaml.txt)).
+- robfig/cron v3 (`spec/src/cron.rs`): its five-field parser and
+  schedule, under the MIT license ([text](third_party/licenses/MIT-robfig-cron.txt)).
+- The Go standard library (`spec/src/go.rs`, `spec/src/gotime.rs`,
+  `spec/src/gotables.rs`): strconv's quoting and its table of printable
+  runes, unicode's classes, the time package's durations and dates, and
+  net/netip's addresses and prefixes, under the BSD-3-Clause license
+  ([text](third_party/licenses/BSD-3-Clause-Go.txt)).
 
 ## Downloaded at run time
 
