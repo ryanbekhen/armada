@@ -51,12 +51,14 @@ import (
 // whole).
 
 // rustDaemonCommands are the commands the Rust armadad has (ADR 0055, pull
-// request 18a, and 18b's first part); the others answer that they come
+// request 18a, and 18b's first two parts); doctor answers that it comes
 // later in 18b.
 var rustDaemonCommands = []string{
 	"armadad version", "armadad endpoint", "armadad endpoint show", "armadad endpoint set",
 	"armadad etcd", "armadad upgrade", "armadad runtime",
 	"armadad backup", "armadad backup list", "armadad restore", "armadad user renew", "armadad runtime-log",
+	"armadad init", "armadad join", "armadad server", "armadad server join", "armadad agent",
+	"armadad runtime reset", "armadad runtime migrate",
 }
 
 // daemonCase is one case.
@@ -504,6 +506,7 @@ func TestDaemonParity(t *testing.T) {
 	h := newDaemonHarness(t)
 	cases := daemonCases(h)
 	cases = append(cases, h.stateCases(t)...)
+	cases = append(cases, h.serveCases()...)
 	cases = append(cases, daemonExampleCases(t)...)
 	cases = append(cases, daemonHelpCases()...)
 	names := map[string]bool{}

@@ -14,7 +14,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::io::{self, Read, Write};
 use std::net::IpAddr;
-use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
@@ -165,6 +165,56 @@ pub async fn prepare(data_dir: &str, c: &Client) -> Result<Staged, String> {
         files: Some(files),
     };
     Ok(st)
+}
+
+/// Stage: a backup's files written into a directory of their own (the
+/// manifest and every file, each 0600), for the control plane's scheduled
+/// backups to a bucket (ADR 0051). The directory goes when the returned
+/// Staged is dropped.
+pub async fn stage(data_dir: &str, c: &Client) -> Result<(PathBuf, Staged), String> {
+    let st = prepare(data_dir, c).await?;
+    let dir = join(&st.tmp, "files");
+    fs::DirBuilder::new()
+        .mode(0o700)
+        .create(&dir)
+        .map_err(|e| errno("mkdir", &dir, &e))?;
+    let mp = join(&dir, MANIFEST_NAME);
+    write_new(&mp, &mut st.m.to_json().as_bytes(), None)?;
+    let sums = st.m.files.clone().unwrap_or_default();
+    for (name, src) in &st.files {
+        let mut f = fs::File::open(src).map_err(|e| errno("open", src, &e))?;
+        let mut h = Sha256::new();
+        write_new(&join(&dir, name), &mut f, Some(&mut h))?;
+        if pack::hex(&h.finalize()) != sums.get(name).cloned().unwrap_or_default() {
+            return Err(format!(
+                "{name} changed while the backup was written; run it again"
+            ));
+        }
+    }
+    Ok((dir, st))
+}
+
+/// A new file (0600) with what r holds, hashed into h.
+fn write_new(dst: &Path, r: &mut dyn Read, mut h: Option<&mut Sha256>) -> Result<(), String> {
+    let mut out = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(dst)
+        .map_err(|e| errno("open", dst, &e))?;
+    let mut buf = vec![0u8; 64 << 10];
+    loop {
+        let n = r.read(&mut buf).map_err(|e| errno("read", dst, &e))?;
+        if n == 0 {
+            break;
+        }
+        out.write_all(&buf[..n])
+            .map_err(|e| errno("write", dst, &e))?;
+        if let Some(h) = h.as_deref_mut() {
+            h.update(&buf[..n]);
+        }
+    }
+    Ok(())
 }
 
 /// writeSnapshot: etcd's snapshot of the keyspace (ending with its

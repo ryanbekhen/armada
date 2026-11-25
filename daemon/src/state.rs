@@ -219,18 +219,20 @@ async fn wait_ready(p: &mut Process, client: &Client) -> Result<(u64, bool), Str
 /// started it.
 pub struct State {
     pub client: Client,
+    /// The member's ID in the cluster.
+    pub member_id: u64,
     _member: Option<Process>,
 }
 
 /// etcd.Dial: the running member described by cfg, or an error.
-async fn dial(cfg: &etcdmember::Config) -> Result<Client, String> {
+async fn dial(cfg: &etcdmember::Config) -> Result<(Client, u64), String> {
     let Some(addr) = cfg.addr else {
         return Err("etcd: no listen address".to_string());
     };
     let url = etcdmember::member_url(&addr, cfg.client_port);
     let c = Client::connect(&url, &cfg.dir).map_err(|e| e.to_string())?;
     match tokio::time::timeout(Duration::from_secs(3), c.status()).await {
-        Ok(Ok(_)) => Ok(c),
+        Ok(Ok(st)) => Ok((c, st.header.as_ref().map_or(0, |h| h.member_id))),
         Ok(Err(e)) => Err(format!("etcd at {url}: {e}")),
         Err(_) => Err(format!("etcd at {url}: context deadline exceeded")),
     }
@@ -276,8 +278,17 @@ async fn start_member(data_dir: &str, cfg: &mut etcdmember::Config) -> Result<St
     }
     Ok(State {
         client,
+        member_id: id,
         _member: Some(p),
     })
+}
+
+/// The member of a data directory started from the pack for the command's
+/// length (Go's openState with etcd.Start: `armadad init`), joined as
+/// start_member joins it.
+pub async fn start(data_dir: &str) -> Result<State, String> {
+    let mut cfg = etcdmember::etcd_config(data_dir)?;
+    start_member(data_dir, &mut cfg).await
 }
 
 /// updatePeerURL.
@@ -304,9 +315,10 @@ async fn update_peer_url(c: &Client, id: u64, peer: &str) -> Result<(), String> 
 /// started for the command when no server runs.
 pub async fn state_client(data_dir: &str) -> Result<State, String> {
     let mut cfg = etcdmember::etcd_config(data_dir)?;
-    if let Ok(c) = dial(&cfg).await {
+    if let Ok((c, id)) = dial(&cfg).await {
         return Ok(State {
             client: c,
+            member_id: id,
             _member: None,
         });
     }
@@ -459,5 +471,86 @@ pub async fn inspect(
         schema: armada_store::SCHEMA,
         master_key_id,
         listen,
+    })
+}
+
+/// The status of the member at url within 3 seconds (Go's Member.status):
+/// its ID and whether it is a learner.
+async fn member_status(c: &Client, host: &str) -> Result<(u64, bool), String> {
+    match tokio::time::timeout(Duration::from_secs(3), c.status()).await {
+        Ok(Ok(st)) => match st.header {
+            Some(h) => Ok((h.member_id, st.is_learner)),
+            None => Err(format!("etcd at {host}: status without a header")),
+        },
+        Ok(Err(e)) => Err(format!("etcd at {host}: {e}")),
+        Err(_) => Err(format!("etcd at {host}: context deadline exceeded")),
+    }
+}
+
+/// etcd.Connect and startMember: the member armada-etcd.service runs
+/// (`armadad etcd`, ADR 0055), waited for up to a minute, its peer URL
+/// brought up to date, and, on a server that joined, a voting member
+/// before the state is used. wait is told once that the member does not
+/// answer yet, and learner once that it waits for its promotion.
+pub async fn connect(
+    data_dir: &str,
+    wait: &(dyn Fn(&str, &str) + Send + Sync),
+    learner: &(dyn Fn() + Send + Sync),
+) -> Result<State, String> {
+    let cfg = etcdmember::etcd_config(data_dir)?;
+    let Some(addr) = cfg.addr else {
+        return Err("etcd: no listen address".to_string());
+    };
+    let url = etcdmember::member_url(&addr, cfg.client_port);
+    let host = url.trim_start_matches("https://").to_string();
+    let deadline = Instant::now() + READY_LIMIT;
+    let mut logged = false;
+    let (client, id, is_learner) = loop {
+        let res = match Client::connect(&url, &cfg.dir) {
+            Ok(c) => member_status(&c, &host).await.map(|(id, l)| (c, id, l)),
+            Err(e) => Err(e.to_string()),
+        };
+        match res {
+            Ok(v) => break v,
+            Err(e) => {
+                if Instant::now() > deadline {
+                    return Err(format!(
+                        "the etcd member at {host} did not answer within a minute (is armada-etcd running?): {e}"
+                    ));
+                }
+                if !logged {
+                    wait(&host, &e);
+                    logged = true;
+                }
+                tokio::time::sleep(Duration::from_secs(1)).await;
+            }
+        }
+    };
+    if !is_learner {
+        let peer = etcdmember::member_url(&addr, cfg.peer_port);
+        update_peer_url(&client, id, &peer).await?;
+    }
+    let mut is_learner = is_learner;
+    if is_learner {
+        learner();
+    }
+    while is_learner {
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        is_learner = member_status(&client, &host).await.map_or(true, |(_, l)| l);
+    }
+    let initial = Path::new(data_dir).join(FILE_ETCD_INITIAL);
+    if let Err(e) = fs::remove_file(&initial)
+        && e.kind() != std::io::ErrorKind::NotFound
+    {
+        return Err(format!(
+            "remove {}: {}",
+            initial.display(),
+            armada_fsutil::errno_text(&e)
+        ));
+    }
+    Ok(State {
+        client,
+        member_id: id,
+        _member: None,
     })
 }

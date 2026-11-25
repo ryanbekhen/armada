@@ -6,7 +6,11 @@
 //! nor the container runtime's driver: version, endpoint, etcd, upgrade,
 //! and runtime. The second (18b) adds those that need the cluster's state
 //! but not the running server or agent: backup, backup list, restore,
-//! user renew, and runtime-log; the others say they come later in 18b.
+//! user renew, and runtime-log; then those that set a machine up and run
+//! it: init, join, server join, server (armada-server's terms on the
+//! member armada-etcd.service runs), agent (armada-agent on the
+//! supervisor runtime), and runtime reset and migrate. doctor says it
+//! comes later in 18b.
 
 pub mod agentconfig;
 pub mod backup;
@@ -16,15 +20,26 @@ pub mod etcdmember;
 pub mod gofs;
 pub mod gopath;
 pub mod hooks;
+pub mod joinclient;
+pub mod machine;
 pub mod manifest;
 pub mod netutil;
 pub mod pack;
+pub mod signals;
 pub mod state;
 pub mod systemd;
 pub mod tar;
 pub mod tree;
 
 use std::io::{Read, Write};
+
+/// Resolves once the signal turns true; never when its sender is gone
+/// without turning it.
+pub async fn stopped(rx: &mut tokio::sync::watch::Receiver<bool>) {
+    if rx.wait_for(|v| *v).await.is_err() {
+        std::future::pending::<()>().await;
+    }
+}
 
 /// runDir: the node's runtime state on tmpfs.
 pub fn run_dir() -> String {

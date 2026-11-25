@@ -11,6 +11,8 @@ use std::sync::Arc;
 pub struct Logger {
     out: Option<Arc<std::sync::Mutex<()>>>,
     debug: bool,
+    /// Lines as Go's slog JSON handler writes them (--log-format json).
+    json: bool,
     attrs: Vec<(String, String)>,
 }
 
@@ -20,6 +22,7 @@ impl Logger {
         Logger {
             out: None,
             debug: false,
+            json: false,
             attrs: Vec::new(),
         }
     }
@@ -29,7 +32,16 @@ impl Logger {
         Logger {
             out: Some(Arc::new(std::sync::Mutex::new(()))),
             debug,
+            json: false,
             attrs: Vec::new(),
+        }
+    }
+
+    /// A logger writing JSON lines to stderr (Go's slog.NewJSONHandler).
+    pub fn stderr_json(debug: bool) -> Logger {
+        Logger {
+            json: true,
+            ..Logger::stderr(debug)
         }
     }
 
@@ -60,6 +72,27 @@ impl Logger {
 
     fn write(&self, level: &str, msg: &str, kv: &[(&str, String)]) {
         let Some(lock) = &self.out else { return };
+        if self.json {
+            let js = |v: &str| serde_json::Value::from(v).to_string();
+            let mut line = format!(
+                "{{\"time\":{},\"level\":{},\"msg\":{}",
+                js(&armada_store::gojson::now().rfc3339_nano()),
+                js(level),
+                js(msg)
+            );
+            for (k, v) in self
+                .attrs
+                .iter()
+                .map(|(k, v)| (k.as_str(), v.as_str()))
+                .chain(kv.iter().map(|(k, v)| (*k, v.as_str())))
+            {
+                line.push_str(&format!(",{}:{}", js(k), js(v)));
+            }
+            line.push_str("}\n");
+            let _g = lock.lock().unwrap_or_else(|p| p.into_inner());
+            let _ = std::io::stderr().write_all(line.as_bytes());
+            return;
+        }
         let mut line = format!(
             "time={} level={level} msg={}",
             armada_store::gojson::now().rfc3339_nano(),

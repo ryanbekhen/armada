@@ -535,7 +535,9 @@ Go and every new Rust part is exercised only by its parity tests.
     by a daemon parity harness that runs Go's armadad and the Rust one on
     the same command lines and case directories.
 19. **The switch.** The release builds `armadad` and `armada` from Rust;
-    units for etcd and the agent on server machines; the lab upgrade from
+    units for etcd and the agent on server machines (until then the Rust
+    `armadad server` connects only with `--etcd-member unit`, refuses the
+    flag's `embedded` default, and leaves `--agent` to that unit); the lab upgrade from
     v0.1.0-alpha.41 and the full end-to-end run pass.
 20. **Go removed.** `cmd/`, `internal/`, `go.mod`, Go's CI jobs and
     release steps, and every document that names Go code (CLAUDE.md, the
