@@ -190,7 +190,7 @@ func (a *Agent) sampleUsage(ctx context.Context, sr runtime.StatsReader, prev ma
 			a.log.Debug("sample container", "replica", id, "err", err)
 			continue
 		}
-		now := time.Now()
+		now := a.now()
 		next[id] = usageSample{container: c.ID, cpu: st.CPU, egress: st.EgressBytes, oomKills: st.OOMKills, at: now, noNetwork: st.NetworkLost}
 		p, ok := prev[id]
 		if ok && p.container == c.ID && p.noNetwork && st.NetworkLost {

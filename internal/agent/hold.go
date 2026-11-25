@@ -39,7 +39,7 @@ func (a *Agent) held(ctx context.Context, s *armadav1.ReplicaSpec) *armadav1.Rep
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	p := a.holds[id]
-	if p != nil && p.err != nil && time.Since(p.failedAt) >= holdRetry {
+	if p != nil && p.err != nil && a.now().Sub(p.failedAt) >= holdRetry {
 		p = nil
 	}
 	switch {
@@ -89,7 +89,7 @@ func (a *Agent) pullHeld(ctx context.Context, s *armadav1.ReplicaSpec, p *heldPu
 	a.mu.Lock()
 	p.done, p.err, p.platforms = true, err, platforms
 	if err != nil {
-		p.failedAt = time.Now()
+		p.failedAt = a.now()
 	}
 	a.mu.Unlock()
 	a.Trigger()

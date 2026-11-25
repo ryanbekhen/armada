@@ -7,7 +7,7 @@
 # petgraph), which the workspace's lock file must not hold.
 [workspace]
 resolver = "3"
-members = ["node", "proto", "fsutil", "pki", "secrets", "spec", "store", "server", "client"]
+members = ["node", "proto", "fsutil", "pki", "secrets", "spec", "store", "server", "client", "agent"]
 exclude = ["logger", "shim", "dns"]
 
 [workspace.package]

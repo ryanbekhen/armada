@@ -27,7 +27,7 @@ func (a *Agent) setContact(up bool) {
 	defer a.mu.Unlock()
 	a.contactUp = up
 	if !up {
-		a.contactLost = time.Now()
+		a.contactLost = a.now()
 	}
 }
 
@@ -43,7 +43,7 @@ func (a *Agent) cutOff() time.Duration {
 	if since.IsZero() {
 		since = a.began
 	}
-	return time.Since(since)
+	return a.now().Sub(since)
 }
 
 // fenced reports whether s must not run now.

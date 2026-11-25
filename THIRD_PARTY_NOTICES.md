@@ -295,6 +295,16 @@ the ones github.com/spf13/cobra v1.10.2 generates for armada, under the
 kept as cobra writes them so completion works as it did. Source:
 <https://github.com/spf13/cobra/tree/v1.10.2>.
 
+## armada-agent
+
+`armada-agent` (`agent/`, Apache-2.0) is the node agent's loop in Rust
+(ADR 0055): the session with the control plane and the reconcile pass
+over a container runtime. No released program links it yet; it uses only
+crates named above (those of armada-store and armada-pki, with tonic's
+channel). The test program of Go's agent parity tests
+(`armada-agent-parity`, the `parity` feature) is never built for a
+release.
+
 ## Downloaded at run time
 
 Nodes pull the HAProxy image (`haproxy:3.2-alpine`, pinned by digest in

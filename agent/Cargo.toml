@@ -1,0 +1,38 @@
+[package]
+name = "armada-agent"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The node agent's loop, a port of Go's internal/agent (ADR 0055): a library the Rust armadad agent links"
+
+[dependencies]
+armada-fsutil = { path = "../fsutil" }
+armada-pki = { path = "../pki" }
+armada-proto = { path = "../proto" }
+armada-spec = { path = "../spec" }
+# The session: tonic's channel over a TLS 1.3 connection made here
+# (rustls with ring, the node certificate presented on every handshake).
+hyper-util.workspace = true
+libc.workspace = true
+prost.workspace = true
+rustls.workspace = true
+rustls-pki-types.workspace = true
+# The parity program's requests and answers.
+serde = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
+sha2.workspace = true
+tokio.workspace = true
+tokio-rustls.workspace = true
+tokio-stream.workspace = true
+tonic = { workspace = true, features = ["channel"] }
+tower.workspace = true
+
+[features]
+# The program Go's agent parity tests drive (src/bin/armada-agent-parity.rs,
+# ARMADA_AGENT_BIN): never part of a release.
+parity = ["dep:serde", "dep:serde_json"]
+
+[[bin]]
+name = "armada-agent-parity"
+required-features = ["parity"]

@@ -12,7 +12,7 @@ LDFLAGS := -s -w \
 
 export CGO_ENABLED := 0
 
-.PHONY: all build build-bundle logger shim dns node node-test-hooks pki-parity store-parity server-parity client-parity rust-check runtime-bundle test cover lint fmt vet vuln licenses licenses-save proto docs tidy check clean
+.PHONY: all build build-bundle logger shim dns node node-test-hooks pki-parity store-parity server-parity client-parity agent-parity rust-check runtime-bundle test cover lint fmt vet vuln licenses licenses-save proto docs tidy check clean
 
 all: check build
 
@@ -86,6 +86,12 @@ client-parity:
 	cargo build --locked -p armada-client
 	ARMADA_CLIENT_BIN=$(CURDIR)/target/debug/armada go test -count=1 -run TestClientParity ./internal/cli/
 
+# The node agent Go's agent parity tests run (ADR 0055):
+# target/debug/armada-agent-parity (ARMADA_AGENT_BIN). Never part of a
+# release.
+agent-parity:
+	cargo build --locked -p armada-agent --features parity
+
 # The Cargo workspace's checks (ADR 0055; CI job logger): format, lints,
 # tests, crate licenses, and every member built for both release targets.
 # proto/gen, outside it, gets its format and lints checked too; armada-log,
@@ -97,6 +103,7 @@ rust-check:
 	cargo clippy --locked -p armada-pki -p armada-secrets --all-targets --features armada-pki/parity,armada-secrets/parity -- -D warnings
 	cargo clippy --locked -p armada-store --all-targets --features parity -- -D warnings
 	cargo clippy --locked -p armada-server --all-targets --features parity -- -D warnings
+	cargo clippy --locked -p armada-agent --all-targets --features parity -- -D warnings
 	cargo test --locked --workspace
 	cargo deny --locked check licenses
 	cargo build --release --locked --workspace --target x86_64-unknown-linux-musl
