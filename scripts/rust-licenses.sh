@@ -1,9 +1,10 @@
 #!/bin/sh
 # Copies the license and notice files of every crate the Cargo workspace
-# (Cargo.toml: armada-node, armada-proto, armada-pki, armada-secrets) uses
-# into OUT/<crate>-<version>/, for release archives (licenses/rust). A crate published without its
-# license file (pbjson, tonic-prost) gets the one from its repository,
-# kept in third_party/licenses/rust/<crate>/.
+# (Cargo.toml: armada-node, armada-proto, armada-pki, armada-secrets,
+# armada-spec) uses into OUT/<crate>-<version>/, for release archives
+# (licenses/rust). A crate published without its license file (pbjson,
+# tonic-prost) gets the one from its repository, kept in
+# third_party/licenses/rust/<crate>/.
 set -eu
 out=${1:?usage: rust-licenses.sh OUT}
 rm -rf "$out"
