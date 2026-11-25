@@ -12,7 +12,7 @@ LDFLAGS := -s -w \
 
 export CGO_ENABLED := 0
 
-.PHONY: all build build-bundle logger shim dns node node-test-hooks runtime-bundle test cover lint fmt vet vuln licenses licenses-save proto docs tidy check clean
+.PHONY: all build build-bundle logger shim dns node node-test-hooks rust-check runtime-bundle test cover lint fmt vet vuln licenses licenses-save proto docs tidy check clean
 
 all: check build
 
@@ -32,9 +32,10 @@ SHIM_OUT = shim/target/$(1)-unknown-linux-musl/release/armada-shim
 # armada-dns (dns/), the node-local resolver of containers (ADR 0053):
 # built the same way.
 DNS_OUT = dns/target/$(1)-unknown-linux-musl/release/armada-dns
-# armada-node (node/), the node agent moving to Rust (ADR 0054): built the
-# same way, with crates (cargo deny checks their licenses).
-NODE_OUT = node/target/$(1)-unknown-linux-musl/release/armada-node
+# armada-node (node/), the node agent moving to Rust (ADR 0054): a member
+# of the Cargo workspace at the repository's root (ADR 0055), built the same
+# way, with crates (cargo deny checks their licenses).
+NODE_OUT = target/$(1)-unknown-linux-musl/release/armada-node
 
 logger:
 	cd logger && cargo build --release --locked --target x86_64-unknown-linux-musl
@@ -49,13 +50,27 @@ dns:
 	cd dns && cargo build --release --locked --target aarch64-unknown-linux-musl
 
 node:
-	cd node && cargo build --release --locked --target x86_64-unknown-linux-musl
-	cd node && cargo build --release --locked --target aarch64-unknown-linux-musl
+	cargo build --release --locked -p armada-node --target x86_64-unknown-linux-musl
+	cargo build --release --locked -p armada-node --target aarch64-unknown-linux-musl
 
 # armada-node reading the ARMADA_NODE_TEST_* hooks Go's parity tests set
 # (node/src/hooks.rs), built apart from the release binary and never packed.
 node-test-hooks:
-	cd node && cargo build --release --locked --features test-hooks --target x86_64-unknown-linux-musl --target-dir target/test-hooks
+	cargo build --release --locked -p armada-node --features test-hooks --target x86_64-unknown-linux-musl --target-dir target/test-hooks
+
+# The Cargo workspace's checks (ADR 0055; CI job logger): format, lints,
+# tests, crate licenses, and every member built for both release targets.
+# proto/gen, outside it, gets its format and lints checked too; armada-log,
+# armada-shim, and armada-dns are checked in their own directories.
+rust-check:
+	cargo fmt --all --check
+	cargo clippy --locked --workspace --all-targets -- -D warnings
+	cargo clippy --locked -p armada-node --all-targets --features test-hooks -- -D warnings
+	cargo test --locked --workspace
+	cargo deny --locked check licenses
+	cargo build --release --locked --workspace --target x86_64-unknown-linux-musl
+	cargo build --release --locked --workspace --target aarch64-unknown-linux-musl
+	cd proto/gen && cargo fmt --check && cargo clippy --locked --all-targets -- -D warnings
 
 runtime-bundle: logger shim dns node
 	go run ./internal/runtime/embedded/mkbundle -arch amd64 -logger $(call LOGGER_OUT,x86_64) -shim $(call SHIM_OUT,x86_64) -dns $(call DNS_OUT,x86_64) -node $(call NODE_OUT,x86_64)
@@ -89,6 +104,11 @@ vuln:
 docs: ## regenerate the command line reference in docs/cli
 	go test ./internal/clidoc -run TestReferenceIsCurrent -update -count=1
 
+# Go's code next to the protos, then armada-proto's (proto/src/gen, ADR
+# 0055) with the generators proto/gen pins (its own Cargo.lock): Armada's
+# protocol, and etcd's protos vendored again from the etcd module go.mod
+# pins (proto/vendor). The Rust code is checked in, so building it needs no
+# protoc.
 proto:
 	go build -o bin/tools/ google.golang.org/protobuf/cmd/protoc-gen-go google.golang.org/grpc/cmd/protoc-gen-go-grpc
 	protoc -I api \
@@ -97,6 +117,7 @@ proto:
 		--go_out=api --go_opt=paths=source_relative \
 		--go-grpc_out=api --go-grpc_opt=paths=source_relative \
 		api/armada/v1/*.proto
+	cargo run --locked -q --manifest-path proto/gen/Cargo.toml -- . "$$(go list -m -f '{{.Dir}}' go.etcd.io/etcd/api/v3)"
 
 tidy:
 	go mod tidy

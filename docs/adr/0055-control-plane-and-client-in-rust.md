@@ -104,7 +104,7 @@ Why these:
 
 - **ring, not aws-lc-rs.** ring is already in `armada-node`, passes the
   license check, and builds for both musl targets with clang
-  (`node/.cargo/config.toml`). It has everything Armada uses: ECDSA P-256
+  (`.cargo/config.toml`). It has everything Armada uses: ECDSA P-256
   keys and signatures (every Armada key is P-256 in PKCS#8, which ring
   reads as written), AES-256-GCM, HKDF, HMAC, and SHA-2. aws-lc-rs adds
   CMake and a larger C build to every target, and parts of its C code

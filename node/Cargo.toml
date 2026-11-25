@@ -1,36 +1,28 @@
 [package]
 name = "armada-node"
-version = "0.1.0"
-edition = "2024"
-license = "Apache-2.0"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
 description = "Armada's node agent in Rust, moving there in steps (ADR 0054)"
-publish = false
 
-# Crates under the licenses of ADR 0054 only, checked from Cargo.lock in CI
-# (cargo deny, deny.toml) and listed in THIRD_PARTY_NOTICES.md.
+# Versions and features live in the workspace (../Cargo.toml).
 [dependencies]
-flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
-libc = "0.2"
+flate2.workspace = true
+libc.workspace = true
 # Keys, HMAC, AES-GCM, and digests of volume backups (src/volbackup); the
 # same crate rustls uses.
-ring = { version = "0.17", default-features = false, features = ["alloc"] }
-ruzstd = { version = "0.8", default-features = false, features = ["std", "hash"] }
+ring.workspace = true
+ruzstd.workspace = true
 # TLS for registries with the ring provider (its C and assembly are built
-# with clang for both targets, see .cargo/config.toml).
-rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
-serde = { version = "1", features = ["derive"] }
-serde_json = { version = "1", features = ["raw_value"] }
-sha2 = "0.10"
-x25519-dalek = { version = "3", default-features = false, features = ["static_secrets"] }
+# with clang for both targets, see ../.cargo/config.toml).
+rustls.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+x25519-dalek.workspace = true
 
 [features]
 # The ARMADA_NODE_TEST_* hooks of Go's parity tests (src/hooks.rs): only in
 # `make node-test-hooks`, never in release builds.
 test-hooks = []
-
-[profile.release]
-opt-level = 3
-lto = true
-codegen-units = 1
-panic = "abort"
-strip = true

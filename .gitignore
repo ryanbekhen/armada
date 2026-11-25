@@ -17,4 +17,6 @@ coverage.out
 /logger/target/
 /shim/target/
 /dns/target/
-/node/target/
+# The Cargo workspace (armada-node, armada-proto; make node).
+/target/
+/proto/gen/target/

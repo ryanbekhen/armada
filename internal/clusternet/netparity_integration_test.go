@@ -39,7 +39,7 @@ import (
 //
 //	make node
 //	go test -c -tags integration ./internal/clusternet -o t
-//	sudo ARMADA_NODE_BIN=$PWD/node/target/x86_64-unknown-linux-musl/release/armada-node ./t -test.run IntegrationNetParity -test.v
+//	sudo ARMADA_NODE_BIN=$PWD/target/x86_64-unknown-linux-musl/release/armada-node ./t -test.run IntegrationNetParity -test.v
 func TestIntegrationNetParity(t *testing.T) {
 	bin := os.Getenv("ARMADA_NODE_BIN")
 	if bin == "" {

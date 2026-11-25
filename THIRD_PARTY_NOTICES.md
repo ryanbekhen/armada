@@ -67,10 +67,13 @@ with no crates beyond the standard library and are linked statically with:
 The runtime pack also carries `armada-node` (`node/`, Apache-2.0), the
 node agent moving to Rust (ADR 0054). It is linked statically with the
 Rust standard library and musl, as above, and with these crates from
-<https://crates.io>; `cargo deny check licenses` (`node/deny.toml`) keeps
-them to the licenses Armada allows. Release archives carry each crate's
-license and notice files in `licenses/rust/`, written by
-`scripts/rust-licenses.sh`.
+<https://crates.io>. `armada-node` is a member of the Cargo workspace at
+the repository's root (ADR 0055), whose one `Cargo.lock` holds every crate
+of this section and the next; `cargo deny check licenses` (`deny.toml`)
+keeps them to the licenses Armada allows. Release archives carry each
+crate's license and notice files in `licenses/rust/`, written by
+`scripts/rust-licenses.sh` (from `third_party/licenses/rust/` for a crate
+published without them).
 
 | Crate | License |
 | --- | --- |
@@ -105,6 +108,44 @@ exception, Apache-2.0, or MIT) and windows-sys, windows-targets,
 windows_aarch64_gnullvm, windows_aarch64_msvc, windows_i686_gnu,
 windows_i686_gnullvm, windows_i686_msvc, windows_x86_64_gnu,
 windows_x86_64_gnullvm, windows_x86_64_msvc (MIT or Apache-2.0).
+
+## armada-proto
+
+`armada-proto` (`proto/`, Apache-2.0) holds Armada's protocol in Rust
+(ADR 0055). No released program links it yet; the programs that will are
+built with it and these crates:
+
+| Crate | License |
+| --- | --- |
+| base64 | MIT or Apache-2.0 |
+| bytes | MIT |
+| futures-core, futures-sink | MIT or Apache-2.0 |
+| http, percent-encoding | MIT or Apache-2.0 |
+| http-body, http-body-util | MIT |
+| pbjson | MIT ([text](third_party/licenses/rust/pbjson/LICENSE)) |
+| pin-project, pin-project-lite | Apache-2.0 or MIT (used under MIT) |
+| prost | Apache-2.0 |
+| sync_wrapper | Apache-2.0 |
+| tokio, tokio-stream, tokio-util | MIT |
+| tonic | MIT |
+| tonic-prost | MIT ([text](third_party/licenses/rust/tonic-prost/LICENSE)) |
+| tower-layer, tower-service | MIT |
+| tracing, tracing-core | MIT |
+
+Used only while building, not linked: anyhow, async-trait, either,
+itertools, pin-project-internal (MIT or Apache-2.0), prost-derive
+(Apache-2.0), and tracing-attributes (MIT).
+
+It also holds code generated from the `.proto` files of etcd's API
+(`go.etcd.io/etcd/api/v3`, under the [Apache License 2.0](proto/vendor/etcd/LICENSE)),
+which `proto/vendor/etcd` keeps with the services Armada uses. Source:
+<https://github.com/etcd-io/etcd/tree/v3.7.4/api>.
+
+`proto/gen`, the generator `make proto` runs, is outside the workspace
+with a `Cargo.lock` of its own: it writes `proto/src/gen` on a
+developer's machine and is never built into anything Armada distributes.
+Besides crates under the licenses above, prost-build brings foldhash
+(Zlib) into it through petgraph.
 
 ## Downloaded at run time
 

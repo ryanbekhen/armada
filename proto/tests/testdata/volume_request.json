@@ -1,0 +1,7 @@
+{
+  "requestId": "r-1",
+  "op": "OP_RESTORE_SNAPSHOT",
+  "app": "db",
+  "volume": "data",
+  "snapshot": "latest"
+}

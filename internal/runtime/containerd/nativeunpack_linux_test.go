@@ -50,7 +50,7 @@ import (
 // bind mount) skip without it; run them as root with
 //
 //	go test -c -o unpack.test ./internal/runtime/containerd
-//	sudo ARMADA_NODE_BIN=$PWD/node/target/x86_64-unknown-linux-musl/release/armada-node \
+//	sudo ARMADA_NODE_BIN=$PWD/target/x86_64-unknown-linux-musl/release/armada-node \
 //	    ./unpack.test -test.run 'TestArmadaNode(Unpack|PullUnpacks|Convert)' -test.v
 
 func isRoot() bool { return os.Geteuid() == 0 }
