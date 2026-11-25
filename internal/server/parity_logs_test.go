@@ -417,7 +417,13 @@ func TestParityLogs(t *testing.T) {
 			w.mu.Unlock()
 		}
 		sc.serve("web")
-		sc.note("a replica the app got later", take(1))
+		// Which ID the third replica gets depends on when each server
+		// allocated IDs before it, so the note names it by its role.
+		later := take(1)
+		for i, l := range later {
+			later[i] = strings.Replace(l, third, "THIRD", 1)
+		}
+		sc.note("a replica the app got later", later)
 		cancel()
 		for range lines {
 		}
