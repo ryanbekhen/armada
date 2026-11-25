@@ -89,10 +89,15 @@ client-parity:
 # The daemon parity tests (ADR 0055, pull request 18): Go's armadad in
 # process and the Rust one (daemon/ with its test hooks,
 # target/debug/armadad) on the same command lines, case directories, and
-# stand-ins for systemctl, cosign, and etcd.
+# stand-ins for systemctl, cosign, and etcd; the commands that need the
+# cluster's state run the pinned etcd and etcdutl, which
+# scripts/etcd-cache.sh puts into .cache/etcd. `armadad runtime-log`
+# stores what embedded.WriteLogs stores (TestRuntimeLogMatchesGo).
 daemon-parity:
 	cargo build --locked -p armada-daemon --features test-hooks
-	ARMADA_DAEMON_BIN=$(CURDIR)/target/debug/armadad go test -count=1 -run TestDaemonParity ./internal/daemon/
+	sh scripts/etcd-cache.sh
+	ARMADA_DAEMON_BIN=$(CURDIR)/target/debug/armadad ARMADA_ETCD_DIR=$(CURDIR)/.cache/etcd go test -count=1 -run TestDaemonParity ./internal/daemon/
+	ARMADA_DAEMON_BIN=$(CURDIR)/target/debug/armadad go test -count=1 -run TestRuntimeLogMatchesGo ./internal/runtime/embedded/
 
 # The node agent Go's agent parity tests run (ADR 0055):
 # target/debug/armada-agent-parity (ARMADA_AGENT_BIN). Never part of a

@@ -397,6 +397,50 @@ pub fn install_pack(p: &Paths) -> Result<(), String> {
     Ok(())
 }
 
+/// BinEtcdutl: the pinned etcd release's etcdutl, which restores the
+/// control plane's snapshots (ADR 0055).
+pub const BIN_ETCDUTL: &str = "etcdutl";
+
+/// The programs `names` of pack, extracted into dir (which exists) and
+/// checked against the pack's manifest: what a machine command runs once
+/// without installing the whole pack (armadad backup and restore start
+/// etcd and etcdutl from it).
+pub fn extract_programs(pack: &[u8], dir: &Path, names: &[&str]) -> Result<(), String> {
+    let m = read_manifest(pack)?;
+    let mut want = Manifest {
+        arch: m.arch.clone(),
+        versions: BTreeMap::new(),
+        files: BTreeMap::new(),
+    };
+    for n in names {
+        let Some(sum) = m.files.get(*n) else {
+            return Err(format!("bundle: the pack has no {n}"));
+        };
+        want.files.insert((*n).to_string(), sum.clone());
+    }
+    let mut tr = open_pack(pack)?;
+    while let Some(h) = tr.next_entry().map_err(|e| format!("bundle: {e}"))? {
+        if !want.files.contains_key(&h.name) {
+            continue;
+        }
+        if !h.is_regular() || h.size > MAX_FILE_SIZE {
+            return Err(format!(
+                "bundle: {} is not a regular file within limits",
+                h.name
+            ));
+        }
+        let dst = dir.join(&h.name);
+        let mut f = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o700)
+            .open(&dst)
+            .map_err(|e| path_err("open", &dst, &e))?;
+        std::io::copy(&mut tr.data().take(MAX_FILE_SIZE), &mut f).map_err(|e| e.to_string())?;
+    }
+    verify(dir, &want)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -434,6 +478,24 @@ mod tests {
         install(&dir, &p).unwrap();
         assert_eq!(fs::read(bin.join("runc")).unwrap(), b"r");
         assert!(check_name("../x").is_err());
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn extracts_some_programs() {
+        let dir = std::env::temp_dir().join(format!("armadad-programs-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let p = pack(&[("etcd", b"e"), ("etcdutl", b"u"), ("runc", b"r")]);
+        extract_programs(&p, &dir, &[BIN_ETCD, BIN_ETCDUTL]).unwrap();
+        assert_eq!(fs::read(dir.join("etcdutl")).unwrap(), b"u");
+        assert!(fs::metadata(dir.join("runc")).is_err());
+        let other = dir.join("other");
+        fs::create_dir(&other).unwrap();
+        assert_eq!(
+            extract_programs(&pack(&[("runc", b"r")]), &other, &[BIN_ETCD]).unwrap_err(),
+            "bundle: the pack has no etcd"
+        );
         fs::remove_dir_all(&dir).unwrap();
     }
 }

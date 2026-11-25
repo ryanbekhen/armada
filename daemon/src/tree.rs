@@ -36,7 +36,7 @@ pub fn root() -> Tree {
         .long("Writes a consistent backup of the control plane: a snapshot of the state\n(etcd), the secrets master key, the cluster CA, the server certificate,\nACME certificates, and this node's agent identity. Safe to run while the\nserver is running.\n\nThe archive contains the CA key and the master key in plaintext. It is\ncreated with mode 0600; encrypt it before it leaves the machine, e.g.\n\n  armadad backup -o - | age -r age1... > armada-$(date +%F).tar.gz.age\n\nTo have the leader back the control plane up to a bucket on a schedule\ninstead, see armada cluster update --backup-url (ADR 0051); armadad backup\nlist shows what the bucket holds.")
         .example("  sudo armadad backup -o cp-$(date +%F).tar     # the control plane, on a server\n  sudo armadad backup list --backup-url url.txt --backup-key key.txt")
         .args(Args::No)
-        .run(commands::later::run)
+        .run(commands::backup::run)
         .flag(Flag::string("data-dir", None, "/var/lib/armada", "control plane data directory"))
         .flag(Flag::string("output", Some('o'), "", "archive to create (never overwritten), or - for stdout"));
     let i_root_backup = t.add(0, n);
@@ -44,7 +44,7 @@ pub fn root() -> Tree {
         .long("Lists the backups the leader keeps of the control plane in its bucket\n(armada cluster update --backup-url, ADR 0051), oldest first, with the server\neach was taken on: armadad restore --snapshot ID restores one onto a\nmachine with that server's private IP. Both flags take a file (mode 0600)\nholding the URL or the key, or - for stdin (one of them).")
         .example("  sudo armadad backup list --backup-url url.txt --backup-key key.txt")
         .args(Args::No)
-        .run(commands::later::run)
+        .run(commands::backup::list)
         .flag(Flag::string("backup-key", None, "", "file holding the key the control plane's backups are encrypted with, or - for stdin"))
         .flag(Flag::string("backup-url", None, "", "file holding the URL of the bucket the control plane backs itself up to, or - for stdin"))
         .flag(Flag::string("output", Some('o'), "", "json for JSON"));
@@ -126,7 +126,7 @@ pub fn root() -> Tree {
         .long("Restores a backup made with 'armadad backup' into an empty data directory\n(\"-\" reads the archive from stdin). The archive is verified completely\nbefore anything is written to the data directory. Stop any other control\nplane of this cluster first: two servers must never run at the same time.\n\nWith --backup-url and --backup-key, the backup comes from the bucket the\ncontrol plane backs itself up to (armada cluster update --backup-url, ADR 0051)\ninstead of an archive: --snapshot names one (armadad backup list), latest by\ndefault. Both flags take a file (mode 0600) holding the URL or the key, or\n- for stdin (one of them). The snapshot is checked exactly like an archive.")
         .example("  sudo armadad restore cp-2026-11-22.tar                               # from an archive\n  sudo armadad restore --backup-url url.txt --backup-key key.txt         # the latest in the bucket\n  sudo armadad restore --backup-url url.txt --backup-key key.txt --snapshot 20261122T030000.000Z-1a2b3c4d")
         .args(Args::Max(1))
-        .run(commands::later::run)
+        .run(commands::backup::restore)
         .flag(Flag::string("backup-key", None, "", "file holding the key the control plane's backups are encrypted with, or - for stdin"))
         .flag(Flag::string("backup-url", None, "", "file holding the URL of the bucket the control plane backs itself up to, or - for stdin"))
         .flag(Flag::string("data-dir", None, "/var/lib/armada", "data directory to restore into (must not exist or be empty)"))
@@ -158,7 +158,7 @@ pub fn root() -> Tree {
     let i_root_runtime_reset = t.add(i_root_runtime, n);
     let mut n = Node::new("runtime-log DIR", "")
         .args(Args::Exact(1))
-        .run(commands::later::run);
+        .run(commands::runtimelog::run);
     n.hidden = true;
     let i_root_runtime_log = t.add(0, n);
     let mut n = Node::new("server", "Run the control plane (and, by default, this node's agent)")
@@ -219,7 +219,7 @@ pub fn root() -> Tree {
         .long("Get a new one-year certificate for a new key, under the same name, signed\nby the cluster CA in the data directory, and rewrite the client config\n(--config, default ~/.armada/config, else /etc/armada/admin.config; another\nuser's config stays theirs, a shared one stays shared).\nFor a certificate that has already expired; while it is valid,\n`armada user renew` does the same through the control plane.\nThe user keeps the roles on record; a name the cluster has no record of\nis recorded first, with cluster-admin (the cluster refuses certificates\nof names it has no record of). It needs the cluster state: run it on a\nserver whose control plane is running or can start.")
         .example("  sudo armadad user renew    # an expired certificate in /etc/armada/admin.config")
         .args(Args::No)
-        .run(commands::later::run)
+        .run(commands::user::renew)
         .flag(Flag::string("data-dir", None, "/var/lib/armada", "server data directory holding the cluster CA"));
     let i_root_user_renew = t.add(i_root_user, n);
     let mut n = Node::new("version", "Print build information and the latest release")

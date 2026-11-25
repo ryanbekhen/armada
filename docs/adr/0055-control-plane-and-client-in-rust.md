@@ -253,8 +253,14 @@ member (a minute, as today) and talks to it over gRPC with the member
 certificate. `armadad backup` takes etcd's maintenance snapshot as before
 and verifies it in a scratch member, now the pinned `etcd` started in a
 temporary directory on a Unix socket; `armadad restore` and the scratch
-check use the pinned `etcdutl`. The archive format of `armadad backup`
-and the control plane backups' repository (ADR 0051) do not change.
+check use the pinned `etcdutl`. A machine command that needs the state of
+a server whose member does not run (`backup`, `user renew`) starts the
+pinned `etcd` for its own length, from the file `armadad etcd` writes,
+and stops it afterwards, as Go's commands start the embedded member.
+These commands extract `etcd` and `etcdutl` from the pack they carry into
+a private directory for the command, checked against the pack's
+manifest. The archive format of `armadad backup` and the control plane
+backups' repository (ADR 0051) do not change.
 `armadad doctor` gains an `etcd` check (the unit, the member's health, its
 certificate, and the version against the pack's).
 

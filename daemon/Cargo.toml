@@ -12,14 +12,21 @@ description = "armadad in Rust: the machine commands of Go's internal/daemon (AD
 [dependencies]
 armada-client = { path = "../client" }
 armada-fsutil = { path = "../fsutil" }
+# The control plane's backups in their bucket (ADR 0051) through the
+# repository volume backups use, and the readers of a restore's archive.
+armada-node = { path = "../node" }
 armada-pki = { path = "../pki" }
+armada-secrets = { path = "../secrets" }
 armada-spec = { path = "../spec" }
+# The cluster's state for backup, restore, and user renew.
+armada-store = { path = "../store" }
 flate2.workspace = true
 libc.workspace = true
 rustls.workspace = true
 rustls-pki-types.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
+tokio.workspace = true
 
 [features]
 # The runtime pack compiled in (Go's build tag bundle): the pack
@@ -27,7 +34,7 @@ sha2.workspace = true
 bundle = []
 # The ARMADA_DAEMON_TEST_* hooks of Go's daemon parity tests (src/hooks.rs):
 # only in `make daemon-parity`, never in release builds.
-test-hooks = []
+test-hooks = ["armada-node/test-hooks"]
 
 [lib]
 name = "armada_daemon"

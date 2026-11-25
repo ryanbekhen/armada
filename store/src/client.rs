@@ -3,7 +3,8 @@
 //! `etcd:member` client certificate read from the member's directory on
 //! every handshake, so a renewed certificate is used without a restart.
 //! Only the part of etcd's API the control plane uses: ranges, puts,
-//! deletes, transactions, leases with their keep-alive, and watches.
+//! deletes, transactions, leases with their keep-alive, watches, the
+//! membership, and snapshots.
 
 use std::net::IpAddr;
 use std::path::{Path, PathBuf};
@@ -12,6 +13,7 @@ use std::time::Duration;
 
 use armada_proto::etcd::etcdserverpb as pb;
 use armada_proto::etcd::mvccpb;
+use pb::cluster_client::ClusterClient;
 use pb::kv_client::KvClient;
 use pb::lease_client::LeaseClient;
 use pb::maintenance_client::MaintenanceClient;
@@ -157,6 +159,36 @@ impl Client {
         })
     }
 
+    /// Connects to a member listening on the Unix socket at path, without
+    /// TLS: a scratch member of this machine's own, in a private directory
+    /// (`armadad backup` and `restore` check a snapshot in one, ADR 0055).
+    /// The path may be longer than a socket address holds: the socket is
+    /// reached through its directory's descriptor.
+    pub fn connect_unix(path: &Path) -> Result<Client> {
+        let dir = path.parent().unwrap_or(Path::new("."));
+        let name = path
+            .file_name()
+            .ok_or_else(|| other!("etcd: socket {} has no name", path.display()))?
+            .to_os_string();
+        let dir = std::fs::File::open(dir).map_err(|e| other!("{e}"))?;
+        let ep = Endpoint::from_static("http://localhost").connect_timeout(Duration::from_secs(5));
+        let dir = Arc::new(dir);
+        let connector = tower::service_fn(move |_: Uri| {
+            let p = PathBuf::from(format!(
+                "/proc/self/fd/{}",
+                std::os::fd::AsRawFd::as_raw_fd(&*dir)
+            ))
+            .join(&name);
+            async move {
+                let s = tokio::net::UnixStream::connect(p).await?;
+                Ok::<_, std::io::Error>(hyper_util::rt::TokioIo::new(s))
+            }
+        });
+        Ok(Client {
+            ch: ep.connect_with_connector_lazy(connector),
+        })
+    }
+
     fn kv(&self) -> KvClient<Channel> {
         KvClient::new(self.ch.clone()).max_decoding_message_size(usize::MAX)
     }
@@ -197,6 +229,39 @@ impl Client {
             .status(pb::StatusRequest {})
             .await?
             .into_inner())
+    }
+
+    /// Maintenance.Snapshot: a consistent copy of the member's database,
+    /// in the stream's blobs, ending with its SHA-256 (clientv3's
+    /// Snapshot reader).
+    pub async fn snapshot(&self) -> Result<tonic::Streaming<pb::SnapshotResponse>> {
+        Ok(MaintenanceClient::new(self.ch.clone())
+            .max_decoding_message_size(usize::MAX)
+            .snapshot(pb::SnapshotRequest {})
+            .await?
+            .into_inner())
+    }
+
+    /// Cluster.MemberList.
+    pub async fn member_list(&self) -> Result<Vec<pb::Member>> {
+        Ok(ClusterClient::new(self.ch.clone())
+            .member_list(pb::MemberListRequest {
+                linearizable: false,
+            })
+            .await?
+            .into_inner()
+            .members)
+    }
+
+    /// Cluster.MemberUpdate: the member's peer URLs replaced.
+    pub async fn member_update(&self, id: u64, peer_urls: Vec<String>) -> Result<()> {
+        ClusterClient::new(self.ch.clone())
+            .member_update(pb::MemberUpdateRequest {
+                id,
+                peer_ur_ls: peer_urls,
+            })
+            .await?;
+        Ok(())
     }
 
     /// Grants a lease of ttl seconds.

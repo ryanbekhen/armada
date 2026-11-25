@@ -70,14 +70,18 @@ version = "0.1.0"
 dependencies = [
  "armada-client",
  "armada-fsutil",
+ "armada-node",
  "armada-pki",
+ "armada-secrets",
  "armada-spec",
+ "armada-store",
  "flate2",
  "libc",
  "rustls",
  "rustls-pki-types",
  "serde_json",
  "sha2",
+ "tokio",
 ]
 
 [[package]]

@@ -22,11 +22,11 @@ pub const FILE_CONFIG: &str = "etcd.yaml";
 pub const DEFAULT_CLIENT_PORT: u16 = 2379;
 pub const DEFAULT_PEER_PORT: u16 = 2380;
 
-const DIR_DATA: &str = "data";
+pub const DIR_DATA: &str = "data";
 const FILE_CERT: &str = "member.crt";
 const FILE_KEY: &str = "member.key";
 const FILE_CA: &str = "ca.crt";
-const CLUSTER_TOKEN: &str = "armada";
+pub const CLUSTER_TOKEN: &str = "armada";
 const CERT_RENEW: Duration = Duration::from_secs(30 * 24 * 3600);
 const MAX_TXN_OPS: u64 = 4096;
 
@@ -54,7 +54,19 @@ pub fn member_config(data_dir: &str) -> Config {
         ca: None,
         initial_cluster: String::new(),
     };
-    if let Ok(b) = armada_fsutil::read_private_file(&dd.join(FILE_SERVER_CERT))
+    // The parity tests' etcdAddrOverride and etcdPorts: a member on
+    // loopback ports of their own (test hooks only).
+    let addr_override: Option<IpAddr> = crate::hooks::get("ETCD_ADDR").and_then(|a| a.parse().ok());
+    if let Some((c, p)) = crate::hooks::get("ETCD_PORTS").and_then(|v| {
+        let (c, p) = v.split_once(',')?;
+        Some((c.parse().ok()?, p.parse().ok()?))
+    }) {
+        cfg.client_port = c;
+        cfg.peer_port = p;
+    }
+    cfg.addr = addr_override;
+    if cfg.addr.is_none()
+        && let Ok(b) = armada_fsutil::read_private_file(&dd.join(FILE_SERVER_CERT))
         && let Ok(c) = parse_cert_pem(&b)
     {
         cfg.addr = c.ip_addresses.first().map(netutil::unmap);
@@ -101,7 +113,7 @@ struct MemberSpec {
     allowed_cn: String,
 }
 
-fn member_url(addr: &IpAddr, port: u16) -> String {
+pub fn member_url(addr: &IpAddr, port: u16) -> String {
     match addr {
         IpAddr::V4(v) => format!("https://{v}:{port}"),
         IpAddr::V6(v) => format!("https://[{v}]:{port}"),
@@ -292,6 +304,27 @@ fn file_config(s: &MemberSpec) -> Result<Vec<u8>, String> {
     let mut out = b"# Written by armadad etcd at every start; changes are overwritten.\n".to_vec();
     out.extend_from_slice(&e.into_bytes());
     Ok(out)
+}
+
+/// A member to start: its client URL and the configuration file's
+/// content, the member prepared (Go's Start begins with prepare too).
+pub struct Prepared {
+    pub dir: PathBuf,
+    pub client_url: String,
+    pub peer_url: String,
+    pub file: Vec<u8>,
+}
+
+/// prepare and fileConfig, for a member this process starts and stops
+/// (Go's Start, which embeds one).
+pub fn prepare_start(cfg: &mut Config) -> Result<Prepared, String> {
+    let s = prepare(cfg)?;
+    Ok(Prepared {
+        dir: cfg.dir.clone(),
+        client_url: s.client_url.clone(),
+        peer_url: s.peer_url.clone(),
+        file: file_config(&s)?,
+    })
 }
 
 /// WriteConfigFile: the member prepared and its file written (0600); the

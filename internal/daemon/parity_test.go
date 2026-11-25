@@ -51,10 +51,12 @@ import (
 // whole).
 
 // rustDaemonCommands are the commands the Rust armadad has (ADR 0055, pull
-// request 18a); the others answer that they come with 18b.
+// request 18a, and 18b's first part); the others answer that they come
+// later in 18b.
 var rustDaemonCommands = []string{
 	"armadad version", "armadad endpoint", "armadad endpoint show", "armadad endpoint set",
 	"armadad etcd", "armadad upgrade", "armadad runtime",
+	"armadad backup", "armadad backup list", "armadad restore", "armadad user renew", "armadad runtime-log",
 }
 
 // daemonCase is one case.
@@ -76,6 +78,9 @@ type daemonCase struct {
 	upgrade *upgradeCase
 	// during runs while the command runs (a lock another process holds).
 	during func(t *testing.T, dir string) func()
+	// state is what a case of the commands that need the cluster's state
+	// needs (parity_state_test.go).
+	state *stateCase
 }
 
 type upgradeCase struct {
@@ -93,6 +98,12 @@ type daemonHarness struct {
 	bin      string
 	standins string
 	fx       fixtures
+	// sf, bucket, and etcdDir serve the state commands' cases: their
+	// fixtures, the control plane's stand-in bucket, and the directory
+	// holding the pinned etcd and etcdutl (ARMADA_ETCD_DIR).
+	sf      stateFixtures
+	bucket  *stateBucket
+	etcdDir string
 }
 
 // fixtures are made once, so both runs of a case read the same bytes.
@@ -174,7 +185,16 @@ func newDaemonHarness(t *testing.T) *daemonHarness {
 			t.Fatal(err)
 		}
 	}
-	return &daemonHarness{bin: bin, standins: dir, fx: newFixtures(t)}
+	h := &daemonHarness{bin: bin, standins: dir, fx: newFixtures(t), bucket: newStateBucket(t)}
+	h.sf = newStateFixtures(t, h.fx)
+	if d := os.Getenv("ARMADA_ETCD_DIR"); d != "" {
+		if d, err := filepath.Abs(d); err == nil {
+			if _, err := os.Stat(filepath.Join(d, "etcdutl")); err == nil {
+				h.etcdDir = d
+			}
+		}
+	}
+	return h
 }
 
 func (h *daemonHarness) env(dir string, c daemonCase) map[string]string {
@@ -214,6 +234,7 @@ func (h *daemonHarness) env(dir string, c daemonCase) map[string]string {
 			env[k] = v
 		}
 	}
+	h.stateEnv(env, c.state)
 	return env
 }
 
@@ -255,6 +276,12 @@ func (h *daemonHarness) collect(t *testing.T, dir string) []string {
 		if err != nil {
 			return err
 		}
+		if fi.IsDir() {
+			if what, ok := summarizeEtcd(p); ok {
+				out = append(out, fmt.Sprintf("%s/ %04o %s", rel, fi.Mode().Perm(), what))
+				return filepath.SkipDir
+			}
+		}
 		switch {
 		case fi.Mode()&fs.ModeSymlink != 0:
 			target, _ := os.Readlink(p)
@@ -293,6 +320,10 @@ func describe(rel string, b []byte) string {
 		return fmt.Sprintf("certificate %s for %v, %v days, usages %v", c.Subject.CommonName, ips, int(c.NotAfter.Sub(c.NotBefore).Hours()/24), c.ExtKeyUsage)
 	case strings.HasSuffix(rel, "member.key"):
 		return fmt.Sprintf("a key: %v", bytes.Contains(b, []byte("PRIVATE KEY")))
+	case strings.HasSuffix(rel, ".tar") && bytes.HasPrefix(b, []byte{0x1f, 0x8b}):
+		return realDescribeArchive(b)
+	case strings.HasSuffix(rel, ".config"):
+		return describeClientConfig(b)
 	}
 	return string(b)
 }
@@ -331,6 +362,9 @@ func (h *daemonHarness) runGo(t *testing.T, dir string, c daemonCase) daemonResu
 		return cmd.Run()
 	}
 	defer func() { runDir, execProgram, detectEndpoint, restartService = oldRun, oldExec, oldDetect, oldRestart }()
+	defer h.stateGo(c.state)()
+	record, stop := h.stateRun(t, dir, c.state)
+	defer stop()
 	if c.during != nil {
 		defer c.during(t, dir)()
 	}
@@ -356,7 +390,8 @@ func (h *daemonHarness) runGo(t *testing.T, dir string, c daemonCase) daemonResu
 		pre := <-direct
 		errb = *bytes.NewBuffer(append(pre, errb.Bytes()...))
 	}
-	return daemonResult{Code: code, Stdout: out.String(), Stderr: errb.String(), Files: h.collect(t, dir)}
+	record()
+	return daemonResult{Code: code, Stdout: h.stdout(c, out.Bytes()), Stderr: errb.String(), Files: h.collect(t, dir)}
 }
 
 // runGoUpgrade is newUpgradeCommand's run past its root check and its look
@@ -409,10 +444,12 @@ func (h *daemonHarness) runRust(t *testing.T, dir string, c daemonCase) daemonRe
 			"ARMADA_DAEMON_TEST_VERSION":         u.current,
 		})
 	}
+	record, stop := h.stateRun(t, dir, c.state)
+	defer stop()
 	if c.during != nil {
 		defer c.during(t, dir)()
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, h.bin, args...)
 	cmd.Dir = dir
@@ -430,7 +467,8 @@ func (h *daemonHarness) runRust(t *testing.T, dir string, c daemonCase) daemonRe
 	} else if err != nil {
 		t.Fatalf("run %s: %v", h.bin, err)
 	}
-	return daemonResult{Code: code, Stdout: out.String(), Stderr: errb.String(), Files: h.collect(t, dir)}
+	record()
+	return daemonResult{Code: code, Stdout: h.stdout(c, out.Bytes()), Stderr: errb.String(), Files: h.collect(t, dir)}
 }
 
 // daemonToolchain is the compiler version names; elapsed are the times an
@@ -442,6 +480,7 @@ var (
 
 func normalizeDaemon(s string) string {
 	s = daemonToolchain.ReplaceAllString(s, "TOOLCHAIN")
+	s = stateTemp.ReplaceAllString(s, ".$1-N")
 	return elapsed.ReplaceAllString(s, "$1 ELAPSED")
 }
 
@@ -464,6 +503,7 @@ func compareDaemon(t *testing.T, goRes, rust daemonResult) {
 func TestDaemonParity(t *testing.T) {
 	h := newDaemonHarness(t)
 	cases := daemonCases(h)
+	cases = append(cases, h.stateCases(t)...)
 	cases = append(cases, daemonExampleCases(t)...)
 	cases = append(cases, daemonHelpCases()...)
 	names := map[string]bool{}
@@ -473,6 +513,14 @@ func TestDaemonParity(t *testing.T) {
 		}
 		names[c.name] = true
 		t.Run(c.name, func(t *testing.T) {
+			if s := c.state; s != nil {
+				if s.etcd && h.bin != "" && h.etcdDir == "" {
+					t.Skip("ARMADA_ETCD_DIR names no directory with the pinned etcd and etcdutl (sh scripts/etcd-cache.sh writes them into .cache/etcd)")
+				}
+				s := *s
+				s.ports = [2]int{nextEtcdPort(), nextEtcdPort()}
+				c.state = &s
+			}
 			dir := t.TempDir()
 			t.Chdir(dir)
 			goRes := h.runGo(t, dir, c)
