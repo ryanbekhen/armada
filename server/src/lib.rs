@@ -26,15 +26,17 @@
 //! firewalls keep apart, switches of its mode, the peer lists of joins
 //! over the leader's public address, and the move of containerd nodes to
 //! the supervisor runtime (`network`, `runtimemove`); with ingress (pull
-//! request 14, its first part): the proxy configuration of every pass with
-//! certificates in full or by reference, the ports of internal TCP apps in
-//! the network, custom domains and their TXT proof, and certmagic's
-//! storage in etcd (`ingress`, [`certs`]). Obtaining certificates (the
-//! ACME client) follows in the second part of pull request 14, and
-//! watching in pull request 15; their AdminService methods answer
-//! `Unimplemented` until then ([`admin::LATER`]).
+//! request 14): the proxy configuration of every pass with certificates in
+//! full or by reference, the ports of internal TCP apps in the network,
+//! custom domains and their TXT proof, certmagic's storage in etcd
+//! (`ingress`, [`certs`]), and obtaining and renewing certificates with
+//! ACME, HTTP-01 answered on the ACME responder and DNS-01 through
+//! Cloudflare ([`acme`]). Watching follows in pull request 15; its
+//! AdminService methods answer `Unimplemented` until then
+//! ([`admin::LATER`]).
 
 pub mod access;
+pub mod acme;
 mod admin;
 pub mod agents;
 mod apps;
@@ -503,6 +505,35 @@ impl Server {
         self.start_term()
             .await
             .map_err(|e| format!("start term: {e}"))?;
+        if let Some(certs) = &self.0.certs {
+            // Every node's HAProxy forwards HTTP-01 challenges here. A
+            // listener the previous term still closes is waited for.
+            let mut tries = 0;
+            let acme = loop {
+                match TcpListener::bind(&self.0.acme_addr).await {
+                    Ok(l) => break l,
+                    Err(e) if e.kind() == std::io::ErrorKind::AddrInUse && tries < 20 => {
+                        tries += 1;
+                        tokio::time::sleep(Duration::from_millis(100)).await;
+                    }
+                    Err(e) => {
+                        return Err(format!(
+                            "ACME responder: listen tcp {}: {e}",
+                            self.0.acme_addr
+                        ));
+                    }
+                }
+            };
+            tokio::spawn(acme::responder::serve(
+                acme,
+                certs.clone(),
+                shutdown.clone(),
+            ));
+            self.0.log.info(
+                "ACME HTTP-01 responder listening",
+                &[("addr", self.0.acme_addr.clone())],
+            );
+        }
         if !self.0.join_addr.is_empty() {
             self.serve_join(shutdown.clone()).await?;
         }

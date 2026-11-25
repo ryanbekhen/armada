@@ -4,8 +4,7 @@
 //! app's custom domains (ADR 0047), and certmagic's storage in etcd
 //! ([`EtcdStorage`], `/armada-acme/`) with its key layout, so either side
 //! serves what the other's certificate manager obtained. Obtaining and
-//! renewing certificates (the ACME client, HTTP-01 through the agents'
-//! challenge path, DNS-01) come with the second part of pull request 14.
+//! renewing certificates is [`crate::acme`]'s.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -59,6 +58,11 @@ pub trait Certs: Send + Sync {
     async fn certificate(&self, name: &str) -> Option<Vec<u8>>;
     /// Whether DNS-01, and so wildcards, is available.
     fn supports_wildcard(&self) -> bool;
+    /// HTTPHandler: the answer to an HTTP-01 challenge request (method,
+    /// Host header, path), or None for anything else (404).
+    async fn http_challenge(&self, _method: &str, _host: &str, _path: &str) -> Option<Vec<u8>> {
+        None
+    }
 }
 
 /// Looks up DNS TXT records (Go's TXTResolver).
@@ -514,24 +518,7 @@ impl EtcdStorage {
 
     /// Lock: an etcd mutex on `<prefix>locks/<name>`, tied to a lease.
     pub async fn lock(&self, name: &str) -> Result<()> {
-        let session = {
-            let mut st = self.st.lock().await;
-            if st.session.as_ref().is_some_and(|s| s.is_done()) {
-                st.session = None;
-            }
-            match &st.session {
-                Some(s) => s.clone(),
-                None => {
-                    let s = Arc::new(
-                        Session::new(&self.c, LOCK_TTL)
-                            .await
-                            .map_err(|e| Error::other(format!("certs: lock session: {e}")))?,
-                    );
-                    st.session = Some(s.clone());
-                    s
-                }
-            }
-        };
+        let session = self.session().await?;
         let mut m = EtcdMutex::new(
             session,
             &format!("{}locks/{}", self.prefix, name.trim_matches('/')),
@@ -539,6 +526,54 @@ impl EtcdStorage {
         m.lock().await?;
         self.st.lock().await.locks.insert(name.to_string(), m);
         Ok(())
+    }
+
+    /// Lock, given up when `stop` ends first (Go's Lock with a cancelled
+    /// context): the waiting key is removed and Ok(false) returned.
+    pub async fn lock_unless(
+        &self,
+        name: &str,
+        stop: impl std::future::Future<Output = ()>,
+    ) -> Result<bool> {
+        let session = self.session().await?;
+        let mut m = EtcdMutex::new(
+            session,
+            &format!("{}locks/{}", self.prefix, name.trim_matches('/')),
+        );
+        let won = tokio::select! {
+            r = m.lock() => Some(r),
+            _ = stop => None,
+        };
+        match won {
+            Some(r) => {
+                r?;
+                self.st.lock().await.locks.insert(name.to_string(), m);
+                Ok(true)
+            }
+            None => {
+                let _ = m.unlock().await;
+                Ok(false)
+            }
+        }
+    }
+
+    async fn session(&self) -> Result<Arc<Session>> {
+        let mut st = self.st.lock().await;
+        if st.session.as_ref().is_some_and(|s| s.is_done()) {
+            st.session = None;
+        }
+        match &st.session {
+            Some(s) => Ok(s.clone()),
+            None => {
+                let s = Arc::new(
+                    Session::new(&self.c, LOCK_TTL)
+                        .await
+                        .map_err(|e| Error::other(format!("certs: lock session: {e}")))?,
+                );
+                st.session = Some(s.clone());
+                Ok(s)
+            }
+        }
     }
 
     /// Unlock.

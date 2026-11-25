@@ -463,7 +463,11 @@ Go and every new Rust part is exercised only by its parity tests.
     domains, ACME HTTP-01 and DNS-01 (tested with Pebble and a stand-in
     DNS API), the certificate storage shared with Go. In two parts: the
     proxy configuration, domains, and the certificate storage first, then
-    obtaining certificates (the ACME client).
+    obtaining certificates (the ACME client): one account, certificates,
+    their metadata, challenges, and locks in the shared storage as
+    certmagic keeps them, so a Go server and a Rust server renew and
+    answer for each other's certificates. OCSP stapling is not carried
+    over: the proxies get the chain and the key only.
 15. **Watching.** Events, alerts, metrics, log search and export
     settings, usage, `Top`, cluster status, control plane backups.
 16. **The agent.** The agent's loop (ADR 0054 step 6) as `armadad agent`:
