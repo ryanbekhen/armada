@@ -1,6 +1,7 @@
 // Package embedded runs containers on Armada's own containerd instance
-// (ADR 0011). Release builds carry containerd, runc, the CNI plugins, and
-// tini in the binary; this file pins exactly which upstream artifacts.
+// (ADR 0011). Release builds carry containerd, runc, the CNI plugins,
+// tini, and etcd in the binary; this file pins exactly which upstream
+// artifacts.
 package embedded
 
 import "strings"
@@ -18,8 +19,8 @@ type Artifact struct {
 	URL    string
 	SHA256 map[string]string // by arch
 	// Files maps a path inside the downloaded gzipped tar to its name in the
-	// bundle. An empty map means the download is the file itself, named
-	// Name.
+	// bundle; {arch} in a path is replaced as in URL (FilesFor). An empty
+	// map means the download is the file itself, named Name.
 	Files map[string]string
 }
 
@@ -64,6 +65,24 @@ var Lock = []Artifact{
 		},
 	},
 	{
+		// etcd runs from the pack as armada-etcd.service (ADR 0055), at the
+		// version of go.etcd.io/etcd/server in go.mod, so a member's files
+		// keep their version whether it is embedded or runs from here
+		// (TestEtcdMatchesModule). etcd publishes SHA256SUMS with each
+		// release and no signature.
+		Name:    "etcd",
+		Version: "3.7.4",
+		URL:     "https://github.com/etcd-io/etcd/releases/download/v3.7.4/etcd-v3.7.4-linux-{arch}.tar.gz",
+		SHA256: map[string]string{
+			"amd64": "a0d47d07d081c12611fe69dc81a16ae8dd758401c0fe3a83d508823a1dac558e",
+			"arm64": "3f5d12a3b4119141bd5bc80a0a895100d049d6c85a2c76b1bb767204a899024a",
+		},
+		Files: map[string]string{
+			"etcd-v3.7.4-linux-{arch}/etcd":    "etcd",
+			"etcd-v3.7.4-linux-{arch}/etcdutl": "etcdutl",
+		},
+	},
+	{
 		Name:    "tini",
 		Version: "0.19.0",
 		URL:     "https://github.com/krallin/tini/releases/download/v0.19.0/tini-static-{arch}",
@@ -78,6 +97,18 @@ var Lock = []Artifact{
 func (a Artifact) URLFor(arch string) string {
 	name := arch
 	return strings.ReplaceAll(a.URL, "{arch}", name)
+}
+
+// FilesFor returns a's Files with {arch} replaced in each path.
+func (a Artifact) FilesFor(arch string) map[string]string {
+	if len(a.Files) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(a.Files))
+	for from, to := range a.Files {
+		out[strings.ReplaceAll(from, "{arch}", arch)] = to
+	}
+	return out
 }
 
 // Names of the bundled files the runtime uses.
@@ -101,4 +132,9 @@ const (
 	// work itself when the pack has none.
 	BinNode = "armada-node"
 	DirCNI  = "cni"
+	// BinEtcd and BinEtcdutl are the pinned etcd release's programs:
+	// `armadad etcd` runs the control plane's member with the first
+	// (armada-etcd.service, ADR 0055).
+	BinEtcd    = "etcd"
+	BinEtcdutl = "etcdutl"
 )

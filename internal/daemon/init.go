@@ -224,7 +224,7 @@ func newInitCommand(g *globals) *cobra.Command {
 					return err
 				}
 			}
-			st, member, err := openState(ctx, dataDir, slog.New(slog.DiscardHandler))
+			st, member, err := openState(ctx, dataDir, false, slog.New(slog.DiscardHandler))
 			if err != nil {
 				return err
 			}

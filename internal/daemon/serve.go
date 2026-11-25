@@ -83,6 +83,7 @@ func newServerCommand() *cobra.Command {
 		joinListen  string
 		metrics     string
 		lostTimeout time.Duration
+		etcdMember  string
 		tls         tlsFlags
 	)
 	cmd := &cobra.Command{
@@ -99,6 +100,9 @@ func newServerCommand() *cobra.Command {
 			log, err := newLogger(cmd.ErrOrStderr(), logFormat, verbose)
 			if err != nil {
 				return err
+			}
+			if etcdMember != etcdEmbedded && etcdMember != etcdUnit {
+				return fmt.Errorf("invalid --etcd-member %q: use %s or %s", etcdMember, etcdEmbedded, etcdUnit)
 			}
 			if err := server.CheckNodeLostTimeout(lostTimeout); err != nil {
 				return fmt.Errorf("--node-lost-timeout: %w", err)
@@ -138,7 +142,7 @@ func newServerCommand() *cobra.Command {
 			if err := upMesh(dataDir, ac, nil, log); err != nil {
 				return err
 			}
-			st, member, err := openState(ctx, dataDir, log)
+			st, member, err := openState(ctx, dataDir, etcdMember == etcdUnit, log)
 			if err != nil {
 				return err
 			}
@@ -351,6 +355,9 @@ func newServerCommand() *cobra.Command {
 	f.StringVar(&joinListen, "join-listen", "", "private ip:port for joining nodes (default: API port + 1; \"off\" disables joining)")
 	f.StringVar(&metrics, "metrics-listen", "", "private ip:port for the Prometheus metrics endpoint, served by the leader to metrics and admin certificates (default: off)")
 	f.DurationVar(&lostTimeout, "node-lost-timeout", server.DefaultNodeLostTimeout, "how long a node may be unreachable before its replicas move to other nodes")
+	f.StringVar(&etcdMember, "etcd-member", etcdEmbedded, "where this server's etcd member runs: embedded (in this process) or unit (armada-etcd.service; lab machines only, ADR 0055)")
+	// Lab machines only until servers move to their own unit (ADR 0055).
+	_ = f.MarkHidden("etcd-member")
 	tls.register(cmd)
 	cmd.AddCommand(newServerJoinCommand())
 	return cmd

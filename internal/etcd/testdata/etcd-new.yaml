@@ -1,0 +1,33 @@
+# Written by armadad etcd at every start; changes are overwritten.
+name: cp-1
+data-dir: /var/lib/armada/etcd/data
+listen-client-urls: https://10.0.0.5:2379
+advertise-client-urls: https://10.0.0.5:2379
+listen-peer-urls: https://10.0.0.5:2380
+initial-advertise-peer-urls: https://10.0.0.5:2380
+initial-cluster: cp-1=https://10.0.0.5:2380
+initial-cluster-token: armada
+initial-cluster-state: new
+enable-grpc-gateway: false
+tls-min-version: TLS1.3
+max-txn-ops: 4096
+auto-compaction-mode: periodic
+auto-compaction-retention: 1h
+logger: zap
+log-level: warn
+log-outputs:
+    - stderr
+client-transport-security:
+    cert-file: /var/lib/armada/etcd/member.crt
+    key-file: /var/lib/armada/etcd/member.key
+    trusted-ca-file: /var/lib/armada/etcd/ca.crt
+    client-cert-auth: true
+    allowed-cn:
+        - etcd:member
+peer-transport-security:
+    cert-file: /var/lib/armada/etcd/member.crt
+    key-file: /var/lib/armada/etcd/member.key
+    trusted-ca-file: /var/lib/armada/etcd/ca.crt
+    client-cert-auth: true
+    allowed-cn:
+        - etcd:member

@@ -27,7 +27,6 @@ import (
 
 	clientv3 "go.etcd.io/etcd/client/v3"
 	"go.etcd.io/etcd/server/v3/embed"
-	"go.etcd.io/etcd/server/v3/storage/wal"
 	"go.uber.org/zap"
 
 	"github.com/ryanbekhen/armada/internal/fsutil"
@@ -76,84 +75,31 @@ type Config struct {
 	UnsafeNoFsync bool
 }
 
-// Member is a running embedded etcd member.
+// Member is this server's etcd member: embedded in this process (Start), or
+// run by armada-etcd.service from the runtime pack (Connect, ADR 0055).
 type Member struct {
+	// etcd is nil for a member another process runs.
 	etcd   *embed.Etcd
 	client *clientv3.Client
 	cfg    Config
+	// id is the member's ID when another process runs it.
+	id uint64
 
 	closing   *atomic.Bool
 	closeOnce sync.Once
 	closeErr  error
 }
 
-// maxTxnOps bounds the operations of one transaction (etcd's default is
-// 128).
-const maxTxnOps = 4096
-
 // Start starts the member (a new single-member cluster on first start) and
 // returns once it serves requests.
 func Start(ctx context.Context, cfg Config) (*Member, error) {
-	if cfg.Name == "" || cfg.CA == nil {
-		return nil, errors.New("etcd: Name and CA are required")
-	}
-	if !cfg.Addr.IsValid() || !netutil.IsPrivate(cfg.Addr) {
-		return nil, fmt.Errorf("etcd: listen address %s must be private", cfg.Addr)
-	}
-	cfg = withDefaults(cfg)
-	if err := fsutil.MkdirPrivate(cfg.Dir); err != nil {
+	cfg, s, err := prepare(cfg)
+	if err != nil {
 		return nil, err
 	}
-	if err := ensureCert(cfg); err != nil {
-		return nil, err
-	}
-
-	clientURL := memberURL(cfg.Addr, cfg.ClientPort)
-	peerURL := memberURL(cfg.Addr, cfg.PeerPort)
-	certFile, keyFile, caFile := filepath.Join(cfg.Dir, fileCert), filepath.Join(cfg.Dir, fileKey), filepath.Join(cfg.Dir, fileCA)
-	allowed := []string{pki.EtcdMember.String()}
-	// A member without a write-ahead log has never started: a first start
-	// that failed half-way leaves a data directory behind, which etcd would
-	// otherwise take for a member of a new cluster of its own.
-	data := filepath.Join(cfg.Dir, dirData)
-	fresh := !wal.Exist(filepath.Join(data, "member", "wal"))
-	if fresh {
-		if err := os.RemoveAll(data); err != nil {
-			return nil, err
-		}
-	}
-
-	ec := embed.NewConfig()
-	ec.Name = cfg.Name
-	ec.Dir = filepath.Join(cfg.Dir, dirData)
-	ec.ListenClientUrls = []url.URL{clientURL}
-	ec.AdvertiseClientUrls = []url.URL{clientURL}
-	ec.ListenPeerUrls = []url.URL{peerURL}
-	ec.AdvertisePeerUrls = []url.URL{peerURL}
-	ec.InitialCluster = cfg.Name + "=" + peerURL.String()
-	ec.InitialClusterToken = clusterToken
-	ec.ClusterState = embed.ClusterStateFlagNew
-	if cfg.InitialCluster != "" && fresh {
-		ec.InitialCluster = cfg.InitialCluster
-		ec.ClusterState = embed.ClusterStateFlagExisting
-	}
-	ec.EnableGRPCGateway = false // gRPC only: no HTTP/JSON surface
-	ec.ListenMetricsUrls = nil
-	ec.TlsMinVersion = "TLS1.3"
-	ec.UnsafeNoFsync = cfg.UnsafeNoFsync
-	// Armada deletes what it can by range, but a transaction may still
-	// touch a few hundred keys (a node's replicas, a large app's records).
-	ec.MaxTxnOps = maxTxnOps
-	ec.AutoCompactionMode = "periodic"
-	ec.AutoCompactionRetention = "1h"
+	ec := embedConfig(s)
 	closing := new(atomic.Bool)
 	ec.ZapLoggerBuilder = embed.NewZapLoggerBuilder(newZapLogger(cfg.Logger, closing))
-	ec.ClientTLSInfo.CertFile, ec.ClientTLSInfo.KeyFile, ec.ClientTLSInfo.TrustedCAFile = certFile, keyFile, caFile
-	ec.ClientTLSInfo.ClientCertAuth = true
-	ec.ClientTLSInfo.AllowedCNs = allowed
-	ec.PeerTLSInfo.CertFile, ec.PeerTLSInfo.KeyFile, ec.PeerTLSInfo.TrustedCAFile = certFile, keyFile, caFile
-	ec.PeerTLSInfo.ClientCertAuth = true
-	ec.PeerTLSInfo.AllowedCNs = allowed
 
 	e, err := embed.StartEtcd(ec)
 	if err != nil {
@@ -181,7 +127,7 @@ func Start(ctx context.Context, cfg Config) (*Member, error) {
 		e.Close()
 		return nil, err
 	}
-	if err := m.updatePeerURL(ctx, peerURL); err != nil {
+	if err := m.updatePeerURL(ctx, s.PeerURL); err != nil {
 		_ = m.Close()
 		return nil, err
 	}
@@ -191,6 +137,77 @@ func Start(ctx context.Context, cfg Config) (*Member, error) {
 		}
 	}()
 	return m, nil
+}
+
+// connectEvery is how often Connect tries again while the member starts.
+const connectEvery = time.Second
+
+// Connect returns the member described by cfg that another process runs
+// (armada-etcd.service, ADR 0055), as Start returns an embedded one: it
+// waits up to a minute for the member to answer, as Start waits for an
+// embedded one to be ready, and authenticates with the member certificate
+// in cfg.Dir, which the process running the member issues. Closing the
+// Member closes the client only.
+func Connect(ctx context.Context, cfg Config) (*Member, error) {
+	if cfg.Name == "" || cfg.CA == nil {
+		return nil, errors.New("etcd: Name and CA are required")
+	}
+	cfg = withDefaults(cfg)
+	u := memberURL(cfg.Addr, cfg.ClientPort)
+	deadline := time.Now().Add(readyLimit)
+	logged := false
+	for {
+		m, err := connect(ctx, cfg)
+		if err == nil {
+			if err := m.updatePeerURL(ctx, memberURL(cfg.Addr, cfg.PeerPort)); err != nil {
+				_ = m.Close()
+				return nil, err
+			}
+			return m, nil
+		}
+		if time.Now().After(deadline) {
+			return nil, fmt.Errorf("the etcd member at %s did not answer within a minute (is armada-etcd running?): %w", u.Host, err)
+		}
+		if !logged {
+			cfg.Logger.Info("waiting for the etcd member", "component", "etcd", "addr", u.Host, "err", err)
+			logged = true
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(connectEvery):
+		}
+	}
+}
+
+func connect(ctx context.Context, cfg Config) (*Member, error) {
+	m := &Member{cfg: cfg, closing: new(atomic.Bool)}
+	var err error
+	if m.client, err = m.newClient(); err != nil {
+		return nil, err
+	}
+	st, err := m.status(ctx)
+	if err != nil {
+		_ = m.client.Close()
+		return nil, err
+	}
+	m.id = st.Header.MemberId
+	return m, nil
+}
+
+// status asks the member about itself.
+func (m *Member) status(ctx context.Context) (*clientv3.StatusResponse, error) {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	u := memberURL(m.cfg.Addr, m.cfg.ClientPort)
+	st, err := m.client.Status(ctx, u.Host)
+	if err != nil {
+		return nil, fmt.Errorf("etcd at %s: %w", u.Host, err)
+	}
+	if st.Header == nil {
+		return nil, fmt.Errorf("etcd at %s: status without a header", u.Host)
+	}
+	return st, nil
 }
 
 func withDefaults(cfg Config) Config {
@@ -210,10 +227,22 @@ func withDefaults(cfg Config) Config {
 func (m *Member) Client() *clientv3.Client { return m.client }
 
 // ID is the member's ID in the cluster.
-func (m *Member) ID() uint64 { return uint64(m.etcd.Server.MemberID()) }
+func (m *Member) ID() uint64 {
+	if m.etcd == nil {
+		return m.id
+	}
+	return uint64(m.etcd.Server.MemberID())
+}
 
-// IsLearner reports whether the member is a learner (not yet voting).
-func (m *Member) IsLearner() bool { return m.etcd.Server.IsLearner() }
+// IsLearner reports whether the member is a learner (not yet voting). A
+// member another process runs that does not answer counts as one.
+func (m *Member) IsLearner() bool {
+	if m.etcd == nil {
+		st, err := m.status(context.Background())
+		return err != nil || st.IsLearner
+	}
+	return m.etcd.Server.IsLearner()
+}
 
 // updatePeerURL records the member's peer URL in the cluster if it changed
 // since the member was created, which happens when the listen address
@@ -243,12 +272,15 @@ func (m *Member) updatePeerURL(ctx context.Context, peerURL url.URL) error {
 	return nil
 }
 
-// Close stops the client and the member. It is safe to call more than once.
+// Close stops the client and an embedded member; a member another process
+// runs keeps running. It is safe to call more than once.
 func (m *Member) Close() error {
 	m.closeOnce.Do(func() {
 		m.closing.Store(true)
 		m.closeErr = m.client.Close()
-		m.etcd.Close()
+		if m.etcd != nil {
+			m.etcd.Close()
+		}
 	})
 	return m.closeErr
 }

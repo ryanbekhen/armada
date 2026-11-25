@@ -55,6 +55,8 @@ grep -q "$WORK/good/prefix/bin/armadad server" "$WORK/good/units/armada-server.s
 	fail "unit does not point at the installed binary"
 grep -q "$WORK/good/prefix/bin/armadad runtime" "$WORK/good/units/armada-runtime.service" ||
 	fail "runtime unit not installed"
+grep -q "$WORK/good/prefix/bin/armadad etcd" "$WORK/good/units/armada-etcd.service" ||
+	fail "etcd unit not installed"
 [ "$(stat -c %a "$WORK/good/prefix/bin/armadad")" = 755 ] || fail "binary mode"
 # armada and armadad are separate files.
 [ ! -L "$WORK/good/prefix/bin/armada" ] || fail "armada is a link"

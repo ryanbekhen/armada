@@ -88,8 +88,15 @@ func TestMemberServesAndPersists(t *testing.T) {
 func TestRejectsOtherIdentities(t *testing.T) {
 	t.Parallel()
 	ca, _ := pki.NewCA("test")
-	other, _ := pki.NewCA("other")
 	_, cfg := startMember(t, ca)
+	checkRejectsOthers(t, ca, cfg)
+}
+
+// checkRejectsOthers fails unless the member of cfg refuses every client
+// but the member identity of its CA, and TLS before 1.3.
+func checkRejectsOthers(t *testing.T, ca *pki.CA, cfg Config) {
+	t.Helper()
+	other, _ := pki.NewCA("other")
 	u := memberURL(cfg.Addr, cfg.ClientPort)
 	endpoint := u.String()
 
@@ -113,24 +120,45 @@ func TestRejectsOtherIdentities(t *testing.T) {
 		"member, other CA":      issue(other, pki.EtcdMember),
 		"no client certificate": nil,
 	}
+	get := func(certs []tls.Certificate) error {
+		c, err := clientv3.New(clientv3.Config{
+			Endpoints: []string{endpoint}, DialTimeout: 2 * time.Second, Logger: zap.NewNop(),
+			TLS: &tls.Config{MinVersion: tls.VersionTLS13, RootCAs: pool, Certificates: certs},
+		})
+		if err != nil {
+			return err
+		}
+		defer c.Close()
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		_, err = c.Get(ctx, "k")
+		return err
+	}
+	// Subtests run one at a time: the caller may stop the member once
+	// this returns.
 	for name, certs := range cases {
 		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-			c, err := clientv3.New(clientv3.Config{
-				Endpoints: []string{endpoint}, DialTimeout: 2 * time.Second,
-				TLS: &tls.Config{MinVersion: tls.VersionTLS13, RootCAs: pool, Certificates: certs},
-			})
-			if err == nil {
-				defer c.Close()
-				ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-				defer cancel()
-				_, err = c.Get(ctx, "k")
-			}
-			if err == nil {
+			if get(certs) == nil {
 				t.Error("etcd accepted the client")
 			}
 		})
 	}
+	member := issue(ca, pki.EtcdMember)
+	t.Run("member certificate", func(t *testing.T) {
+		if err := get(member); err != nil {
+			t.Errorf("etcd refused the member identity: %v", err)
+		}
+	})
+	t.Run("TLS 1.2", func(t *testing.T) {
+		conn, err := tls.Dial("tcp", u.Host, &tls.Config{MinVersion: tls.VersionTLS12, MaxVersion: tls.VersionTLS12, RootCAs: pool, Certificates: member})
+		if err == nil {
+			err = conn.Handshake()
+			_ = conn.Close()
+		}
+		if err == nil {
+			t.Error("etcd accepted TLS 1.2")
+		}
+	})
 }
 
 func TestStartRefusesPublicAddress(t *testing.T) {

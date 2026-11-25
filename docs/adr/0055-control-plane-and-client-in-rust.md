@@ -418,7 +418,7 @@ Go and every new Rust part is exercised only by its parity tests.
    release builds for every target including macOS.
 4. **etcd from the pack.** The pinned `etcd` and `etcdutl` in the lock,
    and `armadad etcd` and `armada-etcd.service` written in Go first, with
-   a server flag (used only in the lab) that makes the Go server use the
+   a server flag (`--etcd-member unit`, hidden, used only in the lab) that makes the Go server use the
    unit's member instead of embedding one, so that the member's move from
    embedded to its own unit, and back, is tested on its own before any
    Rust server exists. `armadad etcd` is ported with the machine commands
