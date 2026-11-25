@@ -454,7 +454,9 @@ Go and every new Rust part is exercised only by its parity tests.
     containerd nodes.
 14. **Ingress and certificates.** The proxy configuration per pass,
     domains, ACME HTTP-01 and DNS-01 (tested with Pebble and a stand-in
-    DNS API), the certificate storage shared with Go.
+    DNS API), the certificate storage shared with Go. In two parts: the
+    proxy configuration, domains, and the certificate storage first, then
+    obtaining certificates (the ACME client).
 15. **Watching.** Events, alerts, metrics, log search and export
     settings, usage, `Top`, cluster status, control plane backups.
 16. **The agent.** The agent's loop (ADR 0054 step 6) as `armadad agent`:

@@ -32,12 +32,10 @@ fn unimplemented(method: &str) -> Status {
 
 /// The methods that answer `Unimplemented` in this pull request: the
 /// service, the method, and the pull request of ADR 0055 that ports it
-/// (14 ingress and certificates, 15 watching).
+/// (15 watching).
 pub const LATER: &[(&str, &str, u8)] = &[
     ("Admin", "ClusterStatus", 15),
     ("Admin", "Logs", 15),
-    ("Admin", "ListDomains", 14),
-    ("Admin", "VerifyDomain", 14),
     ("Admin", "Exec", 15),
     ("Admin", "Top", 15),
     ("Admin", "IssueMetricsCertificate", 15),
@@ -50,7 +48,6 @@ pub const LATER: &[(&str, &str, u8)] = &[
     ("Admin", "TestAlertChannel", 15),
     ("Agent", "PushLogs", 15),
     ("Agent", "ExecSession", 15),
-    ("Agent", "GetCertificates", 14),
 ];
 
 #[tonic::codegen::async_trait]
@@ -208,15 +205,21 @@ impl AdminService for Api {
         &self,
         request: Request<ListDomainsRequest>,
     ) -> Result<Response<ListDomainsResponse>, Status> {
-        let _ = request;
-        Err(unimplemented("ListDomains"))
+        let a = auth(&request)?;
+        self.0
+            .list_domains(&a, request.into_inner())
+            .await
+            .map(Response::new)
     }
     async fn verify_domain(
         &self,
         request: Request<VerifyDomainRequest>,
     ) -> Result<Response<Domain>, Status> {
-        let _ = request;
-        Err(unimplemented("VerifyDomain"))
+        let a = auth(&request)?;
+        self.0
+            .verify_domain(&a, request.into_inner())
+            .await
+            .map(Response::new)
     }
     async fn list_revisions(
         &self,
@@ -720,7 +723,10 @@ impl AgentService for Api {
         &self,
         request: Request<GetCertificatesRequest>,
     ) -> Result<Response<GetCertificatesResponse>, Status> {
-        let _ = request;
-        Err(unimplemented("GetCertificates"))
+        let a = auth(&request)?;
+        self.0
+            .get_certificates(&a, request.into_inner())
+            .await
+            .map(Response::new)
     }
 }

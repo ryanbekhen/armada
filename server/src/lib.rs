@@ -25,8 +25,13 @@
 //! every assignment with its peers, sites, relays, and the endpoints the
 //! firewalls keep apart, switches of its mode, the peer lists of joins
 //! over the leader's public address, and the move of containerd nodes to
-//! the supervisor runtime (`network`, `runtimemove`). Ingress and watching
-//! follow in their own pull requests; their AdminService methods answer
+//! the supervisor runtime (`network`, `runtimemove`); with ingress (pull
+//! request 14, its first part): the proxy configuration of every pass with
+//! certificates in full or by reference, the ports of internal TCP apps in
+//! the network, custom domains and their TXT proof, and certmagic's
+//! storage in etcd (`ingress`, [`certs`]). Obtaining certificates (the
+//! ACME client) follows in the second part of pull request 14, and
+//! watching in pull request 15; their AdminService methods answer
 //! `Unimplemented` until then ([`admin::LATER`]).
 
 pub mod access;
@@ -36,12 +41,14 @@ mod apps;
 mod assign;
 mod autoscale;
 mod backups;
+pub mod certs;
 pub mod cluster;
 pub mod conn;
 mod events;
 mod failover;
 mod grpc;
 pub mod guard;
+mod ingress;
 mod jobs;
 mod join;
 pub mod lifecycle;
@@ -148,6 +155,17 @@ pub struct Config {
     pub metrics_addr: String,
     /// The cluster obtains no certificates: external apps' URLs are http.
     pub plain_http: bool,
+    /// Manages the public frontends' certificates; none for a cluster
+    /// without TLS.
+    pub certs: Option<Arc<dyn certs::Certs>>,
+    /// The ACME HTTP-01 responder the proxies send challenges to (private
+    /// ip:port).
+    pub acme_addr: String,
+    /// Looks up the TXT records of custom domains; none uses the machine's
+    /// resolvers.
+    pub resolver: Option<Arc<dyn certs::TxtResolver>>,
+    /// How often unverified domains are checked; zero uses a minute.
+    pub verify_interval: Duration,
     /// Rollout timing; zero values use the defaults: how long a replica
     /// keeps running after leaving the proxies, how long a new replica
     /// serves before old ones go, and how long a rollout may go without a
@@ -209,6 +227,10 @@ impl Config {
             dns_provider: String::new(),
             metrics_addr: String::new(),
             plain_http: false,
+            certs: None,
+            acme_addr: String::new(),
+            resolver: None,
+            verify_interval: Duration::ZERO,
             drain_timeout: Duration::ZERO,
             warmup: Duration::ZERO,
             progress_deadline: Duration::ZERO,
@@ -255,6 +277,21 @@ pub(crate) struct Inner {
     pub dns_provider: String,
     pub metrics_addr: String,
     pub plain_http: bool,
+    pub certs: Option<Arc<dyn certs::Certs>>,
+    pub acme_addr: String,
+    pub resolver: Arc<dyn certs::TxtResolver>,
+    pub verify_interval: Duration,
+    /// Certificates read from the manager, kept until it obtains them
+    /// again (Go's pems).
+    pub pems: Mutex<HashMap<String, Vec<u8>>>,
+    /// The names and credentials the manager was last given (Go's
+    /// lastCertNames, under certMu).
+    pub cert_names: tokio::sync::Mutex<Vec<String>>,
+    /// The certificate names of the last proxy configuration
+    /// (GetCertificates hands out only these).
+    pub served_certs: Mutex<std::collections::BTreeSet<String>>,
+    /// The last valid proxy configuration, in full and by reference.
+    pub proxy: Mutex<ingress::ProxyMemory>,
     pub drain_timeout: Duration,
     pub warmup: Duration,
     pub progress_deadline: Duration,
@@ -329,6 +366,20 @@ impl Server {
                 return Err("server: a mesh cluster's join listener is already public".to_string());
             }
         }
+        if cfg.certs.is_some() {
+            // Advertised to every node's HAProxy: a private, fixed port.
+            let Some((ip, port, _)) = ingress::parse_addr_port(&cfg.acme_addr) else {
+                return Err(format!(
+                    "server: ACME responder: listen address {} must be ip:port",
+                    armada_spec::go::quote(&cfg.acme_addr)
+                ));
+            };
+            netutil::check_private_ip(&ip.string())
+                .map_err(|e| format!("server: ACME responder: {e}"))?;
+            if port == 0 {
+                return Err("server: ACME responder needs a fixed port".to_string());
+            }
+        }
         let clock = cfg
             .clock
             .unwrap_or_else(|| Arc::new(armada_store::gojson::now));
@@ -366,6 +417,14 @@ impl Server {
             dns_provider: cfg.dns_provider,
             metrics_addr: cfg.metrics_addr,
             plain_http: cfg.plain_http,
+            certs: cfg.certs,
+            acme_addr: cfg.acme_addr,
+            resolver: cfg.resolver.unwrap_or_else(|| Arc::new(certs::SystemTxt)),
+            verify_interval: nonzero(cfg.verify_interval, ingress::DEFAULT_VERIFY_INTERVAL),
+            pems: Mutex::new(HashMap::new()),
+            cert_names: tokio::sync::Mutex::new(Vec::new()),
+            served_certs: Mutex::new(Default::default()),
+            proxy: Mutex::new(ingress::ProxyMemory::default()),
             drain_timeout: nonzero(cfg.drain_timeout, reconcile::DEFAULT_DRAIN_TIMEOUT),
             warmup: nonzero(cfg.warmup, reconcile::DEFAULT_WARMUP),
             progress_deadline: nonzero(cfg.progress_deadline, reconcile::DEFAULT_PROGRESS_DEADLINE),
@@ -459,6 +518,9 @@ impl Server {
             let s = self.clone();
             let sd = shutdown.clone();
             tokio::spawn(async move { s.backup_loop(sd).await });
+            let s = self.clone();
+            let sd = shutdown.clone();
+            tokio::spawn(async move { s.verify_loop(sd).await });
         }
         let addr = lis.local_addr().map(|a| a.to_string()).unwrap_or_default();
         self.0.log.info("listening", &[("addr", addr)]);

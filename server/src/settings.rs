@@ -1,10 +1,10 @@
 //! The cluster's server settings (ADR 0031; Go's settings.go) and the
 //! cluster configuration RPCs. SetClusterConfig sets the root domain and
-//! the server settings here; the settings of later pull requests (trusted
-//! proxies and PROXY protocol 14, log history and export and control plane
-//! backups 15) answer `Unimplemented` before anything changes; the network
-//! mode, the mesh range, and the runtime move are set too (pull request
-//! 13).
+//! the server settings here; the settings of a later pull request (log
+//! history and export and control plane backups, 15) answer
+//! `Unimplemented` before anything changes; the network mode, the mesh
+//! range, and the runtime move are set too (pull request 13), and the
+//! trusted proxies and PROXY protocol sources (pull request 14).
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -22,8 +22,7 @@ use crate::{Server, store_err};
 
 const META_SETTINGS: &str = "settings";
 const META_ROOT_DOMAIN: &str = "root_domain";
-const META_TRUSTED_PROXIES: &str = "trusted_proxies";
-const META_PROXY_PROTOCOL: &str = "proxy_protocol";
+use crate::ingress::{META_PROXY_PROTOCOL, META_TRUSTED_PROXIES};
 pub(crate) const META_LOGS: &str = "logs";
 const META_CP_BACKUP: &str = "control-plane-backup";
 const META_RUNTIME_MOVE: &str = "runtime-move";
@@ -271,15 +270,6 @@ fn text(v: &Json, k: &str) -> String {
 }
 
 impl Server {
-    async fn meta_list(&self, key: &str) -> Result<Vec<String>, armada_store::Error> {
-        match self.store().get_meta(key).await {
-            Err(e) if e.kind == Kind::NotFound => Ok(Vec::new()),
-            Err(e) => Err(e),
-            Ok(v) if v.is_empty() => Ok(Vec::new()),
-            Ok(v) => Ok(v.split(',').map(str::to_string).collect()),
-        }
-    }
-
     pub(crate) async fn root_domain(&self) -> String {
         self.store()
             .get_meta(META_ROOT_DOMAIN)
@@ -298,8 +288,10 @@ impl Server {
 
     async fn cluster_config(&self) -> Result<ClusterConfig, Status> {
         let e = |e: armada_store::Error| store_err(&e);
-        let trusted = self.meta_list(META_TRUSTED_PROXIES).await.map_err(e)?;
-        let sources = self.meta_list(META_PROXY_PROTOCOL).await.map_err(e)?;
+        // A record that no longer parses is an error (storeErr of it).
+        let internal = |_| Status::new(Code::Internal, "internal error");
+        let trusted = self.trusted_proxies().await.map_err(internal)?;
+        let sources = self.proxy_protocol().await.map_err(internal)?;
         let set = load_settings(self.store()).await.map_err(e)?;
         let mut cc = ClusterConfig {
             root_domain: self.root_domain().await,
@@ -372,8 +364,6 @@ impl Server {
         req: SetClusterConfigRequest,
     ) -> Result<ClusterConfig, Status> {
         let later = [
-            (req.set_trusted_proxies, 14),
-            (req.set_proxy_protocol, 14),
             (
                 req.set_log_retention
                     || req.set_log_max_bytes
@@ -418,6 +408,44 @@ impl Server {
             self.0.log.info(
                 "root domain changed",
                 &[("root_domain", root), ("by", a.actor())],
+            );
+        }
+        if req.set_trusted_proxies {
+            let trusted = crate::ingress::parse_trusted_proxies(&c.trusted_proxies)
+                .map_err(|e| Status::new(Code::InvalidArgument, e))?;
+            self.check_proxy_prefixes(&trusted, "trusted proxy", "trusted proxies")
+                .await?;
+            let list = trusted.join(",");
+            self.store()
+                .set_meta(META_TRUSTED_PROXIES, &list)
+                .await
+                .map_err(|e| store_err(&e))?;
+            self.store()
+                .record_audit(&a.actor(), "cluster.trusted_proxies", "cluster", &list)
+                .await
+                .map_err(|e| store_err(&e))?;
+            self.0.log.info(
+                "trusted proxies changed",
+                &[("trusted_proxies", list), ("by", a.actor())],
+            );
+        }
+        if req.set_proxy_protocol {
+            let sources = crate::ingress::parse_proxy_protocol(&c.proxy_protocol)
+                .map_err(|e| Status::new(Code::InvalidArgument, e))?;
+            self.check_proxy_prefixes(&sources, "PROXY protocol source", "PROXY protocol sources")
+                .await?;
+            let list = sources.join(",");
+            self.store()
+                .set_meta(META_PROXY_PROTOCOL, &list)
+                .await
+                .map_err(|e| store_err(&e))?;
+            self.store()
+                .record_audit(&a.actor(), "cluster.proxy_protocol", "cluster", &list)
+                .await
+                .map_err(|e| store_err(&e))?;
+            self.0.log.info(
+                "PROXY protocol sources changed",
+                &[("proxy_protocol", list), ("by", a.actor())],
             );
         }
         if req.set_network {

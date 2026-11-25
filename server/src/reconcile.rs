@@ -10,9 +10,8 @@
 //! are whose. Apps with local volumes (12) are reconciled by `volumes`.
 //! A network switch moves on, the runtime move takes its step, and every
 //! assignment carries the cluster network (13: `network`,
-//! `runtimemove`). The proxy configuration (14) is left out until its
-//! pull request. Go's server runs the same parts in the scenario parity
-//! tests (`coreParts`).
+//! `runtimemove`) and the proxy configuration (14, `ingress`). Go's
+//! server runs the same parts in the scenario parity tests (`coreParts`).
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::atomic::{AtomicI64, Ordering as AtomicOrdering};
@@ -349,13 +348,18 @@ impl Server {
         rc.sandbox_nodes = self.sandbox_nodes();
         rc.lost = self.lost_nodes(&mut rc, &nodes).await;
         let mut jobs = Vec::new();
+        let mut removed = std::collections::BTreeSet::new();
         for app in &mut apps {
             if app.spec.as_ref().is_some_and(|s| s.is_job()) {
                 jobs.push(app.clone());
                 continue;
             }
             let res = if app.removing {
-                self.reconcile_removal(&mut rc, app).await.map(|_| ())
+                let res = self.reconcile_removal(&mut rc, app).await;
+                if matches!(res, Ok(true)) {
+                    removed.insert(app.name.clone());
+                }
+                res.map(|_| ())
             } else {
                 self.reconcile_app(&mut rc, app, &nodes).await
             };
@@ -390,6 +394,8 @@ impl Server {
         if wake > 0 {
             self.wake_after(wake);
         }
+        apps.retain(|a| !removed.contains(&a.name));
+        let (px, px_refs) = self.proxy_config(&apps, &rc.all).await?;
         let eps = self.endpoints().await?;
         *self
             .0
@@ -402,13 +408,16 @@ impl Server {
         let (move_plans, ask_move) = self.advance_runtime_move(&mut rc, &nodes, &all).await?;
         let addrs = std::mem::take(&mut rc.sandbox_addrs);
         let with_sandboxes: Vec<&Replica> = all.iter().chain(addrs.iter()).collect();
-        // No ports of internal TCP apps until the proxy configuration is
-        // ported (pull request 14).
-        let network = self.build_network(&nodes, &with_sandboxes).await?;
+        let mut network = self.build_network(&nodes, &with_sandboxes).await?;
+        if let Some(n) = &mut network {
+            n.tcp_ports = crate::ingress::tcp_ports(px.as_ref());
+        }
         let sandboxes = std::mem::take(&mut rc.sandboxes);
         self.push_assignments(
             &all,
             &mut rc.revs,
+            px.as_ref(),
+            px_refs.as_ref(),
             &eps,
             network.as_ref(),
             &sandboxes,

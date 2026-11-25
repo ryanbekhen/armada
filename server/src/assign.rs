@@ -3,8 +3,8 @@
 //! secret versions their revisions pin, opened only while the assignment
 //! is built and never logged, with the queue sandboxes each node keeps
 //! (ADR 0040), the cluster network, and each containerd node's plan of
-//! the runtime move (ADR 0054). The proxy configuration (pull request 14)
-//! is left out until its pull request.
+//! the runtime move (ADR 0054), and the proxy configuration, its
+//! certificates by reference for agents that fetch them (ADR 0004).
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::Mutex;
@@ -383,11 +383,15 @@ impl Server {
         ((self.0.node_lost_timeout / 2).as_secs() as i64).max(1)
     }
 
-    /// Sends every connected node its assignment (Go's pushAssignments).
+    /// Sends every connected node its assignment (Go's pushAssignments,
+    /// with its arguments).
+    #[allow(clippy::too_many_arguments)]
     pub(crate) async fn push_assignments(
         &self,
         replicas: &[Replica],
         revs: &mut Revisions<'_>,
+        px: Option<&ProxyConfig>,
+        px_refs: Option<&ProxyConfig>,
         servers: &[String],
         network: Option<&NetworkConfig>,
         sandboxes: &HashMap<String, Vec<QueueSandbox>>,
@@ -401,6 +405,7 @@ impl Server {
         let logs = log_settings_proto(ls.as_ref(), self.0.keys.as_ref(), &self.0.log);
         for sess in self.sessions() {
             let mut a = Assignment {
+                proxy: if sess.caps.cert_refs { px_refs } else { px }.cloned(),
                 servers: servers.to_vec(),
                 logs: Some(logs.clone()),
                 network: network.cloned(),

@@ -113,12 +113,10 @@ func (s *Server) Reconcile(ctx context.Context) error {
 	if rc.wake > 0 {
 		s.wakeAfter(rc.wake)
 	}
-	var pxp, pxRefs *armadav1.ProxyConfig
-	if s.parts == allParts {
-		apps = slices.DeleteFunc(apps, func(a store.App) bool { return removed[a.Name] })
-		if pxp, pxRefs, err = s.proxyConfig(ctx, apps, replicas); err != nil {
-			return err
-		}
+	apps = slices.DeleteFunc(apps, func(a store.App) bool { return removed[a.Name] })
+	pxp, pxRefs, err := s.proxyConfig(ctx, apps, replicas)
+	if err != nil {
+		return err
 	}
 	eps, err := s.endpoints(ctx)
 	if err != nil {
