@@ -4,11 +4,9 @@
 //! codes, completion, and configuration files. It never links what a
 //! machine runs.
 //!
-//! This is the first part of the port (ADR 0055, pull request 17a): the
-//! command framework, the client config, dialing (mTLS and SSH), the
-//! release notice, and the app, revision, replica, job, run, secret, space,
-//! version, and completion commands. The other nouns are listed and say
-//! they are not here yet.
+//! Every command of Go's client is here (ADR 0055, pull requests 17a and
+//! 17b); `cli::clidoc` writes the command line reference (docs/cli) from these
+//! commands as Go's internal/clidoc does.
 
 pub mod cli;
 pub mod commands;
@@ -16,6 +14,7 @@ pub mod config;
 pub mod dial;
 pub mod release;
 pub mod rpc;
+pub mod term;
 
 use std::io::{IsTerminal, Read, Write};
 use std::time::Duration;

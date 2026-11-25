@@ -12,7 +12,6 @@ use armada_spec as spec;
 use armada_spec::go;
 
 use super::deploy::{app_target, check_kind, run_deploy};
-use super::later::stub;
 use super::{
     OUTPUT_YAML, Output, ago, dash, date_time, day_clock, now_nanos, output_flag, print_json,
     round_second, rpc_err, since,
@@ -88,34 +87,10 @@ pub fn add_app(t: &mut Tree) -> usize {
             .args(Args::Min(2))
             .run(traffic),
     );
-    t.add(
-        app,
-        stub("logs APP", "Print logs from an app's replicas", &[]),
-    );
-    t.add(
-        app,
-        stub(
-            "exec APP [--replica R] [--container C] [-- COMMAND...]",
-            "Run a command, or a shell, in one of an app's replicas",
-            &[],
-        ),
-    );
-    t.add(
-        app,
-        stub(
-            "top [APP]",
-            "Show the CPU and memory apps and their replicas use",
-            &[],
-        ),
-    );
-    t.add(
-        app,
-        stub(
-            "events [APP]",
-            "Show what happened to apps: crashes, rollouts, placement",
-            &[],
-        ),
-    );
+    t.add(app, super::streams::logs_node(false));
+    t.add(app, super::streams::exec_node());
+    t.add(app, super::streams::app_top_node());
+    t.add(app, super::streams::events_node(false));
     t.add(
         app,
         Node::new("delete APP --yes", "Stop an app's replicas and delete it with its revisions and secrets")

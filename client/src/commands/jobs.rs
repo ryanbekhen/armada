@@ -12,7 +12,6 @@ use tonic::Code;
 
 use super::app::{WAIT_POLL, print_spec};
 use super::deploy::run_deploy;
-use super::later::stub;
 use super::{
     OUTPUT_YAML, Output, ago, dash, date_time, human_duration, now_nanos, output_flag, print_json,
     rpc_err, since, until,
@@ -69,7 +68,7 @@ pub fn add_job(t: &mut Tree) -> usize {
             .flag(Flag::duration("timeout", None, 15 * go::MINUTE, "how long --wait waits"))
             .run(start),
     );
-    t.add(job, stub("logs JOB", "Print the logs of a job's run", &[]));
+    t.add(job, super::streams::logs_node(true));
     t.add(
         job,
         Node::new("cancel JOB", "Stop a job's pending and running runs")

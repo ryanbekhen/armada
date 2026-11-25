@@ -17,6 +17,9 @@ pub enum Value {
     /// A string array: every use adds one value, the first replacing the
     /// default.
     StrArray(Vec<String>),
+    /// A string slice: every use adds its comma-separated values (CSV),
+    /// the first replacing the default.
+    StrSlice(Vec<String>),
 }
 
 impl Value {
@@ -29,6 +32,7 @@ impl Value {
             Value::Int64(_) => "int64",
             Value::Duration(_) => "duration",
             Value::StrArray(_) => "stringArray",
+            Value::StrSlice(_) => "stringSlice",
         }
     }
 
@@ -39,7 +43,7 @@ impl Value {
             Value::Str(s) => s.clone(),
             Value::Int(n) | Value::Int64(n) => n.to_string(),
             Value::Duration(d) => go::format_duration(*d),
-            Value::StrArray(v) => format!("[{}]", write_as_csv(v)),
+            Value::StrArray(v) | Value::StrSlice(v) => format!("[{}]", write_as_csv(v)),
         }
     }
 }
@@ -68,6 +72,97 @@ fn write_as_csv(v: &[String]) -> String {
         out.push('"');
     }
     out
+}
+
+/// readAsCSV: the first record encoding/csv reads from s (a comma between
+/// fields, double quotes around a field that holds one), with the texts of
+/// its errors.
+fn read_as_csv(s: &str) -> Result<Vec<String>, String> {
+    if s.is_empty() {
+        return Ok(Vec::new());
+    }
+    let b = s.as_bytes();
+    let mut i = 0;
+    let mut line = 1;
+    // csv skips lines that are empty.
+    while i < b.len() && (b[i] == b'\n' || (b[i] == b'\r' && b.get(i + 1) == Some(&b'\n'))) {
+        i += if b[i] == b'\r' { 2 } else { 1 };
+        line += 1;
+    }
+    if i >= b.len() {
+        return Err("EOF".to_string());
+    }
+    let record_line = line;
+    let mut line_start = i;
+    let quote_err = |rl: usize, l: usize, col: usize| {
+        let msg = format!(
+            "parse error on line {l}, column {col}: extraneous or missing \" in quoted-field"
+        );
+        if rl != l {
+            format!("record on line {rl}; {msg}")
+        } else {
+            msg
+        }
+    };
+    let mut fields = Vec::new();
+    loop {
+        if b.get(i) == Some(&b'"') {
+            let mut f = Vec::new();
+            i += 1;
+            loop {
+                let Some(&c) = b.get(i) else {
+                    return Err(quote_err(record_line, line, i - line_start + 1));
+                };
+                if c == b'"' {
+                    if b.get(i + 1) == Some(&b'"') {
+                        f.push(b'"');
+                        i += 2;
+                        continue;
+                    }
+                    i += 1;
+                    break;
+                }
+                if c == b'\r' && b.get(i + 1) == Some(&b'\n') {
+                    i += 1;
+                    continue;
+                }
+                if c == b'\n' {
+                    line += 1;
+                    line_start = i + 1;
+                }
+                f.push(c);
+                i += 1;
+            }
+            fields.push(String::from_utf8_lossy(&f).into_owned());
+            match b.get(i) {
+                None | Some(b'\n') => break,
+                Some(b'\r') if matches!(b.get(i + 1), None | Some(b'\n')) => break,
+                Some(b',') => {
+                    i += 1;
+                    continue;
+                }
+                Some(_) => return Err(quote_err(record_line, line, i - line_start)),
+            }
+        }
+        let start = i;
+        while i < b.len() && b[i] != b',' && b[i] != b'\n' {
+            if b[i] == b'"' {
+                return Err(format!(
+                    "parse error on line {line}, column {}: bare \" in non-quoted-field",
+                    i - line_start + 1
+                ));
+            }
+            i += 1;
+        }
+        let f = &s[start..i];
+        if i >= b.len() || b[i] == b'\n' {
+            fields.push(f.strip_suffix('\r').unwrap_or(f).to_string());
+            break;
+        }
+        fields.push(f.to_string());
+        i += 1;
+    }
+    Ok(fields)
 }
 
 /// One flag of a command.
@@ -133,6 +228,10 @@ impl Flag {
         Flag::new(name, shorthand, usage, Value::StrArray(Vec::new()))
     }
 
+    pub fn string_slice(name: &str, shorthand: Option<char>, usage: &str) -> Flag {
+        Flag::new(name, shorthand, usage, Value::StrSlice(Vec::new()))
+    }
+
     /// NoOptDefVal: what the flag is set to when given without a value.
     pub fn no_opt_def_val(&self) -> &'static str {
         match self.value {
@@ -158,6 +257,14 @@ impl Flag {
                     v.push(s.to_string());
                 }
             }
+            Value::StrSlice(v) => {
+                let read = read_as_csv(s)?;
+                if first {
+                    *v = read;
+                } else {
+                    v.extend(read);
+                }
+            }
         }
         self.changed = true;
         Ok(())
@@ -170,7 +277,7 @@ impl Flag {
             Value::Duration(_) => self.def_value == "0" || self.def_value == "0s",
             Value::Int(_) | Value::Int64(_) => self.def_value == "0",
             Value::Str(_) => self.def_value.is_empty(),
-            Value::StrArray(_) => self.def_value == "[]",
+            Value::StrArray(_) | Value::StrSlice(_) => self.def_value == "[]",
         }
     }
 }
@@ -500,7 +607,7 @@ fn quote_rune(c: char) -> String {
 
 /// UnquoteUsage: a back-quoted name in the usage, else a name for the
 /// value's type.
-fn unquote_usage(f: &Flag) -> (String, String) {
+pub(crate) fn unquote_usage(f: &Flag) -> (String, String) {
     let usage = &f.usage;
     if let Some(i) = usage.find('`')
         && let Some(j) = usage[i + 1..].find('`')
@@ -512,6 +619,7 @@ fn unquote_usage(f: &Flag) -> (String, String) {
     let name = match f.value {
         Value::Bool(_) => "",
         Value::Int64(_) => "int",
+        Value::StrSlice(_) => "strings",
         ref v => v.type_name(),
     };
     (name.to_string(), usage.clone())
@@ -606,6 +714,49 @@ mod tests {
              \x20 -o, --output string      output format (default \"text\")\n\
              \x20     --timeout duration   how long (default 15m0s)\n\
              \x20     --yes[=true|false]   confirm\n"
+        );
+    }
+
+    #[test]
+    fn csv_like_go() {
+        // The answers of Go's encoding/csv for one record.
+        let ok = |s: &str, want: &[&str]| assert_eq!(read_as_csv(s).unwrap(), want, "{s:?}");
+        ok("", &[]);
+        ok("a,b\nc", &["a", "b"]);
+        ok("\n\na,b", &["a", "b"]);
+        ok("\"a\"\"b\",c", &["a\"b", "c"]);
+        ok("a\r", &["a"]);
+        ok("\"\"", &[""]);
+        ok(",", &["", ""]);
+        let err = |s: &str, want: &str| assert_eq!(read_as_csv(s).unwrap_err(), want, "{s:?}");
+        let quote = "extraneous or missing \" in quoted-field";
+        err(
+            "\"a\"b",
+            &format!("parse error on line 1, column 3: {quote}"),
+        );
+        err(
+            "\"abc",
+            &format!("parse error on line 1, column 5: {quote}"),
+        );
+        err(
+            "a,\"b",
+            &format!("parse error on line 1, column 5: {quote}"),
+        );
+        err(
+            "x\"y",
+            "parse error on line 1, column 2: bare \" in non-quoted-field",
+        );
+        err(
+            " \"a\"",
+            "parse error on line 1, column 2: bare \" in non-quoted-field",
+        );
+        err(
+            "\"a\nb\"c",
+            &format!("record on line 1; parse error on line 2, column 2: {quote}"),
+        );
+        err(
+            "\"a\nb",
+            &format!("record on line 1; parse error on line 2, column 2: {quote}"),
         );
     }
 }
