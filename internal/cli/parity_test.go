@@ -326,10 +326,16 @@ func (h *harness) runRust(t *testing.T, dir string, c parityCase) parityResult {
 // toolchain is the compiler named in version's output.
 var toolchain = regexp.MustCompile(`\b(go[0-9][0-9.a-z]*|rust[0-9][0-9.a-z-]*)\b`)
 
+// sinceTime is a duration since a time of the answers, which the two clients
+// work out a moment apart, so a second may tick between them.
+var sinceTime = regexp.MustCompile(`\b([0-9]+[hms])+ ago\b`)
+
 // normalize makes outputs comparable: the compiler's name in version's
-// output, and JSON compared as values (protojson adds spaces at random).
+// output, durations since a time, and JSON compared as values (protojson
+// adds spaces at random).
 func normalize(s string) any {
 	s = toolchain.ReplaceAllString(s, "TOOLCHAIN")
+	s = sinceTime.ReplaceAllString(s, "DURATION ago")
 	var v any
 	if d := json.NewDecoder(strings.NewReader(s)); d.Decode(&v) == nil && !d.More() {
 		return v
