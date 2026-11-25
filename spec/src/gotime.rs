@@ -34,6 +34,38 @@ impl Location {
         &self.name
     }
 
+    /// The zone as a table of offsets from UTC and the Unix times each
+    /// starts, the first covering all earlier times, from 1900 to 2300 (Go's
+    /// zoneTable in internal/agent: Zone, then ZoneBounds' ends, kept only
+    /// where the offset changes), which armada-node's backup pruning
+    /// counts days and weeks in.
+    pub fn zone_table(&self) -> Vec<(i64, i64)> {
+        // 1900-01-01 and 2301-01-01, UTC.
+        const START: i64 = -2_208_988_800;
+        const END: i64 = 10_445_328_000;
+        let mut out = vec![(i64::MIN, self.offset(START))];
+        let Some(tz) = &self.tz else { return out };
+        let Ok(from) = Timestamp::from_second(START) else {
+            return out;
+        };
+        for tr in tz.following(from) {
+            if out.len() >= 4096 {
+                break;
+            }
+            let at = tr.timestamp().as_second();
+            let off = i64::from(tr.offset().seconds());
+            // Go stops once the next boundary's year, in the zone, is past
+            // 2300.
+            if at + off >= END {
+                break;
+            }
+            if out.last().is_some_and(|l| l.1 != off) {
+                out.push((at, off));
+            }
+        }
+        out
+    }
+
     /// The offset from UTC in seconds at a Unix time.
     pub fn offset(&self, unix: i64) -> i64 {
         let Some(tz) = &self.tz else { return 0 };

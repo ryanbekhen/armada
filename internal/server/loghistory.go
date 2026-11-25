@@ -449,17 +449,23 @@ func (s *Server) placementLoop(ctx context.Context) {
 			return
 		case <-t.C:
 		}
-		ls, err := s.logSettings(ctx)
-		if err != nil {
-			s.log.Warn("prune placements: log settings", "err", err)
-			continue
-		}
-		keep := defaultLogRetention
-		if ls.RetentionSeconds > 0 {
-			keep = time.Duration(ls.RetentionSeconds) * time.Second
-		}
-		if _, err := s.store.PrunePlacements(ctx, s.now().Add(-keep-placementMargin)); err != nil && ctx.Err() == nil {
+		if err := s.prunePlacements(ctx); err != nil && ctx.Err() == nil {
 			s.log.Warn("prune placements", "err", err)
 		}
 	}
+}
+
+// prunePlacements drops the placement records older than the log
+// retention and placementMargin.
+func (s *Server) prunePlacements(ctx context.Context) error {
+	ls, err := s.logSettings(ctx)
+	if err != nil {
+		return fmt.Errorf("log settings: %w", err)
+	}
+	keep := defaultLogRetention
+	if ls.RetentionSeconds > 0 {
+		keep = time.Duration(ls.RetentionSeconds) * time.Second
+	}
+	_, err = s.store.PrunePlacements(ctx, s.now().Add(-keep-placementMargin))
+	return err
 }

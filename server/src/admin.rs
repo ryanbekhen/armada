@@ -1,8 +1,6 @@
-//! The gRPC services' methods: each one this pull request ports runs the
-//! server's own method with the caller the dispatcher authorized; the
-//! others answer `Unimplemented` with grpc-go's text for a method a
-//! server does not implement, until the pull request named in [`LATER`]
-//! ports them (ADR 0055).
+//! The gRPC services' methods: each runs the server's own method with the
+//! caller the dispatcher authorized (ADR 0055: every method of both
+//! services is ported).
 
 use std::pin::Pin;
 
@@ -10,7 +8,7 @@ use armada_proto::armada::v1::admin_service_server::AdminService;
 use armada_proto::armada::v1::agent_service_server::AgentService;
 use armada_proto::armada::v1::*;
 use tonic::codegen::tokio_stream::Stream;
-use tonic::{Code, Request, Response, Status};
+use tonic::{Request, Response, Status};
 
 use crate::Server;
 use crate::grpc::auth;
@@ -21,24 +19,6 @@ pub struct Api(pub Server);
 
 /// A response stream.
 pub type Out<T> = Pin<Box<dyn Stream<Item = Result<T, Status>> + Send + 'static>>;
-
-/// grpc-go's answer for a method a server does not implement.
-fn unimplemented(method: &str) -> Status {
-    Status::new(
-        Code::Unimplemented,
-        format!("method {method} not implemented"),
-    )
-}
-
-/// The methods that answer `Unimplemented` in this pull request: the
-/// service, the method, and the pull request of ADR 0055 that ports it
-/// (15, the second part of watching: logs and exec).
-pub const LATER: &[(&str, &str, u8)] = &[
-    ("Admin", "Logs", 15),
-    ("Admin", "Exec", 15),
-    ("Agent", "PushLogs", 15),
-    ("Agent", "ExecSession", 15),
-];
 
 #[tonic::codegen::async_trait]
 impl AdminService for Api {
@@ -171,8 +151,7 @@ impl AdminService for Api {
         &self,
         request: Request<LogsRequest>,
     ) -> Result<Response<Self::LogsStream>, Status> {
-        let _ = request;
-        Err(unimplemented("Logs"))
+        self.0.logs(request).await
     }
     async fn get_cluster_config(
         &self,
@@ -539,8 +518,7 @@ impl AdminService for Api {
         &self,
         request: Request<tonic::Streaming<ExecClientMessage>>,
     ) -> Result<Response<Self::ExecStream>, Status> {
-        let _ = request;
-        Err(unimplemented("Exec"))
+        self.0.exec(request).await
     }
     async fn top(&self, request: Request<TopRequest>) -> Result<Response<TopResponse>, Status> {
         let a = auth(&request)?;
@@ -711,16 +689,14 @@ impl AgentService for Api {
         &self,
         request: Request<tonic::Streaming<LogPush>>,
     ) -> Result<Response<PushLogsResponse>, Status> {
-        let _ = request;
-        Err(unimplemented("PushLogs"))
+        self.0.push_logs(request).await
     }
     type ExecSessionStream = Out<ExecInput>;
     async fn exec_session(
         &self,
         request: Request<tonic::Streaming<ExecSessionOutput>>,
     ) -> Result<Response<Self::ExecSessionStream>, Status> {
-        let _ = request;
-        Err(unimplemented("ExecSession"))
+        self.0.exec_session(request).await
     }
     type VolumeSessionStream = Out<VolumeData>;
     async fn volume_session(

@@ -14,7 +14,11 @@
 //! `{"id", "error"?}`: `now` (ms) sets the test clock, `reconcile` runs a
 //! pass, `autoscale` an evaluation of the autoscaler, `backups` a round of
 //! the backup loop answered once its backups ended (neither runs on its
-//! own with `manualPasses`), `managed` answers what the certificate
+//! own with `manualPasses`), `cpBackups` a pass of the control plane
+//! backup loop, `prunePlacements` a pruning of placement records,
+//! `cpStage` what the stand-in stages for control plane backups (with
+//! `cpBackups` in the configuration: `content`, or `fail` as the error;
+//! the bucket is reached at ARMADA_NODE_TEST_BUCKET_ADDR), `managed` answers what the certificate
 //! manager was last asked to manage, `certEvent` tells the server a
 //! certificate was obtained or failed, `txt` sets the TXT records the
 //! server resolves, `storeCert`/`loadCert` write and read a certificate
@@ -214,7 +218,54 @@ impl TxtResolver for ParityTxt {
     }
 }
 
+/// What the stand-in stages for a control plane backup: one file,
+/// etcd.snapshot, holding `content`, or `fail` as the error (Go's
+/// cpStager in parity_watching2_test.go).
+#[derive(Default)]
+struct CpStage {
+    content: Vec<u8>,
+    fail: String,
+    made: u64,
+}
+
+fn cp_backup(stage: Arc<Mutex<CpStage>>) -> armada_server::cpbackup::ControlPlaneBackup {
+    Arc::new(move || {
+        let stage = stage.clone();
+        Box::pin(async move {
+            let (content, n) = {
+                let mut st = stage.lock().unwrap_or_else(|p| p.into_inner());
+                if !st.fail.is_empty() {
+                    return Err(st.fail.clone());
+                }
+                st.made += 1;
+                (st.content.clone(), st.made)
+            };
+            let dir = std::env::temp_dir()
+                .join(format!("armada-server-parity-{}-{n}", std::process::id()));
+            let write = || -> std::io::Result<()> {
+                use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+                std::fs::DirBuilder::new().mode(0o700).create(&dir)?;
+                let mut f = std::fs::OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .mode(0o600)
+                    .open(dir.join("etcd.snapshot"))?;
+                std::io::Write::write_all(&mut f, &content)
+            };
+            write().map_err(|e| e.to_string())?;
+            let gone = dir.clone();
+            Ok(armada_server::cpbackup::Staged {
+                dir,
+                cleanup: Some(Box::new(move || {
+                    let _ = std::fs::remove_dir_all(gone);
+                })),
+            })
+        })
+    })
+}
+
 struct Setup {
+    cp_stage: Arc<Mutex<CpStage>>,
     cfg: Value,
     client: Client,
     store: Etcd,
@@ -278,6 +329,9 @@ impl Setup {
         let telegram = s(c, "telegramApi");
         if !telegram.is_empty() {
             cfg.alert_endpoints.telegram_api = telegram;
+        }
+        if b(c, "cpBackups") {
+            cfg.control_plane_backup = Some(cp_backup(self.cp_stage.clone()));
         }
         cfg.log = self.log.clone();
         cfg
@@ -361,7 +415,9 @@ async fn main() {
         })
     });
     let txt = Arc::new(ParityTxt::default());
+    let cp_stage: Arc<Mutex<CpStage>> = Arc::default();
     let setup = Arc::new(Setup {
+        cp_stage: cp_stage.clone(),
         certs: certs.clone(),
         txt: txt.clone(),
         cfg: cfg.clone(),
@@ -454,6 +510,37 @@ async fn main() {
                                 String::new()
                             }
                         },
+                    };
+                    emit(&out, json!({"id": id, "error": err})).await;
+                });
+            }
+            "cpStage" => {
+                {
+                    let mut st = cp_stage.lock().unwrap_or_else(|p| p.into_inner());
+                    st.content = s(&req, "content").into_bytes();
+                    st.fail = s(&req, "fail");
+                }
+                emit(&out, json!({"id": id})).await;
+            }
+            "cpBackups" | "prunePlacements" => {
+                let srv = current.lock().unwrap_or_else(|p| p.into_inner()).clone();
+                let out = out.clone();
+                let op = s(&req, "op");
+                tokio::spawn(async move {
+                    let err = match srv {
+                        None => "no server".to_string(),
+                        Some(srv) if op == "cpBackups" => srv
+                            .control_plane_backup_pass()
+                            .await
+                            .err()
+                            .map(|e| e.to_string())
+                            .unwrap_or_default(),
+                        Some(srv) => srv
+                            .prune_placements()
+                            .await
+                            .err()
+                            .map(|e| e.to_string())
+                            .unwrap_or_default(),
                     };
                     emit(&out, json!({"id": id, "error": err})).await;
                 });
