@@ -1,0 +1,10 @@
+[package]
+name = "armada-fsutil"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Sensitive files with strict permissions, as Go's internal/fsutil writes and reads them (ADR 0055)"
+
+# The standard library only.
+[dependencies]

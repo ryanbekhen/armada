@@ -62,7 +62,8 @@ Rust agent runs the supervisor runtime only (ADR 0054 step 4).
 The code is one Cargo workspace at the repository's root. `node/` stays a
 member (the `armada-node` program and the library the agent links);
 shared crates hold the protocol (`proto`), specs (`spec`), the CA and
-certificates (`pki`), secret encryption (`secrets`), the store (`store`),
+certificates (`pki`), secret encryption (`secrets`), files with strict
+permissions (`fsutil`), the store (`store`),
 the control plane (`server`), the agent (`agent`), the client (`cli`),
 and the machine commands (`daemon`). `armada-log`, `armada-shim`, and
 `armada-dns` stay standard-library-only programs outside the workspace's

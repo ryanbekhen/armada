@@ -154,6 +154,38 @@ It also holds code generated from the `.proto` files of etcd's API
 which `proto/vendor/etcd` keeps with the services Armada uses. Source:
 <https://github.com/etcd-io/etcd/tree/v3.7.4/api>.
 
+## armada-pki and armada-secrets
+
+`armada-pki` (`pki/`), `armada-secrets` (`secrets/`), and `armada-fsutil`
+(`fsutil/`, the standard library only), all Apache-2.0, hold the cluster's
+CA, certificates, and secret encryption in Rust (ADR 0055). No released
+program links them yet; the programs that will are built with them, ring
+(above), and these crates:
+
+| Crate | License |
+| --- | --- |
+| asn1-rs, der-parser, oid-registry, rusticata-macros, x509-parser (rusticata) | MIT or Apache-2.0 |
+| data-encoding | MIT |
+| deranged, num-conv, powerfmt, time, time-core | MIT or Apache-2.0 |
+| lazy_static | MIT or Apache-2.0 |
+| minimal-lexical | MIT or Apache-2.0 |
+| nom | MIT |
+| num-bigint, num-integer, num-traits | MIT or Apache-2.0 |
+| pem | MIT |
+| rcgen | MIT or Apache-2.0 |
+| thiserror | MIT or Apache-2.0 |
+| yasna | MIT or Apache-2.0 |
+
+Used only while building, not linked: asn1-rs-derive, autocfg,
+displaydoc, thiserror-impl, time-macros (MIT or Apache-2.0), asn1-rs-impl
+(MIT or Apache-2.0; published without its license files, which
+`third_party/licenses/rust/asn1-rs-impl/` keeps from its repository,
+<https://github.com/rusticata/asn1-rs>), and synstructure (MIT). bit-vec
+(MIT or Apache-2.0) is in the lock file as an optional dependency Armada's
+builds do not select. The test programs of Go's parity tests
+(`armada-pki-parity`, `armada-secrets-parity`, the `parity` feature) are
+never built for a release.
+
 `proto/gen`, the generator `make proto` runs, is outside the workspace
 with a `Cargo.lock` of its own: it writes `proto/src/gen` on a
 developer's machine and is never built into anything Armada distributes.
