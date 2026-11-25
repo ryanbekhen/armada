@@ -271,6 +271,30 @@ built with tonic's server, which adds this crate:
 The test program of Go's scenario parity tests (`armada-server-parity`,
 the `parity` feature) is never built for a release.
 
+## armada-client
+
+`armada-client` (`client/`, Apache-2.0) is the `armada` client in Rust
+(ADR 0055), a program of its own. No release ships it yet; it is built
+with armada-proto, armada-spec, armada-fsutil, libc, and crates of
+armada-store (above): hyper-util, rustls, rustls-pki-types, serde,
+serde_json, tokio, tokio-rustls, tonic, and tower, with what they bring.
+It adds no crate of its own.
+
+Its command framework (`client/src/cli/`) ports the parts of
+github.com/spf13/pflag v1.1.0 (BSD-3-Clause, Copyright (c) 2012 Alex
+Ogier and The Go Authors), github.com/spf13/cobra v1.10.2 (Apache-2.0),
+and Go's text/tabwriter (BSD-3-Clause, The Go Authors) the client's
+commands use, so their parsing, errors, help, and tables read as before.
+Sources: <https://github.com/spf13/pflag/tree/v1.1.0>,
+<https://github.com/spf13/cobra/tree/v1.10.2>, and
+<https://go.dev/src/text/tabwriter/>.
+
+The shell completion scripts it prints (`client/src/cli/completion/`) are
+the ones github.com/spf13/cobra v1.10.2 generates for armada, under the
+[Apache License 2.0](https://github.com/spf13/cobra/blob/v1.10.2/LICENSE.txt),
+kept as cobra writes them so completion works as it did. Source:
+<https://github.com/spf13/cobra/tree/v1.10.2>.
+
 ## Downloaded at run time
 
 Nodes pull the HAProxy image (`haproxy:3.2-alpine`, pinned by digest in
