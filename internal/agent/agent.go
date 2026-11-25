@@ -283,8 +283,12 @@ type InternalDNS interface {
 
 // Agent reconciles containers on one node.
 type Agent struct {
-	cfg    Config
-	log    *slog.Logger
+	cfg Config
+	log *slog.Logger
+	// now is the agent's clock for crash backoff, fencing, held pulls'
+	// retries, and usage samples (time.Now; a test clock in the parity
+	// tests of the Rust agent, ADR 0055).
+	now    func() time.Time
 	began  time.Time
 	booted time.Time // when the machine last booted; zero if unknown
 
@@ -416,6 +420,7 @@ func New(cfg Config) *Agent {
 		cfg.BootTime = machineBoot()
 	}
 	return &Agent{
+		now:       time.Now,
 		began:     time.Now(),
 		booted:    cfg.BootTime,
 		cfg:       cfg,
@@ -509,18 +514,7 @@ func (a *Agent) session(ctx context.Context) (established bool, err error) {
 	if err != nil {
 		return false, err
 	}
-	a.mu.Lock()
-	networkKey := cmp.Or(a.networkKey, a.cfg.NetworkKey)
-	a.mu.Unlock()
-	_, rotates := a.cfg.Network.(KeyRotator)
-	hello := &armadav1.AgentMessage{Msg: &armadav1.AgentMessage_Hello{Hello: &armadav1.Hello{
-		CpuMillis: a.cfg.CPUMillis, MemoryBytes: a.cfg.MemoryBytes, Version: version.Get().Version, PrivateIp: a.cfg.PrivateIP,
-		Os: cmp.Or(a.cfg.OS, goruntime.GOOS), Arch: cmp.Or(a.cfg.Arch, goruntime.GOARCH),
-		Jobs: true, Volumes: a.mountsVolumes(), Containers: runtime.CanRunMembers(a.cfg.Driver), NetworkKey: networkKey, Endpoint: a.cfg.Endpoint, BehindNat: a.cfg.BehindNAT, KeyRotation: rotates && networkKey != "",
-		CertificateRefs: true, QueueSandboxes: a.sandboxesOn(), HeldReplicas: true,
-		VolumeBackups: a.mountsVolumes(), Nfs: a.mountsNFS(), LogHistory: a.logHistoryOn(),
-		NetworkSwitch: a.switcher() != nil, RuntimeMove: a.cfg.MoveRuntime != nil,
-	}}}
+	hello := &armadav1.AgentMessage{Msg: &armadav1.AgentMessage_Hello{Hello: a.hello()}}
 	if err := stream.Send(hello); err != nil {
 		return false, err
 	}
@@ -582,6 +576,23 @@ func (a *Agent) session(ctx context.Context) (established bool, err error) {
 		case *armadav1.ServerMessage_MoveRuntime:
 			go a.moveRuntime(ctx, m.MoveRuntime)
 		}
+	}
+}
+
+// hello is what the agent opens every session with: the node and what
+// this agent can do.
+func (a *Agent) hello() *armadav1.Hello {
+	a.mu.Lock()
+	networkKey := cmp.Or(a.networkKey, a.cfg.NetworkKey)
+	a.mu.Unlock()
+	_, rotates := a.cfg.Network.(KeyRotator)
+	return &armadav1.Hello{
+		CpuMillis: a.cfg.CPUMillis, MemoryBytes: a.cfg.MemoryBytes, Version: version.Get().Version, PrivateIp: a.cfg.PrivateIP,
+		Os: cmp.Or(a.cfg.OS, goruntime.GOOS), Arch: cmp.Or(a.cfg.Arch, goruntime.GOARCH),
+		Jobs: true, Volumes: a.mountsVolumes(), Containers: runtime.CanRunMembers(a.cfg.Driver), NetworkKey: networkKey, Endpoint: a.cfg.Endpoint, BehindNat: a.cfg.BehindNAT, KeyRotation: rotates && networkKey != "",
+		CertificateRefs: true, QueueSandboxes: a.sandboxesOn(), HeldReplicas: true,
+		VolumeBackups: a.mountsVolumes(), Nfs: a.mountsNFS(), LogHistory: a.logHistoryOn(),
+		NetworkSwitch: a.switcher() != nil, RuntimeMove: a.cfg.MoveRuntime != nil,
 	}
 }
 
@@ -1100,7 +1111,7 @@ func (a *Agent) crashed(ctx context.Context, s *armadav1.ReplicaSpec, c runtime.
 // (zero: now, which counts as a recreate). Each recreate doubles the next
 // delay.
 func (a *Agent) backoff(replica string) time.Duration {
-	now := time.Now()
+	now := a.now()
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	cl := a.crashes[replica]

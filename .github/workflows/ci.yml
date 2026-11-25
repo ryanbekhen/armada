@@ -153,6 +153,16 @@ jobs:
       # recorded AdminService beside Go's client: the same output, exit
       # codes, requests, and config files.
       - run: make client-parity
+      # The node agent's loop in Rust (ADR 0055) is driven through the
+      # same scenarios as Go's agent against one fake runtime the test
+      # answers for both (a test clock, an mTLS control plane for the
+      # session): the same reports, runtime calls, and files after every
+      # step; its test program is built only for this.
+      - run: cargo clippy --locked -p armada-agent --all-targets --features parity -- -D warnings
+      - run: make agent-parity
+      - run: go test -race -run 'TestAgentParity' -v ./internal/agent/
+        env:
+          ARMADA_AGENT_BIN: ${{ github.workspace }}/target/debug/armada-agent-parity
 
   # Validates the rendered HAProxy configuration with the pinned image.
   haproxy:
