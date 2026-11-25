@@ -59,10 +59,12 @@ func routeKeys(sp *spec.App) []string {
 	return keys
 }
 
-func randomToken() (string, error) {
+func (s *Etcd) randomToken() string {
 	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(b), nil
+	s.random(b)
+	return hex.EncodeToString(b)
 }
+
+// cryptoRandom is the random source of every store but the parity tests'.
+// crypto/rand.Read never fails (it crashes the program instead).
+func cryptoRandom(b []byte) { _, _ = rand.Read(b) }

@@ -44,6 +44,9 @@ type Etcd struct {
 	onCommit func(ops int)
 	// onList sees the prefix and stored key count of each list (tests).
 	onList func(prefix string, keys int)
+	// random fills domain tokens and event keys; crypto/rand, which the
+	// parity tests replace with a sequence both stores follow.
+	random func([]byte)
 }
 
 // Key layout below the prefix.
@@ -96,7 +99,7 @@ func NewEtcd(ctx context.Context, c *clientv3.Client, prefix string) (*Etcd, err
 	if !strings.HasSuffix(prefix, "/") {
 		return nil, errors.New("store: etcd prefix must end with /")
 	}
-	s := &Etcd{c: c, prefix: prefix, now: time.Now, leases: &eventLeases{}}
+	s := &Etcd{c: c, prefix: prefix, now: time.Now, leases: &eventLeases{}, random: cryptoRandom}
 	err := s.tx(ctx, func(t *etx) error {
 		var v int
 		ok, err := t.get(keySchema, &v)
@@ -2562,11 +2565,7 @@ func (t *etx) claimDomains(sp *spec.App, now time.Time) error {
 		}
 		// New, or left behind by another space: this space proves
 		// ownership afresh with a new token.
-		token, err := randomToken()
-		if err != nil {
-			return err
-		}
-		rec := domainRec{Name: d, Token: token, CreatedAt: now.UnixMilli()}
+		rec := domainRec{Name: d, Token: t.s.randomToken(), CreatedAt: now.UnixMilli()}
 		if space != spec.DefaultSpace {
 			rec.Space = space
 		}
