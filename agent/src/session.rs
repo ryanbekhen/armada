@@ -16,6 +16,7 @@ use tonic::transport::{Channel, Endpoint, Uri};
 use crate::agent::{Agent, Inner, StreamState, go_platform, lock};
 use crate::clock;
 use crate::creds::Credentials;
+use crate::proxy::{BoxFut, CertificateSource};
 use crate::runtime::Runtime;
 
 /// The pause after a session the server had accepted.
@@ -157,6 +158,22 @@ fn dial(creds: &Arc<Credentials>, servers: &Arc<Mutex<Vec<String>>>) -> Result<C
     Ok(ep.connect_with_connector_lazy(connector))
 }
 
+impl CertificateSource for ServerConn {
+    fn get_certificates(
+        &self,
+        names: Vec<String>,
+    ) -> BoxFut<'_, Result<Vec<pb::ProxyCertificate>, String>> {
+        let mut client = self.client();
+        Box::pin(async move {
+            client
+                .get_certificates(pb::GetCertificatesRequest { names })
+                .await
+                .map(|r| r.into_inner().certificates)
+                .map_err(|e| e.message().to_string())
+        })
+    }
+}
+
 impl<R: Runtime> Agent<R> {
     /// The Hello the agent opens every session with.
     pub fn hello(&self) -> pb::Hello {
@@ -177,9 +194,13 @@ impl<R: Runtime> Agent<R> {
                 .log
                 .warn("container runtime start", &[("err", e.to_string())]);
         }
+        *lock(&inner.cert_source) = Some(conn.clone());
         let mut loops = JoinSet::new();
         loops.spawn(inner.clone().reconcile_loop());
         loops.spawn(inner.clone().usage_loop());
+        if !inner.cfg.wake_socket.is_empty() {
+            loops.spawn(inner.clone().serve_wake(inner.cfg.wake_socket.clone()));
+        }
         let mut backoff = Duration::from_secs(1);
         let mut lost = None;
         loop {
@@ -250,21 +271,21 @@ impl<R: Runtime> Inner<R> {
             jobs: true,
             volumes: self.mounts_volumes(),
             containers: self.rt.can_run_members(),
-            network_key,
+            network_key: network_key.clone(),
             endpoint: self.cfg.endpoint.clone(),
             behind_nat: self.cfg.behind_nat,
-            // Key rotation, queue sandboxes, NFS, the network switch, and
-            // the runtime move need the parts of a later pull request: this
-            // agent announces them as a Go agent without them does.
-            key_rotation: false,
+            key_rotation: self.cfg.network.as_ref().is_some_and(|n| n.rotates_keys())
+                && !network_key.is_empty(),
             certificate_refs: true,
+            // Queue sandboxes and NFS need the parts of a later pull
+            // request: announced as a Go agent without them does.
             queue_sandboxes: false,
             held_replicas: true,
             volume_backups: self.mounts_volumes(),
             nfs: false,
             log_history: self.rt.has_log_history(),
-            network_switch: false,
-            runtime_move: false,
+            network_switch: self.switcher().is_some(),
+            runtime_move: self.cfg.move_runtime.is_some(),
         }
     }
 
@@ -327,12 +348,21 @@ impl<R: Runtime> Inner<R> {
         (true, err)
     }
 
-    /// One message from the server. Log, exec, and volume sessions, key
-    /// rotation, and the runtime move come with a later part.
-    fn handle(&self, msg: pb::ServerMessage) {
-        if let Some(pb::server_message::Msg::Assignment(a)) = msg.msg {
-            self.set_desired(&a.replicas);
-            self.set_servers(&a.servers);
+    /// One message from the server. Log, exec, and volume sessions come
+    /// with a later part.
+    fn handle(self: &Arc<Self>, msg: pb::ServerMessage) {
+        use pb::server_message::Msg;
+        match msg.msg {
+            Some(Msg::Assignment(a)) => self.assign(&a),
+            Some(Msg::RotateNetworkKey(_)) => {
+                let me = self.clone();
+                tokio::spawn(async move { me.rotate_network_key().await });
+            }
+            Some(Msg::MoveRuntime(m)) => {
+                let me = self.clone();
+                tokio::spawn(async move { me.move_runtime(&m.to).await });
+            }
+            _ => {}
         }
     }
 

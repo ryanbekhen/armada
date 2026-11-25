@@ -14,12 +14,15 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, SystemTime};
 
 use armada_agent::clock::{TestClock, from_unix_nanos, unix_nanos};
+use armada_agent::network::Network;
+use armada_agent::proxy::{BoxFut, CertificateSource, Clients, InternalDns, Proxy, ServerLoad};
 use armada_agent::runtime::{
     AgentStatus, Container, ContainerSpec, Error, Image, Member, MemberSpec, RegistryAuth, Result,
     Runtime, Stats,
 };
+use armada_agent::runtimemove::{MoveFn, PlanFn, PrepareFn};
 use armada_agent::session::{ServerConn, reconnect_wait};
-use armada_agent::usage::Samples;
+use armada_agent::usage::UsageState;
 use armada_agent::{Agent, Config};
 use armada_proto::armada::v1 as pb;
 use serde_json::{Value, json};
@@ -278,14 +281,214 @@ impl Runtime for Remote {
     }
 }
 
+/// The node's proxy, answered by the test's fakes.
+struct RemoteProxy(Arc<Wire>);
+
+fn clients_json(c: &Clients) -> Value {
+    Value::Object(c.iter().map(|(k, v)| (k.to_string(), json!(v))).collect())
+}
+
+impl Proxy for RemoteProxy {
+    fn apply<'a>(
+        &'a self,
+        cfg: &'a pb::ProxyConfig,
+    ) -> BoxFut<'a, std::result::Result<(), String>> {
+        Box::pin(async move {
+            self.0
+                .call("proxyApply", json!({"config": proto_json(cfg)}))
+                .await
+                .map(|_| ())
+                .map_err(|e| e.to_string())
+        })
+    }
+
+    fn health(&self) -> BoxFut<'_, std::result::Result<(), String>> {
+        Box::pin(async move {
+            self.0
+                .call("proxyHealth", json!({}))
+                .await
+                .map(|_| ())
+                .map_err(|e| e.to_string())
+        })
+    }
+
+    fn sets_clients(&self) -> bool {
+        true
+    }
+
+    fn set_clients<'a>(&'a self, c: &'a Clients) -> BoxFut<'a, std::result::Result<(), String>> {
+        Box::pin(async move {
+            self.0
+                .call("proxyClients", json!({"local": clients_json(c)}))
+                .await
+                .map(|_| ())
+                .map_err(|e| e.to_string())
+        })
+    }
+
+    fn reads_load(&self) -> bool {
+        true
+    }
+
+    fn load(&self) -> BoxFut<'_, std::result::Result<BTreeMap<String, ServerLoad>, String>> {
+        Box::pin(async move {
+            let v = self
+                .0
+                .call("proxyLoad", json!({}))
+                .await
+                .map_err(|e| e.to_string())?;
+            Ok(v.as_object()
+                .map(|m| {
+                    m.iter()
+                        .map(|(k, l)| {
+                            (
+                                k.clone(),
+                                ServerLoad {
+                                    in_flight: int(&l["inFlight"]),
+                                    total: int(&l["total"]),
+                                },
+                            )
+                        })
+                        .collect()
+                })
+                .unwrap_or_default())
+        })
+    }
+}
+
+/// The cluster network, with every optional part.
+struct RemoteNet(Arc<Wire>);
+
+impl Network for RemoteNet {
+    fn apply<'a>(
+        &'a self,
+        cfg: &'a pb::NetworkConfig,
+        local: Option<&'a Clients>,
+    ) -> BoxFut<'a, std::result::Result<(), String>> {
+        Box::pin(async move {
+            let local = local.map(clients_json).unwrap_or(Value::Null);
+            self.0
+                .call(
+                    "netApply",
+                    json!({"config": proto_json(cfg), "local": local}),
+                )
+                .await
+                .map(|_| ())
+                .map_err(|e| e.to_string())
+        })
+    }
+
+    fn switches(&self) -> bool {
+        true
+    }
+
+    fn switch_status(&self) -> BoxFut<'_, Option<pb::NetworkSwitchStatus>> {
+        Box::pin(async move {
+            let v = self.0.call("netSwitch", json!({})).await.ok()?;
+            serde_json::from_value(v).ok()
+        })
+    }
+
+    fn checks_peers(&self) -> bool {
+        true
+    }
+
+    fn unreachable_peers(&self) -> BoxFut<'_, Vec<String>> {
+        Box::pin(
+            async move { strings(&self.0.call("netPeers", json!({})).await.unwrap_or_default()) },
+        )
+    }
+
+    fn reports_wireguard(&self) -> bool {
+        true
+    }
+
+    fn wireguard_userspace(&self) -> BoxFut<'_, bool> {
+        Box::pin(async move {
+            self.0
+                .call("netUserspace", json!({}))
+                .await
+                .ok()
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false)
+        })
+    }
+
+    fn rotates_keys(&self) -> bool {
+        true
+    }
+
+    fn rotate_key(&self) -> BoxFut<'_, std::result::Result<String, String>> {
+        Box::pin(async move {
+            self.0
+                .call("netRotate", json!({}))
+                .await
+                .map(|v| s(&v))
+                .map_err(|e| e.to_string())
+        })
+    }
+}
+
+/// The node's resolver.
+struct RemoteDns(Arc<Wire>, String);
+
+impl InternalDns for RemoteDns {
+    fn address(&self) -> String {
+        self.1.clone()
+    }
+
+    fn set_names(&self, apps: Vec<String>) -> BoxFut<'_, ()> {
+        Box::pin(async move {
+            let _ = self.0.call("dnsNames", json!({"apps": apps})).await;
+        })
+    }
+
+    fn set_clients<'a>(&'a self, c: &'a Clients) -> BoxFut<'a, ()> {
+        Box::pin(async move {
+            let _ = self
+                .0
+                .call("dnsClients", json!({"local": clients_json(c)}))
+                .await;
+        })
+    }
+}
+
+/// The control plane's GetCertificates.
+struct RemoteCerts(Arc<Wire>);
+
+impl CertificateSource for RemoteCerts {
+    fn get_certificates(
+        &self,
+        names: Vec<String>,
+    ) -> BoxFut<'_, std::result::Result<Vec<pb::ProxyCertificate>, String>> {
+        Box::pin(async move {
+            let v = self
+                .0
+                .call("certs", json!({"names": names}))
+                .await
+                .map_err(|e| e.to_string())?;
+            Ok(v.as_array()
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|c| serde_json::from_value(c.clone()).ok())
+                        .collect()
+                })
+                .unwrap_or_default())
+        })
+    }
+}
+
 /// The agent under test and what the requests keep between them.
 struct Under {
     agent: Agent<Remote>,
     clock: Arc<TestClock>,
-    samples: Mutex<Samples>,
+    samples: Mutex<UsageState>,
 }
 
 static UNDER: OnceLock<Under> = OnceLock::new();
+
+/// The calls of the runtime move plan's callback in flight.
+static PLANS: Mutex<Vec<tokio::task::JoinHandle<()>>> = Mutex::new(Vec::new());
 
 fn proto_json<T: serde::Serialize>(m: &T) -> Value {
     serde_json::to_value(m).unwrap_or(Value::Null)
@@ -303,6 +506,7 @@ async fn handle(wire: Arc<Wire>, req: Value) -> std::result::Result<Value, Strin
                 time(&c["nowNs"]).unwrap_or(SystemTime::UNIX_EPOCH),
             ));
             let check_wire = wire.clone();
+            let on = |k: &str| c["caps"][k].as_bool().unwrap_or(false);
             let cfg = Config {
                 node_id: s(&c["nodeId"]),
                 private_ip: s(&c["privateIp"]),
@@ -312,10 +516,49 @@ async fn handle(wire: Arc<Wire>, req: Value) -> std::result::Result<Value, Strin
                 unpublished: c["unpublished"].as_bool().unwrap_or(false),
                 volumes_dir: s(&c["volumesDir"]),
                 secrets_dir: s(&c["secretsDir"]),
-                dns_address: c["dns"]
-                    .as_str()
-                    .filter(|d| !d.is_empty())
-                    .map(String::from),
+                dns: c["dns"].as_str().filter(|d| !d.is_empty()).map(|d| {
+                    Arc::new(RemoteDns(wire.clone(), d.to_string())) as Arc<dyn InternalDns>
+                }),
+                proxy: on("proxy").then(|| Arc::new(RemoteProxy(wire.clone())) as Arc<dyn Proxy>),
+                certificates: on("proxy")
+                    .then(|| Arc::new(RemoteCerts(wire.clone())) as Arc<dyn CertificateSource>),
+                network: on("network")
+                    .then(|| Arc::new(RemoteNet(wire.clone())) as Arc<dyn Network>),
+                move_runtime: on("move").then(|| {
+                    let w = wire.clone();
+                    Arc::new(move |to: String| {
+                        let w = w.clone();
+                        Box::pin(async move {
+                            w.call("move", json!({"to": to}))
+                                .await
+                                .map(|_| ())
+                                .map_err(|e| e.to_string())
+                        })
+                            as BoxFut<'static, std::result::Result<(), String>>
+                    }) as MoveFn
+                }),
+                prepare_runtime_move: on("move").then(|| {
+                    let w = wire.clone();
+                    Arc::new(move |to: String| {
+                        let w = w.clone();
+                        Box::pin(async move {
+                            let _ = w.call("prepare", json!({"to": to})).await;
+                        }) as BoxFut<'static, ()>
+                    }) as PrepareFn
+                }),
+                on_runtime_move: on("move").then(|| {
+                    let w = wire.clone();
+                    Arc::new(move |p: Option<pb::RuntimeMovePlan>| {
+                        // The callback is synchronous, as Go's is: the
+                        // call is sent at once and answered in order.
+                        let w = w.clone();
+                        let plan = p.as_ref().map(proto_json).unwrap_or(Value::Null);
+                        let h = tokio::spawn(async move {
+                            let _ = w.call("plan", json!({"plan": plan})).await;
+                        });
+                        PLANS.lock().unwrap().push(h);
+                    }) as PlanFn
+                }),
                 os: s(&c["os"]),
                 arch: s(&c["arch"]),
                 servers: strings(&c["servers"]),
@@ -357,7 +600,7 @@ async fn handle(wire: Arc<Wire>, req: Value) -> std::result::Result<Value, Strin
                 .set(Under {
                     agent,
                     clock,
-                    samples: Mutex::new(Samples::new()),
+                    samples: Mutex::new(UsageState::default()),
                 })
                 .map_err(|_| "configured twice".to_string())?;
             Ok(json!({}))
@@ -372,6 +615,11 @@ async fn handle(wire: Arc<Wire>, req: Value) -> std::result::Result<Value, Strin
             let a: pb::Assignment =
                 serde_json::from_value(req["assignment"].clone()).map_err(|e| e.to_string())?;
             under()?.agent.set_assignment(&a);
+            // The plan's callback was answered before the assignment is.
+            let plans = std::mem::take(&mut *PLANS.lock().unwrap());
+            for h in plans {
+                let _ = h.await;
+            }
             Ok(json!({}))
         }
         "reconcile" => match under()?.agent.reconcile().await {
@@ -390,6 +638,14 @@ async fn handle(wire: Arc<Wire>, req: Value) -> std::result::Result<Value, Strin
         }
         "prune" => {
             under()?.agent.prune_images().await;
+            Ok(json!({}))
+        }
+        "rotate" => {
+            under()?.agent.rotate_network_key().await;
+            Ok(json!({}))
+        }
+        "move" => {
+            under()?.agent.move_runtime(&s(&req["to"])).await;
             Ok(json!({}))
         }
         "sample" => {

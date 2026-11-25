@@ -22,6 +22,8 @@ dependencies = [
  "armada-pki",
  "armada-proto",
  "armada-spec",
+ "http-body-util",
+ "hyper",
  "hyper-util",
  "libc",
  "prost",

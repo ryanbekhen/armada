@@ -6,16 +6,21 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, SystemTime};
 
 use armada_proto::armada::v1 as pb;
-use tokio::sync::{Notify, OnceCell, Semaphore, mpsc};
+use std::sync::atomic::{AtomicBool, AtomicI32};
+
+use tokio::sync::{Notify, OnceCell, Semaphore, mpsc, watch};
 
 use crate::check::{CheckFn, default_check};
 use crate::clock::{self, Clock, SystemClock};
 use crate::log::Logger;
+use crate::network::Network;
 use crate::probe::ProbeWorker;
+use crate::proxy::{CachedCert, CertificateSource, Clients, InternalDns, Proxy};
 use crate::runtime::{
     self, Container, Error, Image, LABEL_MANAGED, LABEL_REPLICA, LABEL_ROLE, LABEL_SPEC_HASH,
     RegistryAuth, Runtime, STATE_CREATED, STATE_RESTARTING, STATE_RUNNING, STATE_STARTING, stopped,
 };
+use crate::runtimemove::{MoveFn, PlanFn, PrepareFn};
 use crate::spec::{container_spec, has_members, member_images, registry_auth, spec_hash};
 
 /// How often containers are reconciled without a trigger.
@@ -78,9 +83,26 @@ pub struct Config {
     /// A private tmpfs directory for secret files; empty: replicas with
     /// secret files fail to start.
     pub secrets_dir: String,
-    /// The node's resolver for containers (InternalDNS.Address); None
-    /// leaves the runtime's default.
-    pub dns_address: Option<String>,
+    /// The node's resolver for `<app>.internal`; None leaves containers
+    /// with the runtime's default.
+    pub dns: Option<Arc<dyn InternalDns>>,
+    /// The node's proxy; None: no ingress on this node.
+    pub proxy: Option<Arc<dyn Proxy>>,
+    /// The cluster network; None when the node is not part of one.
+    pub network: Option<Arc<dyn Network>>,
+    /// Where certificates named by reference come from; None: the
+    /// session's connection.
+    pub certificates: Option<Arc<dyn CertificateSource>>,
+    /// Moves a containerd node to the runtime the leader names; None: the
+    /// node does not move itself, and Hello says so.
+    pub move_runtime: Option<MoveFn>,
+    /// Readies the move while every container still runs.
+    pub prepare_runtime_move: Option<PrepareFn>,
+    /// Receives the leader's plan for the node's move when it changes.
+    pub on_runtime_move: Option<PlanFn>,
+    /// Where the proxy sends requests for apps with no replica up (ADR
+    /// 0021), in a directory only root reaches; empty disables it.
+    pub wake_socket: String,
     /// The platform reported (default: the agent's own, as Go names it).
     pub os: String,
     pub arch: String,
@@ -112,7 +134,14 @@ impl Default for Config {
             check: None,
             volumes_dir: String::new(),
             secrets_dir: String::new(),
-            dns_address: None,
+            dns: None,
+            proxy: None,
+            network: None,
+            certificates: None,
+            move_runtime: None,
+            prepare_runtime_move: None,
+            on_runtime_move: None,
+            wake_socket: String::new(),
             os: String::new(),
             arch: String::new(),
             servers: Vec::new(),
@@ -165,6 +194,18 @@ pub(crate) struct State {
     pub crash_base: i64,
     /// Apps paused for a volume operation (ADR 0023).
     pub paused: HashMap<String, i64>,
+    pub proxy_desired: Option<pb::ProxyConfig>,
+    pub proxy_applied: Option<pb::ProxyConfig>,
+    /// Certificates fetched by reference, by name.
+    pub certs: HashMap<String, CachedCert>,
+    /// The last cluster network received, and the last error applying it
+    /// (logged once per change).
+    pub network_desired: Option<pb::NetworkConfig>,
+    pub network_failed: String,
+    /// This node's containers in the node subnet (unpublished only).
+    pub local: Option<Clients>,
+    /// The leader's last plan for the node's move, once one came.
+    pub move_plan: Option<Option<pb::RuntimeMovePlan>>,
 }
 
 /// The stream of the current session, if one is open.
@@ -185,6 +226,20 @@ pub(crate) struct Inner<R: Runtime> {
     pub trigger: Notify,
     pub stream: Mutex<StreamState>,
     pub check: CheckFn,
+    /// The session's certificate source.
+    pub cert_source: Mutex<Option<Arc<dyn CertificateSource>>>,
+    /// Counts proxy configurations applied (Go's proxyChanged).
+    pub proxy_changed: watch::Sender<u64>,
+    /// One key rotation at a time.
+    pub key_mu: tokio::sync::Mutex<()>,
+    /// Set while the node moves to another runtime, and after it did;
+    /// move_err says why the last request did not move it.
+    pub moving: AtomicBool,
+    pub move_err: Mutex<String>,
+    /// Running volume sessions.
+    pub volume_ops: AtomicI32,
+    /// Requests held for apps scaled to zero (ADR 0021).
+    pub wakes: crate::wake::Waker,
 }
 
 /// The node agent: reconciles the node's containers with the replicas the
@@ -279,6 +334,13 @@ impl<R: Runtime> Agent<R> {
                 trigger: Notify::new(),
                 stream: Mutex::new(StreamState::default()),
                 check,
+                cert_source: Mutex::new(None),
+                proxy_changed: watch::channel(0).0,
+                key_mu: tokio::sync::Mutex::new(()),
+                moving: AtomicBool::new(false),
+                move_err: Mutex::new(String::new()),
+                volume_ops: AtomicI32::new(0),
+                wakes: crate::wake::Waker::default(),
             }),
         }
     }
@@ -288,11 +350,11 @@ impl<R: Runtime> Agent<R> {
         &self.inner.rt
     }
 
-    /// Takes an assignment's replicas (setDesired); the other parts of an
-    /// assignment come with later parts of ADR 0055 item 16.
+    /// Takes an assignment: the network, the replicas and the proxy, the
+    /// servers, and the plan for the node's move. Log settings and queue
+    /// sandboxes come with a later part of ADR 0055 item 16.
     pub fn set_assignment(&self, a: &pb::Assignment) {
-        self.inner.set_desired(&a.replicas);
-        self.inner.set_servers(&a.servers);
+        self.inner.assign(a);
     }
 
     /// Asks for a reconcile as soon as possible.
@@ -360,10 +422,24 @@ impl<R: Runtime> Inner<R> {
         }
     }
 
-    pub(crate) fn set_desired(&self, replicas: &[pb::ReplicaSpec]) {
+    /// One assignment from the server, in Go's order.
+    pub(crate) fn assign(&self, a: &pb::Assignment) {
+        self.set_network(a.network.as_ref());
+        self.set_desired(&a.replicas, a.proxy.as_ref());
+        self.set_servers(&a.servers);
+        self.set_runtime_move_plan(a.runtime_move.as_ref());
+    }
+
+    pub(crate) fn set_desired(&self, replicas: &[pb::ReplicaSpec], px: Option<&pb::ProxyConfig>) {
         let d: BTreeMap<String, pb::ReplicaSpec> =
             replicas.iter().map(|r| (r.id.clone(), r.clone())).collect();
-        lock(&self.st).desired = Some(d);
+        {
+            let mut st = lock(&self.st);
+            st.desired = Some(d);
+            if let Some(px) = px {
+                st.proxy_desired = Some(px.clone());
+            }
+        }
         self.trigger.notify_one();
     }
 
@@ -457,6 +533,12 @@ impl<R: Runtime> Inner<R> {
                 continue;
             }
             by_replica.insert(id, c);
+        }
+        if !strays.is_empty() {
+            // The proxy first: an agent back after a while may hold a
+            // configuration that still routes to these replicas, and a
+            // request sent to a removed container waits for its timeout.
+            self.apply_proxy().await;
         }
         for c in &strays {
             self.log.info(
@@ -625,6 +707,8 @@ impl<R: Runtime> Inner<R> {
             st.notes.retain(|k, _| desired.contains_key(k));
             st.crashes.retain(|k, _| desired.contains_key(k));
         }
+        self.apply_network().await;
+        self.apply_proxy().await;
         Ok(Some(report))
     }
 
@@ -734,6 +818,9 @@ impl<R: Runtime> Inner<R> {
             START_REPORT_INTERVAL,
         );
         let mut left = pending.len();
+        // Finished starts become part of what is reported once the
+        // firewall knows their containers.
+        let firewall = self.cfg.unpublished && self.cfg.network.is_some();
         while left > 0 {
             tokio::select! {
                 r = rx.recv() => {
@@ -742,10 +829,17 @@ impl<R: Runtime> Inner<R> {
                     left -= 1;
                 }
                 _ = tick.tick() => {
+                    if firewall && !finished.is_empty() {
+                        self.apply_network_now().await;
+                    }
                     absorb(&mut finished, &mut started, &mut running, &mut settled);
+                    self.apply_proxy().await;
                     self.send_report(&self.build(&settled, &pending, &started, &running));
                 }
             }
+        }
+        if firewall && !finished.is_empty() {
+            self.apply_network_now().await;
         }
         absorb(&mut finished, &mut started, &mut running, &mut settled);
         self.build(&settled, &pending, &started, &running)
@@ -907,8 +1001,8 @@ impl<R: Runtime> Inner<R> {
             cs.port = 0;
             cs.host_ip.clear();
         }
-        if let Some(dns) = &self.cfg.dns_address {
-            cs.dns = vec![dns.clone()];
+        if let Some(dns) = &self.cfg.dns {
+            cs.dns = vec![dns.address()];
             let d = armada_spec::validate::internal_search_domain(&s.app);
             if !d.is_empty() {
                 cs.dns_search = vec![d];
@@ -918,7 +1012,9 @@ impl<R: Runtime> Inner<R> {
         cs.volumes = self.prepare_volumes(s).map_err(Error::Other)?;
         crate::containers::with_member_mounts(s, &mut cs).map_err(Error::Other)?;
         let id = self.rt.run(&cs).await?;
-        self.rt.inspect(&id).await
+        let c = self.rt.inspect(&id).await?;
+        self.note_local(&c.ip, &s.app);
+        Ok(c)
     }
 
     pub(crate) async fn pull_with(
