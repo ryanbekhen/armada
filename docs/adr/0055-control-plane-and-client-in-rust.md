@@ -387,7 +387,10 @@ compare.
   (`ARMADA_SERVER_BIN`) with a test clock, through the same AgentService
   and AdminService calls. Assignments, answers, events, and the keyspace
   are compared after each step. The Rust tests that stay after the Go code
-  is removed are ported from those scenarios.
+  is removed are ported from those scenarios. Until the whole server is
+  ported, the Go server under these tests runs only the parts the Rust one
+  has (a test-only mode of its reconcile pass and loops), and each pull
+  request that ports more widens both.
 - **The client.** Every example line of every command (the lines
   `cli.ExampleProblems` already parses) run by both clients against one
   recorded AdminService: stdout, stderr, exit code, and the requests sent

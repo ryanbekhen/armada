@@ -46,6 +46,9 @@ const DefaultNodeLostTimeout = 5 * time.Minute
 // Reconcile brings scheduled replicas in line with each app's desired state
 // and pushes per-node assignments to connected agents.
 func (s *Server) Reconcile(ctx context.Context) error {
+	if s.parts == coreParts {
+		return s.reconcileCore(ctx)
+	}
 	apps, err := s.store.ListApps(ctx)
 	if err != nil {
 		return err
@@ -146,6 +149,35 @@ func (s *Server) Reconcile(ctx context.Context) error {
 		s.askToMove(askMove, rc.now)
 	}
 	return nil
+}
+
+// reconcileCore is the part of a pass the Rust control plane does so far
+// (coreParts, ADR 0055): the API addresses, and every connected node's
+// assignment of the replicas the store holds, with no proxy, network,
+// queue sandboxes, or runtime move.
+func (s *Server) reconcileCore(ctx context.Context) error {
+	ids, err := s.store.ListAppIDs(ctx)
+	if err != nil {
+		return err
+	}
+	nodes, err := s.store.ListNodes(ctx)
+	if err != nil {
+		return err
+	}
+	replicas, err := s.store.ListReplicas(ctx, store.ReplicaFilter{})
+	if err != nil {
+		return err
+	}
+	s.clusterSize.Store(int64(len(ids) + len(nodes)))
+	eps, err := s.endpoints(ctx)
+	if err != nil {
+		return err
+	}
+	s.endpointsSeen.Store(&seenEndpoints{addrs: eps, at: time.Now()})
+	revs := revisionCache{store: s.store, keys: s.keys, m: map[string]store.Revision{}, opened: s.opened}
+	defer s.opened.sweep()
+	revs.preload(ctx, nil, replicas)
+	return s.pushAssignments(ctx, replicas, &revs, nil, nil, eps, nil, nil, nil)
 }
 
 // proxyConfig builds the pass's proxy configuration. When it cannot, the

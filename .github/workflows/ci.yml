@@ -273,6 +273,16 @@ jobs:
       - run: go test -race -run 'TestArmadaStore' -v ./internal/store/
         env:
           ARMADA_STORE_BIN: ${{ github.workspace }}/target/debug/armada-store-parity
+      # The control plane's core in Rust (ADR 0055) is driven through the
+      # same scenarios as Go's server (the package's etcd member, a test
+      # clock, fake agents): the same answers, assignments, events, and
+      # keyspaces after every step; its test program is built only for
+      # this.
+      - run: cargo clippy --locked -p armada-server --all-targets --features parity -- -D warnings
+      - run: make server-parity
+      - run: go test -race -run 'TestParity|TestArmadaServer' -v ./internal/server/
+        env:
+          ARMADA_SERVER_BIN: ${{ github.workspace }}/target/debug/armada-server-parity
 
   installer:
     needs: changes
