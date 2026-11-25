@@ -36,6 +36,7 @@ import (
 	"github.com/ryanbekhen/armada/internal/secrets"
 	"github.com/ryanbekhen/armada/internal/store"
 	"github.com/ryanbekhen/armada/internal/store/storetest"
+	"github.com/ryanbekhen/armada/internal/volbackup"
 )
 
 // The scenario parity harness of the Rust control plane (ADR 0055). A
@@ -50,16 +51,17 @@ import (
 // where the two may differ by chance (times, serials, keys, addresses),
 // and the transcripts must be equal step by step.
 //
-// Go's server runs coreParts: what the Rust server does so far. Each pull
-// request of ADR 0055 that ports more widens both, and moves more of this
-// package's scenarios onto the harness. Neither server runs a pass on its
-// own (manualPasses): the scenario runs every pass, so both pass at the
-// same steps, and replica IDs are predictable (parityIDs) so both name
-// and order their replicas alike. Neither evaluates autoscaled apps nor
-// starts volume backups on its own either: the scenario runs every
-// evaluation (autoscale) and every round of backups (backups). Alert
-// channels deliver to stand-ins the scenario starts (alertSinks), and the
-// metrics endpoint gathers again whenever the test clock moved.
+// Both servers are whole control planes. Neither runs a pass on its own
+// (manualPasses): the scenario runs every pass, so both pass at the same
+// steps, and replica IDs are predictable (parityIDs) so both name and
+// order their replicas alike. Neither evaluates autoscaled apps, starts
+// volume or control plane backups, verifies domains, nor prunes
+// placement records on its own either: the scenario runs every
+// evaluation (autoscale), every round of backups (backups, cpBackups),
+// and every pruning (prunePlacements), and VerifyDomain checks domains.
+// Alert channels deliver to stand-ins the scenario starts (alertSinks),
+// the metrics endpoint gathers again whenever the test clock moved, and
+// control plane backups go to a stand-in bucket (cpBucket).
 
 // parityConfig is how a scenario's control plane is set up.
 type parityConfig struct {
@@ -94,6 +96,11 @@ type parityConfig struct {
 	// again whenever the test clock moved; alerts starts the stand-ins of
 	// alert channels (sc.sinks), the Telegram Bot API's among them.
 	metrics, alerts bool
+	// cpBackups gives the server control plane backups (ADR 0051): a
+	// stand-in stager (sc.cpStage sets what it stages) and a stand-in
+	// bucket (sc.cpBucket), which Go's server reaches in process and the
+	// program over HTTP.
+	cpBackups bool
 }
 
 // serverUnderTest is one control plane a scenario drives.
@@ -113,6 +120,13 @@ type serverUnderTest interface {
 	// backups runs one round of the backup loop now and waits for the
 	// backups it started.
 	backups(t *testing.T)
+	// cpBackups runs one pass of the control plane backup loop now;
+	// prunePlacements one pruning of placement records; cpStage sets
+	// what the next control plane backups stage (fail, when set, is the
+	// stager's error).
+	cpBackups(t *testing.T)
+	prunePlacements(t *testing.T)
+	cpStage(content, fail string)
 	// settingsChanged counts OnSettingsChanged calls.
 	settingsChanged() int
 	// managed is what the certificate manager was last asked to manage:
@@ -203,6 +217,9 @@ type scenario struct {
 	metricsAddr string
 	// sinks are the stand-ins of alert channels (parityConfig.alerts).
 	sinks *alertSinks
+	// cpBucket is the control plane backups' bucket
+	// (parityConfig.cpBackups).
+	cpBucket *cpBucket
 }
 
 func serverBin() string { return os.Getenv("ARMADA_SERVER_BIN") }
@@ -308,6 +325,9 @@ func newScenario(t *testing.T, kind string, cfg parityConfig, fx *parityFixtures
 	if cfg.alerts {
 		sc.sinks = newAlertSinks(t)
 	}
+	if cfg.cpBackups {
+		sc.cpBucket = newCPBucket(t, sc.clock)
+	}
 	switch kind {
 	case "go":
 		sc.sut = startGoServer(sc)
@@ -332,7 +352,7 @@ func newScenario(t *testing.T, kind string, cfg parityConfig, fx *parityFixtures
 	return sc
 }
 
-// goServer is Go's control plane in process, running coreParts.
+// goServer is Go's control plane in process.
 type goServer struct {
 	srv    *Server
 	addr   string
@@ -343,6 +363,7 @@ type goServer struct {
 	done                     chan struct{}
 	changed                  atomic.Int32
 	certs                    *parityCerts
+	stage                    *cpStager
 }
 
 func startGoServer(sc *scenario) *goServer {
@@ -374,6 +395,11 @@ func startGoServer(sc *scenario) *goServer {
 	}
 	if sc.sinks != nil {
 		cfg.AlertHTTP = sc.sinks.client()
+	}
+	if sc.cpBucket != nil {
+		g.stage = &cpStager{}
+		cfg.ControlPlaneBackup = g.stage.backup
+		cfg.ControlPlaneBuckets = func(volbackup.Target) (volbackup.Objects, error) { return cpObjects{sc.cpBucket}, nil }
 	}
 	if sc.cfg.join {
 		jl, err := net.Listen("tcp", "127.0.0.1:0")
@@ -414,7 +440,6 @@ func startGoServer(sc *scenario) *goServer {
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv.parts = coreParts
 	srv.manualPasses = true
 	srv.newID = parityIDs()
 	if sc.cfg.joinBurst > 0 {
@@ -479,6 +504,20 @@ func (g *goServer) backups(t *testing.T) {
 	}
 }
 
+func (g *goServer) cpBackups(t *testing.T) {
+	t.Helper()
+	if err := g.srv.controlPlaneBackupPass(context.Background()); err != nil {
+		t.Fatalf("control plane backups: %v", err)
+	}
+}
+func (g *goServer) prunePlacements(t *testing.T) {
+	t.Helper()
+	if err := g.srv.prunePlacements(context.Background()); err != nil {
+		t.Fatalf("prune placements: %v", err)
+	}
+}
+func (g *goServer) cpStage(content, fail string) { g.stage.set(content, fail) }
+
 // rustServer is armada-server-parity, the Rust control plane as a program.
 type rustServer struct {
 	t      *testing.T
@@ -528,9 +567,13 @@ func startRustServer(sc *scenario) *rustServer {
 	if sc.sinks != nil {
 		conf["telegramApi"] = sc.sinks.telegramAPI()
 	}
+	conf["cpBackups"] = sc.cpBucket != nil
 	r := &rustServer{t: t, waiting: map[int64]chan map[string]any{}, ready: make(chan map[string]any, 1), sc: sc, exited: make(chan struct{})}
 	r.cmd = exec.Command(serverBin())
 	r.cmd.Env = append(os.Environ(), "TZ=UTC")
+	if sc.cpBucket != nil {
+		r.cmd.Env = append(r.cmd.Env, "ARMADA_NODE_TEST_BUCKET_ADDR="+sc.cpBucket.addr())
+	}
 	r.cmd.Stderr = os.Stderr
 	in, err := r.cmd.StdinPipe()
 	if err != nil {
@@ -705,6 +748,24 @@ func (r *rustServer) backups(t *testing.T) {
 	if m := r.do(map[string]any{"op": "backups"}); m["error"] != "" && m["error"] != nil {
 		t.Fatalf("backups: %v", m["error"])
 	}
+}
+
+func (r *rustServer) cpBackups(t *testing.T) {
+	t.Helper()
+	if m := r.do(map[string]any{"op": "cpBackups"}); m["error"] != "" && m["error"] != nil {
+		t.Fatalf("control plane backups: %v", m["error"])
+	}
+}
+
+func (r *rustServer) prunePlacements(t *testing.T) {
+	t.Helper()
+	if m := r.do(map[string]any{"op": "prunePlacements"}); m["error"] != "" && m["error"] != nil {
+		t.Fatalf("prune placements: %v", m["error"])
+	}
+}
+
+func (r *rustServer) cpStage(content, fail string) {
+	r.do(map[string]any{"op": "cpStage", "content": content, "fail": fail})
 }
 
 func (r *rustServer) setNow(ms int64) { r.do(map[string]any{"op": "now", "ms": ms}) }
@@ -952,11 +1013,16 @@ var (
 	}
 	parityRandomKeys = map[string]bool{
 		"serial": true, "sinceserial": true, "secrethash": true, "ciphertext": true, "wrappedkey": true,
+		// A backup's ID ends in random hex.
+		"lastid": true, "lastsnapshot": true,
 	}
-	parityCertKeys   = map[string]bool{"cert": true, "cacert": true, "nodecert": true, "servercert": true}
-	paritySecretKeys = map[string]bool{"cakey": true, "serverkey": true, "masterkey": true}
-	paritySerialText = regexp.MustCompile(`serial=[0-9a-f]+`)
-	parityRFC3339    = regexp.MustCompile(`^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?(Z|[+-]\d\d:\d\d)$`)
+	// parityCompressedKeys are sizes in a bucket of compressed chunks:
+	// Go's zstd and armada-node's write different bytes.
+	parityCompressedKeys = map[string]bool{"stored": true, "storedbytes": true}
+	parityCertKeys       = map[string]bool{"cert": true, "cacert": true, "nodecert": true, "servercert": true}
+	paritySecretKeys     = map[string]bool{"cakey": true, "serverkey": true, "masterkey": true}
+	paritySerialText     = regexp.MustCompile(`serial=[0-9a-f]+`)
+	parityRFC3339        = regexp.MustCompile(`^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?(Z|[+-]\d\d:\d\d)$`)
 )
 
 func (sc *scenario) normalize(v any, key string) any {
@@ -978,6 +1044,9 @@ func (sc *scenario) normalize(v any, key string) any {
 		if parityTimeKeys[lk] && x != 0 {
 			return "<time>"
 		}
+		if parityCompressedKeys[lk] && x != 0 {
+			return "<compressed>"
+		}
 		return x
 	case string:
 		switch {
@@ -990,6 +1059,8 @@ func (sc *scenario) normalize(v any, key string) any {
 			return "<time>"
 		case parityRandomKeys[lk]:
 			return sc.placeholder(lk, x)
+		case parityCompressedKeys[lk]:
+			return "<compressed>"
 		case parityCertKeys[lk]:
 			return sc.certSummary(x)
 		case paritySecretKeys[lk]:
@@ -1116,8 +1187,11 @@ type parityAgent struct {
 	last   *armadav1.Assignment
 	others []*armadav1.ServerMessage
 	// volume serves the volume requests the server sends, when set
-	// (parity_volumes_test.go).
+	// (parity_volumes_test.go); logs and exec serve log requests (and
+	// their cancels) and exec requests (parity_logs_test.go).
 	volume atomic.Pointer[func(*armadav1.VolumeRequest)]
+	logs   atomic.Pointer[func(*armadav1.ServerMessage)]
+	exec   atomic.Pointer[func(*armadav1.ExecRequest)]
 }
 
 // connectAgent connects node id as its agent with hello and waits until
@@ -1151,6 +1225,18 @@ func (sc *scenario) connectAgent(id string, client armadav1.AgentServiceClient, 
 			if vr := m.GetVolumeRequest(); vr != nil {
 				if h := a.volume.Load(); h != nil {
 					go (*h)(vr)
+					continue
+				}
+			}
+			if m.GetLogRequest() != nil || m.GetLogCancel() != nil {
+				if h := a.logs.Load(); h != nil {
+					(*h)(m)
+					continue
+				}
+			}
+			if er := m.GetExecRequest(); er != nil {
+				if h := a.exec.Load(); h != nil {
+					go (*h)(er)
 					continue
 				}
 			}

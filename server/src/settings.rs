@@ -1,10 +1,9 @@
 //! The cluster's server settings (ADR 0031; Go's settings.go) and the
 //! cluster configuration RPCs. SetClusterConfig sets the root domain and
-//! the server settings here; the settings of a later pull request (log
-//! history and export and control plane backups, 15) answer
-//! `Unimplemented` before anything changes; the network mode, the mesh
-//! range, and the runtime move are set too (pull request 13), and the
-//! trusted proxies and PROXY protocol sources (pull request 14).
+//! the server settings here, and calls on the others: the trusted proxies
+//! and PROXY protocol sources (`ingress`), the log settings (`logs`), the
+//! control plane backups (`cpbackup`), the network mode, the mesh range,
+//! and the runtime move.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -363,29 +362,6 @@ impl Server {
         a: &Auth,
         req: SetClusterConfigRequest,
     ) -> Result<ClusterConfig, Status> {
-        let later = [
-            (
-                req.set_log_retention
-                    || req.set_log_max_bytes
-                    || req.set_log_export
-                    || req.set_log_token,
-                15,
-            ),
-            (
-                req.set_backup_plan
-                    || req.set_backup_keep
-                    || req.set_backup_url
-                    || req.set_backup_key
-                    || req.set_backup_off,
-                15,
-            ),
-        ];
-        if later.iter().any(|(set, _)| *set) {
-            return Err(Status::new(
-                Code::Unimplemented,
-                "method SetClusterConfig not implemented for these settings",
-            ));
-        }
         let c = req.config.clone().unwrap_or_default();
         if req.set_root_domain {
             let root = c.root_domain.trim().to_lowercase();
@@ -448,6 +424,8 @@ impl Server {
                 &[("proxy_protocol", list), ("by", a.actor())],
             );
         }
+        self.set_log_settings(a, &req).await?;
+        self.set_control_plane_backup(a, &req).await?;
         if req.set_network {
             self.set_network(a, &c.network).await?;
         }

@@ -35,10 +35,10 @@
 //! 15): ClusterStatus, Top with the usage counted per space, alert
 //! channels and their notices ([`alert`], `alerts`), the metrics endpoint
 //! and the metrics credentials ([`metrics`]), and the control plane
-//! backups' status (`cpbackup`). Log search and live logs, exec, log
-//! export settings, and the control plane backups' loop follow in its
-//! second part; their methods answer `Unimplemented` until then
-//! ([`admin::LATER`]).
+//! backups' status; and with its second part: log search and live logs
+//! with the pruning of placement records and the log settings (`logs`),
+//! exec (`exec`), and the control plane backups' loop and settings
+//! ([`cpbackup`]). Every method of both services is ported.
 
 pub mod access;
 pub mod acme;
@@ -53,8 +53,9 @@ mod backups;
 pub mod certs;
 pub mod cluster;
 pub mod conn;
-mod cpbackup;
+pub mod cpbackup;
 mod events;
+mod exec;
 mod failover;
 mod grpc;
 pub mod guard;
@@ -64,6 +65,7 @@ mod join;
 pub mod lifecycle;
 mod limiter;
 pub mod log;
+mod logs;
 pub mod metrics;
 mod netutil;
 mod network;
@@ -98,7 +100,6 @@ use tokio::net::TcpListener;
 use tokio::sync::{Notify, watch};
 use tonic::{Code, Status};
 
-pub use admin::LATER;
 pub use cluster::{Cluster, MemberInfo};
 pub use settings::{
     Settings, check_acme_ca, check_dns_provider, check_dns_token, check_email,
@@ -212,6 +213,9 @@ pub struct Config {
     pub metrics_cache: Duration,
     /// Where alert channels' requests go (tests name a stand-in Bot API).
     pub alert_endpoints: alert::Endpoints,
+    /// Stages the files of a control plane backup (ADR 0051); none
+    /// disables the backups.
+    pub control_plane_backup: Option<cpbackup::ControlPlaneBackup>,
     pub log: log::Logger,
 }
 
@@ -262,6 +266,7 @@ impl Config {
             new_id: None,
             metrics_cache: Duration::ZERO,
             alert_endpoints: alert::Endpoints::default(),
+            control_plane_backup: None,
             log: log::Logger::discard(),
         }
     }
@@ -366,6 +371,16 @@ pub(crate) struct Inner {
     pub alerts: alerts::Alerter,
     /// The counters and the cluster's metrics of the metrics endpoint.
     pub metrics: metrics::Metrics,
+    /// Log and exec requests waiting for their agents' streams.
+    pub logs: logs::LogRouter,
+    pub execs: exec::ExecRouter,
+    /// Log searches and live log calls served at once.
+    pub searches: logs::CallerSlots,
+    pub live_logs: logs::CallerSlots,
+    /// The control plane's backups: what stages them, and a wake-up when
+    /// their settings change.
+    pub cp_backup: Option<cpbackup::ControlPlaneBackup>,
+    pub cp_wake: Notify,
 }
 
 impl Server {
@@ -514,6 +529,12 @@ impl Server {
             wake: Mutex::new(None),
             alerts: alerts::Alerter::new(cfg.alert_endpoints),
             metrics: metrics::Metrics::new(cfg.metrics_cache),
+            logs: logs::LogRouter::default(),
+            execs: exec::ExecRouter::default(),
+            searches: logs::CallerSlots::searches(),
+            live_logs: logs::CallerSlots::live(),
+            cp_backup: cfg.control_plane_backup,
+            cp_wake: Notify::new(),
         })))
     }
 
@@ -604,6 +625,12 @@ impl Server {
             let s = self.clone();
             let sd = shutdown.clone();
             tokio::spawn(async move { s.verify_loop(sd).await });
+            let s = self.clone();
+            let sd = shutdown.clone();
+            tokio::spawn(async move { s.control_plane_backup_loop(sd).await });
+            let s = self.clone();
+            let sd = shutdown.clone();
+            tokio::spawn(async move { s.placement_loop(sd).await });
         }
         let addr = lis.local_addr().map(|a| a.to_string()).unwrap_or_default();
         self.0.log.info("listening", &[("addr", addr)]);

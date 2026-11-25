@@ -35,8 +35,9 @@ x509-parser.workspace = true
 [features]
 # The program Go's scenario parity tests drive
 # (src/bin/armada-server-parity.rs, ARMADA_SERVER_BIN): never part of a
-# release.
-parity = []
+# release. A control plane backup's bucket is reached at the address the
+# test names (armada-node's test hooks).
+parity = ["armada-node/test-hooks"]
 
 [[bin]]
 name = "armada-server-parity"
