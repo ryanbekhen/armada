@@ -279,10 +279,7 @@ impl Run<'_> {
             "ARMADA_NODE_TEST_KERNEL_MODULES".into(),
             "vxlan,wireguard".into(),
         );
-        env.insert(
-            "ARMADA_NODE_TEST_ROUTE_UPLINK".into(),
-            "wg0:1420".into(),
-        );
+        env.insert("ARMADA_NODE_TEST_ROUTE_UPLINK".into(), "wg0:1420".into());
         let args: Vec<String> = case
             .get("args")
             .and_then(Value::as_array)
