@@ -19,6 +19,28 @@ pub mod term;
 use std::io::{IsTerminal, Read, Write};
 use std::time::Duration;
 
+/// How far the client's clock is moved from the machine's: always zero,
+/// except in builds with the test-hooks feature (never released), where
+/// ARMADA_CLIENT_TEST_NOW (Unix nanoseconds) is the time the program
+/// starts at, so the parity cases recorded from Go (tests/parity.rs) see
+/// the answers' times as Go saw them.
+pub(crate) fn clock_offset() -> i128 {
+    #[cfg(feature = "test-hooks")]
+    {
+        static OFFSET: std::sync::OnceLock<i128> = std::sync::OnceLock::new();
+        *OFFSET.get_or_init(|| {
+            std::env::var("ARMADA_CLIENT_TEST_NOW")
+                .ok()
+                .and_then(|v| v.parse::<i128>().ok())
+                .map_or(0, |t| t - commands::wall_nanos())
+        })
+    }
+    #[cfg(not(feature = "test-hooks"))]
+    {
+        0
+    }
+}
+
 /// Execute: the tree run with args, and on a terminal, at most once a
 /// day, a line saying a newer release exists.
 pub fn execute(args: &[String]) -> i32 {

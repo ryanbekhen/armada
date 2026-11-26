@@ -51,8 +51,10 @@ dependencies = [
  "armada-pki",
  "armada-proto",
  "armada-spec",
+ "flate2",
  "hyper-util",
  "libc",
+ "prost",
  "rustls",
  "rustls-pki-types",
  "serde",
@@ -62,6 +64,7 @@ dependencies = [
  "tokio-stream",
  "tonic",
  "tower",
+ "x509-parser",
 ]
 
 [[package]]

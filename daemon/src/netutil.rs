@@ -116,6 +116,33 @@ pub struct IfaceAddr {
 /// bridges (interfaceAddrs).
 pub fn interface_addrs(up_only: bool) -> Vec<IfaceAddr> {
     let mut raw: Vec<(u32, String, IpAddr)> = Vec::new();
+    // The parity cases recorded from Go (test hooks only): the machine's
+    // addresses as Go read them, `INDEX NAME FLAGS IP` entries separated by
+    // `;`, FLAGS holding u when the interface is up and l when it is
+    // loopback, so a case replays alike on another machine.
+    if let Some(v) = crate::hooks::get("INTERFACES") {
+        for e in v.split(';').filter(|e| !e.is_empty()) {
+            let f: Vec<&str> = e.split(' ').collect();
+            let (Some(i), Some(name), Some(flags), Some(Ok(ip))) = (
+                f.first().and_then(|i| i.parse::<u32>().ok()),
+                f.get(1),
+                f.get(2),
+                f.get(3).map(|ip| ip.parse::<IpAddr>()),
+            ) else {
+                continue;
+            };
+            if up_only && (!flags.contains('u') || flags.contains('l')) {
+                continue;
+            }
+            raw.push((i, name.to_string(), ip));
+        }
+        raw.sort_by_key(|(i, _, ip)| (*i, ip.is_ipv6()));
+        return raw
+            .into_iter()
+            .filter(|(_, name, _)| !up_only || !virtual_interface(name))
+            .map(|(_, name, ip)| IfaceAddr { name, ip })
+            .collect();
+    }
     // SAFETY: getifaddrs fills a list freed below; every pointer read is
     // one of its entries.
     unsafe {

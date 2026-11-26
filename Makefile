@@ -12,7 +12,7 @@ VERSION_ENV = ARMADA_VERSION=$(VERSION) ARMADA_COMMIT=$(COMMIT) ARMADA_DATE=$(DA
 
 export CGO_ENABLED := 0
 
-.PHONY: all build build-bundle logger shim dns node node-test-hooks pki-parity store-parity server-parity server-scenarios client-parity daemon-parity agent-parity agent-scenarios rust-check runtime-bundle runtime-licenses rust-licenses test cover lint fmt vet vuln licenses licenses-save proto proto-rust proto-go docs tidy check clean
+.PHONY: all build build-bundle logger shim dns node node-test-hooks pki-parity store-parity server-parity server-scenarios client-replay daemon-replay client-parity daemon-parity agent-parity agent-scenarios rust-check runtime-bundle runtime-licenses rust-licenses test cover lint fmt vet vuln licenses licenses-save proto proto-rust proto-go docs tidy check clean
 
 all: check build
 
@@ -110,6 +110,24 @@ server-scenarios:
 	sh scripts/etcd-cache.sh
 	ARMADA_ETCD_DIR=$(CURDIR)/.cache/etcd cargo test --locked -p armada-server --features parity --test scenarios
 
+# The client's parity cases recorded from Go's armada (go test ./internal/cli
+# -run TestClientParity -record-fixtures writes
+# client/tests/testdata/parity.jsonl.gz) replayed against the Rust armada
+# (its test-hooks build, whose clock starts at the recorded time) and a
+# stand-in AdminService (ADR 0055, item 20): no Go needed.
+client-replay:
+	cargo test --locked -p armada-client --features test-hooks --test parity
+
+# The daemon's parity cases recorded from Go's armadad (go test
+# ./internal/daemon -run TestDaemonParity -record-fixtures, with
+# ARMADA_DAEMON_BIN and ARMADA_ETCD_DIR, writes
+# daemon/tests/testdata/parity.jsonl.gz) replayed against the Rust armadad
+# with its test hooks, the same stand-ins, a stand-in bucket, and the
+# pinned etcd (ADR 0055, item 20): no Go needed.
+daemon-replay:
+	sh scripts/etcd-cache.sh
+	ARMADA_ETCD_DIR=$(CURDIR)/.cache/etcd cargo test --locked -p armada-daemon --features test-hooks --test parity --test logwriter
+
 # The client parity tests (ADR 0055, pull request 17): Go's armada in
 # process and the Rust one (client/, target/debug/armada) on the same
 # command lines against one recorded AdminService.
@@ -156,9 +174,12 @@ rust-check:
 	cargo clippy --locked -p armada-server --all-targets --features parity -- -D warnings
 	cargo clippy --locked -p armada-agent --all-targets --features parity -- -D warnings
 	cargo clippy --locked -p armada-daemon --all-targets --features test-hooks -- -D warnings
+	cargo clippy --locked -p armada-client --all-targets --features test-hooks -- -D warnings
 	cargo test --locked --workspace
 	$(MAKE) server-scenarios
 	cargo test --locked -p armada-agent --features parity --test scenarios
+	$(MAKE) client-replay
+	$(MAKE) daemon-replay
 	cargo deny --locked check licenses
 	$(MAKE) store-replay
 	cargo build --release --locked --workspace --target x86_64-unknown-linux-musl
