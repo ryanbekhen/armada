@@ -107,6 +107,9 @@ A cluster is upgraded one machine at a time, so versions mix for a while
   removes the units that release lacks, installs it, and starts its
   service; the state, the containers, and the images stay
   ([operations guide](operations.md#rolling-back-to-the-last-go-release)).
+  Since crun runs new containers (ADR 0056), drain the machine and remove
+  its containers with `armadad runtime reset` first: v0.1.0-alpha.42 has
+  no crun and cannot adopt the containers crun created.
   No other older release is a rollback target.
 
 ## Deprecation
@@ -125,7 +128,18 @@ When something stable has to go:
 A security fix may break something sooner, when keeping it would leave
 clusters exposed; its release notes say so and why.
 
-Nothing is deprecated now.
+Deprecated:
+
+- **runc in the runtime pack** ([ADR 0056](adr/0056-crun.md)). crun runs
+  every container created since the release that brought it; runc stays
+  in the pack only for the containers it created before, which keep
+  running across the upgrade and move to crun as they are recreated (a
+  deploy, a rollout, `armada app restart`, a crash, a machine's restart).
+  A later release removes runc from the pack. Before upgrading to it,
+  restart the apps whose replicas were not recreated since
+  ([operations guide](operations.md#crun-and-runc) shows how to find
+  them on a node); a container still on runc then could no longer be
+  stopped or run commands in. Nothing to change in specs or commands.
 
 Removed:
 
