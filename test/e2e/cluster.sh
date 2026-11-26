@@ -19,7 +19,7 @@ set -eu
 # Scenarios that run after the cluster is built and the test app serves.
 # E2E_ONLY=isolation,rollout runs only those (empty: all); E2E_LIST=1 lists
 # them. test/e2e/README.md says which to pick for a change.
-SCENARIOS="listeners space-secret conntrack network-key isolation load rollout agent-restart failover node-loss backup placement platforms cpu spread ip-rules plain-http sticky cors sidecars tcp queues queue-jobs volume-backups volume-failover nfs runtime-move runtime-containerd-move reboot"
+SCENARIOS="listeners space-secret conntrack network-key isolation load rollout agent-restart failover node-loss backup placement platforms cpu spread ip-rules plain-http sticky cors sidecars tcp queues queue-jobs volume-backups volume-failover nfs reboot"
 E2E_ONLY=${E2E_ONLY:-}
 if [ "${E2E_LIST:-}" = 1 ]; then
 	echo "$SCENARIOS" | tr ' ' '\n'
@@ -47,7 +47,7 @@ ARMADA_BIN=${ARMADA_BIN:-}
 ARMADA_BIN_AMD64=${ARMADA_BIN_AMD64:-$ARMADA_BIN}
 ARMADA_BIN_ARM64=${ARMADA_BIN_ARM64:-$ARMADA_BIN}
 if [ -z "$ARMADA_BIN_AMD64$ARMADA_BIN_ARM64" ]; then
-	echo "e2e: set ARMADA_BIN (or ARMADA_BIN_AMD64/ARMADA_BIN_ARM64) to Linux armadad binaries with the runtime embedded (make build-bundle; the armada client next to each is installed too)" >&2
+	echo "e2e: set ARMADA_BIN (or ARMADA_BIN_AMD64/ARMADA_BIN_ARM64) to Linux armadad binaries with the runtime pack (make build-bundle; the armada client next to each is installed too)" >&2
 	exit 2
 fi
 : "${E2E_DOMAIN:?set E2E_DOMAIN to a root domain whose wildcard record points at every public IP}"
@@ -58,36 +58,6 @@ E2E_SUDO=${E2E_SUDO:-}                  # "sudo" when SSH-TARGET is not root
 E2E_REBOOT=${E2E_REBOOT:-1}             # 0 skips rebooting every machine at once
 E2E_BRIDGE_GW=${E2E_BRIDGE_GW:-} # armada0 address; read from each node if empty
 E2E_SERVER_FLAGS=${E2E_SERVER_FLAGS:-}
-# Container runtime of every machine: supervisor (no containerd, ADR 0046)
-# or embedded (containerd); empty uses the default, the supervisor.
-E2E_RUNTIME=${E2E_RUNTIME:-}
-RUNTIME_FLAG=
-if [ -n "$E2E_RUNTIME" ]; then RUNTIME_FLAG="--runtime $E2E_RUNTIME"; fi
-# A conformance test binary for the last machine's architecture
-# (go test -c -tags integration ./internal/runtime/containerd/); empty skips.
-E2E_CONFORMANCE=${E2E_CONFORMANCE:-}
-# Every machine's cluster network runs through armada-node (ADR 0054); go
-# moves every machine to Go's code (agent.json netAgent) once the cluster
-# is up.
-E2E_NET_AGENT=${E2E_NET_AGENT:-rust}
-case $E2E_NET_AGENT in
-rust | go) ;;
-*)
-	echo "e2e: E2E_NET_AGENT is '$E2E_NET_AGENT'; want rust (the default) or go" >&2
-	exit 2
-	;;
-esac
-# Supervisor machines run containers through armada-node (ADR 0054); go
-# moves every machine to Go's code (agent.json runtimeAgent) once the
-# cluster is up.
-E2E_RUNTIME_AGENT=${E2E_RUNTIME_AGENT:-rust}
-case $E2E_RUNTIME_AGENT in
-rust | go) ;;
-*)
-	echo "e2e: E2E_RUNTIME_AGENT is '$E2E_RUNTIME_AGENT'; want rust (the default) or go" >&2
-	exit 2
-	;;
-esac
 
 case $E2E_ACME_CA in
 letsencrypt | *acme-v02.api.letsencrypt.org*)
@@ -301,9 +271,9 @@ join() {
 	printf '%s\n' "$_tok" | on "$1" 'umask 077; cat > /run/armada/e2e.token'
 	_tok=
 	if [ "$2" = server ]; then
-		_args="--name $(host "$1" 1) $RUNTIME_FLAG" _unit=armada-server
+		_args="--name $(host "$1" 1)" _unit=armada-server
 	else
-		_args="--node-name $(host "$1" 1) $RUNTIME_FLAG" _unit=armada-agent
+		_args="--node-name $(host "$1" 1)" _unit=armada-agent
 	fi
 	on "$1" "$_cmd $_args --private-ip $(host "$1" 3) --token-file /run/armada/e2e.token >/dev/null;
 		rc=\$?; rm -f /run/armada/e2e.token; [ \$rc -eq 0 ] && systemctl enable --now -q $_unit"
@@ -322,7 +292,7 @@ cleanup() {
 		_i=1
 		while [ "$_i" -le "$N" ]; do
 			printf '\n    haproxy events on %s (UTC):\n' "$(host "$_i" 1)" >&2
-			on "$_i" "journalctl -u armada-agent -u armada-server --utc --since '$_since' -o short-iso --no-pager | grep -i haproxy | tail -n 20" >&2 || true
+			on "$_i" "journalctl -u armada-agent --utc --since '$_since' -o short-iso --no-pager | grep -i haproxy | tail -n 20" >&2 || true
 			_i=$((_i + 1))
 		done
 	fi
@@ -376,15 +346,8 @@ while [ "$i" -le "$SERVERS" ]; do
 	on "$i" "umask 077; echo $(q "ARMADA_SERVER_FLAGS=\"$FLAGS\"") > /etc/armada/server.env"
 	i=$((i + 1))
 done
-on 1 "armadad init --node-name $(host 1 1) --private-ip $(host 1 3) $RUNTIME_FLAG >/dev/null && systemctl enable --now -q armada-server"
+on 1 "armadad init --node-name $(host 1 1) --private-ip $(host 1 3) >/dev/null && systemctl enable --now -q armada-server"
 wait_for 120 "control plane answers" voting 1
-if [ "$E2E_RUNTIME" = embedded ]; then
-	# The leader would move every containerd node to the supervisor runtime
-	# as soon as it joins (ADR 0054); the run keeps them on containerd until
-	# runtime-containerd-move turns the move on again.
-	cli cluster update --runtime-move=false >/dev/null
-	ok "the automatic move of containerd nodes is off"
-fi
 
 i=2
 while [ "$i" -le "$N" ]; do
@@ -399,115 +362,42 @@ while [ "$i" -le "$N" ]; do
 done
 wait_for 180 "all $N nodes ready" nodes_ready
 
-if [ "$E2E_NET_AGENT" = rust ]; then
-	# The default: each machine's agent applies the cluster network through
-	# the runtime pack's armada-node, and doctor checks it through it. Go
-	# stands in when armada-node fails, which the run reports as a failure
-	# at the end.
-	log "every machine runs its cluster network through armada-node"
-	i=1
-	while [ "$i" -le "$N" ]; do
-		on "$i" 'test -x /var/lib/armada/runtime/current/bin/armada-node' ||
-			fail "$(host "$i" 1) has no armada-node in its runtime pack"
-		_unit=armada-agent
-		rust_applies() { on "$1" "journalctl -u $2 --no-pager | grep -q 'armada-node applies the cluster network'"; }
-		wait_for 120 "$(host "$i" 1) applies its cluster network with armada-node" rust_applies "$i" "$_unit"
-		if ! on "$i" 'armadad doctor' >"$WORK/doctor" 2>&1; then :; fi
-		if grep -E '^\[FAIL\] (network|network-mtu|network-sites|network-switch|wireguard|sites|relay|isolation) ' "$WORK/doctor" >&2; then
-			fail "armadad doctor's network checks through armada-node on $(host "$i" 1)"
-		fi
-		i=$((i + 1))
-	done
-	NET_AGENT_SINCE=$(on 1 'date "+%Y-%m-%d %H:%M:%S"')
-else
-	# agent.json netAgent "go" on each machine in turn, its service
-	# restarted: Go's own code runs its cluster network.
-	log "every machine runs its cluster network in Go"
-	# shellcheck disable=SC2016 # expanded on the machine
-	_set_go='f=/var/lib/armada/agent.json
-if ! grep -q "\"netAgent\"" "$f"; then
-	sed -i "1s/^{\$/{\n  \"netAgent\": \"go\",/" "$f"
-fi
-grep -q "\"netAgent\": *\"go\"" "$f"'
-	i=1
-	while [ "$i" -le "$N" ]; do
-		on "$i" "$_set_go" || fail "setting netAgent in agent.json on $(host "$i" 1)"
-		_unit=armada-agent
-		on "$i" "systemctl restart $_unit"
-		[ "$i" -gt "$SERVERS" ] || wait_for 180 "control plane has $SERVERS voting members" voting "$SERVERS"
-		wait_for 180 "all $N nodes ready" nodes_ready
-		i=$((i + 1))
-	done
-	ok "every machine keeps its cluster network in Go"
-fi
+# Each machine's agent applies the cluster network through the runtime
+# pack's armada-node, and doctor checks it through it. A pass armada-node
+# fails is logged as "armada-node failed", which the run reports as a
+# failure at the end.
+log "every machine runs its cluster network through armada-node"
+i=1
+while [ "$i" -le "$N" ]; do
+	on "$i" 'test -x /var/lib/armada/runtime/current/bin/armada-node' ||
+		fail "$(host "$i" 1) has no armada-node in its runtime pack"
+	rust_applies() { on "$1" "journalctl -u armada-agent --no-pager | grep -q 'armada-node applies the cluster network'"; }
+	wait_for 120 "$(host "$i" 1) applies its cluster network with armada-node" rust_applies "$i"
+	if ! on "$i" 'armadad doctor' >"$WORK/doctor" 2>&1; then :; fi
+	if grep -E '^\[FAIL\] (network|network-mtu|network-sites|network-switch|wireguard|sites|relay|isolation) ' "$WORK/doctor" >&2; then
+		fail "armadad doctor's network checks through armada-node on $(host "$i" 1)"
+	fi
+	i=$((i + 1))
+done
+NET_AGENT_SINCE=$(on 1 'date "+%Y-%m-%d %H:%M:%S"')
 
 # node_runtime NAME AGENT: NAME's agent reports it runs containers so
-# (containerd, supervisor-go, or supervisor-rust).
+# (supervisor-rust: through armada-node).
 node_runtime() { status | jq -e --arg node "$1" --arg agent "$2" '.nodes[] | select(.id == $node) | .runtime.agent == $agent'; }
 # all_moved: cluster status counts every node on armada-node.
 all_moved() { cli cluster status | grep -q "^runtime: $N of $N nodes on armada-node\$"; }
-# set_runtime_go N: agent.json runtimeAgent "go" on machine N.
-set_runtime_go() {
-	# shellcheck disable=SC2016 # expanded on the machine
-	on "$1" 'f=/var/lib/armada/agent.json
-if ! grep -q "\"runtimeAgent\"" "$f"; then
-	sed -i "1s/^{\$/{\n  \"runtimeAgent\": \"go\",/" "$f"
-fi
-grep -q "\"runtimeAgent\": *\"go\"" "$f"'
-}
-if [ "$E2E_RUNTIME" = embedded ]; then
-	log "every machine reports containers on containerd"
-	i=1
-	while [ "$i" -le "$N" ]; do
-		wait_for 60 "$(host "$i" 1) reports containerd" node_runtime "$(host "$i" 1)" containerd
-		i=$((i + 1))
-	done
-elif [ "$E2E_RUNTIME_AGENT" = rust ]; then
-	# The default: armada-node runs the supervisor runtime, and a fresh
-	# machine has no Go image store to convert.
-	log "every machine runs containers through armada-node"
-	i=1
-	while [ "$i" -le "$N" ]; do
-		wait_for 60 "$(host "$i" 1) reports armada-node" node_runtime "$(host "$i" 1)" supervisor-rust
-		on "$i" 'armadad doctor' 2>&1 | grep -q '^\[ok  *\] runtime-agent ' ||
-			fail "armadad doctor's runtime-agent check is not ok on $(host "$i" 1)"
-		i=$((i + 1))
-	done
-	wait_for 60 "cluster status counts every node on armada-node" all_moved
-else
-	log "every machine runs containers through Go's code"
-	i=1
-	while [ "$i" -le "$N" ]; do
-		set_runtime_go "$i" || fail "setting runtimeAgent in agent.json on $(host "$i" 1)"
-		_unit=armada-agent
-		on "$i" "systemctl restart $_unit"
-		[ "$i" -gt "$SERVERS" ] || wait_for 180 "control plane has $SERVERS voting members" voting "$SERVERS"
-		wait_for 180 "all $N nodes ready" nodes_ready
-		wait_for 60 "$(host "$i" 1) reports Go's code" node_runtime "$(host "$i" 1)" supervisor-go
-		i=$((i + 1))
-	done
-fi
+# Every machine runs the supervisor runtime through armada-node, the only
+# runtime the release has.
+log "every machine runs containers through armada-node"
+i=1
+while [ "$i" -le "$N" ]; do
+	wait_for 60 "$(host "$i" 1) reports armada-node" node_runtime "$(host "$i" 1)" supervisor-rust
+	on "$i" 'armadad doctor' 2>&1 | grep -q '^\[ok  *\] runtime-agent ' ||
+		fail "armadad doctor's runtime-agent check is not ok on $(host "$i" 1)"
+	i=$((i + 1))
+done
+wait_for 60 "cluster status counts every node on armada-node" all_moved
 
-if [ -n "$E2E_CONFORMANCE" ]; then
-	# The node's own runtime: the supervisor (with the pack's armada-shim)
-	# unless it was set up on containerd.
-	if on "$N" "grep -q '\"runtime\": *\"embedded\"' /var/lib/armada/agent.json"; then
-		_suite='Conformance$' _shim=
-	else
-		_suite=ConformanceSupervisor _shim="ARMADA_SHIM_BIN=/var/lib/armada/runtime/current/bin/armada-shim"
-	fi
-	log "conformance suite ($_suite) on the runtime of $(host "$N" 1)"
-	# shellcheck disable=SC2086
-	scp -q $E2E_SSH_OPTS -o BatchMode=yes "$E2E_CONFORMANCE" "$(host "$N" 2):/tmp/conformance.e2e"
-	if ! on "$N" "chmod 0755 /tmp/conformance.e2e && ARMADA_BIN=/usr/local/bin/armadad ARMADA_HOST_IP=$(host "$N" 3) $_shim \
-		ARMADA_SUBNET=\$(sed -n 's/.*\"containerSubnet\": *\"\([^\"]*\)\".*/\1/p' /var/lib/armada/agent.json) \
-		/tmp/conformance.e2e -test.run '$_suite' -test.v; _rc=\$?; rm -f /tmp/conformance.e2e; exit \$_rc" >"$WORK/conformance" 2>&1; then
-		cat "$WORK/conformance" >&2
-		fail "conformance suite"
-	fi
-	grep -q -- '--- SKIP' "$WORK/conformance" && grep -- '--- SKIP' "$WORK/conformance" | sed 's/^/    /'
-	ok "$(grep -c -- '--- PASS' "$WORK/conformance") checks pass"
-fi
 if [ "$SERVERS" -gt 1 ]; then
 	# The join wrote machine 2's own admin config, which keeps the CLI
 	# usable while machine 1 is down, and the agent the list of servers.
@@ -1584,8 +1474,8 @@ cli volume restore e2e-vol data --snapshot latest >/dev/null || fail "restore fr
 vol_second() { [ "$(vol_get)" = second ]; }
 wait_for 120 "the volume holds the latest backup again" vol_second
 
-# An archive of the volume (armada-node writes and restores it unless the
-# node's agent.json says volumeAgent "go"), and its size in the list.
+# An archive of the volume (armada-node writes and restores it), and its
+# size in the list.
 cli volume backup e2e-vol data -o /root/e2e-vol.tar.gz >/dev/null || fail "volume backup to an archive"
 on "$CLI" "tar -tzf /root/e2e-vol.tar.gz" | grep -q 'notes.txt' || fail "the archive does not hold the volume's file"
 vol_put "after the archive"
@@ -1593,8 +1483,8 @@ cli volume restore e2e-vol data /root/e2e-vol.tar.gz >/dev/null || fail "volume 
 wait_for 120 "the volume holds the archive's contents" vol_second
 vol_sized() { cli volume list e2e-vol -o json | jq -e '.volumes[0].usedBytes | tonumber > 0' >/dev/null; }
 wait_for 120 "the volume's size is measured" vol_sized
-on "$N" "journalctl -u armada-agent -u armada-server --no-pager | grep -q 'armada-node failed'" &&
-	fail "armada-node failed on $VOL_NODE and Go stood in"
+on "$N" "journalctl -u armada-agent --no-pager | grep -q 'armada-node failed'" &&
+	fail "armada-node failed on $VOL_NODE"
 ok "archive backup and restore of a volume, and its size, on $VOL_NODE"
 
 # Pull first: a deploy keeps the old replica until the new image is on the node.
@@ -1705,207 +1595,6 @@ nfs_unmounted() { ! on "$N" 'grep -q " nfs4 " /proc/mounts' && ! on 1 'grep -q "
 wait_for 120 "the export is unmounted once no replica uses it" nfs_unmounted
 fi
 
-if want runtime-move && [ "$E2E_RUNTIME" != embedded ] && [ "$E2E_RUNTIME_AGENT" = rust ]; then
-	# What an upgrade from a release whose supervisor runtime ran on Go's
-	# code does (ADR 0054, "The runtime's move"): the last machine runs on
-	# Go's code and makes a container from an image no other scenario uses
-	# in Go's image store, then goes back to armada-node, whose agent start
-	# converts the images (no pull again), moves the root filesystems of the
-	# containers that exist (no restart), and removes Go's store at once.
-	log "a machine moves from Go's image store to armada-node's without pulling again"
-	_name=$(host "$N" 1)
-	_unit=armada-agent
-	set_runtime_go "$N" || fail "setting runtimeAgent in agent.json on $_name"
-	on "$N" "systemctl restart $_unit"
-	wait_for 180 "all $N nodes ready" nodes_ready
-	wait_for 60 "$_name reports Go's code" node_runtime "$_name" supervisor-go
-	cli node label "$_name" e2e-move=yes >/dev/null
-	cat <<'EOF' | cli app deploy e2e-move --file - >/dev/null
-name: e2e-move
-image: busybox:1.36
-command: ["sleep", "86400"]
-ingress:
-  type: none
-placement:
-  require:
-    e2e-move: ["yes"]
-EOF
-	move_running() { status | jq -e '[.apps[] | select(.name == "e2e-move") | .replicas[]? | select(.state == "running")] | length == 1'; }
-	wait_for 300 "e2e-move runs on $_name through Go's code" move_running
-	move_replica() { status | jq -r '[.apps[] | select(.name == "e2e-move") | .replicas[]? | select(.state == "running") | .id] | join(" ")'; }
-	_move_before=$(move_replica)
-	cli app exec e2e-move -- sh -c "$(q 'echo before > /moved')" || fail "writing into e2e-move's root filesystem"
-	on "$N" 'cat /var/lib/armada/supervisor/images/images.json' >"$WORK/go-images.json" ||
-		fail "Go's image store on $_name has no images"
-	jq -e 'keys | any(contains("busybox:1.36"))' "$WORK/go-images.json" >/dev/null ||
-		fail "Go's image store on $_name lacks busybox:1.36: $(jq -c keys "$WORK/go-images.json")"
-	# What armada-node's store recorded before: kept as it is, not converted.
-	on "$N" 'cat /var/lib/armada/node/images/index.json 2>/dev/null || echo "{\"images\": {}}"' >"$WORK/node-before.json"
-
-	_since=$(on "$N" 'date "+%Y-%m-%d %H:%M:%S"')
-	# Empty is the default, armada-node (and keeps agent.json valid).
-	on "$N" "sed -i 's/\"runtimeAgent\": *\"go\"/\"runtimeAgent\": \"\"/' /var/lib/armada/agent.json"
-	on "$N" "systemctl restart $_unit"
-	wait_for 180 "all $N nodes ready" nodes_ready
-	wait_for 60 "$_name reports armada-node" node_runtime "$_name" supervisor-rust
-	on "$N" "journalctl -u $_unit --since '$_since' --no-pager" >"$WORK/move.log"
-	grep "converted Go's image store into armada-node's" "$WORK/move.log" | grep -q ' skipped=0 ' ||
-		fail "no conversion with nothing left out on $_name: $(grep -i "image store" "$WORK/move.log")"
-	on "$N" 'cat /var/lib/armada/node/converted.json' >"$WORK/converted.json" || fail "no converted.json on $_name"
-	jq -e '.converted > 0 and ((.skipped // {}) | length) == 0' "$WORK/converted.json" >/dev/null ||
-		fail "converted.json on $_name: $(cat "$WORK/converted.json")"
-	ok "$_name converted $(jq -r .converted "$WORK/converted.json") images, $(jq -r .layers "$WORK/converted.json") layers and $(jq -r '.containers // 0' "$WORK/converted.json") root filesystems moved, none left out"
-	# Right after the start, before any container is replaced: Go's store
-	# is gone, the node counts as moved, and the containers made before
-	# (e2e-move, made by Go's code) still run, read, and write.
-	jq -e '.collected == true and (.containers // 0) > 0 and ((.containersLeft // {}) | length) == 0' "$WORK/converted.json" >/dev/null ||
-		fail "converted.json on $_name: $(cat "$WORK/converted.json")"
-	on "$N" 'test ! -e /var/lib/armada/supervisor/images' || fail "Go's image store is still on $_name"
-	wait_for 60 "cluster status counts every node on armada-node, $_name too" all_moved
-	[ "$(move_replica)" = "$_move_before" ] || fail "e2e-move's replica was replaced by the move"
-	[ "$(cli app exec e2e-move -- cat /moved)" = before ] || fail "e2e-move lost what it wrote before the move"
-	cli app exec e2e-move -- sh -c "$(q 'echo after > /after')" || fail "e2e-move cannot write after the move"
-	on "$N" 'grep -qx after /var/lib/armada/node/images/active/*/fs/after' ||
-		fail "e2e-move's write is not in its root filesystem's new place on $_name"
-	wait_for 60 "$APP serving" serving
-	wait_for 60 "https://$URL_HOST answers 200 on every public IP" all_https_ok
-	ok "containers made before the move keep running on $_name"
-	# Each image armada-node's store did not have keeps the record Go made
-	# when it pulled it (converted, not pulled again), also once armada-node
-	# recreated the replica; busybox:1.36 may already be in armada-node's
-	# store from an earlier scenario (kept, its layers held for e2e-move).
-	same_records() {
-		on "$N" 'cat /var/lib/armada/node/images/index.json' >"$WORK/node-index.json" &&
-			jq -e --slurpfile node "$WORK/node-index.json" --slurpfile before "$WORK/node-before.json" '
-				[to_entries[] | select($before[0].images[.key] == null)] as $new
-				| (($new | any(.key | contains("busybox:1.36")))
-				   or ($before[0].images // {} | keys | any(contains("busybox:1.36"))))
-				  and ($new | all(.value.created == $node[0].images[.key].created))' "$WORK/go-images.json" >/dev/null
-	}
-	same_records || fail "armada-node's records on $_name are not the converted ones"
-	cli app restart e2e-move --wait >/dev/null
-	cli app restart "$APP" --wait >/dev/null
-	wait_for 300 "e2e-move runs again, recreated by armada-node" move_running
-	wait_for 300 "$APP serving" serving
-	same_records || fail "armada-node pulled an image again on $_name"
-	ok "armada-node runs $_name's containers from the converted images"
-	on "$N" 'armadad doctor' 2>&1 | grep -q '^\[ok  *\] runtime-agent ' ||
-		fail "armadad doctor's runtime-agent check is not ok on $_name"
-	cli app delete e2e-move --yes >/dev/null
-	cli node label "$_name" e2e-move- >/dev/null
-fi
-
-if want runtime-containerd-move && [ "$E2E_RUNTIME" = embedded ]; then
-	# The leader's move of containerd nodes to the supervisor runtime (ADR
-	# 0054, step 4): turned on, it drains one node at a time, the node
-	# removes its containers and restarts its service on the supervisor,
-	# and armada-node runs its containers from then on. The test app keeps
-	# serving: requests to a node's public IP may fail only while that
-	# node's own proxy is gone, from its RuntimeMoveMigrating event until
-	# the first 200 from it after its RuntimeMoveDone event (at most
-	# MOVE_GAP seconds); every other request must return 200. The node
-	# pulls its proxy's image into armada-node's store before it removes
-	# anything, so its own IP fails for at most MOVE_OUTAGE seconds, from
-	# its first failed request in that window to its first 200.
-	[ "$N" -ge 3 ] || fail "runtime-containerd-move needs at least three machines"
-	log "the leader moves every containerd node to the supervisor runtime, one at a time"
-	MOVE_GAP=${E2E_MOVE_GAP:-60}
-	MOVE_OUTAGE=${E2E_MOVE_OUTAGE:-30}
-	wait_for 300 "$APP serving" serving
-	i=1
-	while [ "$i" -le "$N" ]; do
-		node_runtime "$(host "$i" 1)" containerd >/dev/null || fail "$(host "$i" 1) does not run on containerd"
-		i=$((i + 1))
-	done
-	_moved_since=$(date +%s)
-	: >"$WORK/move-load"
-	rm -f "$WORK/move-load.stop"
-	(
-		# shellcheck disable=SC2086 # split into one IP per argument
-		set -- $PUBLIC_IPS
-		while [ ! -f "$WORK/move-load.stop" ]; do
-			for ip in "$@"; do
-				code=$(curl -sk -o /dev/null -w '%{http_code}' --max-time 5 --resolve "$URL_HOST:443:$ip" "https://$URL_HOST/" || true)
-				echo "$code $ip $(date +%s)" >>"$WORK/move-load"
-			done
-		done
-	) &
-	LOAD_PID=$!
-	cli cluster update --runtime-move=true >/dev/null
-	all_supervisor() {
-		_j=1
-		while [ "$_j" -le "$N" ]; do
-			node_runtime "$(host "$_j" 1)" supervisor-rust || return 1
-			_j=$((_j + 1))
-		done
-		cli cluster status -o json | jq -e '.runtimeMove == null' >/dev/null
-	}
-	wait_for $((N * 900)) "every node moved to the supervisor runtime through armada-node" all_supervisor
-	wait_for 120 "cluster status counts every node on armada-node" all_moved
-	wait_for 300 "$APP serving" serving
-	wait_for 120 "https://$URL_HOST answers 200 on every public IP" all_https_ok
-	sleep 5
-	touch "$WORK/move-load.stop"
-	wait "$LOAD_PID" || true
-	LOAD_PID=
-
-	# The move's events, oldest first: NODE REASON EPOCH.
-	cli cluster events --since 3h -o json |
-		jq -r 'select(.reason | startswith("RuntimeMove")) | "\(.node) \(.reason) \(.last | sub("\\.[0-9]+"; "") | fromdateiso8601)"' |
-		awk -v since="$_moved_since" '$3 >= since - 5' >"$WORK/move-events"
-	sed 's/^/      /' "$WORK/move-events"
-	if grep -q RuntimeMoveGivenUp "$WORK/move-events"; then fail "a move was given up (above)"; fi
-	# One at a time: each node's move starts after the one before it is done.
-	awk '$2 == "RuntimeMoveStarted" { if (open != "") bad = bad " " $1 " started while " open " moved"; open = $1 }
-		$2 == "RuntimeMoveDone" { if ($1 == open) open = ""; done++ }
-		END { if (bad != "" || open != "") { print "overlap:" bad " open:" open; exit 1 } }' "$WORK/move-events" ||
-		fail "moves overlapped"
-	[ "$(grep -c ' RuntimeMoveDone ' "$WORK/move-events")" -eq "$N" ] || fail "$(grep -c ' RuntimeMoveDone ' "$WORK/move-events") of $N moves done"
-	ok "$N moves, one after another"
-
-	# The window each node's public IP may fail in: IP FROM TO.
-	: >"$WORK/move-windows"
-	i=1
-	while [ "$i" -le "$N" ]; do
-		_from=$(awk -v n="$(host "$i" 1)" '$1 == n && $2 == "RuntimeMoveMigrating" { print $3 - 5; exit }' "$WORK/move-events")
-		_done=$(awk -v n="$(host "$i" 1)" '$1 == n && $2 == "RuntimeMoveDone" { print $3; exit }' "$WORK/move-events")
-		if [ -z "$_from" ] || [ -z "$_done" ]; then fail "no RuntimeMoveMigrating and RuntimeMoveDone events for $(host "$i" 1)"; fi
-		_to=$(awk -v ip="$(host "$i" 4)" -v d="$_done" '$1 == 200 && $2 == ip && $3 >= d { print $3; exit }' "$WORK/move-load")
-		[ -n "$_to" ] || fail "$(host "$i" 1)'s public IP never answered 200 again after its move"
-		[ $((_to - _done)) -le "$MOVE_GAP" ] || fail "$(host "$i" 1)'s proxy came back $((_to - _done))s after its move was done (more than ${MOVE_GAP}s)"
-		echo "$(host "$i" 4) $_from $_to" >>"$WORK/move-windows"
-		# The proxy's own outage: from the first failed request in the
-		# window (none: no outage seen) to the first 200 after it.
-		_fail=$(awk -v ip="$(host "$i" 4)" -v f="$_from" -v t="$_to" '$1 != 200 && $2 == ip && $3 >= f && $3 <= t { print $3; exit }' "$WORK/move-load")
-		_out=$((_to - ${_fail:-$_to}))
-		[ "$_out" -le "$MOVE_OUTAGE" ] || fail "$(host "$i" 1)'s own IP failed for ${_out}s during its move (more than ${MOVE_OUTAGE}s)"
-		on "$i" "journalctl -u armada-agent -u armada-server --since '@$_moved_since' --no-pager | grep -q 'pulled an image before moving to the supervisor runtime'" ||
-			fail "$(host "$i" 1) did not pull its proxy's image before its move"
-		ok "$(host "$i" 1): its own IP failed for ${_out}s, $((_to - _from - 5))s from RuntimeMoveMigrating to its first 200"
-		i=$((i + 1))
-	done
-	_total=$(wc -l <"$WORK/move-load" | tr -d ' ')
-	_gap=$(awk 'NR == FNR { from[$1] = $2; to[$1] = $3; next } $1 != 200 && ($2 in from) && $3 >= from[$2] && $3 <= to[$2]' \
-		"$WORK/move-windows" "$WORK/move-load" | wc -l | tr -d ' ')
-	awk 'NR == FNR { from[$1] = $2; to[$1] = $3; next } $1 != 200 && !(($2 in from) && $3 >= from[$2] && $3 <= to[$2])' \
-		"$WORK/move-windows" "$WORK/move-load" >"$WORK/move-bad"
-	if [ -s "$WORK/move-bad" ]; then
-		awk '{ print $1, $2 }' "$WORK/move-bad" | sort | uniq -c | sed 's/^/      /' >&2
-		fail "$(wc -l <"$WORK/move-bad" | tr -d ' ') of $_total requests did not return 200 outside the moving node's own gap"
-	fi
-	ok "$_total requests: all 200 but $_gap to a moving node's own IP while its proxy was gone"
-	i=1
-	while [ "$i" -le "$N" ]; do
-		on "$i" 'armadad doctor' 2>&1 | grep -q '^\[ok  *\] runtime-agent ' ||
-			fail "armadad doctor's runtime-agent check is not ok on $(host "$i" 1)"
-		on "$i" 'grep -q "\"runtime\": *\"supervisor\"" /var/lib/armada/agent.json' ||
-			fail "agent.json on $(host "$i" 1) does not record the supervisor"
-		i=$((i + 1))
-	done
-	wait_for 120 "control plane has $SERVERS voting members" voting "$SERVERS"
-	ok "every node runs on the supervisor runtime, the app served throughout"
-fi
-
 if [ "$E2E_REBOOT" = 1 ] && want reboot; then
 	log "reboot every machine at once"
 	i=1
@@ -1925,16 +1614,15 @@ if [ "$E2E_REBOOT" = 1 ] && want reboot; then
 	wait_for 120 "https://$URL_HOST answers 200 on every public IP" all_https_ok
 fi
 
-if [ "$E2E_NET_AGENT" = rust ]; then
-	# Go did a pass of the cluster network only where armada-node failed.
-	i=1
-	while [ "$i" -le "$N" ]; do
-		if on "$i" "journalctl -u armada-agent -u armada-server --since '$NET_AGENT_SINCE' --no-pager | grep 'armada-node failed'" >&2; then
-			fail "armada-node failed on $(host "$i" 1) and Go stood in (above)"
-		fi
-		i=$((i + 1))
-	done
-	ok "armada-node did every pass of the cluster network"
-fi
+# armada-node did every pass of the cluster network: a pass it fails is
+# logged as "armada-node failed" with the operation and the error.
+i=1
+while [ "$i" -le "$N" ]; do
+	if on "$i" "journalctl -u armada-agent --since '$NET_AGENT_SINCE' --no-pager | grep 'armada-node failed'" >&2; then
+		fail "armada-node failed on $(host "$i" 1) (above)"
+	fi
+	i=$((i + 1))
+done
+ok "armada-node did every pass of the cluster network"
 
 log "passed in $((($(date +%s) - STARTED) / 60)) minutes (scenarios: ${E2E_ONLY:-all})"
