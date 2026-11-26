@@ -306,7 +306,8 @@ impl Host for LinuxHost {
                 prefixlen: b.subnet.bits,
                 ..IfAddr::default()
             };
-            match h.exec(&rtnl::addr(false, link.index, &a)) {
+            // addr(true, ..) is AddrReplace; false would be AddrDel.
+            match h.exec(&rtnl::addr(true, link.index, &a)) {
                 Ok(()) | Err(netlink::Errno(libc::EEXIST)) => {}
                 Err(e) => return Err(format!("address bridge {BRIDGE_NAME}: {e}")),
             }
