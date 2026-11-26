@@ -12,6 +12,10 @@ description = "Armada's app and job specs: strict YAML, defaults, validation, ex
 jiff.workspace = true
 serde_json.workspace = true
 
+[dev-dependencies]
+# The parity cases recorded from Go, gzipped (tests/parity.rs).
+flate2.workspace = true
+
 # Go's parity tests (internal/spec/nativespec_test.go) drive the crate
 # through this program; it is never packed.
 [[bin]]
