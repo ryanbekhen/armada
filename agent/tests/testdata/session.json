@@ -1,0 +1,6 @@
+[
+ "hello {\"cpuMillis\":\"2000\",\"memoryBytes\":\"1073741824\",\"version\":\"VERSION\",\"privateIp\":\"10.0.0.2\",\"os\":\"linux\",\"arch\":\"amd64\",\"jobs\":true,\"certificateRefs\":true,\"containers\":true,\"heldReplicas\":true,\"logHistory\":true}",
+ "hello {\"cpuMillis\":\"2000\",\"memoryBytes\":\"1073741824\",\"version\":\"VERSION\",\"privateIp\":\"10.0.0.2\",\"os\":\"linux\",\"arch\":\"amd64\",\"jobs\":true,\"certificateRefs\":true,\"containers\":true,\"heldReplicas\":true,\"logHistory\":true}",
+ "first {}",
+ "last {\"replicas\":[{\"id\":\"web-r1-a\",\"state\":\"running\",\"containerId\":\"armada-web-r1-a-1\",\"ready\":true}]}"
+]

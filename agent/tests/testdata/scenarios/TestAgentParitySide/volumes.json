@@ -1,0 +1,678 @@
+{
+ "name": "TestAgentParitySide/volumes",
+ "opts": {
+  "bootNs": 1767222000000000000,
+  "bridge": "",
+  "crashBaseNs": 1000000000,
+  "dns": "",
+  "encodes": false,
+  "exec": true,
+  "members": true,
+  "move": false,
+  "network": false,
+  "networkKey": "",
+  "noSecretsDir": false,
+  "proxy": false,
+  "sandbox": false,
+  "side": true,
+  "stats": true,
+  "unpublished": false,
+  "volumes": true,
+  "volumesDir": true
+ },
+ "steps": [
+  {
+   "assignment": {
+    "replicas": [
+     {
+      "id": "web-r1-a",
+      "app": "web",
+      "revision": "web--r1",
+      "image": "nginx:1",
+      "command": [
+       "/bin/web"
+      ],
+      "args": [
+       "--x"
+      ],
+      "env": [
+       {
+        "name": "A",
+        "value": "1"
+       },
+       {
+        "name": "S",
+        "value": "secret",
+        "ref": "s/v1"
+       }
+      ],
+      "memoryBytes": "268435456",
+      "nanoCpus": "500000000",
+      "pidsLimit": "1024",
+      "cpuReserveMillis": "100",
+      "volumes": [
+       {
+        "name": "data",
+        "path": "/data"
+       }
+      ]
+     }
+    ]
+   },
+   "op": "assign"
+  },
+  {
+   "expect": [
+    "step running",
+    "report {\"replicas\":[{\"id\":\"web-r1-a\",\"state\":\"running\",\"containerId\":\"armada-web-r1-a-1\",\"ready\":true}]}",
+    "calls inspect {\"id\":\"armada-web-r1-a-1\"}\nlist {\"labels\":{\"armada.managed\":\"true\"}}\npull {\"auth\":null,\"image\":\"nginx:1\"}\nrun {\"spec\":{\"name\":\"armada-web-r1-a\",\"image\":\"nginx:1\",\"entrypoint\":[\"/bin/web\"],\"cmd\":[\"--x\"],\"env\":[\"A=1\",\"S=secret\"],\"labels\":{\"armada.app\":\"web\",\"armada.managed\":\"true\",\"armada.replica\":\"web-r1-a\",\"armada.revision\":\"web--r1\",\"armada.spec-hash\":\"d54f1dfda498c03a6c20c132171d29bb\"},\"hostIp\":\"10.0.0.2\",\"memoryBytes\":268435456,\"nanoCpus\":500000000,\"cpuReserveMillis\":100,\"pidsLimit\":1024,\"volumes\":[{\"source\":\"$VOLUMES/web/data\",\"target\":\"/data\"}]}}",
+    "files $VOLUMES/web drwx------\n$VOLUMES/web/data drwx------"
+   ],
+   "name": "running",
+   "op": "until"
+  },
+  {
+   "op": "nodeScript",
+   "script": {
+    "answers": null,
+    "archiveAnswer": {},
+    "archiveRepeat": {
+     "byte": "A",
+     "n": 70000
+    },
+    "readySnapshot": "",
+    "restoreAnswer": {}
+   }
+  },
+  {
+   "actions": [
+    {
+     "op": "volume",
+     "request": {
+      "requestId": "v1",
+      "op": "OP_BACKUP",
+      "app": "web",
+      "volume": "data",
+      "stop": true
+     }
+    }
+   ],
+   "execIn": null,
+   "expect": [
+    "side archive, stopped",
+    "calls list {\"labels\":{\"armada.app\":\"web\",\"armada.managed\":\"true\"}}\nlist {\"labels\":{\"armada.app\":\"web\",\"armada.managed\":\"true\"}}\nstop {\"graceMs\":30000,\"id\":\"armada-web-r1-a-1\"}",
+    "server volume {\"requestId\":\"v1\"}\nvolume data=70000 bytes \"AAAAAAAAAAAAAAAA\"...\nvolume {\"done\":true}",
+    "node volume archive $ROOT/volumes/web/data",
+    "export "
+   ],
+   "exportStatus": 0,
+   "name": "archive, stopped",
+   "op": "side",
+   "volIn": null
+  },
+  {
+   "expect": [
+    "step resumed",
+    "report {\"replicas\":[{\"id\":\"web-r1-a\",\"state\":\"running\",\"containerId\":\"armada-web-r1-a-2\",\"message\":\"restarted: stopped for a volume backup or restore\"}]}",
+    "calls inspect {\"id\":\"armada-web-r1-a-2\"}\nlist {\"labels\":{\"armada.managed\":\"true\"}}\npull {\"auth\":null,\"image\":\"nginx:1\"}\nremove {\"id\":\"armada-web-r1-a-1\"}\nrun {\"spec\":{\"name\":\"armada-web-r1-a\",\"image\":\"nginx:1\",\"entrypoint\":[\"/bin/web\"],\"cmd\":[\"--x\"],\"env\":[\"A=1\",\"S=secret\"],\"labels\":{\"armada.app\":\"web\",\"armada.managed\":\"true\",\"armada.replica\":\"web-r1-a\",\"armada.revision\":\"web--r1\",\"armada.spec-hash\":\"d54f1dfda498c03a6c20c132171d29bb\"},\"hostIp\":\"10.0.0.2\",\"memoryBytes\":268435456,\"nanoCpus\":500000000,\"cpuReserveMillis\":100,\"pidsLimit\":1024,\"volumes\":[{\"source\":\"$VOLUMES/web/data\",\"target\":\"/data\"}]}}\nstop {\"graceMs\":10000,\"id\":\"armada-web-r1-a-1\"}",
+    "files $VOLUMES/web drwx------\n$VOLUMES/web/data drwx------"
+   ],
+   "name": "resumed",
+   "op": "reconcile"
+  },
+  {
+   "actions": [
+    {
+     "op": "volume",
+     "request": {
+      "requestId": "v2",
+      "op": "OP_BACKUP",
+      "app": "web",
+      "volume": "none"
+     }
+    }
+   ],
+   "execIn": null,
+   "expect": [
+    "side archive missing",
+    "calls ",
+    "server volume {\"requestId\":\"v2\",\"error\":\"volume none of web does not exist on this node\"}",
+    "node ",
+    "export "
+   ],
+   "exportStatus": 0,
+   "name": "archive missing",
+   "op": "side",
+   "volIn": null
+  },
+  {
+   "op": "nodeScript",
+   "script": {
+    "answers": null,
+    "archiveAnswer": {
+     "error": "archive volume: walk: \"x\" changed",
+     "changed": true
+    },
+    "readySnapshot": "",
+    "restoreAnswer": null
+   }
+  },
+  {
+   "actions": [
+    {
+     "op": "volume",
+     "request": {
+      "requestId": "v3",
+      "op": "OP_BACKUP",
+      "app": "web",
+      "volume": "data"
+     }
+    }
+   ],
+   "execIn": null,
+   "expect": [
+    "side archive changed",
+    "calls ",
+    "server volume {\"requestId\":\"v3\"}\nvolume {\"error\":\"archive volume: walk: \\\"x\\\" changed\"}",
+    "node volume archive $ROOT/volumes/web/data",
+    "export "
+   ],
+   "exportStatus": 0,
+   "name": "archive changed",
+   "op": "side",
+   "volIn": null
+  },
+  {
+   "op": "nodeScript",
+   "script": {
+    "answers": null,
+    "archiveAnswer": null,
+    "readySnapshot": "",
+    "restoreAnswer": {}
+   }
+  },
+  {
+   "actions": [
+    {
+     "op": "volume",
+     "request": {
+      "requestId": "v4",
+      "op": "OP_RESTORE",
+      "app": "web",
+      "volume": "data"
+     }
+    }
+   ],
+   "execIn": null,
+   "expect": [
+    "side restore",
+    "calls list {\"labels\":{\"armada.app\":\"web\",\"armada.managed\":\"true\"}}\nlist {\"labels\":{\"armada.app\":\"web\",\"armada.managed\":\"true\"}}\nstop {\"graceMs\":30000,\"id\":\"armada-web-r1-a-2\"}",
+    "server volume {\"requestId\":\"v4\"}\nvolume {\"done\":true}",
+    "node volume restore $ROOT/volumes/web/data stdin=\"tar-1tar-2\" session=",
+    "export "
+   ],
+   "exportStatus": 0,
+   "name": "restore",
+   "op": "side",
+   "volIn": [
+    {
+     "data": "dGFyLTE="
+    },
+    {
+     "data": "dGFyLTI=",
+     "done": true
+    }
+   ]
+  },
+  {
+   "expect": [
+    "step restarted after the restore",
+    "report {\"replicas\":[{\"id\":\"web-r1-a\",\"state\":\"running\",\"containerId\":\"armada-web-r1-a-3\",\"message\":\"restarted: stopped for a volume backup or restore\"}]}",
+    "calls inspect {\"id\":\"armada-web-r1-a-3\"}\nlist {\"labels\":{\"armada.managed\":\"true\"}}\npull {\"auth\":null,\"image\":\"nginx:1\"}\nremove {\"id\":\"armada-web-r1-a-2\"}\nrun {\"spec\":{\"name\":\"armada-web-r1-a\",\"image\":\"nginx:1\",\"entrypoint\":[\"/bin/web\"],\"cmd\":[\"--x\"],\"env\":[\"A=1\",\"S=secret\"],\"labels\":{\"armada.app\":\"web\",\"armada.managed\":\"true\",\"armada.replica\":\"web-r1-a\",\"armada.revision\":\"web--r1\",\"armada.spec-hash\":\"d54f1dfda498c03a6c20c132171d29bb\"},\"hostIp\":\"10.0.0.2\",\"memoryBytes\":268435456,\"nanoCpus\":500000000,\"cpuReserveMillis\":100,\"pidsLimit\":1024,\"volumes\":[{\"source\":\"$VOLUMES/web/data\",\"target\":\"/data\"}]}}\nstop {\"graceMs\":10000,\"id\":\"armada-web-r1-a-2\"}",
+    "files $VOLUMES/web drwx------\n$VOLUMES/web/data drwx------"
+   ],
+   "name": "restarted after the restore",
+   "op": "reconcile"
+  },
+  {
+   "op": "nodeScript",
+   "script": {
+    "answers": null,
+    "archiveAnswer": null,
+    "readySnapshot": "",
+    "restoreAnswer": {
+     "error": "read archive: the client went away"
+    }
+   }
+  },
+  {
+   "actions": [
+    {
+     "op": "volume",
+     "request": {
+      "requestId": "v5",
+      "op": "OP_RESTORE",
+      "app": "web",
+      "volume": "data"
+     }
+    }
+   ],
+   "execIn": null,
+   "expect": [
+    "side restore cut",
+    "calls list {\"labels\":{\"armada.app\":\"web\",\"armada.managed\":\"true\"}}\nlist {\"labels\":{\"armada.app\":\"web\",\"armada.managed\":\"true\"}}\nstop {\"graceMs\":30000,\"id\":\"armada-web-r1-a-3\"}",
+    "server volume {\"requestId\":\"v5\"}\nvolume {\"error\":\"read archive: the client went away\"}",
+    "node volume restore $ROOT/volumes/web/data stdin=\"tar-1\" session=\"the client went away\"",
+    "export "
+   ],
+   "exportStatus": 0,
+   "name": "restore cut",
+   "op": "side",
+   "volIn": [
+    {
+     "data": "dGFyLTE="
+    },
+    {
+     "error": "the client went away"
+    }
+   ]
+  },
+  {
+   "expect": [
+    "step restarted after the cut restore",
+    "report {\"replicas\":[{\"id\":\"web-r1-a\",\"state\":\"running\",\"containerId\":\"armada-web-r1-a-4\",\"message\":\"restarted: stopped for a volume backup or restore\"}]}",
+    "calls inspect {\"id\":\"armada-web-r1-a-4\"}\nlist {\"labels\":{\"armada.managed\":\"true\"}}\npull {\"auth\":null,\"image\":\"nginx:1\"}\nremove {\"id\":\"armada-web-r1-a-3\"}\nrun {\"spec\":{\"name\":\"armada-web-r1-a\",\"image\":\"nginx:1\",\"entrypoint\":[\"/bin/web\"],\"cmd\":[\"--x\"],\"env\":[\"A=1\",\"S=secret\"],\"labels\":{\"armada.app\":\"web\",\"armada.managed\":\"true\",\"armada.replica\":\"web-r1-a\",\"armada.revision\":\"web--r1\",\"armada.spec-hash\":\"d54f1dfda498c03a6c20c132171d29bb\"},\"hostIp\":\"10.0.0.2\",\"memoryBytes\":268435456,\"nanoCpus\":500000000,\"cpuReserveMillis\":100,\"pidsLimit\":1024,\"volumes\":[{\"source\":\"$VOLUMES/web/data\",\"target\":\"/data\"}]}}\nstop {\"graceMs\":10000,\"id\":\"armada-web-r1-a-3\"}",
+    "files $VOLUMES/web drwx------\n$VOLUMES/web/data drwx------"
+   ],
+   "name": "restarted after the cut restore",
+   "op": "reconcile"
+  },
+  {
+   "actions": [
+    {
+     "op": "volume",
+     "request": {
+      "requestId": "v6",
+      "op": "OP_REMOVE",
+      "app": "web",
+      "volume": "data"
+     }
+    }
+   ],
+   "execIn": null,
+   "expect": [
+    "side remove while used",
+    "calls ",
+    "server volume {\"requestId\":\"v6\",\"error\":\"a replica on this node still uses volume data of web\"}",
+    "node ",
+    "export "
+   ],
+   "exportStatus": 0,
+   "name": "remove while used",
+   "op": "side",
+   "volIn": null
+  },
+  {
+   "actions": [
+    {
+     "op": "volume",
+     "request": {
+      "requestId": "v7",
+      "op": "OP_BACKUP",
+      "app": "web",
+      "volume": "../x"
+     }
+    }
+   ],
+   "execIn": null,
+   "expect": [
+    "side bad name",
+    "calls ",
+    "server volume {\"requestId\":\"v7\",\"error\":\"invalid volume name \\\"../x\\\" of app \\\"web\\\"\"}",
+    "node ",
+    "export "
+   ],
+   "exportStatus": 0,
+   "name": "bad name",
+   "op": "side",
+   "volIn": null
+  },
+  {
+   "actions": [
+    {
+     "op": "volume",
+     "request": {
+      "requestId": "v8",
+      "app": "web",
+      "volume": "data"
+     }
+    }
+   ],
+   "execIn": null,
+   "expect": [
+    "side unknown operation",
+    "calls ",
+    "server volume {\"requestId\":\"v8\",\"error\":\"unknown volume operation\"}",
+    "node ",
+    "export "
+   ],
+   "exportStatus": 0,
+   "name": "unknown operation",
+   "op": "side",
+   "volIn": null
+  },
+  {
+   "expect": [
+    "usage sizes {\"volumes\":[{\"app\":\"web\",\"volume\":\"data\",\"bytes\":\"400\"}],\"volumesMeasured\":true}",
+    "calls list {\"labels\":{\"armada.managed\":\"true\"}}\nstats {\"id\":\"armada-web-r1-a-4\"}",
+    "node volume size $ROOT/volumes/web/data\nconntrack raise {\"dir\":\"$ROOT/conntrack\",\"memory\":1073741824}\nconntrack read {\"dir\":\"$ROOT/conntrack\",\"memory\":1073741824}"
+   ],
+   "name": "sizes",
+   "op": "sampleSide"
+  },
+  {
+   "op": "nodeScript",
+   "script": {
+    "answers": {
+     "volume prune": "{\"snapshots\":2,\"stored\":4096,\"deletedSnapshots\":1,\"deletedChunks\":4}",
+     "volume snapshot": "{\"snapshot\":{\"id\":\"20260101T000000-ab\",\"time\":\"2026-01-01T00:00:00.5Z\",\"files\":3,\"bytes\":1024,\"node\":\"n1\"},\"newBytes\":512,\"uploaded\":2}",
+     "volume snapshots": "{\"snapshots\":[{\"id\":\"a\",\"time\":\"2026-01-01T00:00:00Z\",\"files\":1,\"bytes\":2,\"node\":\"n1\"},{\"id\":\"b\",\"time\":\"2026-01-02T00:00:00+01:00\",\"files\":1,\"bytes\":2,\"node\":\"n2\"}]}"
+    },
+    "archiveAnswer": null,
+    "readySnapshot": "",
+    "restoreAnswer": null
+   }
+  },
+  {
+   "actions": [
+    {
+     "op": "volume",
+     "request": {
+      "requestId": "v9",
+      "op": "OP_SNAPSHOT",
+      "app": "web",
+      "volume": "data",
+      "stop": true,
+      "backup": {
+       "url": "https://k:s@s3.example.com/b",
+       "key": "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
+       "keep": {
+        "last": 3,
+        "daily": 7
+       },
+       "timeZone": "Europe/Amsterdam"
+      }
+     }
+    }
+   ],
+   "execIn": null,
+   "expect": [
+    "side snapshot",
+    "calls list {\"labels\":{\"armada.app\":\"web\",\"armada.managed\":\"true\"}}\nlist {\"labels\":{\"armada.app\":\"web\",\"armada.managed\":\"true\"}}\nstop {\"graceMs\":30000,\"id\":\"armada-web-r1-a-4\"}",
+    "server volume {\"requestId\":\"v9\"}\nvolume {\"done\":true,\"snapshot\":{\"snapshot\":{\"id\":\"20260101T000000-ab\",\"time\":\"2026-01-01T00:00:00.500Z\",\"files\":\"3\",\"bytes\":\"1024\"},\"newBytes\":\"512\",\"storedBytes\":\"4096\",\"snapshots\":2}}",
+    "node volume snapshot {\"app\":\"web\",\"dir\":\"$ROOT/volumes/web/data\",\"key\":\"MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=\",\"node\":\"n1\",\"url\":\"https://k:s@s3.example.com/b\",\"volume\":\"data\"}\nvolume prune {\"app\":\"web\",\"keep\":{\"daily\":7,\"hourly\":0,\"last\":3,\"monthly\":0,\"weekly\":0},\"key\":\"MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=\",\"url\":\"https://k:s@s3.example.com/b\",\"volume\":\"data\",\"zone\":186}",
+    "export "
+   ],
+   "exportStatus": 0,
+   "name": "snapshot",
+   "op": "side",
+   "volIn": null
+  },
+  {
+   "expect": [
+    "step resumed after the snapshot",
+    "report {\"replicas\":[{\"id\":\"web-r1-a\",\"state\":\"running\",\"containerId\":\"armada-web-r1-a-5\",\"message\":\"restarted: stopped for a volume backup or restore\"}]}",
+    "calls inspect {\"id\":\"armada-web-r1-a-5\"}\nlist {\"labels\":{\"armada.managed\":\"true\"}}\npull {\"auth\":null,\"image\":\"nginx:1\"}\nremove {\"id\":\"armada-web-r1-a-4\"}\nrun {\"spec\":{\"name\":\"armada-web-r1-a\",\"image\":\"nginx:1\",\"entrypoint\":[\"/bin/web\"],\"cmd\":[\"--x\"],\"env\":[\"A=1\",\"S=secret\"],\"labels\":{\"armada.app\":\"web\",\"armada.managed\":\"true\",\"armada.replica\":\"web-r1-a\",\"armada.revision\":\"web--r1\",\"armada.spec-hash\":\"d54f1dfda498c03a6c20c132171d29bb\"},\"hostIp\":\"10.0.0.2\",\"memoryBytes\":268435456,\"nanoCpus\":500000000,\"cpuReserveMillis\":100,\"pidsLimit\":1024,\"volumes\":[{\"source\":\"$VOLUMES/web/data\",\"target\":\"/data\"}]}}\nstop {\"graceMs\":10000,\"id\":\"armada-web-r1-a-4\"}",
+    "files $VOLUMES/web drwx------\n$VOLUMES/web/data drwx------"
+   ],
+   "name": "resumed after the snapshot",
+   "op": "reconcile"
+  },
+  {
+   "actions": [
+    {
+     "op": "volume",
+     "request": {
+      "requestId": "v10",
+      "op": "OP_SNAPSHOTS",
+      "app": "web",
+      "volume": "data",
+      "backup": {
+       "url": "https://k:s@s3.example.com/b",
+       "key": "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
+       "keep": {
+        "last": 3,
+        "daily": 7
+       },
+       "timeZone": "Europe/Amsterdam"
+      }
+     }
+    }
+   ],
+   "execIn": null,
+   "expect": [
+    "side snapshots",
+    "calls ",
+    "server volume {\"requestId\":\"v10\"}\nvolume {\"done\":true,\"snapshots\":[{\"id\":\"a\",\"time\":\"2026-01-01T00:00:00Z\"},{\"id\":\"b\",\"time\":\"2026-01-01T23:00:00Z\"}]}",
+    "node volume snapshots {\"app\":\"web\",\"key\":\"MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=\",\"url\":\"https://k:s@s3.example.com/b\",\"volume\":\"data\"}",
+    "export "
+   ],
+   "exportStatus": 0,
+   "name": "snapshots",
+   "op": "side",
+   "volIn": null
+  },
+  {
+   "actions": [
+    {
+     "op": "volume",
+     "request": {
+      "requestId": "v11",
+      "op": "OP_SNAPSHOTS",
+      "app": "web",
+      "volume": "data"
+     }
+    }
+   ],
+   "execIn": null,
+   "expect": [
+    "side no bucket",
+    "calls ",
+    "server volume {\"requestId\":\"v11\"}\nvolume {\"error\":\"the volume has no backup bucket\"}",
+    "node ",
+    "export "
+   ],
+   "exportStatus": 0,
+   "name": "no bucket",
+   "op": "side",
+   "volIn": null
+  },
+  {
+   "op": "nodeScript",
+   "script": {
+    "answers": {
+     "volume prune": "{\"snapshots\":5,\"stored\":10,\"deletedSnapshots\":0,\"deletedChunks\":0,\"error\":\"bucket: DeleteObject: AccessDenied (HTTP 403)\"}",
+     "volume snapshot": "{\"snapshot\":{\"id\":\"s2\",\"time\":\"2026-01-01T00:00:00Z\",\"files\":3,\"bytes\":1024,\"node\":\"n1\"},\"newBytes\":0,\"uploaded\":0}"
+    },
+    "archiveAnswer": null,
+    "readySnapshot": "",
+    "restoreAnswer": null
+   }
+  },
+  {
+   "actions": [
+    {
+     "op": "volume",
+     "request": {
+      "requestId": "v12",
+      "op": "OP_SNAPSHOT",
+      "app": "web",
+      "volume": "data",
+      "backup": {
+       "url": "https://k:s@s3.example.com/b",
+       "key": "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
+       "keep": {
+        "last": 3,
+        "daily": 7
+       },
+       "timeZone": "Europe/Amsterdam"
+      }
+     }
+    }
+   ],
+   "execIn": null,
+   "expect": [
+    "side snapshot whose prune failed",
+    "calls ",
+    "server volume {\"requestId\":\"v12\"}\nvolume {\"error\":\"backed up as s2, but removing old backups failed: bucket: DeleteObject: AccessDenied (HTTP 403)\",\"snapshot\":{\"snapshot\":{\"id\":\"s2\",\"time\":\"2026-01-01T00:00:00Z\",\"files\":\"3\",\"bytes\":\"1024\"},\"storedBytes\":\"10\",\"snapshots\":5}}",
+    "node volume snapshot {\"app\":\"web\",\"dir\":\"$ROOT/volumes/web/data\",\"key\":\"MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=\",\"node\":\"n1\",\"url\":\"https://k:s@s3.example.com/b\",\"volume\":\"data\"}\nvolume prune {\"app\":\"web\",\"keep\":{\"daily\":7,\"hourly\":0,\"last\":3,\"monthly\":0,\"weekly\":0},\"key\":\"MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=\",\"url\":\"https://k:s@s3.example.com/b\",\"volume\":\"data\",\"zone\":186}",
+    "export "
+   ],
+   "exportStatus": 0,
+   "name": "snapshot whose prune failed",
+   "op": "side",
+   "volIn": null
+  },
+  {
+   "op": "nodeScript",
+   "script": {
+    "answers": {
+     "volume restore-snapshot": "{\"snapshot\":{\"id\":\"s2\",\"time\":\"2026-01-01T00:00:00Z\",\"files\":3,\"bytes\":1024,\"node\":\"n1\"}}"
+    },
+    "archiveAnswer": null,
+    "readySnapshot": "s2",
+    "restoreAnswer": null
+   }
+  },
+  {
+   "actions": [
+    {
+     "op": "volume",
+     "request": {
+      "requestId": "v13",
+      "op": "OP_RESTORE_SNAPSHOT",
+      "app": "web",
+      "volume": "data",
+      "backup": {
+       "url": "https://k:s@s3.example.com/b",
+       "key": "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
+       "keep": {
+        "last": 3,
+        "daily": 7
+       },
+       "timeZone": "Europe/Amsterdam"
+      },
+      "snapshot": "latest"
+     }
+    }
+   ],
+   "execIn": null,
+   "expect": [
+    "side restore a snapshot",
+    "calls list {\"labels\":{\"armada.app\":\"web\",\"armada.managed\":\"true\"}}\nlist {\"labels\":{\"armada.app\":\"web\",\"armada.managed\":\"true\"}}\nstop {\"graceMs\":30000,\"id\":\"armada-web-r1-a-5\"}",
+    "server volume {\"requestId\":\"v13\"}\nvolume {\"done\":true,\"snapshot\":{\"snapshot\":{\"id\":\"s2\",\"time\":\"2026-01-01T00:00:00Z\",\"files\":\"3\",\"bytes\":\"1024\"}}}",
+    "node volume restore-snapshot {\"app\":\"web\",\"dir\":\"$ROOT/volumes/web/data\",\"key\":\"MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=\",\"snapshot\":\"latest\",\"url\":\"https://k:s@s3.example.com/b\",\"volume\":\"data\"}\nrestore-snapshot then \"go\\n\"",
+    "export "
+   ],
+   "exportStatus": 0,
+   "name": "restore a snapshot",
+   "op": "side",
+   "volIn": null
+  },
+  {
+   "expect": [
+    "step restarted after the snapshot's restore",
+    "report {\"replicas\":[{\"id\":\"web-r1-a\",\"state\":\"running\",\"containerId\":\"armada-web-r1-a-6\",\"message\":\"restarted: stopped for a volume backup or restore\"}]}",
+    "calls inspect {\"id\":\"armada-web-r1-a-6\"}\nlist {\"labels\":{\"armada.managed\":\"true\"}}\npull {\"auth\":null,\"image\":\"nginx:1\"}\nremove {\"id\":\"armada-web-r1-a-5\"}\nrun {\"spec\":{\"name\":\"armada-web-r1-a\",\"image\":\"nginx:1\",\"entrypoint\":[\"/bin/web\"],\"cmd\":[\"--x\"],\"env\":[\"A=1\",\"S=secret\"],\"labels\":{\"armada.app\":\"web\",\"armada.managed\":\"true\",\"armada.replica\":\"web-r1-a\",\"armada.revision\":\"web--r1\",\"armada.spec-hash\":\"d54f1dfda498c03a6c20c132171d29bb\"},\"hostIp\":\"10.0.0.2\",\"memoryBytes\":268435456,\"nanoCpus\":500000000,\"cpuReserveMillis\":100,\"pidsLimit\":1024,\"volumes\":[{\"source\":\"$VOLUMES/web/data\",\"target\":\"/data\"}]}}\nstop {\"graceMs\":10000,\"id\":\"armada-web-r1-a-5\"}",
+    "files $VOLUMES/web drwx------\n$VOLUMES/web/data drwx------"
+   ],
+   "name": "restarted after the snapshot's restore",
+   "op": "reconcile"
+  },
+  {
+   "op": "nodeScript",
+   "script": {
+    "answers": {
+     "volume restore-snapshot": "{\"error\":\"no backup of web/data in the bucket\"}"
+    },
+    "archiveAnswer": null,
+    "readySnapshot": "",
+    "restoreAnswer": null
+   }
+  },
+  {
+   "actions": [
+    {
+     "op": "volume",
+     "request": {
+      "requestId": "v14",
+      "op": "OP_RESTORE_SNAPSHOT",
+      "app": "web",
+      "volume": "data",
+      "backup": {
+       "url": "https://k:s@s3.example.com/b",
+       "key": "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
+       "keep": {
+        "last": 3,
+        "daily": 7
+       },
+       "timeZone": "Europe/Amsterdam"
+      },
+      "snapshot": "latest"
+     }
+    }
+   ],
+   "execIn": null,
+   "expect": [
+    "side no snapshot to restore",
+    "calls ",
+    "server volume {\"requestId\":\"v14\"}\nvolume {\"error\":\"no backup of web/data in the bucket\"}",
+    "node volume restore-snapshot {\"app\":\"web\",\"dir\":\"$ROOT/volumes/web/data\",\"key\":\"MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=\",\"snapshot\":\"latest\",\"url\":\"https://k:s@s3.example.com/b\",\"volume\":\"data\"}",
+    "export "
+   ],
+   "exportStatus": 0,
+   "name": "no snapshot to restore",
+   "op": "side",
+   "volIn": null
+  },
+  {
+   "assignment": {},
+   "op": "assign"
+  },
+  {
+   "expect": [
+    "step replica gone",
+    "report {}",
+    "calls list {\"labels\":{\"armada.managed\":\"true\"}}\nremove {\"id\":\"armada-web-r1-a-6\"}\nstop {\"graceMs\":10000,\"id\":\"armada-web-r1-a-6\"}",
+    "files $VOLUMES/web drwx------\n$VOLUMES/web/data drwx------"
+   ],
+   "name": "replica gone",
+   "op": "reconcile"
+  },
+  {
+   "actions": [
+    {
+     "op": "volume",
+     "request": {
+      "requestId": "v15",
+      "op": "OP_REMOVE",
+      "app": "web",
+      "volume": "data"
+     }
+    }
+   ],
+   "execIn": null,
+   "expect": [
+    "side remove",
+    "calls ",
+    "server volume {\"requestId\":\"v15\",\"done\":true}",
+    "node ",
+    "export "
+   ],
+   "exportStatus": 0,
+   "name": "remove",
+   "op": "side",
+   "volIn": null
+  }
+ ]
+}

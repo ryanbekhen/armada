@@ -53,7 +53,12 @@ func (p pproxy) Apply(_ context.Context, cfg proxy.Config) error {
 			running++
 		}
 	}
-	p.f.record("proxy.apply", map[string]any{"running": running, "config": cfg})
+	if p.f.recording {
+		// The replay sees the configuration as the Rust agent sends it.
+		p.f.record("proxy.apply", map[string]any{"running": running, "config": json.RawMessage(compact(cfg.ToProto()))})
+	} else {
+		p.f.record("proxy.apply", map[string]any{"running": running, "config": cfg})
+	}
 	if p.f.in.proxyErr != "" {
 		return errors.New(p.f.in.proxyErr)
 	}

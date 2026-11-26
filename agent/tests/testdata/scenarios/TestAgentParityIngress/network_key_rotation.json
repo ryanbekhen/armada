@@ -1,0 +1,136 @@
+{
+ "name": "TestAgentParityIngress/network_key_rotation",
+ "opts": {
+  "bootNs": 1767222000000000000,
+  "bridge": "",
+  "crashBaseNs": 1000000000,
+  "dns": "",
+  "encodes": false,
+  "exec": true,
+  "members": true,
+  "move": false,
+  "network": true,
+  "networkKey": "key-0",
+  "noSecretsDir": false,
+  "proxy": false,
+  "sandbox": false,
+  "side": false,
+  "stats": false,
+  "unpublished": false,
+  "volumes": true,
+  "volumesDir": true
+ },
+ "steps": [
+  {
+   "op": "hello"
+  },
+  {
+   "expect": [
+    "hello first {\"cpuMillis\":\"2000\",\"memoryBytes\":\"1073741824\",\"version\":\"VERSION\",\"privateIp\":\"10.0.0.2\",\"os\":\"linux\",\"arch\":\"amd64\",\"jobs\":true,\"volumes\":true,\"networkKey\":\"key-0\",\"certificateRefs\":true,\"containers\":true,\"heldReplicas\":true,\"volumeBackups\":true,\"logHistory\":true,\"networkSwitch\":true,\"keyRotation\":true}"
+   ],
+   "from": "hello",
+   "kind": "hello first",
+   "op": "note"
+  },
+  {
+   "actions": [
+    {
+     "op": "rotate"
+    }
+   ],
+   "expect": [
+    "step rotated",
+    "calls net.rotate null",
+    "files "
+   ],
+   "name": "rotated",
+   "op": "other"
+  },
+  {
+   "op": "hello"
+  },
+  {
+   "expect": [
+    "hello with the new key {\"cpuMillis\":\"2000\",\"memoryBytes\":\"1073741824\",\"version\":\"VERSION\",\"privateIp\":\"10.0.0.2\",\"os\":\"linux\",\"arch\":\"amd64\",\"jobs\":true,\"volumes\":true,\"networkKey\":\"key-1\",\"certificateRefs\":true,\"containers\":true,\"heldReplicas\":true,\"volumeBackups\":true,\"logHistory\":true,\"networkSwitch\":true,\"keyRotation\":true}"
+   ],
+   "from": "hello",
+   "kind": "hello with the new key",
+   "op": "note"
+  },
+  {
+   "op": "fake",
+   "script": {
+    "agentStatus": {
+     "agent": "",
+     "converted": false,
+     "error": "",
+     "goImages": false,
+     "imagesToPull": 0
+    },
+    "checks": {},
+    "digests": {},
+    "execCodes": {},
+    "holdPulls": false,
+    "holdStarts": false,
+    "in": {
+     "certErr": "",
+     "certs": {},
+     "clientsErr": "",
+     "healthErr": "",
+     "keyErr": "write network.key: read-only file system",
+     "load": {},
+     "loadErr": "",
+     "moveErr": "",
+     "netErr": "",
+     "peers": null,
+     "proxyErr": "",
+     "switching": null,
+     "userspace": false
+    },
+    "initExits": {},
+    "platforms": {},
+    "pullErr": {},
+    "runErr": {},
+    "side": {
+     "bodies": [],
+     "boxes": null,
+     "frames": {},
+     "logsErr": "",
+     "notice": "",
+     "qerr": null,
+     "queues": null,
+     "search": [],
+     "size": 0,
+     "tail": [],
+     "tailErr": ""
+    },
+    "usage": {}
+   }
+  },
+  {
+   "actions": [
+    {
+     "op": "rotate"
+    }
+   ],
+   "expect": [
+    "step rotation fails",
+    "calls net.rotate null",
+    "files "
+   ],
+   "name": "rotation fails",
+   "op": "other"
+  },
+  {
+   "op": "hello"
+  },
+  {
+   "expect": [
+    "hello the key kept {\"cpuMillis\":\"2000\",\"memoryBytes\":\"1073741824\",\"version\":\"VERSION\",\"privateIp\":\"10.0.0.2\",\"os\":\"linux\",\"arch\":\"amd64\",\"jobs\":true,\"volumes\":true,\"networkKey\":\"key-1\",\"certificateRefs\":true,\"containers\":true,\"heldReplicas\":true,\"volumeBackups\":true,\"logHistory\":true,\"networkSwitch\":true,\"keyRotation\":true}"
+   ],
+   "from": "hello",
+   "kind": "hello the key kept",
+   "op": "note"
+  }
+ ]
+}

@@ -1,0 +1,309 @@
+{
+ "name": "TestAgentParitySide/exec",
+ "opts": {
+  "bootNs": 1767222000000000000,
+  "bridge": "",
+  "crashBaseNs": 1000000000,
+  "dns": "",
+  "encodes": false,
+  "exec": true,
+  "members": true,
+  "move": false,
+  "network": false,
+  "networkKey": "",
+  "noSecretsDir": false,
+  "proxy": false,
+  "sandbox": false,
+  "side": true,
+  "stats": true,
+  "unpublished": false,
+  "volumes": true,
+  "volumesDir": true
+ },
+ "steps": [
+  {
+   "assignment": {
+    "replicas": [
+     {
+      "id": "web-r1-a",
+      "app": "web",
+      "revision": "web--r1",
+      "image": "nginx:1",
+      "command": [
+       "/bin/web"
+      ],
+      "args": [
+       "--x"
+      ],
+      "env": [
+       {
+        "name": "A",
+        "value": "1"
+       },
+       {
+        "name": "S",
+        "value": "secret",
+        "ref": "s/v1"
+       }
+      ],
+      "memoryBytes": "268435456",
+      "nanoCpus": "500000000",
+      "pidsLimit": "1024",
+      "cpuReserveMillis": "100",
+      "sidecars": [
+       {
+        "name": "proxy",
+        "image": "envoy:1"
+       }
+      ]
+     }
+    ]
+   },
+   "op": "assign"
+  },
+  {
+   "expect": [
+    "step running",
+    "report {\"replicas\":[{\"id\":\"web-r1-a\",\"state\":\"running\",\"containerId\":\"armada-web-r1-a-1\",\"ready\":true}]}",
+    "calls inspect {\"id\":\"armada-web-r1-a-1\"}\nlist {\"labels\":{\"armada.managed\":\"true\"}}\npull {\"auth\":null,\"image\":\"envoy:1\"}\npull {\"auth\":null,\"image\":\"nginx:1\"}\nrun {\"spec\":{\"name\":\"armada-web-r1-a\",\"image\":\"nginx:1\",\"entrypoint\":[\"/bin/web\"],\"cmd\":[\"--x\"],\"env\":[\"A=1\",\"S=secret\"],\"labels\":{\"armada.app\":\"web\",\"armada.managed\":\"true\",\"armada.replica\":\"web-r1-a\",\"armada.revision\":\"web--r1\",\"armada.spec-hash\":\"2a22ea14763e57a38393e069106256ee\"},\"hostIp\":\"10.0.0.2\",\"memoryBytes\":268435456,\"nanoCpus\":500000000,\"cpuReserveMillis\":100,\"pidsLimit\":1024,\"sidecars\":[{\"name\":\"proxy\",\"image\":\"envoy:1\"}]}}",
+    "files "
+   ],
+   "name": "running",
+   "op": "until"
+  },
+  {
+   "actions": [
+    {
+     "op": "exec",
+     "request": {
+      "requestId": "e1",
+      "replicaId": "web-r1-a",
+      "cmd": [
+       "echo",
+       "hi",
+       "there"
+      ],
+      "tty": true,
+      "stdin": true,
+      "size": {
+       "rows": 24,
+       "cols": 80
+      }
+     }
+    }
+   ],
+   "execIn": [
+    {
+     "resize": {
+      "rows": 40,
+      "cols": 100
+     }
+    },
+    {
+     "stdin": "aGVsbG8K"
+    },
+    {
+     "closeStdin": true
+    }
+   ],
+   "expect": [
+    "side echo with input",
+    "calls execSession {\"cmd\":[\"echo\",\"hi\",\"there\"],\"cols\":80,\"id\":\"armada-web-r1-a-1\",\"rows\":24,\"stdin\":\"hello\\n\",\"tty\":true}\nlist {\"labels\":{\"armada.managed\":\"true\",\"armada.replica\":\"web-r1-a\"}}",
+    "server exec attach e1\nexec stdout \"hi there\\nhello\\n\"\nexec exit 0",
+    "node ",
+    "export "
+   ],
+   "exportStatus": 0,
+   "name": "echo with input",
+   "op": "side",
+   "volIn": null
+  },
+  {
+   "actions": [
+    {
+     "op": "exec",
+     "request": {
+      "requestId": "e2",
+      "replicaId": "web-r1-a",
+      "cmd": [
+       "big"
+      ]
+     }
+    }
+   ],
+   "execIn": null,
+   "expect": [
+    "side big output",
+    "calls execSession {\"cmd\":[\"big\"],\"cols\":0,\"id\":\"armada-web-r1-a-1\",\"rows\":0,\"stdin\":null,\"tty\":false}\nlist {\"labels\":{\"armada.managed\":\"true\",\"armada.replica\":\"web-r1-a\"}}",
+    "server exec attach e2\nexec stdout 32768 bytes \"xxxxxxxxxxxxxxxx\"...\nexec stdout 32768 bytes \"xxxxxxxxxxxxxxxx\"...\nexec stdout 4464 bytes \"xxxxxxxxxxxxxxxx\"...\nexec exit 0",
+    "node ",
+    "export "
+   ],
+   "exportStatus": 0,
+   "name": "big output",
+   "op": "side",
+   "volIn": null
+  },
+  {
+   "actions": [
+    {
+     "op": "exec",
+     "request": {
+      "requestId": "e3",
+      "replicaId": "web-r1-a",
+      "cmd": [
+       "fail",
+       "x"
+      ],
+      "container": "app"
+     }
+    }
+   ],
+   "execIn": null,
+   "expect": [
+    "side exit code",
+    "calls execSession {\"cmd\":[\"fail\",\"x\"],\"cols\":0,\"id\":\"armada-web-r1-a-1\",\"rows\":0,\"stdin\":null,\"tty\":false}\nlist {\"labels\":{\"armada.managed\":\"true\",\"armada.replica\":\"web-r1-a\"}}",
+    "server exec attach e3\nexec stderr \"oops\\n\"\nexec exit 3",
+    "node ",
+    "export "
+   ],
+   "exportStatus": 0,
+   "name": "exit code",
+   "op": "side",
+   "volIn": null
+  },
+  {
+   "actions": [
+    {
+     "op": "exec",
+     "request": {
+      "requestId": "e4",
+      "replicaId": "web-r1-a",
+      "cmd": [
+       "fail"
+      ],
+      "container": "proxy"
+     }
+    }
+   ],
+   "execIn": null,
+   "expect": [
+    "side sidecar",
+    "calls execSession {\"cmd\":[\"fail\"],\"cols\":0,\"id\":\"armada-web-r1-a-1-proxy\",\"rows\":0,\"stdin\":null,\"tty\":false}\nlist {\"labels\":{\"armada.managed\":\"true\",\"armada.replica\":\"web-r1-a\"}}",
+    "server exec attach e4\nexec stderr \"oops\\n\"\nexec exit 3",
+    "node ",
+    "export "
+   ],
+   "exportStatus": 0,
+   "name": "sidecar",
+   "op": "side",
+   "volIn": null
+  },
+  {
+   "actions": [
+    {
+     "op": "exec",
+     "request": {
+      "requestId": "e5",
+      "replicaId": "web-r1-a",
+      "cmd": [
+       "sh"
+      ],
+      "container": "nope"
+     }
+    }
+   ],
+   "execIn": null,
+   "expect": [
+    "side no such sidecar",
+    "calls list {\"labels\":{\"armada.managed\":\"true\",\"armada.replica\":\"web-r1-a\"}}",
+    "server exec error \"replica web-r1-a has no running sidecar nope on this node\"",
+    "node ",
+    "export "
+   ],
+   "exportStatus": 0,
+   "name": "no such sidecar",
+   "op": "side",
+   "volIn": null
+  },
+  {
+   "actions": [
+    {
+     "op": "exec",
+     "request": {
+      "requestId": "e6",
+      "replicaId": "other-r1-a",
+      "cmd": [
+       "sh"
+      ]
+     }
+    }
+   ],
+   "execIn": null,
+   "expect": [
+    "side not assigned",
+    "calls ",
+    "server exec error \"replica other-r1-a is not assigned to this node\"",
+    "node ",
+    "export "
+   ],
+   "exportStatus": 0,
+   "name": "not assigned",
+   "op": "side",
+   "volIn": null
+  },
+  {
+   "actions": [
+    {
+     "op": "exec",
+     "request": {
+      "requestId": "e7",
+      "replicaId": "web-r1-a",
+      "cmd": [
+       "sh",
+       "a\u0000b"
+      ]
+     }
+    }
+   ],
+   "execIn": null,
+   "expect": [
+    "side bad command",
+    "calls ",
+    "server exec error \"argument 1 contains a NUL byte\"",
+    "node ",
+    "export "
+   ],
+   "exportStatus": 0,
+   "name": "bad command",
+   "op": "side",
+   "volIn": null
+  },
+  {
+   "actions": [
+    {
+     "op": "exec",
+     "request": {
+      "requestId": "e8",
+      "replicaId": "web-r1-a",
+      "cmd": [
+       "missing"
+      ]
+     }
+    }
+   ],
+   "execIn": null,
+   "expect": [
+    "side does not start",
+    "calls execSession {\"cmd\":[\"missing\"],\"cols\":0,\"id\":\"armada-web-r1-a-1\",\"rows\":0,\"stdin\":null,\"tty\":false}\nlist {\"labels\":{\"armada.managed\":\"true\",\"armada.replica\":\"web-r1-a\"}}",
+    "server exec attach e8\nexec error \"exec: no such file\"",
+    "node ",
+    "export "
+   ],
+   "exportStatus": 0,
+   "name": "does not start",
+   "op": "side",
+   "volIn": null
+  }
+ ]
+}

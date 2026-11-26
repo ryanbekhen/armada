@@ -1,0 +1,279 @@
+{
+ "name": "TestAgentParity/job_with_members",
+ "opts": {
+  "bootNs": 1767222000000000000,
+  "bridge": "",
+  "crashBaseNs": 1000000000,
+  "dns": "",
+  "encodes": false,
+  "exec": true,
+  "members": true,
+  "move": false,
+  "network": false,
+  "networkKey": "",
+  "noSecretsDir": false,
+  "proxy": false,
+  "sandbox": false,
+  "side": false,
+  "stats": true,
+  "unpublished": false,
+  "volumes": true,
+  "volumesDir": true
+ },
+ "steps": [
+  {
+   "assignment": {
+    "replicas": [
+     {
+      "id": "batch-j1-a",
+      "app": "batch",
+      "revision": "web--r1",
+      "image": "busybox",
+      "command": [
+       "/bin/web"
+      ],
+      "args": [
+       "--x"
+      ],
+      "env": [
+       {
+        "name": "A",
+        "value": "1"
+       },
+       {
+        "name": "S",
+        "value": "secret",
+        "ref": "s/v1"
+       }
+      ],
+      "memoryBytes": "268435456",
+      "nanoCpus": "500000000",
+      "pidsLimit": "1024",
+      "readiness": {
+       "path": "/r",
+       "initialDelayMs": "3600000"
+      },
+      "cpuReserveMillis": "100",
+      "job": {
+       "job": "batch",
+       "run": "1"
+      },
+      "initContainers": [
+       {
+        "name": "fetch",
+        "image": "fetch:1"
+       }
+      ],
+      "sidecars": [
+       {
+        "name": "proxy",
+        "image": "proxy:1"
+       }
+      ]
+     }
+    ]
+   },
+   "op": "assign"
+  },
+  {
+   "expect": [
+    "step started",
+    "report {\"replicas\":[{\"id\":\"batch-j1-a\",\"state\":\"running\",\"containerId\":\"armada-batch-j1-a-1\"}]}",
+    "calls inspect {\"id\":\"armada-batch-j1-a-1\"}\nlist {\"labels\":{\"armada.managed\":\"true\"}}\npull {\"auth\":null,\"image\":\"busybox\"}\npull {\"auth\":null,\"image\":\"fetch:1\"}\npull {\"auth\":null,\"image\":\"proxy:1\"}\nrun {\"spec\":{\"name\":\"armada-batch-j1-a\",\"image\":\"busybox\",\"entrypoint\":[\"/bin/web\"],\"cmd\":[\"--x\"],\"env\":[\"A=1\",\"S=secret\"],\"labels\":{\"armada.app\":\"batch\",\"armada.managed\":\"true\",\"armada.replica\":\"batch-j1-a\",\"armada.revision\":\"web--r1\",\"armada.spec-hash\":\"a7428bca064f322c81be19473a9fa782\"},\"hostIp\":\"10.0.0.2\",\"memoryBytes\":268435456,\"nanoCpus\":500000000,\"cpuReserveMillis\":100,\"pidsLimit\":1024,\"init\":[{\"name\":\"fetch\",\"image\":\"fetch:1\"}],\"sidecars\":[{\"name\":\"proxy\",\"image\":\"proxy:1\"}]}}",
+    "files "
+   ],
+   "name": "started",
+   "op": "reconcile"
+  },
+  {
+   "code": 0,
+   "id": "armada-batch-j1-a-1",
+   "name": "proxy",
+   "op": "setMember",
+   "state": "exited"
+  },
+  {
+   "expect": [
+    "step a stopped sidecar does not end a job",
+    "report {\"replicas\":[{\"id\":\"batch-j1-a\",\"state\":\"running\",\"containerId\":\"armada-batch-j1-a-1\"}]}",
+    "calls list {\"labels\":{\"armada.managed\":\"true\"}}",
+    "files "
+   ],
+   "name": "a stopped sidecar does not end a job",
+   "op": "reconcile"
+  },
+  {
+   "code": 0,
+   "id": "armada-batch-j1-a-1",
+   "op": "setState",
+   "state": "exited"
+  },
+  {
+   "expect": [
+    "step ended with its sidecars stopped",
+    "report {\"replicas\":[{\"id\":\"batch-j1-a\",\"state\":\"exited\",\"containerId\":\"armada-batch-j1-a-1\",\"message\":\"exited with code 0\",\"finished\":true}]}",
+    "calls inspect {\"id\":\"armada-batch-j1-a-1\"}\nlist {\"labels\":{\"armada.managed\":\"true\"}}\nrelease {\"id\":\"armada-batch-j1-a-1\"}\nstop {\"graceMs\":10000,\"id\":\"armada-batch-j1-a-1\"}",
+    "files "
+   ],
+   "name": "ended with its sidecars stopped",
+   "op": "reconcile"
+  },
+  {
+   "op": "fake",
+   "script": {
+    "agentStatus": {
+     "agent": "",
+     "converted": false,
+     "error": "",
+     "goImages": false,
+     "imagesToPull": 0
+    },
+    "checks": {},
+    "digests": {},
+    "execCodes": {},
+    "holdPulls": false,
+    "holdStarts": false,
+    "in": {
+     "certErr": "",
+     "certs": {},
+     "clientsErr": "",
+     "healthErr": "",
+     "keyErr": "",
+     "load": {},
+     "loadErr": "",
+     "moveErr": "",
+     "netErr": "",
+     "peers": null,
+     "proxyErr": "",
+     "switching": null,
+     "userspace": false
+    },
+    "initExits": {
+     "fetch": 9
+    },
+    "platforms": {},
+    "pullErr": {},
+    "runErr": {},
+    "side": {
+     "bodies": [],
+     "boxes": null,
+     "frames": {},
+     "logsErr": "",
+     "notice": "",
+     "qerr": null,
+     "queues": null,
+     "search": [],
+     "size": 0,
+     "tail": [],
+     "tailErr": ""
+    },
+    "usage": {}
+   }
+  },
+  {
+   "assignment": {
+    "replicas": [
+     {
+      "id": "batch-j1-a",
+      "app": "batch",
+      "revision": "web--r1",
+      "image": "busybox",
+      "command": [
+       "/bin/web"
+      ],
+      "args": [
+       "--x"
+      ],
+      "env": [
+       {
+        "name": "A",
+        "value": "1"
+       },
+       {
+        "name": "S",
+        "value": "secret",
+        "ref": "s/v1"
+       }
+      ],
+      "memoryBytes": "268435456",
+      "nanoCpus": "500000000",
+      "pidsLimit": "1024",
+      "readiness": {
+       "path": "/r",
+       "initialDelayMs": "3600000"
+      },
+      "cpuReserveMillis": "100",
+      "job": {
+       "job": "batch",
+       "run": "1"
+      },
+      "initContainers": [
+       {
+        "name": "fetch",
+        "image": "fetch:1"
+       }
+      ],
+      "sidecars": [
+       {
+        "name": "proxy",
+        "image": "proxy:1"
+       }
+      ]
+     },
+     {
+      "id": "batch-j1-b",
+      "app": "batch",
+      "revision": "web--r1",
+      "image": "busybox",
+      "command": [
+       "/bin/web"
+      ],
+      "args": [
+       "--x"
+      ],
+      "env": [
+       {
+        "name": "A",
+        "value": "1"
+       },
+       {
+        "name": "S",
+        "value": "secret",
+        "ref": "s/v1"
+       }
+      ],
+      "memoryBytes": "268435456",
+      "nanoCpus": "500000000",
+      "pidsLimit": "1024",
+      "readiness": {
+       "path": "/r",
+       "initialDelayMs": "3600000"
+      },
+      "cpuReserveMillis": "100",
+      "job": {
+       "job": "batch",
+       "run": "2"
+      },
+      "initContainers": [
+       {
+        "name": "fetch",
+        "image": "fetch:1"
+       }
+      ]
+     }
+    ]
+   },
+   "op": "assign"
+  },
+  {
+   "expect": [
+    "step init failed: the attempt ends with its code",
+    "report {\"replicas\":[{\"id\":\"batch-j1-a\",\"state\":\"exited\",\"containerId\":\"armada-batch-j1-a-1\",\"message\":\"exited with code 0\",\"finished\":true},{\"id\":\"batch-j1-b\",\"state\":\"exited\",\"containerId\":\"armada-batch-j1-b-1\",\"message\":\"init container fetch exited with code 9\",\"finished\":true,\"exitCode\":9}]}",
+    "calls inspect {\"id\":\"armada-batch-j1-a-1\"}\ninspect {\"id\":\"armada-batch-j1-b-1\"}\ninspect {\"id\":\"armada-batch-j1-b-1\"}\nlist {\"labels\":{\"armada.managed\":\"true\"}}\npull {\"auth\":null,\"image\":\"busybox\"}\npull {\"auth\":null,\"image\":\"fetch:1\"}\nrelease {\"id\":\"armada-batch-j1-a-1\"}\nrelease {\"id\":\"armada-batch-j1-b-1\"}\nrun {\"spec\":{\"name\":\"armada-batch-j1-b\",\"image\":\"busybox\",\"entrypoint\":[\"/bin/web\"],\"cmd\":[\"--x\"],\"env\":[\"A=1\",\"S=secret\"],\"labels\":{\"armada.app\":\"batch\",\"armada.managed\":\"true\",\"armada.replica\":\"batch-j1-b\",\"armada.revision\":\"web--r1\",\"armada.spec-hash\":\"cfada8e08d85c8a0ff9883b78c1d8db6\"},\"hostIp\":\"10.0.0.2\",\"memoryBytes\":268435456,\"nanoCpus\":500000000,\"cpuReserveMillis\":100,\"pidsLimit\":1024,\"init\":[{\"name\":\"fetch\",\"image\":\"fetch:1\"}]}}\nstop {\"graceMs\":10000,\"id\":\"armada-batch-j1-a-1\"}\nstop {\"graceMs\":10000,\"id\":\"armada-batch-j1-b-1\"}",
+    "files "
+   ],
+   "name": "init failed: the attempt ends with its code",
+   "op": "reconcile"
+  }
+ ]
+}

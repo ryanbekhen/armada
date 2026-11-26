@@ -1,0 +1,294 @@
+{
+ "name": "TestAgentParityIngress/network_with_unpublished_replicas",
+ "opts": {
+  "bootNs": 1767222000000000000,
+  "bridge": "10.120.0.",
+  "crashBaseNs": 1000000000,
+  "dns": "10.120.0.1",
+  "encodes": false,
+  "exec": true,
+  "members": true,
+  "move": false,
+  "network": true,
+  "networkKey": "",
+  "noSecretsDir": false,
+  "proxy": true,
+  "sandbox": false,
+  "side": false,
+  "stats": false,
+  "unpublished": true,
+  "volumes": true,
+  "volumesDir": true
+ },
+ "steps": [
+  {
+   "expect": [
+    "step no assignment: no network",
+    "report null",
+    "calls ",
+    "files "
+   ],
+   "name": "no assignment: no network",
+   "op": "reconcile"
+  },
+  {
+   "assignment": {
+    "replicas": [
+     {
+      "id": "web-r1-a",
+      "app": "web",
+      "revision": "web--r1",
+      "image": "nginx:1",
+      "command": [
+       "/bin/web"
+      ],
+      "args": [
+       "--x"
+      ],
+      "env": [
+       {
+        "name": "A",
+        "value": "1"
+       },
+       {
+        "name": "S",
+        "value": "secret",
+        "ref": "s/v1"
+       }
+      ],
+      "port": 8080,
+      "memoryBytes": "268435456",
+      "nanoCpus": "500000000",
+      "pidsLimit": "1024",
+      "cpuReserveMillis": "100"
+     },
+     {
+      "id": "api.shop-r1-a",
+      "app": "api.shop",
+      "revision": "web--r1",
+      "image": "api:1",
+      "command": [
+       "/bin/web"
+      ],
+      "args": [
+       "--x"
+      ],
+      "env": [
+       {
+        "name": "A",
+        "value": "1"
+       },
+       {
+        "name": "S",
+        "value": "secret",
+        "ref": "s/v1"
+       }
+      ],
+      "port": 9000,
+      "memoryBytes": "268435456",
+      "nanoCpus": "500000000",
+      "pidsLimit": "1024",
+      "cpuReserveMillis": "100"
+     }
+    ],
+    "proxy": {},
+    "network": {
+     "mode": "plain",
+     "clusterCidr": "10.120.0.0/16"
+    }
+   },
+   "op": "assign"
+  },
+  {
+   "expect": [
+    "step ready",
+    "report {\"replicas\":[{\"id\":\"api.shop-r1-a\",\"state\":\"running\",\"containerId\":\"armada-api.shop-r1-a-1\",\"address\":\"10.120.0.82:9000\",\"ready\":true,\"ip\":\"10.120.0.82\"},{\"id\":\"web-r1-a\",\"state\":\"running\",\"containerId\":\"armada-web-r1-a-1\",\"address\":\"10.120.0.2:8080\",\"ready\":true,\"ip\":\"10.120.0.2\"}]}",
+    "calls dns.clients {\"10.120.0.2\":\"web\",\"10.120.0.82\":\"api.shop\"}\ndns.names null\ninspect {\"id\":\"armada-api.shop-r1-a-1\"}\ninspect {\"id\":\"armada-web-r1-a-1\"}\nlist {\"labels\":{\"armada.managed\":\"true\"}}\nnet.apply {\"config\":{\"mode\":\"plain\",\"clusterCidr\":\"10.120.0.0/16\"},\"local\":{\"10.120.0.2\":\"web\",\"10.120.0.82\":\"api.shop\"}}\nproxy.apply {\"config\":{},\"running\":2}\nproxy.clients {\"10.120.0.2\":\"web\",\"10.120.0.82\":\"api.shop\"}\nproxy.health null\npull {\"auth\":null,\"image\":\"api:1\"}\npull {\"auth\":null,\"image\":\"nginx:1\"}\nrun {\"spec\":{\"name\":\"armada-api.shop-r1-a\",\"image\":\"api:1\",\"entrypoint\":[\"/bin/web\"],\"cmd\":[\"--x\"],\"env\":[\"A=1\",\"S=secret\"],\"labels\":{\"armada.app\":\"api.shop\",\"armada.managed\":\"true\",\"armada.replica\":\"api.shop-r1-a\",\"armada.revision\":\"web--r1\",\"armada.spec-hash\":\"d3382484f911b12d1534d0c409bc2077\"},\"memoryBytes\":268435456,\"nanoCpus\":500000000,\"cpuReserveMillis\":100,\"pidsLimit\":1024,\"dns\":[\"10.120.0.1\"],\"dnsSearch\":[\"shop.internal\"]}}\nrun {\"spec\":{\"name\":\"armada-web-r1-a\",\"image\":\"nginx:1\",\"entrypoint\":[\"/bin/web\"],\"cmd\":[\"--x\"],\"env\":[\"A=1\",\"S=secret\"],\"labels\":{\"armada.app\":\"web\",\"armada.managed\":\"true\",\"armada.replica\":\"web-r1-a\",\"armada.revision\":\"web--r1\",\"armada.spec-hash\":\"8ee9a3526072c525ed52ac17de2ac31e\"},\"memoryBytes\":268435456,\"nanoCpus\":500000000,\"cpuReserveMillis\":100,\"pidsLimit\":1024,\"dns\":[\"10.120.0.1\"],\"dnsSearch\":[\"internal\"]}}",
+    "files "
+   ],
+   "name": "ready",
+   "op": "until"
+  },
+  {
+   "op": "fake",
+   "script": {
+    "agentStatus": {
+     "agent": "",
+     "converted": false,
+     "error": "",
+     "goImages": false,
+     "imagesToPull": 0
+    },
+    "checks": {},
+    "digests": {},
+    "execCodes": {},
+    "holdPulls": false,
+    "holdStarts": false,
+    "in": {
+     "certErr": "",
+     "certs": {},
+     "clientsErr": "set map failed",
+     "healthErr": "",
+     "keyErr": "",
+     "load": {},
+     "loadErr": "",
+     "moveErr": "",
+     "netErr": "add route: file exists",
+     "peers": null,
+     "proxyErr": "",
+     "switching": null,
+     "userspace": false
+    },
+    "initExits": {},
+    "platforms": {},
+    "pullErr": {},
+    "runErr": {},
+    "side": {
+     "bodies": [],
+     "boxes": null,
+     "frames": {},
+     "logsErr": "",
+     "notice": "",
+     "qerr": null,
+     "queues": null,
+     "search": [],
+     "size": 0,
+     "tail": [],
+     "tailErr": ""
+    },
+    "usage": {}
+   }
+  },
+  {
+   "expect": [
+    "step a failure, logged once",
+    "report {\"replicas\":[{\"id\":\"api.shop-r1-a\",\"state\":\"running\",\"containerId\":\"armada-api.shop-r1-a-1\",\"address\":\"10.120.0.82:9000\",\"ready\":true,\"ip\":\"10.120.0.82\"},{\"id\":\"web-r1-a\",\"state\":\"running\",\"containerId\":\"armada-web-r1-a-1\",\"address\":\"10.120.0.2:8080\",\"ready\":true,\"ip\":\"10.120.0.2\"}]}",
+    "calls dns.clients {\"10.120.0.2\":\"web\",\"10.120.0.82\":\"api.shop\"}\nlist {\"labels\":{\"armada.managed\":\"true\"}}\nlist {\"labels\":{\"armada.managed\":\"true\"}}\nnet.apply {\"config\":{\"mode\":\"plain\",\"clusterCidr\":\"10.120.0.0/16\"},\"local\":{\"10.120.0.2\":\"web\",\"10.120.0.82\":\"api.shop\"}}\nproxy.clients {\"10.120.0.2\":\"web\",\"10.120.0.82\":\"api.shop\"}\nproxy.health null",
+    "files "
+   ],
+   "name": "a failure, logged once",
+   "op": "reconcile"
+  },
+  {
+   "expect": [
+    "step the same failure",
+    "report {\"replicas\":[{\"id\":\"api.shop-r1-a\",\"state\":\"running\",\"containerId\":\"armada-api.shop-r1-a-1\",\"address\":\"10.120.0.82:9000\",\"ready\":true,\"ip\":\"10.120.0.82\"},{\"id\":\"web-r1-a\",\"state\":\"running\",\"containerId\":\"armada-web-r1-a-1\",\"address\":\"10.120.0.2:8080\",\"ready\":true,\"ip\":\"10.120.0.2\"}]}",
+    "calls dns.clients {\"10.120.0.2\":\"web\",\"10.120.0.82\":\"api.shop\"}\nlist {\"labels\":{\"armada.managed\":\"true\"}}\nlist {\"labels\":{\"armada.managed\":\"true\"}}\nnet.apply {\"config\":{\"mode\":\"plain\",\"clusterCidr\":\"10.120.0.0/16\"},\"local\":{\"10.120.0.2\":\"web\",\"10.120.0.82\":\"api.shop\"}}\nproxy.clients {\"10.120.0.2\":\"web\",\"10.120.0.82\":\"api.shop\"}\nproxy.health null",
+    "files "
+   ],
+   "name": "the same failure",
+   "op": "reconcile"
+  },
+  {
+   "code": 1,
+   "id": "armada-api.shop-r1-a-1",
+   "op": "setState",
+   "state": "exited"
+  },
+  {
+   "op": "fake",
+   "script": {
+    "agentStatus": {
+     "agent": "",
+     "converted": false,
+     "error": "",
+     "goImages": false,
+     "imagesToPull": 0
+    },
+    "checks": {},
+    "digests": {},
+    "execCodes": {},
+    "holdPulls": false,
+    "holdStarts": false,
+    "in": {
+     "certErr": "",
+     "certs": {},
+     "clientsErr": "",
+     "healthErr": "",
+     "keyErr": "",
+     "load": {},
+     "loadErr": "",
+     "moveErr": "",
+     "netErr": "",
+     "peers": null,
+     "proxyErr": "",
+     "switching": null,
+     "userspace": false
+    },
+    "initExits": {},
+    "platforms": {},
+    "pullErr": {},
+    "runErr": {},
+    "side": {
+     "bodies": [],
+     "boxes": null,
+     "frames": {},
+     "logsErr": "",
+     "notice": "",
+     "qerr": null,
+     "queues": null,
+     "search": [],
+     "size": 0,
+     "tail": [],
+     "tailErr": ""
+    },
+    "usage": {}
+   }
+  },
+  {
+   "expect": [
+    "step applied again, the exited container left out",
+    "report {\"replicas\":[{\"id\":\"api.shop-r1-a\",\"state\":\"running\",\"containerId\":\"armada-api.shop-r1-a-2\",\"address\":\"10.120.0.82:9000\",\"message\":\"restarted: exited with code 1\",\"ip\":\"10.120.0.82\"},{\"id\":\"web-r1-a\",\"state\":\"running\",\"containerId\":\"armada-web-r1-a-1\",\"address\":\"10.120.0.2:8080\",\"ready\":true,\"ip\":\"10.120.0.2\"}]}",
+    "calls dns.clients {\"10.120.0.2\":\"web\",\"10.120.0.82\":\"api.shop\"}\ndns.clients {\"10.120.0.2\":\"web\",\"10.120.0.82\":\"api.shop\"}\ninspect {\"id\":\"armada-api.shop-r1-a-1\"}\ninspect {\"id\":\"armada-api.shop-r1-a-2\"}\nlist {\"labels\":{\"armada.managed\":\"true\"}}\nlist {\"labels\":{\"armada.managed\":\"true\"}}\nnet.apply {\"config\":{\"mode\":\"plain\",\"clusterCidr\":\"10.120.0.0/16\"},\"local\":{\"10.120.0.2\":\"web\",\"10.120.0.82\":\"api.shop\"}}\nnet.apply {\"config\":{\"mode\":\"plain\",\"clusterCidr\":\"10.120.0.0/16\"},\"local\":{\"10.120.0.2\":\"web\",\"10.120.0.82\":\"api.shop\"}}\nproxy.clients {\"10.120.0.2\":\"web\",\"10.120.0.82\":\"api.shop\"}\nproxy.clients {\"10.120.0.2\":\"web\",\"10.120.0.82\":\"api.shop\"}\nproxy.health null\npull {\"auth\":null,\"image\":\"api:1\"}\nremove {\"id\":\"armada-api.shop-r1-a-1\"}\nrun {\"spec\":{\"name\":\"armada-api.shop-r1-a\",\"image\":\"api:1\",\"entrypoint\":[\"/bin/web\"],\"cmd\":[\"--x\"],\"env\":[\"A=1\",\"S=secret\"],\"labels\":{\"armada.app\":\"api.shop\",\"armada.managed\":\"true\",\"armada.replica\":\"api.shop-r1-a\",\"armada.revision\":\"web--r1\",\"armada.spec-hash\":\"d3382484f911b12d1534d0c409bc2077\"},\"memoryBytes\":268435456,\"nanoCpus\":500000000,\"cpuReserveMillis\":100,\"pidsLimit\":1024,\"dns\":[\"10.120.0.1\"],\"dnsSearch\":[\"shop.internal\"]}}\nstop {\"graceMs\":10000,\"id\":\"armada-api.shop-r1-a-1\"}",
+    "files "
+   ],
+   "name": "applied again, the exited container left out",
+   "op": "reconcile"
+  },
+  {
+   "assignment": {
+    "replicas": [
+     {
+      "id": "web-r1-a",
+      "app": "web",
+      "revision": "web--r1",
+      "image": "nginx:1",
+      "command": [
+       "/bin/web"
+      ],
+      "args": [
+       "--x"
+      ],
+      "env": [
+       {
+        "name": "A",
+        "value": "1"
+       },
+       {
+        "name": "S",
+        "value": "secret",
+        "ref": "s/v1"
+       }
+      ],
+      "port": 8080,
+      "memoryBytes": "268435456",
+      "nanoCpus": "500000000",
+      "pidsLimit": "1024",
+      "cpuReserveMillis": "100"
+     }
+    ]
+   },
+   "op": "assign"
+  },
+  {
+   "expect": [
+    "step an assignment without a network keeps the last",
+    "report {\"replicas\":[{\"id\":\"web-r1-a\",\"state\":\"running\",\"containerId\":\"armada-web-r1-a-1\",\"address\":\"10.120.0.2:8080\",\"ready\":true,\"ip\":\"10.120.0.2\"}]}",
+    "calls dns.clients {\"10.120.0.2\":\"web\"}\nlist {\"labels\":{\"armada.managed\":\"true\"}}\nlist {\"labels\":{\"armada.managed\":\"true\"}}\nnet.apply {\"config\":{\"mode\":\"plain\",\"clusterCidr\":\"10.120.0.0/16\"},\"local\":{\"10.120.0.2\":\"web\"}}\nproxy.clients {\"10.120.0.2\":\"web\"}\nproxy.health null\nproxy.health null\nremove {\"id\":\"armada-api.shop-r1-a-2\"}\nstop {\"graceMs\":10000,\"id\":\"armada-api.shop-r1-a-2\"}",
+    "files "
+   ],
+   "name": "an assignment without a network keeps the last",
+   "op": "reconcile"
+  }
+ ]
+}

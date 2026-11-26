@@ -1,0 +1,2725 @@
+[
+ {
+  "hash": "e3b0c44298fc1c149afbf4c8996fb924",
+  "spec": {}
+ },
+ {
+  "hash": "fbc601aefa01f8692f1ee4ca767d28f0",
+  "spec": {
+   "id": "x"
+  }
+ },
+ {
+  "hash": "06d4afa022399f4573d19408f287dc89",
+  "spec": {
+   "id": "web-r1-a",
+   "app": "web",
+   "revision": "web--r1",
+   "image": "nginx:1",
+   "command": [
+    "/bin/web"
+   ],
+   "args": [
+    "--x"
+   ],
+   "env": [
+    {
+     "name": "A",
+     "value": "1"
+    },
+    {
+     "name": "S",
+     "value": "secret",
+     "ref": "s/v1"
+    }
+   ],
+   "memoryBytes": "268435456",
+   "nanoCpus": "500000000",
+   "pidsLimit": "1024",
+   "readiness": {
+    "path": "/r",
+    "initialDelayMs": "3600000"
+   },
+   "cpuReserveMillis": "100"
+  }
+ },
+ {
+  "hash": "c5f14e0446544702672f8151c5c24101",
+  "spec": {
+   "id": "web-r1-a",
+   "app": "web",
+   "revision": "web--r1",
+   "image": "nginx:1",
+   "command": [
+    "/bin/web"
+   ],
+   "args": [
+    "--x"
+   ],
+   "env": [
+    {
+     "name": "A",
+     "value": "1"
+    },
+    {
+     "name": "S",
+     "value": "secret",
+     "ref": "s/v1"
+    }
+   ],
+   "port": 8080,
+   "memoryBytes": "268435456",
+   "nanoCpus": "500000000",
+   "pidsLimit": "1024",
+   "startup": {
+    "path": "/s",
+    "port": 81,
+    "initialDelayMs": "5",
+    "periodMs": "6",
+    "timeoutMs": "7",
+    "failureThreshold": 8,
+    "command": [
+     "a",
+     "b"
+    ]
+   },
+   "readiness": {
+    "path": "/r",
+    "initialDelayMs": "3600000"
+   },
+   "liveness": {
+    "path": "/l"
+   },
+   "secretFiles": [
+    {
+     "path": "/f",
+     "data": "c2VjcmV0",
+     "ref": "f/2"
+    }
+   ],
+   "registry": {
+    "server": "r",
+    "username": "u",
+    "password": "p",
+    "ref": "reg/1"
+   },
+   "cpuReserveMillis": "100",
+   "job": {
+    "job": "j",
+    "run": "3",
+    "done": true
+   },
+   "volumes": [
+    {
+     "name": "v",
+     "path": "/v",
+     "owner": "1:2"
+    },
+    {
+     "name": "n",
+     "path": "/n",
+     "nfs": {
+      "server": "10.0.0.1",
+      "path": "/e",
+      "readOnly": true
+     }
+    }
+   ],
+   "queues": [
+    {
+     "type": "redis",
+     "url": "redis://x",
+     "name": "q"
+    }
+   ],
+   "initContainers": [
+    {
+     "name": "i",
+     "image": "i:1",
+     "command": [
+      "c"
+     ],
+     "args": [
+      "a"
+     ],
+     "env": [
+      {
+       "name": "E",
+       "value": "v",
+       "ref": "e/1"
+      },
+      {
+       "name": "P",
+       "value": "plain"
+      }
+     ],
+     "memoryBytes": "1",
+     "nanoCpus": "2",
+     "cpuReserveMillis": "3",
+     "pidsLimit": "4",
+     "volumes": [
+      "v"
+     ],
+     "secretFiles": [
+      "/f"
+     ]
+    }
+   ],
+   "sidecars": [
+    {
+     "name": "s",
+     "image": "s:1"
+    }
+   ],
+   "hold": true,
+   "fenceAfterSeconds": "30"
+  }
+ },
+ {
+  "hash": "a325cd2d7ff826fe659aa44d6bcdfef2",
+  "spec": {
+   "id": "web-r1-a",
+   "app": "web",
+   "revision": "web--r1",
+   "image": "nginx:1",
+   "command": [
+    "/bin/web"
+   ],
+   "args": [
+    "--x",
+    "a"
+   ],
+   "memoryBytes": "268435456",
+   "nanoCpus": "500000000",
+   "pidsLimit": "1024",
+   "startup": {
+    "path": "/s",
+    "port": 81,
+    "initialDelayMs": "5",
+    "periodMs": "6",
+    "timeoutMs": "7",
+    "failureThreshold": 8,
+    "command": [
+     "a",
+     "b"
+    ]
+   },
+   "readiness": {
+    "path": "/r",
+    "initialDelayMs": "3600000"
+   },
+   "liveness": {
+    "path": "/l"
+   },
+   "secretFiles": [
+    {
+     "path": "/f",
+     "data": "c2VjcmV0",
+     "ref": "f/2"
+    }
+   ],
+   "registry": {
+    "server": "r",
+    "username": "u",
+    "password": "p",
+    "ref": "reg/1"
+   },
+   "cpuReserveMillis": "100",
+   "job": {
+    "job": "j",
+    "run": "3",
+    "done": true
+   },
+   "volumes": [
+    {
+     "name": "v",
+     "path": "/v",
+     "owner": "1:2"
+    },
+    {
+     "name": "n",
+     "path": "/n",
+     "nfs": {
+      "server": "10.0.0.1",
+      "path": "/e",
+      "readOnly": true
+     }
+    }
+   ],
+   "queues": [
+    {
+     "type": "redis",
+     "url": "redis://x",
+     "name": "q"
+    }
+   ],
+   "initContainers": [
+    {
+     "name": "i",
+     "image": "i:1",
+     "command": [
+      "c"
+     ],
+     "args": [
+      "a"
+     ],
+     "env": [
+      {
+       "name": "E",
+       "value": "v",
+       "ref": "e/1"
+      },
+      {
+       "name": "P",
+       "value": "plain"
+      }
+     ],
+     "memoryBytes": "1",
+     "nanoCpus": "2",
+     "cpuReserveMillis": "3",
+     "pidsLimit": "4",
+     "volumes": [
+      "v"
+     ],
+     "secretFiles": [
+      "/f"
+     ]
+    }
+   ],
+   "sidecars": [
+    {
+     "name": "s",
+     "image": "s:1"
+    }
+   ],
+   "hold": true,
+   "fenceAfterSeconds": "30"
+  }
+ },
+ {
+  "hash": "db15deea186fe40499fecd08223a5c6f",
+  "spec": {
+   "id": "web-r1-a",
+   "app": "web",
+   "revision": "web--r1",
+   "image": "nginx:1",
+   "command": [
+    "/bin/web"
+   ],
+   "args": [
+    "--x",
+    "b"
+   ],
+   "env": [
+    {
+     "name": "A",
+     "value": "1"
+    }
+   ],
+   "port": 1000,
+   "memoryBytes": "268435456",
+   "nanoCpus": "500000000",
+   "pidsLimit": "1024",
+   "startup": {
+    "path": "/s",
+    "port": 81,
+    "initialDelayMs": "5",
+    "periodMs": "6",
+    "timeoutMs": "7",
+    "failureThreshold": 8,
+    "command": [
+     "a",
+     "b"
+    ]
+   },
+   "readiness": {
+    "path": "/r",
+    "initialDelayMs": "3600000"
+   },
+   "liveness": {
+    "path": "/l"
+   },
+   "secretFiles": [
+    {
+     "path": "/f",
+     "data": "c2VjcmV0",
+     "ref": "f/2"
+    }
+   ],
+   "registry": {
+    "server": "r",
+    "username": "u",
+    "password": "p",
+    "ref": "reg/1"
+   },
+   "cpuReserveMillis": "100",
+   "job": {
+    "job": "j",
+    "run": "3",
+    "done": true
+   },
+   "volumes": [
+    {
+     "name": "v",
+     "path": "/v",
+     "owner": "1:2"
+    },
+    {
+     "name": "n",
+     "path": "/n",
+     "nfs": {
+      "server": "10.0.0.1",
+      "path": "/e",
+      "readOnly": true
+     }
+    }
+   ],
+   "queues": [
+    {
+     "type": "redis",
+     "url": "redis://x",
+     "name": "q"
+    }
+   ],
+   "initContainers": [
+    {
+     "name": "i",
+     "image": "i:1",
+     "command": [
+      "c"
+     ],
+     "args": [
+      "a"
+     ],
+     "env": [
+      {
+       "name": "E",
+       "value": "v",
+       "ref": "e/1"
+      },
+      {
+       "name": "P",
+       "value": "plain"
+      }
+     ],
+     "memoryBytes": "1",
+     "nanoCpus": "2",
+     "cpuReserveMillis": "3",
+     "pidsLimit": "4",
+     "volumes": [
+      "v"
+     ],
+     "secretFiles": [
+      "/f"
+     ]
+    }
+   ],
+   "sidecars": [
+    {
+     "name": "s",
+     "image": "s:1"
+    }
+   ],
+   "hold": true,
+   "fenceAfterSeconds": "30"
+  }
+ },
+ {
+  "hash": "be26ea054c001bb2eeeb9b4cb7dd46c9",
+  "spec": {
+   "id": "web-r1-a",
+   "app": "web",
+   "revision": "web--r1",
+   "image": "nginx:1",
+   "command": [
+    "/bin/web"
+   ],
+   "args": [
+    "--x",
+    "c"
+   ],
+   "env": [
+    {
+     "name": "A",
+     "value": "1"
+    },
+    {
+     "name": "S",
+     "value": "secret",
+     "ref": "s/v1"
+    }
+   ],
+   "port": 2000,
+   "memoryBytes": "268435456",
+   "nanoCpus": "500000000",
+   "pidsLimit": "1024",
+   "startup": {
+    "path": "/s",
+    "port": 81,
+    "initialDelayMs": "5",
+    "periodMs": "6",
+    "timeoutMs": "7",
+    "failureThreshold": 8,
+    "command": [
+     "a",
+     "b"
+    ]
+   },
+   "readiness": {
+    "path": "/r",
+    "initialDelayMs": "3600000"
+   },
+   "liveness": {
+    "path": "/l"
+   },
+   "secretFiles": [
+    {
+     "path": "/f",
+     "data": "c2VjcmV0",
+     "ref": "f/2"
+    }
+   ],
+   "registry": {
+    "server": "r",
+    "username": "u",
+    "password": "p",
+    "ref": "reg/1"
+   },
+   "cpuReserveMillis": "100",
+   "job": {
+    "job": "j",
+    "run": "3",
+    "done": true
+   },
+   "volumes": [
+    {
+     "name": "v",
+     "path": "/v",
+     "owner": "1:2"
+    },
+    {
+     "name": "n",
+     "path": "/n",
+     "nfs": {
+      "server": "10.0.0.1",
+      "path": "/e",
+      "readOnly": true
+     }
+    }
+   ],
+   "queues": [
+    {
+     "type": "redis",
+     "url": "redis://x",
+     "name": "q"
+    }
+   ],
+   "initContainers": [
+    {
+     "name": "i",
+     "image": "i:1",
+     "command": [
+      "c"
+     ],
+     "args": [
+      "a"
+     ],
+     "env": [
+      {
+       "name": "E",
+       "value": "v",
+       "ref": "e/1"
+      },
+      {
+       "name": "P",
+       "value": "plain"
+      }
+     ],
+     "memoryBytes": "1",
+     "nanoCpus": "2",
+     "cpuReserveMillis": "3",
+     "pidsLimit": "4",
+     "volumes": [
+      "v"
+     ],
+     "secretFiles": [
+      "/f"
+     ]
+    }
+   ],
+   "sidecars": [
+    {
+     "name": "s",
+     "image": "s:1"
+    }
+   ],
+   "hold": true,
+   "fenceAfterSeconds": "30"
+  }
+ },
+ {
+  "hash": "306e6cf5218299ca8cb1734eb68e0d57",
+  "spec": {
+   "id": "web-r1-a",
+   "app": "web",
+   "revision": "web--r1",
+   "image": "nginx:1",
+   "command": [
+    "/bin/web"
+   ],
+   "args": [
+    "--x",
+    "d"
+   ],
+   "port": 3000,
+   "memoryBytes": "268435456",
+   "nanoCpus": "500000000",
+   "pidsLimit": "1024",
+   "startup": {
+    "path": "/s",
+    "port": 81,
+    "initialDelayMs": "5",
+    "periodMs": "6",
+    "timeoutMs": "7",
+    "failureThreshold": 8,
+    "command": [
+     "a",
+     "b"
+    ]
+   },
+   "readiness": {
+    "path": "/r",
+    "initialDelayMs": "3600000"
+   },
+   "liveness": {
+    "path": "/l"
+   },
+   "secretFiles": [
+    {
+     "path": "/f",
+     "data": "c2VjcmV0",
+     "ref": "f/2"
+    }
+   ],
+   "registry": {
+    "server": "r",
+    "username": "u",
+    "password": "p",
+    "ref": "reg/1"
+   },
+   "cpuReserveMillis": "100",
+   "job": {
+    "job": "j",
+    "run": "3",
+    "done": true
+   },
+   "volumes": [
+    {
+     "name": "v",
+     "path": "/v",
+     "owner": "1:2"
+    },
+    {
+     "name": "n",
+     "path": "/n",
+     "nfs": {
+      "server": "10.0.0.1",
+      "path": "/e",
+      "readOnly": true
+     }
+    }
+   ],
+   "queues": [
+    {
+     "type": "redis",
+     "url": "redis://x",
+     "name": "q"
+    }
+   ],
+   "initContainers": [
+    {
+     "name": "i",
+     "image": "i:1",
+     "command": [
+      "c"
+     ],
+     "args": [
+      "a"
+     ],
+     "env": [
+      {
+       "name": "E",
+       "value": "v",
+       "ref": "e/1"
+      },
+      {
+       "name": "P",
+       "value": "plain"
+      }
+     ],
+     "memoryBytes": "1",
+     "nanoCpus": "2",
+     "cpuReserveMillis": "3",
+     "pidsLimit": "4",
+     "volumes": [
+      "v"
+     ],
+     "secretFiles": [
+      "/f"
+     ]
+    }
+   ],
+   "sidecars": [
+    {
+     "name": "s",
+     "image": "s:1"
+    }
+   ],
+   "hold": true,
+   "fenceAfterSeconds": "30"
+  }
+ },
+ {
+  "hash": "1e34e3b90664027389885fc2e7f43a7d",
+  "spec": {
+   "id": "web-r1-a",
+   "app": "web",
+   "revision": "web--r1",
+   "image": "nginx:1",
+   "command": [
+    "/bin/web"
+   ],
+   "args": [
+    "--x",
+    "e"
+   ],
+   "env": [
+    {
+     "name": "A",
+     "value": "1"
+    }
+   ],
+   "port": 4000,
+   "memoryBytes": "268435456",
+   "nanoCpus": "500000000",
+   "pidsLimit": "1024",
+   "startup": {
+    "path": "/s",
+    "port": 81,
+    "initialDelayMs": "5",
+    "periodMs": "6",
+    "timeoutMs": "7",
+    "failureThreshold": 8,
+    "command": [
+     "a",
+     "b"
+    ]
+   },
+   "readiness": {
+    "path": "/r",
+    "initialDelayMs": "3600000"
+   },
+   "liveness": {
+    "path": "/l"
+   },
+   "secretFiles": [
+    {
+     "path": "/f",
+     "data": "c2VjcmV0",
+     "ref": "f/2"
+    }
+   ],
+   "registry": {
+    "server": "r",
+    "username": "u",
+    "password": "p",
+    "ref": "reg/1"
+   },
+   "cpuReserveMillis": "100",
+   "job": {
+    "job": "j",
+    "run": "3",
+    "done": true
+   },
+   "volumes": [
+    {
+     "name": "v",
+     "path": "/v",
+     "owner": "1:2"
+    },
+    {
+     "name": "n",
+     "path": "/n",
+     "nfs": {
+      "server": "10.0.0.1",
+      "path": "/e",
+      "readOnly": true
+     }
+    }
+   ],
+   "queues": [
+    {
+     "type": "redis",
+     "url": "redis://x",
+     "name": "q"
+    }
+   ],
+   "initContainers": [
+    {
+     "name": "i",
+     "image": "i:1",
+     "command": [
+      "c"
+     ],
+     "args": [
+      "a"
+     ],
+     "env": [
+      {
+       "name": "E",
+       "value": "v",
+       "ref": "e/1"
+      },
+      {
+       "name": "P",
+       "value": "plain"
+      }
+     ],
+     "memoryBytes": "1",
+     "nanoCpus": "2",
+     "cpuReserveMillis": "3",
+     "pidsLimit": "4",
+     "volumes": [
+      "v"
+     ],
+     "secretFiles": [
+      "/f"
+     ]
+    }
+   ],
+   "sidecars": [
+    {
+     "name": "s",
+     "image": "s:1"
+    }
+   ],
+   "hold": true,
+   "fenceAfterSeconds": "30"
+  }
+ },
+ {
+  "hash": "148eda334a9ae137febfef383ce6ee15",
+  "spec": {
+   "id": "web-r1-a",
+   "app": "web",
+   "revision": "web--r1",
+   "image": "nginx:1",
+   "command": [
+    "/bin/web"
+   ],
+   "args": [
+    "--x",
+    "f"
+   ],
+   "env": [
+    {
+     "name": "A",
+     "value": "1"
+    },
+    {
+     "name": "S",
+     "value": "secret",
+     "ref": "s/v1"
+    }
+   ],
+   "port": 5000,
+   "memoryBytes": "268435456",
+   "nanoCpus": "500000000",
+   "pidsLimit": "1024",
+   "startup": {
+    "path": "/s",
+    "port": 81,
+    "initialDelayMs": "5",
+    "periodMs": "6",
+    "timeoutMs": "7",
+    "failureThreshold": 8,
+    "command": [
+     "a",
+     "b"
+    ]
+   },
+   "readiness": {
+    "path": "/r",
+    "initialDelayMs": "3600000"
+   },
+   "liveness": {
+    "path": "/l"
+   },
+   "secretFiles": [
+    {
+     "path": "/f",
+     "data": "c2VjcmV0",
+     "ref": "f/2"
+    }
+   ],
+   "registry": {
+    "server": "r",
+    "username": "u",
+    "password": "p",
+    "ref": "reg/1"
+   },
+   "cpuReserveMillis": "100",
+   "job": {
+    "job": "j",
+    "run": "3",
+    "done": true
+   },
+   "volumes": [
+    {
+     "name": "v",
+     "path": "/v",
+     "owner": "1:2"
+    },
+    {
+     "name": "n",
+     "path": "/n",
+     "nfs": {
+      "server": "10.0.0.1",
+      "path": "/e",
+      "readOnly": true
+     }
+    }
+   ],
+   "queues": [
+    {
+     "type": "redis",
+     "url": "redis://x",
+     "name": "q"
+    }
+   ],
+   "initContainers": [
+    {
+     "name": "i",
+     "image": "i:1",
+     "command": [
+      "c"
+     ],
+     "args": [
+      "a"
+     ],
+     "env": [
+      {
+       "name": "E",
+       "value": "v",
+       "ref": "e/1"
+      },
+      {
+       "name": "P",
+       "value": "plain"
+      }
+     ],
+     "memoryBytes": "1",
+     "nanoCpus": "2",
+     "cpuReserveMillis": "3",
+     "pidsLimit": "4",
+     "volumes": [
+      "v"
+     ],
+     "secretFiles": [
+      "/f"
+     ]
+    }
+   ],
+   "sidecars": [
+    {
+     "name": "s",
+     "image": "s:1"
+    }
+   ],
+   "hold": true,
+   "fenceAfterSeconds": "30"
+  }
+ },
+ {
+  "hash": "23a4ca1d01d1fe1b2018b0435ca8f791",
+  "spec": {
+   "id": "web-r1-a",
+   "app": "web",
+   "revision": "web--r1",
+   "image": "nginx:1",
+   "command": [
+    "/bin/web"
+   ],
+   "args": [
+    "--x",
+    "g"
+   ],
+   "port": 6000,
+   "memoryBytes": "268435456",
+   "nanoCpus": "500000000",
+   "pidsLimit": "1024",
+   "startup": {
+    "path": "/s",
+    "port": 81,
+    "initialDelayMs": "5",
+    "periodMs": "6",
+    "timeoutMs": "7",
+    "failureThreshold": 8,
+    "command": [
+     "a",
+     "b"
+    ]
+   },
+   "readiness": {
+    "path": "/r",
+    "initialDelayMs": "3600000"
+   },
+   "liveness": {
+    "path": "/l"
+   },
+   "secretFiles": [
+    {
+     "path": "/f",
+     "data": "c2VjcmV0",
+     "ref": "f/2"
+    }
+   ],
+   "registry": {
+    "server": "r",
+    "username": "u",
+    "password": "p",
+    "ref": "reg/1"
+   },
+   "cpuReserveMillis": "100",
+   "job": {
+    "job": "j",
+    "run": "3",
+    "done": true
+   },
+   "volumes": [
+    {
+     "name": "v",
+     "path": "/v",
+     "owner": "1:2"
+    },
+    {
+     "name": "n",
+     "path": "/n",
+     "nfs": {
+      "server": "10.0.0.1",
+      "path": "/e",
+      "readOnly": true
+     }
+    }
+   ],
+   "queues": [
+    {
+     "type": "redis",
+     "url": "redis://x",
+     "name": "q"
+    }
+   ],
+   "initContainers": [
+    {
+     "name": "i",
+     "image": "i:1",
+     "command": [
+      "c"
+     ],
+     "args": [
+      "a"
+     ],
+     "env": [
+      {
+       "name": "E",
+       "value": "v",
+       "ref": "e/1"
+      },
+      {
+       "name": "P",
+       "value": "plain"
+      }
+     ],
+     "memoryBytes": "1",
+     "nanoCpus": "2",
+     "cpuReserveMillis": "3",
+     "pidsLimit": "4",
+     "volumes": [
+      "v"
+     ],
+     "secretFiles": [
+      "/f"
+     ]
+    }
+   ],
+   "sidecars": [
+    {
+     "name": "s",
+     "image": "s:1"
+    }
+   ],
+   "hold": true,
+   "fenceAfterSeconds": "30"
+  }
+ },
+ {
+  "hash": "c464bb1ef97089241bfa4eb863735c4d",
+  "spec": {
+   "id": "web-r1-a",
+   "app": "web",
+   "revision": "web--r1",
+   "image": "nginx:1",
+   "command": [
+    "/bin/web"
+   ],
+   "args": [
+    "--x",
+    "h"
+   ],
+   "env": [
+    {
+     "name": "A",
+     "value": "1"
+    }
+   ],
+   "port": 7000,
+   "memoryBytes": "268435456",
+   "nanoCpus": "500000000",
+   "pidsLimit": "1024",
+   "startup": {
+    "path": "/s",
+    "port": 81,
+    "initialDelayMs": "5",
+    "periodMs": "6",
+    "timeoutMs": "7",
+    "failureThreshold": 8,
+    "command": [
+     "a",
+     "b"
+    ]
+   },
+   "readiness": {
+    "path": "/r",
+    "initialDelayMs": "3600000"
+   },
+   "liveness": {
+    "path": "/l"
+   },
+   "secretFiles": [
+    {
+     "path": "/f",
+     "data": "c2VjcmV0",
+     "ref": "f/2"
+    }
+   ],
+   "registry": {
+    "server": "r",
+    "username": "u",
+    "password": "p",
+    "ref": "reg/1"
+   },
+   "cpuReserveMillis": "100",
+   "job": {
+    "job": "j",
+    "run": "3",
+    "done": true
+   },
+   "volumes": [
+    {
+     "name": "v",
+     "path": "/v",
+     "owner": "1:2"
+    },
+    {
+     "name": "n",
+     "path": "/n",
+     "nfs": {
+      "server": "10.0.0.1",
+      "path": "/e",
+      "readOnly": true
+     }
+    }
+   ],
+   "queues": [
+    {
+     "type": "redis",
+     "url": "redis://x",
+     "name": "q"
+    }
+   ],
+   "initContainers": [
+    {
+     "name": "i",
+     "image": "i:1",
+     "command": [
+      "c"
+     ],
+     "args": [
+      "a"
+     ],
+     "env": [
+      {
+       "name": "E",
+       "value": "v",
+       "ref": "e/1"
+      },
+      {
+       "name": "P",
+       "value": "plain"
+      }
+     ],
+     "memoryBytes": "1",
+     "nanoCpus": "2",
+     "cpuReserveMillis": "3",
+     "pidsLimit": "4",
+     "volumes": [
+      "v"
+     ],
+     "secretFiles": [
+      "/f"
+     ]
+    }
+   ],
+   "sidecars": [
+    {
+     "name": "s",
+     "image": "s:1"
+    }
+   ],
+   "hold": true,
+   "fenceAfterSeconds": "30"
+  }
+ },
+ {
+  "hash": "6f282340c3ea97cd272737fe69a67c92",
+  "spec": {
+   "id": "web-r1-a",
+   "app": "web",
+   "revision": "web--r1",
+   "image": "nginx:1",
+   "command": [
+    "/bin/web"
+   ],
+   "args": [
+    "--x",
+    "i"
+   ],
+   "env": [
+    {
+     "name": "A",
+     "value": "1"
+    },
+    {
+     "name": "S",
+     "value": "secret",
+     "ref": "s/v1"
+    }
+   ],
+   "port": 8000,
+   "memoryBytes": "268435456",
+   "nanoCpus": "500000000",
+   "pidsLimit": "1024",
+   "startup": {
+    "path": "/s",
+    "port": 81,
+    "initialDelayMs": "5",
+    "periodMs": "6",
+    "timeoutMs": "7",
+    "failureThreshold": 8,
+    "command": [
+     "a",
+     "b"
+    ]
+   },
+   "readiness": {
+    "path": "/r",
+    "initialDelayMs": "3600000"
+   },
+   "liveness": {
+    "path": "/l"
+   },
+   "secretFiles": [
+    {
+     "path": "/f",
+     "data": "c2VjcmV0",
+     "ref": "f/2"
+    }
+   ],
+   "registry": {
+    "server": "r",
+    "username": "u",
+    "password": "p",
+    "ref": "reg/1"
+   },
+   "cpuReserveMillis": "100",
+   "job": {
+    "job": "j",
+    "run": "3",
+    "done": true
+   },
+   "volumes": [
+    {
+     "name": "v",
+     "path": "/v",
+     "owner": "1:2"
+    },
+    {
+     "name": "n",
+     "path": "/n",
+     "nfs": {
+      "server": "10.0.0.1",
+      "path": "/e",
+      "readOnly": true
+     }
+    }
+   ],
+   "queues": [
+    {
+     "type": "redis",
+     "url": "redis://x",
+     "name": "q"
+    }
+   ],
+   "initContainers": [
+    {
+     "name": "i",
+     "image": "i:1",
+     "command": [
+      "c"
+     ],
+     "args": [
+      "a"
+     ],
+     "env": [
+      {
+       "name": "E",
+       "value": "v",
+       "ref": "e/1"
+      },
+      {
+       "name": "P",
+       "value": "plain"
+      }
+     ],
+     "memoryBytes": "1",
+     "nanoCpus": "2",
+     "cpuReserveMillis": "3",
+     "pidsLimit": "4",
+     "volumes": [
+      "v"
+     ],
+     "secretFiles": [
+      "/f"
+     ]
+    }
+   ],
+   "sidecars": [
+    {
+     "name": "s",
+     "image": "s:1"
+    }
+   ],
+   "hold": true,
+   "fenceAfterSeconds": "30"
+  }
+ },
+ {
+  "hash": "4608703e8780b8f72d3e4153214b75eb",
+  "spec": {
+   "id": "web-r1-a",
+   "app": "web",
+   "revision": "web--r1",
+   "image": "nginx:1",
+   "command": [
+    "/bin/web"
+   ],
+   "args": [
+    "--x",
+    "j"
+   ],
+   "port": 9000,
+   "memoryBytes": "268435456",
+   "nanoCpus": "500000000",
+   "pidsLimit": "1024",
+   "startup": {
+    "path": "/s",
+    "port": 81,
+    "initialDelayMs": "5",
+    "periodMs": "6",
+    "timeoutMs": "7",
+    "failureThreshold": 8,
+    "command": [
+     "a",
+     "b"
+    ]
+   },
+   "readiness": {
+    "path": "/r",
+    "initialDelayMs": "3600000"
+   },
+   "liveness": {
+    "path": "/l"
+   },
+   "secretFiles": [
+    {
+     "path": "/f",
+     "data": "c2VjcmV0",
+     "ref": "f/2"
+    }
+   ],
+   "registry": {
+    "server": "r",
+    "username": "u",
+    "password": "p",
+    "ref": "reg/1"
+   },
+   "cpuReserveMillis": "100",
+   "job": {
+    "job": "j",
+    "run": "3",
+    "done": true
+   },
+   "volumes": [
+    {
+     "name": "v",
+     "path": "/v",
+     "owner": "1:2"
+    },
+    {
+     "name": "n",
+     "path": "/n",
+     "nfs": {
+      "server": "10.0.0.1",
+      "path": "/e",
+      "readOnly": true
+     }
+    }
+   ],
+   "queues": [
+    {
+     "type": "redis",
+     "url": "redis://x",
+     "name": "q"
+    }
+   ],
+   "initContainers": [
+    {
+     "name": "i",
+     "image": "i:1",
+     "command": [
+      "c"
+     ],
+     "args": [
+      "a"
+     ],
+     "env": [
+      {
+       "name": "E",
+       "value": "v",
+       "ref": "e/1"
+      },
+      {
+       "name": "P",
+       "value": "plain"
+      }
+     ],
+     "memoryBytes": "1",
+     "nanoCpus": "2",
+     "cpuReserveMillis": "3",
+     "pidsLimit": "4",
+     "volumes": [
+      "v"
+     ],
+     "secretFiles": [
+      "/f"
+     ]
+    }
+   ],
+   "sidecars": [
+    {
+     "name": "s",
+     "image": "s:1"
+    }
+   ],
+   "hold": true,
+   "fenceAfterSeconds": "30"
+  }
+ },
+ {
+  "hash": "2799824e8b8e77d4f042c15db1d55177",
+  "spec": {
+   "id": "web-r1-a",
+   "app": "web",
+   "revision": "web--r1",
+   "image": "nginx:1",
+   "command": [
+    "/bin/web"
+   ],
+   "args": [
+    "--x",
+    "k"
+   ],
+   "env": [
+    {
+     "name": "A",
+     "value": "1"
+    }
+   ],
+   "port": 10000,
+   "memoryBytes": "268435456",
+   "nanoCpus": "500000000",
+   "pidsLimit": "1024",
+   "startup": {
+    "path": "/s",
+    "port": 81,
+    "initialDelayMs": "5",
+    "periodMs": "6",
+    "timeoutMs": "7",
+    "failureThreshold": 8,
+    "command": [
+     "a",
+     "b"
+    ]
+   },
+   "readiness": {
+    "path": "/r",
+    "initialDelayMs": "3600000"
+   },
+   "liveness": {
+    "path": "/l"
+   },
+   "secretFiles": [
+    {
+     "path": "/f",
+     "data": "c2VjcmV0",
+     "ref": "f/2"
+    }
+   ],
+   "registry": {
+    "server": "r",
+    "username": "u",
+    "password": "p",
+    "ref": "reg/1"
+   },
+   "cpuReserveMillis": "100",
+   "job": {
+    "job": "j",
+    "run": "3",
+    "done": true
+   },
+   "volumes": [
+    {
+     "name": "v",
+     "path": "/v",
+     "owner": "1:2"
+    },
+    {
+     "name": "n",
+     "path": "/n",
+     "nfs": {
+      "server": "10.0.0.1",
+      "path": "/e",
+      "readOnly": true
+     }
+    }
+   ],
+   "queues": [
+    {
+     "type": "redis",
+     "url": "redis://x",
+     "name": "q"
+    }
+   ],
+   "initContainers": [
+    {
+     "name": "i",
+     "image": "i:1",
+     "command": [
+      "c"
+     ],
+     "args": [
+      "a"
+     ],
+     "env": [
+      {
+       "name": "E",
+       "value": "v",
+       "ref": "e/1"
+      },
+      {
+       "name": "P",
+       "value": "plain"
+      }
+     ],
+     "memoryBytes": "1",
+     "nanoCpus": "2",
+     "cpuReserveMillis": "3",
+     "pidsLimit": "4",
+     "volumes": [
+      "v"
+     ],
+     "secretFiles": [
+      "/f"
+     ]
+    }
+   ],
+   "sidecars": [
+    {
+     "name": "s",
+     "image": "s:1"
+    }
+   ],
+   "hold": true,
+   "fenceAfterSeconds": "30"
+  }
+ },
+ {
+  "hash": "b9238bd597d1485c1b53b8cc21791652",
+  "spec": {
+   "id": "web-r1-a",
+   "app": "web",
+   "revision": "web--r1",
+   "image": "nginx:1",
+   "command": [
+    "/bin/web"
+   ],
+   "args": [
+    "--x",
+    "l"
+   ],
+   "env": [
+    {
+     "name": "A",
+     "value": "1"
+    },
+    {
+     "name": "S",
+     "value": "secret",
+     "ref": "s/v1"
+    }
+   ],
+   "port": 11000,
+   "memoryBytes": "268435456",
+   "nanoCpus": "500000000",
+   "pidsLimit": "1024",
+   "startup": {
+    "path": "/s",
+    "port": 81,
+    "initialDelayMs": "5",
+    "periodMs": "6",
+    "timeoutMs": "7",
+    "failureThreshold": 8,
+    "command": [
+     "a",
+     "b"
+    ]
+   },
+   "readiness": {
+    "path": "/r",
+    "initialDelayMs": "3600000"
+   },
+   "liveness": {
+    "path": "/l"
+   },
+   "secretFiles": [
+    {
+     "path": "/f",
+     "data": "c2VjcmV0",
+     "ref": "f/2"
+    }
+   ],
+   "registry": {
+    "server": "r",
+    "username": "u",
+    "password": "p",
+    "ref": "reg/1"
+   },
+   "cpuReserveMillis": "100",
+   "job": {
+    "job": "j",
+    "run": "3",
+    "done": true
+   },
+   "volumes": [
+    {
+     "name": "v",
+     "path": "/v",
+     "owner": "1:2"
+    },
+    {
+     "name": "n",
+     "path": "/n",
+     "nfs": {
+      "server": "10.0.0.1",
+      "path": "/e",
+      "readOnly": true
+     }
+    }
+   ],
+   "queues": [
+    {
+     "type": "redis",
+     "url": "redis://x",
+     "name": "q"
+    }
+   ],
+   "initContainers": [
+    {
+     "name": "i",
+     "image": "i:1",
+     "command": [
+      "c"
+     ],
+     "args": [
+      "a"
+     ],
+     "env": [
+      {
+       "name": "E",
+       "value": "v",
+       "ref": "e/1"
+      },
+      {
+       "name": "P",
+       "value": "plain"
+      }
+     ],
+     "memoryBytes": "1",
+     "nanoCpus": "2",
+     "cpuReserveMillis": "3",
+     "pidsLimit": "4",
+     "volumes": [
+      "v"
+     ],
+     "secretFiles": [
+      "/f"
+     ]
+    }
+   ],
+   "sidecars": [
+    {
+     "name": "s",
+     "image": "s:1"
+    }
+   ],
+   "hold": true,
+   "fenceAfterSeconds": "30"
+  }
+ },
+ {
+  "hash": "cd2ecf37eee08614c5cad0ec3891fcc1",
+  "spec": {
+   "id": "web-r1-a",
+   "app": "web",
+   "revision": "web--r1",
+   "image": "nginx:1",
+   "command": [
+    "/bin/web"
+   ],
+   "args": [
+    "--x",
+    "m"
+   ],
+   "port": 12000,
+   "memoryBytes": "268435456",
+   "nanoCpus": "500000000",
+   "pidsLimit": "1024",
+   "startup": {
+    "path": "/s",
+    "port": 81,
+    "initialDelayMs": "5",
+    "periodMs": "6",
+    "timeoutMs": "7",
+    "failureThreshold": 8,
+    "command": [
+     "a",
+     "b"
+    ]
+   },
+   "readiness": {
+    "path": "/r",
+    "initialDelayMs": "3600000"
+   },
+   "liveness": {
+    "path": "/l"
+   },
+   "secretFiles": [
+    {
+     "path": "/f",
+     "data": "c2VjcmV0",
+     "ref": "f/2"
+    }
+   ],
+   "registry": {
+    "server": "r",
+    "username": "u",
+    "password": "p",
+    "ref": "reg/1"
+   },
+   "cpuReserveMillis": "100",
+   "job": {
+    "job": "j",
+    "run": "3",
+    "done": true
+   },
+   "volumes": [
+    {
+     "name": "v",
+     "path": "/v",
+     "owner": "1:2"
+    },
+    {
+     "name": "n",
+     "path": "/n",
+     "nfs": {
+      "server": "10.0.0.1",
+      "path": "/e",
+      "readOnly": true
+     }
+    }
+   ],
+   "queues": [
+    {
+     "type": "redis",
+     "url": "redis://x",
+     "name": "q"
+    }
+   ],
+   "initContainers": [
+    {
+     "name": "i",
+     "image": "i:1",
+     "command": [
+      "c"
+     ],
+     "args": [
+      "a"
+     ],
+     "env": [
+      {
+       "name": "E",
+       "value": "v",
+       "ref": "e/1"
+      },
+      {
+       "name": "P",
+       "value": "plain"
+      }
+     ],
+     "memoryBytes": "1",
+     "nanoCpus": "2",
+     "cpuReserveMillis": "3",
+     "pidsLimit": "4",
+     "volumes": [
+      "v"
+     ],
+     "secretFiles": [
+      "/f"
+     ]
+    }
+   ],
+   "sidecars": [
+    {
+     "name": "s",
+     "image": "s:1"
+    }
+   ],
+   "hold": true,
+   "fenceAfterSeconds": "30"
+  }
+ },
+ {
+  "hash": "9480fa83edfc87344f49550b1f334a7e",
+  "spec": {
+   "id": "web-r1-a",
+   "app": "web",
+   "revision": "web--r1",
+   "image": "nginx:1",
+   "command": [
+    "/bin/web"
+   ],
+   "args": [
+    "--x",
+    "n"
+   ],
+   "env": [
+    {
+     "name": "A",
+     "value": "1"
+    }
+   ],
+   "port": 13000,
+   "memoryBytes": "268435456",
+   "nanoCpus": "500000000",
+   "pidsLimit": "1024",
+   "startup": {
+    "path": "/s",
+    "port": 81,
+    "initialDelayMs": "5",
+    "periodMs": "6",
+    "timeoutMs": "7",
+    "failureThreshold": 8,
+    "command": [
+     "a",
+     "b"
+    ]
+   },
+   "readiness": {
+    "path": "/r",
+    "initialDelayMs": "3600000"
+   },
+   "liveness": {
+    "path": "/l"
+   },
+   "secretFiles": [
+    {
+     "path": "/f",
+     "data": "c2VjcmV0",
+     "ref": "f/2"
+    }
+   ],
+   "registry": {
+    "server": "r",
+    "username": "u",
+    "password": "p",
+    "ref": "reg/1"
+   },
+   "cpuReserveMillis": "100",
+   "job": {
+    "job": "j",
+    "run": "3",
+    "done": true
+   },
+   "volumes": [
+    {
+     "name": "v",
+     "path": "/v",
+     "owner": "1:2"
+    },
+    {
+     "name": "n",
+     "path": "/n",
+     "nfs": {
+      "server": "10.0.0.1",
+      "path": "/e",
+      "readOnly": true
+     }
+    }
+   ],
+   "queues": [
+    {
+     "type": "redis",
+     "url": "redis://x",
+     "name": "q"
+    }
+   ],
+   "initContainers": [
+    {
+     "name": "i",
+     "image": "i:1",
+     "command": [
+      "c"
+     ],
+     "args": [
+      "a"
+     ],
+     "env": [
+      {
+       "name": "E",
+       "value": "v",
+       "ref": "e/1"
+      },
+      {
+       "name": "P",
+       "value": "plain"
+      }
+     ],
+     "memoryBytes": "1",
+     "nanoCpus": "2",
+     "cpuReserveMillis": "3",
+     "pidsLimit": "4",
+     "volumes": [
+      "v"
+     ],
+     "secretFiles": [
+      "/f"
+     ]
+    }
+   ],
+   "sidecars": [
+    {
+     "name": "s",
+     "image": "s:1"
+    }
+   ],
+   "hold": true,
+   "fenceAfterSeconds": "30"
+  }
+ },
+ {
+  "hash": "485e28fb55d5f9076014c28eb160af35",
+  "spec": {
+   "id": "web-r1-a",
+   "app": "web",
+   "revision": "web--r1",
+   "image": "nginx:1",
+   "command": [
+    "/bin/web"
+   ],
+   "args": [
+    "--x",
+    "o"
+   ],
+   "env": [
+    {
+     "name": "A",
+     "value": "1"
+    },
+    {
+     "name": "S",
+     "value": "secret",
+     "ref": "s/v1"
+    }
+   ],
+   "port": 14000,
+   "memoryBytes": "268435456",
+   "nanoCpus": "500000000",
+   "pidsLimit": "1024",
+   "startup": {
+    "path": "/s",
+    "port": 81,
+    "initialDelayMs": "5",
+    "periodMs": "6",
+    "timeoutMs": "7",
+    "failureThreshold": 8,
+    "command": [
+     "a",
+     "b"
+    ]
+   },
+   "readiness": {
+    "path": "/r",
+    "initialDelayMs": "3600000"
+   },
+   "liveness": {
+    "path": "/l"
+   },
+   "secretFiles": [
+    {
+     "path": "/f",
+     "data": "c2VjcmV0",
+     "ref": "f/2"
+    }
+   ],
+   "registry": {
+    "server": "r",
+    "username": "u",
+    "password": "p",
+    "ref": "reg/1"
+   },
+   "cpuReserveMillis": "100",
+   "job": {
+    "job": "j",
+    "run": "3",
+    "done": true
+   },
+   "volumes": [
+    {
+     "name": "v",
+     "path": "/v",
+     "owner": "1:2"
+    },
+    {
+     "name": "n",
+     "path": "/n",
+     "nfs": {
+      "server": "10.0.0.1",
+      "path": "/e",
+      "readOnly": true
+     }
+    }
+   ],
+   "queues": [
+    {
+     "type": "redis",
+     "url": "redis://x",
+     "name": "q"
+    }
+   ],
+   "initContainers": [
+    {
+     "name": "i",
+     "image": "i:1",
+     "command": [
+      "c"
+     ],
+     "args": [
+      "a"
+     ],
+     "env": [
+      {
+       "name": "E",
+       "value": "v",
+       "ref": "e/1"
+      },
+      {
+       "name": "P",
+       "value": "plain"
+      }
+     ],
+     "memoryBytes": "1",
+     "nanoCpus": "2",
+     "cpuReserveMillis": "3",
+     "pidsLimit": "4",
+     "volumes": [
+      "v"
+     ],
+     "secretFiles": [
+      "/f"
+     ]
+    }
+   ],
+   "sidecars": [
+    {
+     "name": "s",
+     "image": "s:1"
+    }
+   ],
+   "hold": true,
+   "fenceAfterSeconds": "30"
+  }
+ },
+ {
+  "hash": "b088db8474892fb7e9bb3f960c0f22b7",
+  "spec": {
+   "id": "web-r1-a",
+   "app": "web",
+   "revision": "web--r1",
+   "image": "nginx:1",
+   "command": [
+    "/bin/web"
+   ],
+   "args": [
+    "--x",
+    "p"
+   ],
+   "port": 15000,
+   "memoryBytes": "268435456",
+   "nanoCpus": "500000000",
+   "pidsLimit": "1024",
+   "startup": {
+    "path": "/s",
+    "port": 81,
+    "initialDelayMs": "5",
+    "periodMs": "6",
+    "timeoutMs": "7",
+    "failureThreshold": 8,
+    "command": [
+     "a",
+     "b"
+    ]
+   },
+   "readiness": {
+    "path": "/r",
+    "initialDelayMs": "3600000"
+   },
+   "liveness": {
+    "path": "/l"
+   },
+   "secretFiles": [
+    {
+     "path": "/f",
+     "data": "c2VjcmV0",
+     "ref": "f/2"
+    }
+   ],
+   "registry": {
+    "server": "r",
+    "username": "u",
+    "password": "p",
+    "ref": "reg/1"
+   },
+   "cpuReserveMillis": "100",
+   "job": {
+    "job": "j",
+    "run": "3",
+    "done": true
+   },
+   "volumes": [
+    {
+     "name": "v",
+     "path": "/v",
+     "owner": "1:2"
+    },
+    {
+     "name": "n",
+     "path": "/n",
+     "nfs": {
+      "server": "10.0.0.1",
+      "path": "/e",
+      "readOnly": true
+     }
+    }
+   ],
+   "queues": [
+    {
+     "type": "redis",
+     "url": "redis://x",
+     "name": "q"
+    }
+   ],
+   "initContainers": [
+    {
+     "name": "i",
+     "image": "i:1",
+     "command": [
+      "c"
+     ],
+     "args": [
+      "a"
+     ],
+     "env": [
+      {
+       "name": "E",
+       "value": "v",
+       "ref": "e/1"
+      },
+      {
+       "name": "P",
+       "value": "plain"
+      }
+     ],
+     "memoryBytes": "1",
+     "nanoCpus": "2",
+     "cpuReserveMillis": "3",
+     "pidsLimit": "4",
+     "volumes": [
+      "v"
+     ],
+     "secretFiles": [
+      "/f"
+     ]
+    }
+   ],
+   "sidecars": [
+    {
+     "name": "s",
+     "image": "s:1"
+    }
+   ],
+   "hold": true,
+   "fenceAfterSeconds": "30"
+  }
+ },
+ {
+  "hash": "561a2f7ada4aa1c939e6a0f9274a617c",
+  "spec": {
+   "id": "web-r1-a",
+   "app": "web",
+   "revision": "web--r1",
+   "image": "nginx:1",
+   "command": [
+    "/bin/web"
+   ],
+   "args": [
+    "--x",
+    "q"
+   ],
+   "env": [
+    {
+     "name": "A",
+     "value": "1"
+    }
+   ],
+   "port": 16000,
+   "memoryBytes": "268435456",
+   "nanoCpus": "500000000",
+   "pidsLimit": "1024",
+   "startup": {
+    "path": "/s",
+    "port": 81,
+    "initialDelayMs": "5",
+    "periodMs": "6",
+    "timeoutMs": "7",
+    "failureThreshold": 8,
+    "command": [
+     "a",
+     "b"
+    ]
+   },
+   "readiness": {
+    "path": "/r",
+    "initialDelayMs": "3600000"
+   },
+   "liveness": {
+    "path": "/l"
+   },
+   "secretFiles": [
+    {
+     "path": "/f",
+     "data": "c2VjcmV0",
+     "ref": "f/2"
+    }
+   ],
+   "registry": {
+    "server": "r",
+    "username": "u",
+    "password": "p",
+    "ref": "reg/1"
+   },
+   "cpuReserveMillis": "100",
+   "job": {
+    "job": "j",
+    "run": "3",
+    "done": true
+   },
+   "volumes": [
+    {
+     "name": "v",
+     "path": "/v",
+     "owner": "1:2"
+    },
+    {
+     "name": "n",
+     "path": "/n",
+     "nfs": {
+      "server": "10.0.0.1",
+      "path": "/e",
+      "readOnly": true
+     }
+    }
+   ],
+   "queues": [
+    {
+     "type": "redis",
+     "url": "redis://x",
+     "name": "q"
+    }
+   ],
+   "initContainers": [
+    {
+     "name": "i",
+     "image": "i:1",
+     "command": [
+      "c"
+     ],
+     "args": [
+      "a"
+     ],
+     "env": [
+      {
+       "name": "E",
+       "value": "v",
+       "ref": "e/1"
+      },
+      {
+       "name": "P",
+       "value": "plain"
+      }
+     ],
+     "memoryBytes": "1",
+     "nanoCpus": "2",
+     "cpuReserveMillis": "3",
+     "pidsLimit": "4",
+     "volumes": [
+      "v"
+     ],
+     "secretFiles": [
+      "/f"
+     ]
+    }
+   ],
+   "sidecars": [
+    {
+     "name": "s",
+     "image": "s:1"
+    }
+   ],
+   "hold": true,
+   "fenceAfterSeconds": "30"
+  }
+ },
+ {
+  "hash": "8b7b7c35171d03570accabf54d74e19a",
+  "spec": {
+   "id": "web-r1-a",
+   "app": "web",
+   "revision": "web--r1",
+   "image": "nginx:1",
+   "command": [
+    "/bin/web"
+   ],
+   "args": [
+    "--x",
+    "r"
+   ],
+   "env": [
+    {
+     "name": "A",
+     "value": "1"
+    },
+    {
+     "name": "S",
+     "value": "secret",
+     "ref": "s/v1"
+    }
+   ],
+   "port": 17000,
+   "memoryBytes": "268435456",
+   "nanoCpus": "500000000",
+   "pidsLimit": "1024",
+   "startup": {
+    "path": "/s",
+    "port": 81,
+    "initialDelayMs": "5",
+    "periodMs": "6",
+    "timeoutMs": "7",
+    "failureThreshold": 8,
+    "command": [
+     "a",
+     "b"
+    ]
+   },
+   "readiness": {
+    "path": "/r",
+    "initialDelayMs": "3600000"
+   },
+   "liveness": {
+    "path": "/l"
+   },
+   "secretFiles": [
+    {
+     "path": "/f",
+     "data": "c2VjcmV0",
+     "ref": "f/2"
+    }
+   ],
+   "registry": {
+    "server": "r",
+    "username": "u",
+    "password": "p",
+    "ref": "reg/1"
+   },
+   "cpuReserveMillis": "100",
+   "job": {
+    "job": "j",
+    "run": "3",
+    "done": true
+   },
+   "volumes": [
+    {
+     "name": "v",
+     "path": "/v",
+     "owner": "1:2"
+    },
+    {
+     "name": "n",
+     "path": "/n",
+     "nfs": {
+      "server": "10.0.0.1",
+      "path": "/e",
+      "readOnly": true
+     }
+    }
+   ],
+   "queues": [
+    {
+     "type": "redis",
+     "url": "redis://x",
+     "name": "q"
+    }
+   ],
+   "initContainers": [
+    {
+     "name": "i",
+     "image": "i:1",
+     "command": [
+      "c"
+     ],
+     "args": [
+      "a"
+     ],
+     "env": [
+      {
+       "name": "E",
+       "value": "v",
+       "ref": "e/1"
+      },
+      {
+       "name": "P",
+       "value": "plain"
+      }
+     ],
+     "memoryBytes": "1",
+     "nanoCpus": "2",
+     "cpuReserveMillis": "3",
+     "pidsLimit": "4",
+     "volumes": [
+      "v"
+     ],
+     "secretFiles": [
+      "/f"
+     ]
+    }
+   ],
+   "sidecars": [
+    {
+     "name": "s",
+     "image": "s:1"
+    }
+   ],
+   "hold": true,
+   "fenceAfterSeconds": "30"
+  }
+ },
+ {
+  "hash": "1b19c70f5368aa21457bf92964b4c973",
+  "spec": {
+   "id": "web-r1-a",
+   "app": "web",
+   "revision": "web--r1",
+   "image": "nginx:1",
+   "command": [
+    "/bin/web"
+   ],
+   "args": [
+    "--x",
+    "s"
+   ],
+   "port": 18000,
+   "memoryBytes": "268435456",
+   "nanoCpus": "500000000",
+   "pidsLimit": "1024",
+   "startup": {
+    "path": "/s",
+    "port": 81,
+    "initialDelayMs": "5",
+    "periodMs": "6",
+    "timeoutMs": "7",
+    "failureThreshold": 8,
+    "command": [
+     "a",
+     "b"
+    ]
+   },
+   "readiness": {
+    "path": "/r",
+    "initialDelayMs": "3600000"
+   },
+   "liveness": {
+    "path": "/l"
+   },
+   "secretFiles": [
+    {
+     "path": "/f",
+     "data": "c2VjcmV0",
+     "ref": "f/2"
+    }
+   ],
+   "registry": {
+    "server": "r",
+    "username": "u",
+    "password": "p",
+    "ref": "reg/1"
+   },
+   "cpuReserveMillis": "100",
+   "job": {
+    "job": "j",
+    "run": "3",
+    "done": true
+   },
+   "volumes": [
+    {
+     "name": "v",
+     "path": "/v",
+     "owner": "1:2"
+    },
+    {
+     "name": "n",
+     "path": "/n",
+     "nfs": {
+      "server": "10.0.0.1",
+      "path": "/e",
+      "readOnly": true
+     }
+    }
+   ],
+   "queues": [
+    {
+     "type": "redis",
+     "url": "redis://x",
+     "name": "q"
+    }
+   ],
+   "initContainers": [
+    {
+     "name": "i",
+     "image": "i:1",
+     "command": [
+      "c"
+     ],
+     "args": [
+      "a"
+     ],
+     "env": [
+      {
+       "name": "E",
+       "value": "v",
+       "ref": "e/1"
+      },
+      {
+       "name": "P",
+       "value": "plain"
+      }
+     ],
+     "memoryBytes": "1",
+     "nanoCpus": "2",
+     "cpuReserveMillis": "3",
+     "pidsLimit": "4",
+     "volumes": [
+      "v"
+     ],
+     "secretFiles": [
+      "/f"
+     ]
+    }
+   ],
+   "sidecars": [
+    {
+     "name": "s",
+     "image": "s:1"
+    }
+   ],
+   "hold": true,
+   "fenceAfterSeconds": "30"
+  }
+ },
+ {
+  "hash": "6d356b8d15c1001a5cd5e6c44e240f8b",
+  "spec": {
+   "id": "web-r1-a",
+   "app": "web",
+   "revision": "web--r1",
+   "image": "nginx:1",
+   "command": [
+    "/bin/web"
+   ],
+   "args": [
+    "--x",
+    "t"
+   ],
+   "env": [
+    {
+     "name": "A",
+     "value": "1"
+    }
+   ],
+   "port": 19000,
+   "memoryBytes": "268435456",
+   "nanoCpus": "500000000",
+   "pidsLimit": "1024",
+   "startup": {
+    "path": "/s",
+    "port": 81,
+    "initialDelayMs": "5",
+    "periodMs": "6",
+    "timeoutMs": "7",
+    "failureThreshold": 8,
+    "command": [
+     "a",
+     "b"
+    ]
+   },
+   "readiness": {
+    "path": "/r",
+    "initialDelayMs": "3600000"
+   },
+   "liveness": {
+    "path": "/l"
+   },
+   "secretFiles": [
+    {
+     "path": "/f",
+     "data": "c2VjcmV0",
+     "ref": "f/2"
+    }
+   ],
+   "registry": {
+    "server": "r",
+    "username": "u",
+    "password": "p",
+    "ref": "reg/1"
+   },
+   "cpuReserveMillis": "100",
+   "job": {
+    "job": "j",
+    "run": "3",
+    "done": true
+   },
+   "volumes": [
+    {
+     "name": "v",
+     "path": "/v",
+     "owner": "1:2"
+    },
+    {
+     "name": "n",
+     "path": "/n",
+     "nfs": {
+      "server": "10.0.0.1",
+      "path": "/e",
+      "readOnly": true
+     }
+    }
+   ],
+   "queues": [
+    {
+     "type": "redis",
+     "url": "redis://x",
+     "name": "q"
+    }
+   ],
+   "initContainers": [
+    {
+     "name": "i",
+     "image": "i:1",
+     "command": [
+      "c"
+     ],
+     "args": [
+      "a"
+     ],
+     "env": [
+      {
+       "name": "E",
+       "value": "v",
+       "ref": "e/1"
+      },
+      {
+       "name": "P",
+       "value": "plain"
+      }
+     ],
+     "memoryBytes": "1",
+     "nanoCpus": "2",
+     "cpuReserveMillis": "3",
+     "pidsLimit": "4",
+     "volumes": [
+      "v"
+     ],
+     "secretFiles": [
+      "/f"
+     ]
+    }
+   ],
+   "sidecars": [
+    {
+     "name": "s",
+     "image": "s:1"
+    }
+   ],
+   "hold": true,
+   "fenceAfterSeconds": "30"
+  }
+ }
+]

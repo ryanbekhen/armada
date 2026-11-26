@@ -378,6 +378,7 @@ func newSideHarness(t *testing.T, f *pfake) *sideHarness {
 
 // script sets what the fake armada-node answers.
 func (h *sideHarness) script(sc nodeScript) {
+	h.f.changed(map[string]any{"op": "nodeScript", "script": nodeScriptJSON(sc)})
 	b, _ := json.Marshal(sc)
 	if err := os.WriteFile(filepath.Join(h.root, "script.json"), b, 0o600); err != nil {
 		h.t.Fatal(err)
@@ -795,7 +796,30 @@ func (r *rustAgent) exportRound() time.Duration {
 // the runtime's calls, the sessions' streams, the fake armada-node's
 // calls, and the log endpoint's requests.
 func (p *parityRun) side(name string, fn func(a sideAgent)) {
-	fn(p.a.(sideAgent))
+	if p.rec != nil {
+		step := map[string]any{"op": "side", "name": name}
+		var in []json.RawMessage
+		for _, x := range p.sh.srv.execIn {
+			in = append(in, protoJSON(x))
+		}
+		step["execIn"] = in
+		in = nil
+		for _, x := range p.sh.srv.volIn {
+			in = append(in, protoJSON(x))
+		}
+		step["volIn"] = in
+		p.sh.export.mu.Lock()
+		step["exportStatus"] = p.sh.export.status
+		p.sh.export.mu.Unlock()
+		actions := []map[string]any{}
+		defer p.rec.begin(step)()
+		p.rec.collecting = &actions
+		fn(p.a.(sideAgent))
+		p.rec.collecting = nil
+		step["actions"] = actions
+	} else {
+		fn(p.a.(sideAgent))
+	}
 	p.note("side", name)
 	p.note("calls", strings.Join(p.f.takeCalls(), "\n"))
 	p.note("server", p.normalize(strings.Join(p.sh.srv.take(), "\n")))
@@ -806,6 +830,7 @@ func (p *parityRun) side(name string, fn func(a sideAgent)) {
 
 // sampleSide records a usage sample, the ages of sandbox readings left out.
 func (p *parityRun) sampleSide(name string) {
+	defer p.rec.begin(map[string]any{"op": "sampleSide", "name": name})()
 	u := p.a.sample()
 	for _, s := range u.GetSandboxes() {
 		s.AgeMillis = 0

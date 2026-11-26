@@ -1,0 +1,44 @@
+[
+ {
+  "addr": "$ADDR",
+  "error": "",
+  "path": "/ok",
+  "timeoutMs": 300
+ },
+ {
+  "addr": "$ADDR",
+  "error": "",
+  "path": "/moved",
+  "timeoutMs": 300
+ },
+ {
+  "addr": "$ADDR",
+  "error": "HTTP 503",
+  "path": "/down",
+  "timeoutMs": 300
+ },
+ {
+  "addr": "$ADDR",
+  "error": "Get \"http://$ADDR/slow\": context deadline exceeded",
+  "path": "/slow",
+  "timeoutMs": 300
+ },
+ {
+  "addr": "$ADDR",
+  "error": "",
+  "path": "",
+  "timeoutMs": 300
+ },
+ {
+  "addr": "$REFUSED",
+  "error": "dial tcp $REFUSED: connect: connection refused",
+  "path": "",
+  "timeoutMs": 300
+ },
+ {
+  "addr": "$REFUSED",
+  "error": "Get \"http://$REFUSED/ok\": dial tcp $REFUSED: connect: connection refused",
+  "path": "/ok",
+  "timeoutMs": 300
+ }
+]

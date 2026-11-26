@@ -1,0 +1,152 @@
+{
+ "name": "TestAgentParity/job_created_but_never_started",
+ "opts": {
+  "bootNs": 1767222000000000000,
+  "bridge": "",
+  "crashBaseNs": 1000000000,
+  "dns": "",
+  "encodes": false,
+  "exec": true,
+  "members": true,
+  "move": false,
+  "network": false,
+  "networkKey": "",
+  "noSecretsDir": false,
+  "proxy": false,
+  "sandbox": false,
+  "side": false,
+  "stats": true,
+  "unpublished": false,
+  "volumes": true,
+  "volumesDir": true
+ },
+ "steps": [
+  {
+   "container": {
+    "id": "created",
+    "name": "armada-batch-j1-a",
+    "image": "busybox",
+    "labels": {
+     "armada.app": "batch",
+     "armada.managed": "true",
+     "armada.replica": "batch-j1-a",
+     "armada.revision": "web--r1",
+     "armada.spec-hash": "93f061882b20c7069ff7d2c8e12232fd"
+    },
+    "state": "created",
+    "exitCode": 0,
+    "hostIp": "10.0.0.2",
+    "hostPort": 31000,
+    "ip": "",
+    "startedNs": 1767225540000000000,
+    "members": [],
+    "startError": ""
+   },
+   "op": "add"
+  },
+  {
+   "op": "fake",
+   "script": {
+    "agentStatus": {
+     "agent": "",
+     "converted": false,
+     "error": "",
+     "goImages": false,
+     "imagesToPull": 0
+    },
+    "checks": {},
+    "digests": {},
+    "execCodes": {},
+    "holdPulls": false,
+    "holdStarts": false,
+    "in": {
+     "certErr": "",
+     "certs": {},
+     "clientsErr": "",
+     "healthErr": "",
+     "keyErr": "",
+     "load": {},
+     "loadErr": "",
+     "moveErr": "",
+     "netErr": "",
+     "peers": null,
+     "proxyErr": "",
+     "switching": null,
+     "userspace": false
+    },
+    "initExits": {},
+    "platforms": {},
+    "pullErr": {},
+    "runErr": {
+     "busybox": "no space left"
+    },
+    "side": {
+     "bodies": [],
+     "boxes": null,
+     "frames": {},
+     "logsErr": "",
+     "notice": "",
+     "qerr": null,
+     "queues": null,
+     "search": [],
+     "size": 0,
+     "tail": [],
+     "tailErr": ""
+    },
+    "usage": {}
+   }
+  },
+  {
+   "assignment": {
+    "replicas": [
+     {
+      "id": "batch-j1-a",
+      "app": "batch",
+      "revision": "web--r1",
+      "image": "busybox",
+      "command": [
+       "/bin/web"
+      ],
+      "args": [
+       "--x"
+      ],
+      "env": [
+       {
+        "name": "A",
+        "value": "1"
+       },
+       {
+        "name": "S",
+        "value": "secret",
+        "ref": "s/v1"
+       }
+      ],
+      "memoryBytes": "268435456",
+      "nanoCpus": "500000000",
+      "pidsLimit": "1024",
+      "readiness": {
+       "path": "/r",
+       "initialDelayMs": "3600000"
+      },
+      "cpuReserveMillis": "100",
+      "job": {
+       "job": "batch",
+       "run": "1"
+      }
+     }
+    ]
+   },
+   "op": "assign"
+  },
+  {
+   "expect": [
+    "step removed, failed to start again",
+    "report {\"replicas\":[{\"id\":\"batch-j1-a\",\"state\":\"failed\",\"message\":\"no space left\"}]}",
+    "calls list {\"labels\":{\"armada.managed\":\"true\"}}\npull {\"auth\":null,\"image\":\"busybox\"}\nremove {\"id\":\"created\"}\nrun {\"spec\":{\"name\":\"armada-batch-j1-a\",\"image\":\"busybox\",\"entrypoint\":[\"/bin/web\"],\"cmd\":[\"--x\"],\"env\":[\"A=1\",\"S=secret\"],\"labels\":{\"armada.app\":\"batch\",\"armada.managed\":\"true\",\"armada.replica\":\"batch-j1-a\",\"armada.revision\":\"web--r1\",\"armada.spec-hash\":\"93f061882b20c7069ff7d2c8e12232fd\"},\"hostIp\":\"10.0.0.2\",\"memoryBytes\":268435456,\"nanoCpus\":500000000,\"cpuReserveMillis\":100,\"pidsLimit\":1024}}\nstop {\"graceMs\":10000,\"id\":\"created\"}",
+    "files "
+   ],
+   "name": "removed, failed to start again",
+   "op": "reconcile"
+  }
+ ]
+}

@@ -1,0 +1,335 @@
+{
+ "name": "TestAgentParitySide/log_export_encoded",
+ "opts": {
+  "bootNs": 1767222000000000000,
+  "bridge": "",
+  "crashBaseNs": 1000000000,
+  "dns": "",
+  "encodes": true,
+  "exec": true,
+  "members": true,
+  "move": false,
+  "network": false,
+  "networkKey": "",
+  "noSecretsDir": false,
+  "proxy": false,
+  "sandbox": false,
+  "side": true,
+  "stats": true,
+  "unpublished": false,
+  "volumes": true,
+  "volumesDir": true
+ },
+ "steps": [
+  {
+   "op": "fake",
+   "script": {
+    "agentStatus": {
+     "agent": "",
+     "converted": false,
+     "error": "",
+     "goImages": false,
+     "imagesToPull": 0
+    },
+    "checks": {},
+    "digests": {},
+    "execCodes": {},
+    "holdPulls": false,
+    "holdStarts": false,
+    "in": {
+     "certErr": "",
+     "certs": {},
+     "clientsErr": "",
+     "healthErr": "",
+     "keyErr": "",
+     "load": {},
+     "loadErr": "",
+     "moveErr": "",
+     "netErr": "",
+     "peers": null,
+     "proxyErr": "",
+     "switching": null,
+     "userspace": false
+    },
+    "initExits": {},
+    "platforms": {},
+    "pullErr": {},
+    "runErr": {},
+    "side": {
+     "bodies": [
+      "eyJzdHJlYW1zIjpbXX0=",
+      "eyJzdHJlYW1zIjpbeyJzdHJlYW0iOnt9fV19"
+     ],
+     "boxes": null,
+     "frames": {},
+     "logsErr": "",
+     "notice": "",
+     "qerr": null,
+     "queues": null,
+     "search": [],
+     "size": 100,
+     "tail": [
+      {
+       "app": "web",
+       "container": "",
+       "data": "aGVsbG8gPHdvcmxkPiAmIG1vcmUK",
+       "replica": "web-r1-a",
+       "revision": "web--r1",
+       "stderr": false,
+       "timeNs": 1767225601000000005
+      },
+      {
+       "app": "api.ops",
+       "container": "side",
+       "data": "YmFkIP8gYnl0ZQ==",
+       "replica": "api.ops-r1-a",
+       "revision": "",
+       "stderr": true,
+       "timeNs": 1767225601000000005
+      },
+      {
+       "app": "-x-",
+       "container": "",
+       "data": "bm90IGFuIGFwcA==",
+       "replica": "",
+       "revision": "",
+       "stderr": false,
+       "timeNs": 1767225601000000005
+      }
+     ],
+     "tailErr": ""
+    },
+    "usage": {}
+   }
+  },
+  {
+   "actions": [
+    {
+     "note": "wait",
+     "op": "export"
+    }
+   ],
+   "execIn": null,
+   "expect": [
+    "wait 2s",
+    "side off",
+    "calls ",
+    "server ",
+    "node ",
+    "export "
+   ],
+   "exportStatus": 0,
+   "name": "off",
+   "op": "side",
+   "volIn": null
+  },
+  {
+   "assignment": {
+    "logs": {
+     "export": {
+      "format": "loki",
+      "endpoint": "$EXPORT/loki/api/v1/push",
+      "user": "u1",
+      "token": "c2VjcmV0LXRva2Vu",
+      "tenant": "t1",
+      "setAt": "5"
+     }
+    }
+   },
+   "op": "assign"
+  },
+  {
+   "actions": [
+    {
+     "note": "wait",
+     "op": "export"
+    }
+   ],
+   "execIn": null,
+   "expect": [
+    "wait 2s",
+    "side loki",
+    "calls commitLogs {\"target\":true}\ntailLogsEncoded {\"batchBytes\":1048576,\"batchRecords\":2000,\"format\":\"loki\",\"maxBytes\":8388608,\"node\":\"n1\",\"target\":true}",
+    "server ",
+    "node ",
+    "export POST /loki/api/v1/push type=application/json encoding=gzip agent=armada auth=\"Basic dTE6c2VjcmV0LXRva2Vu\" tenant=\"t1\" {\"streams\":[]}\nPOST /loki/api/v1/push type=application/json encoding=gzip agent=armada auth=\"Basic dTE6c2VjcmV0LXRva2Vu\" tenant=\"t1\" {\"streams\":[{\"stream\":{}}]}"
+   ],
+   "exportStatus": 0,
+   "name": "loki",
+   "op": "side",
+   "volIn": null
+  },
+  {
+   "expect": [
+    "usage sending {\"volumesMeasured\":true,\"logExport\":{}}",
+    "calls list {\"labels\":{\"armada.managed\":\"true\"}}",
+    "node conntrack raise {\"dir\":\"$ROOT/conntrack\",\"memory\":1073741824}\nconntrack read {\"dir\":\"$ROOT/conntrack\",\"memory\":1073741824}"
+   ],
+   "name": "sending",
+   "op": "sampleSide"
+  },
+  {
+   "assignment": {
+    "logs": {
+     "export": {
+      "format": "otlp",
+      "endpoint": "$EXPORT/v1/logs",
+      "token": "c2VjcmV0LXRva2Vu",
+      "setAt": "6"
+     }
+    }
+   },
+   "op": "assign"
+  },
+  {
+   "actions": [
+    {
+     "note": "wait",
+     "op": "export"
+    }
+   ],
+   "execIn": null,
+   "expect": [
+    "wait 2s",
+    "side otlp",
+    "calls commitLogs {\"target\":true}\ntailLogsEncoded {\"batchBytes\":1048576,\"batchRecords\":2000,\"format\":\"otlp\",\"maxBytes\":8388608,\"node\":\"n1\",\"target\":true}",
+    "server ",
+    "node ",
+    "export POST /v1/logs type=application/json encoding=gzip agent=armada auth=\"Bearer secret-token\" tenant=\"\" {\"streams\":[]}\nPOST /v1/logs type=application/json encoding=gzip agent=armada auth=\"Bearer secret-token\" tenant=\"\" {\"streams\":[{\"stream\":{}}]}"
+   ],
+   "exportStatus": 0,
+   "name": "otlp",
+   "op": "side",
+   "volIn": null
+  },
+  {
+   "actions": [
+    {
+     "note": "wait",
+     "op": "export"
+    }
+   ],
+   "execIn": null,
+   "expect": [
+    "wait 4s",
+    "side refused",
+    "calls tailLogsEncoded {\"batchBytes\":1048576,\"batchRecords\":2000,\"format\":\"otlp\",\"maxBytes\":8388608,\"node\":\"n1\",\"target\":true}",
+    "server ",
+    "node ",
+    "export POST /v1/logs type=application/json encoding=gzip agent=armada auth=\"Bearer secret-token\" tenant=\"\" {\"streams\":[]}"
+   ],
+   "exportStatus": 429,
+   "name": "refused",
+   "op": "side",
+   "volIn": null
+  },
+  {
+   "actions": [
+    {
+     "note": "wait",
+     "op": "export"
+    }
+   ],
+   "execIn": null,
+   "expect": [
+    "wait 8s",
+    "side refused again",
+    "calls tailLogsEncoded {\"batchBytes\":1048576,\"batchRecords\":2000,\"format\":\"otlp\",\"maxBytes\":8388608,\"node\":\"n1\",\"target\":true}",
+    "server ",
+    "node ",
+    "export POST /v1/logs type=application/json encoding=gzip agent=armada auth=\"Bearer secret-token\" tenant=\"\" {\"streams\":[]}"
+   ],
+   "exportStatus": 429,
+   "name": "refused again",
+   "op": "side",
+   "volIn": null
+  },
+  {
+   "expect": [
+    "usage failing {\"volumesMeasured\":true,\"logExport\":{\"failing\":true,\"error\":\"log endpoint answered 429: too many requests [token]\"}}",
+    "calls list {\"labels\":{\"armada.managed\":\"true\"}}",
+    "node conntrack raise {\"dir\":\"$ROOT/conntrack\",\"memory\":1073741824}\nconntrack read {\"dir\":\"$ROOT/conntrack\",\"memory\":1073741824}"
+   ],
+   "name": "failing",
+   "op": "sampleSide"
+  },
+  {
+   "assignment": {
+    "logs": {
+     "export": {
+      "format": "loki",
+      "endpoint": "http://203.0.113.5/push",
+      "setAt": "7"
+     }
+    }
+   },
+   "op": "assign"
+  },
+  {
+   "actions": [
+    {
+     "note": "wait",
+     "op": "export"
+    }
+   ],
+   "execIn": null,
+   "expect": [
+    "wait 2s",
+    "side public http",
+    "calls ",
+    "server ",
+    "node ",
+    "export "
+   ],
+   "exportStatus": 429,
+   "name": "public http",
+   "op": "side",
+   "volIn": null
+  },
+  {
+   "expect": [
+    "usage bad endpoint {\"volumesMeasured\":true,\"logExport\":{\"failing\":true,\"error\":\"http:// log endpoints are only allowed for a private IP address; use https://\"}}",
+    "calls list {\"labels\":{\"armada.managed\":\"true\"}}",
+    "node conntrack raise {\"dir\":\"$ROOT/conntrack\",\"memory\":1073741824}\nconntrack read {\"dir\":\"$ROOT/conntrack\",\"memory\":1073741824}"
+   ],
+   "name": "bad endpoint",
+   "op": "sampleSide"
+  },
+  {
+   "assignment": {
+    "logs": {}
+   },
+   "op": "assign"
+  },
+  {
+   "actions": [
+    {
+     "note": "wait",
+     "op": "export"
+    }
+   ],
+   "execIn": null,
+   "expect": [
+    "wait 2s",
+    "side off again",
+    "calls ",
+    "server ",
+    "node ",
+    "export "
+   ],
+   "exportStatus": 429,
+   "name": "off again",
+   "op": "side",
+   "volIn": null
+  },
+  {
+   "expect": [
+    "usage off {\"volumesMeasured\":true}",
+    "calls list {\"labels\":{\"armada.managed\":\"true\"}}",
+    "node conntrack raise {\"dir\":\"$ROOT/conntrack\",\"memory\":1073741824}\nconntrack read {\"dir\":\"$ROOT/conntrack\",\"memory\":1073741824}"
+   ],
+   "name": "off",
+   "op": "sampleSide"
+  }
+ ]
+}

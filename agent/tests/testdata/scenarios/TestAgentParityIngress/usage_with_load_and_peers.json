@@ -1,0 +1,245 @@
+{
+ "name": "TestAgentParityIngress/usage_with_load_and_peers",
+ "opts": {
+  "bootNs": 1767222000000000000,
+  "bridge": "",
+  "crashBaseNs": 1000000000,
+  "dns": "",
+  "encodes": false,
+  "exec": true,
+  "members": true,
+  "move": false,
+  "network": true,
+  "networkKey": "",
+  "noSecretsDir": false,
+  "proxy": true,
+  "sandbox": false,
+  "side": false,
+  "stats": false,
+  "unpublished": false,
+  "volumes": true,
+  "volumesDir": true
+ },
+ "steps": [
+  {
+   "op": "fake",
+   "script": {
+    "agentStatus": {
+     "agent": "",
+     "converted": false,
+     "error": "",
+     "goImages": false,
+     "imagesToPull": 0
+    },
+    "checks": {},
+    "digests": {},
+    "execCodes": {},
+    "holdPulls": false,
+    "holdStarts": false,
+    "in": {
+     "certErr": "",
+     "certs": {},
+     "clientsErr": "",
+     "healthErr": "",
+     "keyErr": "",
+     "load": {
+      "web-r1-a": {
+       "inFlight": 2,
+       "total": 10
+      },
+      "web-r1-b": {
+       "inFlight": 0,
+       "total": 4
+      }
+     },
+     "loadErr": "",
+     "moveErr": "",
+     "netErr": "",
+     "peers": [
+      "n2",
+      "n3"
+     ],
+     "proxyErr": "",
+     "switching": null,
+     "userspace": true
+    },
+    "initExits": {},
+    "platforms": {},
+    "pullErr": {},
+    "runErr": {},
+    "side": {
+     "bodies": [],
+     "boxes": null,
+     "frames": {},
+     "logsErr": "",
+     "notice": "",
+     "qerr": null,
+     "queues": null,
+     "search": [],
+     "size": 0,
+     "tail": [],
+     "tailErr": ""
+    },
+    "usage": {}
+   }
+  },
+  {
+   "expect": [
+    "usage first: totals only {\"load\":[{\"id\":\"web-r1-a\",\"inFlight\":\"2\"}],\"loadMeasured\":true,\"peersChecked\":true,\"unreachablePeers\":[\"n2\",\"n3\"],\"wireguardUserspace\":true}",
+    "calls proxy.load null"
+   ],
+   "name": "first: totals only",
+   "op": "sample"
+  },
+  {
+   "op": "fake",
+   "script": {
+    "agentStatus": {
+     "agent": "",
+     "converted": false,
+     "error": "",
+     "goImages": false,
+     "imagesToPull": 0
+    },
+    "checks": {},
+    "digests": {},
+    "execCodes": {},
+    "holdPulls": false,
+    "holdStarts": false,
+    "in": {
+     "certErr": "",
+     "certs": {},
+     "clientsErr": "",
+     "healthErr": "",
+     "keyErr": "",
+     "load": {
+      "web-r1-a": {
+       "inFlight": 0,
+       "total": 12
+      },
+      "web-r1-b": {
+       "inFlight": 0,
+       "total": 1
+      },
+      "web-r1-c": {
+       "inFlight": 1,
+       "total": 0
+      }
+     },
+     "loadErr": "",
+     "moveErr": "",
+     "netErr": "",
+     "peers": null,
+     "proxyErr": "",
+     "switching": {
+      "to": "wireguard",
+      "step": "prepare",
+      "ready": true
+     },
+     "userspace": true
+    },
+    "initExits": {},
+    "platforms": {},
+    "pullErr": {},
+    "runErr": {},
+    "side": {
+     "bodies": [],
+     "boxes": null,
+     "frames": {},
+     "logsErr": "",
+     "notice": "",
+     "qerr": null,
+     "queues": null,
+     "search": [],
+     "size": 0,
+     "tail": [],
+     "tailErr": ""
+    },
+    "usage": {}
+   }
+  },
+  {
+   "expect": [
+    "usage requests since, a counter that went back, a switch {\"load\":[{\"id\":\"web-r1-a\",\"requests\":\"2\"},{\"id\":\"web-r1-b\",\"requests\":\"1\"},{\"id\":\"web-r1-c\",\"inFlight\":\"1\"}],\"loadMeasured\":true,\"networkSwitch\":{\"to\":\"wireguard\",\"step\":\"prepare\",\"ready\":true},\"peersChecked\":true,\"wireguardUserspace\":true}",
+    "calls proxy.load null"
+   ],
+   "name": "requests since, a counter that went back, a switch",
+   "op": "sample"
+  },
+  {
+   "op": "fake",
+   "script": {
+    "agentStatus": {
+     "agent": "",
+     "converted": false,
+     "error": "",
+     "goImages": false,
+     "imagesToPull": 0
+    },
+    "checks": {},
+    "digests": {},
+    "execCodes": {},
+    "holdPulls": false,
+    "holdStarts": false,
+    "in": {
+     "certErr": "",
+     "certs": {},
+     "clientsErr": "",
+     "healthErr": "",
+     "keyErr": "",
+     "load": {
+      "web-r1-a": {
+       "inFlight": 0,
+       "total": 12
+      },
+      "web-r1-b": {
+       "inFlight": 0,
+       "total": 1
+      },
+      "web-r1-c": {
+       "inFlight": 1,
+       "total": 0
+      }
+     },
+     "loadErr": "show stat: connection refused",
+     "moveErr": "",
+     "netErr": "",
+     "peers": null,
+     "proxyErr": "",
+     "switching": {
+      "to": "wireguard",
+      "step": "prepare",
+      "ready": true
+     },
+     "userspace": true
+    },
+    "initExits": {},
+    "platforms": {},
+    "pullErr": {},
+    "runErr": {},
+    "side": {
+     "bodies": [],
+     "boxes": null,
+     "frames": {},
+     "logsErr": "",
+     "notice": "",
+     "qerr": null,
+     "queues": null,
+     "search": [],
+     "size": 0,
+     "tail": [],
+     "tailErr": ""
+    },
+    "usage": {}
+   }
+  },
+  {
+   "expect": [
+    "usage unreadable load {\"networkSwitch\":{\"to\":\"wireguard\",\"step\":\"prepare\",\"ready\":true},\"peersChecked\":true,\"wireguardUserspace\":true}",
+    "calls proxy.load null"
+   ],
+   "name": "unreadable load",
+   "op": "sample"
+  }
+ ]
+}

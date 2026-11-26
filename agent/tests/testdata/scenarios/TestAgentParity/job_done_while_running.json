@@ -1,0 +1,130 @@
+{
+ "name": "TestAgentParity/job_done_while_running",
+ "opts": {
+  "bootNs": 1767222000000000000,
+  "bridge": "",
+  "crashBaseNs": 1000000000,
+  "dns": "",
+  "encodes": false,
+  "exec": true,
+  "members": true,
+  "move": false,
+  "network": false,
+  "networkKey": "",
+  "noSecretsDir": false,
+  "proxy": false,
+  "sandbox": false,
+  "side": false,
+  "stats": true,
+  "unpublished": false,
+  "volumes": true,
+  "volumesDir": true
+ },
+ "steps": [
+  {
+   "assignment": {
+    "replicas": [
+     {
+      "id": "batch-j1-a",
+      "app": "batch",
+      "revision": "web--r1",
+      "image": "busybox",
+      "command": [
+       "/bin/web"
+      ],
+      "args": [
+       "--x"
+      ],
+      "env": [
+       {
+        "name": "A",
+        "value": "1"
+       },
+       {
+        "name": "S",
+        "value": "secret",
+        "ref": "s/v1"
+       }
+      ],
+      "memoryBytes": "268435456",
+      "nanoCpus": "500000000",
+      "pidsLimit": "1024",
+      "readiness": {
+       "path": "/r",
+       "initialDelayMs": "3600000"
+      },
+      "cpuReserveMillis": "100",
+      "job": {
+       "job": "batch",
+       "run": "1"
+      }
+     }
+    ]
+   },
+   "op": "assign"
+  },
+  {
+   "expect": [
+    "step started",
+    "report {\"replicas\":[{\"id\":\"batch-j1-a\",\"state\":\"running\",\"containerId\":\"armada-batch-j1-a-1\"}]}",
+    "calls inspect {\"id\":\"armada-batch-j1-a-1\"}\nlist {\"labels\":{\"armada.managed\":\"true\"}}\npull {\"auth\":null,\"image\":\"busybox\"}\nrun {\"spec\":{\"name\":\"armada-batch-j1-a\",\"image\":\"busybox\",\"entrypoint\":[\"/bin/web\"],\"cmd\":[\"--x\"],\"env\":[\"A=1\",\"S=secret\"],\"labels\":{\"armada.app\":\"batch\",\"armada.managed\":\"true\",\"armada.replica\":\"batch-j1-a\",\"armada.revision\":\"web--r1\",\"armada.spec-hash\":\"93f061882b20c7069ff7d2c8e12232fd\"},\"hostIp\":\"10.0.0.2\",\"memoryBytes\":268435456,\"nanoCpus\":500000000,\"cpuReserveMillis\":100,\"pidsLimit\":1024}}",
+    "files "
+   ],
+   "name": "started",
+   "op": "reconcile"
+  },
+  {
+   "assignment": {
+    "replicas": [
+     {
+      "id": "batch-j1-a",
+      "app": "batch",
+      "revision": "web--r1",
+      "image": "busybox",
+      "command": [
+       "/bin/web"
+      ],
+      "args": [
+       "--x"
+      ],
+      "env": [
+       {
+        "name": "A",
+        "value": "1"
+       },
+       {
+        "name": "S",
+        "value": "secret",
+        "ref": "s/v1"
+       }
+      ],
+      "memoryBytes": "268435456",
+      "nanoCpus": "500000000",
+      "pidsLimit": "1024",
+      "readiness": {
+       "path": "/r",
+       "initialDelayMs": "3600000"
+      },
+      "cpuReserveMillis": "100",
+      "job": {
+       "job": "batch",
+       "run": "1",
+       "done": true
+      }
+     }
+    ]
+   },
+   "op": "assign"
+  },
+  {
+   "expect": [
+    "step stopped, outside the hash",
+    "report {\"replicas\":[{\"id\":\"batch-j1-a\",\"state\":\"exited\",\"containerId\":\"armada-batch-j1-a-1\",\"message\":\"exited with code 0\",\"finished\":true}]}",
+    "calls inspect {\"id\":\"armada-batch-j1-a-1\"}\nlist {\"labels\":{\"armada.managed\":\"true\"}}\nrelease {\"id\":\"armada-batch-j1-a-1\"}\nstop {\"graceMs\":10000,\"id\":\"armada-batch-j1-a-1\"}",
+    "files "
+   ],
+   "name": "stopped, outside the hash",
+   "op": "reconcile"
+  }
+ ]
+}

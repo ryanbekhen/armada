@@ -44,12 +44,24 @@ tower.workspace = true
 [dev-dependencies]
 # Paused clocks in the tests of the drivers' waits.
 tokio = { workspace = true, features = ["test-util"] }
+# The replayed scenarios' control plane (tests/replay/side.rs): tonic's
+# server over TLS connections accepted there.
+tonic = { workspace = true, features = ["server"] }
 
 [features]
 # The program Go's agent parity tests drive (src/bin/armada-agent-parity.rs,
-# ARMADA_AGENT_BIN): never part of a release.
+# ARMADA_AGENT_BIN), and the replay of their scenarios recorded from Go
+# (tests/scenarios.rs) with its fake armada-node: never part of a release.
 parity = []
 
 [[bin]]
 name = "armada-agent-parity"
+required-features = ["parity"]
+
+[[bin]]
+name = "armada-agent-fake-node"
+required-features = ["parity"]
+
+[[test]]
+name = "scenarios"
 required-features = ["parity"]

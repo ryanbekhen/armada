@@ -1,0 +1,197 @@
+{
+ "name": "TestAgentParity/init_containers_and_sidecars",
+ "opts": {
+  "bootNs": 1767222000000000000,
+  "bridge": "",
+  "crashBaseNs": 1000000000,
+  "dns": "",
+  "encodes": false,
+  "exec": true,
+  "members": true,
+  "move": false,
+  "network": false,
+  "networkKey": "",
+  "noSecretsDir": false,
+  "proxy": false,
+  "sandbox": false,
+  "side": false,
+  "stats": true,
+  "unpublished": false,
+  "volumes": true,
+  "volumesDir": true
+ },
+ "steps": [
+  {
+   "op": "fake",
+   "script": {
+    "agentStatus": {
+     "agent": "",
+     "converted": false,
+     "error": "",
+     "goImages": false,
+     "imagesToPull": 0
+    },
+    "checks": {},
+    "digests": {
+     "fluent:1": "fluent@sha256:cc"
+    },
+    "execCodes": {},
+    "holdPulls": false,
+    "holdStarts": false,
+    "in": {
+     "certErr": "",
+     "certs": {},
+     "clientsErr": "",
+     "healthErr": "",
+     "keyErr": "",
+     "load": {},
+     "loadErr": "",
+     "moveErr": "",
+     "netErr": "",
+     "peers": null,
+     "proxyErr": "",
+     "switching": null,
+     "userspace": false
+    },
+    "initExits": {},
+    "platforms": {},
+    "pullErr": {},
+    "runErr": {},
+    "side": {
+     "bodies": [],
+     "boxes": null,
+     "frames": {},
+     "logsErr": "",
+     "notice": "",
+     "qerr": null,
+     "queues": null,
+     "search": [],
+     "size": 0,
+     "tail": [],
+     "tailErr": ""
+    },
+    "usage": {}
+   }
+  },
+  {
+   "assignment": {
+    "replicas": [
+     {
+      "id": "web-r1-a",
+      "app": "web",
+      "revision": "web--r1",
+      "image": "nginx:1",
+      "command": [
+       "/bin/web"
+      ],
+      "args": [
+       "--x"
+      ],
+      "env": [
+       {
+        "name": "A",
+        "value": "1"
+       },
+       {
+        "name": "S",
+        "value": "secret",
+        "ref": "s/v1"
+       }
+      ],
+      "port": 8080,
+      "memoryBytes": "268435456",
+      "nanoCpus": "500000000",
+      "pidsLimit": "1024",
+      "cpuReserveMillis": "100",
+      "initContainers": [
+       {
+        "name": "migrate",
+        "image": "migrate:1",
+        "command": [
+         "/m"
+        ],
+        "env": [
+         {
+          "name": "K",
+          "value": "v",
+          "ref": "k/1"
+         }
+        ],
+        "memoryBytes": "67108864"
+       }
+      ],
+      "sidecars": [
+       {
+        "name": "log",
+        "image": "fluent:1",
+        "args": [
+         "-c"
+        ],
+        "nanoCpus": "10000000"
+       }
+      ]
+     }
+    ]
+   },
+   "op": "assign"
+  },
+  {
+   "expect": [
+    "step ready",
+    "report {\"replicas\":[{\"id\":\"web-r1-a\",\"state\":\"running\",\"containerId\":\"armada-web-r1-a-1\",\"address\":\"10.0.0.2:31800\",\"ready\":true}]}",
+    "calls inspect {\"id\":\"armada-web-r1-a-1\"}\nlist {\"labels\":{\"armada.managed\":\"true\"}}\npull {\"auth\":null,\"image\":\"fluent:1\"}\npull {\"auth\":null,\"image\":\"migrate:1\"}\npull {\"auth\":null,\"image\":\"nginx:1\"}\nrun {\"spec\":{\"name\":\"armada-web-r1-a\",\"image\":\"nginx:1\",\"entrypoint\":[\"/bin/web\"],\"cmd\":[\"--x\"],\"env\":[\"A=1\",\"S=secret\"],\"labels\":{\"armada.app\":\"web\",\"armada.managed\":\"true\",\"armada.replica\":\"web-r1-a\",\"armada.revision\":\"web--r1\",\"armada.spec-hash\":\"98da50412a58e77f979e685aa6976167\"},\"port\":8080,\"hostIp\":\"10.0.0.2\",\"memoryBytes\":268435456,\"nanoCpus\":500000000,\"cpuReserveMillis\":100,\"pidsLimit\":1024,\"init\":[{\"name\":\"migrate\",\"image\":\"migrate:1\",\"entrypoint\":[\"/m\"],\"env\":[\"K=v\"],\"memoryBytes\":67108864}],\"sidecars\":[{\"name\":\"log\",\"image\":\"fluent:1\",\"cmd\":[\"-c\"],\"nanoCpus\":10000000}]}}",
+    "files "
+   ],
+   "name": "ready",
+   "op": "until"
+  },
+  {
+   "code": 1,
+   "id": "armada-web-r1-a-1",
+   "name": "log",
+   "op": "setMember",
+   "state": "exited"
+  },
+  {
+   "expect": [
+    "step sidecar stopped: recreated",
+    "report {\"replicas\":[{\"id\":\"web-r1-a\",\"state\":\"running\",\"containerId\":\"armada-web-r1-a-2\",\"address\":\"10.0.0.2:31800\",\"message\":\"restarted: sidecar log exited with code 1\",\"ready\":true}]}",
+    "calls inspect {\"id\":\"armada-web-r1-a-2\"}\nlist {\"labels\":{\"armada.managed\":\"true\"}}\npull {\"auth\":null,\"image\":\"fluent:1\"}\npull {\"auth\":null,\"image\":\"migrate:1\"}\npull {\"auth\":null,\"image\":\"nginx:1\"}\nremove {\"id\":\"armada-web-r1-a-1\"}\nrun {\"spec\":{\"name\":\"armada-web-r1-a\",\"image\":\"nginx:1\",\"entrypoint\":[\"/bin/web\"],\"cmd\":[\"--x\"],\"env\":[\"A=1\",\"S=secret\"],\"labels\":{\"armada.app\":\"web\",\"armada.managed\":\"true\",\"armada.replica\":\"web-r1-a\",\"armada.revision\":\"web--r1\",\"armada.spec-hash\":\"98da50412a58e77f979e685aa6976167\"},\"port\":8080,\"hostIp\":\"10.0.0.2\",\"memoryBytes\":268435456,\"nanoCpus\":500000000,\"cpuReserveMillis\":100,\"pidsLimit\":1024,\"init\":[{\"name\":\"migrate\",\"image\":\"migrate:1\",\"entrypoint\":[\"/m\"],\"env\":[\"K=v\"],\"memoryBytes\":67108864}],\"sidecars\":[{\"name\":\"log\",\"image\":\"fluent:1\",\"cmd\":[\"-c\"],\"nanoCpus\":10000000}]}}\nstop {\"graceMs\":10000,\"id\":\"armada-web-r1-a-1\"}",
+    "files "
+   ],
+   "name": "sidecar stopped: recreated",
+   "op": "until"
+  },
+  {
+   "code": 0,
+   "id": "armada-web-r1-a-2",
+   "name": "log",
+   "op": "setMember",
+   "state": "dead"
+  },
+  {
+   "expect": [
+    "step sidecar dead: waits",
+    "report {\"replicas\":[{\"id\":\"web-r1-a\",\"state\":\"exited\",\"containerId\":\"armada-web-r1-a-2\",\"message\":\"sidecar log is dead; restarting in 1s\"}]}",
+    "calls list {\"labels\":{\"armada.managed\":\"true\"}}",
+    "files "
+   ],
+   "name": "sidecar dead: waits",
+   "op": "reconcile"
+  },
+  {
+   "actions": [
+    {
+     "op": "prune"
+    }
+   ],
+   "expect": [
+    "step prune",
+    "calls prune {\"graceMs\":3600000,\"keep\":[\"fluent:1\",\"fluent@sha256:cc\",\"migrate:1\",\"nginx:1\"]}",
+    "files "
+   ],
+   "name": "prune",
+   "op": "other"
+  }
+ ]
+}

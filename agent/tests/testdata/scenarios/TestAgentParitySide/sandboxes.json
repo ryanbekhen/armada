@@ -1,0 +1,833 @@
+{
+ "name": "TestAgentParitySide/sandboxes",
+ "opts": {
+  "bootNs": 1767222000000000000,
+  "bridge": "10.120.0.",
+  "crashBaseNs": 1000000000,
+  "dns": "",
+  "encodes": false,
+  "exec": true,
+  "members": true,
+  "move": false,
+  "network": true,
+  "networkKey": "",
+  "noSecretsDir": false,
+  "proxy": false,
+  "sandbox": true,
+  "side": true,
+  "stats": true,
+  "unpublished": true,
+  "volumes": true,
+  "volumesDir": true
+ },
+ "steps": [
+  {
+   "op": "fake",
+   "script": {
+    "agentStatus": {
+     "agent": "",
+     "converted": false,
+     "error": "",
+     "goImages": false,
+     "imagesToPull": 0
+    },
+    "checks": {},
+    "digests": {},
+    "execCodes": {},
+    "holdPulls": false,
+    "holdStarts": false,
+    "in": {
+     "certErr": "",
+     "certs": {},
+     "clientsErr": "",
+     "healthErr": "",
+     "keyErr": "",
+     "load": {},
+     "loadErr": "",
+     "moveErr": "",
+     "netErr": "",
+     "peers": null,
+     "proxyErr": "",
+     "switching": null,
+     "userspace": false
+    },
+    "initExits": {},
+    "platforms": {},
+    "pullErr": {},
+    "runErr": {},
+    "side": {
+     "bodies": [],
+     "boxes": {
+      "stale.ops": "10.120.0.250"
+     },
+     "frames": {},
+     "logsErr": "",
+     "notice": "",
+     "qerr": {
+      "b": "the broker refused the URL's credentials"
+     },
+     "queues": {
+      "a": 3
+     },
+     "search": [],
+     "size": 0,
+     "tail": [],
+     "tailErr": ""
+    },
+    "usage": {}
+   }
+  },
+  {
+   "assignment": {
+    "network": {
+     "mode": "plain",
+     "clusterCidr": "10.120.0.0/16"
+    },
+    "queueSandboxes": [
+     {
+      "job": "nightly",
+      "probe": {
+       "type": "redis",
+       "url": "redis://10.0.0.9",
+       "urlRef": "u/1",
+       "name": "a"
+      },
+      "intervalSeconds": "30"
+     },
+     {
+      "job": "import.ops",
+      "probe": {
+       "type": "redis",
+       "url": "redis://10.0.0.9",
+       "urlRef": "u/1",
+       "name": "b"
+      }
+     },
+     {
+      "job": "Bad",
+      "probe": {
+       "type": "redis",
+       "url": "redis://10.0.0.9",
+       "urlRef": "u/1",
+       "name": "a"
+      }
+     },
+     {
+      "job": "cmd",
+      "probe": {
+       "type": "queue"
+      }
+     }
+    ]
+   },
+   "op": "assign"
+  },
+  {
+   "actions": [
+    {
+     "op": "sandboxes"
+    }
+   ],
+   "execIn": null,
+   "expect": [
+    "side sync",
+    "calls ensureSandbox {\"id\":\"import.ops\"}\nensureSandbox {\"id\":\"nightly\"}\nlistSandboxes {}\nnet.apply {\"config\":{\"mode\":\"plain\",\"clusterCidr\":\"10.120.0.0/16\"},\"local\":{\"10.120.0.170\":\"import.ops\",\"10.120.0.178\":\"nightly\"}}\nreadSandboxQueue {\"addresses\":0,\"id\":\"import.ops\",\"name\":\"b\",\"type\":\"redis\",\"url\":\"redis://10.0.0.9\"}\nreadSandboxQueue {\"addresses\":0,\"id\":\"nightly\",\"name\":\"a\",\"type\":\"redis\",\"url\":\"redis://10.0.0.9\"}\nremoveSandbox {\"id\":\"stale.ops\"}",
+    "server ",
+    "node ",
+    "export "
+   ],
+   "exportStatus": 0,
+   "name": "sync",
+   "op": "side",
+   "volIn": null
+  },
+  {
+   "expect": [
+    "usage readings {\"volumesMeasured\":true,\"sandboxes\":[{\"job\":\"import.ops\",\"ip\":\"10.120.0.170\",\"error\":\"the broker refused the URL's credentials\"},{\"job\":\"nightly\",\"ip\":\"10.120.0.178\",\"measured\":true,\"length\":\"3\",\"reading\":\"1\"}],\"peersChecked\":true}",
+    "calls list {\"labels\":{\"armada.managed\":\"true\"}}",
+    "node conntrack raise {\"dir\":\"$ROOT/conntrack\",\"memory\":1073741824}\nconntrack read {\"dir\":\"$ROOT/conntrack\",\"memory\":1073741824}"
+   ],
+   "name": "readings",
+   "op": "sampleSide"
+  },
+  {
+   "expect": [
+    "step local addresses",
+    "report {}",
+    "calls list {\"labels\":{\"armada.managed\":\"true\"}}\nlist {\"labels\":{\"armada.managed\":\"true\"}}\nlistSandboxes {}\nnet.apply {\"config\":{\"mode\":\"plain\",\"clusterCidr\":\"10.120.0.0/16\"},\"local\":{\"10.120.0.170\":\"import.ops\",\"10.120.0.178\":\"nightly\"}}",
+    "files "
+   ],
+   "name": "local addresses",
+   "op": "reconcile"
+  },
+  {
+   "actions": [
+    {
+     "op": "sandboxes"
+    }
+   ],
+   "execIn": null,
+   "expect": [
+    "side sync again: nothing due",
+    "calls listSandboxes {}",
+    "server ",
+    "node ",
+    "export "
+   ],
+   "exportStatus": 0,
+   "name": "sync again: nothing due",
+   "op": "side",
+   "volIn": null
+  },
+  {
+   "assignment": {
+    "network": {
+     "mode": "plain",
+     "clusterCidr": "10.120.0.0/16"
+    },
+    "queueSandboxes": [
+     {
+      "job": "j00.s0",
+      "probe": {
+       "type": "redis",
+       "url": "redis://10.0.0.9",
+       "urlRef": "u/1",
+       "name": "a"
+      }
+     },
+     {
+      "job": "j01.s1",
+      "probe": {
+       "type": "redis",
+       "url": "redis://10.0.0.9",
+       "urlRef": "u/1",
+       "name": "a"
+      }
+     },
+     {
+      "job": "j02.s2",
+      "probe": {
+       "type": "redis",
+       "url": "redis://10.0.0.9",
+       "urlRef": "u/1",
+       "name": "a"
+      }
+     },
+     {
+      "job": "j03.s0",
+      "probe": {
+       "type": "redis",
+       "url": "redis://10.0.0.9",
+       "urlRef": "u/1",
+       "name": "a"
+      }
+     },
+     {
+      "job": "j04.s1",
+      "probe": {
+       "type": "redis",
+       "url": "redis://10.0.0.9",
+       "urlRef": "u/1",
+       "name": "a"
+      }
+     },
+     {
+      "job": "j05.s2",
+      "probe": {
+       "type": "redis",
+       "url": "redis://10.0.0.9",
+       "urlRef": "u/1",
+       "name": "a"
+      }
+     },
+     {
+      "job": "j06.s0",
+      "probe": {
+       "type": "redis",
+       "url": "redis://10.0.0.9",
+       "urlRef": "u/1",
+       "name": "a"
+      }
+     },
+     {
+      "job": "j07.s1",
+      "probe": {
+       "type": "redis",
+       "url": "redis://10.0.0.9",
+       "urlRef": "u/1",
+       "name": "a"
+      }
+     },
+     {
+      "job": "j08.s2",
+      "probe": {
+       "type": "redis",
+       "url": "redis://10.0.0.9",
+       "urlRef": "u/1",
+       "name": "a"
+      }
+     },
+     {
+      "job": "j09.s0",
+      "probe": {
+       "type": "redis",
+       "url": "redis://10.0.0.9",
+       "urlRef": "u/1",
+       "name": "a"
+      }
+     },
+     {
+      "job": "j10.s1",
+      "probe": {
+       "type": "redis",
+       "url": "redis://10.0.0.9",
+       "urlRef": "u/1",
+       "name": "a"
+      }
+     },
+     {
+      "job": "j11.s2",
+      "probe": {
+       "type": "redis",
+       "url": "redis://10.0.0.9",
+       "urlRef": "u/1",
+       "name": "a"
+      }
+     },
+     {
+      "job": "j12.s0",
+      "probe": {
+       "type": "redis",
+       "url": "redis://10.0.0.9",
+       "urlRef": "u/1",
+       "name": "a"
+      }
+     },
+     {
+      "job": "j13.s1",
+      "probe": {
+       "type": "redis",
+       "url": "redis://10.0.0.9",
+       "urlRef": "u/1",
+       "name": "a"
+      }
+     },
+     {
+      "job": "j14.s2",
+      "probe": {
+       "type": "redis",
+       "url": "redis://10.0.0.9",
+       "urlRef": "u/1",
+       "name": "a"
+      }
+     },
+     {
+      "job": "j15.s0",
+      "probe": {
+       "type": "redis",
+       "url": "redis://10.0.0.9",
+       "urlRef": "u/1",
+       "name": "a"
+      }
+     },
+     {
+      "job": "j16.s1",
+      "probe": {
+       "type": "redis",
+       "url": "redis://10.0.0.9",
+       "urlRef": "u/1",
+       "name": "a"
+      }
+     },
+     {
+      "job": "j17.s2",
+      "probe": {
+       "type": "redis",
+       "url": "redis://10.0.0.9",
+       "urlRef": "u/1",
+       "name": "a"
+      }
+     },
+     {
+      "job": "j18.s0",
+      "probe": {
+       "type": "redis",
+       "url": "redis://10.0.0.9",
+       "urlRef": "u/1",
+       "name": "a"
+      }
+     },
+     {
+      "job": "j19.s1",
+      "probe": {
+       "type": "redis",
+       "url": "redis://10.0.0.9",
+       "urlRef": "u/1",
+       "name": "a"
+      }
+     },
+     {
+      "job": "j20.s2",
+      "probe": {
+       "type": "redis",
+       "url": "redis://10.0.0.9",
+       "urlRef": "u/1",
+       "name": "a"
+      }
+     },
+     {
+      "job": "j21.s0",
+      "probe": {
+       "type": "redis",
+       "url": "redis://10.0.0.9",
+       "urlRef": "u/1",
+       "name": "a"
+      }
+     },
+     {
+      "job": "j22.s1",
+      "probe": {
+       "type": "redis",
+       "url": "redis://10.0.0.9",
+       "urlRef": "u/1",
+       "name": "a"
+      }
+     },
+     {
+      "job": "j23.s2",
+      "probe": {
+       "type": "redis",
+       "url": "redis://10.0.0.9",
+       "urlRef": "u/1",
+       "name": "a"
+      }
+     },
+     {
+      "job": "j24.s0",
+      "probe": {
+       "type": "redis",
+       "url": "redis://10.0.0.9",
+       "urlRef": "u/1",
+       "name": "a"
+      }
+     },
+     {
+      "job": "j25.s1",
+      "probe": {
+       "type": "redis",
+       "url": "redis://10.0.0.9",
+       "urlRef": "u/1",
+       "name": "a"
+      }
+     },
+     {
+      "job": "j26.s2",
+      "probe": {
+       "type": "redis",
+       "url": "redis://10.0.0.9",
+       "urlRef": "u/1",
+       "name": "a"
+      }
+     },
+     {
+      "job": "j27.s0",
+      "probe": {
+       "type": "redis",
+       "url": "redis://10.0.0.9",
+       "urlRef": "u/1",
+       "name": "a"
+      }
+     },
+     {
+      "job": "j28.s1",
+      "probe": {
+       "type": "redis",
+       "url": "redis://10.0.0.9",
+       "urlRef": "u/1",
+       "name": "a"
+      }
+     },
+     {
+      "job": "j29.s2",
+      "probe": {
+       "type": "redis",
+       "url": "redis://10.0.0.9",
+       "urlRef": "u/1",
+       "name": "a"
+      }
+     },
+     {
+      "job": "j30.s0",
+      "probe": {
+       "type": "redis",
+       "url": "redis://10.0.0.9",
+       "urlRef": "u/1",
+       "name": "a"
+      }
+     },
+     {
+      "job": "j31.s1",
+      "probe": {
+       "type": "redis",
+       "url": "redis://10.0.0.9",
+       "urlRef": "u/1",
+       "name": "a"
+      }
+     },
+     {
+      "job": "j32.s2",
+      "probe": {
+       "type": "redis",
+       "url": "redis://10.0.0.9",
+       "urlRef": "u/1",
+       "name": "a"
+      }
+     },
+     {
+      "job": "j33.s0",
+      "probe": {
+       "type": "redis",
+       "url": "redis://10.0.0.9",
+       "urlRef": "u/1",
+       "name": "a"
+      }
+     },
+     {
+      "job": "j34.s1",
+      "probe": {
+       "type": "redis",
+       "url": "redis://10.0.0.9",
+       "urlRef": "u/1",
+       "name": "a"
+      }
+     },
+     {
+      "job": "j35.s2",
+      "probe": {
+       "type": "redis",
+       "url": "redis://10.0.0.9",
+       "urlRef": "u/1",
+       "name": "a"
+      }
+     },
+     {
+      "job": "j36.s0",
+      "probe": {
+       "type": "redis",
+       "url": "redis://10.0.0.9",
+       "urlRef": "u/1",
+       "name": "a"
+      }
+     },
+     {
+      "job": "j37.s1",
+      "probe": {
+       "type": "redis",
+       "url": "redis://10.0.0.9",
+       "urlRef": "u/1",
+       "name": "a"
+      }
+     },
+     {
+      "job": "j38.s2",
+      "probe": {
+       "type": "redis",
+       "url": "redis://10.0.0.9",
+       "urlRef": "u/1",
+       "name": "a"
+      }
+     },
+     {
+      "job": "j39.s0",
+      "probe": {
+       "type": "redis",
+       "url": "redis://10.0.0.9",
+       "urlRef": "u/1",
+       "name": "a"
+      }
+     },
+     {
+      "job": "j40.s1",
+      "probe": {
+       "type": "redis",
+       "url": "redis://10.0.0.9",
+       "urlRef": "u/1",
+       "name": "a"
+      }
+     },
+     {
+      "job": "j41.s2",
+      "probe": {
+       "type": "redis",
+       "url": "redis://10.0.0.9",
+       "urlRef": "u/1",
+       "name": "a"
+      }
+     },
+     {
+      "job": "j42.s0",
+      "probe": {
+       "type": "redis",
+       "url": "redis://10.0.0.9",
+       "urlRef": "u/1",
+       "name": "a"
+      }
+     },
+     {
+      "job": "j43.s1",
+      "probe": {
+       "type": "redis",
+       "url": "redis://10.0.0.9",
+       "urlRef": "u/1",
+       "name": "a"
+      }
+     },
+     {
+      "job": "j44.s2",
+      "probe": {
+       "type": "redis",
+       "url": "redis://10.0.0.9",
+       "urlRef": "u/1",
+       "name": "a"
+      }
+     },
+     {
+      "job": "j45.s0",
+      "probe": {
+       "type": "redis",
+       "url": "redis://10.0.0.9",
+       "urlRef": "u/1",
+       "name": "a"
+      }
+     },
+     {
+      "job": "j46.s1",
+      "probe": {
+       "type": "redis",
+       "url": "redis://10.0.0.9",
+       "urlRef": "u/1",
+       "name": "a"
+      }
+     },
+     {
+      "job": "j47.s2",
+      "probe": {
+       "type": "redis",
+       "url": "redis://10.0.0.9",
+       "urlRef": "u/1",
+       "name": "a"
+      }
+     },
+     {
+      "job": "j48.s0",
+      "probe": {
+       "type": "redis",
+       "url": "redis://10.0.0.9",
+       "urlRef": "u/1",
+       "name": "a"
+      }
+     },
+     {
+      "job": "j49.s1",
+      "probe": {
+       "type": "redis",
+       "url": "redis://10.0.0.9",
+       "urlRef": "u/1",
+       "name": "a"
+      }
+     },
+     {
+      "job": "j50.s2",
+      "probe": {
+       "type": "redis",
+       "url": "redis://10.0.0.9",
+       "urlRef": "u/1",
+       "name": "a"
+      }
+     },
+     {
+      "job": "j51.s0",
+      "probe": {
+       "type": "redis",
+       "url": "redis://10.0.0.9",
+       "urlRef": "u/1",
+       "name": "a"
+      }
+     },
+     {
+      "job": "j52.s1",
+      "probe": {
+       "type": "redis",
+       "url": "redis://10.0.0.9",
+       "urlRef": "u/1",
+       "name": "a"
+      }
+     },
+     {
+      "job": "j53.s2",
+      "probe": {
+       "type": "redis",
+       "url": "redis://10.0.0.9",
+       "urlRef": "u/1",
+       "name": "a"
+      }
+     },
+     {
+      "job": "j54.s0",
+      "probe": {
+       "type": "redis",
+       "url": "redis://10.0.0.9",
+       "urlRef": "u/1",
+       "name": "a"
+      }
+     },
+     {
+      "job": "j55.s1",
+      "probe": {
+       "type": "redis",
+       "url": "redis://10.0.0.9",
+       "urlRef": "u/1",
+       "name": "a"
+      }
+     },
+     {
+      "job": "j56.s2",
+      "probe": {
+       "type": "redis",
+       "url": "redis://10.0.0.9",
+       "urlRef": "u/1",
+       "name": "a"
+      }
+     },
+     {
+      "job": "j57.s0",
+      "probe": {
+       "type": "redis",
+       "url": "redis://10.0.0.9",
+       "urlRef": "u/1",
+       "name": "a"
+      }
+     },
+     {
+      "job": "j58.s1",
+      "probe": {
+       "type": "redis",
+       "url": "redis://10.0.0.9",
+       "urlRef": "u/1",
+       "name": "a"
+      }
+     },
+     {
+      "job": "j59.s2",
+      "probe": {
+       "type": "redis",
+       "url": "redis://10.0.0.9",
+       "urlRef": "u/1",
+       "name": "a"
+      }
+     },
+     {
+      "job": "j60.s0",
+      "probe": {
+       "type": "redis",
+       "url": "redis://10.0.0.9",
+       "urlRef": "u/1",
+       "name": "a"
+      }
+     },
+     {
+      "job": "j61.s1",
+      "probe": {
+       "type": "redis",
+       "url": "redis://10.0.0.9",
+       "urlRef": "u/1",
+       "name": "a"
+      }
+     },
+     {
+      "job": "j62.s2",
+      "probe": {
+       "type": "redis",
+       "url": "redis://10.0.0.9",
+       "urlRef": "u/1",
+       "name": "a"
+      }
+     },
+     {
+      "job": "j63.s0",
+      "probe": {
+       "type": "redis",
+       "url": "redis://10.0.0.9",
+       "urlRef": "u/1",
+       "name": "a"
+      }
+     },
+     {
+      "job": "j64.s1",
+      "probe": {
+       "type": "redis",
+       "url": "redis://10.0.0.9",
+       "urlRef": "u/1",
+       "name": "a"
+      }
+     },
+     {
+      "job": "j65.s2",
+      "probe": {
+       "type": "redis",
+       "url": "redis://10.0.0.9",
+       "urlRef": "u/1",
+       "name": "a"
+      }
+     },
+     {
+      "job": "j66.s0",
+      "probe": {
+       "type": "redis",
+       "url": "redis://10.0.0.9",
+       "urlRef": "u/1",
+       "name": "a"
+      }
+     },
+     {
+      "job": "j67.s1",
+      "probe": {
+       "type": "redis",
+       "url": "redis://10.0.0.9",
+       "urlRef": "u/1",
+       "name": "a"
+      }
+     },
+     {
+      "job": "j68.s2",
+      "probe": {
+       "type": "redis",
+       "url": "redis://10.0.0.9",
+       "urlRef": "u/1",
+       "name": "a"
+      }
+     },
+     {
+      "job": "j69.s0",
+      "probe": {
+       "type": "redis",
+       "url": "redis://10.0.0.9",
+       "urlRef": "u/1",
+       "name": "a"
+      }
+     }
+    ]
+   },
+   "op": "assign"
+  },
+  {
+   "expect": [
+    "usage dropped {\"volumesMeasured\":true,\"droppedSandboxes\":[\"j64.s1\",\"j65.s2\",\"j66.s0\",\"j67.s1\",\"j68.s2\",\"j69.s0\"],\"peersChecked\":true}",
+    "calls list {\"labels\":{\"armada.managed\":\"true\"}}",
+    "node conntrack raise {\"dir\":\"$ROOT/conntrack\",\"memory\":1073741824}\nconntrack read {\"dir\":\"$ROOT/conntrack\",\"memory\":1073741824}"
+   ],
+   "name": "dropped",
+   "op": "sampleSide"
+  }
+ ]
+}

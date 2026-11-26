@@ -655,6 +655,22 @@ Go and every new Rust part is exercised only by its parity tests.
     jobs run no Go command; `lock.go` keeps the same pins until Go goes
     (`TestLockMatchesFile`).
 
+    Step 1, the agent's part: every scenario of the agent parity harness
+    (the loop, ingress, the sessions and loops beside the pass, Hello),
+    the spec hash, the reconnect waits, the health check, and a whole
+    session over mTLS are recorded from Go's agent (`go test
+    ./internal/agent -run TestAgentParity -record-scenarios` writes
+    `agent/tests/testdata`): each scenario's steps, every change to what
+    its fakes answer, and the transcript lines Go's run wrote for each
+    step. `agent/tests/scenarios.rs` (`make agent-scenarios`, run by
+    `rust-check` and CI) replays them against the agent's parity program
+    with the fakes ported to Rust (the runtime, proxy, network, resolver,
+    certificate source, and move hooks; the sessions' control plane and
+    log endpoint; the fake armada-node as `armada-agent-fake-node`), and
+    compares every line, JSON whatever the order of its keys and a step's
+    calls sorted as before. A wait for a probe's verdict polls until the
+    report is Go's. The Go parity tests stay until Go is deleted.
+
 The release is tagged after 19 and the cloud run, before 20 (the owner's
 decision once 19 passed the lab runs): from 19 on, nothing a release
 ships is Go, and the Go code stays in the repository only as the parity

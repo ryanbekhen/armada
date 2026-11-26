@@ -1,0 +1,129 @@
+{
+ "name": "TestAgentParity/unpublished_with_internal_DNS",
+ "opts": {
+  "bootNs": 1767222000000000000,
+  "bridge": "10.120.0.",
+  "crashBaseNs": 1000000000,
+  "dns": "10.120.0.1",
+  "encodes": false,
+  "exec": true,
+  "members": true,
+  "move": false,
+  "network": false,
+  "networkKey": "",
+  "noSecretsDir": false,
+  "proxy": false,
+  "sandbox": false,
+  "side": false,
+  "stats": true,
+  "unpublished": true,
+  "volumes": true,
+  "volumesDir": true
+ },
+ "steps": [
+  {
+   "assignment": {
+    "replicas": [
+     {
+      "id": "web-r1-a",
+      "app": "web",
+      "revision": "web--r1",
+      "image": "nginx:1",
+      "command": [
+       "/bin/web"
+      ],
+      "args": [
+       "--x"
+      ],
+      "env": [
+       {
+        "name": "A",
+        "value": "1"
+       },
+       {
+        "name": "S",
+        "value": "secret",
+        "ref": "s/v1"
+       }
+      ],
+      "port": 8080,
+      "memoryBytes": "268435456",
+      "nanoCpus": "500000000",
+      "pidsLimit": "1024",
+      "cpuReserveMillis": "100"
+     },
+     {
+      "id": "api.shop-r1-a",
+      "app": "api.shop",
+      "revision": "web--r1",
+      "image": "api:1",
+      "command": [
+       "/bin/web"
+      ],
+      "args": [
+       "--x"
+      ],
+      "env": [
+       {
+        "name": "A",
+        "value": "1"
+       },
+       {
+        "name": "S",
+        "value": "secret",
+        "ref": "s/v1"
+       }
+      ],
+      "port": 9000,
+      "memoryBytes": "268435456",
+      "nanoCpus": "500000000",
+      "pidsLimit": "1024",
+      "cpuReserveMillis": "100"
+     },
+     {
+      "id": "worker-r1-a",
+      "app": "web",
+      "revision": "web--r1",
+      "image": "busybox",
+      "command": [
+       "/bin/web"
+      ],
+      "args": [
+       "--x"
+      ],
+      "env": [
+       {
+        "name": "A",
+        "value": "1"
+       },
+       {
+        "name": "S",
+        "value": "secret",
+        "ref": "s/v1"
+       }
+      ],
+      "memoryBytes": "268435456",
+      "nanoCpus": "500000000",
+      "pidsLimit": "1024",
+      "readiness": {
+       "path": "/r",
+       "initialDelayMs": "3600000"
+      },
+      "cpuReserveMillis": "100"
+     }
+    ]
+   },
+   "op": "assign"
+  },
+  {
+   "expect": [
+    "step ready",
+    "report {\"replicas\":[{\"id\":\"api.shop-r1-a\",\"state\":\"running\",\"containerId\":\"armada-api.shop-r1-a-1\",\"address\":\"10.120.0.82:9000\",\"ready\":true,\"ip\":\"10.120.0.82\"},{\"id\":\"web-r1-a\",\"state\":\"running\",\"containerId\":\"armada-web-r1-a-1\",\"address\":\"10.120.0.2:8080\",\"ready\":true,\"ip\":\"10.120.0.2\"},{\"id\":\"worker-r1-a\",\"state\":\"running\",\"containerId\":\"armada-worker-r1-a-1\",\"ip\":\"10.120.0.34\"}]}",
+    "calls inspect {\"id\":\"armada-api.shop-r1-a-1\"}\ninspect {\"id\":\"armada-web-r1-a-1\"}\ninspect {\"id\":\"armada-worker-r1-a-1\"}\nlist {\"labels\":{\"armada.managed\":\"true\"}}\npull {\"auth\":null,\"image\":\"api:1\"}\npull {\"auth\":null,\"image\":\"busybox\"}\npull {\"auth\":null,\"image\":\"nginx:1\"}\nrun {\"spec\":{\"name\":\"armada-api.shop-r1-a\",\"image\":\"api:1\",\"entrypoint\":[\"/bin/web\"],\"cmd\":[\"--x\"],\"env\":[\"A=1\",\"S=secret\"],\"labels\":{\"armada.app\":\"api.shop\",\"armada.managed\":\"true\",\"armada.replica\":\"api.shop-r1-a\",\"armada.revision\":\"web--r1\",\"armada.spec-hash\":\"d3382484f911b12d1534d0c409bc2077\"},\"memoryBytes\":268435456,\"nanoCpus\":500000000,\"cpuReserveMillis\":100,\"pidsLimit\":1024,\"dns\":[\"10.120.0.1\"],\"dnsSearch\":[\"shop.internal\"]}}\nrun {\"spec\":{\"name\":\"armada-web-r1-a\",\"image\":\"nginx:1\",\"entrypoint\":[\"/bin/web\"],\"cmd\":[\"--x\"],\"env\":[\"A=1\",\"S=secret\"],\"labels\":{\"armada.app\":\"web\",\"armada.managed\":\"true\",\"armada.replica\":\"web-r1-a\",\"armada.revision\":\"web--r1\",\"armada.spec-hash\":\"8ee9a3526072c525ed52ac17de2ac31e\"},\"memoryBytes\":268435456,\"nanoCpus\":500000000,\"cpuReserveMillis\":100,\"pidsLimit\":1024,\"dns\":[\"10.120.0.1\"],\"dnsSearch\":[\"internal\"]}}\nrun {\"spec\":{\"name\":\"armada-worker-r1-a\",\"image\":\"busybox\",\"entrypoint\":[\"/bin/web\"],\"cmd\":[\"--x\"],\"env\":[\"A=1\",\"S=secret\"],\"labels\":{\"armada.app\":\"web\",\"armada.managed\":\"true\",\"armada.replica\":\"worker-r1-a\",\"armada.revision\":\"web--r1\",\"armada.spec-hash\":\"bf8bd09eb94b088da255837bf4dea230\"},\"memoryBytes\":268435456,\"nanoCpus\":500000000,\"cpuReserveMillis\":100,\"pidsLimit\":1024,\"dns\":[\"10.120.0.1\"],\"dnsSearch\":[\"internal\"]}}",
+    "files "
+   ],
+   "name": "ready",
+   "op": "until"
+  }
+ ]
+}
