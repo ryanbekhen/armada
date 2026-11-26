@@ -63,3 +63,23 @@ func TestSubstituteKeepsStructure(t *testing.T) {
 		t.Error("variable in a key accepted")
 	}
 }
+
+// An escape that takes a variable's first character (\x6${X} in a double
+// quoted string) is refused: Go's and armada-spec's placeholders differ,
+// so the value would hold a piece of one instead of the variable.
+func TestSubstituteInsideEscape(t *testing.T) {
+	for _, src := range []string{
+		"name: web\nimage: \"a\\x6${IMAGE}\"\n",
+		"name: web\nimage: \"a\\u004${IMAGE}\"\n",
+	} {
+		_, err := Substitute([]byte(src), map[string]string{"IMAGE": "x"})
+		if err == nil || !strings.Contains(err.Error(), "escape sequence") {
+			t.Errorf("%q: %v", src, err)
+		}
+	}
+	// A variable after a whole escape is set as usual.
+	out, err := Substitute([]byte("name: web\nimage: \"\\x41${IMAGE}\"\n"), map[string]string{"IMAGE": "x"})
+	if err != nil || !strings.Contains(string(out), "Ax") {
+		t.Errorf("%s %v", out, err)
+	}
+}
