@@ -26,6 +26,7 @@ use armada_agent::haproxy::{Driver, DriverConfig};
 use armada_agent::log::Logger;
 use armada_agent::network::Network;
 use armada_agent::proxy::{BoxFut, Clients, InternalDns, Proxy};
+use armada_agent::runtime::Runtime as _;
 use armada_agent::session::ServerConn;
 use armada_agent::side::SideConfig;
 use armada_agent::supervisor::{self, Supervisor};
@@ -246,6 +247,13 @@ async fn start_internal_dns(
         );
         None
     };
+    // Go's Bridge ensures the network first: armada-dns binds the bridge's
+    // gateway, which the bridge has only once it is set up.
+    match tokio::time::timeout(Duration::from_secs(10), rt.ping()).await {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => return disabled("no container bridge", e.to_string()),
+        Err(_) => return disabled("no container bridge", "context deadline exceeded".into()),
+    }
     let br = rt.bridge();
     let ups = match host_upstreams("/etc/resolv.conf") {
         Ok(u) => u,
@@ -595,8 +603,9 @@ async fn run_agent(
         }));
         side.conntrack = Some(Arc::new(armada_agent::side::conntrack::NodeConntrack {
             bin: bin.clone(),
-            dir: String::new(),
-            memory: None,
+            // conntrack.New: the kernel's table and this machine's memory.
+            dir: "/proc/sys/net/netfilter".to_string(),
+            memory: Some(armada_node::conntrack::machine_memory()),
         }));
     } else {
         log.warn(
