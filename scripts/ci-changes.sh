@@ -54,7 +54,8 @@ for f in $files; do
 	THIRD_PARTY_NOTICES.md) code=true release=true && add pack ;;
 	docs/cli/*) code=true clidoc=true ;;
 	*.md | docs/* | LICENSE | .github/ISSUE_TEMPLATE/* | .github/labeler.yml | \
-		.github/labels.json | .github/dependabot.yml | .github/workflows/labels.yml) ;;
+		.github/labels.json | .github/dependabot.yml | .github/workflows/labels.yml | \
+		.github/workflows/pack-updates.yml) ;;
 	# Everything.
 	Cargo.toml | Cargo.lock | rust-toolchain.toml | .cargo/* | deny.toml | Makefile | \
 		.github/workflows/ci.yml | scripts/ci-changes.sh | scripts/etcd-cache.sh) all=true ;;

@@ -25,9 +25,10 @@ pub struct Dep {
     pub sum: String,
 }
 
-/// deps: the modules a Go program links, from its build information;
-/// None for a program that is not a Go program.
-pub fn deps(program: &[u8]) -> Result<Option<Vec<Dep>>, String> {
+/// raw_build_info: the Go release a program was built with ("go1.26.11")
+/// and its module information text (debug/buildinfo); None for a program
+/// that is not a Go program. The program is only read, never run.
+fn raw_build_info(program: &[u8]) -> Result<Option<(String, &str)>, String> {
     const MAGIC: &[u8] = b"\xff Go buildinf:";
     let Some(at) = find(program, MAGIC) else {
         return Ok(None);
@@ -40,12 +41,84 @@ pub fn deps(program: &[u8]) -> Result<Option<Vec<Dep>>, String> {
         return Err("buildinfo: a Go release before 1.18 (pointers, not strings)".into());
     }
     let mut rest = &h[32..];
-    let _version = uvarint_str(&mut rest)?;
+    let version = uvarint_str(&mut rest)?;
+    let version = std::str::from_utf8(version).map_err(|_| "buildinfo: not UTF-8")?;
     let mut info = uvarint_str(&mut rest)?;
     if info.len() >= 33 && info[info.len() - 17] == b'\n' {
         info = &info[16..info.len() - 16];
     }
     let info = std::str::from_utf8(info).map_err(|_| "buildinfo: not UTF-8")?;
+    Ok(Some((version.to_string(), info)))
+}
+
+/// What a Go program records about how it was built.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BuildInfo {
+    /// The Go release, "go1.26.11" (anything after a space dropped).
+    pub go: String,
+    /// The main module (`mod` line); its version may be "(devel)".
+    pub main: Dep,
+    /// Every module it links, by the path it was required as. A module
+    /// replaced by another module (`=>` with a version) is that module;
+    /// one replaced by a directory keeps its path, with version "(devel)".
+    pub deps: Vec<Dep>,
+}
+
+/// build_info: a Go program's Go release and modules, for checking them
+/// against advisories; None for a program that is not a Go program.
+pub fn build_info(program: &[u8]) -> Result<Option<BuildInfo>, String> {
+    let Some((go, info)) = raw_build_info(program)? else {
+        return Ok(None);
+    };
+    let go = go.split_whitespace().next().unwrap_or("").to_string();
+    let mut main = Dep {
+        path: String::new(),
+        version: String::new(),
+        sum: String::new(),
+    };
+    let mut deps: Vec<Dep> = Vec::new();
+    for line in info.lines() {
+        let f: Vec<&str> = line.split('\t').collect();
+        let field = |i: usize| f.get(i).unwrap_or(&"").to_string();
+        match f[0] {
+            "mod" => {
+                main = Dep {
+                    path: field(1),
+                    version: field(2),
+                    sum: field(3),
+                }
+            }
+            "dep" => deps.push(Dep {
+                path: field(1),
+                version: field(2),
+                sum: field(3),
+            }),
+            "=>" => {
+                let last = deps.last_mut().ok_or("buildinfo: => before any dep")?;
+                let (path, version) = (field(1), field(2));
+                if version.is_empty() || version == "(devel)" {
+                    last.version = "(devel)".into();
+                    last.sum = String::new();
+                } else {
+                    *last = Dep {
+                        path,
+                        version,
+                        sum: field(3),
+                    };
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(Some(BuildInfo { go, main, deps }))
+}
+
+/// deps: the modules a Go program links, from its build information;
+/// None for a program that is not a Go program.
+pub fn deps(program: &[u8]) -> Result<Option<Vec<Dep>>, String> {
+    let Some((_, info)) = raw_build_info(program)? else {
+        return Ok(None);
+    };
     let mut out: Vec<Dep> = Vec::new();
     for line in info.lines() {
         let f: Vec<&str> = line.split('\t').collect();
@@ -335,5 +408,33 @@ mod tests {
         assert_eq!(d[0].path, "a");
         assert_eq!((d[1].path.as_str(), d[1].sum.as_str()), ("c", "h1:C="));
         assert!(deps(b"\x7fELF not go").unwrap().is_none());
+        let b = build_info(&prog).unwrap().unwrap();
+        assert_eq!(b.go, "go1x");
+        assert_eq!((b.main.path.as_str(), b.main.version.as_str()), ("x", "v1"));
+        assert_eq!(b.deps.len(), 2);
+        assert_eq!(
+            (b.deps[1].path.as_str(), b.deps[1].version.as_str()),
+            ("c", "v3.0.0")
+        );
+        assert!(build_info(b"\x7fELF not go").unwrap().is_none());
+    }
+
+    #[test]
+    fn local_replacements_keep_their_path() {
+        let info = "path\tx\nmod\tx\tv3.7.4\t\ndep\tx/api\tv3.0.0\t\n=>\t../api\t(devel)\t\ndep\tx/pkg\t(devel)\t\n";
+        let mut prog = b"\xff Go buildinf:\x08\x02".to_vec();
+        prog.extend_from_slice(&[0u8; 16]);
+        prog.push(17);
+        prog.extend_from_slice(b"go1.26.11 X:none ");
+        prog.push(info.len() as u8);
+        prog.extend_from_slice(info.as_bytes());
+        let b = build_info(&prog).unwrap().unwrap();
+        assert_eq!(b.go, "go1.26.11");
+        let got: Vec<(&str, &str)> = b
+            .deps
+            .iter()
+            .map(|d| (d.path.as_str(), d.version.as_str()))
+            .collect();
+        assert_eq!(got, [("x/api", "(devel)"), ("x/pkg", "(devel)")]);
     }
 }

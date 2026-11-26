@@ -8,12 +8,17 @@
 //! crun's source (`licenses`), crun's complete corresponding source
 //! (`sources`, ADR 0056), fetches etcd's
 //! API module for `make proto` (`etcd-api`), and extracts one artifact's
-//! files (`extract`, scripts/etcd-cache.sh). Never shipped: it runs on the
+//! files (`extract`, scripts/etcd-cache.sh). `outdated` reports newer
+//! releases of the pinned programs and the advisories that affect them
+//! (.github/workflows/pack-updates.yml). Never shipped: it runs on the
 //! machine that builds a release.
 
 pub mod elf;
 pub mod fetch;
 pub mod gomod;
+pub mod http;
 pub mod lock;
+pub mod outdated;
 pub mod pack;
 pub mod untar;
+pub mod version;
