@@ -126,7 +126,8 @@ armada app deploy api --file api.yaml --vars production.env --var TAG=sha-1a2b3c
 - A value that is one variable alone takes its type (`max: ${API_MAX}` is
   a number); quotes keep it a string.
 - A value never changes the spec's structure, and `${NAME}` needs no
-  quotes inside `[...]` or `{...}`. Variables are not allowed in keys.
+  quotes inside `[...]` or `{...}`. Variables are not allowed in keys,
+  nor right after a cut escape of a double-quoted string (`"\x6${X}"`).
 - Without `--var` or `--vars` the spec is taken as written. With them,
   write `$${` for a literal `${`.
 - Values end up in the revision like the rest of the spec: keep secrets in

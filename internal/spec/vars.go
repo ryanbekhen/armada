@@ -36,7 +36,8 @@ func Substitute(data []byte, vars map[string]string) ([]byte, error) {
 	if _, err := rand.Read(nonce); err != nil {
 		return nil, err
 	}
-	prefix := "av" + hex.EncodeToString(nonce) + "n"
+	nonceHex := hex.EncodeToString(nonce)
+	prefix := "av" + nonceHex + "n"
 	var names []string
 	marked := varRe.ReplaceAllStringFunc(string(data), func(m string) string {
 		name := "$" // the literal ${
@@ -56,7 +57,13 @@ func Substitute(data []byte, vars map[string]string) ([]byte, error) {
 		return nil, errors.New("spec is empty")
 	}
 	missing := map[string]bool{}
+	escaped := false
 	set := func(n *yaml.Node) {
+		// An escape before a variable (\x6${X}) takes the start of its
+		// placeholder, which is then never set: the rest of the nonce stays.
+		if strings.Count(n.Value, nonceHex) > strings.Count(n.Value, prefix) {
+			escaped = true
+		}
 		if !strings.Contains(n.Value, prefix) {
 			return
 		}
@@ -99,6 +106,9 @@ func Substitute(data []byte, vars map[string]string) ([]byte, error) {
 	walk(&doc)
 	if inKey {
 		return nil, errors.New("variables are only allowed in values, not in keys")
+	}
+	if escaped {
+		return nil, errors.New("a variable follows an escape sequence that takes its first character; put it outside the escape")
 	}
 	if len(missing) > 0 {
 		return nil, fmt.Errorf("the spec uses variables that are not set: %s (pass --var NAME=VALUE or --vars FILE)",

@@ -109,18 +109,22 @@ pub(crate) fn substitute_with(
     };
     let mut tree = std::mem::take(&mut c.tree);
     let mut missing = BTreeSet::new();
-    let mut in_key = false;
-    walk(
-        &mut tree,
-        doc,
-        &prefix,
-        &names,
+    let mut flags = Flags::default();
+    let mut w = Walk {
+        prefix: &prefix,
+        nonce,
+        names: &names,
         vars,
-        &mut missing,
-        &mut in_key,
-    );
-    if in_key {
+    };
+    w.walk(&mut tree, doc, &mut missing, &mut flags);
+    if flags.in_key {
         return Err("variables are only allowed in values, not in keys".to_string());
+    }
+    if flags.escaped {
+        return Err(
+            "a variable follows an escape sequence that takes its first character; put it outside the escape"
+                .to_string(),
+        );
     }
     if !missing.is_empty() {
         return Err(format!(
@@ -137,54 +141,87 @@ pub(crate) fn substitute_with(
     Ok(out)
 }
 
-fn walk(
-    tree: &mut Tree,
-    id: NodeId,
-    prefix: &str,
-    names: &[Option<String>],
-    vars: &HashMap<String, String>,
-    missing: &mut BTreeSet<String>,
-    in_key: &mut bool,
-) {
-    let n = tree.get_mut(id);
-    n.head_comment.clear();
-    n.line_comment.clear();
-    n.foot_comment.clear();
-    match n.kind {
-        Kind::Scalar => {
-            if !n.value.contains(prefix) {
-                return;
-            }
-            n.value = replace_tokens(&n.value, prefix, |i| match names.get(i) {
-                Some(None) => "${".to_string(),
-                Some(Some(name)) => match vars.get(name) {
-                    Some(v) => v.clone(),
-                    None => {
-                        missing.insert(name.clone());
-                        String::new()
-                    }
-                },
-                None => String::new(),
-            });
-            if n.style == 0 {
-                // Resolve the type again from the new value.
-                n.tag.clear();
-            }
-        }
-        Kind::Mapping => {
-            let content = n.content.clone();
-            for (i, c) in content.into_iter().enumerate() {
-                if i % 2 == 0 && tree.get(c).value.contains(prefix) {
-                    *in_key = true;
+#[derive(Default)]
+struct Flags {
+    in_key: bool,
+    escaped: bool,
+}
+
+struct Walk<'a> {
+    prefix: &'a str,
+    nonce: &'a str,
+    names: &'a [Option<String>],
+    vars: &'a HashMap<String, String>,
+}
+
+impl Walk<'_> {
+    fn walk(&mut self, tree: &mut Tree, id: NodeId, missing: &mut BTreeSet<String>, f: &mut Flags) {
+        let (prefix, names, vars) = (self.prefix, self.names, self.vars);
+        let n = tree.get_mut(id);
+        n.head_comment.clear();
+        n.line_comment.clear();
+        n.foot_comment.clear();
+        match n.kind {
+            Kind::Scalar => {
+                // An escape before a variable (\x6${X}) takes the start of
+                // its placeholder, which is then never set: the rest of the
+                // nonce stays.
+                if n.value.matches(self.nonce).count() > n.value.matches(prefix).count() {
+                    f.escaped = true;
                 }
-                walk(tree, c, prefix, names, vars, missing, in_key);
+                if !n.value.contains(prefix) {
+                    return;
+                }
+                n.value = replace_tokens(&n.value, prefix, |i| match names.get(i) {
+                    Some(None) => "${".to_string(),
+                    Some(Some(name)) => match vars.get(name) {
+                        Some(v) => v.clone(),
+                        None => {
+                            missing.insert(name.clone());
+                            String::new()
+                        }
+                    },
+                    None => String::new(),
+                });
+                if n.style == 0 {
+                    // Resolve the type again from the new value.
+                    n.tag.clear();
+                }
+            }
+            Kind::Mapping => {
+                let content = n.content.clone();
+                for (i, c) in content.into_iter().enumerate() {
+                    if i % 2 == 0 && tree.get(c).value.contains(prefix) {
+                        f.in_key = true;
+                    }
+                    self.walk(tree, c, missing, f);
+                }
+            }
+            _ => {
+                let content = n.content.clone();
+                for c in content {
+                    self.walk(tree, c, missing, f);
+                }
             }
         }
-        _ => {
-            let content = n.content.clone();
-            for c in content {
-                walk(tree, c, prefix, names, vars, missing, in_key);
-            }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_variable_inside_an_escape_is_refused() {
+        let vars = HashMap::from([("IMAGE".to_string(), "x".to_string())]);
+        for src in [
+            "name: web\nimage: \"a\\x6${IMAGE}\"\n",
+            "name: web\nimage: \"a\\u004${IMAGE}\"\n",
+        ] {
+            let err = substitute(src.as_bytes(), &vars).unwrap_err();
+            assert!(err.contains("escape sequence"), "{src:?}: {err}");
         }
+        let out = substitute(b"name: web\nimage: \"\\x41${IMAGE}\"\n", &vars).unwrap();
+        assert!(String::from_utf8_lossy(&out).contains("Ax"));
     }
 }
