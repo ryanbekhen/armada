@@ -1,0 +1,155 @@
+{
+ "name": "TestAgentParity/adopted_waits_for_its_probes",
+ "opts": {
+  "bootNs": 1767222000000000000,
+  "bridge": "",
+  "crashBaseNs": 1000000000,
+  "dns": "",
+  "encodes": false,
+  "exec": true,
+  "members": true,
+  "move": false,
+  "network": false,
+  "networkKey": "",
+  "noSecretsDir": false,
+  "proxy": false,
+  "sandbox": false,
+  "side": false,
+  "stats": true,
+  "unpublished": false,
+  "volumes": true,
+  "volumesDir": true
+ },
+ "steps": [
+  {
+   "container": {
+    "id": "old",
+    "name": "armada-web-r1-a",
+    "image": "nginx:1",
+    "labels": {
+     "armada.app": "web",
+     "armada.managed": "true",
+     "armada.replica": "web-r1-a",
+     "armada.revision": "web--r1",
+     "armada.spec-hash": "8ee9a3526072c525ed52ac17de2ac31e"
+    },
+    "state": "running",
+    "exitCode": 0,
+    "hostIp": "10.0.0.2",
+    "hostPort": 31000,
+    "ip": "",
+    "startedNs": 1767225540000000000,
+    "members": [],
+    "startError": ""
+   },
+   "op": "add"
+  },
+  {
+   "op": "fake",
+   "script": {
+    "agentStatus": {
+     "agent": "",
+     "converted": false,
+     "error": "",
+     "goImages": false,
+     "imagesToPull": 0
+    },
+    "checks": {
+     "10.0.0.2:31000 ": "slow 300ms dial tcp 10.0.0.2:31000: connect: connection refused"
+    },
+    "digests": {},
+    "execCodes": {},
+    "holdPulls": false,
+    "holdStarts": false,
+    "in": {
+     "certErr": "",
+     "certs": {},
+     "clientsErr": "",
+     "healthErr": "",
+     "keyErr": "",
+     "load": {},
+     "loadErr": "",
+     "moveErr": "",
+     "netErr": "",
+     "peers": null,
+     "proxyErr": "",
+     "switching": null,
+     "userspace": false
+    },
+    "initExits": {},
+    "platforms": {},
+    "pullErr": {},
+    "runErr": {},
+    "side": {
+     "bodies": [],
+     "boxes": null,
+     "frames": {},
+     "logsErr": "",
+     "notice": "",
+     "qerr": null,
+     "queues": null,
+     "search": [],
+     "size": 0,
+     "tail": [],
+     "tailErr": ""
+    },
+    "usage": {}
+   }
+  },
+  {
+   "assignment": {
+    "replicas": [
+     {
+      "id": "web-r1-a",
+      "app": "web",
+      "revision": "web--r1",
+      "image": "nginx:1",
+      "command": [
+       "/bin/web"
+      ],
+      "args": [
+       "--x"
+      ],
+      "env": [
+       {
+        "name": "A",
+        "value": "1"
+       },
+       {
+        "name": "S",
+        "value": "secret",
+        "ref": "s/v1"
+       }
+      ],
+      "port": 8080,
+      "memoryBytes": "268435456",
+      "nanoCpus": "500000000",
+      "pidsLimit": "1024",
+      "cpuReserveMillis": "100"
+     }
+    ]
+   },
+   "op": "assign"
+  },
+  {
+   "expect": [
+    "step left out until the first verdict",
+    "report {}",
+    "calls list {\"labels\":{\"armada.managed\":\"true\"}}",
+    "files "
+   ],
+   "name": "left out until the first verdict",
+   "op": "reconcile"
+  },
+  {
+   "expect": [
+    "step not ready",
+    "report {\"replicas\":[{\"id\":\"web-r1-a\",\"state\":\"running\",\"containerId\":\"old\",\"address\":\"10.0.0.2:31000\",\"message\":\"readiness probe failed: dial tcp 10.0.0.2:31000: connect: connection refused\"}]}",
+    "calls list {\"labels\":{\"armada.managed\":\"true\"}}",
+    "files "
+   ],
+   "name": "not ready",
+   "op": "until"
+  }
+ ]
+}

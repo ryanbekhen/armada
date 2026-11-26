@@ -1,0 +1,198 @@
+{
+ "name": "TestAgentParity/fencing",
+ "opts": {
+  "bootNs": 1767222000000000000,
+  "bridge": "",
+  "crashBaseNs": 1000000000,
+  "dns": "",
+  "encodes": false,
+  "exec": true,
+  "members": true,
+  "move": false,
+  "network": false,
+  "networkKey": "",
+  "noSecretsDir": false,
+  "proxy": false,
+  "sandbox": false,
+  "side": false,
+  "stats": true,
+  "unpublished": false,
+  "volumes": true,
+  "volumesDir": true
+ },
+ "steps": [
+  {
+   "actions": [
+    {
+     "op": "contact",
+     "up": true
+    }
+   ],
+   "expect": [
+    "step in touch",
+    "calls ",
+    "files "
+   ],
+   "name": "in touch",
+   "op": "other"
+  },
+  {
+   "assignment": {
+    "replicas": [
+     {
+      "id": "web-r1-a",
+      "app": "web",
+      "revision": "web--r1",
+      "image": "nginx:1",
+      "command": [
+       "/bin/web"
+      ],
+      "args": [
+       "--x"
+      ],
+      "env": [
+       {
+        "name": "A",
+        "value": "1"
+       },
+       {
+        "name": "S",
+        "value": "secret",
+        "ref": "s/v1"
+       }
+      ],
+      "memoryBytes": "268435456",
+      "nanoCpus": "500000000",
+      "pidsLimit": "1024",
+      "readiness": {
+       "path": "/r",
+       "initialDelayMs": "3600000"
+      },
+      "cpuReserveMillis": "100",
+      "fenceAfterSeconds": "30"
+     },
+     {
+      "id": "web-r1-b",
+      "app": "web",
+      "revision": "web--r1",
+      "image": "nginx:1",
+      "command": [
+       "/bin/web"
+      ],
+      "args": [
+       "--x"
+      ],
+      "env": [
+       {
+        "name": "A",
+        "value": "1"
+       },
+       {
+        "name": "S",
+        "value": "secret",
+        "ref": "s/v1"
+       }
+      ],
+      "memoryBytes": "268435456",
+      "nanoCpus": "500000000",
+      "pidsLimit": "1024",
+      "readiness": {
+       "path": "/r",
+       "initialDelayMs": "3600000"
+      },
+      "cpuReserveMillis": "100"
+     }
+    ]
+   },
+   "op": "assign"
+  },
+  {
+   "expect": [
+    "step started with the label",
+    "report {\"replicas\":[{\"id\":\"web-r1-a\",\"state\":\"running\",\"containerId\":\"armada-web-r1-a-1\"},{\"id\":\"web-r1-b\",\"state\":\"running\",\"containerId\":\"armada-web-r1-b-1\"}]}",
+    "calls inspect {\"id\":\"armada-web-r1-a-1\"}\ninspect {\"id\":\"armada-web-r1-b-1\"}\nlist {\"labels\":{\"armada.managed\":\"true\"}}\npull {\"auth\":null,\"image\":\"nginx:1\"}\nrun {\"spec\":{\"name\":\"armada-web-r1-a\",\"image\":\"nginx:1\",\"entrypoint\":[\"/bin/web\"],\"cmd\":[\"--x\"],\"env\":[\"A=1\",\"S=secret\"],\"labels\":{\"armada.app\":\"web\",\"armada.fence-after\":\"30\",\"armada.managed\":\"true\",\"armada.replica\":\"web-r1-a\",\"armada.revision\":\"web--r1\",\"armada.spec-hash\":\"06d4afa022399f4573d19408f287dc89\"},\"hostIp\":\"10.0.0.2\",\"memoryBytes\":268435456,\"nanoCpus\":500000000,\"cpuReserveMillis\":100,\"pidsLimit\":1024}}\nrun {\"spec\":{\"name\":\"armada-web-r1-b\",\"image\":\"nginx:1\",\"entrypoint\":[\"/bin/web\"],\"cmd\":[\"--x\"],\"env\":[\"A=1\",\"S=secret\"],\"labels\":{\"armada.app\":\"web\",\"armada.managed\":\"true\",\"armada.replica\":\"web-r1-b\",\"armada.revision\":\"web--r1\",\"armada.spec-hash\":\"1a737c95daddce8187c6d891bbd035c2\"},\"hostIp\":\"10.0.0.2\",\"memoryBytes\":268435456,\"nanoCpus\":500000000,\"cpuReserveMillis\":100,\"pidsLimit\":1024}}",
+    "files "
+   ],
+   "name": "started with the label",
+   "op": "reconcile"
+  },
+  {
+   "actions": [
+    {
+     "op": "contact",
+     "up": false
+    }
+   ],
+   "expect": [
+    "step cut off",
+    "calls ",
+    "files "
+   ],
+   "name": "cut off",
+   "op": "other"
+  },
+  {
+   "ns": 20000000000,
+   "op": "advance"
+  },
+  {
+   "expect": [
+    "step not yet",
+    "report {\"replicas\":[{\"id\":\"web-r1-a\",\"state\":\"running\",\"containerId\":\"armada-web-r1-a-1\"},{\"id\":\"web-r1-b\",\"state\":\"running\",\"containerId\":\"armada-web-r1-b-1\"}]}",
+    "calls list {\"labels\":{\"armada.managed\":\"true\"}}",
+    "files "
+   ],
+   "name": "not yet",
+   "op": "reconcile"
+  },
+  {
+   "ns": 11000000000,
+   "op": "advance"
+  },
+  {
+   "expect": [
+    "step fenced",
+    "report {\"replicas\":[{\"id\":\"web-r1-a\",\"state\":\"exited\",\"containerId\":\"armada-web-r1-a-1\",\"message\":\"stopped: cut off from the control plane, so its volumes may be restored on another node\"},{\"id\":\"web-r1-b\",\"state\":\"running\",\"containerId\":\"armada-web-r1-b-1\"}]}",
+    "calls list {\"labels\":{\"armada.managed\":\"true\"}}\nstop {\"graceMs\":30000,\"id\":\"armada-web-r1-a-1\"}",
+    "files "
+   ],
+   "name": "fenced",
+   "op": "reconcile"
+  },
+  {
+   "expect": [
+    "step still fenced",
+    "report {\"replicas\":[{\"id\":\"web-r1-a\",\"state\":\"exited\",\"containerId\":\"armada-web-r1-a-1\",\"message\":\"stopped: cut off from the control plane, so its volumes may be restored on another node\"},{\"id\":\"web-r1-b\",\"state\":\"running\",\"containerId\":\"armada-web-r1-b-1\"}]}",
+    "calls list {\"labels\":{\"armada.managed\":\"true\"}}",
+    "files "
+   ],
+   "name": "still fenced",
+   "op": "reconcile"
+  },
+  {
+   "actions": [
+    {
+     "op": "contact",
+     "up": true
+    }
+   ],
+   "expect": [
+    "step back",
+    "calls ",
+    "files "
+   ],
+   "name": "back",
+   "op": "other"
+  },
+  {
+   "expect": [
+    "step started again at once",
+    "report {\"replicas\":[{\"id\":\"web-r1-a\",\"state\":\"running\",\"containerId\":\"armada-web-r1-a-2\"},{\"id\":\"web-r1-b\",\"state\":\"running\",\"containerId\":\"armada-web-r1-b-1\"}]}",
+    "calls inspect {\"id\":\"armada-web-r1-a-2\"}\nlist {\"labels\":{\"armada.managed\":\"true\"}}\npull {\"auth\":null,\"image\":\"nginx:1\"}\nremove {\"id\":\"armada-web-r1-a-1\"}\nrun {\"spec\":{\"name\":\"armada-web-r1-a\",\"image\":\"nginx:1\",\"entrypoint\":[\"/bin/web\"],\"cmd\":[\"--x\"],\"env\":[\"A=1\",\"S=secret\"],\"labels\":{\"armada.app\":\"web\",\"armada.fence-after\":\"30\",\"armada.managed\":\"true\",\"armada.replica\":\"web-r1-a\",\"armada.revision\":\"web--r1\",\"armada.spec-hash\":\"06d4afa022399f4573d19408f287dc89\"},\"hostIp\":\"10.0.0.2\",\"memoryBytes\":268435456,\"nanoCpus\":500000000,\"cpuReserveMillis\":100,\"pidsLimit\":1024}}\nstop {\"graceMs\":10000,\"id\":\"armada-web-r1-a-1\"}",
+    "files "
+   ],
+   "name": "started again at once",
+   "op": "reconcile"
+  }
+ ]
+}

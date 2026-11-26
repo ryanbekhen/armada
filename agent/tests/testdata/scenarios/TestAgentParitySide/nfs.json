@@ -1,0 +1,346 @@
+{
+ "name": "TestAgentParitySide/nfs",
+ "opts": {
+  "bootNs": 1767222000000000000,
+  "bridge": "",
+  "crashBaseNs": 1000000000,
+  "dns": "",
+  "encodes": false,
+  "exec": true,
+  "members": true,
+  "move": false,
+  "network": false,
+  "networkKey": "",
+  "noSecretsDir": false,
+  "proxy": false,
+  "sandbox": false,
+  "side": true,
+  "stats": true,
+  "unpublished": false,
+  "volumes": true,
+  "volumesDir": true
+ },
+ "steps": [
+  {
+   "assignment": {
+    "replicas": [
+     {
+      "id": "web-r1-a",
+      "app": "web",
+      "revision": "web--r1",
+      "image": "nginx:1",
+      "command": [
+       "/bin/web"
+      ],
+      "args": [
+       "--x"
+      ],
+      "env": [
+       {
+        "name": "A",
+        "value": "1"
+       },
+       {
+        "name": "S",
+        "value": "secret",
+        "ref": "s/v1"
+       }
+      ],
+      "memoryBytes": "268435456",
+      "nanoCpus": "500000000",
+      "pidsLimit": "1024",
+      "cpuReserveMillis": "100",
+      "volumes": [
+       {
+        "name": "shared",
+        "path": "/shared",
+        "nfs": {
+         "server": "10.0.0.7",
+         "path": "/exports/web",
+         "readOnly": true
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "op": "assign"
+  },
+  {
+   "expect": [
+    "step running",
+    "report {\"replicas\":[{\"id\":\"web-r1-a\",\"state\":\"running\",\"containerId\":\"armada-web-r1-a-1\",\"ready\":true}]}",
+    "calls inspect {\"id\":\"armada-web-r1-a-1\"}\nlist {\"labels\":{\"armada.managed\":\"true\"}}\npull {\"auth\":null,\"image\":\"nginx:1\"}\nrun {\"spec\":{\"name\":\"armada-web-r1-a\",\"image\":\"nginx:1\",\"entrypoint\":[\"/bin/web\"],\"cmd\":[\"--x\"],\"env\":[\"A=1\",\"S=secret\"],\"labels\":{\"armada.app\":\"web\",\"armada.managed\":\"true\",\"armada.replica\":\"web-r1-a\",\"armada.revision\":\"web--r1\",\"armada.spec-hash\":\"db5a7db1f56c9035b1e5517dc7f1ea2e\"},\"hostIp\":\"10.0.0.2\",\"memoryBytes\":268435456,\"nanoCpus\":500000000,\"cpuReserveMillis\":100,\"pidsLimit\":1024,\"volumes\":[{\"source\":\"$ROOT/nfs/web/shared\",\"target\":\"/shared\",\"shared\":true,\"readOnly\":true}]}}",
+    "files "
+   ],
+   "name": "running",
+   "op": "until"
+  },
+  {
+   "actions": [],
+   "execIn": null,
+   "expect": [
+    "side mounted",
+    "calls ",
+    "server ",
+    "node nfs source {\"export\":\"10.0.0.7:/exports/web\",\"target\":\"$ROOT/nfs/web/shared\"}\nnfs mount {\"path\":\"/exports/web\",\"readOnly\":true,\"server\":\"10.0.0.7\",\"target\":\"$ROOT/nfs/web/shared\"}",
+    "export "
+   ],
+   "exportStatus": 0,
+   "name": "mounted",
+   "op": "side",
+   "volIn": null
+  },
+  {
+   "op": "nodeScript",
+   "script": {
+    "answers": {
+     "nfs source": "{\"source\":\"10.0.0.7:/exports/old\",\"mounted\":true}"
+    },
+    "archiveAnswer": null,
+    "readySnapshot": "",
+    "restoreAnswer": null
+   }
+  },
+  {
+   "assignment": {
+    "replicas": [
+     {
+      "id": "web-r1-a",
+      "app": "web",
+      "revision": "web--r1",
+      "image": "nginx:1",
+      "command": [
+       "/bin/web"
+      ],
+      "args": [
+       "--x"
+      ],
+      "env": [
+       {
+        "name": "A",
+        "value": "1"
+       },
+       {
+        "name": "S",
+        "value": "secret",
+        "ref": "s/v1"
+       },
+       {
+        "name": "B",
+        "value": "2"
+       }
+      ],
+      "memoryBytes": "268435456",
+      "nanoCpus": "500000000",
+      "pidsLimit": "1024",
+      "cpuReserveMillis": "100",
+      "volumes": [
+       {
+        "name": "shared",
+        "path": "/shared",
+        "nfs": {
+         "server": "10.0.0.7",
+         "path": "/exports/web",
+         "readOnly": true
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "op": "assign"
+  },
+  {
+   "expect": [
+    "step recreated on a moved export",
+    "report {\"replicas\":[{\"id\":\"web-r1-a\",\"state\":\"running\",\"containerId\":\"armada-web-r1-a-2\",\"ready\":true}]}",
+    "calls inspect {\"id\":\"armada-web-r1-a-2\"}\nlist {\"labels\":{\"armada.managed\":\"true\"}}\npull {\"auth\":null,\"image\":\"nginx:1\"}\nremove {\"id\":\"armada-web-r1-a-1\"}\nrun {\"spec\":{\"name\":\"armada-web-r1-a\",\"image\":\"nginx:1\",\"entrypoint\":[\"/bin/web\"],\"cmd\":[\"--x\"],\"env\":[\"A=1\",\"S=secret\",\"B=2\"],\"labels\":{\"armada.app\":\"web\",\"armada.managed\":\"true\",\"armada.replica\":\"web-r1-a\",\"armada.revision\":\"web--r1\",\"armada.spec-hash\":\"7da244f2a0d1c3bb424ee0d281c1755c\"},\"hostIp\":\"10.0.0.2\",\"memoryBytes\":268435456,\"nanoCpus\":500000000,\"cpuReserveMillis\":100,\"pidsLimit\":1024,\"volumes\":[{\"source\":\"$ROOT/nfs/web/shared\",\"target\":\"/shared\",\"shared\":true,\"readOnly\":true}]}}\nstop {\"graceMs\":10000,\"id\":\"armada-web-r1-a-1\"}",
+    "files "
+   ],
+   "name": "recreated on a moved export",
+   "op": "until"
+  },
+  {
+   "actions": [],
+   "execIn": null,
+   "expect": [
+    "side remounted",
+    "calls ",
+    "server ",
+    "node nfs source {\"export\":\"10.0.0.7:/exports/web\",\"target\":\"$ROOT/nfs/web/shared\"}\nnfs unmount {\"target\":\"$ROOT/nfs/web/shared\"}\nnfs mount {\"path\":\"/exports/web\",\"readOnly\":true,\"server\":\"10.0.0.7\",\"target\":\"$ROOT/nfs/web/shared\"}",
+    "export "
+   ],
+   "exportStatus": 0,
+   "name": "remounted",
+   "op": "side",
+   "volIn": null
+  },
+  {
+   "op": "nodeScript",
+   "script": {
+    "answers": {
+     "nfs mount": "{\"error\":\"mount NFS export: connection timed out\"}"
+    },
+    "archiveAnswer": null,
+    "readySnapshot": "",
+    "restoreAnswer": null
+   }
+  },
+  {
+   "assignment": {
+    "replicas": [
+     {
+      "id": "web-r1-a",
+      "app": "web",
+      "revision": "web--r1",
+      "image": "nginx:1",
+      "command": [
+       "/bin/web"
+      ],
+      "args": [
+       "--x"
+      ],
+      "env": [
+       {
+        "name": "A",
+        "value": "1"
+       },
+       {
+        "name": "S",
+        "value": "secret",
+        "ref": "s/v1"
+       },
+       {
+        "name": "B",
+        "value": "2"
+       }
+      ],
+      "memoryBytes": "268435456",
+      "nanoCpus": "500000000",
+      "pidsLimit": "1024",
+      "cpuReserveMillis": "100",
+      "volumes": [
+       {
+        "name": "shared",
+        "path": "/shared",
+        "nfs": {
+         "server": "10.0.0.7",
+         "path": "/exports/web",
+         "readOnly": true
+        }
+       }
+      ]
+     },
+     {
+      "id": "api-r1-a",
+      "app": "api",
+      "revision": "web--r1",
+      "image": "nginx:1",
+      "command": [
+       "/bin/web"
+      ],
+      "args": [
+       "--x"
+      ],
+      "env": [
+       {
+        "name": "A",
+        "value": "1"
+       },
+       {
+        "name": "S",
+        "value": "secret",
+        "ref": "s/v1"
+       }
+      ],
+      "memoryBytes": "268435456",
+      "nanoCpus": "500000000",
+      "pidsLimit": "1024",
+      "cpuReserveMillis": "100",
+      "volumes": [
+       {
+        "name": "x",
+        "path": "/x",
+        "nfs": {
+         "server": "10.0.0.8",
+         "path": "/e"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "op": "assign"
+  },
+  {
+   "expect": [
+    "step a mount that fails",
+    "report {\"replicas\":[{\"id\":\"api-r1-a\",\"state\":\"failed\",\"message\":\"volume x: mount NFS export 10.0.0.8:/e: mount NFS export: connection timed out\"},{\"id\":\"web-r1-a\",\"state\":\"running\",\"containerId\":\"armada-web-r1-a-2\",\"ready\":true}]}",
+    "calls list {\"labels\":{\"armada.managed\":\"true\"}}\npull {\"auth\":null,\"image\":\"nginx:1\"}",
+    "files "
+   ],
+   "name": "a mount that fails",
+   "op": "reconcile"
+  },
+  {
+   "actions": [],
+   "execIn": null,
+   "expect": [
+    "side failed mount",
+    "calls ",
+    "server ",
+    "node nfs source {\"export\":\"10.0.0.8:/e\",\"target\":\"$ROOT/nfs/api/x\"}\nnfs mount {\"path\":\"/e\",\"server\":\"10.0.0.8\",\"target\":\"$ROOT/nfs/api/x\"}",
+    "export "
+   ],
+   "exportStatus": 0,
+   "name": "failed mount",
+   "op": "side",
+   "volIn": null
+  },
+  {
+   "op": "nodeScript",
+   "script": {
+    "answers": {
+     "nfs source": "{\"source\":\"10.0.0.7:/exports/web\",\"mounted\":true}"
+    },
+    "archiveAnswer": null,
+    "readySnapshot": "",
+    "restoreAnswer": null
+   }
+  },
+  {
+   "assignment": {},
+   "op": "assign"
+  },
+  {
+   "expect": [
+    "step replicas gone: unmounted",
+    "report {}",
+    "calls list {\"labels\":{\"armada.managed\":\"true\"}}\nremove {\"id\":\"armada-web-r1-a-2\"}\nstop {\"graceMs\":10000,\"id\":\"armada-web-r1-a-2\"}",
+    "files "
+   ],
+   "name": "replicas gone: unmounted",
+   "op": "reconcile"
+  },
+  {
+   "actions": [
+    {
+     "op": "cleanNfs"
+    }
+   ],
+   "execIn": null,
+   "expect": [
+    "side cleaned",
+    "calls ",
+    "server ",
+    "node nfs source {\"target\":\"$ROOT/nfs/api/x\"}\nnfs unmount {\"target\":\"$ROOT/nfs/api/x\"}\nnfs source {\"target\":\"$ROOT/nfs/web/shared\"}\nnfs unmount {\"target\":\"$ROOT/nfs/web/shared\"}",
+    "export "
+   ],
+   "exportStatus": 0,
+   "name": "cleaned",
+   "op": "side",
+   "volIn": null
+  }
+ ]
+}

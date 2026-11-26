@@ -1,0 +1,209 @@
+{
+ "name": "TestAgentParity/crash_backoff",
+ "opts": {
+  "bootNs": 1767222000000000000,
+  "bridge": "",
+  "crashBaseNs": 1000000000,
+  "dns": "",
+  "encodes": false,
+  "exec": true,
+  "members": true,
+  "move": false,
+  "network": false,
+  "networkKey": "",
+  "noSecretsDir": false,
+  "proxy": false,
+  "sandbox": false,
+  "side": false,
+  "stats": true,
+  "unpublished": false,
+  "volumes": true,
+  "volumesDir": true
+ },
+ "steps": [
+  {
+   "assignment": {
+    "replicas": [
+     {
+      "id": "web-r1-a",
+      "app": "web",
+      "revision": "web--r1",
+      "image": "nginx:1",
+      "command": [
+       "/bin/web"
+      ],
+      "args": [
+       "--x"
+      ],
+      "env": [
+       {
+        "name": "A",
+        "value": "1"
+       },
+       {
+        "name": "S",
+        "value": "secret",
+        "ref": "s/v1"
+       }
+      ],
+      "memoryBytes": "268435456",
+      "nanoCpus": "500000000",
+      "pidsLimit": "1024",
+      "readiness": {
+       "path": "/r",
+       "initialDelayMs": "3600000"
+      },
+      "cpuReserveMillis": "100"
+     }
+    ]
+   },
+   "op": "assign"
+  },
+  {
+   "expect": [
+    "step started",
+    "report {\"replicas\":[{\"id\":\"web-r1-a\",\"state\":\"running\",\"containerId\":\"armada-web-r1-a-1\"}]}",
+    "calls inspect {\"id\":\"armada-web-r1-a-1\"}\nlist {\"labels\":{\"armada.managed\":\"true\"}}\npull {\"auth\":null,\"image\":\"nginx:1\"}\nrun {\"spec\":{\"name\":\"armada-web-r1-a\",\"image\":\"nginx:1\",\"entrypoint\":[\"/bin/web\"],\"cmd\":[\"--x\"],\"env\":[\"A=1\",\"S=secret\"],\"labels\":{\"armada.app\":\"web\",\"armada.managed\":\"true\",\"armada.replica\":\"web-r1-a\",\"armada.revision\":\"web--r1\",\"armada.spec-hash\":\"06d4afa022399f4573d19408f287dc89\"},\"hostIp\":\"10.0.0.2\",\"memoryBytes\":268435456,\"nanoCpus\":500000000,\"cpuReserveMillis\":100,\"pidsLimit\":1024}}",
+    "files "
+   ],
+   "name": "started",
+   "op": "reconcile"
+  },
+  {
+   "code": 3,
+   "id": "armada-web-r1-a-1",
+   "op": "setState",
+   "state": "exited"
+  },
+  {
+   "expect": [
+    "step first crash: recreated at once",
+    "report {\"replicas\":[{\"id\":\"web-r1-a\",\"state\":\"running\",\"containerId\":\"armada-web-r1-a-2\",\"message\":\"restarted: exited with code 3\"}]}",
+    "calls inspect {\"id\":\"armada-web-r1-a-1\"}\ninspect {\"id\":\"armada-web-r1-a-2\"}\nlist {\"labels\":{\"armada.managed\":\"true\"}}\npull {\"auth\":null,\"image\":\"nginx:1\"}\nremove {\"id\":\"armada-web-r1-a-1\"}\nrun {\"spec\":{\"name\":\"armada-web-r1-a\",\"image\":\"nginx:1\",\"entrypoint\":[\"/bin/web\"],\"cmd\":[\"--x\"],\"env\":[\"A=1\",\"S=secret\"],\"labels\":{\"armada.app\":\"web\",\"armada.managed\":\"true\",\"armada.replica\":\"web-r1-a\",\"armada.revision\":\"web--r1\",\"armada.spec-hash\":\"06d4afa022399f4573d19408f287dc89\"},\"hostIp\":\"10.0.0.2\",\"memoryBytes\":268435456,\"nanoCpus\":500000000,\"cpuReserveMillis\":100,\"pidsLimit\":1024}}\nstats {\"id\":\"armada-web-r1-a-1\"}\nstop {\"graceMs\":10000,\"id\":\"armada-web-r1-a-1\"}",
+    "files "
+   ],
+   "name": "first crash: recreated at once",
+   "op": "reconcile"
+  },
+  {
+   "code": 3,
+   "id": "armada-web-r1-a-2",
+   "op": "setState",
+   "state": "exited"
+  },
+  {
+   "expect": [
+    "step second crash: waits",
+    "report {\"replicas\":[{\"id\":\"web-r1-a\",\"state\":\"exited\",\"containerId\":\"armada-web-r1-a-2\",\"message\":\"exited with code 3; restarting in 1s\"}]}",
+    "calls inspect {\"id\":\"armada-web-r1-a-2\"}\nlist {\"labels\":{\"armada.managed\":\"true\"}}\nstats {\"id\":\"armada-web-r1-a-2\"}",
+    "files "
+   ],
+   "name": "second crash: waits",
+   "op": "reconcile"
+  },
+  {
+   "ns": 500000000,
+   "op": "advance"
+  },
+  {
+   "expect": [
+    "step still waiting",
+    "report {\"replicas\":[{\"id\":\"web-r1-a\",\"state\":\"exited\",\"containerId\":\"armada-web-r1-a-2\",\"message\":\"exited with code 3; restarting in 1s\"}]}",
+    "calls inspect {\"id\":\"armada-web-r1-a-2\"}\nlist {\"labels\":{\"armada.managed\":\"true\"}}\nstats {\"id\":\"armada-web-r1-a-2\"}",
+    "files "
+   ],
+   "name": "still waiting",
+   "op": "reconcile"
+  },
+  {
+   "ns": 600000000,
+   "op": "advance"
+  },
+  {
+   "expect": [
+    "step recreated",
+    "report {\"replicas\":[{\"id\":\"web-r1-a\",\"state\":\"running\",\"containerId\":\"armada-web-r1-a-3\",\"message\":\"restarted: exited with code 3\"}]}",
+    "calls inspect {\"id\":\"armada-web-r1-a-2\"}\ninspect {\"id\":\"armada-web-r1-a-3\"}\nlist {\"labels\":{\"armada.managed\":\"true\"}}\npull {\"auth\":null,\"image\":\"nginx:1\"}\nremove {\"id\":\"armada-web-r1-a-2\"}\nrun {\"spec\":{\"name\":\"armada-web-r1-a\",\"image\":\"nginx:1\",\"entrypoint\":[\"/bin/web\"],\"cmd\":[\"--x\"],\"env\":[\"A=1\",\"S=secret\"],\"labels\":{\"armada.app\":\"web\",\"armada.managed\":\"true\",\"armada.replica\":\"web-r1-a\",\"armada.revision\":\"web--r1\",\"armada.spec-hash\":\"06d4afa022399f4573d19408f287dc89\"},\"hostIp\":\"10.0.0.2\",\"memoryBytes\":268435456,\"nanoCpus\":500000000,\"cpuReserveMillis\":100,\"pidsLimit\":1024}}\nstats {\"id\":\"armada-web-r1-a-2\"}\nstop {\"graceMs\":10000,\"id\":\"armada-web-r1-a-2\"}",
+    "files "
+   ],
+   "name": "recreated",
+   "op": "reconcile"
+  },
+  {
+   "code": 1,
+   "id": "armada-web-r1-a-3",
+   "op": "setState",
+   "state": "exited"
+  },
+  {
+   "expect": [
+    "step third crash: waits longer",
+    "report {\"replicas\":[{\"id\":\"web-r1-a\",\"state\":\"exited\",\"containerId\":\"armada-web-r1-a-3\",\"message\":\"exited with code 1; restarting in 2s\"}]}",
+    "calls inspect {\"id\":\"armada-web-r1-a-3\"}\nlist {\"labels\":{\"armada.managed\":\"true\"}}\nstats {\"id\":\"armada-web-r1-a-3\"}",
+    "files "
+   ],
+   "name": "third crash: waits longer",
+   "op": "reconcile"
+  },
+  {
+   "ns": 660000000000,
+   "op": "advance"
+  },
+  {
+   "expect": [
+    "step recreated after a long while",
+    "report {\"replicas\":[{\"id\":\"web-r1-a\",\"state\":\"running\",\"containerId\":\"armada-web-r1-a-4\",\"message\":\"restarted: exited with code 1\"}]}",
+    "calls inspect {\"id\":\"armada-web-r1-a-3\"}\ninspect {\"id\":\"armada-web-r1-a-4\"}\nlist {\"labels\":{\"armada.managed\":\"true\"}}\npull {\"auth\":null,\"image\":\"nginx:1\"}\nremove {\"id\":\"armada-web-r1-a-3\"}\nrun {\"spec\":{\"name\":\"armada-web-r1-a\",\"image\":\"nginx:1\",\"entrypoint\":[\"/bin/web\"],\"cmd\":[\"--x\"],\"env\":[\"A=1\",\"S=secret\"],\"labels\":{\"armada.app\":\"web\",\"armada.managed\":\"true\",\"armada.replica\":\"web-r1-a\",\"armada.revision\":\"web--r1\",\"armada.spec-hash\":\"06d4afa022399f4573d19408f287dc89\"},\"hostIp\":\"10.0.0.2\",\"memoryBytes\":268435456,\"nanoCpus\":500000000,\"cpuReserveMillis\":100,\"pidsLimit\":1024}}\nstats {\"id\":\"armada-web-r1-a-3\"}\nstop {\"graceMs\":10000,\"id\":\"armada-web-r1-a-3\"}",
+    "files "
+   ],
+   "name": "recreated after a long while",
+   "op": "reconcile"
+  },
+  {
+   "code": 1,
+   "id": "armada-web-r1-a-4",
+   "op": "setState",
+   "state": "exited"
+  },
+  {
+   "expect": [
+    "step the count started over",
+    "report {\"replicas\":[{\"id\":\"web-r1-a\",\"state\":\"exited\",\"containerId\":\"armada-web-r1-a-4\",\"message\":\"exited with code 1; restarting in 1s\"}]}",
+    "calls inspect {\"id\":\"armada-web-r1-a-4\"}\nlist {\"labels\":{\"armada.managed\":\"true\"}}\nstats {\"id\":\"armada-web-r1-a-4\"}",
+    "files "
+   ],
+   "name": "the count started over",
+   "op": "reconcile"
+  },
+  {
+   "ns": 2000000000,
+   "op": "advance"
+  },
+  {
+   "expect": [
+    "step recreated",
+    "report {\"replicas\":[{\"id\":\"web-r1-a\",\"state\":\"running\",\"containerId\":\"armada-web-r1-a-5\",\"message\":\"restarted: exited with code 1\"}]}",
+    "calls inspect {\"id\":\"armada-web-r1-a-4\"}\ninspect {\"id\":\"armada-web-r1-a-5\"}\nlist {\"labels\":{\"armada.managed\":\"true\"}}\npull {\"auth\":null,\"image\":\"nginx:1\"}\nremove {\"id\":\"armada-web-r1-a-4\"}\nrun {\"spec\":{\"name\":\"armada-web-r1-a\",\"image\":\"nginx:1\",\"entrypoint\":[\"/bin/web\"],\"cmd\":[\"--x\"],\"env\":[\"A=1\",\"S=secret\"],\"labels\":{\"armada.app\":\"web\",\"armada.managed\":\"true\",\"armada.replica\":\"web-r1-a\",\"armada.revision\":\"web--r1\",\"armada.spec-hash\":\"06d4afa022399f4573d19408f287dc89\"},\"hostIp\":\"10.0.0.2\",\"memoryBytes\":268435456,\"nanoCpus\":500000000,\"cpuReserveMillis\":100,\"pidsLimit\":1024}}\nstats {\"id\":\"armada-web-r1-a-4\"}\nstop {\"graceMs\":10000,\"id\":\"armada-web-r1-a-4\"}",
+    "files "
+   ],
+   "name": "recreated",
+   "op": "reconcile"
+  },
+  {
+   "code": 0,
+   "id": "armada-web-r1-a-5",
+   "op": "setState",
+   "state": "dead"
+  },
+  {
+   "expect": [
+    "step dead",
+    "report {\"replicas\":[{\"id\":\"web-r1-a\",\"state\":\"exited\",\"containerId\":\"armada-web-r1-a-5\",\"message\":\"exited with code 0; restarting in 2s\"}]}",
+    "calls inspect {\"id\":\"armada-web-r1-a-5\"}\nlist {\"labels\":{\"armada.managed\":\"true\"}}\nstats {\"id\":\"armada-web-r1-a-5\"}",
+    "files "
+   ],
+   "name": "dead",
+   "op": "reconcile"
+  }
+ ]
+}

@@ -1,0 +1,139 @@
+{
+ "name": "TestAgentParity/probe_addresses",
+ "opts": {
+  "bootNs": 1767222000000000000,
+  "bridge": "",
+  "crashBaseNs": 1000000000,
+  "dns": "",
+  "encodes": false,
+  "exec": true,
+  "members": true,
+  "move": false,
+  "network": false,
+  "networkKey": "",
+  "noSecretsDir": false,
+  "proxy": false,
+  "sandbox": false,
+  "side": false,
+  "stats": true,
+  "unpublished": false,
+  "volumes": true,
+  "volumesDir": true
+ },
+ "steps": [
+  {
+   "assignment": {
+    "replicas": [
+     {
+      "id": "web-r1-a",
+      "app": "web",
+      "revision": "web--r1",
+      "image": "nginx:1",
+      "command": [
+       "/bin/web"
+      ],
+      "args": [
+       "--x"
+      ],
+      "env": [
+       {
+        "name": "A",
+        "value": "1"
+       },
+       {
+        "name": "S",
+        "value": "secret",
+        "ref": "s/v1"
+       }
+      ],
+      "port": 8080,
+      "memoryBytes": "268435456",
+      "nanoCpus": "500000000",
+      "pidsLimit": "1024",
+      "readiness": {
+       "path": "/x",
+       "port": 70000,
+       "periodMs": "20"
+      },
+      "cpuReserveMillis": "100"
+     },
+     {
+      "id": "web-r1-b",
+      "app": "web",
+      "revision": "web--r1",
+      "image": "nginx:1",
+      "command": [
+       "/bin/web"
+      ],
+      "args": [
+       "--x"
+      ],
+      "env": [
+       {
+        "name": "A",
+        "value": "1"
+       },
+       {
+        "name": "S",
+        "value": "secret",
+        "ref": "s/v1"
+       }
+      ],
+      "memoryBytes": "268435456",
+      "nanoCpus": "500000000",
+      "pidsLimit": "1024",
+      "readiness": {
+       "path": "/x",
+       "port": 9090,
+       "periodMs": "20"
+      },
+      "cpuReserveMillis": "100"
+     },
+     {
+      "id": "web-r1-c",
+      "app": "web",
+      "revision": "web--r1",
+      "image": "nginx:1",
+      "command": [
+       "/bin/web"
+      ],
+      "args": [
+       "--x"
+      ],
+      "env": [
+       {
+        "name": "A",
+        "value": "1"
+       },
+       {
+        "name": "S",
+        "value": "secret",
+        "ref": "s/v1"
+       }
+      ],
+      "port": 80,
+      "memoryBytes": "268435456",
+      "nanoCpus": "500000000",
+      "pidsLimit": "1024",
+      "readiness": {
+       "path": "no-slash",
+       "periodMs": "20"
+      },
+      "cpuReserveMillis": "100"
+     }
+    ]
+   },
+   "op": "assign"
+  },
+  {
+   "expect": [
+    "step refused",
+    "report {\"replicas\":[{\"id\":\"web-r1-a\",\"state\":\"running\",\"containerId\":\"armada-web-r1-a-1\",\"address\":\"10.0.0.2:31800\",\"message\":\"readiness probe failed: invalid probe port 70000\"},{\"id\":\"web-r1-b\",\"state\":\"running\",\"containerId\":\"armada-web-r1-b-1\",\"message\":\"readiness probe failed: container has no address for port 9090\"},{\"id\":\"web-r1-c\",\"state\":\"running\",\"containerId\":\"armada-web-r1-c-1\",\"address\":\"10.0.0.2:31038\",\"message\":\"readiness probe failed: invalid probe path: must start with \\\"/\\\" and contain only URL-safe characters\"}]}",
+    "calls inspect {\"id\":\"armada-web-r1-a-1\"}\ninspect {\"id\":\"armada-web-r1-b-1\"}\ninspect {\"id\":\"armada-web-r1-c-1\"}\nlist {\"labels\":{\"armada.managed\":\"true\"}}\npull {\"auth\":null,\"image\":\"nginx:1\"}\nrun {\"spec\":{\"name\":\"armada-web-r1-a\",\"image\":\"nginx:1\",\"entrypoint\":[\"/bin/web\"],\"cmd\":[\"--x\"],\"env\":[\"A=1\",\"S=secret\"],\"labels\":{\"armada.app\":\"web\",\"armada.managed\":\"true\",\"armada.replica\":\"web-r1-a\",\"armada.revision\":\"web--r1\",\"armada.spec-hash\":\"a86a0b8c46c9e11acf6240c1affe8873\"},\"port\":8080,\"hostIp\":\"10.0.0.2\",\"memoryBytes\":268435456,\"nanoCpus\":500000000,\"cpuReserveMillis\":100,\"pidsLimit\":1024}}\nrun {\"spec\":{\"name\":\"armada-web-r1-b\",\"image\":\"nginx:1\",\"entrypoint\":[\"/bin/web\"],\"cmd\":[\"--x\"],\"env\":[\"A=1\",\"S=secret\"],\"labels\":{\"armada.app\":\"web\",\"armada.managed\":\"true\",\"armada.replica\":\"web-r1-b\",\"armada.revision\":\"web--r1\",\"armada.spec-hash\":\"297af403bf6a5f02a51b9d6f952a7c9a\"},\"hostIp\":\"10.0.0.2\",\"memoryBytes\":268435456,\"nanoCpus\":500000000,\"cpuReserveMillis\":100,\"pidsLimit\":1024}}\nrun {\"spec\":{\"name\":\"armada-web-r1-c\",\"image\":\"nginx:1\",\"entrypoint\":[\"/bin/web\"],\"cmd\":[\"--x\"],\"env\":[\"A=1\",\"S=secret\"],\"labels\":{\"armada.app\":\"web\",\"armada.managed\":\"true\",\"armada.replica\":\"web-r1-c\",\"armada.revision\":\"web--r1\",\"armada.spec-hash\":\"3e8978645f69d4408de1ce15b4b0d24c\"},\"port\":80,\"hostIp\":\"10.0.0.2\",\"memoryBytes\":268435456,\"nanoCpus\":500000000,\"cpuReserveMillis\":100,\"pidsLimit\":1024}}",
+    "files "
+   ],
+   "name": "refused",
+   "op": "until"
+  }
+ ]
+}

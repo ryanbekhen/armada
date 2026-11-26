@@ -1,0 +1,682 @@
+{
+ "name": "TestAgentParity/many_starts",
+ "opts": {
+  "bootNs": 1767222000000000000,
+  "bridge": "",
+  "crashBaseNs": 1000000000,
+  "dns": "",
+  "encodes": false,
+  "exec": true,
+  "members": true,
+  "move": false,
+  "network": false,
+  "networkKey": "",
+  "noSecretsDir": false,
+  "proxy": false,
+  "sandbox": false,
+  "side": false,
+  "stats": true,
+  "unpublished": false,
+  "volumes": true,
+  "volumesDir": true
+ },
+ "steps": [
+  {
+   "assignment": {
+    "replicas": [
+     {
+      "id": "web-r1-a",
+      "app": "web",
+      "revision": "web--r1",
+      "image": "nginx:1",
+      "command": [
+       "/bin/web"
+      ],
+      "args": [
+       "--x"
+      ],
+      "env": [
+       {
+        "name": "A",
+        "value": "1"
+       },
+       {
+        "name": "S",
+        "value": "secret",
+        "ref": "s/v1"
+       }
+      ],
+      "port": 80,
+      "memoryBytes": "268435456",
+      "nanoCpus": "500000000",
+      "pidsLimit": "1024",
+      "readiness": {
+       "path": "/r",
+       "initialDelayMs": "3600000"
+      },
+      "cpuReserveMillis": "100"
+     },
+     {
+      "id": "web-r1-b",
+      "app": "web",
+      "revision": "web--r1",
+      "image": "nginx:1",
+      "command": [
+       "/bin/web"
+      ],
+      "args": [
+       "--x"
+      ],
+      "env": [
+       {
+        "name": "A",
+        "value": "1"
+       },
+       {
+        "name": "S",
+        "value": "secret",
+        "ref": "s/v1"
+       }
+      ],
+      "port": 80,
+      "memoryBytes": "268435456",
+      "nanoCpus": "500000000",
+      "pidsLimit": "1024",
+      "readiness": {
+       "path": "/r",
+       "initialDelayMs": "3600000"
+      },
+      "cpuReserveMillis": "100"
+     },
+     {
+      "id": "web-r1-c",
+      "app": "web",
+      "revision": "web--r1",
+      "image": "nginx:1",
+      "command": [
+       "/bin/web"
+      ],
+      "args": [
+       "--x"
+      ],
+      "env": [
+       {
+        "name": "A",
+        "value": "1"
+       },
+       {
+        "name": "S",
+        "value": "secret",
+        "ref": "s/v1"
+       }
+      ],
+      "port": 80,
+      "memoryBytes": "268435456",
+      "nanoCpus": "500000000",
+      "pidsLimit": "1024",
+      "readiness": {
+       "path": "/r",
+       "initialDelayMs": "3600000"
+      },
+      "cpuReserveMillis": "100"
+     },
+     {
+      "id": "web-r1-d",
+      "app": "web",
+      "revision": "web--r1",
+      "image": "nginx:1",
+      "command": [
+       "/bin/web"
+      ],
+      "args": [
+       "--x"
+      ],
+      "env": [
+       {
+        "name": "A",
+        "value": "1"
+       },
+       {
+        "name": "S",
+        "value": "secret",
+        "ref": "s/v1"
+       }
+      ],
+      "port": 80,
+      "memoryBytes": "268435456",
+      "nanoCpus": "500000000",
+      "pidsLimit": "1024",
+      "readiness": {
+       "path": "/r",
+       "initialDelayMs": "3600000"
+      },
+      "cpuReserveMillis": "100"
+     },
+     {
+      "id": "web-r1-e",
+      "app": "web",
+      "revision": "web--r1",
+      "image": "nginx:1",
+      "command": [
+       "/bin/web"
+      ],
+      "args": [
+       "--x"
+      ],
+      "env": [
+       {
+        "name": "A",
+        "value": "1"
+       },
+       {
+        "name": "S",
+        "value": "secret",
+        "ref": "s/v1"
+       }
+      ],
+      "port": 80,
+      "memoryBytes": "268435456",
+      "nanoCpus": "500000000",
+      "pidsLimit": "1024",
+      "readiness": {
+       "path": "/r",
+       "initialDelayMs": "3600000"
+      },
+      "cpuReserveMillis": "100"
+     },
+     {
+      "id": "web-r1-f",
+      "app": "web",
+      "revision": "web--r1",
+      "image": "nginx:1",
+      "command": [
+       "/bin/web"
+      ],
+      "args": [
+       "--x"
+      ],
+      "env": [
+       {
+        "name": "A",
+        "value": "1"
+       },
+       {
+        "name": "S",
+        "value": "secret",
+        "ref": "s/v1"
+       }
+      ],
+      "port": 80,
+      "memoryBytes": "268435456",
+      "nanoCpus": "500000000",
+      "pidsLimit": "1024",
+      "readiness": {
+       "path": "/r",
+       "initialDelayMs": "3600000"
+      },
+      "cpuReserveMillis": "100"
+     },
+     {
+      "id": "web-r1-g",
+      "app": "web",
+      "revision": "web--r1",
+      "image": "nginx:1",
+      "command": [
+       "/bin/web"
+      ],
+      "args": [
+       "--x"
+      ],
+      "env": [
+       {
+        "name": "A",
+        "value": "1"
+       },
+       {
+        "name": "S",
+        "value": "secret",
+        "ref": "s/v1"
+       }
+      ],
+      "port": 80,
+      "memoryBytes": "268435456",
+      "nanoCpus": "500000000",
+      "pidsLimit": "1024",
+      "readiness": {
+       "path": "/r",
+       "initialDelayMs": "3600000"
+      },
+      "cpuReserveMillis": "100"
+     },
+     {
+      "id": "web-r1-h",
+      "app": "web",
+      "revision": "web--r1",
+      "image": "nginx:1",
+      "command": [
+       "/bin/web"
+      ],
+      "args": [
+       "--x"
+      ],
+      "env": [
+       {
+        "name": "A",
+        "value": "1"
+       },
+       {
+        "name": "S",
+        "value": "secret",
+        "ref": "s/v1"
+       }
+      ],
+      "port": 80,
+      "memoryBytes": "268435456",
+      "nanoCpus": "500000000",
+      "pidsLimit": "1024",
+      "readiness": {
+       "path": "/r",
+       "initialDelayMs": "3600000"
+      },
+      "cpuReserveMillis": "100"
+     },
+     {
+      "id": "web-r1-i",
+      "app": "web",
+      "revision": "web--r1",
+      "image": "nginx:1",
+      "command": [
+       "/bin/web"
+      ],
+      "args": [
+       "--x"
+      ],
+      "env": [
+       {
+        "name": "A",
+        "value": "1"
+       },
+       {
+        "name": "S",
+        "value": "secret",
+        "ref": "s/v1"
+       }
+      ],
+      "port": 80,
+      "memoryBytes": "268435456",
+      "nanoCpus": "500000000",
+      "pidsLimit": "1024",
+      "readiness": {
+       "path": "/r",
+       "initialDelayMs": "3600000"
+      },
+      "cpuReserveMillis": "100"
+     },
+     {
+      "id": "web-r1-j",
+      "app": "web",
+      "revision": "web--r1",
+      "image": "nginx:1",
+      "command": [
+       "/bin/web"
+      ],
+      "args": [
+       "--x"
+      ],
+      "env": [
+       {
+        "name": "A",
+        "value": "1"
+       },
+       {
+        "name": "S",
+        "value": "secret",
+        "ref": "s/v1"
+       }
+      ],
+      "port": 80,
+      "memoryBytes": "268435456",
+      "nanoCpus": "500000000",
+      "pidsLimit": "1024",
+      "readiness": {
+       "path": "/r",
+       "initialDelayMs": "3600000"
+      },
+      "cpuReserveMillis": "100"
+     },
+     {
+      "id": "web-r1-k",
+      "app": "web",
+      "revision": "web--r1",
+      "image": "nginx:1",
+      "command": [
+       "/bin/web"
+      ],
+      "args": [
+       "--x"
+      ],
+      "env": [
+       {
+        "name": "A",
+        "value": "1"
+       },
+       {
+        "name": "S",
+        "value": "secret",
+        "ref": "s/v1"
+       }
+      ],
+      "port": 80,
+      "memoryBytes": "268435456",
+      "nanoCpus": "500000000",
+      "pidsLimit": "1024",
+      "readiness": {
+       "path": "/r",
+       "initialDelayMs": "3600000"
+      },
+      "cpuReserveMillis": "100"
+     },
+     {
+      "id": "web-r1-l",
+      "app": "web",
+      "revision": "web--r1",
+      "image": "nginx:1",
+      "command": [
+       "/bin/web"
+      ],
+      "args": [
+       "--x"
+      ],
+      "env": [
+       {
+        "name": "A",
+        "value": "1"
+       },
+       {
+        "name": "S",
+        "value": "secret",
+        "ref": "s/v1"
+       }
+      ],
+      "port": 80,
+      "memoryBytes": "268435456",
+      "nanoCpus": "500000000",
+      "pidsLimit": "1024",
+      "readiness": {
+       "path": "/r",
+       "initialDelayMs": "3600000"
+      },
+      "cpuReserveMillis": "100"
+     },
+     {
+      "id": "web-r1-m",
+      "app": "web",
+      "revision": "web--r1",
+      "image": "nginx:1",
+      "command": [
+       "/bin/web"
+      ],
+      "args": [
+       "--x"
+      ],
+      "env": [
+       {
+        "name": "A",
+        "value": "1"
+       },
+       {
+        "name": "S",
+        "value": "secret",
+        "ref": "s/v1"
+       }
+      ],
+      "port": 80,
+      "memoryBytes": "268435456",
+      "nanoCpus": "500000000",
+      "pidsLimit": "1024",
+      "readiness": {
+       "path": "/r",
+       "initialDelayMs": "3600000"
+      },
+      "cpuReserveMillis": "100"
+     },
+     {
+      "id": "web-r1-n",
+      "app": "web",
+      "revision": "web--r1",
+      "image": "nginx:1",
+      "command": [
+       "/bin/web"
+      ],
+      "args": [
+       "--x"
+      ],
+      "env": [
+       {
+        "name": "A",
+        "value": "1"
+       },
+       {
+        "name": "S",
+        "value": "secret",
+        "ref": "s/v1"
+       }
+      ],
+      "port": 80,
+      "memoryBytes": "268435456",
+      "nanoCpus": "500000000",
+      "pidsLimit": "1024",
+      "readiness": {
+       "path": "/r",
+       "initialDelayMs": "3600000"
+      },
+      "cpuReserveMillis": "100"
+     },
+     {
+      "id": "web-r1-o",
+      "app": "web",
+      "revision": "web--r1",
+      "image": "nginx:1",
+      "command": [
+       "/bin/web"
+      ],
+      "args": [
+       "--x"
+      ],
+      "env": [
+       {
+        "name": "A",
+        "value": "1"
+       },
+       {
+        "name": "S",
+        "value": "secret",
+        "ref": "s/v1"
+       }
+      ],
+      "port": 80,
+      "memoryBytes": "268435456",
+      "nanoCpus": "500000000",
+      "pidsLimit": "1024",
+      "readiness": {
+       "path": "/r",
+       "initialDelayMs": "3600000"
+      },
+      "cpuReserveMillis": "100"
+     },
+     {
+      "id": "web-r1-p",
+      "app": "web",
+      "revision": "web--r1",
+      "image": "nginx:1",
+      "command": [
+       "/bin/web"
+      ],
+      "args": [
+       "--x"
+      ],
+      "env": [
+       {
+        "name": "A",
+        "value": "1"
+       },
+       {
+        "name": "S",
+        "value": "secret",
+        "ref": "s/v1"
+       }
+      ],
+      "port": 80,
+      "memoryBytes": "268435456",
+      "nanoCpus": "500000000",
+      "pidsLimit": "1024",
+      "readiness": {
+       "path": "/r",
+       "initialDelayMs": "3600000"
+      },
+      "cpuReserveMillis": "100"
+     },
+     {
+      "id": "web-r1-q",
+      "app": "web",
+      "revision": "web--r1",
+      "image": "nginx:1",
+      "command": [
+       "/bin/web"
+      ],
+      "args": [
+       "--x"
+      ],
+      "env": [
+       {
+        "name": "A",
+        "value": "1"
+       },
+       {
+        "name": "S",
+        "value": "secret",
+        "ref": "s/v1"
+       }
+      ],
+      "port": 80,
+      "memoryBytes": "268435456",
+      "nanoCpus": "500000000",
+      "pidsLimit": "1024",
+      "readiness": {
+       "path": "/r",
+       "initialDelayMs": "3600000"
+      },
+      "cpuReserveMillis": "100"
+     },
+     {
+      "id": "web-r1-r",
+      "app": "web",
+      "revision": "web--r1",
+      "image": "nginx:1",
+      "command": [
+       "/bin/web"
+      ],
+      "args": [
+       "--x"
+      ],
+      "env": [
+       {
+        "name": "A",
+        "value": "1"
+       },
+       {
+        "name": "S",
+        "value": "secret",
+        "ref": "s/v1"
+       }
+      ],
+      "port": 80,
+      "memoryBytes": "268435456",
+      "nanoCpus": "500000000",
+      "pidsLimit": "1024",
+      "readiness": {
+       "path": "/r",
+       "initialDelayMs": "3600000"
+      },
+      "cpuReserveMillis": "100"
+     },
+     {
+      "id": "web-r1-s",
+      "app": "web",
+      "revision": "web--r1",
+      "image": "nginx:1",
+      "command": [
+       "/bin/web"
+      ],
+      "args": [
+       "--x"
+      ],
+      "env": [
+       {
+        "name": "A",
+        "value": "1"
+       },
+       {
+        "name": "S",
+        "value": "secret",
+        "ref": "s/v1"
+       }
+      ],
+      "port": 80,
+      "memoryBytes": "268435456",
+      "nanoCpus": "500000000",
+      "pidsLimit": "1024",
+      "readiness": {
+       "path": "/r",
+       "initialDelayMs": "3600000"
+      },
+      "cpuReserveMillis": "100"
+     },
+     {
+      "id": "web-r1-t",
+      "app": "web",
+      "revision": "web--r1",
+      "image": "nginx:1",
+      "command": [
+       "/bin/web"
+      ],
+      "args": [
+       "--x"
+      ],
+      "env": [
+       {
+        "name": "A",
+        "value": "1"
+       },
+       {
+        "name": "S",
+        "value": "secret",
+        "ref": "s/v1"
+       }
+      ],
+      "port": 80,
+      "memoryBytes": "268435456",
+      "nanoCpus": "500000000",
+      "pidsLimit": "1024",
+      "readiness": {
+       "path": "/r",
+       "initialDelayMs": "3600000"
+      },
+      "cpuReserveMillis": "100"
+     }
+    ]
+   },
+   "op": "assign"
+  },
+  {
+   "expect": [
+    "step twenty at most eight at a time",
+    "report {\"replicas\":[{\"id\":\"web-r1-a\",\"state\":\"running\",\"containerId\":\"armada-web-r1-a-1\",\"address\":\"10.0.0.2:31800\"},{\"id\":\"web-r1-b\",\"state\":\"running\",\"containerId\":\"armada-web-r1-b-1\",\"address\":\"10.0.0.2:30657\"},{\"id\":\"web-r1-c\",\"state\":\"running\",\"containerId\":\"armada-web-r1-c-1\",\"address\":\"10.0.0.2:31038\"},{\"id\":\"web-r1-d\",\"state\":\"running\",\"containerId\":\"armada-web-r1-d-1\",\"address\":\"10.0.0.2:31895\"},{\"id\":\"web-r1-e\",\"state\":\"running\",\"containerId\":\"armada-web-r1-e-1\",\"address\":\"10.0.0.2:30276\"},{\"id\":\"web-r1-f\",\"state\":\"running\",\"containerId\":\"armada-web-r1-f-1\",\"address\":\"10.0.0.2:31133\"},{\"id\":\"web-r1-g\",\"state\":\"running\",\"containerId\":\"armada-web-r1-g-1\",\"address\":\"10.0.0.2:31514\"},{\"id\":\"web-r1-h\",\"state\":\"running\",\"containerId\":\"armada-web-r1-h-1\",\"address\":\"10.0.0.2:30467\"},{\"id\":\"web-r1-i\",\"state\":\"running\",\"containerId\":\"armada-web-r1-i-1\",\"address\":\"10.0.0.2:30848\"},{\"id\":\"web-r1-j\",\"state\":\"running\",\"containerId\":\"armada-web-r1-j-1\",\"address\":\"10.0.0.2:31705\"},{\"id\":\"web-r1-k\",\"state\":\"running\",\"containerId\":\"armada-web-r1-k-1\",\"address\":\"10.0.0.2:30086\"},{\"id\":\"web-r1-l\",\"state\":\"running\",\"containerId\":\"armada-web-r1-l-1\",\"address\":\"10.0.0.2:30943\"},{\"id\":\"web-r1-m\",\"state\":\"running\",\"containerId\":\"armada-web-r1-m-1\",\"address\":\"10.0.0.2:31324\"},{\"id\":\"web-r1-n\",\"state\":\"running\",\"containerId\":\"armada-web-r1-n-1\",\"address\":\"10.0.0.2:30181\"},{\"id\":\"web-r1-o\",\"state\":\"running\",\"containerId\":\"armada-web-r1-o-1\",\"address\":\"10.0.0.2:30562\"},{\"id\":\"web-r1-p\",\"state\":\"running\",\"containerId\":\"armada-web-r1-p-1\",\"address\":\"10.0.0.2:31323\"},{\"id\":\"web-r1-q\",\"state\":\"running\",\"containerId\":\"armada-web-r1-q-1\",\"address\":\"10.0.0.2:31704\"},{\"id\":\"web-r1-r\",\"state\":\"running\",\"containerId\":\"armada-web-r1-r-1\",\"address\":\"10.0.0.2:30561\"},{\"id\":\"web-r1-s\",\"state\":\"running\",\"containerId\":\"armada-web-r1-s-1\",\"address\":\"10.0.0.2:30942\"},{\"id\":\"web-r1-t\",\"state\":\"running\",\"containerId\":\"armada-web-r1-t-1\",\"address\":\"10.0.0.2:31799\"}]}",
+    "calls inspect {\"id\":\"armada-web-r1-a-1\"}\ninspect {\"id\":\"armada-web-r1-b-1\"}\ninspect {\"id\":\"armada-web-r1-c-1\"}\ninspect {\"id\":\"armada-web-r1-d-1\"}\ninspect {\"id\":\"armada-web-r1-e-1\"}\ninspect {\"id\":\"armada-web-r1-f-1\"}\ninspect {\"id\":\"armada-web-r1-g-1\"}\ninspect {\"id\":\"armada-web-r1-h-1\"}\ninspect {\"id\":\"armada-web-r1-i-1\"}\ninspect {\"id\":\"armada-web-r1-j-1\"}\ninspect {\"id\":\"armada-web-r1-k-1\"}\ninspect {\"id\":\"armada-web-r1-l-1\"}\ninspect {\"id\":\"armada-web-r1-m-1\"}\ninspect {\"id\":\"armada-web-r1-n-1\"}\ninspect {\"id\":\"armada-web-r1-o-1\"}\ninspect {\"id\":\"armada-web-r1-p-1\"}\ninspect {\"id\":\"armada-web-r1-q-1\"}\ninspect {\"id\":\"armada-web-r1-r-1\"}\ninspect {\"id\":\"armada-web-r1-s-1\"}\ninspect {\"id\":\"armada-web-r1-t-1\"}\nlist {\"labels\":{\"armada.managed\":\"true\"}}\npull {\"auth\":null,\"image\":\"nginx:1\"}\nrun {\"spec\":{\"name\":\"armada-web-r1-a\",\"image\":\"nginx:1\",\"entrypoint\":[\"/bin/web\"],\"cmd\":[\"--x\"],\"env\":[\"A=1\",\"S=secret\"],\"labels\":{\"armada.app\":\"web\",\"armada.managed\":\"true\",\"armada.replica\":\"web-r1-a\",\"armada.revision\":\"web--r1\",\"armada.spec-hash\":\"edff342266086e0fe0d5a1122a7b45f8\"},\"port\":80,\"hostIp\":\"10.0.0.2\",\"memoryBytes\":268435456,\"nanoCpus\":500000000,\"cpuReserveMillis\":100,\"pidsLimit\":1024}}\nrun {\"spec\":{\"name\":\"armada-web-r1-b\",\"image\":\"nginx:1\",\"entrypoint\":[\"/bin/web\"],\"cmd\":[\"--x\"],\"env\":[\"A=1\",\"S=secret\"],\"labels\":{\"armada.app\":\"web\",\"armada.managed\":\"true\",\"armada.replica\":\"web-r1-b\",\"armada.revision\":\"web--r1\",\"armada.spec-hash\":\"addbb2c0add8fa94f0dd5269be1d95e7\"},\"port\":80,\"hostIp\":\"10.0.0.2\",\"memoryBytes\":268435456,\"nanoCpus\":500000000,\"cpuReserveMillis\":100,\"pidsLimit\":1024}}\nrun {\"spec\":{\"name\":\"armada-web-r1-c\",\"image\":\"nginx:1\",\"entrypoint\":[\"/bin/web\"],\"cmd\":[\"--x\"],\"env\":[\"A=1\",\"S=secret\"],\"labels\":{\"armada.app\":\"web\",\"armada.managed\":\"true\",\"armada.replica\":\"web-r1-c\",\"armada.revision\":\"web--r1\",\"armada.spec-hash\":\"636cf396701f4a879673ef4c896de77b\"},\"port\":80,\"hostIp\":\"10.0.0.2\",\"memoryBytes\":268435456,\"nanoCpus\":500000000,\"cpuReserveMillis\":100,\"pidsLimit\":1024}}\nrun {\"spec\":{\"name\":\"armada-web-r1-d\",\"image\":\"nginx:1\",\"entrypoint\":[\"/bin/web\"],\"cmd\":[\"--x\"],\"env\":[\"A=1\",\"S=secret\"],\"labels\":{\"armada.app\":\"web\",\"armada.managed\":\"true\",\"armada.replica\":\"web-r1-d\",\"armada.revision\":\"web--r1\",\"armada.spec-hash\":\"78adeac0d75d8b2344d3b446c7621895\"},\"port\":80,\"hostIp\":\"10.0.0.2\",\"memoryBytes\":268435456,\"nanoCpus\":500000000,\"cpuReserveMillis\":100,\"pidsLimit\":1024}}\nrun {\"spec\":{\"name\":\"armada-web-r1-e\",\"image\":\"nginx:1\",\"entrypoint\":[\"/bin/web\"],\"cmd\":[\"--x\"],\"env\":[\"A=1\",\"S=secret\"],\"labels\":{\"armada.app\":\"web\",\"armada.managed\":\"true\",\"armada.replica\":\"web-r1-e\",\"armada.revision\":\"web--r1\",\"armada.spec-hash\":\"e4b853ba0e3310f6847f669ad45d531d\"},\"port\":80,\"hostIp\":\"10.0.0.2\",\"memoryBytes\":268435456,\"nanoCpus\":500000000,\"cpuReserveMillis\":100,\"pidsLimit\":1024}}\nrun {\"spec\":{\"name\":\"armada-web-r1-f\",\"image\":\"nginx:1\",\"entrypoint\":[\"/bin/web\"],\"cmd\":[\"--x\"],\"env\":[\"A=1\",\"S=secret\"],\"labels\":{\"armada.app\":\"web\",\"armada.managed\":\"true\",\"armada.replica\":\"web-r1-f\",\"armada.revision\":\"web--r1\",\"armada.spec-hash\":\"818c1534b7246d0b69f0f4bacc538d74\"},\"port\":80,\"hostIp\":\"10.0.0.2\",\"memoryBytes\":268435456,\"nanoCpus\":500000000,\"cpuReserveMillis\":100,\"pidsLimit\":1024}}\nrun {\"spec\":{\"name\":\"armada-web-r1-g\",\"image\":\"nginx:1\",\"entrypoint\":[\"/bin/web\"],\"cmd\":[\"--x\"],\"env\":[\"A=1\",\"S=secret\"],\"labels\":{\"armada.app\":\"web\",\"armada.managed\":\"true\",\"armada.replica\":\"web-r1-g\",\"armada.revision\":\"web--r1\",\"armada.spec-hash\":\"e57030374e87d973b8291e156531c38e\"},\"port\":80,\"hostIp\":\"10.0.0.2\",\"memoryBytes\":268435456,\"nanoCpus\":500000000,\"cpuReserveMillis\":100,\"pidsLimit\":1024}}\nrun {\"spec\":{\"name\":\"armada-web-r1-h\",\"image\":\"nginx:1\",\"entrypoint\":[\"/bin/web\"],\"cmd\":[\"--x\"],\"env\":[\"A=1\",\"S=secret\"],\"labels\":{\"armada.app\":\"web\",\"armada.managed\":\"true\",\"armada.replica\":\"web-r1-h\",\"armada.revision\":\"web--r1\",\"armada.spec-hash\":\"a1992cea5602fdd149e7d996cbba755f\"},\"port\":80,\"hostIp\":\"10.0.0.2\",\"memoryBytes\":268435456,\"nanoCpus\":500000000,\"cpuReserveMillis\":100,\"pidsLimit\":1024}}\nrun {\"spec\":{\"name\":\"armada-web-r1-i\",\"image\":\"nginx:1\",\"entrypoint\":[\"/bin/web\"],\"cmd\":[\"--x\"],\"env\":[\"A=1\",\"S=secret\"],\"labels\":{\"armada.app\":\"web\",\"armada.managed\":\"true\",\"armada.replica\":\"web-r1-i\",\"armada.revision\":\"web--r1\",\"armada.spec-hash\":\"f48f95c7e4111dc045619985fd43343c\"},\"port\":80,\"hostIp\":\"10.0.0.2\",\"memoryBytes\":268435456,\"nanoCpus\":500000000,\"cpuReserveMillis\":100,\"pidsLimit\":1024}}\nrun {\"spec\":{\"name\":\"armada-web-r1-j\",\"image\":\"nginx:1\",\"entrypoint\":[\"/bin/web\"],\"cmd\":[\"--x\"],\"env\":[\"A=1\",\"S=secret\"],\"labels\":{\"armada.app\":\"web\",\"armada.managed\":\"true\",\"armada.replica\":\"web-r1-j\",\"armada.revision\":\"web--r1\",\"armada.spec-hash\":\"9c8b3f1ba366aa8b2f8eb1c877331acd\"},\"port\":80,\"hostIp\":\"10.0.0.2\",\"memoryBytes\":268435456,\"nanoCpus\":500000000,\"cpuReserveMillis\":100,\"pidsLimit\":1024}}\nrun {\"spec\":{\"name\":\"armada-web-r1-k\",\"image\":\"nginx:1\",\"entrypoint\":[\"/bin/web\"],\"cmd\":[\"--x\"],\"env\":[\"A=1\",\"S=secret\"],\"labels\":{\"armada.app\":\"web\",\"armada.managed\":\"true\",\"armada.replica\":\"web-r1-k\",\"armada.revision\":\"web--r1\",\"armada.spec-hash\":\"f5194c32e75b5fe27f5c2254fee87996\"},\"port\":80,\"hostIp\":\"10.0.0.2\",\"memoryBytes\":268435456,\"nanoCpus\":500000000,\"cpuReserveMillis\":100,\"pidsLimit\":1024}}\nrun {\"spec\":{\"name\":\"armada-web-r1-l\",\"image\":\"nginx:1\",\"entrypoint\":[\"/bin/web\"],\"cmd\":[\"--x\"],\"env\":[\"A=1\",\"S=secret\"],\"labels\":{\"armada.app\":\"web\",\"armada.managed\":\"true\",\"armada.replica\":\"web-r1-l\",\"armada.revision\":\"web--r1\",\"armada.spec-hash\":\"d5cef763874f65c4ce3fc16d9b2bc7ba\"},\"port\":80,\"hostIp\":\"10.0.0.2\",\"memoryBytes\":268435456,\"nanoCpus\":500000000,\"cpuReserveMillis\":100,\"pidsLimit\":1024}}\nrun {\"spec\":{\"name\":\"armada-web-r1-m\",\"image\":\"nginx:1\",\"entrypoint\":[\"/bin/web\"],\"cmd\":[\"--x\"],\"env\":[\"A=1\",\"S=secret\"],\"labels\":{\"armada.app\":\"web\",\"armada.managed\":\"true\",\"armada.replica\":\"web-r1-m\",\"armada.revision\":\"web--r1\",\"armada.spec-hash\":\"c956a9aa42fb7b087bf7984d85cd1c28\"},\"port\":80,\"hostIp\":\"10.0.0.2\",\"memoryBytes\":268435456,\"nanoCpus\":500000000,\"cpuReserveMillis\":100,\"pidsLimit\":1024}}\nrun {\"spec\":{\"name\":\"armada-web-r1-n\",\"image\":\"nginx:1\",\"entrypoint\":[\"/bin/web\"],\"cmd\":[\"--x\"],\"env\":[\"A=1\",\"S=secret\"],\"labels\":{\"armada.app\":\"web\",\"armada.managed\":\"true\",\"armada.replica\":\"web-r1-n\",\"armada.revision\":\"web--r1\",\"armada.spec-hash\":\"c9569811e0d701386c5112ec56cce696\"},\"port\":80,\"hostIp\":\"10.0.0.2\",\"memoryBytes\":268435456,\"nanoCpus\":500000000,\"cpuReserveMillis\":100,\"pidsLimit\":1024}}\nrun {\"spec\":{\"name\":\"armada-web-r1-o\",\"image\":\"nginx:1\",\"entrypoint\":[\"/bin/web\"],\"cmd\":[\"--x\"],\"env\":[\"A=1\",\"S=secret\"],\"labels\":{\"armada.app\":\"web\",\"armada.managed\":\"true\",\"armada.replica\":\"web-r1-o\",\"armada.revision\":\"web--r1\",\"armada.spec-hash\":\"4aa5e191dfd3486a3279c0e82cabc167\"},\"port\":80,\"hostIp\":\"10.0.0.2\",\"memoryBytes\":268435456,\"nanoCpus\":500000000,\"cpuReserveMillis\":100,\"pidsLimit\":1024}}\nrun {\"spec\":{\"name\":\"armada-web-r1-p\",\"image\":\"nginx:1\",\"entrypoint\":[\"/bin/web\"],\"cmd\":[\"--x\"],\"env\":[\"A=1\",\"S=secret\"],\"labels\":{\"armada.app\":\"web\",\"armada.managed\":\"true\",\"armada.replica\":\"web-r1-p\",\"armada.revision\":\"web--r1\",\"armada.spec-hash\":\"bddfe5c3c7b089043c77f626a724a33b\"},\"port\":80,\"hostIp\":\"10.0.0.2\",\"memoryBytes\":268435456,\"nanoCpus\":500000000,\"cpuReserveMillis\":100,\"pidsLimit\":1024}}\nrun {\"spec\":{\"name\":\"armada-web-r1-q\",\"image\":\"nginx:1\",\"entrypoint\":[\"/bin/web\"],\"cmd\":[\"--x\"],\"env\":[\"A=1\",\"S=secret\"],\"labels\":{\"armada.app\":\"web\",\"armada.managed\":\"true\",\"armada.replica\":\"web-r1-q\",\"armada.revision\":\"web--r1\",\"armada.spec-hash\":\"995b0b7ed7b3394cfd3bdc9c5155f1aa\"},\"port\":80,\"hostIp\":\"10.0.0.2\",\"memoryBytes\":268435456,\"nanoCpus\":500000000,\"cpuReserveMillis\":100,\"pidsLimit\":1024}}\nrun {\"spec\":{\"name\":\"armada-web-r1-r\",\"image\":\"nginx:1\",\"entrypoint\":[\"/bin/web\"],\"cmd\":[\"--x\"],\"env\":[\"A=1\",\"S=secret\"],\"labels\":{\"armada.app\":\"web\",\"armada.managed\":\"true\",\"armada.replica\":\"web-r1-r\",\"armada.revision\":\"web--r1\",\"armada.spec-hash\":\"10ab4093eeb2e96b132a7144741f4530\"},\"port\":80,\"hostIp\":\"10.0.0.2\",\"memoryBytes\":268435456,\"nanoCpus\":500000000,\"cpuReserveMillis\":100,\"pidsLimit\":1024}}\nrun {\"spec\":{\"name\":\"armada-web-r1-s\",\"image\":\"nginx:1\",\"entrypoint\":[\"/bin/web\"],\"cmd\":[\"--x\"],\"env\":[\"A=1\",\"S=secret\"],\"labels\":{\"armada.app\":\"web\",\"armada.managed\":\"true\",\"armada.replica\":\"web-r1-s\",\"armada.revision\":\"web--r1\",\"armada.spec-hash\":\"79f4f19a4b8428311b3c29ac46becd63\"},\"port\":80,\"hostIp\":\"10.0.0.2\",\"memoryBytes\":268435456,\"nanoCpus\":500000000,\"cpuReserveMillis\":100,\"pidsLimit\":1024}}\nrun {\"spec\":{\"name\":\"armada-web-r1-t\",\"image\":\"nginx:1\",\"entrypoint\":[\"/bin/web\"],\"cmd\":[\"--x\"],\"env\":[\"A=1\",\"S=secret\"],\"labels\":{\"armada.app\":\"web\",\"armada.managed\":\"true\",\"armada.replica\":\"web-r1-t\",\"armada.revision\":\"web--r1\",\"armada.spec-hash\":\"5bdf2a45d669dd7e798e5f994540eadd\"},\"port\":80,\"hostIp\":\"10.0.0.2\",\"memoryBytes\":268435456,\"nanoCpus\":500000000,\"cpuReserveMillis\":100,\"pidsLimit\":1024}}",
+    "files "
+   ],
+   "name": "twenty at most eight at a time",
+   "op": "reconcile"
+  }
+ ]
+}

@@ -1,0 +1,76 @@
+{
+ "name": "TestAgentParitySide/connection_tracking",
+ "opts": {
+  "bootNs": 1767222000000000000,
+  "bridge": "",
+  "crashBaseNs": 1000000000,
+  "dns": "",
+  "encodes": false,
+  "exec": true,
+  "members": true,
+  "move": false,
+  "network": false,
+  "networkKey": "",
+  "noSecretsDir": false,
+  "proxy": false,
+  "sandbox": false,
+  "side": true,
+  "stats": true,
+  "unpublished": false,
+  "volumes": true,
+  "volumesDir": true
+ },
+ "steps": [
+  {
+   "op": "nodeScript",
+   "script": {
+    "answers": {
+     "conntrack raise": "{\"previous\":65536}",
+     "conntrack read": "{\"entries\":120,\"limit\":262144,\"ok\":true}"
+    },
+    "archiveAnswer": null,
+    "readySnapshot": "",
+    "restoreAnswer": null
+   }
+  },
+  {
+   "expect": [
+    "usage raised {\"volumesMeasured\":true,\"conntrackEntries\":\"120\",\"conntrackMax\":\"262144\"}",
+    "calls list {\"labels\":{\"armada.managed\":\"true\"}}",
+    "node conntrack raise {\"dir\":\"$ROOT/conntrack\",\"memory\":1073741824}\nconntrack read {\"dir\":\"$ROOT/conntrack\",\"memory\":1073741824}"
+   ],
+   "name": "raised",
+   "op": "sampleSide"
+  },
+  {
+   "op": "nodeScript",
+   "script": {
+    "answers": {
+     "conntrack raise": "{\"error\":\"raise the connection tracking limit: open x: permission denied\"}",
+     "conntrack read": "{\"ok\":false}"
+    },
+    "archiveAnswer": null,
+    "readySnapshot": "",
+    "restoreAnswer": null
+   }
+  },
+  {
+   "expect": [
+    "usage not raised {\"volumesMeasured\":true}",
+    "calls list {\"labels\":{\"armada.managed\":\"true\"}}",
+    "node conntrack raise {\"dir\":\"$ROOT/conntrack\",\"memory\":1073741824}\nconntrack read {\"dir\":\"$ROOT/conntrack\",\"memory\":1073741824}"
+   ],
+   "name": "not raised",
+   "op": "sampleSide"
+  },
+  {
+   "expect": [
+    "usage not raised again {\"volumesMeasured\":true}",
+    "calls list {\"labels\":{\"armada.managed\":\"true\"}}",
+    "node conntrack raise {\"dir\":\"$ROOT/conntrack\",\"memory\":1073741824}\nconntrack read {\"dir\":\"$ROOT/conntrack\",\"memory\":1073741824}"
+   ],
+   "name": "not raised again",
+   "op": "sampleSide"
+  }
+ ]
+}

@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -59,10 +61,9 @@ func TestAgentParityHello(t *testing.T) {
 
 func TestAgentParityReconnect(t *testing.T) {
 	t.Parallel()
-	if agentBin() == "" {
+	if agentBin() == "" && !*recordScenarios {
 		t.Skip("ARMADA_AGENT_BIN not set")
 	}
-	r := rustOnly(t)
 	now := time.Date(2026, 11, 22, 9, 31, 30, 0, time.UTC)
 	cases := []struct {
 		accepted bool
@@ -78,6 +79,22 @@ func TestAgentParityReconnect(t *testing.T) {
 		{false, 30 * time.Second, now, now.Add(time.Hour)},
 		{false, time.Second, time.Time{}, now},
 	}
+	if *recordScenarios {
+		// Go's answers; the replay knows the jitter's bounds (failover).
+		var rec []map[string]any
+		for _, c := range cases {
+			wait, backoff, lost := reconnectWait(c.accepted, c.backoff, c.lost, c.at)
+			failover := !c.accepted && !c.lost.IsZero() && c.at.Sub(c.lost) < failoverWindow
+			if failover {
+				wait = failoverRetry
+			}
+			rec = append(rec, map[string]any{"accepted": c.accepted, "backoffNs": int64(c.backoff), "lostNs": unixNs(c.lost), "nowNs": c.at.UnixNano(),
+				"failover": failover, "waitNs": int64(wait), "wantBackoffNs": int64(backoff), "wantLostNs": unixNs(lost)})
+		}
+		writeFixture(t, filepath.Join(agentFixtures, "reconnect.json"), rec)
+		return
+	}
+	r := rustOnly(t)
 	for _, c := range cases {
 		wait, backoff, lost := reconnectWait(c.accepted, c.backoff, c.lost, c.at)
 		ans := r.request("reconnect", map[string]any{"accepted": c.accepted, "backoffNs": int64(c.backoff), "lostNs": unixNs(c.lost), "nowNs": c.at.UnixNano()})
@@ -102,10 +119,9 @@ func TestAgentParityReconnect(t *testing.T) {
 
 func TestAgentParitySpecHash(t *testing.T) {
 	t.Parallel()
-	if agentBin() == "" {
+	if agentBin() == "" && !*recordScenarios {
 		t.Skip("ARMADA_AGENT_BIN not set")
 	}
-	r := rustOnly(t)
 	full := pr("web-r1-a", "nginx:1", 8080)
 	full.Startup = &armadav1.Probe{Path: "/s", Port: 81, InitialDelayMs: 5, PeriodMs: 6, TimeoutMs: 7, FailureThreshold: 8, Command: []string{"a", "b"}}
 	full.Liveness = &armadav1.Probe{Path: "/l"}
@@ -126,6 +142,15 @@ func TestAgentParitySpecHash(t *testing.T) {
 		s.Args = append(s.Args, string(rune('a'+i)))
 		specs = append(specs, s)
 	}
+	if *recordScenarios {
+		var rec []map[string]any
+		for _, s := range specs {
+			rec = append(rec, map[string]any{"spec": protoJSON(s), "hash": specHash(s)})
+		}
+		writeFixture(t, filepath.Join(agentFixtures, "hash.json"), rec)
+		return
+	}
+	r := rustOnly(t)
 	for _, s := range specs {
 		var got string
 		_ = json.Unmarshal(r.request("hash", map[string]any{"spec": protoJSON(s)})["hash"], &got)
@@ -137,10 +162,9 @@ func TestAgentParitySpecHash(t *testing.T) {
 
 func TestAgentParityCheck(t *testing.T) {
 	t.Parallel()
-	if agentBin() == "" {
+	if agentBin() == "" && !*recordScenarios {
 		t.Skip("ARMADA_AGENT_BIN not set")
 	}
-	r := rustOnly(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		switch req.URL.Path {
 		case "/ok":
@@ -165,6 +189,24 @@ func TestAgentParityCheck(t *testing.T) {
 		{addr, "/ok"}, {addr, "/moved"}, {addr, "/down"}, {addr, "/slow"}, {addr, ""},
 		{refused, ""}, {refused, "/ok"},
 	}
+	if *recordScenarios {
+		// Go's errors with the addresses written as $ADDR and $REFUSED; the
+		// replay serves the same paths.
+		name := strings.NewReplacer(addr, "$ADDR", refused, "$REFUSED")
+		var rec []map[string]any
+		for _, c := range cases {
+			ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+			goErr := ""
+			if err := DefaultCheck(ctx, c.addr, c.path); err != nil {
+				goErr = err.Error()
+			}
+			cancel()
+			rec = append(rec, map[string]any{"addr": name.Replace(c.addr), "path": c.path, "timeoutMs": 300, "error": name.Replace(goErr)})
+		}
+		writeFixture(t, filepath.Join(agentFixtures, "check.json"), rec)
+		return
+	}
+	r := rustOnly(t)
 	for _, c := range cases {
 		ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
 		goErr := ""
@@ -306,6 +348,10 @@ func runSession(t *testing.T, rust bool) []string {
 func TestAgentParitySession(t *testing.T) {
 	t.Parallel()
 	g := runSession(t, false)
+	if *recordScenarios {
+		writeFixture(t, filepath.Join(agentFixtures, "session.json"), g)
+		return
+	}
 	if os.Getenv("ARMADA_AGENT_PARITY_DUMP") != "" {
 		t.Log(g)
 	}

@@ -1,0 +1,543 @@
+{
+ "name": "TestAgentParityIngress/certificates_by_reference",
+ "opts": {
+  "bootNs": 1767222000000000000,
+  "bridge": "",
+  "crashBaseNs": 1000000000,
+  "dns": "",
+  "encodes": false,
+  "exec": true,
+  "members": true,
+  "move": false,
+  "network": false,
+  "networkKey": "",
+  "noSecretsDir": false,
+  "proxy": true,
+  "sandbox": false,
+  "side": false,
+  "stats": false,
+  "unpublished": false,
+  "volumes": true,
+  "volumesDir": true
+ },
+ "steps": [
+  {
+   "op": "fake",
+   "script": {
+    "agentStatus": {
+     "agent": "",
+     "converted": false,
+     "error": "",
+     "goImages": false,
+     "imagesToPull": 0
+    },
+    "checks": {},
+    "digests": {},
+    "execCodes": {},
+    "holdPulls": false,
+    "holdStarts": false,
+    "in": {
+     "certErr": "",
+     "certs": {
+      "a.example.org": "cGVtIGE=",
+      "b.example.org": "cGVtIGI="
+     },
+     "clientsErr": "",
+     "healthErr": "",
+     "keyErr": "",
+     "load": {},
+     "loadErr": "",
+     "moveErr": "",
+     "netErr": "",
+     "peers": null,
+     "proxyErr": "",
+     "switching": null,
+     "userspace": false
+    },
+    "initExits": {},
+    "platforms": {},
+    "pullErr": {},
+    "runErr": {},
+    "side": {
+     "bodies": [],
+     "boxes": null,
+     "frames": {},
+     "logsErr": "",
+     "notice": "",
+     "qerr": null,
+     "queues": null,
+     "search": [],
+     "size": 0,
+     "tail": [],
+     "tailErr": ""
+    },
+    "usage": {}
+   }
+  },
+  {
+   "assignment": {
+    "proxy": {
+     "backends": [
+      {
+       "name": "web",
+       "servers": [
+        {
+         "name": "web-r1-a",
+         "address": "10.0.0.2:31000"
+        }
+       ]
+      },
+      {
+       "name": "api.shop"
+      },
+      {
+       "name": "db"
+      }
+     ],
+     "rules": [
+      {
+       "host": "web.example.org",
+       "pathPrefix": "/",
+       "backend": "web"
+      },
+      {
+       "host": "web.internal",
+       "pathPrefix": "/",
+       "backend": "web",
+       "internal": true
+      },
+      {
+       "host": "api.shop.internal",
+       "pathPrefix": "/",
+       "backend": "api.shop",
+       "internal": true
+      },
+      {
+       "host": "api.shop.internal",
+       "pathPrefix": "/v1",
+       "backend": "api.shop",
+       "internal": true
+      }
+     ],
+     "certificates": [
+      {
+       "name": "a.example.org",
+       "sha256": "t5EKHJbeFjJxcUTTS8476EwZw96nuzeZR+zI6lBi3Y0="
+      },
+      {
+       "name": "b.example.org",
+       "sha256": "0oiH+XlhfYhFNOAqjqgabrJZMZu75kgfpdGECNXHpTM="
+      }
+     ],
+     "tcpRoutes": [
+      {
+       "port": 5432,
+       "backend": "db"
+      }
+     ]
+    }
+   },
+   "op": "assign"
+  },
+  {
+   "expect": [
+    "step both fetched",
+    "report {}",
+    "calls certs [\"a.example.org\",\"b.example.org\"]\nlist {\"labels\":{\"armada.managed\":\"true\"}}\nproxy.apply {\"config\":{\"backends\":[{\"name\":\"web\",\"servers\":[{\"name\":\"web-r1-a\",\"address\":\"10.0.0.2:31000\"}]},{\"name\":\"api.shop\"},{\"name\":\"db\"}],\"rules\":[{\"host\":\"web.example.org\",\"pathPrefix\":\"/\",\"backend\":\"web\"},{\"host\":\"web.internal\",\"pathPrefix\":\"/\",\"backend\":\"web\",\"internal\":true},{\"host\":\"api.shop.internal\",\"pathPrefix\":\"/\",\"backend\":\"api.shop\",\"internal\":true},{\"host\":\"api.shop.internal\",\"pathPrefix\":\"/v1\",\"backend\":\"api.shop\",\"internal\":true}],\"certificates\":[{\"name\":\"a.example.org\",\"pem\":\"cGVtIGE=\"},{\"name\":\"b.example.org\",\"pem\":\"cGVtIGI=\"}],\"tcpRoutes\":[{\"port\":5432,\"backend\":\"db\"}]},\"running\":0}",
+    "files "
+   ],
+   "name": "both fetched",
+   "op": "reconcile"
+  },
+  {
+   "op": "fake",
+   "script": {
+    "agentStatus": {
+     "agent": "",
+     "converted": false,
+     "error": "",
+     "goImages": false,
+     "imagesToPull": 0
+    },
+    "checks": {},
+    "digests": {},
+    "execCodes": {},
+    "holdPulls": false,
+    "holdStarts": false,
+    "in": {
+     "certErr": "",
+     "certs": {
+      "a.example.org": "cGVtIGEy",
+      "b.example.org": "cGVtIGI="
+     },
+     "clientsErr": "",
+     "healthErr": "",
+     "keyErr": "",
+     "load": {},
+     "loadErr": "",
+     "moveErr": "",
+     "netErr": "",
+     "peers": null,
+     "proxyErr": "",
+     "switching": null,
+     "userspace": false
+    },
+    "initExits": {},
+    "platforms": {},
+    "pullErr": {},
+    "runErr": {},
+    "side": {
+     "bodies": [],
+     "boxes": null,
+     "frames": {},
+     "logsErr": "",
+     "notice": "",
+     "qerr": null,
+     "queues": null,
+     "search": [],
+     "size": 0,
+     "tail": [],
+     "tailErr": ""
+    },
+    "usage": {}
+   }
+  },
+  {
+   "assignment": {
+    "proxy": {
+     "backends": [
+      {
+       "name": "web",
+       "servers": [
+        {
+         "name": "web-r1-a",
+         "address": "10.0.0.2:31000"
+        }
+       ]
+      },
+      {
+       "name": "api.shop"
+      },
+      {
+       "name": "db"
+      }
+     ],
+     "rules": [
+      {
+       "host": "web.example.org",
+       "pathPrefix": "/",
+       "backend": "web"
+      },
+      {
+       "host": "web.internal",
+       "pathPrefix": "/",
+       "backend": "web",
+       "internal": true
+      },
+      {
+       "host": "api.shop.internal",
+       "pathPrefix": "/",
+       "backend": "api.shop",
+       "internal": true
+      },
+      {
+       "host": "api.shop.internal",
+       "pathPrefix": "/v1",
+       "backend": "api.shop",
+       "internal": true
+      }
+     ],
+     "certificates": [
+      {
+       "name": "a.example.org",
+       "sha256": "Oq75IyD//Br256Z5SzLz2nn5NuHMV0GI7IUmuObMqT4="
+      }
+     ],
+     "tcpRoutes": [
+      {
+       "port": 5432,
+       "backend": "db"
+      }
+     ]
+    }
+   },
+   "op": "assign"
+  },
+  {
+   "expect": [
+    "step the renewed one fetched again, the other forgotten",
+    "report {}",
+    "calls certs [\"a.example.org\"]\nlist {\"labels\":{\"armada.managed\":\"true\"}}\nproxy.apply {\"config\":{\"backends\":[{\"name\":\"web\",\"servers\":[{\"name\":\"web-r1-a\",\"address\":\"10.0.0.2:31000\"}]},{\"name\":\"api.shop\"},{\"name\":\"db\"}],\"rules\":[{\"host\":\"web.example.org\",\"pathPrefix\":\"/\",\"backend\":\"web\"},{\"host\":\"web.internal\",\"pathPrefix\":\"/\",\"backend\":\"web\",\"internal\":true},{\"host\":\"api.shop.internal\",\"pathPrefix\":\"/\",\"backend\":\"api.shop\",\"internal\":true},{\"host\":\"api.shop.internal\",\"pathPrefix\":\"/v1\",\"backend\":\"api.shop\",\"internal\":true}],\"certificates\":[{\"name\":\"a.example.org\",\"pem\":\"cGVtIGEy\"}],\"tcpRoutes\":[{\"port\":5432,\"backend\":\"db\"}]},\"running\":0}",
+    "files "
+   ],
+   "name": "the renewed one fetched again, the other forgotten",
+   "op": "reconcile"
+  },
+  {
+   "assignment": {
+    "proxy": {
+     "backends": [
+      {
+       "name": "web",
+       "servers": [
+        {
+         "name": "web-r1-a",
+         "address": "10.0.0.2:31000"
+        }
+       ]
+      },
+      {
+       "name": "api.shop"
+      },
+      {
+       "name": "db"
+      }
+     ],
+     "rules": [
+      {
+       "host": "web.example.org",
+       "pathPrefix": "/",
+       "backend": "web"
+      },
+      {
+       "host": "web.internal",
+       "pathPrefix": "/",
+       "backend": "web",
+       "internal": true
+      },
+      {
+       "host": "api.shop.internal",
+       "pathPrefix": "/",
+       "backend": "api.shop",
+       "internal": true
+      },
+      {
+       "host": "api.shop.internal",
+       "pathPrefix": "/v1",
+       "backend": "api.shop",
+       "internal": true
+      }
+     ],
+     "certificates": [
+      {
+       "name": "a.example.org",
+       "sha256": "eUbvENnOnKM0Vz0h85kwiFajZZC4RMKpBiwMut+ldiE="
+      }
+     ],
+     "tcpRoutes": [
+      {
+       "port": 5432,
+       "backend": "db"
+      }
+     ]
+    }
+   },
+   "op": "assign"
+  },
+  {
+   "expect": [
+    "step another digest: not applied",
+    "report {}",
+    "calls certs [\"a.example.org\"]\nlist {\"labels\":{\"armada.managed\":\"true\"}}",
+    "files "
+   ],
+   "name": "another digest: not applied",
+   "op": "reconcile"
+  },
+  {
+   "assignment": {
+    "proxy": {
+     "backends": [
+      {
+       "name": "web",
+       "servers": [
+        {
+         "name": "web-r1-a",
+         "address": "10.0.0.2:31000"
+        }
+       ]
+      },
+      {
+       "name": "api.shop"
+      },
+      {
+       "name": "db"
+      }
+     ],
+     "rules": [
+      {
+       "host": "web.example.org",
+       "pathPrefix": "/",
+       "backend": "web"
+      },
+      {
+       "host": "web.internal",
+       "pathPrefix": "/",
+       "backend": "web",
+       "internal": true
+      },
+      {
+       "host": "api.shop.internal",
+       "pathPrefix": "/",
+       "backend": "api.shop",
+       "internal": true
+      },
+      {
+       "host": "api.shop.internal",
+       "pathPrefix": "/v1",
+       "backend": "api.shop",
+       "internal": true
+      }
+     ],
+     "certificates": [
+      {
+       "name": "c.example.org",
+       "sha256": "Ln0sA6lQeuJl7PW1NWiFpTOTogKdJBOUmXJloaJa78Y="
+      }
+     ],
+     "tcpRoutes": [
+      {
+       "port": 5432,
+       "backend": "db"
+      }
+     ]
+    }
+   },
+   "op": "assign"
+  },
+  {
+   "expect": [
+    "step missing: not applied",
+    "report {}",
+    "calls certs [\"c.example.org\"]\nlist {\"labels\":{\"armada.managed\":\"true\"}}",
+    "files "
+   ],
+   "name": "missing: not applied",
+   "op": "reconcile"
+  },
+  {
+   "op": "fake",
+   "script": {
+    "agentStatus": {
+     "agent": "",
+     "converted": false,
+     "error": "",
+     "goImages": false,
+     "imagesToPull": 0
+    },
+    "checks": {},
+    "digests": {},
+    "execCodes": {},
+    "holdPulls": false,
+    "holdStarts": false,
+    "in": {
+     "certErr": "rpc error: code = Unavailable desc = no leader",
+     "certs": {
+      "a.example.org": "cGVtIGEy",
+      "b.example.org": "cGVtIGI="
+     },
+     "clientsErr": "",
+     "healthErr": "",
+     "keyErr": "",
+     "load": {},
+     "loadErr": "",
+     "moveErr": "",
+     "netErr": "",
+     "peers": null,
+     "proxyErr": "",
+     "switching": null,
+     "userspace": false
+    },
+    "initExits": {},
+    "platforms": {},
+    "pullErr": {},
+    "runErr": {},
+    "side": {
+     "bodies": [],
+     "boxes": null,
+     "frames": {},
+     "logsErr": "",
+     "notice": "",
+     "qerr": null,
+     "queues": null,
+     "search": [],
+     "size": 0,
+     "tail": [],
+     "tailErr": ""
+    },
+    "usage": {}
+   }
+  },
+  {
+   "assignment": {
+    "proxy": {
+     "backends": [
+      {
+       "name": "web",
+       "servers": [
+        {
+         "name": "web-r1-a",
+         "address": "10.0.0.2:31000"
+        }
+       ]
+      },
+      {
+       "name": "api.shop"
+      },
+      {
+       "name": "db"
+      }
+     ],
+     "rules": [
+      {
+       "host": "web.example.org",
+       "pathPrefix": "/",
+       "backend": "web"
+      },
+      {
+       "host": "web.internal",
+       "pathPrefix": "/",
+       "backend": "web",
+       "internal": true
+      },
+      {
+       "host": "api.shop.internal",
+       "pathPrefix": "/",
+       "backend": "api.shop",
+       "internal": true
+      },
+      {
+       "host": "api.shop.internal",
+       "pathPrefix": "/v1",
+       "backend": "api.shop",
+       "internal": true
+      }
+     ],
+     "certificates": [
+      {
+       "name": "b.example.org",
+       "sha256": "0oiH+XlhfYhFNOAqjqgabrJZMZu75kgfpdGECNXHpTM="
+      }
+     ],
+     "tcpRoutes": [
+      {
+       "port": 5432,
+       "backend": "db"
+      }
+     ]
+    }
+   },
+   "op": "assign"
+  },
+  {
+   "expect": [
+    "step the control plane fails: not applied",
+    "report {}",
+    "calls certs [\"b.example.org\"]\nlist {\"labels\":{\"armada.managed\":\"true\"}}",
+    "files "
+   ],
+   "name": "the control plane fails: not applied",
+   "op": "reconcile"
+  }
+ ]
+}

@@ -1,0 +1,218 @@
+{
+ "name": "TestAgentParity/failures",
+ "opts": {
+  "bootNs": 1767222000000000000,
+  "bridge": "",
+  "crashBaseNs": 1000000000,
+  "dns": "",
+  "encodes": false,
+  "exec": true,
+  "members": true,
+  "move": false,
+  "network": false,
+  "networkKey": "",
+  "noSecretsDir": false,
+  "proxy": false,
+  "sandbox": false,
+  "side": false,
+  "stats": true,
+  "unpublished": false,
+  "volumes": true,
+  "volumesDir": true
+ },
+ "steps": [
+  {
+   "op": "fake",
+   "script": {
+    "agentStatus": {
+     "agent": "",
+     "converted": false,
+     "error": "",
+     "goImages": false,
+     "imagesToPull": 0
+    },
+    "checks": {},
+    "digests": {},
+    "execCodes": {},
+    "holdPulls": false,
+    "holdStarts": false,
+    "in": {
+     "certErr": "",
+     "certs": {},
+     "clientsErr": "",
+     "healthErr": "",
+     "keyErr": "",
+     "load": {},
+     "loadErr": "",
+     "moveErr": "",
+     "netErr": "",
+     "peers": null,
+     "proxyErr": "",
+     "switching": null,
+     "userspace": false
+    },
+    "initExits": {},
+    "platforms": {},
+    "pullErr": {
+     "arm-only:1": {
+      "have": [
+       "linux/arm64"
+      ],
+      "image": "arm-only:1",
+      "kind": "platform",
+      "want": "linux/amd64"
+     },
+     "private:1": {
+      "kind": "other",
+      "text": "pull private:1: unauthorized"
+     }
+    },
+    "runErr": {
+     "broken:1": "create container: invalid mount"
+    },
+    "side": {
+     "bodies": [],
+     "boxes": null,
+     "frames": {},
+     "logsErr": "",
+     "notice": "",
+     "qerr": null,
+     "queues": null,
+     "search": [],
+     "size": 0,
+     "tail": [],
+     "tailErr": ""
+    },
+    "usage": {}
+   }
+  },
+  {
+   "assignment": {
+    "replicas": [
+     {
+      "id": "web-r1-a",
+      "app": "web",
+      "revision": "web--r1",
+      "image": "private:1",
+      "command": [
+       "/bin/web"
+      ],
+      "args": [
+       "--x"
+      ],
+      "env": [
+       {
+        "name": "A",
+        "value": "1"
+       },
+       {
+        "name": "S",
+        "value": "secret",
+        "ref": "s/v1"
+       }
+      ],
+      "port": 80,
+      "memoryBytes": "268435456",
+      "nanoCpus": "500000000",
+      "pidsLimit": "1024",
+      "readiness": {
+       "path": "/r",
+       "initialDelayMs": "3600000"
+      },
+      "registry": {
+       "server": "reg.example",
+       "username": "u",
+       "password": "p"
+      },
+      "cpuReserveMillis": "100"
+     },
+     {
+      "id": "web-r1-b",
+      "app": "web",
+      "revision": "web--r1",
+      "image": "arm-only:1",
+      "command": [
+       "/bin/web"
+      ],
+      "args": [
+       "--x"
+      ],
+      "env": [
+       {
+        "name": "A",
+        "value": "1"
+       },
+       {
+        "name": "S",
+        "value": "secret",
+        "ref": "s/v1"
+       }
+      ],
+      "port": 80,
+      "memoryBytes": "268435456",
+      "nanoCpus": "500000000",
+      "pidsLimit": "1024",
+      "readiness": {
+       "path": "/r",
+       "initialDelayMs": "3600000"
+      },
+      "cpuReserveMillis": "100"
+     },
+     {
+      "id": "web-r1-c",
+      "app": "web",
+      "revision": "web--r1",
+      "image": "broken:1",
+      "command": [
+       "/bin/web"
+      ],
+      "args": [
+       "--x"
+      ],
+      "env": [
+       {
+        "name": "A",
+        "value": "1"
+       },
+       {
+        "name": "S",
+        "value": "secret",
+        "ref": "s/v1"
+       }
+      ],
+      "port": 80,
+      "memoryBytes": "268435456",
+      "nanoCpus": "500000000",
+      "pidsLimit": "1024",
+      "readiness": {
+       "path": "/r",
+       "initialDelayMs": "3600000"
+      },
+      "cpuReserveMillis": "100"
+     }
+    ]
+   },
+   "op": "assign"
+  },
+  {
+   "expect": [
+    "step pull, platform, and run failures",
+    "report {\"replicas\":[{\"id\":\"web-r1-a\",\"state\":\"failed\",\"message\":\"pull private:1: unauthorized\"},{\"id\":\"web-r1-b\",\"state\":\"failed\",\"message\":\"image arm-only:1 has no linux/amd64 variant (it has linux/arm64)\",\"imagePlatforms\":[\"linux/arm64\"]},{\"id\":\"web-r1-c\",\"state\":\"failed\",\"message\":\"create container: invalid mount\"}]}",
+    "calls list {\"labels\":{\"armada.managed\":\"true\"}}\npull {\"auth\":null,\"image\":\"arm-only:1\"}\npull {\"auth\":null,\"image\":\"broken:1\"}\npull {\"auth\":{\"username\":\"u\",\"password\":\"p\",\"serverAddress\":\"reg.example\"},\"image\":\"private:1\"}\nrun {\"spec\":{\"name\":\"armada-web-r1-c\",\"image\":\"broken:1\",\"entrypoint\":[\"/bin/web\"],\"cmd\":[\"--x\"],\"env\":[\"A=1\",\"S=secret\"],\"labels\":{\"armada.app\":\"web\",\"armada.managed\":\"true\",\"armada.replica\":\"web-r1-c\",\"armada.revision\":\"web--r1\",\"armada.spec-hash\":\"636cf396701f4a879673ef4c896de77b\"},\"port\":80,\"hostIp\":\"10.0.0.2\",\"memoryBytes\":268435456,\"nanoCpus\":500000000,\"cpuReserveMillis\":100,\"pidsLimit\":1024}}",
+    "files "
+   ],
+   "name": "pull, platform, and run failures",
+   "op": "reconcile"
+  },
+  {
+   "expect": [
+    "step tried again",
+    "report {\"replicas\":[{\"id\":\"web-r1-a\",\"state\":\"failed\",\"message\":\"pull private:1: unauthorized\"},{\"id\":\"web-r1-b\",\"state\":\"failed\",\"message\":\"image arm-only:1 has no linux/amd64 variant (it has linux/arm64)\",\"imagePlatforms\":[\"linux/arm64\"]},{\"id\":\"web-r1-c\",\"state\":\"failed\",\"message\":\"create container: invalid mount\"}]}",
+    "calls list {\"labels\":{\"armada.managed\":\"true\"}}\npull {\"auth\":null,\"image\":\"arm-only:1\"}\npull {\"auth\":null,\"image\":\"broken:1\"}\npull {\"auth\":{\"username\":\"u\",\"password\":\"p\",\"serverAddress\":\"reg.example\"},\"image\":\"private:1\"}\nrun {\"spec\":{\"name\":\"armada-web-r1-c\",\"image\":\"broken:1\",\"entrypoint\":[\"/bin/web\"],\"cmd\":[\"--x\"],\"env\":[\"A=1\",\"S=secret\"],\"labels\":{\"armada.app\":\"web\",\"armada.managed\":\"true\",\"armada.replica\":\"web-r1-c\",\"armada.revision\":\"web--r1\",\"armada.spec-hash\":\"636cf396701f4a879673ef4c896de77b\"},\"port\":80,\"hostIp\":\"10.0.0.2\",\"memoryBytes\":268435456,\"nanoCpus\":500000000,\"cpuReserveMillis\":100,\"pidsLimit\":1024}}",
+    "files "
+   ],
+   "name": "tried again",
+   "op": "reconcile"
+  }
+ ]
+}

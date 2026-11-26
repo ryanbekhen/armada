@@ -1,0 +1,72 @@
+[
+ {
+  "accepted": true,
+  "backoffNs": 8000000000,
+  "failover": false,
+  "lostNs": 0,
+  "nowNs": 1795339890000000000,
+  "waitNs": 100000000,
+  "wantBackoffNs": 1000000000,
+  "wantLostNs": 1795339890000000000
+ },
+ {
+  "accepted": false,
+  "backoffNs": 1000000000,
+  "failover": true,
+  "lostNs": 1795339890000000000,
+  "nowNs": 1795339895000000000,
+  "waitNs": 1000000000,
+  "wantBackoffNs": 1000000000,
+  "wantLostNs": 1795339890000000000
+ },
+ {
+  "accepted": false,
+  "backoffNs": 1000000000,
+  "failover": true,
+  "lostNs": 1795339890000000000,
+  "nowNs": 1795340009999999999,
+  "waitNs": 1000000000,
+  "wantBackoffNs": 1000000000,
+  "wantLostNs": 1795339890000000000
+ },
+ {
+  "accepted": false,
+  "backoffNs": 1000000000,
+  "failover": false,
+  "lostNs": 1795339890000000000,
+  "nowNs": 1795340010000000000,
+  "waitNs": 1000000000,
+  "wantBackoffNs": 2000000000,
+  "wantLostNs": 1795339890000000000
+ },
+ {
+  "accepted": false,
+  "backoffNs": 16000000000,
+  "failover": false,
+  "lostNs": 1795339890000000000,
+  "nowNs": 1795343490000000000,
+  "waitNs": 16000000000,
+  "wantBackoffNs": 30000000000,
+  "wantLostNs": 1795339890000000000
+ },
+ {
+  "accepted": false,
+  "backoffNs": 30000000000,
+  "failover": false,
+  "lostNs": 1795339890000000000,
+  "nowNs": 1795343490000000000,
+  "waitNs": 30000000000,
+  "wantBackoffNs": 30000000000,
+  "wantLostNs": 1795339890000000000
+ },
+ {
+  "accepted": false,
+  "backoffNs": 1000000000,
+  "failover": false,
+  "lostNs": 0,
+  "nowNs": 1795339890000000000,
+  "waitNs": 1000000000,
+  "wantBackoffNs": 2000000000,
+  "wantLostNs": 0
+ }
+]

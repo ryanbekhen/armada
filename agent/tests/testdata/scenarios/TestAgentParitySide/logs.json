@@ -1,0 +1,591 @@
+{
+ "name": "TestAgentParitySide/logs",
+ "opts": {
+  "bootNs": 1767222000000000000,
+  "bridge": "",
+  "crashBaseNs": 1000000000,
+  "dns": "",
+  "encodes": false,
+  "exec": true,
+  "members": true,
+  "move": false,
+  "network": false,
+  "networkKey": "",
+  "noSecretsDir": false,
+  "proxy": false,
+  "sandbox": false,
+  "side": true,
+  "stats": true,
+  "unpublished": false,
+  "volumes": true,
+  "volumesDir": true
+ },
+ "steps": [
+  {
+   "assignment": {
+    "replicas": [
+     {
+      "id": "web-r1-a",
+      "app": "web",
+      "revision": "web--r1",
+      "image": "nginx:1",
+      "command": [
+       "/bin/web"
+      ],
+      "args": [
+       "--x"
+      ],
+      "env": [
+       {
+        "name": "A",
+        "value": "1"
+       },
+       {
+        "name": "S",
+        "value": "secret",
+        "ref": "s/v1"
+       }
+      ],
+      "memoryBytes": "268435456",
+      "nanoCpus": "500000000",
+      "pidsLimit": "1024",
+      "cpuReserveMillis": "100",
+      "sidecars": [
+       {
+        "name": "proxy",
+        "image": "envoy:1"
+       }
+      ]
+     }
+    ]
+   },
+   "op": "assign"
+  },
+  {
+   "expect": [
+    "step running",
+    "report {\"replicas\":[{\"id\":\"web-r1-a\",\"state\":\"running\",\"containerId\":\"armada-web-r1-a-1\",\"ready\":true}]}",
+    "calls inspect {\"id\":\"armada-web-r1-a-1\"}\nlist {\"labels\":{\"armada.managed\":\"true\"}}\npull {\"auth\":null,\"image\":\"envoy:1\"}\npull {\"auth\":null,\"image\":\"nginx:1\"}\nrun {\"spec\":{\"name\":\"armada-web-r1-a\",\"image\":\"nginx:1\",\"entrypoint\":[\"/bin/web\"],\"cmd\":[\"--x\"],\"env\":[\"A=1\",\"S=secret\"],\"labels\":{\"armada.app\":\"web\",\"armada.managed\":\"true\",\"armada.replica\":\"web-r1-a\",\"armada.revision\":\"web--r1\",\"armada.spec-hash\":\"2a22ea14763e57a38393e069106256ee\"},\"hostIp\":\"10.0.0.2\",\"memoryBytes\":268435456,\"nanoCpus\":500000000,\"cpuReserveMillis\":100,\"pidsLimit\":1024,\"sidecars\":[{\"name\":\"proxy\",\"image\":\"envoy:1\"}]}}",
+    "files "
+   ],
+   "name": "running",
+   "op": "until"
+  },
+  {
+   "op": "fake",
+   "script": {
+    "agentStatus": {
+     "agent": "",
+     "converted": false,
+     "error": "",
+     "goImages": false,
+     "imagesToPull": 0
+    },
+    "checks": {},
+    "digests": {},
+    "execCodes": {},
+    "holdPulls": false,
+    "holdStarts": false,
+    "in": {
+     "certErr": "",
+     "certs": {},
+     "clientsErr": "",
+     "healthErr": "",
+     "keyErr": "",
+     "load": {},
+     "loadErr": "",
+     "moveErr": "",
+     "netErr": "",
+     "peers": null,
+     "proxyErr": "",
+     "switching": null,
+     "userspace": false
+    },
+    "initExits": {},
+    "platforms": {},
+    "pullErr": {},
+    "runErr": {},
+    "side": {
+     "bodies": [],
+     "boxes": null,
+     "frames": {
+      "armada-web-r1-a-1": [
+       {
+        "data": "R0VUIC9vawo=",
+        "stderr": false,
+        "timeNs": 1767225601000000000
+       },
+       {
+        "data": "RXJyb3I6IGJvb20K",
+        "stderr": true,
+        "timeNs": 0
+       },
+       {
+        "data": "R0VUIC9lcnIK",
+        "stderr": false,
+        "timeNs": 1767225601000000000
+       }
+      ],
+      "armada-web-r1-a-1-proxy": [
+       {
+        "data": "cHJveHkgdXAK",
+        "stderr": false,
+        "timeNs": 0
+       }
+      ]
+     },
+     "logsErr": "",
+     "notice": "",
+     "qerr": null,
+     "queues": null,
+     "search": [],
+     "size": 0,
+     "tail": [],
+     "tailErr": ""
+    },
+    "usage": {}
+   }
+  },
+  {
+   "actions": [
+    {
+     "op": "logs",
+     "request": {
+      "requestId": "l1",
+      "replicaId": "web-r1-a",
+      "tail": 10
+     }
+    }
+   ],
+   "execIn": null,
+   "expect": [
+    "side tail",
+    "calls list {\"labels\":{\"armada.managed\":\"true\",\"armada.replica\":\"web-r1-a\"}}\nlogs {\"follow\":false,\"grep\":\"\",\"id\":\"armada-web-r1-a-1\",\"tail\":10}",
+    "server logs l1 stream=0 data=\"\" error=\"\" replica=\"\"\nlogs l1 stream=1 data=\"GET /ok\\n\" error=\"\" replica=\"\" at 2026-01-01T00:00:01Z\nlogs l1 stream=2 data=\"Error: boom\\n\" error=\"\" replica=\"\"\nlogs l1 stream=1 data=\"GET /err\\n\" error=\"\" replica=\"\" at 2026-01-01T00:00:01Z",
+    "node ",
+    "export "
+   ],
+   "exportStatus": 0,
+   "name": "tail",
+   "op": "side",
+   "volIn": null
+  },
+  {
+   "actions": [
+    {
+     "op": "logs",
+     "request": {
+      "requestId": "l2",
+      "replicaId": "web-r1-a",
+      "follow": true,
+      "grep": "ERR"
+     }
+    }
+   ],
+   "execIn": null,
+   "expect": [
+    "side follow with grep",
+    "calls list {\"labels\":{\"armada.managed\":\"true\",\"armada.replica\":\"web-r1-a\"}}\nlogs {\"follow\":true,\"grep\":\"err\",\"id\":\"armada-web-r1-a-1\",\"tail\":0}",
+    "server logs l2 stream=0 data=\"\" error=\"\" replica=\"\"\nlogs l2 stream=2 data=\"Error: boom\\n\" error=\"\" replica=\"\"\nlogs l2 stream=1 data=\"GET /err\\n\" error=\"\" replica=\"\" at 2026-01-01T00:00:01Z",
+    "node ",
+    "export "
+   ],
+   "exportStatus": 0,
+   "name": "follow with grep",
+   "op": "side",
+   "volIn": null
+  },
+  {
+   "actions": [
+    {
+     "op": "logs",
+     "request": {
+      "requestId": "l3",
+      "replicaId": "web-r1-a",
+      "container": "proxy"
+     }
+    }
+   ],
+   "execIn": null,
+   "expect": [
+    "side sidecar",
+    "calls list {\"labels\":{\"armada.managed\":\"true\",\"armada.replica\":\"web-r1-a\"}}\nlogs {\"follow\":false,\"grep\":\"\",\"id\":\"armada-web-r1-a-1-proxy\",\"tail\":0}",
+    "server logs l3 stream=0 data=\"\" error=\"\" replica=\"\"\nlogs l3 stream=1 data=\"proxy up\\n\" error=\"\" replica=\"\"",
+    "node ",
+    "export "
+   ],
+   "exportStatus": 0,
+   "name": "sidecar",
+   "op": "side",
+   "volIn": null
+  },
+  {
+   "actions": [
+    {
+     "op": "logs",
+     "request": {
+      "requestId": "l4",
+      "replicaId": "web-r1-a",
+      "container": "nope"
+     }
+    }
+   ],
+   "execIn": null,
+   "expect": [
+    "side no such container",
+    "calls list {\"labels\":{\"armada.managed\":\"true\",\"armada.replica\":\"web-r1-a\"}}",
+    "server logs l4 stream=0 data=\"\" error=\"\" replica=\"\"\nlogs l4 stream=0 data=\"\" error=\"replica web-r1-a: the replica has no container nope\" replica=\"\"",
+    "node ",
+    "export "
+   ],
+   "exportStatus": 0,
+   "name": "no such container",
+   "op": "side",
+   "volIn": null
+  },
+  {
+   "actions": [
+    {
+     "op": "logs",
+     "request": {
+      "requestId": "l5",
+      "replicaId": "gone-r1-a"
+     }
+    }
+   ],
+   "execIn": null,
+   "expect": [
+    "side no replica",
+    "calls list {\"labels\":{\"armada.managed\":\"true\",\"armada.replica\":\"gone-r1-a\"}}",
+    "server logs l5 stream=0 data=\"\" error=\"\" replica=\"\"\nlogs l5 stream=0 data=\"\" error=\"replica gone-r1-a has no container on this node\" replica=\"\"",
+    "node ",
+    "export "
+   ],
+   "exportStatus": 0,
+   "name": "no replica",
+   "op": "side",
+   "volIn": null
+  },
+  {
+   "op": "fake",
+   "script": {
+    "agentStatus": {
+     "agent": "",
+     "converted": false,
+     "error": "",
+     "goImages": false,
+     "imagesToPull": 0
+    },
+    "checks": {},
+    "digests": {},
+    "execCodes": {},
+    "holdPulls": false,
+    "holdStarts": false,
+    "in": {
+     "certErr": "",
+     "certs": {},
+     "clientsErr": "",
+     "healthErr": "",
+     "keyErr": "",
+     "load": {},
+     "loadErr": "",
+     "moveErr": "",
+     "netErr": "",
+     "peers": null,
+     "proxyErr": "",
+     "switching": null,
+     "userspace": false
+    },
+    "initExits": {},
+    "platforms": {},
+    "pullErr": {},
+    "runErr": {},
+    "side": {
+     "bodies": [],
+     "boxes": null,
+     "frames": {
+      "armada-web-r1-a-1": [
+       {
+        "data": "R0VUIC9vawo=",
+        "stderr": false,
+        "timeNs": 1767225601000000000
+       },
+       {
+        "data": "RXJyb3I6IGJvb20K",
+        "stderr": true,
+        "timeNs": 0
+       },
+       {
+        "data": "R0VUIC9lcnIK",
+        "stderr": false,
+        "timeNs": 1767225601000000000
+       }
+      ],
+      "armada-web-r1-a-1-proxy": [
+       {
+        "data": "cHJveHkgdXAK",
+        "stderr": false,
+        "timeNs": 0
+       }
+      ]
+     },
+     "logsErr": "log file gone",
+     "notice": "",
+     "qerr": null,
+     "queues": null,
+     "search": [],
+     "size": 0,
+     "tail": [],
+     "tailErr": ""
+    },
+    "usage": {}
+   }
+  },
+  {
+   "actions": [
+    {
+     "op": "logs",
+     "request": {
+      "requestId": "l6",
+      "replicaId": "web-r1-a"
+     }
+    }
+   ],
+   "execIn": null,
+   "expect": [
+    "side runtime error",
+    "calls list {\"labels\":{\"armada.managed\":\"true\",\"armada.replica\":\"web-r1-a\"}}\nlogs {\"follow\":false,\"grep\":\"\",\"id\":\"armada-web-r1-a-1\",\"tail\":0}",
+    "server logs l6 stream=0 data=\"\" error=\"\" replica=\"\"\nlogs l6 stream=0 data=\"\" error=\"log file gone\" replica=\"\"",
+    "node ",
+    "export "
+   ],
+   "exportStatus": 0,
+   "name": "runtime error",
+   "op": "side",
+   "volIn": null
+  },
+  {
+   "op": "fake",
+   "script": {
+    "agentStatus": {
+     "agent": "",
+     "converted": false,
+     "error": "",
+     "goImages": false,
+     "imagesToPull": 0
+    },
+    "checks": {},
+    "digests": {},
+    "execCodes": {},
+    "holdPulls": false,
+    "holdStarts": false,
+    "in": {
+     "certErr": "",
+     "certs": {},
+     "clientsErr": "",
+     "healthErr": "",
+     "keyErr": "",
+     "load": {},
+     "loadErr": "",
+     "moveErr": "",
+     "netErr": "",
+     "peers": null,
+     "proxyErr": "",
+     "switching": null,
+     "userspace": false
+    },
+    "initExits": {},
+    "platforms": {},
+    "pullErr": {},
+    "runErr": {},
+    "side": {
+     "bodies": [],
+     "boxes": null,
+     "frames": {
+      "armada-web-r1-a-1": [
+       {
+        "data": "R0VUIC9vawo=",
+        "stderr": false,
+        "timeNs": 1767225601000000000
+       },
+       {
+        "data": "RXJyb3I6IGJvb20K",
+        "stderr": true,
+        "timeNs": 0
+       },
+       {
+        "data": "R0VUIC9lcnIK",
+        "stderr": false,
+        "timeNs": 1767225601000000000
+       }
+      ],
+      "armada-web-r1-a-1-proxy": [
+       {
+        "data": "cHJveHkgdXAK",
+        "stderr": false,
+        "timeNs": 0
+       }
+      ]
+     },
+     "logsErr": "log file gone",
+     "notice": "stopped after 1 GiB",
+     "qerr": null,
+     "queues": null,
+     "search": [
+      {
+       "app": "",
+       "container": "",
+       "data": "b2xkCg==",
+       "replica": "web-r1-z",
+       "revision": "",
+       "stderr": true,
+       "timeNs": 1767225601000000000
+      }
+     ],
+     "size": 0,
+     "tail": [],
+     "tailErr": ""
+    },
+    "usage": {}
+   }
+  },
+  {
+   "actions": [
+    {
+     "op": "logs",
+     "request": {
+      "requestId": "l7",
+      "replicaId": "web",
+      "query": {
+       "app": "web",
+       "replica": "web-r1-z",
+       "since": "2026-01-01T00:00:00Z",
+       "until": "2026-01-01T00:00:01Z",
+       "grep": "Old",
+       "limit": 99999
+      }
+     }
+    }
+   ],
+   "execIn": null,
+   "expect": [
+    "side search",
+    "calls searchLogs {\"app\":\"web\",\"container\":\"\",\"grep\":\"Old\",\"limit\":5000,\"maxBytes\":1073741824,\"replica\":\"web-r1-z\",\"sinceNs\":1767225600000000000,\"untilNs\":1767225601000000000}",
+    "server logs l7 stream=0 data=\"\" error=\"\" replica=\"\"\nlogs l7 stream=2 data=\"old\\n\" error=\"\" replica=\"web-r1-z\" at 2026-01-01T00:00:01Z\nlogs l7 stream=0 data=\"\" error=\"stopped after 1 GiB\" replica=\"\"",
+    "node ",
+    "export "
+   ],
+   "exportStatus": 0,
+   "name": "search",
+   "op": "side",
+   "volIn": null
+  },
+  {
+   "actions": [
+    {
+     "op": "logs",
+     "request": {
+      "requestId": "l8",
+      "query": {
+       "app": "web"
+      }
+     }
+    }
+   ],
+   "execIn": null,
+   "expect": [
+    "side search without bounds",
+    "calls searchLogs {\"app\":\"web\",\"container\":\"\",\"grep\":\"\",\"limit\":1,\"maxBytes\":1073741824,\"replica\":\"\",\"sinceNs\":0,\"untilNs\":0}",
+    "server logs l8 stream=0 data=\"\" error=\"\" replica=\"\"\nlogs l8 stream=2 data=\"old\\n\" error=\"\" replica=\"web-r1-z\" at 2026-01-01T00:00:01Z\nlogs l8 stream=0 data=\"\" error=\"stopped after 1 GiB\" replica=\"\"",
+    "node ",
+    "export "
+   ],
+   "exportStatus": 0,
+   "name": "search without bounds",
+   "op": "side",
+   "volIn": null
+  },
+  {
+   "actions": [
+    {
+     "op": "pruneLogs"
+    }
+   ],
+   "execIn": null,
+   "expect": [
+    "side prune before settings",
+    "calls pruneLogs {\"maxBytes\":0,\"retentionMs\":0}",
+    "server ",
+    "node ",
+    "export "
+   ],
+   "exportStatus": 0,
+   "name": "prune before settings",
+   "op": "side",
+   "volIn": null
+  },
+  {
+   "assignment": {
+    "replicas": [
+     {
+      "id": "web-r1-a",
+      "app": "web",
+      "revision": "web--r1",
+      "image": "nginx:1",
+      "command": [
+       "/bin/web"
+      ],
+      "args": [
+       "--x"
+      ],
+      "env": [
+       {
+        "name": "A",
+        "value": "1"
+       },
+       {
+        "name": "S",
+        "value": "secret",
+        "ref": "s/v1"
+       }
+      ],
+      "memoryBytes": "268435456",
+      "nanoCpus": "500000000",
+      "pidsLimit": "1024",
+      "cpuReserveMillis": "100",
+      "sidecars": [
+       {
+        "name": "proxy",
+        "image": "envoy:1"
+       }
+      ]
+     }
+    ],
+    "logs": {
+     "retentionSeconds": "86400",
+     "maxBytes": "1073741824"
+    }
+   },
+   "op": "assign"
+  },
+  {
+   "actions": [
+    {
+     "op": "pruneLogs"
+    }
+   ],
+   "execIn": null,
+   "expect": [
+    "side prune",
+    "calls pruneLogs {\"maxBytes\":1073741824,\"retentionMs\":86400000}",
+    "server ",
+    "node ",
+    "export "
+   ],
+   "exportStatus": 0,
+   "name": "prune",
+   "op": "side",
+   "volIn": null
+  }
+ ]
+}

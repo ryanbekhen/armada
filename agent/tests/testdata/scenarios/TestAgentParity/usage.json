@@ -1,0 +1,314 @@
+{
+ "name": "TestAgentParity/usage",
+ "opts": {
+  "bootNs": 1767222000000000000,
+  "bridge": "",
+  "crashBaseNs": 1000000000,
+  "dns": "",
+  "encodes": false,
+  "exec": true,
+  "members": true,
+  "move": false,
+  "network": false,
+  "networkKey": "",
+  "noSecretsDir": false,
+  "proxy": false,
+  "sandbox": false,
+  "side": false,
+  "stats": true,
+  "unpublished": false,
+  "volumes": true,
+  "volumesDir": true
+ },
+ "steps": [
+  {
+   "op": "fake",
+   "script": {
+    "agentStatus": {
+     "agent": "supervisor-rust",
+     "converted": false,
+     "error": "",
+     "goImages": true,
+     "imagesToPull": 3
+    },
+    "checks": {},
+    "digests": {},
+    "execCodes": {},
+    "holdPulls": false,
+    "holdStarts": false,
+    "in": {
+     "certErr": "",
+     "certs": {},
+     "clientsErr": "",
+     "healthErr": "",
+     "keyErr": "",
+     "load": {},
+     "loadErr": "",
+     "moveErr": "",
+     "netErr": "",
+     "peers": null,
+     "proxyErr": "",
+     "switching": null,
+     "userspace": false
+    },
+    "initExits": {},
+    "platforms": {},
+    "pullErr": {},
+    "runErr": {},
+    "side": {
+     "bodies": [],
+     "boxes": null,
+     "frames": {},
+     "logsErr": "",
+     "notice": "",
+     "qerr": null,
+     "queues": null,
+     "search": [],
+     "size": 0,
+     "tail": [],
+     "tailErr": ""
+    },
+    "usage": {}
+   }
+  },
+  {
+   "assignment": {
+    "replicas": [
+     {
+      "id": "web-r1-a",
+      "app": "web",
+      "revision": "web--r1",
+      "image": "nginx:1",
+      "command": [
+       "/bin/web"
+      ],
+      "args": [
+       "--x"
+      ],
+      "env": [
+       {
+        "name": "A",
+        "value": "1"
+       },
+       {
+        "name": "S",
+        "value": "secret",
+        "ref": "s/v1"
+       }
+      ],
+      "memoryBytes": "268435456",
+      "nanoCpus": "500000000",
+      "pidsLimit": "1024",
+      "readiness": {
+       "path": "/r",
+       "initialDelayMs": "3600000"
+      },
+      "cpuReserveMillis": "100"
+     },
+     {
+      "id": "web-r1-b",
+      "app": "web",
+      "revision": "web--r1",
+      "image": "nginx:1",
+      "command": [
+       "/bin/web"
+      ],
+      "args": [
+       "--x"
+      ],
+      "env": [
+       {
+        "name": "A",
+        "value": "1"
+       },
+       {
+        "name": "S",
+        "value": "secret",
+        "ref": "s/v1"
+       }
+      ],
+      "memoryBytes": "268435456",
+      "nanoCpus": "500000000",
+      "pidsLimit": "1024",
+      "readiness": {
+       "path": "/r",
+       "initialDelayMs": "3600000"
+      },
+      "cpuReserveMillis": "100"
+     }
+    ]
+   },
+   "op": "assign"
+  },
+  {
+   "expect": [
+    "step started",
+    "report {\"replicas\":[{\"id\":\"web-r1-a\",\"state\":\"running\",\"containerId\":\"armada-web-r1-a-1\"},{\"id\":\"web-r1-b\",\"state\":\"running\",\"containerId\":\"armada-web-r1-b-1\"}]}",
+    "calls inspect {\"id\":\"armada-web-r1-a-1\"}\ninspect {\"id\":\"armada-web-r1-b-1\"}\nlist {\"labels\":{\"armada.managed\":\"true\"}}\npull {\"auth\":null,\"image\":\"nginx:1\"}\nrun {\"spec\":{\"name\":\"armada-web-r1-a\",\"image\":\"nginx:1\",\"entrypoint\":[\"/bin/web\"],\"cmd\":[\"--x\"],\"env\":[\"A=1\",\"S=secret\"],\"labels\":{\"armada.app\":\"web\",\"armada.managed\":\"true\",\"armada.replica\":\"web-r1-a\",\"armada.revision\":\"web--r1\",\"armada.spec-hash\":\"06d4afa022399f4573d19408f287dc89\"},\"hostIp\":\"10.0.0.2\",\"memoryBytes\":268435456,\"nanoCpus\":500000000,\"cpuReserveMillis\":100,\"pidsLimit\":1024}}\nrun {\"spec\":{\"name\":\"armada-web-r1-b\",\"image\":\"nginx:1\",\"entrypoint\":[\"/bin/web\"],\"cmd\":[\"--x\"],\"env\":[\"A=1\",\"S=secret\"],\"labels\":{\"armada.app\":\"web\",\"armada.managed\":\"true\",\"armada.replica\":\"web-r1-b\",\"armada.revision\":\"web--r1\",\"armada.spec-hash\":\"1a737c95daddce8187c6d891bbd035c2\"},\"hostIp\":\"10.0.0.2\",\"memoryBytes\":268435456,\"nanoCpus\":500000000,\"cpuReserveMillis\":100,\"pidsLimit\":1024}}",
+    "files "
+   ],
+   "name": "started",
+   "op": "reconcile"
+  },
+  {
+   "op": "fake",
+   "script": {
+    "agentStatus": {
+     "agent": "supervisor-rust",
+     "converted": false,
+     "error": "",
+     "goImages": true,
+     "imagesToPull": 3
+    },
+    "checks": {},
+    "digests": {},
+    "execCodes": {},
+    "holdPulls": false,
+    "holdStarts": false,
+    "in": {
+     "certErr": "",
+     "certs": {},
+     "clientsErr": "",
+     "healthErr": "",
+     "keyErr": "",
+     "load": {},
+     "loadErr": "",
+     "moveErr": "",
+     "netErr": "",
+     "peers": null,
+     "proxyErr": "",
+     "switching": null,
+     "userspace": false
+    },
+    "initExits": {},
+    "platforms": {},
+    "pullErr": {},
+    "runErr": {},
+    "side": {
+     "bodies": [],
+     "boxes": null,
+     "frames": {},
+     "logsErr": "",
+     "notice": "",
+     "qerr": null,
+     "queues": null,
+     "search": [],
+     "size": 0,
+     "tail": [],
+     "tailErr": ""
+    },
+    "usage": {
+     "web-r1-a": {
+      "cpuNs": 1000000000,
+      "egressBytes": 10,
+      "memoryBytes": 100,
+      "networkLost": true,
+      "oomKills": 0
+     },
+     "web-r1-b": {
+      "cpuNs": 2000000000,
+      "egressBytes": 50,
+      "memoryBytes": 200,
+      "networkLost": false,
+      "oomKills": 0
+     }
+    }
+   }
+  },
+  {
+   "expect": [
+    "usage first: no rate yet {\"runtime\":{\"agent\":\"supervisor-rust\",\"converting\":true,\"imagesToPull\":3}}",
+    "calls list {\"labels\":{\"armada.managed\":\"true\"}}\nstats {\"id\":\"armada-web-r1-a-1\"}\nstats {\"id\":\"armada-web-r1-b-1\"}"
+   ],
+   "name": "first: no rate yet",
+   "op": "sample"
+  },
+  {
+   "ns": 10000000000,
+   "op": "advance"
+  },
+  {
+   "op": "fake",
+   "script": {
+    "agentStatus": {
+     "agent": "supervisor-rust",
+     "converted": false,
+     "error": "",
+     "goImages": true,
+     "imagesToPull": 3
+    },
+    "checks": {},
+    "digests": {},
+    "execCodes": {},
+    "holdPulls": false,
+    "holdStarts": false,
+    "in": {
+     "certErr": "",
+     "certs": {},
+     "clientsErr": "",
+     "healthErr": "",
+     "keyErr": "",
+     "load": {},
+     "loadErr": "",
+     "moveErr": "",
+     "netErr": "",
+     "peers": null,
+     "proxyErr": "",
+     "switching": null,
+     "userspace": false
+    },
+    "initExits": {},
+    "platforms": {},
+    "pullErr": {},
+    "runErr": {},
+    "side": {
+     "bodies": [],
+     "boxes": null,
+     "frames": {},
+     "logsErr": "",
+     "notice": "",
+     "qerr": null,
+     "queues": null,
+     "search": [],
+     "size": 0,
+     "tail": [],
+     "tailErr": ""
+    },
+    "usage": {
+     "web-r1-a": {
+      "cpuNs": 3000000000,
+      "egressBytes": 30,
+      "memoryBytes": 150,
+      "networkLost": true,
+      "oomKills": 1
+     },
+     "web-r1-b": {
+      "cpuNs": 1000000000,
+      "egressBytes": 40,
+      "memoryBytes": 200,
+      "networkLost": false,
+      "oomKills": 0
+     }
+    }
+   }
+  },
+  {
+   "expect": [
+    "usage second: rates, the lost network asks for a restart {\"replicas\":[{\"id\":\"web-r1-a\",\"cpuMillis\":\"200\",\"memoryBytes\":\"150\",\"egressBytes\":\"20\",\"oomKills\":\"1\"}],\"runtime\":{\"agent\":\"supervisor-rust\",\"converting\":true,\"imagesToPull\":3}}",
+    "calls list {\"labels\":{\"armada.managed\":\"true\"}}\nstats {\"id\":\"armada-web-r1-a-1\"}\nstats {\"id\":\"armada-web-r1-b-1\"}"
+   ],
+   "name": "second: rates, the lost network asks for a restart",
+   "op": "sample"
+  },
+  {
+   "expect": [
+    "step recreated for its network",
+    "report {\"replicas\":[{\"id\":\"web-r1-a\",\"state\":\"running\",\"containerId\":\"armada-web-r1-a-2\",\"message\":\"restarted: its network interface is gone\"},{\"id\":\"web-r1-b\",\"state\":\"running\",\"containerId\":\"armada-web-r1-b-1\"}]}",
+    "calls inspect {\"id\":\"armada-web-r1-a-2\"}\nlist {\"labels\":{\"armada.managed\":\"true\"}}\npull {\"auth\":null,\"image\":\"nginx:1\"}\nremove {\"id\":\"armada-web-r1-a-1\"}\nrun {\"spec\":{\"name\":\"armada-web-r1-a\",\"image\":\"nginx:1\",\"entrypoint\":[\"/bin/web\"],\"cmd\":[\"--x\"],\"env\":[\"A=1\",\"S=secret\"],\"labels\":{\"armada.app\":\"web\",\"armada.managed\":\"true\",\"armada.replica\":\"web-r1-a\",\"armada.revision\":\"web--r1\",\"armada.spec-hash\":\"06d4afa022399f4573d19408f287dc89\"},\"hostIp\":\"10.0.0.2\",\"memoryBytes\":268435456,\"nanoCpus\":500000000,\"cpuReserveMillis\":100,\"pidsLimit\":1024}}\nstop {\"graceMs\":10000,\"id\":\"armada-web-r1-a-1\"}",
+    "files "
+   ],
+   "name": "recreated for its network",
+   "op": "reconcile"
+  }
+ ]
+}

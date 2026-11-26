@@ -1,0 +1,36 @@
+{
+ "name": "TestAgentParityHello/default",
+ "opts": {
+  "bootNs": 1767222000000000000,
+  "bridge": "",
+  "crashBaseNs": 1000000000,
+  "dns": "",
+  "encodes": false,
+  "exec": true,
+  "members": true,
+  "move": false,
+  "network": false,
+  "networkKey": "",
+  "noSecretsDir": false,
+  "proxy": false,
+  "sandbox": false,
+  "side": false,
+  "stats": true,
+  "unpublished": false,
+  "volumes": true,
+  "volumesDir": true
+ },
+ "steps": [
+  {
+   "op": "hello"
+  },
+  {
+   "expect": [
+    "hello {\"cpuMillis\":\"2000\",\"memoryBytes\":\"1073741824\",\"version\":\"VERSION\",\"privateIp\":\"10.0.0.2\",\"os\":\"linux\",\"arch\":\"amd64\",\"jobs\":true,\"volumes\":true,\"certificateRefs\":true,\"containers\":true,\"heldReplicas\":true,\"volumeBackups\":true,\"logHistory\":true}"
+   ],
+   "from": "hello",
+   "kind": "hello",
+   "op": "note"
+  }
+ ]
+}

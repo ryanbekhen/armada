@@ -278,6 +278,11 @@ type pfake struct {
 	// in is what the proxy, network, resolver, certificate, and runtime
 	// move fakes answer (parity_ingress_test.go).
 	in ingress
+	// rec records the scenario's changes for the Rust replay, and
+	// recording writes the proxy's configuration as its wire format
+	// (parity_record_test.go).
+	rec       *agentRec
+	recording bool
 }
 
 func newPfake(clock *testClock) *pfake {
@@ -595,32 +600,42 @@ func (f *pfake) RuntimeAgent() runtime.AgentStatus {
 // add puts in a container left from before, with its spec hash.
 func (f *pfake) add(c runtime.Container) {
 	f.mu.Lock()
-	defer f.mu.Unlock()
 	cp := c
 	f.containers[c.ID] = &cp
+	f.mu.Unlock()
+	f.changed(map[string]any{"op": "add", "container": toWireContainer(c)})
 }
 
 func (f *pfake) setState(id, state string, code int) {
 	f.mu.Lock()
-	defer f.mu.Unlock()
 	if c, ok := f.containers[id]; ok {
 		c.State, c.ExitCode = state, code
 	}
+	f.mu.Unlock()
+	f.changed(map[string]any{"op": "setState", "id": id, "state": state, "code": code})
 }
 
 func (f *pfake) setMemberState(id, name, state string, code int) {
 	f.mu.Lock()
-	defer f.mu.Unlock()
 	if c, ok := f.containers[id+"-"+name]; ok {
 		c.State, c.ExitCode = state, code
 	}
+	f.mu.Unlock()
+	f.changed(map[string]any{"op": "setMember", "id": id, "name": name, "state": state, "code": code})
 }
 
 // set changes the fake's script under its lock.
 func (f *pfake) set(fn func(f *pfake)) {
 	f.mu.Lock()
-	defer f.mu.Unlock()
 	fn(f)
+	var sc map[string]any
+	if f.rec != nil {
+		sc = f.script()
+	}
+	f.mu.Unlock()
+	if sc != nil {
+		f.changed(map[string]any{"op": "fake", "script": sc})
+	}
 }
 
 // wireError is a runtime error as the Rust program reads it.
@@ -992,6 +1007,7 @@ func (r *rustAgent) stop() {
 
 // parityRun is one run of a scenario against one agent.
 type parityRun struct {
+	rec     *agentRec
 	sh      *sideHarness
 	t       *testing.T
 	f       *pfake
@@ -1005,6 +1021,7 @@ type parityRun struct {
 // note adds an entry to the transcript.
 func (p *parityRun) note(kind, v string) {
 	p.out = append(p.out, kind+" "+v)
+	p.rec.note(kind)
 }
 
 // compact is a message's protojson, stable.
@@ -1080,6 +1097,7 @@ func (p *parityRun) assign(replicas ...*armadav1.ReplicaSpec) {
 
 // reconcile runs a pass and records it.
 func (p *parityRun) reconcile(name string) *armadav1.ReplicaReport {
+	defer p.rec.begin(map[string]any{"op": "reconcile", "name": name})()
 	r, err := p.a.reconcile()
 	p.step(name, r, err, p.f.takeCalls())
 	return r
@@ -1089,6 +1107,7 @@ func (p *parityRun) reconcile(name string) *armadav1.ReplicaReport {
 // for, then records the last report and the calls without repeats.
 func (p *parityRun) until(name string, done func(*armadav1.ReplicaReport) bool) *armadav1.ReplicaReport {
 	p.t.Helper()
+	defer p.rec.begin(map[string]any{"op": "until", "name": name})()
 	var calls []string
 	deadline := time.Now().Add(15 * time.Second)
 	for {
@@ -1108,12 +1127,16 @@ func (p *parityRun) until(name string, done func(*armadav1.ReplicaReport) bool) 
 
 // advance moves both clocks on.
 func (p *parityRun) advance(d time.Duration) {
+	if p.rec != nil {
+		p.rec.add(map[string]any{"op": "advance", "ns": int64(d)})
+	}
 	p.clk.Set(p.clk.Now().Add(d))
 	p.a.setNow(p.clk.Now())
 }
 
 // sample records a usage sample.
 func (p *parityRun) sample(name string) *armadav1.UsageReport {
+	defer p.rec.begin(map[string]any{"op": "sample", "name": name})()
 	u := p.a.sample()
 	p.note("usage "+name, compact(u))
 	p.note("calls", strings.Join(p.f.takeCalls(), "\n"))
@@ -1122,7 +1145,17 @@ func (p *parityRun) sample(name string) *armadav1.UsageReport {
 
 // other runs fn (contact, fence, prune) and records its calls.
 func (p *parityRun) other(name string, fn func(agentUnderTest)) {
-	fn(p.a)
+	if p.rec != nil {
+		step := map[string]any{"op": "other", "name": name}
+		actions := []map[string]any{}
+		defer p.rec.begin(step)()
+		p.rec.collecting = &actions
+		fn(p.a)
+		p.rec.collecting = nil
+		step["actions"] = actions
+	} else {
+		fn(p.a)
+	}
 	p.note("step", name)
 	p.note("calls", strings.Join(p.f.takeCalls(), "\n"))
 	p.note("files", p.files())
@@ -1200,6 +1233,10 @@ func runAgentParity(t *testing.T, opts parityOpts, body func(p *parityRun)) {
 		defer p.a.stop()
 		body(p)
 		return p.out
+	}
+	if *recordScenarios {
+		recordAgentScenario(t, opts, body)
+		return
 	}
 	g := run(false)
 	if os.Getenv("ARMADA_AGENT_PARITY_DUMP") != "" {

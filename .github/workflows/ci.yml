@@ -317,6 +317,9 @@ jobs:
       # The control plane's scenarios recorded from Go's server, replayed
       # against the Rust one on the pinned etcd (ADR 0055, item 20).
       - run: make server-scenarios
+      # The agent's scenarios recorded from Go's agent, replayed against the
+      # Rust one (ADR 0055, item 20).
+      - run: make agent-scenarios
       # The cache may restore cargo-deny already; install it only when the
       # pinned version is missing.
       - run: |

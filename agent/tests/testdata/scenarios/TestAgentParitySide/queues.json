@@ -1,0 +1,339 @@
+{
+ "name": "TestAgentParitySide/queues",
+ "opts": {
+  "bootNs": 1767222000000000000,
+  "bridge": "",
+  "crashBaseNs": 1000000000,
+  "dns": "",
+  "encodes": false,
+  "exec": true,
+  "members": true,
+  "move": false,
+  "network": false,
+  "networkKey": "",
+  "noSecretsDir": false,
+  "proxy": false,
+  "sandbox": false,
+  "side": true,
+  "stats": true,
+  "unpublished": false,
+  "volumes": true,
+  "volumesDir": true
+ },
+ "steps": [
+  {
+   "op": "fake",
+   "script": {
+    "agentStatus": {
+     "agent": "",
+     "converted": false,
+     "error": "",
+     "goImages": false,
+     "imagesToPull": 0
+    },
+    "checks": {},
+    "digests": {},
+    "execCodes": {},
+    "holdPulls": false,
+    "holdStarts": false,
+    "in": {
+     "certErr": "",
+     "certs": {},
+     "clientsErr": "",
+     "healthErr": "",
+     "keyErr": "",
+     "load": {},
+     "loadErr": "",
+     "moveErr": "",
+     "netErr": "",
+     "peers": null,
+     "proxyErr": "",
+     "switching": null,
+     "userspace": false
+    },
+    "initExits": {},
+    "platforms": {},
+    "pullErr": {},
+    "runErr": {},
+    "side": {
+     "bodies": [],
+     "boxes": null,
+     "frames": {},
+     "logsErr": "",
+     "notice": "",
+     "qerr": {
+      "work": "cannot reach the broker from the replica"
+     },
+     "queues": {
+      "jobs": 7
+     },
+     "search": [],
+     "size": 0,
+     "tail": [],
+     "tailErr": ""
+    },
+    "usage": {}
+   }
+  },
+  {
+   "assignment": {
+    "replicas": [
+     {
+      "id": "web-r1-a",
+      "app": "web",
+      "revision": "web--r1",
+      "image": "nginx:1",
+      "command": [
+       "/bin/web"
+      ],
+      "args": [
+       "--x"
+      ],
+      "env": [
+       {
+        "name": "A",
+        "value": "1"
+       },
+       {
+        "name": "S",
+        "value": "secret",
+        "ref": "s/v1"
+       }
+      ],
+      "port": 8080,
+      "memoryBytes": "268435456",
+      "nanoCpus": "500000000",
+      "pidsLimit": "1024",
+      "readiness": {
+       "path": "/r"
+      },
+      "cpuReserveMillis": "100",
+      "queues": [
+       {
+        "command": [
+         "num",
+         "42"
+        ],
+        "type": "queue"
+       },
+       {
+        "type": "redis",
+        "url": "redis://:pw@10.0.0.9:6379/0",
+        "name": "jobs"
+       },
+       {
+        "type": "rabbitmq",
+        "url": "amqp://u:p@10.0.0.9/v",
+        "name": "work"
+       }
+      ]
+     },
+     {
+      "id": "worker-r1-a",
+      "app": "worker",
+      "revision": "web--r1",
+      "image": "busybox",
+      "command": [
+       "/bin/web"
+      ],
+      "args": [
+       "--x"
+      ],
+      "env": [
+       {
+        "name": "A",
+        "value": "1"
+       },
+       {
+        "name": "S",
+        "value": "secret",
+        "ref": "s/v1"
+       }
+      ],
+      "port": 8081,
+      "memoryBytes": "268435456",
+      "nanoCpus": "500000000",
+      "pidsLimit": "1024",
+      "readiness": {
+       "path": "/r"
+      },
+      "cpuReserveMillis": "100",
+      "queues": [
+       {
+        "command": [
+         "num",
+         "lots"
+        ],
+        "type": "queue"
+       }
+      ]
+     }
+    ]
+   },
+   "op": "assign"
+  },
+  {
+   "expect": [
+    "step running",
+    "report {\"replicas\":[{\"id\":\"web-r1-a\",\"state\":\"running\",\"containerId\":\"armada-web-r1-a-1\",\"address\":\"10.0.0.2:31800\",\"ready\":true},{\"id\":\"worker-r1-a\",\"state\":\"running\",\"containerId\":\"armada-worker-r1-a-1\",\"address\":\"10.0.0.2:30032\",\"ready\":true}]}",
+    "calls inspect {\"id\":\"armada-web-r1-a-1\"}\ninspect {\"id\":\"armada-worker-r1-a-1\"}\nlist {\"labels\":{\"armada.managed\":\"true\"}}\npull {\"auth\":null,\"image\":\"busybox\"}\npull {\"auth\":null,\"image\":\"nginx:1\"}\nrun {\"spec\":{\"name\":\"armada-web-r1-a\",\"image\":\"nginx:1\",\"entrypoint\":[\"/bin/web\"],\"cmd\":[\"--x\"],\"env\":[\"A=1\",\"S=secret\"],\"labels\":{\"armada.app\":\"web\",\"armada.managed\":\"true\",\"armada.replica\":\"web-r1-a\",\"armada.revision\":\"web--r1\",\"armada.spec-hash\":\"478761461d98dc811ec391c97d8e9ff1\"},\"port\":8080,\"hostIp\":\"10.0.0.2\",\"memoryBytes\":268435456,\"nanoCpus\":500000000,\"cpuReserveMillis\":100,\"pidsLimit\":1024}}\nrun {\"spec\":{\"name\":\"armada-worker-r1-a\",\"image\":\"busybox\",\"entrypoint\":[\"/bin/web\"],\"cmd\":[\"--x\"],\"env\":[\"A=1\",\"S=secret\"],\"labels\":{\"armada.app\":\"worker\",\"armada.managed\":\"true\",\"armada.replica\":\"worker-r1-a\",\"armada.revision\":\"web--r1\",\"armada.spec-hash\":\"8f21378a5fbdb0df5e06b6e27f64b5ad\"},\"port\":8081,\"hostIp\":\"10.0.0.2\",\"memoryBytes\":268435456,\"nanoCpus\":500000000,\"cpuReserveMillis\":100,\"pidsLimit\":1024}}",
+    "files "
+   ],
+   "name": "running",
+   "op": "until"
+  },
+  {
+   "actions": [
+    {
+     "op": "queues"
+    }
+   ],
+   "execIn": null,
+   "expect": [
+    "side read",
+    "calls execSession {\"cmd\":[\"num\",\"42\"],\"cols\":0,\"id\":\"armada-web-r1-a-1\",\"rows\":0,\"stdin\":null,\"tty\":false}\nexecSession {\"cmd\":[\"num\",\"lots\"],\"cols\":0,\"id\":\"armada-worker-r1-a-1\",\"rows\":0,\"stdin\":null,\"tty\":false}\nlist {\"labels\":{\"armada.managed\":\"true\"}}\nreadQueue {\"addresses\":0,\"id\":\"armada-web-r1-a-1\",\"name\":\"jobs\",\"type\":\"redis\",\"url\":\"redis://:pw@10.0.0.9:6379/0\"}\nreadQueue {\"addresses\":0,\"id\":\"armada-web-r1-a-1\",\"name\":\"work\",\"type\":\"rabbitmq\",\"url\":\"amqp://u:p@10.0.0.9/v\"}",
+    "server ",
+    "node ",
+    "export "
+   ],
+   "exportStatus": 0,
+   "name": "read",
+   "op": "side",
+   "volIn": null
+  },
+  {
+   "expect": [
+    "usage lengths {\"volumesMeasured\":true,\"queues\":[{\"id\":\"web-r1-a\",\"length\":\"42\",\"type\":\"queue\"},{\"id\":\"web-r1-a\",\"length\":\"7\",\"type\":\"redis\"}]}",
+    "calls list {\"labels\":{\"armada.managed\":\"true\"}}\nstats {\"id\":\"armada-web-r1-a-1\"}\nstats {\"id\":\"armada-worker-r1-a-1\"}",
+    "node conntrack raise {\"dir\":\"$ROOT/conntrack\",\"memory\":1073741824}\nconntrack read {\"dir\":\"$ROOT/conntrack\",\"memory\":1073741824}"
+   ],
+   "name": "lengths",
+   "op": "sampleSide"
+  },
+  {
+   "assignment": {
+    "replicas": [
+     {
+      "id": "web-r1-a",
+      "app": "web",
+      "revision": "web--r1",
+      "image": "nginx:1",
+      "command": [
+       "/bin/web"
+      ],
+      "args": [
+       "--x"
+      ],
+      "env": [
+       {
+        "name": "A",
+        "value": "1"
+       },
+       {
+        "name": "S",
+        "value": "secret",
+        "ref": "s/v1"
+       }
+      ],
+      "port": 8080,
+      "memoryBytes": "268435456",
+      "nanoCpus": "500000000",
+      "pidsLimit": "1024",
+      "readiness": {
+       "path": "/r"
+      },
+      "cpuReserveMillis": "100",
+      "queues": [
+       {
+        "command": [
+         "big"
+        ],
+        "type": "queue"
+       },
+       {
+        "type": "redis",
+        "url": "redis://:pw@10.0.0.9:6379/0",
+        "name": "jobs"
+       },
+       {
+        "type": "rabbitmq",
+        "url": "amqp://u:p@10.0.0.9/v",
+        "name": "work"
+       }
+      ]
+     },
+     {
+      "id": "worker-r1-a",
+      "app": "worker",
+      "revision": "web--r1",
+      "image": "busybox",
+      "command": [
+       "/bin/web"
+      ],
+      "args": [
+       "--x"
+      ],
+      "env": [
+       {
+        "name": "A",
+        "value": "1"
+       },
+       {
+        "name": "S",
+        "value": "secret",
+        "ref": "s/v1"
+       }
+      ],
+      "port": 8081,
+      "memoryBytes": "268435456",
+      "nanoCpus": "500000000",
+      "pidsLimit": "1024",
+      "readiness": {
+       "path": "/r"
+      },
+      "cpuReserveMillis": "100",
+      "queues": [
+       {
+        "command": [
+         "num",
+         "lots"
+        ],
+        "type": "queue"
+       }
+      ]
+     }
+    ]
+   },
+   "op": "assign"
+  },
+  {
+   "expect": [
+    "step new command",
+    "report {\"replicas\":[{\"id\":\"web-r1-a\",\"state\":\"running\",\"containerId\":\"armada-web-r1-a-1\",\"address\":\"10.0.0.2:31800\",\"ready\":true},{\"id\":\"worker-r1-a\",\"state\":\"running\",\"containerId\":\"armada-worker-r1-a-1\",\"address\":\"10.0.0.2:30032\",\"ready\":true}]}",
+    "calls list {\"labels\":{\"armada.managed\":\"true\"}}",
+    "files "
+   ],
+   "name": "new command",
+   "op": "reconcile"
+  },
+  {
+   "actions": [
+    {
+     "op": "queues"
+    }
+   ],
+   "execIn": null,
+   "expect": [
+    "side read again",
+    "calls execSession {\"cmd\":[\"big\"],\"cols\":0,\"id\":\"armada-web-r1-a-1\",\"rows\":0,\"stdin\":null,\"tty\":false}\nexecSession {\"cmd\":[\"num\",\"lots\"],\"cols\":0,\"id\":\"armada-worker-r1-a-1\",\"rows\":0,\"stdin\":null,\"tty\":false}\nlist {\"labels\":{\"armada.managed\":\"true\"}}\nreadQueue {\"addresses\":0,\"id\":\"armada-web-r1-a-1\",\"name\":\"jobs\",\"type\":\"redis\",\"url\":\"redis://:pw@10.0.0.9:6379/0\"}\nreadQueue {\"addresses\":0,\"id\":\"armada-web-r1-a-1\",\"name\":\"work\",\"type\":\"rabbitmq\",\"url\":\"amqp://u:p@10.0.0.9/v\"}",
+    "server ",
+    "node ",
+    "export "
+   ],
+   "exportStatus": 0,
+   "name": "read again",
+   "op": "side",
+   "volIn": null
+  }
+ ]
+}

@@ -1,0 +1,76 @@
+{
+ "name": "TestAgentParity/before_the_first_assignment",
+ "opts": {
+  "bootNs": 1767222000000000000,
+  "bridge": "",
+  "crashBaseNs": 1000000000,
+  "dns": "",
+  "encodes": false,
+  "exec": true,
+  "members": true,
+  "move": false,
+  "network": false,
+  "networkKey": "",
+  "noSecretsDir": false,
+  "proxy": false,
+  "sandbox": false,
+  "side": false,
+  "stats": true,
+  "unpublished": false,
+  "volumes": true,
+  "volumesDir": true
+ },
+ "steps": [
+  {
+   "container": {
+    "id": "old",
+    "name": "armada-web-r1-a",
+    "image": "nginx:1",
+    "labels": {
+     "armada.app": "web",
+     "armada.managed": "true",
+     "armada.replica": "web-r1-a",
+     "armada.revision": "web--r1",
+     "armada.spec-hash": "70f0675e5e9a6cd0869e26d492c94355"
+    },
+    "state": "running",
+    "exitCode": 0,
+    "hostIp": "10.0.0.2",
+    "hostPort": 31000,
+    "ip": "",
+    "startedNs": 1767225540000000000,
+    "members": [],
+    "startError": ""
+   },
+   "op": "add"
+  },
+  {
+   "expect": [
+    "step no assignment: nothing happens",
+    "report null",
+    "calls ",
+    "files "
+   ],
+   "name": "no assignment: nothing happens",
+   "op": "reconcile"
+  },
+  {
+   "actions": [
+    {
+     "op": "contact",
+     "up": true
+    },
+    {
+     "op": "fence"
+    }
+   ],
+   "expect": [
+    "step fence with contact up",
+    "calls ",
+    "files "
+   ],
+   "name": "fence with contact up",
+   "op": "other"
+  }
+ ]
+}

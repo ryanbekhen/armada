@@ -1,0 +1,79 @@
+{
+ "name": "TestAgentParity/members_unsupported",
+ "opts": {
+  "bootNs": 1767222000000000000,
+  "bridge": "",
+  "crashBaseNs": 1000000000,
+  "dns": "",
+  "encodes": false,
+  "exec": true,
+  "members": false,
+  "move": false,
+  "network": false,
+  "networkKey": "",
+  "noSecretsDir": false,
+  "proxy": false,
+  "sandbox": false,
+  "side": false,
+  "stats": true,
+  "unpublished": false,
+  "volumes": true,
+  "volumesDir": true
+ },
+ "steps": [
+  {
+   "assignment": {
+    "replicas": [
+     {
+      "id": "web-r1-a",
+      "app": "web",
+      "revision": "web--r1",
+      "image": "nginx:1",
+      "command": [
+       "/bin/web"
+      ],
+      "args": [
+       "--x"
+      ],
+      "env": [
+       {
+        "name": "A",
+        "value": "1"
+       },
+       {
+        "name": "S",
+        "value": "secret",
+        "ref": "s/v1"
+       }
+      ],
+      "memoryBytes": "268435456",
+      "nanoCpus": "500000000",
+      "pidsLimit": "1024",
+      "readiness": {
+       "path": "/r",
+       "initialDelayMs": "3600000"
+      },
+      "cpuReserveMillis": "100",
+      "sidecars": [
+       {
+        "name": "log",
+        "image": "fluent:1"
+       }
+      ]
+     }
+    ]
+   },
+   "op": "assign"
+  },
+  {
+   "expect": [
+    "step refused",
+    "report {\"replicas\":[{\"id\":\"web-r1-a\",\"state\":\"failed\",\"message\":\"this node's container runtime runs no init containers or sidecars\"}]}",
+    "calls list {\"labels\":{\"armada.managed\":\"true\"}}\npull {\"auth\":null,\"image\":\"nginx:1\"}",
+    "files "
+   ],
+   "name": "refused",
+   "op": "reconcile"
+  }
+ ]
+}

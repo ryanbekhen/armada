@@ -1,0 +1,154 @@
+{
+ "name": "TestAgentParity/fencing_before_the_first_assignment",
+ "opts": {
+  "bootNs": 1767222000000000000,
+  "bridge": "",
+  "crashBaseNs": 1000000000,
+  "dns": "",
+  "encodes": false,
+  "exec": true,
+  "members": true,
+  "move": false,
+  "network": false,
+  "networkKey": "",
+  "noSecretsDir": false,
+  "proxy": false,
+  "sandbox": false,
+  "side": false,
+  "stats": true,
+  "unpublished": false,
+  "volumes": true,
+  "volumesDir": true
+ },
+ "steps": [
+  {
+   "container": {
+    "id": "fenced",
+    "name": "armada-web-r1-a",
+    "image": "nginx:1",
+    "labels": {
+     "armada.app": "web",
+     "armada.fence-after": "30",
+     "armada.managed": "true",
+     "armada.replica": "web-r1-a",
+     "armada.revision": "web--r1",
+     "armada.spec-hash": "06d4afa022399f4573d19408f287dc89"
+    },
+    "state": "running",
+    "exitCode": 0,
+    "hostIp": "10.0.0.2",
+    "hostPort": 31000,
+    "ip": "",
+    "startedNs": 1767225540000000000,
+    "members": [],
+    "startError": ""
+   },
+   "op": "add"
+  },
+  {
+   "container": {
+    "id": "odd",
+    "name": "armada-web-r1-b",
+    "image": "nginx:1",
+    "labels": {
+     "armada.app": "web",
+     "armada.fence-after": "x",
+     "armada.managed": "true",
+     "armada.replica": "web-r1-b",
+     "armada.revision": "web--r1",
+     "armada.spec-hash": "1a737c95daddce8187c6d891bbd035c2"
+    },
+    "state": "running",
+    "exitCode": 0,
+    "hostIp": "10.0.0.2",
+    "hostPort": 31000,
+    "ip": "",
+    "startedNs": 1767225540000000000,
+    "members": [],
+    "startError": ""
+   },
+   "op": "add"
+  },
+  {
+   "actions": [
+    {
+     "op": "fence"
+    }
+   ],
+   "expect": [
+    "step too early",
+    "calls ",
+    "files "
+   ],
+   "name": "too early",
+   "op": "other"
+  },
+  {
+   "ns": 31000000000,
+   "op": "advance"
+  },
+  {
+   "actions": [
+    {
+     "op": "fence"
+    }
+   ],
+   "expect": [
+    "step stopped",
+    "calls list {\"labels\":{\"armada.managed\":\"true\"}}\nstop {\"graceMs\":30000,\"id\":\"fenced\"}",
+    "files "
+   ],
+   "name": "stopped",
+   "op": "other"
+  },
+  {
+   "assignment": {
+    "replicas": [
+     {
+      "id": "web-r1-a",
+      "app": "web",
+      "revision": "web--r1",
+      "image": "nginx:1",
+      "command": [
+       "/bin/web"
+      ],
+      "args": [
+       "--x"
+      ],
+      "env": [
+       {
+        "name": "A",
+        "value": "1"
+       },
+       {
+        "name": "S",
+        "value": "secret",
+        "ref": "s/v1"
+       }
+      ],
+      "memoryBytes": "268435456",
+      "nanoCpus": "500000000",
+      "pidsLimit": "1024",
+      "readiness": {
+       "path": "/r",
+       "initialDelayMs": "3600000"
+      },
+      "cpuReserveMillis": "100",
+      "fenceAfterSeconds": "30"
+     }
+    ]
+   },
+   "op": "assign"
+  },
+  {
+   "expect": [
+    "step assigned while cut off",
+    "report {\"replicas\":[{\"id\":\"web-r1-a\",\"state\":\"exited\",\"containerId\":\"fenced\",\"message\":\"stopped: cut off from the control plane, so its volumes may be restored on another node\"}]}",
+    "calls list {\"labels\":{\"armada.managed\":\"true\"}}\nremove {\"id\":\"odd\"}\nstop {\"graceMs\":10000,\"id\":\"odd\"}",
+    "files "
+   ],
+   "name": "assigned while cut off",
+   "op": "reconcile"
+  }
+ ]
+}

@@ -12,7 +12,7 @@ VERSION_ENV = ARMADA_VERSION=$(VERSION) ARMADA_COMMIT=$(COMMIT) ARMADA_DATE=$(DA
 
 export CGO_ENABLED := 0
 
-.PHONY: all build build-bundle logger shim dns node node-test-hooks pki-parity store-parity server-parity server-scenarios client-parity daemon-parity agent-parity rust-check runtime-bundle runtime-licenses rust-licenses test cover lint fmt vet vuln licenses licenses-save proto proto-rust proto-go docs tidy check clean
+.PHONY: all build build-bundle logger shim dns node node-test-hooks pki-parity store-parity server-parity server-scenarios client-parity daemon-parity agent-parity agent-scenarios rust-check runtime-bundle runtime-licenses rust-licenses test cover lint fmt vet vuln licenses licenses-save proto proto-rust proto-go docs tidy check clean
 
 all: check build
 
@@ -126,6 +126,13 @@ daemon-parity:
 agent-parity:
 	cargo build --locked -p armada-agent --features parity
 
+# The agent's parity scenarios recorded from Go's agent
+# (agent/tests/testdata, written by go test ./internal/agent -run
+# TestAgentParity -record-scenarios), replayed against the parity program
+# with the fakes in Rust (ADR 0055, item 20). No Go needed.
+agent-scenarios:
+	cargo test --locked -p armada-agent --features parity --test scenarios
+
 # The Cargo workspace's checks (ADR 0055; CI job logger): format, lints,
 # tests, crate licenses, and every member built for both release targets.
 # proto/gen, outside it, gets its format and lints checked too; armada-log,
@@ -141,6 +148,7 @@ rust-check:
 	cargo clippy --locked -p armada-daemon --all-targets --features test-hooks -- -D warnings
 	cargo test --locked --workspace
 	$(MAKE) server-scenarios
+	cargo test --locked -p armada-agent --features parity --test scenarios
 	cargo deny --locked check licenses
 	cargo build --release --locked --workspace --target x86_64-unknown-linux-musl
 	cargo build --release --locked --workspace --target aarch64-unknown-linux-musl

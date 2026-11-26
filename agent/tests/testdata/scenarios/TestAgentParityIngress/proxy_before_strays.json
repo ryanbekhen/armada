@@ -1,0 +1,122 @@
+{
+ "name": "TestAgentParityIngress/proxy_before_strays",
+ "opts": {
+  "bootNs": 1767222000000000000,
+  "bridge": "",
+  "crashBaseNs": 1000000000,
+  "dns": "",
+  "encodes": false,
+  "exec": true,
+  "members": true,
+  "move": false,
+  "network": false,
+  "networkKey": "",
+  "noSecretsDir": false,
+  "proxy": true,
+  "sandbox": false,
+  "side": false,
+  "stats": false,
+  "unpublished": false,
+  "volumes": true,
+  "volumesDir": true
+ },
+ "steps": [
+  {
+   "container": {
+    "id": "a1",
+    "name": "armada-web-r1-a",
+    "image": "nginx:1",
+    "labels": {
+     "armada.app": "web",
+     "armada.managed": "true",
+     "armada.replica": "web-r1-a",
+     "armada.revision": "web--r1",
+     "armada.spec-hash": "06d4afa022399f4573d19408f287dc89"
+    },
+    "state": "running",
+    "exitCode": 0,
+    "hostIp": "10.0.0.2",
+    "hostPort": 31000,
+    "ip": "",
+    "startedNs": 1767225540000000000,
+    "members": [],
+    "startError": ""
+   },
+   "op": "add"
+  },
+  {
+   "container": {
+    "id": "gone",
+    "name": "armada-gone-r1-a",
+    "image": "nginx:1",
+    "labels": {
+     "armada.app": "web",
+     "armada.managed": "true",
+     "armada.replica": "gone-r1-a",
+     "armada.revision": "web--r1",
+     "armada.spec-hash": "282e964d95e91955ff92925aa4283e74"
+    },
+    "state": "running",
+    "exitCode": 0,
+    "hostIp": "10.0.0.2",
+    "hostPort": 31000,
+    "ip": "",
+    "startedNs": 1767225540000000000,
+    "members": [],
+    "startError": ""
+   },
+   "op": "add"
+  },
+  {
+   "assignment": {
+    "replicas": [
+     {
+      "id": "web-r1-a",
+      "app": "web",
+      "revision": "web--r1",
+      "image": "nginx:1",
+      "command": [
+       "/bin/web"
+      ],
+      "args": [
+       "--x"
+      ],
+      "env": [
+       {
+        "name": "A",
+        "value": "1"
+       },
+       {
+        "name": "S",
+        "value": "secret",
+        "ref": "s/v1"
+       }
+      ],
+      "memoryBytes": "268435456",
+      "nanoCpus": "500000000",
+      "pidsLimit": "1024",
+      "readiness": {
+       "path": "/r",
+       "initialDelayMs": "3600000"
+      },
+      "cpuReserveMillis": "100"
+     }
+    ],
+    "proxy": {
+     "plainHttp": true
+    }
+   },
+   "op": "assign"
+  },
+  {
+   "expect": [
+    "step the proxy applied while the stray still ran",
+    "report {}",
+    "calls list {\"labels\":{\"armada.managed\":\"true\"}}\nproxy.apply {\"config\":{\"plainHttp\":true},\"running\":2}\nproxy.health null\nremove {\"id\":\"gone\"}\nstop {\"graceMs\":10000,\"id\":\"gone\"}",
+    "files "
+   ],
+   "name": "the proxy applied while the stray still ran",
+   "op": "reconcile"
+  }
+ ]
+}
