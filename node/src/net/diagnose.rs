@@ -89,8 +89,13 @@ enum Wg<'a> {
 }
 
 /// kernelHas: whether the kernel has a module loaded, built in, or
-/// available to load.
+/// available to load. ARMADA_NODE_TEST_KERNEL_MODULES (test-hooks builds
+/// only) names the modules the kernel has, comma-separated, so the
+/// daemon's replays give the machine they were recorded on.
 fn kernel_has(module: &str) -> bool {
+    if let Some(list) = crate::hooks::var("ARMADA_NODE_TEST_KERNEL_MODULES") {
+        return list.split(',').any(|m| m.trim() == module);
+    }
     if Path::new(&format!("/sys/module/{module}")).exists() {
         return true;
     }
