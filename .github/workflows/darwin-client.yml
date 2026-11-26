@@ -1,0 +1,59 @@
+name: darwin-client
+
+# The armada client for macOS (ADR 0055), built on a macOS runner: Rust has
+# no macOS SDK on Linux. Called by the ci workflow (every change) and the
+# release workflow (with the tag), whose GoReleaser run packs the artifact
+# (.goreleaser.yaml, build armada-darwin; scripts/release-darwin.sh).
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: The version armada version prints (the tag); empty for dev builds.
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # rustup is on the runner; the toolchain comes from rust-toolchain.toml.
+      - run: rustup toolchain install
+      - run: rustup target add x86_64-apple-darwin aarch64-apple-darwin
+      # The same variables GoReleaser gives the Linux builds: the tag, the
+      # full commit, and the commit's time in UTC (its CommitDate).
+      - name: Build
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          if [ -n "$VERSION" ]; then
+            ARMADA_VERSION=$VERSION
+            ARMADA_COMMIT=$(git rev-parse HEAD)
+            ARMADA_DATE=$(TZ=UTC git log -1 --format=%cd --date=format-local:%Y-%m-%dT%H:%M:%SZ)
+            export ARMADA_VERSION ARMADA_COMMIT ARMADA_DATE
+          fi
+          cargo build --release --locked -p armada-client --target x86_64-apple-darwin --target aarch64-apple-darwin
+      - name: Check
+        run: |
+          for t in x86_64-apple-darwin aarch64-apple-darwin; do
+            file "target/$t/release/armada"
+          done
+          # The runner's own architecture runs its binary.
+          case $(uname -m) in
+          arm64) t=aarch64-apple-darwin; p=darwin/arm64 ;;
+          *) t=x86_64-apple-darwin; p=darwin/amd64 ;;
+          esac
+          out=$(ARMADA_NO_UPDATE_CHECK=1 "target/$t/release/armada" version -o json)
+          echo "$out"
+          echo "$out" | grep -q "\"platform\": \"$p\""
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: armada-darwin
+          path: target/*-apple-darwin/release/armada
+          if-no-files-found: error
+          retention-days: 7

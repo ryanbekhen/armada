@@ -1,14 +1,14 @@
-MODULE   := github.com/ryanbekhen/armada
 BIN      := bin/armada
 DAEMON   := bin/armadad
 VERSION  ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT   ?= $(shell git rev-parse --verify -q HEAD 2>/dev/null || echo unknown)
-DATE     ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
+# The commit's time in UTC, as GoReleaser's CommitDate: the same tree builds
+# the same version string, so cargo builds again only what changed.
+DATE     ?= $(shell TZ=UTC git log -1 --format=%cd --date=format-local:%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u +%Y-%m-%dT%H:%M:%SZ)
 
-LDFLAGS := -s -w \
-	-X $(MODULE)/internal/version.version=$(VERSION) \
-	-X $(MODULE)/internal/version.commit=$(COMMIT) \
-	-X $(MODULE)/internal/version.date=$(DATE)
+# `armada version` and `armadad version` (client/build.rs, ADR 0055): read
+# by the client crate at compile time, as Go's -X flags set them before.
+VERSION_ENV = ARMADA_VERSION=$(VERSION) ARMADA_COMMIT=$(COMMIT) ARMADA_DATE=$(DATE)
 
 export CGO_ENABLED := 0
 
@@ -16,9 +16,16 @@ export CGO_ENABLED := 0
 
 all: check build
 
+# armada and armadad from Rust (ADR 0055) for this machine, without the
+# runtime pack (build-bundle embeds it). armadad runs on Linux only, so
+# elsewhere (macOS) only the client is built.
+LINUX := $(filter Linux,$(shell uname -s))
+
 build:
-	go build -trimpath -ldflags '$(LDFLAGS)' -o $(BIN) ./cmd/armada
-	go build -trimpath -ldflags '$(LDFLAGS)' -o $(DAEMON) ./cmd/armadad
+	$(VERSION_ENV) cargo build --release --locked -p armada-client $(if $(LINUX),-p armada-daemon)
+	mkdir -p bin
+	cp target/release/armada $(BIN)
+	$(if $(LINUX),cp target/release/armadad $(DAEMON))
 
 # Downloads the pinned containerd, runc, CNI plugins, and tini (ADR 0011),
 # checks their SHA-256, and packs them for embedding.
@@ -128,11 +135,17 @@ runtime-bundle: logger shim dns node
 	go run ./internal/runtime/embedded/mkbundle -arch amd64 -logger $(call LOGGER_OUT,x86_64) -shim $(call SHIM_OUT,x86_64) -dns $(call DNS_OUT,x86_64) -node $(call NODE_OUT,x86_64)
 	go run ./internal/runtime/embedded/mkbundle -arch arm64 -logger $(call LOGGER_OUT,aarch64) -shim $(call SHIM_OUT,aarch64) -dns $(call DNS_OUT,aarch64) -node $(call NODE_OUT,aarch64)
 
-# Linux binaries as releases are built: armadad with the runtime bundle
-# embedded, and the armada client.
+# Linux binaries as releases build them (.goreleaser.yaml): static musl
+# armadad with the runtime pack embedded (the bundle feature, daemon/build.rs)
+# and the armada client, for GOARCH (amd64, the default, or arm64).
+BUNDLE_ARCH = $(or $(GOARCH),amd64)
+BUNDLE_TARGET = $(if $(filter arm64,$(BUNDLE_ARCH)),aarch64,x86_64)-unknown-linux-musl
+
 build-bundle: runtime-bundle
-	GOOS=linux GOARCH=$(or $(GOARCH),amd64) go build -trimpath -tags bundle -ldflags '$(LDFLAGS)' -o $(DAEMON)-linux-$(or $(GOARCH),amd64) ./cmd/armadad
-	GOOS=linux GOARCH=$(or $(GOARCH),amd64) go build -trimpath -ldflags '$(LDFLAGS)' -o $(BIN)-linux-$(or $(GOARCH),amd64) ./cmd/armada
+	$(VERSION_ENV) cargo build --release --locked -p armada-daemon -p armada-client --features armada-daemon/bundle --target $(BUNDLE_TARGET)
+	mkdir -p bin
+	cp target/$(BUNDLE_TARGET)/release/armadad $(DAEMON)-linux-$(BUNDLE_ARCH)
+	cp target/$(BUNDLE_TARGET)/release/armada $(BIN)-linux-$(BUNDLE_ARCH)
 
 test:
 	CGO_ENABLED=1 go test -race ./...

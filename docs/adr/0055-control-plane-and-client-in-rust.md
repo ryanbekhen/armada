@@ -547,7 +547,16 @@ Go and every new Rust part is exercised only by its parity tests.
     check of "etcd as its own unit" (the unit, the member's status, and
     its version against the pack's; the member's certificate stays the
     certificates check's).
-19. **The switch.** The release builds `armadad` and `armada` from Rust;
+19. **The switch.** The release builds `armadad` and `armada` from Rust
+    (done: GoReleaser's rust builder runs `cargo build --release --locked`
+    for `x86_64-unknown-linux-musl` and `aarch64-unknown-linux-musl` after
+    `make runtime-bundle`, `armadad` with the `bundle` feature; the macOS
+    client is built on a macOS runner and packed by the same run; the
+    archives, their names and files, `checksums.txt`, the cosign
+    signature, the SBOMs, and the provenance are unchanged; the version
+    reaches both programs through `ARMADA_VERSION`, `ARMADA_COMMIT`, and
+    `ARMADA_DATE`; the release runs the workspace's gates beside Go's, and
+    CI runs the packaging on `main` without publishing);
     units for etcd and the agent on server machines (until then the Rust
     `armadad server` connects only with `--etcd-member unit`, refuses the
     flag's `embedded` default, and leaves `--agent` to that unit); the lab upgrade from
