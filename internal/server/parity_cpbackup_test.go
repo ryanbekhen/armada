@@ -240,7 +240,13 @@ func (sc *scenario) cpPass(label string) {
 		return
 	}
 	sc.answer(label, resp.GetControlPlaneBackup(), nil)
-	sc.note(label+": bucket", sc.cpBucket.summary())
+	sum := sc.cpBucket.summary()
+	if sc.rec != nil {
+		// The replay's own stand-in bucket, which the program reaches.
+		step := sc.rec.add(map[string]any{"op": "cpBucket"})
+		sc.rec.expect(step, "expect", sum)
+	}
+	sc.note(label+": bucket", sum)
 }
 
 // cpMetrics records the control plane backup lines of the metrics

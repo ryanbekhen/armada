@@ -627,11 +627,15 @@ Go and every new Rust part is exercised only by its parity tests.
        a later step sends that came from an answer written as references;
        `server/tests/scenarios.rs` (`make server-scenarios`, run by
        `rust-check` and CI) replays them against `armada-server-parity` on
-       the pinned etcd and compares every answer. 59 of the 72 scenarios
-       replay; the stand-ins of the metrics endpoint, alert channels,
-       control plane backup buckets, certificate storage, public join
-       listeners, and log and exec sessions come next, then the agent's,
-       store's, client's, and daemon's parity tests.
+       the pinned etcd and compares every answer. Every scenario replays,
+       with stand-ins of the replay's own: fake agents answering log and
+       exec requests, the alert channels' HTTP and SMTP servers, the
+       control plane backups' bucket, a client of the metrics endpoint,
+       the public join listeners, and certmagic's storage, which Rust's
+       must read as Go wrote it, write as Go writes it, and lock where Go
+       locks; `TestArmadaServerTerms`, which compares with no Go server,
+       runs as a Rust test of its own. The agent's, store's, client's,
+       and daemon's parity tests come next.
     2. **Go deleted.** `cmd/`, `internal/`, `go.mod`, Go's CI jobs and
        release steps, and every document that names Go code (CLAUDE.md,
        the operations guide, the threat model's references,

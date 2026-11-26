@@ -7,7 +7,11 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use armada_pki::{Ca, Certificate, Identity, IssueRequest, SERVER_NAME, parse_cert_pem};
+use armada_proto::etcd::etcdserverpb::TxnRequest;
 use armada_secrets::{Keyring, Value as SecretValue};
+use armada_server::certs::{
+    EtcdStorage, issuer_key, load_bundle, safe, site_cert, site_private_key,
+};
 use armada_store::client::op;
 use armada_store::gojson::from_ms;
 use armada_store::{Client, Etcd, NodeCert};
@@ -19,7 +23,9 @@ use super::grpc::{self, Item, Stream};
 use super::methods::{decode_response, encode_request};
 use super::norm::Norm;
 use super::program::{Cluster, Program};
+use super::standins::{self, Bucket, Sinks};
 use super::volumes;
+use super::watch::Watch;
 
 const CONNECT: &str = "/armada.v1.AgentService/Connect";
 
@@ -69,6 +75,24 @@ struct Agent {
     /// requests once the scenario serves them.
     ch: Channel,
     volume: Arc<Mutex<Option<volumes::Handler>>>,
+    /// What answers its log and exec requests once the scenario serves
+    /// them (watchAgent).
+    watch: Arc<Mutex<Option<Arc<Watch>>>>,
+}
+
+/// What the certificate scenarios keep: the fixture bundles (made with
+/// the replay's CA) and certmagic's storage of the run.
+struct Acme {
+    prefix: String,
+    issuer: String,
+    bundles: Vec<(Vec<u8>, Vec<u8>)>,
+    storage: Arc<EtcdStorage>,
+    /// Another storage's lock being taken, and its outcome once known.
+    other: Arc<EtcdStorage>,
+    lock: Option<tokio::task::JoinHandle<Result<(), String>>>,
+    taken: Option<bool>,
+    /// A lock held as Go's mutex holds it: its lease and key.
+    foreign: Option<(i64, String)>,
 }
 
 struct Run<'a> {
@@ -89,6 +113,17 @@ struct Run<'a> {
     raws: HashMap<i64, Value>,
     diffs: Vec<String>,
     note: String,
+    /// Addresses of the stand-ins and listeners besides the program's.
+    addrs: HashMap<String, String>,
+    /// The streams opened with each cancelable context.
+    ctxs: HashMap<i64, Vec<i64>>,
+    sinks: Option<Sinks>,
+    bucket: Option<Bucket>,
+    acme: Option<Acme>,
+    start_ms: i64,
+    /// The metrics listener's port and the one recorded: the cluster's
+    /// metrics port is the listener's, so the replay's reads as Go's.
+    metrics_port: Option<(i64, i64)>,
 }
 
 fn s<'v>(v: &'v Value, k: &str) -> &'v str {
@@ -139,6 +174,21 @@ pub async fn replay(shared: &Shared, f: &Fixture) -> Result<Vec<String>, String>
     let ca_key = ca.key_pem().expose().to_vec();
     let acme = free_addr();
     let b = |k: &str| cfg.get(k).and_then(Value::as_bool).unwrap_or_default();
+    let sinks = if b("alerts") {
+        Some(Sinks::start().await?)
+    } else {
+        None
+    };
+    let bucket = if b("cpBackups") {
+        Some(Bucket::start(clock.clone()).await?)
+    } else {
+        None
+    };
+    let metrics = if b("metrics") {
+        free_addr()
+    } else {
+        String::new()
+    };
     let mut conf = json!({
         "etcdSocket": shared.socket, "prefix": prefix,
         "caCert": String::from_utf8_lossy(&ca_pem), "caKey": String::from_utf8_lossy(&ca_key),
@@ -154,22 +204,82 @@ pub async fn replay(shared: &Shared, f: &Fixture) -> Result<Vec<String>, String>
         "drainTimeoutMs": n(cfg, "drainTimeoutMs"), "warmupMs": n(cfg, "warmupMs"),
         "progressDeadlineMs": n(cfg, "progressDeadlineMs"), "plainHttp": b("plainHttp"),
         "manualPasses": true, "predictableIds": true,
-        "meshJoin": false, "siteJoin": false,
-        "certs": false, "wildcard": false, "tls": false,
-        "acmePrefix": format!("/test/{i}-acme/"), "acmeDirectory": "https://acme.test:14000/dir",
-        "acmeAddr": acme, "cpBackups": false,
+        "meshJoin": b("meshJoin"), "siteJoin": b("siteJoin"),
+        "certs": b("certs"), "wildcard": b("wildcard"), "tls": b("certs"),
+        "acmePrefix": format!("/test/{i}-acme/"), "acmeDirectory": ACME_DIRECTORY,
+        "acmeAddr": acme, "cpBackups": b("cpBackups"),
     });
+    if !metrics.is_empty() {
+        conf["metricsAddr"] = json!(metrics);
+        conf["metricsCacheNs"] = json!(1);
+    }
+    if let Some(s) = &sinks {
+        conf["telegramApi"] = json!(format!("{}/telegram", s.url));
+    }
+    let mut env = Vec::new();
+    if let Some(b) = &bucket {
+        env.push(("ARMADA_NODE_TEST_BUCKET_ADDR", b.addr.clone()));
+    }
     if b("masterKey") {
         conf["masterKey"] = json!(armada_pki::encoding::base64_encode(&master_key()));
     }
     let cluster = Arc::new(Mutex::new(Cluster::new()));
-    let prog = Program::start(&conf, cluster.clone()).await?;
+    let prog = Program::start(&conf, cluster.clone(), &env).await?;
     let ca_cert = parse_cert_pem(&ca_pem).map_err(|e| e.to_string())?;
     let mut norm = Norm::new(ca_cert, ca_key, master_key());
     norm.alias(&prog.addr("api"), "<api>");
     norm.alias(&acme, "<acme>");
     norm.alias(&prog.addr("join"), "<join>");
     norm.alias(&prog.addr("siteJoin"), "<site-join>");
+    let mut addrs = HashMap::new();
+    if let Some(s) = &sinks {
+        addrs.insert("sinks".to_string(), s.url.clone());
+        addrs.insert("smtp".to_string(), s.smtp.clone());
+        norm.alias(s.url.trim_start_matches("http://"), "<sinks>");
+    }
+    if !metrics.is_empty() {
+        addrs.insert("metrics".to_string(), metrics.clone());
+    }
+    let acme_state = if b("certs") {
+        let prefix = format!("/test/{i}-acme/");
+        let storage = |c: &Client| EtcdStorage::new(c.clone(), &prefix).map_err(|e| e.to_string());
+        let mut bundles = Vec::new();
+        for n in 0..2 {
+            let (c, k) = ca
+                .issue(&IssueRequest {
+                    identity: Identity::new("server", &format!("site-{n}")),
+                    dns_names: vec!["example.org".into()],
+                    ips: Vec::new(),
+                    server: true,
+                    client: false,
+                    validity: Duration::ZERO,
+                })
+                .map_err(|e| e.to_string())?;
+            let pair = (c, k.expose().to_vec());
+            let (pem, sum) = bundle_served(&pair);
+            norm.alias(
+                &armada_pki::encoding::base64_encode(&pem),
+                &format!("<bundle {n}>"),
+            );
+            norm.alias(
+                &armada_pki::encoding::base64_encode(&sum),
+                &format!("<bundle {n} sha256>"),
+            );
+            bundles.push(pair);
+        }
+        Some(Acme {
+            issuer: issuer_key(ACME_DIRECTORY),
+            bundles,
+            storage: Arc::new(storage(&shared.client)?),
+            other: Arc::new(storage(&shared.client)?),
+            lock: None,
+            taken: None,
+            foreign: None,
+            prefix,
+        })
+    } else {
+        None
+    };
     if b("cluster") {
         let srv = json!({"server": {"Name": "cp-1", "PrivateIP": "10.0.0.1", "APIAddr": prog.addr("api"), "MemberID": 100}});
         armada_store::parity_call::call(&st, "UpsertServer", &srv)
@@ -194,8 +304,25 @@ pub async fn replay(shared: &Shared, f: &Fixture) -> Result<Vec<String>, String>
         raws: HashMap::new(),
         diffs: Vec::new(),
         note: String::new(),
+        addrs,
+        ctxs: HashMap::new(),
+        sinks,
+        bucket,
+        acme: acme_state,
+        start_ms: n(cfg, "startMs"),
+        metrics_port: metrics
+            .rsplit_once(':')
+            .and_then(|(_, p)| p.parse().ok())
+            .map(|p| (p, n(cfg, "metricsPort"))),
     };
     let res = run.steps(&f.steps).await;
+    if let Some(a) = &mut run.acme {
+        if let Some(h) = a.lock.take() {
+            h.abort();
+        }
+        let _ = a.other.close().await;
+        let _ = a.storage.close().await;
+    }
     run.agents.clear();
     run.streams.clear();
     run.prog.stop();
@@ -244,7 +371,11 @@ impl Run<'_> {
         let events = store && s(step, "method") == "ListEvents";
         for sn in seen {
             let mut want = step.get(sn.key).cloned().unwrap_or(Value::Null);
-            let mut got = self.norm.encode(&sn.got);
+            let mut got = sn.got.clone();
+            if let Some((own, recorded)) = self.metrics_port {
+                metrics_port(&mut got, own, recorded);
+            }
+            let mut got = self.norm.encode(&got);
             if store {
                 // The store's answers as its parity tests compare them:
                 // an empty list or map reads as none (Go's nil), and
@@ -418,7 +549,25 @@ impl Run<'_> {
                 let path = s(step, "method").to_string();
                 let call = Stream::open(self.conn(step)?, &path);
                 self.streams.insert(n(step, "stream"), (path, call));
+                if let Some(c) = step.get("ctx").and_then(Value::as_i64) {
+                    self.ctxs.entry(c).or_default().push(n(step, "stream"));
+                }
                 Ok(Vec::new())
+            }
+            "cancel" => {
+                for id in self.ctxs.get(&n(step, "ctx")).cloned().unwrap_or_default() {
+                    if let Some((_, call)) = self.streams.get_mut(&id) {
+                        call.cancel();
+                    }
+                }
+                Ok(Vec::new())
+            }
+            "logsTake" => {
+                let (_, call) = self
+                    .streams
+                    .get_mut(&n(step, "stream"))
+                    .ok_or("no such stream")?;
+                Ok(one(logs_take(call, step).await?, None))
             }
             "send" => {
                 let msg = self.resolve(&step["msg"])?;
@@ -653,8 +802,434 @@ impl Run<'_> {
                     step["on"].as_bool() == Some(true);
                 Ok(Vec::new())
             }
+            other => self.step_more(other, step).await,
+        }
+    }
+
+    /// The steps of the stand-ins: log and exec sessions, alert channels,
+    /// the control plane backups' bucket, the metrics endpoint, public
+    /// listeners, and certmagic's storage.
+    async fn step_more(&mut self, op: &str, step: &Value) -> Result<Vec<Seen>, String> {
+        let one = |got: Value| {
+            vec![Seen {
+                key: "expect",
+                got,
+                raw: None,
+            }]
+        };
+        let none = |l: Vec<String>| none_if_empty(l.into_iter().map(Value::String).collect());
+        match op {
+            "watchAgent" => {
+                let start_ms = self.start_ms;
+                let a = self.agent_of(step)?;
+                let w = Arc::new(Watch {
+                    ch: a.ch.clone(),
+                    start_ms,
+                    st: Mutex::default(),
+                });
+                *a.watch.lock().unwrap_or_else(|p| p.into_inner()) = Some(w);
+                Ok(Vec::new())
+            }
+            "watchAttachAs" => {
+                let other = self
+                    .agents
+                    .get(s(step, "as"))
+                    .ok_or("no such agent")?
+                    .ch
+                    .clone();
+                lock(&self.watch_of(step)?.st).attach_as = Some(other);
+                Ok(Vec::new())
+            }
+            "watchAttached" => Ok(one(self.watch_of(step)?.attached().await?)),
+            "watchLive" | "watchErr" | "watchHistory" | "watchClearQueries" | "watchWindows"
+            | "watchOpen" | "watchCancels" => {
+                let w = self.watch_of(step)?;
+                let replica = s(step, "replica").to_string();
+                if op == "watchOpen" {
+                    return Ok(one(json!(w.open_count())));
+                }
+                let mut st = lock(&w.st);
+                Ok(match op {
+                    "watchLive" => {
+                        let lines = step["lines"]
+                            .as_array()
+                            .map(|a| {
+                                a.iter()
+                                    .map(|l| l.as_str().unwrap_or_default().to_string())
+                                    .collect()
+                            })
+                            .unwrap_or_default();
+                        st.live.insert(replica, lines);
+                        Vec::new()
+                    }
+                    "watchErr" => {
+                        match s(step, "error") {
+                            "" => st.errs.remove(&replica),
+                            e => st.errs.insert(replica, e.to_string()),
+                        };
+                        Vec::new()
+                    }
+                    "watchHistory" => {
+                        let now = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map(|d| d.as_millis() as i64)
+                            .unwrap_or_default();
+                        let mut list = Vec::new();
+                        for e in step["entries"].as_array().cloned().unwrap_or_default() {
+                            let mut p: armada_proto::armada::v1::LogPush =
+                                serde_json::from_value(e["push"].clone())
+                                    .map_err(|e| format!("a history entry: {e}"))?;
+                            if let Some(after) = e.get("afterNowMs").and_then(Value::as_i64) {
+                                let at = now + after;
+                                p.time = Some(armada_proto::google::protobuf::Timestamp {
+                                    seconds: at.div_euclid(1000),
+                                    nanos: (at.rem_euclid(1000) * 1_000_000) as i32,
+                                });
+                            }
+                            list.push(p);
+                        }
+                        st.history = list;
+                        Vec::new()
+                    }
+                    "watchClearQueries" => {
+                        st.queries.clear();
+                        Vec::new()
+                    }
+                    "watchWindows" => {
+                        let since = i128::from(n(step, "sinceMs")) * 1_000_000;
+                        let out: Vec<Value> = st
+                            .queries
+                            .iter()
+                            .map(|q| {
+                                let t = q.since.as_ref().map_or(0, |t| {
+                                    i128::from(t.seconds) * 1_000_000_000 + i128::from(t.nanos)
+                                });
+                                json!(t == since)
+                            })
+                            .collect();
+                        one(none_if_empty(out))
+                    }
+                    _ => one(json!(st.cancels.len())),
+                })
+            }
+            "watchRequests" => {
+                let mut out = serde_json::Map::new();
+                for rid in step["agents"].as_array().cloned().unwrap_or_default() {
+                    let rid = rid.as_str().unwrap_or_default();
+                    let a = self.agents.get(rid).ok_or("no such agent")?;
+                    let w = a
+                        .watch
+                        .lock()
+                        .unwrap_or_else(|p| p.into_inner())
+                        .clone()
+                        .ok_or("not a watch agent")?;
+                    let mut st = lock(&w.st);
+                    let mut seen = std::mem::take(&mut st.seen);
+                    seen.sort();
+                    let execs = std::mem::take(&mut st.execs);
+                    out.insert(
+                        a.node.clone(),
+                        json!({"logs": none(seen), "exec": none(execs)}),
+                    );
+                }
+                Ok(one(Value::Object(out)))
+            }
+            "dnsToken" => {
+                let v = match armada_server::load_settings(&self.st).await {
+                    Err(_) => json!({"ok": false, "value": "", "error": true}),
+                    Ok(set) => match set.token(&self.keys) {
+                        Err(_) => json!({"ok": false, "value": "", "error": true}),
+                        Ok(None) => json!({"ok": false, "value": "", "error": false}),
+                        Ok(Some(t)) => {
+                            json!({"ok": true, "value": String::from_utf8_lossy(t.bytes()),
+                            "error": false})
+                        }
+                    },
+                };
+                Ok(one(v))
+            }
+            "listening" => {
+                let addr = self.resolve(&step["addr"])?;
+                let tls = match step["tls"].as_bool() {
+                    Some(true) => Some(grpc::tls(&self.ca_pem, None)?),
+                    _ => None,
+                };
+                Ok(one(json!(
+                    listening(addr.as_str().unwrap_or_default(), tls).await
+                )))
+            }
+            "scrape" => {
+                let tls = if step["noCert"].as_bool() == Some(true) {
+                    grpc::tls(&self.ca_pem, None)?
+                } else if step.get("cert").is_some() {
+                    let cert = self.resolve(&step["cert"])?;
+                    let key = self.resolve(&step["key"])?;
+                    grpc::tls(
+                        &self.ca_pem,
+                        Some((
+                            cert.as_str().unwrap_or_default().as_bytes(),
+                            key.as_str().unwrap_or_default().as_bytes(),
+                        )),
+                    )?
+                } else {
+                    let other;
+                    let ca = if step["otherCA"].as_bool() == Some(true) {
+                        other = Ca::new("other").map_err(|e| e.to_string())?;
+                        &other
+                    } else {
+                        &self.ca
+                    };
+                    let (cert, key) = ca
+                        .issue(&IssueRequest {
+                            identity: Identity::new(s(step, "kind"), s(step, "name")),
+                            dns_names: Vec::new(),
+                            ips: Vec::new(),
+                            server: false,
+                            client: true,
+                            validity: Duration::ZERO,
+                        })
+                        .map_err(|e| e.to_string())?;
+                    grpc::tls(&self.ca_pem, Some((&cert, key.expose())))?
+                };
+                let addr = self.addrs.get("metrics").cloned().unwrap_or_default();
+                let v = match standins::scrape(&addr, tls, s(step, "method"), s(step, "path")).await
+                {
+                    Ok((code, body)) => json!({"status": code, "body": body, "error": false}),
+                    Err(_) => json!({"status": 0, "body": "", "error": true}),
+                };
+                Ok(one(v))
+            }
+            "sinkWait" => {
+                let sinks = self.sinks.as_ref().ok_or("no alert stand-ins")?;
+                let got = sinks.wait(s(step, "path"), n(step, "n") as usize).await?;
+                Ok(one(json!(got)))
+            }
+            "sinkFail" => {
+                let sinks = self.sinks.as_ref().ok_or("no alert stand-ins")?;
+                sinks.set_fail(s(step, "path"), step["on"].as_bool() == Some(true));
+                Ok(Vec::new())
+            }
+            "cpBucket" => Ok(one(self.bucket.as_ref().ok_or("no bucket")?.summary())),
+            "managed" => {
+                let m = self.prog.ask(json!({"op": "managed"})).await?;
+                Ok(one(m.get("value").cloned().unwrap_or(Value::Null)))
+            }
+            "deletePrefix" => {
+                let pfx = format!("{}{}", self.prefix, s(step, "prefix"));
+                let end = String::from_utf8_lossy(&op::prefix_end(&pfx)).into_owned();
+                self.shared
+                    .client
+                    .delete(&pfx, Some(&end))
+                    .await
+                    .map_err(|e| e.to_string())?;
+                Ok(Vec::new())
+            }
+            _ => self.step_acme(op, step).await,
+        }
+    }
+
+    /// The steps of certmagic's storage.
+    async fn step_acme(&mut self, op: &str, step: &Value) -> Result<Vec<Seen>, String> {
+        let one = |got: Value| {
+            vec![Seen {
+                key: "expect",
+                got,
+                raw: None,
+            }]
+        };
+        let client = self.shared.client.clone();
+        let a = self
+            .acme
+            .as_mut()
+            .ok_or_else(|| format!("unknown step {op}"))?;
+        let name = s(step, "name").to_string();
+        let bundle = |a: &Acme| -> Result<(Vec<u8>, Vec<u8>), String> {
+            a.bundles
+                .get(n(step, "bundle") as usize)
+                .cloned()
+                .ok_or_else(|| "no such bundle".to_string())
+        };
+        let store = |a: &Acme, crt: Vec<u8>, key: Vec<u8>| {
+            let (st, issuer, name) = (a.storage.clone(), a.issuer.clone(), name.clone());
+            async move {
+                st.store(&site_cert(&issuer, &name), &crt)
+                    .await
+                    .map_err(|e| e.to_string())?;
+                st.store(&site_private_key(&issuer, &name), &key)
+                    .await
+                    .map_err(|e| e.to_string())
+            }
+        };
+        match op {
+            "storeCert" => {
+                let (crt, key) = if step.get("bundle").is_some() {
+                    bundle(a)?
+                } else {
+                    (
+                        s(step, "cert").as_bytes().to_vec(),
+                        s(step, "key").as_bytes().to_vec(),
+                    )
+                };
+                store(a, crt, key).await?;
+                Ok(Vec::new())
+            }
+            "acmeStore" => {
+                let (crt, key) = bundle(a)?;
+                store(a, crt, key).await?;
+                Ok(Vec::new())
+            }
+            "acmePut" => {
+                // What Go's storage wrote, byte for byte.
+                for kv in step["kvs"].as_array().cloned().unwrap_or_default() {
+                    let mut v = if kv["recent"].as_bool() == Some(true) {
+                        now_nanos().to_be_bytes().to_vec()
+                    } else {
+                        vec![0; 8]
+                    };
+                    match kv.get("bundle").and_then(Value::as_u64) {
+                        Some(i) => {
+                            let b = a.bundles.get(i as usize).ok_or("no such bundle")?;
+                            v.extend_from_slice(if kv["part"].as_u64() == Some(0) {
+                                &b.0
+                            } else {
+                                &b.1
+                            });
+                        }
+                        None => v.extend_from_slice(s(&kv, "data").as_bytes()),
+                    }
+                    client
+                        .put(&format!("{}data/{}", a.prefix, s(&kv, "key")), &v)
+                        .await
+                        .map_err(|e| e.to_string())?;
+                }
+                Ok(Vec::new())
+            }
+            "acmeLoad" => {
+                let want = bundle_served(&bundle(a)?).0;
+                let got = load_bundle(&a.storage, &a.issuer, &name).await;
+                Ok(one(json!(got.as_deref() == Some(want.as_slice()))))
+            }
+            "acmeKVs" => Ok(one(acme_kvs(&client, a, &name).await?)),
+            "acmeList" => {
+                let v = match a
+                    .storage
+                    .list(s(step, "dir"), step["recursive"].as_bool() == Some(true))
+                    .await
+                {
+                    Ok(Some(mut keys)) => {
+                        keys.sort();
+                        json!({"keys": keys, "error": false})
+                    }
+                    Ok(None) | Err(_) => json!({"keys": null, "error": true}),
+                };
+                Ok(one(v))
+            }
+            "acmeLockKeys" => {
+                let mut r = op::get_prefix(&format!("{}locks/", a.prefix), 0);
+                r.keys_only = true;
+                let resp = client.range(r).await.map_err(|e| e.to_string())?;
+                let keys = resp
+                    .kvs
+                    .iter()
+                    .map(|kv| {
+                        let k = String::from_utf8_lossy(&kv.key);
+                        let k = k.strip_prefix(a.prefix.as_str()).unwrap_or(&k);
+                        match k.rfind('/') {
+                            Some(i) => json!(format!("{}<lease>", &k[..=i])),
+                            None => json!(k),
+                        }
+                    })
+                    .collect();
+                Ok(one(none_if_empty(keys)))
+            }
+            "acmeForeignLock" => {
+                // Held as Go's concurrency.Mutex holds it: a key named
+                // after its session's lease under the lock's prefix.
+                let lease = client.grant(60).await.map_err(|e| e.to_string())?;
+                let key = format!("{}locks/{name}/{lease:x}", a.prefix);
+                client
+                    .txn(TxnRequest {
+                        success: vec![op::put(&key, b"", lease)],
+                        ..Default::default()
+                    })
+                    .await
+                    .map_err(|e| e.to_string())?;
+                a.foreign = Some((lease, key));
+                Ok(Vec::new())
+            }
+            "acmeForeignUnlock" => {
+                if let Some((lease, key)) = a.foreign.take() {
+                    client.delete(&key, None).await.map_err(|e| e.to_string())?;
+                    client.revoke(lease).await.map_err(|e| e.to_string())?;
+                }
+                Ok(Vec::new())
+            }
+            "acmeLock" => {
+                let other = a.other.clone();
+                a.taken = None;
+                a.lock = Some(tokio::spawn(async move {
+                    other.lock(&name).await.map_err(|e| e.to_string())
+                }));
+                Ok(Vec::new())
+            }
+            "acmeLockTaken" => {
+                if a.taken.is_none()
+                    && let Some(h) = a.lock.as_mut()
+                {
+                    let d = Duration::from_millis(n(step, "ms") as u64);
+                    if let Ok(r) = tokio::time::timeout(d, h).await {
+                        a.taken = Some(matches!(r, Ok(Ok(()))));
+                        a.lock = None;
+                    }
+                }
+                Ok(one(json!(a.taken.unwrap_or(false))))
+            }
+            "acmeForeignWait" => {
+                // A waiter as Go's mutex waits: its own key, which holds the
+                // lock only once it is the oldest under the prefix.
+                let lease = client.grant(60).await.map_err(|e| e.to_string())?;
+                let pfx = format!("{}locks/{name}/", a.prefix);
+                let key = format!("{pfx}{lease:x}");
+                client
+                    .txn(TxnRequest {
+                        success: vec![op::put(&key, b"", lease)],
+                        ..Default::default()
+                    })
+                    .await
+                    .map_err(|e| e.to_string())?;
+                tokio::time::sleep(Duration::from_millis(n(step, "ms") as u64)).await;
+                let resp = client
+                    .range(op::get_prefix(&pfx, 0))
+                    .await
+                    .map_err(|e| e.to_string())?;
+                let oldest = resp
+                    .kvs
+                    .iter()
+                    .min_by_key(|kv| kv.create_revision)
+                    .map(|kv| kv.key.clone());
+                client.delete(&key, None).await.map_err(|e| e.to_string())?;
+                client.revoke(lease).await.map_err(|e| e.to_string())?;
+                Ok(one(json!(oldest.as_deref() != Some(key.as_bytes()))))
+            }
+            "acmeUnlock" => {
+                a.other.unlock(&name).await.map_err(|e| e.to_string())?;
+                Ok(Vec::new())
+            }
             other => Err(format!("unknown step {other}")),
         }
+    }
+
+    fn watch_of(&self, step: &Value) -> Result<Arc<Watch>, String> {
+        let id = s(step, "agent");
+        let a = self
+            .agents
+            .get(id)
+            .ok_or_else(|| format!("no agent {id}"))?;
+        a.watch
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
+            .ok_or_else(|| format!("agent {id} is not a watch agent"))
     }
 
     fn conn(&self, step: &Value) -> Result<Channel, String> {
@@ -678,19 +1253,29 @@ impl Run<'_> {
         let before = self.connected(&node).await?;
         let ch = self.conn(step)?;
         let volume: Arc<Mutex<Option<volumes::Handler>>> = Arc::default();
+        let watched: Arc<Mutex<Option<Arc<Watch>>>> = Arc::default();
         let tap: grpc::Tap = {
             let volume = volume.clone();
+            let watched = watched.clone();
             Arc::new(move |m: &[u8]| {
                 use armada_proto::armada::v1::{ServerMessage, server_message::Msg};
                 use prost::Message;
-                let Some(h) = volume.lock().unwrap_or_else(|p| p.into_inner()).clone() else {
+                let Ok(ServerMessage { msg: Some(msg) }) = ServerMessage::decode(m) else {
                     return false;
                 };
-                match ServerMessage::decode(m) {
-                    Ok(ServerMessage {
-                        msg: Some(Msg::VolumeRequest(req)),
-                    }) => {
+                let h = volume.lock().unwrap_or_else(|p| p.into_inner()).clone();
+                let w = watched.lock().unwrap_or_else(|p| p.into_inner()).clone();
+                match (msg, h, w) {
+                    (Msg::VolumeRequest(req), Some(h), _) => {
                         tokio::spawn(h.serve(req));
+                        true
+                    }
+                    (Msg::ExecRequest(er), _, Some(w)) => {
+                        tokio::spawn(w.serve_exec(er));
+                        true
+                    }
+                    (m @ (Msg::LogRequest(_) | Msg::LogCancel(_)), _, Some(w)) => {
+                        w.serve_logs(m);
                         true
                     }
                     _ => false,
@@ -715,6 +1300,7 @@ impl Run<'_> {
             others: Vec::new(),
             ch,
             volume,
+            watch: watched,
         };
         let deadline = Instant::now() + Duration::from_secs(15);
         loop {
@@ -802,9 +1388,21 @@ impl Run<'_> {
     /// v with every reference replaced by what it names.
     fn resolve(&self, v: &Value) -> Result<Value, String> {
         match v {
-            Value::Object(m) if m.contains_key("@addr") => Ok(json!(
-                self.prog.addr(m["@addr"].as_str().unwrap_or_default())
-            )),
+            Value::Object(m) if m.contains_key("@addr") => {
+                let name = m["@addr"].as_str().unwrap_or_default();
+                Ok(json!(
+                    self.addrs
+                        .get(name)
+                        .cloned()
+                        .unwrap_or_else(|| self.prog.addr(name))
+                ))
+            }
+            Value::Object(m) if m.contains_key("@b64") => {
+                let v = self.resolve(&m["@b64"])?;
+                Ok(json!(armada_pki::encoding::base64_encode(
+                    v.as_str().unwrap_or_default().as_bytes()
+                )))
+            }
             Value::Object(m) if m.contains_key("@concat") => {
                 let mut out = String::new();
                 for p in m["@concat"].as_array().cloned().unwrap_or_default() {
@@ -930,6 +1528,161 @@ async fn wait_end(a: &mut Agent) -> Result<Value, String> {
     })
 }
 
+/// The directory certmagic's ACME issuer stores certificates under
+/// (internal/server's parityACMECA).
+const ACME_DIRECTORY: &str = "https://acme.test:14000/dir";
+
+fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(|p| p.into_inner())
+}
+
+fn now_nanos() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or_default()
+}
+
+/// A bundle as the certificate manager serves it (the chain, a newline if
+/// it has none, the key) and its SHA-256.
+fn bundle_served(b: &(Vec<u8>, Vec<u8>)) -> (Vec<u8>, Vec<u8>) {
+    let mut out = b.0.clone();
+    if out.last().is_some_and(|c| *c != b'\n') {
+        out.push(b'\n');
+    }
+    out.extend_from_slice(&b.1);
+    let sum = ring::digest::digest(&ring::digest::SHA256, &out);
+    (out, sum.as_ref().to_vec())
+}
+
+/// What certmagic's storage holds for keys naming name, described as
+/// Go's harness describes it (scenario.acmeKVs).
+async fn acme_kvs(c: &Client, a: &Acme, name: &str) -> Result<Value, String> {
+    let pfx = format!("{}data/", a.prefix);
+    let resp = c
+        .range(op::get_prefix(&pfx, 0))
+        .await
+        .map_err(|e| e.to_string())?;
+    let want = format!("/{}/", safe(name));
+    let mut out = Vec::new();
+    for kv in resp.kvs {
+        let k = String::from_utf8_lossy(&kv.key);
+        let k = k.strip_prefix(pfx.as_str()).unwrap_or(&k).to_string();
+        if !k.contains(&want) {
+            continue;
+        }
+        let v = kv.value;
+        if v.len() < 8 {
+            out.push(json!({"key": k, "short": v.len()}));
+            continue;
+        }
+        let mut t = [0u8; 8];
+        t.copy_from_slice(&v[..8]);
+        let age = now_nanos().abs_diff(u64::from_be_bytes(t));
+        let mut e = json!({"key": k, "recent": age < 3_600_000_000_000});
+        let data = &v[8..];
+        for (i, b) in a.bundles.iter().enumerate() {
+            for (j, part) in [&b.0, &b.1].into_iter().enumerate() {
+                if part.as_slice() == data {
+                    e["bundle"] = json!(i);
+                    e["part"] = json!(j);
+                }
+            }
+        }
+        if e.get("bundle").is_none() {
+            e["data"] = json!(String::from_utf8_lossy(data));
+        }
+        out.push(e);
+    }
+    Ok(none_if_empty(out))
+}
+
+/// Whether something listens at addr: with tls, a TLS handshake
+/// completes (as FetchPinnedCA's), else a TCP connection does (as
+/// net.Dial's).
+async fn listening(addr: &str, tls: Option<rustls::ClientConfig>) -> bool {
+    let go = async {
+        let tcp = tokio::net::TcpStream::connect(addr).await.ok()?;
+        let Some(tls) = tls else {
+            return Some(());
+        };
+        let name = rustls_pki_types::ServerName::try_from(armada_pki::SERVER_NAME).ok()?;
+        tokio_rustls::TlsConnector::from(Arc::new(tls))
+            .connect(name, tcp)
+            .await
+            .ok()
+            .map(|_| ())
+    };
+    matches!(
+        tokio::time::timeout(Duration::from_secs(1), go).await,
+        Ok(Some(_))
+    )
+}
+
+/// Reads a Logs stream's entries as Go's harness does (readLogs and the
+/// follows' reads): n of them (-1: to its end), as replica|stream|data
+/// (rsd) or replica|data (rd), sorted from sortFrom on, and the error that
+/// ended them.
+async fn logs_take(call: &mut Stream, step: &Value) -> Result<Value, String> {
+    let want = n(step, "n");
+    let mut lines = Vec::new();
+    let mut err = Value::Null;
+    while want < 0 || (lines.len() as i64) < want {
+        match call.recv_within(Duration::from_secs(15)).await {
+            None => return Err(format!("{} of {want} log entries", lines.len())),
+            Some(Item::Msg(b)) => {
+                let e =
+                    <armada_proto::armada::v1::LogEntry as prost::Message>::decode(b.as_slice())
+                        .map_err(|e| e.to_string())?;
+                let data = String::from_utf8_lossy(&e.data);
+                let data = data.strip_suffix('\n').unwrap_or(&data);
+                lines.push(match s(step, "format") {
+                    "rd" => format!("{}|{data}", e.replica),
+                    _ => {
+                        let stream = armada_proto::armada::v1::Stream::try_from(e.stream)
+                            .map(|s| s.as_str_name().to_string())
+                            .unwrap_or_else(|_| e.stream.to_string());
+                        format!("{}|{stream}|{data}", e.replica)
+                    }
+                });
+            }
+            Some(Item::Eof) if want < 0 => break,
+            Some(Item::Eof) => {
+                err = eof();
+                break;
+            }
+            Some(Item::Err(st)) => {
+                err = status_tree(&st);
+                break;
+            }
+        }
+    }
+    if let Ok(from) = usize::try_from(n(step, "sortFrom"))
+        && from <= lines.len()
+    {
+        lines[from..].sort();
+    }
+    let lines = none_if_empty(lines.into_iter().map(Value::String).collect());
+    Ok(json!({"lines": lines, "error": err}))
+}
+
+/// v with the metrics port own read as recorded.
+fn metrics_port(v: &mut Value, own: i64, recorded: i64) {
+    match v {
+        Value::Object(m) => {
+            for (k, e) in m.iter_mut() {
+                if k == "metricsPort" && e.as_i64() == Some(own) {
+                    *e = json!(recorded);
+                } else {
+                    metrics_port(e, own, recorded);
+                }
+            }
+        }
+        Value::Array(a) => a.iter_mut().for_each(|e| metrics_port(e, own, recorded)),
+        _ => {}
+    }
+}
+
 /// A list as Go's nil slice writes it when empty.
 fn none_if_empty(l: Vec<Value>) -> Value {
     if l.is_empty() {
@@ -964,12 +1717,12 @@ fn node_cert(c: &Certificate) -> NodeCert {
     }
 }
 
-fn status_tree(st: &tonic::Status) -> Value {
+pub fn status_tree(st: &tonic::Status) -> Value {
     Norm::error(grpc::code_name(st.code()), st.message())
 }
 
 /// io.EOF as grpc-go's status.Convert reads it.
-fn eof() -> Value {
+pub fn eof() -> Value {
     Norm::error("Unknown", "EOF")
 }
 

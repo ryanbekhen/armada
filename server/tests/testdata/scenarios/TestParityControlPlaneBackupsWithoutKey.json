@@ -1,1 +1,7 @@
-{"name":"TestParityControlPlaneBackupsWithoutKey","skip":"control plane backups to a stand-in bucket"}
+{"config":{"cluster":false,"cpBackups":true,"drainTimeoutMs":0,"join":false,"joinBurst":0,"masterKey":false,"nodeCertValiditySeconds":0,"nodeLostSeconds":0,"plainHttp":false,"progressDeadlineMs":0,"startMs":1795168800000,"warmupMs":0},"name":"TestParityControlPlaneBackupsWithoutKey","steps":[
+{"conn":1,"kind":"admin","name":"ryan","op":"dial","record":true},
+{"conn":1,"expect":{"code":"FailedPrecondition","message":"this server has no master key to encrypt the backup URL and key with"},"method":"/armada.v1.AdminService/SetClusterConfig","op":"call","req":{"backupKey":"MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWYta2V5","backupUrl":"aHR0cDovL0FLOlNFQ1JFVEtFWTEyM0AxMC4wLjAuNTA6OTAwMC9iYWNrdXBzL2FybWFkYQ==","config":{"backupEverySeconds":"3600","backupKeep":{"last":2}},"setBackupKeep":true,"setBackupKey":true,"setBackupPlan":true,"setBackupUrl":true}},
+{"label":"refused","op":"note","value":{"code":"FailedPrecondition","message":"this server has no master key to encrypt the backup URL and key with"}},
+{"expect":{"audit":null,"events":null,"keys":["commit = \"\"","schema = 15","users/ryan = {\"createdAt\":\"\\u003ctime\\u003e\",\"name\":\"ryan\",\"roles\":[{\"role\":\"cluster-admin\"}]}"]},"op":"keyspace"},
+{"label":"keyspace","op":"note","value":{"audit":null,"events":null,"keys":["commit = \"\"","schema = 15","users/ryan = {\"createdAt\":\"\\u003ctime\\u003e\",\"name\":\"ryan\",\"roles\":[{\"role\":\"cluster-admin\"}]}"]}}
+]}

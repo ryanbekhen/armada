@@ -357,14 +357,27 @@ func (sc *scenario) publicJoinClient(local, caHash string) armadav1.JoinServiceC
 		if err == nil {
 			ca = got
 		}
+		sc.recordListening(local, err == nil, true)
 		return err == nil
 	})
-	conn, err := grpc.NewClient(local, grpc.WithTransportCredentials(credentials.NewTLS(pki.JoinClientTLS(ca))))
+	conn, err := grpc.NewClient(local, append(sc.recordJoinDial(local), grpc.WithTransportCredentials(credentials.NewTLS(pki.JoinClientTLS(ca))))...)
 	if err != nil {
 		sc.t.Fatal(err)
 	}
 	sc.t.Cleanup(func() { _ = conn.Close() })
 	return armadav1.NewJoinServiceClient(conn)
+}
+
+// recordListening records whether something listens at addr, which the
+// replay asks of its own server's listener: with handshake a TLS
+// handshake that completes (FetchPinnedCA's), else a TCP connection
+// (a listener that closes connections before TLS still listens).
+func (sc *scenario) recordListening(addr string, up, handshake bool) {
+	if sc.rec == nil {
+		return
+	}
+	step := sc.rec.add(map[string]any{"op": "listening", "addr": sc.rec.template(addr), "tls": handshake})
+	sc.rec.expect(step, "expect", up)
 }
 
 // closed waits until nothing listens at addr.
@@ -375,6 +388,7 @@ func (sc *scenario) closed(addr string) {
 		if err == nil {
 			_ = conn.Close()
 		}
+		sc.recordListening(addr, err == nil, false)
 		return err != nil
 	})
 }

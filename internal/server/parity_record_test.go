@@ -3,9 +3,11 @@ package server
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"flag"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -13,6 +15,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
@@ -43,11 +46,14 @@ import (
 // record what a scenario picked from them); a value a later step sends
 // that came from an answer (a join token, a certificate) is written as a
 // reference to that answer ({"@ref": id, "path": [...]}) and the replay
-// takes it from the Rust server's own answer. A scenario that reaches
-// what the replay does not do yet (stand-ins of buckets, alert
-// channels, DNS, certificate storage, volume, log, and exec sessions)
-// is written with only its name and why, and the replay lists it as
-// skipped.
+// takes it from the Rust server's own answer. What a scenario reaches
+// besides the server the replay stands in for with its own: fake agents'
+// volume, log, and exec sessions, alert channels, the control plane
+// backups' bucket, the metrics endpoint's client, public join listeners,
+// and certmagic's storage (recorded as Go writes, reads, and locks it).
+// A scenario that reached something the replay cannot stand in for
+// would be written with only its name and why (recorder.unsupported),
+// and the replay would list it as skipped; none does.
 
 var recordScenarios = flag.Bool("record-scenarios", false,
 	"write server/tests/testdata/scenarios/*.json (each scenario's steps and Go's answers) for the Rust replay")
@@ -76,6 +82,7 @@ type recorder struct {
 	conns       int
 	streams     int
 	agents      int
+	ctxs        int
 	quiet       int
 	unsupported []string
 	// lastConnect is the connection the last agent session was opened on.
@@ -99,29 +106,27 @@ type recRef struct {
 func newRecorder(sc *scenario, cfg parityConfig) *recorder {
 	r := &recorder{sc: sc, cfg: cfg, refs: map[string]recRef{}}
 	r.norm = &scenario{t: sc.t, fx: sc.fx, seen: map[string]map[string]string{}, extraRandom: recordRandomKeys}
-	switch {
-	case cfg.certs || cfg.wildcard:
-		r.skip("a certificate manager over certmagic's storage")
-	case cfg.metrics:
-		r.skip("the metrics endpoint")
-	case cfg.alerts:
-		r.skip("stand-ins of alert channels")
-	case cfg.cpBackups:
-		r.skip("control plane backups to a stand-in bucket")
-	case cfg.meshJoin || cfg.siteJoin:
-		r.skip("public join listeners")
+	if cfg.certs {
+		// The fixture bundles, which the replay makes with its own CA.
+		for i, b := range sc.fx.bundles {
+			pem, sum := bundleServed(b)
+			r.norm.alias(base64.StdEncoding.EncodeToString(pem), fmt.Sprintf("<bundle %d>", i))
+			r.norm.alias(base64.StdEncoding.EncodeToString(sum), fmt.Sprintf("<bundle %d sha256>", i))
+		}
 	}
 	return r
 }
 
-// skip marks the scenario as one the replay does not run yet.
-func (r *recorder) skip(why string) {
-	if r == nil {
-		return
+// bundleServed is a fixture bundle as the certificate manager serves it
+// (parityCerts.Certificate), and its SHA-256.
+func bundleServed(b [2][]byte) ([]byte, []byte) {
+	out := append([]byte{}, b[0]...)
+	if len(out) > 0 && out[len(out)-1] != '\n' {
+		out = append(out, '\n')
 	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.unsupported = append(r.unsupported, why)
+	out = append(out, b[1]...)
+	sum := sha256.Sum256(out)
+	return out, sum[:]
 }
 
 // addrs names the server's addresses, which the replay takes from its own.
@@ -135,6 +140,17 @@ func (r *recorder) addrs(sut serverUnderTest) {
 	r.norm.alias(r.sc.fx.acmeAddr, "<acme>")
 	r.norm.alias(sut.join(), "<join>")
 	r.norm.alias(sut.siteJoin(), "<site-join>")
+	for name, a := range map[string]string{"joinLocal": sut.joinLocal(), "siteJoinLocal": sut.siteJoinLocal(), "metrics": r.sc.metricsAddr} {
+		if _, named := r.refs[a]; a != "" && !named {
+			r.refs[a] = recRef{addr: name}
+		}
+	}
+	if s := r.sc.sinks; s != nil {
+		// The alert channels' stand-ins: the replay starts its own.
+		r.refs[s.http.URL] = recRef{addr: "sinks"}
+		r.refs[s.smtp.Addr().String()] = recRef{addr: "smtp"}
+		r.norm.alias(strings.TrimPrefix(s.http.URL, "http://"), "<sinks>")
+	}
 }
 
 // add appends a step (to the poll being recorded, while one is).
@@ -232,7 +248,17 @@ func (r *recorder) template(v any) any {
 	case string:
 		r.mu.Lock()
 		defer r.mu.Unlock()
-		return r.templateString(x)
+		out := r.templateString(x)
+		if s, ok := out.(string); ok && s == x {
+			// A bytes field (base64) holding such a value: an alert
+			// channel's URL as its secret.
+			if b, err := base64.StdEncoding.DecodeString(x); err == nil && utf8.Valid(b) {
+				if t, ok := r.templateString(string(b)).(map[string]any); ok {
+					return map[string]any{"@b64": t}
+				}
+			}
+		}
+		return out
 	}
 	return v
 }
@@ -432,23 +458,86 @@ func (r *recorder) stream(conn int) grpc.StreamClientInterceptor {
 			r.mu.Unlock()
 			return streamer(ctx, desc, cc, method, opts...)
 		}
-		// Fake agents' volume sessions: the replay's own fake agents
-		// answer the requests that open them.
-		if r.isQuiet() || method == volumeSessionMethod {
+		// Fake agents' volume, log, and exec sessions: the replay's own
+		// fake agents answer the requests that open them.
+		if r.isQuiet() || method == volumeSessionMethod || ctx.Value(agentSideKey{}) != nil {
 			return streamer(ctx, desc, cc, method, opts...)
 		}
 		r.mu.Lock()
 		r.streams++
 		id := r.streams
 		r.mu.Unlock()
-		step := r.add(map[string]any{"op": "open", "conn": conn, "stream": id, "method": method})
+		open := map[string]any{"op": "open", "conn": conn, "stream": id, "method": method}
+		if c, ok := ctx.Value(recCtxKey{}).(int); ok {
+			open["ctx"] = c
+		}
+		g, _ := ctx.Value(recGroupKey{}).(*recGroup)
+		if g != nil {
+			g.id = id
+		}
+		step := r.add(open)
 		cs, err := streamer(ctx, desc, cc, method, opts...)
 		if err != nil {
 			r.expect(step, "expect", err)
 			return nil, err
 		}
-		return &recStream{ClientStream: cs, r: r, id: id}, nil
+		return &recStream{ClientStream: cs, r: r, id: id, grouped: g != nil}, nil
 	}
+}
+
+// agentSideKey marks the calls a fake agent makes on its own (its log
+// and exec sessions), which the replay's fake agents make themselves.
+type agentSideKey struct{}
+
+// agentSide is ctx marked as a fake agent's own.
+func agentSide(ctx context.Context) context.Context {
+	return context.WithValue(ctx, agentSideKey{}, true)
+}
+
+// recCtxKey names a context whose cancel the recording records
+// (scenario.cancelable), and recGroupKey a stream whose reads are recorded
+// together (a Logs stream's entries, read as Go's harness compares them).
+type (
+	recCtxKey   struct{}
+	recGroupKey struct{}
+	recGroup    struct{ id int }
+)
+
+// cancelable is a context the scenario cancels: a recording records the
+// cancel, and the replay cancels the streams opened with it.
+func (sc *scenario) cancelable() (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithCancel(sc.ctx)
+	r := sc.rec
+	if r == nil {
+		return ctx, cancel
+	}
+	r.mu.Lock()
+	r.ctxs++
+	id := r.ctxs
+	r.mu.Unlock()
+	return context.WithValue(ctx, recCtxKey{}, id), func() {
+		r.add(map[string]any{"op": "cancel", "ctx": id})
+		cancel()
+	}
+}
+
+// grouped is ctx with a stream whose reads a recording records together
+// with logsTake.
+func grouped(ctx context.Context) (context.Context, *recGroup) {
+	g := &recGroup{}
+	return context.WithValue(ctx, recGroupKey{}, g), g
+}
+
+// logsTake records the entries a grouped Logs stream gave: n of them (-1:
+// to its end), as format writes them (rsd: replica|stream|data, rd:
+// replica|data), sorted from sortFrom on (-1: in the order they came),
+// and the error that ended them.
+func (sc *scenario) logsTake(g *recGroup, n int, format string, sortFrom int, lines []string, err error) {
+	if sc.rec == nil || g == nil || g.id == 0 {
+		return
+	}
+	step := sc.rec.add(map[string]any{"op": "logsTake", "stream": g.id, "n": n, "format": format, "sortFrom": sortFrom})
+	sc.rec.expect(step, "expect", rawJSON{map[string]any{"lines": lines, "error": errText(err)}})
 }
 
 // recStream records a stream's messages as the scenario sends and reads
@@ -457,6 +546,8 @@ type recStream struct {
 	grpc.ClientStream
 	r  *recorder
 	id int
+	// grouped streams' reads are recorded by logsTake.
+	grouped bool
 }
 
 func (s *recStream) SendMsg(m any) error {
@@ -471,6 +562,9 @@ func (s *recStream) CloseSend() error {
 
 func (s *recStream) RecvMsg(m any) error {
 	err := s.ClientStream.RecvMsg(m)
+	if s.grouped {
+		return err
+	}
 	step := s.r.add(map[string]any{"op": "recv", "stream": s.id})
 	if err != nil {
 		s.r.expect(step, "expect", err)
@@ -553,8 +647,10 @@ func (s *recSut) settingsChanged() int {
 }
 
 func (s *recSut) managed() map[string]any {
-	s.r.skip("the certificate manager's names")
-	return s.serverUnderTest.managed()
+	m := s.serverUnderTest.managed()
+	step := s.r.add(map[string]any{"op": "managed"})
+	s.r.expect(step, "expect", m)
+	return m
 }
 
 // write writes the recording.
@@ -570,6 +666,21 @@ func (r *recorder) write(t *testing.T) {
 			"drainTimeoutMs": r.cfg.drain.Milliseconds(), "warmupMs": r.cfg.warmup.Milliseconds(),
 			"progressDeadlineMs": r.cfg.progress.Milliseconds(), "plainHttp": r.cfg.plainHTTP,
 			"startMs": r.sc.fx.start.UnixMilli(),
+		}
+		// The stand-ins and listeners the replay starts, named only when
+		// a scenario has them.
+		cfg := doc["config"].(map[string]any)
+		for k, on := range map[string]bool{"meshJoin": r.cfg.meshJoin, "siteJoin": r.cfg.siteJoin, "certs": r.cfg.certs,
+			"wildcard": r.cfg.wildcard, "metrics": r.cfg.metrics, "alerts": r.cfg.alerts, "cpBackups": r.cfg.cpBackups} {
+			if on {
+				cfg[k] = true
+			}
+		}
+		if a := r.sc.metricsAddr; a != "" {
+			// The cluster's metrics port is the listener's: the replay
+			// reads its own as this one.
+			_, port, _ := strings.Cut(a, ":")
+			cfg["metricsPort"] = json.Number(port)
 		}
 	}
 	var b bytes.Buffer

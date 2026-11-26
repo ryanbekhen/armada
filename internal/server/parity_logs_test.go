@@ -63,7 +63,9 @@ func (sc *scenario) watchAgent(id, ip string, history bool) *watchAgent {
 	}
 	w := &watchAgent{parityAgent: a, client: client, live: map[string][]string{}, errs: map[string]string{}, cancels: map[string]bool{},
 		open: map[string]context.CancelFunc{}, attached: make(chan error, 4)}
-	sc.rec.skip("log and exec sessions of fake agents")
+	if r := sc.rec; r != nil {
+		r.add(map[string]any{"op": "watchAgent", "agent": a.rid})
+	}
 	logs := w.serveLogs
 	a.logs.Store(&logs)
 	exec := w.serveExec
@@ -88,7 +90,7 @@ func (w *watchAgent) serveLogs(m *armadav1.ServerMessage) {
 		return
 	}
 	req := m.GetLogRequest()
-	ctx, cancel := context.WithCancel(w.sc.ctx)
+	ctx, cancel := context.WithCancel(agentSide(w.sc.ctx))
 	w.mu.Lock()
 	w.open[req.GetRequestId()] = cancel
 	if q := req.GetQuery(); q != nil {
@@ -164,7 +166,7 @@ func (w *watchAgent) serveExec(er *armadav1.ExecRequest) {
 		client = w.attachAs
 	}
 	w.mu.Unlock()
-	stream, err := client.ExecSession(w.sc.ctx)
+	stream, err := client.ExecSession(agentSide(w.sc.ctx))
 	if err != nil {
 		return
 	}
@@ -215,9 +217,134 @@ func (w *watchAgent) serveExec(er *armadav1.ExecRequest) {
 	}
 }
 
+// record adds a step about the agent's state to a recording.
+func (w *watchAgent) record(step map[string]any) map[string]any {
+	r := w.sc.rec
+	if r == nil || w.rid == "" {
+		return nil
+	}
+	step["agent"] = w.rid
+	return r.add(step)
+}
+
+// setLive sets the lines a replica's live logs send.
+func (w *watchAgent) setLive(replica string, lines ...string) {
+	w.record(map[string]any{"op": "watchLive", "replica": replica, "lines": lines})
+	w.mu.Lock()
+	w.live[replica] = lines
+	w.mu.Unlock()
+}
+
+// setErr makes a replica's live logs send an error first ("": none).
+func (w *watchAgent) setErr(replica, msg string) {
+	w.record(map[string]any{"op": "watchErr", "replica": replica, "error": msg})
+	w.mu.Lock()
+	if msg == "" {
+		delete(w.errs, replica)
+	} else {
+		w.errs[replica] = msg
+	}
+	w.mu.Unlock()
+}
+
+// setHistory sets the entries the node's log history answers with. An
+// entry stamped after the wall clock's now is recorded by how far after
+// it, since the server leaves such entries out by the wall clock.
+func (w *watchAgent) setHistory(entries ...*armadav1.LogPush) {
+	if w.sc.rec != nil {
+		now := time.Now()
+		var list []any
+		for _, e := range entries {
+			v := map[string]any{"push": w.sc.rec.input(e)}
+			if at := e.GetTime().AsTime(); at.After(now) {
+				v["afterNowMs"] = at.Sub(now).Milliseconds()
+			}
+			list = append(list, v)
+		}
+		w.record(map[string]any{"op": "watchHistory", "entries": list})
+	}
+	w.mu.Lock()
+	w.history = entries
+	w.mu.Unlock()
+}
+
+// clearQueries forgets the searches' queries.
+func (w *watchAgent) clearQueries() {
+	w.record(map[string]any{"op": "watchClearQueries"})
+	w.mu.Lock()
+	w.queries = nil
+	w.mu.Unlock()
+}
+
+// windows says of each query whether its window starts at since.
+func (w *watchAgent) windows(since time.Time) []bool {
+	w.mu.Lock()
+	var out []bool
+	for _, q := range w.queries {
+		out = append(out, q.GetSince().AsTime().Equal(since))
+	}
+	w.mu.Unlock()
+	if step := w.record(map[string]any{"op": "watchWindows", "sinceMs": since.UnixMilli()}); step != nil {
+		w.sc.rec.expect(step, "expect", out)
+	}
+	return out
+}
+
+// openCount counts the requests the node got that were not cancelled,
+// and cancelCount the cancels.
+func (w *watchAgent) openCount() int {
+	w.mu.Lock()
+	n := 0
+	for id := range w.open {
+		if !w.cancels[id] {
+			n++
+		}
+	}
+	w.mu.Unlock()
+	if step := w.record(map[string]any{"op": "watchOpen"}); step != nil {
+		w.sc.rec.expect(step, "expect", n)
+	}
+	return n
+}
+
+func (w *watchAgent) cancelCount() int {
+	w.mu.Lock()
+	n := len(w.cancels)
+	w.mu.Unlock()
+	if step := w.record(map[string]any{"op": "watchCancels"}); step != nil {
+		w.sc.rec.expect(step, "expect", n)
+	}
+	return n
+}
+
+// attachWith makes the node attach its exec sessions with other's client.
+func (w *watchAgent) attachWith(other *watchAgent) {
+	w.record(map[string]any{"op": "watchAttachAs", "as": other.rid})
+	w.mu.Lock()
+	w.attachAs = other.client
+	w.mu.Unlock()
+}
+
+// attachedErr is what the last attach with another client answered.
+func (w *watchAgent) attachedErr() error {
+	err := <-w.attached
+	if step := w.record(map[string]any{"op": "watchAttached"}); step != nil {
+		w.sc.rec.expect(step, "expect", err)
+	}
+	return err
+}
+
 // requests records and clears what each agent was asked.
 func (sc *scenario) requests(label string, agents ...*watchAgent) {
 	sc.t.Helper()
+	var rids []any
+	for _, w := range agents {
+		rids = append(rids, w.rid)
+	}
+	var step map[string]any
+	if sc.rec != nil {
+		step = sc.rec.add(map[string]any{"op": "watchRequests", "agents": rids})
+	}
 	out := map[string]any{}
 	for _, w := range agents {
 		w.mu.Lock()
@@ -228,24 +355,28 @@ func (sc *scenario) requests(label string, agents ...*watchAgent) {
 		w.mu.Unlock()
 		out[w.id] = map[string]any{"logs": seen, "exec": execs}
 	}
+	if step != nil {
+		sc.rec.expect(step, "expect", out)
+	}
 	sc.note(label, out)
 }
 
 // readLogs runs Logs and returns its entries as "replica|stream|data"
 // lines in the order they came, and its error.
-func (sc *scenario) readLogs(c armadav1.AdminServiceClient, req *armadav1.LogsRequest) ([]string, error) {
-	stream, err := c.Logs(sc.ctx, req)
+func (sc *scenario) readLogs(c armadav1.AdminServiceClient, req *armadav1.LogsRequest) ([]string, *recGroup, error) {
+	ctx, g := grouped(sc.ctx)
+	stream, err := c.Logs(ctx, req)
 	if err != nil {
-		return nil, err
+		return nil, g, err
 	}
 	var got []string
 	for {
 		e, err := stream.Recv()
 		if errors.Is(err, io.EOF) {
-			return got, nil
+			return got, g, nil
 		}
 		if err != nil {
-			return got, err
+			return got, g, err
 		}
 		got = append(got, fmt.Sprintf("%s|%s|%s", e.GetReplica(), e.GetStream(), strings.TrimSuffix(string(e.GetData()), "\n")))
 	}
@@ -255,10 +386,13 @@ func (sc *scenario) readLogs(c armadav1.AdminServiceClient, req *armadav1.LogsRe
 // interleave) unless ordered.
 func (sc *scenario) logs(label string, c armadav1.AdminServiceClient, req *armadav1.LogsRequest, ordered bool) {
 	sc.t.Helper()
-	got, err := sc.readLogs(c, req)
+	got, g, err := sc.readLogs(c, req)
+	sortFrom := -1
 	if !ordered {
 		slices.Sort(got)
+		sortFrom = 0
 	}
+	sc.logsTake(g, -1, "rsd", sortFrom, got, err)
 	sc.note(label, map[string]any{"lines": got, "error": errText(err)})
 }
 
@@ -311,9 +445,7 @@ func TestParityLogs(t *testing.T) {
 		on := sc.shortsOf("web")
 		for node, id := range on {
 			w := map[string]*watchAgent{"n1": n1, "n2": n2}[node]
-			w.mu.Lock()
-			w.live[id] = []string{"start of " + node, "An ERROR on " + node, "fine on " + node}
-			w.mu.Unlock()
+			w.setLive(id, "start of "+node, "An ERROR on "+node, "fine on "+node)
 		}
 		sc.logs("all replicas", sc.admin, &armadav1.LogsRequest{App: "web"}, false)
 		sc.requests("asked", n1, n2)
@@ -337,9 +469,7 @@ func TestParityLogs(t *testing.T) {
 
 		// The node's error is a notice; a replica on a node that is not
 		// connected is one too.
-		n1.mu.Lock()
-		n1.errs[on["n1"]] = "no such container"
-		n1.mu.Unlock()
+		n1.setErr(on["n1"], "no such container")
 		sc.node("n3", "10.0.0.13", 4000, 8<<30, nil)
 		web, err := sc.st.GetApp(sc.ctx, "web")
 		if err != nil {
@@ -355,9 +485,7 @@ func TestParityLogs(t *testing.T) {
 		if err := sc.st.SetNodeCordoned(sc.ctx, "n3", true, "user:ryan"); err != nil {
 			t.Fatal(err)
 		}
-		n1.mu.Lock()
-		delete(n1.errs, on["n1"])
-		n1.mu.Unlock()
+		n1.setErr(on["n1"], "")
 		sc.requests("asked with an error", n1, n2)
 
 		// A job's logs need a run.
@@ -374,7 +502,8 @@ func TestParityLogs(t *testing.T) {
 		sc.note("unknown push", err)
 
 		// Following the whole app: the replicas it gets later follow too.
-		ctx, cancel := context.WithCancel(sc.ctx)
+		ctx, cancel := sc.cancelable()
+		ctx, g := grouped(ctx)
 		stream, err := sc.admin.Logs(ctx, &armadav1.LogsRequest{App: "web", Follow: true, Tail: 2})
 		if err != nil {
 			t.Fatal(err)
@@ -401,6 +530,7 @@ func TestParityLogs(t *testing.T) {
 				}
 			}
 			slices.Sort(got)
+			sc.logsTake(g, n, "rd", 0, got, nil)
 			return got
 		}
 		sc.note("followed", take(6))
@@ -413,9 +543,7 @@ func TestParityLogs(t *testing.T) {
 			}
 		}
 		for _, w := range []*watchAgent{n1, n2} {
-			w.mu.Lock()
-			w.live[third] = []string{"third"}
-			w.mu.Unlock()
+			w.setLive(third, "third")
 		}
 		sc.serve("web")
 		// Which ID the third replica gets depends on when each server
@@ -430,15 +558,7 @@ func TestParityLogs(t *testing.T) {
 		}
 		sc.eventually("cancels", func() bool {
 			for _, w := range []*watchAgent{n1, n2} {
-				w.mu.Lock()
-				open := 0
-				for id := range w.open {
-					if !w.cancels[id] {
-						open++
-					}
-				}
-				w.mu.Unlock()
-				if open > 0 {
+				if w.openCount() > 0 {
 					return false
 				}
 			}
@@ -447,16 +567,19 @@ func TestParityLogs(t *testing.T) {
 		sc.requests("asked to follow", n1, n2)
 
 		// Eight live calls per caller at once.
-		ctx, cancel = context.WithCancel(sc.ctx)
+		ctx, cancel = sc.cancelable()
 		defer cancel()
 		for i := range 8 {
-			s, err := sc.admin.Logs(ctx, &armadav1.LogsRequest{App: "web", Replica: on["n1"], Follow: true})
+			gctx, g := grouped(ctx)
+			s, err := sc.admin.Logs(gctx, &armadav1.LogsRequest{App: "web", Replica: on["n1"], Follow: true})
+			var e *armadav1.LogEntry
 			if err == nil {
-				_, err = s.Recv()
+				e, err = s.Recv()
 			}
 			if err != nil {
 				t.Fatalf("%s: follow %d: %v", sc.sut.kind(), i, err)
 			}
+			sc.logsTake(g, 1, "rd", -1, []string{e.GetReplica() + "|" + strings.TrimSuffix(string(e.GetData()), "\n")}, nil)
 		}
 		sc.logs("a ninth", sc.admin, &armadav1.LogsRequest{App: "web", Replica: on["n1"], Follow: true}, true)
 		cancel()
@@ -500,13 +623,13 @@ func TestParityLogHistory(t *testing.T) {
 		rec := func(d time.Duration, replica, text string) *armadav1.LogPush {
 			return &armadav1.LogPush{Replica: replica, Stream: armadav1.Stream_STREAM_STDOUT, Data: []byte(text + "\n"), Time: timestamppb.New(base.Add(d))}
 		}
-		n1.history = []*armadav1.LogPush{rec(1*time.Second, on["n1"], "a start"), rec(3*time.Second, on["n1"], "a ERROR db"), rec(5*time.Second, on["n1"], "a done"),
+		n1.setHistory(rec(1*time.Second, on["n1"], "a start"), rec(3*time.Second, on["n1"], "a ERROR db"), rec(5*time.Second, on["n1"], "a done"),
 			// Not n1's to answer for: another node's replica, an invented
 			// one, one outside the window, and one in the future.
 			rec(6*time.Second, on["n2"], "SPOOF other"), rec(7*time.Second, "web-r7-inven", "SPOOF invented"),
-			rec(-time.Minute, on["n1"], "before the window"), rec(time.Since(base)+time.Hour, on["n1"], "SPOOF future")}
-		n2.history = []*armadav1.LogPush{rec(2*time.Second, gone, "gone ERROR panic"), rec(4*time.Second, on["n2"], "b ok"), rec(time.Second, "api-r1-x", "api")}
-		n3.history = []*armadav1.LogPush{rec(time.Second, on["n1"], "never asked")}
+			rec(-time.Minute, on["n1"], "before the window"), rec(time.Since(base)+time.Hour, on["n1"], "SPOOF future"))
+		n2.setHistory(rec(2*time.Second, gone, "gone ERROR panic"), rec(4*time.Second, on["n2"], "b ok"), rec(time.Second, "api-r1-x", "api"))
+		n3.setHistory(rec(time.Second, on["n1"], "never asked"))
 
 		sc.logs("merged by time", sc.admin, &armadav1.LogsRequest{App: "web", Since: since}, true)
 		sc.logs("a text, the newest one", sc.admin, &armadav1.LogsRequest{App: "web", Since: since, Grep: "error", Limit: 1}, true)
@@ -518,9 +641,10 @@ func TestParityLogHistory(t *testing.T) {
 		sc.requests("queries", n1, n2, n3)
 
 		// A search, then live output from now on.
-		n1.live[on["n1"]] = []string{"live ok one"}
-		n2.live[on["n2"]] = []string{"live ok two"}
-		ctx, cancel := context.WithCancel(sc.ctx)
+		n1.setLive(on["n1"], "live ok one")
+		n2.setLive(on["n2"], "live ok two")
+		ctx, cancel := sc.cancelable()
+		ctx, g := grouped(ctx)
 		stream, err := sc.admin.Logs(ctx, &armadav1.LogsRequest{App: "web", Since: since, Grep: "ok", Follow: true})
 		if err != nil {
 			t.Fatal(err)
@@ -533,15 +657,13 @@ func TestParityLogHistory(t *testing.T) {
 			}
 			got = append(got, e.GetReplica()+"|"+strings.TrimSuffix(string(e.GetData()), "\n"))
 		}
-		cancel()
 		slices.Sort(got[1:])
+		sc.logsTake(g, 3, "rd", 1, got, nil)
+		cancel()
 		sc.note("searched, then followed", got)
 		sc.eventually("follows cancelled", func() bool {
 			for _, w := range []*watchAgent{n1, n2} {
-				w.mu.Lock()
-				n := len(w.cancels)
-				w.mu.Unlock()
-				if n < 2 {
+				if w.cancelCount() < 2 {
 					return false
 				}
 			}
@@ -560,18 +682,10 @@ func TestParityLogHistory(t *testing.T) {
 		sc.running("api.team")
 		viewer := sc.user("vera", store.Grant{Role: "viewer", Space: "team"})
 		before := timestamppb.New(created.Add(-2 * time.Hour))
-		n1.mu.Lock()
-		n1.queries = nil
-		n1.mu.Unlock()
+		n1.clearQueries()
 		sc.logs("a viewer of team", viewer, &armadav1.LogsRequest{App: "api.team", Since: before}, true)
 		sc.logs("an admin", sc.admin, &armadav1.LogsRequest{App: "api.team", Since: before}, true)
-		n1.mu.Lock()
-		var windows []bool
-		for _, q := range n1.queries {
-			windows = append(windows, q.GetSince().AsTime().Equal(created))
-		}
-		n1.mu.Unlock()
-		sc.note("windows start when the space was created", windows)
+		sc.note("windows start when the space was created", n1.windows(created))
 		sc.logs("a viewer of another space", viewer, &armadav1.LogsRequest{App: "web", Since: since}, true)
 		sc.requests("asked for team", n1, n2, n3)
 	})
@@ -832,11 +946,9 @@ func TestParityExec(t *testing.T) {
 		sc.note("an unknown session", err)
 		// n1's request attached by n2: refused, and the exec waits for its
 		// node in vain.
-		n1.mu.Lock()
-		n1.attachAs = n2.client
-		n1.mu.Unlock()
+		n1.attachWith(n2)
 		run("attached by another node", sc.admin, &armadav1.ExecStart{App: "web", Replica: on["n1"], Cmd: []string{"sh"}}, "")
-		sc.note("the other node's attach", <-n1.attached)
+		sc.note("the other node's attach", n1.attachedErr())
 		sc.requests("execs", n1, n2)
 		sc.keyspace("keyspace")
 	})
