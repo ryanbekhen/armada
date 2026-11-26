@@ -67,10 +67,13 @@ async fn conformance_supervisor_rust() {
     rt.agent_start().await.unwrap();
     let img = rt.pull(&image(), None).await.unwrap();
     assert!(img.reference.contains('@'), "{img:?}");
+    // The agent runs a replica's image by the name its spec gives, as Go's
+    // driver does; the digest reference only goes into its reports.
+    let name = image();
 
     // A replica: running, addressed on the bridge, commands, samples.
     let id = rt
-        .run(&spec("conformance-r1", &img.reference))
+        .run(&spec("conformance-r1", &name))
         .await
         .unwrap();
     let c = wait_for(&rt, &id, STATE_RUNNING).await;
@@ -130,16 +133,16 @@ async fn conformance_supervisor_rust() {
     assert_eq!(rt.inspect(&id).await.unwrap_err(), Error::NotFound);
 
     // A replica with an init container and a sidecar.
-    let mut s = spec("conformance-r2", &img.reference);
+    let mut s = spec("conformance-r2", &name);
     s.init = vec![MemberSpec {
         name: "init".into(),
-        image: img.reference.clone(),
+        image: name.clone(),
         cmd: vec!["true".into()],
         ..Default::default()
     }];
     s.sidecars = vec![MemberSpec {
         name: "side".into(),
-        image: img.reference.clone(),
+        image: name.clone(),
         cmd: vec!["sleep".into(), "300".into()],
         ..Default::default()
     }];
@@ -157,7 +160,7 @@ async fn conformance_supervisor_rust() {
     let id = rt
         .run_system(&SystemSpec {
             name: "armada-conformance".into(),
-            image: img.reference.clone(),
+            image: name.clone(),
             labels,
             user: "0:0".into(),
             ..Default::default()
