@@ -1,16 +1,26 @@
 //! armada-shim supervises one app's containers on a node (ADR 0046).
 //!
 //! It is the parent of the app's containers: it creates and starts them
-//! with runc, hands their output to armada-log, reaps them as the child
-//! subreaper, and keeps their exit codes until they are deleted. Requests
-//! arrive one per connection on a root-only Unix socket, as one line of
-//! space-separated words; the answer is one line, `ok ...` or `err ...`.
+//! with their OCI runtime, hands their output to armada-log, reaps them as
+//! the child subreaper, and keeps their exit codes until they are deleted.
+//! Requests arrive one per connection on a root-only Unix socket, as one
+//! line of space-separated words; the answer is one line, `ok ...` or
+//! `err ...`.
 //!
-//!   create ID BUNDLE LOGDIR   create the container (not started)
+//! The OCI runtime is crun for new containers and runc for those created
+//! before ADR 0056 (crun cannot manage runc's containers, nor runc
+//! crun's): each container keeps the runtime that created it for every
+//! later call, and each runtime keeps its state in a directory of its own,
+//! STATE-DIR/crun and STATE-DIR/runc.
+//!
+//!   create ID BUNDLE LOGDIR [RUNTIME]
+//!                             create the container (not started) with
+//!                             RUNTIME, `crun` or `runc` (the default, as
+//!                             an agent before ADR 0056 asks)
 //!   start ID                  start it
 //!   state ID                  `ok created PID`, `ok running PID`, or `ok exited CODE`
 //!   kill ID SIGNAL [all]      send a signal (number) to its process, or with
-//!                             `all` to every process in it (runc kill --all)
+//!                             `all` to every process in it (kill --all)
 //!   wait ID                   wait until it exits: `ok CODE`
 //!   delete ID                 remove it (stopped first with SIGKILL)
 //!   list                      `ok ID STATE ...` for every container
@@ -45,7 +55,7 @@ const ECHILD: i32 = 10;
 
 /// How many exit statuses the shim keeps before it drops the oldest that
 /// nobody asked for. Containers' own are never dropped (they are pinned
-/// until the container is deleted), and runc and armada-log are taken as
+/// until the container is deleted), and the runtimes and armada-log are taken as
 /// soon as they exit, so what piles up are processes that were reparented
 /// to the shim and that nobody waits for. A few thousand covers far more
 /// than one app's containers at once in a few hundred KiB at most.
@@ -173,7 +183,7 @@ impl Reaped {
     }
 }
 
-/// The container's PID from runc's pid file. 0, 1, and negative numbers
+/// The container's PID from its runtime's pid file. 0, 1, and negative numbers
 /// are refused: a signal to them would reach the shim's process group,
 /// every process, or the host's init.
 fn parse_pid(s: &str) -> Result<i32, String> {
@@ -201,19 +211,53 @@ struct Container {
     pid: i32,
     logger: i32,
     started: bool,
+    /// The OCI runtime that created it, which every later call uses.
+    runtime: Runtime,
+}
+
+/// The OCI runtimes a shim runs containers with.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Runtime {
+    Runc,
+    Crun,
+}
+
+impl Runtime {
+    /// A create's RUNTIME word; none is runc.
+    fn parse(word: Option<&str>) -> Result<Runtime, String> {
+        match word {
+            None | Some("runc") => Ok(Runtime::Runc),
+            Some("crun") => Ok(Runtime::Crun),
+            Some(_) => Err("unknown runtime".into()),
+        }
+    }
+
+    fn name(self) -> &'static str {
+        match self {
+            Runtime::Runc => "runc",
+            Runtime::Crun => "crun",
+        }
+    }
+}
+
+/// An OCI runtime's program and its state directory (--root).
+struct Program {
+    path: PathBuf,
+    root: PathBuf,
 }
 
 struct Shim {
-    runc: PathBuf,
+    runc: Program,
+    /// None for a shim started without crun (by a release before ADR 0056).
+    crun: Option<Program>,
     logger: PathBuf,
-    root: PathBuf,
     reaped: Arc<Reaped>,
     containers: Mutex<HashMap<String, Container>>,
     /// Requests in flight and when the last one began or ended.
     busy: Mutex<(usize, Instant)>,
 }
 
-/// A container ID: what runc and the log directory accept, nothing else.
+/// A container ID: what the runtimes and the log directory accept, nothing else.
 fn valid_id(id: &str) -> bool {
     !id.is_empty()
         && id.len() <= 128
@@ -228,27 +272,40 @@ fn valid_path(p: &str) -> bool {
 }
 
 impl Shim {
-    fn runc(&self, args: &[&str], stdout: Stdio, stderr: Stdio) -> Result<(), String> {
-        let child = Command::new(&self.runc)
+    fn program(&self, rt: Runtime) -> Result<&Program, String> {
+        match rt {
+            Runtime::Runc => Ok(&self.runc),
+            Runtime::Crun => self
+                .crun
+                .as_ref()
+                .ok_or_else(|| "crun: not available to this shim".to_string()),
+        }
+    }
+
+    /// Runs the OCI runtime rt with args on its own state directory.
+    fn oci(&self, rt: Runtime, args: &[&str], stdout: Stdio, stderr: Stdio) -> Result<(), String> {
+        let name = rt.name();
+        let prog = self.program(rt)?;
+        let child = Command::new(&prog.path)
             .arg("--root")
-            .arg(&self.root)
+            .arg(&prog.root)
             .args(args)
             .stdin(Stdio::null())
             .stdout(stdout)
             .stderr(stderr)
             .spawn()
-            .map_err(|e| format!("runc: {e}"))?;
+            .map_err(|e| format!("{name}: {e}"))?;
         let code = self.reaped.wait(child.id() as i32);
         if code != 0 {
-            return Err(format!("runc {} exited with {code}", args[0]));
+            return Err(format!("{name} {} exited with {code}", args[0]));
         }
         Ok(())
     }
 
-    /// Like runc, but keeps what runc wrote to stderr for the error.
-    fn runc_quiet(&self, args: &[&str]) -> Result<(), String> {
+    /// Like oci, but keeps what the runtime wrote to stderr for the error.
+    fn oci_quiet(&self, rt: Runtime, args: &[&str]) -> Result<(), String> {
         let (mut r, w) = io::pipe().map_err(|e| e.to_string())?;
-        let res = self.runc(args, Stdio::null(), Stdio::from(OwnedFd::from(w)));
+        let res = self.oci(rt, args, Stdio::null(), Stdio::from(OwnedFd::from(w)));
         let mut msg = String::new();
         let _ = r.read_to_string(&mut msg);
         res.map_err(|e| {
@@ -304,19 +361,31 @@ impl Shim {
         Ok((child.id() as i32, out_w, err_w))
     }
 
-    fn create(&self, id: &str, bundle: &str, logdir: &str) -> Result<String, String> {
+    fn create(
+        &self,
+        id: &str,
+        bundle: &str,
+        logdir: &str,
+        runtime: Option<&str>,
+    ) -> Result<String, String> {
         if !valid_id(id) || !valid_path(bundle) || !valid_path(logdir) {
             return Err("invalid arguments".into());
         }
+        let rt = Runtime::parse(runtime)?;
+        let prog = self.program(rt)?;
         if self.containers.lock().unwrap().contains_key(id) {
             return Err(format!("{id} exists"));
         }
         let (logger, out_w, err_w) = self.start_logger(id, logdir)?;
-        let pidfile = self.root.join(format!("{id}.pid"));
+        // In the runtime's own state directory, as before ADR 0056 for
+        // runc.
+        let pidfile = prog.root.join(format!("{id}.pid"));
         let pidfile_s = pidfile.to_string_lossy().into_owned();
-        // runc create without a terminal passes its own stdout and stderr
-        // to the container's process: the log pipes.
-        let res = self.runc(
+        // create without a terminal passes the runtime's own stdout and
+        // stderr to the container's process: the log pipes (crun and runc
+        // alike).
+        let res = self.oci(
+            rt,
             &["create", "--bundle", bundle, "--pid-file", &pidfile_s, id],
             Stdio::from(OwnedFd::from(out_w)),
             Stdio::from(OwnedFd::from(err_w)),
@@ -333,9 +402,9 @@ impl Shim {
         let pid = match pid {
             Ok(pid) => pid,
             Err(e) => {
-                // runc made the container: remove it, or it is left behind
-                // with no one to report it.
-                if self.runc_quiet(&["delete", "--force", id]).is_err() {
+                // The runtime made the container: remove it, or it is left
+                // behind with no one to report it.
+                if self.oci_quiet(rt, &["delete", "--force", id]).is_err() {
                     // Its process may still hold the log pipes.
                     unsafe { kill(logger, SIGKILL) };
                 }
@@ -350,18 +419,29 @@ impl Shim {
                 pid,
                 logger,
                 started: false,
+                runtime: rt,
             },
         );
         Ok(pid.to_string())
     }
 
     fn start(&self, id: &str) -> Result<String, String> {
-        self.known(id)?;
-        self.runc_quiet(&["start", id])?;
+        let rt = self.runtime_of(id)?;
+        self.oci_quiet(rt, &["start", id])?;
         if let Some(c) = self.containers.lock().unwrap().get_mut(id) {
             c.started = true;
         }
         Ok(String::new())
+    }
+
+    /// The OCI runtime that created the container.
+    fn runtime_of(&self, id: &str) -> Result<Runtime, String> {
+        self.containers
+            .lock()
+            .unwrap()
+            .get(id)
+            .map(|c| c.runtime)
+            .ok_or_else(|| format!("{id} not found"))
     }
 
     fn known(&self, id: &str) -> Result<i32, String> {
@@ -409,8 +489,8 @@ impl Shim {
         if !(1..=64).contains(&n) {
             return Err("invalid signal".into());
         }
-        self.known(id)?;
-        self.runc_quiet(&["kill", "--all", id, sig])?;
+        let rt = self.runtime_of(id)?;
+        self.oci_quiet(rt, &["kill", "--all", id, sig])?;
         Ok(String::new())
     }
 
@@ -428,11 +508,12 @@ impl Shim {
 
     fn delete(&self, id: &str) -> Result<String, String> {
         let pid = self.known(id)?;
+        let rt = self.runtime_of(id)?;
         if self.reaped.peek(pid).is_none() {
             unsafe { kill(pid, SIGKILL) };
             self.reaped.wait_keep(pid);
         }
-        self.runc_quiet(&["delete", "--force", id])?;
+        self.oci_quiet(rt, &["delete", "--force", id])?;
         if let Some(c) = self.containers.lock().unwrap().remove(id) {
             self.reaped.forget(c.pid);
             self.reaped.wait(c.logger);
@@ -453,7 +534,8 @@ impl Shim {
     fn handle(&self, line: &str) -> String {
         let w: Vec<&str> = line.split_whitespace().collect();
         let res = match w.as_slice() {
-            ["create", id, bundle, logdir] => self.create(id, bundle, logdir),
+            ["create", id, bundle, logdir] => self.create(id, bundle, logdir, None),
+            ["create", id, bundle, logdir, rt] => self.create(id, bundle, logdir, Some(rt)),
             ["start", id] => self.start(id),
             ["state", id] => self.state(id),
             ["kill", id, sig] => self.signal(id, sig),
@@ -510,7 +592,7 @@ fn exit_when_idle(shim: &Shim, socket: &Path, state: &Path) {
             && shim.containers.lock().unwrap().is_empty()
         {
             let _ = fs::remove_file(socket);
-            // runc keeps nothing for containers that were deleted.
+            // The runtimes keep nothing for containers that were deleted.
             let _ = fs::remove_dir_all(state);
             std::process::exit(0);
         }
@@ -543,8 +625,14 @@ fn serve_conn(shim: &Shim, stream: UnixStream) {
 }
 
 fn run(args: &[String]) -> Result<(), String> {
-    let [cmd, socket, state, runc, logger] = args else {
-        return Err("usage: armada-shim serve SOCKET STATE-DIR RUNC ARMADA-LOG".into());
+    // CRUN last and optional: the agent of a release before ADR 0056
+    // starts shims with runc alone.
+    let (cmd, socket, state, runc, logger, crun) = match args {
+        [cmd, socket, state, runc, logger] => (cmd, socket, state, runc, logger, None),
+        [cmd, socket, state, runc, logger, crun] => (cmd, socket, state, runc, logger, Some(crun)),
+        _ => {
+            return Err("usage: armada-shim serve SOCKET STATE-DIR RUNC ARMADA-LOG [CRUN]".into());
+        }
     };
     if cmd != "serve" {
         return Err(format!("unknown command {cmd}"));
@@ -552,8 +640,17 @@ fn run(args: &[String]) -> Result<(), String> {
     if unsafe { prctl(PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0) } != 0 {
         return Err(format!("subreaper: {}", io::Error::last_os_error()));
     }
-    let root = Path::new(state).join("runc");
-    fs::create_dir_all(&root).map_err(|e| e.to_string())?;
+    let runc = Program {
+        path: runc.into(),
+        root: Path::new(state).join("runc"),
+    };
+    let crun = crun.map(|p| Program {
+        path: p.into(),
+        root: Path::new(state).join("crun"),
+    });
+    for p in std::iter::once(&runc).chain(crun.as_ref()) {
+        fs::create_dir_all(&p.root).map_err(|e| e.to_string())?;
+    }
     fs::set_permissions(state, fs::Permissions::from_mode(0o700)).map_err(|e| e.to_string())?;
     let _ = fs::remove_file(socket);
     let listener = UnixListener::bind(socket).map_err(|e| format!("{socket}: {e}"))?;
@@ -565,9 +662,9 @@ fn run(args: &[String]) -> Result<(), String> {
         .spawn(move || r.run())
         .map_err(|e| e.to_string())?;
     let shim = Arc::new(Shim {
-        runc: runc.into(),
+        runc,
+        crun,
         logger: logger.into(),
-        root,
         reaped,
         containers: Mutex::new(HashMap::new()),
         busy: Mutex::new((0, Instant::now())),
@@ -643,6 +740,103 @@ mod tests {
         for bad in ["", "x", "1", "0", "-1", "-4242", "99999999999"] {
             assert!(parse_pid(bad).is_err(), "{bad:?}");
         }
+    }
+
+    /// A stand-in OCI runtime: logs its arguments, and for create starts
+    /// a process on its own stdout and writes its pid.
+    fn stand_in(dir: &Path, name: &str, log: &Path) -> PathBuf {
+        let p = dir.join(name);
+        fs::write(
+            &p,
+            format!(
+                "#!/bin/sh\necho \"{name} $*\" >> {}\nif [ \"$3\" = create ]; then sleep 30 & echo $! > \"$7\"; fi\n",
+                log.display()
+            ),
+        )
+        .unwrap();
+        fs::set_permissions(&p, fs::Permissions::from_mode(0o755)).unwrap();
+        p
+    }
+
+    /// Each container keeps the runtime that created it: crun when asked,
+    /// runc when the create names none (an agent before ADR 0056), each
+    /// with its own state directory.
+    #[test]
+    fn containers_keep_their_runtime() {
+        // Orphaned processes come to this test process, which reaps them
+        // as the shim does (no other test here starts any).
+        assert_eq!(unsafe { prctl(PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0) }, 0);
+        let dir = std::env::temp_dir().join(format!("armada-shim-rt-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let state = dir.join("state");
+        fs::create_dir_all(state.join("runc")).unwrap();
+        fs::create_dir_all(state.join("crun")).unwrap();
+        fs::create_dir_all(dir.join("logs")).unwrap();
+        let log = dir.join("calls.log");
+        let logger = dir.join("armada-log");
+        fs::write(&logger, "#!/bin/sh\nexec 5>&-\nexec cat <&3 >/dev/null\n").unwrap();
+        fs::set_permissions(&logger, fs::Permissions::from_mode(0o755)).unwrap();
+        let reaped = Arc::new(Reaped::default());
+        let r = reaped.clone();
+        thread::spawn(move || r.run());
+        let shim = Shim {
+            runc: Program {
+                path: stand_in(&dir, "runc", &log),
+                root: state.join("runc"),
+            },
+            crun: Some(Program {
+                path: stand_in(&dir, "crun", &log),
+                root: state.join("crun"),
+            }),
+            logger,
+            reaped,
+            containers: Mutex::new(HashMap::new()),
+            busy: Mutex::new((0, Instant::now())),
+        };
+        let (b, l) = (dir.join("b"), dir.join("logs"));
+        let (b, l) = (b.to_str().unwrap(), l.to_str().unwrap());
+        assert!(
+            shim.handle(&format!("create old {b} {l}"))
+                .starts_with("ok ")
+        );
+        assert!(
+            shim.handle(&format!("create new {b} {l} crun"))
+                .starts_with("ok ")
+        );
+        assert_eq!(
+            shim.handle(&format!("create odd {b} {l} youki")),
+            "err unknown runtime"
+        );
+        for line in [
+            "start old",
+            "start new",
+            "kill new 9 all",
+            "delete old",
+            "delete new",
+        ] {
+            assert_eq!(shim.handle(line), "ok", "{line}");
+        }
+        let (rr, cr) = (state.join("runc"), state.join("crun"));
+        let want = format!(
+            "runc --root {r} create --bundle {b} --pid-file {r}/old.pid old\n\
+             crun --root {c} create --bundle {b} --pid-file {c}/new.pid new\n\
+             runc --root {r} start old\n\
+             crun --root {c} start new\n\
+             crun --root {c} kill --all new 9\n\
+             runc --root {r} delete --force old\n\
+             crun --root {c} delete --force new\n",
+            r = rr.display(),
+            c = cr.display()
+        );
+        assert_eq!(fs::read_to_string(&log).unwrap(), want);
+
+        // A shim started without crun (by a release before ADR 0056).
+        let old = Shim { crun: None, ..shim };
+        assert_eq!(
+            old.handle(&format!("create x {b} {l} crun")),
+            "err crun: not available to this shim"
+        );
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

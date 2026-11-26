@@ -8,6 +8,7 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
+use armada_node::runtime::container::oci::OciRuntime;
 use armada_node::runtime::container::shim::{self, CallError, Request};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
@@ -27,7 +28,10 @@ pub struct Shims {
     pub dir: PathBuf,
     /// The programs a shim runs.
     pub bin: String,
+    /// The OCI runtimes (ADR 0056): crun for new containers, runc for
+    /// those it created before.
     pub runc: String,
+    pub crun: String,
     pub logger: String,
     /// The programs systemd is reached through; "" for systemd-run and
     /// systemctl (tests name stand-ins).
@@ -91,6 +95,7 @@ impl Shims {
             dir: self.dir.display().to_string(),
             bin: self.bin.clone(),
             runc: self.runc.clone(),
+            crun: self.crun.clone(),
             logger: self.logger.clone(),
             group: group.to_string(),
             systemd_run: self.systemd_run.clone(),
@@ -106,9 +111,17 @@ impl Shims {
         self.dir.join(format!("{}.sock", shim::shim_name(group)))
     }
 
-    /// runc's state directory for the group's containers.
-    pub fn root(&self, group: &str) -> PathBuf {
-        self.dir.join(shim::shim_name(group)).join("runc")
+    /// The OCI runtime's state directory for the group's containers.
+    pub fn root(&self, group: &str, rt: OciRuntime) -> PathBuf {
+        rt.root(&self.dir.join(shim::shim_name(group)))
+    }
+
+    /// The OCI runtime's program.
+    pub fn program(&self, rt: OciRuntime) -> &str {
+        match rt {
+            OciRuntime::Runc => &self.runc,
+            OciRuntime::Crun => &self.crun,
+        }
     }
 
     /// One request; the words after "ok".
@@ -161,19 +174,22 @@ impl Shims {
         Ok(states)
     }
 
-    /// Shim.Create: the container made from its bundle, not started; its
-    /// output goes to armada-log in logs. Its process ID.
+    /// Shim.Create: the container made from its bundle by the OCI
+    /// runtime rt, not started; its output goes to armada-log in logs. Its
+    /// process ID. runc is asked for as before ADR 0056 (no runtime word).
     pub async fn create(
         &self,
         group: &str,
         id: &str,
         bundle: &str,
         logs: &str,
+        rt: OciRuntime,
     ) -> Result<i64, String> {
-        let out = self
-            .call(group, &["create", id, bundle, logs])
-            .await
-            .map_err(|e| text(&e))?;
+        let mut words = vec!["create", id, bundle, logs];
+        if rt != OciRuntime::Runc {
+            words.push(rt.name());
+        }
+        let out = self.call(group, &words).await.map_err(|e| text(&e))?;
         atoi(&out).ok_or_else(|| {
             format!(
                 "strconv.Atoi: parsing {}: invalid syntax",

@@ -4,9 +4,11 @@
 //! containerd/exec.go) do in Go. The process spec is the container's own
 //! (its config.json) with the arguments, terminal, and console size the
 //! exec sets, written 0600 as process.json in a directory of its own;
-//! runc exec runs with Go's arguments on a pseudo-terminal (its
-//! controlling terminal, in a session of its own) or on pipes, and this
-//! process copies between them and the agent's streams, waits for runc,
+//! the container's OCI runtime's exec (crun's, or runc's for a container
+//! runc created: oci.rs; called runc below) runs with Go's arguments on a
+//! pseudo-terminal (its controlling terminal, in a session of its own) or
+//! on pipes, and this process copies between them and the agent's
+//! streams, waits for runc,
 //! keeps copying the output after it ended while the output moves (the
 //! terminal's grace, then the drain's), and removes the directory.
 //!
@@ -47,7 +49,10 @@ pub struct ExecRequest {
     pub bundle: String,
     pub dir: String,
     pub root: String,
-    pub runc: String,
+    /// The container's OCI runtime (oci.rs): crun, or runc for a container
+    /// it created. Both take the same arguments (`oci_args`).
+    #[serde(alias = "runc")]
+    pub runtime: String,
     pub id: String,
     #[serde(deserialize_with = "crate::runtime::nullable")]
     pub args: Vec<String>,
@@ -203,8 +208,14 @@ pub fn process_json(config: &[u8], r: &ExecRequest) -> Result<Vec<u8>, String> {
     Ok(to_go_json(&out))
 }
 
-/// runc's arguments, as execProcess.Start gives them.
-pub fn runc_args(r: &ExecRequest) -> Vec<String> {
+/// The OCI runtime's arguments, as execProcess.Start gives them. crun
+/// and runc read them alike: the process from process.json (its terminal
+/// and console size included; `--tty` changes nothing then), the pid
+/// written to the pid file once the process runs, and, with a terminal
+/// and no console socket, a terminal of the runtime's own whose output
+/// it copies to its stdout and whose size it takes from its stdin on
+/// SIGWINCH.
+pub fn oci_args(r: &ExecRequest) -> Vec<String> {
     let dir = Path::new(&r.dir);
     let mut a: Vec<String> = vec![
         "--root".into(),
@@ -665,8 +676,8 @@ fn start(r: ExecRequest, ctl: UnixStream, mut ans: Answers, fds: [Option<File>; 
     let stdin = stdin.filter(|_| r.stdin);
     let stdout = stdout.filter(|_| r.stdout);
     let stderr = stderr.filter(|_| r.stderr && !r.terminal);
-    let mut cmd = std::process::Command::new(&r.runc);
-    cmd.args(runc_args(&r));
+    let mut cmd = std::process::Command::new(&r.runtime);
+    cmd.args(oci_args(&r));
     let mut pty = None;
     if r.terminal {
         let (master, slave) = match open_pty() {
@@ -1049,7 +1060,7 @@ mod tests {
             bundle: "/b".into(),
             dir: "/run/x/exec-c1-e".into(),
             root: "/run/x/root".into(),
-            runc: "/bin/runc".into(),
+            runtime: "/bin/crun".into(),
             id: "c1".into(),
             args: args.iter().map(|s| s.to_string()).collect(),
             terminal,
@@ -1084,9 +1095,9 @@ mod tests {
     }
 
     #[test]
-    fn runc_arguments() {
+    fn oci_arguments() {
         assert_eq!(
-            runc_args(&req(&["x"], true, None)),
+            oci_args(&req(&["x"], true, None)),
             [
                 "--root",
                 "/run/x/root",
@@ -1099,7 +1110,10 @@ mod tests {
                 "c1"
             ]
         );
-        assert_eq!(runc_args(&req(&["x"], false, None)).len(), 8);
+        assert_eq!(oci_args(&req(&["x"], false, None)).len(), 8);
+        // A request of the agent before ADR 0056 names runc by its key.
+        let r: ExecRequest = serde_json::from_str(r#"{"runc": "/bin/runc", "id": "c1"}"#).unwrap();
+        assert_eq!(r.runtime, "/bin/runc");
     }
 
     #[test]

@@ -133,7 +133,7 @@ pub fn root() -> Tree {
         .flag(Flag::string("snapshot", None, "latest", "backup to restore from the bucket: an ID from armadad backup list, or latest"));
     let i_root_restore = t.add(0, n);
     let mut n = Node::new("runtime", "Install the runtime pack (started by systemd)")
-        .long("runtime extracts the runtime pack this armadad carries (runc, the CNI plugins,\ntini, armada-shim, armada-log, armada-dns, armada-node, and etcd) into the data\ndirectory, verifies it, and exits; armada-agent (which armada-server wants)\nstarts it (armada-runtime.service). It does nothing on nodes that are not initialized yet.\n\nA node set up on containerd fails here: containerd is no longer in the pack\n(ADR 0046). Move such a node to the supervisor runtime with v0.1.0-alpha.42\nfirst, or remove it and join it again.")
+        .long("runtime extracts the runtime pack this armadad carries (crun, runc, the CNI\nplugins, tini, armada-shim, armada-log, armada-dns, armada-node, and etcd) into\nthe data directory, verifies it, and exits; armada-agent (which armada-server wants)\nstarts it (armada-runtime.service). It does nothing on nodes that are not initialized yet.\n\nA node set up on containerd fails here: containerd is no longer in the pack\n(ADR 0046). Move such a node to the supervisor runtime with v0.1.0-alpha.42\nfirst, or remove it and join it again.")
         .example("  sudo systemctl status armada-runtime   # started with armada-agent\n  sudo armadad runtime reset             # remove every container Armada runs here")
         .args(Args::No)
         .run(commands::runtime::run)

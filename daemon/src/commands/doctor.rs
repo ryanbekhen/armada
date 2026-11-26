@@ -1271,7 +1271,7 @@ fn check_runtime_pack(env: &Env) -> Option<Check> {
             "runtime-pack",
             WARN,
             format!(
-                "the installed runtime pack is {installed}, but this armadad carries {bundled} (runc, armada-shim, armada-log): restart armada-server or armada-agent, which installs it (containers keep running)"
+                "the installed runtime pack is {installed}, but this armadad carries {bundled} (crun, armada-shim, armada-log): restart armada-server or armada-agent, which installs it (containers keep running)"
             ),
         )
     } else {

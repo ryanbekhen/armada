@@ -438,7 +438,14 @@ impl Lab {
         let _ = fs::remove_dir_all(&root);
         let bin = root.join("data/runtime/current/bin");
         fs::create_dir_all(&bin).unwrap();
-        for p in ["armada-shim", "runc", "tini", "armada-log", "armada-node"] {
+        for p in [
+            "armada-shim",
+            "crun",
+            "runc",
+            "tini",
+            "armada-log",
+            "armada-node",
+        ] {
             script(&bin.join(p), "exit 0");
         }
         cni_plugins(&bin.join("cni"), &root.join("cni-log"));
@@ -653,11 +660,24 @@ async fn runs_lists_stops_and_removes_a_container() {
         "--unit=armada-shim-{} --collect --quiet --property=OOMScoreAdjust=-999",
         armada_node::runtime::container::shim::shim_name("web@current")
     )));
+    // The shim runs crun beside runc (ADR 0056), each named last.
+    let bin = lab.data().join("runtime/current/bin");
+    assert!(
+        sd.trim_end().ends_with(&format!(
+            "{} {} {}",
+            bin.join("runc").display(),
+            bin.join("armada-log").display(),
+            bin.join("crun").display()
+        )),
+        "{sd}"
+    );
+    // A new container: created with crun, which its record names.
+    assert_eq!(lab.record(&id)["runtime"], "crun");
     assert_eq!(
         lab.shim.lines(),
         [
             format!(
-                "create {id} {} {}",
+                "create {id} {} {} crun",
                 lab.data().join("supervisor/containers").join(&id).display(),
                 lab.data().join("logs").display()
             ),
@@ -1045,7 +1065,14 @@ async fn runs_system_containers() {
         lab.root
             .join("run/shim")
             .join(armada_node::runtime::container::shim::shim_name(&id))
-            .join("runc")
+            .join("crun")
+            .display()
+            .to_string()
+    );
+    assert_eq!(
+        r["runtime"],
+        lab.data()
+            .join("runtime/current/bin/crun")
             .display()
             .to_string()
     );

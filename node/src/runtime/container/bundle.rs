@@ -36,6 +36,10 @@ pub struct Record {
     )]
     pub labels: BTreeMap<String, String>,
     pub group: String,
+    /// The OCI runtime that created the container (oci.rs): "crun", or
+    /// none for runc, which records written before ADR 0056 never name.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub runtime: String,
     pub created: String,
 }
 
@@ -171,6 +175,10 @@ pub struct CreateRequest {
     pub spec: Box<RawValue>,
     #[serde(default, deserialize_with = "crate::runtime::nullable")]
     pub mounts: Vec<Mount>,
+    /// The OCI runtime the container is created with (oci.rs), as the
+    /// record names it: "crun", or none for runc.
+    #[serde(default)]
+    pub runtime: String,
 }
 
 /// A bundle directory's name is a container ID: no separator, not "."
@@ -198,6 +206,7 @@ pub type MountFn<'a> = &'a dyn Fn(&[Mount], &Path) -> Result<(), String>;
 /// create, the root filesystem mounted by mount.
 pub fn create_with(r: &CreateRequest, mount: MountFn) -> Result<Record, String> {
     valid_id(&r.id)?;
+    let runtime = super::oci::OciRuntime::of_record(&r.runtime)?.record_value();
     let dir = Path::new(&r.dir).join(&r.id);
     if fs::metadata(&dir).is_ok() {
         return Err(format!("container {}: already exists", r.id));
@@ -220,6 +229,7 @@ pub fn create_with(r: &CreateRequest, mount: MountFn) -> Result<Record, String> 
         } else {
             group
         },
+        runtime,
         created: crate::runtime::image::now_rfc3339(),
     };
     write_file(&dir.join(RECORD), &to_go_json(&rec))?;
@@ -461,6 +471,55 @@ mod tests {
             skipped[0]
         );
         assert!(skipped[2].error.contains("names container \"other\""));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// A new record names its OCI runtime (ADR 0056); a record written
+    /// before names none, and keeps naming none when it is written again.
+    #[test]
+    fn records_name_their_runtime() {
+        let dir = std::env::temp_dir().join(format!("armada-bundle-rt-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let d = dir.display().to_string();
+        let req = CreateRequest {
+            dir: d.clone(),
+            id: "web-r1-a".into(),
+            image: "i".into(),
+            labels: BTreeMap::new(),
+            spec: raw(
+                r#"{"ociVersion":"1.2.1","annotations":{"io.containerd.runc.v2.group":"web"}}"#,
+            ),
+            mounts: Vec::new(),
+            runtime: super::super::oci::OciRuntime::NEW.record_value(),
+        };
+        let odd = CreateRequest {
+            dir: d.clone(),
+            id: "web-r1-c".into(),
+            image: "i".into(),
+            labels: BTreeMap::new(),
+            spec: raw("{}"),
+            mounts: Vec::new(),
+            runtime: "youki".into(),
+        };
+        assert_eq!(
+            create_with(&odd, &|_, _| Ok(())).unwrap_err(),
+            "unknown OCI runtime \"youki\""
+        );
+        let rec = create_with(&req, &|_, _| Ok(())).unwrap();
+        assert_eq!(rec.runtime, "crun");
+        let written = fs::read_to_string(dir.join("web-r1-a").join(RECORD)).unwrap();
+        assert!(
+            written.contains(r#""group":"web","runtime":"crun","created":"#),
+            "{written}"
+        );
+        let old = r#"{"id":"web-r1-b","image":"i","group":"web","created":"2026-11-23T08:00:00Z"}"#;
+        fs::create_dir_all(dir.join("web-r1-b")).unwrap();
+        fs::write(dir.join("web-r1-b").join(RECORD), old).unwrap();
+        let labels: BTreeMap<String, String> = [("a".to_string(), "b".to_string())].into();
+        let rec = set_labels(&d, "web-r1-b", &labels).unwrap();
+        assert_eq!(rec.runtime, "");
+        let again = fs::read_to_string(dir.join("web-r1-b").join(RECORD)).unwrap();
+        assert!(!again.contains("runtime"), "{again}");
         let _ = fs::remove_dir_all(&dir);
     }
 

@@ -42,6 +42,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use armada_node::runtime::container::bundle::{self, Record};
 use armada_node::runtime::container::mount::Mount;
+use armada_node::runtime::container::oci::OciRuntime;
 use armada_node::runtime::container::shim::CallError;
 use armada_node::runtime::container::stats as nstats;
 use armada_node::runtime::image::store::{ImageRecord, Store};
@@ -511,6 +512,7 @@ impl Supervisor {
             dir: cfg.run_dir.join("shim"),
             bin: bin.join("armada-shim").display().to_string(),
             runc: bin.join("runc").display().to_string(),
+            crun: bin.join("crun").display().to_string(),
             logger: logger.display().to_string(),
             systemd_run: cfg.systemd_run.clone(),
             systemctl: cfg.systemctl.clone(),
@@ -1065,6 +1067,7 @@ impl Inner {
             labels: labels.clone(),
             spec: raw,
             mounts,
+            runtime: OciRuntime::NEW.record_value(),
         };
         let host = self.cfg.host.clone();
         match bundle::create_with(&req, &|m: &[Mount], t: &Path| host.mount_all(m, t)) {
@@ -1192,6 +1195,8 @@ impl Inner {
     /// container.NewTask: the process created in the group's shim, not
     /// started.
     async fn new_task(&self, rec: &Record) -> Result<i64, String> {
+        let rt = OciRuntime::of_record(&rec.runtime)
+            .map_err(|e| format!("create task: container {}: {e}", rec.id))?;
         self.shims.start(&rec.group).await?;
         self.shims
             .create(
@@ -1199,6 +1204,7 @@ impl Inner {
                 &rec.id,
                 &self.bundle_dir(&rec.id).display().to_string(),
                 &self.logs().display().to_string(),
+                rt,
             )
             .await
             .map_err(|e| format!("create task: {e}"))
@@ -2038,7 +2044,8 @@ impl Inner {
     }
 
     /// Where an exec of rec keeps process.json and its pid file:
-    /// exec-<container ID>-exec-<12 hex> beside the shim's runc root.
+    /// exec-<container ID>-exec-<12 hex> beside the OCI runtimes' state
+    /// directories in the shim's.
     fn exec_dir(&self, rec: &Record) -> PathBuf {
         self.shims
             .dir
@@ -2057,11 +2064,14 @@ impl Inner {
         if self.task(&rec).await.map_err(other)?.is_none() {
             return Err(Error::NotFound);
         }
+        let rt = OciRuntime::of_record(&rec.runtime)
+            .map_err(|e| other(format!("container {id}: {e}")))?;
         let req = exec::SessionRequest {
             bundle: self.bundle_dir(&rec.id).display().to_string(),
             dir: self.exec_dir(&rec).display().to_string(),
-            root: self.shims.root(&rec.group).display().to_string(),
-            runc: self.shims.runc.clone(),
+            root: self.shims.root(&rec.group, rt).display().to_string(),
+            runtime: rt,
+            program: self.shims.program(rt).to_string(),
             id: rec.id.clone(),
             args: opts.cmd.clone(),
             tty: opts.tty,
@@ -2083,13 +2093,15 @@ impl Inner {
         if self.task(rec).await.map_err(other)?.is_none() {
             return Err(Error::NotFound);
         }
+        let rt = OciRuntime::of_record(&rec.runtime)
+            .map_err(|e| other(format!("container {}: {e}", rec.id)))?;
         let dir = self.exec_dir(rec);
         let node = self.bin.join("armada-node");
-        let (bundle, dir, root, runc, id, args) = (
+        let (bundle, dir, root, program, id, args) = (
             self.bundle_dir(&rec.id).display().to_string(),
             dir.display().to_string(),
-            self.shims.root(&rec.group).display().to_string(),
-            self.shims.runc.clone(),
+            self.shims.root(&rec.group, rt).display().to_string(),
+            self.shims.program(rt).to_string(),
             rec.id.clone(),
             cmd.to_vec(),
         );
@@ -2100,7 +2112,8 @@ impl Inner {
                     bundle: &bundle,
                     dir: &dir,
                     root: &root,
-                    runc: &runc,
+                    runtime: rt,
+                    program: &program,
                     id: &id,
                     args: &args,
                     output,

@@ -13,7 +13,9 @@ use std::path::{Path, PathBuf};
 
 use sha2::{Digest, Sha256};
 
-/// The pack's programs (pack/lock.json).
+/// The pack's programs (pack/lock.json): crun runs new containers, runc
+/// those it created before ADR 0056 until they are recreated.
+pub const BIN_CRUN: &str = "crun";
 pub const BIN_RUNC: &str = "runc";
 pub const BIN_TINI: &str = "tini";
 pub const BIN_NODE: &str = "armada-node";
@@ -329,7 +331,7 @@ fn getrandom(b: &mut [u8]) -> std::io::Result<()> {
 pub fn use_bin_dir(root: &Path, dir: &str) -> Result<(), String> {
     let abs = std::path::absolute(dir).map_err(|e| e.to_string())?;
     let abs = PathBuf::from(crate::gopath::clean(&abs.to_string_lossy()));
-    for n in [BIN_RUNC, BIN_TINI, DIR_CNI] {
+    for n in [BIN_RUNC, BIN_CRUN, BIN_TINI, DIR_CNI] {
         let p = abs.join(n);
         if let Err(e) = fs::metadata(&p) {
             return Err(format!("runtime binaries: {}", path_err("stat", &p, &e)));
@@ -464,6 +466,34 @@ mod tests {
         install(&dir, &p).unwrap();
         assert_eq!(fs::read(bin.join("runc")).unwrap(), b"r");
         assert!(check_name("../x").is_err());
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A directory of runtime programs must hold crun beside runc (ADR
+    /// 0056): new containers run on crun, those runc created on runc.
+    #[test]
+    fn bin_dir_needs_both_oci_runtimes() {
+        let dir = std::env::temp_dir().join(format!("armadad-bindir-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let bins = dir.join("bins");
+        fs::create_dir_all(bins.join(DIR_CNI)).unwrap();
+        for n in [BIN_RUNC, BIN_TINI] {
+            fs::write(bins.join(n), n).unwrap();
+        }
+        let root = dir.join("runtime");
+        assert_eq!(
+            use_bin_dir(&root, bins.to_str().unwrap()).unwrap_err(),
+            format!(
+                "runtime binaries: stat {}: no such file or directory",
+                bins.join(BIN_CRUN).display()
+            )
+        );
+        fs::write(bins.join(BIN_CRUN), "crun").unwrap();
+        use_bin_dir(&root, bins.to_str().unwrap()).unwrap();
+        assert_eq!(
+            fs::read(root.join("current/bin").join(BIN_CRUN)).unwrap(),
+            b"crun"
+        );
         fs::remove_dir_all(&dir).unwrap();
     }
 

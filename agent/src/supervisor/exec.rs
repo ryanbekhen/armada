@@ -1,6 +1,8 @@
 //! Commands in a running container through `armada-node runtime exec`
 //! (ADR 0054 step 5, last part; internal/runtime/supervisor
-//! nativeexec.go), which becomes runc's parent and copies its output: a
+//! nativeexec.go), which becomes the parent of the container's OCI
+//! runtime (crun, or runc for a container runc created: ADR 0056) and
+//! copies its output: a
 //! probe's command (output dropped, the drain's grace of ExecApp) and a
 //! system container's command (its whole output, as Driver.Exec). The
 //! request goes on descriptor 3, the control socket is descriptor 4, and
@@ -14,6 +16,7 @@ use std::path::Path;
 use std::process::Stdio;
 use std::time::Duration;
 
+use armada_node::runtime::container::oci::OciRuntime;
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -22,7 +25,9 @@ pub struct ExecRequest<'a> {
     pub bundle: &'a str,
     pub dir: &'a str,
     pub root: &'a str,
-    pub runc: &'a str,
+    /// The container's OCI runtime and its program.
+    pub runtime: OciRuntime,
+    pub program: &'a str,
     pub id: &'a str,
     pub args: &'a [String],
     /// Whether the output is wanted (descriptors 6 and 7).
@@ -109,7 +114,7 @@ pub fn run(node: &Path, r: &ExecRequest<'_>) -> Result<(i64, Vec<u8>), String> {
         grace = 1;
     }
     let req = serde_json::json!({
-        "bundle": r.bundle, "dir": r.dir, "root": r.root, "runc": r.runc, "id": r.id,
+        "bundle": r.bundle, "dir": r.dir, "root": r.root, "runtime": r.program, "id": r.id,
         "args": r.args, "terminal": false, "consoleSize": Value::Null,
         "stdin": false, "stdout": r.output, "stderr": r.output,
         "drainGraceMs": grace,
@@ -148,7 +153,7 @@ pub fn run(node: &Path, r: &ExecRequest<'_>) -> Result<(i64, Vec<u8>), String> {
         out
     });
     let mut control = KillOnDrop(Some(ctl.try_clone().map_err(|e| e.to_string())?));
-    let res = answers(BufReader::new(ctl), r.runc);
+    let res = answers(BufReader::new(ctl), r.runtime, r.program);
     if res.is_ok() {
         // Done: nothing to kill.
         control.0 = None;
@@ -161,7 +166,7 @@ pub fn run(node: &Path, r: &ExecRequest<'_>) -> Result<(i64, Vec<u8>), String> {
 }
 
 /// The agent's side of the control socket until the session ends.
-fn answers(mut ctl: BufReader<UnixStream>, runc: &str) -> Result<i64, String> {
+fn answers(mut ctl: BufReader<UnixStream>, rt: OciRuntime, program: &str) -> Result<i64, String> {
     let mut code = None;
     let mut first = true;
     let mut line = String::new();
@@ -179,7 +184,8 @@ fn answers(mut ctl: BufReader<UnixStream>, runc: &str) -> Result<i64, String> {
                 (true, ..) => {}
                 (_, Some(n), ..) => {
                     return Err(format!(
-                        "exec: runc exec: fork/exec {runc}: {}",
+                        "exec: {} exec: fork/exec {program}: {}",
+                        rt.name(),
                         armada_node::runtime::container::errno_text(n)
                     ));
                 }
@@ -190,7 +196,7 @@ fn answers(mut ctl: BufReader<UnixStream>, runc: &str) -> Result<i64, String> {
             continue;
         }
         if a.not_started {
-            return Err("exec: runc exec did not start the process".into());
+            return Err(not_started(rt));
         }
         if let Some(c) = a.exit {
             code = Some(c);
@@ -205,6 +211,12 @@ fn answers(mut ctl: BufReader<UnixStream>, runc: &str) -> Result<i64, String> {
     code.ok_or_else(|| "exec: armada-node: ended the exec session".to_string())
 }
 
+/// execProcess.Start's error once the runtime wrote no pid in time (Go's
+/// text for runc, the runtime named).
+fn not_started(rt: OciRuntime) -> String {
+    format!("exec: {} exec did not start the process", rt.name())
+}
+
 /// ExecApp's bound on killing a process the call left running
 /// (execCleanupTimeout).
 pub const CLEANUP_TIMEOUT: Duration = Duration::from_secs(5);
@@ -214,7 +226,9 @@ pub struct SessionRequest {
     pub bundle: String,
     pub dir: String,
     pub root: String,
-    pub runc: String,
+    /// The container's OCI runtime and its program.
+    pub runtime: OciRuntime,
+    pub program: String,
     pub id: String,
     pub args: Vec<String>,
     pub tty: bool,
@@ -326,7 +340,7 @@ pub async fn session(
     };
     let want_out = opts.output.is_some();
     let req = serde_json::json!({
-        "bundle": r.bundle, "dir": r.dir, "root": r.root, "runc": r.runc, "id": r.id,
+        "bundle": r.bundle, "dir": r.dir, "root": r.root, "runtime": r.program, "id": r.id,
         "args": r.args, "terminal": r.tty, "consoleSize": console,
         "stdin": opts.stdin.is_some(), "stdout": want_out, "stderr": want_out && !r.tty,
         "drainGraceMs": DRAIN_GRACE.as_millis() as u64,
@@ -415,8 +429,9 @@ pub async fn session(
         Some(Some(a)) if a.exec_errno.is_some() => {
             c.exited = true;
             return Err(format!(
-                "exec: runc exec: fork/exec {}: {}",
-                r.runc,
+                "exec: {} exec: fork/exec {}: {}",
+                r.runtime.name(),
+                r.program,
                 armada_node::runtime::container::errno_text(a.exec_errno.unwrap_or_default())
             ));
         }
@@ -477,7 +492,7 @@ pub async fn session(
         match c.next().await {
             None => return Err("exec: armada-node: ended the exec session".into()),
             Some(Some(a)) if a.not_started => {
-                return Err("exec: runc exec did not start the process".into());
+                return Err(not_started(r.runtime));
             }
             Some(Some(a)) if a.started => break,
             Some(_) => {}
@@ -553,7 +568,8 @@ mod tests {
             bundle: "/b",
             dir: "/d",
             root: "/r",
-            runc: "/runc",
+            runtime: OciRuntime::Runc,
+            program: "/runc",
             id: "hap",
             args: &args,
             output: true,
@@ -570,6 +586,23 @@ mod tests {
         assert_eq!(
             run(&bin, &r).unwrap_err(),
             "exec: runc exec: fork/exec /runc: no such file or directory"
+        );
+        let crun = ExecRequest {
+            runtime: OciRuntime::Crun,
+            program: "/crun",
+            ..r
+        };
+        assert_eq!(
+            run(&bin, &crun).unwrap_err(),
+            "exec: crun exec: fork/exec /crun: no such file or directory"
+        );
+        let bin = stand_in(
+            &dir,
+            "echo '{\"spawned\":true}' >&4\necho '{\"notStarted\":true}' >&4",
+        );
+        assert_eq!(
+            run(&bin, &crun).unwrap_err(),
+            "exec: crun exec did not start the process"
         );
         let _ = std::fs::remove_dir_all(&dir);
     }

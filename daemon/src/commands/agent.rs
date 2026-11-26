@@ -524,7 +524,7 @@ async fn run_agent(
     }
     let paths = crate::paths(&data_dir);
     // No daemon to start: the agent installs the runtime pack itself, so
-    // an upgrade brings the new armada-shim and runc with it.
+    // an upgrade brings the new armada-shim, crun, and runc with it.
     crate::pack::install_pack(&paths)?;
     let mut scfg = supervisor::Config::new(
         PathBuf::from(&data_dir),

@@ -1,7 +1,9 @@
 //! armada-shim processes as internal/runtime/supervisor's Shims reaches
 //! them (shim.go): one per group as the transient systemd unit
-//! armada-shim-<name>, socket DIR/<name>.sock, runc's state under
-//! DIR/<name>/runc, one request line per connection.
+//! armada-shim-<name>, socket DIR/<name>.sock, the OCI runtimes' state
+//! under DIR/<name>/crun and DIR/<name>/runc (oci.rs: crun for new
+//! containers, runc for those it created before ADR 0056), one request
+//! line per connection.
 //!
 //! A shim that runs but does not answer is never replaced, and its
 //! containers are ended only once it is really gone: nothing listens on
@@ -11,6 +13,7 @@
 //! own lock around each call).
 
 use super::errno_text;
+use super::oci::OciRuntime;
 use crate::net::addr::quote;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
@@ -31,6 +34,8 @@ pub struct Request {
     pub dir: String,
     pub bin: String,
     pub runc: String,
+    /// crun (ADR 0056); empty for a shim that runs runc alone.
+    pub crun: String,
     pub logger: String,
     pub group: String,
     /// The programs systemd is reached through; tests name stand-ins.
@@ -290,8 +295,17 @@ impl Request {
         Path::new(&self.dir).join(format!("{}.sock", self.name()))
     }
 
-    fn runc_root(&self) -> PathBuf {
-        Path::new(&self.dir).join(self.name()).join("runc")
+    /// The runtime's state directory for the group's containers.
+    pub fn root(&self, rt: OciRuntime) -> PathBuf {
+        rt.root(&Path::new(&self.dir).join(self.name()))
+    }
+
+    /// The runtime's program; empty when the request names none.
+    pub fn program(&self, rt: OciRuntime) -> &str {
+        match rt {
+            OciRuntime::Runc => &self.runc,
+            OciRuntime::Crun => &self.crun,
+        }
     }
 
     /// The time left to the caller, none when it set no deadline.
@@ -394,39 +408,49 @@ impl Request {
         }
     }
 
-    /// abandon: every container in runc's state killed and deleted.
+    /// abandon: every container in each OCI runtime's state (runc's,
+    /// then crun's) killed and deleted.
     fn abandon_root(&self) -> Result<(), String> {
-        let root = self.runc_root();
+        for rt in OciRuntime::ALL {
+            self.abandon_runtime(rt)?;
+        }
+        Ok(())
+    }
+
+    fn abandon_runtime(&self, rt: OciRuntime) -> Result<(), String> {
+        let root = self.root(rt);
         if fs::symlink_metadata(&root).is_err_and(|e| e.kind() == io::ErrorKind::NotFound) {
             return Ok(());
         }
+        let (name, prog) = (rt.name(), self.program(rt));
+        if prog.is_empty() {
+            return Err(format!(
+                "{name} list: no {name} to end the containers in {}",
+                root.display()
+            ));
+        }
         let root = root.display().to_string();
-        let (out, err) = run(
-            &self.runc,
-            &["--root", &root, "list", "-q"],
-            false,
-            self.deadline,
-        );
+        let (out, err) = run(prog, &["--root", &root, "list", "-q"], false, self.deadline);
         if let Some(e) = err {
-            return Err(format!("runc list: {e}"));
+            return Err(format!("{name} list: {e}"));
         }
         let ids = String::from_utf8_lossy(&out).into_owned();
         for id in ids.split_whitespace() {
             let _ = run(
-                &self.runc,
+                prog,
                 &["--root", &root, "kill", "--all", id, "KILL"],
                 false,
                 self.deadline,
             );
             let (out, err) = run(
-                &self.runc,
+                prog,
                 &["--root", &root, "delete", "--force", id],
                 true,
                 self.deadline,
             );
             if let Some(e) = err {
                 return Err(format!(
-                    "runc delete {id}: {e}: {}",
+                    "{name} delete {id}: {e}: {}",
                     String::from_utf8_lossy(&out).trim()
                 ));
             }
@@ -457,6 +481,10 @@ impl Request {
             self.runc.clone(),
             self.logger.clone(),
         ]);
+        // crun last: a shim of a release before ADR 0056 takes four.
+        if !self.crun.is_empty() {
+            a.push(self.crun.clone());
+        }
         a
     }
 
@@ -574,6 +602,71 @@ mod tests {
         // is abandoned.
         let _ = fs::remove_file(r.socket());
         assert_eq!(r.abandon(), (false, Some(DEADLINE.to_string())));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// A gone shim's containers are ended in both runtimes' state, each
+    /// with its own program and root; a root that does not exist is
+    /// left alone, and a shim with runc alone takes four arguments.
+    #[test]
+    fn abandon_ends_both_runtimes() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("armada-shim-oci-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let log = dir.join("calls.log");
+        let stand_in = |name: &str, id: &str| {
+            let p = dir.join(name);
+            fs::write(
+                &p,
+                format!(
+                    "#!/bin/sh\necho \"{name} $*\" >> {}\ncase \"$*\" in *\" list -q\") echo {id} ;; esac\n",
+                    log.display()
+                ),
+            )
+            .unwrap();
+            fs::set_permissions(&p, fs::Permissions::from_mode(0o755)).unwrap();
+            p.display().to_string()
+        };
+        let mut r = Request {
+            dir: dir.join("shim").display().to_string(),
+            runc: stand_in("runc", "old-1"),
+            crun: stand_in("crun", "new-1"),
+            group: "web@p1".into(),
+            ..Default::default()
+        };
+        for rt in OciRuntime::ALL {
+            fs::create_dir_all(r.root(rt)).unwrap();
+        }
+        assert_eq!(r.abandon_root(), Ok(()));
+        let state = Path::new(&r.dir).join(shim_name("web@p1"));
+        let (runc_root, crun_root) = (state.join("runc"), state.join("crun"));
+        assert_eq!(
+            fs::read_to_string(&log).unwrap(),
+            format!(
+                "runc --root {r} list -q\nrunc --root {r} kill --all old-1 KILL\nrunc --root {r} delete --force old-1\n\
+                 crun --root {c} list -q\ncrun --root {c} kill --all new-1 KILL\ncrun --root {c} delete --force new-1\n",
+                r = runc_root.display(),
+                c = crun_root.display()
+            )
+        );
+        // Only runc's state (a shim of a release before ADR 0056).
+        fs::remove_file(&log).unwrap();
+        fs::remove_dir_all(&crun_root).unwrap();
+        assert_eq!(r.abandon_root(), Ok(()));
+        let calls = fs::read_to_string(&log).unwrap();
+        assert!(!calls.contains("crun"), "{calls}");
+        // crun's state with no crun to end it is an error, not ignored.
+        fs::create_dir_all(&crun_root).unwrap();
+        r.crun.clear();
+        assert!(
+            r.abandon_root()
+                .unwrap_err()
+                .starts_with("crun list: no crun")
+        );
+        assert_eq!(r.launch_args().len(), 9 + 6);
+        r.crun = "/bin/crun".into();
+        assert_eq!(r.launch_args().last().unwrap(), "/bin/crun");
         let _ = fs::remove_dir_all(&dir);
     }
 
