@@ -426,7 +426,8 @@ upgrades without asking.
    running), then `armada-etcd`, `armada-server`, and `armada-agent`, each
    where it runs. On a server machine whose `armada-server` is enabled it
    also enables `armada-etcd` and `armada-agent` where they are not yet
-   (the first upgrade from v0.1.0-alpha.42 installs them; see below).
+   (the first upgrade from v0.1.0-alpha.42, run by its Go `armadad`,
+   installs them without enabling them; see below).
    It prints each step as it happens (each download with its size and
    time, the signature and checksum, every file installed, and each restart
    with how long the service took to run again) and ends with
@@ -539,7 +540,21 @@ Before upgrading a server machine:
   starts and removes nothing on a containerd node, and `armadad doctor`
   fails its runtime check.
 
-After the upgrade, `systemctl status armada-etcd armada-server
+After the upgrade, enable the two new units on every server machine:
+
+```sh
+sudo systemctl enable armada-etcd armada-agent
+```
+
+The upgrade is run by v0.1.0-alpha.42's `armadad`, which installs the
+units but does not know to enable them, so `systemctl is-enabled
+armada-etcd armada-agent` answers `disabled`. They still start with
+`armada-server`, which wants them, so nothing stops; but disabled, the
+agent does not start at boot on its own when `armada-server` fails to,
+and the machine's containers run unwatched until the server starts.
+Every later `armadad upgrade` is the new one, which enables them itself.
+
+Then `systemctl status armada-etcd armada-server
 armada-agent` shows all three running on a server, and `armadad doctor`
 checks the member (`etcd`). If etcd does not start under the unit, the
 server waits a minute for it and exits, and systemd tries again; the other
