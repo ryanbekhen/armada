@@ -208,22 +208,24 @@ impl ClusterNet {
             .unwrap_or_default()
     }
 
-    /// Logs what a call ended in, once per distinct error.
+    /// Logs what a call ended in, once per change, in the words of Go's
+    /// Net with armada-node and no fallback (program_linux.go's note), which
+    /// operators and the end-to-end test read in the journal.
     fn note(&self, op: &'static str, err: Option<&str>) {
         let msg = err.unwrap_or("").to_string();
         let mut errs = crate::agent::lock(&self.errs);
         let prev = errs.insert(op, msg.clone());
-        if prev.as_deref() == Some(msg.as_str()) || prev.is_none() && msg.is_empty() {
+        if prev.as_deref() == Some(msg.as_str()) {
             return;
         }
         if msg.is_empty() {
-            self.log
-                .info("the cluster network works again", &[("op", op.into())]);
+            if op == "apply" {
+                self.log
+                    .info("armada-node applies the cluster network", &[]);
+            }
         } else {
-            self.log.warn(
-                "the cluster network failed",
-                &[("op", op.into()), ("err", msg)],
-            );
+            self.log
+                .warn("armada-node failed", &[("op", op.into()), ("err", msg)]);
         }
     }
 
