@@ -1,0 +1,4 @@
+{
+ "locked": "mutex: Locked by another session",
+ "notLeader": "this server is no longer the leader"
+}

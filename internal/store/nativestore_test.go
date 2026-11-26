@@ -65,6 +65,9 @@ type rustProc struct {
 
 func startRust(t *testing.T) *rustProc {
 	t.Helper()
+	if *recordFixtures {
+		return nil
+	}
 	cmd := exec.Command(storeBin(t))
 	cmd.Env = append(os.Environ(), "TZ=UTC")
 	cmd.Stderr = os.Stderr
@@ -190,6 +193,9 @@ type pair struct {
 	h    string
 	rPfx string
 	ops  int
+	// rec, with -record-fixtures, takes Go's answers and keyspaces in
+	// place of the Rust store's (record_test.go).
+	rec *storeRecorder
 }
 
 var parityHandles atomic.Int64
@@ -208,12 +214,21 @@ func newPair(t *testing.T, r *rustProc, start time.Time) *pair {
 	g.random = parityRandom()
 	p.g = g
 	p.h = fmt.Sprintf("s%d", parityHandles.Add(1))
+	if r == nil {
+		p.rec = newStoreRecorder(t, gPfx)
+		p.rec.step(map[string]any{"op": "open", "ms": start.UnixMilli()})
+		return p
+	}
 	r.ok(r.conn(map[string]any{"op": "open", "handle": p.h, "prefix": p.rPfx, "ms": start.UnixMilli()}))
 	return p
 }
 
 func (p *pair) setNow(at time.Time) {
 	p.gNow.Store(at.UnixMilli())
+	if p.rec != nil {
+		p.rec.step(map[string]any{"op": "setNow", "ms": at.UnixMilli()})
+		return
+	}
 	p.r.ok(map[string]any{"op": "setNow", "handle": p.h, "ms": at.UnixMilli()})
 }
 
@@ -311,6 +326,10 @@ func (p *pair) call(method string, args map[string]any) (any, error) {
 	if args == nil {
 		args = map[string]any{}
 	}
+	if p.rec != nil {
+		p.rec.call(method, args, gv, gerr)
+		return gv, gerr
+	}
 	rr := p.r.do(map[string]any{"op": "call", "handle": p.h, "method": method, "args": args})
 	what := fmt.Sprintf("%s %s", method, compactArgs(args))
 	if errKind(gerr) != rr.Kind || (gerr != nil && gerr.Error() != rr.Error) {
@@ -354,6 +373,10 @@ func (p *pair) fails(method string, args map[string]any) {
 // again to the bytes stored, in Rust.
 func (p *pair) reencode() {
 	p.t.Helper()
+	if p.rec != nil {
+		p.rec.step(map[string]any{"op": "reencode"})
+		return
+	}
 	reencodeOK(p.t, p.r, p.h)
 }
 
@@ -1239,7 +1262,12 @@ func TestArmadaStoreEvents(t *testing.T) {
 	p.must("TrimEvents", pargs{"keep": 1})
 	p.must("ListEvents", pargs{"since": time.Time{}})
 	// Events carry the hour's lease.
-	for _, pfx := range []string{p.g.prefix, p.rPfx} {
+	pfxs := []string{p.g.prefix, p.rPfx}
+	if p.rec != nil {
+		pfxs = pfxs[:1]
+		p.rec.step(map[string]any{"op": "leased", "prefix": pfxEvents, "count": 1, "ttl": int64((EventTTL + eventLeaseSpan).Seconds())})
+	}
+	for _, pfx := range pfxs {
 		resp, err := testMember.Client().Get(context.Background(), pfx+pfxEvents, clientv3.WithPrefix())
 		if err != nil || len(resp.Kvs) != 1 || resp.Kvs[0].Lease == 0 {
 			t.Fatalf("events of %s: %v %v", pfx, resp, err)
@@ -1312,8 +1340,16 @@ func TestArmadaStoreRecords(t *testing.T) {
 		t.Fatal(err)
 	}
 	h := fmt.Sprintf("s%d", parityHandles.Add(1))
-	r.ok(r.conn(map[string]any{"op": "open", "handle": h, "prefix": s.prefix, "ms": parityStart.UnixMilli()}))
-	reencodeOK(t, r, h)
+	var rec *storeRecorder
+	if r == nil {
+		rec = newStoreRecorder(t, s.prefix)
+		rec.step(map[string]any{"op": "seed", "keys": dump(t, s.prefix)})
+		rec.step(map[string]any{"op": "open", "ms": parityStart.UnixMilli()})
+		rec.step(map[string]any{"op": "reencode"})
+	} else {
+		r.ok(r.conn(map[string]any{"op": "open", "handle": h, "prefix": s.prefix, "ms": parityStart.UnixMilli()}))
+		reencodeOK(t, r, h)
+	}
 	before := dump(t, s.prefix)
 	// Reads of the records, through both stores.
 	s.SetNow(func() time.Time { return parityStart })
@@ -1332,6 +1368,10 @@ func TestArmadaStoreRecords(t *testing.T) {
 		args := c.args
 		if args == nil {
 			args = pargs{}
+		}
+		if rec != nil {
+			rec.call(c.method, args, gv, gerr)
+			continue
 		}
 		rr := r.do(map[string]any{"op": "call", "handle": h, "method": c.method, "args": args})
 		if errKind(gerr) != rr.Kind || errText(gerr) != rr.Error {
@@ -1398,8 +1438,14 @@ func TestArmadaStoreMigrations(t *testing.T) {
 	}
 	g.SetNow(func() time.Time { return parityStart })
 	h := fmt.Sprintf("s%d", parityHandles.Add(1))
-	r.ok(r.conn(map[string]any{"op": "open", "handle": h, "prefix": rPfx, "ms": parityStart.UnixMilli()}))
 	p := &pair{t: t, g: g, r: r, h: h, rPfx: rPfx}
+	if r == nil {
+		p.rec = newStoreRecorder(t, gPfx)
+		p.rec.step(map[string]any{"op": "seed", "keys": dump(t, rPfx)})
+		p.rec.step(map[string]any{"op": "open", "ms": parityStart.UnixMilli()})
+	} else {
+		r.ok(r.conn(map[string]any{"op": "open", "handle": h, "prefix": rPfx, "ms": parityStart.UnixMilli()}))
+	}
 	p.must("StoredSchema", nil)
 	p.must("MigrateTo", pargs{"target": 10})
 	p.must("MigrateTo", pargs{"target": 10})
@@ -1416,6 +1462,12 @@ func TestArmadaStoreMigrations(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, gerr := NewEtcd(ctx, testMember.Client(), gPfx)
+	if p.rec != nil {
+		p.rec.step(map[string]any{"op": "put", "key": keySchema, "value": "16"})
+		p.rec.step(map[string]any{"op": "openFails", "error": errText(gerr)})
+		p.rec.step(map[string]any{"op": "openFails", "prefix": "/no-slash", "error": "store: etcd prefix must end with /"})
+		return
+	}
 	rr := r.do(r.conn(map[string]any{"op": "open", "handle": h + "x", "prefix": gPfx}))
 	if gerr == nil || gerr.Error() != rr.Error {
 		t.Errorf("newer schema: go %v, rust %q", gerr, rr.Error)
@@ -1431,6 +1483,9 @@ func TestArmadaStoreMigrations(t *testing.T) {
 func TestArmadaStoreConcurrentWriters(t *testing.T) {
 	t.Parallel()
 	r := startRust(t)
+	if r == nil {
+		t.Skip("Go and Rust at once: store/tests/replay.rs checks the Rust side alone")
+	}
 	s, ctx := open(t), context.Background()
 	h := fmt.Sprintf("s%d", parityHandles.Add(1))
 	r.ok(r.conn(map[string]any{"op": "open", "handle": h, "prefix": s.prefix, "ms": time.Now().UnixMilli()}))
@@ -1513,6 +1568,9 @@ func TestArmadaStoreConcurrentWriters(t *testing.T) {
 // fenced it and whichever side led.
 func TestArmadaStoreFencing(t *testing.T) {
 	r := startRust(t)
+	if r == nil {
+		t.Skip("Go and Rust at once: store/tests/replay.rs checks the Rust side alone")
+	}
 	s, ctx := open(t), context.Background()
 	h := fmt.Sprintf("s%d", parityHandles.Add(1))
 	r.ok(r.conn(map[string]any{"op": "open", "handle": h, "prefix": s.prefix, "ms": time.Now().UnixMilli()}))
@@ -1569,6 +1627,9 @@ func TestArmadaStoreFencing(t *testing.T) {
 // Go and Rust servers campaign in one election, and take one lock.
 func TestArmadaStoreElection(t *testing.T) {
 	r := startRust(t)
+	if r == nil {
+		t.Skip("Go and Rust at once: store/tests/replay.rs checks the Rust side alone")
+	}
 	ctx := context.Background()
 	leader := func() (string, string) {
 		g, err := etcd.Leader(ctx, testMember.Client())
@@ -1679,6 +1740,9 @@ func TestArmadaStoreElection(t *testing.T) {
 // once a TTL after its campaign.
 func TestArmadaStoreLeaseKeptAlive(t *testing.T) {
 	r := startRust(t)
+	if r == nil {
+		t.Skip("Go and Rust at once: store/tests/replay.rs checks the Rust side alone")
+	}
 	ctx := context.Background()
 	r.ok(r.conn(map[string]any{"op": "campaign", "handle": "kept", "ttl": 2, "name": "rust-kept"}))
 	defer r.ok(map[string]any{"op": "resign", "handle": "kept"})
