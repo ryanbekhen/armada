@@ -7,20 +7,34 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
 	"github.com/miekg/dns"
 )
 
+// freePort is a port free for both UDP and TCP on 127.0.0.1: the resolver
+// binds both, and on a busy machine a port free for UDP can be one of TCP's
+// ephemeral ports.
 func freePort(t *testing.T) uint16 {
 	t.Helper()
-	l, err := net.ListenPacket("udp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
+	for range 50 {
+		l, err := net.ListenPacket("udp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		port := l.LocalAddr().(*net.UDPAddr).Port
+		tl, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
+		_ = l.Close()
+		if err != nil {
+			continue
+		}
+		_ = tl.Close()
+		return uint16(port)
 	}
-	defer l.Close()
-	return uint16(l.LocalAddr().(*net.UDPAddr).Port)
+	t.Fatal("no port free for both UDP and TCP")
+	return 0
 }
 
 // upstream answers every A query with 192.0.2.7.
