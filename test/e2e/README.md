@@ -18,7 +18,7 @@ control plane. It does not run in CI.
   every node directly, so the record may name just one of them.
 - `ssh`, `scp`, `curl`, `jq`, and `openssl` on your workstation.
 - Linux binaries for the machines' architecture: `make build-bundle` (add
-  `GOARCH=arm64` for arm64) builds `armadad` with the runtime embedded and
+  `GOARCH=arm64` for arm64) builds `armadad` with the runtime pack and
   the `armada` client next to it. `ARMADA_BIN` names the `armadad` binary;
   the script installs the client from the same directory. A cluster may mix
   amd64 and arm64 machines: build both and pass them as `ARMADA_BIN_AMD64`
@@ -56,12 +56,6 @@ E2E_ACME_EMAIL=you@example.org sh test/e2e/cluster.sh hosts
 | `E2E_REBOOT` | `1` | `0` skips rebooting every machine at once |
 | `E2E_BRIDGE_GW` | read from each node | Container bridge address (each node has its own container subnet) |
 | `E2E_SERVER_FLAGS` | empty | Extra `armadad server` flags |
-| `E2E_RUNTIME` | empty (the supervisor) | Container runtime of every machine: `supervisor` or `embedded` (containerd, for nodes set up before the supervisor became the default); run both before releases |
-| `E2E_NET_AGENT` | `rust` | the cluster network runs through the runtime pack's `armada-node` on every machine (ADR 0054): the run checks each machine applies it so, runs doctor's network checks through it, and fails if Go had to stand in anywhere. `go`: once the cluster is up, each machine in turn gets `"netAgent": "go"` in its `agent.json` and its service restarted, so Go's own code runs it (the fallback, while it remains) |
-| `E2E_RUNTIME_AGENT` | `rust` | supervisor machines run containers through the runtime pack's `armada-node` (ADR 0054): the run checks every machine reports it (`armada node list -o json`, `.runtime.agent`), that doctor's `runtime-agent` check is ok, and that `armada cluster status` counts every node on armada-node (with `E2E_RUNTIME=embedded`, that every machine reports containerd instead). `go`: once the cluster is up, each machine in turn gets `"runtimeAgent": "go"` in its `agent.json` and its service restarted, and must report Go's code |
-| `E2E_MOVE_GAP` | `60` | `runtime-containerd-move`: the most seconds a moved node's own public IP may go on failing after its `RuntimeMoveDone` event (its proxy is started again on the supervisor runtime) |
-| `E2E_MOVE_OUTAGE` | `30` | `runtime-containerd-move`: the most seconds a moving node's own public IP may fail, from its first failed request to its first 200 again (the node pulls its proxy's image before it removes its containers) |
-| `E2E_CONFORMANCE` | empty | Driver conformance test binary for the last machine's architecture, built with `GOOS=linux go test -c -tags integration -o bin/conformance ./internal/runtime/containerd/`; runs the suite on that node's runtime once the cluster is ready |
 
 The script stops at the first failure and prints `armada server list`,
 `armada cluster status`, and `armada app list -A`. A full run on four small machines takes about 10 minutes
@@ -105,8 +99,6 @@ E2E_ONLY=isolation,rollout ARMADA_BIN=... sh test/e2e/cluster.sh hosts
 | `volume-backups` | 21 | volumes, rollouts of apps with volumes (images pulled first), backups to a bucket, restores from it |
 | `volume-failover` | 22 (4 machines or more) | `failover: restore`, fencing of a node cut off from the control plane |
 | `nfs` | 23 | NFS volumes: mounting with the kernel client, sharing between nodes, unmounting |
-| `runtime-move` | 24 (supervisor through armada-node only) | the move from Go's image store to armada-node's: conversion at the agent's start, `converted.json`, removal of Go's store, the runtime report in `node list`, `cluster status`, and doctor |
-| `runtime-containerd-move` | 25 (`E2E_RUNTIME=embedded` and 3 machines or more only) | the leader's move of containerd nodes to the supervisor runtime: draining one node at a time, `MoveRuntime`, the agent's migration and restart, `cluster status`, doctor |
 | `reboot` | 13 | start-up order, units, state after a crash |
 
 A release runs every scenario.
@@ -114,9 +106,15 @@ A release runs every scenario.
 ## What it checks
 
 1. `armadad doctor` passes on every machine; the cluster forms with three
-   voting servers and every node ready. With `E2E_CONFORMANCE`, the driver
-   conformance suite passes on the last node's runtime, next to
-   its running agent.
+   voting servers and every node ready. Every machine has `armada-node` in
+   its runtime pack, its agent's journal shows `armada-node applies the
+   cluster network`, and doctor's network checks pass. Every machine
+   reports the supervisor runtime through armada-node (`armada node list
+   -o json`, `.runtime.agent` is `supervisor-rust`), doctor's
+   `runtime-agent` check is ok, and `armada cluster status` counts every
+   node on armada-node. At the end of the run, no agent's journal shows
+   `armada-node failed`, which the agent logs with the operation and the
+   error whenever armada-node fails a pass of the cluster network.
 2. Nothing but SSH and HAProxy (80/443) listens outside the private,
    loopback, and bridge addresses.
 3. The test app gets a certificate for its host name on every node; a secret
@@ -233,43 +231,6 @@ A release runs every scenario.
     a file one replica writes is read by the other and is on the server, NFS
     volumes are not listed as node volumes, and the export is unmounted once
     the app is deleted.
-24. The runtime's move (ADR 0054; runs after 23, before 13). The last machine
-    gets `"runtimeAgent": "go"` and reports Go's code; an app pinned to it
-    (`busybox:1.36`, an image no other scenario uses) runs from Go's image
-    store and writes a file. Back on armada-node, the agent's start
-    converts the store: its log names the conversion with nothing left
-    out, and `converted.json` counts the images and the moved root
-    filesystems and says the store is collected. Right then, before any
-    restart: Go's store is gone, `armada cluster status` counts every node
-    on armada-node, the app's replica is the same, reads the file it wrote
-    and writes another (found in its root filesystem's new place), and the
-    test app serves on every node. Every image armada-node's store did not
-    have keeps the record Go made when it pulled it, also after
-    armada-node recreated the replicas (no pull again), and doctor's
-    `runtime-agent` check is ok. This stands in for an upgrade from a
-    release that ran the supervisor runtime on Go's code: the script
-    installs one release on every machine and has no step that upgrades
-    from an older one, and the proxy's container in this run was made by
-    armada-node (an upgrade moves one Go made the same way).
-25. The leader's move of containerd nodes (ADR 0054, step 4; only with
-    `E2E_RUNTIME=embedded` and three machines or more; runs after 24,
-    before 13). An embedded run turns the move off right after `armadad
-    init` (`cluster update --runtime-move=false`), so every scenario before
-    this one runs on containerd. Turned on again, the leader moves every
-    node: `RuntimeMoveStarted`, `RuntimeMoveMigrating`, and
-    `RuntimeMoveDone` for each, one move after another and none given up;
-    every node then reports armada-node, `agent.json` records the
-    supervisor, `armada cluster status` counts every node on armada-node,
-    doctor's `runtime-agent` check is ok, and the control plane has every
-    voting member. Requests round robin over every public IP all return
-    200, except those to a moving node's own IP from its
-    `RuntimeMoveMigrating` event until it answers 200 again (its proxy is
-    removed with its containers; at most `E2E_MOVE_GAP` seconds after its
-    `RuntimeMoveDone` event, and at most `E2E_MOVE_OUTAGE` seconds from its
-    first failed request); each node's journal shows it pulled its proxy's
-    image before the move removed anything. Run it with
-    `E2E_RUNTIME=embedded E2E_ONLY=runtime-containerd-move`; it leaves every
-    machine on the supervisor runtime, so later scenarios run there.
 
 ## Servers' units
 
