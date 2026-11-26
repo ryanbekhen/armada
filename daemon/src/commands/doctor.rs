@@ -418,6 +418,16 @@ pub fn runtime_agent_check(st: &AgentStatus, runtime_agent: &str) -> Vec<Check> 
             ),
         ));
     }
+    if st.runc_containers > 0 {
+        out.push(check(
+            "runc",
+            WARN,
+            format!(
+                "{} containers still run on runc; the agent moves them to crun (ADR 0056): replicas one at a time, the proxy last, job attempts once they end and leave the history. The next release's runtime pack has no runc: upgrade to it once this check is gone",
+                st.runc_containers
+            ),
+        ));
+    }
     if st.agent == AGENT_SUPERVISOR_RUST && runtime_agent == "go" {
         out.push(check(
             name,
@@ -1392,6 +1402,13 @@ mod tests {
         assert_eq!(
             one(&st, "")[0],
             "warn armada-node runs containers, but converting Go's image store failed (boom); images are pulled again when needed, and the next start of armada-server or armada-agent tries again"
+        );
+        let mut runc = status(AGENT_SUPERVISOR_RUST);
+        runc.runc_containers = 3;
+        let r = one(&runc, "");
+        assert_eq!(r.len(), 2);
+        assert!(
+            r[1].starts_with("warn 3 containers still run on runc; the agent moves them to crun")
         );
         let go = one(&status(AGENT_SUPERVISOR_RUST), "go");
         assert_eq!(go.len(), 2);

@@ -209,6 +209,8 @@ pub(crate) struct State {
     pub local: Option<Clients>,
     /// The leader's last plan for the node's move, once one came.
     pub move_plan: Option<Option<pb::RuntimeMovePlan>>,
+    /// The move of runc's containers to crun (ADR 0056).
+    pub crun: crate::crunmove::CrunMove,
 }
 
 /// The stream of the current session, if one is open.
@@ -561,6 +563,8 @@ impl<R: Runtime> Inner<R> {
             self.remove(&c.id).await;
         }
 
+        let crun = self.crun_plan(&desired, &by_replica);
+
         let mut settled: Vec<pb::ReplicaState> = Vec::new();
         let mut running: Vec<Running> = Vec::new();
         let mut pending: Vec<PendingStart> = Vec::new();
@@ -654,6 +658,22 @@ impl<R: Runtime> Inner<R> {
                     ok = false;
                 }
             }
+            if ok && !stopped(&c.state) && crun.draining.as_deref() == Some(id.as_str()) {
+                // runc created it (ADR 0056): out of service while the
+                // proxies learn it, its container still running.
+                settled.push(self.crun_draining(id, &c));
+                continue;
+            }
+            if ok && !stopped(&c.state) && crun.move_now.as_deref() == Some(id.as_str()) {
+                // Then created again on crun, as for a new spec.
+                self.log.info(
+                    "recreating replica on crun",
+                    &[("replica", id.clone()), ("container", c.id.clone())],
+                );
+                self.begin_crun_move(id);
+                self.remove(&c.id).await;
+                ok = false;
+            }
             if ok && (stopped(&c.state) || !crate::containers::member_down(spec, &c).is_empty()) {
                 // The runtime restarts nothing itself (ADR 0011): crashes,
                 // containers a reboot left exited, failed starts, and
@@ -720,6 +740,7 @@ impl<R: Runtime> Inner<R> {
         }
         self.apply_network().await;
         self.apply_proxy().await;
+        self.move_proxy_to_crun(crun.replicas_done);
         Ok(Some(report))
     }
 

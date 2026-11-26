@@ -574,6 +574,7 @@ async fn run_agent(
             dir: dir.clone(),
             image: String::new(),
             start_wait: Duration::ZERO,
+            retire_wait: Duration::ZERO,
         };
         let d = Driver::new(DriverConfig {
             dir: dir.clone(),

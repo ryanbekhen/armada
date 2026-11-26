@@ -33,6 +33,7 @@ pub mod clock;
 pub mod clusternet;
 mod containers;
 pub mod creds;
+pub mod crunmove;
 pub mod dnsprocess;
 pub mod fence;
 mod files;

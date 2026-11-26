@@ -60,6 +60,20 @@ pub trait Proxy: Send + Sync + 'static {
     fn load(&self) -> BoxFut<'_, Result<BTreeMap<String, ServerLoad>, String>> {
         Box::pin(async { Err("this proxy counts no requests".to_string()) })
     }
+    /// Whether it runs in a container the agent may move to crun (ADR
+    /// 0056).
+    fn moves_to_crun(&self) -> bool {
+        false
+    }
+    /// Whether its container is one runc created.
+    fn on_runc(&self) -> BoxFut<'_, Result<bool, String>> {
+        Box::pin(async { Ok(false) })
+    }
+    /// Replaces its container with one crun creates, keeping the
+    /// configuration it serves.
+    fn move_to_crun(&self) -> BoxFut<'_, Result<(), String>> {
+        Box::pin(async { Ok(()) })
+    }
 }
 
 /// Where certificates named by reference come from (AgentService's

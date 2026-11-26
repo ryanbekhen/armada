@@ -351,6 +351,12 @@ fn node_runtime(st: Option<&RuntimeStatus>) -> String {
     if st.images_to_pull > 0 {
         out.push_str(&format!("; {} images to pull again", st.images_to_pull));
     }
+    if st.runc_containers > 0 {
+        out.push_str(&format!(
+            "; {} containers still on runc, moving to crun",
+            st.runc_containers
+        ));
+    }
     out
 }
 

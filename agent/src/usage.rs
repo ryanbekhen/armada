@@ -52,6 +52,7 @@ pub fn runtime_status(s: &AgentStatus) -> Option<pb::RuntimeStatus> {
         converting: s.converting(),
         images_to_pull: s.images_to_pull.clamp(i64::MIN, 1 << 20) as i32,
         error: s.error.clone(),
+        runc_containers: s.runc_containers.clamp(0, 1 << 20) as i32,
         ..Default::default()
     })
 }

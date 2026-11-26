@@ -24,6 +24,9 @@ struct EngineSt {
     reloads: i64,
     validations: Vec<String>,
     validate_err: Option<String>,
+    /// Whether runc runs it, and how often it was moved to crun.
+    runc: bool,
+    moves: i64,
 }
 
 impl Engine for FakeEngine {
@@ -45,6 +48,16 @@ impl Engine for FakeEngine {
     }
     fn reload(&self) -> BoxFut<'_, Result<(), String>> {
         self.st.lock().unwrap().reloads += 1;
+        Box::pin(async { Ok(()) })
+    }
+    fn on_runc(&self) -> BoxFut<'_, Result<bool, String>> {
+        let r = self.st.lock().unwrap().runc;
+        Box::pin(async move { Ok(r) })
+    }
+    fn replace_on_crun(&self) -> BoxFut<'_, Result<(), String>> {
+        let mut st = self.st.lock().unwrap();
+        st.moves += 1;
+        st.runc = false;
         Box::pin(async { Ok(()) })
     }
 }
@@ -373,6 +386,40 @@ async fn reload_waits_for_the_new_process() {
         "reload haproxy: the new process did not answer within 10s"
     );
     assert!(st.sig.is_empty());
+    let _ = std::fs::remove_dir_all(dir.parent().unwrap());
+}
+
+/// The move to crun (ADR 0056): the engine replaces the container, then a
+/// reload makes sure the Runtime API is the new process's; nothing when
+/// runc does not run it.
+#[tokio::test(start_paused = true)]
+async fn moves_to_crun_then_reloads() {
+    let dir = tmp("crun").join("haproxy");
+    let (e, a) = (
+        Arc::new(FakeEngine::default()),
+        Arc::new(FakeApi::default()),
+    );
+    let sc = Scenario {
+        private_ip: "10.0.0.2".into(),
+        internal_ip: String::new(),
+        subnet: String::new(),
+        steps: Vec::new(),
+    };
+    let l: Listeners = Arc::default();
+    let d = driver(&sc, &dir, &e, &a, &l);
+    let counts = || {
+        let st = e.st.lock().unwrap();
+        (st.moves, st.reloads)
+    };
+    assert!(Proxy::moves_to_crun(&d));
+    d.move_to_crun().await.unwrap();
+    assert_eq!(counts(), (0, 0));
+    e.st.lock().unwrap().runc = true;
+    a.st.lock().unwrap().infos = vec!["Pid: 1".into(), "Pid: 1".into(), "Pid: 2".into()];
+    assert!(Proxy::on_runc(&d).await.unwrap());
+    Proxy::move_to_crun(&d).await.unwrap();
+    assert_eq!(counts(), (1, 1));
+    assert!(!Proxy::on_runc(&d).await.unwrap());
     let _ = std::fs::remove_dir_all(dir.parent().unwrap());
 }
 

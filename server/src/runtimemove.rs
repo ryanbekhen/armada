@@ -57,6 +57,8 @@ const MOVE_RECHECK: i64 = 10 * SECOND;
 const MAX_WAITING: usize = 20;
 /// maxImagesToPull bounds a node's count of images to pull again.
 const MAX_IMAGES_TO_PULL: i32 = 1 << 20;
+/// Bounds the runc containers a node reports (ADR 0056).
+const MAX_RUNC_CONTAINERS: i32 = 1 << 20;
 
 /// The runtimes a node reports (runtime.AgentContainerd and the others).
 pub(crate) const AGENT_CONTAINERD: &str = "containerd";
@@ -87,6 +89,7 @@ pub(crate) fn clean_runtime_status(st: Option<&RuntimeStatus>) -> Option<Runtime
                 agent: st.agent.clone(),
                 converting: st.converting,
                 images_to_pull: st.images_to_pull.clamp(0, MAX_IMAGES_TO_PULL),
+                runc_containers: st.runc_containers.clamp(0, MAX_RUNC_CONTAINERS),
                 ..Default::default()
             };
             if !st.error.is_empty() {
@@ -923,5 +926,15 @@ mod tests {
         }))
         .unwrap();
         assert!(st.move_error.is_empty() && st.converting && st.images_to_pull == 0);
+        // Containers left on runc (ADR 0056), bounded.
+        for (n, want) in [(-1, 0), (7, 7), (i32::MAX, 1 << 20)] {
+            let st = clean_runtime_status(Some(&RuntimeStatus {
+                agent: AGENT_SUPERVISOR_RUST.into(),
+                runc_containers: n,
+                ..Default::default()
+            }))
+            .unwrap();
+            assert_eq!(st.runc_containers, want);
+        }
     }
 }

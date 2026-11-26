@@ -315,6 +315,9 @@ echo '{{"exit":137}}' >&4"#,
     let mut rec = lab.record(&id);
     rec.as_object_mut().unwrap().remove("runtime");
     fs::write(&record, serde_json::to_vec(&rec).unwrap()).unwrap();
+    // The agent sees it on runc and moves it; the node counts it.
+    assert_eq!(lab.rt.inspect(&id).await.unwrap().oci_runtime, "runc");
+    assert_eq!(lab.rt.runtime_agent().await.unwrap().runc_containers, 1);
     assert_eq!(
         lab.rt
             .exec_session(&id, cmd(&["x"]))
