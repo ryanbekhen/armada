@@ -53,3 +53,17 @@ path = "src/lib.rs"
 [[bin]]
 name = "armadad"
 path = "src/main.rs"
+
+# The parity cases recorded from Go's armadad (ADR 0055, item 20), replayed
+# against this one (tests/parity): its own harness, since the cases run one
+# after another against stand-ins and the pinned etcd.
+[[test]]
+name = "parity"
+harness = false
+required-features = ["test-hooks"]
+
+# The logger cases recorded from Go's WriteLogs, replayed against
+# armadad runtime-log (and armada-log with ARMADA_LOG_BIN).
+[[test]]
+name = "logwriter"
+required-features = ["test-hooks"]

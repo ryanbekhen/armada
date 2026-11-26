@@ -320,6 +320,11 @@ jobs:
       # The agent's scenarios recorded from Go's agent, replayed against the
       # Rust one (ADR 0055, item 20).
       - run: make agent-scenarios
+      # The client's and the daemon's parity cases recorded from Go's
+      # armada and armadad, replayed against the Rust ones (ADR 0055, item
+      # 20).
+      - run: make client-replay
+      - run: make daemon-replay
       # The cache may restore cargo-deny already; install it only when the
       # pinned version is missing.
       - run: |
@@ -331,6 +336,11 @@ jobs:
       # the CA's, and the secrets' recordings replay in cargo test above.
       - run: make store-replay
       - run: make logger
+      # armada-log stores what Go's WriteLogs stored in the recorded
+      # logger cases (ADR 0055, item 20).
+      - run: cargo test --locked -p armada-daemon --features test-hooks --test logwriter
+        env:
+          ARMADA_LOG_BIN: ${{ github.workspace }}/logger/target/x86_64-unknown-linux-musl/release/armada-log
       - run: make shim
       - run: make dns
       # Every member (armada-node included) builds for both release targets (armada-proto has no

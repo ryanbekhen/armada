@@ -321,7 +321,7 @@ func moreCases(h *harness) []parityCase {
 			{msg: &armadav1.StatusResponse{Nodes: []*armadav1.NodeStatus{{Id: "node3", Replicas: 2}}}},
 			{msg: &armadav1.StatusResponse{Nodes: []*armadav1.NodeStatus{{Id: "node3"}}}},
 		}})},
-		{name: "node delete timeout", args: []string{"node", "delete", "node3", "--wait", "1ms"}, answers: with(map[string][]answer{"Status": nodeStatus(&armadav1.NodeStatus{Id: "node3", Replicas: 2})})},
+		{name: "node delete timeout", args: []string{"node", "delete", "node3", "--wait", "1ns"}, answers: with(map[string][]answer{"Status": nodeStatus(&armadav1.NodeStatus{Id: "node3", Replicas: 2})})},
 		{name: "node delete force", args: []string{"node", "delete", "node1", "--force"}, answers: defaultAnswers()},
 		{name: "node join-token labels", args: []string{"node", "join-token", "--label", "a=b", "--label", "c=d", "--ttl", "90m", "--from", "203.0.113.9", "--site", "office"},
 			answers: with(map[string][]answer{"CreateJoinToken": okAnswer(&armadav1.CreateJoinTokenResponse{Token: "t", CaHash: "h", JoinAddr: "203.0.113.1:7444", ExpiresAt: at(day), Version: "dev"})})},

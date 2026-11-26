@@ -631,7 +631,30 @@ Go and every new Rust part is exercised only by its parity tests.
        replay; the stand-ins of the metrics endpoint, alert channels,
        control plane backup buckets, certificate storage, public join
        listeners, and log and exec sessions come next, then the agent's,
-       store's, client's, and daemon's parity tests.
+       store's, client's, and daemon's parity tests. The client's and the
+       daemon's are done: `go test ./internal/cli -run TestClientParity
+       -record-fixtures` writes `client/tests/testdata/parity.jsonl.gz`
+       (each of the 669 cases' command line, environment, standard input,
+       files, starting client config, the fake AdminService's answers,
+       and Go's outcome), which `client/tests/parity` (`make
+       client-replay`) replays against the Rust armada built with its
+       test-hooks feature (its clock starts at the recorded time) and a
+       stand-in AdminService over mTLS; `go test ./internal/daemon -run
+       TestDaemonParity -record-fixtures` writes
+       `daemon/tests/testdata/parity.jsonl.gz` (each of the 350 cases'
+       arguments, environment, standard input, the case directory as
+       prepared, the state it needs, and the outcome it must give: Go's,
+       or for the Rust armadad's own paths its own once their checks
+       passed), which `daemon/tests/parity` (`make daemon-replay`)
+       replays with the same stand-ins, a stand-in bucket, and a member
+       from the pinned etcd, the machine's interfaces and file system
+       type as recorded (test hooks). The logger cases (`armadad
+       runtime-log` and armada-log against WriteLogs,
+       `daemon/tests/logwriter.rs`) and HAProxy's render cases
+       (`node/tests/render.rs`) replay too; armada-node's other
+       comparisons with Go (cluster network, runtime, volumes, NFS,
+       conntrack, queues), armada-log's search and export, armada-dns's
+       tests, and ACME's come next.
     2. **Go deleted.** `cmd/`, `internal/`, `go.mod`, Go's CI jobs and
        release steps, and every document that names Go code (CLAUDE.md,
        the operations guide, the threat model's references,

@@ -17,7 +17,7 @@
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, UNIX_EPOCH};
 
 use armada_agent::runtime::{
     AGENT_CONTAINERD, AGENT_SUPERVISOR_GO, AGENT_SUPERVISOR_RUST, AgentStatus, Runtime,
@@ -143,7 +143,7 @@ pub fn run(ctx: &mut Ctx<'_>, _: &[String]) -> Result {
     let subnet = machine::parse_prefix_go(&ac.container_subnet).ok();
     let driver = open_driver(&data_dir, &ac);
     let endpoint = join_endpoint(&ac);
-    let now_ns = SystemTime::now()
+    let now_ns = crate::hooks::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_nanos() as i128)
         .unwrap_or(0);
@@ -1331,7 +1331,7 @@ fn check_release(env: &Env) -> Option<Check> {
     if std::env::var_os(release::DISABLE_ENV).is_some_and(|v| !v.is_empty()) {
         return None;
     }
-    let now = SystemTime::now()
+    let now = crate::hooks::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0);

@@ -34,3 +34,21 @@ path = "src/lib.rs"
 [[bin]]
 name = "armada"
 path = "src/main.rs"
+
+[features]
+# ARMADA_CLIENT_TEST_NOW moves the client's clock (lib.rs clock_offset) for
+# the parity cases recorded from Go (tests/parity.rs): never in a release.
+test-hooks = []
+
+# The parity cases recorded from Go's client (ADR 0055, item 20), replayed
+# against this armada and a stand-in AdminService (tonic's server, mTLS).
+[dev-dependencies]
+flate2.workspace = true
+prost.workspace = true
+tonic = { workspace = true, features = ["server"] }
+x509-parser.workspace = true
+
+[[test]]
+name = "parity"
+harness = false
+required-features = ["test-hooks"]
