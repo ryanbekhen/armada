@@ -698,12 +698,11 @@ async fn reports_the_move_of_gos_image_store() {
 }
 
 /// A data directory as Go's TestRustMove kept it before its run
-/// (internal/runtime/supervisor/testdata/rust/move.json), written under
+/// (node/tests/testdata/move.json), written under
 /// data.
 fn write_go_case(data: &Path, name: &str) {
     use std::os::unix::fs::PermissionsExt;
-    let p = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../internal/runtime/supervisor/testdata/rust/move.json");
+    let p = Path::new(env!("CARGO_MANIFEST_DIR")).join("../node/tests/testdata/move.json");
     let v: Value = serde_json::from_slice(&fs::read(p).unwrap()).unwrap();
     let case = v["cases"]
         .as_array()

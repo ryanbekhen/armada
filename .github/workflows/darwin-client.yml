@@ -1,9 +1,10 @@
 name: darwin-client
 
 # The armada client for macOS (ADR 0055), built on a macOS runner: Rust has
-# no macOS SDK on Linux. Called by the ci workflow (every change) and the
-# release workflow (with the tag), whose GoReleaser run packs the artifact
-# (.goreleaser.yaml, build armada-darwin; scripts/release-darwin.sh).
+# no macOS SDK on Linux. Called by the ci workflow (when the client or
+# something a release builds changes) and the release workflow (with the
+# tag), whose GoReleaser run packs the artifact (.goreleaser.yaml, build
+# armada-darwin; scripts/release-darwin.sh).
 on:
   workflow_call:
     inputs:

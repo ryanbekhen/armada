@@ -136,11 +136,6 @@ Deprecated now:
   time, unless `armada cluster update --runtime-move=false` turns that
   off; a cluster's only node and nodes holding volumes wait for their
   operator. containerd leaves the runtime pack in a later release.
-- **Go's code for the supervisor runtime** (`"runtimeAgent": "go"` in
-  `agent.json`). Supervisor nodes run their containers through
-  `armada-node` ([ADR 0054](adr/0054-node-agent-in-rust.md)), and
-  `armadad doctor` warns on a node kept on Go's code. It is removed once
-  every node of a cluster has moved.
 
 ## Platforms
 

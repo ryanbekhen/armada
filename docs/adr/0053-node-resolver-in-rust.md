@@ -50,8 +50,8 @@ in the runtime pack.
    `/run`), so the unit systemd starts again after a crash (100 ms later)
    answers at once.
 3. **Same behaviour as before.** The rules of the Go resolver carry over
-   and are tested against both programs (`internal/dnsserver`, run on
-   `armada-dns` with `ARMADA_DNS_BIN`): answers only the bridge subnet,
+   and were tested against both programs (the Go resolver's tests, run on
+   `armada-dns` too until the Go code was removed, ADR 0055): answers only the bridge subnet,
    silent to everyone else; names only within the caller's space; a lookup
    from an address the agent has not named waits up to 3 seconds, and
    before the first names up to 10; at most 128 forwards at once and 16 per

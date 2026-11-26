@@ -33,9 +33,8 @@ tower.workspace = true
 x509-parser.workspace = true
 
 [features]
-# The program Go's scenario parity tests drive
-# (src/bin/armada-server-parity.rs, ARMADA_SERVER_BIN): never part of a
-# release. A control plane backup's bucket is reached at the address the
+# The program the control plane's replays drive
+# (src/bin/armada-server-parity.rs): never part of a release. A control plane backup's bucket is reached at the address the
 # test names (armada-node's test hooks).
 parity = ["armada-node/test-hooks", "armada-store/parity"]
 
@@ -53,8 +52,4 @@ required-features = ["parity"]
 
 [[bin]]
 name = "armada-server-parity"
-required-features = ["parity"]
-
-[[bin]]
-name = "armada-acme-parity"
 required-features = ["parity"]

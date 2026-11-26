@@ -50,8 +50,8 @@ runtime; `armadad doctor` warns on a node still on containerd and names the
 command that moves it. containerd is removed from the runtime pack in a
 later release, once every node has had a release to move.
 
-- **The agent keeps images and container records itself (Go,
-  `internal/runtime/supervisor`).** Pulling and unpacking run in the agent
+- **The agent keeps images and container records itself (in the Go code;
+  armada-node since ADR 0054).** Pulling and unpacking run in the agent
   through containerd's own libraries, with no daemon: a content store, the
   overlay snapshotter, and the layer applier under
   `<data-dir>/supervisor/images`, at most two blobs fetched at once
@@ -91,7 +91,7 @@ later release, once every node has had a release to move.
   agent asks again on its next pass. Starting and abandoning a group's
   shim are serialized per group, so two callers never start two shims or
   abandon one that was just started.
-- **The driver is shared.** `internal/runtime/containerd` reaches
+- **The driver is shared.** The Go driver reached
   containers, tasks, and images through a `backend` interface; the
   supervisor offers containerd's client types (`Container`, `Task`,
   `Process`, `Image`), so networking, host files, SELinux labels, ports,

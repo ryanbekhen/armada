@@ -1,31 +1,31 @@
 # Area labels for pull requests, by changed path (actions/labeler).
 area/runtime:
   - changed-files:
-      - any-glob-to-any-file: ['internal/runtime/**']
+      - any-glob-to-any-file: ['agent/src/supervisor/**', 'node/src/runtime/**', 'shim/**', 'logger/**', 'pack/**']
 area/ingress:
   - changed-files:
-      - any-glob-to-any-file: ['internal/proxy/**', 'internal/certs/**', 'internal/dnsserver/**']
+      - any-glob-to-any-file: ['agent/src/haproxy/**', 'node/src/proxy/**', 'server/src/acme/**', 'server/src/ingress.rs', 'dns/**']
 area/control-plane:
   - changed-files:
-      - any-glob-to-any-file: ['internal/server/**', 'internal/store/**', 'internal/etcd/**', 'internal/backup/**']
+      - any-glob-to-any-file: ['server/**', 'store/**']
 area/agent:
   - changed-files:
-      - any-glob-to-any-file: ['internal/agent/**']
+      - any-glob-to-any-file: ['agent/**', 'node/**']
 area/cli:
   - changed-files:
-      - any-glob-to-any-file: ['internal/cli/**', 'internal/clientconfig/**', 'cmd/**']
+      - any-glob-to-any-file: ['client/**', 'daemon/**']
 area/spec:
   - changed-files:
-      - any-glob-to-any-file: ['internal/spec/**']
+      - any-glob-to-any-file: ['spec/**']
 area/api:
   - changed-files:
-      - any-glob-to-any-file: ['api/**']
+      - any-glob-to-any-file: ['api/**', 'proto/**']
 area/pki:
   - changed-files:
-      - any-glob-to-any-file: ['internal/pki/**', 'internal/secrets/**']
+      - any-glob-to-any-file: ['pki/**', 'secrets/**']
 area/release:
   - changed-files:
-      - any-glob-to-any-file: ['install.sh', 'deploy/**', '.goreleaser.yaml', '.github/workflows/release.yml', 'test/install_test.sh']
+      - any-glob-to-any-file: ['install.sh', 'deploy/**', '.goreleaser.yaml', '.github/workflows/release.yml', 'test/install_test.sh', 'pack/lock.json']
 documentation:
   - changed-files:
       - any-glob-to-any-file: ['docs/**', '*.md']

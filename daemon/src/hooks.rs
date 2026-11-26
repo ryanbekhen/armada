@@ -1,5 +1,5 @@
 //! The ARMADA_DAEMON_TEST_* hooks of Go's daemon parity tests: read only
-//! by builds with the test-hooks feature (`make daemon-parity`), never by
+//! by builds with the test-hooks feature (`make daemon-replay`), never by
 //! release builds. Each stands for what Go's tests replace in the package
 //! (runDir, upgrade's paths, being root, the version).
 

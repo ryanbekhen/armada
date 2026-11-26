@@ -1,7 +1,6 @@
-//! The parity tests of Go's internal/spec/nativespec_test.go, recorded once
-//! from Go (ADR 0055, item 20): `go test ./internal/spec -run
-//! TestArmadaSpec -record-fixtures` writes testdata/<test>.jsonl.gz, one
-//! line per case with the request Go's test sends armada-spec-check and
+//! The parity tests of Go's internal/spec, recorded once from Go before the
+//! Go code was removed (ADR 0055, item 20): testdata/<test>.jsonl.gz holds
+//! one line per case with the request Go's test sends armada-spec-check and
 //! Go's answer in the program's form. These tests send the same requests
 //! to armada-spec-check and compare its answers as the Go tests do, with no
 //! Go: error texts exactly (lines in any order where Go checks in map

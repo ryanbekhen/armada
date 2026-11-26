@@ -1,6 +1,9 @@
 version: 2
 updates:
-  - package-ecosystem: gomod
+  # The Cargo workspace (Cargo.lock at the root). prost, tonic, and pbjson
+  # are pinned exactly, in step with the generators of proto/gen: when they
+  # move, `make proto-rust` writes armada-proto's code again.
+  - package-ecosystem: cargo
     directory: /
     schedule:
       interval: weekly
@@ -8,7 +11,7 @@ updates:
       prefix: deps # "Dependencies" in the release notes
     labels: [dependencies]
     groups:
-      go-deps:
+      rust-deps:
         patterns: ["*"]
   - package-ecosystem: github-actions
     directory: /

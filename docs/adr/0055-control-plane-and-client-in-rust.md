@@ -654,14 +654,39 @@ Go and every new Rust part is exercised only by its parity tests.
        type as recorded (test hooks). The logger cases (`armadad
        runtime-log` and armada-log against WriteLogs,
        `daemon/tests/logwriter.rs`) and HAProxy's render cases
-       (`node/tests/render.rs`) replay too; armada-node's other
-       comparisons with Go (cluster network, runtime, volumes, NFS,
+       (`node/tests/render.rs`) replay too, and the scenarios of HAProxy's
+       driver, the supervisor runtime, and the image store's move kept
+       under `internal/.../testdata/rust` moved to the crates that read
+       them (`agent/tests/testdata/haproxy`,
+       `agent/tests/testdata/supervisor`, `node/tests/testdata/move.json`).
+       armada-node's other comparisons with Go (cluster network messages,
+       pulls and unpacking, exec, the supervisor's calls, volumes, NFS,
        conntrack, queues), armada-log's search and export, armada-dns's
-       tests, and ACME's come next.
+       tests against the Go resolver's, ACME's against Pebble beside
+       certmagic, etcd's unit integration test, and the containerd
+       conformance suite were not recorded: they went with the Go code,
+       armada-node, armada-log, and armada-dns keeping their own Rust tests
+       and the end-to-end run.
     2. **Go deleted.** `cmd/`, `internal/`, `go.mod`, Go's CI jobs and
        release steps, and every document that names Go code (CLAUDE.md,
        the operations guide, the threat model's references,
-       `docs/compatibility.md` for the one downgrade allowed).
+       `docs/compatibility.md` for the one downgrade allowed). Done
+       (20c): `cmd/`, `internal/`, `go.mod`, `go.sum`, the generated Go
+       code next to `api/armada/v1/armada.proto` (the `.proto` stays,
+       `make proto` generates `proto/src/gen` from it), the golangci-lint
+       configuration, the parity programs only Go's tests ran
+       (`armada-pki-parity`, `armada-secrets-parity`,
+       `armada-acme-parity`), and every Go step of the Makefile, CI, and
+       the release workflow are gone. The recordings are goldens: nothing
+       writes them again, and a change of behaviour they cover changes
+       them by hand. CI runs only what a change touches
+       (`scripts/ci-changes.sh`): the crates it changes and every crate
+       that depends on one, with their replays; the programs outside the
+       workspace it changes; HAProxy's `haproxy -c` on the configurations
+       armada-node renders (`scripts/haproxy-check.sh`) when the renderer
+       or the image changes; and the packaging when something a release
+       builds changes; the arm64 release build runs on pushes to `main`
+       only. `cargo deny check advisories` takes govulncheck's place.
 
     Done first (20a): every build, release, and documentation tool that
     needed Go is out of Go, so deleting the code breaks none of them.
@@ -732,8 +757,8 @@ Go and every new Rust part is exercised only by its parity tests.
 
 The release is tagged after 19 and the cloud run, before 20 (the owner's
 decision once 19 passed the lab runs): from 19 on, nothing a release
-ships is Go, and the Go code stays in the repository only as the parity
-tests' reference until 20 has replaced them.
+ships is Go, and the Go code stayed in the repository only as the parity
+tests' reference until 20 had replaced them (it went in 20c).
 
 ### What stays the same for people
 

@@ -1,7 +1,7 @@
 //! The client's parity cases recorded from Go (ADR 0055, item 20),
 //! replayed against this armada.
 //!
-//! `go test ./internal/cli -run TestClientParity -record-fixtures` ran
+//! Go's TestClientParity, before the Go code was removed, ran
 //! every case of Go's client parity harness (the cases written for it,
 //! every example line of every command, and every command's help) against
 //! Go's armada alone and wrote testdata/parity.jsonl.gz: each case's

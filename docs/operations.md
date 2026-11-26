@@ -913,11 +913,6 @@ only new ones need room. If a rollout waits for a node, `armada app show`
 names what is short: scale another app down, lower its reservation, or add
 a node.
 
-`armadad server` and `armadad agent` run Go's garbage collector at
-`GOGC=50`, which keeps a few MiB less resident than Go's default for a few
-more short collections a minute. To change it, set `GOGC` in a systemd
-drop-in for `armada-server` or `armada-agent` (`Environment=GOGC=100`).
-
 Nodes keep only the images they need: every 10 minutes each agent removes
 images that no container uses and that no replica assigned to the node
 names, once they were pulled more than an hour ago. Rolling back to a
@@ -1143,11 +1138,9 @@ between containers of two nodes against 3.4 Gbit/s in `plain`, 88 MB/s
 against 148 MB/s for a large upload through HAProxy, and about 30% fewer
 requests per second to a replica on the other node, with twice the CPU
 for the same transfer. Calls between apps that stay on their node
-(local-first routing) do not pay it. Where the kernel
-has no WireGuard, the agent runs it in userspace, which is markedly slower,
-and traffic between nodes pauses while that agent restarts; `armadad doctor`
-warns about it, and the leader keeps a `WireGuardUserspace` event on the
-node (an alert warning) until it runs on a kernel with WireGuard.
+(local-first routing) do not pay it. The mode needs the kernel's
+WireGuard (Linux 5.6 or later): on a machine without it the node's
+cluster network fails and `armadad doctor` says so.
 
 Allow the mode's port between the nodes in the provider firewall; Armada
 accepts it on each node only on the private IP and only from the other
@@ -1286,26 +1279,13 @@ node (`--container-subnet`, default `10.121.0.0/24`).
 
 ### The cluster network in armada-node
 
-The node agent is moving to Rust (ADR 0054). Every node sets up its
-cluster network (the tunnels, routes, firewall rules, and isolation
-tables) through the runtime pack's `armada-node`, and `armadad doctor`
-and `armadad runtime reset` use it too; the interfaces and rules are the
-same the agent's own code sets up.
-
-When armada-node fails a pass, the agent does that pass itself and logs
-`armada-node failed; Go did it instead` with the reason, once for each new
-reason. A node whose kernel has no WireGuard runs it in userspace inside
-the agent as before.
-
-While the agent's own code remains, a node can be kept on it with
-`"netAgent": "go"` in its `/var/lib/armada/agent.json`, then a restart of
-its service (remove the line, and restart, to go back):
-
-```bash
-sudo sed -i '1s/^{$/{\n  "netAgent": "go",/' /var/lib/armada/agent.json
-sudo systemctl restart armada-agent           # armada-server on a control plane server
-journalctl -u armada-agent | grep armada-node # nothing new after the restart
-```
+Every node sets up its cluster network (the tunnels, routes, firewall
+rules, and isolation tables) through the runtime pack's `armada-node`
+(ADR 0054), and `armadad doctor` and `armadad runtime reset` use it too.
+A pass that fails is logged with its reason and tried again on the next
+one. The `wireguard` and `mesh` modes, and nodes of another site, need
+the kernel's WireGuard (Linux 5.6 or later): without it the pass fails
+and `armadad doctor` says so.
 
 ### Containers in armada-node
 
@@ -1319,22 +1299,22 @@ the replica's or the job's network namespace, starts the processes
 mounts and unmounts NFS volumes, and keeps the connection tracking limit
 raised. The agent keeps building each container, running its network and
 logs, carrying the input and output of every exec, and resolving a
-broker's name. When armada-node fails to write a bundle, reach a shim,
-sample the replicas, read a queue, mount an export, or start an exec, the
-agent does it itself and logs `armada-node failed; Go did it instead`. Nodes on containerd are not affected: the leader moves them to
-the supervisor first ([Container runtimes](#container-runtimes), above).
+broker's name. Nodes on containerd are not affected: the leader moves
+them to the supervisor first ([Container runtimes](#container-runtimes),
+above).
 
-**Upgrading** a supervisor node from a release whose agent ran its
-containers needs nothing more than the upgrade. When the agent starts, it
-moves the node's image store (`/var/lib/armada/supervisor/images`) into
-armada-node's before it starts anything: blobs are linked and unpacked
-layers moved on the same file system, so no image is pulled again, and
-the root filesystem of every container on the node (the proxy's
-included, running or not) moves as it is, so no container restarts and
-nothing they wrote is lost. The old store is then removed, and the node
-counts as moved at once. The agent logs the result (`converted Go's image
-store into armada-node's`, with how many images were converted and left
-out and how many root filesystems moved) and records it in
+**Upgrading** a supervisor node whose agent kept the images in its own
+store (releases before armada-node ran containers, or a node kept on Go's
+code with `"runtimeAgent": "go"`) needs nothing more than the upgrade. When the
+agent starts, it moves the node's image store
+(`/var/lib/armada/supervisor/images`) into armada-node's before it starts
+anything: blobs are linked and unpacked layers moved on the same file
+system, so no image is pulled again, and the root filesystem of every
+container on the node (the proxy's included, running or not) moves as it
+is, so no container restarts and nothing they wrote is lost. The old
+store is then removed, and the node counts as moved at once. The agent
+logs the result (with how many images were converted and left out and
+how many root filesystems moved) and records it in
 `/var/lib/armada/node/converted.json`. An image it cannot convert (a blob
 or layer missing) is logged with the reason and pulled again when a
 replica needs it; a container whose root filesystem cannot move (its
@@ -1352,57 +1332,26 @@ sudo armadad doctor        # runtime-agent: ok, or what to do
 
 A node is counted once nothing of the old store is left and no image left
 out of the conversion is still to be pulled again. `armadad doctor`'s
-`runtime-agent` check warns on containerd nodes, on a node kept on the
-agent's own code, on a conversion that has not run or failed, and while
-images left out are not pulled again.
+`runtime-agent` check warns on containerd nodes, on a conversion that has
+not run or failed, and while images left out are not pulled again.
 
-While the agent's own code remains, a node can be kept on it with
-`"runtimeAgent": "go"` in its `/var/lib/armada/agent.json`, then a restart
-of its service:
-
-```bash
-sudo sed -i '1s/^{$/{\n  "runtimeAgent": "go",/' /var/lib/armada/agent.json
-sudo systemctl restart armada-agent           # armada-server on a control plane server
-```
-
-Going back works after a move too. Once the old store is gone (the usual
-case), the agent's own code starts a new one and pulls the images it
-needs as replicas are replaced; the containers made before keep running
-from armada-node's store, and their root filesystems are removed with
-them. While the old store is still there, the agent's own code takes the
-layers and root filesystems the move took from it back at its start.
-Removing the line and restarting moves the node again.
+`"netAgent"`, `"runtimeAgent"`, and `"volumeAgent"` in `agent.json`,
+which kept a node on the agent's own Go code up to v0.1.0-alpha.42, are
+ignored; `armadad doctor` warns about `"runtimeAgent": "go"` until the
+line is removed.
 
 ### Volume archives and backups in armada-node
 
 `armada volume backup` and `armada volume restore` archives, and the
 volume sizes nodes report every minute, are made by the runtime pack's
-`armada-node` on every node; the archives are the same as before, and the
-agent still carries them between the node and the client. When
-armada-node fails before any of an archive has been sent or read, the
-agent does the backup, restore, or measure itself and logs `armada-node
-failed; Go did it instead`; once part of an archive went through, the
-operation fails with the reason, and can be run again.
-
-Volume backups to a bucket (`volumes[].backup`, `armada snapshot create`,
-`armada snapshot list`, `armada volume restore --snapshot`) are made,
-listed, pruned, and restored by `armada-node` the same way. The bucket
-holds the same repository as before: backups made by either can be
-listed and restored by the other, and nothing in the bucket changes. When
-armada-node fails before it wrote anything to the bucket or the volume,
-the agent does the operation itself and logs `armada-node failed; Go did
-it instead`; after that, the operation fails with the reason. The control
-plane's own backups (`cluster update --backup-url`) are made by the
-leader as before.
-
-While the agent's own code remains, a node can be kept on it with
-`"volumeAgent": "go"` in its `/var/lib/armada/agent.json`, then a restart
-of its service:
-
-```bash
-sudo sed -i '1s/^{$/{\n  "volumeAgent": "go",/' /var/lib/armada/agent.json
-sudo systemctl restart armada-agent           # armada-server on a control plane server
-```
+`armada-node` on every node; the agent carries the archives between the
+node and the client. Volume backups to a bucket (`volumes[].backup`,
+`armada snapshot create`, `armada snapshot list`, `armada volume restore
+--snapshot`) are made, listed, pruned, and restored by `armada-node` the
+same way, in the repository format of earlier releases: backups made
+before can be listed and restored. An operation that fails says why and
+can be run again. The control plane's own backups (`cluster update
+--backup-url`) are made by the leader.
 
 ## How requests reach replicas
 
@@ -1940,7 +1889,7 @@ The leader reads the cluster's state for the endpoint at most once every 10
 seconds: scrapes in between, from one scraper or several, get the same
 values, so the app, replica, node, space, job, and volume metrics may be
 up to 10 seconds old. `armada_reconcile_*`, `armada_job_runs_total`,
-`armada_events_total`, and the Go runtime metrics are always current. A
+and `armada_events_total` are always current. A
 scrape interval under 10 seconds costs nothing more, but shows nothing new.
 
 | Metric | Labels | Meaning |

@@ -18,7 +18,7 @@ control plane. It does not run in CI.
   every node directly, so the record may name just one of them.
 - `ssh`, `scp`, `curl`, `jq`, and `openssl` on your workstation.
 - Linux binaries for the machines' architecture: `make build-bundle` (add
-  `GOARCH=arm64` for arm64) builds `armadad` with the runtime pack and
+  `ARCH=arm64` for arm64) builds `armadad` with the runtime pack and
   the `armada` client next to it. `ARMADA_BIN` names the `armadad` binary;
   the script installs the client from the same directory. A cluster may mix
   amd64 and arm64 machines: build both and pass them as `ARMADA_BIN_AMD64`

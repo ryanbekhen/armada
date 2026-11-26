@@ -16,7 +16,7 @@
   <a href="https://github.com/ryanbekhen/armada/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/ryanbekhen/armada/actions/workflows/ci.yml/badge.svg"></a>
   <a href="https://github.com/ryanbekhen/armada/releases"><img alt="Release" src="https://img.shields.io/github/v/release/ryanbekhen/armada?include_prereleases&sort=semver"></a>
   <a href="LICENSE"><img alt="License: Apache 2.0" src="https://img.shields.io/badge/license-Apache%202.0-blue"></a>
-  <a href="go.mod"><img alt="Go version" src="https://img.shields.io/github/go-mod/go-version/ryanbekhen/armada"></a>
+  <a href="rust-toolchain.toml"><img alt="Rust 1.100" src="https://img.shields.io/badge/rust-1.100-orange"></a>
 </p>
 
 <p align="center">

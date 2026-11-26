@@ -15,25 +15,31 @@ and code are all welcome.
 
 ## Build and test
 
-You need Go (the version in `go.mod`), `golangci-lint` v2, `govulncheck`,
-`protoc` (only to change the API), and rustup with clang (for the Rust
-code: the Cargo workspace at the root, `node/` and `proto/`, and the
-standard-library-only programs in `logger/`, `shim/`, and `dns/`; the
-toolchain is pinned in each `rust-toolchain.toml`).
+Armada is written in Rust. You need rustup with clang: the toolchain is
+pinned in each `rust-toolchain.toml` (the Cargo workspace at the root, and
+the standard-library-only programs in `logger/`, `shim/`, and `dns/`), and
+ring, under rustls, compiles its C with clang. `cargo-deny`
+(`cargo install cargo-deny --locked`) checks the crates, and `protoc` is
+needed only to change the API.
 
 ```bash
-make build         # ./bin/armada (client) and ./bin/armadad (daemon), from Rust; on macOS the client only
-make test          # unit tests with the race detector
-make check         # vet + lint + test + govulncheck: what CI runs
+make build         # ./bin/armada (client) and ./bin/armadad (daemon); on macOS the client only
+make lint          # cargo fmt --check, and clippy as released and with the test features
+make test          # every member's tests (cargo test --workspace)
+make replays       # what Go's code did, recorded before it was removed, replayed (REPLAYS=server ... for some)
+make vuln          # cargo deny: crate licenses and RustSec advisories
+make check         # all of the above, release builds for both targets, and logger/, shim/, dns/, proto/gen
 make logger        # armada-log for amd64 and arm64 (cd logger && cargo test for its tests)
-make rust-check    # the Cargo workspace: fmt, clippy, tests, crate licenses, release builds
-make build-bundle  # static Linux armadad with the container runtime embedded, and armada (GOARCH=arm64 for arm64)
+make build-bundle  # static Linux armadad with the container runtime embedded, and armada (ARCH=arm64 for arm64)
 make docs          # regenerate the CLI reference in docs/cli
-make proto         # regenerate api/armada/v1 and proto/src/gen after changing the .proto
+make proto         # regenerate proto/src/gen after changing api/armada/v1/armada.proto
+make haproxy-check # haproxy -c on rendered configurations (needs docker, podman, or nerdctl)
 ```
 
-A single test: `go test ./internal/spec/... -run TestName`. Golden files of
-the proxy configuration: `go test ./internal/proxy/haproxy -update`.
+A single test: `cargo test -p armada-spec NAME`. The replays' recordings
+(`*/tests/testdata`) were written by the Go code before it was removed:
+they are goldens now, and a change of behaviour they cover changes them by
+hand.
 
 [test/e2e](test/e2e/README.md) builds a cluster on real machines and
 checks it end to end: rolling updates and failover under load, node loss,
@@ -41,9 +47,12 @@ reboots, and every feature's scenario. Releases run all of it.
 
 ## Pull requests
 
-- **CI** builds, lints, and tests every pull request that changes code. One
-  that changes only documents (Markdown, `docs/`, the license, issue
-  templates) skips those jobs and only has its commit subjects checked.
+- **CI** builds, lints, and tests what a pull request touches: the crates
+  it changes and every crate that depends on one, the programs outside the
+  workspace it changes, and the packaging when something a release builds
+  changes (`scripts/ci-changes.sh` decides). One that changes only
+  documents (Markdown, `docs/`, the license, issue templates) only has its
+  commit subjects checked.
 - **One change per pull request**, small enough to review. Open an issue
   first for anything large.
 - **Commit subjects** follow Conventional Commits
@@ -57,9 +66,13 @@ reboots, and every feature's scenario. Releases run all of it.
 - **Tests.** New behaviour comes with tests next to the code. Changes to
   certificates, secrets, the proxy configuration, or API authorization also
   test what must be refused.
-- **Licenses of dependencies.** A new Go module must be under Apache-2.0,
-  MIT, BSD-2-Clause, BSD-3-Clause, ISC, MPL-2.0, or CC0-1.0, so Armada
-  stays free for commercial use; `make licenses` checks it, and CI runs it.
+- **Licenses of dependencies.** A new crate must be under Apache-2.0,
+  MIT, BSD-2-Clause, BSD-3-Clause, ISC, MPL-2.0, CC0-1.0, or Unicode-3.0
+  (Unicode data), so Armada stays free for commercial use; `cargo deny
+  check licenses` (`deny.toml`) checks it, CI runs it, and
+  [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) names every crate
+  (armada-pack's tests check it). `logger/`, `shim/`, and `dns/` use the
+  Rust standard library only.
   Never add code under the GPL, AGPL, SSPL, BUSL, or a license that limits
   commercial use. A new or upgraded program in the embedded runtime
   (`pack/lock.json`) updates

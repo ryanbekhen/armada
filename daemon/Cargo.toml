@@ -42,8 +42,8 @@ tower.workspace = true
 # The runtime pack compiled in (Go's build tag bundle): the pack
 # `make runtime-bundle` writes for the target, or ARMADA_RUNTIME_PACK.
 bundle = []
-# The ARMADA_DAEMON_TEST_* hooks of Go's daemon parity tests (src/hooks.rs):
-# only in `make daemon-parity`, never in release builds.
+# The ARMADA_DAEMON_TEST_* hooks of the daemon's replays (src/hooks.rs):
+# only in `make daemon-replay`, never in release builds.
 test-hooks = ["armada-node/test-hooks"]
 
 [lib]

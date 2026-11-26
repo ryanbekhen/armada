@@ -49,8 +49,8 @@ tokio = { workspace = true, features = ["test-util"] }
 tonic = { workspace = true, features = ["server"] }
 
 [features]
-# The program Go's agent parity tests drive (src/bin/armada-agent-parity.rs,
-# ARMADA_AGENT_BIN), and the replay of their scenarios recorded from Go
+# The program the agent's replays drive (src/bin/armada-agent-parity.rs),
+# and the replay of their scenarios recorded from Go
 # (tests/scenarios.rs) with its fake armada-node: never part of a release.
 parity = []
 

@@ -1,7 +1,7 @@
-//! The parity cases of Go's internal/secrets/native_test.go, recorded once
-//! from Go (ADR 0055, item 20): `go test ./internal/secrets -run
-//! TestRecordSecretsFixtures -record-fixtures` writes testdata/parity.json
-//! with what Go sealed, refused, and wrote; these tests check the crate
+//! The parity cases of Go's internal/secrets tests, recorded once from Go
+//! before the Go code was removed (ADR 0055, item 20): testdata/parity.json
+//! holds
+//! what Go sealed, refused, and wrote; these tests check the crate
 //! opens, refuses, and writes the same with no Go.
 
 use std::os::unix::fs::PermissionsExt;

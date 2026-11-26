@@ -1,7 +1,6 @@
-//! The supervisor runtime against Go's driver: what Go's
-//! TestRustSupervisorCNI, TestRustSupervisorFiles, and
-//! TestRustSupervisorContainers (internal/runtime/containerd
-//! rustsupervisor_linux_test.go) kept in testdata/rust, replayed here.
+//! The supervisor runtime against Go's driver: what Go's supervisor tests
+//! kept before the Go code was removed (tests/testdata/supervisor),
+//! replayed here.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -17,7 +16,7 @@ use super::*;
 
 fn golden(name: &str) -> Value {
     let p = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../internal/runtime/containerd/testdata/rust")
+        .join("tests/testdata/supervisor")
         .join(name);
     serde_json::from_slice(&fs::read(&p).unwrap()).unwrap()
 }

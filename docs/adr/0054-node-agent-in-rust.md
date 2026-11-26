@@ -390,7 +390,7 @@ How steps 1 to 3 and 5 are built (the seventh part of step 4 above):
 How step 4 is built (the leader moves containerd nodes):
 
 - **Who moves, and when.** Only the leader, from its reconcile pass
-  (`advanceRuntimeMove`, `internal/server/runtimemove.go`), and only nodes
+  (`advanceRuntimeMove`; `server/src/runtimemove.rs` since ADR 0055), and only nodes
   whose agent reported `containerd` in its latest usage report and
   announced `Hello.runtime_move` (an agent whose runtime is containerd
   sets `agent.Config.MoveRuntime`; older agents are never asked and wait
@@ -436,7 +436,7 @@ How step 4 is built (the leader moves containerd nodes):
   its session after the pass's assignments, so the agent holds the
   assignment without the replicas first, and again every 30 seconds and on
   every new session until the node moves (`askToMove`; memory only, so a
-  new leader asks again). The agent (`internal/agent/runtimemove.go`)
+  new leader asks again). The agent (`agent/src/runtimemove.rs` since ADR 0055)
   runs one move at a time: under `reconcileMu`, so nothing starts, it
   refuses when it has no assignment yet, when a replica other than a
   finished job attempt is assigned, or while a volume operation runs; the
@@ -461,7 +461,7 @@ How step 4 is built (the leader moves containerd nodes):
   move goes on, the restarted agent pulling the image itself. Replicas'
   images are not pulled ahead: none is assigned by then, and they come
   back through rebalancing. Then, under `reconcileMu` and checked again,
-  the daemon's hook (`nodeMove`, `internal/daemon/runtimemove.go`) does what `armadad
+  the daemon's hook (`nodeMove`) does what `armadad
   runtime migrate --to supervisor` does (`migrateRuntime`, shared with the
   command): every container and network sandbox Armada runs, the node's
   HAProxy included, is removed from containerd, `agent.json` records
@@ -541,8 +541,8 @@ Removing Go's runtime code comes next.
    once per distinct failure, counted with `StoodIn`):
    - Connection tracking: `armada-node conntrack read|raise` reads the
      table's use and limit and raises the limit to the node's target,
-     never lowering it, as `internal/conntrack` does (same files, same
-     error texts). `armadad doctor` still reads it in Go.
+     never lowering it, as the Go agent's code did (same files, same
+     error texts).
    - NFS mounts: `armada-node nfs mount` checks the export's server and
      path again and mounts it as the agent does (`nfs4`, nosuid and
      nodev, read-only when asked, hard over TCP, 4.2 then 4.1 then 4.0
@@ -563,8 +563,8 @@ Removing Go's runtime code comes next.
      passive Queue.Declare, written by hand as amqp091-go speaks it: the
      same URL rules, mechanisms, negotiated limits, and the same failure
      reported as the same error, except where amqp091-go reads a URL or a
-     failure wrongly, which `internal/queuelen` now reads as armada-node
-     does: a URL with no host is not valid (never localhost), a user
+     failure wrongly, which the Go agent's queue reader came to read as
+     armada-node does: a URL with no host is not valid (never localhost), a user
      without a password logs in with an empty password (never "guest"),
      an unknown `auth_mechanism` is the URL's mistake and a broker
      offering none of the URL's mechanisms says so, and a refused

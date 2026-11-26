@@ -5,18 +5,13 @@ or downloads, software by others under their own licenses. Every one of
 them allows commercial use; this file lists what each needs from people
 who pass Armada on.
 
-## Go modules
+## Armada's own code
 
-The `armada` and `armadad` binaries of releases are Rust programs (ADR
-0055; their crates are listed from "armada-node" on) and link no Go
-module. The Go code still in the repository (`cmd/`, `internal/`) uses Go
-modules under Apache-2.0, MIT, BSD-2-Clause, BSD-3-Clause, ISC, MPL-2.0,
-and CC0-1.0; `make licenses` (run in CI) fails when a module under any
-other license is added. Go programs that releases do carry are etcd's
-(below), with the license files of the modules they link.
-
-- **MPL-2.0:** `github.com/cyphar/filepath-securejoin` is used unmodified;
-  its source is at <https://github.com/cyphar/filepath-securejoin>.
+The `armada` and `armadad` binaries are Rust programs (ADR 0055; their
+crates are listed from "armada-node" on) and link no Go module; the
+repository holds no Go code. Parts of the Rust code are ported from Go
+code, listed under armada-spec below. The Go programs releases carry are
+etcd's (below), with the license files of the modules they link.
 
 ## The embedded container runtime
 
@@ -136,8 +131,8 @@ windows_x86_64_gnullvm, windows_x86_64_msvc (MIT or Apache-2.0).
 ## armada-proto
 
 `armada-proto` (`proto/`, Apache-2.0) holds Armada's protocol in Rust
-(ADR 0055). No released program links it yet; the programs that will are
-built with it and these crates:
+(ADR 0055). `armada` and `armadad` link it; they are built with it and
+these crates:
 
 | Crate | License |
 | --- | --- |
@@ -169,9 +164,9 @@ which `proto/vendor/etcd` keeps with the services Armada uses. Source:
 
 `armada-pki` (`pki/`), `armada-secrets` (`secrets/`), and `armada-fsutil`
 (`fsutil/`, the standard library only), all Apache-2.0, hold the cluster's
-CA, certificates, and secret encryption in Rust (ADR 0055). No released
-program links them yet; the programs that will are built with them, ring
-(above), and these crates:
+CA, certificates, and secret encryption in Rust (ADR 0055). `armada` and
+`armadad` link them; they are built with them, ring (above), and these
+crates:
 
 | Crate | License |
 | --- | --- |
@@ -193,9 +188,7 @@ displaydoc, thiserror-impl, time-macros (MIT or Apache-2.0), asn1-rs-impl
 `third_party/licenses/rust/asn1-rs-impl/` keeps from its repository,
 <https://github.com/rusticata/asn1-rs>), and synstructure (MIT). bit-vec
 (MIT or Apache-2.0) is in the lock file as an optional dependency Armada's
-builds do not select. The test programs of Go's parity tests
-(`armada-pki-parity`, `armada-secrets-parity`, the `parity` feature) are
-never built for a release.
+builds do not select.
 
 `proto/gen`, the generator `make proto` runs, is outside the workspace
 with a `Cargo.lock` of its own: it writes `proto/src/gen` on a
@@ -206,7 +199,7 @@ Besides crates under the licenses above, prost-build brings foldhash
 ## armada-spec
 
 `armada-spec` (`spec/`, Apache-2.0) reads, checks, and writes app and job
-specs in Rust (ADR 0055). No released program links it yet; besides
+specs in Rust (ADR 0055). `armada` and `armadad` link it; besides
 serde_json (above), it is built with these crates:
 
 | Crate | License |
@@ -238,8 +231,7 @@ Go's code does:
 
 `armada-store` (`store/`, Apache-2.0) keeps the cluster state in etcd in
 Rust (ADR 0055): the client of an etcd member, the transactions, every
-record, and the election and lock recipes. No released program links it
-yet; besides armada-proto, armada-spec, armada-pki, armada-secrets, ring,
+record, and the election and lock recipes. `armadad` links it; besides armada-proto, armada-spec, armada-pki, armada-secrets, ring,
 rustls, rustls-pki-types, serde, serde_json, tokio, tokio-stream, and
 tonic (above), it is built with these crates:
 
@@ -257,7 +249,7 @@ tonic (above), it is built with these crates:
 
 Used only while building, not linked: tokio-macros (MIT). In the lock
 file for other operating systems only: windows-link and windows-sys
-0.61 (MIT or Apache-2.0). The test program of Go's parity tests
+0.61 (MIT or Apache-2.0). The test program of the store's replays
 (`armada-store-parity`, the `parity` feature) is never built for a
 release.
 
@@ -271,15 +263,14 @@ and Rust servers campaign in one election. Source:
 
 `armada-server` (`server/`, Apache-2.0) is the control plane in Rust
 (ADR 0055): one leadership term's API with access control, joins,
-sessions with agents, and assignments. No released program links it yet;
-besides the crates of armada-store (above) and armada-fsutil, it is
+sessions with agents, and assignments. `armadad` links it; besides the crates of armada-store (above) and armada-fsutil, it is
 built with tonic's server, which adds this crate:
 
 | Crate | License |
 | --- | --- |
 | httpdate | MIT or Apache-2.0 |
 
-The test program of Go's scenario parity tests (`armada-server-parity`,
+The test program of the control plane's replays (`armada-server-parity`,
 the `parity` feature) is never built for a release.
 
 ## armada-client
@@ -315,9 +306,9 @@ kept as cobra writes them so completion works as it did. Source:
 
 `armada-agent` (`agent/`, Apache-2.0) is the node agent's loop in Rust
 (ADR 0055): the session with the control plane and the reconcile pass
-over a container runtime. No released program links it yet; it uses only
+over a container runtime. `armadad` links it; it uses only
 crates named above (those of armada-store and armada-pki, with tonic's
-channel). The test program of Go's agent parity tests
+channel). The test program of the agent's replays
 (`armada-agent-parity`, the `parity` feature) is never built for a
 release.
 

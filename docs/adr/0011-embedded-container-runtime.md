@@ -33,7 +33,7 @@ one platform it builds, releases, and tests.
 ### What is bundled
 
 Release builds embed upstream release binaries, pinned by version and
-SHA-256 in `pack/lock.json` (in `internal/runtime/embedded/lock.go` until
+SHA-256 in `pack/lock.json` (in a Go file of the runtime package until
 ADR 0055's item 20):
 
 | Component | Why |
@@ -59,8 +59,8 @@ own log writer (see Logs), built from `logger/` rather than downloaded.
   on every start, and `<data-dir>/runtime/current` is switched to it
   atomically. Older pack directories are removed.
 - The release SBOM lists the bundled components. A security fix in any of
-  them is an Armada patch release; `govulncheck` does not see these
-  binaries, so the release process checks their advisories explicitly.
+  them is an Armada patch release; the crates' advisory check (`cargo
+  deny`) does not see these binaries, so the release process checks their advisories explicitly.
 
 ### Running containerd
 

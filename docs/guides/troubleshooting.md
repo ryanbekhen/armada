@@ -23,7 +23,6 @@ armada app logs api --tail 200   # what the app printed (--replica ID, --contain
 armada app logs api --since 2h --grep error   # its history, replicas that are gone included
 armada cluster events | grep LogExportFailing  # a node that cannot send logs to the log store (ADR 0044)
 armada cluster events | grep PeerUnreachable   # a node that has not reached another over WireGuard for 3 minutes
-armada cluster events | grep WireGuardUserspace   # a node whose kernel has no WireGuard: slower traffic between nodes
 armada cluster events            # everything, with nodes and certificates (cluster-admin)
 sudo armadad doctor              # on a node: runtime, network, firewall, certificates, clock
 ```
@@ -390,7 +389,7 @@ sudo armadad doctor
 | --- | --- | --- |
 | `network` routes fewer subnets than you have other nodes, or `... have no recent handshake ...; allow UDP 51820 between the nodes` | The tunnel port is blocked between nodes | Allow UDP 4789 (`plain`) or UDP 51820 (`wireguard`) between the nodes' private addresses |
 | `armada-net is not set up yet` | The agent has not connected since joining | Check the agent (previous section) |
-| `the kernel has no WireGuard: the agent runs it in userspace` | No kernel WireGuard | Works, but slower (a `WireGuardUserspace` event says which nodes); use a kernel with WireGuard |
+| `the kernel has no WireGuard, which this node's cluster network needs` | No kernel WireGuard (the `wireguard` and `mesh` modes, and nodes of another site) | Use a kernel with WireGuard (Linux 5.6 or later) |
 | `network-mtu` failure, or large transfers stall | The private interface's MTU leaves too little for the tunnel's overhead (50 bytes in `plain`, 80 in `wireguard`) | Raise the MTU of the private interface; containers created earlier keep their old MTU until they are replaced |
 | `isolation` failure | The nftables tables are missing | The kernel needs nf_tables; restart the agent |
 | `subnet` failure: `container subnet ... overlaps route ...` | The node's container subnet clashes with a route on the machine | Remove the clashing route (the cluster CIDR is chosen once, at `armadad init`) |

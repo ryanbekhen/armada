@@ -1,6 +1,5 @@
 //! The replay of the agent's scenarios recorded from Go's agent (ADR 0055,
-//! item 20; internal/agent/parity_record_test.go writes them with
-//! -record-scenarios). Each scenario's steps are run against the Rust
+//! item 20) before the Go code was removed; the recordings are goldens. Each scenario's steps are run against the Rust
 //! agent's parity program, its runtime calls answered by the fakes ported
 //! to Rust (fake.rs), the sessions' control plane, log endpoint, and
 //! armada-node by side.rs, and every step's transcript lines are compared
