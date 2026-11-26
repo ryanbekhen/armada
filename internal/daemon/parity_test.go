@@ -82,6 +82,14 @@ type daemonCase struct {
 	// state is what a case of the commands that need the cluster's state
 	// needs (parity_state_test.go).
 	state *stateCase
+	// rust, when set, is where the Rust armadad does something else on
+	// purpose (parity_units_test.go): it turns Go's result into the one
+	// the Rust armadad must give.
+	rust func(daemonResult) daemonResult
+	// rustOnly cases run the Rust armadad alone, for a path Go's armadad
+	// does not have (the rollback to the last Go release); it judges the
+	// result.
+	rustOnly func(t *testing.T, dir string, r daemonResult)
 }
 
 type upgradeCase struct {
@@ -524,6 +532,7 @@ func TestDaemonParity(t *testing.T) {
 	cases = append(cases, h.doctorCases(t)...)
 	cases = append(cases, daemonExampleCases(t)...)
 	cases = append(cases, daemonHelpCases()...)
+	cases = append(cases, h.unitCases()...)
 	names := map[string]bool{}
 	for _, c := range cases {
 		if names[c.name] {
@@ -541,6 +550,17 @@ func TestDaemonParity(t *testing.T) {
 			}
 			dir := t.TempDir()
 			t.Chdir(dir)
+			if c.rustOnly != nil {
+				if h.bin == "" {
+					t.Skip("a case of the Rust armadad alone (ARMADA_DAEMON_BIN)")
+				}
+				r := h.runRust(t, dir, c)
+				if os.Getenv("ARMADA_PARITY_VERBOSE") != "" {
+					t.Logf("exit %d\n--- stdout\n%s--- stderr\n%s--- files\n%s", r.Code, r.Stdout, r.Stderr, strings.Join(r.Files, "\n"))
+				}
+				c.rustOnly(t, dir, r)
+				return
+			}
 			goRes := h.runGo(t, dir, c)
 			if os.Getenv("ARMADA_PARITY_VERBOSE") != "" {
 				t.Logf("exit %d\n--- stdout\n%s--- stderr\n%s", goRes.Code, goRes.Stdout, goRes.Stderr)
@@ -548,7 +568,7 @@ func TestDaemonParity(t *testing.T) {
 			if h.bin == "" {
 				return
 			}
-			compareDaemon(t, goRes, h.runRust(t, dir, c))
+			compareDaemon(t, rustWants(c, goRes), h.runRust(t, dir, c))
 		})
 	}
 	t.Logf("%d cases", len(cases))

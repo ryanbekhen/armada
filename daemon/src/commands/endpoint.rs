@@ -24,18 +24,20 @@ pub fn announced(ac: &AgentConfig) -> String {
     }
 }
 
-/// restartService: the machine's active Armada service, restarted; the
-/// unit, or "" when none runs.
+/// restartService: the machine's active Armada services, restarted; the
+/// units ("armada-server and armada-agent" on a server machine, whose
+/// server opens its join listener on the endpoint and whose agent
+/// announces it: ADR 0055 runs them as units of their own, where Go's
+/// server restarted its embedded agent with it), or "" when none runs.
 fn restart_service() -> std::result::Result<String, (String, String)> {
+    let mut done: Vec<&str> = Vec::new();
     for unit in ["armada-server", "armada-agent"] {
         if systemd::unit_active(unit) {
-            return match systemd::systemctl(&["restart", unit]) {
-                Ok(()) => Ok(unit.to_string()),
-                Err(e) => Err((unit.to_string(), e)),
-            };
+            systemd::systemctl(&["restart", unit]).map_err(|e| (unit.to_string(), e))?;
+            done.push(unit);
         }
     }
-    Ok(String::new())
+    Ok(done.join(" and "))
 }
 
 pub fn show(ctx: &mut Ctx<'_>, _: &[String]) -> Result {
