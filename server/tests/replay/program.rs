@@ -42,6 +42,9 @@ pub struct Program {
     waiting: Arc<Mutex<HashMap<i64, oneshot::Sender<Value>>>>,
     pub changed: Arc<AtomicUsize>,
     pub ready: Value,
+    /// The events the program tells besides settings changes (`leading`,
+    /// `failed` in election mode).
+    events: tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<Value>>,
 }
 
 impl Drop for Program {
@@ -61,9 +64,14 @@ fn write(stdin: &Mutex<ChildStdin>, v: &Value) {
 
 impl Program {
     /// Starts the program with conf and waits until it serves.
-    pub async fn start(conf: &Value, cluster: Arc<Mutex<Cluster>>) -> Result<Program, String> {
+    pub async fn start(
+        conf: &Value,
+        cluster: Arc<Mutex<Cluster>>,
+        env: &[(&str, String)],
+    ) -> Result<Program, String> {
         let mut child = Command::new(env!("CARGO_BIN_EXE_armada-server-parity"))
             .env("TZ", "UTC")
+            .envs(env.iter().map(|(k, v)| (*k, v.as_str())))
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
@@ -74,6 +82,7 @@ impl Program {
         let waiting: Arc<Mutex<HashMap<i64, oneshot::Sender<Value>>>> = Arc::default();
         let changed = Arc::new(AtomicUsize::new(0));
         let (ready_tx, ready_rx) = oneshot::channel();
+        let (events_tx, events_rx) = tokio::sync::mpsc::unbounded_channel();
         {
             let waiting = waiting.clone();
             let changed = changed.clone();
@@ -94,6 +103,8 @@ impl Program {
                         write(&stdin, &ans);
                     } else if m.get("event").and_then(Value::as_str) == Some("settingsChanged") {
                         changed.fetch_add(1, Ordering::SeqCst);
+                    } else if m.get("event").is_some() {
+                        let _ = events_tx.send(m);
                     } else if let Some(id) = m.get("id").and_then(Value::as_i64) {
                         let tx = waiting
                             .lock()
@@ -119,6 +130,7 @@ impl Program {
             waiting,
             changed,
             ready,
+            events: tokio::sync::Mutex::new(events_rx),
         })
     }
 
@@ -141,14 +153,17 @@ impl Program {
         }
     }
 
+    /// The next event within d.
+    pub async fn event(&self, d: Duration) -> Option<Value> {
+        let mut rx = self.events.lock().await;
+        tokio::time::timeout(d, rx.recv()).await.ok().flatten()
+    }
+
+    /// One of the addresses the program bound: api, join, joinLocal,
+    /// siteJoin, or siteJoinLocal.
     pub fn addr(&self, name: &str) -> String {
-        let key = match name {
-            "api" => "api",
-            "join" => "join",
-            _ => "siteJoin",
-        };
         self.ready
-            .get(key)
+            .get(name)
             .and_then(Value::as_str)
             .unwrap_or_default()
             .to_string()

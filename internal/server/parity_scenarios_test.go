@@ -337,6 +337,11 @@ func TestParitySettings(t *testing.T) {
 		if err != nil || !ok || string(tok.Bytes()) != "token-value" {
 			t.Errorf("token %v %v", ok, err)
 		}
+		if sc.rec != nil {
+			// The replay opens the stored token with the master key too.
+			step := sc.rec.add(map[string]any{"op": "dnsToken"})
+			sc.rec.expect(step, "expect", rawJSON{map[string]any{"ok": ok, "value": string(tok.Bytes()), "error": err != nil}})
+		}
 		sc.keyspace("keyspace")
 	})
 }

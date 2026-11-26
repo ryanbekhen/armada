@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"fmt"
 	"net/http"
 	"slices"
@@ -110,6 +111,20 @@ func (sc *scenario) goStorage() *certs.EtcdStorage {
 // through Go's storage: the Rust server serves what Go's manager stored.
 func (sc *scenario) storeCert(name string, crt, key []byte) {
 	sc.t.Helper()
+	if sc.rec != nil && !sc.rec.isQuiet() {
+		// A fixture bundle by its index (the replay makes its own), any
+		// other as it is.
+		step := map[string]any{"op": "storeCert", "name": name}
+		for i, b := range sc.fx.bundles {
+			if bytes.Equal(b[0], crt) && bytes.Equal(b[1], key) {
+				step["bundle"] = i
+			}
+		}
+		if _, ok := step["bundle"]; !ok {
+			step["cert"], step["key"] = string(crt), string(key)
+		}
+		sc.rec.add(step)
+	}
 	s := sc.goStorage()
 	issuer := (&certmagic.ACMEIssuer{CA: parityACMECA}).IssuerKey()
 	if err := s.Store(sc.ctx, certmagic.StorageKeys.SiteCert(issuer, name), crt); err != nil {
@@ -483,7 +498,9 @@ func TestParityIngressWildcard(t *testing.T) {
 		sc.node("n2", "10.0.0.12", 8000, 16<<30, map[string]string{"role": "mail"})
 		secret("mail", "cf-token", "tok-mail")
 		sc.deploy("mail", "name: mail\nimage: m:1\ningress:\n  type: external\n  port: 80\n  domains: [mail.net]\n  dns: {provider: cloudflare, tokenSecretRef: cf-token}\nplacement:\n  require:\n    role: mail\n")
-		sc.rec.skip("a secret deleted under the server")
+		if sc.rec != nil {
+			sc.rec.add(map[string]any{"op": "deletePrefix", "prefix": "secrets/mail/"})
+		}
 		if _, err := storetest.Client().Delete(sc.ctx, sc.pfx+"secrets/mail/", clientv3.WithPrefix()); err != nil {
 			t.Fatal(err)
 		}
@@ -523,6 +540,9 @@ func TestParityIngressWildcard(t *testing.T) {
 // EtcdStorage while Go's storage reads and locks on the same prefix.
 func TestParityCertificateStorage(t *testing.T) {
 	runParity(t, parityConfig{certs: true}, func(sc *scenario) {
+		if sc.rec != nil {
+			sc.recordCertificateStorage()
+		}
 		r, rust := sc.sut.(*rustServer)
 		gs := sc.goStorage()
 		issuer := (&certmagic.ACMEIssuer{CA: parityACMECA}).IssuerKey()
@@ -599,4 +619,151 @@ func TestParityCertificateStorage(t *testing.T) {
 		}
 		_ = gs.Close()
 	})
+}
+
+// recordCertificateStorage records, for the Rust replay, what Go's
+// storage writes and reads in certmagic's storage and how its locks lie,
+// so the replay checks Rust's storage against them without Go: Rust's
+// reads what Go wrote (acmePut, then acmeLoad), writes what Go writes
+// (acmeStore, compared by acmeKVs: the keys, the 8-byte modification
+// time, the data), lists as Go lists, and its locks lie where Go's do and
+// wait for and hold against a lock laid out as Go's (acmeLockKeys: Go's
+// mutex keys while one side holds the lock).
+func (sc *scenario) recordCertificateStorage() {
+	t, r, ctx := sc.t, sc.rec, sc.ctx
+	gs := sc.goStorage()
+	defer func() { _ = gs.Close() }()
+	issuer := (&certmagic.ACMEIssuer{CA: parityACMECA}).IssuerKey()
+	pc := &parityCerts{storage: gs, issuer: issuer}
+	load := func(name string, i int) {
+		got, ok := pc.Certificate(ctx, name)
+		want, _ := bundleServed(sc.fx.bundles[i])
+		step := r.add(map[string]any{"op": "acmeLoad", "name": name, "bundle": i})
+		r.expect(step, "expect", ok && bytes.Equal(got, want))
+	}
+	r.muted(func() { sc.storeBundle("*.apps.test", 0) })
+	r.add(map[string]any{"op": "acmePut", "kvs": sc.acmeKVs("*.apps.test")})
+	load("*.apps.test", 0)
+	r.muted(func() { sc.storeBundle("example.org", 1) })
+	r.add(map[string]any{"op": "acmeStore", "name": "example.org", "bundle": 1})
+	step := r.add(map[string]any{"op": "acmeKVs", "name": "example.org"})
+	r.expect(step, "expect", sc.acmeKVs("example.org"))
+	load("example.org", 1)
+	keys, err := gs.List(ctx, "certificates", true)
+	slices.Sort(keys)
+	step = r.add(map[string]any{"op": "acmeList", "dir": "certificates", "recursive": true})
+	r.expect(step, "expect", map[string]any{"keys": keys, "error": err != nil})
+
+	const name = "issue_cert_example.org"
+	lockKeys := func() {
+		step := r.add(map[string]any{"op": "acmeLockKeys"})
+		r.expect(step, "expect", sc.acmeLockKeys())
+	}
+	// Go's lock, which the replay holds as Go's mutex does.
+	if err := gs.Lock(ctx, name); err != nil {
+		t.Fatal(err)
+	}
+	r.add(map[string]any{"op": "acmeForeignLock", "name": name})
+	lockKeys()
+	other := sc.goStorage()
+	defer func() { _ = other.Close() }()
+	done := make(chan error, 1)
+	go func() { done <- other.Lock(ctx, name) }()
+	r.add(map[string]any{"op": "acmeLock", "name": name})
+	select {
+	case err := <-done:
+		t.Fatalf("took the lock Go holds (%v)", err)
+	case <-time.After(500 * time.Millisecond):
+	}
+	step = r.add(map[string]any{"op": "acmeLockTaken", "ms": 500})
+	r.expect(step, "expect", false)
+	if err := gs.Unlock(ctx, name); err != nil {
+		t.Fatal(err)
+	}
+	r.add(map[string]any{"op": "acmeForeignUnlock", "name": name})
+	taken := false
+	select {
+	case err := <-done:
+		taken = err == nil
+	case <-time.After(10 * time.Second):
+		t.Fatal("the lock was not taken")
+	}
+	step = r.add(map[string]any{"op": "acmeLockTaken", "ms": 10000})
+	r.expect(step, "expect", taken)
+	lockKeys()
+	wctx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	err = gs.Lock(wctx, name)
+	cancel()
+	step = r.add(map[string]any{"op": "acmeForeignWait", "name": name, "ms": 500})
+	r.expect(step, "expect", err != nil)
+	if err := other.Unlock(ctx, name); err != nil {
+		t.Fatal(err)
+	}
+	r.add(map[string]any{"op": "acmeUnlock", "name": name})
+	lockKeys()
+	// The scenario's own steps start on an empty storage.
+	if _, err := storetest.Client().Delete(ctx, sc.acmePrefix(), clientv3.WithPrefix()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// acmeKVs describes what certmagic's storage holds for keys naming name:
+// each key below data/, whether its value's modification time is recent
+// (within the hour), and its data (a fixture bundle's part by index).
+func (sc *scenario) acmeKVs(name string) []any {
+	sc.t.Helper()
+	pfx := sc.acmePrefix() + "data/"
+	resp, err := storetest.Client().Get(sc.ctx, pfx, clientv3.WithPrefix())
+	if err != nil {
+		sc.t.Fatal(err)
+	}
+	var out []any
+	for _, kv := range resp.Kvs {
+		k := strings.TrimPrefix(string(kv.Key), pfx)
+		if !strings.Contains(k, "/"+certmagic.StorageKeys.Safe(name)+"/") {
+			continue
+		}
+		e := map[string]any{"key": k}
+		v := kv.Value
+		if len(v) < 8 {
+			e["short"] = len(v)
+			out = append(out, e)
+			continue
+		}
+		mod := time.Unix(0, int64(binary.BigEndian.Uint64(v[:8])))
+		e["recent"] = time.Since(mod).Abs() < time.Hour
+		data := v[8:]
+		for i, b := range sc.fx.bundles {
+			for j, part := range b {
+				if bytes.Equal(part, data) {
+					e["bundle"], e["part"] = i, j
+				}
+			}
+		}
+		if _, ok := e["bundle"]; !ok {
+			e["data"] = string(data)
+		}
+		out = append(out, e)
+	}
+	return out
+}
+
+// acmeLockKeys are the keys of certmagic's locks, each mutex waiter's
+// lease named <lease>.
+func (sc *scenario) acmeLockKeys() []string {
+	sc.t.Helper()
+	pfx := sc.acmePrefix()
+	resp, err := storetest.Client().Get(sc.ctx, pfx+"locks/", clientv3.WithPrefix(), clientv3.WithKeysOnly())
+	if err != nil {
+		sc.t.Fatal(err)
+	}
+	var out []string
+	for _, kv := range resp.Kvs {
+		k := strings.TrimPrefix(string(kv.Key), pfx)
+		if i := strings.LastIndex(k, "/"); i >= 0 {
+			k = k[:i+1] + "<lease>"
+		}
+		out = append(out, k)
+	}
+	return out
 }

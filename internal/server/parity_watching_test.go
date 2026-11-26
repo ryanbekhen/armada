@@ -3,6 +3,7 @@ package server
 import (
 	"bufio"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -184,6 +185,16 @@ func (f roundTrip) RoundTrip(r *http.Request) (*http.Response, error) { return f
 // sorted: channels deliver on their own.
 func (s *alertSinks) wait(sc *scenario, path string, n int) []string {
 	sc.t.Helper()
+	got := s.waitNow(sc, path, n)
+	if sc.rec != nil {
+		step := sc.rec.add(map[string]any{"op": "sinkWait", "path": path, "n": n})
+		sc.rec.expect(step, "expect", got)
+	}
+	return got
+}
+
+func (s *alertSinks) waitNow(sc *scenario, path string, n int) []string {
+	sc.t.Helper()
 	var got []string
 	deadline := time.Now().Add(15 * time.Second)
 	for {
@@ -202,7 +213,10 @@ func (s *alertSinks) wait(sc *scenario, path string, n int) []string {
 	return got
 }
 
-func (s *alertSinks) setFail(path string, on bool) {
+func (s *alertSinks) setFail(sc *scenario, path string, on bool) {
+	if sc.rec != nil {
+		sc.rec.add(map[string]any{"op": "sinkFail", "path": path, "on": on})
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.fail[path] = on
@@ -438,10 +452,10 @@ func TestParityAlerts(t *testing.T) {
 		sc.note("filtered", sinks.wait(sc, "/hook", 5))
 
 		// A failing channel says why, without its secret.
-		sinks.setFail("/hook", true)
+		sinks.setFail(sc, "/hook", true)
 		test, err = sc.admin.TestAlertChannel(sc.ctx, &armadav1.TestAlertChannelRequest{Name: "ops"})
 		sc.answer("failing", test, err)
-		sinks.setFail("/hook", false)
+		sinks.setFail(sc, "/hook", false)
 		// Every notice so far delivered, and counted: test notices are not.
 		var list *armadav1.ListAlertChannelsResponse
 		sc.eventually("every notice counted", func() bool {
@@ -471,11 +485,51 @@ func TestParityAlerts(t *testing.T) {
 // returns the status and body with Go's runtime metrics left out.
 func (sc *scenario) scrape(certPEM, keyPEM []byte, method, path string) (int, string, error) {
 	sc.t.Helper()
-	cfg, err := pki.ClientTLS(sc.fx.ca.CertPEM, certPEM, keyPEM)
-	if err != nil {
-		sc.t.Fatal(err)
+	code, body, err := sc.scrapeNow(certPEM, keyPEM, method, path)
+	if r := sc.rec; r != nil {
+		step := map[string]any{"op": "scrape", "method": method, "path": path}
+		if certPEM == nil {
+			step["noCert"] = true
+		} else {
+			cert, perr := pki.ParseCertPEM(certPEM)
+			if perr != nil {
+				sc.t.Fatal(perr)
+			}
+			id, _ := pki.IdentityFromCert(cert)
+			r.mu.Lock()
+			_, from := r.refs[string(certPEM)]
+			r.mu.Unlock()
+			switch {
+			case from:
+				// A certificate the server issued, with the scenario's key.
+				step["cert"], step["key"] = r.template(string(certPEM)), string(keyPEM)
+			case cert.CheckSignatureFrom(sc.fx.ca.Cert) == nil:
+				step["kind"], step["name"] = id.Kind, id.Name
+			default:
+				step["kind"], step["name"], step["otherCA"] = id.Kind, id.Name, true
+			}
+		}
+		r.add(step)
+		r.expect(step, "expect", rawJSON{map[string]any{"status": code, "body": body, "error": err != nil}})
 	}
-	hc := &http.Client{Transport: &http.Transport{TLSClientConfig: cfg}, Timeout: 10 * time.Second}
+	return code, body, err
+}
+
+func (sc *scenario) scrapeNow(certPEM, keyPEM []byte, method, path string) (int, string, error) {
+	sc.t.Helper()
+	var cfg *tls.Config
+	if certPEM == nil {
+		// No client certificate: the CA as the only root.
+		pool := x509.NewCertPool()
+		pool.AppendCertsFromPEM(sc.fx.ca.CertPEM)
+		cfg = &tls.Config{MinVersion: tls.VersionTLS13, RootCAs: pool, ServerName: pki.ServerName}
+	} else {
+		var err error
+		if cfg, err = pki.ClientTLS(sc.fx.ca.CertPEM, certPEM, keyPEM); err != nil {
+			sc.t.Fatal(err)
+		}
+	}
+	hc := &http.Client{Transport: &http.Transport{TLSClientConfig: cfg, DisableKeepAlives: true}, Timeout: 10 * time.Second}
 	req, _ := http.NewRequestWithContext(sc.ctx, method, "https://"+sc.metricsAddr+path, nil)
 	resp, err := hc.Do(req)
 	if err != nil {
@@ -569,11 +623,8 @@ func TestParityMetrics(t *testing.T) {
 		otherCert, otherKey, _ := other.Issue(pki.IssueRequest{Identity: pki.Identity{Kind: pki.KindMetrics, Name: "prometheus"}, Client: true})
 		_, _, err = sc.scrape(otherCert, otherKey, http.MethodGet, "/metrics")
 		sc.note("another CA fails", err != nil)
-		pool, _ := pki.ClientTLS(sc.fx.ca.CertPEM, issued.GetCert(), keyPEM)
-		noCert := &tls.Config{MinVersion: tls.VersionTLS13, RootCAs: pool.RootCAs, ServerName: pki.ServerName}
-		if resp, err := (&http.Client{Transport: &http.Transport{TLSClientConfig: noCert}, Timeout: 5 * time.Second}).Get("https://" + sc.metricsAddr + "/metrics"); err == nil {
-			_ = resp.Body.Close()
-			sc.note("no certificate", resp.StatusCode)
+		if code, _, err := sc.scrape(nil, nil, http.MethodGet, "/metrics"); err == nil {
+			sc.note("no certificate", code)
 		} else {
 			sc.note("no certificate", "refused")
 		}

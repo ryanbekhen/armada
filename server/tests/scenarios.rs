@@ -93,3 +93,34 @@ fn scenarios() {
         );
     });
 }
+
+/// TestArmadaServerTerms without Go: the Rust server's terms on a member
+/// of the test's own (replay/terms.rs).
+#[test]
+fn terms() {
+    let Some(prog) = etcd::program() else {
+        eprintln!("terms: skipped, no etcd in .cache/etcd or ARMADA_ETCD_DIR");
+        if std::env::var_os("CI").is_some() {
+            panic!("CI runs the terms: the pinned etcd is missing");
+        }
+        return;
+    };
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()
+        .expect("a runtime");
+    rt.block_on(async {
+        let mut member = Member::start(
+            &prog,
+            Path::new(env!("CARGO_TARGET_TMPDIR")).join("terms-etcd"),
+        )
+        .expect("start etcd");
+        let client = member.ready().await.expect("etcd ready");
+        let res = replay::terms::terms(client, &member.socket()).await;
+        drop(member);
+        if let Err(e) = res {
+            panic!("terms: {e}");
+        }
+    });
+}
