@@ -5,6 +5,12 @@ or downloads, software by others under their own licenses. Every one of
 them allows commercial use; this file lists what each needs from people
 who pass Armada on.
 
+One program in the runtime pack, crun, is under the GNU General Public
+License (ADR 0056). It runs only as a process of its own, started by
+Armada's programs; none of Armada's programs links it or any other GPL
+code. Release archives carry its complete corresponding source and its
+license texts (below).
+
 ## Armada's own code
 
 The `armada` and `armadad` binaries are Rust programs (ADR 0055; their
@@ -15,12 +21,13 @@ etcd's (below), with the license files of the modules they link.
 
 ## The runtime pack
 
-Linux release builds of `armadad` embed these programs (ADR 0011, ADR 0055), exactly
+Linux release builds of `armadad` embed these programs (ADR 0011, ADR 0055, ADR 0056), exactly
 as their projects release them; `pack/lock.json` pins each by version and
 SHA-256, and `armada-pack` (`pack/`, below) builds the pack from it.
 
 | Component | Version | License | Source |
 | --- | --- | --- | --- |
+| crun | 1.31 | GPL-2.0-or-later | <https://github.com/containers/crun/tree/1.31>, and in every full Linux release archive (`source/runtime/crun-1.31/`) |
 | runc | 1.5.2 | Apache-2.0 | <https://github.com/opencontainers/runc/tree/v1.5.2> |
 | cni-plugins | 1.9.1 | Apache-2.0 | <https://github.com/containernetworking/plugins/tree/v1.9.1> |
 | tini | 0.19.0 | MIT ([text](third_party/licenses/MIT-tini.txt)) | <https://github.com/krallin/tini/tree/v0.19.0> |
@@ -39,6 +46,57 @@ from both architectures' programs, takes each module from the Go module
 proxy, and checks it against the go.sum hash the program records. etcd's
 own modules (`go.etcd.io/etcd/...`, built from its repository) are under
 its license above.
+
+### crun
+
+crun runs every container created since ADR 0056 (runc stays for the
+containers it created before, until they are recreated). The pack holds
+crun's own static release build without systemd support
+(`crun-1.31-linux-<arch>-disable-systemd`), unchanged. crun is under the
+[GNU General Public License 2.0 or later](third_party/licenses/GPL-2.0.txt);
+its library part, libcrun, under the GNU Lesser General Public License 2.1
+or later. Armada uses crun only by running it as a separate program (with
+`--root`, `create`, `start`, `kill`, `delete`, `list`, and `exec`) and
+links none of it.
+
+Under section 3(a) of the GPL 2.0, every full Linux release archive
+(`armada_<version>_linux_<arch>.tar.gz`, the one that carries `armadad`
+and with it the pack) carries crun's complete corresponding source:
+
+- `source/runtime/crun-1.31/crun-1.31.tar.gz`, crun's release source
+  tarball (SHA-256 `17d04ba159fada1f1300a36b8afe869afb38bf1bbda28da052e83bb4bee20108`),
+- `source/runtime/crun-1.31/build/`: `flake.nix`, `flake.lock`, and
+  `nix/derivation.nix` and `nix/static.nix` of crun's tag 1.31, the scripts
+  its static release programs are built with (`flake.lock` pins the
+  nixpkgs revision `1d060086d60cb76a40cf37109f979d88a5bd6396`, which pins
+  each library below and its source),
+- `source/runtime/SOURCES.txt`, each file with its SHA-256 and address,
+
+and `licenses/runtime/crun@1.31/` holds crun's `COPYING` (GPL 2.0) and
+`COPYING.libcrun` (LGPL 2.1). `pack/lock.json` pins every one of these
+files by SHA-256, as it pins the programs; `make runtime-sources`
+(`armada-pack sources`) collects them when a release is built.
+
+crun's static programs are linked with:
+
+| Library | Version | License | In |
+| --- | --- | --- | --- |
+| GNU C Library | 2.44 | LGPL-2.1-or-later | amd64, arm64 |
+| libgcc (GCC) | 16.2.0 | GPL-3.0-or-later WITH GCC-exception-3.1 | amd64, arm64 |
+| libseccomp | 2.6.1 | LGPL-2.1-only | amd64, arm64 |
+| libcap | 2.78 | BSD-3-Clause OR GPL-2.0-only (used under BSD-3-Clause) | amd64, arm64 |
+| json-c | 0.18 | MIT | amd64, arm64 |
+| libcriu (CRIU) | 4.1.1 | LGPL-2.1-only | amd64 |
+| protobuf-c | 1.5.2 | BSD-2-Clause | amd64 |
+
+and with code inside crun's own source: libocispec (crun's
+`libocispec/`, under its own license with a special exception for the
+parser it generates) and BLAKE3 (`src/libcrun/blake3`, CC0-1.0 or
+Apache-2.0). The libraries' sources are those of the nixpkgs revision
+above (<https://github.com/NixOS/nixpkgs/tree/1d060086d60cb76a40cf37109f979d88a5bd6396>,
+each under `pkgs/by-name/`), which `flake.lock` pins.
+
+### The other programs
 
 These binaries are statically linked by their projects with libraries
 under the [GNU Lesser General Public License 2.1](third_party/licenses/LGPL-2.1.txt):

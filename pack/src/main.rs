@@ -6,6 +6,7 @@
 //!     armada-pack bundle --arch amd64 --logger F --shim F --dns F --node F [--out F]
 //!     armada-pack extract --arch amd64 --artifact etcd --out DIR
 //!     armada-pack licenses --out DIR
+//!     armada-pack sources --out DIR
 //!     armada-pack etcd-api --out DIR
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -19,6 +20,7 @@ const USAGE: &str = "usage:
   armada-pack bundle --arch amd64|arm64 --logger FILE --shim FILE --dns FILE --node FILE [--out FILE]
   armada-pack extract --arch amd64|arm64 --artifact NAME --out DIR
   armada-pack licenses --out DIR
+  armada-pack sources --out DIR
   armada-pack etcd-api --out DIR
 flags of every command: --lock FILE (default pack/lock.json), --cache DIR (default .cache)";
 
@@ -101,6 +103,7 @@ fn run(args: &[String]) -> Result<(), String> {
         )?),
         "extract" => extract(&Flags::parse(rest, &["arch", "artifact", "out"])?),
         "licenses" => licenses(&Flags::parse(rest, &["out"])?),
+        "sources" => sources(&Flags::parse(rest, &["out"])?),
         "etcd-api" => etcd_api(&Flags::parse(rest, &["out"])?),
         "-h" | "--help" | "help" => {
             println!("{USAGE}");
@@ -279,11 +282,73 @@ fn licenses(f: &Flags) -> Result<(), String> {
         ));
     }
     std::fs::write(out.join("MODULES.txt"), index).map_err(|e| e.to_string())?;
+    let programs = source_licenses(&lock, &cache, &out)?;
     println!(
-        "{}: license files of {} Go modules",
+        "{}: license files of {} Go modules, and license texts from the sources of {programs} pinned programs",
         out.display(),
         modules.len()
     );
+    Ok(())
+}
+
+/// The license files the sources of the artifacts that ship them name
+/// (crun's, ADR 0056), each source checked against its pin, into
+/// DIR/<name>@<version>/; how many artifacts had any.
+fn source_licenses(lock: &Lock, cache: &Path, out: &Path) -> Result<usize, String> {
+    let mut n = 0;
+    for a in &lock.artifacts {
+        let mut found = 0;
+        for src in a.sources.iter().filter(|s| !s.licenses.is_empty()) {
+            let b = fetch::fetch(&src.url, &src.sha256, &cache.join("sources"))
+                .map_err(|e| format!("{} source {}: {e}", a.name, src.file))?;
+            let files = untar::members(&b, &src.licenses, fetch::MAX_DOWNLOAD)
+                .map_err(|e| format!("{} source {}: {e}", a.name, src.file))?;
+            let dir = out.join(a.license_dir());
+            std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+            for (name, body) in files {
+                pack::check_name(&name)?;
+                std::fs::write(dir.join(&name), body)
+                    .map_err(|e| format!("{}/{name}: {e}", dir.display()))?;
+                found += 1;
+            }
+        }
+        if found > 0 {
+            n += 1;
+        }
+    }
+    Ok(n)
+}
+
+/// sources: the complete corresponding source of every artifact that
+/// names one (crun's, ADR 0056: its release tarball and the build files
+/// its static programs are built with), each file checked against its
+/// pin, into DIR/<name>-<version>/, with SOURCES.txt naming each file,
+/// where it came from, and its SHA-256. Release archives carry them.
+fn sources(f: &Flags) -> Result<(), String> {
+    let lock = f.lock()?;
+    let cache = f.cache();
+    let out = PathBuf::from(f.need("out", "")?);
+    let _ = std::fs::remove_dir_all(&out);
+    std::fs::create_dir_all(&out).map_err(|e| format!("{}: {e}", out.display()))?;
+    let mut index = String::new();
+    let mut files = 0;
+    for a in &lock.artifacts {
+        for src in &a.sources {
+            pack::check_name(&src.file).map_err(|e| format!("{}: {e}", a.name))?;
+            let b = fetch::fetch(&src.url, &src.sha256, &cache.join("sources"))
+                .map_err(|e| format!("{} source {}: {e}", a.name, src.file))?;
+            let rel = format!("{}/{}", a.source_dir(), src.file);
+            let to = out.join(&rel);
+            if let Some(p) = to.parent() {
+                std::fs::create_dir_all(p).map_err(|e| format!("{}: {e}", p.display()))?;
+            }
+            std::fs::write(&to, &b).map_err(|e| format!("{}: {e}", to.display()))?;
+            index.push_str(&format!("{rel} {} {}\n", src.sha256, src.url));
+            files += 1;
+        }
+    }
+    std::fs::write(out.join("SOURCES.txt"), index).map_err(|e| e.to_string())?;
+    println!("{}: {files} source files", out.display());
     Ok(())
 }
 
