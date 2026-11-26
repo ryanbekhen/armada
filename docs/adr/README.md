@@ -14,7 +14,7 @@ Every architectural decision that is hard to reverse is recorded here. Copy `000
 | [0008](0008-self-healing.md) | Self-healing: rescheduling replicas from lost nodes | Accepted |
 | [0009](0009-etcd-state-store.md) | Embedded etcd as the state store | Accepted |
 | [0010](0010-ha-control-plane.md) | Highly available control plane | Accepted |
-| [0011](0011-embedded-container-runtime.md) | Embedded container runtime (containerd, runc, CNI) | Accepted; containerd superseded by 0046 |
+| [0011](0011-embedded-container-runtime.md) | Embedded container runtime (containerd, runc, CNI) | Accepted; containerd superseded by 0046, runc by 0056 |
 | [0012](0012-upgrades-and-state-schema.md) | Upgrades and state schema migrations | Accepted |
 | [0013](0013-replica-rebalancing.md) | Replica rebalancing | Accepted |
 | [0014](0014-node-labels-and-placement.md) | Node labels and app placement | Accepted |
@@ -49,7 +49,7 @@ Every architectural decision that is hard to reverse is recorded here. Copy `000
 | [0043](0043-log-history.md) | Log history | Accepted |
 | [0044](0044-log-export.md) | Sending logs elsewhere | Accepted |
 | [0045](0045-alerts.md) | Alerts | Accepted |
-| [0046](0046-runtime-supervisor.md) | Armada's own container supervisor | Accepted |
+| [0046](0046-runtime-supervisor.md) | Armada's own container supervisor | Accepted; its OCI runtime is crun since 0056 |
 | [0047](0047-dns-for-custom-domains.md) | DNS credentials for an app's custom domains | Accepted |
 | [0048](0048-client-through-ssh.md) | The client reaches the control plane through SSH | Accepted |
 | [0049](0049-mesh-over-public-addresses.md) | A WireGuard mesh over public addresses | Accepted |
@@ -59,6 +59,7 @@ Every architectural decision that is hard to reverse is recorded here. Copy `000
 | [0053](0053-node-resolver-in-rust.md) | The node's resolver runs as armada-dns | Accepted |
 | [0054](0054-node-agent-in-rust.md) | The node agent moves to Rust | Accepted |
 | [0055](0055-control-plane-and-client-in-rust.md) | Armada's own code moves to Rust in one release | Accepted |
+| [0056](0056-crun.md) | crun runs the containers | Accepted |
 
 Commands in records before 0032 carry the names of their time; ADR 0032
 lists the command line as it is now.

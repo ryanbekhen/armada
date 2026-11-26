@@ -1,6 +1,6 @@
 # 0046. Armada's own container supervisor
 
-- Status: Accepted
+- Status: Accepted; the OCI runtime is crun since [0056](0056-crun.md) (runc stays for the containers it created), the rest stands
 - Date: 2026-11-16
 
 ## Context
