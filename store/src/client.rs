@@ -333,6 +333,12 @@ impl Client {
                 return;
             }
             let (tx, rx) = mpsc::channel(1);
+            // etcd (grpc-go) answers a stream's headers only once it read
+            // the first message, so the first request goes in before the
+            // call is awaited; otherwise the call waits out the lease.
+            if tx.try_send(pb::LeaseKeepAliveRequest { id }).is_err() {
+                return;
+            }
             let mut lc = LeaseClient::new(self.ch.clone());
             let call = lc.lease_keep_alive(ReceiverStream::new(rx));
             let mut stream = match tokio::time::timeout_at(deadline, call).await {
@@ -344,9 +350,6 @@ impl Client {
                 Ok(Ok(s)) => s.into_inner(),
             };
             loop {
-                if tx.send(pb::LeaseKeepAliveRequest { id }).await.is_err() {
-                    break;
-                }
                 match tokio::time::timeout_at(deadline, stream.message()).await {
                     Err(_) => return,
                     Ok(Ok(Some(r))) => {
@@ -356,6 +359,9 @@ impl Client {
                         let now = tokio::time::Instant::now();
                         deadline = now + Duration::from_secs(r.ttl as u64);
                         tokio::time::sleep(Duration::from_millis(r.ttl as u64 * 1000 / 3)).await;
+                        if tx.send(pb::LeaseKeepAliveRequest { id }).await.is_err() {
+                            break;
+                        }
                     }
                     Ok(_) => {
                         tokio::time::sleep(Duration::from_millis(500)).await;

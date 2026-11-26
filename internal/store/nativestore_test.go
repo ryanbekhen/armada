@@ -1672,3 +1672,22 @@ func TestArmadaStoreElection(t *testing.T) {
 	}
 	r.ok(map[string]any{"op": "unlock", "handle": "m3"})
 }
+
+// A Rust leader keeps its lease alive past its TTL: etcd answers the
+// keep-alive stream's headers only after its first request, so a client
+// that waits for them first lets the lease run out and loses leadership
+// once a TTL after its campaign.
+func TestArmadaStoreLeaseKeptAlive(t *testing.T) {
+	r := startRust(t)
+	ctx := context.Background()
+	r.ok(r.conn(map[string]any{"op": "campaign", "handle": "kept", "ttl": 2, "name": "rust-kept"}))
+	defer r.ok(map[string]any{"op": "resign", "handle": "kept"})
+	time.Sleep(7 * time.Second)
+	g, err := etcd.Leader(ctx, testMember.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g != "rust-kept" {
+		t.Fatalf("leader after three TTLs: %q, want rust-kept", g)
+	}
+}
