@@ -76,6 +76,10 @@ archives:
         dst: licenses/rust
       - src: build/licenses-runtime/**/*
         dst: licenses/runtime
+      # The glob above takes the modules' directories only; a single file's
+      # dst is its full path.
+      - src: build/licenses-runtime/MODULES.txt
+        dst: licenses/runtime/MODULES.txt
       - README.md
       - SECURITY.md
       - deploy/systemd/*
