@@ -8,13 +8,12 @@ who pass Armada on.
 ## Go modules
 
 The `armada` and `armadad` binaries of releases are Rust programs (ADR
-0055; their crates are listed from "armada-node" on). The Go code still in
-the repository (`cmd/`, `internal/`) uses Go modules under Apache-2.0, MIT,
-BSD-2-Clause, BSD-3-Clause, ISC, MPL-2.0, and CC0-1.0, which include the
-modules etcd's programs link (below). Release archives carry each module's
-license and notice files in `licenses/go/`, written by
-`make licenses-save`. `make licenses` (run in CI) fails when a module
-under any other license is added.
+0055; their crates are listed from "armada-node" on) and link no Go
+module. The Go code still in the repository (`cmd/`, `internal/`) uses Go
+modules under Apache-2.0, MIT, BSD-2-Clause, BSD-3-Clause, ISC, MPL-2.0,
+and CC0-1.0; `make licenses` (run in CI) fails when a module under any
+other license is added. Go programs that releases do carry are etcd's
+(below), with the license files of the modules they link.
 
 - **MPL-2.0:** `github.com/cyphar/filepath-securejoin` is used unmodified;
   its source is at <https://github.com/cyphar/filepath-securejoin>.
@@ -22,8 +21,8 @@ under any other license is added.
 ## The embedded container runtime
 
 Linux release builds of `armadad` embed these programs (ADR 0011, ADR 0055), exactly
-as their projects release them; `internal/runtime/embedded/lock.go` pins
-each by version and SHA-256.
+as their projects release them; `pack/lock.json` pins each by version and
+SHA-256, and `armada-pack` (`pack/`, below) builds the pack from it.
 
 | Component | Version | License | Source |
 | --- | --- | --- | --- |
@@ -35,15 +34,17 @@ each by version and SHA-256.
 
 From etcd's release the pack takes `etcd` and `etcdutl` (ADR 0055). They
 are Go programs, linked statically by etcd's release build with the Go
-standard library (BSD-3-Clause) and Go modules under Apache-2.0, MIT,
-BSD-2-Clause, BSD-3-Clause, and ISC; `go version -m` lists them. Go's
-armadad links the same modules (some at other versions, under the same
-licenses), so their license files are in `licenses/go/`, except for ten modules only
-etcd's command line uses
-(clipperhouse/displaywidth, clipperhouse/uax29, fatih/color,
-mattn/go-colorable, mattn/go-isatty, mattn/go-runewidth, olekukonko/cat,
-olekukonko/errors, olekukonko/ll, olekukonko/tablewriter), all MIT, whose
-texts are in [MIT-etcd-modules.txt](third_party/licenses/MIT-etcd-modules.txt).
+standard library (BSD-3-Clause, [text](third_party/licenses/BSD-3-Clause-Go.txt))
+and Go modules under Apache-2.0, MIT, BSD-2-Clause, BSD-3-Clause, and ISC,
+which each program names in its build information (`go version -m`
+prints it). Release archives carry the license and notice files of every
+one of those modules in `licenses/runtime/`, one directory per module and
+version, with `MODULES.txt` naming the program that links each:
+`make runtime-licenses` (`armada-pack licenses`) reads the module list
+from both architectures' programs, takes each module from the Go module
+proxy, and checks it against the go.sum hash the program records. etcd's
+own modules (`go.etcd.io/etcd/...`, built from its repository) are under
+its license above.
 
 These binaries are statically linked by their projects with libraries
 under the [GNU Lesser General Public License 2.1](third_party/licenses/LGPL-2.1.txt):
@@ -58,7 +59,7 @@ under the [GNU Lesser General Public License 2.1](third_party/licenses/LGPL-2.1.
 Armada does not change these programs or libraries. You may replace any of
 them with your own build, for example with another version of an LGPL
 library: build the program from its source above, put its address and
-SHA-256 into `internal/runtime/embedded/lock.go`, and build `armadad` with
+SHA-256 into `pack/lock.json`, and build `armadad` with
 `make build-bundle`. The complete corresponding source of the LGPL
 libraries is at the addresses above.
 
@@ -77,6 +78,13 @@ with no crates beyond the standard library and are linked statically with:
 - the **musl** C library that Rust ships for its `*-linux-musl` targets,
   under the MIT license ([text](third_party/licenses/MIT-musl.txt)).
   Source: <https://git.musl-libc.org/cgit/musl>.
+
+## armada-pack
+
+`armada-pack` (`pack/`, Apache-2.0) builds the runtime pack and collects
+`licenses/runtime/` when a release is built. It is never distributed. It
+is built with crates of the next section (flate2 with miniz_oxide and its
+dependencies, serde, serde_json, sha2) and downloads with `curl`.
 
 ## armada-node
 

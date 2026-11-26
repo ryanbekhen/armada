@@ -1,0 +1,69 @@
+{
+  "artifacts": [
+    {
+      "name": "containerd",
+      "version": "2.4.2",
+      "url": "https://github.com/containerd/containerd/releases/download/v2.4.2/containerd-static-2.4.2-linux-{arch}.tar.gz",
+      "sha256": {
+        "amd64": "da656542e754c699a0f438eab925e6ffdbd6346a4428e659f83dc058f04dcffe",
+        "arm64": "37b84b9534533672528141b9d815f58621a2fe5deee2daa84317800255756689"
+      },
+      "files": {
+        "bin/containerd": "containerd",
+        "bin/containerd-shim-runc-v2": "containerd-shim-runc-v2"
+      }
+    },
+    {
+      "name": "runc",
+      "version": "1.5.2",
+      "url": "https://github.com/opencontainers/runc/releases/download/v1.5.2/runc.{arch}",
+      "sha256": {
+        "amd64": "599f6f94ff8c5057241eff0d54c3c74f95c34935b6457b33fe545defc61e9488",
+        "arm64": "d10ecae898361832a059be2089bab92d158aec54661b18ed7346ed79628b46b0"
+      }
+    },
+    {
+      "name": "cni-plugins",
+      "version": "1.9.1",
+      "url": "https://github.com/containernetworking/plugins/releases/download/v1.9.1/cni-plugins-linux-{arch}-v1.9.1.tgz",
+      "sha256": {
+        "amd64": "b98f74a0f8522f0a83867178729c1aa70f2158f90c45a2ca8fa791db1c76b303",
+        "arm64": "56171987d3947707c3563db2f4001bccaf50fd63468611b9f3cbecb1375ee7ec"
+      },
+      "files": {
+        "./bridge": "cni/bridge",
+        "./host-local": "cni/host-local",
+        "./loopback": "cni/loopback",
+        "./portmap": "cni/portmap",
+        "./firewall": "cni/firewall"
+      }
+    },
+    {
+      "name": "etcd",
+      "version": "3.7.4",
+      "url": "https://github.com/etcd-io/etcd/releases/download/v3.7.4/etcd-v3.7.4-linux-{arch}.tar.gz",
+      "sha256": {
+        "amd64": "a0d47d07d081c12611fe69dc81a16ae8dd758401c0fe3a83d508823a1dac558e",
+        "arm64": "3f5d12a3b4119141bd5bc80a0a895100d049d6c85a2c76b1bb767204a899024a"
+      },
+      "files": {
+        "etcd-v3.7.4-linux-{arch}/etcd": "etcd",
+        "etcd-v3.7.4-linux-{arch}/etcdutl": "etcdutl"
+      },
+      "moduleLicenses": true,
+      "apiModule": {
+        "path": "go.etcd.io/etcd/api/v3",
+        "h1": "h1:XeVz+kb/YqdiWbXeO1XioYKKUxgzSIdPi9/cTl6kmZw="
+      }
+    },
+    {
+      "name": "tini",
+      "version": "0.19.0",
+      "url": "https://github.com/krallin/tini/releases/download/v0.19.0/tini-static-{arch}",
+      "sha256": {
+        "amd64": "c5b0666b4cb676901f90dfcb37106783c5fe2077b04590973b885950611b30ee",
+        "arm64": "eae1d3aa50c48fb23b8cbdf4e369d0910dfc538566bfd09df89a774aa84a48b9"
+      }
+    }
+  ]
+}

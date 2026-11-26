@@ -62,7 +62,7 @@ reboots, and every feature's scenario. Releases run all of it.
   stays free for commercial use; `make licenses` checks it, and CI runs it.
   Never add code under the GPL, AGPL, SSPL, BUSL, or a license that limits
   commercial use. A new or upgraded program in the embedded runtime
-  (`internal/runtime/embedded/lock.go`) updates
+  (`pack/lock.json`) updates
   [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) in the same change.
 - **Security rules.** Armada holds root on every node: never weaken mTLS,
   validate anything that reaches the proxy configuration, keep secrets out

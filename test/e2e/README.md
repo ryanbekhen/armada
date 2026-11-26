@@ -258,7 +258,7 @@ E2E_ACME_EMAIL=you@example.org sh test/e2e/upgrade.sh hosts
 | `E2E_FROM` | `v0.1.0-alpha.42` | Release the cluster is built on (installed with `install.sh`); run it from `v0.1.0-alpha.41` too |
 | `E2E_TO` | required | Release to upgrade to |
 | `E2E_RELEASES` | empty (GitHub) | Local directory laid out as the release downloads (`TAG/armada_<version>_linux_<arch>.tar.gz`, `TAG/checksums.txt`, and the signature bundle), holding `E2E_FROM`, `E2E_TO`, and `v0.1.0-alpha.42`; copied to every machine and used through `ARMADA_DOWNLOAD_BASE=file://` by both `install.sh` and `armadad upgrade` |
-| `E2E_ETCDCTL` | required | Linux `etcdctl` for the first machine's architecture, from the etcd release archive the runtime pack pins (`internal/runtime/embedded/lock.go`); reads the keyspace and the member IDs with the member's certificate |
+| `E2E_ETCDCTL` | required | Linux `etcdctl` for the first machine's architecture, from the etcd release archive the runtime pack pins (`pack/lock.json`); reads the keyspace and the member IDs with the member's certificate |
 | `E2E_ROLLBACK` | `2` | The machine (line in the hosts file) rolled back and upgraded again |
 | `E2E_ONLY`, `E2E_LIST` | | As for `cluster.sh`: `upgrade` or `rollback` (which runs the upgrade first) |
 | `E2E_ACME_CA`, `E2E_SSH_OPTS`, `E2E_SUDO` | | As for `cluster.sh` |

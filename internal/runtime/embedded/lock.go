@@ -1,17 +1,17 @@
 // Package embedded runs containers on Armada's own containerd instance
 // (ADR 0011). Release builds carry containerd, runc, the CNI plugins,
-// tini, and etcd in the binary; this file pins exactly which upstream
-// artifacts.
+// tini, and etcd in the binary. The pins live in pack/lock.json, which
+// armada-pack (pack/) builds the pack from (ADR 0055, item 20); this file
+// holds the same pins for Go's code while it is in the repository
+// (TestLockMatchesFile).
 package embedded
 
 import "strings"
 
 // Artifact is one upstream download that contributes files to the bundle.
 //
-// When bumping a version: verify the upstream signature first (runc and
-// tini publish GPG signatures; containerd and the CNI plugins publish
-// checksums with the release), then record the SHA-256 here. The hash, not the URL,
-// is what the bundle trusts.
+// When bumping a version: change pack/lock.json (docs/releasing.md), then
+// the same entry here.
 type Artifact struct {
 	Name    string
 	Version string

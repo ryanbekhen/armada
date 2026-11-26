@@ -1,5 +1,8 @@
 // Command mkbundle downloads the artifacts pinned in embedded.Lock, checks
-// their SHA-256, and writes the runtime pack that release builds embed.
+// their SHA-256, and writes a runtime pack as Go's code did. Releases use
+// armada-pack (pack/, `make runtime-bundle`) since ADR 0055's item 20,
+// whose pack holds the same tar; this one stays while Go is in the
+// repository, to compare with.
 //
 //	go run ./internal/runtime/embedded/mkbundle -arch amd64
 package main

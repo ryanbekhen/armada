@@ -1,6 +1,8 @@
 package embedded
 
 import (
+	"encoding/json"
+	"maps"
 	"os"
 	"strings"
 	"testing"
@@ -91,6 +93,39 @@ func TestEtcdMatchesModule(t *testing.T) {
 		}
 		if !found {
 			t.Errorf("go.mod does not require %s", mod)
+		}
+	}
+}
+
+// pack/lock.json holds the pins armada-pack builds the pack from (ADR
+// 0055, item 20); lock.go keeps the same pins for Go's code while it is in
+// the repository.
+func TestLockMatchesFile(t *testing.T) {
+	t.Parallel()
+	b, err := os.ReadFile("../../../pack/lock.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var file struct {
+		Artifacts []struct {
+			Name    string            `json:"name"`
+			Version string            `json:"version"`
+			URL     string            `json:"url"`
+			SHA256  map[string]string `json:"sha256"`
+			Files   map[string]string `json:"files"`
+		} `json:"artifacts"`
+	}
+	if err := json.Unmarshal(b, &file); err != nil {
+		t.Fatal(err)
+	}
+	if len(file.Artifacts) != len(Lock) {
+		t.Fatalf("pack/lock.json pins %d artifacts, lock.go %d", len(file.Artifacts), len(Lock))
+	}
+	for i, a := range Lock {
+		f := file.Artifacts[i]
+		if f.Name != a.Name || f.Version != a.Version || f.URL != a.URL ||
+			!maps.Equal(f.SHA256, a.SHA256) || !maps.Equal(f.Files, a.Files) {
+			t.Errorf("pack/lock.json's %s differs from lock.go's %s", f.Name, a.Name)
 		}
 	}
 }

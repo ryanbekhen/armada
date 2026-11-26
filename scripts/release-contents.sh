@@ -32,7 +32,7 @@ for a in \
 	done
 	[ -x "$work/$a/armada" ] || fail "$a: armada is not executable"
 	[ ! -L "$work/$a/armada" ] || fail "$a: armada is a link"
-	for d in third_party/licenses licenses/rust licenses/go; do
+	for d in third_party/licenses licenses/rust; do
 		[ -n "$(ls -A "$work/$a/$d" 2>/dev/null)" ] || fail "$a: $d is empty"
 	done
 done
@@ -47,11 +47,13 @@ for arch in amd64 arm64; do
 	for unit in armada-server armada-agent armada-runtime armada-etcd; do
 		[ -f "$full/deploy/systemd/$unit.service" ] || fail "linux_$arch: no deploy/systemd/$unit.service"
 	done
+	# The license files of the Go modules the pack's etcd programs link.
+	[ -f "$full/licenses/runtime/MODULES.txt" ] || fail "linux_$arch: no licenses/runtime/MODULES.txt"
 	[ ! -e "$client/armadad" ] || fail "client archive linux_$arch: holds armadad"
 	[ ! -e "$client/deploy" ] || fail "client archive linux_$arch: holds the units"
 	case $arch in
-	amd64) machine=x86-64 pack=internal/runtime/embedded/bundle/linux_amd64.pack ;;
-	arm64) machine=aarch64 pack=internal/runtime/embedded/bundle/linux_arm64.pack ;;
+	amd64) machine=x86-64 pack=build/pack/linux_amd64.pack ;;
+	arm64) machine=aarch64 pack=build/pack/linux_arm64.pack ;;
 	esac
 	for b in "$full/armadad" "$full/armada" "$client/armada"; do
 		out=$(file -b "$b")

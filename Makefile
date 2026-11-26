@@ -12,7 +12,7 @@ VERSION_ENV = ARMADA_VERSION=$(VERSION) ARMADA_COMMIT=$(COMMIT) ARMADA_DATE=$(DA
 
 export CGO_ENABLED := 0
 
-.PHONY: all build build-bundle logger shim dns node node-test-hooks pki-parity store-parity server-parity client-parity daemon-parity agent-parity rust-check runtime-bundle test cover lint fmt vet vuln licenses licenses-save proto docs docs-rust tidy check clean
+.PHONY: all build build-bundle logger shim dns node node-test-hooks pki-parity store-parity server-parity client-parity daemon-parity agent-parity rust-check runtime-bundle runtime-licenses rust-licenses test cover lint fmt vet vuln licenses licenses-save proto proto-rust proto-go docs tidy check clean
 
 all: check build
 
@@ -27,8 +27,14 @@ build:
 	cp target/release/armada $(BIN)
 	$(if $(LINUX),cp target/release/armadad $(DAEMON))
 
-# Downloads the pinned containerd, runc, CNI plugins, and tini (ADR 0011),
-# checks their SHA-256, and packs them for embedding.
+# armada-pack (pack/, a workspace member that is never shipped) builds the
+# runtime pack from the pins in pack/lock.json: it downloads the pinned
+# containerd, runc, CNI plugins, tini, and etcd (ADR 0011, ADR 0055) over
+# HTTPS, keeps each only when its SHA-256 matches, and packs them with
+# Armada's own programs below into build/pack/linux_<arch>.pack, which
+# daemon/build.rs embeds. Built with the release profile: it compresses
+# about 100 MB per pack.
+PACK = cargo run --release --locked -q -p armada-pack --
 # armada-log (logger/), the log writer every container's shim runs: Rust,
 # standard library only, static for both architectures with the linker
 # Rust ships (toolchain pinned in logger/rust-toolchain.toml).
@@ -132,8 +138,20 @@ rust-check:
 	cd proto/gen && cargo fmt --check && cargo clippy --locked --all-targets -- -D warnings
 
 runtime-bundle: logger shim dns node
-	go run ./internal/runtime/embedded/mkbundle -arch amd64 -logger $(call LOGGER_OUT,x86_64) -shim $(call SHIM_OUT,x86_64) -dns $(call DNS_OUT,x86_64) -node $(call NODE_OUT,x86_64)
-	go run ./internal/runtime/embedded/mkbundle -arch arm64 -logger $(call LOGGER_OUT,aarch64) -shim $(call SHIM_OUT,aarch64) -dns $(call DNS_OUT,aarch64) -node $(call NODE_OUT,aarch64)
+	$(PACK) bundle --arch amd64 --logger $(call LOGGER_OUT,x86_64) --shim $(call SHIM_OUT,x86_64) --dns $(call DNS_OUT,x86_64) --node $(call NODE_OUT,x86_64)
+	$(PACK) bundle --arch arm64 --logger $(call LOGGER_OUT,aarch64) --shim $(call SHIM_OUT,aarch64) --dns $(call DNS_OUT,aarch64) --node $(call NODE_OUT,aarch64)
+
+# The license files of every Go module the pack's etcd and etcdutl link
+# (their build information names each with its go.sum hash, which every
+# module zip from the Go module proxy is checked against) into
+# build/licenses-runtime: release archives carry them as licenses/runtime.
+runtime-licenses:
+	$(PACK) licenses --out build/licenses-runtime
+
+# Every crate's license and notice files into build/licenses-rust (release
+# archives: licenses/rust).
+rust-licenses:
+	sh scripts/rust-licenses.sh build/licenses-rust
 
 # Linux binaries as releases build them (.goreleaser.yaml): static musl
 # armadad with the runtime pack embedded (the bundle feature, daemon/build.rs)
@@ -166,20 +184,28 @@ vet:
 vuln:
 	govulncheck ./...
 
-docs: ## regenerate the command line reference in docs/cli
-	go test ./internal/clidoc -run TestReferenceIsCurrent -update -count=1
-
-# armada's pages of docs/cli written from the Rust client (ADR 0055); `cargo
-# test -p armada-client --test clidoc` checks they equal Go's.
-docs-rust:
+# The command line reference in docs/cli, written from the Rust commands
+# (ADR 0055): armada's pages by the client's clidoc test, armadad's by the
+# daemon's. Without ARMADA_CLIDOC_UPDATE the same tests (cargo test) fail
+# when docs/cli is stale.
+docs:
 	ARMADA_CLIDOC_UPDATE=1 cargo test --locked -p armada-client --test clidoc
+	ARMADA_CLIDOC_UPDATE=1 cargo test --locked -p armada-daemon --test clidoc
 
-# Go's code next to the protos, then armada-proto's (proto/src/gen, ADR
-# 0055) with the generators proto/gen pins (its own Cargo.lock): Armada's
-# protocol, and etcd's protos vendored again from the etcd module go.mod
-# pins (proto/vendor). The Rust code is checked in, so building it needs no
-# protoc.
-proto:
+# armada-proto's code (proto/src/gen, ADR 0055) with the generators
+# proto/gen pins (its own Cargo.lock): Armada's protocol, and etcd's protos
+# vendored again (proto/vendor) from etcd's API module at the version the
+# pinned etcd links (pack/lock.json, checked against its go.sum hash there;
+# armada-pack etcd-api), then Go's code next to the protos while Go is in
+# the repository. The Rust code is checked in, so building it needs no
+# protoc; proto-rust needs no Go.
+proto: proto-rust proto-go
+
+proto-rust:
+	dir=$$($(PACK) etcd-api --out .cache/etcd-api) && \
+		cargo run --locked -q --manifest-path proto/gen/Cargo.toml -- . "$$dir"
+
+proto-go:
 	go build -o bin/tools/ google.golang.org/protobuf/cmd/protoc-gen-go google.golang.org/grpc/cmd/protoc-gen-go-grpc
 	protoc -I api \
 		--plugin=protoc-gen-go=bin/tools/protoc-gen-go \
@@ -187,7 +213,6 @@ proto:
 		--go_out=api --go_opt=paths=source_relative \
 		--go-grpc_out=api --go-grpc_opt=paths=source_relative \
 		api/armada/v1/*.proto
-	cargo run --locked -q --manifest-path proto/gen/Cargo.toml -- . "$$(go list -m -f '{{.Dir}}' go.etcd.io/etcd/api/v3)"
 
 tidy:
 	go mod tidy
@@ -196,16 +221,17 @@ tidy:
 check: vet lint test vuln
 
 clean:
-	rm -rf bin coverage.out internal/runtime/embedded/bundle
+	rm -rf bin coverage.out build/pack internal/runtime/embedded/bundle
 
-# Licenses of the Go modules the binaries are built from (THIRD_PARTY_NOTICES.md).
+# Licenses of the Go modules of the Go code still in the repository (ADR
+# 0055, item 20); released programs are Rust (rust-licenses,
+# runtime-licenses).
 GO_LICENSES = go run github.com/google/go-licenses/v2@v2.0.1
 ALLOWED_LICENSES = Apache-2.0,MIT,BSD-2-Clause,BSD-3-Clause,ISC,MPL-2.0,CC0-1.0
 
 licenses: ## fail when a Go module under a license outside ALLOWED_LICENSES is added
 	$(GO_LICENSES) check ./cmd/... --allowed_licenses=$(ALLOWED_LICENSES)
 
-licenses-save: ## copy every Go module's license and notice files into build/licenses (release archives)
+licenses-save: ## copy every Go module's license and notice files into build/licenses
 	rm -rf build/licenses
 	$(GO_LICENSES) save ./cmd/... --save_path=build/licenses 2>/dev/null
-	sh scripts/rust-licenses.sh build/licenses-rust

@@ -33,7 +33,8 @@ one platform it builds, releases, and tests.
 ### What is bundled
 
 Release builds embed upstream release binaries, pinned by version and
-SHA-256 in `internal/runtime/embedded/lock.go`:
+SHA-256 in `pack/lock.json` (in `internal/runtime/embedded/lock.go` until
+ADR 0055's item 20):
 
 | Component | Why |
 | --- | --- |

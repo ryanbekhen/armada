@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 
 use sha2::{Digest, Sha256};
 
-/// The pack's programs (lock.go).
+/// The pack's programs (pack/lock.json).
 pub const BIN_CONTAINERD: &str = "containerd";
 pub const BIN_SHIM: &str = "containerd-shim-runc-v2";
 pub const BIN_RUNC: &str = "runc";

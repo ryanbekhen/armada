@@ -3,12 +3,15 @@ version: 2
 
 project_name: armada
 
+# Nothing here needs Go (ADR 0055, item 20): armada-pack (pack/) builds the
+# runtime pack from pack/lock.json and collects the license files of the
+# Go modules the pack's etcd programs link (licenses/runtime);
+# scripts/rust-licenses.sh those of the crates (licenses/rust).
 before:
   hooks:
-    - go mod verify
     - make runtime-bundle
-    - make licenses
-    - make licenses-save
+    - make runtime-licenses
+    - make rust-licenses
 
 builds:
   # armadad and armada are built from Rust (ADR 0055) by GoReleaser's rust
@@ -69,10 +72,10 @@ archives:
       - LICENSE
       - THIRD_PARTY_NOTICES.md
       - third_party/licenses/*
-      - src: build/licenses/**/*
-        dst: licenses/go
       - src: build/licenses-rust/**/*
         dst: licenses/rust
+      - src: build/licenses-runtime/**/*
+        dst: licenses/runtime
       - README.md
       - SECURITY.md
       - deploy/systemd/*
@@ -86,8 +89,6 @@ archives:
       - LICENSE
       - THIRD_PARTY_NOTICES.md
       - third_party/licenses/*
-      - src: build/licenses/**/*
-        dst: licenses/go
       - src: build/licenses-rust/**/*
         dst: licenses/rust
       - README.md
@@ -101,8 +102,6 @@ archives:
       - LICENSE
       - THIRD_PARTY_NOTICES.md
       - third_party/licenses/*
-      - src: build/licenses/**/*
-        dst: licenses/go
       - src: build/licenses-rust/**/*
         dst: licenses/rust
       - README.md

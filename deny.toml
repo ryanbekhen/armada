@@ -3,7 +3,7 @@
 # deny check licenses` runs in CI at the repository's root and covers every
 # member (armada-node, armada-proto, armada-fsutil, armada-pki,
 # armada-secrets, armada-spec, armada-store, armada-server, armada-client, armada-agent,
-# armada-daemon); a
+# armada-daemon, armada-pack); a
 # crate under any other license fails it.
 [graph]
 targets = ["x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl"]

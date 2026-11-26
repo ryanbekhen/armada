@@ -618,10 +618,27 @@ Go and every new Rust part is exercised only by its parity tests.
        as `testdata/rust` already does for the runtime, HAProxy's driver,
        and the image store's move.
     2. **Go deleted.** `cmd/`, `internal/`, `go.mod`, Go's CI jobs and
-       release steps, the runtime pack's builder and pins moved out of Go,
-       and every document that names Go code (CLAUDE.md, the operations
-       guide, the threat model's references, `docs/compatibility.md` for
-       the one downgrade allowed).
+       release steps, and every document that names Go code (CLAUDE.md,
+       the operations guide, the threat model's references,
+       `docs/compatibility.md` for the one downgrade allowed).
+
+    Done first (20a): every build, release, and documentation tool that
+    needed Go is out of Go, so deleting the code breaks none of them.
+    The runtime pack's pins are `pack/lock.json`, and `armada-pack`
+    (`pack/`, a workspace member never shipped) builds the pack from
+    them (`make runtime-bundle`): the same tar as Go's mkbundle, byte for
+    byte, in flate2's gzip stream (Go's compressor's bytes are not kept:
+    they change with Go's releases). It also extracts etcd's programs for
+    the parity tests (`scripts/etcd-cache.sh`), collects the license
+    files of the Go modules the pack's etcd and etcdutl link into release
+    archives (`licenses/runtime`, replacing `licenses/go`, since no
+    released program links Armada's Go modules any more), and fetches
+    etcd's API module for `make proto-rust`, every module checked
+    against the go.sum hash its program records or the lock pins; its
+    tests check the pins and the notices. `make docs` writes `docs/cli`
+    from the Rust client and daemon. GoReleaser's hooks and CI's release
+    jobs run no Go command; `lock.go` keeps the same pins until Go goes
+    (`TestLockMatchesFile`).
 
 The release is tagged after 19 and the cloud run, before 20 (the owner's
 decision once 19 passed the lab runs): from 19 on, nothing a release
