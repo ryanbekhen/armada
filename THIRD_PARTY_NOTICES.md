@@ -152,11 +152,10 @@ published without them).
 | Crate | License |
 | --- | --- |
 | adler2 | 0BSD, MIT, or Apache-2.0 (used under MIT) |
-| block-buffer, cpufeatures, crypto-common, digest, sha2 (RustCrypto) | MIT or Apache-2.0 |
+| block-buffer, const-oid, cpufeatures, crypto-common, digest, hybrid-array, sha2 (RustCrypto) | MIT or Apache-2.0 |
 | cfg-if, libc | MIT or Apache-2.0 |
 | crc32fast, flate2 | MIT or Apache-2.0 |
 | curve25519-dalek, x25519-dalek, subtle (dalek-cryptography) | BSD-3-Clause |
-| generic-array | MIT |
 | getrandom, once_cell, zeroize | MIT or Apache-2.0 |
 | itoa, serde, serde_core, serde_json | MIT or Apache-2.0 |
 | memchr | MIT or Unlicense (used under MIT) |
@@ -172,7 +171,7 @@ published without them).
 
 Used only while building, not linked: cc, curve25519-dalek-derive,
 find-msvc-tools, proc-macro2, quote, rustc_version, semver, serde_derive,
-shlex, syn, version_check (MIT or Apache-2.0), and unicode-ident (MIT or
+shlex, syn (MIT or Apache-2.0), and unicode-ident (MIT or
 Apache-2.0, with Unicode data under Unicode-3.0). ring's C and assembly
 are compiled with clang into `armada-node`. fiat-crypto (MIT, Apache-2.0,
 or BSD-1-Clause; used under MIT) is in the lock file as an optional

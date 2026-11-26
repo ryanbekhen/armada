@@ -25,7 +25,6 @@ use std::time::{Duration, Instant};
 
 use armada_client::cli::{Ctx, Error, Result};
 use armada_client::release;
-use sha2::{Digest, Sha256};
 
 use crate::{hooks, systemd};
 
@@ -728,9 +727,7 @@ fn verify_checksum(sums: &Path, file: &Path, name: &str) -> std::result::Result<
     }
     let mut a = fs::File::open(file)
         .map_err(|e| format!("open {}: {}", file.display(), armada_fsutil::errno_text(&e)))?;
-    let mut h = Sha256::new();
-    std::io::copy(&mut a, &mut h).map_err(|e| e.to_string())?;
-    if crate::pack::hex(&h.finalize()) != want.to_lowercase() {
+    if crate::pack::sha256_reader(&mut a).map_err(|e| e.to_string())? != want.to_lowercase() {
         return Err(format!("checksum mismatch for {name}; not installing"));
     }
     Ok(())

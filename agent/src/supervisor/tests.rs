@@ -399,10 +399,18 @@ fn serve(st: &Arc<(Mutex<ShimState>, Condvar)>, sock: &str, c: UnixStream) {
     let _ = (&c).write_all(format!("{answer}\n").as_bytes());
 }
 
+/// The SHA-256 of b in lower-case hex.
+fn sha256_hex(b: &[u8]) -> String {
+    Sha256::digest(b)
+        .iter()
+        .map(|c| format!("{c:02x}"))
+        .collect()
+}
+
 /// An image record in armada-node's store, with no layers.
 pub fn write_image(images: &Path, name: &str, config: &str) {
     let blob = config.as_bytes();
-    let hex = format!("{:x}", Sha256::digest(blob));
+    let hex = sha256_hex(blob);
     let blobs = images.join("content/blobs/sha256");
     fs::create_dir_all(&blobs).unwrap();
     fs::write(blobs.join(&hex), blob).unwrap();
@@ -413,7 +421,7 @@ pub fn write_image(images: &Path, name: &str, config: &str) {
         .unwrap_or_else(|| serde_json::json!({"version": 1, "images": {}}));
     let manifest = serde_json::json!({
         "mediaType": "application/vnd.oci.image.manifest.v1+json",
-        "digest": format!("sha256:{:x}", Sha256::digest(name.as_bytes())), "size": 1});
+        "digest": format!("sha256:{}", sha256_hex(name.as_bytes())), "size": 1});
     idx["images"][name] = serde_json::json!({
         "name": name, "target": manifest, "manifest": manifest,
         "config": {"mediaType": "application/vnd.oci.image.config.v1+json",

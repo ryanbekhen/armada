@@ -245,9 +245,7 @@ async fn write_snapshot(c: &Client, dst: &Path) -> Result<(), String> {
 fn hash_file(p: &Path) -> Result<String, String> {
     check_private(p)?;
     let mut f = fs::File::open(p).map_err(|e| errno("open", p, &e))?;
-    let mut h = Sha256::new();
-    io::copy(&mut f, &mut h).map_err(|e| errno("read", p, &e))?;
-    Ok(pack::hex(&h.finalize()))
+    pack::sha256_reader(&mut f).map_err(|e| errno("read", p, &e))
 }
 
 /// Create: the staged backup written to w as a gzipped tar, the manifest
