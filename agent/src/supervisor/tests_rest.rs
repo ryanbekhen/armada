@@ -285,13 +285,36 @@ echo '{{"exit":137}}' >&4"#,
     }
     assert_eq!(seen, "{\"kill\":true}\n");
 
-    // Failures before runc ran, and calls refused.
+    // Failures before the runtime ran, and calls refused. A new
+    // container runs on crun (ADR 0056).
     node_stand_in(&lab, r#"echo '{"execErrno":2}' >&4"#);
-    let runc = lab.data().join("runtime/current/bin/runc");
+    let bin = lab.data().join("runtime/current/bin");
     let cmd = |c: &[&str]| ExecOptions {
         cmd: c.iter().map(|s| s.to_string()).collect(),
         ..Default::default()
     };
+    assert_eq!(lab.record(&id)["runtime"], "crun");
+    assert_eq!(
+        lab.rt
+            .exec_session(&id, cmd(&["x"]))
+            .await
+            .unwrap_err()
+            .to_string(),
+        format!(
+            "exec: crun exec: fork/exec {}: no such file or directory",
+            bin.join("crun").display()
+        )
+    );
+    // A container created before ADR 0056 (its record names no runtime)
+    // stays on runc.
+    let record = lab
+        .data()
+        .join("supervisor/containers")
+        .join(&id)
+        .join("record.json");
+    let mut rec = lab.record(&id);
+    rec.as_object_mut().unwrap().remove("runtime");
+    fs::write(&record, serde_json::to_vec(&rec).unwrap()).unwrap();
     assert_eq!(
         lab.rt
             .exec_session(&id, cmd(&["x"]))
@@ -300,7 +323,7 @@ echo '{{"exit":137}}' >&4"#,
             .to_string(),
         format!(
             "exec: runc exec: fork/exec {}: no such file or directory",
-            runc.display()
+            bin.join("runc").display()
         )
     );
     assert_eq!(

@@ -15,7 +15,8 @@
 //!   armada-node runtime snapshots ROOT
 //!       stdout: {"keys": [KEY]}, every container's root filesystem
 //!   armada-node runtime bundle create
-//!       stdin: {"dir", "id", "image", "labels", "spec", "mounts"};
+//!       stdin: {"dir", "id", "image", "labels", "spec", "mounts",
+//!       "runtime"} ("crun", or none for runc: oci.rs);
 //!       stdout: {"record": Record} or {"error"} (bundle.rs)
 //!   armada-node runtime bundle remove DIR ID
 //!   armada-node runtime bundle records DIR
@@ -24,7 +25,7 @@
 //!   armada-node runtime bundle labels DIR ID
 //!       stdin: {"labels"}; stdout: {"record": Record}
 //!   armada-node runtime shim call|start|abandon
-//!       stdin: {"dir", "bin", "runc", "logger", "group", "words",
+//!       stdin: {"dir", "bin", "runc", "crun", "logger", "group", "words",
 //!       "timeoutMs", "systemdRun", "systemctl"}; call: stdout {"answer"},
 //!       {"shim": TEXT} (the shim's own error), or {"error", "errno"};
 //!       start: {} or {"error"}; abandon: {"gone"} or {"error"}
@@ -41,12 +42,13 @@
 //!       stdout: {"connected"}, {"notFound"}, {"redo"}, {"netns": ERRNO},
 //!       {"setns": ERRNO}, {"op", "errno"}, or {"timeout"} (dial.rs)
 //!   armada-node runtime exec
-//!       fd 3: {"bundle", "dir", "root", "runc", "id", "args", "terminal",
+//!       fd 3: {"bundle", "dir", "root", "runtime", "id", "args", "terminal",
 //!       "consoleSize", "stdin", "stdout", "stderr", "drainGraceMs",
 //!       "terminalDrainGraceMs"}; fd 4: a control socket (JSON lines);
 //!       fds 5, 6, 7: the caller's input, output, and error output. Runs
 //!       the exec's session (ADR 0054 step 5, last part): writes
-//!       process.json as execProcess.Start does, starts `runc exec` on
+//!       process.json as execProcess.Start does, starts the container's
+//!       OCI runtime's exec (`crun exec`, or `runc exec`: oci.rs) on
 //!       pipes or a terminal, copies, waits, and drains; answers
 //!       {"spawned"} (or {"execErrno"}, {"redo"}, {"error"}), then
 //!       {"started"} or {"notStarted"}, {"exit"}, {"drained"}; reads
@@ -59,6 +61,7 @@ pub mod bundle;
 pub mod dial;
 pub mod exec;
 pub mod mount;
+pub mod oci;
 pub mod shim;
 pub mod stats;
 

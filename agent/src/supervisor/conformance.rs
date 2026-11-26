@@ -1,7 +1,9 @@
 //! The supervisor runtime on a real machine (root, a lab node whose
 //! agent is stopped, its runtime pack installed): what Go's
-//! ConformanceSupervisor checks of the driver, through the Rust one. Never
-//! run by `cargo test`; see CLAUDE.md's Commands for how to run it.
+//! ConformanceSupervisor checks of the driver, through the Rust one, with
+//! new containers on crun (ADR 0056). Never run by `cargo test`; see
+//! CLAUDE.md's Commands for how to run it (the pack installed must carry
+//! crun: a pack built from pack/lock.json since ADR 0056).
 //!
 //! ARMADA_DATA_DIR and ARMADA_RUN_DIR name the node's directories
 //! (/var/lib/armada and /run/armada), ARMADA_SUBNET its container subnet
@@ -76,6 +78,17 @@ async fn conformance_supervisor_rust() {
     let c = wait_for(&rt, &id, STATE_RUNNING).await;
     let ip: std::net::Ipv4Addr = c.ip.parse().unwrap();
     assert!(rt.bridge().subnet.contains(ip), "{ip}");
+    // A new container runs on crun (ADR 0056): its record names it, and
+    // its state is in crun's directory of the shim's, not runc's.
+    let rec = rt.inner.load(&id).await.unwrap();
+    assert_eq!(rec.runtime, "crun");
+    let crun_state = rt.inner.shims.root(&rec.group, OciRuntime::Crun);
+    assert!(
+        crun_state.join(&id).join("status").is_file(),
+        "{crun_state:?}"
+    );
+    let runc_state = rt.inner.shims.root(&rec.group, OciRuntime::Runc);
+    assert!(!runc_state.join(&id).exists(), "{runc_state:?}");
     assert_eq!(rt.exec_app(&id, &["true".to_string()]).await.unwrap(), 0);
     assert_eq!(rt.exec_app(&id, &["false".to_string()]).await.unwrap(), 1);
     let st = rt.stats(&id).await.unwrap();
