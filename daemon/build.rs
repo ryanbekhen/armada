@@ -1,6 +1,6 @@
 //! The runtime pack armadad carries (ADR 0055, "What ships"): with the
 //! bundle feature, the pack `make runtime-bundle` built for the target
-//! (internal/runtime/embedded/bundle/linux_ARCH.pack), or the file
+//! (build/pack/linux_ARCH.pack, armada-pack), or the file
 //! ARMADA_RUNTIME_PACK names, compiled in with include_bytes!; without
 //! either, none, as Go's build without the bundle tag.
 
@@ -16,7 +16,7 @@ fn main() {
             Err(_) => panic!("no target architecture"),
         };
         let root = std::env::var("CARGO_MANIFEST_DIR").expect("manifest dir");
-        pack = format!("{root}/../internal/runtime/embedded/bundle/linux_{arch}.pack");
+        pack = format!("{root}/../build/pack/linux_{arch}.pack");
     }
     if pack.is_empty() {
         return;

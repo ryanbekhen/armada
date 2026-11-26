@@ -44,8 +44,12 @@ on a maintainer's machine.
      the checksum file, tied to the workflow identity and the tag,
    - GitHub build provenance attestations for the archives and checksums.
    Every archive carries `THIRD_PARTY_NOTICES.md`, `third_party/licenses/`,
-   `licenses/rust/` (each crate's license files, `scripts/rust-licenses.sh`),
-   and `licenses/go/` (`make licenses-save`). Both programs print the tag,
+   and `licenses/rust/` (each crate's license files, `make rust-licenses`);
+   the full Linux archives also `licenses/runtime/` (the license files of
+   the Go modules the pack's etcd and etcdutl link, `make
+   runtime-licenses`). Nothing in the packaging needs Go: `armada-pack`
+   (`pack/`) builds the runtime pack and collects `licenses/runtime/`.
+   Both programs print the tag,
    the full commit, and the commit's time in `armada version` and
    `armadad version`: GoReleaser gives cargo `ARMADA_VERSION`,
    `ARMADA_COMMIT`, and `ARMADA_DATE`, which `client/build.rs` reads (the
@@ -143,10 +147,11 @@ gh attestation verify armada_${VERSION#v}_linux_amd64.tar.gz --repo ryanbekhen/a
   toolchain in `rust-toolchain.toml`, and every crate in `Cargo.lock`
   (builds use `--locked`).
 - The HAProxy system image is pinned by digest in the code.
-- The bundled runtime binaries (containerd, runc, CNI plugins, tini) are
-  pinned by version and SHA-256 in `internal/runtime/embedded/lock.go`.
-  Before each release, check their advisories: `govulncheck` does not see
-  them.
+- The bundled runtime binaries (containerd, runc, CNI plugins, tini, etcd)
+  are pinned by version and SHA-256 in `pack/lock.json`; `make
+  runtime-bundle` downloads them over HTTPS only and refuses any checksum
+  mismatch. Before each release, check their advisories: `govulncheck`
+  does not see them.
 
 ## Updating the bundled runtime
 
@@ -154,9 +159,22 @@ gh attestation verify armada_${VERSION#v}_linux_amd64.tar.gz --repo ryanbekhen/a
 2. Download the artifact for both architectures. Where upstream signs it
    (runc, tini: detached GPG signatures), verify the signature against the
    maintainers' published keys; for containerd and the CNI plugins compare
-   with the `.sha256sum` files on the GitHub release.
-3. Record the version and both SHA-256 values in `lock.go`.
-4. `make build-bundle` (it runs `make runtime-bundle` first), then run the
+   with the `.sha256sum` files on the GitHub release, for etcd with its
+   `SHA256SUMS`.
+3. Record the version, the URL, and both SHA-256 values in
+   `pack/lock.json` (for etcd also the paths inside its archive, and the
+   go.sum hash of `go.etcd.io/etcd/api/v3` at the new version as
+   `apiModule.h1`, from `https://sum.golang.org/lookup/go.etcd.io/etcd/api/v3@vVERSION`),
+   and the version in `THIRD_PARTY_NOTICES.md`'s table: `cargo test -p
+   armada-pack` checks the pins and the notices. While Go is in the
+   repository, `internal/runtime/embedded/lock.go` takes the same pins
+   (`TestLockMatchesFile`), and an etcd upgrade also moves go.mod's etcd
+   modules (`TestEtcdMatchesModule`).
+4. For etcd, `make runtime-licenses` (the new release's modules into
+   `build/licenses-runtime`; it fails on a module without a license file)
+   and `make proto-rust` (etcd's protos vendored again from the new API
+   module; review the diff of `proto/`).
+5. `make build-bundle` (it runs `make runtime-bundle` first), then run the
    end-to-end test on Linux machines ([test/e2e](../test/e2e/README.md):
    every node runs the supervisor runtime through armada-node) and the
    Rust supervisor runtime's conformance test on a node

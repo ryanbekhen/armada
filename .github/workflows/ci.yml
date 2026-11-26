@@ -332,7 +332,10 @@ jobs:
         working-directory: proto/gen
       - run: cargo clippy --locked --all-targets -- -D warnings
         working-directory: proto/gen
-      - run: go test -race -run 'TestArmadaLog|TestLoggerStandardLibraryOnly' -v ./internal/runtime/embedded/
+      # The notices and pins are checked by armada-pack's tests (cargo test
+      # above); Go's TestLockMatchesFile keeps lock.go equal to
+      # pack/lock.json while Go is in the repository.
+      - run: go test -race -run 'TestArmadaLog|TestLoggerStandardLibraryOnly|TestLockMatchesFile' -v ./internal/runtime/embedded/
         env:
           ARMADA_LOG_BIN: ${{ github.workspace }}/logger/target/x86_64-unknown-linux-musl/release/armada-log
       # armada-dns answers what the Go resolver's tests ask (ADR 0053).
@@ -368,9 +371,6 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
-        with:
-          go-version-file: go.mod
       - uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
         with:
           version: "~> v2"
@@ -382,6 +382,8 @@ jobs:
   # macOS client from client-macos, the archives with their files, the
   # checksums, and the SBOMs. Then what installers and upgraders read: the
   # archive names and their binaries and units, and the version string.
+  # Nothing in it needs Go (ADR 0055, item 20): armada-pack builds the pack
+  # and collects licenses/runtime.
   release-dry-run:
     needs: [changes, client-macos]
     if: github.event_name == 'push' && needs.changes.outputs.code == 'true'
@@ -391,9 +393,6 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
-        with:
-          go-version-file: go.mod
       - run: rustup toolchain install
         working-directory: logger
       - run: rustup toolchain install

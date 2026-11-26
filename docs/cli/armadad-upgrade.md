@@ -6,9 +6,14 @@
 
 upgrade downloads a release, verifies its checksum (and its signature when cosign is
 installed), replaces armadad and armada and the systemd units, and restarts
-armada-runtime (containers keep running), armada-etcd where it runs, and armada-server or armada-agent.
-Upgrade servers first, one at a time, then the other
+armada-runtime (containers keep running), armada-etcd, armada-server, and armada-agent,
+each where it runs. Upgrade servers first, one at a time, then the other
 nodes (docs/operations.md#upgrades). ARMADA_DOWNLOAD_BASE points at a mirror.
+
+It refuses older releases but one: --version v0.1.0-alpha.42, the last release
+before armadad moved to Rust, rolls this machine back to it (stops armada-server,
+armada-agent, and armada-etcd, removes the units that release lacks, installs
+it, and starts its service; docs/operations.md#rolling-back-to-the-last-go-release).
 
 ```
 armadad upgrade [--version vX.Y.Z] [flags]

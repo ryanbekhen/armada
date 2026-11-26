@@ -29,7 +29,7 @@ Every command takes these.
 | [`armadad join`](armadad-join.md) | Join this machine to a cluster as a node |
 | [`armadad restore`](armadad-restore.md) | Restore the control plane from a backup |
 | [`armadad runtime`](armadad-runtime.md) | Run the embedded container runtime (started by systemd) |
-| [`armadad server`](armadad-server.md) | Run the control plane (and, by default, this node's agent) |
+| [`armadad server`](armadad-server.md) | Run the control plane |
 | [`armadad upgrade`](armadad-upgrade.md) | Upgrade this machine to the latest (or a given) release and restart its service |
 | [`armadad user`](armadad-user.md) | Recover a user's credentials on a server |
 | [`armadad version`](armadad-version.md) | Print build information and the latest release |

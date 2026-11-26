@@ -4,7 +4,8 @@
 //!   armada-proto-gen ROOT [ETCD_API_DIR]
 //!
 //! ROOT is the repository. With ETCD_API_DIR (go.etcd.io/etcd/api/v3 at the
-//! version go.mod pins), the etcd protos under proto/vendor are first
+//! pinned etcd's version, named `<path>@<version>`, which `armada-pack
+//! etcd-api` writes: `make proto-rust`), the etcd protos under proto/vendor are first
 //! written again from it (`vendor_etcd`). protoc comes from $PROTOC or the
 //! PATH, as prost-build finds it.
 

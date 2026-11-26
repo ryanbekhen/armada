@@ -4,11 +4,15 @@
 
 [All commands](armadad.md)
 
-Run the control plane (and, by default, this node's agent).
+Run the control plane.
 
 Every control plane node runs `armadad server`. They elect a leader, which serves
 the API and runs the reconcilers; the others stand by and take over within
 seconds if it fails. Add control plane nodes with `armadad server join`.
+
+On a server machine, systemd runs this server's etcd member (armada-etcd, `armadad
+etcd`) and the node's agent (armada-agent, `armadad agent`) as units of their own;
+starting armada-server starts both.
 
 ```
 armadad server [flags]
@@ -30,17 +34,13 @@ Flags:
 | `--acme-ca string` | ACME directory: letsencrypt, letsencrypt-staging, or an https:// URL (default `letsencrypt`) |
 | `--acme-email string` | contact email for the ACME account |
 | `--acme-listen string` | private ip:port for HTTP-01 challenges forwarded by HAProxy (default: <server ip>:7480) |
-| `--agent` | also run this node's agent (default `true`) |
 | `--data-dir string` | directory for cluster state and keys (default `/var/lib/armada`) |
 | `--dns-provider string` | DNS provider for certificates of the root domain and the names under it, including a wildcard: cloudflare |
 | `--dns-token-file string` | file (mode 0600) holding the DNS provider API token |
-| `--internal-dns` | serve <app>.internal to containers on this node (needs --proxy haproxy) (default `true`) |
 | `--join-listen string` | private ip:port for joining nodes (default: API port + 1; "off" disables joining) |
 | `--log-format string` | log format: text or json (default `text`) |
 | `--metrics-listen string` | private ip:port for the Prometheus metrics endpoint, served by the leader to metrics and admin certificates (default: off) |
 | `--node-lost-timeout duration` | how long a node may be unreachable before its replicas move to other nodes (default `5m0s`) |
-| `--proxy string` | ingress proxy for the embedded agent: haproxy or none (default `haproxy`) |
-| `--secrets-dir string` | tmpfs directory for the embedded agent's secret files (default `/run/armada/secrets`) |
 | `--tls` | obtain and renew TLS certificates with ACME (default `true`) |
 | `-v`, `--verbose` | debug logging |
 
