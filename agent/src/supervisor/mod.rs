@@ -467,6 +467,7 @@ fn member_of(c: &Container) -> Member {
         state: c.state.clone(),
         exit_code: c.exit_code,
         started_at: c.started_at,
+        oci_runtime: c.oci_runtime.clone(),
     }
 }
 
@@ -1694,6 +1695,9 @@ impl Inner {
             start_error: label(l, LABEL_FAILED).to_string(),
             ip: label(l, LABEL_IP).to_string(),
             started_at: parse_time(label(l, LABEL_STARTED)),
+            oci_runtime: OciRuntime::of_record(&rec.runtime)
+                .map(|r| r.name().to_string())
+                .unwrap_or_default(),
             ..Default::default()
         };
         if c.name.is_empty() {
@@ -2464,12 +2468,22 @@ impl Runtime for Supervisor {
 
     async fn runtime_agent(&self) -> Option<AgentStatus> {
         let i = self.inner.clone();
-        i.blocking({
-            let i = i.clone();
-            move || i.move_status()
-        })
-        .await
-        .ok()
+        let mut st = i
+            .blocking({
+                let i = i.clone();
+                move || i.move_status()
+            })
+            .await
+            .ok()?;
+        // What runc created and the agent has not moved to crun yet (ADR
+        // 0056); a listing that fails counts none.
+        if let Ok(recs) = i.records().await {
+            st.runc_containers = recs
+                .iter()
+                .filter(|r| OciRuntime::of_record(&r.runtime) == Ok(OciRuntime::Runc))
+                .count() as i64;
+        }
+        Some(st)
     }
 }
 

@@ -121,11 +121,13 @@ fn container(v: &Value) -> Container {
                         state: s(&m["state"]),
                         exit_code: int(&m["exitCode"]),
                         started_at: time(&m["startedNs"]),
+                        ..Default::default()
                     })
                     .collect()
             })
             .unwrap_or_default(),
         start_error: s(&v["startError"]),
+        ..Default::default()
     }
 }
 
@@ -504,6 +506,7 @@ impl Runtime for Remote {
             converted: v["converted"].as_bool().unwrap_or(false),
             images_to_pull: int(&v["imagesToPull"]),
             error: s(&v["error"]),
+            ..Default::default()
         })
     }
 }

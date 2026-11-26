@@ -2190,6 +2190,11 @@ pub struct RuntimeStatus {
     /// the leader last asked it to (MoveRuntime); empty otherwise.
     #[prost(string, tag = "5")]
     pub move_error: ::prost::alloc::string::String,
+    /// Containers runc created that are still on the node (ADR 0056): the
+    /// agent moves them to crun one replica at a time, HAProxy last; job
+    /// attempts end on runc and leave with their history.
+    #[prost(int32, tag = "6")]
+    pub runc_containers: i32,
 }
 /// RuntimeProgress is where the cluster's move to armada-node stands (ADR
 /// 0054): how many nodes run containers through it with nothing left of

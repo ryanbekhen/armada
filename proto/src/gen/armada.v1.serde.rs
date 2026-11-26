@@ -26410,6 +26410,9 @@ impl serde::Serialize for RuntimeStatus {
         if !self.move_error.is_empty() {
             len += 1;
         }
+        if self.runc_containers != 0 {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("armada.v1.RuntimeStatus", len)?;
         if !self.agent.is_empty() {
             struct_ser.serialize_field("agent", &self.agent)?;
@@ -26425,6 +26428,9 @@ impl serde::Serialize for RuntimeStatus {
         }
         if !self.move_error.is_empty() {
             struct_ser.serialize_field("moveError", &self.move_error)?;
+        }
+        if self.runc_containers != 0 {
+            struct_ser.serialize_field("runcContainers", &self.runc_containers)?;
         }
         struct_ser.end()
     }
@@ -26443,6 +26449,8 @@ impl<'de> serde::Deserialize<'de> for RuntimeStatus {
             "error",
             "move_error",
             "moveError",
+            "runc_containers",
+            "runcContainers",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -26452,6 +26460,7 @@ impl<'de> serde::Deserialize<'de> for RuntimeStatus {
             ImagesToPull,
             Error,
             MoveError,
+            RuncContainers,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -26478,6 +26487,7 @@ impl<'de> serde::Deserialize<'de> for RuntimeStatus {
                             "imagesToPull" | "images_to_pull" => Ok(GeneratedField::ImagesToPull),
                             "error" => Ok(GeneratedField::Error),
                             "moveError" | "move_error" => Ok(GeneratedField::MoveError),
+                            "runcContainers" | "runc_containers" => Ok(GeneratedField::RuncContainers),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -26502,6 +26512,7 @@ impl<'de> serde::Deserialize<'de> for RuntimeStatus {
                 let mut images_to_pull__ = None;
                 let mut error__ = None;
                 let mut move_error__ = None;
+                let mut runc_containers__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Agent => {
@@ -26536,6 +26547,14 @@ impl<'de> serde::Deserialize<'de> for RuntimeStatus {
                             }
                             move_error__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::RuncContainers => {
+                            if runc_containers__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("runcContainers"));
+                            }
+                            runc_containers__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
                     }
                 }
                 Ok(RuntimeStatus {
@@ -26544,6 +26563,7 @@ impl<'de> serde::Deserialize<'de> for RuntimeStatus {
                     images_to_pull: images_to_pull__.unwrap_or_default(),
                     error: error__.unwrap_or_default(),
                     move_error: move_error__.unwrap_or_default(),
+                    runc_containers: runc_containers__.unwrap_or_default(),
                 })
             }
         }

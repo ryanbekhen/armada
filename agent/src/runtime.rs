@@ -38,6 +38,11 @@ pub const STATE_DEAD: &str = "dead";
 /// still starting.
 pub const STATE_STARTING: &str = "starting";
 
+/// The OCI runtimes a container may have been created with (ADR 0056):
+/// crun for every new one, runc for those created before.
+pub const OCI_RUNC: &str = "runc";
+pub const OCI_CRUN: &str = "crun";
+
 /// The runtimes and whose code runs them (AgentStatus.agent).
 pub const AGENT_CONTAINERD: &str = "containerd";
 pub const AGENT_SUPERVISOR_GO: &str = "supervisor-go";
@@ -173,6 +178,9 @@ pub struct Member {
     pub state: String,
     pub exit_code: i64,
     pub started_at: Option<SystemTime>,
+    /// The OCI runtime that created it, when the runtime says (ADR 0056):
+    /// OCI_RUNC or OCI_CRUN; empty otherwise.
+    pub oci_runtime: String,
 }
 
 /// The observed state of a container.
@@ -190,6 +198,9 @@ pub struct Container {
     pub started_at: Option<SystemTime>,
     pub members: Vec<Member>,
     pub start_error: String,
+    /// The OCI runtime that created it, when the runtime says (ADR 0056):
+    /// OCI_RUNC or OCI_CRUN; empty otherwise.
+    pub oci_runtime: String,
 }
 
 impl Container {
@@ -205,6 +216,12 @@ impl Container {
         self.members
             .iter()
             .find(|m| m.role == ROLE_SIDECAR && m.state != STATE_RUNNING)
+    }
+
+    /// Whether runc created it or one of its init containers and
+    /// sidecars (ADR 0056): the agent moves it to crun.
+    pub fn on_runc(&self) -> bool {
+        self.oci_runtime == OCI_RUNC || self.members.iter().any(|m| m.oci_runtime == OCI_RUNC)
     }
 
     /// The label `k`, or "".
@@ -232,6 +249,10 @@ pub struct AgentStatus {
     pub converted: bool,
     pub images_to_pull: i64,
     pub error: String,
+    /// Containers runc created that are still on the node (ADR 0056):
+    /// app containers, their init containers and sidecars, job attempts,
+    /// and system containers.
+    pub runc_containers: i64,
 }
 
 impl AgentStatus {

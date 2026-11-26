@@ -62,6 +62,16 @@ pub trait Engine: Send + Sync + 'static {
     fn validate<'a>(&'a self, file: &'a str) -> BoxFut<'a, Result<(), String>>;
     /// Reloads the configuration (master-worker SIGUSR2).
     fn reload(&self) -> BoxFut<'_, Result<(), String>>;
+    /// Whether the running HAProxy is in a container runc created (ADR
+    /// 0056).
+    fn on_runc(&self) -> BoxFut<'_, Result<bool, String>> {
+        Box::pin(async { Ok(false) })
+    }
+    /// Replaces a HAProxy runc runs with one crun runs, from the current
+    /// config file, the new one serving before the old one stops.
+    fn replace_on_crun(&self) -> BoxFut<'_, Result<(), String>> {
+        Box::pin(async { Ok(()) })
+    }
 }
 
 /// The node's listening TCP sockets (ADR 0039).
@@ -824,6 +834,25 @@ impl Driver {
         Ok(())
     }
 
+    /// Moves HAProxy from a container runc created to one crun creates
+    /// (ADR 0056), from the files every Apply wrote, then reloads it so its
+    /// Runtime API socket is surely the new process's.
+    pub async fn move_to_crun(&self) -> Result<(), String> {
+        let mut st = self.st.lock().await;
+        if !self.engine.on_runc().await? {
+            return Ok(());
+        }
+        // What the outgoing process counted would otherwise be lost.
+        if let Err(e) = self.load_locked(&mut st).await {
+            self.log
+                .debug("read proxy load before a move", &[("err", e)]);
+        }
+        self.engine.replace_on_crun().await?;
+        self.reload(&mut st).await?;
+        self.log.info("haproxy runs on crun", &[]);
+        Ok(())
+    }
+
     /// SetClients: the clients map for the internal frontend's checks,
     /// written for the next start and swapped into a running HAProxy.
     pub async fn set_clients_map(&self, clients: &Clients) -> Result<(), String> {
@@ -930,6 +959,18 @@ impl Proxy for Driver {
 
     fn reads_load(&self) -> bool {
         true
+    }
+
+    fn moves_to_crun(&self) -> bool {
+        true
+    }
+
+    fn on_runc(&self) -> BoxFut<'_, Result<bool, String>> {
+        self.engine.on_runc()
+    }
+
+    fn move_to_crun(&self) -> BoxFut<'_, Result<(), String>> {
+        Box::pin(Driver::move_to_crun(self))
     }
 
     fn load(&self) -> BoxFut<'_, Result<BTreeMap<String, ServerLoad>, String>> {

@@ -700,6 +700,8 @@ async fn runs_lists_stops_and_removes_a_container() {
     assert_eq!(got.name, "web-r1");
     assert_eq!(got.state, STATE_RUNNING);
     assert_eq!(got.ip, "10.121.0.5");
+    assert_eq!(got.oci_runtime, "crun");
+    assert_eq!(rt.runtime_agent().await.unwrap().runc_containers, 0);
     assert_eq!(
         (got.host_ip.as_str(), got.host_port),
         ("10.0.0.5", i64::from(hp))
