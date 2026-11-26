@@ -1,14 +1,20 @@
 [Unit]
 Description=Armada node agent
 Documentation=https://github.com/ryanbekhen/armada
-After=network-online.target armada-runtime.service
+# Every machine runs it: a node on its own, a server machine because
+# armada-server.service wants it (ADR 0055). There it starts after this
+# server's etcd member, whose server list it reads.
+After=network-online.target armada-runtime.service armada-etcd.service
 Wants=network-online.target armada-runtime.service
 
 [Service]
 Type=simple
-# Extra flags, e.g. ARMADA_AGENT_FLAGS="--log-format json".
+# Extra flags, e.g. ARMADA_AGENT_FLAGS="--log-format json", on server
+# machines too (server.env holds the server's flags only).
 EnvironmentFile=-/etc/armada/agent.env
 ExecStart=/usr/local/bin/armadad agent --data-dir /var/lib/armada $ARMADA_AGENT_FLAGS
+# Secret files live on tmpfs under /run/armada; keep them across restarts so
+# running replicas keep their mounts.
 RuntimeDirectory=armada
 RuntimeDirectoryMode=0700
 RuntimeDirectoryPreserve=yes

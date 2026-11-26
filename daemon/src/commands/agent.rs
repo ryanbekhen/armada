@@ -3,10 +3,13 @@
 //! system container, the cluster network and the resolver over
 //! armada-node's library, and the side seams through armada-node.
 //!
-//! A server machine runs it as a unit of its own too (ADR 0055): with no
-//! --server, it starts with agent.json's control plane list and every
-//! server the local etcd member records, as Go's knownServers gives its
-//! embedded agent.
+//! A server machine runs it as a unit of its own too (ADR 0055): the same
+//! armada-agent.service, wanted by armada-server.service, reading
+//! /etc/armada/agent.env as on every node (never server.env, whose server
+//! flags it does not know). It holds the data directory's lock; the server
+//! takes none. With no --server, it starts with agent.json's control plane
+//! list and every server the local etcd member records, as Go's
+//! knownServers gives its embedded agent.
 //!
 //! The Rust agent has no containerd runtime (ADR 0055, "A node on
 //! containerd"): on a node whose agent.json names it, it starts nothing
@@ -64,7 +67,7 @@ pub fn lock_data_dir(dir: &str) -> std::result::Result<std::fs::File, String> {
         let e = std::io::Error::last_os_error();
         if e.raw_os_error() == Some(libc::EWOULDBLOCK) {
             return Err(format!(
-                "another agent is using {dir}: `armadad server` already runs this node's agent, so do not also start `armadad agent` here"
+                "another agent is using {dir}: armada-agent.service already runs this node's agent (on a server machine too), so do not also start `armadad agent` here"
             ));
         }
         return Err(format!(

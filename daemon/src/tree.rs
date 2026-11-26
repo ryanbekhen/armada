@@ -161,8 +161,8 @@ pub fn root() -> Tree {
         .run(commands::runtimelog::run);
     n.hidden = true;
     let i_root_runtime_log = t.add(0, n);
-    let mut n = Node::new("server", "Run the control plane (and, by default, this node's agent)")
-        .long("Run the control plane (and, by default, this node's agent).\n\nEvery control plane node runs `armadad server`. They elect a leader, which serves\nthe API and runs the reconcilers; the others stand by and take over within\nseconds if it fails. Add control plane nodes with `armadad server join`.")
+    let mut n = Node::new("server", "Run the control plane")
+        .long("Run the control plane.\n\nEvery control plane node runs `armadad server`. They elect a leader, which serves\nthe API and runs the reconcilers; the others stand by and take over within\nseconds if it fails. Add control plane nodes with `armadad server join`.\n\nOn a server machine, systemd runs this server's etcd member (armada-etcd, `armadad\netcd`) and the node's agent (armada-agent, `armadad agent`) as units of their own;\nstarting armada-server starts both.")
         .example("  sudo systemctl enable --now armada-server   # how it normally runs, after init or server join\n  sudo armadad server -v                      # in the foreground, with debug logs")
         .args(Args::No)
         .run(commands::server::run)
@@ -170,18 +170,18 @@ pub fn root() -> Tree {
         .flag(Flag::string("acme-ca", None, "letsencrypt", "ACME directory: letsencrypt, letsencrypt-staging, or an https:// URL"))
         .flag(Flag::string("acme-email", None, "", "contact email for the ACME account"))
         .flag(Flag::string("acme-listen", None, "", "private ip:port for HTTP-01 challenges forwarded by HAProxy (default: <server ip>:7480)"))
-        .flag(Flag::bool("agent", None, true, "also run this node's agent"))
+        .flag(Flag::bool("agent", None, true, "kept for server.env files of before: armada-agent.service runs the node's agent").hide())
         .flag(Flag::string("data-dir", None, "/var/lib/armada", "directory for cluster state and keys"))
         .flag(Flag::string("dns-provider", None, "", "DNS provider for certificates of the root domain and the names under it, including a wildcard: cloudflare"))
         .flag(Flag::string("dns-token-file", None, "", "file (mode 0600) holding the DNS provider API token"))
-        .flag(Flag::string("etcd-member", None, "embedded", "where this server's etcd member runs: embedded (in this process) or unit (armada-etcd.service; lab machines only, ADR 0055)").hide())
-        .flag(Flag::bool("internal-dns", None, true, "serve <app>.internal to containers on this node (needs --proxy haproxy)"))
+        .flag(Flag::string("etcd-member", None, "unit", "where this server's etcd member runs: unit (armada-etcd.service, the only choice of this armadad; ADR 0055)").hide())
+        .flag(Flag::bool("internal-dns", None, true, "kept for server.env files of before: set it for armada-agent in agent.env").hide())
         .flag(Flag::string("join-listen", None, "", "private ip:port for joining nodes (default: API port + 1; \"off\" disables joining)"))
         .flag(Flag::string("log-format", None, "text", "log format: text or json"))
         .flag(Flag::string("metrics-listen", None, "", "private ip:port for the Prometheus metrics endpoint, served by the leader to metrics and admin certificates (default: off)"))
         .flag(Flag::duration("node-lost-timeout", None, 5 * 60 * 1_000_000_000, "how long a node may be unreachable before its replicas move to other nodes"))
-        .flag(Flag::string("proxy", None, "haproxy", "ingress proxy for the embedded agent: haproxy or none"))
-        .flag(Flag::string("secrets-dir", None, "/run/armada/secrets", "tmpfs directory for the embedded agent's secret files"))
+        .flag(Flag::string("proxy", None, "haproxy", "kept for server.env files of before: set it for armada-agent in agent.env").hide())
+        .flag(Flag::string("secrets-dir", None, "/run/armada/secrets", "kept for server.env files of before: set it for armada-agent in agent.env").hide())
         .flag(Flag::bool("tls", None, true, "obtain and renew TLS certificates with ACME"))
         .flag(Flag::bool("verbose", Some('v'), false, "debug logging"));
     let i_root_server = t.add(0, n);
@@ -205,7 +205,7 @@ pub fn root() -> Tree {
     n.required = vec!["ca-hash"];
     let i_root_server_join = t.add(i_root_server, n);
     let mut n = Node::new("upgrade [--version vX.Y.Z]", "Upgrade this machine to the latest (or a given) release and restart its service")
-        .long("upgrade downloads a release, verifies its checksum (and its signature when cosign is\ninstalled), replaces armadad and armada and the systemd units, and restarts\narmada-runtime (containers keep running), armada-etcd where it runs, and armada-server or armada-agent.\nUpgrade servers first, one at a time, then the other\nnodes (docs/operations.md#upgrades). ARMADA_DOWNLOAD_BASE points at a mirror.")
+        .long("upgrade downloads a release, verifies its checksum (and its signature when cosign is\ninstalled), replaces armadad and armada and the systemd units, and restarts\narmada-runtime (containers keep running), armada-etcd, armada-server, and armada-agent,\neach where it runs. Upgrade servers first, one at a time, then the other\nnodes (docs/operations.md#upgrades). ARMADA_DOWNLOAD_BASE points at a mirror.\n\nIt refuses older releases but one: --version v0.1.0-alpha.42, the last release\nbefore armadad moved to Rust, rolls this machine back to it (stops armada-server,\narmada-agent, and armada-etcd, removes the units that release lacks, installs\nit, and starts its service; docs/operations.md#rolling-back-to-the-last-go-release).")
         .example("  sudo armadad upgrade                       # the latest release; servers first, one at a time\n  sudo armadad upgrade --version v0.1.0-alpha.40\n  sudo armadad upgrade --no-restart          # install only; restart the services later")
         .args(Args::No)
         .run(commands::upgrade::run)
