@@ -85,10 +85,10 @@ archives:
         dst: licenses/runtime/MODULES.txt
       # crun's complete corresponding source (GPL-2.0, section 3(a); ADR
       # 0056), in the archive that carries armadad and with it the pack.
-      - src: build/sources-runtime/**/*
+      # One level of glob: GoReleaser drops the directories every match
+      # shares, so "**/*" would lose crun-<version>/.
+      - src: build/sources-runtime/*
         dst: source/runtime
-      - src: build/sources-runtime/SOURCES.txt
-        dst: source/runtime/SOURCES.txt
       - README.md
       - SECURITY.md
       - deploy/systemd/*
