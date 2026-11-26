@@ -163,10 +163,9 @@ Everything Armada does. The [guides](guides/README.md) show each in use, and the
 Armada needs Linux machines (cloud instances, VMs, or bare metal) with a
 private network between them, and nothing else: `armadad` embeds its own
 container runtime (runc, CNI plugins, and Armada's own supervisor, with no
-containerd daemon, which holds less memory per node; containerd is still
-there for nodes set up before it became the default, and the leader moves
-those to the supervisor by itself, one node at a time) and its state store
-(etcd)
+container daemon, which holds less memory per node; nodes set up on
+containerd with an earlier release move to it before they are upgraded)
+and its state store (etcd)
 ([operations guide](operations.md#container-runtimes)).
 The `armada` client needs no root and also runs on macOS, and on Windows
 inside WSL 2. From outside the private network it reaches the servers

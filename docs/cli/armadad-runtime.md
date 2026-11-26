@@ -4,9 +4,14 @@
 
 [All commands](armadad.md)
 
-runtime extracts the bundled containerd, runc, CNI plugins, and tini into the
-data directory, verifies them, and replaces itself with containerd. It does
-nothing on nodes that are not initialized yet.
+runtime extracts the runtime pack this armadad carries (runc, the CNI plugins,
+tini, armada-shim, armada-log, armada-dns, armada-node, and etcd) into the data
+directory, verifies it, and exits; armada-agent (which armada-server wants)
+starts it (armada-runtime.service). It does nothing on nodes that are not initialized yet.
+
+A node set up on containerd fails here: containerd is no longer in the pack
+(ADR 0046). Move such a node to the supervisor runtime with v0.1.0-alpha.42
+first, or remove it and join it again.
 
 ```
 armadad runtime [flags]
@@ -15,7 +20,7 @@ armadad runtime [flags]
 Examples:
 
 ```bash
-sudo systemctl status armada-runtime   # started by systemd on containerd nodes
+sudo systemctl status armada-runtime   # started with armada-agent
 sudo armadad runtime reset             # remove every container Armada runs here
 ```
 
@@ -25,42 +30,6 @@ Flags:
 | --- | --- |
 | `--bin-dir string` | use runtime binaries from this directory (builds without the bundle) |
 | `--data-dir string` | Armada data directory (default `/var/lib/armada`) |
-
-## `armadad runtime migrate`
-
-migrate moves this node between the embedded containerd and the supervisor,
-which runs containers without containerd (ADR 0046). It removes every
-container Armada runs here from the current runtime and records the new one;
-the agent then starts its replicas on the new runtime, pulling their images
-again. First drain the node (armada node drain NODE) and stop its service
-(systemctl stop armada-server, or armada-agent); afterwards start the service
-and resume the node (armada node resume NODE).
-
-Moving to the supervisor stops containerd and leaves its data in
-<data-dir>/containerd, which can be removed once the node runs.
-
-The cluster's leader moves containerd nodes to the supervisor by itself, one
-at a time (ADR 0054; armada cluster status shows it). Run this for a node it
-does not move: a cluster's only node, a node holding volumes, or any node
-while the move is turned off (armada cluster update --runtime-move=false).
-
-```
-armadad runtime migrate --to embedded|supervisor [flags]
-```
-
-Examples:
-
-```bash
-sudo armadad runtime migrate --to supervisor   # drain the node and stop its service first
-sudo armadad runtime migrate --to embedded
-```
-
-Flags:
-
-| Flag | Meaning |
-| --- | --- |
-| `--data-dir string` | Armada data directory (default `/var/lib/armada`) |
-| `--to string` | runtime to move to: embedded or supervisor |
 
 ## `armadad runtime reset`
 

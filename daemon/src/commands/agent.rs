@@ -506,7 +506,7 @@ async fn run_agent(
         // ADR 0055: no containerd runtime in the Rust agent.
         remove_runtime_move_plan(&data_dir);
         log.error(
-            "this node runs containers on containerd, which this armadad does not run: it starts and removes nothing; move the node to the supervisor runtime with the release before (armada node drain, armadad runtime migrate --to supervisor, armada node resume), or roll this machine back",
+            "this node runs containers on containerd, which this armadad does not run: it starts and removes nothing; move the node to the supervisor runtime with v0.1.0-alpha.42 (armada node drain, armadad runtime migrate --to supervisor, armada node resume), or roll this machine back",
             &[("runtime", if ac.runtime.is_empty() { crate::agentconfig::RUNTIME_EMBEDDED.into() } else { ac.runtime.clone() })],
         );
         crate::stopped(&mut stop).await;

@@ -86,14 +86,13 @@ A cluster is upgraded one machine at a time, so versions mix for a while
   agent converts the node's image store at its start without pulling
   images again or stopping containers
   ([operations guide](operations.md#containers-in-armada-node)).
-  One exception, announced with the containerd runtime's deprecation
-  below: once the leader and a node run a release that knows how, the
-  leader moves the node from containerd to the supervisor runtime by
-  itself, one node at a time, draining each first so its apps keep
-  serving elsewhere
-  ([operations guide](operations.md#container-runtimes)). To keep nodes
-  on containerd, run `armada cluster update --runtime-move=false` right
-  after the servers run that release, before the other nodes.
+  One exception, for the containerd runtime's removal below: the leader
+  moves nodes still on containerd (running v0.1.0-alpha.42) to the
+  supervisor runtime by itself, one node at a time, draining each first
+  so its apps keep serving elsewhere
+  ([operations guide](operations.md#container-runtimes)).
+  `armada cluster update --runtime-move=false` turns that off, but a
+  node left on containerd cannot be upgraded.
 - No setting changes. The container runtime (but for the move above), the
   network mode, spaces, roles, secrets, and specs stay as they were; new
   defaults apply to what is created after the upgrade.
@@ -126,16 +125,23 @@ When something stable has to go:
 A security fix may break something sooner, when keeping it would leave
 clusters exposed; its release notes say so and why.
 
-Deprecated now:
+Nothing is deprecated now.
 
-- **The containerd runtime** (`--runtime embedded`). New nodes run the
-  supervisor runtime ([ADR 0046](adr/0046-runtime-supervisor.md)), and
-  `armadad doctor` warns on nodes still on containerd, with the command
-  that moves them ([operations guide](operations.md#container-runtimes)).
-  The leader moves them to the supervisor runtime by itself, one node at a
-  time, unless `armada cluster update --runtime-move=false` turns that
-  off; a cluster's only node and nodes holding volumes wait for their
-  operator. containerd leaves the runtime pack in a later release.
+Removed:
+
+- **The containerd runtime** (`--runtime embedded`), deprecated since the
+  supervisor runtime became the default
+  ([ADR 0046](adr/0046-runtime-supervisor.md)), left the runtime pack
+  with the release after v0.1.0-alpha.42 (ADR 0055): `armadad init`,
+  `join`, and `server join` refuse `--runtime embedded`, and `armadad
+  runtime migrate` is gone. Move every node still on containerd to the
+  supervisor runtime **before** upgrading it: with the servers upgraded
+  first, the leader moves nodes that still run v0.1.0-alpha.42 by itself,
+  one at a time, or run v0.1.0-alpha.42's `armadad runtime migrate --to
+  supervisor` on the node ([operations guide](operations.md#container-runtimes)).
+  On a node upgraded while still on containerd, the agent starts and
+  removes nothing and `armadad doctor` fails; roll it back to
+  v0.1.0-alpha.42 and move it, or remove it and join it again.
 
 ## Platforms
 

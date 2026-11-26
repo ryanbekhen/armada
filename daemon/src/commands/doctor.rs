@@ -31,8 +31,7 @@ use armada_node::net::diagnose::{self, CHECK_FAIL, CHECK_OK, CHECK_WARN};
 use armada_spec::go::Prefix;
 
 use crate::agentconfig::{
-    self, AgentConfig, DIR_ETCD, FILE_AGENT, FILE_CA_KEY, FILE_SERVER_CERT, RUNTIME_EMBEDDED,
-    RUNTIME_SUPERVISOR,
+    self, AgentConfig, DIR_ETCD, FILE_AGENT, FILE_CA_KEY, FILE_SERVER_CERT, RUNTIME_SUPERVISOR,
 };
 use crate::machine::{
     self, DEFAULT_CONTAINER_SUBNET, DEFAULT_RUNTIME, FILE_MASTER_KEY, FILE_MESH_CACHE,
@@ -362,15 +361,13 @@ fn containerd_check(env: &Env) -> Vec<Check> {
         return vec![check(
             "runtime",
             WARN,
-            format!(
-                "no container runtime yet: init or join sets up the {DEFAULT_RUNTIME} runtime (or containerd with --runtime {RUNTIME_EMBEDDED})"
-            ),
+            format!("no container runtime yet: init or join sets up the {DEFAULT_RUNTIME} runtime"),
         )];
     }
     vec![check(
         "runtime",
         FAIL,
-        "this node runs containers on containerd, which this armadad does not run (ADR 0055): its agent starts and removes nothing; move the node to the supervisor runtime with the release before (armada node drain, armadad runtime migrate --to supervisor, armada node resume), or roll this machine back",
+        "this node runs containers on containerd, which this armadad does not run (ADR 0055): its agent starts and removes nothing; move the node to the supervisor runtime with v0.1.0-alpha.42 (armada node drain, armadad runtime migrate --to supervisor, armada node resume), or roll this machine back",
     )]
 }
 
@@ -1259,13 +1256,17 @@ fn check_runtime_pack(env: &Env) -> Option<Check> {
         }
     });
     let installed = crate::pack::installed_pack(&crate::paths(&env.data_dir).bundle());
-    let supervisor = env.ac.runtime == RUNTIME_SUPERVISOR;
-    if bundled.is_empty() || installed.is_empty() || installed == "dev" {
-        // A development build, or a runtime that never started: the
-        // runtime check covers that.
+    if bundled.is_empty()
+        || installed.is_empty()
+        || installed == "dev"
+        || env.ac.runtime != RUNTIME_SUPERVISOR
+    {
+        // A development build, a runtime that never started, or a node on
+        // containerd, which this armadad does not run: the runtime check
+        // covers that.
         return None;
     }
-    Some(if installed != bundled && supervisor {
+    Some(if installed != bundled {
         check(
             "runtime-pack",
             WARN,
@@ -1273,25 +1274,11 @@ fn check_runtime_pack(env: &Env) -> Option<Check> {
                 "the installed runtime pack is {installed}, but this armadad carries {bundled} (runc, armada-shim, armada-log): restart armada-server or armada-agent, which installs it (containers keep running)"
             ),
         )
-    } else if installed != bundled {
-        check(
-            "runtime-pack",
-            WARN,
-            format!(
-                "armada-runtime runs pack {installed}, but this armadad carries {bundled} (containerd, runc, armada-log): sudo systemctl restart armada-runtime (containers keep running)"
-            ),
-        )
-    } else if supervisor {
-        check(
-            "runtime-pack",
-            OK,
-            format!("the installed runtime pack is the one this armadad carries ({bundled})"),
-        )
     } else {
         check(
             "runtime-pack",
             OK,
-            format!("armada-runtime runs the pack this armadad carries ({bundled})"),
+            format!("the installed runtime pack is the one this armadad carries ({bundled})"),
         )
     })
 }

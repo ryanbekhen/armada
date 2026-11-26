@@ -21,6 +21,10 @@
 //! This test is its own harness (`harness = false`): the cases run one
 //! after another, an argument (or ARMADA_PARITY_CASE) runs only those
 //! whose names contain it, ARMADA_PARITY_VERBOSE=1 prints each outcome.
+//! ARMADA_PARITY_UPDATE=1 writes the outcome of each case that differs into
+//! the recording as the one it must give: for a change of armadad's that is
+//! meant (the recording outlives Go's daemon), after reading every
+//! difference it prints.
 //! Without ARMADA_ETCD_DIR the cases that need the pinned etcd are skipped.
 
 mod bucket;
@@ -412,6 +416,16 @@ fn compare(want: &Value, got: &Outcome) -> Vec<String> {
     d
 }
 
+/// The outcome a case must give, as the recording writes it.
+fn want_of(got: &Outcome) -> Value {
+    serde_json::json!({
+        "code": got.code,
+        "files": if got.files.is_empty() { Value::Null } else { got.files.clone().into() },
+        "stderr": got.stderr,
+        "stdout": got.stdout,
+    })
+}
+
 fn run(filter: &str) -> i32 {
     let mut text = String::new();
     flate2::read::GzDecoder::new(std::fs::File::open(FIXTURE).expect("the recording"))
@@ -473,8 +487,10 @@ fn run(filter: &str) -> i32 {
             .unwrap(),
     };
     let verbose = std::env::var("ARMADA_PARITY_VERBOSE").is_ok_and(|v| !v.is_empty());
+    let update = std::env::var("ARMADA_PARITY_UPDATE").is_ok_and(|v| !v.is_empty());
+    let mut wants: HashMap<String, Value> = HashMap::new();
     let (mut ran, mut skipped, mut failed) = (0, 0, Vec::new());
-    for line in lines {
+    for line in lines.clone() {
         let case: Value = serde_json::from_str(line).unwrap();
         let name = s(&case, "name").to_string();
         if !name.contains(filter) {
@@ -501,7 +517,11 @@ fn run(filter: &str) -> i32 {
                         got.files.join("\n")
                     );
                 }
-                compare(case.get("want").unwrap_or(&Value::Null), &got)
+                let d = compare(case.get("want").unwrap_or(&Value::Null), &got);
+                if update && !d.is_empty() {
+                    wants.insert(name.clone(), want_of(&got));
+                }
+                d
             }
             Err(e) => vec![format!("the case did not run: {e}")],
         };
@@ -516,6 +536,29 @@ fn run(filter: &str) -> i32 {
         .arg(&work)
         .status();
     let _ = std::fs::remove_dir_all(&work);
+    if !wants.is_empty() {
+        let mut out = text.lines().next().unwrap().to_string();
+        out.push('\n');
+        for line in lines {
+            let mut case: Value = serde_json::from_str(line).unwrap();
+            match wants.get(s(&case, "name")) {
+                Some(w) => {
+                    case["want"] = w.clone();
+                    out.push_str(&serde_json::to_string(&case).unwrap());
+                }
+                None => out.push_str(line),
+            }
+            out.push('\n');
+        }
+        let mut gz = flate2::write::GzEncoder::new(
+            std::fs::File::create(FIXTURE).expect("the recording"),
+            flate2::Compression::best(),
+        );
+        gz.write_all(out.as_bytes()).unwrap();
+        gz.finish().unwrap();
+        println!("{} case(s) recorded again", wants.len());
+        return 0;
+    }
     println!(
         "{ran} cases, {} failed, {skipped} skipped (no ARMADA_ETCD_DIR)",
         failed.len()

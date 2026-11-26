@@ -160,7 +160,7 @@ gh attestation verify armada_${VERSION#v}_linux_amd64.tar.gz --repo ryanbekhen/a
   in `Cargo.lock` (builds use `--locked`); `cargo deny check advisories`
   checks them against RustSec's advisories on every change of code.
 - The HAProxy system image is pinned by digest in the code.
-- The bundled runtime binaries (containerd, runc, CNI plugins, tini, etcd)
+- The bundled runtime binaries (runc, CNI plugins, tini, etcd)
   are pinned by version and SHA-256 in `pack/lock.json`; `make
   runtime-bundle` downloads them over HTTPS only and refuses any checksum
   mismatch. Before each release, check their advisories: `cargo deny`
@@ -171,7 +171,7 @@ gh attestation verify armada_${VERSION#v}_linux_amd64.tar.gz --repo ryanbekhen/a
 1. Pick the new upstream release and read its notes.
 2. Download the artifact for both architectures. Where upstream signs it
    (runc, tini: detached GPG signatures), verify the signature against the
-   maintainers' published keys; for containerd and the CNI plugins compare
+   maintainers' published keys; for the CNI plugins compare
    with the `.sha256sum` files on the GitHub release, for etcd with its
    `SHA256SUMS`.
 3. Record the version, the URL, and both SHA-256 values in

@@ -3,7 +3,7 @@ name = "armada-log"
 version = "0.1.0"
 edition = "2024"
 license = "Apache-2.0"
-description = "The logging binary containerd's shim runs for every Armada container"
+description = "The logging binary armada-shim runs for every Armada container"
 publish = false
 
 # Standard library only: no dependencies to vet, license, or update.

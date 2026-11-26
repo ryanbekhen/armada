@@ -11,7 +11,7 @@ use crate::commands;
 #[allow(unused_mut, unused_variables)]
 pub fn root() -> Tree {
     let mut n = Node::new("armadad", "Run and set up an Armada machine")
-        .long("armadad runs on every machine of an Armada cluster: the control plane\n(`armadad server`), the node agent (`armadad agent`), and, on nodes set up\non containerd, the embedded runtime (`armadad runtime`), each under systemd. It also sets a\nmachine up (init, join) and inspects it (doctor). It runs as root.\nManage apps with `armada`.")
+        .long("armadad runs on every machine of an Armada cluster: the control plane\n(`armadad server`) and the node agent (`armadad agent`), each under systemd. It also sets a\nmachine up (init, join) and inspects it (doctor). It runs as root.\nManage apps with `armada`.")
         .noun();
     n.persistent = vec![Flag::string(
         "config",
@@ -90,7 +90,7 @@ pub fn root() -> Tree {
     let i_root_etcd = t.add(0, n);
     let mut n = Node::new("init", "Initialize a new cluster on this machine")
         .long("init creates the cluster CA, server and node certificates, the state database,\nand the admin client config /etc/armada/admin.config (read by root and the armada\ngroup; the server renews its certificate). Run through sudo, it adds that user to\nthe group: log in again or run `newgrp armada` to use armada without sudo.\nRun it once on the first machine, then start `armadad server`.")
-        .example("  sudo armadad init                                  # a cluster on this machine, its first server\n  sudo armadad init --network wireguard              # containers' traffic between nodes encrypted\n  sudo armadad init --runtime embedded               # containers on containerd instead of the supervisor")
+        .example("  sudo armadad init                                  # a cluster on this machine, its first server\n  sudo armadad init --network wireguard              # containers' traffic between nodes encrypted")
         .args(Args::No)
         .run(commands::init::run)
         .flag(Flag::string("cluster-cidr", None, "10.120.0.0/16", "private IPv4 range for containers; each node gets a /24 of it (set once, /12 to /20)"))
@@ -102,7 +102,7 @@ pub fn root() -> Tree {
         .flag(Flag::string("node-name", None, "", "node name (default: hostname)"))
         .flag(Flag::int("port", None, 7443, "control plane port on the private IP"))
         .flag(Flag::string("private-ip", None, "", "this node's private IP (default: the only private IPv4 address; not with --network mesh)"))
-        .flag(Flag::string("runtime", None, "supervisor", "container runtime: supervisor (no containerd daemon, ADR 0046), or embedded (containerd)"))
+        .flag(Flag::string("runtime", None, "supervisor", "container runtime: supervisor, the only one (ADR 0046); kept for scripts that pass it"))
         .flag(Flag::string("user-name", None, "", "name of the first user, who gets cluster-admin (default: the user running it)"));
     let i_root_init = t.add(0, n);
     let mut n = Node::new("join ADDR --ca-hash sha256:HEX", "Join this machine to a cluster as a node")
@@ -118,7 +118,7 @@ pub fn root() -> Tree {
         .flag(Flag::bool("no-private-ip", None, false, "joining from another site: send no private IP, and get a mesh address the other nodes reach over WireGuard (the default when the machine has no private IPv4 address)"))
         .flag(Flag::string("node-name", None, "", "node name (default: hostname)"))
         .flag(Flag::string("private-ip", None, "", "this node's private IP (default: the only private IPv4 address; a mesh cluster gives the node a mesh address instead)"))
-        .flag(Flag::string("runtime", None, "supervisor", "container runtime: supervisor (no containerd daemon, ADR 0046), or embedded (containerd)"))
+        .flag(Flag::string("runtime", None, "supervisor", "container runtime: supervisor, the only one (ADR 0046); kept for scripts that pass it"))
         .flag(Flag::string("token-file", None, "", "file holding the join token (default: prompt or stdin)"));
     n.required = vec!["ca-hash"];
     let i_root_join = t.add(0, n);
@@ -132,23 +132,14 @@ pub fn root() -> Tree {
         .flag(Flag::string("data-dir", None, "/var/lib/armada", "data directory to restore into (must not exist or be empty)"))
         .flag(Flag::string("snapshot", None, "latest", "backup to restore from the bucket: an ID from armadad backup list, or latest"));
     let i_root_restore = t.add(0, n);
-    let mut n = Node::new("runtime", "Run the embedded container runtime (started by systemd)")
-        .long("runtime extracts the bundled containerd, runc, CNI plugins, and tini into the\ndata directory, verifies them, and replaces itself with containerd. It does\nnothing on nodes that are not initialized yet.")
-        .example("  sudo systemctl status armada-runtime   # started by systemd on containerd nodes\n  sudo armadad runtime reset             # remove every container Armada runs here")
+    let mut n = Node::new("runtime", "Install the runtime pack (started by systemd)")
+        .long("runtime extracts the runtime pack this armadad carries (runc, the CNI plugins,\ntini, armada-shim, armada-log, armada-dns, armada-node, and etcd) into the data\ndirectory, verifies it, and exits; armada-agent (which armada-server wants)\nstarts it (armada-runtime.service). It does nothing on nodes that are not initialized yet.\n\nA node set up on containerd fails here: containerd is no longer in the pack\n(ADR 0046). Move such a node to the supervisor runtime with v0.1.0-alpha.42\nfirst, or remove it and join it again.")
+        .example("  sudo systemctl status armada-runtime   # started with armada-agent\n  sudo armadad runtime reset             # remove every container Armada runs here")
         .args(Args::No)
         .run(commands::runtime::run)
         .flag(Flag::string("bin-dir", None, "", "use runtime binaries from this directory (builds without the bundle)"))
         .flag(Flag::string("data-dir", None, "/var/lib/armada", "Armada data directory"));
     let i_root_runtime = t.add(0, n);
-    let mut n = Node::new("migrate --to embedded|supervisor", "Move this node to another container runtime (ADR 0046)")
-        .long("migrate moves this node between the embedded containerd and the supervisor,\nwhich runs containers without containerd (ADR 0046). It removes every\ncontainer Armada runs here from the current runtime and records the new one;\nthe agent then starts its replicas on the new runtime, pulling their images\nagain. First drain the node (armada node drain NODE) and stop its service\n(systemctl stop armada-server, or armada-agent); afterwards start the service\nand resume the node (armada node resume NODE).\n\nMoving to the supervisor stops containerd and leaves its data in\n<data-dir>/containerd, which can be removed once the node runs.\n\nThe cluster's leader moves containerd nodes to the supervisor by itself, one\nat a time (ADR 0054; armada cluster status shows it). Run this for a node it\ndoes not move: a cluster's only node, a node holding volumes, or any node\nwhile the move is turned off (armada cluster update --runtime-move=false).")
-        .example("  sudo armadad runtime migrate --to supervisor   # drain the node and stop its service first\n  sudo armadad runtime migrate --to embedded")
-        .args(Args::No)
-        .run(commands::runtimecmd::migrate)
-        .flag(Flag::string("data-dir", None, "/var/lib/armada", "Armada data directory"))
-        .flag(Flag::string("to", None, "", "runtime to move to: embedded or supervisor"));
-    n.required = vec!["to"];
-    let i_root_runtime_migrate = t.add(i_root_runtime, n);
     let mut n = Node::new("reset", "Remove every container Armada runs on this node")
         .long("reset stops and removes all of Armada's containers on this node (those with\nArmada's labels), the network sandboxes job queues are read from,\nthe node's resolver (armada-dns), and the cluster network's interface\nand firewall rules.\nUse it after `armada node delete`, with the agent (or server) stopped first,\nor it starts its replicas again.")
         .example("  sudo systemctl stop armada-agent && sudo armadad runtime reset")
@@ -199,7 +190,7 @@ pub fn root() -> Tree {
         .flag(Flag::bool("no-private-ip", None, false, "joining from another site: send no private IP, and get a mesh address the other nodes reach over WireGuard (the default when the machine has no private IPv4 address)"))
         .flag(Flag::int("port", None, 7443, "control plane port on the private IP"))
         .flag(Flag::string("private-ip", None, "", "this machine's private IP (default: the only private IPv4 address; not in a mesh cluster)"))
-        .flag(Flag::string("runtime", None, "supervisor", "container runtime: supervisor (no containerd daemon, ADR 0046), or embedded (containerd)"))
+        .flag(Flag::string("runtime", None, "supervisor", "container runtime: supervisor, the only one (ADR 0046); kept for scripts that pass it"))
         .flag(Flag::string("token-file", None, "", "file holding the server token (default: prompt or stdin)"))
         .flag(Flag::string("user-name", None, "", "user named in the client config written here (default: the user running it)"));
     n.required = vec!["ca-hash"];

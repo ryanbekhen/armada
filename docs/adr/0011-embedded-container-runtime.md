@@ -1,6 +1,6 @@
 # 0011. Embedded container runtime
 
-- Status: Accepted
+- Status: Accepted; its containerd part is superseded by [0046](0046-runtime-supervisor.md) (containerd left the runtime pack with ADR 0055)
 - Date: 2026-11-01
 
 ## Context

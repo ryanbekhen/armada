@@ -50,6 +50,12 @@ runtime; `armadad doctor` warns on a node still on containerd and names the
 command that moves it. containerd is removed from the runtime pack in a
 later release, once every node has had a release to move.
 
+Note (ADR 0055): containerd and its shim left the runtime pack with the
+release after v0.1.0-alpha.42, Armada's first Rust release. That release
+refuses `--runtime embedded` and has no `armadad runtime migrate`; nodes
+still on containerd move with v0.1.0-alpha.42, by hand or by the leader's
+move (ADR 0054), which the Rust leader keeps doing for such nodes.
+
 - **The agent keeps images and container records itself (in the Go code;
   armada-node since ADR 0054).** Pulling and unpacking run in the agent
   through containerd's own libraries, with no daemon: a content store, the

@@ -11,7 +11,7 @@
   {"name": "tests", "color": "bfd4f2", "description": "Tests only (test:)"},
   {"name": "chore", "color": "ededed", "description": "Housekeeping (chore:, style:)"},
 
-  {"name": "area/runtime", "color": "1d76db", "description": "Embedded container runtime: containerd, runc, CNI, SELinux"},
+  {"name": "area/runtime", "color": "1d76db", "description": "Container runtime: armada-shim, armada-node, runc, CNI, SELinux"},
   {"name": "area/ingress", "color": "1d76db", "description": "HAProxy, certificates, internal DNS"},
   {"name": "area/control-plane", "color": "1d76db", "description": "Server, scheduler, state store, HA, backup"},
   {"name": "area/agent", "color": "1d76db", "description": "Node agent"},

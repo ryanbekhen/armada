@@ -13,7 +13,7 @@ repository holds no Go code. Parts of the Rust code are ported from Go
 code, listed under armada-spec below. The Go programs releases carry are
 etcd's (below), with the license files of the modules they link.
 
-## The embedded container runtime
+## The runtime pack
 
 Linux release builds of `armadad` embed these programs (ADR 0011, ADR 0055), exactly
 as their projects release them; `pack/lock.json` pins each by version and
@@ -21,7 +21,6 @@ SHA-256, and `armada-pack` (`pack/`, below) builds the pack from it.
 
 | Component | Version | License | Source |
 | --- | --- | --- | --- |
-| containerd | 2.4.2 | Apache-2.0 | <https://github.com/containerd/containerd/tree/v2.4.2> |
 | runc | 1.5.2 | Apache-2.0 | <https://github.com/opencontainers/runc/tree/v1.5.2> |
 | cni-plugins | 1.9.1 | Apache-2.0 | <https://github.com/containernetworking/plugins/tree/v1.9.1> |
 | tini | 0.19.0 | MIT ([text](third_party/licenses/MIT-tini.txt)) | <https://github.com/krallin/tini/tree/v0.19.0> |
@@ -47,8 +46,6 @@ under the [GNU Lesser General Public License 2.1](third_party/licenses/LGPL-2.1.
 - **runc** with libseccomp 2.6.1 (<https://github.com/seccomp/libseccomp/releases/tag/v2.6.1>)
   and the GNU C Library of Debian trixie (<https://sources.debian.org/src/glibc/>),
   as its release `Dockerfile` builds it.
-- **containerd** with the GNU C Library of its release build
-  (<https://github.com/containerd/containerd/blob/v2.4.2/RELEASES.md>).
 - **tini** with the GNU C Library 2.23 (<https://ftp.gnu.org/gnu/glibc/glibc-2.23.tar.gz>).
 
 Armada does not change these programs or libraries. You may replace any of
@@ -62,7 +59,7 @@ libraries is at the addresses above.
 
 The runtime pack also carries `armada-log`, Armada's own log writer
 (`logger/`, Apache-2.0), `armada-shim`, which supervises containers
-without containerd (`shim/`, Apache-2.0), and `armada-dns`, the node-local
+(`shim/`, Apache-2.0), and `armada-dns`, the node-local
 resolver of containers (`dns/`, Apache-2.0). All three are written in Rust
 with no crates beyond the standard library and are linked statically with:
 
@@ -321,7 +318,7 @@ armada-fsutil, flate2, libc, rustls, rustls-pki-types, serde_json, and
 sha2). Its shell completion scripts are armada-client's (above) with
 armadad's name, as cobra v1.10.2 writes them for armadad. Built with the
 `bundle` feature it carries the runtime pack, whose programs are listed
-under "The embedded container runtime" above.
+under "The runtime pack" above.
 
 ## Downloaded at run time
 

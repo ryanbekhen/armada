@@ -14,8 +14,6 @@ use std::path::{Path, PathBuf};
 use sha2::{Digest, Sha256};
 
 /// The pack's programs (pack/lock.json).
-pub const BIN_CONTAINERD: &str = "containerd";
-pub const BIN_SHIM: &str = "containerd-shim-runc-v2";
 pub const BIN_RUNC: &str = "runc";
 pub const BIN_TINI: &str = "tini";
 pub const BIN_NODE: &str = "armada-node";
@@ -50,18 +48,6 @@ impl Paths {
     }
     pub fn bin(&self) -> PathBuf {
         self.bundle().join("current").join("bin")
-    }
-    pub fn root(&self) -> PathBuf {
-        self.data_dir.join("containerd")
-    }
-    pub fn state(&self) -> PathBuf {
-        self.run_dir.join("containerd")
-    }
-    pub fn socket(&self) -> PathBuf {
-        self.state().join("containerd.sock")
-    }
-    pub fn config(&self) -> PathBuf {
-        self.bundle().join("containerd.toml")
     }
     pub fn logs(&self) -> PathBuf {
         self.data_dir.join("logs")
@@ -343,7 +329,7 @@ fn getrandom(b: &mut [u8]) -> std::io::Result<()> {
 pub fn use_bin_dir(root: &Path, dir: &str) -> Result<(), String> {
     let abs = std::path::absolute(dir).map_err(|e| e.to_string())?;
     let abs = PathBuf::from(crate::gopath::clean(&abs.to_string_lossy()));
-    for n in [BIN_CONTAINERD, BIN_SHIM, BIN_RUNC, BIN_TINI, DIR_CNI] {
+    for n in [BIN_RUNC, BIN_TINI, DIR_CNI] {
         let p = abs.join(n);
         if let Err(e) = fs::metadata(&p) {
             return Err(format!("runtime binaries: {}", path_err("stat", &p, &e)));
@@ -375,7 +361,7 @@ pub fn use_bin_dir(root: &Path, dir: &str) -> Result<(), String> {
     })
 }
 
-/// CheckHost: what the embedded runtime needs from the kernel.
+/// CheckHost: what the supervisor runtime needs from the kernel.
 pub fn check_host() -> Result<(), String> {
     if fs::metadata("/sys/fs/cgroup/cgroup.controllers").is_err() {
         return Err("cgroup v2 is required (unified hierarchy at /sys/fs/cgroup)".to_string());

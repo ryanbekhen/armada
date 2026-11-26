@@ -1,19 +1,6 @@
 {
   "artifacts": [
     {
-      "name": "containerd",
-      "version": "2.4.2",
-      "url": "https://github.com/containerd/containerd/releases/download/v2.4.2/containerd-static-2.4.2-linux-{arch}.tar.gz",
-      "sha256": {
-        "amd64": "da656542e754c699a0f438eab925e6ffdbd6346a4428e659f83dc058f04dcffe",
-        "arm64": "37b84b9534533672528141b9d815f58621a2fe5deee2daa84317800255756689"
-      },
-      "files": {
-        "bin/containerd": "containerd",
-        "bin/containerd-shim-runc-v2": "containerd-shim-runc-v2"
-      }
-    },
-    {
       "name": "runc",
       "version": "1.5.2",
       "url": "https://github.com/opencontainers/runc/releases/download/v1.5.2/runc.{arch}",

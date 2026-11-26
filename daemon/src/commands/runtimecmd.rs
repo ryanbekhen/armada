@@ -1,8 +1,7 @@
-//! armadad runtime reset and runtime migrate (Go's runtime.go and
-//! migrate.go) on the supervisor runtime. The Rust armadad has no
-//! containerd driver (ADR 0055): reset refuses a node on containerd, and
-//! migrate, which always leaves or enters containerd, refuses every move,
-//! naming the release before as the way.
+//! armadad runtime reset (Go's runtime.go) on the supervisor runtime. The
+//! Rust armadad has no containerd driver (ADR 0055): reset refuses a node
+//! on containerd, naming v0.1.0-alpha.42 as the way. `runtime migrate`,
+//! which always left or entered containerd, is gone with containerd.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -12,7 +11,7 @@ use armada_agent::runtime::{Error as RtError, LABEL_MANAGED, LABEL_SYSTEM, Runti
 use armada_agent::supervisor::{self, Supervisor};
 use armada_client::cli::{Ctx, Error, Result};
 
-use crate::agentconfig::{self, RUNTIME_EMBEDDED, RUNTIME_SUPERVISOR};
+use crate::agentconfig::{self, RUNTIME_SUPERVISOR};
 
 fn msg(s: impl Into<String>) -> Error {
     Error::Msg(s.into())
@@ -31,7 +30,7 @@ fn runtime_hint(rt: &str) -> &'static str {
 /// runtime.
 fn containerd_refused(what: &str) -> String {
     format!(
-        "this node runs containers on containerd, which this armadad does not run (ADR 0055): {what} with the release before, or move the node to the supervisor runtime with it first"
+        "this node runs containers on containerd, which this armadad does not run (ADR 0055): {what} with v0.1.0-alpha.42, or move the node to the supervisor runtime with it first"
     )
 }
 
@@ -147,28 +146,4 @@ pub fn reset(ctx: &mut Ctx<'_>, _: &[String]) -> Result {
     } else {
         Err(msg(errs.join("\n")))
     }
-}
-
-/// armadad runtime migrate.
-pub fn migrate(ctx: &mut Ctx<'_>, _: &[String]) -> Result {
-    let data_dir = ctx.str("data-dir");
-    let to = ctx.str("to");
-    if to != RUNTIME_EMBEDDED && to != RUNTIME_SUPERVISOR {
-        return Err(msg(format!(
-            "invalid --to {}: use {RUNTIME_EMBEDDED} or {RUNTIME_SUPERVISOR}",
-            armada_spec::go::quote(&to)
-        )));
-    }
-    let ac = agentconfig::load(&data_dir)?;
-    ac.check_runtime().map_err(msg)?;
-    let from = if ac.runtime.is_empty() {
-        RUNTIME_EMBEDDED
-    } else {
-        ac.runtime.as_str()
-    };
-    if from == to {
-        ctx.print(&format!("This node already runs containers on {to}.\n"));
-        return Ok(());
-    }
-    Err(msg(containerd_refused("move it")))
 }
