@@ -56,6 +56,12 @@ on a maintainer's machine.
    macOS job sets the same).
 5. Review the draft and publish it.
 
+CI's Rust-heavy jobs (`test`, `logger`, and `release-dry-run`) run on the
+project's self-hosted runners, which keep their build output between runs;
+a pull request from a fork runs them on GitHub's runners instead, and every
+workflow from an outside contributor waits for the owner's approval. The
+other jobs, the macOS build, and the release itself run on GitHub's runners.
+
 CI checks the configuration on every change (`goreleaser check`, job
 `release-config`), builds the macOS client (job `client-macos`), and on
 every push to `main` runs the whole packaging without publishing or

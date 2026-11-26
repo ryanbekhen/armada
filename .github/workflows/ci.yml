@@ -86,17 +86,33 @@ jobs:
   test:
     needs: changes
     if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
+    # Self-hosted runners keep their build output between runs, so these
+    # Rust-heavy jobs build only what changed; a pull request from a fork
+    # never runs there (and needs the owner's approval to run at all).
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || 'self-hosted' }}
+    env:
+      CARGO_BUILD_JOBS: 4
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          clean: false
+      # On a self-hosted runner the checkout keeps untracked files, so the
+      # build output stays; everything else untracked goes, and the build
+      # output too when the machine runs short of disk.
+      - if: runner.environment == 'self-hosted'
+        run: |
+          git clean -ffdxq -e /target -e /.cache -e /build -e /logger/target -e /shim/target -e /dns/target
+          if [ "$(df --output=avail -BG . | tail -n 1 | tr -dc 0-9)" -lt 15 ]; then
+            git clean -ffdxq
+          fi
       - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: go.mod
       # Crates, cargo-deny, and build output kept between runs (keyed by
       # the lock and the toolchain), so a run builds only what changed.
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - if: runner.environment == 'github-hosted'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/registry/index
@@ -260,17 +276,33 @@ jobs:
   logger:
     needs: changes
     if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
+    # Self-hosted runners keep their build output between runs, so these
+    # Rust-heavy jobs build only what changed; a pull request from a fork
+    # never runs there (and needs the owner's approval to run at all).
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || 'self-hosted' }}
+    env:
+      CARGO_BUILD_JOBS: 4
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          clean: false
+      # On a self-hosted runner the checkout keeps untracked files, so the
+      # build output stays; everything else untracked goes, and the build
+      # output too when the machine runs short of disk.
+      - if: runner.environment == 'self-hosted'
+        run: |
+          git clean -ffdxq -e /target -e /.cache -e /build -e /logger/target -e /shim/target -e /dns/target
+          if [ "$(df --output=avail -BG . | tail -n 1 | tr -dc 0-9)" -lt 15 ]; then
+            git clean -ffdxq
+          fi
       - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: go.mod
       # Crates, cargo-deny, and build output kept between runs (keyed by
       # the lock and the toolchain), so a run builds only what changed.
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - if: runner.environment == 'github-hosted'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/registry/index
@@ -397,12 +429,27 @@ jobs:
   release-dry-run:
     needs: [changes, client-macos]
     if: github.event_name == 'push' && needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
+    # Self-hosted runners keep their build output between runs, so these
+    # Rust-heavy jobs build only what changed; a pull request from a fork
+    # never runs there (and needs the owner's approval to run at all).
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || 'self-hosted' }}
+    env:
+      CARGO_BUILD_JOBS: 4
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
+          clean: false
+      # On a self-hosted runner the checkout keeps untracked files, so the
+      # build output stays; everything else untracked goes, and the build
+      # output too when the machine runs short of disk.
+      - if: runner.environment == 'self-hosted'
+        run: |
+          git clean -ffdxq -e /target -e /.cache -e /build -e /logger/target -e /shim/target -e /dns/target
+          if [ "$(df --output=avail -BG . | tail -n 1 | tr -dc 0-9)" -lt 15 ]; then
+            git clean -ffdxq
+          fi
       - run: rustup toolchain install
         working-directory: logger
       - run: rustup toolchain install
