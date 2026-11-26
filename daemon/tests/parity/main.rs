@@ -273,10 +273,15 @@ impl Run<'_> {
         );
         env.insert("ARMADA_DAEMON_TEST_FS_TYPE".into(), self.fs_type.clone());
         // The cases were recorded on a machine whose kernel has VXLAN and
-        // WireGuard; doctor's checks of them must not read this one's.
+        // WireGuard and whose route to the internet leaves by wg0 (MTU
+        // 1420); doctor's checks of them must not read this one's.
         env.insert(
             "ARMADA_NODE_TEST_KERNEL_MODULES".into(),
             "vxlan,wireguard".into(),
+        );
+        env.insert(
+            "ARMADA_NODE_TEST_ROUTE_UPLINK".into(),
+            "wg0:1420".into(),
         );
         let args: Vec<String> = case
             .get("args")
