@@ -53,7 +53,7 @@ pub fn root() -> Tree {
         .long("Runs pre-flight checks on this host: the container runtime, the private IP,\nports bound publicly, file permissions in the data directory, the certificates on\nthis machine and in the client config (--config), the secrets tmpfs, the clock, and\nthe host firewall. Exits non-zero if a check fails.")
         .example("  sudo armadad doctor                          # before init or join, and when something is off\n  sudo armadad doctor --private-ip 10.0.0.5")
         .args(Args::No)
-        .run(commands::later::run)
+        .run(commands::doctor::run)
         .flag(Flag::string("data-dir", None, "/var/lib/armada", "Armada data directory"))
         .flag(Flag::string("private-ip", None, "", "this node's private (VPC) IP (default: the node's own, else the only private IPv4 address)"))
         .flag(Flag::string("secrets-dir", None, "/run/armada/secrets", "tmpfs directory for secret files"));

@@ -64,16 +64,27 @@ pub struct NodeNfs {
 /// Go's nfsSupported: nfs4 in /proc/filesystems, or its module in the
 /// running kernel's modules.dep.
 pub fn nfs_supported() -> bool {
-    if std::fs::read_to_string("/proc/filesystems").is_ok_and(|s| s.contains("\tnfs4\n")) {
+    nfs_supported_in("")
+}
+
+/// nfs_supported with the host's files under root ("" for the machine's;
+/// armadad doctor's parity tests give one of their own).
+pub fn nfs_supported_in(root: &str) -> bool {
+    let at = |p: &str| format!("{root}{p}");
+    if std::fs::read_to_string(at("/proc/filesystems")).is_ok_and(|s| s.contains("\tnfs4\n")) {
         return true;
     }
-    let Ok(release) = std::fs::read_to_string("/proc/sys/kernel/osrelease") else {
+    let Ok(release) = std::fs::read_to_string(at("/proc/sys/kernel/osrelease")) else {
         return false;
     };
     let release = release.trim();
     let base = release.rsplit('/').next().unwrap_or(release);
-    std::fs::read_to_string(Path::new("/lib/modules").join(base).join("modules.dep"))
-        .is_ok_and(|s| s.contains("/nfsv4.ko"))
+    std::fs::read_to_string(
+        Path::new(&at("/lib/modules"))
+            .join(base)
+            .join("modules.dep"),
+    )
+    .is_ok_and(|s| s.contains("/nfsv4.ko"))
 }
 
 impl Nfs for NodeNfs {

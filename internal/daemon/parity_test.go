@@ -51,14 +51,13 @@ import (
 // whole).
 
 // rustDaemonCommands are the commands the Rust armadad has (ADR 0055, pull
-// request 18a, and 18b's first two parts); doctor answers that it comes
-// later in 18b.
+// requests 18a and 18b): every command.
 var rustDaemonCommands = []string{
 	"armadad version", "armadad endpoint", "armadad endpoint show", "armadad endpoint set",
 	"armadad etcd", "armadad upgrade", "armadad runtime",
 	"armadad backup", "armadad backup list", "armadad restore", "armadad user renew", "armadad runtime-log",
 	"armadad init", "armadad join", "armadad server", "armadad server join", "armadad agent",
-	"armadad runtime reset", "armadad runtime migrate",
+	"armadad runtime reset", "armadad runtime migrate", "armadad doctor",
 }
 
 // daemonCase is one case.
@@ -164,6 +163,15 @@ echo "cosign verify-blob for $id" >> "$STANDIN_LOG"
 if [ -n "$STANDIN_COSIGN_FAIL" ]; then echo "Error: none of the expected identities matched"; exit 1; fi
 echo "Verified OK"
 `
+	// timedatectl and ufw answer what the case says (doctor).
+	standinTimedatectl = `#!/bin/sh
+[ "$STANDIN_NTP" = fail ] && exit 1
+echo "$STANDIN_NTP"
+`
+	standinUfw = `#!/bin/sh
+[ -z "$STANDIN_UFW" ] && exit 1
+printf '%s\n' "$STANDIN_UFW"
+`
 	standinEtcd = `#!/bin/sh
 n=0
 for v in $(env | cut -d= -f1); do case "$v" in ETCD_*) n=$((n+1));; esac; done
@@ -175,7 +183,7 @@ echo "etcd environment: $n ETCD_ variables"
 func newDaemonHarness(t *testing.T) *daemonHarness {
 	t.Helper()
 	dir := t.TempDir()
-	for name, body := range map[string]string{"systemctl": standinSystemctl, "cosign": standinCosign} {
+	for name, body := range map[string]string{"systemctl": standinSystemctl, "cosign": standinCosign, "timedatectl": standinTimedatectl, "ufw": standinUfw} {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -226,6 +234,11 @@ func (h *daemonHarness) env(dir string, c daemonCase) map[string]string {
 		"STANDIN_FAIL":               strings.Join(c.fail, " "),
 		"STANDIN_COSIGN_FAIL":        "",
 		"ARMADA_DAEMON_TEST_RUN_DIR": filepath.Join(dir, "run"),
+		// doctor's machine (parity_doctor_test.go).
+		"ARMADA_DAEMON_TEST_HOST_ROOT":       filepath.Join(dir, "host"),
+		"ARMADA_DAEMON_TEST_NEEDRESTART_DIR": filepath.Join(dir, "needrestart"),
+		"STANDIN_NTP":                        "yes",
+		"STANDIN_UFW":                        "",
 	}
 	if c.upgrade != nil {
 		// The mirror is the case directory's: the same path in both runs.
@@ -365,6 +378,7 @@ func (h *daemonHarness) runGo(t *testing.T, dir string, c daemonCase) daemonResu
 	}
 	defer func() { runDir, execProgram, detectEndpoint, restartService = oldRun, oldExec, oldDetect, oldRestart }()
 	defer h.stateGo(c.state)()
+	defer doctorGo(dir)()
 	record, stop := h.stateRun(t, dir, c.state)
 	defer stop()
 	if c.during != nil {
@@ -507,6 +521,7 @@ func TestDaemonParity(t *testing.T) {
 	cases := daemonCases(h)
 	cases = append(cases, h.stateCases(t)...)
 	cases = append(cases, h.serveCases()...)
+	cases = append(cases, h.doctorCases(t)...)
 	cases = append(cases, daemonExampleCases(t)...)
 	cases = append(cases, daemonHelpCases()...)
 	names := map[string]bool{}

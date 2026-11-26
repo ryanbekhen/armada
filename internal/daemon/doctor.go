@@ -121,6 +121,9 @@ the host firewall. Exits non-zero if a check fails.`,
 			}
 			env.privateIP, env.dataDir, env.secretsDir = privateIP, dataDir, secretsDir
 			env.adminConfig = g.configPath
+			if doctorHook != nil {
+				doctorHook(&env)
+			}
 			results := runDoctor(cmd.Context(), env)
 			if failed := printChecks(cmd.OutOrStdout(), results); failed > 0 {
 				return fmt.Errorf("%d check(s) failed", failed)
@@ -133,6 +136,25 @@ the host firewall. Exits non-zero if a check fails.`,
 	f.StringVar(&secretsDir, "secrets-dir", defaultSecretsDir, "tmpfs directory for secret files")
 	f.StringVar(&privateIP, "private-ip", "", "this node's private (VPC) IP (default: the node's own, else the only private IPv4 address)")
 	return cmd
+}
+
+// hostRoot prefixes the host files doctor reads (/proc, /sys, /etc); the
+// daemon parity tests replace it, and doctorHook, with a machine of their
+// own.
+var (
+	hostRoot   = ""
+	doctorHook func(*doctorEnv)
+)
+
+// hostFile is a host file under hostRoot.
+func hostFile(p string) string { return hostRoot + p }
+
+// readConntrack reads the connection tracking table under hostRoot.
+func readConntrack() (entries, limit int64, ok bool) {
+	if hostRoot == "" {
+		return conntrack.New().Read()
+	}
+	return conntrack.At(hostFile("/proc/sys/net/netfilter"), 0).Read()
 }
 
 // joinEndpoint is the address the leader's public join listener would use:
@@ -182,7 +204,7 @@ func hostDoctorEnv(dataDir string) doctorEnv {
 		ufwStatus:    ufwStatus,
 		nfs:          agent.NFSSupported,
 		readFile:     fsutil.ReadPrivateFile,
-		serverEnv:    func() ([]byte, error) { return os.ReadFile(serverEnvFile) },
+		serverEnv:    func() ([]byte, error) { return os.ReadFile(hostFile(serverEnvFile)) }, //nolint:gosec // a fixed host path
 		needrestart:  func() (bool, bool) { return needrestartState(needrestartDir) },
 		runtimePack:  func() (string, string) { return runtimePacks(dataDir) },
 		now:          time.Now,
@@ -514,14 +536,14 @@ func embeddedHostChecks(subnet netip.Prefix) []checkResult {
 	add := func(name, status, format string, args ...any) {
 		out = append(out, checkResult{Name: name, Status: status, Detail: fmt.Sprintf(format, args...)})
 	}
-	if b, err := os.ReadFile("/sys/fs/cgroup/cgroup.controllers"); err != nil {
+	if b, err := os.ReadFile(hostFile("/sys/fs/cgroup/cgroup.controllers")); err != nil { //nolint:gosec // a fixed host path
 		add("cgroup", checkFail, "cgroup v2 (unified hierarchy) is required")
 	} else if missing := missingFields(string(b), "cpu", "memory", "pids"); len(missing) > 0 {
 		add("cgroup", checkFail, "cgroup v2 controllers missing: %s", strings.Join(missing, ", "))
 	} else {
 		add("cgroup", checkOK, "cgroup v2 with cpu, memory, pids")
 	}
-	if b, err := os.ReadFile("/proc/filesystems"); err == nil && !strings.Contains(string(b), "\toverlay\n") {
+	if b, err := os.ReadFile(hostFile("/proc/filesystems")); err == nil && !strings.Contains(string(b), "\toverlay\n") { //nolint:gosec // a fixed host path
 		add("overlayfs", checkWarn, "overlay filesystem not loaded yet (armada-runtime.service loads it; otherwise modprobe overlay)")
 	} else if err == nil {
 		add("overlayfs", checkOK, "available")
@@ -537,9 +559,9 @@ func embeddedHostChecks(subnet netip.Prefix) []checkResult {
 	} else {
 		add("iptables", checkOK, "found")
 	}
-	out = append(out, conntrackCheck(conntrack.New().Read()))
+	out = append(out, conntrackCheck(readConntrack()))
 	if subnet.IsValid() {
-		routes, err := readRoutes("/proc/net/route")
+		routes, err := readRoutes(hostFile("/proc/net/route"))
 		switch {
 		case err != nil:
 			add("subnet", checkWarn, "cannot read routes: %v", err)
@@ -689,10 +711,10 @@ func checkDataDir(env doctorEnv) []checkResult {
 // procListeners returns listening TCP sockets from /proc/net/tcp{,6}.
 func procListeners() ([]netip.AddrPort, error) {
 	var out []netip.AddrPort
-	for _, f := range []string{"/proc/net/tcp", "/proc/net/tcp6"} {
+	for _, f := range []string{hostFile("/proc/net/tcp"), hostFile("/proc/net/tcp6")} {
 		file, err := os.Open(f) //nolint:gosec // fixed /proc paths
 		if err != nil {
-			if f == "/proc/net/tcp6" {
+			if f == hostFile("/proc/net/tcp6") {
 				continue // IPv6 disabled
 			}
 			return nil, err

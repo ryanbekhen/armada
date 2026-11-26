@@ -86,7 +86,7 @@ fn check_proxy_kind(kind: &str) -> std::result::Result<(), String> {
 }
 
 /// CheckTmpfs: dir on tmpfs or ramfs.
-fn check_tmpfs(dir: &str) -> std::result::Result<(), String> {
+pub fn check_tmpfs(dir: &str) -> std::result::Result<(), String> {
     let c = std::ffi::CString::new(dir).map_err(|e| e.to_string())?;
     // SAFETY: plain data filled by statfs.
     let mut st: libc::statfs = unsafe { std::mem::zeroed() };

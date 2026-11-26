@@ -77,6 +77,17 @@ struct Answer {
 /// The device belongs to the Go agent's userspace WireGuard.
 pub struct Userspace;
 
+/// Who would run a WireGuard device the kernel cannot: the Go agent's
+/// userspace device, or nobody (the Rust agent, which has none: its text
+/// says so).
+#[derive(Clone, Copy)]
+// KernelOnly is the library's (armadad doctor), not the program's.
+#[allow(dead_code)]
+enum Wg<'a> {
+    GoAgent,
+    KernelOnly(&'a str),
+}
+
 /// kernelHas: whether the kernel has a module loaded, built in, or
 /// available to load.
 fn kernel_has(module: &str) -> bool {
@@ -107,7 +118,35 @@ pub fn diagnose(
     cache: &str,
     node: &str,
 ) -> Result<Vec<Check>, Userspace> {
-    let mut out = diagnose_tunnel(mode, ip, endpoint)?;
+    diagnose_as(Wg::GoAgent, mode, ip, endpoint, cache, node)
+}
+
+/// Diagnose for an agent with no userspace WireGuard (the Rust agent's
+/// armadad doctor, ADR 0055): where the kernel has no WireGuard the
+/// wireguard check fails with no_kernel, and a device only a userspace
+/// control socket holds is one not set up yet.
+// The library's (armadad doctor), not the program's.
+#[allow(dead_code)]
+pub fn diagnose_kernel_only(
+    no_kernel: &str,
+    mode: &str,
+    ip: &Option<Addr>,
+    endpoint: &Option<Addr>,
+    cache: &str,
+    node: &str,
+) -> Vec<Check> {
+    diagnose_as(Wg::KernelOnly(no_kernel), mode, ip, endpoint, cache, node).unwrap_or_default()
+}
+
+fn diagnose_as(
+    wg: Wg<'_>,
+    mode: &str,
+    ip: &Option<Addr>,
+    endpoint: &Option<Addr>,
+    cache: &str,
+    node: &str,
+) -> Result<Vec<Check>, Userspace> {
+    let mut out = diagnose_tunnel(wg, mode, ip, endpoint)?;
     if let Some(c) = diagnose_sites(cache, node, ip) {
         out.push(c);
     }
@@ -125,6 +164,7 @@ fn addr_text(ip: &Option<Addr>) -> String {
 }
 
 fn diagnose_tunnel(
+    wg: Wg<'_>,
     mode: &str,
     ip: &Option<Addr>,
     endpoint: &Option<Addr>,
@@ -164,7 +204,7 @@ fn diagnose_tunnel(
         ));
     }
     if encrypted(mode) || meshed {
-        out.extend(diagnose_wireguard(mode, ip, meshed)?);
+        out.extend(diagnose_wireguard(wg, mode, ip, meshed)?);
         return Ok(out);
     }
     let link = match net.rt.link_named(INTERFACE) {
@@ -226,7 +266,7 @@ fn diagnose_tunnel(
         ),
     ));
     if let Ok(Some(_)) = net.rt.link_named(SITE_INTERFACE) {
-        for mut c in diagnose_wireguard(mode, ip, true)? {
+        for mut c in diagnose_wireguard(wg, mode, ip, true)? {
             if c.name == "network" {
                 c.name = "network-sites".into();
             }
@@ -246,6 +286,7 @@ fn endpoint_ip(ep: &str) -> String {
 
 /// diagnoseWireGuard.
 fn diagnose_wireguard(
+    wg: Wg<'_>,
     mode: &str,
     ip: &Option<Addr>,
     meshed: bool,
@@ -276,6 +317,9 @@ fn diagnose_wireguard(
             super::apply::ERR_SITES_NEED_KERNEL.into(),
         ));
         return Ok(out);
+    } else if let Wg::KernelOnly(text) = wg {
+        out.push(check("wireguard", CHECK_FAIL, text.into()));
+        return Ok(out);
     } else {
         out.push(check("wireguard", CHECK_WARN, "the kernel has no WireGuard: the agent runs it in userspace, which is markedly slower; install a kernel with WireGuard".into()));
     }
@@ -303,7 +347,9 @@ fn diagnose_wireguard(
     let d = match device {
         Ok(d) => d,
         Err(_) => {
-            if Path::new(&format!("{USER_SOCKETS}/{dev}.sock")).exists() {
+            if matches!(wg, Wg::GoAgent)
+                && Path::new(&format!("{USER_SOCKETS}/{dev}.sock")).exists()
+            {
                 return Err(Userspace);
             }
             out.push(not_set_up());
