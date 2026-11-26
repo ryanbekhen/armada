@@ -1,6 +1,6 @@
 # 0011. Embedded container runtime
 
-- Status: Accepted; its containerd part is superseded by [0046](0046-runtime-supervisor.md) (containerd left the runtime pack with ADR 0055)
+- Status: Accepted; its containerd part is superseded by [0046](0046-runtime-supervisor.md) (containerd left the runtime pack with ADR 0055), and runc as the OCI runtime by [0056](0056-crun.md) (crun runs new containers; runc stays for those it created)
 - Date: 2026-11-01
 
 ## Context
