@@ -63,6 +63,7 @@ func (sc *scenario) watchAgent(id, ip string, history bool) *watchAgent {
 	}
 	w := &watchAgent{parityAgent: a, client: client, live: map[string][]string{}, errs: map[string]string{}, cancels: map[string]bool{},
 		open: map[string]context.CancelFunc{}, attached: make(chan error, 4)}
+	sc.rec.skip("log and exec sessions of fake agents")
 	logs := w.serveLogs
 	a.logs.Store(&logs)
 	exec := w.serveExec
@@ -586,6 +587,10 @@ func (sc *scenario) placements() []string {
 	var out []string
 	for _, kv := range resp.Kvs {
 		out = append(out, strings.TrimPrefix(string(kv.Key), sc.pfx))
+	}
+	if sc.rec != nil {
+		step := sc.rec.add(map[string]any{"op": "keys", "prefix": "placements/"})
+		sc.rec.expect(step, "expect", out)
 	}
 	return out
 }

@@ -2,7 +2,8 @@
 //! as a program (internal/server, ARMADA_SERVER_BIN). Never packed.
 //!
 //! The first line on stdin is the configuration (JSON): the etcd member
-//! (endpoint, dir) and the store's prefix, the CA, the server certificate,
+//! (endpoint and dir, or etcdSocket for a member without TLS on a Unix
+//! socket) and the store's prefix, the CA, the server certificate,
 //! the master key, the test clock's start, and the server's settings
 //! (with `manualPasses`, a pass runs only on a `reconcile` request; with
 //! `predictableIds`, replica IDs count up as the Go side's do). The
@@ -365,8 +366,13 @@ async fn main() {
     } else {
         Logger::discard()
     };
-    let client = Client::connect(&s(&cfg, "endpoint"), &PathBuf::from(s(&cfg, "dir")))
-        .expect("connect to the etcd member");
+    // `etcdSocket`: a member of the test's own on a Unix socket, without
+    // TLS (the Rust scenario replay, server/tests/scenarios.rs).
+    let client = match s(&cfg, "etcdSocket") {
+        sock if !sock.is_empty() => Client::connect_unix(&PathBuf::from(sock)),
+        _ => Client::connect(&s(&cfg, "endpoint"), &PathBuf::from(s(&cfg, "dir"))),
+    }
+    .expect("connect to the etcd member");
     let clock = Arc::new(AtomicI64::new(i(&cfg, "nowMs")));
     let mut store = Etcd::new(client.clone(), &s(&cfg, "prefix"))
         .await

@@ -28,6 +28,8 @@ pub mod network;
 mod nodes;
 #[cfg(feature = "parity")]
 pub mod parity;
+#[cfg(feature = "parity")]
+pub mod parity_call;
 mod placements;
 mod remove;
 mod secrets;

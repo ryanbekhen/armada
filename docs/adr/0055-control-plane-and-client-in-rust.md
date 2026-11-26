@@ -616,7 +616,22 @@ Go and every new Rust part is exercised only by its parity tests.
        scenario are recorded once as fixtures, and Rust tests drive the
        Rust programs through the same scenarios and compare against them,
        as `testdata/rust` already does for the runtime, HAProxy's driver,
-       and the image store's move.
+       and the image store's move. Its first slice, done, is the control
+       plane's scenarios: `go test ./internal/server -run TestParity
+       -record-scenarios` runs each scenario against Go's server alone and
+       writes `server/tests/testdata/scenarios/<test>.json`, every step the
+       scenario took at the server's boundaries (API calls and their
+       streams, fake agents' sessions and volume sessions, the store's
+       methods the harness called, clock moves, passes, TXT records, the
+       fake etcd membership) with Go's normalized answer to each, and values
+       a later step sends that came from an answer written as references;
+       `server/tests/scenarios.rs` (`make server-scenarios`, run by
+       `rust-check` and CI) replays them against `armada-server-parity` on
+       the pinned etcd and compares every answer. 59 of the 72 scenarios
+       replay; the stand-ins of the metrics endpoint, alert channels,
+       control plane backup buckets, certificate storage, public join
+       listeners, and log and exec sessions come next, then the agent's,
+       store's, client's, and daemon's parity tests.
     2. **Go deleted.** `cmd/`, `internal/`, `go.mod`, Go's CI jobs and
        release steps, and every document that names Go code (CLAUDE.md,
        the operations guide, the threat model's references,

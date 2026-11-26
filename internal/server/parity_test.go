@@ -194,16 +194,20 @@ type parityEntry struct{ label, value string }
 
 // scenario is one run of a scenario against one server.
 type scenario struct {
-	t     *testing.T
-	ctx   context.Context
-	cfg   parityConfig
-	fx    *parityFixtures
-	st    *store.Etcd
-	pfx   string
-	clock *parityClock
-	fc    *fakeCluster
-	sut   serverUnderTest
-	admin armadav1.AdminServiceClient
+	t   *testing.T
+	ctx context.Context
+	cfg parityConfig
+	fx  *parityFixtures
+	st  *recStore
+	pfx string
+	// rec records the scenario for the Rust replay (-record-scenarios),
+	// and extraRandom are the fields its normalizer names as random too.
+	rec         *recorder
+	extraRandom map[string]bool
+	clock       *parityClock
+	fc          *fakeCluster
+	sut         serverUnderTest
+	admin       armadav1.AdminServiceClient
 
 	mu      sync.Mutex
 	log     []parityEntry
@@ -231,7 +235,7 @@ func runParity(t *testing.T, cfg parityConfig, body func(sc *scenario)) {
 	fx := newParityFixtures(t)
 	var logs [][]parityEntry
 	kinds := []string{"go"}
-	if serverBin() != "" {
+	if serverBin() != "" && !*recordScenarios {
 		kinds = append(kinds, "rust")
 	}
 	for _, kind := range kinds {
@@ -250,6 +254,9 @@ func runParity(t *testing.T, cfg parityConfig, body func(sc *scenario)) {
 				})
 			}
 			body(sc)
+			if sc.rec != nil {
+				sc.rec.write(t)
+			}
 			sc.mu.Lock()
 			logs = append(logs, sc.log)
 			sc.mu.Unlock()
@@ -309,8 +316,12 @@ func newScenario(t *testing.T, kind string, cfg parityConfig, fx *parityFixtures
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	st, pfx := storetest.OpenNamed(t)
-	sc := &scenario{t: t, ctx: ctx, cfg: cfg, fx: fx, st: st, pfx: pfx, clock: &parityClock{}, seen: map[string]map[string]string{},
+	sc := &scenario{t: t, ctx: ctx, cfg: cfg, fx: fx, st: &recStore{st: st}, pfx: pfx, clock: &parityClock{}, seen: map[string]map[string]string{},
 		txt: &fakeTXT{records: map[string][]string{}}}
+	if *recordScenarios && kind == "go" {
+		sc.rec = newRecorder(sc, cfg)
+		sc.st.r = sc.rec
+	}
 	sc.clock.ms.Store(fx.start.UnixMilli())
 	st.SetNow(sc.clock.now)
 	if err := st.KnowUser(ctx, "ryan"); err != nil {
@@ -335,14 +346,21 @@ func newScenario(t *testing.T, kind string, cfg parityConfig, fx *parityFixtures
 		sc.sut = startRustServer(sc)
 	}
 	t.Cleanup(sc.sut.stop)
-	sc.alias(sc.sut.api(), "<api>")
-	sc.alias(fx.acmeAddr, "<acme>")
-	if sc.sut.join() != "" {
-		sc.alias(sc.sut.join(), "<join>")
+	if sc.rec != nil {
+		sc.rec.addrs(sc.sut)
+		sc.sut = &recSut{serverUnderTest: sc.sut, r: sc.rec}
 	}
-	if sc.sut.siteJoin() != "" {
-		sc.alias(sc.sut.siteJoin(), "<site-join>")
-	}
+	// A recording names these itself (recorder.addrs), as the replay does.
+	sc.rec.muted(func() {
+		sc.alias(sc.sut.api(), "<api>")
+		sc.alias(fx.acmeAddr, "<acme>")
+		if sc.sut.join() != "" {
+			sc.alias(sc.sut.join(), "<join>")
+		}
+		if sc.sut.siteJoin() != "" {
+			sc.alias(sc.sut.siteJoin(), "<site-join>")
+		}
+	})
 	if cfg.cluster {
 		if err := st.UpsertServer(ctx, store.Server{Name: "cp-1", PrivateIP: "10.0.0.1", APIAddr: sc.sut.api(), MemberID: 100}); err != nil {
 			t.Fatal(err)
@@ -382,7 +400,7 @@ func startGoServer(sc *scenario) *goServer {
 		t.Fatal(err)
 	}
 	g := &goServer{addr: lis.Addr().String(), done: make(chan struct{})}
-	cfg := Config{Store: sc.st, TLS: tlsCfg, Resync: time.Hour, Resolver: sc.txt, StreamRecheck: testStreamRecheck,
+	cfg := Config{Store: sc.st.st, TLS: tlsCfg, Resync: time.Hour, Resolver: sc.txt, StreamRecheck: testStreamRecheck,
 		CA: fx.ca, JoinTLS: joinTLS, APIAddr: g.addr, Now: sc.clock.now, Name: "cp-1",
 		NodeLostTimeout: sc.cfg.nodeLost, NodeCertValidity: sc.cfg.nodeCertValidity,
 		DrainTimeout: sc.cfg.drain, Warmup: sc.cfg.warmup, ProgressDeadline: sc.cfg.progress, PlainHTTP: sc.cfg.plainHTTP,
@@ -797,6 +815,9 @@ func (r *rustServer) stop() {
 
 // advance moves the scenario's clock, on both the store and the server.
 func (sc *scenario) advance(d time.Duration) {
+	if sc.rec != nil {
+		sc.rec.add(map[string]any{"op": "advance", "ms": d.Milliseconds()})
+	}
 	sc.clock.ms.Add(d.Milliseconds())
 	if r, ok := sc.sut.(*rustServer); ok {
 		r.setNow(sc.clock.ms.Load())
@@ -807,6 +828,10 @@ func (sc *scenario) advance(d time.Duration) {
 func (sc *scenario) alias(value, name string) {
 	if value == "" {
 		return
+	}
+	if sc.rec != nil && !sc.rec.isQuiet() {
+		sc.rec.add(map[string]any{"op": "alias", "value": sc.rec.template(value), "name": name})
+		sc.rec.norm.alias(value, name)
 	}
 	sc.mu.Lock()
 	defer sc.mu.Unlock()
@@ -829,18 +854,33 @@ func (sc *scenario) dial(id pki.Identity) *grpc.ClientConn {
 	if id.Kind == pki.KindNode {
 		cert, _ := pki.ParseCertPEM(certPEM)
 		// A node that is not registered stays unrecorded (and refused).
-		_ = sc.st.RecordNodeCert(sc.ctx, id.Name, store.NodeCert{Serial: pki.SerialString(cert), NotAfter: cert.NotAfter}, "")
+		_ = sc.st.st.RecordNodeCert(sc.ctx, id.Name, store.NodeCert{Serial: pki.SerialString(cert), NotAfter: cert.NotAfter}, "")
 	}
-	return sc.dialPEM(certPEM, keyPEM)
+	if sc.rec == nil {
+		return sc.dialWith(certPEM, keyPEM, nil)
+	}
+	conn := sc.rec.nextConn()
+	sc.rec.dial(conn, id, true)
+	return sc.dialWith(certPEM, keyPEM, sc.rec.dialOptions(conn))
 }
 
 func (sc *scenario) dialPEM(certPEM, keyPEM []byte) *grpc.ClientConn {
+	sc.t.Helper()
+	if sc.rec == nil {
+		return sc.dialWith(certPEM, keyPEM, nil)
+	}
+	conn := sc.rec.nextConn()
+	sc.rec.dialPEM(conn, certPEM, keyPEM)
+	return sc.dialWith(certPEM, keyPEM, sc.rec.dialOptions(conn))
+}
+
+func (sc *scenario) dialWith(certPEM, keyPEM []byte, opts []grpc.DialOption) *grpc.ClientConn {
 	sc.t.Helper()
 	cfg, err := pki.ClientTLS(sc.fx.ca.CertPEM, certPEM, keyPEM)
 	if err != nil {
 		sc.t.Fatal(err)
 	}
-	conn, err := grpc.NewClient(sc.sut.api(), grpc.WithTransportCredentials(credentials.NewTLS(cfg)))
+	conn, err := grpc.NewClient(sc.sut.api(), append(opts, grpc.WithTransportCredentials(credentials.NewTLS(cfg)))...)
 	if err != nil {
 		sc.t.Fatal(err)
 	}
@@ -859,7 +899,7 @@ func (sc *scenario) joinClient(tok *armadav1.CreateJoinTokenResponse) armadav1.J
 	if err != nil {
 		sc.t.Fatal(err)
 	}
-	conn, err := grpc.NewClient(tok.JoinAddr, grpc.WithTransportCredentials(credentials.NewTLS(pki.JoinClientTLS(ca))))
+	conn, err := grpc.NewClient(tok.JoinAddr, append(sc.recordJoinDial(tok.JoinAddr), grpc.WithTransportCredentials(credentials.NewTLS(pki.JoinClientTLS(ca))))...)
 	if err != nil {
 		sc.t.Fatal(err)
 	}
@@ -871,7 +911,14 @@ func (sc *scenario) eventually(what string, cond func() bool) {
 	sc.t.Helper()
 	deadline := time.Now().Add(15 * time.Second)
 	for time.Now().Before(deadline) {
-		if cond() {
+		if sc.rec != nil {
+			sc.rec.startPoll()
+		}
+		met := cond()
+		if sc.rec != nil {
+			sc.rec.endPoll(what, met)
+		}
+		if met {
 			return
 		}
 		time.Sleep(10 * time.Millisecond)
@@ -898,8 +945,12 @@ func (sc *scenario) eventCount(object, reason string) int {
 func (sc *scenario) note(label string, v any) {
 	sc.t.Helper()
 	sc.mu.Lock()
-	defer sc.mu.Unlock()
-	sc.log = append(sc.log, parityEntry{label: label, value: sc.encode(v)})
+	value := sc.encode(v)
+	sc.log = append(sc.log, parityEntry{label: label, value: value})
+	sc.mu.Unlock()
+	if sc.rec != nil {
+		sc.rec.note(label, value)
+	}
 }
 
 // answer records a call's answer or error.
@@ -914,6 +965,19 @@ func (sc *scenario) answer(label string, m proto.Message, err error) {
 
 // keyspace records the server's keyspace.
 func (sc *scenario) keyspace(label string) {
+	sc.t.Helper()
+	if sc.rec != nil {
+		step := sc.rec.add(map[string]any{"op": "keyspace"})
+		v := sc.keyspaceOf(sc.rec.norm)
+		sc.rec.mu.Lock()
+		step["expect"] = json.RawMessage(sc.rec.norm.encode(v))
+		sc.rec.mu.Unlock()
+	}
+	sc.note(label, sc.keyspaceOf(sc))
+}
+
+// keyspaceOf is the server's keyspace, normalized by n's names.
+func (sc *scenario) keyspaceOf(n *scenario) rawJSON {
 	sc.t.Helper()
 	resp, err := storetest.Client().Get(sc.ctx, sc.pfx, clientv3.WithPrefix())
 	if err != nil {
@@ -934,7 +998,7 @@ func (sc *scenario) keyspace(label string) {
 	// Random values (serials) are named before any is replaced, so keys
 	// and texts holding them read the same on both servers.
 	for _, e := range all {
-		sc.collect(e.v, "")
+		n.collect(e.v, "")
 	}
 	// Records in key order once keys are normalized: keys holding random
 	// values sort apart from them.
@@ -942,17 +1006,17 @@ func (sc *scenario) keyspace(label string) {
 	for _, e := range all {
 		switch {
 		case strings.HasPrefix(e.k, "events/"):
-			events = append(events, sc.encode(rawJSON{e.v}))
+			events = append(events, n.encode(rawJSON{e.v}))
 		case strings.HasPrefix(e.k, "audit/"):
-			audit = append(audit, sc.encode(rawJSON{e.v}))
+			audit = append(audit, n.encode(rawJSON{e.v}))
 		default:
-			keys = append(keys, sc.replace(e.k)+" = "+sc.encode(rawJSON{e.v}))
+			keys = append(keys, n.replace(e.k)+" = "+n.encode(rawJSON{e.v}))
 		}
 	}
 	sort.Strings(keys)
 	sort.Strings(events)
 	sort.Strings(audit)
-	sc.note(label, rawJSON{map[string]any{"keys": keys, "events": events, "audit": audit}})
+	return rawJSON{map[string]any{"keys": keys, "events": events, "audit": audit}}
 }
 
 type rawJSON struct{ v any }
@@ -1057,7 +1121,7 @@ func (sc *scenario) normalize(v any, key string) any {
 				return x
 			}
 			return "<time>"
-		case parityRandomKeys[lk]:
+		case parityRandomKeys[lk] || sc.extraRandom[lk]:
 			return sc.placeholder(lk, x)
 		case parityCompressedKeys[lk]:
 			return "<compressed>"
@@ -1114,7 +1178,7 @@ func (sc *scenario) collect(v any, key string) {
 			sc.collect(e, key)
 		}
 	case string:
-		if lk := strings.ToLower(key); parityRandomKeys[lk] && x != "" {
+		if lk := strings.ToLower(key); (parityRandomKeys[lk] || sc.extraRandom[lk]) && x != "" {
 			sc.placeholder(lk, x)
 		} else if nested := nestedJSON(x); nested != nil {
 			sc.collect(nested, key)
@@ -1192,11 +1256,43 @@ type parityAgent struct {
 	volume atomic.Pointer[func(*armadav1.VolumeRequest)]
 	logs   atomic.Pointer[func(*armadav1.ServerMessage)]
 	exec   atomic.Pointer[func(*armadav1.ExecRequest)]
+	// rid names the session in a recording (-record-scenarios).
+	rid string
 }
 
 // connectAgent connects node id as its agent with hello and waits until
 // the server recorded the connection, or returns the stream's error.
 func (sc *scenario) connectAgent(id string, client armadav1.AgentServiceClient, hello *armadav1.Hello) (*parityAgent, error) {
+	sc.t.Helper()
+	if sc.rec == nil {
+		return sc.connectAgentNow(id, client, hello)
+	}
+	r := sc.rec
+	r.mu.Lock()
+	r.agents++
+	rid := fmt.Sprintf("a%d", r.agents)
+	r.mu.Unlock()
+	var hj any
+	if hello != nil {
+		hj = r.input(hello)
+	}
+	var a *parityAgent
+	var err error
+	r.muted(func() { a, err = sc.connectAgentNow(id, client, hello) })
+	r.mu.Lock()
+	conn := r.lastConnect
+	r.mu.Unlock()
+	step := r.add(map[string]any{"op": "agent", "agent": rid, "node": id, "conn": conn, "hello": hj})
+	if err != nil {
+		r.expect(step, "expect", err)
+		return nil, err
+	}
+	a.rid = rid
+	return a, nil
+}
+
+// connectAgentNow is connectAgent without its recording.
+func (sc *scenario) connectAgentNow(id string, client armadav1.AgentServiceClient, hello *armadav1.Hello) (*parityAgent, error) {
 	sc.t.Helper()
 	before := sc.eventCount(id, "Connected")
 	ctx, cancel := context.WithCancel(sc.ctx)
@@ -1267,6 +1363,15 @@ func (sc *scenario) nodeAgent(id string) armadav1.AgentServiceClient {
 // assignment drains what the server sent and returns the latest
 // assignment, once nothing new arrived for a moment.
 func (a *parityAgent) assignment() *armadav1.Assignment {
+	as := a.drain()
+	if r := a.sc.rec; r != nil && a.rid != "" {
+		step := r.add(map[string]any{"op": "assignment", "agent": a.rid})
+		r.expect(step, "expect", as)
+	}
+	return as
+}
+
+func (a *parityAgent) drain() *armadav1.Assignment {
 	quiet := time.After(300 * time.Millisecond)
 	for {
 		select {
@@ -1287,6 +1392,9 @@ func (a *parityAgent) assignment() *armadav1.Assignment {
 }
 
 func (a *parityAgent) send(m *armadav1.AgentMessage) {
+	if r := a.sc.rec; r != nil && a.rid != "" {
+		r.add(map[string]any{"op": "agentSend", "agent": a.rid, "msg": r.input(m)})
+	}
 	if err := a.stream.Send(m); err != nil {
 		a.sc.t.Fatalf("send: %v", err)
 	}
@@ -1295,6 +1403,32 @@ func (a *parityAgent) send(m *armadav1.AgentMessage) {
 // end waits for the stream's end and returns why it ended, with the
 // assignments sent before.
 func (a *parityAgent) end() error {
+	err := a.waitEnd()
+	if r := a.sc.rec; r != nil && a.rid != "" {
+		step := r.add(map[string]any{"op": "agentEnd", "agent": a.rid})
+		r.expect(step, "expect", err)
+		r.expect(step, "last", a.last)
+	}
+	return err
+}
+
+// closeSend ends what the agent sends (its own end of the session).
+func (a *parityAgent) closeSend() {
+	if r := a.sc.rec; r != nil && a.rid != "" {
+		r.add(map[string]any{"op": "agentCloseSend", "agent": a.rid})
+	}
+	_ = a.stream.CloseSend()
+}
+
+// stop ends the session from the agent's side, as a lost connection.
+func (a *parityAgent) stop() {
+	if r := a.sc.rec; r != nil && a.rid != "" {
+		r.add(map[string]any{"op": "agentStop", "agent": a.rid})
+	}
+	a.cancel()
+}
+
+func (a *parityAgent) waitEnd() error {
 	for {
 		select {
 		case m, ok := <-a.msgs:
