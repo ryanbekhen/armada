@@ -17,10 +17,10 @@ on a maintainer's machine.
 
 4. The `release` workflow (`.github/workflows/release.yml`) builds the
    `armada` client for macOS on a macOS runner (`darwin-client.yml`, for
-   `darwin/amd64` and `darwin/arm64`), then runs vet, the race tests, and
-   govulncheck again (while Go code is in the repository), and the Cargo
-   workspace's gates (`cargo fmt`, clippy, `cargo test`, `cargo deny check
-   licenses`). GoReleaser (`.goreleaser.yaml`) then runs
+   `darwin/amd64` and `darwin/arm64`), then runs CI's gates again on the
+   whole workspace (`make lint test replays vuln programs-check`: formats,
+   clippy, the tests, the replays, `cargo deny check advisories
+   licenses`, and the programs outside the workspace). GoReleaser (`.goreleaser.yaml`) then runs
    `make runtime-bundle` (armada-log, armada-shim, armada-dns, and
    armada-node built with the pinned Rust toolchain, and the pinned runtime
    programs downloaded and checked; see ADR 0011), builds `armadad` and
@@ -47,8 +47,8 @@ on a maintainer's machine.
    and `licenses/rust/` (each crate's license files, `make rust-licenses`);
    the full Linux archives also `licenses/runtime/` (the license files of
    the Go modules the pack's etcd and etcdutl link, `make
-   runtime-licenses`). Nothing in the packaging needs Go: `armada-pack`
-   (`pack/`) builds the runtime pack and collects `licenses/runtime/`.
+   runtime-licenses`). `armada-pack` (`pack/`) builds the runtime pack and
+   collects `licenses/runtime/`.
    Both programs print the tag,
    the full commit, and the commit's time in `armada version` and
    `armadad version`: GoReleaser gives cargo `ARMADA_VERSION`,
@@ -56,19 +56,25 @@ on a maintainer's machine.
    macOS job sets the same).
 5. Review the draft and publish it.
 
-CI's Rust-heavy jobs (`test`, `logger`, and `release-dry-run`) run on the
-project's self-hosted runners, which keep their build output between runs;
-a pull request from a fork runs them on GitHub's runners instead, and every
-workflow from an outside contributor waits for the owner's approval. The
-other jobs, the macOS build, and the release itself run on GitHub's runners.
+CI runs only what a change touches (`scripts/ci-changes.sh`, job
+`changes`): the crates it changes and every crate that depends on one, the
+programs outside the workspace it changes, HAProxy's check when the
+renderer or the image changes, and the packaging when something a release
+builds changes. Its Rust jobs (`lint`, `test`, `vuln`, `build`, `logger`,
+and `release-dry-run`) run on the project's self-hosted runners, which
+keep their build output between runs; a pull request from a fork runs them
+on GitHub's runners instead, and every workflow from an outside
+contributor waits for the owner's approval. The other jobs, the macOS
+build, and the release itself run on GitHub's runners.
 
-CI checks the configuration on every change (`goreleaser check`, job
-`release-config`), builds the macOS client (job `client-macos`), and on
-every push to `main` runs the whole packaging without publishing or
-signing (job `release-dry-run`: `goreleaser release --snapshot
---skip=publish,sign`, then `scripts/release-contents.sh`, which checks the
-archives' names, programs, units, license files, checksums, and the
-version string). To do the same on a Linux machine, build the macOS client
+CI checks the configuration when something a release builds changes
+(`goreleaser check`, job `release-config`), builds the macOS client when
+the client changes (job `client-macos`), builds for arm64 only on pushes
+to `main`, and on a push to `main` that touches something a release builds
+runs the whole packaging without publishing or signing (job
+`release-dry-run`: `goreleaser release --snapshot --skip=publish,sign`,
+then `scripts/release-contents.sh`, which checks the archives' names,
+programs, units, license files, checksums, and the version string). To do the same on a Linux machine, build the macOS client
 on a Mac first, or check the Linux part with a copy of `.goreleaser.yaml`
 without the darwin build and archive.
 
@@ -90,7 +96,7 @@ type, so every commit subject reads `type(scope)!: description`:
 | `fix` | Bug fixes |
 | `perf` | Performance |
 | `docs` | Documentation |
-| `deps` (Dependabot's Go module updates) | Dependencies |
+| `deps` (Dependabot's crate updates) | Dependencies |
 | `refactor`, `revert`, anything else | Other changes |
 | `test`, `ci`, `build`, `chore`, `style` | left out |
 
@@ -98,7 +104,7 @@ The scope is optional, lowercase (`feat(cli): ...`). Pull requests are
 merged by rebase, so each commit lands as written; the `commits` CI job
 (`scripts/check-commits.sh`) rejects subjects that do not follow the format.
 Run it locally with `sh scripts/check-commits.sh origin/main..HEAD`.
-Dependabot pull requests are titled `deps: ...` (Go modules) or
+Dependabot pull requests are titled `deps: ...` (crates) or
 `ci(deps): ...` (actions); squash-merging one uses the title as the commit
 subject, so it lands in the right section. Merge commits are left out of
 the notes. Every
@@ -120,10 +126,13 @@ release also ends with install and verification instructions (the
   security reports are routed to private vulnerability reporting.
 - `main` is protected by a repository ruleset: no force pushes or deletion,
   linear history, changes only through pull requests (rebase or squash),
-  and every CI job must pass (`lint`, `test`, `vuln`, both `build` jobs,
-  `haproxy`, `installer`, `logger`, `client-macos`, `release-config`,
-  `commits`; `release-dry-run` runs only on pushes to `main`, so it is not
-  required). A new required CI job must be added to the ruleset as well.
+  and the required CI jobs must pass (`lint`, `test`, `vuln`, both `build`
+  jobs, `haproxy`, `installer`, `logger`, `release-config`, `commits`). A
+  job a change does not need is skipped by its condition, which counts as
+  passed, so a required job is never removed from `ci.yml` while the
+  ruleset names it: one that no longer runs would block every merge.
+  `client-macos` and `release-dry-run` are not required. A new required CI
+  job must be added to the ruleset as well.
 - Release tags (`v*`) are protected by a second ruleset: only repository
   admins may create, move, or delete them. The `release` workflow also
   refuses a tag whose commit is not on `main`, so only reviewed code is
@@ -148,15 +157,15 @@ gh attestation verify armada_${VERSION#v}_linux_amd64.tar.gz --repo ryanbekhen/a
 ## Supply chain rules
 
 - Every GitHub Action is pinned to a full commit SHA; Dependabot proposes
-  updates for actions and Go modules weekly.
-- The Go toolchain is pinned with `toolchain` in `go.mod`, the Rust
-  toolchain in `rust-toolchain.toml`, and every crate in `Cargo.lock`
-  (builds use `--locked`).
+  updates for actions and crates weekly.
+- The Rust toolchain is pinned in `rust-toolchain.toml`, and every crate
+  in `Cargo.lock` (builds use `--locked`); `cargo deny check advisories`
+  checks them against RustSec's advisories on every change of code.
 - The HAProxy system image is pinned by digest in the code.
 - The bundled runtime binaries (containerd, runc, CNI plugins, tini, etcd)
   are pinned by version and SHA-256 in `pack/lock.json`; `make
   runtime-bundle` downloads them over HTTPS only and refuses any checksum
-  mismatch. Before each release, check their advisories: `govulncheck`
+  mismatch. Before each release, check their advisories: `cargo deny`
   does not see them.
 
 ## Updating the bundled runtime
@@ -172,10 +181,7 @@ gh attestation verify armada_${VERSION#v}_linux_amd64.tar.gz --repo ryanbekhen/a
    go.sum hash of `go.etcd.io/etcd/api/v3` at the new version as
    `apiModule.h1`, from `https://sum.golang.org/lookup/go.etcd.io/etcd/api/v3@vVERSION`),
    and the version in `THIRD_PARTY_NOTICES.md`'s table: `cargo test -p
-   armada-pack` checks the pins and the notices. While Go is in the
-   repository, `internal/runtime/embedded/lock.go` takes the same pins
-   (`TestLockMatchesFile`), and an etcd upgrade also moves go.mod's etcd
-   modules (`TestEtcdMatchesModule`).
+   armada-pack` checks the pins and the notices.
 4. For etcd, `make runtime-licenses` (the new release's modules into
    `build/licenses-runtime`; it fails on a module without a license file)
    and `make proto-rust` (etcd's protos vendored again from the new API

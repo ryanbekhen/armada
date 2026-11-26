@@ -25,23 +25,23 @@ That mix has costs:
 
 Armada ships two binaries from one module:
 
-- **`armadad`** (`cmd/armadad`, package `internal/daemon`) runs on every
+- **`armadad`** (`daemon/`, crate `armada-daemon`) runs on every
   machine and needs root: `server`, `agent`, `runtime`, and the hidden
   `runtime-log` (what systemd and the container runtime run), `init`,
   `join`, `server join`, `doctor`, `backup`, `restore`, `runtime reset`, and
   `admin renew`, which signs an administrator certificate with the CA on a
   server's disk once it has expired. Release builds embed the runtime bundle
   (ADR 0011) in it. The systemd units run `armadad`.
-- **`armada`** (`cmd/armada`, package `internal/cli`) is the client: every
+- **`armada`** (`client/`, crate `armada-client`) is the client: every
   command that only talks to the control plane over mTLS with the
   credentials in `~/.armada/config`. It needs no root and builds for Linux
   and macOS. `armada server list|remove` stay client commands; running and
   adding a server are `armadad` commands.
 
-`internal/cli` never imports `internal/daemon`, and a test checks that the
-client does not depend on the runtime, the agent, the server, etcd, or the
-cluster network. `internal/daemon` may use the client's exported helpers
-(`cli.Run`, `cli.RPCError`, `cli.ReadSecretValue`, `cli.NewVersionCommand`).
+The client never links the daemon, and a test (`client/tests/dependencies.rs`)
+checks that the client does not depend on the runtime, the agent, the
+server, etcd, or the cluster network. The daemon links the client's
+command framework (`armada_client::cli`) and its exported helpers.
 Both print the same `version`.
 
 Each is its own file on every machine: `armada` is never a link to
@@ -97,5 +97,5 @@ joined it after the session started.
   then restart the units): the installer adds `armadad` and rewrites the
   units, and `armada` becomes the client. Scripts that ran machine commands
   through `armada` must call `armadad`.
-- Tests that run a server in process and drive client commands live in
-  `internal/daemon` and send each command to the binary that has it.
+- Tests that drive client commands against a server send each command to
+  the binary that has it.

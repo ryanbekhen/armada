@@ -1,8 +1,7 @@
 //! The daemon's parity cases recorded from Go (ADR 0055, item 20),
 //! replayed against this armadad.
 //!
-//! `go test ./internal/daemon -run TestDaemonParity -record-fixtures`
-//! (with ARMADA_DAEMON_BIN and ARMADA_ETCD_DIR) ran every case of Go's
+//! Go's TestDaemonParity, before the Go code was removed, ran every case of Go's
 //! daemon parity harness (the cases written for it, doctor's, the state
 //! commands', the commands that set a machine up, every example line and
 //! every command's help, and the units' cases) and wrote

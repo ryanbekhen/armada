@@ -1,6 +1,5 @@
-//! The logger cases recorded from Go (ADR 0055, item 20): `go test
-//! ./internal/runtime/embedded -run TestRecordLoggerCases -record-fixtures`
-//! ran every case of compareLoggers through Go's WriteLogs and wrote
+//! The logger cases recorded from Go (ADR 0055, item 20): before the Go
+//! code was removed, Go's TestRecordLoggerCases ran every case of compareLoggers through Go's WriteLogs and wrote
 //! testdata/logwriter.json.gz (each output, its limits, the history meta
 //! file it starts with, and the files WriteLogs left, times blanked).
 //! `armadad runtime-log` must store the same files (TestRuntimeLogMatchesGo

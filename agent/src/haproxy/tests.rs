@@ -1,6 +1,5 @@
-//! The driver against Go's: the scenarios Go's driver ran
-//! (internal/proxy/haproxy/testdata/rust, written by
-//! TestRustDriverScenarios) replayed here with the same stand-ins for the
+//! The driver against Go's: the scenarios Go's driver ran, recorded
+//! before the Go code was removed (tests/testdata/haproxy), replayed here with the same stand-ins for the
 //! engine and the Runtime API, compared step by step: the error, the
 //! commands, starts, reloads, configuration checks, every file written, and
 //! the load.
@@ -201,7 +200,7 @@ fn driver(
 
 async fn replay(name: &str) {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../internal/proxy/haproxy/testdata/rust")
+        .join("tests/testdata/haproxy")
         .join(format!("{name}.json"));
     let sc: Scenario = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
     let dir = tmp(name).join("haproxy");

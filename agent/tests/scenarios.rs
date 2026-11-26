@@ -1,6 +1,6 @@
-//! The agent's parity scenarios, recorded once from Go's agent
-//! (internal/agent/parity_record_test.go: go test ./internal/agent -run
-//! 'TestAgentParity' -record-scenarios) and replayed here against the Rust
+//! The agent's parity scenarios, recorded once from Go's agent before the
+//! Go code was removed (the recordings are goldens now, changed only by
+//! hand) and replayed here against the Rust
 //! agent's parity program with the fakes ported to Rust (ADR 0055, item
 //! 20). ARMADA_REPLAY_ONLY=TEXT replays only the scenarios whose name
 //! holds TEXT.

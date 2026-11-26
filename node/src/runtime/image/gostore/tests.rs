@@ -1,6 +1,5 @@
-//! The move against Go's: what Go's TestRustMove
-//! (internal/runtime/supervisor/rustmove_test.go) kept in
-//! testdata/rust/move.json, replayed. Each case's data directory is
+//! The move against Go's: what Go's TestRustMove kept before the Go code
+//! was removed (tests/testdata/move.json), replayed. Each case's data directory is
 //! written as it was before Go's MoveImages or CollectGo ran, the same is
 //! done here, and the tree after, the summary, and what metadata.db reads
 //! as must be Go's.
@@ -21,8 +20,7 @@ fn b64_encode(b: &[u8]) -> String {
 }
 
 fn fixture() -> Vec<Value> {
-    let p = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../internal/runtime/supervisor/testdata/rust/move.json");
+    let p = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/testdata/move.json");
     let v: Value = serde_json::from_slice(&fs::read(&p).unwrap()).unwrap();
     v["cases"].as_array().unwrap().clone()
 }

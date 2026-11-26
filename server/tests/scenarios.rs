@@ -1,6 +1,6 @@
 //! The control plane's scenarios replayed against the Rust server (ADR
-//! 0055, item 20): Go's scenario parity tests (internal/server/parity_*)
-//! recorded once against Go's server, with -record-scenarios, into
+//! 0055, item 20): Go's scenario parity tests, recorded once against Go's
+//! server before the Go code was removed, into
 //! tests/testdata/scenarios: every step a scenario took at the server's
 //! boundaries (calls of the API, fake agents' sessions, the store's
 //! methods, clock moves, passes, the fake etcd membership) and Go's

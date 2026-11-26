@@ -1,7 +1,6 @@
-//! Generated from Go's strconv and unicode packages by
-//! `go run ./internal/spec/testdata/gentables > spec/src/gotables.rs`; do
-//! not edit. Each table lists the inclusive ranges of runes for which the
-//! Go function in its name is true.
+//! Generated from Go 1.27's strconv and unicode packages before the Go
+//! code was removed; change only by hand. Each table lists the inclusive
+//! ranges of runes for which the Go function in its name is true.
 
 pub(crate) const IS_PRINT: &[(u32, u32)] = &[
     (0x20, 0x7e),

@@ -1,6 +1,6 @@
-//! The parity cases of Go's internal/pki/native_test.go, recorded once from
-//! Go (ADR 0055, item 20): `go test ./internal/pki -run
-//! TestRecordPKIFixtures -record-fixtures` writes testdata/parity.json with
+//! The parity cases of Go's internal/pki tests, recorded once from Go
+//! before the Go code was removed (ADR 0055, item 20): testdata/parity.json
+//! holds
 //! the CA, certificates, requests, keys, and tokens Go made and what Go
 //! answered about each. With no Go, these tests check that the crate issues
 //! and signs from Go's CA what Go issued and signed (compared by shape:

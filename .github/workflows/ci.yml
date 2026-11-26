@@ -12,7 +12,23 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Every job runs only what a change touches (scripts/ci-changes.sh, job
+# changes): the workspace's members that changed and every member that
+# depends on one, the programs outside the workspace that changed, and the
+# packaging when something a release builds changed. A pull request that
+# touches only documents runs nothing heavy.
+#
+# The repository's ruleset requires lint, test, vuln, build (linux, amd64),
+# build (linux, arm64), haproxy, installer, release-config, commits, and
+# logger. A job skipped by its `if` counts as passed, so each of them is
+# kept, and skips what a change does not need.
+#
 # Actions are pinned to full commit SHAs; Dependabot keeps the pins current.
+env:
+  CARGO_TERM_COLOR: never
+  # Incremental compilation saves little on CI and writes gigabytes.
+  CARGO_INCREMENTAL: 0
+
 jobs:
   # Release notes are grouped by commit type (docs/releasing.md), so every
   # commit of a pull request needs a Conventional Commits subject.
@@ -29,13 +45,23 @@ jobs:
           HEAD: ${{ github.event.pull_request.head.sha }}
         run: sh scripts/check-commits.sh "$BASE..$HEAD"
 
-  # Pull requests and pushes that touch only documents skip the jobs below
-  # that build and test code (docs/README.md, CONTRIBUTING.md). Skipped jobs
-  # count as passed for the required checks.
   changes:
     runs-on: ubuntu-latest
     outputs:
       code: ${{ steps.diff.outputs.code }}
+      crates: ${{ steps.diff.outputs.crates }}
+      packages: ${{ steps.diff.outputs.packages }}
+      features: ${{ steps.diff.outputs.features }}
+      replays: ${{ steps.diff.outputs.replays }}
+      logger: ${{ steps.diff.outputs.logger }}
+      shim: ${{ steps.diff.outputs.shim }}
+      dns: ${{ steps.diff.outputs.dns }}
+      proto_gen: ${{ steps.diff.outputs.proto_gen }}
+      clidoc: ${{ steps.diff.outputs.clidoc }}
+      haproxy: ${{ steps.diff.outputs.haproxy }}
+      installer: ${{ steps.diff.outputs.installer }}
+      release: ${{ steps.diff.outputs.release }}
+      macos: ${{ steps.diff.outputs.macos }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -46,72 +72,43 @@ jobs:
           BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
           HEAD: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
         run: |
-          # Documents: Markdown anywhere, docs/ (its generated CLI reference
-          # included), the license, and issue templates. Anything else is code.
-          if [ -z "$BASE" ] || [ "$BASE" = 0000000000000000000000000000000000000000 ] ||
-            ! files=$(git diff --name-only "$BASE" "$HEAD"); then
-            echo "code=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          code=false
-          for f in $files; do
-            case "$f" in
-            *.md | docs/* | LICENSE | .github/ISSUE_TEMPLATE/*) ;;
-            *) code=true ;;
-            esac
-          done
-          echo "code=$code" >> "$GITHUB_OUTPUT"
-          echo "changed files: $(echo "$files" | wc -l); code: $code"
+          sh scripts/ci-changes.sh "$BASE" "$HEAD" | tee -a "$GITHUB_OUTPUT"
 
+  # Formats and lints of the members a change touches, as released and
+  # with the test features (the hooks and parity programs), and of the
+  # programs outside the workspace that changed.
   lint:
     needs: changes
     if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
-        with:
-          go-version-file: go.mod
-      - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
-        with:
-          version: v2.15.0
-          install-mode: goinstall # build with the go.mod toolchain
-
-  # Go stays the reference while the code moves to Rust (ADR 0055): every
-  # package and test still compiles and passes vet, and the Rust crates
-  # are checked against Go's code by the parity tests below. Go's own unit
-  # tests are not run here any more.
-  test:
-    needs: changes
-    if: needs.changes.outputs.code == 'true'
-    # Self-hosted runners keep their build output between runs, so these
-    # Rust-heavy jobs build only what changed; a pull request from a fork
-    # never runs there (and needs the owner's approval to run at all).
+    # Self-hosted runners keep their build output between runs, so the
+    # Rust jobs build only what changed; a pull request from a fork never
+    # runs there (and needs the owner's approval to run at all).
     runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || 'self-hosted' }}
     env:
       CARGO_BUILD_JOBS: 4
+      PACKAGES: ${{ needs.changes.outputs.packages }}
+      FEATURES: ${{ needs.changes.outputs.features }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - &checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           clean: false
       # On a self-hosted runner the checkout keeps untracked files, so the
       # build output stays; everything else untracked goes, and the build
       # output too when the machine runs short of disk.
-      - if: runner.environment == 'self-hosted'
+      - &clean
+        if: runner.environment == 'self-hosted'
         run: |
-          git clean -ffdxq -e /target -e /.cache -e /build -e /logger/target -e /shim/target -e /dns/target
+          git clean -ffdxq -e /target -e /.cache -e /build -e /logger/target -e /shim/target -e /dns/target -e /proto/gen/target
           if [ "$(df --output=avail -BG . | tail -n 1 | tr -dc 0-9)" -lt 15 ]; then
             git clean -ffdxq
           fi
-      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
-        with:
-          go-version-file: go.mod
-      # Crates, cargo-deny, and build output kept between runs (keyed by
-      # the lock and the toolchain), so a run builds only what changed.
-      - if: runner.environment == 'github-hosted'
+      # Crates and build output kept between runs on GitHub's runners
+      # (keyed by the lock and the toolchain), so a run builds only what
+      # changed.
+      - &cache
+        if: runner.environment == 'github-hosted'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
@@ -120,187 +117,158 @@ jobs:
             ~/.cargo/git/db
             ~/.cargo/bin/cargo-deny
             target
-            logger/target
-            shim/target
-            dns/target
-          key: rust-test-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', '*/Cargo.lock') }}
-          restore-keys: rust-test-
-      - run: go vet ./...
-      - run: go test -run '^$' ./...
+          key: rust-${{ github.job }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
+          restore-keys: rust-${{ github.job }}-
+      # rustup is on the runner; the toolchain comes from rust-toolchain.toml.
       - run: rustup toolchain install
-      # Volume archives, backups, and pulls set armada-node's test hooks
-      # or pass --extra-ca, which only a test build has (node/src/hooks.rs);
-      # release builds (job logger) ignore the hooks and refuse --extra-ca.
-      - run: cargo clippy --locked -p armada-node --all-targets --features test-hooks -- -D warnings
-      - run: make node-test-hooks
-      - run: go test -race -run 'TestArmadaNodeVolume|TestArmadaNodeSnapshot|TestArmadaNodeIgnoresTestHooks|TestArmadaNodePull|TestArmadaNodeProxy|TestArmadaNodeConvert' -v ./internal/agent/ ./internal/runtime/containerd/
-        env:
-          ARMADA_NODE_BIN: ${{ github.workspace }}/target/test-hooks/x86_64-unknown-linux-musl/release/armada-node
-      # The CA, certificates, and secrets in Rust (ADR 0055) issue, sign,
-      # seal, open, and refuse what Go's code does, each accepting what the
-      # other wrote; their test programs are built only for this.
-      - run: cargo clippy --locked -p armada-pki -p armada-secrets --all-targets --features armada-pki/parity,armada-secrets/parity -- -D warnings
-      - run: make pki-parity
-      - run: go test -race -run 'TestArmadaPKI|TestArmadaSecrets' -v ./internal/pki/ ./internal/secrets/
-        env:
-          ARMADA_PKI_BIN: ${{ github.workspace }}/target/debug/armada-pki-parity
-          ARMADA_SECRETS_BIN: ${{ github.workspace }}/target/debug/armada-secrets-parity
-      # The store in Rust (ADR 0055) runs the same operations as Go's on one
-      # etcd member (the package's own, in process): the same answers and
-      # keyspaces, each side's records read back by the other, concurrent
-      # writers, fencing, and one election; its test program is built only
-      # for this.
-      - run: cargo clippy --locked -p armada-store --all-targets --features parity -- -D warnings
-      - run: make store-parity
-      - run: go test -race -run 'TestArmadaStore' -v ./internal/store/
-        env:
-          ARMADA_STORE_BIN: ${{ github.workspace }}/target/debug/armada-store-parity
-      # The control plane's core in Rust (ADR 0055) is driven through the
-      # same scenarios as Go's server (the package's etcd member, a test
-      # clock, fake agents): the same answers, assignments, events, and
-      # keyspaces after every step; its test program is built only for
-      # this.
-      - run: cargo clippy --locked -p armada-server --all-targets --features parity -- -D warnings
-      - run: make server-parity
-      - run: go test -race -run 'TestParity|TestArmadaServer' -v ./internal/server/
-        env:
-          ARMADA_SERVER_BIN: ${{ github.workspace }}/target/debug/armada-server-parity
-      # armada in Rust (client/) runs every client parity case against a
-      # recorded AdminService beside Go's client: the same output, exit
-      # codes, requests, and config files.
-      - run: make client-parity
-      # armadad in Rust (daemon/) runs every daemon parity case beside Go's
-      # armadad: the same output, exit codes, and files left behind.
-      - run: make daemon-parity
-      # The node agent's loop in Rust (ADR 0055) is driven through the
-      # same scenarios as Go's agent against one fake runtime the test
-      # answers for both (a test clock, an mTLS control plane for the
-      # session): the same reports, runtime calls, and files after every
-      # step; its test program is built only for this.
-      - run: cargo clippy --locked -p armada-agent --all-targets --features parity -- -D warnings
-      - run: make agent-parity
-      - run: go test -race -run 'TestAgentParity' -v ./internal/agent/
-        env:
-          ARMADA_AGENT_BIN: ${{ github.workspace }}/target/debug/armada-agent-parity
+      - run: cargo fmt --all --check
+      - if: env.PACKAGES != ''
+        run: cargo clippy --locked $PACKAGES --all-targets -- -D warnings
+      - if: env.PACKAGES != '' && env.FEATURES != ''
+        run: cargo clippy --locked $PACKAGES --all-targets --features "$FEATURES" -- -D warnings
+      # The generator of `make proto`, outside the workspace (its own lock).
+      - if: needs.changes.outputs.proto_gen == 'true'
+        run: cargo fmt --check && cargo clippy --locked --all-targets -- -D warnings
+        working-directory: proto/gen
 
-  # Validates the rendered HAProxy configuration with the pinned image.
-  haproxy:
+  # The tests of the members a change touches (with the command line
+  # reference in docs/cli, which the client's and the daemon's clidoc tests
+  # compare), then their replays of what Go's code did (make replays, ADR
+  # 0055 item 20): the store's, the control plane's, and the daemon's on the
+  # pinned etcd, the agent's, and the client's.
+  test:
     needs: changes
     if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || 'self-hosted' }}
+    env:
+      CARGO_BUILD_JOBS: 4
+      PACKAGES: ${{ needs.changes.outputs.packages }}
+      REPLAYS: ${{ needs.changes.outputs.replays }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
-        with:
-          go-version-file: go.mod
-      - run: go test -tags integration -run Integration -v ./internal/proxy/haproxy/
+      - *checkout
+      - *clean
+      - *cache
+      - run: rustup toolchain install
+      - if: env.PACKAGES != ''
+        run: cargo test --locked $PACKAGES
+      - if: env.REPLAYS != ''
+        run: make replays REPLAYS="$REPLAYS"
+      - if: needs.changes.outputs.clidoc == 'true' && !contains(needs.changes.outputs.crates, 'client')
+        run: cargo test --locked -p armada-client -p armada-daemon --test clidoc
 
+  # The crates' licenses (deny.toml) and RustSec's advisories for every
+  # crate in Cargo.lock, on every change of code: an advisory can appear
+  # without one.
   vuln:
     needs: changes
     if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || 'self-hosted' }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
-        with:
-          go-version-file: go.mod
-      # The module proxy sometimes drops a download; retry fetching, never
-      # the check itself, so a finding still fails the job.
-      - name: Download modules and tools
-        run: |
-          for i in 1 2 3; do
-            go mod download && go install golang.org/x/vuln/cmd/govulncheck@v1.9.0 && go install github.com/google/go-licenses/v2@v2.0.1 && exit 0
-            echo "download failed (attempt $i), retrying"
-            sleep 15
-          done
-          exit 1
-      - run: "\"$(go env GOPATH)/bin/govulncheck\" ./..."
-      # Every Go module must be under a license that allows commercial use
-      # (THIRD_PARTY_NOTICES.md).
-      - run: make licenses
+      - *checkout
+      - *clean
+      - *cache
+      - run: rustup toolchain install
+      # The cache or the runner may hold cargo-deny already; install it
+      # only when the pinned version is missing.
+      - run: |
+          cargo deny --version 2>/dev/null | grep -qx 'cargo-deny 0.22.0' ||
+            cargo install cargo-deny --locked --force --version 0.22.0
+      - run: cargo deny --locked check advisories licenses
 
-  # The condition is on the steps, not the job: a skipped matrix job reports
-  # one check named "build", never the "build (linux, amd64)" and
-  # "build (linux, arm64)" the ruleset requires, so documents-only pull
-  # requests could not merge.
+  # The release builds of the members a change touches, static for each
+  # target. arm64 builds on pushes to main only; on a pull request its job
+  # reports with nothing to do. The condition is on the steps, not the job:
+  # a skipped matrix job reports one check named "build", never the
+  # "build (linux, amd64)" and "build (linux, arm64)" the ruleset requires.
   build:
     needs: changes
-    runs-on: ubuntu-latest
+    # A job with nothing to do reports from GitHub's runners.
+    runs-on: ${{ (needs.changes.outputs.packages != '' && (matrix.goarch == 'amd64' || github.event_name == 'push') && !github.event.pull_request.head.repo.fork) && 'self-hosted' || 'ubuntu-latest' }}
     strategy:
       matrix:
         goos: [linux]
         goarch: [amd64, arm64]
+    env:
+      CARGO_BUILD_JOBS: 4
+      PACKAGES: ${{ needs.changes.outputs.packages }}
+      RUN: ${{ needs.changes.outputs.packages != '' && (matrix.goarch == 'amd64' || github.event_name == 'push') }}
+      TARGET: ${{ matrix.goarch == 'arm64' && 'aarch64' || 'x86_64' }}-unknown-linux-musl
     steps:
-      - if: needs.changes.outputs.code == 'true'
+      - if: env.RUN == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - if: needs.changes.outputs.code == 'true'
-        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+          clean: false
+      - if: env.RUN == 'true' && runner.environment == 'self-hosted'
+        run: |
+          git clean -ffdxq -e /target -e /.cache -e /build -e /logger/target -e /shim/target -e /dns/target -e /proto/gen/target
+          if [ "$(df --output=avail -BG . | tail -n 1 | tr -dc 0-9)" -lt 15 ]; then
+            git clean -ffdxq
+          fi
+      - if: env.RUN == 'true' && runner.environment == 'github-hosted'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          go-version-file: go.mod
-      # Go's commands still build while Go is in the repository (ADR 0055,
-      # item 20); releases build armadad and armada from Rust (job logger
-      # builds the workspace for both architectures, client-macos the
-      # client for macOS).
-      - if: needs.changes.outputs.code == 'true'
-        run: go build -trimpath -o /dev/null ./cmd/armada ./cmd/armadad
-        env:
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
-      - if: needs.changes.outputs.code == 'true'
-        run: go build -trimpath -o /dev/null ./cmd/armada
-        env:
-          GOOS: darwin
-          GOARCH: ${{ matrix.goarch }}
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: rust-build-${{ matrix.goarch }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
+          restore-keys: rust-build-${{ matrix.goarch }}-
+      - if: env.RUN == 'true'
+        run: rustup toolchain install
+      - if: env.RUN == 'true'
+        run: cargo build --release --locked $PACKAGES --target "$TARGET"
 
-  # The Rust armada client for macOS (ADR 0055), as the release builds it.
+  # Checks the rendered HAProxy configurations with the pinned image
+  # (haproxy -c through docker, which GitHub's runners have), when the
+  # renderer, its recorded cases, or the image change.
+  haproxy:
+    needs: changes
+    if: needs.changes.outputs.haproxy == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: rust-haproxy-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
+          restore-keys: rust-haproxy-
+      - run: rustup toolchain install
+      - run: make haproxy-check
+
+  # The macOS client (ADR 0055), as the release builds it.
   client-macos:
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.macos == 'true' || (github.event_name == 'push' && needs.changes.outputs.release == 'true')
     permissions:
       contents: read
     uses: ./.github/workflows/darwin-client.yml
 
   # armada-log (logger/), armada-shim (shim/), and armada-dns (dns/): the
-  # Rust programs release builds embed. Lint, unit tests, static builds for
-  # both architectures, the comparison of armada-log with the Go writer it
-  # must match byte for byte, armada-dns against the Go resolver's tests,
-  # and the Cargo workspace at the root (ADR 0055: armada-node of ADR 0054
-  # and the crates of ADR 0055): its crates' licenses, its members built
-  # for both architectures, and the parity tests against the Go code.
+  # programs the runtime pack carries, each with its own lock and toolchain
+  # (standard library only). For each that changed: format, lints, tests,
+  # and static builds for both architectures; for armada-log also the
+  # recorded logger cases (it stores what Go's writer stored).
   logger:
     needs: changes
-    if: needs.changes.outputs.code == 'true'
-    # Self-hosted runners keep their build output between runs, so these
-    # Rust-heavy jobs build only what changed; a pull request from a fork
-    # never runs there (and needs the owner's approval to run at all).
+    if: needs.changes.outputs.logger == 'true' || needs.changes.outputs.shim == 'true' || needs.changes.outputs.dns == 'true'
     runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || 'self-hosted' }}
     env:
       CARGO_BUILD_JOBS: 4
+      PROGRAMS: >-
+        ${{ needs.changes.outputs.logger == 'true' && 'logger' || '' }}
+        ${{ needs.changes.outputs.shim == 'true' && 'shim' || '' }}
+        ${{ needs.changes.outputs.dns == 'true' && 'dns' || '' }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-          clean: false
-      # On a self-hosted runner the checkout keeps untracked files, so the
-      # build output stays; everything else untracked goes, and the build
-      # output too when the machine runs short of disk.
-      - if: runner.environment == 'self-hosted'
-        run: |
-          git clean -ffdxq -e /target -e /.cache -e /build -e /logger/target -e /shim/target -e /dns/target
-          if [ "$(df --output=avail -BG . | tail -n 1 | tr -dc 0-9)" -lt 15 ]; then
-            git clean -ffdxq
-          fi
-      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
-        with:
-          go-version-file: go.mod
-      # Crates, cargo-deny, and build output kept between runs (keyed by
-      # the lock and the toolchain), so a run builds only what changed.
+      - *checkout
+      - *clean
       - if: runner.environment == 'github-hosted'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -308,116 +276,39 @@ jobs:
             ~/.cargo/registry/index
             ~/.cargo/registry/cache
             ~/.cargo/git/db
-            ~/.cargo/bin/cargo-deny
             target
             logger/target
             shim/target
             dns/target
           key: rust-logger-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', '*/Cargo.lock') }}
           restore-keys: rust-logger-
-      # rustup is on the runner; the toolchain comes from rust-toolchain.toml.
-      - run: rustup toolchain install
-        working-directory: logger
-      - run: cargo fmt --check
-        working-directory: logger
-      - run: cargo clippy --locked --all-targets -- -D warnings
-        working-directory: logger
-      - run: cargo test --locked
-        working-directory: logger
-      - run: rustup toolchain install
-        working-directory: shim
-      - run: cargo fmt --check
-        working-directory: shim
-      - run: cargo clippy --locked --all-targets -- -D warnings
-        working-directory: shim
-      - run: cargo test --locked
-        working-directory: shim
-      - run: rustup toolchain install
-        working-directory: dns
-      - run: cargo fmt --check
-        working-directory: dns
-      - run: cargo clippy --locked --all-targets -- -D warnings
-        working-directory: dns
-      - run: cargo test --locked
-        working-directory: dns
-      # The workspace: rust-toolchain.toml, deny.toml, and Cargo.lock at
-      # the root cover every member.
-      - run: rustup toolchain install
-      - run: cargo fmt --all --check
-      - run: cargo clippy --locked --workspace --all-targets -- -D warnings
-      - run: cargo test --locked --workspace
-      # The control plane's scenarios recorded from Go's server, replayed
-      # against the Rust one on the pinned etcd (ADR 0055, item 20).
-      - run: make server-scenarios
-      # The agent's scenarios recorded from Go's agent, replayed against the
-      # Rust one (ADR 0055, item 20).
-      - run: make agent-scenarios
-      # The client's and the daemon's parity cases recorded from Go's
-      # armada and armadad, replayed against the Rust ones (ADR 0055, item
-      # 20).
-      - run: make client-replay
-      - run: make daemon-replay
-      # The cache may restore cargo-deny already; install it only when the
-      # pinned version is missing.
       - run: |
-          cargo deny --version 2>/dev/null | grep -qx 'cargo-deny 0.22.0' ||
-            cargo install cargo-deny --locked --force --version 0.22.0
-      - run: cargo deny --locked check licenses
-      # The store's parity tests recorded from Go's store, replayed against
-      # the Rust one on the pinned etcd (ADR 0055, item 20); the spec's,
-      # the CA's, and the secrets' recordings replay in cargo test above.
-      - run: make store-replay
-      - run: make logger
-      # armada-log stores what Go's WriteLogs stored in the recorded
-      # logger cases (ADR 0055, item 20).
-      - run: cargo test --locked -p armada-daemon --features test-hooks --test logwriter
+          for p in $PROGRAMS; do
+            (cd "$p" && rustup toolchain install && cargo fmt --check &&
+              cargo clippy --locked --all-targets -- -D warnings && cargo test --locked) || exit 1
+            make "$p"
+          done
+      - if: needs.changes.outputs.logger == 'true'
+        run: rustup toolchain install
+      - if: needs.changes.outputs.logger == 'true'
+        run: cargo test --locked -p armada-daemon --features test-hooks --test logwriter
         env:
           ARMADA_LOG_BIN: ${{ github.workspace }}/logger/target/x86_64-unknown-linux-musl/release/armada-log
-      - run: make shim
-      - run: make dns
-      # Every member (armada-node included) builds for both release targets (armada-proto has no
-      # program yet).
-      - run: cargo build --release --locked --workspace --target x86_64-unknown-linux-musl
-      - run: cargo build --release --locked --workspace --target aarch64-unknown-linux-musl
-      # The generator of `make proto`, outside the workspace (its own lock).
-      - run: cargo fmt --check
-        working-directory: proto/gen
-      - run: cargo clippy --locked --all-targets -- -D warnings
-        working-directory: proto/gen
-      # The notices and pins are checked by armada-pack's tests (cargo test
-      # above); Go's TestLockMatchesFile keeps lock.go equal to
-      # pack/lock.json while Go is in the repository.
-      - run: go test -race -run 'TestArmadaLog|TestLoggerStandardLibraryOnly|TestLockMatchesFile' -v ./internal/runtime/embedded/
-        env:
-          ARMADA_LOG_BIN: ${{ github.workspace }}/logger/target/x86_64-unknown-linux-musl/release/armada-log
-      # armada-dns answers what the Go resolver's tests ask (ADR 0053).
-      - run: go test -race -run 'TestProcess|TestStartProcess' -v ./internal/dnsserver/
-        env:
-          ARMADA_DNS_BIN: ${{ github.workspace }}/dns/target/x86_64-unknown-linux-musl/release/armada-dns
-      - run: go test -race -run 'TestArmadaNode|TestRenderFallsBack' -v ./internal/proxy/haproxy/ ./internal/clusternet/ ./internal/runtime/ ./internal/runtime/containerd/
-        env:
-          ARMADA_NODE_BIN: ${{ github.workspace }}/target/x86_64-unknown-linux-musl/release/armada-node
-      # The spec crate parses, checks, exports, and substitutes as
-      # internal/spec does (ADR 0055); its test program, built above with
-      # the workspace, is never packed.
-      - run: go test -race -run 'TestArmadaSpec' -v ./internal/spec/
-        env:
-          ARMADA_SPEC_BIN: ${{ github.workspace }}/target/x86_64-unknown-linux-musl/release/armada-spec-check
 
   installer:
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.installer == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - run: shellcheck install.sh scripts/*.sh test/e2e/*.sh test/bench/*.sh
+      - run: shellcheck install.sh scripts/*.sh test/*.sh test/e2e/*.sh test/bench/*.sh
       - run: sh test/install_test.sh
 
   release-config:
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.release == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -429,20 +320,16 @@ jobs:
           args: check
 
   # The release's packaging end to end without publishing or signing, on
-  # pushes to main (a pull request runs release-config's check only): the
-  # runtime pack, armadad and armada from Rust for both architectures, the
-  # macOS client from client-macos, the archives with their files, the
-  # checksums, and the SBOMs. Then what installers and upgraders read: the
-  # archive names and their binaries and units, and the version string.
-  # Nothing in it needs Go (ADR 0055, item 20): armada-pack builds the pack
-  # and collects licenses/runtime.
+  # pushes to main that touch something a release builds (a pull request
+  # runs release-config's check only): the runtime pack, armadad and armada
+  # for both architectures, the macOS client from client-macos, the
+  # archives with their files, the checksums, and the SBOMs. Then what
+  # installers and upgraders read: the archive names and their binaries and
+  # units, and the version string.
   release-dry-run:
     needs: [changes, client-macos]
-    if: github.event_name == 'push' && needs.changes.outputs.code == 'true'
-    # Self-hosted runners keep their build output between runs, so these
-    # Rust-heavy jobs build only what changed; a pull request from a fork
-    # never runs there (and needs the owner's approval to run at all).
-    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || 'self-hosted' }}
+    if: github.event_name == 'push' && needs.changes.outputs.release == 'true'
+    runs-on: self-hosted
     env:
       CARGO_BUILD_JOBS: 4
     steps:
@@ -451,22 +338,13 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
           clean: false
-      # On a self-hosted runner the checkout keeps untracked files, so the
-      # build output stays; everything else untracked goes, and the build
-      # output too when the machine runs short of disk.
-      - if: runner.environment == 'self-hosted'
-        run: |
-          git clean -ffdxq -e /target -e /.cache -e /build -e /logger/target -e /shim/target -e /dns/target
+      - run: |
+          git clean -ffdxq -e /target -e /.cache -e /build -e /logger/target -e /shim/target -e /dns/target -e /proto/gen/target
           if [ "$(df --output=avail -BG . | tail -n 1 | tr -dc 0-9)" -lt 15 ]; then
             git clean -ffdxq
           fi
-      - run: rustup toolchain install
-        working-directory: logger
-      - run: rustup toolchain install
-        working-directory: shim
-      - run: rustup toolchain install
-        working-directory: dns
-      - run: rustup toolchain install
+      - run: |
+          for d in logger shim dns .; do (cd "$d" && rustup toolchain install); done
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: armada-darwin

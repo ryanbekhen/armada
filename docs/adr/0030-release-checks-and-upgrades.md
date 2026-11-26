@@ -12,7 +12,7 @@ servers first, one at a time, then nodes.
 
 ## Decision
 
-**Finding out.** `internal/release` asks GitHub's API, in one request for
+**Finding out.** The client's release check (`client/src/release.rs`) asks GitHub's API, in one request for
 the last 100 releases, for the latest release: the newest stable one by
 version, else, while there is none, the newest published pre-release (the
 installer's rule; the API does not list releases in version order), within

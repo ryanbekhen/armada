@@ -1,6 +1,6 @@
 //! The store's parity tests replayed from recordings of Go (ADR 0055, item
-//! 20). `go test ./internal/store -run 'TestArmadaStore|TestRecordStoreTexts'
-//! -record-fixtures` ran the tests that compare one store with the other
+//! 20). Before the Go code was removed, Go's TestArmadaStore and
+//! TestRecordStoreTexts ran the tests that compare one store with the other
 //! against Go's store alone and wrote testdata/<test>.jsonl: every call
 //! with its arguments, Go's answer, and the keys it wrote or deleted. Here
 //! armada-store-parity runs the same calls on the pinned etcd (`make

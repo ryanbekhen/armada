@@ -1,9 +1,9 @@
 #!/bin/sh
 # Puts the pinned etcd and etcdutl (pack/lock.json) for this machine's
 # architecture into .cache/etcd, checked against the pinned SHA-256,
-# unless they are there already. The daemon parity tests hand them to the
-# Rust armadad, which runs them where Go's armadad embeds etcd (ADR 0055):
-# `make daemon-parity` runs this first. armada-pack (pack/) downloads and
+# unless they are there already. The replays of the store, the server, and
+# the daemon run them (ADR 0055): `make store-replay`, `server-scenarios`,
+# and `daemon-replay` run this first. armada-pack (pack/) downloads and
 # checks the release archive, as `make runtime-bundle` does.
 set -eu
 

@@ -26,15 +26,15 @@ tonic = { workspace = true, features = ["channel"] }
 tower.workspace = true
 
 [features]
-# The program Go's parity tests drive (src/bin/armada-store-parity.rs,
-# ARMADA_STORE_BIN): never part of a release.
+# The program the store's replays drive (src/bin/armada-store-parity.rs):
+# never part of a release.
 parity = []
 
 [[bin]]
 name = "armada-store-parity"
 required-features = ["parity"]
 
-# Go's parity tests replayed from recordings against armada-store-parity
+# The store's parity tests, recorded from Go, replayed against armada-store-parity
 # on the pinned etcd (make store-replay).
 [[test]]
 name = "replay"

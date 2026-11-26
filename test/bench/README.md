@@ -22,7 +22,7 @@ workstation over SSH and does not run in CI.
 - `ssh`, `scp`, `jq`, `awk`, and `go` on your workstation (`go` builds the
   `hey` load generator for machine A).
 - Linux binaries for each architecture: `make build-bundle` (add
-  `GOARCH=arm64` for arm64) builds `armadad` with the runtime embedded and
+  `ARCH=arm64` for arm64) builds `armadad` with the runtime embedded and
   the `armada` client next to it; `ARMADA_BIN` names `armadad`.
 
 ## Running

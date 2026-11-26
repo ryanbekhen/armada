@@ -1,7 +1,6 @@
-//! armada-proto reads and writes what Go's protobuf code does. The files in
-//! testdata are written by Go (`go test ./api/armada/v1 -update`,
-//! api/armada/v1/protojson_test.go): each message's deterministic binary
-//! encoding and its protojson.
+//! armada-proto reads and writes what Go's protobuf code did. The files in
+//! testdata were written by Go before the Go code was removed: each
+//! message's deterministic binary encoding and its protojson.
 
 use std::fmt::Debug;
 use std::path::PathBuf;

@@ -63,7 +63,7 @@ grep -q "$WORK/good/prefix/bin/armadad etcd" "$WORK/good/units/armada-etcd.servi
 grep -q "armada $VERSION (fake)" "$WORK/good/prefix/bin/armada" || fail "armada is not the client"
 
 # needrestart leaves Armada's services alone: the same file armadad upgrade
-# writes (internal/daemon/needrestart.go), where needrestart is installed.
+# writes (daemon/src/commands/upgrade.rs), where needrestart is installed.
 # shellcheck disable=SC2016 # a literal line of the file
 grep -qxF '$nrconf{override_rc}{qr(^armada-)} = 0;' "$WORK/good/needrestart/armada.conf" ||
 	fail "needrestart setting not written"

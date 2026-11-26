@@ -8,9 +8,8 @@
 //! (key usage, extended key usages, basic constraints, the CA's subject key
 //! identifier, the authority key identifier, subject alternative names),
 //! P-256 keys in PKCS#8 PEM, random 128-bit serial numbers, NotBefore
-//! backdated by [`CLOCK_SKEW`], and the same lifetimes. A certificate
-//! either side issues is accepted by the other; Go's parity tests check it
-//! (`ARMADA_PKI_BIN`).
+//! backdated by [`CLOCK_SKEW`], and the same lifetimes. The cases recorded
+//! from Go (tests/parity.rs) check it against what Go issued.
 
 use std::fmt;
 use std::net::IpAddr;
