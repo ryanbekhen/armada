@@ -50,7 +50,7 @@ func writeNeedrestart(dir string) (bool, error) {
 // needrestartState reports whether needrestart is installed (dir exists) and
 // whether it holds Armada's setting.
 func needrestartState(dir string) (installed, set bool) {
-	if _, err := os.Stat(dir); errors.Is(err, fs.ErrNotExist) {
+	if _, err := os.Stat(dir); errors.Is(err, fs.ErrNotExist) { //nolint:gosec // a fixed host path, or a test's
 		return false, false
 	}
 	b, err := os.ReadFile(filepath.Join(dir, needrestartFile)) //nolint:gosec // a fixed path

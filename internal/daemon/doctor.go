@@ -204,7 +204,7 @@ func hostDoctorEnv(dataDir string) doctorEnv {
 		ufwStatus:    ufwStatus,
 		nfs:          agent.NFSSupported,
 		readFile:     fsutil.ReadPrivateFile,
-		serverEnv:    func() ([]byte, error) { return os.ReadFile(hostFile(serverEnvFile)) }, //nolint:gosec // a fixed host path
+		serverEnv:    func() ([]byte, error) { return os.ReadFile(hostFile(serverEnvFile)) },
 		needrestart:  func() (bool, bool) { return needrestartState(needrestartDir) },
 		runtimePack:  func() (string, string) { return runtimePacks(dataDir) },
 		now:          time.Now,
@@ -536,14 +536,14 @@ func embeddedHostChecks(subnet netip.Prefix) []checkResult {
 	add := func(name, status, format string, args ...any) {
 		out = append(out, checkResult{Name: name, Status: status, Detail: fmt.Sprintf(format, args...)})
 	}
-	if b, err := os.ReadFile(hostFile("/sys/fs/cgroup/cgroup.controllers")); err != nil { //nolint:gosec // a fixed host path
+	if b, err := os.ReadFile(hostFile("/sys/fs/cgroup/cgroup.controllers")); err != nil {
 		add("cgroup", checkFail, "cgroup v2 (unified hierarchy) is required")
 	} else if missing := missingFields(string(b), "cpu", "memory", "pids"); len(missing) > 0 {
 		add("cgroup", checkFail, "cgroup v2 controllers missing: %s", strings.Join(missing, ", "))
 	} else {
 		add("cgroup", checkOK, "cgroup v2 with cpu, memory, pids")
 	}
-	if b, err := os.ReadFile(hostFile("/proc/filesystems")); err == nil && !strings.Contains(string(b), "\toverlay\n") { //nolint:gosec // a fixed host path
+	if b, err := os.ReadFile(hostFile("/proc/filesystems")); err == nil && !strings.Contains(string(b), "\toverlay\n") {
 		add("overlayfs", checkWarn, "overlay filesystem not loaded yet (armada-runtime.service loads it; otherwise modprobe overlay)")
 	} else if err == nil {
 		add("overlayfs", checkOK, "available")
