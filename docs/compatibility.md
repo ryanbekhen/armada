@@ -93,6 +93,15 @@ A cluster is upgraded one machine at a time, so versions mix for a while
   ([operations guide](operations.md#container-runtimes)).
   `armada cluster update --runtime-move=false` turns that off, but a
   node left on containerd cannot be upgraded.
+  Another exception, for runc's removal below: after the upgrade to the
+  release that brought crun's move (ADR 0056), each node's agent
+  recreates the replicas runc created on crun, one replica at a time,
+  the next only once the one before is ready again, and HAProxy's
+  container last. Apps with replicas on more than one node keep serving;
+  an app with a single replica (a volume app among them) has a gap of
+  about its start time, and HAProxy's replacement may cut connections
+  still open after 30 seconds
+  ([operations guide](operations.md#crun-and-runc)).
 - No setting changes. The container runtime (but for the move above), the
   network mode, spaces, roles, secrets, and specs stay as they were; new
   defaults apply to what is created after the upgrade.
@@ -132,14 +141,15 @@ Deprecated:
 
 - **runc in the runtime pack** ([ADR 0056](adr/0056-crun.md)). crun runs
   every container created since the release that brought it; runc stays
-  in the pack only for the containers it created before, which keep
-  running across the upgrade and move to crun as they are recreated (a
-  deploy, a rollout, `armada app restart`, a crash, a machine's restart).
-  A later release removes runc from the pack. Before upgrading to it,
-  restart the apps whose replicas were not recreated since
-  ([operations guide](operations.md#crun-and-runc) shows how to find
-  them on a node); a container still on runc then could no longer be
-  stopped or run commands in. Nothing to change in specs or commands.
+  in the pack only for the containers it created before. Each node's
+  agent moves those to crun after the upgrade (replicas one at a time,
+  HAProxy last; job attempts still running end on runc, and finished
+  ones leave with the job's history within a day). The next release
+  removes runc from the pack. Before upgrading to it, check that
+  `armadad doctor` shows no `runc` warning on any node
+  ([operations guide](operations.md#crun-and-runc)); a container still on
+  runc then could no longer be stopped or run commands in. Nothing to
+  change in specs or commands.
 
 Removed:
 
