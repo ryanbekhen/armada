@@ -179,7 +179,7 @@ gh attestation verify armada_${VERSION#v}_linux_amd64.tar.gz --repo ryanbekhen/a
    (crun, runc, tini: detached GPG signatures), verify the signature
    against the maintainers' published keys; for crun also compare with the
    release's `CHECKSUMS` (crun: the `-disable-systemd` programs, ADR
-   0056), for the CNI plugins with the `.sha256sum` files on the GitHub
+   0056), for the CNI plugins with the `.sha256` and `.sha512` files on the GitHub
    release, for etcd with its `SHA256SUMS`.
 3. Record the version, the URL, and both SHA-256 values in
    `pack/lock.json` (for etcd also the paths inside its archive, and the
