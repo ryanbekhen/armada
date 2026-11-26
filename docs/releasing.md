@@ -128,8 +128,9 @@ gh attestation verify armada_${VERSION#v}_linux_amd64.tar.gz --repo ryanbekhen/a
    maintainers' published keys; for containerd and the CNI plugins compare
    with the `.sha256sum` files on the GitHub release.
 3. Record the version and both SHA-256 values in `lock.go`.
-4. `make runtime-bundle build-bundle`, then run the embedded runtime
-   end to end on a Linux node (deploy, rolling update, secret files,
-   internal DNS, self-healing) and the conformance suite on a node
-   (`-run Conformance`, see CLAUDE.md) before merging.
+4. `make runtime-bundle build-bundle`, then run the end-to-end test on
+   Linux machines ([test/e2e](../test/e2e/README.md): every node runs the
+   supervisor runtime through armada-node) and the Rust supervisor
+   runtime's conformance test on a node (`supervisor::conformance`, see
+   CLAUDE.md) before merging.
 - Never use the Let's Encrypt production endpoint in CI.
