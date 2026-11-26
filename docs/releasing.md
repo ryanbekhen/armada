@@ -60,12 +60,10 @@ CI runs only what a change touches (`scripts/ci-changes.sh`, job
 `changes`): the crates it changes and every crate that depends on one, the
 programs outside the workspace it changes, HAProxy's check when the
 renderer or the image changes, and the packaging when something a release
-builds changes. Its Rust jobs (`lint`, `test`, `vuln`, `build`, `logger`,
-and `release-dry-run`) run on the project's self-hosted runners, which
-keep their build output between runs; a pull request from a fork runs them
-on GitHub's runners instead, and every workflow from an outside
-contributor waits for the owner's approval. The other jobs, the macOS
-build, and the release itself run on GitHub's runners.
+builds changes. Every job runs on GitHub's runners, the Rust jobs keeping
+crates and build output in GitHub's cache (keyed by the lock and the
+toolchain), and every workflow from an outside contributor waits for the
+owner's approval.
 
 CI checks the configuration when something a release builds changes
 (`goreleaser check`, job `release-config`), builds the macOS client when
