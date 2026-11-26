@@ -423,7 +423,7 @@ upgrades without asking.
    runs (it installs the runtime pack and exits, so usually it does not),
    then `armada-etcd`, `armada-server`, and `armada-agent`, each where it
    runs; `armada-agent` (and `armada-etcd` on a server) installs the new
-   runtime pack (runc, `armada-shim`, `armada-log`, ...) at its start, and
+   runtime pack (crun, runc, `armada-shim`, `armada-log`, ...) at its start, and
    containers keep running. On a server machine whose `armada-server` is enabled it
    also enables `armada-etcd` and `armada-agent` where they are not yet
    (the first upgrade from v0.1.0-alpha.42, run by its Go `armadad`,
@@ -603,6 +603,24 @@ It downloads and verifies the release as any upgrade, then:
 Go's server embeds the same member on the same data directory, and Go's
 agent adopts the containers: their bundles, records, root filesystems,
 and armada-node's image store are in the layouts v0.1.0-alpha.42 reads.
+Since crun runs new containers ([ADR 0056](adr/0056-crun.md)),
+v0.1.0-alpha.42 cannot adopt every container: it has no crun in its
+runtime pack and reads every container as runc's, so it could neither
+stop the containers crun created nor run commands in them. Empty the
+machine first, with this release's `armadad`, then roll back:
+
+```bash
+armada node drain NODE                         # its replicas start on other nodes
+sudo systemctl stop armada-agent               # containers keep running until the reset
+sudo armadad runtime reset                     # removes every container (the proxy's too) and the cluster network
+sudo armadad upgrade --version v0.1.0-alpha.42
+armada node resume NODE
+```
+
+The machine's own proxy goes with the reset until v0.1.0-alpha.42's agent
+starts it again: take the machine out of DNS or a load balancer first when
+public traffic reaches it directly.
+
 `--no-restart` still stops the services and removes the units (Go's
 server must not meet a member `armada-etcd` runs), but starts nothing.
 Rolling back to any release older than v0.1.0-alpha.42 is not supported.
@@ -1067,6 +1085,28 @@ restarting the agent leaves it and its containers running. If one ends, its
 containers end with it and the agent starts them again. A shim that is only
 slow to answer keeps its containers: the agent ends them only once the
 shim's unit is no longer active (`systemctl status 'armada-shim-*'`).
+
+### crun and runc
+
+The shim creates containers with crun, the OCI runtime in the runtime pack
+([ADR 0056](adr/0056-crun.md)). Containers created by an earlier release
+ran on runc, which crun cannot manage, so the pack carries both for now:
+each container's record (`/var/lib/armada/supervisor/containers/<ID>/record.json`)
+says `"runtime": "crun"` for crun, and nothing for runc, and every later
+call for it (signals, stop, removal, `armada app exec`, probe commands)
+goes to the runtime that created it. Their state is kept apart, in
+`/run/armada/shim/<shim>/crun` and `/run/armada/shim/<shim>/runc`.
+
+An upgrade restarts no container: those running on runc keep running on
+it. A container moves to crun when it is recreated: a deploy or rollout,
+`armada app restart APP`, a crash, or the machine's restart. A later
+release removes runc from the pack; before upgrading to it, restart the
+apps whose replicas were not recreated since ([compatibility](compatibility.md#deprecation)).
+To see which containers still run on runc on a node:
+
+```bash
+sudo grep -L '"runtime":"crun"' /var/lib/armada/supervisor/containers/*/record.json
+```
 
 ### The node's resolver
 

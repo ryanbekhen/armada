@@ -46,9 +46,14 @@ on a maintainer's machine.
    Every archive carries `THIRD_PARTY_NOTICES.md`, `third_party/licenses/`,
    and `licenses/rust/` (each crate's license files, `make rust-licenses`);
    the full Linux archives also `licenses/runtime/` (the license files of
-   the Go modules the pack's etcd and etcdutl link, `make
-   runtime-licenses`). `armada-pack` (`pack/`) builds the runtime pack and
-   collects `licenses/runtime/`.
+   the Go modules the pack's etcd and etcdutl link, and crun's `COPYING`
+   and `COPYING.libcrun` in `crun@<version>/`, `make runtime-licenses`)
+   and `source/runtime/` (crun's complete corresponding source: its
+   release tarball, the build files of its static programs, and
+   `SOURCES.txt` with each file's SHA-256 and address, `make
+   runtime-sources`; crun is GPL-2.0, ADR 0056). `armada-pack` (`pack/`)
+   builds the runtime pack and collects `licenses/runtime/` and
+   `source/runtime/`.
    Both programs print the tag,
    the full commit, and the commit's time in `armada version` and
    `armadad version`: GoReleaser gives cargo `ARMADA_VERSION`,
@@ -72,7 +77,8 @@ to `main`, and on a push to `main` that touches something a release builds
 runs the whole packaging without publishing or signing (job
 `release-dry-run`: `goreleaser release --snapshot --skip=publish,sign`,
 then `scripts/release-contents.sh`, which checks the archives' names,
-programs, units, license files, checksums, and the version string). To do the same on a Linux machine, build the macOS client
+programs, units, license files, crun's source against its pins, checksums,
+and the version string). To do the same on a Linux machine, build the macOS client
 on a Mac first, or check the Linux part with a copy of `.goreleaser.yaml`
 without the darwin build and archive.
 
@@ -160,7 +166,7 @@ gh attestation verify armada_${VERSION#v}_linux_amd64.tar.gz --repo ryanbekhen/a
   in `Cargo.lock` (builds use `--locked`); `cargo deny check advisories`
   checks them against RustSec's advisories on every change of code.
 - The HAProxy system image is pinned by digest in the code.
-- The bundled runtime binaries (runc, CNI plugins, tini, etcd)
+- The bundled runtime binaries (crun, runc, CNI plugins, tini, etcd)
   are pinned by version and SHA-256 in `pack/lock.json`; `make
   runtime-bundle` downloads them over HTTPS only and refuses any checksum
   mismatch. Before each release, check their advisories: `cargo deny`
@@ -170,16 +176,26 @@ gh attestation verify armada_${VERSION#v}_linux_amd64.tar.gz --repo ryanbekhen/a
 
 1. Pick the new upstream release and read its notes.
 2. Download the artifact for both architectures. Where upstream signs it
-   (runc, tini: detached GPG signatures), verify the signature against the
-   maintainers' published keys; for the CNI plugins compare
-   with the `.sha256sum` files on the GitHub release, for etcd with its
-   `SHA256SUMS`.
+   (crun, runc, tini: detached GPG signatures), verify the signature
+   against the maintainers' published keys; for crun also compare with the
+   release's `CHECKSUMS` (crun: the `-disable-systemd` programs, ADR
+   0056), for the CNI plugins with the `.sha256sum` files on the GitHub
+   release, for etcd with its `SHA256SUMS`.
 3. Record the version, the URL, and both SHA-256 values in
    `pack/lock.json` (for etcd also the paths inside its archive, and the
    go.sum hash of `go.etcd.io/etcd/api/v3` at the new version as
    `apiModule.h1`, from `https://sum.golang.org/lookup/go.etcd.io/etcd/api/v3@vVERSION`),
    and the version in `THIRD_PARTY_NOTICES.md`'s table: `cargo test -p
-   armada-pack` checks the pins and the notices.
+   armada-pack` checks the pins and the notices. For crun (GPL, ADR 0056)
+   also pin its source in `sources`: the release's source tarball (with
+   the paths of `COPYING` and `COPYING.libcrun` in it) and the build files
+   of the new tag (`flake.nix`, `flake.lock`, `nix/*.nix`), each by
+   SHA-256, and update the libraries its static programs link in
+   `THIRD_PARTY_NOTICES.md` (`strings` on the program names their nixpkgs
+   store paths; `flake.lock` names the nixpkgs revision); `make
+   runtime-sources` collects them. A program under the GPL ships only
+   with its complete corresponding source, and only as a process of its
+   own (never linked).
 4. For etcd, `make runtime-licenses` (the new release's modules into
    `build/licenses-runtime`; it fails on a module without a license file)
    and `make proto-rust` (etcd's protos vendored again from the new API
