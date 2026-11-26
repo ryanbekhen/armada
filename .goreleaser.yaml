@@ -11,58 +11,56 @@ before:
     - make licenses-save
 
 builds:
-  # The daemon: control plane, agent, and the embedded runtime (ADR 0027).
+  # armadad and armada are built from Rust (ADR 0055) by GoReleaser's rust
+  # builder running `cargo build` (not zigbuild): static musl programs for
+  # both Linux architectures, linked by rust-lld with ring's C compiled by
+  # clang (.cargo/config.toml), the toolchain pinned in rust-toolchain.toml.
+  # The version `armada version` and `armadad version` print is read by
+  # client/build.rs from ARMADA_VERSION, ARMADA_COMMIT, and ARMADA_DATE.
+
+  # The daemon: control plane, agent, machine commands, and the runtime
+  # pack `make runtime-bundle` builds, compiled in by the bundle feature
+  # (daemon/build.rs).
   - id: armadad
-    main: ./cmd/armadad
+    builder: rust
     binary: armadad
-    env:
-      - CGO_ENABLED=0
-    goos: [linux]
-    goarch: [amd64, arm64]
-    flags: [-trimpath]
-    tags: [bundle]
+    targets: [x86_64-unknown-linux-musl, aarch64-unknown-linux-musl]
+    tool: cargo
+    command: build
+    flags: [--release, --locked, --package=armada-daemon, --features=bundle]
+    env: &version
+      - ARMADA_VERSION={{ .Tag }}
+      - ARMADA_COMMIT={{ .FullCommit }}
+      - ARMADA_DATE={{ .CommitDate }}
     mod_timestamp: "{{ .CommitTimestamp }}"
-    ldflags:
-      - -s -w
-      - -X github.com/ryanbekhen/armada/internal/version.version={{ .Tag }}
-      - -X github.com/ryanbekhen/armada/internal/version.commit={{ .FullCommit }}
-      - -X github.com/ryanbekhen/armada/internal/version.date={{ .CommitDate }}
 
   # The client, for the machines of the cluster and for workstations.
   - id: armada-linux
-    main: ./cmd/armada
+    builder: rust
     binary: armada
-    env:
-      - CGO_ENABLED=0
-    goos: [linux]
-    goarch: [amd64, arm64]
-    flags: [-trimpath]
+    targets: [x86_64-unknown-linux-musl, aarch64-unknown-linux-musl]
+    tool: cargo
+    command: build
+    flags: [--release, --locked, --package=armada-client]
+    env: *version
     mod_timestamp: "{{ .CommitTimestamp }}"
-    ldflags:
-      - -s -w
-      - -X github.com/ryanbekhen/armada/internal/version.version={{ .Tag }}
-      - -X github.com/ryanbekhen/armada/internal/version.commit={{ .FullCommit }}
-      - -X github.com/ryanbekhen/armada/internal/version.date={{ .CommitDate }}
 
+  # The client for macOS, built on a macOS runner by the darwin-client
+  # workflow (no macOS SDK on Linux) with the same version variables, and
+  # put in target/<target>/release/armada before GoReleaser runs; the
+  # script checks it in cargo's place.
   - id: armada-darwin
-    main: ./cmd/armada
+    builder: rust
     binary: armada
-    env:
-      - CGO_ENABLED=0
-    goos: [darwin]
-    goarch: [amd64, arm64]
-    flags: [-trimpath]
+    targets: [x86_64-apple-darwin, aarch64-apple-darwin]
+    tool: sh
+    command: scripts/release-darwin.sh
+    flags: [--package=armada-client]
     mod_timestamp: "{{ .CommitTimestamp }}"
-    ldflags:
-      - -s -w
-      - -X github.com/ryanbekhen/armada/internal/version.version={{ .Tag }}
-      - -X github.com/ryanbekhen/armada/internal/version.commit={{ .FullCommit }}
-      - -X github.com/ryanbekhen/armada/internal/version.date={{ .CommitDate }}
 
 archives:
-  # Linux: both binaries and the systemd units. armadad is also the client
-  # (install.sh and armadad upgrade link armada to it); the separate armada
-  # stays for the upgraders of earlier releases, which install it as a file.
+  # Linux: both binaries, each its own file (ADR 0055), and the systemd
+  # units, which install.sh and armadad upgrade take from the archive.
   - id: armada
     ids: [armadad, armada-linux]
     formats: [tar.gz]

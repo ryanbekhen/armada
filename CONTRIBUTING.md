@@ -22,12 +22,12 @@ standard-library-only programs in `logger/`, `shim/`, and `dns/`; the
 toolchain is pinned in each `rust-toolchain.toml`).
 
 ```bash
-make build         # ./bin/armada (client) and ./bin/armadad (daemon)
+make build         # ./bin/armada (client) and ./bin/armadad (daemon), from Rust; on macOS the client only
 make test          # unit tests with the race detector
 make check         # vet + lint + test + govulncheck: what CI runs
 make logger        # armada-log for amd64 and arm64 (cd logger && cargo test for its tests)
 make rust-check    # the Cargo workspace: fmt, clippy, tests, crate licenses, release builds
-make build-bundle  # a Linux armadad with the container runtime embedded
+make build-bundle  # static Linux armadad with the container runtime embedded, and armada (GOARCH=arm64 for arm64)
 make docs          # regenerate the CLI reference in docs/cli
 make proto         # regenerate api/armada/v1 and proto/src/gen after changing the .proto
 ```

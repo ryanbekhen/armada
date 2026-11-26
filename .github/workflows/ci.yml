@@ -227,17 +227,28 @@ jobs:
         uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: go.mod
+      # Go's commands still build while Go is in the repository (ADR 0055,
+      # item 20); releases build armadad and armada from Rust (job logger
+      # builds the workspace for both architectures, client-macos the
+      # client for macOS).
       - if: needs.changes.outputs.code == 'true'
-        run: make build
+        run: go build -trimpath -o /dev/null ./cmd/armada ./cmd/armadad
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
-      # The armada client also builds for macOS (ADR 0027).
       - if: needs.changes.outputs.code == 'true'
         run: go build -trimpath -o /dev/null ./cmd/armada
         env:
           GOOS: darwin
           GOARCH: ${{ matrix.goarch }}
+
+  # The Rust armada client for macOS (ADR 0055), as the release builds it.
+  client-macos:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/darwin-client.yml
 
   # armada-log (logger/), armada-shim (shim/), and armada-dns (dns/): the
   # Rust programs release builds embed. Lint, unit tests, static builds for
@@ -364,3 +375,39 @@ jobs:
         with:
           version: "~> v2"
           args: check
+
+  # The release's packaging end to end without publishing or signing, on
+  # pushes to main (a pull request runs release-config's check only): the
+  # runtime pack, armadad and armada from Rust for both architectures, the
+  # macOS client from client-macos, the archives with their files, the
+  # checksums, and the SBOMs. Then what installers and upgraders read: the
+  # archive names and their binaries and units, and the version string.
+  release-dry-run:
+    needs: [changes, client-macos]
+    if: github.event_name == 'push' && needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: go.mod
+      - run: rustup toolchain install
+        working-directory: logger
+      - run: rustup toolchain install
+        working-directory: shim
+      - run: rustup toolchain install
+        working-directory: dns
+      - run: rustup toolchain install
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: armada-darwin
+          path: target
+      - uses: anchore/sbom-action/download-syft@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+      - uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
+        with:
+          version: "~> v2"
+          args: release --snapshot --clean --skip=publish,sign
+      - run: sh scripts/release-contents.sh dist

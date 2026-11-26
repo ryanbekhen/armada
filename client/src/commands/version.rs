@@ -26,12 +26,17 @@ pub fn get() -> Info {
         "aarch64" => "arm64",
         a => a,
     };
+    // runtime.GOOS: Go names macOS darwin.
+    let os = match std::env::consts::OS {
+        "macos" => "darwin",
+        o => o,
+    };
     Info {
         version: option_env!("ARMADA_VERSION").unwrap_or("dev"),
         commit: option_env!("ARMADA_COMMIT").unwrap_or("unknown"),
         date: option_env!("ARMADA_DATE").unwrap_or("unknown"),
         toolchain: env!("ARMADA_RUSTC_VERSION"),
-        platform: format!("{}/{arch}", std::env::consts::OS),
+        platform: format!("{os}/{arch}"),
     }
 }
 

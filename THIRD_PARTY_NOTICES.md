@@ -7,11 +7,14 @@ who pass Armada on.
 
 ## Go modules
 
-The `armada` and `armadad` binaries are built from Go modules under
-Apache-2.0, MIT, BSD-2-Clause, BSD-3-Clause, ISC, MPL-2.0, and CC0-1.0.
-Release archives carry each module's license and notice files in
-`licenses/go/`, written by `make licenses-save`. `make licenses` (run in
-CI) fails when a module under any other license is added.
+The `armada` and `armadad` binaries of releases are Rust programs (ADR
+0055; their crates are listed from "armada-node" on). The Go code still in
+the repository (`cmd/`, `internal/`) uses Go modules under Apache-2.0, MIT,
+BSD-2-Clause, BSD-3-Clause, ISC, MPL-2.0, and CC0-1.0, which include the
+modules etcd's programs link (below). Release archives carry each module's
+license and notice files in `licenses/go/`, written by
+`make licenses-save`. `make licenses` (run in CI) fails when a module
+under any other license is added.
 
 - **MPL-2.0:** `github.com/cyphar/filepath-securejoin` is used unmodified;
   its source is at <https://github.com/cyphar/filepath-securejoin>.
@@ -33,9 +36,9 @@ each by version and SHA-256.
 From etcd's release the pack takes `etcd` and `etcdutl` (ADR 0055). They
 are Go programs, linked statically by etcd's release build with the Go
 standard library (BSD-3-Clause) and Go modules under Apache-2.0, MIT,
-BSD-2-Clause, BSD-3-Clause, and ISC; `go version -m` lists them. armadad
-links the same modules (some at other versions, under the same licenses),
-so their license files are in `licenses/go/`, except for ten modules only
+BSD-2-Clause, BSD-3-Clause, and ISC; `go version -m` lists them. Go's
+armadad links the same modules (some at other versions, under the same
+licenses), so their license files are in `licenses/go/`, except for ten modules only
 etcd's command line uses
 (clipperhouse/displaywidth, clipperhouse/uax29, fatih/color,
 mattn/go-colorable, mattn/go-isatty, mattn/go-runewidth, olekukonko/cat,
@@ -274,8 +277,9 @@ the `parity` feature) is never built for a release.
 ## armada-client
 
 `armada-client` (`client/`, Apache-2.0) is the `armada` client in Rust
-(ADR 0055), a program of its own. No release ships it yet; it is built
-with armada-proto, armada-spec, armada-fsutil, armada-pki (its keys and
+(ADR 0055), a program of its own, which releases ship for Linux (static,
+with musl, as above) and macOS (linked with the system's libraries, which
+are not distributed). It is built with armada-proto, armada-spec, armada-fsutil, armada-pki (its keys and
 certificate requests: ring, rcgen, time, x509-parser, above), libc, and
 crates of armada-store (above): hyper-util, rustls, rustls-pki-types,
 serde, serde_json, tokio, tokio-rustls, tokio-stream, tonic, and tower,
@@ -312,8 +316,8 @@ release.
 ## armada-daemon
 
 `armada-daemon` (`daemon/`, Apache-2.0) is `armadad` in Rust (ADR 0055),
-a program of its own. No release ships it yet; it uses only crates named
-above (armada-client's command framework, armada-pki, armada-spec,
+a program of its own, which releases ship for Linux (static, with musl,
+as above). It uses only crates named above (armada-client's command framework, armada-pki, armada-spec,
 armada-fsutil, flate2, libc, rustls, rustls-pki-types, serde_json, and
 sha2). Its shell completion scripts are armada-client's (above) with
 armadad's name, as cobra v1.10.2 writes them for armadad. Built with the

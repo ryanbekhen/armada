@@ -15,27 +15,52 @@ on a maintainer's machine.
    git push origin v0.1.0
    ```
 
-4. The `release` workflow (`.github/workflows/release.yml`) runs vet, the
-   race tests, and govulncheck again, then GoReleaser
-   (`.goreleaser.yaml`) builds with `CGO_ENABLED=0` and `-trimpath`
-   `armadad` for `linux/amd64` and `linux/arm64` (after
-   `make runtime-bundle`, which also builds `armada-log` from `logger/` with
-   the pinned Rust toolchain, with the `bundle` tag, so it embeds the
-   container runtime; see ADR 0011) and the `armada` client for Linux and macOS
-   (ADR 0027), and publishes a **draft** release with:
+4. The `release` workflow (`.github/workflows/release.yml`) builds the
+   `armada` client for macOS on a macOS runner (`darwin-client.yml`, for
+   `darwin/amd64` and `darwin/arm64`), then runs vet, the race tests, and
+   govulncheck again (while Go code is in the repository), and the Cargo
+   workspace's gates (`cargo fmt`, clippy, `cargo test`, `cargo deny check
+   licenses`). GoReleaser (`.goreleaser.yaml`) then runs
+   `make runtime-bundle` (armada-log, armada-shim, armada-dns, and
+   armada-node built with the pinned Rust toolchain, and the pinned runtime
+   programs downloaded and checked; see ADR 0011), builds `armadad` and
+   `armada` from Rust with `cargo build --release --locked` for
+   `x86_64-unknown-linux-musl` and `aarch64-unknown-linux-musl` (static
+   programs; `armadad` with the `bundle` feature, so it embeds the runtime
+   pack; ADR 0055), takes the macOS client the first job built
+   (`scripts/release-darwin.sh` checks it is a Mach-O program for its
+   architecture), and publishes a **draft** release with:
    - `armada-client_<version>_linux_<arch>.tar.gz` (the `armada` client
      alone, for computers that only manage a cluster, LICENSE, README,
-     SECURITY.md),
+     SECURITY.md, and the license files below),
    - `armada_<version>_linux_<arch>.tar.gz` (`armadad`, `armada`, LICENSE,
-     README, SECURITY.md, systemd units),
+     README, SECURITY.md, the license files below, and the systemd units
+     in `deploy/systemd/`, which `install.sh` and `armadad upgrade` take),
    - `armada_<version>_darwin_<arch>.tar.gz` (the `armada` client, LICENSE,
-     README, SECURITY.md),
+     README, SECURITY.md, and the license files below),
    - `checksums.txt` (SHA-256),
    - an SPDX SBOM per archive (syft),
    - `checksums.txt.sigstore.json`, a keyless cosign signature bundle of
      the checksum file, tied to the workflow identity and the tag,
    - GitHub build provenance attestations for the archives and checksums.
+   Every archive carries `THIRD_PARTY_NOTICES.md`, `third_party/licenses/`,
+   `licenses/rust/` (each crate's license files, `scripts/rust-licenses.sh`),
+   and `licenses/go/` (`make licenses-save`). Both programs print the tag,
+   the full commit, and the commit's time in `armada version` and
+   `armadad version`: GoReleaser gives cargo `ARMADA_VERSION`,
+   `ARMADA_COMMIT`, and `ARMADA_DATE`, which `client/build.rs` reads (the
+   macOS job sets the same).
 5. Review the draft and publish it.
+
+CI checks the configuration on every change (`goreleaser check`, job
+`release-config`), builds the macOS client (job `client-macos`), and on
+every push to `main` runs the whole packaging without publishing or
+signing (job `release-dry-run`: `goreleaser release --snapshot
+--skip=publish,sign`, then `scripts/release-contents.sh`, which checks the
+archives' names, programs, units, license files, checksums, and the
+version string). To do the same on a Linux machine, build the macOS client
+on a Mac first, or check the Linux part with a copy of `.goreleaser.yaml`
+without the darwin build and archive.
 
 Tags with a pre-release suffix (`v0.1.0-rc.1`) are marked as pre-releases.
 What a release may change is in [compatibility.md](compatibility.md): a
@@ -86,8 +111,9 @@ release also ends with install and verification instructions (the
 - `main` is protected by a repository ruleset: no force pushes or deletion,
   linear history, changes only through pull requests (rebase or squash),
   and every CI job must pass (`lint`, `test`, `vuln`, both `build` jobs,
-  `haproxy`, `installer`, `logger`, `release-config`, `commits`). A new required CI
-  job must be added to the ruleset as well.
+  `haproxy`, `installer`, `logger`, `client-macos`, `release-config`,
+  `commits`; `release-dry-run` runs only on pushes to `main`, so it is not
+  required). A new required CI job must be added to the ruleset as well.
 - Release tags (`v*`) are protected by a second ruleset: only repository
   admins may create, move, or delete them. The `release` workflow also
   refuses a tag whose commit is not on `main`, so only reviewed code is
@@ -113,7 +139,9 @@ gh attestation verify armada_${VERSION#v}_linux_amd64.tar.gz --repo ryanbekhen/a
 
 - Every GitHub Action is pinned to a full commit SHA; Dependabot proposes
   updates for actions and Go modules weekly.
-- The Go toolchain is pinned with `toolchain` in `go.mod`.
+- The Go toolchain is pinned with `toolchain` in `go.mod`, the Rust
+  toolchain in `rust-toolchain.toml`, and every crate in `Cargo.lock`
+  (builds use `--locked`).
 - The HAProxy system image is pinned by digest in the code.
 - The bundled runtime binaries (containerd, runc, CNI plugins, tini) are
   pinned by version and SHA-256 in `internal/runtime/embedded/lock.go`.
@@ -128,7 +156,7 @@ gh attestation verify armada_${VERSION#v}_linux_amd64.tar.gz --repo ryanbekhen/a
    maintainers' published keys; for containerd and the CNI plugins compare
    with the `.sha256sum` files on the GitHub release.
 3. Record the version and both SHA-256 values in `lock.go`.
-4. `make runtime-bundle build-bundle`, then run the embedded runtime
+4. `make build-bundle` (it runs `make runtime-bundle` first), then run the embedded runtime
    end to end on a Linux node (deploy, rolling update, secret files,
    internal DNS, self-healing) and the conformance suite on a node
    (`-run Conformance`, see CLAUDE.md) before merging.
