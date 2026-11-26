@@ -28,9 +28,11 @@ use crate::version::{self, Event, Version};
 
 /// Every pin is the latest release and no advisory affects one.
 pub const EXIT_CURRENT: u8 = 0;
-/// Newer releases exist; no known vulnerability affects a pin.
+/// Newer releases exist, or advisories affect the pins that no newer
+/// upstream release fixes yet (upstream advisories), or both.
 pub const EXIT_UPDATES: u8 = 1;
-/// A known vulnerability affects a pinned version.
+/// An actionable advisory: one affecting a pin that a newer upstream
+/// release of the program fixes.
 pub const EXIT_VULNERABLE: u8 = 2;
 /// The check itself failed (network, an answer that cannot be read).
 pub const EXIT_ERROR: u8 = 3;
@@ -189,6 +191,12 @@ pub struct Finding {
     /// The program itself (its own advisory, or its main module's), not a
     /// module it links or the Go standard library.
     pub own: bool,
+    /// A newer upstream release of the program fixes it: for an advisory
+    /// in the program itself, the latest release is at or past a fixed
+    /// version newer than the pin (or past the pin when no fixed version
+    /// can be read); for one in what the program was built with, a newer
+    /// release exists. Otherwise it waits for upstream.
+    pub actionable: bool,
 }
 
 /// What an advisory reaches through one module or the program itself.
@@ -234,7 +242,10 @@ pub struct Row {
     /// None when no stable release could be found.
     pub latest: Option<String>,
     pub update: bool,
-    pub vulnerable: bool,
+    /// Advisories a newer release fixes, and advisories that wait for
+    /// upstream.
+    pub actionable: usize,
+    pub upstream: usize,
 }
 
 /// The report.
@@ -552,6 +563,36 @@ fn merge(found: &mut Vec<Finding>, f: Finding) {
     g.own |= f.own;
 }
 
+fn plural(n: usize) -> String {
+    if n == 1 {
+        "1 advisory".into()
+    } else {
+        format!("{n} advisories")
+    }
+}
+
+/// Whether a newer upstream release fixes f (Finding::actionable).
+fn actionable(f: &Finding, pinned: Option<&Version>, latest: Option<&Version>) -> bool {
+    let (Some(pinned), Some(latest)) = (pinned, latest) else {
+        return false;
+    };
+    if latest <= pinned {
+        return false;
+    }
+    if !f.own {
+        return true;
+    }
+    let fixes: Vec<Version> = f
+        .fixed
+        .split([',', ';'])
+        .filter_map(|x| Version::parse(x.rsplit(' ').next().unwrap_or(x)))
+        .collect();
+    if fixes.is_empty() {
+        return true;
+    }
+    fixes.iter().any(|x| x > pinned && x <= latest)
+}
+
 /// Most severe first.
 fn severity_rank(s: &str) -> u8 {
     match s.to_ascii_lowercase().as_str() {
@@ -630,6 +671,7 @@ impl Report {
                             summary: v.summary.clone().unwrap_or_default(),
                             url: format!("https://osv.dev/vulnerability/{}", v.id),
                             own,
+                            actionable: false,
                         },
                     );
                 }
@@ -648,6 +690,7 @@ impl Report {
                             format!("https://github.com/advisories/{}", a.ghsa_id)
                         }),
                         own: true,
+                        actionable: false,
                     };
                     // Already found through OSV: GitHub's severity when
                     // OSV gives none, nothing else.
@@ -675,8 +718,13 @@ impl Report {
                     }
                 }
             }
+            let latest_v = latest.as_ref().map(|(v, _)| v);
+            for f in &mut found {
+                f.actionable = actionable(f, pinned.as_ref(), latest_v);
+            }
             found.sort_by(|a, b| {
-                (!a.own, severity_rank(&a.severity), &a.id).cmp(&(
+                (!a.actionable, !a.own, severity_rank(&a.severity), &a.id).cmp(&(
+                    !b.actionable,
                     !b.own,
                     severity_rank(&b.severity),
                     &b.id,
@@ -687,18 +735,20 @@ impl Report {
                 pinned: pin.version.clone(),
                 latest: latest.map(|(_, s)| s),
                 update,
-                vulnerable: !found.is_empty(),
+                actionable: found.iter().filter(|f| f.actionable).count(),
+                upstream: found.iter().filter(|f| !f.actionable).count(),
             });
             report.findings.extend(found);
         }
         report
     }
 
-    /// exit_code: EXIT_VULNERABLE, EXIT_UPDATES, or EXIT_CURRENT.
+    /// exit_code: EXIT_VULNERABLE only for an actionable advisory;
+    /// EXIT_UPDATES for newer releases or upstream advisories.
     pub fn exit_code(&self) -> u8 {
-        if !self.findings.is_empty() {
+        if self.findings.iter().any(|f| f.actionable) {
             EXIT_VULNERABLE
-        } else if self.rows.iter().any(|r| r.update) {
+        } else if self.rows.iter().any(|r| r.update) || !self.findings.is_empty() {
             EXIT_UPDATES
         } else {
             EXIT_CURRENT
@@ -717,14 +767,16 @@ impl Report {
         s.push_str("| Program | Pinned | Latest | Status |\n| --- | --- | --- | --- |\n");
         for r in &self.rows {
             let mut status = Vec::new();
-            if r.vulnerable {
-                status.push("**vulnerable**");
+            if r.actionable > 0 {
+                status.push(format!("**{} fixed by the update**", plural(r.actionable)));
             }
             match (&r.latest, r.update) {
-                (None, _) => status.push("latest release unknown"),
-                (Some(_), true) => status.push("update available"),
-                (Some(_), false) if !r.vulnerable => status.push("current"),
-                _ => {}
+                (None, _) => status.push("latest release unknown".into()),
+                (Some(_), true) => status.push("update available".into()),
+                (Some(_), false) => status.push("current".into()),
+            }
+            if r.upstream > 0 {
+                status.push(format!("{} upstream", plural(r.upstream)));
             }
             let _ = writeln!(
                 s,
@@ -735,16 +787,20 @@ impl Report {
                 status.join(", ")
             );
         }
-        let (own, linked): (Vec<&Finding>, Vec<&Finding>) =
-            self.findings.iter().partition(|f| f.own);
-        s.push_str("\n## Advisories in the pinned programs\n\n");
-        findings_table(&mut s, &own);
+        let (fixed, upstream): (Vec<&Finding>, Vec<&Finding>) =
+            self.findings.iter().partition(|f| f.actionable);
         s.push_str(
-            "\n## Advisories in what the Go programs were built with\n\n\
-             The Go modules they link and the Go standard library, from their build \
-             information.\n\n",
+            "\n## Advisories a newer release fixes\n\n\
+             Update these pins (exit code 2).\n\n",
         );
-        findings_table(&mut s, &linked);
+        findings_table(&mut s, &fixed);
+        s.push_str(
+            "\n## Advisories in upstream builds, no newer release to take\n\n\
+             In the pinned programs, or in the Go modules and the Go release their \
+             current upstream build was made with; they wait for upstream. Note \
+             whether each reaches Armada.\n\n",
+        );
+        findings_table(&mut s, &upstream);
         if !self.unread.is_empty() {
             s.push_str(
                 "\n<details><summary>Advisories whose version ranges could not be read \
@@ -1108,23 +1164,32 @@ mod tests {
         );
     }
 
+    fn ids(r: &Report) -> Vec<(&str, bool)> {
+        r.findings
+            .iter()
+            .map(|f| (f.id.as_str(), f.actionable))
+            .collect()
+    }
+
     #[test]
-    fn vulnerable_pins_exit_2() {
+    fn advisories_a_newer_release_fixes_exit_2() {
+        // runc 1.5.2 with 1.5.3 released: its own advisory is fixed in
+        // 1.5.3, and a newer build may leave the modules and Go behind.
         let r = Report::build(&[runc("1.5.2", "go1.26.8"), crun("1.31")], &osv_answers());
         assert_eq!(r.exit_code(), EXIT_VULNERABLE);
-        let ids: Vec<(&str, bool)> = r.findings.iter().map(|f| (f.id.as_str(), f.own)).collect();
-        // runc's own advisory first; the GO- and GHSA- records of one
-        // advisory in a module are one finding; GHSA-cgrx-mc8f-2prm names
-        // opencontainers/selinux <= 1.12.0, and runc links 1.13.1.
+        // The GO- and GHSA- records of one advisory in a module are one
+        // finding; GHSA-cgrx-mc8f-2prm names opencontainers/selinux
+        // <= 1.12.0, and runc links 1.13.1.
         assert_eq!(
-            ids,
+            ids(&r),
             [
                 ("GHSA-g2c3-j8g3-7gpw", true),
-                ("GHSA-mjcv-p78q-w5fw", false),
-                ("GO-2026-6859", false),
+                ("GHSA-mjcv-p78q-w5fw", true),
+                ("GO-2026-6859", true),
             ]
         );
         let own = &r.findings[0];
+        assert!(own.own);
         assert_eq!(
             (own.severity.as_str(), own.fixed.as_str()),
             ("high", "1.5.3")
@@ -1139,24 +1204,72 @@ mod tests {
             go.affects_text()[0],
             "Go standard library go1.26.8 [net/http]"
         );
-        assert!(r.rows[0].vulnerable && r.rows[0].update);
+        assert_eq!((r.rows[0].actionable, r.rows[0].upstream), (3, 0));
+        assert!(r.rows[0].update);
         // crun 1.31 is past every crun advisory, also GHSA-5f8q-v9f3-rhvj
         // (">= 1.29" with 1.30.1 patched).
-        assert!(!r.rows[1].vulnerable && !r.rows[1].update);
+        assert_eq!((r.rows[1].actionable, r.rows[1].upstream), (0, 0));
+        assert!(!r.rows[1].update);
         assert!(r.unread.is_empty());
     }
 
     #[test]
-    fn an_older_crun_is_vulnerable() {
+    fn upstream_build_advisories_exit_1() {
+        // runc 1.5.3 is the latest release, built with a vulnerable module
+        // and Go release: nothing to take, so listed but not exit 2.
+        let r = Report::build(&[runc("1.5.3", "go1.26.8"), crun("1.31")], &osv_answers());
+        assert_eq!(r.exit_code(), EXIT_UPDATES);
+        assert_eq!(
+            ids(&r),
+            [("GHSA-mjcv-p78q-w5fw", false), ("GO-2026-6859", false)]
+        );
+        assert_eq!((r.rows[0].actionable, r.rows[0].upstream), (0, 2));
+        let text = r.render();
+        assert!(
+            text.contains("| runc | 1.5.3 | 1.5.3 | current, 2 advisories upstream |"),
+            "{text}"
+        );
+        assert!(text.contains("## Advisories in upstream builds, no newer release to take"));
+    }
+
+    #[test]
+    fn an_unreleased_fix_is_upstream() {
+        // runc 1.5.2 before 1.5.3 was released: its own advisory waits.
+        let mut pin = runc("1.5.2", "go1.26.11");
+        pin.programs[0].info.deps.clear();
+        pin.releases = fixture("runc-releases-before-1.5.3.json");
+        let r = Report::build(&[pin], &OsvAnswers::new());
+        assert_eq!(r.exit_code(), EXIT_UPDATES);
+        assert_eq!(ids(&r), [("GHSA-g2c3-j8g3-7gpw", false)]);
+        assert!(!r.rows[0].update);
+    }
+
+    #[test]
+    fn a_newer_release_short_of_the_fix_is_upstream() {
+        // crun 1.29 with 1.30 the latest: fixes in 1.30.1 and 1.31 are not
+        // released; GHSA-j87h-qqch-77vc ("<=1.29.1") names no fixed
+        // version, so the newer release counts as its fix.
+        let mut c = crun("1.29");
+        c.releases = fixture("crun-releases-before-1.30.1.json");
+        let r = Report::build(&[c], &OsvAnswers::new());
+        assert_eq!(r.exit_code(), EXIT_VULNERABLE);
+        let got = ids(&r);
+        assert!(got.contains(&("GHSA-j87h-qqch-77vc", true)), "{got:?}");
+        assert!(got.contains(&("GHSA-2mxx-58qc-p466", false)), "{got:?}");
+        assert!(got.contains(&("GHSA-5f8q-v9f3-rhvj", false)), "{got:?}");
+        assert!(got.contains(&("GHSA-jj7h-4c3m-j6wf", false)), "{got:?}");
+    }
+
+    #[test]
+    fn an_older_crun_has_fixes_to_take() {
         let r = Report::build(&[crun("1.30")], &OsvAnswers::new());
         assert_eq!(r.exit_code(), EXIT_VULNERABLE);
-        let ids: Vec<&str> = r.findings.iter().map(|f| f.id.as_str()).collect();
         assert_eq!(
-            ids,
+            ids(&r),
             [
-                "GHSA-2mxx-58qc-p466",
-                "GHSA-5f8q-v9f3-rhvj",
-                "GHSA-jj7h-4c3m-j6wf"
+                ("GHSA-2mxx-58qc-p466", true),
+                ("GHSA-5f8q-v9f3-rhvj", true),
+                ("GHSA-jj7h-4c3m-j6wf", true)
             ]
         );
     }
@@ -1172,6 +1285,7 @@ mod tests {
         });
         let r = Report::build(&[pin, crun("1.31")], &osv_answers());
         assert_eq!(r.exit_code(), EXIT_UPDATES, "{:?}", r.findings);
+        assert!(r.findings.is_empty());
         assert_eq!(r.rows[0].latest.as_deref(), Some("1.5.4"));
     }
 
@@ -1229,6 +1343,7 @@ mod tests {
             summary: String::new(),
             url: String::new(),
             own: false,
+            actionable: false,
         };
         let mut found = Vec::new();
         merge(

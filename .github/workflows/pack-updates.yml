@@ -6,12 +6,14 @@ name: pack-updates
 # the pinned versions (GitHub's repository advisories, and OSV for the Go
 # programs, the modules they link, and the Go release they were built
 # with). One open issue, "Runtime pack updates", carries its report while
-# something is found (label dependencies, and security when an advisory
-# affects a pin); the issue is closed once every pin is current and clean.
+# something is found (label dependencies, and security only while an
+# advisory a newer release fixes exists); the issue is closed once every
+# pin is current and clean. Advisories no newer upstream release fixes
+# stay listed in it under their own heading.
 #
 # Exit codes of `armada-pack outdated`: 0 current and clean, 1 updates
-# only, 2 an advisory affects a pin, 3 the check failed (the job fails and
-# the issue is left as it is).
+# and/or upstream advisories only, 2 an advisory a newer upstream release
+# fixes, 3 the check failed (the job fails and the issue is left as it is).
 on:
   schedule:
     - cron: "0 2 * * 1" # Mondays, 02:00 UTC

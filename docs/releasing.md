@@ -6,10 +6,11 @@ on a maintainer's machine.
 ## Cutting a release
 
 1. Make sure `main` is green (`make check` locally matches CI), and that
-   the runtime pack's pins have no known advisory:
+   no runtime pack pin has an advisory a newer upstream release fixes:
    `cargo run --locked -p armada-pack -- outdated` (below) must not exit
-   with 2. Update an affected pin first, or say in the release notes why
-   the advisory does not reach Armada.
+   with 2; update those pins first. Upstream advisories (exit 1, no newer
+   release to take) do not block the tag: note each in the release notes
+   with whether it reaches Armada.
 2. Run the end-to-end test on real machines from the commit you are about to
    tag ([test/e2e](../test/e2e/README.md)); it must pass.
 3. Tag and push:
@@ -177,18 +178,24 @@ gh attestation verify armada_${VERSION#v}_linux_amd64.tar.gz --repo ryanbekhen/a
   `pack-updates` workflow (`.github/workflows/pack-updates.yml`, Mondays
   and on demand) runs `armada-pack outdated` and keeps one issue, "Runtime
   pack updates", open while it finds something (label `dependencies`,
-  plus `security` when an advisory affects a pin), closing it once
-  everything is current. `armada-pack outdated` compares each pin with
+  plus `security` only while an advisory a newer release fixes exists),
+  closing it once everything is current. `armada-pack outdated` compares each pin with
   the latest stable release of the GitHub repository its URL names, and
   looks up the advisories known for the pinned version: the repository's
   GitHub security advisories for every program, and OSV for the Go
   programs (runc, the CNI plugins, etcd): their own module, every module
   their build information names, and the Go release they were built with
   (read from the pinned binaries, downloaded and checked as `make
-  runtime-bundle` does, never run). It prints a Markdown report and exits
-  0 when every pin is current and clean, 1 when only newer releases
-  exist, 2 when a known advisory affects a pin, and 3 when the check
-  itself failed. It uses `GITHUB_TOKEN` for GitHub's API when set. An
+  runtime-bundle` does, never run). It splits the advisories into those
+  a newer upstream release fixes (in the program itself: the latest
+  release is at or past a fixed version newer than the pin; in what it
+  was built with: a newer release exists) and upstream ones (in the
+  current upstream build, with no newer release to take), listed under
+  "Advisories in upstream builds, no newer release to take". It prints a
+  Markdown report and exits 0 when every pin is current and clean, 1 when
+  there are newer releases or upstream advisories only, 2 when an
+  advisory a newer release fixes exists, and 3 when the check itself
+  failed. It uses `GITHUB_TOKEN` for GitHub's API when set. An
   advisory in a module or in Go may not reach code the program runs:
   read it, and update the pin once upstream releases a build with the
   fix.

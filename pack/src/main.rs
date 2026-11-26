@@ -23,7 +23,7 @@ const USAGE: &str = "usage:
   armada-pack licenses --out DIR
   armada-pack sources --out DIR
   armada-pack etcd-api --out DIR
-  armada-pack outdated   (exit 0: current, 1: updates, 2: a pin is vulnerable, 3: the check failed)
+  armada-pack outdated   (exit 0: current and clean, 1: updates or upstream advisories, 2: an advisory a newer release fixes, 3: the check failed)
 flags of every command: --lock FILE (default pack/lock.json), --cache DIR (default .cache)";
 
 fn main() -> ExitCode {
@@ -143,10 +143,11 @@ fn check_outdated(f: &Flags) -> Result<u8, String> {
     print!("{}", report.render());
     let code = report.exit_code();
     eprintln!(
-        "armada-pack outdated: {} pins, {} with a newer release, {} advisories affecting them (exit {code})",
+        "armada-pack outdated: {} pins, {} with a newer release, {} advisories a newer release fixes, {} upstream (exit {code})",
         report.rows.len(),
         report.rows.iter().filter(|r| r.update).count(),
-        report.findings.len()
+        report.findings.iter().filter(|f| f.actionable).count(),
+        report.findings.iter().filter(|f| !f.actionable).count()
     );
     Ok(code)
 }
