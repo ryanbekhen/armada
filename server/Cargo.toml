@@ -37,7 +37,19 @@ x509-parser.workspace = true
 # (src/bin/armada-server-parity.rs, ARMADA_SERVER_BIN): never part of a
 # release. A control plane backup's bucket is reached at the address the
 # test names (armada-node's test hooks).
-parity = ["armada-node/test-hooks"]
+parity = ["armada-node/test-hooks", "armada-store/parity"]
+
+# The scenarios recorded from Go's server replayed against the Rust one
+# (tests/scenarios.rs, ADR 0055 item 20): gRPC calls by method path, the
+# fake agents' sessions, and the store's methods by name.
+[dev-dependencies]
+hyper-util.workspace = true
+prost.workspace = true
+tonic = { workspace = true, features = ["channel"] }
+
+[[test]]
+name = "scenarios"
+required-features = ["parity"]
 
 [[bin]]
 name = "armada-server-parity"

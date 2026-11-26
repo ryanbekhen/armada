@@ -311,7 +311,7 @@ func TestParityNetworkKeysAndPeers(t *testing.T) {
 		rotate("rotate a bad name", "Bad;Name")
 		n1.assignment()
 		asked := 0
-		for _, m := range n1.others {
+		for _, m := range n1.othersSeen() {
 			if m.GetRotateNetworkKey() != nil {
 				asked++
 			}
@@ -493,12 +493,12 @@ func (sc *scenario) moveNote(label string, agents ...*parityAgent) {
 	for _, a := range agents {
 		as := a.assignment()
 		asked := 0
-		for _, m := range a.others {
+		for _, m := range a.othersSeen() {
 			if m.GetMoveRuntime() != nil {
 				asked++
 			}
 		}
-		a.others = nil
+		a.clearOthers()
 		sc.note(label+" "+a.id, map[string]any{"plan": planText(as.GetRuntimeMove()), "asked": asked, "replicas": len(as.GetReplicas())})
 	}
 	rec, err := sc.st.GetMeta(sc.ctx, metaRuntimeMove)

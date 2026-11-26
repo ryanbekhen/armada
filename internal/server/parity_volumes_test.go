@@ -71,6 +71,9 @@ func (sc *scenario) volumeAgent(id, ip string, bucket *volumeBucket, caps volume
 		sc.t.Fatal(err)
 	}
 	va := &volumeAgent{parityAgent: a, client: client, bucket: bucket, disk: map[string]string{}}
+	if sc.rec != nil {
+		sc.rec.add(map[string]any{"op": "volumeAgent", "agent": a.rid, "bucket": sc.rec.bucketID(bucket)})
+	}
 	h := va.serve
 	a.volume.Store(&h)
 	return va
@@ -79,14 +82,21 @@ func (sc *scenario) volumeAgent(id, ip string, bucket *volumeBucket, caps volume
 // requests returns what the agent was asked since the last call, sorted.
 func (va *volumeAgent) requests() []string {
 	va.mu.Lock()
-	defer va.mu.Unlock()
 	out := va.seen
 	va.seen = nil
 	slices.Sort(out)
+	va.mu.Unlock()
+	if r := va.sc.rec; r != nil {
+		step := r.add(map[string]any{"op": "volRequests", "agent": va.rid})
+		r.expect(step, "expect", out)
+	}
 	return out
 }
 
 func (va *volumeAgent) write(app, vol, contents string) {
+	if r := va.sc.rec; r != nil {
+		r.add(map[string]any{"op": "volWrite", "agent": va.rid, "key": app + "/" + vol, "contents": contents})
+	}
 	va.mu.Lock()
 	defer va.mu.Unlock()
 	va.disk[app+"/"+vol] = contents
@@ -94,8 +104,23 @@ func (va *volumeAgent) write(app, vol, contents string) {
 
 func (va *volumeAgent) read(app, vol string) string {
 	va.mu.Lock()
-	defer va.mu.Unlock()
-	return va.disk[app+"/"+vol]
+	out := va.disk[app+"/"+vol]
+	va.mu.Unlock()
+	if r := va.sc.rec; r != nil {
+		step := r.add(map[string]any{"op": "volRead", "agent": va.rid, "key": app + "/" + vol})
+		r.expect(step, "expect", out)
+	}
+	return out
+}
+
+// setFail makes the bucket refuse writes, or take them again.
+func (b *volumeBucket) setFail(sc *scenario, on bool) {
+	if sc.rec != nil {
+		sc.rec.add(map[string]any{"op": "bucketFail", "bucket": sc.rec.bucketID(b), "on": on})
+	}
+	b.mu.Lock()
+	b.failPut = on
+	b.mu.Unlock()
 }
 
 // serve answers one volume request as an agent does: the attach message
@@ -288,7 +313,7 @@ func (sc *scenario) waitEvent(object, reason string, n int) {
 func (sc *scenario) disconnect(a *parityAgent) {
 	sc.t.Helper()
 	before := sc.eventCount(a.id, "Disconnected")
-	a.cancel()
+	a.stop()
 	sc.waitEvent(a.id, "Disconnected", before+1)
 	n, err := sc.st.GetNode(sc.ctx, a.id)
 	if err != nil {
@@ -591,9 +616,7 @@ func TestParityVolumeBackups(t *testing.T) {
 		}
 
 		// A failing bucket: kept, an event, retried after five minutes.
-		bucket.mu.Lock()
-		bucket.failPut = true
-		bucket.mu.Unlock()
+		bucket.setFail(sc, true)
 		sc.advance(time.Hour)
 		sc.measure(n1)
 		sc.sut.backups(sc.t)
@@ -603,9 +626,7 @@ func TestParityVolumeBackups(t *testing.T) {
 		sc.measure(n1)
 		sc.sut.backups(sc.t)
 		sc.note("not retried yet", n1.requests())
-		bucket.mu.Lock()
-		bucket.failPut = false
-		bucket.mu.Unlock()
+		bucket.setFail(sc, false)
 		sc.advance(5 * time.Minute)
 		sc.measure(n1)
 		sc.sut.backups(sc.t)

@@ -515,12 +515,12 @@ func TestParityQueueTrigger(t *testing.T) {
 
 		// The node that reads the queue goes: the other takes over.
 		before := sc.eventCount(probe, "Disconnected")
-		agents[probe].cancel()
+		agents[probe].stop()
 		sc.eventually("disconnected", func() bool { return sc.eventCount(probe, "Disconnected") > before })
 		sc.jobPass("moved")
 		sc.note("other assignment moved", agents[other].assignment())
 		sc.jobViews("moved", "mailer")
-		agents[other].cancel()
+		agents[other].stop()
 		sc.eventually("both gone", func() bool { return sc.eventCount(other, "Disconnected") > 0 })
 		sc.jobPass("no node left")
 		_, err = sc.admin.DeleteJob(sc.ctx, &armadav1.DeleteJobRequest{Job: "mailer"})

@@ -127,6 +127,9 @@ func (sc *scenario) storeBundle(name string, i int) {
 
 // setTXT publishes TXT records for both servers' resolvers.
 func (sc *scenario) setTXT(name string, values ...string) {
+	if sc.rec != nil {
+		sc.rec.add(map[string]any{"op": "txt", "name": name, "values": sc.rec.input(values)})
+	}
 	sc.txt.set(name, values...)
 	if r, ok := sc.sut.(*rustServer); ok {
 		r.do(map[string]any{"op": "txt", "name": name, "values": values})
@@ -480,6 +483,7 @@ func TestParityIngressWildcard(t *testing.T) {
 		sc.node("n2", "10.0.0.12", 8000, 16<<30, map[string]string{"role": "mail"})
 		secret("mail", "cf-token", "tok-mail")
 		sc.deploy("mail", "name: mail\nimage: m:1\ningress:\n  type: external\n  port: 80\n  domains: [mail.net]\n  dns: {provider: cloudflare, tokenSecretRef: cf-token}\nplacement:\n  require:\n    role: mail\n")
+		sc.rec.skip("a secret deleted under the server")
 		if _, err := storetest.Client().Delete(sc.ctx, sc.pfx+"secrets/mail/", clientv3.WithPrefix()); err != nil {
 			t.Fatal(err)
 		}

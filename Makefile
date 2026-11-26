@@ -12,7 +12,7 @@ VERSION_ENV = ARMADA_VERSION=$(VERSION) ARMADA_COMMIT=$(COMMIT) ARMADA_DATE=$(DA
 
 export CGO_ENABLED := 0
 
-.PHONY: all build build-bundle logger shim dns node node-test-hooks pki-parity store-parity server-parity client-parity daemon-parity agent-parity rust-check runtime-bundle runtime-licenses rust-licenses test cover lint fmt vet vuln licenses licenses-save proto proto-rust proto-go docs tidy check clean
+.PHONY: all build build-bundle logger shim dns node node-test-hooks pki-parity store-parity server-parity server-scenarios client-parity daemon-parity agent-parity rust-check runtime-bundle runtime-licenses rust-licenses test cover lint fmt vet vuln licenses licenses-save proto proto-rust proto-go docs tidy check clean
 
 all: check build
 
@@ -92,6 +92,14 @@ store-parity:
 server-parity:
 	cargo build --locked -p armada-server --features parity
 
+# The control plane's scenarios recorded from Go's server (go test
+# ./internal/server -run TestParity -record-scenarios writes
+# server/tests/testdata/scenarios) replayed against the Rust server on the
+# pinned etcd (ADR 0055, item 20): no Go needed.
+server-scenarios:
+	sh scripts/etcd-cache.sh
+	ARMADA_ETCD_DIR=$(CURDIR)/.cache/etcd cargo test --locked -p armada-server --features parity --test scenarios
+
 # The client parity tests (ADR 0055, pull request 17): Go's armada in
 # process and the Rust one (client/, target/debug/armada) on the same
 # command lines against one recorded AdminService.
@@ -132,6 +140,7 @@ rust-check:
 	cargo clippy --locked -p armada-agent --all-targets --features parity -- -D warnings
 	cargo clippy --locked -p armada-daemon --all-targets --features test-hooks -- -D warnings
 	cargo test --locked --workspace
+	$(MAKE) server-scenarios
 	cargo deny --locked check licenses
 	cargo build --release --locked --workspace --target x86_64-unknown-linux-musl
 	cargo build --release --locked --workspace --target aarch64-unknown-linux-musl

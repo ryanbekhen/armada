@@ -314,6 +314,9 @@ jobs:
       - run: cargo fmt --all --check
       - run: cargo clippy --locked --workspace --all-targets -- -D warnings
       - run: cargo test --locked --workspace
+      # The control plane's scenarios recorded from Go's server, replayed
+      # against the Rust one on the pinned etcd (ADR 0055, item 20).
+      - run: make server-scenarios
       # The cache may restore cargo-deny already; install it only when the
       # pinned version is missing.
       - run: |

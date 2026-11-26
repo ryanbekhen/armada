@@ -164,6 +164,8 @@ dependencies = [
  "armada-secrets",
  "armada-spec",
  "armada-store",
+ "hyper-util",
+ "prost",
  "rcgen",
  "ring",
  "rustls",

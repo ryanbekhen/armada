@@ -20,7 +20,6 @@ import (
 	armadav1 "github.com/ryanbekhen/armada/api/armada/v1"
 	"github.com/ryanbekhen/armada/internal/etcd"
 	"github.com/ryanbekhen/armada/internal/pki"
-	"github.com/ryanbekhen/armada/internal/secrets"
 	"github.com/ryanbekhen/armada/internal/spec"
 	"github.com/ryanbekhen/armada/internal/store"
 )
@@ -98,13 +97,15 @@ func TestParityMethodAccess(t *testing.T) {
 			{"service", sc.dial(pki.Identity{Kind: pki.KindService, Name: "nobody"})},
 			{"metrics", sc.dial(pki.Identity{Kind: pki.KindMetrics, Name: "prom"})},
 		}
+		callerConns := sc.rec.connsSince(len(callers))
 		services := armadav1.File_armada_v1_armada_proto.Services()
 		for _, svc := range []string{"AdminService", "AgentService"} {
 			ms := services.ByName(protoreflect.Name(svc)).Methods()
 			for i := range ms.Len() {
 				m := ms.Get(i)
-				for _, c := range callers {
-					err := callAny(sc, c.conn, m)
+				for ci, c := range callers {
+					var err error
+					sc.rec.muted(func() { err = callAny(sc, c.conn, m) })
 					label := c.label + " " + svc + "/" + string(m.Name())
 					code := status.Code(err)
 					msg := status.Convert(err).Message()
@@ -113,19 +114,22 @@ func TestParityMethodAccess(t *testing.T) {
 					refused := (code == codes.PermissionDenied || code == codes.Unauthenticated) &&
 						(strings.Contains(msg, " may not call ") || strings.Contains(msg, "has no role that allows") ||
 							strings.HasPrefix(msg, "certificate of ") || strings.Contains(msg, "client certificate"))
+					var outcome any
 					switch {
 					case refused:
-						sc.note(label, err)
+						outcome = err
 					case svc == "AdminService" && parityPorted[string(m.Name())]:
 						if err != nil {
-							sc.note(label, err)
+							outcome = err
 						} else {
-							sc.note(label, "answered")
+							outcome = "answered"
 						}
 					default:
 						// Reached a handler this pull request does not port.
-						sc.note(label, "reached the handler")
+						outcome = "reached the handler"
 					}
+					sc.recordProbe(callerConns[ci], m, parityPorted[string(m.Name())] && svc == "AdminService", outcome)
+					sc.note(label, outcome)
 				}
 			}
 		}
@@ -139,9 +143,7 @@ func TestParityServersHeader(t *testing.T) {
 		resp, err := sc.admin.ListServers(sc.ctx, &armadav1.ListServersRequest{}, grpc.Header(&md))
 		sc.answer("list servers", resp, err)
 		sc.note("header", md.Get("armada-servers"))
-		sc.fc.mu.Lock()
-		sc.fc.members = append(sc.fc.members, etcdMember(101, "cp-2", true))
-		sc.fc.mu.Unlock()
+		sc.setMembers(append(sc.members(false), etcdMember(101, "cp-2", true)), nil)
 		if err := sc.st.UpsertServer(sc.ctx, store.Server{Name: "cp-2", PrivateIP: "10.0.0.2", APIAddr: "10.0.0.2:7443", MemberID: 101, Schema: 15, Version: "v1"}); err != nil {
 			t.Fatal(err)
 		}
@@ -327,7 +329,7 @@ func TestParitySettings(t *testing.T) {
 		}
 		sc.eventually("settings changes told", func() bool { return sc.sut.settingsChanged() == 3 })
 		sc.note("settings changed", sc.sut.settingsChanged())
-		set, err := LoadSettings(sc.ctx, sc.st)
+		set, err := LoadSettings(sc.ctx, sc.st.st)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -416,7 +418,7 @@ func (sc *scenario) dialJoinAsAPI(tok *armadav1.CreateJoinTokenResponse) *grpc.C
 	if err != nil {
 		sc.t.Fatal(err)
 	}
-	conn, err := grpc.NewClient(tok.JoinAddr, grpc.WithTransportCredentials(credentialsJoin(ca)))
+	conn, err := grpc.NewClient(tok.JoinAddr, append(sc.recordJoinDial(tok.JoinAddr), grpc.WithTransportCredentials(credentialsJoin(ca)))...)
 	if err != nil {
 		sc.t.Fatal(err)
 	}
@@ -487,7 +489,7 @@ func TestParityJoinServer(t *testing.T) {
 		// makes sure.
 		sc.sut.reconcile(sc.t)
 		sc.eventually("the learner promoted", func() bool {
-			ms, _ := sc.fc.Members(sc.ctx)
+			ms := sc.members(true)
 			return len(ms) == 2 && !ms[1].Learner
 		})
 		servers, err := sc.admin.ListServers(sc.ctx, &armadav1.ListServersRequest{})
@@ -495,9 +497,7 @@ func TestParityJoinServer(t *testing.T) {
 		sc.keyspace("keyspace")
 
 		// A failing AddLearner undoes the registration.
-		sc.fc.mu.Lock()
-		sc.fc.addErr = errors.New("etcd says no")
-		sc.fc.mu.Unlock()
+		sc.setMembers(sc.members(false), errors.New("etcd says no"))
 		tok2, err := sc.admin.CreateJoinToken(sc.ctx, &armadav1.CreateJoinTokenRequest{Server: true})
 		if err != nil {
 			t.Fatal(err)
@@ -608,7 +608,7 @@ func TestParitySessions(t *testing.T) {
 		sc.note("first stream ends", a.end())
 		sc.keyspace("replaced")
 		// The agent's own end.
-		_ = b.stream.CloseSend()
+		b.closeSend()
 		sc.note("second stream ends", errOf(b.end()))
 		sc.eventually("disconnected", func() bool { return sc.eventCount("n1", "Disconnected") >= 1 })
 		sc.keyspace("disconnected")
@@ -670,10 +670,7 @@ func TestParityAssignments(t *testing.T) {
 		}
 		for _, kv := range [][2]string{{"db-password", "s3cret"}, {"tls-key", "-----KEY-----"}, {"registry-password", "pw"}} {
 			key, val := kv[0], kv[1]
-			seal := func(v int) (secrets.Sealed, error) {
-				return sc.fx.keys.Seal("web", key, v, secrets.NewValue([]byte(val)))
-			}
-			if _, _, err := sc.st.SetSecret(ctx, "web", key, seal, false, "user:ryan"); err != nil {
+			if _, _, err := sc.st.SetSecretValue(ctx, sc.fx.keys, "web", key, val, false, "user:ryan"); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -852,7 +849,7 @@ func TestParityEventsAndStreamGuard(t *testing.T) {
 		}
 		// The follow is open on the server (its headers wait for its first
 		// event).
-		time.Sleep(500 * time.Millisecond)
+		sc.sleep(500 * time.Millisecond)
 		if err := sc.st.DeletePrincipal(sc.ctx, store.KindUser, "erin", "user:ryan"); err != nil {
 			t.Fatal(err)
 		}
