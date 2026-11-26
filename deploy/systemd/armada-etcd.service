@@ -1,12 +1,10 @@
 [Unit]
 Description=Armada control plane state (this server's etcd member)
 Documentation=https://github.com/ryanbekhen/armada
+# Runs the runtime pack's pinned etcd on this server's member (ADR 0055).
+# armada-server.service wants it, so starting the server starts it.
 After=network-online.target
 Wants=network-online.target
-# Runs the pinned etcd of the runtime pack on the member armada-server
-# otherwise embeds (ADR 0055). For now only lab servers use it, with
-# ARMADA_SERVER_FLAGS="--etcd-member unit"; it refuses to start while
-# armada-server runs the member itself.
 
 [Service]
 Type=simple

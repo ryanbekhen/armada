@@ -270,3 +270,63 @@ A release runs every scenario.
     image before the move removed anything. Run it with
     `E2E_RUNTIME=embedded E2E_ONLY=runtime-containerd-move`; it leaves every
     machine on the supervisor runtime, so later scenarios run there.
+
+## Servers' units
+
+A server machine runs three units (ADR 0055): `armada-etcd` (its etcd
+member), `armada-server`, and `armada-agent`, which `armada-server.service`
+wants. `cluster.sh` installs all four units on every machine and restarts,
+stops, and reads the journal of `armada-agent` wherever a scenario is about
+the node's agent, servers included, so it tests a release whose server
+runs no agent of its own.
+
+## Upgrading in place (`upgrade.sh`)
+
+`upgrade.sh` builds a cluster on an older release and upgrades it machine
+by machine to the release under test, as ADR 0055's lab run describes. It
+needs five fresh machines (three servers, two nodes) in a hosts file like
+`cluster.sh`'s, and the same domain and ACME settings.
+
+```bash
+E2E_TO=v0.2.0 E2E_ETCDCTL=bin/etcdctl E2E_DOMAIN=e2e.example.org \
+E2E_ACME_EMAIL=you@example.org sh test/e2e/upgrade.sh hosts
+```
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `E2E_FROM` | `v0.1.0-alpha.42` | Release the cluster is built on (installed with `install.sh`); run it from `v0.1.0-alpha.41` too |
+| `E2E_TO` | required | Release to upgrade to |
+| `E2E_RELEASES` | empty (GitHub) | Local directory laid out as the release downloads (`TAG/armada_<version>_linux_<arch>.tar.gz`, `TAG/checksums.txt`, and the signature bundle), holding `E2E_FROM`, `E2E_TO`, and `v0.1.0-alpha.42`; copied to every machine and used through `ARMADA_DOWNLOAD_BASE=file://` by both `install.sh` and `armadad upgrade` |
+| `E2E_ETCDCTL` | required | Linux `etcdctl` for the first machine's architecture, from the etcd release archive the runtime pack pins (`internal/runtime/embedded/lock.go`); reads the keyspace and the member IDs with the member's certificate |
+| `E2E_ROLLBACK` | `2` | The machine (line in the hosts file) rolled back and upgraded again |
+| `E2E_ONLY`, `E2E_LIST` | | As for `cluster.sh`: `upgrade` or `rollback` (which runs the upgrade first) |
+| `E2E_ACME_CA`, `E2E_SSH_OPTS`, `E2E_SUDO` | | As for `cluster.sh` |
+
+What it checks:
+
+1. The cluster forms on `E2E_FROM` with three voting servers and two
+   nodes in the `wireguard` network mode, and runs a public app (five
+   replicas, a certificate for `hello.<domain>`), in a space of
+   its own an internal HTTP app, an internal TCP echo server that only the
+   prober app may reach, the prober (five replicas, counting
+   what both answer through each node's resolver and proxy), an app with a
+   volume holding a file, and a job that runs every minute.
+2. `upgrade`: with requests round robin over every public IP and the
+   probers' internal requests running, `armadad upgrade --version E2E_TO`
+   on the standby servers, the leader's machine, then the nodes, each
+   waiting for every server to vote and every node to be ready. Every
+   public request returns 200 and no internal one fails; every container on
+   every machine has the ID, creation time, and process start time it had
+   (job attempts made since aside); armada-node's image records keep the
+   time each image was pulled; every etcd member ID is the same; and the
+   keyspace is the same but for `servers/`, events, the commit and audit
+   counters, the job's record, runs, and attempts, nodes' last seen and
+   agent version, and when replica reports arrived. The volume keeps its
+   file, no run of the job failed, it runs on, servers run `armada-etcd`,
+   `armada-server`, and `armada-agent`, nodes `armada-agent`, and
+   `armadad doctor` passes.
+3. `rollback`: `armadad upgrade --version v0.1.0-alpha.42` on
+   `E2E_ROLLBACK`, under the same load and checks; the machine then runs
+   `armada-server` alone (a server) or `armada-agent` (a node), with no
+   `armada-etcd.service` left. Then `armadad upgrade --version E2E_TO`
+   again, under the same checks.

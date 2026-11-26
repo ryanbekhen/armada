@@ -427,7 +427,15 @@ compare.
   unchanged but for the records the release writes (`servers/` versions,
   events). Then one machine is rolled back to the last Go release and
   upgraded again under the same checks. The same run follows in the cloud
-  before the release.
+  before the release. `test/e2e/upgrade.sh` is that scenario: `E2E_FROM`
+  names the starting release (v0.1.0-alpha.42 by default; run it from
+  v0.1.0-alpha.41 too), and the app's certificate is for a name under the
+  cluster's root domain, since a custom domain needs a TXT record in a
+  zone the run does not control. The keyspace is read with `etcdctl` and
+  the member's certificate; besides `servers/` and events it leaves out
+  what changes while the cluster serves (the commit and audit counters,
+  the job's record, runs, and attempts, nodes' last seen and agent
+  version, and when a replica report arrived).
 
 ### The work, as pull requests
 
@@ -548,10 +556,52 @@ Go and every new Rust part is exercised only by its parity tests.
     its version against the pack's; the member's certificate stays the
     certificates check's).
 19. **The switch.** The release builds `armadad` and `armada` from Rust;
-    units for etcd and the agent on server machines (until then the Rust
-    `armadad server` connects only with `--etcd-member unit`, refuses the
-    flag's `embedded` default, and leaves `--agent` to that unit); the lab upgrade from
-    v0.1.0-alpha.41 and the full end-to-end run pass.
+    units for etcd and the agent on server machines; the lab upgrade from
+    v0.1.0-alpha.41 and the full end-to-end run pass. The machine side,
+    done: `armada-server.service` wants and orders after
+    `armada-etcd.service` and `armada-agent.service` (the agent after the
+    member too), so enabling and starting the server is enough, as
+    `armadad init` and `server join` print; nothing else changes for
+    them, since the server unit pulls in the others on every start and
+    boot. The Rust `armadad server` takes `--etcd-member unit` as its
+    default and refuses `embedded` with what to remove; the flag stays
+    accepted and hidden for the lab's `server.env` files. `--agent`,
+    `--proxy`, `--secrets-dir`, and `--internal-dns` stay accepted and
+    hidden too, so a `server.env` of v0.1.0-alpha.42 keeps working, and a
+    value given is logged, never acted on: the agent unit reads
+    `/etc/armada/agent.env` on every machine, never `server.env`, whose
+    server flags `armadad agent` does not know (the operations guide says
+    to move such flags before the upgrade, and to mask `armada-agent` for a
+    server that ran with `--agent=false`). The server takes no lock on the
+    data directory, signs an expired node certificate again at its start
+    (`renew_node`) for the agent unit, and the agent unit holds the lock
+    and writes `/etc/armada/servers`. `armadad endpoint set` restarts both
+    `armada-server` and `armada-agent` on a server machine. `armadad
+    upgrade` enables `armada-etcd` and `armada-agent` on a server machine
+    (`armada-server` enabled) where they are not yet, restarts every active
+    unit in the order `armada-runtime`, `armada-etcd`, `armada-server`,
+    `armada-agent`, and takes `--version v0.1.0-alpha.42`
+    (`LAST_GO_RELEASE`) as the one older release: it stops the server, the
+    agent, and the member, disables `armada-agent` on a server machine
+    (v0.1.0-alpha.42 has the unit, but its server runs the agent),
+    disables and removes the units that release lacks (`armada-etcd`),
+    installs it, restarts `armada-runtime` where it runs, and starts
+    `armada-server` or `armada-agent`; `--no-restart` does all of that but
+    the start. The daemon parity harness compares where Go's upgrader does
+    the same and checks the Rust-only paths on their own
+    (`internal/daemon/parity_units_test.go`). The first upgrade, run by
+    v0.1.0-alpha.42's upgrader (units installed, `daemon-reload`,
+    `armada-runtime` restarted where active, then `systemctl restart
+    armada-server`), brings the new units up on both kinds of machine: on
+    a server the restart job stops the Go server before the `armada-etcd`
+    and `armada-agent` start jobs it pulls in run (the server is ordered
+    after both, and a restart's stop runs before the jobs it is ordered
+    after), so the member and the data directory's lock are free when they
+    start; on a node only `armada-agent` restarts. `test/e2e/upgrade.sh` is
+    the lab scenario below (`E2E_FROM`, by default v0.1.0-alpha.42;
+    run it from v0.1.0-alpha.41 too), and `test/e2e/cluster.sh` installs
+    `armada-etcd.service` and treats every machine's agent as
+    `armada-agent`. Left for the lab: both scripts' runs.
 20. **Go removed.** `cmd/`, `internal/`, `go.mod`, Go's CI jobs and
     release steps, and every document that names Go code (CLAUDE.md, the
     operations guide, the threat model's references, `docs/compatibility.md`

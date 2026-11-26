@@ -144,7 +144,8 @@ armada cluster update --acme-email you@example.com --acme-ca letsencrypt-staging
 ```
 
 The first machine runs the control plane and an agent, so it also serves
-apps. `armada cluster update` keeps settings in the cluster, so every server
+apps: `armada-server` starts the server's etcd member (`armada-etcd`) and
+the node's agent (`armada-agent`) beside itself, each a unit of its own. `armada cluster update` keeps settings in the cluster, so every server
 uses them, also those you add later; `armada cluster show` lists them.
 Once everything works, `armada cluster update --acme-ca letsencrypt` gets
 trusted certificates.

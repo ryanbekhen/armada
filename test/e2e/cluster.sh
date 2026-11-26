@@ -352,7 +352,9 @@ while [ "$i" -le "$N" ]; do
 			sleep 5
 		done
 	done
-	for unit in armada-server armada-agent armada-runtime; do
+	# A server machine runs armada-etcd and armada-agent beside armada-server,
+	# which wants them (ADR 0055): every machine's agent is armada-agent.
+	for unit in armada-etcd armada-server armada-agent armada-runtime; do
 		on "$i" "cat > /etc/systemd/system/$unit.service" <"$UNITS/$unit.service"
 	done
 	on "$i" 'install -m 0755 /tmp/armadad.e2e /usr/local/bin/armadad && install -m 0755 /tmp/armada.e2e /usr/local/bin/armada &&
@@ -408,7 +410,6 @@ if [ "$E2E_NET_AGENT" = rust ]; then
 		on "$i" 'test -x /var/lib/armada/runtime/current/bin/armada-node' ||
 			fail "$(host "$i" 1) has no armada-node in its runtime pack"
 		_unit=armada-agent
-		[ "$i" -gt "$SERVERS" ] || _unit=armada-server
 		rust_applies() { on "$1" "journalctl -u $2 --no-pager | grep -q 'armada-node applies the cluster network'"; }
 		wait_for 120 "$(host "$i" 1) applies its cluster network with armada-node" rust_applies "$i" "$_unit"
 		if ! on "$i" 'armadad doctor' >"$WORK/doctor" 2>&1; then :; fi
@@ -432,7 +433,6 @@ grep -q "\"netAgent\": *\"go\"" "$f"'
 	while [ "$i" -le "$N" ]; do
 		on "$i" "$_set_go" || fail "setting netAgent in agent.json on $(host "$i" 1)"
 		_unit=armada-agent
-		[ "$i" -gt "$SERVERS" ] || _unit=armada-server
 		on "$i" "systemctl restart $_unit"
 		[ "$i" -gt "$SERVERS" ] || wait_for 180 "control plane has $SERVERS voting members" voting "$SERVERS"
 		wait_for 180 "all $N nodes ready" nodes_ready
@@ -480,7 +480,6 @@ else
 	while [ "$i" -le "$N" ]; do
 		set_runtime_go "$i" || fail "setting runtimeAgent in agent.json on $(host "$i" 1)"
 		_unit=armada-agent
-		[ "$i" -gt "$SERVERS" ] || _unit=armada-server
 		on "$i" "systemctl restart $_unit"
 		[ "$i" -gt "$SERVERS" ] || wait_for 180 "control plane has $SERVERS voting members" voting "$SERVERS"
 		wait_for 180 "all $N nodes ready" nodes_ready
@@ -711,7 +710,6 @@ log "agent restart adopts running containers"
 wait_for 300 "$APP spread evenly before the restart" even_settled
 _before=$(replica_ids)
 _unit=armada-agent
-[ "$N" -gt "$SERVERS" ] || _unit=armada-server
 _dns_before=$(dns_pid "$N")
 load_start
 on "$N" "systemctl restart $_unit"
@@ -762,7 +760,6 @@ if want node-loss; then
 log "node loss and return under load"
 _node=$(host "$N" 1)
 _unit=armada-agent
-[ "$N" -gt "$SERVERS" ] || _unit=armada-server
 load_start
 on "$N" "systemctl stop $_unit"
 wait_for 120 "$_node marked lost" node_lost "$_node"
@@ -1718,7 +1715,6 @@ if want runtime-move && [ "$E2E_RUNTIME" != embedded ] && [ "$E2E_RUNTIME_AGENT"
 	log "a machine moves from Go's image store to armada-node's without pulling again"
 	_name=$(host "$N" 1)
 	_unit=armada-agent
-	[ "$N" -gt "$SERVERS" ] || _unit=armada-server
 	set_runtime_go "$N" || fail "setting runtimeAgent in agent.json on $_name"
 	on "$N" "systemctl restart $_unit"
 	wait_for 180 "all $N nodes ready" nodes_ready

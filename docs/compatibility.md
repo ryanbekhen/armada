@@ -98,8 +98,17 @@ A cluster is upgraded one machine at a time, so versions mix for a while
   network mode, spaces, roles, secrets, and specs stay as they were; new
   defaults apply to what is created after the upgrade.
 - No downgrade. A binary refuses state written by a newer release instead
-  of misreading it. The way back is the backup taken before the upgrade
-  (`armadad backup`, or the scheduled one in the bucket).
+  of misreading it, and `armadad upgrade` refuses older releases. The way
+  back is the backup taken before the upgrade (`armadad backup`, or the
+  scheduled one in the bucket).
+- One exception: v0.1.0-alpha.42, the last release of Go's `armadad`, is a
+  rollback target for the release that moved Armada to Rust (ADR 0055).
+  `sudo armadad upgrade --version v0.1.0-alpha.42` rolls one machine back
+  in place: it stops `armada-server`, `armada-agent`, and `armada-etcd`,
+  removes the units that release lacks, installs it, and starts its
+  service; the state, the containers, and the images stay
+  ([operations guide](operations.md#rolling-back-to-the-last-go-release)).
+  No other older release is a rollback target.
 
 ## Deprecation
 

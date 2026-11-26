@@ -5,9 +5,16 @@
 //! and runs a term's server while it leads (armada-server's lifecycle).
 //!
 //! The node's agent runs as a unit of its own on a server machine too
-//! (ADR 0055, "The agent on a server machine"): `--agent` is kept for the
-//! units of before and logged, never acted on; the unit that runs it
-//! comes with the switch (pull request 19).
+//! (ADR 0055, "The agent on a server machine"): armada-server.service wants
+//! armada-etcd.service and armada-agent.service, so starting the server
+//! starts both. This server takes no lock on the data directory (the agent
+//! holds it) and runs no agent. The flags Go's server passed to its
+//! embedded agent (`--agent`, `--proxy`, `--secrets-dir`, `--internal-dns`)
+//! stay accepted, hidden, so a server.env of before keeps working; a value
+//! given is logged with where it belongs now (the agent's own flags in
+//! /etc/armada/agent.env), never acted on. `--etcd-member` stays accepted,
+//! hidden, for the lab's server.env files: `unit` is its default and the
+//! only member this armadad runs.
 
 use std::net::IpAddr;
 use std::path::{Path, PathBuf};
@@ -36,9 +43,32 @@ fn msg(s: impl Into<String>) -> Error {
     Error::Msg(s.into())
 }
 
-/// The ETCD member choices of the hidden --etcd-member flag.
+/// The etcd member choices of the hidden --etcd-member flag: unit, the
+/// default, is the only one this armadad runs.
 const ETCD_EMBEDDED: &str = "embedded";
 const ETCD_UNIT: &str = "unit";
+/// What `--etcd-member embedded` gets.
+const EMBEDDED_REFUSED: &str = "--etcd-member embedded: this armadad runs no etcd member inside the server; armada-etcd.service runs it (`armadad etcd`, ADR 0055). Remove --etcd-member from /etc/armada/server.env";
+
+/// The flags Go's server gave its embedded agent, logged when a server.env
+/// of before sets them: the agent is a unit of its own
+/// (armada-agent.service, reading /etc/armada/agent.env).
+fn legacy_agent_flags(ctx: &Ctx<'_>, log: &Logger) {
+    if ctx.changed("agent") && !ctx.bool("agent") {
+        log.warn(
+            "--agent=false is ignored: armada-server.service starts armada-agent.service; for a server that runs no node agent, run `systemctl mask armada-agent`",
+            &[],
+        );
+    }
+    for f in ["proxy", "secrets-dir", "internal-dns"] {
+        if ctx.changed(f) {
+            log.warn(
+                "a flag of the agent in server.env is ignored: this machine's agent is armada-agent.service; set it in ARMADA_AGENT_FLAGS in /etc/armada/agent.env",
+                &[("flag", format!("--{f}"))],
+            );
+        }
+    }
+}
 /// defaultACMEPort.
 const DEFAULT_ACME_PORT: u16 = 7480;
 /// acmePrefix: where certificates and the ACME account live in etcd.
@@ -656,6 +686,10 @@ pub fn run(ctx: &mut Ctx<'_>, _: &[String]) -> Result {
             armada_spec::go::quote(&etcd_member)
         )));
     }
+    if etcd_member == ETCD_EMBEDDED {
+        return Err(msg(EMBEDDED_REFUSED));
+    }
+    legacy_agent_flags(ctx, &log);
     let lost = Duration::from_nanos(ctx.duration("node-lost-timeout").max(0) as u64);
     armada_server::check_node_lost_timeout(lost)
         .map_err(|e| msg(format!("--node-lost-timeout: {e}")))?;
@@ -708,31 +742,18 @@ pub fn run(ctx: &mut Ctx<'_>, _: &[String]) -> Result {
         given,
     };
     let join_flag = ctx.str("join-listen");
-    let with_agent = ctx.bool("agent");
     let rt = runtime()?;
     let stop = signals::stop_on_signals();
-    rt.block_on(serve(
-        data_dir,
-        etcd_member == ETCD_UNIT,
-        tls,
-        flags,
-        join_flag,
-        with_agent,
-        log,
-        net_log,
-        stop,
-    ))
-    .map_err(msg)
+    rt.block_on(serve(data_dir, tls, flags, join_flag, log, net_log, stop))
+        .map_err(msg)
 }
 
 #[allow(clippy::too_many_arguments)]
 async fn serve(
     data_dir: String,
-    unit: bool,
     tls: TlsFlags,
     flags: SettingFlags,
     join_flag: String,
-    with_agent: bool,
     log: Logger,
     net_log: armada_agent::log::Logger,
     stop: watch::Receiver<bool>,
@@ -751,10 +772,7 @@ async fn serve(
         return Err(format!("{data_dir} is not initialized; run `armadad init`"));
     }
     // Rust runs no etcd member inside the server (ADR 0055): the member
-    // is armada-etcd.service's.
-    if !unit {
-        return Err("this armadad runs no embedded etcd member: run this server's member as armada-etcd.service (`armadad etcd`) and start the server with --etcd-member unit (ADR 0055)".to_string());
-    }
+    // is armada-etcd.service's, which armada-server.service wants.
     let wait_log = log.clone();
     let learner_log = log.clone();
     let member = state::connect(
@@ -847,17 +865,12 @@ async fn serve(
     })
     .await
     .map_err(|e| e.to_string())?;
-    if with_agent {
-        // The node's agent is a unit of its own on server machines too
-        // (ADR 0055); a node certificate that expired while the machine
-        // was down is signed again for it, as Go does before its embedded
-        // agent starts.
-        renewer.renew_node(&st).await;
-        log.info(
-            "this machine's agent runs as armada-agent.service, not inside the server (ADR 0055)",
-            &[],
-        );
-    }
+    // The node's agent is a unit of its own on server machines (ADR
+    // 0055); a node certificate that expired while the machine was down
+    // is signed again for it, as Go does before its embedded agent
+    // starts. An agent that started first with the expired one fails its
+    // handshake, and systemd starts it again with this one.
+    renewer.renew_node(&st).await;
     let setup = Arc::new(Setup {
         data_dir: data_dir.clone(),
         name: name.clone(),

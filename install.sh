@@ -229,8 +229,10 @@ fi
 # service restarts; a new one still has to be set up.
 if [ -e "$DATA_DIR/agent.json" ]; then
 	unit=armada-agent
+	# A server machine runs its etcd member and its agent as units of
+	# their own beside the server (ADR 0055).
 	if command -v systemctl >/dev/null 2>&1 && systemctl is-enabled --quiet armada-server 2>/dev/null; then
-		unit=armada-server
+		unit="armada-etcd armada-server armada-agent"
 	fi
 	say "This machine already runs Armada: 'sudo systemctl restart $unit' starts the new version. Next time, 'sudo armadad upgrade' installs and restarts in one step."
 else
