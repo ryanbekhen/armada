@@ -70,7 +70,17 @@ pub struct ExecRequest {
     /// execProcess's terminalDrainGrace.
     #[serde(rename = "terminalDrainGraceMs")]
     pub terminal_drain_grace_ms: u64,
+    /// With a terminal, the runtime hands the container's own terminal
+    /// over a console socket instead of copying through one of its own
+    /// (crun, ADR 0056: its own copy leaves the container's terminal
+    /// without output translation and this side in raw mode, so "\n"
+    /// would reach the caller without "\r"). runc keeps its own copy.
+    #[serde(rename = "consoleSocket")]
+    pub console_socket: bool,
 }
+
+/// The console socket's name in the exec's directory.
+const CONSOLE_SOCKET: &str = "console.sock";
 
 /// specs.Box.
 #[derive(Deserialize, Serialize, Clone, Copy, Debug, PartialEq)]
@@ -228,9 +238,133 @@ pub fn oci_args(r: &ExecRequest) -> Vec<String> {
     ];
     if r.terminal {
         a.push("--tty".into());
+        if r.console_socket {
+            a.push("--console-socket".into());
+            a.push(dir.join(CONSOLE_SOCKET).to_string_lossy().into_owned());
+        }
     }
     a.push(r.id.clone());
     a
+}
+
+/// The console socket in the exec's directory, listening, non-blocking.
+/// Bound through the directory's descriptor, so a directory path longer
+/// than a socket address holds still works (the runtime connects the same
+/// way, through /proc/self/fd, when the path is too long).
+fn console_listener(dir: &str) -> std::io::Result<std::os::unix::net::UnixListener> {
+    let d = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_PATH | libc::O_DIRECTORY)
+        .open(dir)?;
+    let l = std::os::unix::net::UnixListener::bind(format!(
+        "/proc/self/fd/{}/{CONSOLE_SOCKET}",
+        d.as_raw_fd()
+    ))?;
+    l.set_nonblocking(true)?;
+    Ok(l)
+}
+
+/// The terminal a connection on the console socket carries (SCM_RIGHTS):
+/// the master of the container's own pseudo-terminal. Anything that is
+/// not a terminal is refused; descriptors past the first are closed.
+fn recv_terminal(s: &UnixStream) -> std::io::Result<File> {
+    let mut buf = [0u8; 4096];
+    let mut iov = libc::iovec {
+        iov_base: buf.as_mut_ptr().cast(),
+        iov_len: buf.len(),
+    };
+    // Room for a few descriptors, aligned for cmsghdr.
+    let mut control = [0u64; 16];
+    // SAFETY: a zeroed msghdr is a valid empty one.
+    let mut msg: libc::msghdr = unsafe { std::mem::zeroed() };
+    msg.msg_iov = &mut iov;
+    msg.msg_iovlen = 1;
+    msg.msg_control = control.as_mut_ptr().cast();
+    msg.msg_controllen = std::mem::size_of_val(&control) as _;
+    let n = loop {
+        // SAFETY: recvmsg on a socket this process owns, into msg.
+        let n = unsafe { libc::recvmsg(s.as_raw_fd(), &mut msg, libc::MSG_CMSG_CLOEXEC) };
+        if n >= 0 || std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted {
+            break n;
+        }
+    };
+    if n < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    let mut fds = Vec::new();
+    // SAFETY: walking the control messages recvmsg filled in.
+    unsafe {
+        let mut c = libc::CMSG_FIRSTHDR(&msg);
+        while !c.is_null() {
+            if (*c).cmsg_level == libc::SOL_SOCKET && (*c).cmsg_type == libc::SCM_RIGHTS {
+                let data = libc::CMSG_DATA(c).cast::<i32>();
+                let len = (*c).cmsg_len as usize - libc::CMSG_LEN(0) as usize;
+                for i in 0..len / std::mem::size_of::<i32>() {
+                    fds.push(File::from_raw_fd(std::ptr::read_unaligned(data.add(i))));
+                }
+            }
+            c = libc::CMSG_NXTHDR(&msg, c);
+        }
+    }
+    let mut fds = fds.into_iter();
+    let f = fds
+        .next()
+        .ok_or_else(|| std::io::Error::other("no terminal on the console socket"))?;
+    // SAFETY: isatty on a descriptor this process owns.
+    if unsafe { libc::isatty(f.as_raw_fd()) } != 1 {
+        return Err(std::io::Error::other("the console socket sent no terminal"));
+    }
+    Ok(f)
+}
+
+/// Whether child pid ended (not reaped: Runc reaps it).
+fn ended(pid: libc::pid_t) -> bool {
+    // SAFETY: waitid with WNOWAIT|WNOHANG on this process's child, into a
+    // zeroed local.
+    let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
+    let r = unsafe {
+        libc::waitid(
+            libc::P_PID,
+            pid as libc::id_t,
+            &mut info,
+            libc::WEXITED | libc::WNOWAIT | libc::WNOHANG,
+        )
+    };
+    // SAFETY: si_pid of the siginfo waitid filled (0 when nothing ended).
+    r != 0 || unsafe { info.si_pid() } != 0
+}
+
+/// The container's terminal from the console socket: the runtime sends it
+/// once the process is made, before it writes the pid. None when the
+/// runtime ended without sending one, or by the start's limit.
+fn await_terminal(
+    l: &std::os::unix::net::UnixListener,
+    pid: libc::pid_t,
+    limit: Instant,
+) -> Option<File> {
+    loop {
+        let gone = ended(pid);
+        match l.accept() {
+            Ok((c, _)) => {
+                let _ = c.set_nonblocking(false);
+                let _ = c.set_read_timeout(Some(Duration::from_secs(1)));
+                return recv_terminal(&c).ok();
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
+            Err(_) => return None,
+        }
+        // What a runtime sent before it ended is queued: accepted above.
+        if gone || Instant::now() >= limit {
+            return None;
+        }
+        let mut p = libc::pollfd {
+            fd: l.as_raw_fd(),
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        // SAFETY: poll of the listener this function holds.
+        unsafe { libc::poll(&mut p, 1, 10) };
+    }
 }
 
 /// What happened before runc was to run.
@@ -679,7 +813,33 @@ fn start(r: ExecRequest, ctl: UnixStream, mut ans: Answers, fds: [Option<File>; 
     let mut cmd = std::process::Command::new(&r.runtime);
     cmd.args(oci_args(&r));
     let mut pty = None;
-    if r.terminal {
+    let console = r.terminal && r.console_socket;
+    let mut listener = None;
+    // The runtime's own output (its errors) with a console socket: the
+    // container's output arrives on its terminal instead.
+    let mut runtime_out = None;
+    if console {
+        match console_listener(&r.dir) {
+            Ok(l) => listener = Some(l),
+            Err(e) => {
+                ans.send(serde_json::json!({ "redo": format!("open the console socket: {e}") }));
+                std::process::exit(1);
+            }
+        }
+        let (rd, wr) = match std::io::pipe() {
+            Ok(p) => p,
+            Err(e) => {
+                ans.send(serde_json::json!({ "redo": format!("open a pipe: {e}") }));
+                std::process::exit(1);
+            }
+        };
+        let Ok(wr2) = wr.try_clone() else {
+            ans.send(serde_json::json!({ "redo": "duplicate a pipe" }));
+            std::process::exit(1);
+        };
+        cmd.stdin(Stdio::null()).stdout(wr).stderr(wr2);
+        runtime_out = Some(rd);
+    } else if r.terminal {
         let (master, slave) = match open_pty() {
             Ok(p) => p,
             Err(e) => {
@@ -749,10 +909,37 @@ fn start(r: ExecRequest, ctl: UnixStream, mut ans: Answers, fds: [Option<File>; 
     // Only runc holds the terminal's other end now.
     drop(cmd);
     ans.send(serde_json::json!({ "spawned": true }));
+    if let Some(l) = &listener {
+        // The container's own terminal, which the copies below and the
+        // resizes use as the terminal of runc's own copy is used.
+        let t = await_terminal(l, child.id() as libc::pid_t, Instant::now() + START_LIMIT);
+        if let (Some(t), Some(s)) = (&t, r.console_size) {
+            resize(
+                t,
+                Size {
+                    width: s.width.min(u64::from(u32::MAX)) as u32,
+                    height: s.height.min(u64::from(u32::MAX)) as u32,
+                },
+            );
+        }
+        pty = t.map(Arc::new);
+    }
+    drop(listener);
 
     let (tx, rx) = mpsc::channel();
     let out = Arc::new(Output::new());
     let mut copies = 0;
+    // The runtime's own errors go where its terminal's output would.
+    let runtime_dst = match (&runtime_out, &stdout) {
+        (Some(_), Some(d)) => d.try_clone().ok(),
+        _ => None,
+    };
+    if let (Some(src), Some(dst)) = (runtime_out, runtime_dst) {
+        let (o, t) = (Arc::clone(&out), tx.clone());
+        copies += 1;
+        let fd = src.as_raw_fd();
+        std::thread::spawn(move || copy_out(src, fd, dst, o, t));
+    }
     if let Some(master) = &pty {
         if let Some(src) = stdin {
             let m = Arc::clone(master);
@@ -1111,6 +1298,21 @@ mod tests {
             ]
         );
         assert_eq!(oci_args(&req(&["x"], false, None)).len(), 8);
+        // crun's terminal comes over a console socket in the exec's
+        // directory (ADR 0056); without a terminal there is none.
+        let mut console = req(&["x"], true, None);
+        console.console_socket = true;
+        assert_eq!(
+            oci_args(&console)[7..],
+            [
+                "--tty",
+                "--console-socket",
+                "/run/x/exec-c1-e/console.sock",
+                "c1"
+            ]
+        );
+        console.terminal = false;
+        assert_eq!(oci_args(&console).len(), 8);
         // A request of the agent before ADR 0056 names runc by its key.
         let r: ExecRequest = serde_json::from_str(r#"{"runc": "/bin/runc", "id": "c1"}"#).unwrap();
         assert_eq!(r.runtime, "/bin/runc");

@@ -119,6 +119,7 @@ pub fn run(node: &Path, r: &ExecRequest<'_>) -> Result<(i64, Vec<u8>), String> {
         "stdin": false, "stdout": r.output, "stderr": r.output,
         "drainGraceMs": grace,
         "terminalDrainGraceMs": TERMINAL_DRAIN_GRACE.as_millis() as u64,
+        "consoleSocket": console_socket(r.runtime),
     });
     let (req_r, req_w) = pipe().map_err(|e| e.to_string())?;
     let (ctl, ctl_child) = UnixStream::pair().map_err(|e| e.to_string())?;
@@ -209,6 +210,13 @@ fn answers(mut ctl: BufReader<UnixStream>, rt: OciRuntime, program: &str) -> Res
         return Err("exec: armada-node: ended the exec session".into());
     }
     code.ok_or_else(|| "exec: armada-node: ended the exec session".to_string())
+}
+
+/// Whether a terminal comes over a console socket: crun's (ADR 0056),
+/// whose own copy would leave the container's terminal without output
+/// translation; runc keeps its own copy, as before.
+fn console_socket(rt: OciRuntime) -> bool {
+    rt == OciRuntime::Crun
 }
 
 /// execProcess.Start's error once the runtime wrote no pid in time (Go's
@@ -345,6 +353,7 @@ pub async fn session(
         "stdin": opts.stdin.is_some(), "stdout": want_out, "stderr": want_out && !r.tty,
         "drainGraceMs": DRAIN_GRACE.as_millis() as u64,
         "terminalDrainGraceMs": TERMINAL_DRAIN_GRACE.as_millis() as u64,
+        "consoleSocket": console_socket(r.runtime),
     });
     let io = |e: std::io::Error| format!("exec: armada-node: {e}");
     let (req_r, req_w) = pipe().map_err(io)?;
@@ -582,6 +591,9 @@ mod tests {
         assert_eq!(req["args"], serde_json::json!(["haproxy", "-c"]));
         assert_eq!(req["drainGraceMs"], 0);
         assert_eq!(req["stdout"], true);
+        // runc copies its own terminal; crun hands the container's over a
+        // console socket (ADR 0056).
+        assert_eq!(req["consoleSocket"], false);
         let bin = stand_in(&dir, "echo '{\"execErrno\":2}' >&4");
         assert_eq!(
             run(&bin, &r).unwrap_err(),

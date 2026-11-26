@@ -1077,6 +1077,7 @@ async fn runs_system_containers() {
             .to_string()
     );
     assert_eq!(r["drainGraceMs"], 0);
+    assert_eq!(r["consoleSocket"], true);
 
     // The log's last lines.
     let line = |s: &str| {
