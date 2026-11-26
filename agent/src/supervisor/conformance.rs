@@ -116,6 +116,27 @@ async fn conformance_supervisor_rust() {
         got,
         vec![(false, b"err\n".to_vec()), (true, b"hello\n".to_vec())]
     );
+    // A terminal: the container's own (crun hands it over its console
+    // socket, ADR 0056), sized as asked and translating its output, so
+    // lines end in "\r\n" as on any terminal.
+    let (out_tx, mut out_rx) = tokio::sync::mpsc::channel(16);
+    let opts = crate::side::ExecOptions {
+        cmd: vec!["sh".into(), "-c".into(), "echo a; echo b; stty size".into()],
+        tty: true,
+        size: crate::side::TermSize {
+            rows: 33,
+            cols: 101,
+        },
+        output: Some(out_tx),
+        ..Default::default()
+    };
+    assert_eq!(rt.exec_session(&id, opts).await.unwrap(), 0);
+    let mut tty = Vec::new();
+    while let Ok((_, b)) = out_rx.try_recv() {
+        tty.extend(b);
+    }
+    let tty = String::from_utf8_lossy(&tty).into_owned();
+    assert!(tty.contains("a\r\nb\r\n33 101\r\n"), "{tty:?}");
     let mut frames = rt
         .logs(&id, &crate::side::LogOptions::default())
         .await

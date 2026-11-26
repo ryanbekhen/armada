@@ -44,7 +44,8 @@
 //!   armada-node runtime exec
 //!       fd 3: {"bundle", "dir", "root", "runtime", "id", "args", "terminal",
 //!       "consoleSize", "stdin", "stdout", "stderr", "drainGraceMs",
-//!       "terminalDrainGraceMs"}; fd 4: a control socket (JSON lines);
+//!       "terminalDrainGraceMs", "consoleSocket"}; fd 4: a control
+//!       socket (JSON lines);
 //!       fds 5, 6, 7: the caller's input, output, and error output. Runs
 //!       the exec's session (ADR 0054 step 5, last part): writes
 //!       process.json as execProcess.Start does, starts the container's
