@@ -676,6 +676,19 @@ Go and every new Rust part is exercised only by its parity tests.
     Rust issued; the replays check Rust's output by shape and by its own
     round trip instead.
 
+    Step 1's storage slice, done: the store's parity tests
+    (`TestArmadaStore*`) record to `store/tests/testdata/<test>.jsonl`
+    every call with its arguments, Go's answer, and the keys it wrote or
+    deleted; `store/tests/replay.rs` (`make store-replay`, run by
+    `rust-check` and CI) replays them against `armada-store-parity` on the
+    pinned etcd over a Unix socket and compares each answer and the whole
+    keyspace after each call. The Go tests that ran Go and Rust at once
+    (two writers on one keyspace, stores fenced to the other side's term,
+    one election and one lock, a lease kept alive) cannot be recorded;
+    `rust_alone` checks the same with Rust on both sides. What no replay
+    checks once Go is gone is that the two run side by side at the same
+    moment, which only mattered while both were released.
+
 The release is tagged after 19 and the cloud run, before 20 (the owner's
 decision once 19 passed the lab runs): from 19 on, nothing a release
 ships is Go, and the Go code stays in the repository only as the parity

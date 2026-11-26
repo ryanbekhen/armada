@@ -84,6 +84,16 @@ pki-parity:
 store-parity:
 	cargo build --locked -p armada-store --features parity
 
+# The store's parity tests recorded from Go's store (go test
+# ./internal/store -run 'TestArmadaStore|TestRecordStoreTexts'
+# -record-fixtures writes store/tests/testdata) replayed against
+# armada-store-parity on the pinned etcd, with the Rust-only checks of what
+# Go and Rust did at once (ADR 0055, item 20): no Go needed.
+.PHONY: store-replay
+store-replay:
+	sh scripts/etcd-cache.sh
+	ARMADA_ETCD_DIR=$(CURDIR)/.cache/etcd cargo test --locked -p armada-store --features parity --test replay
+
 # The control plane Go's scenario parity tests run (ADR 0055):
 # target/debug/armada-server-parity (ARMADA_SERVER_BIN), and its ACME
 # manager for internal/certs' Pebble test,
@@ -142,6 +152,7 @@ rust-check:
 	cargo test --locked --workspace
 	$(MAKE) server-scenarios
 	cargo deny --locked check licenses
+	$(MAKE) store-replay
 	cargo build --release --locked --workspace --target x86_64-unknown-linux-musl
 	cargo build --release --locked --workspace --target aarch64-unknown-linux-musl
 	cd proto/gen && cargo fmt --check && cargo clippy --locked --all-targets -- -D warnings
