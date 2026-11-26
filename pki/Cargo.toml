@@ -23,6 +23,10 @@ serde_json = { workspace = true, optional = true }
 # ARMADA_PKI_BIN): never part of a release.
 parity = ["dep:serde_json"]
 
+[dev-dependencies]
+# The parity cases recorded from Go (tests/parity.rs).
+serde_json.workspace = true
+
 [[bin]]
 name = "armada-pki-parity"
 required-features = ["parity"]
