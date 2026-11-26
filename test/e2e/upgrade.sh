@@ -241,7 +241,13 @@ internal_reset() {
 internal_check() {
 	_counts=$(prober_counts) || fail "$1: reading the probers' counts"
 	[ "${_counts%% *}" -gt 0 ] || fail "$1: no internal request answered"
-	[ "${_counts##* }" = 0 ] || fail "$1: ${_counts##* } internal requests failed (${_counts%% *} answered)"
+	if [ "${_counts##* }" != 0 ]; then
+		# Each failure's time (UTC) and kind: http (a name or the request) or tcp.
+		for _r in $(status | jq -r --arg app "prober.$SPACE" '.apps[] | select(.name == $app) | .replicas[]?.id'); do
+			cli app exec "prober.$SPACE" --replica "$_r" -- sh -c 'cat /tmp/fails 2>/dev/null' | sed "s/^/    $_r: /" >&2 || true
+		done
+		fail "$1: ${_counts##* } internal requests failed (${_counts%% *} answered)"
+	fi
 	ok "$1: ${_counts%% *} internal HTTP and TCP requests, none failed"
 }
 
@@ -462,11 +468,15 @@ command:
   - |
     ok=0 bad=0
     while :; do
-      if [ -f /tmp/counts.reset ]; then ok=0 bad=0; rm -f /tmp/counts.reset; fi
-      if wget -q -O /dev/null -T 3 http://inner/ && [ "\$(echo hi | nc -w 3 tcp-echo 7000)" = hi ]; then
+      if [ -f /tmp/counts.reset ]; then ok=0 bad=0; rm -f /tmp/counts.reset /tmp/fails; fi
+      why=
+      wget -q -O /dev/null -T 3 http://inner/ || why=http
+      [ -n "\$why" ] || [ "\$(echo hi | nc -w 3 tcp-echo 7000)" = hi ] || why=tcp
+      if [ -z "\$why" ]; then
         ok=\$((ok + 1))
       else
         bad=\$((bad + 1))
+        echo "\$(date -u +%H:%M:%S) \$why" >> /tmp/fails
       fi
       echo "\$ok \$bad" > /tmp/counts
       sleep 0.2
