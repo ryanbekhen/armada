@@ -76,6 +76,20 @@ pub fn pack_id(pack: &[u8]) -> String {
     hex(&sum[..8])
 }
 
+/// The SHA-256 of everything r gives, in lower-case hex.
+pub fn sha256_reader(r: &mut impl std::io::Read) -> std::io::Result<String> {
+    let mut h = Sha256::new();
+    let mut buf = vec![0u8; 64 * 1024];
+    loop {
+        match r.read(&mut buf) {
+            Ok(0) => return Ok(hex(&h.finalize())),
+            Ok(n) => h.update(&buf[..n]),
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(e) => return Err(e),
+        }
+    }
+}
+
 pub fn hex(b: &[u8]) -> String {
     b.iter().map(|x| format!("{x:02x}")).collect()
 }
@@ -218,9 +232,7 @@ fn verify(dir: &Path, m: &Manifest) -> Result<(), String> {
             return Err(format!("bundle: {n} is not a regular file"));
         }
         let mut f = fs::File::open(&p).map_err(|e| path_err("open", &p, &e))?;
-        let mut h = Sha256::new();
-        std::io::copy(&mut f, &mut h).map_err(|e| e.to_string())?;
-        if hex(&h.finalize()) != *want {
+        if sha256_reader(&mut f).map_err(|e| e.to_string())? != *want {
             return Err(format!("bundle: {n} does not match its checksum"));
         }
     }

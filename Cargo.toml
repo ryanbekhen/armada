@@ -27,7 +27,7 @@ ruzstd = { version = "0.9", default-features = false, features = ["std", "hash"]
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["raw_value"] }
-sha2 = "0.10"
+sha2 = "0.11"
 x25519-dalek = { version = "3", default-features = false, features = ["static_secrets"] }
 
 # The CA and certificates (pki/): rcgen issues certificates and reads
