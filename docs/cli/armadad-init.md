@@ -19,7 +19,6 @@ Examples:
 ```bash
 sudo armadad init                                  # a cluster on this machine, its first server
 sudo armadad init --network wireguard              # containers' traffic between nodes encrypted
-sudo armadad init --runtime embedded               # containers on containerd instead of the supervisor
 ```
 
 Flags:
@@ -35,6 +34,6 @@ Flags:
 | `--node-name string` | node name (default: hostname) |
 | `--port int` | control plane port on the private IP (default `7443`) |
 | `--private-ip string` | this node's private IP (default: the only private IPv4 address; not with --network mesh) |
-| `--runtime string` | container runtime: supervisor (no containerd daemon, ADR 0046), or embedded (containerd) (default `supervisor`) |
+| `--runtime string` | container runtime: supervisor, the only one (ADR 0046); kept for scripts that pass it (default `supervisor`) |
 | `--user-name string` | name of the first user, who gets cluster-admin (default: the user running it) |
 

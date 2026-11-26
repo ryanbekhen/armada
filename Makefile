@@ -56,7 +56,7 @@ build:
 
 # armada-pack (pack/, a workspace member that is never shipped) builds the
 # runtime pack from the pins in pack/lock.json: it downloads the pinned
-# containerd, runc, CNI plugins, tini, and etcd (ADR 0011, ADR 0055) over
+# runc, CNI plugins, tini, and etcd (ADR 0046, ADR 0055) over
 # HTTPS, keeps each only when its SHA-256 matches, and packs them with
 # Armada's own programs below into build/pack/linux_<arch>.pack, which
 # daemon/build.rs embeds. Built with the release profile: it compresses
@@ -66,8 +66,8 @@ PACK = cargo run --release --locked -q -p armada-pack --
 # standard library only, static for both architectures with the linker
 # Rust ships (toolchain pinned in logger/rust-toolchain.toml).
 LOGGER_OUT = logger/target/$(1)-unknown-linux-musl/release/armada-log
-# armada-shim (shim/), which supervises an app's containers without
-# containerd (ADR 0046): built the same way.
+# armada-shim (shim/), which supervises an app's containers (ADR 0046):
+# built the same way.
 SHIM_OUT = shim/target/$(1)-unknown-linux-musl/release/armada-shim
 # armada-dns (dns/), the node-local resolver of containers (ADR 0053):
 # built the same way.

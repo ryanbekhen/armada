@@ -417,11 +417,17 @@ impl RuntimeFlags {
             ));
         }
         c.runtime = match self.runtime.as_str() {
-            "" => DEFAULT_RUNTIME.to_string(),
-            RUNTIME_EMBEDDED | RUNTIME_SUPERVISOR => self.runtime.clone(),
+            "" | RUNTIME_SUPERVISOR => DEFAULT_RUNTIME.to_string(),
+            // containerd left the runtime pack (ADR 0046, ADR 0055): a
+            // node set up on it would start nothing.
+            RUNTIME_EMBEDDED => {
+                return Err(format!(
+                    "invalid --runtime {RUNTIME_EMBEDDED}: containerd is no longer in the runtime pack; new nodes run on {RUNTIME_SUPERVISOR}, the only runtime (ADR 0046)"
+                ));
+            }
             other => {
                 return Err(format!(
-                    "invalid --runtime {}: use {RUNTIME_SUPERVISOR} or {RUNTIME_EMBEDDED}",
+                    "invalid --runtime {}: use {RUNTIME_SUPERVISOR}",
                     quote(other)
                 ));
             }
@@ -818,6 +824,15 @@ mod tests {
             (c.runtime.as_str(), c.container_subnet.as_str()),
             ("supervisor", "10.121.0.0/24")
         );
+        for (runtime, ok) in [("supervisor", true), ("embedded", false), ("podman", false)] {
+            let flags = RuntimeFlags {
+                subnet: "10.121.0.0/24".into(),
+                runtime: runtime.into(),
+                subnet_changed: false,
+            };
+            let mut c = AgentConfig::default();
+            assert_eq!(flags.apply(&mut c, Some(&ip)).is_ok(), ok, "{runtime}");
+        }
         let note = rt
             .use_node_subnet(&mut c, "10.120.3.0/24", "plain", Some(&ip))
             .unwrap();

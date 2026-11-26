@@ -49,15 +49,11 @@ fn lock_pins_every_program() {
             assert!(files.insert(f.clone()), "{f} in the pack twice");
         }
     }
-    for f in [
-        "containerd",
-        "containerd-shim-runc-v2",
-        "runc",
-        "tini",
-        "etcd",
-        "etcdutl",
-    ] {
+    for f in ["runc", "tini", "etcd", "etcdutl"] {
         assert!(files.contains(f), "{f} is not in the pack");
+    }
+    for f in ["containerd", "containerd-shim-runc-v2"] {
+        assert!(!files.contains(f), "{f} left the pack (ADR 0046)");
     }
     // Armada's own four programs join them.
     assert!(

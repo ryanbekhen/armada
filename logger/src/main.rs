@@ -1,5 +1,5 @@
-//! `armada-log` is the logging binary containerd's shim runs for every
-//! Armada container (ADR 0011). The shim passes the container's output on
+//! `armada-log` is the logging binary armada-shim runs for every
+//! Armada container (ADR 0011, ADR 0046). The shim passes the container's output on
 //! fds 3 (stdout) and 4 (stderr); closing fd 5 tells it the logger is ready.
 //!
 //! It stores the output exactly as `armadad runtime-log`

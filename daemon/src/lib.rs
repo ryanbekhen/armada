@@ -9,7 +9,8 @@
 //! user renew, and runtime-log; then those that set a machine up and run
 //! it: init, join, server join, server (armada-server's terms on the
 //! member armada-etcd.service runs), agent (armada-agent on the
-//! supervisor runtime), runtime reset and migrate, and doctor.
+//! supervisor runtime), runtime reset, and doctor. `runtime migrate` left
+//! with containerd.
 
 pub mod agentconfig;
 pub mod backup;

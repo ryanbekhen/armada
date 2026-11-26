@@ -2,7 +2,7 @@
 //! files to the runtime pack.
 //!
 //! When bumping a version: verify the upstream signature first (runc and
-//! tini publish GPG signatures; containerd and the CNI plugins publish
+//! tini publish GPG signatures; the CNI plugins publish
 //! checksums with the release, etcd SHA256SUMS), then record the SHA-256
 //! of both architectures. The hash, not the URL, is what the pack trusts.
 

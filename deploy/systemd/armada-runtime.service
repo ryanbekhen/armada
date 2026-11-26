@@ -1,10 +1,12 @@
 [Unit]
-Description=Armada embedded container runtime (containerd)
+Description=Armada runtime pack
 Documentation=https://github.com/ryanbekhen/armada
 After=network-online.target
 Wants=network-online.target
-# Started by armada-server or armada-agent. It exits at once on nodes that
-# are not initialized yet.
+# Wanted by armada-agent (and so armada-server). It installs the runtime pack
+# and exits, at once on nodes that are not initialized yet. On a node still
+# on containerd, which the pack no longer carries (ADR 0055), it fails and
+# says how to move the node.
 
 [Service]
 Type=simple
@@ -13,12 +15,11 @@ ExecStart=/usr/local/bin/armadad runtime --data-dir /var/lib/armada
 RuntimeDirectory=armada
 RuntimeDirectoryMode=0700
 RuntimeDirectoryPreserve=yes
-# Containers keep running while containerd restarts or is upgraded: only
-# containerd itself is stopped, not the shims in its cgroup.
+# A containerd a release before started under this unit keeps its
+# containers when it is stopped: only containerd itself is stopped, not the
+# shims in its cgroup, so a node rolled back to v0.1.0-alpha.42 finds them.
 KillMode=process
 Delegate=yes
-Restart=on-failure
-RestartSec=2
 LimitNOFILE=infinity
 LimitNPROC=infinity
 LimitCORE=infinity

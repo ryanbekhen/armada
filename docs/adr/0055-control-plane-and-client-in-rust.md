@@ -336,6 +336,15 @@ nothing, and logs and reports why (`armadad doctor` too); the containers
 keep running under their shims, and the way on is the move with the
 previous release (rolling back, below) or by hand.
 
+Done: containerd and `containerd-shim-runc-v2` are out of `pack/lock.json`,
+so `armada-runtime` (`armadad runtime`) installs the pack and fails on a
+containerd node instead of running containerd; `armadad init`, `join`, and
+`server join` refuse `--runtime embedded`; and `armadad runtime migrate`,
+which always left or entered containerd, is removed. `agent.json`'s
+`"runtime": "embedded"` still reads, so the agent and doctor say what to
+do, and the Rust leader still moves v0.1.0-alpha.42 agents off containerd
+(ADR 0054) during the rolling upgrade.
+
 **The leader.** A cluster's leader moves from Go to Rust through ordinary
 elections. When the operator upgrades the leader's machine last, the Go
 leader resigns when it stops and an upgraded server wins; a new term

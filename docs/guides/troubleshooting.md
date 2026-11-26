@@ -358,7 +358,7 @@ sudo armadad doctor
 | The node certificate expired (`CERT EXPIRES` in `armada node list`): a node off for more than 30 days | `armada node delete NODE`, then join it again |
 | The clock is off (`clock` in doctor) | Turn on NTP |
 | The supervisor runtime fails (`runtime` in doctor) | `systemctl status armada-server` (or `armada-agent`), which installs the runtime pack, and `systemctl status 'armada-shim-*'` |
-| The embedded runtime (containerd) is down (`runtime` in doctor) | `systemctl status armada-runtime`; then move the node to the supervisor ([operations guide](../operations.md#container-runtimes)) |
+| The node still runs on containerd (`runtime` in doctor), which this release no longer carries | Roll the machine back to v0.1.0-alpha.42 and move it to the supervisor runtime there, or remove the node and join it again ([operations guide](../operations.md#container-runtimes)) |
 
 A `MostUnreachable` event (`... nodes lost and ... ready: not moving their
 replicas (is the control plane cut off?)`) means more than half the nodes
