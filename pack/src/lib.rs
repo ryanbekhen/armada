@@ -4,7 +4,9 @@
 //! the pack `armadad` embeds (the bundle feature, daemon/build.rs): a
 //! gzipped tar with MANIFEST.json first, then every file by name, as Go's
 //! `embedded.Pack` writes it. It also collects the license files of the
-//! Go modules the pack's etcd programs link (`licenses`), fetches etcd's
+//! Go modules the pack's etcd programs link and the license texts of
+//! crun's source (`licenses`), crun's complete corresponding source
+//! (`sources`, ADR 0056), fetches etcd's
 //! API module for `make proto` (`etcd-api`), and extracts one artifact's
 //! files (`extract`, scripts/etcd-cache.sh). Never shipped: it runs on the
 //! machine that builds a release.

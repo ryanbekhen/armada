@@ -39,7 +39,7 @@ space := $(empty) $(empty)
 comma := ,
 REPLAY_FEATURES = $(subst $(space),$(comma),$(foreach r,store server agent client daemon,$(REPLAY_FEATURE_$(r))))
 
-.PHONY: all build build-bundle logger shim dns node node-test-hooks fmt lint test replays store-replay server-scenarios agent-scenarios client-replay daemon-replay haproxy-check deny vuln programs-check rust-check check runtime-bundle runtime-licenses rust-licenses proto proto-rust docs clean
+.PHONY: all build build-bundle logger shim dns node node-test-hooks fmt lint test replays store-replay server-scenarios agent-scenarios client-replay daemon-replay haproxy-check deny vuln programs-check rust-check check runtime-bundle runtime-licenses runtime-sources rust-licenses proto proto-rust docs clean
 
 all: check build
 
@@ -56,7 +56,7 @@ build:
 
 # armada-pack (pack/, a workspace member that is never shipped) builds the
 # runtime pack from the pins in pack/lock.json: it downloads the pinned
-# runc, CNI plugins, tini, and etcd (ADR 0046, ADR 0055) over
+# crun, runc, CNI plugins, tini, and etcd (ADR 0046, ADR 0055, ADR 0056) over
 # HTTPS, keeps each only when its SHA-256 matches, and packs them with
 # Armada's own programs below into build/pack/linux_<arch>.pack, which
 # daemon/build.rs embeds. Built with the release profile: it compresses
@@ -184,10 +184,19 @@ runtime-bundle: logger shim dns node
 
 # The license files of every Go module the pack's etcd and etcdutl link
 # (their build information names each with its go.sum hash, which every
-# module zip from the Go module proxy is checked against) into
-# build/licenses-runtime: release archives carry them as licenses/runtime.
+# module zip from the Go module proxy is checked against), and crun's
+# license texts from its pinned source, into build/licenses-runtime:
+# release archives carry them as licenses/runtime.
 runtime-licenses:
 	$(PACK) licenses --out build/licenses-runtime
+
+# The complete corresponding source of the pack's GPL program, crun (ADR
+# 0056): its release tarball and the build files of its static programs,
+# each pinned in pack/lock.json, into build/sources-runtime (full Linux
+# release archives: source/runtime). licenses-runtime gets its license
+# texts (crun@<version>/).
+runtime-sources:
+	$(PACK) sources --out build/sources-runtime
 
 # Every crate's license and notice files into build/licenses-rust (release
 # archives: licenses/rust).

@@ -49,7 +49,10 @@ fn lock_pins_every_program() {
             assert!(files.insert(f.clone()), "{f} in the pack twice");
         }
     }
-    for f in ["runc", "tini", "etcd", "etcdutl"] {
+    // crun runs new containers, runc those it created before ADR 0056
+    // until they are recreated: both stay in the pack until a later
+    // release removes runc.
+    for f in ["crun", "runc", "tini", "etcd", "etcdutl"] {
         assert!(files.contains(f), "{f} is not in the pack");
     }
     for f in ["containerd", "containerd-shim-runc-v2"] {
@@ -65,6 +68,71 @@ fn lock_pins_every_program() {
     assert!(etcd.module_licenses, "etcd's modules' licenses ship");
     let api = etcd.api_module.as_ref().expect("etcd's API module");
     assert!(api.h1.starts_with("h1:"), "{}", api.h1);
+}
+
+/// A program under the GPL ships its complete corresponding source and
+/// its license texts (ADR 0056); every source file is pinned like a
+/// program. Licenses that limit commercial use or reach a network
+/// service's users are never pinned.
+#[test]
+fn gpl_programs_ship_their_source() {
+    let notices = read("THIRD_PARTY_NOTICES.md");
+    for a in &lock().artifacts {
+        for bad in ["AGPL", "SSPL", "BUSL", "Commons-Clause"] {
+            assert!(!a.license.contains(bad), "{}: {}", a.name, a.license);
+        }
+        let gpl = a.license.starts_with("GPL") || a.license.contains(" GPL");
+        assert!(
+            !gpl || !a.sources.is_empty(),
+            "{} is under {} and ships no source",
+            a.name,
+            a.license
+        );
+        assert!(
+            a.sources.is_empty() || !a.license.is_empty(),
+            "{}: sources need a license",
+            a.name
+        );
+        let mut seen = BTreeSet::new();
+        let mut licenses = 0;
+        for s in &a.sources {
+            assert!(s.url.starts_with("https://"), "{}: {}", a.name, s.url);
+            assert!(
+                s.sha256.len() == 64 && s.sha256.bytes().all(|c| c.is_ascii_hexdigit()),
+                "{}: no SHA-256 for {}",
+                a.name,
+                s.file
+            );
+            check_name(&s.file).unwrap_or_else(|e| panic!("{}: {e}", a.name));
+            assert!(seen.insert(s.file.clone()), "{}: {} twice", a.name, s.file);
+            for to in s.licenses.values() {
+                check_name(to).unwrap_or_else(|e| panic!("{}: {e}", a.name));
+                licenses += 1;
+            }
+        }
+        if gpl {
+            assert!(
+                a.sources
+                    .iter()
+                    .any(|s| s.file.ends_with(".tar.gz") && !s.licenses.is_empty()),
+                "{}: no source tarball with its license texts",
+                a.name
+            );
+            assert!(licenses > 0);
+            let row = format!("| {} | {} | {} |", a.name, a.version, a.license);
+            assert!(
+                notices.contains(&row),
+                "THIRD_PARTY_NOTICES.md has no row {row:?}"
+            );
+        }
+    }
+    let crun = lock().artifact("crun").cloned().expect("crun");
+    assert_eq!(crun.license, "GPL-2.0-or-later");
+    assert!(
+        crun.url.ends_with("-disable-systemd"),
+        "crun without systemd support (ADR 0056): {}",
+        crun.url
+    );
 }
 
 #[test]

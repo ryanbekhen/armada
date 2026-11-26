@@ -3,7 +3,9 @@
 # install.sh, armadad upgrade (Go's of alpha.42 and Rust's), and people
 # read (docs/releasing.md): every archive name, the binaries and files in
 # each, checksums.txt, static Linux programs, the runtime pack in armadad,
-# and the version both binaries print. CI's release-dry-run job runs it
+# crun's source in the full Linux archives (ADR 0056), and the version
+# both binaries print. Run it from the repository's root (it reads
+# pack/lock.json). CI's release-dry-run job runs it
 # after `goreleaser release --snapshot`; run it locally the same way.
 set -eu
 dist=${1:-dist}
@@ -49,6 +51,21 @@ for arch in amd64 arm64; do
 	done
 	# The license files of the Go modules the pack's etcd programs link.
 	[ -f "$full/licenses/runtime/MODULES.txt" ] || fail "linux_$arch: no licenses/runtime/MODULES.txt"
+	# crun's complete corresponding source and license texts (GPL-2.0,
+	# ADR 0056): every file pack/lock.json pins, with its SHA-256.
+	src=$full/source/runtime
+	[ -f "$src/SOURCES.txt" ] || fail "linux_$arch: no source/runtime/SOURCES.txt"
+	crun=$(jq -r '.artifacts[] | select(.name == "crun") | .version' pack/lock.json)
+	[ "$(jq '[.artifacts[].sources // [] | length] | add' pack/lock.json)" -eq "$(wc -l <"$src/SOURCES.txt")" ] || fail "linux_$arch: SOURCES.txt does not list every pinned source"
+	while read -r rel sum _url; do
+		[ -f "$src/$rel" ] || fail "linux_$arch: no source/runtime/$rel"
+		[ "$(sha256sum "$src/$rel" | cut -d' ' -f1)" = "$sum" ] || fail "linux_$arch: source/runtime/$rel does not match its pin"
+	done <"$src/SOURCES.txt"
+	[ -f "$src/crun-$crun/crun-$crun.tar.gz" ] || fail "linux_$arch: no source/runtime/crun-$crun/crun-$crun.tar.gz"
+	for f in COPYING COPYING.libcrun; do
+		[ -f "$full/licenses/runtime/crun@$crun/$f" ] || fail "linux_$arch: no licenses/runtime/crun@$crun/$f"
+	done
+	[ ! -e "$client/source" ] || fail "client archive linux_$arch: holds the runtime's source"
 	[ ! -e "$client/armadad" ] || fail "client archive linux_$arch: holds armadad"
 	[ ! -e "$client/deploy" ] || fail "client archive linux_$arch: holds the units"
 	case $arch in

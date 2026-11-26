@@ -5,12 +5,15 @@ project_name: armada
 
 # Nothing here needs Go (ADR 0055, item 20): armada-pack (pack/) builds the
 # runtime pack from pack/lock.json and collects the license files of the
-# Go modules the pack's etcd programs link (licenses/runtime);
-# scripts/rust-licenses.sh those of the crates (licenses/rust).
+# Go modules the pack's etcd programs link and crun's license texts
+# (licenses/runtime), and crun's complete corresponding source
+# (source/runtime, ADR 0056); scripts/rust-licenses.sh the crates' license
+# files (licenses/rust).
 before:
   hooks:
     - make runtime-bundle
     - make runtime-licenses
+    - make runtime-sources
     - make rust-licenses
 
 builds:
@@ -80,6 +83,12 @@ archives:
       # dst is its full path.
       - src: build/licenses-runtime/MODULES.txt
         dst: licenses/runtime/MODULES.txt
+      # crun's complete corresponding source (GPL-2.0, section 3(a); ADR
+      # 0056), in the archive that carries armadad and with it the pack.
+      - src: build/sources-runtime/**/*
+        dst: source/runtime
+      - src: build/sources-runtime/SOURCES.txt
+        dst: source/runtime/SOURCES.txt
       - README.md
       - SECURITY.md
       - deploy/systemd/*

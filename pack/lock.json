@@ -1,6 +1,47 @@
 {
   "artifacts": [
     {
+      "name": "crun",
+      "version": "1.31",
+      "url": "https://github.com/containers/crun/releases/download/1.31/crun-1.31-linux-{arch}-disable-systemd",
+      "sha256": {
+        "amd64": "44d493d4b00914ea2f153631ad825c7653aacfa09c373c50dfe08c61258ede9d",
+        "arm64": "2fd023c8a110edd31a2eb2617a3d7633d2615364938250c89cb13fffd9f0ed38"
+      },
+      "license": "GPL-2.0-or-later",
+      "sources": [
+        {
+          "url": "https://github.com/containers/crun/releases/download/1.31/crun-1.31.tar.gz",
+          "sha256": "17d04ba159fada1f1300a36b8afe869afb38bf1bbda28da052e83bb4bee20108",
+          "file": "crun-1.31.tar.gz",
+          "licenses": {
+            "crun-1.31/COPYING": "COPYING",
+            "crun-1.31/COPYING.libcrun": "COPYING.libcrun"
+          }
+        },
+        {
+          "url": "https://raw.githubusercontent.com/containers/crun/1.31/flake.nix",
+          "sha256": "543743e01c38fea0cd1a226e1ca5940072e393fe6e1a951790128040f6e18f2e",
+          "file": "build/flake.nix"
+        },
+        {
+          "url": "https://raw.githubusercontent.com/containers/crun/1.31/flake.lock",
+          "sha256": "f4b878750ec155e41f0351bd0d546af7ca7a5aff73a91ac6101b40f14738cad3",
+          "file": "build/flake.lock"
+        },
+        {
+          "url": "https://raw.githubusercontent.com/containers/crun/1.31/nix/derivation.nix",
+          "sha256": "a0b72ec1b9e4a31e99f2e2e1f8918bb1ff87e7e2ef9dadc9a4bfde47a1b28cf7",
+          "file": "build/nix/derivation.nix"
+        },
+        {
+          "url": "https://raw.githubusercontent.com/containers/crun/1.31/nix/static.nix",
+          "sha256": "1ed63d4c0266ef4b33eed10a473fd9870d7ac842225f94375c290b61d9fa811b",
+          "file": "build/nix/static.nix"
+        }
+      ]
+    },
+    {
       "name": "runc",
       "version": "1.5.2",
       "url": "https://github.com/opencontainers/runc/releases/download/v1.5.2/runc.{arch}",
