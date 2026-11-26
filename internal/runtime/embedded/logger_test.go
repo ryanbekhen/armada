@@ -52,13 +52,46 @@ func TestRuntimeLogMatchesGo(t *testing.T) {
 // output and compares every file byte for byte, timestamps aside.
 func compareLoggers(t *testing.T, run func(t *testing.T, dir, id, stdout, stderr string, lim logLimits)) {
 	t.Helper()
+	for _, c := range loggerCases() {
+		t.Run(c.name, func(t *testing.T) {
+			const id = loggerCaseID
+			goDir, rustDir := t.TempDir(), t.TempDir()
+			if c.meta {
+				for _, d := range []string{goDir, rustDir} {
+					if err := WriteLogMeta(d, id, LogMeta{App: "web", Replica: "web-r1"}); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			start := time.Now()
+			if err := writeLogs(goDir, id, strings.NewReader(c.stdout), strings.NewReader(c.stderr), c.lim); err != nil {
+				t.Fatal(err)
+			}
+			run(t, rustDir, id, c.stdout, c.stderr, c.lim)
+			goFiles, rustFiles := logFiles(t, goDir, start), logFiles(t, rustDir, start)
+			if !slices.EqualFunc(goFiles, rustFiles, func(a, b logFileContent) bool { return a.name == b.name && a.body == b.body }) {
+				t.Errorf("go:\n%s\nrust:\n%s", describe(goFiles), describe(rustFiles))
+			}
+		})
+	}
+}
+
+// loggerCaseID is the container the logger cases write for.
+const loggerCaseID = "web-r1-0a1b2c3d"
+
+// loggerCase is one output a logger stores.
+type loggerCase struct {
+	name           string
+	stdout, stderr string
+	lim            logLimits
+	meta           bool
+}
+
+// loggerCases are the outputs compareLoggers runs (and the recording for
+// the Rust replay writes, logger_record_test.go).
+func loggerCases() []loggerCase {
 	long := strings.Repeat("x", 40000) + "\n"
-	cases := []struct {
-		name           string
-		stdout, stderr string
-		lim            logLimits
-		meta           bool
-	}{
+	return []loggerCase{
 		{
 			name: "encoding and long lines",
 			stdout: "plain\n" + `quotes " and \ and <tags> & ampersands` + "\n" +
@@ -93,28 +126,6 @@ func compareLoggers(t *testing.T, run func(t *testing.T, dir, id, stdout, stderr
 			stdout: numbered(200),
 			lim:    logLimits{maxSize: 10 << 20, maxFiles: 3, rate: 1, burst: 500},
 		},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			const id = "web-r1-0a1b2c3d"
-			goDir, rustDir := t.TempDir(), t.TempDir()
-			if c.meta {
-				for _, d := range []string{goDir, rustDir} {
-					if err := WriteLogMeta(d, id, LogMeta{App: "web", Replica: "web-r1"}); err != nil {
-						t.Fatal(err)
-					}
-				}
-			}
-			start := time.Now()
-			if err := writeLogs(goDir, id, strings.NewReader(c.stdout), strings.NewReader(c.stderr), c.lim); err != nil {
-				t.Fatal(err)
-			}
-			run(t, rustDir, id, c.stdout, c.stderr, c.lim)
-			goFiles, rustFiles := logFiles(t, goDir, start), logFiles(t, rustDir, start)
-			if !slices.EqualFunc(goFiles, rustFiles, func(a, b logFileContent) bool { return a.name == b.name && a.body == b.body }) {
-				t.Errorf("go:\n%s\nrust:\n%s", describe(goFiles), describe(rustFiles))
-			}
-		})
 	}
 }
 

@@ -73,7 +73,26 @@ func okAnswer(m proto.Message) []answer { return []answer{{msg: m}} }
 
 func failAnswer(c codes.Code, text string) []answer { return []answer{{code: c, text: text}} }
 
-type call struct{ Method, Request string }
+// call is one request the fake received. The archive of RestoreVolume and
+// the input of an Exec stream are also kept whole for the recording
+// (parity_record_test.go).
+type call struct {
+	Method, Request string
+
+	start string
+	data  []byte
+	rest  []string
+}
+
+// compactJSON is protojson's output without the spaces it adds at random,
+// so a recording names the same request the same way.
+func compactJSON(b []byte) string {
+	var out bytes.Buffer
+	if json.Compact(&out, b) != nil {
+		return string(b)
+	}
+	return out.String()
+}
 
 // scriptedAdmin answers every AdminService method from a script: a list of
 // answers per method, the last one repeated.
@@ -94,7 +113,7 @@ func (f *scriptedAdmin) unary(ctx context.Context, req any, info *grpc.UnaryServ
 	method := path.Base(info.FullMethod)
 	b, _ := protojson.MarshalOptions{}.Marshal(req.(proto.Message))
 	f.mu.Lock()
-	f.calls = append(f.calls, call{method, string(b)})
+	f.calls = append(f.calls, call{Method: method, Request: compactJSON(b)})
 	as := f.script[method]
 	if len(as) == 0 {
 		f.mu.Unlock()
@@ -116,9 +135,15 @@ func (f *scriptedAdmin) unary(ctx context.Context, req any, info *grpc.UnaryServ
 
 // next takes the next answer for method, recording the request.
 func (f *scriptedAdmin) next(method, req string) (answer, bool) {
+	return f.nextCall(call{Method: method, Request: req})
+}
+
+// nextCall is next with the whole call.
+func (f *scriptedAdmin) nextCall(c call) (answer, bool) {
+	method := c.Method
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.calls = append(f.calls, call{method, req})
+	f.calls = append(f.calls, c)
 	as := f.script[method]
 	if len(as) == 0 {
 		return answer{}, false
@@ -130,10 +155,10 @@ func (f *scriptedAdmin) next(method, req string) (answer, bool) {
 	return a, true
 }
 
-func (f *scriptedAdmin) record(method, req string) {
+func (f *scriptedAdmin) record(c call) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.calls = append(f.calls, call{method, req})
+	f.calls = append(f.calls, c)
 }
 
 // streamed answers the streaming methods: Logs, Events, and BackupVolume
@@ -144,7 +169,7 @@ func (f *scriptedAdmin) streamed(_ any, ss grpc.ServerStream, info *grpc.StreamS
 	method := path.Base(info.FullMethod)
 	marshal := func(m proto.Message) string {
 		b, _ := protojson.MarshalOptions{}.Marshal(m)
-		return string(b)
+		return compactJSON(b)
 	}
 	var a answer
 	var ok bool
@@ -170,7 +195,7 @@ func (f *scriptedAdmin) streamed(_ any, ss grpc.ServerStream, info *grpc.StreamS
 			}
 			data = append(data, m.GetData()...)
 		}
-		a, ok = f.next(method, fmt.Sprintf("%s %q", start, data))
+		a, ok = f.nextCall(call{Method: method, Request: fmt.Sprintf("%s %q", start, data), start: start, data: data})
 		if ok && a.code == codes.OK {
 			return ss.SendMsg(a.msg)
 		}
@@ -208,14 +233,14 @@ func (f *scriptedAdmin) streamed(_ any, ss grpc.ServerStream, info *grpc.StreamS
 				}
 				rest = append(rest, marshal(in))
 			}
-			f.record("ExecInput", fmt.Sprintf("%q %v", stdin, rest))
+			f.record(call{Method: "ExecInput", Request: fmt.Sprintf("%q %v", stdin, rest), data: stdin, rest: rest})
 		}
 		if a.code != codes.OK {
 			return status.Error(a.code, a.text)
 		}
 		return nil
 	default:
-		f.record(method, "")
+		f.record(call{Method: method})
 		return status.Errorf(codes.Unimplemented, "no answer scripted for %s", method)
 	}
 	if !ok {
@@ -256,6 +281,12 @@ type parityResult struct {
 }
 
 type harness struct {
+	// started and startConfig are the time Go's run started and the
+	// client config it started with, for the recording.
+	started     time.Time
+	startConfig *recordedConfig
+	dir         string
+
 	addr   string
 	fake   *scriptedAdmin
 	cfg    clientconfig.Config
@@ -486,7 +517,13 @@ func (h *harness) runGo(t *testing.T, dir string, c parityCase) parityResult {
 	stderr := os.Stderr
 	os.Stderr = w0
 	var out, errb bytes.Buffer
-	code := Run(context.Background(), NewRootCommand(), c.args, strings.NewReader(c.stdin), &out, &errb)
+	h.before(dir)
+	// No arguments are none: cobra reads the test binary's own for nil.
+	args := c.args
+	if args == nil {
+		args = []string{}
+	}
+	code := Run(context.Background(), NewRootCommand(), args, strings.NewReader(c.stdin), &out, &errb)
 	os.Stderr = stderr
 	_ = w0.Close()
 	r := parityResult{Code: code, Stdout: out.String(), Stderr: string(<-direct) + errb.String()}
@@ -585,6 +622,10 @@ func TestClientParity(t *testing.T) {
 	cases = append(cases, moreCases(h)...)
 	cases = append(cases, exampleCases(t)...)
 	cases = append(cases, helpCases()...)
+	rec := newClientRecorder(h)
+	if rec != nil {
+		t.Cleanup(func() { rec.write(t) })
+	}
 	names := map[string]bool{}
 	for _, c := range cases {
 		if names[c.name] {
@@ -595,6 +636,9 @@ func TestClientParity(t *testing.T) {
 			dir := t.TempDir()
 			t.Chdir(dir)
 			goRes := h.runGo(t, dir, c)
+			if rec != nil {
+				rec.add(t, h, c, goRes)
+			}
 			if os.Getenv("ARMADA_PARITY_VERBOSE") != "" {
 				t.Logf("Go: exit %d\n--- stdout\n%s--- stderr\n%s--- requests\n%v\n--- files\n%s", goRes.Code, goRes.Stdout, goRes.Stderr, goRes.Calls, strings.Join(goRes.Files, "\n"))
 			}

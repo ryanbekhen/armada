@@ -142,13 +142,18 @@ func sameRendered(t *testing.T, what string, got, want rendered) {
 // writes. CI sets ARMADA_NODE_BIN (make node).
 func TestArmadaNodeRenderMatchesGo(t *testing.T) {
 	bin := os.Getenv("ARMADA_NODE_BIN")
-	if bin == "" {
+	rec := newRenderRecorder()
+	if bin == "" && rec == nil {
 		t.Skip("ARMADA_NODE_BIN is not set (make node)")
 	}
 	ctx := context.Background()
 	check := func(what string, cfg proxy.Config, opts renderOptions) {
 		t.Helper()
 		layout := assignLayout(nil, cfg, opts.node())
+		if rec != nil {
+			rec.add(t, what, cfg, layout, opts, renderGo(cfg, layout, opts))
+			return
+		}
 		got, err := renderNative(ctx, bin, cfg, layout, opts)
 		if err != nil {
 			t.Fatalf("%s: %v", what, err)
@@ -179,6 +184,7 @@ func TestArmadaNodeRenderMatchesGo(t *testing.T) {
 		valid++
 		check(fmt.Sprintf("random %d", i), cfg, nodeOptions[i%len(nodeOptions)])
 	}
+	rec.write(t)
 	t.Logf("%d random configurations compared", valid)
 	if valid < 200 {
 		t.Fatalf("only %d of 400 random configurations were valid", valid)

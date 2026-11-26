@@ -103,7 +103,12 @@ pub fn check_tmpfs(dir: &str) -> std::result::Result<(), String> {
     }
     const TMPFS: i64 = 0x0102_1994;
     const RAMFS: i64 = 0x8584_58f6;
-    let t = st.f_type as i64;
+    // The parity cases recorded from Go (test hooks only): the file
+    // system type of the machine they were recorded on, so a case
+    // replays alike wherever its directory lives.
+    let t = crate::hooks::get("FS_TYPE")
+        .and_then(|v| i64::from_str_radix(v.trim_start_matches("0x"), 16).ok())
+        .unwrap_or(st.f_type as i64);
     if t != TMPFS && t != RAMFS {
         return Err(format!("{dir} is not on tmpfs (file system type {t:#x})"));
     }

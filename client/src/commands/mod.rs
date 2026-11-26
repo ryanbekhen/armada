@@ -285,6 +285,11 @@ pub fn dash(s: &str) -> String {
 
 /// The time now, in Unix nanoseconds.
 pub fn now_nanos() -> i128 {
+    wall_nanos() + crate::clock_offset()
+}
+
+/// The machine's clock, in Unix nanoseconds.
+pub(crate) fn wall_nanos() -> i128 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_nanos() as i128)

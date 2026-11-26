@@ -104,6 +104,9 @@ type daemonResult struct {
 }
 
 type daemonHarness struct {
+	// rec records the cases for the Rust replay (-record-fixtures).
+	rec *daemonRecorder
+
 	bin      string
 	standins string
 	fx       fixtures
@@ -114,6 +117,10 @@ type daemonHarness struct {
 	bucket  *stateBucket
 	etcdDir string
 }
+
+// fixtureValidity is the fixtures' certificates' (within the CA's ten
+// years): the cases recorded for the Rust replay hold them.
+const fixtureValidity = 9 * 365 * 24 * time.Hour
 
 // fixtures are made once, so both runs of a case read the same bytes.
 type fixtures struct {
@@ -127,7 +134,7 @@ func newFixtures(t *testing.T) fixtures {
 		t.Fatal(err)
 	}
 	issue := func(id pki.Identity, ip string, server bool) ([]byte, []byte) {
-		c, k, err := ca.Issue(pki.IssueRequest{Identity: id, DNSNames: []string{pki.ServerName}, IPs: []net.IP{net.ParseIP(ip)}, Server: server, Client: !server})
+		c, k, err := ca.Issue(pki.IssueRequest{Identity: id, DNSNames: []string{pki.ServerName}, IPs: []net.IP{net.ParseIP(ip)}, Server: server, Client: !server, Validity: fixtureValidity})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -368,6 +375,7 @@ func (h *daemonHarness) runGo(t *testing.T, dir string, c daemonCase) daemonResu
 	for k, v := range h.env(dir, c) {
 		t.Setenv(k, v)
 	}
+	h.rec.snapshot(t, dir)
 	oldRun, oldExec, oldDetect, oldRestart := runDir, execProgram, detectEndpoint, restartService
 	runDir, detectEndpoint, restartService = filepath.Join(dir, "run"), netutil.DetectEndpoint, realRestartService
 	// The package's tests run etcd members on loopback ports without
@@ -408,7 +416,12 @@ func (h *daemonHarness) runGo(t *testing.T, dir string, c daemonCase) daemonResu
 		}()
 		stderr := os.Stderr
 		os.Stderr = w0
-		code = cli.Run(context.Background(), NewRootCommand(), c.args, strings.NewReader(c.stdin), &out, &errb)
+		// No arguments are none: cobra reads the test binary's own for nil.
+		args := c.args
+		if args == nil {
+			args = []string{}
+		}
+		code = cli.Run(context.Background(), NewRootCommand(), args, strings.NewReader(c.stdin), &out, &errb)
 		os.Stderr = stderr
 		_ = w0.Close()
 		pre := <-direct
@@ -450,24 +463,8 @@ func (h *daemonHarness) runGoUpgrade(dir string, c *upgradeCase, out, errb *byte
 func (h *daemonHarness) runRust(t *testing.T, dir string, c daemonCase) daemonResult {
 	t.Helper()
 	h.prepare(t, dir, c)
-	args := c.args
-	env := h.env(dir, c)
-	if u := c.upgrade; u != nil {
-		args = []string{"upgrade", "--version", u.target}
-		if u.noRestart {
-			args = append(args, "--no-restart")
-		}
-		if u.require {
-			args = append(args, "--require-signature")
-		}
-		maps.Copy(env, map[string]string{
-			"ARMADA_DAEMON_TEST_EUID":            "0",
-			"ARMADA_DAEMON_TEST_BIN_DIR":         filepath.Join(dir, "bin"),
-			"ARMADA_DAEMON_TEST_UNIT_DIR":        filepath.Join(dir, "units"),
-			"ARMADA_DAEMON_TEST_NEEDRESTART_DIR": filepath.Join(dir, "needrestart"),
-			"ARMADA_DAEMON_TEST_VERSION":         u.current,
-		})
-	}
+	args, env := h.rustInvocation(dir, c)
+	h.rec.snapshot(t, dir)
 	record, stop := h.stateRun(t, dir, c.state)
 	defer stop()
 	if c.during != nil {
@@ -493,6 +490,31 @@ func (h *daemonHarness) runRust(t *testing.T, dir string, c daemonCase) daemonRe
 	}
 	record()
 	return daemonResult{Code: code, Stdout: h.stdout(c, out.Bytes()), Stderr: errb.String(), Files: h.collect(t, dir)}
+}
+
+// rustInvocation is the arguments and environment the Rust armadad runs a
+// case with (an upgrade's with the test hooks standing for root, the
+// directories, and the version).
+func (h *daemonHarness) rustInvocation(dir string, c daemonCase) ([]string, map[string]string) {
+	args := c.args
+	env := h.env(dir, c)
+	if u := c.upgrade; u != nil {
+		args = []string{"upgrade", "--version", u.target}
+		if u.noRestart {
+			args = append(args, "--no-restart")
+		}
+		if u.require {
+			args = append(args, "--require-signature")
+		}
+		maps.Copy(env, map[string]string{
+			"ARMADA_DAEMON_TEST_EUID":            "0",
+			"ARMADA_DAEMON_TEST_BIN_DIR":         filepath.Join(dir, "bin"),
+			"ARMADA_DAEMON_TEST_UNIT_DIR":        filepath.Join(dir, "units"),
+			"ARMADA_DAEMON_TEST_NEEDRESTART_DIR": filepath.Join(dir, "needrestart"),
+			"ARMADA_DAEMON_TEST_VERSION":         u.current,
+		})
+	}
+	return args, env
 }
 
 // daemonToolchain is the compiler version names; elapsed are the times an
@@ -525,7 +547,14 @@ func compareDaemon(t *testing.T, goRes, rust daemonResult) {
 }
 
 func TestDaemonParity(t *testing.T) {
+	if *recordFixtures {
+		// The recording's commands find only what any Linux machine has,
+		// so the replay's PATH can be the same.
+		t.Setenv("PATH", recordPath)
+	}
 	h := newDaemonHarness(t)
+	h.rec = newDaemonRecorder(t, h)
+	t.Cleanup(func() { h.rec.write(t) })
 	cases := daemonCases(h)
 	cases = append(cases, h.stateCases(t)...)
 	cases = append(cases, h.serveCases()...)
@@ -559,16 +588,19 @@ func TestDaemonParity(t *testing.T) {
 					t.Logf("exit %d\n--- stdout\n%s--- stderr\n%s--- files\n%s", r.Code, r.Stdout, r.Stderr, strings.Join(r.Files, "\n"))
 				}
 				c.rustOnly(t, dir, r)
+				h.rec.add(t, c, r)
 				return
 			}
 			goRes := h.runGo(t, dir, c)
 			if os.Getenv("ARMADA_PARITY_VERBOSE") != "" {
 				t.Logf("exit %d\n--- stdout\n%s--- stderr\n%s", goRes.Code, goRes.Stdout, goRes.Stderr)
 			}
+			want := rustWants(c, goRes)
+			h.rec.add(t, c, want)
 			if h.bin == "" {
 				return
 			}
-			compareDaemon(t, rustWants(c, goRes), h.runRust(t, dir, c))
+			compareDaemon(t, want, h.runRust(t, dir, c))
 		})
 	}
 	t.Logf("%d cases", len(cases))
