@@ -7,7 +7,7 @@
 //! store's answers with Go's field names; the Go test reads them into its
 //! own types and compares.
 //!
-//! Requests (`op`): `open` (handle, endpoint, dir, prefix), `fenced`
+//! Requests (`op`): `open` (handle, endpoint and dir, or socket, prefix), `fenced`
 //! (handle, from, key, rev), `setNow` (handle, ms), `call` (handle, method,
 //! args, repeat, parallel), `reencode` (handle), `campaign` (handle,
 //! endpoint, dir, ttl, name), `resign` (handle), `leader` (endpoint, dir),
@@ -36,13 +36,25 @@ struct State {
 
 use armada_store::parity_call::*;
 
+/// The member's client: `endpoint` and `dir` (its TLS files) for Go's
+/// tests, or `socket`, a member on a Unix socket without TLS, for the
+/// replay of their recordings (tests/replay.rs).
 async fn client(stt: &State, req: &Value) -> Result<Client> {
-    let ep = s(req, "endpoint");
+    let sock = s(req, "socket");
+    let ep = if sock.is_empty() {
+        s(req, "endpoint")
+    } else {
+        format!("unix:{sock}")
+    };
     let mut cs = stt.clients.lock().await;
     if let Some(c) = cs.get(&ep) {
         return Ok(c.clone());
     }
-    let c = Client::connect(&ep, Path::new(&s(req, "dir")))?;
+    let c = if sock.is_empty() {
+        Client::connect(&ep, Path::new(&s(req, "dir")))?
+    } else {
+        Client::connect_unix(Path::new(&sock))?
+    };
     cs.insert(ep, c.clone());
     Ok(c)
 }

@@ -33,3 +33,9 @@ parity = []
 [[bin]]
 name = "armada-store-parity"
 required-features = ["parity"]
+
+# Go's parity tests replayed from recordings against armada-store-parity
+# on the pinned etcd (make store-replay).
+[[test]]
+name = "replay"
+required-features = ["parity"]

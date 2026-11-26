@@ -326,6 +326,10 @@ jobs:
           cargo deny --version 2>/dev/null | grep -qx 'cargo-deny 0.22.0' ||
             cargo install cargo-deny --locked --force --version 0.22.0
       - run: cargo deny --locked check licenses
+      # The store's parity tests recorded from Go's store, replayed against
+      # the Rust one on the pinned etcd (ADR 0055, item 20); the spec's,
+      # the CA's, and the secrets' recordings replay in cargo test above.
+      - run: make store-replay
       - run: make logger
       - run: make shim
       - run: make dns
