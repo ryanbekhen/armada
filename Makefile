@@ -89,7 +89,7 @@ client-parity:
 # The daemon parity tests (ADR 0055, pull request 18): Go's armadad in
 # process and the Rust one (daemon/ with its test hooks,
 # target/debug/armadad) on the same command lines, case directories, and
-# stand-ins for systemctl, cosign, and etcd; the commands that need the
+# stand-ins for systemctl, cosign, etcd, timedatectl, and ufw; the commands that need the
 # cluster's state run the pinned etcd and etcdutl, which
 # scripts/etcd-cache.sh puts into .cache/etcd. `armadad runtime-log`
 # stores what embedded.WriteLogs stores (TestRuntimeLogMatchesGo).

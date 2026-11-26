@@ -537,7 +537,16 @@ Go and every new Rust part is exercised only by its parity tests.
     `backup`, `restore`, `user renew`, `runtime reset` and `migrate`) with
     `init`, `join`, `server join`, `server`, and `agent`. Each is checked
     by a daemon parity harness that runs Go's armadad and the Rust one on
-    the same command lines and case directories.
+    the same command lines and case directories; doctor's cases give both
+    a machine of their own (host files, needrestart, the pack, being
+    root). The Rust doctor says what the Rust armadad does where it
+    differs from Go's: a node on containerd fails the runtime check, a
+    kernel without WireGuard fails the `wireguard` check for the
+    `wireguard` and `mesh` modes and other sites (no userspace device),
+    and servers whose member armada-etcd.service runs get the `etcd`
+    check of "etcd as its own unit" (the unit, the member's status, and
+    its version against the pack's; the member's certificate stays the
+    certificates check's).
 19. **The switch.** The release builds `armadad` and `armada` from Rust;
     units for etcd and the agent on server machines (until then the Rust
     `armadad server` connects only with `--etcd-member unit`, refuses the

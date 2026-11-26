@@ -487,6 +487,26 @@ async fn member_status(c: &Client, host: &str) -> Result<(u64, bool), String> {
     }
 }
 
+/// What the member of data_dir's server says of itself (armadad doctor's
+/// etcd check, ADR 0055): its client address and its status, asked once
+/// within 3 seconds.
+pub async fn member_health(
+    data_dir: &str,
+) -> Result<(String, armada_proto::etcd::etcdserverpb::StatusResponse), String> {
+    let cfg = etcdmember::etcd_config(data_dir)?;
+    let Some(addr) = cfg.addr else {
+        return Err("etcd: no listen address".to_string());
+    };
+    let url = etcdmember::member_url(&addr, cfg.client_port);
+    let host = url.trim_start_matches("https://").to_string();
+    let c = Client::connect(&url, &cfg.dir).map_err(|e| e.to_string())?;
+    match tokio::time::timeout(Duration::from_secs(3), c.status()).await {
+        Ok(Ok(st)) => Ok((host, st)),
+        Ok(Err(e)) => Err(format!("etcd at {host}: {e}")),
+        Err(_) => Err(format!("etcd at {host}: context deadline exceeded")),
+    }
+}
+
 /// etcd.Connect and startMember: the member armada-etcd.service runs
 /// (`armadad etcd`, ADR 0055), waited for up to a minute, its peer URL
 /// brought up to date, and, on a server that joined, a voting member

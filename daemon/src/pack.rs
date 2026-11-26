@@ -138,7 +138,7 @@ fn path_err(op: &str, p: &Path, e: &std::io::Error) -> String {
 }
 
 /// readManifest.
-fn read_manifest(pack: &[u8]) -> Result<Manifest, String> {
+pub fn read_manifest(pack: &[u8]) -> Result<Manifest, String> {
     let mut tr = open_pack(pack)?;
     let h = tr.next_entry();
     let h = match h {

@@ -2,11 +2,11 @@
 
 pub mod agent;
 pub mod backup;
+pub mod doctor;
 pub mod endpoint;
 pub mod etcd;
 pub mod init;
 pub mod join;
-pub mod later;
 pub mod runtime;
 pub mod runtimecmd;
 pub mod runtimelog;
