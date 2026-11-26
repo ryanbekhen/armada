@@ -627,6 +627,21 @@ impl Net {
         if let Ok(found) = self.uplink_of(&ep) {
             return Ok(found);
         }
+        // ARMADA_NODE_TEST_ROUTE_UPLINK (test-hooks builds only),
+        // "NAME:MTU": the interface the route towards the endpoint leaves
+        // by, so the daemon's replays give the machine they were recorded
+        // on.
+        if let Some(v) = crate::hooks::var("ARMADA_NODE_TEST_ROUTE_UPLINK")
+            && let Some((name, mtu)) = v.split_once(':')
+            && let Ok(mtu) = mtu.parse::<u32>()
+        {
+            let l = Link {
+                name: name.into(),
+                mtu,
+                ..Link::default()
+            };
+            return Ok((l, i64::from(mtu)));
+        }
         let routes = self
             .rt
             .route_get(&bytes(&ep))
