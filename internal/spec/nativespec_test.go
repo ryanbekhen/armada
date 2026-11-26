@@ -39,10 +39,16 @@ type specProgram struct {
 	in  *bufio.Writer
 	out *bufio.Reader
 	cmd *exec.Cmd
+	// rec, with -record-fixtures, takes every request and Go's answer
+	// instead of the program (record_test.go).
+	rec *specRecorder
 }
 
 func startSpecProgram(t *testing.T) *specProgram {
 	t.Helper()
+	if *recordFixtures {
+		return &specProgram{t: t, rec: newSpecRecorder(t)}
+	}
 	bin := os.Getenv("ARMADA_SPEC_BIN")
 	if bin == "" {
 		t.Skip("ARMADA_SPEC_BIN is not set")
@@ -294,9 +300,21 @@ func (s *specParity) fail(format string, args ...any) {
 func (s *specParity) parse(data []byte, space string) {
 	s.t.Helper()
 	s.counts["parse"]++
-	var got parseAnswer
-	s.p.ask(map[string]any{"op": "parse", "data": base64.StdEncoding.EncodeToString(data), "space": space}, &got)
+	req := map[string]any{"op": "parse", "data": base64.StdEncoding.EncodeToString(data), "space": space}
 	app, err := ParseIn(data, space)
+	if s.p.rec != nil {
+		if err != nil {
+			s.counts["parse error"]++
+			s.p.rec.write(req, map[string]any{"error": lossy(err.Error())})
+			return
+		}
+		goJSON, export, summary := s.parsed(app)
+		s.p.rec.write(req, map[string]any{"json": string(goJSON), "export": export, "summary": summary})
+		s.json(goJSON)
+		return
+	}
+	var got parseAnswer
+	s.p.ask(req, &got)
 	if err != nil {
 		s.counts["parse error"]++
 		if got.Error == nil {
@@ -310,28 +328,38 @@ func (s *specParity) parse(data []byte, space string) {
 		s.fail("spec %q (space %q): Go parsed it; Rust: %s", data, space, *got.Error)
 		return
 	}
-	goJSON, err := json.Marshal(app)
-	if err != nil {
-		s.t.Fatal(err)
-	}
+	goJSON, export, summary := s.parsed(app)
 	if string(goJSON) != got.JSON {
 		s.fail("spec %q: JSON\nGo:   %s\nRust: %s", data, goJSON, got.JSON)
-	}
-	var export any
-	if b, err := app.Export(); err != nil {
-		export = map[string]any{"error": err.Error()}
-	} else {
-		export = lossy(string(b))
 	}
 	goExport, _ := json.Marshal(export)
 	if !sameJSON(goExport, got.Export) {
 		s.fail("spec %q: export\nGo:   %s\nRust: %s", data, goExport, got.Export)
 	}
-	goSummary, _ := json.Marshal(specSummary(app))
+	goSummary, _ := json.Marshal(summary)
 	if !sameJSON(goSummary, got.Summary) {
 		s.fail("spec %q: summary\nGo:   %s\nRust: %s", data, goSummary, got.Summary)
 	}
 	s.json(goJSON)
+}
+
+// parsed is Go's answer about a spec that parsed: its JSON, its export,
+// and the values of App's methods.
+func (s *specParity) parsed(app *App) ([]byte, any, map[string]any) {
+	goJSON, err := json.Marshal(app)
+	if err != nil {
+		s.t.Fatal(err)
+	}
+	return goJSON, exportOf(app), specSummary(app)
+}
+
+// exportOf is Go's export of a spec as armada-spec-check answers it.
+func exportOf(app *App) any {
+	b, err := app.Export()
+	if err != nil {
+		return map[string]any{"error": err.Error()}
+	}
+	return lossy(string(b))
 }
 
 // json reads a stored spec on both sides and compares what each writes
@@ -339,15 +367,30 @@ func (s *specParity) parse(data []byte, space string) {
 func (s *specParity) json(data []byte) {
 	s.t.Helper()
 	s.counts["json"]++
+	req := map[string]any{"op": "json", "json": string(data)}
+	var app App
+	readErr := json.Unmarshal(data, &app)
+	if s.p.rec != nil {
+		if readErr != nil {
+			s.p.rec.write(req, map[string]any{"error": lossy(readErr.Error())})
+			return
+		}
+		goJSON, _ := json.Marshal(&app)
+		var validate any
+		if err := app.Validate(); err != nil {
+			validate = lossy(err.Error())
+		}
+		s.p.rec.write(req, map[string]any{"json": string(goJSON), "export": exportOf(&app), "validate": validate})
+		return
+	}
 	var got struct {
 		Error    *string         `json:"error"`
 		JSON     string          `json:"json"`
 		Export   json.RawMessage `json:"export"`
 		Validate *string         `json:"validate"`
 	}
-	s.p.ask(map[string]any{"op": "json", "json": string(data)}, &got)
-	var app App
-	if err := json.Unmarshal(data, &app); err != nil {
+	s.p.ask(req, &got)
+	if err := readErr; err != nil {
 		if got.Error == nil {
 			s.fail("JSON %s: Go: %v; Rust read it", data, err)
 		} else if lossy(err.Error()) != *got.Error {
@@ -363,13 +406,7 @@ func (s *specParity) json(data []byte) {
 	if string(goJSON) != got.JSON {
 		s.fail("JSON %s:\nGo:   %s\nRust: %s", data, goJSON, got.JSON)
 	}
-	var export any
-	if b, err := app.Export(); err != nil {
-		export = map[string]any{"error": err.Error()}
-	} else {
-		export = lossy(string(b))
-	}
-	goExport, _ := json.Marshal(export)
+	goExport, _ := json.Marshal(exportOf(&app))
 	if !sameJSON(goExport, got.Export) {
 		s.fail("JSON %s: export\nGo:   %s\nRust: %s", data, goExport, got.Export)
 	}
@@ -397,8 +434,17 @@ func (s *specParity) substitute(data []byte, vars map[string]string) {
 		Error *string `json:"error"`
 		Out   string  `json:"out"`
 	}
-	s.p.ask(map[string]any{"op": "substitute", "data": base64.StdEncoding.EncodeToString(data), "vars": vars}, &got)
+	req := map[string]any{"op": "substitute", "data": base64.StdEncoding.EncodeToString(data), "vars": vars}
 	out, err := Substitute(data, vars)
+	if s.p.rec != nil {
+		if err != nil {
+			s.p.rec.write(req, map[string]any{"error": lossy(nonceRe.ReplaceAllString(err.Error(), "avNONCEn"))})
+		} else {
+			s.p.rec.write(req, map[string]any{"out": lossy(string(nonceRe.ReplaceAll(out, []byte("avNONCEn"))))})
+		}
+		return
+	}
+	s.p.ask(req, &got)
 	if got.Error != nil {
 		*got.Error = nonceRe.ReplaceAllString(*got.Error, "avNONCEn")
 	}
@@ -998,6 +1044,10 @@ func TestArmadaSpecValidatorsMatchGo(t *testing.T) {
 	failed := 0
 	check := func(f string, args []any) {
 		t.Helper()
+		if p.rec != nil {
+			p.rec.write(map[string]any{"op": "call", "fn": f, "args": args}, goCall(f, args))
+			return
+		}
 		var got json.RawMessage
 		p.ask(map[string]any{"op": "call", "fn": f, "args": args}, &got)
 		want, _ := json.Marshal(goCall(f, args))
@@ -1019,12 +1069,17 @@ func TestArmadaSpecValidatorsMatchGo(t *testing.T) {
 		check(twoStringFuncs[i%len(twoStringFuncs)], []any{a, b})
 	}
 	for _, port := range []int{-1, 0, 1, 22, 53, 79, 80, 443, 2379, 8404, 51820, 65535, 65536} {
-		var got json.RawMessage
-		p.ask(map[string]any{"op": "call", "fn": "CheckTCPPort", "args": []any{port}}, &got)
+		req := map[string]any{"op": "call", "fn": "CheckTCPPort", "args": []any{port}}
 		want := map[string]any{"ok": true}
 		if err := CheckTCPPort(port); err != nil {
 			want = map[string]any{"error": err.Error()}
 		}
+		if p.rec != nil {
+			p.rec.write(req, want)
+			continue
+		}
+		var got json.RawMessage
+		p.ask(req, &got)
 		w, _ := json.Marshal(want)
 		compared++
 		if !sameJSON(w, got) {
@@ -1039,8 +1094,13 @@ func TestArmadaSpecValidatorsMatchGo(t *testing.T) {
 		for i := range pick {
 			pick[i] = ids[r.IntN(len(ids))]
 		}
+		req := map[string]any{"op": "call", "fn": "FairOrder", "args": []any{pick}}
+		if p.rec != nil {
+			p.rec.write(req, FairOrder(pick))
+			continue
+		}
 		var got json.RawMessage
-		p.ask(map[string]any{"op": "call", "fn": "FairOrder", "args": []any{pick}}, &got)
+		p.ask(req, &got)
 		w, _ := json.Marshal(FairOrder(pick))
 		compared++
 		if !sameJSON(w, got) {
@@ -1061,12 +1121,17 @@ func TestArmadaSpecValidatorsMatchGo(t *testing.T) {
 			js = append(js, map[string]any{"revision": x.Revision, "weight": x.Weight, "label": x.Label})
 		}
 		latest := r.IntN(2) == 0
-		var got json.RawMessage
-		p.ask(map[string]any{"op": "call", "fn": "CheckTraffic", "args": []any{app, js, latest}}, &got)
+		req := map[string]any{"op": "call", "fn": "CheckTraffic", "args": []any{app, js, latest}}
 		want := []string{}
 		for _, e := range CheckTraffic(app, tt, latest) {
 			want = append(want, e.Error())
 		}
+		if p.rec != nil {
+			p.rec.write(req, want)
+			continue
+		}
+		var got json.RawMessage
+		p.ask(req, &got)
 		w, _ := json.Marshal(want)
 		compared++
 		if !sameJSON(w, got) {
@@ -1086,12 +1151,17 @@ func TestArmadaSpecValidatorsMatchGo(t *testing.T) {
 			Every: Duration(b["every"].(int64)), Schedule: b["schedule"].(string), TimeZone: b["timeZone"].(string),
 			Keep: BackupKeep{Last: b["last"].(int), Daily: b["daily"].(int)},
 		}
-		var got json.RawMessage
-		p.ask(map[string]any{"op": "call", "fn": "CheckBackupPlan", "args": []any{b}}, &got)
+		req := map[string]any{"op": "call", "fn": "CheckBackupPlan", "args": []any{b}}
 		want := map[string]any{"ok": true}
 		if err := CheckBackupPlan(plan); err != nil {
 			want = map[string]any{"error": err.Error()}
 		}
+		if p.rec != nil {
+			p.rec.write(req, want)
+			continue
+		}
+		var got json.RawMessage
+		p.ask(req, &got)
 		w, _ := json.Marshal(want)
 		compared++
 		if !sameJSON(w, got) {
@@ -1120,8 +1190,7 @@ func TestArmadaSpecSchedulesMatchGo(t *testing.T) {
 	for _, s := range schedules {
 		for _, z := range zones {
 			for _, st := range starts {
-				var got json.RawMessage
-				p.ask(map[string]any{"op": "call", "fn": "Schedule", "args": []any{s, z, map[string]any{"t": st, "zone": z}, 8}}, &got)
+				req := map[string]any{"op": "call", "fn": "Schedule", "args": []any{s, z, map[string]any{"t": st, "zone": z}, 8}}
 				var want any
 				if _, _, err := parseSchedule(s, z); err != nil {
 					want = map[string]any{"error": err.Error()}
@@ -1140,6 +1209,12 @@ func TestArmadaSpecSchedulesMatchGo(t *testing.T) {
 					}
 					want = map[string]any{"ok": out}
 				}
+				if p.rec != nil {
+					p.rec.write(req, want)
+					continue
+				}
+				var got json.RawMessage
+				p.ask(req, &got)
 				w, _ := json.Marshal(want)
 				compared++
 				if !sameJSON(w, got) {
@@ -1156,12 +1231,17 @@ func TestArmadaSpecSchedulesMatchGo(t *testing.T) {
 			for _, d := range []time.Duration{time.Minute, 30 * time.Minute, 2 * time.Hour, 25 * time.Hour, 7 * 24 * time.Hour} {
 				for _, now := range starts {
 					rule := ScaleRule{Type: ScaleSchedule, Schedule: s, TimeZone: z, Duration: Duration(d)}
-					var got json.RawMessage
-					p.ask(map[string]any{"op": "call", "fn": "Window", "args": []any{
+					req := map[string]any{"op": "call", "fn": "Window", "args": []any{
 						map[string]any{"type": rule.Type, "schedule": s, "timeZone": z, "duration": int64(d)},
 						map[string]any{"t": now},
-					}}, &got)
+					}}
 					open, until := rule.Window(mustTime(strings.Replace(now, ".5Z", "Z", 1)).Add(map[bool]time.Duration{true: 500 * time.Millisecond}[strings.HasSuffix(now, ".5Z")]))
+					if p.rec != nil {
+						p.rec.write(req, []any{open, until.Format(time.RFC3339Nano)})
+						continue
+					}
+					var got json.RawMessage
+					p.ask(req, &got)
 					w, _ := json.Marshal([]any{open, until.Format(time.RFC3339Nano)})
 					compared++
 					if !sameJSON(w, got) {
@@ -1180,6 +1260,9 @@ func TestArmadaSpecSchedulesMatchGo(t *testing.T) {
 // TestArmadaSpecProgramRuns makes sure the comparison is not vacuous: a
 // spec that parses, and one that does not, give answers.
 func TestArmadaSpecProgramRuns(t *testing.T) {
+	if *recordFixtures {
+		t.Skip("nothing to record")
+	}
 	p := startSpecProgram(t)
 	var got parseAnswer
 	p.ask(map[string]any{"op": "parse", "data": base64.StdEncoding.EncodeToString([]byte("name: web\nimage: nginx\n"))}, &got)

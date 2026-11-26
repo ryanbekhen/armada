@@ -655,6 +655,27 @@ Go and every new Rust part is exercised only by its parity tests.
     jobs run no Go command; `lock.go` keeps the same pins until Go goes
     (`TestLockMatchesFile`).
 
+    Step 1's pure slice, done: the spec's, the CA's, and the secrets'
+    parity tests replay from recordings of Go. With `-record-fixtures` the
+    Go tests run their cases against Go alone and write the inputs with
+    Go's answers. The spec's (`TestArmadaSpec*`) go to
+    `spec/tests/testdata/<test>.jsonl.gz`, one gzipped line per case with
+    the exact input (the corpus's specs as they were, 8000 seeded mutations
+    instead of the live test's 20000, the validators', schedules', and
+    windows' calls; about 2.6 MB), and `spec/tests/parity.rs` sends them to
+    `armada-spec-check` and compares as the Go tests do. The CA's and the
+    secrets' go to `pki/tests/testdata/parity.json` and
+    `secrets/tests/testdata/parity.json`: Go's CA and test keys, what Go
+    issued, signed, and reissued from it by shape (every extension in order,
+    the raw names, the algorithms, the lifetime), Go's certificates,
+    requests, tokens, key files, and sealed values with what Go read of
+    them, and every refusal with its text; the crates' `tests/parity.rs`
+    issue and sign the same from Go's CA, read Go's, and refuse the same,
+    at the recorded times where time matters. All three run in `cargo test
+    --workspace`. Go can no longer open what Rust sealed or verify what
+    Rust issued; the replays check Rust's output by shape and by its own
+    round trip instead.
+
 The release is tagged after 19 and the cloud run, before 20 (the owner's
 decision once 19 passed the lab runs): from 19 on, nothing a release
 ships is Go, and the Go code stays in the repository only as the parity

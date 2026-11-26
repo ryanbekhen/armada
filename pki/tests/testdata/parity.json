@@ -1,0 +1,1677 @@
+{
+ "ca": {
+  "cert": "-----BEGIN CERTIFICATE-----\nMIIBmTCCAUCgAwIBAgIRAPMGCL/1yvKu1iMbWGhDrOwwCgYIKoZIzj0EAwIwKzEP\nMA0GA1UEChMGYXJtYWRhMRgwFgYDVQQDDA9hcm1hZGEtY2E6bGFiXzEwHhcNMjYx\nMTI2MDc0NTM2WhcNMzYxMTIzMDc1MDM2WjArMQ8wDQYDVQQKEwZhcm1hZGExGDAW\nBgNVBAMMD2FybWFkYS1jYTpsYWJfMTBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IA\nBJUwhaad8q6CeLNux5qoaH6qxvxu8Gux3/tbyj6aAZ96hH53hFA1PSBKl019gFRL\nPznMUDsLvIj21heMrMJ9rzWjRTBDMA4GA1UdDwEB/wQEAwIBBjASBgNVHRMBAf8E\nCDAGAQH/AgEAMB0GA1UdDgQWBBSYRYPfBaT0d7M/R6aex/I79UpeFjAKBggqhkjO\nPQQDAgNHADBEAiAp4ZXnjsfEz6a9Jx4IUk+7HRt+6L8xDqEc1KrBcFT19wIgNpUQ\nA127M5BcjJXKcTjzvat5z1sGZKw2nLiF4CQBZGs=\n-----END CERTIFICATE-----\n",
+  "fingerprint": "aab11fbce7ea6548f6ae9d278663f7180b461478dc31d1668f7683944a17b81f",
+  "key": "-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgrGCa1+Z5KeAgBCZE\nq208pYAHKtEs1PNlIN3ycdm+Ys+hRANCAASVMIWmnfKugnizbseaqGh+qsb8bvBr\nsd/7W8o+mgGfeoR+d4RQNT0gSpdNfYBUSz85zFA7C7yI9tYXjKzCfa81\n-----END PRIVATE KEY-----\n"
+ },
+ "caFiles": {
+  "missing": "stat {dir}/none/ca.crt: no such file or directory",
+  "modes": [
+   {
+    "error": "{dir}/ca.key has mode 0640, want no group/other access (chmod go-rwx): insecure permissions",
+    "mode": 416
+   },
+   {
+    "error": "{dir}/ca.key has mode 0604, want no group/other access (chmod go-rwx): insecure permissions",
+    "mode": 388
+   },
+   {
+    "error": "{dir}/ca.key has mode 0644, want no group/other access (chmod go-rwx): insecure permissions",
+    "mode": 420
+   }
+  ]
+ },
+ "caHashes": [
+  {
+   "hash": "sha256:aab11fbce7ea6548f6ae9d278663f7180b461478dc31d1668f7683944a17b81f",
+   "hex": "aab11fbce7ea6548f6ae9d278663f7180b461478dc31d1668f7683944a17b81f"
+  },
+  {
+   "hash": " sha256:aab11fbce7ea6548f6ae9d278663f7180b461478dc31d1668f7683944a17b81f\n",
+   "hex": "aab11fbce7ea6548f6ae9d278663f7180b461478dc31d1668f7683944a17b81f"
+  },
+  {
+   "error": "malformed CA hash (want sha256:\u003c64 hex\u003e)",
+   "hash": ""
+  },
+  {
+   "error": "malformed CA hash (want sha256:\u003c64 hex\u003e)",
+   "hash": "aab11fbce7ea6548f6ae9d278663f7180b461478dc31d1668f7683944a17b81f"
+  },
+  {
+   "error": "malformed CA hash (want sha256:\u003c64 hex\u003e)",
+   "hash": "sha1:aab11fbce7ea6548f6ae9d278663f7180b461478dc31d1668f7683944a17b81f"
+  },
+  {
+   "error": "malformed CA hash (want sha256:\u003c64 hex\u003e)",
+   "hash": "sha256:aab11fbce7"
+  },
+  {
+   "error": "malformed CA hash (want sha256:\u003c64 hex\u003e)",
+   "hash": "SHA256:AAB11FBCE7EA6548F6AE9D278663F7180B461478DC31D1668F7683944A17B81F"
+  }
+ ],
+ "caKeyDER": {
+  "d": "rGCa1+Z5KeAgBCZEq208pYAHKtEs1PNlIN3ycdm+Ys8=",
+  "pkcs8": "MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgrGCa1+Z5KeAgBCZEq208pYAHKtEs1PNlIN3ycdm+Ys+hRANCAASVMIWmnfKugnizbseaqGh+qsb8bvBrsd/7W8o+mgGfeoR+d4RQNT0gSpdNfYBUSz85zFA7C7yI9tYXjKzCfa81",
+  "point": "BJUwhaad8q6CeLNux5qoaH6qxvxu8Gux3/tbyj6aAZ96hH53hFA1PSBKl019gFRLPznMUDsLvIj21heMrMJ9rzU="
+ },
+ "clockSkewSeconds": 300,
+ "csr": "MIHaMIGBAgEAMB8xHTAbBgNVBAMTFHNlcnZlcjphc2tzLWZvci1tb3JlMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAElsl1lX0J1DWWZI81FKMRkR9rXrFftzL0264bGAWHC/m+7Q4t5CASFYCsf+fIJcPOPCdZbYCBHeTwvURuP40YeKAAMAoGCCqGSM49BAMCA0gAMEUCICrV4jeKJH6GJuVWinY/8jjual9xqrZEY9IV9s5qsqH/AiEA3gXu0HXwCjhsm5FzsGYfTjvK6eETr713KWxixsTatuM=",
+ "identities": [
+  {
+   "cn": "node:web-1",
+   "kind": "node",
+   "name": "web-1"
+  },
+  {
+   "cn": "user:a",
+   "kind": "user",
+   "name": "a"
+  },
+  {
+   "cn": "admin:root",
+   "kind": "admin",
+   "name": "root"
+  },
+  {
+   "cn": "automation:ci",
+   "kind": "automation",
+   "name": "ci"
+  },
+  {
+   "cn": "service:ci",
+   "kind": "service",
+   "name": "ci"
+  },
+  {
+   "cn": "metrics:p",
+   "kind": "metrics",
+   "name": "p"
+  },
+  {
+   "cn": "etcd:member",
+   "kind": "etcd",
+   "name": "member"
+  },
+  {
+   "cn": "server:s",
+   "kind": "server",
+   "name": "s"
+  },
+  {
+   "cn": "web-1",
+   "error": "common name \"web-1\" is not an armada identity"
+  },
+  {
+   "cn": "root:x",
+   "error": "unknown identity kind \"root\""
+  },
+  {
+   "cn": "node:",
+   "error": "invalid identity name \"\""
+  },
+  {
+   "cn": "node:../x",
+   "error": "invalid identity name \"../x\""
+  },
+  {
+   "cn": "node:-x",
+   "error": "invalid identity name \"-x\""
+  },
+  {
+   "cn": "node:a:b",
+   "error": "invalid identity name \"a:b\""
+  },
+  {
+   "cn": "node:a\nb",
+   "error": "invalid identity name \"a\\nb\""
+  },
+  {
+   "cn": ":",
+   "error": "unknown identity kind \"\""
+  },
+  {
+   "cn": "node:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "kind": "node",
+   "name": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  {
+   "cn": "node:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "error": "invalid identity name \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\""
+  },
+  {
+   "cn": "node:é",
+   "error": "invalid identity name \"é\""
+  },
+  {
+   "cn": "node: ",
+   "error": "invalid identity name \"\\u00a0\""
+  }
+ ],
+ "issue": [
+  {
+   "case": "admin",
+   "identity": "admin:root",
+   "req": {
+    "client": true,
+    "dns": [],
+    "ips": [],
+    "kind": "admin",
+    "name": "root",
+    "server": false,
+    "validitySeconds": 0
+   },
+   "shape": {
+    "curve256": true,
+    "extensions": [
+     "2.5.29.15 true AwIHgA==",
+     "2.5.29.37 false MAoGCCsGAQUFBwMC",
+     "2.5.29.19 true MAA=",
+     "2.5.29.35 false MBaAFJhFg98FpPR3sz9Hpp7H8jv1Sl4W"
+    ],
+    "hasSKI": false,
+    "lifeSeconds": 31536300,
+    "pubAlg": "ECDSA",
+    "rawIssuer": "MCsxDzANBgNVBAoTBmFybWFkYTEYMBYGA1UEAwwPYXJtYWRhLWNhOmxhYl8x",
+    "rawSubject": "MCYxDzANBgNVBAoTBmFybWFkYTETMBEGA1UEAxMKYWRtaW46cm9vdA==",
+    "sigAlg": "ECDSA-SHA256",
+    "skiFromKey": false,
+    "version": "3"
+   }
+  },
+  {
+   "case": "capped",
+   "identity": "user:u",
+   "req": {
+    "client": true,
+    "dns": [],
+    "ips": [],
+    "kind": "user",
+    "name": "u",
+    "server": false,
+    "validitySeconds": 630720000
+   },
+   "shape": {
+    "curve256": true,
+    "extensions": [
+     "2.5.29.15 true AwIHgA==",
+     "2.5.29.37 false MAoGCCsGAQUFBwMC",
+     "2.5.29.19 true MAA=",
+     "2.5.29.35 false MBaAFJhFg98FpPR3sz9Hpp7H8jv1Sl4W"
+    ],
+    "hasSKI": false,
+    "lifeSeconds": 315360300,
+    "pubAlg": "ECDSA",
+    "rawIssuer": "MCsxDzANBgNVBAoTBmFybWFkYTEYMBYGA1UEAwwPYXJtYWRhLWNhOmxhYl8x",
+    "rawSubject": "MCIxDzANBgNVBAoTBmFybWFkYTEPMA0GA1UEAxMGdXNlcjp1",
+    "sigAlg": "ECDSA-SHA256",
+    "skiFromKey": false,
+    "version": "3"
+   }
+  },
+  {
+   "case": "etcd",
+   "identity": "etcd:member",
+   "req": {
+    "client": true,
+    "dns": [],
+    "ips": [
+     "10.0.0.2",
+     "192.168.1.9",
+     "fd00::7"
+    ],
+    "kind": "etcd",
+    "name": "member",
+    "server": true,
+    "validitySeconds": 0
+   },
+   "shape": {
+    "curve256": true,
+    "extensions": [
+     "2.5.29.15 true AwIHgA==",
+     "2.5.29.37 false MBQGCCsGAQUFBwMBBggrBgEFBQcDAg==",
+     "2.5.29.19 true MAA=",
+     "2.5.29.35 false MBaAFJhFg98FpPR3sz9Hpp7H8jv1Sl4W",
+     "2.5.29.17 false MB6HBAoAAAKHBMCoAQmHEP0AAAAAAAAAAAAAAAAAAAc="
+    ],
+    "hasSKI": false,
+    "lifeSeconds": 31536300,
+    "pubAlg": "ECDSA",
+    "rawIssuer": "MCsxDzANBgNVBAoTBmFybWFkYTEYMBYGA1UEAwwPYXJtYWRhLWNhOmxhYl8x",
+    "rawSubject": "MCcxDzANBgNVBAoTBmFybWFkYTEUMBIGA1UEAxMLZXRjZDptZW1iZXI=",
+    "sigAlg": "ECDSA-SHA256",
+    "skiFromKey": false,
+    "version": "3"
+   }
+  },
+  {
+   "case": "metrics",
+   "identity": "metrics:prom",
+   "req": {
+    "client": true,
+    "dns": [],
+    "ips": [],
+    "kind": "metrics",
+    "name": "prom",
+    "server": false,
+    "validitySeconds": 0
+   },
+   "shape": {
+    "curve256": true,
+    "extensions": [
+     "2.5.29.15 true AwIHgA==",
+     "2.5.29.37 false MAoGCCsGAQUFBwMC",
+     "2.5.29.19 true MAA=",
+     "2.5.29.35 false MBaAFJhFg98FpPR3sz9Hpp7H8jv1Sl4W"
+    ],
+    "hasSKI": false,
+    "lifeSeconds": 31536300,
+    "pubAlg": "ECDSA",
+    "rawIssuer": "MCsxDzANBgNVBAoTBmFybWFkYTEYMBYGA1UEAwwPYXJtYWRhLWNhOmxhYl8x",
+    "rawSubject": "MCgxDzANBgNVBAoTBmFybWFkYTEVMBMGA1UEAxMMbWV0cmljczpwcm9t",
+    "sigAlg": "ECDSA-SHA256",
+    "skiFromKey": false,
+    "version": "3"
+   }
+  },
+  {
+   "case": "node",
+   "identity": "node:web-1",
+   "req": {
+    "client": true,
+    "dns": [],
+    "ips": [],
+    "kind": "node",
+    "name": "web-1",
+    "server": false,
+    "validitySeconds": 2592000
+   },
+   "shape": {
+    "curve256": true,
+    "extensions": [
+     "2.5.29.15 true AwIHgA==",
+     "2.5.29.37 false MAoGCCsGAQUFBwMC",
+     "2.5.29.19 true MAA=",
+     "2.5.29.35 false MBaAFJhFg98FpPR3sz9Hpp7H8jv1Sl4W"
+    ],
+    "hasSKI": false,
+    "lifeSeconds": 2592300,
+    "pubAlg": "ECDSA",
+    "rawIssuer": "MCsxDzANBgNVBAoTBmFybWFkYTEYMBYGA1UEAwwPYXJtYWRhLWNhOmxhYl8x",
+    "rawSubject": "MCYxDzANBgNVBAoTBmFybWFkYTETMBEGA1UEAxMKbm9kZTp3ZWItMQ==",
+    "sigAlg": "ECDSA-SHA256",
+    "skiFromKey": false,
+    "version": "3"
+   }
+  },
+  {
+   "case": "server",
+   "identity": "server:cp-1",
+   "req": {
+    "client": false,
+    "dns": [
+     "armada-server"
+    ],
+    "ips": [
+     "10.0.0.2"
+    ],
+    "kind": "server",
+    "name": "cp-1",
+    "server": true,
+    "validitySeconds": 0
+   },
+   "shape": {
+    "curve256": true,
+    "extensions": [
+     "2.5.29.15 true AwIHgA==",
+     "2.5.29.37 false MAoGCCsGAQUFBwMB",
+     "2.5.29.19 true MAA=",
+     "2.5.29.35 false MBaAFJhFg98FpPR3sz9Hpp7H8jv1Sl4W",
+     "2.5.29.17 false MBWCDWFybWFkYS1zZXJ2ZXKHBAoAAAI="
+    ],
+    "hasSKI": false,
+    "lifeSeconds": 31536300,
+    "pubAlg": "ECDSA",
+    "rawIssuer": "MCsxDzANBgNVBAoTBmFybWFkYTEYMBYGA1UEAwwPYXJtYWRhLWNhOmxhYl8x",
+    "rawSubject": "MCcxDzANBgNVBAoTBmFybWFkYTEUMBIGA1UEAxMLc2VydmVyOmNwLTE=",
+    "sigAlg": "ECDSA-SHA256",
+    "skiFromKey": false,
+    "version": "3"
+   }
+  },
+  {
+   "case": "service",
+   "identity": "service:ci",
+   "req": {
+    "client": true,
+    "dns": [],
+    "ips": [],
+    "kind": "service",
+    "name": "ci",
+    "server": false,
+    "validitySeconds": 7776000
+   },
+   "shape": {
+    "curve256": true,
+    "extensions": [
+     "2.5.29.15 true AwIHgA==",
+     "2.5.29.37 false MAoGCCsGAQUFBwMC",
+     "2.5.29.19 true MAA=",
+     "2.5.29.35 false MBaAFJhFg98FpPR3sz9Hpp7H8jv1Sl4W"
+    ],
+    "hasSKI": false,
+    "lifeSeconds": 7776300,
+    "pubAlg": "ECDSA",
+    "rawIssuer": "MCsxDzANBgNVBAoTBmFybWFkYTEYMBYGA1UEAwwPYXJtYWRhLWNhOmxhYl8x",
+    "rawSubject": "MCYxDzANBgNVBAoTBmFybWFkYTETMBEGA1UEAxMKc2VydmljZTpjaQ==",
+    "sigAlg": "ECDSA-SHA256",
+    "skiFromKey": false,
+    "version": "3"
+   }
+  },
+  {
+   "case": "short",
+   "identity": "server:s",
+   "req": {
+    "client": false,
+    "dns": [
+     "armada-server",
+     "other.example"
+    ],
+    "ips": [],
+    "kind": "server",
+    "name": "s",
+    "server": true,
+    "validitySeconds": 3600
+   },
+   "shape": {
+    "curve256": true,
+    "extensions": [
+     "2.5.29.15 true AwIHgA==",
+     "2.5.29.37 false MAoGCCsGAQUFBwMB",
+     "2.5.29.19 true MAA=",
+     "2.5.29.35 false MBaAFJhFg98FpPR3sz9Hpp7H8jv1Sl4W",
+     "2.5.29.17 false MB6CDWFybWFkYS1zZXJ2ZXKCDW90aGVyLmV4YW1wbGU="
+    ],
+    "hasSKI": false,
+    "lifeSeconds": 3900,
+    "pubAlg": "ECDSA",
+    "rawIssuer": "MCsxDzANBgNVBAoTBmFybWFkYTEYMBYGA1UEAwwPYXJtYWRhLWNhOmxhYl8x",
+    "rawSubject": "MCQxDzANBgNVBAoTBmFybWFkYTERMA8GA1UEAxMIc2VydmVyOnM=",
+    "sigAlg": "ECDSA-SHA256",
+    "skiFromKey": false,
+    "version": "3"
+   }
+  },
+  {
+   "case": "user",
+   "identity": "user:ada_l",
+   "req": {
+    "client": true,
+    "dns": [],
+    "ips": [],
+    "kind": "user",
+    "name": "ada_l",
+    "server": false,
+    "validitySeconds": 0
+   },
+   "shape": {
+    "curve256": true,
+    "extensions": [
+     "2.5.29.15 true AwIHgA==",
+     "2.5.29.37 false MAoGCCsGAQUFBwMC",
+     "2.5.29.19 true MAA=",
+     "2.5.29.35 false MBaAFJhFg98FpPR3sz9Hpp7H8jv1Sl4W"
+    ],
+    "hasSKI": false,
+    "lifeSeconds": 31536300,
+    "pubAlg": "ECDSA",
+    "rawIssuer": "MCsxDzANBgNVBAoTBmFybWFkYTEYMBYGA1UEAwwPYXJtYWRhLWNhOmxhYl8x",
+    "rawSubject": "MCYxDzANBgNVBAoTBmFybWFkYTETMBEGA1UEAwwKdXNlcjphZGFfbA==",
+    "sigAlg": "ECDSA-SHA256",
+    "skiFromKey": false,
+    "version": "3"
+   }
+  }
+ ],
+ "issueRefused": [
+  {
+   "error": "unknown identity kind \"root\"",
+   "req": {
+    "client": true,
+    "dns": [],
+    "ips": [],
+    "kind": "root",
+    "name": "x",
+    "server": false,
+    "validitySeconds": 0
+   }
+  },
+  {
+   "error": "invalid identity name \"../x\"",
+   "req": {
+    "client": true,
+    "dns": [],
+    "ips": [],
+    "kind": "user",
+    "name": "../x",
+    "server": false,
+    "validitySeconds": 0
+   }
+  },
+  {
+   "error": "invalid identity name \"\"",
+   "req": {
+    "client": true,
+    "dns": [],
+    "ips": [],
+    "kind": "user",
+    "name": "",
+    "server": false,
+    "validitySeconds": 0
+   }
+  },
+  {
+   "error": "certificate needs server or client usage",
+   "req": {
+    "client": false,
+    "dns": [],
+    "ips": [],
+    "kind": "user",
+    "name": "x",
+    "server": false,
+    "validitySeconds": 0
+   }
+  },
+  {
+   "error": "unknown identity kind \"\"",
+   "req": {
+    "client": false,
+    "dns": [],
+    "ips": [],
+    "kind": "",
+    "name": "",
+    "server": true,
+    "validitySeconds": 0
+   }
+  }
+ ],
+ "joinToken": {
+  "debug": "87f445df0de9.[REDACTED]",
+  "hash": "9487bc237ab8565e9a60b47e51a4a21b428544d4984c0307e304d6fc736d1369",
+  "id": "87f445df0de9",
+  "shown": "87f445df0de9.[REDACTED]",
+  "token": " 87f445df0de9.1836f2e87f10fa36b0e764685fdcf63ce40f9f7a7ca0f2758f7c3ff9d99747e4\n"
+ },
+ "joinTokens": [
+  {
+   "error": "malformed join token (want \u003c12 hex\u003e.\u003c64 hex\u003e)",
+   "token": ""
+  },
+  {
+   "error": "malformed join token (want \u003c12 hex\u003e.\u003c64 hex\u003e)",
+   "token": "87f445df0de9"
+  },
+  {
+   "error": "malformed join token (want \u003c12 hex\u003e.\u003c64 hex\u003e)",
+   "token": "87f445df0de9."
+  },
+  {
+   "error": "malformed join token (want \u003c12 hex\u003e.\u003c64 hex\u003e)",
+   "token": ".1836f2e87f10fa36b0e764685fdcf63ce40f9f7a7ca0f2758f7c3ff9d99747e4"
+  },
+  {
+   "error": "malformed join token (want \u003c12 hex\u003e.\u003c64 hex\u003e)",
+   "token": "87f445df0de9.1836f2e87f10fa36b0e764685fdcf63ce40f9f7a7ca0f2758f7c3ff9d99747e"
+  },
+  {
+   "error": "malformed join token (want \u003c12 hex\u003e.\u003c64 hex\u003e)",
+   "token": "87f445df0de9.1836f2e87f10fa36b0e764685fdcf63ce40f9f7a7ca0f2758f7c3ff9d99747e40"
+  },
+  {
+   "error": "malformed join token (want \u003c12 hex\u003e.\u003c64 hex\u003e)",
+   "token": "87F445DF0DE9.1836F2E87F10FA36B0E764685FDCF63CE40F9F7A7CA0F2758F7C3FF9D99747E4"
+  },
+  {
+   "error": "malformed join token (want \u003c12 hex\u003e.\u003c64 hex\u003e)",
+   "token": "87f445df0de9:1836f2e87f10fa36b0e764685fdcf63ce40f9f7a7ca0f2758f7c3ff9d99747e4"
+  },
+  {
+   "error": "malformed join token (want \u003c12 hex\u003e.\u003c64 hex\u003e)",
+   "token": "87f445df0de9.1836f2e87f10fa36b0e764685fdcf63ce40f9f7a7ca0f2758f7c3ff9d99747e4.x"
+  },
+  {
+   "error": null,
+   "token": " 87f445df0de9.1836f2e87f10fa36b0e764685fdcf63ce40f9f7a7ca0f2758f7c3ff9d99747e4\u2028"
+  }
+ ],
+ "junkCert": "no PEM certificate found",
+ "loadRefused": [
+  {
+   "case": "no cert",
+   "cert": "junk",
+   "error": "no PEM certificate found",
+   "key": "-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgrGCa1+Z5KeAgBCZE\nq208pYAHKtEs1PNlIN3ycdm+Ys+hRANCAASVMIWmnfKugnizbseaqGh+qsb8bvBr\nsd/7W8o+mgGfeoR+d4RQNT0gSpdNfYBUSz85zFA7C7yI9tYXjKzCfa81\n-----END PRIVATE KEY-----\n"
+  },
+  {
+   "case": "not a CA",
+   "cert": "-----BEGIN CERTIFICATE-----\nMIIBojCCAUigAwIBAgIRAMdbH7WaGK/lJgtz3BHF408wCgYIKoZIzj0EAwIwKzEP\nMA0GA1UEChMGYXJtYWRhMRgwFgYDVQQDDA9hcm1hZGEtY2E6bGFiXzEwHhcNMjYx\nMTI2MDc0NTM2WhcNMjcxMTI2MDc1MDM2WjAiMQ8wDQYDVQQKEwZhcm1hZGExDzAN\nBgNVBAMTBnVzZXI6dTBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABLNLmndmiD+Q\nRXi0K9788XS9v1XHgZuGrbff3Lyld35JbxfufmdzeXZG0w9HNxtqupCVoo4GjD02\nWxxQEhmlYcajVjBUMA4GA1UdDwEB/wQEAwIHgDATBgNVHSUEDDAKBggrBgEFBQcD\nAjAMBgNVHRMBAf8EAjAAMB8GA1UdIwQYMBaAFJhFg98FpPR3sz9Hpp7H8jv1Sl4W\nMAoGCCqGSM49BAMCA0gAMEUCIBV2gz0eSqXlX7VKMVSrUMs9DnK3jsfg2u+6JYT6\nUR7PAiEAt3hVp3HhdWsfz0PU8SU1FdxAxRlkGMXik+hPHQ/WJlA=\n-----END CERTIFICATE-----\n",
+   "error": "certificate is not a CA",
+   "key": "-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgr/O2af7juUnysZng\nCoaBdLi9G8E/ZsxL99qNyNh3Xb+hRANCAASzS5p3Zog/kEV4tCve/PF0vb9Vx4Gb\nhq2339y8pXd+SW8X7n5nc3l2RtMPRzcbarqQlaKOBow9NlscUBIZpWHG\n-----END PRIVATE KEY-----\n"
+  },
+  {
+   "case": "no key",
+   "cert": "-----BEGIN CERTIFICATE-----\nMIIBmTCCAUCgAwIBAgIRAPMGCL/1yvKu1iMbWGhDrOwwCgYIKoZIzj0EAwIwKzEP\nMA0GA1UEChMGYXJtYWRhMRgwFgYDVQQDDA9hcm1hZGEtY2E6bGFiXzEwHhcNMjYx\nMTI2MDc0NTM2WhcNMzYxMTIzMDc1MDM2WjArMQ8wDQYDVQQKEwZhcm1hZGExGDAW\nBgNVBAMMD2FybWFkYS1jYTpsYWJfMTBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IA\nBJUwhaad8q6CeLNux5qoaH6qxvxu8Gux3/tbyj6aAZ96hH53hFA1PSBKl019gFRL\nPznMUDsLvIj21heMrMJ9rzWjRTBDMA4GA1UdDwEB/wQEAwIBBjASBgNVHRMBAf8E\nCDAGAQH/AgEAMB0GA1UdDgQWBBSYRYPfBaT0d7M/R6aex/I79UpeFjAKBggqhkjO\nPQQDAgNHADBEAiAp4ZXnjsfEz6a9Jx4IUk+7HRt+6L8xDqEc1KrBcFT19wIgNpUQ\nA127M5BcjJXKcTjzvat5z1sGZKw2nLiF4CQBZGs=\n-----END CERTIFICATE-----\n",
+   "error": "no PEM private key found",
+   "key": "junk"
+  },
+  {
+   "case": "cert key",
+   "cert": "-----BEGIN CERTIFICATE-----\nMIIBmTCCAUCgAwIBAgIRAPMGCL/1yvKu1iMbWGhDrOwwCgYIKoZIzj0EAwIwKzEP\nMA0GA1UEChMGYXJtYWRhMRgwFgYDVQQDDA9hcm1hZGEtY2E6bGFiXzEwHhcNMjYx\nMTI2MDc0NTM2WhcNMzYxMTIzMDc1MDM2WjArMQ8wDQYDVQQKEwZhcm1hZGExGDAW\nBgNVBAMMD2FybWFkYS1jYTpsYWJfMTBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IA\nBJUwhaad8q6CeLNux5qoaH6qxvxu8Gux3/tbyj6aAZ96hH53hFA1PSBKl019gFRL\nPznMUDsLvIj21heMrMJ9rzWjRTBDMA4GA1UdDwEB/wQEAwIBBjASBgNVHRMBAf8E\nCDAGAQH/AgEAMB0GA1UdDgQWBBSYRYPfBaT0d7M/R6aex/I79UpeFjAKBggqhkjO\nPQQDAgNHADBEAiAp4ZXnjsfEz6a9Jx4IUk+7HRt+6L8xDqEc1KrBcFT19wIgNpUQ\nA127M5BcjJXKcTjzvat5z1sGZKw2nLiF4CQBZGs=\n-----END CERTIFICATE-----\n",
+   "error": "no PEM private key found",
+   "key": "-----BEGIN CERTIFICATE-----\nMIIBmTCCAUCgAwIBAgIRAPMGCL/1yvKu1iMbWGhDrOwwCgYIKoZIzj0EAwIwKzEP\nMA0GA1UEChMGYXJtYWRhMRgwFgYDVQQDDA9hcm1hZGEtY2E6bGFiXzEwHhcNMjYx\nMTI2MDc0NTM2WhcNMzYxMTIzMDc1MDM2WjArMQ8wDQYDVQQKEwZhcm1hZGExGDAW\nBgNVBAMMD2FybWFkYS1jYTpsYWJfMTBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IA\nBJUwhaad8q6CeLNux5qoaH6qxvxu8Gux3/tbyj6aAZ96hH53hFA1PSBKl019gFRL\nPznMUDsLvIj21heMrMJ9rzWjRTBDMA4GA1UdDwEB/wQEAwIBBjASBgNVHRMBAf8E\nCDAGAQH/AgEAMB0GA1UdDgQWBBSYRYPfBaT0d7M/R6aex/I79UpeFjAKBggqhkjO\nPQQDAgNHADBEAiAp4ZXnjsfEz6a9Jx4IUk+7HRt+6L8xDqEc1KrBcFT19wIgNpUQ\nA127M5BcjJXKcTjzvat5z1sGZKw2nLiF4CQBZGs=\n-----END CERTIFICATE-----\n"
+  },
+  {
+   "case": "other key",
+   "cert": "-----BEGIN CERTIFICATE-----\nMIIBmTCCAUCgAwIBAgIRAPMGCL/1yvKu1iMbWGhDrOwwCgYIKoZIzj0EAwIwKzEP\nMA0GA1UEChMGYXJtYWRhMRgwFgYDVQQDDA9hcm1hZGEtY2E6bGFiXzEwHhcNMjYx\nMTI2MDc0NTM2WhcNMzYxMTIzMDc1MDM2WjArMQ8wDQYDVQQKEwZhcm1hZGExGDAW\nBgNVBAMMD2FybWFkYS1jYTpsYWJfMTBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IA\nBJUwhaad8q6CeLNux5qoaH6qxvxu8Gux3/tbyj6aAZ96hH53hFA1PSBKl019gFRL\nPznMUDsLvIj21heMrMJ9rzWjRTBDMA4GA1UdDwEB/wQEAwIBBjASBgNVHRMBAf8E\nCDAGAQH/AgEAMB0GA1UdDgQWBBSYRYPfBaT0d7M/R6aex/I79UpeFjAKBggqhkjO\nPQQDAgNHADBEAiAp4ZXnjsfEz6a9Jx4IUk+7HRt+6L8xDqEc1KrBcFT19wIgNpUQ\nA127M5BcjJXKcTjzvat5z1sGZKw2nLiF4CQBZGs=\n-----END CERTIFICATE-----\n",
+   "error": "CA key does not match certificate",
+   "key": "-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg9vbw4UZGNvC4y3SX\nkFC8Zq73j1esrHkMoVxOekfA89WhRANCAAQS4J/BsTNJmYrz3nYEqU02zr29SqEz\nMiYwM/0pGcp7Zzqz+YT5Xejj9dy9mjO728mDtv9Vq4PHMNRmRi2VUmI2\n-----END PRIVATE KEY-----\n"
+  },
+  {
+   "case": "rsa key",
+   "cert": "-----BEGIN CERTIFICATE-----\nMIIBmTCCAUCgAwIBAgIRAPMGCL/1yvKu1iMbWGhDrOwwCgYIKoZIzj0EAwIwKzEP\nMA0GA1UEChMGYXJtYWRhMRgwFgYDVQQDDA9hcm1hZGEtY2E6bGFiXzEwHhcNMjYx\nMTI2MDc0NTM2WhcNMzYxMTIzMDc1MDM2WjArMQ8wDQYDVQQKEwZhcm1hZGExGDAW\nBgNVBAMMD2FybWFkYS1jYTpsYWJfMTBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IA\nBJUwhaad8q6CeLNux5qoaH6qxvxu8Gux3/tbyj6aAZ96hH53hFA1PSBKl019gFRL\nPznMUDsLvIj21heMrMJ9rzWjRTBDMA4GA1UdDwEB/wQEAwIBBjASBgNVHRMBAf8E\nCDAGAQH/AgEAMB0GA1UdDgQWBBSYRYPfBaT0d7M/R6aex/I79UpeFjAKBggqhkjO\nPQQDAgNHADBEAiAp4ZXnjsfEz6a9Jx4IUk+7HRt+6L8xDqEc1KrBcFT19wIgNpUQ\nA127M5BcjJXKcTjzvat5z1sGZKw2nLiF4CQBZGs=\n-----END CERTIFICATE-----\n",
+   "error": "private key is not ECDSA",
+   "key": "-----BEGIN PRIVATE KEY-----\nMIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQCkoXkF8siipCWD\n7a0gNIC4HkfVjxeGb6bT/Ba+8rfti81AJCziCvsPI8ZLhyGx904skY23pEPKc4rM\nWWiMZ9Ew+F5ipgSGEFbVS442UVsmAihhtzOGX2AL9y6A98+TatSvvQxeYOLkA9wN\nhoOtMkDGSp62gEw68BAJpf1iVyG1RtH99lFGm010TTZNAcA+RW92UZWxxZcFHUiH\n0huIJaAFXkoAUcjz774+IoEciPy2ky1MOgVq5iSKjt/5PB2nEeH6S29Of3MNufdV\n803Mt2BsdiAneXzIE4OylmWOTi1M/pRmuM9OlW1vsQcrecQvduAt3vv5hvD8uJBw\n6izXqYVxAgMBAAECggEAFIO0h3u56Z5nuFlZHe687XSEggWbKlrmYHsEwJWROs4V\nbP01BJPWtgvArW+w0LLe8GnQzYXwFp2wOYeYogpbxGzmogdLAAOwNlL8bSNVJtbU\n/lwsVP20g7kw98wpdxa0WxPFI0uSalRayuqspNviu3LX9Sjmlt+MOA+Rk/wEjMiL\nuFHl1OR2es0SHl3uPo2/aWmfe8jeTv56RkjkbLdOSazzqxeAhnkLWMtRK4+zUjFi\ngoiGh7CjNZqmbwooTiOK2cXu20hCTqWEfEPlGfWcN9e3zETJxFLaaYOVj/RRujM8\nnACObTnf5ZFpBMn4Uk7fEVXYSPnWqsbnZHBsgtK6SwKBgQDUJmUH9MW6Bjw52R/i\njsQXEfExPAlLgJHROdkDn8YED8i3JnU/V38vr7uodhfGl/l5Omvhblln0jPZon37\n1TyCjY6teaN3qMetDb/q8BmOFmbRK6jRZkPIFH3hejGXT9hrSjdBCQxPLn1gosGj\nVDp6wfYo6Qghh7hwiq9j8PmMjwKBgQDGqKr4kytIwHI6leSS9BQNk3mlajxQydhm\ndnQEL8qtP4KQ9AAA77pe0acgKGXN+HWpujgP4s7iPFFOSo+yDmbbcQnqR15Oh/OW\nQnvJn6uP3Xe5EHRtl62ym/rb1bvTbfRW7xwN9QaNOheHblcyu0FeYKSLsQ3EOyFx\nGDAQwfjN/wKBgBlgKk+EUK5KlqOYu/6ecwgLZl0sQDRewZJUKAgN8WKE/M4jdHzK\nG3V5wKmKzpc7kGSWv1asm1cWxoruq8EWpXE8O2e2l/31G0Uw0tboNzZOqae1YDED\n2XGyOchhlFL0Av/6VZea3HUQK4EGlsDRj1kloCsOjKFuGXqkrAv5Q/AzAoGAf6I6\nRn53XsSWH2HSez/p6lcH3ukEW3tzV1FfdJkoBGs7fdnmbrOW7/iPAbAyyESLhEKq\nZjp4ZQ4PxtdMvz9VgkN79VNpGddq/u00DvRRC5tkojgaNZcv+AMTB06o4ExSoc/6\nHFWCohXirBaOW3/HndVFoqJcj+jVsY2yw/F74w0CgYB3A0hpfaOKs+WlWmKmU2js\nmHhshwyAcgQWNikp01AJmeX2AWtWPPmRSQSdc0KjIxs+z3k+DVhfdFj2ss4/MK8m\nM7R7Q6YaO0e8nVMsyUxL3O9GWvfz/wsSW6r25yRv3iyStP/TqXqAfxhvkeR6XGmE\njdsNpJt5wmyHVzIuWG6iGw==\n-----END PRIVATE KEY-----\n"
+  }
+ ],
+ "newCA": {
+  "name": "lab-1",
+  "shape": {
+   "curve256": true,
+   "extensions": [
+    "2.5.29.15 true AwIBBg==",
+    "2.5.29.19 true MAYBAf8CAQA=",
+    "2.5.29.14 false ski"
+   ],
+   "hasSKI": true,
+   "lifeSeconds": 315360300,
+   "pubAlg": "ECDSA",
+   "rawIssuer": "MCsxDzANBgNVBAoTBmFybWFkYTEYMBYGA1UEAxMPYXJtYWRhLWNhOmxhYi0x",
+   "rawSubject": "MCsxDzANBgNVBAoTBmFybWFkYTEYMBYGA1UEAxMPYXJtYWRhLWNhOmxhYi0x",
+   "sigAlg": "ECDSA-SHA256",
+   "skiFromKey": true,
+   "version": "3"
+  }
+ },
+ "newCSRRefused": {
+  "error": "unknown identity kind \"root\"",
+  "kind": "root",
+  "name": "x"
+ },
+ "nodeCSR": {
+  "csr": "MIHOMHcCAQAwFTETMBEGA1UEAxMKbm9kZTp3ZWItMTBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABE0Jb7NOIk9Iju8T0A70PGu1YP5OqRcQV86aR2kOZDFA4oPUGHG3gtKn7Ax79xYfvdBDQKpxpgjkwhFIZxDBJV6gADAKBggqhkjOPQQDAgNHADBEAiAYoriaRLNNcPHT/mLkPmfFdpq2zO2cexI8x8+wnjlJHwIgO5dzHWs14KrHIzUHn4DpMOiQeuDzEVmiSSeS6PcBFp4=",
+  "rawSubject": "MBUxEzARBgNVBAMTCm5vZGU6d2ViLTE=",
+  "sigAlg": "ECDSA-SHA256",
+  "tbsLength": 121,
+  "version": 0
+ },
+ "pinCA": [
+  {
+   "case": "good",
+   "chain": [
+    "-----BEGIN CERTIFICATE-----\nMIIBvTCCAWSgAwIBAgIRAJ1Mr5JejLmSv/UriOsvV0MwCgYIKoZIzj0EAwIwKzEP\nMA0GA1UEChMGYXJtYWRhMRgwFgYDVQQDDA9hcm1hZGEtY2E6bGFiXzEwHhcNMjYx\nMTI2MDc0NTM2WhcNMjcxMTI2MDc1MDM2WjAkMQ8wDQYDVQQKEwZhcm1hZGExETAP\nBgNVBAMTCHNlcnZlcjpzMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEOTJ6A2oK\nXCA6P0HtW0H0Pp2itgu5R0/Iaoa5gvzVKWfYIgctXKVuTZj3F2pPrcI3Q29UUKTQ\n8JaJ30maEh1PfKNwMG4wDgYDVR0PAQH/BAQDAgeAMBMGA1UdJQQMMAoGCCsGAQUF\nBwMBMAwGA1UdEwEB/wQCMAAwHwYDVR0jBBgwFoAUmEWD3wWk9HezP0emnsfyO/VK\nXhYwGAYDVR0RBBEwD4INYXJtYWRhLXNlcnZlcjAKBggqhkjOPQQDAgNHADBEAiA7\nGmJ0197sopTXv6lvE68ymn6+K9iFkD5NzDO3k4e+JwIgPJCNn/34lBfEFbyFoUGg\nooI6umZdIuz0UWU6Afdcqgg=\n-----END CERTIFICATE-----\n",
+    "-----BEGIN CERTIFICATE-----\nMIIBmTCCAUCgAwIBAgIRAPMGCL/1yvKu1iMbWGhDrOwwCgYIKoZIzj0EAwIwKzEP\nMA0GA1UEChMGYXJtYWRhMRgwFgYDVQQDDA9hcm1hZGEtY2E6bGFiXzEwHhcNMjYx\nMTI2MDc0NTM2WhcNMzYxMTIzMDc1MDM2WjArMQ8wDQYDVQQKEwZhcm1hZGExGDAW\nBgNVBAMMD2FybWFkYS1jYTpsYWJfMTBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IA\nBJUwhaad8q6CeLNux5qoaH6qxvxu8Gux3/tbyj6aAZ96hH53hFA1PSBKl019gFRL\nPznMUDsLvIj21heMrMJ9rzWjRTBDMA4GA1UdDwEB/wQEAwIBBjASBgNVHRMBAf8E\nCDAGAQH/AgEAMB0GA1UdDgQWBBSYRYPfBaT0d7M/R6aex/I79UpeFjAKBggqhkjO\nPQQDAgNHADBEAiAp4ZXnjsfEz6a9Jx4IUk+7HRt+6L8xDqEc1KrBcFT19wIgNpUQ\nA127M5BcjJXKcTjzvat5z1sGZKw2nLiF4CQBZGs=\n-----END CERTIFICATE-----\n"
+   ],
+   "fingerprint": "aab11fbce7ea6548f6ae9d278663f7180b461478dc31d1668f7683944a17b81f",
+   "hash": "aab11fbce7ea6548f6ae9d278663f7180b461478dc31d1668f7683944a17b81f",
+   "now": 1795679436761585943
+  },
+  {
+   "case": "extra",
+   "chain": [
+    "-----BEGIN CERTIFICATE-----\nMIIBvTCCAWSgAwIBAgIRAJ1Mr5JejLmSv/UriOsvV0MwCgYIKoZIzj0EAwIwKzEP\nMA0GA1UEChMGYXJtYWRhMRgwFgYDVQQDDA9hcm1hZGEtY2E6bGFiXzEwHhcNMjYx\nMTI2MDc0NTM2WhcNMjcxMTI2MDc1MDM2WjAkMQ8wDQYDVQQKEwZhcm1hZGExETAP\nBgNVBAMTCHNlcnZlcjpzMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEOTJ6A2oK\nXCA6P0HtW0H0Pp2itgu5R0/Iaoa5gvzVKWfYIgctXKVuTZj3F2pPrcI3Q29UUKTQ\n8JaJ30maEh1PfKNwMG4wDgYDVR0PAQH/BAQDAgeAMBMGA1UdJQQMMAoGCCsGAQUF\nBwMBMAwGA1UdEwEB/wQCMAAwHwYDVR0jBBgwFoAUmEWD3wWk9HezP0emnsfyO/VK\nXhYwGAYDVR0RBBEwD4INYXJtYWRhLXNlcnZlcjAKBggqhkjOPQQDAgNHADBEAiA7\nGmJ0197sopTXv6lvE68ymn6+K9iFkD5NzDO3k4e+JwIgPJCNn/34lBfEFbyFoUGg\nooI6umZdIuz0UWU6Afdcqgg=\n-----END CERTIFICATE-----\n",
+    "-----BEGIN CERTIFICATE-----\nMIIBkjCCATigAwIBAgIRAON8ozJDCEJqV8SYb9196JQwCgYIKoZIzj0EAwIwJzEP\nMA0GA1UEChMGYXJtYWRhMRQwEgYDVQQDEwthcm1hZGEtY2E6YzAeFw0yNjExMjYw\nNzQ1MzZaFw0zNjExMjMwNzUwMzZaMCcxDzANBgNVBAoTBmFybWFkYTEUMBIGA1UE\nAxMLYXJtYWRhLWNhOmMwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAARCsQLhNxDz\nQycIW/aQxpNKAwBxPMb0oCBis8iLDuz7+tPDI2ZLVFG82/Vy7AqspbzAXrlPA7X+\nmEpdYEYm7R2ao0UwQzAOBgNVHQ8BAf8EBAMCAQYwEgYDVR0TAQH/BAgwBgEB/wIB\nADAdBgNVHQ4EFgQUhKq8D6rrRC1nTCHfkejiZh8V1sEwCgYIKoZIzj0EAwIDSAAw\nRQIgWQ2LqrXKavkVs1Zh/Jk5AryhVbIPjwTvTUXmLim4bDACIQD7vpTjWKQcm/jH\nYow+0zqF7mFMM4K3HA9QlnBi1NOoCw==\n-----END CERTIFICATE-----\n",
+    "-----BEGIN CERTIFICATE-----\nMIIBmTCCAUCgAwIBAgIRAPMGCL/1yvKu1iMbWGhDrOwwCgYIKoZIzj0EAwIwKzEP\nMA0GA1UEChMGYXJtYWRhMRgwFgYDVQQDDA9hcm1hZGEtY2E6bGFiXzEwHhcNMjYx\nMTI2MDc0NTM2WhcNMzYxMTIzMDc1MDM2WjArMQ8wDQYDVQQKEwZhcm1hZGExGDAW\nBgNVBAMMD2FybWFkYS1jYTpsYWJfMTBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IA\nBJUwhaad8q6CeLNux5qoaH6qxvxu8Gux3/tbyj6aAZ96hH53hFA1PSBKl019gFRL\nPznMUDsLvIj21heMrMJ9rzWjRTBDMA4GA1UdDwEB/wQEAwIBBjASBgNVHRMBAf8E\nCDAGAQH/AgEAMB0GA1UdDgQWBBSYRYPfBaT0d7M/R6aex/I79UpeFjAKBggqhkjO\nPQQDAgNHADBEAiAp4ZXnjsfEz6a9Jx4IUk+7HRt+6L8xDqEc1KrBcFT19wIgNpUQ\nA127M5BcjJXKcTjzvat5z1sGZKw2nLiF4CQBZGs=\n-----END CERTIFICATE-----\n"
+   ],
+   "fingerprint": "aab11fbce7ea6548f6ae9d278663f7180b461478dc31d1668f7683944a17b81f",
+   "hash": "aab11fbce7ea6548f6ae9d278663f7180b461478dc31d1668f7683944a17b81f",
+   "now": 1795679436761645975
+  },
+  {
+   "case": "leaf only",
+   "chain": [
+    "-----BEGIN CERTIFICATE-----\nMIIBvTCCAWSgAwIBAgIRAJ1Mr5JejLmSv/UriOsvV0MwCgYIKoZIzj0EAwIwKzEP\nMA0GA1UEChMGYXJtYWRhMRgwFgYDVQQDDA9hcm1hZGEtY2E6bGFiXzEwHhcNMjYx\nMTI2MDc0NTM2WhcNMjcxMTI2MDc1MDM2WjAkMQ8wDQYDVQQKEwZhcm1hZGExETAP\nBgNVBAMTCHNlcnZlcjpzMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEOTJ6A2oK\nXCA6P0HtW0H0Pp2itgu5R0/Iaoa5gvzVKWfYIgctXKVuTZj3F2pPrcI3Q29UUKTQ\n8JaJ30maEh1PfKNwMG4wDgYDVR0PAQH/BAQDAgeAMBMGA1UdJQQMMAoGCCsGAQUF\nBwMBMAwGA1UdEwEB/wQCMAAwHwYDVR0jBBgwFoAUmEWD3wWk9HezP0emnsfyO/VK\nXhYwGAYDVR0RBBEwD4INYXJtYWRhLXNlcnZlcjAKBggqhkjOPQQDAgNHADBEAiA7\nGmJ0197sopTXv6lvE68ymn6+K9iFkD5NzDO3k4e+JwIgPJCNn/34lBfEFbyFoUGg\nooI6umZdIuz0UWU6Afdcqgg=\n-----END CERTIFICATE-----\n"
+   ],
+   "error": "server did not present its CA certificate",
+   "hash": "aab11fbce7ea6548f6ae9d278663f7180b461478dc31d1668f7683944a17b81f",
+   "now": 1795679436761716076
+  },
+  {
+   "case": "other CA",
+   "chain": [
+    "-----BEGIN CERTIFICATE-----\nMIIBuTCCAV+gAwIBAgIQFy04jbUdjhkQXJz/1vhhbTAKBggqhkjOPQQDAjAnMQ8w\nDQYDVQQKEwZhcm1hZGExFDASBgNVBAMTC2FybWFkYS1jYTpjMB4XDTI2MTEyNjA3\nNDUzNloXDTI3MTEyNjA3NTAzNlowJDEPMA0GA1UEChMGYXJtYWRhMREwDwYDVQQD\nEwhzZXJ2ZXI6czBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABP8Sn/LH/BsU4Oxv\ndLOTEUwVUgrzftDOuU/mr3m5Wl2c+PHFToqjZkvpXjszO/HE1warHZLUXRR2F2mb\nvOzooESjcDBuMA4GA1UdDwEB/wQEAwIHgDATBgNVHSUEDDAKBggrBgEFBQcDATAM\nBgNVHRMBAf8EAjAAMB8GA1UdIwQYMBaAFISqvA+q60QtZ0wh35Ho4mYfFdbBMBgG\nA1UdEQQRMA+CDWFybWFkYS1zZXJ2ZXIwCgYIKoZIzj0EAwIDSAAwRQIgfHdBEAKx\n3BBYUpo3hGo2M0LTx9mWXCIg26sjuK5R7uoCIQDMeQ7w7gk4ItQ4u97Lq/R0GDV3\nTWmE3bKm93uS/Ujgng==\n-----END CERTIFICATE-----\n",
+    "-----BEGIN CERTIFICATE-----\nMIIBkjCCATigAwIBAgIRAON8ozJDCEJqV8SYb9196JQwCgYIKoZIzj0EAwIwJzEP\nMA0GA1UEChMGYXJtYWRhMRQwEgYDVQQDEwthcm1hZGEtY2E6YzAeFw0yNjExMjYw\nNzQ1MzZaFw0zNjExMjMwNzUwMzZaMCcxDzANBgNVBAoTBmFybWFkYTEUMBIGA1UE\nAxMLYXJtYWRhLWNhOmMwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAARCsQLhNxDz\nQycIW/aQxpNKAwBxPMb0oCBis8iLDuz7+tPDI2ZLVFG82/Vy7AqspbzAXrlPA7X+\nmEpdYEYm7R2ao0UwQzAOBgNVHQ8BAf8EBAMCAQYwEgYDVR0TAQH/BAgwBgEB/wIB\nADAdBgNVHQ4EFgQUhKq8D6rrRC1nTCHfkejiZh8V1sEwCgYIKoZIzj0EAwIDSAAw\nRQIgWQ2LqrXKavkVs1Zh/Jk5AryhVbIPjwTvTUXmLim4bDACIQD7vpTjWKQcm/jH\nYow+0zqF7mFMM4K3HA9QlnBi1NOoCw==\n-----END CERTIFICATE-----\n"
+   ],
+   "error": "the server's CA does not match the CA hash in the join command; refusing to join (possible man-in-the-middle)",
+   "hash": "aab11fbce7ea6548f6ae9d278663f7180b461478dc31d1668f7683944a17b81f",
+   "now": 1795679436761718852
+  },
+  {
+   "case": "mitm leaf",
+   "chain": [
+    "-----BEGIN CERTIFICATE-----\nMIIBuTCCAV+gAwIBAgIQFy04jbUdjhkQXJz/1vhhbTAKBggqhkjOPQQDAjAnMQ8w\nDQYDVQQKEwZhcm1hZGExFDASBgNVBAMTC2FybWFkYS1jYTpjMB4XDTI2MTEyNjA3\nNDUzNloXDTI3MTEyNjA3NTAzNlowJDEPMA0GA1UEChMGYXJtYWRhMREwDwYDVQQD\nEwhzZXJ2ZXI6czBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABP8Sn/LH/BsU4Oxv\ndLOTEUwVUgrzftDOuU/mr3m5Wl2c+PHFToqjZkvpXjszO/HE1warHZLUXRR2F2mb\nvOzooESjcDBuMA4GA1UdDwEB/wQEAwIHgDATBgNVHSUEDDAKBggrBgEFBQcDATAM\nBgNVHRMBAf8EAjAAMB8GA1UdIwQYMBaAFISqvA+q60QtZ0wh35Ho4mYfFdbBMBgG\nA1UdEQQRMA+CDWFybWFkYS1zZXJ2ZXIwCgYIKoZIzj0EAwIDSAAwRQIgfHdBEAKx\n3BBYUpo3hGo2M0LTx9mWXCIg26sjuK5R7uoCIQDMeQ7w7gk4ItQ4u97Lq/R0GDV3\nTWmE3bKm93uS/Ujgng==\n-----END CERTIFICATE-----\n",
+    "-----BEGIN CERTIFICATE-----\nMIIBmTCCAUCgAwIBAgIRAPMGCL/1yvKu1iMbWGhDrOwwCgYIKoZIzj0EAwIwKzEP\nMA0GA1UEChMGYXJtYWRhMRgwFgYDVQQDDA9hcm1hZGEtY2E6bGFiXzEwHhcNMjYx\nMTI2MDc0NTM2WhcNMzYxMTIzMDc1MDM2WjArMQ8wDQYDVQQKEwZhcm1hZGExGDAW\nBgNVBAMMD2FybWFkYS1jYTpsYWJfMTBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IA\nBJUwhaad8q6CeLNux5qoaH6qxvxu8Gux3/tbyj6aAZ96hH53hFA1PSBKl019gFRL\nPznMUDsLvIj21heMrMJ9rzWjRTBDMA4GA1UdDwEB/wQEAwIBBjASBgNVHRMBAf8E\nCDAGAQH/AgEAMB0GA1UdDgQWBBSYRYPfBaT0d7M/R6aex/I79UpeFjAKBggqhkjO\nPQQDAgNHADBEAiAp4ZXnjsfEz6a9Jx4IUk+7HRt+6L8xDqEc1KrBcFT19wIgNpUQ\nA127M5BcjJXKcTjzvat5z1sGZKw2nLiF4CQBZGs=\n-----END CERTIFICATE-----\n"
+   ],
+   "error": "server certificate is not valid for the pinned CA: x509: certificate signed by unknown authority",
+   "hash": "aab11fbce7ea6548f6ae9d278663f7180b461478dc31d1668f7683944a17b81f",
+   "now": 1795679436761722969
+  },
+  {
+   "case": "leaf pinned",
+   "chain": [
+    "-----BEGIN CERTIFICATE-----\nMIIBvTCCAWSgAwIBAgIRAJ1Mr5JejLmSv/UriOsvV0MwCgYIKoZIzj0EAwIwKzEP\nMA0GA1UEChMGYXJtYWRhMRgwFgYDVQQDDA9hcm1hZGEtY2E6bGFiXzEwHhcNMjYx\nMTI2MDc0NTM2WhcNMjcxMTI2MDc1MDM2WjAkMQ8wDQYDVQQKEwZhcm1hZGExETAP\nBgNVBAMTCHNlcnZlcjpzMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEOTJ6A2oK\nXCA6P0HtW0H0Pp2itgu5R0/Iaoa5gvzVKWfYIgctXKVuTZj3F2pPrcI3Q29UUKTQ\n8JaJ30maEh1PfKNwMG4wDgYDVR0PAQH/BAQDAgeAMBMGA1UdJQQMMAoGCCsGAQUF\nBwMBMAwGA1UdEwEB/wQCMAAwHwYDVR0jBBgwFoAUmEWD3wWk9HezP0emnsfyO/VK\nXhYwGAYDVR0RBBEwD4INYXJtYWRhLXNlcnZlcjAKBggqhkjOPQQDAgNHADBEAiA7\nGmJ0197sopTXv6lvE68ymn6+K9iFkD5NzDO3k4e+JwIgPJCNn/34lBfEFbyFoUGg\nooI6umZdIuz0UWU6Afdcqgg=\n-----END CERTIFICATE-----\n",
+    "-----BEGIN CERTIFICATE-----\nMIIBvTCCAWSgAwIBAgIRAJ1Mr5JejLmSv/UriOsvV0MwCgYIKoZIzj0EAwIwKzEP\nMA0GA1UEChMGYXJtYWRhMRgwFgYDVQQDDA9hcm1hZGEtY2E6bGFiXzEwHhcNMjYx\nMTI2MDc0NTM2WhcNMjcxMTI2MDc1MDM2WjAkMQ8wDQYDVQQKEwZhcm1hZGExETAP\nBgNVBAMTCHNlcnZlcjpzMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEOTJ6A2oK\nXCA6P0HtW0H0Pp2itgu5R0/Iaoa5gvzVKWfYIgctXKVuTZj3F2pPrcI3Q29UUKTQ\n8JaJ30maEh1PfKNwMG4wDgYDVR0PAQH/BAQDAgeAMBMGA1UdJQQMMAoGCCsGAQUF\nBwMBMAwGA1UdEwEB/wQCMAAwHwYDVR0jBBgwFoAUmEWD3wWk9HezP0emnsfyO/VK\nXhYwGAYDVR0RBBEwD4INYXJtYWRhLXNlcnZlcjAKBggqhkjOPQQDAgNHADBEAiA7\nGmJ0197sopTXv6lvE68ymn6+K9iFkD5NzDO3k4e+JwIgPJCNn/34lBfEFbyFoUGg\nooI6umZdIuz0UWU6Afdcqgg=\n-----END CERTIFICATE-----\n"
+   ],
+   "error": "pinned certificate is not a CA",
+   "hash": "3f6f1586483ac5ea58a7cb4abb7dea493606267bea31cb16f9b4bb698990378b",
+   "now": 1795679436761732658
+  },
+  {
+   "case": "wrong name",
+   "chain": [
+    "-----BEGIN CERTIFICATE-----\nMIIBtjCCAVygAwIBAgIRAMeWz5GrDqcCxo8rzL/JG04wCgYIKoZIzj0EAwIwKzEP\nMA0GA1UEChMGYXJtYWRhMRgwFgYDVQQDDA9hcm1hZGEtY2E6bGFiXzEwHhcNMjYx\nMTI2MDc0NTM2WhcNMjcxMTI2MDc1MDM2WjAkMQ8wDQYDVQQKEwZhcm1hZGExETAP\nBgNVBAMTCHNlcnZlcjpzMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE3vUoS/8T\n87WlMXnn75aT8DqDN2zU/yFFDWxnzTVd1rUI3Hf99pu5RLz/AW12AfajvW6ydd7l\nQkmSKfxCfjKBJqNoMGYwDgYDVR0PAQH/BAQDAgeAMBMGA1UdJQQMMAoGCCsGAQUF\nBwMBMAwGA1UdEwEB/wQCMAAwHwYDVR0jBBgwFoAUmEWD3wWk9HezP0emnsfyO/VK\nXhYwEAYDVR0RBAkwB4IFb3RoZXIwCgYIKoZIzj0EAwIDSAAwRQIgDXH8wQjaALHk\nI3rYtLNYLvKBYAkMbtMBMeMbhTVVyaQCIQDNtdR6eCDA0LrHm8SVuiPVfT1ZfI1E\n3ec3xUrzOwvElw==\n-----END CERTIFICATE-----\n",
+    "-----BEGIN CERTIFICATE-----\nMIIBmTCCAUCgAwIBAgIRAPMGCL/1yvKu1iMbWGhDrOwwCgYIKoZIzj0EAwIwKzEP\nMA0GA1UEChMGYXJtYWRhMRgwFgYDVQQDDA9hcm1hZGEtY2E6bGFiXzEwHhcNMjYx\nMTI2MDc0NTM2WhcNMzYxMTIzMDc1MDM2WjArMQ8wDQYDVQQKEwZhcm1hZGExGDAW\nBgNVBAMMD2FybWFkYS1jYTpsYWJfMTBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IA\nBJUwhaad8q6CeLNux5qoaH6qxvxu8Gux3/tbyj6aAZ96hH53hFA1PSBKl019gFRL\nPznMUDsLvIj21heMrMJ9rzWjRTBDMA4GA1UdDwEB/wQEAwIBBjASBgNVHRMBAf8E\nCDAGAQH/AgEAMB0GA1UdDgQWBBSYRYPfBaT0d7M/R6aex/I79UpeFjAKBggqhkjO\nPQQDAgNHADBEAiAp4ZXnjsfEz6a9Jx4IUk+7HRt+6L8xDqEc1KrBcFT19wIgNpUQ\nA127M5BcjJXKcTjzvat5z1sGZKw2nLiF4CQBZGs=\n-----END CERTIFICATE-----\n"
+   ],
+   "error": "server certificate is not valid for the pinned CA: x509: certificate is valid for other, not armada-server",
+   "hash": "aab11fbce7ea6548f6ae9d278663f7180b461478dc31d1668f7683944a17b81f",
+   "now": 1795679436761738168
+  },
+  {
+   "case": "no names",
+   "chain": [
+    "-----BEGIN CERTIFICATE-----\nMIIBpDCCAUqgAwIBAgIRAOvbFEVoQskLicG1fQOcfAIwCgYIKoZIzj0EAwIwKzEP\nMA0GA1UEChMGYXJtYWRhMRgwFgYDVQQDDA9hcm1hZGEtY2E6bGFiXzEwHhcNMjYx\nMTI2MDc0NTM2WhcNMjcxMTI2MDc1MDM2WjAkMQ8wDQYDVQQKEwZhcm1hZGExETAP\nBgNVBAMTCHNlcnZlcjpzMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE25Nl7gJU\nhN0Ai27WPzJKvpI2Kh5DWV+O8yIJsvXapjpTZEU2SLrUGO7zyxRSzIEU1imJd4IW\nPvzddLvlqsw+UKNWMFQwDgYDVR0PAQH/BAQDAgeAMBMGA1UdJQQMMAoGCCsGAQUF\nBwMBMAwGA1UdEwEB/wQCMAAwHwYDVR0jBBgwFoAUmEWD3wWk9HezP0emnsfyO/VK\nXhYwCgYIKoZIzj0EAwIDSAAwRQIhALATgrqk6aOpHGKgY8Bmh2sN5t5VQ49FGQbf\ny+1+8/nXAiARikIM2t8XArMrdKyj1lyYRHeCqFIysM3OcydJHcVZRA==\n-----END CERTIFICATE-----\n",
+    "-----BEGIN CERTIFICATE-----\nMIIBmTCCAUCgAwIBAgIRAPMGCL/1yvKu1iMbWGhDrOwwCgYIKoZIzj0EAwIwKzEP\nMA0GA1UEChMGYXJtYWRhMRgwFgYDVQQDDA9hcm1hZGEtY2E6bGFiXzEwHhcNMjYx\nMTI2MDc0NTM2WhcNMzYxMTIzMDc1MDM2WjArMQ8wDQYDVQQKEwZhcm1hZGExGDAW\nBgNVBAMMD2FybWFkYS1jYTpsYWJfMTBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IA\nBJUwhaad8q6CeLNux5qoaH6qxvxu8Gux3/tbyj6aAZ96hH53hFA1PSBKl019gFRL\nPznMUDsLvIj21heMrMJ9rzWjRTBDMA4GA1UdDwEB/wQEAwIBBjASBgNVHRMBAf8E\nCDAGAQH/AgEAMB0GA1UdDgQWBBSYRYPfBaT0d7M/R6aex/I79UpeFjAKBggqhkjO\nPQQDAgNHADBEAiAp4ZXnjsfEz6a9Jx4IUk+7HRt+6L8xDqEc1KrBcFT19wIgNpUQ\nA127M5BcjJXKcTjzvat5z1sGZKw2nLiF4CQBZGs=\n-----END CERTIFICATE-----\n"
+   ],
+   "error": "server certificate is not valid for the pinned CA: x509: certificate is not valid for any names, but wanted to match armada-server",
+   "hash": "aab11fbce7ea6548f6ae9d278663f7180b461478dc31d1668f7683944a17b81f",
+   "now": 1795679436761743648
+  },
+  {
+   "case": "upper-case",
+   "chain": [
+    "-----BEGIN CERTIFICATE-----\nMIIBvTCCAWSgAwIBAgIRAJ1Mr5JejLmSv/UriOsvV0MwCgYIKoZIzj0EAwIwKzEP\nMA0GA1UEChMGYXJtYWRhMRgwFgYDVQQDDA9hcm1hZGEtY2E6bGFiXzEwHhcNMjYx\nMTI2MDc0NTM2WhcNMjcxMTI2MDc1MDM2WjAkMQ8wDQYDVQQKEwZhcm1hZGExETAP\nBgNVBAMTCHNlcnZlcjpzMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEOTJ6A2oK\nXCA6P0HtW0H0Pp2itgu5R0/Iaoa5gvzVKWfYIgctXKVuTZj3F2pPrcI3Q29UUKTQ\n8JaJ30maEh1PfKNwMG4wDgYDVR0PAQH/BAQDAgeAMBMGA1UdJQQMMAoGCCsGAQUF\nBwMBMAwGA1UdEwEB/wQCMAAwHwYDVR0jBBgwFoAUmEWD3wWk9HezP0emnsfyO/VK\nXhYwGAYDVR0RBBEwD4INYXJtYWRhLXNlcnZlcjAKBggqhkjOPQQDAgNHADBEAiA7\nGmJ0197sopTXv6lvE68ymn6+K9iFkD5NzDO3k4e+JwIgPJCNn/34lBfEFbyFoUGg\nooI6umZdIuz0UWU6Afdcqgg=\n-----END CERTIFICATE-----\n",
+    "-----BEGIN CERTIFICATE-----\nMIIBmTCCAUCgAwIBAgIRAPMGCL/1yvKu1iMbWGhDrOwwCgYIKoZIzj0EAwIwKzEP\nMA0GA1UEChMGYXJtYWRhMRgwFgYDVQQDDA9hcm1hZGEtY2E6bGFiXzEwHhcNMjYx\nMTI2MDc0NTM2WhcNMzYxMTIzMDc1MDM2WjArMQ8wDQYDVQQKEwZhcm1hZGExGDAW\nBgNVBAMMD2FybWFkYS1jYTpsYWJfMTBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IA\nBJUwhaad8q6CeLNux5qoaH6qxvxu8Gux3/tbyj6aAZ96hH53hFA1PSBKl019gFRL\nPznMUDsLvIj21heMrMJ9rzWjRTBDMA4GA1UdDwEB/wQEAwIBBjASBgNVHRMBAf8E\nCDAGAQH/AgEAMB0GA1UdDgQWBBSYRYPfBaT0d7M/R6aex/I79UpeFjAKBggqhkjO\nPQQDAgNHADBEAiAp4ZXnjsfEz6a9Jx4IUk+7HRt+6L8xDqEc1KrBcFT19wIgNpUQ\nA127M5BcjJXKcTjzvat5z1sGZKw2nLiF4CQBZGs=\n-----END CERTIFICATE-----\n"
+   ],
+   "error": "the server's CA does not match the CA hash in the join command; refusing to join (possible man-in-the-middle)",
+   "hash": "AAB11FBCE7EA6548F6AE9D278663F7180B461478DC31D1668F7683944A17B81F",
+   "now": 1795679436761752205
+  }
+ ],
+ "readCert": [
+  {
+   "caHash": "sha256:8dcc149be86bddd6b7049ed82eee8ff5590d99fb5c63a147c0fb46bf5a680a69",
+   "cert": "-----BEGIN CERTIFICATE-----\nMIIBpDCCAUugAwIBAgIQfkwOzCIO7g6bawj28FFWJjAKBggqhkjOPQQDAjArMQ8w\nDQYDVQQKEwZhcm1hZGExGDAWBgNVBAMMD2FybWFkYS1jYTpsYWJfMTAeFw0yNjEx\nMjYwNzQ1MzZaFw0yNzExMjYwNzUwMzZaMCYxDzANBgNVBAoTBmFybWFkYTETMBEG\nA1UEAxMKYWRtaW46cm9vdDBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABPX7M1Zr\nEkgHndFQ1eFjLylgzbU6eIxUeC7+AwPpr4rS0GIZ1PSafm8OUARJSb4URTy67XJw\ny+b74ILE2pHpEjijVjBUMA4GA1UdDwEB/wQEAwIHgDATBgNVHSUEDDAKBggrBgEF\nBQcDAjAMBgNVHRMBAf8EAjAAMB8GA1UdIwQYMBaAFJhFg98FpPR3sz9Hpp7H8jv1\nSl4WMAoGCCqGSM49BAMCA0cAMEQCIFysuHVqt9pALdISwj+f45+9pVDMc7wQfUYx\nHI+r1fDYAiB/mv6fxKhxsl9GeuIZx6tey1CYRyeGqOJ2Q/zhPk94/w==\n-----END CERTIFICATE-----\n",
+   "fingerprint": "8dcc149be86bddd6b7049ed82eee8ff5590d99fb5c63a147c0fb46bf5a680a69",
+   "identity": "admin:root",
+   "principal": "user:root",
+   "serial": "7e4c0ecc220eee0e9b6b08f6f0515626"
+  },
+  {
+   "caHash": "sha256:d8f231fac740eb24ca0b701af2b525b1b6e5d407be0ddca9de6525d4ffce4b88",
+   "cert": "-----BEGIN CERTIFICATE-----\nMIIBqTCCAU6gAwIBAgIQHhPVW0om+dpRKoIMHTA4XTAKBggqhkjOPQQDAjArMQ8w\nDQYDVQQKEwZhcm1hZGExGDAWBgNVBAMMD2FybWFkYS1jYTpsYWJfMTAeFw0yNjEx\nMjYwNzQ1MzZaFw0yNzExMjYwNzUwMzZaMCkxDzANBgNVBAoTBmFybWFkYTEWMBQG\nA1UEAxMNYXV0b21hdGlvbjpjaTBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABABc\nKpa6chG2B0kUHnn298V9W9w0ghrKEIFN60IuIUPlNDozChZXeB0NE6IInM8+Ih9d\n/XESRnI9aQwr6IFMQS+jVjBUMA4GA1UdDwEB/wQEAwIHgDATBgNVHSUEDDAKBggr\nBgEFBQcDAjAMBgNVHRMBAf8EAjAAMB8GA1UdIwQYMBaAFJhFg98FpPR3sz9Hpp7H\n8jv1Sl4WMAoGCCqGSM49BAMCA0kAMEYCIQCuTT6JoWpzkKDUmfT5MPbVeKN3AtEd\nSIo2NuB8/UNJ2gIhAMmRgeMeqx1oGqzSpW+TEDZSBjNSLIbVkBXqA2MpTKON\n-----END CERTIFICATE-----\n",
+   "fingerprint": "d8f231fac740eb24ca0b701af2b525b1b6e5d407be0ddca9de6525d4ffce4b88",
+   "identity": "automation:ci",
+   "principal": "service:ci",
+   "serial": "1e13d55b4a26f9da512a820c1d30385d"
+  },
+  {
+   "caHash": "sha256:7aafcd331cbdc9e185d762ef20b1d8650982c7142d627ac479883c8ec7357d8f",
+   "cert": "-----BEGIN CERTIFICATE-----\nMIIBoDCCAUegAwIBAgIQA6+SWbVeXFAJeGRk0Q/aHjAKBggqhkjOPQQDAjArMQ8w\nDQYDVQQKEwZhcm1hZGExGDAWBgNVBAMMD2FybWFkYS1jYTpsYWJfMTAeFw0yNjEx\nMjYwNzQ1MzZaFw0yNzExMjYwNzUwMzZaMCIxDzANBgNVBAoTBmFybWFkYTEPMA0G\nA1UEAxMGdXNlcjp1MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEALaPat8FtgTM\nOtQL4S9SFC4l+NnrGlsLshFYbhvXjtdmJSCnPKcx+L/NwHm6Tl5XH+3Y089dEOkR\nW1P8eaEgvaNWMFQwDgYDVR0PAQH/BAQDAgeAMBMGA1UdJQQMMAoGCCsGAQUFBwMC\nMAwGA1UdEwEB/wQCMAAwHwYDVR0jBBgwFoAUmEWD3wWk9HezP0emnsfyO/VKXhYw\nCgYIKoZIzj0EAwIDRwAwRAIgVKpRNbUk1iH33y55LFl5P6aLdIy/+43H+hd21gSt\nMuoCIH8Oqinn0v/gKQmyqBPSYuZ10VKhfF/OvoJvFPGFX2uU\n-----END CERTIFICATE-----\n",
+   "fingerprint": "7aafcd331cbdc9e185d762ef20b1d8650982c7142d627ac479883c8ec7357d8f",
+   "identity": "user:u",
+   "principal": "user:u",
+   "serial": "3af9259b55e5c5009786464d10fda1e"
+  },
+  {
+   "caHash": "sha256:58a79a4b8c21d733d7c9b4283ae0415df8efddad8a3698a3a42b2ae725b16d30",
+   "cert": "-----BEGIN CERTIFICATE-----\nMIIBoTCCAUigAwIBAgIRAKMACGfMjuiRk0qtk0yjJzswCgYIKoZIzj0EAwIwKzEP\nMA0GA1UEChMGYXJtYWRhMRgwFgYDVQQDDA9hcm1hZGEtY2E6bGFiXzEwHhcNMjYx\nMTI2MDc0NTM2WhcNMjcxMTI2MDc1MDM2WjAiMQ8wDQYDVQQKEwZhcm1hZGExDzAN\nBgNVBAMTBm5vZGU6bjBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABHpXzheNaMAl\nkNhS+6XphqQTGV7ul7/0TXCLxtwFdMrcBZbaUIsFX5b8QGNM88DUl1/IqEPJKowK\n8kkkbCuJDyyjVjBUMA4GA1UdDwEB/wQEAwIHgDATBgNVHSUEDDAKBggrBgEFBQcD\nAjAMBgNVHRMBAf8EAjAAMB8GA1UdIwQYMBaAFJhFg98FpPR3sz9Hpp7H8jv1Sl4W\nMAoGCCqGSM49BAMCA0cAMEQCIHt0o4b4qPDEdBQQlYgOZP0cTIHGg8HSN+qMYwlh\nfbNIAiB8yV6QgMl+L9i5eQKljAQKDjxqB6e3FPvv8yzSgmCgHA==\n-----END CERTIFICATE-----\n",
+   "fingerprint": "58a79a4b8c21d733d7c9b4283ae0415df8efddad8a3698a3a42b2ae725b16d30",
+   "identity": "node:n",
+   "principal": "",
+   "serial": "a3000867cc8ee891934aad934ca3273b"
+  },
+  {
+   "caHash": "sha256:abc9b23e2132b27733dde1041ff6ca2f2fbd76a528c25647530b468ee414d61a",
+   "cert": "-----BEGIN CERTIFICATE-----\nMIIBpTCCAUugAwIBAgIRAJmuF+nWQm5o6eY7MkElYR8wCgYIKoZIzj0EAwIwKzEP\nMA0GA1UEChMGYXJtYWRhMRgwFgYDVQQDDA9hcm1hZGEtY2E6bGFiXzEwHhcNMjYx\nMTI2MDc0NTM2WhcNMjcxMTI2MDc1MDM2WjAlMQ8wDQYDVQQKEwZhcm1hZGExEjAQ\nBgNVBAMTCW1ldHJpY3M6bTBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABAIBBIdU\nyKTD7DxC2C9z6PnIhnzjYhap+DDyeBKskWsnoo+RliA55Ao1DNKuPnuqAdXHEAQu\nYUV3k0TrRTwRo9qjVjBUMA4GA1UdDwEB/wQEAwIHgDATBgNVHSUEDDAKBggrBgEF\nBQcDAjAMBgNVHRMBAf8EAjAAMB8GA1UdIwQYMBaAFJhFg98FpPR3sz9Hpp7H8jv1\nSl4WMAoGCCqGSM49BAMCA0gAMEUCIHXL6LkCkvBNIBvI0pVX4JH4DQUmjGAulkhy\nncF07vwFAiEAt4Fe1T6VV6u+gXD/v03kxvXblXzBN1QjNUnPyKATYjE=\n-----END CERTIFICATE-----\n",
+   "fingerprint": "abc9b23e2132b27733dde1041ff6ca2f2fbd76a528c25647530b468ee414d61a",
+   "identity": "metrics:m",
+   "principal": "",
+   "serial": "99ae17e9d6426e68e9e63b324125611f"
+  },
+  {
+   "caHash": "sha256:7a401e65e9736688715191b0da469621825a24acbf6d4c7ffd3e68845754154d",
+   "cert": "-----BEGIN CERTIFICATE-----\nMIIBpTCCAUygAwIBAgIQGpFaIjXvmAL7JurFeg7WLDAKBggqhkjOPQQDAjArMQ8w\nDQYDVQQKEwZhcm1hZGExGDAWBgNVBAMMD2FybWFkYS1jYTpsYWJfMTAeFw0yNjEx\nMjYwNzQ1MzZaFw0yNzExMjYwNzUwMzZaMCcxDzANBgNVBAoTBmFybWFkYTEUMBIG\nA1UEAxMLc2VydmVyOmNwLTEwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAAScL+MH\nk3p+4h2fjqovqoTqSR4WU/znbZrvD4WVqUQDScv4YCG9kboxwKjhrDVUyKdNA46y\nngi86ZG9CGiAFLffo1YwVDAOBgNVHQ8BAf8EBAMCB4AwEwYDVR0lBAwwCgYIKwYB\nBQUHAwIwDAYDVR0TAQH/BAIwADAfBgNVHSMEGDAWgBSYRYPfBaT0d7M/R6aex/I7\n9UpeFjAKBggqhkjOPQQDAgNHADBEAiASr1KmWdsBbo8N02W+RZC0vMGWbBfIgDMc\n0Tnyq+wcHwIgY2NCVkvNk6okrOle199m7ewuQ+tht+ocCznD+oGFy4s=\n-----END CERTIFICATE-----\n",
+   "fingerprint": "7a401e65e9736688715191b0da469621825a24acbf6d4c7ffd3e68845754154d",
+   "identity": "server:cp-1",
+   "principal": "",
+   "serial": "1a915a2235ef9802fb26eac57a0ed62c"
+  },
+  {
+   "cert": "-----BEGIN CERTIFICATE-----\nMIIBcjCCARmgAwIBAgIRAPk+OH11KRqGYbs5Tsl5gDswCgYIKoZIzj0EAwIwKzEP\nMA0GA1UEChMGYXJtYWRhMRgwFgYDVQQDDA9hcm1hZGEtY2E6bGFiXzEwHhcNMjYx\nMTI2MDc0OTM2WhcNMjYxMTI2MDg1MDM2WjARMQ8wDQYDVQQDEwZub2JvZHkwWTAT\nBgcqhkjOPQIBBggqhkjOPQMBBwNCAAQku0kRUWKr44HwW4yFCTYI3eCUp3b8eoTr\nBRWNlltIaQAfUHPRr4KqwWqPPqsNvt4Dd6uxBKPnPfpxrP6zjOz5ozgwNjATBgNV\nHSUEDDAKBggrBgEFBQcDAjAfBgNVHSMEGDAWgBSYRYPfBaT0d7M/R6aex/I79Upe\nFjAKBggqhkjOPQQDAgNHADBEAiBr9WSG9StrKrs7KHIjOoABYtt7dPRT2wEbk6Ap\ntd6rEQIgUPBhLZcCiR/5pSDFhMO/Mkssx4aqIesDVTgBGXnw6kU=\n-----END CERTIFICATE-----\n",
+   "fingerprint": "60d44e8fa931af6906dd672eabf3c6e79830bd02cbe2bd49086cf9972d067e20",
+   "identityError": "common name \"nobody\" is not an armada identity"
+  }
+ ],
+ "recordedAt": 1795679436000000000,
+ "reissue": {
+  "cases": [
+   {
+    "shape": {
+     "curve256": true,
+     "extensions": [
+      "2.5.29.15 true AwIHgA==",
+      "2.5.29.37 false MAoGCCsGAQUFBwMB",
+      "2.5.29.19 true MAA=",
+      "2.5.29.35 false MBaAFJhFg98FpPR3sz9Hpp7H8jv1Sl4W",
+      "2.5.29.17 false MBWCDWFybWFkYS1zZXJ2ZXKHBAoAAAI="
+     ],
+     "hasSKI": false,
+     "lifeSeconds": 31536300,
+     "pubAlg": "ECDSA",
+     "rawIssuer": "MCsxDzANBgNVBAoTBmFybWFkYTEYMBYGA1UEAwwPYXJtYWRhLWNhOmxhYl8x",
+     "rawSubject": "MCcxDzANBgNVBAoTBmFybWFkYTEUMBIGA1UEAxMLc2VydmVyOmNwLTE=",
+     "sigAlg": "ECDSA-SHA256",
+     "skiFromKey": false,
+     "version": "3"
+    },
+    "validitySeconds": 0
+   },
+   {
+    "shape": {
+     "curve256": true,
+     "extensions": [
+      "2.5.29.15 true AwIHgA==",
+      "2.5.29.37 false MAoGCCsGAQUFBwMB",
+      "2.5.29.19 true MAA=",
+      "2.5.29.35 false MBaAFJhFg98FpPR3sz9Hpp7H8jv1Sl4W",
+      "2.5.29.17 false MBWCDWFybWFkYS1zZXJ2ZXKHBAoAAAI="
+     ],
+     "hasSKI": false,
+     "lifeSeconds": 7500,
+     "pubAlg": "ECDSA",
+     "rawIssuer": "MCsxDzANBgNVBAoTBmFybWFkYTEYMBYGA1UEAwwPYXJtYWRhLWNhOmxhYl8x",
+     "rawSubject": "MCcxDzANBgNVBAoTBmFybWFkYTEUMBIGA1UEAxMLc2VydmVyOmNwLTE=",
+     "sigAlg": "ECDSA-SHA256",
+     "skiFromKey": false,
+     "version": "3"
+    },
+    "validitySeconds": 7200
+   }
+  ],
+  "cert": "-----BEGIN CERTIFICATE-----\nMIIBxzCCAW2gAwIBAgIRAOlJts42411ti1PX24F1bGYwCgYIKoZIzj0EAwIwKzEP\nMA0GA1UEChMGYXJtYWRhMRgwFgYDVQQDDA9hcm1hZGEtY2E6bGFiXzEwHhcNMjYx\nMTI2MDc0NTM2WhcNMjYxMTI2MDg1MDM2WjAnMQ8wDQYDVQQKEwZhcm1hZGExFDAS\nBgNVBAMTC3NlcnZlcjpjcC0xMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEvzSe\nlXJVn1jfJV8zTS4p63mbj8N9cQb2+d37DAhBVgsJ60tWgXBacK8XkMlkLQ+aTn8j\n4wF7FKHcMkpKVIfdZ6N2MHQwDgYDVR0PAQH/BAQDAgeAMBMGA1UdJQQMMAoGCCsG\nAQUFBwMBMAwGA1UdEwEB/wQCMAAwHwYDVR0jBBgwFoAUmEWD3wWk9HezP0emnsfy\nO/VKXhYwHgYDVR0RBBcwFYINYXJtYWRhLXNlcnZlcocECgAAAjAKBggqhkjOPQQD\nAgNIADBFAiEAswNI35tsYpBvh1S+f5nrCod1wx204UeksOjRth9lbvECIDnBdEjH\nKu6iBUGj5V6GaetDob53gdPES0VcDtzc/S4E\n-----END CERTIFICATE-----\n",
+  "key": "-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgk0wf52i8386cH9av\naG1b0CdcarFJSmcEXiw/M41ynOGhRANCAAS/NJ6VclWfWN8lXzNNLinreZuPw31x\nBvb53fsMCEFWCwnrS1aBcFpwrxeQyWQtD5pOfyPjAXsUodwySkpUh91n\n-----END PRIVATE KEY-----\n"
+ },
+ "reissueRefused": [
+  {
+   "case": "other CA",
+   "cert": "-----BEGIN CERTIFICATE-----\nMIIBpDCCAUugAwIBAgIRANL22nBBeAUjhtVhR1Ou2awwCgYIKoZIzj0EAwIwKzEP\nMA0GA1UEChMGYXJtYWRhMRgwFgYDVQQDDA9hcm1hZGEtY2E6bGFiXzEwHhcNMjYx\nMTI2MDc0NTM2WhcNMjcxMTI2MDc1MDM2WjAlMQ8wDQYDVQQKEwZhcm1hZGExEjAQ\nBgNVBAMTCWFkbWluOmV2ZTBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABB/7jz5o\n2nZyScLJoPLPfg3xOXn5hwQ/oKanIzweu2G5tuFExUaL1BfUua+e+SybeLEjVSeO\nDrBM6RiWlquN+/OjVjBUMA4GA1UdDwEB/wQEAwIHgDATBgNVHSUEDDAKBggrBgEF\nBQcDAjAMBgNVHRMBAf8EAjAAMB8GA1UdIwQYMBaAFL/jqSyvmvILz4rZnAmPA4XD\nOiRZMAoGCCqGSM49BAMCA0cAMEQCIB9KXHEBh1hLxhopEWM6+QyNPBVpQUX7mHUj\nC8gFFMr+AiBqz8Uput9j6zhaJnyoAkhEEKhWYH3MVHv6jKukd2dQig==\n-----END CERTIFICATE-----\n",
+   "error": "certificate is not signed by this CA: x509: ECDSA verification failure"
+  },
+  {
+   "case": "no usage",
+   "cert": "-----BEGIN CERTIFICATE-----\nMIIBfDCCASGgAwIBAgIQa1xlDNJgD8mvroowvqOOGzAKBggqhkjOPQQDAjArMQ8w\nDQYDVQQKEwZhcm1hZGExGDAWBgNVBAMMD2FybWFkYS1jYTpsYWJfMTAeFw0yNjEx\nMjYwNzQ5MzZaFw0yNjExMjYwODUwMzZaMBExDzANBgNVBAMTBnVzZXI6eDBZMBMG\nByqGSM49AgEGCCqGSM49AwEHA0IABJFRMFjjjwRaMZ+kNab3aeoDK+0GGjVu9M7o\nedjg+xVR5aH3PSNS0yFrkdY5sCCpwBqSWRTOQd1HmkPZogBkpUCjQTA/MA4GA1Ud\nDwEB/wQEAwIHgDAMBgNVHRMBAf8EAjAAMB8GA1UdIwQYMBaAFJhFg98FpPR3sz9H\npp7H8jv1Sl4WMAoGCCqGSM49BAMCA0kAMEYCIQDQchmDlGUvXzHh+sQgOOjaZbfE\n7FWn9hGvLPTJp4A8hgIhAKUNHOd09yIkCNM0F73ak00stmWmlSup5Sx33nproZcI\n-----END CERTIFICATE-----\n",
+   "error": "certificate has no extended key usage"
+  },
+  {
+   "case": "not an identity",
+   "cert": "-----BEGIN CERTIFICATE-----\nMIIBfTCCASKgAwIBAgIRAKLR967nNyFa4P3tL8DmtIswCgYIKoZIzj0EAwIwKzEP\nMA0GA1UEChMGYXJtYWRhMRgwFgYDVQQDDA9hcm1hZGEtY2E6bGFiXzEwHhcNMjYx\nMTI2MDc0OTM2WhcNMjYxMTI2MDg1MDM2WjAMMQowCAYDVQQDEwF4MFkwEwYHKoZI\nzj0CAQYIKoZIzj0DAQcDQgAE3qQawQQg9byjeX27Gt1PwLGl6jpVZ/4hkmHvQsqh\n/LjeWY4bouownHRaCGdBtacH8vu8vbTwcqAf7M1Syy2YUaNGMEQwEwYDVR0lBAww\nCgYIKwYBBQUHAwIwDAYDVR0TAQH/BAIwADAfBgNVHSMEGDAWgBSYRYPfBaT0d7M/\nR6aex/I79UpeFjAKBggqhkjOPQQDAgNJADBGAiEA8YiKChZgobFinD68hGNCD3xa\n2q3PQM4iDQXJqYbu08ACIQCUVZM5AZJTKVHBnUlehNp6RMOGkAKNrdEY6SuCZHHI\nqw==\n-----END CERTIFICATE-----\n",
+   "error": "common name \"x\" is not an armada identity"
+  },
+  {
+   "case": "the CA",
+   "cert": "-----BEGIN CERTIFICATE-----\nMIIBmTCCAUCgAwIBAgIRAPMGCL/1yvKu1iMbWGhDrOwwCgYIKoZIzj0EAwIwKzEP\nMA0GA1UEChMGYXJtYWRhMRgwFgYDVQQDDA9hcm1hZGEtY2E6bGFiXzEwHhcNMjYx\nMTI2MDc0NTM2WhcNMzYxMTIzMDc1MDM2WjArMQ8wDQYDVQQKEwZhcm1hZGExGDAW\nBgNVBAMMD2FybWFkYS1jYTpsYWJfMTBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IA\nBJUwhaad8q6CeLNux5qoaH6qxvxu8Gux3/tbyj6aAZ96hH53hFA1PSBKl019gFRL\nPznMUDsLvIj21heMrMJ9rzWjRTBDMA4GA1UdDwEB/wQEAwIBBjASBgNVHRMBAf8E\nCDAGAQH/AgEAMB0GA1UdDgQWBBSYRYPfBaT0d7M/R6aex/I79UpeFjAKBggqhkjO\nPQQDAgNHADBEAiAp4ZXnjsfEz6a9Jx4IUk+7HRt+6L8xDqEc1KrBcFT19wIgNpUQ\nA127M5BcjJXKcTjzvat5z1sGZKw2nLiF4CQBZGs=\n-----END CERTIFICATE-----\n",
+   "error": "unknown identity kind \"armada-ca\""
+  }
+ ],
+ "renewal": [
+  {
+   "at": [
+    {
+     "needsRenewal": false,
+     "now": 1795679436000000000,
+     "renewDue": false
+    },
+    {
+     "needsRenewal": false,
+     "now": 1795679466000000000,
+     "renewDue": false
+    },
+    {
+     "needsRenewal": false,
+     "now": 1795679476000000000,
+     "renewDue": false
+    },
+    {
+     "needsRenewal": true,
+     "now": 1795680076000000000,
+     "renewDue": true
+    },
+    {
+     "needsRenewal": true,
+     "now": 1795679496000000000,
+     "renewDue": true
+    },
+    {
+     "needsRenewal": true,
+     "now": 1795679556000000000,
+     "renewDue": true
+    },
+    {
+     "needsRenewal": false,
+     "now": 1795675836000000000,
+     "renewDue": false
+    }
+   ],
+   "cert": "-----BEGIN CERTIFICATE-----\nMIIBoTCCAUigAwIBAgIRAIX4ZN+MWV30PXbZhZYKJCowCgYIKoZIzj0EAwIwKzEP\nMA0GA1UEChMGYXJtYWRhMRgwFgYDVQQDDA9hcm1hZGEtY2E6bGFiXzEwHhcNMjYx\nMTI2MDc0NTM2WhcNMjYxMTI2MDc1MTM2WjAiMQ8wDQYDVQQKEwZhcm1hZGExDzAN\nBgNVBAMTBm5vZGU6bjBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABC1s8Dn9K4O8\nnKqAHTYfDqm+yYVGgeIPe3p320aJJKtowOOfKA/m2ASnZvG15NxvCbqTFuN2LRxk\nF+1tzIlwTZejVjBUMA4GA1UdDwEB/wQEAwIHgDATBgNVHSUEDDAKBggrBgEFBQcD\nAjAMBgNVHRMBAf8EAjAAMB8GA1UdIwQYMBaAFJhFg98FpPR3sz9Hpp7H8jv1Sl4W\nMAoGCCqGSM49BAMCA0cAMEQCIAfsewWLPBi+1xrHXbmh57Ycf3uQsXG12XteB289\nXOQGAiBmKEH9ndrB0c9qcACna+uURCpSUiiTwdMX3C4FjlSGog==\n-----END CERTIFICATE-----\n"
+  },
+  {
+   "at": [
+    {
+     "needsRenewal": false,
+     "now": 1795679436000000000,
+     "renewDue": false
+    },
+    {
+     "needsRenewal": false,
+     "now": 1795681236000000000,
+     "renewDue": false
+    },
+    {
+     "needsRenewal": false,
+     "now": 1795681836000000000,
+     "renewDue": false
+    },
+    {
+     "needsRenewal": true,
+     "now": 1795682436000000000,
+     "renewDue": true
+    },
+    {
+     "needsRenewal": true,
+     "now": 1795683036000000000,
+     "renewDue": true
+    },
+    {
+     "needsRenewal": true,
+     "now": 1795686636000000000,
+     "renewDue": true
+    },
+    {
+     "needsRenewal": false,
+     "now": 1795675836000000000,
+     "renewDue": false
+    }
+   ],
+   "cert": "-----BEGIN CERTIFICATE-----\nMIIBoTCCAUigAwIBAgIRAPsF9ooKhbTT7wuCnuwRuCUwCgYIKoZIzj0EAwIwKzEP\nMA0GA1UEChMGYXJtYWRhMRgwFgYDVQQDDA9hcm1hZGEtY2E6bGFiXzEwHhcNMjYx\nMTI2MDc0NTM2WhcNMjYxMTI2MDg1MDM2WjAiMQ8wDQYDVQQKEwZhcm1hZGExDzAN\nBgNVBAMTBm5vZGU6bjBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABLO3BnHweVjs\n0Dyf0Vj4H966nDMixO4IVBDzQw+NNbA9Yorat3mfgJs21e4iwoy9tj5UNz+TO73L\nIammDzL/3uyjVjBUMA4GA1UdDwEB/wQEAwIHgDATBgNVHSUEDDAKBggrBgEFBQcD\nAjAMBgNVHRMBAf8EAjAAMB8GA1UdIwQYMBaAFJhFg98FpPR3sz9Hpp7H8jv1Sl4W\nMAoGCCqGSM49BAMCA0cAMEQCIGMWdJAz7ZrofcaABt3X2DsfU+aEun+TR/fqvoFB\n4SnKAiArk6JOLZnApO3MvvjL6nLvZvqREMzmTmPPpU9pAoXlxg==\n-----END CERTIFICATE-----\n"
+  },
+  {
+   "at": [
+    {
+     "needsRenewal": false,
+     "now": 1795679436000000000,
+     "renewDue": false
+    },
+    {
+     "needsRenewal": false,
+     "now": 1796975436000000000,
+     "renewDue": false
+    },
+    {
+     "needsRenewal": false,
+     "now": 1797407436000000000,
+     "renewDue": false
+    },
+    {
+     "needsRenewal": true,
+     "now": 1797408036000000000,
+     "renewDue": true
+    },
+    {
+     "needsRenewal": true,
+     "now": 1798271436000000000,
+     "renewDue": true
+    },
+    {
+     "needsRenewal": true,
+     "now": 1800863436000000000,
+     "renewDue": true
+    },
+    {
+     "needsRenewal": false,
+     "now": 1795675836000000000,
+     "renewDue": false
+    }
+   ],
+   "cert": "-----BEGIN CERTIFICATE-----\nMIIBoTCCAUigAwIBAgIRAK5zGaWpBpF+NvVzodv82SUwCgYIKoZIzj0EAwIwKzEP\nMA0GA1UEChMGYXJtYWRhMRgwFgYDVQQDDA9hcm1hZGEtY2E6bGFiXzEwHhcNMjYx\nMTI2MDc0NTM2WhcNMjYxMjI2MDc1MDM2WjAiMQ8wDQYDVQQKEwZhcm1hZGExDzAN\nBgNVBAMTBm5vZGU6bjBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABPcezyH9vNfl\ndKnpwVjpe2Yywi25MXkWHBUhJgaGHl3U9M2pt1H4dFH9xBTXEqJW4U2doO+kx/Ld\n9F/tcznQTLqjVjBUMA4GA1UdDwEB/wQEAwIHgDATBgNVHSUEDDAKBggrBgEFBQcD\nAjAMBgNVHRMBAf8EAjAAMB8GA1UdIwQYMBaAFJhFg98FpPR3sz9Hpp7H8jv1Sl4W\nMAoGCCqGSM49BAMCA0cAMEQCIAEbiwSbPFyxlpudGsxmMxTyhD+c6199QmuAkbz2\ngsljAiBiI1GQdj8NIRrP8yx5wvHBp7vDFHtvsI0RiDC21DheEg==\n-----END CERTIFICATE-----\n"
+  },
+  {
+   "at": [
+    {
+     "needsRenewal": true,
+     "now": 1795679436000000000,
+     "renewDue": false
+    },
+    {
+     "needsRenewal": true,
+     "now": 1799567436000000000,
+     "renewDue": false
+    },
+    {
+     "needsRenewal": true,
+     "now": 1800863436000000000,
+     "renewDue": false
+    },
+    {
+     "needsRenewal": true,
+     "now": 1800864036000000000,
+     "renewDue": true
+    },
+    {
+     "needsRenewal": true,
+     "now": 1803455436000000000,
+     "renewDue": true
+    },
+    {
+     "needsRenewal": true,
+     "now": 1811231436000000000,
+     "renewDue": true
+    },
+    {
+     "needsRenewal": true,
+     "now": 1795675836000000000,
+     "renewDue": false
+    }
+   ],
+   "cert": "-----BEGIN CERTIFICATE-----\nMIIBoDCCAUegAwIBAgIQQgdmxFHqNdJMVP9myGSQPTAKBggqhkjOPQQDAjArMQ8w\nDQYDVQQKEwZhcm1hZGExGDAWBgNVBAMMD2FybWFkYS1jYTpsYWJfMTAeFw0yNjEx\nMjYwNzQ1MzZaFw0yNzAyMjQwNzUwMzZaMCIxDzANBgNVBAoTBmFybWFkYTEPMA0G\nA1UEAxMGbm9kZTpuMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEuX1oxQcbe87w\nYO6HmHOuerwJ5XkeZT8OuDDDE1qXsnDIZQt/OazEgvvyj+CpICJLoxIMbVS8n65L\n1UyXpXCIBaNWMFQwDgYDVR0PAQH/BAQDAgeAMBMGA1UdJQQMMAoGCCsGAQUFBwMC\nMAwGA1UdEwEB/wQCMAAwHwYDVR0jBBgwFoAUmEWD3wWk9HezP0emnsfyO/VKXhYw\nCgYIKoZIzj0EAwIDRwAwRAIgZHblJ2mbzzqrM8Qktw00CPydH+oVWMDB6e2F90ec\nhnICIDAsiZsEdinIvCwJK7gt7YLEjcC1fEmaToVPROgoD+6c\n-----END CERTIFICATE-----\n"
+  },
+  {
+   "at": [
+    {
+     "needsRenewal": true,
+     "now": 1795679436000000000,
+     "renewDue": false
+    },
+    {
+     "needsRenewal": true,
+     "now": 1811447436000000000,
+     "renewDue": false
+    },
+    {
+     "needsRenewal": true,
+     "now": 1816703436000000000,
+     "renewDue": false
+    },
+    {
+     "needsRenewal": true,
+     "now": 1816704036000000000,
+     "renewDue": true
+    },
+    {
+     "needsRenewal": true,
+     "now": 1827215436000000000,
+     "renewDue": true
+    },
+    {
+     "needsRenewal": true,
+     "now": 1858751436000000000,
+     "renewDue": true
+    },
+    {
+     "needsRenewal": true,
+     "now": 1795675836000000000,
+     "renewDue": false
+    }
+   ],
+   "cert": "-----BEGIN CERTIFICATE-----\nMIIBoTCCAUigAwIBAgIRAJm/HE2ytxqnliSY3FJasZkwCgYIKoZIzj0EAwIwKzEP\nMA0GA1UEChMGYXJtYWRhMRgwFgYDVQQDDA9hcm1hZGEtY2E6bGFiXzEwHhcNMjYx\nMTI2MDc0NTM2WhcNMjcxMTI2MDc1MDM2WjAiMQ8wDQYDVQQKEwZhcm1hZGExDzAN\nBgNVBAMTBm5vZGU6bjBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABJJE26xjvI0G\ncnAhIINH94ZK2sZ9miJvf7wJhTLRpXTBx3ArTRBGXPhws8PBS13giKiVUipEHKr6\nRcPCssuy1MmjVjBUMA4GA1UdDwEB/wQEAwIHgDATBgNVHSUEDDAKBggrBgEFBQcD\nAjAMBgNVHRMBAf8EAjAAMB8GA1UdIwQYMBaAFJhFg98FpPR3sz9Hpp7H8jv1Sl4W\nMAoGCCqGSM49BAMCA0cAMEQCID5f2DlBjRiRjnBZf5FGP9oy1Xll3n+N7yIsEPTH\nzla5AiBVp5SpCIwTA/mMrI3qgwnjwFMtqRzxmXtVPv0u97IB3Q==\n-----END CERTIFICATE-----\n"
+  }
+ ],
+ "signRefused": [
+  {
+   "as": "metrics",
+   "case": "garbage",
+   "csr": "bm90IGEgY3Ny",
+   "error": "parse CSR: asn1: structure error: tags don't match (16 vs {class:1 tag:14 length:111 isCompound:true}) {optional:false explicit:false application:false private:false defaultValue:\u003cnil\u003e tag:\u003cnil\u003e stringType:0 timeType:0 set:false omitEmpty:false} certificateRequest @2",
+   "name": "n",
+   "prefixOnly": true
+  },
+  {
+   "as": "node",
+   "case": "garbage",
+   "csr": "bm90IGEgY3Ny",
+   "error": "parse CSR: asn1: structure error: tags don't match (16 vs {class:1 tag:14 length:111 isCompound:true}) {optional:false explicit:false application:false private:false defaultValue:\u003cnil\u003e tag:\u003cnil\u003e stringType:0 timeType:0 set:false omitEmpty:false} certificateRequest @2",
+   "name": "n",
+   "prefixOnly": true
+  },
+  {
+   "as": "service",
+   "case": "garbage",
+   "csr": "bm90IGEgY3Ny",
+   "error": "parse CSR: asn1: structure error: tags don't match (16 vs {class:1 tag:14 length:111 isCompound:true}) {optional:false explicit:false application:false private:false defaultValue:\u003cnil\u003e tag:\u003cnil\u003e stringType:0 timeType:0 set:false omitEmpty:false} certificateRequest @2",
+   "name": "n",
+   "prefixOnly": true
+  },
+  {
+   "as": "user",
+   "case": "garbage",
+   "csr": "bm90IGEgY3Ny",
+   "error": "parse CSR: asn1: structure error: tags don't match (16 vs {class:1 tag:14 length:111 isCompound:true}) {optional:false explicit:false application:false private:false defaultValue:\u003cnil\u003e tag:\u003cnil\u003e stringType:0 timeType:0 set:false omitEmpty:false} certificateRequest @2",
+   "name": "n",
+   "prefixOnly": true
+  },
+  {
+   "as": "metrics",
+   "case": "empty",
+   "csr": "",
+   "error": "parse CSR: asn1: syntax error: sequence truncated",
+   "name": "n",
+   "prefixOnly": true
+  },
+  {
+   "as": "node",
+   "case": "empty",
+   "csr": "",
+   "error": "parse CSR: asn1: syntax error: sequence truncated",
+   "name": "n",
+   "prefixOnly": true
+  },
+  {
+   "as": "service",
+   "case": "empty",
+   "csr": "",
+   "error": "parse CSR: asn1: syntax error: sequence truncated",
+   "name": "n",
+   "prefixOnly": true
+  },
+  {
+   "as": "user",
+   "case": "empty",
+   "csr": "",
+   "error": "parse CSR: asn1: syntax error: sequence truncated",
+   "name": "n",
+   "prefixOnly": true
+  },
+  {
+   "as": "metrics",
+   "case": "trailing",
+   "csr": "MIHaMIGBAgEAMB8xHTAbBgNVBAMTFHNlcnZlcjphc2tzLWZvci1tb3JlMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAElsl1lX0J1DWWZI81FKMRkR9rXrFftzL0264bGAWHC/m+7Q4t5CASFYCsf+fIJcPOPCdZbYCBHeTwvURuP40YeKAAMAoGCCqGSM49BAMCA0gAMEUCICrV4jeKJH6GJuVWinY/8jjual9xqrZEY9IV9s5qsqH/AiEA3gXu0HXwCjhsm5FzsGYfTjvK6eETr713KWxixsTatuMA",
+   "error": "parse CSR: asn1: syntax error: trailing data",
+   "name": "n",
+   "prefixOnly": true
+  },
+  {
+   "as": "node",
+   "case": "trailing",
+   "csr": "MIHaMIGBAgEAMB8xHTAbBgNVBAMTFHNlcnZlcjphc2tzLWZvci1tb3JlMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAElsl1lX0J1DWWZI81FKMRkR9rXrFftzL0264bGAWHC/m+7Q4t5CASFYCsf+fIJcPOPCdZbYCBHeTwvURuP40YeKAAMAoGCCqGSM49BAMCA0gAMEUCICrV4jeKJH6GJuVWinY/8jjual9xqrZEY9IV9s5qsqH/AiEA3gXu0HXwCjhsm5FzsGYfTjvK6eETr713KWxixsTatuMA",
+   "error": "parse CSR: asn1: syntax error: trailing data",
+   "name": "n",
+   "prefixOnly": true
+  },
+  {
+   "as": "service",
+   "case": "trailing",
+   "csr": "MIHaMIGBAgEAMB8xHTAbBgNVBAMTFHNlcnZlcjphc2tzLWZvci1tb3JlMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAElsl1lX0J1DWWZI81FKMRkR9rXrFftzL0264bGAWHC/m+7Q4t5CASFYCsf+fIJcPOPCdZbYCBHeTwvURuP40YeKAAMAoGCCqGSM49BAMCA0gAMEUCICrV4jeKJH6GJuVWinY/8jjual9xqrZEY9IV9s5qsqH/AiEA3gXu0HXwCjhsm5FzsGYfTjvK6eETr713KWxixsTatuMA",
+   "error": "parse CSR: asn1: syntax error: trailing data",
+   "name": "n",
+   "prefixOnly": true
+  },
+  {
+   "as": "user",
+   "case": "trailing",
+   "csr": "MIHaMIGBAgEAMB8xHTAbBgNVBAMTFHNlcnZlcjphc2tzLWZvci1tb3JlMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAElsl1lX0J1DWWZI81FKMRkR9rXrFftzL0264bGAWHC/m+7Q4t5CASFYCsf+fIJcPOPCdZbYCBHeTwvURuP40YeKAAMAoGCCqGSM49BAMCA0gAMEUCICrV4jeKJH6GJuVWinY/8jjual9xqrZEY9IV9s5qsqH/AiEA3gXu0HXwCjhsm5FzsGYfTjvK6eETr713KWxixsTatuMA",
+   "error": "parse CSR: asn1: syntax error: trailing data",
+   "name": "n",
+   "prefixOnly": true
+  },
+  {
+   "as": "metrics",
+   "case": "bad signature",
+   "csr": "MIHaMIGBAgEAMB8xHTAbBgNVBAMTFHNlcnZlcjphc2tzLWZvci1tb3JlMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAElsl1lX0J1DWWZI81FKMRkR9rXrFftzL0264bGAWHC/m+7Q4t5CASFYCsf+fIJcPOPCdZbYCBHeTwvURuP40YeKAAMAoGCCqGSM49BAMCA0gAMEUCICrV4jeKJH6GJuVWinY/8jjual9xqrZEY9IV9s5qsqH/AiEA3gXu0HXwCjhsm5FzsGYfTjvK6eETr713KWxiOcTatuM=",
+   "error": "CSR signature: x509: ECDSA verification failure",
+   "name": "n",
+   "prefixOnly": false
+  },
+  {
+   "as": "node",
+   "case": "bad signature",
+   "csr": "MIHaMIGBAgEAMB8xHTAbBgNVBAMTFHNlcnZlcjphc2tzLWZvci1tb3JlMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAElsl1lX0J1DWWZI81FKMRkR9rXrFftzL0264bGAWHC/m+7Q4t5CASFYCsf+fIJcPOPCdZbYCBHeTwvURuP40YeKAAMAoGCCqGSM49BAMCA0gAMEUCICrV4jeKJH6GJuVWinY/8jjual9xqrZEY9IV9s5qsqH/AiEA3gXu0HXwCjhsm5FzsGYfTjvK6eETr713KWxiOcTatuM=",
+   "error": "CSR signature: x509: ECDSA verification failure",
+   "name": "n",
+   "prefixOnly": false
+  },
+  {
+   "as": "service",
+   "case": "bad signature",
+   "csr": "MIHaMIGBAgEAMB8xHTAbBgNVBAMTFHNlcnZlcjphc2tzLWZvci1tb3JlMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAElsl1lX0J1DWWZI81FKMRkR9rXrFftzL0264bGAWHC/m+7Q4t5CASFYCsf+fIJcPOPCdZbYCBHeTwvURuP40YeKAAMAoGCCqGSM49BAMCA0gAMEUCICrV4jeKJH6GJuVWinY/8jjual9xqrZEY9IV9s5qsqH/AiEA3gXu0HXwCjhsm5FzsGYfTjvK6eETr713KWxiOcTatuM=",
+   "error": "CSR signature: x509: ECDSA verification failure",
+   "name": "n",
+   "prefixOnly": false
+  },
+  {
+   "as": "user",
+   "case": "bad signature",
+   "csr": "MIHaMIGBAgEAMB8xHTAbBgNVBAMTFHNlcnZlcjphc2tzLWZvci1tb3JlMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAElsl1lX0J1DWWZI81FKMRkR9rXrFftzL0264bGAWHC/m+7Q4t5CASFYCsf+fIJcPOPCdZbYCBHeTwvURuP40YeKAAMAoGCCqGSM49BAMCA0gAMEUCICrV4jeKJH6GJuVWinY/8jjual9xqrZEY9IV9s5qsqH/AiEA3gXu0HXwCjhsm5FzsGYfTjvK6eETr713KWxiOcTatuM=",
+   "error": "CSR signature: x509: ECDSA verification failure",
+   "name": "n",
+   "prefixOnly": false
+  },
+  {
+   "as": "metrics",
+   "case": "rsa key",
+   "csr": "MIICVjCCAT4CAQAwETEPMA0GA1UEAxMGbm9kZTp4MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEApKF5BfLIoqQlg+2tIDSAuB5H1Y8Xhm+m0/wWvvK37YvNQCQs4gr7DyPGS4chsfdOLJGNt6RDynOKzFlojGfRMPheYqYEhhBW1UuONlFbJgIoYbczhl9gC/cugPfPk2rUr70MXmDi5APcDYaDrTJAxkqetoBMOvAQCaX9YlchtUbR/fZRRptNdE02TQHAPkVvdlGVscWXBR1Ih9IbiCWgBV5KAFHI8+++PiKBHIj8tpMtTDoFauYkio7f+TwdpxHh+ktvTn9zDbn3VfNNzLdgbHYgJ3l8yBODspZljk4tTP6UZrjPTpVtb7EHK3nEL3bgLd77+Ybw/LiQcOos16mFcQIDAQABoAAwDQYJKoZIhvcNAQELBQADggEBAE62PKBWOQtLg81NCF+X+VBqU3jt0HPrtmFVDs2/GoZrYOKMsYuhgidT9wB6CTWa2DNPXMINMIEwQSj2larm0d6so8vtpixaIAiXuYirNISTIReh8io99JP3VrbaGkuzuEatHr4bGhWamZbJ7YEFGVNKaKrbwkN5L+LhKuxrpwsF022X+kZPTA3a7WWTuazytsadvA8+OzU5YVKQ2C30jbd+FgSA95RKV9i/gKidhekp0QIwaooJI3+Wnd31egI0VADfbY42gBDBTME8AxEIgnT1jHtq+k3AzivQC/MrCobCHqzIeS851GECumvn0C+MT8PxLB622G+fH+h46ylF448=",
+   "error": "CSR key must be ECDSA P-256",
+   "name": "n",
+   "prefixOnly": false
+  },
+  {
+   "as": "node",
+   "case": "rsa key",
+   "csr": "MIICVjCCAT4CAQAwETEPMA0GA1UEAxMGbm9kZTp4MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEApKF5BfLIoqQlg+2tIDSAuB5H1Y8Xhm+m0/wWvvK37YvNQCQs4gr7DyPGS4chsfdOLJGNt6RDynOKzFlojGfRMPheYqYEhhBW1UuONlFbJgIoYbczhl9gC/cugPfPk2rUr70MXmDi5APcDYaDrTJAxkqetoBMOvAQCaX9YlchtUbR/fZRRptNdE02TQHAPkVvdlGVscWXBR1Ih9IbiCWgBV5KAFHI8+++PiKBHIj8tpMtTDoFauYkio7f+TwdpxHh+ktvTn9zDbn3VfNNzLdgbHYgJ3l8yBODspZljk4tTP6UZrjPTpVtb7EHK3nEL3bgLd77+Ybw/LiQcOos16mFcQIDAQABoAAwDQYJKoZIhvcNAQELBQADggEBAE62PKBWOQtLg81NCF+X+VBqU3jt0HPrtmFVDs2/GoZrYOKMsYuhgidT9wB6CTWa2DNPXMINMIEwQSj2larm0d6so8vtpixaIAiXuYirNISTIReh8io99JP3VrbaGkuzuEatHr4bGhWamZbJ7YEFGVNKaKrbwkN5L+LhKuxrpwsF022X+kZPTA3a7WWTuazytsadvA8+OzU5YVKQ2C30jbd+FgSA95RKV9i/gKidhekp0QIwaooJI3+Wnd31egI0VADfbY42gBDBTME8AxEIgnT1jHtq+k3AzivQC/MrCobCHqzIeS851GECumvn0C+MT8PxLB622G+fH+h46ylF448=",
+   "error": "CSR key must be ECDSA P-256",
+   "name": "n",
+   "prefixOnly": false
+  },
+  {
+   "as": "service",
+   "case": "rsa key",
+   "csr": "MIICVjCCAT4CAQAwETEPMA0GA1UEAxMGbm9kZTp4MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEApKF5BfLIoqQlg+2tIDSAuB5H1Y8Xhm+m0/wWvvK37YvNQCQs4gr7DyPGS4chsfdOLJGNt6RDynOKzFlojGfRMPheYqYEhhBW1UuONlFbJgIoYbczhl9gC/cugPfPk2rUr70MXmDi5APcDYaDrTJAxkqetoBMOvAQCaX9YlchtUbR/fZRRptNdE02TQHAPkVvdlGVscWXBR1Ih9IbiCWgBV5KAFHI8+++PiKBHIj8tpMtTDoFauYkio7f+TwdpxHh+ktvTn9zDbn3VfNNzLdgbHYgJ3l8yBODspZljk4tTP6UZrjPTpVtb7EHK3nEL3bgLd77+Ybw/LiQcOos16mFcQIDAQABoAAwDQYJKoZIhvcNAQELBQADggEBAE62PKBWOQtLg81NCF+X+VBqU3jt0HPrtmFVDs2/GoZrYOKMsYuhgidT9wB6CTWa2DNPXMINMIEwQSj2larm0d6so8vtpixaIAiXuYirNISTIReh8io99JP3VrbaGkuzuEatHr4bGhWamZbJ7YEFGVNKaKrbwkN5L+LhKuxrpwsF022X+kZPTA3a7WWTuazytsadvA8+OzU5YVKQ2C30jbd+FgSA95RKV9i/gKidhekp0QIwaooJI3+Wnd31egI0VADfbY42gBDBTME8AxEIgnT1jHtq+k3AzivQC/MrCobCHqzIeS851GECumvn0C+MT8PxLB622G+fH+h46ylF448=",
+   "error": "CSR key must be ECDSA P-256",
+   "name": "n",
+   "prefixOnly": false
+  },
+  {
+   "as": "user",
+   "case": "rsa key",
+   "csr": "MIICVjCCAT4CAQAwETEPMA0GA1UEAxMGbm9kZTp4MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEApKF5BfLIoqQlg+2tIDSAuB5H1Y8Xhm+m0/wWvvK37YvNQCQs4gr7DyPGS4chsfdOLJGNt6RDynOKzFlojGfRMPheYqYEhhBW1UuONlFbJgIoYbczhl9gC/cugPfPk2rUr70MXmDi5APcDYaDrTJAxkqetoBMOvAQCaX9YlchtUbR/fZRRptNdE02TQHAPkVvdlGVscWXBR1Ih9IbiCWgBV5KAFHI8+++PiKBHIj8tpMtTDoFauYkio7f+TwdpxHh+ktvTn9zDbn3VfNNzLdgbHYgJ3l8yBODspZljk4tTP6UZrjPTpVtb7EHK3nEL3bgLd77+Ybw/LiQcOos16mFcQIDAQABoAAwDQYJKoZIhvcNAQELBQADggEBAE62PKBWOQtLg81NCF+X+VBqU3jt0HPrtmFVDs2/GoZrYOKMsYuhgidT9wB6CTWa2DNPXMINMIEwQSj2larm0d6so8vtpixaIAiXuYirNISTIReh8io99JP3VrbaGkuzuEatHr4bGhWamZbJ7YEFGVNKaKrbwkN5L+LhKuxrpwsF022X+kZPTA3a7WWTuazytsadvA8+OzU5YVKQ2C30jbd+FgSA95RKV9i/gKidhekp0QIwaooJI3+Wnd31egI0VADfbY42gBDBTME8AxEIgnT1jHtq+k3AzivQC/MrCobCHqzIeS851GECumvn0C+MT8PxLB622G+fH+h46ylF448=",
+   "error": "CSR key must be ECDSA P-256",
+   "name": "n",
+   "prefixOnly": false
+  },
+  {
+   "as": "metrics",
+   "case": "p384 key",
+   "csr": "MIIBCTCBkAIBADARMQ8wDQYDVQQDEwZub2RlOngwdjAQBgcqhkjOPQIBBgUrgQQAIgNiAATjD2XWuacf46MsHN5XsjjloA/+t4DX9b+V9z1WcF8WeovNgqZQp5lk1aMkXDZYVVRgss5FdRORjvhgQXVTlX7XifM15ypgXqqj3gQBv3vGiYE80svjJY795zUDn6Ph/D2gADAKBggqhkjOPQQDAwNoADBlAjAKpAY0GAtUiZuIr+wNQsi9qCKjwvFIeGVuS9LstgdeNauHM3jPx32d4uRf2FzdHnMCMQCEU4KbzDuq0P4zR4ZKc25F7ymxNdIMhpryKTufJ1TdT4IeHn/9QLYkVwHDG3hsmuY=",
+   "error": "CSR key must be ECDSA P-256",
+   "name": "n",
+   "prefixOnly": false
+  },
+  {
+   "as": "node",
+   "case": "p384 key",
+   "csr": "MIIBCTCBkAIBADARMQ8wDQYDVQQDEwZub2RlOngwdjAQBgcqhkjOPQIBBgUrgQQAIgNiAATjD2XWuacf46MsHN5XsjjloA/+t4DX9b+V9z1WcF8WeovNgqZQp5lk1aMkXDZYVVRgss5FdRORjvhgQXVTlX7XifM15ypgXqqj3gQBv3vGiYE80svjJY795zUDn6Ph/D2gADAKBggqhkjOPQQDAwNoADBlAjAKpAY0GAtUiZuIr+wNQsi9qCKjwvFIeGVuS9LstgdeNauHM3jPx32d4uRf2FzdHnMCMQCEU4KbzDuq0P4zR4ZKc25F7ymxNdIMhpryKTufJ1TdT4IeHn/9QLYkVwHDG3hsmuY=",
+   "error": "CSR key must be ECDSA P-256",
+   "name": "n",
+   "prefixOnly": false
+  },
+  {
+   "as": "service",
+   "case": "p384 key",
+   "csr": "MIIBCTCBkAIBADARMQ8wDQYDVQQDEwZub2RlOngwdjAQBgcqhkjOPQIBBgUrgQQAIgNiAATjD2XWuacf46MsHN5XsjjloA/+t4DX9b+V9z1WcF8WeovNgqZQp5lk1aMkXDZYVVRgss5FdRORjvhgQXVTlX7XifM15ypgXqqj3gQBv3vGiYE80svjJY795zUDn6Ph/D2gADAKBggqhkjOPQQDAwNoADBlAjAKpAY0GAtUiZuIr+wNQsi9qCKjwvFIeGVuS9LstgdeNauHM3jPx32d4uRf2FzdHnMCMQCEU4KbzDuq0P4zR4ZKc25F7ymxNdIMhpryKTufJ1TdT4IeHn/9QLYkVwHDG3hsmuY=",
+   "error": "CSR key must be ECDSA P-256",
+   "name": "n",
+   "prefixOnly": false
+  },
+  {
+   "as": "user",
+   "case": "p384 key",
+   "csr": "MIIBCTCBkAIBADARMQ8wDQYDVQQDEwZub2RlOngwdjAQBgcqhkjOPQIBBgUrgQQAIgNiAATjD2XWuacf46MsHN5XsjjloA/+t4DX9b+V9z1WcF8WeovNgqZQp5lk1aMkXDZYVVRgss5FdRORjvhgQXVTlX7XifM15ypgXqqj3gQBv3vGiYE80svjJY795zUDn6Ph/D2gADAKBggqhkjOPQQDAwNoADBlAjAKpAY0GAtUiZuIr+wNQsi9qCKjwvFIeGVuS9LstgdeNauHM3jPx32d4uRf2FzdHnMCMQCEU4KbzDuq0P4zR4ZKc25F7ymxNdIMhpryKTufJ1TdT4IeHn/9QLYkVwHDG3hsmuY=",
+   "error": "CSR key must be ECDSA P-256",
+   "name": "n",
+   "prefixOnly": false
+  },
+  {
+   "as": "metrics",
+   "case": "bad node name",
+   "csr": "MIHaMIGBAgEAMB8xHTAbBgNVBAMTFHNlcnZlcjphc2tzLWZvci1tb3JlMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAElsl1lX0J1DWWZI81FKMRkR9rXrFftzL0264bGAWHC/m+7Q4t5CASFYCsf+fIJcPOPCdZbYCBHeTwvURuP40YeKAAMAoGCCqGSM49BAMCA0gAMEUCICrV4jeKJH6GJuVWinY/8jjual9xqrZEY9IV9s5qsqH/AiEA3gXu0HXwCjhsm5FzsGYfTjvK6eETr713KWxixsTatuM=",
+   "error": "invalid identity name \"../x\"",
+   "name": "../x",
+   "prefixOnly": false
+  },
+  {
+   "as": "node",
+   "case": "bad node name",
+   "csr": "MIHaMIGBAgEAMB8xHTAbBgNVBAMTFHNlcnZlcjphc2tzLWZvci1tb3JlMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAElsl1lX0J1DWWZI81FKMRkR9rXrFftzL0264bGAWHC/m+7Q4t5CASFYCsf+fIJcPOPCdZbYCBHeTwvURuP40YeKAAMAoGCCqGSM49BAMCA0gAMEUCICrV4jeKJH6GJuVWinY/8jjual9xqrZEY9IV9s5qsqH/AiEA3gXu0HXwCjhsm5FzsGYfTjvK6eETr713KWxixsTatuM=",
+   "error": "invalid identity name \"../x\"",
+   "name": "../x",
+   "prefixOnly": false
+  },
+  {
+   "as": "service",
+   "case": "bad node name",
+   "csr": "MIHaMIGBAgEAMB8xHTAbBgNVBAMTFHNlcnZlcjphc2tzLWZvci1tb3JlMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAElsl1lX0J1DWWZI81FKMRkR9rXrFftzL0264bGAWHC/m+7Q4t5CASFYCsf+fIJcPOPCdZbYCBHeTwvURuP40YeKAAMAoGCCqGSM49BAMCA0gAMEUCICrV4jeKJH6GJuVWinY/8jjual9xqrZEY9IV9s5qsqH/AiEA3gXu0HXwCjhsm5FzsGYfTjvK6eETr713KWxixsTatuM=",
+   "error": "invalid identity name \"../x\"",
+   "name": "../x",
+   "prefixOnly": false
+  },
+  {
+   "as": "user",
+   "case": "bad node name",
+   "csr": "MIHaMIGBAgEAMB8xHTAbBgNVBAMTFHNlcnZlcjphc2tzLWZvci1tb3JlMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAElsl1lX0J1DWWZI81FKMRkR9rXrFftzL0264bGAWHC/m+7Q4t5CASFYCsf+fIJcPOPCdZbYCBHeTwvURuP40YeKAAMAoGCCqGSM49BAMCA0gAMEUCICrV4jeKJH6GJuVWinY/8jjual9xqrZEY9IV9s5qsqH/AiEA3gXu0HXwCjhsm5FzsGYfTjvK6eETr713KWxixsTatuM=",
+   "error": "invalid identity name \"../x\"",
+   "name": "../x",
+   "prefixOnly": false
+  },
+  {
+   "as": "metrics",
+   "case": "empty name",
+   "csr": "MIHaMIGBAgEAMB8xHTAbBgNVBAMTFHNlcnZlcjphc2tzLWZvci1tb3JlMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAElsl1lX0J1DWWZI81FKMRkR9rXrFftzL0264bGAWHC/m+7Q4t5CASFYCsf+fIJcPOPCdZbYCBHeTwvURuP40YeKAAMAoGCCqGSM49BAMCA0gAMEUCICrV4jeKJH6GJuVWinY/8jjual9xqrZEY9IV9s5qsqH/AiEA3gXu0HXwCjhsm5FzsGYfTjvK6eETr713KWxixsTatuM=",
+   "error": "invalid identity name \"\"",
+   "name": "",
+   "prefixOnly": false
+  },
+  {
+   "as": "node",
+   "case": "empty name",
+   "csr": "MIHaMIGBAgEAMB8xHTAbBgNVBAMTFHNlcnZlcjphc2tzLWZvci1tb3JlMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAElsl1lX0J1DWWZI81FKMRkR9rXrFftzL0264bGAWHC/m+7Q4t5CASFYCsf+fIJcPOPCdZbYCBHeTwvURuP40YeKAAMAoGCCqGSM49BAMCA0gAMEUCICrV4jeKJH6GJuVWinY/8jjual9xqrZEY9IV9s5qsqH/AiEA3gXu0HXwCjhsm5FzsGYfTjvK6eETr713KWxixsTatuM=",
+   "error": "invalid identity name \"\"",
+   "name": "",
+   "prefixOnly": false
+  },
+  {
+   "as": "service",
+   "case": "empty name",
+   "csr": "MIHaMIGBAgEAMB8xHTAbBgNVBAMTFHNlcnZlcjphc2tzLWZvci1tb3JlMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAElsl1lX0J1DWWZI81FKMRkR9rXrFftzL0264bGAWHC/m+7Q4t5CASFYCsf+fIJcPOPCdZbYCBHeTwvURuP40YeKAAMAoGCCqGSM49BAMCA0gAMEUCICrV4jeKJH6GJuVWinY/8jjual9xqrZEY9IV9s5qsqH/AiEA3gXu0HXwCjhsm5FzsGYfTjvK6eETr713KWxixsTatuM=",
+   "error": "invalid identity name \"\"",
+   "name": "",
+   "prefixOnly": false
+  },
+  {
+   "as": "user",
+   "case": "empty name",
+   "csr": "MIHaMIGBAgEAMB8xHTAbBgNVBAMTFHNlcnZlcjphc2tzLWZvci1tb3JlMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAElsl1lX0J1DWWZI81FKMRkR9rXrFftzL0264bGAWHC/m+7Q4t5CASFYCsf+fIJcPOPCdZbYCBHeTwvURuP40YeKAAMAoGCCqGSM49BAMCA0gAMEUCICrV4jeKJH6GJuVWinY/8jjual9xqrZEY9IV9s5qsqH/AiEA3gXu0HXwCjhsm5FzsGYfTjvK6eETr713KWxixsTatuM=",
+   "error": "invalid identity name \"\"",
+   "name": "",
+   "prefixOnly": false
+  },
+  {
+   "as": "metrics",
+   "case": "long name",
+   "csr": "MIHaMIGBAgEAMB8xHTAbBgNVBAMTFHNlcnZlcjphc2tzLWZvci1tb3JlMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAElsl1lX0J1DWWZI81FKMRkR9rXrFftzL0264bGAWHC/m+7Q4t5CASFYCsf+fIJcPOPCdZbYCBHeTwvURuP40YeKAAMAoGCCqGSM49BAMCA0gAMEUCICrV4jeKJH6GJuVWinY/8jjual9xqrZEY9IV9s5qsqH/AiEA3gXu0HXwCjhsm5FzsGYfTjvK6eETr713KWxixsTatuM=",
+   "error": "invalid identity name \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"",
+   "name": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "prefixOnly": false
+  },
+  {
+   "as": "node",
+   "case": "long name",
+   "csr": "MIHaMIGBAgEAMB8xHTAbBgNVBAMTFHNlcnZlcjphc2tzLWZvci1tb3JlMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAElsl1lX0J1DWWZI81FKMRkR9rXrFftzL0264bGAWHC/m+7Q4t5CASFYCsf+fIJcPOPCdZbYCBHeTwvURuP40YeKAAMAoGCCqGSM49BAMCA0gAMEUCICrV4jeKJH6GJuVWinY/8jjual9xqrZEY9IV9s5qsqH/AiEA3gXu0HXwCjhsm5FzsGYfTjvK6eETr713KWxixsTatuM=",
+   "error": "invalid identity name \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"",
+   "name": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "prefixOnly": false
+  },
+  {
+   "as": "service",
+   "case": "long name",
+   "csr": "MIHaMIGBAgEAMB8xHTAbBgNVBAMTFHNlcnZlcjphc2tzLWZvci1tb3JlMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAElsl1lX0J1DWWZI81FKMRkR9rXrFftzL0264bGAWHC/m+7Q4t5CASFYCsf+fIJcPOPCdZbYCBHeTwvURuP40YeKAAMAoGCCqGSM49BAMCA0gAMEUCICrV4jeKJH6GJuVWinY/8jjual9xqrZEY9IV9s5qsqH/AiEA3gXu0HXwCjhsm5FzsGYfTjvK6eETr713KWxixsTatuM=",
+   "error": "invalid identity name \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"",
+   "name": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "prefixOnly": false
+  },
+  {
+   "as": "user",
+   "case": "long name",
+   "csr": "MIHaMIGBAgEAMB8xHTAbBgNVBAMTFHNlcnZlcjphc2tzLWZvci1tb3JlMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAElsl1lX0J1DWWZI81FKMRkR9rXrFftzL0264bGAWHC/m+7Q4t5CASFYCsf+fIJcPOPCdZbYCBHeTwvURuP40YeKAAMAoGCCqGSM49BAMCA0gAMEUCICrV4jeKJH6GJuVWinY/8jjual9xqrZEY9IV9s5qsqH/AiEA3gXu0HXwCjhsm5FzsGYfTjvK6eETr713KWxixsTatuM=",
+   "error": "invalid identity name \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"",
+   "name": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "prefixOnly": false
+  }
+ ],
+ "signed": [
+  {
+   "as": "metrics",
+   "identity": "metrics:n-1",
+   "shape": {
+    "curve256": true,
+    "extensions": [
+     "2.5.29.15 true AwIHgA==",
+     "2.5.29.37 false MAoGCCsGAQUFBwMC",
+     "2.5.29.19 true MAA=",
+     "2.5.29.35 false MBaAFJhFg98FpPR3sz9Hpp7H8jv1Sl4W"
+    ],
+    "hasSKI": false,
+    "lifeSeconds": 31536300,
+    "pubAlg": "ECDSA",
+    "rawIssuer": "MCsxDzANBgNVBAoTBmFybWFkYTEYMBYGA1UEAwwPYXJtYWRhLWNhOmxhYl8x",
+    "rawSubject": "MCcxDzANBgNVBAoTBmFybWFkYTEUMBIGA1UEAxMLbWV0cmljczpuLTE=",
+    "sigAlg": "ECDSA-SHA256",
+    "skiFromKey": false,
+    "version": "3"
+   },
+   "validitySeconds": 0
+  },
+  {
+   "as": "metrics",
+   "identity": "metrics:n-1",
+   "shape": {
+    "curve256": true,
+    "extensions": [
+     "2.5.29.15 true AwIHgA==",
+     "2.5.29.37 false MAoGCCsGAQUFBwMC",
+     "2.5.29.19 true MAA=",
+     "2.5.29.35 false MBaAFJhFg98FpPR3sz9Hpp7H8jv1Sl4W"
+    ],
+    "hasSKI": false,
+    "lifeSeconds": 31536300,
+    "pubAlg": "ECDSA",
+    "rawIssuer": "MCsxDzANBgNVBAoTBmFybWFkYTEYMBYGA1UEAwwPYXJtYWRhLWNhOmxhYl8x",
+    "rawSubject": "MCcxDzANBgNVBAoTBmFybWFkYTEUMBIGA1UEAxMLbWV0cmljczpuLTE=",
+    "sigAlg": "ECDSA-SHA256",
+    "skiFromKey": false,
+    "version": "3"
+   },
+   "validitySeconds": 3600
+  },
+  {
+   "as": "metrics",
+   "identity": "metrics:n-1",
+   "shape": {
+    "curve256": true,
+    "extensions": [
+     "2.5.29.15 true AwIHgA==",
+     "2.5.29.37 false MAoGCCsGAQUFBwMC",
+     "2.5.29.19 true MAA=",
+     "2.5.29.35 false MBaAFJhFg98FpPR3sz9Hpp7H8jv1Sl4W"
+    ],
+    "hasSKI": false,
+    "lifeSeconds": 31536300,
+    "pubAlg": "ECDSA",
+    "rawIssuer": "MCsxDzANBgNVBAoTBmFybWFkYTEYMBYGA1UEAwwPYXJtYWRhLWNhOmxhYl8x",
+    "rawSubject": "MCcxDzANBgNVBAoTBmFybWFkYTEUMBIGA1UEAxMLbWV0cmljczpuLTE=",
+    "sigAlg": "ECDSA-SHA256",
+    "skiFromKey": false,
+    "version": "3"
+   },
+   "validitySeconds": 34560000
+  },
+  {
+   "as": "node",
+   "identity": "node:n-1",
+   "shape": {
+    "curve256": true,
+    "extensions": [
+     "2.5.29.15 true AwIHgA==",
+     "2.5.29.37 false MAoGCCsGAQUFBwMC",
+     "2.5.29.19 true MAA=",
+     "2.5.29.35 false MBaAFJhFg98FpPR3sz9Hpp7H8jv1Sl4W"
+    ],
+    "hasSKI": false,
+    "lifeSeconds": 2592300,
+    "pubAlg": "ECDSA",
+    "rawIssuer": "MCsxDzANBgNVBAoTBmFybWFkYTEYMBYGA1UEAwwPYXJtYWRhLWNhOmxhYl8x",
+    "rawSubject": "MCQxDzANBgNVBAoTBmFybWFkYTERMA8GA1UEAxMIbm9kZTpuLTE=",
+    "sigAlg": "ECDSA-SHA256",
+    "skiFromKey": false,
+    "version": "3"
+   },
+   "validitySeconds": 0
+  },
+  {
+   "as": "node",
+   "identity": "node:n-1",
+   "shape": {
+    "curve256": true,
+    "extensions": [
+     "2.5.29.15 true AwIHgA==",
+     "2.5.29.37 false MAoGCCsGAQUFBwMC",
+     "2.5.29.19 true MAA=",
+     "2.5.29.35 false MBaAFJhFg98FpPR3sz9Hpp7H8jv1Sl4W"
+    ],
+    "hasSKI": false,
+    "lifeSeconds": 3900,
+    "pubAlg": "ECDSA",
+    "rawIssuer": "MCsxDzANBgNVBAoTBmFybWFkYTEYMBYGA1UEAwwPYXJtYWRhLWNhOmxhYl8x",
+    "rawSubject": "MCQxDzANBgNVBAoTBmFybWFkYTERMA8GA1UEAxMIbm9kZTpuLTE=",
+    "sigAlg": "ECDSA-SHA256",
+    "skiFromKey": false,
+    "version": "3"
+   },
+   "validitySeconds": 3600
+  },
+  {
+   "as": "node",
+   "identity": "node:n-1",
+   "shape": {
+    "curve256": true,
+    "extensions": [
+     "2.5.29.15 true AwIHgA==",
+     "2.5.29.37 false MAoGCCsGAQUFBwMC",
+     "2.5.29.19 true MAA=",
+     "2.5.29.35 false MBaAFJhFg98FpPR3sz9Hpp7H8jv1Sl4W"
+    ],
+    "hasSKI": false,
+    "lifeSeconds": 2592300,
+    "pubAlg": "ECDSA",
+    "rawIssuer": "MCsxDzANBgNVBAoTBmFybWFkYTEYMBYGA1UEAwwPYXJtYWRhLWNhOmxhYl8x",
+    "rawSubject": "MCQxDzANBgNVBAoTBmFybWFkYTERMA8GA1UEAxMIbm9kZTpuLTE=",
+    "sigAlg": "ECDSA-SHA256",
+    "skiFromKey": false,
+    "version": "3"
+   },
+   "validitySeconds": 34560000
+  },
+  {
+   "as": "service",
+   "identity": "service:n-1",
+   "shape": {
+    "curve256": true,
+    "extensions": [
+     "2.5.29.15 true AwIHgA==",
+     "2.5.29.37 false MAoGCCsGAQUFBwMC",
+     "2.5.29.19 true MAA=",
+     "2.5.29.35 false MBaAFJhFg98FpPR3sz9Hpp7H8jv1Sl4W"
+    ],
+    "hasSKI": false,
+    "lifeSeconds": 7776300,
+    "pubAlg": "ECDSA",
+    "rawIssuer": "MCsxDzANBgNVBAoTBmFybWFkYTEYMBYGA1UEAwwPYXJtYWRhLWNhOmxhYl8x",
+    "rawSubject": "MCcxDzANBgNVBAoTBmFybWFkYTEUMBIGA1UEAxMLc2VydmljZTpuLTE=",
+    "sigAlg": "ECDSA-SHA256",
+    "skiFromKey": false,
+    "version": "3"
+   },
+   "validitySeconds": 0
+  },
+  {
+   "as": "service",
+   "identity": "service:n-1",
+   "shape": {
+    "curve256": true,
+    "extensions": [
+     "2.5.29.15 true AwIHgA==",
+     "2.5.29.37 false MAoGCCsGAQUFBwMC",
+     "2.5.29.19 true MAA=",
+     "2.5.29.35 false MBaAFJhFg98FpPR3sz9Hpp7H8jv1Sl4W"
+    ],
+    "hasSKI": false,
+    "lifeSeconds": 7776300,
+    "pubAlg": "ECDSA",
+    "rawIssuer": "MCsxDzANBgNVBAoTBmFybWFkYTEYMBYGA1UEAwwPYXJtYWRhLWNhOmxhYl8x",
+    "rawSubject": "MCcxDzANBgNVBAoTBmFybWFkYTEUMBIGA1UEAxMLc2VydmljZTpuLTE=",
+    "sigAlg": "ECDSA-SHA256",
+    "skiFromKey": false,
+    "version": "3"
+   },
+   "validitySeconds": 3600
+  },
+  {
+   "as": "service",
+   "identity": "service:n-1",
+   "shape": {
+    "curve256": true,
+    "extensions": [
+     "2.5.29.15 true AwIHgA==",
+     "2.5.29.37 false MAoGCCsGAQUFBwMC",
+     "2.5.29.19 true MAA=",
+     "2.5.29.35 false MBaAFJhFg98FpPR3sz9Hpp7H8jv1Sl4W"
+    ],
+    "hasSKI": false,
+    "lifeSeconds": 7776300,
+    "pubAlg": "ECDSA",
+    "rawIssuer": "MCsxDzANBgNVBAoTBmFybWFkYTEYMBYGA1UEAwwPYXJtYWRhLWNhOmxhYl8x",
+    "rawSubject": "MCcxDzANBgNVBAoTBmFybWFkYTEUMBIGA1UEAxMLc2VydmljZTpuLTE=",
+    "sigAlg": "ECDSA-SHA256",
+    "skiFromKey": false,
+    "version": "3"
+   },
+   "validitySeconds": 34560000
+  },
+  {
+   "as": "user",
+   "identity": "user:n-1",
+   "shape": {
+    "curve256": true,
+    "extensions": [
+     "2.5.29.15 true AwIHgA==",
+     "2.5.29.37 false MAoGCCsGAQUFBwMC",
+     "2.5.29.19 true MAA=",
+     "2.5.29.35 false MBaAFJhFg98FpPR3sz9Hpp7H8jv1Sl4W"
+    ],
+    "hasSKI": false,
+    "lifeSeconds": 31536300,
+    "pubAlg": "ECDSA",
+    "rawIssuer": "MCsxDzANBgNVBAoTBmFybWFkYTEYMBYGA1UEAwwPYXJtYWRhLWNhOmxhYl8x",
+    "rawSubject": "MCQxDzANBgNVBAoTBmFybWFkYTERMA8GA1UEAxMIdXNlcjpuLTE=",
+    "sigAlg": "ECDSA-SHA256",
+    "skiFromKey": false,
+    "version": "3"
+   },
+   "validitySeconds": 0
+  },
+  {
+   "as": "user",
+   "identity": "user:n-1",
+   "shape": {
+    "curve256": true,
+    "extensions": [
+     "2.5.29.15 true AwIHgA==",
+     "2.5.29.37 false MAoGCCsGAQUFBwMC",
+     "2.5.29.19 true MAA=",
+     "2.5.29.35 false MBaAFJhFg98FpPR3sz9Hpp7H8jv1Sl4W"
+    ],
+    "hasSKI": false,
+    "lifeSeconds": 31536300,
+    "pubAlg": "ECDSA",
+    "rawIssuer": "MCsxDzANBgNVBAoTBmFybWFkYTEYMBYGA1UEAwwPYXJtYWRhLWNhOmxhYl8x",
+    "rawSubject": "MCQxDzANBgNVBAoTBmFybWFkYTERMA8GA1UEAxMIdXNlcjpuLTE=",
+    "sigAlg": "ECDSA-SHA256",
+    "skiFromKey": false,
+    "version": "3"
+   },
+   "validitySeconds": 3600
+  },
+  {
+   "as": "user",
+   "identity": "user:n-1",
+   "shape": {
+    "curve256": true,
+    "extensions": [
+     "2.5.29.15 true AwIHgA==",
+     "2.5.29.37 false MAoGCCsGAQUFBwMC",
+     "2.5.29.19 true MAA=",
+     "2.5.29.35 false MBaAFJhFg98FpPR3sz9Hpp7H8jv1Sl4W"
+    ],
+    "hasSKI": false,
+    "lifeSeconds": 31536300,
+    "pubAlg": "ECDSA",
+    "rawIssuer": "MCsxDzANBgNVBAoTBmFybWFkYTEYMBYGA1UEAwwPYXJtYWRhLWNhOmxhYl8x",
+    "rawSubject": "MCQxDzANBgNVBAoTBmFybWFkYTERMA8GA1UEAxMIdXNlcjpuLTE=",
+    "sigAlg": "ECDSA-SHA256",
+    "skiFromKey": false,
+    "version": "3"
+   },
+   "validitySeconds": 34560000
+  }
+ ],
+ "tokenMatches": [
+  {
+   "hash": "9487bc237ab8565e9a60b47e51a4a21b428544d4984c0307e304d6fc736d1369",
+   "match": true,
+   "secret": "1836f2e87f10fa36b0e764685fdcf63ce40f9f7a7ca0f2758f7c3ff9d99747e4",
+   "secretHash": "9487bc237ab8565e9a60b47e51a4a21b428544d4984c0307e304d6fc736d1369"
+  },
+  {
+   "hash": "9487bc237ab8565e9a60b47e51a4a21b428544d4984c0307e304d6fc736d1369",
+   "match": false,
+   "secret": "c16309560863e71d13d2e23f4d9ffe65c6565b24319a63a7659121ccefe29a82",
+   "secretHash": "9ba590a6e090058cc4e926f3ed0eace018817f088e13011c31577353bc635b5f"
+  },
+  {
+   "hash": "9487bc237ab8565e9a60b47e51a4a21b428544d4984c0307e304d6fc736d1369",
+   "match": false,
+   "secret": "",
+   "secretHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+   "hash": "",
+   "match": false,
+   "secret": "1836f2e87f10fa36b0e764685fdcf63ce40f9f7a7ca0f2758f7c3ff9d99747e4",
+   "secretHash": "9487bc237ab8565e9a60b47e51a4a21b428544d4984c0307e304d6fc736d1369"
+  },
+  {
+   "hash": "9487BC237AB8565E9A60B47E51A4A21B428544D4984C0307E304D6FC736D1369",
+   "match": false,
+   "secret": "1836f2e87f10fa36b0e764685fdcf63ce40f9f7a7ca0f2758f7c3ff9d99747e4",
+   "secretHash": "9487bc237ab8565e9a60b47e51a4a21b428544d4984c0307e304d6fc736d1369"
+  }
+ ],
+ "verifyServer": [
+  {
+   "case": "good",
+   "cert": "-----BEGIN CERTIFICATE-----\nMIIBvTCCAWOgAwIBAgIQRlssbS9qEYIXiZCgjeKv8DAKBggqhkjOPQQDAjArMQ8w\nDQYDVQQKEwZhcm1hZGExGDAWBgNVBAMMD2FybWFkYS1jYTpsYWJfMTAeFw0yNjEx\nMjYwNzQ1MzZaFw0yNzExMjYwNzUwMzZaMCQxDzANBgNVBAoTBmFybWFkYTERMA8G\nA1UEAxMIc2VydmVyOnMwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAASy1XrDqXMh\nfxeYCn2IKVIwbwZQ0YNbod/5c98M/qTK0JiDxSVp0nPwhg+R/Za8gWmfW7wDdAR9\nvuT5L6rmUFoHo3AwbjAOBgNVHQ8BAf8EBAMCB4AwEwYDVR0lBAwwCgYIKwYBBQUH\nAwEwDAYDVR0TAQH/BAIwADAfBgNVHSMEGDAWgBSYRYPfBaT0d7M/R6aex/I79Upe\nFjAYBgNVHREEETAPgg1hcm1hZGEtc2VydmVyMAoGCCqGSM49BAMCA0gAMEUCIQCh\nF7etGpptBK77zDD1h1l1PPxdncR6c2valuQZLu+uMgIgYPgZn3KpRbQeQIdlps21\nIMT50SeJeEELrnzTM2YAtxM=\n-----END CERTIFICATE-----\n",
+   "error": "",
+   "now": 1795679436000000000
+  },
+  {
+   "case": "expired",
+   "cert": "-----BEGIN CERTIFICATE-----\nMIIBvTCCAWOgAwIBAgIQRlssbS9qEYIXiZCgjeKv8DAKBggqhkjOPQQDAjArMQ8w\nDQYDVQQKEwZhcm1hZGExGDAWBgNVBAMMD2FybWFkYS1jYTpsYWJfMTAeFw0yNjEx\nMjYwNzQ1MzZaFw0yNzExMjYwNzUwMzZaMCQxDzANBgNVBAoTBmFybWFkYTERMA8G\nA1UEAxMIc2VydmVyOnMwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAASy1XrDqXMh\nfxeYCn2IKVIwbwZQ0YNbod/5c98M/qTK0JiDxSVp0nPwhg+R/Za8gWmfW7wDdAR9\nvuT5L6rmUFoHo3AwbjAOBgNVHQ8BAf8EBAMCB4AwEwYDVR0lBAwwCgYIKwYBBQUH\nAwEwDAYDVR0TAQH/BAIwADAfBgNVHSMEGDAWgBSYRYPfBaT0d7M/R6aex/I79Upe\nFjAYBgNVHREEETAPgg1hcm1hZGEtc2VydmVyMAoGCCqGSM49BAMCA0gAMEUCIQCh\nF7etGpptBK77zDD1h1l1PPxdncR6c2valuQZLu+uMgIgYPgZn3KpRbQeQIdlps21\nIMT50SeJeEELrnzTM2YAtxM=\n-----END CERTIFICATE-----\n",
+   "error": "server certificate: x509: certificate has expired or is not yet valid: current time 2027-12-31T07:50:36Z is after 2027-11-26T07:50:36Z",
+   "now": 1830239436000000000
+  },
+  {
+   "case": "early",
+   "cert": "-----BEGIN CERTIFICATE-----\nMIIBvTCCAWOgAwIBAgIQRlssbS9qEYIXiZCgjeKv8DAKBggqhkjOPQQDAjArMQ8w\nDQYDVQQKEwZhcm1hZGExGDAWBgNVBAMMD2FybWFkYS1jYTpsYWJfMTAeFw0yNjEx\nMjYwNzQ1MzZaFw0yNzExMjYwNzUwMzZaMCQxDzANBgNVBAoTBmFybWFkYTERMA8G\nA1UEAxMIc2VydmVyOnMwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAASy1XrDqXMh\nfxeYCn2IKVIwbwZQ0YNbod/5c98M/qTK0JiDxSVp0nPwhg+R/Za8gWmfW7wDdAR9\nvuT5L6rmUFoHo3AwbjAOBgNVHQ8BAf8EBAMCB4AwEwYDVR0lBAwwCgYIKwYBBQUH\nAwEwDAYDVR0TAQH/BAIwADAfBgNVHSMEGDAWgBSYRYPfBaT0d7M/R6aex/I79Upe\nFjAYBgNVHREEETAPgg1hcm1hZGEtc2VydmVyMAoGCCqGSM49BAMCA0gAMEUCIQCh\nF7etGpptBK77zDD1h1l1PPxdncR6c2valuQZLu+uMgIgYPgZn3KpRbQeQIdlps21\nIMT50SeJeEELrnzTM2YAtxM=\n-----END CERTIFICATE-----\n",
+   "error": "server certificate: x509: certificate has expired or is not yet valid: current time 2026-11-26T06:50:36Z is before 2026-11-26T07:45:36Z",
+   "now": 1795675836000000000
+  },
+  {
+   "case": "other CA",
+   "cert": "-----BEGIN CERTIFICATE-----\nMIIBuTCCAV+gAwIBAgIQa7KYjYdtfSpWaD/14Gks+jAKBggqhkjOPQQDAjAnMQ8w\nDQYDVQQKEwZhcm1hZGExFDASBgNVBAMTC2FybWFkYS1jYTpjMB4XDTI2MTEyNjA3\nNDUzNloXDTI3MTEyNjA3NTAzNlowJDEPMA0GA1UEChMGYXJtYWRhMREwDwYDVQQD\nEwhzZXJ2ZXI6czBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABNXigyswS9IPeW5J\n1pNlY97Y4lErE/bnq56V1bVc24DnlJlSnAKfOpP3TJ6/s4SMb/JkqKa3BXhj491K\n8X1a1LajcDBuMA4GA1UdDwEB/wQEAwIHgDATBgNVHSUEDDAKBggrBgEFBQcDATAM\nBgNVHRMBAf8EAjAAMB8GA1UdIwQYMBaAFISqvA+q60QtZ0wh35Ho4mYfFdbBMBgG\nA1UdEQQRMA+CDWFybWFkYS1zZXJ2ZXIwCgYIKoZIzj0EAwIDSAAwRQIgDxUw44MW\nn4ff7dCv1vSohQTI+Edp1Gep7cynvtZW/KACIQCXy7dKu97CkxQJzaOpHJAaWeGi\nejPjUJQ+nbm0jWyYvw==\n-----END CERTIFICATE-----\n",
+   "error": "server certificate: x509: certificate signed by unknown authority",
+   "now": 1795679436000000000
+  },
+  {
+   "case": "name",
+   "cert": "-----BEGIN CERTIFICATE-----\nMIIBtTCCAVugAwIBAgIRALJZjraMMG6cdC+z6uZ15KAwCgYIKoZIzj0EAwIwKzEP\nMA0GA1UEChMGYXJtYWRhMRgwFgYDVQQDDA9hcm1hZGEtY2E6bGFiXzEwHhcNMjYx\nMTI2MDc0NTM2WhcNMjcxMTI2MDc1MDM2WjAkMQ8wDQYDVQQKEwZhcm1hZGExETAP\nBgNVBAMTCHNlcnZlcjpzMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEsFUbKD6u\nHSozGdXVTW88eOWvCBEqZLz535QhpMbsXAo5AbpEwJL4Umgjts2X5mZoBNVVqVwe\nm/Nrvh6KOF6sjaNnMGUwDgYDVR0PAQH/BAQDAgeAMBMGA1UdJQQMMAoGCCsGAQUF\nBwMBMAwGA1UdEwEB/wQCMAAwHwYDVR0jBBgwFoAUmEWD3wWk9HezP0emnsfyO/VK\nXhYwDwYDVR0RBAgwBoIBYYIBYjAKBggqhkjOPQQDAgNIADBFAiEAi3dphZ4s3gK2\ne80WTgJd2KBdniYqPMwZI6Od4s8tELICIDNM2rf5zZCUES4VO4xcOdtzQUQVXqZ1\nUTFo5B03Ayyg\n-----END CERTIFICATE-----\n",
+   "error": "server certificate: x509: certificate is valid for a, b, not armada-server",
+   "now": 1795679436000000000
+  },
+  {
+   "case": "no names",
+   "cert": "-----BEGIN CERTIFICATE-----\nMIIBszCCAVqgAwIBAgIQP3R+WuCMWU8ody76myw4xzAKBggqhkjOPQQDAjArMQ8w\nDQYDVQQKEwZhcm1hZGExGDAWBgNVBAMMD2FybWFkYS1jYTpsYWJfMTAeFw0yNjEx\nMjYwNzQ1MzZaFw0yNzExMjYwNzUwMzZaMCQxDzANBgNVBAoTBmFybWFkYTERMA8G\nA1UEAxMIc2VydmVyOnMwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAAQO+sgu58BX\nAkwi5Ka1nElaV/XVhawqY03HduwLuPr5bK5h4LRmZpCw69j+tCFwssl+gBfn2u5/\nGVUB4hPm27Lqo2cwZTAOBgNVHQ8BAf8EBAMCB4AwEwYDVR0lBAwwCgYIKwYBBQUH\nAwEwDAYDVR0TAQH/BAIwADAfBgNVHSMEGDAWgBSYRYPfBaT0d7M/R6aex/I79Upe\nFjAPBgNVHREECDAGhwQKAAABMAoGCCqGSM49BAMCA0cAMEQCIGYBBMmfXo6d8WWz\nY3yflNYJ4huW5CQJqDChA4WEgKLNAiB3GjZ7UJBSDaE5DcNAqajujuo/j4DZwanB\nPFyZlgOC0Q==\n-----END CERTIFICATE-----\n",
+   "error": "server certificate: x509: certificate is not valid for any names, but wanted to match armada-server",
+   "now": 1795679436000000000
+  },
+  {
+   "case": "client",
+   "cert": "-----BEGIN CERTIFICATE-----\nMIIBvTCCAWOgAwIBAgIQZenp3rozTKibYVv0eBHtfTAKBggqhkjOPQQDAjArMQ8w\nDQYDVQQKEwZhcm1hZGExGDAWBgNVBAMMD2FybWFkYS1jYTpsYWJfMTAeFw0yNjEx\nMjYwNzQ1MzZaFw0yNzExMjYwNzUwMzZaMCQxDzANBgNVBAoTBmFybWFkYTERMA8G\nA1UEAxMIc2VydmVyOnMwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAAS8fX7TIk0n\nCuaE/2uKCOSrgrPo9wbZWSwZfvSpzNzDYRqDoM5bO+F1Qv2Fn1HemIZDqjnmGAjW\noJb+QR73pNKMo3AwbjAOBgNVHQ8BAf8EBAMCB4AwEwYDVR0lBAwwCgYIKwYBBQUH\nAwIwDAYDVR0TAQH/BAIwADAfBgNVHSMEGDAWgBSYRYPfBaT0d7M/R6aex/I79Upe\nFjAYBgNVHREEETAPgg1hcm1hZGEtc2VydmVyMAoGCCqGSM49BAMCA0gAMEUCIQCJ\nzUErEmrdr9IwnDf3I64gblEU0P8x+wCdma4rNdUXhwIgPnvrjYOluETN3ZxpKnym\nBcANaXzwdpsHGTJ6iMkIg28=\n-----END CERTIFICATE-----\n",
+   "error": "server certificate: x509: certificate specifies an incompatible key usage",
+   "now": 1795679436000000000
+  },
+  {
+   "case": "etcd both",
+   "cert": "-----BEGIN CERTIFICATE-----\nMIIByzCCAXCgAwIBAgIQRZaItuL7EC+wG32DjFWC/zAKBggqhkjOPQQDAjArMQ8w\nDQYDVQQKEwZhcm1hZGExGDAWBgNVBAMMD2FybWFkYS1jYTpsYWJfMTAeFw0yNjEx\nMjYwNzQ1MzZaFw0yNzExMjYwNzUwMzZaMCcxDzANBgNVBAoTBmFybWFkYTEUMBIG\nA1UEAxMLZXRjZDptZW1iZXIwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAARQvaen\n8JQ+R0Ye6YrRnAG4Ynqahf2NpDaE65DTdGDgWBdr7YdKV5CU1QgnfRqi3wbne2Dn\nFhkfx2y/i2YLBlEOo3oweDAOBgNVHQ8BAf8EBAMCB4AwHQYDVR0lBBYwFAYIKwYB\nBQUHAwEGCCsGAQUFBwMCMAwGA1UdEwEB/wQCMAAwHwYDVR0jBBgwFoAUmEWD3wWk\n9HezP0emnsfyO/VKXhYwGAYDVR0RBBEwD4INYXJtYWRhLXNlcnZlcjAKBggqhkjO\nPQQDAgNJADBGAiEAi632tFrUqN0EYhGruWdtJ8x08pd7jeX2lPCAZoUCkr0CIQCs\nEt7NPr7utlJx3YbpKb+JRs0dXOM081qRfDyhrGrQIQ==\n-----END CERTIFICATE-----\n",
+   "error": "",
+   "now": 1795679436000000000
+  }
+ ]
+}
