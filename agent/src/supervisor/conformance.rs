@@ -72,10 +72,7 @@ async fn conformance_supervisor_rust() {
     let name = image();
 
     // A replica: running, addressed on the bridge, commands, samples.
-    let id = rt
-        .run(&spec("conformance-r1", &name))
-        .await
-        .unwrap();
+    let id = rt.run(&spec("conformance-r1", &name)).await.unwrap();
     let c = wait_for(&rt, &id, STATE_RUNNING).await;
     let ip: std::net::Ipv4Addr = c.ip.parse().unwrap();
     assert!(rt.bridge().subnet.contains(ip), "{ip}");
