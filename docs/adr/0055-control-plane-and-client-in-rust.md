@@ -611,12 +611,22 @@ Go and every new Rust part is exercised only by its parity tests.
     run it from v0.1.0-alpha.41 too), and `test/e2e/cluster.sh` installs
     `armada-etcd.service` and treats every machine's agent as
     `armada-agent`. Left for the lab: both scripts' runs.
-20. **Go removed.** `cmd/`, `internal/`, `go.mod`, Go's CI jobs and
-    release steps, and every document that names Go code (CLAUDE.md, the
-    operations guide, the threat model's references, `docs/compatibility.md`
-    for the one downgrade allowed).
+20. **Go removed**, in two steps:
+    1. **The parity tests ported.** Go's outputs for every parity
+       scenario are recorded once as fixtures, and Rust tests drive the
+       Rust programs through the same scenarios and compare against them,
+       as `testdata/rust` already does for the runtime, HAProxy's driver,
+       and the image store's move.
+    2. **Go deleted.** `cmd/`, `internal/`, `go.mod`, Go's CI jobs and
+       release steps, the runtime pack's builder and pins moved out of Go,
+       and every document that names Go code (CLAUDE.md, the operations
+       guide, the threat model's references, `docs/compatibility.md` for
+       the one downgrade allowed).
 
-The release is tagged after 20 and the cloud run.
+The release is tagged after 19 and the cloud run, before 20 (the owner's
+decision once 19 passed the lab runs): from 19 on, nothing a release
+ships is Go, and the Go code stays in the repository only as the parity
+tests' reference until 20 has replaced them.
 
 ### What stays the same for people
 
