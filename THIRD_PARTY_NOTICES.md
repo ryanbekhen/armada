@@ -28,8 +28,8 @@ SHA-256, and `armada-pack` (`pack/`, below) builds the pack from it.
 | Component | Version | License | Source |
 | --- | --- | --- | --- |
 | crun | 1.31 | GPL-2.0-or-later | <https://github.com/containers/crun/tree/1.31>, and in every full Linux release archive (`source/runtime/crun-1.31/`) |
-| runc | 1.5.2 | Apache-2.0 | <https://github.com/opencontainers/runc/tree/v1.5.2> |
-| cni-plugins | 1.9.1 | Apache-2.0 | <https://github.com/containernetworking/plugins/tree/v1.9.1> |
+| runc | 1.5.3 | Apache-2.0 | <https://github.com/opencontainers/runc/tree/v1.5.3> |
+| cni-plugins | 1.10.0 | Apache-2.0 | <https://github.com/containernetworking/plugins/tree/v1.10.0> |
 | tini | 0.19.0 | MIT ([text](third_party/licenses/MIT-tini.txt)) | <https://github.com/krallin/tini/tree/v0.19.0> |
 | etcd | 3.7.4 | Apache-2.0 | <https://github.com/etcd-io/etcd/tree/v3.7.4> |
 
@@ -103,7 +103,10 @@ under the [GNU Lesser General Public License 2.1](third_party/licenses/LGPL-2.1.
 
 - **runc** with libseccomp 2.6.1 (<https://github.com/seccomp/libseccomp/releases/tag/v2.6.1>)
   and the GNU C Library of Debian trixie (<https://sources.debian.org/src/glibc/>),
-  as its release `Dockerfile` builds it.
+  as its release `Dockerfile` builds it. runc is also linked with
+  libpathrs 0.2.6 (<https://github.com/cyphar/libpathrs/releases/tag/v0.2.6>),
+  under the [Mozilla Public License 2.0](https://www.mozilla.org/en-US/MPL/2.0/),
+  unchanged; its source is at that address.
 - **tini** with the GNU C Library 2.23 (<https://ftp.gnu.org/gnu/glibc/glibc-2.23.tar.gz>).
 
 Armada does not change these programs or libraries. You may replace any of
