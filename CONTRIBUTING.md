@@ -28,6 +28,7 @@ make lint          # cargo fmt --check, and clippy as released and with the test
 make test          # every member's tests (cargo test --workspace)
 make replays       # what Go's code did, recorded before it was removed, replayed (REPLAYS=server ... for some)
 make vuln          # cargo deny: crate licenses and RustSec advisories
+cargo run --locked -p armada-pack -- outdated  # the runtime pack's pins: newer releases and known advisories
 make check         # all of the above, release builds for both targets, and logger/, shim/, dns/, proto/gen
 make logger        # armada-log for amd64 and arm64 (cd logger && cargo test for its tests)
 make build-bundle  # static Linux armadad with the container runtime embedded, and armada (ARCH=arm64 for arm64)

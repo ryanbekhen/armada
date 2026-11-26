@@ -1,0 +1,55 @@
+{
+  "id": "GO-2026-6686",
+  "summary": "Possible DoS via unbounded parsing of user and group database files in github.com/moby/sys/user",
+  "aliases": [
+    "CVE-2026-61801",
+    "GHSA-mjcv-p78q-w5fw"
+  ],
+  "severity": null,
+  "database_specific": {
+    "review_status": "REVIEWED",
+    "url": "https://pkg.go.dev/vuln/GO-2026-6686"
+  },
+  "affected": [
+    {
+      "package": {
+        "name": "github.com/moby/sys/user",
+        "ecosystem": "Go",
+        "purl": "pkg:golang/github.com/moby/sys/user"
+      },
+      "ranges": [
+        {
+          "type": "SEMVER",
+          "events": [
+            {
+              "introduced": "0"
+            },
+            {
+              "fixed": "0.4.1"
+            }
+          ]
+        }
+      ],
+      "ecosystem_specific": {
+        "imports": [
+          {
+            "path": "github.com/moby/sys/user",
+            "symbols": [
+              "CurrentGroup",
+              "GetAdditionalGroups",
+              "GetAdditionalGroupsPath",
+              "GetExecUser",
+              "GetExecUserPath",
+              "LookupGid",
+              "LookupGroup",
+              "ParseGroup",
+              "ParseGroupFile",
+              "ParseGroupFileFilter",
+              "ParseGroupFilter"
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

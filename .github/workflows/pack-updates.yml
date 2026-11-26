@@ -1,0 +1,102 @@
+name: pack-updates
+
+# Watches the runtime pack's pins (pack/lock.json), which Dependabot cannot
+# see: `armada-pack outdated` compares each pinned program with its
+# project's latest stable release and looks up the advisories known for
+# the pinned versions (GitHub's repository advisories, and OSV for the Go
+# programs, the modules they link, and the Go release they were built
+# with). One open issue, "Runtime pack updates", carries its report while
+# something is found (label dependencies, and security when an advisory
+# affects a pin); the issue is closed once every pin is current and clean.
+#
+# Exit codes of `armada-pack outdated`: 0 current and clean, 1 updates
+# only, 2 an advisory affects a pin, 3 the check failed (the job fails and
+# the issue is left as it is).
+on:
+  schedule:
+    - cron: "0 2 * * 1" # Mondays, 02:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: never
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  outdated:
+    # Never on forks: their copies would open issues about pins they do
+    # not maintain.
+    if: ${{ !github.event.repository.fork }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write # the one "Runtime pack updates" issue
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Crates, armada-pack's build, and the pinned programs it reads
+      # (downloaded and checked against pack/lock.json, never run).
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+            .cache/runtime
+          key: pack-updates-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'pack/lock.json') }}
+          restore-keys: pack-updates-
+      # rustup is on the runner; the toolchain comes from rust-toolchain.toml.
+      - run: rustup toolchain install
+      - id: check
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set +e
+          cargo run --locked -q -p armada-pack -- outdated > report.md
+          code=$?
+          set -e
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          cat report.md >> "$GITHUB_STEP_SUMMARY"
+          if [ "$code" -gt 2 ]; then
+            echo "armada-pack outdated failed (exit $code)" >&2
+            exit 1
+          fi
+      - name: Open, update, or close the issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          CODE: ${{ steps.check.outputs.code }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          title="Runtime pack updates"
+          number=$(gh issue list --state open --limit 100 --search "\"$title\" in:title" \
+            --json number,title --jq ".[] | select(.title == \"$title\") | .number" | head -n 1)
+          if [ "$CODE" = 0 ]; then
+            if [ -n "$number" ]; then
+              gh issue close "$number" --comment "Every pin is the latest release and no known advisory affects one ($RUN_URL)."
+            fi
+            exit 0
+          fi
+          # An issue body holds at most 65,536 characters.
+          {
+            head -c 60000 report.md
+            if [ "$(wc -c < report.md)" -gt 60000 ]; then
+              printf '\n\n_The report is cut short here; the whole report is in the run below._\n'
+            fi
+            printf '\n---\nWritten by the pack-updates workflow: %s. To update a pin, follow "Updating the bundled runtime" in docs/releasing.md.\n' "$RUN_URL"
+          } > body.md
+          if [ "$CODE" = 2 ]; then labels=dependencies,security; else labels=dependencies; fi
+          if [ -n "$number" ]; then
+            gh issue edit "$number" --body-file body.md --add-label "$labels"
+            if [ "$CODE" != 2 ]; then gh issue edit "$number" --remove-label security; fi
+          else
+            gh issue create --title "$title" --body-file body.md --label "$labels"
+          fi

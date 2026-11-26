@@ -8,13 +8,14 @@
 //!     armada-pack licenses --out DIR
 //!     armada-pack sources --out DIR
 //!     armada-pack etcd-api --out DIR
+//!     armada-pack outdated
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use armada_pack::lock::{ARCHES, Artifact, LOCK_PATH, Lock};
-use armada_pack::{elf, fetch, gomod, pack, untar};
+use armada_pack::{elf, fetch, gomod, outdated, pack, untar};
 
 const USAGE: &str = "usage:
   armada-pack bundle --arch amd64|arm64 --logger FILE --shim FILE --dns FILE --node FILE [--out FILE]
@@ -22,10 +23,20 @@ const USAGE: &str = "usage:
   armada-pack licenses --out DIR
   armada-pack sources --out DIR
   armada-pack etcd-api --out DIR
+  armada-pack outdated   (exit 0: current, 1: updates, 2: a pin is vulnerable, 3: the check failed)
 flags of every command: --lock FILE (default pack/lock.json), --cache DIR (default .cache)";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.first().map(String::as_str) == Some("outdated") {
+        return match Flags::parse(&args[1..], &[]).and_then(|f| check_outdated(&f)) {
+            Ok(code) => ExitCode::from(code),
+            Err(e) => {
+                eprintln!("armada-pack: {e}");
+                ExitCode::from(outdated::EXIT_ERROR)
+            }
+        };
+    }
     match run(&args) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
@@ -111,6 +122,33 @@ fn run(args: &[String]) -> Result<(), String> {
         }
         c => Err(format!("unknown command {c:?}\n{USAGE}")),
     }
+}
+
+/// outdated: the pins against their latest releases and the advisories
+/// known for them, as a Markdown report on stdout; the exit code says
+/// what it found (outdated::EXIT_*). GITHUB_TOKEN, when set, is used for
+/// GitHub's API (a higher rate limit); OSV's API needs none.
+fn check_outdated(f: &Flags) -> Result<u8, String> {
+    let lock = f.lock()?;
+    let cache = f.cache();
+    let token = std::env::var("GITHUB_TOKEN").ok().filter(|t| !t.is_empty());
+    let files = |a: &Artifact, arch: &str| artifact_files(a, arch, &cache);
+    let pins = outdated::collect(&lock, &files, token.as_deref())?;
+    let queries = pins
+        .iter()
+        .flat_map(|p| outdated::osv_queries(p).into_keys())
+        .collect();
+    let osv = outdated::osv(&queries)?;
+    let report = outdated::Report::build(&pins, &osv);
+    print!("{}", report.render());
+    let code = report.exit_code();
+    eprintln!(
+        "armada-pack outdated: {} pins, {} with a newer release, {} advisories affecting them (exit {code})",
+        report.rows.len(),
+        report.rows.iter().filter(|r| r.update).count(),
+        report.findings.len()
+    );
+    Ok(code)
 }
 
 /// files: an artifact's files for arch, by their names in the pack.
