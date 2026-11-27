@@ -31,9 +31,10 @@
 ---
 
 > [!NOTE]
-> **Armada is in alpha.** It is tested end to end on real machines before
-> every release, but specs, flags, and the state format may still change
-> between releases.
+> **Armada is in beta.** Features are frozen and only fixes land until
+> `v0.1.0`; specs, commands, and the API keep working across upgrades as
+> [the compatibility page](docs/compatibility.md) says. It is tested end to
+> end on real machines before every release.
 
 ## In one minute
 
