@@ -9,8 +9,8 @@ plugins, tini, armada-shim, armada-log, armada-dns, armada-node, and etcd) into
 the data directory, verifies it, and exits; armada-agent (which armada-server wants)
 starts it (armada-runtime.service). It does nothing on nodes that are not initialized yet.
 
-A node set up on containerd fails here: containerd is no longer in the pack
-(ADR 0046). Move such a node to the supervisor runtime with v0.1.0-alpha.42
+A node still on containerd fails here: this release runs containers on the
+supervisor runtime only (ADR 0046). Upgrade such a node through v0.1.0-alpha.44
 first, or remove it and join it again.
 
 ```

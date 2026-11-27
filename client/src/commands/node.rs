@@ -19,7 +19,6 @@ use crate::cli::flags::Flag;
 use crate::cli::tabwriter::TabWriter;
 use crate::cli::{Args, Ctx, Error, Node, Result, Tree};
 use crate::rpc;
-use crate::rpc::printable;
 
 /// pollInterval: how often `node delete` checks for remaining replicas.
 const POLL_INTERVAL: std::time::Duration = std::time::Duration::from_secs(2);
@@ -319,38 +318,12 @@ fn node_endpoint(n: &NodeStatus) -> String {
     dash(&n.endpoint)
 }
 
-/// nodeRuntime: how a node runs containers (ADR 0054).
+/// How a node runs containers, from its latest report.
 fn node_runtime(st: Option<&RuntimeStatus>) -> String {
     let Some(st) = st else {
         return "-".to_string();
     };
-    let mut out = match st.agent.as_str() {
-        "containerd" => {
-            let mut out =
-                "containerd (the leader moves it to the supervisor runtime; armada cluster status)"
-                    .to_string();
-            if !st.move_error.is_empty() {
-                out.push_str(&format!("; it did not move: {}", printable(&st.move_error)));
-            }
-            return out;
-        }
-        "supervisor-go" => {
-            return "supervisor, Go's code (agent.json runtimeAgent \"go\")".to_string();
-        }
-        "supervisor-rust" => "supervisor, armada-node".to_string(),
-        other => return printable(other),
-    };
-    if !st.error.is_empty() {
-        out.push_str(&format!(
-            "; converting Go's image store failed: {}",
-            printable(&st.error)
-        ));
-    } else if st.converting {
-        out.push_str("; Go's image store still holds containers made before the move");
-    }
-    if st.images_to_pull > 0 {
-        out.push_str(&format!("; {} images to pull again", st.images_to_pull));
-    }
+    let mut out = "supervisor".to_string();
     if st.runc_containers > 0 {
         out.push_str(&format!(
             "; {} containers still on runc, moving to crun",

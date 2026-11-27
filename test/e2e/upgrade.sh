@@ -1,6 +1,6 @@
 #!/bin/sh
-# End-to-end test of upgrading a cluster in place, machine by machine (ADR
-# 0055, "Parity testing", the lab; see README.md):
+# End-to-end test of upgrading a cluster in place, machine by machine (see
+# README.md):
 #
 #   E2E_TO=v0.2.0 E2E_DOMAIN=apps.example.org E2E_ACME_EMAIL=you@example.org \
 #   E2E_ETCDCTL=bin/etcdctl sh test/e2e/upgrade.sh hosts
@@ -11,28 +11,28 @@
 #   NAME  SSH-TARGET  PRIVATE-IP  PUBLIC-IP
 #
 # The first three become control plane servers, the other two nodes. Every
-# machine gets the release E2E_FROM (default v0.1.0-alpha.42, the last Go
-# release) with install.sh, and the cluster is built on it: the wireguard
-# network mode, an app with a volume, a job on a schedule, internal HTTP and
-# TCP apps, and a public app with a certificate. Under continuous load
-# through the public and the internal addresses, every machine is upgraded
-# to E2E_TO with `armadad upgrade`: the standby servers, the leader, then the
-# nodes. The run passes only with every request answered, no container
-# recreated (IDs and start times), no image pulled again, every etcd member
-# ID unchanged, and the keyspace unchanged but for what the release writes
-# (servers/ records, events). Then one machine is rolled back to the last Go
-# release and upgraded again under the same checks.
+# machine gets the release E2E_FROM (default v0.1.0-alpha.44, the release
+# upgrades come from) with install.sh, and the cluster is built on it: the
+# wireguard network mode, an app with a volume, a job on a schedule,
+# internal HTTP and TCP apps, and a public app with a certificate. Under
+# continuous load through the public and the internal addresses, every
+# machine is upgraded to E2E_TO with `armadad upgrade`: the standby servers,
+# the leader, then the nodes. The agents then move the containers runc
+# created to crun, one replica at a time (ADR 0056). The run passes only
+# with every request answered, no container left on runc, no image pulled
+# again, every etcd member ID unchanged, and the keyspace unchanged but for
+# what the release and the move to crun write (servers/ records, events,
+# the replicas' containers and addresses).
 #
 # Releases come from GitHub, or from E2E_RELEASES: a local directory laid
 # out as the release downloads (TAG/armada_<version>_linux_<arch>.tar.gz,
-# TAG/checksums.txt, ...) holding E2E_FROM, E2E_TO, and the last Go release,
-# copied to every machine and used through ARMADA_DOWNLOAD_BASE=file://.
+# TAG/checksums.txt, ...) holding E2E_FROM and E2E_TO, copied to every
+# machine and used through ARMADA_DOWNLOAD_BASE=file://.
 set -eu
 
 # Scenarios after the cluster is built on E2E_FROM and its workloads run.
-# E2E_ONLY=upgrade runs only that (empty: all); E2E_LIST=1 lists them. The
-# rollback needs the upgrade, so it runs it first.
-SCENARIOS="upgrade rollback"
+# E2E_ONLY=upgrade runs only that (empty: all); E2E_LIST=1 lists them.
+SCENARIOS="upgrade"
 E2E_ONLY=${E2E_ONLY:-}
 if [ "${E2E_LIST:-}" = 1 ]; then
 	echo "$SCENARIOS" | tr ' ' '\n'
@@ -56,10 +56,7 @@ want() {
 }
 
 HOSTS=${1:?usage: upgrade.sh HOSTS-FILE}
-# The last Go release: the one rollback `armadad upgrade` allows
-# (LAST_GO_RELEASE in daemon/src/commands/upgrade.rs).
-LAST_GO=v0.1.0-alpha.42
-E2E_FROM=${E2E_FROM:-$LAST_GO}
+E2E_FROM=${E2E_FROM:-v0.1.0-alpha.44}
 : "${E2E_TO:?set E2E_TO to the release to upgrade to (a tag on GitHub, or one in E2E_RELEASES)}"
 : "${E2E_DOMAIN:?set E2E_DOMAIN to a root domain whose wildcard record points at every public IP}"
 : "${E2E_ACME_EMAIL:?set E2E_ACME_EMAIL to the ACME account email}"
@@ -68,8 +65,6 @@ E2E_ACME_CA=${E2E_ACME_CA:-letsencrypt-staging}
 E2E_SSH_OPTS=${E2E_SSH_OPTS:-}
 E2E_SUDO=${E2E_SUDO:-}
 E2E_RELEASES=${E2E_RELEASES:-}
-# The machine rolled back and upgraded again: a standby server by default.
-E2E_ROLLBACK=${E2E_ROLLBACK:-2}
 
 case $E2E_ACME_CA in
 letsencrypt | *acme-v02.api.letsencrypt.org*)
@@ -88,7 +83,7 @@ done
 	exit 2
 }
 if [ -n "$E2E_RELEASES" ]; then
-	for _t in "$E2E_FROM" "$E2E_TO" "$LAST_GO"; do
+	for _t in "$E2E_FROM" "$E2E_TO"; do
 		[ -f "$E2E_RELEASES/$_t/checksums.txt" ] || {
 			echo "e2e: $E2E_RELEASES/$_t has no checksums.txt" >&2
 			exit 2
@@ -251,22 +246,8 @@ internal_check() {
 	ok "$1: ${_counts%% *} internal HTTP and TCP requests, none failed"
 }
 
-# What must not change, written into DIR: every container on every machine
-# (ID, created, its first process's start time), armada-node's image
-# records (when each was pulled), the etcd member IDs, and the keyspace.
-containers_of() { # containers_of N
-	# shellcheck disable=SC2016 # expanded on the machine
-	on "$1" 'for d in /var/lib/armada/supervisor/containers/*/; do
-	[ -f "$d/record.json" ] || continue
-	id=$(basename "$d")
-	created=$(sed -n "s/.*\"created\":\"\([^\"]*\)\".*/\1/p" "$d/record.json")
-	cg=$(grep -o "\"cgroupsPath\":\"[^\"]*\"" "$d/config.json" | cut -d\" -f4)
-	pid=$(head -n 1 "/sys/fs/cgroup/$cg/cgroup.procs" 2>/dev/null || true)
-	start=-
-	[ -z "$pid" ] || start=$(ps -o lstart= -p "$pid" | tr -s " " "_")
-	echo "$id $created $start"
-done | sort'
-}
+# What must not change, written into DIR: armada-node's image records
+# (when each was pulled), the etcd member IDs, and the keyspace.
 etcdctl() {
 	_ip=$(host 1 3)
 	on 1 "/root/e2e-etcdctl --endpoints https://$_ip:2379 --cacert /var/lib/armada/etcd/ca.crt --cert /var/lib/armada/etcd/member.crt --key /var/lib/armada/etcd/member.key $*"
@@ -275,7 +256,6 @@ snapshot() { # snapshot DIR
 	mkdir -p "$1"
 	_i=1
 	while [ "$_i" -le "$N" ]; do
-		containers_of "$_i" >"$1/containers.$_i" || fail "listing the containers of $(host "$_i" 1)"
 		on "$_i" 'cat /var/lib/armada/node/images/index.json' | jq -S '.images // {} | map_values(.created)' >"$1/images.$_i" ||
 			fail "reading armada-node's image records on $(host "$_i" 1)"
 		_i=$((_i + 1))
@@ -292,9 +272,10 @@ snapshot() { # snapshot DIR
 		| map(.value |= (try fromjson catch .))
 		# Fields agents and the leader rewrite on their own: when a node
 		# was last seen and the version its agent runs, when a replica
-		# report arrived.
-		| map(if (.key | startswith("nodes/")) then .value |= del(.lastSeen, .version)
-		      elif (.key | startswith("replicas/")) then .value |= del(.updatedAt)
+		# report arrived, and what the move to crun changes in a replica:
+		# its container, its address, and when it got ready.
+		| map(if (.key | startswith("nodes/")) then .value |= del(.LastSeen, .Version)
+		      elif (.key | startswith("replicas/")) then .value |= del(.UpdatedAt, .ContainerID, .Address, .IP, .ReadySince, .Message, .Restarts, .LastRestartAt, .LastRestart)
 		      else . end)
 		| from_entries' >"$1/keyspace" || fail "reading the keyspace"
 	[ -s "$1/keyspace" ] || fail "the keyspace read is empty"
@@ -303,21 +284,11 @@ snapshot() { # snapshot DIR
 unchanged() {
 	_i=1
 	while [ "$_i" -le "$N" ]; do
-		# Containers made since are job attempts (the job runs every
-		# minute); every other container is the same, made at the same
-		# time, its process started at the same time.
-		if ! awk 'NR == FNR { after[$1] = $0; next }
-			$1 ~ /^e2e-job/ { next }
-			!($1 in after) || after[$1] != $0 { print; bad = 1 }
-			END { exit bad }' "$2/containers.$_i" "$1/containers.$_i" >"$WORK/diff" 2>&1; then
-			cat "$WORK/diff" >&2
-			fail "$3: containers recreated on $(host "$_i" 1) (lines above as before)"
-		fi
 		jq -e --slurpfile after "$2/images.$_i" 'to_entries | all(.value == $after[0][.key])' "$1/images.$_i" >/dev/null ||
 			fail "$3: an image was pulled again on $(host "$_i" 1): $(jq -c . "$1/images.$_i") then $(jq -c . "$2/images.$_i")"
 		_i=$((_i + 1))
 	done
-	ok "$3: no container recreated, no image pulled again"
+	ok "$3: no image pulled again"
 	cmp -s "$1/members" "$2/members" || fail "$3: etcd members changed: $(jq -c . "$1/members") then $(jq -c . "$2/members")"
 	ok "$3: every etcd member ID unchanged"
 	if ! cmp -s "$1/keyspace" "$2/keyspace"; then
@@ -366,7 +337,7 @@ trap 'exit 130' INT TERM
 log "install $E2E_FROM on $N machines"
 if [ -n "$E2E_RELEASES" ]; then
 	# shellcheck disable=SC2046 # one tag per argument, each once
-	tar -C "$E2E_RELEASES" -cf "$WORK/releases.tar" $(printf '%s\n' "$E2E_FROM" "$E2E_TO" "$LAST_GO" | sort -u)
+	tar -C "$E2E_RELEASES" -cf "$WORK/releases.tar" $(printf '%s\n' "$E2E_FROM" "$E2E_TO" | sort -u)
 fi
 i=1
 while [ "$i" -le "$N" ]; do
@@ -527,8 +498,13 @@ internal_check "before the upgrade"
 job_failed() { cli run list e2e-job --space "$SPACE" -o json | jq -e '[(.runs // [])[] | select(.state == "failed")] | length > 0' >/dev/null; }
 vol_kept() { [ "$(cli app exec "e2e-vol.$SPACE" -- cat /data/notes.txt)" = "kept across the upgrade" ]; }
 
-# check WHEN BEFORE: every check, against the snapshot BEFORE.
+# runc_left: no node reports a container left on runc (ADR 0056).
+runc_left() { cli node list -o json | jq -e '[.nodes[]? | .runtime.runcContainers // 0] | add // 0 | . == 0'; }
+
+# check WHEN BEFORE: every check, against the snapshot BEFORE, once the
+# agents moved every container runc created to crun, still under load.
 check() {
+	wait_for 1800 "$1: every container moved from runc to crun" runc_left
 	load_stop "$1"
 	internal_check "$1"
 	snapshot "$WORK/after"
@@ -570,24 +546,5 @@ ok "servers run armada-etcd, armada-server, and armada-agent; nodes armada-agent
 if ! on 1 'armadad doctor' >"$WORK/doctor" 2>&1; then :; fi
 grep -E '^\[FAIL\]' "$WORK/doctor" >&2 && fail "armadad doctor on $(host 1 1) after the upgrade"
 ok "armadad doctor passes on $(host 1 1)"
-
-if want rollback; then
-	_name=$(host "$E2E_ROLLBACK" 1)
-	log "roll $_name back to $LAST_GO, then upgrade it again, under load"
-	snapshot "$WORK/before"
-	load_start
-	internal_reset
-	upgrade_machine "$E2E_ROLLBACK" "$LAST_GO"
-	_want="armada-agent "
-	[ "$E2E_ROLLBACK" -gt "$SERVERS" ] || _want="armada-server "
-	[ "$(units_of "$E2E_ROLLBACK")" = "$_want" ] || fail "$_name runs $(units_of "$E2E_ROLLBACK")after the rollback instead of $_want"
-	on "$E2E_ROLLBACK" 'test ! -e /etc/systemd/system/armada-etcd.service' || fail "armada-etcd.service is still installed on $_name"
-	check "the rollback" "$WORK/before"
-	snapshot "$WORK/before"
-	load_start
-	internal_reset
-	upgrade_machine "$E2E_ROLLBACK" "$E2E_TO"
-	check "the second upgrade" "$WORK/before"
-fi
 
 log "passed in $((($(date +%s) - STARTED) / 60)) minutes (scenarios: ${E2E_ONLY:-all})"

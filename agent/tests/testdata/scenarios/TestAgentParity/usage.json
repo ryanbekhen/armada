@@ -8,7 +8,6 @@
   "encodes": false,
   "exec": true,
   "members": true,
-  "move": false,
   "network": false,
   "networkKey": "",
   "noSecretsDir": false,
@@ -25,11 +24,7 @@
    "op": "fake",
    "script": {
     "agentStatus": {
-     "agent": "supervisor-rust",
-     "converted": false,
-     "error": "",
-     "goImages": true,
-     "imagesToPull": 3
+     "runcContainers": 0
     },
     "checks": {},
     "digests": {},
@@ -44,7 +39,6 @@
      "keyErr": "",
      "load": {},
      "loadErr": "",
-     "moveErr": "",
      "netErr": "",
      "peers": null,
      "proxyErr": "",
@@ -154,11 +148,7 @@
    "op": "fake",
    "script": {
     "agentStatus": {
-     "agent": "supervisor-rust",
-     "converted": false,
-     "error": "",
-     "goImages": true,
-     "imagesToPull": 3
+     "runcContainers": 0
     },
     "checks": {},
     "digests": {},
@@ -173,7 +163,6 @@
      "keyErr": "",
      "load": {},
      "loadErr": "",
-     "moveErr": "",
      "netErr": "",
      "peers": null,
      "proxyErr": "",
@@ -217,7 +206,7 @@
   },
   {
    "expect": [
-    "usage first: no rate yet {\"runtime\":{\"agent\":\"supervisor-rust\",\"converting\":true,\"imagesToPull\":3}}",
+    "usage first: no rate yet {\"runtime\":{}}",
     "calls list {\"labels\":{\"armada.managed\":\"true\"}}\nstats {\"id\":\"armada-web-r1-a-1\"}\nstats {\"id\":\"armada-web-r1-b-1\"}"
    ],
    "name": "first: no rate yet",
@@ -231,11 +220,7 @@
    "op": "fake",
    "script": {
     "agentStatus": {
-     "agent": "supervisor-rust",
-     "converted": false,
-     "error": "",
-     "goImages": true,
-     "imagesToPull": 3
+     "runcContainers": 0
     },
     "checks": {},
     "digests": {},
@@ -250,7 +235,6 @@
      "keyErr": "",
      "load": {},
      "loadErr": "",
-     "moveErr": "",
      "netErr": "",
      "peers": null,
      "proxyErr": "",
@@ -294,7 +278,7 @@
   },
   {
    "expect": [
-    "usage second: rates, the lost network asks for a restart {\"replicas\":[{\"id\":\"web-r1-a\",\"cpuMillis\":\"200\",\"memoryBytes\":\"150\",\"egressBytes\":\"20\",\"oomKills\":\"1\"}],\"runtime\":{\"agent\":\"supervisor-rust\",\"converting\":true,\"imagesToPull\":3}}",
+    "usage second: rates, the lost network asks for a restart {\"replicas\":[{\"id\":\"web-r1-a\",\"cpuMillis\":\"200\",\"memoryBytes\":\"150\",\"egressBytes\":\"20\",\"oomKills\":\"1\"}],\"runtime\":{}}",
     "calls list {\"labels\":{\"armada.managed\":\"true\"}}\nstats {\"id\":\"armada-web-r1-a-1\"}\nstats {\"id\":\"armada-web-r1-b-1\"}"
    ],
    "name": "second: rates, the lost network asks for a restart",

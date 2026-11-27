@@ -243,9 +243,9 @@ runs no agent of its own.
 
 ## Upgrading in place (`upgrade.sh`)
 
-`upgrade.sh` builds a cluster on an older release and upgrades it machine
-by machine to the release under test, as ADR 0055's lab run describes. It
-needs five fresh machines (three servers, two nodes) in a hosts file like
+`upgrade.sh` builds a cluster on the release upgrades come from and
+upgrades it machine by machine to the release under test. It needs five
+fresh machines (three servers, two nodes) in a hosts file like
 `cluster.sh`'s, and the same domain and ACME settings.
 
 ```bash
@@ -255,12 +255,11 @@ E2E_ACME_EMAIL=you@example.org sh test/e2e/upgrade.sh hosts
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `E2E_FROM` | `v0.1.0-alpha.42` | Release the cluster is built on (installed with `install.sh`); run it from `v0.1.0-alpha.41` too |
+| `E2E_FROM` | `v0.1.0-alpha.44` | Release the cluster is built on (installed with `install.sh`) |
 | `E2E_TO` | required | Release to upgrade to |
-| `E2E_RELEASES` | empty (GitHub) | Local directory laid out as the release downloads (`TAG/armada_<version>_linux_<arch>.tar.gz`, `TAG/checksums.txt`, and the signature bundle), holding `E2E_FROM`, `E2E_TO`, and `v0.1.0-alpha.42`; copied to every machine and used through `ARMADA_DOWNLOAD_BASE=file://` by both `install.sh` and `armadad upgrade` |
+| `E2E_RELEASES` | empty (GitHub) | Local directory laid out as the release downloads (`TAG/armada_<version>_linux_<arch>.tar.gz`, `TAG/checksums.txt`, and the signature bundle), holding `E2E_FROM` and `E2E_TO`; copied to every machine and used through `ARMADA_DOWNLOAD_BASE=file://` by both `install.sh` and `armadad upgrade` |
 | `E2E_ETCDCTL` | required | Linux `etcdctl` for the first machine's architecture, from the etcd release archive the runtime pack pins (`pack/lock.json`); reads the keyspace and the member IDs with the member's certificate |
-| `E2E_ROLLBACK` | `2` | The machine (line in the hosts file) rolled back and upgraded again |
-| `E2E_ONLY`, `E2E_LIST` | | As for `cluster.sh`: `upgrade` or `rollback` (which runs the upgrade first) |
+| `E2E_ONLY`, `E2E_LIST` | | As for `cluster.sh`: the one scenario is `upgrade` |
 | `E2E_ACME_CA`, `E2E_SSH_OPTS`, `E2E_SUDO` | | As for `cluster.sh` |
 
 What it checks:
@@ -275,19 +274,15 @@ What it checks:
 2. `upgrade`: with requests round robin over every public IP and the
    probers' internal requests running, `armadad upgrade --version E2E_TO`
    on the standby servers, the leader's machine, then the nodes, each
-   waiting for every server to vote and every node to be ready. Every
-   public request returns 200 and no internal one fails; every container on
-   every machine has the ID, creation time, and process start time it had
-   (job attempts made since aside); armada-node's image records keep the
-   time each image was pulled; every etcd member ID is the same; and the
-   keyspace is the same but for `servers/`, events, the commit and audit
-   counters, the job's record, runs, and attempts, nodes' last seen and
-   agent version, and when replica reports arrived. The volume keeps its
-   file, no run of the job failed, it runs on, servers run `armada-etcd`,
-   `armada-server`, and `armada-agent`, nodes `armada-agent`, and
-   `armadad doctor` passes.
-3. `rollback`: `armadad upgrade --version v0.1.0-alpha.42` on
-   `E2E_ROLLBACK`, under the same load and checks; the machine then runs
-   `armada-server` alone (a server) or `armada-agent` (a node), with no
-   `armada-etcd.service` left. Then `armadad upgrade --version E2E_TO`
-   again, under the same checks.
+   waiting for every server to vote and every node to be ready. The agents
+   then move the containers runc created to crun, one replica at a time
+   (ADR 0056), and the run waits until no node reports one left. Every
+   public request returns 200 and no internal one fails; armada-node's
+   image records keep the time each image was pulled; every etcd member ID
+   is the same; and the keyspace is the same but for `servers/`, events,
+   the commit and audit counters, the job's record, runs, and attempts,
+   nodes' last seen and agent version, and what replica reports and the
+   move to crun change (each replica's container, address, readiness, and
+   restarts). The volume keeps its file, no run of the job failed, it runs
+   on, servers run `armada-etcd`, `armada-server`, and `armada-agent`,
+   nodes `armada-agent`, and `armadad doctor` passes.

@@ -20,7 +20,6 @@ use armada_agent::runtime::{
     AgentStatus, Container, ContainerSpec, Error, Image, Member, MemberSpec, RegistryAuth, Result,
     Runtime, Stats,
 };
-use armada_agent::runtimemove::{MoveFn, PlanFn, PrepareFn};
 use armada_agent::session::{ServerConn, reconnect_wait};
 use armada_agent::side::conntrack::NodeConntrack;
 use armada_agent::side::logexport::ExportState;
@@ -500,13 +499,11 @@ impl Runtime for Remote {
 
     async fn runtime_agent(&self) -> Option<AgentStatus> {
         let v = self.wire.call("runtimeAgent", json!({})).await.ok()?;
+        if v.is_null() {
+            return None;
+        }
         Some(AgentStatus {
-            agent: s(&v["agent"]),
-            go_images: v["goImages"].as_bool().unwrap_or(false),
-            converted: v["converted"].as_bool().unwrap_or(false),
-            images_to_pull: int(&v["imagesToPull"]),
-            error: s(&v["error"]),
-            ..Default::default()
+            runc_containers: int(&v["runcContainers"]),
         })
     }
 }
@@ -747,9 +744,6 @@ fn side_config(c: &Value) -> SideConfig {
 
 static UNDER: OnceLock<Under> = OnceLock::new();
 
-/// The calls of the runtime move plan's callback in flight.
-static PLANS: Mutex<Vec<tokio::task::JoinHandle<()>>> = Mutex::new(Vec::new());
-
 fn proto_json<T: serde::Serialize>(m: &T) -> Value {
     serde_json::to_value(m).unwrap_or(Value::Null)
 }
@@ -784,41 +778,6 @@ async fn handle(wire: Arc<Wire>, req: Value) -> std::result::Result<Value, Strin
                     .then(|| Arc::new(RemoteCerts(wire.clone())) as Arc<dyn CertificateSource>),
                 network: on("network")
                     .then(|| Arc::new(RemoteNet(wire.clone())) as Arc<dyn Network>),
-                move_runtime: on("move").then(|| {
-                    let w = wire.clone();
-                    Arc::new(move |to: String| {
-                        let w = w.clone();
-                        Box::pin(async move {
-                            w.call("move", json!({"to": to}))
-                                .await
-                                .map(|_| ())
-                                .map_err(|e| e.to_string())
-                        })
-                            as BoxFut<'static, std::result::Result<(), String>>
-                    }) as MoveFn
-                }),
-                prepare_runtime_move: on("move").then(|| {
-                    let w = wire.clone();
-                    Arc::new(move |to: String| {
-                        let w = w.clone();
-                        Box::pin(async move {
-                            let _ = w.call("prepare", json!({"to": to})).await;
-                        }) as BoxFut<'static, ()>
-                    }) as PrepareFn
-                }),
-                on_runtime_move: on("move").then(|| {
-                    let w = wire.clone();
-                    Arc::new(move |p: Option<pb::RuntimeMovePlan>| {
-                        // The callback is synchronous, as Go's is: the
-                        // call is sent at once and answered in order.
-                        let w = w.clone();
-                        let plan = p.as_ref().map(proto_json).unwrap_or(Value::Null);
-                        let h = tokio::spawn(async move {
-                            let _ = w.call("plan", json!({"plan": plan})).await;
-                        });
-                        PLANS.lock().unwrap().push(h);
-                    }) as PlanFn
-                }),
                 os: s(&c["os"]),
                 arch: s(&c["arch"]),
                 servers: strings(&c["servers"]),
@@ -880,11 +839,6 @@ async fn handle(wire: Arc<Wire>, req: Value) -> std::result::Result<Value, Strin
             let a: pb::Assignment =
                 serde_json::from_value(req["assignment"].clone()).map_err(|e| e.to_string())?;
             under()?.agent.set_assignment(&a);
-            // The plan's callback was answered before the assignment is.
-            let plans = std::mem::take(&mut *PLANS.lock().unwrap());
-            for h in plans {
-                let _ = h.await;
-            }
             Ok(json!({}))
         }
         "reconcile" => match under()?.agent.reconcile().await {
@@ -907,10 +861,6 @@ async fn handle(wire: Arc<Wire>, req: Value) -> std::result::Result<Value, Strin
         }
         "rotate" => {
             under()?.agent.rotate_network_key().await;
-            Ok(json!({}))
-        }
-        "move" => {
-            under()?.agent.move_runtime(&s(&req["to"])).await;
             Ok(json!({}))
         }
         "sample" => {

@@ -8,7 +8,6 @@
   "encodes": false,
   "exec": true,
   "members": true,
-  "move": false,
   "network": false,
   "networkKey": "",
   "noSecretsDir": false,
@@ -103,13 +102,6 @@
   {
    "op": "fake",
    "script": {
-    "agentStatus": {
-     "agent": "",
-     "converted": false,
-     "error": "",
-     "goImages": false,
-     "imagesToPull": 0
-    },
     "checks": {},
     "digests": {},
     "execCodes": {},
@@ -123,7 +115,6 @@
      "keyErr": "",
      "load": {},
      "loadErr": "",
-     "moveErr": "",
      "netErr": "",
      "peers": null,
      "proxyErr": "",

@@ -42,19 +42,11 @@ pub struct UsageState {
     pub totals: HashMap<String, i64>,
 }
 
-/// How the node runs containers, as the leader reads it (ADR 0054).
-pub fn runtime_status(s: &AgentStatus) -> Option<pb::RuntimeStatus> {
-    if s.agent.is_empty() {
-        return None;
-    }
-    Some(pb::RuntimeStatus {
-        agent: s.agent.clone(),
-        converting: s.converting(),
-        images_to_pull: s.images_to_pull.clamp(i64::MIN, 1 << 20) as i32,
-        error: s.error.clone(),
+/// How the node runs containers, as the leader reads it.
+pub fn runtime_status(s: &AgentStatus) -> pb::RuntimeStatus {
+    pb::RuntimeStatus {
         runc_containers: s.runc_containers.clamp(0, 1 << 20) as i32,
-        ..Default::default()
-    })
+    }
 }
 
 impl<R: Runtime> Agent<R> {
@@ -183,7 +175,7 @@ impl<R: Runtime> Inner<R> {
         }
         self.report_peers(&mut report).await;
         if let Some(s) = self.rt.runtime_agent().await {
-            report.runtime = self.with_move_error(runtime_status(&s));
+            report.runtime = Some(runtime_status(&s));
         }
         (sampled
             || report.runtime.is_some()

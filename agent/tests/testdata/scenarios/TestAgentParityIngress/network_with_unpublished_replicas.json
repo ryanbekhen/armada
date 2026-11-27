@@ -8,7 +8,6 @@
   "encodes": false,
   "exec": true,
   "members": true,
-  "move": false,
   "network": true,
   "networkKey": "",
   "noSecretsDir": false,
@@ -112,13 +111,6 @@
   {
    "op": "fake",
    "script": {
-    "agentStatus": {
-     "agent": "",
-     "converted": false,
-     "error": "",
-     "goImages": false,
-     "imagesToPull": 0
-    },
     "checks": {},
     "digests": {},
     "execCodes": {},
@@ -132,7 +124,6 @@
      "keyErr": "",
      "load": {},
      "loadErr": "",
-     "moveErr": "",
      "netErr": "add route: file exists",
      "peers": null,
      "proxyErr": "",
@@ -188,13 +179,6 @@
   {
    "op": "fake",
    "script": {
-    "agentStatus": {
-     "agent": "",
-     "converted": false,
-     "error": "",
-     "goImages": false,
-     "imagesToPull": 0
-    },
     "checks": {},
     "digests": {},
     "execCodes": {},
@@ -208,7 +192,6 @@
      "keyErr": "",
      "load": {},
      "loadErr": "",
-     "moveErr": "",
      "netErr": "",
      "peers": null,
      "proxyErr": "",

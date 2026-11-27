@@ -395,7 +395,6 @@ impl Server {
         servers: &[String],
         network: Option<&NetworkConfig>,
         sandboxes: &HashMap<String, Vec<QueueSandbox>>,
-        move_plans: &HashMap<String, RuntimeMovePlan>,
     ) -> Result<(), armada_store::Error> {
         let mut by_node: HashMap<&str, Vec<&Replica>> = HashMap::new();
         for r in replicas {
@@ -412,9 +411,6 @@ impl Server {
                 queue_sandboxes: sandboxes.get(&sess.node_id).cloned().unwrap_or_default(),
                 ..Default::default()
             };
-            if sess.caps.runtime_move {
-                a.runtime_move = move_plans.get(&sess.node_id).cloned();
-            }
             for r in by_node.get(sess.node_id.as_str()).into_iter().flatten() {
                 if r.held && !sess.caps.holds {
                     // An agent that does not know holds would start it

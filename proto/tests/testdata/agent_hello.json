@@ -7,7 +7,6 @@
     "os": "linux",
     "arch": "arm64",
     "jobs": true,
-    "networkKey": "zUiUUFo68E2u1IYbL+/4fuSeNfPVSTmKuhjVqJzBAzk=",
-    "runtimeMove": true
+    "networkKey": "zUiUUFo68E2u1IYbL+/4fuSeNfPVSTmKuhjVqJzBAzk="
   }
 }

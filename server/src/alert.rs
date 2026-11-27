@@ -588,7 +588,6 @@ const WARNINGS: &[&str] = &[
     "VolumeFailedOver",
     "VolumeFailoverFailed",
     "ControlPlaneBackupFailed",
-    "RuntimeMoveGivenUp",
 ];
 
 /// Warning: whether reason needs a person.

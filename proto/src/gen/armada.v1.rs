@@ -1142,11 +1142,6 @@ pub struct ClusterConfig {
     pub backup_keep: ::core::option::Option<BackupKeep>,
     #[prost(string, tag = "25")]
     pub backup_bucket: ::prost::alloc::string::String,
-    /// The leader does not move nodes from containerd to the supervisor
-    /// runtime by itself (ADR 0054, "The runtime's move", step 4); unset, it
-    /// does, one node at a time.
-    #[prost(bool, tag = "26")]
-    pub runtime_move_off: bool,
 }
 #[allow(clippy::all)]
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
@@ -1222,10 +1217,6 @@ pub struct SetClusterConfigRequest {
     pub backup_key: ::prost::alloc::vec::Vec<u8>,
     #[prost(bool, tag = "26")]
     pub set_backup_off: bool,
-    /// Turn the automatic move of containerd nodes on or off
-    /// (config.runtime_move_off, ADR 0054).
-    #[prost(bool, tag = "27")]
-    pub set_runtime_move: bool,
 }
 #[allow(clippy::all)]
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
@@ -1374,60 +1365,6 @@ pub struct ClusterStatusResponse {
     /// The control plane's backups (ADR 0051); unset while they are off.
     #[prost(message, optional, tag = "12")]
     pub control_plane_backup: ::core::option::Option<ControlPlaneBackupStatus>,
-    /// Where the nodes' move to armada-node stands (ADR 0054).
-    #[prost(message, optional, tag = "13")]
-    pub runtime: ::core::option::Option<RuntimeProgress>,
-    /// The leader's move of containerd nodes to the supervisor runtime (ADR
-    /// 0054); unset while no node runs on containerd and none moves.
-    #[prost(message, optional, tag = "14")]
-    pub runtime_move: ::core::option::Option<RuntimeMoveStatus>,
-}
-/// RuntimeMoveStatus is where the leader's move of containerd nodes to the
-/// supervisor runtime stands (ADR 0054, "The runtime's move", step 4).
-#[allow(clippy::all)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct RuntimeMoveStatus {
-    /// The move is turned off (armada cluster update --runtime-move=false).
-    #[prost(bool, tag = "1")]
-    pub off: bool,
-    /// The node being moved, its step ("draining": its replicas start on
-    /// other nodes; "migrating": the node removes its containers, records the
-    /// supervisor runtime, and restarts its service), when the move and the
-    /// step began, and why the node could not take the step, if it said.
-    #[prost(string, tag = "2")]
-    pub node: ::prost::alloc::string::String,
-    #[prost(string, tag = "3")]
-    pub step: ::prost::alloc::string::String,
-    #[prost(int64, tag = "4")]
-    pub since_unix: i64,
-    #[prost(int64, tag = "5")]
-    pub step_since_unix: i64,
-    #[prost(string, tag = "6")]
-    pub error: ::prost::alloc::string::String,
-    /// Why no node is moved now although some run on containerd, when the
-    /// reason is the cluster's (a network switch runs, a node is away).
-    #[prost(string, tag = "7")]
-    pub held: ::prost::alloc::string::String,
-    /// The containerd nodes not being moved, at most 20, sorted, and how many
-    /// there are.
-    #[prost(message, repeated, tag = "8")]
-    pub waiting: ::prost::alloc::vec::Vec<RuntimeMoveWait>,
-    #[prost(int32, tag = "9")]
-    pub waiting_total: i32,
-}
-/// RuntimeMoveWait is a containerd node the leader does not move now, and
-/// why. operator: it waits for a person (the cluster's only node, local
-/// volumes, an agent too old to move itself); otherwise it is moved once the
-/// reason passes.
-#[allow(clippy::all)]
-#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct RuntimeMoveWait {
-    #[prost(string, tag = "1")]
-    pub node: ::prost::alloc::string::String,
-    #[prost(string, tag = "2")]
-    pub reason: ::prost::alloc::string::String,
-    #[prost(bool, tag = "3")]
-    pub operator: bool,
 }
 /// ControlPlaneBackupStatus is how the control plane's backups to its bucket
 /// go (ADR 0051).
@@ -1720,8 +1657,8 @@ pub struct NodeStatus {
     pub relay: bool,
     #[prost(bool, tag = "17")]
     pub relay_pinned: bool,
-    /// How the node runs containers, from its latest report (ADR 0054);
-    /// unset without a recent one.
+    /// How the node runs containers, from its latest report; unset without
+    /// a recent one.
     #[prost(message, optional, tag = "18")]
     pub runtime: ::core::option::Option<RuntimeStatus>,
 }
@@ -2060,10 +1997,6 @@ pub struct Hello {
     /// The agent replaces its WireGuard key when asked (RotateNetworkKey).
     #[prost(bool, tag = "22")]
     pub key_rotation: bool,
-    /// The agent moves its node from containerd to the supervisor runtime
-    /// when asked (MoveRuntime, ADR 0054).
-    #[prost(bool, tag = "23")]
-    pub runtime_move: bool,
 }
 #[allow(clippy::all)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -2159,68 +2092,19 @@ pub struct UsageReport {
     /// inside the agent because the kernel has none (ADR 0025).
     #[prost(bool, tag = "15")]
     pub wireguard_userspace: bool,
-    /// How the node runs containers (ADR 0054); older agents leave it unset.
+    /// How the node runs containers.
     #[prost(message, optional, tag = "16")]
     pub runtime: ::core::option::Option<RuntimeStatus>,
 }
-/// RuntimeStatus is how a node runs containers (ADR 0054, "The runtime's
-/// move"): its runtime, whose code runs it, and how its move to the
-/// runtime pack's armada-node goes.
+/// RuntimeStatus is how a node runs containers.
 #[allow(clippy::all)]
-#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct RuntimeStatus {
-    /// "containerd" (the embedded containerd), "supervisor-go" (the
-    /// supervisor runtime through Go's code), or "supervisor-rust" (the
-    /// supervisor runtime through armada-node).
-    #[prost(string, tag = "1")]
-    pub agent: ::prost::alloc::string::String,
-    /// supervisor-rust: Go's former image store is still on the node, not
-    /// converted yet, or holding the root filesystems of containers made
-    /// before the move (it goes with the last of them).
-    #[prost(bool, tag = "2")]
-    pub converting: bool,
-    /// supervisor-rust: images the conversion left out that armada-node has
-    /// not pulled again yet; each is pulled when a replica needs it.
-    #[prost(int32, tag = "3")]
-    pub images_to_pull: i32,
-    /// Why converting Go's image store failed at the agent's start.
-    #[prost(string, tag = "4")]
-    pub error: ::prost::alloc::string::String,
-    /// containerd: why the node did not move to the supervisor runtime when
-    /// the leader last asked it to (MoveRuntime); empty otherwise.
-    #[prost(string, tag = "5")]
-    pub move_error: ::prost::alloc::string::String,
     /// Containers runc created that are still on the node (ADR 0056): the
     /// agent moves them to crun one replica at a time, HAProxy last; job
     /// attempts end on runc and leave with their history.
     #[prost(int32, tag = "6")]
     pub runc_containers: i32,
-}
-/// RuntimeProgress is where the cluster's move to armada-node stands (ADR
-/// 0054): how many nodes run containers through it with nothing left of
-/// Go's image store, and the others.
-#[allow(clippy::all)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct RuntimeProgress {
-    #[prost(int32, tag = "1")]
-    pub nodes: i32,
-    #[prost(int32, tag = "2")]
-    pub moved: i32,
-    /// The nodes not moved yet, or with images to pull again (at most 20,
-    /// sorted), and how many there are. A node with no recent report (not
-    /// connected, or an agent older than the report) has no status.
-    #[prost(message, repeated, tag = "3")]
-    pub others: ::prost::alloc::vec::Vec<NodeRuntime>,
-    #[prost(int32, tag = "4")]
-    pub others_total: i32,
-}
-#[allow(clippy::all)]
-#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct NodeRuntime {
-    #[prost(string, tag = "1")]
-    pub node: ::prost::alloc::string::String,
-    #[prost(message, optional, tag = "2")]
-    pub status: ::core::option::Option<RuntimeStatus>,
 }
 /// NetworkSwitchStatus is a node's side of a switch between the plain and
 /// wireguard modes (ADR 0050).
@@ -2327,7 +2211,7 @@ pub struct ReplicaUsage {
 #[allow(clippy::all)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ServerMessage {
-    #[prost(oneof = "server_message::Msg", tags = "1, 2, 3, 4, 5, 6, 7")]
+    #[prost(oneof = "server_message::Msg", tags = "1, 2, 3, 4, 5, 6")]
     pub msg: ::core::option::Option<server_message::Msg>,
 }
 /// Nested message and enum types in `ServerMessage`.
@@ -2347,21 +2231,7 @@ pub mod server_message {
         VolumeRequest(super::VolumeRequest),
         #[prost(message, tag = "6")]
         RotateNetworkKey(super::RotateNetworkKey),
-        #[prost(message, tag = "7")]
-        MoveRuntime(super::MoveRuntime),
     }
-}
-/// MoveRuntime asks the agent of a containerd node with no replicas left to
-/// move it to the supervisor runtime (ADR 0054, "The runtime's move", step
-/// 4): remove every container Armada runs there, record the supervisor in
-/// agent.json, and restart its service. Sent only to agents that announced
-/// Hello.runtime_move.
-#[allow(clippy::all)]
-#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct MoveRuntime {
-    /// The runtime to move to: "supervisor".
-    #[prost(string, tag = "1")]
-    pub to: ::prost::alloc::string::String,
 }
 /// RotateNetworkKey asks the agent to replace its node's WireGuard key and
 /// announce the new public half (armada node rotate-key, ADR 0025).
@@ -2528,25 +2398,6 @@ pub struct Assignment {
     /// How much log history the node keeps (ADR 0043).
     #[prost(message, optional, tag = "6")]
     pub logs: ::core::option::Option<LogSettings>,
-    /// What the leader plans for this containerd node's move to the
-    /// supervisor runtime (ADR 0054), for armadad doctor; unset on other
-    /// nodes and for agents that did not announce Hello.runtime_move.
-    #[prost(message, optional, tag = "7")]
-    pub runtime_move: ::core::option::Option<RuntimeMovePlan>,
-}
-/// RuntimeMovePlan is what the leader plans for one containerd node.
-#[allow(clippy::all)]
-#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct RuntimeMovePlan {
-    /// "queued": moved when its turn comes; "moving": being moved now;
-    /// "waiting": not moved now (reason says why; operator says whether it
-    /// waits for a person); "off": the automatic move is turned off.
-    #[prost(string, tag = "1")]
-    pub state: ::prost::alloc::string::String,
-    #[prost(string, tag = "2")]
-    pub reason: ::prost::alloc::string::String,
-    #[prost(bool, tag = "3")]
-    pub operator: bool,
 }
 /// QueueSandbox asks the node to keep a network sandbox for a job, wired into
 /// the node's container network like the job's containers, and to read the

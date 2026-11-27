@@ -1119,9 +1119,6 @@ async fn prunes_images_no_container_uses() {
         .unwrap()
         .unwrap();
     assert_eq!(removed, ["docker.io/library/side:1"]);
-    let st = lab.rt.runtime_agent().await.unwrap();
-    assert_eq!(st.agent, "supervisor-rust");
-    assert!(!st.go_images);
 }
 
 #[test]

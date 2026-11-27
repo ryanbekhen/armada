@@ -1,7 +1,5 @@
-//! armadad runtime reset (Go's runtime.go) on the supervisor runtime. The
-//! Rust armadad has no containerd driver (ADR 0055): reset refuses a node
-//! on containerd, naming v0.1.0-alpha.42 as the way. `runtime migrate`,
-//! which always left or entered containerd, is gone with containerd.
+//! armadad runtime reset: every container Armada runs on the node removed,
+//! on the supervisor runtime; a node still on containerd is refused.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -24,14 +22,6 @@ fn runtime_hint(rt: &str) -> &'static str {
     } else {
         "systemctl start armada-runtime"
     }
-}
-
-/// What a node on containerd is told by the commands that need its
-/// runtime.
-fn containerd_refused(what: &str) -> String {
-    format!(
-        "this node runs containers on containerd, which this armadad does not run (ADR 0055): {what} with v0.1.0-alpha.42, or move the node to the supervisor runtime with it first"
-    )
 }
 
 /// removeContainers: every container with Armada's labels, then the
@@ -99,7 +89,7 @@ pub fn reset(ctx: &mut Ctx<'_>, _: &[String]) -> Result {
     let ac = agentconfig::load(&data_dir)?;
     ac.check_runtime().map_err(msg)?;
     if ac.runtime != RUNTIME_SUPERVISOR {
-        return Err(msg(containerd_refused("reset it")));
+        return Err(msg(agentconfig::CONTAINERD_NODE));
     }
     let rt = open_supervisor(&data_dir, &ac).map_err(msg)?;
     let mut out = String::new();

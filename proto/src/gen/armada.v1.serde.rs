@@ -1399,9 +1399,6 @@ impl serde::Serialize for Assignment {
         if self.logs.is_some() {
             len += 1;
         }
-        if self.runtime_move.is_some() {
-            len += 1;
-        }
         let mut struct_ser = serializer.serialize_struct("armada.v1.Assignment", len)?;
         if !self.replicas.is_empty() {
             struct_ser.serialize_field("replicas", &self.replicas)?;
@@ -1421,9 +1418,6 @@ impl serde::Serialize for Assignment {
         if let Some(v) = self.logs.as_ref() {
             struct_ser.serialize_field("logs", v)?;
         }
-        if let Some(v) = self.runtime_move.as_ref() {
-            struct_ser.serialize_field("runtimeMove", v)?;
-        }
         struct_ser.end()
     }
 }
@@ -1441,8 +1435,6 @@ impl<'de> serde::Deserialize<'de> for Assignment {
             "queue_sandboxes",
             "queueSandboxes",
             "logs",
-            "runtime_move",
-            "runtimeMove",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -1453,7 +1445,6 @@ impl<'de> serde::Deserialize<'de> for Assignment {
             Network,
             QueueSandboxes,
             Logs,
-            RuntimeMove,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1481,7 +1472,6 @@ impl<'de> serde::Deserialize<'de> for Assignment {
                             "network" => Ok(GeneratedField::Network),
                             "queueSandboxes" | "queue_sandboxes" => Ok(GeneratedField::QueueSandboxes),
                             "logs" => Ok(GeneratedField::Logs),
-                            "runtimeMove" | "runtime_move" => Ok(GeneratedField::RuntimeMove),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -1507,7 +1497,6 @@ impl<'de> serde::Deserialize<'de> for Assignment {
                 let mut network__ = None;
                 let mut queue_sandboxes__ = None;
                 let mut logs__ = None;
-                let mut runtime_move__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Replicas => {
@@ -1546,12 +1535,6 @@ impl<'de> serde::Deserialize<'de> for Assignment {
                             }
                             logs__ = map_.next_value()?;
                         }
-                        GeneratedField::RuntimeMove => {
-                            if runtime_move__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("runtimeMove"));
-                            }
-                            runtime_move__ = map_.next_value()?;
-                        }
                     }
                 }
                 Ok(Assignment {
@@ -1561,7 +1544,6 @@ impl<'de> serde::Deserialize<'de> for Assignment {
                     network: network__,
                     queue_sandboxes: queue_sandboxes__.unwrap_or_default(),
                     logs: logs__,
-                    runtime_move: runtime_move__,
                 })
             }
         }
@@ -2733,9 +2715,6 @@ impl serde::Serialize for ClusterConfig {
         if !self.backup_bucket.is_empty() {
             len += 1;
         }
-        if self.runtime_move_off {
-            len += 1;
-        }
         let mut struct_ser = serializer.serialize_struct("armada.v1.ClusterConfig", len)?;
         if !self.root_domain.is_empty() {
             struct_ser.serialize_field("rootDomain", &self.root_domain)?;
@@ -2820,9 +2799,6 @@ impl serde::Serialize for ClusterConfig {
         if !self.backup_bucket.is_empty() {
             struct_ser.serialize_field("backupBucket", &self.backup_bucket)?;
         }
-        if self.runtime_move_off {
-            struct_ser.serialize_field("runtimeMoveOff", &self.runtime_move_off)?;
-        }
         struct_ser.end()
     }
 }
@@ -2881,8 +2857,6 @@ impl<'de> serde::Deserialize<'de> for ClusterConfig {
             "backupKeep",
             "backup_bucket",
             "backupBucket",
-            "runtime_move_off",
-            "runtimeMoveOff",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -2912,7 +2886,6 @@ impl<'de> serde::Deserialize<'de> for ClusterConfig {
             BackupTimeZone,
             BackupKeep,
             BackupBucket,
-            RuntimeMoveOff,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -2959,7 +2932,6 @@ impl<'de> serde::Deserialize<'de> for ClusterConfig {
                             "backupTimeZone" | "backup_time_zone" => Ok(GeneratedField::BackupTimeZone),
                             "backupKeep" | "backup_keep" => Ok(GeneratedField::BackupKeep),
                             "backupBucket" | "backup_bucket" => Ok(GeneratedField::BackupBucket),
-                            "runtimeMoveOff" | "runtime_move_off" => Ok(GeneratedField::RuntimeMoveOff),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -3004,7 +2976,6 @@ impl<'de> serde::Deserialize<'de> for ClusterConfig {
                 let mut backup_time_zone__ = None;
                 let mut backup_keep__ = None;
                 let mut backup_bucket__ = None;
-                let mut runtime_move_off__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::RootDomain => {
@@ -3167,12 +3138,6 @@ impl<'de> serde::Deserialize<'de> for ClusterConfig {
                             }
                             backup_bucket__ = Some(map_.next_value()?);
                         }
-                        GeneratedField::RuntimeMoveOff => {
-                            if runtime_move_off__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("runtimeMoveOff"));
-                            }
-                            runtime_move_off__ = Some(map_.next_value()?);
-                        }
                     }
                 }
                 Ok(ClusterConfig {
@@ -3201,7 +3166,6 @@ impl<'de> serde::Deserialize<'de> for ClusterConfig {
                     backup_time_zone: backup_time_zone__.unwrap_or_default(),
                     backup_keep: backup_keep__,
                     backup_bucket: backup_bucket__.unwrap_or_default(),
-                    runtime_move_off: runtime_move_off__.unwrap_or_default(),
                 })
             }
         }
@@ -3323,12 +3287,6 @@ impl serde::Serialize for ClusterStatusResponse {
         if self.control_plane_backup.is_some() {
             len += 1;
         }
-        if self.runtime.is_some() {
-            len += 1;
-        }
-        if self.runtime_move.is_some() {
-            len += 1;
-        }
         let mut struct_ser = serializer.serialize_struct("armada.v1.ClusterStatusResponse", len)?;
         if self.nodes != 0 {
             struct_ser.serialize_field("nodes", &self.nodes)?;
@@ -3366,12 +3324,6 @@ impl serde::Serialize for ClusterStatusResponse {
         if let Some(v) = self.control_plane_backup.as_ref() {
             struct_ser.serialize_field("controlPlaneBackup", v)?;
         }
-        if let Some(v) = self.runtime.as_ref() {
-            struct_ser.serialize_field("runtime", v)?;
-        }
-        if let Some(v) = self.runtime_move.as_ref() {
-            struct_ser.serialize_field("runtimeMove", v)?;
-        }
         struct_ser.end()
     }
 }
@@ -3402,9 +3354,6 @@ impl<'de> serde::Deserialize<'de> for ClusterStatusResponse {
             "networkSwitch",
             "control_plane_backup",
             "controlPlaneBackup",
-            "runtime",
-            "runtime_move",
-            "runtimeMove",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -3421,8 +3370,6 @@ impl<'de> serde::Deserialize<'de> for ClusterStatusResponse {
             NodesNotReady,
             NetworkSwitch,
             ControlPlaneBackup,
-            Runtime,
-            RuntimeMove,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -3456,8 +3403,6 @@ impl<'de> serde::Deserialize<'de> for ClusterStatusResponse {
                             "nodesNotReady" | "nodes_not_ready" => Ok(GeneratedField::NodesNotReady),
                             "networkSwitch" | "network_switch" => Ok(GeneratedField::NetworkSwitch),
                             "controlPlaneBackup" | "control_plane_backup" => Ok(GeneratedField::ControlPlaneBackup),
-                            "runtime" => Ok(GeneratedField::Runtime),
-                            "runtimeMove" | "runtime_move" => Ok(GeneratedField::RuntimeMove),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -3489,8 +3434,6 @@ impl<'de> serde::Deserialize<'de> for ClusterStatusResponse {
                 let mut nodes_not_ready__ = None;
                 let mut network_switch__ = None;
                 let mut control_plane_backup__ = None;
-                let mut runtime__ = None;
-                let mut runtime_move__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Nodes => {
@@ -3581,18 +3524,6 @@ impl<'de> serde::Deserialize<'de> for ClusterStatusResponse {
                             }
                             control_plane_backup__ = map_.next_value()?;
                         }
-                        GeneratedField::Runtime => {
-                            if runtime__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("runtime"));
-                            }
-                            runtime__ = map_.next_value()?;
-                        }
-                        GeneratedField::RuntimeMove => {
-                            if runtime_move__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("runtimeMove"));
-                            }
-                            runtime_move__ = map_.next_value()?;
-                        }
                     }
                 }
                 Ok(ClusterStatusResponse {
@@ -3608,8 +3539,6 @@ impl<'de> serde::Deserialize<'de> for ClusterStatusResponse {
                     nodes_not_ready: nodes_not_ready__.unwrap_or_default(),
                     network_switch: network_switch__,
                     control_plane_backup: control_plane_backup__,
-                    runtime: runtime__,
-                    runtime_move: runtime_move__,
                 })
             }
         }
@@ -8556,9 +8485,6 @@ impl serde::Serialize for Hello {
         if self.key_rotation {
             len += 1;
         }
-        if self.runtime_move {
-            len += 1;
-        }
         let mut struct_ser = serializer.serialize_struct("armada.v1.Hello", len)?;
         if self.cpu_millis != 0 {
             #[allow(clippy::needless_borrow)]
@@ -8624,9 +8550,6 @@ impl serde::Serialize for Hello {
         if self.key_rotation {
             struct_ser.serialize_field("keyRotation", &self.key_rotation)?;
         }
-        if self.runtime_move {
-            struct_ser.serialize_field("runtimeMove", &self.runtime_move)?;
-        }
         struct_ser.end()
     }
 }
@@ -8669,8 +8592,6 @@ impl<'de> serde::Deserialize<'de> for Hello {
             "behindNat",
             "key_rotation",
             "keyRotation",
-            "runtime_move",
-            "runtimeMove",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -8695,7 +8616,6 @@ impl<'de> serde::Deserialize<'de> for Hello {
             NetworkSwitch,
             BehindNat,
             KeyRotation,
-            RuntimeMove,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -8737,7 +8657,6 @@ impl<'de> serde::Deserialize<'de> for Hello {
                             "networkSwitch" | "network_switch" => Ok(GeneratedField::NetworkSwitch),
                             "behindNat" | "behind_nat" => Ok(GeneratedField::BehindNat),
                             "keyRotation" | "key_rotation" => Ok(GeneratedField::KeyRotation),
-                            "runtimeMove" | "runtime_move" => Ok(GeneratedField::RuntimeMove),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -8777,7 +8696,6 @@ impl<'de> serde::Deserialize<'de> for Hello {
                 let mut network_switch__ = None;
                 let mut behind_nat__ = None;
                 let mut key_rotation__ = None;
-                let mut runtime_move__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::CpuMillis => {
@@ -8904,12 +8822,6 @@ impl<'de> serde::Deserialize<'de> for Hello {
                             }
                             key_rotation__ = Some(map_.next_value()?);
                         }
-                        GeneratedField::RuntimeMove => {
-                            if runtime_move__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("runtimeMove"));
-                            }
-                            runtime_move__ = Some(map_.next_value()?);
-                        }
                     }
                 }
                 Ok(Hello {
@@ -8933,7 +8845,6 @@ impl<'de> serde::Deserialize<'de> for Hello {
                     network_switch: network_switch__.unwrap_or_default(),
                     behind_nat: behind_nat__.unwrap_or_default(),
                     key_rotation: key_rotation__.unwrap_or_default(),
-                    runtime_move: runtime_move__.unwrap_or_default(),
                 })
             }
         }
@@ -16438,97 +16349,6 @@ impl<'de> serde::Deserialize<'de> for MetricsCredential {
         deserializer.deserialize_struct("armada.v1.MetricsCredential", FIELDS, GeneratedVisitor)
     }
 }
-impl serde::Serialize for MoveRuntime {
-    #[allow(deprecated)]
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        use serde::ser::SerializeStruct;
-        let mut len = 0;
-        if !self.to.is_empty() {
-            len += 1;
-        }
-        let mut struct_ser = serializer.serialize_struct("armada.v1.MoveRuntime", len)?;
-        if !self.to.is_empty() {
-            struct_ser.serialize_field("to", &self.to)?;
-        }
-        struct_ser.end()
-    }
-}
-impl<'de> serde::Deserialize<'de> for MoveRuntime {
-    #[allow(deprecated)]
-    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        const FIELDS: &[&str] = &[
-            "to",
-        ];
-
-        #[allow(clippy::enum_variant_names)]
-        enum GeneratedField {
-            To,
-        }
-        impl<'de> serde::Deserialize<'de> for GeneratedField {
-            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
-            where
-                D: serde::Deserializer<'de>,
-            {
-                struct GeneratedVisitor;
-
-                impl serde::de::Visitor<'_> for GeneratedVisitor {
-                    type Value = GeneratedField;
-
-                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                        write!(formatter, "expected one of: {:?}", &FIELDS)
-                    }
-
-                    #[allow(unused_variables)]
-                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
-                    where
-                        E: serde::de::Error,
-                    {
-                        match value {
-                            "to" => Ok(GeneratedField::To),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
-                        }
-                    }
-                }
-                deserializer.deserialize_identifier(GeneratedVisitor)
-            }
-        }
-        struct GeneratedVisitor;
-        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-            type Value = MoveRuntime;
-
-            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("struct armada.v1.MoveRuntime")
-            }
-
-            fn visit_map<V>(self, mut map_: V) -> std::result::Result<MoveRuntime, V::Error>
-                where
-                    V: serde::de::MapAccess<'de>,
-            {
-                let mut to__ = None;
-                while let Some(k) = map_.next_key()? {
-                    match k {
-                        GeneratedField::To => {
-                            if to__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("to"));
-                            }
-                            to__ = Some(map_.next_value()?);
-                        }
-                    }
-                }
-                Ok(MoveRuntime {
-                    to: to__.unwrap_or_default(),
-                })
-            }
-        }
-        deserializer.deserialize_struct("armada.v1.MoveRuntime", FIELDS, GeneratedVisitor)
-    }
-}
 impl serde::Serialize for NetworkConfig {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
@@ -17645,114 +17465,6 @@ impl<'de> serde::Deserialize<'de> for NfsSource {
             }
         }
         deserializer.deserialize_struct("armada.v1.NfsSource", FIELDS, GeneratedVisitor)
-    }
-}
-impl serde::Serialize for NodeRuntime {
-    #[allow(deprecated)]
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        use serde::ser::SerializeStruct;
-        let mut len = 0;
-        if !self.node.is_empty() {
-            len += 1;
-        }
-        if self.status.is_some() {
-            len += 1;
-        }
-        let mut struct_ser = serializer.serialize_struct("armada.v1.NodeRuntime", len)?;
-        if !self.node.is_empty() {
-            struct_ser.serialize_field("node", &self.node)?;
-        }
-        if let Some(v) = self.status.as_ref() {
-            struct_ser.serialize_field("status", v)?;
-        }
-        struct_ser.end()
-    }
-}
-impl<'de> serde::Deserialize<'de> for NodeRuntime {
-    #[allow(deprecated)]
-    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        const FIELDS: &[&str] = &[
-            "node",
-            "status",
-        ];
-
-        #[allow(clippy::enum_variant_names)]
-        enum GeneratedField {
-            Node,
-            Status,
-        }
-        impl<'de> serde::Deserialize<'de> for GeneratedField {
-            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
-            where
-                D: serde::Deserializer<'de>,
-            {
-                struct GeneratedVisitor;
-
-                impl serde::de::Visitor<'_> for GeneratedVisitor {
-                    type Value = GeneratedField;
-
-                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                        write!(formatter, "expected one of: {:?}", &FIELDS)
-                    }
-
-                    #[allow(unused_variables)]
-                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
-                    where
-                        E: serde::de::Error,
-                    {
-                        match value {
-                            "node" => Ok(GeneratedField::Node),
-                            "status" => Ok(GeneratedField::Status),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
-                        }
-                    }
-                }
-                deserializer.deserialize_identifier(GeneratedVisitor)
-            }
-        }
-        struct GeneratedVisitor;
-        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-            type Value = NodeRuntime;
-
-            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("struct armada.v1.NodeRuntime")
-            }
-
-            fn visit_map<V>(self, mut map_: V) -> std::result::Result<NodeRuntime, V::Error>
-                where
-                    V: serde::de::MapAccess<'de>,
-            {
-                let mut node__ = None;
-                let mut status__ = None;
-                while let Some(k) = map_.next_key()? {
-                    match k {
-                        GeneratedField::Node => {
-                            if node__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("node"));
-                            }
-                            node__ = Some(map_.next_value()?);
-                        }
-                        GeneratedField::Status => {
-                            if status__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("status"));
-                            }
-                            status__ = map_.next_value()?;
-                        }
-                    }
-                }
-                Ok(NodeRuntime {
-                    node: node__.unwrap_or_default(),
-                    status: status__,
-                })
-            }
-        }
-        deserializer.deserialize_struct("armada.v1.NodeRuntime", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for NodeStatus {
@@ -25748,645 +25460,6 @@ impl<'de> serde::Deserialize<'de> for RunJobResponse {
         deserializer.deserialize_struct("armada.v1.RunJobResponse", FIELDS, GeneratedVisitor)
     }
 }
-impl serde::Serialize for RuntimeMovePlan {
-    #[allow(deprecated)]
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        use serde::ser::SerializeStruct;
-        let mut len = 0;
-        if !self.state.is_empty() {
-            len += 1;
-        }
-        if !self.reason.is_empty() {
-            len += 1;
-        }
-        if self.operator {
-            len += 1;
-        }
-        let mut struct_ser = serializer.serialize_struct("armada.v1.RuntimeMovePlan", len)?;
-        if !self.state.is_empty() {
-            struct_ser.serialize_field("state", &self.state)?;
-        }
-        if !self.reason.is_empty() {
-            struct_ser.serialize_field("reason", &self.reason)?;
-        }
-        if self.operator {
-            struct_ser.serialize_field("operator", &self.operator)?;
-        }
-        struct_ser.end()
-    }
-}
-impl<'de> serde::Deserialize<'de> for RuntimeMovePlan {
-    #[allow(deprecated)]
-    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        const FIELDS: &[&str] = &[
-            "state",
-            "reason",
-            "operator",
-        ];
-
-        #[allow(clippy::enum_variant_names)]
-        enum GeneratedField {
-            State,
-            Reason,
-            Operator,
-        }
-        impl<'de> serde::Deserialize<'de> for GeneratedField {
-            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
-            where
-                D: serde::Deserializer<'de>,
-            {
-                struct GeneratedVisitor;
-
-                impl serde::de::Visitor<'_> for GeneratedVisitor {
-                    type Value = GeneratedField;
-
-                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                        write!(formatter, "expected one of: {:?}", &FIELDS)
-                    }
-
-                    #[allow(unused_variables)]
-                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
-                    where
-                        E: serde::de::Error,
-                    {
-                        match value {
-                            "state" => Ok(GeneratedField::State),
-                            "reason" => Ok(GeneratedField::Reason),
-                            "operator" => Ok(GeneratedField::Operator),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
-                        }
-                    }
-                }
-                deserializer.deserialize_identifier(GeneratedVisitor)
-            }
-        }
-        struct GeneratedVisitor;
-        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-            type Value = RuntimeMovePlan;
-
-            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("struct armada.v1.RuntimeMovePlan")
-            }
-
-            fn visit_map<V>(self, mut map_: V) -> std::result::Result<RuntimeMovePlan, V::Error>
-                where
-                    V: serde::de::MapAccess<'de>,
-            {
-                let mut state__ = None;
-                let mut reason__ = None;
-                let mut operator__ = None;
-                while let Some(k) = map_.next_key()? {
-                    match k {
-                        GeneratedField::State => {
-                            if state__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("state"));
-                            }
-                            state__ = Some(map_.next_value()?);
-                        }
-                        GeneratedField::Reason => {
-                            if reason__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("reason"));
-                            }
-                            reason__ = Some(map_.next_value()?);
-                        }
-                        GeneratedField::Operator => {
-                            if operator__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("operator"));
-                            }
-                            operator__ = Some(map_.next_value()?);
-                        }
-                    }
-                }
-                Ok(RuntimeMovePlan {
-                    state: state__.unwrap_or_default(),
-                    reason: reason__.unwrap_or_default(),
-                    operator: operator__.unwrap_or_default(),
-                })
-            }
-        }
-        deserializer.deserialize_struct("armada.v1.RuntimeMovePlan", FIELDS, GeneratedVisitor)
-    }
-}
-impl serde::Serialize for RuntimeMoveStatus {
-    #[allow(deprecated)]
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        use serde::ser::SerializeStruct;
-        let mut len = 0;
-        if self.off {
-            len += 1;
-        }
-        if !self.node.is_empty() {
-            len += 1;
-        }
-        if !self.step.is_empty() {
-            len += 1;
-        }
-        if self.since_unix != 0 {
-            len += 1;
-        }
-        if self.step_since_unix != 0 {
-            len += 1;
-        }
-        if !self.error.is_empty() {
-            len += 1;
-        }
-        if !self.held.is_empty() {
-            len += 1;
-        }
-        if !self.waiting.is_empty() {
-            len += 1;
-        }
-        if self.waiting_total != 0 {
-            len += 1;
-        }
-        let mut struct_ser = serializer.serialize_struct("armada.v1.RuntimeMoveStatus", len)?;
-        if self.off {
-            struct_ser.serialize_field("off", &self.off)?;
-        }
-        if !self.node.is_empty() {
-            struct_ser.serialize_field("node", &self.node)?;
-        }
-        if !self.step.is_empty() {
-            struct_ser.serialize_field("step", &self.step)?;
-        }
-        if self.since_unix != 0 {
-            #[allow(clippy::needless_borrow)]
-            #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("sinceUnix", ToString::to_string(&self.since_unix).as_str())?;
-        }
-        if self.step_since_unix != 0 {
-            #[allow(clippy::needless_borrow)]
-            #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("stepSinceUnix", ToString::to_string(&self.step_since_unix).as_str())?;
-        }
-        if !self.error.is_empty() {
-            struct_ser.serialize_field("error", &self.error)?;
-        }
-        if !self.held.is_empty() {
-            struct_ser.serialize_field("held", &self.held)?;
-        }
-        if !self.waiting.is_empty() {
-            struct_ser.serialize_field("waiting", &self.waiting)?;
-        }
-        if self.waiting_total != 0 {
-            struct_ser.serialize_field("waitingTotal", &self.waiting_total)?;
-        }
-        struct_ser.end()
-    }
-}
-impl<'de> serde::Deserialize<'de> for RuntimeMoveStatus {
-    #[allow(deprecated)]
-    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        const FIELDS: &[&str] = &[
-            "off",
-            "node",
-            "step",
-            "since_unix",
-            "sinceUnix",
-            "step_since_unix",
-            "stepSinceUnix",
-            "error",
-            "held",
-            "waiting",
-            "waiting_total",
-            "waitingTotal",
-        ];
-
-        #[allow(clippy::enum_variant_names)]
-        enum GeneratedField {
-            Off,
-            Node,
-            Step,
-            SinceUnix,
-            StepSinceUnix,
-            Error,
-            Held,
-            Waiting,
-            WaitingTotal,
-        }
-        impl<'de> serde::Deserialize<'de> for GeneratedField {
-            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
-            where
-                D: serde::Deserializer<'de>,
-            {
-                struct GeneratedVisitor;
-
-                impl serde::de::Visitor<'_> for GeneratedVisitor {
-                    type Value = GeneratedField;
-
-                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                        write!(formatter, "expected one of: {:?}", &FIELDS)
-                    }
-
-                    #[allow(unused_variables)]
-                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
-                    where
-                        E: serde::de::Error,
-                    {
-                        match value {
-                            "off" => Ok(GeneratedField::Off),
-                            "node" => Ok(GeneratedField::Node),
-                            "step" => Ok(GeneratedField::Step),
-                            "sinceUnix" | "since_unix" => Ok(GeneratedField::SinceUnix),
-                            "stepSinceUnix" | "step_since_unix" => Ok(GeneratedField::StepSinceUnix),
-                            "error" => Ok(GeneratedField::Error),
-                            "held" => Ok(GeneratedField::Held),
-                            "waiting" => Ok(GeneratedField::Waiting),
-                            "waitingTotal" | "waiting_total" => Ok(GeneratedField::WaitingTotal),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
-                        }
-                    }
-                }
-                deserializer.deserialize_identifier(GeneratedVisitor)
-            }
-        }
-        struct GeneratedVisitor;
-        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-            type Value = RuntimeMoveStatus;
-
-            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("struct armada.v1.RuntimeMoveStatus")
-            }
-
-            fn visit_map<V>(self, mut map_: V) -> std::result::Result<RuntimeMoveStatus, V::Error>
-                where
-                    V: serde::de::MapAccess<'de>,
-            {
-                let mut off__ = None;
-                let mut node__ = None;
-                let mut step__ = None;
-                let mut since_unix__ = None;
-                let mut step_since_unix__ = None;
-                let mut error__ = None;
-                let mut held__ = None;
-                let mut waiting__ = None;
-                let mut waiting_total__ = None;
-                while let Some(k) = map_.next_key()? {
-                    match k {
-                        GeneratedField::Off => {
-                            if off__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("off"));
-                            }
-                            off__ = Some(map_.next_value()?);
-                        }
-                        GeneratedField::Node => {
-                            if node__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("node"));
-                            }
-                            node__ = Some(map_.next_value()?);
-                        }
-                        GeneratedField::Step => {
-                            if step__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("step"));
-                            }
-                            step__ = Some(map_.next_value()?);
-                        }
-                        GeneratedField::SinceUnix => {
-                            if since_unix__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("sinceUnix"));
-                            }
-                            since_unix__ = 
-                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
-                            ;
-                        }
-                        GeneratedField::StepSinceUnix => {
-                            if step_since_unix__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("stepSinceUnix"));
-                            }
-                            step_since_unix__ = 
-                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
-                            ;
-                        }
-                        GeneratedField::Error => {
-                            if error__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("error"));
-                            }
-                            error__ = Some(map_.next_value()?);
-                        }
-                        GeneratedField::Held => {
-                            if held__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("held"));
-                            }
-                            held__ = Some(map_.next_value()?);
-                        }
-                        GeneratedField::Waiting => {
-                            if waiting__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("waiting"));
-                            }
-                            waiting__ = Some(map_.next_value()?);
-                        }
-                        GeneratedField::WaitingTotal => {
-                            if waiting_total__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("waitingTotal"));
-                            }
-                            waiting_total__ = 
-                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
-                            ;
-                        }
-                    }
-                }
-                Ok(RuntimeMoveStatus {
-                    off: off__.unwrap_or_default(),
-                    node: node__.unwrap_or_default(),
-                    step: step__.unwrap_or_default(),
-                    since_unix: since_unix__.unwrap_or_default(),
-                    step_since_unix: step_since_unix__.unwrap_or_default(),
-                    error: error__.unwrap_or_default(),
-                    held: held__.unwrap_or_default(),
-                    waiting: waiting__.unwrap_or_default(),
-                    waiting_total: waiting_total__.unwrap_or_default(),
-                })
-            }
-        }
-        deserializer.deserialize_struct("armada.v1.RuntimeMoveStatus", FIELDS, GeneratedVisitor)
-    }
-}
-impl serde::Serialize for RuntimeMoveWait {
-    #[allow(deprecated)]
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        use serde::ser::SerializeStruct;
-        let mut len = 0;
-        if !self.node.is_empty() {
-            len += 1;
-        }
-        if !self.reason.is_empty() {
-            len += 1;
-        }
-        if self.operator {
-            len += 1;
-        }
-        let mut struct_ser = serializer.serialize_struct("armada.v1.RuntimeMoveWait", len)?;
-        if !self.node.is_empty() {
-            struct_ser.serialize_field("node", &self.node)?;
-        }
-        if !self.reason.is_empty() {
-            struct_ser.serialize_field("reason", &self.reason)?;
-        }
-        if self.operator {
-            struct_ser.serialize_field("operator", &self.operator)?;
-        }
-        struct_ser.end()
-    }
-}
-impl<'de> serde::Deserialize<'de> for RuntimeMoveWait {
-    #[allow(deprecated)]
-    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        const FIELDS: &[&str] = &[
-            "node",
-            "reason",
-            "operator",
-        ];
-
-        #[allow(clippy::enum_variant_names)]
-        enum GeneratedField {
-            Node,
-            Reason,
-            Operator,
-        }
-        impl<'de> serde::Deserialize<'de> for GeneratedField {
-            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
-            where
-                D: serde::Deserializer<'de>,
-            {
-                struct GeneratedVisitor;
-
-                impl serde::de::Visitor<'_> for GeneratedVisitor {
-                    type Value = GeneratedField;
-
-                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                        write!(formatter, "expected one of: {:?}", &FIELDS)
-                    }
-
-                    #[allow(unused_variables)]
-                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
-                    where
-                        E: serde::de::Error,
-                    {
-                        match value {
-                            "node" => Ok(GeneratedField::Node),
-                            "reason" => Ok(GeneratedField::Reason),
-                            "operator" => Ok(GeneratedField::Operator),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
-                        }
-                    }
-                }
-                deserializer.deserialize_identifier(GeneratedVisitor)
-            }
-        }
-        struct GeneratedVisitor;
-        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-            type Value = RuntimeMoveWait;
-
-            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("struct armada.v1.RuntimeMoveWait")
-            }
-
-            fn visit_map<V>(self, mut map_: V) -> std::result::Result<RuntimeMoveWait, V::Error>
-                where
-                    V: serde::de::MapAccess<'de>,
-            {
-                let mut node__ = None;
-                let mut reason__ = None;
-                let mut operator__ = None;
-                while let Some(k) = map_.next_key()? {
-                    match k {
-                        GeneratedField::Node => {
-                            if node__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("node"));
-                            }
-                            node__ = Some(map_.next_value()?);
-                        }
-                        GeneratedField::Reason => {
-                            if reason__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("reason"));
-                            }
-                            reason__ = Some(map_.next_value()?);
-                        }
-                        GeneratedField::Operator => {
-                            if operator__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("operator"));
-                            }
-                            operator__ = Some(map_.next_value()?);
-                        }
-                    }
-                }
-                Ok(RuntimeMoveWait {
-                    node: node__.unwrap_or_default(),
-                    reason: reason__.unwrap_or_default(),
-                    operator: operator__.unwrap_or_default(),
-                })
-            }
-        }
-        deserializer.deserialize_struct("armada.v1.RuntimeMoveWait", FIELDS, GeneratedVisitor)
-    }
-}
-impl serde::Serialize for RuntimeProgress {
-    #[allow(deprecated)]
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        use serde::ser::SerializeStruct;
-        let mut len = 0;
-        if self.nodes != 0 {
-            len += 1;
-        }
-        if self.moved != 0 {
-            len += 1;
-        }
-        if !self.others.is_empty() {
-            len += 1;
-        }
-        if self.others_total != 0 {
-            len += 1;
-        }
-        let mut struct_ser = serializer.serialize_struct("armada.v1.RuntimeProgress", len)?;
-        if self.nodes != 0 {
-            struct_ser.serialize_field("nodes", &self.nodes)?;
-        }
-        if self.moved != 0 {
-            struct_ser.serialize_field("moved", &self.moved)?;
-        }
-        if !self.others.is_empty() {
-            struct_ser.serialize_field("others", &self.others)?;
-        }
-        if self.others_total != 0 {
-            struct_ser.serialize_field("othersTotal", &self.others_total)?;
-        }
-        struct_ser.end()
-    }
-}
-impl<'de> serde::Deserialize<'de> for RuntimeProgress {
-    #[allow(deprecated)]
-    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        const FIELDS: &[&str] = &[
-            "nodes",
-            "moved",
-            "others",
-            "others_total",
-            "othersTotal",
-        ];
-
-        #[allow(clippy::enum_variant_names)]
-        enum GeneratedField {
-            Nodes,
-            Moved,
-            Others,
-            OthersTotal,
-        }
-        impl<'de> serde::Deserialize<'de> for GeneratedField {
-            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
-            where
-                D: serde::Deserializer<'de>,
-            {
-                struct GeneratedVisitor;
-
-                impl serde::de::Visitor<'_> for GeneratedVisitor {
-                    type Value = GeneratedField;
-
-                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                        write!(formatter, "expected one of: {:?}", &FIELDS)
-                    }
-
-                    #[allow(unused_variables)]
-                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
-                    where
-                        E: serde::de::Error,
-                    {
-                        match value {
-                            "nodes" => Ok(GeneratedField::Nodes),
-                            "moved" => Ok(GeneratedField::Moved),
-                            "others" => Ok(GeneratedField::Others),
-                            "othersTotal" | "others_total" => Ok(GeneratedField::OthersTotal),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
-                        }
-                    }
-                }
-                deserializer.deserialize_identifier(GeneratedVisitor)
-            }
-        }
-        struct GeneratedVisitor;
-        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-            type Value = RuntimeProgress;
-
-            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("struct armada.v1.RuntimeProgress")
-            }
-
-            fn visit_map<V>(self, mut map_: V) -> std::result::Result<RuntimeProgress, V::Error>
-                where
-                    V: serde::de::MapAccess<'de>,
-            {
-                let mut nodes__ = None;
-                let mut moved__ = None;
-                let mut others__ = None;
-                let mut others_total__ = None;
-                while let Some(k) = map_.next_key()? {
-                    match k {
-                        GeneratedField::Nodes => {
-                            if nodes__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("nodes"));
-                            }
-                            nodes__ = 
-                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
-                            ;
-                        }
-                        GeneratedField::Moved => {
-                            if moved__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("moved"));
-                            }
-                            moved__ = 
-                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
-                            ;
-                        }
-                        GeneratedField::Others => {
-                            if others__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("others"));
-                            }
-                            others__ = Some(map_.next_value()?);
-                        }
-                        GeneratedField::OthersTotal => {
-                            if others_total__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("othersTotal"));
-                            }
-                            others_total__ = 
-                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
-                            ;
-                        }
-                    }
-                }
-                Ok(RuntimeProgress {
-                    nodes: nodes__.unwrap_or_default(),
-                    moved: moved__.unwrap_or_default(),
-                    others: others__.unwrap_or_default(),
-                    others_total: others_total__.unwrap_or_default(),
-                })
-            }
-        }
-        deserializer.deserialize_struct("armada.v1.RuntimeProgress", FIELDS, GeneratedVisitor)
-    }
-}
 impl serde::Serialize for RuntimeStatus {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
@@ -26395,40 +25468,10 @@ impl serde::Serialize for RuntimeStatus {
     {
         use serde::ser::SerializeStruct;
         let mut len = 0;
-        if !self.agent.is_empty() {
-            len += 1;
-        }
-        if self.converting {
-            len += 1;
-        }
-        if self.images_to_pull != 0 {
-            len += 1;
-        }
-        if !self.error.is_empty() {
-            len += 1;
-        }
-        if !self.move_error.is_empty() {
-            len += 1;
-        }
         if self.runc_containers != 0 {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("armada.v1.RuntimeStatus", len)?;
-        if !self.agent.is_empty() {
-            struct_ser.serialize_field("agent", &self.agent)?;
-        }
-        if self.converting {
-            struct_ser.serialize_field("converting", &self.converting)?;
-        }
-        if self.images_to_pull != 0 {
-            struct_ser.serialize_field("imagesToPull", &self.images_to_pull)?;
-        }
-        if !self.error.is_empty() {
-            struct_ser.serialize_field("error", &self.error)?;
-        }
-        if !self.move_error.is_empty() {
-            struct_ser.serialize_field("moveError", &self.move_error)?;
-        }
         if self.runc_containers != 0 {
             struct_ser.serialize_field("runcContainers", &self.runc_containers)?;
         }
@@ -26442,24 +25485,12 @@ impl<'de> serde::Deserialize<'de> for RuntimeStatus {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
-            "agent",
-            "converting",
-            "images_to_pull",
-            "imagesToPull",
-            "error",
-            "move_error",
-            "moveError",
             "runc_containers",
             "runcContainers",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
-            Agent,
-            Converting,
-            ImagesToPull,
-            Error,
-            MoveError,
             RuncContainers,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -26482,11 +25513,6 @@ impl<'de> serde::Deserialize<'de> for RuntimeStatus {
                         E: serde::de::Error,
                     {
                         match value {
-                            "agent" => Ok(GeneratedField::Agent),
-                            "converting" => Ok(GeneratedField::Converting),
-                            "imagesToPull" | "images_to_pull" => Ok(GeneratedField::ImagesToPull),
-                            "error" => Ok(GeneratedField::Error),
-                            "moveError" | "move_error" => Ok(GeneratedField::MoveError),
                             "runcContainers" | "runc_containers" => Ok(GeneratedField::RuncContainers),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
@@ -26507,46 +25533,9 @@ impl<'de> serde::Deserialize<'de> for RuntimeStatus {
                 where
                     V: serde::de::MapAccess<'de>,
             {
-                let mut agent__ = None;
-                let mut converting__ = None;
-                let mut images_to_pull__ = None;
-                let mut error__ = None;
-                let mut move_error__ = None;
                 let mut runc_containers__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
-                        GeneratedField::Agent => {
-                            if agent__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("agent"));
-                            }
-                            agent__ = Some(map_.next_value()?);
-                        }
-                        GeneratedField::Converting => {
-                            if converting__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("converting"));
-                            }
-                            converting__ = Some(map_.next_value()?);
-                        }
-                        GeneratedField::ImagesToPull => {
-                            if images_to_pull__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("imagesToPull"));
-                            }
-                            images_to_pull__ = 
-                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
-                            ;
-                        }
-                        GeneratedField::Error => {
-                            if error__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("error"));
-                            }
-                            error__ = Some(map_.next_value()?);
-                        }
-                        GeneratedField::MoveError => {
-                            if move_error__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("moveError"));
-                            }
-                            move_error__ = Some(map_.next_value()?);
-                        }
                         GeneratedField::RuncContainers => {
                             if runc_containers__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("runcContainers"));
@@ -26558,11 +25547,6 @@ impl<'de> serde::Deserialize<'de> for RuntimeStatus {
                     }
                 }
                 Ok(RuntimeStatus {
-                    agent: agent__.unwrap_or_default(),
-                    converting: converting__.unwrap_or_default(),
-                    images_to_pull: images_to_pull__.unwrap_or_default(),
-                    error: error__.unwrap_or_default(),
-                    move_error: move_error__.unwrap_or_default(),
                     runc_containers: runc_containers__.unwrap_or_default(),
                 })
             }
@@ -27332,9 +26316,6 @@ impl serde::Serialize for ServerMessage {
                 server_message::Msg::RotateNetworkKey(v) => {
                     struct_ser.serialize_field("rotateNetworkKey", v)?;
                 }
-                server_message::Msg::MoveRuntime(v) => {
-                    struct_ser.serialize_field("moveRuntime", v)?;
-                }
             }
         }
         struct_ser.end()
@@ -27358,8 +26339,6 @@ impl<'de> serde::Deserialize<'de> for ServerMessage {
             "volumeRequest",
             "rotate_network_key",
             "rotateNetworkKey",
-            "move_runtime",
-            "moveRuntime",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -27370,7 +26349,6 @@ impl<'de> serde::Deserialize<'de> for ServerMessage {
             ExecRequest,
             VolumeRequest,
             RotateNetworkKey,
-            MoveRuntime,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -27398,7 +26376,6 @@ impl<'de> serde::Deserialize<'de> for ServerMessage {
                             "execRequest" | "exec_request" => Ok(GeneratedField::ExecRequest),
                             "volumeRequest" | "volume_request" => Ok(GeneratedField::VolumeRequest),
                             "rotateNetworkKey" | "rotate_network_key" => Ok(GeneratedField::RotateNetworkKey),
-                            "moveRuntime" | "move_runtime" => Ok(GeneratedField::MoveRuntime),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -27461,13 +26438,6 @@ impl<'de> serde::Deserialize<'de> for ServerMessage {
                                 return Err(serde::de::Error::duplicate_field("rotateNetworkKey"));
                             }
                             msg__ = map_.next_value::<::std::option::Option<_>>()?.map(server_message::Msg::RotateNetworkKey)
-;
-                        }
-                        GeneratedField::MoveRuntime => {
-                            if msg__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("moveRuntime"));
-                            }
-                            msg__ = map_.next_value::<::std::option::Option<_>>()?.map(server_message::Msg::MoveRuntime)
 ;
                         }
                     }
@@ -27566,9 +26536,6 @@ impl serde::Serialize for SetClusterConfigRequest {
         if self.set_backup_off {
             len += 1;
         }
-        if self.set_runtime_move {
-            len += 1;
-        }
         let mut struct_ser = serializer.serialize_struct("armada.v1.SetClusterConfigRequest", len)?;
         if let Some(v) = self.config.as_ref() {
             struct_ser.serialize_field("config", v)?;
@@ -27656,9 +26623,6 @@ impl serde::Serialize for SetClusterConfigRequest {
         if self.set_backup_off {
             struct_ser.serialize_field("setBackupOff", &self.set_backup_off)?;
         }
-        if self.set_runtime_move {
-            struct_ser.serialize_field("setRuntimeMove", &self.set_runtime_move)?;
-        }
         struct_ser.end()
     }
 }
@@ -27720,8 +26684,6 @@ impl<'de> serde::Deserialize<'de> for SetClusterConfigRequest {
             "backupKey",
             "set_backup_off",
             "setBackupOff",
-            "set_runtime_move",
-            "setRuntimeMove",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -27752,7 +26714,6 @@ impl<'de> serde::Deserialize<'de> for SetClusterConfigRequest {
             SetBackupKey,
             BackupKey,
             SetBackupOff,
-            SetRuntimeMove,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -27800,7 +26761,6 @@ impl<'de> serde::Deserialize<'de> for SetClusterConfigRequest {
                             "setBackupKey" | "set_backup_key" => Ok(GeneratedField::SetBackupKey),
                             "backupKey" | "backup_key" => Ok(GeneratedField::BackupKey),
                             "setBackupOff" | "set_backup_off" => Ok(GeneratedField::SetBackupOff),
-                            "setRuntimeMove" | "set_runtime_move" => Ok(GeneratedField::SetRuntimeMove),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -27846,7 +26806,6 @@ impl<'de> serde::Deserialize<'de> for SetClusterConfigRequest {
                 let mut set_backup_key__ = None;
                 let mut backup_key__ = None;
                 let mut set_backup_off__ = None;
-                let mut set_runtime_move__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Config => {
@@ -28013,12 +26972,6 @@ impl<'de> serde::Deserialize<'de> for SetClusterConfigRequest {
                             }
                             set_backup_off__ = Some(map_.next_value()?);
                         }
-                        GeneratedField::SetRuntimeMove => {
-                            if set_runtime_move__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("setRuntimeMove"));
-                            }
-                            set_runtime_move__ = Some(map_.next_value()?);
-                        }
                     }
                 }
                 Ok(SetClusterConfigRequest {
@@ -28048,7 +27001,6 @@ impl<'de> serde::Deserialize<'de> for SetClusterConfigRequest {
                     set_backup_key: set_backup_key__.unwrap_or_default(),
                     backup_key: backup_key__.unwrap_or_default(),
                     set_backup_off: set_backup_off__.unwrap_or_default(),
-                    set_runtime_move: set_runtime_move__.unwrap_or_default(),
                 })
             }
         }

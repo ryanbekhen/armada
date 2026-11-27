@@ -8,7 +8,6 @@
   "encodes": false,
   "exec": false,
   "members": true,
-  "move": false,
   "network": false,
   "networkKey": "",
   "noSecretsDir": false,

@@ -19,9 +19,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, UNIX_EPOCH};
 
-use armada_agent::runtime::{
-    AGENT_CONTAINERD, AGENT_SUPERVISOR_GO, AGENT_SUPERVISOR_RUST, AgentStatus, Runtime,
-};
+use armada_agent::runtime::{AgentStatus, Runtime};
 use armada_agent::supervisor::selinux::{Selinux, State as SelinuxState};
 use armada_agent::supervisor::{self, Supervisor, host::LinuxHost};
 use armada_client::cli::{Ctx, Error, Result};
@@ -338,7 +336,7 @@ async fn check_runtime(env: &Env) -> Vec<Check> {
         )),
     }
     if let Some(st) = rt.runtime_agent().await {
-        out.extend(runtime_agent_check(&st, &env.ac.runtime_agent));
+        out.extend(runc_check(&st));
     }
     out.push(bridge_check(
         rt.bridge().gateway,
@@ -347,14 +345,13 @@ async fn check_runtime(env: &Env) -> Vec<Check> {
     out
 }
 
-/// The runtime check of a node on containerd, which this armadad does not
-/// run (ADR 0055): Go's texts while it cannot tell, then what it does.
+/// The runtime check of a node still on containerd.
 fn containerd_check(env: &Env) -> Vec<Check> {
     if env.euid != 0 {
         return vec![check(
             "runtime",
             WARN,
-            "cannot reach the embedded runtime without root (its socket is root's only): run sudo armadad doctor",
+            "cannot check the container runtime without root: run sudo armadad doctor",
         )];
     }
     if std::fs::metadata(Path::new(&env.data_dir).join(FILE_AGENT)).is_err() {
@@ -364,78 +361,23 @@ fn containerd_check(env: &Env) -> Vec<Check> {
             format!("no container runtime yet: init or join sets up the {DEFAULT_RUNTIME} runtime"),
         )];
     }
-    vec![check(
-        "runtime",
-        FAIL,
-        "this node runs containers on containerd, which this armadad does not run (ADR 0055): its agent starts and removes nothing; move the node to the supervisor runtime with v0.1.0-alpha.42 (armada node drain, armadad runtime migrate --to supervisor, armada node resume), or roll this machine back",
-    )]
+    vec![check("runtime", FAIL, agentconfig::CONTAINERD_NODE)]
 }
 
-/// runtimeAgentCheck: whose code runs the node's containers and how its
-/// move to armada-node went (ADR 0054); armada-node always runs them here.
-pub fn runtime_agent_check(st: &AgentStatus, runtime_agent: &str) -> Vec<Check> {
-    let mut out = Vec::new();
-    let name = "runtime-agent";
-    match st.agent.as_str() {
-        "" => return out,
-        AGENT_CONTAINERD => out.push(check(
-            name,
-            WARN,
-            "containers run on containerd, which armada-node does not replace",
-        )),
-        AGENT_SUPERVISOR_GO => out.push(check(
-            name,
-            WARN,
-            "the runtime pack has no armada-node, so Go's runtime code runs containers: install a release build of armadad (sudo armadad upgrade)",
-        )),
-        _ if !st.error.is_empty() => out.push(check(
-            name,
-            WARN,
-            format!(
-                "armada-node runs containers, but converting Go's image store failed ({}); images are pulled again when needed, and the next start of armada-server or armada-agent tries again",
-                st.error
-            ),
-        )),
-        _ if !st.converted => out.push(check(
-            name,
-            WARN,
-            "armada-node runs containers, but Go's image store is not converted yet: the agent converts it when it starts (restart armada-server or armada-agent)",
-        )),
-        _ if st.go_images => out.push(check(
-            name,
-            OK,
-            "armada-node runs containers; Go's image store stays until the last container made from it is replaced",
-        )),
-        _ => out.push(check(name, OK, "armada-node runs containers")),
+/// The containers runc created that the agent has not moved to crun yet
+/// (ADR 0056).
+pub fn runc_check(st: &AgentStatus) -> Vec<Check> {
+    if st.runc_containers <= 0 {
+        return Vec::new();
     }
-    if st.images_to_pull > 0 {
-        out.push(check(
-            name,
-            WARN,
-            format!(
-                "{} images were left out of the conversion to armada-node's store and are not pulled again yet; each is pulled when a replica needs it (the agent's log names them and why)",
-                st.images_to_pull
-            ),
-        ));
-    }
-    if st.runc_containers > 0 {
-        out.push(check(
-            "runc",
-            WARN,
-            format!(
-                "{} containers still run on runc; the agent moves them to crun (ADR 0056): replicas one at a time, the proxy last, job attempts once they end and leave the history. The next release's runtime pack has no runc: upgrade to it once this check is gone",
-                st.runc_containers
-            ),
-        ));
-    }
-    if st.agent == AGENT_SUPERVISOR_RUST && runtime_agent == "go" {
-        out.push(check(
-            name,
-            WARN,
-            "agent.json sets \"runtimeAgent\": \"go\", which this armadad ignores: armada-node runs containers (ADR 0055); remove the field",
-        ));
-    }
-    out
+    vec![check(
+        "runc",
+        WARN,
+        format!(
+            "{} containers still run on runc; the agent moves them to crun (ADR 0056): replicas one at a time, the proxy last, job attempts once they end and leave the history. The next release's runtime pack has no runc: upgrade to it once this check is gone",
+            st.runc_containers
+        ),
+    )]
 }
 
 /// bridgeCheck: the container bridge's gateway must be private.
@@ -1362,59 +1304,20 @@ fn check_release(env: &Env) -> Option<Check> {
 mod tests {
     use super::*;
 
-    fn status(agent: &str) -> AgentStatus {
-        AgentStatus {
-            agent: agent.into(),
-            converted: true,
-            ..Default::default()
-        }
-    }
-
     #[test]
-    fn runtime_agent_says_what_runs_containers() {
-        let one = |st: &AgentStatus, ra: &str| {
-            runtime_agent_check(st, ra)
+    fn runc_containers_warn() {
+        let one = |n: i64| {
+            runc_check(&AgentStatus { runc_containers: n })
                 .into_iter()
                 .map(|c| format!("{} {}", c.status, c.detail))
                 .collect::<Vec<_>>()
         };
-        assert!(one(&status(""), "").is_empty());
-        assert_eq!(
-            one(&status(AGENT_SUPERVISOR_RUST), ""),
-            ["ok armada-node runs containers"]
-        );
-        let mut st = status(AGENT_SUPERVISOR_RUST);
-        st.go_images = true;
-        st.images_to_pull = 2;
-        assert_eq!(
-            one(&st, ""),
-            [
-                "ok armada-node runs containers; Go's image store stays until the last container made from it is replaced",
-                "warn 2 images were left out of the conversion to armada-node's store and are not pulled again yet; each is pulled when a replica needs it (the agent's log names them and why)",
-            ]
-        );
-        st.converted = false;
-        assert_eq!(
-            one(&st, "")[0],
-            "warn armada-node runs containers, but Go's image store is not converted yet: the agent converts it when it starts (restart armada-server or armada-agent)"
-        );
-        st.error = "boom".into();
-        assert_eq!(
-            one(&st, "")[0],
-            "warn armada-node runs containers, but converting Go's image store failed (boom); images are pulled again when needed, and the next start of armada-server or armada-agent tries again"
-        );
-        let mut runc = status(AGENT_SUPERVISOR_RUST);
-        runc.runc_containers = 3;
-        let r = one(&runc, "");
-        assert_eq!(r.len(), 2);
+        assert!(one(0).is_empty());
+        let r = one(3);
+        assert_eq!(r.len(), 1);
         assert!(
-            r[1].starts_with("warn 3 containers still run on runc; the agent moves them to crun")
+            r[0].starts_with("warn 3 containers still run on runc; the agent moves them to crun")
         );
-        let go = one(&status(AGENT_SUPERVISOR_RUST), "go");
-        assert_eq!(go.len(), 2);
-        assert!(go[1].starts_with(
-            "warn agent.json sets \"runtimeAgent\": \"go\", which this armadad ignores"
-        ));
     }
 
     #[test]
@@ -1557,7 +1460,7 @@ mod tests {
         assert_eq!(c.status, FAIL);
         assert!(
             c.detail
-                .contains("which this armadad does not run (ADR 0055)")
+                .contains("upgrade it through v0.1.0-alpha.44 first")
         );
         std::fs::remove_dir_all(&dir).unwrap();
     }

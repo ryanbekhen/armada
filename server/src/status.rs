@@ -1,30 +1,16 @@
-//! The cluster's status (Go's ClusterStatus in apps.go and runtimeProgress
-//! in runtimeagent.go): counts, and the apps and nodes that need
+//! The cluster's status: counts, and the apps and nodes that need
 //! attention, bounded however large the cluster is.
 
-use armada_proto::armada::v1::{
-    ClusterStatusRequest, ClusterStatusResponse, NodeRuntime, RuntimeProgress, RuntimeStatus,
-};
-use armada_spec::gotime::Time;
-use armada_store::{Kind, NODE_READY, Node};
+use armada_proto::armada::v1::{ClusterStatusRequest, ClusterStatusResponse};
+use armada_store::{Kind, NODE_READY};
 use tonic::{Code, Status};
 
 use crate::grpc::Auth;
 use crate::reconcile::{nanos, node_lost};
-use crate::runtimemove::AGENT_SUPERVISOR_RUST;
 use crate::{Server, store_err};
 
-/// maxAttention bounds the apps ClusterStatus names.
+/// The most apps ClusterStatus names.
 const MAX_ATTENTION: usize = 20;
-/// maxRuntimeOthers bounds the nodes ClusterStatus names that are not on
-/// armada-node yet (ADR 0054).
-const MAX_RUNTIME_OTHERS: usize = 20;
-
-/// runtimeMoved: a node runs containers through armada-node with nothing
-/// left of Go's image store or images to pull again.
-fn runtime_moved(st: Option<&RuntimeStatus>) -> bool {
-    st.is_some_and(|s| s.agent == AGENT_SUPERVISOR_RUST && !s.converting && s.images_to_pull == 0)
-}
 
 impl Server {
     /// ClusterStatus (cluster-admin only).
@@ -74,10 +60,6 @@ impl Server {
                 resp.nodes_not_ready.push(n.id.clone());
             }
         }
-        if !nodes.is_empty() {
-            resp.runtime = Some(self.runtime_progress(&nodes, &self.now()));
-        }
-        resp.runtime_move = self.0.moves.lock().await.seen.clone();
         match self.store().get_network().await {
             Err(e) if e.kind == Kind::NotFound => {}
             Err(e) => return Err(store_err(&e)),
@@ -91,31 +73,5 @@ impl Server {
             .await
             .map_err(|e| store_err(&e))?;
         Ok(resp)
-    }
-
-    /// runtimeProgress: where the nodes' move to armada-node stands (ADR
-    /// 0054), from their latest reports.
-    pub(crate) fn runtime_progress(&self, nodes: &[Node], now: &Time) -> RuntimeProgress {
-        let mut p = RuntimeProgress {
-            nodes: nodes.len() as i32,
-            ..Default::default()
-        };
-        let mut others = Vec::new();
-        for n in nodes {
-            let st = self.0.usage.runtime_of(&n.id, now);
-            if runtime_moved(st.as_ref()) {
-                p.moved += 1;
-                continue;
-            }
-            others.push(NodeRuntime {
-                node: n.id.clone(),
-                status: st,
-            });
-        }
-        others.sort_by(|a, b| a.node.cmp(&b.node));
-        p.others_total = others.len() as i32;
-        others.truncate(MAX_RUNTIME_OTHERS);
-        p.others = others;
-        p
     }
 }

@@ -112,14 +112,6 @@ impl Store {
         })
     }
 
-    /// The store under root as it is, creating nothing: for reading a
-    /// store of the same layout (Go's content store while converting it).
-    pub fn at(root: &Path) -> Store {
-        Store {
-            root: root.to_path_buf(),
-        }
-    }
-
     pub fn root(&self) -> &Path {
         &self.root
     }
@@ -255,13 +247,6 @@ impl Store {
 
     pub fn try_pulls_exclusive(&self) -> Result<Option<Lock>, String> {
         self.lock("pull.lock", libc::LOCK_EX | libc::LOCK_NB)
-    }
-
-    /// Takes the store's lock name (pull.lock, index.lock) exclusively,
-    /// waiting for it: no pull, collection, or index change runs while it
-    /// is held. Index changes under it go through write_index.
-    pub fn lock_exclusive(&self, name: &str) -> Result<Lock, String> {
-        Ok(self.lock(name, libc::LOCK_EX)?.expect("blocking lock"))
     }
 
     /// The index as it is now.

@@ -16,9 +16,7 @@ use armada_client::config::{self as clientconfig, GROUP, SERVERS_PATH};
 use armada_proto::armada::v1 as pb;
 use armada_spec::go::{Addr, Prefix, parse_addr, parse_prefix, quote};
 
-use crate::agentconfig::{
-    AgentConfig, FILE_AGENT, NETWORK_MESH, RUNTIME_EMBEDDED, RUNTIME_SUPERVISOR,
-};
+use crate::agentconfig::{AgentConfig, FILE_AGENT, NETWORK_MESH, RUNTIME_SUPERVISOR};
 use crate::netutil;
 
 pub const DEFAULT_DATA_DIR: &str = "/var/lib/armada";
@@ -418,13 +416,6 @@ impl RuntimeFlags {
         }
         c.runtime = match self.runtime.as_str() {
             "" | RUNTIME_SUPERVISOR => DEFAULT_RUNTIME.to_string(),
-            // containerd left the runtime pack (ADR 0046, ADR 0055): a
-            // node set up on it would start nothing.
-            RUNTIME_EMBEDDED => {
-                return Err(format!(
-                    "invalid --runtime {RUNTIME_EMBEDDED}: containerd is no longer in the runtime pack; new nodes run on {RUNTIME_SUPERVISOR}, the only runtime (ADR 0046)"
-                ));
-            }
             other => {
                 return Err(format!(
                     "invalid --runtime {}: use {RUNTIME_SUPERVISOR}",

@@ -239,11 +239,7 @@ impl<R: Runtime> Inner<R> {
             );
         }
         let held = st.crun.not_before.is_some_and(|t| now < t);
-        if settling
-            || held
-            || !st.contact_up
-            || self.moving.load(std::sync::atomic::Ordering::SeqCst)
-        {
+        if settling || held || !st.contact_up {
             return plan;
         }
         let px = st.proxy_desired.clone();

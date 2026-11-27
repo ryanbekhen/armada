@@ -1,6 +1,6 @@
 #!/bin/sh
 # Checks what GoReleaser wrote into DIST (default dist) against what
-# install.sh, armadad upgrade (Go's of alpha.42 and Rust's), and people
+# install.sh, armadad upgrade, and people
 # read (docs/releasing.md): every archive name, the binaries and files in
 # each, checksums.txt, static Linux programs, the runtime pack in armadad,
 # crun's source in the full Linux archives (ADR 0056), and the version

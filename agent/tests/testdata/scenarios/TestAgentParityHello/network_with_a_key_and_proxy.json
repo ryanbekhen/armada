@@ -1,5 +1,5 @@
 {
- "name": "TestAgentParityHello/network_with_a_key,_proxy,_and_move",
+ "name": "TestAgentParityHello/network_with_a_key_and_proxy",
  "opts": {
   "bootNs": 1767222000000000000,
   "bridge": "",
@@ -8,7 +8,6 @@
   "encodes": false,
   "exec": true,
   "members": true,
-  "move": true,
   "network": true,
   "networkKey": "key-0",
   "noSecretsDir": false,
@@ -26,7 +25,7 @@
   },
   {
    "expect": [
-    "hello {\"cpuMillis\":\"2000\",\"memoryBytes\":\"1073741824\",\"version\":\"VERSION\",\"privateIp\":\"10.0.0.2\",\"os\":\"linux\",\"arch\":\"amd64\",\"jobs\":true,\"volumes\":true,\"networkKey\":\"key-0\",\"certificateRefs\":true,\"containers\":true,\"heldReplicas\":true,\"volumeBackups\":true,\"logHistory\":true,\"networkSwitch\":true,\"keyRotation\":true,\"runtimeMove\":true}"
+    "hello {\"cpuMillis\":\"2000\",\"memoryBytes\":\"1073741824\",\"version\":\"VERSION\",\"privateIp\":\"10.0.0.2\",\"os\":\"linux\",\"arch\":\"amd64\",\"jobs\":true,\"volumes\":true,\"networkKey\":\"key-0\",\"certificateRefs\":true,\"containers\":true,\"heldReplicas\":true,\"volumeBackups\":true,\"logHistory\":true,\"networkSwitch\":true,\"keyRotation\":true}"
    ],
    "from": "hello",
    "kind": "hello",

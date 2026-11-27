@@ -24,7 +24,6 @@ const META_ROOT_DOMAIN: &str = "root_domain";
 use crate::ingress::{META_PROXY_PROTOCOL, META_TRUSTED_PROXIES};
 pub(crate) const META_LOGS: &str = "logs";
 const META_CP_BACKUP: &str = "control-plane-backup";
-const META_RUNTIME_MOVE: &str = "runtime-move";
 
 /// The DNS token is sealed like an app secret, bound to this scope.
 pub(crate) const TOKEN_SCOPE: &str = "cluster";
@@ -333,12 +332,6 @@ impl Server {
                 monthly: int(&k, "monthly") as i32,
             });
         }
-        if let Some(m) = read_meta(self.store(), META_RUNTIME_MOVE)
-            .await
-            .map_err(e)?
-        {
-            cc.runtime_move_off = m.get("off").and_then(Json::as_bool).unwrap_or(false);
-        }
         match self.store().get_network().await {
             Err(err) if err.kind == Kind::NotFound => {}
             Err(err) => return Err(store_err(&err)),
@@ -428,9 +421,6 @@ impl Server {
         self.set_control_plane_backup(a, &req).await?;
         if req.set_network {
             self.set_network(a, &c.network).await?;
-        }
-        if req.set_runtime_move {
-            self.set_runtime_move(a, !c.runtime_move_off).await?;
         }
         if req.set_mesh_cidr {
             let Some(p) = armada_spec::go::parse_prefix(&c.mesh_cidr) else {

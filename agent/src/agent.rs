@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, SystemTime};
 
 use armada_proto::armada::v1 as pb;
-use std::sync::atomic::{AtomicBool, AtomicI32};
+use std::sync::atomic::AtomicI32;
 
 use tokio::sync::{Notify, OnceCell, Semaphore, mpsc, watch};
 
@@ -20,7 +20,6 @@ use crate::runtime::{
     self, Container, Error, Image, LABEL_MANAGED, LABEL_REPLICA, LABEL_ROLE, LABEL_SPEC_HASH,
     RegistryAuth, Runtime, STATE_CREATED, STATE_RESTARTING, STATE_RUNNING, STATE_STARTING, stopped,
 };
-use crate::runtimemove::{MoveFn, PlanFn, PrepareFn};
 use crate::spec::{container_spec, has_members, member_images, registry_auth, spec_hash};
 
 /// How often containers are reconciled without a trigger.
@@ -93,13 +92,6 @@ pub struct Config {
     /// Where certificates named by reference come from; None: the
     /// session's connection.
     pub certificates: Option<Arc<dyn CertificateSource>>,
-    /// Moves a containerd node to the runtime the leader names; None: the
-    /// node does not move itself, and Hello says so.
-    pub move_runtime: Option<MoveFn>,
-    /// Readies the move while every container still runs.
-    pub prepare_runtime_move: Option<PrepareFn>,
-    /// Receives the leader's plan for the node's move when it changes.
-    pub on_runtime_move: Option<PlanFn>,
     /// Where the proxy sends requests for apps with no replica up (ADR
     /// 0021), in a directory only root reaches; empty disables it.
     pub wake_socket: String,
@@ -140,9 +132,6 @@ impl Default for Config {
             proxy: None,
             network: None,
             certificates: None,
-            move_runtime: None,
-            prepare_runtime_move: None,
-            on_runtime_move: None,
             wake_socket: String::new(),
             os: String::new(),
             arch: String::new(),
@@ -207,8 +196,6 @@ pub(crate) struct State {
     pub network_failed: String,
     /// This node's containers in the node subnet (unpublished only).
     pub local: Option<Clients>,
-    /// The leader's last plan for the node's move, once one came.
-    pub move_plan: Option<Option<pb::RuntimeMovePlan>>,
     /// The move of runc's containers to crun (ADR 0056).
     pub crun: crate::crunmove::CrunMove,
 }
@@ -237,10 +224,6 @@ pub(crate) struct Inner<R: Runtime> {
     pub proxy_changed: watch::Sender<u64>,
     /// One key rotation at a time.
     pub key_mu: tokio::sync::Mutex<()>,
-    /// Set while the node moves to another runtime, and after it did;
-    /// move_err says why the last request did not move it.
-    pub moving: AtomicBool,
-    pub move_err: Mutex<String>,
     /// Running volume sessions.
     pub volume_ops: AtomicI32,
     /// Requests held for apps scaled to zero (ADR 0021).
@@ -344,8 +327,6 @@ impl<R: Runtime> Agent<R> {
                 cert_source: Mutex::new(None),
                 proxy_changed: watch::channel(0).0,
                 key_mu: tokio::sync::Mutex::new(()),
-                moving: AtomicBool::new(false),
-                move_err: Mutex::new(String::new()),
                 volume_ops: AtomicI32::new(0),
                 wakes: crate::wake::Waker::default(),
                 side: crate::side::Side::default(),
@@ -436,7 +417,6 @@ impl<R: Runtime> Inner<R> {
         self.set_desired(&a.replicas, a.proxy.as_ref());
         self.set_servers(&a.servers);
         self.set_log_settings(a.logs.as_ref());
-        self.set_runtime_move_plan(a.runtime_move.as_ref());
         if self.sandboxes_on() {
             self.set_sandboxes(&a.queue_sandboxes);
         }
