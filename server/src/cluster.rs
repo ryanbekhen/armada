@@ -1,4 +1,5 @@
-//! The etcd membership of the control plane.
+//! The membership of the control plane's state store: etcd's, or
+//! armada-kv's (ADR 0057), which serves the same API.
 
 use std::net::IpAddr;
 
@@ -13,10 +14,19 @@ pub struct MemberInfo {
     pub client_url: String,
 }
 
+/// What [`Cluster::state`] says of a cluster whose servers keep the state
+/// in armada-kv (ADR 0057); etcd's is "".
+pub const STATE_KV: &str = "kv";
+
 /// Manages the etcd membership of the control plane nodes. Errors are
 /// their texts.
 #[async_trait]
 pub trait Cluster: Send + Sync {
+    /// Where the servers keep the state: "" for etcd, [`STATE_KV`] for
+    /// armada-kv. A joining server runs the same.
+    fn state(&self) -> &'static str {
+        ""
+    }
     async fn members(&self) -> Result<Vec<MemberInfo>, String>;
     /// Adds a non-voting member and returns its ID and the initial cluster
     /// for its first start.

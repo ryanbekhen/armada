@@ -16,8 +16,8 @@ use armada_proto::armada::v1 as pb;
 use pb::join_service_client::JoinServiceClient;
 
 use crate::agentconfig::{
-    self, AgentConfig, DIR_ETCD, FILE_AGENT, FILE_CA_CERT, FILE_CA_KEY, FILE_ETCD_INITIAL,
-    FILE_SERVER_CERT,
+    self, AgentConfig, DIR_ETCD, DIR_KV, FILE_AGENT, FILE_CA_CERT, FILE_CA_KEY, FILE_ETCD_INITIAL,
+    FILE_KV_INITIAL, FILE_SERVER_CERT,
 };
 use crate::joinclient;
 use crate::machine::{
@@ -387,6 +387,7 @@ pub fn server(ctx: &mut Ctx<'_>, args: &[String]) -> Result {
             FILE_AGENT,
             FILE_MASTER_KEY,
             DIR_ETCD,
+            DIR_KV,
         ],
     )?;
     mesh.load_key(&data_dir).map_err(msg)?;
@@ -394,6 +395,7 @@ pub fn server(ctx: &mut Ctx<'_>, args: &[String]) -> Result {
     // it before this machine signs its certificate.
     let client_user = join_user_name(&ctx.str("user-name")).map_err(msg)?;
     let peer_port = crate::etcdmember::member_config(&data_dir).peer_port;
+    let kv_peer_port = crate::kvmember::member_config(&data_dir).peer_port;
 
     let rtm = crate::commands::server::runtime()?;
     let res = rtm.block_on(async {
@@ -414,6 +416,7 @@ pub fn server(ctx: &mut Ctx<'_>, args: &[String]) -> Result {
                     api_port: port as i32,
                     join_port: join_port as i32,
                     etcd_peer_port: i32::from(peer_port),
+                    kv_peer_port: i32::from(kv_peer_port),
                     user_name: client_user.clone(),
                     network_key: mesh.key.clone(),
                     endpoint: mesh.endpoint_text(),
@@ -433,6 +436,17 @@ pub fn server(ctx: &mut Ctx<'_>, args: &[String]) -> Result {
         ))
     };
     check_joined_server(&resp, &ca, &name).map_err(again)?;
+    // The member this server runs: the cluster's store (ADR 0057).
+    let store = match resp.state.as_str() {
+        "" => crate::state::Store::Etcd,
+        armada_server::cluster::STATE_KV => crate::state::Store::Kv,
+        other => {
+            return Err(again(format!(
+                "the cluster keeps its state in {}, which this armadad does not run",
+                armada_spec::go::quote(other)
+            )));
+        }
+    };
     if !clientconfig::check_servers(&resp.servers) {
         return Err(msg(servers_error(&resp.servers)));
     }
@@ -460,13 +474,14 @@ pub fn server(ctx: &mut Ctx<'_>, args: &[String]) -> Result {
         &armada_secrets::Value::new(&resp.master_key),
     )
     .map_err(|e| msg(format!("master key: {e}")))?;
-    armada_fsutil::mkdir_private(&Path::new(&data_dir).join(DIR_ETCD)).map_err(s)?;
+    let (member_dir, initial) = match store {
+        crate::state::Store::Etcd => (DIR_ETCD, FILE_ETCD_INITIAL),
+        crate::state::Store::Kv => (DIR_KV, FILE_KV_INITIAL),
+    };
+    armada_fsutil::mkdir_private(&Path::new(&data_dir).join(member_dir)).map_err(s)?;
     write_files(
         &data_dir,
-        &[(
-            FILE_ETCD_INITIAL,
-            format!("{}\n", resp.initial_cluster).as_bytes(),
-        )],
+        &[(initial, format!("{}\n", resp.initial_cluster).as_bytes())],
     )?;
     ac.node_id = name.clone();
     ac.private_ip = ip.to_string();
@@ -527,7 +542,7 @@ pub fn server(ctx: &mut Ctx<'_>, args: &[String]) -> Result {
         out.push_str(&format!("Container subnet: {}.\n", resp.node_subnet));
     }
     out.push_str(&note);
-    out.push_str(&machine::next_step("server", &data_dir));
+    out.push_str(&crate::commands::init::next_step(store, &data_dir));
     if servers.len() == 2 {
         out.push_str("With two control plane nodes, losing either one stops the control plane; add a third.\n");
     }

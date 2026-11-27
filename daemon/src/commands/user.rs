@@ -22,10 +22,16 @@ fn msg(s: impl Into<String>) -> Error {
 async fn record_user(data_dir: &str, name: &str) -> std::result::Result<(), String> {
     let work = async {
         let st = state::state_client(data_dir).await?;
-        let s = armada_store::Etcd::new(st.client.clone(), crate::backup::ETCD_PREFIX)
-            .await
-            .map_err(|e| e.to_string())?;
-        s.know_user(name).await.map_err(|e| e.to_string())
+        let r = async {
+            let s = armada_store::Etcd::new(st.client.clone(), crate::backup::ETCD_PREFIX)
+                .await
+                .map_err(|e| e.to_string())?;
+            s.know_user(name).await.map_err(|e| e.to_string())
+        }
+        .await;
+        // A member this command opened stops in order.
+        st.close().await;
+        r
     };
     match tokio::time::timeout(Duration::from_secs(60), work).await {
         Ok(r) => r,

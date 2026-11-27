@@ -14,6 +14,10 @@ ExecStart=/usr/local/bin/armadad etcd --data-dir /var/lib/armada $ARMADA_SERVER_
 UMask=0077
 Restart=always
 RestartSec=2
+# 78: the server keeps its state in armada-kv (ADR 0057), whose unit runs
+# its member; not a failure, and not restarted.
+SuccessExitStatus=78
+RestartPreventExitStatus=78
 LimitNOFILE=65536
 # etcd closes its write-ahead log on SIGTERM; give a busy member time.
 TimeoutStopSec=60

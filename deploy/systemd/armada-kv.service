@@ -1,0 +1,32 @@
+[Unit]
+Description=Armada control plane state (this server's armada-kv member)
+Documentation=https://github.com/ryanbekhen/armada
+# Runs this server's member of armada-kv, Armada's own store of the
+# control plane's state (ADR 0057), on a cluster made with `armadad init
+# --state kv`. Not enabled by default: on such a cluster's servers,
+# `sudo systemctl enable --now armada-kv armada-server`. On a server whose
+# state is in etcd it exits at once with status 78 and stays stopped.
+After=network-online.target
+Wants=network-online.target
+Before=armada-server.service
+
+[Service]
+Type=simple
+# The server's flags: armadad kv reads --data-dir and ignores the rest.
+EnvironmentFile=-/etc/armada/server.env
+ExecStart=/usr/local/bin/armadad kv --data-dir /var/lib/armada $ARMADA_SERVER_FLAGS
+UMask=0077
+Restart=always
+RestartSec=2
+# 78: this server runs the other store; not a failure, and not restarted.
+SuccessExitStatus=78
+RestartPreventExitStatus=78
+LimitNOFILE=65536
+# The member stops serving and closes its database on SIGTERM.
+TimeoutStopSec=60
+# Under memory pressure the kernel kills workloads (at 0) before the
+# control plane's state.
+OOMScoreAdjust=-500
+
+[Install]
+WantedBy=multi-user.target

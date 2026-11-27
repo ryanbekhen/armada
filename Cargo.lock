@@ -83,6 +83,7 @@ dependencies = [
  "armada-agent",
  "armada-client",
  "armada-fsutil",
+ "armada-kv",
  "armada-node",
  "armada-pki",
  "armada-proto",

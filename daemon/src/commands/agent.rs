@@ -348,15 +348,14 @@ impl Network for NodeNet {
 }
 
 /// On a server machine, agent.json's list and every
-/// server's API address the local etcd member records; None, and
+/// server's API address the local member (etcd's or armada-kv's) records; None, and
 /// agent.json's list alone, when either cannot be read.
 async fn known_servers(data_dir: &str, ac: &AgentConfig, log: &Logger) -> Option<Vec<String>> {
     std::fs::metadata(Path::new(data_dir).join(FILE_SERVER_CERT)).ok()?;
     let read = async {
-        let cfg = crate::etcdmember::etcd_config(data_dir)?;
-        let addr = cfg.addr.ok_or("etcd: no listen address")?;
-        let url = crate::etcdmember::member_url(&addr, cfg.client_port);
-        let c = armada_store::Client::connect(&url, &cfg.dir).map_err(|e| e.to_string())?;
+        // The server's member: etcd's, or armada-kv's (ADR 0057).
+        let (url, _, dir) = crate::state::endpoint(data_dir)?;
+        let c = armada_store::Client::connect(&url, &dir).map_err(|e| e.to_string())?;
         let st = armada_store::Etcd::new(c, crate::backup::ETCD_PREFIX)
             .await
             .map_err(|e| e.to_string())?;

@@ -7,6 +7,7 @@ pub mod endpoint;
 pub mod etcd;
 pub mod init;
 pub mod join;
+pub mod kv;
 pub mod runtime;
 pub mod runtimecmd;
 pub mod runtimelog;

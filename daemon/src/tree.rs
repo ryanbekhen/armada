@@ -87,6 +87,14 @@ pub fn root() -> Tree {
         .flag(Flag::string("data-dir", None, "/var/lib/armada", "Armada data directory"));
     n.unknown_flags = true;
     let i_root_etcd = t.add(0, n);
+    let mut n = Node::new("kv", "Run this server's armada-kv member (started by systemd)")
+        .long("kv runs this server's member of armada-kv, Armada's own store of the control\nplane's state (ADR 0057), on a cluster made with `armadad init --state kv`. systemd\nstarts it as armada-kv.service on such a cluster's servers. It works the member\nout as the server does (name, data in kv/, addresses, certificate), listens on the\nserver's private IP only (7445 for the store's API, 7446 for the other members),\nTLS 1.3 with the cluster's member certificates on both, and stops in order on\nSIGTERM. It refuses while another process holds the member. On a server whose\nstate is in etcd it exits at once (status 78) and armada-kv.service stays stopped.\nFlags it does not know (the server's, from ARMADA_SERVER_FLAGS) are ignored.")
+        .example("  sudo systemctl enable --now armada-kv armada-server   # a server of a cluster on armada-kv\n  sudo systemctl status armada-kv\n  sudo armadad kv --data-dir /var/lib/armada            # in the foreground")
+        .args(Args::No)
+        .run(commands::kv::run)
+        .flag(Flag::string("data-dir", None, "/var/lib/armada", "Armada data directory"));
+    n.unknown_flags = true;
+    let i_root_kv = t.add(0, n);
     let mut n = Node::new("init", "Initialize a new cluster on this machine")
         .long("init creates the cluster CA, server and node certificates, the state database,\nand the admin client config /etc/armada/admin.config (read by root and the armada\ngroup; the server renews its certificate). Run through sudo, it adds that user to\nthe group: log in again or run `newgrp armada` to use armada without sudo.\nRun it once on the first machine, then start `armadad server`.")
         .example("  sudo armadad init                                  # a cluster on this machine, its first server\n  sudo armadad init --network wireguard              # containers' traffic between nodes encrypted")
@@ -102,6 +110,7 @@ pub fn root() -> Tree {
         .flag(Flag::int("port", None, 7443, "control plane port on the private IP"))
         .flag(Flag::string("private-ip", None, "", "this node's private IP (default: the only private IPv4 address; not with --network mesh)"))
         .flag(Flag::string("runtime", None, "supervisor", "container runtime: supervisor, the only one (ADR 0046); kept for scripts that pass it"))
+        .flag(Flag::string("state", None, "etcd", "where the control plane keeps its state: etcd, or kv for armada-kv, Armada's own store (ADR 0057; not the default yet); set once"))
         .flag(Flag::string("user-name", None, "", "name of the first user, who gets cluster-admin (default: the user running it)"));
     let i_root_init = t.add(0, n);
     let mut n = Node::new("join ADDR --ca-hash sha256:HEX", "Join this machine to a cluster as a node")
@@ -190,7 +199,7 @@ pub fn root() -> Tree {
     n.required = vec!["ca-hash"];
     let i_root_server_join = t.add(i_root_server, n);
     let mut n = Node::new("upgrade [--version vX.Y.Z]", "Upgrade this machine to the latest (or a given) release and restart its service")
-        .long("upgrade downloads a release, verifies its checksum (and its signature when cosign is\ninstalled), replaces armadad and armada and the systemd units, and restarts\narmada-runtime (containers keep running), armada-etcd, armada-server, and armada-agent,\neach where it runs. Upgrade servers first, one at a time, then the other\nnodes (docs/operations.md#upgrades). ARMADA_DOWNLOAD_BASE points at a mirror.\n\nIt refuses older releases: going back takes the backup from before the upgrade\n(docs/operations.md#rolling-back-an-upgrade).")
+        .long("upgrade downloads a release, verifies its checksum (and its signature when cosign is\ninstalled), replaces armadad and armada and the systemd units, and restarts\narmada-runtime (containers keep running), armada-etcd or armada-kv, armada-server, and\narmada-agent, each where it runs. Upgrade servers first, one at a time, then the other\nnodes (docs/operations.md#upgrades). ARMADA_DOWNLOAD_BASE points at a mirror.\n\nIt refuses older releases: going back takes the backup from before the upgrade\n(docs/operations.md#rolling-back-an-upgrade).")
         .example("  sudo armadad upgrade                       # the latest release; servers first, one at a time\n  sudo armadad upgrade --version v0.2.0\n  sudo armadad upgrade --no-restart          # install only; restart the services later")
         .args(Args::No)
         .run(commands::upgrade::run)

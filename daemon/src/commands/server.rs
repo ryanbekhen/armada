@@ -1,6 +1,7 @@
 //! armadad server: the control plane of this machine. It connects to the
-//! etcd member armada-etcd.service runs, campaigns for leadership, and runs
-//! a term's server while it leads (armada-server's lifecycle).
+//! etcd member armada-etcd.service runs (or the armada-kv member
+//! armada-kv.service runs, ADR 0057), campaigns for leadership, and runs a
+//! term's server while it leads (armada-server's lifecycle).
 //!
 //! On a server machine the node's agent runs as a unit of its own:
 //! armada-server.service wants armada-etcd.service and
@@ -211,11 +212,13 @@ fn learner_not_ready(err: &str) -> bool {
     err.contains("can only promote a learner member which is in sync with leader")
 }
 
-/// The etcd membership of the control plane over this server's member.
+/// The membership of the control plane's store over this server's member:
+/// etcd's, or armada-kv's (ADR 0057), which serves the same API.
 struct EtcdCluster {
     c: Client,
     /// The member's directory, whose certificate reaches other members.
     dir: PathBuf,
+    store: state::Store,
 }
 
 fn member_info(m: &armada_proto::etcd::etcdserverpb::Member) -> (MemberInfo, String) {
@@ -243,6 +246,13 @@ impl EtcdCluster {
 
 #[async_trait]
 impl Cluster for EtcdCluster {
+    fn state(&self) -> &'static str {
+        match self.store {
+            state::Store::Etcd => "",
+            state::Store::Kv => armada_server::cluster::STATE_KV,
+        }
+    }
+
     async fn members(&self) -> std::result::Result<Vec<MemberInfo>, String> {
         Ok(self.list().await?.into_iter().map(|(m, _)| m).collect())
     }
@@ -499,6 +509,7 @@ struct Setup {
     keys: Arc<armada_secrets::Keyring>,
     client: Client,
     member_dir: PathBuf,
+    store: state::Store,
     log: Logger,
     /// The term's server, for the certificate manager's events.
     current: Arc<Mutex<Option<Server>>>,
@@ -532,6 +543,7 @@ async fn run_term(
     cfg.cluster = Some(Arc::new(EtcdCluster {
         c: s.client.clone(),
         dir: s.member_dir.clone(),
+        store: s.store,
     }));
     // The scheduled backups to a bucket (ADR 0051) hold what armadad
     // backup writes.
@@ -732,16 +744,23 @@ async fn serve(
         return Err(format!("{data_dir} is not initialized; run `armadad init`"));
     }
     // armadad runs no etcd member inside the server (ADR 0055): the member
-    // is armada-etcd.service's, which armada-server.service wants.
+    // is armada-etcd.service's, which armada-server.service wants, or
+    // armada-kv.service's on a cluster whose state is in armada-kv (ADR
+    // 0057).
+    let store = state::Store::of(&data_dir);
+    let (component, member_name) = match store {
+        state::Store::Etcd => ("etcd", "etcd"),
+        state::Store::Kv => ("kv", "armada-kv"),
+    };
     let wait_log = log.clone();
     let learner_log = log.clone();
     let member = state::connect(
         &data_dir,
         &move |addr, err| {
             wait_log.info(
-                "waiting for the etcd member",
+                &format!("waiting for the {member_name} member"),
                 &[
-                    ("component", "etcd".into()),
+                    ("component", component.into()),
                     ("addr", addr.into()),
                     ("err", err.into()),
                 ],
@@ -749,7 +768,9 @@ async fn serve(
         },
         &move || {
             learner_log.info(
-                "waiting for the leader to promote this server to a voting etcd member",
+                &format!(
+                    "waiting for the leader to promote this server to a voting {member_name} member"
+                ),
                 &[],
             )
         },
@@ -763,7 +784,10 @@ async fn serve(
     // Renew before loading, so a server that was down past the renewal
     // point, or past expiry, starts with a valid certificate.
     let shared = machine::euid() == 0 && data_dir == machine::DEFAULT_DATA_DIR;
-    let member_dir = Path::new(&data_dir).join(crate::agentconfig::DIR_ETCD);
+    let member_dir = Path::new(&data_dir).join(match store {
+        state::Store::Etcd => crate::agentconfig::DIR_ETCD,
+        state::Store::Kv => crate::agentconfig::DIR_KV,
+    });
     let mut renewer = Renewer {
         data_dir: PathBuf::from(&data_dir),
         ca: ca.clone(),
@@ -846,6 +870,7 @@ async fn serve(
         keys,
         client: member.client.clone(),
         member_dir,
+        store,
         log: log.clone(),
         current: Arc::new(Mutex::new(None)),
     });

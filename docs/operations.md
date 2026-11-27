@@ -35,6 +35,16 @@ you have to build a new cluster and redeploy everything. With three, any
 one can fail, but a mistake (a deleted app, a bad secret) is replicated to
 all of them. Back up either way.
 
+**armada-kv (preview).** `armadad init --state kv` makes a cluster whose
+servers keep the state in armada-kv, Armada's own store (ADR 0057),
+instead of etcd: each server runs `armada-kv` (`armadad kv`) in place of
+`armada-etcd`, listening on the private IP on 7445 and 7446 with the same
+mutual TLS. Start it with `sudo systemctl enable --now armada-kv
+armada-server` (`armada-server` does not pull it in); servers that join
+such a cluster run it too, and say so. Such a cluster cannot be backed up
+with `armadad backup` or to a bucket yet, and existing clusters stay on etcd:
+use it for trying out, not for production.
+
 ## Cluster settings
 
 Settings that every server must share, because any of them can lead, live
@@ -115,7 +125,8 @@ config that has not been used since servers were added still finds the
 leader.
 
 **Network:** control plane nodes must reach each other on the private
-network on ports 2379 and 2380 (etcd, mutual TLS) and 7443/7444 (API and
+network on ports 2379 and 2380 (etcd, mutual TLS; 7445 and 7446 on a
+cluster made with `armadad init --state kv`) and 7443/7444 (API and
 join listener). Allow these between servers only; nothing on the public
 interface. Each node's HAProxy serves its own statistics in Prometheus
 format at `http://127.0.0.1:8404/metrics`, on the node's loopback address
@@ -196,6 +207,7 @@ that step.
 | File | What it is | Without it |
 | --- | --- | --- |
 | `etcd/` | This server's etcd member, run by `armada-etcd` (its data, member certificate, and `etcd.yaml`): apps, revisions, replicas, nodes, domains, encrypted secrets, the ACME account and certificates. | No cluster (unless other servers have it) |
+| `kv/` | In place of `etcd/` on a cluster made with `armadad init --state kv`: this server's armada-kv member, run by `armada-kv` (`kv.db`, its member certificate). | No cluster (unless other servers have it) |
 | `master.key` | Encrypts every secret in the state | Secrets are unrecoverable |
 | `ca.crt`, `ca.key` | Cluster CA: signs node, admin, and server certificates, and lets each server renew its own | Every node must join again; every admin config is invalid |
 | `server.crt`, `server.key` | Control plane TLS identity | Re-issuable from the CA |

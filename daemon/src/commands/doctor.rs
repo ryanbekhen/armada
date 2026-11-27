@@ -29,7 +29,8 @@ use armada_node::net::diagnose::{self, CHECK_FAIL, CHECK_OK, CHECK_WARN};
 use armada_spec::go::Prefix;
 
 use crate::agentconfig::{
-    self, AgentConfig, DIR_ETCD, FILE_AGENT, FILE_CA_KEY, FILE_SERVER_CERT, RUNTIME_SUPERVISOR,
+    self, AgentConfig, DIR_ETCD, DIR_KV, FILE_AGENT, FILE_CA_KEY, FILE_SERVER_CERT,
+    RUNTIME_SUPERVISOR,
 };
 use crate::machine::{
     self, DEFAULT_CONTAINER_SUBNET, DEFAULT_RUNTIME, FILE_MASTER_KEY, FILE_MESH_CACHE,
@@ -41,12 +42,15 @@ const OK: &str = "ok";
 const WARN: &str = "warn";
 const FAIL: &str = "FAIL";
 
-/// The control plane's port, the join port, and HAProxy's statistics
-/// (defaultPort, defaultPort+1, haproxy.MetricsPort).
-const CLUSTER_PORTS: [u16; 3] = [7443, 7444, 8404];
+/// The control plane's port, the join port, armada-kv's client and peer
+/// ports (ADR 0057), and HAProxy's statistics (defaultPort,
+/// defaultPort+1, haproxy.MetricsPort).
+const CLUSTER_PORTS: [u16; 5] = [7443, 7444, 7445, 7446, 8404];
 const JOIN_PORT: u16 = 7444;
 const BRIDGE: &str = "armada0";
 const FILE_ETCD_KEY: &str = "etcd/member.key";
+const FILE_KV_KEY: &str = "kv/member.key";
+const FILE_KV_DB: &str = "kv/kv.db";
 /// Where needrestart reads extra settings, and Armada's file there.
 const NEEDRESTART_DIR: &str = "/etc/needrestart/conf.d";
 const NEEDRESTART_FILE: &str = "armada.conf";
@@ -242,6 +246,9 @@ async fn run_doctor(env: &Env) -> Vec<Check> {
     out.push(check_data_dir(env));
     out.extend(check_certificates(env));
     if let Some(c) = check_etcd(env).await {
+        out.push(c);
+    }
+    if let Some(c) = check_kv(env).await {
         out.push(c);
     }
     out.push(check_secrets_tmpfs(&env.secrets_dir));
@@ -737,6 +744,8 @@ fn check_data_dir(env: &Env) -> Check {
         FILE_NODE_KEY,
         FILE_MASTER_KEY,
         FILE_ETCD_KEY,
+        FILE_KV_KEY,
+        FILE_KV_DB,
         FILE_AGENT,
     ] {
         let Ok(m) = std::fs::metadata(Path::new(dir).join(name)) else {
@@ -791,9 +800,11 @@ fn check_certificates(env: &Env) -> Vec<Check> {
         "remove the node with `armada node delete` and join it again"
     };
     let member = format!("{DIR_ETCD}/member.crt");
+    let kv_member = format!("{DIR_KV}/member.crt");
     let auto = [
         (FILE_SERVER_CERT, "server", restart),
         (member.as_str(), "etcd member", restart),
+        (kv_member.as_str(), "armada-kv member", restart),
         (FILE_NODE_CERT, "node", node_fix),
     ];
     for (file, what, fix) in auto {
@@ -976,6 +987,75 @@ pub fn etcd_check(
                 "armada-etcd is active; the member at {} answers (etcd {})",
                 m.host, m.version
             ),
+        ),
+    }
+}
+
+/// The armada-kv check (ADR 0057), etcd's for a server whose state is in
+/// armada-kv (its member's database, kv/kv.db): the unit, and (as root)
+/// the member's health. Its certificate is the certificates check's.
+async fn check_kv(env: &Env) -> Option<Check> {
+    std::fs::metadata(Path::new(&env.data_dir).join(FILE_KV_DB)).ok()?;
+    let active = systemd::unit_active("armada-kv");
+    let status = if active && env.euid == 0 {
+        Some(
+            crate::state::member_health(&env.data_dir)
+                .await
+                .map(|(host, st)| MemberStatus {
+                    host,
+                    version: st.version,
+                    learner: st.is_learner,
+                    errors: st.errors,
+                }),
+        )
+    } else {
+        None
+    };
+    Some(kv_check(active, status))
+}
+
+/// What the armada-kv check says: the unit's state, then (as root) what
+/// the member answered. armada-kv is armadad's own code, so there is no
+/// version of a pack to compare.
+pub fn kv_check(active: bool, status: Option<std::result::Result<MemberStatus, String>>) -> Check {
+    const NAME: &str = "kv";
+    if !active {
+        return check(
+            NAME,
+            FAIL,
+            "armada-kv is not active, so this server's control plane has no state: sudo systemctl start armada-kv (journalctl -u armada-kv says why it stopped)",
+        );
+    }
+    match status {
+        None => check(
+            NAME,
+            WARN,
+            "armada-kv is active; asking its member needs root (its certificate is root's only): run sudo armadad doctor",
+        ),
+        Some(Err(e)) => check(
+            NAME,
+            FAIL,
+            format!(
+                "armada-kv is active, but its member does not answer: {e} (journalctl -u armada-kv)"
+            ),
+        ),
+        Some(Ok(m)) if !m.errors.is_empty() => check(
+            NAME,
+            WARN,
+            format!("the member at {} reports: {}", m.host, m.errors.join("; ")),
+        ),
+        Some(Ok(m)) if m.learner => check(
+            NAME,
+            WARN,
+            format!(
+                "the member at {} is a learner: the leader promotes it once it has caught up (armada server list)",
+                m.host
+            ),
+        ),
+        Some(Ok(m)) => check(
+            NAME,
+            OK,
+            format!("armada-kv is active; the member at {} answers", m.host),
         ),
     }
 }
@@ -1390,6 +1470,38 @@ mod tests {
         assert_eq!(
             one(etcd_check(true, m("3.7.4", false, &[]), "")),
             "ok armada-etcd is active; the member at 10.0.0.5:2379 answers (etcd 3.7.4)"
+        );
+    }
+    #[test]
+    fn kv_says_how_the_member_is() {
+        let one = |c: Check| format!("{} {}", c.status, c.detail);
+        let m = |learner: bool, errors: &[&str]| {
+            Some(Ok(MemberStatus {
+                host: "10.0.0.5:7445".into(),
+                version: "0.1.0".into(),
+                learner,
+                errors: errors.iter().map(|e| e.to_string()).collect(),
+            }))
+        };
+        assert!(one(kv_check(false, None)).starts_with("FAIL armada-kv is not active"));
+        assert!(
+            one(kv_check(true, None))
+                .starts_with("warn armada-kv is active; asking its member needs root")
+        );
+        assert_eq!(
+            one(kv_check(
+                true,
+                Some(Err(
+                    "armada-kv at 10.0.0.5:7445: context deadline exceeded".into()
+                ))
+            )),
+            "FAIL armada-kv is active, but its member does not answer: armada-kv at 10.0.0.5:7445: context deadline exceeded (journalctl -u armada-kv)"
+        );
+        assert!(one(kv_check(true, m(true, &[]))).contains("is a learner"));
+        assert!(one(kv_check(true, m(false, &["NOSPACE"]))).contains("reports: NOSPACE"));
+        assert_eq!(
+            one(kv_check(true, m(false, &[]))),
+            "ok armada-kv is active; the member at 10.0.0.5:7445 answers"
         );
     }
 

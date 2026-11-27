@@ -107,6 +107,11 @@ fn server_name(cert_pem: &[u8]) -> Result<String, String> {
 /// every file hashed.
 pub async fn prepare(data_dir: &str, c: &Client) -> Result<Staged, String> {
     let dd = Path::new(data_dir);
+    if crate::kvmember::is_kv(data_dir) {
+        // A backup holds an etcd snapshot, checked and restored with the
+        // pack's etcd; armada-kv's snapshots come with the move (ADR 0057).
+        return Err(NO_KV_BACKUPS.to_string());
+    }
     check_private(dd)?;
     for name in &REQUIRED[1..] {
         let p = join(dd, name);
@@ -171,6 +176,9 @@ pub async fn prepare(data_dir: &str, c: &Client) -> Result<Staged, String> {
 /// manifest and every file, each 0600), for the control plane's scheduled
 /// backups to a bucket (ADR 0051). The directory goes when the returned
 /// Staged is dropped.
+/// What a backup of a server whose state is in armada-kv says.
+pub const NO_KV_BACKUPS: &str = "this server keeps the cluster's state in armada-kv, which armadad backup does not back up yet (ADR 0057)";
+
 pub async fn stage(data_dir: &str, c: &Client) -> Result<(PathBuf, Staged), String> {
     let st = prepare(data_dir, c).await?;
     let dir = join(&st.tmp, "files");

@@ -49,7 +49,13 @@ rules above:
   write under `/etc/armada` and the data directory, and the systemd units.
 
 Not stable: anything named experimental in its documentation, and
-behaviour the documentation does not describe.
+behaviour the documentation does not describe. `armadad init --state kv`
+(armada-kv, ADR 0057) is a preview: its cluster's files and unit may
+change before the move to armada-kv ships.
+
+Ports 7445 and 7446 (armada-kv's) joined the ports an internal TCP app may
+not use: an app spec with either is refused, and a node leaves either out of
+its proxy.
 
 ## Versions side by side
 

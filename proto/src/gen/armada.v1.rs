@@ -803,6 +803,12 @@ pub struct JoinServerRequest {
     pub network_key: ::prost::alloc::string::String,
     #[prost(string, tag = "12")]
     pub endpoint: ::prost::alloc::string::String,
+    /// The armada-kv member's peer port on private_ip (ADR 0057), for a
+    /// cluster whose servers keep the state in armada-kv; etcd_peer_port is
+    /// used otherwise. Older machines leave it 0 and cannot join such a
+    /// cluster.
+    #[prost(int32, tag = "13")]
+    pub kv_peer_port: i32,
 }
 /// JoinServerResponse carries every key a control plane node holds. Never
 /// log it.
@@ -821,7 +827,8 @@ pub struct JoinServerResponse {
     pub server_key: ::prost::alloc::vec::Vec<u8>,
     #[prost(bytes = "vec", tag = "6")]
     pub node_cert: ::prost::alloc::vec::Vec<u8>,
-    /// etcd's initial cluster for the new member ("name=peerURL,...").
+    /// The initial cluster for the new member ("name=peerURL,..."): etcd's,
+    /// or armada-kv's members (state).
     #[prost(string, tag = "7")]
     pub initial_cluster: ::prost::alloc::string::String,
     /// API addresses of every control plane node, the new one included.
@@ -846,6 +853,11 @@ pub struct JoinServerResponse {
     pub mesh_ip: ::prost::alloc::string::String,
     #[prost(message, optional, tag = "13")]
     pub network: ::core::option::Option<NetworkConfig>,
+    /// Where the cluster's servers keep the state (ADR 0057): "kv" for
+    /// armada-kv, whose member the new server runs with initial_cluster's
+    /// peers to join through; empty for etcd.
+    #[prost(string, tag = "14")]
+    pub state: ::prost::alloc::string::String,
 }
 #[allow(clippy::all)]
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]

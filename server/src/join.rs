@@ -902,8 +902,8 @@ impl JoinService for JoinApi {
     }
 
     /// JoinServer adds a control plane node presenting a valid server
-    /// token: it registers the server and its node, adds its etcd member
-    /// as a learner, and returns the cluster's keys. The token secret and
+    /// token: it registers the server and its node, adds its member (etcd's
+    /// or armada-kv's) as a learner, and returns the cluster's keys. The token secret and
     /// the keys are never logged.
     async fn join_server(
         &self,
@@ -941,7 +941,22 @@ impl JoinService for JoinApi {
                 "missing or oversized CSR",
             ));
         }
-        let mut ports = vec![req.api_port, req.etcd_peer_port];
+        // The member the new server runs: etcd's, or armada-kv's on a
+        // cluster that keeps its state there (ADR 0057), which a machine
+        // too old to run one cannot join.
+        let state = cluster.state();
+        let peer_port = if state == crate::cluster::STATE_KV {
+            if req.kv_peer_port == 0 {
+                return Err(Status::new(
+                    Code::FailedPrecondition,
+                    "this cluster keeps its state in armada-kv: join with an armadad that runs it (the cluster's own release)",
+                ));
+            }
+            req.kv_peer_port
+        } else {
+            req.etcd_peer_port
+        };
+        let mut ports = vec![req.api_port, peer_port];
         if req.join_port != 0 {
             ports.push(req.join_port);
         }
@@ -1057,7 +1072,7 @@ impl JoinService for JoinApi {
         };
         let added = tokio::time::timeout(
             Duration::from_secs(20),
-            cluster.add_learner(&name, ip_addr, req.etcd_peer_port as u16),
+            cluster.add_learner(&name, ip_addr, peer_port as u16),
         )
         .await
         .unwrap_or_else(|_| Err("context deadline exceeded".to_string()));
@@ -1135,6 +1150,7 @@ impl JoinService for JoinApi {
             node_subnet: n.subnet,
             network_mode: mode,
             user_recorded: recorded,
+            state: state.to_string(),
             ..Default::default()
         };
         if mesh.on || mesh.away {

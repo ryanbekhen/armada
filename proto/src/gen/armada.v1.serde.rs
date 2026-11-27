@@ -10951,6 +10951,9 @@ impl serde::Serialize for JoinServerRequest {
         if !self.endpoint.is_empty() {
             len += 1;
         }
+        if self.kv_peer_port != 0 {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("armada.v1.JoinServerRequest", len)?;
         if !self.token_id.is_empty() {
             struct_ser.serialize_field("tokenId", &self.token_id)?;
@@ -10990,6 +10993,9 @@ impl serde::Serialize for JoinServerRequest {
         if !self.endpoint.is_empty() {
             struct_ser.serialize_field("endpoint", &self.endpoint)?;
         }
+        if self.kv_peer_port != 0 {
+            struct_ser.serialize_field("kvPeerPort", &self.kv_peer_port)?;
+        }
         struct_ser.end()
     }
 }
@@ -11021,6 +11027,8 @@ impl<'de> serde::Deserialize<'de> for JoinServerRequest {
             "network_key",
             "networkKey",
             "endpoint",
+            "kv_peer_port",
+            "kvPeerPort",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -11037,6 +11045,7 @@ impl<'de> serde::Deserialize<'de> for JoinServerRequest {
             UserName,
             NetworkKey,
             Endpoint,
+            KvPeerPort,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -11070,6 +11079,7 @@ impl<'de> serde::Deserialize<'de> for JoinServerRequest {
                             "userName" | "user_name" => Ok(GeneratedField::UserName),
                             "networkKey" | "network_key" => Ok(GeneratedField::NetworkKey),
                             "endpoint" => Ok(GeneratedField::Endpoint),
+                            "kvPeerPort" | "kv_peer_port" => Ok(GeneratedField::KvPeerPort),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -11101,6 +11111,7 @@ impl<'de> serde::Deserialize<'de> for JoinServerRequest {
                 let mut user_name__ = None;
                 let mut network_key__ = None;
                 let mut endpoint__ = None;
+                let mut kv_peer_port__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::TokenId => {
@@ -11183,6 +11194,14 @@ impl<'de> serde::Deserialize<'de> for JoinServerRequest {
                             }
                             endpoint__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::KvPeerPort => {
+                            if kv_peer_port__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("kvPeerPort"));
+                            }
+                            kv_peer_port__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
                     }
                 }
                 Ok(JoinServerRequest {
@@ -11198,6 +11217,7 @@ impl<'de> serde::Deserialize<'de> for JoinServerRequest {
                     user_name: user_name__.unwrap_or_default(),
                     network_key: network_key__.unwrap_or_default(),
                     endpoint: endpoint__.unwrap_or_default(),
+                    kv_peer_port: kv_peer_port__.unwrap_or_default(),
                 })
             }
         }
@@ -11249,6 +11269,9 @@ impl serde::Serialize for JoinServerResponse {
             len += 1;
         }
         if self.network.is_some() {
+            len += 1;
+        }
+        if !self.state.is_empty() {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("armada.v1.JoinServerResponse", len)?;
@@ -11303,6 +11326,9 @@ impl serde::Serialize for JoinServerResponse {
         if let Some(v) = self.network.as_ref() {
             struct_ser.serialize_field("network", v)?;
         }
+        if !self.state.is_empty() {
+            struct_ser.serialize_field("state", &self.state)?;
+        }
         struct_ser.end()
     }
 }
@@ -11337,6 +11363,7 @@ impl<'de> serde::Deserialize<'de> for JoinServerResponse {
             "mesh_ip",
             "meshIp",
             "network",
+            "state",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -11354,6 +11381,7 @@ impl<'de> serde::Deserialize<'de> for JoinServerResponse {
             UserRecorded,
             MeshIp,
             Network,
+            State,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -11388,6 +11416,7 @@ impl<'de> serde::Deserialize<'de> for JoinServerResponse {
                             "userRecorded" | "user_recorded" => Ok(GeneratedField::UserRecorded),
                             "meshIp" | "mesh_ip" => Ok(GeneratedField::MeshIp),
                             "network" => Ok(GeneratedField::Network),
+                            "state" => Ok(GeneratedField::State),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -11420,6 +11449,7 @@ impl<'de> serde::Deserialize<'de> for JoinServerResponse {
                 let mut user_recorded__ = None;
                 let mut mesh_ip__ = None;
                 let mut network__ = None;
+                let mut state__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::CaCert => {
@@ -11512,6 +11542,12 @@ impl<'de> serde::Deserialize<'de> for JoinServerResponse {
                             }
                             network__ = map_.next_value()?;
                         }
+                        GeneratedField::State => {
+                            if state__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("state"));
+                            }
+                            state__ = Some(map_.next_value()?);
+                        }
                     }
                 }
                 Ok(JoinServerResponse {
@@ -11528,6 +11564,7 @@ impl<'de> serde::Deserialize<'de> for JoinServerResponse {
                     user_recorded: user_recorded__.unwrap_or_default(),
                     mesh_ip: mesh_ip__.unwrap_or_default(),
                     network: network__,
+                    state: state__.unwrap_or_default(),
                 })
             }
         }
