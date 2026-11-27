@@ -545,6 +545,8 @@ impl<R: Runtime> Inner<R> {
             self.remove(&c.id).await;
         }
 
+        let pace = self.runc_pace(&desired, &by_replica);
+
         let mut settled: Vec<pb::ReplicaState> = Vec::new();
         let mut running: Vec<Running> = Vec::new();
         let mut pending: Vec<PendingStart> = Vec::new();
@@ -640,10 +642,19 @@ impl<R: Runtime> Inner<R> {
             }
             if ok && c.on_runc() {
                 // runc created it, and the runtime pack has no runc (ADR
-                // 0056): ended through its cgroup, then created again on
-                // crun, reported starting meanwhile.
-                self.end_runc_replica(id, &c).await;
-                ok = false;
+                // 0056): out of service first when its app has another
+                // ready replica, then ended through its cgroup and created
+                // again on crun, reported starting meanwhile; one replica
+                // of an app at a time (runcleft.rs). A stopped one serves
+                // nothing and is ended at once.
+                if pace.drain.contains(id) && !stopped(&c.state) {
+                    settled.push(self.runc_draining(id, &c));
+                    continue;
+                }
+                if stopped(&c.state) || pace.end.contains(id) {
+                    self.end_runc_replica(id, &c).await;
+                    ok = false;
+                }
             }
             if ok && (stopped(&c.state) || !crate::containers::member_down(spec, &c).is_empty()) {
                 // The runtime restarts nothing itself (ADR 0011): crashes,
