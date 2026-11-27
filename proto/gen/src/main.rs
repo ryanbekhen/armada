@@ -80,10 +80,11 @@ fn generate(root: &Path) -> io::Result<()> {
         .build(&[".armada.v1"])
         .map_err(io::Error::other)?;
 
-    // etcd's API, the client side only.
+    // etcd's API: the clients armada-store uses and the servers
+    // armada-kv answers with (ADR 0057).
     tonic_prost_build::configure()
         .build_client(true)
-        .build_server(false)
+        .build_server(true)
         .build_transport(false)
         .emit_rerun_if_changed(false)
         .out_dir(&out)
