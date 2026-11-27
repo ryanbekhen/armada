@@ -254,7 +254,7 @@ Things to know about TCP apps:
   hour is closed, and so is one opened before a proxy reload, at most an
   hour after it. Turn on TCP keepalives in the client, or let it reconnect.
 - **Armada's own ports are refused:** 22, 53, 80, 443, 2379, 2380, 4789,
-  7443, 7444, 7480, 8404, and 51820.
+  7443, 7444, 7445, 7446, 7480, 8404, and 51820.
 - **One replica.** This cache keeps no data, and every connection may land
   on a different replica, so more replicas would be separate caches. Keep a
   cache like this at one replica. For data that must survive restarts,

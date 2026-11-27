@@ -1385,7 +1385,7 @@ armada app deploy db --image postgres:17 --port 5432 --ingress internal --protoc
   rather than fail to reload, and the agent logs `another program listens on
   these TCP ports`. Callers on that node get no connection until the port is
   free. Armada's own ports (22, 53, 80, 443, 2379, 2380, 4789, 7443, 7444,
-  7480, 8404, 51820) are refused in the spec.
+  7445, 7446, 7480, 8404, 51820) are refused in the spec.
 - **To check from an app**, run
   `armada app exec api --space shop -- nc -zv db.shop.internal 5432`, if
   its image has `nc`.

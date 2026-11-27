@@ -49,8 +49,8 @@ pub const CORS_METHOD_NAMES: [&str; 7] =
     ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"];
 pub const MAX_IP_RULE_NAME: usize = 64;
 pub const MAX_IP_RULE_DESCRIPTION: usize = 256;
-pub const RESERVED_TCP_PORTS: [i64; 12] = [
-    22, 53, 80, 443, 2379, 2380, 4789, 7443, 7444, 7480, 8404, 51820,
+pub const RESERVED_TCP_PORTS: [i64; 14] = [
+    22, 53, 80, 443, 2379, 2380, 4789, 7443, 7444, 7445, 7446, 7480, 8404, 51820,
 ];
 pub const INTERNAL_SUFFIX: &str = ".internal";
 pub const DEFAULT_SPACE: &str = "default";
@@ -2544,6 +2544,21 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn armada_kv_ports_are_reserved() {
+        // armada-kv's client and peer ports (ADR 0057), like etcd's.
+        for p in [7445, 7446, 2379, 2380] {
+            let e = check_tcp_port(p).unwrap_err();
+            assert_eq!(
+                e,
+                format!(
+                    "{p} is reserved for Armada (reserved: 22, 53, 80, 443, 2379, 2380, 4789, 7443, 7444, 7445, 7446, 7480, 8404, 51820)"
+                )
+            );
+        }
+        assert!(check_tcp_port(7447).is_ok());
+    }
 
     #[test]
     fn patterns() {
