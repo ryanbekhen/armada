@@ -10,10 +10,8 @@ armada-runtime (containers keep running), armada-etcd, armada-server, and armada
 each where it runs. Upgrade servers first, one at a time, then the other
 nodes (docs/operations.md#upgrades). ARMADA_DOWNLOAD_BASE points at a mirror.
 
-It refuses older releases but one: --version v0.1.0-alpha.42, the last release
-before armadad moved to Rust, rolls this machine back to it (stops armada-server,
-armada-agent, and armada-etcd, removes the units that release lacks, installs
-it, and starts its service; docs/operations.md#rolling-back-to-the-last-go-release).
+It refuses older releases: going back takes the backup from before the upgrade
+(docs/operations.md#rolling-back-an-upgrade).
 
 ```
 armadad upgrade [--version vX.Y.Z] [flags]
@@ -23,7 +21,7 @@ Examples:
 
 ```bash
 sudo armadad upgrade                       # the latest release; servers first, one at a time
-sudo armadad upgrade --version v0.1.0-alpha.40
+sudo armadad upgrade --version v0.2.0
 sudo armadad upgrade --no-restart          # install only; restart the services later
 ```
 

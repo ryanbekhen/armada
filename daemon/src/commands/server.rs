@@ -1,20 +1,12 @@
-//! armadad server (Go's newServerCommand, lead, term, runTerm, and
-//! resolveSettings in internal/daemon): the control plane of this
-//! machine. It connects to the etcd member armada-etcd.service runs (ADR
-//! 0055: Rust runs no member inside the server), campaigns for leadership,
-//! and runs a term's server while it leads (armada-server's lifecycle).
+//! armadad server: the control plane of this machine. It connects to the
+//! etcd member armada-etcd.service runs, campaigns for leadership, and runs
+//! a term's server while it leads (armada-server's lifecycle).
 //!
-//! The node's agent runs as a unit of its own on a server machine too
-//! (ADR 0055, "The agent on a server machine"): armada-server.service wants
-//! armada-etcd.service and armada-agent.service, so starting the server
-//! starts both. This server takes no lock on the data directory (the agent
-//! holds it) and runs no agent. The flags Go's server passed to its
-//! embedded agent (`--agent`, `--proxy`, `--secrets-dir`, `--internal-dns`)
-//! stay accepted, hidden, so a server.env of before keeps working; a value
-//! given is logged with where it belongs now (the agent's own flags in
-//! /etc/armada/agent.env), never acted on. `--etcd-member` stays accepted,
-//! hidden, for the lab's server.env files: `unit` is its default and the
-//! only member this armadad runs.
+//! On a server machine the node's agent runs as a unit of its own:
+//! armada-server.service wants armada-etcd.service and
+//! armada-agent.service, so starting the server starts both. This server
+//! takes no lock on the data directory (the agent holds it) and runs no
+//! agent.
 
 use std::net::IpAddr;
 use std::path::{Path, PathBuf};
@@ -43,32 +35,6 @@ fn msg(s: impl Into<String>) -> Error {
     Error::Msg(s.into())
 }
 
-/// The etcd member choices of the hidden --etcd-member flag: unit, the
-/// default, is the only one this armadad runs.
-const ETCD_EMBEDDED: &str = "embedded";
-const ETCD_UNIT: &str = "unit";
-/// What `--etcd-member embedded` gets.
-const EMBEDDED_REFUSED: &str = "--etcd-member embedded: this armadad runs no etcd member inside the server; armada-etcd.service runs it (`armadad etcd`, ADR 0055). Remove --etcd-member from /etc/armada/server.env";
-
-/// The flags Go's server gave its embedded agent, logged when a server.env
-/// of before sets them: the agent is a unit of its own
-/// (armada-agent.service, reading /etc/armada/agent.env).
-fn legacy_agent_flags(ctx: &Ctx<'_>, log: &Logger) {
-    if ctx.changed("agent") && !ctx.bool("agent") {
-        log.warn(
-            "--agent=false is ignored: armada-server.service starts armada-agent.service; for a server that runs no node agent, run `systemctl mask armada-agent`",
-            &[],
-        );
-    }
-    for f in ["proxy", "secrets-dir", "internal-dns"] {
-        if ctx.changed(f) {
-            log.warn(
-                "a flag of the agent in server.env is ignored: this machine's agent is armada-agent.service; set it in ARMADA_AGENT_FLAGS in /etc/armada/agent.env",
-                &[("flag", format!("--{f}"))],
-            );
-        }
-    }
-}
 /// defaultACMEPort.
 const DEFAULT_ACME_PORT: u16 = 7480;
 /// acmePrefix: where certificates and the ACME account live in etcd.
@@ -679,17 +645,6 @@ async fn run_term(
 pub fn run(ctx: &mut Ctx<'_>, _: &[String]) -> Result {
     let (log, net_log) = loggers(ctx)?;
     let data_dir = ctx.str("data-dir");
-    let etcd_member = ctx.str("etcd-member");
-    if etcd_member != ETCD_EMBEDDED && etcd_member != ETCD_UNIT {
-        return Err(msg(format!(
-            "invalid --etcd-member {}: use {ETCD_EMBEDDED} or {ETCD_UNIT}",
-            armada_spec::go::quote(&etcd_member)
-        )));
-    }
-    if etcd_member == ETCD_EMBEDDED {
-        return Err(msg(EMBEDDED_REFUSED));
-    }
-    legacy_agent_flags(ctx, &log);
     let lost = Duration::from_nanos(ctx.duration("node-lost-timeout").max(0) as u64);
     armada_server::check_node_lost_timeout(lost)
         .map_err(|e| msg(format!("--node-lost-timeout: {e}")))?;

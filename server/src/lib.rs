@@ -73,7 +73,6 @@ mod nodes;
 mod rbac;
 mod reconcile;
 pub mod renew;
-mod runtimemove;
 mod schedule;
 mod secret_api;
 mod servers;
@@ -194,12 +193,6 @@ pub struct Config {
     pub autoscale_interval: Duration,
     /// How often due volume backups are started; zero uses 30 seconds.
     pub backup_interval: Duration,
-    /// How long a runtime move's draining and migrating steps may take,
-    /// and how long a node whose move was given up waits (ADR 0054); zero
-    /// uses 15 minutes, 10 minutes, and an hour.
-    pub runtime_drain_limit: Duration,
-    pub runtime_migrate_limit: Duration,
-    pub runtime_move_backoff: Duration,
     /// Passes run only when [`Server::reconcile`] is called, and the
     /// autoscaler evaluates only when [`Server::autoscale`] is (the
     /// scenario parity tests, which drive both, and the backups with
@@ -259,9 +252,6 @@ impl Config {
             job_retry_base: Duration::ZERO,
             autoscale_interval: Duration::ZERO,
             backup_interval: Duration::ZERO,
-            runtime_drain_limit: Duration::ZERO,
-            runtime_migrate_limit: Duration::ZERO,
-            runtime_move_backoff: Duration::ZERO,
             manual_passes: false,
             new_id: None,
             metrics_cache: Duration::ZERO,
@@ -323,9 +313,6 @@ pub(crate) struct Inner {
     pub job_retry_base: Duration,
     pub autoscale_interval: Duration,
     pub backup_interval: Duration,
-    pub runtime_drain_limit: Duration,
-    pub runtime_migrate_limit: Duration,
-    pub runtime_move_backoff: Duration,
     pub manual_passes: bool,
     pub new_id: Arc<dyn Fn(usize) -> String + Send + Sync>,
     /// When this server started leading: drains a previous leader began
@@ -362,9 +349,6 @@ pub(crate) struct Inner {
     pub backups: backups::BackupRuns,
     /// Failovers in progress and their retries (memory only).
     pub failovers: failover::FailoverRuns,
-    /// The runtime move's lock between the pass and SetClusterConfig, with
-    /// what it keeps in memory (Go's moveMu, moveAsked, moveSeen).
-    pub moves: tokio::sync::Mutex<runtimemove::MoveState>,
     /// The next pass a wake-up asked for, and its timer.
     pub wake: Mutex<Option<(tokio::time::Instant, tokio::task::AbortHandle)>>,
     /// Alert channels' workers (ADR 0045).
@@ -484,15 +468,6 @@ impl Server {
                 autoscale::DEFAULT_AUTOSCALE_INTERVAL,
             ),
             backup_interval: nonzero(cfg.backup_interval, backups::DEFAULT_BACKUP_INTERVAL),
-            runtime_drain_limit: nonzero(cfg.runtime_drain_limit, runtimemove::DEFAULT_DRAIN_LIMIT),
-            runtime_migrate_limit: nonzero(
-                cfg.runtime_migrate_limit,
-                runtimemove::DEFAULT_MIGRATE_LIMIT,
-            ),
-            runtime_move_backoff: nonzero(
-                cfg.runtime_move_backoff,
-                runtimemove::DEFAULT_MOVE_BACKOFF,
-            ),
             manual_passes: cfg.manual_passes,
             new_id: cfg.new_id.unwrap_or_else(|| Arc::new(random_id)),
             term_start,
@@ -525,7 +500,6 @@ impl Server {
             volumes: volumes::VolumeRouter::default(),
             backups: backups::BackupRuns::default(),
             failovers: failover::FailoverRuns::default(),
-            moves: tokio::sync::Mutex::new(runtimemove::MoveState::default()),
             wake: Mutex::new(None),
             alerts: alerts::Alerter::new(cfg.alert_endpoints),
             metrics: metrics::Metrics::new(cfg.metrics_cache),

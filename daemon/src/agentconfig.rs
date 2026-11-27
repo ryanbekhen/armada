@@ -21,6 +21,11 @@ pub const DIR_ETCD: &str = "etcd";
 pub const RUNTIME_EMBEDDED: &str = "embedded";
 pub const RUNTIME_SUPERVISOR: &str = "supervisor";
 
+/// What a node still on containerd (agent.json runtime "embedded", or
+/// none) is told: this release runs containers on the supervisor runtime
+/// only.
+pub const CONTAINERD_NODE: &str = "this node runs containers on containerd, which this release does not run: upgrade it through v0.1.0-alpha.44 first";
+
 /// Network modes (store.NetworkMesh).
 pub const NETWORK_MESH: &str = "mesh";
 
@@ -39,13 +44,10 @@ pub struct AgentConfig {
     pub mesh_cidr: String,
     pub behind_nat: bool,
     pub mtu: i64,
-    pub net_agent: String,
-    pub runtime_agent: String,
-    pub volume_agent: String,
 }
 
 /// The fields by their JSON keys, in Go's order.
-const KEYS: [&str; 14] = [
+const KEYS: [&str; 11] = [
     "nodeId",
     "privateIp",
     "servers",
@@ -57,9 +59,6 @@ const KEYS: [&str; 14] = [
     "meshCidr",
     "behindNat",
     "mtu",
-    "netAgent",
-    "runtimeAgent",
-    "volumeAgent",
 ];
 
 impl AgentConfig {
@@ -102,14 +101,6 @@ impl AgentConfig {
         if self.mtu != 0 {
             fields.push(format!("  \"mtu\": {}", self.mtu));
         }
-        let mut s = |k: &str, v: &str| {
-            if !v.is_empty() {
-                fields.push(format!("  \"{k}\": {}", json_string(v)));
-            }
-        };
-        s("netAgent", &self.net_agent);
-        s("runtimeAgent", &self.runtime_agent);
-        s("volumeAgent", &self.volume_agent);
         format!("{{\n{}\n}}\n", fields.join(",\n")).into_bytes()
     }
 
@@ -188,9 +179,6 @@ impl AgentConfig {
                         "endpoint" => c.endpoint = s,
                         "clusterCidr" => c.cluster_cidr = s,
                         "meshCidr" => c.mesh_cidr = s,
-                        "netAgent" => c.net_agent = s,
-                        "runtimeAgent" => c.runtime_agent = s,
-                        "volumeAgent" => c.volume_agent = s,
                         _ => {}
                     }
                 }

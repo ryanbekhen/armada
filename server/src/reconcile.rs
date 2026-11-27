@@ -329,11 +329,7 @@ impl Server {
 
     async fn pass(&self) -> Result<()> {
         let mut apps = self.store().list_apps().await?;
-        let mut nodes = self.store().list_nodes().await?;
-        // The node being moved to the supervisor runtime is drained like a
-        // cordoned one (ADR 0054).
-        let moving = self.load_runtime_move().await?;
-        crate::runtimemove::cordon_moving(&moving, &mut nodes);
+        let nodes = self.store().list_nodes().await?;
         let replicas = self.store().list_replicas(&Default::default()).await?;
         self.0.usage.set_owners(&replicas, &self.now());
         let mut revs = Revisions::new(self);
@@ -405,7 +401,6 @@ impl Server {
         let all = std::mem::take(&mut rc.all);
         let now = rc.now.clone();
         self.advance_switch(&now, &nodes).await?;
-        let (move_plans, ask_move) = self.advance_runtime_move(&mut rc, &nodes, &all).await?;
         let addrs = std::mem::take(&mut rc.sandbox_addrs);
         let with_sandboxes: Vec<&Replica> = all.iter().chain(addrs.iter()).collect();
         let mut network = self.build_network(&nodes, &with_sandboxes).await?;
@@ -421,14 +416,8 @@ impl Server {
             &eps,
             network.as_ref(),
             &sandboxes,
-            &move_plans,
         )
         .await?;
-        if !ask_move.is_empty() {
-            // After the node's assignment without its replicas, on the
-            // same stream (ADR 0054).
-            self.ask_to_move(&ask_move, &now).await;
-        }
         Ok(())
     }
 

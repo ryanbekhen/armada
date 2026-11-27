@@ -50,7 +50,6 @@ pub struct Caps {
     pub log_history: bool,
     pub net_switch: bool,
     pub key_rotation: bool,
-    pub runtime_move: bool,
 }
 
 struct Queue {
@@ -414,7 +413,6 @@ impl Server {
                 log_history: hello.log_history,
                 net_switch: hello.network_switch,
                 key_rotation: hello.key_rotation,
-                runtime_move: hello.runtime_move,
             },
         ));
         {

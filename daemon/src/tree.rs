@@ -80,8 +80,8 @@ pub fn root() -> Tree {
         .run(commands::endpoint::show);
     let i_root_endpoint_show = t.add(i_root_endpoint, n);
     let mut n = Node::new("etcd", "Run this server's etcd member from the runtime pack (started by systemd)")
-        .long("etcd runs this server's etcd member with the etcd program of the runtime pack\ninstead of inside `armadad server` (ADR 0055). It works the member out as the\nserver does (name, data, addresses, certificate), writes etcd's configuration\nfile (etcd/etcd.yaml, 0600) beside it, and replaces itself with etcd.\nBefore etcd first runs on a member the server ran, it copies the member's data\nto etcd/data.before-unit once. It refuses while another process holds the\nmember. For now only lab machines run it, with `armadad server --etcd-member unit`.\nFlags it does not know (the server's, from ARMADA_SERVER_FLAGS) are ignored.")
-        .example("  sudo systemctl status armada-etcd                 # started by systemd on lab servers (ADR 0055)\n  sudo armadad etcd --bin-dir /opt/etcd-v3.7.4       # a build without the runtime pack")
+        .long("etcd runs this server's etcd member with the etcd program of the runtime pack.\nsystemd starts it as armada-etcd.service on every server machine. It works the\nmember out as the server does (name, data, addresses, certificate), writes etcd's\nconfiguration file (etcd/etcd.yaml, 0600) beside it, and replaces itself with\netcd. It refuses while another process holds the member. Flags it does not know\n(the server's, from ARMADA_SERVER_FLAGS) are ignored.")
+        .example("  sudo systemctl status armada-etcd                 # started by systemd on server machines\n  sudo armadad etcd --bin-dir /opt/etcd-v3.7.4       # a build without the runtime pack")
         .args(Args::No)
         .run(commands::etcd::run)
         .flag(Flag::string("bin-dir", None, "", "use the etcd program in this directory (builds without the runtime pack)"))
@@ -133,7 +133,7 @@ pub fn root() -> Tree {
         .flag(Flag::string("snapshot", None, "latest", "backup to restore from the bucket: an ID from armadad backup list, or latest"));
     let i_root_restore = t.add(0, n);
     let mut n = Node::new("runtime", "Install the runtime pack (started by systemd)")
-        .long("runtime extracts the runtime pack this armadad carries (crun, runc, the CNI\nplugins, tini, armada-shim, armada-log, armada-dns, armada-node, and etcd) into\nthe data directory, verifies it, and exits; armada-agent (which armada-server wants)\nstarts it (armada-runtime.service). It does nothing on nodes that are not initialized yet.\n\nA node set up on containerd fails here: containerd is no longer in the pack\n(ADR 0046). Move such a node to the supervisor runtime with v0.1.0-alpha.42\nfirst, or remove it and join it again.")
+        .long("runtime extracts the runtime pack this armadad carries (crun, runc, the CNI\nplugins, tini, armada-shim, armada-log, armada-dns, armada-node, and etcd) into\nthe data directory, verifies it, and exits; armada-agent (which armada-server wants)\nstarts it (armada-runtime.service). It does nothing on nodes that are not initialized yet.\n\nA node still on containerd fails here: this release runs containers on the\nsupervisor runtime only (ADR 0046). Upgrade such a node through v0.1.0-alpha.44\nfirst, or remove it and join it again.")
         .example("  sudo systemctl status armada-runtime   # started with armada-agent\n  sudo armadad runtime reset             # remove every container Armada runs here")
         .args(Args::No)
         .run(commands::runtime::run)
@@ -161,18 +161,13 @@ pub fn root() -> Tree {
         .flag(Flag::string("acme-ca", None, "letsencrypt", "ACME directory: letsencrypt, letsencrypt-staging, or an https:// URL"))
         .flag(Flag::string("acme-email", None, "", "contact email for the ACME account"))
         .flag(Flag::string("acme-listen", None, "", "private ip:port for HTTP-01 challenges forwarded by HAProxy (default: <server ip>:7480)"))
-        .flag(Flag::bool("agent", None, true, "kept for server.env files of before: armada-agent.service runs the node's agent").hide())
         .flag(Flag::string("data-dir", None, "/var/lib/armada", "directory for cluster state and keys"))
         .flag(Flag::string("dns-provider", None, "", "DNS provider for certificates of the root domain and the names under it, including a wildcard: cloudflare"))
         .flag(Flag::string("dns-token-file", None, "", "file (mode 0600) holding the DNS provider API token"))
-        .flag(Flag::string("etcd-member", None, "unit", "where this server's etcd member runs: unit (armada-etcd.service, the only choice of this armadad; ADR 0055)").hide())
-        .flag(Flag::bool("internal-dns", None, true, "kept for server.env files of before: set it for armada-agent in agent.env").hide())
         .flag(Flag::string("join-listen", None, "", "private ip:port for joining nodes (default: API port + 1; \"off\" disables joining)"))
         .flag(Flag::string("log-format", None, "text", "log format: text or json"))
         .flag(Flag::string("metrics-listen", None, "", "private ip:port for the Prometheus metrics endpoint, served by the leader to metrics and admin certificates (default: off)"))
         .flag(Flag::duration("node-lost-timeout", None, 5 * 60 * 1_000_000_000, "how long a node may be unreachable before its replicas move to other nodes"))
-        .flag(Flag::string("proxy", None, "haproxy", "kept for server.env files of before: set it for armada-agent in agent.env").hide())
-        .flag(Flag::string("secrets-dir", None, "/run/armada/secrets", "kept for server.env files of before: set it for armada-agent in agent.env").hide())
         .flag(Flag::bool("tls", None, true, "obtain and renew TLS certificates with ACME"))
         .flag(Flag::bool("verbose", Some('v'), false, "debug logging"));
     let i_root_server = t.add(0, n);
@@ -196,8 +191,8 @@ pub fn root() -> Tree {
     n.required = vec!["ca-hash"];
     let i_root_server_join = t.add(i_root_server, n);
     let mut n = Node::new("upgrade [--version vX.Y.Z]", "Upgrade this machine to the latest (or a given) release and restart its service")
-        .long("upgrade downloads a release, verifies its checksum (and its signature when cosign is\ninstalled), replaces armadad and armada and the systemd units, and restarts\narmada-runtime (containers keep running), armada-etcd, armada-server, and armada-agent,\neach where it runs. Upgrade servers first, one at a time, then the other\nnodes (docs/operations.md#upgrades). ARMADA_DOWNLOAD_BASE points at a mirror.\n\nIt refuses older releases but one: --version v0.1.0-alpha.42, the last release\nbefore armadad moved to Rust, rolls this machine back to it (stops armada-server,\narmada-agent, and armada-etcd, removes the units that release lacks, installs\nit, and starts its service; docs/operations.md#rolling-back-to-the-last-go-release).")
-        .example("  sudo armadad upgrade                       # the latest release; servers first, one at a time\n  sudo armadad upgrade --version v0.1.0-alpha.40\n  sudo armadad upgrade --no-restart          # install only; restart the services later")
+        .long("upgrade downloads a release, verifies its checksum (and its signature when cosign is\ninstalled), replaces armadad and armada and the systemd units, and restarts\narmada-runtime (containers keep running), armada-etcd, armada-server, and armada-agent,\neach where it runs. Upgrade servers first, one at a time, then the other\nnodes (docs/operations.md#upgrades). ARMADA_DOWNLOAD_BASE points at a mirror.\n\nIt refuses older releases: going back takes the backup from before the upgrade\n(docs/operations.md#rolling-back-an-upgrade).")
+        .example("  sudo armadad upgrade                       # the latest release; servers first, one at a time\n  sudo armadad upgrade --version v0.2.0\n  sudo armadad upgrade --no-restart          # install only; restart the services later")
         .args(Args::No)
         .run(commands::upgrade::run)
         .flag(Flag::bool("no-restart", None, false, "install only; restart the service yourself"))

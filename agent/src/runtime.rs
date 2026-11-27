@@ -43,11 +43,6 @@ pub const STATE_STARTING: &str = "starting";
 pub const OCI_RUNC: &str = "runc";
 pub const OCI_CRUN: &str = "crun";
 
-/// The runtimes and whose code runs them (AgentStatus.agent).
-pub const AGENT_CONTAINERD: &str = "containerd";
-pub const AGENT_SUPERVISOR_GO: &str = "supervisor-go";
-pub const AGENT_SUPERVISOR_RUST: &str = "supervisor-rust";
-
 /// A runtime's failure, with Go's texts.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Error {
@@ -241,26 +236,13 @@ pub struct Stats {
     pub oom_kills: i64,
 }
 
-/// How a node runs containers (ADR 0054).
+/// How a node runs containers.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct AgentStatus {
-    pub agent: String,
-    pub go_images: bool,
-    pub converted: bool,
-    pub images_to_pull: i64,
-    pub error: String,
     /// Containers runc created that are still on the node (ADR 0056):
     /// app containers, their init containers and sidecars, job attempts,
     /// and system containers.
     pub runc_containers: i64,
-}
-
-impl AgentStatus {
-    /// Whether anything of Go's runtime is left on a supervisor-rust node.
-    pub fn converting(&self) -> bool {
-        self.agent == AGENT_SUPERVISOR_RUST
-            && (self.go_images || !self.converted || !self.error.is_empty())
-    }
 }
 
 /// A container runtime as the agent uses it. Every method may be cancelled

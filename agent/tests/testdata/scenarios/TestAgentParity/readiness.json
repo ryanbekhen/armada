@@ -8,7 +8,6 @@
   "encodes": false,
   "exec": true,
   "members": true,
-  "move": false,
   "network": false,
   "networkKey": "",
   "noSecretsDir": false,
@@ -64,13 +63,6 @@
   {
    "op": "fake",
    "script": {
-    "agentStatus": {
-     "agent": "",
-     "converted": false,
-     "error": "",
-     "goImages": false,
-     "imagesToPull": 0
-    },
     "checks": {
      "10.0.0.2:31800 /ready": "HTTP 503"
     },
@@ -86,7 +78,6 @@
      "keyErr": "",
      "load": {},
      "loadErr": "",
-     "moveErr": "",
      "netErr": "",
      "peers": null,
      "proxyErr": "",
@@ -126,13 +117,6 @@
   {
    "op": "fake",
    "script": {
-    "agentStatus": {
-     "agent": "",
-     "converted": false,
-     "error": "",
-     "goImages": false,
-     "imagesToPull": 0
-    },
     "checks": {
      "10.0.0.2:31800 /ready": ""
     },
@@ -148,7 +132,6 @@
      "keyErr": "",
      "load": {},
      "loadErr": "",
-     "moveErr": "",
      "netErr": "",
      "peers": null,
      "proxyErr": "",

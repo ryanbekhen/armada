@@ -46,7 +46,7 @@ use armada_node::runtime::container::oci::OciRuntime;
 use armada_node::runtime::container::shim::CallError;
 use armada_node::runtime::container::stats as nstats;
 use armada_node::runtime::image::store::{ImageRecord, Store};
-use armada_node::runtime::image::{gostore, pull as npull, reference, snapshot};
+use armada_node::runtime::image::{pull as npull, reference, snapshot};
 use serde_json::value::RawValue;
 use tokio::sync::watch;
 
@@ -110,13 +110,6 @@ pub struct Config {
     pub proc_root: PathBuf,
     pub host: Arc<dyn Host>,
     pub log: Logger,
-    /// The runtime is the agent's (containerd.Config.Agent): Go's image
-    /// store is moved into armada-node's when it is opened, and removed
-    /// once no container stands on it. Doctor and reset leave it alone.
-    pub agent: bool,
-    /// The mounts read before Go's store is removed; empty for
-    /// /proc/self/mountinfo.
-    pub mountinfo: PathBuf,
 }
 
 impl Config {
@@ -134,8 +127,6 @@ impl Config {
             proc_root: PathBuf::new(),
             host: Arc::new(host::LinuxHost),
             log,
-            agent: false,
-            mountinfo: PathBuf::new(),
         }
     }
 }
@@ -165,10 +156,6 @@ struct Inner {
     selinux: selinux::Selinux,
     /// Sandboxes are made, removed, and listed one at a time.
     sandboxes: tokio::sync::Mutex<()>,
-    /// Why moving Go's image store failed at the start (Store.MoveErr).
-    move_err: Mutex<Option<String>>,
-    /// Go's image store is removed by one caller at a time (goMu).
-    go_mu: Mutex<()>,
 }
 
 /// A replica's bring-up in progress.
@@ -531,16 +518,9 @@ impl Supervisor {
                 skipped: Mutex::new(BTreeMap::new()),
                 selinux: selinux::Selinux::new(cfg.host.clone()),
                 sandboxes: tokio::sync::Mutex::new(()),
-                move_err: Mutex::new(None),
-                go_mu: Mutex::new(()),
                 cfg,
             }),
         };
-        if rt.inner.cfg.agent {
-            // Before anything opens either store (newSupervisorBackend).
-            rt.inner.move_images();
-            rt.inner.collect_go();
-        }
         Ok(rt)
     }
 
@@ -761,157 +741,9 @@ impl Inner {
         Ok(out)
     }
 
-    /// Go's image store (<data dir>/supervisor/images), which the Go
-    /// agent opens when it exists.
-    fn go_images(&self) -> PathBuf {
-        self.cfg.data_dir.join("supervisor").join("images")
-    }
-
-    /// The record of the move of Go's image store (MovedFile).
-    fn moved_file(&self) -> PathBuf {
-        self.cfg.data_dir.join("node").join(gostore::MOVED_FILE)
-    }
-
-    fn mountinfo(&self) -> PathBuf {
-        if self.cfg.mountinfo.as_os_str().is_empty() {
-            PathBuf::from(gostore::MOUNTINFO)
-        } else {
-            self.cfg.mountinfo.clone()
-        }
-    }
-
-    /// moveImages: Go's image store converted into armada-node's at the
-    /// agent's start, once, its containers' root filesystems moved, and
-    /// the store removed once none is left in it; what it did logged.
-    /// Images it leaves out are pulled again when a replica needs them; a
-    /// failure is kept for the runtime's status and the node runs anyway.
-    fn move_images(&self) {
-        let moved = self.moved_file();
-        let before = gostore::read_move_state(&moved).ok().flatten();
-        let (st, sum, r) = gostore::move_images(
-            &self.go_images(),
-            &self.images,
-            &self.bundles,
-            &moved,
-            &self.mountinfo(),
-        );
-        let log = &self.cfg.log;
-        if let Err(e) = r {
-            log.warn(
-                "Go's image store could not be converted into armada-node's; armada-node pulls the images it needs, and the next start tries again",
-                &[("err", e.clone())],
-            );
-            *self.move_err.lock().unwrap_or_else(|p| p.into_inner()) = Some(e);
-            return;
-        }
-        if let Some(sum) = &sum {
-            log.info(
-                "converted Go's image store into armada-node's",
-                &[
-                    ("converted", sum.converted.len().to_string()),
-                    ("kept", sum.kept.len().to_string()),
-                    ("skipped", st.skipped.len().to_string()),
-                    ("layers", st.layers.to_string()),
-                    ("containers", st.containers.to_string()),
-                    ("containersLeft", st.containers_left.len().to_string()),
-                ],
-            );
-            for (name, why) in &st.skipped {
-                log.warn(
-                    "image left out of the conversion; armada-node pulls it again when a replica needs it",
-                    &[("image", name.clone()), ("reason", why.clone())],
-                );
-            }
-        }
-        for (id, why) in &st.containers_left {
-            log.warn(
-                "container's root filesystem stays in Go's image store until the container goes",
-                &[("container", id.clone()), ("reason", why.clone())],
-            );
-        }
-        let was_collected = before.as_ref().is_some_and(|b| b.collected);
-        if st.collected && !was_collected && (before.is_some() || sum.is_some()) {
-            log.info(
-                "Go's image store removed: no container's root filesystem is left in it",
-                &[("containers", st.containers.to_string())],
-            );
-        }
-    }
-
-    /// Store.CollectGo: Go's image store goes once the move's record
-    /// exists and no container's root filesystem is left in it. At the
-    /// agent's start and after every release; the Go store's metadata is
-    /// only read, so a container left in it is not removed from it: the
-    /// whole store goes with the last of them.
-    fn collect_go(&self) {
-        if !self.cfg.agent {
-            return;
-        }
-        let _g = self.go_mu.lock().unwrap_or_else(|p| p.into_inner());
-        let src = self.go_images();
-        if !src.exists() {
-            return;
-        }
-        let Ok((recs, _)) = bundle::records(&self.bundles.display().to_string()) else {
-            return;
-        };
-        match gostore::collect_go(
-            &src,
-            &self.images,
-            &self.moved_file(),
-            &recs,
-            &self.mountinfo(),
-        ) {
-            Ok(gostore::Collected::Yes) => self.cfg.log.info(
-                "Go's image store removed: no container uses it any more",
-                &[("dir", src.display().to_string())],
-            ),
-            Ok(gostore::Collected::No) => {}
-            Err(e) => self.cfg.log.warn(
-                "Go's image store could not be removed; the next start tries again",
-                &[("dir", src.display().to_string()), ("err", e)],
-            ),
-        }
-    }
-
-    /// release: container id's root filesystem goes from armada-node's
-    /// store, and Go's store with the last container on it.
+    /// Container id's root filesystem goes from the image store.
     fn release_rootfs(&self, store: &Store, id: &str) -> Result<(), String> {
-        snapshot::release(store, id)?;
-        self.collect_go();
-        Ok(())
-    }
-
-    /// Store.MoveStatus as Driver.RuntimeAgent reports it: Go's store
-    /// left, the conversion recorded, and the images it left out that no
-    /// replica pulled again yet.
-    fn move_status(&self) -> AgentStatus {
-        let go_images = self.go_images().exists();
-        let mut st = AgentStatus {
-            agent: runtime::AGENT_SUPERVISOR_RUST.into(),
-            go_images,
-            error: self
-                .move_err
-                .lock()
-                .unwrap_or_else(|p| p.into_inner())
-                .clone()
-                .unwrap_or_default(),
-            ..Default::default()
-        };
-        let read = gostore::read_move_state(&self.moved_file());
-        st.converted = matches!(read, Ok(Some(_))) || (!go_images && read.is_ok());
-        if let Ok(Some(m)) = read
-            && !m.collected
-            && !m.skipped.is_empty()
-            && let Ok(idx) = self.store().and_then(|s| s.index())
-        {
-            st.images_to_pull = m
-                .skipped
-                .keys()
-                .filter(|n| !idx.images.contains_key(*n))
-                .count() as i64;
-        }
-        st
+        snapshot::release(store, id)
     }
 
     /// The pack's armada-log, None when it has none (packLogger).
@@ -2467,17 +2299,10 @@ impl Runtime for Supervisor {
     }
 
     async fn runtime_agent(&self) -> Option<AgentStatus> {
-        let i = self.inner.clone();
-        let mut st = i
-            .blocking({
-                let i = i.clone();
-                move || i.move_status()
-            })
-            .await
-            .ok()?;
+        let mut st = AgentStatus::default();
         // What runc created and the agent has not moved to crun yet (ADR
         // 0056); a listing that fails counts none.
-        if let Ok(recs) = i.records().await {
+        if let Ok(recs) = self.inner.records().await {
             st.runc_containers = recs
                 .iter()
                 .filter(|r| OciRuntime::of_record(&r.runtime) == Ok(OciRuntime::Runc))

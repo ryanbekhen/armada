@@ -3,8 +3,7 @@
 use armada_proto::armada::v1::{
     BackupKeep, ClusterConfig, ClusterStatusRequest, ClusterStatusResponse,
     ControlPlaneBackupStatus, Domain, GetClusterConfigRequest, ListDomainsRequest, NodeSwitchWait,
-    RuntimeMoveStatus, RuntimeProgress, RuntimeStatus, SetClusterConfigRequest,
-    VerifyDomainRequest,
+    SetClusterConfigRequest, VerifyDomainRequest,
 };
 use armada_spec as spec;
 use armada_spec::go;
@@ -71,13 +70,7 @@ latest, or last=N,hourly=N,daily=N,weekly=N,monthly=N. Both read a file (mode
 0600) or stdin (-, one of them): the URL is https://KEY:SECRET@host/bucket[/prefix]
 and the key at least 32 bytes. They are stored encrypted and never shown. The
 first backup runs at once; armada cluster status shows the last one.
---backup none turns them off; the bucket keeps what it holds.
-
---runtime-move=false stops the leader from moving nodes that still run
-containers on containerd to the supervisor runtime (ADR 0054); it moves them
-one at a time by default, draining each first. A node already asked to move
-finishes; one being drained takes replicas again. armada cluster status shows
-the move and why a node waits.";
+--backup none turns them off; the bucket keeps what it holds.";
 
 pub fn add_cluster(t: &mut Tree) -> usize {
     let n = t.add(
@@ -260,12 +253,6 @@ fn update_flags() -> Vec<Flag> {
             "file holding the key control plane backups are encrypted with (at least 32 bytes), or - for stdin",
         ),
         Flag::string("backup", None, "", "none turns control plane backups off"),
-        Flag::bool(
-            "runtime-move",
-            None,
-            true,
-            "move nodes still on containerd to the supervisor runtime, one at a time; false stops it",
-        ),
     ]
 }
 
@@ -287,7 +274,7 @@ const LOG_EXPORT_FLAGS: [&str; 4] = [
     "log-export-tenant",
 ];
 const BACKUP_PLAN_FLAGS: [&str; 3] = ["backup-every", "backup-schedule", "backup-time-zone"];
-const OTHER_FLAGS: [&str; 20] = [
+const OTHER_FLAGS: [&str; 19] = [
     "root-domain",
     "trusted-proxies",
     "proxy-protocol",
@@ -307,7 +294,6 @@ const OTHER_FLAGS: [&str; 20] = [
     "backup-keep",
     "backup-url",
     "backup-key",
-    "runtime-move",
 ];
 
 /// settingsSettle and settingsWait: how long cluster update waits before
@@ -330,7 +316,6 @@ fn update(ctx: &mut Ctx<'_>, _: &[String]) -> Result {
             node_lost_timeout_seconds: ctx.duration("node-lost-timeout") / go::SECOND,
             network: ctx.str("network"),
             mesh_cidr: ctx.str("mesh-cidr"),
-            runtime_move_off: !ctx.bool("runtime-move"),
             ..Default::default()
         }),
         set_root_domain: ch("root-domain"),
@@ -354,7 +339,6 @@ fn update(ctx: &mut Ctx<'_>, _: &[String]) -> Result {
         set_backup_url: ch("backup-url"),
         set_backup_key: ch("backup-key"),
         set_backup_off: ch("backup"),
-        set_runtime_move: ch("runtime-move"),
         ..Default::default()
     };
     if !OTHER_FLAGS.iter().any(|f| ch(f)) && !req.set_log_export && !req.set_backup_plan {
@@ -429,13 +413,7 @@ fn update(ctx: &mut Ctx<'_>, _: &[String]) -> Result {
         }
         cfg.backup_time_zone = if ch_tz { tz } else { cur.backup_time_zone };
     }
-    let move_off = req.config.as_ref().is_some_and(|c| c.runtime_move_off);
-    let set_move = req.set_runtime_move;
     let cc = rpc!(ctx, admin, set_cluster_config, req).map_err(rpc_err)?;
-    if set_move && cc.runtime_move_off != move_off {
-        // A leader of an older release ignores the field.
-        return Err("the leader did not take --runtime-move: it runs an older release; upgrade the servers first".into());
-    }
     if RESTARTING_SETTINGS.iter().any(|f| ctx.changed(f)) {
         // The leader restarts its control plane with them right after
         // answering; the next command would find no API.
@@ -697,18 +675,13 @@ fn cluster_config_text(cc: &ClusterConfig) -> String {
     if !cc.mesh_cidr.is_empty() {
         network.push_str(&format!(", mesh addresses from {}", cc.mesh_cidr));
     }
-    let mv = if cc.runtime_move_off {
-        "off"
-    } else {
-        "on: containerd nodes move to the supervisor runtime one at a time"
-    };
     let provider = if cc.dns_provider.is_empty() {
         "none"
     } else {
         cc.dns_provider.as_str()
     };
     format!(
-        "root domain:       {}\ntrusted proxies:   {}\nproxy protocol:    {}\ncertificates:      {}\nacme email:        {}\ndns provider:      {} (token {})\nmetrics:           {}\nnode lost timeout: {}\nlog history:       {}\nlog export:        {}\nnetwork:           {}\nbackups:           {}\nruntime move:      {}\n",
+        "root domain:       {}\ntrusted proxies:   {}\nproxy protocol:    {}\ncertificates:      {}\nacme email:        {}\ndns provider:      {} (token {})\nmetrics:           {}\nnode lost timeout: {}\nlog history:       {}\nlog export:        {}\nnetwork:           {}\nbackups:           {}\n",
         dash(&cc.root_domain),
         dash(&cc.trusted_proxies.join(",")),
         dash(&cc.proxy_protocol.join(",")),
@@ -721,8 +694,7 @@ fn cluster_config_text(cc: &ClusterConfig) -> String {
         logs,
         export,
         network,
-        backups,
-        mv
+        backups
     )
 }
 
@@ -772,14 +744,6 @@ fn cluster_status_text(r: &ClusterStatusResponse) -> String {
     if let Some(b) = &r.control_plane_backup {
         tw.write(&format!("\n{}\n", backup_status_line(b)));
     }
-    if let Some(rt) = &r.runtime
-        && rt.nodes > 0
-    {
-        tw.write(&format!("\n{}\n", runtime_line(rt)));
-    }
-    if let Some(mv) = &r.runtime_move {
-        tw.write(&runtime_move_text(mv));
-    }
     if let Some(sw) = &r.network_switch {
         let step = match sw.step.as_str() {
             "prepare" => format!("bringing it up beside {}", sw.from),
@@ -806,90 +770,6 @@ fn cluster_status_text(r: &ClusterStatusResponse) -> String {
     }
     out.push_str(&tw.finish());
     out
-}
-
-/// runtimeLine: where the nodes' move to armada-node stands.
-fn runtime_line(p: &RuntimeProgress) -> String {
-    let mut line = format!("runtime: {} of {} nodes on armada-node", p.moved, p.nodes);
-    let mut others: Vec<String> = p
-        .others
-        .iter()
-        .map(|o| format!("{} {}", o.node, runtime_where(o.status.as_ref())))
-        .collect();
-    let more = p.others_total as i64 - p.others.len() as i64;
-    if more > 0 {
-        others.push(format!("and {more} more"));
-    }
-    if !others.is_empty() {
-        line.push_str("; ");
-        line.push_str(&others.join(", "));
-    }
-    line
-}
-
-/// printRuntimeMove.
-fn runtime_move_text(mv: &RuntimeMoveStatus) -> String {
-    if mv.node.is_empty() && !mv.off && mv.held.is_empty() && mv.waiting.is_empty() {
-        return String::new();
-    }
-    let mut w = String::from("\n");
-    if !mv.node.is_empty() {
-        let step = match mv.step.as_str() {
-            "draining" => "its replicas start on other nodes".to_string(),
-            "migrating" => {
-                "it removes its containers and restarts its service on the supervisor runtime"
-                    .to_string()
-            }
-            other => other.to_string(),
-        };
-        w.push_str(&format!(
-            "runtime move: moving {} to the supervisor runtime, {} (since {}; started {})\n",
-            mv.node,
-            step,
-            date_time(Some(&unix_ts(mv.step_since_unix))),
-            date_time(Some(&unix_ts(mv.since_unix)))
-        ));
-        if !mv.error.is_empty() {
-            w.push_str(&format!("  the node said: {}\n", printable(&mv.error)));
-        }
-    } else if mv.off {
-        w.push_str("runtime move: off (armada cluster update --runtime-move=true turns it on)\n");
-    } else if !mv.held.is_empty() {
-        w.push_str(&format!("runtime move: waiting, {}\n", printable(&mv.held)));
-    }
-    if mv.waiting.is_empty() {
-        return w;
-    }
-    w.push_str("NODE ON CONTAINERD\tWAITS FOR\n");
-    for wt in &mv.waiting {
-        let who = if wt.operator { "its operator: " } else { "" };
-        w.push_str(&format!("{}\t{who}{}\n", wt.node, printable(&wt.reason)));
-    }
-    let more = mv.waiting_total as i64 - mv.waiting.len() as i64;
-    if more > 0 {
-        w.push_str(&format!("and {more} more\n"));
-    }
-    w
-}
-
-/// runtimeWhere: where one node stands in the move to armada-node.
-fn runtime_where(st: Option<&RuntimeStatus>) -> String {
-    let Some(st) = st else {
-        return "not reporting".to_string();
-    };
-    if st.agent == "containerd" {
-        "on containerd".to_string()
-    } else if st.agent == "supervisor-go" {
-        "on Go's runtime code".to_string()
-    } else if !st.error.is_empty() {
-        "converting its images failed".to_string()
-    } else if st.converting {
-        "converting".to_string()
-    } else if st.images_to_pull > 0 {
-        format!("with {} images to pull again", st.images_to_pull)
-    } else {
-        "on armada-node".to_string()
-    }
 }
 
 /// switchWait: what a network switch waits for on one node.

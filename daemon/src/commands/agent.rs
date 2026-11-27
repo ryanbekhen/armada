@@ -46,8 +46,6 @@ fn msg(s: impl Into<String>) -> Error {
     Error::Msg(s.into())
 }
 
-/// The leader's plan for a containerd node's move (Go's fileRuntimeMove).
-pub const FILE_RUNTIME_MOVE: &str = "runtime-move.json";
 /// HAProxy's directory below the data directory.
 const DIR_HAPROXY: &str = "haproxy";
 /// How often the agent checks whether its certificate needs renewal.
@@ -207,11 +205,6 @@ fn prepare_volumes_dir(dir: &str, log: &Logger) -> String {
             String::new()
         }
     }
-}
-
-/// saveRuntimeMovePlan with no plan: the note removed.
-fn remove_runtime_move_plan(data_dir: &str) {
-    let _ = std::fs::remove_file(Path::new(data_dir).join(FILE_RUNTIME_MOVE));
 }
 
 /// HostUpstreams: the machine's resolvers, for names outside the
@@ -503,17 +496,14 @@ async fn run_agent(
     check_proxy_kind(&o.proxy)?;
     ac.check_runtime()?;
     if ac.runtime != RUNTIME_SUPERVISOR {
-        // ADR 0055: no containerd runtime in the Rust agent.
-        remove_runtime_move_plan(&data_dir);
+        // The agent starts nothing and waits to be stopped.
         log.error(
-            "this node runs containers on containerd, which this armadad does not run: it starts and removes nothing; move the node to the supervisor runtime with v0.1.0-alpha.42 (armada node drain, armadad runtime migrate --to supervisor, armada node resume), or roll this machine back",
-            &[("runtime", if ac.runtime.is_empty() { crate::agentconfig::RUNTIME_EMBEDDED.into() } else { ac.runtime.clone() })],
+            &format!("{}; the agent starts nothing", agentconfig::CONTAINERD_NODE),
+            &[],
         );
         crate::stopped(&mut stop).await;
         return Ok(());
     }
-    // Only supervisor nodes run here: nothing moves them (ADR 0054).
-    remove_runtime_move_plan(&data_dir);
     let mut mtu = 0;
     if !ac.network.is_empty() {
         // Containers reach other nodes through the tunnel, which takes its
@@ -533,9 +523,6 @@ async fn run_agent(
     );
     scfg.subnet = ac.container_subnet.clone();
     scfg.mtu = mtu as u32;
-    // Only the agent's start moves Go's image store (Go's
-    // containerd.Config.Agent); doctor, reset, and migrate never do.
-    scfg.agent = true;
     let rt = Arc::new(Supervisor::new(scfg)?);
     let mut dns: Option<Arc<DnsProcess>> = None;
     let mut internal_ip = String::new();

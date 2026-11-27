@@ -508,11 +508,11 @@ impl Fake {
             }
             "runtimeAgent" => {
                 let a = &sc["agentStatus"];
-                Ok(
-                    json!({"agent": s(&a["agent"]), "goImages": a["goImages"].as_bool().unwrap_or(false),
-                    "converted": a["converted"].as_bool().unwrap_or(false), "imagesToPull": int(&a["imagesToPull"]),
-                    "error": s(&a["error"])}),
-                )
+                Ok(if a.is_object() {
+                    json!({"runcContainers": int(&a["runcContainers"])})
+                } else {
+                    Value::Null
+                })
             }
             _ => self.answer_more(st, &sc, method, c),
         }
@@ -743,18 +743,6 @@ impl Fake {
                 } else {
                     Value::Array(out)
                 })
-            }
-            "move" => {
-                self.record(st, "move", json!(s(&c["to"])));
-                Self::err_of(inn, "moveErr").map(|_| Value::Null)
-            }
-            "prepare" => {
-                self.record(st, "prepare", json!(s(&c["to"])));
-                Ok(Value::Null)
-            }
-            "plan" => {
-                self.record(st, "plan", c["plan"].clone());
-                Ok(Value::Null)
             }
             _ => self.answer_side(st, sc, method, c),
         }

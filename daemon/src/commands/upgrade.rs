@@ -1,21 +1,8 @@
-//! armadad upgrade: this machine moved to a release (Go's upgrade.go,
-//! ADR 0030), with what ADR 0055 adds for server machines that run etcd
-//! and the agent as units of their own:
-//!
-//! - On a server machine (armada-server enabled), the units the server
-//!   wants are enabled when they are not yet (armada-etcd and
-//!   armada-agent, new after the last Go release).
-//! - Every active unit is restarted, in order: armada-runtime,
-//!   armada-etcd, armada-server, armada-agent (Go's upgrader restarted the
-//!   first of armada-server and armada-agent, since its server ran the
-//!   agent).
-//! - The one older release it installs is the last Go release
-//!   (`LAST_GO_RELEASE`), as a rollback: armada-server (a leader hands
-//!   over), armada-agent, and armada-etcd stopped, the units that release
-//!   does not have disabled and removed (and armada-agent disabled on a
-//!   server machine, whose Go server runs the agent itself), the release
-//!   installed, and its service started. Every other older release is
-//!   refused as before.
+//! armadad upgrade: this machine moved to a newer release (ADR 0030):
+//! the release downloaded, its signature (when cosign is installed) and
+//! checksum verified, armada and armadad and the systemd units installed,
+//! and every active unit restarted in order: armada-runtime, armada-etcd,
+//! armada-server, armada-agent. Older releases are refused.
 
 use std::fs;
 use std::io::{BufRead, Read, Write};
@@ -32,19 +19,6 @@ const DEFAULT_DOWNLOAD_BASE: &str = "https://github.com/ryanbekhen/armada/releas
 const OIDC_ISSUER: &str = "https://token.actions.githubusercontent.com";
 const MAX_DOWNLOAD: u64 = 512 << 20;
 const INSTALLED_BINARY: &str = "/usr/local/bin/armadad";
-
-/// The last release of Go's armadad (ADR 0055): the one older release
-/// `armadad upgrade --version` installs, rolling this machine back.
-pub const LAST_GO_RELEASE: &str = "v0.1.0-alpha.42";
-/// Where `systemctl enable` links the units (their WantedBy).
-const WANTS_DIR: &str = "multi-user.target.wants";
-/// The units a server machine runs beside armada-server, which wants them.
-const BESIDE_SERVER: [&str; 2] = ["armada-etcd", "armada-agent"];
-
-/// Whether unit is enabled in the unit directory (its WantedBy link).
-fn enabled(unit_dir: &Path, unit: &str) -> bool {
-    fs::symlink_metadata(unit_dir.join(WANTS_DIR).join(format!("{unit}.service"))).is_ok()
-}
 
 /// needrestart's settings (Go's needrestart.go).
 pub const NEEDRESTART_DIR: &str = "/etc/needrestart/conf.d";
@@ -223,23 +197,16 @@ impl Upgrader<'_> {
             self.step(&format!("Already at {current}.\n"));
             return Ok(());
         }
-        let rollback = release::newer(current, target);
-        if rollback && target != LAST_GO_RELEASE {
+        if release::newer(current, target) {
             return Err(format!(
                 "{target} is older than this {current}; going back takes the backup from before the upgrade (docs/operations.md#rolling-back-an-upgrade)"
             ));
         }
-        if rollback {
-            self.step(&format!(
-                "Rolling this machine back from {current} to {target}, the last release before armadad moved to Rust\n"
-            ));
-        } else {
-            self.step(&format!(
-                "Upgrading this machine from {current} to {target}\n"
-            ));
-        }
+        self.step(&format!(
+            "Upgrading this machine from {current} to {target}\n"
+        ));
         let tmp = crate::pack::temp_dir(&std::env::temp_dir(), "armada-upgrade-")?;
-        let result = self.install(current, target, &tmp, rollback);
+        let result = self.install(current, target, &tmp);
         let _ = fs::remove_dir_all(&tmp);
         result
     }
@@ -249,7 +216,6 @@ impl Upgrader<'_> {
         current: &str,
         target: &str,
         tmp: &Path,
-        rollback: bool,
     ) -> std::result::Result<(), String> {
         let archive = format!(
             "armada_{}_linux_{}.tar.gz",
@@ -271,12 +237,8 @@ impl Upgrader<'_> {
                 return Err(format!("the release has no {bin}"));
             }
         }
-        if rollback {
-            return self.roll_back(current, target, &files);
-        }
         self.install_binaries(&files)?;
         self.install_units(&files)?;
-        self.enable_beside_server()?;
         self.write_needrestart();
         let mut msg = format!("Upgraded to {target} (from {current})");
         if self.restart {
@@ -288,7 +250,7 @@ impl Upgrader<'_> {
                 msg.push_str("; restarted armada-runtime");
             }
             // The member first, so the server reaches the etcd this armadad
-            // carries; then the server, then the node's agent (ADR 0055).
+            // carries; then the server, then the node's agent.
             for unit in ["armada-etcd", "armada-server", "armada-agent"] {
                 if !systemd::unit_active(unit) {
                     continue;
@@ -440,173 +402,6 @@ impl Upgrader<'_> {
         }
     }
 
-    /// The unit directory, when the machine has one.
-    fn units(&self) -> Option<PathBuf> {
-        self.unit_dir
-            .clone()
-            .filter(|d| fs::metadata(d).is_ok_and(|m| m.is_dir()))
-    }
-
-    /// On a server machine (armada-server enabled), enables the units it
-    /// wants that are not enabled yet: after the first upgrade from the
-    /// last Go release, armada-etcd and armada-agent. armada-server wants
-    /// them either way; enabling them says so to `systemctl list-unit-files`
-    /// and keeps them when someone disables the server for a while.
-    fn enable_beside_server(&mut self) -> std::result::Result<(), String> {
-        let Some(dir) = self.units() else {
-            return Ok(());
-        };
-        if !enabled(&dir, "armada-server") {
-            return Ok(());
-        }
-        let new: Vec<&str> = BESIDE_SERVER
-            .into_iter()
-            .filter(|u| dir.join(format!("{u}.service")).is_file() && !enabled(&dir, u))
-            .collect();
-        if new.is_empty() {
-            return Ok(());
-        }
-        let mut args = vec!["enable"];
-        args.extend(&new);
-        systemd::systemctl(&args)?;
-        self.step(&format!(
-            "  enable     {} (run beside armada-server on this server machine)\n",
-            new.join(", ")
-        ));
-        Ok(())
-    }
-
-    /// The rollback to the last Go release (ADR 0055, "Rolling back"): the
-    /// release is downloaded and verified; this machine's services stop,
-    /// the units that release does not have go, and it is installed and
-    /// started. Go's server embeds the same etcd member on the same data
-    /// directory, and Go's agent adopts the containers.
-    fn roll_back(
-        &mut self,
-        current: &str,
-        target: &str,
-        files: &[(String, PathBuf)],
-    ) -> std::result::Result<(), String> {
-        let dir = self.units();
-        let server = dir.as_deref().is_some_and(|d| enabled(d, "armada-server"))
-            || systemd::unit_active("armada-server");
-        let agent = dir.as_deref().is_some_and(|d| enabled(d, "armada-agent"))
-            || systemd::unit_active("armada-agent");
-        let mut msg = format!("Rolled back to {target} (from {current})");
-        // A leader resigns when its server stops, so another server leads
-        // before the agent and the member stop.
-        let mut stopped = Vec::new();
-        for (unit, note) in [
-            ("armada-server", " (a leader hands over)"),
-            ("armada-agent", " (containers keep running)"),
-            ("armada-etcd", ""),
-        ] {
-            if !systemd::unit_active(unit) {
-                continue;
-            }
-            self.stop_unit(unit, note)?;
-            stopped.push(unit);
-        }
-        if !stopped.is_empty() {
-            msg.push_str(&format!("; stopped {}", stopped.join(", ")));
-        }
-        if let Some(dir) = &dir {
-            let has = |unit: &str| files.iter().any(|(n, _)| *n == format!("{unit}.service"));
-            // Go's server runs this machine's agent itself: two agents
-            // would take turns on the data directory's lock.
-            if server && has("armada-agent") && enabled(dir, "armada-agent") {
-                systemd::systemctl(&["disable", "armada-agent"])?;
-                self.step(&format!(
-                    "  disable    armada-agent ({target}'s armada-server runs this machine's agent)\n"
-                ));
-                msg.push_str("; disabled armada-agent");
-            }
-            let mut gone = Vec::new();
-            for unit in installed_units(dir)? {
-                if has(&unit) {
-                    continue;
-                }
-                systemd::systemctl(&["disable", &unit])?;
-                let p = dir.join(format!("{unit}.service"));
-                fs::remove_file(&p).map_err(|e| {
-                    format!("remove {}: {}", p.display(), armada_fsutil::errno_text(&e))
-                })?;
-                self.step(&format!(
-                    "  remove     {} ({target} has no such unit)\n",
-                    p.display()
-                ));
-                gone.push(format!("{unit}.service"));
-            }
-            if !gone.is_empty() {
-                msg.push_str(&format!("; removed {}", gone.join(", ")));
-                if !files.iter().any(|(n, _)| n.ends_with(".service")) {
-                    systemd::systemctl(&["daemon-reload"])?;
-                }
-            }
-        }
-        self.install_binaries(files)?;
-        self.install_units(files)?;
-        self.write_needrestart();
-        let service = if server {
-            "armada-server"
-        } else if agent {
-            "armada-agent"
-        } else {
-            ""
-        };
-        if !self.restart {
-            if !service.is_empty() {
-                self.step(&format!(
-                    "  start      skipped (--no-restart): start {service} yourself\n"
-                ));
-            }
-            self.step(&format!("{msg}.\n"));
-            return Ok(());
-        }
-        if systemd::unit_active("armada-runtime") {
-            self.restart_unit("armada-runtime", " (containers keep running)")
-                .map_err(|e| {
-                    format!("installed {target}, but restarting armada-runtime failed: {e}")
-                })?;
-            msg.push_str("; restarted armada-runtime");
-        }
-        if !service.is_empty() {
-            self.start_unit(service)
-                .map_err(|e| format!("installed {target}, but starting {service} failed: {e}"))?;
-            msg.push_str(&format!("; started {service}"));
-        }
-        self.step(&format!("{msg}.\n"));
-        Ok(())
-    }
-
-    fn stop_unit(&mut self, unit: &str, note: &str) -> std::result::Result<(), String> {
-        self.step(&format!("  stop       {unit}{note} ... "));
-        let start = Instant::now();
-        if let Err(e) = systemd::systemctl(&["stop", unit]) {
-            self.step("failed\n");
-            return Err(e);
-        }
-        self.step(&format!("stopped after {}\n", since(start)));
-        Ok(())
-    }
-
-    fn start_unit(&mut self, unit: &str) -> std::result::Result<(), String> {
-        self.step(&format!("  start      {unit} ... "));
-        let start = Instant::now();
-        if let Err(e) = systemd::systemctl(&["start", unit]) {
-            self.step("failed\n");
-            return Err(e);
-        }
-        if !systemd::unit_active(unit) {
-            self.step("not running\n");
-            return Err(format!(
-                "{unit} is not running after the start; see journalctl -u {unit}"
-            ));
-        }
-        self.step(&format!("running after {}\n", since(start)));
-        Ok(())
-    }
-
     fn install_units(&mut self, files: &[(String, PathBuf)]) -> std::result::Result<(), String> {
         let Some(unit_dir) = self.unit_dir.clone() else {
             return Ok(());
@@ -656,28 +451,6 @@ impl Upgrader<'_> {
         self.step(&format!("running again after {}\n", since(start)));
         Ok(())
     }
-}
-
-/// Armada's units in the unit directory (`armada-*.service` files), by
-/// name, sorted.
-fn installed_units(dir: &Path) -> std::result::Result<Vec<String>, String> {
-    let entries = fs::read_dir(dir)
-        .map_err(|e| format!("open {}: {}", dir.display(), armada_fsutil::errno_text(&e)))?;
-    let mut out = Vec::new();
-    for e in entries.flatten() {
-        let name = e.file_name().to_string_lossy().into_owned();
-        let Some(unit) = name
-            .strip_suffix(".service")
-            .filter(|u| u.starts_with("armada-"))
-        else {
-            continue;
-        };
-        if e.file_type().is_ok_and(|t| t.is_file()) {
-            out.push(unit.to_string());
-        }
-    }
-    out.sort();
-    Ok(out)
 }
 
 /// The path of a file:// URL, as url.Parse gives it.

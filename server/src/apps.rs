@@ -885,7 +885,7 @@ impl Server {
                 if sample.at.after(&last_seen) {
                     last_seen = sample.at.clone();
                 }
-                runtime = sample.runtime.clone();
+                runtime = sample.runtime;
             }
             resp.nodes.push(NodeStatus {
                 id: n.id.clone(),

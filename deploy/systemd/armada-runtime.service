@@ -5,8 +5,8 @@ After=network-online.target
 Wants=network-online.target
 # Wanted by armada-agent (and so armada-server). It installs the runtime pack
 # and exits, at once on nodes that are not initialized yet. On a node still
-# on containerd, which the pack no longer carries (ADR 0055), it fails and
-# says how to move the node.
+# on containerd, which this release does not run, it fails and says to
+# upgrade the node through v0.1.0-alpha.44 first.
 
 [Service]
 Type=simple
@@ -15,11 +15,6 @@ ExecStart=/usr/local/bin/armadad runtime --data-dir /var/lib/armada
 RuntimeDirectory=armada
 RuntimeDirectoryMode=0700
 RuntimeDirectoryPreserve=yes
-# A containerd a release before started under this unit keeps its
-# containers when it is stopped: only containerd itself is stopped, not the
-# shims in its cgroup, so a node rolled back to v0.1.0-alpha.42 finds them.
-KillMode=process
-Delegate=yes
 LimitNOFILE=infinity
 LimitNPROC=infinity
 LimitCORE=infinity

@@ -1,7 +1,6 @@
-//! armadad runtime: the runtime pack installed (Go's runtime.go). It runs
-//! nothing: supervisor nodes run their containers through armada-shim and
-//! armada-node, and containerd, which nodes set up before ran here, is no
-//! longer in the pack (ADR 0046, ADR 0055).
+//! armadad runtime: the runtime pack installed. It runs nothing: nodes
+//! run their containers on the supervisor runtime, through armada-shim and
+//! armada-node (ADR 0046).
 
 use armada_client::cli::{Ctx, Error, Result};
 
@@ -25,16 +24,11 @@ pub fn run(ctx: &mut Ctx<'_>, _: &[String]) -> Result {
     }
     pack::install_pack(&p)?;
     if ac.runtime != RUNTIME_SUPERVISOR {
-        return Err(Error::Msg(containerd_gone()));
+        return Err(Error::Msg(agentconfig::CONTAINERD_NODE.to_string()));
     }
     let _ = writeln!(
         ctx.err,
-        "this node runs containers without containerd (runtime: supervisor); the runtime pack is installed, nothing to run"
+        "this node runs containers on the supervisor runtime; the runtime pack is installed, nothing to run"
     );
     Ok(())
-}
-
-/// What armada-runtime says on a node set up on containerd.
-pub fn containerd_gone() -> String {
-    "this node runs containers on containerd, which this armadad no longer carries (ADR 0055): move the node to the supervisor runtime with v0.1.0-alpha.42 first (armada node drain, armadad runtime migrate --to supervisor, armada node resume), or remove the node and join it again".to_string()
 }

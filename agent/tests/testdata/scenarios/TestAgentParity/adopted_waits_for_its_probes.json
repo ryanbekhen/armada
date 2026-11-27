@@ -8,7 +8,6 @@
   "encodes": false,
   "exec": true,
   "members": true,
-  "move": false,
   "network": false,
   "networkKey": "",
   "noSecretsDir": false,
@@ -47,13 +46,6 @@
   {
    "op": "fake",
    "script": {
-    "agentStatus": {
-     "agent": "",
-     "converted": false,
-     "error": "",
-     "goImages": false,
-     "imagesToPull": 0
-    },
     "checks": {
      "10.0.0.2:31000 ": "slow 300ms dial tcp 10.0.0.2:31000: connect: connection refused"
     },
@@ -69,7 +61,6 @@
      "keyErr": "",
      "load": {},
      "loadErr": "",
-     "moveErr": "",
      "netErr": "",
      "peers": null,
      "proxyErr": "",

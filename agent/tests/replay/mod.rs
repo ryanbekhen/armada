@@ -130,7 +130,7 @@ impl Run {
             "dns": s(&opts["dns"]), "os": "linux", "arch": "amd64",
             "caps": {"members": b(&opts["members"]), "volumes": b(&opts["volumes"]), "exec": b(&opts["exec"]),
                 "stats": b(&opts["stats"]), "proxy": b(&opts["proxy"]), "network": b(&opts["network"]),
-                "move": b(&opts["move"]), "logs": true, "encodes": b(&opts["encodes"]), "sandbox": b(&opts["sandbox"])},
+                "logs": true, "encodes": b(&opts["encodes"]), "sandbox": b(&opts["sandbox"])},
             "networkKey": s(&opts["networkKey"]),
         });
         let mut export_url = String::new();
@@ -241,7 +241,6 @@ impl Run {
             "fence" | "prune" | "rotate" | "pruneLogs" | "queues" | "sandboxes" | "cleanNfs" => {
                 p.request(&op, json!({}))
             }
-            "move" => p.request("move", json!({"to": a["to"]})),
             "hello" => {
                 let ans = p.request("hello", json!({})).expect("hello");
                 self.hello = ans["hello"].clone();

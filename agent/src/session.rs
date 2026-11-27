@@ -287,7 +287,6 @@ impl<R: Runtime> Inner<R> {
             nfs: self.mounts_nfs(),
             log_history: self.rt.has_log_history(),
             network_switch: self.switcher().is_some(),
-            runtime_move: self.cfg.move_runtime.is_some(),
         }
     }
 
@@ -368,10 +367,6 @@ impl<R: Runtime> Inner<R> {
             Some(Msg::RotateNetworkKey(_)) => {
                 let me = self.clone();
                 tokio::spawn(async move { me.rotate_network_key().await });
-            }
-            Some(Msg::MoveRuntime(m)) => {
-                let me = self.clone();
-                tokio::spawn(async move { me.move_runtime(&m.to).await });
             }
             _ => {}
         }
