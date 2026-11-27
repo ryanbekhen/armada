@@ -3,7 +3,9 @@
 # install.sh, armadad upgrade, and people
 # read (docs/releasing.md): every archive name, the binaries and files in
 # each, checksums.txt, static Linux programs, the runtime pack in armadad,
-# crun's source in the full Linux archives (ADR 0056), and the version
+# the runtime sources asset (ADR 0056: crun's source and the source of
+# the libraries the pack's static programs link, which GoReleaser uploads
+# from build/runtime-sources.tar.gz, or RUNTIME_SOURCES), and the version
 # both binaries print. Run it from the repository's root (it reads
 # pack/lock.json). CI's release-dry-run job runs it
 # after `goreleaser release --snapshot`; run it locally the same way.
@@ -40,6 +42,35 @@ for a in \
 done
 (cd "$dist" && sha256sum --ignore-missing -c checksums.txt >/dev/null) || fail "checksums.txt does not match"
 
+# The runtime sources asset (ADR 0056), one for every architecture, listed
+# in checksums.txt (which cosign signs): every file pack/lock.json pins,
+# with its SHA-256, under source/runtime/, and nothing else.
+asset=armada_${version}_runtime-sources.tar.gz
+sources=${RUNTIME_SOURCES:-build/runtime-sources.tar.gz}
+[ -f "$dist/$asset" ] && sources=$dist/$asset
+[ -f "$sources" ] || fail "no $asset (looked for $sources)"
+want=$(awk -v a="$asset" '$2 == a {print $1}' "$dist/checksums.txt")
+[ -n "$want" ] || fail "$asset is not in checksums.txt"
+[ "$(sha256sum "$sources" | cut -d' ' -f1)" = "$want" ] || fail "$sources does not match checksums.txt"
+mkdir "$work/sources"
+tar -xzf "$sources" -C "$work/sources"
+[ "$(ls -A "$work/sources")" = source ] || fail "$asset: everything is not under source/"
+src=$work/sources/source/runtime
+[ -f "$src/SOURCES.txt" ] || fail "$asset: no source/runtime/SOURCES.txt"
+[ "$(jq '[(.artifacts[].sources // [] | length), (.libraries // [] | .[].sources // [] | length)] | add' pack/lock.json)" -eq "$(wc -l <"$src/SOURCES.txt")" ] || fail "$asset: SOURCES.txt does not list every pinned source"
+while read -r rel sum _url; do
+	[ -f "$src/$rel" ] || fail "$asset: no source/runtime/$rel"
+	[ "$(sha256sum "$src/$rel" | cut -d' ' -f1)" = "$sum" ] || fail "$asset: source/runtime/$rel does not match its pin"
+done <"$src/SOURCES.txt"
+[ "$(find "$src" -type f | wc -l)" -eq "$(($(wc -l <"$src/SOURCES.txt") + 1))" ] || fail "$asset: holds files SOURCES.txt does not list"
+crun=$(jq -r '.artifacts[] | select(.name == "crun") | .version' pack/lock.json)
+[ -f "$src/crun-$crun/crun-$crun.tar.gz" ] || fail "$asset: no source/runtime/crun-$crun/crun-$crun.tar.gz"
+# The source of every library a static program of the pack links, unless
+# a license exception waives it (noSource).
+for lib in $(jq -r '.libraries // [] | .[] | select(.noSource == null) | "\(.name)-\(.version)"' pack/lock.json); do
+	[ -d "$src/libs/$lib" ] || fail "$asset: no source/runtime/libs/$lib"
+done
+
 for arch in amd64 arm64; do
 	full=$work/armada_${version}_linux_$arch
 	client=$work/armada-client_${version}_linux_$arch
@@ -51,17 +82,12 @@ for arch in amd64 arm64; do
 	done
 	# The license files of the Go modules the pack's etcd programs link.
 	[ -f "$full/licenses/runtime/MODULES.txt" ] || fail "linux_$arch: no licenses/runtime/MODULES.txt"
-	# crun's complete corresponding source and license texts (GPL-2.0,
-	# ADR 0056): every file pack/lock.json pins, with its SHA-256.
-	src=$full/source/runtime
-	[ -f "$src/SOURCES.txt" ] || fail "linux_$arch: no source/runtime/SOURCES.txt"
-	crun=$(jq -r '.artifacts[] | select(.name == "crun") | .version' pack/lock.json)
-	[ "$(jq '[.artifacts[].sources // [] | length] | add' pack/lock.json)" -eq "$(wc -l <"$src/SOURCES.txt")" ] || fail "linux_$arch: SOURCES.txt does not list every pinned source"
-	while read -r rel sum _url; do
-		[ -f "$src/$rel" ] || fail "linux_$arch: no source/runtime/$rel"
-		[ "$(sha256sum "$src/$rel" | cut -d' ' -f1)" = "$sum" ] || fail "linux_$arch: source/runtime/$rel does not match its pin"
-	done <"$src/SOURCES.txt"
-	[ -f "$src/crun-$crun/crun-$crun.tar.gz" ] || fail "linux_$arch: no source/runtime/crun-$crun/crun-$crun.tar.gz"
+	# No source in the archives: where the asset is, and what it holds.
+	[ ! -e "$full/source" ] || fail "linux_$arch: holds source/; the runtime's sources are $asset"
+	pointer=$full/licenses/runtime/SOURCES.txt
+	[ -f "$pointer" ] || fail "linux_$arch: no licenses/runtime/SOURCES.txt"
+	grep -q "armada_<version>_runtime-sources.tar.gz" "$pointer" || fail "linux_$arch: licenses/runtime/SOURCES.txt does not name the sources asset"
+	tail -n "$(wc -l <"$src/SOURCES.txt")" "$pointer" | cmp -s - "$src/SOURCES.txt" || fail "linux_$arch: licenses/runtime/SOURCES.txt does not list the asset's files"
 	for f in COPYING COPYING.libcrun; do
 		[ -f "$full/licenses/runtime/crun@$crun/$f" ] || fail "linux_$arch: no licenses/runtime/crun@$crun/$f"
 	done

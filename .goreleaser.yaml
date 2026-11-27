@@ -6,9 +6,11 @@ project_name: armada
 # armada-pack (pack/) builds the
 # runtime pack from pack/lock.json and collects the license files of the
 # Go modules the pack's etcd programs link and crun's license texts
-# (licenses/runtime), and crun's complete corresponding source
-# (source/runtime, ADR 0056); scripts/rust-licenses.sh the crates' license
-# files (licenses/rust).
+# (licenses/runtime), and the runtime pack's sources: crun's complete
+# corresponding source and the source of the libraries its static
+# programs link (ADR 0056), one asset for every architecture
+# (build/runtime-sources.tar.gz); scripts/rust-licenses.sh the crates'
+# license files (licenses/rust).
 before:
   hooks:
     - make runtime-bundle
@@ -83,12 +85,11 @@ archives:
       # dst is its full path.
       - src: build/licenses-runtime/MODULES.txt
         dst: licenses/runtime/MODULES.txt
-      # crun's complete corresponding source (GPL-2.0, section 3(a); ADR
-      # 0056), in the archive that carries armadad and with it the pack.
-      # One level of glob: GoReleaser drops the directories every match
-      # shares, so "**/*" would lose crun-<version>/.
-      - src: build/sources-runtime/*
-        dst: source/runtime
+      # Where the runtime pack's sources are: the release's
+      # armada_<version>_runtime-sources.tar.gz (ADR 0056), named with
+      # every file it holds. The archives carry no source.
+      - src: build/runtime-sources-pointer.txt
+        dst: licenses/runtime/SOURCES.txt
       - README.md
       - SECURITY.md
       - deploy/systemd/*
@@ -123,6 +124,11 @@ archives:
 checksum:
   name_template: checksums.txt
   algorithm: sha256
+  # The runtime pack's sources (ADR 0056), so cosign's signature of
+  # checksums.txt covers them.
+  extra_files: &runtime-sources
+    - glob: build/runtime-sources.tar.gz
+      name_template: "armada_{{ .Version }}_runtime-sources.tar.gz"
 
 sboms:
   - artifacts: archive
@@ -145,6 +151,10 @@ release:
     name: armada
   prerelease: auto
   draft: true
+  # One asset for both architectures: crun's complete corresponding source
+  # and the source of the libraries the pack's static programs link (GPL
+  # 2.0 section 3, from the same place as the archives; ADR 0056).
+  extra_files: *runtime-sources
   footer: |
     ## Install or upgrade
 

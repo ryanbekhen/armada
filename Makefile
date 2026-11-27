@@ -189,13 +189,22 @@ runtime-bundle: logger shim dns node
 runtime-licenses:
 	$(PACK) licenses --out build/licenses-runtime
 
-# The complete corresponding source of the pack's GPL program, crun (ADR
-# 0056): its release tarball and the build files of its static programs,
-# each pinned in pack/lock.json, into build/sources-runtime (full Linux
-# release archives: source/runtime). licenses-runtime gets its license
-# texts (crun@<version>/).
+# The runtime pack's sources (ADR 0056): crun's complete corresponding
+# source (its release tarball and the build files of its static programs)
+# and the source of every library linked into the pack's static programs
+# (crun, runc, tini), each pinned in pack/lock.json, into
+# build/sources-runtime, packed as build/runtime-sources.tar.gz (top
+# directory source/runtime; GNU tar, a file two libraries share stored
+# once), which releases publish as one asset,
+# armada_<version>_runtime-sources.tar.gz. build/runtime-sources-pointer.txt
+# names it and its files: full Linux release archives carry it as
+# licenses/runtime/SOURCES.txt.
 runtime-sources:
-	$(PACK) sources --out build/sources-runtime
+	$(PACK) sources --out build/sources-runtime --pointer build/runtime-sources-pointer.txt
+	tar --sort=name --format=gnu --owner=0 --group=0 --numeric-owner \
+		--mode=a+rX,u+w,go-w --mtime=@0 \
+		--transform='s,^\.$$,source/runtime,;s,^\./,source/runtime/,' \
+		-C build/sources-runtime -cf - . | gzip -n -9 >build/runtime-sources.tar.gz
 
 # Every crate's license and notice files into build/licenses-rust (release
 # archives: licenses/rust).
