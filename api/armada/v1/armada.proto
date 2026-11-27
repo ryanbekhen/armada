@@ -1529,9 +1529,8 @@ message UsageReport {
   // no handshake for 3 minutes, at most 32 node names, sorted.
   bool peers_checked = 13;
   repeated string unreachable_peers = 14;
-  // Set with peers_checked while the node's WireGuard runs in userspace
-  // inside the agent because the kernel has none (ADR 0025).
-  bool wireguard_userspace = 15;
+  reserved 15;
+  reserved "wireguard_userspace";
   // How the node runs containers.
   RuntimeStatus runtime = 16;
 }

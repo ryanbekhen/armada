@@ -408,7 +408,7 @@ impl Server {
         if req.set_backup_url
             && let Some(keys) = &keys
         {
-            let raw = armada_node::gostr::trim_space(&req.backup_url).to_vec();
+            let raw = armada_node::textutil::trim_space(&req.backup_url).to_vec();
             if raw.is_empty() {
                 return Err(bad(
                     Code::InvalidArgument,
@@ -434,7 +434,7 @@ impl Server {
         if req.set_backup_key
             && let Some(keys) = &keys
         {
-            let key = armada_node::gostr::trim_space(&req.backup_key).to_vec();
+            let key = armada_node::textutil::trim_space(&req.backup_key).to_vec();
             if key.len() < armada_spec::MIN_BACKUP_KEY_LEN {
                 return Err(bad(
                     Code::InvalidArgument,

@@ -339,12 +339,6 @@ impl Network for NodeNet {
     fn unreachable_peers(&self) -> BoxFut<'_, Vec<String>> {
         self.net.unreachable_peers()
     }
-    fn reports_wireguard(&self) -> bool {
-        self.net.reports_wireguard()
-    }
-    fn wireguard_userspace(&self) -> BoxFut<'_, bool> {
-        self.net.wireguard_userspace()
-    }
     fn rotates_keys(&self) -> bool {
         self.net.rotates_keys()
     }

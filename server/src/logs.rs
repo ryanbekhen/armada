@@ -504,7 +504,7 @@ impl Server {
             }
         }
         if req.set_log_token {
-            let token = armada_node::gostr::trim_space(&req.log_token).to_vec();
+            let token = armada_node::textutil::trim_space(&req.log_token).to_vec();
             check_token(&token).map_err(invalid)?;
             if token.is_empty() {
                 ls.token = None;

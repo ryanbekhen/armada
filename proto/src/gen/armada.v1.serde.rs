@@ -29713,9 +29713,6 @@ impl serde::Serialize for UsageReport {
         if !self.unreachable_peers.is_empty() {
             len += 1;
         }
-        if self.wireguard_userspace {
-            len += 1;
-        }
         if self.runtime.is_some() {
             len += 1;
         }
@@ -29766,9 +29763,6 @@ impl serde::Serialize for UsageReport {
         if !self.unreachable_peers.is_empty() {
             struct_ser.serialize_field("unreachablePeers", &self.unreachable_peers)?;
         }
-        if self.wireguard_userspace {
-            struct_ser.serialize_field("wireguardUserspace", &self.wireguard_userspace)?;
-        }
         if let Some(v) = self.runtime.as_ref() {
             struct_ser.serialize_field("runtime", v)?;
         }
@@ -29805,8 +29799,6 @@ impl<'de> serde::Deserialize<'de> for UsageReport {
             "peersChecked",
             "unreachable_peers",
             "unreachablePeers",
-            "wireguard_userspace",
-            "wireguardUserspace",
             "runtime",
         ];
 
@@ -29826,7 +29818,6 @@ impl<'de> serde::Deserialize<'de> for UsageReport {
             NetworkSwitch,
             PeersChecked,
             UnreachablePeers,
-            WireguardUserspace,
             Runtime,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -29863,7 +29854,6 @@ impl<'de> serde::Deserialize<'de> for UsageReport {
                             "networkSwitch" | "network_switch" => Ok(GeneratedField::NetworkSwitch),
                             "peersChecked" | "peers_checked" => Ok(GeneratedField::PeersChecked),
                             "unreachablePeers" | "unreachable_peers" => Ok(GeneratedField::UnreachablePeers),
-                            "wireguardUserspace" | "wireguard_userspace" => Ok(GeneratedField::WireguardUserspace),
                             "runtime" => Ok(GeneratedField::Runtime),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
@@ -29898,7 +29888,6 @@ impl<'de> serde::Deserialize<'de> for UsageReport {
                 let mut network_switch__ = None;
                 let mut peers_checked__ = None;
                 let mut unreachable_peers__ = None;
-                let mut wireguard_userspace__ = None;
                 let mut runtime__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
@@ -29990,12 +29979,6 @@ impl<'de> serde::Deserialize<'de> for UsageReport {
                             }
                             unreachable_peers__ = Some(map_.next_value()?);
                         }
-                        GeneratedField::WireguardUserspace => {
-                            if wireguard_userspace__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("wireguardUserspace"));
-                            }
-                            wireguard_userspace__ = Some(map_.next_value()?);
-                        }
                         GeneratedField::Runtime => {
                             if runtime__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("runtime"));
@@ -30019,7 +30002,6 @@ impl<'de> serde::Deserialize<'de> for UsageReport {
                     network_switch: network_switch__,
                     peers_checked: peers_checked__.unwrap_or_default(),
                     unreachable_peers: unreachable_peers__.unwrap_or_default(),
-                    wireguard_userspace: wireguard_userspace__.unwrap_or_default(),
                     runtime: runtime__,
                 })
             }

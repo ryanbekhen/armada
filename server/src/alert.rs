@@ -300,7 +300,7 @@ pub fn check_smtp_host(hp: &str) -> Result<(), String> {
     let Some((host, port)) = split_host_port(hp).filter(|(h, _)| !h.is_empty()) else {
         return Err("--smtp-host must be host:port, such as smtp.example.com:587".into());
     };
-    match armada_node::gostr::atoi(&port) {
+    match armada_node::textutil::atoi(&port) {
         Ok(n) if (1..=65535).contains(&n) => {}
         _ => return Err("--smtp-host has an invalid port".into()),
     }
@@ -577,7 +577,6 @@ const WARNINGS: &[&str] = &[
     "QueueReadFailed",
     "LogExportFailing",
     "PeerUnreachable",
-    "WireGuardUserspace",
     "VolumeUnavailable",
     "VolumesSplit",
     "VolumeOnCordonedNode",

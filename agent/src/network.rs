@@ -14,7 +14,7 @@ use crate::proxy::{BoxFut, Clients};
 use crate::runtime::{self, LABEL_APP, Runtime, stopped};
 
 /// The cluster network on the node (ADR 0025), with its optional parts:
-/// mode switches, unreachable peers, the userspace device, and key rotation.
+/// mode switches, unreachable peers, and key rotation.
 pub trait Network: Send + Sync + 'static {
     /// Makes the node's tunnel, routes, and firewall match cfg; called
     /// again on every pass, so it repairs what drifted. local maps this
@@ -41,13 +41,6 @@ pub trait Network: Send + Sync + 'static {
     /// Their node names, sorted, at most 32.
     fn unreachable_peers(&self) -> BoxFut<'_, Vec<String>> {
         Box::pin(async { Vec::new() })
-    }
-    /// Whether it tells if its WireGuard runs in userspace.
-    fn reports_wireguard(&self) -> bool {
-        false
-    }
-    fn wireguard_userspace(&self) -> BoxFut<'_, bool> {
-        Box::pin(async { false })
     }
     /// Whether its key can be replaced while it runs.
     fn rotates_keys(&self) -> bool {
@@ -211,8 +204,5 @@ impl<R: Runtime> Inner<R> {
         };
         report.peers_checked = true;
         report.unreachable_peers = net.unreachable_peers().await;
-        if net.reports_wireguard() {
-            report.wireguard_userspace = net.wireguard_userspace().await;
-        }
     }
 }

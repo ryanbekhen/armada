@@ -500,7 +500,7 @@ fn channel_proto(r: &AlertRec) -> AlertChannel {
 }
 
 fn trim(s: &str) -> String {
-    String::from_utf8_lossy(armada_node::gostr::trim_space(s.as_bytes())).to_string()
+    String::from_utf8_lossy(armada_node::textutil::trim_space(s.as_bytes())).to_string()
 }
 
 fn trim_all(v: &[String]) -> Vec<String> {
@@ -667,7 +667,7 @@ impl Server {
         r.ch.check()
             .map_err(|e| Status::new(Code::InvalidArgument, e))?;
         if req.set_secret || create {
-            let secret = armada_node::gostr::trim_space(&req.secret).to_vec();
+            let secret = armada_node::textutil::trim_space(&req.secret).to_vec();
             r.ch.check_secret(&secret)
                 .map_err(|e| Status::new(Code::InvalidArgument, e))?;
             r.sealed = None;
