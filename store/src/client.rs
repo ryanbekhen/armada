@@ -1,4 +1,4 @@
-//! A client of an etcd member, as `internal/etcd` makes one: gRPC over
+//! A client of an etcd member, as the control plane uses one: gRPC over
 //! HTTP/2 on TLS 1.3, the member's CA as the only root, and the
 //! `etcd:member` client certificate read from the member's directory on
 //! every handshake, so a renewed certificate is used without a restart.
@@ -31,7 +31,7 @@ use tonic::transport::{Channel, Endpoint, Uri};
 
 use crate::error::{Error, Result, other};
 
-/// The files of a member's directory the client reads (internal/etcd).
+/// The files of a member's directory the client reads.
 pub const FILE_CA: &str = "ca.crt";
 pub const FILE_CERT: &str = "member.crt";
 pub const FILE_KEY: &str = "member.key";
@@ -161,7 +161,7 @@ impl Client {
 
     /// Connects to a member listening on the Unix socket at path, without
     /// TLS: a scratch member of this machine's own, in a private directory
-    /// (`armadad backup` and `restore` check a snapshot in one, ADR 0055).
+    /// (`armadad backup` and `restore` check a snapshot in one).
     /// The path may be longer than a socket address holds: the socket is
     /// reached through its directory's descriptor.
     pub fn connect_unix(path: &Path) -> Result<Client> {

@@ -214,8 +214,7 @@ fn marshal_map(m: &Map<String, Value>) -> Vec<u8> {
     escape_html(out).into_bytes()
 }
 
-/// Decodes a JSON object into its members, each kept as its raw text (Go's
-/// map[string]json.RawMessage).
+/// Decodes a JSON object into its members, each kept as its raw text.
 fn raw_members(b: &[u8]) -> std::result::Result<Map<String, Value>, String> {
     let m: std::collections::BTreeMap<String, Box<serde_json::value::RawValue>> =
         serde_json::from_slice(b).map_err(|e| e.to_string())?;
@@ -230,7 +229,7 @@ fn rename_space_field(b: &[u8], in_spec: bool) -> std::result::Result<Option<Vec
     let mut m = raw_members(b)?;
     if in_spec {
         let Some(sp) = m.get("spec").and_then(Value::as_str).map(str::to_string) else {
-            // Go reads a missing spec as empty JSON, which fails to decode.
+            // A missing spec reads as empty JSON, which fails to decode.
             return Err("unexpected end of JSON input".to_string());
         };
         let Some(changed) = rename_space_field(sp.as_bytes(), false)? else {

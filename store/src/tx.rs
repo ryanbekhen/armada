@@ -1,4 +1,4 @@
-//! The store and its optimistic transactions (Go's Etcd and etx).
+//! The store and its optimistic transactions.
 //!
 //! A transaction reads a consistent snapshot at one etcd revision, buffers
 //! its writes, and commits them atomically only if no other transaction
@@ -39,8 +39,8 @@ pub(crate) const PFX_SERVERS: &str = "servers/";
 pub(crate) const PFX_RUNS: &str = "runs/";
 pub(crate) const PFX_VOLUMES: &str = "volumes/";
 
-/// The version of the key layout (etcdSchema): the schema of the last Go
-/// release. A newer stored schema is refused.
+/// The version of the key layout (etcdSchema). A newer stored schema is
+/// refused.
 pub const SCHEMA: i64 = 15;
 
 const MAX_TXN_RETRIES: u32 = 100;
@@ -112,7 +112,7 @@ macro_rules! tx {
     }};
 }
 
-/// Runs a body on a consistent snapshot without writing (Go's view).
+/// Runs a body on a consistent snapshot without writing.
 macro_rules! view {
     ($s:expr, |$t:ident| $body:block) => {{
         let __s: &$crate::tx::Etcd = $s;

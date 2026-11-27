@@ -1,11 +1,11 @@
-//! armada-store-parity: the program Go's parity tests of the store drive
-//! (internal/store/nativestore_test.go, ARMADA_STORE_BIN). Never packed.
+//! armada-store-parity: the program the store's recordings drive
+//! (tests/replay.rs). Never packed.
 //!
 //! It reads one JSON request per line on stdin and answers each with one
 //! line on stdout, `{"id", "value"?, "error"?, "kind"?}`, running requests
 //! at the same time (a campaign waits while others go on). Values are the
-//! store's answers with Go's field names; the Go test reads them into its
-//! own types and compares.
+//! store's answers with the recordings' field names; the replay compares
+//! them with the recorded answers.
 //!
 //! Requests (`op`): `open` (handle, endpoint and dir, or socket, prefix), `fenced`
 //! (handle, from, key, rev), `setNow` (handle, ms), `call` (handle, method,
@@ -36,9 +36,9 @@ struct State {
 
 use armada_store::parity_call::*;
 
-/// The member's client: `endpoint` and `dir` (its TLS files) for Go's
-/// tests, or `socket`, a member on a Unix socket without TLS, for the
-/// replay of their recordings (tests/replay.rs).
+/// The member's client: `endpoint` and `dir` (its TLS files), or
+/// `socket`, a member on a Unix socket without TLS, for the replay of the
+/// recordings (tests/replay.rs).
 async fn client(stt: &State, req: &Value) -> Result<Client> {
     let sock = s(req, "socket");
     let ep = if sock.is_empty() {
@@ -68,8 +68,8 @@ async fn store(stt: &State, h: &str) -> Result<Etcd> {
         .ok_or_else(|| Error::other(format!("no store {h}")))
 }
 
-/// The clocks and random sources of the handles: the Go test sets both
-/// stores' clocks alike, and both follow one sequence of random bytes.
+/// The clocks and random sources of the handles: a test sets every
+/// handle's clock alike, and all follow one sequence of random bytes.
 #[derive(Default)]
 struct Hooks {
     now: HashMap<String, Arc<AtomicI64>>,

@@ -118,8 +118,7 @@ impl Etcd {
         if drop <= 0 {
             return Ok(());
         }
-        // Go indexes the first event kept, so it panics when keep is 0 or
-        // less; here every event goes.
+        // With keep at 0 or less, every event goes.
         let end = match r.kvs.get(drop as usize) {
             Some(kv) => String::from_utf8_lossy(&kv.key).into_owned(),
             None => String::from_utf8(op::prefix_end(&pfx)).expect("prefixes are ASCII"),
