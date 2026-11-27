@@ -3,9 +3,11 @@
 From empty Linux machines to an app served over HTTPS. One machine is
 enough to start; more can join later as nodes or control plane servers.
 
-> **Status.** Armada is alpha. Every step below is exercised on real cloud
-> machines with Let's Encrypt staging before each release. Start with the
-> staging environment (step 4) and report what breaks.
+> **Status.** Armada is in beta: features are frozen and only fixes land
+> until `v0.1.0` ([compatibility](compatibility.md)). Every step below is
+> exercised on real cloud machines with Let's Encrypt staging before each
+> release. Start with the staging environment (step 4) and report what
+> breaks.
 
 ## How it fits together
 
