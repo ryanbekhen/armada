@@ -381,22 +381,20 @@ while [ "$i" -le "$N" ]; do
 done
 NET_AGENT_SINCE=$(on 1 'date "+%Y-%m-%d %H:%M:%S"')
 
-# node_runtime NAME AGENT: NAME's agent reports it runs containers so
-# (supervisor-rust: through armada-node).
-node_runtime() { status | jq -e --arg node "$1" --arg agent "$2" '.nodes[] | select(.id == $node) | .runtime.agent == $agent'; }
-# all_moved: cluster status counts every node on armada-node.
-all_moved() { cli cluster status | grep -q "^runtime: $N of $N nodes on armada-node\$"; }
-# Every machine runs the supervisor runtime through armada-node, the only
-# runtime the release has.
-log "every machine runs containers through armada-node"
+# crun_only N: every container record on machine N names crun, the only
+# OCI runtime the release has (ADR 0056), and runc left no state.
+crun_only() {
+	on "$1" '! grep -L "\"runtime\":\"crun\"" /var/lib/armada/supervisor/containers/*/record.json 2>/dev/null | grep -q . &&
+		! ls /run/armada/shim/*/runc/* >/dev/null 2>&1'
+}
+log "every machine runs its containers on crun"
 i=1
 while [ "$i" -le "$N" ]; do
-	wait_for 60 "$(host "$i" 1) reports armada-node" node_runtime "$(host "$i" 1)" supervisor-rust
-	on "$i" 'armadad doctor' 2>&1 | grep -q '^\[ok  *\] runtime-agent ' ||
-		fail "armadad doctor's runtime-agent check is not ok on $(host "$i" 1)"
+	crun_only "$i" || fail "a container on $(host "$i" 1) does not run on crun"
+	on "$i" 'armadad doctor' 2>&1 | grep -q '^\[ok  *\] runtime ' ||
+		fail "armadad doctor's runtime check is not ok on $(host "$i" 1)"
 	i=$((i + 1))
 done
-wait_for 60 "cluster status counts every node on armada-node" all_moved
 
 if [ "$SERVERS" -gt 1 ]; then
 	# The join wrote machine 2's own admin config, which keeps the CLI
