@@ -1,6 +1,6 @@
 //! Tag resolution of plain scalars (go-yaml's resolve.go): which values are
-//! null, booleans, numbers, timestamps, or strings, with Go's strconv and
-//! time.Parse rules for what counts as a number or a timestamp.
+//! null, booleans, numbers, timestamps, or strings, with go-yaml's rules
+//! for what counts as a number or a timestamp.
 
 use super::types::{
     BINARY_TAG, BOOL_TAG, DOUBLE_QUOTED_STYLE, FLOAT_TAG, FOLDED_STYLE, INT_TAG, Kind,
@@ -23,8 +23,8 @@ pub enum Resolved {
 
 const LONG_TAG_PREFIX: &str = "tag:yaml.org,2002:";
 
-/// Go's math.NaN(), whose bits differ from f64::NAN's.
-pub fn go_nan() -> f64 {
+/// The NaN go-yaml resolves `.nan` to, whose bits differ from f64::NAN's.
+pub fn yaml_nan() -> f64 {
     f64::from_bits(0x7ff8_0000_0000_0001)
 }
 
@@ -67,7 +67,7 @@ fn resolve_map(s: &str) -> Option<(&'static str, Resolved)> {
         "true" | "True" | "TRUE" => (BOOL_TAG, Resolved::Bool(true)),
         "false" | "False" | "FALSE" => (BOOL_TAG, Resolved::Bool(false)),
         "" | "~" | "null" | "Null" | "NULL" => (NULL_TAG, Resolved::Null),
-        ".nan" | ".NaN" | ".NAN" => (FLOAT_TAG, Resolved::Float(go_nan())),
+        ".nan" | ".NaN" | ".NAN" => (FLOAT_TAG, Resolved::Float(yaml_nan())),
         ".inf" | ".Inf" | ".INF" | "+.inf" | "+.Inf" | "+.INF" => {
             (FLOAT_TAG, Resolved::Float(f64::INFINITY))
         }
@@ -211,7 +211,7 @@ fn yaml_style_float(s: &str) -> bool {
     i == b.len()
 }
 
-/// Go's strconv.ParseUint(s, base, 64): base 0 reads a 0b, 0o, 0x, or 0
+/// An unsigned 64-bit integer in base: base 0 reads a 0b, 0o, 0x, or 0
 /// prefix and allows underscores between digits.
 pub fn parse_uint(s: &str, base: u32) -> Option<u64> {
     let b = s.as_bytes();
@@ -265,7 +265,7 @@ pub fn parse_uint(s: &str, base: u32) -> Option<u64> {
     Some(n)
 }
 
-/// Go's strconv.ParseInt(s, base, 64).
+/// A signed 64-bit integer in base (as parse_uint, with a sign).
 pub fn parse_int(s: &str, base: u32) -> Option<i64> {
     if s.is_empty() {
         return None;
@@ -290,7 +290,7 @@ pub fn parse_int(s: &str, base: u32) -> Option<i64> {
     })
 }
 
-/// Go's strconv.underscoreOK: underscores only between digits (or after
+/// Underscores only between digits (or after
 /// a base prefix).
 fn underscore_ok(s: &str) -> bool {
     let mut b = s.as_bytes();
@@ -337,7 +337,7 @@ fn prefix_len_ignore_case(s: &[u8], prefix: &[u8]) -> usize {
     n
 }
 
-/// Go's strconv.ParseFloat(s, 64): decimal and hexadecimal forms with
+/// A float64: decimal and hexadecimal forms with
 /// underscores, inf, infinity, and nan in any case; an error for a value
 /// out of range.
 pub fn parse_float(s: &str) -> Option<f64> {
@@ -371,7 +371,7 @@ pub fn parse_float(s: &str) -> Option<f64> {
             }
         } else if (first == b'n' || first == b'N') && prefix_len_ignore_case(t, b"nan") == 3 {
             if b.len() == 3 {
-                return Some(go_nan());
+                return Some(yaml_nan());
             }
             return None;
         }
@@ -550,7 +550,7 @@ fn hex_float(mantissa: &str, exponent: &str) -> Option<f64> {
 }
 
 /// Whether s is a timestamp go-yaml accepts: four digits and a dash, then
-/// one of its formats as Go's time.Parse reads them.
+/// one of its formats.
 pub fn parse_timestamp(s: &str) -> bool {
     let b = s.as_bytes();
     let i = b.iter().take_while(|c| c.is_ascii_digit()).count();

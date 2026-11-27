@@ -44,7 +44,7 @@ impl Parser {
     }
 
     /// Fills the raw buffer from the input, up to 512 bytes; the input's
-    /// end sets eof (Go's read handlers: a read of nothing is io.EOF).
+    /// end sets eof (a read of nothing is the end).
     fn update_raw_buffer(&mut self) -> bool {
         if self.raw_buffer_pos == 0 && self.raw_buffer.len() == INPUT_RAW_BUFFER_SIZE {
             return true;
@@ -90,7 +90,7 @@ impl Parser {
             buffer_len = 0;
             self.buffer_pos = 0;
         }
-        // Go reslices the buffer to its capacity here; a decoding error
+        // go-yaml reslices the buffer to its capacity here; a decoding error
         // returns with that length, the bytes past the decoded ones being
         // whatever the array held before.
         if self.buffer.len() < INPUT_BUFFER_SIZE {

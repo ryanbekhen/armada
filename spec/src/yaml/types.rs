@@ -1,6 +1,6 @@
 //! The types the YAML reader, scanner, parser, composer, and emitter share:
 //! go-yaml v3's events (yamlh.go) and nodes (yaml.go), with the same
-//! fields, so the code ported from it keeps its shape.
+//! fields, so the code derived from it keeps its shape.
 
 /// A position in the input: byte index, line, and column, all from 0.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

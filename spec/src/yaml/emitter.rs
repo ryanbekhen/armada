@@ -1,8 +1,8 @@
 //! go-yaml v3's emitter (emitterc.go, writerc.go, and the emitter parts of
-//! apic.go, yamlh.go, and yamlprivateh.go), ported function by function so
-//! its output is the same byte for byte. The functions keep libyaml's
+//! apic.go, yamlh.go, and yamlprivateh.go), derived function by function
+//! so its output is the same byte for byte. The functions keep libyaml's
 //! names and their order, and return false with `problem` set on an
-//! error, as the Go code does.
+//! error.
 #![allow(clippy::needless_bool, clippy::collapsible_match)]
 
 use super::types::{
@@ -10,8 +10,8 @@ use super::types::{
     VersionDirective,
 };
 
-/// The byte at i, or 0 past the end (where Go would index out of range,
-/// which valid UTF-8 input never reaches).
+/// The byte at i, or 0 past the end (which valid UTF-8 input never
+/// reaches).
 fn at(b: &[u8], i: usize) -> u8 {
     b.get(i).copied().unwrap_or(0)
 }

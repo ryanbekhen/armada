@@ -62,7 +62,7 @@ fn replace_tokens(value: &str, prefix: &str, mut f: impl FnMut(usize) -> String)
             out.push_str(&f(after[..digits].parse().unwrap_or(usize::MAX)));
             rest = &after[digits + 1..];
         } else {
-            // Go's regexp moves on by one character.
+            // No match here: move on by one character.
             let c = rest[i..].chars().next().map_or(1, char::len_utf8);
             out.push_str(&rest[..i + c]);
             rest = &rest[i + c..];

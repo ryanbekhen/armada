@@ -1,6 +1,6 @@
-//! Generated from Go 1.27's strconv and unicode packages before the Go
-//! code was removed; change only by hand. Each table lists the inclusive
-//! ranges of runes for which the Go function in its name is true.
+//! Unicode classes, generated from the tables of the Go 1.27 standard
+//! library (BSD-3-Clause); change only by hand. Each table lists the
+//! inclusive ranges of runes for which the class in its name holds.
 
 pub(crate) const IS_PRINT: &[(u32, u32)] = &[
     (0x20, 0x7e),

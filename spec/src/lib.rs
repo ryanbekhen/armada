@@ -1,10 +1,10 @@
-//! Armada's app and job specs (ADR 0055): a port of Go's internal/spec.
+//! Armada's app and job specs.
 //!
-//! Specs are parsed strictly from YAML exactly as Go parses them (the YAML
-//! library itself is ported, so error texts and line numbers match),
-//! defaulted, and validated with Go's messages; they are written back as
-//! YAML (`-o yaml`) and as JSON (stored revisions) byte for byte as Go
-//! writes them. The cases recorded from Go's tests drive this crate through
+//! Specs are parsed strictly from YAML (with a YAML library derived from
+//! go-yaml v3, so error texts and line numbers stay as specs have always
+//! had them), defaulted, and validated with fixed messages; they are
+//! written back as YAML (`-o yaml`) and as JSON (stored revisions) in one
+//! stable form, byte for byte. The recorded cases drive this crate through
 //! the `armada-spec-check` program (tests/parity.rs).
 
 pub mod cron;

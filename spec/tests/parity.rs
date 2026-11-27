@@ -1,11 +1,9 @@
-//! The parity tests of Go's internal/spec, recorded once from Go before the
-//! Go code was removed (ADR 0055, item 20): testdata/<test>.jsonl.gz holds
-//! one line per case with the request Go's test sends armada-spec-check and
-//! Go's answer in the program's form. These tests send the same requests
-//! to armada-spec-check and compare its answers as the Go tests do, with no
-//! Go: error texts exactly (lines in any order where Go checks in map
-//! order), JSON as written, exports and summaries as JSON values, and
-//! Substitute's placeholders masked.
+//! The recorded spec cases: testdata/<name>.jsonl.gz holds one line per
+//! case with the request for armada-spec-check and the recorded answer in
+//! the program's form. These tests send the same requests to
+//! armada-spec-check and compare its answers: error texts exactly (lines in
+//! any order where the recording's order varied), JSON as written, exports
+//! and summaries as JSON values, and Substitute's placeholders masked.
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::Path;
@@ -13,7 +11,7 @@ use std::process::{Command, Stdio};
 
 use serde_json::Value;
 
-/// The recorded cases of one Go test.
+/// The recorded cases of one file.
 fn cases(test: &str) -> Vec<(String, Value, Value)> {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests/testdata")
@@ -65,8 +63,7 @@ fn ask(reqs: Vec<String>) -> Vec<Value> {
     out
 }
 
-/// JSON values as Go's reflect.DeepEqual sees them after json.Unmarshal
-/// into any: numbers as float64.
+/// JSON values compared as values, numbers as float64.
 fn same_json(a: &Value, b: &Value) -> bool {
     match (a, b) {
         (Value::Number(x), Value::Number(y)) => x.as_f64() == y.as_f64(),
@@ -82,22 +79,23 @@ fn same_json(a: &Value, b: &Value) -> bool {
     }
 }
 
-/// Go's randomOrder: error texts whose lines Go writes in map order.
-fn random_order(go: &str) -> bool {
-    go.matches("is only valid for kind: job").count() > 1
-        || (go.contains("ingress.cors.allowHeaders") && go.contains("ingress.cors.exposeHeaders"))
-        || go.matches("placement.require").count() > 1
+/// Error texts whose lines the recording holds in an order that varied.
+fn random_order(want: &str) -> bool {
+    want.matches("is only valid for kind: job").count() > 1
+        || (want.contains("ingress.cors.allowHeaders")
+            && want.contains("ingress.cors.exposeHeaders"))
+        || want.matches("placement.require").count() > 1
 }
 
-fn same_error(go: &str, rust: &str) -> bool {
-    if go == rust {
+fn same_error(want: &str, got: &str) -> bool {
+    if want == got {
         return true;
     }
-    if !random_order(go) {
+    if !random_order(want) {
         return false;
     }
-    let mut a: Vec<&str> = go.split('\n').collect();
-    let mut b: Vec<&str> = rust.split('\n').collect();
+    let mut a: Vec<&str> = want.split('\n').collect();
+    let mut b: Vec<&str> = got.split('\n').collect();
     a.sort_unstable();
     b.sort_unstable();
     a == b
@@ -132,7 +130,7 @@ fn text(v: &Value) -> Option<&str> {
     v.as_str()
 }
 
-/// Why Rust's answer differs from Go's, as the Go test would say, or None.
+/// Why the answer differs from the recorded one, or None.
 fn differs(req: &Value, want: &Value, got: &Value) -> Option<String> {
     let op = req["op"].as_str().unwrap_or_default();
     let werr = text(&want["error"]);
@@ -146,28 +144,28 @@ fn differs(req: &Value, want: &Value, got: &Value) -> Option<String> {
                     } else {
                         w == g
                     };
-                    return (!same).then(|| format!("Go:   {w:?}\nRust: {g:?}"));
+                    return (!same).then(|| format!("want: {w:?}\ngot:  {g:?}"));
                 }
-                (Some(w), None) => return Some(format!("Go: {w:?}; Rust read it")),
-                (None, Some(g)) => return Some(format!("Go read it; Rust: {g:?}")),
+                (Some(w), None) => return Some(format!("want: {w:?}; read it")),
+                (None, Some(g)) => return Some(format!("want: read it; got: {g:?}")),
                 (None, None) => {}
             }
             let mut out = Vec::new();
             if want["json"] != got["json"] {
                 out.push(format!(
-                    "JSON\nGo:   {}\nRust: {}",
+                    "JSON\nwant: {}\ngot:  {}",
                     want["json"], got["json"]
                 ));
             }
             if !same_json(&want["export"], &got["export"]) {
                 out.push(format!(
-                    "export\nGo:   {}\nRust: {}",
+                    "export\nwant: {}\ngot:  {}",
                     want["export"], got["export"]
                 ));
             }
             if op == "parse" && !same_json(&want["summary"], &got["summary"]) {
                 out.push(format!(
-                    "summary\nGo:   {}\nRust: {}",
+                    "summary\nwant: {}\ngot:  {}",
                     want["summary"], got["summary"]
                 ));
             }
@@ -175,7 +173,7 @@ fn differs(req: &Value, want: &Value, got: &Value) -> Option<String> {
                 match (text(&want["validate"]), text(&got["validate"])) {
                     (None, None) => {}
                     (Some(w), Some(g)) if same_error(w, g) => {}
-                    (w, g) => out.push(format!("validate\nGo:   {w:?}\nRust: {g:?}")),
+                    (w, g) => out.push(format!("validate\nwant: {w:?}\ngot:  {g:?}")),
                 }
             }
             (!out.is_empty()).then(|| out.join("\n"))
@@ -184,16 +182,16 @@ fn differs(req: &Value, want: &Value, got: &Value) -> Option<String> {
             let gerr = text(&got["error"]).map(mask_nonces);
             let gout = text(&got["out"]).map(mask_nonces);
             match (werr, gerr) {
-                (Some(w), Some(g)) => (w != g).then(|| format!("Go:   {w:?}\nRust: {g:?}")),
-                (Some(w), None) => Some(format!("Go: {w:?}; Rust: {gout:?}")),
-                (None, Some(g)) => Some(format!("Go: {}; Rust: {g:?}", want["out"])),
+                (Some(w), Some(g)) => (w != g).then(|| format!("want: {w:?}\ngot:  {g:?}")),
+                (Some(w), None) => Some(format!("want: {w:?}; got: {gout:?}")),
+                (None, Some(g)) => Some(format!("want: {}; got: {g:?}", want["out"])),
                 (None, None) => {
                     let w = text(&want["out"]);
-                    (w != gout.as_deref()).then(|| format!("Go:   {w:?}\nRust: {gout:?}"))
+                    (w != gout.as_deref()).then(|| format!("want: {w:?}\ngot:  {gout:?}"))
                 }
             }
         }
-        _ => (!same_json(want, got)).then(|| format!("Go:   {want}\nRust: {got}")),
+        _ => (!same_json(want, got)).then(|| format!("want: {want}\ngot:  {got}")),
     }
 }
 
@@ -217,7 +215,7 @@ fn replay(test: &str, at_least: usize) {
         let n = failed.len();
         failed.truncate(25);
         panic!(
-            "{test}: {n} of {} cases differ from Go; the first:\n\n{}",
+            "{test}: {n} of {} cases differ from the recording; the first:\n\n{}",
             cases.len(),
             failed.join("\n\n")
         );
@@ -225,28 +223,28 @@ fn replay(test: &str, at_least: usize) {
 }
 
 #[test]
-fn parse_matches_go() {
-    replay("TestArmadaSpecParseMatchesGo", 10_000);
+fn parse_as_recorded() {
+    replay("parse", 10_000);
 }
 
 #[test]
-fn substitute_matches_go() {
-    replay("TestArmadaSpecSubstituteMatchesGo", 5_000);
+fn substitute_as_recorded() {
+    replay("substitute", 5_000);
 }
 
 #[test]
-fn json_matches_go() {
-    replay("TestArmadaSpecJSONMatchesGo", 2_000);
+fn json_as_recorded() {
+    replay("json", 2_000);
 }
 
 #[test]
-fn validators_match_go() {
-    replay("TestArmadaSpecValidatorsMatchGo", 50_000);
+fn validators_as_recorded() {
+    replay("validators", 50_000);
 }
 
 #[test]
-fn schedules_match_go() {
-    replay("TestArmadaSpecSchedulesMatchGo", 5_000);
+fn schedules_as_recorded() {
+    replay("schedules", 5_000);
 }
 
 #[test]
@@ -260,7 +258,7 @@ fn the_comparison_is_not_vacuous() {
     assert!(got[0]["json"].as_str().unwrap().contains(r#""name":"web""#));
     assert_eq!(got[1]["error"], "image: is required");
     // And a changed answer is caught.
-    let (_, req, want) = &cases("TestArmadaSpecParseMatchesGo")[0];
+    let (_, req, want) = &cases("parse")[0];
     let mut wrong = want.clone();
     match wrong.get_mut("error") {
         Some(e) => *e = Value::String("other".into()),

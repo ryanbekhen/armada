@@ -1,7 +1,7 @@
 //! go-yaml v3's encoder (encode.go) without reflection: the scalar
 //! writers (stringv, intv, ...), the mapping, sequence, and document
 //! wrappers marshal uses, and node(), which writes a node tree. Callers
-//! that marshal Go values (spec export) drive these the way encode.go's
+//! that marshal values (spec export) drive these the way encode.go's
 //! marshal does.
 
 #![allow(clippy::too_many_arguments)]
