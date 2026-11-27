@@ -203,6 +203,14 @@ async fn load_master_key(
     Ok(keys)
 }
 
+/// Whether a refused promotion only says the learner has not caught up
+/// yet: etcd's ErrLearnerNotReady, whose text armada-kv answers with too
+/// ("etcdserver: can only promote a learner member which is in sync with
+/// leader"). The leader tries again on its next pass.
+fn learner_not_ready(err: &str) -> bool {
+    err.contains("can only promote a learner member which is in sync with leader")
+}
+
 /// The etcd membership of the control plane over this server's member.
 struct EtcdCluster {
     c: Client,
@@ -286,7 +294,7 @@ impl Cluster for EtcdCluster {
                 continue;
             }
             if let Err(e) = self.c.member_promote(m.id).await {
-                if e.to_string().contains("not in sync") {
+                if learner_not_ready(&e.to_string()) {
                     continue;
                 }
                 return Err(format!("etcd promote {}: {e}", m.name));
@@ -875,4 +883,27 @@ async fn serve(
     renew.abort();
     drop(member);
     res
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_learner_behind_is_promoted_later() {
+        // The text etcd and armada-kv answer, as the store's client shows
+        // it.
+        const NOT_READY: &str =
+            "etcdserver: can only promote a learner member which is in sync with leader";
+        let e = armada_store::Error::from(tonic::Status::failed_precondition(NOT_READY));
+        assert_eq!(e.to_string(), NOT_READY);
+        assert!(learner_not_ready(&e.to_string()));
+        for e in [
+            "etcdserver: member not found",
+            "etcdserver: can only promote a learner member",
+            "context deadline exceeded",
+        ] {
+            assert!(!learner_not_ready(e), "{e}");
+        }
+    }
 }
