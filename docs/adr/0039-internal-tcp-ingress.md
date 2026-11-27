@@ -73,7 +73,7 @@ space other than `default`).
   host names) are refused for TCP apps. CPU and memory rules work.
 - **Ports.** 1 to 65535, except the ports Armada uses on a node, so a
   caller never mistakes one for the other: 22, 53, 80, 443, 2379, 2380,
-  4789, 7443, 7444, 7480, 8404, 51820.
+  4789, 7443, 7444, 7445, 7446 (armada-kv, ADR 0057), 7480, 8404, 51820.
 - **A port another program has.** HAProxy runs on the host network. If
   another program on the node listens on a TCP app's port on every address
   (or on the gateway itself), binding it would fail, and with it the whole

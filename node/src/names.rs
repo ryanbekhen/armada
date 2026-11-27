@@ -93,8 +93,8 @@ pub fn check_label_value(v: &str) -> Option<String> {
 }
 
 /// spec.ReservedTCPPorts.
-const RESERVED_TCP_PORTS: [u64; 12] = [
-    22, 53, 80, 443, 2379, 2380, 4789, 7443, 7444, 7480, 8404, 51820,
+const RESERVED_TCP_PORTS: [u64; 14] = [
+    22, 53, 80, 443, 2379, 2380, 4789, 7443, 7444, 7445, 7446, 7480, 8404, 51820,
 ];
 
 /// Whether spec.CheckTCPPort accepts port.
@@ -113,5 +113,18 @@ mod tests {
         assert_eq!(space_of("web.default"), None);
         assert_eq!(space_of("Web"), None);
         assert_eq!(space_of("web.a.b"), None);
+    }
+
+    #[test]
+    fn armadas_ports_are_not_tcp_ports() {
+        // armada-kv's client and peer ports (ADR 0057) among them.
+        for p in [
+            22, 2379, 2380, 7443, 7444, 7445, 7446, 7480, 8404, 51820, 0, 65536,
+        ] {
+            assert!(!tcp_port_ok(p), "{p}");
+        }
+        for p in [5432, 6379, 7447, 65535] {
+            assert!(tcp_port_ok(p), "{p}");
+        }
     }
 }
