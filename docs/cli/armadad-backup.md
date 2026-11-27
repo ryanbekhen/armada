@@ -5,8 +5,9 @@
 [All commands](armadad.md)
 
 Writes a consistent backup of the control plane: a snapshot of the state
-(etcd), the secrets master key, the cluster CA, the server certificate,
-ACME certificates, and this node's agent identity. Safe to run while the
+(etcd's, or armada-kv's on a server whose state is there, ADR 0057), the
+secrets master key, the cluster CA, the server certificate, ACME
+certificates, and this node's agent identity. Safe to run while the
 server is running.
 
 The archive contains the CA key and the master key in plaintext. It is

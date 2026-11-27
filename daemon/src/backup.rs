@@ -28,6 +28,11 @@ use crate::{netutil, pack};
 
 /// The data directory's files a backup covers.
 pub const FILE_STATE: &str = "etcd.snapshot";
+/// The state of a server whose store is armada-kv (ADR 0057), in place of
+/// FILE_STATE.
+pub const FILE_KV_STATE: &str = "kv.snapshot";
+/// What a manifest of an armada-kv backup names as its state.
+pub const STATE_KV: &str = "kv";
 pub const FILE_MASTER_KEY: &str = "master.key";
 pub const FILE_CA_CERT: &str = "ca.crt";
 pub const FILE_CA_KEY: &str = "ca.key";
@@ -44,6 +49,10 @@ pub const META_MASTER_KEY: &str = "master_key_id";
 const MANIFEST_NAME: &str = "manifest.json";
 /// format 3: ACME certificates live in etcd, so in FILE_STATE.
 const FORMAT: i64 = 3;
+/// format 4: the state is armada-kv's snapshot (FILE_KV_STATE), and the
+/// manifest says so (state "kv"); a release that knows format 3 only
+/// refuses it.
+const FORMAT_KV: i64 = 4;
 
 /// Required files are in every backup; Optional ones when they exist.
 pub const REQUIRED: [&str; 6] = [
@@ -107,11 +116,9 @@ fn server_name(cert_pem: &[u8]) -> Result<String, String> {
 /// every file hashed.
 pub async fn prepare(data_dir: &str, c: &Client) -> Result<Staged, String> {
     let dd = Path::new(data_dir);
-    if crate::kvmember::is_kv(data_dir) {
-        // A backup holds an etcd snapshot, checked and restored with the
-        // pack's etcd; armada-kv's snapshots come with the move (ADR 0057).
-        return Err(NO_KV_BACKUPS.to_string());
-    }
+    // A server whose state is in armada-kv (ADR 0057) backs up its
+    // snapshot, checked in a scratch member in this process.
+    let kv = crate::kvmember::is_kv(data_dir);
     check_private(dd)?;
     for name in &REQUIRED[1..] {
         let p = join(dd, name);
@@ -128,7 +135,8 @@ pub async fn prepare(data_dir: &str, c: &Client) -> Result<Staged, String> {
         files: Vec::new(),
         tmp: tmp.clone(),
     };
-    let snap = join(&tmp, FILE_STATE);
+    let state_file = if kv { FILE_KV_STATE } else { FILE_STATE };
+    let snap = join(&tmp, state_file);
     write_snapshot(c, &snap).await?;
     let ca_pem = read_private(&join(dd, FILE_CA_CERT))?;
     let ca_key = read_private(&join(dd, FILE_CA_KEY))?;
@@ -137,12 +145,15 @@ pub async fn prepare(data_dir: &str, c: &Client) -> Result<Staged, String> {
     let name = server_name(&srv)?;
     // The snapshot is checked the way a restore checks it, so a backup
     // that cannot be restored fails now rather than when it is needed.
-    let programs = Programs::find(&tmp).map_err(|e| format!("verify snapshot: {e}"))?;
-    let info = state::inspect(&programs, &snap, &tmp, &name)
-        .await
-        .map_err(|e| format!("verify snapshot: {e}"))?;
+    let info = if kv {
+        state::inspect_kv(&snap, &tmp, &name).await
+    } else {
+        let programs = Programs::find(&tmp).map_err(|e| format!("verify snapshot: {e}"))?;
+        state::inspect(&programs, &snap, &tmp, &name).await
+    }
+    .map_err(|e| format!("verify snapshot: {e}"))?;
 
-    st.files.push((FILE_STATE.to_string(), snap));
+    st.files.push((state_file.to_string(), snap));
     for name in REQUIRED[1..].iter().chain(OPTIONAL.iter()) {
         let src = join(dd, name);
         if let Err(e) = fs::symlink_metadata(&src)
@@ -160,7 +171,12 @@ pub async fn prepare(data_dir: &str, c: &Client) -> Result<Staged, String> {
         files.insert(name.clone(), hash_file(src)?);
     }
     st.m = Manifest {
-        format: FORMAT,
+        format: if kv { FORMAT_KV } else { FORMAT },
+        state: if kv {
+            STATE_KV.to_string()
+        } else {
+            String::new()
+        },
         armada_version: armada_client::commands::version::get().version.to_string(),
         created: Created::utc(now),
         schema: info.schema,
@@ -176,9 +192,6 @@ pub async fn prepare(data_dir: &str, c: &Client) -> Result<Staged, String> {
 /// manifest and every file, each 0600), for the control plane's scheduled
 /// backups to a bucket (ADR 0051). The directory goes when the returned
 /// Staged is dropped.
-/// What a backup of a server whose state is in armada-kv says.
-pub const NO_KV_BACKUPS: &str = "this server keeps the cluster's state in armada-kv, which armadad backup does not back up yet (ADR 0057)";
-
 pub async fn stage(data_dir: &str, c: &Client) -> Result<(PathBuf, Staged), String> {
     let st = prepare(data_dir, c).await?;
     let dir = join(&st.tmp, "files");
@@ -225,8 +238,9 @@ fn write_new(dst: &Path, r: &mut dyn Read, mut h: Option<&mut Sha256>) -> Result
     Ok(())
 }
 
-/// etcd's snapshot of the keyspace (ending with its
-/// SHA-256, which a restore verifies) into a new file.
+/// The member's snapshot of the keyspace (etcd's, or armada-kv's in its
+/// own format; each ending with its SHA-256, which a restore verifies)
+/// into a new file.
 async fn write_snapshot(c: &Client, dst: &Path) -> Result<(), String> {
     let mut f = fs::OpenOptions::new()
         .write(true)
@@ -432,16 +446,24 @@ impl Restorer {
                 .read_to_end(&mut b)
                 .map_err(|e| format!("manifest: {}", io_text(&e)))?;
             let m = Manifest::decode(&b).map_err(|e| format!("manifest: {e}"))?;
-            if m.format != FORMAT {
+            if m.format != FORMAT && m.format != FORMAT_KV {
                 return Err(format!(
-                    "backup format {} is not supported (want {FORMAT})",
+                    "backup format {} is not supported (want {FORMAT} or {FORMAT_KV})",
                     m.format
+                ));
+            }
+            let want = if m.format == FORMAT_KV { STATE_KV } else { "" };
+            if m.state != want {
+                return Err(format!(
+                    "manifest: backup format {} cannot hold state {}",
+                    m.format,
+                    armada_spec::go::quote(&m.state)
                 ));
             }
             self.m = m;
             return Ok(());
         }
-        if !REQUIRED.contains(&name) && !OPTIONAL.contains(&name) {
+        if !REQUIRED.contains(&name) && !OPTIONAL.contains(&name) && name != FILE_KV_STATE {
             return Err(format!(
                 "unexpected entry {} in backup",
                 armada_spec::go::quote(name)
@@ -450,7 +472,7 @@ impl Restorer {
         if self.sums.contains_key(name) {
             return Err(format!("duplicate entry {}", armada_spec::go::quote(name)));
         }
-        let limit = if name == FILE_STATE {
+        let limit = if name == FILE_STATE || name == FILE_KV_STATE {
             MAX_STATE_SIZE
         } else {
             MAX_FILE_SIZE
@@ -478,6 +500,17 @@ impl Restorer {
         }
         let m = self.m.clone();
         let programs = verify(&self.parent(), &tmp, &m, &self.sums).await?;
+        if m.state == STATE_KV {
+            // A new single-member armada-kv store, laid out as a kv
+            // server's member directory (ADR 0057).
+            let snap = join(&tmp, FILE_KV_STATE);
+            state::restore_kv(&snap, &join(&tmp, crate::agentconfig::DIR_KV))?;
+            fs::remove_file(&snap).map_err(|e| errno("remove", &snap, &e))?;
+            return self.place(tmp, m);
+        }
+        let Some(programs) = programs else {
+            return Err("no etcd program to restore the snapshot with".to_string());
+        };
         let srv = read_private(&join(&tmp, FILE_SERVER_CERT))?;
         let leaf = parse_cert_pem(&srv).map_err(|e| e.to_string())?;
         let name = match leaf.identity() {
@@ -498,6 +531,11 @@ impl Restorer {
         )?;
         let snap = join(&tmp, FILE_STATE);
         fs::remove_file(&snap).map_err(|e| errno("remove", &snap, &e))?;
+        self.place(tmp, m)
+    }
+
+    /// The restored directory moved into place.
+    fn place(&mut self, tmp: PathBuf, m: Manifest) -> Result<Manifest, String> {
         if let Err(e) = fs::remove_dir(&self.data_dir)
             && e.kind() != io::ErrorKind::NotFound
         {
@@ -563,7 +601,7 @@ async fn verify(
     dir: &Path,
     m: &Manifest,
     sums: &BTreeMap<String, String>,
-) -> Result<Programs, String> {
+) -> Result<Option<Programs>, String> {
     let files = m.files.clone().unwrap_or_default();
     for (name, want) in &files {
         match sums.get(name) {
@@ -581,10 +619,16 @@ async fn verify(
             return Err(format!("{name} is not listed in the manifest"));
         }
     }
-    for name in REQUIRED {
+    let kv = m.state == STATE_KV;
+    let state_file = if kv { FILE_KV_STATE } else { FILE_STATE };
+    for name in std::iter::once(state_file).chain(REQUIRED[1..].iter().copied()) {
         if !sums.contains_key(name) {
             return Err(format!("backup has no {name}"));
         }
+    }
+    let other = if kv { FILE_STATE } else { FILE_KV_STATE };
+    if sums.contains_key(other) {
+        return Err(format!("unexpected entry {other} in backup"));
     }
     if m.schema > armada_store::SCHEMA {
         return Err(format!(
@@ -607,10 +651,15 @@ async fn verify(
     leaf.verify(&ca.cert, None, ExtKeyUsage::Any, SystemTime::now())
         .map_err(|e| format!("server certificate is not signed by the cluster CA: {e}"))?;
     let name = server_name(&srv_cert)?;
-    let programs = Programs::find(base).map_err(|e| format!("state snapshot: {e}"))?;
-    let info = state::inspect(&programs, &join(dir, FILE_STATE), dir, &name)
-        .await
-        .map_err(|e| format!("state snapshot: {e}"))?;
+    let (programs, info) = if kv {
+        let info = state::inspect_kv(&join(dir, FILE_KV_STATE), dir, &name).await;
+        (None, info)
+    } else {
+        let programs = Programs::find(base).map_err(|e| format!("state snapshot: {e}"))?;
+        let info = state::inspect(&programs, &join(dir, FILE_STATE), dir, &name).await;
+        (Some(programs), info)
+    };
+    let info = info.map_err(|e| format!("state snapshot: {e}"))?;
     if info.listen.is_empty() {
         return Err(format!(
             "the state has no control plane node {name}; not a backup of this server"
@@ -666,4 +715,216 @@ pub async fn restore_archive(
 
 fn gzip_text(e: &io::Error) -> String {
     armada_node::volume::gzip::text(e)
+}
+
+#[cfg(test)]
+mod kv_tests {
+    //! Backups of a server whose state is in armada-kv (ADR 0057): taken
+    //! from a member in this process, restored into a new single-member
+    //! store laid out as a kv server's, and a damaged snapshot refused.
+
+    use std::net::{IpAddr, Ipv4Addr};
+    use std::time::Duration;
+
+    use armada_pki::{Ca, Identity, IssueRequest};
+
+    use super::*;
+
+    fn base(name: &str) -> PathBuf {
+        let p = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../target/tmp")
+            .join(name);
+        let _ = fs::remove_dir_all(&p);
+        p
+    }
+
+    fn private_dir(p: &Path) {
+        fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(p)
+            .unwrap();
+    }
+
+    /// A kv server's data directory (its keys and certificates, and kv/),
+    /// and the master key's ID.
+    fn data_dir(dd: &Path) -> String {
+        private_dir(&dd.join("kv"));
+        let ca = Ca::new("test").unwrap();
+        let (cert, key) = ca
+            .issue(&IssueRequest {
+                identity: Identity::new("server", "s1"),
+                dns_names: vec![armada_pki::SERVER_NAME.to_string()],
+                ips: vec![IpAddr::V4(Ipv4Addr::new(10, 0, 0, 5))],
+                server: true,
+                client: true,
+                validity: Duration::ZERO,
+            })
+            .unwrap();
+        let write = |n: &str, b: &[u8]| {
+            armada_fsutil::write_file_exclusive(&dd.join(n), b, 0o600).unwrap();
+        };
+        write(FILE_CA_CERT, &ca.cert_pem);
+        write(FILE_CA_KEY, ca.key_pem().expose());
+        write(FILE_SERVER_CERT, &cert);
+        write(FILE_SERVER_KEY, key.expose());
+        armada_secrets::generate_key_file(&dd.join(FILE_MASTER_KEY)).unwrap();
+        armada_secrets::load_key_file(&dd.join(FILE_MASTER_KEY))
+            .unwrap()
+            .id()
+            .to_string()
+    }
+
+    /// The server's member on a Unix socket, its state written.
+    async fn member(dir: &Path, key_id: &str) -> (armada_kv::Node, Client) {
+        let node = armada_kv::Node::open(dir, armada_kv::Options::default())
+            .await
+            .unwrap();
+        let sock = dir.join("client.sock");
+        {
+            let (n, s) = (node.clone(), sock.clone());
+            tokio::spawn(async move {
+                let _ = armada_kv::serve_unix(n, &s, std::future::pending()).await;
+            });
+        }
+        while !sock.exists() {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        let c = Client::connect_unix(&sock).unwrap();
+        loop {
+            if c.status().await.is_ok_and(|s| s.leader != 0) {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        let st = armada_store::Etcd::new(c.clone(), ETCD_PREFIX)
+            .await
+            .unwrap();
+        st.set_meta(META_MASTER_KEY, key_id).await.unwrap();
+        st.set_meta("root_domain", "apps.example.com")
+            .await
+            .unwrap();
+        st.upsert_server(&armada_store::Server {
+            name: "s1".into(),
+            private_ip: "10.0.0.5".into(),
+            api_addr: "10.0.0.5:7443".into(),
+            join_addr: String::new(),
+            member_id: 0,
+            schema: armada_store::SCHEMA,
+            version: "test".into(),
+            created_at: armada_spec::gotime::Time::zero(),
+            kv_peer_url: String::new(),
+        })
+        .await
+        .unwrap();
+        (node, c)
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn kv_backups_restore_into_a_kv_server() {
+        let b = base("kv-backup");
+        let dd = b.join("data");
+        let key_id = data_dir(&dd);
+        let (node, c) = member(&b.join("member"), &key_id).await;
+        let dds = dd.to_string_lossy().into_owned();
+        let staged = prepare(&dds, &c).await.unwrap();
+        assert_eq!(staged.m.format, FORMAT_KV);
+        assert_eq!(staged.m.state, STATE_KV);
+        assert_eq!(staged.m.listen, "10.0.0.5:7443");
+        assert_eq!(staged.m.master_key_id, key_id);
+        let files = staged.m.files.clone().unwrap();
+        assert!(files.contains_key(FILE_KV_STATE) && !files.contains_key(FILE_STATE));
+        let mut archive = Vec::new();
+        create(&staged, &mut archive).unwrap();
+        drop(staged);
+        node.close().await;
+
+        let restored = b.join("restored");
+        let m = restore_archive(
+            &mut archive.as_slice(),
+            &restored.to_string_lossy(),
+            Member {
+                addr: None,
+                peer_port: 7446,
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(m.state, STATE_KV);
+        let kv = restored.join(crate::agentconfig::DIR_KV);
+        assert!(kv.join(armada_kv::node::DB_FILE).is_file());
+        assert!(!restored.join(DIR_ETCD).exists());
+        assert!(!restored.join(FILE_KV_STATE).exists());
+        assert!(crate::kvmember::is_kv(&restored.to_string_lossy()));
+        // The restored store holds the state, its member alone.
+        let (node, c) = {
+            let node = armada_kv::Node::open(&kv, armada_kv::Options::default())
+                .await
+                .unwrap();
+            let sock = b.join("restored.sock");
+            let (n, s) = (node.clone(), sock.clone());
+            tokio::spawn(async move {
+                let _ = armada_kv::serve_unix(n, &s, std::future::pending()).await;
+            });
+            while !sock.exists() {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+            (node, Client::connect_unix(&sock).unwrap())
+        };
+        let st = armada_store::Etcd::new(c, ETCD_PREFIX).await.unwrap();
+        assert_eq!(
+            st.get_meta("root_domain").await.unwrap(),
+            "apps.example.com"
+        );
+        node.close().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_damaged_kv_snapshot_is_refused() {
+        let b = base("kv-backup-damaged");
+        let dd = b.join("data");
+        let key_id = data_dir(&dd);
+        let (node, c) = member(&b.join("member"), &key_id).await;
+        let staged = prepare(&dd.to_string_lossy(), &c).await.unwrap();
+        node.close().await;
+        // The snapshot with one byte changed, and a manifest whose sums
+        // match it: only the snapshot's own SHA-256 tells.
+        let mut m = staged.m.clone();
+        let mut sums = m.files.clone().unwrap();
+        let mut rs = Restorer::new(&b.join("restored").to_string_lossy()).unwrap();
+        for (name, src) in &staged.files {
+            let mut body = fs::read(src).unwrap();
+            if name == FILE_KV_STATE {
+                let mid = body.len() / 2;
+                body[mid] ^= 1;
+                sums.insert(name.clone(), pack::hex(&Sha256::digest(&body)));
+            }
+            rs.add(name, body.len() as i64, &mut body.as_slice())
+                .unwrap();
+        }
+        m.files = Some(sums);
+        let mj = m.to_json();
+        rs.add(MANIFEST_NAME, mj.len() as i64, &mut mj.as_bytes())
+            .unwrap();
+        let err = rs
+            .finish(Member {
+                addr: None,
+                peer_port: 7446,
+            })
+            .await
+            .err()
+            .unwrap();
+        assert!(err.contains("SHA-256"), "{err}");
+        assert!(!b.join("restored").join("kv").exists());
+        // A kv archive's manifest must say so, and the other way round.
+        let mut wrong = staged.m.clone();
+        wrong.state = String::new();
+        let mut rs = Restorer::new(&b.join("restored2").to_string_lossy()).unwrap();
+        let wj = wrong.to_json();
+        let err = rs
+            .add(MANIFEST_NAME, wj.len() as i64, &mut wj.as_bytes())
+            .err()
+            .unwrap();
+        assert!(err.contains("cannot hold state"), "{err}");
+    }
 }
