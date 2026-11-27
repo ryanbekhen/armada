@@ -417,7 +417,7 @@ fn update(ctx: &mut Ctx<'_>, _: &[String]) -> Result {
     if RESTARTING_SETTINGS.iter().any(|f| ctx.changed(f)) {
         // The leader restarts its control plane with them right after
         // answering; the next command would find no API.
-        wait_for_api(ctx, &mut admin)?;
+        wait_for_api(ctx)?;
     }
     let text = cluster_config_text(&cc);
     ctx.print(&text);
@@ -425,8 +425,10 @@ fn update(ctx: &mut Ctx<'_>, _: &[String]) -> Result {
 }
 
 /// Until the control plane answers again after a change of
-/// its settings.
-fn wait_for_api(ctx: &mut Ctx<'_>, admin: &mut crate::rpc::Admin) -> Result {
+/// its settings. Each try dials anew: the connection that sent the
+/// change still reaches the old control plane while it stops, which
+/// would answer before the new one listens.
+fn wait_for_api(ctx: &mut Ctx<'_>) -> Result {
     let deadline = std::time::Instant::now() + SETTINGS_WAIT;
     let mut wait = SETTINGS_SETTLE;
     loop {
@@ -443,6 +445,10 @@ fn wait_for_api(ctx: &mut Ctx<'_>, admin: &mut crate::rpc::Admin) -> Result {
         std::thread::sleep(wait);
         let limit = std::time::Duration::from_secs(3)
             .min(deadline.saturating_duration_since(std::time::Instant::now()));
+        let Ok(mut admin) = ctx.admin() else {
+            wait = std::time::Duration::from_millis(500);
+            continue;
+        };
         let ok = ctx.block_on(async {
             tokio::time::timeout(
                 limit,
