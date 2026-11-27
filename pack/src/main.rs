@@ -438,7 +438,7 @@ fn pointer(index: &str) -> String {
     format!(
         "The source of the runtime pack's programs and of the libraries linked into\n\
          them (crun's complete corresponding source, and glibc, libseccomp, libcap,\n\
-         json-c, libcriu, and protobuf-c as crun, runc, and tini were built with them)\n\
+         json-c, libcriu, and protobuf-c as crun and tini were built with them)\n\
          is not in this archive. It is the release asset\n\
          \n    {SOURCES_ASSET}\n\n\
          on the same release page as this archive, the same <version>:\n\

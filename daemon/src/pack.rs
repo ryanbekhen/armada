@@ -13,10 +13,9 @@ use std::path::{Path, PathBuf};
 
 use sha2::{Digest, Sha256};
 
-/// The pack's programs (pack/lock.json): crun runs new containers, runc
-/// those it created before ADR 0056 until they are recreated.
+/// The pack's programs (pack/lock.json): crun runs every container (ADR
+/// 0056).
 pub const BIN_CRUN: &str = "crun";
-pub const BIN_RUNC: &str = "runc";
 pub const BIN_TINI: &str = "tini";
 pub const BIN_NODE: &str = "armada-node";
 pub const BIN_ETCD: &str = "etcd";
@@ -307,6 +306,10 @@ pub fn install(root: &Path, pack: &[u8]) -> Result<(PathBuf, Manifest), String> 
             io_text(&e)
         )
     })?;
+    // Other packs go: nothing runs from a pack's own directory. Shims,
+    // and the programs they and the agent run, are named through
+    // root/current (the agent's bin directory), so a shim started from an
+    // older pack runs the installed pack's programs once current moves.
     let entries = fs::read_dir(root).map_err(|e| path_err("open", root, &e))?;
     for e in entries.flatten() {
         let name = e.file_name().to_string_lossy().into_owned();
@@ -342,7 +345,7 @@ fn getrandom(b: &mut [u8]) -> std::io::Result<()> {
 pub fn use_bin_dir(root: &Path, dir: &str) -> Result<(), String> {
     let abs = std::path::absolute(dir).map_err(|e| e.to_string())?;
     let abs = PathBuf::from(crate::gopath::clean(&abs.to_string_lossy()));
-    for n in [BIN_RUNC, BIN_CRUN, BIN_TINI, DIR_CNI] {
+    for n in [BIN_CRUN, BIN_TINI, DIR_CNI] {
         let p = abs.join(n);
         if let Err(e) = fs::metadata(&p) {
             return Err(format!("runtime binaries: {}", path_err("stat", &p, &e)));
@@ -467,30 +470,28 @@ mod tests {
     fn installs_and_verifies() {
         let dir = std::env::temp_dir().join(format!("armadad-pack-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
-        let p = pack(&[("runc", b"r"), ("cni/bridge", b"b")]);
+        let p = pack(&[("crun", b"r"), ("cni/bridge", b"b")]);
         let (bin, m) = install(&dir, &p).unwrap();
         assert_eq!(m.files.len(), 2);
         assert_eq!(fs::read(bin.join("cni/bridge")).unwrap(), b"b");
         assert_eq!(installed_pack(&dir), pack_id(&p));
         // A damaged copy is extracted again.
-        fs::write(dir.join(pack_id(&p)).join("bin/runc"), b"x").unwrap();
+        fs::write(dir.join(pack_id(&p)).join("bin/crun"), b"x").unwrap();
         install(&dir, &p).unwrap();
-        assert_eq!(fs::read(bin.join("runc")).unwrap(), b"r");
+        assert_eq!(fs::read(bin.join("crun")).unwrap(), b"r");
         assert!(check_name("../x").is_err());
         fs::remove_dir_all(&dir).unwrap();
     }
 
-    /// A directory of runtime programs must hold crun beside runc (ADR
-    /// 0056): new containers run on crun, those runc created on runc.
+    /// A directory of runtime programs must hold crun (ADR 0056); runc is
+    /// not asked for.
     #[test]
-    fn bin_dir_needs_both_oci_runtimes() {
+    fn bin_dir_needs_crun() {
         let dir = std::env::temp_dir().join(format!("armadad-bindir-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         let bins = dir.join("bins");
         fs::create_dir_all(bins.join(DIR_CNI)).unwrap();
-        for n in [BIN_RUNC, BIN_TINI] {
-            fs::write(bins.join(n), n).unwrap();
-        }
+        fs::write(bins.join(BIN_TINI), BIN_TINI).unwrap();
         let root = dir.join("runtime");
         assert_eq!(
             use_bin_dir(&root, bins.to_str().unwrap()).unwrap_err(),
@@ -513,14 +514,14 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("armadad-programs-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
-        let p = pack(&[("etcd", b"e"), ("etcdutl", b"u"), ("runc", b"r")]);
+        let p = pack(&[("etcd", b"e"), ("etcdutl", b"u"), ("crun", b"r")]);
         extract_programs(&p, &dir, &[BIN_ETCD, BIN_ETCDUTL]).unwrap();
         assert_eq!(fs::read(dir.join("etcdutl")).unwrap(), b"u");
-        assert!(fs::metadata(dir.join("runc")).is_err());
+        assert!(fs::metadata(dir.join("crun")).is_err());
         let other = dir.join("other");
         fs::create_dir(&other).unwrap();
         assert_eq!(
-            extract_programs(&pack(&[("runc", b"r")]), &other, &[BIN_ETCD]).unwrap_err(),
+            extract_programs(&pack(&[("crun", b"r")]), &other, &[BIN_ETCD]).unwrap_err(),
             "bundle: the pack has no etcd"
         );
         fs::remove_dir_all(&dir).unwrap();

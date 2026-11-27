@@ -4,9 +4,9 @@
 
 [All commands](armadad.md)
 
-runtime extracts the runtime pack this armadad carries (crun, runc, the CNI
-plugins, tini, armada-shim, armada-log, armada-dns, armada-node, and etcd) into
-the data directory, verifies it, and exits; armada-agent (which armada-server wants)
+runtime extracts the runtime pack this armadad carries (crun, the CNI plugins,
+tini, armada-shim, armada-log, armada-dns, armada-node, and etcd) into the data
+directory, verifies it, and exits; armada-agent (which armada-server wants)
 starts it (armada-runtime.service). It does nothing on nodes that are not initialized yet.
 
 A node still on containerd fails here: this release runs containers on the

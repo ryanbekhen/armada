@@ -55,7 +55,7 @@ build:
 
 # armada-pack (pack/, a workspace member that is never shipped) builds the
 # runtime pack from the pins in pack/lock.json: it downloads the pinned
-# crun, runc, CNI plugins, tini, and etcd (ADR 0046, ADR 0055, ADR 0056) over
+# crun, CNI plugins, tini, and etcd (ADR 0046, ADR 0055, ADR 0056) over
 # HTTPS, keeps each only when its SHA-256 matches, and packs them with
 # Armada's own programs below into build/pack/linux_<arch>.pack, which
 # daemon/build.rs embeds. Built with the release profile: it compresses
@@ -192,7 +192,7 @@ runtime-licenses:
 # The runtime pack's sources (ADR 0056): crun's complete corresponding
 # source (its release tarball and the build files of its static programs)
 # and the source of every library linked into the pack's static programs
-# (crun, runc, tini), each pinned in pack/lock.json, into
+# (crun, tini), each pinned in pack/lock.json, into
 # build/sources-runtime, packed as build/runtime-sources.tar.gz (top
 # directory source/runtime; GNU tar, a file two libraries share stored
 # once), which releases publish as one asset,

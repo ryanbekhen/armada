@@ -29,7 +29,6 @@ SHA-256, and `armada-pack` (`pack/`, below) builds the pack from it.
 | Component | Version | License | Source |
 | --- | --- | --- | --- |
 | crun | 1.31 | GPL-2.0-or-later | <https://github.com/containers/crun/tree/1.31>, and in every release's sources asset (`source/runtime/crun-1.31/`) |
-| runc | 1.5.3 | Apache-2.0 | <https://github.com/opencontainers/runc/tree/v1.5.3> |
 | cni-plugins | 1.10.0 | Apache-2.0 | <https://github.com/containernetworking/plugins/tree/v1.10.0> |
 | tini | 0.19.0 | MIT ([text](third_party/licenses/MIT-tini.txt)) | <https://github.com/krallin/tini/tree/v0.19.0> |
 | etcd | 3.7.4 | Apache-2.0 | <https://github.com/etcd-io/etcd/tree/v3.7.4> |
@@ -50,8 +49,7 @@ its license above.
 
 ### crun
 
-crun runs every container created since ADR 0056 (runc stays for the
-containers it created before, until they are recreated). The pack holds
+crun runs every container (ADR 0056). The pack holds
 crun's own static release build without systemd support
 (`crun-1.31-linux-<arch>-disable-systemd`), unchanged. crun is under the
 [GNU General Public License 2.0 or later](third_party/licenses/GPL-2.0.txt);
@@ -106,14 +104,11 @@ asset once.
 | --- | --- | --- | --- | --- |
 | glibc | 2.44-57 | LGPL-2.1-or-later | crun (amd64, arm64) | `source/runtime/libs/glibc-2.44-57/` |
 | libgcc | 16.2.0 | GPL-3.0-or-later WITH GCC-exception-3.1 | crun (amd64, arm64) | not carried (GCC Runtime Library Exception) |
-| libseccomp | 2.6.1 | LGPL-2.1-only | crun, runc (amd64, arm64) | `source/runtime/libs/libseccomp-2.6.1/` |
+| libseccomp | 2.6.1 | LGPL-2.1-only | crun (amd64, arm64) | `source/runtime/libs/libseccomp-2.6.1/` |
 | libcap | 2.78 | BSD-3-Clause OR GPL-2.0-only | crun (amd64, arm64) | `source/runtime/libs/libcap-2.78/` |
 | json-c | 0.18 | MIT | crun (amd64, arm64) | `source/runtime/libs/json-c-0.18/` |
 | criu | 4.1.1 | LGPL-2.1-only | crun (amd64) | `source/runtime/libs/criu-4.1.1/` |
 | protobuf-c | 1.5.2 | BSD-2-Clause | crun (amd64) | `source/runtime/libs/protobuf-c-1.5.2/` |
-| glibc | 2.41-12+deb13u4 | LGPL-2.1-or-later | runc (amd64) | `source/runtime/libs/glibc-2.41-12+deb13u4/` |
-| glibc | 2.41-11 | LGPL-2.1-or-later | runc (arm64) | `source/runtime/libs/glibc-2.41-11/` |
-| libgcc | 14.2.0-19 | GPL-3.0-or-later WITH GCC-exception-3.1 | runc (amd64, arm64) | not carried (GCC Runtime Library Exception) |
 | glibc | 2.23-0ubuntu11 | LGPL-2.1-or-later | tini (amd64) | `source/runtime/libs/glibc-2.23-0ubuntu11/` |
 | glibc | 2.23-0ubuntu3 | LGPL-2.1-or-later | tini (arm64) | `source/runtime/libs/glibc-2.23-0ubuntu3/` |
 | libgcc | 5.4.0-6ubuntu1~16.04.12 | GPL-3.0-or-later WITH GCC-exception-3.1 | tini (amd64) | not carried (GCC Runtime Library Exception) |
@@ -127,12 +122,6 @@ asset once.
     (nixpkgs' `2.44-master.patch`) and nixpkgs' other patches
     (`0001-aarch64-math-vector.h-add-NVCC-include-guard.patch` only in the
     arm64 build). Both programs name nixpkgs' `glibc-2.44-57`.
-  - runc: Debian 13's glibc, as runc's release `Dockerfile`
-    (`golang:1.26-trixie`) builds it: on amd64 `libc6-dev`
-    2.41-12+deb13u4 (in trixie from 13.7, 2026-09-12, until after runc
-    1.5.3's release on 2026-11-12); on arm64 `libc6-dev-arm64-cross`
-    2.41-11cross1, built by `cross-toolchain-base` 77 from glibc 2.41-11
-    (its `Built-Using`). Both programs carry glibc 2.41's version string.
   - tini: Ubuntu 16.04's glibc, as tini's `Dockerfile` (`ubuntu:xenial`)
     builds it: on amd64 `libc6-dev` 2.23-0ubuntu11 (in xenial-updates
     from 2019-02-20 to 2020-07-06; tini 0.19.0's programs were published
@@ -145,12 +134,10 @@ asset once.
   [GCC Runtime Library Exception 3.1](third_party/licenses/GCC-exception-3.1.txt).
   The exception lets a program compiled with GCC carry libgcc under the
   program's own terms, without libgcc's source, so the asset does not
-  carry GCC's source. crun's names nixpkgs' GCC 16.2.0, runc's is Debian
-  13's `gcc-14` 14.2.0-19, tini's Ubuntu 16.04's `gcc-5`.
+  carry GCC's source. crun's names nixpkgs' GCC 16.2.0, tini's Ubuntu
+  16.04's `gcc-5`.
 - **libseccomp** ([LGPL 2.1](third_party/licenses/LGPL-2.1.txt)): the
-  release tarball both crun's nixpkgs (`nixpkgs/`) and runc's
-  `script/build-seccomp.sh` (`runc/script/`, which checks the same
-  SHA-256) build, unchanged; `runc --version` prints `libseccomp: 2.6.1`.
+  release tarball crun's nixpkgs (`nixpkgs/`) builds, unchanged.
 - **libcap** (`libcap.a`), used under the BSD-3-Clause choice of its dual
   license ([text](third_party/licenses/BSD-3-Clause-OR-GPL-2.0-libcap.txt)).
 - **json-c** ([text](third_party/licenses/MIT-json-c.txt)).
@@ -168,10 +155,7 @@ libocispec (crun's `libocispec/`, under its own license with a special
 exception for the parser it generates) and BLAKE3 (`src/libcrun/blake3`,
 CC0-1.0 or Apache-2.0); the nixpkgs revision is at
 <https://github.com/NixOS/nixpkgs/tree/1d060086d60cb76a40cf37109f979d88a5bd6396>.
-runc is also linked with libpathrs 0.2.6
-(<https://github.com/cyphar/libpathrs/releases/tag/v0.2.6>), under the
-[Mozilla Public License 2.0](https://www.mozilla.org/en-US/MPL/2.0/),
-unchanged; its source is at that address. etcd, etcdutl, and the CNI
+etcd, etcdutl, and the CNI
 plugins are pure Go programs (`CGO_ENABLED=0` in their build information)
 and link no C library.
 
