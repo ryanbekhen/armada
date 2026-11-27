@@ -35,15 +35,66 @@ you have to build a new cluster and redeploy everything. With three, any
 one can fail, but a mistake (a deleted app, a bad secret) is replicated to
 all of them. Back up either way.
 
-**armada-kv (preview).** `armadad init --state kv` makes a cluster whose
-servers keep the state in armada-kv, Armada's own store (ADR 0057),
-instead of etcd: each server runs `armada-kv` (`armadad kv`) in place of
+**armada-kv.** Armada's own store of the state (ADR 0057) takes etcd's
+place: each server runs `armada-kv` (`armadad kv`) in place of
 `armada-etcd`, listening on the private IP on 7445 and 7446 with the same
-mutual TLS. Start it with `sudo systemctl enable --now armada-kv
-armada-server` (`armada-server` does not pull it in); servers that join
-such a cluster run it too, and say so. Such a cluster cannot be backed up
-with `armadad backup` or to a bucket yet, and existing clusters stay on etcd:
-use it for trying out, not for production.
+mutual TLS. `armada-server.service` wants both units; the one whose store
+the server does not keep exits at once with status 78 and stays stopped.
+A running cluster on etcd moves to armada-kv by itself once every server
+runs a release with it (see [Moving the state to
+armada-kv](#moving-the-state-to-armada-kv)); `armadad init --state kv`
+makes a new cluster on armada-kv from the start, and servers that join such
+a cluster run it too, and say so.
+
+### Moving the state to armada-kv
+
+Once every server of a cluster on etcd runs a release with armada-kv, the
+leader moves the state there, once
+([ADR 0057](adr/0057-state-store-in-rust.md)). It starts by itself when
+every server is a voting etcd member that answers, and has been for ten
+minutes as the leader saw it (a new leader waits ten minutes again).
+`armada cluster status` shows where the state is, and what the move waits
+for:
+
+```bash
+armada cluster status                     # state: etcd, moves to armada-kv by itself
+armada cluster update --state-move off    # hold it (e.g. during an upgrade of the servers)
+armada cluster update --state-move now    # move at the next pass (within 30 s), without the wait
+armada cluster update --state-move auto   # the default
+```
+
+What to expect:
+
+- **Writes wait for the copy.** From the move's first step until the state
+  moved, every write is refused: the API answers `Unavailable: the control
+  plane's state is moving`, the reconcile pass and agents' reports are
+  refused too, and nothing is lost. Reads, agents' sessions, the proxies,
+  and every container keep working. The copy takes seconds for the key
+  spaces Armada runs; `armada` commands that write can be run again after.
+- **Every server takes part.** The leader starts a new armada-kv store of
+  its own member from etcd's key space; every other server's
+  `armadad server` starts its member inside its own process and joins, and
+  the leader promotes each once it caught up. A server that is down, or
+  runs an older release, holds the move until it is back (the status names
+  it).
+- **Then every server switches.** Once the copy matches etcd key for key
+  (with a SHA-256 over both), the move is recorded as done in etcd, and
+  every server ends its term, renames `kv.moving` to `kv` and `etcd` to
+  `etcd.moved` in its data directory, enables and starts `armada-kv`,
+  stops and disables `armada-etcd`, and campaigns again on armada-kv. The
+  new leader records `StateMoved`. Expect a few seconds without a leader.
+- **A failed move changes nothing.** A move that fails before it is done
+  (a member that does not join within five minutes, a copy that differs, a
+  leader that stops) is given up: the new store's data is removed on every
+  server, writes work again on etcd, `StateMoveFailed` is recorded (an
+  alert warning), and the next try comes after 10 minutes, then 20, 40, up
+  to 2 hours. `armada cluster status` shows the failures and the next try;
+  `--state-move now` tries again at once.
+- **etcd's data stays** in `etcd.moved` for a manual return during this
+  release; the release after it removes etcd.
+
+Backups taken before the move restore onto etcd as before; backups taken
+after it are armada-kv's (see [Backup](#backup)).
 
 ## Cluster settings
 
@@ -207,7 +258,9 @@ that step.
 | File | What it is | Without it |
 | --- | --- | --- |
 | `etcd/` | This server's etcd member, run by `armada-etcd` (its data, member certificate, and `etcd.yaml`): apps, revisions, replicas, nodes, domains, encrypted secrets, the ACME account and certificates. | No cluster (unless other servers have it) |
-| `kv/` | In place of `etcd/` on a cluster made with `armadad init --state kv`: this server's armada-kv member, run by `armada-kv` (`kv.db`, its member certificate). | No cluster (unless other servers have it) |
+| `kv/` | In place of `etcd/` on a cluster on armada-kv (moved there, or made with `armadad init --state kv`): this server's armada-kv member, run by `armada-kv` (`kv.db`, its member certificate). | No cluster (unless other servers have it) |
+| `kv.moving/` | During a move of the state to armada-kv: this server's new member, run inside `armadad server` until it becomes `kv/`; removed when a move is given up. | The move is given up and tried again |
+| `etcd.moved/` | After the move: the etcd member's data as it was, for a manual return during this release. | Nothing (it is not used) |
 | `master.key` | Encrypts every secret in the state | Secrets are unrecoverable |
 | `ca.crt`, `ca.key` | Cluster CA: signs node, admin, and server certificates, and lets each server renew its own | Every node must join again; every admin config is invalid |
 | `server.crt`, `server.key` | Control plane TLS identity | Re-issuable from the CA |
@@ -229,10 +282,13 @@ sudo armadad backup -o /root/armada-$(date +%F).tar.gz
 ```
 
 - Safe while the server is running: the state is copied as a consistent
-  etcd snapshot through the running server's etcd member (if the server is
-  stopped, `backup` starts the member itself). Before the archive is
-  written, the snapshot is restored into a scratch member and checked, so
-  a backup that could not be restored fails now and not when you need it.
+  snapshot through the running server's member (if the server is stopped,
+  `backup` starts the member itself): etcd's snapshot (`etcd.snapshot`),
+  or on a cluster on armada-kv its own (`kv.snapshot`, with its format,
+  revision, and SHA-256; such archives are format 4, and releases before
+  armada-kv refuse them). Before the archive is written, the snapshot is
+  restored into a scratch member and checked, so a backup that could not
+  be restored fails now and not when you need it.
 - The archive is created with mode `0600` and never overwrites an existing
   file. It starts with a manifest (Armada version, schema version, master
   key ID, CA fingerprint, and a SHA-256 for every file).
@@ -364,12 +420,19 @@ is not supported in v0.1.
    The archive is extracted into a temporary directory and checked before
    anything is moved into place: only known file names are accepted
    (no paths outside the data directory, no links), sizes are capped,
-   every file must match its checksum in the manifest, the etcd snapshot
+   every file must match its checksum in the manifest, the state snapshot
    must pass its own checksum and open as Armada state this version
    understands, the master key must be the one the state was encrypted
    with, and the server certificate must be signed by the CA. If any check
    fails, nothing is changed. `restore` never writes into a data directory
    that is not empty.
+
+   The state goes back into the store it was taken from: an etcd backup
+   into an etcd member, an armada-kv backup into a new armada-kv store of
+   this server alone (`kv/`, started by `armada-kv`, which
+   `armada-server` wants). A cluster restored onto etcd moves to armada-kv
+   by itself once it runs (see [Moving the state to
+   armada-kv](#moving-the-state-to-armada-kv)).
 
 4. Start the server: `sudo systemctl enable --now armada-server`.
 5. Check: `armada node list` and `armada cluster status`. Agents reconnect on their
@@ -421,6 +484,12 @@ the last release it found, and `sudo armadad upgrade --version vX.Y.Z`
 upgrades without asking.
 
 1. **Back up** (see above) and read the release notes.
+   Upgrading into the release with armada-kv moves the state from etcd
+   ten minutes after every server runs it. To choose the moment, run
+   `armada cluster update --state-move off` with that release's client once
+   an upgraded server leads (`armada cluster show` then says `state move:
+   off`; a leader of an older release ignores it), and `--state-move now`
+   when ready ([Moving the state to armada-kv](#moving-the-state-to-armada-kv)).
 2. **Control plane servers**, one at a time (wait for `armada server list`
    to show the upgraded one as `voting` before the next):
 
@@ -1812,6 +1881,8 @@ scrape interval under 10 seconds costs nothing more, but shows nothing new.
 | `armada_volume_backup_failing` | `app`, `volume` | 1 while the last backup failed |
 | `armada_control_plane_backup_last_success_timestamp_seconds`, `armada_control_plane_backup_last_size_bytes` | | when the control plane's last backup to its bucket worked, and the bytes of its files ([ADR 0051](adr/0051-control-plane-backups.md)) |
 | `armada_control_plane_backup_failures_total` | | backups of the control plane that failed since the leader's term began |
+| `armada_state_store` | `store` | 1 for the store the state is in: `etcd` or `kv` ([ADR 0057](adr/0057-state-store-in-rust.md)) |
+| `armada_state_move_failures` | | moves of the state to armada-kv that failed in a row (0 once one works) |
 
 Example alerts: `armada_app_replicas_ready < armada_app_replicas_desired`
 for 10 minutes, `armada_app_rollout{state="failed"} == 1`,
