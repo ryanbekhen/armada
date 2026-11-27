@@ -49,11 +49,10 @@ impl Info {
         )
     }
 
-    /// The JSON, indented by two spaces. The toolchain keeps the key
-    /// goVersion, which scripts may read.
+    /// The JSON, indented by two spaces.
     pub fn json(&self) -> String {
         format!(
-            "{{\n  \"version\": {},\n  \"commit\": {},\n  \"date\": {},\n  \"goVersion\": {},\n  \"platform\": {}\n}}\n",
+            "{{\n  \"version\": {},\n  \"commit\": {},\n  \"date\": {},\n  \"toolchain\": {},\n  \"platform\": {}\n}}\n",
             json_string(self.version),
             json_string(self.commit),
             json_string(self.date),
