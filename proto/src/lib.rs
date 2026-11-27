@@ -15,7 +15,8 @@
 //!   bytes in standard base64, and timestamps in RFC 3339 with a `Z`
 //!   (`google::protobuf::Timestamp`, armada-proto's own: pbjson-types writes
 //!   `+00:00`).
-//! - etcd's services are clients only.
+//! - etcd's services have clients (armada-store) and servers (armada-kv,
+//!   ADR 0057).
 
 mod timestamp;
 
@@ -53,7 +54,8 @@ pub mod etcd {
         include!("gen/mvccpb.rs");
     }
 
-    /// `etcdserverpb`: the requests, responses, and service clients.
+    /// `etcdserverpb`: the requests, responses, service clients, and
+    /// service servers.
     #[allow(clippy::all, clippy::pedantic, missing_docs, rustdoc::all)]
     pub mod etcdserverpb {
         include!("gen/etcdserverpb.rs");
