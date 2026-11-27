@@ -56,6 +56,7 @@ E2E_ACME_EMAIL=you@example.org sh test/e2e/cluster.sh hosts
 | `E2E_REBOOT` | `1` | `0` skips rebooting every machine at once |
 | `E2E_BRIDGE_GW` | read from each node | Container bridge address (each node has its own container subnet) |
 | `E2E_SERVER_FLAGS` | empty | Extra `armadad server` flags |
+| `E2E_STATE_MOVE` | `off` | The state's move to armada-kv (ADR 0057): `off` keeps it in etcd for the run, `now` moves it right after the cluster forms so every scenario runs on armada-kv, `auto` leaves it to the leader (ten minutes in) |
 
 The script stops at the first failure and prints `armada server list`,
 `armada cluster status`, and `armada app list -A`. A full run on four small machines takes about 10 minutes
@@ -257,7 +258,7 @@ E2E_ACME_EMAIL=you@example.org sh test/e2e/upgrade.sh hosts
 | `E2E_TO` | required | Release to upgrade to |
 | `E2E_RELEASES` | empty (GitHub) | Local directory laid out as the release downloads (`TAG/armada_<version>_linux_<arch>.tar.gz`, `TAG/checksums.txt`, and the signature bundle), holding `E2E_FROM` and `E2E_TO`; copied to every machine and used through `ARMADA_DOWNLOAD_BASE=file://` by both `install.sh` and `armadad upgrade` |
 | `E2E_ETCDCTL` | required | Linux `etcdctl` for the first machine's architecture, from the etcd release archive the runtime pack pins (`pack/lock.json`); reads the keyspace and the member IDs with the member's certificate |
-| `E2E_ONLY`, `E2E_LIST` | | As for `cluster.sh`: the one scenario is `upgrade` |
+| `E2E_ONLY`, `E2E_LIST` | | As for `cluster.sh`: the scenarios are `upgrade` (always run) and `move` |
 | `E2E_ACME_CA`, `E2E_SSH_OPTS`, `E2E_SUDO` | | As for `cluster.sh` |
 
 What it checks:
@@ -285,3 +286,18 @@ What it checks:
    (each replica's container, address, readiness, and restarts). The volume keeps its file, no run of the job failed, it runs
    on, servers run `armada-etcd`, `armada-server`, and `armada-agent`,
    nodes `armada-agent`, and `armadad doctor` passes.
+   When `E2E_TO` moves the state to armada-kv (ADR 0057), the move is
+   held (`armada cluster update --state-move off`) as soon as every server
+   runs it, and the keyspace comparison leaves out the move's
+   `meta/state-move*` records.
+3. `move` (when `E2E_TO` has armada-kv): under the same load,
+   `armada cluster update --state-move now`, then `armada cluster status`
+   shows the state in armada-kv within ten minutes, every server votes and
+   every node is ready; every public request returns 200 and no internal
+   one fails; the keyspace, read from armada-kv, is the same as before but
+   for what the upgrade check leaves out, with one member per server; the
+   volume keeps its file and the job runs on; every server runs
+   `armada-kv`, `armada-server`, and `armada-agent`, with `armada-etcd`
+   disabled, `kv/` and `etcd.moved/` in its data directory and no
+   `kv.moving/`; `StateMoved` is recorded; `armadad backup` takes
+   `kv.snapshot`; and `armadad doctor` passes.

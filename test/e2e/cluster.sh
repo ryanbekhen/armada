@@ -58,6 +58,17 @@ E2E_SUDO=${E2E_SUDO:-}                  # "sudo" when SSH-TARGET is not root
 E2E_REBOOT=${E2E_REBOOT:-1}             # 0 skips rebooting every machine at once
 E2E_BRIDGE_GW=${E2E_BRIDGE_GW:-} # armada0 address; read from each node if empty
 E2E_SERVER_FLAGS=${E2E_SERVER_FLAGS:-}
+# The state's move to armada-kv (ADR 0057): off keeps it in etcd for the
+# run, now moves it right after the cluster forms (every scenario then runs
+# on armada-kv), auto leaves it to the leader (it moves ten minutes in).
+E2E_STATE_MOVE=${E2E_STATE_MOVE:-off}
+case "$E2E_STATE_MOVE" in
+off | now | auto) ;;
+*)
+	echo "e2e: E2E_STATE_MOVE is off, now, or auto" >&2
+	exit 2
+	;;
+esac
 
 case $E2E_ACME_CA in
 letsencrypt | *acme-v02.api.letsencrypt.org*)
@@ -322,9 +333,10 @@ while [ "$i" -le "$N" ]; do
 			sleep 5
 		done
 	done
-	# A server machine runs armada-etcd and armada-agent beside armada-server,
-	# which wants them (ADR 0055): every machine's agent is armada-agent.
-	for unit in armada-etcd armada-server armada-agent armada-runtime; do
+	# A server machine runs armada-etcd (or armada-kv, ADR 0057) and
+	# armada-agent beside armada-server, which wants them (ADR 0055): every
+	# machine's agent is armada-agent.
+	for unit in armada-etcd armada-kv armada-server armada-agent armada-runtime; do
 		on "$i" "cat > /etc/systemd/system/$unit.service" <"$UNITS/$unit.service"
 	done
 	on "$i" 'install -m 0755 /tmp/armadad.e2e /usr/local/bin/armadad && install -m 0755 /tmp/armada.e2e /usr/local/bin/armada &&
@@ -361,6 +373,17 @@ while [ "$i" -le "$N" ]; do
 	i=$((i + 1))
 done
 wait_for 180 "all $N nodes ready" nodes_ready
+
+if cli cluster update --help 2>/dev/null | grep -q -- --state-move; then
+	cli cluster update --state-move "$E2E_STATE_MOVE" >/dev/null || fail "armada cluster update --state-move $E2E_STATE_MOVE"
+	if [ "$E2E_STATE_MOVE" = now ]; then
+		log "move the control plane's state to armada-kv"
+		state_moved() { cli cluster status -o json | jq -e '.stateMove.store == "kv" and .stateMove.step == "moved"'; }
+		wait_for 600 "the state moved to armada-kv" state_moved
+		wait_for 180 "control plane has $SERVERS voting members" voting "$SERVERS"
+		wait_for 180 "all $N nodes ready" nodes_ready
+	fi
+fi
 
 # Each machine's agent applies the cluster network through the runtime
 # pack's armada-node, and doctor checks it through it. A pass armada-node
