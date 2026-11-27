@@ -17,12 +17,12 @@
 # internal HTTP and TCP apps, and a public app with a certificate. Under
 # continuous load through the public and the internal addresses, every
 # machine is upgraded to E2E_TO with `armadad upgrade`: the standby servers,
-# the leader, then the nodes. The agents then move the containers runc
-# created to crun, one replica at a time (ADR 0056). The run passes only
-# with every request answered, no container left on runc, no image pulled
-# again, every etcd member ID unchanged, and the keyspace unchanged but for
-# what the release and the move to crun write (servers/ records, events,
-# the replicas' containers and addresses).
+# the leader, then the nodes, once no machine has a container runc created
+# left (E2E_FROM moves them to crun; E2E_TO carries no runc, ADR 0056).
+# The run passes only with every request answered, no container or state
+# of runc's on any machine afterwards, no image pulled again, every etcd
+# member ID unchanged, and the keyspace unchanged but for what the release
+# writes (servers/ records, events, what replica reports change).
 #
 # Releases come from GitHub, or from E2E_RELEASES: a local directory laid
 # out as the release downloads (TAG/armada_<version>_linux_<arch>.tar.gz,
@@ -272,8 +272,9 @@ snapshot() { # snapshot DIR
 		| map(.value |= (try fromjson catch .))
 		# Fields agents and the leader rewrite on their own: when a node
 		# was last seen and the version its agent runs, when a replica
-		# report arrived, and what the move to crun changes in a replica:
-		# its container, its address, and when it got ready.
+		# report arrived, and what a recreated replica changes (one whose
+		# container runc created): its container, its address, and when
+		# it got ready.
 		| map(if (.key | startswith("nodes/")) then .value |= del(.LastSeen, .Version)
 		      elif (.key | startswith("replicas/")) then .value |= del(.UpdatedAt, .ContainerID, .Address, .IP, .ReadySince, .Message, .Restarts, .LastRestartAt, .LastRestart)
 		      else . end)
@@ -498,13 +499,27 @@ internal_check "before the upgrade"
 job_failed() { cli run list e2e-job --space "$SPACE" -o json | jq -e '[(.runs // [])[] | select(.state == "failed")] | length > 0' >/dev/null; }
 vol_kept() { [ "$(cli app exec "e2e-vol.$SPACE" -- cat /data/notes.txt)" = "kept across the upgrade" ]; }
 
-# runc_left: no node reports a container left on runc (ADR 0056).
-runc_left() { cli node list -o json | jq -e '[.nodes[]? | .runtime.runcContainers // 0] | add // 0 | . == 0'; }
+# runc_on N: what machine N has of runc's (ADR 0056): the records of
+# containers runc created (they name no runtime) and, with "state", runc's
+# state directories in the shims'; nothing printed when there is none.
+runc_on() {
+	_state=
+	[ "${2:-}" != state ] || _state='ls -d /run/armada/shim/*/runc/* 2>/dev/null;'
+	on "$1" "grep -L '\"runtime\":\"crun\"' /var/lib/armada/supervisor/containers/*/record.json 2>/dev/null; $_state true"
+}
+# no_runc [state]: no machine has a container runc created (or its state).
+no_runc() {
+	_i=1
+	while [ "$_i" -le "$N" ]; do
+		[ -z "$(runc_on "$_i" "${1:-}")" ] || return 1
+		_i=$((_i + 1))
+	done
+}
 
-# check WHEN BEFORE: every check, against the snapshot BEFORE, once the
-# agents moved every container runc created to crun, still under load.
+# check WHEN BEFORE: every check, against the snapshot BEFORE, once no
+# machine has a container or state of runc's left, still under load.
 check() {
-	wait_for 1800 "$1: every container moved from runc to crun" runc_left
+	wait_for 300 "$1: no container or state of runc's on any machine" no_runc state
 	load_stop "$1"
 	internal_check "$1"
 	snapshot "$WORK/after"
@@ -516,6 +531,9 @@ check() {
 	rm -rf "$WORK/after"
 }
 
+# E2E_FROM moves every container runc created to crun (ADR 0056); E2E_TO
+# carries no runc, so the upgrade waits until none is left.
+wait_for 1800 "every container runs on crun before the upgrade" no_runc
 log "upgrade every machine to $E2E_TO under load"
 snapshot "$WORK/before"
 load_start

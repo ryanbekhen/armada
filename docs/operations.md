@@ -424,7 +424,7 @@ upgrades without asking.
    runs (it installs the runtime pack and exits, so usually it does not),
    then `armada-etcd`, `armada-server`, and `armada-agent`, each where it
    runs; `armada-agent` (and `armada-etcd` on a server) installs the new
-   runtime pack (crun, runc, `armada-shim`, `armada-log`, ...) at its start, and
+   runtime pack (crun, `armada-shim`, `armada-log`, ...) at its start, and
    containers keep running.
    It prints each step as it happens (each download with its size and
    time, the signature and checksum, every file installed, and each restart
@@ -462,13 +462,6 @@ upgrades without asking.
    `armada-dns` starts it beside the old one, which hands over what it
    knows and stops, so no lookup goes unanswered.
 
-   On the upgrade to the release that brought crun (ADR 0056), each
-   upgraded node then recreates the replicas runc created on crun, one at
-   a time, and HAProxy last ([crun and runc](#crun-and-runc)): upgrade
-   the nodes one after the other as usual; an app with replicas on more
-   than one node keeps serving, and one with a single replica is down
-   for about its start time.
-
    On Debian and Ubuntu, needrestart restarts services after package
    upgrades, and after `armadad upgrade` it counts `armada-runtime` among
    them (the containers' log processes still run the old binary).
@@ -493,6 +486,14 @@ and the units' names stay as they were, and running apps see nothing.
 
 Before upgrading from v0.1.0-alpha.44:
 
+- **runc's containers.** This release's runtime pack has no runc
+  ([crun](#crun)). v0.1.0-alpha.44 moves every container runc created to
+  crun by itself, one replica at a time, HAProxy last; wait until
+  `sudo armadad doctor` on the node shows no `runc` warning (and
+  `armada node show NODE` no runc containers on its Runtime line) before
+  upgrading it. A node upgraded earlier ends what is left on runc and
+  creates it again on crun at once: its apps with one replica there are
+  down for about their start time.
 - **Containerd nodes.** This release runs containers on the supervisor
   runtime only. Every node still on containerd moves to the supervisor
   runtime on v0.1.0-alpha.44 first (its documentation says how). On a
@@ -897,62 +898,42 @@ containers end with it and the agent starts them again. A shim that is only
 slow to answer keeps its containers: the agent ends them only once the
 shim's unit is no longer active (`systemctl status 'armada-shim-*'`).
 
-### crun and runc
+### crun
 
-The shim creates containers with crun, the OCI runtime in the runtime pack
-([ADR 0056](adr/0056-crun.md)). Containers created by an earlier release
-ran on runc, which crun cannot manage, so the pack carries both for now:
-each container's record (`/var/lib/armada/supervisor/containers/<ID>/record.json`)
-says `"runtime": "crun"` for crun, and nothing for runc, and every later
-call for it (signals, stop, removal, `armada app exec`, probe commands)
-goes to the runtime that created it. Their state is kept apart, in
-`/run/armada/shim/<shim>/crun` and `/run/armada/shim/<shim>/runc`.
+The shim creates and runs every container with crun, the OCI runtime in
+the runtime pack ([ADR 0056](adr/0056-crun.md)); its state is in
+`/run/armada/shim/<shim>/crun`, and each container's record
+(`/var/lib/armada/supervisor/containers/<ID>/record.json`) says
+`"runtime": "crun"`.
 
-The upgrade itself restarts no container. Once the agent is back, it
-moves the containers runc created to crun by itself, so the next
-release can leave runc out of the pack ([ADR 0056](adr/0056-crun.md#moving-the-containers-runc-created)):
+Containers created by releases before v0.1.0-alpha.44 ran on runc, which
+crun cannot manage; alpha.44 moved them to crun, and this release's pack
+has no runc. A node upgraded before that move finished still has some
+(their records name no runtime). Its agent ends them without runc and
+creates them again on crun, at its start and in every pass:
 
-- **Replicas, one at a time per node.** The agent reports the replica
-  starting while its runc container still runs, so the leader takes it
-  out of every proxy; 5 seconds later it stops the container (with the
-  usual grace) and starts the replica again on crun, with its init
-  containers and sidecars. The next replica waits until this one is
-  ready again (at most 5 minutes). A replica that is the only server of
-  its app in the proxy configuration waits 2 minutes first, in case
-  another node is moving the app's other replica. So an app with
-  replicas on two or more nodes keeps serving; an app with one replica,
-  a volume app among them (recreated in place, its volume kept), is down
-  for about its start and readiness time. `armada app show` names the
-  restart: "its container moved from runc to crun".
-- **A move that fails holds the rest back.** A replica that does not get
-  ready again within 5 minutes stops the move for 10 minutes, then 20,
-  up to 2 hours, instead of recreating every replica into the same
-  failure. Fix the cause (`armada app logs`, `armada app show`), or
-  restart the app yourself (`armada app restart APP`), which moves it too.
-- **What waits.** Nothing moves while the agent has no session with the
-  control plane, or for replicas that are held, fenced, or paused for a
-  volume backup or restore. Job attempts still running end on runc (an
-  attempt runs once); finished ones are removed with the job's history
-  within a day.
-- **HAProxy last.** Once no replica of the node is left on runc, the
-  agent starts a new HAProxy on crun beside the old one (both listen on
-  80 and 443), then tells the old one to stop listening and finish its
-  connections, and stops it after 30 seconds at the latest. Requests do
-  not wait; connections still open after 30 seconds (WebSockets) are
-  cut. If the new HAProxy does not stay up beside the old one, HAProxy
-  is restarted the plain way (a gap of a few seconds), and a failure is
-  tried again 10 minutes later.
+- **Replicas** are ended at once: every process in the container's
+  cgroup (`/sys/fs/cgroup/armada/<ID>`) is killed and the cgroup removed,
+  then the container's network, bundle, root filesystem, and runc's
+  state of it (`/run/armada/shim/<shim>/runc/<ID>`). The replica starts
+  again on crun right away; it is reported starting meanwhile, so the
+  proxies stop sending it requests, and `armada app show` names the
+  restart: "its container was created by runc, which this release does
+  not carry; recreated on crun". An app with replicas on other nodes keeps
+  serving; one whose only replica is there is down for about its start
+  time.
+- **Job attempts** still running are left to end by themselves; finished
+  ones leave with the job's history.
+- **HAProxy** gets a new container on crun beside the old one (both
+  listen on 80 and 443), then the old one is told to stop listening and
+  finish its connections, and is stopped after 30 seconds at the latest;
+  a failure is tried again 10 minutes later.
+- A shim of alpha.44 left holding only such containers is stopped.
 
-To follow it, read the agent's log
-(`journalctl -u armada-agent -f`): `moving replicas from runc to crun, one at a time` with
-the count, then for each replica `moving replica to crun`, `recreating
-replica on crun`, and `moved replica to crun`; `every replica on the
-node runs on crun`; `moving the proxy to crun`, `haproxy runs on crun`,
-and `moved the proxy to crun`. `armada node show NODE` says how many
-containers are still on runc on its Runtime line, and
-`sudo armadad doctor` warns with the count (check `runc`) until none is
-left. Upgrade to the release without runc only once that warning is
-gone on every node. To list them on a node:
+The agent's log (`journalctl -u armada-agent`) says `ended a container
+runc created; recreating it on crun` for each, and `moving the proxy
+from runc to crun` and `moved the proxy to crun` for HAProxy. To list
+what is left on a node:
 
 ```bash
 sudo grep -L '"runtime":"crun"' /var/lib/armada/supervisor/containers/*/record.json

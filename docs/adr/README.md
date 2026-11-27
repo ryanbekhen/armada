@@ -59,7 +59,7 @@ Every architectural decision that is hard to reverse is recorded here. Copy `000
 | [0053](0053-node-resolver-in-rust.md) | The node's resolver runs as armada-dns | Accepted |
 | [0054](0054-node-agent-in-rust.md) | armada-node does the node's work | Accepted |
 | [0055](0055-control-plane-and-client-in-rust.md) | One Rust workspace, two binaries, etcd as a unit | Accepted |
-| [0056](0056-crun.md) | crun runs the containers | Accepted |
+| [0056](0056-crun.md) | crun runs the containers | Accepted; runc left the pack after v0.1.0-alpha.44 |
 
 Commands in records before 0032 carry the names of their time; ADR 0032
 lists the command line as it is now.
