@@ -185,7 +185,18 @@ pub fn new_lease_id() -> i64 {
     random_id() as i64
 }
 
+/// The database at path, created owner-only (0600) when it does not exist:
+/// it holds the control plane's state, secrets sealed or not.
 fn open_db(path: &Path) -> Result<Database> {
+    use std::os::unix::fs::OpenOptionsExt;
+    std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .mode(0o600)
+        .open(path)
+        .map_err(|e| storage(format!("{}: {e}", path.display())))?;
     Database::create(path).map_err(|e| match e {
         redb::DatabaseError::DatabaseAlreadyOpen => Error::Storage(format!(
             "{}: another process holds the database",
