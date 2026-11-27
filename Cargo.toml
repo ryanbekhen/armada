@@ -61,6 +61,12 @@ tower = { version = "0.5", default-features = false, features = ["util"] }
 # Armada's own state store (kv/, ADR 0057): its database, an embedded
 # copy-on-write B-tree store with no dependencies of its own.
 redb = "5"
+# Its consensus: Raft (leader election, log replication, learners, joint
+# membership changes, snapshots, ReadIndex), on tokio, with no serde: the
+# log and the peer messages are encoded by armada-kv itself.
+openraft = { version = "=0.10.1", default-features = false, features = ["tokio-rt"] }
+# The state machine reads openraft's stream of entries to apply.
+futures-util = { version = "0.3", default-features = false }
 
 # Debug builds (tests, clippy's builds, the replays) keep only line tables:
 # backtraces still name files and lines, and builds and links are faster

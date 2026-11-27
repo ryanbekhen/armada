@@ -1,6 +1,6 @@
 # 0057. The control plane's state in Armada's own store
 
-- Status: Accepted; step 1 (a single-member `armada-kv`) built, Raft and the move to come
+- Status: Accepted; step 1 (a single-member `armada-kv`) and step 2 (Raft) built; TLS listeners, the daemon, and the move to come
 - Date: 2026-11-27
 
 ## Context
@@ -71,6 +71,21 @@ down with it, and restarting `armada-server` keeps the quorum.
   request outside the subset is refused with `Unimplemented`. `Snapshot`
   streams the store's own snapshot format (a header with the format
   version and the revision, then the key space; a SHA-256 at the end).
+- **Any member answers:** clients may call any member, as with etcd.
+  A member that does not lead forwards a command, a ReadIndex, a lease
+  keep-alive, or a membership change to the leader over the peer service
+  and answers the client itself; a forwarded command whose connection
+  fails is answered with an error, never sent again, since the leader may
+  have applied it. Reads are linearizable unless they ask to be
+  serializable: the member waits until it has applied the leader's
+  ReadIndex, then reads its own key space; watches read the member's own
+  key space. The lease clock and the compaction run on the leader only:
+  it gives every lease its whole TTL again when it becomes the leader,
+  confirms it still leads before renewing a keep-alive, and proposes
+  expiries itself, never through another member. A member added with
+  MemberAdd starts by asking the members it is given for the member list
+  and takes the ID of the member with its peer URL and the cluster's ID;
+  once started it tells the cluster its name and client URLs.
 - **Network and TLS:** as etcd's today: client and peer listeners on the
   server's private address only (ports 7445 and 7446, added to the
   reserved ports of internal TCP ingress), TLS 1.3, client certificates

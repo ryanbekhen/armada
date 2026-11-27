@@ -43,12 +43,14 @@ impl Served {
         drop(ch);
         let _ = stop.unwrap().send(());
         let _ = task.await;
-        node.close();
+        node.close().await;
     }
 }
 
 async fn serve(d: &Path) -> Served {
-    let node = Node::open(&d.join("member"), Options::default()).unwrap();
+    let node = Node::open(&d.join("member"), Options::default())
+        .await
+        .unwrap();
     let sock = d.join("client.sock");
     let _ = std::fs::remove_file(&sock);
     let (stop, rx) = oneshot::channel::<()>();

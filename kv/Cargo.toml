@@ -13,17 +13,22 @@ prost.workspace = true
 # The key space, the leases, and the member's identity: one database file,
 # every commit durable before it is answered.
 redb.workspace = true
+# Raft between the members (ADR 0057): elections, the replicated log,
+# membership, snapshots, ReadIndex.
+openraft.workspace = true
+futures-util.workspace = true
 # Lease and member IDs.
 ring.workspace = true
 # The snapshot's checksum.
 sha2.workspace = true
 tokio.workspace = true
 tokio-stream.workspace = true
-# etcd's services (armada-proto's servers) over tonic's server, with no
-# router: one service dispatches by path.
-tonic = { workspace = true, features = ["server"] }
+# etcd's services and the peer service (armada-proto's servers, and
+# armadakv.Peer's hand-written messages) over tonic's server and channel,
+# with no router: each dispatches by path.
+tonic = { workspace = true, features = ["server", "channel"] }
+tonic-prost.workspace = true
+hyper-util.workspace = true
 tower.workspace = true
 
-[dev-dependencies]
-tonic = { workspace = true, features = ["channel"] }
-hyper-util.workspace = true
+

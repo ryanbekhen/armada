@@ -5,8 +5,11 @@
 //! - Watch: create (from a revision, a key or range, prev_kv, filters),
 //!   cancel, progress.
 //! - Lease: LeaseGrant, LeaseRevoke, LeaseKeepAlive.
-//! - Cluster: MemberList.
+//! - Cluster: MemberList, MemberAdd (as a learner), MemberPromote,
+//!   MemberUpdate (peer URLs), MemberRemove.
 //! - Maintenance: Status, Snapshot (the store's own format, crate::snapshot).
+//!
+//! Reads are linearizable unless they ask to be serializable (crate::node).
 
 use std::collections::HashMap;
 use std::convert::Infallible;
@@ -97,6 +100,9 @@ fn wrong() -> Status {
 impl Kv for Api {
     async fn range(&self, req: Request<pb::RangeRequest>) -> Answer<pb::RangeResponse> {
         let r = req.into_inner();
+        if !r.serializable {
+            self.0.linearize().await.map_err(|e| e.status())?;
+        }
         Ok(Response::new(self.read(move |s| s.range(&r)).await?))
     }
 
@@ -139,6 +145,13 @@ impl Kv for Api {
             )
         });
         if reads_only {
+            // As etcd: serializable only when every range is.
+            let serializable = t.success.iter().chain(&t.failure).all(|o| {
+                matches!(&o.request, Some(pb::request_op::Request::RequestRange(r)) if r.serializable)
+            });
+            if !serializable {
+                self.0.linearize().await.map_err(|e| e.status())?;
+            }
             let max = self.0.options().limits.max_txn_ops;
             return Ok(Response::new(
                 self.read(move |s| s.read_txn(&t, max)).await?,
@@ -193,7 +206,13 @@ impl Lease for Api {
         let node = self.0.clone();
         tokio::spawn(async move {
             while let Ok(Some(r)) = input.message().await {
-                let ttl = node.keep_alive(r.id);
+                let ttl = match node.keep_alive(r.id).await {
+                    Ok(t) => t,
+                    Err(e) => {
+                        let _ = tx.send(Err(e.status())).await;
+                        return;
+                    }
+                };
                 let rev = *node.revisions().borrow();
                 let a = pb::LeaseKeepAliveResponse {
                     header: Some(node.header(rev)),
@@ -390,41 +409,62 @@ async fn deliver(api: &Api, watchers: &mut HashMap<i64, Watcher>, tx: &WatchTx) 
 impl Cluster for Api {
     async fn member_add(
         &self,
-        _req: Request<pb::MemberAddRequest>,
+        req: Request<pb::MemberAddRequest>,
     ) -> Answer<pb::MemberAddResponse> {
-        Err(unimplemented("Cluster.MemberAdd"))
+        let r = req.into_inner();
+        too_large(&r)?;
+        Ok(Response::new(
+            self.0.member_add(r).await.map_err(|e| e.status())?,
+        ))
     }
 
     async fn member_remove(
         &self,
-        _req: Request<pb::MemberRemoveRequest>,
+        req: Request<pb::MemberRemoveRequest>,
     ) -> Answer<pb::MemberRemoveResponse> {
-        Err(unimplemented("Cluster.MemberRemove"))
+        Ok(Response::new(
+            self.0
+                .member_remove(req.into_inner())
+                .await
+                .map_err(|e| e.status())?,
+        ))
     }
 
     async fn member_update(
         &self,
-        _req: Request<pb::MemberUpdateRequest>,
+        req: Request<pb::MemberUpdateRequest>,
     ) -> Answer<pb::MemberUpdateResponse> {
-        Err(unimplemented("Cluster.MemberUpdate"))
+        let r = req.into_inner();
+        too_large(&r)?;
+        Ok(Response::new(
+            self.0.member_update(r).await.map_err(|e| e.status())?,
+        ))
     }
 
     async fn member_list(
         &self,
-        _req: Request<pb::MemberListRequest>,
+        req: Request<pb::MemberListRequest>,
     ) -> Answer<pb::MemberListResponse> {
+        if req.into_inner().linearizable {
+            self.0.linearize().await.map_err(|e| e.status())?;
+        }
         let rev = *self.0.revisions().borrow();
         Ok(Response::new(pb::MemberListResponse {
             header: Some(self.0.header(rev)),
-            members: vec![self.0.member()],
+            members: self.0.members(),
         }))
     }
 
     async fn member_promote(
         &self,
-        _req: Request<pb::MemberPromoteRequest>,
+        req: Request<pb::MemberPromoteRequest>,
     ) -> Answer<pb::MemberPromoteResponse> {
-        Err(unimplemented("Cluster.MemberPromote"))
+        Ok(Response::new(
+            self.0
+                .member_promote(req.into_inner())
+                .await
+                .map_err(|e| e.status())?,
+        ))
     }
 }
 
@@ -437,17 +477,18 @@ impl Maintenance for Api {
     async fn status(&self, _req: Request<pb::StatusRequest>) -> Answer<pb::StatusResponse> {
         let (state, size) = self.read(|s| Ok((s.state()?, s.size()))).await?;
         let ids = self.0.store().ids();
+        let (leader, index, term, applied, learner) = self.0.raft_status();
         Ok(Response::new(pb::StatusResponse {
             header: Some(ids.header(state.revision)),
             version: env!("CARGO_PKG_VERSION").to_string(),
             db_size: size as i64,
-            leader: ids.member,
-            raft_index: state.applied,
-            raft_term: mvcc::RAFT_TERM,
-            raft_applied_index: state.applied,
+            leader,
+            raft_index: index,
+            raft_term: term,
+            raft_applied_index: applied,
             errors: Vec::new(),
             db_size_in_use: size as i64,
-            is_learner: false,
+            is_learner: learner,
             storage_version: format!("armada-kv/{}", mvcc::FORMAT),
             db_size_quota: self.0.options().limits.quota_bytes as i64,
             downgrade_info: None,
@@ -581,6 +622,23 @@ pub async fn serve_unix(
     path: &Path,
     shutdown: impl Future<Output = ()>,
 ) -> crate::Result<()> {
+    serve_unix_with(Dispatch::new(node), path, shutdown).await
+}
+
+/// Serves a gRPC service on a Unix socket at path (created 0600) until
+/// shutdown resolves.
+pub(crate) async fn serve_unix_with<S>(
+    svc: S,
+    path: &Path,
+    shutdown: impl Future<Output = ()>,
+) -> crate::Result<()>
+where
+    S: tower::Service<http::Request<Body>, Response = http::Response<Body>, Error = Infallible>
+        + Clone
+        + Send
+        + 'static,
+    S::Future: Send + 'static,
+{
     use std::os::fd::AsRawFd;
     use std::os::unix::fs::PermissionsExt;
     let fail = |e: std::io::Error| Error::Storage(format!("{}: {e}", path.display()));
@@ -612,7 +670,7 @@ pub async fn serve_unix(
         async move { n.notified().await }
     };
     let serve = tonic::transport::Server::builder().serve_with_incoming_shutdown(
-        Dispatch::new(node),
+        svc,
         ReceiverStream::new(rx),
         signal,
     );

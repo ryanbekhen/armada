@@ -15,6 +15,10 @@
 //! - `leases`: ID → granted TTL; `lease_keys`: (ID, key) → ().
 //! - `meta`: the format, the revision, the compacted revision, the count of
 //!   applied commands, and the member's and cluster's IDs.
+//! - `raft_log`: index → a Raft log entry; `raft`: the Raft state kept with
+//!   the key space (the vote, the last applied log ID and membership, the
+//!   purged and committed log IDs), each as crate::wire encodes it. The
+//!   key space and the applied log ID change in one commit.
 //!
 //! Every change is a [`Command`] applied by [`Store::apply`] in one write
 //! transaction per batch, durable (fsync) when it returns. The values
@@ -23,6 +27,8 @@
 use std::collections::{BTreeSet, HashSet};
 use std::ops::Bound;
 use std::path::{Path, PathBuf};
+use std::sync::RwLock;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use armada_proto::etcd::etcdserverpb as pb;
 use armada_proto::etcd::mvccpb::{self, KeyValue};
@@ -44,6 +50,10 @@ const EVENTS: TableDefinition<(i64, u32), &[u8]> = TableDefinition::new("events"
 const LEASES: TableDefinition<i64, i64> = TableDefinition::new("leases");
 const LEASE_KEYS: TableDefinition<(i64, &[u8]), ()> = TableDefinition::new("lease_keys");
 const META: TableDefinition<&str, u64> = TableDefinition::new("meta");
+/// The Raft log (crate::log).
+pub(crate) const RAFT_LOG: TableDefinition<u64, &[u8]> = TableDefinition::new("raft_log");
+/// The Raft state beside the log and the key space (crate::log, crate::sm).
+pub(crate) const RAFT: TableDefinition<&str, &[u8]> = TableDefinition::new("raft");
 
 /// The database's format; another one is refused.
 pub const FORMAT: u64 = 1;
@@ -57,10 +67,6 @@ const M_CLUSTER: &str = "cluster";
 
 /// etcd's MaxLeaseTTL.
 pub const MAX_LEASE_TTL: i64 = 9_000_000_000;
-
-/// The Raft term of a single member, which never elects (step 2 replaces
-/// it with the log's term).
-pub const RAFT_TERM: u64 = 1;
 
 const EVENT_PUT: u8 = 0;
 const EVENT_DELETE: u8 = 1;
@@ -87,11 +93,14 @@ impl Default for Limits {
     }
 }
 
-/// The member's and its cluster's IDs, made when the database is.
+/// The member's and its cluster's IDs, made when the database is (a
+/// member that joins a cluster takes them from it), and the Raft term the
+/// member knows.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Ids {
     pub cluster: u64,
     pub member: u64,
+    pub raft_term: u64,
 }
 
 impl Ids {
@@ -101,10 +110,13 @@ impl Ids {
             cluster_id: self.cluster,
             member_id: self.member,
             revision: rev,
-            raft_term: RAFT_TERM,
+            raft_term: self.raft_term,
         }
     }
 }
+
+/// Values of the Raft state, by the keys asked for.
+pub(crate) type RaftValues = Vec<Option<Vec<u8>>>;
 
 /// The answer to an applied command.
 #[derive(Clone, Debug, PartialEq)]
@@ -153,7 +165,8 @@ pub struct EventsRead {
 pub struct Store {
     db: Database,
     path: PathBuf,
-    ids: Ids,
+    ids: RwLock<Ids>,
+    term: AtomicU64,
     limits: Limits,
 }
 
@@ -189,6 +202,8 @@ impl Store {
         let db = open_db(path)?;
         let txn = db.begin_write().map_err(storage)?;
         let ids = {
+            txn.open_table(RAFT).map_err(storage)?;
+            txn.open_table(RAFT_LOG).map_err(storage)?;
             let w = Tables::open(&txn)?;
             let mut meta = w.meta;
             let format = meta.get(M_FORMAT).map_err(storage)?.map(|g| g.value());
@@ -197,6 +212,7 @@ impl Store {
                     let ids = Ids {
                         cluster: random_id(),
                         member: random_id(),
+                        raft_term: 0,
                     };
                     for (k, v) in [
                         (M_FORMAT, FORMAT),
@@ -213,6 +229,7 @@ impl Store {
                 Some(FORMAT) => Ids {
                     cluster: get_meta(&meta, M_CLUSTER)?,
                     member: get_meta(&meta, M_MEMBER)?,
+                    raft_term: 0,
                 },
                 Some(f) => {
                     return Err(Error::Storage(format!(
@@ -226,13 +243,49 @@ impl Store {
         Ok(Store {
             db,
             path: path.to_path_buf(),
-            ids,
+            ids: RwLock::new(ids),
+            term: AtomicU64::new(0),
             limits,
         })
     }
 
+    /// The member's and cluster's IDs, with the Raft term last set.
     pub fn ids(&self) -> Ids {
-        self.ids
+        let mut ids = *self.ids.read().expect("not poisoned");
+        ids.raft_term = self.term.load(Ordering::Relaxed);
+        ids
+    }
+
+    /// The Raft term the headers name.
+    pub fn set_term(&self, term: u64) {
+        self.term.store(term, Ordering::Relaxed);
+    }
+
+    /// Takes the IDs of the cluster a new member joins (and the member ID
+    /// the cluster gave it), before anything else is written.
+    pub fn set_ids(&self, cluster: u64, member: u64) -> Result<()> {
+        let txn = self.db.begin_write().map_err(storage)?;
+        {
+            let mut meta = txn.open_table(META).map_err(storage)?;
+            meta.insert(M_CLUSTER, cluster).map_err(storage)?;
+            meta.insert(M_MEMBER, member).map_err(storage)?;
+        }
+        txn.commit().map_err(storage)?;
+        let mut ids = self.ids.write().expect("not poisoned");
+        ids.cluster = cluster;
+        ids.member = member;
+        Ok(())
+    }
+
+    pub(crate) fn db(&self) -> &Database {
+        &self.db
+    }
+
+    /// A value of the Raft state (crate::wire's encoding).
+    pub(crate) fn raft_get(&self, key: &str) -> Result<Option<Vec<u8>>> {
+        let txn = self.db.begin_read().map_err(storage)?;
+        let t = txn.open_table(RAFT).map_err(storage)?;
+        Ok(t.get(key).map_err(storage)?.map(|v| v.value().to_vec()))
     }
 
     pub fn limits(&self) -> &Limits {
@@ -283,7 +336,7 @@ impl Store {
         check_rev(r.revision, rev, compacted)?;
         let latest = txn.open_table(LATEST).map_err(storage)?;
         let history = txn.open_table(HISTORY).map_err(storage)?;
-        range(&latest, &history, r, rev, self.ids)
+        range(&latest, &history, r, rev, self.ids())
     }
 
     /// A transaction with only ranges, read without a commit: its
@@ -296,6 +349,7 @@ impl Store {
         let compacted = get_meta(&meta, M_COMPACTED)? as i64;
         let latest = txn.open_table(LATEST).map_err(storage)?;
         let history = txn.open_table(HISTORY).map_err(storage)?;
+        let ids = self.ids();
         let mut succeeded = true;
         for c in &t.compare {
             if !compare(&latest, c)? {
@@ -312,7 +366,7 @@ impl Store {
                     check_rev(r.revision, rev, compacted)?;
                     responses.push(pb::ResponseOp {
                         response: Some(OpResponse::ResponseRange(range(
-                            &latest, &history, r, rev, self.ids,
+                            &latest, &history, r, rev, ids,
                         )?)),
                     });
                 }
@@ -322,7 +376,7 @@ impl Store {
             }
         }
         Ok(pb::TxnResponse {
-            header: Some(self.ids.header(rev)),
+            header: Some(ids.header(rev)),
             succeeded,
             responses,
         })
@@ -389,10 +443,10 @@ impl Store {
     /// answer or error. An error of the database fails them all, and
     /// nothing of the batch is kept.
     pub fn apply(&self, cmds: &[Command]) -> Result<Vec<Result<Applied>>> {
-        let full = self.size() > self.limits.quota_bytes;
+        let full = self.full();
         let txn = self.db.begin_write().map_err(storage)?;
         let results = {
-            let mut w = Writer::open(&txn, self.ids, &self.limits)?;
+            let mut w = Writer::open(&txn, self.ids(), &self.limits)?;
             let mut results = Vec::with_capacity(cmds.len());
             for c in cmds {
                 let r = if full && c.grows() {
@@ -413,24 +467,96 @@ impl Store {
         Ok(results)
     }
 
+    /// Whether the database is past its quota: commands that only add are
+    /// refused (with Raft, by the leader before it proposes them, since the
+    /// file's size is not the same on every member).
+    pub fn full(&self) -> bool {
+        self.size() > self.limits.quota_bytes
+    }
+
+    /// Applies the commands of committed log entries in order (None: an
+    /// entry with no command) in one durable commit, with the Raft state
+    /// given (the last applied log ID, a membership) written in the same
+    /// commit. No quota is checked: every member must apply the same.
+    pub(crate) fn apply_logged(
+        &self,
+        cmds: &[Option<&Command>],
+        raft: &[(&str, Vec<u8>)],
+    ) -> Result<Vec<Option<Result<Applied>>>> {
+        let txn = self.db.begin_write().map_err(storage)?;
+        let results = {
+            let mut w = Writer::open(&txn, self.ids(), &self.limits)?;
+            let mut results = Vec::with_capacity(cmds.len());
+            for c in cmds {
+                let Some(c) = c else {
+                    results.push(None);
+                    continue;
+                };
+                let r = w.apply(c);
+                if let Err(Error::Storage(e)) = &r {
+                    return Err(Error::Storage(e.clone()));
+                }
+                w.applied += 1;
+                results.push(Some(r));
+            }
+            w.save()?;
+            let mut t = txn.open_table(RAFT).map_err(storage)?;
+            for (k, v) in raft {
+                t.insert(*k, v.as_slice()).map_err(storage)?;
+            }
+            results
+        };
+        txn.commit().map_err(storage)?;
+        Ok(results)
+    }
+
+    /// The snapshot (as [`Store::snapshot`]) and the Raft state values of
+    /// keys, read at one point.
+    pub(crate) fn snapshot_with(&self, keys: &[&str]) -> Result<(Vec<u8>, RaftValues)> {
+        let txn = self.db.begin_read().map_err(storage)?;
+        let t = txn.open_table(RAFT).map_err(storage)?;
+        let mut vals = Vec::with_capacity(keys.len());
+        for k in keys {
+            vals.push(t.get(*k).map_err(storage)?.map(|v| v.value().to_vec()));
+        }
+        Ok((snapshot_of(&txn)?, vals))
+    }
+
+    /// Replaces the key space with a snapshot's (checked first) in one
+    /// durable commit, with the Raft state given: what a member far behind
+    /// installs. Its history is the snapshot's revision (compacted at it);
+    /// the member's and cluster's IDs stay.
+    pub(crate) fn install(&self, snapshot: &[u8], raft: &[(&str, Vec<u8>)]) -> Result<()> {
+        let snap = crate::snapshot::read(snapshot)?;
+        let txn = self.db.begin_write().map_err(storage)?;
+        txn.delete_table(LATEST).map_err(storage)?;
+        txn.delete_table(HISTORY).map_err(storage)?;
+        txn.delete_table(EVENTS).map_err(storage)?;
+        txn.delete_table(LEASES).map_err(storage)?;
+        txn.delete_table(LEASE_KEYS).map_err(storage)?;
+        {
+            let mut t = Tables::open(&txn)?;
+            load(&mut t, &snap)?;
+            t.meta
+                .insert(M_REVISION, snap.revision as u64)
+                .map_err(storage)?;
+            t.meta
+                .insert(M_COMPACTED, snap.revision as u64)
+                .map_err(storage)?;
+            let mut r = txn.open_table(RAFT).map_err(storage)?;
+            for (k, v) in raft {
+                r.insert(*k, v.as_slice()).map_err(storage)?;
+            }
+        }
+        txn.commit().map_err(storage)?;
+        Ok(())
+    }
+
     /// The store's snapshot (crate::snapshot): the current key space and
     /// leases at one revision.
     pub fn snapshot(&self) -> Result<Vec<u8>> {
         let txn = self.db.begin_read().map_err(storage)?;
-        let meta = txn.open_table(META).map_err(storage)?;
-        let rev = get_meta(&meta, M_REVISION)? as i64;
-        let latest = txn.open_table(LATEST).map_err(storage)?;
-        let leases = txn.open_table(LEASES).map_err(storage)?;
-        let mut w = crate::snapshot::Writer::new(rev);
-        for e in leases.range(..).map_err(storage)? {
-            let (k, v) = e.map_err(storage)?;
-            w.lease(k.value(), v.value());
-        }
-        for e in latest.range(..).map_err(storage)? {
-            let (k, v) = e.map_err(storage)?;
-            w.kv(&decode_kv(k.value(), v.value())?);
-        }
-        Ok(w.finish())
+        snapshot_of(&txn)
     }
 
     /// A new database at path from a snapshot (checked first): its keys
@@ -445,23 +571,7 @@ impl Store {
         let txn = store.db.begin_write().map_err(storage)?;
         {
             let mut t = Tables::open(&txn)?;
-            for (id, ttl) in &snap.leases {
-                t.leases.insert(*id, *ttl).map_err(storage)?;
-            }
-            for kv in &snap.kvs {
-                let v = encode_kv(kv);
-                t.latest
-                    .insert(kv.key.as_slice(), v.as_slice())
-                    .map_err(storage)?;
-                t.history
-                    .insert((kv.key.as_slice(), kv.mod_revision), v.as_slice())
-                    .map_err(storage)?;
-                if kv.lease != 0 {
-                    t.lease_keys
-                        .insert((kv.lease, kv.key.as_slice()), ())
-                        .map_err(storage)?;
-                }
-            }
+            load(&mut t, &snap)?;
             t.meta
                 .insert(M_REVISION, snap.revision as u64)
                 .map_err(storage)?;
@@ -472,6 +582,46 @@ impl Store {
         txn.commit().map_err(storage)?;
         Ok(store)
     }
+}
+
+/// The snapshot of the key space a read transaction sees.
+fn snapshot_of(txn: &redb::ReadTransaction) -> Result<Vec<u8>> {
+    let meta = txn.open_table(META).map_err(storage)?;
+    let rev = get_meta(&meta, M_REVISION)? as i64;
+    let latest = txn.open_table(LATEST).map_err(storage)?;
+    let leases = txn.open_table(LEASES).map_err(storage)?;
+    let mut w = crate::snapshot::Writer::new(rev);
+    for e in leases.range(..).map_err(storage)? {
+        let (k, v) = e.map_err(storage)?;
+        w.lease(k.value(), v.value());
+    }
+    for e in latest.range(..).map_err(storage)? {
+        let (k, v) = e.map_err(storage)?;
+        w.kv(&decode_kv(k.value(), v.value())?);
+    }
+    Ok(w.finish())
+}
+
+/// Writes a snapshot's keys and leases into empty tables.
+fn load(t: &mut Tables, snap: &crate::snapshot::Snapshot) -> Result<()> {
+    for (id, ttl) in &snap.leases {
+        t.leases.insert(*id, *ttl).map_err(storage)?;
+    }
+    for kv in &snap.kvs {
+        let v = encode_kv(kv);
+        t.latest
+            .insert(kv.key.as_slice(), v.as_slice())
+            .map_err(storage)?;
+        t.history
+            .insert((kv.key.as_slice(), kv.mod_revision), v.as_slice())
+            .map_err(storage)?;
+        if kv.lease != 0 {
+            t.lease_keys
+                .insert((kv.lease, kv.key.as_slice()), ())
+                .map_err(storage)?;
+        }
+    }
+    Ok(())
 }
 
 fn get_meta(t: &impl ReadableTable<&'static str, u64>, k: &str) -> Result<u64> {

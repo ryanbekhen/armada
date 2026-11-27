@@ -119,16 +119,19 @@ replays:
 		--features $(subst $(space),$(comma),$(strip $(foreach r,$(REPLAYS),$(REPLAY_FEATURE_$(r))))) \
 		$(addprefix --test ,$(sort $(foreach r,$(REPLAYS),$(REPLAY_TESTS_$(r)))))
 	$(if $(filter store,$(REPLAYS)),ARMADA_STORE_BACKEND=kv cargo test --locked -p armada-store --features armada-store/parity --test replay)
+	$(if $(filter store,$(REPLAYS)),ARMADA_STORE_BACKEND=kv3 cargo test --locked -p armada-store --features armada-store/parity --test replay)
 
 # Each replay alone.
 
 # The store's calls, answers, and keyspaces on the pinned etcd, with the
 # Rust-only checks of two stores at once; then the same on armada-kv
-# (ADR 0057), whose behaviour must be etcd's.
+# (ADR 0057), whose behaviour must be etcd's: one member, then three
+# (Raft), the client calling a follower.
 store-replay:
 	sh scripts/etcd-cache.sh
 	ARMADA_ETCD_DIR=$(CURDIR)/.cache/etcd cargo test --locked -p armada-store --features armada-store/parity --test replay
 	ARMADA_STORE_BACKEND=kv cargo test --locked -p armada-store --features armada-store/parity --test replay
+	ARMADA_STORE_BACKEND=kv3 cargo test --locked -p armada-store --features armada-store/parity --test replay
 
 # The control plane's scenarios against the server on the pinned etcd.
 server-scenarios:

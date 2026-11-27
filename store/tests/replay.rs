@@ -8,6 +8,10 @@
 //! With ARMADA_STORE_BACKEND=kv the same cases run on armada-kv (ADR 0057)
 //! instead, a member started in this process on a Unix socket: the
 //! recordings are etcd's behaviour, so any difference is armada-kv's bug.
+//! With ARMADA_STORE_BACKEND=kv3 they run on a cluster of three armada-kv
+//! members in this process (Raft between them on Unix sockets), the
+//! client calling a follower: every write and read goes through the
+//! leader.
 //!
 //! What two servers do on one keyspace (two writers, stores fenced to the
 //! other's term, one election and one lock) has nothing to record;
@@ -62,14 +66,19 @@ impl Drop for Member {
     }
 }
 
-/// Whether the replay runs on armada-kv (ARMADA_STORE_BACKEND=kv) rather
-/// than etcd (unset or `etcd`).
-fn on_kv() -> bool {
+/// How many armada-kv members the replay runs on (ARMADA_STORE_BACKEND=kv:
+/// one, kv3: three), or 0 for etcd (unset or `etcd`).
+fn kv_members() -> usize {
     match std::env::var("ARMADA_STORE_BACKEND").as_deref() {
-        Ok("kv") => true,
-        Ok("etcd") | Ok("") | Err(_) => false,
-        Ok(other) => panic!("ARMADA_STORE_BACKEND={other}: kv or etcd"),
+        Ok("kv") => 1,
+        Ok("kv3") => 3,
+        Ok("etcd") | Ok("") | Err(_) => 0,
+        Ok(other) => panic!("ARMADA_STORE_BACKEND={other}: kv, kv3, or etcd"),
     }
+}
+
+fn on_kv() -> bool {
+    kv_members() > 0
 }
 
 fn etcd_program() -> PathBuf {
@@ -92,6 +101,9 @@ impl Member {
             .join(format!("store-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("mkdir");
+        if kv_members() == 3 {
+            return Member::start_kv3(dir);
+        }
         if on_kv() {
             return Member::start_kv(dir);
         }
@@ -137,13 +149,112 @@ impl Member {
                     name: "replay".to_string(),
                     ..Default::default()
                 };
-                let node = armada_kv::Node::open(&d.join("data"), opts).expect("open armada-kv");
+                let node = armada_kv::Node::open(&d.join("data"), opts)
+                    .await
+                    .expect("open armada-kv");
                 armada_kv::serve_unix(node.clone(), &d.join("client.sock"), async {
                     let _ = stopped.await;
                 })
                 .await
                 .expect("serve armada-kv");
-                node.close();
+                node.close().await;
+            });
+        });
+        Member {
+            backend: Backend::Kv {
+                stop: Some(stop),
+                thread: Some(thread),
+            },
+            dir,
+        }
+    }
+
+    /// Three armada-kv members in dir/{a,b,c}, each serving its peer
+    /// service on dir/<name>/peer.sock: a bootstraps the cluster, b and c
+    /// are added as learners, join, and are promoted. b, a follower, serves
+    /// the clients on dir/client.sock.
+    fn start_kv3(dir: PathBuf) -> Member {
+        let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
+        let d = dir.clone();
+        let thread = std::thread::spawn(move || {
+            let rt = tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(4)
+                .enable_all()
+                .build()
+                .expect("runtime");
+            rt.block_on(async move {
+                let peer = |n: &str| format!("unix://{}", d.join(n).join("peer.sock").display());
+                let opts = |n: &str, start: armada_kv::Start| armada_kv::Options {
+                    name: n.to_string(),
+                    peer_urls: vec![peer(n)],
+                    client_urls: vec![format!("unix://{}", d.join("client.sock").display())],
+                    start,
+                    connector: Some(std::sync::Arc::new(armada_kv::UnixConnector)),
+                    ..Default::default()
+                };
+                let (halt, _) = tokio::sync::watch::channel(false);
+                let mut nodes: Vec<armada_kv::Node> = Vec::new();
+                for n in ["a", "b", "c"] {
+                    let start = if n == "a" {
+                        armada_kv::Start::New
+                    } else {
+                        let r = nodes[0].member_add(
+                            armada_proto::etcd::etcdserverpb::MemberAddRequest {
+                                peer_ur_ls: vec![peer(n)],
+                                is_learner: true,
+                            },
+                        );
+                        tokio::time::timeout(Duration::from_secs(30), r)
+                            .await
+                            .expect("add a member in time")
+                            .expect("add a member");
+                        armada_kv::Start::Join(vec![peer("a")])
+                    };
+                    std::fs::create_dir_all(d.join(n)).expect("mkdir");
+                    let node = armada_kv::Node::open(&d.join(n).join("data"), opts(n, start))
+                        .await
+                        .expect("open armada-kv");
+                    let mut h = halt.subscribe();
+                    let sock = d.join(n).join("peer.sock");
+                    let served = node.clone();
+                    tokio::spawn(async move {
+                        let _ = armada_kv::serve_peer_unix(served, &sock, async move {
+                            let _ = h.wait_for(|s| *s).await;
+                        })
+                        .await;
+                    });
+                    nodes.push(node);
+                }
+                for n in &nodes[1..] {
+                    let id = n.id();
+                    let deadline = Instant::now() + Duration::from_secs(30);
+                    loop {
+                        let r = nodes[0]
+                            .member_promote(
+                                armada_proto::etcd::etcdserverpb::MemberPromoteRequest { id },
+                            )
+                            .await;
+                        match r {
+                            Ok(_) => break,
+                            Err(e) => assert!(Instant::now() < deadline, "promote: {e}"),
+                        }
+                        tokio::time::sleep(Duration::from_millis(100)).await;
+                    }
+                }
+                let members = nodes[1].members();
+                assert!(
+                    members.len() == 3 && members.iter().all(|m| !m.is_learner),
+                    "three voters: {members:?}"
+                );
+                armada_kv::serve_unix(nodes[1].clone(), &d.join("client.sock"), async {
+                    let _ = stopped.await;
+                })
+                .await
+                .expect("serve armada-kv");
+                let _ = halt.send(true);
+                for n in &nodes {
+                    n.close().await;
+                }
             });
         });
         Member {
@@ -552,7 +663,11 @@ fn recordings_replay() {
     eprintln!(
         "replayed {calls} calls of {} recordings on {}",
         files.len(),
-        if on_kv() { "armada-kv" } else { "etcd" }
+        match kv_members() {
+            0 => "etcd",
+            1 => "armada-kv",
+            _ => "three armada-kv members",
+        }
     );
 }
 
