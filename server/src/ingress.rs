@@ -1062,7 +1062,7 @@ impl Server {
 
     /// The ingress configuration shared by every node.
     async fn build_proxy(&self, apps: &[App], replicas: &[Replica]) -> Result<Px, String> {
-        let root = self.root_domain().await;
+        let root = self.read_root_domain().await.map_err(|e| e.to_string())?;
         let domains = self
             .store()
             .list_domains()

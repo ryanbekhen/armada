@@ -268,11 +268,20 @@ fn text(v: &Json, k: &str) -> String {
 }
 
 impl Server {
+    /// The root domain for what only shows it (URLs, messages): "" when
+    /// none is set or it cannot be read.
     pub(crate) async fn root_domain(&self) -> String {
-        self.store()
-            .get_meta(META_ROOT_DOMAIN)
-            .await
-            .unwrap_or_default()
+        self.read_root_domain().await.unwrap_or_default()
+    }
+
+    /// The root domain, "" when none is set; a failed read is an error,
+    /// so a proxy configuration is never built without the root domain's
+    /// hosts because etcd did not answer once.
+    pub(crate) async fn read_root_domain(&self) -> Result<String, armada_store::Error> {
+        match self.store().get_meta(META_ROOT_DOMAIN).await {
+            Err(e) if e.kind == Kind::NotFound => Ok(String::new()),
+            r => r,
+        }
     }
 
     /// GetClusterConfig.
