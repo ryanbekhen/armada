@@ -16,6 +16,9 @@
 //! - [`peer`]: what members say to each other (Raft's messages, forwarded
 //!   requests, snapshots), and how they reach each other.
 //! - [`service`]: etcd's gRPC services, and serving them on a Unix socket.
+//! - [`tls`]: the client and peer listeners on the network (TLS 1.3, the
+//!   cluster CA's `etcd:member` certificates on both sides), and the
+//!   connector that reaches other members over the same mutual TLS.
 //! - [`snapshot`]: the store's snapshot format.
 //!
 //! Commands are deterministic and carry every decision made outside the
@@ -32,8 +35,10 @@ pub mod raft;
 pub mod service;
 pub mod sm;
 pub mod snapshot;
+pub mod tls;
 
 pub use error::{Error, Result};
 pub use node::{Node, Options, Start, Timing};
 pub use peer::{Connector, PeerDispatch, UnixConnector, serve_peer_unix};
 pub use service::{Dispatch, serve_unix};
+pub use tls::{TlsConnector, serve_api_tls, serve_peer_tls};

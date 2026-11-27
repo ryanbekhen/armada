@@ -662,6 +662,30 @@ where
             }
         }
     });
+    serve_incoming(svc, rx, accept, shutdown).await
+}
+
+/// Serves a gRPC service on the connections incoming brings (which the
+/// task accept feeds, aborted once serving ends) until shutdown resolves.
+pub(crate) async fn serve_incoming<S, IO>(
+    svc: S,
+    incoming: mpsc::Receiver<std::io::Result<IO>>,
+    accept: tokio::task::JoinHandle<()>,
+    shutdown: impl Future<Output = ()>,
+) -> crate::Result<()>
+where
+    S: tower::Service<http::Request<Body>, Response = http::Response<Body>, Error = Infallible>
+        + Clone
+        + Send
+        + 'static,
+    S::Future: Send + 'static,
+    IO: tonic::transport::server::Connected
+        + tokio::io::AsyncRead
+        + tokio::io::AsyncWrite
+        + Send
+        + Unpin
+        + 'static,
+{
     // Calls in flight get a grace once shutdown resolves; watches and
     // keep-alives never end on their own, so the server stops after it.
     let notify = std::sync::Arc::new(tokio::sync::Notify::new());
@@ -671,7 +695,7 @@ where
     };
     let serve = tonic::transport::Server::builder().serve_with_incoming_shutdown(
         svc,
-        ReceiverStream::new(rx),
+        ReceiverStream::new(incoming),
         signal,
     );
     tokio::pin!(serve);

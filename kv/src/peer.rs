@@ -13,10 +13,12 @@
 //! member refuses one meant for another (a member list request, made by a
 //! member that does not know its ID yet, names neither).
 //!
-//! How a member reaches another is a [`Connector`]: the real build dials
-//! the peer URL over mutual TLS with the cluster CA's member certificate
-//! (ADR 0057, step 3); [`UnixConnector`] reaches members on Unix sockets
-//! in one process (tests, and a scratch cluster).
+//! How a member reaches another is a [`Connector`]:
+//! [`crate::tls::TlsConnector`] dials the peer URL over mutual TLS with the
+//! cluster CA's member certificate; [`UnixConnector`] reaches members on
+//! Unix sockets in one process (tests, and a scratch cluster). The peer
+//! listener requires the member certificate of every caller, the member
+//! list a new member asks for included (crate::tls).
 
 use std::collections::HashMap;
 use std::convert::Infallible;
@@ -493,7 +495,7 @@ impl RaftNetworkV2<Tc> for Net {
 }
 
 /// The peer service behind a tower service: what a member's peer listener
-/// serves (over mutual TLS in the real build, step 3; on a Unix socket in
+/// serves (over mutual TLS, [`crate::tls::serve_peer_tls`]; on a Unix socket in
 /// [`serve_peer_unix`]).
 #[derive(Clone)]
 pub struct PeerDispatch {
