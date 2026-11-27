@@ -6,7 +6,7 @@
 //!     armada-pack bundle --arch amd64 --logger F --shim F --dns F --node F [--out F]
 //!     armada-pack extract --arch amd64 --artifact etcd --out DIR
 //!     armada-pack licenses --out DIR
-//!     armada-pack sources --out DIR
+//!     armada-pack sources --out DIR [--pointer FILE]
 //!     armada-pack etcd-api --out DIR
 //!     armada-pack outdated
 
@@ -21,7 +21,7 @@ const USAGE: &str = "usage:
   armada-pack bundle --arch amd64|arm64 --logger FILE --shim FILE --dns FILE --node FILE [--out FILE]
   armada-pack extract --arch amd64|arm64 --artifact NAME --out DIR
   armada-pack licenses --out DIR
-  armada-pack sources --out DIR
+  armada-pack sources --out DIR [--pointer FILE]
   armada-pack etcd-api --out DIR
   armada-pack outdated   (exit 0: current and clean, 1: updates or upstream advisories, 2: an advisory a newer release fixes, 3: the check failed)
 flags of every command: --lock FILE (default pack/lock.json), --cache DIR (default .cache)";
@@ -114,7 +114,7 @@ fn run(args: &[String]) -> Result<(), String> {
         )?),
         "extract" => extract(&Flags::parse(rest, &["arch", "artifact", "out"])?),
         "licenses" => licenses(&Flags::parse(rest, &["out"])?),
-        "sources" => sources(&Flags::parse(rest, &["out"])?),
+        "sources" => sources(&Flags::parse(rest, &["out", "pointer"])?),
         "etcd-api" => etcd_api(&Flags::parse(rest, &["out"])?),
         "-h" | "--help" | "help" => {
             println!("{USAGE}");
@@ -358,37 +358,95 @@ fn source_licenses(lock: &Lock, cache: &Path, out: &Path) -> Result<usize, Strin
     Ok(n)
 }
 
-/// sources: the complete corresponding source of every artifact that
-/// names one (crun's, ADR 0056: its release tarball and the build files
-/// its static programs are built with), each file checked against its
-/// pin, into DIR/<name>-<version>/, with SOURCES.txt naming each file,
-/// where it came from, and its SHA-256. Release archives carry them.
+/// sources: the source releases carry for the runtime pack, in one asset
+/// of its own (ADR 0056): the complete corresponding source of every
+/// artifact that names one (crun's release tarball and the build files its
+/// static programs are built with) into DIR/<name>-<version>/, and the
+/// source of every library linked into the pack's static programs (each
+/// source tarball, the patches applied, and the build files) into
+/// DIR/libs/<name>-<version>/, each file checked against its pin, with
+/// SOURCES.txt naming each file, its SHA-256, and where it came from. A
+/// file two libraries share (an upstream tarball) is written once and
+/// hard-linked, so the asset's tar holds it once. --pointer FILE writes
+/// what the release archives carry instead: where the asset is and what
+/// it holds.
 fn sources(f: &Flags) -> Result<(), String> {
     let lock = f.lock()?;
+    lock.check_libraries()?;
     let cache = f.cache();
     let out = PathBuf::from(f.need("out", "")?);
     let _ = std::fs::remove_dir_all(&out);
     std::fs::create_dir_all(&out).map_err(|e| format!("{}: {e}", out.display()))?;
-    let mut index = String::new();
-    let mut files = 0;
+    let mut wanted: Vec<(String, String, &armada_pack::lock::Source)> = Vec::new();
     for a in &lock.artifacts {
         for src in &a.sources {
-            pack::check_name(&src.file).map_err(|e| format!("{}: {e}", a.name))?;
-            let b = fetch::fetch(&src.url, &src.sha256, &cache.join("sources"))
-                .map_err(|e| format!("{} source {}: {e}", a.name, src.file))?;
-            let rel = format!("{}/{}", a.source_dir(), src.file);
-            let to = out.join(&rel);
-            if let Some(p) = to.parent() {
-                std::fs::create_dir_all(p).map_err(|e| format!("{}: {e}", p.display()))?;
-            }
-            std::fs::write(&to, &b).map_err(|e| format!("{}: {e}", to.display()))?;
-            index.push_str(&format!("{rel} {} {}\n", src.sha256, src.url));
-            files += 1;
+            wanted.push((a.name.clone(), a.source_dir(), src));
         }
     }
-    std::fs::write(out.join("SOURCES.txt"), index).map_err(|e| e.to_string())?;
-    println!("{}: {files} source files", out.display());
+    for l in &lock.libraries {
+        for src in &l.sources {
+            wanted.push((format!("{} {}", l.name, l.version), l.source_dir(), src));
+        }
+    }
+    let mut index = String::new();
+    let mut written: BTreeMap<String, PathBuf> = BTreeMap::new();
+    let mut seen = BTreeSet::new();
+    for (owner, dir, src) in wanted {
+        pack::check_name(&src.file).map_err(|e| format!("{owner}: {e}"))?;
+        let rel = format!("{dir}/{}", src.file);
+        if !seen.insert(rel.clone()) {
+            return Err(format!("{owner}: {rel} twice"));
+        }
+        let to = out.join(&rel);
+        if let Some(p) = to.parent() {
+            std::fs::create_dir_all(p).map_err(|e| format!("{}: {e}", p.display()))?;
+        }
+        match written.get(&src.sha256) {
+            Some(first) => {
+                std::fs::hard_link(first, &to).map_err(|e| format!("{}: {e}", to.display()))?
+            }
+            None => {
+                let b = fetch::fetch(&src.url, &src.sha256, &cache.join("sources"))
+                    .map_err(|e| format!("{owner} source {}: {e}", src.file))?;
+                std::fs::write(&to, &b).map_err(|e| format!("{}: {e}", to.display()))?;
+                written.insert(src.sha256.clone(), to.clone());
+            }
+        }
+        index.push_str(&format!("{rel} {} {}\n", src.sha256, src.url));
+    }
+    std::fs::write(out.join("SOURCES.txt"), &index).map_err(|e| e.to_string())?;
+    if let Some(p) = f.get("pointer") {
+        std::fs::write(p, pointer(&index)).map_err(|e| format!("{p}: {e}"))?;
+    }
+    println!(
+        "{}: {} source files ({} distinct)",
+        out.display(),
+        seen.len(),
+        written.len()
+    );
     Ok(())
+}
+
+/// The asset the runtime pack's sources ship in, on the release page of
+/// the release whose archives carry the pack.
+const SOURCES_ASSET: &str = "armada_<version>_runtime-sources.tar.gz";
+
+/// pointer: what full Linux release archives carry in place of the
+/// sources (licenses/runtime/SOURCES.txt): the asset that holds them and
+/// every file in it with its SHA-256 and address.
+fn pointer(index: &str) -> String {
+    format!(
+        "The source of the runtime pack's programs and of the libraries linked into\n\
+         them (crun's complete corresponding source, and glibc, libseccomp, libcap,\n\
+         json-c, libcriu, and protobuf-c as crun, runc, and tini were built with them)\n\
+         is not in this archive. It is the release asset\n\
+         \n    {SOURCES_ASSET}\n\n\
+         on the same release page as this archive, the same <version>:\n\
+         \n    https://github.com/ryanbekhen/armada/releases/download/v<version>/{SOURCES_ASSET}\n\n\
+         checksums.txt lists its SHA-256, and cosign signs checksums.txt. It holds\n\
+         these files under source/runtime/ (path, SHA-256, where it came from), and\n\
+         THIRD_PARTY_NOTICES.md says which program links which library:\n\n{index}"
+    )
 }
 
 /// etcd-api: etcd's API module at the pinned etcd's version, checked

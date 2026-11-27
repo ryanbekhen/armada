@@ -8,8 +8,9 @@ who pass Armada on.
 One program in the runtime pack, crun, is under the GNU General Public
 License (ADR 0056). It runs only as a process of its own, started by
 Armada's programs; none of Armada's programs links it or any other GPL
-code. Release archives carry its complete corresponding source and its
-license texts (below).
+code. Each release carries its complete corresponding source, and the
+source of the libraries the pack's static programs link, in one asset of
+its own, `armada_<version>_runtime-sources.tar.gz` (below).
 
 ## Armada's own code
 
@@ -27,7 +28,7 @@ SHA-256, and `armada-pack` (`pack/`, below) builds the pack from it.
 
 | Component | Version | License | Source |
 | --- | --- | --- | --- |
-| crun | 1.31 | GPL-2.0-or-later | <https://github.com/containers/crun/tree/1.31>, and in every full Linux release archive (`source/runtime/crun-1.31/`) |
+| crun | 1.31 | GPL-2.0-or-later | <https://github.com/containers/crun/tree/1.31>, and in every release's sources asset (`source/runtime/crun-1.31/`) |
 | runc | 1.5.3 | Apache-2.0 | <https://github.com/opencontainers/runc/tree/v1.5.3> |
 | cni-plugins | 1.10.0 | Apache-2.0 | <https://github.com/containernetworking/plugins/tree/v1.10.0> |
 | tini | 0.19.0 | MIT ([text](third_party/licenses/MIT-tini.txt)) | <https://github.com/krallin/tini/tree/v0.19.0> |
@@ -59,62 +60,125 @@ or later. Armada uses crun only by running it as a separate program (with
 `--root`, `create`, `start`, `kill`, `delete`, `list`, and `exec`) and
 links none of it.
 
-Under section 3(a) of the GPL 2.0, every full Linux release archive
-(`armada_<version>_linux_<arch>.tar.gz`, the one that carries `armadad`
-and with it the pack) carries crun's complete corresponding source:
+Under section 3(a) of the GPL 2.0, crun's complete corresponding source
+accompanies every release that carries it, on the same release page:
 
-- `source/runtime/crun-1.31/crun-1.31.tar.gz`, crun's release source
-  tarball (SHA-256 `17d04ba159fada1f1300a36b8afe869afb38bf1bbda28da052e83bb4bee20108`),
-- `source/runtime/crun-1.31/build/`: `flake.nix`, `flake.lock`, and
-  `nix/derivation.nix` and `nix/static.nix` of crun's tag 1.31, the scripts
-  its static release programs are built with (`flake.lock` pins the
-  nixpkgs revision `1d060086d60cb76a40cf37109f979d88a5bd6396`, which pins
-  each library below and its source),
-- `source/runtime/SOURCES.txt`, each file with its SHA-256 and address,
+### The sources asset
 
-and `licenses/runtime/crun@1.31/` holds crun's `COPYING` (GPL 2.0) and
-`COPYING.libcrun` (LGPL 2.1). `pack/lock.json` pins every one of these
-files by SHA-256, as it pins the programs; `make runtime-sources`
-(`armada-pack sources`) collects them when a release is built.
+Every release has one asset with the source of the runtime pack's
+programs and libraries, the same for both architectures:
+`armada_<version>_runtime-sources.tar.gz`, at
+`https://github.com/ryanbekhen/armada/releases/download/v<version>/armada_<version>_runtime-sources.tar.gz`
+beside the archives (`checksums.txt` lists its SHA-256, and cosign signs
+`checksums.txt`, as for every archive). The full Linux archives
+(`armada_<version>_linux_<arch>.tar.gz`, which carry `armadad` and with
+it the pack) carry `licenses/runtime/SOURCES.txt` instead, naming the
+asset and every file in it. It holds, under `source/runtime/`:
 
-crun's static programs are linked with:
+- `crun-1.31/crun-1.31.tar.gz`, crun's release source tarball (SHA-256
+  `17d04ba159fada1f1300a36b8afe869afb38bf1bbda28da052e83bb4bee20108`),
+- `crun-1.31/build/`: `flake.nix`, `flake.lock`, and `nix/derivation.nix`
+  and `nix/static.nix` of crun's tag 1.31, the scripts its static release
+  programs are built with (`flake.lock` pins the nixpkgs revision
+  `1d060086d60cb76a40cf37109f979d88a5bd6396`, which builds crun's
+  libraries below),
+- `libs/<library>-<version>/`: the source of each library below that the
+  pack's static programs link, as their builds used it: the source
+  tarball, the patches applied (for a library nixpkgs built, nixpkgs'
+  patches and expressions under `nixpkgs/` at their paths in nixpkgs; for
+  one Debian or Ubuntu built, the `.debian.tar.xz` and `.dsc` of the
+  package version, and for a cross-compiled one the `cross-toolchain-base`
+  source package that built it),
+- `SOURCES.txt`, each file with its SHA-256 and address.
 
-| Library | Version | License | In |
-| --- | --- | --- | --- |
-| GNU C Library | 2.44 | LGPL-2.1-or-later | amd64, arm64 |
-| libgcc (GCC) | 16.2.0 | GPL-3.0-or-later WITH GCC-exception-3.1 | amd64, arm64 |
-| libseccomp | 2.6.1 | LGPL-2.1-only | amd64, arm64 |
-| libcap | 2.78 | BSD-3-Clause OR GPL-2.0-only (used under BSD-3-Clause) | amd64, arm64 |
-| json-c | 0.18 | MIT | amd64, arm64 |
-| libcriu (CRIU) | 4.1.1 | LGPL-2.1-only | amd64 |
-| protobuf-c | 1.5.2 | BSD-2-Clause | amd64 |
+`licenses/runtime/crun@1.31/` in the full Linux archives holds crun's
+`COPYING` (GPL 2.0) and `COPYING.libcrun` (LGPL 2.1), and
+`third_party/licenses/` the libraries' license texts. `pack/lock.json`
+pins every file by SHA-256, as it pins the programs (`linked` names what
+each program links, `libraries` each library's source); `make
+runtime-sources` (`armada-pack sources`) collects them when a release is
+built. A file two libraries share (glibc's upstream tarball) is in the
+asset once.
 
-and with code inside crun's own source: libocispec (crun's
-`libocispec/`, under its own license with a special exception for the
-parser it generates) and BLAKE3 (`src/libcrun/blake3`, CC0-1.0 or
-Apache-2.0). The libraries' sources are those of the nixpkgs revision
-above (<https://github.com/NixOS/nixpkgs/tree/1d060086d60cb76a40cf37109f979d88a5bd6396>,
-each under `pkgs/by-name/`), which `flake.lock` pins.
+### The libraries the static programs link
 
-### The other programs
+| Library | Version | License | Linked into | Source in the sources asset |
+| --- | --- | --- | --- | --- |
+| glibc | 2.44-57 | LGPL-2.1-or-later | crun (amd64, arm64) | `source/runtime/libs/glibc-2.44-57/` |
+| libgcc | 16.2.0 | GPL-3.0-or-later WITH GCC-exception-3.1 | crun (amd64, arm64) | not carried (GCC Runtime Library Exception) |
+| libseccomp | 2.6.1 | LGPL-2.1-only | crun, runc (amd64, arm64) | `source/runtime/libs/libseccomp-2.6.1/` |
+| libcap | 2.78 | BSD-3-Clause OR GPL-2.0-only | crun (amd64, arm64) | `source/runtime/libs/libcap-2.78/` |
+| json-c | 0.18 | MIT | crun (amd64, arm64) | `source/runtime/libs/json-c-0.18/` |
+| criu | 4.1.1 | LGPL-2.1-only | crun (amd64) | `source/runtime/libs/criu-4.1.1/` |
+| protobuf-c | 1.5.2 | BSD-2-Clause | crun (amd64) | `source/runtime/libs/protobuf-c-1.5.2/` |
+| glibc | 2.41-12+deb13u4 | LGPL-2.1-or-later | runc (amd64) | `source/runtime/libs/glibc-2.41-12+deb13u4/` |
+| glibc | 2.41-11 | LGPL-2.1-or-later | runc (arm64) | `source/runtime/libs/glibc-2.41-11/` |
+| libgcc | 14.2.0-19 | GPL-3.0-or-later WITH GCC-exception-3.1 | runc (amd64, arm64) | not carried (GCC Runtime Library Exception) |
+| glibc | 2.23-0ubuntu11 | LGPL-2.1-or-later | tini (amd64) | `source/runtime/libs/glibc-2.23-0ubuntu11/` |
+| glibc | 2.23-0ubuntu3 | LGPL-2.1-or-later | tini (arm64) | `source/runtime/libs/glibc-2.23-0ubuntu3/` |
+| libgcc | 5.4.0-6ubuntu1~16.04.12 | GPL-3.0-or-later WITH GCC-exception-3.1 | tini (amd64) | not carried (GCC Runtime Library Exception) |
+| libgcc | 5.4.0-6ubuntu1~16.04.9 | GPL-3.0-or-later WITH GCC-exception-3.1 | tini (arm64) | not carried (GCC Runtime Library Exception) |
 
-These binaries are statically linked by their projects with libraries
-under the [GNU Lesser General Public License 2.1](third_party/licenses/LGPL-2.1.txt):
+- **glibc**, the GNU C Library ([LGPL 2.1](third_party/licenses/LGPL-2.1.txt);
+  the notices of its parts under other licenses:
+  [LICENSES](third_party/licenses/glibc-LICENSES.txt)).
+  - crun: glibc 2.44 (`libc.a`, `libpthread.a`, `librt.a`, `libm.a`) with
+    the commits of its `release/2.44/master` branch up to `glibc-2.44-57`
+    (nixpkgs' `2.44-master.patch`) and nixpkgs' other patches
+    (`0001-aarch64-math-vector.h-add-NVCC-include-guard.patch` only in the
+    arm64 build). Both programs name nixpkgs' `glibc-2.44-57`.
+  - runc: Debian 13's glibc, as runc's release `Dockerfile`
+    (`golang:1.26-trixie`) builds it: on amd64 `libc6-dev`
+    2.41-12+deb13u4 (in trixie from 13.7, 2026-09-12, until after runc
+    1.5.3's release on 2026-11-12); on arm64 `libc6-dev-arm64-cross`
+    2.41-11cross1, built by `cross-toolchain-base` 77 from glibc 2.41-11
+    (its `Built-Using`). Both programs carry glibc 2.41's version string.
+  - tini: Ubuntu 16.04's glibc, as tini's `Dockerfile` (`ubuntu:xenial`)
+    builds it: on amd64 `libc6-dev` 2.23-0ubuntu11 (in xenial-updates
+    from 2019-02-20 to 2020-07-06; tini 0.19.0's programs were published
+    on 2020-04-19, and the amd64 one names GCC 5.4.0-6ubuntu1~16.04.12,
+    published 2019-11-05); on arm64 `libc6-dev-arm64-cross`
+    2.23-0ubuntu3cross1, the only xenial build, by `cross-toolchain-base`
+    10ubuntu1 from glibc 2.23-0ubuntu3.
+- **libgcc** (`libgcc.a`, `libgcc_eh.a`), GCC's runtime library, under
+  the [GPL 3.0](third_party/licenses/GPL-3.0.txt) with the
+  [GCC Runtime Library Exception 3.1](third_party/licenses/GCC-exception-3.1.txt).
+  The exception lets a program compiled with GCC carry libgcc under the
+  program's own terms, without libgcc's source, so the asset does not
+  carry GCC's source. crun's names nixpkgs' GCC 16.2.0, runc's is Debian
+  13's `gcc-14` 14.2.0-19, tini's Ubuntu 16.04's `gcc-5`.
+- **libseccomp** ([LGPL 2.1](third_party/licenses/LGPL-2.1.txt)): the
+  release tarball both crun's nixpkgs (`nixpkgs/`) and runc's
+  `script/build-seccomp.sh` (`runc/script/`, which checks the same
+  SHA-256) build, unchanged; `runc --version` prints `libseccomp: 2.6.1`.
+- **libcap** (`libcap.a`), used under the BSD-3-Clause choice of its dual
+  license ([text](third_party/licenses/BSD-3-Clause-OR-GPL-2.0-libcap.txt)).
+- **json-c** ([text](third_party/licenses/MIT-json-c.txt)).
+- **criu**: libcriu (`libcriu.a`, CRIU's `lib/`), under the
+  [LGPL 2.1](third_party/licenses/LGPL-2.1.txt) (the rest of CRIU is
+  under the GPL 2.0 and is not linked), with the code generated from
+  CRIU's `images/rpc.proto` ([MIT](third_party/licenses/MIT-criu-images.txt)),
+  and the two upstream commits nixpkgs applies (`patches/`). amd64 only:
+  crun's arm64 build has no checkpoint and restore.
+- **protobuf-c** (`libprotobuf-c.a`, which libcriu uses;
+  [text](third_party/licenses/BSD-2-Clause-protobuf-c.txt)). amd64 only.
 
-- **runc** with libseccomp 2.6.1 (<https://github.com/seccomp/libseccomp/releases/tag/v2.6.1>)
-  and the GNU C Library of Debian trixie (<https://sources.debian.org/src/glibc/>),
-  as its release `Dockerfile` builds it. runc is also linked with
-  libpathrs 0.2.6 (<https://github.com/cyphar/libpathrs/releases/tag/v0.2.6>),
-  under the [Mozilla Public License 2.0](https://www.mozilla.org/en-US/MPL/2.0/),
-  unchanged; its source is at that address.
-- **tini** with the GNU C Library 2.23 (<https://ftp.gnu.org/gnu/glibc/glibc-2.23.tar.gz>).
+crun's programs are also built from code inside crun's own source:
+libocispec (crun's `libocispec/`, under its own license with a special
+exception for the parser it generates) and BLAKE3 (`src/libcrun/blake3`,
+CC0-1.0 or Apache-2.0); the nixpkgs revision is at
+<https://github.com/NixOS/nixpkgs/tree/1d060086d60cb76a40cf37109f979d88a5bd6396>.
+runc is also linked with libpathrs 0.2.6
+(<https://github.com/cyphar/libpathrs/releases/tag/v0.2.6>), under the
+[Mozilla Public License 2.0](https://www.mozilla.org/en-US/MPL/2.0/),
+unchanged; its source is at that address. etcd, etcdutl, and the CNI
+plugins are pure Go programs (`CGO_ENABLED=0` in their build information)
+and link no C library.
 
 Armada does not change these programs or libraries. You may replace any of
 them with your own build, for example with another version of an LGPL
-library: build the program from its source above, put its address and
-SHA-256 into `pack/lock.json`, and build `armadad` with
-`make build-bundle`. The complete corresponding source of the LGPL
-libraries is at the addresses above.
+library: build the program from its source, put its address and SHA-256
+into `pack/lock.json`, and build `armadad` with `make build-bundle`.
 
 ## Armada's log writer, supervisor, and resolver
 

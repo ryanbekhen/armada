@@ -135,6 +135,94 @@ fn gpl_programs_ship_their_source() {
     );
 }
 
+/// The pack's static programs that link libraries ship each library's
+/// source (the tarball, the patches, the build files) in the release's
+/// sources asset, or name the license exception that waives it; the
+/// notices name every library, its license, and where its source is.
+#[test]
+fn linked_libraries_ship_their_source() {
+    let notices = read("THIRD_PARTY_NOTICES.md");
+    let lock = lock();
+    lock.check_libraries().unwrap_or_else(|e| panic!("{e}"));
+    for l in &lock.libraries {
+        for bad in ["AGPL", "SSPL", "BUSL", "Commons-Clause"] {
+            assert!(!l.license.contains(bad), "{}: {}", l.name, l.license);
+        }
+        let row = format!("| {} | {} | {} |", l.name, l.version, l.license);
+        assert!(
+            notices.contains(&row),
+            "THIRD_PARTY_NOTICES.md has no row {row:?}"
+        );
+        if l.no_source.is_none() {
+            let dir = format!("source/runtime/{}/", l.source_dir());
+            assert!(
+                notices.contains(&dir),
+                "THIRD_PARTY_NOTICES.md does not say {} {} is in {dir}",
+                l.name,
+                l.version
+            );
+        }
+        let mut seen = BTreeSet::new();
+        for s in &l.sources {
+            assert!(s.url.starts_with("https://"), "{}: {}", l.name, s.url);
+            assert!(
+                s.sha256.len() == 64 && s.sha256.bytes().all(|c| c.is_ascii_hexdigit()),
+                "{} {}: no SHA-256 for {}",
+                l.name,
+                l.version,
+                s.file
+            );
+            check_name(&s.file).unwrap_or_else(|e| panic!("{}: {e}", l.name));
+            assert!(seen.insert(&s.file), "{}: {} twice", l.name, s.file);
+            assert!(
+                s.licenses.is_empty(),
+                "{}: license texts are in third_party/licenses",
+                l.name
+            );
+        }
+    }
+    // What each static program of the pack links (crun: its
+    // nix/derivation.nix and flake.nix at its tag; runc: its Dockerfile
+    // and script/build-seccomp.sh; tini: its Dockerfile and
+    // ci/install_deps.sh; each checked with strings on the programs).
+    for (program, want) in [
+        (
+            "crun",
+            &[
+                "glibc",
+                "libgcc",
+                "libseccomp",
+                "libcap",
+                "json-c",
+                "criu",
+                "protobuf-c",
+            ][..],
+        ),
+        ("runc", &["glibc", "libgcc", "libseccomp"][..]),
+        ("tini", &["glibc", "libgcc"][..]),
+    ] {
+        let a = lock.artifact(program).expect(program);
+        for arch in ARCHES {
+            for w in want {
+                let on = a
+                    .linked
+                    .iter()
+                    .any(|l| &l.name == w && l.arches.iter().any(|x| x == arch));
+                let amd64_only = program == "crun" && ["criu", "protobuf-c"].contains(w);
+                assert!(
+                    on || (amd64_only && arch == "arm64"),
+                    "{program} ({arch}) links {w}"
+                );
+            }
+        }
+    }
+    // The pure Go programs link no C library (CGO_ENABLED=0 in their
+    // build information).
+    for program in ["etcd", "cni-plugins"] {
+        assert!(lock.artifact(program).expect(program).linked.is_empty());
+    }
+}
+
 #[test]
 fn notices_match_lock() {
     let notices = read("THIRD_PARTY_NOTICES.md");

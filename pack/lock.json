@@ -39,6 +39,62 @@
           "sha256": "1ed63d4c0266ef4b33eed10a473fd9870d7ac842225f94375c290b61d9fa811b",
           "file": "build/nix/static.nix"
         }
+      ],
+      "linked": [
+        {
+          "name": "glibc",
+          "version": "2.44-57",
+          "arches": [
+            "amd64",
+            "arm64"
+          ]
+        },
+        {
+          "name": "libgcc",
+          "version": "16.2.0",
+          "arches": [
+            "amd64",
+            "arm64"
+          ]
+        },
+        {
+          "name": "libseccomp",
+          "version": "2.6.1",
+          "arches": [
+            "amd64",
+            "arm64"
+          ]
+        },
+        {
+          "name": "libcap",
+          "version": "2.78",
+          "arches": [
+            "amd64",
+            "arm64"
+          ]
+        },
+        {
+          "name": "json-c",
+          "version": "0.18",
+          "arches": [
+            "amd64",
+            "arm64"
+          ]
+        },
+        {
+          "name": "criu",
+          "version": "4.1.1",
+          "arches": [
+            "amd64"
+          ]
+        },
+        {
+          "name": "protobuf-c",
+          "version": "1.5.2",
+          "arches": [
+            "amd64"
+          ]
+        }
       ]
     },
     {
@@ -48,7 +104,39 @@
       "sha256": {
         "amd64": "50dcc0b257d724fe07f3852c2dda52340223f038227c7572644eec870741223e",
         "arm64": "07b52aee923cc432c38fe4fb6809a08fc6471994efed650af3635350588a20be"
-      }
+      },
+      "linked": [
+        {
+          "name": "glibc",
+          "version": "2.41-12+deb13u4",
+          "arches": [
+            "amd64"
+          ]
+        },
+        {
+          "name": "glibc",
+          "version": "2.41-11",
+          "arches": [
+            "arm64"
+          ]
+        },
+        {
+          "name": "libgcc",
+          "version": "14.2.0-19",
+          "arches": [
+            "amd64",
+            "arm64"
+          ]
+        },
+        {
+          "name": "libseccomp",
+          "version": "2.6.1",
+          "arches": [
+            "amd64",
+            "arm64"
+          ]
+        }
+      ]
     },
     {
       "name": "cni-plugins",
@@ -91,7 +179,358 @@
       "sha256": {
         "amd64": "c5b0666b4cb676901f90dfcb37106783c5fe2077b04590973b885950611b30ee",
         "arm64": "eae1d3aa50c48fb23b8cbdf4e369d0910dfc538566bfd09df89a774aa84a48b9"
-      }
+      },
+      "linked": [
+        {
+          "name": "glibc",
+          "version": "2.23-0ubuntu11",
+          "arches": [
+            "amd64"
+          ]
+        },
+        {
+          "name": "glibc",
+          "version": "2.23-0ubuntu3",
+          "arches": [
+            "arm64"
+          ]
+        },
+        {
+          "name": "libgcc",
+          "version": "5.4.0-6ubuntu1~16.04.12",
+          "arches": [
+            "amd64"
+          ]
+        },
+        {
+          "name": "libgcc",
+          "version": "5.4.0-6ubuntu1~16.04.9",
+          "arches": [
+            "arm64"
+          ]
+        }
+      ]
+    }
+  ],
+  "libraries": [
+    {
+      "name": "glibc",
+      "version": "2.44-57",
+      "license": "LGPL-2.1-or-later",
+      "sources": [
+        {
+          "url": "https://ftp.gnu.org/gnu/glibc/glibc-2.44.tar.xz",
+          "sha256": "37f600f2bef3c5e8300147059568b2a2e40a7ad6ccc65ce942556d49429cc667",
+          "file": "glibc-2.44.tar.xz"
+        },
+        {
+          "url": "https://raw.githubusercontent.com/NixOS/nixpkgs/1d060086d60cb76a40cf37109f979d88a5bd6396/pkgs/development/libraries/glibc/common.nix",
+          "sha256": "cdf0fb68c7cf84a4955873b2b35f59e7849c7a150f172ac131045c2ffc8d1e59",
+          "file": "nixpkgs/pkgs/development/libraries/glibc/common.nix"
+        },
+        {
+          "url": "https://raw.githubusercontent.com/NixOS/nixpkgs/1d060086d60cb76a40cf37109f979d88a5bd6396/pkgs/development/libraries/glibc/default.nix",
+          "sha256": "a74adcb4ffb6820347aa10cc7140ff80c1511c2ccdad6ca7372e71d36ec6f38f",
+          "file": "nixpkgs/pkgs/development/libraries/glibc/default.nix"
+        },
+        {
+          "url": "https://raw.githubusercontent.com/NixOS/nixpkgs/1d060086d60cb76a40cf37109f979d88a5bd6396/pkgs/development/libraries/glibc/2.44-master.patch",
+          "sha256": "185660b72a9e7af35ef3e578169f5adbe3b3fa32c5a19e5e19762b709a9afd85",
+          "file": "nixpkgs/pkgs/development/libraries/glibc/2.44-master.patch"
+        },
+        {
+          "url": "https://raw.githubusercontent.com/NixOS/nixpkgs/1d060086d60cb76a40cf37109f979d88a5bd6396/pkgs/development/libraries/glibc/nix-locale-archive.patch",
+          "sha256": "380a49b6c9815d351cc979ffeb9eb1bb3022761c16237a4bf74b14757651dafc",
+          "file": "nixpkgs/pkgs/development/libraries/glibc/nix-locale-archive.patch"
+        },
+        {
+          "url": "https://raw.githubusercontent.com/NixOS/nixpkgs/1d060086d60cb76a40cf37109f979d88a5bd6396/pkgs/development/libraries/glibc/dont-use-system-ld-so-cache.patch",
+          "sha256": "bb0b543b60be2140a2385dd53cab405b18ca60cb70505c5019213466d91196dd",
+          "file": "nixpkgs/pkgs/development/libraries/glibc/dont-use-system-ld-so-cache.patch"
+        },
+        {
+          "url": "https://raw.githubusercontent.com/NixOS/nixpkgs/1d060086d60cb76a40cf37109f979d88a5bd6396/pkgs/development/libraries/glibc/dont-use-system-ld-so-preload.patch",
+          "sha256": "de897e0f53379f87459f5d350a229768159159f5e44eb7f6bd3050fd416d4aa6",
+          "file": "nixpkgs/pkgs/development/libraries/glibc/dont-use-system-ld-so-preload.patch"
+        },
+        {
+          "url": "https://raw.githubusercontent.com/NixOS/nixpkgs/1d060086d60cb76a40cf37109f979d88a5bd6396/pkgs/development/libraries/glibc/fix_path_attribute_in_getconf.patch",
+          "sha256": "b273e671ab5cf49b78d656e15ed0682264c14e006db4303d0d3947520f2ba3c8",
+          "file": "nixpkgs/pkgs/development/libraries/glibc/fix_path_attribute_in_getconf.patch"
+        },
+        {
+          "url": "https://raw.githubusercontent.com/NixOS/nixpkgs/1d060086d60cb76a40cf37109f979d88a5bd6396/pkgs/development/libraries/glibc/fix-x64-abi.patch",
+          "sha256": "580f5475cff8d9f4e3c37d5dc9044e3c1912b211fe97adc7db1ea0c01ce785a7",
+          "file": "nixpkgs/pkgs/development/libraries/glibc/fix-x64-abi.patch"
+        },
+        {
+          "url": "https://raw.githubusercontent.com/NixOS/nixpkgs/1d060086d60cb76a40cf37109f979d88a5bd6396/pkgs/development/libraries/glibc/nix-nss-open-files.patch",
+          "sha256": "d04b9537591542f29965d1b7b203a3b08fff6b6d754a34c7e4f72c97e442fd13",
+          "file": "nixpkgs/pkgs/development/libraries/glibc/nix-nss-open-files.patch"
+        },
+        {
+          "url": "https://raw.githubusercontent.com/NixOS/nixpkgs/1d060086d60cb76a40cf37109f979d88a5bd6396/pkgs/development/libraries/glibc/0001-Revert-Remove-all-usage-of-BASH-or-BASH-in-installed.patch",
+          "sha256": "2eeada97a2f55c6279d203f6e37a269a3879e56b6905a19a85035d54e128e0a2",
+          "file": "nixpkgs/pkgs/development/libraries/glibc/0001-Revert-Remove-all-usage-of-BASH-or-BASH-in-installed.patch"
+        },
+        {
+          "url": "https://raw.githubusercontent.com/NixOS/nixpkgs/1d060086d60cb76a40cf37109f979d88a5bd6396/pkgs/development/libraries/glibc/reenable_DT_HASH.patch",
+          "sha256": "cf9fe494f7ec69752a63d1b0a9ad689aa620888ae9b902b6383a6fbc7c1726a7",
+          "file": "nixpkgs/pkgs/development/libraries/glibc/reenable_DT_HASH.patch"
+        },
+        {
+          "url": "https://raw.githubusercontent.com/NixOS/nixpkgs/1d060086d60cb76a40cf37109f979d88a5bd6396/pkgs/development/libraries/glibc/0001-localedata-allow-reproducible-parallel-install-of-lo.patch",
+          "sha256": "62e288ad034f4620b754edc762412e0552f2bff838796bc69d002314992647d3",
+          "file": "nixpkgs/pkgs/development/libraries/glibc/0001-localedata-allow-reproducible-parallel-install-of-lo.patch"
+        },
+        {
+          "url": "https://raw.githubusercontent.com/NixOS/nixpkgs/1d060086d60cb76a40cf37109f979d88a5bd6396/pkgs/development/libraries/glibc/0002-Makeconfig-make-inst_complocaledir-overridable.patch",
+          "sha256": "cc5ea6a776de0d23e84f955830e59cbc7aa2e8611f5123fe93a98ba2e47d8a07",
+          "file": "nixpkgs/pkgs/development/libraries/glibc/0002-Makeconfig-make-inst_complocaledir-overridable.patch"
+        },
+        {
+          "url": "https://raw.githubusercontent.com/NixOS/nixpkgs/1d060086d60cb76a40cf37109f979d88a5bd6396/pkgs/development/libraries/glibc/0001-aarch64-math-vector.h-add-NVCC-include-guard.patch",
+          "sha256": "35f06b79d3fd4439b3d3d0915160101bb2df5a334f8b173ca2d9463142652fa8",
+          "file": "nixpkgs/pkgs/development/libraries/glibc/0001-aarch64-math-vector.h-add-NVCC-include-guard.patch"
+        }
+      ]
+    },
+    {
+      "name": "glibc",
+      "version": "2.41-12+deb13u4",
+      "license": "LGPL-2.1-or-later",
+      "sources": [
+        {
+          "url": "https://snapshot.debian.org/archive/debian/20261112T070000Z/pool/main/g/glibc/glibc_2.41.orig.tar.xz",
+          "sha256": "f24aa441021121a79266f0d75242706cab8843a47901fefe74527491807f1998",
+          "file": "glibc_2.41.orig.tar.xz"
+        },
+        {
+          "url": "https://snapshot.debian.org/archive/debian/20261112T070000Z/pool/main/g/glibc/glibc_2.41-12%2Bdeb13u4.debian.tar.xz",
+          "sha256": "dda4153511bfd543502d18e5bc9323110996fe9c531f14ae3fad6eb17f027c7d",
+          "file": "glibc_2.41-12+deb13u4.debian.tar.xz"
+        },
+        {
+          "url": "https://snapshot.debian.org/archive/debian/20261112T070000Z/pool/main/g/glibc/glibc_2.41-12%2Bdeb13u4.dsc",
+          "sha256": "0915324aa646bb99abfaa9aa6ecb734b30babd28454a3e51f3152912370fbd3e",
+          "file": "glibc_2.41-12+deb13u4.dsc"
+        }
+      ]
+    },
+    {
+      "name": "glibc",
+      "version": "2.41-11",
+      "license": "LGPL-2.1-or-later",
+      "sources": [
+        {
+          "url": "https://snapshot.debian.org/archive/debian/20261112T070000Z/pool/main/g/glibc/glibc_2.41.orig.tar.xz",
+          "sha256": "f24aa441021121a79266f0d75242706cab8843a47901fefe74527491807f1998",
+          "file": "glibc_2.41.orig.tar.xz"
+        },
+        {
+          "url": "https://snapshot.debian.org/archive/debian/20261112T070000Z/pool/main/g/glibc/glibc_2.41-11.debian.tar.xz",
+          "sha256": "8931fe5a287262e8d0adcbdde28d08cefbe955edf7abf4c32540a5ad7f0e470d",
+          "file": "glibc_2.41-11.debian.tar.xz"
+        },
+        {
+          "url": "https://snapshot.debian.org/archive/debian/20261112T070000Z/pool/main/g/glibc/glibc_2.41-11.dsc",
+          "sha256": "07b4bbd9b93343a90e89e64ae1227286884ca6e04b8a40553edc5a1aba158ed0",
+          "file": "glibc_2.41-11.dsc"
+        },
+        {
+          "url": "https://snapshot.debian.org/archive/debian/20261112T070000Z/pool/main/c/cross-toolchain-base/cross-toolchain-base_77.tar.xz",
+          "sha256": "23a15a64a339a3ea1b67cbfe453079150b86748d24a9ec137f1e96f2e3e74308",
+          "file": "cross-toolchain-base_77.tar.xz"
+        },
+        {
+          "url": "https://snapshot.debian.org/archive/debian/20261112T070000Z/pool/main/c/cross-toolchain-base/cross-toolchain-base_77.dsc",
+          "sha256": "c2a04058c7f12e5a1323008aea44af768c6895b4199dce5c6a4989daae82c686",
+          "file": "cross-toolchain-base_77.dsc"
+        }
+      ]
+    },
+    {
+      "name": "glibc",
+      "version": "2.23-0ubuntu11",
+      "license": "LGPL-2.1-or-later",
+      "sources": [
+        {
+          "url": "https://launchpad.net/ubuntu/+archive/primary/+sourcefiles/glibc/2.23-0ubuntu11/glibc_2.23.orig.tar.xz",
+          "sha256": "bf6c528eeebefcacc295270068b79330c1fb2b22458ff66285b4175d23442c96",
+          "file": "glibc_2.23.orig.tar.xz"
+        },
+        {
+          "url": "https://launchpad.net/ubuntu/+archive/primary/+sourcefiles/glibc/2.23-0ubuntu11/glibc_2.23-0ubuntu11.debian.tar.xz",
+          "sha256": "fcaea11240f3eb24c28420f0bb7a48409da99939be6e1a5ed1479ed4ad1273db",
+          "file": "glibc_2.23-0ubuntu11.debian.tar.xz"
+        },
+        {
+          "url": "https://launchpad.net/ubuntu/+archive/primary/+sourcefiles/glibc/2.23-0ubuntu11/glibc_2.23-0ubuntu11.dsc",
+          "sha256": "2c45454af949b7c8d211c09925e4cd5282b40c14048b67dbfec6b394bb6e9828",
+          "file": "glibc_2.23-0ubuntu11.dsc"
+        }
+      ]
+    },
+    {
+      "name": "glibc",
+      "version": "2.23-0ubuntu3",
+      "license": "LGPL-2.1-or-later",
+      "sources": [
+        {
+          "url": "https://launchpad.net/ubuntu/+archive/primary/+sourcefiles/glibc/2.23-0ubuntu3/glibc_2.23.orig.tar.xz",
+          "sha256": "bf6c528eeebefcacc295270068b79330c1fb2b22458ff66285b4175d23442c96",
+          "file": "glibc_2.23.orig.tar.xz"
+        },
+        {
+          "url": "https://launchpad.net/ubuntu/+archive/primary/+sourcefiles/glibc/2.23-0ubuntu3/glibc_2.23-0ubuntu3.debian.tar.xz",
+          "sha256": "5e01dd448c8d78e850661ca88f5009f19011b00c6a7031f7578fe09c330a41d3",
+          "file": "glibc_2.23-0ubuntu3.debian.tar.xz"
+        },
+        {
+          "url": "https://launchpad.net/ubuntu/+archive/primary/+sourcefiles/glibc/2.23-0ubuntu3/glibc_2.23-0ubuntu3.dsc",
+          "sha256": "647f33e229b3d838ff72b3dcb80242d2c6c61ff93aa9798009962b9a21992260",
+          "file": "glibc_2.23-0ubuntu3.dsc"
+        },
+        {
+          "url": "https://launchpad.net/ubuntu/+archive/primary/+sourcefiles/cross-toolchain-base/10ubuntu1/cross-toolchain-base_10ubuntu1.tar.xz",
+          "sha256": "4ad675289604ff38a49f625e026acba11e87bcba1c4128db9b71f8688f89e056",
+          "file": "cross-toolchain-base_10ubuntu1.tar.xz"
+        },
+        {
+          "url": "https://launchpad.net/ubuntu/+archive/primary/+sourcefiles/cross-toolchain-base/10ubuntu1/cross-toolchain-base_10ubuntu1.dsc",
+          "sha256": "11265ed751cb009555bf546809fc4168f731ff1f95da5e4534737adb84e33364",
+          "file": "cross-toolchain-base_10ubuntu1.dsc"
+        }
+      ]
+    },
+    {
+      "name": "libgcc",
+      "version": "16.2.0",
+      "license": "GPL-3.0-or-later WITH GCC-exception-3.1",
+      "noSource": "GCC-exception-3.1: the GCC Runtime Library Exception lets a program compiled with GCC carry libgcc without its source"
+    },
+    {
+      "name": "libgcc",
+      "version": "14.2.0-19",
+      "license": "GPL-3.0-or-later WITH GCC-exception-3.1",
+      "noSource": "GCC-exception-3.1: the GCC Runtime Library Exception lets a program compiled with GCC carry libgcc without its source"
+    },
+    {
+      "name": "libgcc",
+      "version": "5.4.0-6ubuntu1~16.04.12",
+      "license": "GPL-3.0-or-later WITH GCC-exception-3.1",
+      "noSource": "GCC-exception-3.1: the GCC Runtime Library Exception lets a program compiled with GCC carry libgcc without its source"
+    },
+    {
+      "name": "libgcc",
+      "version": "5.4.0-6ubuntu1~16.04.9",
+      "license": "GPL-3.0-or-later WITH GCC-exception-3.1",
+      "noSource": "GCC-exception-3.1: the GCC Runtime Library Exception lets a program compiled with GCC carry libgcc without its source"
+    },
+    {
+      "name": "libseccomp",
+      "version": "2.6.1",
+      "license": "LGPL-2.1-only",
+      "sources": [
+        {
+          "url": "https://github.com/seccomp/libseccomp/releases/download/v2.6.1/libseccomp-2.6.1.tar.gz",
+          "sha256": "501f66c667225d53791b97e1d7cf85ab764c297d04881f60f38f451c4b0ee1be",
+          "file": "libseccomp-2.6.1.tar.gz"
+        },
+        {
+          "url": "https://raw.githubusercontent.com/NixOS/nixpkgs/1d060086d60cb76a40cf37109f979d88a5bd6396/pkgs/by-name/li/libseccomp/package.nix",
+          "sha256": "d88036a861ce8e5e2c4c6d634e4d89222de39ec5a966399fdccbda207d609625",
+          "file": "nixpkgs/pkgs/by-name/li/libseccomp/package.nix"
+        },
+        {
+          "url": "https://raw.githubusercontent.com/opencontainers/runc/v1.5.3/script/build-seccomp.sh",
+          "sha256": "487d70d95fcebe535c8d517fabd54a8f32a12c47cb54f17bd0064f691448295f",
+          "file": "runc/script/build-seccomp.sh"
+        },
+        {
+          "url": "https://raw.githubusercontent.com/opencontainers/runc/v1.5.3/script/lib.sh",
+          "sha256": "8e263407acdec23bc257ad7730de0877ecfb099a448e7b3f628acd3d62d27068",
+          "file": "runc/script/lib.sh"
+        }
+      ]
+    },
+    {
+      "name": "libcap",
+      "version": "2.78",
+      "license": "BSD-3-Clause OR GPL-2.0-only",
+      "sources": [
+        {
+          "url": "https://cdn.kernel.org/pub/linux/libs/security/linux-privs/libcap2/libcap-2.78.tar.xz",
+          "sha256": "0d621e562fd932ccf67b9660fb018e468a683d7b827541df27813228c996bb11",
+          "file": "libcap-2.78.tar.xz"
+        },
+        {
+          "url": "https://raw.githubusercontent.com/NixOS/nixpkgs/1d060086d60cb76a40cf37109f979d88a5bd6396/pkgs/by-name/li/libcap/package.nix",
+          "sha256": "79634126af99c95aea781d24dd4a729d2784f4c8e8bb4a14f0cc11ecc38d274f",
+          "file": "nixpkgs/pkgs/by-name/li/libcap/package.nix"
+        }
+      ]
+    },
+    {
+      "name": "json-c",
+      "version": "0.18",
+      "license": "MIT",
+      "sources": [
+        {
+          "url": "https://github.com/json-c/json-c/archive/refs/tags/json-c-0.18-20240915.tar.gz",
+          "sha256": "3112c1f25d39eca661fe3fc663431e130cc6e2f900c081738317fba49d29e298",
+          "file": "json-c-0.18-20240915.tar.gz"
+        },
+        {
+          "url": "https://raw.githubusercontent.com/NixOS/nixpkgs/1d060086d60cb76a40cf37109f979d88a5bd6396/pkgs/by-name/js/json_c/package.nix",
+          "sha256": "acaac2653a36244c6fda1d8349b013514e68d84b73e82c52a724d22eac08cd31",
+          "file": "nixpkgs/pkgs/by-name/js/json_c/package.nix"
+        }
+      ]
+    },
+    {
+      "name": "criu",
+      "version": "4.1.1",
+      "license": "LGPL-2.1-only",
+      "sources": [
+        {
+          "url": "https://github.com/checkpoint-restore/criu/archive/refs/tags/v4.1.1.tar.gz",
+          "sha256": "a5338fe696395843543e6e09c85ccaf36614bf172c26fe8506191b7b930d2dae",
+          "file": "criu-4.1.1.tar.gz"
+        },
+        {
+          "url": "https://github.com/checkpoint-restore/criu/commit/3f3acc3200a23140abaa32a2017ae159d3c2d02c.patch?full_index=1",
+          "sha256": "465fdafd45992a956085a0efd83090e972231cdfb478b1fa30e70240f70e98f1",
+          "file": "patches/conflicting-redefinition-of-rseq-enums.patch"
+        },
+        {
+          "url": "https://github.com/checkpoint-restore/criu/commit/a810faba33f43d61372741ed196eafd485546f83.patch?full_index=1",
+          "sha256": "236700a311bdc290857e875329827152a2b5553c7e176d133ddee135a6771121",
+          "file": "patches/a810faba33f43d61372741ed196eafd485546f83.patch"
+        },
+        {
+          "url": "https://raw.githubusercontent.com/NixOS/nixpkgs/1d060086d60cb76a40cf37109f979d88a5bd6396/pkgs/by-name/cr/criu/package.nix",
+          "sha256": "c2a31c8f11ca5b41e1776ad3b9eb720fc8a799143a5ebf2beaa8b3e039ef2183",
+          "file": "nixpkgs/pkgs/by-name/cr/criu/package.nix"
+        }
+      ]
+    },
+    {
+      "name": "protobuf-c",
+      "version": "1.5.2",
+      "license": "BSD-2-Clause",
+      "sources": [
+        {
+          "url": "https://github.com/protobuf-c/protobuf-c/archive/refs/tags/v1.5.2.tar.gz",
+          "sha256": "cea46eeaa19c52924938b582c5d128a6ed3b6fb5b3f4677476a1781cc06e03f3",
+          "file": "protobuf-c-1.5.2.tar.gz"
+        },
+        {
+          "url": "https://raw.githubusercontent.com/NixOS/nixpkgs/1d060086d60cb76a40cf37109f979d88a5bd6396/pkgs/by-name/pr/protobufc/package.nix",
+          "sha256": "726a08a841518d0c715f27486607c7f2e07a35bffde54332229f5f35f4e6ad0b",
+          "file": "nixpkgs/pkgs/by-name/pr/protobufc/package.nix"
+        }
+      ]
     }
   ]
 }

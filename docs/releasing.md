@@ -43,6 +43,17 @@ on a maintainer's machine.
      in `deploy/systemd/`, which `install.sh` and `armadad upgrade` take),
    - `armada_<version>_darwin_<arch>.tar.gz` (the `armada` client, LICENSE,
      README, SECURITY.md, and the license files below),
+   - `armada_<version>_runtime-sources.tar.gz`, one for every architecture
+     (ADR 0056): under `source/runtime/`, crun's complete corresponding
+     source (its release tarball and the build files of its static
+     programs) and the source of every library the pack's static programs
+     (crun, runc, tini) link, as their builds used it, in
+     `libs/<name>-<version>/` (the source tarball, the patches, and the
+     build files), with `SOURCES.txt` naming each file's SHA-256 and
+     address (`make runtime-sources`, which writes
+     `build/runtime-sources.tar.gz`; GoReleaser uploads it under that name
+     and lists it in `checksums.txt`; about 63 MB). libgcc's source is not
+     carried: the GCC Runtime Library Exception waives it.
    - `checksums.txt` (SHA-256),
    - an SPDX SBOM per archive (syft),
    - `checksums.txt.sigstore.json`, a keyless cosign signature bundle of
@@ -53,12 +64,10 @@ on a maintainer's machine.
    the full Linux archives also `licenses/runtime/` (the license files of
    the Go modules the pack's etcd and etcdutl link, and crun's `COPYING`
    and `COPYING.libcrun` in `crun@<version>/`, `make runtime-licenses`)
-   and `source/runtime/` (crun's complete corresponding source: its
-   release tarball, the build files of its static programs, and
-   `SOURCES.txt` with each file's SHA-256 and address, `make
-   runtime-sources`; crun is GPL-2.0, ADR 0056). `armada-pack` (`pack/`)
-   builds the runtime pack and collects `licenses/runtime/` and
-   `source/runtime/`.
+   and `licenses/runtime/SOURCES.txt`, which names the sources asset and
+   every file in it; the archives carry no source, so installs and
+   upgrades never download it. `armada-pack` (`pack/`) builds the runtime
+   pack and collects `licenses/runtime/` and the sources asset.
    Both programs print the tag,
    the full commit, and the commit's time in `armada version` and
    `armadad version`: GoReleaser gives cargo `ARMADA_VERSION`,
@@ -82,7 +91,8 @@ to `main`, and on a push to `main` that touches something a release builds
 runs the whole packaging without publishing or signing (job
 `release-dry-run`: `goreleaser release --snapshot --skip=publish,sign`,
 then `scripts/release-contents.sh`, which checks the archives' names,
-programs, units, license files, crun's source against its pins, checksums,
+programs, units, license files, the runtime sources asset against the
+pins and `checksums.txt`, checksums,
 and the version string). To do the same on a Linux machine, build the macOS client
 on a Mac first, or check the Linux part with a copy of `.goreleaser.yaml`
 without the darwin build and archive.
@@ -218,12 +228,33 @@ gh attestation verify armada_${VERSION#v}_linux_amd64.tar.gz --repo ryanbekhen/a
    also pin its source in `sources`: the release's source tarball (with
    the paths of `COPYING` and `COPYING.libcrun` in it) and the build files
    of the new tag (`flake.nix`, `flake.lock`, `nix/*.nix`), each by
-   SHA-256, and update the libraries its static programs link in
-   `THIRD_PARTY_NOTICES.md` (`strings` on the program names their nixpkgs
-   store paths; `flake.lock` names the nixpkgs revision); `make
-   runtime-sources` collects them. A program under the GPL ships only
-   with its complete corresponding source, and only as a process of its
-   own (never linked).
+   SHA-256. A program of the pack that is statically linked with C
+   libraries (crun, runc, tini) names them in `linked` (name, version,
+   architectures), and each library is pinned once in `libraries`
+   (license, and its source under `libs/<name>-<version>/`), or with
+   `noSource` naming the license exception that waives its source
+   (libgcc: GCC-exception-3.1). Find what a new release links and the
+   exact versions from its build files and the programs (`strings` names
+   nixpkgs' store paths, glibc's version, the GCC that built it; `go
+   version -m` whether a Go program uses cgo): for crun, the nixpkgs
+   revision `flake.lock` pins builds each library; pin its source
+   tarball as that revision fetches it (check its SHA-256 against
+   nixpkgs' `hash`; for a `fetchFromGitHub` source, GitHub's archive of
+   the tag, whose unpacked tree's NAR hash is nixpkgs' `hash`), the
+   patches nixpkgs applies, and its nixpkgs expressions (from
+   `raw.githubusercontent.com/NixOS/nixpkgs/<revision>/`, under
+   `nixpkgs/` at their paths). For a program built in a Debian or Ubuntu
+   image (runc, tini), the package versions its build installed on the
+   day it was built (snapshot.debian.org's `dists/` at that time;
+   Launchpad's publishing history for Ubuntu), pinned as the package's
+   `.orig.tar.xz`, `.debian.tar.xz`, and `.dsc` (check each against the
+   `.dsc`'s SHA-256); a cross-compiled glibc is the `cross-toolchain-base`
+   source package its `libc6-dev-<arch>-cross` names (`Source:`) with the
+   glibc its `Built-Using` names. Update the library's row in
+   `THIRD_PARTY_NOTICES.md` and its license text in
+   `third_party/licenses/`; `make runtime-sources` collects them. A
+   program under the GPL ships only with its complete corresponding
+   source, and only as a process of its own (never linked).
 4. For etcd, `make runtime-licenses` (the new release's modules into
    `build/licenses-runtime`; it fails on a module without a license file)
    and `make proto-rust` (etcd's protos vendored again from the new API
